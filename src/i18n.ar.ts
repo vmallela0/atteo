@@ -704,6 +704,7 @@ export const AR: Record<string, string> = {
   "Show all {n}": "عرض الكل: {n}",
   "Show board info": "إظهار معلومات اللوحة",
   "Show in conversation": "الإظهار في المحادثة",
+  "Show in chat": "الإظهار في الدردشة",
   "Show less": "عرض أقل",
   "Show the ": "عرض ",
   "Show the message": "إظهار الرسالة",

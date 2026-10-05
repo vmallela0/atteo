@@ -103,7 +103,7 @@ extension String {
     /// that were (for VoiceOver and the QA).
     /// `author`: the writer's own form ("@vedu's agent" in vedu's agent's message), boxed though the server leaves it out
     /// of the stored mentions (it reaches no one, vedu #2630). Display only, like the web's highlightMentions `self`.
-    func mentioned(_ mentions: [EntryMention]?, members: [String], me: String?, agentNames: [String: String] = [:], author: EntryMention? = nil, refTitle: (Int) -> String? = { _ in nil }) -> (text: Text, handles: [String]) {
+    func mentioned(_ mentions: [EntryMention]?, members: [String], me: String?, agentNames: [String: String] = [:], author: EntryMention? = nil, displayName: (String) -> String = { $0 }, refTitle: (Int) -> String? = { _ in nil }) -> (text: Text, handles: [String]) {
         var out = mdLinked(refTitle) // ("#123": that message's title, opening it)
         guard contains("@") else { return (Text(out), []) }
         // What counts: the stored mentions, or (still sending) anyone on the board and their agent.
@@ -168,7 +168,15 @@ extension String {
         var cursor = out.startIndex
         for (r, mine) in boxes.sorted(by: { $0.0.lowerBound < $1.0.lowerBound }) where r.lowerBound >= cursor {
             if cursor < r.lowerBound { text = text + Text(AttributedString(out[cursor..<r.lowerBound])) }
-            text = text + Text(AttributedString(out[r])).customAttribute(MentionBox(mine: mine))
+            var chip = AttributedString(out[r])
+            if let url = chip.link, let target = personLink(url) {
+                let raw = String(chip.characters).dropFirst()
+                let address = raw.contains("/") ? String(raw) : target.name + (target.agent ? "'s agent" : "")
+                var label = AttributedString(displayName(address))
+                if let attributes = chip.runs.first?.attributes { label.setAttributes(attributes) }
+                chip = label
+            }
+            text = text + Text(chip).customAttribute(MentionBox(mine: mine))
             cursor = r.upperBound
         }
         if cursor < out.endIndex { text = text + Text(AttributedString(out[cursor...])) }

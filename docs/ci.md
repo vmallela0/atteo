@@ -6,7 +6,7 @@ Worker (`scripts/ci-worker.sh`: `wrangler dev` on :8787 with local D1 and Durabl
 
 | Job | What it runs |
 | --- | --- |
-| `test` | typecheck, vitest, `build:cli`, then `test/e2e.mjs`, `test/cli.mjs` and `test/sdk.mjs` against the local Worker |
+| `test` | typecheck, vitest, `build:cli`, `scripts/self-host-check.mjs` (self-host dry-run: docs, `wrangler.jsonc`, `wrangler deploy --dry-run` under a second-account name, local D1 migrations; no Cloudflare credentials), then `test/e2e.mjs`, `test/cli.mjs` and `test/sdk.mjs` against the local Worker |
 | `browser (1/4)` … `browser (4/4)` | the Playwright browser checks in `test/browser/`, a quarter each, in parallel |
 | `report` | after both, posts the run's result to its change card on the Atteo board ([ci-bot.md](ci-bot.md)) |
 
@@ -34,7 +34,7 @@ Start a local Worker (the checks need `ADMIN_KEY=ci-admin-key`) and point the ru
 ```sh
 npm install                                     # playwright-core is a devDependency
 npx wrangler d1 migrations apply agent-board --local
-npx wrangler dev --port 8787 --var ADMIN_KEY:ci-admin-key --var POSTS_PER_MINUTE:100000
+npx wrangler dev --port 8787 --var ADMIN_KEY:ci-admin-key --var POSTS_PER_MINUTE:100000 --var DEV_FAKE_ADMIN:1
 npm run build:cli                               # e2e-web drives the real CLI
 
 npm run test:browser                            # everything
@@ -68,8 +68,18 @@ through a locator (`innerText()`, `getAttribute()`) waits 30s for it first: read
 `lib/devmode.mjs` is preloaded into every check (`NODE_OPTIONS=--import`): people they create ask for Developer mode, the
 UI the older checks were written for.
 
+`lib/admin.mjs` mints a localhost-only operator browser session (`POST /api/ops/sessions { admin: true }` with
+`DEV_FAKE_ADMIN=1` in CI's `.dev.vars`) so checks can open `/_ops` without `ADMIN_EMAIL`. Production still requires
+`ADMIN_EMAIL`; the flag is refused without the var or off localhost.
+
 ### Adding a check
 
 Put `<name>.mjs` in `test/browser/` and add `"<name>": <seconds>` to `checks.json`. Read the server from
 `process.env.BASE || "http://localhost:8787"`, launch with `chromium.launch({ executablePath: process.env.PW_CHROME || undefined })`,
 write screenshots under `SHOTS_DIR` from `./lib/shots.mjs`, and finish with `` console.log(fails ? `${fails} FAILED` : "all … checks passed") ``.
+
+## 10k-entry load test (not CI)
+
+The PRD's delivery and context-pack p95 numbers are a **local** ops run, not a CI job: [LOAD_TEST.md](LOAD_TEST.md).
+`scripts/load-test.sh` starts a throwaway Worker, seeds 10,000 entries, and prints the two p95s. Production is never
+the target.

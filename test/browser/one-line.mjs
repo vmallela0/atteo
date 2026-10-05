@@ -27,6 +27,8 @@ await Promise.all([[1280, "developer"], [390, "everyday"]].map(async ([w, mode])
   const board = (await ops("boards", { user: A, title: `One line ${w} ${run}` })).board.id;
   for (const u of [B, C]) await ops("members", { board, user: u });
   const post = (auth, body) => fetch(`${BASE}/api/boards/${board}/entries`, { method: "POST", headers: { ...auth, "content-type": "application/json" }, body: JSON.stringify(body) }).then((r) => r.json()).then((j) => j.entry.seq);
+  const tokA = (await ops("tokens", { user: A })).token;
+  const myAgents = await post({ authorization: `Bearer ${tokA}` }, { text: `My agent's update ${run}` }); // first: an agent posts only once it has read what's new
   const long = await post({ cookie: ckB }, { text: `A long update ${run} that goes on.\n\nSecond paragraph with more detail about the deploy and what changed in it.\n\n- item one\n- item two` });
   const agent = await post({ authorization: `Bearer ${tokB}` }, { text: `Agent status: tests are running ${run}` });
   const mention = await post({ cookie: ckB }, { text: `@${A} can you look at this ${run}?` });
@@ -37,6 +39,9 @@ await Promise.all([[1280, "developer"], [390, "everyday"]].map(async ([w, mode])
   const decision = await post({ cookie: ckB }, { type: "decision", text: `We ship on Friday ${run}` });
   const allAgents = await post({ cookie: ckB }, { text: `@agents status please ${run}` });
   const peopleOnly = await post({ cookie: ckB }, { text: `Between us people ${run}`, people_only: true, to: [A, C] });
+  const replyToOther = await post({ cookie: ckB }, { text: `A reply to someone else's note ${run}, long enough to fold.\n\nWith a second paragraph.`, reply_to: long }); // jxn #4454
+  const replyToMyAgent = await post({ cookie: ckB }, { text: `A reply to your agent's update ${run}`, reply_to: myAgents });
+  const askMyAgent = await post({ cookie: ckB }, { type: "question", text: `A question on your agent's update ${run}`, reply_to: myAgents });
 
   const ctx = await browser.newContext({ viewport: { width: w, height: phone ? 844 : 900 }, isMobile: phone, hasTouch: phone });
   const [k, ...v] = ckA.split("=");
@@ -52,6 +57,8 @@ await Promise.all([[1280, "developer"], [390, "everyday"]].map(async ([w, mode])
   check(!(await folded(mention)) && !(await folded(toMyAgent)) && !(await folded(mine)), `${tag}: a mention of you, a question to your agent and your own message stay whole`);
   check(!(await folded(replyToMe)) && !(await folded(decision)) && !(await folded(allAgents)), `${tag}: a reply to you, a decision and an @agents message stay whole`);
   check(!(await folded(peopleOnly)), `${tag}: a People only message to you and someone else stays whole`);
+  check((await folded(replyToOther)) && (await folded(replyToMyAgent)), `${tag}: replies fold like any other, a reply to your agent's message too (jxn #4454)`);
+  check(!(await folded(askMyAgent)), `${tag}: a question in your agent's thread stays whole`);
   // The keyboard: a folded row takes focus; Enter opens it, Space folds it again.
   await p.focus(`#e${plain}`);
   check((await p.evaluate(() => document.activeElement?.id)) === `e${plain}`, `${tag}: a folded row takes focus`);
@@ -67,6 +74,9 @@ await Promise.all([[1280, "developer"], [390, "everyday"]].map(async ([w, mode])
   check(!bad.length, `${tag}: axe finds nothing serious in the folded rows${bad.length ? ` (${bad.join("; ")})` : ""}`);
   const line = await p.evaluate((s) => document.getElementById("e" + s).querySelector(":scope>.grow>.body").textContent.trim().slice(0, 40), long);
   check(/^A long update/.test(line), `${tag}: the row shows the first line ("${line}")`);
+  const liveReply = await post({ cookie: ckB }, { text: `A reply that arrives live ${run}`, reply_to: agent });
+  await until(() => folded(liveReply), 5000);
+  check(await folded(liveReply), `${tag}: a reply that arrives while you look folds too`);
   // Tap opens it; a tap on its sender line folds it again.
   await p.locator(`#e${long} .body`).click();
   await until(async () => !(await folded(long)) && (await h(long)) > 80, 3000);
@@ -80,7 +90,7 @@ await Promise.all([[1280, "developer"], [390, "everyday"]].map(async ([w, mode])
   check(await all.isVisible(), `${tag}: the board's ⋯ offers "${(await all.innerText().catch(() => "")).trim()}"`);
   await all.click();
   await until(async () => !(await folded(agent)) && !(await folded(plain)), 3000);
-  check(!(await folded(agent)) && !(await folded(plain)), `${tag}: Open all messages opens every one`);
+  check(!(await folded(agent)) && !(await folded(plain)) && !(await folded(replyToOther)), `${tag}: Open all messages opens every one, replies too`);
   await p.locator(".board-head-menu > summary").first().click();
   check((await all.innerText()).trim() === "Fold messages again", `${tag}: …and offers "Fold messages again"`);
   await all.click();

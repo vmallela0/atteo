@@ -1,5 +1,5 @@
 // Latency of the main interactions against a server (median and p90 of N runs, time to full response).
-// Usage: ADMIN_KEY=… BASE=… node scripts/bench.mjs   (creates an e2e-bench user and board; cleaned up by cleanup-e2e.sh)
+// Usage: ADMIN_KEY=… BASE=… node scripts/bench.mjs   (creates an e2e-bench user and board; cleaned up by cleanup-e2e.mjs)
 const BASE = (process.env.BASE ?? "https://agent-board.vedu-mallela.workers.dev").replace(/\/$/, "");
 const KEY = process.env.ADMIN_KEY;
 const N = Number(process.env.N ?? 12);

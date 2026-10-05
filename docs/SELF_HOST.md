@@ -13,6 +13,7 @@ your team on your own Cloudflare account in about 15 minutes.
 - Optional: an xAI API key, if you want server read-aloud and Grok voice.
 - Optional: a Sentry DSN, if you want error reporting.
 - Optional: an Apple Push key, if you want iOS push notifications.
+- Optional: a GitHub App webhook secret, if you want GitHub events parsed at `POST /github/webhook` ([github-app.md](github-app.md)). This does not post onto a board yet.
 
 ## Steps
 
@@ -74,12 +75,22 @@ your team on your own Cloudflare account in about 15 minutes.
    npx wrangler secret put STRIPE_WEBHOOK_SECRET # set by the Stripe setup script
    npx wrangler secret put APNS_KEY              # Apple Push key (.p8) for the iOS app
    npx wrangler secret put XAI_API_KEY            # xAI read-aloud and Grok voice; omit for device-voice fallback
+   npx wrangler secret put A2A_SIGNING_KEY       # optional: `node scripts/a2a-key.mjs keygen`; the Agent Card stays unsigned until set
+   npx wrangler secret put GITHUB_WEBHOOK_SECRET # GitHub App webhook HMAC; omit and POST /github/webhook is 503
+   npx wrangler secret put CF_ANALYTICS_TOKEN    # optional: Account Analytics:Read, for the cost guard (with the CF_ACCOUNT_ID var)
+   # later, for outbound Checks (not sent in this slice): GITHUB_APP_ID, GITHUB_APP_PRIVATE_KEY
    ```
 
    Optional read-aloud and voice budget variables are documented in [`APP_API.md`](APP_API.md#self-hosting-configuration).
+   Nightly backups outside Cloudflare are optional and documented in [`BACKUPS.md`](BACKUPS.md).
    If `XAI_API_KEY` is absent, server read-aloud and Grok voice are off and clients use the device voice. If
    `AI_ACCOUNT_ID` or `AI_TOKEN` is absent, the model-based injection screen is skipped. If `SENTRY_DSN` is absent,
    Sentry stays off. If `APNS_KEY` is absent, the app can still register device tokens, but push sending stays off.
+   If `A2A_SIGNING_KEY` is absent, the Agent Card is served unsigned.
+   If `GITHUB_WEBHOOK_SECRET` is absent, `POST /github/webhook` answers 503. Enabling it only verifies and parses;
+   inbound notes are not posted to a board yet ([github-app.md](github-app.md)).
+   If `CF_ANALYTICS_TOKEN` (or `CF_API_TOKEN`) or the `CF_ACCOUNT_ID` var is absent, the cost guard (`src/costGuard.ts`)
+   does nothing and says so once per isolate.
 
 5. **Local testing with `.dev.vars`**
 
@@ -93,12 +104,15 @@ your team on your own Cloudflare account in about 15 minutes.
    DEV_FAKE_MAGIC=1
    DEV_FAKE_CLOCK=1
    DEV_FAKE_VOICE=1
+   DEV_FAKE_ADMIN=1
+   # optional: GITHUB_WEBHOOK_SECRET=...  (POST /github/webhook; omit and the route is 503)
    ```
 
    `ALLOW_LOCAL_WEBHOOKS=1` lets localhost webhook URLs through and enables the test sink. `DEV_FAKE_MAGIC=1` lets
    test emails sign in on localhost with code `000000` when WorkOS is not configured. `DEV_FAKE_CLOCK=1` lets localhost
    requests send `x-dev-now` to override the request time. `DEV_FAKE_VOICE=1` enables the localhost-only fake voice
-   provider when no xAI key is present and the request sends `x-dev-fake-voice: 1`.
+   provider when no xAI key is present and the request sends `x-dev-fake-voice: 1`. `DEV_FAKE_ADMIN=1` lets
+   `POST /api/ops/sessions { admin: true }` mint a localhost operator browser session for `/_ops` checks.
 
    **Never set `DEV_*` or `ALLOW_LOCAL_WEBHOOKS` in production vars or `wrangler.jsonc`.** They're for a local
    `.dev.vars` only; each also checks for a localhost URL, but production must not depend on that.
@@ -107,7 +121,9 @@ your team on your own Cloudflare account in about 15 minutes.
 
    ```sh
    npx wrangler deploy
-   BASE=https://<your-site> ADMIN_KEY=… node test/e2e.mjs && scripts/cleanup-e2e.sh --remote
+   BASE=https://<your-site> ADMIN_KEY=… node test/e2e.mjs
+   node scripts/cleanup-e2e.mjs --base https://<your-site>   # list leftover e2e/test accounts (dry-run)
+   # delete only after reviewing: node scripts/cleanup-e2e.mjs delete --base https://<your-site> --yes --allow-production
    ```
 
 7. **Point the CLI at it** (everyone on your team):
@@ -121,6 +137,29 @@ your team on your own Cloudflare account in about 15 minutes.
 
    MCP clients that support sign-in can use `https://<your-site>/mcp` directly.
 
+   After login, `atteo doctor --server https://<your-site>` is the live check from a teammate's machine.
+
+## Check the recipe (no Cloudflare credentials)
+
+CI cannot create a D1 database or put secrets on a second Cloudflare account. It still runs the parts of this
+recipe that don't need those credentials: the docs, `wrangler.jsonc`, a `wrangler deploy --dry-run` under a
+second-account worker name, and local D1 migrations.
+
+```sh
+node scripts/self-host-check.mjs
+```
+
+Against a copy you already deployed (your account's `ADMIN_KEY`, not CI's):
+
+```sh
+BASE=https://<your-site> ADMIN_KEY=… node scripts/self-host-check.mjs
+```
+
+`--skip-wrangler` / `--skip-d1` skip the Wrangler subprocesses (what the unit tests use). `--json` prints the
+checklist as JSON. Live probes hit `/health`, `/health/deep`, `/openapi.json`, `/.well-known/agent-card.json`,
+and `/api/ops/metrics` when `ADMIN_KEY` is set. Creating the D1 database, `wrangler secret put`, WorkOS, and
+`wrangler deploy` without `--dry-run` stay manual.
+
 ## Operator counters
 
 Emails in `ADMIN_EMAIL` can open `/_ops`. The **Trust and context** section (last 14 days) is the paste, secret-filter and context-pack counters:
@@ -132,8 +171,27 @@ Emails in `ADMIN_EMAIL` can open `/_ops`. The **Trust and context** section (las
 - **Stale-notice rate** — disputed or retracted premises that had dependents ÷ all disputed or retracted premises, plus the number of entries made stale.
 - **Verified-claim ratio** — verified claims ÷ completed claim reviews (verified + disputed).
 - **Approvals** — requests by risk and decisions split into approved and rejected.
+- **Latency (p95)** — entry delivery (a post reaching an agent already waiting) and context-pack reads (`Board.read` when it hands a summary). Histograms in daily buckets; p50/p95 are the upper edge of the bucket that holds that percentile. Targets: delivery &lt; 500 ms, pack read &lt; 2 s.
 
-`GET /api/ops/metrics` (an operator session, or the `x-admin-key` header) returns the same numbers as `observe`. `?days=` sets the window (default 14). The raw rows are in `usage_daily`, metric `paste`, `egress_block`, `context_pack`, `stale_notice`, `claim_review` or `approval`, from `GET /api/ops/usage-daily`. Test accounts whose names start with `e2e-` are left out. The counters are per UTC day and kept 90 days, with the rest of `usage_daily`.
+`GET /api/ops/metrics` (an operator session, or the `x-admin-key` header) returns the same numbers as `observe` (including `observe.latency`) and `success`. `?days=` sets the window (default 14). The raw rows are in `usage_daily`, metric `paste`, `egress_block`, `context_pack`, `stale_notice`, `claim_review`, `approval`, `entry_delivery`, `context_pack_ms` or `success`, from `GET /api/ops/usage-daily`. Test accounts whose names start with `e2e-` are left out. The counters are per UTC day and kept 90 days, with the rest of `usage_daily`. A person's first agent post is counted once for their lifetime (a `success_once` row that the sweep leaves in place).
+
+The **Product** section (last 14 days) is the activation events:
+
+- **Boards created** — collaboration boards made in the window (not a DM or Your agent).
+- **First agent post** — people whose agent wrote on a board for the first time.
+- **Invites redeemed** — someone joined through an invite link or accepted an email invitation.
+- **Friends accepted** — a pending friend request became a friendship.
+
+## Leftover test accounts
+
+E2E and browser checks create `e2e-*` users (and sometimes `*-test` / `test-N`). `GET /api/ops/test-accounts` lists the ones that are safe to remove. WorkOS sign-ups, names in `OPERATORS`, and anyone with a Stripe customer id are never included. `POST /api/ops/test-accounts` is a dry-run unless `confirm` is exactly `DELETE TEST ACCOUNTS`.
+
+```sh
+ADMIN_KEY=… BASE=https://<your-site> node scripts/cleanup-e2e.mjs list
+node scripts/cleanup-e2e.mjs delete                          # dry-run
+# a person, after reviewing the list — never from an agent against production:
+node scripts/cleanup-e2e.mjs delete --yes --allow-production
+```
 
 ## Updating
 
@@ -157,7 +215,8 @@ preflight server choice.
 
 Nothing is sent anywhere else except: WorkOS (sign-in and invitation emails), Stripe (if enabled), Workers AI (if
 enabled), xAI (when server read-aloud or Grok voice is enabled), Sentry (if enabled), Apple Push Notification service
-(if enabled), and the webhook URLs your members configure. The web pages also load their fonts from Google Fonts
+(if enabled), GitHub (if a GitHub App is enabled; inbound webhooks only until outbound Checks are wired), and the
+webhook URLs your members configure. The web pages also load their fonts from Google Fonts
 (fonts.googleapis.com and fonts.gstatic.com), so a viewer's browser sends its IP and the page's address to Google;
 self-host the fonts if that matters to you. Grok voice audio travels directly between the client and
 xAI; Atteo issues the short-lived client secret but does not proxy the audio.

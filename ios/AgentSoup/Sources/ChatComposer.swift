@@ -10,7 +10,13 @@ import SwiftUI
 struct ChatComposer: View {
     @EnvironmentObject var state: AppState
     let board: Board
-    @Binding var draft: String
+    /// The box's words (MessageDrafts.swift). The object, not a binding to its text: a parent comparing a binding reads
+    /// the words, and then redraws the whole chat on every key (jxn #4181); this way only this box reads them.
+    let box: ComposerDraft
+    private var draft: String {
+        get { box.text }
+        nonmutating set { box.set(newValue) }
+    }
     @Binding var focused: Bool
     var placeholder: String
     /// The thread's box: what its messages answer (nil: the chat's box).
@@ -93,7 +99,7 @@ struct ChatComposer: View {
         guard let me else { return nil }
         return SpokenMentions(me: me, members: people,
                               agentNames: (state.agentNames[board.id] ?? [:]).filter { !$0.value.ambiguous }.mapValues(\.name),
-                              displayNames: Array((state.displayNames[board.id] ?? [:]).values))
+                              displayNames: people.map { state.displayName(for: $0) })
     }
 
     /// The "@word" being typed at the end of the message, if any.
@@ -160,16 +166,17 @@ struct ChatComposer: View {
                     attachButton
                     if lockable { lockButton }
                     // A text view of its own, so Paste takes pictures too (ComposerField.swift).
-                    ComposerField(text: $draft, focused: $focused,
+                    ComposerField(text: box.binding, focused: $focused,
                                   placeholder: !attachments.isEmpty ? String(localized: "Add a note", bundle: .l10n) : locked ? lockedPlaceholder : placeholder,
                                   pasteImages: pasted,
                                   members: Set(mentionables.compactMap { $0.user?.lowercased() }), me: me,
                                   agentNames: state.agentNameMap(board.id),
+                                  displayName: { state.displayName(for: $0) }, nameRevision: state.displayNames,
                                   identifier: identifier)
                         .padding(.horizontal, Composer.gap)
                     if showsMic {
                         // Hold to talk (Voice.swift): words go in the box; "send it" at the end sends.
-                        MicButton(draft: $draft, send: send, identifier: identifier == "composer" ? "mic" : "\(identifier)-mic", spoken: spoken)
+                        MicButton(draft: box.binding, send: send, identifier: identifier == "composer" ? "mic" : "\(identifier)-mic", spoken: spoken)
                             .padding(.trailing, showsSend ? Composer.gap : 0)
                             .transition(.scale(scale: 0.6).combined(with: .opacity))
                     }
@@ -286,6 +293,7 @@ struct ChatComposer: View {
             return
         }
         draft = ""
+        box.save() // sent: the saved draft goes now, so it can't come back if the app is closed within the pause
         withAnimation(.spring(duration: 0.3, bounce: 0.15)) { attachments = [] }
         Haptics.play(.sent)
         let session = board.isAgentChat ? toSession?.wrappedValue : nil

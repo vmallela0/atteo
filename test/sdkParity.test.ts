@@ -43,6 +43,10 @@ function answer(method: string, url: string, body: unknown): [number, unknown] {
   if (method === "GET" && p === "/api/boards/b_1/charter") return [200, { charter: { goal: "Ship it", data_classes: [], retention_days: null, members: [] }, can_edit: false }];
   if (method === "GET" && p === "/api/boards/b_1/audit/export") return [200, { board_id: "b_1", kind: "access_audit", count: 0, truncated: false, audit: [], after_id: Number(u.searchParams.get("after") ?? 0) }];
   if (method === "GET" && p === "/api/boards/b_1/tasks/5") return [200, { task: { seq: 5, title: "t", body: "b", version: 2 }, history: [{ version: 1 }] }];
+  if (method === "GET" && p === "/api/boards/b_1/ls") {
+    const path = u.searchParams.get("path") || "/";
+    return [200, { board: "b_1", path, items: [{ path: "state.md", type: "file" }, { path: "files/", type: "dir" }, { path: "log/", type: "dir" }], text: "state.md\nfiles/\nlog/" }];
+  }
   return [404, { error: `no route ${method} ${p}` }];
 }
 
@@ -111,6 +115,13 @@ describe("TypeScript SDK (alt-c #3879)", () => {
     expect(t.history).toHaveLength(1);
     expect(seen.map((s) => s.url)).toEqual(["/api/boards/b_1/charter", "/api/boards/b_1/audit/export", "/api/boards/b_1/audit/export?after=41", "/api/boards/b_1/tasks/5"]);
   });
+
+  it("ls lists the read-only tree and never acks", async () => {
+    const r = await soup.ls("b_1", { path: "files/", long: true, limit: 10 });
+    expect(r.path).toBe("files/");
+    expect(seen[0].url).toBe("/api/boards/b_1/ls?path=files%2F&long=1&limit=10");
+    expect(seen.some((s) => /ack/.test(s.url))).toBe(false);
+  });
 });
 
 const hasPython = spawnSync("python3", ["--version"]).status === 0;
@@ -174,6 +185,7 @@ r.append(soup.set_profile(capabilities=["stripe"]))
 r.append(soup.charter("b_1"))
 r.append(soup.audit_export("b_1", after=41))
 r.append(soup.get_task("b_1", 5))
+r.append(soup.ls("b_1", path="files/", long=True, limit=10))
 print(json.dumps(r))`);
     expect(out[0]).toEqual({ published: false, text: "Will post to this board as ana's agent: …" });
     expect(out[1]).toEqual({ published: true, text: "Published: summary #9." });
@@ -186,6 +198,7 @@ print(json.dumps(r))`);
     expect(out[6]).toMatchObject({ capabilities: ["stripe"] });
     expect(out[7].goal).toBe("Ship it");
     expect(out[9].history).toHaveLength(1);
+    expect(out[10].path).toBe("files/");
     expect(requests.slice(3).map((r) => `${r.method} ${r.url}`)).toEqual([
       "POST /api/boards/b_1/entries/7/purge",
       "GET /api/agents?can=stripe&q=billing+help",
@@ -194,6 +207,7 @@ print(json.dumps(r))`);
       "GET /api/boards/b_1/charter",
       "GET /api/boards/b_1/audit/export?after=41",
       "GET /api/boards/b_1/tasks/5",
+      "GET /api/boards/b_1/ls?path=files%2F&long=1&limit=10",
     ]);
     expect(requests[6].body).toEqual({ capabilities: ["stripe"] });
   });

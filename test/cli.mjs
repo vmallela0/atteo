@@ -70,6 +70,12 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 // (CI machines are slow too.)
 const SETTLE = /localhost|127\.0\.0\.1/.test(BASE) && !process.env.CI ? 800 : 3000;
 
+// A contact decision is the person's alone (#57, jxn #4345): agents' tokens get 403, so tests accept as the person.
+async function personAccept(who, of) {
+  const cookie = (await ops("sessions", { user: who, verified: "true" })).cookie;
+  const r = await fetch(`${BASE}/api/friends/${of}/accept`, { method: "POST", headers: { cookie, "content-type": "application/json" } });
+  if (r.status !== 200) throw new Error(`${who} accepting ${of} as a person: ${r.status} ${await r.text()}`);
+}
 async function ops(path, body) {
   const r = await fetch(`${BASE}/api/ops/${path}`, { method: "POST", headers: { "x-admin-key": ADMIN_KEY, "content-type": "application/json" }, body: JSON.stringify(body) });
   if (!r.ok) throw new Error(`ops ${path}: HTTP ${r.status}`);
@@ -671,9 +677,10 @@ await step("people: find, add, accept, friends with presence, ask a friend's age
   r = await cli(["add", B, "it's", "me"], { cwd: home });
   assert(r.code === 0 && r.out.includes("Friend request sent"), r.out + r.err);
   r = await cli(["friends"], { cwd: home, cred: credB });
-  assert(/<<untrusted [0-9a-f]+:[^\n]*>>\n/.test(r.out) && r.out.includes(`${A} — "it's me"`) && r.out.includes("atteo accept <name>"), r.out); // the note is someone's words: fenced (#2181)
-  r = await cli(["accept", A], { cwd: home, cred: credB });
-  assert(r.out.includes("friends now"), r.out + r.err);
+  assert(/<<untrusted [0-9a-f]+:[^\n]*>>\n/.test(r.out) && r.out.includes(`${A} — "it's me"`) && r.out.includes("Your person accepts or declines these in Atteo"), r.out); // the note is someone's words: fenced (#2181)
+  r = await cli(["accept", A], { cwd: home, cred: credB }); // an agent can't make the contact decision (#57)
+  assert(r.code !== 0 && /Only you can decide who you and your agents may contact/.test(r.out + r.err), r.out + r.err);
+  await personAccept(B, A);
   // A asks B's agent; B's agent answers on the direct board.
   const asking = cli(["ask", B, `what's your timezone ${run}?`, "--wait", "40", "--dm"], { cwd: home }); // --dm: this session is also on a board with B
   let dmBoard = "";
@@ -1187,7 +1194,7 @@ await step("harness: the agent you choose answers your DMs (a person's message s
     // having run first (alone with ONLY=…, or in another shard).
     const home = mkdtempSync(join(tmpdir(), "atteo-harness-"));
     await cli(["add", B], { cwd: home });
-    await cli(["accept", A], { cwd: home, cred: credB });
+    await personAccept(B, A);
     dm = await direct();
   }
   assert(dm, "direct board");
@@ -1454,7 +1461,7 @@ await step("mailbox: another person's DM and @mention of your agent show up in f
   writeFileSync(credM, JSON.stringify({ server: BASE, user: M, token: tokM, expires_at: Date.now() + 86400e3 }), { mode: 0o600 });
   const call = async (tok, method, path, body) => (await fetch(`${BASE}${path}`, { method, headers: { authorization: `Bearer ${tok}`, "content-type": "application/json" }, body: body ? JSON.stringify(body) : undefined })).json();
   await call(tokN, "POST", "/api/friends/request", { user: M });
-  await call(tokM, "POST", `/api/friends/${N}/accept`);
+  await personAccept(M, N);
   const dm = (await call(tokN, "POST", `/api/direct/${M}`)).board;
   const shared = (await ops("boards", { user: N, title: `e2e cli mail ${run}` })).board.id;
   await ops("members", { board: shared, user: M });
@@ -1529,7 +1536,7 @@ await step("dispatch: one fork per message, each its own session with the messag
   writeFileSync(credD, JSON.stringify({ server: BASE, user: D, token: tokD, expires_at: Date.now() + 86400e3 }), { mode: 0o600 });
   const call = async (tok, method, path, body) => (await fetch(`${BASE}${path}`, { method, headers: { authorization: `Bearer ${tok}`, "content-type": "application/json" }, body: body ? JSON.stringify(body) : undefined })).json();
   await call(tokE, "POST", "/api/friends/request", { user: D });
-  await call(tokD, "POST", `/api/friends/${E}/accept`);
+  await personAccept(D, E);
   const dm = (await call(tokE, "POST", `/api/direct/${D}`)).board;
   const shared = (await ops("boards", { user: E, title: `e2e cli dispatch ${run}` })).board.id;
   await ops("members", { board: shared, user: D });
@@ -1971,6 +1978,46 @@ await step("acp (alt-c #3646): an editor speaks Agent Client Protocol to atteo a
   } finally {
     p.stdin.end();
     p.kill();
+  }
+
+  const p2 = spawn("node", [CLI, "acp", "--to", B, "--board", ab, "--wait", "60"], { cwd: dir, env: { ...process.env, ATTEO_CREDENTIALS_FILE: credA, ATTEO_SERVER: BASE, XDG_CONFIG_HOME: join(dir, "cfg-acp") } });
+  const got2 = [];
+  let buf2 = "";
+  let stderr2 = "";
+  p2.stderr.on("data", (d) => (stderr2 += d));
+  p2.stdout.on("data", (d) => {
+    buf2 += d;
+    for (let i; (i = buf2.indexOf("\n")) >= 0; buf2 = buf2.slice(i + 1)) got2.push(JSON.parse(buf2.slice(0, i)));
+  });
+  const send2 = (m) => p2.stdin.write(JSON.stringify({ jsonrpc: "2.0", ...m }) + "\n");
+  const wait2 = async (pred, what) => {
+    for (let i = 0; i < 300; i++) {
+      const m = got2.find(pred);
+      if (m) return m;
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    throw new Error(`no ${what}: ${JSON.stringify(got2).slice(0, 600)} ${stderr2}`);
+  };
+  try {
+    send2({ id: 0, method: "initialize", params: { protocolVersion: 2, info: { name: "e2e", version: "1" }, capabilities: {} } });
+    assert((await wait2((m) => m.id === 0, "v2 initialize")).result.protocolVersion === 2, "v2");
+    send2({ id: 1, method: "session/new", params: { cwd: dir } });
+    const sid2 = (await wait2((m) => m.id === 1, "v2 session")).result?.sessionId;
+    send2({ id: 2, method: "session/prompt", params: { sessionId: sid2, prompt: [{ type: "text", text: `v2 which port ${run}?` }] } });
+    const accepted = await wait2((m) => m.id === 2, "v2 prompt accepted");
+    assert(typeof accepted.result?.messageId === "string" && accepted.result.messageId.startsWith("msg-q-"), JSON.stringify(accepted));
+    const callV2 = await wait2((m) => m.params?.update?.sessionUpdate === "tool_call_update" && m.params.update.status === "in_progress", "v2 tool_call");
+    const qv = Number(callV2.params.update.toolCallId.replace("ask-", ""));
+    await tool(tokB, ab, "read", {});
+    await tool(tokB, ab, "post", { type: "note", reply_to: qv, text: `9443 ${run}` });
+    const idle = await wait2((m) => m.params?.update?.sessionUpdate === "state_update" && m.params.update.state === "idle", "v2 idle");
+    assert(idle.params.update.stopReason === "end_turn", JSON.stringify(idle));
+    send2({ id: 3, method: "session/list", params: {} });
+    const listed = (await wait2((m) => m.id === 3, "v2 list")).result.sessions;
+    assert(listed.some((s) => s.sessionId === sid2 && s.cwd === dir), JSON.stringify(listed));
+  } finally {
+    p2.stdin.end();
+    p2.kill();
   }
 });
 

@@ -9,6 +9,7 @@ import SwiftUI
 /// Reactions under a message as compact chips: emoji and count, yours lit in clay. Tap toggles yours; long-press
 /// shows who reacted.
 struct ReactionChips: View {
+    @EnvironmentObject var state: AppState
     let reactions: [Reaction]
     let me: String?
     let trailing: Bool
@@ -33,12 +34,12 @@ struct ReactionChips: View {
                 .buttonStyle(PressStyle())
                 .contextMenu {
                     Section("\(r.emoji) \(r.users.count) reactions") {
-                        ForEach(r.users, id: \.self) { u in u == me ? Text("You") : Text(verbatim: u) }
+                        ForEach(r.users, id: \.self) { u in u == me ? Text("You") : Text(verbatim: state.displayName(for: u)) }
                     }
                 }
                 .accessibilityLabel("\(r.emoji) \(r.users.count)")
                 .accessibilityValue(yours ? "yours" : "")
-                .accessibilityHint(r.users.map { $0 == me ? String(localized: "you", bundle: .l10n) : $0 }.joined(separator: ", "))
+                .accessibilityHint(r.users.map { $0 == me ? String(localized: "you", bundle: .l10n) : state.displayName(for: $0) }.joined(separator: ", "))
                 .accessibilityIdentifier("reaction-\(r.emoji)")
                 .transition(.scale(scale: 0.6).combined(with: .opacity))
             }
@@ -69,11 +70,12 @@ extension Character {
 
 /// Who took a message: "theo's agent is on it", "Done by theo/builder".
 struct HandlingLine: View {
+    @EnvironmentObject var state: AppState
     let h: Handling
     let me: String?
     var body: some View {
         let you = h.by == me
-        let title: LocalizedStringKey = h.done == true ? (you ? "Done by you" : "Done by \(h.by)") : (you ? "You're on it" : "\(h.by) is on it")
+        let title: LocalizedStringKey = h.done == true ? (you ? "Done by you" : "Done by \(state.displayName(for: h.by))") : (you ? "You're on it" : "\(state.displayName(for: h.by)) is on it")
         Label(title,
               systemImage: h.done == true ? "checkmark.circle.fill" : "hand.raised.fill")
             .font(Typo.micro.weight(.medium)).foregroundStyle(h.done == true ? Theme.ok : Theme.muted)
@@ -234,7 +236,7 @@ struct BoardInfoSheet: View {
                 if files.isEmpty { Text("No files yet.").font(Typo.secondary).foregroundStyle(Theme.muted) }
                 ForEach(files.prefix(5)) { f in fileRow(f) }
                 if files.count > 5 {
-                    NavigationLink { FilesList(board: board.id) } label: { InfoLabel("All \(files.count) files", "doc.on.doc") }
+                    NavigationLink { FilesList(board: board.id, jump: jump) } label: { InfoLabel("All \(files.count) files", "doc.on.doc") }
                         .accessibilityIdentifier("board-files")
                 }
             } else { ProgressView().tint(Theme.faint) }
@@ -249,7 +251,7 @@ struct BoardInfoSheet: View {
                 Image(systemName: icon).font(.system(size: 15)).foregroundStyle(tint).frame(width: 22).onFirstLine()
                 VStack(alignment: .leading, spacing: 1) {
                     Text(ChatSummary.short(e)).font(Typo.secondary.weight(.medium)).foregroundStyle(Theme.text).lineLimit(1)
-                    Text((e.byAgent ? Vocab.agentOf(e.author) : e.author) + (e.to.map { " → \($0)" } ?? "") + " · " + e.ts.ago)
+                    Text(state.displayName(for: e.author, agent: e.byAgent) + (e.to.map { " → \(state.displayName(for: $0))" } ?? "") + " · " + e.ts.ago)
                         .font(Typo.micro).foregroundStyle(Theme.faint).lineLimit(1)
                 }
                 Spacer(minLength: 0)
@@ -268,7 +270,7 @@ struct BoardInfoSheet: View {
             }
             VStack(alignment: .leading, spacing: 1) {
                 Text(f.name).font(Typo.secondary.weight(.medium)).foregroundStyle(Theme.text).lineLimit(1).truncationMode(.middle)
-                Text([f.size.bytes, f.version > 1 ? "v\(f.version)" : nil, f.via == "agent" ? Vocab.agentOf(f.updatedBy) : f.updatedBy, f.updatedAt.ago].compactMap { $0 }.joined(separator: " · "))
+                Text([f.size.bytes, f.version > 1 ? "v\(f.version)" : nil, state.displayName(for: f.updatedBy, agent: f.via == "agent"), f.updatedAt.ago].compactMap { $0 }.joined(separator: " · "))
                     .font(Typo.micro).foregroundStyle(Theme.faint).lineLimit(1)
             }
             Spacer(minLength: 0)
@@ -280,11 +282,11 @@ struct BoardInfoSheet: View {
         } else if HTMLPreview.available(board: board.id, name: f.name, stored: false) {
             // An .html file: Preview runs it (HTMLPreview.swift); the row still opens its source.
             HStack(spacing: Space.s) {
-                NavigationLink { DocViewer(board: board.id, name: f.name) } label: { label }.accessibilityIdentifier("file-\(f.name)")
+                NavigationLink { DocViewer(board: board.id, name: f.name, jump: jump) } label: { label }.accessibilityIdentifier("file-\(f.name)")
                 PreviewButton { running = HTMLPreviewTarget(board: board.id, name: f.name, version: f.version) }
             }
         } else {
-            NavigationLink { DocViewer(board: board.id, name: f.name) } label: { label }.accessibilityIdentifier("file-\(f.name)")
+            NavigationLink { DocViewer(board: board.id, name: f.name, jump: jump) } label: { label }.accessibilityIdentifier("file-\(f.name)")
         }
     }
 
@@ -357,6 +359,7 @@ struct BoardInfoSheet: View {
 
 /// One search hit: who said it, when, and the words around the match (matches in bold).
 struct SearchHitRow: View {
+    @EnvironmentObject var state: AppState
     let hit: ChatSearchResponse.Hit
     var board: String? = nil // across boards: which one
     let open: () -> Void
@@ -366,7 +369,7 @@ struct SearchHitRow: View {
                 Avatar(name: hit.author, agent: hit.via == "agent", size: 28)
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(spacing: Space.xs) {
-                        Text(hit.via == "agent" ? Vocab.agentOf(hit.author) : hit.author).font(Typo.meta.weight(.semibold)).foregroundStyle(Theme.text).lineLimit(1)
+                        Text(state.displayName(for: hit.author, agent: hit.via == "agent")).font(Typo.meta.weight(.semibold)).foregroundStyle(Theme.text).lineLimit(1)
                         if let board { Text("in \(board)").font(Typo.micro).foregroundStyle(Theme.faint).lineLimit(1) }
                         Spacer(minLength: Space.s)
                         if hit.ts > 0 { Text(hit.ts.ago).font(Typo.micro).foregroundStyle(Theme.faint) }
@@ -437,6 +440,7 @@ struct ReceiptCheck: View {
 
 /// Who's seen your message, as a list: "Seen by 3 of 4", people then agents, each Seen or Not yet.
 struct SeenBySheet: View {
+    @EnvironmentObject var state: AppState
     let receipt: Receipt
     var body: some View {
         let seen = receipt.readers.filter(\.seen).count
@@ -449,7 +453,7 @@ struct SeenBySheet: View {
                             ForEach(group) { r in
                                 HStack(spacing: Space.m) {
                                     Avatar(name: r.user, agent: r.agent, size: 30)
-                                    Text(r.mine ? Vocab.yourAgent : r.agent ? Vocab.agentOf(r.user) : r.user).font(Typo.rowTitleRead).foregroundStyle(Theme.text).lineLimit(1)
+                                    Text(r.mine ? Vocab.yourAgent : state.displayName(for: r.user, agent: r.agent)).font(Typo.rowTitleRead).foregroundStyle(Theme.text).lineLimit(1)
                                     Spacer(minLength: Space.s)
                                     if r.seen {
                                         Label("Seen", systemImage: "checkmark").font(Typo.micro.weight(.semibold)).foregroundStyle(Theme.ok)
@@ -530,7 +534,7 @@ struct GroupSheet: View {
                     HStack(spacing: Space.m) {
                         Avatar(name: m.user, size: 30)
                         VStack(alignment: .leading, spacing: 1) {
-                            Text(verbatim: m.user == state.me?.owner ? String(localized: "\(m.displayName ?? m.user) (you)", bundle: .l10n) : m.displayName ?? m.user).font(Typo.rowTitleRead).foregroundStyle(Theme.text).lineLimit(1)
+                            Text(verbatim: m.user == state.me?.owner ? String(localized: "\(state.displayName(for: m.user)) (you)", bundle: .l10n) : state.displayName(for: m.user)).font(Typo.rowTitleRead).foregroundStyle(Theme.text).lineLimit(1)
                             Text(verbatim: m.lastSeen.map { Date().timeIntervalSince1970 - $0 / 1000 < 60 ? String(localized: "here just now", bundle: .l10n) : String(localized: "here \($0.ago) ago", bundle: .l10n) } ?? "@\(m.user)").font(Typo.micro).foregroundStyle(Theme.faint)
                         }
                     }
@@ -547,7 +551,7 @@ struct GroupSheet: View {
                 .overlay(alignment: .bottomTrailing) { StateDot(state: a.state).padding(2).background(Theme.card, in: Circle()).offset(x: 4, y: 4) }
             VStack(alignment: .leading, spacing: 1) {
                 HStack(spacing: 6) {
-                    Text(a.name.map { "\(a.user)/\($0)" } ?? a.label).font(Typo.rowTitleRead).foregroundStyle(Theme.text).lineLimit(1)
+                    Text(a.name.map { "\(state.displayName(for: a.user, agent: true)) · \($0)" } ?? agentLabel(state.displayName(for: a.user), a.agentName)).font(Typo.rowTitleRead).foregroundStyle(Theme.text).lineLimit(1)
                     if let c = a.client { Text(c).font(Typo.micro).foregroundStyle(Theme.faint).lineLimit(1) }
                 }
                 Text(a.status ?? stateLine(a.state, a.lastSeen)).font(Typo.micro).foregroundStyle(a.state == "live" ? Theme.ok : Theme.muted).lineLimit(2)

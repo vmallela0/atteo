@@ -109,6 +109,7 @@ struct DecisionActions {
 
 /// Under a person's decision: where it stands, who's agreed (✓) or objected (✕), and your buttons.
 struct HumanDecisionCard: View {
+    @EnvironmentObject var state: AppState
     let hd: HumanDecision
     let me: String?
     var trailing = false
@@ -134,11 +135,11 @@ struct HumanDecisionCard: View {
                 }
             }
             ForEach(hd.votes.filter { $0.vote == "object" && !($0.note ?? "").isEmpty }, id: \.user) { v in
-                ((v.user == me ? Text("You") : Text(verbatim: v.user)).fontWeight(.semibold) + Text(String(localized: " object: \(v.note ?? "")", bundle: .l10n)))
+                ((v.user == me ? Text("You") : Text(verbatim: state.displayName(for: v.user))).fontWeight(.semibold) + Text(String(localized: " object: \(v.note ?? "")", bundle: .l10n)))
                     .font(Typo.micro).foregroundStyle(Theme.muted).lineLimit(3)
             }
             if let n = hd.note, !n.isEmpty {
-                (((hd.closedBy ?? hd.author ?? "") == me ? Text("You") : Text(verbatim: hd.closedBy ?? hd.author ?? "")).fontWeight(.semibold) + Text(verbatim: ": " + n))
+                (((hd.closedBy ?? hd.author ?? "") == me ? Text("You") : Text(verbatim: state.displayName(for: hd.closedBy ?? hd.author ?? ""))).fontWeight(.semibold) + Text(verbatim: ": " + n))
                     .font(Typo.micro).foregroundStyle(Theme.muted).lineLimit(3)
             }
             if actions.agree != nil || actions.object != nil || actions.close != nil {

@@ -22,6 +22,7 @@ import { handoffLine } from "./handoff";
 import type { Attachment, BoardInfo, Entry } from "./types";
 import { appPage, avatar, avatarStack, boardPic, copyField, CSP_ENFORCE, hue, page, renderText, scriptSrc, typeTag, when, working, type SideBoard, type Viewer } from "./ui";
 import { fnv } from "./codecolor";
+import { displayMap, personHtml, shownName } from "./names";
 import { agentLogo } from "./agent-logos";
 import { esc, pictureUrl } from "./util";
 import { WELCOME_BANNER_JS, assistantCard, grokBotMessage, welcomeBanner } from "./welcome";
@@ -53,14 +54,15 @@ function jsString(v: unknown): string {
 }
 
 /** Composer autocomplete choices: each other member with their agents indented under them (sub), then your own agents. */
-export function mentionOptions(members: string[], viewer: string, sessions: { user: string; name: string | null; client: string | null }[] = [], names: Record<string, string> = {}, ambiguous: Set<string> = new Set()): { u: string; ins: string; label: string; k: string; av: string; sub?: boolean }[] {
+export function mentionOptions(members: string[], viewer: string, sessions: { user: string; name: string | null; client: string | null }[] = [], names: Record<string, string> = {}, ambiguous: Set<string> = new Set(), people: Record<string, string> = {}): { u: string; ins: string; label: string; k: string; av: string; sub?: boolean }[] {
   const others = [...new Set(members)].filter((m) => m !== viewer).sort();
   // Each live agent session can be addressed on its own ("@vedu/scout"); "@vedu's agent" reaches all of them.
   const sessionsOf = (u: string) =>
     sessions.filter((x) => x.user === u && x.name).map((x) => ({ u, ins: `${u}/${x.name}`, label: `<span class="faint">${esc(u)}/</span>${esc(x.name!)}`, k: x.client ?? "agent", av: avatar(u, "sm", true), sub: true }));
   return [
     ...others.flatMap((m) => [
-      { u: m, ins: m, label: esc(m), k: "person", av: avatar(m, "sm") },
+      // A person: what's inserted is their handle; the row shows the name they chose beside it (jxn #4369).
+      { u: m, ins: m, label: people[m] ? `<bdi>${esc(people[m])}</bdi> <span class="faint">@${esc(m)}</span>` : esc(m), k: "person", av: avatar(m, "sm") },
       // Both ways in (jxn #3103): "@vedu's agent" always, and its nickname too when it has a clear one.
       { u: m, ins: `${m}'s agent`, label: esc(`${m}'s agent`) + (names[m] ? ` <span class="faint">· ${esc(names[m])}</span>` : ""), k: sessionsOf(m).length > 1 ? "all their agents" : "agent", av: avatar(m, "sm", true), sub: true },
       ...(names[m] && !ambiguous.has(m) ? [{ u: m, ins: names[m], label: `${esc(names[m])} <span class="faint">· ${esc(m)}'s agent</span>`, k: sessionsOf(m).length > 1 ? "all their agents" : "agent", av: avatar(m, "sm", true), sub: true }] : []),
@@ -111,7 +113,7 @@ const isHtml = (name: string | null | undefined) => !!name && /\.(html?|svg)$/i.
 const previewBtn = (name: string, version?: number | null) =>
   `<button class="btn sm ghost" type="button" data-preview-file="${esc(name)}"${version ? ` data-file-ver="${version}"` : ""} title="Try the page here (it runs in a sandbox)">Preview</button>`;
 
-export function entryHtml(e: Entry, boardId: string, withReplies = true, opts: { retracted?: boolean; canRetract?: boolean; canEdit?: boolean; root?: number; lang?: Lang; person?: boolean; members?: ReadonlySet<string> | readonly string[] } = {}): string {
+export function entryHtml(e: Entry, boardId: string, withReplies = true, opts: { retracted?: boolean; canRetract?: boolean; canEdit?: boolean; root?: number; lang?: Lang; person?: boolean; members?: ReadonlySet<string> | readonly string[]; people?: Record<string, string> } = {}): string {
   const T = (s: string, v?: Record<string, string | number>) => tr(opts.lang, s, v);
   const refs: string[] = [];
   if (e.retracts != null) refs.push(`unsends <a class="ref" data-ref="${e.retracts}" href="#e${e.retracts}">#${e.retracts}</a>`);
@@ -169,7 +171,7 @@ ${
   return `<article class="entry${opts.retracted ? " retracted" : ""}${e.via === "agent" ? " by-agent" : ""}" id="e${e.seq}" data-seq="${e.seq}" data-author="${esc(e.author)}" data-title="${esc(shortTitle(e))}"${e.to ? ` data-to="${esc(e.to)}"` : ""}${e.reply_to != null ? ` data-reply="${e.reply_to}"` : ""}${opts.root != null && opts.root !== e.seq ? ` data-root="${opts.root}"` : ""}>
 ${avatar(e.author, "", e.via === "agent")}
 <div class="grow">
-  <div class="meta">${whoHtml(e)}${e.to ? `<span class="to">→ ${esc(e.to)}</span>` : ""}${e.type === "note" ? "" : typeTag(e.type, opts.lang)}${when(e.ts, opts.lang)}${e.edited_at ? `<button class="edited" type="button" data-history="${e.seq}" aria-label="${esc(T("Edited, show history"))}" title="${esc(new Date(e.edited_at).toUTCString())}">${esc(T("edited"))}</button>` : ""}<a class="seq" href="#e${e.seq}">#${e.seq}</a>${peopleBadge(e, opts.lang)}<span class="badge rbadge">${esc(T("Unsent"))}</span>${flagBadge(e.text, e.ai_flag)}${actions}</div>
+  <div class="meta">${whoHtml(e, opts.people, opts.members)}${e.to ? `<span class="to">→ ${personHtml(e.to, opts.people?.[e.to], opts.members)}</span>` : ""}${e.type === "note" ? "" : typeTag(e.type, opts.lang)}${when(e.ts, opts.lang)}${e.edited_at ? `<button class="edited" type="button" data-history="${e.seq}" aria-label="${esc(T("Edited, show history"))}" title="${esc(new Date(e.edited_at).toUTCString())}">${esc(T("edited"))}</button>` : ""}<a class="seq" href="#e${e.seq}">#${e.seq}</a>${peopleBadge(e, opts.lang)}<span class="badge rbadge">${esc(T("Unsent"))}</span>${flagBadge(e.text, e.ai_flag)}${actions}</div>
   <div class="body${e.purged ? " purged" : ""}">${e.purged ? `<p>${esc(T("Purged by {name}. Its text and files were removed for good.", { name: e.purged.via === "agent" ? T("{name}'s agent", { name: e.purged.by }) : e.purged.by }))}</p>` : apr?.title ? `<p>${esc(apr.title)}</p>` : refLinks(renderText(e.text, e.mentions, e.mention_names, selfMentions(e.text, e.author, e.via)))}</div>${file}${e.card ? changeCardHtml(e.seq, e.card) : ""}${e.handoff ? `<div class="refs mono handoff">${esc(handoffLine(e.handoff))}</div>` : ""}${apr && !opts.retracted ? approvalCardHtml(apr, false, opts.lang) : ""}${e.type === "task" ? `<div class="tk" data-task="${e.seq}" hidden></div>` : ""}${e.type === "claim" && !opts.retracted ? `<div class="tk cl" data-claim="${e.seq}" hidden></div>` : ""}${e.type === "decision" && e.via === "person" && !opts.retracted ? `<div class="tk hd" data-hd="${e.seq}" hidden></div>` : ""}${quick}
   ${refs.length ? `<div class="refs">${refs.join(" · ")}</div>` : ""}
   <div class="rx" data-rx="${e.seq}"><button class="rx-add" type="button" data-rx-add="${e.seq}" aria-label="${esc(T("Add a reaction"))}" title="${esc(T("Add a reaction"))}">☺<span>+</span></button></div>
@@ -365,7 +367,7 @@ export const PREVIEW_FRAME_HTML =
   `removeEventListener("message",f);document.open();document.write("<!doctype html>"+d.head+d.html);document.close()});parent.postMessage({t:"atteo-preview-ready",tok:location.hash.slice(1)},"*")</script>`;
 const PREVIEW_JS = `
 (()=>{const dlg=document.createElement('dialog');dlg.className='pv-dlg';dlg.setAttribute('aria-label',tr('Preview'));
-  dlg.innerHTML='<div class="pv-hd"><b class="mono truncate" id="pv-name"></b><span class="grow"></span><div class="seg pv-w" role="group" aria-label="'+tr('Width')+'"><button type="button" class="on" data-pv-w="">'+tr('Full')+'</button><button type="button" data-pv-w="390">'+tr('Phone')+'</button></div><button type="button" class="btn ghost sm" data-pv-close aria-label="'+tr('Close preview')+'">✕</button></div><div class="pv-body"><iframe id="pv-frame" sandbox="allow-scripts" referrerpolicy="no-referrer" title="'+tr('Preview')+'"></iframe></div><p class="xs faint pv-note">Runs in a sandbox: it can\\'t see your account or reach the network.</p>';
+  dlg.innerHTML='<div class="pv-hd"><b class="mono truncate" id="pv-name"></b><span class="grow"></span><div class="seg pv-w" role="group" aria-label="'+tr('Width')+'"><button type="button" aria-pressed="true" data-pv-w="">'+tr('Full')+'</button><button type="button" aria-pressed="false" data-pv-w="390">'+tr('Phone')+'</button></div><button type="button" class="btn ghost sm" data-pv-close aria-label="'+tr('Close preview')+'">✕</button></div><div class="pv-body"><iframe id="pv-frame" sandbox="allow-scripts" referrerpolicy="no-referrer" title="'+tr('Preview')+'"></iframe></div><p class="xs faint pv-note">Runs in a sandbox: it can\\'t see your account or reach the network.</p>';
   document.body.appendChild(dlg);const fr=dlg.querySelector('#pv-frame');
   const HEAD=${JSON.stringify(PREVIEW_HEAD).replace(/</g, "\\u003c")};
   // The shell says when it's listening; it gets the text once per open (a page that says "ready" again gets nothing).
@@ -381,7 +383,7 @@ const PREVIEW_JS = `
     // fetches none of its links, on top of the frame's sandbox and CSP. Drawn on a checkerboard, fitted to the frame.
     if(/\\.svg$/i.test(name))html='<style>html,body{margin:0;height:100%}body{display:grid;place-items:center;background:repeating-conic-gradient(#e8e8e8 0 25%,#fff 0 50%) 0 0/16px 16px}img{max-width:calc(100% - 32px);max-height:calc(100% - 32px);min-width:min(240px,100% - 32px)}</style><img id="pv-svg" alt="" src="data:image/svg+xml;charset=utf-8,'+encodeURIComponent(html)+'">';
     dlg.querySelector('#pv-name').textContent=name;pending=html;tok=Array.from(crypto.getRandomValues(new Uint8Array(16)),b=>b.toString(16).padStart(2,'0')).join('');fr.src='/preview-frame?'+Date.now()+'#'+tok;setW('');if(!dlg.open)dlg.showModal()}
-  function setW(w){fr.style.width=w?w+'px':'100%';dlg.querySelectorAll('[data-pv-w]').forEach(b=>b.classList.toggle('on',b.dataset.pvW===w))}
+  function setW(w){fr.style.width=w?w+'px':'100%';dlg.querySelectorAll('[data-pv-w]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.pvW===w)))}
   dlg.addEventListener('click',e=>{if(e.target===dlg||e.target.closest('[data-pv-close]')){dlg.close();return}const w=e.target.closest('[data-pv-w]');if(w)setW(w.dataset.pvW)});
   dlg.addEventListener('close',()=>{pending=null;tok='';fr.src='about:blank'});
   document.addEventListener('click',e=>{const b=e.target.closest('[data-preview-file]');if(!b)return;e.preventDefault();e.stopPropagation();open(b.dataset.previewFile,b.dataset.fileVer?+b.dataset.fileVer:undefined)},true);
@@ -495,7 +497,7 @@ export function withAgentNames<T extends Entry>(e: T, names: Record<string, stri
   return own || ment.length ? { ...e, ...(own ? { agent_name: own } : {}), ...(ment.length ? { mention_names: Object.fromEntries(ment) } : {}) } : e;
 }
 
-function whoHtml(e: Entry): string {
+function whoHtml(e: Entry, people?: Record<string, string>, known?: Iterable<string>): string {
   // Agents read apart by their square avatar and their name: "vedu/scout" for a named agent session (its client is
   // "scout · Claude Code"), else "<name>'s agent"; the client is plain text after it. People get no tag.
   if (e.via === "agent") {
@@ -506,6 +508,9 @@ function whoHtml(e: Entry): string {
     if (e.agent_name) return `<span class="who" title="${esc(`${e.author}'s agent, named ${e.agent_name}${session ? ` · session ${session}` : ""}${client && client !== "agent" ? ` · ${client}` : ""}`)}">${esc(e.agent_name)}</span><span class="via owner">${esc(`${e.author}'s agent`)}</span>${session ? `<span class="via sess" title="${esc(`Posted by the session ${e.author}/${session}${client && client !== "agent" ? ` with ${client}` : ""}`)}">${esc(session)}</span>` : ""}`;
     return `<span class="who">${esc(name)}</span>${client && client !== "agent" ? `<span class="via" title="Posted by ${esc(name)} with ${esc(client)}">${esc(client)}</span>` : ""}`;
   }
+  // A person by the name they chose (jxn #4369), their @handle on hover; the handle when they chose none.
+  const d = people?.[e.author];
+  if (d) return `<span class="who">${personHtml(e.author, d, known)}</span>`;
   if (e.via === "person") return `<span class="who" title="Written by ${esc(e.author)} on the web">${esc(e.author)}</span>`;
   return `<span class="who">${esc(e.author)}</span>`;
 }
@@ -540,13 +545,13 @@ function fmtBytes(n: number): string {
   return `${(n / 1024 / 1024).toFixed(1)} MB`;
 }
 
-export function threadHtml(entries: Entry[], boardId: string, viewer?: { name: string; creator: string; encrypted?: boolean; lang?: Lang; person?: boolean; members?: readonly string[] }): string {
+export function threadHtml(entries: Entry[], boardId: string, viewer?: { name: string; creator: string; encrypted?: boolean; lang?: Lang; person?: boolean; members?: readonly string[]; people?: Record<string, string> }): string {
   // Every message in order, replies included (jxn #1040): a reply posts like any message, with a bar quoting what it
   // answers; its thread opens as an overlay. data-root ties a reply to its thread.
   const roots = rootMap(entries);
   const gone = retractedSet(entries);
   const members = viewer?.members ? new Set(viewer.members) : undefined;
-  const flags = (e: Entry) => ({ retracted: gone.has(e.seq), canRetract: !!viewer && (e.author === viewer.name || viewer.creator === viewer.name), canEdit: !!viewer && !viewer.encrypted && e.author === viewer.name, root: roots.get(e.seq), lang: viewer?.lang, person: viewer?.person, members });
+  const flags = (e: Entry) => ({ retracted: gone.has(e.seq), canRetract: !!viewer && (e.author === viewer.name || viewer.creator === viewer.name), canEdit: !!viewer && !viewer.encrypted && e.author === viewer.name, root: roots.get(e.seq), lang: viewer?.lang, person: viewer?.person, members, people: viewer?.people });
   return entries.map((e) => entryHtml(e, boardId, roots.get(e.seq) === e.seq, flags(e))).join("");
 }
 
@@ -597,11 +602,11 @@ export function summaryHtml(entries: Entry[], viewer: string, members: MemberVie
   const people = fold("members", esc(T("Members")), members.length, `<ul>${members
     .map(
       (m) =>
-        `<li><span class="row" style="padding:5px 0"><span class="av-wrap">${avatar(m.user, "sm")}</span><span class="grow small">${esc(m.user)}${
+        `<li><span class="row" style="padding:5px 0"><span class="av-wrap">${avatar(m.user, "sm")}</span><span class="grow small">${personHtml(m.user, m.display_name, members.map((x) => x.user))}${
           m.role === "owner" || (ctl && m.user === ctl.creator) ? ` <span class="xs faint">${esc(T("owner"))}</span>` : m.role === "viewer" ? ` <span class="xs faint">${esc(T("viewer"))}</span>` : ""
         }${m.expires_at ? ` <span class="xs faint" title="Access ends ${new Date(m.expires_at).toISOString().slice(0, 10)}">· until ${new Date(m.expires_at).toISOString().slice(5, 10)}</span>` : ""}</span>${control(m) || `<span class="xs faint">${when(m.last_seen, lang)}</span>`}</span></li>`,
     )
-    .join("")}</ul>`, members.map((m) => m.user).join(", "), ctl ? `<button class="linkish" type="button" data-open="invite">${esc(T("Manage"))}</button>` : "");
+    .join("")}</ul>`, members.map((m) => shownName(m.user, m.display_name)).join(", "), ctl ? `<button class="linkish" type="button" data-open="invite">${esc(T("Manage"))}</button>` : "");
   const open =
     sec("questions", esc(T("Open questions")), s.openQuestions.filter((e) => !mine.includes(e) && !agents.includes(e))) +
     sec("tasks", esc(T("Open tasks")), s.openTasks.filter((e) => !agents.includes(e))) +
@@ -1116,7 +1121,7 @@ function inviteAgentDialog(T: (s: string) => string, info: { id: string; title: 
     <div class="copy"><pre class="mono" id="ia-join">${esc(msg)}</pre><button type="button" class="btn sm" data-copy="ia-join">${esc(T("Copy"))}</button></div>
     <p class="xs muted">${esc(T("Not connected yet?"))} <button type="button" class="linkish" data-open="connect">${esc(T("Connect your assistant"))}</button></p></section>
   <section class="ia-opt" id="ia-friend"><h3>${esc(T("A friend's agent"))}</h3><p class="small muted">${esc(T("Invite the friend to this board. Their agents join once they accept."))}</p>
-    <form method="post" action="/api/boards/${esc(info.id)}/invites" data-api data-reset class="acc-row"><input class="input grow" name="email" required autocomplete="off" placeholder="${esc(T("A friend's name"))}" aria-label="${esc(T("A friend's name"))}"><input type="hidden" name="role" value="contributor"><button class="btn primary">${esc(T("Invite"))}</button>
+    <form method="post" action="/api/boards/${esc(info.id)}/invites" data-api data-reset class="acc-row"><input class="input grow" name="email" required autocomplete="off" placeholder="${esc(T("A friend's name"))}" aria-label="${esc(T("A friend's name"))}"><button class="btn primary">${esc(T("Invite"))}</button>
     <p data-result hidden style="margin-top:8px;flex-basis:100%"></p></form></section>
 </div></dialog>`;
 }
@@ -1284,10 +1289,14 @@ function pfHid(el){return el.classList.contains('by-agent')&&pfOn()}
 // a direct chat or your agent's chat. A tap opens a folded one; a tap on an open one's sender line folds it again; the
 // board's ⋯ opens them all for this visit.
 const OL_WHOLE=BC.olWhole;
-function olFor(el){if(OL_WHOLE||el.classList.contains('for-you')||el.dataset.to===ME0)return false;
+function olFor(el){if(OL_WHOLE||el.classList.contains('for-you'))return false;
+  const p=el.dataset.reply&&document.getElementById('e'+el.dataset.reply),mine=p&&p.dataset.author===ME0;
+  if(mine&&!p.classList.contains('by-agent'))return false;
+  // Addressed to you, unless it's only answering in your agent's thread (a reply is "to" its parent's author): those fold
+  // like any other unless they ask something (jxn #4454).
+  if(el.dataset.to===ME0&&!(mine&&!el.querySelector(':scope>.grow>.meta .type.t-question,:scope>.grow>.meta .type.t-task')))return false;
   if(el.dataset.author===ME0&&!el.classList.contains('by-agent'))return false;
   if(el.querySelector('.mention[data-user="'+ME0+'"],.mention[data-user="agents"],.mention[data-user="humans"],.mention[data-user="all"],.apc,.type.t-decision'))return false;
-  const p=el.dataset.reply&&document.getElementById('e'+el.dataset.reply);if(p&&p.dataset.author===ME0)return false;
   const po=el.querySelector(':scope>.grow>.meta .badge.po[data-people]');if(po&&po.dataset.people.split(',').includes(ME0))return false; // People only, you among its people (opus-d #2755)
   return true}
 // A folded row takes focus and opens on Enter or Space, so the keyboard can do what a tap does (opus-d #2755).
@@ -1409,6 +1418,7 @@ function connect(){
     if(d.type==='schedule'){if(document.getElementById('invite')?.open&&window.schLoad)schLoad();return}
     if(d.type==='reaction'){renderRx(d.seq,d.reactions);return}
     if(d.type==='edit'){if(d.seq&&d.seq===window.pgDone)return;location.reload();return} // your own purge: that page shows it already, toast and all
+    if(d.type==='pruned'){location.reload();return} // retention changed existing rows; fetch their compacted placeholders
     if(d.type==='answered'){sumNext=true;tick(false);return} // someone marked a question answered: refresh the open questions
     if(d.type==='approval'){window.apcApply&&apcApply(d.approval);return}
     if(d.type==='typing'){if(d.who!==ME){TYPERS.set(d.who,d.until);typingSync()}return}
@@ -1479,6 +1489,8 @@ window.postRetrying=()=>document.querySelectorAll('#thread .entry.pending .faint
 window.postFailed=(j)=>{sendLook(false);if(SENT_TEXT!=null&&!ta.value.trim()){ta.value=SENT_TEXT;taFit()}SENT_TEXT=null;document.querySelectorAll('#thread .entry.pending').forEach(x=>x.remove());toast(j.error||tr("Couldn't send. Your message is still in the box."))};
 // @mention autocomplete: people ("@vedu") and agents ("@vedu's agent", including your own).
 const MOPTS=BC.mopts;
+// People by the name they chose (jxn #4369): handle → display name, for what this page draws itself.
+const DN=BC.dn||{},dname=u=>DN[u]||u;
 const MNAMES=new Set(MOPTS.map(o=>o.u)),ME=BC.me;
 // Agent names on this board (the @ menu's "Jarvis · vedu's agent" rows), longest first, for chips in the composer.
 const ANAMES=MOPTS.filter(o=>o.sub&&!o.ins.includes('/')&&o.ins!==o.u+"'s agent").map(o=>o.ins.toLowerCase()).sort((a,b)=>b.length-a.length);
@@ -1501,7 +1513,7 @@ let mi=0,ms=[],mq=null;
 function mfind(){if(ta.selectionStart!==ta.selectionEnd)return null;const v=ta.value.slice(0,ta.selectionStart);
   const m=v.match(/(^|[^A-Za-z0-9_.@\\/-])@([A-Za-z0-9_.-]{0,32}(?:\\/[A-Za-z0-9_.-]{0,32})?)$/);return m?{start:v.length-m[2].length-1,q:m[2].toLowerCase()}:null}
 function mclose(){mm.hidden=true;ms=[];ta.setAttribute('aria-expanded','false');ta.removeAttribute('aria-activedescendant')}
-function mrender(){mq=mfind();if(mq&&window.agentsRefresh&&Date.now()-agentsAt>10000){agentsAt=Date.now();agentsRefresh().then(()=>{if(!mm.hidden||mfind())mrender()})}ms=mq?MOPTS.filter(o=>mq.q.includes('/')?o.ins.toLowerCase().startsWith(mq.q):o.u.startsWith(mq.q)||o.ins.toLowerCase().startsWith(mq.q)):[];if(!ms.length)return mclose();mi=Math.min(mi,ms.length-1);
+function mrender(){mq=mfind();if(mq&&window.agentsRefresh&&Date.now()-agentsAt>10000){agentsAt=Date.now();agentsRefresh().then(()=>{if(!mm.hidden||mfind())mrender()})}ms=mq?MOPTS.filter(o=>mq.q.includes('/')?o.ins.toLowerCase().startsWith(mq.q):o.u.startsWith(mq.q)||o.ins.toLowerCase().startsWith(mq.q)||(!o.sub&&DN[o.u]&&DN[o.u].toLowerCase().startsWith(mq.q))):[];if(!ms.length)return mclose();mi=Math.min(mi,ms.length-1);
   mm.innerHTML='<li class="hint" aria-hidden="true">'+tr('Mention a person or their agent')+'</li>'+ms.map((o,i)=>'<li role="option"'+(o.sub?' class="sub"':'')+' id="'+mm.id+'-'+i+'" data-i="'+i+'" aria-selected="'+(i===mi)+'">'+o.av+'<span class="truncate">'+o.label+'</span><span class="k">'+o.k+'</span></li>').join('');
   mm.hidden=false;ta.setAttribute('aria-expanded','true');ta.setAttribute('aria-activedescendant',mm.id+'-'+mi)}
 function mpick(o){const end=ta.selectionStart,before=ta.value.slice(0,mq.start),after=ta.value.slice(end);const ins='@'+o.ins+(/^\\s/.test(after)?'':' ');
@@ -1564,7 +1576,7 @@ ta?.addEventListener('keydown',e=>{if(!slashMenu||slashMenu.hidden)return;const 
 const TYPERS=new Map();let typedAt=0,typingTimer=null;
 function typingSync(){const el=document.getElementById('typing');if(!el)return;const now=Date.now();
   for(const [u,t] of TYPERS)if(t<now)TYPERS.delete(u);
-  const who=[...TYPERS.keys()].map(u=>({u,agent:false,label:u}));
+  const who=[...TYPERS.keys()].map(u=>({u,agent:false,label:dname(u)}));
   if(!who.length){el.hidden=true;el.innerHTML='';return}
   const names=who.map(w=>w.label),text=names.length===1?names[0]+' is typing':names.length===2?names[0]+' and '+names[1]+' are typing':names[0]+' and '+(names.length-1)+' others are typing';
   el.innerHTML='<span class="ty-avs">'+who.slice(0,3).map(w=>avatar16(w.u,w.agent)).join('')+'</span><span class="ty-t">'+esc(text)+'</span><span class="ty-dots" aria-hidden="true"><i></i><i></i><i></i></span>';
@@ -1584,7 +1596,7 @@ if(!ta.value){const d=draftLoad('');if(d){ta.value=d;setTimeout(()=>{msync();ta.
 // Starting a reply keeps what's in the box (vedu #1469): the text becomes the reply, and cancelling leaves it in the box.
 // Per-reply drafts are used only when the box is empty or you switch from one reply to another.
 /** The name a message's header shows: "vedu/scout" for a named agent session, else "vedu's agent" or the person. */
-const headName=el=>el.querySelector(':scope>.grow>.meta>.who')?.textContent||(el.dataset.author+(el.classList.contains('by-agent')?"'s agent":''));
+const headName=el=>el.querySelector(':scope>.grow>.meta>.who')?.textContent||(el.classList.contains('by-agent')?el.dataset.author+"'s agent":dname(el.dataset.author));
 // What goes into a post (a quote's "— who"): the developer words, never Everyday's "X's assistant" (#1527). headName is
 // what this person sees, for labels on the page.
 const sentName=el=>{const w=el.querySelector(':scope>.grow>.meta>.who');return (w&&(w.dataset.dev??w.textContent))||(el.dataset.author+(el.classList.contains('by-agent')?"'s agent":''))};
@@ -1674,7 +1686,7 @@ async function loadDocs(){const r=await fetch('/api/boards/'+BOARD+'/files');con
 let docAsked=false;async function openDoc(name,version){docAsked=true;editing=false;const r=await fetch('/api/boards/'+BOARD+'/doc?name='+encodeURIComponent(name)+(version?'&version='+version:''));const d=await r.json();if(!r.ok){toast(d.error);return}curDoc=d;renderDoc();loadDocs()}
 function renderDoc(){const d=curDoc,v=document.getElementById('doc-view');const old=d.version!==d.latest;v.classList.remove('editing');
   v.innerHTML='<div class="row wrap" style="justify-content:space-between;gap:8px;margin-bottom:12px"><div><b class="mono">'+esc(d.name)+'</b> <span class="xs faint">v'+d.version+(old?' (viewing an older version; latest v'+d.latest+')':'')+' · '+esc(d.via==='agent'?d.updated_by+"'s agent":d.updated_by)+'</span></div><div class="row">'+
-  '<span id="doc-pin-slot"></span>'+(!d.media&&/\\.(html?|svg)$/i.test(d.name)?'<button class="btn sm ghost" type="button" data-preview-file="'+esc(d.name)+'" data-file-ver="'+d.version+'">'+tr('Preview')+'</button>':'')+'<a class="btn sm ghost" href="/api/boards/'+BOARD+'/image?name='+encodeURIComponent(d.name)+'&version='+d.version+'" download="'+esc(d.name)+'" data-save>'+tr('Download')+'</a><button class="btn sm ghost" type="button" id="doc-hist">'+tr('History')+'</button>'+(READONLY||old||d.media?'':'<button class="btn sm" type="button" id="doc-edit">'+tr('Edit')+'</button>')+'</div></div>'+(d.media?'<div class="doc-img"><img alt="'+esc(d.name)+'" src="/api/boards/'+BOARD+'/image?name='+encodeURIComponent(d.name)+'&version='+d.version+'"></div>':'<div class="doc-body body">'+d.html+'</div>')+'<div id="doc-history"></div>';if(window.pinSlot)pinSlot(d)}
+  '<span id="doc-pin-slot"></span>'+(!d.media&&/\\.(html?|svg)$/i.test(d.name)?'<button class="btn sm ghost" type="button" data-preview-file="'+esc(d.name)+'" data-file-ver="'+d.version+'">'+tr('Preview')+'</button>':'')+'<a class="btn sm ghost" href="/api/boards/'+BOARD+'/image?name='+encodeURIComponent(d.name)+'&version='+d.version+'" download="'+esc(d.name)+'" data-save>'+tr('Download')+'</a>'+(d.seq?'<a class="btn sm ghost" href="#e'+d.seq+'" title="#'+d.seq+'">'+tr('Show in chat')+'</a>':'')+'<button class="btn sm ghost" type="button" id="doc-hist">'+tr('History')+'</button>'+(READONLY||old||d.media?'':'<button class="btn sm" type="button" id="doc-edit">'+tr('Edit')+'</button>')+'</div></div>'+(d.media?'<div class="doc-img"><img alt="'+esc(d.name)+'" src="/api/boards/'+BOARD+'/image?name='+encodeURIComponent(d.name)+'&version='+d.version+'"></div>':'<div class="doc-body body">'+d.html+'</div>')+'<div id="doc-history"></div>';if(window.pinSlot)pinSlot(d)}
 function editDoc(){const d=curDoc,v=document.getElementById('doc-view');editing=true;v.classList.add('editing');
   v.innerHTML='<div class="row" style="justify-content:space-between;margin-bottom:10px"><b class="mono">'+esc(d.name)+'</b><span class="xs faint">editing v'+d.version+'</span></div><textarea class="input mono" id="doc-text" style="font-size:12.5px">'+esc(d.content)+'</textarea><input class="input" id="doc-summary" placeholder="'+tr('What changed? (optional)')+'" style="margin-top:8px"><p id="doc-warn" class="flash" hidden style="margin-top:8px"></p><div class="row" style="justify-content:flex-end;margin-top:10px"><button class="btn" type="button" id="doc-cancel">'+tr('Cancel')+'</button><button class="btn primary" type="button" id="doc-save">'+tr('Save')+'</button></div>'}
 async function saveDoc(name,content,base,summary){const r=await fetch('/api/boards/'+BOARD+'/doc',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({action:'write',name,content,base_version:base,summary})});const j=await r.json();
@@ -1849,7 +1861,7 @@ function renderReads(){
   // Every message you (or your agent) wrote gets a small ring: hover/focus/tap it for who has seen THAT message, from READS.
   [...document.querySelectorAll('#thread .entry')].filter(e=>e.dataset.author===ME&&!e.classList.contains('retracted')).forEach(mine=>{
   const seq=+mine.dataset.seq,who=audience(mine),read=who.filter(w=>seenAs(w.u,w.agent)>=seq),all=who.length>0&&read.length===who.length;
-  const C=2*Math.PI*6,frac=who.length?read.length/who.length:0,name=w=>w.u===ME?(w.agent?tr('Your agent'):tr('You')):esc(w.agent?w.u+"'s agent":w.u),pid='rdp'+seq;
+  const C=2*Math.PI*6,frac=who.length?read.length/who.length:0,name=w=>w.u===ME?(w.agent?tr('Your agent'):tr('You')):esc(w.agent?w.u+"'s agent":dname(w.u)),pid='rdp'+seq;
   const head=!who.length?tr('No one else here yet'):all?tr('Seen by everyone'):read.length?tr('Seen by ')+read.length+' of '+who.length:tr('Delivered · not seen yet');
   const el=document.createElement('button');el.type='button';el.className='rd'+(all?' all':'')+(RD_OPEN===seq?' open':'');el.setAttribute('aria-describedby',pid);el.setAttribute('aria-expanded',String(RD_OPEN===seq));
   el.setAttribute('aria-label',who.length?(read.length?tr('Seen by ')+read.length:tr('Not seen yet')):tr('No one else here yet'));
@@ -2433,7 +2445,7 @@ async function accLoad(){const [m,a,l]=await Promise.all([fetch('/api/boards/'+B
     return '<li class="acc-row" data-user="'+esc(x.user)+'">'+avatar16(x.user,false)+'<span class="grow truncate">'+esc(x.user)+(x.user===ME?' <span class="faint">'+tr('(you)')+'</span>':'')+'</span>'+
       sel('role',x.role||'contributor',[['owner',tr('Owner')],['contributor',tr('Can post')],['viewer',tr('View only')]],fixed,tr('Role for {name}',{name:x.user}))+
       sel('days',x.expires_at?'keep':'0',(x.expires_at?[['keep',tr('Until ')+accFmt(x.expires_at)]]:[]).concat([['0',tr('No end date')],['7',tr('{n} more days',{n:7})],['30',tr('{n} more days',{n:30})],['90',tr('{n} more days',{n:90})]]),!IS_OWNER||x.user===CREATOR,tr('Access for {name}',{name:x.user}))+'</li>'}).join('')||'<li class="xs faint">'+tr('No members')+'</li>';
-  if(IS_OWNER)document.getElementById('acc-links').innerHTML=(l.links||[]).filter(x=>!x.revoked_at&&(!x.expires_at||x.expires_at>Date.now())).map(x=>'<li class="acc-row xs"><span class="grow">'+(x.role==='viewer'?tr('View only'):tr('Can post'))+' link · until '+accFmt(x.expires_at)+' · used '+x.uses+(x.max_uses?' of '+x.max_uses:'')+'</span><button class="btn ghost sm" type="button" data-link-revoke="'+esc(x.id)+'">'+tr('Revoke')+'</button></li>').join('');
+  if(IS_OWNER)document.getElementById('acc-links').innerHTML=(l.links||[]).filter(x=>!x.revoked_at&&(!x.expires_at||x.expires_at>Date.now())).map(x=>'<li class="acc-row xs"><span class="grow">'+(x.role==='viewer'?tr('View only'):tr('Can post'))+' link · until '+accFmt(x.expires_at)+(x.member_days?' · access '+x.member_days+'d':'')+' · used '+x.uses+(x.max_uses?' of '+x.max_uses:'')+'</span><button class="btn ghost sm" type="button" data-link-revoke="'+esc(x.id)+'">'+tr('Revoke')+'</button></li>').join('');
   const verb={invited:'invited',joined:'joined',removed:'removed',left:'left',access_changed:'changed access for',link_created:'created an invite link',link_revoked:'revoked an invite link',renamed:'renamed the board',archived:'archived the board',restored:'restored the board',expired:'access ended for',picture_changed:'changed the board picture',picture_removed:'removed the board picture',charter:'updated the charter',retention:'set how long messages are kept'};
   document.getElementById('acc-audit').innerHTML=(a.audit||[]).slice(0,50).map(x=>'<li class="xs"><b>'+esc(x.actor)+'</b> '+(verb[x.action]||esc(x.action))+(x.target?' <b>'+esc(x.target)+'</b>':'')+(x.detail?' <span class="faint">· '+esc(x.detail)+'</span>':'')+' <span class="faint">· '+new Date(x.ts).toLocaleString([],{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'})+'</span></li>').join('')||'<li class="xs faint">'+tr('Nothing yet')+'</li>'}
 // ---- The gate's queue (#3209): open handoffs, oldest first, in board info — so nobody has to ask whether the gate is running ----
@@ -2534,7 +2546,7 @@ document.getElementById('acc-members').addEventListener('change',async e=>{const
   const body=s.dataset.acc==='role'?{role:s.value}:s.value==='keep'?null:{expires_days:+s.value};if(!body)return;
   const r=await fetch('/api/boards/'+BOARD+'/members/'+encodeURIComponent(u),{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)});const j=await r.json().catch(()=>({}));
   toast(r.ok?tr('Saved'):(j.error||tr('Could not save')));accLoad()});
-document.getElementById('link-make')?.addEventListener('click',async()=>{const r=await fetch('/api/boards/'+BOARD+'/links',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({role:document.getElementById('link-role').value,link_days:+document.getElementById('link-days').value})});
+document.getElementById('link-make')?.addEventListener('click',async()=>{const r=await fetch('/api/boards/'+BOARD+'/links',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({role:document.getElementById('link-role').value,link_days:+document.getElementById('link-days').value,member_days:+document.getElementById('link-access').value})});
   const j=await r.json().catch(()=>({}));if(!r.ok){toast(j.error||tr('Could not create'));return}const box=document.getElementById('link-new');
   box.innerHTML='<div class="acc-row"><input class="input mono grow acc-url" id="link-url" readonly value="'+esc(j.url)+'" aria-label="'+tr('Invite link')+'"><button class="btn sm" type="button" data-copy="link-url">'+tr('Copy')+'</button></div>';box.hidden=false;accLoad()});
 document.addEventListener('click',async e=>{const b=e.target.closest('[data-link-revoke]');if(!b)return;const r=await fetch('/api/boards/'+BOARD+'/links/'+b.dataset.linkRevoke,{method:'DELETE'});toast(r.ok?tr('Link revoked'):tr('Could not revoke'));accLoad()});
@@ -2718,6 +2730,7 @@ export function boardPage(
   board: { picture: string | null; kind: string | null; sessions?: { name: string; state: string; client: string | null }[]; seen?: number; last_seen?: number; muted?: string[]; charter?: BoardCharter | null } = { picture: null, kind: null }, // from the directory (D1); sessions: yours, on "Your agent"; last_seen: how far you had read (for Recap); muted: whom you muted here (#3602)
 ): Response {
   const ctl = { boardId: info.id, creator: info.created_by };
+  const people = displayMap(members); // handle → the name they chose (jxn #4369)
   const L = viewer.lang,
     T = (s: string, v?: Record<string, string | number>) => tr(L, s, v);
   // Your role on this board: owners manage access; viewers read only (no composer, no reactions, no invites).
@@ -2741,7 +2754,7 @@ export function boardPage(
   // Big boards open on their newest entries; earlier ones load on demand.
   const earlier = first > 1 ? `<button class="btn ghost sm load-earlier" type="button" id="load-earlier" data-before="${first}">${esc(T("Load earlier messages"))}</button>` : "";
   const thread = entries.length
-    ? earlier + threadHtml(entries, info.id, { name: viewer.name, creator: info.created_by, encrypted: info.encrypted, lang: viewer.lang, person: viewer.via !== "agent", members: members.map((m) => m.user) })
+    ? earlier + threadHtml(entries, info.id, { name: viewer.name, creator: info.created_by, encrypted: info.encrypted, lang: viewer.lang, person: viewer.via !== "agent", members: members.map((m) => m.user), people })
     : agentChat
       ? `<div class="empty" id="empty"><h3>${esc(T("Talk to your agent"))}</h3><p class="small">Only you and your agents see this chat. Ask anything below: any of your agents can answer (<span class="mono">atteo dispatch</span> starts one for each message), or pick one of them.</p></div>`
     : `<div class="empty" id="empty"><h3>${esc(T("Nothing here yet"))}</h3><p class="small">${esc(T("Any agent joins with {cmd}. Or write the first note below.")).replace("{cmd}", `<span class="mono">atteo join ${esc(info.id)}</span>`)}</p>
@@ -2756,7 +2769,8 @@ export function boardPage(
     olWhole: direct || agentChat,
     seen0: Math.max(0, board.seen ?? 0),
     qopen: (summary ?? computeSummary(entries)).openQuestions.map((e) => e.seq), // the quick-reply chips' open questions (vedu #2490)
-    mopts: mentionOptions(members.map((m) => m.user), viewer.name, agents, agentNames(members), new Set(members.filter((m) => m.agent_name_ambiguous).map((m) => m.user))),
+    mopts: mentionOptions(members.map((m) => m.user), viewer.name, agents, agentNames(members), new Set(members.filter((m) => m.agent_name_ambiguous).map((m) => m.user)), people),
+    dn: people, // handle → display name: typing, read receipts, live entries' labels
     encrypted: !!info.encrypted,
     readOnlyOrArchived: !!(info.archived || readOnly),
     readOnly,
@@ -2781,6 +2795,8 @@ export function boardPage(
     ? `<div class="flash bp-banner e2e-bar"><span class="grow" id="e2e-msg">🔒 <b>${esc(T("End-to-end encrypted."))}</b> Messages are encrypted on each member's device; read and write them here, or with <span class="mono">atteo read</span> / <span class="mono">atteo post</span> after <span class="mono">atteo use ${esc(info.id)}</span>.</span><div id="e2e-asks" class="e2e-asks"></div></div>`
     : "";
   const peer = direct ? (info.title.split(" ↔ ").find((x) => x !== viewer.name) ?? viewer.name) : "";
+  // A direct chat's title is "a ↔ b" (handles); it reads with the names they chose (jxn #4369).
+  const shownTitle = direct ? info.title.split(" ↔ ").map((h) => (h === viewer.name ? shownName(h, viewer.display_name) : shownName(h, people[h]))).join(" ↔ ") : info.title;
   const headPic = agentChat
     ? avatar(viewer.name, "", true)
     : direct
@@ -2802,9 +2818,9 @@ export function boardPage(
     agentChat
       ? `<h1 class="truncate" id="board-title">${esc(T("Your agent"))}</h1>`
       : isCreator && !info.archived
-      ? `<div class="title-edit"><h1 class="truncate" id="board-title" tabindex="0" role="button" title="${esc(T("Rename (click or press Enter)"))}">${esc(info.title)}</h1><button class="btn ghost sm pencil" type="button" id="title-pencil" aria-label="${esc(T("Rename board"))}"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M11.5 2.5l2 2L6 12H4v-2z"/></svg></button>
+      ? `<div class="title-edit"><h1 class="truncate" id="board-title" tabindex="0" role="button" title="${esc(T("Rename (click or press Enter)"))}">${esc(shownTitle)}</h1><button class="btn ghost sm pencil" type="button" id="title-pencil" aria-label="${esc(T("Rename board"))}"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M11.5 2.5l2 2L6 12H4v-2z"/></svg></button>
 <input class="input title-input" id="title-input" value="${esc(info.title)}" maxlength="120" hidden aria-label="${esc(T("Board name"))}"></div>`
-      : `<h1 class="truncate" id="board-title">${esc(info.title)}</h1>`
+      : `<h1 class="truncate" id="board-title"${direct ? ` title="${esc(info.title)}"` : ""}>${esc(shownTitle)}</h1>`
   }
   <div class="row small muted bp-meta" title="${esc(info.id)}">
     <span class="badge conn" id="conn" hidden title="${esc(T("Live updates are reconnecting"))}">${esc(T("Reconnecting…"))}</span>${readOnly ? `<span class="badge" title="${esc(T("Your role on this board is viewer: you can read, not post"))}">${esc(T("View only"))}</span>` : ""}
@@ -2847,7 +2863,7 @@ export function boardPage(
       </div>
     </form>
   </section>
-  <aside class="aside" id="board-info" aria-label="${esc(T("Board info"))}">${agentChat ? "" : PIN_SIDE + SOUL_SIDE + charterSide(board.charter ?? { goal: null, data_classes: [], retention_days: null, members: members.map((m) => ({ user: m.user, role: m.role ?? (m.user === info.created_by ? "owner" : "contributor"), note: null })) }, isOwner && !info.archived, L)}${agentsSection(agents, info.id, readOnly || !!info.archived, L, canInviteAgent)}<div class="sum" id="sum">${summaryHtml(entries, viewer.name, members, summary, ctl, L)}</div>
+  <aside class="aside" id="board-info" aria-label="${esc(T("Board info"))}">${agentChat ? "" : PIN_SIDE + SOUL_SIDE + charterSide(board.charter ?? { goal: null, data_classes: [], retention_days: null, members: members.map((m) => ({ user: m.user, role: m.role ?? (m.user === info.created_by ? "owner" : "contributor"), note: null })) }, isOwner && !info.archived, L, people)}${agentsSection(agents, info.id, readOnly || !!info.archived, L, canInviteAgent)}<div class="sum" id="sum">${summaryHtml(entries, viewer.name, members, summary, ctl, L)}</div>
 ${notifySide(L)}
 </aside>
 </div></div>
@@ -2928,8 +2944,8 @@ ${canInviteAgent ? inviteAgentDialog(T, info) : ""}
   <form method="post" action="/api/boards/${esc(info.id)}/invites" data-api data-reset class="acc-inv">
     <div class="acc-row"><div class="acc-to grow"><input class="input" id="inv-email" name="email" required autocomplete="off" placeholder="${esc(T("A friend's name, or anyone's email"))}" aria-label="${esc(T("Friend's name or email"))}" aria-autocomplete="list" aria-controls="inv-sug">
       <ul class="acc-sug" id="inv-sug" role="listbox" hidden></ul></div>
-    <select class="input acc-sel" name="role" aria-label="${esc(T("Role"))}"><option value="contributor">${esc(T("Can post"))}</option><option value="viewer">${esc(T("View only"))}</option></select>
-    <select class="input acc-sel" name="expires_days" aria-label="${esc(T("Access"))}"><option value="0">${esc(T("No end date"))}</option><option value="7">${esc(T("7 days"))}</option><option value="30">${esc(T("30 days"))}</option><option value="90">${esc(T("90 days"))}</option></select>
+    <select class="input acc-sel" name="role" aria-label="${esc(T("Role"))}"><option value="viewer" selected>${esc(T("View only"))}</option><option value="contributor">${esc(T("Can post"))}</option></select>
+    <select class="input acc-sel" name="expires_days" aria-label="${esc(T("Access"))}"><option value="30" selected>${esc(T("30 days"))}</option><option value="7">${esc(T("7 days"))}</option><option value="90">${esc(T("90 days"))}</option><option value="0">${esc(T("No end date"))}</option></select>
     <button class="btn primary">${esc(T("Invite"))}</button></div>
     <p data-result hidden style="margin-top:8px"></p>
     <p class="xs muted" style="margin-top:10px">${esc(T("From an agent:"))} <span class="mono">atteo invite &lt;name&gt; --board ${esc(info.id)}</span>${esc(T(". Once they accept, their agents join with"))} <span class="mono">atteo join ${esc(info.id)}</span>.</p>
@@ -2943,8 +2959,9 @@ ${canInviteAgent ? inviteAgentDialog(T, info) : ""}
   ${
     isOwner
       ? `<section class="acc-sec"><h3>${esc(T("Invite link"))}</h3><p class="xs muted">${esc(T("Anyone with the link joins (no email needed). Links end on their own; revoke one any time."))}</p>
-  <div class="acc-row"><select class="input acc-sel" id="link-role" aria-label="${esc(T("Role for people who join"))}"><option value="contributor">${esc(T("Can post"))}</option><option value="viewer">${esc(T("View only"))}</option></select>
+  <div class="acc-row"><select class="input acc-sel" id="link-role" aria-label="${esc(T("Role for people who join"))}"><option value="viewer" selected>${esc(T("View only"))}</option><option value="contributor">${esc(T("Can post"))}</option></select>
     <select class="input acc-sel" id="link-days" aria-label="${esc(T("Link works for"))}"><option value="1">${esc(T("Works 1 day"))}</option><option value="7" selected>${esc(T("Works 7 days"))}</option><option value="30">${esc(T("Works 30 days"))}</option></select>
+    <select class="input acc-sel" id="link-access" aria-label="${esc(T("Access"))}"><option value="30" selected>${esc(T("30 days"))}</option><option value="7">${esc(T("7 days"))}</option><option value="90">${esc(T("90 days"))}</option><option value="0">${esc(T("No end date"))}</option></select>
     <button class="btn" type="button" id="link-make">${esc(T("Create link"))}</button></div>
   <div id="link-new" hidden style="margin-top:8px"></div><ul class="acc-list" id="acc-links"></ul></section>`
       : ""
@@ -3003,7 +3020,7 @@ ${canInviteAgent ? inviteAgentDialog(T, info) : ""}
     viewer,
     boards: side,
     active: info.id,
-    crumbs: agentChat ? `<span class="cur truncate">${esc(T("Your agent"))}</span>` : `<a class="muted" href="/">${esc(T("Boards"))}</a><span class="faint">/</span><span class="cur truncate">${esc(info.title)}</span>`,
+    crumbs: agentChat ? `<span class="cur truncate">${esc(T("Your agent"))}</span>` : `<a class="muted" href="/">${esc(T("Boards"))}</a><span class="faint">/</span><span class="cur truncate">${esc(shownTitle)}</span>`,
     actions: `${agent.connected ? "" : `<button class="btn sm" data-open="connect" aria-label="${esc(T("Connect an agent"))}"><span class="hide-sm">${esc(T("Connect an agent"))}</span><span class="sm-only">${esc(T("Connect"))}</span></button>`}${readOnly || agentChat ? "" : `<button class="btn sm" data-open="invite">${esc(T("Invite"))}<kbd class="hide-sm">I</kbd></button>`}${
       // Rename/archive/delete live at the bottom of Members & access; a visible way in, so they aren't hidden behind Invite.
       `<details class="board-head-menu"><summary class="btn ghost sm" aria-label="${esc(T("More actions"))}" title="${esc(T("More actions"))}">⋯</summary><div class="board-head-menu-items"><button type="button" class="ol-all" data-ol-toggle data-open-l="${esc(T("Open all messages"))}" data-fold-l="${esc(T("Fold messages again"))}">${esc(T("Open all messages"))}</button><button type="button" data-mark-unread="${esc(info.id)}">${esc(T("Mark as unread"))}</button>${isCreator || canPic ? `<button type="button" data-open="invite" data-goto="acc-board">${esc(T("Board settings"))}</button>` : ""}</div></details>`
@@ -3200,7 +3217,7 @@ export function profilePage(viewer: Viewer, side: SideBoard[], p: import("./soci
     p.relation === "self"
       ? `<a class="btn sm" href="/me">${esc(T("Edit your account"))}</a>`
       : p.relation === "friend"
-        ? `<button class="btn sm primary" data-direct="${esc(p.name)}">Message ${esc(p.name)}</button><button class="btn sm ghost" data-friend="remove" data-name="${esc(p.name)}">${esc(T("Unfriend"))}</button>`
+        ? `<button class="btn sm primary" data-direct="${esc(p.name)}">Message ${esc(shownName(p.name, p.display_name))}</button><button class="btn sm ghost" data-friend="remove" data-name="${esc(p.name)}">${esc(T("Unfriend"))}</button>`
         : p.relation === "pending_in"
           ? `<button class="btn sm primary" data-friend="accept" data-name="${esc(p.name)}">${esc(T("Accept friend request"))}</button>`
           : p.relation === "pending_out"
@@ -3228,7 +3245,7 @@ export function profilePage(viewer: Viewer, side: SideBoard[], p: import("./soci
   const body = `<div class="card pad prof prof-hero">
   <div class="prof-av">${avatar(p.name, "lg")}<span class="prof-agent" title="${esc(p.name)}'s agent">${avatar(p.name, "sm", true)}</span></div>
   <div class="grow" style="min-width:0">
-    <h1 class="prof-name">${esc(p.display_name ?? p.name)}</h1>
+    <h1 class="prof-name"><bdi>${esc(shownName(p.name, p.display_name))}</bdi></h1>
     <div class="small muted">@${esc(p.name)}</div>
     <div class="row prof-pres"><span class="pres${on ? " on" : ""}"></span><span class="small">${esc(presence)}</span>${p.shared_boards ? `<span class="faint">·</span><span class="small muted">${p.shared_boards} shared board${p.shared_boards === 1 ? "" : "s"}</span>` : ""}</div>
     ${p.bio ? `<p class="prof-bio">${esc(p.bio)}</p>` : ""}
@@ -3240,7 +3257,7 @@ document.addEventListener('click',async e=>{const a=e.target.closest('[data-add]
   if(a){const r=await fetch('/api/friends/request',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({user:a.dataset.add})});const j=await r.json().catch(()=>({}));if(!r.ok){toast(j.error||'Could not send');return}location.reload();return}
   const r=await fetch('/api/direct/'+encodeURIComponent(d.dataset.direct),{method:'POST'});const j=await r.json().catch(()=>({}));if(!r.ok){toast(j.error||'Could not open');return}location.href='/b/'+j.board});
 (()=>{const a=document.getElementById('agent');if(!a)return;const go=()=>{if(location.hash==='#agent'){a.scrollIntoView({block:'center'});a.classList.add('hl');setTimeout(()=>a.classList.remove('hl'),2400)}};go();addEventListener('hashchange',go)})();`;
-  return appPage(`${p.name} · Atteo`, { viewer, boards: side, active: "people", crumbs: `<a class="muted" href="/people">${esc(T("People"))}</a><span class="faint">/</span><span class="cur">${esc(p.name)}</span>`, body, script, narrow: true });
+  return appPage(`${p.name} · Atteo`, { viewer, boards: side, active: "people", crumbs: `<a class="muted" href="/people">${esc(T("People"))}</a><span class="faint">/</span><span class="cur">${esc(shownName(p.name, p.display_name))}</span>`, body, script, narrow: true });
 }
 
 /** Webhooks for agents that don't keep a connection open (hosted bots, serverless, CI). */
@@ -3648,6 +3665,15 @@ export interface AdminData {
   totalEntries: number;
   access: { user: string; boards: { id: string; title: string }[]; active_tokens: number; last_token_use: number | null }[];
   metrics?: import("./usage").Metrics;
+  cost?: { capped: { at: number; reason: string } | null; watching: boolean }; // the cost guard (src/costGuard.ts)
+}
+
+/** The cost guard's state on /_ops: tripped (with why, and Clear) or watching, or off without an analytics token. */
+function costHtml(c: AdminData["cost"]): string {
+  if (!c) return "";
+  if (c.capped)
+    return `<div class="card pad" role="alert" style="margin-bottom:16px"><strong>Cost guard tripped</strong> <span class="small muted">${esc(new Date(c.capped.at).toISOString().replace("T", " ").slice(0, 16))} UTC</span><p class="small" style="margin:6px 0 10px">${esc(c.capped.reason)}. Waits, search, grep and exports answer 503. Find and stop the loop first (docs/COSTS.md), then clear.</p><button class="btn" type="button" data-cost-clear>Clear the cost cap</button></div>`;
+  return `<p class="small muted" style="margin:0 0 16px">Cost guard: ${c.watching ? "watching D1 and Durable Object usage (alerts go to the bug board)" : "off: set CF_ACCOUNT_ID and CF_ANALYTICS_TOKEN to watch usage"}.</p>`;
 }
 
 export function adminPage(viewer: Viewer, side: SideBoard[], d: AdminData): Response {
@@ -3671,18 +3697,32 @@ export function adminPage(viewer: Viewer, side: SideBoard[], d: AdminData): Resp
   const k = m?.kpis;
   const kpi = (n: string | number, label: string, sub = "") => `<div class="card pad"><div class="stat">${esc(String(n))}</div><div class="small muted">${label}</div>${sub ? `<div class="xs faint" style="margin-top:2px">${sub}</div>` : ""}</div>`;
   const o = m?.observe;
+  const s = m?.success;
   const rate = o?.block_rate == null ? "—" : `${(o.block_rate * 100).toFixed(1)}%`;
   const avg = o?.context_pack.avg_chars == null ? "—" : Math.round(o.context_pack.avg_chars).toLocaleString("en-US");
   const staleRate = o?.stale_notices.rate == null ? "—" : `${(o.stale_notices.rate * 100).toFixed(1)}%`;
   const verifiedRatio = o?.claim_reviews.verified_ratio == null ? "—" : `${(o.claim_reviews.verified_ratio * 100).toFixed(1)}%`;
+  const p95 = (ms: number | null | undefined, overflow?: boolean) => (overflow ? "≥2s" : ms == null ? "—" : `< ${ms.toLocaleString("en-US")} ms`);
+  const delivery = o?.latency?.entry_delivery;
+  const packMs = o?.latency?.context_pack;
   // Daily counters from src/observe.ts. The paragraph is how an operator reads them; the same object is GET /api/ops/metrics → observe.
   const trustHtml = o
     ? `<h2 style="margin:32px 0 10px">Trust and context <span class="xs muted">(last ${o.days} days)</span></h2>
-<p class="small muted" style="margin:-4px 0 14px">A paste is a write that landed on a board. An egress block is a write the secret filter refused before anything was stored. Block rate is blocks ÷ (pastes + blocks). A context pack is the summary an agent is handed on read; average size is total characters ÷ packs served. Stale-notice rate is disputed or retracted premises with dependents ÷ all such invalidations. Verified-claim ratio is verified ÷ completed claim reviews. Approval counts are requests and decisions made in the window. The same numbers are <span class="mono">observe</span> on <span class="mono">GET /api/ops/metrics</span>, and the <span class="mono">paste</span>, <span class="mono">egress_block</span>, <span class="mono">context_pack</span>, <span class="mono">stale_notice</span>, <span class="mono">claim_review</span> and <span class="mono">approval</span> rows of <span class="mono">usage_daily</span> (<span class="mono">GET /api/ops/usage-daily</span>).</p>
+<p class="small muted" style="margin:-4px 0 14px">A paste is a write that landed on a board. An egress block is a write the secret filter refused before anything was stored. Block rate is blocks ÷ (pastes + blocks). A context pack is the summary an agent is handed on read; average size is total characters ÷ packs served. Stale-notice rate is disputed or retracted premises with dependents ÷ all such invalidations. Verified-claim ratio is verified ÷ completed claim reviews. Approval counts are requests and decisions made in the window. Entry delivery is a post reaching an agent already waiting (the entry's timestamp → that wait returning it); context-pack read is <span class="mono">Board.read</span> when it hands a summary. p50/p95 are the upper edge of the histogram bucket that holds that percentile. The same numbers are <span class="mono">observe</span> on <span class="mono">GET /api/ops/metrics</span>, and the <span class="mono">paste</span>, <span class="mono">egress_block</span>, <span class="mono">context_pack</span>, <span class="mono">stale_notice</span>, <span class="mono">claim_review</span>, <span class="mono">approval</span>, <span class="mono">entry_delivery</span> and <span class="mono">context_pack_ms</span> rows of <span class="mono">usage_daily</span> (<span class="mono">GET /api/ops/usage-daily</span>).</p>
 <div class="grid4">${kpi(o.paste.total, "Pastes", `${o.paste.person} by people · ${o.paste.agent} by agents`)}${kpi(o.egress_blocks.total, "Egress blocks", "secret filter refused the write")}${kpi(rate, "Block rate", "blocks ÷ (pastes + blocks)")}${kpi(avg, "Average context pack", `${o.context_pack.served} served · ${o.context_pack.truncated} truncated · ${o.context_pack.chars.toLocaleString("en-US")} characters`)}</div>
 <div class="grid4" style="margin-top:12px">${kpi(staleRate, "Stale-notice rate", `${o.stale_notices.notices} notices · ${o.stale_notices.invalidations} invalidations · ${o.stale_notices.entries} entries made stale`)}${kpi(verifiedRatio, "Verified-claim ratio", `${o.claim_reviews.verified} verified · ${o.claim_reviews.disputed} disputed`)}${kpi(o.approvals.requested, "Approval requests", `${o.approvals.by_risk.low} low · ${o.approvals.by_risk.medium} medium · ${o.approvals.by_risk.high} high risk`)}${kpi(o.approvals.approved + o.approvals.rejected, "Approval decisions", `${o.approvals.approved} approved · ${o.approvals.rejected} rejected`)}</div>
 <h2 style="margin:24px 0 10px">Egress blocks by rule</h2>${table(["Rule", "Blocks"], o.egress_blocks.by_rule.map((r) => `<tr><td class="mono">${esc(r.rule)}</td><td>${r.count}</td></tr>`), "No secrets refused in this window.")}
-<h2 style="margin:24px 0 10px">Context pack size</h2>${table(["Size", "Packs"], o.context_pack.buckets.map((b) => `<tr><td>${esc(b.label)}</td><td>${b.count}</td></tr>`), "No context packs served.")}`
+<h2 style="margin:24px 0 10px">Context pack size</h2>${table(["Size", "Packs"], o.context_pack.buckets.map((b) => `<tr><td>${esc(b.label)}</td><td>${b.count}</td></tr>`), "No context packs served.")}
+<h2 style="margin:24px 0 10px">Latency (p95) <span class="xs muted">(last ${o.days} days)</span></h2>
+<p class="small muted" style="margin:-4px 0 14px">Production tracking of the PRD targets: entry delivery p95 &lt; 500 ms, context-pack read p95 &lt; 2 s. Local load-test numbers stay in <span class="mono">scripts/load-test.mjs</span>. These are histogram estimates from daily counters, not a stored sample list.</p>
+<div class="grid4">${kpi(p95(delivery?.p95_ms, delivery?.p95_overflow), "Entry delivery p95", `${delivery?.samples ?? 0} samples · target &lt; ${delivery?.target_ms ?? 500} ms · ${delivery?.over_target ?? 0} over target`)}${kpi(p95(packMs?.p95_ms, packMs?.p95_overflow), "Context pack p95", `${packMs?.samples ?? 0} samples · target &lt; 2 s · ${packMs?.over_target ?? 0} over target`)}${kpi(delivery?.avg_ms == null ? "—" : `${Math.round(delivery.avg_ms)} ms`, "Average delivery", delivery?.p50_ms == null && !delivery?.p50_overflow ? "" : `p50 ${p95(delivery?.p50_ms, delivery?.p50_overflow)}`)}${kpi(packMs?.avg_ms == null ? "—" : `${Math.round(packMs.avg_ms)} ms`, "Average context-pack read", packMs?.p50_ms == null && !packMs?.p50_overflow ? "" : `p50 ${p95(packMs?.p50_ms, packMs?.p50_overflow)}`)}</div>
+<h2 style="margin:24px 0 10px">Entry delivery</h2>${table(["Latency", "Deliveries"], (delivery?.buckets ?? []).map((b) => `<tr><td>${esc(b.label)}</td><td>${b.count}</td></tr>`), "No waiting-agent deliveries in this window.")}
+<h2 style="margin:24px 0 10px">Context-pack read</h2>${table(["Latency", "Reads"], (packMs?.buckets ?? []).map((b) => `<tr><td>${esc(b.label)}</td><td>${b.count}</td></tr>`), "No context-pack reads timed in this window.")}`
+    : "";
+  const productHtml = s
+    ? `<h2 style="margin:32px 0 10px">Product <span class="xs muted">(last ${s.days} days)</span></h2>
+<p class="small muted" style="margin:-4px 0 14px">Activation events, not the stock of users and boards above. A board created is a collaboration board (not a DM or Your agent). First agent post is a person whose agent wrote on a board for the first time. Invite redeemed is someone joining through an invite link or an accepted email invitation. Friend accepted is a pending request that became a friendship. The same numbers are <span class="mono">success</span> on <span class="mono">GET /api/ops/metrics</span>, and the <span class="mono">success</span> rows of <span class="mono">usage_daily</span> (<span class="mono">GET /api/ops/usage-daily</span>). Test accounts whose names start with <span class="mono">e2e-</span> are left out.</p>
+<div class="grid4">${kpi(s.board_created, "Boards created", "collaboration boards")}${kpi(s.first_agent_post, "First agent post", "a person's agent posted for the first time")}${kpi(s.invite_redeemed, "Invites redeemed", "invite link or email invitation accepted")}${kpi(s.friend_accepted, "Friends accepted", "a pending request became a friendship")}</div>`
     : "";
   // The numbers worth knowing at a glance (test accounts and boards left out).
   const kpiHtml = k
@@ -3692,8 +3732,8 @@ export function adminPage(viewer: Viewer, side: SideBoard[], d: AdminData): Resp
         `${k.pro} on Pro${k.cancelling ? ` · ${k.cancelling} cancelling` : ""}${k.active_30d ? ` · ${Math.round((k.pro / k.active_30d) * 100)}% of active` : ""}`,
       )}${kpi(k.agents_7d, "People with an agent connected", "used a token this week")}</div>
 <div class="grid4" style="margin-top:12px">${kpi(k.boards, "Boards", `${k.boards_active_7d} active this week`)}${kpi(k.posts_7d, "Posts this week", "people and agents")}${kpi(d.totalEntries, "Messages, all time")}${kpi(k.errors_24h, "Kinds of server error, last 24h", k.errors_24h ? `${k.errors_24h_total.toLocaleString("en-US")} times in all · details below and in Sentry` : "all quiet")}</div>`
-    : `<div class="grid4">${stat(d.boards.length, "Boards")}${stat(d.users.length, "Users")}${stat(d.totalEntries, "Messages")}${stat(d.invites.length, "Invites")}</div>`;
-  const overview = `${kpiHtml}${trustHtml}${usageHtml}
+    : `${costHtml(d.cost)}<div class="grid4">${stat(d.boards.length, "Boards")}${stat(d.users.length, "Users")}${stat(d.totalEntries, "Messages")}${stat(d.invites.length, "Invites")}</div>`;
+  const overview = `${kpiHtml}${productHtml}${trustHtml}${usageHtml}
 <h2 style="margin:32px 0 10px">Boards</h2>
 ${table(
   ["Board", "Members", "Messages", "Created by", "Last activity"],
@@ -3736,7 +3776,8 @@ ${table(
     `function tab(n){document.querySelectorAll('#ops-tabs button').forEach((b,i)=>b.setAttribute('aria-selected',String(i===n)));document.querySelectorAll('[data-ops-panel]').forEach((p,i)=>p.hidden=i!==n);history.replaceState(null,'',['#overview','#access','#events'][n])}
 document.querySelectorAll('#ops-tabs button').forEach((b,i)=>b.addEventListener('click',()=>tab(i)));
 tab(Math.max(0,['#overview','#access','#events'].indexOf(location.hash)));
-window.boardKeys=(e,k)=>{if(k==='1'||k==='2'||k==='3')tab(+k-1)};`;
+window.boardKeys=(e,k)=>{if(k==='1'||k==='2'||k==='3')tab(+k-1)};
+document.querySelector('[data-cost-clear]')?.addEventListener('click',async e=>{e.target.disabled=true;const r=await fetch('/api/ops/cost-guard',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({clear:true})});if(r.ok)location.reload();else e.target.disabled=false});`;
   return appPage("Ops · Atteo", {
     viewer,
     boards: side,

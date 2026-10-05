@@ -130,6 +130,7 @@ const MATCH_ROUTES: Record<string, Route[]> = {
     { method: "DELETE", path: "/api/boards/{id}/schedules/{sid}" },
   ],
   "\\/api\\/boards\\/(b_[a-z0-9]+)\\/recap$": [{ method: "GET", path: "/api/boards/{id}/recap" }],
+  "\\/api\\/boards\\/(b_[a-z0-9]+)\\/ls$": [{ method: "GET", path: "/api/boards/{id}/ls" }],
   "\\/api\\/boards\\/(b_[a-z0-9]+)\\/pin$": [
     { method: "GET", path: "/api/boards/{id}/pin" },
     { method: "POST", path: "/api/boards/{id}/pin" },
@@ -206,6 +207,7 @@ function shouldDocument(path: string): boolean {
     path.startsWith("/oauth/") ||
     path.startsWith("/.well-known/") ||
     path === "/a2a" ||
+    path === "/github/webhook" ||
     path === "/openapi.json"
   );
 }

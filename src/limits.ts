@@ -1,4 +1,6 @@
-// Guardrails for Cloudflare's Free plan (INFRA-ASSESSMENT §4i; the D1 read cap hit on #1495/#1516): a per-token rate
+// Guardrails, first sized for Cloudflare's Free plan (INFRA-ASSESSMENT §4i; the D1 read cap hit on #1495/#1516) and
+// re-sized for Workers Paid on Oct 5 (#4340: at 70k/90k requests prod was shedding every day; cost limits now live in
+// costGuard.ts, docs/COSTS.md has the math): a per-token rate
 // limit, a per-person daily budget, one open wait per agent session, and load-shedding levels the cron sets.
 //
 // None of it reads or writes D1 per request. Rate limits are per-isolate memory. Daily counts accumulate per isolate
@@ -8,6 +10,7 @@
 // Every number is an env var (vedu decides them); see Limits for the names and defaults.
 
 import { planOf } from "./billing";
+import { capped, cappedResponse } from "./costGuard";
 import type { Env } from "./types";
 
 export interface Limits {
@@ -16,10 +19,10 @@ export interface Limits {
   dailyFree: number; // DAILY_REQUESTS_FREE: a person's non-wait requests per UTC day on Free (default 50,000)
   dailyPro: number; // DAILY_REQUESTS_PRO: same on Pro (default 0 = unlimited)
   liveSessions: number; // MAX_LIVE_SESSIONS: live agent sessions per person (default 25; 0 = no cap)
-  shedL1Requests: number; // SHED_L1_REQUESTS: Worker requests today (our own count) that start shedding (default 70,000 of 100k)
-  shedL2Requests: number; // SHED_L2_REQUESTS: … that refuse non-essential agent writes (default 90,000)
-  shedL1RowsRead: number; // SHED_L1_D1_ROWS_READ: D1 rows read today (Cloudflare analytics) for level 1 (default 3,500,000 of 5M)
-  shedL2RowsRead: number; // SHED_L2_D1_ROWS_READ: … for level 2 (default 4,500,000)
+  shedL1Requests: number; // SHED_L1_REQUESTS: Worker requests today (our own count) that start shedding (default 1,500,000; Workers Paid)
+  shedL2Requests: number; // SHED_L2_REQUESTS: … that refuse non-essential agent writes (default 3,000,000)
+  shedL1RowsRead: number; // SHED_L1_D1_ROWS_READ: D1 rows read today (Cloudflare analytics) for level 1 (default 1,000,000,000)
+  shedL2RowsRead: number; // SHED_L2_D1_ROWS_READ: … for level 2 (default 2,000,000,000)
 }
 
 const num = (v: string | undefined, d: number) => {
@@ -52,10 +55,10 @@ export function limits(env: Env): Limits {
     dailyFree: num(env.DAILY_REQUESTS_FREE, d(50_000)),
     dailyPro: num(env.DAILY_REQUESTS_PRO, 0),
     liveSessions: num(env.MAX_LIVE_SESSIONS, d(25)),
-    shedL1Requests: num(env.SHED_L1_REQUESTS, d(70_000)),
-    shedL2Requests: num(env.SHED_L2_REQUESTS, d(90_000)),
-    shedL1RowsRead: num(env.SHED_L1_D1_ROWS_READ, d(3_500_000)),
-    shedL2RowsRead: num(env.SHED_L2_D1_ROWS_READ, d(4_500_000)),
+    shedL1Requests: num(env.SHED_L1_REQUESTS, d(1_500_000)),
+    shedL2Requests: num(env.SHED_L2_REQUESTS, d(3_000_000)),
+    shedL1RowsRead: num(env.SHED_L1_D1_ROWS_READ, d(1_000_000_000)),
+    shedL2RowsRead: num(env.SHED_L2_D1_ROWS_READ, d(2_000_000_000)),
     ...overrides,
   };
 }
@@ -325,6 +328,7 @@ export interface Admit {
   essential: boolean; // for an agent write: still allowed at shed level 2
   calls?: number; // how many calls this is for the rate limit (an MCP batch: its inner calls); default 1
   counted?: number; // how many of them count in the daily budget; default 0 for a wait, else 1
+  heavy?: boolean; // can read a lot per call (search, grep, exports): refused, like waits, while the cost cap is on
 }
 
 const err = (status: number, error: string, retryAfter: number, extra: Record<string, unknown> = {}) =>
@@ -356,6 +360,11 @@ export async function admit(env: Env, ctx: ExecutionContext | null, a: Admit, no
         { limit: cap, scope: "daily" },
       );
     }
+  }
+  // The cost guard's hard cap (src/costGuard.ts): waits and heavy reads stop until an operator clears it.
+  if (a.wait || a.heavy) {
+    const c = await capped(env, now);
+    if (c) return cappedResponse(c);
   }
   // Loads the shed level at most once a minute per isolate, so waits here stretch once the cron says so.
   const level = await shedLevel(env, now);

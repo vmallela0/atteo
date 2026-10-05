@@ -53,7 +53,7 @@ struct TypingRow: View {
                             Avatar(name: u, size: 18).padding(1.5).background(Theme.bg, in: Circle()).zIndex(Double(3 - i))
                         }
                     }
-                    Text(Self.line(who)).font(Typo.micro).foregroundStyle(Theme.muted).lineLimit(1)
+                    Text(Self.line(who.map { state.displayName(for: $0) })).font(Typo.micro).foregroundStyle(Theme.muted).lineLimit(1)
                     TypingDots()
                     Spacer(minLength: 0)
                 }
@@ -62,7 +62,7 @@ struct TypingRow: View {
                 .padding(.bottom, Space.xs)
                 .transition(.opacity.combined(with: .move(edge: .bottom)))
                 .accessibilityElement(children: .ignore)
-                .accessibilityLabel(Self.line(who))
+                .accessibilityLabel(Self.line(who.map { state.displayName(for: $0) }))
                 .accessibilityIdentifier("typing")
             }
         }

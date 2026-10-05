@@ -704,6 +704,7 @@ export const HI: Record<string, string> = {
   "Show all {n}": "सभी {n} दिखाएँ",
   "Show board info": "बोर्ड जानकारी दिखाएँ",
   "Show in conversation": "बातचीत में दिखाएँ",
+  "Show in chat": "चैट में दिखाएँ",
   "Show less": "कम दिखाएँ",
   "Show the ": "दिखाएँ ",
   "Show the message": "संदेश दिखाएँ",

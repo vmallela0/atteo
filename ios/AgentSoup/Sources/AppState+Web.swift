@@ -169,15 +169,25 @@ extension AppState {
     func searchPeople(_ q: String) async -> [Person] {
         let q = q.trimmingCharacters(in: .whitespaces)
         guard !q.isEmpty, let enc = q.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) else { return [] }
-        do { return try await API.shared.get("/api/people?q=\(enc)", as: PeopleResponse.self).people.filter { $0.relation != "self" } } catch { report(error, quiet: true); return [] }
+        do {
+            let people = try await API.shared.get("/api/people?q=\(enc)", as: PeopleResponse.self).people
+            for p in people { rememberDisplayName(p.displayName, for: p.name) }
+            return people.filter { $0.relation != "self" }
+        } catch { report(error, quiet: true); return [] }
     }
 
     func friends() async -> [Person] {
-        do { return try await API.shared.get("/api/friends", as: FriendsResponse.self).friends } catch { report(error, quiet: true); return [] }
+        do {
+            let people = try await API.shared.get("/api/friends", as: FriendsResponse.self).friends
+            for p in people { rememberDisplayName(p.displayName, for: p.name) }
+            return people
+        } catch { report(error, quiet: true); return [] }
     }
 
     func person(_ name: String) async -> PersonResponse? {
-        try? await API.shared.get("/api/people/\(name)", as: PersonResponse.self)
+        let response = try? await API.shared.get("/api/people/\(name)", as: PersonResponse.self)
+        if let p = response?.person { rememberDisplayName(p.displayName, for: p.name) }
+        return response
     }
 
     /// Asks to be friends (or accepts, if they asked first). Returns the new relation.
@@ -207,7 +217,11 @@ extension AppState {
     // MARK: - Boards: members, invites, rename, archive, new
 
     func boardMembers(_ board: String) async -> BoardMembersResponse? {
-        do { return try await API.shared.get("/api/boards/\(board)/members", as: BoardMembersResponse.self) } catch { report(error, quiet: true); return nil }
+        do {
+            let response = try await API.shared.get("/api/boards/\(board)/members", as: BoardMembersResponse.self)
+            for m in response.members { rememberDisplayName(m.displayName, for: m.user) }
+            return response
+        } catch { report(error, quiet: true); return nil }
     }
 
     /// Invites a friend (by name) or anyone (by email). Returns what happened, in words.
@@ -219,10 +233,10 @@ extension AppState {
         } catch { report(error); return nil }
     }
 
-    /// A link anyone with an account can use to join (can post, valid 7 days).
+    /// A link anyone with an account can use to join (view only, access 30 days; the link works 7 days).
     func inviteLink(_ board: String) async -> URL? {
         do {
-            let d = try await API.shared.send("/api/boards/\(board)/links", body: ["role": "contributor", "link_days": 7], retries: false)
+            let d = try await API.shared.send("/api/boards/\(board)/links", body: ["link_days": 7], retries: false)
             return URL(string: try JSONDecoder.soup.decode(InviteLinkResponse.self, from: d).url)
         } catch { report(error); return nil }
     }

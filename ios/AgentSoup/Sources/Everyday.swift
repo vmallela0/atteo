@@ -142,7 +142,7 @@ enum EverydayHooks {
 
 /// The signed-in app: Everyday's For you (with Chats a tap away) or, in Developer mode, today's Chats.
 struct ModeRoot: View {
-    @EnvironmentObject var state: AppState
+    // No AppState here: it doesn't read it, and watching it made the root over every screen again on each change.
     @ObservedObject private var mode = AppMode.shared
 
     var body: some View {

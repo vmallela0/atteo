@@ -6,7 +6,8 @@ import SwiftUI
 struct BoardView: View {
     @EnvironmentObject var state: AppState
     let board: Board
-    @State private var draft = ""
+    /// The box's words, outside this view's state: only the box redraws as you type (jxn #4181, MessageDrafts.swift).
+    @State private var draft: ComposerDraft
     @State private var tab: BoardTab // Chat · Tasks · Files under the title (BoardTabs.swift, vedu #2549)
     @State private var taskDetail: Int? // a task opened from the Tasks tab
     @State private var newTask = false
@@ -23,12 +24,13 @@ struct BoardView: View {
     private var presence: String {
         var users: [String] = []
         for a in live where !users.contains(a.user) { users.append(a.user) }
+        let names = users.map { state.displayName(for: $0) }
         switch users.count {
         case 0:
             if board.encrypted == true { return String(localized: "End-to-end encrypted", bundle: .l10n) }
             return Vocab.pick(String(localized: "No agents working now", bundle: .l10n), String(localized: "No assistants working now", bundle: .l10n))
-        case 1: return Vocab.pick(String(localized: "\(users[0])'s agent working", bundle: .l10n), String(localized: "\(users[0].capitalizedFirst)'s assistant working", bundle: .l10n))
-        case 2: return Vocab.pick(String(localized: "\(users[0]) and \(users[1])'s agents working", bundle: .l10n), String(localized: "\(users[0].capitalizedFirst) and \(users[1].capitalizedFirst)'s assistants working", bundle: .l10n))
+        case 1: return Vocab.pick(String(localized: "\(names[0])'s agent working", bundle: .l10n), String(localized: "\(names[0].capitalizedFirst)'s assistant working", bundle: .l10n))
+        case 2: return Vocab.pick(String(localized: "\(names[0]) and \(names[1])'s agents working", bundle: .l10n), String(localized: "\(names[0].capitalizedFirst) and \(names[1].capitalizedFirst)'s assistants working", bundle: .l10n))
         default: return Vocab.pick(String(localized: "\(users.count) agents working", bundle: .l10n), String(localized: "\(users.count) assistants working", bundle: .l10n))
         }
     }
@@ -56,7 +58,7 @@ struct BoardView: View {
         return max(100, screen - (margin + 60) - (margin + CGFloat(buttons) * 51) - 24)
     }
     private var header: some View {
-        ChatHeader(board: board, title: board.displayName(me: state.me?.owner), presence: presence, presenceShort: presenceShort,
+        ChatHeader(board: board, title: state.displayName(for: board), presence: presence, presenceShort: presenceShort,
                    live: !live.isEmpty, maxWidth: titleMaxWidth) { showAgents = true }
     }
     @State private var focused = false // the message box has the keyboard
@@ -103,7 +105,7 @@ struct BoardView: View {
 
     init(board: Board) {
         self.board = board
-        _draft = State(initialValue: MessageDrafts.shared.text(for: board))
+        _draft = State(initialValue: ComposerDraft(board: board))
         _peopleOnly = State(initialValue: !board.isAgentChat && UserDefaults.standard.bool(forKey: Self.filterKey(board.id)))
         _tab = State(initialValue: BoardTab.remembered[board.id] ?? .chat)
     }
@@ -127,7 +129,7 @@ struct BoardView: View {
             Group {
                 switch tab {
                 case .tasks: TasksPane(board: board.id, open: { taskDetail = $0 }, add: { newTask = true })
-                case .files: FilesPane(board: board.id)
+                case .files: FilesPane(board: board.id) { jump(to: $0, after: 0.35) }
                 case .chat: EmptyView()
                 }
             }
@@ -215,10 +217,10 @@ struct BoardView: View {
                 }
             }
         }
-        .onChange(of: draft) { _, text in MessageDrafts.shared.save(text, for: board) }
+        .onDisappear { draft.save() } // what was typed last, without waiting for the pause
         // iMessage-style: the thread slides up over the chat, with the same message box as the chat (jxn #1040, #1094).
         .sheet(item: $thread) { t in
-            NavigationStack { ThreadView(board: board, root: t.root, prefill: t.prefill, focus: t.focus, replyTo: t.replyTo, overChat: true, closes: true, carry: t.carries ? $draft : nil) }
+            NavigationStack { ThreadView(board: board, root: t.root, prefill: t.prefill, focus: t.focus, replyTo: t.replyTo, overChat: true, closes: true, carry: t.carries ? draft : nil) }
                 .environment(\.chatDensity, density)
                 .presentationDetents([.large]).presentationDragIndicator(.visible)
                 .presentationBackground(Theme.bg)
@@ -299,7 +301,7 @@ struct BoardView: View {
                 PersonCard(name: p.name, open: { b in profile = nil; state.openRequest = b }, agentFirst: p.agent, ask: {
                     profile = nil
                     let handle = "@\(p.name)'s agent "
-                    if !draft.localizedCaseInsensitiveContains(handle.trimmingCharacters(in: .whitespaces)) { draft = handle + draft }
+                    if !draft.text.localizedCaseInsensitiveContains(handle.trimmingCharacters(in: .whitespaces)) { draft.set(handle + draft.text) }
                     focused = true
                 })
             }
@@ -453,7 +455,7 @@ struct BoardView: View {
         }
         // The message box is the chat's: Tasks and Files have the whole height.
         .safeAreaInset(edge: .bottom, spacing: 0) { if tab == .chat { composer } }
-        .navigationTitle(board.displayName(me: state.me?.owner))
+        .navigationTitle(state.displayName(for: board))
         .toolbar {
             // The board's picture, name and who's working here right now, left-aligned after the back button (vedu #4355;
             // tap for everyone, live / idle / gone). ChatHeader.swift.
@@ -571,7 +573,7 @@ struct BoardView: View {
         Task { try? await Task.sleep(nanoseconds: 350_000_000); toLatest() }
     }
     private func oneLineWho(_ e: Entry) -> String {
-        e.byAgent ? agentLabel(e.author, state.agentNames[board.id]?[e.author]?.name ?? e.agentName) : e.author
+        e.byAgent ? agentLabel(state.displayName(for: e.author), state.agentNames[board.id]?[e.author]?.name ?? e.agentName) : state.displayName(for: e.author)
     }
 
     private func entryRow(_ e: Entry, grouped: Bool, mine: Bool, _ r: Rows) -> EntryRow {
@@ -580,8 +582,10 @@ struct BoardView: View {
         let showReceipt = mine && live && (e.seq == r.latestMine || openReceipts.contains(e.seq))
         let hd = e.type == "decision" && !unsent ? state.decisions[board.id]?[e.seq] ?? e.humanDecision : nil
         let chips = live && r.openQuestions.contains(e.seq) ? state.quickChips[board.id]?[e.seq] : nil
-        return EntryRow(e: e, grouped: grouped, mine: mine, board: board.id, tasks: state.tasks[board.id] ?? [], reactions: state.reactions[board.id]?[e.seq] ?? [],
-                        parent: e.replyTo.flatMap { r.bySeq[$0] }, me: me, members: state.members[board.id] ?? [], progress: state.uploads[e.seq],
+        let parent = e.replyTo.flatMap { r.bySeq[$0] }
+        // Only a task row shows the tasks (as they are now): the others don't redraw when one is ticked.
+        return EntryRow(e: e, grouped: grouped, mine: mine, board: board.id, tasks: e.type == "task" ? state.tasks[board.id] ?? [] : [], reactions: state.reactions[board.id]?[e.seq] ?? [],
+                        parent: parent, me: me, members: state.members[board.id] ?? [],
                         reply: live ? { startReply(to: e) } : nil,
                         unsent: unsent, replies: r.replies[e.seq] ?? [], threadUnread: threadUnread(e.seq, r), handling: state.handling[board.id]?[e.seq], lit: flash == e.seq,
                         receipt: showReceipt ? receipt(for: e) : nil,
@@ -589,7 +593,8 @@ struct BoardView: View {
                         actions: actions(for: e, mine: mine, live: live, r),
                         decision: hd, decisionActions: DecisionActions.make(hd, seq: e.seq, board: board, state: state) { p in decisionNote = ""; decisionPrompt = p },
                         agentName: state.agentNames[board.id]?[e.author]?.name, quick: state.favouriteReactions, agentNames: state.agentNameMap(board.id),
-                        replyChips: chips, pickChip: { text in Task { await state.send(text, to: board, replyTo: e.seq) } }) {
+                        replyChips: chips, refTitle: RefTitles.cached(list, state.tasks[board.id] ?? []).only(e.text, parent?.text),
+                        pickChip: { text in Task { await state.send(text, to: board, replyTo: e.seq) } }) {
             Task { if e.local != nil || e.isMultiFile { await state.retryUpload(e, in: board) } else { await state.send(e.text, to: board, retrying: e) } }
         }
     }
@@ -636,7 +641,7 @@ struct BoardView: View {
         newestSeen = max(seen, top)
         let arrived = list.filter { $0.seq > seen && $0.pending != true && $0.retracts == nil }
         // Read replies aloud (Voice.swift): a message for you blips and waits in the bar.
-        for e in arrived where forMeToHear(e) { ReadAloud.shared.heard(e, from: e.byAgent ? agentLabel(e.author, e.agentName ?? state.agentNames[board.id]?[e.author]?.name) : e.author, in: board) }
+        for e in arrived where forMeToHear(e) { ReadAloud.shared.heard(e, from: e.byAgent ? agentLabel(state.displayName(for: e.author), e.agentName ?? state.agentNames[board.id]?[e.author]?.name) : state.displayName(for: e.author), in: board) }
         guard arrived.contains(where: { $0.type == "change" && $0.text.localizedCaseInsensitiveContains("shipped") }) else { return }
         Haptics.play(.shipped)
         confetti += 1
@@ -801,7 +806,7 @@ struct BoardView: View {
         let seen = who.filter(\.seen)
         if seen.isEmpty { return Receipt(text: String(localized: "Delivered", bundle: .l10n), level: 0, readers: who) }
         if seen.count == who.count { return Receipt(text: String(localized: "Seen by everyone", bundle: .l10n), level: 2, readers: who) }
-        let names = seen.map(\.label).joined(separator: ", ")
+        let names = seen.map { $0.mine ? Vocab.yourAgent.lowercased() : state.displayName(for: $0.user, agent: $0.agent) }.joined(separator: ", ")
         return Receipt(text: String(localized: "Seen by \(names)", bundle: .l10n), level: 1, readers: who)
     }
 
@@ -811,7 +816,7 @@ struct BoardView: View {
     var composer: some View {
         VStack(spacing: 0) {
             ReadAloudBar(board: board.id) // a message for you, waiting to be read aloud (Voice.swift)
-            ChatComposer(board: board, draft: $draft, focused: $focused, placeholder: placeholder,
+            ChatComposer(board: board, box: draft, focused: $focused, placeholder: placeholder,
                          toSession: board.isAgentChat ? $toSession : nil)
         }
         .background(Theme.bg)
@@ -826,7 +831,7 @@ struct BoardView: View {
     /// "Message theo", "Message Checkout bug", "Message your agent…" / "Message builder…".
     private var placeholder: String {
         if board.isAgentChat { return toSession.map { String(localized: "Message \($0)…", bundle: .l10n) } ?? String(localized: "Message your agent…", bundle: .l10n) }
-        let name = board.kind == "direct" ? board.displayName(me: state.me?.owner) : board.title
+        let name = board.kind == "direct" ? state.displayName(for: board) : board.title
         return String(localized: "Message \(name)", bundle: .l10n)
     }
 }
@@ -869,8 +874,16 @@ struct Mentionable: Hashable {
 
 /// What "@" suggests, just above the message box: a compact list, one tap to insert.
 struct MentionList: View {
+    @EnvironmentObject var state: AppState
     let items: [Mentionable]
     let pick: (Mentionable) -> Void
+
+    private func label(_ mention: Mentionable) -> String {
+        guard let user = mention.user else { return "@" + mention.handle }
+        if mention.handle.contains("/") { return state.displayName(for: mention.handle) }
+        return state.displayName(for: user, agent: mention.agent)
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             ForEach(items, id: \.handle) { m in
@@ -880,9 +893,9 @@ struct MentionList: View {
                             Image(systemName: m.agent ? "sparkles" : m.handle == "all" ? "person.3.fill" : "person.2.fill").font(.system(size: 11, weight: .semibold)).foregroundStyle(Theme.muted)
                                 .frame(width: 24, height: 24).background(Theme.raised, in: Circle())
                         }
-                        Text("@" + m.handle).font(Typo.secondary.weight(.medium)).foregroundStyle(Theme.text)
+                        Text(label(m)).font(Typo.secondary.weight(.medium)).foregroundStyle(Theme.text)
                         Spacer(minLength: Space.s)
-                        (m.note.map { Text(verbatim: $0) } ?? (m.user == nil ? (m.agent ? Text("every agent here") : Text("everyone here")) : (m.agent ? Text("agent") : Text("person")))).font(Typo.micro).foregroundStyle(Theme.faint).lineLimit(1)
+                        (m.note.map { note in Text(verbatim: note == m.user.map({ "\($0)'s agent" }) ? state.displayName(for: note) : note) } ?? (m.user == nil ? (m.agent ? Text("every agent here") : Text("everyone here")) : (m.agent ? Text("agent") : Text("person")))).font(Typo.micro).foregroundStyle(Theme.faint).lineLimit(1)
                     }
                     .padding(.horizontal, Space.m).frame(minHeight: 40)
                     .contentShape(Rectangle())
@@ -953,15 +966,16 @@ extension EntryRow: Equatable {
     static func == (a: EntryRow, b: EntryRow) -> Bool {
         a.e == b.e && a.grouped == b.grouped && a.mine == b.mine && a.board == b.board && a.tasks == b.tasks
             && a.reactions == b.reactions && a.parent == b.parent && a.me == b.me && a.members == b.members
-            && a.progress == b.progress && (a.reply == nil) == (b.reply == nil) && a.unsent == b.unsent
+            && (a.reply == nil) == (b.reply == nil) && a.unsent == b.unsent
             && a.replies == b.replies && a.threadUnread == b.threadUnread && a.handling == b.handling && a.lit == b.lit
             && a.receipt == b.receipt && (a.openReceipt == nil) == (b.openReceipt == nil) && a.actions.shape == b.actions.shape
             && a.decision == b.decision && a.decisionActions.shape == b.decisionActions.shape && a.agentName == b.agentName
-            && a.quick == b.quick && a.agentNames == b.agentNames && a.replyChips == b.replyChips
+            && a.quick == b.quick && a.agentNames == b.agentNames && a.replyChips == b.replyChips && a.refTitle == b.refTitle
     }
 }
 
 struct EntryRow: View {
+    @EnvironmentObject var state: AppState
     let e: Entry
     var grouped = false
     var mine = false
@@ -971,7 +985,9 @@ struct EntryRow: View {
     var parent: Entry? = nil // what this one answers
     var me: String? = nil
     var members: [String] = [] // who's on the board (for @-mentions while a message is still sending)
-    var progress: Double? = nil // a picture or file going up: how far
+    /// A picture or file going up: how far. Read here, by the row that's sending, not passed in by the chat: the
+    /// ticks then redraw this row alone (jxn #4181).
+    private var progress: Double? { e.pending == true ? AppState.shared.uploads[e.seq] : nil }
     var reply: (() -> Void)? = nil // answer this message (nil: it can't be answered yet)
     var unsent = false // its author took it back
     var replies: [Entry] = [] // answers to it (its thread)
@@ -987,11 +1003,13 @@ struct EntryRow: View {
     var quick: [String] = defaultReactions // your favourite reactions, the row on top of the long-press menu (#1163)
     var agentNames: [String: String] = [:] // named agents here, lowercased name → owner ("@Jarvis" in a message)
     var replyChips: QuickChips? = nil // an agent's open question to you: one-tap replies (QuickReplies.swift)
+    /// What the "#123"s in it (and in what it answers) are called: only its own (RefTitles.only), not the chat's whole
+    /// map from the environment, which changes with every message and made every row again (jxn #4181).
+    var refTitle = RefTitles()
     var pickChip: (String) -> Void = { _ in }
     var retry: () -> Void = {}
     @State var drag: CGFloat = 0 // swipe right to reply
     @Environment(\.chatDensity) private var density
-    @Environment(\.refTitle) private var refTitle
     /// Room above a message: tight under the one before when grouped, a little more otherwise (less when compact).
     private func gapAbove(_ comfortable: CGFloat) -> CGFloat {
         density == .compact ? (grouped ? Space.xxs : Space.gap(density)) : (grouped ? Space.xs : comfortable)
@@ -1000,15 +1018,15 @@ struct EntryRow: View {
     /// Like the web's author line (jxn #2589): a named agent reads "Jarvis · vedu's agent"; a named session
     /// "vedu/scout"; any other agent post "vedu's agent"; people their name.
     private var who: String {
-        guard e.byAgent else { return e.author }
-        if let n = agentName ?? e.agentName, !n.isEmpty { return agentLabel(e.author, n) }
-        if let s = e.sessionName { return "\(e.author)/\(s)" }
-        return agentLabel(e.author, nil)
+        guard e.byAgent else { return state.displayName(for: e.author) }
+        if let n = agentName ?? e.agentName, !n.isEmpty { return agentLabel(state.displayName(for: e.author), n) }
+        if let s = e.sessionName { return "\(state.displayName(for: e.author, agent: true)) · \(s)" }
+        return agentLabel(state.displayName(for: e.author), nil)
     }
     /// What VoiceOver says for the sender: "vedu's agent, scout" for a session.
     private var whoSpoken: String {
         guard e.byAgent, let s = e.sessionName else { return who }
-        return "\(agentLabel(e.author, agentName ?? e.agentName)), \(s)"
+        return "\(agentLabel(state.displayName(for: e.author), agentName ?? e.agentName)), \(s)"
     }
     /// Someone else's message that @mentions you by name (the person, not your agent, a session or a group): tinted,
     /// like the web's (jxn #4120).
@@ -1113,7 +1131,7 @@ struct EntryRow: View {
     /// Tap: the thread, on this reply (in a thread: scrolls to what it answers). Numbers read as titles (#675).
     @ViewBuilder private var quote: some View {
         if e.replyTo != nil {
-            let name = parent.map { $0.byAgent ? Vocab.agentOf($0.author) : ($0.author == me && $0.via != "agent" ? String(localized: "You", bundle: .l10n) : $0.author) }
+            let name = parent.map { $0.byAgent ? state.displayName(for: $0.author, agent: true) : ($0.author == me && $0.via != "agent" ? String(localized: "You", bundle: .l10n) : state.displayName(for: $0.author)) }
             let line = parent.map { ThreadPreview.line($0).plainRefs(refTitle.callAsFunction) } ?? ""
             Button { actions.jumpToParent?() } label: {
                 HStack(spacing: 0) {
@@ -1148,7 +1166,7 @@ struct EntryRow: View {
                 .accessibilityIdentifier("own-badge")
         } else if e.audience == "people" {
             let others = (e.toPeople ?? []).filter { $0 != me }
-            Text(verbatim: "🔒 " + String(localized: "People only", bundle: .l10n) + (others.isEmpty ? "" : " · " + others.joined(separator: ", ")))
+            Text(verbatim: "🔒 " + String(localized: "People only", bundle: .l10n) + (others.isEmpty ? "" : " · " + others.map { state.displayName(for: $0) }.joined(separator: ", ")))
                 .font(Typo.micro.weight(.medium)).foregroundStyle(Theme.warn).lineLimit(1)
                 .accessibilityIdentifier("people-badge")
         }
@@ -1210,7 +1228,11 @@ struct EntryRow: View {
 
     /// Words of this message as Text: inline Markdown, "#123" chips, its mentions boxed (MessageBody draws the blocks).
     private func words(_ t: String) -> (text: Text, handles: [String]) {
-        t.mentioned(e.mentions, members: members, me: me, agentNames: agentNames, author: selfMention(in: e.text, author: e.author, agent: e.via == "agent"), refTitle: refTitle.callAsFunction)
+        let rendered = t.mentioned(e.mentions, members: members, me: me, agentNames: agentNames, author: selfMention(in: e.text, author: e.author, agent: e.via == "agent"), displayName: { state.displayName(for: $0) }, refTitle: refTitle.callAsFunction)
+        return (rendered.text, rendered.handles.map { handle in
+            let address = String(handle.dropFirst())
+            return state.displayName(for: agentNames[address.lowercased()].map { "\($0)'s agent" } ?? address)
+        })
     }
 
     /// Yours: a right-aligned bubble, like any messenger. Tap it to see who's seen it.
@@ -1274,7 +1296,7 @@ struct EntryRow: View {
                             .accessibilityLabel(whoSpoken)
                             .accessibilityIdentifier("sender-\(who)")
                         if let k = kind { Text(k).font(Typo.micro.weight(.medium)).foregroundStyle(e.type == "question" ? Theme.warn : Theme.faint) }
-                        if let to = e.to { Text("to \(to)").font(Typo.micro).foregroundStyle(Theme.faint).lineLimit(1) }
+                        if let to = e.to { Text("to \(state.displayName(for: to))").font(Typo.micro).foregroundStyle(Theme.faint).lineLimit(1) }
                         Spacer(minLength: Space.xs)
                         Text(e.ts.ago).font(Typo.micro).foregroundStyle(Theme.faint).monospacedDigit()
                     }
@@ -1440,6 +1462,7 @@ struct PlaceholderMessage: View {
 /// A task in the chat as it is now, not as it was posted: live title, who's on it, its checklist ticking off
 /// as the work gets done, and its sub-tasks. Tap for the whole task.
 struct TaskCard: View {
+    @EnvironmentObject var state: AppState
     let seq: Int
     let board: String
     let text: String
@@ -1463,7 +1486,7 @@ struct TaskCard: View {
                     VStack(alignment: .leading, spacing: Space.xxs) {
                         Text((t?.title ?? String(text.split(separator: "\n").first ?? Substring(text))).md)
                             .font(Typo.secondary.weight(.semibold)).foregroundStyle(t?.status == "done" ? Theme.muted : Theme.text).lineLimit(2)
-                        (t.map { Text(verbatim: $0.caption) } ?? Text("Task")).font(Typo.micro).foregroundStyle(Theme.faint).lineLimit(1)
+                        (t.map { Text(verbatim: $0.caption { state.displayName(for: $0) }) } ?? Text("Task")).font(Typo.micro).foregroundStyle(Theme.faint).lineLimit(1)
                     }
                     Spacer(minLength: 0)
                 }
@@ -1483,7 +1506,7 @@ struct TaskCard: View {
         }
         .buttonStyle(PressStyle())
         .accessibilityIdentifier("task-card-\(seq)")
-        .accessibilityValue(t?.caption ?? "")
+        .accessibilityValue(t?.caption { state.displayName(for: $0) } ?? "")
         .sheet(isPresented: $open) {
             NavigationStack {
                 TaskDetail(seq: seq, board: board)
@@ -1496,6 +1519,7 @@ struct TaskCard: View {
 
 /// One agent here: its state, whose it is, which tool, and what it says it's doing.
 struct AgentHereRow: View {
+    @EnvironmentObject var state: AppState
     let a: BoardAgent
     var body: some View {
         HStack(spacing: Space.m) {
@@ -1503,7 +1527,7 @@ struct AgentHereRow: View {
                 .overlay(alignment: .bottomTrailing) { StateDot(state: a.state).padding(2).background(Theme.card, in: Circle()).offset(x: 4, y: 4) }
             VStack(alignment: .leading, spacing: Space.xxs) {
                 HStack(alignment: .firstTextBaseline, spacing: 6) {
-                    Text(a.label).font(Typo.rowTitle).foregroundStyle(Theme.text).lineLimit(1)
+                    Text(agentLabel(state.displayName(for: a.user), a.agentName)).font(Typo.rowTitle).foregroundStyle(Theme.text).lineLimit(1)
                     if let d = a.detail, !Vocab.everyday { Text(d).font(Typo.micro).foregroundStyle(Theme.faint).lineLimit(1) } // the tool and session: Developer mode
                 }
                 Text(a.status ?? stateLine(a.state, a.lastSeen)).font(Typo.secondary).foregroundStyle(a.state == "live" ? Theme.ok : Theme.muted).lineLimit(2)
@@ -1541,6 +1565,7 @@ func stateLine(_ state: String?, _ lastSeen: Double) -> String {
 /// Reactions under a message. Agents' 👀 (read it, working) and ✅ (done) read like a messenger's receipts:
 /// "👀 theo's agent". Others are compact: "👍 2".
 struct ReactionLine: View {
+    @EnvironmentObject var state: AppState
     let reactions: [Reaction]
     let trailing: Bool
     var body: some View {
@@ -1561,7 +1586,7 @@ struct ReactionLine: View {
     }
     private func names(_ users: [String]) -> String {
         // Everyday: "Theo's assistant" for the server's "theo's agent" (display only).
-        let shown = users.map(Vocab.shown)
+        let shown = users.map { state.displayName(for: $0) }
         return shown.count <= 2 ? shown.joined(separator: ", ") : String(localized: "\(shown[0]) and \(shown.count - 1) more", bundle: .l10n)
     }
 }

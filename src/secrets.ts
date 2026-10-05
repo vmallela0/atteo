@@ -1,5 +1,5 @@
 // Egress secret filter: credentials never get stored on a board.
-// Pure (no I/O) so the same rules can run in the Worker today and in a local Gateway later.
+// Pure (no I/O) so the same rules run in the Worker and in the local Gateway (`gateway/`).
 // Precise, curated rules in the spirit of gitleaks; no bare high-entropy rule (it blocks logs full of hashes).
 
 export interface SecretRule {
