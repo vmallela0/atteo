@@ -127,6 +127,7 @@
  "csp": 8,
  "voice-allowance": 10,
  "catch-up": 8,
+ "one-line": 8,
  "mark-unread": 10,
  "voice-turns": 25,
  "voice-turns-privacy": 30,

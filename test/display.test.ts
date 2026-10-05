@@ -26,3 +26,11 @@ describe("display.voice_turns", () => {
     expect(() => mergeDisplay(DISPLAY_DEFAULTS, { voice_turns: "called" })).toThrow();
   });
 });
+
+describe("display.messages", () => {
+  it("whole messages by default, or one line unless they mention you (jxn #2690)", () => {
+    expect(DISPLAY_DEFAULTS.messages).toBe("full");
+    expect(mergeDisplay(DISPLAY_DEFAULTS, { messages: "oneline" }).messages).toBe("oneline");
+    expect(() => mergeDisplay(DISPLAY_DEFAULTS, { messages: "tiny" })).toThrow();
+  });
+});
