@@ -2297,6 +2297,14 @@ await step("tasks and leases (alt-c #3809): a lapsed lease goes back to todo, ed
   const own = seqOf(await ok(A, lb, "post", { type: "claim", text: `prod uses port 8443 ${run}`, supersedes: aNote, reply_to: 0 })); // their own
   assert(own === aNote + 1, `the refused post didn't land: #${own} after #${aNote}`);
   has(await ok(B, lb, "get", { seq: own }), `supersedes #${aNote}`);
+  // opus-d #3857: a missing entry, or one the agent can't see (people-only), is "does not exist", never who wrote it.
+  await err(A, lb, "post", { type: "note", text: `x ${run}`, supersedes: 99999, reply_to: 0 }, "Entry #99999 does not exist on this board.");
+  const hidden = (await (await web(`/api/boards/${lb}/entries`, B, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ type: "note", text: `people only ${run}`, people_only: true, to: [A] }) })).json()).entry.seq;
+  const nope = await err(A, lb, "post", { type: "note", text: `y ${run}`, supersedes: hidden, reply_to: 0 }, `Entry #${hidden} does not exist on this board.`);
+  assert(!nope.includes(B), `nothing about who wrote it: ${nope}`);
+  const mine = (await (await web(`/api/boards/${lb}/entries`, B, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ type: "note", text: `just mine ${run}`, own: true }) })).json()).entry.seq;
+  const nope2 = await err(A, lb, "post", { type: "note", text: `z ${run}`, supersedes: mine, reply_to: 0 }, `Entry #${mine} does not exist on this board.`);
+  assert(!nope2.includes(B), `nothing about who wrote it: ${nope2}`);
   const made = await web(`/api/boards/${lb}/members/${A}`, B, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ role: "owner" }) });
   assert(made.status === 200, `make A an owner: ${made.status}`);
   has(await ok(B, lb, "get", { seq: seqOf(await ok(A, lb, "post", { type: "claim", text: `staging uses port 8081 ${run}`, supersedes: bNote, reply_to: 0 })) }), `supersedes #${bNote}`); // an owner may
