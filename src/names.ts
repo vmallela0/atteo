@@ -6,14 +6,16 @@
 
 import type { Env } from "./types";
 import { esc } from "./util";
+import { handleLookalikes, skeleton } from "./agentName";
 
 /** Controls, zero-width and bidi-override characters: invisible, or able to reorder what's around them. */
-const INVISIBLE = /[\u0000-\u001f\u007f-\u009f­؜ᅟᅠ឴឵᠎​-‏‪-‮⁠-⁯ㅤ︀-️﻿ﾠ]/g;
+const INVISIBLE = /[\u2800\u{E0000}-\u{E007F}\u{E0100}-\u{E01EF}\u0000-\u001f\u007f-\u009f­؜ᅟᅠ឴឵᠎​-‏‪-‮⁠-⁯ㅤ︀-️﻿ﾠ]/gu;
 
 /** The display name as shown, or null when there's nothing to show (unset, blank, or only invisible characters). */
 export function cleanDisplay(raw: string | null | undefined): string | null {
   if (!raw) return null;
-  const s = raw.replace(INVISIBLE, "").replace(/\s+/g, " ").trim().slice(0, 60);
+  // Also no pile of accents on one letter (at most two marks each), which would spill over what's around the name.
+  const s = raw.replace(INVISIBLE, "").replace(/(\p{M}{2})\p{M}+/gu, "$1").replace(/\s+/g, " ").trim().slice(0, 60);
   return s || null;
 }
 
@@ -27,11 +29,19 @@ export function shownName(handle: string, display: string | null | undefined): s
  * the page also shows (`known`: the board's members, the people in a list). A plain "Vedu" for vmallela is fine.
  */
 export function looksLikeOtherHandle(handle: string, display: string, known?: Iterable<string> | null): boolean {
-  const d = display.replace(/^@/, "").toLowerCase();
-  if (d === handle.toLowerCase()) return false;
-  if (/^@[a-z0-9]/i.test(display)) return true;
-  for (const k of known ?? []) if (k.toLowerCase() === d) return true;
+  // As it looks (agentName.ts): NFKC, so "＠vedu" and "ｖｅｄｕ" fold; look-alike letters, so Cyrillic "vеdu" is vedu.
+  const sk = skeleton(display);
+  if (claimsAgent(sk)) return true; // "vedu's agent": a person can't read as an agent
+  if (/^@[a-z0-9]/.test(sk)) return true;
+  const like = new Set(handleLookalikes(sk.replace(/^@/, "")));
+  if (like.has(handle.toLowerCase())) return false;
+  for (const k of known ?? []) if (like.has(k.toLowerCase())) return true;
   return false;
+}
+
+/** "vedu's agent", "x's assistant": a name that says it's someone's agent (a skeleton, so look-alikes count). */
+export function claimsAgent(sk: string): boolean {
+  return /'\s*s[\s_-]*(agent|assistant)\b/.test(sk);
 }
 
 /**

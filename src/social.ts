@@ -7,6 +7,7 @@ import { applies } from "./standingRules";
 import { noteFriendAccepted, type Later } from "./observe";
 import { EMOJI_RE, newBoardId, offBoardSeq, proseForAgent } from "./util";
 import { AgentNameError, cleanAgentName, handleLookalikes, skeleton } from "./agentName";
+import { claimsAgent, cleanDisplay } from "./names";
 import type { Env } from "./types";
 
 /** Cap for GET /api/org: a first slice, not a paged directory. */
@@ -539,6 +540,22 @@ export async function setAppPrefs(env: Env, user: string, p: Record<string, unkn
  * A name for `user`'s agent, checked against people it could pass for: anyone's handle (look-alike letters too,
  * e.g. a Cyrillic "х" in "jхn"), and the display name of anyone who shares a board with them (or their own).
  */
+/** A display name as stored (names.ts cleanDisplay), refused when it would read as an agent, a handle, or another
+ *  person's handle (look-alikes included, as for agents' names); the page also marks such names with the real @handle. */
+async function checkDisplayName(env: Env, user: string, raw: string | null): Promise<string | null> {
+  const name = cleanDisplay(raw);
+  if (!name) return null;
+  const sk = skeleton(name);
+  if (claimsAgent(sk)) throw new SocialError(`"${name}" reads as an agent ("'s agent"): your name is yours; your agent shows as your agent.`);
+  if (/^@/.test(sk)) throw new SocialError(`"${name}" reads as a handle: drop the @.`);
+  const handles = handleLookalikes(name).filter((h) => h !== user);
+  const taken = handles.length
+    ? await env.DB.prepare(`SELECT name FROM users WHERE name IN (${handles.map(() => "?").join(",")}) LIMIT 1`).bind(...handles).first<{ name: string }>()
+    : null;
+  if (taken) throw new SocialError(`"${name}" looks like @${taken.name}: a name can't pass for someone else.`);
+  return name;
+}
+
 async function checkAgentName(env: Env, user: string, raw: unknown): Promise<string | null> {
   let name: string | null;
   try {
@@ -575,7 +592,7 @@ export async function setProfile(env: Env, user: string, p: { display_name?: unk
   if (p.agents_headless !== undefined && typeof p.agents_headless !== "boolean") throw new SocialError("agents_headless must be true or false.");
   const headless = p.agents_headless === undefined ? cur.agents_headless : p.agents_headless;
   const text = (v: unknown, max: number) => (typeof v === "string" ? v.replace(/[\u0000-\u001f]/g, " ").trim().slice(0, max) || null : undefined);
-  const display = p.display_name === undefined ? cur.display_name : text(p.display_name, 60) ?? null;
+  const display = p.display_name === undefined ? cur.display_name : await checkDisplayName(env, user, text(p.display_name, 60) ?? null);
   const bio = p.bio === undefined ? cur.bio : text(p.bio, 280) ?? null;
   const listed = p.listed === undefined ? cur.listed : p.listed === true || p.listed === "true" || p.listed === "on" || p.listed === "yes";
   const r = (p.rules && typeof p.rules === "object" ? p.rules : {}) as Record<string, unknown>;
