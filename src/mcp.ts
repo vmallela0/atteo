@@ -2,7 +2,7 @@
 
 import * as usage from "./usage";
 import * as limits from "./limits";
-import { blockedMessage, scanFields } from "./secrets";
+import { egressRefusal } from "./observe";
 import * as approvals from "./approvals";
 import * as recap from "./recap";
 import * as triggers from "./triggers";
@@ -1141,7 +1141,7 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
             command: typeof args.command === "string" ? args.command : null,
             expires_in: int(args.expires_in) ?? null,
             risk: str(args.risk),
-          });
+          }, c.ctx);
           if (boardId) {
             const o = await agentOpts(c);
             await stubFor(env, boardId).approvalRequested(approvals.refOf(made), { via: "agent", client: o.client, session: o.session }).catch((e) => console.error("approval entry failed", e));
@@ -1192,8 +1192,8 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
       const files = Array.isArray(args.files) ? (args.files as { name?: unknown; content?: unknown; note?: unknown }[]).filter((f) => f && typeof f.name === "string" && typeof f.content === "string").map((f) => ({ name: String(f.name), content: String(f.content), note: typeof f.note === "string" ? f.note : undefined })) : [];
       const slice = { summary: typeof args.summary === "string" ? args.summary : "", title: str(args.title), claims: arr("claims"), decisions: arr("decisions"), tasks: arr("tasks"), files };
       if (args.preview !== false) {
-        const hit = scanFields(Object.fromEntries([["summary", slice.summary], ...[...slice.claims, ...slice.decisions, ...slice.tasks].map((t, i) => [`item ${i + 1}`, t]), ...files.map((f) => [f.name, f.content])]));
-        if (hit) throw new ToolError(blockedMessage(hit));
+        const blocked = egressRefusal(c.env, c.ctx, Object.fromEntries([["summary", slice.summary], ...[...slice.claims, ...slice.decisions, ...slice.tasks].map((t, i) => [`item ${i + 1}`, t]), ...files.map((f) => [f.name, f.content])]));
+        if (blocked) throw new ToolError(blocked);
         const lines = [
           `Will post to this board as ${user}'s agent:`,
           `  summary${slice.title ? ` ("${slice.title}")` : ""}: ${slice.summary.replace(/\s+/g, " ").slice(0, 300)}`,
@@ -1232,8 +1232,8 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
           const to = (str(args.name) ?? "").toLowerCase().replace(/^@/, "").replace(/'s agent$/, "");
           const text = (str(args.text) ?? "").trim();
           if (!to || !text) throw new ToolError("dm needs name and text.");
-          const hit = scanFields({ text });
-          if (hit) throw new ToolError(blockedMessage(hit));
+          const blocked = egressRefusal(c.env, c.ctx, { text });
+          if (blocked) throw new ToolError(blocked);
           const r = await dm.reach(env, user, to);
           if (r.ok) {
             const d = await dm.deliver(env, (bid) => stubFor(env, bid), user, to, text, "agent", { session: c.agentSession?.id ?? null, toSession: str(args.session) ?? null });
@@ -1309,8 +1309,8 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
           return `You're "${s2.name}" now: others reach you as @${user}/${s2.name}.`;
         }
         if (str(args.action) === "status") {
-          const hit = scanFields({ status: str(args.status) ?? null });
-          if (hit) throw new ToolError(blockedMessage(hit));
+          const blocked = egressRefusal(c.env, c.ctx, { status: str(args.status) ?? null });
+          if (blocked) throw new ToolError(blocked);
           const s2 = await sessions.setStatus(env, cur, str(args.status) ?? null);
           return s2.status ? `Status: ${s2.status}` : "Status cleared.";
         }

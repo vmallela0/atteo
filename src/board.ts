@@ -7,6 +7,7 @@ import { fence, flagOf, screenText } from "./screen";
 import { FOR_LABEL, pingExcerpt, triagePreview, webhookForWhom } from "./ping";
 import { DurableObject } from "cloudflare:workers";
 import { computeSummary, formatSummary, summaryWithNames, tasksFor, withinReadBudget, withNames, DEFAULT_SUMMARY_CHARS, type Summary } from "./state";
+import { noteContextPack, noteEgressBlock, notePaste } from "./observe";
 import { blockedMessage, scanFields, scanText, type SecretHit } from "./secrets";
 import { recordOutcome } from "./agents";
 import { ALL_AGENTS, ALL_HUMANS, ALL_MEMBERS, forAgent, forPerson, hasGroupMention, keep, MAX_GROUP_MENTIONS, MAX_MENTIONS, mentionsOwnAgent, parseMentions, SESSION_NAME_RE, type Mention } from "./mentions";
@@ -540,7 +541,7 @@ export class Board extends DurableObject<Env> {
       );
     `);
     this.migrate();
-    this.decisions = new HumanDecisions(this.sql, env, () => this.meta("id"));
+    this.decisions = new HumanDecisions(this.sql, env, () => this.meta("id"), ctx);
     // Keep-alive pings from open board tabs are answered without waking this object (no duration billed).
     ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair("ping", "pong"));
   }
@@ -790,10 +791,16 @@ export class Board extends DurableObject<Env> {
     this.metaCache.set(key, value);
   }
 
+  /** Count a secret-filter refusal, then the message to show. The matched value is never stored or returned. */
+  private secretBlock(hit: SecretHit): string {
+    noteEgressBlock(this.env, this.ctx, hit.rule);
+    return blockedMessage(hit);
+  }
+
   /** Idempotent: sets id/title/creator the first time only. */
   async init(id: string, title: string, createdBy: string, opts: { encrypted?: boolean } = {}): Promise<BoardInfo> {
     const hit = scanText(title, "board title");
-    if (hit) throw new BoardError(blockedMessage(hit));
+    if (hit) throw new BoardError(this.secretBlock(hit));
     if (!this.meta("id")) {
       this.setMeta("id", id);
       this.setMeta("title", title);
@@ -1157,7 +1164,7 @@ export class Board extends DurableObject<Env> {
       throw new BoardError(e instanceof Error ? e.message : String(e));
     }
     const hit = scanFields({ text, title, artifact_name: input.artifact_name, artifact_content: internal.docVersion != null ? null : input.artifact_content, data: dataJson });
-    if (hit) throw new BoardError(blockedMessage(hit));
+    if (hit) throw new BoardError(this.secretBlock(hit));
 
     const depends = [...new Set((input.depends_on ?? []).filter((n) => Number.isInteger(n)))].slice(0, 20);
     const refs = [input.reply_to, input.supersedes, input.retracts, ...(input.resolves ?? []), ...depends].filter((n): n is number => n != null);
@@ -1213,7 +1220,7 @@ export class Board extends DurableObject<Env> {
         throw new BoardError(e instanceof Error ? e.message : String(e));
       }
       const hit = scanFields({ card: cardText(card), diff: cardDiff });
-      if (hit) throw new BoardError(blockedMessage(hit));
+      if (hit) throw new BoardError(this.secretBlock(hit));
     }
 
     // A gate handoff (#2173 item 3, #2358): a new one says what's ready to land; a handoff reply to an open one closes it.
@@ -1234,7 +1241,7 @@ export class Board extends DurableObject<Env> {
       }
       if (!isResult(handoff)) {
         const hit = scanFields({ handoff: handoffText(handoff) });
-        if (hit) throw new BoardError(blockedMessage(hit));
+        if (hit) throw new BoardError(this.secretBlock(hit));
       }
     }
 
@@ -1296,6 +1303,8 @@ export class Board extends DurableObject<Env> {
     const entry = toEntry(row);
     if (internal.attachments) this.indexEntry(entry.seq, entry.text, internal.attachments.list.map((a) => a.name).join(" "), null, internal.attachments.text || null);
     else this.indexEntry(entry.seq, handoff && !isResult(handoff) ? `${entry.text}\n${handoffText(handoff)}` : entry.text, entry.artifact_name, entry.card ?? null, artifactContent);
+    // A write that landed. System lines and board notices aren't pastes; test accounts stay out of the ops counters.
+    if (!user.startsWith("e2e-") && !internal.system && !internal.notice) notePaste(this.env, this.ctx, input.via);
     // A handoff's own fields are screened like its text: instructions in checks are flagged the same way.
     const handoffFlag = handoff && !isResult(handoff) ? screenText(handoffText(handoff)) : null;
     if (handoffFlag && !handoffFlag.quoted) {
@@ -1529,9 +1538,11 @@ export class Board extends DurableObject<Env> {
       summaryText: withSummary
         ? (() => {
             const text = withPinned(formatSummary(info, members, summaryWithNames(c.summary, opts.names), user, DEFAULT_SUMMARY_CHARS, this.decisions.tags(c.tags), c.reviewers, opts.names), pinned);
-            return info.encrypted
+            const pack = info.encrypted
               ? `This board is END-TO-END ENCRYPTED: messages are ciphertext here. Read and write it with the atteo CLI (atteo read / post / ask), which decrypts and encrypts on this machine.\n\n${text}`
               : text;
+            noteContextPack(this.env, this.ctx, pack, user);
+            return pack;
           })()
         : null,
       tasksForYou: tasksFor(c.summary, user, c.tags).length,
@@ -2248,7 +2259,7 @@ export class Board extends DurableObject<Env> {
     if (!text) throw new BoardError(from != null ? `#${from} has no text to remember; give text.` : "text is required: one short fact (≤280 characters).");
     if (text.length > MEMORY_TEXT_MAX) throw new BoardError(`Memory items are short: at most ${MEMORY_TEXT_MAX} characters (this is ${text.length}). Keep one fact per item.`);
     const hit = scanText(text, "memory");
-    if (hit) throw new BoardError(blockedMessage(hit));
+    if (hit) throw new BoardError(this.secretBlock(hit));
     const norm = memoryNorm(text);
     const same = this.sql.exec("SELECT * FROM memory WHERE struck_ts IS NULL AND norm = ?", norm).toArray()[0];
     const count = () => this.sql.exec("SELECT COUNT(*) AS n FROM memory WHERE struck_ts IS NULL").one().n as number;
@@ -2426,7 +2437,7 @@ export class Board extends DurableObject<Env> {
     text = text.trim();
     if (!text || text.length > MAX_TEXT) throw new BoardError(`Message text must be 1–${MAX_TEXT} characters.`);
     const hit = scanFields({ text });
-    if (hit) throw new BoardError(blockedMessage(hit));
+    if (hit) throw new BoardError(this.secretBlock(hit));
     const now = Date.now();
     const version = (this.sql.exec("SELECT MAX(version) AS v FROM entry_versions WHERE seq = ?", seq).one().v as number | null ?? 0) + 1;
     this.sql.exec("INSERT INTO entry_versions (seq, version, text, ts) VALUES (?, ?, ?, ?)", seq, version, old.text, old.edited_at ?? old.ts);
@@ -3357,7 +3368,7 @@ export class Board extends DurableObject<Env> {
       const commit = act.commit?.trim() || undefined;
       if (commit && !/^[0-9a-f]{7,40}$/i.test(commit)) throw new BoardError("commit must be a git commit hash (7–40 hex characters).");
       const hit = scanFields({ command });
-      if (hit) throw new BoardError(blockedMessage(hit));
+      if (hit) throw new BoardError(this.secretBlock(hit));
       this.sql.exec("UPDATE claim_state SET check_json = ?, updated_at = ? WHERE seq = ?", JSON.stringify({ command, ...(commit ? { commit: commit.toLowerCase() } : {}) }), Date.now(), seq);
       this.broadcast({ type: "claim", seq });
       return `Check attached to #${seq}. Other members can run it in a sandbox with: atteo verify ${seq}`;
@@ -3375,7 +3386,7 @@ export class Board extends DurableObject<Env> {
       if (act.note) ev.note = act.note.slice(0, 300);
       if (!ev.seq && !ev.url) throw new BoardError("Point at the evidence: evidence_seq (an entry, e.g. a log you posted) or url.");
       const hit = scanFields({ url: ev.url ?? null, note: ev.note ?? null });
-      if (hit) throw new BoardError(blockedMessage(hit));
+      if (hit) throw new BoardError(this.secretBlock(hit));
       const cur = JSON.parse((this.sql.exec("SELECT evidence FROM claim_state WHERE seq = ?", seq).one().evidence as string) || "[]");
       cur.push(ev);
       this.sql.exec("UPDATE claim_state SET evidence = ?, status = CASE WHEN status = 'asserted' THEN 'evidenced' ELSE status END, updated_at = ? WHERE seq = ?", JSON.stringify(cur.slice(-20)), Date.now(), seq);
@@ -3813,7 +3824,7 @@ export class Board extends DurableObject<Env> {
     if (body.length > MAX_TEXT) throw new BoardError(`A task's body is limited to ${MAX_TEXT} characters; put long material in a file.`);
     if (title === t.title && body === t.body) throw new BoardError("Nothing changed.");
     const hit = scanFields({ title, body, summary: edit.summary ?? null });
-    if (hit) throw new BoardError(blockedMessage(hit));
+    if (hit) throw new BoardError(this.secretBlock(hit));
     if (!internal.auto) this.rateLimit(user); // automatic ticks don't spend the person's own posting budget
     const now = Date.now();
     const version = t.version + 1;
@@ -3894,7 +3905,7 @@ export class Board extends DurableObject<Env> {
       }
       // Binary: no type of ours is trusted to render, so it's always served as a download.
       const hit = scanText(byteString(bytes), "file");
-      if (hit) throw new BoardError(blockedMessage(hit));
+      if (hit) throw new BoardError(this.secretBlock(hit));
     }
     const name = binaryName(f.name, image);
     const media = mediaFor(image, bytes.byteLength, f.width, f.height, bytes);
@@ -3960,7 +3971,7 @@ export class Board extends DurableObject<Env> {
       scanFields({ text }) ??
       scanFields(Object.fromEntries(files.map((x, i) => [`file ${i + 1} name`, x.name]))) ??
       files.reduce<SecretHit | null>((h, x) => h ?? (x.raw ? (x.scan ? scanText(x.scan, x.name) : null) : scanText(x.content, x.name)), null);
-    if (hit) throw new BoardError(blockedMessage(hit));
+    if (hit) throw new BoardError(this.secretBlock(hit));
     const caption = text || `Shared ${filesLabel(files.map((x) => ({ mime: x.media?.mime ?? "text/plain" })))}`;
     const opts: DocEditOpts = { via: f.via, client: f.client, summary: caption };
     const list: Attachment[] = files.map((x) => {
@@ -4038,7 +4049,7 @@ export class Board extends DurableObject<Env> {
     validateDocName(name);
     if (content.length > MAX_ARTIFACT) throw new BoardError(`That document is too large (max ${MAX_ARTIFACT} characters).`);
     const hit = scanFields({ [name]: content, summary: opts.summary ?? null });
-    if (hit) throw new BoardError(blockedMessage(hit));
+    if (hit) throw new BoardError(this.secretBlock(hit));
     const cur = this.sql.exec("SELECT version, content FROM docs WHERE name = ?", name).toArray()[0];
     const curVersion = (cur?.version as number) ?? 0;
     if (baseVersion !== curVersion) return { conflict: true, current: curVersion, content: (cur?.content as string) ?? "" };
@@ -4059,7 +4070,7 @@ export class Board extends DurableObject<Env> {
     const next = content.slice(0, first) + newStr + content.slice(first + oldStr.length);
     if (next.length > MAX_ARTIFACT) throw new BoardError(`That would make the document too large (max ${MAX_ARTIFACT} characters).`);
     const hit = scanFields({ [name]: newStr, summary: opts.summary ?? null });
-    if (hit) throw new BoardError(blockedMessage(hit));
+    if (hit) throw new BoardError(this.secretBlock(hit));
     return this.saveDoc(user, name, next, cur.version as number, opts);
   }
 
@@ -4117,7 +4128,7 @@ export class Board extends DurableObject<Env> {
     const t = title.trim().slice(0, 120);
     if (!t) throw new BoardError("Give the board a name.");
     const hit = scanText(t, "board title");
-    if (hit) throw new BoardError(blockedMessage(hit));
+    if (hit) throw new BoardError(this.secretBlock(hit));
     this.setMeta("title", t);
     this.broadcast({ type: "renamed", title: t });
     return this.info();
@@ -4226,7 +4237,7 @@ export class Board extends DurableObject<Env> {
     for (const x of [{ text: slice.summary }, ...items]) if (x.text.length > MAX_TEXT) throw new BoardError(`Each item is limited to ${MAX_TEXT} characters.`);
     for (const f of files) if (f.content.length > MAX_ARTIFACT) throw new BoardError(`${f.name} is too large (max ${MAX_ARTIFACT} characters).`);
     const hit = scanFields(Object.fromEntries([["summary", slice.summary], ...items.map((x, i) => [`item ${i + 1}`, x.text]), ...files.map((f) => [f.name, f.content])]));
-    if (hit) throw new BoardError(blockedMessage(hit));
+    if (hit) throw new BoardError(this.secretBlock(hit));
     this.rateLimit(user); // one slice counts as one post
     const head = await this.post(user, { type: "note", title: slice.title ?? "Session summary", text: slice.summary, via: opts.via, client: opts.client, session: opts.session }, { seeding: true });
     const posted: { seq: number; type: string }[] = [];

@@ -55,7 +55,7 @@ As of 2026-10-02. Compares what's deployed at https://atteo.dev against the [PRD
 | Vendor neutrality | Partial | Any MCP client works; no A2A. |
 | No secrets at rest on board servers | Partial | Known credential formats are blocked before storage (server-side, not yet on the user's machine). Tokens and session cookies are stored only as hashes. |
 | Automated cross-room leakage tests | Partial | e2e checks non-members get 404 on every board route and tool; not yet run in CI. |
-| Observability (paste rate, pack size, stale-notice rate, verified-claim ratio, egress blocks, approvals) | Missing | Cloudflare request logs only. |
+| Observability (paste rate, pack size, stale-notice rate, verified-claim ratio, egress blocks, approvals) | Partial | Daily counters in `usage_daily`: `paste` (writes that landed, person or agent), `egress_block` (secret-filter refusals, by rule), `context_pack` (packs served, total characters, size bucket, truncations). Block rate is blocks ÷ (pastes + blocks); average pack size is characters ÷ packs. Read them on `/_ops` (Trust and context) or `GET /api/ops/metrics` (`observe`). Still missing: stale-notice rate, verified-claim ratio, approval counts. |
 
 ## Architecture and operations
 

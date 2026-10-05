@@ -27,7 +27,7 @@ import { agentsMd, guidePage } from "./guide";
 import { docsPage } from "./docs";
 import { openapi } from "./openapi";
 import * as billing from "./billing";
-import { blockedMessage, scanFields } from "./secrets";
+import { egressRefusal } from "./observe";
 import * as inbox from "./inbox";
 import * as notify from "./notify";
 import * as forYou from "./forYou";
@@ -632,8 +632,8 @@ const handler = {
             const board = mine.find((b) => b.id === want) ?? mine.find((b) => b.title.toLowerCase() === want.toLowerCase()) ?? mine.find((b) => b.title.toLowerCase().includes(want.toLowerCase()));
             if (!board) return rpcErr(rpc.id, -32602, `You're not on a board called "${want}".`);
             if ((await registry.memberRole(env, board.id, who)) === "viewer") return rpcErr(rpc.id, -32602, "Your role on that board is viewer.");
-            const hit = scanFields({ text });
-            if (hit) return rpcErr(rpc.id, -32602, blockedMessage(hit));
+            const blocked = egressRefusal(env, ctx, { text });
+            if (blocked) return rpcErr(rpc.id, -32602, blocked);
             const e = await boardStub(env, board.id).post(who, { type: "question", to, text, via: "agent", client: "A2A agent" });
             ctx.waitUntil(registry.bumpBoard(env, board.id, e.seq).catch(() => {}));
             return ok(a2a.task(a2a.taskId(board.id, e.seq), "working", undefined, { metadata: { board: board.id, seq: e.seq, url: `${origin}/b/${board.id}#e${e.seq}` } }));
@@ -1221,8 +1221,8 @@ const handler = {
           if (method === "POST" && !km[2]) {
             const b = (await request.json().catch(() => ({}))) as { to?: string; note?: string; payload?: string; type?: string; reply_to?: number };
             const note = String(b.note ?? "");
-            const hit = scanFields({ note });
-            if (hit) return json({ error: blockedMessage(hit) }, 400);
+            const blocked = egressRefusal(env, ctx, { note });
+            if (blocked) return json({ error: blocked }, 400);
             if ((await registry.memberRole(env, km[1], viewer.name)) === "viewer") return json({ error: "Your role on this board is viewer." }, 403);
             // v2 messages use the board's current key; while a removal's rotation is pending, nothing new goes out
             // under the old one (the person removed still has it).
@@ -1348,8 +1348,8 @@ const handler = {
           return json({ profile: p && { ...p, developer: await developerFor(env, viewer.name, p.display?.mode) } });
         }
         const b = (await request.json().catch(() => ({}))) as Record<string, unknown>;
-        const hit = scanFields({ bio: typeof b.bio === "string" ? b.bio : null, display_name: typeof b.display_name === "string" ? b.display_name : null, agent_name: typeof b.agent_name === "string" ? b.agent_name : null });
-        if (hit) return json({ error: blockedMessage(hit) }, 400);
+        const blocked = egressRefusal(env, ctx, { bio: typeof b.bio === "string" ? b.bio : null, display_name: typeof b.display_name === "string" ? b.display_name : null, agent_name: typeof b.agent_name === "string" ? b.agent_name : null });
+        if (blocked) return json({ error: blocked }, 400);
         try {
           const who = viewer.name;
           // A renamed agent: every board they're on tells its open tabs, {type: "profile", user, agent_name}.
@@ -1408,8 +1408,8 @@ const handler = {
             const text = String(b.text ?? "").trim();
             if (!text) return json({ error: "Say something: text is required." }, 400);
             if (text.length > 20_000) return json({ error: "Too long for a DM (20,000 characters); post a file on a board instead." }, 400);
-            const hit = scanFields({ text });
-            if (hit) return json({ error: blockedMessage(hit) }, 400);
+            const blocked = egressRefusal(env, ctx, { text });
+            if (blocked) return json({ error: blocked }, 400);
             const to = dmm[1];
             const r = await dm.reach(env, me, to);
             if (r.ok) {
@@ -1475,8 +1475,8 @@ const handler = {
           if (path === "/api/friends/request" && method === "POST") {
             const b = (await request.json().catch(() => ({}))) as { user?: string; note?: string };
             const note = String(b.note ?? "").trim();
-            const hit = scanFields({ note });
-            if (hit) return json({ error: blockedMessage(hit) }, 400);
+            const blocked = egressRefusal(env, ctx, { note });
+            if (blocked) return json({ error: blocked }, 400);
             return json({ ok: true, relation: await social.requestFriend(env, me, String(b.user ?? ""), note) });
           }
           pm = path.match(/^\/api\/friends\/([a-z0-9][a-z0-9_.-]{0,31})\/(accept|decline|remove|block|unblock)$/);
@@ -1784,8 +1784,8 @@ const handler = {
         const body = (await request.json().catch(() => ({}))) as { title?: unknown; encrypted?: unknown };
         const title = String(body.title ?? "").trim().slice(0, 120);
         if (!title) return json({ error: "Give the board a title." }, 400);
-        const hit = scanFields({ title });
-        if (hit) return json({ error: blockedMessage(hit) }, 400);
+        const blocked = egressRefusal(env, ctx, { title });
+        if (blocked) return json({ error: blocked }, 400);
         try {
           const info = await createBoard(env, title, viewer.name, url.origin, { encrypted: body.encrypted !== false });
           return json({ board: { ...info, encrypted: body.encrypted !== false, picture: null } }, 201);
@@ -1886,8 +1886,8 @@ const handler = {
         const text = selectedText
           ? [...(note ? [note] : []), `↪ Forwarded from **${src.title}** · excerpt`, [...selectedText.slice(0, 2000).split("\n").slice(0, 40).map((l) => `> ${l}`), `> — ${who(picked[0])}, #${picked[0].seq}`].join("\n")].join("\n\n").slice(0, 20000)
           : [...(note ? [note] : []), `↪ Forwarded from **${src.title}** · ${picked.length} message${picked.length === 1 ? "" : "s"}`, ...picked.map(quote)].join("\n\n").slice(0, 20000);
-        const hit = scanFields({ text });
-        if (hit) return json({ error: blockedMessage(hit) }, 400);
+        const blocked = egressRefusal(env, ctx, { text });
+        if (blocked) return json({ error: blocked }, 400);
         // Only the note can mention anyone: quoted @names don't ping people on the new board.
         const { mentions } = note && mayMention(note) ? parseMentions(note, await registry.boardMembers(env, to), viewer.name, "person") : { mentions: [] as Mention[] };
         const entry = await boardStub(env, to).post(viewer.name, {
@@ -1950,13 +1950,13 @@ const handler = {
               }
               if (b.name != null) next = await sessions.rename(env, next, String(b.name));
               if (b.model !== undefined) {
-                const hit = scanFields({ model: typeof b.model === "string" ? b.model : null });
-                if (hit) return json({ error: blockedMessage(hit) }, 400);
+                const blocked = egressRefusal(env, ctx, { model: typeof b.model === "string" ? b.model : null });
+                if (blocked) return json({ error: blocked }, 400);
                 next = await sessions.setModel(env, next, b.model);
               }
               if (b.status !== undefined) {
-                const hit = scanFields({ status: typeof b.status === "string" ? b.status : null });
-                if (hit) return json({ error: blockedMessage(hit) }, 400);
+                const blocked = egressRefusal(env, ctx, { status: typeof b.status === "string" ? b.status : null });
+                if (blocked) return json({ error: blocked }, 400);
                 next = await sessions.setStatus(env, next, b.status);
               }
               return json({ session: await view(next) });
@@ -2476,8 +2476,8 @@ const handler = {
         if (!(await registry.isMember(env, m[1], viewer.name))) return json({ error: "board not found" }, 404);
         try {
           const meta = parseBoardMeta(await request.json().catch(() => ({})));
-          const hit = scanFields({ description: meta.description, tags: meta.tags.join(" "), links: meta.links.map((l) => `${l.label} ${l.url}`).join("\n") });
-          if (hit) return json({ error: blockedMessage(hit) }, 400);
+          const blocked = egressRefusal(env, ctx, { description: meta.description, tags: meta.tags.join(" "), links: meta.links.map((l) => `${l.label} ${l.url}`).join("\n") });
+          if (blocked) return json({ error: blocked }, 400);
           await registry.setBoardMeta(env, m[1], meta);
           return json({ ok: true, meta });
         } catch (e) {

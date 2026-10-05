@@ -6,8 +6,8 @@
 // Agents' own decisions are plain entries, as before. Lives in the board's SQLite (two small tables); the people on the
 // board come from the directory (D1), cached briefly.
 
+import { egressRefusalText, type Later } from "./observe";
 import type { Entry, Env, NewEntry } from "./types";
-import { scanText, blockedMessage } from "./secrets";
 
 /** Refusals, worded for whoever is told (a person on the web, or an agent). Not board.ts's BoardError: state.ts imports this module and stays free of the Workers runtime. */
 export class DecisionError extends Error {}
@@ -85,6 +85,7 @@ export class HumanDecisions {
     private sql: SqlStorage,
     private env: Env,
     private boardId: () => string | null,
+    private later: Later | null = null,
   ) {
     sql.exec(SCHEMA);
   }
@@ -199,12 +200,12 @@ export class HumanDecisions {
     this.memo = null;
   }
 
-  private static cleanNote(note: unknown): string | null {
+  private cleanNote(note: unknown): string | null {
     const n = typeof note === "string" ? note.replace(/\s+/g, " ").trim() : "";
     if (!n) return null;
     if (n.length > MAX_HD_NOTE) throw new DecisionError(`Keep the note short (at most ${MAX_HD_NOTE} characters).`);
-    const hit = scanText(n, "note");
-    if (hit) throw new DecisionError(blockedMessage(hit));
+    const blocked = egressRefusalText(this.env, this.later, n, "note");
+    if (blocked) throw new DecisionError(blocked);
     return n;
   }
 
@@ -235,7 +236,7 @@ export class HumanDecisions {
     const me = this.people?.list.find((p) => p.user === user);
     if (!me) throw new DecisionError(`Only the people on this board decide #${seq}.`);
     if (me.role === "viewer") throw new DecisionError("You can view this board but not change it, so you can't vote on its decisions.");
-    const n = vote === "object" ? HumanDecisions.cleanNote(note) : null;
+    const n = vote === "object" ? this.cleanNote(note) : null;
     this.sql.exec("INSERT OR REPLACE INTO hd_votes (seq, user, vote, note, ts) VALUES (?, ?, ?, ?, ?)", seq, user, vote, n, Date.now());
     this.memo = null;
     const hd = this.get(seq)!;
@@ -258,7 +259,7 @@ export class HumanDecisions {
     const row = this.row(seq);
     if (user !== row.author) throw new DecisionError(`Only ${row.author}, who asked for #${seq}, can close it.`);
     if (row.closed_by) throw new DecisionError(`#${seq} is already closed (${row.state}).`);
-    const n = HumanDecisions.cleanNote(note);
+    const n = this.cleanNote(note);
     await this.refresh(true);
     if (outcome === "decided") {
       if (row.state === "decided" && row.line != null) this.set(seq, { state: "decided", closed_by: user, note: n, line: row.line });

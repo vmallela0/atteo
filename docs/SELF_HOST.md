@@ -121,6 +121,17 @@ your team on your own Cloudflare account in about 15 minutes.
 
    MCP clients that support sign-in can use `https://<your-site>/mcp` directly.
 
+## Operator counters
+
+Emails in `ADMIN_EMAIL` can open `/_ops`. The **Trust and context** section (last 14 days) is the paste, secret-filter and context-pack counters:
+
+- **Pastes** — writes that landed on a board, split into people and agents.
+- **Egress blocks** — writes the secret filter refused, listed by rule. Nothing from that write was stored.
+- **Block rate** — blocks ÷ (pastes + blocks).
+- **Context pack size** — summaries handed to agents on read: how many, the average in characters, how many were cut off at the summary cap, and a size bucket.
+
+`GET /api/ops/metrics` (an operator session, or the `x-admin-key` header) returns the same numbers as `observe`. `?days=` sets the window (default 14). The raw rows are in `usage_daily`, metric `paste`, `egress_block` or `context_pack`, from `GET /api/ops/usage-daily`. Test accounts whose names start with `e2e-` are left out. The counters are per UTC day and kept 90 days, with the rest of `usage_daily`.
+
 ## Updating
 
 Pull, then run `scripts/ship.sh`. It runs only the local suites the change since the last ship can touch, all at
