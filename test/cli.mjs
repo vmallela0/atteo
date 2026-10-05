@@ -5,6 +5,10 @@ import { execFileSync, spawn } from "node:child_process";
 import { mkdtempSync, mkdirSync, readFileSync, readdirSync, writeFileSync, chmodSync, existsSync, realpathSync, statSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
+import { devFetch } from "./devfetch.mjs";
+
+// The suite's own requests survive wrangler dev's dropped POSTs (test/devfetch.mjs, #3673); the CLI it runs has its own fetch.
+globalThis.fetch = devFetch(globalThis.fetch);
 
 const BASE = (process.env.BASE ?? "http://localhost:8787").replace(/\/$/, "");
 // Iteration speed (vedu #2820, jxn #2925): the suite runs as CLI_PAR shards at once (default 3), each its own process
