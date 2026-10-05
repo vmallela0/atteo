@@ -2043,7 +2043,7 @@ function renderTask(t){const old=TASKS[t.seq];if(!t.html&&old&&old.html&&old.ver
   if(body)body.querySelectorAll('li.ck>input').forEach(i=>{i.disabled=READONLY||art.classList.contains('retracted');i.title=i.disabled?'':i.checked?tr('Untick'):tr('Tick')});
   const cks=ckLines(taskText(t)),ticked=cks.filter(c=>c.done).length;
   const left=t.lease_until?Math.max(0,Math.round((t.lease_until-Date.now())/60000)):null;
-  const bits=[t.assignee?'for '+esc(whoName(t.assignee,t.assignee_agent)):'',t.lease_holder?'🔒 '+esc(whoName(t.lease_holder,t.lease_agent))+(left!=null?' · '+left+'m left':''):'',t.stop_reason?esc(t.stop_reason):'',t.done_note?'✓ '+esc(t.done_note):''].filter(Boolean);
+  const bits=[t.assignee?'for '+esc(whoName(t.assignee,t.assignee_agent)):'',t.lease_holder?'🔒 '+esc(t.lease_agent&&t.lease_session_name?t.lease_holder+'/'+t.lease_session_name:whoName(t.lease_holder,t.lease_agent))+(left!=null?' · '+left+'m left':''):'',t.stop_reason?esc(t.stop_reason):'',t.done_note?'✓ '+esc(t.done_note):''].filter(Boolean);
   el.innerHTML='<span class="tk-st st-'+t.status+'"><span class="dot"></span>'+TSTATUS[t.status]+'</span>'+(t.priority?'<span class="badge pri-'+t.priority+'">'+t.priority+'</span>':'')+
     (cks.length?bar(ticked,cks.length,'ticked'):t.children?bar(t.children.done,t.children.total,'sub-tasks done'):'')+
     '<span class="tk-who">'+bits.join(' · ')+'</span><span class="grow"></span>'+
@@ -2527,7 +2527,7 @@ async function loadTasks(){const r=await fetch('/api/boards/'+BOARD+'/tasks');co
     return '<section class="kcol" data-status="'+k+'"><h3>'+label+' <span class="faint">'+col.length+'</span></h3><div class="kcards">'+col.map(card).join('')+'</div></section>'}).join('')}
 function card(t){const first=t.title||'';const boxes=ckLines(t.body||'');const ticked=boxes.filter(b=>b.done).length;const par=t.parent!=null&&TASKS[t.parent];
   const who=t.assignee?(t.assignee_agent?t.assignee+"'s agent":t.assignee):'';
-  const hold=t.lease_holder?(t.lease_agent?t.lease_holder+"'s agent":t.lease_holder):'';
+  const hold=t.lease_holder?(t.lease_agent?(t.lease_session_name?t.lease_holder+'/'+t.lease_session_name:t.lease_holder+"'s agent"):t.lease_holder):''; // "jxn/alt-b": the session holding it (#3474)
   // Title first; one quiet line under it: number, priority, checklist, due date, and who it's for / who holds it.
   return '<article class="kcard" draggable="true" data-seq="'+t.seq+'"><div class="ktext">'+esc(first)+'</div>'+
     '<div class="kmeta"><a class="seq" href="#e'+t.seq+'" data-kopen="'+t.seq+'">#'+t.seq+'</a>'+(t.priority?'<span class="badge pri-'+t.priority+'">'+t.priority+'</span>':'')+(t.status==='stopped'?'<span class="badge pri-high">'+tr('stopped')+'</span>':'')+
@@ -2560,7 +2560,7 @@ async function openTask(seq){const r=await fetch('/api/boards/'+BOARD+'/tasks/'+
   document.getElementById('td-status').value=t.status==='stopped'?'blocked':t.status;document.getElementById('td-pri').value=t.priority||'';
   document.getElementById('td-assignee').value=t.assignee?(t.assignee_agent?t.assignee+"'s agent":t.assignee):'';
   const by=t.updated_via==='agent'?t.updated_by+"'s agent":t.updated_by;
-  document.getElementById('td-meta').textContent='v'+t.version+' · edited by '+by+' '+tdate(t.updated_at)+(t.lease_holder?' · 🔒 '+(t.lease_agent?t.lease_holder+"'s agent":t.lease_holder)+' until '+tdate(t.lease_until):'')+(t.stop_reason?' · stopped: '+t.stop_reason:'')+(t.done_note?' · done: '+t.done_note:'');
+  document.getElementById('td-meta').textContent='v'+t.version+' · edited by '+by+' '+tdate(t.updated_at)+(t.lease_holder?' · 🔒 '+(t.lease_agent?(t.lease_session_name?t.lease_holder+'/'+t.lease_session_name:t.lease_holder+"'s agent"):t.lease_holder)+' until '+tdate(t.lease_until):'')+(t.stop_reason?' · stopped: '+t.stop_reason:'')+(t.done_note?' · done: '+t.done_note:'');
   document.getElementById('td-hist').innerHTML=(j.history||[]).map(v=>'<li>v'+v.version+' · '+esc(v.via==='agent'?v.author+"'s agent":v.author)+' · '+tdate(v.ts)+(v.summary?' — '+esc(v.summary):'')+'</li>').join('')||'<li>'+tr('No edits yet')+'</li>';
   document.getElementById('td-err').hidden=true;
   document.getElementById('td-remove').hidden=!(t.author===ME||ME===CREATOR);

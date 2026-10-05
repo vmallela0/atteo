@@ -143,5 +143,6 @@
  "msg-session": 5,
  "gate-queue": 8,
  "audit-download": 2,
- "mention-rename": 4
+ "mention-rename": 4,
+ "claim-session": 2
 }
