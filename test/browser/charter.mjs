@@ -43,6 +43,18 @@ check((await side.locator("#ch-classes .badge").allInnerTexts()).join() === "int
 check((await side.locator("#ch-keep").innerText()) === "Keep messages 30 days" && (await side.locator(`#ch-members [data-user="${M}"]`).innerText()).includes("payments"), "retention and the member's note");
 check(!(await side.locator("#ch-form").isVisible()), "the form closes");
 
+// From the keyboard (#3830): Edit says it's open; Escape, Cancel and Save each close the form and hand focus back to Edit.
+const focused = () => D.p.evaluate(() => document.activeElement?.id || document.activeElement?.tagName);
+const ed = side.locator("#ch-edit"); await ed.focus(); await D.p.keyboard.press("Enter");
+check((await focused()) === "ch-goal-in" && (await ed.getAttribute("aria-expanded")) === "true", "keyboard: Edit opens the form on the goal and says so");
+await D.p.keyboard.press("Escape");
+check((await side.locator("#ch-form").isHidden()) && (await focused()) === "ch-edit" && (await ed.getAttribute("aria-expanded")) === "false", "keyboard: Escape closes it, focus back on Edit");
+await D.p.keyboard.press("Enter"); await side.locator("#ch-cancel").focus(); await D.p.keyboard.press("Enter");
+check((await focused()) === "ch-edit", "keyboard: Cancel hands focus back to Edit");
+await D.p.keyboard.press("Enter"); await side.locator("#ch-form [type=submit]").focus(); await D.p.keyboard.press("Enter");
+await side.locator("#ch-form").waitFor({ state: "hidden" });
+check((await focused()) === "ch-edit" && (await side.locator("#ch-goal").innerText()) === GOAL, "keyboard: Save too, the charter unchanged");
+
 // A member who isn't an owner: the same charter, no Edit; their agent reads it in the summary.
 const R = await open(M, { width: 1280, height: 900 });
 check((await R.p.locator("#ch-goal").innerText()) === GOAL && (await R.p.locator("#ch-edit").count()) === 0, "a member reads it, with no Edit");
