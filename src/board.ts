@@ -21,6 +21,7 @@ import type { RecapCore, RecapOwner, RecapTask } from "./recap";
 import type { ForYouCore } from "./forYou";
 import { cleanMatch, cleanTrigger, eventLine, lastOccurrence, matches, MAX_FIRES_PER_HOUR, MAX_TRIGGERS, minuteOf, SCHEDULE_GRACE_MS, type Trigger, type TriggerEvent, type TriggerMatch } from "./triggers";
 import { offBoardSeq } from "./util";
+import { CARD_LIMIT, CARD_MAX_LIMIT, cardsAnswer, cardsThatFit, entryCard, fileCard } from "./searchCards";
 import { compileGrep, grepFtsQuery, scanGrepText, newBudget, isBoardGrepCursor, compactHitLine, cursorKey, decodeCursor, encodeCursor, trimLine, GREP_CANDIDATES, GREP_DEFAULT_MAX, GREP_HARD_MAX, GREP_RECENT, type BoardGrepOpts, type BoardGrepResult } from "./grep";
 import { audienceOk, audienceWord, canSee, ownByDefault, OWN_DEFAULT_MS, OWN_MAIL_HINT, PEOPLE_ONLY_TYPES, type Audience } from "./audience";
 import { cleanSchedule, MAX_SCHEDULES, nextDue, lastDue, scheduleLabel, SCHEDULE_FIRES_PER_HOUR, taskText, tickAction, type Day, type Schedule } from "./schedules";
@@ -2660,13 +2661,13 @@ export class Board extends DurableObject<Env> {
    */
   async rankedSearch(
     query: string,
-    opts: { author?: string; type?: string; limit?: number; more?: string } = {},
+    opts: { author?: string; type?: string; since?: number; limit?: number; more?: string } = {},
     viewer?: Viewer | null, // absent: an agent's search (no people-only entries)
-  ): Promise<{ entries: { entry: Entry; snippet: string }[]; files: { name: string; version: number; snippet: string; author?: string; ts?: number }[]; more: string | null; compact: string }> {
+  ): Promise<{ entries: { entry: Entry; snippet: string; score?: number }[]; files: { name: string; version: number; snippet: string; author?: string; ts?: number }[]; more: string | null; compact: string }> {
     const info = this.info();
     const match = ftsQuery(query);
     const limit = clamp(opts.limit ?? 20, 1, 100);
-    const key = cursorKey(["search", info.id, query, opts.author ?? null, opts.type ?? null, viewer ?? null]);
+    const key = cursorKey(["search", info.id, query, opts.author ?? null, opts.type ?? null, ...(opts.since ? [opts.since] : []), viewer ?? null]);
     type Position = { score: number; row: number } | { before: number };
     let position: Position | null = null;
     if (opts.more) {
@@ -2674,7 +2675,7 @@ export class Board extends DurableObject<Env> {
       if (!position || typeof position !== "object" || (!("before" in position) && !("score" in position))) throw new BoardError("Invalid more cursor.");
       if ("before" in position ? !Number.isSafeInteger(position.before) || position.before <= 0 : !Number.isFinite(position.score) || !Number.isSafeInteger(position.row) || position.row <= 0) throw new BoardError("Invalid more cursor.");
     }
-    const entries: { entry: Entry; snippet: string }[] = [];
+    const entries: { entry: Entry; snippet: string; score?: number }[] = [];
     const files: { name: string; version: number; snippet: string; author?: string; ts?: number }[] = [];
     let more: string | null = null;
     const result = () => {
@@ -2687,7 +2688,7 @@ export class Board extends DurableObject<Env> {
     if (!match) return result();
     const fallback = async () => {
       const found = await this.search(query, { ...opts, limit, before: position && "before" in position ? position.before : undefined }, viewer);
-      for (const entry of found) entries.push({ entry, snippet: "" });
+      for (const entry of found) if (!opts.since || entry.ts >= opts.since) entries.push({ entry, snippet: "" });
       if (entries.length >= limit) more = encodeCursor(key, { before: entries[entries.length - 1].entry.seq });
       return result();
     };
@@ -2705,7 +2706,7 @@ export class Board extends DurableObject<Env> {
     let last: Position | null = null;
     let scanned = 0;
     let full = false;
-    const filtered = !!(opts.author || opts.type);
+    const filtered = !!(opts.author || opts.type || opts.since);
     const flush = () => {
       const candidates = batch;
       batch = [];
@@ -2722,7 +2723,7 @@ export class Board extends DurableObject<Env> {
         last = { score: r.score as number, row: r.pos as number };
         if (r.kind === "entry" || r.kind === "task") {
           const e = bySeq.get(Number(r.ref));
-          if (!e || (opts.author && e.author !== opts.author) || (opts.type && e.type !== opts.type)) continue;
+          if (!e || (opts.author && e.author !== opts.author) || (opts.type && e.type !== opts.type) || (opts.since && e.ts < opts.since)) continue;
           // An edited task is indexed twice: its first text (kind "entry") and its live title/body (kind "task").
           // One hit per entry, and the live text's snippet wins whichever ranks first.
           if (seen.has(e.seq)) {
@@ -2730,7 +2731,7 @@ export class Board extends DurableObject<Env> {
             continue;
           }
           seen.add(e.seq);
-          entries.push({ entry: e, snippet: r.snip as string });
+          entries.push({ entry: e, snippet: r.snip as string, score: -(r.score as number) });
         } else if (!filtered && files.length < 10) {
           const d = this.sql.exec("SELECT version, updated_by, updated_at FROM docs WHERE name = ?", r.ref).toArray()[0];
           if (d) files.push({ name: r.ref as string, version: d.version as number, snippet: r.snip as string, author: d.updated_by as string, ts: d.updated_at as number });
@@ -2756,6 +2757,18 @@ export class Board extends DurableObject<Env> {
   async searchLines(query: string, opts: { author?: string; type?: string; limit?: number; more?: string } = {}, viewer?: Viewer | null): Promise<{ text: string; count: number; more: string | null }> {
     const r = await this.rankedSearch(query, opts, viewer);
     return { text: r.compact, count: r.entries.length + r.files.length, more: r.more };
+  }
+
+  /** Agents' default search answer: one small card per hit under a hard cap (src/searchCards.ts). If the cap cuts the
+   *  page short, the more cursor resumes right after the last card shown, so paging never skips a hit. */
+  async searchCards(query: string, opts: { author?: string; type?: string; since?: number; limit?: number; more?: string } = {}, viewer?: Viewer | null): Promise<{ text: string; count: number; more: string | null }> {
+    const limit = clamp(opts.limit ?? CARD_LIMIT, 1, CARD_MAX_LIMIT);
+    const r = await this.rankedSearch(query, { ...opts, limit }, viewer);
+    const cards = r.entries.map(({ entry, snippet, score }) => entryCard(entry, snippet, score));
+    const shown = cards.length ? cardsThatFit(cards, 180) : 0; // 180: the header, more cursor and get line
+    const more = shown < cards.length ? (await this.rankedSearch(query, { ...opts, limit: shown }, viewer)).more : r.more;
+    const text = cardsAnswer(cards.slice(0, shown), r.files.map(fileCard), more);
+    return { text, count: shown + r.files.length, more };
   }
 
   /** Lines in files (latest versions) containing `pattern` (case-insensitive text, or a simple regex), like grep -n. */
