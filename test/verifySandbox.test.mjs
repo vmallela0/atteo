@@ -2,9 +2,17 @@ import { mkdtempSync, mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { displayCommand, OUTPUT_LIMIT, runSandboxed, type Sandbox, TERMINAL_OUTPUT_LIMIT, terminalSafe } from "../cli/src/verify";
+import {
+  displayCommand,
+  OUTPUT_LIMIT,
+  pickSandbox,
+  runSandboxed,
+  sandboxSelfTest,
+  TERMINAL_OUTPUT_LIMIT,
+  terminalSafe,
+} from "../cli/src/verify";
 
-const shell: Sandbox = {
+const shell = {
   kind: "bwrap",
   describe: "test shell",
   argv: (command) => ["/bin/sh", "-c", command],
@@ -47,5 +55,11 @@ describe("claim-check terminal safety", () => {
     } finally {
       rmSync(base, { recursive: true, force: true });
     }
+  });
+
+  it("passes the real sandbox's isolation probes when one is installed", async () => {
+    const sandbox = pickSandbox();
+    if (!sandbox) return;
+    expect(await sandboxSelfTest(sandbox)).toMatchObject({ ok: true });
   });
 });
