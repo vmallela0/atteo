@@ -468,8 +468,9 @@ function whoHtml(e: Entry): string {
   if (e.via === "agent") {
     const [session, client] = e.client && e.client.includes(" · ") ? e.client.split(" · ", 2) : [null, e.client];
     const name = session ? `${e.author}/${session}` : `${e.author}'s agent`;
-    // A named agent (vedu #1125): "Jarvis", with whose it is right next to it, always.
-    if (e.agent_name) return `<span class="who" title="${esc(`${e.author}'s agent, named ${e.agent_name}${session ? ` · session ${session}` : ""}${client && client !== "agent" ? ` · ${client}` : ""}`)}">${esc(e.agent_name)}</span><span class="via owner">${esc(`${e.author}'s agent`)}</span>`;
+    // A named agent (vedu #1125): "Jarvis", with whose it is right next to it, always, and which of its sessions wrote
+    // it (jxn #3014: one name, several agents working; "The Thinker · jxn's agent · opus-b").
+    if (e.agent_name) return `<span class="who" title="${esc(`${e.author}'s agent, named ${e.agent_name}${session ? ` · session ${session}` : ""}${client && client !== "agent" ? ` · ${client}` : ""}`)}">${esc(e.agent_name)}</span><span class="via owner">${esc(`${e.author}'s agent`)}</span>${session ? `<span class="via sess" title="${esc(`Posted by the session ${e.author}/${session}${client && client !== "agent" ? ` with ${client}` : ""}`)}">${esc(session)}</span>` : ""}`;
     return `<span class="who">${esc(name)}</span>${client && client !== "agent" ? `<span class="via" title="Posted by ${esc(name)} with ${esc(client)}">${esc(client)}</span>` : ""}`;
   }
   if (e.via === "person") return `<span class="who" title="Written by ${esc(e.author)} on the web">${esc(e.author)}</span>`;

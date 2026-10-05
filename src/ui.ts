@@ -637,7 +637,7 @@ dialog.lightbox img{display:block;max-width:min(96vw,1600px);max-height:92vh;wid
   border:1.5px solid var(--dot);background:var(--bg);box-sizing:border-box}
 .entry .body .mention.seen::after{background:var(--dot)}
 /* change cards: a git change as a card (branch → base, CI, PR, commits, files, reviews, diff on demand) */
-.meta .via.owner{color:var(--muted)}
+.meta .via.owner{color:var(--muted)}.meta .via.sess{font-family:var(--font-mono);font-size:12.5px;color:var(--muted)}
 .composer.sending .attachments{display:none}
 .upd-bar{position:fixed;top:12px;left:50%;transform:translateX(-50%);z-index:60;display:flex;align-items:center;gap:10px;padding:6px 6px 6px 14px;border:1px solid var(--line);border-radius:999px;background:var(--bg);box-shadow:var(--shadow-lg);font-size:13px;color:var(--ink);white-space:nowrap}
 .md-tw{overflow-x:auto;margin:6px 0;max-width:100%}.md-t{border-collapse:collapse;font-size:13px;line-height:1.45}.md-t th,.md-t td{border:1px solid var(--line);padding:4px 9px;text-align:left;vertical-align:top}.md-t th{background:var(--bg-subtle);color:var(--ink);font-weight:600}
@@ -659,7 +659,7 @@ ${STATUS_CSS}
 input.switch{appearance:none;-webkit-appearance:none;flex:none;width:42px;height:24px;margin:0;border-radius:999px;background:var(--line-strong,var(--line));position:relative;cursor:pointer;transition:background .15s}
 input.switch::after{content:"";position:absolute;top:3px;left:3px;width:18px;height:18px;border-radius:50%;background:var(--bg);box-shadow:0 1px 2px rgba(0,0,0,.25);transition:left .15s}input.switch:checked{background:var(--ok)}input.switch:checked::after{left:21px}
 /* Everyday (#1272): the same entries in plainer clothes; Developer mode is today's page unchanged. */
-:root[data-mode="everyday"] .entry .seq,:root[data-mode="everyday"] .meta .via:not(.owner),:root[data-mode="everyday"] [aria-controls="panel-log"],
+:root[data-mode="everyday"] .entry .seq,:root[data-mode="everyday"] .meta .via:not(.owner):not(.sess),:root[data-mode="everyday"] [aria-controls="panel-log"],
 :root[data-mode="everyday"] .entry .chg,:root[data-mode="everyday"] .apc-cmd,:root[data-mode="everyday"] .apc-risk,:root[data-mode="everyday"] .ag-hint,
 :root[data-mode="everyday"] .ag-hint+.copy,:root[data-mode="everyday"] #soul-side,:root[data-mode="everyday"] .meta .t-change,:root[data-mode="everyday"] .side-link .count.dev{display:none!important}
 :root:not([data-mode="everyday"]) .ev-res{display:none}

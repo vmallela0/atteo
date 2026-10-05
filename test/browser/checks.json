@@ -137,5 +137,6 @@
  "fonts": 6,
  "notify-levels": 6,
  "save-files": 12,
- "thread-react": 8
+ "thread-react": 8,
+ "msg-session": 5
 }
