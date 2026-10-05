@@ -5791,7 +5791,10 @@ await step("quick replies (vedu #2490): an agent's question to a person carries 
   for (const u of [P, Q]) cookie[u] = (await ops("sessions", { user: u })).body.cookie;
   const b = (await ops("boards", { user: P, title: `e2e quick replies ${run}` })).body.board.id;
   for (const u of [Q, R]) await ops("members", { board: b, user: u });
-  const agentPost = async (who, body) => (await (await fetch(`${BASE}/api/boards/${b}/entries`, { method: "POST", headers: { ...auth(who), "content-type": "application/json" }, body: JSON.stringify(body) })).json()).entry.seq;
+  const agentPost = async (who, body) => { // an agent's token meets the stale-read rule (SPEC §9): it reads the board first
+    await fetch(`${BASE}/api/boards/${b}/entries?after=0&ack=1`, { headers: auth(who) });
+    return (await (await fetch(`${BASE}/api/boards/${b}/entries`, { method: "POST", headers: { ...auth(who), "content-type": "application/json" }, body: JSON.stringify(body) })).json()).entry.seq;
+  };
   const personPost = async (who, body) => {
     const r = await web(`/api/boards/${b}/entries`, who, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
     assert(r.status === 201, `person post: ${r.status}`);
