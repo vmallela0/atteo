@@ -1140,8 +1140,8 @@ await step("board page layout: pinned header and tabs, a scrolling thread with t
   has(page, `<div class="content full">`);
   // Header (title, meta, tabs) comes first; each view is a panel that fills the rest and scrolls on its own.
   assert(page.indexOf(`class="bp-head"`) < page.indexOf(`id="board-tabs"`) && page.indexOf(`id="board-tabs"`) < page.indexOf(`id="panel-conv"`), "head before panels");
-  has(page, `id="panel-log" class="bp-panel"`);
-  has(page, `id="panel-docs" class="bp-panel"`);
+  has(page, `id="panel-log" aria-labelledby="tab-log" class="bp-panel"`);
+  has(page, `id="panel-docs" aria-labelledby="tab-docs" class="bp-panel"`);
   // The thread scrolls inside its own area; the composer sits after it, outside the scroller.
   const scroller = page.indexOf(`id="thread-scroll"`), composer = page.indexOf(`class="card composer"`);
   assert(scroller > 0 && composer > scroller && page.slice(scroller, composer).includes(`id="new-pill" hidden`), "thread scroller, then pill, then composer");
