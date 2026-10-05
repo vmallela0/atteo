@@ -30,13 +30,13 @@ dialog.talk::backdrop{background:rgba(0,0,0,.25)}
 .talk-hd{display:flex;align-items:center;gap:10px;padding:14px 16px 6px}.talk-hd b{font-size:15px}.talk-hd .grow{flex:1}.talk-left{font-size:12.5px;color:var(--faint);font-variant-numeric:tabular-nums}
 .talk-orb{display:flex;align-items:center;justify-content:center;gap:4px;height:64px;margin:4px 0}
 .talk-orb i{width:5px;height:8px;border-radius:3px;background:var(--faint);transition:height .08s,background .2s}
-.talk.napping .talk-orb i{opacity:.45}.talk.waiting .talk-orb i{background:var(--accent);opacity:.55;animation:talkWait 1.2s ease-in-out infinite}@keyframes talkWait{50%{opacity:.2}}.talk.hearing .talk-orb i{background:var(--accent)}.talk.speaking .talk-orb i{background:var(--atteo);animation:talkWave 1s ease-in-out infinite}
+.talk.napping .talk-orb i{opacity:.45}.talk.waiting .talk-orb i{background:var(--accent);opacity:.55;animation:talkWait 1.2s ease-in-out infinite}@keyframes talkWait{50%{opacity:.2}}.talk.hearing .talk-orb i{background:var(--accent)}.talk.speaking .talk-orb i{background:var(--voice);animation:talkWave 1s ease-in-out infinite}
 .talk.speaking .talk-orb i:nth-child(2n){animation-delay:.15s}.talk.speaking .talk-orb i:nth-child(3n){animation-delay:.3s}
 @keyframes talkWave{50%{height:30px}}
 @media (prefers-reduced-motion:reduce){.talk-orb i{animation:none!important;transition:none}}
 .talk-st{text-align:center;font-size:14px;color:var(--text);min-height:1.4em;padding:0 16px}
 .talk-caps{max-height:240px;overflow:auto;padding:8px 16px;display:flex;flex-direction:column;gap:6px;font-size:14px;line-height:1.45}
-.talk-caps p{margin:0;overflow-wrap:anywhere}.talk-caps .who{font-weight:600;margin-right:6px}.talk-caps .you .who{color:var(--accent)}.talk-caps .atteo .who{color:var(--atteo)}
+.talk-caps p{margin:0;overflow-wrap:anywhere}.talk-caps .who{font-weight:600;margin-right:6px}.talk-caps .you .who{color:var(--you)}.talk-caps .atteo .who{color:var(--ink)}
 .talk-caps .note{color:var(--faint);font-size:12.5px}.talk-caps .err{color:var(--danger)}
 .talk-caps .you{opacity:.6}.talk-caps .you.live{font-style:italic}.talk-caps p.old{opacity:.35}.talk-caps[data-mode="atteo"] .you{display:none}
 .talk-cc{display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--text)}.talk-cc select{font:inherit;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:2px 4px}

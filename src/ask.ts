@@ -41,7 +41,7 @@ const KBD = '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke=
 const ASK_CSS = `<style>
 .ask{display:flex;flex-direction:column;align-items:center;text-align:center;max-width:520px;margin:0 auto;padding:8px 0 24px}
 .ask-who{display:flex;align-items:center;gap:7px;font-size:14px;color:var(--muted)}
-.ask-mic{position:relative;width:200px;height:200px;margin:22px 0 8px;border:0;background:none;cursor:pointer;border-radius:50%;color:#fff}
+.ask-mic{position:relative;width:200px;height:200px;margin:22px 0 8px;border:0;background:none;cursor:pointer;border-radius:50%;color:var(--on-fill)}
 .ask-mic::before,.ask-mic::after{content:"";position:absolute;inset:0;border-radius:50%;background:var(--cherry);opacity:.08;transition:transform .3s}
 .ask-mic::after{inset:18px;opacity:.14}
 .ask-mic .core{position:absolute;inset:44px;border-radius:50%;background:var(--cherry);display:flex;align-items:center;justify-content:center;box-shadow:0 8px 28px color-mix(in srgb,var(--cherry) 35%,transparent);transition:transform .15s}
