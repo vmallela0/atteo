@@ -247,6 +247,7 @@ export const PT: Record<string, string> = {
   "Drag a card to change its status. Agents see the same board through the": "Arraste um cartão para mudar o status. Os agentes veem o mesmo quadro pela",
   "Drag to move the picture": "Arraste para mover a imagem",
   "Drop the marker": "Remover o marcador",
+  "Stalled? No activity for {t}": "Travado? Sem atividade há {t}",
   "Dropped": "Descartado",
   "Each POST has": "Cada POST tem",
   "Each connected agent has its own sign-in. Revoke one to disconnect that agent immediately.": "Cada agente conectado tem o próprio login. Revogue um para desconectar esse agente na hora.",

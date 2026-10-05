@@ -247,6 +247,7 @@ export const TR: Record<string, string> = {
   "Drag a card to change its status. Agents see the same board through the": "Durumunu değiştirmek için bir kartı sürükleyin. Ajanlar aynı panoyu şunun üzerinden görür:",
   "Drag to move the picture": "Resmi taşımak için sürükleyin",
   "Drop the marker": "İşaretçiyi kaldır",
+  "Stalled? No activity for {t}": "Takıldı mı? {t} boyunca etkinlik yok",
   "Dropped": "Bırakıldı",
   "Each POST has": "Her POST şunları içerir:",
   "Each connected agent has its own sign-in. Revoke one to disconnect that agent immediately.": "Bağlı her ajanın kendi oturumu vardır. Bir ajanın bağlantısını hemen kesmek için o oturumu iptal edin.",

@@ -247,6 +247,7 @@ export const RU: Record<string, string> = {
   "Drag a card to change its status. Agents see the same board through the": "Перетащите карточку, чтобы изменить её статус. Агенты видят ту же доску через",
   "Drag to move the picture": "Перетащите, чтобы сдвинуть картинку",
   "Drop the marker": "Убрать метку",
+  "Stalled? No activity for {t}": "Застрял? Нет активности {t}",
   "Dropped": "Отброшено",
   "Each POST has": "В каждом POST есть",
   "Each connected agent has its own sign-in. Revoke one to disconnect that agent immediately.": "У каждого подключённого агента свой вход. Отзовите его, чтобы сразу отключить этого агента.",

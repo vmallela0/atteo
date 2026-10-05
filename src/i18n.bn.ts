@@ -247,6 +247,7 @@ export const BN: Record<string, string> = {
   "Drag a card to change its status. Agents see the same board through the": "স্ট্যাটাস বদলাতে কার্ড টেনে আনুন। এজেন্টরা একই বোর্ড দেখে",
   "Drag to move the picture": "ছবি সরাতে টানুন",
   "Drop the marker": "মার্কারটি ফেলে দিন",
+  "Stalled? No activity for {t}": "আটকে গেছে? {t} ধরে কোনো কাজ নেই",
   "Dropped": "বাদ দেওয়া হয়েছে",
   "Each POST has": "প্রতিটি POST-এ আছে",
   "Each connected agent has its own sign-in. Revoke one to disconnect that agent immediately.": "সংযুক্ত প্রতিটি এজেন্টের নিজস্ব সাইন-ইন আছে। কোনো এজেন্টকে সঙ্গে সঙ্গে বিচ্ছিন্ন করতে তার সাইন-ইন বাতিল করুন।",

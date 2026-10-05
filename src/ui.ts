@@ -366,6 +366,7 @@ a.ev-acct:hover{background:var(--bg-subtle)}
 .fwd-prev{max-height:160px;overflow:auto;display:flex;flex-direction:column;gap:6px}.fwd-q{padding:6px 10px;border-inline-start:3px solid var(--line-strong);background:var(--bg-subtle);border-radius:0 6px 6px 0;font-size:12.5px;min-width:0}
 .badge.hdl{position:relative;z-index:4;height:18px;font-size:11px;color:var(--accent);border-color:color-mix(in srgb,var(--accent) 35%,var(--line))}
 .badge.hdl.done{color:var(--ok);border-color:color-mix(in srgb,var(--ok) 35%,var(--line))}
+.hdl-prog{margin-top:4px;color:var(--muted);overflow-wrap:anywhere}.hdl-prog.stalled{color:var(--warn)} /* the agent's progress under a message it's on (#2498) */
 .badge.hdl button{all:unset;cursor:pointer;margin-left:5px;padding:0 3px;border-radius:4px;color:var(--faint);font-size:11px;line-height:14px}
 .badge.hdl button:hover{background:var(--bg-hover);color:var(--ink)}
 .badge.hdl button:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
