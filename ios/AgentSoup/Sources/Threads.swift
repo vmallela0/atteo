@@ -359,6 +359,22 @@ struct ThreadView: View {
 
     private var gone: Set<Int> { Set((state.entries[board.id] ?? []).compactMap(\.retracts) + (fetched?.replies.compactMap(\.retracts) ?? [])) }
 
+    /// The thread's message and its answers, with the "N replies" line under the message.
+    @ViewBuilder private func rows(_ list: [Entry], bySeq: [Int: Entry], unsent: Set<Int>) -> some View {
+        if list.isEmpty { ProgressView().tint(Theme.faint).frame(maxWidth: .infinity).padding(.top, Space.xl) }
+        ForEach(Array(list.enumerated()), id: \.element.id) { i, e in
+            if i == 1 {
+                HStack(spacing: Space.s) {
+                    Text("\(list.count - 1) replies").font(Typo.micro.weight(.semibold)).foregroundStyle(Theme.faint)
+                        .accessibilityIdentifier("thread-count")
+                    Rectangle().fill(Theme.line).frame(height: 0.5)
+                }
+                .padding(.top, Space.l).padding(.bottom, Space.xxs)
+            }
+            row(e, parent: e.replyTo.flatMap { $0 == rootSeq ? nil : bySeq[$0] }, unsent: unsent).id(e.id)
+        }
+    }
+
     var body: some View {
         let all = items
         let list = all.filter { !hidden($0) }
@@ -366,21 +382,16 @@ struct ThreadView: View {
         let bySeq = Dictionary(all.map { ($0.seq, $0) }, uniquingKeysWith: { a, _ in a })
         ScrollViewReader { proxy in
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: 0) {
-                    if list.isEmpty { ProgressView().tint(Theme.faint).frame(maxWidth: .infinity).padding(.top, Space.xl) }
-                    ForEach(Array(list.enumerated()), id: \.element.id) { i, e in
-                        if i == 1 {
-                            HStack(spacing: Space.s) {
-                                Text("\(list.count - 1) replies").font(Typo.micro.weight(.semibold)).foregroundStyle(Theme.faint)
-                                    .accessibilityIdentifier("thread-count")
-                                Rectangle().fill(Theme.line).frame(height: 0.5)
-                            }
-                            .padding(.top, Space.l).padding(.bottom, Space.xxs)
-                        }
-                        row(e, parent: e.replyTo.flatMap { $0 == rootSeq ? nil : bySeq[$0] }, unsent: unsent).id(e.id)
-                    }
+                // Made up front, not lazily (a thread is short): a lazy list scrolled to an answer while something above
+                // it changes size (the "Showing people only" strip, a card loading) only has guessed heights, which can
+                // flip every frame and stall the layout, as the chat's did (vedu #2449). A very long thread stays lazy.
+                if list.count > 120 {
+                    LazyVStack(alignment: .leading, spacing: 0) { rows(list, bySeq: bySeq, unsent: unsent) }
+                        .padding(.horizontal, Space.l).padding(.bottom, Space.m)
+                } else {
+                    VStack(alignment: .leading, spacing: 0) { rows(list, bySeq: bySeq, unsent: unsent) }
+                        .padding(.horizontal, Space.l).padding(.bottom, Space.m)
                 }
-                .padding(.horizontal, Space.l).padding(.bottom, Space.m)
             }
             .accessibilityIdentifier("thread-list")
             // The message at the top, its answers under it; a new answer scrolls into view.

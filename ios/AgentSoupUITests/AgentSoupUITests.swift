@@ -118,14 +118,10 @@ final class AgentSoupUITests: XCTestCase {
         XCTAssertEqual(XCTWaiter().wait(for: [settled], timeout: 10), .completed, "opens at the newest message")
         XCTAssertFalse(a.staticTexts["Earlier: checked the retry path, step 0"].isHittable, "not at the top")
         shot("04-board")
-        // Who's doing what: the strip at the top opens the board's task list.
-        let strip = a.buttons["work-strip"]
-        if strip.waitForExistence(timeout: 5) {
-            strip.tap()
-            XCTAssertTrue(a.navigationBars.matching(NSPredicate(format: "identifier BEGINSWITH 'Work on'")).firstMatch.waitForExistence(timeout: 5), "task list opens")
-            shot("04b-tasks")
-            a.buttons["Done"].tap()
-        }
+        // Who's doing what: the Tasks tab under the title, and back to Chat.
+        XCTAssertTrue(a.openBoardTab("tab-tasks"), "the Tasks tab")
+        shot("04b-tasks")
+        XCTAssertTrue(a.openBoardTab("tab-chat"), "back to Chat")
         // A task card ticks live: another member finishes a sub-task and its card here says Done, no refresh.
         let env = ProcessInfo.processInfo.environment
         if let tick = env["AGENT_SOUP_TICK"], let server = env["AGENT_SOUP_SERVER"], let token = env["AGENT_SOUP_TOKEN"] {
@@ -486,7 +482,7 @@ final class AgentSoupUITests: XCTestCase {
         // Every thread here (the top bar's Threads, like Lark): theo answers in the thread while you look, and its
         // row gets a dot; open it (pushed), back to the list (the dot's gone), back to the chat.
         let rootSeq = replies.identifier.replacingOccurrences(of: "replies-", with: "")
-        a.buttons["threads"].tap()
+        a.openThreadsList()
         XCTAssertTrue(a.navigationBars["Threads"].waitForExistence(timeout: 5), "the threads list")
         let threadRow = a.descendants(matching: .any).matching(NSPredicate(format: "identifier == %@", "thread-row-\(rootSeq)")).firstMatch
         XCTAssertTrue(threadRow.waitForExistence(timeout: 5), "this thread is listed")
@@ -668,11 +664,7 @@ final class AgentSoupUITests: XCTestCase {
         let chat = a.buttons["chat-Checkout bug"].firstMatch
         XCTAssertTrue(chat.waitForExistence(timeout: 5))
         chat.tap()
-        let strip = a.buttons["work-strip"]
-        XCTAssertTrue(strip.waitForExistence(timeout: 10))
-        strip.tap()
-        XCTAssertTrue(a.navigationBars.matching(NSPredicate(format: "identifier BEGINSWITH 'Work on'")).firstMatch.waitForExistence(timeout: 5))
-        a.swipeUp() // the sheet to full height
+        XCTAssertTrue(a.openBoardTab("tab-tasks"), "the Tasks tab")
         let task = any["task-row-Write the incident note"].firstMatch
         XCTAssertTrue(task.waitForExistence(timeout: 5), "the task is in the list")
         task.tap()
@@ -727,12 +719,13 @@ final class AgentSoupUITests: XCTestCase {
         XCTAssertTrue(confirm.waitForExistence(timeout: 3), "asks first")
         shot("p04-remove-task")
         confirm.tap()
-        XCTAssertTrue(a.navigationBars.matching(NSPredicate(format: "identifier BEGINSWITH 'Work on'")).firstMatch.waitForExistence(timeout: 8), "back to the list")
+        XCTAssertTrue(a.boardTab("tab-tasks").waitForExistence(timeout: 8), "back to the list")
+        XCTAssertTrue(a.boardTab("tab-tasks").isSelected, "on the Tasks tab")
         let gone = expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: any["task-row-\(newTitle)"].firstMatch)
         wait(for: [gone], timeout: 8)
 
         // 3. Files: a doc, read; an older version from the picker.
-        a.buttons["Files"].tap()
+        XCTAssertTrue(a.openBoardTab("tab-files"), "the Files tab")
         let file = a.buttons["file-rollout-plan.md"].exists ? a.buttons["file-rollout-plan.md"] : any["file-rollout-plan.md"].firstMatch
         XCTAssertTrue(file.waitForExistence(timeout: 8), "the board's files")
         shot("p05-files")
@@ -748,7 +741,7 @@ final class AgentSoupUITests: XCTestCase {
         XCTAssertFalse(a.staticTexts["Rollback"].exists, "as it was then")
         shot("p07-doc-v1")
         sheetBack(a)
-        a.buttons["Done"].tap()
+        XCTAssertTrue(a.openBoardTab("tab-chat"), "back to Chat")
 
         // 4. The board's info (the title): members, invite, files, rename / archive.
         let presence = a.buttons["presence"]

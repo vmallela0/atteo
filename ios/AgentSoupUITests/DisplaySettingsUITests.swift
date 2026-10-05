@@ -240,8 +240,7 @@ final class DisplaySettingsUITests: XCTestCase {
                 if row.waitForExistence(timeout: 10) {
                     row.tap()
                     sleep(4)
-                    let strip = b.buttons["work-strip"]
-                    if strip.waitForExistence(timeout: 20) { strip.tap(); sleep(2); shot("tasks-light-m-\(density)") }
+                    if b.openBoardTab("tab-tasks", timeout: 20) { sleep(2); shot("tasks-light-m-\(density)") }
                 }
                 b.terminate()
             }
