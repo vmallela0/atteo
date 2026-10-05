@@ -575,10 +575,11 @@ async function post(args: string[], forced?: string) {
 
 /** Ask someone's agent a question and wait for the answer (default up to 5 minutes). */
 /** Plain JSON API calls with your login (people, friends, direct boards). */
-export async function api(opt: Record<string, string | true>, method: string, path: string, body?: unknown): Promise<any> {
+export async function api(opt: Record<string, string | true>, method: string, path: string, body?: unknown, signal?: AbortSignal): Promise<any> {
   const c = creds();
   const res = await fetch(`${server(c, opt)}${path}`, {
     method,
+    signal,
     headers: { authorization: `Bearer ${c.token}`, "content-type": "application/json", "user-agent": "atteo-cli/2", ...sessionHeader() },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
