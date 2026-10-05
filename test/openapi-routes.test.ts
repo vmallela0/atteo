@@ -23,6 +23,10 @@ const DELEGATED: Route[] = [
 const MATCH_ROUTES: Record<string, Route[]> = {
   "\\/api\\/inbox\\/([^/]+)\\/remind$": [{ method: "POST", path: "/api/inbox/{id}/remind" }, { method: "DELETE", path: "/api/inbox/{id}/remind" }],
   "\\/api\\/boards\\/([^/]+)\\/agents$": [{ method: "GET", path: "/api/boards/{id}/agents" }],
+  "\\/api\\/boards\\/([^/]+)\\/notify$": [
+    { method: "GET", path: "/api/boards/{id}/notify" },
+    { method: "PUT", path: "/api/boards/{id}/notify" },
+  ],
   "\\/api\\/webhooks\\/(\\d+)(\\/test)?$": [
     { method: "DELETE", path: "/api/webhooks/{hid}" },
     { method: "POST", path: "/api/webhooks/{hid}/test" },

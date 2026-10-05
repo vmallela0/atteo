@@ -1105,7 +1105,7 @@ export function boardPage(
     : `<div class="empty" id="empty"><h3>${esc(T("Nothing here yet"))}</h3><p class="small">${esc(T("Any agent joins with {cmd}. Or write the first note below.")).replace("{cmd}", `<span class="mono">atteo join ${esc(info.id)}</span>`)}</p>
 <div class="row" style="gap:8px;justify-content:center;flex-wrap:wrap;margin-top:16px">${agent.connected ? "" : `<button class="btn primary lg" data-open="connect">${esc(T("Connect an agent"))}</button>`}${!canInviteAgent ? "" : `<button class="btn lg${agent.connected ? " primary" : ""}" data-open="invite-agent">${esc(T("Invite an agent"))}</button>`}</div></div>`;
   const rows = [...entries].reverse().map((e) => logRow(e, undefined, undefined, viewer.lang)).join("");
-  const script = SHEET_JS + CONNECT_JS + (agentChat ? AGENT_PICK_JS : "") + REMIND_BROWSER_JS + `
+  const script = SHEET_JS + CONNECT_JS + (agentChat ? AGENT_PICK_JS : "") + NOTIFY_SIDE_JS + REMIND_BROWSER_JS + `
 document.addEventListener('click',e=>{const b=e.target.closest('[data-remind-message]');if(b)remindItem(BOARD+':'+b.dataset.seq,b.dataset.remindMessage)});
 window.BOARD=${JSON.stringify(info.id)};let last=${last};
 ${agentChat ? "" : `try{if(localStorage.getItem('atteo.pf.'+${jsString(viewer.name)})==='1')document.documentElement.setAttribute('data-pf','')}catch(e){}`} // the People filter, before anything measures the thread
@@ -2599,6 +2599,7 @@ window.boardKeys=(e,k)=>{
     </form>
   </section>
   <aside class="aside" id="board-info" aria-label="${esc(T("Board info"))}">${agentChat ? "" : PIN_SIDE + SOUL_SIDE}${agentsSection(agents, info.id, readOnly || !!info.archived, L, canInviteAgent)}<div class="sum" id="sum">${summaryHtml(entries, viewer.name, members, summary, ctl, L)}</div>
+${notifySide(L)}
 </aside>
 </div></div>
 <div role="tabpanel" id="panel-log" class="bp-panel" data-board-panel hidden><div class="list scroll-x"><table class="log"><thead><tr><th>${esc(T("Time (UTC)"))}</th><th>#</th><th>${esc(T("Author"))}</th><th>${esc(T("Type"))}</th><th>${esc(T("To"))}</th><th>${esc(T("Summary"))}</th></tr></thead>
@@ -3026,6 +3027,51 @@ export interface Display {
 /** Read-aloud and voice chat voices (xAI's), as the picker names them. */
 const VOICE_NAMES: [string, string][] = [["eve", "Eve"], ["ara", "Ara"], ["leo", "Leo"], ["rex", "Rex"], ["sal", "Sal"]];
 
+// ---- notification volume (src/notify.ts, vedu #2490): a level per board, quiet hours, the digest ----
+
+const NOTIFY_LEVELS = (T: (s: string) => string): [string, string][] => [
+  ["everything", T("Everything")],
+  ["needs_me", T("Needs me")],
+  ["off", T("Off")],
+];
+
+/** Board info → Notifications: your level for this board (only interrupts change; the Inbox doesn't). */
+function notifySide(lang?: Lang): string {
+  const T = (s: string, v?: Record<string, string | number>) => tr(lang, s, v);
+  return `<section class="ns-side" id="ns-side" aria-labelledby="ns-side-h"><h3 class="xs muted" id="ns-side-h" style="margin:14px 0 6px;font-weight:600">${esc(T("Notifications"))}</h3>
+<div class="seg" role="radiogroup" aria-labelledby="ns-side-h">${NOTIFY_LEVELS(T)
+    .map(([v, l]) => `<input type="radio" name="ns-level" id="ns-level-${v}" value="${v}"${v === "needs_me" ? " checked" : ""}><label for="ns-level-${v}">${esc(l)}</label>`)
+    .join("")}</div>
+<p class="xs muted" id="ns-side-hint" style="margin-top:6px" data-needs="${esc(T("Approvals, @you, replies, decisions and DMs notify you at once; the rest waits for a digest at {times}.", { times: "{times}" }))}" data-off="${esc(T("Off: still in your Inbox, never a notification."))}"></p></section>`;
+}
+
+// Board info's level: read once, saved on change. The hint says what the level means (with your digest times).
+const NOTIFY_SIDE_JS = `
+setTimeout(()=>{const box=document.getElementById('ns-side');if(!box||!window.BOARD)return;const hint=document.getElementById('ns-side-hint');let times='9:00, 13:00, 18:00';
+  const say=v=>{hint.textContent=v==='off'?hint.dataset.off:v==='needs_me'?hint.dataset.needs.split('{times}').join(times):''};
+  const tz=encodeURIComponent(Intl.DateTimeFormat().resolvedOptions().timeZone||'UTC');
+  fetch('/api/me/notify?tz='+tz).then(r=>r.ok?r.json():null).then(j=>{if(j&&j.digest)times=j.digest.join(', ');say(box.querySelector('input:checked').value)}).catch(()=>{});
+  fetch('/api/boards/'+window.BOARD+'/notify').then(r=>r.ok?r.json():null).then(j=>{if(!j)return;const i=document.getElementById('ns-level-'+j.level);if(i)i.checked=true;box.dataset.level=j.level;say(j.level)}).catch(()=>{});
+  box.addEventListener('change',async e=>{const v=e.target.value,prev=box.dataset.level||'needs_me';say(v);
+    const r=await fetch('/api/boards/'+window.BOARD+'/notify',{method:'PUT',headers:{'content-type':'application/json'},body:JSON.stringify({level:v})}).catch(()=>null);
+    if(r&&r.ok){box.dataset.level=v;toast(tr('Notifications saved'))}else{const i=document.getElementById('ns-level-'+prev);if(i)i.checked=true;say(prev);toast(tr('Could not save'))}})},0);`;
+
+/** Account → Notifications: quiet hours (nothing interrupts but urgent approvals) and when digests come. */
+function notifySection(lang?: Lang): string {
+  const T = (s: string, v?: Record<string, string | number>) => tr(lang, s, v);
+  return `<div class="section-title" style="margin-top:32px"><div><h2>${esc(T("Notifications"))}</h2><p class="small muted" style="margin-top:4px" id="ns-hint" data-needs="${esc(T("Approvals, @you, replies, decisions and DMs notify you at once; the rest waits for a digest at {times}.", { times: "{times}" }))}"></p></div></div>
+<form class="card pad" id="ns-form"><label class="pf-check"><input type="checkbox" id="ns-quiet"><span><span class="small" style="color:var(--ink)">${esc(T("Quiet hours"))}</span><span class="xs muted">${esc(T("Nothing interrupts you then, except urgent approvals."))}</span></span></label>
+<div class="row" style="gap:8px;margin-top:10px;flex-wrap:wrap"><label class="lbl" for="ns-start">${esc(T("From"))}</label><input class="input" type="time" id="ns-start" value="22:00" style="width:auto"><label class="lbl" for="ns-end">${esc(T("To"))}</label><input class="input" type="time" id="ns-end" value="07:00" style="width:auto"></div></form>`;
+}
+
+const NOTIFY_JS = `
+(()=>{const f=document.getElementById('ns-form');if(!f)return;const q=document.getElementById('ns-quiet'),s=document.getElementById('ns-start'),e=document.getElementById('ns-end'),hint=document.getElementById('ns-hint');
+  const tz=Intl.DateTimeFormat().resolvedOptions().timeZone||'UTC';
+  const show=j=>{q.checked=!!j.quiet.on;s.value=j.quiet.start;e.value=j.quiet.end;hint.textContent=hint.dataset.needs.split('{times}').join(j.digest.join(', '))};
+  fetch('/api/me/notify?tz='+encodeURIComponent(tz)).then(r=>r.ok?r.json():null).then(j=>{if(j)show(j)}).catch(()=>{});
+  f.addEventListener('change',async()=>{const r=await fetch('/api/me/notify',{method:'PUT',headers:{'content-type':'application/json'},body:JSON.stringify({quiet:{on:q.checked,start:s.value||'22:00',end:e.value||'07:00',tz}})}).catch(()=>null);
+    if(r&&r.ok){show(await r.json());toast(tr('Notifications saved'))}else toast(tr('Could not save'))})})();`;
+
 /** Account → Display: how the chat looks to you (Slack-style). Saved to your profile, so the web and the app match. */
 function displaySection(d: Display | null | undefined, lang?: Lang): string {
   const T = (s: string) => tr(lang, s);
@@ -3173,6 +3219,7 @@ ${assistantCard(assistants, viewer.lang)}
       .join("")}</div>
 ${profileSection(prof, viewer.lang)}
 ${displaySection(prof?.display, viewer.lang)}
+${notifySection(viewer.lang)}
 <div class="section-title" style="margin-top:32px"><div><h2>${esc(T("Agent connections"))}</h2><p class="small muted" style="margin-top:4px">${esc(T("Each connected agent has its own sign-in. Revoke one to disconnect that agent immediately."))}</p></div><button class="btn sm" data-open="connect">${esc(T("Connect an agent"))}</button></div>
 ${prof ? `<label class="pf-check" style="margin:0 0 10px"><input type="checkbox" id="headless"${prof.agents_headless ? " checked" : ""}><span><span class="small" style="color:var(--ink)">${esc(T("My agents are headless"))}</span><span class="xs muted">${esc(T("They answer and ask for approval on the board, not in their terminal."))}</span></span></label>` : ""}
 <div class="list scroll-x"><table class="tbl"><thead><tr><th>${esc(T("Connection"))}</th><th class="hide-sm">${esc(T("Last used"))}</th><th>${esc(T("Status"))}</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>
@@ -3186,7 +3233,7 @@ ${
 ${webhooksSection(hooks, viewer.lang)}
 ${billingSection(plan, billingEnabled, viewer.lang)}
 ${connectDialog(viewer)}`,
-    script: CONNECT_JS + `window.revoked=()=>location.reload();` + BILLING_JS + PFP_JS + HOOKS_JS + PROFILE_JS + DISPLAY_JS + HEADLESS_JS + KILL_JS,
+    script: CONNECT_JS + `window.revoked=()=>location.reload();` + BILLING_JS + PFP_JS + HOOKS_JS + PROFILE_JS + DISPLAY_JS + NOTIFY_JS + HEADLESS_JS + KILL_JS,
   });
 }
 

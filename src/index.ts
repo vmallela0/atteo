@@ -28,6 +28,7 @@ import { openapi } from "./openapi";
 import * as billing from "./billing";
 import { blockedMessage, scanFields } from "./secrets";
 import * as inbox from "./inbox";
+import * as notify from "./notify";
 import * as forYou from "./forYou";
 import * as auth from "./auth";
 import * as appSignin from "./appSignin";
@@ -932,7 +933,45 @@ const handler = {
       }
       if (path === "/api/inbox" && method === "GET") {
         if (!viewer) return needLogin();
-        return json({ items: await inbox.listInbox(env, viewer.name, 50, viewer.via !== "agent") });
+        const items = await inbox.listInbox(env, viewer.name, 50, viewer.via !== "agent");
+        if (viewer.via === "agent") return json({ items }); // agents never see a person's notification settings
+        // People: each item says whether it interrupts (src/notify.ts), and when the digest is due.
+        const [levels, prefs] = await Promise.all([notify.getLevels(env, viewer.name), notify.getPrefs(env, viewer.name, notify.fallbackTz(url.searchParams.get("tz")))]);
+        const now = requestNow(env, request);
+        return json({ items: inbox.withInterrupts(items, levels, prefs, now), notify: notify.summary(prefs, now) });
+      }
+      // ---- notification volume (a person's own): level per board, quiet hours, digest times ----
+      if (path === "/api/me/notify" && (method === "GET" || method === "PUT")) {
+        if (!viewer) return needLogin();
+        if (viewer.via === "agent") return json({ error: "Only you set your notifications, in Atteo; agents can't read or change them." }, 403);
+        const tz = notify.fallbackTz(url.searchParams.get("tz"));
+        let prefs = await notify.getPrefs(env, viewer.name, tz);
+        if (method !== "GET") {
+          try {
+            prefs = notify.mergePrefs(prefs, await request.json().catch(() => null));
+          } catch (e) {
+            if (e instanceof notify.NotifyError) return json({ error: e.message }, 400);
+            throw e;
+          }
+          await notify.setPrefs(env, viewer.name, prefs);
+        }
+        return json({ ok: true, ...prefs, levels: await notify.getLevels(env, viewer.name), default_level: notify.DEFAULT_LEVEL, ...notify.summary(prefs, requestNow(env, request)) });
+      }
+      m = path.match(/^\/api\/boards\/([^/]+)\/notify$/);
+      if (m && (method === "GET" || method === "PUT")) {
+        if (!viewer) return needLogin();
+        if (viewer.via === "agent") return json({ error: "Only you set your notifications, in Atteo; agents can't read or change them." }, 403);
+        if (!BOARD_RE.test(m[1]) || !(await canSee(c, m[1]))) return json({ error: "board not found" }, 404);
+        if (method !== "GET") {
+          const b = (await request.json().catch(() => ({}))) as { level?: unknown };
+          try {
+            await notify.setLevel(env, viewer.name, m[1], notify.cleanLevel(b.level));
+          } catch (e) {
+            if (e instanceof notify.NotifyError) return json({ error: e.message }, 400);
+            throw e;
+          }
+        }
+        return json({ ok: true, board: m[1], level: await notify.getLevel(env, viewer.name, m[1]) });
       }
       // ---- which agents are on a board, and whether each is working right now (live), idle, or gone ----
       m = path.match(/^\/api\/boards\/([^/]+)\/agents$/);
@@ -992,7 +1031,14 @@ const handler = {
       }
       if (path === "/api/inbox/count" && method === "GET") {
         if (!viewer) return needLogin();
-        return json(await inbox.inboxCount(env, viewer.name, viewer.via !== "agent"), 200, { "cache-control": "no-store" });
+        const cnt = await inbox.inboxCount(env, viewer.name, viewer.via !== "agent");
+        if (viewer.via === "agent" || !cnt.latest) return json(cnt, 200, { "cache-control": "no-store" });
+        // People: the newest item says whether it interrupts (one level lookup for its board, not all of them).
+        const lb = cnt.latest.board_id || cnt.latest.push?.board || "";
+        const [lvl, prefs] = await Promise.all([lb ? notify.getLevel(env, viewer.name, lb) : notify.DEFAULT_LEVEL, notify.getPrefs(env, viewer.name, notify.fallbackTz(url.searchParams.get("tz")))]);
+        const now = requestNow(env, request);
+        const [latest] = inbox.withInterrupts([cnt.latest], lb ? { [lb]: lvl } : {}, prefs, now);
+        return json({ ...cnt, latest, notify: notify.summary(prefs, now) }, 200, { "cache-control": "no-store" });
       }
       m = path.match(/^\/api\/inbox\/([^/]+)\/remind$/);
       if (m && (method === "POST" || method === "DELETE")) {

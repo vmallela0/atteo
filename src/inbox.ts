@@ -8,6 +8,7 @@ import { tr } from "./i18n";
 import { esc } from "./util";
 import { approvalCardHtml, approvalJs, type ApprovalCardData } from "./approvalCard";
 import type { Env } from "./types";
+import { classify, DEFAULT_LEVEL, type Interrupt, type Level, type NotifyPrefs } from "./notify";
 
 export interface InboxItem {
   id: number;
@@ -22,21 +23,35 @@ export interface InboxItem {
   created_at: number;
   read_at: number | null;
   reminded_at?: number | null;
+  reminded?: boolean; // came back from Remind me later: it needs the person now (src/notify.ts)
   approval_id?: string; // kind approval: the request (GET /api/approvals/:id)
   push?: { kind: "approval_needed"; title: string; body: string; url: string; approval: string; board: string | null; risk: string }; // ready for a phone notification
+  board_kind?: string | null; // direct (a DM), agent ("Your agent"), or null
+  broadcast?: boolean; // a mention that reached you only through @all / @humans
+  interrupt?: Interrupt; // people only: now (notify), digest (fold into the summary) or none (src/notify.ts)
 }
 
 type InboxRow = InboxItem & { data?: string | null };
-/** Parses a row's data into its push-ready fields (approvals: "Approval needed"). */
+/** Parses a row's data into its push-ready fields (approvals: "Approval needed") and the broadcast mark. */
 function withPush(r: InboxRow): InboxItem {
   const { data, ...item } = r;
   if (!data) return item;
   try {
-    const d = JSON.parse(data) as { push?: InboxItem["push"] };
-    return d.push ? { ...item, approval_id: d.push.approval, push: d.push } : item;
+    const d = JSON.parse(data) as { push?: InboxItem["push"]; broadcast?: boolean; reminded?: number };
+    const out: InboxItem = { ...item, ...(d.broadcast ? { broadcast: true } : {}), ...(d.reminded ? { reminded: true } : {}) };
+    return d.push ? { ...out, approval_id: d.push.approval, push: d.push } : out;
   } catch {
     return item;
   }
+}
+
+/** Stamps each item with whether it interrupts (a person's level for its board, their quiet hours, now). */
+export function withInterrupts<T extends InboxItem>(items: T[], levels: Record<string, Level>, prefs: NotifyPrefs, now = Date.now()): T[] {
+  return items.map((i) => {
+    const board = i.board_id || i.push?.board || "";
+    const level = (board && levels[board]) || DEFAULT_LEVEL;
+    return { ...i, interrupt: classify({ kind: i.kind, broadcast: i.broadcast, direct: i.board_kind === "direct", risk: i.push?.risk, reminded: i.reminded }, level, prefs.quiet, now) };
+  });
 }
 
 /** People-only items (a message only the people named can see) go to person callers only: agent tokens read this API too. */
@@ -44,7 +59,7 @@ const NOT_PEOPLE = (person: boolean, col = "kind") => (person ? "" : ` AND ${col
 
 export async function listInbox(env: Env, user: string, limit = 100, person = false): Promise<InboxItem[]> {
   const r = await env.DB.prepare(
-    `SELECT n.id, n.board_id, b.title AS board_title, n.seq, n.kind, n.actor, n.actor_via, n.entry_type, n.excerpt, n.created_at, n.read_at, n.data, r.due_at AS reminded_at
+    `SELECT n.id, n.board_id, b.title AS board_title, b.kind AS board_kind, n.seq, n.kind, n.actor, n.actor_via, n.entry_type, n.excerpt, n.created_at, n.read_at, n.data, r.due_at AS reminded_at
      FROM notifications n LEFT JOIN boards b ON b.id = n.board_id LEFT JOIN inbox_reminders r ON r.notification_id = n.id AND r.user = n.user
      WHERE n.user = ? AND n.kind NOT IN ('trigger', 'from_your_person')${NOT_PEOPLE(person, "n.kind")} AND r.notification_id IS NULL AND (n.board_id = '' OR n.board_id IN (SELECT board_id FROM members WHERE user = ?))
      ORDER BY n.created_at DESC LIMIT ?`,
@@ -65,7 +80,7 @@ export async function inboxCount(env: Env, user: string, person = false): Promis
       .bind(user, user)
       .first<{ n: number }>(),
     env.DB.prepare(
-      `SELECT n.id, n.board_id, b.title AS board_title, n.seq, n.kind, n.actor, n.actor_via, n.entry_type, n.excerpt, n.created_at, n.read_at, n.data, r.due_at AS reminded_at
+      `SELECT n.id, n.board_id, b.title AS board_title, b.kind AS board_kind, n.seq, n.kind, n.actor, n.actor_via, n.entry_type, n.excerpt, n.created_at, n.read_at, n.data, r.due_at AS reminded_at
        FROM notifications n LEFT JOIN boards b ON b.id = n.board_id LEFT JOIN inbox_reminders r ON r.notification_id = n.id AND r.user = n.user WHERE n.user = ? AND n.read_at IS NULL AND n.kind != 'trigger' AND r.notification_id IS NULL${NOT_PEOPLE(person, "n.kind")} ORDER BY n.created_at DESC LIMIT 1`,
     )
       .bind(user)
@@ -184,7 +199,7 @@ export async function fireReminders(env: Env, now = Date.now()): Promise<number>
   const due = (await env.DB.prepare(`SELECT user, notification_id FROM inbox_reminders WHERE due_at <= ? LIMIT 200`).bind(now).all<{ user: string; notification_id: number }>()).results;
   for (const r of due) {
     await env.DB.batch([
-      env.DB.prepare(`UPDATE notifications SET read_at = NULL WHERE id = ? AND user = ?`).bind(r.notification_id, r.user),
+      env.DB.prepare(`UPDATE notifications SET read_at = NULL, data = CASE WHEN json_valid(data) THEN json_set(data, '$.reminded', ?) ELSE json_object('reminded', ?) END WHERE id = ? AND user = ?`).bind(now, now, r.notification_id, r.user),
       env.DB.prepare(`DELETE FROM inbox_reminders WHERE user = ? AND notification_id = ?`).bind(r.user, r.notification_id),
     ]);
   }
