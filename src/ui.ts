@@ -468,7 +468,7 @@ a.ev-acct:hover{background:var(--bg-subtle)}
 .cl-f{display:flex;gap:6px;flex-basis:100%}.cl-f[hidden]{display:none}.cl-f .input{flex:1;height:28px;font-size:12.5px}
 /* Human decisions: a person's decision, decided by the people (pill · who's agreed · Agree / Object · Close for its author) */
 .hd-open .tk-st .dot{background:var(--decision)}.hd-decided .tk-st{color:var(--ok)}.hd-decided .tk-st .dot{background:var(--ok)}.hd-dropped .tk-st{color:var(--muted)}.hd-dropped .tk-st .dot{background:var(--muted)}
-.hd-ms{display:inline-flex;align-items:center;gap:5px}.hd-m{position:relative;display:inline-flex}.hd-m .av{width:20px;height:20px;font-size:8.5px}.hd-m.w .av{opacity:.45}
+.hd-ms{display:inline-flex;align-items:center;gap:5px}.hd-m{position:relative;display:inline-flex}.hd-m .av{width:20px;height:20px;font-size:8.5px}.hd-m.w .av{background:transparent;color:var(--muted);border:1px dashed var(--muted)}.hd-m.w .av-img{opacity:.5} /* hasn't voted: an empty dashed ring with readable initials (faded initials fell to 2:1) */
 .hd-m i{position:absolute;right:-4px;bottom:-3px;width:12px;height:12px;border-radius:50%;display:grid;place-items:center;font-size:8px;font-style:normal;font-weight:700;line-height:1;color:#fff;box-shadow:0 0 0 1.5px var(--bg-subtle)}
 .hd-m.y i{background:var(--ok)}.hd-m.n i{background:var(--danger)}
 .hd-b.on-y{color:var(--ok);border-color:color-mix(in srgb,var(--ok) 40%,var(--line))}.hd-b.on-n{color:var(--danger);border-color:color-mix(in srgb,var(--danger) 40%,var(--line))}
