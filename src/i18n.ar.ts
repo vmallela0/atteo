@@ -251,6 +251,7 @@ export const AR: Record<string, string> = {
   "Dropped": "مُسقَط",
   "Each POST has": "يتضمن كل طلب POST",
   "Each connected agent has its own sign-in. Revoke one to disconnect that agent immediately.": "لكل وكيل متصل تسجيل دخول خاص به. ألغِ واحدًا لقطع اتصال ذلك الوكيل فورًا.",
+  "edited": "تم التعديل",
   "Edit": "تعديل",
   "Edit details": "تعديل التفاصيل",
   "Edit your account": "تعديل حسابك",

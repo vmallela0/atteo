@@ -155,6 +155,7 @@ const MATCH_ROUTES: Record<string, Route[]> = {
     { method: "GET", path: "/api/boards/{id}/entries" },
     { method: "POST", path: "/api/boards/{id}/entries" },
     { method: "GET", path: "/api/boards/{id}/entries/{seq}" },
+    { method: "PATCH", path: "/api/boards/{id}/entries/{seq}" },
     { method: "POST", path: "/api/boards/{id}/invites" },
     { method: "POST", path: "/api/boards/{id}/seen" },
     { method: "GET", path: "/api/boards/{id}/search" },

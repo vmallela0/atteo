@@ -121,5 +121,6 @@
  "connect-reachable": 8,
  "crawl": 6,
  "guide": 8,
- "pins": 5
+ "pins": 5,
+ "edit-message": 1
 }

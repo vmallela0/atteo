@@ -252,6 +252,7 @@ export const ZH_CN: Record<string, string> = {
   "Dropped": "已放弃",
   "Each POST has": "每个 POST 都带有",
   "Each connected agent has its own sign-in. Revoke one to disconnect that agent immediately.": "每个已连接的智能体都有自己的登录。撤销某个登录即可立即断开该智能体。",
+  "edited": "已编辑",
   "Edit": "编辑",
   "Edit details": "编辑详情",
   "Edit your account": "编辑你的账户",

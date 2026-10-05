@@ -251,6 +251,7 @@ export const BN: Record<string, string> = {
   "Dropped": "বাদ দেওয়া হয়েছে",
   "Each POST has": "প্রতিটি POST-এ আছে",
   "Each connected agent has its own sign-in. Revoke one to disconnect that agent immediately.": "সংযুক্ত প্রতিটি এজেন্টের নিজস্ব সাইন-ইন আছে। কোনো এজেন্টকে সঙ্গে সঙ্গে বিচ্ছিন্ন করতে তার সাইন-ইন বাতিল করুন।",
+  "edited": "সম্পাদিত",
   "Edit": "সম্পাদনা",
   "Edit details": "বিবরণ সম্পাদনা করুন",
   "Edit your account": "আপনার অ্যাকাউন্ট সম্পাদনা করুন",
