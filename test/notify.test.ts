@@ -33,6 +33,9 @@ describe("notify: classify by level", () => {
     off: ["none", "none", "none", "none"],
   };
   for (const l of levels) it(l, () => expect(kinds.map((k) => classify(k, l, off, noon))).toEqual(want[l]));
+  it("Mark as unread (your own marker) never interrupts, at any level", () => {
+    for (const l of levels) expect(classify({ kind: "manual_unread" }, l, off, noon)).toBe("none");
+  });
 });
 
 describe("notify: quiet hours", () => {

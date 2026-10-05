@@ -73,7 +73,7 @@ export function inQuiet(q: Quiet, now: number): boolean {
 
 /** The interrupt for one item. Quiet hours hold "now" items for the digest, except urgent (high-risk) approvals. */
 export function classify(i: NotifyItem, level: Level, quiet: Quiet, now: number): Interrupt {
-  if (level === "off") return "none";
+  if (level === "off" || i.kind === "manual_unread") return "none"; // Mark as unread is your own note: never a notification
   const urgent = i.kind === "approval" && i.risk === "high";
   const want: Interrupt = level === "everything" || needsYou(i) ? "now" : "digest";
   if (want === "now" && !urgent && inQuiet(quiet, now)) return "digest";

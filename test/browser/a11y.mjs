@@ -76,7 +76,7 @@ async function axeScan(page, label, include = INCLUDES) {
 const emit = (p, e) => p.evaluate((ev) => window.__talk.emit(ev), e);
 
 const run = Date.now().toString(36).slice(-4), P = `a11y${run}`, V = `av${run}`;
-for (const u of [P, V]) await ops("users", { name: u, email: `${u}@example.com`, verified: "true" });
+for (const u of [P, V]) await ops("users", { name: u, email: `${u}@example.com`, verified: "true", display: { voice_turns: "quick" } }); // server turn detection, as the talk scans expect
 const board = (await ops("boards", { user: P, title: `A11y ${run}` })).board.id;
 await ops("boards", { user: P, title: `Fwd dst ${run}` }); // a second board for the forward picker
 await ops("members", { board, user: V });

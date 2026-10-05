@@ -12,7 +12,7 @@ import { chromium } from "playwright-core";
 const BASE = process.env.BASE || "http://localhost:8787";
 const ops = async (p, b) => (await fetch(`${BASE}/api/ops/${p}`, { method: "POST", headers: { "x-admin-key": process.env.ADMIN_KEY || "ci-admin-key", "content-type": "application/json" }, body: JSON.stringify(b) })).json();
 const run = Date.now().toString(36).slice(-4), P = `cn${run}`, V = `cv${run}`, W = `cw${run}`; // W: a second caller (sessions are rate-limited per person)
-for (const u of [P, V, W]) await ops("users", { name: u, email: `${u}@example.com`, verified: "true", display: { mode: "developer" } });
+for (const u of [P, V, W]) await ops("users", { name: u, email: `${u}@example.com`, verified: "true", display: { mode: "developer", voice_turns: "quick" } }); // the service finds the turns here (voice-turns.mjs covers pause and tap)
 const board = (await ops("boards", { user: P, title: `Nap ${run}` })).board.id; await ops("members", { board, user: V }); await ops("members", { board, user: W });
 const ckP = (await ops("sessions", { user: P })).cookie, ckV = (await ops("sessions", { user: V })).cookie, ckW = (await ops("sessions", { user: W })).cookie;
 let fails = 0; const check = (ok, t) => { console.log(`${ok ? "✓" : "✗"} ${t}`); if (!ok) fails++; };

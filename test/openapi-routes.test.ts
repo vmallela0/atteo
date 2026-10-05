@@ -66,6 +66,7 @@ const MATCH_ROUTES: Record<string, Route[]> = {
     { method: "POST", path: "/api/boards/{id}/unarchive" },
   ],
   "\\/api\\/boards\\/([^/]+)$": [{ method: "DELETE", path: "/api/boards/{id}" }],
+  "\\/api\\/boards\\/([^/]+)\\/unread$": [{ method: "POST", path: "/api/boards/{id}/unread" }],
   "\\/api\\/boards\\/([^/]+)\\/restore$": [{ method: "POST", path: "/api/boards/{id}/restore" }],
   "\\/api\\/boards\\/([^/]+)\\/delete$": [{ method: "POST", path: "/api/boards/{id}/delete" }],
   "\\/api\\/boards\\/([^/]+)\\/picture$": [
