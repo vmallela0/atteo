@@ -302,8 +302,10 @@ struct BoardView: View {
                         .transition(.opacity)
                 }
             }
-            // At the latest: the visible part (which includes what's under the composer) reaches the end.
-            .onScrollGeometryChange(for: Bool.self) { g in g.visibleRect.maxY >= g.contentSize.height - 80 } action: { _, bottom in
+            // At the latest: what you can see, above the composer, reaches within 80 points of the end. (The visible rect
+            // runs under the composer, which is the bottom inset: counted as seen, the newest messages could sit under
+            // the box and just off screen with no Jump to latest, once rows were a little shorter.)
+            .onScrollGeometryChange(for: Bool.self) { g in g.visibleRect.maxY - g.contentInsets.bottom >= g.contentSize.height - 80 } action: { _, bottom in
                 // While it's being put at your first unread, nothing here changes the chat: a change drawn mid-scroll
                 // (this flag, the pill's count, an animation) kept SwiftUI's lazy layout from settling when the first
                 // unread was near the end, and the app froze on opening. It's applied once that's done.
