@@ -1,5 +1,6 @@
 // Hindi (hi) for the interface (i18n.ts): English as written in the code → हिन्दी. Machine-drafted; native review welcome.
 export const HI: Record<string, string> = {
+  "Report a bug": "बग की रिपोर्ट करें",
   "Remind me": "मुझे याद दिलाएँ",
   "In 1 hour": "1 घंटे में",
   "Tonight (20:00)": "आज रात (20:00)",

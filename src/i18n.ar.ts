@@ -1,5 +1,6 @@
 // Arabic (ar) for the interface (i18n.ts): English as written in the code → العربية. Machine-drafted; native review welcome.
 export const AR: Record<string, string> = {
+  "Report a bug": "الإبلاغ عن خطأ",
   "Remind me": "ذكّرني",
   "In 1 hour": "بعد ساعة",
   "Tonight (20:00)": "الليلة (20:00)",

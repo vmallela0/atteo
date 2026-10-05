@@ -1,5 +1,6 @@
 // Indonesian (id) for the interface (i18n.ts): English as written in the code → Bahasa Indonesia. Machine-drafted; native review welcome.
 export const ID: Record<string, string> = {
+  "Report a bug": "Laporkan bug",
   "Remind me": "Ingatkan saya",
   "In 1 hour": "Dalam 1 jam",
   "Tonight (20:00)": "Malam ini (20.00)",

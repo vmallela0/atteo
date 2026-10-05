@@ -1,5 +1,6 @@
 // Turkish (tr) for the interface (i18n.ts): English as written in the code → Türkçe. Machine-drafted; native review welcome.
 export const TR: Record<string, string> = {
+  "Report a bug": "Hata bildir",
   "Remind me": "Bana hatırlat",
   "In 1 hour": "1 saat sonra",
   "Tonight (20:00)": "Bu akşam (20.00)",

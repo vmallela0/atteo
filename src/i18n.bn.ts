@@ -1,5 +1,6 @@
 // Bengali (bn) for the interface (i18n.ts): English as written in the code → বাংলা. Machine-drafted; native review welcome.
 export const BN: Record<string, string> = {
+  "Report a bug": "বাগ রিপোর্ট করুন",
   "Remind me": "আমাকে মনে করিয়ে দিন",
   "In 1 hour": "১ ঘণ্টা পরে",
   "Tonight (20:00)": "আজ রাতে (২০:০০)",

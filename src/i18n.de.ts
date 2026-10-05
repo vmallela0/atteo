@@ -1,5 +1,6 @@
 // German (de) for the interface (i18n.ts): English as written in the code → Deutsch. Machine-drafted; native review welcome.
 export const DE: Record<string, string> = {
+  "Report a bug": "Fehler melden",
   "Remind me": "Mich erinnern",
   "In 1 hour": "In 1 Stunde",
   "Tonight (20:00)": "Heute Abend (20:00)",

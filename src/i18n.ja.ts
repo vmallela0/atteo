@@ -1,5 +1,6 @@
 // Japanese (ja) for the interface (i18n.ts): English as written in the code → 日本語. Machine-drafted; native review welcome.
 export const JA: Record<string, string> = {
+  "Report a bug": "バグを報告",
   "Remind me": "後で通知",
   "In 1 hour": "1時間後",
   "Tonight (20:00)": "今夜（20:00）",

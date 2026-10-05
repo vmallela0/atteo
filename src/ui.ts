@@ -1715,7 +1715,7 @@ export function appPage(
   <div class="side-label"><span>${esc(T("Your boards"))}</span><a href="/?new=1" title="${esc(T("New board (C)"))}" aria-label="${esc(T("New board"))}">${ICON.plus}</a></div>
   ${sideBoards || `<p class="xs faint" style="padding:2px 9px">${esc(T("No boards yet"))}</p>`}
   <div class="side-label"><span>${esc(T("DMs"))}</span></div>${sideOwn}${sideDirect}
-  <button class="side-link bug-btn" type="button" data-bug>${ICON.bug}<span>${esc(T("Report a bug"))}</span></button>
+  <button class="side-link bug-btn" type="button" data-bug data-bug-src="${BUG_JS_SRC}">${ICON.bug}<span>${esc(T("Report a bug"))}</span></button>
   <div class="me"><a class="side-link" href="/me">${avatar(v.name, "sm")}<span class="truncate">${esc(v.name)}</span></a>
 </div>
 </aside>
@@ -1846,11 +1846,12 @@ const capture=async()=>{if(!(await html2canvas()))return fallback();try{
 }catch(e){return fallback()}};
 const show=(d)=>{const img=document.getElementById('bug-shot'),rm=document.getElementById('bug-remove'),less=document.getElementById('bug-shotless');
   if(!img)return;img.hidden=!d;rm.hidden=!d;less.hidden=!!d;if(d)img.src=d};
-document.addEventListener('click',async e=>{const b=e.target.closest('[data-bug]');if(!b)return;
-  const d=document.getElementById('bug');if(!d)return;
+const run=async()=>{const d=document.getElementById('bug');if(!d)return;
   document.getElementById('bug-text').value='';shot=null;show(null);d.showModal(); // the dialog is up while the capture runs (it's scrubbed out of the image)
   const cap=document.getElementById('bug-send');cap.disabled=true;cap.textContent=tr('Taking the screenshot…');
-  shot=await capture();cap.disabled=false;cap.textContent=tr('Send report');show(shot);});
+  shot=await capture();cap.disabled=false;cap.textContent=tr('Send report');show(shot)};
+document.addEventListener('click',e=>{if(e.target.closest('[data-bug]'))run()});
+run(); // bug.js is only loaded on a bug click: that first click is this run
 document.addEventListener('click',e=>{if(e.target.id!=='bug-remove')return;shot=null;show(null)});
 document.getElementById('bug-form')?.addEventListener('submit',async e=>{e.preventDefault();
   const t=document.getElementById('bug-text').value.trim();if(t.length<8)return;
@@ -1887,6 +1888,10 @@ ${lang === "en" ? "" : `<script nonce="${security.nonce}">window.I18N=${clientTa
 const SHELL_JS = `
 (()=>{
 const $=(s,r=document)=>r.querySelector(s),$$=(s,r=document)=>[...r.querySelectorAll(s)];
+// Report a bug: the capture lives in /bug.js (web-budget: not on every page) — the first click loads it, and it
+// runs the capture for that click itself; later clicks are its own listener.
+document.addEventListener('click',e=>{const b=e.target.closest('[data-bug]');if(!b||document.getElementById('bug-js'))return;
+  const s=document.createElement('script');s.id='bug-js';s.src=b.dataset.bugSrc;document.head.appendChild(s)});
 // Search (⌘K everywhere; ⌘F on a board starts with "This board · Messages"): filters show up front like VS Code or Lark,
 // and become chips; results mix boards and actions with ranked messages and files (this board, or all your boards).
 const pal=$('#palette'),q=$('#palette-q'),list=$('#palette-list'),pChips=$('#pal-chips'),pFilt=$('#pal-filters');
@@ -1991,5 +1996,9 @@ document.addEventListener('click',async e=>{const b=e.target.closest('[data-mark
 
 // The app pages' shell script (sidebar, inbox badge, live counts, mark unread, pins), the same on every page: served as
 // /shell.js (index.ts), hashed and cached for good, and run right after the page's own script, as when it was inline.
-export const SHELL_PAGE_JS = SHELL_JS + INBOX_JS + LIVE_JS + MARK_UNREAD_JS + PINS_JS + BUG_JS; // BUG_JS: the Report-a-bug capture + send
+// Report-a-bug's capture+send lives in its own file (/bug.js), not in every page's shell.js (web-budget: it only
+// runs when the button is clicked). The shell's click injects it once; BUG_JS self-runs for that first click.
+export const BUG_PAGE_JS = BUG_JS;
+export const BUG_JS_SRC = `/bug.js?v=${fnv(BUG_PAGE_JS)}`;
+export const SHELL_PAGE_JS = SHELL_JS + INBOX_JS + LIVE_JS + MARK_UNREAD_JS + PINS_JS;
 export const SHELL_JS_SRC = `/shell.js?v=${fnv(SHELL_PAGE_JS)}`;
