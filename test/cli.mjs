@@ -2363,7 +2363,7 @@ await step("handoff --sweep (glm-b #3299): a handoff whose sha reached origin/ma
   g("update-ref", "refs/remotes/origin/main", g("rev-parse", "HEAD")); // as if fetched
   g("checkout", "-qb", `fix/swept-${run}`);
   writeFileSync(join(repo, "b.txt"), "two\n");
-  g("commit", "-qam", "the work");
+  g("add", "."); g("commit", "-qm", "the work"); // -qam alone has nothing: b.txt is untracked, -a only covers tracked files
   const head = g("rev-parse", "HEAD");
   const envA = { XDG_CONFIG_HOME: join(dir, "cfg-sweep-a") }, envB = { XDG_CONFIG_HOME: join(dir, "cfg-sweep-b") };
   let r = await cli(["post", "handoff", "--checks", "vitest 626", "--board", hb], { cwd: repo, env: envA });
