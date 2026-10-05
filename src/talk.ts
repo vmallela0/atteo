@@ -144,11 +144,14 @@ let tk=null; // the call: {o, nap, note, q: message seqs to read, reading, hist:
 async function open(o){if(tk){if(!dlg.open)dlg.showModal();if(tk.nap)wake();return}
   try{window.voiceHush&&voiceHush()}catch(e){} // dictation stops while you talk
   caps.innerHTML='';okEl.hidden=true;$('talk-left').textContent='';['talk-mic','talk-quiet'].forEach(id=>{$(id).setAttribute('aria-pressed','false')});$('talk-mic').textContent=T('Mute mic');$('talk-quiet').textContent=T('Mute Atteo');$('talk-end').textContent=T('End');
-  tk={o,nap:false,note:'',q:[],reading:false,hist:[]};mediaOn();connect(false)}
-function wake(){if(!tk||!tk.nap)return;quietRead();tk.nap=false;tk.note='';connect(true)}
+  tk={o,nap:false,note:'',q:[],reading:false,hist:[]};tk.ac=audioCtx();mediaOn();connect(false)}
+// The call's one AudioContext, made inside the tap that starts it: iOS Safari keeps a context made later (after the
+// fetch and the mic prompt) suspended, so no audio would flow. Talk (a tap) resumes it after standby.
+function audioCtx(){try{const AC=window.AudioContext||window.webkitAudioContext,ac=new AC();ac.resume&&ac.resume().catch(()=>{});return ac}catch(e){return null}}
+function wake(){if(!tk||!tk.nap)return;quietRead();tk.nap=false;tk.note='';try{if(!tk.ac||tk.ac.state==='closed')tk.ac=audioCtx();else tk.ac.resume&&tk.ac.resume().catch(()=>{})}catch(e){}connect(true)}
 function nap(note){if(!tk||!st||st.ended)return;tk.note=note||'';finish(null,false,true);readNext()}
 function hangUp(leaving){quietRead();if(st&&!st.ended)finish(null,leaving);else endCall();if(st&&!st.problem&&!leaving)say(T('Ended.'))}
-function endCall(){if(!tk)return;const c=tk;tk=null;c.q.length=0;mediaOff(c);$('talk-end').textContent=T('Close');dlg.classList.remove('napping','speaking','hearing');$('talk-wake').hidden=true;$('talk-mic').hidden=$('talk-quiet').hidden=false}
+function endCall(){if(!tk)return;const c=tk;tk=null;try{c.ac&&c.ac.state!=='closed'&&c.ac.close()}catch(e){}c.q.length=0;mediaOff(c);$('talk-end').textContent=T('Close');dlg.classList.remove('napping','speaking','hearing');$('talk-wake').hidden=true;$('talk-mic').hidden=$('talk-quiet').hidden=false}
 function remember(id,who,text){if(!tk||!text)return;const h=tk.hist,i=h.findIndex(x=>x[0]===id);if(i>=0)h[i][2]=text;else h.push([id,who,text]);if(h.length>12)h.shift()}
 async function connect(resume){const o=tk.o;
   st={o,resume,ready:false,ended:false,speaking:false,hearing:false,thinking:false,micOff:false,quiet:false,problem:null,active:null,cancelled:new Set(),calls:new Set(),want:false,tools:0,
@@ -187,24 +190,28 @@ function tick(s){if(s!==st||s.ended)return;const ac=s.ac,now=ac?ac.currentTime:0
   if(tk&&now2-s.lastAct>=(s.said?Math.max(napMs(),30000):napMs()))nap();else if(tk&&tk.q.length)readNext()}
 
 // ---- audio: the mic streams 24 kHz PCM; Atteo's PCM plays as it arrives ----
-function audioOn(s){try{const AC=window.AudioContext||window.webkitAudioContext;s.ac=new AC();s.ac.resume&&s.ac.resume();
+function audioOn(s){try{s.ac=tk&&tk.ac&&tk.ac.state!=='closed'?tk.ac:audioCtx();if(!s.ac)throw new Error('no audio');s.ac.resume&&s.ac.resume().catch(()=>{});
   const src=s.ac.createMediaStreamSource(s.mic),proc=s.ac.createScriptProcessor(4096,1,1),mute=s.ac.createGain();mute.gain.value=0;
   const ratio=s.ac.sampleRate/RATE;
   proc.onaudioprocess=ev=>{if(s.ended)return;const x=ev.inputBuffer.getChannelData(0);let sum=0;for(let i=0;i<x.length;i+=16)sum+=x[i]*x[i];const rms=Math.sqrt(sum/(x.length/16));level(s,rms);localTurn(s,rms);
     if(s.micOff)return;const n=Math.floor(x.length/ratio),out=new Int16Array(n);
     for(let i=0;i<n;i++){const p=i*ratio,k=Math.floor(p),f=p-k,v=(x[k]||0)*(1-f)+(x[k+1]||x[k]||0)*f;out[i]=Math.max(-1,Math.min(1,v))*0x7fff}
     send({type:'input_audio_buffer.append',audio:b64(out.buffer)},s)};
-  src.connect(proc);proc.connect(mute);mute.connect(s.ac.destination);s.proc=proc}
+  src.connect(proc);proc.connect(mute);mute.connect(s.ac.destination);s.proc=proc;s.src=src;s.mute=mute}
   catch(e){s.problem=T('Audio isn’t working here; captions still show.');look()}}
 // ---- whose turn (voice_turns, vedu #2460): quick = the service's own turn detection, as before. pause and tap = the
 // service doesn't end turns (turn_detection null), so the page does, from the mic's level: pause answers after pause_ms
 // of quiet following speech; tap waits for Done (or the play/pause key). No wake word (jxn): only a tap ends a turn
 // in tap mode. Talking over Atteo still stops it; while it speaks, it takes a louder voice to count (echo).
-const VOICE_ON=0.03,VOICE_OFF=0.015;
+// The voice threshold follows the room: its floor is the quiet end of the last ~5 s of mic level, and speech is well
+// above it (a fixed level missed quiet mics, and iOS Safari's processed input runs low; a steady hum sets the floor).
+const VOICE_MIN=0.008;
 function localTurn(s,l){if(s.turns==='quick'||!s.ready||s.ended)return;const now=Date.now();
   if(s.micOff){s.talking=false;return}
-  if(l>(s.speaking?VOICE_ON*2.5:VOICE_ON)){s.lastVoice=s.lastAct=now;if(!s.talking){s.talking=true;s.said=true;handle(s,{type:'input_audio_buffer.speech_started'})}}
-  else if(s.talking&&l<VOICE_OFF&&now-s.lastVoice>200){s.talking=false;look()}
+  (s.lv=s.lv||[]).push(l);if(s.lv.length>60)s.lv.shift();s.floor=s.lv.slice().sort((a,b)=>a-b)[Math.floor(s.lv.length*0.15)]; // the quiet end of the last ~5 s (talk has gaps between words; a hum doesn't)
+  const on=Math.max(VOICE_MIN,s.floor*2.2+0.003)*(s.speaking?2.5:1),off=Math.max(VOICE_MIN*0.6,s.floor*1.4+0.002);
+  if(l>on){s.lastVoice=s.lastAct=now;if(!s.talking){s.talking=true;s.said=true;handle(s,{type:'input_audio_buffer.speech_started'})}}
+  else if(s.talking&&l<off&&now-s.lastVoice>200){s.talking=false;look()}
   if(s.turns==='pause'&&s.said&&!s.talking&&now-s.lastVoice>=s.pauseMs)endTurn(s)}
 function endTurn(s){if(!s||s.ended||!s.said)return;s.said=s.talking=false;handle(s,{type:'input_audio_buffer.speech_stopped'});send({type:'input_audio_buffer.commit'},s);respond(s);look()}
 function level(s,l){const on=!s.micOff;bars.forEach((b,i)=>{if(s.speaking)return b.style.height='';b.style.height=(on?Math.min(40,8+l*300*(0.6+0.4*Math.sin(i*1.7))):8)+'px'})}
@@ -290,7 +297,7 @@ function heardYes(s,t){const c=s.confirm,v=talkVerdict(t,c.d);
 // ---- the end: socket closed, mic and audio off, unused minutes back to the month ----
 function finish(problem,leaving,toNap){const s=st;if(!s||s.ended)return;s.ended=true;if(problem)s.problem=problem;clearInterval(s.timer);
   try{s.ws&&s.ws.close()}catch(e){}stopPlay();try{s.proc&&(s.proc.onaudioprocess=null,s.proc.disconnect())}catch(e){}
-  try{s.mic&&s.mic.getTracks().forEach(t=>t.stop())}catch(e){}try{s.ac&&s.ac.close()}catch(e){}
+  try{s.mic&&s.mic.getTracks().forEach(t=>t.stop())}catch(e){}try{s.src&&s.src.disconnect();s.mute&&s.mute.disconnect()}catch(e){}try{if(s.ac&&!(tk&&tk.ac===s.ac&&toNap))s.ac.close()}catch(e){}
   s.speaking=s.hearing=s.thinking=false;s.confirm=null;okEl.hidden=true;bars.forEach(b=>{b.style.height=''});$('talk-left').textContent='';if(toNap&&tk)tk.nap=true;else endCall();look();settle(s,leaving)}
 async function settle(s,leaving){if(!s.sid)return;const sid=s.sid;s.sid=null;const seconds=s.opened?Math.ceil((Date.now()-s.opened)/1000):0,body=J({session_id:sid,seconds});
   if(leaving&&navigator.sendBeacon){navigator.sendBeacon(s.end,new Blob([body],{type:'application/json'}));return}
