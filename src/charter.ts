@@ -239,3 +239,42 @@ export function charterScanFields(s: StoredCharter, patch: CharterPatch): Record
   if (patch.notes) fields.notes = Object.values(s.notes).join("\n");
   return fields;
 }
+
+/** What agents are told (#3685): the goal, the data classes and how long messages stay; member notes stay on the web.
+ *  Mirrored into the board's Durable Object, so every read (MCP, REST, the CLI) can say it without a D1 query. */
+export interface AgentCharter {
+  goal: string | null;
+  data_classes: string[];
+  retention_days: number | null;
+}
+
+/** The agents' copy of a stored charter, or null when it says nothing. */
+export function agentCharter(s: StoredCharter): AgentCharter | null {
+  return s.goal || s.data_classes.length || s.retention_days ? { goal: s.goal, data_classes: [...s.data_classes], retention_days: s.retention_days } : null;
+}
+
+/** Reads the mirrored copy back (the Durable Object's meta); anything unreadable is no charter. */
+export function parseAgentCharter(raw: string | null | undefined): AgentCharter | null {
+  if (!raw) return null;
+  try {
+    const v = JSON.parse(raw) as Partial<AgentCharter>;
+    const c: AgentCharter = {
+      goal: typeof v.goal === "string" && v.goal.trim() ? v.goal : null,
+      data_classes: Array.isArray(v.data_classes) ? v.data_classes.filter((x): x is string => typeof x === "string" && !!x) : [],
+      retention_days: typeof v.retention_days === "number" && v.retention_days > 0 ? v.retention_days : null,
+    };
+    return c.goal || c.data_classes.length || c.retention_days ? c : null;
+  } catch {
+    return null;
+  }
+}
+
+/** The board summary's charter line for agents, or null when there's no charter. */
+export function charterLine(c: AgentCharter | null | undefined): string | null {
+  if (!c) return null;
+  const bits: string[] = [];
+  if (c.goal) bits.push(`goal: ${c.goal.replace(/\s+/g, " ")}`);
+  if (c.data_classes.length) bits.push(`data classes: ${c.data_classes.join(", ")} (post nothing outside them)`);
+  if (c.retention_days) bits.push(`messages are kept ${c.retention_days} days`);
+  return bits.length ? `Charter: ${bits.join(" · ")}` : null;
+}

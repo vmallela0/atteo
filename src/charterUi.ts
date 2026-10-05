@@ -119,8 +119,7 @@ document.getElementById('ch-form')?.addEventListener('submit',async e=>{e.preven
   chEditing=false;document.getElementById('ch-form').hidden=true;if(j.charter)paint(j.charter);toast(tr('Charter saved'))});
 window.charterRefresh=async()=>{let r;try{r=await fetch('/api/boards/'+BOARD+'/charter')}catch(e){return}
   if(!r.ok)return;const j=await r.json().catch(()=>null);if(!j||!j.charter)return;paint(j.charter);
-  const edit=document.getElementById('ch-edit');if(edit)edit.hidden=j.can_edit===false};
-charterRefresh();
+  const edit=document.getElementById('ch-edit');if(edit)edit.hidden=j.can_edit===false}; // the page renders it fresh: no fetch on load
 })();
 `;
 }

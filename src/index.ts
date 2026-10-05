@@ -84,7 +84,7 @@ import type { Entry, Env, Viewer as Seer } from "./types";
 import { APP_CSS, APP_JS, FAVICON_SVG, page, renderText, SHELL_PAGE_JS } from "./ui";
 import { APPLE_TOUCH_PNG_B64 } from "./appleIcon";
 import { assistantWelcomePage } from "./welcome";
-import { applyCharter, charterAuditDetail, charterScanFields, charterView, parseCharterPatch, storedFromRow } from "./charter";
+import { agentCharter, applyCharter, charterAuditDetail, charterScanFields, charterView, parseCharterPatch, storedFromRow } from "./charter";
 import { atteoHeader, BOARD_RE, connectCommand, esc, newBoardId, legacyHostRedirect, normalizeUser, parseBoardMeta, publicOrigin, requestNow } from "./util";
 import { isLocalHost } from "./util";
 
@@ -233,7 +233,10 @@ async function createBoard(env: Env, title: string, user: string, origin?: strin
   // Organization policy: boards made by people at a domain with a retention cap start with it.
   const u = await registry.userByName(env, user);
   const pol = u?.email ? await orgPolicy(env, u.email) : null;
-  if (pol?.max_retention_days) await env.DB.prepare(`UPDATE boards SET retention_days = ? WHERE id = ?`).bind(pol.max_retention_days, id).run();
+  if (pol?.max_retention_days) {
+    await env.DB.prepare(`UPDATE boards SET retention_days = ? WHERE id = ?`).bind(pol.max_retention_days, id).run();
+    await boardStub(env, id).setCharter({ goal: null, data_classes: [], retention_days: pol.max_retention_days }); // what agents read (#3685)
+  }
   return info;
 }
 
@@ -2600,6 +2603,7 @@ const handler = {
         const changed = JSON.stringify(stored) !== JSON.stringify(next);
         if (changed) {
           await registry.saveBoardCharter(env, m[1], next);
+          await boardStub(env, m[1]).setCharter(agentCharter(next)); // agents read it from the board (#3685)
           await registry.audit(env, m[1], viewer.name, "charter", null, charterAuditDetail(next));
         }
         const pruned = patch.retention_days !== undefined && next.retention_days ? await boardStub(env, m[1]).prune(Date.now() - next.retention_days * 86_400_000) : 0;
@@ -2619,6 +2623,7 @@ const handler = {
         const pol = creator?.email ? await orgPolicy(env, creator.email) : null;
         if (pol?.max_retention_days && (days == null || days > pol.max_retention_days)) return json({ error: `${pol.domain} keeps messages at most ${pol.max_retention_days} days.` }, 400);
         await env.DB.prepare(`UPDATE boards SET retention_days = ? WHERE id = ?`).bind(days, m[1]).run();
+        await boardStub(env, m[1]).setCharter(agentCharter({ ...storedFromRow(board), retention_days: days })); // the charter agents read says it (#3685)
         await registry.audit(env, m[1], viewer.name, "retention", null, days ? `keep ${days} days` : "keep everything");
         const pruned = days ? await boardStub(env, m[1]).prune(Date.now() - days * 86_400_000) : 0;
         return json({ ok: true, retention_days: days, pruned });

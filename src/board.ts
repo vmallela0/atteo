@@ -29,6 +29,7 @@ import { prepareEntryData, readEntryData, screenedText } from "./entryData";
 import { withinEditWindow } from "./editMessage";
 import { backupConfig, blobPartKey, objectKey, uploadPart, type PartResult } from "./backup";
 import { decodeValue, encodeValue, type DumpTables } from "./backupcore";
+import { parseAgentCharter, type AgentCharter } from "./charter";
 
 export const MAX_TEXT = 32_000;
 export const MAX_ARTIFACT = 256_000;
@@ -833,6 +834,7 @@ export class Board extends DurableObject<Env> {
       last_seq: last,
       archived: this.meta("archived") === "1",
       encrypted: this.meta("encrypted") === "1",
+      charter: parseAgentCharter(this.meta("charter")),
     };
   }
 
@@ -4271,6 +4273,11 @@ export class Board extends DurableObject<Env> {
   }
 
   /** New title (checked for secrets); open tabs update live. Access is checked by the Worker. */
+  /** The charter agents are told (#3685): the Worker mirrors it here from D1 whenever it changes. */
+  async setCharter(c: AgentCharter | null): Promise<void> {
+    this.setMeta("charter", c ? JSON.stringify(c) : "");
+  }
+
   async rename(title: string): Promise<BoardInfo> {
     const t = title.trim().slice(0, 120);
     if (!t) throw new BoardError("Give the board a name.");
