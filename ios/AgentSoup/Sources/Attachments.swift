@@ -295,32 +295,59 @@ extension Int {
 
 // MARK: - In the chat
 
-/// A picture in a message: rounded, sized from its dimensions before it loads (nothing jumps), a ring while it's
-/// going up, tap for full screen.
+/// A picture in a message: the whole picture, never cropped (jxn #2992), as wide as the message column allows and at
+/// most `maxHeight` tall. Sized from its dimensions before it loads (nothing jumps); a file posted without them (an
+/// agent's upload) is sized from the picture once it's here. A ring while it's going up, tap for full screen.
 struct ChatImage: View {
     let e: Entry
     let board: String
     var progress: Double? = nil
+    var alignment: HorizontalAlignment = .leading // your own messages sit on the right
     @State private var image: UIImage?
     @State private var open = false
+    @State private var column: CGFloat = 0
 
-    private var sending: Bool { e.pending == true }
-    private var size: CGSize {
-        let maxW: CGFloat = 232, maxH: CGFloat = 300
-        guard let w = e.media?.w, let h = e.media?.h, w > 0, h > 0 else { return CGSize(width: 200, height: 200) }
-        let aspect = CGFloat(h) / CGFloat(w)
-        var width = min(maxW, max(96, CGFloat(w)))
-        var height = width * aspect
-        if height > maxH { height = maxH; width = max(96, height / aspect) }
-        return CGSize(width: min(width, maxW), height: max(64, height))
+    static let maxHeight: CGFloat = 360
+
+    /// The frame for a picture of `aspect` (height ÷ width) whose own width is `natural`, in a column `column` wide:
+    /// the column's width (or the picture's, if narrower), shortened to `maxHeight`. Very wide or very tall pictures
+    /// keep a minimum frame and sit inside it, letterboxed. Unknown aspect (not loaded, no dimensions): a square.
+    static func fit(aspect: CGFloat?, natural: CGFloat?, column: CGFloat, maxHeight: CGFloat = maxHeight) -> CGSize {
+        let col = column > 0 ? column : 260
+        guard let a = aspect, a.isFinite, a > 0 else { let s = min(200, col); return CGSize(width: s, height: s) }
+        var w = min(col, max(96, natural ?? col))
+        var h = w * a
+        if h > maxHeight { h = maxHeight; w = h / a }
+        return CGSize(width: min(col, max(96, w)), height: min(maxHeight, max(48, h)))
     }
 
+    private var sending: Bool { e.pending == true }
+    private var aspect: CGFloat? {
+        if let w = e.media?.w, let h = e.media?.h, w > 0, h > 0 { return CGFloat(h) / CGFloat(w) }
+        if let s = image?.size, s.width > 0, s.height > 0 { return s.height / s.width }
+        return nil
+    }
+    private var natural: CGFloat? {
+        if let w = e.media?.w, w > 0 { return CGFloat(w) }
+        return image.map { $0.size.width * $0.scale }
+    }
+    private var size: CGSize { Self.fit(aspect: aspect, natural: natural, column: column) }
+
     var body: some View {
+        VStack(alignment: alignment, spacing: 0) {
+            // How wide the message column is, so a picture can use all of it.
+            Color.clear.frame(maxWidth: .infinity).frame(height: 0)
+                .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { column = $0 }
+            picture
+        }
+    }
+
+    private var picture: some View {
         let shape = RoundedRectangle(cornerRadius: Radius.card, style: .continuous)
-        Button { if image != nil, !sending { open = true } } label: {
+        return Button { if image != nil, !sending { open = true } } label: {
             ZStack {
                 shape.fill(Theme.card)
-                if let image { Image(uiImage: image).resizable().scaledToFill().frame(width: size.width, height: size.height).transition(.opacity) }
+                if let image { Image(uiImage: image).resizable().scaledToFit().frame(width: size.width, height: size.height).transition(.opacity) }
                 if sending {
                     Color.black.opacity(0.35)
                     UploadRing(progress: progress ?? 0)

@@ -1194,7 +1194,7 @@ struct EntryRow: View {
     @ViewBuilder private var attachment: some View {
         if e.artifactName != nil && !unsent {
             if e.isMultiFile { MultiAttachment(e: e, board: board, progress: progress) }
-            else if e.isImage { ChatImage(e: e, board: board, progress: progress) } else { FileChip(e: e, board: board, progress: progress) }
+            else if e.isImage { ChatImage(e: e, board: board, progress: progress, alignment: mine ? .trailing : .leading) } else { FileChip(e: e, board: board, progress: progress) }
         }
     }
 
