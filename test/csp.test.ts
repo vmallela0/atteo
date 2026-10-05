@@ -138,7 +138,13 @@ function usageDb() {
   db.exec("CREATE TABLE usage_daily (day TEXT NOT NULL, metric TEXT NOT NULL, key TEXT NOT NULL, count INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (day, metric, key))");
   const stmt = (sql: string, args: unknown[] = []): any => ({
     bind: (...a: unknown[]) => stmt(sql, a),
-    run: async () => db.prepare(sql).run(...args),
+    run: async () => {
+      // D1 accepts numbered parameters repeated in one statement; node:sqlite only accepts anonymous positional
+      // parameters through run(...args), so expand ?N in this small adapter.
+      const expanded: unknown[] = [];
+      const query = sql.replace(/\?(\d+)/g, (_, n) => (expanded.push(args[Number(n) - 1]), "?"));
+      return db.prepare(query).run(...(expanded.length ? expanded : args));
+    },
   });
   return { env: { DB: { prepare: (sql: string) => stmt(sql) } } as unknown as Env, db };
 }
