@@ -2933,9 +2933,11 @@ const handler = {
           const reactions = list.length ? await stub.reactionsFor(list.map((e) => e.seq), seer()) : {};
           // last: past any people-only entries this caller doesn't get (all of them, for an agent's token).
           const last = list.length < snap.entries.length ? list[list.length - 1].seq : snap.last;
-          // An agent that fetched entries has read them: its read position moves to last, so its next post isn't refused
-          // for what it already has (the stale-read rule, SPEC.md §9). People's reading is the page's business.
-          if (viewer?.via === "agent" && last > after) await stub.ack(viewer.name, last, (await asOpts()).session).catch(() => {});
+          // ?ack=1: an agent that reads this way has read them: its read position moves to last, so its next post isn't
+          // refused for what it already has (the stale-read rule, SPEC.md §9). Opt-in: a plain listing (export, cat log/N,
+          // watch) moves no position (opus-d #3823). People's reading is the page's business.
+          const ack = ["1", "true"].includes(url.searchParams.get("ack") ?? "");
+          if (ack && viewer?.via === "agent" && last > after) await stub.ack(viewer.name, last, (await asOpts()).session).catch(() => {});
           return json({ entries: list, last, reactions, reads: snap.reads, decisions: snap.decisions });
         }
         if (what === "entries" && !seqStr && method === "GET") {

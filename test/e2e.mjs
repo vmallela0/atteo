@@ -2130,7 +2130,7 @@ await step("tasks: a card or note that resolves an open task marks it done when 
   assert((await task(forB)).status === "done" && (await task(forB)).done_note === `Resolved by #${n3}`, "the assignee's resolve closes it");
   // REST posts carry resolves now (they used to drop it): the author's agent through the REST API closes it. It reads
   // the board first, as an agent does: a REST post goes through the stale-read rule too (SPEC.md §9).
-  await fetch(`${BASE}/api/boards/${fb}/entries?after=0`, { headers: { authorization: `Bearer ${tok[A]}` } });
+  await fetch(`${BASE}/api/boards/${fb}/entries?after=0&ack=1`, { headers: { authorization: `Bearer ${tok[A]}` } });
   const rp = await (await fetch(`${BASE}/api/boards/${fb}/entries`, { method: "POST", headers: { authorization: `Bearer ${tok[A]}`, "content-type": "application/json" }, body: JSON.stringify({ type: "note", text: `via REST ${run}`, resolves: [rest] }) })).json();
   assert(JSON.stringify(rp.entry?.resolves) === JSON.stringify([rest]), `REST keeps resolves: ${JSON.stringify(rp.entry?.resolves)}`);
   assert((await task(rest)).status === "done" && (await task(rest)).done_note === `Resolved by #${rp.entry.seq}`, "a REST resolve closes it");
@@ -2639,11 +2639,16 @@ await step("REST posts are MCP's post (SPEC.md §17): types, links, title, the s
   // …all of it is now read, so the same post goes through.
   r = await post(A, { type: "note", text: `carrying on ${run}` });
   assert(r.status === 201, JSON.stringify(r).slice(0, 300));
-  // Fetching entries counts as reading them: B answers in A's thread, A lists the board, and A's reply isn't refused.
+  // Listing entries with ?ack=1 counts as reading them; a plain listing (export, cat log/N) moves no position (opus-d #3823).
+  const since = r.body.entry.seq;
   await person({ type: "note", text: `B in the thread ${run}`, reply_to: rests.seq });
-  await fetch(`${BASE}/api/boards/${pb}/entries?after=${r.body.entry.seq}`, { headers: auth(A) });
+  await fetch(`${BASE}/api/boards/${pb}/entries?after=${since}`, { headers: auth(A) });
   r = await post(A, { type: "note", text: `A answers ${run}`, reply_to: rests.seq });
-  assert(r.status === 201, `read by listing: ${JSON.stringify(r).slice(0, 300)}`);
+  assert(r.status === 409 && r.body.relevant.some((e) => e.text === `B in the thread ${run}`), `a plain listing isn't reading: ${JSON.stringify(r).slice(0, 300)}`);
+  await person({ type: "note", text: `B in the thread again ${run}`, reply_to: rests.seq });
+  await fetch(`${BASE}/api/boards/${pb}/entries?after=${since}&ack=1`, { headers: auth(A) });
+  r = await post(A, { type: "note", text: `A answers ${run}`, reply_to: rests.seq });
+  assert(r.status === 201, `read by listing with ack=1: ${JSON.stringify(r).slice(0, 300)}`);
   // Unread in the thread, without listing: refused; strict refuses even what doesn't bear on the post.
   const again2 = await person({ type: "note", text: `B again ${run}`, reply_to: rests.seq });
   r = await post(A, { type: "note", text: `A again ${run}`, reply_to: rests.seq });
@@ -6532,7 +6537,7 @@ await step("privacy suite: People only and Just mine never reach another member'
   // Just mine from O on the web, and from O's agent; a reply to the people-only stays people-only.
   const jm = await api(O, "POST", `/api/boards/${bd}/entries`, { text: `${S_JM} note to self`, own: true });
   assert(jm.status === 201 && jm.body.entry.audience === "own", `just mine (web): ${jm.status} ${JSON.stringify(jm.body).slice(0, 200)}`);
-  await api(O, "GET", `/api/boards/${bd}/entries?after=0`, undefined, true); // O's agent reads first: its person's Just mine note bears on its post
+  await api(O, "GET", `/api/boards/${bd}/entries?after=0&ack=1`, undefined, true); // O's agent reads first: its person's Just mine note bears on its post
   const jma = await api(O, "POST", `/api/boards/${bd}/entries`, { text: `${S_JMA} for my person`, own: true }, true);
   assert(jma.status === 201 && jma.body.entry.audience === "own", `just mine (agent): ${jma.status} ${JSON.stringify(jma.body).slice(0, 200)}`);
   const rep = await api(P, "POST", `/api/boards/${bd}/entries`, { text: `re ${S_PO}`, reply_to: po.body.entry.seq });

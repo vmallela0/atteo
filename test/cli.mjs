@@ -2061,7 +2061,12 @@ await step("export (alt-c #3378): the board's log as JSON Lines, oldest first, p
   assert(new RegExp(`Exported ${lines.length} entries \\(#${seqs[0]}–#${seqs.at(-1)}\\) of ${xb}`).test(r.err) && r.err.includes(`--since ${seqs.at(-1)}`), r.err);
   assert(!r.out.includes("Exported") && r.err.includes("--out <file> gives plain JSON Lines"), "the summary is on stderr");
   await tool(tokA, xb, "read", {});
-  await tool(tokA, xb, "post", { type: "note", text: `one more ${run}` });
+  const more = Number((await tool(tokA, xb, "post", { type: "note", text: `one more ${run}` })).match(/Posted #(\d+)/)?.[1]);
+  // While B is behind (opus-d #3824): exporting, or cat of the new entry, still leaves it unread.
+  r = await cli(["export"], { cred: credB, env: xcfg });
+  assert(r.code === 0 && r.out.includes(`one more ${run}`), "export while behind: " + r.err);
+  r = await cli(["cat", `log/${more}.md`, "--board", xb], { cred: credB, env: xcfg });
+  assert(r.code === 0 && r.out.includes(`one more ${run}`), "cat while behind: " + r.out + r.err);
   r = await cli(["read"], { cred: credB, env: xcfg });
   assert(/· 1 new since your last read/.test(r.out) && r.out.includes(`one more ${run}`), "the export moved no read position: " + r.out + r.err);
   // --since: only what came after; --out: the file appears whole, no temp file left behind.
