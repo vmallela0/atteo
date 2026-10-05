@@ -79,6 +79,7 @@ const MATCH_ROUTES: Record<string, Route[]> = {
     { method: "GET", path: "/api/boards/{id}/members" },
     { method: "POST", path: "/api/boards/{id}/members/{user}" },
     { method: "GET", path: "/api/boards/{id}/audit" },
+    { method: "GET", path: "/api/boards/{id}/audit/export" },
     { method: "GET", path: "/api/boards/{id}/links" },
     { method: "POST", path: "/api/boards/{id}/links" },
     { method: "DELETE", path: "/api/boards/{id}/links/{lid}" },

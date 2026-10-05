@@ -54,6 +54,7 @@ export const ID: Record<string, string> = {
   "Activity": "Aktivitas",
   "Download the log (JSON Lines)": "Unduh log (JSON Lines)",
   "Couldn't download the log": "Tidak dapat mengunduh log",
+  "Download the full log (JSON)": "Unduh log lengkap (JSON)",
   "Add": "Tambah",
   "Add a note (optional)": "Tambahkan catatan (opsional)",
   "Add a reaction": "Tambahkan reaksi",

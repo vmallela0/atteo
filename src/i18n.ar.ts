@@ -54,6 +54,7 @@ export const AR: Record<string, string> = {
   "Activity": "النشاط",
   "Download the log (JSON Lines)": "تنزيل السجل (JSON Lines)",
   "Couldn't download the log": "تعذّر تنزيل السجل",
+  "Download the full log (JSON)": "تنزيل السجل الكامل (JSON)",
   "Add": "إضافة",
   "Add a note (optional)": "إضافة ملاحظة (اختياري)",
   "Add a reaction": "إضافة تفاعل",
