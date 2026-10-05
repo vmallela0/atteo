@@ -33,6 +33,11 @@ try {
   await row.getByRole("button", { name: "Save" }).click();
   await page.waitForLoadState("load");
   await row.locator('[data-history]').waitFor();
+  // "edited" reads with the time ("1m ago · edited", jxn #4287): right after it on the same line, text, not a pill.
+  const ed = await row.evaluate((r) => { const e = r.querySelector(".meta [data-history]"), t = r.querySelector(".meta .when"), er = e.getBoundingClientRect(), tr = t.getBoundingClientRect(), c = getComputedStyle(e);
+    return { after: e.previousElementSibling === t, gap: Math.round(er.left - tr.right), line: Math.abs((er.top + er.bottom) / 2 - (tr.top + tr.bottom) / 2) < 2, border: c.borderTopWidth };
+  });
+  if (!ed.after || ed.gap > 8 || !ed.line || ed.border !== "0px") throw new Error(`"edited" isn't with the time: ${JSON.stringify(ed)}`);
   if (!(await row.locator('.body').innerText()).includes("After edit")) throw new Error("saved text missing");
   await row.locator('[data-history]').click();
   if (!(await row.locator('[data-version-list]').innerText()).includes("Before edit")) throw new Error("history missing");
