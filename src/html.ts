@@ -106,7 +106,7 @@ export function entryHtml(e: Entry, boardId: string, withReplies = true, opts: {
   if (e.reply_to != null) refs.push(`reply to <a class="ref" data-ref="${e.reply_to}" href="#e${e.reply_to}">#${e.reply_to}</a>`);
   if (e.resolves.length) refs.push(`resolves ${e.resolves.map((n) => `<a class="ref" data-ref="${n}" href="#e${n}">#${n}</a>`).join(", ")}`);
   if (e.supersedes != null) refs.push(`supersedes <a class="ref" data-ref="${e.supersedes}" href="#e${e.supersedes}">#${e.supersedes}</a>`);
-  const img = (e.attachments?.length ?? 0) > 1 ? filesHtml(boardId, e.attachments!) : e.artifact_name && e.media?.mime.startsWith("image/") ? imageHtml(boardId, e) : "";
+  const img = (e.attachments?.length ?? 0) > 1 ? filesHtml(boardId, e.attachments!) : e.artifact_name && e.media?.mime.startsWith("image/") ? imageHtml(boardId, e, T) : "";
   const file = img
     ? img
     : e.artifact_name
@@ -114,8 +114,8 @@ export function entryHtml(e: Entry, boardId: string, withReplies = true, opts: {
 <span class="mono grow truncate">${esc(e.artifact_name)}${e.artifact_version ? ` <span class="xs faint">v${e.artifact_version}</span>` : ""}</span><span class="xs faint">${fmtBytes(e.artifact_size ?? 0)}</span>
 ${
         e.media
-          ? `<a class="btn sm" href="${esc(fileSrc(boardId, e.artifact_name, e.artifact_version))}" download="${esc(e.artifact_name)}">${esc(T("Download"))}</a>`
-          : `${isHtml(e.artifact_name) ? previewBtn(e.artifact_name, e.artifact_version) : ""}<button class="btn sm" type="button" data-open-file="${esc(e.artifact_name)}"${e.artifact_version ? ` data-file-ver="${e.artifact_version}"` : ""}>${esc(T("Open"))}</button>`
+          ? `<a class="btn sm" href="${esc(fileSrc(boardId, e.artifact_name, e.artifact_version))}" download="${esc(e.artifact_name)}" data-save>${esc(T("Download"))}</a>`
+          : `${isHtml(e.artifact_name) ? previewBtn(e.artifact_name, e.artifact_version) : ""}<a class="btn sm ghost" href="${esc(fileSrc(boardId, e.artifact_name, e.artifact_version))}" download="${esc(e.artifact_name)}" data-save>${esc(T("Download"))}</a><button class="btn sm" type="button" data-open-file="${esc(e.artifact_name)}"${e.artifact_version ? ` data-file-ver="${e.artifact_version}"` : ""}>${esc(T("Open"))}</button>`
       }</div></div>`
     : "";
   // Reply sets the composer to answer this entry: an agent's post gets the reply addressed to that agent.
@@ -230,8 +230,8 @@ function filesHtml(boardId: string, list: Attachment[]): string {
   const chips = others
     .map((a) => {
       const act = a.mime.startsWith("text/")
-        ? `${isHtml(a.name) ? previewBtn(a.name, a.version) : ""}<button class="btn sm" type="button" data-open-file="${esc(a.name)}"${a.version ? ` data-file-ver="${a.version}"` : ""}>Open</button>`
-        : `<a class="btn sm" href="${esc(fileSrc(boardId, a.name, a.version))}" download="${esc(a.name)}">Download</a>`;
+        ? `${isHtml(a.name) ? previewBtn(a.name, a.version) : ""}<a class="btn sm ghost" href="${esc(fileSrc(boardId, a.name, a.version))}" download="${esc(a.name)}" data-save>Download</a><button class="btn sm" type="button" data-open-file="${esc(a.name)}"${a.version ? ` data-file-ver="${a.version}"` : ""}>Open</button>`
+        : `<a class="btn sm" href="${esc(fileSrc(boardId, a.name, a.version))}" download="${esc(a.name)}" data-save>Download</a>`;
       return `<div class="fh">${FILE_ICON}<span class="mono grow truncate">${esc(a.name)}${a.version ? ` <span class="xs faint">v${a.version}</span>` : ""}</span><span class="xs faint">${fmtBytes(a.size)}</span>${act}</div>`;
     })
     .join("");
@@ -239,12 +239,12 @@ function filesHtml(boardId: string, list: Attachment[]): string {
   return `<div class="mfiles">${grid}${chips ? `<div class="file mchips">${chips}</div>` : ""}<div class="xs faint mcap">${list.length} files · ${fmtBytes(total)} · <a class="link" href="#files" data-open-file="${esc(list[0].name)}"${list[0].version ? ` data-file-ver="${list[0].version}"` : ""}>Open in Files</a></div></div>`;
 }
 
-function imageHtml(boardId: string, e: Entry): string {
+function imageHtml(boardId: string, e: Entry, T: (s: string) => string = (x) => x): string {
   const name = e.artifact_name ?? "";
   const src = fileSrc(boardId, name, e.artifact_version);
   const dims = e.media?.w && e.media?.h ? ` width="${e.media.w}" height="${e.media.h}"` : "";
   return `<figure class="img"><button class="img-open" type="button" data-img="${esc(src)}" aria-label="View ${esc(name)} full size"><img src="${esc(src)}" alt="${esc(name)}" loading="lazy"${dims}></button>
-<figcaption class="xs faint"><span class="mono">${esc(name)}</span>${e.artifact_version ? ` v${e.artifact_version}` : ""} · ${fmtBytes(e.media?.size ?? e.artifact_size ?? 0)} · <a class="link" href="#files" data-open-file="${esc(name)}"${e.artifact_version ? ` data-file-ver="${e.artifact_version}"` : ""}>Open in Files</a></figcaption></figure>`;
+<figcaption class="xs faint"><span class="mono">${esc(name)}</span>${e.artifact_version ? ` v${e.artifact_version}` : ""} · ${fmtBytes(e.media?.size ?? e.artifact_size ?? 0)} · <a class="link" href="${esc(src)}" download="${esc(name)}" data-save>${esc(T("Save"))}</a> · <a class="link" href="#files" data-open-file="${esc(name)}"${e.artifact_version ? ` data-file-ver="${e.artifact_version}"` : ""}>Open in Files</a></figcaption></figure>`;
 }
 
 /** Author, marked as the person or their agent (and which agent). */
@@ -1623,7 +1623,7 @@ async function loadDocs(){const r=await fetch('/api/boards/'+BOARD+'/files');con
 let docAsked=false;async function openDoc(name,version){docAsked=true;editing=false;const r=await fetch('/api/boards/'+BOARD+'/doc?name='+encodeURIComponent(name)+(version?'&version='+version:''));const d=await r.json();if(!r.ok){toast(d.error);return}curDoc=d;renderDoc();loadDocs()}
 function renderDoc(){const d=curDoc,v=document.getElementById('doc-view');const old=d.version!==d.latest;v.classList.remove('editing');
   v.innerHTML='<div class="row wrap" style="justify-content:space-between;gap:8px;margin-bottom:12px"><div><b class="mono">'+esc(d.name)+'</b> <span class="xs faint">v'+d.version+(old?' (viewing an older version; latest v'+d.latest+')':'')+' · '+esc(d.via==='agent'?d.updated_by+"'s agent":d.updated_by)+'</span></div><div class="row">'+
-  '<span id="doc-pin-slot"></span>'+(!d.media&&/\\.html?$/i.test(d.name)?'<button class="btn sm ghost" type="button" data-preview-file="'+esc(d.name)+'" data-file-ver="'+d.version+'">'+tr('Preview')+'</button>':'')+'<button class="btn sm ghost" type="button" id="doc-hist">'+tr('History')+'</button>'+(READONLY||old||d.media?'':'<button class="btn sm" type="button" id="doc-edit">'+tr('Edit')+'</button>')+'</div></div>'+(d.media?'<div class="doc-img"><img alt="'+esc(d.name)+'" src="/api/boards/'+BOARD+'/image?name='+encodeURIComponent(d.name)+'&version='+d.version+'"></div>':'<div class="doc-body body">'+d.html+'</div>')+'<div id="doc-history"></div>';if(window.pinSlot)pinSlot(d)}
+  '<span id="doc-pin-slot"></span>'+(!d.media&&/\\.html?$/i.test(d.name)?'<button class="btn sm ghost" type="button" data-preview-file="'+esc(d.name)+'" data-file-ver="'+d.version+'">'+tr('Preview')+'</button>':'')+'<a class="btn sm ghost" href="/api/boards/'+BOARD+'/image?name='+encodeURIComponent(d.name)+'&version='+d.version+'" download="'+esc(d.name)+'" data-save>'+tr('Download')+'</a><button class="btn sm ghost" type="button" id="doc-hist">'+tr('History')+'</button>'+(READONLY||old||d.media?'':'<button class="btn sm" type="button" id="doc-edit">'+tr('Edit')+'</button>')+'</div></div>'+(d.media?'<div class="doc-img"><img alt="'+esc(d.name)+'" src="/api/boards/'+BOARD+'/image?name='+encodeURIComponent(d.name)+'&version='+d.version+'"></div>':'<div class="doc-body body">'+d.html+'</div>')+'<div id="doc-history"></div>';if(window.pinSlot)pinSlot(d)}
 function editDoc(){const d=curDoc,v=document.getElementById('doc-view');editing=true;v.classList.add('editing');
   v.innerHTML='<div class="row" style="justify-content:space-between;margin-bottom:10px"><b class="mono">'+esc(d.name)+'</b><span class="xs faint">editing v'+d.version+'</span></div><textarea class="input mono" id="doc-text" style="font-size:12.5px">'+esc(d.content)+'</textarea><input class="input" id="doc-summary" placeholder="'+tr('What changed? (optional)')+'" style="margin-top:8px"><p id="doc-warn" class="flash" hidden style="margin-top:8px"></p><div class="row" style="justify-content:flex-end;margin-top:10px"><button class="btn" type="button" id="doc-cancel">'+tr('Cancel')+'</button><button class="btn primary" type="button" id="doc-save">'+tr('Save')+'</button></div>'}
 async function saveDoc(name,content,base,summary){const r=await fetch('/api/boards/'+BOARD+'/doc',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({action:'write',name,content,base_version:base,summary})});const j=await r.json();
@@ -1722,9 +1722,10 @@ cform.addEventListener('submit',async e=>{if(!pending.length)return;e.preventDef
 // The lightbox: a picture full size; for a message with several, the arrows, ←/→ or a swipe go through them.
 const lb=document.getElementById('lightbox'),lbImg=document.getElementById('lightbox-img'),lbCount=lb.querySelector('.lb-count');let lbSet=[],lbI=0,lbSwiped=0;
 function lbShow(i){lbI=(i+lbSet.length)%lbSet.length;const b=lbSet[lbI];lbImg.src=b.dataset.img;lbImg.alt=b.dataset.imgName||'';
+  const sv=document.getElementById('lightbox-save');sv.href=b.dataset.img;sv.download=b.dataset.imgName||b.querySelector('img')?.alt||new URL(b.dataset.img,location.href).searchParams.get('name')||'picture';
   const many=lbSet.length>1;lb.querySelectorAll('.lb-nav').forEach(x=>x.hidden=!many);lbCount.hidden=!many;lbCount.textContent=(lbI+1)+' / '+lbSet.length}
 document.addEventListener('click',e=>{const b=e.target.closest('[data-img]');if(!b)return;const g=b.closest('[data-gallery]');lbSet=g?[...g.querySelectorAll('[data-img]')]:[b];lbShow(lbSet.indexOf(b));if(!lb.open){lb.showModal();lb.querySelector('.lb-nav:focus')?.blur()}});
-lb.addEventListener('click',e=>{if(Date.now()-lbSwiped<400)return;const n=e.target.closest('.lb-nav');if(n){lbShow(lbI+(n.classList.contains('lb-prev')?-1:1));return}lb.close()});
+lb.addEventListener('click',e=>{if(Date.now()-lbSwiped<400||e.target.closest('.lb-save'))return;const n=e.target.closest('.lb-nav');if(n){lbShow(lbI+(n.classList.contains('lb-prev')?-1:1));return}lb.close()});
 document.addEventListener('keydown',e=>{if(!lb.open||lbSet.length<2)return;if(e.key==='ArrowLeft'||e.key==='ArrowRight'){e.preventDefault();lbShow(lbI+(e.key==='ArrowLeft'?-1:1))}});
 let lbX=null,lbY=0;
 lb.addEventListener('touchstart',e=>{if(e.touches.length===1){lbX=e.touches[0].clientX;lbY=e.touches[0].clientY}else lbX=null},{passive:true});
@@ -2634,7 +2635,7 @@ ${notifySide(L)}
       <div class="row" style="justify-content:space-between;margin-top:12px"><div class="row" style="gap:6px"><button class="btn sm ghost" type="button" id="td-open">${esc(T("Open in conversation"))}</button><button class="btn sm ghost" type="button" id="td-remove" hidden>${esc(T("Remove"))}</button></div><button class="btn primary sm">${esc(T("Save"))}</button></div>
     </div></form></dialog>
 ${localize(L, SHEET)}${agentChat ? "" : localize(L, RECAP_DLG + SOUL_DLG)}
-<dialog class="lightbox" id="lightbox" aria-label="${esc(T("Image"))}"><img id="lightbox-img" alt=""><button class="lb-nav lb-prev" type="button" aria-label="${esc(T("Previous picture"))}" hidden>‹</button><button class="lb-nav lb-next" type="button" aria-label="${esc(T("Next picture"))}" hidden>›</button><span class="lb-count xs" hidden></span></dialog>
+<dialog class="lightbox" id="lightbox" aria-label="${esc(T("Image"))}"><img id="lightbox-img" alt=""><button class="lb-nav lb-prev" type="button" aria-label="${esc(T("Previous picture"))}" hidden>‹</button><button class="lb-nav lb-next" type="button" aria-label="${esc(T("Next picture"))}" hidden>›</button><span class="lb-count xs" hidden></span><a class="btn sm lb-save" id="lightbox-save" href="" download data-save>${esc(T("Save"))}</a></dialog>
 
 ${connectDialog(viewer, { id: info.id, title: info.title })}
 
