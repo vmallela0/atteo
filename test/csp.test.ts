@@ -66,16 +66,23 @@ describe("CSP follow-ups (opus-b #2678, jxn's agent #2681)", () => {
     expect(new URL(REALTIME_URL).origin).toBe(VOICE_SOCKET_ORIGIN);
   });
 
-  it("mermaid: the one pinned file, loaded with SRI and crossorigin, not the whole CDN", () => {
+  it("mermaid: this origin's pinned file, loaded with SRI and crossorigin, no CDN", async () => {
     const script = directive(policyOf(landingPage()), "script-src");
-    expect(script).toContain(MERMAID_SRC);
-    expect(MERMAID_SRC).toMatch(/^https:\/\/cdn\.jsdelivr\.net\/npm\/mermaid@\d+\.\d+\.\d+\/dist\/mermaid\.min\.js$/);
-    expect(script).not.toMatch(/https:\/\/cdn\.jsdelivr\.net\/?( |$)/);
+    expect(script).toMatch(/^script-src 'self' 'nonce-[a-f0-9]{32}'$/);
+    expect(script).not.toMatch(/https?:\/\//);
+    expect(script).not.toMatch(/jsdelivr/i);
+    expect(MERMAID_SRC).toMatch(/^\/mermaid\.min\.js\?v=\d+\.\d+\.\d+$/);
     expect(MERMAID_SRI).toMatch(/^sha384-[A-Za-z0-9+/]{64}$/);
     expect(MERMAID_JS).toContain("s.integrity=SRI");
     expect(MERMAID_JS).toContain("s.nonce=NONCE");
     expect(MERMAID_JS).toContain("s.crossOrigin='anonymous'");
     expect((MERMAID_JS.match(/createElement\('script'\)/g) ?? []).length).toBe(1); // the only place it loads
+    const { readFileSync } = (await import("node:" + "fs")) as { readFileSync: (p: string) => Uint8Array };
+    const { createHash } = (await import("node:" + "crypto")) as { createHash: (a: string) => { update: (b: Uint8Array) => { digest: (e: string) => string } } };
+    const bytes = readFileSync("public/mermaid.min.js");
+    expect("sha384-" + createHash("sha384").update(bytes).digest("base64")).toBe(MERMAID_SRI);
+    const missing = await (await import("../src/mermaid")).mermaidResponse({}, new URL("http://localhost/mermaid.min.js?v=12.1.0"));
+    expect(missing.status).toBe(404);
   });
 
   it("the HTML preview runs from its own shell with its own CSP, and never gets the page's nonce", async () => {

@@ -146,6 +146,7 @@ export interface BoardInfo {
 export interface Env {
   BOARD: DurableObjectNamespace<import("./board").Board>;
   DB: D1Database;
+  ASSETS?: Fetcher; // wrangler.jsonc assets: mermaid.min.js (src/mermaid.ts mermaidResponse)
   WORKOS_API_KEY?: string; // secret
   WORKOS_CLIENT_ID?: string; // var
   ADMIN_EMAIL?: string; // var: comma-separated admin emails

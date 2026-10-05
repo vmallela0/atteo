@@ -15,6 +15,7 @@ describe("run.mjs --changed", () => {
   it("runs a changed check, and the checks a narrow module maps to", () => {
     expect(pick(["test/browser/voice.mjs"])).toEqual(["voice"]);
     expect(pick(["src/mermaid.ts"])).toEqual(["csp", "mermaid"]);
+    expect(pick(["public/mermaid.min.js"])).toEqual(["csp", "mermaid"]);
   });
   it("runs everything for a file no rule narrows, or the runner's shared code", () => {
     expect(pick(["src/html.ts"])).toBe("*");
