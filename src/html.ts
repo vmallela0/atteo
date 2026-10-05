@@ -743,7 +743,7 @@ export function connectTiles(lang?: Lang): string {
       <a class="cn-tile" data-cn-link="vscode" href="#"><b>${esc(T("VS Code"))}</b><span>${esc(T("Install"))}</span></a>
       <button type="button" class="cn-tile" data-cn-open="https://grok.com/connectors" data-cn-where="Grok: New Connector → Custom"><b>${esc(T("Grok"))}</b><span>${esc(T("Copy URL & open"))}</span></button>
       <button type="button" class="cn-tile" data-cn-open="https://claude.ai/settings/connectors" data-cn-where="Claude: Add custom connector"><b>${esc(T("Claude"))}</b><span>${esc(T("Copy URL & open"))}</span></button>
-      <button type="button" class="cn-tile" data-cn-open="https://chatgpt.com/#settings/Connectors" data-cn-where="ChatGPT: Connectors → Create"><b>${esc(T("ChatGPT"))}</b><span>${esc(T("Copy URL & open"))}</span></button>
+      <button type="button" class="cn-tile" data-cn-open="https://chatgpt.com/#settings/Connectors" data-cn-app="https://chatgpt.com/#settings" data-cn-where="ChatGPT: Connectors → Create"><b>${esc(T("ChatGPT"))}</b><span>${esc(T("Copy URL & open"))}</span></button>
       <button type="button" class="cn-tile" data-cn-cmd="claude"><b>${esc(T("Claude Code"))}</b><span>${esc(T("Copy command"))}</span></button>
       <button type="button" class="cn-tile" data-cn-cmd="codex"><b>${esc(T("Codex"))}</b><span>${esc(T("Copy command"))}</span></button>
       <button type="button" class="cn-tile" data-cn-cmd="gemini"><b>${esc(T("Gemini CLI"))}</b><span>${esc(T("Copy command"))}</span></button>
@@ -867,7 +867,7 @@ const CONNECT_JS = `
   let box=null;const done=(t)=>{const d=box&&box.querySelector('.cn-done');if(d)d.textContent=t};
   const copy=(t)=>navigator.clipboard?.writeText(t).catch(()=>{});
   document.addEventListener('click',e=>{const o=e.target.closest('[data-cn-open]'),c=e.target.closest('[data-cn-cmd]'),l=e.target.closest('[data-cn-link]');box=e.target.closest('[data-cn-box]');
-    if(o){copy(u);window.open(o.dataset.cnOpen,'_blank','noopener');done('Copied '+u+'. Paste it in '+o.dataset.cnWhere+', then sign in and choose Allow.')}
+    if(o){copy(u);const app=o.dataset.cnApp&&(/iPhone|iPad|iPod|Android/i.test(navigator.userAgent)||(navigator.maxTouchPoints>1&&/Macintosh/.test(navigator.userAgent)));if(app)location.assign(o.dataset.cnApp);else window.open(o.dataset.cnOpen,'_blank','noopener');done('Copied '+u+'. Paste it in '+o.dataset.cnWhere+', then sign in and choose Allow.')}
     else if(c){copy(cmds[c.dataset.cnCmd]);done(tr('Copied. Paste it in your terminal; it opens a browser to sign in.'))}
     else if(l)done('Opening '+(l.dataset.cnLink==='cursor'?'Cursor':'VS Code')+'… confirm the install, then sign in when it asks.');
     const m=e.target.closest('[data-cn-say]');if(m){copy(says[m.dataset.cnSay]);done('Copied. '+sayWhere[m.dataset.cnSay]+' It sets itself up, then asks you to sign in and choose Allow.')}});})();

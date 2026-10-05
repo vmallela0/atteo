@@ -45,8 +45,9 @@ enum AssistantProvider: String, Identifiable, CaseIterable {
         // grok.com's universal links cover every path ("/*"), so its app opens on its connectors page.
         case .grok: return (.init(app: "https://grok.com/connectors", web: "https://grok.com/connectors"), String(localized: "Grok: New Connector → Custom", bundle: .l10n))
         // ChatGPT's app links don't reach a custom-connector page (only "#settings/Connectors?connector=<an existing
-        // one's id>"), and making one is on the web: the web it is.
-        case .chatgpt: return (.init(app: nil, web: "https://chatgpt.com/#settings/Connectors"), String(localized: "ChatGPT: Connectors → Create", bundle: .l10n))
+        // one's id>"), so the app opens on its settings ("/#settings" is in chatgpt.com's app links), Connectors from
+        // there (vedu #4065). No app: the web's Connectors page.
+        case .chatgpt: return (.init(app: "https://chatgpt.com/#settings", web: "https://chatgpt.com/#settings/Connectors"), String(localized: "ChatGPT: Connectors → Create", bundle: .l10n))
         // Claude's app opens "Add custom connector" itself (claude.ai lists that path for its app); the web page as before.
         case .claude: return (.init(app: "https://claude.ai/customize/connectors?modal=add-custom-connector", web: "https://claude.ai/settings/connectors"), String(localized: "Claude: Add custom connector", bundle: .l10n))
         default: return nil

@@ -28,8 +28,17 @@ final class AppOpenerTests: XCTestCase {
         XCTAssertEqual(calls.map(\.1), [true, false])
     }
 
+    /// ChatGPT's Connect opens its app's settings when it's installed (vedu #4065), else the web's Connectors page.
+    func testChatGPTConnectOpensTheAppElseTheWeb() {
+        let page = AssistantProvider.chatgpt.page!.link
+        XCTAssertEqual(run(page, installed: true).map(\.0.absoluteString), ["https://chatgpt.com/#settings"])
+        let calls = run(page, installed: false)
+        XCTAssertEqual(calls.map(\.0.absoluteString), ["https://chatgpt.com/#settings", "https://chatgpt.com/#settings/Connectors"])
+        XCTAssertEqual(calls.map(\.1), [true, false])
+    }
+
     func testNoAppLinkGoesStraightToTheWeb() {
-        let calls = run(AssistantProvider.chatgpt.page!.link, installed: true)
+        let calls = run(ProviderLink(app: nil, web: "https://chatgpt.com/#settings/Connectors"), installed: true)
         XCTAssertEqual(calls.map(\.0.absoluteString), ["https://chatgpt.com/#settings/Connectors"])
         XCTAssertEqual(calls.map(\.1), [false])
     }
