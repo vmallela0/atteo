@@ -198,7 +198,7 @@ private struct DecisionButton: View {
             Label(title, systemImage: icon).font(Typo.micro.weight(.semibold))
                 .foregroundStyle(on ? Theme.onText : color)
                 .padding(.horizontal, 10).frame(minHeight: 28)
-                .background(on ? color : color.opacity(0.12), in: Capsule())
+                .background(on ? color : color.opacity(0.12), in: Rectangle())
                 .contentShape(Capsule())
         }
         .buttonStyle(PressStyle())

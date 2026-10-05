@@ -235,7 +235,7 @@ struct AttachmentTray: View {
                         .transition(.scale(scale: 0.8).combined(with: .opacity))
                 }
                 ForEach(0..<preparing, id: \.self) { _ in
-                    RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Theme.raised).frame(width: 56, height: 56)
+                    RoundedRectangle(cornerRadius: Radius.card, style: .continuous).fill(Theme.raised).frame(width: 56, height: 56)
                         .overlay(ProgressView().controlSize(.small).tint(Theme.muted))
                 }
             }
@@ -248,19 +248,19 @@ struct AttachmentTray: View {
     @ViewBuilder private func chip(_ a: Attachment) -> some View {
         if a.isImage, let p = a.preview {
             Image(uiImage: p).resizable().scaledToFill().frame(width: 56, height: 56)
-                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .clipShape(RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
                 .accessibilityElement().accessibilityLabel(a.name).accessibilityIdentifier("attachment-chip")
         } else {
             HStack(spacing: Space.s) {
                 FileIcon(name: a.name, size: 28)
                 VStack(alignment: .leading, spacing: 1) {
                     Text(a.name).font(Typo.micro.weight(.medium)).foregroundStyle(Theme.text).lineLimit(1).truncationMode(.middle)
-                    Text(a.data.count.bytes).font(.caption2).foregroundStyle(Theme.faint)
+                    Text(a.data.count.bytes).font(Typo.ui(.caption2)).foregroundStyle(Theme.faint)
                 }
             }
             .padding(.leading, Space.s).padding(.trailing, Space.m)
             .frame(maxWidth: 170, minHeight: 56, maxHeight: 56, alignment: .leading)
-            .background(Theme.raised, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .background(Theme.raised, in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
             .accessibilityElement(children: .combine).accessibilityIdentifier("attachment-chip")
         }
     }
@@ -277,7 +277,7 @@ struct FileIcon: View {
             : ["txt", "md", "log", "json", "csv", "yml", "yaml", "js", "ts", "swift", "py", "html", "css", "sql", "sh"].contains(ext) || ext.isEmpty ? "doc.text.fill"
             : "doc.fill"
         Image(systemName: symbol).font(.system(size: size * 0.45, weight: .medium)).foregroundStyle(Theme.muted)
-            .frame(width: size, height: size).background(Theme.bg.opacity(0.5), in: RoundedRectangle(cornerRadius: size * 0.28, style: .continuous))
+            .frame(width: size, height: size).background(Theme.bg.opacity(0.5), in: RoundedRectangle(cornerRadius: 0, style: .continuous))
     }
 }
 

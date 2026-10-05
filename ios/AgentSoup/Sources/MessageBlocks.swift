@@ -203,7 +203,7 @@ struct ChartBlock: View {
                     Image(systemName: "chevron.right").font(.system(size: 9, weight: .bold)).rotationEffect(.degrees(showData ? 90 : 0))
                     Text("Data")
                 }
-                .font(.caption2.weight(.semibold)).foregroundStyle(Theme.faint)
+                .font(Typo.ui(.caption2).weight(.semibold)).foregroundStyle(Theme.faint)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -216,7 +216,7 @@ struct ChartBlock: View {
             }
         }
         .padding(Space.m)
-        .background(Theme.card, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .background(Theme.card, in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("chart")
         .accessibilityLabel(spec.title ?? String(localized: "Chart", bundle: .l10n))
@@ -247,11 +247,11 @@ struct ChartBlock: View {
         }
         .chartForegroundStyleScale(domain: names, range: ChartPalette.range(names.count))
         .chartLegend(names.count > 1 ? .visible : .hidden)
-        .chartXAxis { AxisMarks { _ in AxisValueLabel().font(.caption2).foregroundStyle(Theme.muted) } }
+        .chartXAxis { AxisMarks { _ in AxisValueLabel().font(Typo.ui(.caption2)).foregroundStyle(Theme.muted) } }
         .chartYAxis {
             AxisMarks(position: .leading) { _ in
                 AxisGridLine().foregroundStyle(Theme.line)
-                AxisValueLabel().font(.caption2).foregroundStyle(Theme.muted)
+                AxisValueLabel().font(Typo.ui(.caption2)).foregroundStyle(Theme.muted)
             }
         }
         .frame(height: 180)
@@ -273,7 +273,7 @@ struct ChartBlock: View {
             VStack(alignment: .leading, spacing: 4) {
                 ForEach(Array(labels.enumerated()), id: \.offset) { i, l in
                     HStack(spacing: 6) {
-                        RoundedRectangle(cornerRadius: 3).fill(ChartPalette.colors[i % ChartPalette.colors.count]).frame(width: 10, height: 10)
+                        RoundedRectangle(cornerRadius: Radius.card).fill(ChartPalette.colors[i % ChartPalette.colors.count]).frame(width: 10, height: 10)
                         Text(l).font(Typo.micro).foregroundStyle(Theme.text).lineLimit(1)
                         Text("\(Int((values[i] / total * 100).rounded()))%").font(Typo.micro).foregroundStyle(Theme.muted).monospacedDigit()
                     }
@@ -311,7 +311,7 @@ struct StatusCard: View {
         let t = text.replacingOccurrences(of: #"\n+$"#, with: "", options: .regularExpression)
         VStack(alignment: .leading, spacing: 6) {
             Label("Status", systemImage: "waveform.path.ecg").labelStyle(.titleAndIcon)
-                .font(.caption2.weight(.semibold)).foregroundStyle(Theme.faint)
+                .font(Typo.ui(.caption2).weight(.semibold)).foregroundStyle(Theme.faint)
             ScrollView(.horizontal, showsIndicators: false) {
                 Text(t).font(CodeBlock.mono).foregroundStyle(Theme.text).lineSpacing(3)
                     .fixedSize(horizontal: true, vertical: false).textSelection(.enabled)
@@ -319,8 +319,8 @@ struct StatusCard: View {
         }
         .padding(Space.m)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Theme.card, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-        .overlay { RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(Theme.line, lineWidth: 0.5) }
+        .background(Theme.card, in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
+        .overlay { RoundedRectangle(cornerRadius: Radius.card, style: .continuous).stroke(Theme.line, lineWidth: 0.5) }
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier("status-card")
     }

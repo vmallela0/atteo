@@ -66,7 +66,7 @@ struct PictureEditor: View {
                     Canvas { ctx, size in
                         var p = Path(CGRect(origin: .zero, size: size))
                         let r = CGRect(origin: .zero, size: size).insetBy(dx: 2, dy: 2)
-                        p.addPath(round ? Path(ellipseIn: r) : Path(roundedRect: r, cornerRadius: size.width * 0.3, style: .continuous))
+                        p.addPath(round ? Path(ellipseIn: r) : Path(roundedRect: r, cornerRadius: 0, style: .continuous))
                         ctx.fill(p, with: .color(.black.opacity(0.5)), style: FillStyle(eoFill: true))
                     }
                     .allowsHitTesting(false)

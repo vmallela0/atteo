@@ -38,7 +38,7 @@ struct TalkButton: View {
                         Label("Voice chat", systemImage: "waveform")
                             .font(Typo.body.weight(.medium)).foregroundStyle(Theme.text)
                             .padding(.horizontal, Space.l).frame(height: 44)
-                            .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(Theme.line))
+                            .overlay(RoundedRectangle(cornerRadius: Radius.card, style: .continuous).stroke(Theme.line))
                     }
                 }
                 .buttonStyle(PressStyle())
@@ -93,12 +93,12 @@ struct TalkSheet: View {
     private var header: some View {
         HStack(alignment: .center) {
             Button(talk.phase == .ended ? "Close" : "End") { talk.end(); dismiss() }
-                .font(.body.weight(.semibold)).foregroundStyle(talk.phase == .ended ? Theme.text : Theme.danger)
+                .font(Typo.ui(.body).weight(.semibold)).foregroundStyle(talk.phase == .ended ? Theme.text : Theme.danger)
                 .frame(minWidth: 44, alignment: .leading)
                 .accessibilityIdentifier("talk-end")
             Spacer()
             VStack(spacing: 2) {
-                Text("Atteo").font(.headline).foregroundStyle(Theme.text)
+                Text("Atteo").font(Typo.ui(.headline)).foregroundStyle(Theme.text)
                 Text(timeLine).font(Typo.micro.monospacedDigit()).foregroundStyle(Theme.muted)
                     .accessibilityIdentifier("talk-timer")
             }
@@ -180,7 +180,7 @@ struct TalkSheet: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text("Atteo").font(Typo.micro.weight(.semibold)).foregroundStyle(Theme.accent)
                     .accessibilityHidden(true)
-                Text(c.text).font(.title3).foregroundStyle(Theme.text)
+                Text(c.text).font(Typo.ui(.title3)).foregroundStyle(Theme.text)
                     .fixedSize(horizontal: false, vertical: true)
                     .accessibilityLabel(Text("Atteo: \(c.text)"))
                     .accessibilityIdentifier("talk-atteo")
@@ -194,10 +194,10 @@ struct TalkSheet: View {
         VStack(alignment: .leading, spacing: Space.s) {
             switch c.kind {
             case .approval(let id, let decision):
-                Label(decision == "deny" ? "Deny \(id)?" : "Approve \(id)?", systemImage: "checkmark.shield").font(.headline).foregroundStyle(Theme.text)
+                Label(decision == "deny" ? "Deny \(id)?" : "Approve \(id)?", systemImage: "checkmark.shield").font(Typo.ui(.headline)).foregroundStyle(Theme.text)
                     .accessibilityIdentifier("talk-confirm-what")
             case .post(let text, let board):
-                Label("Post to your agent: “\(text)”", systemImage: "paperplane").font(.headline).foregroundStyle(Theme.text)
+                Label("Post to your agent: “\(text)”", systemImage: "paperplane").font(Typo.ui(.headline)).foregroundStyle(Theme.text)
                     .fixedSize(horizontal: false, vertical: true)
                     .accessibilityIdentifier("talk-confirm-what")
                 if let board {
@@ -208,12 +208,12 @@ struct TalkSheet: View {
             Text(c.confirmed ? "Heard yes. Atteo will do it now." : "Nothing happens until you say “yes” or tap Yes.")
                 .font(Typo.meta).foregroundStyle(Theme.muted)
             HStack(spacing: Space.s) {
-                Button { talk.answerConfirm(false) } label: { Text("No").frame(maxWidth: .infinity).padding(.vertical, 10).background(Theme.raised, in: Capsule()) }
+                Button { talk.answerConfirm(false) } label: { Text("No").frame(maxWidth: .infinity).padding(.vertical, 10).background(Theme.raised, in: Rectangle()) }
                     .accessibilityIdentifier("talk-confirm-no")
-                Button { talk.answerConfirm(true) } label: { yesWord(c).frame(maxWidth: .infinity).padding(.vertical, 10).background(Theme.accent, in: Capsule()).foregroundStyle(Theme.onAccent) }
+                Button { talk.answerConfirm(true) } label: { yesWord(c).frame(maxWidth: .infinity).padding(.vertical, 10).background(Theme.accentFill, in: Rectangle()).foregroundStyle(Theme.onAccent) }
                     .accessibilityIdentifier("talk-confirm-yes")
             }
-            .buttonStyle(PressStyle()).font(.body.weight(.semibold)).foregroundStyle(Theme.text)
+            .buttonStyle(PressStyle()).font(Typo.ui(.body).weight(.semibold)).foregroundStyle(Theme.text)
         }
         .padding(Space.m)
         .background(Theme.card, in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
@@ -266,7 +266,7 @@ struct TalkSheet: View {
                 .accessibilityIdentifier("talk-state")
             if talk.phase == .ended {
                 Button { dismiss() } label: {
-                    Text("Done").font(.headline).frame(width: 200, height: 52).background(Theme.raised, in: Capsule()).foregroundStyle(Theme.text)
+                    Text("Done").font(Typo.ui(.headline)).frame(width: 200, height: 52).background(Theme.raised, in: Rectangle()).foregroundStyle(Theme.text)
                 }
                 .buttonStyle(PressStyle())
                 .accessibilityIdentifier("talk-done")
@@ -339,7 +339,7 @@ struct TalkSheet: View {
                     .foregroundStyle(Theme.onAccent)
                     .frame(width: 112, height: 112)
                     .background(Theme.accent, in: Circle())
-                Text("Resume").font(.headline).foregroundStyle(Theme.text)
+                Text("Resume").font(Typo.ui(.headline)).foregroundStyle(Theme.text)
             }
         }
         .buttonStyle(PressStyle())

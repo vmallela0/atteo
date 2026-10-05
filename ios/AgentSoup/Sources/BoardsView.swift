@@ -312,7 +312,7 @@ struct BoardView: View {
                             }
                             .foregroundStyle(Theme.text)
                             .padding(.horizontal, Space.m).frame(height: 32)
-                            .background(Theme.raised, in: Capsule())
+                            .background(Theme.raised, in: Rectangle())
                             .shadow(color: .black.opacity(0.35), radius: 8, y: 2)
                             .frame(minHeight: 44).contentShape(Capsule())
                         }
@@ -366,7 +366,7 @@ struct BoardView: View {
             ToolbarItem(placement: .principal) {
                 Button { showAgents = true } label: {
                     VStack(spacing: 1) {
-                        HStack(spacing: 6) { BoardPicture(board: board, size: 20).accessibilityHidden(true); Text(board.displayName(me: state.me?.owner)).font(.headline).foregroundStyle(Theme.text.fixed(scheme)).lineLimit(1) }
+                        HStack(spacing: 6) { BoardPicture(board: board, size: 20).accessibilityHidden(true); Text(board.displayName(me: state.me?.owner)).font(Typo.ui(.headline)).foregroundStyle(Theme.text.fixed(scheme)).lineLimit(1) }
                         HStack(spacing: Space.xs) {
                             if board.encrypted == true { Image(systemName: "lock.fill").font(.system(size: 9)).foregroundStyle(Theme.faint.fixed(scheme)) }
                             if !live.isEmpty { LiveDot(size: 6) }
@@ -906,7 +906,7 @@ struct EntryRow: View {
             let line = parent.map { ThreadPreview.line($0).plainRefs(refTitle.callAsFunction) } ?? ""
             Button { actions.jumpToParent?() } label: {
                 HStack(spacing: 0) {
-                    RoundedRectangle(cornerRadius: 1.5, style: .continuous).fill(Theme.faint.opacity(0.7)).frame(width: 3)
+                    RoundedRectangle(cornerRadius: Radius.card, style: .continuous).fill(Theme.faint.opacity(0.7)).frame(width: 3)
                     HStack(alignment: .firstTextBaseline, spacing: 5) {
                         Image(systemName: "arrow.turn.up.left").font(.system(size: 9, weight: .bold)).foregroundStyle(Theme.faint)
                         ((name.map { Text(verbatim: $0) } ?? Text("An earlier message")).fontWeight(.semibold).foregroundColor(Theme.text.opacity(0.9)) + Text(verbatim: name == nil ? "" : ": " + line))
@@ -1018,9 +1018,9 @@ struct EntryRow: View {
             if let decision, !unsent { HumanDecisionCard(hd: decision, me: me, trailing: true, actions: decisionActions) }
             footer
             if e.pending == true {
-                Text("Sending…").font(.caption2).foregroundStyle(Theme.faint)
+                Text("Sending…").font(Typo.ui(.caption2)).foregroundStyle(Theme.faint)
             } else if e.failed == true {
-                Button(action: retry) { Label("Not sent. Tap to retry", systemImage: "exclamationmark.circle").font(.caption2.weight(.semibold)) }
+                Button(action: retry) { Label("Not sent. Tap to retry", systemImage: "exclamationmark.circle").font(Typo.ui(.caption2).weight(.semibold)) }
                     .buttonStyle(.plain).foregroundStyle(Theme.danger)
             } else if let receipt {
                 Button { openReceipt?() } label: {
@@ -1028,7 +1028,7 @@ struct EntryRow: View {
                         ReceiptCheck(level: receipt.level)
                         Text(receipt.text).lineLimit(2).multilineTextAlignment(.trailing)
                     }
-                    .font(.caption2).foregroundStyle(receipt.level == 2 ? Theme.accent : Theme.faint)
+                    .font(Typo.ui(.caption2)).foregroundStyle(receipt.level == 2 ? Theme.accent : Theme.faint)
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
@@ -1079,7 +1079,7 @@ struct EntryRow: View {
         }
         // It names you (the web's .for-you): a soft tint, drawn inside the row so no edge cuts it (jxn #1311).
         .padding(.horizontal, forYou ? Space.s : 0).padding(.vertical, forYou ? Space.xs + 2 : 0)
-        .background(forYou ? Theme.warn.opacity(0.09) : .clear, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .background(forYou ? Theme.warn.opacity(0.09) : .clear, in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
         .padding(.top, gapAbove(Space.s + 2))
     }
 }
@@ -1152,9 +1152,9 @@ struct PlaceholderMessage: View {
         HStack(alignment: .top, spacing: 10) {
             Circle().fill(Theme.card).frame(width: 28, height: 28)
             VStack(alignment: .leading, spacing: 6) {
-                RoundedRectangle(cornerRadius: 4).fill(Theme.card).frame(width: 110, height: 11)
-                RoundedRectangle(cornerRadius: 4).fill(Theme.card).frame(maxWidth: .infinity).frame(height: 11)
-                RoundedRectangle(cornerRadius: 4).fill(Theme.card).frame(width: 180, height: 11)
+                RoundedRectangle(cornerRadius: Radius.card).fill(Theme.card).frame(width: 110, height: 11)
+                RoundedRectangle(cornerRadius: Radius.card).fill(Theme.card).frame(maxWidth: .infinity).frame(height: 11)
+                RoundedRectangle(cornerRadius: Radius.card).fill(Theme.card).frame(width: 180, height: 11)
             }
         }
         .padding(.top, Space.l)
@@ -1273,8 +1273,8 @@ struct ReactionLine: View {
             ForEach(reactions, id: \.emoji) { r in
                 let receipt = EntryRow.receiptEmoji.contains(r.emoji)
                 HStack(spacing: 3) {
-                    Text(r.emoji).font(.caption2)
-                    Text(receipt ? names(r.users) : "\(r.users.count)").font(.caption2).foregroundStyle(r.emoji == "✅" ? Theme.ok : Theme.faint).lineLimit(1)
+                    Text(r.emoji).font(Typo.ui(.caption2))
+                    Text(receipt ? names(r.users) : "\(r.users.count)").font(Typo.ui(.caption2)).foregroundStyle(r.emoji == "✅" ? Theme.ok : Theme.faint).lineLimit(1)
                 }
                 .accessibilityElement(children: .combine)
                 .accessibilityLabel(receipt ? (r.emoji == "✅" ? String(localized: "Done: \(names(r.users))", bundle: .l10n) : String(localized: "Seen, working: \(names(r.users))", bundle: .l10n)) : "\(r.emoji) \(r.users.count)")

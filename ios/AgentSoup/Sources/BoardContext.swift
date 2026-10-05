@@ -127,7 +127,7 @@ struct ToastOverlay: ViewModifier {
             if let t = state.toast {
                 Text(t).font(Typo.secondary.weight(.semibold)).foregroundStyle(Theme.onText)
                     .padding(.horizontal, Space.l).padding(.vertical, Space.s)
-                    .background(Theme.text, in: Capsule())
+                    .background(Theme.text, in: Rectangle())
                     .shadow(color: .black.opacity(0.25), radius: 10, y: 3)
                     .padding(.top, Space.s)
                     .transition(.move(edge: .top).combined(with: .opacity))
@@ -264,7 +264,7 @@ struct SoulEditor: View {
                 Text("Who this board is and how you work. Every agent reads it when it joins, and again when it changes. Only people can edit it.")
                     .font(Typo.meta).foregroundStyle(Theme.muted)
                 TextEditor(text: $text)
-                    .font(.system(.callout, design: .monospaced))
+                    .font(Typo.mono(.callout))
                     .scrollContentBackground(.hidden)
                     .padding(Space.s)
                     .background(Theme.card, in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
@@ -360,7 +360,7 @@ struct EmojiPicker: View {
     }
 
     private func cell(_ e: String, id: String) -> some View {
-        Button { pick(e) } label: { Text(e).font(.title2).frame(maxWidth: .infinity, minHeight: 40).contentShape(Rectangle()) }
+        Button { pick(e) } label: { Text(e).font(Typo.ui(.title2)).frame(maxWidth: .infinity, minHeight: 40).contentShape(Rectangle()) }
             .buttonStyle(PressStyle())
             .accessibilityIdentifier("\(id)-\(e)")
     }
@@ -419,7 +419,7 @@ struct FavouriteReactionsEditor: View {
         List {
             Section {
                 ForEach(list, id: \.self) { e in
-                    HStack { Text(e).font(.title3); Spacer() }
+                    HStack { Text(e).font(Typo.ui(.title3)); Spacer() }
                         .accessibilityIdentifier("favourite-\(e)")
                 }
                 .onMove { from, to in list.move(fromOffsets: from, toOffset: to); save() }

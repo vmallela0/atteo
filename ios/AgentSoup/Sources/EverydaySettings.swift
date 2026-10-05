@@ -24,7 +24,7 @@ struct EverydaySettings: View {
                 HStack(spacing: Space.m) {
                     Avatar(name: state.me?.owner ?? "", size: 52)
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(state.profile?.displayName?.nonEmpty ?? state.me?.owner.capitalizedFirst ?? "").font(.title3.weight(.semibold)).foregroundStyle(Theme.text)
+                        Text(state.profile?.displayName?.nonEmpty ?? state.me?.owner.capitalizedFirst ?? "").font(Typo.ui(.title3).weight(.semibold)).foregroundStyle(Theme.text)
                         Text("\(chats) chats").font(Typo.secondary).foregroundStyle(Theme.muted)
                     }
                 }
@@ -43,7 +43,7 @@ struct EverydaySettings: View {
                         }
                         Spacer(minLength: Space.s)
                         Text(state.sessions.isEmpty ? "Connect" : "Change").font(Typo.body).foregroundStyle(Theme.muted)
-                        Image(systemName: "chevron.right").font(.footnote.weight(.semibold)).foregroundStyle(Theme.faint)
+                        Image(systemName: "chevron.right").font(Typo.ui(.footnote).weight(.semibold)).foregroundStyle(Theme.faint)
                     }
                     .contentShape(Rectangle())
                 }
@@ -209,7 +209,7 @@ struct AdvancedView: View {
                             Text("MCP link, CLI setup").font(Typo.secondary).foregroundStyle(Theme.muted)
                         }
                         Spacer()
-                        Image(systemName: "chevron.right").font(.footnote.weight(.semibold)).foregroundStyle(Theme.faint)
+                        Image(systemName: "chevron.right").font(Typo.ui(.footnote).weight(.semibold)).foregroundStyle(Theme.faint)
                     }
                     .contentShape(Rectangle())
                 }

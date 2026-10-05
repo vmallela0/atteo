@@ -141,9 +141,9 @@ struct ChangeCardView: View {
             Text(v.title).font(Typo.secondary.weight(.semibold)).foregroundStyle(Theme.text).lineLimit(2)
                 .accessibilityIdentifier("change-title")
             if let chip = v.chip {
-                Text(chip).font(.system(.caption, design: .monospaced).weight(.medium)).foregroundStyle(Theme.muted).lineLimit(1).truncationMode(.middle)
+                Text(chip).font(Typo.mono(.caption).weight(.medium)).foregroundStyle(Theme.muted).lineLimit(1).truncationMode(.middle)
                     .padding(.horizontal, 6).padding(.vertical, 2)
-                    .background(Theme.raised, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+                    .background(Theme.raised, in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
                     .layoutPriority(-1)
             }
             Spacer(minLength: 0)
@@ -178,7 +178,7 @@ struct ChangeCardView: View {
             VStack(alignment: .leading, spacing: 5) {
                 ForEach(Array((allCommits ? c.commits : Array(c.commits.prefix(4))).enumerated()), id: \.offset) { _, x in
                     HStack(alignment: .firstTextBaseline, spacing: Space.s) {
-                        Text(String(x.sha.prefix(7))).font(.system(.caption, design: .monospaced)).foregroundStyle(Theme.faint)
+                        Text(String(x.sha.prefix(7))).font(Typo.mono(.caption)).foregroundStyle(Theme.faint)
                         Text(x.title).font(Typo.meta).foregroundStyle(Theme.text.opacity(0.9)).lineLimit(2).fixedSize(horizontal: false, vertical: true)
                     }
                 }
@@ -192,13 +192,13 @@ struct ChangeCardView: View {
             VStack(alignment: .leading, spacing: 4) {
                 ForEach(Array((allFiles ? c.files : Array(c.files.prefix(6))).enumerated()), id: \.offset) { _, f in
                     HStack(spacing: Space.s) {
-                        Text(f.path).font(.system(.caption2, design: .monospaced)).foregroundStyle(Theme.muted).lineLimit(1).truncationMode(.head)
+                        Text(f.path).font(Typo.mono(.caption2)).foregroundStyle(Theme.muted).lineLimit(1).truncationMode(.head)
                         Spacer(minLength: Space.xs)
                         HStack(spacing: 3) {
                             Text(verbatim: "+\(f.added)").foregroundStyle(Self.added)
                             Text(verbatim: "−\(f.removed)").foregroundStyle(Self.removed)
                         }
-                        .font(.system(.caption2, design: .monospaced)).fixedSize()
+                        .font(Typo.mono(.caption2)).fixedSize()
                         bar(f.added, f.removed)
                     }
                 }
@@ -215,7 +215,7 @@ struct ChangeCardView: View {
         let d = lit - a
         return HStack(spacing: 1.5) {
             ForEach(0..<5, id: \.self) { i in
-                RoundedRectangle(cornerRadius: 1.5).fill(i < a ? Self.added : i < a + d ? Self.removed : Theme.raised).frame(width: 6, height: 6)
+                RoundedRectangle(cornerRadius: Radius.card).fill(i < a ? Self.added : i < a + d ? Self.removed : Theme.raised).frame(width: 6, height: 6)
             }
         }
         .accessibilityHidden(true)
@@ -255,7 +255,7 @@ struct ChangeCardView: View {
                         }
                         .padding(.vertical, Space.xs)
                     }
-                    .background(Theme.bg.opacity(0.6), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    .background(Theme.bg.opacity(0.6), in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
                     .accessibilityIdentifier("change-diff")
                     if lines.count > 40 { more(allLines ? "Show less" : "Show all \(lines.count) lines") { allLines.toggle() } }
                 } else if showDiff && !loading {
@@ -269,7 +269,7 @@ struct ChangeCardView: View {
         let isFile = l.hasPrefix("+++") || l.hasPrefix("---") || l.hasPrefix("diff ") || l.hasPrefix("index ")
         let add = l.hasPrefix("+") && !isFile, del = l.hasPrefix("-") && !isFile, hunk = l.hasPrefix("@@")
         return Text(l.isEmpty ? " " : l)
-            .font(.system(size: 11, design: .monospaced))
+            .font(Typo.mono(size: 11))
             .foregroundStyle(hunk || isFile ? Theme.faint : add ? Self.added : del ? Self.removed : Theme.text.opacity(0.85))
             .fixedSize()
             .padding(.horizontal, Space.s).padding(.vertical, 0.5)

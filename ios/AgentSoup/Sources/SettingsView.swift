@@ -162,7 +162,7 @@ struct FullSettings: View {
                 }
                 Spacer(minLength: Space.s)
                 if state.sessions.isEmpty { Text("Connect").font(Typo.body).foregroundStyle(Theme.accent) }
-                Image(systemName: "chevron.right").font(.footnote.weight(.semibold)).foregroundStyle(Theme.faint)
+                Image(systemName: "chevron.right").font(Typo.ui(.footnote).weight(.semibold)).foregroundStyle(Theme.faint)
             }
             .contentShape(Rectangle())
         }
@@ -231,7 +231,7 @@ private struct PictureButton: View {
             .contextMenu {
                 Button("Remove picture", systemImage: "trash", role: .destructive) { Task { await state.setAvatar(nil, agent: agent) } }
             }
-            Text(caption).font(.caption).foregroundStyle(Theme.muted)
+            Text(caption).font(Typo.ui(.caption)).foregroundStyle(Theme.muted)
         }
         .onChange(of: item) { _, it in
             guard let it else { return }
@@ -274,8 +274,8 @@ private struct ConnectionRow: View {
         HStack(alignment: .firstTextBaseline, spacing: Space.m) {
             Image(systemName: icon).font(.system(size: 15)).foregroundStyle(Theme.muted).frame(width: 22).onFirstLine()
             VStack(alignment: .leading, spacing: 2) {
-                (c.label.map { Text(verbatim: $0) } ?? Text("Connection")).font(.subheadline.weight(.medium)).foregroundStyle(Theme.text).lineLimit(1)
-                (c.lastUsed.map { $0.isJustNow ? Text("used just now") : Text("used \($0.ago) ago") } ?? Text("never used")).font(.caption).foregroundStyle(Theme.faint)
+                (c.label.map { Text(verbatim: $0) } ?? Text("Connection")).font(Typo.ui(.subheadline).weight(.medium)).foregroundStyle(Theme.text).lineLimit(1)
+                (c.lastUsed.map { $0.isJustNow ? Text("used just now") : Text("used \($0.ago) ago") } ?? Text("never used")).font(Typo.ui(.caption)).foregroundStyle(Theme.faint)
             }
         }
     }

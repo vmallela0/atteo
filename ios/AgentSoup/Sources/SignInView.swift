@@ -93,8 +93,7 @@ struct SignInView: View {
                 .scaleEffect(shown || still ? 1 : 0.86)
                 .opacity(shown || still ? 1 : 0)
             VStack(spacing: Space.s) {
-                Text("atteo").font(.system(size: small ? 30 : 44, weight: .heavy)).tracking(small ? -1.2 : -1.8)
-                    .foregroundStyle(AtteoMark.word).accessibilityLabel("Atteo").accessibilityAddTraits(.isHeader)
+                AtteoWordmark(height: small ? 36 : 54).accessibilityAddTraits(.isHeader)
                 if !small {
                     tagline.font(Typo.secondary.weight(.medium)).accessibilityLabel("Agents Talking To Each Other")
                         .transition(.opacity)
@@ -228,10 +227,10 @@ struct SignInView: View {
             }
             Button(action: browserSignIn) {
                 HStack(spacing: Space.s) {
-                    if webBusy { ProgressView().controlSize(.small).tint(Theme.text) } else { Image(systemName: "globe").font(.subheadline.weight(.medium)) }
+                    if webBusy { ProgressView().controlSize(.small).tint(Theme.text) } else { Image(systemName: "globe").font(Typo.ui(.subheadline).weight(.medium)) }
                     Text("Continue with Google, GitHub or SSO").fontWeight(.semibold)
                 }
-                .font(.callout)
+                .font(Typo.ui(.callout))
                 .frame(maxWidth: .infinity).frame(height: 50)
                 .foregroundStyle(Theme.text)
                 .background(Theme.card, in: RoundedRectangle(cornerRadius: Radius.control, style: .continuous))
@@ -249,7 +248,7 @@ struct SignInView: View {
 
     private func heading(_ title: LocalizedStringKey, _ sub: LocalizedStringKey?) -> some View {
         VStack(alignment: .leading, spacing: Space.xs) {
-            Text(title).font(.title3.weight(.bold)).foregroundStyle(Theme.text).accessibilityAddTraits(.isHeader)
+            Text(title).font(Typo.ui(.title3).weight(.bold)).foregroundStyle(Theme.text).accessibilityAddTraits(.isHeader)
             if let sub { Text(sub).font(Typo.secondary).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true) }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -365,7 +364,7 @@ private struct InputBox<Content: View>: View {
 
     var body: some View {
         content
-            .font(.body)
+            .font(Typo.ui(.body))
             .foregroundStyle(Theme.text)
             .padding(.horizontal, Space.l)
             .frame(height: 52)
@@ -443,10 +442,10 @@ private struct CodeBoxes: View {
             RoundedRectangle(cornerRadius: Radius.card, style: .continuous)
                 .strokeBorder(failed ? Theme.danger : current ? Theme.text.opacity(0.7) : Theme.line, lineWidth: current || failed ? 1.5 : 1)
             if filled {
-                Text(String(chars[i])).font(.system(size: 26, weight: .semibold, design: .rounded)).foregroundStyle(Theme.text)
+                Text(String(chars[i])).font(Typo.onest(26, .semibold, .title2)).foregroundStyle(Theme.text)
                     .transition(.scale(scale: 0.6).combined(with: .opacity))
             } else if current {
-                RoundedRectangle(cornerRadius: 1).fill(Theme.text).frame(width: 2, height: 24).opacity(blink ? 1 : 0.1)
+                RoundedRectangle(cornerRadius: Radius.card).fill(Theme.text).frame(width: 2, height: 24).opacity(blink ? 1 : 0.1)
             }
         }
         .frame(maxWidth: .infinity)

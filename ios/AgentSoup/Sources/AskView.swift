@@ -103,7 +103,7 @@ struct AskView: View {
             .padding(.top, Space.l)
 
             (heard.isEmpty ? (voice.listening ? Text("I'm listening…") : Text("Tap and tell your assistant what you need")) : Text(verbatim: heard))
-                .font(.title2.weight(.semibold)).foregroundStyle(heard.isEmpty ? Theme.muted : Theme.text)
+                .font(Typo.ui(.title2).weight(.semibold)).foregroundStyle(heard.isEmpty ? Theme.muted : Theme.text)
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: .infinity)
                 .accessibilityIdentifier("ask-heard")
@@ -124,7 +124,7 @@ struct AskView: View {
 
     private var typeBox: some View {
         VStack(alignment: .leading, spacing: Space.m) {
-            Text("What do you need?").font(.title2.weight(.semibold)).foregroundStyle(Theme.text).padding(.top, Space.l)
+            Text("What do you need?").font(Typo.ui(.title2).weight(.semibold)).foregroundStyle(Theme.text).padding(.top, Space.l)
             HStack(alignment: .bottom, spacing: Space.s) {
                 TextField("Ask your assistant…", text: $text, axis: .vertical)
                     .font(Typo.body).lineLimit(1...6)
@@ -143,8 +143,8 @@ struct AskView: View {
                 .accessibilityLabel("Ask")
                 .accessibilityIdentifier("ask-send")
             }
-            .background(Theme.card, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous).stroke(Theme.line))
+            .background(Theme.card, in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: Radius.card, style: .continuous).stroke(Theme.line))
         }
     }
 
@@ -161,7 +161,7 @@ struct AskView: View {
                         Spacer(minLength: 0)
                     }
                     .padding(.horizontal, Space.l).frame(minHeight: 50)
-                    .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(Theme.line))
+                    .overlay(RoundedRectangle(cornerRadius: Radius.card, style: .continuous).stroke(Theme.line))
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(PressStyle())
@@ -180,7 +180,7 @@ struct AskView: View {
                 Label(typing ? "Talk instead" : "Type instead", systemImage: typing ? "mic" : "keyboard")
                     .font(Typo.body.weight(.medium)).foregroundStyle(Theme.text)
                     .padding(.horizontal, Space.l).frame(height: 44)
-                    .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(Theme.line))
+                    .overlay(RoundedRectangle(cornerRadius: Radius.card, style: .continuous).stroke(Theme.line))
             }
             .buttonStyle(PressStyle())
             .accessibilityIdentifier("ask-switch")

@@ -139,7 +139,7 @@ struct BoardPicture: View {
                     if let img = b.picture.flatMap({ store.images[$0] }) {
                         Image(uiImage: img).resizable().scaledToFill()
                             .frame(width: size, height: size)
-                            .clipShape(RoundedRectangle(cornerRadius: size * 0.3, style: .continuous))
+                            .clipShape(RoundedRectangle(cornerRadius: 0, style: .continuous))
                             .transition(.opacity)
                     }
                 }

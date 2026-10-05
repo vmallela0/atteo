@@ -1,7 +1,8 @@
-// The look: near-black (or, in light mode, warm bone), a few quiet greys, and one warm accent (clay) used only where
-// something needs you: unread, the primary action, work in progress. Everything else is type, weight and spacing:
-// subtle fills instead of outlines, a 4-pt grid, one type scale (SF Pro), three corner radii. Calm, dense, fast.
-// Every color has a dark and a light variant and follows the appearance (Settings → Display → Theme).
+// The look (design language v1, board #2508): ink on paper, bone and stone for surfaces and rules, graphite for
+// what's secondary, and one cherry used once per screen: you, the primary action, what needs you (cherry-bright on
+// dark). Type is Onest for the interface, Enriqueta for headlines and Courier Prime for the agent layer (ids,
+// payloads); corners are square and rules are 2px ink. Every color has a dark and a light variant and follows the
+// appearance (Settings → Display → Theme).
 
 import SwiftUI
 
@@ -12,31 +13,41 @@ extension Color {
     }
 }
 
-private func rgb(_ hex: UInt32, _ alpha: CGFloat = 1) -> UIColor {
+func rgb(_ hex: UInt32, _ alpha: CGFloat = 1) -> UIColor {
     UIColor(red: CGFloat((hex >> 16) & 0xff) / 255, green: CGFloat((hex >> 8) & 0xff) / 255, blue: CGFloat(hex & 0xff) / 255, alpha: alpha)
 }
 
-enum Theme {
-    static let bg = Color(light: rgb(0xF2EEE6), dark: UIColor(red: 0.039, green: 0.039, blue: 0.039, alpha: 1)) // bone / near-black
-    static let card = Color(light: rgb(0xFBF9F5), dark: UIColor(white: 0.095, alpha: 1)) // grouped surfaces: task cards, the work strip, the message box
-    static let raised = Color(light: rgb(0xE6E0D5), dark: UIColor(white: 0.145, alpha: 1)) // your messages, avatars, pressed states
-    static let line = Color(light: rgb(0xDCD6CB), dark: UIColor(white: 0.16, alpha: 1)) // hairlines only
-    static let text = Color(light: rgb(0x1A1917), dark: UIColor(white: 0.95, alpha: 1)) // ink
-    static let muted = Color(light: rgb(0x625E57), dark: UIColor(white: 0.64, alpha: 1))
-    static let faint = Color(light: rgb(0x8E897F), dark: UIColor(white: 0.44, alpha: 1))
-    /// What sits on a `text`-filled control (the primary button): near-black on light ink in dark mode, bone on ink in light.
-    static let onText = Color(light: rgb(0xF7F4EE), dark: .black)
-    static let accent = Color(light: rgb(0xC9653F), dark: UIColor(red: 0.85, green: 0.47, blue: 0.34, alpha: 1)) // clay (a touch deeper on bone)
-    static let ok = Color(light: rgb(0x2E8A4E), dark: UIColor(red: 0.45, green: 0.78, blue: 0.55, alpha: 1))
-    static let warn = Color(light: rgb(0xB0701A), dark: UIColor(red: 0.95, green: 0.72, blue: 0.38, alpha: 1))
-    static let danger = Color(light: rgb(0xC63F3B), dark: UIColor(red: 0.94, green: 0.43, blue: 0.40, alpha: 1))
+/// The design language's tokens, exactly as specified (board #2508); the same names and values as the web's.
+enum Palette {
+    static let ink = rgb(0x0E0E0E) // text, strings, the agent layer
+    static let paper = rgb(0xFAFAF7) // the default ground
+    static let cherry = rgb(0xA8121E) // you, the primary action: once per screen
+    static let cherryBright = rgb(0xE0303F) // cherry on dark surfaces only
+    static let bone = rgb(0xF2EFE8) // secondary surfaces
+    static let stone = rgb(0xD9D6CE) // dividers
+    static let graphite = rgb(0x5A5853) // secondary text
+}
 
-    /// A stable color per name, for avatars (darker on bone so the initial stays readable).
-    static func hue(_ s: String) -> Color {
-        let h = s.unicodeScalars.reduce(0) { ($0 &* 31 &+ Int($1.value)) & 0xffff }
-        let hue = CGFloat(h % 360) / 360
-        return Color(light: UIColor(hue: hue, saturation: 0.38, brightness: 0.52, alpha: 1), dark: UIColor(hue: hue, saturation: 0.22, brightness: 0.82, alpha: 1)) // a hint of color, never loud
-    }
+enum Theme {
+    static let bg = Color(light: Palette.paper, dark: Palette.ink)
+    static let card = Color(light: Palette.bone, dark: rgb(0x1A1A19)) // grouped surfaces: task cards, the work strip, the message box
+    static let raised = Color(light: rgb(0xE8E4DB), dark: rgb(0x262523)) // your messages, avatars, pressed states (between bone and stone)
+    static let line = Color(light: Palette.stone, dark: rgb(0x33322F)) // dividers (stone)
+    /// Rules: 2px ink (the spec's "2px ink rules"), for the few places that separate sections.
+    static let rule = Color(light: Palette.ink, dark: Palette.paper)
+    static let text = Color(light: Palette.ink, dark: Palette.paper)
+    static let muted = Color(light: Palette.graphite, dark: rgb(0xA8A59E)) // graphite (lifted on ink so it stays AA)
+    static let faint = Color(light: rgb(0x6E6B64), dark: rgb(0x8C8981)) // still AA on paper, bone and ink
+    /// What sits on a `text`-filled control (the primary button): paper on ink, ink on paper.
+    static let onText = Color(light: Palette.paper, dark: Palette.ink)
+    /// Cherry: strokes, glyphs, dots and large text; cherry-bright on dark, as the spec says.
+    static let accent = Color(light: Palette.cherry, dark: Palette.cherryBright)
+    /// A cherry fill that carries text (a count, the Yes button): cherry in both modes, so paper on it stays AA (12:1);
+    /// cherry-bright is too light for small paper or ink text (about 4.3:1).
+    static let accentFill = Color(uiColor: Palette.cherry)
+    static let ok = Color(light: rgb(0x2E7A47), dark: UIColor(red: 0.45, green: 0.78, blue: 0.55, alpha: 1))
+    static let warn = Color(light: rgb(0x9A6114), dark: UIColor(red: 0.95, green: 0.72, blue: 0.38, alpha: 1))
+    static let danger = Color(light: rgb(0xC63F3B), dark: UIColor(red: 0.94, green: 0.43, blue: 0.40, alpha: 1))
 }
 
 /// The 4-pt grid.
@@ -92,75 +103,115 @@ extension Color {
     }
 }
 
-/// Three radii: small surfaces (cards, tiles), controls (buttons, fields), bubbles.
+/// Square corners on UI (the spec's 0 radius). The roles stay so a later radius is one change.
 enum Radius {
-    static let card: CGFloat = 12
-    static let control: CGFloat = 14
-    static let bubble: CGFloat = 18
+    static let card: CGFloat = 0
+    static let control: CGFloat = 0
+    static let bubble: CGFloat = 0
 }
 
-/// One type scale (Dynamic Type styles, SF Pro): what each role uses, everywhere.
+/// The design language's type: Onest for the interface (body 17, UI 15, caption 13), Enriqueta for headlines, Courier
+/// Prime for the agent layer (ids, payloads, logs). Each scales with Dynamic Type from its text style; a script these
+/// fonts don't cover (Chinese, Japanese, Korean, Arabic, Hindi, Bengali) falls back to the system font glyph by glyph.
 enum Typo {
-    static let rowTitle = Font.callout.weight(.semibold) // a chat, a task, an agent
-    static let rowTitleRead = Font.callout.weight(.medium)
-    static let body = Font.callout // messages
-    static let secondary = Font.subheadline // previews, statuses
-    static let meta = Font.footnote // times, who, counts
-    static let micro = Font.caption // labels under things
-    static let section = Font.footnote.weight(.semibold) // section headers
+    static let rowTitle = onest(15, .semibold, .subheadline) // a chat, a task, an agent
+    static let rowTitleRead = onest(15, .medium, .subheadline)
+    static let body = onest(17, .regular, .body) // messages
+    static let secondary = onest(15, .regular, .subheadline) // previews, statuses
+    static let meta = onest(13, .regular, .footnote) // times, who, counts
+    static let micro = onest(12, .regular, .caption) // labels under things
+    static let section = onest(13, .semibold, .footnote) // section headers
+
+    /// Onest at a size and weight, scaling like `style`.
+    static func onest(_ size: CGFloat, _ weight: Font.Weight = .regular, _ style: Font.TextStyle = .body) -> Font {
+        let face = weight == .semibold || weight == .bold || weight == .heavy || weight == .black ? "Onest-SemiBold" : weight == .medium ? "Onest-Medium" : "Onest-Regular"
+        return .custom(face, size: size, relativeTo: style)
+    }
+    /// A headline in Enriqueta (400 or 600, never italic).
+    static func headline(_ size: CGFloat, _ weight: Font.Weight = .semibold, _ style: Font.TextStyle = .title3) -> Font {
+        .custom(weight == .regular ? "Enriqueta-Regular" : "Enriqueta-SemiBold", size: size, relativeTo: style)
+    }
+    /// The agent layer: ids, shas, payloads and commands in Courier Prime.
+    static func mono(_ style: Font.TextStyle) -> Font { .custom("CourierPrime-Regular", size: size(style), relativeTo: style) }
+    static func mono(size: CGFloat) -> Font { .custom("CourierPrime-Regular", size: size, relativeTo: .footnote) }
+    /// An iOS text style in the design language: titles and headlines in Enriqueta, everything else in Onest.
+    static func ui(_ style: Font.TextStyle) -> Font {
+        switch style {
+        case .largeTitle, .title, .title2, .title3, .headline: return headline(size(style), .semibold, style)
+        default: return onest(size(style), .regular, style)
+        }
+    }
+    /// The default point size of a text style (at Large, the iOS default).
+    static func size(_ style: Font.TextStyle) -> CGFloat {
+        switch style {
+        case .largeTitle: return 34
+        case .title: return 28
+        case .title2: return 22
+        case .title3: return 20
+        case .headline, .body: return 17
+        case .callout: return 16
+        case .subheadline: return 15
+        case .footnote: return 13
+        case .caption: return 12
+        case .caption2: return 11
+        @unknown default: return 17
+        }
+    }
+
+    /// The app-wide UIKit fonts: navigation bar titles in Enriqueta, tab and bar buttons in Onest (once, at launch).
+    static func applyUIKitAppearance() {
+        func scaled(_ name: String, _ size: CGFloat, _ style: UIFont.TextStyle) -> UIFont {
+            UIFontMetrics(forTextStyle: style).scaledFont(for: UIFont(name: name, size: size) ?? .preferredFont(forTextStyle: style))
+        }
+        let nav = UINavigationBar.appearance()
+        nav.titleTextAttributes = [.font: scaled("Enriqueta-SemiBold", 17, .headline)]
+        nav.largeTitleTextAttributes = [.font: scaled("Enriqueta-SemiBold", 34, .largeTitle)]
+        UIBarButtonItem.appearance().setTitleTextAttributes([.font: scaled("Onest-Regular", 17, .body)], for: .normal)
+        UITabBarItem.appearance().setTitleTextAttributes([.font: scaled("Onest-Medium", 10, .caption2)], for: .normal)
+    }
 }
 
-/// Atteo's mark, "the Pebble": one soft pebble split by a slightly slanted seam. The clay half is you, the other
-/// half your agent; two round eyes meet across the seam. Same geometry as the app icon (ios/qa/design/icon.swift).
-/// The icon draws the agent half in ink on bone (with a bone eye), and so does light mode; on the app's near-black the
-/// defaults flip it to bone, eyes in ink.
+/// Atteo's mark: hand-drawn tin-can phones, a cherry cup (you) with one string branching to three ink agents (a horn,
+/// a can and a cup). It's art (the hand wobble is an SVG filter), so it ships as an image with a reversed dark variant
+/// (Assets: AtteoMark, rendered from the spec's atteo-mark.svg). Never recoloured, rotated or stretched; at least 20pt.
 struct AtteoMark: View {
     var size: CGFloat = 64
-    var you: Color = Color(red: 0.85, green: 0.47, blue: 0.34) // clay, #D97857 (the icon's, in both modes)
-    var agent: Color = Color(light: UIColor(red: 0.067, green: 0.067, blue: 0.075, alpha: 1), dark: UIColor(red: 0.949, green: 0.937, blue: 0.910, alpha: 1))
-    var youEye: Color = AtteoMark.ink
-    var agentEye: Color = Color(light: UIColor(red: 0.949, green: 0.937, blue: 0.910, alpha: 1), dark: UIColor(red: 0.067, green: 0.067, blue: 0.075, alpha: 1))
-    static let bone = Color(red: 0.949, green: 0.937, blue: 0.910) // #F2EFE8
-    static let ink = Color(red: 0.067, green: 0.067, blue: 0.075) // #111113
-    /// The wordmark: bone on near-black, ink on bone.
-    static let word = Color(light: UIColor(red: 0.067, green: 0.067, blue: 0.075, alpha: 1), dark: UIColor(red: 0.949, green: 0.937, blue: 0.910, alpha: 1))
+    /// The wordmark's ink: ink on paper, paper on ink.
+    static let word = Theme.text
 
     var body: some View {
-        let p = Self.paths()
-        let t = CGAffineTransform(scaleX: size, y: size)
-        ZStack(alignment: .topLeading) {
-            Path(p.left).applying(t).fill(you)
-            Path(p.right).applying(t).fill(agent)
-            Path(ellipseIn: p.leftEye).applying(t).fill(youEye)
-            Path(ellipseIn: p.rightEye).applying(t).fill(agentEye)
-        }
-        .frame(width: size, height: size)
-        .accessibilityHidden(true)
+        Image("AtteoMark").resizable().interpolation(.high).scaledToFit()
+            .frame(width: max(size, 20), height: max(size, 20))
+            .accessibilityHidden(true)
     }
+}
 
-    /// The Pebble in a unit square (y down): the two halves and the two eyes. Keep in step with icon.swift's pebble().
-    static func paths() -> (left: CGPath, right: CGPath, leftEye: CGRect, rightEye: CGRect) {
-        let u = 1.0 / 1024
-        let body = CGRect(x: 189 * u, y: 229 * u, width: 647 * u, height: 566 * u)
-        let corner = 283 * u, gap = 36 * u, eye = 54 * u
-        let shape = CGPath(roundedRect: body, cornerWidth: corner, cornerHeight: corner, transform: nil)
-        // The seam: from (549, 229) at the top to (498, 795) at the bottom, leaning left going down.
-        let top = CGPoint(x: 549 * u, y: body.minY), bottom = CGPoint(x: 498 * u, y: body.maxY)
-        let dx = bottom.x - top.x, dy = bottom.y - top.y, len = (dx * dx + dy * dy).squareRoot()
-        let n = CGPoint(x: dy / len, y: -dx / len) // unit normal, pointing right
-        func half(_ side: Double) -> CGPath {
-            let o = CGPoint(x: n.x * side * gap / 2, y: n.y * side * gap / 2)
-            let far = CGPoint(x: n.x * side * 4, y: n.y * side * 4)
-            let ext = CGPoint(x: dx / len * 4, y: dy / len * 4)
-            let a = CGPoint(x: top.x + o.x - ext.x, y: top.y + o.y - ext.y), b = CGPoint(x: bottom.x + o.x + ext.x, y: bottom.y + o.y + ext.y)
-            let p = CGMutablePath()
-            p.addLines(between: [a, b, CGPoint(x: b.x + far.x, y: b.y + far.y), CGPoint(x: a.x + far.x, y: a.y + far.y)])
-            p.closeSubpath()
-            return shape.intersection(p)
-        }
-        func circle(_ x: Double, _ y: Double) -> CGRect { CGRect(x: x * u - eye, y: y * u - eye, width: 2 * eye, height: 2 * eye) }
-        return (half(-1), half(1), circle(405, 468), circle(634, 498))
+/// The wordmark: lowercase "atteo" in Schoolbell with the marker filter, as art (Assets: AtteoWordmark, ink on paper,
+/// paper on ink). `height` is its x-height box; the name stays "Atteo" for VoiceOver.
+struct AtteoWordmark: View {
+    var height: CGFloat = 32
+    var body: some View {
+        Image("AtteoWordmark").resizable().interpolation(.high).scaledToFit().frame(height: height)
+            .accessibilityLabel("Atteo")
     }
+}
+
+/// The mark and the wordmark side by side (the spec's lockup: the mark at about 1.25× the wordmark's cap height, a
+/// gap of about 0.2× its size).
+struct AtteoLockup: View {
+    var height: CGFloat = 36
+    var body: some View {
+        HStack(spacing: height * 0.2) {
+            AtteoMark(size: height * 1.25)
+            AtteoWordmark(height: height)
+        }
+        .accessibilityElement(children: .ignore).accessibilityLabel("Atteo").accessibilityAddTraits(.isHeader)
+    }
+}
+
+/// A rule: 2px ink across (the spec's rules between sections).
+struct InkRule: View {
+    var body: some View { Rectangle().fill(Theme.rule).frame(height: 2).accessibilityHidden(true) }
 }
 
 /// Working right now: a small green dot that breathes (still, with Reduce Motion).
@@ -186,21 +237,26 @@ final class AvatarCache: ObservableObject {
     func version(_ name: String, agent: Bool) -> Int { versions["\(name):\(agent)"] ?? 0 }
 }
 
-/// A person (round) or an agent (rounded square, with a small clay spark). Their picture if they set one.
+/// A person (round, ink on bone) or an agent (square, inverted: paper on ink, the agent layer), with their initial.
+/// Their picture if they set one. (jxn #2525: no vessels in avatars; initials and pictures as before, new colours.)
 struct Avatar: View {
     let name: String
     var agent = false
     var size: CGFloat = 32
     @ObservedObject private var cache = AvatarCache.shared
 
-    private var shape: RoundedRectangle { RoundedRectangle(cornerRadius: agent ? size * 0.3 : size / 2, style: .continuous) }
+    private var shape: RoundedRectangle { RoundedRectangle(cornerRadius: agent ? 0 : size / 2, style: .continuous) }
+    /// People: ink on bone; agents: paper on ink (both flip on a dark screen so they still read apart).
+    static let personFill = Color(light: Palette.bone, dark: rgb(0x2A2927))
+    static let agentFill = Color(light: Palette.ink, dark: Palette.paper)
+    static let agentInk = Color(light: Palette.paper, dark: Palette.ink)
 
     var body: some View {
         ZStack {
-            shape.fill(Theme.hue(name).opacity(0.16))
+            shape.fill(agent ? Self.agentFill : Self.personFill)
             Text(String(name.prefix(1)).uppercased())
-                .font(.system(size: size * 0.42, weight: .semibold))
-                .foregroundStyle(Theme.hue(name))
+                .font(.custom("Onest-SemiBold", size: size * 0.42))
+                .foregroundStyle(agent ? Self.agentInk : Theme.text)
         }
         .frame(width: size, height: size)
         .overlay(alignment: .center) {
@@ -212,23 +268,24 @@ struct Avatar: View {
         }
         .overlay(alignment: .topTrailing) {
             if agent {
-                Image(systemName: "sparkle").font(.system(size: max(7, size * 0.26), weight: .bold)).foregroundStyle(Theme.accent)
+                // The agent's spark, as before, in graphite (cherry is kept for you and the primary action).
+                Image(systemName: "sparkle").font(.system(size: max(7, size * 0.26), weight: .bold)).foregroundStyle(Theme.muted)
                     .offset(x: size * 0.14, y: -size * 0.14)
             }
         }
     }
 }
 
-/// A board's tile in Chats: a rounded square with its initial (a board is a place, a person is a circle).
+/// A board's tile in Chats: a square with its initial (a board is a place, a person is a circle), ink on bone.
 struct BoardTile: View {
     let title: String
     var size: CGFloat = 40
     var body: some View {
         let initial = title.first(where: { $0.isLetter || $0.isNumber }).map { String($0).uppercased() } ?? "#"
-        RoundedRectangle(cornerRadius: size * 0.3, style: .continuous)
-            .fill(Theme.hue(title).opacity(0.16))
+        Rectangle()
+            .fill(Avatar.personFill)
             .frame(width: size, height: size)
-            .overlay(Text(initial).font(.system(size: size * 0.4, weight: .semibold)).foregroundStyle(Theme.hue(title)))
+            .overlay(Text(initial).font(.custom("Onest-SemiBold", size: size * 0.4)).foregroundStyle(Theme.text))
     }
 }
 
@@ -240,8 +297,8 @@ struct Pill: View {
     /// A string from code, as is (like Text's): localize it first when it's the app's own words.
     @_disfavoredOverload init<S: StringProtocol>(text: S, color: Color = Theme.muted) { self.text = Text(text); self.color = color }
     var body: some View {
-        text.font(.caption.weight(.semibold)).padding(.horizontal, Space.s).padding(.vertical, 3)
-            .background(color.opacity(0.14), in: Capsule()).foregroundStyle(color)
+        text.font(Typo.onest(12, .semibold, .caption)).padding(.horizontal, Space.s).padding(.vertical, 3)
+            .background(color.opacity(0.14), in: Rectangle()).foregroundStyle(color)
     }
 }
 
@@ -254,19 +311,19 @@ struct SectionHeader: View {
     var body: some View { title.font(Typo.section).foregroundStyle(Theme.muted).textCase(nil) }
 }
 
-/// An unread count: a small clay capsule.
+/// An unread count: a small cherry square, paper on it.
 struct CountBadge: View {
     let n: Int
     var body: some View {
-        Text("\(n)").font(.caption2.weight(.bold)).monospacedDigit()
+        Text("\(n)").font(Typo.onest(11, .semibold, .caption2)).monospacedDigit()
             .padding(.horizontal, 6).frame(minWidth: 18, minHeight: 18)
-            .background(Theme.accent, in: Capsule()).foregroundStyle(Theme.onAccent)
+            .background(Theme.accentFill, in: Rectangle()).foregroundStyle(Theme.onAccent)
     }
 }
 
 extension Theme {
-    /// What sits on clay (a count, the send arrow): black in both modes.
-    static let onAccent = Color.black
+    /// What sits on a cherry fill (a count, the send arrow, Yes): paper in both modes (12:1 on cherry).
+    static let onAccent = Color(uiColor: Palette.paper)
 }
 
 // MARK: - Display settings (Settings → Display; saved per person on the server, cached here)
@@ -370,6 +427,7 @@ struct DisplayRoot<Content: View>: View {
 
     var body: some View {
         content
+            .font(Typo.body) // the interface's default face (Onest) for any text that doesn't name one
             .environment(\.chatDensity, prefs.chatDensity)
             .environment(\.locale, L10n.locale) // dates and numbers in the chosen language (Language.swift)
             .onAppear { apply() }

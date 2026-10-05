@@ -418,7 +418,7 @@ struct ReadAloudBar: View {
                     .accessibilityLabel("Dismiss")
             }
             .padding(.horizontal, Space.m).padding(.vertical, Space.xs)
-            .background(Theme.card, in: Capsule())
+            .background(Theme.card, in: Rectangle())
             .padding(.horizontal, Space.m).padding(.top, Space.s)
             .transition(.move(edge: .bottom).combined(with: .opacity))
         }

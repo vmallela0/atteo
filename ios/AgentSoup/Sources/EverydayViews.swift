@@ -71,7 +71,7 @@ struct ResultCard: View {
                     Text(v.card?.prUrl != nil && status != .done ? "Preview" : "Open")
                         .font(Typo.meta.weight(.semibold)).foregroundStyle(Theme.text)
                         .padding(.horizontal, Space.m).frame(height: 30)
-                        .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(Theme.line))
+                        .overlay(RoundedRectangle(cornerRadius: Radius.card, style: .continuous).stroke(Theme.line))
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(PressStyle())
