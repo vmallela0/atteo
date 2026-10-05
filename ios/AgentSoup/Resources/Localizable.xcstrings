@@ -31583,6 +31583,12 @@
     },
     "Stopped": {
       "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stopped"
+          }
+        },
         "es": {
           "stringUnit": {
             "state": "translated",
@@ -40292,8 +40298,21 @@
         }
       }
     },
+    "task-group.blocked": {
+      "comment": "A group in the task list: tasks waiting on something",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Blocked" } },
+        "es": { "stringUnit": { "state": "translated", "value": "Bloqueadas" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Bloquées" } },
+        "hi": { "stringUnit": { "state": "translated", "value": "अवरुद्ध" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ブロック中" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "차단됨" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "受阻" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "受阻" } }
+      }
+    },
     "task-group.open": {
-      "comment": "A group in the task list: not started yet (to do, and blocked); not the verb",
+      "comment": "A group in the task list: not started yet (to do); not the verb",
       "localizations": {
         "en": {
           "stringUnit": {

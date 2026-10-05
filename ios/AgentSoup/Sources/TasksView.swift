@@ -243,31 +243,42 @@ enum TaskFilter: String, CaseIterable, Identifiable {
     }
 }
 
-/// Where a task stands, as the list groups it: In progress, Open (to do, and blocked), Done.
+/// Where a task stands, as the list groups it: active statuses, then Done.
 enum TaskGroup: String, CaseIterable, Identifiable {
-    case doing, open, done
+    case doing, open, blocked, stopped, done
     var id: String { rawValue }
     var title: String {
         switch self {
         case .doing: return String(localized: "In progress", bundle: .l10n)
         // Its own key: "Open" is the verb (Ouvrir, खोलें, 打开…), this is the state.
         case .open: return String(localized: "task-group.open", defaultValue: "Open", bundle: .l10n,
-                                  comment: "A group in the task list: not started yet (to do, and blocked); not the verb")
+                                  comment: "A group in the task list: not started yet (to do); not the verb")
+        case .blocked: return String(localized: "task-group.blocked", defaultValue: "Blocked", bundle: .l10n,
+                                     comment: "A group in the task list: tasks waiting on something")
+        case .stopped: return String(localized: "Stopped", bundle: .l10n)
         case .done: return String(localized: "Done", bundle: .l10n)
         }
     }
-    func holds(_ t: WorkTask) -> Bool { self == .doing ? t.status == "doing" : self == .done ? t.isDone : !(t.status == "doing" || t.isDone) }
-    /// In progress: latest first. Open: blocked first, then by priority, oldest first. Done: latest first.
+    func holds(_ t: WorkTask) -> Bool {
+        switch self {
+        case .doing: return t.status == "doing"
+        case .open: return t.status == "todo"
+        case .blocked: return t.status == "blocked"
+        case .stopped: return t.status == "stopped"
+        case .done: return t.status == "done"
+        }
+    }
+    /// Active groups: priority then oldest first. In progress and Done: latest first.
     func sort(_ a: WorkTask, _ b: WorkTask) -> Bool {
         switch self {
-        case .open: return (a.isBlocked ? 0 : 1, a.priorityRank, a.seq) < (b.isBlocked ? 0 : 1, b.priorityRank, b.seq)
+        case .open, .blocked, .stopped: return (a.priorityRank, a.seq) < (b.priorityRank, b.seq)
         default: return a.updatedAt > b.updatedAt
         }
     }
 }
 
-/// A board's tasks: filter chips, then In progress / Open / Done (each collapsible, with a count), sub-tasks indented
-/// under their parent. Tap a row for its detail; swipe or long-press it to act on it. Embeddable anywhere: `open`
+/// A board's tasks: filter chips, then In progress / Open / Blocked / Stopped / Done (each collapsible, with a count).
+/// Sub-tasks sit under their parent when they share a status. Tap a row for its detail; swipe or long-press it to act on it. `open`
 /// shows a task's detail, `add` starts a new one.
 struct TasksPane: View {
     @EnvironmentObject var state: AppState
@@ -275,27 +286,28 @@ struct TasksPane: View {
     let open: (Int) -> Void
     let add: () -> Void
     @State private var filter: TaskFilter = .all
-    @State private var collapsed: Set<TaskGroup> = [.done]
+    @State private var collapsed: Set<TaskGroup> = [.stopped, .done]
 
     private var all: [WorkTask] { state.tasks[board] ?? [] }
 
     var body: some View {
         let me = state.me?.owner
         let shown = all.filter { filter.matches($0, me: me) }
-        let ids = Set(shown.map(\.seq))
         VStack(spacing: 0) {
         chips(me: me)
         List {
             ForEach(TaskGroup.allCases) { g in
                 // A task is a top-level row in its own group unless its parent is showing (then it sits under it).
-                let top = shown.filter { g.holds($0) && ($0.parent.map { !ids.contains($0) } ?? true) }.sorted(by: g.sort)
+                let groupTasks = shown.filter(g.holds)
+                let ids = Set(groupTasks.map(\.seq))
+                let top = groupTasks.filter { $0.parent.map { !ids.contains($0) } ?? true }.sorted(by: g.sort)
                 if !top.isEmpty {
-                    let count = top.reduce(0) { n, t in n + 1 + shown.filter { $0.parent == t.seq }.count }
+                    let count = groupTasks.count
                     // Headers are rows, not section headers: plain-list section headers bring their own (large) spacing.
                     header(g, count: count, first: g == TaskGroup.allCases.first { gg in shown.contains { gg.holds($0) } })
                     if !collapsed.contains(g) {
                         ForEach(top) { t in
-                            let kids = shown.filter { $0.parent == t.seq }.sorted { $0.seq < $1.seq }
+                            let kids = groupTasks.filter { $0.parent == t.seq }.sorted { $0.seq < $1.seq }
                             row(t, depth: 0, kidsShown: !kids.isEmpty)
                             ForEach(kids) { s in row(s, depth: 1) }
                         }
@@ -501,7 +513,7 @@ struct StatusGlyph: View {
 private struct GroupGlyph: View {
     let group: TaskGroup
     var body: some View {
-        StatusGlyph(task: WorkTask(seq: 0, status: group == .doing ? "doing" : group == .done ? "done" : "todo", assignee: nil, assigneeAgent: nil, priority: nil, title: "", body: "", updatedAt: 0))
+        StatusGlyph(task: WorkTask(seq: 0, status: group == .open ? "todo" : group.rawValue, assignee: nil, assigneeAgent: nil, priority: nil, title: "", body: "", updatedAt: 0))
     }
 }
 
