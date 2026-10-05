@@ -4,7 +4,7 @@
 // A person always reads the exact command and says yes first; with no sandbox available it refuses to run.
 
 import { spawn, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync } from "node:fs";
 import { homedir, platform, tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -15,12 +15,29 @@ const SENSITIVE = [
 ];
 const DEP_DIRS = ["node_modules", ".venv", "venv", "vendor"]; // reused read-only from your checkout (installs need network)
 export const OUTPUT_LIMIT = 8000;
+/** An attached command cannot turn the verifier's terminal into an unbounded output sink. */
+export const TERMINAL_OUTPUT_LIMIT = 64 * 1024;
+
+/** Make untrusted text inert before writing it to a terminal. Newlines and tabs remain readable. */
+export function terminalSafe(text: string): string {
+  return text.replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]/g, (c) => {
+    const n = c.charCodeAt(0);
+    return n <= 0xff ? `\\x${n.toString(16).padStart(2, "0")}` : `\\u${n.toString(16).padStart(4, "0")}`;
+  }).replace(/\r/g, "\\r");
+}
+
+/** Commands are shown literally; controls (including line breaks) are escaped so they cannot forge the prompt. */
+export function displayCommand(command: string): string {
+  return /[\x00-\x1f\x7f-\x9f]/.test(command) ? JSON.stringify(command) : command;
+}
 
 export interface Sandbox {
   kind: "sandbox-exec" | "bwrap" | "docker";
   describe: string;
   /** The argv that runs `command` (via sh -c) in `dir` under this sandbox. */
   argv(command: string, dir: string, writable: string[]): string[];
+  /** Stop work owned by a service outside the spawned process group (currently Docker). */
+  kill?(writable: string[]): void;
 }
 
 const which = (cmd: string) => spawnSync("sh", ["-c", `command -v ${cmd}`], { encoding: "utf8" }).stdout.trim();
@@ -47,8 +64,20 @@ export function pickSandbox(image?: string): Sandbox | null {
     if (!which("docker")) return null;
     return {
       kind: "docker",
-      describe: `Docker (${image}): no network, only the checkout mounted`,
-      argv: (command, dir) => ["docker", "run", "--rm", "--network", "none", "-v", `${dir}:/w`, "-w", "/w", "-e", "HOME=/tmp", "-e", "CI=1", image, "sh", "-c", command],
+      describe: `Docker (${image}): no network, read-only container, only the checkout mounted`,
+      argv: (command, dir, writable) => [
+        "docker", "run", "--rm", "--init", "--cidfile", join(writable[0], "docker.cid"),
+        "--network", "none", "--read-only", "--cap-drop", "ALL", "--security-opt", "no-new-privileges",
+        "--pids-limit", "512", "--memory", "2g", "--cpus", "4", "--ulimit", "nofile=1024:1024",
+        "--tmpfs", "/tmp:rw,nosuid,nodev,size=256m", "-v", `${dir}:/w`, "-w", "/w",
+        "-e", "HOME=/tmp", "-e", "CI=1", image, "sh", "-c", command,
+      ],
+      kill: (writable) => {
+        try {
+          const id = readFileSync(join(writable[0], "docker.cid"), "utf8").trim();
+          if (id) spawnSync("docker", ["kill", id], { stdio: "ignore", timeout: 10_000 });
+        } catch {}
+      },
     };
   }
   if (platform() === "darwin" && existsSync("/usr/bin/sandbox-exec")) {
@@ -97,15 +126,26 @@ export function runSandboxed(sb: Sandbox, command: string, dir: string, scratch:
   return new Promise((resolve) => {
     const child = spawn(argv[0], argv.slice(1), { cwd: dir, env, detached: true, stdio: ["ignore", "pipe", "pipe"] });
     let out = "", timedOut = false;
+    let shown = 0, truncated = false;
     const take = (b: Buffer) => {
-      const s = b.toString("utf8");
-      onOutput(s);
+      const s = terminalSafe(b.toString("utf8"));
+      const room = Math.max(0, TERMINAL_OUTPUT_LIMIT - shown);
+      if (room) {
+        const visible = s.slice(0, room);
+        shown += visible.length;
+        onOutput(visible);
+      }
+      if (!truncated && s.length > room) {
+        truncated = true;
+        onOutput("\n[terminal output truncated; the command is still running]\n");
+      }
       out = (out + s).slice(-OUTPUT_LIMIT);
     };
     child.stdout.on("data", take);
     child.stderr.on("data", take);
     const timer = setTimeout(() => {
       timedOut = true;
+      sb.kill?.(writable);
       try {
         process.kill(-child.pid!, "SIGKILL"); // the whole process group, not just the shell
       } catch {}
@@ -130,7 +170,7 @@ export function repoRoot(cwd: string): string | null {
 }
 
 export function resolveCommit(repo: string, commit: string): string | null {
-  const r = git(repo, ["rev-parse", "--verify", "--quiet", `${commit}^{commit}`]);
+  const r = git(repo, ["rev-parse", "--verify", "--quiet", "--end-of-options", `${commit}^{commit}`]);
   return r.status === 0 ? r.stdout.trim() : null;
 }
 

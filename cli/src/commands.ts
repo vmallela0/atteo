@@ -18,7 +18,7 @@ import { fence } from "../../src/screen";
 import { proseForAgent } from "../../src/util";
 import { load, sameServer, type Credentials } from "./credentials";
 import { createInterface } from "node:readline";
-import { NO_SANDBOX, pickSandbox, repoRoot, resolveCommit, runSandboxed, sandboxSelfTest, throwawayCheckout } from "./verify";
+import { displayCommand, NO_SANDBOX, pickSandbox, repoRoot, resolveCommit, runSandboxed, sandboxSelfTest, terminalSafe, throwawayCheckout } from "./verify";
 import { installHook } from "./hooks";
 
 const DEFAULT_SERVER = "https://atteo.dev";
@@ -1245,15 +1245,15 @@ async function verifyCmd(args: string[]) {
   const repo = repoRoot(process.cwd());
   if (!repo) throw new CliError("Run this inside the repository the claim is about (checks run in a throwaway checkout of it).");
   const commit = resolveCommit(repo, c.check.commit ?? "HEAD");
-  if (!commit) throw new CliError(`Commit ${c.check.commit} isn't in this repository. Fetch it first (git fetch), then run this again.`);
+  if (!commit) throw new CliError(`Commit ${terminalSafe(c.check.commit ?? "HEAD")} isn't in this repository. Fetch it first (git fetch), then run this again.`);
   const sb = pickSandbox(image);
   if (!sb) throw new CliError(NO_SANDBOX);
   const minutes = Math.min(30, Math.max(1, Number(optStr(opt, "minutes") ?? 5) || 5));
   const entry = (await api(opt, "GET", `/api/boards/${board}/entries/${seq}`)).entry as { text: string; author: string; via?: string | null };
   const me = creds().user;
   const own = c.author === me;
-  say(`Claim #${seq} by ${entry.via === "agent" ? `${entry.author}'s agent` : entry.author}:\n  ${entry.text.slice(0, 300).replace(/\n/g, "\n  ")}\n`);
-  say(`Its check (written by ${c.author}; read it before you say yes):\n\n  $ ${c.check.command}\n`);
+  say(`Claim #${seq} by ${terminalSafe(entry.via === "agent" ? `${entry.author}'s agent` : entry.author)}:\n  ${terminalSafe(entry.text.slice(0, 300)).replace(/\n/g, "\n  ")}\n`);
+  say(`Its check (written by ${terminalSafe(c.author)}; read it before you say yes):\n\n  $ ${displayCommand(c.check.command)}\n`);
   say(`At commit ${commit.slice(0, 12)}${c.check.commit ? "" : " (your HEAD: the claim didn't name one)"}, in a throwaway checkout of ${repo}.`);
   say(`Sandbox: ${sb.describe}; ${minutes} min limit; nothing from your shell's environment.\n`);
   if (!(await askYes("Run it?", false))) return say("Not run.");
@@ -1270,13 +1270,13 @@ async function verifyCmd(args: string[]) {
   say(`────────────────\nCheck ${outcome} in ${(r.ms / 1000).toFixed(1)}s.`);
   const what = own ? `post the log as evidence on #${seq}` : passed ? `post the log and mark #${seq} verified` : `post the log and dispute #${seq}`;
   if (!(await askYes(`${what[0].toUpperCase()}${what.slice(1)}?`, passed))) return say("Nothing posted.");
-  const log = [`$ ${c.check.command}`, `# commit ${commit} · ${sb.kind} sandbox · ${outcome} · ${(r.ms / 1000).toFixed(1)}s`, "", r.output.trimEnd(), ""].join("\n");
+  const log = [`$ ${displayCommand(c.check.command)}`, `# commit ${commit} · ${sb.kind} sandbox · ${outcome} · ${(r.ms / 1000).toFixed(1)}s`, "", r.output.trimEnd(), ""].join("\n");
   await tool(opt, "read", {}); // posting needs you to be caught up; the log answers the claim, not what's new
   const posted = await tool(opt, "post", { type: "artifact", artifact_name: `check-${seq}.log`, artifact_content: log, text: `Ran the check for #${seq}: ${outcome}`, reply_to: seq });
   const logSeq = Number(posted.match(/#(\d+)/)?.[1]);
   if (logSeq) await api(opt, "POST", `/api/boards/${board}/claims/${seq}`, { action: "evidence", evidence_seq: logSeq, note: `sandboxed check: ${outcome}` });
   if (own) return say(`Posted the log${logSeq ? ` (#${logSeq})` : ""} as evidence on #${seq}.`);
-  const short = `${c.check.command.slice(0, 120)} @ ${commit.slice(0, 7)}`;
+  const short = `${terminalSafe(c.check.command.slice(0, 120)).replace(/\n/g, "\\n")} @ ${commit.slice(0, 7)}`;
   const res = passed
     ? await api(opt, "POST", `/api/boards/${board}/claims/${seq}`, { action: "verify", note: `ran its check in a sandbox (${short}): passed` })
     : await api(opt, "POST", `/api/boards/${board}/claims/${seq}`, { action: "dispute", reason: `its check ${outcome} (${short}); log #${logSeq}` });
