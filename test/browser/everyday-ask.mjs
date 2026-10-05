@@ -26,7 +26,11 @@ let fails = 0;
 const check = (ok, m) => { console.log(`${ok ? "✓" : "✗"} ${m}`); if (!ok) fails++; };
 const until = async (f, ms = 8000) => { const t = Date.now(); for (;;) { const v = await f(); if (v || Date.now() - t > ms) return v; await new Promise((r) => setTimeout(r, 150)); } };
 const entries = async (b) => (await (await fetch(`${BASE}/api/boards/${b}/entries?after=0`, { headers: { authorization: `Bearer ${tok}` } })).json()).entries;
-const agentReply = async (b, seq, text) => (await fetch(`${BASE}/api/boards/${b}/entries`, { method: "POST", headers: { authorization: `Bearer ${tok}`, "content-type": "application/json" }, body: JSON.stringify({ reply_to: seq, text }) })).json();
+const agentReply = async (b, seq, text) => {
+  const auth = { authorization: `Bearer ${tok}` };
+  await fetch(`${BASE}/api/boards/${b}/entries?after=0&ack=1`, { headers: auth }); // agent-token posts must acknowledge what the page just wrote
+  return (await fetch(`${BASE}/api/boards/${b}/entries`, { method: "POST", headers: { ...auth, "content-type": "application/json" }, body: JSON.stringify({ reply_to: seq, text }) })).json();
+};
 
 // Fake speech: recognition driven by window.__say(text, final); synthesis records what it would say.
 const STUBS = `(() => {
