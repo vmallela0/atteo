@@ -82,7 +82,7 @@ function hlTag(w,out){var r=/(<\/?[\w:.-]+|\/?>)|([\w:.-]+)(?=\s*=)|("[^"]*"|'[^
 
 // The tokenizer as its own small script, served by the Worker at CODE_COLOR_PATH (versioned by a hash of its text, so it
 // can be cached for good) and loaded by a page only once a code block is near the screen. Pages without code load nothing.
-function fnv(t: string): string {
+export function fnv(t: string): string {
   let h = 0x811c9dc5;
   for (let i = 0; i < t.length; i++) h = Math.imul(h ^ t.charCodeAt(i), 0x01000193) >>> 0;
   return h.toString(36);

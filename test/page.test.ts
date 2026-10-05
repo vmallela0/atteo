@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { boardPage, changeCardHtml, changeLink, refLinks } from "../src/html";
+import { APP_CSS, APP_JS } from "../src/ui";
 import type { BoardInfo, Entry } from "../src/types";
 
 const info: BoardInfo = { id: "b_test1234", title: "Checkout </script> bug", created_by: "jxn", created_at: 0, entry_count: 3, last_seq: 3 };
@@ -147,7 +148,7 @@ describe("Hide agents (jxn #1731, vedu #1060)", () => {
     const html = await boardPage({ name: "jxn", email: "jxn@example.com", display_name: null, admin: false }, [], info, [{ user: "jxn", display_name: null, last_seen: 0 }], entries, []).text();
     expect(html).toContain('id="pf-btn" aria-pressed="false"');
     expect(html).toContain("if(localStorage.getItem('atteo.pf.'+\"jxn\")==='1')document.documentElement.setAttribute('data-pf','')");
-    expect(html).toContain(":root[data-pf] #thread>.entry.by-agent,:root[data-pf] #thread>.ghost.by-agent");
+    expect(APP_CSS).toContain(":root[data-pf] #thread>.entry.by-agent,:root[data-pf] #thread>.ghost.by-agent"); // the stylesheet every page loads
     expect(html).toContain('id="pf-empty" hidden');
     // Client only: the toggle sends nothing.
     const js = html.slice(html.indexOf("function pfSet"), html.indexOf("pfBtn?.addEventListener"));
@@ -160,7 +161,7 @@ describe("replies in the conversation (jxn #1351)", () => {
     const html = await boardPage({ name: "jxn", email: "jxn@example.com", display_name: null, admin: false }, [], info, [{ user: "jxn", display_name: null, last_seen: 0 }], entries, []).text();
     expect(html).toContain("e.target.closest('button[data-reply]')");
     expect(html).not.toContain("e.target.closest('[data-reply]')");
-    expect(html).toContain(".ro button[data-reply]");
+    expect(APP_CSS).toContain(".ro button[data-reply]"); // the stylesheet every page loads
     expect(html).not.toContain(".ro [data-reply]");
   });
 });
@@ -212,7 +213,7 @@ describe("mermaid diagrams (vedu #1246, #1247)", () => {
     // Pinned, with an integrity hash, strict, and nothing loaded up front: the page only names the URL inside its script.
     expect(MERMAID_SRC).toMatch(/^https:\/\/cdn\.jsdelivr\.net\/npm\/mermaid@\d+\.\d+\.\d+\/dist\/mermaid\.min\.js$/);
     expect(MERMAID_SRI).toMatch(/^sha384-[A-Za-z0-9+/]{64}$/);
-    const doc = await page("t", html).text();
+    const doc = (await page("t", html).text()) + APP_JS; // the page and the shell script it loads from /app.js
     expect(doc).toContain("securityLevel:'strict'");
     expect(doc).toContain("s.integrity=SRI");
     expect(doc).not.toMatch(/<script[^>]+src=[^>]*mermaid/);
