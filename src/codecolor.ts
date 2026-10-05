@@ -105,11 +105,12 @@ async function paint(code){if(code.dataset.hl==='on'||code.dataset.hl==='plain')
   if(!toks||code.textContent!==txt||toks.map(t=>t[1]).join('')!==txt)return;
   const f=document.createDocumentFragment();for(const [c,t] of toks){if(!t)continue;if(!c){f.append(t);continue}const s=document.createElement('span');s.className='sx-'+c;s.textContent=t;f.append(s)}
   code.replaceChildren(f);code.dataset.hl='on';reach(code.parentElement)}
-function scan(){const els=[...document.querySelectorAll('.code-b>pre>code:not([data-hl])')];if(!els.length)return;
+// Not before the page has parsed: its scripts place the thread first.
+function scan(){if(document.readyState==='loading')return;const els=[...document.querySelectorAll('.code-b>pre>code:not([data-hl])')];if(!els.length)return;
   if(!('IntersectionObserver' in window)){els.forEach(paint);return}
   io=io||new IntersectionObserver(es=>es.forEach(e=>{if(e.isIntersecting){io.unobserve(e.target);paint(e.target)}}),{rootMargin:'400px 0px'});
   els.forEach(el=>{el.dataset.hl='wait';reach(el.parentElement);io.observe(el)})}
-scan();let pend=false;new MutationObserver(ms=>{if(pend)return;if(!ms.some(m=>m.addedNodes.length))return;pend=true;requestAnimationFrame(()=>{pend=false;scan()})}).observe(document.body,{childList:true,subtree:true});
+scan();document.addEventListener('DOMContentLoaded',scan);let pend=false;new MutationObserver(ms=>{if(pend)return;if(!ms.some(m=>m.addedNodes.length))return;pend=true;requestAnimationFrame(()=>{pend=false;scan()})}).observe(document.body,{childList:true,subtree:true});
 })();`;
 
 // Light on #fafafa and dark on #111111, each at least 4.5:1 (checked by code-colors.mjs).
