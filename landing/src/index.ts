@@ -25,8 +25,9 @@ const SESSION_COOKIE = "ab_session"; // the app's sign-in cookie (SESSION_COOKIE
 // The design language v1 (board #2508): the hand-drawn tin-can mark (a cherry cup, you, with one string to three ink
 // agents), the Schoolbell wordmark with its marker filter, ink/paper/cherry/bone/stone/graphite, Enriqueta headlines,
 // Onest for the interface, Courier Prime for commands. Only fonts, colours and the logo change (jxn #2583): the page's
-// shapes, borders and layout are as before. The old clay accent (atteo's initials in the headline) is now cherry and the
-// rest maps onto ink/paper/bone/stone/graphite. Avatars are round initials (agents inverted), not drawings (jxn #2525).
+// shapes, borders and layout are as before. One accent (jxn #2858): oxblood, only on the main action (Start a chat);
+// everything else is on the neutral secondaries (ink/graphite/stone/bone), and the page is white whatever the system
+// theme (?theme=dark still previews the dark pair). The mark keeps its own cherry cup (the logo isn't recoloured). Avatars are round initials (agents inverted), not drawings (jxn #2525).
 const mark = (size: number, id: string) =>
   `<svg class="mk" width="${Math.round((size * 800) / 667)}" height="${size}" viewBox="112 179 800 667" aria-hidden="true"><defs><filter id="${id}" x="-10%" y="-10%" width="120%" height="120%"><feTurbulence type="fractalNoise" baseFrequency="0.018" numOctaves="2" seed="7"/><feDisplacementMap in="SourceGraphic" scale="16"/></filter></defs><g transform="translate(512 512) scale(1.0) translate(-551.1 -507.8)"><g filter="url(#${id})" fill="none" stroke-linecap="round" stroke-linejoin="round"><path class="mk-i" d="M380.0 512.0Q532.3 448.5 690.0 400.0M380.0 512.0Q550.0 512.0 720.0 512.0M380.0 512.0Q532.3 575.5 690.0 624.0" stroke-width="22"/><g stroke-width="36"><g class="mk-c" transform="translate(380.0 512.0) rotate(-90.0)"><path d="M-90 -160L-54 -6Q0 25.2 54 -6L90 -160"/><ellipse cx="0" cy="-160" rx="90" ry="30.6"/></g><g class="mk-i" transform="translate(690.0 400.0) rotate(70.1)"><path d="M-65 -150L-13 0H13L65 -150"/><ellipse cx="0" cy="-150" rx="65" ry="22.1"/></g><g class="mk-i" transform="translate(720.0 512.0) rotate(90.0)"><path d="M-52.5 -175V-6Q0 23.1 52.5 -6V-175"/><ellipse cx="0" cy="-175" rx="52.5" ry="17.85"/></g><g class="mk-i" transform="translate(690.0 624.0) rotate(109.9)"><path d="M-65 -125L-39 -6Q0 18.2 39 -6L65 -125"/><ellipse cx="0" cy="-125" rx="65" ry="22.1"/></g></g></g></g></svg>`;
 /** The wordmark's marker filter (design language v1), defined once per page and used by .wm. */
@@ -36,15 +37,12 @@ const av = (name: string, agent = false, size = 28) => `<span class="av${agent ?
 
 const CSS = `
 :root{
-  --paper:#FAFAF7;--ink:#0E0E0E;--cherry:#A8121E;--bone:#F2EFE8;--stone:#D9D6CE;--graphite:#5A5853;
-  --bg:var(--paper);--text:var(--ink);--muted:var(--graphite);--line:rgba(14,14,14,.1);--line-strong:var(--stone);--surface:var(--bone);--elev:#FFFFFF;--on-ink:#FAFAF7;
+  --ink:#0E0E0E;--cherry:#A8121E;--oxblood:#6A1B24;--bone:#F2EFE8;--stone:#D9D6CE;--graphite:#5A5853;
+  --bg:#FFFFFF;--text:var(--ink);--muted:var(--graphite);--line:rgba(14,14,14,.1);--line-strong:var(--stone);--surface:var(--bone);--elev:#FFFFFF;--on-accent:#FFFFFF;
   color-scheme:light;
 }
-@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
-  --bg:#0E0E0E;--text:#FAFAF7;--ink:#FAFAF7;--muted:#A9A69F;--line:rgba(255,255,255,.08);--line-strong:#3A3834;--surface:#1B1A18;--elev:#151413;--cherry:#E0303F;--on-ink:#0E0E0E;color-scheme:dark;
-}}
 :root[data-theme="dark"]{
-  --bg:#0E0E0E;--text:#FAFAF7;--ink:#FAFAF7;--muted:#A9A69F;--line:rgba(255,255,255,.08);--line-strong:#3A3834;--surface:#1B1A18;--elev:#151413;--cherry:#E0303F;--on-ink:#0E0E0E;color-scheme:dark;
+  --bg:#0E0E0E;--text:#FAFAF7;--ink:#FAFAF7;--muted:#A9A69F;--line:rgba(255,255,255,.08);--line-strong:#3A3834;--surface:#1B1A18;--elev:#151413;--cherry:#E0303F;--oxblood:#C2414D;--on-accent:#0E0E0E;color-scheme:dark;
 }
 *{box-sizing:border-box}
 html{-webkit-text-size-adjust:100%}
@@ -72,16 +70,16 @@ a:focus-visible,button:focus-visible,input:focus-visible{outline:2px solid var(-
 .msg .who span{color:var(--muted);font-size:15px}
 h1{margin:12px 0 0;font-family:"Enriqueta",Georgia,serif;font-size:clamp(46px,7.2vw,100px);line-height:1;letter-spacing:-.025em;font-weight:400;color:var(--ink)}
 h1 .ln{display:block}
-/* "(are now)" is a quiet aside, so the headline reads without it; its initials spell atteo in cherry. */
+/* "(are now)" is a quiet aside, so the headline reads without it; its initials, set heavier, spell atteo. */
 h1 .aside{color:var(--muted);font-size:.62em;letter-spacing:-.01em;vertical-align:.12em}
-h1 .i{color:var(--cherry)}
+h1 .i{font-weight:600}
 .sub{grid-column:2;margin-top:22px;font-size:clamp(20px,2.2vw,28px);line-height:1.25;letter-spacing:-.01em;font-weight:500;color:var(--muted)}
 .reply{grid-column:2;margin-top:32px;max-width:540px}
 .box{display:flex;align-items:center;gap:8px;height:56px;padding:0 6px 0 18px;border:1px solid var(--line-strong);border-radius:14px;background:var(--elev)}
 .box:focus-within{outline:2px solid var(--ink);outline-offset:2px}
 .box input{flex:1;min-width:0;border:0;outline:0;background:transparent;font:inherit;font-size:16px;color:var(--ink)}
 .box input::placeholder{color:var(--muted)}
-.box button{height:44px;padding:0 18px;border:0;border-radius:10px;background:var(--ink);color:var(--on-ink);font:inherit;font-weight:500;font-size:15px;cursor:pointer;white-space:nowrap}
+.box button{height:44px;padding:0 18px;border:0;border-radius:10px;background:var(--oxblood);color:var(--on-accent);font:inherit;font-weight:500;font-size:15px;cursor:pointer;white-space:nowrap}
 .or{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:14px;font-size:14px;color:var(--muted)}
 .or a{height:32px;display:inline-flex;align-items:center;padding:0 12px;border:1px solid var(--line-strong);border-radius:8px;color:var(--ink);font-size:14px}
 .or a:hover{background:var(--surface)}
@@ -148,7 +146,7 @@ function head(theme: string | null): string {
   return `<!doctype html><html lang="en"${theme ? ` data-theme="${theme}"` : ""}><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${TITLE}</title>
 <meta name="description" content="${DESCRIPTION}">
-<meta name="theme-color" content="#FAFAF7" media="(prefers-color-scheme: light)"><meta name="theme-color" content="#0E0E0E" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#FFFFFF">
 <link rel="canonical" href="${SITE_URL}/"><link rel="icon" href="/favicon.svg" type="image/svg+xml"><link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <meta property="og:type" content="website"><meta property="og:site_name" content="Atteo"><meta property="og:url" content="${SITE_URL}/">
 <meta property="og:title" content="${TITLE}"><meta property="og:description" content="${DESCRIPTION}">

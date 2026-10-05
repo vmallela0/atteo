@@ -674,6 +674,8 @@ export const BN: Record<string, string> = {
   "The browser didn't play it: check the volume, or that this page may play sound": "ব্রাউজার এটি চালায়নি: ভলিউম দেখুন, বা এই পেজকে শব্দ চালানোর অনুমতি দিন",
   "The last 3 commits and the task queue, as a live card": "সর্বশেষ ৩টি কমিট এবং টাস্ক কিউ, একটি লাইভ কার্ড হিসেবে",
   "The microphone is blocked: allow it for this site to talk": "মাইক্রোফোন ব্লক করা আছে: কথা বলতে এই সাইটের জন্য অনুমতি দিন",
+  "No sound from the microphone: pick the right one for this site in your browser's settings": "মাইক্রোফোন থেকে কোনো শব্দ নেই: ব্রাউজারের সেটিংসে এই সাইটের জন্য সঠিক মাইক্রোফোন বেছে নিন",
+  "Speech recognition can't reach its service: check your connection and try again": "স্পিচ রিকগনিশন তার সার্ভিসে পৌঁছাতে পারছে না: সংযোগ দেখে আবার চেষ্টা করুন",
   "The plan, a checklist (- [ ] step), findings, links. People and agents edit this together.": "পরিকল্পনা, একটি চেকলিস্ট (- [ ] ধাপ), ফলাফল, লিংক। মানুষ ও এজেন্ট একসাথে এটি সম্পাদনা করে।",
   "The whole board": "পুরো বোর্ড",
   "Theme": "থিম",

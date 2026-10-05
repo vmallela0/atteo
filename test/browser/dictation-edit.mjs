@@ -125,6 +125,14 @@ check(!(await listening()) && !(await box()).includes("after leaving the reply")
   check(!on && v === "" && shown === 1, `encrypted board: it posts, the mic stops, and a late result doesn't refill the box (listening ${on}, box ${JSON.stringify(v)}, shown ${shown})`);
   await pe.close();
 }
+// 4. A failed recognizer says why (vedu #2860): a silent or wrong mic, and an unreachable speech service, each show a toast.
+for (const [err, want] of [["audio-capture", "No sound from the microphone"], ["no-speech", "No sound from the microphone"], ["network", "Speech recognition can't reach its service"]]) {
+  if (!(await listening())) await p.click("#mic-btn");
+  await p.evaluate((e) => window.__sr.onerror && window.__sr.onerror({ error: e }), err);
+  const t = await p.locator("#toast").textContent().catch(() => "");
+  check((t || "").includes(want), `dictation error ${err} explains itself (${JSON.stringify(t)})`);
+  if (await listening()) await p.click("#mic-btn");
+}
 check(!errors.length, `no page errors ${errors.join(" | ")}`);
 await browser.close();
 console.log(fails ? `${fails} FAILED` : "dictation-edit: all passed");
