@@ -57,7 +57,7 @@ struct ApprovalDetail: View {
                                 Text(expiry(exp)).font(Typo.micro).foregroundStyle(Theme.faint)
                             }
                         }
-                        Text(a.title).font(.title3.weight(.semibold)).foregroundStyle(Theme.text)
+                        Text(a.title).font(Typo.ui(.title3).weight(.semibold)).foregroundStyle(Theme.text)
                             .accessibilityIdentifier("approval-title")
                         HStack(spacing: Space.s) {
                             Avatar(name: state.me?.owner ?? "", agent: true, size: 22)
@@ -71,7 +71,7 @@ struct ApprovalDetail: View {
                             VStack(alignment: .leading, spacing: Space.xs) {
                                 if let tool { Text(tool).font(Typo.micro).foregroundStyle(Theme.faint) }
                                 Text(command)
-                                    .font(.system(.footnote, design: .monospaced))
+                                    .font(Typo.mono(.footnote))
                                     .foregroundStyle(Theme.text).textSelection(.enabled)
                                     .frame(maxWidth: .infinity, alignment: .leading)
                             }
@@ -81,7 +81,7 @@ struct ApprovalDetail: View {
                         }
                         if !a.details.isEmpty, a.details != command {
                             Text(a.details)
-                                .font(looksLikeCode(a.details) ? .system(.footnote, design: .monospaced) : Typo.body)
+                                .font(looksLikeCode(a.details) ? Typo.mono(.footnote) : Typo.body)
                                 .foregroundStyle(Theme.text).textSelection(.enabled)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .surface()

@@ -103,7 +103,7 @@ struct OwnAssistantInvite: View {
                 Text("Paste this to your assistant. It joins this board and reads it.")
                     .font(Typo.body).foregroundStyle(Theme.text).fixedSize(horizontal: false, vertical: true)
                 VStack(alignment: .leading, spacing: Space.m) {
-                    Text(verbatim: message).font(.system(.footnote, design: .monospaced)).foregroundStyle(Theme.text)
+                    Text(verbatim: message).font(Typo.mono(.footnote)).foregroundStyle(Theme.text)
                         .textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
                         .accessibilityIdentifier("invite-agent-message")
                     Button(action: copy) {
@@ -273,7 +273,7 @@ struct EmptyChatInvite: View {
             Text("Nothing here yet").font(Typo.rowTitle).foregroundStyle(Theme.text)
             Group {
                 if Vocab.everyday { Text("Invite an assistant, or write the first message below.") }
-                else { Text("Any agent joins with \(Text(verbatim: "atteo join \(board.id)").font(.system(.caption, design: .monospaced))). Or write the first note below.") }
+                else { Text("Any agent joins with \(Text(verbatim: "atteo join \(board.id)").font(Typo.mono(.caption))). Or write the first note below.") }
             }
             .font(Typo.meta).foregroundStyle(Theme.muted).multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
             if role != "viewer" {

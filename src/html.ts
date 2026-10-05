@@ -52,12 +52,15 @@ export function mentionOptions(members: string[], viewer: string, sessions: { us
   return [
     ...others.flatMap((m) => [
       { u: m, ins: m, label: esc(m), k: "person", av: avatar(m, "sm") },
-      names[m] && !ambiguous.has(m)
-        ? { u: m, ins: names[m], label: `${esc(names[m])} <span class="faint">· ${esc(m)}'s agent</span>`, k: sessionsOf(m).length > 1 ? "all their agents" : "agent", av: avatar(m, "sm", true), sub: true }
-        : { u: m, ins: `${m}'s agent`, label: esc(`${m}'s agent`) + (names[m] ? ` <span class="faint">· ${esc(names[m])}</span>` : ""), k: sessionsOf(m).length > 1 ? "all their agents" : "agent", av: avatar(m, "sm", true), sub: true },
+      // Both ways in (jxn #3103): "@vedu's agent" always, and its nickname too when it has a clear one.
+      { u: m, ins: `${m}'s agent`, label: esc(`${m}'s agent`) + (names[m] ? ` <span class="faint">· ${esc(names[m])}</span>` : ""), k: sessionsOf(m).length > 1 ? "all their agents" : "agent", av: avatar(m, "sm", true), sub: true },
+      ...(names[m] && !ambiguous.has(m) ? [{ u: m, ins: names[m], label: `${esc(names[m])} <span class="faint">· ${esc(m)}'s agent</span>`, k: sessionsOf(m).length > 1 ? "all their agents" : "agent", av: avatar(m, "sm", true), sub: true }] : []),
       ...sessionsOf(m),
     ]),
-    { u: viewer, ins: `${viewer}'s agent`, label: esc(`${viewer}'s agent`), k: sessionsOf(viewer).length > 1 ? "all your agents" : "your agent", av: avatar(viewer, "sm", true) },
+    // Your own agent by the name you gave it too ("@The Thinker", jxn #3019): the server reads it like "@you's agent".
+    // …and "@you's agent" stays there next to it (it used to be replaced, jxn #3103).
+    { u: viewer, ins: `${viewer}'s agent`, label: esc(`${viewer}'s agent`) + (names[viewer] ? ` <span class="faint">· ${esc(names[viewer])}</span>` : ""), k: sessionsOf(viewer).length > 1 ? "all your agents" : "your agent", av: avatar(viewer, "sm", true) },
+    ...(names[viewer] && !ambiguous.has(viewer) ? [{ u: viewer, ins: names[viewer], label: `${esc(names[viewer])} <span class="faint">· ${esc(viewer)}'s agent</span>`, k: sessionsOf(viewer).length > 1 ? "all your agents" : "your agent", av: avatar(viewer, "sm", true), sub: true }] : []),
     ...sessionsOf(viewer),
     ...(others.includes("agents") ? [] : [{ u: "agents", ins: "agents", label: "agents", k: "every agent", av: avatar("agents", "sm", true) }]),
     ...(others.includes("humans") ? [] : [{ u: "humans", ins: "humans", label: "humans", k: "every person", av: avatar("humans", "sm") }]),
@@ -133,7 +136,9 @@ ${
   const more = react || reply || retract || edit ? `<button class="more-acts" type="button" data-more="${e.seq}" aria-label="${esc(T("More actions"))}" aria-expanded="false" title="${esc(T("More actions"))}">⋯</button>` : "";
   const remember = !opts.retracted && e.retracts == null && !e.audience ? rememberBtn(e.seq) : ""; // people-only: never agents' memory // shown once the board has a MEMORY
   const remind = opts.person && !opts.retracted && e.retracts == null ? `<details class="remind-menu"><summary>${esc(T("Remind me"))}</summary><div><button type="button" data-remind-message="hour" data-seq="${e.seq}">${esc(T("In 1 hour"))}</button><button type="button" data-remind-message="tonight" data-seq="${e.seq}">${esc(T("Tonight (20:00)"))}</button><button type="button" data-remind-message="tomorrow" data-seq="${e.seq}">${esc(T("Tomorrow (09:00)"))}</button></div></details>` : "";
-  const actions = react || reply || retract || edit ? `${more}<span class="acts">${react}${reply}${remember}${select}${edit}${retract}${remind}</span>` : "";
+  // A claim nobody has reviewed yet draws no strip under it (jxn #2998/#3002): its Verify / Dispute / Evidence sit here, filled by renderClaims.
+  const claimActs = e.type === "claim" && !opts.retracted && e.retracts == null ? `<span class="cl-acts" data-claim-acts="${e.seq}"></span>` : "";
+  const actions = react || reply || retract || edit ? `${more}<span class="acts">${react}${reply}${claimActs}${remember}${select}${edit}${retract}${remind}</span>` : "";
   // An approval entry: the card says where it stands, so the message is just what's asked (its text, for agents, says "waiting").
   const apr = (e as Entry & { approval?: ApprovalCardData & { title?: string } }).approval;
   return `<article class="entry${opts.retracted ? " retracted" : ""}${e.via === "agent" ? " by-agent" : ""}" id="e${e.seq}" data-seq="${e.seq}" data-author="${esc(e.author)}" data-title="${esc(shortTitle(e))}"${e.to ? ` data-to="${esc(e.to)}"` : ""}${e.reply_to != null ? ` data-reply="${e.reply_to}"` : ""}${opts.root != null && opts.root !== e.seq ? ` data-root="${opts.root}"` : ""}>
@@ -416,7 +421,7 @@ const voiceJs = (agentChat: boolean) => `
       const send=/(^|[ ,.])send it[.!]?$/i.test(fin.trim());
       own=true;ta.value=base+spoken(send?fin.trim().replace(/[ ,.]*send it[.!]?$/i,''):(fin+mid).trim());ta.dispatchEvent(new Event('input',{bubbles:true}));own=false;
       if(send){micStop();if(ta.value.trim())ta.form.requestSubmit()}};
-    r.onerror=ev=>{if(ev.error==='not-allowed'||ev.error==='service-not-allowed')toast(tr('The microphone is blocked: allow it for this site to talk'))};
+    r.onerror=ev=>{const e=ev.error;if(e==='not-allowed'||e==='service-not-allowed')toast(tr('The microphone is blocked: allow it for this site to talk'));else if(e==='audio-capture'||e==='no-speech')toast(tr("No sound from the microphone: pick the right one for this site in your browser's settings"));else if(e==='network')toast(tr("Speech recognition can't reach its service: check your connection and try again"))};
     r.onend=()=>{if(rec!==r)return;rec=null;mic.setAttribute('aria-pressed','false');mic.classList.remove('on')};
     try{r.start()}catch(e){rec=null}}
   if(SR&&mic){mic.hidden=false;
@@ -468,8 +473,9 @@ function whoHtml(e: Entry): string {
   if (e.via === "agent") {
     const [session, client] = e.client && e.client.includes(" · ") ? e.client.split(" · ", 2) : [null, e.client];
     const name = session ? `${e.author}/${session}` : `${e.author}'s agent`;
-    // A named agent (vedu #1125): "Jarvis", with whose it is right next to it, always.
-    if (e.agent_name) return `<span class="who" title="${esc(`${e.author}'s agent, named ${e.agent_name}${session ? ` · session ${session}` : ""}${client && client !== "agent" ? ` · ${client}` : ""}`)}">${esc(e.agent_name)}</span><span class="via owner">${esc(`${e.author}'s agent`)}</span>`;
+    // A named agent (vedu #1125): "Jarvis", with whose it is right next to it, always, and which of its sessions wrote
+    // it (jxn #3014: one name, several agents working; "The Thinker · jxn's agent · opus-b").
+    if (e.agent_name) return `<span class="who" title="${esc(`${e.author}'s agent, named ${e.agent_name}${session ? ` · session ${session}` : ""}${client && client !== "agent" ? ` · ${client}` : ""}`)}">${esc(e.agent_name)}</span><span class="via owner">${esc(`${e.author}'s agent`)}</span>${session ? `<span class="via sess" title="${esc(`Posted by the session ${e.author}/${session}${client && client !== "agent" ? ` with ${client}` : ""}`)}">${esc(session)}</span>` : ""}`;
     return `<span class="who">${esc(name)}</span>${client && client !== "agent" ? `<span class="via" title="Posted by ${esc(name)} with ${esc(client)}">${esc(client)}</span>` : ""}`;
   }
   if (e.via === "person") return `<span class="who" title="Written by ${esc(e.author)} on the web">${esc(e.author)}</span>`;
@@ -1856,7 +1862,9 @@ const rxWho=u=>u===ME?'you':u===ME+"'s agent"?'your agent':u.startsWith(ME+'/')?
 // says who read them); the "on it" pill or a "done" pill on the message hides the matching part (CSS), so each shows once. Other reactions, and people's, stay chips.
 const rxAgent=u=>u.endsWith("'s agent")||u.includes('/');
 const rxNames=us=>{const n=us.map(rxWho);return n.length<3?n.join(' and '):n.slice(0,2).join(', ')+' and '+(n.length-2)+' more'};
-function renderRx(seq,list){const row=document.querySelector('[data-rx="'+seq+'"]');if(!row){RXP[seq]=list;return}delete RXP[seq];const add=row.querySelector('.rx-add');
+function renderRx(seq,list){const rows=document.querySelectorAll('[data-rx="'+seq+'"]');if(!rows.length){RXP[seq]=list;return}delete RXP[seq];rows.forEach(row=>renderRxRow(row,seq,list))}
+// One copy of a message's reaction row: the chat's, or its clone in an open thread.
+function renderRxRow(row,seq,list){const add=row.querySelector('.rx-add');
   row.querySelectorAll('.rx-chip,.rx-rcpt').forEach(c=>c.remove());
   const byPerson=!row.closest('.entry')?.classList.contains('by-agent');const seen=[],done=[],think=[],chips=[];
   for(const r of list||[]){const rc=byPerson&&(r.emoji==='👀'||r.emoji==='✅'||r.emoji==='🤔')?r.users.filter(rxAgent):[];
@@ -1968,6 +1976,7 @@ function rpFit(){if(picker.hidden)return;const sheet=innerWidth<=600;picker.clas
   picker.style.bottom='';const r=rpRect||{left:8,top:8,bottom:8},w=picker.offsetWidth,h=picker.offsetHeight;let top=r.top-h-6;
   if(top<8)top=r.bottom+6;if(top+h>innerHeight-8)top=Math.max(8,innerHeight-8-h);picker.style.left=Math.max(8,Math.min(innerWidth-w-8,r.left))+'px';picker.style.top=top+'px'}
 function openPicker(btn){const seq=btn.dataset.rxAdd;rpRect=btn.getBoundingClientRect();picker.dataset.seq=seq;
+  const host=btn.closest('dialog[open]')||document.body;if(picker.parentNode!==host){host.appendChild(rpScrim);host.appendChild(picker)} // a modal thread dialog sits above anything outside it
   rpMine=new Set([...document.querySelectorAll('[data-rx="'+seq+'"] .rx-chip.on')].map(c=>emo(c.dataset.react)));
   rpQ.value='';picker.hidden=false;czOn(false);rpRender();rpFit();if(!picker.classList.contains('sheet'))rpQ.focus({preventScroll:true})}
 function closePicker(){if(picker.contains(document.activeElement))document.activeElement.blur();picker.hidden=true;rpScrim.hidden=true;picker.dataset.seq='';picker.classList.remove('cz')}
@@ -2094,28 +2103,32 @@ function renderClaims(map){CLAIMS=map||{};
     if(c.stale_from){const m=document.querySelector('#e'+seq+'>.grow>.meta');if(m){const b=document.createElement('span');b.className='badge stale';
       b.title=tr('Rests on #')+c.stale_from+', which was '+c.stale_why;b.textContent=tr('Stale');m.insertBefore(b,m.querySelector('.acts'))}}
     const el=document.querySelector('[data-claim="'+seq+'"]');if(!el||!c.status||el.querySelector('.cl-f:not([hidden])'))continue;
-    const own=el.closest('.entry').dataset.author===ME;
-    // A claim nobody has looked at yet carries no status pill, just its actions.
+    const own=el.closest('.entry').dataset.author===ME,acts=document.querySelector('[data-claim-acts="'+seq+'"]');
+    const btns=READONLY?'':(own||c.status==='verified'?'':'<button class="btn ghost sm" type="button" data-cl="verify">'+tr('Verify')+'</button>')+
+        (own||c.status==='disputed'?'':'<button class="btn ghost sm" type="button" data-cl="dispute">'+tr('Dispute')+'</button>')+
+        '<button class="btn ghost sm" type="button" data-cl="evidence">'+tr('Evidence')+'</button>';
+    const form='<form class="cl-f" hidden><input class="input" name="v" maxlength="300" required><button class="btn sm primary"></button><button class="btn sm ghost" type="button" data-cl-cancel>'+tr('Cancel')+'</button></form>';
+    // A claim nobody has looked at yet (no review, reason, check or stale premise) draws no strip (jxn #2998/#3002): its actions sit
+    // in the message's own action row, and the strip only opens to hold the evidence or dispute form.
+    if(c.status==='asserted'&&!c.reason&&!c.check&&!c.stale_from){el.innerHTML=form;el.hidden=true;if(acts)acts.innerHTML=btns;continue}
+    if(acts)acts.innerHTML='';
     el.innerHTML=(c.status==='asserted'?'':'<span class="tk-st cl-'+c.status+'"><span class="dot"></span>'+CLST[c.status]+(c.by?' by '+esc(c.by):'')+'</span>')+
       (c.reason?'<span class="tk-who truncate" title="'+esc(c.reason)+'">'+esc(c.reason)+'</span>':'')+
       // The claim's check: the command that shows it holds. Others click it to copy the sandboxed run for their terminal.
       (c.check&&c.status!=='verified'?'<button class="cl-cmd mono" type="button"'+(own?' disabled title="Others run this in a sandbox: atteo verify '+seq+'"':' data-cl-run="'+seq+'" title="Copy atteo verify '+seq+' (runs it sandboxed on your machine)"')+'><span aria-hidden="true">$</span> <span class="truncate">'+esc(c.check)+'</span></button>':'')+'<span class="grow"></span>'+
-      (READONLY?'':(own||c.status==='verified'?'':'<button class="btn ghost sm" type="button" data-cl="verify">'+tr('Verify')+'</button>')+
-        (own||c.status==='disputed'?'':'<button class="btn ghost sm" type="button" data-cl="dispute">'+tr('Dispute')+'</button>')+
-        '<button class="btn ghost sm" type="button" data-cl="evidence">'+tr('Evidence')+'</button>')+
-      '<form class="cl-f" hidden><input class="input" name="v" maxlength="300" required><button class="btn sm primary"></button><button class="btn sm ghost" type="button" data-cl-cancel>'+tr('Cancel')+'</button></form>';
+btns+form;
     el.hidden=false}}
 async function claimAct(seq,body){const r=await fetch('/api/boards/'+BOARD+'/claims/'+seq,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)});
   const j=await r.json().catch(()=>({}));toast(r.ok?j.message:(j.error||tr('Could not save')));tick(false);return r.ok}
-document.addEventListener('click',async e=>{const b=e.target.closest('[data-cl]');if(!b)return;const strip=b.closest('[data-claim]'),seq=+strip.dataset.claim,a=b.dataset.cl;
+document.addEventListener('click',async e=>{const b=e.target.closest('[data-cl]');if(!b)return;const host=b.closest('[data-claim],[data-claim-acts]'),seq=+(host.dataset.claim||host.dataset.claimActs),a=b.dataset.cl;
   if(a==='verify'){b.disabled=true;await claimAct(seq,{action:'verify'});return}
-  const f=strip.querySelector('.cl-f');f.dataset.mode=a;f.v.value='';f.v.placeholder=a==='dispute'?"What's wrong with it?":tr('A link, or #entry (a log or file posted here)');
+  const strip=document.querySelector('[data-claim="'+seq+'"]');if(!strip)return;strip.hidden=false;const f=strip.querySelector('.cl-f');f.dataset.mode=a;f.v.value='';f.v.placeholder=a==='dispute'?"What's wrong with it?":tr('A link, or #entry (a log or file posted here)');
   f.querySelector('.primary').textContent=a==='dispute'?tr('Dispute'):tr('Add evidence');f.hidden=false;f.v.focus()});
 document.addEventListener('click',e=>{const r=e.target.closest('[data-cl-run]');if(r)navigator.clipboard.writeText('atteo verify '+r.dataset.clRun).then(()=>toast(tr('Copied: atteo verify ')+r.dataset.clRun+'. Run it in your terminal'))});
 document.addEventListener('click',e=>{const c=e.target.closest('[data-cl-cancel]');if(c){c.closest('.cl-f').hidden=true;renderClaims(CLAIMS)}});
 document.addEventListener('submit',async e=>{const f=e.target.closest('.cl-f');if(!f)return;e.preventDefault();const seq=+f.closest('[data-claim]').dataset.claim,v=f.v.value.trim();
   let body;if(f.dataset.mode==='dispute')body={action:'dispute',reason:v};else{const n=v.match(/^#?([0-9]+)$/);body=n?{action:'evidence',evidence_seq:+n[1]}:{action:'evidence',url:v}}
-  if(await claimAct(seq,body))f.hidden=true});
+  if(await claimAct(seq,body)){f.hidden=true;renderClaims(CLAIMS)}});
 // ---- human decisions: a decision a person posts is the people's to make. Everyone else on the board agrees or objects (an
 // optional note on Object); it's decided when they all agree, or when its author closes it (decided or dropped). Agents only
 // comment. State comes with every update (d.decisions: seq → {state, author, votes, voters, waiting_on, closed_by, note}) and live.
@@ -2239,7 +2252,7 @@ window.thrRearm=()=>{if(!cmpHome||!thrOpen)return false;rpTo.value=String(thrTo|
 document.body.appendChild(thrDlg);
 function thrRender(focus){const list=document.getElementById('thr-list'),top=document.getElementById('e'+thrOpen);if(!top)return;list.innerHTML='';
   for(const src of [top,...kidsOf(thrOpen)]){const c=src.cloneNode(true);c.removeAttribute('id');c.classList.remove('flash-in','tap','sel','hit');c.dataset.src=src.dataset.seq;
-    c.querySelectorAll('[id]').forEach(x=>x.removeAttribute('id'));c.querySelectorAll('.thr-sum,.acts,.more-acts,.rd,.rx-add').forEach(x=>x.remove());
+    c.querySelectorAll('[id]').forEach(x=>x.removeAttribute('id'));c.querySelectorAll('.thr-sum,.acts,.more-acts,.rd').forEach(x=>x.remove());
     const q=c.querySelector(':scope>.grow>.rq');if(q&&q.dataset.thread===String(thrOpen)&&src.dataset.reply===String(thrOpen))q.remove();
     list.appendChild(c)}
   thrPf();

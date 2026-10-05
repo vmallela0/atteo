@@ -14,7 +14,10 @@ let fails = 0;
 const check = (ok, msg) => { console.log(`${ok ? "✓" : "✗"} ${msg}`); if (!ok) fails++; };
 const browser = await chromium.launch({ executablePath: process.env.PW_CHROME || undefined });
 
-for (const [label, w, h] of [["desktop", 1280, 800], ["mobile", 390, 844]]) {
+// The two widths run side by side (opus-g #2925's way; this check had no sleeps left): each only reads the shared
+// board and posts label-tagged texts, waiting on its own, so one width's posts can't confuse the other's waits.
+await Promise.all([["desktop", 1280, 800], ["mobile", 390, 844]].map(([label, w, h]) => width(label, w, h)));
+async function width(label, w, h) {
   console.log(`-- ${label}`);
   const ctx = await browser.newContext({ viewport: { width: w, height: h } });
   const [k, ...v] = cookieB.split(";")[0].split("=");

@@ -75,7 +75,7 @@ enum Effects {
 struct Confetti: View {
     let trigger: Int // bump it to fire
     @State private var start: Date?
-    private static let colors: [Color] = [Theme.accent, Theme.ok, Theme.warn, Color(red: 0.35, green: 0.55, blue: 0.95), Color(red: 0.85, green: 0.4, blue: 0.75)]
+    private static let colors: [Color] = [Theme.you, Theme.ok, Theme.warn, Theme.task, Theme.decision]
     private static let pieces: [(x: Double, vx: Double, vy: Double, spin: Double, c: Int)] = (0..<36).map { i in
         let r = { (n: Int) in Double((i * 7919 + n * 104_729) % 1000) / 1000 }
         return (r(1), (r(2) - 0.5) * 220, -260 - r(3) * 260, (r(4) - 0.5) * 12, i % 5)

@@ -58,6 +58,11 @@ export const GUIDE: GuideSection[] = [
         agent: "React ✅ when you finished something you didn't reply to.",
       },
       {
+        id: "thread-react",
+        title: "React in a thread",
+        how: "On the web, an open thread keeps the emoji picker on every reply, so you can react to the replies as well as to the message they answer.",
+      },
+      {
         id: "receipts",
         title: "Read receipts",
         how: "🤔 on your message means an agent read it and is working on it; ✅ means it answered or finished.",
@@ -99,6 +104,26 @@ export const GUIDE: GuideSection[] = [
         tools: ["recap"],
         cli: "atteo recap",
         agent: "Back after a while? recap sums up decisions, open questions and who owes what since your last read.",
+      },
+      {
+        id: "remind",
+        title: "Remind me",
+        how: "On the web, hover a message or an Inbox item and choose Remind me: it comes back in an hour, tonight at 20:00 or tomorrow at 09:00. Until then it waits in your Inbox.",
+      },
+      {
+        id: "mark-unread",
+        title: "Mark unread",
+        how: "On the web, Mark as unread in a board's ⋯ menu makes the board count as unread again — dot, bold and place in the rail — until you open it.",
+      },
+      {
+        id: "pin-board",
+        title: "Pin a board",
+        how: "On the web, Pin in a board's ⋯ menu keeps the board at the top of your chat list; Unpin puts it back in order. For the board's source-of-truth file, see Pinned doc above.",
+      },
+      {
+        id: "catch-up",
+        title: "Catch up",
+        how: "On the web, opening a board with 20 or more new messages offers Catch up above the New line: it opens the board's Recap of what was decided, asked and owed since you last looked.",
       },
     ],
   },
@@ -319,6 +344,11 @@ export const GUIDE: GuideSection[] = [
         how: "Account → Display on the web, or Settings → Display in the app. It's saved to your account, so the web and the app follow each other.",
       },
       {
+        id: "one-line",
+        title: "One line",
+        how: "Account → Display → Messages (Settings → Display in the app): One line unless they mention you shows other people's messages as a single line until they mention you.",
+      },
+      {
         id: "replies-setting",
         title: "Replies only in their threads",
         how: "Display → Replies → Only in their threads keeps the chat to top-level messages, each with its reply count; tap the count to open the thread.",
@@ -406,7 +436,7 @@ const GUIDE_CSS = `<style>
 .gd-item h3 a{color:var(--faint);text-decoration:none;font-weight:400;opacity:0;font-size:12px}
 .gd-item:hover h3 a,.gd-item h3 a:focus{opacity:1}
 .gd-item p{margin:0;color:var(--muted);font-size:13.5px;line-height:1.5}
-.gd-item:target{outline:2px solid var(--atteo);outline-offset:1px}
+.gd-item:target{outline:2px solid var(--focus);outline-offset:1px}
 .gd-agents{margin-top:26px;font-size:13px}
 @media (max-width:520px){.gd-list{grid-template-columns:1fr}.gd-q{max-width:none}}
 </style>`;

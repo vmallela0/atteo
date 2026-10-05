@@ -4,6 +4,11 @@
 // and Everyday. Board info closes with a swipe in the reading direction: to the right in English, to the left in Arabic
 // (jxn #2446). The menu drawer's swipe is its own gesture. Usage: BASE=http://localhost:8787 PW_CHROME=… node sidebar-close.mjs  (local dev only, ADMIN_KEY=ci-admin-key)
 import { chromium } from "playwright-core";
+import { until, stable } from "./lib/wait.mjs";
+// Fast (opus-a #2937): loads wait for the page's script, opening and closing wait for the drawer or panel to get there
+// and stop moving; short fixed waits stay only where nothing should happen (a swipe that must leave a panel open).
+const loaded = (p) => p.waitForFunction(() => document.readyState === "complete" && document.getElementById("app"));
+const settled = (p, sel) => stable(() => p.evaluate((s) => { const r = document.querySelector(s)?.getBoundingClientRect(); return r ? [r.left, r.width] : null; }, sel), 2000, 60);
 const BASE = process.env.BASE || "http://localhost:8787";
 const KEY = process.env.ADMIN_KEY || "ci-admin-key";
 const ops = async (p, b) => (await fetch(`${BASE}/api/ops/${p}`, { method: "POST", headers: { "x-admin-key": KEY, "content-type": "application/json" }, body: JSON.stringify(b) })).json();
@@ -37,57 +42,57 @@ async function phone(who, mode, w) {
     const errors = [];
     p.on("pageerror", (e) => errors.push(e.message));
     await p.goto(`${BASE}/b/${board}`);
-    await p.waitForTimeout(900);
+    await loaded(p);
     const navOpen = () => p.evaluate(() => document.getElementById("app").classList.contains("nav-open"));
     const sbIn = () => p.evaluate(() => document.getElementById("sidebar").getBoundingClientRect().left >= -1);
     const focused = (sel) => p.evaluate((sel) => document.activeElement === document.querySelector(sel), sel);
     const menu = p.locator(".menu-btn");
-    const openNav = async () => { await menu.tap(); await p.waitForTimeout(350); };
+    const openNav = async () => { await menu.tap(); await until(navOpen, 2000); await settled(p, "#sidebar"); };
     // The drawer.
     await openNav();
     check(await navOpen() && await sbIn() && await p.locator(".nav-x").isVisible() && await p.locator(".nav-scrim").isVisible() && await focused(".nav-x") && (await menu.getAttribute("aria-expanded")) === "true",
       `${tag}: the menu opens with an ✕, the page dimmed beside it, and focus on the ✕`);
-    await p.locator(".nav-x").tap(); await p.waitForTimeout(350);
+    await p.locator(".nav-x").tap(); await until(async () => !(await navOpen()), 2000); await settled(p, "#sidebar");
     check(!(await navOpen()) && !(await sbIn()) && await focused(".menu-btn") && (await menu.getAttribute("aria-expanded")) === "false", `${tag}: ✕ closes it and focus goes back to the menu button`);
     await openNav();
-    await p.touchscreen.tap(w - 20, 500); await p.waitForTimeout(350);
+    await p.touchscreen.tap(w - 20, 500); await until(async () => !(await navOpen()), 2000);
     check(!(await navOpen()), `${tag}: a tap on the dimmed page beside it closes it`);
     await openNav();
-    await p.keyboard.press("Escape"); await p.waitForTimeout(350);
+    await p.keyboard.press("Escape"); await until(async () => !(await navOpen()), 2000);
     check(!(await navOpen()) && await focused(".menu-btn"), `${tag}: Esc closes it`);
     await openNav();
-    await swipe(p, "#sidebar", -120); await p.waitForTimeout(350);
+    await swipe(p, "#sidebar", -120); await until(async () => !(await navOpen()), 2000); await settled(p, "#sidebar");
     check(!(await navOpen()), `${tag}: a swipe back to the left closes it`);
     await swipe(p, "#sidebar", -10); await p.waitForTimeout(100); // (a small move on a closed drawer does nothing)
     await openNav();
-    await p.reload(); await p.waitForTimeout(900);
+    await p.reload(); await loaded(p); await settled(p, "#sidebar");
     check(!(await navOpen()) && !(await sbIn()), `${tag}: after a reload the menu is closed`);
     // The board's info panel.
     const infoOpen = () => p.evaluate(() => document.getElementById("conv-layout").classList.contains("info-open"));
-    const openInfo = async () => { await p.locator("#info-btn").tap(); await p.waitForTimeout(350); };
+    const openInfo = async () => { await p.locator("#info-btn").tap(); await until(infoOpen, 2000); await settled(p, "#board-info"); };
     await openInfo();
     const ib = p.locator("#info-btn");
     const x = await ib.evaluate((el) => getComputedStyle(el, "::after").content);
     check(await infoOpen() && await ib.isVisible() && x.includes("✕") && (await ib.getAttribute("aria-label")) === "Close board info" && await focused("#info-btn"), `${tag}: board info opens, its button turns into an ✕ (${x}), with focus on it`);
-    await ib.tap(); await p.waitForTimeout(300);
+    await ib.tap(); await until(async () => !(await infoOpen()), 2000);
     check(!(await infoOpen()) && await focused("#info-btn") && (await p.locator("#info-btn").getAttribute("aria-expanded")) === "false", `${tag}: ✕ closes board info and focus goes back to its button`);
     await openInfo();
-    await p.keyboard.press("Escape"); await p.waitForTimeout(300);
+    await p.keyboard.press("Escape"); await until(async () => !(await infoOpen()), 2000);
     check(!(await infoOpen()) && await focused("#info-btn"), `${tag}: Esc closes board info`);
     await openInfo();
     await swipe(p, "#board-info", -140); await p.waitForTimeout(300);
     check(await infoOpen(), `${tag}: a swipe to the left leaves board info open`);
-    await swipe(p, "#board-info", 140); await p.waitForTimeout(300);
+    await swipe(p, "#board-info", 140); await until(async () => !(await infoOpen()), 2000);
     check(!(await infoOpen()), `${tag}: a swipe to the right closes board info`);
     await openInfo();
     await swipe(p, "#board-info", 0); await p.waitForTimeout(200);
     check(await infoOpen(), `${tag}: a tap inside board info leaves it open`);
-    await p.reload(); await p.waitForTimeout(900);
+    await p.reload(); await loaded(p);
     check(!(await infoOpen()), `${tag}: after a reload board info is closed`);
     // Elsewhere (home) the drawer works the same.
-    await p.goto(`${BASE}/`); await p.waitForTimeout(700);
+    await p.goto(`${BASE}/`); await loaded(p);
     await openNav();
-    await p.locator(".nav-x").tap(); await p.waitForTimeout(350);
+    await p.locator(".nav-x").tap(); await until(async () => !(await navOpen()), 2000);
     check(!(await navOpen()), `${tag}: home's menu closes with its ✕ too`);
     check(await p.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), `${tag}: no sideways scroll`);
     check(!errors.length, `${tag}: no page errors ${errors.join(" | ")}`);
@@ -101,7 +106,7 @@ async function wide() {
   const [k, ...v] = ck.split(";")[0].split("=");
   await ctx.addCookies([{ name: k, value: v.join("="), url: BASE }]);
   const p = await ctx.newPage();
-  await p.goto(`${BASE}/b/${board}`); await p.waitForTimeout(800);
+  await p.goto(`${BASE}/b/${board}`); await loaded(p);
   check(!(await p.locator(".nav-x").isVisible()) && !(await p.locator(".nav-scrim").isVisible()) && (await p.locator("#info-btn").evaluate((el) => getComputedStyle(el, "::after").content)) === "none", "1280px: no ✕ or dimmed page on a wide screen");
   await ctx.close();
 }
@@ -116,15 +121,15 @@ async function arabic() {
   const errors = [];
   p.on("pageerror", (e) => errors.push(e.message));
   await p.goto(`${BASE}/b/${board}`);
-  await p.waitForTimeout(900);
+  await loaded(p);
   const dir = await p.evaluate(() => document.dir);
   const infoOpen = () => p.evaluate(() => document.getElementById("conv-layout").classList.contains("info-open"));
   await p.locator("#info-btn").tap();
-  await p.waitForTimeout(350);
+  await until(infoOpen, 2000); await settled(p, "#board-info");
   check(dir === "rtl" && (await infoOpen()), `ar 390px: board info opens on a right-to-left page (${dir})`);
   await swipe(p, "#board-info", 140); await p.waitForTimeout(300);
   check(await infoOpen(), "ar 390px: a swipe to the right leaves board info open");
-  await swipe(p, "#board-info", -140); await p.waitForTimeout(300);
+  await swipe(p, "#board-info", -140); await until(async () => !(await infoOpen()), 2000);
   check(!(await infoOpen()), "ar 390px: a swipe to the left closes board info");
   check(!errors.length, `ar 390px: no page errors ${errors.join(" | ")}`);
   await ctx.close();

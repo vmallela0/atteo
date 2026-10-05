@@ -16,14 +16,18 @@ const ask = async (title, command, risk, onBoard = false) => (await mcp("request
 const ckA = (await ops("sessions", { user: A })).cookie, ckB = (await ops("sessions", { user: B })).cookie;
 const get = async (id) => (await (await fetch(`${BASE}/api/approvals/${id}`, { headers: { cookie: ckA } })).json()).approval;
 const b = await chromium.launch({ executablePath: CHROME });
-for (const [w, scheme] of [[390, "light"], [320, "dark"], [1280, "dark"]]) {
+// Each width asks its own approvals, so the widths run side by side (Inbox ones, then conversation ones).
+const label = (loc, text) => loc.locator(".apc-lbl", { hasText: text }).waitFor({ timeout: 8000 }).catch(() => {});
+await Promise.all([[390, "light"], [320, "dark"], [1280, "dark"]].map(([w, scheme]) => inbox(w, scheme)));
+async function inbox(w, scheme) {
   const tag = `${w} ${scheme}`;
   const ap1 = await ask(`Deploy to staging ${w}${scheme}`, "wrangler deploy --env staging && curl -fsS https://staging.example.com/health", "high");
   const ap2 = await ask(`Delete old build artifacts ${w}${scheme}`, "rm -rf dist/old-builds", "medium");
   check(ap1 && ap2, `${tag}: two approvals asked (${ap1}, ${ap2})`);
   const ctx = await ctxFor(b, ckA, w, scheme, 900); const p = await ctx.newPage(); const errs = []; p.on("pageerror", (e) => errs.push(e.message));
-  await p.goto(`${BASE}/inbox`); await p.waitForTimeout(400);
+  await p.goto(`${BASE}/inbox`);
   const c1 = p.locator(`.apc[data-apc="${ap1}"]`), c2 = p.locator(`.apc[data-apc="${ap2}"]`);
+  await c2.waitFor({ timeout: 8000 }).catch(() => {});
   check(await c1.isVisible() && await c2.isVisible(), `${tag}: both show as cards in the Inbox`);
   check((await c1.locator(".apc-cmd").innerText()).includes("wrangler deploy --env staging"), `${tag}: the card shows the exact command`);
   check((await c1.locator(".apc-lbl").innerText()) === "Waiting on you" && await c1.locator('[data-apc-do="approve"]').isVisible(), `${tag}: "Waiting on you" with Approve / Deny`);
@@ -31,13 +35,13 @@ for (const [w, scheme] of [[390, "light"], [320, "dark"], [1280, "dark"]]) {
   check(m.doc <= m.W && m.same, `${tag}: the card fits and its buttons sit on one line inside it`);
   check(Math.abs(m.dl) <= 1, `${tag}: the card lines up with the text above it (${m.dl}px, right ${m.dr}px)`);
   await p.screenshot({ path: `${OUT}inbox-${w}-${scheme}.png`, fullPage: true });
-  await c1.locator('[data-apc-do="approve"]').click(); await p.waitForTimeout(500);
+  await c1.locator('[data-apc-do="approve"]').click(); await label(c1, "Approved");
   check((await c1.locator(".apc-lbl").innerText()) === "Approved" && !(await c1.locator("[data-apc-do]").count()), `${tag}: Approve: the card reads Approved, buttons gone`);
   check((await get(ap1))?.status === "approved", `${tag}: …and the agent sees approved`);
-  await c2.locator('[data-apc-do="reject"]').click(); await p.waitForTimeout(500);
+  await c2.locator('[data-apc-do="reject"]').click(); await label(c2, "Denied");
   check((await c2.locator(".apc-lbl").innerText()) === "Denied", `${tag}: Deny: the card reads Denied`);
   check((await get(ap2))?.status === "rejected", `${tag}: …and the agent sees denied`);
-  await p.reload(); await p.waitForTimeout(400);
+  await p.reload(); await p.locator(`.apc[data-apc="${ap1}"]`).waitFor({ timeout: 8000 }).catch(() => {});
   check((await p.locator(`.apc[data-apc="${ap1}"] .apc-lbl`).innerText()) === "Approved" && !(await p.locator(`.apc[data-apc="${ap1}"] [data-apc-do]`).count()), `${tag}: after a reload it still reads Approved`);
   await p.screenshot({ path: `${OUT}inbox-decided-${w}-${scheme}.png` });
   check(!errs.length, `${tag}: no page errors ${errs.join(" | ")}`);
@@ -45,7 +49,8 @@ for (const [w, scheme] of [[390, "light"], [320, "dark"], [1280, "dark"]]) {
 }
 // Conversation: request_approval on the board posts an approval entry. The person asked gets Approve / Deny; others see
 // the card without them, and it updates live on their page when it's decided.
-for (const [w, scheme] of [[390, "light"], [320, "dark"], [1280, "dark"]]) {
+await Promise.all([[390, "light"], [320, "dark"], [1280, "dark"]].map(([w, scheme]) => conversation(w, scheme)));
+async function conversation(w, scheme) {
   const tag = `conversation ${w} ${scheme}`;
   const ap = await ask(`Push the hotfix ${w}${scheme}`, "git push origin hotfix:main", "high", true);
   const open = async (ck) => { const ctx = await ctxFor(b, ck, w, scheme, 800); const p = await ctx.newPage(); p.errs = []; p.on("pageerror", (e) => p.errs.push(e.message)); await p.goto(`${BASE}/b/${board}`); await p.waitForTimeout(600); return [ctx, p]; };
@@ -59,11 +64,11 @@ for (const [w, scheme] of [[390, "light"], [320, "dark"], [1280, "dark"]]) {
   check(m.inside && m.doc <= m.W, `${tag}: the card sits inside its message, no sideways scroll`);
   await pA.waitForTimeout(200); await pA.screenshot({ path: `${OUT}conv-asked-${w}-${scheme}.png` });
   await pB.evaluate((id) => document.querySelector(`.apc[data-apc="${id}"]`).scrollIntoView({ block: "center" }), ap); await pB.screenshot({ path: `${OUT}conv-other-${w}-${scheme}.png` });
-  await cardA.locator('[data-apc-do="approve"]').click(); await pA.waitForTimeout(600);
+  await cardA.locator('[data-apc-do="approve"]').click(); await label(cardA, "Approved");
   check((await cardA.locator(".apc-lbl").innerText()) === "Approved" && (await get(ap))?.status === "approved", `${tag}: Approve in place: Approved, and the agent sees it`);
-  await pB.waitForTimeout(1500);
+  await label(cardB, "Approved");
   check((await cardB.locator(".apc-lbl").innerText()) === "Approved", `${tag}: …and the other person's card turns Approved live`);
-  await pA.reload(); await pA.waitForTimeout(600);
+  await pA.reload(); await pA.locator(`.apc[data-apc="${ap}"]`).waitFor({ timeout: 8000 }).catch(() => {});
   check((await pA.locator(`.apc[data-apc="${ap}"] .apc-lbl`).innerText()) === "Approved" && !(await pA.locator(`.apc[data-apc="${ap}"] [data-apc-do]`).count()), `${tag}: after a reload it reads Approved, no buttons`);
   check(!pA.errs.length && !pB.errs.length, `${tag}: no page errors ${[...pA.errs, ...pB.errs].join(" | ")}`);
   await cA.close(); await cB.close();

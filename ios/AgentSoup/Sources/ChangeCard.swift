@@ -111,8 +111,8 @@ struct ChangeCardView: View {
     @State private var allFiles = false
     @Environment(\.openURL) private var openURL
 
-    private static let added = Color(light: UIColor(red: 0.13, green: 0.55, blue: 0.27, alpha: 1), dark: UIColor(red: 0.36, green: 0.78, blue: 0.47, alpha: 1))
-    private static let removed = Color(light: UIColor(red: 0.78, green: 0.22, blue: 0.20, alpha: 1), dark: UIColor(red: 0.95, green: 0.42, blue: 0.40, alpha: 1))
+    private static let added = Theme.diffAdded
+    private static let removed = Theme.diffRemoved
 
     var body: some View {
         let v = ChangeView(e)
@@ -141,7 +141,7 @@ struct ChangeCardView: View {
             Text(v.title).font(Typo.secondary.weight(.semibold)).foregroundStyle(Theme.text).lineLimit(2)
                 .accessibilityIdentifier("change-title")
             if let chip = v.chip {
-                Text(chip).font(.system(.caption, design: .monospaced).weight(.medium)).foregroundStyle(Theme.muted).lineLimit(1).truncationMode(.middle)
+                Text(chip).font(Typo.mono(.caption).weight(.medium)).foregroundStyle(Theme.muted).lineLimit(1).truncationMode(.middle)
                     .padding(.horizontal, 6).padding(.vertical, 2)
                     .background(Theme.raised, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
                     .layoutPriority(-1)
@@ -178,7 +178,7 @@ struct ChangeCardView: View {
             VStack(alignment: .leading, spacing: 5) {
                 ForEach(Array((allCommits ? c.commits : Array(c.commits.prefix(4))).enumerated()), id: \.offset) { _, x in
                     HStack(alignment: .firstTextBaseline, spacing: Space.s) {
-                        Text(String(x.sha.prefix(7))).font(.system(.caption, design: .monospaced)).foregroundStyle(Theme.faint)
+                        Text(String(x.sha.prefix(7))).font(Typo.mono(.caption)).foregroundStyle(Theme.faint)
                         Text(x.title).font(Typo.meta).foregroundStyle(Theme.text.opacity(0.9)).lineLimit(2).fixedSize(horizontal: false, vertical: true)
                     }
                 }
@@ -192,13 +192,13 @@ struct ChangeCardView: View {
             VStack(alignment: .leading, spacing: 4) {
                 ForEach(Array((allFiles ? c.files : Array(c.files.prefix(6))).enumerated()), id: \.offset) { _, f in
                     HStack(spacing: Space.s) {
-                        Text(f.path).font(.system(.caption2, design: .monospaced)).foregroundStyle(Theme.muted).lineLimit(1).truncationMode(.head)
+                        Text(f.path).font(Typo.mono(.caption2)).foregroundStyle(Theme.muted).lineLimit(1).truncationMode(.head)
                         Spacer(minLength: Space.xs)
                         HStack(spacing: 3) {
                             Text(verbatim: "+\(f.added)").foregroundStyle(Self.added)
                             Text(verbatim: "−\(f.removed)").foregroundStyle(Self.removed)
                         }
-                        .font(.system(.caption2, design: .monospaced)).fixedSize()
+                        .font(Typo.mono(.caption2)).fixedSize()
                         bar(f.added, f.removed)
                     }
                 }
@@ -269,7 +269,7 @@ struct ChangeCardView: View {
         let isFile = l.hasPrefix("+++") || l.hasPrefix("---") || l.hasPrefix("diff ") || l.hasPrefix("index ")
         let add = l.hasPrefix("+") && !isFile, del = l.hasPrefix("-") && !isFile, hunk = l.hasPrefix("@@")
         return Text(l.isEmpty ? " " : l)
-            .font(.system(size: 11, design: .monospaced))
+            .font(Typo.mono(size: 11))
             .foregroundStyle(hunk || isFile ? Theme.faint : add ? Self.added : del ? Self.removed : Theme.text.opacity(0.85))
             .fixedSize()
             .padding(.horizontal, Space.s).padding(.vertical, 0.5)

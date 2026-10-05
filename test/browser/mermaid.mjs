@@ -58,8 +58,10 @@ async function open(board, { w = 1200, scheme = "light", route } = {}) {
 const drawn = (p, seq) => p.waitForSelector(`#e${seq} .mmd[data-mmd="drawn"] .mmd-d svg`, { timeout: 20000 }).then(() => true, () => false);
 const settled = (p, seq) => p.waitForSelector(`#e${seq} .mmd[data-mmd="drawn"], #e${seq} .mmd[data-mmd="code"]`, { timeout: 20000 }).then(() => true, () => false);
 
+// The four parts below are independent (each opens its own pages; 1 and 3 use boards of their own), so after the
+// diagram board is made they run side by side.
 // 1. A page with no diagrams (but a chart and a code block) never asks for the library.
-{
+async function plain() {
   const b = await newBoard("Plain");
   await post(b, "No diagrams here.\n\n```js\nconsole.log(1)\n```");
   await post(b, '```chart\n{"type":"bar","x":["a","b"],"series":[{"name":"n","values":[1,2]}]}\n```');
@@ -78,7 +80,7 @@ const sEvil2 = await post(B, EVIL2);
 const sEvil3 = await post(B, EVIL3);
 const sWide = await post(B, WIDE);
 const fills = {};
-for (const [w, scheme] of [[1200, "light"], [390, "dark"]]) {
+async function diagrams(w, scheme) {
   const { ctx, p, libReqs, errors, tracker } = await open(B, { w, scheme });
   const tag = `${w}px ${scheme}`;
   for (const s of [sFlow, sWide, sEvil, sEvil2, sEvil3, sBad]) { await p.locator(`#e${s}`).scrollIntoViewIfNeeded(); await settled(p, s); }
@@ -140,10 +142,9 @@ for (const [w, scheme] of [[1200, "light"], [390, "dark"]]) {
   check(!errors.length, `${tag}: no page errors or dialogs ${errors.join(" | ")}`);
   await ctx.close();
 }
-check(fills.light && fills.dark && fills.light !== fills.dark, `light and dark draw differently (${fills.light} / ${fills.dark})`);
 
 // 3. Lazy: a diagram far above the fold doesn't load the library until it's scrolled to; a diagram arriving live draws.
-{
+async function lazy() {
   const b = await newBoard("Lazy");
   const sTop = await post(b, FLOW);
   for (let i = 0; i < 14; i++) await post(b, `Filler ${i}\n\n` + Array.from({ length: 8 }, (_, k) => `Line ${k} of a long message that takes room.`).join("\n\n"));
@@ -161,10 +162,10 @@ check(fills.light && fills.dark && fills.light !== fills.dark, `light and dark d
 }
 
 // 4. Offline, and a library that fails its integrity hash: the code block stays, nothing breaks.
-for (const [name, route] of [
+const failing = () => Promise.all([
   ["offline", (r) => r.abort("internetdisconnected")],
   ["tampered library (SRI)", (r) => r.fulfill({ status: 200, contentType: "application/javascript", headers: { "access-control-allow-origin": "*" }, body: "window.__pwned='sri';window.mermaid={initialize(){},render(){return {svg:'<svg><script>window.__pwned=1</script></svg>'}}}" })],
-]) {
+].map(async ([name, route]) => {
   const { ctx, p, libReqs, errors } = await open(B, { w: 390, scheme: "light", route });
   await p.locator(`#e${sFlow}`).scrollIntoViewIfNeeded();
   const ok = await settled(p, sFlow);
@@ -172,8 +173,10 @@ for (const [name, route] of [
   check(ok && r.state === "code" && r.code && !r.svg && r.pwned === null && libReqs.length >= 1, `${name}: the code block stays as today (${JSON.stringify(r)})`);
   check(!errors.length, `${name}: no page errors ${errors.join(" | ")}`);
   await ctx.close();
-}
+}));
 
+await Promise.all([plain(), diagrams(1200, "light"), diagrams(390, "dark"), lazy(), failing()]);
+check(fills.light && fills.dark && fills.light !== fills.dark, `light and dark draw differently (${fills.light} / ${fills.dark})`);
 await browser.close();
 console.log(fails ? `${fails} FAILED` : "mermaid: all passed");
 process.exit(fails ? 1 : 0);

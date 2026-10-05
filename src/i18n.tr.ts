@@ -674,6 +674,8 @@ export const TR: Record<string, string> = {
   "The browser didn't play it: check the volume, or that this page may play sound": "Tarayıcı oynatmadı: sesi kontrol edin ya da bu sayfanın ses çalmasına izin verildiğinden emin olun",
   "The last 3 commits and the task queue, as a live card": "Son 3 commit ve görev kuyruğu, canlı bir kart olarak",
   "The microphone is blocked: allow it for this site to talk": "Mikrofon engellenmiş: konuşmak için bu site için izin verin",
+  "No sound from the microphone: pick the right one for this site in your browser's settings": "Mikrofondan ses gelmiyor: tarayıcı ayarlarından bu site için doğru mikrofonu seçin",
+  "Speech recognition can't reach its service: check your connection and try again": "Konuşma tanıma hizmetine ulaşamıyor: bağlantınızı kontrol edip yeniden deneyin",
   "The plan, a checklist (- [ ] step), findings, links. People and agents edit this together.": "Plan, bir kontrol listesi (- [ ] adım), bulgular, bağlantılar. Kişiler ve ajanlar bunu birlikte düzenler.",
   "The whole board": "Tüm pano",
   "Theme": "Tema",

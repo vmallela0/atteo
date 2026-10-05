@@ -254,7 +254,7 @@ const FY_CSS = `
 .fy-ask input{border:0;outline:0;background:transparent;color:var(--ink);font:inherit;font-size:15.5px;height:100%;min-width:0}
 .fy-ask input::placeholder{color:var(--faint)}
 .fy-mic,.fy-send{width:42px;height:42px;border-radius:50%;border:0;display:grid;place-items:center;flex:none;cursor:pointer}
-.fy-mic{background:var(--cherry);color:var(--on-ink)}.fy-mic.on{box-shadow:0 0 0 4px color-mix(in srgb,var(--cherry) 30%,transparent)}
+.fy-mic{background:var(--cta);color:var(--on-cta)}.fy-mic.on{box-shadow:0 0 0 4px color-mix(in srgb,var(--cta) 30%,transparent)}
 .fy-send{background:var(--ink);color:var(--on-ink)}
 .fy-mic:focus-visible,.fy-send:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .fy-toast{pointer-events:auto;max-width:712px;margin:0 auto 10px;display:flex;align-items:center;justify-content:center;gap:12px;font-size:13.5px;
@@ -324,7 +324,7 @@ if(SR){mic.hidden=false;mic.addEventListener('click',()=>{if(rec){try{rec.stop()
     const go=/(^|[ ,.])send it[.!]?$/i.test(fin.trim());
     ta.value=base+(go?fin.trim().replace(/[ ,.]*send it[.!]?$/i,''):(fin+midT).trim());sync();
     if(go){try{rec.stop()}catch(e){}if(ta.value.trim())f.requestSubmit()}};
-  rec.onerror=ev=>{if(ev.error==='not-allowed'||ev.error==='service-not-allowed')toast(tr(tr('The microphone is blocked: allow it for this site to talk')))};
+  rec.onerror=ev=>{const e=ev.error;if(e==='not-allowed'||e==='service-not-allowed')toast(tr('The microphone is blocked: allow it for this site to talk'));else if(e==='audio-capture'||e==='no-speech')toast(tr("No sound from the microphone: pick the right one for this site in your browser's settings"));else if(e==='network')toast(tr("Speech recognition can't reach its service: check your connection and try again"))};
   rec.onend=()=>{rec=null;mic.setAttribute('aria-pressed','false');mic.classList.remove('on');sync()};
   try{rec.start()}catch(e){rec=null}})}
 sync();

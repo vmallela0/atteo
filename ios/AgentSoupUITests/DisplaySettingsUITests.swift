@@ -87,9 +87,10 @@ final class DisplaySettingsUITests: XCTestCase {
     }
 
     func pick(_ a: XCUIApplication, _ id: String, _ label: String) {
-        let b = control(a, id).buttons[label]
-        b.tap()
-        XCTAssertTrue(b.isSelected, "\(id) → \(label)")
+        control(a, id).buttons[label].tap()
+        // A new text size re-lays the whole list (and Settings scrolls the row back into view): find the control
+        // again before checking it took.
+        XCTAssertTrue(control(a, id).buttons[label].isSelected, "\(id) → \(label)")
     }
 
     func assertSelected(_ a: XCUIApplication, _ id: String, _ label: String) {
@@ -188,6 +189,38 @@ final class DisplaySettingsUITests: XCTestCase {
     }
 
     /// Chats, a board and Settings in light and dark, small and large text (and Chats compact), for the design review.
+    /// Hindi and Korean under the design language's fonts (Onest has neither script): the system font fills in glyph
+    /// by glyph, with no missing-glyph boxes. Chats, a board and Settings, light and dark; shots for a look.
+    func testScriptFallbackScreenshots() throws {
+        let board = (env["AGENT_SOUP_TICK"] ?? "").split(separator: ":").first.map(String.init)
+        let words = ["hi": (chats: "चैट", settings: "सेटिंग"), "ko": (chats: "채팅", settings: "설정")]
+        for lang in ["hi", "ko"] {
+            for theme in ["light", "dark"] {
+                let a = app(display: "m,comfortable,\(theme),\(lang)")
+                a.launchEnvironment["AGENT_SOUP_LANG"] = lang
+                a.launch()
+                XCTAssertTrue(a.navigationBars[words[lang]!.chats].waitForExistence(timeout: 30), "Chats in \(lang)")
+                a.buttons["tab-boards"].firstMatch.tap()
+                sleep(2)
+                shot("\(lang)-chats-\(theme)")
+                let row = a.buttons["chat-Checkout bug"].firstMatch
+                if board != nil, row.waitForExistence(timeout: 5) {
+                    row.tap()
+                    sleep(4)
+                    shot("\(lang)-board-\(theme)")
+                    a.navigationBars.buttons.element(boundBy: 0).tap()
+                    sleep(1)
+                }
+                let settings = a.buttons.matching(NSPredicate(format: "label == %@", words[lang]!.settings)).firstMatch
+                XCTAssertTrue(settings.waitForExistence(timeout: 10), "Settings in \(lang)")
+                settings.tap()
+                sleep(2)
+                shot("\(lang)-settings-\(theme)")
+                a.terminate()
+            }
+        }
+    }
+
     func testDisplayScreenshots() throws {
         let board = (env["AGENT_SOUP_TICK"] ?? "").split(separator: ":").first.map(String.init)
         let combos: [(String, String)] = [("light", "s"), ("light", "l"), ("dark", "s"), ("dark", "l"), ("light", "m"), ("dark", "m")]

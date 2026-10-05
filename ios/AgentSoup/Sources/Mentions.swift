@@ -53,14 +53,10 @@ struct MentionBox: TextAttribute { let mine: Bool }
 
 /// The mention colors: readable in light and dark.
 enum MentionColor {
-    static let box = Color(UIColor { t in
-        t.userInterfaceStyle == .dark ? UIColor(red: 0.20, green: 0.50, blue: 1.0, alpha: 0.26) : UIColor(red: 0.11, green: 0.45, blue: 0.90, alpha: 0.14)
-    })
-    static let text = Color(UIColor { t in
-        t.userInterfaceStyle == .dark ? UIColor(red: 0.60, green: 0.79, blue: 1.0, alpha: 1) : UIColor(red: 0.05, green: 0.36, blue: 0.75, alpha: 1)
-    })
-    static let mineBox = Color(red: 0.16, green: 0.47, blue: 0.98) // you: solid, the strongest thing in the line
-    static let mineText = Color.white
+    static let box = Theme.mentionBox
+    static let text = Theme.mentionText
+    static let mineBox = Theme.mentionYouBox // you: a stronger ink box, as on the web (jxn #2706, #2858)
+    static let mineText = Theme.mentionText
 }
 
 /// Draws each mention's rounded box behind its text (one box per mention per line), then the text.

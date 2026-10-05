@@ -30,8 +30,10 @@ const english = (p) => p.evaluate((run) => {
   }
   return [...out].filter((t) => !/^(Atteo|atteo|Grok|ChatGPT|Claude|Codex|Cursor|VS Code|Muse|Gemini|Conductor|CLI|MCP|API|UTC|JSON|Webhook|OpenAI|Anthropic|Stripe|Free|Pro)\b/.test(t) && !t.includes(run));
 }, run);
-for (const [locale, lang, sample] of [["zh-CN", "zh-Hans", "收件箱"], ["zh-TW", "zh-Hant", "收件匣|收件箱"]]) {
-  for (const w of [1300, 390]) {
+// The four (language, width) runs go side by side, each in its own context; each one's lines print together.
+const runs = [];
+for (const [locale, lang, sample] of [["zh-CN", "zh-Hans", "收件箱"], ["zh-TW", "zh-Hant", "收件匣|收件箱"]]) for (const w of [1300, 390]) runs.push(async () => {
+    const out = [], check = (ok, m) => { out.push(`${ok ? "✓" : "✗"} ${m}`); if (!ok) fails++; };
     const ctx = await b.newContext({ viewport: { width: w, height: 860 }, locale });
     await ctx.addCookies([{ name: k, value: v.join("="), url: BASE }]);
     const p = await ctx.newPage();
@@ -43,13 +45,14 @@ for (const [locale, lang, sample] of [["zh-CN", "zh-Hans", "收件箱"], ["zh-TW
       const over = await p.evaluate(() => document.documentElement.scrollWidth - innerWidth);
       const left = await english(p);
       check(okLang && over <= 1 && /[一-鿿]/.test(await p.locator("main, .content").first().innerText()), `${lang} ${w}px ${path}: in Chinese, fits (${over}px)`);
-      if (w === 1300) console.log(`  English left on ${path}: ${JSON.stringify(left)}`);
+      if (w === 1300) out.push(`  English left on ${path}: ${JSON.stringify(left)}`);
     }
     const sidebar = await p.locator(".sidebar").innerText().catch(() => "");
     check(new RegExp(sample).test(sidebar), `${lang} ${w}px: the sidebar too`);
     await ctx.close();
-  }
-}
+    console.log(out.join("\n"));
+});
+await Promise.all(runs.map((r) => r()));
 check(errors.length === 0, `no page errors (${errors.join(" | ")})`);
 await b.close();
 console.log(fails ? `${fails} FAILED` : "all passed");

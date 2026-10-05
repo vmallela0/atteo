@@ -21,8 +21,8 @@ struct ReactionChips: View {
                 let yours = me.map { r.users.contains($0) } ?? false
                 Button { toggle?(r.emoji) } label: {
                     HStack(spacing: 3) {
-                        Text(r.emoji).font(.footnote)
-                        Text("\(r.users.count)").font(.caption.weight(.semibold)).monospacedDigit()
+                        Text(r.emoji).font(Typo.ui(.footnote))
+                        Text("\(r.users.count)").font(Typo.ui(.caption).weight(.semibold)).monospacedDigit()
                             .foregroundStyle(yours ? Theme.accent : Theme.muted)
                             .contentTransition(.numericText())
                     }

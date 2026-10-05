@@ -44,12 +44,14 @@ if(label==="desktop"){await p.locator("#composer-text").press("End");await p.key
 if(label==="desktop"){const v=await p.inputValue("#composer-text");check(v.startsWith(`@${A}'s agent `),`Reply prefills an @mention of who you're replying to ("${v}")`);}
 await p.locator("#replying-go").click();await p.waitForTimeout(400);
 check(await p.locator(`#e${root}.hit`).count()===1,`${label}: clicking the indicator shows the message`);
-await p.locator("#composer-text").fill(`going with 3 (${label})`);await p.locator("#composer-text").press("Enter");await p.waitForTimeout(1500);
-const lastTop=async()=>p.evaluate(()=>{const e=[...document.querySelectorAll("#thread>.entry")].pop();return {body:e?.querySelector(":scope>.grow>.body")?.textContent||"",q:e?.querySelector(":scope>.grow>.rq")?.textContent||""}});
+const lastTop=async()=>p.evaluate(()=>{const e=[...document.querySelectorAll("#thread>.entry:not(.pending)")].pop();return {body:e?.querySelector(":scope>.grow>.body")?.textContent||"",q:e?.querySelector(":scope>.grow>.rq")?.textContent||""}});
+// Wait for the newest message to be this one (the server's copy, not the "sending…" placeholder), up to 8 s.
+const lastIs=async(t)=>{for(let k=0;k<80;k++){if((await lastTop()).body.includes(t))break;await p.waitForTimeout(100)}await p.waitForTimeout(150)};
+await p.locator("#composer-text").fill(`going with 3 (${label})`);await p.locator("#composer-text").press("Enter");await lastIs(`going with 3 (${label})`);
 let lt=await lastTop();
 check(lt.body.includes(`going with 3 (${label})`)&&lt.q.includes("What retry limit"),`${label}: the reply lands at the bottom as the newest message, quoting the question`);
 check(!(await p.locator("#replying").isVisible())&&(await p.inputValue("#composer-text"))==="",`${label}: after sending, the composer is back to a new message`);
-await mcp("read",{});await mcp("post",{type:"note",text:`agent follow-up ${label}`,reply_to:root});await p.waitForTimeout(2500);
+await mcp("read",{});await mcp("post",{type:"note",text:`agent follow-up ${label}`,reply_to:root});await lastIs(`agent follow-up ${label}`);
 lt=await lastTop();
 check(lt.body.includes(`agent follow-up ${label}`)&&/[0-9]+ repl/.test(await sum.innerText()),`${label}: new replies arrive live at the bottom and the count follows`);
 check(errors.length===0,`${label}: no page errors ${errors.join(" | ")}`);

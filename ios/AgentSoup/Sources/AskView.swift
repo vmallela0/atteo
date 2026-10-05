@@ -88,11 +88,11 @@ struct AskView: View {
         VStack(spacing: Space.l) {
             Button { if voice.listening { voice.stop() } else { start() } } label: {
                 ZStack {
-                    Circle().fill(Theme.accent.opacity(0.08)).frame(width: 196, height: 196)
-                    Circle().fill(Theme.accent.opacity(0.14)).frame(width: 160, height: 160)
+                    Circle().fill(Theme.primary.opacity(0.08)).frame(width: 196, height: 196)
+                    Circle().fill(Theme.primary.opacity(0.14)).frame(width: 160, height: 160)
                         .scaleEffect(voice.listening && Effects.enabled ? 1.06 : 1)
                         .animation(voice.listening && Effects.enabled && API.environment("STILL") == nil ? .easeInOut(duration: 0.9).repeatForever(autoreverses: true) : .default, value: voice.listening)
-                    Circle().fill(Theme.accent).frame(width: 108, height: 108)
+                    Circle().fill(Theme.primary).frame(width: 108, height: 108)
                     Image(systemName: voice.listening ? "waveform" : "mic.fill").font(.system(size: 34, weight: .semibold)).foregroundStyle(.white)
                 }
                 .contentShape(Circle())
@@ -103,7 +103,7 @@ struct AskView: View {
             .padding(.top, Space.l)
 
             (heard.isEmpty ? (voice.listening ? Text("I'm listening…") : Text("Tap and tell your assistant what you need")) : Text(verbatim: heard))
-                .font(.title2.weight(.semibold)).foregroundStyle(heard.isEmpty ? Theme.muted : Theme.text)
+                .font(Typo.ui(.title2).weight(.semibold)).foregroundStyle(heard.isEmpty ? Theme.muted : Theme.text)
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: .infinity)
                 .accessibilityIdentifier("ask-heard")
@@ -124,7 +124,7 @@ struct AskView: View {
 
     private var typeBox: some View {
         VStack(alignment: .leading, spacing: Space.m) {
-            Text("What do you need?").font(.title2.weight(.semibold)).foregroundStyle(Theme.text).padding(.top, Space.l)
+            Text("What do you need?").font(Typo.ui(.title2).weight(.semibold)).foregroundStyle(Theme.text).padding(.top, Space.l)
             HStack(alignment: .bottom, spacing: Space.s) {
                 TextField("Ask your assistant…", text: $text, axis: .vertical)
                     .font(Typo.body).lineLimit(1...6)
@@ -134,8 +134,8 @@ struct AskView: View {
                     .padding(.horizontal, Space.m).padding(.vertical, Space.m)
                     .accessibilityIdentifier("ask-field")
                 Button { Task { await ask(text) } } label: {
-                    Image(systemName: "arrow.up").font(.system(size: 15, weight: .bold)).foregroundStyle(Theme.onAccent)
-                        .frame(width: 36, height: 36).background(Theme.accent, in: Circle())
+                    Image(systemName: "arrow.up").font(.system(size: 15, weight: .bold)).foregroundStyle(Theme.onPrimary)
+                        .frame(width: 36, height: 36).background(Theme.primary, in: Circle())
                 }
                 .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || sending)
                 .opacity(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? 0.4 : 1)

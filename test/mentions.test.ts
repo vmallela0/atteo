@@ -340,6 +340,17 @@ describe("summaries", () => {
     expect(opts).toEqual(["vedu|person", "vedu's agent|agent", "jxn's agent|your agent", "agents|every agent", "humans|every person", "all|everyone and their agents"]);
   });
 
+  it("agents are offered both ways: by their nickname and as \"x's agent\" (jxn #3019, #3103); the server reads both", () => {
+    const opts = mentionOptions(["jxn", "vedu"], "jxn", [], { jxn: "The Thinker", vedu: "moby" }).map((o) => `${o.ins}|${o.k}`);
+    expect(opts).toContain("The Thinker|your agent");
+    expect(opts).toContain("jxn's agent|your agent");
+    expect(opts).toContain("moby|agent");
+    expect(opts).toContain("vedu's agent|agent");
+    expect(parseMentions("@jxn's agent can you check?", [{ user: "jxn", agent_name: "The Thinker" }, { user: "vedu", agent_name: "moby" }], "jxn", "person").mentions).toEqual([{ user: "jxn", agent: true }]);
+    const members = [{ user: "jxn", agent_name: "The Thinker" }, { user: "vedu", agent_name: "moby" }];
+    expect(parseMentions("@The Thinker can you check?", members, "jxn", "person").mentions).toEqual([{ user: "jxn", agent: true }]);
+  });
+
   it("a person's agents are grouped under them: their agent, then each of their sessions", () => {
     const opts = mentionOptions(["jxn", "vedu"], "jxn", [{ user: "vedu", name: "scout", client: "Codex" }, { user: "vedu", name: "grok", client: "Grok" }]);
     expect(opts.map((o) => `${o.ins}|${o.sub ? "sub" : "top"}`)).toEqual(["vedu|top", "vedu's agent|sub", "vedu/scout|sub", "vedu/grok|sub", "jxn's agent|top", "agents|top", "humans|top", "all|top"]);

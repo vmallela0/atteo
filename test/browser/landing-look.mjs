@@ -1,6 +1,6 @@
 // atteo.dev's landing page in the design language v1 (board #2508, task #2529): the tin-can mark and the Schoolbell
 // wordmark with its marker filter, Enriqueta headline, Onest text, Courier Prime commands, ink/paper (and the dark
-// pair), cherry only on atteo's initials in the headline (the old clay accent); the shapes stay as they were (jxn #2583:
+// pair), one accent: oxblood only on Start a chat (jxn #2858), white whatever the system theme; the shapes stay as they were (jxn #2583:
 // only fonts, colours and the logo change): rounded box, button and links, round avatars; no sideways scroll from 320 to 1440px;
 // the copy is unchanged; /og.png is a 1200×630 PNG. Its type is the app's own files (/fonts/*, which the landing forwards
 // to the app): nothing is asked of Google, and every font file it asks for is one the app ships (src/fonts).
@@ -14,8 +14,8 @@ const BASE = (process.env.LANDING || process.env.BASE || "http://localhost:8811"
 let fails = 0;
 const check = (ok, t) => { console.log(`${ok ? "✓" : "✗"} ${t}`); if (!ok) fails++; };
 const browser = await chromium.launch({ executablePath: process.env.PW_CHROME || undefined });
-const CHERRY = { light: "rgb(168, 18, 30)", dark: "rgb(224, 48, 63)" };
-const BG = { light: "rgb(250, 250, 247)", dark: "rgb(14, 14, 14)" };
+const ACCENT = { light: "rgb(106, 27, 36)", dark: "rgb(194, 65, 77)" }; // oxblood, and its dark pair
+const BG = { light: "rgb(255, 255, 255)", dark: "rgb(14, 14, 14)" };
 
 for (const [w, theme] of [[1440, "light"], [1440, "dark"], [768, "light"], [390, "light"], [390, "dark"], [320, "light"]]) {
   const tag = `${w}px ${theme}`, phone = w < 500;
@@ -32,7 +32,7 @@ for (const [w, theme] of [[1440, "light"], [1440, "dark"], [768, "light"], [390,
   const r = await p.evaluate(() => {
     const cs = (sel) => { const e = document.querySelector(sel); return e ? getComputedStyle(e) : null; };
     // Every element whose text, background or border is the page's cherry (the logo's SVG strokes aside).
-    const cherry = getComputedStyle(document.documentElement).getPropertyValue("--cherry").trim();
+    const cherry = getComputedStyle(document.documentElement).getPropertyValue("--oxblood").trim();
     const probe = document.createElement("i"); probe.style.color = cherry; document.body.append(probe); const cherryRgb = getComputedStyle(probe).color; probe.remove();
     const uses = [...document.querySelectorAll("body *:not(svg):not(svg *)")].filter((e) => { const s = getComputedStyle(e); return e.offsetParent !== null && [s.color, s.backgroundColor, s.borderTopColor].includes(cherryRgb) && (s.backgroundColor === cherryRgb || (e.textContent || "").trim()); }).map((e) => e.tagName.toLowerCase() + "." + e.className);
     const radius = [".box", ".box button", ".or a", ".entry .via", ".mention", ".av"].map((s) => [s, cs(s)?.borderTopLeftRadius]);
@@ -48,7 +48,7 @@ for (const [w, theme] of [[1440, "light"], [1440, "dark"], [768, "light"], [390,
     };
   });
   check(r.bg === BG[theme], `${tag}: the ground is ${theme === "light" ? "paper" : "ink"} (${r.bg})`);
-  check(r.cherryRgb === CHERRY[theme] && r.uses.length === 5 && r.uses.every((u) => u === "span.i"), `${tag}: cherry only on atteo's initials in the headline (${JSON.stringify(r.uses)})`);
+  check(r.cherryRgb === ACCENT[theme] && r.uses.length === 1 && /^button/.test(r.uses[0]), `${tag}: one accent, oxblood, on Start a chat only (${JSON.stringify(r.uses)})`);
   check(/Enriqueta/.test(r.h1) && /Onest/.test(r.body) && /Courier Prime/.test(r.pre) && /Schoolbell/.test(r.wm), `${tag}: Enriqueta headline, Onest text, Courier Prime commands, Schoolbell wordmark`);
   check(!r.fonts.length, `${tag}: all four fonts loaded${r.fonts.length ? ` (missing ${r.fonts.join(", ")})` : ""}`);
   check(/wm-marker/.test(r.wmFilter) && r.mark, `${tag}: the tin-can mark and the wordmark with its marker filter`);
@@ -64,7 +64,26 @@ for (const [w, theme] of [[1440, "light"], [1440, "dark"], [768, "light"], [390,
 }
 const og = await fetch(`${BASE}/og.png`);
 const buf = Buffer.from(await og.arrayBuffer());
+// White by default: a phone or laptop set to dark still gets the white page (only ?theme=dark previews the dark pair).
+{ const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, colorScheme: "dark", isMobile: true });
+  const p = await ctx.newPage(); await p.goto(`${BASE}/`); await p.waitForTimeout(300);
+  const bg = await p.evaluate(() => getComputedStyle(document.body).backgroundColor);
+  check(bg === BG.light, `a system set to dark still gets the white page (${bg})`); await ctx.close(); }
 check(og.ok && og.headers.get("content-type") === "image/png" && buf.readUInt32BE(16) === 1200 && buf.readUInt32BE(20) === 630, `/og.png is a 1200×630 PNG (${buf.readUInt32BE(16)}×${buf.readUInt32BE(20)})`);
+// Found by search and answer engines (vedu #3151, task #3152): robots lets the AI crawlers read the public pages but
+// not the app's; the sitemap lists the public pages; /llms.txt and /llms-full.txt answer;
+// and the JSON-LD parses: the home page says what Atteo is, and /faq's FAQPage data is its own questions.
+{ const txt = async (p) => { const r = await fetch(`${BASE}${p}`); return { ok: r.ok, type: r.headers.get("content-type") || "", body: await r.text() }; };
+  const [robots, sitemap, llms, full, home, faqPg] = await Promise.all(["/robots.txt", "/sitemap.xml", "/llms.txt", "/llms-full.txt", "/", "/faq"].map(txt));
+  const group = (ua) => (robots.body.split(/\n\s*\n/).find((g) => g.startsWith(`User-agent: ${ua}\n`)) || "");
+  check(["*", "GPTBot", "ClaudeBot", "PerplexityBot", "Google-Extended"].every((ua) => /^Allow: \/$/m.test(group(ua)) && /^Disallow: \/b\/$/m.test(group(ua)) && /^Disallow: \/api\/$/m.test(group(ua))) && /^Sitemap: https:\/\/atteo\.dev\/sitemap\.xml$/m.test(robots.body), "robots.txt: public pages open to all crawlers, AI ones by name; boards and the API closed");
+  check(["/", "/guide", "/llms.txt"].every((p) => sitemap.body.includes(`<loc>https://atteo.dev${p}</loc>`)), "sitemap.xml lists the public pages");
+  check(llms.ok && llms.body.startsWith("# Atteo\n") && /\(https:\/\/atteo\.dev\/llms-full\.txt\)/.test(llms.body) && full.ok && /text\/plain/.test(full.type) && /PRIVACY/.test(full.body), "/llms.txt (Markdown, links the full text) and /llms-full.txt answer");
+  const ldOf = (h) => { try { return JSON.parse(h.match(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/)[1]); } catch { return null; } };
+  const ld = ldOf(home.body), fq = ldOf(faqPg.body);
+  const faq = fq?.["@graph"]?.find((g) => g["@type"] === "FAQPage")?.mainEntity?.map((q) => q.name) || [];
+  const shown = [...faqPg.body.matchAll(/<h2>([\s\S]*?)<\/h2>/g)].map((m) => m[1].replace(/<[^>]+>/g, "").replace(/&amp;/g, "&").trim());
+  check(["Organization", "SoftwareApplication"].every((t) => ld?.["@graph"]?.some((g) => g["@type"] === t)) && faq.length >= 3 && JSON.stringify(faq) === JSON.stringify(shown), `the JSON-LD parses, and /faq's FAQPage is its questions (${faq.length})`); }
 await browser.close();
 console.log(fails ? `${fails} FAILED` : "landing look: all passed");
 process.exit(fails ? 1 : 0);

@@ -39,11 +39,11 @@ enum FileKind {
 
     var tint: Color {
         switch self {
-        case .doc: return Color(red: 0.55, green: 0.66, blue: 0.95)
-        case .code: return Color(red: 0.70, green: 0.60, blue: 0.95)
+        case .doc: return Theme.kindDoc
+        case .code: return Theme.kindCode
         case .data: return Theme.warn
         case .table: return Theme.ok
-        case .image: return Color(red: 0.45, green: 0.78, blue: 0.82)
+        case .image: return Theme.kindImage
         case .log: return Theme.muted
         case .pdf: return Theme.danger
         case .other: return Theme.muted
@@ -591,8 +591,8 @@ struct CodeBlock: View {
     @State private var copied = false
     @State private var expanded = false
 
-    /// Geist Mono when the app bundles it, else the system's monospace.
-    static let mono: Font = UIFont(name: "GeistMono-Regular", size: 12.5) != nil ? .custom("GeistMono-Regular", size: 12.5) : .system(size: 12.5, design: .monospaced)
+    /// Courier Prime, the agent layer's face (design language v1).
+    static let mono: Font = Typo.mono(size: 12.5)
 
     var body: some View {
         let code = self.code.replacingOccurrences(of: #"\n+$"#, with: "", options: .regularExpression)
@@ -603,10 +603,10 @@ struct CodeBlock: View {
             HStack(spacing: Space.s) {
                 if let label {
                     (Text(label).foregroundColor(Theme.muted) + Text(language.map { "  \($0)" } ?? "").foregroundColor(Theme.faint))
-                        .font(.caption2.weight(.semibold))
+                        .font(Typo.ui(.caption2).weight(.semibold))
                 } else {
                     (language.map { Text(verbatim: $0) } ?? (numbered ? Text("\(lines.count) lines") : Text("code")))
-                        .font(.caption2.weight(.semibold)).foregroundStyle(Theme.faint).textCase(language == nil ? nil : .lowercase)
+                        .font(Typo.ui(.caption2).weight(.semibold)).foregroundStyle(Theme.faint).textCase(language == nil ? nil : .lowercase)
                 }
                 Spacer()
                 Button {
@@ -616,7 +616,7 @@ struct CodeBlock: View {
                     Task { try? await Task.sleep(nanoseconds: 1_400_000_000); withAnimation(.snappy) { copied = false } }
                 } label: {
                     Label(copied ? "Copied" : "Copy", systemImage: copied ? "checkmark" : "doc.on.doc")
-                        .font(.caption2.weight(.semibold)).foregroundStyle(copied ? Theme.ok : Theme.muted)
+                        .font(Typo.ui(.caption2).weight(.semibold)).foregroundStyle(copied ? Theme.ok : Theme.muted)
                         .labelStyle(.titleAndIcon)
                         .contentTransition(.opacity)
                 }
@@ -642,7 +642,7 @@ struct CodeBlock: View {
             if folded || (expanded && maxLines != nil) {
                 Button { withAnimation(.snappy) { expanded.toggle() } } label: {
                     Label(expanded ? "Show less" : "Show all \(lines.count) lines", systemImage: expanded ? "chevron.up" : "chevron.down")
-                        .labelStyle(.titleAndIcon).font(.caption2.weight(.semibold)).foregroundStyle(Theme.muted)
+                        .labelStyle(.titleAndIcon).font(Typo.ui(.caption2).weight(.semibold)).foregroundStyle(Theme.muted)
                         .frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
@@ -696,7 +696,7 @@ struct TableBlock: View {
         }
         .background(Theme.card, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
         .overlay(alignment: .bottomTrailing) {
-            if rows.count > shown.count { Text("first \(shown.count) of \(rows.count) rows").font(.caption2).foregroundStyle(Theme.faint).padding(6) }
+            if rows.count > shown.count { Text("first \(shown.count) of \(rows.count) rows").font(Typo.ui(.caption2)).foregroundStyle(Theme.faint).padding(6) }
         }
     }
 }

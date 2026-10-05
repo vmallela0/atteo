@@ -16,10 +16,17 @@ const check = (ok, message) => { console.log(`${ok ? "✓" : "✗"} ${message}`)
 const post = () => page.request.post(`${BASE}/api/boards/${board}/unread`);
 const count = async () => (await (await page.request.get(`${BASE}/api/inbox/count`)).json()).unread;
 // Already on /chats after a menu action that navigates there: let it finish and reload, rather than racing a second goto.
+// Then wait for the badge itself (the list renders after its own fetch), not for the page load event.
 const badge = async () => {
   await page.waitForLoadState("load");
   if (page.url() === `${BASE}/chats`) await page.reload(); else await page.goto(`${BASE}/chats`);
-  return page.locator(`.bcard[data-id="${board}"] .bc-unread`).count();
+  const loc = page.locator(`.bcard[data-id="${board}"] .bc-unread`);
+  const t = Date.now();
+  for (;;) {
+    const n = await loc.count();
+    if (n === 1 || Date.now() - t > 6000) return n;
+    await page.waitForTimeout(150);
+  }
 };
 const entry = await (await page.request.post(`${BASE}/api/boards/${board}/entries`, { data: { text: `Follow up ${run}` } })).json();
 const seq = entry.entry.seq;

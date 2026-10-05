@@ -54,7 +54,9 @@ async function open(who, width, scheme, height = 900) {
 const noSideways = (p) => p.evaluate(() => document.documentElement.scrollWidth <= innerWidth && document.body.scrollWidth <= innerWidth);
 
 // Every section, at each size and theme (screenshots before anything is decided).
-for (const [w, scheme] of [[1280, "dark"], [1280, "light"], [390, "light"], [390, "dark"], [320, "light"]]) {
+// The five sizes only read, so they run side by side; the steps after them act (approve, reply…), so they follow.
+await Promise.all([[1280, "dark"], [1280, "light"], [390, "light"], [390, "dark"], [320, "light"]].map(([w, scheme]) => full(w, scheme)));
+async function full(w, scheme) {
   const tag = `${w}px ${scheme}`;
   const { ctx, p, status } = await open(V, w, scheme);
   check(status === 200, `${tag}: GET /for-you is 200`);
@@ -150,14 +152,14 @@ for (const [w, scheme] of [[1280, "dark"], [1280, "light"], [390, "light"], [390
 }
 
 // Empty state: someone with nothing waiting.
-for (const [w, scheme] of [[1280, "light"], [390, "dark"]]) {
+await Promise.all([[1280, "light"], [390, "dark"]].map(async ([w, scheme]) => {
   const { ctx, p } = await open(E, w, scheme);
   const txt = await p.locator("#fy").innerText();
   check(/Nothing needs you right now/.test(txt) && (await p.locator("#fy-empty").isVisible()) && (await p.locator(".fy-apc").count()) === 0 && !(await p.locator("#fy-done").isVisible()), `${w}px ${scheme}: empty state in plain words`);
   check(await noSideways(p), `${w}px ${scheme}: empty page has no sideways scroll`);
   if (w === 390) await p.screenshot({ path: `${SHOTS}foryou-empty-390-dark.png` });
   await ctx.close();
-}
+}));
 
 // Signed out: sign in first.
 {

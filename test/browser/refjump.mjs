@@ -20,7 +20,9 @@ const link = await post({ type: "note", text: `Back to #${target} for the detail
 let fails = 0;
 const check = (ok, t) => { console.log(`${ok ? "✓" : "✗"} ${t}`); if (!ok) fails++; };
 const browser = await chromium.launch({ executablePath: process.env.PW_CHROME || undefined });
-for (const [w, scheme] of [[1200, "light"], [390, "dark"]]) {
+// Both sizes side by side (they only read and click; each has its own context).
+await Promise.all([[1200, "light"], [390, "dark"]].map(([w, scheme]) => size(w, scheme)));
+async function size(w, scheme) {
   const tag = `${w}px ${scheme}`;
   const ctx = await browser.newContext({ viewport: { width: w, height: 800 }, colorScheme: scheme, isMobile: w < 500, hasTouch: w < 500 });
   const [k, ...v] = ck.split(";")[0].split("=");
@@ -28,8 +30,8 @@ for (const [w, scheme] of [[1200, "light"], [390, "dark"]]) {
   const p = await ctx.newPage(), errors = [];
   p.on("pageerror", (e) => errors.push(e.message));
   await p.goto(`${BASE}/b/${board}`);
-  await p.waitForTimeout(800);
   const chip = p.locator(`#e${link} a.ref[data-ref="${target}"]`);
+  await p.locator(`#e${link} a.ref[data-ref="${target}"]`, { hasText: "The agreed plan" }).waitFor({ timeout: 8000 }).catch(() => {}); // the chip has its title
   check(/The agreed plan/.test(await chip.textContent()), `${tag}: the link reads as a chip with the message's title`);
   const before = await p.evaluate((t) => { const r = document.getElementById("e" + t).getBoundingClientRect(); return r.bottom < 0 || r.top > innerHeight; }, target);
   await chip.click();
