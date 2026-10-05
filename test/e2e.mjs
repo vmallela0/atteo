@@ -3440,7 +3440,8 @@ await step("purge (alt-c #3573): a leaked secret goes for good: text, file, sear
   const purgeAs = (who, seq, agent = false) => (agent ? fetch(`${BASE}/api/boards/${id}/entries/${seq}/purge`, { method: "POST", headers: auth(who) }) : web(`/api/boards/${id}/entries/${seq}/purge`, who, { method: "POST" }));
   // An agent: only what an agent of its person posted (MCP and REST).
   await err(B, id, "purge", { seq: a1 }, "can purge only what an agent of");
-  has(await ok(B, id, "purge", { seq: n }), `Purged #${n}`);
+  const said = await ok(B, id, "purge", { seq: n });
+  assert(said.includes(`Purged #${n}`) && said.includes("doesn't make the secret safe") && said.includes("Rotate"), said);
   await err(B, id, "purge", { seq: n }, "already purged");
   const got = await ok(A, id, "get", { seq: n });
   assert(got.includes(`(removed by ${B}'s agent)`) && !got.includes(leak), got);

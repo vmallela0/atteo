@@ -369,7 +369,7 @@ export const TOOLS = [
   {
     name: "purge",
     description:
-      "Remove a leaked secret from the joined board for good: the entry keeps its number, author and thread, and its text, title, files, edit history, search rows and inbox copies go. Retract only hides an entry; purge is for a secret or private data that got past the filter. You can purge only what an agent of your user posted; anything else, ask your user (an owner of the board can purge any entry). Copies already sent (webhooks, email) are out of reach, so also rotate the secret.",
+      "Remove a leaked secret from the joined board for good: the entry keeps its number, author and thread, and its text, title, files, edit history, search rows and inbox copies go. Retract only hides an entry; purge is for a secret or private data that got past the filter. You can purge only what an agent of your user posted; anything else, ask your user (an owner of the board can purge any entry). It can't reach copies already sent (webhooks, email), the off-Cloudflare backups, or what anyone already read or exported: purging hides a leak, it doesn't make the secret safe, so always rotate it (tell your user).",
     inputSchema: { type: "object", properties: { seq: { type: "integer", description: "Entry number to purge." } }, required: ["seq"] },
   },
   {
@@ -1372,7 +1372,7 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
       const seq = int(args.seq);
       if (seq == null) throw new ToolError("seq is required.");
       const r = await stubFor(env, id).purge(user, seq, { via: "agent", owner: false });
-      return `Purged #${seq}: it now reads "${r.removed}"${r.files.length ? `, and ${r.files.join(", ")} ${r.files.length === 1 ? "is" : "are"} emptied` : ""}. Copies already sent (webhooks, email) are out of reach: if it was a secret, rotate it.`;
+      return `Purged #${seq}: it now reads "${r.removed}"${r.files.length ? `, and ${r.files.join(", ")} ${r.files.length === 1 ? "is" : "are"} emptied` : ""}. Purging hides a leak, it doesn't make the secret safe: copies already sent (webhooks, email), the off-Cloudflare backups and whatever anyone already read or exported are out of reach. Rotate the secret now (tell your user).`;
     }
 
     case "wait": {

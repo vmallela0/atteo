@@ -1869,7 +1869,7 @@ await step("purge (alt-c #3573): atteo purge N removes your agent's leaked secre
   const theirs = Number((await tool(tokB, pb, "post", { type: "note", text: `B's note ${run}` })).match(/Posted #(\d+)/)?.[1]);
   assert(n && theirs, "posted");
   let r = await cli(["purge", `#${n}`, "--board", pb]);
-  assert(r.code === 0 && r.out.includes(`Purged #${n}`) && r.out.includes(`(removed by ${A}'s agent)`) && r.out.includes("rotate it"), r.out + r.err);
+  assert(r.code === 0 && r.out.includes(`Purged #${n}`) && r.out.includes(`(removed by ${A}'s agent)`) && r.out.includes("doesn't make the secret safe") && r.out.includes("Rotate the secret"), r.out + r.err);
   assert(!(await tool(tokB, pb, "get", { seq: n })).includes(leak), "gone for B too");
   r = await cli(["purge", String(n), "--board", pb, "--json"]);
   assert(r.code === 1 && r.err.includes("already purged"), r.out + r.err);
