@@ -412,7 +412,7 @@ struct ReadAloudBar: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityIdentifier("read-aloud-bar")
-                SpeakerToggle(style: .icon)
+                AudioOutputButton(style: .icon)
                 Button { aloud.hush() } label: { Image(systemName: "xmark").font(.system(size: 11, weight: .bold)).foregroundStyle(Theme.muted).frame(width: 28, height: 28) }
                     .buttonStyle(.plain)
                     .accessibilityLabel("Dismiss")
