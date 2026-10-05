@@ -59,12 +59,15 @@ struct ChatComposer: View {
         return !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
-    /// The mic while the box is empty (and while it's listening: what it hears fills the box, and the mic is how you
-    /// stop it); send once there's something in it.
+    /// The mic while there's no text yet (and while it's listening: what it hears fills the box, and the mic is how you
+    /// stop it), even with a picture waiting, so a caption can be said (vedu #2651); typed text gives way to send.
     private var showsMic: Bool {
         if voice.listening { return true }
-        return attachments.isEmpty && preparing == 0 && draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        return preparing == 0 && draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
+
+    /// Send once there's something to send: text, or a picture or file waiting (then it sits beside the mic).
+    private var showsSend: Bool { !showsMic || !attachments.isEmpty }
 
     // MARK: - "@"
 
@@ -167,8 +170,10 @@ struct ChatComposer: View {
                     if showsMic {
                         // Hold to talk (Voice.swift): words go in the box; "send it" at the end sends.
                         MicButton(draft: $draft, send: send, identifier: identifier == "composer" ? "mic" : "\(identifier)-mic", spoken: spoken)
+                            .padding(.trailing, showsSend ? Composer.gap : 0)
                             .transition(.scale(scale: 0.6).combined(with: .opacity))
-                    } else {
+                    }
+                    if showsSend {
                         Button(action: send) {
                             Image(systemName: "arrow.up").font(.system(size: 14, weight: .bold))
                                 .composerCircle(fill: canSend ? Theme.accent : Theme.raised)
@@ -183,6 +188,7 @@ struct ChatComposer: View {
                     }
                 }
                 .animation(.spring(duration: 0.25, bounce: 0.25), value: showsMic)
+                .animation(.spring(duration: 0.25, bounce: 0.25), value: showsSend)
             }
             .background(Theme.card, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
             .padding(.horizontal, Space.m)
