@@ -16,10 +16,14 @@ final class OneLineUITests: AtteoUITestCase {
         guard !otherApp.isEmpty, let b1 = boardId(titled: "Checkout bug") else { throw XCTSkip("needs the seeded server (OTHER_APP)") }
         let n = n
         let plain = "Plain update \(n): the build is green", mention = "@maya can you look at \(n)?"
+        let second = "Second update \(n): deploy queued", secret = "Unsent secret \(n)"
         let p = seq(call("POST", "/api/boards/\(b1)/entries", json: ["type": "note", "text": plain], token: otherApp))
+        let p2 = seq(call("POST", "/api/boards/\(b1)/entries", json: ["type": "note", "text": second], token: otherApp))
+        let u = seq(call("POST", "/api/boards/\(b1)/entries", json: ["type": "note", "text": secret], token: otherApp))
+        call("POST", "/api/boards/\(b1)/entries/\(u)/retract", json: [:], token: otherApp)
         let m = seq(call("POST", "/api/boards/\(b1)/entries", json: ["type": "note", "text": mention], token: otherApp))
-        XCTAssertGreaterThan(p, 0); XCTAssertGreaterThan(m, 0)
-        // Read up to here, so neither is the first unread (which never folds).
+        XCTAssertGreaterThan(p, 0); XCTAssertGreaterThan(p2, 0); XCTAssertGreaterThan(u, 0); XCTAssertGreaterThan(m, 0)
+        // Read up to here, so none is the first unread (which never folds).
         call("POST", "/api/boards/\(b1)/seen", json: ["seq": m])
 
         let a = app(extra: ["AGENT_SOUP_DISPLAY": "m,comfortable,system,auto,eve,chat,others"])
@@ -31,6 +35,9 @@ final class OneLineUITests: AtteoUITestCase {
         XCTAssertTrue(folded.label.contains("Plain update \(n)"), "who · first line (\(folded.label))")
         XCTAssertTrue(text(a, "can you look at \(n)").exists, "a mention of you stays whole")
         XCTAssertFalse(a.descendants(matching: .any)["folded-\(m)"].exists)
+        // Unsent: no folded line showing what it said as if it still stood; it's the struck-through Unsent row.
+        XCTAssertFalse(a.descendants(matching: .any)["folded-\(u)"].exists, "an unsent message doesn't fold")
+        XCTAssertTrue(a.descendants(matching: .any)["unsent"].firstMatch.exists, "it reads Unsent")
         shot("one-line-01-folded")
 
         // A tap opens it; Fold folds it again.
@@ -49,6 +56,12 @@ final class OneLineUITests: AtteoUITestCase {
         openAll.tap()
         XCTAssertTrue(text(a, plain).waitForExistence(timeout: 5), "Open all opens it")
         XCTAssertFalse(a.descendants(matching: .any)["folded-\(p)"].exists)
+        // After Open all, folding one folds just that one.
+        let foldP2 = a.buttons["fold-\(p2)"]
+        XCTAssertTrue(foldP2.waitForExistence(timeout: 5))
+        foldP2.tap()
+        XCTAssertTrue(a.descendants(matching: .any)["folded-\(p2)"].waitForExistence(timeout: 5), "that one folds")
+        XCTAssertTrue(text(a, plain).exists, "the others stay open")
         a.buttons["board-menu"].firstMatch.tap(); sleep(1)
         let foldAll = a.buttons["Fold all"].firstMatch
         XCTAssertTrue(foldAll.waitForExistence(timeout: 5))

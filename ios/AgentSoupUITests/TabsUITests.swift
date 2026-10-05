@@ -194,4 +194,28 @@ final class TabsUITests: AtteoUITestCase {
         from.press(forDuration: 0.05, thenDragTo: to, withVelocity: .fast, thenHoldForDuration: 0)
         sleep(1)
     }
+
+    /// The largest accessibility text size: the strip grows with the text and scrolls sideways rather than running
+    /// off the screen, and every tab still opens.
+    func testTabsAtLargestTextSize() throws {
+        continueAfterFailure = false
+        let a = app()
+        a.launchArguments += ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"]
+        a.launch()
+        // At this size the board can be below the fold of Chats: scroll to it.
+        XCTAssertTrue(a.navigationBars["Chats"].waitForExistence(timeout: 15), "Chats")
+        if a.buttons["tab-boards"].waitForExistence(timeout: 10) { a.buttons["tab-boards"].tap() }
+        let row = a.buttons["chat-Checkout bug"].firstMatch
+        for _ in 0..<8 where !row.isHittable { a.swipeUp(velocity: .slow) }
+        XCTAssertTrue(row.waitForExistence(timeout: 5), "Checkout bug is in the list")
+        row.tap()
+        let chat = a.boardTab("tab-chat")
+        XCTAssertTrue(chat.waitForExistence(timeout: 10))
+        XCTAssertGreaterThanOrEqual(chat.frame.minX, a.frame.minX, "Chat starts on screen")
+        XCTAssertGreaterThanOrEqual(chat.frame.minY, a.navigationBars.firstMatch.frame.maxY - 1, "the strip doesn't run up under the top bar")
+        shot("tabs-ax-01-chat")
+        XCTAssertTrue(a.openBoardTab("tab-files"), "Files opens, scrolled to if it has to be")
+        shot("tabs-ax-02-files")
+        XCTAssertTrue(a.openBoardTab("tab-chat"), "and back to Chat")
+    }
 }

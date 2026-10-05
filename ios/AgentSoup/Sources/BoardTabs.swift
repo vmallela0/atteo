@@ -32,13 +32,21 @@ struct BoardTabStrip: View {
     let openTasks: Int
     let pick: (BoardTab) -> Void
     var newTask: (() -> Void)? = nil // on Tasks: a + at the strip's end (not in the top bar, where the title needs the room)
+    /// The board's latest file or unsend: when it changes, the Files count is fetched again, whichever tab is open.
+    var filesChanged: Int? = nil
     @ObservedObject private var files = FileIndex.shared
 
-    static let height: CGFloat = 40
+    /// 40pt at the default text size, taller with larger text: still fixed while the chat scrolls (only a text size
+    /// change moves it), so it can't bring the freeze back.
+    @ScaledMetric(relativeTo: .subheadline) private var height: CGFloat = 40
 
     var body: some View {
-        HStack(spacing: Space.xl) {
-            ForEach(BoardTab.allCases) { t in item(t) }
+        HStack(spacing: 0) {
+            // At the largest text sizes the three don't fit: then they scroll sideways instead of running off the edge.
+            ViewThatFits(in: .horizontal) {
+                tabs
+                ScrollView(.horizontal, showsIndicators: false) { tabs }
+            }
             Spacer(minLength: 0)
             if tab == .tasks, let newTask {
                 Button(action: newTask) {
@@ -51,15 +59,21 @@ struct BoardTabStrip: View {
             }
         }
         .padding(.horizontal, Space.l)
-        .frame(height: Self.height, alignment: .bottom)
+        .frame(height: height, alignment: .bottom)
         .frame(maxWidth: .infinity)
         .background(alignment: .bottom) { Rectangle().fill(Theme.line).frame(height: 0.5) }
         .background(Theme.bg)
         .accessibilityElement(children: .contain)
         .accessibilityAddTraits(.isTabBar)
         .accessibilityIdentifier("board-tabs")
-        // Knowing how many files there are before you open Files.
-        .task(id: board) { if files.docs[board] == nil { await files.load(board) } }
+        // Knowing how many files there are before you open Files: the cached count at once, then fresh, and again
+        // whenever a file is shared or unsent.
+        .task(id: board) { await files.load(board) }
+        .onChange(of: filesChanged) { _, _ in Task { await files.load(board) } }
+    }
+
+    private var tabs: some View {
+        HStack(spacing: Space.xl) { ForEach(BoardTab.allCases) { t in item(t) } }
     }
 
     private func count(_ t: BoardTab) -> Int? {

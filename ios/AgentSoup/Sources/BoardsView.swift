@@ -67,6 +67,7 @@ struct BoardView: View {
     /// One line (jxn #2690): the folded messages you opened (they stay open as you scroll), and Open all.
     @State private var opened: Set<Int> = []
     @State private var openAll = false
+    @State private var closed: Set<Int> = [] // after Open all: the ones you folded again
     @State private var quiet = QuietBox() // where the list is while it's being put at the first unread (not drawn)
     @State private var unreadResolved = false // where to open (first unread or the latest) is settled, once per visit
     @State private var userScrolled = false // you've scrolled yourself since it opened (nothing moves you after)
@@ -455,7 +456,8 @@ struct BoardView: View {
         .safeAreaInset(edge: .top, spacing: 0) {
             VStack(spacing: 0) {
                 // Chat · Tasks · Files (Everyday: To-dos), always the same height (BoardTabs.swift, vedu #2549).
-                BoardTabStrip(tab: $tab, board: board.id, openTasks: openTasks, pick: { select($0) }, newTask: { newTask = true })
+                BoardTabStrip(tab: $tab, board: board.id, openTasks: openTasks, pick: { select($0) }, newTask: { newTask = true },
+                              filesChanged: list.last(where: { ($0.type == "artifact" || $0.retracts != nil) && $0.pending != true })?.seq)
                     .gesture(TabSwipe(forward: true, back: true, rtl: direction == .rightToLeft) { page($0) })
                 // The People filter is on: says so, one tap shows everything again.
                 if peopleOnly && tab == .chat {
@@ -561,14 +563,14 @@ struct BoardView: View {
             if oneLineFoldable(e, r) {
                 if oneLineOpen(e) {
                     entryRow(e, grouped: grouped, mine: mine, r)
-                    Button { withAnimation(.snappy) { opened.remove(e.seq); openAll = false } } label: {
+                    Button { withAnimation(.snappy) { setOpen(e.seq, false) } } label: {
                         Label("Fold", systemImage: "chevron.up").font(Typo.micro.weight(.medium)).foregroundStyle(Theme.faint)
                     }
                     .buttonStyle(.plain)
                     .frame(maxWidth: .infinity, alignment: .trailing)
                     .accessibilityIdentifier("fold-\(e.seq)")
                 } else {
-                    FoldedRow(e: e, who: oneLineWho(e)) { withAnimation(.snappy) { _ = opened.insert(e.seq) } }
+                    FoldedRow(e: e, who: oneLineWho(e)) { withAnimation(.snappy) { setOpen(e.seq, true) } }
                         .padding(.top, grouped ? 0 : Space.xxs)
                 }
             } else {
@@ -579,16 +581,22 @@ struct BoardView: View {
 
     /// One line: may this message fold (the setting is on and it isn't for you)? Whether it's folded now is `oneLineOpen`.
     private func oneLineFoldable(_ e: Entry, _ r: Rows) -> Bool {
-        guard state.display.foldOthers, e.retracts == nil, e.seq > 0 else { return false }
+        // An unsent message stays as its "Unsent" row: a folded line would still show what it said.
+        guard state.display.foldOthers, e.retracts == nil, e.seq > 0, !r.gone.contains(e.seq) else { return false }
         let c = MessageFold.Context(me: me, direct: board.isAgentChat || board.kind == "direct", parent: e.replyTo.flatMap { r.bySeq[$0] },
                                     jumpedTo: flash, firstUnread: newAt)
         return MessageFold.folds(e, on: true, c)
     }
-    private func oneLineOpen(_ e: Entry) -> Bool { openAll || opened.contains(e.seq) }
+    private func oneLineOpen(_ e: Entry) -> Bool { openAll ? !closed.contains(e.seq) : opened.contains(e.seq) }
+    /// One message opened or folded. After Open all, folding one folds just that one (it's kept as an exception).
+    private func setOpen(_ seq: Int, _ on: Bool) {
+        if openAll { if on { closed.remove(seq) } else { closed.insert(seq) } }
+        else if on { opened.insert(seq) } else { opened.remove(seq) }
+    }
     /// Open all / Fold all: every row above changes height at once, so if you were at the latest you stay there.
     private func setAllOpen(_ on: Bool) {
         let atLatest = stick
-        withAnimation(.snappy) { openAll = on; if !on { opened.removeAll() } }
+        withAnimation(.snappy) { openAll = on; opened.removeAll(); closed.removeAll() }
         guard atLatest else { return }
         Task { try? await Task.sleep(nanoseconds: 350_000_000); toLatest() }
     }
@@ -701,7 +709,7 @@ struct BoardView: View {
                 try? await Task.sleep(nanoseconds: 350_000_000)
             }
             // One line: what you jumped to opens, and stays open once its light fades (jxn #2690).
-            if state.display.foldOthers { opened.insert(seq) }
+            if state.display.foldOthers { setOpen(seq, true) }
             scrollRequest = ScrollRequest(id: seq, anchor: .center, animated: true)
             try? await Task.sleep(nanoseconds: 300_000_000)
             withAnimation(.smooth(duration: 0.25)) { flash = seq }
