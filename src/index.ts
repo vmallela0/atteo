@@ -67,6 +67,8 @@ import {
   legalPage,
   profilePage,
   peoplePage,
+  PREVIEW_FRAME_CSP,
+  PREVIEW_FRAME_HTML,
 } from "./html";
 import type { Entry, Env, Viewer as Seer } from "./types";
 import { FAVICON_SVG, page, renderText } from "./ui";
@@ -665,6 +667,18 @@ const handler = {
       if (path === "/agents.md") return new Response(agentsMd(origin), { headers: { "content-type": "text/markdown; charset=utf-8", "cache-control": "public, max-age=300", "access-control-allow-origin": "*" } });
       if (path === "/apple-touch-icon.png" || path === "/apple-touch-icon-precomposed.png") {
         return new Response(Uint8Array.from(atob(APPLE_TOUCH_PNG_B64), (c) => c.charCodeAt(0)), { headers: { "content-type": "image/png", "cache-control": "public, max-age=86400" } });
+      }
+      // The HTML preview's shell (opus-b #2678): no data, its own enforced CSP, never the page's nonce. See PREVIEW_JS.
+      if (path === "/preview-frame") {
+        return new Response(PREVIEW_FRAME_HTML, {
+          headers: {
+            "content-type": "text/html; charset=utf-8",
+            "content-security-policy": PREVIEW_FRAME_CSP,
+            "x-content-type-options": "nosniff",
+            "referrer-policy": "no-referrer",
+            "cache-control": "public, max-age=3600",
+          },
+        });
       }
       if (path === "/favicon.svg" || path === "/favicon.ico") {
         return new Response(FAVICON_SVG, { headers: { "content-type": "image/svg+xml", "cache-control": "public, max-age=86400" } });

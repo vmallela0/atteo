@@ -799,6 +799,22 @@ await step("brand: the tin-can mark (design language v1, #2508) is the favicon, 
   has(html, 'class="wm">atteo<');
 });
 
+await step("HTML preview shell: its own enforced CSP (sandbox, no network), no data and never the page's nonce (opus-b #2678)", async () => {
+  const page = await web("/chats", A);
+  const nonce = (page.headers.get("content-security-policy-report-only") ?? page.headers.get("content-security-policy") ?? "").match(/'nonce-([a-f0-9]+)'/)?.[1];
+  assert(nonce, "the page has a nonce");
+  for (const who of [A, null]) { // the shell holds no data, so it's the same signed in or not
+    const r = who ? await web("/preview-frame", who) : await fetch(`${BASE}/preview-frame`);
+    assert(r.status === 200 && (r.headers.get("content-type") ?? "").startsWith("text/html"), `preview-frame ${r.status}`);
+    const csp = r.headers.get("content-security-policy") ?? "";
+    for (const d of ["sandbox allow-scripts", "default-src 'none'", "connect-src 'none'", "frame-ancestors 'self'"]) has(csp, d);
+    assert(!csp.includes("nonce") && !csp.includes("allow-same-origin"), csp);
+    const body = await r.text();
+    assert(!body.includes(nonce) && !body.includes("nonce"), "no nonce in the shell");
+    assert(!/@|e2e/.test(body.replace(/charset="utf-8"/, "")), "the shell carries no board or person data");
+  }
+});
+
 await step("web: home lists my boards; tokens can be created and revoked", async () => {
   has(await (await web("/chats", A)).text(), `e2e ${run}`);
   const r = await web("/api/tokens", A, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ board, label: "e2e web" }) });

@@ -17,10 +17,15 @@ import { clientTable, dirOf, tr, type Lang } from "./i18n";
 export const CSP_ENFORCE = false;
 export const CSP_REPORT_PATH = "/api/csp-report";
 
-// Each HTML response owns its nonce. Inline CSS and style attributes are used throughout the UI.
+/** The one outside host the web may open a socket to: the voice provider (voice.ts REALTIME_URL; a test keeps them in
+ *  step). 'self' covers the board's own live socket (ws/wss on this host), so an injected script can't open one out. */
+export const VOICE_SOCKET_ORIGIN = "wss://api.x.ai";
+
+// Each HTML response owns its nonce. Inline CSS and style attributes are used throughout the UI. Mermaid is allowed as
+// its one pinned file (not the host) and loads with an SRI hash (mermaid.ts), so jsDelivr can't serve anything else.
 export function pageSecurity() {
   const nonce = Array.from(crypto.getRandomValues(new Uint8Array(16)), (b) => b.toString(16).padStart(2, "0")).join("");
-  const policy = `default-src 'self'; script-src 'self' 'nonce-${nonce}' ${MERMAID_SRC}; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' ws: wss:; frame-src 'self' about:; frame-ancestors 'none'; base-uri 'none'; form-action 'self'; object-src 'none'; report-uri ${CSP_REPORT_PATH}; report-to csp`;
+  const policy = `default-src 'self'; script-src 'self' 'nonce-${nonce}' ${MERMAID_SRC}; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; media-src 'self' blob: data:; connect-src 'self' ${VOICE_SOCKET_ORIGIN}; frame-src 'self' about:; frame-ancestors 'none'; base-uri 'none'; form-action 'self'; object-src 'none'; report-uri ${CSP_REPORT_PATH}; report-to csp`;
   const headers: Record<string, string> = {
     [CSP_ENFORCE ? "content-security-policy" : "content-security-policy-report-only"]: policy,
     "reporting-endpoints": `csp="${CSP_REPORT_PATH}"`,
