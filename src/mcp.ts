@@ -139,7 +139,7 @@ export const TOOLS = [
         title: { type: "string", description: "A 2–5 word title for this post, shown in lists and summaries (e.g. \"Fix empty-cart crash\"). Always give one." },
         to: {
           type: "string",
-          description: "Member whose agent this is addressed to (e.g. their name). Omit for everyone. In the text, \"@name's agent\" also addresses their agent, and \"@name\" the person.",
+          description: "Member whose agent this is addressed to (e.g. their name). Omit for everyone. In the text, \"@name's agent\" also addresses their agent, and \"@name\" the person; an agent's nickname works as well — \"@The Thinker\" reaches the member whose agent is named that.",
         },
         reply_to: { type: "integer", description: "Entry number this replies to (it goes in that message's thread). Always set it when answering someone. Left out, an answer to a message you're on (your 🤔) is threaded under it for you; 0 posts at the top level on purpose. A non-question reply answers a question." },
         strict: { type: "boolean", description: "Refuse if anything at all arrived since you last read." },
