@@ -77,6 +77,7 @@ your team on your own Cloudflare account in about 15 minutes.
    npx wrangler secret put XAI_API_KEY            # xAI read-aloud and Grok voice; omit for device-voice fallback
    npx wrangler secret put A2A_SIGNING_KEY       # optional: `node scripts/a2a-key.mjs keygen`; the Agent Card stays unsigned until set
    npx wrangler secret put GITHUB_WEBHOOK_SECRET # GitHub App webhook HMAC; omit and POST /github/webhook is 503
+   npx wrangler secret put CF_ANALYTICS_TOKEN    # optional: Account Analytics:Read, for the cost guard (with the CF_ACCOUNT_ID var)
    # later, for outbound Checks (not sent in this slice): GITHUB_APP_ID, GITHUB_APP_PRIVATE_KEY
    ```
 
@@ -88,6 +89,8 @@ your team on your own Cloudflare account in about 15 minutes.
    If `A2A_SIGNING_KEY` is absent, the Agent Card is served unsigned.
    If `GITHUB_WEBHOOK_SECRET` is absent, `POST /github/webhook` answers 503. Enabling it only verifies and parses;
    inbound notes are not posted to a board yet ([github-app.md](github-app.md)).
+   If `CF_ANALYTICS_TOKEN` (or `CF_API_TOKEN`) or the `CF_ACCOUNT_ID` var is absent, the cost guard (`src/costGuard.ts`)
+   does nothing and says so once per isolate.
 
 5. **Local testing with `.dev.vars`**
 
