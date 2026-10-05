@@ -971,9 +971,9 @@ mark{background:var(--mark);color:inherit;border-radius:2px;padding:0 1px}
 .bp-pic{all:unset;cursor:pointer;display:inline-flex;flex:none;border-radius:7px}.bp-pic:hover .bpic{filter:brightness(.92)}.bp-pic:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .bpic-row{gap:12px;margin-bottom:12px}
 .sidebar .me{margin-top:auto;border-top:1px solid var(--line);padding-top:8px}
-/* Report a bug: conspicuous on purpose (jxn #3336) — a bordered button of its own above the account row. */
-.bug-btn{border:1px solid var(--line-strong);border-radius:8px;height:34px;margin:10px 2px 2px;color:var(--muted);background:transparent} /* a <button>: the UA's ButtonFace (#6b6b6b in dark) would sit under the muted text — axe contrast (moby #3957) */
-.bug-btn:hover{color:var(--ink);background:var(--bg-hover)}
+/* Report a bug: a quiet word at the very bottom of the sidebar, under the account row (jxn #4011). */
+.bug-btn{border:0;border-radius:0;height:auto;margin:0 2px 6px;color:var(--muted);background:transparent;font-size:12px;text-align:left} /* a <button>: the UA's ButtonFace would sit under the muted text — axe contrast (moby #3957) */
+.bug-btn:hover{color:var(--ink);background:transparent}
 #bug .bd{padding:14px 0 4px}
 .bug-private{display:flex;align-items:center;justify-content:center;min-height:44px;border:1px dashed var(--line-strong);border-radius:8px;color:var(--muted);font-size:13px;margin:10px 0;padding:0 10px;text-align:center}
 .topbar{position:sticky;top:0;z-index:10;height:48px;display:flex;align-items:center;gap:12px;padding:0 20px;border-bottom:1px solid var(--line);
@@ -1715,9 +1715,9 @@ export function appPage(
   <div class="side-label"><span>${esc(T("Your boards"))}</span><a href="/?new=1" title="${esc(T("New board (C)"))}" aria-label="${esc(T("New board"))}">${ICON.plus}</a></div>
   ${sideBoards || `<p class="xs faint" style="padding:2px 9px">${esc(T("No boards yet"))}</p>`}
   <div class="side-label"><span>${esc(T("DMs"))}</span></div>${sideOwn}${sideDirect}
-  <button class="side-link bug-btn" type="button" data-bug data-bug-src="${BUG_JS_SRC}">${ICON.bug}<span>${esc(T("Report a bug"))}</span></button>
   <div class="me"><a class="side-link" href="/me">${avatar(v.name, "sm")}<span class="truncate">${esc(v.name)}</span></a>
 </div>
+  <button class="side-link bug-btn" type="button" data-bug data-bug-src="${BUG_JS_SRC}" aria-label="${esc(T("Report a bug"))}">bug</button>
 </aside>
 <div class="nav-scrim" data-nav-close aria-hidden="true"></div>
 <div class="grow" style="min-width:0">
