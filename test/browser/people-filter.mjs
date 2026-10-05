@@ -38,6 +38,9 @@ await say(ckQ, bPersonLast, "Person last here.");
 const bSolo = await newBoard("Solo", false);
 await say(ckP, bSolo, "Just me.");
 await say(ckQ, bAgentLast, "Bump."); await agentSay(bAgentLast, "Agent last again."); // newest activity, but an agent wrote last
+// The widths run side by side and each posts live to the main board, so the main board goes to the top of the chat list
+// now: nobody's live post moves it while another width compares the list's order.
+await say(ckQ, board, "Person bumps the main board.");
 
 let fails = 0;
 const check = (ok, t) => { console.log(`${ok ? "✓" : "✗"} ${t}`); if (!ok) fails++; };
@@ -46,7 +49,8 @@ const visible = (p, seqs) => p.evaluate((ss) => ss.map((s) => { const e = docume
 const innerWidthOf = (w) => w;
 const allOf = (a) => a.every(Boolean), noneOf = (a) => a.every((x) => !x);
 
-for (const [label, w, scheme] of [["1280px light", 1280, "light"], ["390px dark", 390, "dark"], ["320px light", 320, "light"]]) {
+await Promise.all([["1280px light", 1280, "light"], ["390px dark", 390, "dark"], ["320px light", 320, "light"]].map(([label, w, scheme]) => width(label, w, scheme)));
+async function width(label, w, scheme) {
   const ctx = await browser.newContext({ viewport: { width: w, height: 860 }, colorScheme: scheme, isMobile: w < 500, hasTouch: w < 500 });
   const [k, ...v] = ckP.split(";")[0].split("=");
   await ctx.addCookies([{ name: k, value: v.join("="), url: BASE }]);

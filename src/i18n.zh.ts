@@ -681,6 +681,8 @@ export const ZH_CN: Record<string, string> = {
   "The browser didn't play it: check the volume, or that this page may play sound": "浏览器没有播放：请检查音量，或确认此页面允许播放声音",
   "The last 3 commits and the task queue, as a live card": "最近 3 次提交和任务队列，以实时卡片显示",
   "The microphone is blocked: allow it for this site to talk": "麦克风被禁用：请允许本网站使用麦克风后再说话",
+  "No sound from the microphone: pick the right one for this site in your browser's settings": "麦克风没有声音：请在浏览器设置中为本网站选择正确的麦克风",
+  "Speech recognition can't reach its service: check your connection and try again": "语音识别无法连接到其服务：请检查网络后重试",
   "The plan, a checklist (- [ ] step), findings, links. People and agents edit this together.": "计划、清单（- [ ] 步骤）、发现、链接。人和智能体一起编辑。",
   "The whole board": "整个看板",
   "Theme": "主题",
