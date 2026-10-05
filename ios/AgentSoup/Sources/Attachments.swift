@@ -262,7 +262,7 @@ struct AttachmentTray: View {
                 FileIcon(name: a.name, size: 28)
                 VStack(alignment: .leading, spacing: 1) {
                     Text(a.name).font(Typo.micro.weight(.medium)).foregroundStyle(Theme.text).lineLimit(1).truncationMode(.middle)
-                    Text(a.data.count.bytes).font(.caption2).foregroundStyle(Theme.faint)
+                    Text(a.data.count.bytes).font(Typo.ui(.caption2)).foregroundStyle(Theme.faint)
                 }
             }
             .padding(.leading, Space.s).padding(.trailing, Space.m)

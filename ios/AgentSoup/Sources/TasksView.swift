@@ -113,7 +113,7 @@ struct WorkStrip: View {
                     }
                     Spacer(minLength: Space.s)
                     Text(summary(doing: doing.count, next: next.count)).font(Typo.micro).foregroundStyle(Theme.faint).monospacedDigit()
-                    Image(systemName: "chevron.right").font(.caption2.weight(.semibold)).foregroundStyle(Theme.faint)
+                    Image(systemName: "chevron.right").font(Typo.ui(.caption2).weight(.semibold)).foregroundStyle(Theme.faint)
                 }
                 .padding(.horizontal, Space.m).padding(.vertical, Space.s)
                 .background(Theme.card, in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
@@ -718,7 +718,7 @@ struct TaskDetail: View {
                         .padding(.bottom, Space.s)
                         .accessibilityIdentifier("task-parent")
                     }
-                    Text(task.title).font(.title3.weight(.semibold)).foregroundStyle(Theme.text)
+                    Text(task.title).font(Typo.ui(.title3).weight(.semibold)).foregroundStyle(Theme.text)
                         .fixedSize(horizontal: false, vertical: true)
                         .padding(.bottom, Space.m)
                     TaskActionBar(task: task, board: board)
@@ -731,7 +731,7 @@ struct TaskDetail: View {
                                     Text(a.title).font(Typo.micro).foregroundStyle(Theme.muted).lineLimit(1)
                                 }
                                 Spacer(minLength: 0)
-                                Image(systemName: "chevron.right").font(.caption2.weight(.semibold)).foregroundStyle(Theme.faint)
+                                Image(systemName: "chevron.right").font(Typo.ui(.caption2).weight(.semibold)).foregroundStyle(Theme.faint)
                             }
                             .padding(.horizontal, Space.m).padding(.vertical, 10)
                             .background(Theme.accent.opacity(0.12), in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))

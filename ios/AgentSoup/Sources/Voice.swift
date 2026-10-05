@@ -159,7 +159,7 @@ struct MicButton: View {
         Image(systemName: voice.listening ? "waveform" : "mic.fill")
             .font(.system(size: 14, weight: .bold))
             .symbolEffect(.variableColor.iterative, isActive: voice.listening && Effects.enabled)
-            .composerCircle(fill: voice.listening ? Theme.accent : Theme.raised)
+            .composerCircle(fill: voice.listening ? Theme.cherry : Theme.raised)
             .foregroundStyle(voice.listening ? Theme.onAccent : Theme.muted)
             .scaleEffect(holding ? 1.12 : 1)
             .animation(.spring(duration: 0.25, bounce: 0.3), value: holding)

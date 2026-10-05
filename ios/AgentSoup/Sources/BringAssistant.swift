@@ -129,7 +129,7 @@ struct BringAssistantView: View {
                 VStack(alignment: .leading, spacing: Space.l) {
                     AtteoMark(size: 48).padding(.top, Space.s)
                     VStack(alignment: .leading, spacing: Space.s) {
-                        Text("Bring your assistant").font(.largeTitle.weight(.bold)).foregroundStyle(Theme.text)
+                        Text("Bring your assistant").font(Typo.ui(.largeTitle).weight(.bold)).foregroundStyle(Theme.text)
                             .accessibilityIdentifier("bring-title")
                         Text("Your assistant can talk to your family's and coworkers' assistants to get things done. It asks you before it pays, books or sends anything.")
                             .font(Typo.body).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
@@ -310,7 +310,7 @@ struct ConnectSteps: View {
 
     private func copyField(_ text: String, mono: Bool = false) -> some View {
         HStack(alignment: .top, spacing: Space.s) {
-            Text(text).font(mono ? .system(.footnote, design: .monospaced) : Typo.secondary).foregroundStyle(Theme.text)
+            Text(text).font(mono ? Typo.mono(.footnote) : Typo.secondary).foregroundStyle(Theme.text)
                 .textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
             Button { copy(text) } label: { Image(systemName: "doc.on.doc").font(.system(size: 14)).foregroundStyle(Theme.muted).frame(width: 32, height: 32) }
                 .accessibilityLabel("Copy")

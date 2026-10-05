@@ -148,9 +148,15 @@ final class LanguageUITests: AtteoUITestCase {
         shot("language-\(tag)-chats")
         openSettings(a, label: settings, title: settings)
         shot("language-\(tag)-dev-settings")
-        // Display is below the fold: scroll to the Language row (in it), then its header is on screen.
+        // Display is below the fold: scroll to the Language row (in it). Its header sits five rows above it (Text
+        // size, Density, Theme, Replies), which longer words in Hindi or Korean push off the top: nudge back down
+        // until the header is on screen.
         let row = a.buttons["display-lang"]
         for _ in 0..<10 where !(row.exists && row.isHittable) { a.swipeUp(velocity: .slow) }
+        let header = a.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", display)).firstMatch
+        for _ in 0..<4 where !(header.exists && header.isHittable) {
+            a.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.35)).press(forDuration: 0.05, thenDragTo: a.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.6)))
+        }
         XCTAssertTrue(has(a, display), "Display → \(display)")
         shot("language-\(tag)-dev-settings-display")
         XCTAssertEqual(serverLang(), code)

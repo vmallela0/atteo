@@ -5,7 +5,10 @@ struct AtteoApp: App {
     @StateObject private var state = AppState.shared
     @Environment(\.scenePhase) private var phase
 
-    init() { TalkCallButton.plugIn() } // voice chat on Everyday's Ask screen (TalkCallButton.swift)
+    init() {
+        TalkCallButton.plugIn() // voice chat on Everyday's Ask screen (TalkCallButton.swift)
+        Typo.applyUIKitAppearance() // the design language's fonts in UIKit's bars (Theme.swift)
+    }
 
     var body: some Scene {
         WindowGroup {
