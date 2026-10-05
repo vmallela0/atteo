@@ -7,7 +7,7 @@ import { tr } from "./i18n";
 import { esc } from "./util";
 import { approvalCardHtml, approvalJs, type ApprovalCardData } from "./approvalCard";
 import type { Env } from "./types";
-import { classify, DEFAULT_LEVEL, type Interrupt, type Level, type NotifyPrefs } from "./notify";
+import { classify, DEFAULT_LEVEL, lastDigestAt, type Interrupt, type Level, type NotifyPrefs } from "./notify";
 
 export interface InboxItem {
   id: number;
@@ -49,6 +49,32 @@ export function withInterrupts<T extends InboxItem>(items: T[], levels: Record<s
     const level = (board && levels[board]) || DEFAULT_LEVEL;
     return { ...i, interrupt: classify({ kind: i.kind, broadcast: i.broadcast, direct: i.board_kind === "direct", risk: i.push?.risk }, level, prefs.quiet, now) };
   });
+}
+
+/**
+ * The digest that's due at `at` (notify.summary's digest_at): the unread items that waited for it, i.e. arrived after the
+ * slot before it and up to it, and were digest items when they arrived (your level for their board, your quiet hours
+ * then). Clients show it once when digest_at moves, so nothing is missed between polls or counted twice.
+ */
+export async function digestDue(env: Env, user: string, levels: Record<string, Level>, prefs: NotifyPrefs, at: number | null): Promise<{ n: number; boards: string[] } | null> {
+  if (at == null) return null;
+  const from = lastDigestAt(prefs, at - 1) ?? at - 86_400_000;
+  const r = await env.DB.prepare(
+    `SELECT n.id, n.board_id, b.title AS board_title, b.kind AS board_kind, n.seq, n.kind, n.actor, n.actor_via, n.entry_type, n.excerpt, n.created_at, n.read_at, n.data
+     FROM notifications n LEFT JOIN boards b ON b.id = n.board_id
+     WHERE n.user = ? AND n.read_at IS NULL AND n.created_at > ? AND n.created_at <= ? AND n.kind NOT IN ('trigger', 'from_your_person')
+       AND (n.board_id = '' OR n.board_id IN (SELECT board_id FROM members WHERE user = ?))
+     ORDER BY n.created_at DESC LIMIT 500`,
+  )
+    .bind(user, from, at, user)
+    .all<InboxRow>();
+  const waited = r.results.map(withPush).filter((i) => {
+    const board = i.board_id || i.push?.board || "";
+    const level = (board && levels[board]) || DEFAULT_LEVEL;
+    return classify({ kind: i.kind, broadcast: i.broadcast, direct: i.board_kind === "direct", risk: i.push?.risk }, level, prefs.quiet, i.created_at) === "digest";
+  });
+  const boards = [...new Set(waited.map((i) => i.board_title).filter((t): t is string => !!t))].slice(0, 5);
+  return { n: waited.length, boards };
 }
 
 /** People-only items (a message only the people named can see) go to person callers only: agent tokens read this API too. */

@@ -933,9 +933,11 @@ export const RU: Record<string, string> = {
   "Quiet hours": "Тихие часы",
   "Nothing interrupts you then, except urgent approvals.": "В это время вас ничто не потревожит, кроме срочных одобрений.",
   "Notifications saved": "Уведомления сохранены",
-  "{n} updates since the last digest": "{n} обновлений с последней сводки",
+  "{n} updates since the last digest": "Обновлений с последней сводки: {n}",
   "When Atteo answers": "Когда Atteo отвечает",
   "Right away": "Сразу",
   "After a pause": "После паузы",
   "When I tap Done": "Когда я нажму «Готово»",
+  "{n} update since the last digest": "{n} обновление с последней сводки",
+  "Quiet hours need different start and end times.": "У тихих часов должно быть разное время начала и конца.",
 };

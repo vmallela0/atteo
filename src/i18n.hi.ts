@@ -938,4 +938,6 @@ export const HI: Record<string, string> = {
   "Right away": "तुरंत",
   "After a pause": "थोड़ा रुकने के बाद",
   "When I tap Done": "जब मैं हो गया टैप करूँ",
+  "{n} update since the last digest": "पिछले सारांश के बाद से {n} अपडेट",
+  "Quiet hours need different start and end times.": "शांत समय के शुरू और ख़त्म होने का समय अलग होना चाहिए।",
 };

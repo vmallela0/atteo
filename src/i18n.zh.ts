@@ -939,4 +939,6 @@ export const ZH_CN: Record<string, string> = {
   "Right away": "立即",
   "After a pause": "停顿之后",
   "When I tap Done": "我点“完成”时",
+  "{n} update since the last digest": "自上次汇总以来有 {n} 条更新",
+  "Quiet hours need different start and end times.": "免打扰时段的开始和结束时间不能相同。",
 };

@@ -3046,7 +3046,8 @@ function notifySection(lang?: Lang): string {
   const T = (s: string, v?: Record<string, string | number>) => tr(lang, s, v);
   return `<div class="section-title" style="margin-top:32px"><div><h2>${esc(T("Notifications"))}</h2><p class="small muted" style="margin-top:4px" id="ns-hint" data-needs="${esc(T("Approvals, @you, replies, decisions and DMs notify you at once; the rest waits for a digest at {times}.", { times: "{times}" }))}"></p></div></div>
 <form class="card pad" id="ns-form"><label class="pf-check"><input type="checkbox" id="ns-quiet"><span><span class="small" style="color:var(--ink)">${esc(T("Quiet hours"))}</span><span class="xs muted">${esc(T("Nothing interrupts you then, except urgent approvals."))}</span></span></label>
-<div class="row" style="gap:8px;margin-top:10px;flex-wrap:wrap"><label class="lbl" for="ns-start">${esc(T("From"))}</label><input class="input" type="time" id="ns-start" value="22:00" style="width:auto"><label class="lbl" for="ns-end">${esc(T("To"))}</label><input class="input" type="time" id="ns-end" value="07:00" style="width:auto"></div></form>`;
+<div class="row" style="gap:8px;margin-top:10px;flex-wrap:wrap"><label class="lbl" for="ns-start">${esc(T("From"))}</label><input class="input" type="time" id="ns-start" value="22:00" style="width:auto"><label class="lbl" for="ns-end">${esc(T("To"))}</label><input class="input" type="time" id="ns-end" value="07:00" style="width:auto"></div>
+<p class="xs" id="ns-err" role="alert" style="margin-top:6px;color:var(--danger)" hidden>${esc(T("Quiet hours need different start and end times."))}</p></form>`;
 }
 
 const NOTIFY_JS = `
@@ -3054,8 +3055,12 @@ const NOTIFY_JS = `
   const tz=Intl.DateTimeFormat().resolvedOptions().timeZone||'UTC';
   const show=j=>{q.checked=!!j.quiet.on;s.value=j.quiet.start;e.value=j.quiet.end;hint.textContent=hint.dataset.needs.split('{times}').join(j.digest.join(', '))};
   fetch('/api/me/notify?tz='+encodeURIComponent(tz)).then(r=>r.ok?r.json():null).then(j=>{if(j)show(j)}).catch(()=>{});
-  f.addEventListener('change',async()=>{const r=await fetch('/api/me/notify',{method:'PUT',headers:{'content-type':'application/json'},body:JSON.stringify({quiet:{on:q.checked,start:s.value||'22:00',end:e.value||'07:00',tz}})}).catch(()=>null);
-    if(r&&r.ok){show(await r.json());toast(tr('Notifications saved'))}else toast(tr('Could not save'))})})();`;
+  const err=document.getElementById('ns-err');
+  f.addEventListener('change',async()=>{const st=s.value||'22:00',en=e.value||'07:00';
+    // Same start and end isn't a window (the server refuses it too): say so here and don't save.
+    err.hidden=st!==en;s.setAttribute('aria-invalid',String(st===en));e.setAttribute('aria-invalid',String(st===en));if(st===en)return;
+    const r=await fetch('/api/me/notify',{method:'PUT',headers:{'content-type':'application/json'},body:JSON.stringify({quiet:{on:q.checked,start:st,end:en,tz}})}).catch(()=>null);
+    if(r&&r.ok){show(await r.json());toast(tr('Notifications saved'))}else{const j=r?await r.json().catch(()=>null):null;toast(j&&j.error||tr('Could not save'))}})})();`;
 
 /** Account → Display: how the chat looks to you (Slack-style). Saved to your profile, so the web and the app match. */
 function displaySection(d: Display | null | undefined, lang?: Lang): string {

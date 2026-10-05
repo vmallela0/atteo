@@ -938,4 +938,6 @@ export const TR: Record<string, string> = {
   "Right away": "Hemen",
   "After a pause": "Bir duraklamadan sonra",
   "When I tap Done": "Bitti'ye dokunduğumda",
+  "{n} update since the last digest": "Son özetten bu yana {n} güncelleme",
+  "Quiet hours need different start and end times.": "Sessiz saatlerin başlangıç ve bitiş saatleri farklı olmalı.",
 };

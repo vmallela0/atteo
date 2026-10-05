@@ -30,6 +30,9 @@ export const DEFAULT_PREFS: NotifyPrefs = { quiet: { on: false, start: "22:00", 
 
 export class NotifyError extends Error {}
 
+/** The 400 (and the web's and app's inline text) when quiet hours start and end at the same time. */
+export const QUIET_SAME = "Quiet hours need different start and end times.";
+
 /** What a notification is, for deciding whether it interrupts. */
 export interface NotifyItem {
   kind: string; // inbox kind: mention | agent | reply | decision | approval | people_only | friend_request | …
@@ -67,7 +70,7 @@ export function inQuiet(q: Quiet, now: number): boolean {
   if (!q.on) return false;
   const w = wallClock(now, q.tz);
   const t = w.h * 60 + w.mi, s = mins(q.start), e = mins(q.end);
-  if (s === e) return true; // the whole day
+  if (s === e) return false; // refused when saved (mergePrefs); an older row like that is no window, not the whole day
   return s < e ? t >= s && t < e : t >= s || t < e;
 }
 
@@ -127,6 +130,8 @@ export function mergePrefs(cur: NotifyPrefs, raw: unknown): NotifyPrefs {
     } catch (e) {
       throw new NotifyError((e as Error).message.replace(/^at is/, "start and end are"));
     }
+    // Same start and end would read as "quiet all day" to some and "no quiet hours" to others: ask for a real window.
+    if (next.quiet.start === next.quiet.end) throw new NotifyError(QUIET_SAME);
   }
   if (b.digest !== undefined) {
     if (!Array.isArray(b.digest) || !b.digest.length || b.digest.length > 6) throw new NotifyError('digest is 1–6 times of day, e.g. ["09:00", "13:00", "18:00"].');

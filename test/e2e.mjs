@@ -1766,15 +1766,29 @@ await step("notification volume (vedu #2490): per-board levels, quiet hours and 
   assert((await item(direct.it.seq)).it.interrupt === "none", "off: none");
   const count = await (await web(`/api/inbox/count`, B)).json();
   assert(count.unread >= 3 && count.latest.interrupt === "none" && count.notify, `count still counts, latest has interrupt: ${JSON.stringify(count)}`);
+  // The digest that's due is counted by the server (#2668): a number and its boards, never on an agent's count.
+  assert(Number.isInteger(count.notify.digest_count) && Array.isArray(count.notify.digest_boards), `digest_count: ${JSON.stringify(count.notify)}`);
+  assert(!("notify" in (await (await fetch(`${BASE}/api/inbox/count`, { headers: auth(B) })).json())), "agents get no notify on the count");
   // Your level is yours: A still sees the default for the same board.
   assert((await (await web(`/api/boards/${nb}/notify`, A)).json()).level === "needs_me", "A's own level");
-  // Quiet hours all day (start == end): a direct @B is held for the digest.
+  // Quiet hours around now (UTC): a direct @B is held for the digest.
   await put(B, `/api/boards/${nb}/notify`, { level: "needs_me" });
-  const q = await (await put(B, `/api/me/notify`, { quiet: { on: true, start: "00:00", end: "00:00", tz: "UTC" } })).json();
+  const hm = (t) => new Date(t).toISOString().slice(11, 16);
+  const q = await (await put(B, `/api/me/notify`, { quiet: { on: true, start: hm(Date.now() - 3_600_000), end: hm(Date.now() + 3_600_000), tz: "UTC" } })).json();
   assert(q.quiet.on && q.quiet_now === true, JSON.stringify(q));
+  // The same start and end is no window: refused, with a message the UI shows (#2668), and nothing changes.
+  const same = await put(B, `/api/me/notify`, { quiet: { start: "06:15", end: "06:15" } });
+  assert(same.status === 400 && /different start and end/.test((await same.json()).error), "same start and end: 400");
+  assert((await (await web(`/api/me/notify`, B)).json()).quiet.start === q.quiet.start, "the refused times weren't saved");
   assert((await item(direct.it.seq)).it.interrupt === "digest", "quiet: held for the digest");
   await put(B, `/api/me/notify`, { quiet: { on: false } });
   assert((await item(direct.it.seq)).it.interrupt === "now", "quiet off again");
+  // The digest that's due counts every item that waited (the @all broadcast here), not one per poll: a digest time just
+  // ahead, asked a few minutes later (the dev clock), covers everything since the same time yesterday.
+  await put(B, `/api/me/notify`, { digest: [hm(Date.now() + 120_000)] });
+  const later = await (await web(`/api/inbox/count`, B, { headers: { "x-dev-now": String(Date.now() + 300_000) } })).json();
+  assert(later.notify.digest_count >= 1 && later.notify.digest_boards.includes(`e2e notify ${run}`), `the digest due: ${JSON.stringify(later.notify)}`);
+  await put(B, `/api/me/notify`, { digest: ["09:00", "13:00", "18:00"] });
   // Bad values are refused and nothing is saved.
   for (const bad of [{ level: "loud" }, {}]) assert((await put(B, `/api/boards/${nb}/notify`, bad)).status === 400, `bad level ${JSON.stringify(bad)}`);
   for (const bad of [{ quiet: { start: "25:00" } }, { quiet: { tz: "Mars/Base" } }, { digest: [] }, { sound: "loud" }]) assert((await put(B, `/api/me/notify`, bad)).status === 400, `bad prefs ${JSON.stringify(bad)}`);

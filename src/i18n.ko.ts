@@ -938,4 +938,6 @@ export const KO: Record<string, string> = {
   "Right away": "바로",
   "After a pause": "잠시 멈춘 뒤",
   "When I tap Done": "완료를 탭할 때",
+  "{n} update since the last digest": "지난 요약 이후 업데이트 {n}개",
+  "Quiet hours need different start and end times.": "방해 금지 시간의 시작과 종료 시간은 달라야 합니다.",
 };
