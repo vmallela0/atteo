@@ -1,7 +1,8 @@
 // Settings as a side drawer (vedu #2488): on the first screen (Chats, or Everyday's For you), pull from the left edge
-// and Settings slides in with your finger, the screen moving over with it (like Discord or Telegram's side menu).
-// Past half way (or a flick) it opens, short of it it springs back. The screen keeps a strip showing at the side:
-// tap it or swipe it back to close (Settings' own sideways controls, its segmented pickers, keep their drags). The
+// and Settings slides in with your finger, over the screen, which stays where it is under a dim (jxn #4071: pushing
+// the screen over left a sliver of it cut off mid-word, "Chat", "Needs", "Boar"; over it, the strip beside the drawer
+// is the screen's own right edge, whole). Past half way (or a flick) it opens, short of it it springs back. The strip
+// beside it stays tappable: tap it or swipe it back to close (Settings' own sideways controls, its segmented pickers, keep their drags). The
 // picture button top left still opens Settings as before. Only on the first screen: inside a chat the edge swipe is
 // the system's Back. VoiceOver: "Open Settings" is an action on the screen, so the gesture is never the only way.
 
@@ -52,15 +53,17 @@ struct SettingsDrawer: ViewModifier {
 
     func body(content: Content) -> some View {
         let w = DrawerMotion.width(for: screen)
-        // The screen itself is left as it is (no container around it, nothing over it while the drawer is shut), so
-        // with a chat open the drawer changes nothing there: not its layout, hit-testing or accessibility.
+        // The screen itself is left as it is (no container around it, nothing over it while the drawer is shut, and it
+        // doesn't move when it opens), so with a chat open the drawer changes nothing there: not its layout,
+        // hit-testing or accessibility.
         content
-            .offset(x: progress * w * sign)
+            // Softened behind the open drawer, so the strip beside it reads as the screen underneath, not cut-off words.
+            .blur(radius: progress * 6, opaque: true)
             .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { screen = $0 }
             .overlay {
                 // The screen beside the open drawer: dimmed; tap or swipe it to close. Only while it's out.
                 if progress > 0 || mounted {
-                    Color.black.opacity(0.28 * progress)
+                    Color.black.opacity(0.32 * progress)
                         .ignoresSafeArea()
                         .contentShape(Rectangle())
                         .onTapGesture { settle(open: false) }
@@ -90,7 +93,7 @@ struct SettingsDrawer: ViewModifier {
                         .frame(width: w)
                         .frame(maxHeight: .infinity)
                         .offset(x: (progress - 1) * w * sign)
-                        .shadow(color: .black.opacity(0.18 * progress), radius: 12)
+                        .shadow(color: .black.opacity(0.22 * progress), radius: 16)
                         .accessibilityIdentifier("settings-drawer")
                         .accessibilityHidden(progress == 0)
                         .transition(.identity)
