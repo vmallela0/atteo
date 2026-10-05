@@ -163,9 +163,10 @@ async function makeUser(name, { email, verified = "true", token = true, session 
 async function makeUsers(list, opts = {}) {
   await Promise.all(list.map((n) => (typeof n === "string" ? makeUser(n, opts) : makeUser(n.name, { ...opts, ...n }))));
 }
-// The board page loads its shared script from /board.js (#3431): the steps that read the page's code put it back inline.
+// The board page loads its shared script from /board.js (#3431), and every app page its shell from /shell.js: the steps
+// that read the page's code put them back inline.
 const withBoardJs = async (html) => {
-  for (const m of [...html.matchAll(/<script src="(\/board\.js\?v=[^"]+)"[^>]*><\/script>/g)]) {
+  for (const m of [...html.matchAll(/<script src="(\/(?:board|shell)\.js\?v=[^"]+)"[^>]*><\/script>/g)]) {
     const js = await (await fetch(BASE + m[1])).text();
     html = html.replace(m[0], () => `<script>${js}</script>`);
   }

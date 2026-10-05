@@ -2,37 +2,37 @@
  "note": "test/browser/web-budget.mjs: bytes (decoded) and request counts per page. UPDATE=1 node web-budget.mjs rewrites it.",
  "pages": {
   "board": {
-   "html": 88258,
-   "inline_js": 115011,
+   "html": 88414,
+   "inline_js": 99607,
    "inline_css": 53,
-   "js": 231134,
-   "css": 138239,
+   "js": 248636,
+   "css": 139113,
    "img": 0,
-   "data": 6501,
+   "data": 6504,
    "fonts": 94264,
-   "requests": 29
+   "requests": 32
   },
   "for-you": {
-   "html": 11700,
-   "inline_js": 22912,
+   "html": 11838,
+   "inline_js": 7505,
    "inline_css": 5801,
-   "js": 18805,
-   "css": 138239,
-   "img": 0,
-   "data": 1889,
-   "fonts": 94264,
-   "requests": 13
-  },
-  "inbox": {
-   "html": 11181,
-   "inline_js": 21883,
-   "inline_css": 0,
-   "js": 18805,
-   "css": 138239,
+   "js": 34212,
+   "css": 139113,
    "img": 0,
    "data": 1889,
    "fonts": 94264,
    "requests": 14
+  },
+  "inbox": {
+   "html": 11325,
+   "inline_js": 6476,
+   "inline_css": 0,
+   "js": 34212,
+   "css": 139113,
+   "img": 0,
+   "data": 1889,
+   "fonts": 94264,
+   "requests": 15
   }
  }
 }

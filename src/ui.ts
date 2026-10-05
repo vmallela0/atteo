@@ -1719,7 +1719,7 @@ export function appPage(
 <dt><kbd>G</kbd> ${esc(T("then"))} <kbd>I</kbd> <kbd>A</kbd> <kbd>B</kbd> <kbd>P</kbd> <kbd>M</kbd></dt><dd>${esc(T("Go to Inbox / Approvals / Boards / People / Account"))}</dd>
 <dt><kbd>?</kbd></dt><dd>${esc(T("This list"))}</dd></dl></div></dialog>
 <script>window.PALETTE=${JSON.stringify(paletteItems).replace(/</g, "\\u003c")};${v.admin ? "window.OPS=1;" : ""}</script>`;
-  return rawPage(title, body, (opts.script ?? "") + SHELL_JS + INBOX_JS + LIVE_JS + MARK_UNREAD_JS + PINS_JS, opts.status, v.lang ?? "en");
+  return rawPage(title, body, (opts.script ?? "") + scriptSrc(SHELL_JS_SRC), opts.status, v.lang ?? "en");
 }
 
 const PINS_JS = `
@@ -1889,3 +1889,8 @@ if(new URLSearchParams(location.search).get('new')==='1'){const n=$('#new-board'
 const MARK_UNREAD_JS = `
 document.addEventListener('click',async e=>{const b=e.target.closest('[data-mark-unread]');if(!b)return;e.preventDefault();const id=b.dataset.markUnread;b.disabled=true;try{const r=await fetch('/api/boards/'+encodeURIComponent(id)+'/unread',{method:'POST'});const j=await r.json();if(!r.ok)throw Error(j.error||'Could not mark unread');location.href=location.pathname==='/b/'+id?'/chats':location.href}catch(err){b.disabled=false;alert(err.message)}});
 `;
+
+// The app pages' shell script (sidebar, inbox badge, live counts, mark unread, pins), the same on every page: served as
+// /shell.js (index.ts), hashed and cached for good, and run right after the page's own script, as when it was inline.
+export const SHELL_PAGE_JS = SHELL_JS + INBOX_JS + LIVE_JS + MARK_UNREAD_JS + PINS_JS;
+export const SHELL_JS_SRC = `/shell.js?v=${fnv(SHELL_PAGE_JS)}`;
