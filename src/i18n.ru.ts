@@ -1,5 +1,10 @@
 // Russian (ru) for the interface (i18n.ts): English as written in the code → Русский. Machine-drafted; native review welcome.
 export const RU: Record<string, string> = {
+  "Send feedback": "Отправить отзыв",
+  "Thanks, the Atteo team will read it.": "Спасибо, команда Atteo его прочитает.",
+  "Couldn't send it. Try again.": "Не удалось отправить. Попробуйте ещё раз.",
+  "An idea, a complaint, something you like: it goes to the Atteo team. Only what you write here is sent.": "Идея, жалоба или то, что вам нравится: это уйдёт команде Atteo. Отправляется только то, что вы напишете здесь.",
+  "Your feedback": "Ваш отзыв",
   "Report a bug": "Сообщить об ошибке",
   "Remind me": "Напомнить мне",
   "In 1 hour": "Через 1 час",

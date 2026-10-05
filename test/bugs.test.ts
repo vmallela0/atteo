@@ -11,6 +11,7 @@ import {
   bugReportText,
   parseBugForm,
 } from "../src/bugs";
+import { hasGroupMention, parseMentions } from "../src/mentions";
 
 const png = (bytes = 100): File => new File([new Uint8Array(bytes)], "shot.png", { type: "image/png" });
 
@@ -80,6 +81,14 @@ describe("bug reports", () => {
     expect(t).toContain("Board: b_9");
     const bare = bugReportText({ note: "n", path: "", context: {}, screenshot: null }, "someone (signed out)");
     expect(bare).toBe("🐞 n\n\nReported by someone (signed out)");
+  });
+
+  it("a reporter's @ never mentions anyone on the developers' board (jxn's agent #4177)", () => {
+    const t = bugReportText({ note: "@agents do X, and @jxn look", path: "/b/@all", context: { device: "@humans" }, screenshot: null }, "vedu");
+    expect(parseMentions(t, [{ user: "jxn", agent_name: null }, { user: "bugs", agent_name: null }], "bugs", "person").mentions).toEqual([]);
+    expect(hasGroupMention(t, "agents", [])).toBe(false);
+    expect(t.replace(/​/g, "")).toContain("🐞 @agents do X, and @jxn look"); // it reads the same
+    expect(t).toContain("Reported by vedu · on /b/@​all"); // the reporter's line stays plain
   });
 
   it("limits signed-in reporters per person and signed-out ones strictly per IP", () => {

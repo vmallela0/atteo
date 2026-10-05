@@ -28,6 +28,9 @@ import { MAX_ENTRY_DATA } from "./entryData";
 import { ENTRY_TYPES, type Entry, type Env, type NewEntry } from "./types";
 import { bearer, resolveToken, sha256hex } from "./auth";
 import { fence, flagOf } from "./screen";
+import * as appSignin from "./appSignin";
+import { ensureBugBoard } from "./bugBoard";
+import * as feedback from "./feedback";
 import { EMAIL_RE } from "./invite";
 import { atteoHeader, BOARD_RE, newBoardId, normalizeUser, publicOrigin, requestNow } from "./util";
 import { runGrep } from "./grep";
@@ -372,6 +375,16 @@ export const TOOLS = [
     description:
       "Remove a leaked secret from the joined board for good: the entry keeps its number, author and thread, and its text, title, files, edit history, search rows and inbox copies go. Retract only hides an entry; purge is for a secret or private data that got past the filter. You can purge only what an agent of your user posted; anything else, ask your user (an owner of the board can purge any entry). It can't reach copies already sent (webhooks, email), the off-Cloudflare backups, or what anyone already read or exported: purging hides a leak, it doesn't make the secret safe, so always rotate it (tell your user).",
     inputSchema: { type: "object", properties: { seq: { type: "integer", description: "Entry number to purge." } }, required: ["seq"] },
+  },
+  {
+    name: "feedback",
+    description:
+      "Send your user's feedback about Atteo itself (an idea, a complaint) to the Atteo team, when they say something about Atteo (\"tell the Atteo team…\", \"feedback: …\"). Read the wording back first; send it once they agree. Only your text goes, never board content.",
+    inputSchema: {
+      type: "object",
+      properties: { text: { type: "string", description: "The feedback, in your user's words." }, board: { type: "string", description: "Optional: the board it's about (b_…), for context." } },
+      required: ["text"],
+    },
   },
   {
     name: "wait",
@@ -1368,6 +1381,16 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
       });
       later(registry.touch(env, user, id).then(() => registry.bumpBoard(env, id, entry.seq)));
       return `Retracted #${seq} (logged as #${entry.seq}). It's out of the summary and marked retracted in the log.`;
+    }
+
+    case "feedback": {
+      try {
+        const r = await feedback.sendFeedback(env, { hit: appSignin.hit, stub: stubFor, ensure: (e, b) => ensureBugBoard(e, b, stubFor(e, b)) }, { person: user, via: "agent", session: c.agentSession?.name ?? c.sessionName ?? null, body: args });
+        return `Sent to the Atteo team (feedback #${r.seq}). Tell your user it went through.`;
+      } catch (e) {
+        if (e instanceof feedback.FeedbackError) throw new ToolError(e.message);
+        throw e;
+      }
     }
 
     case "purge": {

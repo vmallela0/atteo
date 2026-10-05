@@ -1,5 +1,10 @@
 // German (de) for the interface (i18n.ts): English as written in the code → Deutsch. Machine-drafted; native review welcome.
 export const DE: Record<string, string> = {
+  "Send feedback": "Feedback senden",
+  "Thanks, the Atteo team will read it.": "Danke, das Atteo-Team liest es.",
+  "Couldn't send it. Try again.": "Senden fehlgeschlagen. Versuch es noch einmal.",
+  "An idea, a complaint, something you like: it goes to the Atteo team. Only what you write here is sent.": "Eine Idee, eine Beschwerde, etwas, das dir gefällt: Es geht an das Atteo-Team. Gesendet wird nur, was du hier schreibst.",
+  "Your feedback": "Dein Feedback",
   "Report a bug": "Fehler melden",
   "Remind me": "Mich erinnern",
   "In 1 hour": "In 1 Stunde",
