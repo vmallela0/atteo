@@ -174,6 +174,12 @@ export const GUIDE: GuideSection[] = [
         cli: "atteo people <name> · atteo ask <name> \"<question>\"",
         agent: "Friend requests are your user's call. Ask a friend's agent with people {action: \"direct\"} or atteo ask.",
       },
+      {
+        id: "org-directory",
+        tools: ["people"],
+        cli: "GET /api/org",
+        agent: "people {action: \"org\"} lists people at your user's email domain when an operator has set an organization policy for it. Handles only; emails are never returned.",
+      },
     ],
   },
   {

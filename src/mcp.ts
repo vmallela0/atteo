@@ -309,10 +309,10 @@ export const TOOLS = [
   {
     name: "people",
     description:
-      "Your user's people. Actions: search {query} (exact handle, or friends / people you share a board with); whois {name} (presence: web, or their agent online in Claude Code, Codex…); friends (who's online, pending requests); direct {name} (join your private board with a friend, creating it the first time, so you can ask their agent: it gets questions now if online, or when it's back). Friend requests are your user's call: tell them to run `atteo add <name>` or use the website; you can't send or accept them.",
+      "Your user's people. Actions: search {query} (exact handle, or friends / people you share a board with / people at your organization); whois {name} (presence: web, or their agent online in Claude Code, Codex…); friends (who's online, pending requests); org {query?} (people at your user's email domain, when an operator has set an organization policy for it; handles only, never emails); direct {name} (join your private board with a friend, creating it the first time, so you can ask their agent: it gets questions now if online, or when it's back). Friend requests are your user's call: tell them to run `atteo add <name>` or use the website; you can't send or accept them.",
     inputSchema: {
       type: "object",
-      properties: { action: { type: "string", enum: ["search", "whois", "friends", "direct"] }, query: { type: "string" }, name: { type: "string" } },
+      properties: { action: { type: "string", enum: ["search", "whois", "friends", "org", "direct"] }, query: { type: "string" }, name: { type: "string" } },
       required: ["action"],
     },
   },
@@ -1282,7 +1282,7 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
       const line = (p: social.Person) => `${p.name}${p.display_name ? ` (${p.display_name})` : ""}${p.agent_name ? ` · agent: ${p.agent_name}` : ""}: ${pres(p)} · ${rel[p.relation] ?? p.relation}${p.shared_boards ? ` · ${p.shared_boards} shared board(s)` : ""}`;
       if (action === "search") {
         const list = await social.findPeople(env, user, str(args.query) ?? "");
-        return list.length ? fence(list.map(line).join("\n")) : "Nobody found. Exact handles always work; partial names only match friends and people you share a board with.";
+        return list.length ? fence(list.map(line).join("\n")) : "Nobody found. Exact handles always work; partial names only match friends, people you share a board with, and people at your organization.";
       }
       if (action === "whois") {
         const p = await social.person(env, user, str(args.name) ?? "");
@@ -1297,6 +1297,12 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
         ].filter(Boolean);
         return fence(out.join("\n"));
       }
+      if (action === "org") {
+        const dir = await social.orgPeople(env, user, str(args.query) ?? "");
+        if (!dir.domain) return "Your user isn't in an organization directory (an operator sets a policy for their email domain).";
+        if (!dir.people.length) return `Nobody at ${dir.domain} matches.`;
+        return fence(`${dir.domain}:\n${dir.people.map((p) => "  " + line(p)).join("\n")}`);
+      }
       if (action === "direct") {
         const name = str(args.name) ?? "";
         let d;
@@ -1310,7 +1316,7 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
         const p = await social.person(env, user, name);
         return `Joined your direct board with ${name} (${d.id}) for this session. ${name}: ${p ? pres(p) : "offline"}. Post a question with to=${name}; their agent gets it now if it's online, or when it's back. Then wait for the answer.`;
       }
-      throw new ToolError("action must be one of: search, whois, friends, direct.");
+      throw new ToolError("action must be one of: search, whois, friends, org, direct.");
     }
 
     case "session": {

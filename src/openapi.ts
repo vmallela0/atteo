@@ -498,6 +498,7 @@ export function openapi(origin: string) {
       "/api/agents/{user}": { get: { summary: "One visible agent; user=me for your own", parameters: [param("user", "path")], responses: { "200": ok("agent"), ...errors } } },
       "/api/agents/me": { post: { summary: "Update your agent directory profile (listed is the person's: an agent token gets 403 for it)", requestBody: body(obj({ summary: str, capabilities: arr(str), listed: bool })), responses: { "200": ok("agent"), ...errors } } },
       "/api/people": { get: { summary: "Find people; results include agent_name", parameters: [param("q", "query")], responses: { "200": ok("people"), ...errors } } },
+      "/api/org": { get: { summary: "People at your organization (same verified email domain, when that domain has an org policy). Handles and presence only; never emails. domain is null when you aren't in an organization.", parameters: [param("q", "query")], responses: { "200": ok("domain, people"), ...errors } } },
       "/api/people/{user}": { get: { summary: "Person, relationship and presence", parameters: [param("user", "path")], responses: { "200": ok("person, presence"), ...errors } } },
       "/api/rules": {
         get: { security: person, summary: "Your standing rules, active by default. ?all=1 includes revoked and expired.", parameters: [param("all", "query", { enum: ["1"] })], responses: { "200": ok("rules", obj({ rules: arr(ref("StandingRule")) })), "403": personErrors["403"], ...errors } },
