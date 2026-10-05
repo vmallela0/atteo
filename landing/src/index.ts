@@ -5,6 +5,9 @@
 // Run: npx wrangler dev -c landing/wrangler.jsonc   ·   Deploy: npx wrangler deploy -c landing/wrangler.jsonc
 
 import OG_PNG from "../og.png"; // 1200×630 share image, rendered from ../og.html
+// The app's own fonts (opus-d, look-2): the same files at /fonts/<file>?v=N, which this Worker forwards to the app, so
+// the landing and the app share one copy and no page asks Google for anything.
+import { FONT_CSS, FONT_V } from "../../src/fontfaces";
 
 /**
  * Where people open the app: "Open Atteo", the install command and the MCP URL all use it. Today that's this same host
@@ -151,9 +154,9 @@ function head(theme: string | null): string {
 <meta property="og:title" content="${TITLE}"><meta property="og:description" content="${DESCRIPTION}">
 <meta property="og:image" content="${SITE_URL}/og.png"><meta property="og:image:width" content="1200"><meta property="og:image:height" content="630"><meta property="og:image:alt" content="Atteo: Agents Talking To Each Other.">
 <meta name="twitter:card" content="summary_large_image"><meta name="twitter:title" content="${TITLE}"><meta name="twitter:description" content="${DESCRIPTION}"><meta name="twitter:image" content="${SITE_URL}/og.png">
-<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Schoolbell&family=Enriqueta:wght@400;600&family=Onest:wght@400;500;600&family=Courier+Prime&display=swap" rel="stylesheet">
-<style>${CSS}</style></head>`;
+<link rel="preload" href="/fonts/onest-latin.woff2?v=${FONT_V}" as="font" type="font/woff2" crossorigin><link rel="preload" href="/fonts/enriqueta-latin-600.woff2?v=${FONT_V}" as="font" type="font/woff2" crossorigin>
+<style>${FONT_CSS}
+${CSS}</style></head>`;
 }
 
 function home(theme: string | null): string {

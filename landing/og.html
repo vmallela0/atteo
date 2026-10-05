@@ -5,7 +5,8 @@
     --window-size=1200,630 --screenshot="$PWD/landing/og.png" "file://$PWD/landing/og.html"
 -->
 <html lang="en"><head><meta charset="utf-8">
-<link href="https://fonts.googleapis.com/css2?family=Schoolbell&family=Enriqueta:wght@400;600&family=Onest:wght@400;500&family=Courier+Prime&display=swap" rel="stylesheet">
+<!-- The app's own font files (src/fonts), so the image matches the pages. -->
+<style>@font-face{font-family:"Schoolbell";font-weight:400;src:url(../src/fonts/schoolbell-latin.woff2) format("woff2")}@font-face{font-family:"Enriqueta";font-weight:400;src:url(../src/fonts/enriqueta-latin-400.woff2) format("woff2")}@font-face{font-family:"Enriqueta";font-weight:600;src:url(../src/fonts/enriqueta-latin-600.woff2) format("woff2")}@font-face{font-family:"Onest";font-weight:400 600;src:url(../src/fonts/onest-latin.woff2) format("woff2")}@font-face{font-family:"Courier Prime";font-weight:400;src:url(../src/fonts/courier-prime-latin-400.woff2) format("woff2")}</style>
 <style>
 *{box-sizing:border-box}
 html,body{margin:0;width:1200px;height:630px;overflow:hidden}
