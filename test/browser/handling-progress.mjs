@@ -4,6 +4,7 @@
 // and a message the viewer can't see (another person's Just mine) brings no line either (claude #2503).
 // Usage: BASE=http://localhost:8787 [PERSIST=<wrangler --persist-to dir>] node handling-progress.mjs  (local dev only)
 import { d1Execute } from "./lib/d1.mjs";
+import { until } from "./lib/wait.mjs";
 import { chromium } from "playwright-core";
 const BASE = process.env.BASE || "http://localhost:8787", WT = process.env.WT || new URL("../../", import.meta.url).pathname;
 const ops = async (p, b) => (await fetch(`${BASE}/api/ops/${p}`, { method: "POST", headers: { "x-admin-key": process.env.ADMIN_KEY || "ci-admin-key", "content-type": "application/json" }, body: JSON.stringify(b) })).json();
@@ -31,8 +32,15 @@ await api("POST", `/api/sessions/${s.id}`, { status: STATUS }, s.id);
 let fails = 0;
 const check = (ok, t) => { console.log(`${ok ? "✓" : "✗"} ${t}`); if (!ok) fails++; };
 const b = await chromium.launch({ executablePath: process.env.PW_CHROME || undefined });
-// The progress line is drawn after the page asks who's handling what: wait for it rather than a fixed time.
-const lineIn = (p, seq) => p.locator(`#e${seq} .hdl-prog`, { hasText: STATUS.slice(0, 16) }).waitFor({ timeout: 10000 }).catch(() => {}); // the status fills in after the line
+// The progress line is drawn after the page asks who's handling what, and the status fills in: wait until the line
+// says the expected words rather than a timer, so a slow page under load can't turn the later reads into failures.
+// (30s: three pages share one server, and the full suite runs several checks side by side.)
+const expect = `🤔 ${A}/worker: ${STATUS}`;
+const lineText = async (p, seq, want = expect, ms = 30000) => {
+  const line = p.locator(`#e${seq} .hdl-prog`);
+  await until(async () => (await line.innerText().catch(() => "")).startsWith(want), ms);
+  return line.innerText().catch(() => "");
+};
 // B at two widths and A run side by side (all read-only); the stalled step changes the session, so it comes after.
 await Promise.all([...[[1280, false], [390, true]].map(([w, mobile]) => asB(w, mobile)), asA()]);
 async function asB(w, mobile) {
@@ -43,9 +51,8 @@ async function asB(w, mobile) {
   const errors = [];
   p.on("pageerror", (e) => errors.push(e.message));
   await p.goto(`${BASE}/b/${board}`);
-  await lineIn(p, m1);
   const line = (seq) => p.locator(`#e${seq} .hdl-prog`);
-  const t1 = await line(m1).innerText().catch(() => "");
+  const t1 = await lineText(p, m1);
   check(t1.startsWith(`🤔 ${A}/worker: ${STATUS}`) && / · <1m|· \d+m/.test(t1) && !/Stalled/.test(t1), `${w}px: under the message it's on: its status and time ("${t1}")`);
   check((await line(m1).evaluate((el) => el.querySelectorAll("*").length)) === 0, `${w}px: the status is shown as text (no markup made)`);
   check((await line(m2).count()) === 0, `${w}px: a done marker has no progress line`);
@@ -60,8 +67,7 @@ async function asA() {
   await ctx.addCookies([{ name: k, value: v.join("="), url: BASE }]);
   const p = await ctx.newPage();
   await p.goto(`${BASE}/b/${board}`);
-  await lineIn(p, own);
-  const t = await p.locator(`#e${own} .hdl-prog`).innerText().catch(() => "");
+  const t = await lineText(p, own);
   check(t.startsWith(`🤔 ${A}/worker: ${STATUS}`), `A sees the progress under their own Just mine message ("${t}")`);
   await ctx.close();
 }
@@ -74,12 +80,13 @@ if (quiet) {
   await ctx.addCookies([{ name: k, value: v.join("="), url: BASE }]);
   const p = await ctx.newPage();
   await p.goto(`${BASE}/b/${board}`);
-  await p.locator(`#e${m1} .hdl-prog.stalled`).waitFor({ timeout: 10000 }).catch(() => {});
-  const t = await p.locator(`#e${m1} .hdl-prog`).innerText().catch(() => "");
+  const line = p.locator(`#e${m1} .hdl-prog`);
+  await until(async () => /Stalled\? No activity for 1\dm/.test(await line.innerText().catch(() => "")));
+  const t = await line.innerText().catch(() => "");
   check(/Stalled\? No activity for 1\dm/.test(t) && (await p.locator(`#e${m1} .hdl-prog.stalled`).count()) === 1, `a quiet session: "stalled?" ("${t}")`);
   // Releasing the marker takes the line away live.
   await api("POST", `/api/boards/${board}/handle/${m1}`, { action: "release" }, s.id);
-  await p.locator(`#e${m1} .hdl-prog`).waitFor({ state: "detached", timeout: 10000 }).catch(() => {});
+  await until(async () => (await p.locator(`#e${m1} .hdl-prog`).count()) === 0);
   check((await p.locator(`#e${m1} .hdl-prog`).count()) === 0, "a released marker's line goes away");
   await ctx.close();
 }
