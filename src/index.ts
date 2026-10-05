@@ -77,7 +77,7 @@ import {
   PREVIEW_FRAME_HTML,
 } from "./html";
 import type { Entry, Env, Viewer as Seer } from "./types";
-import { FAVICON_SVG, page, renderText } from "./ui";
+import { APP_CSS, APP_JS, FAVICON_SVG, page, renderText } from "./ui";
 import { APPLE_TOUCH_PNG_B64 } from "./appleIcon";
 import { assistantWelcomePage } from "./welcome";
 import { atteoHeader, BOARD_RE, connectCommand, esc, newBoardId, legacyHostRedirect, normalizeUser, parseBoardMeta, publicOrigin, requestNow } from "./util";
@@ -1580,6 +1580,11 @@ const handler = {
       // The web's fonts (fonts.ts): served here, so no page asks Google for anything (#2515).
       if (path.startsWith("/fonts/") && method === "GET") return fontResponse(path, url) ?? new Response("not found", { status: 404 });
 
+      // Every page's stylesheet and shell script (ui.ts): the pages ask for them with a version hash, so they're cached for good.
+      if ((path === "/app.css" || path === "/app.js") && method === "GET") {
+        const css = path === "/app.css";
+        return new Response(css ? APP_CSS : APP_JS, { headers: { "content-type": css ? "text/css; charset=utf-8" : "text/javascript; charset=utf-8", "cache-control": url.searchParams.get("v") ? "public, max-age=31536000, immutable" : "public, max-age=300", "x-content-type-options": "nosniff" } });
+      }
       // Syntax colours for code blocks (codecolor.ts): pages load it only once a code block is on screen; the URL is versioned.
       if (path === CODE_COLOR_PATH && method === "GET") return new Response(CODE_COLOR_SCRIPT, { headers: { "content-type": "text/javascript; charset=utf-8", "cache-control": url.searchParams.get("v") ? "public, max-age=31536000, immutable" : "public, max-age=300", "x-content-type-options": "nosniff" } });
 
