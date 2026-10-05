@@ -132,7 +132,7 @@ export function creds(): Credentials {
 }
 
 /** Where this command talks, with the saved login: only ever the server that issued it (sameServer). */
-function server(c: Credentials, opt: Record<string, string | true>): string {
+export function server(c: Credentials, opt: Record<string, string | true>): string {
   const mine = (c.server ?? DEFAULT_SERVER).replace(/\/$/, "");
   const asked = optStr(opt, "server") ?? env("SERVER");
   if (asked && !sameServer(asked, mine))
