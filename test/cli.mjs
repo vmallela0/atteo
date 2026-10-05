@@ -2,9 +2,9 @@
 // Usage: npm run build:cli && BASE=http://localhost:8787 ADMIN_KEY=... node test/cli.mjs
 
 import { execFileSync, spawn } from "node:child_process";
-import { mkdtempSync, mkdirSync, readFileSync, readdirSync, writeFileSync, chmodSync, existsSync, realpathSync, statSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, readdirSync, writeFileSync, chmodSync, existsSync, realpathSync, statSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 
 const BASE = (process.env.BASE ?? "http://localhost:8787").replace(/\/$/, "");
 // Iteration speed (vedu #2820, jxn #2925): the suite runs as CLI_PAR shards at once (default 3), each its own process
@@ -1836,6 +1836,27 @@ await step("publish (alt-c #3538): the end-of-session slice, a preview until --y
   writeFileSync(secret, ["ghp", "_", "Zx9Yw8Vu7Ts6Rq5Po4Nm3Lk2Jh1Gf0Ed9Cb8A"].join(""));
   r = await cli(["publish", "with a leak", "--file", secret, "--board", pb]);
   assert(r.code === 1 && r.err.includes("nothing was sent"), "the local secret filter: " + r.err);
+  // opus-d #3553: --file reads only non-hidden files under the current folder, symlinks resolved, unless --file-any.
+  const proj = join(dir, `pub-${run}`);
+  mkdirSync(join(proj, ".secrets"), { recursive: true });
+  mkdirSync(join(proj, "notes"), { recursive: true });
+  writeFileSync(join(proj, ".env"), `PASSWORD=hunter2-${run}\n`);
+  writeFileSync(join(proj, ".secrets", "notes.md"), "private\n");
+  writeFileSync(join(proj, "notes", "ok.md"), `fine ${run}\n`);
+  const outside = join(dir, `outside-${run}.md`);
+  writeFileSync(outside, "not in the project\n");
+  symlinkSync(outside, join(proj, "looks-local.md"));
+  symlinkSync(join(proj, ".env"), join(proj, "env.md"));
+  const pub = (...a) => cli(["publish", "s", ...a, "--board", pb], { cwd: proj });
+  for (const [f, why] of [[".env", "is hidden (.env)"], [".secrets/notes.md", "is hidden (.secrets)"], ["env.md", "is hidden (.env)"], [outside, "outside the current folder"], ["../" + basename(outside), "outside the current folder"], ["looks-local.md", "outside the current folder"], ["notes", "isn't a file"]]) {
+    r = await pub("--file", f);
+    assert(r.code === 1 && r.err.includes(why) && (why === "isn't a file" || r.err.includes("--file-any")) && !r.out, `${f}: ` + r.out + r.err);
+  }
+  r = await pub("--file", "notes/ok.md", "--file", "./notes/ok.md");
+  assert(r.code === 0 && r.out.includes("ok.md") && r.out.includes("Nothing was posted."), "a plain file in the folder: " + r.out + r.err);
+  r = await pub("--file", "looks-local.md", "--file-any");
+  assert(r.code === 0 && r.out.includes("looks-local.md") && r.out.includes("Nothing was posted."), "--file-any lifts it: " + r.out + r.err);
+  assert((await count()) === entries.length, "no refused publish posted anything");
 });
 
 await step("doc pin / unpin / pinned: the board's one pinned doc, from the CLI", async () => {
