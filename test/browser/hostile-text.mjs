@@ -80,16 +80,14 @@ await mcp(tokB, b1, "request_approval", { title: APPROVAL, details: `${img(16)}\
 let fails = 0;
 const check = (ok, t) => { console.log(`${ok ? "✓" : "✗"} ${t}`); if (!ok) fails++; };
 const browser = await chromium.launch({ executablePath: process.env.PW_CHROME || undefined });
+// Each visit gets its own page, so the visits run side by side (in groups: Everyday and the phone come after the
+// Developer pages, since the mode is an account setting).
 const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 } });
 const [ckName, ...ckVal] = ckB.split(";")[0].split("=");
 await ctx.addCookies([{ name: ckName, value: ckVal.join("="), url: BASE }]);
-const p = await ctx.newPage();
-let dialogs = [], errors = [];
-p.on("dialog", (d) => { dialogs.push(d.message()); d.dismiss().catch(() => {}); });
-p.on("pageerror", (e) => errors.push(e.message));
 
 // What the payloads would leave behind if any reached the page as markup.
-const scan = () => p.evaluate(() => {
+const scan = (p) => p.evaluate(() => {
   const bad = [];
   for (const el of document.querySelectorAll("*")) {
     for (const a of el.attributes) {
@@ -101,52 +99,57 @@ const scan = () => p.evaluate(() => {
   for (const a of document.querySelectorAll("a[href]")) if (/^(javascript|data):$/i.test(a.protocol)) bad.push(`a ${a.protocol}`);
   return { pwned: window.__pwned ?? null, bad: [...new Set(bad)] };
 });
-const visit = async (label, path, also) => {
-  dialogs = []; errors = [];
+const visit = async (label, path, also, viewport) => {
+  const p = await ctx.newPage();
+  if (viewport) await p.setViewportSize(viewport);
+  const dialogs = [], errors = [];
+  p.on("dialog", (d) => { dialogs.push(d.message()); d.dismiss().catch(() => {}); });
+  p.on("pageerror", (e) => errors.push(e.message));
   await p.goto(`${BASE}${path}`); await p.waitForTimeout(900);
   const text = await p.evaluate(() => document.body.innerText + "\n" + document.title); // before any panel covers the thread
-  if (also) await also();
+  if (also) await also(p);
   // Hover and focus everything once, so on* handlers that need a pointer would fire too.
   await p.evaluate(() => { for (const el of document.querySelectorAll("b,svg,img,a,td")) { el.dispatchEvent(new MouseEvent("mouseover", { bubbles: true })); } });
   await p.waitForTimeout(300);
-  const s = await scan();
+  const s = await scan(p);
   check(s.pwned === null && !dialogs.length && !s.bad.length, `${label}: nothing runs (pwned ${s.pwned}, dialogs ${dialogs.length}, injected ${s.bad.join(" ") || "none"})`);
   check(!errors.length, `${label}: no page errors ${errors.join(" | ").slice(0, 200)}`);
+  await p.close();
   return text;
 };
+const allTabs = async (p) => { for (const tab of await p.locator('[aria-controls^="panel-"]').all()) { await tab.click().catch(() => {}); await p.waitForTimeout(400); } };
 
-let t = await visit("home", "/");
-check(t.includes(TITLE1) && t.includes(TITLE2.replace(/ t2$/, "")), "home shows both board titles as written (one an invitation)");
-await visit("boards", "/boards");
-await visit("chats", "/chats");
-t = await visit("for you", "/for-you");
-await visit("inbox", "/inbox");
-t = await visit("approvals", "/approvals");
-check(t.includes(APPROVAL.replace(/'"approve$/, "")), "approvals shows the approval's title as written");
-t = await visit("people", "/people");
-check(t.includes(DISPLAY.slice(3)), "people shows the attacker's display name as written");
-await visit("account", "/me");
-await visit("ask", "/ask");
-t = await visit("board", `/b/${b1}`, async () => {
-  for (const tab of await p.locator('[aria-controls^="panel-"]').all()) { await tab.click().catch(() => {}); await p.waitForTimeout(400); }
-});
-check(t.includes(TITLE1), "the board shows its title as written");
-check(t.includes(`onerror=__pwned=57`) && t.includes(`javascript:__pwned=58`), "the message's raw HTML shows as text");
-check(t.includes(TASK.replace(/ "q' task$/, "")) || (await p.locator(`text=${"__pwned=7"}`).count()) > 0, "the task title shows as written");
-check(t.includes(`D'Arcy ${run}`), "the agent name with its quote shows as written");
-t = await visit("profile", `/u/${A}`);
-check(t.includes(DISPLAY.slice(3)) && t.includes("onerror=__pwned=3"), "the profile shows the name and bio as written");
-if (link?.url) await visit("invite link", new URL(link.url).pathname);
-else check(false, "the invite link was made");
-await visit("invited board", `/b/${b2}`);
-// Everyday mode draws names and cards its own way.
+const [home, , , , , approvals, people, , , board, profile] = await Promise.all([
+  visit("home", "/"),
+  visit("boards", "/boards"),
+  visit("chats", "/chats"),
+  visit("for you", "/for-you"),
+  visit("inbox", "/inbox"),
+  visit("approvals", "/approvals"),
+  visit("people", "/people"),
+  visit("account", "/me"),
+  visit("ask", "/ask"),
+  visit("board", `/b/${b1}`, allTabs),
+  visit("profile", `/u/${A}`),
+  link?.url ? visit("invite link", new URL(link.url).pathname) : Promise.resolve(check(false, "the invite link was made")),
+  visit("invited board", `/b/${b2}`),
+]);
+check(home.includes(TITLE1) && home.includes(TITLE2.replace(/ t2$/, "")), "home shows both board titles as written (one an invitation)");
+check(approvals.includes(APPROVAL.replace(/'"approve$/, "")), "approvals shows the approval's title as written");
+check(people.includes(DISPLAY.slice(3)), "people shows the attacker's display name as written");
+check(board.includes(TITLE1), "the board shows its title as written");
+check(board.includes(`onerror=__pwned=57`) && board.includes(`javascript:__pwned=58`), "the message's raw HTML shows as text");
+check(board.includes(TASK.replace(/ "q' task$/, "")) || board.includes("__pwned=7"), "the task title shows as written");
+check(board.includes(`D'Arcy ${run}`), "the agent name with its quote shows as written");
+check(profile.includes(DISPLAY.slice(3)) && profile.includes("onerror=__pwned=3"), "the profile shows the name and bio as written");
+// Everyday mode draws names and cards its own way; and on a phone.
 await web(ckB, "/api/me/profile", { display: { mode: "everyday" } });
-await visit("board (Everyday)", `/b/${b1}`);
-await visit("home (Everyday)", "/");
-await visit("for you (Everyday)", "/for-you");
-// And on a phone.
-await p.setViewportSize({ width: 390, height: 844 });
-await visit("board (390px)", `/b/${b1}`);
+await Promise.all([
+  visit("board (Everyday)", `/b/${b1}`),
+  visit("home (Everyday)", "/"),
+  visit("for you (Everyday)", "/for-you"),
+  visit("board (390px)", `/b/${b1}`, null, { width: 390, height: 844 }),
+]);
 await browser.close();
 console.log(fails ? `${fails} FAILED` : "hostile text: all passed");
 process.exit(fails ? 1 : 0);

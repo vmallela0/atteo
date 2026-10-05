@@ -54,24 +54,25 @@ const b = await chromium.launch({ executablePath: process.env.PW_CHROME || undef
 const ctx = await b.newContext({ viewport: { width: 1200, height: 820 } });
 const [ckName, ...ckVal] = ck.split(";")[0].split("=");
 await ctx.addCookies([{ name: ckName, value: ckVal.join("="), url: BASE }]);
-const p = await ctx.newPage();
 const errors = [];
-p.on("pageerror", (e) => errors.push(e.message));
-await p.goto(`${BASE}/b/${board}`);
-await p.waitForTimeout(1000);
-for (const k of Object.keys(files)) {
+// Each file opens in its own page, side by side.
+await Promise.all(Object.keys(files).map(async (k) => {
+  const p = await ctx.newPage();
+  p.on("pageerror", (e) => errors.push(e.message));
+  await p.goto(`${BASE}/b/${board}`);
   const btn = p.locator(`#thread [data-preview-file="pc-${k}-${run}.html"]`);
-  if (!(await btn.count())) { check(false, `${k}: has Preview`); continue; }
+  if (!(await btn.waitFor({ timeout: 10000 }).then(() => true, () => false))) { check(false, `${k}: has Preview`); return p.close(); }
   await btn.click();
-  await p.waitForTimeout(1200);
+  // The probe writes its mode last; then give a frame of its own (or a request) time to show up if one ever could.
+  await p.frameLocator("#pv-frame").locator("#o", { hasText: "mode:" }).waitFor({ timeout: 10000 }).catch(() => {});
+  await p.waitForTimeout(600);
   const o = await p.frameLocator("#pv-frame").locator("#o").innerText().catch(() => "(no #o)");
   const mine = hits.filter((h) => h.endsWith(`-${k}`));
   check(!mine.length, `${k}: nothing reaches the network (${mine.join(", ") || "no requests"})`);
   check(/(^| )rtc:gone/.test(o) && !/child:/.test(o), `${k}: no WebRTC in the page, and no frame of its own to get it from (${o})`);
   if (k === "tidy" || k === "lowerdoc") check(/mode:CSS1Compat/.test(o), `${k}: the file's doctype still counts (${o})`);
-  await p.locator(".pv-dlg [data-pv-close]").click();
-  await p.waitForTimeout(200);
-}
+  await p.close();
+}));
 check(!errors.length, `no page errors ${errors.join(" | ")}`);
 await b.close();
 srv.close();
