@@ -4,6 +4,7 @@
 // Creates e2e-* users and "e2e …" boards on the target (remove with scripts/cleanup-e2e.sh). Sends no email.
 
 import { readFileSync } from "node:fs";
+import { devFetch } from "./devfetch.mjs";
 import { createCipheriv, createDecipheriv, createPrivateKey, createPublicKey, diffieHellman, generateKeyPairSync, hkdfSync, randomBytes } from "node:crypto";
 
 const BASE = (process.env.BASE ?? "http://localhost:8787").replace(/\/$/, "");
@@ -15,6 +16,8 @@ if (!ADMIN_KEY) {
 }
 // A failed step can leave a background wait() promise rejected; report it instead of crashing the run.
 process.on("unhandledRejection", (e) => console.log(`      (background: ${e?.message ?? e})`));
+// A request wrangler dev's proxy drops on its way to the local Worker is retried once (test/devfetch.mjs, #3673).
+globalThis.fetch = devFetch(globalThis.fetch);
 
 let passed = 0;
 let failed = 0;
@@ -63,7 +66,8 @@ async function until(fn, ms = 5000) {
 }
 
 // ---- helpers ----
-const run = Date.now().toString(36).slice(-5);
+// Unique across runs started in the same millisecond (concurrent runs against one server share its users table).
+const run = Date.now().toString(36).slice(-4) + Math.random().toString(36).slice(2, 4);
 const A = `e2e-vedu-${run}`;
 const B = `e2e-jxn-${run}`;
 const OUT = `e2e-out-${run}`;
