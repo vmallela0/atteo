@@ -23,6 +23,9 @@ export interface Attachment {
   version: number | null;
 }
 
+/** Inbox kinds for the person only: agent tokens never see these rows (src/inbox.ts) or count them (src/registry.ts). */
+export const PERSON_ONLY_KINDS = ["people_only", "manual_unread", "reminder", "report"] as const;
+
 export const ENTRY_TYPES = ["claim", "question", "decision", "task", "artifact", "note", "change", "handoff"] as const;
 // "approval" is posted by the server only (an agent's request_approval on a board), never by a client.
 export type EntryType = (typeof ENTRY_TYPES)[number] | "approval";

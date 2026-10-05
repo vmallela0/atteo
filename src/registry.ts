@@ -4,7 +4,7 @@ import { AUDIT_EXPORT_LIMIT, AUDIT_EXPORT_NO_REPORTS_SQL, AUDIT_EXPORT_SQL, type
 import { checkOutsideMember } from "./policy";
 import { checkCanAddMember } from "./billing";
 import { agentNameIndex, foldAgentName } from "./mentions";
-import type { Env } from "./types";
+import { PERSON_ONLY_KINDS, type Env } from "./types";
 
 export interface BoardRow {
   id: string;
@@ -49,7 +49,7 @@ export function boardMeta(b: BoardRow): BoardMeta {
 export async function boardsOverview(env: Env, user: string, person = false): Promise<(BoardRow & { members: string | null; unread: number })[]> {
   const r = await env.DB.prepare(
     `SELECT b.*, (SELECT GROUP_CONCAT(user, ', ') FROM members m2 WHERE m2.board_id = b.id) AS members,
-            (SELECT COUNT(*) FROM notifications n WHERE n.user = ?1 AND n.board_id = b.id AND n.read_at IS NULL${person ? "" : " AND n.kind NOT IN ('people_only', 'manual_unread')"}) AS unread
+            (SELECT COUNT(*) FROM notifications n WHERE n.user = ?1 AND n.board_id = b.id AND n.read_at IS NULL${person ? "" : ` AND n.kind NOT IN (${PERSON_ONLY_KINDS.map((k) => `'${k}'`).join(", ")})`}) AS unread
      FROM members m JOIN boards b ON b.id = m.board_id WHERE m.user = ?1 AND b.deleted_at IS NULL ORDER BY b.last_activity DESC`,
   )
     .bind(user)

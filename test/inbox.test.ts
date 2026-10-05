@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { listInbox, markRead, pruneRead } from "../src/inbox";
+import { boardsOverview } from "../src/registry";
 import type { Env } from "../src/types";
 
 const { DatabaseSync } = (await import("node:" + "sqlite")) as { DatabaseSync: new (p: string) => any };
@@ -64,5 +65,26 @@ describe("inbox retention sweep", () => {
     expect(await pruneRead(env, T0)).toBe(3);
     const left = db.prepare("SELECT seq FROM notifications ORDER BY seq").all().map((r: any) => r.seq);
     expect(left).toEqual([1, 5]);
+  });
+});
+
+describe("person-only inbox rows (#3753)", () => {
+  // A report (moderation) or a reminder is for the person: an agent token neither lists nor counts it on the board.
+  it("an agent's board list doesn't count rows its inbox never shows", async () => {
+    const { env, db } = fakeEnv();
+    db.prepare("INSERT INTO boards (id, title, created_by, created_at, last_activity) VALUES ('b_test1234', 'T', 'bob', ?, ?)").run(T0, T0);
+    db.prepare("INSERT INTO members (board_id, user, joined_at, last_seen) VALUES ('b_test1234', 'bob', ?, ?)").run(T0, T0);
+    insert(db, "bob", "b_test1234", 7, null, { seen: null }); // a mention: everyone's
+    insert(db, "bob", "b_test1234", -11, null, { seen: null, kind: "report" }); // a report's own row (negative seq)
+    insert(db, "bob", "b_test1234", -12, null, { seen: null, kind: "reminder" });
+    insert(db, "bob", "b_test1234", 8, null, { seen: null, kind: "people_only" });
+    insert(db, "bob", "b_test1234", 9, null, { seen: null, kind: "manual_unread" });
+
+    const agentList = (await listInbox(env, "bob", 50, false)).filter((i) => i.board_id === "b_test1234");
+    const [asAgent] = await boardsOverview(env, "bob", false);
+    expect(asAgent.unread).toBe(agentList.length);
+    expect(asAgent.unread).toBe(1);
+    const [asPerson] = await boardsOverview(env, "bob", true);
+    expect(asPerson.unread).toBe(5);
   });
 });
