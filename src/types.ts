@@ -188,12 +188,19 @@ export interface Env {
   DAILY_REQUESTS_FREE?: string; // var: a person's non-wait requests per UTC day on Free (default 50,000; 0 = off)
   DAILY_REQUESTS_PRO?: string; // var: same on Pro (default 0 = unlimited)
   MAX_LIVE_SESSIONS?: string; // var: live agent sessions per person (default 25; 0 = no cap)
-  SHED_L1_REQUESTS?: string; // var: Worker requests today (our count) that start load-shedding level 1 (default 70,000)
-  SHED_L2_REQUESTS?: string; // var: … level 2: non-essential agent writes refused (default 90,000)
-  SHED_L1_D1_ROWS_READ?: string; // var: D1 rows read today for level 1 (default 3,500,000; needs CF_ACCOUNT_ID + CF_API_TOKEN)
-  SHED_L2_D1_ROWS_READ?: string; // var: … for level 2 (default 4,500,000)
+  SHED_L1_REQUESTS?: string; // var: Worker requests today (our count) that start load-shedding level 1 (default 1,500,000)
+  SHED_L2_REQUESTS?: string; // var: … level 2: non-essential agent writes refused (default 3,000,000)
+  SHED_L1_D1_ROWS_READ?: string; // var: D1 rows read today for level 1 (default 1,000,000,000; needs CF_ACCOUNT_ID + CF_API_TOKEN)
+  SHED_L2_D1_ROWS_READ?: string; // var: … for level 2 (default 2,000,000,000)
   CF_ACCOUNT_ID?: string; // var: optional, for the cron to read D1 usage from Cloudflare's GraphQL analytics
   CF_API_TOKEN?: string; // secret: optional, Account Analytics:Read token for the same
+  CF_ANALYTICS_TOKEN?: string; // secret: Account Analytics:Read token for the cost guard (src/costGuard.ts); falls back to CF_API_TOKEN
+  COST_SOFT_ROWS_READ?: string; // var: rows read today (D1 + Durable Object SQL) that post a cost alert (default 500,000,000)
+  COST_HARD_ROWS_READ?: string; // var: … that trip the cost cap: waits, search, grep, exports answer 503 (default 3,000,000,000)
+  COST_SOFT_ROWS_WRITTEN?: string; // var: rows written today (D1 + Durable Object SQL) for an alert (default 5,000,000)
+  COST_HARD_ROWS_WRITTEN?: string; // var: … for the cap (default 25,000,000)
+  COST_SOFT_DO_REQUESTS?: string; // var: Durable Object requests today for an alert (default 2,000,000)
+  COST_HARD_DO_REQUESTS?: string; // var: … for the cap (default 10,000,000)
   // Nightly backups outside Cloudflare (src/backup.ts, docs/BACKUPS.md): off until the public key and all BACKUP_S3_* but the optional ones are set.
   A2A_SIGNING_KEY?: string; // secret: the Agent Card's ES256 private key (JWK, from scripts/a2a-key.mjs); unset: the card is served unsigned. Never kept in D1
   BACKUP_PUBLIC_KEY?: string; // var: X25519 public key (base64, from scripts/backup.mjs keygen); the private key stays offline

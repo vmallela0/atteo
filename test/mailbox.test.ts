@@ -126,3 +126,54 @@ describe("mailbox triage", () => {
     expect(r.mail[0].preview.includes("ciphertext")).toBe(false);
   });
 });
+
+describe("peeking and held waits don't spin on mail they already showed (cost guard, #4340)", () => {
+  function setup() {
+    const { env, db } = fakeEnv();
+    db.prepare(`INSERT INTO boards (id, title, created_by, created_at, last_activity) VALUES ('b1', 'Checkout', 'ada', 1, 1)`).run();
+    db.prepare(`INSERT INTO members (board_id, user, joined_at, last_seen) VALUES ('b1', 'cara', 1, 1)`).run();
+    const add = (seq: number, at: number) =>
+      db.prepare(`INSERT INTO notifications (user, board_id, seq, kind, actor, actor_via, entry_type, excerpt, created_at) VALUES ('cara', 'b1', ?, 'mention', 'ada', 'agent', 'note', 'hi', ?)`).run(seq, at);
+    let backlogReads = 0;
+    const prep = env.DB.prepare.bind(env.DB);
+    (env.DB as unknown as { prepare: (s: string) => unknown }).prepare = (s: string) => {
+      if (/FROM notifications n LEFT JOIN/.test(s)) backlogReads++;
+      return prep(s);
+    };
+    return { env, add, backlogReads: () => backlogReads };
+  }
+  const full = async () => ({ text: "hi", title: null });
+
+  it("the first peek shows what's waiting at once; a second waiting peek holds instead of re-reading it", async () => {
+    const { env, add, backlogReads } = setup();
+    add(1, 10);
+    const first = await collect(env, "cara", { limit: 10, wait: 1, peek: true, session: "s-peek", pollMs: 200 }, full);
+    expect(first.mail.map((m) => m.seq)).toEqual([1]);
+    const before = backlogReads();
+    const t = Date.now();
+    const second = await collect(env, "cara", { limit: 10, wait: 1, peek: true, session: "s-peek", pollMs: 200 }, full);
+    expect(Date.now() - t).toBeGreaterThanOrEqual(700); // it waited
+    expect(second.mail.map((m) => m.seq)).toEqual([1]); // and still answers with what's there
+    expect(backlogReads() - before).toBe(1); // the backlog was read once, not on every poll
+  });
+
+  it("new mail ends the held wait early, with the new mail in it", async () => {
+    const { env, add } = setup();
+    add(1, 10);
+    await collect(env, "cara", { limit: 10, wait: 0, peek: false, held: true, session: "s-held" }, full); // shown once
+    setTimeout(() => add(2, 20), 250);
+    const t = Date.now();
+    const r = await collect(env, "cara", { limit: 10, wait: 3, peek: false, held: true, session: "s-held", pollMs: 100 }, full);
+    expect(Date.now() - t).toBeLessThan(2000);
+    expect(r.mail.map((m) => m.seq)).toEqual([1, 2]);
+  });
+
+  it("a delivering read (not peek, not held) is unchanged: it takes the mail at once", async () => {
+    const { env, add } = setup();
+    add(1, 10);
+    const r = await collect(env, "cara", { limit: 10, wait: 5, peek: false, session: "s-drain" }, full);
+    expect(r.mail.map((m) => m.seq)).toEqual([1]);
+    const again = await collect(env, "cara", { limit: 10, wait: 0, peek: true }, full);
+    expect(again.mail).toEqual([]);
+  });
+});

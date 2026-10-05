@@ -6,6 +6,7 @@ import { MAIL_KINDS } from "./mailbox";
 import { appPage, avatar, relTime, type SideBoard, type Viewer } from "./ui";
 import { tr } from "./i18n";
 import { esc } from "./util";
+import { personHtml, shownName } from "./names";
 import { approvalCardHtml, approvalJs, type ApprovalCardData } from "./approvalCard";
 import { PERSON_ONLY_KINDS, type Env } from "./types";
 import { classify, DEFAULT_LEVEL, lastDigestAt, type Interrupt, type Level, type NotifyPrefs } from "./notify";
@@ -87,13 +88,16 @@ export async function digestDue(env: Env, user: string, levels: Record<string, L
 /** People-only items (a message only the people named can see) go to person callers only: agent tokens read this API too. */
 const NOT_PEOPLE = (person: boolean, col = "kind") => (person ? "" : ` AND ${col} NOT IN (${PERSON_ONLY_KINDS.map((k) => `'${k}'`).join(", ")})`);
 
-export async function listInbox(env: Env, user: string, limit = 100, person = false): Promise<InboxItem[]> {
-  const r = await env.DB.prepare(
-    `SELECT n.id, n.board_id, b.title AS board_title, b.kind AS board_kind, n.seq, n.kind, n.actor, n.actor_via, n.entry_type, n.excerpt, n.created_at, n.read_at, n.data, r.due_at AS reminded_at
+/** The inbox list, newest first (shared with test/queryPlans.test.ts: it must walk notifications_user_created, not sort
+ *  every notification the person has; in prod that read 2,700 rows a call, #4340). */
+export const listInboxSql = (person: boolean) =>
+  `SELECT n.id, n.board_id, b.title AS board_title, b.kind AS board_kind, n.seq, n.kind, n.actor, n.actor_via, n.entry_type, n.excerpt, n.created_at, n.read_at, n.data, r.due_at AS reminded_at
      FROM notifications n LEFT JOIN boards b ON b.id = n.board_id LEFT JOIN inbox_reminders r ON r.notification_id = n.id AND r.user = n.user
      WHERE n.user = ? AND n.kind NOT IN ('trigger', 'from_your_person')${NOT_PEOPLE(person, "n.kind")} AND r.notification_id IS NULL AND (n.board_id = '' OR n.board_id IN (SELECT board_id FROM members WHERE user = ?))
-     ORDER BY n.created_at DESC LIMIT ?`,
-  )
+     ORDER BY n.created_at DESC LIMIT ?`;
+
+export async function listInbox(env: Env, user: string, limit = 100, person = false): Promise<InboxItem[]> {
+  const r = await env.DB.prepare(listInboxSql(person))
     .bind(user, user, limit)
     .all<InboxRow>();
   return r.results.map(withPush);
@@ -173,17 +177,22 @@ function approvalFor(i: InboxItem & { approval_id?: string | null }, list: (Appr
   return list.find((a) => (i.approval_id ? a.id === i.approval_id : a.created_at === i.created_at));
 }
 
-export function inboxPage(viewer: Viewer, side: SideBoard[], items: InboxItem[], approvals: (ApprovalCardData & { created_at?: number })[] = []): Response {
+export function inboxPage(viewer: Viewer, side: SideBoard[], items: InboxItem[], approvals: (ApprovalCardData & { created_at?: number })[] = [], people: Record<string, string> = {}): Response {
   const L = viewer.lang,
     T = (x: string, v?: Record<string, string | number>) => tr(L, x, v);
   const unread = items.filter((i) => !i.read_at).length;
+  const known = [viewer.name, ...items.map((i) => i.actor)]; // a name that is one of these handles shows its own @handle
+  // A direct chat's title is "a ↔ b" (handles): it reads with the names they chose (jxn #4369).
+  const dmTitle = (t: string) => (t.includes(" ↔ ") ? t.split(" ↔ ").map((h) => (h === viewer.name ? shownName(h, viewer.display_name) : shownName(h, people[h]))).join(" ↔ ") : t);
   const rows = items
     .map((i) => {
       const who = i.kind === "manual_unread" ? T("You") : i.kind === "approval" ? T("Your agent") : i.actor_via === "agent" ? T("{name}'s agent", { name: i.actor }) : i.actor;
+      // A person by the name they chose (jxn #4369), their @handle on hover.
+      const whoHtml = i.kind !== "manual_unread" && i.kind !== "approval" && i.actor_via !== "agent" ? personHtml(i.actor, people[i.actor], known) : esc(who);
       const href = i.board_id ? `/b/${esc(i.board_id)}${i.kind === "manual_unread" ? "" : `#e${i.seq}`}` : i.kind === "approval" ? "/approvals" : "/people";
       return `<li class="inbox-item${i.read_at ? "" : " unread"}"><a href="${href}" data-inbox-id="${i.id}">
 ${avatar(i.actor, "sm", i.actor_via === "agent")}
-<div class="grow" style="min-width:0"><div class="small">${i.kind === "people_only" ? `<span class="po-lock" title="${esc(T("Only people can see it. Agents can't."))}" aria-label="${esc(T("People only"))}">🔒</span> ` : ""}<b>${esc(who)}</b> ${esc(T(VERB[i.kind]))}${i.board_id ? ` <span class="faint">${esc(T("in"))}</span> ${esc(i.board_title ?? i.board_id)} <span class="faint">· #${i.seq}` : ` <span class="faint">`} · ${esc(relTime(i.created_at, Date.now(), L))}</span></div>
+<div class="grow" style="min-width:0"><div class="small">${i.kind === "people_only" ? `<span class="po-lock" title="${esc(T("Only people can see it. Agents can't."))}" aria-label="${esc(T("People only"))}">🔒</span> ` : ""}<b>${whoHtml}</b> ${esc(T(VERB[i.kind]))}${i.board_id ? ` <span class="faint">${esc(T("in"))}</span> ${esc(dmTitle(i.board_title ?? i.board_id))} <span class="faint">· #${i.seq}` : ` <span class="faint">`} · ${esc(relTime(i.created_at, Date.now(), L))}</span></div>
 <div class="small muted truncate">${esc(i.excerpt)}</div></div>${i.read_at ? "" : `<span class="dot" aria-label="${esc(T("unread"))}"></span>`}</a><details class="remind-menu"><summary>${esc(T("Remind me"))}</summary><div><button type="button" data-remind="hour" data-id="${i.id}">${esc(T("In 1 hour"))}</button><button type="button" data-remind="tonight" data-id="${i.id}">${esc(T("Tonight (20:00)"))}</button><button type="button" data-remind="tomorrow" data-id="${i.id}">${esc(T("Tomorrow (09:00)"))}</button></div></details>${
         approvalFor(i, approvals)
           ? approvalCardHtml(approvalFor(i, approvals)!, true, L)

@@ -1,11 +1,13 @@
 // Worker entry: MCP endpoint, sign-in, web pages, JSON API, and the operator console (/_ops).
 
 import { localize, pickLang } from "./i18n";
+import { displayMap, displayNames, forgetDisplayName } from "./names";
 import * as a2a from "./a2a";
 import { runGrep } from "./grep";
 import * as usage from "./usage";
 import * as csp from "./csp";
 import * as limits from "./limits";
+import * as costGuard from "./costGuard";
 import * as oauth from "./oauth";
 import { consentPage } from "./oauthPage";
 import * as approvals from "./approvals";
@@ -91,7 +93,7 @@ import {
   PREVIEW_FRAME_HTML,
 } from "./html";
 import { ENTRY_TYPES, type Entry, type Env, type NewEntry, type Viewer as Seer } from "./types";
-import { APP_CSS, APP_JS, BOARD_PREFETCH_PATH, BOARD_PREFETCH_RULES, BUG_PAGE_JS, FAVICON_SVG, FEEDBACK_DIALOG, FEEDBACK_PAGE_JS, page, renderText, SHELL_PAGE_JS } from "./ui";
+import { APP_CSS, APP_JS, directPeer, BOARD_PREFETCH_PATH, BOARD_PREFETCH_RULES, BUG_PAGE_JS, FAVICON_SVG, FEEDBACK_DIALOG, FEEDBACK_PAGE_JS, page, renderText, SHELL_PAGE_JS } from "./ui";
 import { APPLE_TOUCH_PNG_B64 } from "./appleIcon";
 import { assistantWelcomePage } from "./welcome";
 import { agentCharter, applyCharter, charterAuditDetail, charterScanFields, charterView, parseCharterPatch, storedFromRow } from "./charter";
@@ -201,6 +203,15 @@ async function sideBoards(env: Env, user: string): Promise<SideBoard[]> {
   return pins.sortPinned(boards, pinned)
     .filter((b) => !b.archived_at)
     .map((b) => ({ id: b.id, title: b.title, kind: (b as { kind?: string | null }).kind ?? null, live: live.get(b.id) ?? 0, picture: boardPictures.pictureUrl(b.id, b.picture_v), pinned: pinned.includes(b.id) }));
+}
+
+/** The sidebar's boards, with each direct chat's other person by the name they chose (jxn #4369; cached, names.ts). */
+async function sideBoardsNamed(env: Env, user: string): Promise<SideBoard[]> {
+  const side = await sideBoards(env, user);
+  const peers = side.filter((b) => b.kind === "direct").map((b) => directPeer(b, user));
+  if (!peers.length) return side;
+  const dn = await displayNames(env, peers).catch(() => ({}) as Record<string, string>);
+  return side.map((b) => (b.kind === "direct" ? { ...b, peer_name: dn[directPeer(b, user)] ?? null } : b));
 }
 
 /** Members (and operators) can see a board; everyone else gets a 404 so board ids don't leak. */
@@ -396,7 +407,7 @@ async function welcome(c: Ctx): Promise<Response> {
   // Signed in: the Everyday first-run screen, "Bring your assistant" (board #1272). Before a name is picked, choose one.
   if (s.user) {
     if (c.request.method !== "GET" || !c.viewer) return redirect("/");
-    const [side, mine] = await Promise.all([sideBoards(c.env, c.viewer.name), sessions.list(c.env, c.viewer.name)]);
+    const [side, mine] = await Promise.all([sideBoardsNamed(c.env, c.viewer.name), sessions.list(c.env, c.viewer.name)]);
     return assistantWelcomePage(c.viewer, side, c.origin, mine.filter(sessions.listed).map((x) => x.client || x.name));
   }
   const suggestion = await freeName(c.env, suggestName(s.email, s.display_name));
@@ -537,7 +548,10 @@ async function opsData(env: Env): Promise<AdminData> {
       a.last_token_use = t.last;
     }
   }
-  return { boards, users, invites, recent, totalEntries: boards.reduce((n, b) => n + b.entry_count, 0), access: [...access.values()], metrics: await usage.metrics(env).catch(() => undefined) };
+  return {
+    boards, users, invites, recent, totalEntries: boards.reduce((n, b) => n + b.entry_count, 0), access: [...access.values()], metrics: await usage.metrics(env).catch(() => undefined),
+    cost: { capped: await costGuard.capped(env).catch(() => null), watching: !!(env.CF_ACCOUNT_ID && costGuard.analyticsToken(env)) },
+  };
 }
 
 // ---------- router ----------
@@ -548,6 +562,19 @@ async function runScheduled(env: Env, ctx: ExecutionContext, now = Date.now()): 
   // Load shedding (src/limits.ts): today's usage sets the level every request then sees (0 normal, 1 stretch waits and
   // pause background work, 2 also refuse non-essential agent writes).
   const shed = await limits.updateShedLevel(env).catch(() => ({ level: limits.shedLevelNow(), requests: 0, rows_read: null }));
+  // The cost guard (src/costGuard.ts, vedu #4340): today's D1 and Durable Object usage against the soft and hard caps.
+  // Alerts go to the developers' board (BUGS_BOARD) as the bug bot; no board configured, the cap still trips.
+  ctx.waitUntil(
+    costGuard
+      .check(env, async (text) => {
+        const board = (env.BUGS_BOARD ?? "").trim();
+        if (!board) return console.log(text);
+        const stub = boardStub(env, board);
+        await ensureBugBoard(env, board, stub);
+        await stub.post(bugs.BUG_BOT, { type: "note", text, via: "person", client: "cost-guard" });
+      }, now)
+      .catch((e) => console.error("cost guard failed", e)),
+  );
   // Boards with a retention period: blank what's older.
   const keep = (await env.DB.prepare(`SELECT id, retention_days FROM boards WHERE retention_days IS NOT NULL`).all<{ id: string; retention_days: number }>()).results;
   for (const b of keep) ctx.waitUntil(boardStub(env, b.id).prune(now - b.retention_days * 86_400_000).catch(() => 0));
@@ -738,6 +765,7 @@ const handler = {
           wait: limits.isWaitRequest(method, path, url),
           write: method !== "GET" && method !== "HEAD" && method !== "OPTIONS",
           essential: limits.isEssentialRest(path),
+          heavy: costGuard.isHeavyRest(method, path),
         });
         if (denied) return denied;
       }
@@ -909,7 +937,7 @@ const handler = {
         if (!viewer) return needLogin();
         const code = device.normalizeUserCode(url.searchParams.get("code"));
         const d = code ? await device.deviceByUserCode(env, code) : null;
-        const side = await sideBoards(env, viewer.name);
+        const side = await sideBoardsNamed(env, viewer.name);
         return devicePage(viewer, side, code, d);
       }
       if (path === "/api/device/decide" && method === "POST") {
@@ -931,7 +959,7 @@ const handler = {
         if (!viewer) return landingPage();
         const me = await registry.userByName(env, viewer.name);
         const [side, boards, invitations, status, had] = await Promise.all([
-          sideBoards(env, viewer.name),
+          sideBoardsNamed(env, viewer.name),
           registry.boardsOverview(env, viewer.name, viewer.via !== "agent"),
           me ? registry.invitationsFor(env, me) : [],
           registry.agentStatus(env, viewer.name),
@@ -983,7 +1011,7 @@ const handler = {
           boardStub(env, m[2]).snapshot(0, { latest: 80 }, seer()), // fewer messages on the page keeps scrolling smooth (jxn #1365); older ones load as you go back
           registry.boardMembers(env, m[2]),
           registry.pendingInvites(env, m[2]),
-          sideBoards(env, viewer.name),
+          sideBoardsNamed(env, viewer.name),
           registry.agentsOnBoard(env, m[2]),
           registry.agentStatus(env, viewer.name),
           registry.getBoard(env, m[2]),
@@ -1013,23 +1041,25 @@ const handler = {
       // ---- inbox: mentions of you, posts for your agent, replies to you ----
       if (path === "/inbox" && method === "GET") {
         if (!viewer) return needLogin();
-        const [side, items, aps] = await Promise.all([sideBoards(env, viewer.name), inbox.listInbox(env, viewer.name, 100, viewer.via !== "agent"), approvals.listApprovals(env, viewer.name, "all")]);
+        const [side, items, aps] = await Promise.all([sideBoardsNamed(env, viewer.name), inbox.listInbox(env, viewer.name, 100, viewer.via !== "agent"), approvals.listApprovals(env, viewer.name, "all")]);
         // Looking at the inbox is reading it: the badge clears (items still show as new on this view). Off-board items
         // (friend and contact requests, approvals) have no board to open, so this is where they get read.
         const unreadIds = items.filter((i) => !i.read_at).map((i) => i.id).slice(0, 90); // D1: at most 100 bound parameters
         if (unreadIds.length) ctx.waitUntil(inbox.markRead(env, viewer.name, { ids: unreadIds }).catch(() => 0));
-        return inbox.inboxPage(viewer, side, items, aps);
+        const dmPeers = items.flatMap((i) => (i.board_title?.includes(" ↔ ") ? i.board_title.split(" ↔ ") : []));
+        const people = await displayNames(env, [...items.filter((i) => i.actor_via !== "agent").map((i) => i.actor), ...dmPeers]).catch(() => ({}));
+        return inbox.inboxPage(viewer, side, items, aps, people);
       }
       // ---- The guide (vedu #2402): what people can do, by task. Public; signed in, it has the sidebar ----
       if (path === "/guide" && method === "GET") {
         const lang = viewer?.lang ?? pickLang(null, url.searchParams.get("lang"), request.headers.get("accept-language"));
-        return guidePage(lang, viewer ?? null, viewer ? await sideBoards(env, viewer.name) : [], origin);
+        return guidePage(lang, viewer ?? null, viewer ? await sideBoardsNamed(env, viewer.name) : [], origin);
       }
       // ---- For you (Everyday's home): what needs your OK, decisions and questions for you, what your assistant did today ----
       if (path === "/for-you" && method === "GET") {
         if (!viewer) return needLogin();
         const now = Date.now();
-        const [side, aps, items] = await Promise.all([sideBoards(env, viewer.name), approvals.listApprovals(env, viewer.name, "pending"), inbox.listInbox(env, viewer.name, 60)]);
+        const [side, aps, items] = await Promise.all([sideBoardsNamed(env, viewer.name), approvals.listApprovals(env, viewer.name, "pending"), inbox.listInbox(env, viewer.name, 60)]);
         // Unread mail for you (the person) from the last week: mentions and replies open in their chat; their boards are
         // looked at too, so a decision or question waiting there shows even on a quiet board.
         const mail = items.filter((i) => !i.read_at && i.board_id && (i.kind === "mention" || i.kind === "reply" || i.kind === "decision") && now - i.created_at < 7 * 86_400_000);
@@ -1120,7 +1150,7 @@ const handler = {
         // One open wait per agent session: a newer one ends this one (limits.beginWait).
         const w = wait && sid ? limits.beginWait(`s:${sid}`) : null;
         if (w?.refused) return waitRefused(w.refused);
-        const editMail = sid ? (await Promise.all((await registry.boardsForUser(env, viewer.name)).map(async b =>
+        const editMail = sid && mailbox.editSweepDue(sid, wait > 0) ? (await Promise.all((await registry.boardsForUser(env, viewer.name)).map(async b =>
           (await boardStub(env, b.id).editNotices(viewer.name, sid, peek)).map((line, i) => ({ id: -Date.now() - i, kind: "edited" as const, board: b.id, board_title: b.title, seq: Number(line.match(/#(\d+)/)?.[1] ?? 0), from: "", from_via: "person", type: "edit", text: line, preview: line, for: "for your agent", ts: Date.now() }))))) .flat() : [];
         let r0: Awaited<ReturnType<typeof mailbox.collect>>;
         try {
@@ -1150,7 +1180,10 @@ const handler = {
         const now = requestNow(env, request);
         const sum = notify.summary(prefs, now);
         const due = await inbox.digestDue(env, viewer.name, levels, prefs, sum.digest_at);
-        const latest = cnt.latest ? inbox.withInterrupts([cnt.latest], levels, prefs, now)[0] : null;
+        const latest0 = cnt.latest ? inbox.withInterrupts([cnt.latest], levels, prefs, now)[0] : null;
+        // The notification names a person as they chose (jxn #4369; cached in names.ts, so polling costs no extra reads).
+        const actorName = latest0 && latest0.actor_via !== "agent" && latest0.actor ? (await displayNames(env, [latest0.actor]).catch(() => ({}) as Record<string, string>))[latest0.actor] : undefined;
+        const latest = latest0 && actorName ? { ...latest0, actor_name: actorName } : latest0;
         return json({ ...cnt, latest, notify: { ...sum, digest_count: due?.n ?? 0, digest_boards: due?.boards ?? [] } }, 200, { "cache-control": "no-store" });
       }
       m = path.match(/^\/api\/inbox\/([^/]+)\/remind$/);
@@ -1355,12 +1388,12 @@ const handler = {
       // Ask (Everyday): a voice-first page that asks your assistant in its chat and reads the answer aloud.
       if (path === "/ask" && method === "GET") {
         if (!viewer) return needLogin();
-        const [side, me] = await Promise.all([sideBoards(env, viewer.name), social.profile(env, viewer.name).catch(() => null)]);
+        const [side, me] = await Promise.all([sideBoardsNamed(env, viewer.name), social.profile(env, viewer.name).catch(() => null)]);
         return askPage(viewer, side, { assistant: me?.agent_name ?? null, agentChat: side.find((b) => b.kind === "agent")?.id ?? null });
       }
       if (path === "/approvals" && method === "GET") {
         if (!viewer) return needLogin();
-        const [side, list] = await Promise.all([sideBoards(env, viewer.name), approvals.listApprovals(env, viewer.name, "all")]);
+        const [side, list] = await Promise.all([sideBoardsNamed(env, viewer.name), approvals.listApprovals(env, viewer.name, "all")]);
         const titles = Object.fromEntries(side.map((b) => [b.id, b.title]));
         ctx.waitUntil(env.DB.prepare(`UPDATE notifications SET read_at = ? WHERE user = ? AND kind = 'approval' AND read_at IS NULL`).bind(Date.now(), viewer.name).run().catch(() => {}));
         return approvalsPage(viewer, side, list, titles);
@@ -1406,13 +1439,13 @@ const handler = {
       // ---- social: people, friends, presence, direct boards ----
       if (path === "/people" && method === "GET") {
         if (!viewer) return needLogin();
-        const [side, friends] = await Promise.all([sideBoards(env, viewer.name), social.friendsOf(env, viewer.name)]);
+        const [side, friends] = await Promise.all([sideBoardsNamed(env, viewer.name), social.friendsOf(env, viewer.name)]);
         return peoplePage(viewer, side, friends);
       }
       let um = path.match(/^\/u\/([a-z0-9][a-z0-9_.-]{0,31})$/);
       if (um && method === "GET") {
         if (!viewer) return needLogin();
-        const [side, p] = await Promise.all([sideBoards(env, viewer.name), social.person(env, viewer.name, um[1])]);
+        const [side, p] = await Promise.all([sideBoardsNamed(env, viewer.name), social.person(env, viewer.name, um[1])]);
         if (!p) return notFound(viewer);
         const [shared, ag] = await Promise.all([p.relation === "self" || p.relation === "blocked" ? [] : social.sharedBoards(env, viewer.name, p.name).catch(() => []), agents.agent(env, viewer.name, p.name, viewer.via !== "agent").catch(() => null)]);
         return profilePage(viewer, side, p, social.presenceLabel(p.presence), { shared, agent: ag });
@@ -1482,7 +1515,9 @@ const handler = {
           // A renamed agent: every board they're on tells its open tabs, {type: "profile", user, agent_name}.
           const renamed = (name: string | null) =>
             ctx.waitUntil(registry.boardsForUser(env, who).then((bs) => Promise.all(bs.map((x) => boardStub(env, x.id).profileChanged(who, name).catch(() => {})))).catch(() => {}));
-          return json({ ok: true, profile: await social.setProfile(env, who, b, renamed) });
+          const saved = await social.setProfile(env, who, b, renamed);
+          if (b.display_name !== undefined) forgetDisplayName(who); // this isolate shows the new name at once (jxn #4369)
+          return json({ ok: true, profile: saved });
         } catch (e) {
           return json({ error: e instanceof Error ? e.message : String(e) }, 400);
         }
@@ -1745,12 +1780,12 @@ const handler = {
       if (path === "/connect/muse" && method === "GET") {
         if (!viewer) return needLogin();
         if (viewer.via === "agent") return json({ error: "This page is for people, signed in on the web." }, 403);
-        return musePage(viewer, await sideBoards(env, viewer.name), origin);
+        return musePage(viewer, await sideBoardsNamed(env, viewer.name), origin);
       }
       if (path === "/me" && method === "GET") {
         if (!viewer) return needLogin();
         const [side, tokens, plan, hooks, prof, mine, log, access, rules] = await Promise.all([
-          sideBoards(env, viewer.name),
+          sideBoardsNamed(env, viewer.name),
           auth.listTokens(env, viewer.name),
           billing.planOf(env, viewer.name),
           webhooks.listWebhooks(env, viewer.name),
@@ -1765,7 +1800,7 @@ const handler = {
 
       if (path === OPS_PATH && method === "GET") {
         if (!viewer?.admin) return notFound(viewer); // indistinguishable from a missing page unless you're an operator
-        const [side, data] = await Promise.all([sideBoards(env, viewer.name), opsData(env)]);
+        const [side, data] = await Promise.all([sideBoardsNamed(env, viewer.name), opsData(env)]);
         return adminPage(viewer, side, data);
       }
 
@@ -2418,7 +2453,7 @@ const handler = {
             ctx.waitUntil(Promise.all([registry.touch(env, viewer.name, id), registry.bumpBoard(env, id, entry.seq)]).catch(() => {}));
             // Like a text post, the rendered entry comes back so the page can swap its "sending" copy for it.
             const root = replyTo ? ((await stub.rootsFor([entry.seq]))[entry.seq] ?? entry.seq) : entry.seq;
-            return json({ ok: true, entry, update: { seq: entry.seq, root, retracts: entry.retracts, html: entryHtml(withAgentNames(entry, agentNames(fileMembers)), id, true, { canRetract: true, canEdit: true, lang: viewer?.lang, members: fileMembers.map((m) => m.user), person: !!viewer && viewer.via !== "agent" }), row: logRow(entry, undefined, undefined, viewer?.lang), reactions: [] } }, 201);
+            return json({ ok: true, entry, update: { seq: entry.seq, root, retracts: entry.retracts, html: entryHtml(withAgentNames(entry, agentNames(fileMembers)), id, true, { canRetract: true, canEdit: true, lang: viewer?.lang, people: displayMap(fileMembers), members: fileMembers.map((m) => m.user), person: !!viewer && viewer.via !== "agent" }), row: logRow(entry, undefined, undefined, viewer?.lang), reactions: [] } }, 201);
           } catch (e) {
             return json({ error: e instanceof Error ? e.message : String(e) }, 400);
           }
@@ -3049,7 +3084,7 @@ const handler = {
           const roots = await stub.rootsFor(fresh.map((e) => e.seq));
           const canRetract = (e: Entry) => !!viewer && (e.author === viewer.name || snap.info.created_by === viewer.name);
           const names = Object.fromEntries(members0.filter((x) => x.agent_name).map((x) => [x.user, x.agent_name!]));
-          const memberSet = new Set(members0.map((x) => x.user));
+          const memberSet = new Set(members0.map((x) => x.user)), people = displayMap(members0);
           return json({
             entries: fresh.map((e) => ({
               seq: e.seq,
@@ -3057,7 +3092,7 @@ const handler = {
               ...(e.via === "agent" && names[e.author] ? { agent_name: names[e.author] } : {}), // "Jarvis · vedu's agent"
               root: roots[e.seq] ?? e.seq,
               retracts: e.retracts,
-              html: entryHtml(withAgentNames(e, names), id, true, { canRetract: canRetract(e), canEdit: !!viewer && !snap.info.encrypted && e.author === viewer.name, lang: viewer?.lang, members: memberSet, person: !!viewer && viewer.via !== "agent" }),
+              html: entryHtml(withAgentNames(e, names), id, true, { canRetract: canRetract(e), canEdit: !!viewer && !snap.info.encrypted && e.author === viewer.name, lang: viewer?.lang, members: memberSet, people, person: !!viewer && viewer.via !== "agent" }),
               row: logRow(e, undefined, undefined, viewer?.lang),
               reactions: snap.reactions[e.seq] ?? [],
               ...(e.type === "change" ? { reviews: snap.reviews[e.seq] ?? [] } : {}),
@@ -3113,13 +3148,13 @@ const handler = {
             registry.boardMembers(env, id), // "@Jarvis" chips, as on the page (jxn #1659); who's on it (quick replies)
             stub.info(),
           ]);
-          const pageMembers = new Set(names.map((m) => m.user)), pageNames = agentNames(names);
+          const pageMembers = new Set(names.map((m) => m.user)), pageNames = agentNames(names), pagePeople = displayMap(names);
           return json({
             first: page.length ? page[0].seq : 0,
             entries: page.map((e) => ({
               seq: e.seq,
               root: roots[e.seq] ?? e.seq,
-              html: entryHtml(withAgentNames(e, pageNames), id, true, { canRetract: !!viewer && (e.author === viewer.name || isOwner), canEdit: !!viewer && !pageInfo.encrypted && e.author === viewer.name, lang: viewer?.lang, members: pageMembers, person: !!viewer && viewer.via !== "agent" }),
+              html: entryHtml(withAgentNames(e, pageNames), id, true, { canRetract: !!viewer && (e.author === viewer.name || isOwner), canEdit: !!viewer && !pageInfo.encrypted && e.author === viewer.name, lang: viewer?.lang, members: pageMembers, people: pagePeople, person: !!viewer && viewer.via !== "agent" }),
               row: logRow(e, undefined, undefined, viewer?.lang),
               reactions: reactions[e.seq] ?? [],
               ...(e.human_decision ? { human_decision: e.human_decision } : {}),
@@ -3239,7 +3274,7 @@ const handler = {
             // An agent's top-level post the board kept in Just mine (board.ts ownByDefault) says so instead.
             const said = entry.audience === "own" && entry.reply_to == null && !own && !notOwn && viewer.via === "agent" ? keptOwnNotice(viewer.name) : audienceNotice(entry, viewer.name);
             const notice = said ? { notice: said } : {};
-            return json({ ok: true, entry, ...notice, ...(missed?.length ? { missed } : {}), update: { seq: entry.seq, root, retracts: entry.retracts, html: entryHtml(withAgentNames(entry, agentNames(boardMembers)), id, true, { canRetract: true, canEdit: true, lang: viewer?.lang, members: boardMembers.map((m) => m.user), person: !!viewer && viewer.via !== "agent" }), row: logRow(entry, undefined, undefined, viewer?.lang), reactions: [] }, ...(ambiguous.length ? { ambiguous } : {}) }, 201);
+            return json({ ok: true, entry, ...notice, ...(missed?.length ? { missed } : {}), update: { seq: entry.seq, root, retracts: entry.retracts, html: entryHtml(withAgentNames(entry, agentNames(boardMembers)), id, true, { canRetract: true, canEdit: true, lang: viewer?.lang, members: boardMembers.map((m) => m.user), person: !!viewer && viewer.via !== "agent", people: displayMap(boardMembers) }), row: logRow(entry, undefined, undefined, viewer?.lang), reactions: [] }, ...(ambiguous.length ? { ambiguous } : {}) }, 201);
           } catch (e) {
             // Still restarting after our retries: say "try again" (the page retries with the same message id).
             if (isRetriable(e)) {
@@ -3416,6 +3451,11 @@ const handler = {
             for (const id of result.body.deleted_boards ?? []) ctx.waitUntil(boardStub(env, id).destroy().catch(() => {}));
           }
           return json(result.body, result.status);
+        }
+        // The cost guard (src/costGuard.ts): its state; {clear: true} lifts the hard cap.
+        if (path === "/api/ops/cost-guard") {
+          if (method === "POST" && (body as Record<string, unknown>).clear === true) await costGuard.clearCap(env, viewer?.name ?? "admin-key");
+          return json({ capped: await costGuard.capped(env), thresholds: costGuard.thresholds(env), watching: !!(env.CF_ACCOUNT_ID && costGuard.analyticsToken(env)) });
         }
         // Proves error reporting end to end (D1 errors + Sentry): throws on purpose.
         if (path === "/api/ops/test-error" && method === "POST") throw new Error("Test error from /api/ops/test-error");
