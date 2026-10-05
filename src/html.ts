@@ -1289,10 +1289,14 @@ function pfHid(el){return el.classList.contains('by-agent')&&pfOn()}
 // a direct chat or your agent's chat. A tap opens a folded one; a tap on an open one's sender line folds it again; the
 // board's ⋯ opens them all for this visit.
 const OL_WHOLE=BC.olWhole;
-function olFor(el){if(OL_WHOLE||el.classList.contains('for-you')||el.dataset.to===ME0)return false;
+function olFor(el){if(OL_WHOLE||el.classList.contains('for-you'))return false;
+  const p=el.dataset.reply&&document.getElementById('e'+el.dataset.reply),mine=p&&p.dataset.author===ME0;
+  if(mine&&!p.classList.contains('by-agent'))return false;
+  // Addressed to you, unless it's only answering in your agent's thread (a reply is "to" its parent's author): those fold
+  // like any other unless they ask something (jxn #4454).
+  if(el.dataset.to===ME0&&!(mine&&!el.querySelector(':scope>.grow>.meta .type.t-question,:scope>.grow>.meta .type.t-task')))return false;
   if(el.dataset.author===ME0&&!el.classList.contains('by-agent'))return false;
   if(el.querySelector('.mention[data-user="'+ME0+'"],.mention[data-user="agents"],.mention[data-user="humans"],.mention[data-user="all"],.apc,.type.t-decision'))return false;
-  const p=el.dataset.reply&&document.getElementById('e'+el.dataset.reply);if(p&&p.dataset.author===ME0)return false;
   const po=el.querySelector(':scope>.grow>.meta .badge.po[data-people]');if(po&&po.dataset.people.split(',').includes(ME0))return false; // People only, you among its people (opus-d #2755)
   return true}
 // A folded row takes focus and opens on Enter or Space, so the keyboard can do what a tap does (opus-d #2755).
