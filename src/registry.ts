@@ -5,6 +5,7 @@ import { AUDIT_EXPORT_LIMIT, AUDIT_EXPORT_NO_REPORTS_SQL, AUDIT_EXPORT_SQL, type
 import { checkOutsideMember } from "./policy";
 import { checkCanAddMember } from "./billing";
 import { agentNameIndex, foldAgentName } from "./mentions";
+import { noteInviteRedeemed, type Later } from "./observe";
 import { PERSON_ONLY_KINDS, type Env } from "./types";
 
 export interface BoardRow {
@@ -347,7 +348,7 @@ export async function invitationsFor(env: Env, user: FullUser): Promise<Invitati
 }
 
 /** Accepts the user's open invitation(s) to a board: adds them as a member. Returns false if there was none. */
-export async function acceptInvitation(env: Env, user: FullUser, boardId: string, origin = ""): Promise<boolean> {
+export async function acceptInvitation(env: Env, user: FullUser, boardId: string, origin = "", later: Later | null = null): Promise<boolean> {
   if (!(await invitationsFor(env, user)).some((i) => i.board_id === boardId)) return false;
   await checkCanAddMember(env, boardId, origin); // the board's creator's plan caps its members
   await checkOutsideMember(env, boardId, user.email); // the creator's organization may keep boards in-house
@@ -364,6 +365,7 @@ export async function acceptInvitation(env: Env, user: FullUser, boardId: string
   )
     .bind(Date.now(), user.name, boardId, user.email)
     .run();
+  void noteInviteRedeemed(env, later, user.name);
   return true;
 }
 

@@ -5,6 +5,7 @@ import { applies } from "./standingRules";
 import { isFriend, rulesOf } from "./social";
 import { sendWorkosInvitation } from "./auth";
 import * as registry from "./registry";
+import type { Later } from "./observe";
 import type { Env } from "./types";
 
 export interface InviteResult {
@@ -21,6 +22,7 @@ export async function sendInvite(
   env: Env,
   origin: string,
   opts: { boardId: string; email: string; invitedBy: string; role?: import("./registry").Role; expiresDays?: number | null },
+  later: Later | null = null,
 ): Promise<InviteResult> {
   const email = opts.email.trim().toLowerCase();
   const board = await registry.getBoard(env, opts.boardId);
@@ -43,7 +45,7 @@ export async function sendInvite(
     const byStanding = opts.invitedBy !== "ops" && (await applies(env, existing.name, "accept_invites", opts.invitedBy));
     if (byFriend || byStanding) {
       await registry.recordInvite(env, { ...base, email_status: byFriend ? "accepted by their rule (invites from friends)" : "accepted by their standing rule" });
-      if (await registry.acceptInvitation(env, existing, opts.boardId, origin).catch(() => false)) {
+      if (await registry.acceptInvitation(env, existing, opts.boardId, origin, later).catch(() => false)) {
         return {
           ok: true,
           added: true,

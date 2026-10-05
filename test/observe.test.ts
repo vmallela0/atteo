@@ -6,14 +6,21 @@ import {
   egressRefusalText,
   noteApprovalDecision,
   noteApprovalRequested,
+  noteBoardCreated,
   noteClaimReview,
   noteContextPack,
+  noteFirstAgentPost,
+  noteFriendAccepted,
+  noteInviteRedeemed,
   notePaste,
   noteStaleNotice,
   observability,
   packBucket,
   resetCounters,
   settleCounts,
+  SUCCESS_ONCE_DAY,
+  SUCCESS_ONCE_METRIC,
+  successMetrics,
 } from "../src/observe";
 import { formatSummary, type Summary } from "../src/state";
 import type { BoardInfo, Entry, Env, Member } from "../src/types";
@@ -234,6 +241,7 @@ describe("paste, secret-filter blocks and context-pack size", () => {
           errors: [],
           csp: [],
           observe,
+          success: { days: 14, board_created: 0, first_agent_post: 0, invite_redeemed: 0, friend_accepted: 0 },
         },
       },
     );
@@ -252,13 +260,112 @@ describe("paste, secret-filter blocks and context-pack size", () => {
   });
 });
 
+describe("product success counters", () => {
+  it("counts boards created, invites redeemed and friends accepted, and skips test accounts", async () => {
+    const { env, db } = fakeEnv();
+    await noteBoardCreated(env, null, "vedu");
+    await noteBoardCreated(env, null, "vedu");
+    await noteBoardCreated(env, null, "e2e-ada");
+    await noteInviteRedeemed(env, null, "jxn");
+    await noteInviteRedeemed(env, null, "e2e-ada");
+    await noteFriendAccepted(env, null, "vedu", "jxn");
+    await noteFriendAccepted(env, null, "e2e-ada", "vedu");
+    await noteFriendAccepted(env, null, "vedu", "e2e-bea");
+    expect(counter("success", "board_created")).toBe(2);
+    expect(counter("success", "invite_redeemed")).toBe(1);
+    expect(counter("success", "friend_accepted")).toBe(1);
+    await settleCounts();
+    expect(db.prepare(`SELECT key, count FROM usage_daily WHERE metric = 'success' ORDER BY key`).all()).toEqual([
+      { key: "board_created", count: 2 },
+      { key: "friend_accepted", count: 1 },
+      { key: "invite_redeemed", count: 1 },
+    ]);
+  });
+
+  it("counts a person's first agent post once, even across a second write", async () => {
+    const { env, db } = fakeEnv();
+    await noteFirstAgentPost(env, null, "vedu");
+    await noteFirstAgentPost(env, null, "vedu");
+    await noteFirstAgentPost(env, null, "jxn");
+    await noteFirstAgentPost(env, null, "e2e-ada");
+    expect(counter("success", "first_agent_post")).toBe(2);
+    await settleCounts();
+    expect(db.prepare(`SELECT metric, key, count FROM usage_daily WHERE metric IN ('success', 'success_once') ORDER BY metric, key`).all()).toEqual([
+      { metric: SUCCESS_ONCE_METRIC, key: "jxn", count: 1 },
+      { metric: SUCCESS_ONCE_METRIC, key: "vedu", count: 1 },
+      { metric: "success", key: "first_agent_post", count: 2 },
+    ]);
+    const once = db.prepare(`SELECT day FROM usage_daily WHERE metric = ?`).get(SUCCESS_ONCE_METRIC) as { day: string };
+    expect(once.day).toBe(SUCCESS_ONCE_DAY);
+  });
+
+  it("sums the window into product totals and leaves lifetime uniqueness out of the daily count", async () => {
+    const { env, db } = fakeEnv();
+    const old = new Date(Date.now() - 100 * 86_400_000).toISOString().slice(0, 10);
+    db.prepare(`INSERT INTO usage_daily (day, metric, key, count) VALUES (?, 'success', 'board_created', 9)`).run(old);
+    await noteBoardCreated(env, null, "vedu");
+    await noteInviteRedeemed(env, null, "jxn");
+    await noteFriendAccepted(env, null, "vedu", "jxn");
+    await noteFirstAgentPost(env, null, "vedu");
+    await settleCounts();
+    const s = await successMetrics(env, 14);
+    expect(s.days).toBe(14);
+    expect(s).toEqual({ days: 14, board_created: 1, first_agent_post: 1, invite_redeemed: 1, friend_accepted: 1 });
+    expect(src("src/usage.ts")).toContain("successMetrics(env, n)");
+    expect(src("src/usage.ts")).toContain("success");
+  });
+
+  it("shows the counters on the ops page, with how to read them", async () => {
+    const { env } = fakeEnv();
+    await noteBoardCreated(env, null, "vedu");
+    await noteFirstAgentPost(env, null, "vedu");
+    await noteInviteRedeemed(env, null, "jxn");
+    await noteFriendAccepted(env, null, "vedu", "jxn");
+    await settleCounts();
+    const success = await successMetrics(env);
+    const res = adminPage(
+      { name: "vedu", email: "vedu@example.com", display_name: null, admin: true },
+      [],
+      {
+        boards: [],
+        users: [],
+        invites: [],
+        recent: [],
+        totalEntries: 0,
+        access: [],
+        metrics: {
+          kpis: {
+            users: 0, users_7d: 0, users_30d: 0, active_1d: 0, active_7d: 0, active_30d: 0, pro: 0, cancelling: 0, mrr: 0,
+            boards: 0, boards_active_7d: 0, agents_7d: 0, posts_7d: 0, errors_24h: 0, errors_24h_total: 0,
+          },
+          days: [],
+          clients: [],
+          errors: [],
+          csp: [],
+          observe: await observability(env),
+          success,
+        },
+      },
+    );
+    const html = await res.text();
+    expect(html).toContain("Product");
+    expect(html).toContain("Boards created");
+    expect(html).toContain("First agent post");
+    expect(html).toContain("Invites redeemed");
+    expect(html).toContain("Friends accepted");
+    expect(html).toContain("success");
+    expect(html).toContain("GET /api/ops/metrics");
+  });
+});
+
 describe("the write and read paths record those counters", () => {
   const board = src("src/board.ts");
 
   it("a post that lands counts a paste, and a served summary counts a context pack", () => {
     expect(board).toContain("notePaste(this.env, this.ctx, input.via)");
     expect(board).toContain("noteContextPack(this.env, this.ctx, pack, user)");
-    expect(board).toContain('if (!user.startsWith("e2e-") && !internal.system && !internal.notice) notePaste');
+    expect(board).toContain("noteFirstAgentPost(this.env, this.ctx, user)");
+    expect(board).toContain('if (!user.startsWith("e2e-") && !internal.system && !internal.notice)');
   });
 
   it("claim outcomes, stale notices and approval events use their daily counters", () => {
@@ -282,5 +389,14 @@ describe("the write and read paths record those counters", () => {
     expect(src("src/index.ts")).not.toContain("blockedMessage(");
     expect(src("cli/src/commands.ts")).not.toContain("observe");
     expect(src("cli/src/v2.ts")).not.toContain("observe");
+  });
+
+  it("product success events go through the daily counters", () => {
+    expect(src("src/index.ts")).toContain("noteBoardCreated(env, later, user)");
+    expect(src("src/mcp.ts")).toContain("noteBoardCreated(env, c.ctx, user)");
+    expect(src("src/access.ts")).toContain("noteInviteRedeemed(env, later, user)");
+    expect(src("src/registry.ts")).toContain("noteInviteRedeemed(env, later, user.name)");
+    expect(src("src/social.ts")).toContain("noteFriendAccepted(env, later, me, who)");
+    expect(board).toContain("noteFirstAgentPost(this.env, this.ctx, user)");
   });
 });

@@ -3,6 +3,7 @@
 
 import { addMember, recordBoard } from "./registry";
 import { applies } from "./standingRules";
+import { noteFriendAccepted, type Later } from "./observe";
 import { EMOJI_RE, newBoardId, offBoardSeq, proseForAgent } from "./util";
 import { AgentNameError, cleanAgentName, handleLookalikes, skeleton } from "./agentName";
 import type { Env } from "./types";
@@ -155,7 +156,7 @@ export async function notify(env: Env, user: string, actor: string, kind: "frien
 }
 
 /** Ask to be friends (or accept, if they already asked you). Returns the new relation. */
-export async function requestFriend(env: Env, me: string, other: string, note: string): Promise<Relation> {
+export async function requestFriend(env: Env, me: string, other: string, note: string, later: Later | null = null): Promise<Relation> {
   const who = other.toLowerCase().replace(/^@/, "");
   if (who === me) throw new SocialError("That's you.");
   const exists = await env.DB.prepare(`SELECT 1 AS x FROM users WHERE name = ?`).bind(who).first();
@@ -165,7 +166,7 @@ export async function requestFriend(env: Env, me: string, other: string, note: s
   if (rel === "pending_out") return rel;
   if (rel === "blocked") throw new SocialError(`You blocked ${who}. Unblock them first.`);
   if (rel === "blocked_you") throw new SocialError(`You can't send ${who} a request.`);
-  if (rel === "pending_in") return acceptFriend(env, me, who);
+  if (rel === "pending_in") return acceptFriend(env, me, who, later);
   const today = (await env.DB.prepare(`SELECT COUNT(*) AS n FROM friendships WHERE requested_by = ? AND created_at > ?`).bind(me, Date.now() - 86_400_000).first<{ n: number }>())?.n ?? 0;
   if (today >= FRIEND_REQUESTS_PER_DAY) throw new SocialError(`That's ${FRIEND_REQUESTS_PER_DAY} friend requests today; try again tomorrow.`);
   const [a, b] = pair(me, who);
@@ -176,6 +177,7 @@ export async function requestFriend(env: Env, me: string, other: string, note: s
     if (shared) {
       await env.DB.prepare(`UPDATE friendships SET status = 'accepted', decided_at = ? WHERE a = ? AND b = ?`).bind(Date.now(), a, b).run();
       await notify(env, who, me, "friend_accept", "is now your friend (accepted by your rule for people you share a board with)");
+      void noteFriendAccepted(env, later, me, who);
       return "friend";
     }
   }
@@ -183,13 +185,14 @@ export async function requestFriend(env: Env, me: string, other: string, note: s
   if (await applies(env, who, "accept_friends", me)) {
     await env.DB.prepare(`UPDATE friendships SET status = 'accepted', decided_at = ? WHERE a = ? AND b = ?`).bind(Date.now(), a, b).run();
     await notify(env, who, me, "friend_accept", "is now your friend (accepted by a standing rule of yours)");
+    void noteFriendAccepted(env, later, me, who);
     return "friend";
   }
   await notify(env, who, me, "friend_request", note ? `wants to be friends: ${note}` : "wants to be friends");
   return "pending_out";
 }
 
-export async function acceptFriend(env: Env, me: string, other: string): Promise<Relation> {
+export async function acceptFriend(env: Env, me: string, other: string, later: Later | null = null): Promise<Relation> {
   const who = other.toLowerCase().replace(/^@/, "");
   const { rel } = await relationOf(env, me, who);
   if (rel === "friend") return rel;
@@ -197,6 +200,7 @@ export async function acceptFriend(env: Env, me: string, other: string): Promise
   const [a, b] = pair(me, who);
   await env.DB.prepare(`UPDATE friendships SET status = 'accepted', decided_at = ? WHERE a = ? AND b = ?`).bind(Date.now(), a, b).run();
   await notify(env, who, me, "friend_accept", "accepted your friend request");
+  void noteFriendAccepted(env, later, me, who);
   return "friend";
 }
 
