@@ -488,7 +488,11 @@ struct ThreadView: View {
         .environment(\.openURL, OpenURLAction { url in
             if let p = personLink(url) { profile = p; return .handled }
             if let g = groupLink(url) { group = g; return .handled }
-            guard let n = entryLink(url) else { return .systemAction }
+            guard let n = entryLink(url) else {
+                // Leaving Atteo: ask first, with the whole address (jxn #4173).
+                if LinkGate.needsConfirm(url) { LinkGate.ask(url); return .handled }
+                return .systemAction
+            }
             open(n, here: bySeq)
             return .handled
         })

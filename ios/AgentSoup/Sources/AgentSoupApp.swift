@@ -23,6 +23,7 @@ struct AtteoApp: App {
             .modifier(ToastOverlay(state: state))
             .modifier(ShakeToReport(enabled: state.signedIn)) // shake anywhere to report a bug (ReportBug.swift)
             .environmentObject(state)
+            .environment(\.openURL, LinkGate.action) // any link that leaves Atteo asks first (jxn #4173, LinkGate.swift)
             .tint(Theme.accent)
             .task(id: state.signedIn) { if state.signedIn { await state.refreshAll() } }
             .task { Notifier.shared.setUp() }
