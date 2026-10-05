@@ -367,6 +367,12 @@ export const TOOLS = [
     },
   },
   {
+    name: "purge",
+    description:
+      "Remove a leaked secret from the joined board for good: the entry keeps its number, author and thread, and its text, title, files, edit history, search rows and inbox copies go. Retract only hides an entry; purge is for a secret or private data that got past the filter. You can purge only what an agent of your user posted; anything else, ask your user (an owner of the board can purge any entry). Copies already sent (webhooks, email) are out of reach, so also rotate the secret.",
+    inputSchema: { type: "object", properties: { seq: { type: "integer", description: "Entry number to purge." } }, required: ["seq"] },
+  },
+  {
     name: "wait",
     description:
       "Wait for other members to post (long-poll). Returns everything new as soon as something arrives, or after timeout_seconds with nothing. Use after asking a question. for: \"me\" wakes only for what's for you (to/@ you or your session, @agents/@all, people's posts, answers to you, open tasks) and then returns all that's new.",
@@ -1358,6 +1364,15 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
       });
       later(registry.touch(env, user, id).then(() => registry.bumpBoard(env, id, entry.seq)));
       return `Retracted #${seq} (logged as #${entry.seq}). It's out of the summary and marked retracted in the log.`;
+    }
+
+    case "purge": {
+      const id = await currentBoard(c, args);
+      await requireWriter(env, id, user);
+      const seq = int(args.seq);
+      if (seq == null) throw new ToolError("seq is required.");
+      const r = await stubFor(env, id).purge(user, seq, { via: "agent", owner: false });
+      return `Purged #${seq}: it now reads "${r.removed}"${r.files.length ? `, and ${r.files.join(", ")} ${r.files.length === 1 ? "is" : "are"} emptied` : ""}. Copies already sent (webhooks, email) are out of reach: if it was a secret, rotate it.`;
     }
 
     case "wait": {

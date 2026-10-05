@@ -2772,6 +2772,20 @@ const handler = {
         }
       }
 
+      // ---- purge an entry: a leaked secret goes for good (its author, an agent only its agent's posts; any, for an owner) ----
+      m = path.match(/^\/api\/boards\/([^/]+)\/entries\/(\d+)\/purge$/);
+      if (m && method === "POST") {
+        if (!viewer) return needLogin();
+        const role = await registry.memberRole(env, m[1], viewer.name);
+        if (!role) return json({ error: "board not found" }, 404);
+        try {
+          const r = await boardStub(env, m[1]).purge(viewer.name, parseInt(m[2], 10), { via: pv(), owner: role === "owner" });
+          return json({ ok: true, ...r });
+        } catch (e) {
+          return json({ error: e instanceof Error ? e.message : String(e) }, 400);
+        }
+      }
+
       m = path.match(/^\/api\/boards\/([^/]+)\/(updates|entries|invites|seen|search|grep|handle|typing|answered|handoffs)(?:\/(\d+))?$/);
       if (m) {
         const [, id, what, seqStr] = m;

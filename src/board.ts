@@ -339,6 +339,8 @@ export class Board extends DurableObject<Env> {
         card_diff TEXT,
         data TEXT
       );
+      -- Purged entries (purge): who removed each, so it isn't purged twice and the log can say so.
+      CREATE TABLE IF NOT EXISTS purged (seq INTEGER PRIMARY KEY, by_user TEXT NOT NULL, via TEXT NOT NULL, ts INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS entry_versions (seq INTEGER NOT NULL, version INTEGER NOT NULL, text TEXT NOT NULL, ts INTEGER NOT NULL, PRIMARY KEY (seq, version));
       CREATE TABLE IF NOT EXISTS edit_notices (user TEXT NOT NULL, session TEXT NOT NULL, seq INTEGER NOT NULL, edited_at INTEGER NOT NULL, PRIMARY KEY (user, session, seq));
       CREATE TABLE IF NOT EXISTS reactions (
@@ -2456,6 +2458,74 @@ export class Board extends DurableObject<Env> {
     notify(this.sql.exec("SELECT user, session FROM handling WHERE seq = ? AND session IS NOT NULL", seq).toArray());
     this.broadcast({ type: "edit", seq, board: info.id }, seq);
     return toEntry(this.sql.exec(`SELECT ${ENTRY_COLS} FROM entries WHERE seq = ?`, seq).one());
+  }
+
+  /**
+   * Purge (GAPS P0 #7): a secret that got past the filter goes for good, where retracting only hides it. The entry keeps
+   * its number, author, time and thread (so references still resolve); its text, title, card, data, edit history, task
+   * body and versions, memory items taken from it, the file versions it published (and a doc's current copy when it is
+   * that version), search rows, and the inbox, tape and board-list excerpts go. Its author may purge it (an agent only
+   * what an agent posted); an owner (a person) any. Copies already sent (webhooks, email, backups) are out of reach.
+   */
+  async purge(user: string, seq: number, opts: { via: "agent" | "person"; owner: boolean }): Promise<{ seq: number; files: string[]; removed: string }> {
+    const info = this.info();
+    if (info.archived) throw new BoardError(archivedError(info.id));
+    const row = this.sql.exec(`SELECT ${ENTRY_COLS} FROM entries WHERE seq = ?`, seq).toArray()[0];
+    if (!row || !this.visible(seq, { user, person: opts.via === "person" })) throw new BoardError(`Entry #${seq} does not exist on this board.`);
+    const e = toEntry(row);
+    const mine = e.author === user && (opts.via === "person" || e.via === "agent");
+    const owner = opts.via === "person" && (opts.owner || info.created_by === user);
+    if (!mine && !owner) {
+      throw new BoardError(opts.via === "agent" ? `An agent can purge only what an agent of ${user} posted; #${seq} is ${e.author}'s${e.via === "person" ? " own message" : ""}. Ask your person (or an owner of the board) to purge it.` : `Only ${e.author} (who posted #${seq}) or an owner of this board can purge it.`);
+    }
+    if (this.sql.exec("SELECT 1 AS x FROM purged WHERE seq = ?", seq).toArray().length) throw new BoardError(`#${seq} is already purged.`);
+    const removed = `(removed by ${opts.via === "agent" ? `${user}'s agent` : user})`;
+    const now = Date.now();
+    // The directory's copies first (so a failure here leaves it purgeable again): inbox and mailbox excerpts (reminders
+    // included), trigger mail's event line, the tape, the board list's last line, and an audit row (the access log says
+    // who purged which entry, never what it said).
+    await this.env.DB.batch([
+      this.env.DB.prepare("UPDATE notifications SET excerpt = ? WHERE board_id = ? AND seq = ?").bind(removed, info.id, seq),
+      this.env.DB.prepare("UPDATE notifications SET data = json_set(data, '$.event.line', ?) WHERE board_id = ? AND kind = 'trigger' AND json_extract(data, '$.event.seq') = ?").bind(`#${seq} ${removed}`, info.id, seq),
+      this.env.DB.prepare("UPDATE tape SET excerpt = ? WHERE board_id = ? AND seq = ?").bind(removed, info.id, seq),
+      this.env.DB.prepare("UPDATE boards SET last_excerpt = ? WHERE id = ? AND last_author = ? AND last_activity = ?").bind(removed, info.id, e.author, e.ts),
+      this.env.DB.prepare("INSERT INTO audit (board_id, actor, action, target, detail, ts) VALUES (?, ?, 'purge', ?, ?, ?)").bind(info.id, user, `#${seq}`, `${e.type} by ${e.author}${opts.via === "agent" ? ", purged by their agent" : ""}`, now),
+    ]);
+    this.sql.exec("UPDATE entries SET text = ?, title = NULL, artifact_content = NULL, card = NULL, card_diff = NULL, data = NULL, handoff = NULL, sealed = NULL WHERE seq = ?", removed, seq);
+    this.sql.exec("INSERT OR IGNORE INTO purged (seq, by_user, via, ts) VALUES (?, ?, ?, ?)", seq, user, opts.via, now);
+    this.sql.exec("DELETE FROM entry_versions WHERE seq = ?", seq);
+    this.sql.exec("DELETE FROM search_idx WHERE kind IN ('entry', 'task') AND ref = ?", String(seq));
+    if (this.sql.exec("SELECT 1 AS x FROM tasks WHERE seq = ?", seq).toArray().length) {
+      this.sql.exec("UPDATE tasks SET title = ?, body = NULL WHERE seq = ?", removed, seq);
+      this.sql.exec("DELETE FROM task_versions WHERE seq = ?", seq);
+    }
+    const mem = this.sql.exec("SELECT id FROM memory WHERE source_seq = ?", seq).toArray();
+    if (mem.length) {
+      const v = this.bumpMemV();
+      this.sql.exec("UPDATE memory SET text = ?, norm = ?, struck_by = COALESCE(struck_by, ?), struck_ts = COALESCE(struck_ts, ?), struck_v = COALESCE(struck_v, ?) WHERE source_seq = ?", removed, `purged ${seq}`, user, now, v, seq);
+    }
+    // The file versions this entry published: their contents and bytes; the doc's current copy too when it is one of them.
+    const files = [...(e.attachments ?? []).map((a) => ({ name: a.name, version: a.version })), ...(e.artifact_name && e.artifact_version != null ? [{ name: e.artifact_name, version: e.artifact_version }] : [])]
+      .filter((f, i, all) => f.version != null && all.findIndex((g) => g.name === f.name && g.version === f.version) === i);
+    for (const f of files) {
+      this.sql.exec("UPDATE doc_versions SET content = ?, summary = NULL WHERE name = ? AND version = ?", removed, f.name, f.version);
+      this.sql.exec("DELETE FROM blobs WHERE name = ? AND version = ?", f.name, f.version);
+      if (this.sql.exec("SELECT 1 AS x FROM docs WHERE name = ? AND version = ?", f.name, f.version).toArray().length) {
+        this.sql.exec("UPDATE docs SET content = ? WHERE name = ?", removed, f.name);
+        this.sql.exec("DELETE FROM search_idx WHERE kind = 'doc' AND ref = ?", f.name);
+      }
+    }
+    // Agent sessions that read it hear "#N edited", so they drop what they hold (none for People only: they never saw it).
+    if (e.audience !== "people") {
+      for (const r of this.sql.exec("SELECT session, user FROM session_cursors WHERE cursor >= ?", seq).toArray())
+        if (e.audience !== "own" || r.user === e.author)
+          this.sql.exec("INSERT INTO edit_notices (user, session, seq, edited_at) VALUES (?, ?, ?, ?) ON CONFLICT(user, session, seq) DO UPDATE SET edited_at = excluded.edited_at", r.user, r.session, seq, now);
+    }
+    this.entryMemo = [];
+    this.entryMemoTo = 0;
+    this.changes++;
+    this.broadcast({ type: "edit", seq, board: info.id }, seq);
+    return { seq, files: files.map((f) => `${f.name} v${f.version}`), removed };
   }
 
   editHistory(seq: number, viewer: Viewer): { version: number; text: string; ts: number }[] {
