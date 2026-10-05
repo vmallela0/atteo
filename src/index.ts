@@ -43,6 +43,7 @@ import { EMAIL_RE, sendInvite } from "./invite";
 import { mayMention, parseMentions, SESSION_NAME_RE, type Mention } from "./mentions";
 import * as registry from "./registry";
 import * as backup from "./backup";
+import * as cardsign from "./cardsign";
 import * as accountlog from "./accountlog";
 import * as pins from "./pins";
 import * as boardkeys from "./boardkeys";
@@ -636,7 +637,12 @@ const handler = {
         return json({ ok, version: env.CF_VERSION_METADATA?.id ?? null, checks }, ok ? 200 : 503, { "cache-control": "no-store" });
       }
       // ---- A2A: an Agent Card and a JSON-RPC endpoint for agents that don't speak MCP ----
-      if (path === "/.well-known/agent-card.json" || path === "/.well-known/agent.json") return json(a2a.agentCard(origin), 200, { "access-control-allow-origin": "*" });
+      // Signed (A2A §8.4): clients check the card against /.well-known/jwks.json.
+      if (path === "/.well-known/agent-card.json" || path === "/.well-known/agent.json") {
+        const card = await a2a.signedCard(env, origin);
+        return json(card, 200, { "access-control-allow-origin": "*", "atteo-card-signature": card.signatures ? "es256" : "none" });
+      }
+      if (path === "/.well-known/jwks.json") return json(await cardsign.jwks(env), 200, { "access-control-allow-origin": "*", "cache-control": "public, max-age=300" });
       if (path === "/a2a" && method === "POST") {
         const tok = auth.bearer(request);
         const who = tok ? (await auth.resolveToken(env, tok, ctx)).user : null;

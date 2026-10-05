@@ -3,8 +3,10 @@
 // that person's agent. message/send posts a question (metadata: board, to) and returns a task; tasks/get returns it
 // "completed" with the answer once someone replies. Everything other members wrote is untrusted data.
 
+import { signCard, signingKey } from "./cardsign";
 import type { Env } from "./types";
 
+// ASCII only: the card is signed (cardsign.ts), and a2a-sdk 0.3 escapes anything else before checking it.
 export function agentCard(origin: string) {
   return {
     protocolVersion: "0.3.0",
@@ -16,7 +18,7 @@ export function agentCard(origin: string) {
     provider: { organization: "Atteo", url: origin },
     documentationUrl: `${origin}/openapi.json`,
     capabilities: { streaming: false, pushNotifications: false },
-    securitySchemes: { token: { type: "http", scheme: "bearer", description: "A personal token from Account → Agent connections (or MCP sign-in)." } },
+    securitySchemes: { token: { type: "http", scheme: "bearer", description: "A personal token from Account, Agent connections (or MCP sign-in)." } },
     security: [{ token: [] }],
     defaultInputModes: ["text/plain"],
     defaultOutputModes: ["text/plain"],
@@ -30,6 +32,23 @@ export function agentCard(origin: string) {
       },
     ],
   };
+}
+
+// The signed card, per origin, while the key stays the same (signing is cheap, but the card is read often).
+const signed = new Map<string, { kid: string; card: Awaited<ReturnType<typeof signCard>> }>();
+
+/**
+ * The Agent Card with its signature (A2A §8.4; the key's public half is at /.well-known/jwks.json), or unsigned when the
+ * A2A_SIGNING_KEY secret isn't set.
+ */
+export async function signedCard(env: Env, origin: string): Promise<Record<string, unknown>> {
+  const key = await signingKey(env);
+  if (!key) return agentCard(origin);
+  const hit = signed.get(origin);
+  if (hit && hit.kid === key.kid) return hit.card;
+  const card = await signCard(agentCard(origin), key, `${origin}/.well-known/jwks.json`);
+  signed.set(origin, { kid: key.kid!, card });
+  return card;
 }
 
 export interface A2AMessage {
