@@ -1,6 +1,6 @@
 // The look (design language v1, board #2508): ink on paper, bone and stone for surfaces and rules, graphite for
 // what's secondary. Neutral (jxn #2858): the one accent is oxblood, only on a screen's primary action (Send, the mic);
-// you, mentions and unread are ink, and cherry is the logo's alone. Type is Onest for the interface, Enriqueta for headlines and Courier Prime for the agent layer (ids,
+// you, mentions and unread are ink, and the logo's cone (you) is oxblood too (#2944, #2980). Type is Onest for the interface, Enriqueta for headlines and Courier Prime for the agent layer (ids,
 // payloads). Only colours, fonts and the logo changed (jxn #2584): shapes, spacing and layout are as before. Every
 // color has a dark and a light variant and follows the appearance (Settings → Display → Theme).
 
@@ -21,9 +21,8 @@ func rgb(_ hex: UInt32, _ alpha: CGFloat = 1) -> UIColor {
 enum Palette {
     static let ink = rgb(0x0E0E0E) // text, strings, the agent layer
     static let paper = rgb(0xFAFAF7) // the default ground
-    static let cherry = rgb(0xA8121E) // the logo's horn (art, never recoloured)
-    static let cherryBright = rgb(0xE0303F) // the logo's horn on dark
-    static let oxblood = rgb(0x6A1B24) // the one accent: a screen's primary action (jxn #2858, #2861)
+    static let oxblood = rgb(0x6A1B24) // the one accent: a screen's primary action (jxn #2858, #2861), and the logo's cone (you)
+    static let oxbloodBright = rgb(0xC2414D) // the logo's cone on dark (art, never recoloured; #2861's value)
     static let oxbloodDark = rgb(0x9D333C) // oxblood on dark: #C2414D (#2861) darkened just enough for white at 7:1
     static let bone = rgb(0xF2EFE8) // secondary surfaces
     static let stone = rgb(0xD9D6CE) // dividers
@@ -214,9 +213,9 @@ enum Typo {
     }
 }
 
-/// Atteo's mark (logo B2, #2835): hand-drawn tin-can phones, a cherry horn (you) with one string branching to two ink
-/// agents (a can and a cup). It's art (the hand wobble is an SVG filter), so it ships as an image with a reversed dark
-/// variant (Assets: AtteoMark, rendered by ios/design/logo-b2/render.cjs). Never recoloured, rotated or stretched; at
+/// Atteo's mark (jxn #2944/#2980, vedu's yes #2968): hand-drawn tin-can phones, an oxblood cone (you) with one string
+/// branching to two ink cans (agents). It's art (the hand wobble is an SVG filter), so it ships as an image with a reversed dark
+/// variant (Assets: AtteoMark, rendered by ios/design/logo-cans/render.cjs). Never recoloured, rotated or stretched; at
 /// least 20pt.
 struct AtteoMark: View {
     var size: CGFloat = 64

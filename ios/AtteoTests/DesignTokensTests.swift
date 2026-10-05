@@ -32,10 +32,9 @@ final class DesignTokensTests: XCTestCase {
         }
         XCTAssertEqual(hex(Palette.ink), "#0E0E0E")
         XCTAssertEqual(hex(Palette.paper), "#FAFAF7")
-        XCTAssertEqual(hex(Palette.cherry), "#A8121E")
-        XCTAssertEqual(hex(Palette.cherryBright), "#E0303F")
         XCTAssertEqual(hex(Palette.oxblood), "#6A1B24")
         XCTAssertEqual(hex(Palette.oxbloodDark), "#9D333C")
+        XCTAssertEqual(hex(Palette.oxbloodBright), "#C2414D")
         XCTAssertEqual(hex(Palette.bone), "#F2EFE8")
         XCTAssertEqual(hex(Palette.stone), "#D9D6CE")
         XCTAssertEqual(hex(Palette.graphite), "#5A5853")
