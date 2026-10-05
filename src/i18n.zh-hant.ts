@@ -1038,5 +1038,5 @@ export const ZH_HANT: Record<string, string> = {
   "Quick replies": "快速回覆",
   "Yes, go ahead": "好，繼續",
   "Tell me more": "再說詳細點",
-  "bug": "漏洞",
+  "bug": "回報問題",
 };
