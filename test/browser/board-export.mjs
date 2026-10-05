@@ -2,8 +2,9 @@
 // writes (#3378): one entry per line, oldest first, reactions on each. A member's file holds only what they can see
 // (another's Just mine message isn't in it). 1280 for the owner, 390 for the other member, no sideways scroll. The
 // encrypted board's download is checked in e2e-web.mjs. BASE, ADMIN_KEY, PW_CHROME.
-import { readFile } from "node:fs/promises";
 import { chromium } from "playwright-core";
+// A download's text through its stream: download.path() isn't available when the browser is shared (run.mjs connects to it).
+const dlText = async (dl) => { const chunks = []; for await (const c of await dl.createReadStream()) chunks.push(c); return Buffer.concat(chunks).toString("utf8"); };
 const BASE = process.env.BASE || "http://localhost:8787";
 const ops = async (p, b) => (await fetch(`${BASE}/api/ops/${p}`, { method: "POST", headers: { "x-admin-key": process.env.ADMIN_KEY || "ci-admin-key", "content-type": "application/json" }, body: JSON.stringify(b) })).json();
 const run = Date.now().toString(36).slice(-4), A = `xa${run}`, B = `xb${run}`;
@@ -32,7 +33,7 @@ const download = async (p, phone) => {
   if (phone) await p.locator("#info-btn").click();
   await p.locator('[data-open="invite"]').first().click(); await p.locator("#log-export").waitFor();
   const [dl] = await Promise.all([p.waitForEvent("download"), p.locator("#log-export").click()]);
-  const text = await readFile(await dl.path(), "utf8");
+  const text = await dlText(dl);
   return { name: dl.suggestedFilename(), text, lines: text.split("\n").filter(Boolean).map((l) => JSON.parse(l)) };
 };
 
