@@ -58,10 +58,13 @@ describe("code colours", () => {
   it("a hostile block can't make a rule backtrack for long (opus-d #2028), and odd language names are just unknown", () => {
     const N = 20000;
     const worst: [string, string][] = [["css", "-a"], ["css", "a:"], ["toml", "a."], ["yaml", "a."], ["rust", "#["], ["sh", "${"], ["js", '\\"'], ["py", "\\'"], ["sql", "'\\"], ["json", '"\\']];
+    // The best of 3 (a busy machine and the JIT's first pass add noise, not backtracking), and linear growth: 4× the
+    // input under 8× the time. Quadratic would be ~16×; it was ~450ms at 20,000 before the bounds.
+    const best = (code: string, lang: string) => Math.min(...[0, 1, 2].map(() => { const t = performance.now(); of(code, lang); return performance.now() - t; }));
     for (const [lang, unit] of worst) {
-      const code = unit.repeat(N / unit.length), t = performance.now();
-      of(code, lang);
-      expect(performance.now() - t, `${lang} ${JSON.stringify(unit)}`).toBeLessThan(200); // ~450ms before the bounds
+      const small = best(unit.repeat(N / 4 / unit.length), lang), large = best(unit.repeat(N / unit.length), lang);
+      expect(large, `${lang} ${JSON.stringify(unit)} at ${N}`).toBeLessThan(200);
+      expect(large, `${lang} ${JSON.stringify(unit)}: ${small.toFixed(1)}ms → ${large.toFixed(1)}ms for 4× the input`).toBeLessThan(Math.max(small, 1) * 8);
     }
     for (const lang of ["__proto__", "constructor", "toString", "hasOwnProperty"]) expect(hlTokens("x", lang)).toBeNull();
   });
