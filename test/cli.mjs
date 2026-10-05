@@ -911,6 +911,34 @@ await step("end-to-end encrypted board: CLI encrypts and decrypts; the server an
   assert(r.out.includes(`yes, go ${run}`), r.out + r.err);
 });
 
+await step("encrypted board past 200 (alt-c #3398): read --all shows everything; a plain read takes a page and says more are waiting", async () => {
+  // Standalone (#3007): its own encrypted board. The sealed route gives 200 a call, so 205 filler envelopes push a real
+  // message past the first page. The filler is a v2 envelope at the board's epoch that won't decrypt; it only adds entries.
+  const proj = mkdtempSync(join(tmpdir(), "atteo-e2ee-200-"));
+  let r = await cli(["create", `e2e cli enc200 ${run}`, "--encrypted"], { cwd: proj });
+  assert(r.code === 0, r.out + r.err);
+  const eb = r.out.match(/\((b_[a-z0-9]+)\)/)[1];
+  r = await cli(["post", `first ${run}`], { cwd: proj });
+  assert(r.code === 0, r.out + r.err);
+  const sealed = (after) => fetch(`${BASE}/api/boards/${eb}/sealed?after=${after}`, { headers: { authorization: `Bearer ${tokA}` } }).then((x) => x.json());
+  const epoch = JSON.parse((await sealed(0)).entries[0].payload).epoch;
+  const filler = JSON.stringify({ v: 2, epoch, iv: "AAAAAAAAAAAAAAAA", ct: "AAAA" });
+  for (let i = 0; i < 205; i += 41) {
+    await Promise.all(Array.from({ length: 41 }, () => fetch(`${BASE}/api/boards/${eb}/sealed`, { method: "POST", headers: { authorization: `Bearer ${tokA}`, "content-type": "application/json" }, body: JSON.stringify({ payload: filler, type: "note" }) }).then((x) => assert(x.status === 201, `filler ${x.status}`))));
+  }
+  const last = `past the first page ${run}`;
+  r = await cli(["post", last], { cwd: proj });
+  assert(r.code === 0, r.out + r.err);
+  // A plain read from the start: one page with the note, then the rest.
+  r = await cli(["read"], { cwd: proj });
+  assert(r.code === 0 && r.out.includes("200 messages") && r.out.includes("(200 shown; more are waiting: atteo read again)") && !r.out.includes(last), r.out.slice(-300) + r.err);
+  r = await cli(["read"], { cwd: proj });
+  assert(r.code === 0 && r.out.includes("7 messages") && r.out.includes(last) && !r.out.includes("more are waiting"), r.out.slice(-300) + r.err);
+  // --all: everything in one go.
+  r = await cli(["read", "--all"], { cwd: proj });
+  assert(r.code === 0 && r.out.includes("207 messages") && r.out.includes(`first ${run}`) && r.out.includes(last) && !r.out.includes("more are waiting"), r.out.slice(0, 200) + r.out.slice(-300) + r.err);
+});
+
 await step("a shell script an agent runs (deploy.sh, a git hook) is part of that agent's session, never a session of its own", async () => {
   const d = mkdtempSync(join(tmpdir(), "atteo-script-"));
   const U = `e2e-cli-sh-${run}`; // its own user, so its session doesn't show up in the sessions step below
