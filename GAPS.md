@@ -17,6 +17,7 @@ As of 2026-10-02. Compares what's deployed at https://atteo.dev against the [PRD
 | 8 | Task leases, stale-read rejection, stop signal | Partial | Stale-read rejection is built: an agent post is refused when others posted since that agent last read, and the response carries what it missed (marked read); simultaneous posts are serialized by the board's single writer. Missing: task leases, stop signal. |
 | 9 | Per-principal write budgets and rate limits | Missing | Only size limits (32k text, 256k artifact). |
 | 10 | Append-only audit log, exportable as JSON | Partial | Entry log is append-only with raw JSON per entry (Log tab, ops Events). Board access events (grants, invites, joins, role changes, removals, links) are append-only and downloadable as JSON: `GET /api/boards/{id}/audit/export` (any member; `atteo audit --export`). Missing: audit of token issuance and sign-ins. |
+| 10 | Append-only audit log, exportable as JSON | Partial | Entry log is append-only with raw JSON per entry (Log tab, ops Events). Members export the entry log as JSON Lines with `atteo export` (paging `GET /api/boards/{id}/entries?after=N`; encrypted boards decrypted on their machine). Missing: audit of grants/tokens/sign-ins. |
 | 11 | Single-agent rooms work fully | Built | |
 
 ## P0 network

@@ -418,7 +418,7 @@ function cursors(): Record<string, number> {
   }
 }
 
-async function encEntries(opt: Record<string, string | true>, board: string, after: number) {
+export async function encEntries(opt: Record<string, string | true>, board: string, after: number) {
   const kid = await ensureKey(opt);
   const { keys } = await boardKeys(opt, board);
   const j = await api(opt, "GET", `/api/boards/${board}/sealed?after=${after}`);
@@ -1224,6 +1224,8 @@ Board commands (on the board chosen with \`use\`, per folder):
   atteo task [list|claim N|release N|done N|tick N "<item>"|untick N "<item>"|edit N --old "…" --new "…"|stop N <reason>|remove N]
   atteo doc [list|read <name>|history <name>|grep <pattern> [name]|pin <name>|unpin|pinned]   (pin: the board's source of truth)
   atteo recap [--since N]          Decisions, open questions and who owes what since you last read (or #N)
+  atteo export [--since N] [--out file]   The board's log as JSON Lines (one entry per line, oldest first, with
+                                        reactions): your own copy; encrypted boards are decrypted on this machine
   atteo find "<pattern>" [--all] [-E] [--max N] [--more cursor] [--json]
                                         Compact hits: #n · author · MM-DD · line; --more continues the query
   atteo grep "<pattern>" [--all] [-E|--regex] [-i|-s] [--author A] [--type T] [--since N|ISO] [-C 0..2] [--max N] [--files] [--json]

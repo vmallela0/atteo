@@ -909,6 +909,11 @@ await step("end-to-end encrypted board: CLI encrypts and decrypts; the server an
   assert(r.code === 0, r.err);
   r = await asking;
   assert(r.out.includes(`yes, go ${run}`), r.out + r.err);
+  // export (#3378): decrypted on this machine, each line marked encrypted; the server never had the text.
+  r = await cli(["export", "--board", eb], { cwd: projB, cred: credB });
+  const exported = r.out.trimEnd().split("\n").map((l) => JSON.parse(l));
+  assert(r.code === 0 && exported.some((e) => e.text === secret && e.encrypted === true) && exported.some((e) => e.text === `yes, go ${run}` && e.reply_to === q), r.out + r.err);
+  assert(exported.every((e) => e.encrypted === true && !("payload" in e)), "the decrypted text, without the ciphertext");
 });
 
 await step("a shell script an agent runs (deploy.sh, a git hook) is part of that agent's session, never a session of its own", async () => {
@@ -1692,6 +1697,56 @@ await step("doc pin / unpin / pinned: the board's one pinned doc, from the CLI",
   assert(r.code === 0 && r.out.includes("Unpinned"), r.out + r.err);
   r = await d("pinned");
   assert(r.out.includes("No pinned doc"), "gone: " + r.out);
+});
+
+await step("export (alt-c #3378): the board's log as JSON Lines, oldest first, paged past 500, --since, --out written whole, read position untouched", async () => {
+  // Standalone (#3007): its own board; 520 seeded notes make the export page twice.
+  const xb = (await ops("boards", { user: A, title: `e2e cli export ${run}` })).board.id;
+  await ops("members", { board: xb, user: B });
+  await ops("seed", { board: xb, user: A, count: 520, prefix: `seeded ${run}` });
+  await tool(tokA, xb, "read", {});
+  const d = Number((await tool(tokA, xb, "post", { type: "decision", text: `ship it ${run}` })).match(/Posted #(\d+)/)?.[1]);
+  assert(d, "decision posted");
+  // One read delivers only part of 520 unread entries: read until there's nothing more.
+  const catchUp = async (tok) => { for (let i = 0; i < 10 && /more unread|call read/.test(await tool(tok, xb, "read", {})); i++); };
+  await catchUp(tokB);
+  const agreed = await tool(tokB, xb, "post", { type: "note", reply_to: d, text: `agreed ${run}` });
+  assert(/Posted #\d+/.test(agreed), "B's reply: " + agreed.slice(0, 400));
+  await tool(tokB, xb, "react", { seq: d, emoji: "👍" });
+  // B's shell session joins and reads to the end: the export must not move that read position.
+  const xcfg = { XDG_CONFIG_HOME: join(dir, "cfg-export") };
+  let r = await cli(["join", xb], { cred: credB, env: xcfg });
+  assert(r.code === 0, r.out + r.err);
+  for (let i = 0; i < 12 && !/· 0 new since your last read/.test(r.out); i++) r = await cli(["read"], { cred: credB, env: xcfg });
+  assert(/· 0 new since your last read/.test(r.out), "caught up: " + r.out.slice(-300) + r.err);
+  r = await cli(["export"], { cred: credB, env: xcfg });
+  assert(r.code === 0, r.err);
+  const lines = r.out.trimEnd().split("\n").map((l) => JSON.parse(l));
+  const seqs = lines.map((e) => e.seq);
+  assert(lines.length >= 522 && seqs.every((s, i) => i === 0 || s > seqs[i - 1]), `oldest first, past one page: ${lines.length} ${JSON.stringify(lines.slice(-2).map((e) => [e.seq, e.type, e.text]))}`);
+  assert(lines.filter((e) => e.text?.startsWith(`seeded ${run}`)).length === 520, "every seeded note");
+  const dec = lines.find((e) => e.seq === d);
+  assert(dec?.type === "decision" && dec.text === `ship it ${run}` && JSON.stringify(dec.reactions ?? {}).includes("👍"), JSON.stringify(dec));
+  assert(lines.at(-1).text === `agreed ${run}` && lines.at(-1).reply_to === d, JSON.stringify(lines.at(-1)));
+  assert(new RegExp(`Exported ${lines.length} entries \\(#${seqs[0]}–#${seqs.at(-1)}\\) of ${xb}`).test(r.err) && r.err.includes(`--since ${seqs.at(-1)}`), r.err);
+  assert(!r.out.includes("untrusted") && !r.out.includes("Exported"), "stdout is pure JSON Lines");
+  await tool(tokA, xb, "read", {});
+  await tool(tokA, xb, "post", { type: "note", text: `one more ${run}` });
+  r = await cli(["read"], { cred: credB, env: xcfg });
+  assert(/· 1 new since your last read/.test(r.out) && r.out.includes(`one more ${run}`), "the export moved no read position: " + r.out + r.err);
+  // --since: only what came after; --out: the file appears whole, no temp file left behind.
+  const out = join(dir, `export-${run}.jsonl`);
+  r = await cli(["export", "--board", xb, "--since", String(d), "--out", out], { cred: credB });
+  assert(r.code === 0 && r.err.includes(`Exported 2 entries (#${d + 1}–#${d + 2}) of ${xb} to ${out}, after #${d}`), r.err);
+  const got = readFileSync(out, "utf8").trimEnd().split("\n").map((l) => JSON.parse(l));
+  assert(got.length === 2 && got[0].text === `agreed ${run}` && got[1].text === `one more ${run}`, JSON.stringify(got));
+  assert(!readdirSync(dir).some((f) => f.startsWith(`export-${run}.jsonl.part`)), "no temp file left");
+  r = await cli(["export", "--board", xb, "--since", String(d + 2)], { cred: credB });
+  assert(r.code === 0 && r.out === "" && r.err.includes("Exported no entries"), r.out + r.err);
+  r = await cli(["export", "--board", xb, "--since", "soon"], { cred: credB });
+  assert(r.code === 1 && r.err.includes("--since takes a message number"), r.err);
+  r = await cli(["export", "everything", "--board", xb], { cred: credB });
+  assert(r.code === 1 && r.err.includes("Usage: atteo export"), r.err);
 });
 
 await step("recap: decided, open questions and who owes what since you last looked, compact and fenced", async () => {
