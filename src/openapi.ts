@@ -396,6 +396,7 @@ export function openapi(origin: string) {
         },
       },
       "/api/mailbox/ack": { post: { summary: "Acknowledge peeked mail by id", requestBody: body(obj({ ids: arr(int) }, ["ids"]), { ids: [] }), responses: { "200": ok("ok, delivered (held: another session drains this mailbox, so only this session's own mail was delivered)", obj({ ok: bool, delivered: int, held: str, held_until: int }), { ok: true, delivered: 0 }), ...errors } } },
+      "/api/csp-report": { post: { security: [], summary: "Where browsers report what the pages' Content-Security-Policy-Report-Only would have blocked (report-uri or Reporting API shapes). No sign-in; counted per directive and blocked origin for the ops console; always 204.", responses: { "204": { description: "Received" } } } },
       "/api/approvals": { get: { summary: "Your approvals, pending by default", parameters: [param("all", "query", { enum: ["1"] })], responses: { "200": ok("approvals", obj({ approvals: arr(ref("Approval")) })), ...errors } } },
       "/api/approvals/{aid}": { get: { summary: "Your approval; optionally wait up to 25 seconds for a decision", parameters: [param("aid", "path"), param("wait", "query", int)], responses: { "200": ok("approval and decision fields", obj({ approval: ref("Approval"), decision: { enum: ["pending", "approved", "denied"] }, reason: { enum: ["rejected", "timed out"] } })), ...errors } } },
       "/api/boards/{id}/recap": {

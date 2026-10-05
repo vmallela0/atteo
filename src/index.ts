@@ -4,6 +4,7 @@ import { pickLang } from "./i18n";
 import * as a2a from "./a2a";
 import { runGrep } from "./grep";
 import * as usage from "./usage";
+import * as csp from "./csp";
 import * as limits from "./limits";
 import * as oauth from "./oauth";
 import { consentPage } from "./oauthPage";
@@ -581,6 +582,8 @@ const handler = {
     try {
       if (path === "/mcp") return await handleMcp(request, env, ctx);
       if (path === "/health") return json({ ok: true, version: env.CF_VERSION_METADATA?.id ?? null });
+      // Browsers post what the report-only CSP would have blocked (jxn's agent #2636): no sign-in, always 204.
+      if (path === "/api/csp-report" && method === "POST") return await csp.handleReport(request, env);
       if (path === "/health/deep") {
         // Touches storage the way real requests do: a board (Durable Object) and the database.
         const checks: Record<string, string> = {};

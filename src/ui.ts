@@ -11,11 +11,18 @@ import { TALK_CSS } from "./talk";
 import { esc } from "./util";
 import { clientTable, dirOf, tr, type Lang } from "./i18n";
 
+/** Report-only for now (jxn's agent #2636): violations go to /api/csp-report and the ops console. Set this to true to
+ *  enforce once a day of reports is clean; nothing else changes (every inline script already carries the nonce). */
+export const CSP_ENFORCE = false;
+export const CSP_REPORT_PATH = "/api/csp-report";
+
 // Each HTML response owns its nonce. Inline CSS and style attributes are used throughout the UI.
-function pageSecurity() {
+export function pageSecurity() {
   const nonce = Array.from(crypto.getRandomValues(new Uint8Array(16)), (b) => b.toString(16).padStart(2, "0")).join("");
-  const headers = {
-    "content-security-policy": `default-src 'self'; script-src 'self' 'nonce-${nonce}' ${MERMAID_SRC}; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: blob:; font-src 'self' data: https://fonts.gstatic.com; connect-src 'self' ws: wss:; frame-src 'self' about:; frame-ancestors 'none'; base-uri 'none'; form-action 'self'; object-src 'none'`,
+  const policy = `default-src 'self'; script-src 'self' 'nonce-${nonce}' ${MERMAID_SRC}; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: blob:; font-src 'self' data: https://fonts.gstatic.com; connect-src 'self' ws: wss:; frame-src 'self' about:; frame-ancestors 'none'; base-uri 'none'; form-action 'self'; object-src 'none'; report-uri ${CSP_REPORT_PATH}; report-to csp`;
+  const headers: Record<string, string> = {
+    [CSP_ENFORCE ? "content-security-policy" : "content-security-policy-report-only"]: policy,
+    "reporting-endpoints": `csp="${CSP_REPORT_PATH}"`,
     "x-content-type-options": "nosniff",
     "referrer-policy": "strict-origin-when-cross-origin",
   };

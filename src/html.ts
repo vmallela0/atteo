@@ -3204,7 +3204,8 @@ export function adminPage(viewer: Viewer, side: SideBoard[], d: AdminData): Resp
         "No usage yet.",
       )}
 <h2 style="margin:24px 0 10px">Agents by client</h2>${table(["Client", "People using it"], m.clients.map((c) => `<tr><td>${esc(c.client)}</td><td>${c.agents}</td></tr>`), "No agent sessions yet.")}
-<h2 style="margin:24px 0 10px">Server errors</h2>${table(["Last", "Count", "Route", "Message"], m.errors.map((e) => `<tr><td class="xs">${when(e.last_at)}</td><td>${e.count}</td><td class="mono xs">${esc(e.route)}</td><td class="xs">${esc(e.message)}</td></tr>`), "No errors recorded.")}`
+<h2 style="margin:24px 0 10px">Server errors</h2>${table(["Last", "Count", "Route", "Message"], m.errors.map((e) => `<tr><td class="xs">${when(e.last_at)}</td><td>${e.count}</td><td class="mono xs">${esc(e.route)}</td><td class="xs">${esc(e.message)}</td></tr>`), "No errors recorded.")}
+<h2 style="margin:24px 0 10px">Content-Security-Policy reports <span class="xs muted">(report-only, last 7 days: what enforcing would block)</span></h2>${table(["Last day", "Count", "Directive", "Blocked"], (m.csp ?? []).map((c) => { const [dir, ...rest] = c.key.split(" "); return `<tr><td class="xs">${esc(c.last_day)}</td><td>${c.count}</td><td class="mono xs">${esc(dir)}</td><td class="mono xs">${esc(rest.join(" "))}</td></tr>`; }), "No violations reported.")}`
     : "";
   const k = m?.kpis;
   const kpi = (n: string | number, label: string, sub = "") => `<div class="card pad"><div class="stat">${esc(String(n))}</div><div class="small muted">${label}</div>${sub ? `<div class="xs faint" style="margin-top:2px">${sub}</div>` : ""}</div>`;

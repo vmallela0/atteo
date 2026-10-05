@@ -123,5 +123,6 @@
  "guide": 8,
  "pins": 5,
  "edit-message": 1,
- "remind": 20
+ "remind": 20,
+ "csp": 8
 }
