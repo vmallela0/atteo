@@ -1401,6 +1401,8 @@ function connect(){
     if(d.type==='profile'&&d.user){delete pcache[d.user];document.querySelectorAll('#thread .entry.by-agent[data-author="'+CSS.escape(d.user)+'"]>.grow>.meta').forEach(m=>{const w=m.querySelector('.who');if(!w)return;
       let o=m.querySelector('.via.owner');delete w.dataset.dev;if(o)delete o.dataset.dev; // the developer words change; Everyday re-words them below
       if(d.agent_name){w.textContent=bidi(d.agent_name);if(!o){o=document.createElement('span');o.className='via owner';w.after(o)}o.textContent=d.user+"'s agent"}else if(o){w.textContent=d.user+"'s agent";o.remove()}});
+      // Its chips in messages that named it (jxn #3300): the new name, or "x's agent" once it has none.
+      document.querySelectorAll('#thread .mention.agent[data-named][data-user="'+CSS.escape(d.user)+'"]').forEach(c=>{c.textContent=d.agent_name?'@'+d.agent_name:'@'+d.user+"'s agent"});
       if(document.documentElement.dataset.mode==='everyday')document.dispatchEvent(new CustomEvent('atteo-mode',{detail:{everyday:true}}));return}
     if(d.type==='schedule'){if(document.getElementById('invite')?.open&&window.schLoad)schLoad();return}
     if(d.type==='reaction'){renderRx(d.seq,d.reactions);return}

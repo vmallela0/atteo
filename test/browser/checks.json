@@ -142,5 +142,6 @@
  "lightbox-fit": 8,
  "msg-session": 5,
  "gate-queue": 8,
- "audit-download": 2
+ "audit-download": 2,
+ "mention-rename": 4
 }
