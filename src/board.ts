@@ -4652,9 +4652,9 @@ export class Board extends DurableObject<Env> {
       // Select by timestamp rather than assuming sequence order is also time order. retained_at makes this bounded and
       // lets a retry finish safely if the directory update succeeded but the object restarted before its local commit.
       const rows = this.sql
-        .exec("SELECT seq FROM entries WHERE ts < ? AND retained_at IS NULL AND purged IS NULL ORDER BY seq LIMIT 500", cutoff)
+        .exec("SELECT seq, ts, author FROM entries WHERE ts < ? AND retained_at IS NULL AND purged IS NULL ORDER BY seq LIMIT 500", cutoff)
         .toArray()
-        .map((r) => r.seq as number);
+        .map((r) => ({ seq: r.seq as number, ts: r.ts as number, author: r.author as string }));
       if (!rows.length) break;
 
       // Inbox/mailbox, trigger mail and the cross-board tape contain copies of message text outside this object. Blank
@@ -4663,9 +4663,12 @@ export class Board extends DurableObject<Env> {
         const chunk = rows.slice(i, i + 90);
         const q = chunk.map(() => "?").join(",");
         await this.env.DB.batch([
-          this.env.DB.prepare(`UPDATE notifications SET excerpt = ? WHERE board_id = ? AND seq IN (${q})`).bind(BLANK, info.id, ...chunk),
-          this.env.DB.prepare(`UPDATE notifications SET data = json_set(data, '$.event.line', ?) WHERE board_id = ? AND kind = 'trigger' AND json_valid(data) AND json_extract(data, '$.event.seq') IN (${q})`).bind(BLANK, info.id, ...chunk),
-          this.env.DB.prepare(`UPDATE tape SET excerpt = ? WHERE board_id = ? AND seq IN (${q})`).bind(BLANK, info.id, ...chunk),
+          this.env.DB.prepare(`UPDATE notifications SET excerpt = ? WHERE board_id = ? AND seq IN (${q})`).bind(BLANK, info.id, ...chunk.map((r) => r.seq)),
+          this.env.DB.prepare(`UPDATE notifications SET data = json_set(data, '$.event.line', ?) WHERE board_id = ? AND kind = 'trigger' AND json_valid(data) AND json_extract(data, '$.event.seq') IN (${q})`).bind(BLANK, info.id, ...chunk.map((r) => r.seq)),
+          this.env.DB.prepare(`UPDATE tape SET excerpt = ? WHERE board_id = ? AND seq IN (${q})`).bind(BLANK, info.id, ...chunk.map((r) => r.seq)),
+          // Only replace the preview when its exact source entry is being retained. A newer or already-purged preview
+          // keeps its own text and, for purge, its attributed placeholder.
+          this.env.DB.prepare(`UPDATE boards SET last_excerpt = ? WHERE id = ? AND (last_activity, last_author) IN (${chunk.map(() => "(?, ?)").join(",")})`).bind(BLANK, info.id, ...chunk.flatMap((r) => [r.ts, r.author])),
         ]);
       }
 
@@ -4682,18 +4685,17 @@ export class Board extends DurableObject<Env> {
               WHERE seq IN (${q})`,
             BLANK,
             Date.now(),
-            ...chunk,
+            ...chunk.map((r) => r.seq),
           );
-          this.sql.exec(`DELETE FROM entry_versions WHERE seq IN (${q})`, ...chunk);
-          this.sql.exec(`DELETE FROM search_idx WHERE kind = 'entry' AND ref IN (${q})`, ...chunk.map(String));
+          this.sql.exec(`DELETE FROM entry_versions WHERE seq IN (${q})`, ...chunk.map((r) => r.seq));
+          this.sql.exec(`DELETE FROM search_idx WHERE kind = 'entry' AND ref IN (${q})`, ...chunk.map((r) => String(r.seq)));
         }
       });
       count += rows.length;
     }
 
-    if (!count) return 0;
-    await this.env.DB.prepare("UPDATE boards SET last_excerpt = ? WHERE id = ? AND last_activity < ?").bind(BLANK, info.id, cutoff).run();
     // Old versions of files go too (the current board document stays). Delete binary and text copies together.
+    // This runs even when no entry was newly compacted, so a restart after the entry transaction cannot strand bytes.
     this.ctx.storage.transactionSync(() => {
       this.sql.exec(
         "DELETE FROM blobs WHERE EXISTS (SELECT 1 FROM doc_versions v JOIN docs d ON d.name = v.name WHERE v.name = blobs.name AND v.version = blobs.version AND v.ts < ? AND v.version < d.version)",
@@ -4701,6 +4703,7 @@ export class Board extends DurableObject<Env> {
       );
       this.sql.exec("DELETE FROM doc_versions WHERE ts < ? AND version < (SELECT version FROM docs d WHERE d.name = doc_versions.name)", cutoff);
     });
+    if (!count) return 0;
     this.entryMemo = [];
     this.entryMemoTo = 0;
     this.changes++;
