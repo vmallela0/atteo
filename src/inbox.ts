@@ -37,8 +37,10 @@ function withPush(r: InboxRow): InboxItem {
   const { data, ...item } = r;
   if (!data) return item;
   try {
-    const d = JSON.parse(data) as { push?: InboxItem["push"]; broadcast?: boolean; reminded?: number };
-    const out: InboxItem = { ...item, ...(d.broadcast ? { broadcast: true } : {}), ...(d.reminded ? { reminded: true } : {}) };
+    const d = JSON.parse(data) as { push?: InboxItem["push"]; broadcast?: boolean; reminded?: number; entry?: number };
+    // A report's row has a key of its own (src/moderation.ts); the entry it's about is data.entry, which links use as seq.
+    const at = item.kind === "report" && Number.isSafeInteger(d.entry) ? { seq: d.entry! } : {};
+    const out: InboxItem = { ...item, ...at, ...(d.broadcast ? { broadcast: true } : {}), ...(d.reminded ? { reminded: true } : {}) };
     return d.push ? { ...out, approval_id: d.push.approval, push: d.push } : out;
   } catch {
     return item;

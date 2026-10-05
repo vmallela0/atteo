@@ -68,9 +68,17 @@ const oa = (await (await api(O, `/api/boards/${board}/audit`)).json()).audit ?? 
 const ax = await (await api(A, `/api/boards/${board}/audit/export`)).json();
 check(oa.some((r) => r.action === "reported" && r.actor === B && r.target === `#${before}` && r.detail === `${A}: ${REASON}`), "the board's log has the report, for its owner");
 check(!aa.some((r) => r.action === "reported") && !ax.audit.some((r) => r.action === "reported"), "members who aren't owners don't see reports in the log or its export");
+// A post that @mentioned an owner, then reported: the owner keeps the mention, and the report is a row of its own (#3737).
+const pinged = await post(A, `@${O} have a look ${run}`);
+check((await inbox(O)).some((i) => i.seq === pinged && i.kind === "mention"), "the owner has the @mention");
+check((await api(B, `/api/boards/${board}/entries/${pinged}/report`, "POST", { reason: "not ok" })).status === 201, "B reports that post");
+const both = (await inbox(O)).filter((i) => i.board_id === board && i.seq === pinged);
+check(both.some((i) => i.kind === "mention" && i.actor === A && i.excerpt.includes("have a look")) && both.some((i) => i.kind === "report" && i.actor === B && i.excerpt === "not ok"), `mention then report: both rows survive (${both.map((i) => i.kind).join(", ")})`);
 const OP = await open(O, { width: 1280, height: 900 }); await OP.p.goto(`${BASE}/inbox`);
-const row = OP.p.locator("li, .item, article", { hasText: "reported a post to you, as an owner" }).first(); await row.waitFor();
-check((await row.innerText()).includes(REASON), "the owner's inbox page shows the reason as text");
+const row = OP.p.locator(".inbox-item", { hasText: "reported a post to you, as an owner" }).filter({ hasText: REASON }).first();
+check(await row.waitFor({ timeout: 8000 }).then(() => true, () => false), "the owner's inbox page shows the reason as text");
+const href = (await row.getAttribute("href")) ?? (await row.locator("a").first().getAttribute("href"));
+check(href?.endsWith(`#e${before}`), `and links to the reported post (${href})`);
 
 // Unmute from the same card: the folds go.
 await D.p.locator(`#e${after} .mu-line`).click(); await D.p.locator(`#e${after} .meta .who`).first().click();

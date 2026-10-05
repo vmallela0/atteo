@@ -9,6 +9,7 @@
 import * as registry from "./registry";
 import { blockedMessage, scanText } from "./secrets";
 import type { Env } from "./types";
+import { offBoardSeq } from "./util";
 
 export const REASON_MAX = 500;
 /** Reports a person can send in ten minutes (appSignin.hit's window). */
@@ -69,14 +70,15 @@ export async function report(env: Env, boardId: string, seq: number, reporter: s
   await registry.audit(env, boardId, reporter, "reported", `#${seq}`, `${entry.author}: ${reason}`);
   // The owners, not the person reported (an owner reported is left to the other owners and the audit log).
   const to = (await ownersOf(env, boardId)).filter((u) => u !== reporter && u !== entry.author);
+  // Each report is a row of its own: an owner's inbox already has (board, seq) when the post @mentioned them or was People
+  // only to them, so the row's seq is a unique negative one (offBoardSeq) and the entry's number is in data.entry. It
+  // never touches another row (#3737).
   if (to.length)
     await env.DB.batch(
       to.map((u) =>
-        // One inbox row per owner and entry: a later report of the same entry (or a mention there) becomes this one, unread.
         env.DB.prepare(
-          `INSERT INTO notifications (user, board_id, seq, kind, actor, actor_via, entry_type, excerpt, created_at, read_at) VALUES (?, ?, ?, 'report', ?, 'person', ?, ?, ?, NULL)
-           ON CONFLICT(user, board_id, seq) DO UPDATE SET kind = 'report', actor = excluded.actor, actor_via = 'person', excerpt = excluded.excerpt, created_at = excluded.created_at, read_at = NULL`,
-        ).bind(u, boardId, seq, reporter, entry.type, reason.slice(0, 160), now),
+          `INSERT INTO notifications (user, board_id, seq, kind, actor, actor_via, entry_type, excerpt, created_at, read_at, data) VALUES (?, ?, ?, 'report', ?, 'person', ?, ?, ?, NULL, ?)`,
+        ).bind(u, boardId, offBoardSeq(), reporter, entry.type, reason.slice(0, 160), now, JSON.stringify({ entry: seq })),
       ),
     );
   return { notified: to.length };
