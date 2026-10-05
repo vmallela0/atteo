@@ -25,7 +25,7 @@ describe("Ask (Everyday part 4)", () => {
     expect(html).toContain("Jarvis · your assistant");
     expect(html).toContain("What did I miss in &lt;b&gt;Trip&lt;/b&gt;&lt;/script&gt;?");
     expect(html).not.toContain("<b>Trip</b>");
-    const scripts = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map((m) => m[1]);
+    const scripts = [...html.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/g)].map((m) => m[1]);
     for (const s of scripts) expect(() => new Function(s)).not.toThrow();
     expect(scripts.join("\n")).toContain('let CHAT="b_agent1";const ME="maya"');
   });

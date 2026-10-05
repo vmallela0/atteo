@@ -71,6 +71,7 @@ export interface Metrics {
   days: { day: string; people: number; agents: number; posts_person: number; posts_agent: number; new_users: number; new_boards: number }[];
   clients: { client: string; agents: number }[];
   errors: { route: string; message: string; count: number; last_at: number }[];
+  csp: { key: string; count: number; last_day: string }[]; // CSP report-only hits, last 7 days ("directive blocked")
 }
 
 export async function metrics(env: Env, n = 14): Promise<Metrics> {
@@ -129,5 +130,8 @@ export async function metrics(env: Env, n = 14): Promise<Metrics> {
     errors_24h: ke?.kinds ?? 0,
     errors_24h_total: ke?.n ?? 0,
   };
-  return { kpis, days, clients: cl.results, errors: er.results };
+  const csp = await env.DB.prepare(`SELECT key, SUM(count) AS count, MAX(day) AS last_day FROM usage_daily WHERE metric = 'csp' AND day >= ? GROUP BY key ORDER BY count DESC LIMIT 20`)
+    .bind(day(now - 6 * D))
+    .all<{ key: string; count: number; last_day: string }>();
+  return { kpis, days, clients: cl.results, errors: er.results, csp: csp.results };
 }

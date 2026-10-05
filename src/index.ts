@@ -4,6 +4,7 @@ import { pickLang } from "./i18n";
 import * as a2a from "./a2a";
 import { runGrep } from "./grep";
 import * as usage from "./usage";
+import * as csp from "./csp";
 import * as limits from "./limits";
 import * as oauth from "./oauth";
 import { consentPage } from "./oauthPage";
@@ -27,6 +28,7 @@ import { openapi } from "./openapi";
 import * as billing from "./billing";
 import { blockedMessage, scanFields } from "./secrets";
 import * as inbox from "./inbox";
+import * as notify from "./notify";
 import * as forYou from "./forYou";
 import * as auth from "./auth";
 import * as appSignin from "./appSignin";
@@ -35,6 +37,7 @@ import * as device from "./device";
 import { EMAIL_RE, sendInvite } from "./invite";
 import { mayMention, parseMentions, SESSION_NAME_RE, type Mention } from "./mentions";
 import * as registry from "./registry";
+import * as pins from "./pins";
 import * as boardkeys from "./boardkeys";
 import * as mailbox from "./mailbox";
 import * as recap from "./recap";
@@ -169,10 +172,10 @@ const waitRefused = (retryAfter: number) =>
   json({ error: "Another wait from this agent session is already open (are two loops sharing one session?). Use one session per loop.", retry_after: retryAfter }, 429, { "retry-after": String(retryAfter) });
 
 async function sideBoards(env: Env, user: string): Promise<SideBoard[]> {
-  const [boards, live] = await Promise.all([registry.boardsForUser(env, user), sessions.liveByBoard(env).catch(() => new Map<string, number>())]);
-  return boards
+  const [boards, live, pinned] = await Promise.all([registry.boardsForUser(env, user), sessions.liveByBoard(env).catch(() => new Map<string, number>()), pins.getPins(env, user)]);
+  return pins.sortPinned(boards, pinned)
     .filter((b) => !b.archived_at)
-    .map((b) => ({ id: b.id, title: b.title, kind: (b as { kind?: string | null }).kind ?? null, live: live.get(b.id) ?? 0, picture: boardPictures.pictureUrl(b.id, b.picture_v) }));
+    .map((b) => ({ id: b.id, title: b.title, kind: (b as { kind?: string | null }).kind ?? null, live: live.get(b.id) ?? 0, picture: boardPictures.pictureUrl(b.id, b.picture_v), pinned: pinned.includes(b.id) }));
 }
 
 /** Members (and operators) can see a board; everyone else gets a 404 so board ids don't leak. */
@@ -545,6 +548,7 @@ async function runScheduled(env: Env, ctx: ExecutionContext, now = Date.now()): 
       .catch(() => ({ results: [] as { board_id: string }[] }))
   ).results;
   const fired = await Promise.all(due.map((b) => boardStub(env, b.board_id).runSchedules(now).catch(() => 0)));
+  await inbox.fireReminders(env, now);
   // Shared crons (board schedules): boards with one due by now post its task (each due time once; the board knows).
   const dueBoards = (
     await env.DB.prepare(`SELECT DISTINCT board_id FROM board_schedules WHERE next_at <= ?`)
@@ -580,6 +584,8 @@ const handler = {
     try {
       if (path === "/mcp") return await handleMcp(request, env, ctx);
       if (path === "/health") return json({ ok: true, version: env.CF_VERSION_METADATA?.id ?? null });
+      // Browsers post what the report-only CSP would have blocked (jxn's agent #2636): no sign-in, always 204.
+      if (path === "/api/csp-report" && method === "POST") return await csp.handleReport(request, env);
       if (path === "/health/deep") {
         // Touches storage the way real requests do: a board (Durable Object) and the database.
         const checks: Record<string, string> = {};
@@ -919,11 +925,53 @@ const handler = {
         const mentions = mail.filter((i) => i.kind !== "decision" && i.entry_type !== "question" && i.entry_type !== "decision");
         const ids = [...new Set([...side.slice(0, forYou.FOR_YOU_BOARDS).map((b) => b.id), ...mail.map((i) => i.board_id)])].slice(0, forYou.FOR_YOU_BOARDS + 4);
         const boards = (await Promise.all(ids.map((id) => boardStub(env, id).forYou(viewer.name, now - forYou.DONE_WINDOW_MS).catch(() => null)))).filter((b): b is forYou.ForYouCore => !!b);
-        return forYou.forYouPage(viewer, side, { approvals: aps, boards, mentions, now });
+        const snoozedRows = (await env.DB.prepare(`SELECT n.board_id, n.seq, n.data FROM inbox_reminders r JOIN notifications n ON n.id = r.notification_id WHERE r.user = ?`).bind(viewer.name).all<{ board_id: string; seq: number; data: string | null }>()).results;
+        const snoozed = new Set(snoozedRows.map((r) => `${r.board_id}:${r.seq}`));
+        const snoozedApprovals = new Set(snoozedRows.flatMap((r) => { try { const id = JSON.parse(r.data ?? "null")?.push?.approval; return id ? [id as string] : []; } catch { return []; } }));
+        const visible = boards.map((b) => ({ ...b, decisions: b.decisions.filter((x) => !snoozed.has(`${b.board.id}:${x.seq}`)), questions: b.questions.filter((x) => !snoozed.has(`${b.board.id}:${x.seq}`)) }));
+        return forYou.forYouPage(viewer, side, { approvals: aps.filter((a) => !snoozedApprovals.has(a.id)), boards: visible, mentions, now });
       }
       if (path === "/api/inbox" && method === "GET") {
         if (!viewer) return needLogin();
-        return json({ items: await inbox.listInbox(env, viewer.name, 50, viewer.via !== "agent") });
+        const items = await inbox.listInbox(env, viewer.name, 50, viewer.via !== "agent");
+        if (viewer.via === "agent") return json({ items }); // agents never see a person's notification settings
+        // People: each item says whether it interrupts (src/notify.ts), and when the digest is due.
+        const [levels, prefs] = await Promise.all([notify.getLevels(env, viewer.name), notify.getPrefs(env, viewer.name, notify.fallbackTz(url.searchParams.get("tz")))]);
+        const now = requestNow(env, request);
+        return json({ items: inbox.withInterrupts(items, levels, prefs, now), notify: notify.summary(prefs, now) });
+      }
+      // ---- notification volume (a person's own): level per board, quiet hours, digest times ----
+      if (path === "/api/me/notify" && (method === "GET" || method === "PUT")) {
+        if (!viewer) return needLogin();
+        if (viewer.via === "agent") return json({ error: "Only you set your notifications, in Atteo; agents can't read or change them." }, 403);
+        const tz = notify.fallbackTz(url.searchParams.get("tz"));
+        let prefs = await notify.getPrefs(env, viewer.name, tz);
+        if (method !== "GET") {
+          try {
+            prefs = notify.mergePrefs(prefs, await request.json().catch(() => null));
+          } catch (e) {
+            if (e instanceof notify.NotifyError) return json({ error: e.message }, 400);
+            throw e;
+          }
+          await notify.setPrefs(env, viewer.name, prefs);
+        }
+        return json({ ok: true, ...prefs, levels: await notify.getLevels(env, viewer.name), default_level: notify.DEFAULT_LEVEL, ...notify.summary(prefs, requestNow(env, request)) });
+      }
+      m = path.match(/^\/api\/boards\/([^/]+)\/notify$/);
+      if (m && (method === "GET" || method === "PUT")) {
+        if (!viewer) return needLogin();
+        if (viewer.via === "agent") return json({ error: "Only you set your notifications, in Atteo; agents can't read or change them." }, 403);
+        if (!BOARD_RE.test(m[1]) || !(await canSee(c, m[1]))) return json({ error: "board not found" }, 404);
+        if (method !== "GET") {
+          const b = (await request.json().catch(() => ({}))) as { level?: unknown };
+          try {
+            await notify.setLevel(env, viewer.name, m[1], notify.cleanLevel(b.level));
+          } catch (e) {
+            if (e instanceof notify.NotifyError) return json({ error: e.message }, 400);
+            throw e;
+          }
+        }
+        return json({ ok: true, board: m[1], level: await notify.getLevel(env, viewer.name, m[1]) });
       }
       // ---- which agents are on a board, and whether each is working right now (live), idle, or gone ----
       m = path.match(/^\/api\/boards\/([^/]+)\/agents$/);
@@ -961,13 +1009,15 @@ const handler = {
         // One open wait per agent session: a newer one ends this one (limits.beginWait).
         const w = wait && sid ? limits.beginWait(`s:${sid}`) : null;
         if (w?.refused) return waitRefused(w.refused);
+        const editMail = sid ? (await Promise.all((await registry.boardsForUser(env, viewer.name)).map(async b =>
+          (await boardStub(env, b.id).editNotices(viewer.name, sid, peek)).map((line, i) => ({ id: -Date.now() - i, kind: "edited" as const, board: b.id, board_title: b.title, seq: Number(line.match(/#(\d+)/)?.[1] ?? 0), from: "", from_via: "person", type: "edit", text: line, preview: line, for: "for your agent", ts: Date.now() }))))) .flat() : [];
         let r0: Awaited<ReturnType<typeof mailbox.collect>>;
         try {
-          r0 = await mailbox.collect(env, viewer.name, { limit, wait, peek, held: !!lease, session: sid, pollMs: level >= 1 ? 6000 : 3000, signal: w?.signal }, async (b, seq) => { const e = (await boardStub(env, b).get(seq, { user: viewer.name, person: false })).entry; return { text: e.text, title: e.title }; }); // as the agent: its own lane too
+          r0 = await mailbox.collect(env, viewer.name, { limit, wait: editMail.length ? 0 : wait, peek, held: !!lease, session: sid, pollMs: level >= 1 ? 6000 : 3000, signal: w?.signal }, async (b, seq) => { const e = (await boardStub(env, b).get(seq, { user: viewer.name, person: false })).entry; return { text: e.text, title: e.title }; }); // as the agent: its own lane too
         } finally {
           w?.done();
         }
-        const r = { ...r0, mail: await social.mailWithAgentNames(env, r0.mail), ...(lease ? { held: mailbox.heldHint(lease), held_until: lease.expires_at } : {}), ...(limits.superseded(w?.signal) ? { superseded: true } : {}), ...(limits.pollAfterMs(level) ? { poll_after_ms: limits.pollAfterMs(level) } : {}) }; // from_agent_name: "Jarvis" (from: its owner)
+        const r = { ...r0, mail: [...await social.mailWithAgentNames(env, r0.mail), ...editMail], ...(lease ? { held: mailbox.heldHint(lease), held_until: lease.expires_at } : {}), ...(limits.superseded(w?.signal) ? { superseded: true } : {}), ...(limits.pollAfterMs(level) ? { poll_after_ms: limits.pollAfterMs(level) } : {}) }; // from_agent_name: "Jarvis" (from: its owner)
         // headless: the person reads the board, not the agent's terminal (the CLI says so over the mail).
         return json((await social.agentsHeadless(env, viewer.name)) ? { ...r, headless: true } : r, 200, { "cache-control": "no-store" });
       }
@@ -981,7 +1031,37 @@ const handler = {
       }
       if (path === "/api/inbox/count" && method === "GET") {
         if (!viewer) return needLogin();
-        return json(await inbox.inboxCount(env, viewer.name, viewer.via !== "agent"), 200, { "cache-control": "no-store" });
+        const cnt = await inbox.inboxCount(env, viewer.name, viewer.via !== "agent");
+        if (viewer.via === "agent" || !cnt.latest) return json(cnt, 200, { "cache-control": "no-store" });
+        // People: the newest item says whether it interrupts (one level lookup for its board, not all of them).
+        const lb = cnt.latest.board_id || cnt.latest.push?.board || "";
+        const [lvl, prefs] = await Promise.all([lb ? notify.getLevel(env, viewer.name, lb) : notify.DEFAULT_LEVEL, notify.getPrefs(env, viewer.name, notify.fallbackTz(url.searchParams.get("tz")))]);
+        const now = requestNow(env, request);
+        const [latest] = inbox.withInterrupts([cnt.latest], lb ? { [lb]: lvl } : {}, prefs, now);
+        return json({ ...cnt, latest, notify: notify.summary(prefs, now) }, 200, { "cache-control": "no-store" });
+      }
+      m = path.match(/^\/api\/inbox\/([^/]+)\/remind$/);
+      if (m && (method === "POST" || method === "DELETE")) {
+        if (!viewer) return needLogin();
+        if (viewer.via === "agent") return json({ error: "people only" }, 403);
+        const body = method === "POST" ? (await request.json().catch(() => ({}))) as { at?: unknown } : {};
+        const at = typeof body.at === "string" ? Date.parse(body.at) : body.at;
+        if (method === "POST" && (typeof at !== "number" || !Number.isSafeInteger(at) || at <= Date.now() || at > Date.now() + 365 * 86_400_000)) return json({ error: "at must be a future ISO time within one year" }, 400);
+        let id = Number(m[1]);
+        if (!/^\d+$/.test(m[1])) {
+          const target = m[1].match(/^([a-zA-Z0-9_-]+):(\d+)$/);
+          if (!target || !BOARD_RE.test(target[1]) || !(await canSee(c, target[1]))) return json({ error: "message not found" }, 404);
+          const existing = await env.DB.prepare(`SELECT id FROM notifications WHERE user = ? AND board_id = ? AND seq = ?`).bind(viewer.name, target[1], Number(target[2])).first<{ id: number }>();
+          if (existing) id = existing.id;
+          else if (method === "POST") {
+            const entry = (await boardStub(env, target[1]).get(Number(target[2]), { user: viewer.name, person: true }).catch(() => null))?.entry;
+            if (!entry) return json({ error: "message not found" }, 404);
+            const created = await env.DB.prepare(`INSERT INTO notifications (user, board_id, seq, kind, actor, actor_via, entry_type, excerpt, created_at, read_at) VALUES (?, ?, ?, 'reminder', ?, ?, ?, ?, ?, ?) RETURNING id`).bind(viewer.name, target[1], entry.seq, entry.author, entry.via, entry.type, entry.text.slice(0, 180), Date.now(), Date.now()).first<{ id: number }>();
+            id = created!.id;
+          } else return json({ error: "reminder not found" }, 404);
+        }
+        if (method === "DELETE") return (await inbox.cancelReminder(env, viewer.name, id)) ? json({ ok: true }) : json({ error: "reminder not found" }, 404);
+        return (await inbox.remind(env, viewer.name, id, at as number)) ? json({ ok: true, at }) : json({ error: "inbox item not found" }, 404);
       }
       if (path === "/api/inbox/read" && method === "POST") {
         if (!viewer) return needLogin();
@@ -1216,6 +1296,14 @@ const handler = {
       if (path === "/api/me" && method === "GET") {
         if (!viewer) return needLogin();
         return json({ name: viewer.name, email: viewer.email, display_name: viewer.display_name, via: viewer.via ?? "person" }, 200, { "cache-control": "no-store" });
+      }
+      if (path === "/api/me/pins" && (method === "GET" || method === "PUT")) {
+        if (!viewer) return needLogin();
+        if (viewer.via === "agent") return json({ error: "Pins are for people." }, 403);
+        if (method === "GET") return json({ pins: await pins.getPins(env, viewer.name) }, 200, { "cache-control": "no-store" });
+        const body = await request.json().catch(() => null) as { pins?: unknown } | null;
+        try { return json({ pins: await pins.putPins(env, viewer.name, body?.pins) }, 200, { "cache-control": "no-store" }); }
+        catch (e) { return json({ error: e instanceof Error ? e.message : String(e) }, 400); }
       }
       // ---- client prefs (the web and the app; agents never need them): display settings, favourite reactions ----
       if (path === "/api/app/prefs" && (method === "GET" || method === "POST")) {
@@ -1697,7 +1785,7 @@ const handler = {
         // The watcher checks in here every few minutes: that's how friends see "answers in the background".
         const watching = atteoHeader(request, "watch");
         if (watching) ctx.waitUntil(Promise.resolve(social.markSeen(env, who, "watch", watching === "respond")).catch(() => {}));
-        const [boards, live] = await Promise.all([registry.boardsForUser(env, who), sessions.liveByBoard(env).catch(() => new Map<string, number>())]);
+        const [boards, live, pinned] = await Promise.all([registry.boardsForUser(env, who), sessions.liveByBoard(env).catch(() => new Map<string, number>()), viewer?.via === "agent" ? Promise.resolve([] as string[]) : pins.getPins(env, who)]);
         const row = (b: (typeof boards)[number]) => ({
           live_agents: live.get(b.id) ?? 0, // agent sessions working on it right now
           id: b.id,
@@ -1709,6 +1797,7 @@ const handler = {
           encrypted: !!(b as { encrypted?: number }).encrypted,
           created_by: b.created_by, // the app shows its creator the rename / archive / remove-task actions
           archived: !!b.archived_at,
+          pinned: pinned.includes(b.id),
           picture: boardPictures.pictureUrl(b.id, b.picture_v), // members-only, versioned; null: show the initial (or, for a DM, the other person's avatar)
         });
         // ?with=<user>: only boards they're on (and invitations involving them); ?members=1 lists each board's members.
@@ -1718,7 +1807,7 @@ const handler = {
         const memberNames = async (id: string) => (wantMembers ? (await registry.boardMembers(env, id)).map((m) => m.user) : undefined);
         const me = await registry.userByName(env, who);
         const invites = me ? await registry.invitationsFor(env, me) : [];
-        const mine = await Promise.all(boards.map(async (b) => ({ ...row(b), status: "member" as const, members: await memberNames(b.id) })));
+        const mine = await Promise.all(pins.sortPinned(boards, pinned).map(async (b) => ({ ...row(b), status: "member" as const, members: await memberNames(b.id) })));
         const pending = await Promise.all(
           invites.map(async (i) => ({ id: i.board_id, title: i.board_title, status: "invited" as const, invited_by: i.invited_by, invited_at: i.created_at, members: await memberNames(i.board_id) })),
         );
@@ -1931,7 +2020,8 @@ const handler = {
               ids.map(async (id) => {
                 const r = await boardStub(env, id).read(viewer.name, { limit, summary: summary(id), names: await social.boardAgentNames(env, id), maxChars }, cur.id);
                 const b = { id, title: r.info.title, encrypted: r.info.encrypted };
-                const p = readParts(r); // the SOUL and MEMORY: whole the first time, then a line when they change
+                const p = readParts(r);
+                p.lines.push(...await boardStub(env, id).editNotices(viewer.name, cur.id));
                 const shown = presentReadEntries(r.entries, maxChars, viewer.name);
                 return {
                   board: { id, title: r.info.title },
@@ -2103,7 +2193,7 @@ const handler = {
             ctx.waitUntil(Promise.all([registry.touch(env, viewer.name, id), registry.bumpBoard(env, id, entry.seq)]).catch(() => {}));
             // Like a text post, the rendered entry comes back so the page can swap its "sending" copy for it.
             const root = replyTo ? ((await stub.rootsFor([entry.seq]))[entry.seq] ?? entry.seq) : entry.seq;
-            return json({ ok: true, entry, update: { seq: entry.seq, root, retracts: entry.retracts, html: entryHtml(withAgentNames(entry, agentNames(fileMembers)), id, true, { canRetract: true, lang: viewer?.lang }), row: logRow(entry, undefined, undefined, viewer?.lang), reactions: [] } }, 201);
+            return json({ ok: true, entry, update: { seq: entry.seq, root, retracts: entry.retracts, html: entryHtml(withAgentNames(entry, agentNames(fileMembers)), id, true, { canRetract: true, canEdit: true, lang: viewer?.lang }), row: logRow(entry, undefined, undefined, viewer?.lang), reactions: [] } }, 201);
           } catch (e) {
             return json({ error: e instanceof Error ? e.message : String(e) }, 400);
           }
@@ -2616,7 +2706,7 @@ const handler = {
               ...(e.via === "agent" && names[e.author] ? { agent_name: names[e.author] } : {}), // "Jarvis · vedu's agent"
               root: roots[e.seq] ?? e.seq,
               retracts: e.retracts,
-              html: entryHtml(withAgentNames(e, names), id, true, { canRetract: canRetract(e), lang: viewer?.lang }),
+              html: entryHtml(withAgentNames(e, names), id, true, { canRetract: canRetract(e), canEdit: !!viewer && !snap.info.encrypted && e.author === viewer.name, lang: viewer?.lang }),
               row: logRow(e, undefined, undefined, viewer?.lang),
               reactions: snap.reactions[e.seq] ?? [],
               ...(e.type === "change" ? { reviews: snap.reviews[e.seq] ?? [] } : {}),
@@ -2655,18 +2745,19 @@ const handler = {
           const before = parseInt(url.searchParams.get("before") ?? "0", 10) || null;
           const page = await stub.page(before, parseInt(url.searchParams.get("limit") ?? "100", 10) || 100, seer());
           const seqs = page.map((e) => e.seq);
-          const [isOwner, roots, reactions, names] = await Promise.all([
+          const [isOwner, roots, reactions, names, pageInfo] = await Promise.all([
             viewer ? registry.memberRole(env, id, viewer.name).then((r) => r === "owner") : false,
             stub.rootsFor(seqs),
             stub.reactionsFor(seqs, seer()),
             registry.boardMembers(env, id).then(agentNames), // "@Jarvis" chips, as on the page (jxn #1659)
+            stub.info(),
           ]);
           return json({
             first: page.length ? page[0].seq : 0,
             entries: page.map((e) => ({
               seq: e.seq,
               root: roots[e.seq] ?? e.seq,
-              html: entryHtml(withAgentNames(e, names), id, true, { canRetract: !!viewer && (e.author === viewer.name || isOwner), lang: viewer?.lang }),
+              html: entryHtml(withAgentNames(e, names), id, true, { canRetract: !!viewer && (e.author === viewer.name || isOwner), canEdit: !!viewer && !pageInfo.encrypted && e.author === viewer.name, lang: viewer?.lang }),
               row: logRow(e, undefined, undefined, viewer?.lang),
               reactions: reactions[e.seq] ?? [],
               ...(e.human_decision ? { human_decision: e.human_decision } : {}),
@@ -2677,6 +2768,18 @@ const handler = {
         if (what === "handoffs" && !seqStr && method === "GET") {
           const [open, names] = await Promise.all([stub.handoffs(seer()), social.boardAgentNames(env, id)]);
           return json({ handoffs: withNames(open, names) });
+        }
+        if (what === "entries" && seqStr && method === "PATCH") {
+          if (!viewer || viewer.via === "agent") return json({ error: "Only people can edit their messages." }, 403);
+          try {
+            const body = await request.json().catch(() => ({})) as { text?: unknown };
+            const entry = await stub.edit(viewer.name, pv(), Number(seqStr), typeof body.text === "string" ? body.text : "");
+            return json({ ok: true, entry, history: await stub.editHistory(entry.seq, seer()!) });
+          } catch (e) { return json({ error: e instanceof Error ? e.message : String(e) }, 400); }
+        }
+        if (what === "entries" && seqStr && method === "GET" && url.searchParams.has("history")) {
+          try { return json({ history: await stub.editHistory(Number(seqStr), seer()!) }); }
+          catch (e) { return json({ error: e instanceof Error ? e.message : String(e) }, 404); }
         }
         if (what === "entries" && seqStr && method === "GET") {
           try {
@@ -2747,7 +2850,7 @@ const handler = {
             // An agent's top-level post the board kept in Just mine (board.ts ownByDefault) says so instead.
             const said = entry.audience === "own" && entry.reply_to == null && !own && !notOwn && viewer.via === "agent" ? keptOwnNotice(viewer.name) : audienceNotice(entry, viewer.name);
             const notice = said ? { notice: said } : {};
-            return json({ ok: true, entry, ...notice, update: { seq: entry.seq, root, retracts: entry.retracts, html: entryHtml(withAgentNames(entry, agentNames(boardMembers)), id, true, { canRetract: true, lang: viewer?.lang }), row: logRow(entry, undefined, undefined, viewer?.lang), reactions: [] }, ...(ambiguous.length ? { ambiguous } : {}) }, 201);
+            return json({ ok: true, entry, ...notice, update: { seq: entry.seq, root, retracts: entry.retracts, html: entryHtml(withAgentNames(entry, agentNames(boardMembers)), id, true, { canRetract: true, canEdit: true, lang: viewer?.lang }), row: logRow(entry, undefined, undefined, viewer?.lang), reactions: [] }, ...(ambiguous.length ? { ambiguous } : {}) }, 201);
           } catch (e) {
             // Still restarting after our retries: say "try again" (the page retries with the same message id).
             if (isRetriable(e)) {

@@ -31,7 +31,7 @@ describe("board page", () => {
   it("its inline script compiles (catches escapes the server template mangles, like \\n or \\+)", async () => {
     const res = boardPage({ name: "jxn", email: "jxn@example.com", display_name: null, admin: false }, [], info, [{ user: "jxn", display_name: null, last_seen: 0 }, { user: "vedu", display_name: null, last_seen: 0 }], entries, []);
     const html = await res.text();
-    const scripts = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map((m) => m[1]);
+    const scripts = [...html.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/g)].map((m) => m[1]);
     expect(scripts.length).toBeGreaterThan(0);
     for (const s of scripts) expect(() => new Function(s)).not.toThrow();
     expect(html).not.toContain("Checkout </script> bug\"");
@@ -39,7 +39,7 @@ describe("board page", () => {
 
   it("regexes in the page script keep their escapes (a single \\s in the server template turns into a plain s)", async () => {
     const res = boardPage({ name: "jxn", email: "jxn@example.com", display_name: null, admin: false }, [], info, [{ user: "jxn", display_name: null, last_seen: 0 }], entries, []);
-    const js = [...(await res.text()).matchAll(/<script>([\s\S]*?)<\/script>/g)].map((m) => m[1]).join("\n");
+    const js = [...(await res.text()).matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/g)].map((m) => m[1]).join("\n");
     for (const re of ["/^#e\\d+$/", "(^|[^A-Za-z0-9_.@\\/-])@([A-Za-z0-9_.-]{0,32}(?:\\/[A-Za-z0-9_.-]{0,32})?)$/", "s\\s+(?:agent|assistant)\\b|\\/[A-Za-z0-9]", "/^(diff |index |\\+\\+\\+ |--- )/", "/^\\s*(?:[-*]|\\d+[.)])\\s+\\[( |x|X)\\]\\s+.+$/", "/\\x60\\x60\\x60[^\\n]*\\n?[\\s\\S]*?\\x60\\x60\\x60/g"]) expect(js).toContain(re);
     expect(js).not.toMatch(/\(\^\|s\)/); // "(^|s)" is what a lost \s looks like
   });
