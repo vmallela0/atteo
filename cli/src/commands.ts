@@ -14,6 +14,7 @@ import { decryptV2, encryptV2, myKey, newEpochKey, seal, unseal, unwrapKey, wrap
 import { homedir } from "node:os";
 import { basename, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { blockedMessage, scanFields } from "../../src/secrets";
+import { gatewayFetch, GatewayError } from "../../gateway/src/index";
 import { fence } from "../../src/screen";
 import { proseForAgent } from "../../src/util";
 import { load, sameServer, type Credentials } from "./credentials";
@@ -22,6 +23,18 @@ import { NO_SANDBOX, pickSandbox, repoRoot, resolveCommit, runSandboxed, sandbox
 import { installHook } from "./hooks";
 
 const DEFAULT_SERVER = "https://atteo.dev";
+
+const send = gatewayFetch();
+
+/** Hosted HTTP: the local Gateway refuses credentials on this machine before the request is sent. */
+async function hosted(input: string, init?: RequestInit): Promise<Response> {
+  try {
+    return await send(input, init);
+  } catch (e) {
+    if (e instanceof GatewayError) throw new CliError(e.message);
+    throw e;
+  }
+}
 
 export class CliError extends Error {
   constructor(message: string, readonly code = 1) {
@@ -146,7 +159,7 @@ export const shown = new Set<string>();
 type McpContent = { type?: string; text?: string; data?: string; mimeType?: string };
 let rpcId = 0;
 async function rpc(base: string, token: string, board: string | null, method: string, params: unknown, session?: string) {
-  const res = await fetch(`${base}/mcp${board ? `?board=${encodeURIComponent(board)}` : ""}`, {
+  const res = await hosted(`${base}/mcp${board ? `?board=${encodeURIComponent(board)}` : ""}`, {
     method: "POST",
     headers: { "content-type": "application/json", authorization: `Bearer ${token}`, "user-agent": "atteo-cli/2", ...sessionHeader(), ...(session ? { "mcp-session-id": session } : {}) },
     body: JSON.stringify({ jsonrpc: "2.0", id: ++rpcId, method, params }),
@@ -276,7 +289,7 @@ async function use(args: string[]) {
   }
   const c = creds();
   const base = server(c, opt);
-  const init = await fetch(`${base}/mcp`, {
+  const init = await hosted(`${base}/mcp`, {
     method: "POST",
     headers: { "content-type": "application/json", authorization: `Bearer ${c.token}`, "user-agent": "atteo-cli/2" },
     body: JSON.stringify({ jsonrpc: "2.0", id: ++rpcId, method: "initialize", params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "atteo-cli" } } }),
@@ -300,7 +313,7 @@ async function use(args: string[]) {
     say(`Using "${m[1]}" (${m[2]}) ${opt.global ? "everywhere without a folder board" : `in ${key} and below`}.`);
     if (!opt.global && !opt["no-hook"]) pushHook();
   } finally {
-    if (session) await fetch(`${base}/mcp`, { method: "DELETE", headers: { authorization: `Bearer ${c.token}`, "mcp-session-id": session } }).catch(() => {});
+    if (session) await hosted(`${base}/mcp`, { method: "DELETE", headers: { authorization: `Bearer ${c.token}`, "mcp-session-id": session } }).catch(() => {});
   }
 }
 
@@ -611,7 +624,7 @@ async function post(args: string[], forced?: string) {
 /** Plain JSON API calls with your login (people, friends, direct boards). */
 export async function api(opt: Record<string, string | true>, method: string, path: string, body?: unknown, signal?: AbortSignal): Promise<any> {
   const c = creds();
-  const res = await fetch(`${server(c, opt)}${path}`, {
+  const res = await hosted(`${server(c, opt)}${path}`, {
     method,
     signal,
     headers: { authorization: `Bearer ${c.token}`, "content-type": "application/json", "user-agent": "atteo-cli/2", ...sessionHeader() },

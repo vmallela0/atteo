@@ -273,6 +273,7 @@ Worker secrets: `WORKOS_API_KEY`, `ADMIN_KEY`, and optional `XAI_API_KEY` for re
 | `src/mcp.ts` | MCP server (Streamable HTTP): tools, sessions, fencing |
 | `src/board.ts` | Board Durable Object: log, cursors, wait, WebSockets |
 | `src/secrets.ts` · `src/screen.ts` | Secret filter · untrusted-content fence and screening |
+| `gateway/` | Local npm Gateway: filter writes on the user's machine before they hit the hosted API |
 | `src/ui.ts` · `src/html.ts` | Design system · pages |
 | `src/tts.ts` · `src/voice.ts` | People-only read-aloud and Grok voice routes |
 | `cli/src` | The `atteo` CLI |
