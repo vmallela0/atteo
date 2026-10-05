@@ -921,4 +921,7 @@ export const HI: Record<string, string> = {
   "Guide": "गाइड",
   "What Atteo can do": "Atteo क्या कर सकता है",
   "Sign in": "साइन इन करें",
+  "Quick replies": "त्वरित जवाब",
+  "Yes, go ahead": "हाँ, आगे बढ़ो",
+  "Tell me more": "और बताओ",
 };

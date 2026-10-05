@@ -921,4 +921,7 @@ export const JA: Record<string, string> = {
   "Guide": "ガイド",
   "What Atteo can do": "Atteo でできること",
   "Sign in": "サインイン",
+  "Quick replies": "クイック返信",
+  "Yes, go ahead": "はい、進めて",
+  "Tell me more": "もっと詳しく",
 };

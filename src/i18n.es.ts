@@ -921,4 +921,7 @@ export const ES: Record<string, string> = {
   "Guide": "Guía",
   "What Atteo can do": "Lo que puede hacer Atteo",
   "Sign in": "Iniciar sesión",
+  "Quick replies": "Respuestas rápidas",
+  "Yes, go ahead": "Sí, adelante",
+  "Tell me more": "Cuéntame más",
 };

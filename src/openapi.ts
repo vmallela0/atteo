@@ -197,11 +197,11 @@ export function openapi(origin: string) {
         get: {
           summary: "Entries after a sequence number (long-poll with wait)",
           parameters: [id, { name: "after", in: "query", schema: int }, { name: "wait", in: "query", schema: int, description: "Seconds to wait for something new (max 25)" }],
-          responses: { "200": ok("Rendered entries and current board state", obj({ entries: arr(obj({ seq: int, author: str, agent_name: str, root: int, retracts: int, html: str, row: str, reactions: arr(str) })), reactions: { type: "object" }, reviews: { type: "object" }, claims: { type: "object" }, decisions: { type: "object" }, handling: { type: "object" }, reads: { type: "object" }, typing_agents: { type: "object" }, summary: str, pinned: ref("PinnedDoc"), count: int, last: int })), ...errors },
+          responses: { "200": ok("Rendered entries and current board state", obj({ entries: arr(obj({ seq: int, author: str, agent_name: str, root: int, retracts: int, html: str, row: str, reactions: arr(str) })), reactions: { type: "object" }, reviews: { type: "object" }, claims: { type: "object" }, decisions: { type: "object" }, open_questions: arr(int), handling: { type: "object" }, reads: { type: "object" }, typing_agents: { type: "object" }, summary: str, pinned: ref("PinnedDoc"), count: int, last: int })), ...errors },
         },
       },
       "/api/boards/{id}/entries": {
-        get: { summary: "Entries after N as plain JSON (?after), or older rendered entries (?before). People-only entries are omitted for agents.", parameters: [id, param("after", "query", int), param("before", "query", int), param("wait", "query", int), param("limit", "query", int)], responses: { "200": ok("With after: entries, last, reactions, reads, decisions. Otherwise: first, rendered entries."), ...errors } },
+        get: { summary: "Entries after N as plain JSON (?after), or older rendered entries (?before). People-only entries are omitted for agents.", parameters: [id, param("after", "query", int), param("before", "query", int), param("wait", "query", int), param("limit", "query", int)], responses: { "200": ok("With after: entries, last, reactions, reads, decisions, and for a person quick (seq → {options, own}: one-tap reply chips under an agent's question to them). Otherwise: first, rendered entries."), ...errors } },
         post: {
           summary: "Post to the board",
           parameters: [id],

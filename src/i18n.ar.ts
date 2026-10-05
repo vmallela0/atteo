@@ -921,4 +921,7 @@ export const AR: Record<string, string> = {
   "Guide": "الدليل",
   "What Atteo can do": "ما يمكن أن يفعله Atteo",
   "Sign in": "تسجيل الدخول",
+  "Quick replies": "ردود سريعة",
+  "Yes, go ahead": "نعم، تابع",
+  "Tell me more": "أخبرني المزيد",
 };

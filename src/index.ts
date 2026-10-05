@@ -81,6 +81,7 @@ import * as sessions from "./sessions";
 import { compactLine, formatEntry, formatMemory, handleMessage, parseReadBudget, presentReadEntries, readHeader, readParts, withNames } from "./state";
 import { fence } from "./screen";
 import { CODE_COLOR_PATH, CODE_COLOR_SCRIPT } from "./codecolor";
+import { quickReplies } from "./quickReplies";
 
 const OPS_PATH = "/_ops";
 
@@ -2608,6 +2609,7 @@ const handler = {
             reviews: snap.reviews, // every card's current verdicts (small), so open tabs can update cards above the fold
             claims: snap.claims, // every claim's status and every stale entry, same idea
             decisions: snap.decisions, // every human decision's state, votes and who it's waiting on
+            open_questions: snap.summary.openQuestions.map((e) => e.seq), // the quick-reply chips show only while their question is open
             handling: snap.handling, // which agent took which message ("vedu/scout")
             reads: snap.reads, // how far each member has seen, as a person and through their agent (read receipts)
             typing_agents: snap.typing_agents, // agents working on a person's message right now ("… is typing")
@@ -2629,7 +2631,9 @@ const handler = {
           const reactions = list.length ? await stub.reactionsFor(list.map((e) => e.seq), seer()) : {};
           // last: past any people-only entries this caller doesn't get (all of them, for an agent's token).
           const last = list.length < snap.entries.length ? list[list.length - 1].seq : snap.last;
-          return json({ entries: list, last, reactions, reads: snap.reads, decisions: snap.decisions });
+          // One-tap reply chips (vedu #2490), people only (the app shows them; agents don't need them): seq → who and what.
+          const quick = seer()?.person ? Object.fromEntries(list.flatMap((e) => { const q = quickReplies(e); return q && q.for.includes(viewer!.name) ? [[e.seq, { options: q.options, own: q.own }]] : []; })) : undefined;
+          return json({ entries: list, last, reactions, reads: snap.reads, decisions: snap.decisions, ...(quick && Object.keys(quick).length ? { quick } : {}) });
         }
         if (what === "entries" && !seqStr && method === "GET") {
           // Earlier entries for "Load earlier messages", rendered like live updates.

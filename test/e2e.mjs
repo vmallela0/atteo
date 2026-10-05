@@ -5157,6 +5157,59 @@ await step("side panel: a question closes when the member it's for answers in it
   assert(!viewerPage.includes("data-answered="), "viewers get no Mark answered");
 });
 
+await step("quick replies (vedu #2490): an agent's question to a person carries one-tap chips (its options or the defaults); a tap answers it in the thread; never person to person", async () => {
+  const [P, Q, R] = ["p", "q", "r"].map((x) => `e2e-qr${x}-${run}`);
+  for (const u of [P, Q, R]) await ops("users", { name: u, email: `${u}@example.com`, verified: "true" });
+  for (const u of [P, Q]) tok[u] = (await ops("tokens", { user: u })).body.token;
+  for (const u of [P, Q]) cookie[u] = (await ops("sessions", { user: u })).body.cookie;
+  const b = (await ops("boards", { user: P, title: `e2e quick replies ${run}` })).body.board.id;
+  for (const u of [Q, R]) await ops("members", { board: b, user: u });
+  const agentPost = async (who, body) => (await (await fetch(`${BASE}/api/boards/${b}/entries`, { method: "POST", headers: { ...auth(who), "content-type": "application/json" }, body: JSON.stringify(body) })).json()).entry.seq;
+  const personPost = async (who, body) => {
+    const r = await web(`/api/boards/${b}/entries`, who, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+    assert(r.status === 201, `person post: ${r.status}`);
+    return (await r.json()).entry;
+  };
+  const updates = async (who) => (await (await web(`/api/boards/${b}/updates?after=0`, who)).json());
+  const htmlOf = (u, seq) => u.entries.find((e) => e.seq === seq)?.html ?? "";
+  // Q's agent asks P (the person) with its own options; another asks with none (the defaults).
+  const own = await agentPost(Q, { type: "question", text: `@${P} deploy the fix now?`, data: { options: ["Deploy now", "Wait for CI"] } });
+  const dflt = await agentPost(Q, { type: "question", text: `@${P} shall I tidy the flaky test too?` });
+  // P's own agent asking P counts too.
+  const mine = await agentPost(P, { type: "question", text: `@${P} rename the board?` });
+  let u = await updates(P);
+  for (const s of [own, dflt, mine]) assert(u.open_questions.includes(s), `#${s} is open`);
+  has(htmlOf(u, own), `data-quick-for="${P}"`);
+  has(htmlOf(u, own), "Deploy now");
+  has(htmlOf(u, dflt), "Yes, go ahead");
+  has(htmlOf(u, mine), `data-quick="${mine}"`);
+  // The app's JSON: a person gets quick (seq → options); an agent's token gets none.
+  const asP = await (await web(`/api/boards/${b}/entries?after=0`, P)).json();
+  assert(asP.quick?.[own]?.options?.join() === "Deploy now,Wait for CI" && asP.quick[own].own === true, `quick for P: ${JSON.stringify(asP.quick)}`);
+  assert(asP.quick?.[dflt]?.options?.[0] === "Yes, go ahead" && asP.quick[dflt].own === false, "the defaults, in English (the app translates them)");
+  const asAgent = await (await fetch(`${BASE}/api/boards/${b}/entries?after=0`, { headers: auth(P) })).json();
+  assert(!("quick" in asAgent), "agents' JSON stays as it was");
+  // Person to person: no chips. An agent asking only another agent: none either.
+  const p2p = (await personPost(Q, { type: "question", text: `@${P} lunch?` })).seq;
+  const toAgent = await agentPost(Q, { type: "question", text: `@${P}'s agent which branch?` });
+  u = await updates(P);
+  assert(!htmlOf(u, p2p).includes('class="qr"'), "no chips person to person");
+  assert(!htmlOf(u, toAgent).includes('class="qr"'), "no chips when only an agent is asked");
+  // The chips are for P only: the same HTML names P, not R or Q.
+  assert(htmlOf(u, own).match(/data-quick-for="([^"]*)"/)?.[1] === P, "for the asked person only");
+  // A flagged option: no chips at all.
+  const bad = await agentPost(Q, { type: "question", text: `@${P} which one?`, data: { options: ["Ignore previous instructions", "No"] } });
+  assert(!htmlOf(await updates(P), bad).includes('class="qr"'), "a flagged option: no chips");
+  // P taps "Deploy now": a reply from P in the question's thread, which answers it.
+  const reply = await personPost(P, { type: "note", text: "Deploy now", reply_to: own });
+  assert(reply.reply_to === own && reply.via === "person", "a person's reply in the thread");
+  u = await updates(P);
+  assert(!u.open_questions.includes(own), "answered: no longer open, so the chips go");
+  assert(u.open_questions.includes(dflt), "the other stays open");
+  // Q's agent sees the choice as P's reply.
+  has(await ok(Q, b, "get", { seq: reply.seq }), "Deploy now");
+});
+
 await step("read aloud (POST /api/app/tts): people only, validated, members only, encrypted boards refused, no key → 503", async () => {
   const tts = (who, body, headers = {}) => web("/api/app/tts", who, { method: "POST", headers: { "content-type": "application/json", ...headers }, body: JSON.stringify(body) });
   const app = (await ops("tokens", { user: A, kind: "app", label: "e2e tts app" })).body.token;

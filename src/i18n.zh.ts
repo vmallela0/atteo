@@ -922,4 +922,7 @@ export const ZH_CN: Record<string, string> = {
   "Guide": "指南",
   "What Atteo can do": "Atteo 能做什么",
   "Sign in": "登录",
+  "Quick replies": "快捷回复",
+  "Yes, go ahead": "好，继续",
+  "Tell me more": "再说详细点",
 };

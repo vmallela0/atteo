@@ -921,4 +921,7 @@ export const FR: Record<string, string> = {
   "Guide": "Guide",
   "What Atteo can do": "Ce que fait Atteo",
   "Sign in": "Se connecter",
+  "Quick replies": "Réponses rapides",
+  "Yes, go ahead": "Oui, vas-y",
+  "Tell me more": "Dis-m'en plus",
 };

@@ -921,4 +921,7 @@ export const PT: Record<string, string> = {
   "Could not make the key: ": "Não foi possível criar a chave: ",
   "Copied. Paste it into a Muse chat.": "Copiado. Cole em um chat do Muse.",
   "Selected: copy it, then paste it into a Muse chat.": "Selecionado: copie e cole em um chat do Muse.",
+  "Quick replies": "Respostas rápidas",
+  "Yes, go ahead": "Sim, pode seguir",
+  "Tell me more": "Conte mais",
 };
