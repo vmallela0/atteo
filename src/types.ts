@@ -181,4 +181,17 @@ export interface Env {
   SHED_L2_D1_ROWS_READ?: string; // var: … for level 2 (default 4,500,000)
   CF_ACCOUNT_ID?: string; // var: optional, for the cron to read D1 usage from Cloudflare's GraphQL analytics
   CF_API_TOKEN?: string; // secret: optional, Account Analytics:Read token for the same
+  // Nightly backups outside Cloudflare (src/backup.ts, docs/BACKUPS.md): off until the public key and all BACKUP_S3_* but the optional ones are set.
+  BACKUP_PUBLIC_KEY?: string; // var: X25519 public key (base64, from scripts/backup.mjs keygen); the private key stays offline
+  BACKUP_S3_ENDPOINT?: string; // var: S3-compatible endpoint outside Cloudflare, e.g. https://s3.us-west-004.backblazeb2.com
+  BACKUP_S3_BUCKET?: string; // var
+  BACKUP_S3_REGION?: string; // var (default us-east-1)
+  BACKUP_S3_PREFIX?: string; // var (default "atteo/")
+  BACKUP_S3_VIRTUAL_HOST?: string; // var: "1" for bucket.host/key URLs instead of host/bucket/key
+  BACKUP_S3_KEY_ID?: string; // secret: a write-only application key
+  BACKUP_S3_SECRET?: string; // secret
+  BACKUP_HOUR?: string; // var: UTC hour the night's backup starts (default 3)
+  BACKUP_BATCH?: string; // var: boards per 5-minute cron run (default 20)
+  BACKUP_ALERT_HOURS?: string; // var: hours after the start with no manifest before it's reported (default 6)
+  BACKUP_RESTORE?: string; // "1" allows POST /api/ops/restore-board off localhost (disaster recovery only)
 }

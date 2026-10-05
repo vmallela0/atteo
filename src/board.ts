@@ -27,6 +27,8 @@ import { LEASE_CAP_MS, RENEW_EVERY_MS, renewedUntil } from "./leases";
 import { similarOpen, taskTitleKey } from "./taskTitles";
 import { prepareEntryData, readEntryData, screenedText } from "./entryData";
 import { withinEditWindow } from "./editMessage";
+import { backupConfig, objectKey, uploadPart, type PartResult } from "./backup";
+import { decodeValue, encodeValue, type DumpTables } from "./backupcore";
 
 export const MAX_TEXT = 32_000;
 export const MAX_ARTIFACT = 256_000;
@@ -4149,6 +4151,59 @@ export class Board extends DurableObject<Env> {
     this.entryMemo = [];
     this.entryMemoTo = 0;
     this.cache = null;
+  }
+
+  // ---- backups outside Cloudflare (#1550, src/backup.ts) ----
+
+  /** Every table as columns + rows. The search index is dumped as its rows, not FTS5's internal tables. */
+  dumpTables(): DumpTables {
+    const all = this.sql.exec("SELECT name, sql FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '_cf_%' ORDER BY name").toArray() as { name: string; sql: string | null }[];
+    const virtual = all.filter((t) => /^create virtual table/i.test(t.sql ?? "")).map((t) => t.name);
+    const out: DumpTables = {};
+    for (const { name } of all) {
+      if (virtual.some((v) => name.startsWith(`${v}_`))) continue; // FTS5 shadow tables: rebuilt from the rows
+      const cur = this.sql.exec(`SELECT * FROM "${name.replace(/"/g, '""')}"`);
+      const rows = [...cur.raw()].map((r) => r.map(encodeValue));
+      out[name] = { columns: cur.columnNames, rows };
+    }
+    return out;
+  }
+
+  /** Tonight's part for this board: dumped, sealed and uploaded from here, so the Worker never holds it. */
+  async backup(day: string): Promise<PartResult> {
+    const cfg = backupConfig(this.env);
+    const id = this.meta("id");
+    if (!cfg || !id) throw new BoardError(cfg ? "board has no id" : "backups are not configured");
+    return uploadPart(cfg, objectKey(cfg, day, `board:${id}`), { kind: "board", board: id, day, created_at: Date.now(), tables: this.dumpTables() });
+  }
+
+  /** Restore drill / disaster recovery: replaces every table with a backup's rows (columns this schema lacks are dropped). */
+  async restoreTables(tables: DumpTables): Promise<{ tables: number; rows: number; skipped: string[] }> {
+    const here = new Set((this.sql.exec("SELECT name FROM sqlite_master WHERE type = 'table'").toArray() as { name: string }[]).map((t) => t.name));
+    const skipped: string[] = [];
+    let rows = 0;
+    this.ctx.storage.transactionSync(() => {
+      for (const name of here) if (!name.startsWith("sqlite_") && !name.startsWith("_cf_") && tables[name]) this.sql.exec(`DELETE FROM "${name.replace(/"/g, '""')}"`);
+      for (const [name, t] of Object.entries(tables)) {
+        if (!here.has(name)) {
+          skipped.push(name);
+          continue;
+        }
+        const q = `"${name.replace(/"/g, '""')}"`;
+        const have = new Set((this.sql.exec(`SELECT name FROM pragma_table_info(?)`, name).toArray() as { name: string }[]).map((c) => c.name));
+        const keep = t.columns.map((c, i) => [c, i] as const).filter(([c]) => have.has(c));
+        const sql = `INSERT INTO ${q} (${keep.map(([c]) => `"${c.replace(/"/g, '""')}"`).join(", ")}) VALUES (${keep.map(() => "?").join(", ")})`;
+        for (const r of t.rows) this.sql.exec(sql, ...keep.map(([, i]) => decodeValue(r[i])));
+        rows += t.rows.length;
+      }
+    });
+    this.metaCache.clear();
+    this.entryMemo = [];
+    this.entryMemoTo = 0;
+    this.cache = null;
+    this.triggerMemo = null;
+    this.leaseSessions = null;
+    return { tables: Object.keys(tables).length - skipped.length, rows, skipped };
   }
 
   /** Operator audit: entries that would be blocked by today's filter (seq and rule only, never the value). */
