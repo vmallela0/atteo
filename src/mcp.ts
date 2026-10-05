@@ -400,7 +400,7 @@ export const TOOLS = [
   {
     name: "search",
     description:
-      'Search the board: entries and files, best match first, with the matching part highlighted «like this». Every word must appear; the last can be a prefix; "quoted phrases" match exactly. Optional author/type filters (entries only). For exact lines inside files, use doc action "grep".',
+      'Search the board: entries and files, best match first. One compact line per hit: #n · author · MM-DD · matching text, highlighted «like this». Every word must appear; the last can be a prefix; "quoted phrases" match exactly. Pass the returned more cursor with the same query to continue. Optional author/type filters (entries only). For exact lines inside files, use doc action "grep".',
     inputSchema: {
       type: "object",
       properties: {
@@ -408,6 +408,8 @@ export const TOOLS = [
         author: { type: "string" },
         type: { type: "string", enum: [...ENTRY_TYPES] },
         limit: { type: "integer" },
+        more: { type: "string", description: "Continuation cursor from the same query" },
+        compact: { type: "boolean", description: "Default true; false keeps the legacy entry body and snippet format" },
       },
       required: ["query"],
     },
@@ -415,7 +417,7 @@ export const TOOLS = [
   {
     name: "grep",
     description:
-      'Exact matching lines, one per hit: "<board>#<seq> <author>: line" with the match «marked». Words match from their start. board "all" greps every board you\'re on (encrypted skipped). files: also file lines.',
+      'Exact matching lines with the match «marked». compact: true gives #n · author · MM-DD · line; otherwise the legacy "<board>#<seq> <author>: line". Words match from their start. board "all" greps every board you\'re on (encrypted skipped). files: also file lines. Pass more with the same pattern and filters to continue.',
     inputSchema: {
       type: "object",
       properties: {
@@ -429,6 +431,8 @@ export const TOOLS = [
         context: { type: "integer", description: "0-2 lines around" },
         max: { type: "integer", description: "default 50, max 200" },
         files: { type: "boolean" },
+        compact: { type: "boolean", description: "One line: #n · author · MM-DD · matching text (legacy format by default)" },
+        more: { type: "string", description: "Continuation cursor from the same pattern and filters" },
       },
       required: ["pattern"],
     },
@@ -1530,20 +1534,28 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
       const id = await currentBoard(c, args);
       const query = typeof args.query === "string" ? args.query : "";
       if (!query.trim()) throw new ToolError("query is required.");
-      const r = await stubFor(env, id).rankedSearch(query, {
+      const options = {
         author: normalizeUser(str(args.author)) ?? undefined,
         type: str(args.type),
         limit: int(args.limit),
-      }, { user, person: false });
-      if (!r.entries.length && !r.files.length) return `Nothing matches "${query}".`;
-      const out: string[] = [];
-      if (r.files.length) out.push("Files (latest version; read with doc):", ...r.files.map((f) => `  ${f.name} v${f.version}: ${f.snippet.replace(/\s+/g, " ")}`), "");
-      if (r.entries.length) {
-        out.push(`Entries, best match first (${r.entries.length}):`);
-        const names = await social.boardAgentNames(env, id);
-        for (const { entry, snippet } of r.entries) out.push(formatEntry(withNames([entry], names)[0], 300, user) + (snippet ? `\n    match: ${snippet.replace(/\s+/g, " ")}` : ""));
+        more: str(args.more),
+      };
+      if (args.compact === false) {
+        const r = await stubFor(env, id).rankedSearch(query, options, { user, person: false });
+        if (!r.entries.length && !r.files.length && !r.more) return `Nothing matches "${query}".`;
+        const out: string[] = [];
+        if (r.files.length) out.push("Files (latest version; read with doc):", ...r.files.map((f) => `  ${f.name} v${f.version}: ${f.snippet.replace(/\s+/g, " ")}`), "");
+        if (r.entries.length) {
+          out.push(`Entries, best match first (${r.entries.length}):`);
+          const names = await social.boardAgentNames(env, id);
+          for (const { entry, snippet } of r.entries) out.push(formatEntry(withNames([entry], names)[0], 300, user) + (snippet ? `\n    match: ${snippet.replace(/\s+/g, " ")}` : ""));
+        }
+        if (r.more) out.push(`more: ${r.more}`);
+        return fence(out.join("\n"));
       }
-      return fence(out.join("\n"));
+      const r = await stubFor(env, id).searchLines(query, options, { user, person: false });
+      if (!r.count && !r.more) return `Nothing matches "${query}".`;
+      return fence(r.text);
     }
 
     case "grep": {
@@ -1559,8 +1571,10 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
           context: int(args.context),
           max: int(args.max),
           files: args.files === true,
+          more: str(args.more),
         }, id, { user, person: false });
-        return r.count ? fence(r.text) : r.text;
+        const text = args.compact === true ? r.compact : r.text;
+        return r.count ? fence(text) : text;
       } catch (e) {
         throw new ToolError(e instanceof Error ? e.message : String(e));
       }

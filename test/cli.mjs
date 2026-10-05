@@ -413,8 +413,8 @@ await step("board commands: use, post, read, ask (waits for the answer), search,
   let q = 0;
   for (let i = 0; i < 40 && !q; i++) {
     await sleep(300);
-    const s = await tool(tokB, board, "search", { query: `which port ${run}` });
-    q = Number(s.match(/#(\d+) question/)?.[1] ?? 0);
+    const s = await tool(tokB, board, "search", { query: `which port ${run}`, type: "question" });
+    q = Number(s.match(/^#(\d+)(?: question| ·)/m)?.[1] ?? 0); // legacy or compact search output
   }
   assert(q, "question posted");
   await tool(tokB, board, "read", {});

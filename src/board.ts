@@ -19,7 +19,7 @@ import type { RecapCore, RecapOwner, RecapTask } from "./recap";
 import type { ForYouCore } from "./forYou";
 import { cleanMatch, cleanTrigger, eventLine, lastOccurrence, matches, MAX_FIRES_PER_HOUR, MAX_TRIGGERS, minuteOf, SCHEDULE_GRACE_MS, type Trigger, type TriggerEvent, type TriggerMatch } from "./triggers";
 import { offBoardSeq } from "./util";
-import { compileGrep, grepFtsQuery, grepText, newBudget, GREP_CANDIDATES, GREP_DEFAULT_MAX, GREP_HARD_MAX, GREP_RECENT, type BoardGrepOpts, type BoardGrepResult } from "./grep";
+import { compileGrep, grepFtsQuery, scanGrepText, newBudget, isBoardGrepCursor, compactHitLine, cursorKey, decodeCursor, encodeCursor, trimLine, GREP_CANDIDATES, GREP_DEFAULT_MAX, GREP_HARD_MAX, GREP_RECENT, type BoardGrepOpts, type BoardGrepResult } from "./grep";
 import { audienceOk, audienceWord, canSee, ownByDefault, OWN_DEFAULT_MS, OWN_MAIL_HINT, PEOPLE_ONLY_TYPES, type Audience } from "./audience";
 import { cleanSchedule, MAX_SCHEDULES, nextDue, lastDue, scheduleLabel, SCHEDULE_FIRES_PER_HOUR, taskText, tickAction, type Day, type Schedule } from "./schedules";
 import { LEASE_CAP_MS, RENEW_EVERY_MS, renewedUntil } from "./leases";
@@ -2501,53 +2501,97 @@ export class Board extends DurableObject<Env> {
    */
   async rankedSearch(
     query: string,
-    opts: { author?: string; type?: string; limit?: number } = {},
+    opts: { author?: string; type?: string; limit?: number; more?: string } = {},
     viewer?: Viewer | null, // absent: an agent's search (no people-only entries)
-  ): Promise<{ entries: { entry: Entry; snippet: string }[]; files: { name: string; version: number; snippet: string }[] }> {
-    this.info();
+  ): Promise<{ entries: { entry: Entry; snippet: string }[]; files: { name: string; version: number; snippet: string; author?: string; ts?: number }[]; more: string | null; compact: string }> {
+    const info = this.info();
     const match = ftsQuery(query);
-    if (!match) return { entries: [], files: [] };
     const limit = clamp(opts.limit ?? 20, 1, 100);
-    let rows: Row[];
-    try {
-      rows = this.sql
-        .exec(
-          "SELECT kind, ref, snippet(search_idx, 0, '«', '»', ' … ', 16) AS snip FROM search_idx WHERE search_idx MATCH ? ORDER BY bm25(search_idx, 1.0, 4.0) LIMIT 500",
-          match,
-        )
-        .toArray();
-    } catch {
-      // Anything FTS can't parse falls back to plain substring search.
-      return { entries: (await this.search(query, opts, viewer)).map((entry) => ({ entry, snippet: "" })), files: [] };
-    }
-    // A task's live title/body is indexed as kind "task"; it points at the task's entry like an entry hit.
-    const isEntry = (r: Row) => r.kind === "entry" || r.kind === "task";
-    const seqs = rows.filter(isEntry).map((r) => Number(r.ref));
-    const bySeq = new Map<number, Entry>();
-    if (seqs.length) {
-      // SQLite in a Durable Object takes at most 100 bound values per statement: look them up 90 at a time.
-      for (let i = 0; i < seqs.length; i += 90) {
-        const chunk = seqs.slice(i, i + 90);
-        for (const r of this.sql.exec(`SELECT ${ENTRY_COLS} FROM entries WHERE seq IN (${chunk.map(() => "?").join(",")})`, ...chunk).toArray()) {
-          const e = toEntry(r);
-          if (canSee(e, viewer)) bySeq.set(e.seq, e); // a people-only hit is no hit for anyone outside its people
-        }
-      }
+    const key = cursorKey(["search", info.id, query, opts.author ?? null, opts.type ?? null, viewer ?? null]);
+    type Position = { score: number; row: number } | { before: number };
+    let position: Position | null = null;
+    if (opts.more) {
+      position = decodeCursor(key, opts.more) as Position;
+      if (!position || typeof position !== "object" || (!("before" in position) && !("score" in position))) throw new BoardError("Invalid more cursor.");
+      if ("before" in position ? !Number.isSafeInteger(position.before) || position.before <= 0 : !Number.isFinite(position.score) || !Number.isSafeInteger(position.row) || position.row <= 0) throw new BoardError("Invalid more cursor.");
     }
     const entries: { entry: Entry; snippet: string }[] = [];
-    const files: { name: string; version: number; snippet: string }[] = [];
+    const files: { name: string; version: number; snippet: string; author?: string; ts?: number }[] = [];
+    let more: string | null = null;
+    const result = () => {
+      const lines: string[] = [];
+      if (files.length) lines.push("Files (latest version; read with doc):", ...files.map((f) => `${f.name} v${f.version} · ${f.author ?? "—"} · ${f.ts ? new Date(f.ts).toISOString().slice(5, 10) : "—"} · ${trimLine(f.snippet.replace(/\s+/g, " "))}`));
+      if (entries.length) lines.push(`Entries, best match first (${entries.length}):`, ...entries.map(({ entry, snippet }) => compactHitLine({ seq: entry.seq, author: entry.author, ts: entry.ts, text: trimLine((snippet || entry.text).replace(/\s+/g, " ")) })));
+      if (more) lines.push(`more: ${more}`);
+      return { entries, files, more, compact: lines.join("\n") };
+    };
+    if (!match) return result();
+    const fallback = async () => {
+      const found = await this.search(query, { ...opts, limit, before: position && "before" in position ? position.before : undefined }, viewer);
+      for (const entry of found) entries.push({ entry, snippet: "" });
+      if (entries.length >= limit) more = encodeCursor(key, { before: entries[entries.length - 1].entry.seq });
+      return result();
+    };
+    if (position && "before" in position) return fallback();
+    let rows: Iterable<Row>;
+    try {
+      const after = position && "score" in position ? position : null;
+      rows = this.sql.exec(`SELECT rowid AS pos, kind, ref, bm25(search_idx, 1.0, 4.0) AS score,
+        snippet(search_idx, 0, '«', '»', ' … ', 16) AS snip FROM search_idx WHERE search_idx MATCH ?
+        AND (kind != 'entry' OR NOT EXISTS (SELECT 1 FROM tasks WHERE seq = CAST(search_idx.ref AS INTEGER)))
+        ${after ? "AND (bm25(search_idx, 1.0, 4.0) > ? OR (bm25(search_idx, 1.0, 4.0) = ? AND rowid > ?))" : ""}
+        ORDER BY score, rowid LIMIT 501`, match, ...(after ? [after.score, after.score, after.row] : []));
+    } catch { return fallback(); }
+    const seen = new Set<number>();
+    let batch: Row[] = [];
+    let last: Position | null = null;
+    let scanned = 0;
+    let full = false;
     const filtered = !!(opts.author || opts.type);
-    for (const r of rows) {
-      if (isEntry(r)) {
-        const e = bySeq.get(Number(r.ref));
-        if (!e || entries.some((x) => x.entry.seq === e.seq) || (opts.author && e.author !== opts.author) || (opts.type && e.type !== opts.type)) continue;
-        if (entries.length < limit) entries.push({ entry: e, snippet: r.snip as string });
-      } else if (!filtered && files.length < 10) {
-        const v = this.sql.exec("SELECT version FROM docs WHERE name = ?", r.ref).toArray()[0];
-        if (v) files.push({ name: r.ref as string, version: v.version as number, snippet: r.snip as string });
+    const flush = () => {
+      const candidates = batch;
+      batch = [];
+      if (!candidates.length || full) return;
+      const seqs = [...new Set(candidates.filter((r) => r.kind !== "doc").map((r) => Number(r.ref)))];
+      const bySeq = new Map<number, Entry>();
+      if (seqs.length) {
+        for (const r of this.sql.exec(`SELECT ${ENTRY_COLS} FROM entries WHERE seq IN (${seqs.map(() => "?").join(",")})`, ...seqs)) {
+          const e = toEntry(r);
+          if (canSee(e, viewer)) bySeq.set(e.seq, e);
+        }
       }
+      for (const r of candidates) {
+        last = { score: r.score as number, row: r.pos as number };
+        if (r.kind === "entry" || r.kind === "task") {
+          const e = bySeq.get(Number(r.ref));
+          if (!e || seen.has(e.seq) || (opts.author && e.author !== opts.author) || (opts.type && e.type !== opts.type)) continue;
+          seen.add(e.seq);
+          entries.push({ entry: e, snippet: r.snip as string });
+        } else if (!filtered) {
+          const d = this.sql.exec("SELECT version, updated_by, updated_at FROM docs WHERE name = ?", r.ref).toArray()[0];
+          if (d) files.push({ name: r.ref as string, version: d.version as number, snippet: r.snip as string, author: d.updated_by as string, ts: d.updated_at as number });
+        }
+        if (entries.length >= limit || files.length >= 10) { full = true; more = encodeCursor(key, last); break; }
+      }
+    };
+    for (const r of rows) {
+      if (++scanned > 500) {
+        flush();
+        if (!full && last) more = encodeCursor(key, last);
+        break;
+      }
+      batch.push(r);
+      if (batch.length >= Math.min(90, Math.max(1, limit - entries.length))) flush();
+      if (full) break;
     }
-    return { entries, files };
+    flush();
+    return result();
+  }
+
+  /** Agent search only transports the compact text over RPC; rankedSearch keeps full entries for existing callers. */
+  async searchLines(query: string, opts: { author?: string; type?: string; limit?: number; more?: string } = {}, viewer?: Viewer | null): Promise<{ text: string; count: number; more: string | null }> {
+    const r = await this.rankedSearch(query, opts, viewer);
+    return { text: r.compact, count: r.entries.length + r.files.length, more: r.more };
   }
 
   /** Lines in files (latest versions) containing `pattern` (case-insensitive text, or a simple regex), like grep -n. */
@@ -2590,18 +2634,15 @@ export class Board extends DurableObject<Env> {
   /**
    * grep for agents (grep.ts): exact matching lines in messages (and the latest file versions with files), newest first.
    * The FTS index picks up to GREP_CANDIDATES candidates from the pattern's literal words; only those are read and
-   * matched line by line. A pattern without a 3+ character literal scans just the newest GREP_RECENT entries.
+   * matched line by line. A pattern without a 3+ character literal scans GREP_RECENT entries per page.
+   * The continuation retains both the source position and its line number when a limit or budget is reached.
    */
   async grepLines(pattern: string, o: BoardGrepOpts = {}): Promise<BoardGrepResult> {
     const info = this.info();
-    const res: BoardGrepResult = { title: info.title, hits: [], encrypted: false, fallback: false, capped: false, budget: false };
+    const res: BoardGrepResult = { title: info.title, hits: [], encrypted: false, fallback: false, capped: false, budget: false, more: null };
     if (info.encrypted) return { ...res, encrypted: true };
-    let m: ReturnType<typeof compileGrep>;
-    try {
-      m = compileGrep(pattern, o);
-    } catch (e) {
-      throw new BoardError(e instanceof Error ? e.message : String(e));
-    }
+    const m = compileGrep(pattern, o);
+    if (o.more && !isBoardGrepCursor(o.more)) throw new BoardError("Invalid more cursor.");
     const max = clamp(o.max ?? GREP_DEFAULT_MAX, 1, GREP_HARD_MAX);
     const context = clamp(o.context ?? 0, 0, 2);
     const budget = newBudget();
@@ -2609,83 +2650,95 @@ export class Board extends DurableObject<Env> {
     const sinceTs = o.sinceTs ?? 0;
     const files = !!o.files && !o.author && !o.type;
     const done = () => res.hits.length >= max || budget.hit;
-    // A private entry is no hit for anyone outside its audience.
-    const mayRead = (e: Row) => !e.audience || canSee({ audience: e.audience as Audience, to_people: JSON.parse((e.to_people as string | null) || "[]") }, o.viewer);
-    const keep = (e: Row) => (!o.author || e.author === o.author) && (!o.type || e.type === o.type) && (!sinceTs || (e.ts as number) >= sinceTs) && mayRead(e);
-    const fromEntry = (seq: number, author: string, text: string) => {
-      for (const h of grepText(text, m, { context, max: max - res.hits.length, budget })) res.hits.push({ seq, author, text: h.text });
+    const keep = (e: Row) => (!o.author || e.author === o.author) && (!o.type || e.type === o.type) && (!sinceTs || (e.ts as number) >= sinceTs) && canSee({ audience: e.audience as Audience, to_people: JSON.parse((e.to_people as string | null) || "[]") }, o.viewer);
+    const scan = (mode: "fts" | "entries" | "docs", pos: number, text: string, meta: { seq?: number; author?: string; file?: string; ts: number }) => {
+      const afterLine = o.more?.mode === mode && o.more.before === pos ? o.more.line : 0;
+      const r = scanGrepText(text, m, { context, max: max - res.hits.length, budget, afterLine });
+      const position = { mode, before: pos, ...(mode === "docs" ? { ts: meta.ts } : {}) };
+      for (const h of r.hits) res.hits.push({ ...meta, line: h.line, text: h.text, after: { ...position, line: h.line } });
+      res.more = done() ? { ...position, line: r.complete ? 0 : r.line } : null;
     };
-    const fromFile = (name: string, content: string) => {
-      for (const h of grepText(content, m, { context, max: max - res.hits.length, budget })) res.hits.push({ file: name, line: h.line, text: h.text });
-    };
+    const bound = (mode: string) => o.more?.mode === mode ? o.more.before : Number.MAX_SAFE_INTEGER;
+    const comparison = (mode: string) => o.more?.mode === mode && o.more.line > 0 ? "<=" : "<";
     const fts = grepFtsQuery(pattern, !!o.regex);
-    let rows: Iterable<Row> | null = null;
-    if (fts) {
-      try {
-        rows = this.sql.exec("SELECT kind, ref, body FROM search_idx WHERE search_idx MATCH ? ORDER BY rowid DESC LIMIT ?", fts, GREP_CANDIDATES);
-      } catch {
-        rows = null; // FTS couldn't take it: scan recent entries instead
-      }
-    }
-    if (rows) {
+    if (fts && (!o.more || o.more.mode === "fts")) {
+      // Live tasks have their own index row: don't also return their original posted text.
+      const rows = this.sql.exec(`SELECT rowid AS pos, kind, ref, ${files ? "CASE WHEN kind = 'doc' THEN body END" : "NULL"} AS body FROM search_idx WHERE search_idx MATCH ?
+        AND rowid ${comparison("fts")} ? AND (kind != 'entry' OR NOT EXISTS (SELECT 1 FROM tasks WHERE seq = CAST(search_idx.ref AS INTEGER)))
+        ${files ? "" : "AND kind != 'doc'"} ORDER BY rowid DESC LIMIT ?`, fts, bound("fts"), GREP_CANDIDATES + 1);
       let n = 0;
-      const seen = new Set<number>();
-      let batch: number[] = [];
-      // Candidates' entries (and live task text) 90 at a time: a Durable Object statement takes at most 100 bound values.
+      let last = 0;
+      let batch: Row[] = [];
       const flush = () => {
-        const seqs = batch;
+        const candidates = batch;
         batch = [];
-        if (!seqs.length || done()) return;
-        const marks = seqs.map(() => "?").join(",");
+        if (!candidates.length || done()) return;
+        const seqs = [...new Set(candidates.filter((r) => r.kind !== "doc").map((r) => Number(r.ref)))];
         const ents = new Map<number, Row>();
         const tasks = new Map<number, Row>();
-        for (const r of this.sql.exec(`SELECT seq, ts, author, type, text, audience, to_people FROM entries WHERE seq IN (${marks})`, ...seqs)) ents.set(r.seq as number, r);
-        for (const r of this.sql.exec(`SELECT seq, title, body FROM tasks WHERE seq IN (${marks})`, ...seqs)) tasks.set(r.seq as number, r);
-        for (const seq of seqs) {
-          if (done()) return;
-          const e = ents.get(seq);
-          if (!e || !keep(e)) continue;
-          const t = tasks.get(seq);
-          fromEntry(seq, e.author as string, t ? [t.title, t.body].filter(Boolean).join("\n") : (e.text as string));
+        if (seqs.length) {
+          const marks = seqs.map(() => "?").join(",");
+          for (const r of this.sql.exec(`SELECT seq, ts, author, type, text, audience, to_people FROM entries WHERE seq IN (${marks})`, ...seqs)) ents.set(r.seq as number, r);
+          const taskSeqs = candidates.filter((r) => r.kind === "task").map((r) => Number(r.ref));
+          if (taskSeqs.length) for (const r of this.sql.exec(`SELECT seq, title, body FROM tasks WHERE seq IN (${taskSeqs.map(() => "?").join(",")})`, ...taskSeqs)) tasks.set(r.seq as number, r);
         }
-      };
-      try {
-        for (const r of rows) {
-          n++;
+        for (const r of candidates) {
+          if (done()) return;
+          last = r.pos as number;
           if (r.kind === "doc") {
-            if (!files) continue;
-            flush(); // keep newest-first order
-            if (done()) break;
-            if (sinceTs && !this.sql.exec("SELECT 1 FROM docs WHERE name = ? AND updated_at >= ?", r.ref, sinceTs).toArray().length) continue;
-            fromFile(r.ref as string, r.body as string);
+            const d = this.sql.exec("SELECT updated_by, updated_at FROM docs WHERE name = ?", r.ref).toArray()[0];
+            if (d && (d.updated_at as number) >= sinceTs) scan("fts", last, r.body as string, { file: r.ref as string, author: d.updated_by as string, ts: d.updated_at as number });
           } else {
             const seq = Number(r.ref);
-            if (!(seq > sinceSeq) || seen.has(seq)) continue;
-            // An entry's indexed body starts with its text: words that matched without a matching line cost no entry read.
-            if (r.kind === "entry" && !grepText(String(r.body ?? "").slice(0, MAX_TEXT), m, { max: 1, budget }).length) continue;
-            seen.add(seq);
-            batch.push(seq);
-            if (batch.length >= 90) flush();
+            const e = ents.get(seq);
+            if (!(seq > sinceSeq) || !e || !keep(e)) continue;
+            const t = tasks.get(seq);
+            scan("fts", last, t ? [t.title, t.body].filter(Boolean).join("\n") : e.text as string, { seq, author: e.author as string, ts: e.ts as number });
           }
-          if (done()) break;
         }
-      } catch {
-        // keep what was found
+      };
+      for (const r of rows) {
+        if (++n > GREP_CANDIDATES) {
+          flush();
+          if (!done()) { res.capped = true; res.more = { mode: "fts", before: last, line: 0 }; }
+          break;
+        }
+        batch.push(r);
+        if (batch.length >= Math.min(90, max - res.hits.length)) flush();
+        if (done()) break;
       }
       flush();
-      res.capped = n >= GREP_CANDIDATES && !done();
       res.budget = budget.hit;
       return res;
     }
     res.fallback = true;
-    for (const e of this.sql.exec("SELECT seq, ts, author, type, text, audience, to_people FROM entries WHERE seq > ? ORDER BY seq DESC LIMIT ?", sinceSeq, GREP_RECENT)) {
-      if (sinceTs && (e.ts as number) < sinceTs) break;
-      if (keep(e)) fromEntry(e.seq as number, e.author as string, e.text as string);
-      if (done()) break;
+    if (!o.more || o.more.mode === "entries") {
+      let n = 0;
+      let last = 0;
+      for (const e of this.sql.exec(`SELECT seq, ts, author, type, text, audience, to_people FROM entries
+        WHERE seq > ? AND seq ${comparison("entries")} ? ORDER BY seq DESC LIMIT ?`, sinceSeq, bound("entries"), GREP_RECENT + 1)) {
+        if (++n > GREP_RECENT) { res.more = { mode: "entries", before: last, line: 0 }; break; }
+        last = e.seq as number;
+        if (sinceTs && (e.ts as number) < sinceTs) break;
+        if (keep(e)) {
+          const task = e.type === "task" ? this.sql.exec("SELECT title, body FROM tasks WHERE seq = ?", last).toArray()[0] : null;
+          scan("entries", last, task ? [task.title, task.body].filter(Boolean).join("\n") : e.text as string, { seq: last, author: e.author as string, ts: e.ts as number });
+        }
+        if (done()) break;
+      }
     }
-    if (files && !done()) {
-      for (const d of this.sql.exec("SELECT name, content FROM docs WHERE updated_at >= ? ORDER BY updated_at DESC LIMIT 50", sinceTs)) {
-        fromFile(d.name as string, d.content as string);
+    if (files && !res.more && !done()) {
+      let n = 0;
+      let last = 0;
+      let lastTs = 0;
+      const after = o.more?.mode === "docs" ? o.more : null;
+      for (const d of this.sql.exec(`SELECT rowid AS pos, name, content, updated_by, updated_at FROM docs WHERE updated_at >= ?
+        ${after ? `AND (updated_at < ? OR (updated_at = ? AND rowid ${comparison("docs")} ?))` : ""}
+        ORDER BY updated_at DESC, rowid DESC LIMIT 51`, sinceTs, ...(after ? [after.ts!, after.ts!, after.before] : []))) {
+        if (++n > 50) { res.more = { mode: "docs", before: last, ts: lastTs, line: 0 }; break; }
+        last = d.pos as number;
+        lastTs = d.updated_at as number;
+        scan("docs", last, d.content as string, { file: d.name as string, author: d.updated_by as string, ts: d.updated_at as number });
         if (done()) break;
       }
     }
@@ -2694,7 +2747,7 @@ export class Board extends DurableObject<Env> {
   }
 
   /** Case-insensitive substring search over text and artifact names/content, with optional filters. */
-  async search(query: string, opts: { author?: string; type?: string; limit?: number } = {}, viewer?: Viewer | null): Promise<Entry[]> {
+  async search(query: string, opts: { author?: string; type?: string; limit?: number; before?: number } = {}, viewer?: Viewer | null): Promise<Entry[]> {
     this.info();
     const q = `%${query.replace(/[\\%_]/g, (c) => "\\" + c)}%`;
     const clauses = [
@@ -2716,6 +2769,10 @@ export class Board extends DurableObject<Env> {
     if (opts.type) {
       args.push(opts.type);
       clauses.push(`type = ?${args.length}`);
+    }
+    if (opts.before != null) {
+      args.push(opts.before);
+      clauses.push(`seq < ?${args.length}`);
     }
     args.push(clamp(opts.limit ?? 20, 1, 100));
     return this.sql
