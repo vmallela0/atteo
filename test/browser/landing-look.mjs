@@ -4,6 +4,7 @@
 // only fonts, colours and the logo change): rounded box, button and links, round avatars; no sideways scroll from 320 to 1440px;
 // the copy is unchanged; /og.png is a 1200×630 PNG. Its type is the app's own files (/fonts/*, which the landing forwards
 // to the app): nothing is asked of Google, and every font file it asks for is one the app ships (src/fonts).
+// HTML pages send an enforced hash CSP (docs/security/csp.md #8): JSON-LD is allowed by sha256, /guide is script-src 'none'.
 // It runs against the LANDING Worker, not the app:
 //   npx wrangler dev -c landing/wrangler.jsonc --port 8798 --inspector-port 9237 --var APP_ORIGIN:http://127.0.0.1:9
 //   LANDING=http://localhost:8798 node test/browser/landing-look.mjs
