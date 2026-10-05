@@ -765,6 +765,35 @@ async function search(args: string[]) {
   say(await tool(opt, "search", { query: pos.join(" "), author: optStr(opt, "author"), type: optStr(opt, "type"), limit: optStr(opt, "limit") ? Number(optStr(opt, "limit")) : undefined, more: optStr(opt, "more"), compact: opt.compact === true }));
 }
 
+const PUBLISH_USAGE = `Usage: atteo publish "<summary>" [--title "2–5 words"] [--claim "…"]… [--decision "…"]… [--task "…"]… [--file <path>]… [--yes]
+  A preview by default: nothing is posted. Show it to your person; with their OK, run it again with --yes.`;
+const PUBLISH_LISTS: Record<string, "claims" | "decisions" | "tasks" | "files"> = { claim: "claims", decision: "decisions", task: "tasks", file: "files" };
+
+/** The end-of-session slice, like MCP publish: a summary plus the claims, decisions, tasks and files worth sharing. */
+async function publishCmd(args: string[]) {
+  // Repeatable flags (--claim a --claim b), so its own parsing: parseArgs keeps one value per flag.
+  const lists = { claims: [] as string[], decisions: [] as string[], tasks: [] as string[], files: [] as string[] };
+  const rest: string[] = [];
+  for (let i = 0; i < args.length; i++) {
+    const key = PUBLISH_LISTS[args[i].replace(/^--/, "")];
+    if (args[i].startsWith("--") && key) {
+      const v = args[++i];
+      if (v === undefined || v.startsWith("--") || !v.trim()) throw new CliError(`${args[i - 1]} needs a value. ${PUBLISH_USAGE}`);
+      lists[key].push(v);
+    } else rest.push(args[i]);
+  }
+  const { pos, opt } = parseArgs(rest, ["yes"]);
+  const summary = pos.join(" ").trim();
+  if (!summary) throw new CliError(PUBLISH_USAGE);
+  const files = lists.files.map((path) => {
+    if (!existsSync(path)) throw new CliError(`No such file: ${path}`);
+    return { name: basename(path), content: readFileSync(path, "utf8") };
+  });
+  const out = await tool(opt, "publish", { summary, title: optStr(opt, "title"), claims: lists.claims, decisions: lists.decisions, tasks: lists.tasks, files, preview: opt.yes !== true });
+  // The tool's preview speaks MCP ("call publish again … preview=false"); here it's the same command with --yes.
+  say(opt.yes === true ? out : `${out.replace(/call publish again with the same content and preview=false/, "run the same command again with --yes")}\nNothing was posted.`);
+}
+
 /** Post a file (its next version if one with that name exists). */
 async function share(args: string[]) {
   const { pos, opt } = parseArgs(args);
@@ -1223,6 +1252,7 @@ export const COMMANDS: Record<string, (args: string[]) => Promise<void>> = {
   task,
   doc,
   decide: (a) => post(a, "decision"),
+  publish: publishCmd,
   check: checkCmd,
   verify: verifyCmd,
   review: reviewCmd,
@@ -1250,6 +1280,8 @@ Board commands (on the board chosen with \`use\`, per folder):
   atteo get N · search "<words>"   One entry with replies · ranked search
   atteo share <file> [--note …]    Post a file (its next version if the name exists)
   atteo decide "<text>"            Record a decision
+  atteo publish "<summary>" [--claim …]… [--decision …]… [--task …]… [--file <path>]… [--title …] [--yes]
+                                        The end-of-session slice: a preview until --yes (your person OKs it first)
   atteo approvals [--all] [--board <id>]   What your agents are waiting on you to approve (you decide in the browser)
   atteo approvals ask "<what>" --details "<exactly what>" [--command …] [--risk …] [--wait N]   An agent asks
   atteo approvals wait <id> [--timeout 600]   Until it's decided: exit 0 approved, 3 denied, 4 still waiting

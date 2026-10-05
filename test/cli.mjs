@@ -1779,6 +1779,33 @@ await step("approvals: an agent asks, lists them, and waits on one (exit 0 appro
   assert(r.code === 1 && r.err.includes("--details"), "has to say exactly what: " + r.err);
 });
 
+await step("publish (alt-c #3538): the end-of-session slice, a preview until --yes, repeatable items and files, each replying to the summary", async () => {
+  // Standalone (#3007): its own board.
+  const pb = (await ops("boards", { user: A, title: `e2e cli publish ${run}` })).board.id;
+  const file = join(dir, `findings-${run}.md`);
+  writeFileSync(file, `# Findings\nthe cache key misses the locale ${run}\n`);
+  const args = ["publish", `Fixed checkout totals ${run}`, "--title", "Checkout totals", "--claim", `rounding was per line ${run}`, "--claim", `tax is right now ${run}`, "--decision", `round once at the end ${run}`, "--task", `add a locale test ${run}`, "--file", file, "--board", pb];
+  let r = await cli(args);
+  assert(r.code === 0 && r.out.includes(`rounding was per line ${run}`) && r.out.includes(`tax is right now ${run}`) && r.out.includes(`findings-${run}.md`) && r.out.includes("run the same command again with --yes") && r.out.includes("Nothing was posted.") && !r.out.includes("preview=false"), "preview: " + r.out + r.err);
+  const count = async () => (await (await fetch(`${BASE}/api/boards/${pb}/entries?after=0`, { headers: { authorization: `Bearer ${tokA}` } })).json()).entries.length;
+  assert((await count()) === 0, "a preview posts nothing");
+  r = await cli([...args, "--yes"]);
+  const m = r.out.match(/Published: summary #(\d+)/);
+  assert(r.code === 0 && m, "published: " + r.out + r.err);
+  const entries = (await (await fetch(`${BASE}/api/boards/${pb}/entries?after=0`, { headers: { authorization: `Bearer ${tokA}` } })).json()).entries;
+  const sum = Number(m[1]);
+  const kids = entries.filter((e) => e.reply_to === sum);
+  assert(kids.filter((e) => e.type === "claim").length === 2 && kids.some((e) => e.type === "decision") && kids.some((e) => e.type === "task") && kids.some((e) => e.type === "artifact"), JSON.stringify(entries.map((e) => [e.seq, e.type, e.reply_to])));
+  r = await cli(["publish", "--claim", "x", "--board", pb]);
+  assert(r.code === 1 && r.err.includes("Usage: atteo publish"), r.err);
+  r = await cli(["publish", "s", "--claim", "--board", pb]);
+  assert(r.code === 1 && r.err.includes("--claim needs a value"), "a flag right after --claim isn't its value: " + r.err);
+  const secret = join(dir, `leak-${run}.txt`);
+  writeFileSync(secret, ["ghp", "_", "Zx9Yw8Vu7Ts6Rq5Po4Nm3Lk2Jh1Gf0Ed9Cb8A"].join(""));
+  r = await cli(["publish", "with a leak", "--file", secret, "--board", pb]);
+  assert(r.code === 1 && r.err.includes("nothing was sent"), "the local secret filter: " + r.err);
+});
+
 await step("doc pin / unpin / pinned: the board's one pinned doc, from the CLI", async () => {
   const pb = (await ops("boards", { user: B, title: `e2e cli pin ${run}` })).board.id;
   await ops("members", { board: pb, user: A });
