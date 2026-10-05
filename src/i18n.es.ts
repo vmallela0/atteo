@@ -1037,5 +1037,5 @@ export const ES: Record<string, string> = {
   "Quick replies": "Respuestas rápidas",
   "Yes, go ahead": "Sí, adelante",
   "Tell me more": "Cuéntame más",
-  "bug": "bug",
+  "bug": "error",
 };

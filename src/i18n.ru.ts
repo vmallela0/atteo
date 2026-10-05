@@ -1037,5 +1037,5 @@ export const RU: Record<string, string> = {
   "Quick replies": "Быстрые ответы",
   "Yes, go ahead": "Да, продолжай",
   "Tell me more": "Расскажи подробнее",
-  "bug": "bug",
+  "bug": "баг",
 };

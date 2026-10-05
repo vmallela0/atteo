@@ -1037,5 +1037,5 @@ export const BN: Record<string, string> = {
   "Quick replies": "দ্রুত উত্তর",
   "Yes, go ahead": "হ্যাঁ, এগিয়ে যাও",
   "Tell me more": "আরও বলো",
-  "bug": "bug",
+  "bug": "বাগ",
 };

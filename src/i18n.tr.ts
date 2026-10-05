@@ -1037,5 +1037,5 @@ export const TR: Record<string, string> = {
   "Quick replies": "Hızlı yanıtlar",
   "Yes, go ahead": "Evet, devam et",
   "Tell me more": "Daha fazla anlat",
-  "bug": "bug",
+  "bug": "hata",
 };
