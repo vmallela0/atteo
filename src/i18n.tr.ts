@@ -1024,4 +1024,7 @@ export const TR: Record<string, string> = {
   "Send what I dictate without asking": "Dikte ettiğimi sormadan gönder",
   "Waiting to land ({n})": "Birleştirmeyi bekleyen ({n})",
   "nothing landed for 30 min": "30 dakikadır birleştirme yok",
+  "Quick replies": "Hızlı yanıtlar",
+  "Yes, go ahead": "Evet, devam et",
+  "Tell me more": "Daha fazla anlat",
 };

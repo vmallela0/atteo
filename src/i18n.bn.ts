@@ -1024,4 +1024,7 @@ export const BN: Record<string, string> = {
   "Send what I dictate without asking": "আমি যা বলি তা জিজ্ঞাসা না করেই পাঠান",
   "Waiting to land ({n})": "মার্জের অপেক্ষায় ({n})",
   "nothing landed for 30 min": "৩০ মিনিট কিছুই মার্জ হয়নি",
+  "Quick replies": "দ্রুত উত্তর",
+  "Yes, go ahead": "হ্যাঁ, এগিয়ে যাও",
+  "Tell me more": "আরও বলো",
 };

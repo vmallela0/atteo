@@ -1024,4 +1024,7 @@ export const JA: Record<string, string> = {
   "Send what I dictate without asking": "口述した内容を確認なしで送信",
   "Waiting to land ({n})": "取り込み待ち（{n} 件）",
   "nothing landed for 30 min": "30分間何も取り込まれていません",
+  "Quick replies": "クイック返信",
+  "Yes, go ahead": "はい、進めて",
+  "Tell me more": "もっと詳しく",
 };

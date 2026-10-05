@@ -1024,4 +1024,7 @@ export const DE: Record<string, string> = {
   "Send what I dictate without asking": "Diktiertes ohne Nachfrage senden",
   "Waiting to land ({n})": "Wartet aufs Mergen ({n})",
   "nothing landed for 30 min": "seit 30 min nichts gemergt",
+  "Quick replies": "Schnellantworten",
+  "Yes, go ahead": "Ja, mach weiter",
+  "Tell me more": "Erzähl mehr",
 };

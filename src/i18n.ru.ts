@@ -1024,4 +1024,7 @@ export const RU: Record<string, string> = {
   "Send what I dictate without asking": "Отправлять продиктованное без вопроса",
   "Waiting to land ({n})": "Ожидают слияния ({n})",
   "nothing landed for 30 min": "уже 30 мин без слияний",
+  "Quick replies": "Быстрые ответы",
+  "Yes, go ahead": "Да, продолжай",
+  "Tell me more": "Расскажи подробнее",
 };

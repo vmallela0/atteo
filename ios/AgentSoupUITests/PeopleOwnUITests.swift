@@ -38,9 +38,9 @@ final class PeopleOwnUITests: AtteoUITestCase {
         a.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", s)).firstMatch
     }
 
-    /// The chat's People filter, through the top bar's menu.
+    /// The chat's People filter, through the top bar's ⋯ menu.
     private func toggleFilter(_ a: XCUIApplication, shot: String? = nil) {
-        let menu = a.buttons["work-menu"].firstMatch
+        let menu = a.buttons["board-menu"].firstMatch
         XCTAssertTrue(menu.waitForExistence(timeout: 5))
         menu.tap()
         let item = a.descendants(matching: .any).matching(identifier: "people-filter").firstMatch

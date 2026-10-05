@@ -8,6 +8,7 @@ struct AtteoApp: App {
     init() {
         TalkCallButton.plugIn() // voice chat on Everyday's Ask screen (TalkCallButton.swift)
         Typo.applyUIKitAppearance() // the design language's fonts in UIKit's bars (Theme.swift)
+        UITestSpeed.apply() // UI tests only (debug builds): animations off (UITestSpeed.swift)
     }
 
     var body: some Scene {

@@ -217,6 +217,9 @@ struct AttachmentTray: View {
     let items: [Attachment]
     let preparing: Int
     let remove: (Attachment) -> Void
+    /// A picture tapped while you're still writing (jxn #2604): full screen over the chat; the draft, the other
+    /// attachments and the keyboard are as they were when it closes.
+    @State private var viewing: Attachment?
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: Space.s) {
@@ -243,13 +246,17 @@ struct AttachmentTray: View {
         }
         .scrollClipDisabled()
         .accessibilityIdentifier("attachments")
+        .fullScreenCover(item: $viewing) { a in DraftPictureViewer(attachment: a) }
     }
 
     @ViewBuilder private func chip(_ a: Attachment) -> some View {
         if a.isImage, let p = a.preview {
-            Image(uiImage: p).resizable().scaledToFill().frame(width: 56, height: 56)
-                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                .accessibilityElement().accessibilityLabel(a.name).accessibilityIdentifier("attachment-chip")
+            Button { Haptics.play(.touch); viewing = a } label: {
+                Image(uiImage: p).resizable().scaledToFill().frame(width: 56, height: 56)
+                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            }
+            .buttonStyle(PressStyle())
+            .accessibilityLabel(a.name).accessibilityHint(Text("Opens it full screen")).accessibilityIdentifier("attachment-chip")
         } else {
             HStack(spacing: Space.s) {
                 FileIcon(name: a.name, size: 28)
@@ -288,32 +295,59 @@ extension Int {
 
 // MARK: - In the chat
 
-/// A picture in a message: rounded, sized from its dimensions before it loads (nothing jumps), a ring while it's
-/// going up, tap for full screen.
+/// A picture in a message: the whole picture, never cropped (jxn #2992), as wide as the message column allows and at
+/// most `maxHeight` tall. Sized from its dimensions before it loads (nothing jumps); a file posted without them (an
+/// agent's upload) is sized from the picture once it's here. A ring while it's going up, tap for full screen.
 struct ChatImage: View {
     let e: Entry
     let board: String
     var progress: Double? = nil
+    var alignment: HorizontalAlignment = .leading // your own messages sit on the right
     @State private var image: UIImage?
     @State private var open = false
+    @State private var column: CGFloat = 0
 
-    private var sending: Bool { e.pending == true }
-    private var size: CGSize {
-        let maxW: CGFloat = 232, maxH: CGFloat = 300
-        guard let w = e.media?.w, let h = e.media?.h, w > 0, h > 0 else { return CGSize(width: 200, height: 200) }
-        let aspect = CGFloat(h) / CGFloat(w)
-        var width = min(maxW, max(96, CGFloat(w)))
-        var height = width * aspect
-        if height > maxH { height = maxH; width = max(96, height / aspect) }
-        return CGSize(width: min(width, maxW), height: max(64, height))
+    static let maxHeight: CGFloat = 360
+
+    /// The frame for a picture of `aspect` (height ÷ width) whose own width is `natural`, in a column `column` wide:
+    /// the column's width (or the picture's, if narrower), shortened to `maxHeight`. Very wide or very tall pictures
+    /// keep a minimum frame and sit inside it, letterboxed. Unknown aspect (not loaded, no dimensions): a square.
+    static func fit(aspect: CGFloat?, natural: CGFloat?, column: CGFloat, maxHeight: CGFloat = maxHeight) -> CGSize {
+        let col = column > 0 ? column : 260
+        guard let a = aspect, a.isFinite, a > 0 else { let s = min(200, col); return CGSize(width: s, height: s) }
+        var w = min(col, max(96, natural ?? col))
+        var h = w * a
+        if h > maxHeight { h = maxHeight; w = h / a }
+        return CGSize(width: min(col, max(96, w)), height: min(maxHeight, max(48, h)))
     }
 
+    private var sending: Bool { e.pending == true }
+    private var aspect: CGFloat? {
+        if let w = e.media?.w, let h = e.media?.h, w > 0, h > 0 { return CGFloat(h) / CGFloat(w) }
+        if let s = image?.size, s.width > 0, s.height > 0 { return s.height / s.width }
+        return nil
+    }
+    private var natural: CGFloat? {
+        if let w = e.media?.w, w > 0 { return CGFloat(w) }
+        return image.map { $0.size.width * $0.scale }
+    }
+    private var size: CGSize { Self.fit(aspect: aspect, natural: natural, column: column) }
+
     var body: some View {
+        VStack(alignment: alignment, spacing: 0) {
+            // How wide the message column is, so a picture can use all of it.
+            Color.clear.frame(maxWidth: .infinity).frame(height: 0)
+                .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { column = $0 }
+            picture
+        }
+    }
+
+    private var picture: some View {
         let shape = RoundedRectangle(cornerRadius: Radius.card, style: .continuous)
-        Button { if image != nil, !sending { open = true } } label: {
+        return Button { if image != nil, !sending { open = true } } label: {
             ZStack {
                 shape.fill(Theme.card)
-                if let image { Image(uiImage: image).resizable().scaledToFill().frame(width: size.width, height: size.height).transition(.opacity) }
+                if let image { Image(uiImage: image).resizable().scaledToFit().frame(width: size.width, height: size.height).transition(.opacity) }
                 if sending {
                     Color.black.opacity(0.35)
                     UploadRing(progress: progress ?? 0)
@@ -451,6 +485,8 @@ struct ImageViewer: View {
                 }
                 .accessibilityLabel("Close")
                 Spacer()
+                // Straight into Photos (jxn #2686), beside the share sheet.
+                SaveToPhotosButton(file: file)
                 if let file {
                     ShareLink(item: file) {
                         Image(systemName: "square.and.arrow.up").font(.system(size: 15, weight: .semibold)).foregroundStyle(.white)
@@ -465,11 +501,53 @@ struct ImageViewer: View {
             .opacity(drag == 0 ? 1 : 0)
         }
         .statusBarHidden()
+        .modifier(ToastOverlay(state: AppState.shared)) // "Saved to Photos" shows over the viewer, not under it
         .task {
             if let u = try? await MediaStore.shared.file(for: e, board: board), let d = try? Data(contentsOf: u) {
                 file = u
                 image = await Task.detached { UIImage(data: d)?.preparingForDisplay() ?? UIImage(data: d) }.value
             }
+        }
+    }
+}
+
+/// A picture waiting in the message box, full screen (jxn #2604): pinch or double-tap to zoom, swipe down or ✕ to
+/// close. It's the picture as it will be sent (the full copy, not the chip's small one).
+struct DraftPictureViewer: View {
+    let attachment: Attachment
+    @Environment(\.dismiss) private var dismiss
+    @State private var drag: CGFloat = 0
+    @State private var image: UIImage?
+
+    var body: some View {
+        ZStack {
+            Color.black.opacity(1 - min(0.6, abs(drag) / 600)).ignoresSafeArea()
+            if let image = image ?? attachment.preview {
+                ZoomableImage(image: image, dragged: { drag = $0 }, released: { dy in
+                    if abs(dy) > 120 { dismiss() } else { withAnimation(.spring(duration: 0.3)) { drag = 0 } }
+                })
+                .offset(y: drag)
+                .ignoresSafeArea()
+                .accessibilityLabel(attachment.name)
+                .accessibilityIdentifier("draft-picture")
+            }
+        }
+        .overlay(alignment: .topLeading) {
+            Button { dismiss() } label: {
+                Image(systemName: "xmark").font(.system(size: 14, weight: .bold)).foregroundStyle(.white)
+                    .frame(width: 36, height: 36).background(Color.white.opacity(0.14), in: Circle())
+                    .frame(width: 44, height: 44).contentShape(Rectangle())
+            }
+            .buttonStyle(PressStyle())
+            .padding(.horizontal, Space.s)
+            .opacity(drag == 0 ? 1 : 0)
+            .accessibilityLabel("Close")
+            .accessibilityIdentifier("draft-picture-close")
+        }
+        .statusBarHidden()
+        .task {
+            let d = attachment.data
+            image = await Task.detached { UIImage(data: d)?.preparingForDisplay() ?? UIImage(data: d) }.value
         }
     }
 }

@@ -75,12 +75,19 @@ struct ComposerField: UIViewRepresentable {
                     v.layer.cornerCurve = .continuous
                     v.isUserInteractionEnabled = false
                     v.isAccessibilityElement = true
-                    v.accessibilityLabel = m.handle
+                    let name = String(m.handle.dropFirst()) // without the "@"
+                    v.accessibilityLabel = String(localized: "mention, \(name)", bundle: .l10n)
                     v.accessibilityIdentifier = "composer-mention"
                     insertSubview(v, at: 0) // behind the text
                     boxes.append(v)
                 }
             }
+        }
+
+        /// The mentions in the box now, each one unit (MentionTokens): fresh from the text, so they're right even
+        /// mid-edit, before restyle has run.
+        func tokenRanges() -> [NSRange] {
+            ComposerField.mentions(in: text ?? "", members: members, me: me, agentNames: agentNames).map(\.range)
         }
 
         override func canPerformAction(_ action: Selector, withSender sender: Any?) -> Bool {
@@ -181,6 +188,7 @@ struct ComposerField: UIViewRepresentable {
             }
             let user = members.contains(handle) ? handle : handle.replacingOccurrences(of: "[.-]+$", with: "", options: .regularExpression)
             guard members.contains(user) else { continue }
+            if suffix == nil || user != handle, user == me?.lowercased() { continue } // you can't mention yourself, only your agent (the web's rule)
             let length = 1 + (suffix != nil && user == handle ? m.range(at: 2).length + m.range(at: 3).length : (user as NSString).length)
             let r = NSRange(location: at, length: length)
             out.append((r, user == me?.lowercased(), ns.substring(with: r)))
@@ -188,7 +196,7 @@ struct ComposerField: UIViewRepresentable {
         return out
     }
     private static let draftRE = try! NSRegularExpression(
-        pattern: "(^|[^A-Za-z0-9_.@/-])@([A-Za-z0-9][A-Za-z0-9_.-]{0,31})((?:'|’)s\\s+agent\\b|/[A-Za-z0-9][A-Za-z0-9_.-]{0,31})?",
+        pattern: "(^|[^A-Za-z0-9_.@/-])@([A-Za-z0-9][A-Za-z0-9_.-]{0,31})((?:'|’)s\\s+(?:agent|assistant)\\b|/[A-Za-z0-9][A-Za-z0-9_.-]{0,31})?",
         options: [.caseInsensitive])
 
     /// Top and bottom room so one line of text is exactly as tall as the buttons beside it (and centred on them).
@@ -213,6 +221,40 @@ struct ComposerField: UIViewRepresentable {
     final class Coordinator: NSObject, UITextViewDelegate {
         var parent: ComposerField
         init(_ p: ComposerField) { parent = p }
+        private var lastSelection: NSRange?
+        private var adjusting = false // our own edit or selection change, not the person's
+
+        /// A mention is one unit (jxn #2551, the web's chips): an edit that cuts into one takes all of it, so one
+        /// Backspace at its end removes "@jxn's agent" whole. Done as the same edit over the grown range, so undo,
+        /// the drafts and the send button follow as usual. Not while composing (marked text from an input method).
+        func textView(_ v: UITextView, shouldChangeTextIn range: NSRange, replacementText t: String) -> Bool {
+            guard !adjusting, v.markedTextRange == nil, let box = v as? Box else { return true }
+            let tokens = box.tokenRanges()
+            let grown = MentionTokens.expand(range, tokens: tokens)
+            guard grown != range else { return true }
+            // A replacement wholly inside a mention can only be the keyboard's (autocorrect fixing "jxn" in "@jxn"; the
+            // caret never rests inside one): growing it would drop the "@", so the mention is left as it is.
+            if !t.isEmpty, tokens.contains(where: { NSIntersectionRange($0, range).length == range.length && $0 != range }) { return false }
+            adjusting = true
+            defer { adjusting = false }
+            v.selectedRange = grown
+            if t.isEmpty { v.deleteBackward() } else { v.insertText(t) }
+            lastSelection = v.selectedRange
+            return false
+        }
+
+        /// The caret never rests inside a mention (it steps over it, or goes to the nearer edge), and a selection that
+        /// cuts into one covers it.
+        func textViewDidChangeSelection(_ v: UITextView) {
+            defer { lastSelection = v.selectedRange }
+            guard !adjusting, v.markedTextRange == nil, let box = v as? Box else { return }
+            let sel = v.selectedRange
+            let snapped = MentionTokens.snap(sel, previous: lastSelection, tokens: box.tokenRanges())
+            guard snapped != sel else { return }
+            adjusting = true
+            v.selectedRange = snapped
+            adjusting = false
+        }
         func textViewDidChange(_ v: UITextView) {
             (v as? Box)?.restyle()
             parent.text = v.text

@@ -133,19 +133,60 @@ extension View {
 }
 
 extension RefTitles {
-    /// The chat redraws on every change anywhere in the app: build the titles (a regex or two per message) only when
-    /// the messages or tasks they come from change. (An older message decrypted later on an encrypted board keeps its
-    /// old chip title until the list next changes.)
-    @MainActor private static var last: (key: String, titles: RefTitles)?
+    @MainActor private static let cache = Cache()
     @MainActor static func cached(_ entries: [Entry], _ tasks: [WorkTask]) -> RefTitles {
-        let key = "\(entries.count)|\(entries.first?.seq ?? 0)|\(entries.last?.seq ?? 0)|\(entries.last?.ts ?? 0)|\(entries.last?.text.count ?? 0)|\(tasks.count)|\(tasks.map(\.updatedAt).max() ?? 0)"
-        if let last, last.key == key { return last.titles }
-        var map: [Int: String] = [:]
-        for e in entries where e.seq > 0 && e.retracts == nil { map[e.seq] = ChatSummary.short(e, words: 6) }
-        for t in tasks { map[t.seq] = t.title }
-        let titles = RefTitles(map: map)
-        last = (key, titles)
-        return titles
+        cache.value(entries, tasks)
+    }
+
+    /// Keep titles for unchanged entries when history grows or a message is decrypted. Task changes reuse the entry
+    /// map; a body pass with the same arrays does no traversal. The retained arrays make storage keys safe to compare.
+    final class Cache {
+        private struct Input: Equatable {
+            let title: String?
+            let text: String
+            let artifactName: String?
+            init(_ e: Entry) { title = e.title; text = e.text; artifactName = e.artifactName }
+        }
+        private var entries: [Entry] = []
+        private var tasks: [WorkTask] = []
+        private var entryKey: ArrayStorageIdentity?
+        private var taskKey: ArrayStorageIdentity?
+        private var shortened: [Int: (input: Input, title: String)] = [:]
+        private var entryMap: [Int: String] = [:]
+        private var titles = RefTitles()
+        private let short: (Entry) -> String
+
+        init(short: @escaping (Entry) -> String = { ChatSummary.short($0, words: 6) }) {
+            self.short = short
+        }
+
+        func value(_ entries: [Entry], _ tasks: [WorkTask]) -> RefTitles {
+            let nextEntries = ArrayStorageIdentity(entries), nextTasks = ArrayStorageIdentity(tasks)
+            guard nextEntries != entryKey || nextTasks != taskKey else { return titles }
+            if nextEntries != entryKey {
+                var next: [Int: (input: Input, title: String)] = [:]
+                for e in entries where e.seq > 0 && e.retracts == nil {
+                    let input = Input(e)
+                    // Also reuse within this pass when duplicate sequence numbers appear; the last title wins as before.
+                    let previous = next[e.seq] ?? shortened[e.seq]
+                    if let previous, previous.input == input {
+                        next[e.seq] = previous
+                    } else {
+                        next[e.seq] = (input, short(e))
+                    }
+                }
+                shortened = next // evict entries that left the loaded list
+                entryMap = next.mapValues(\.title)
+            }
+            var map = entryMap
+            for t in tasks { map[t.seq] = t.title }
+            titles = RefTitles(map: map)
+            self.entries = entries
+            self.tasks = tasks
+            entryKey = nextEntries
+            taskKey = nextTasks
+            return titles
+        }
     }
 }
 
@@ -359,6 +400,22 @@ struct ThreadView: View {
 
     private var gone: Set<Int> { Set((state.entries[board.id] ?? []).compactMap(\.retracts) + (fetched?.replies.compactMap(\.retracts) ?? [])) }
 
+    /// The thread's message and its answers, with the "N replies" line under the message.
+    @ViewBuilder private func rows(_ list: [Entry], bySeq: [Int: Entry], unsent: Set<Int>) -> some View {
+        if list.isEmpty { ProgressView().tint(Theme.faint).frame(maxWidth: .infinity).padding(.top, Space.xl) }
+        ForEach(Array(list.enumerated()), id: \.element.id) { i, e in
+            if i == 1 {
+                HStack(spacing: Space.s) {
+                    Text("\(list.count - 1) replies").font(Typo.micro.weight(.semibold)).foregroundStyle(Theme.faint)
+                        .accessibilityIdentifier("thread-count")
+                    Rectangle().fill(Theme.line).frame(height: 0.5)
+                }
+                .padding(.top, Space.l).padding(.bottom, Space.xxs)
+            }
+            row(e, parent: e.replyTo.flatMap { $0 == rootSeq ? nil : bySeq[$0] }, unsent: unsent).id(e.id)
+        }
+    }
+
     var body: some View {
         let all = items
         let list = all.filter { !hidden($0) }
@@ -366,21 +423,16 @@ struct ThreadView: View {
         let bySeq = Dictionary(all.map { ($0.seq, $0) }, uniquingKeysWith: { a, _ in a })
         ScrollViewReader { proxy in
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: 0) {
-                    if list.isEmpty { ProgressView().tint(Theme.faint).frame(maxWidth: .infinity).padding(.top, Space.xl) }
-                    ForEach(Array(list.enumerated()), id: \.element.id) { i, e in
-                        if i == 1 {
-                            HStack(spacing: Space.s) {
-                                Text("\(list.count - 1) replies").font(Typo.micro.weight(.semibold)).foregroundStyle(Theme.faint)
-                                    .accessibilityIdentifier("thread-count")
-                                Rectangle().fill(Theme.line).frame(height: 0.5)
-                            }
-                            .padding(.top, Space.l).padding(.bottom, Space.xxs)
-                        }
-                        row(e, parent: e.replyTo.flatMap { $0 == rootSeq ? nil : bySeq[$0] }, unsent: unsent).id(e.id)
-                    }
+                // Made up front, not lazily (a thread is short): a lazy list scrolled to an answer while something above
+                // it changes size (the "Showing people only" strip, a card loading) only has guessed heights, which can
+                // flip every frame and stall the layout, as the chat's did (vedu #2449). A very long thread stays lazy.
+                if list.count > 120 {
+                    LazyVStack(alignment: .leading, spacing: 0) { rows(list, bySeq: bySeq, unsent: unsent) }
+                        .padding(.horizontal, Space.l).padding(.bottom, Space.m)
+                } else {
+                    VStack(alignment: .leading, spacing: 0) { rows(list, bySeq: bySeq, unsent: unsent) }
+                        .padding(.horizontal, Space.l).padding(.bottom, Space.m)
                 }
-                .padding(.horizontal, Space.l).padding(.bottom, Space.m)
             }
             .accessibilityIdentifier("thread-list")
             // The message at the top, its answers under it; a new answer scrolls into view.
@@ -461,6 +513,7 @@ struct ThreadView: View {
         } message: { _ in Text("Everyone here will see it as unsent.") }
         .decisionPrompts($decisionPrompt, note: $decisionNote, board: board, state: state)
         .task {
+            if !started { draft = MessageDrafts.shared.text(for: board, root: root) }
             if !started, let carry {
                 // The chat's text, after "@who " (unless it already names them).
                 let kept = carry.wrappedValue, handle = (prefill ?? "").trimmingCharacters(in: .whitespaces)
@@ -479,7 +532,10 @@ struct ThreadView: View {
         .task(id: board.id) { if !overChat { await state.watch(board) } }
         .onAppear { markSeen() }
         .onChange(of: list.last?.seq) { _, _ in markSeen() }
-        .onChange(of: draft) { _, d in if carrying { carry?.wrappedValue = Self.without(carryAdded, d) } }
+        .onChange(of: draft) { _, d in
+            MessageDrafts.shared.save(d, for: board, root: root) // the same key it was restored from (rootSeq can move to a sub-thread)
+            if carrying { carry?.wrappedValue = Self.without(carryAdded, d) }
+        }
     }
 
     /// The text without the "@who " a reply put in front of it (as typed, or with its space gone).
@@ -521,7 +577,9 @@ struct ThreadView: View {
             if hidden(e) { withAnimation(.smooth(duration: 0.25)) { showAgents = true } } // going to an agent's answer shows agents again
             scrollTo = n
             withAnimation(.smooth(duration: 0.25)) { flash = n }
-            Task { try? await Task.sleep(nanoseconds: 1_400_000_000); withAnimation(.smooth(duration: 0.8)) { if flash == n { flash = nil } } }
+            // Lit for a moment (longer under UI tests, so a slow accessibility snapshot can still find it).
+            let hold: UInt64 = API.environment("STILL") != nil ? 6_000_000_000 : 1_400_000_000
+            Task { try? await Task.sleep(nanoseconds: hold); withAnimation(.smooth(duration: 0.8)) { if flash == n { flash = nil } } }
             return
         }
         let loaded = Dictionary((state.entries[board.id] ?? []).map { ($0.seq, $0) }, uniquingKeysWith: { a, _ in a })
@@ -550,9 +608,16 @@ struct ThreadView: View {
                         reply: live ? { mention(e) } : nil,
                         unsent: unsent.contains(e.seq), handling: state.handling[board.id]?[e.seq], lit: flash == e.seq, actions: a,
                         decision: hd, decisionActions: DecisionActions.make(hd, seq: e.seq, board: board, state: state) { p in decisionNote = ""; decisionPrompt = p },
-                        agentName: state.agentNames[board.id]?[e.author]?.name, quick: state.favouriteReactions, agentNames: state.agentNameMap(board.id)) {
+                        agentName: state.agentNames[board.id]?[e.author]?.name, quick: state.favouriteReactions, agentNames: state.agentNameMap(board.id),
+                        replyChips: live ? quickChips(e) : nil, pickChip: { text in Task { await state.send(text, to: board, replyTo: e.seq) } }) {
             Task { await state.send(e.text, to: board, retrying: e) }
         }
+    }
+
+    /// An agent's open question to you gets its one-tap replies in its thread too (QuickReplies.swift).
+    private func quickChips(_ e: Entry) -> QuickChips? {
+        guard let c = state.quickChips[board.id]?[e.seq] else { return nil }
+        return ChatSummary.open(state.entries[board.id] ?? []).questions.contains { $0.seq == e.seq } ? c : nil
     }
 
     /// Replying to a message in the thread: the next answer quotes it, and names who wrote it (your agent too).

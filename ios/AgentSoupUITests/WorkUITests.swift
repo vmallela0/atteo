@@ -50,7 +50,7 @@ final class WorkUITests: XCTestCase {
         return out
     }
 
-    /// Opens Checkout bug's Work sheet (from the strip at the top of the chat), full height.
+    /// Opens Checkout bug on its Tasks tab (under the title, beside Chat and Files).
     func openWork(_ a: XCUIApplication) {
         a.launch()
         XCTAssertTrue(a.navigationBars["Chats"].waitForExistence(timeout: 10))
@@ -59,14 +59,7 @@ final class WorkUITests: XCTestCase {
         let chat = a.buttons["chat-Checkout bug"].firstMatch
         XCTAssertTrue(chat.waitForExistence(timeout: 10))
         chat.tap()
-        let strip = a.buttons["work-strip"]
-        XCTAssertTrue(strip.waitForExistence(timeout: 10), "the work strip")
-        strip.tap()
-        XCTAssertTrue(a.navigationBars.matching(NSPredicate(format: "identifier BEGINSWITH 'Work on'")).firstMatch.waitForExistence(timeout: 5), "Work opens")
-        // The sheet to full height: drag its grabber (just above its navigation bar) up.
-        let bar = a.navigationBars.element(boundBy: a.navigationBars.count - 1).frame
-        let origin = a.coordinate(withNormalizedOffset: .zero)
-        origin.withOffset(CGVector(dx: bar.midX, dy: bar.minY - 8)).press(forDuration: 0.1, thenDragTo: origin.withOffset(CGVector(dx: bar.midX, dy: 60)))
+        XCTAssertTrue(a.openBoardTab("tab-tasks"), "the Tasks tab")
         sleep(1)
     }
 
@@ -81,16 +74,48 @@ final class WorkUITests: XCTestCase {
 
     func row(_ a: XCUIApplication, _ title: String) -> XCUIElement { a.descendants(matching: .any)["task-row-\(title)"].firstMatch }
 
+    func testStoppedTaskHasItsOwnCollapsedGroup() throws {
+        continueAfterFailure = false
+        guard let board else { throw XCTSkip("needs the seeded board") }
+        let title = "QA stopped task \(UUID().uuidString)"
+        let created = call("POST", "/api/boards/\(board)/tasks", body: ["title": title])
+        guard let task = created["task"] as? [String: Any], let seq = task["seq"] as? Int else {
+            XCTFail("could not create the stopped task: \(created)")
+            return
+        }
+        defer { call("POST", "/api/boards/\(board)/entries/\(seq)/retract", body: ["reason": "QA cleanup"]) }
+        let stopped = call("POST", "/api/boards/\(board)/tasks/\(seq)", body: ["action": "stop", "reason": "QA grouping"])
+        XCTAssertEqual((stopped["task"] as? [String: Any])?["status"] as? String, "stopped")
+
+        let a = app()
+        openWork(a)
+        let open = a.descendants(matching: .any)["group-open"].firstMatch
+        let group = a.descendants(matching: .any)["group-stopped"].firstMatch
+        let taskRow = row(a, title)
+        XCTAssertTrue(open.waitForExistence(timeout: 8))
+        for _ in 0..<3 where !group.isHittable { a.swipeUp() }
+        XCTAssertTrue(group.exists)
+        XCTAssertTrue(group.label.hasPrefix("Stopped, "), group.label)
+        XCTAssertEqual(group.value as? String, "collapsed")
+        XCTAssertFalse(taskRow.exists, "stopped task is absent from Open")
+        group.tap()
+        XCTAssertTrue(taskRow.waitForExistence(timeout: 3))
+        XCTAssertGreaterThan(taskRow.frame.minY, group.frame.minY, "stopped task appears under Stopped")
+    }
+
     func testTasks() throws {
         continueAfterFailure = false
         let a = app()
         openWork(a)
         let any = a.descendants(matching: .any)
 
-        // Grouped by where they stand, with counts; sub-tasks under their parent.
+        // Grouped by where they stand (In progress, Open, Blocked, Stopped, Done), with counts; sub-tasks under their parent.
         let doing = any["group-doing"].firstMatch, open = any["group-open"].firstMatch
+        let blockedGroup = any["group-blocked"].firstMatch
         XCTAssertTrue(doing.waitForExistence(timeout: 8), "In progress group")
         XCTAssertTrue(open.exists, "Open group")
+        XCTAssertTrue(blockedGroup.exists, "Blocked group")
+        XCTAssertLessThan(open.frame.minY, blockedGroup.frame.minY)
         XCTAssertTrue(doing.label.hasPrefix("In progress, "), doing.label)
         let parent = row(a, "Guard empty carts in charge()"), sub = row(a, "Ship")
         XCTAssertTrue(parent.waitForExistence(timeout: 5) && sub.exists, "the parent and its sub-task")
@@ -99,6 +124,7 @@ final class WorkUITests: XCTestCase {
         // Blocked, waiting on your approval, how far along, at a glance.
         let blocked = row(a, "Rotate the Stripe webhook secret")
         XCTAssertTrue(blocked.exists)
+        XCTAssertGreaterThan(blocked.frame.minY, blockedGroup.frame.minY, "blocked tasks stay out of Open")
         XCTAssertTrue(blocked.label.contains("Blocked"), blocked.label)
         XCTAssertTrue(blocked.label.contains("1 of 3 checked"), "checklist progress: \(blocked.label)")
         // (The everyday-flow tests may have answered its approval already; then it's rightly gone.)
@@ -116,12 +142,12 @@ final class WorkUITests: XCTestCase {
         shot("w01-tasks")
 
         // A group folds away and comes back.
-        open.tap()
+        blockedGroup.tap()
         let gone = expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: blocked)
         wait(for: [gone], timeout: 3)
-        XCTAssertEqual(open.value as? String, "collapsed")
+        XCTAssertEqual(blockedGroup.value as? String, "collapsed")
         shot("w02-collapsed")
-        open.tap()
+        blockedGroup.tap()
         XCTAssertTrue(blocked.waitForExistence(timeout: 3), "expanded again")
 
         // Filters: yours, your agent's, nobody's.
@@ -144,9 +170,11 @@ final class WorkUITests: XCTestCase {
         XCTAssertTrue(a.buttons["Remove"].firstMatch.waitForExistence(timeout: 3), "swipe offers Remove")
         XCTAssertFalse(a.buttons["Claim"].exists, "and no Claim")
         shot("w05-swipe")
-        // Swipe it shut (an open swipe swallows the next touch on the list).
+        // Swipe it shut (an open swipe swallows the next touch on the list). From the row's visible part, not the
+        // screen's edge (Tasks is a tab on the pushed board now, and the edge is Back).
         let regressionRow = row(a, "Add a regression test for empty carts")
-        regressionRow.coordinate(withNormalizedOffset: CGVector(dx: 0.1, dy: 0.5)).press(forDuration: 0.05, thenDragTo: regressionRow.coordinate(withNormalizedOffset: CGVector(dx: 0.6, dy: 0.5)))
+        let screen = a.coordinate(withNormalizedOffset: .zero), y = regressionRow.frame.midY, w = a.frame.width
+        screen.withOffset(CGVector(dx: w * 0.25, dy: y)).press(forDuration: 0.05, thenDragTo: screen.withOffset(CGVector(dx: w * 0.85, dy: y)))
         let shut = expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: a.buttons["Remove"].firstMatch)
         wait(for: [shut], timeout: 3)
         sleep(1)
@@ -231,7 +259,7 @@ final class WorkUITests: XCTestCase {
         let a = app()
         openWork(a)
         let any = a.descendants(matching: .any)
-        a.buttons["Files"].tap()
+        XCTAssertTrue(a.openBoardTab("tab-files"), "the Files tab")
 
         // Every file, most recently updated first, with its type and version.
         let png = any["file-checkout-flow.png"].firstMatch, code = any["file-charge.ts"].firstMatch, plan = any["file-rollout-plan.md"].firstMatch
@@ -278,23 +306,22 @@ final class WorkUITests: XCTestCase {
         shot("w15-quicklook")
     }
 
-    /// Out of a doc and closed: back from the doc lands on Files (still in the sheet), Done closes it, the chat is there.
-    /// (Files is a pane now, not a pushed screen, so there's no second back between the doc and Done.)
+    /// Out of a doc and back to the chat: back from the doc lands on the Files tab, and Chat is one tap (the chat's
+    /// message box comes back with it).
     func testCloseFromFiles() throws {
         continueAfterFailure = false
         let a = app()
         openWork(a)
-        a.buttons["Files"].tap()
+        XCTAssertTrue(a.openBoardTab("tab-files"), "the Files tab")
         let plan = a.descendants(matching: .any)["file-rollout-plan.md"].firstMatch
         XCTAssertTrue(plan.waitForExistence(timeout: 8))
         plan.tap()
         XCTAssertTrue(a.staticTexts["Rollout plan"].waitForExistence(timeout: 8))
         back(a)
         XCTAssertTrue(plan.waitForExistence(timeout: 5), "back on Files")
-        XCTAssertEqual(a.descendants(matching: .any)["work-pane"].firstMatch.exists, true, "still in the sheet")
-        a.buttons["Done"].tap()
-        sleep(1)
-        XCTAssertTrue(a.buttons["presence"].waitForExistence(timeout: 5), "back in the chat")
-        XCTAssertFalse(a.navigationBars.matching(NSPredicate(format: "identifier BEGINSWITH 'Work on'")).firstMatch.exists, "the sheet closed")
+        XCTAssertTrue(a.boardTab("tab-files").isSelected, "still on the Files tab")
+        XCTAssertTrue(a.openBoardTab("tab-chat"), "back to Chat")
+        XCTAssertTrue(a.buttons["presence"].waitForExistence(timeout: 5), "in the chat")
+        XCTAssertTrue(a.descendants(matching: .any)["composer"].firstMatch.waitForExistence(timeout: 5), "with its message box")
     }
 }
