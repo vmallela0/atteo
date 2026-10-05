@@ -1,8 +1,11 @@
 // Browser check (#852, vedu #722): phone widths, light and dark, nothing pushed off the edge, rows line up.
+// Fast (opus-a #2937): a page is measured once its fonts are in and its layout has stopped moving, and a click waits for
+// what it opens, instead of fixed sleeps after every load and click.
 import { SHOTS_DIR } from "../lib/shots.mjs";
 import { chromium } from "playwright-core";
 import { mkdirSync } from "node:fs";
 import { BASE, CHROME, fixture, ctxFor } from "./fixture.mjs";
+import { stable } from "../lib/wait.mjs";
 const OUT = `${SHOTS_DIR}/after/`; mkdirSync(OUT, { recursive: true });
 const only = process.argv[2] ? process.argv[2].split(",") : null;
 const f = await fixture();
@@ -12,7 +15,9 @@ const R = (el) => { const r = el.getBoundingClientRect(); return { l: Math.round
 const run = (name) => !only || only.includes(name);
 for (const [w, scheme] of [[320, "light"], [320, "dark"], [360, "light"], [390, "dark"], [430, "light"]]) {
   const ctx = await ctxFor(b, f.ckA, w, scheme); const tag = `${w} ${scheme}`;
-  const page = async (path) => { const p = await ctx.newPage(); p.errs = []; p.on("pageerror", (e) => p.errs.push(e.message)); await p.goto(BASE + path); await p.waitForTimeout(500); return p; };
+  // Settled: web fonts loaded (widths depend on them) and the given element's box the same twice in a row.
+  const settle = async (p, sel = "body") => { await p.evaluate(() => document.fonts.ready.then(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))))); await stable(() => p.evaluate((s) => { const e = document.querySelector(s); if (!e) return null; const r = e.getBoundingClientRect(); return [r.left, r.top, r.width, r.height]; }, sel), 3000, 60); };
+  const page = async (path) => { const p = await ctx.newPage(); p.errs = []; p.on("pageerror", (e) => p.errs.push(e.message)); await p.goto(BASE + path); await settle(p, path.startsWith("/b/") ? ".bp-head" : "body"); return p; };
   if (run("header")) { const p = await page(`/b/${f.board}`);
     const m = await p.evaluate(`(${R})&&(()=>{const R=${R};const h=document.querySelector(".bp-head"),t=document.querySelector(".bp-title"),av=[...document.querySelectorAll(".bp-meta .av")],tabs=document.querySelector(".bp-tabs");return{head:R(h),title:R(t),lastAv:R(av[av.length-1]),tabs:R(tabs),h1:R(document.getElementById("board-title"))}})()`);
     check(m.title.r <= m.head.r && m.tabs.r <= m.head.r, `${tag}: board header rows fit the screen (title ${m.title.r}, tabs ${m.tabs.r} ≤ ${m.head.r})`);
@@ -27,17 +32,17 @@ for (const [w, scheme] of [[320, "light"], [320, "dark"], [360, "light"], [390, 
     await p.evaluate(() => document.querySelector(".tbl").scrollIntoView({ block: "center" }));
     await p.locator(".tbl").screenshot({ path: `${OUT}account-${w}-${scheme}.png` }); await p.close(); }
   if (run("connect")) { const p = await page(`/me`);
-    await p.click('[data-open="connect"]'); await p.waitForTimeout(300);
+    await p.click('[data-open="connect"]'); await p.waitForSelector("#connect[open] .tabs"); await settle(p, "#connect");
     const m = await p.evaluate(`(()=>{const R=${R};const t=document.querySelector("#connect .tabs");return{tabs:R(t),btns:[...t.children].map(R),dlg:R(document.getElementById("connect"))}})()`);
     check(m.btns.every((x) => x.h === m.btns[0].h && x.h <= 40), `${tag}: Connect tabs are one line each (${m.btns.map((x) => x.h).join("/")}px tall)`);
     check(m.tabs.r <= m.dlg.r, `${tag}: …and the tab row stays inside the dialog`);
     await p.locator("#connect").screenshot({ path: `${OUT}connect-${w}-${scheme}.png` });
-    await p.click('#connect [data-ctab="url"]'); await p.waitForTimeout(150);
+    await p.click('#connect [data-ctab="url"]'); await p.waitForSelector('#connect [data-ctab="url"][aria-selected="true"]'); await settle(p, '#connect [data-ctab="url"]');
     const vis = await p.evaluate(`(()=>{const t=document.querySelector('#connect [data-ctab="url"]'),c=t.parentElement,a=t.getBoundingClientRect(),b=c.getBoundingClientRect();return t.getAttribute("aria-selected")==="true"&&a.left>=b.left-1&&a.right<=b.right+1})()`);
     check(vis, `${tag}: the MCP URL tab can be chosen and is in view`);
     await p.close(); }
   if (run("members")) { const p = await page(`/b/${f.board}`);
-    await p.click('.topbar [data-open="invite"]:not([data-goto])'); await p.waitForSelector("#acc-members .acc-row"); await p.waitForTimeout(200);
+    await p.click('.topbar [data-open="invite"]:not([data-goto])'); await p.waitForSelector("#acc-members .acc-row"); await settle(p, "#acc-members");
     const rows = await p.evaluate(`(()=>{const R=${R};return[...document.querySelectorAll("#acc-members .acc-row")].map(r=>{const s=r.querySelectorAll("select");return{row:R(r),name:R(r.querySelector(".grow")),s1:R(s[0]),s2:R(s[1])}})})()`);
     check(rows.length === 3, `${tag}: three members listed`);
     check(rows.every((x) => x.s1.t === x.s2.t && x.s1.t >= x.name.b - 1), `${tag}: role and end date sit side by side under the name`);
@@ -45,13 +50,13 @@ for (const [w, scheme] of [[320, "light"], [320, "dark"], [360, "light"], [390, 
     check(await p.evaluate(`[...document.querySelectorAll("#acc-members select")].every(s=>{const c=document.createElement("canvas").getContext("2d"),cs=getComputedStyle(s);c.font=cs.fontSize+" "+cs.fontFamily;return c.measureText(s.options[s.selectedIndex].text).width<=s.clientWidth-parseFloat(cs.paddingLeft)-parseFloat(cs.paddingRight)+1})`), `${tag}: each select shows its whole value`);
     await p.locator("#acc-members").screenshot({ path: `${OUT}members-${w}-${scheme}.png` }); await p.close(); }
   if (run("files")) { const p = await page(`/b/${f.board}`);
-    await p.click('[aria-controls="panel-docs"]'); await p.waitForSelector("#doc-items .doc-item"); await p.waitForTimeout(200);
+    await p.click('[aria-controls="panel-docs"]'); await p.waitForSelector("#doc-items .doc-item"); await settle(p, "#doc-items");
     const m = await p.evaluate(`(()=>{const R=${R};return{items:[...document.querySelectorAll("#doc-items .doc-item")].map(a=>({a:R(a),name:R(a.children[0]),meta:R(a.children[1])})),view:document.getElementById("doc-view").innerText.trim()}})()`);
     check(m.items.length === 2 && m.items.every((x) => x.meta.h <= x.name.h + 2 && x.meta.r <= x.a.r), `${tag}: each file's version and size stay on its line (${m.items.map((x) => x.meta.h).join("/")}px)`);
     check(w > 800 || m.view === "Pick a file to open it.", `${tag}: the empty viewer says to pick a file ("${m.view.slice(0, 30)}")`);
     await p.screenshot({ path: `${OUT}files-${w}-${scheme}.png` }); await p.close(); }
   if (run("touch")) for (const [path, act] of [[`/b/${f.board}`, "#info-btn"], [`/b/${f.board}#tasks`, '[aria-controls="panel-tasks"]'], ["/", null]]) { const p = await page(path);
-    if (act) { await p.click(act); await p.waitForTimeout(400); }
+    if (act) { await p.click(act); await settle(p, act === "#info-btn" ? "#board-info" : "#kanban"); }
     const m = await p.evaluate(`(()=>{const out={n:0,miss:[],comp:[]};for(const b of document.querySelectorAll(".btn")){const r=b.getBoundingClientRect();if(!r.width||r.top<60||r.bottom>innerHeight-8||b.closest("dialog:not([open]),.sidebar")||!b.checkVisibility({visibilityProperty:true})||b.closest(".layout.info-open>.conv"))continue;
       if(b.closest(".composer")){out.comp.push(Math.round(r.height)+":"+getComputedStyle(b,"::after").content);continue}
       const x=r.left+r.width/2,mid=document.elementFromPoint(x,r.top+r.height/2);if(!mid||mid.closest(".btn")!==b)continue;/* covered (under an open sheet): not tappable now */const up=document.elementFromPoint(x,r.top+r.height/2-20+0.5),dn=document.elementFromPoint(x,r.top+r.height/2+19.5);out.n++;
@@ -65,7 +70,7 @@ for (const [w, scheme] of [[320, "light"], [320, "dark"], [360, "light"], [390, 
       await p.screenshot({ path: `${OUT}tasks-${w}-${scheme}.png` }); }
     await p.close(); }
   if (run("log")) { const p = await page(`/b/${f.board}`);
-    await p.click('[aria-controls="panel-log"]'); await p.waitForTimeout(400);
+    await p.click('[aria-controls="panel-log"]'); await p.waitForFunction(() => document.querySelectorAll("#log-body tr.ev").length > 5); await settle(p, "#panel-log .list");
     const m = await p.evaluate(`(()=>{const R=${R};const wrap=document.querySelector("#panel-log .list");return{wrap:R(wrap),sw:wrap.scrollWidth,cw:wrap.clientWidth,rows:[...document.querySelectorAll("#log-body tr.ev")].map(tr=>{const c=tr.children;return{tr:R(tr),time:R(c[0]),seq:R(c[1]),who:R(c[2]),type:R(c[3]),sum:R(c[5]),sumText:c[5].innerText.trim().length}})}})()`);
     check(m.sw <= m.cw + 1, `${tag}: the Log doesn't scroll sideways (${m.sw} ≤ ${m.cw})`);
     check(m.rows.length > 5 && m.rows.every((x) => Math.abs(x.who.t + x.who.h / 2 - (x.time.t + x.time.h / 2)) <= 2 && x.time.r <= x.tr.r && x.seq.r <= x.time.l), `${tag}: line one is who, #, time, inside the row`);
@@ -76,7 +81,7 @@ for (const [w, scheme] of [[320, "light"], [320, "dark"], [360, "light"], [390, 
     check(m.length >= 1 && m.every((x) => x.b.every((y) => y.t === x.b[0].t && Math.abs(y.t + y.h / 2 - (x.st.t + x.st.h / 2)) <= 2 && y.r <= x.tk.r)), `${tag}: task/decision cards keep their buttons on the status line (${m.length} cards)`);
     await p.close(); }
   if (run("info")) { const p = await page(`/b/${f.board}`);
-    await p.click("#info-btn"); await p.waitForTimeout(400);
+    await p.click("#info-btn"); await p.waitForSelector("#board-info .sum li a .avs"); await settle(p, "#board-info");
     const m = await p.evaluate(`(()=>{const R=${R};const rows=[...document.querySelectorAll("#board-info .sum li a")].filter(a=>a.querySelector(".avs")).map(a=>({a:R(a),avs:R(a.querySelector(".avs")),one:R(a.querySelector(".one"))}));
       const mem=[...document.querySelectorAll("#board-info .sum li>.row")].filter(r=>r.querySelector(".av-wrap")).map(r=>{const l=r.lastElementChild;const range=document.createRange();range.selectNodeContents(l.matches(".btn")?l.firstChild||l:l);const tr=range.getBoundingClientRect();return{row:R(r),textR:Math.round(tr.right),fs:getComputedStyle(l.matches(".btn")?l:l).fontSize}});return{rows,mem}})()`);
     check(m.rows.length >= 3 && m.rows.every((x) => x.one.l - x.avs.l <= 44 && x.one.l - x.avs.l === m.rows[0].one.l - m.rows[0].avs.l), `${tag}: info rows: titles line up right after the avatars (${m.rows.map((x) => x.one.l - x.avs.l).join("/")}px)`);

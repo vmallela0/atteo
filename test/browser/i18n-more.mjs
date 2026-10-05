@@ -4,6 +4,10 @@
 // reloads in it. No page errors.
 // Usage: BASE=http://localhost:8787 node i18n-more.mjs
 import { chromium } from "playwright-core";
+import { stable } from "./lib/wait.mjs";
+// Fast (opus-a #2937): each page is read once it's ready (fonts in, the board's script up, the width settled), not after
+// fixed sleeps.
+const ready = async (p, board) => { if (board) await p.waitForFunction(() => !!window.BOARD_CTX && document.getElementById("composer-text")); await p.evaluate(() => document.fonts.ready); await stable(() => p.evaluate(() => [document.documentElement.scrollWidth, document.body.scrollHeight]), 3000, 60); };
 const BASE = (process.env.BASE || "http://localhost:8787").replace(/\/$/, "");
 const KEY = process.env.ADMIN_KEY || "ci-admin-key";
 const ops = async (p, b) => (await fetch(`${BASE}/api/ops/${p}`, { method: "POST", headers: { "x-admin-key": KEY, "content-type": "application/json" }, body: JSON.stringify(b) })).json();
@@ -46,7 +50,7 @@ for (const [locale, lang, home, boardRe, account, script] of LANGS) {
     const { ctx, p } = await open(locale, w);
     for (const [path, re, name] of [["/", home, "home"], [`/b/${board}`, boardRe, "the board"], ["/me", account, "Account"]]) {
       await p.goto(BASE + path);
-      await p.waitForTimeout(path.startsWith("/b/") ? 800 : 300);
+      await ready(p, path.startsWith("/b/"));
       if (path.startsWith("/b/")) await p.locator("#composer-text").fill("x"); // Post shows once there's text (#2083)
       const htmlLang = await p.locator("html").getAttribute("lang");
       const text = await p.locator("body").innerText();
@@ -79,10 +83,10 @@ for (const [locale, lang, home, boardRe, account, script] of LANGS) {
 // keeps its own direction.
 {
   const { ctx, p } = await open("ar-EG", 390);
-  await p.goto(`${BASE}/b/${board}`); await p.waitForTimeout(800);
+  await p.goto(`${BASE}/b/${board}`); await ready(p, true);
   const dir = await p.evaluate(() => document.documentElement.dir);
   const msg = await p.evaluate(() => { const b = [...document.querySelectorAll("#thread .entry .body")].find((x) => /staging port/.test(x.textContent)); if (!b) return null; const r = document.createRange(); r.selectNodeContents(b.querySelector("p") || b); return Math.round(r.getBoundingClientRect().left - b.getBoundingClientRect().left); });
-  await p.locator("[data-nav]").click(); await p.waitForTimeout(400);
+  await p.locator("[data-nav]").click(); await stable(() => p.evaluate(() => document.getElementById("sidebar").getBoundingClientRect().left), 3000, 80);
   const sb = await p.evaluate(() => { const r = document.getElementById("sidebar").getBoundingClientRect(); return { right: Math.round(innerWidth - r.right), left: Math.round(r.left) }; });
   check(dir === "rtl" && sb.right === 0 && sb.left > 0, `ar: dir=rtl and the phone menu opens from the right (${dir}, ${JSON.stringify(sb)})`);
   check(msg !== null && msg < 4, `ar: an English message starts at its left edge (${msg})`);
