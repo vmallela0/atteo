@@ -18,13 +18,14 @@ const FAKE = `(()=>{const Real=window.WebSocket;window.__talk={sent:[],opened:0}
   Object.assign(window.WebSocket,{CONNECTING:0,OPEN:1,CLOSING:2,CLOSED:3});
   window.__ms={};const ms=navigator.mediaSession;if(ms){const set=ms.setActionHandler.bind(ms);ms.setActionHandler=(k,f)=>{window.__ms[k]=f;return set(k,f)}}
   // The microphone: a tone the test switches on (talking) and off (quiet).
-  navigator.mediaDevices.getUserMedia=async()=>{const ac=new AudioContext(),o=ac.createOscillator(),g=ac.createGain(),d=ac.createMediaStreamDestination();g.gain.value=0;o.frequency.value=220;o.connect(g);g.connect(d);o.start();window.__voice=(on)=>{g.gain.value=on?0.4:0};return d.stream};})()`;
+  // A hum the test can raise (a noisy room) under the voice; window.__level sets how loud talking is.
+  navigator.mediaDevices.getUserMedia=async()=>{const ac=new AudioContext(),o=ac.createOscillator(),g=ac.createGain(),h=ac.createOscillator(),hg=ac.createGain(),d=ac.createMediaStreamDestination();g.gain.value=0;hg.gain.value=window.__humStart||0;o.frequency.value=220;h.frequency.value=60;o.connect(g);g.connect(d);h.connect(hg);hg.connect(d);o.start();h.start();window.__level=0.4;window.__voice=(on)=>{g.gain.value=on?window.__level:0};window.__hum=(v)=>{hg.gain.value=v};return d.stream};})()`;
 const b = await chromium.launch({ executablePath: process.env.PW_CHROME || undefined, args: ["--autoplay-policy=no-user-gesture-required"] });
-async function call(turns, pauseMs) {
+async function call(turns, pauseMs, hum = 0) {
   const ctx = await b.newContext({ viewport: { width: 1280, height: 860 } });
   const [k, ...v] = ck.split(";")[0].split("="); await ctx.addCookies([{ name: k, value: v.join("="), url: BASE }]);
   const p = await ctx.newPage(); p.errors = []; p.on("pageerror", (e) => p.errors.push(e.message));
-  await p.addInitScript(FAKE);
+  await p.addInitScript(`window.__humStart=${hum};`); await p.addInitScript(FAKE);
   await p.route("**/api/app/voice/**", async (route) => {
     const req = route.request(), headers = { ...req.headers(), "x-dev-fake-voice": "1" };
     if (req.url().endsWith("/voice/session") && turns) { const r = await route.fetch({ headers }); const j = await r.json(); j.voice_turns = turns; j.pause_ms = pauseMs; if (turns !== "quick") j.session.turn_detection = null; return route.fulfill({ response: r, json: j }); }
@@ -59,6 +60,18 @@ const count = (a, t) => a.filter((x) => x === t).length;
   await p.evaluate(() => { const pcm = btoa(String.fromCharCode(...new Uint8Array(48000))); window.__talk.emit({ type: "response.created", response: { id: "r1" } }); window.__talk.emit({ type: "response.output_audio.delta", response_id: "r1", item_id: "i1", delta: pcm }); });
   await p.waitForTimeout(300); await voice(p, true); await p.waitForTimeout(500); await voice(p, false);
   check(count(await sent(p), "response.cancel") === 1, "talking over Atteo cancels its answer");
+  check(!p.errors.length, `no page errors ${p.errors.join(" | ")}`); await ctx.close(); }
+
+// 1b. A quiet voice in a humming room (iOS Safari's processed mic runs low): the threshold follows the room's floor.
+{ const { ctx, p } = await call("pause", 800, 0.02); // the room hums from the start, as rooms do
+  const shared = await p.evaluate(() => { const t = window.atteoTalk.call(), s = window.atteoTalk.state(); return { same: !!t.ac && t.ac === s.ac, state: t.ac && t.ac.state }; });
+  check(shared.same && shared.state === "running", `the call's AudioContext is made in the tap and shared by its session (${JSON.stringify(shared)})`);
+  await p.evaluate(() => { window.__level = 0.06; }); await p.waitForTimeout(1500);
+  check(await p.locator("dialog.talk.hearing").count() === 0, "a steady hum isn't taken for talking");
+  await voice(p, true); await p.waitForTimeout(600);
+  check(await p.locator("dialog.talk.hearing").count() === 1, "a quiet voice over it is");
+  await voice(p, false); await p.waitForTimeout(1300);
+  check(count(await sent(p), "input_audio_buffer.commit") === 1, "and the pause after it ends the turn, hum and all");
   check(!p.errors.length, `no page errors ${p.errors.join(" | ")}`); await ctx.close(); }
 
 // 2. tap: nothing ends your turn but Done (or the pause key).
