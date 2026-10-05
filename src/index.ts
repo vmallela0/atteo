@@ -203,8 +203,10 @@ async function grepResponse(env: Env, user: string, url: URL, boardId: string | 
       context: Number(p.get("context") ?? 0),
       max: Number(p.get("max") ?? 0),
       files: flag("files"),
+      more: p.get("more") ?? undefined,
     }, boardId, who);
-    return json(out, 200, { "cache-control": "no-store" });
+    const { compact, ...response } = out;
+    return json({ ...response, ...(flag("compact") ? { text: compact } : {}) }, 200, { "cache-control": "no-store" });
   } catch (e) {
     return json({ error: e instanceof Error ? e.message : String(e) }, 400);
   }
@@ -2885,13 +2887,14 @@ const handler = {
           const agent = url.searchParams.get("agent"); // "1": that member's agent, "0": the person, absent: either
           const type = url.searchParams.get("type") || undefined;
           const scope = url.searchParams.get("in") ?? "all"; // "chat" leaves files out
-          const r = q ? await stub.rankedSearch(q, { author: from ?? undefined, type, limit: 60 }, seer()) : { entries: (await stub.search("", { author: from ?? undefined, type, limit: 60 }, seer())).map((entry) => ({ entry, snippet: "" })), files: [] };
+          const r = q ? await stub.rankedSearch(q, { author: from ?? undefined, type, limit: 60, more: url.searchParams.get("more") ?? undefined }, seer()) : { entries: (await stub.search("", { author: from ?? undefined, type, limit: 60 }, seer())).map((entry) => ({ entry, snippet: "" })), files: [], more: null };
           const keep = (e: Entry) => agent == null || (agent === "1" ? e.via === "agent" : e.via !== "agent");
           return json({
             entries: r.entries
               .filter((x) => keep(x.entry))
               .map((x) => ({ seq: x.entry.seq, ts: x.entry.ts, author: x.entry.author, via: x.entry.via ?? null, type: x.entry.type, title: x.entry.title ?? null, snippet: x.snippet || x.entry.text.slice(0, 200) })),
             files: scope === "chat" || from || type ? [] : r.files,
+            more: r.more,
           }, 200, { "cache-control": "no-store" });
         }
         // grep for agents: exact matching lines, one per hit (grep.ts). Members only (canSee above).

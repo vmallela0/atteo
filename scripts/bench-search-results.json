@@ -1,0 +1,289 @@
+{
+  "method": "Local wrangler on 8805; 5,000 API-seeded entries across 10 boards and 3 authors; warmups then interleaved cases; time to complete decoded JSON body; decoded UTF-8 body bytes and agent text bytes. Initial measurement preceded implementation. Final pair temporarily loaded the original tracked implementation, then restored the final search changes on the same seeded state. No integration traffic during the final pair.",
+  "initial_before": {
+    "base": "http://localhost:8805",
+    "entries": 5000,
+    "boards": 10,
+    "samples": 40,
+    "warmups": 3,
+    "results": [
+      {
+        "name": "literal word",
+        "p50_ms": 2.48,
+        "p95_ms": 3.43,
+        "bytes": 6841,
+        "agent_bytes": 2767,
+        "hits": 20
+      },
+      {
+        "name": "phrase",
+        "p50_ms": 2.56,
+        "p95_ms": 3.89,
+        "bytes": 7441,
+        "agent_bytes": 3067,
+        "hits": 20
+      },
+      {
+        "name": "short regex",
+        "p50_ms": 2.52,
+        "p95_ms": 3.25,
+        "bytes": 7521,
+        "agent_bytes": 3107,
+        "hits": 20
+      },
+      {
+        "name": "no-literal regex",
+        "p50_ms": 2.74,
+        "p95_ms": 3.71,
+        "bytes": 5858,
+        "agent_bytes": 2275,
+        "hits": 20
+      },
+      {
+        "name": "cross-board",
+        "p50_ms": 3.86,
+        "p95_ms": 4.98,
+        "bytes": 6879,
+        "agent_bytes": 2782,
+        "hits": 20
+      },
+      {
+        "name": "cross-board no hits",
+        "p50_ms": 3.53,
+        "p95_ms": 5.25,
+        "bytes": 95,
+        "agent_bytes": 19,
+        "hits": 0
+      },
+      {
+        "name": "no-literal no hits",
+        "p50_ms": 2.83,
+        "p95_ms": 3.73,
+        "bytes": 196,
+        "agent_bytes": 74,
+        "hits": 0
+      },
+      {
+        "name": "MCP search word",
+        "p50_ms": 3.3,
+        "p95_ms": 4.28,
+        "bytes": 7622,
+        "agent_bytes": 7466
+      },
+      {
+        "name": "MCP search phrase",
+        "p50_ms": 3.72,
+        "p95_ms": 4.78,
+        "bytes": 7192,
+        "agent_bytes": 7036
+      },
+      {
+        "name": "MCP compact grep",
+        "p50_ms": 3.22,
+        "p95_ms": 4.34,
+        "bytes": 3017,
+        "agent_bytes": 2921
+      }
+    ]
+  },
+  "before": {
+    "base": "http://localhost:8805",
+    "entries": 5000,
+    "boards": 10,
+    "samples": 80,
+    "warmups": 3,
+    "results": [
+      {
+        "name": "health control",
+        "p50_ms": 1.25,
+        "p95_ms": 2.82,
+        "bytes": 60,
+        "agent_bytes": 0
+      },
+      {
+        "name": "literal word",
+        "p50_ms": 3.1,
+        "p95_ms": 6.28,
+        "bytes": 6841,
+        "agent_bytes": 2767,
+        "hits": 20
+      },
+      {
+        "name": "phrase",
+        "p50_ms": 3.08,
+        "p95_ms": 6.84,
+        "bytes": 7441,
+        "agent_bytes": 3067,
+        "hits": 20
+      },
+      {
+        "name": "short regex",
+        "p50_ms": 2.96,
+        "p95_ms": 7.38,
+        "bytes": 7521,
+        "agent_bytes": 3107,
+        "hits": 20
+      },
+      {
+        "name": "no-literal regex",
+        "p50_ms": 3.36,
+        "p95_ms": 7.75,
+        "bytes": 5858,
+        "agent_bytes": 2275,
+        "hits": 20
+      },
+      {
+        "name": "cross-board",
+        "p50_ms": 4.92,
+        "p95_ms": 7.7,
+        "bytes": 6879,
+        "agent_bytes": 2782,
+        "hits": 20
+      },
+      {
+        "name": "cross-board no hits",
+        "p50_ms": 4.09,
+        "p95_ms": 9.82,
+        "bytes": 95,
+        "agent_bytes": 19,
+        "hits": 0
+      },
+      {
+        "name": "no-literal no hits",
+        "p50_ms": 3.48,
+        "p95_ms": 7.03,
+        "bytes": 196,
+        "agent_bytes": 74,
+        "hits": 0
+      },
+      {
+        "name": "MCP search word",
+        "p50_ms": 4.1,
+        "p95_ms": 6.82,
+        "bytes": 7623,
+        "agent_bytes": 7466
+      },
+      {
+        "name": "MCP search phrase",
+        "p50_ms": 4.41,
+        "p95_ms": 7.99,
+        "bytes": 7193,
+        "agent_bytes": 7036
+      },
+      {
+        "name": "MCP compact grep",
+        "p50_ms": 3.88,
+        "p95_ms": 7.15,
+        "bytes": 3018,
+        "agent_bytes": 2921
+      },
+      {
+        "name": "MCP cross-board",
+        "p50_ms": 4.95,
+        "p95_ms": 9.8,
+        "bytes": 3033,
+        "agent_bytes": 2936
+      }
+    ]
+  },
+  "after": {
+    "base": "http://localhost:8805",
+    "entries": 5000,
+    "boards": 10,
+    "samples": 80,
+    "warmups": 3,
+    "results": [
+      {
+        "name": "health control",
+        "p50_ms": 1.6,
+        "p95_ms": 2.9,
+        "bytes": 60,
+        "agent_bytes": 0
+      },
+      {
+        "name": "literal word",
+        "p50_ms": 3.07,
+        "p95_ms": 4.78,
+        "bytes": 7531,
+        "agent_bytes": 2830,
+        "hits": 20
+      },
+      {
+        "name": "phrase",
+        "p50_ms": 2.98,
+        "p95_ms": 4.66,
+        "bytes": 8135,
+        "agent_bytes": 3132,
+        "hits": 20
+      },
+      {
+        "name": "short regex",
+        "p50_ms": 2.92,
+        "p95_ms": 7.13,
+        "bytes": 8215,
+        "agent_bytes": 3172,
+        "hits": 20
+      },
+      {
+        "name": "no-literal regex",
+        "p50_ms": 3.54,
+        "p95_ms": 6.05,
+        "bytes": 6572,
+        "agent_bytes": 2350,
+        "hits": 20
+      },
+      {
+        "name": "cross-board",
+        "p50_ms": 4.51,
+        "p95_ms": 8.28,
+        "bytes": 8165,
+        "agent_bytes": 3143,
+        "hits": 20
+      },
+      {
+        "name": "cross-board no hits",
+        "p50_ms": 4.54,
+        "p95_ms": 7.96,
+        "bytes": 107,
+        "agent_bytes": 19,
+        "hits": 0
+      },
+      {
+        "name": "no-literal no hits",
+        "p50_ms": 3.69,
+        "p95_ms": 6.32,
+        "bytes": 232,
+        "agent_bytes": 86,
+        "hits": 0
+      },
+      {
+        "name": "MCP search word",
+        "p50_ms": 3.57,
+        "p95_ms": 7.16,
+        "bytes": 3449,
+        "agent_bytes": 3351
+      },
+      {
+        "name": "MCP search phrase",
+        "p50_ms": 3.79,
+        "p95_ms": 6.31,
+        "bytes": 3019,
+        "agent_bytes": 2921
+      },
+      {
+        "name": "MCP compact grep",
+        "p50_ms": 3.73,
+        "p95_ms": 7.12,
+        "bytes": 3042,
+        "agent_bytes": 2944
+      },
+      {
+        "name": "MCP cross-board",
+        "p50_ms": 5.24,
+        "p95_ms": 8.14,
+        "bytes": 3695,
+        "agent_bytes": 3597
+      }
+    ]
+  }
+}

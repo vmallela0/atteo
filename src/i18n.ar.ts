@@ -958,4 +958,6 @@ export const AR: Record<string, string> = {
   "Sending…": "جارٍ الإرسال…",
   "Sending to your agent in {n}s: “{t}”": "سيُرسل إلى وكيلك خلال {n} ث: «{t}»",
   "Send what I dictate without asking": "إرسال ما أمليه دون سؤال",
+  "Waiting to land ({n})": "في انتظار الدمج ({n})",
+  "nothing landed for 30 min": "لم يُدمج شيء منذ 30 دقيقة",
 };

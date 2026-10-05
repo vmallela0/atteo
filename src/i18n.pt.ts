@@ -958,4 +958,6 @@ export const PT: Record<string, string> = {
   "Sending…": "Enviando…",
   "Sending to your agent in {n}s: “{t}”": "Enviando ao seu agente em {n} s: “{t}”",
   "Send what I dictate without asking": "Enviar o que eu dito sem perguntar",
+  "Waiting to land ({n})": "Aguardando integração ({n})",
+  "nothing landed for 30 min": "nada integrado há 30 min",
 };
