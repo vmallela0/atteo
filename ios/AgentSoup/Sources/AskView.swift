@@ -143,8 +143,8 @@ struct AskView: View {
                 .accessibilityLabel("Ask")
                 .accessibilityIdentifier("ask-send")
             }
-            .background(Theme.card, in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: Radius.card, style: .continuous).stroke(Theme.line))
+            .background(Theme.card, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous).stroke(Theme.line))
         }
     }
 
@@ -161,7 +161,7 @@ struct AskView: View {
                         Spacer(minLength: 0)
                     }
                     .padding(.horizontal, Space.l).frame(minHeight: 50)
-                    .overlay(RoundedRectangle(cornerRadius: Radius.card, style: .continuous).stroke(Theme.line))
+                    .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(Theme.line))
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(PressStyle())
@@ -180,7 +180,7 @@ struct AskView: View {
                 Label(typing ? "Talk instead" : "Type instead", systemImage: typing ? "mic" : "keyboard")
                     .font(Typo.body.weight(.medium)).foregroundStyle(Theme.text)
                     .padding(.horizontal, Space.l).frame(height: 44)
-                    .overlay(RoundedRectangle(cornerRadius: Radius.card, style: .continuous).stroke(Theme.line))
+                    .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(Theme.line))
             }
             .buttonStyle(PressStyle())
             .accessibilityIdentifier("ask-switch")

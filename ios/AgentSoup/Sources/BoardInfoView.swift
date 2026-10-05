@@ -63,7 +63,7 @@ struct BoardInfoView<Top: View, Files: View>: View {
                     BoardPicture(board: board, size: 96)
                         .overlay {
                             if pictureBusy {
-                                RoundedRectangle(cornerRadius: 0, style: .continuous).fill(.black.opacity(0.4))
+                                RoundedRectangle(cornerRadius: 96 * 0.3, style: .continuous).fill(.black.opacity(0.4))
                                 ProgressView().tint(.white)
                             }
                         }
@@ -298,7 +298,7 @@ private struct PictureControl: View {
         }
         .font(Typo.meta.weight(.semibold)).foregroundStyle(color)
         .padding(.horizontal, Space.m).frame(minHeight: 32)
-        .background(Theme.card, in: Rectangle())
+        .background(Theme.card, in: Capsule())
         .contentShape(Capsule())
     }
 }

@@ -445,7 +445,7 @@ private struct CodeBoxes: View {
                 Text(String(chars[i])).font(Typo.onest(26, .semibold, .title2)).foregroundStyle(Theme.text)
                     .transition(.scale(scale: 0.6).combined(with: .opacity))
             } else if current {
-                RoundedRectangle(cornerRadius: Radius.card).fill(Theme.text).frame(width: 2, height: 24).opacity(blink ? 1 : 0.1)
+                RoundedRectangle(cornerRadius: 1).fill(Theme.text).frame(width: 2, height: 24).opacity(blink ? 1 : 0.1)
             }
         }
         .frame(maxWidth: .infinity)

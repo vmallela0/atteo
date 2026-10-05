@@ -104,7 +104,7 @@ struct AgentToPicker: View {
             }
             .font(Typo.micro.weight(.medium))
             .padding(.horizontal, Space.s).frame(minHeight: 28)
-            .background(Theme.card, in: Rectangle())
+            .background(Theme.card, in: Capsule())
             .contentShape(Capsule())
         }
         .menuOrder(.fixed)

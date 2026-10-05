@@ -1,8 +1,8 @@
 // The look (design language v1, board #2508): ink on paper, bone and stone for surfaces and rules, graphite for
 // what's secondary, and one cherry used once per screen: you, the primary action, what needs you (cherry-bright on
 // dark). Type is Onest for the interface, Enriqueta for headlines and Courier Prime for the agent layer (ids,
-// payloads); corners are square and rules are 2px ink. Every color has a dark and a light variant and follows the
-// appearance (Settings → Display → Theme).
+// payloads). Only colours, fonts and the logo changed (jxn #2584): shapes, spacing and layout are as before. Every
+// color has a dark and a light variant and follows the appearance (Settings → Display → Theme).
 
 import SwiftUI
 
@@ -35,8 +35,6 @@ enum Theme {
     static let raised = Color(light: rgb(0xECE8DF), dark: rgb(0x1F1E1C)) // --bg-hover: your messages, pressed states
     static let line = Color(light: rgb(0xE4E1D9), dark: rgb(0x2A2926)) // --line
     static let lineStrong = Color(light: Palette.stone, dark: rgb(0x3A3935)) // --line-strong
-    /// Rules: 2px ink (the spec's "2px ink rules"), for the few places that separate sections.
-    static let rule = Color(light: Palette.ink, dark: Palette.paper) // --ink
     static let text = Color(light: rgb(0x161614), dark: rgb(0xEDEBE5)) // --text
     static let muted = Color(light: Palette.graphite, dark: rgb(0xAFADA6)) // --muted (6.8:1 on paper)
     static let faint = Color(light: rgb(0x6B6964), dark: rgb(0x8E8C85)) // --faint (5.0:1 on paper)
@@ -150,11 +148,11 @@ extension Color {
     }
 }
 
-/// Square corners on UI (the spec's 0 radius). The roles stay so a later radius is one change.
+/// Three radii: small surfaces (cards, tiles), controls (buttons, fields), bubbles.
 enum Radius {
-    static let card: CGFloat = 0
-    static let control: CGFloat = 0
-    static let bubble: CGFloat = 0
+    static let card: CGFloat = 12
+    static let control: CGFloat = 14
+    static let bubble: CGFloat = 18
 }
 
 /// The design language's type: Onest for the interface (body 17, UI 15, caption 13), Enriqueta for headlines, Courier
@@ -256,11 +254,6 @@ struct AtteoLockup: View {
     }
 }
 
-/// A rule: 2px ink across (the spec's rules between sections).
-struct InkRule: View {
-    var body: some View { Rectangle().fill(Theme.rule).frame(height: 2).accessibilityHidden(true) }
-}
-
 /// Working right now: a small green dot that breathes (still, with Reduce Motion).
 struct LiveDot: View {
     var size: CGFloat = 7
@@ -284,15 +277,15 @@ final class AvatarCache: ObservableObject {
     func version(_ name: String, agent: Bool) -> Int { versions["\(name):\(agent)"] ?? 0 }
 }
 
-/// A person (round) or an agent (square), their initial on a calm tint picked from the name exactly as the web does
-/// (look-1's .av). Their picture if they set one. (jxn #2525: no vessels in avatars.)
+/// A person (round) or an agent (rounded square, with a small spark), their initial on a calm tint picked from the
+/// name exactly as the web does (look-1's .av). Their picture if they set one. (Colour only: jxn #2525, #2584.)
 struct Avatar: View {
     let name: String
     var agent = false
     var size: CGFloat = 32
     @ObservedObject private var cache = AvatarCache.shared
 
-    private var shape: RoundedRectangle { RoundedRectangle(cornerRadius: agent ? 0 : size / 2, style: .continuous) }
+    private var shape: RoundedRectangle { RoundedRectangle(cornerRadius: agent ? size * 0.3 : size / 2, style: .continuous) }
 
     var body: some View {
         ZStack {
@@ -319,13 +312,13 @@ struct Avatar: View {
     }
 }
 
-/// A board's tile in Chats: a square with its initial (a board is a place, a person is a circle), tinted like avatars.
+/// A board's tile in Chats: a rounded square with its initial (a board is a place, a person is a circle).
 struct BoardTile: View {
     let title: String
     var size: CGFloat = 40
     var body: some View {
         let initial = title.first(where: { $0.isLetter || $0.isNumber }).map { String($0).uppercased() } ?? "#"
-        Rectangle()
+        RoundedRectangle(cornerRadius: size * 0.3, style: .continuous)
             .fill(Theme.avatarFill(title))
             .frame(width: size, height: size)
             .overlay(Text(initial).font(.custom("Onest-SemiBold", size: size * 0.4)).foregroundStyle(Theme.avatarInk(title)))
@@ -341,7 +334,7 @@ struct Pill: View {
     @_disfavoredOverload init<S: StringProtocol>(text: S, color: Color = Theme.muted) { self.text = Text(text); self.color = color }
     var body: some View {
         text.font(Typo.onest(12, .semibold, .caption)).padding(.horizontal, Space.s).padding(.vertical, 3)
-            .background(color.opacity(0.14), in: Rectangle()).foregroundStyle(color)
+            .background(color.opacity(0.14), in: Capsule()).foregroundStyle(color)
     }
 }
 
@@ -354,13 +347,13 @@ struct SectionHeader: View {
     var body: some View { title.font(Typo.section).foregroundStyle(Theme.muted).textCase(nil) }
 }
 
-/// An unread count: a small ink square (the accent), paper on it.
+/// An unread count: a small ink capsule (the accent), on-ink on it.
 struct CountBadge: View {
     let n: Int
     var body: some View {
         Text("\(n)").font(Typo.onest(11, .semibold, .caption2)).monospacedDigit()
             .padding(.horizontal, 6).frame(minWidth: 18, minHeight: 18)
-            .background(Theme.accent, in: Rectangle()).foregroundStyle(Theme.onAccent)
+            .background(Theme.accent, in: Capsule()).foregroundStyle(Theme.onAccent)
     }
 }
 

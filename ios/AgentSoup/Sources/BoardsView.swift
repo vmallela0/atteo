@@ -312,7 +312,7 @@ struct BoardView: View {
                             }
                             .foregroundStyle(Theme.text)
                             .padding(.horizontal, Space.m).frame(height: 32)
-                            .background(Theme.raised, in: Rectangle())
+                            .background(Theme.raised, in: Capsule())
                             .shadow(color: .black.opacity(0.35), radius: 8, y: 2)
                             .frame(minHeight: 44).contentShape(Capsule())
                         }
@@ -906,7 +906,7 @@ struct EntryRow: View {
             let line = parent.map { ThreadPreview.line($0).plainRefs(refTitle.callAsFunction) } ?? ""
             Button { actions.jumpToParent?() } label: {
                 HStack(spacing: 0) {
-                    RoundedRectangle(cornerRadius: Radius.card, style: .continuous).fill(Theme.faint.opacity(0.7)).frame(width: 3)
+                    RoundedRectangle(cornerRadius: 1.5, style: .continuous).fill(Theme.faint.opacity(0.7)).frame(width: 3)
                     HStack(alignment: .firstTextBaseline, spacing: 5) {
                         Image(systemName: "arrow.turn.up.left").font(.system(size: 9, weight: .bold)).foregroundStyle(Theme.faint)
                         ((name.map { Text(verbatim: $0) } ?? Text("An earlier message")).fontWeight(.semibold).foregroundColor(Theme.text.opacity(0.9)) + Text(verbatim: name == nil ? "" : ": " + line))
@@ -1079,7 +1079,7 @@ struct EntryRow: View {
         }
         // It names you (the web's .for-you): a soft tint, drawn inside the row so no edge cuts it (jxn #1311).
         .padding(.horizontal, forYou ? Space.s : 0).padding(.vertical, forYou ? Space.xs + 2 : 0)
-        .background(forYou ? Theme.warn.opacity(0.09) : .clear, in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
+        .background(forYou ? Theme.warn.opacity(0.09) : .clear, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
         .padding(.top, gapAbove(Space.s + 2))
     }
 }
@@ -1152,9 +1152,9 @@ struct PlaceholderMessage: View {
         HStack(alignment: .top, spacing: 10) {
             Circle().fill(Theme.card).frame(width: 28, height: 28)
             VStack(alignment: .leading, spacing: 6) {
-                RoundedRectangle(cornerRadius: Radius.card).fill(Theme.card).frame(width: 110, height: 11)
-                RoundedRectangle(cornerRadius: Radius.card).fill(Theme.card).frame(maxWidth: .infinity).frame(height: 11)
-                RoundedRectangle(cornerRadius: Radius.card).fill(Theme.card).frame(width: 180, height: 11)
+                RoundedRectangle(cornerRadius: 4).fill(Theme.card).frame(width: 110, height: 11)
+                RoundedRectangle(cornerRadius: 4).fill(Theme.card).frame(maxWidth: .infinity).frame(height: 11)
+                RoundedRectangle(cornerRadius: 4).fill(Theme.card).frame(width: 180, height: 11)
             }
         }
         .padding(.top, Space.l)

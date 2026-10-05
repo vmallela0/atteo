@@ -116,7 +116,7 @@ struct SpeakerToggle: View {
                         .font(Typo.meta.weight(.medium))
                         .foregroundStyle(out.loudspeaker ? Theme.accent : Theme.text)
                         .padding(.horizontal, Space.m).frame(height: 36)
-                        .background(Theme.raised, in: Rectangle())
+                        .background(Theme.raised, in: Capsule())
                 }
             }
             .buttonStyle(.plain)

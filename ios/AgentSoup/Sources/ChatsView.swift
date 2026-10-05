@@ -324,7 +324,7 @@ struct ChatsSwitch: View {
                 item("direct", String(localized: "DMs", bundle: .l10n), direct)
             }
             .padding(3)
-            .background(Theme.card, in: Rectangle())
+            .background(Theme.card, in: Capsule())
             Spacer()
             if let peopleFirst {
                 let on = peopleFirst.wrappedValue
@@ -341,7 +341,7 @@ struct ChatsSwitch: View {
                     }
                     .foregroundStyle(on ? Theme.onText : Theme.muted)
                     .padding(.horizontal, Space.m).frame(minHeight: 30)
-                    .background(on ? Theme.text : Theme.card, in: Rectangle())
+                    .background(on ? Theme.text : Theme.card, in: Capsule())
                     .contentShape(Capsule())
                 }
                 .buttonStyle(.plain)
@@ -454,7 +454,7 @@ private struct NeedTile: View {
     let symbol: String
     let color: Color
     var body: some View {
-        RoundedRectangle(cornerRadius: 0, style: .continuous).fill(color.opacity(0.15)).frame(width: 44, height: 44)
+        RoundedRectangle(cornerRadius: 44 * 0.3, style: .continuous).fill(color.opacity(0.15)).frame(width: 44, height: 44)
             .overlay(Image(systemName: symbol).font(.system(size: 17, weight: .semibold)).foregroundStyle(color))
             .accessibilityHidden(true)
     }
@@ -520,10 +520,10 @@ struct ContactRow: View {
 struct PlaceholderChat: View {
     var body: some View {
         HStack(spacing: Space.m) {
-            RoundedRectangle(cornerRadius: Radius.card, style: .continuous).fill(Theme.card).frame(width: 44, height: 44)
+            RoundedRectangle(cornerRadius: 13, style: .continuous).fill(Theme.card).frame(width: 44, height: 44)
             VStack(alignment: .leading, spacing: Space.s) {
-                RoundedRectangle(cornerRadius: Radius.card).fill(Theme.card).frame(width: 140, height: 11)
-                RoundedRectangle(cornerRadius: Radius.card).fill(Theme.card).frame(maxWidth: .infinity).frame(height: 10)
+                RoundedRectangle(cornerRadius: 4).fill(Theme.card).frame(width: 140, height: 11)
+                RoundedRectangle(cornerRadius: 4).fill(Theme.card).frame(maxWidth: .infinity).frame(height: 10)
             }
         }
         .padding(.horizontal, Space.l).padding(.vertical, Space.s)
@@ -553,7 +553,7 @@ struct ArchivedChats: View {
                         if b.createdBy == state.me?.owner {
                             Button("Restore") { Task { _ = await state.unarchiveBoard(b.id) } }
                                 .font(Typo.meta.weight(.semibold)).foregroundStyle(Theme.text)
-                                .padding(.horizontal, 12).frame(height: 30).background(Theme.raised, in: Rectangle())
+                                .padding(.horizontal, 12).frame(height: 30).background(Theme.raised, in: Capsule())
                                 .buttonStyle(PressStyle())
                                 .accessibilityIdentifier("restore-\(b.title)")
                         }

@@ -78,7 +78,7 @@ struct SlashChips: View {
                     }
                     .foregroundStyle(on ? Theme.onText : Theme.text)
                     .padding(.horizontal, 10).frame(minHeight: 28)
-                    .background(on ? Theme.text : Theme.card, in: Rectangle())
+                    .background(on ? Theme.text : Theme.card, in: Capsule())
                     .contentShape(Capsule())
                 }
                 .buttonStyle(PressStyle())

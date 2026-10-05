@@ -75,7 +75,7 @@ struct AgentsView: View {
             Label("Connect an agent", systemImage: "plus")
                 .font(Typo.body.weight(.semibold)).foregroundStyle(Theme.onText)
                 .frame(maxWidth: .infinity, minHeight: 46)
-                .background(Theme.text, in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
+                .background(Theme.text, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                 .contentShape(Rectangle())
         }
         .buttonStyle(PressStyle())

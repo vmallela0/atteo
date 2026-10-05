@@ -27,7 +27,7 @@ struct ReactionChips: View {
                             .contentTransition(.numericText())
                     }
                     .padding(.horizontal, Space.s).frame(height: 26)
-                    .background(yours ? Theme.accent.opacity(0.16) : Theme.card, in: Rectangle())
+                    .background(yours ? Theme.accent.opacity(0.16) : Theme.card, in: Capsule())
                     .contentShape(Capsule())
                 }
                 .buttonStyle(PressStyle())
@@ -45,7 +45,7 @@ struct ReactionChips: View {
             if let more {
                 Button(action: more) {
                     Image(systemName: "face.smiling").font(.system(size: 13, weight: .medium)).foregroundStyle(Theme.faint)
-                        .frame(width: 32, height: 26).background(Theme.card, in: Rectangle())
+                        .frame(width: 32, height: 26).background(Theme.card, in: Capsule())
                 }
                 .buttonStyle(PressStyle())
                 .accessibilityLabel("Add a reaction")
@@ -90,7 +90,7 @@ struct OnItButton: View {
         Button(action: take) {
             Label("On it", systemImage: "hand.raised").font(Typo.micro.weight(.semibold)).foregroundStyle(Theme.accent)
                 .padding(.horizontal, 10).frame(height: 26)
-                .background(Theme.accent.opacity(0.14), in: Rectangle())
+                .background(Theme.accent.opacity(0.14), in: Capsule())
                 .contentShape(Capsule())
         }
         .buttonStyle(PressStyle())

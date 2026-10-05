@@ -38,7 +38,7 @@ struct TalkButton: View {
                         Label("Voice chat", systemImage: "waveform")
                             .font(Typo.body.weight(.medium)).foregroundStyle(Theme.text)
                             .padding(.horizontal, Space.l).frame(height: 44)
-                            .overlay(RoundedRectangle(cornerRadius: Radius.card, style: .continuous).stroke(Theme.line))
+                            .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(Theme.line))
                     }
                 }
                 .buttonStyle(PressStyle())
@@ -208,9 +208,9 @@ struct TalkSheet: View {
             Text(c.confirmed ? "Heard yes. Atteo will do it now." : "Nothing happens until you say “yes” or tap Yes.")
                 .font(Typo.meta).foregroundStyle(Theme.muted)
             HStack(spacing: Space.s) {
-                Button { talk.answerConfirm(false) } label: { Text("No").frame(maxWidth: .infinity).padding(.vertical, 10).background(Theme.raised, in: Rectangle()) }
+                Button { talk.answerConfirm(false) } label: { Text("No").frame(maxWidth: .infinity).padding(.vertical, 10).background(Theme.raised, in: Capsule()) }
                     .accessibilityIdentifier("talk-confirm-no")
-                Button { talk.answerConfirm(true) } label: { yesWord(c).frame(maxWidth: .infinity).padding(.vertical, 10).background(Theme.cherryFill, in: Rectangle()).foregroundStyle(Theme.onCherryFill) }
+                Button { talk.answerConfirm(true) } label: { yesWord(c).frame(maxWidth: .infinity).padding(.vertical, 10).background(Theme.cherryFill, in: Capsule()).foregroundStyle(Theme.onCherryFill) }
                     .accessibilityIdentifier("talk-confirm-yes")
             }
             .buttonStyle(PressStyle()).font(Typo.ui(.body).weight(.semibold)).foregroundStyle(Theme.text)
@@ -266,7 +266,7 @@ struct TalkSheet: View {
                 .accessibilityIdentifier("talk-state")
             if talk.phase == .ended {
                 Button { dismiss() } label: {
-                    Text("Done").font(Typo.ui(.headline)).frame(width: 200, height: 52).background(Theme.raised, in: Rectangle()).foregroundStyle(Theme.text)
+                    Text("Done").font(Typo.ui(.headline)).frame(width: 200, height: 52).background(Theme.raised, in: Capsule()).foregroundStyle(Theme.text)
                 }
                 .buttonStyle(PressStyle())
                 .accessibilityIdentifier("talk-done")

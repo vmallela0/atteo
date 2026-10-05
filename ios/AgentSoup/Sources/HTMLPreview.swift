@@ -82,7 +82,7 @@ struct PreviewButton: View {
                 .labelStyle(.titleAndIcon)
                 .font(Typo.micro.weight(.semibold)).foregroundStyle(Theme.text)
                 .padding(.horizontal, 10).frame(height: 28)
-                .background(Theme.raised, in: Rectangle())
+                .background(Theme.raised, in: Capsule())
                 .contentShape(Capsule())
         }
         .buttonStyle(PressStyle())
@@ -154,7 +154,7 @@ struct HTMLPreviewSheet: View {
                 width(String(localized: "preview.width.phone", defaultValue: "Phone", bundle: .l10n), on: phone, id: "preview-width-phone") { phone = true }
             }
             .padding(2)
-            .background(Theme.raised, in: Rectangle())
+            .background(Theme.raised, in: Capsule())
             .accessibilityElement(children: .contain)
             .accessibilityLabel(Text("Width"))
             Button { dismiss() } label: {
@@ -173,7 +173,7 @@ struct HTMLPreviewSheet: View {
         Button(action: pick) {
             Text(verbatim: title).font(Typo.micro.weight(.semibold)).foregroundStyle(on ? Theme.text : Theme.muted)
                 .padding(.horizontal, 12).frame(height: 26)
-                .background(on ? Theme.card : .clear, in: Rectangle())
+                .background(on ? Theme.card : .clear, in: Capsule())
                 .contentShape(Capsule())
         }
         .buttonStyle(.plain)

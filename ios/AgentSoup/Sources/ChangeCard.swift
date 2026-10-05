@@ -143,7 +143,7 @@ struct ChangeCardView: View {
             if let chip = v.chip {
                 Text(chip).font(Typo.mono(.caption).weight(.medium)).foregroundStyle(Theme.muted).lineLimit(1).truncationMode(.middle)
                     .padding(.horizontal, 6).padding(.vertical, 2)
-                    .background(Theme.raised, in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
+                    .background(Theme.raised, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
                     .layoutPriority(-1)
             }
             Spacer(minLength: 0)
@@ -215,7 +215,7 @@ struct ChangeCardView: View {
         let d = lit - a
         return HStack(spacing: 1.5) {
             ForEach(0..<5, id: \.self) { i in
-                RoundedRectangle(cornerRadius: Radius.card).fill(i < a ? Self.added : i < a + d ? Self.removed : Theme.raised).frame(width: 6, height: 6)
+                RoundedRectangle(cornerRadius: 1.5).fill(i < a ? Self.added : i < a + d ? Self.removed : Theme.raised).frame(width: 6, height: 6)
             }
         }
         .accessibilityHidden(true)
@@ -255,7 +255,7 @@ struct ChangeCardView: View {
                         }
                         .padding(.vertical, Space.xs)
                     }
-                    .background(Theme.bg.opacity(0.6), in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
+                    .background(Theme.bg.opacity(0.6), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
                     .accessibilityIdentifier("change-diff")
                     if lines.count > 40 { more(allLines ? "Show less" : "Show all \(lines.count) lines") { allLines.toggle() } }
                 } else if showDiff && !loading {

@@ -78,7 +78,7 @@ struct InviteAgentSheet: View {
     private func choice(_ title: String, _ line: String, icon: String) -> some View {
         HStack(spacing: Space.m) {
             Image(systemName: icon).font(.system(size: 17, weight: .medium)).foregroundStyle(Theme.text)
-                .frame(width: 40, height: 40).background(Theme.raised, in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
+                .frame(width: 40, height: 40).background(Theme.raised, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 2) {
                 Text(verbatim: title).font(Typo.body.weight(.semibold)).foregroundStyle(Theme.text)
@@ -110,13 +110,13 @@ struct OwnAssistantInvite: View {
                         Label(copied ? LocalizedStringKey("Copied") : LocalizedStringKey("Copy"), systemImage: copied ? "checkmark" : "doc.on.doc")
                             .font(Typo.body.weight(.semibold)).foregroundStyle(Theme.onText)
                             .frame(maxWidth: .infinity, minHeight: 44)
-                            .background(Theme.text, in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
+                            .background(Theme.text, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                     }
                     .buttonStyle(PressStyle())
                     .accessibilityIdentifier("invite-agent-copy")
                 }
                 .padding(Space.m)
-                .background(Theme.card, in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
+                .background(Theme.card, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
                 if copied {
                     Text("Copied. Now paste it.").font(Typo.meta).foregroundStyle(Theme.ok)
                         .accessibilityIdentifier("invite-agent-copied")
@@ -129,7 +129,7 @@ struct OwnAssistantInvite: View {
                         tile(p)
                     }
                 }
-                .overlay(RoundedRectangle(cornerRadius: Radius.card, style: .continuous).stroke(Theme.line))
+                .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(Theme.line))
 
                 Button { connecting = true } label: {
                     (Text("Not connected yet?").foregroundStyle(Theme.muted) + Text(verbatim: " ") + Text("Connect your assistant").foregroundStyle(Theme.accent))
@@ -164,7 +164,7 @@ struct OwnAssistantInvite: View {
                 Button { copy(); AppOpener.open(chat) } label: {
                     Text("Open").font(Typo.secondary.weight(.medium)).foregroundStyle(Theme.text)
                         .padding(.horizontal, Space.m).frame(minHeight: 36)
-                        .overlay(RoundedRectangle(cornerRadius: Radius.card, style: .continuous).stroke(Theme.line))
+                        .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous).stroke(Theme.line))
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(PressStyle())
@@ -267,7 +267,7 @@ struct EmptyChatInvite: View {
     var body: some View {
         VStack(spacing: Space.s) {
             Image(systemName: "bubble.left.and.bubble.right").font(.system(size: 22, weight: .medium)).foregroundStyle(Theme.faint)
-                .frame(width: 48, height: 48).background(Theme.card, in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
+                .frame(width: 48, height: 48).background(Theme.card, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
                 .padding(.bottom, Space.xs)
                 .accessibilityHidden(true)
             Text("Nothing here yet").font(Typo.rowTitle).foregroundStyle(Theme.text)
@@ -281,7 +281,7 @@ struct EmptyChatInvite: View {
                     Label(InviteAgentWords.title, systemImage: "person.badge.plus")
                         .font(Typo.secondary.weight(.semibold)).foregroundStyle(Theme.onText)
                         .padding(.horizontal, Space.l).frame(minHeight: 40)
-                        .background(Theme.text, in: Rectangle())
+                        .background(Theme.text, in: Capsule())
                 }
                 .buttonStyle(PressStyle())
                 .padding(.top, Space.s)

@@ -105,8 +105,8 @@ struct ProviderMark: View {
     let provider: AssistantProvider
     var body: some View {
         Text(provider.letter).font(.system(size: 17, weight: .semibold)).foregroundStyle(Theme.text)
-            .frame(width: 40, height: 40).background(Theme.card, in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: Radius.card, style: .continuous).stroke(Theme.line))
+            .frame(width: 40, height: 40).background(Theme.card, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(Theme.line))
     }
 }
 
@@ -140,7 +140,7 @@ struct BringAssistantView: View {
                             tile(p)
                         }
                     }
-                    .overlay(RoundedRectangle(cornerRadius: Radius.card, style: .continuous).stroke(Theme.line))
+                    .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(Theme.line))
                     HStack(spacing: Space.m) {
                         Rectangle().fill(Theme.line).frame(height: 0.5)
                         Text("or").font(Typo.secondary).foregroundStyle(Theme.faint)
@@ -189,7 +189,7 @@ struct BringAssistantView: View {
             Button { connecting = p } label: {
                 Text("Connect").font(Typo.secondary.weight(.medium)).foregroundStyle(Theme.text)
                     .padding(.horizontal, Space.m).frame(minHeight: 36)
-                    .overlay(RoundedRectangle(cornerRadius: Radius.card, style: .continuous).stroke(Theme.line))
+                    .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous).stroke(Theme.line))
                     .contentShape(Rectangle())
             }
             .buttonStyle(PressStyle())
@@ -209,14 +209,14 @@ struct BringAssistantView: View {
             Button { atteoSoon = true } label: {
                 Text("Start").font(Typo.secondary.weight(.semibold)).foregroundStyle(Theme.onText)
                     .padding(.horizontal, Space.l).frame(minHeight: 36)
-                    .background(Theme.text, in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
+                    .background(Theme.text, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
             }
             .buttonStyle(PressStyle())
             .accessibilityIdentifier("atteo-assistant")
         }
         .padding(Space.m)
-        .background(Theme.accent.opacity(0.07), in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: Radius.card, style: .continuous).stroke(Theme.accent.opacity(0.45)))
+        .background(Theme.accent.opacity(0.07), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(Theme.accent.opacity(0.45)))
     }
 }
 
@@ -294,7 +294,7 @@ struct ConnectSteps: View {
             Label(title, systemImage: "arrow.up.right.square")
                 .font(Typo.body.weight(.semibold)).foregroundStyle(Theme.onText)
                 .frame(maxWidth: .infinity, minHeight: 48)
-                .background(Theme.text, in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
+                .background(Theme.text, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
         }
         .buttonStyle(PressStyle())
         .accessibilityIdentifier("connect-open")
@@ -316,7 +316,7 @@ struct ConnectSteps: View {
                 .accessibilityLabel("Copy")
         }
         .padding(Space.m)
-        .background(Theme.card, in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
+        .background(Theme.card, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
     }
 
     private func copy(_ t: String) {

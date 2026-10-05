@@ -191,7 +191,7 @@ struct ThreadPreview: View {
                 Image(systemName: "chevron.right").font(.system(size: 9, weight: .bold)).foregroundStyle(Theme.faint)
             }
             .padding(.leading, 4).padding(.trailing, 10).padding(.vertical, 5)
-            .background(Theme.card, in: Rectangle())
+            .background(Theme.card, in: Capsule())
             .contentShape(Capsule())
         }
         .buttonStyle(PressStyle())

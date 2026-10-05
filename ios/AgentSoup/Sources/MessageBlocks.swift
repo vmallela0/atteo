@@ -216,7 +216,7 @@ struct ChartBlock: View {
             }
         }
         .padding(Space.m)
-        .background(Theme.card, in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
+        .background(Theme.card, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("chart")
         .accessibilityLabel(spec.title ?? String(localized: "Chart", bundle: .l10n))
@@ -273,7 +273,7 @@ struct ChartBlock: View {
             VStack(alignment: .leading, spacing: 4) {
                 ForEach(Array(labels.enumerated()), id: \.offset) { i, l in
                     HStack(spacing: 6) {
-                        RoundedRectangle(cornerRadius: Radius.card).fill(ChartPalette.colors[i % ChartPalette.colors.count]).frame(width: 10, height: 10)
+                        RoundedRectangle(cornerRadius: 3).fill(ChartPalette.colors[i % ChartPalette.colors.count]).frame(width: 10, height: 10)
                         Text(l).font(Typo.micro).foregroundStyle(Theme.text).lineLimit(1)
                         Text("\(Int((values[i] / total * 100).rounded()))%").font(Typo.micro).foregroundStyle(Theme.muted).monospacedDigit()
                     }
@@ -319,8 +319,8 @@ struct StatusCard: View {
         }
         .padding(Space.m)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Theme.card, in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
-        .overlay { RoundedRectangle(cornerRadius: Radius.card, style: .continuous).stroke(Theme.line, lineWidth: 0.5) }
+        .background(Theme.card, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .overlay { RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(Theme.line, lineWidth: 0.5) }
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier("status-card")
     }

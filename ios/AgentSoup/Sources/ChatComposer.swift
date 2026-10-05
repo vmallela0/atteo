@@ -181,7 +181,7 @@ struct ChatComposer: View {
                 }
                 .animation(.spring(duration: 0.25, bounce: 0.25), value: showsMic)
             }
-            .background(Theme.card, in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
+            .background(Theme.card, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
             .padding(.horizontal, Space.m)
         }
         .padding(.top, Space.m).padding(.bottom, Space.s) // a little air between the last message and the box
@@ -383,7 +383,7 @@ struct ChatComposer: View {
             Text(privacyName(p)).font(Typo.micro.weight(.semibold))
                 .foregroundStyle(on ? (p == .own ? Color.black : Theme.onText) : Theme.text)
                 .padding(.horizontal, 10).frame(minHeight: 28)
-                .background(on ? (p == .own ? Theme.cherry : Theme.text) : Theme.card, in: Rectangle())
+                .background(on ? (p == .own ? Theme.cherry : Theme.text) : Theme.card, in: Capsule())
                 .contentShape(Capsule())
         }
         .buttonStyle(PressStyle())

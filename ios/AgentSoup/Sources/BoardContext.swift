@@ -127,7 +127,7 @@ struct ToastOverlay: ViewModifier {
             if let t = state.toast {
                 Text(t).font(Typo.secondary.weight(.semibold)).foregroundStyle(Theme.onText)
                     .padding(.horizontal, Space.l).padding(.vertical, Space.s)
-                    .background(Theme.text, in: Rectangle())
+                    .background(Theme.text, in: Capsule())
                     .shadow(color: .black.opacity(0.25), radius: 10, y: 3)
                     .padding(.top, Space.s)
                     .transition(.move(edge: .top).combined(with: .opacity))

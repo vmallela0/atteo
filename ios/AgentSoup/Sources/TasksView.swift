@@ -389,7 +389,7 @@ struct TasksPane: View {
                         .font(Typo.meta.weight(.medium))
                         .foregroundStyle(filter == f ? Theme.bg : Theme.muted)
                         .padding(.horizontal, 11).frame(height: 28)
-                        .background(filter == f ? Theme.text : Theme.card, in: Rectangle())
+                        .background(filter == f ? Theme.text : Theme.card, in: Capsule())
                         .contentShape(Capsule())
                     }
                     .buttonStyle(PressStyle())
@@ -594,14 +594,14 @@ struct EmptyNote: View {
     var body: some View {
         VStack(spacing: Space.s) {
             Image(systemName: icon).font(.system(size: 22, weight: .medium)).foregroundStyle(Theme.faint)
-                .frame(width: 48, height: 48).background(Theme.card, in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
+                .frame(width: 48, height: 48).background(Theme.card, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
                 .padding(.bottom, Space.xs)
             title.font(Typo.rowTitle).foregroundStyle(Theme.text)
             if let line { line.font(Typo.meta).foregroundStyle(Theme.muted).multilineTextAlignment(.center) }
             if let action {
                 Button { action.1() } label: {
                     action.0.font(Typo.meta.weight(.semibold)).foregroundStyle(Theme.text)
-                        .padding(.horizontal, 14).frame(height: 30).background(Theme.raised, in: Rectangle())
+                        .padding(.horizontal, 14).frame(height: 30).background(Theme.raised, in: Capsule())
                 }
                 .buttonStyle(PressStyle())
                 .padding(.top, Space.xs)
@@ -881,7 +881,7 @@ struct TaskActionBar: View {
                 }
                 .foregroundStyle(color)
                 .padding(.horizontal, 10).frame(height: 30)
-                .background(color.opacity(0.13), in: Rectangle())
+                .background(color.opacity(0.13), in: Capsule())
                 .contentShape(Capsule())
             }
             .accessibilityIdentifier("task-status")
@@ -895,7 +895,7 @@ struct TaskActionBar: View {
                 }
             }
             .padding(.leading, 6).padding(.trailing, 10).frame(height: 30)
-            .background(Theme.card, in: Rectangle())
+            .background(Theme.card, in: Capsule())
             .accessibilityElement(children: .combine)
             .accessibilityIdentifier("task-owner")
             if task.priority == "high" {
@@ -910,7 +910,7 @@ struct TaskActionBar: View {
                 } label: {
                     (mine ? Text("Release") : Text("Claim")).font(Typo.meta.weight(.semibold))
                         .padding(.horizontal, 11).frame(height: 30)
-                        .background(mine ? Theme.raised : Theme.text, in: Rectangle())
+                        .background(mine ? Theme.raised : Theme.text, in: Capsule())
                         .foregroundStyle(mine ? Theme.text : Theme.bg)
                 }
                 .buttonStyle(PressStyle())

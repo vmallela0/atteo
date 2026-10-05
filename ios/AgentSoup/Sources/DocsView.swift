@@ -109,7 +109,7 @@ struct FileSortMenu: View {
             }
         } label: {
             Image(systemName: "arrow.up.arrow.down").font(.system(size: 13, weight: .semibold)).foregroundStyle(sort == .recent ? Theme.muted : Theme.accent)
-                .frame(width: 34, height: 34).background(Theme.card, in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
+                .frame(width: 34, height: 34).background(Theme.card, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
         }
         .accessibilityLabel("Sort")
         .accessibilityValue(sort.label)
@@ -216,7 +216,7 @@ struct FilesPane: View {
                 }
             }
             .padding(.horizontal, 10).frame(height: 34)
-            .background(Theme.card, in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
+            .background(Theme.card, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
             // In the content, not the navigation bar: the bar stays Tasks | Files … Done.
             FileSortMenu(sort: $sort)
         }
@@ -277,7 +277,7 @@ struct FileKindIcon: View {
     let kind: FileKind
     var size: CGFloat = 34
     var body: some View {
-        RoundedRectangle(cornerRadius: 0, style: .continuous).fill(kind.tint.opacity(0.14))
+        RoundedRectangle(cornerRadius: size * 0.27, style: .continuous).fill(kind.tint.opacity(0.14))
             .frame(width: size, height: size)
             .overlay(Image(systemName: kind.icon).font(.system(size: size * 0.4, weight: .semibold)).foregroundStyle(kind.tint))
     }
@@ -433,7 +433,7 @@ struct DocViewer: View {
                         .clipShape(RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
                 } else {
                     Label("Open in Quick Look", systemImage: "eye").font(Typo.meta.weight(.semibold)).foregroundStyle(Theme.text)
-                        .padding(.horizontal, 14).frame(height: 32).background(Theme.raised, in: Rectangle())
+                        .padding(.horizontal, 14).frame(height: 32).background(Theme.raised, in: Capsule())
                 }
             }
             .buttonStyle(PressStyle())
@@ -650,7 +650,7 @@ struct CodeBlock: View {
                 .accessibilityIdentifier("code-expand")
             }
         }
-        .background(Theme.card, in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
+        .background(Theme.card, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
     }
 }
 
@@ -694,7 +694,7 @@ struct TableBlock: View {
             }
             .padding(.horizontal, Space.m).padding(.vertical, 2)
         }
-        .background(Theme.card, in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
+        .background(Theme.card, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
         .overlay(alignment: .bottomTrailing) {
             if rows.count > shown.count { Text("first \(shown.count) of \(rows.count) rows").font(Typo.ui(.caption2)).foregroundStyle(Theme.faint).padding(6) }
         }

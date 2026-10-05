@@ -58,7 +58,7 @@ struct ForYouView: View {
                         }
                         .font(Typo.secondary.weight(.medium))
                         .padding(.horizontal, Space.m).frame(height: 32)
-                        .overlay(RoundedRectangle(cornerRadius: Radius.card, style: .continuous).stroke(Theme.line))
+                        .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous).stroke(Theme.line))
                     }
                     .buttonStyle(.plain)
                     .accessibilityIdentifier("open-chats")
@@ -122,9 +122,9 @@ struct ForYouView: View {
                     r.view.transition(.opacity)
                 }
             }
-            .background(Theme.bg, in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: Radius.card, style: .continuous).stroke(Theme.line))
-            .clipShape(RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
+            .background(Theme.bg, in: RoundedRectangle(cornerRadius: Radius.card + 2, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: Radius.card + 2, style: .continuous).stroke(Theme.line))
+            .clipShape(RoundedRectangle(cornerRadius: Radius.card + 2, style: .continuous))
         }
     }
 
@@ -155,7 +155,7 @@ struct ForYouView: View {
         Button(action: action) {
             Text(t).font(Typo.secondary.weight(.medium)).foregroundStyle(Theme.text)
                 .padding(.horizontal, Space.m).frame(minHeight: 34)
-                .overlay(RoundedRectangle(cornerRadius: Radius.card, style: .continuous).stroke(Theme.line))
+                .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous).stroke(Theme.line))
                 .contentShape(Rectangle())
         }
         .buttonStyle(PressStyle())
@@ -219,7 +219,7 @@ struct ForYouView: View {
                         .accessibilityIdentifier("done-item")
                     }
                 }
-                .overlay(RoundedRectangle(cornerRadius: Radius.card, style: .continuous).stroke(Theme.line))
+                .overlay(RoundedRectangle(cornerRadius: Radius.card + 2, style: .continuous).stroke(Theme.line))
             }
         }
     }
@@ -266,7 +266,7 @@ struct ForYouView: View {
             .accessibilityIdentifier("ask-mic")
             .padding(.trailing, 4)
         }
-        .background(Theme.card, in: Rectangle())
+        .background(Theme.card, in: Capsule())
         .overlay(Capsule().stroke(Theme.line))
         .padding(.horizontal, Space.l).padding(.bottom, Space.s).padding(.top, Space.xs)
         .background(Theme.bg.opacity(0.94))
@@ -299,13 +299,13 @@ private struct OKCard: View {
             if let line = a.details.split(separator: "\n").first.map(String.init), !line.trimmingCharacters(in: .whitespaces).isEmpty {
                 Text(line).font(Typo.secondary).foregroundStyle(Theme.muted).lineLimit(2)
                     .padding(Space.m).frame(maxWidth: .infinity, alignment: .leading)
-                    .overlay(RoundedRectangle(cornerRadius: Radius.card, style: .continuous).stroke(Theme.line))
+                    .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(Theme.line))
             }
             HStack(spacing: Space.m) {
                 Button { Task { await state.decide(a, approve: false) } } label: {
                     Text("Not now").font(Typo.body.weight(.medium)).foregroundStyle(Theme.text)
                         .frame(maxWidth: .infinity, minHeight: 46)
-                        .overlay(RoundedRectangle(cornerRadius: Radius.card, style: .continuous).stroke(Theme.line))
+                        .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(Theme.line))
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(PressStyle())
@@ -313,7 +313,7 @@ private struct OKCard: View {
                 Button { Task { await state.decide(a, approve: true) } } label: {
                     Text("Approve").font(Typo.body.weight(.semibold)).foregroundStyle(Theme.onText)
                         .frame(maxWidth: .infinity, minHeight: 46)
-                        .background(Theme.text, in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
+                        .background(Theme.text, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(PressStyle())
@@ -321,13 +321,13 @@ private struct OKCard: View {
             }
         }
         .padding(Space.l)
-        .background(Theme.card, in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
+        .background(Theme.card, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
         .overlay(alignment: .leading) { UnevenRoundedRectangle(cornerRadii: .init(topLeading: 16, bottomLeading: 16), style: .continuous).fill(Theme.warn).frame(width: 4) }
-        .overlay(RoundedRectangle(cornerRadius: Radius.card, style: .continuous).stroke(Theme.line))
+        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(Theme.line))
         // More waiting under it: the edges of the next cards, like a stack.
         .background(alignment: .bottom) {
             if of > 1 {
-                RoundedRectangle(cornerRadius: Radius.card, style: .continuous).stroke(Theme.line).padding(.horizontal, Space.m).frame(height: 30).offset(y: 8)
+                RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(Theme.line).padding(.horizontal, Space.m).frame(height: 30).offset(y: 8)
             }
         }
         .padding(.bottom, of > 1 ? Space.s : 0)
@@ -346,7 +346,7 @@ private struct OKRow: View {
             Button { Task { await state.decide(a, approve: true) } } label: {
                 Text("Approve").font(Typo.secondary.weight(.semibold)).foregroundStyle(Theme.onText)
                     .padding(.horizontal, Space.m).frame(minHeight: 34)
-                    .background(Theme.text, in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
+                    .background(Theme.text, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
             }
             .buttonStyle(PressStyle())
             .accessibilityIdentifier("ok-row-approve")
