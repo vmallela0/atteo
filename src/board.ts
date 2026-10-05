@@ -3,7 +3,7 @@
 
 import { track } from "./usage";
 import { imageSize, sniffImage } from "./imageSize";
-import { fence, flagOf, screenText } from "./screen";
+import { fence, flagNote, flagOf, screenText } from "./screen";
 import { FOR_LABEL, pingExcerpt, triagePreview, webhookForWhom } from "./ping";
 import { DurableObject } from "cloudflare:workers";
 import { computeSummary, formatSummary, summaryWithNames, tasksFor, withinReadBudget, withNames, DEFAULT_SUMMARY_CHARS, type Summary } from "./state";
@@ -2764,7 +2764,10 @@ export class Board extends DurableObject<Env> {
   async searchCards(query: string, opts: { author?: string; type?: string; since?: number; limit?: number; more?: string } = {}, viewer?: Viewer | null): Promise<{ text: string; count: number; more: string | null }> {
     const limit = clamp(opts.limit ?? CARD_LIMIT, 1, CARD_MAX_LIMIT);
     const r = await this.rankedSearch(query, { ...opts, limit }, viewer);
-    const cards = r.entries.map(({ entry, snippet, score }) => entryCard(entry, snippet, score));
+    const cards = r.entries.map(({ entry, snippet, score }) => {
+      const f = flagOf(screenedText(entry), entry.ai_flag);
+      return entryCard(entry, snippet, score, f ? flagNote(f) : null);
+    });
     const shown = cards.length ? cardsThatFit(cards, 180) : 0; // 180: the header, more cursor and get line
     const more = shown < cards.length ? (await this.rankedSearch(query, { ...opts, limit: shown }, viewer)).more : r.more;
     const text = cardsAnswer(cards.slice(0, shown), r.files.map(fileCard), more);

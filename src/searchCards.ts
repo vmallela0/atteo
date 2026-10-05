@@ -32,8 +32,10 @@ function snippetLine(snippet: string, width: number): string {
  * One entry, at most three short lines: "#seq type · author · date · rel", its title (or first line), and one
  * matched snippet with the query marked «like this».
  */
-export function entryCard(e: CardEntry, snippet: string, rel?: number): string {
-  const head = `#${e.seq} ${e.type} · ${e.via === "agent" ? `${e.author}'s agent` : e.author} · ${when(e.ts)}${rel != null && Number.isFinite(rel) ? ` · rel ${rel.toFixed(1)}` : ""}`;
+export function entryCard(e: CardEntry, snippet: string, rel?: number, flag?: string | null): string {
+  // The screen's ⚠ rides in the head line, as in every other agent view (jxn's agent #4119): a hit on an
+  // injection-looking entry still says not to act on it.
+  const head = `#${e.seq} ${e.type} · ${e.via === "agent" ? `${e.author}'s agent` : e.author} · ${when(e.ts)}${rel != null && Number.isFinite(rel) ? ` · rel ${rel.toFixed(1)}` : ""}${flag ? ` · ⚠ ${flag}` : ""}`;
   const title = cut(oneLine(e.title || e.text.split("\n").find((l) => l.trim()) || e.text), TITLE_WIDTH);
   const snip = snippet ? oneLine(snippet) : "";
   return [head, `  ${title}`, ...(snip.includes("«") ? [`  match: ${snippetLine(snip, MATCH_WIDTH)}`] : [])].join("\n");
