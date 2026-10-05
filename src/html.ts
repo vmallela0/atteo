@@ -3302,8 +3302,9 @@ setTimeout(()=>{const box=document.getElementById('ns-side');if(!box||!window.BO
   const say=v=>{hint.textContent=v==='off'?hint.dataset.off:v==='needs_me'?hint.dataset.needs.split('{times}').join(times):''};
   const tz=encodeURIComponent(Intl.DateTimeFormat().resolvedOptions().timeZone||'UTC');
   fetch('/api/me/notify?tz='+tz).then(r=>r.ok?r.json():null).then(j=>{if(j&&j.digest)times=j.digest.join(', ');say(box.querySelector('input:checked').value)}).catch(()=>{});
-  fetch('/api/boards/'+window.BOARD+'/notify').then(r=>r.ok?r.json():null).then(j=>{if(!j)return;const i=document.getElementById('ns-level-'+j.level);if(i)i.checked=true;box.dataset.level=j.level;say(j.level)}).catch(()=>{});
-  box.addEventListener('change',async e=>{const v=e.target.value,prev=box.dataset.level||'needs_me';say(v);
+  let picked=false; // a choice made before the saved level arrives wins over it (notify-levels)
+  fetch('/api/boards/'+window.BOARD+'/notify').then(r=>r.ok?r.json():null).then(j=>{if(!j||picked)return;const i=document.getElementById('ns-level-'+j.level);if(i)i.checked=true;box.dataset.level=j.level;say(j.level)}).catch(()=>{});
+  box.addEventListener('change',async e=>{picked=true;const v=e.target.value,prev=box.dataset.level||'needs_me';say(v);
     const r=await fetch('/api/boards/'+window.BOARD+'/notify',{method:'PUT',headers:{'content-type':'application/json'},body:JSON.stringify({level:v})}).catch(()=>null);
     if(r&&r.ok){box.dataset.level=v;toast(tr('Notifications saved'))}else{const i=document.getElementById('ns-level-'+prev);if(i)i.checked=true;say(prev);toast(tr('Could not save'))}})},0);`;
 
