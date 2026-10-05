@@ -125,5 +125,6 @@
  "guide": 8,
  "mark-unread": 10,
  "voice-turns": 25,
- "voice-turns-privacy": 30
+ "voice-turns-privacy": 30,
+ "fonts": 6
 }
