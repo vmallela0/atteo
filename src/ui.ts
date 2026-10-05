@@ -1818,8 +1818,10 @@ window.addEventListener('unhandledrejection',e=>{errs.push(String(e.reason).slic
 // too while a privacy lock (🔒) is on: what the capture may never show is what those marks say agents can't see.
 const scrub=(doc)=>{const p=doc.createElement('div');p.className='bug-private';p.textContent='🔒 '+tr('private — hidden from this report');
   doc.querySelectorAll('.badge.po').forEach(b=>{const e=b.closest('.entry');if(e)e.replaceWith(p.cloneNode(true))});
+  doc.querySelectorAll('.po-lock').forEach(l=>{const r=l.closest('.row,.entry,li,article')||l;if(r)r.replaceWith(p.cloneNode(true))}); // Inbox / For you rows (opus-d #3380)
   const pn=doc.querySelector('#po-note'),f=doc.querySelector('form.composer');
   if(pn&&!pn.hidden&&f)f.replaceWith(p.cloneNode(true));
+  doc.querySelectorAll('#lightbox').forEach(l=>l.remove()); // an open lightbox shows a picture with no badge (opus-d #3380)
   doc.querySelectorAll('#bug').forEach(d=>d.removeAttribute('open'));return doc};
 // The capture: html2canvas (self-hosted by the /api/bugs endpoint, lazy-loaded once on first use — glm-a #3364)
 // draws the real page, webfonts and images in; if it won't load, a dependency-free SVG foreignObject fallback
@@ -1839,7 +1841,7 @@ const fallback=()=>new Promise((res)=>{try{
 }catch(e){res(null)}});
 const capture=async()=>{if(!(await html2canvas()))return fallback();try{
   const c=await window.html2canvas(document.body,{backgroundColor:getComputedStyle(document.body).backgroundColor||'#fff',logging:false,
-    onclone:(d)=>{scrub(d);d.querySelectorAll('script').forEach(s=>s.remove())}});
+    onclone:(d)=>{scrub(d);d.querySelectorAll('script').forEach(s=>s.remove())}}); // scrub also drops #lightbox and the #bug dialog
   const url=c.toDataURL('image/png');return url.length<=MAX+70000?url:fallback();
 }catch(e){return fallback()}};
 const show=(d)=>{const img=document.getElementById('bug-shot'),rm=document.getElementById('bug-remove'),less=document.getElementById('bug-shotless');
