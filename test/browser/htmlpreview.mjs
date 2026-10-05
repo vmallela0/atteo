@@ -17,10 +17,11 @@ document.getElementById('o').textContent=out.join(' ');</script></body></html>`;
 await mcp("read",{});await mcp("post",{type:"artifact",text:"A mockup",artifact_name:`mock-${run}.html`,artifact_content:page});
 let fails=0;const check=(ok,t)=>{console.log(`${ok?"✓":"✗"} ${t}`);if(!ok)fails++};
 const b=await chromium.launch({executablePath: process.env.PW_CHROME || undefined});
-for(const [w,mobile] of [[1200,false],[390,true]]){const ctx=await b.newContext({viewport:{width:w,height:820},isMobile:mobile,hasTouch:mobile});const [k,...v]=ck.split(";")[0].split("=");await ctx.addCookies([{name:k,value:v.join("="),url:BASE}]);
-  const p=await ctx.newPage();const errors=[];p.on("pageerror",e=>errors.push(e.message));await p.goto(`${BASE}/b/${board}`);await p.waitForTimeout(1000);
+// Both sizes side by side (they only read).
+await Promise.all([[1200,false],[390,true]].map(async([w,mobile])=>{const ctx=await b.newContext({viewport:{width:w,height:820},isMobile:mobile,hasTouch:mobile});const [k,...v]=ck.split(";")[0].split("=");await ctx.addCookies([{name:k,value:v.join("="),url:BASE}]);
+  const p=await ctx.newPage();const errors=[];p.on("pageerror",e=>errors.push(e.message));await p.goto(`${BASE}/b/${board}`);await p.locator(`#thread [data-preview-file="mock-${run}.html"]`).waitFor({timeout:8000}).catch(()=>{});
   const btn=p.locator(`#thread [data-preview-file="mock-${run}.html"]`);check(await btn.count()===1,`${w}px: the HTML file has Preview next to Open`);
-  await btn[mobile?"tap":"click"]();await p.waitForTimeout(1500);
+  await btn[mobile?"tap":"click"]();await p.frameLocator("#pv-frame").locator("#o",{hasText:"fetch:"}).waitFor({timeout:8000}).catch(()=>{}); // the probe's last line (its fetch settles)
   check(await p.locator(".pv-dlg").evaluate(d=>d.open),`${w}px: Preview opens the overlay`);
   const fr=p.frameLocator("#pv-frame");await fr.locator("#b").click();await p.waitForTimeout(300);
   check((await fr.locator("#b").innerText())==="clicked",`${w}px: the page is interactive (a button works)`);
@@ -31,7 +32,7 @@ for(const [w,mobile] of [[1200,false],[390,true]]){const ctx=await b.newContext(
   await p.screenshot({path:`${SHOTS_DIR}/htmlpreview-${w}.png`});
   await p.locator(".pv-hd b").click();await p.keyboard.press("Escape");await p.waitForTimeout(200);check(!(await p.locator(".pv-dlg").evaluate(d=>d.open)),`${w}px: Esc closes it (with focus on the overlay)`);
   // From Files too
-  if(!mobile){await p.locator('[aria-controls="panel-docs"]').click();await p.waitForTimeout(800);await p.locator("#doc-items").getByText(`mock-${run}.html`).first().click().catch(()=>{});await p.waitForTimeout(800);
+  if(!mobile){await p.locator('[aria-controls="panel-docs"]').click();await p.locator("#doc-items").getByText(`mock-${run}.html`).first().waitFor({timeout:8000}).catch(()=>{});await p.locator("#doc-items").getByText(`mock-${run}.html`).first().click().catch(()=>{});await p.locator('#doc-view [data-preview-file]').waitFor({timeout:8000}).catch(()=>{});
     check(await p.locator('#doc-view [data-preview-file]').count()===1,"the Files viewer has Preview for HTML files")}
-  check(!errors.length,`${w}px: no page errors ${errors.join(" | ")}`);await ctx.close()}
+  check(!errors.length,`${w}px: no page errors ${errors.join(" | ")}`);await ctx.close()}));
 await b.close();console.log(fails?`${fails} FAILED`:"html preview: all passed");process.exit(fails?1:0);

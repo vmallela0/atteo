@@ -28,18 +28,20 @@ async function open(who, width, height, mobile) {
   p.on("pageerror", (e) => errors.push(e.message));
   p.on("dialog", (d) => d.accept());
   await p.goto(`${BASE}/b/${board}`);
-  await p.waitForTimeout(1000);
+  await p.locator("#info-btn").waitFor({ timeout: 8000 }).catch(() => {});
   // People who can post have Invite / settings in the header; anyone (viewers too) has "Manage" by the members list.
   if (await p.locator('[data-open="invite"]:visible').count()) await p.locator('[data-open="invite"]:visible').first().click();
   else {
     await p.locator("#info-btn").click();
-    await p.waitForTimeout(400);
+    await p.locator('.linkish[data-open="invite"]:visible').first().waitFor({ timeout: 5000 }).catch(() => {});
     await p.locator('.linkish[data-open="invite"]:visible').first().click();
   }
   await p.locator("#acc-schedules").waitFor({ state: "visible", timeout: 5000 });
-  await p.waitForTimeout(400);
+  await p.waitForFunction(() => !/Loading/.test(document.getElementById("acc-schedules").innerText), null, { timeout: 8000 }).catch(() => {});
   return { ctx, p, errors };
 }
+// Until the server has the schedule on or off (and a beat for the row to follow), up to 8 s.
+const enabledIs = async (title, on) => { for (let i = 0; i < 80; i++) { if ((await api(P)).find((x) => x.title === title)?.enabled === on) break; await new Promise((r) => setTimeout(r, 100)); } await new Promise((r) => setTimeout(r, 150)); };
 const noSideways = (p) => p.evaluate(() => {
   const d = document.getElementById("invite"), bd = d.querySelector(".bd");
   return { page: document.documentElement.scrollWidth <= innerWidth, dlg: d.scrollWidth <= d.clientWidth + 1, bd: bd.scrollWidth <= bd.clientWidth + 1, w: innerWidth, sw: document.documentElement.scrollWidth };
@@ -77,19 +79,19 @@ for (const [width, height, mobile] of [[1280, 900, false], [390, 800, true]]) {
   await sec.screenshot({ path: `${SHOTS}schedules-${width}.png` });
   // Toggle off, then on.
   await row.locator(".sch-tog").click();
-  await p.waitForTimeout(700);
+  await enabledIs(title, false);
   s = (await api(P)).find((x) => x.title === title);
   const offTxt = await p.locator(".sch-row", { hasText: title }).innerText();
   check(s.enabled === false && (await p.locator(".sch-row", { hasText: title }).locator(".sch-tog").getAttribute("aria-checked")) === "false" && /Off/.test(offTxt), `${tag}: the switch turns it off (row says Off)`);
   await p.locator(".sch-row", { hasText: title }).locator(".sch-tog").click();
-  await p.waitForTimeout(700);
+  await enabledIs(title, true);
   s = (await api(P)).find((x) => x.title === title);
   check(s.enabled === true && /Next: /.test(await p.locator(".sch-row", { hasText: title }).innerText()), `${tag}: …and back on`);
   const g = await noSideways(p);
   check(g.page && g.dlg && g.bd, `${tag}: no sideways scroll (${JSON.stringify(g)})`);
   // Delete.
   await p.locator(".sch-row", { hasText: title }).locator('[data-sch-do="delete"]').click();
-  await p.waitForTimeout(700);
+  await p.locator(".sch-row", { hasText: title }).waitFor({ state: "detached", timeout: 8000 }).catch(() => {});
   check((await p.locator(".sch-row", { hasText: title }).count()) === 0 && !(await api(P)).some((x) => x.title === title), `${tag}: Delete removes it`);
   check(!errors.length, `${tag}: no page errors ${errors.join(" | ")}`);
   await ctx.close();
