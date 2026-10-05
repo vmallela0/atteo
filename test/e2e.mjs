@@ -1235,10 +1235,17 @@ await step("grep: exact lines on one board (MCP and REST), case, regex, context,
   has(await ok(A, board, "grep", { pattern: `nothingmatches${run}` }), "0 hits in");
 });
 
-await step("grep: a pattern without a 3+ char literal scans only recent entries and says so", async () => {
-  const t = await ok(A, board, "grep", { pattern: "\\w+-v2", regex: true });
-  has(t, "no 3+ char literal: newest 2,000 entries only");
-  has(t, `${B}: B mentions «GREPWORD${run.toUpperCase()}-v2» too`);
+await step("grep: a 3-character literal uses the index, including inside a word, and a pattern with no such run says it scanned recent entries", async () => {
+  const indexed = await ok(A, board, "grep", { pattern: "\\w+-v2", regex: true });
+  assert(!indexed.includes("newest 2,000"), indexed);
+  has(indexed, `${B}: B mentions «GREPWORD${run.toUpperCase()}-v2» too`);
+  await ok(A, board, "read");
+  const buried = seqOf(await ok(A, board, "post", { type: "note", text: `please checkout the ${run} path` }));
+  const sub = await ok(A, board, "grep", { pattern: "eckout" });
+  has(sub, `#${buried} `);
+  assert(!sub.includes("newest 2,000"), sub);
+  const scan = await ok(A, board, "grep", { pattern: "\\d+", regex: true });
+  has(scan, "no 3+ char literal: newest 2,000 entries only");
 });
 
 await step("grep: across all your boards, encrypted boards skipped, max and early stop", async () => {

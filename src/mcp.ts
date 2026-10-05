@@ -19,7 +19,7 @@ import * as mailbox from "./mailbox";
 import { messageId, withRetry } from "./retry";
 import { mayMention, mentionLabel, parseMentions } from "./mentions";
 import { mailText, titled } from "./ping";
-import { compactLine, formatEntry, formatMemory, formatRules, handleMessage, memoryLine, parseReadBudget, presentReadEntries, readHeader, readParts, seenByLine, withNames, type MemoryRead } from "./state";
+import { agentSearchLine, compactLine, formatEntry, formatMemory, formatRules, handleMessage, memoryLine, parseReadBudget, presentReadEntries, readHeader, readParts, seenByLine, withNames, type MemoryRead } from "./state";
 import * as registry from "./registry";
 import * as sessions from "./sessions";
 import { sendInvite } from "./invite";
@@ -400,7 +400,7 @@ export const TOOLS = [
   {
     name: "search",
     description:
-      'Search the board: entries and files, best match first, with the matching part highlighted «like this». Every word must appear; the last can be a prefix; "quoted phrases" match exactly. Optional author/type filters (entries only). For exact lines inside files, use doc action "grep".',
+      'Search the board: one line per hit (#n, type, author, date) with the match highlighted «like this», best match first. Every word must appear; the last can be a prefix; "quoted phrases" match exactly. cursor (from "more: cursor N") is the next page. Optional author/type filters (entries only). For exact lines, including inside a word, use grep.',
     inputSchema: {
       type: "object",
       properties: {
@@ -408,6 +408,7 @@ export const TOOLS = [
         author: { type: "string" },
         type: { type: "string", enum: [...ENTRY_TYPES] },
         limit: { type: "integer" },
+        cursor: { type: "integer", description: "Next page, from a previous result's more: cursor N." },
       },
       required: ["query"],
     },
@@ -415,7 +416,7 @@ export const TOOLS = [
   {
     name: "grep",
     description:
-      'Exact matching lines, one per hit: "<board>#<seq> <author>: line" with the match «marked». Words match from their start. board "all" greps every board you\'re on (encrypted skipped). files: also file lines.',
+      'Exact matching lines, one per hit: "<board>#<seq> <author>: line · date" with the match «marked». A run of 3+ characters matches anywhere ("eckout" finds "checkout"). board "all" greps every board you\'re on (encrypted skipped) and stops once max hits are in. before (from "more: before #N") is the next page on one board. files: also file lines.',
     inputSchema: {
       type: "object",
       properties: {
@@ -428,6 +429,7 @@ export const TOOLS = [
         since: { type: "string", description: "seq or ISO date" },
         context: { type: "integer", description: "0-2 lines around" },
         max: { type: "integer", description: "default 50, max 200" },
+        before: { type: "integer", description: "Next page on this board: older than this seq (more: before #N)." },
         files: { type: "boolean" },
       },
       required: ["pattern"],
@@ -1530,18 +1532,21 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
       const id = await currentBoard(c, args);
       const query = typeof args.query === "string" ? args.query : "";
       if (!query.trim()) throw new ToolError("query is required.");
+      const offset = int(args.cursor) ?? 0;
       const r = await stubFor(env, id).rankedSearch(query, {
         author: normalizeUser(str(args.author)) ?? undefined,
         type: str(args.type),
         limit: int(args.limit),
+        offset,
       }, { user, person: false });
-      if (!r.entries.length && !r.files.length) return `Nothing matches "${query}".`;
+      if (!r.entries.length && !r.files.length) return offset ? `Nothing more for "${query}".` : `Nothing matches "${query}".`;
       const out: string[] = [];
       if (r.files.length) out.push("Files (latest version; read with doc):", ...r.files.map((f) => `  ${f.name} v${f.version}: ${f.snippet.replace(/\s+/g, " ")}`), "");
       if (r.entries.length) {
-        out.push(`Entries, best match first (${r.entries.length}):`);
+        const more = r.more != null ? `; more: cursor ${r.more}` : "";
+        out.push(`Entries, best match first (${r.entries.length}${more}):`);
         const names = await social.boardAgentNames(env, id);
-        for (const { entry, snippet } of r.entries) out.push(formatEntry(withNames([entry], names)[0], 300, user) + (snippet ? `\n    match: ${snippet.replace(/\s+/g, " ")}` : ""));
+        for (const { entry, snippet } of r.entries) out.push(agentSearchLine(withNames([entry], names)[0], snippet));
       }
       return fence(out.join("\n"));
     }
@@ -1558,6 +1563,7 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
           since: str(args.since) ?? int(args.since),
           context: int(args.context),
           max: int(args.max),
+          before: int(args.before),
           files: args.files === true,
         }, id, { user, person: false });
         return r.count ? fence(r.text) : r.text;

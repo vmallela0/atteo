@@ -20,7 +20,7 @@ import type { RecapCore, RecapOwner, RecapTask } from "./recap";
 import type { ForYouCore } from "./forYou";
 import { cleanMatch, cleanTrigger, eventLine, lastOccurrence, matches, MAX_FIRES_PER_HOUR, MAX_TRIGGERS, minuteOf, SCHEDULE_GRACE_MS, type Trigger, type TriggerEvent, type TriggerMatch } from "./triggers";
 import { offBoardSeq } from "./util";
-import { compileGrep, grepFtsQuery, grepText, newBudget, GREP_CANDIDATES, GREP_DEFAULT_MAX, GREP_HARD_MAX, GREP_RECENT, type BoardGrepOpts, type BoardGrepResult } from "./grep";
+import { compileGrep, grepFtsQuery, grepGramQuery, grepText, newBudget, preferGram, GREP_CANDIDATES, GREP_DEFAULT_MAX, GREP_HARD_MAX, GREP_RECENT, type BoardGrepOpts, type BoardGrepResult } from "./grep";
 import { audienceOk, audienceWord, canSee, ownByDefault, OWN_DEFAULT_MS, OWN_MAIL_HINT, PEOPLE_ONLY_TYPES, type Audience } from "./audience";
 import { cleanSchedule, MAX_SCHEDULES, nextDue, lastDue, scheduleLabel, SCHEDULE_FIRES_PER_HOUR, taskText, tickAction, type Day, type Schedule } from "./schedules";
 import { LEASE_CAP_MS, RENEW_EVERY_MS, renewedUntil } from "./leases";
@@ -539,6 +539,12 @@ export class Board extends DurableObject<Env> {
         PRIMARY KEY (user, session)
       );
     `);
+    // Substring index, separate from the schema batch: a SQLite without the trigram tokenizer still opens the board.
+    try {
+      this.sql.exec("CREATE VIRTUAL TABLE IF NOT EXISTS search_gram USING fts5(body, kind UNINDEXED, ref UNINDEXED, tokenize = 'trigram case_sensitive 0')");
+    } catch {
+      /* FTS5 here has no trigram tokenizer; substring search keeps the word index and the recent-entry scan */
+    }
     this.migrate();
     this.decisions = new HumanDecisions(this.sql, env, () => this.meta("id"));
     // Keep-alive pings from open board tabs are answered without waking this object (no duration billed).
@@ -759,6 +765,16 @@ export class Board extends DurableObject<Env> {
       }
       for (const d of this.sql.exec("SELECT name, content FROM docs").toArray()) this.indexDoc(d.name as string, d.content as string);
       this.setMeta("fts_built", "1");
+    }
+    // Trigram index for boards built before it existed. New boards fill it as they index (indexGram).
+    if (this.meta("gram_built") !== "1") {
+      try {
+        const n = this.sql.exec("SELECT count(*) AS c FROM search_gram").one().c as number;
+        if (!n) this.sql.exec("INSERT INTO search_gram (body, kind, ref) SELECT body, kind, ref FROM search_idx");
+        this.setMeta("gram_built", "1");
+      } catch {
+        /* no trigram table: leave the flag unset so a later runtime can build it */
+      }
     }
     // Tasks posted before the tasks table existed: give them a row once (done if something resolved them).
     if (this.meta("tasks_backfilled") !== "1") {
@@ -2434,6 +2450,7 @@ export class Board extends DurableObject<Env> {
     this.sql.exec("UPDATE entries SET text = ?, edited_at = ?, ai_flag = ? WHERE seq = ?", text, now, flag?.reason ?? null, seq);
     this.entryMemo = this.entryMemo.map(e => e.seq === seq ? { ...e, text, edited_at: now, ai_flag: flag?.reason ?? null } : e);
     this.sql.exec("DELETE FROM search_idx WHERE kind = 'entry' AND ref = ?", String(seq));
+    this.unindexGram("entry", String(seq));
     this.indexEntry(seq, text, null, null, null);
     if (this.env.AI_TOKEN && text.length >= 25 && (!flag || flag.quoted)) this.ctx.waitUntil(this.screenWithModel(seq, normalizeForScreen(text)).catch(() => {}));
     // Tell the agent sessions that read or took it, but only those whose agent can see it: none for People only (agents
@@ -2489,11 +2506,48 @@ export class Board extends DurableObject<Env> {
   private indexEntry(seq: number, text: string, artifactName: string | null, card: ChangeCard | null, fileContent: string | null = null) {
     const body = [text, card ? cardText(card) : null, fileContent].filter(Boolean).join("\n");
     this.sql.exec("INSERT INTO search_idx (body, name, kind, ref) VALUES (?, ?, 'entry', ?)", body, artifactName ?? "", String(seq));
+    this.indexGram(body, "entry", String(seq));
   }
 
   private indexDoc(name: string, content: string) {
     this.sql.exec("DELETE FROM search_idx WHERE kind = 'doc' AND ref = ?", name);
+    this.unindexGram("doc", name);
     this.sql.exec("INSERT INTO search_idx (body, name, kind, ref) VALUES (?, ?, 'doc', ?)", content, name, name);
+    this.indexGram(content, "doc", name);
+  }
+
+  /** Substring index, kept beside the word index. A failure leaves word search working. */
+  private indexGram(body: string, kind: string, ref: string) {
+    this.dropFindCache();
+    try {
+      this.sql.exec("INSERT INTO search_gram (body, kind, ref) VALUES (?, ?, ?)", body, kind, ref);
+    } catch {
+      /* trigram tokenizer missing, or this body can't be indexed */
+    }
+  }
+
+  private unindexGram(kind: string, ref: string) {
+    this.dropFindCache();
+    try {
+      this.sql.exec("DELETE FROM search_gram WHERE kind = ? AND ref = ?", kind, ref);
+    } catch {
+      /* table not there */
+    }
+  }
+
+  /** FTS candidates, newest first. `before` keeps entries older than that seq (the next page). */
+  private candidates(table: "search_idx" | "search_gram", match: string, before: number): Row[] {
+    if (before) {
+      return this.sql
+        .exec(
+          `SELECT kind, ref, body FROM ${table} WHERE ${table} MATCH ? AND kind != 'doc' AND CAST(ref AS INTEGER) < ? ORDER BY rowid DESC LIMIT ?`,
+          match,
+          before,
+          GREP_CANDIDATES,
+        )
+        .toArray();
+    }
+    return this.sql.exec(`SELECT kind, ref, body FROM ${table} WHERE ${table} MATCH ? ORDER BY rowid DESC LIMIT ?`, match, GREP_CANDIDATES).toArray();
   }
 
   /**
@@ -2502,53 +2556,84 @@ export class Board extends DurableObject<Env> {
    */
   async rankedSearch(
     query: string,
-    opts: { author?: string; type?: string; limit?: number } = {},
+    opts: { author?: string; type?: string; limit?: number; offset?: number } = {},
     viewer?: Viewer | null, // absent: an agent's search (no people-only entries)
-  ): Promise<{ entries: { entry: Entry; snippet: string }[]; files: { name: string; version: number; snippet: string }[] }> {
+  ): Promise<{ entries: { entry: Entry; snippet: string }[]; files: { name: string; version: number; snippet: string }[]; more?: number }> {
     this.info();
     const match = ftsQuery(query);
     if (!match) return { entries: [], files: [] };
     const limit = clamp(opts.limit ?? 20, 1, 100);
-    let rows: Row[];
-    try {
-      rows = this.sql
-        .exec(
-          "SELECT kind, ref, snippet(search_idx, 0, '«', '»', ' … ', 16) AS snip FROM search_idx WHERE search_idx MATCH ? ORDER BY bm25(search_idx, 1.0, 4.0) LIMIT 500",
-          match,
-        )
-        .toArray();
-    } catch {
-      // Anything FTS can't parse falls back to plain substring search.
-      return { entries: (await this.search(query, opts, viewer)).map((entry) => ({ entry, snippet: "" })), files: [] };
-    }
-    // A task's live title/body is indexed as kind "task"; it points at the task's entry like an entry hit.
+    const offset = clamp(opts.offset ?? 0, 0, 400);
+    const key = `s:${query}\0${opts.author ?? ""}\0${opts.type ?? ""}\0${limit}\0${offset}\0${viewer?.user ?? ""}\0${viewer?.person ? 1 : 0}`;
+    const cached = this.cachedFind<{ entries: { entry: Entry; snippet: string }[]; files: { name: string; version: number; snippet: string }[]; more?: number }>(key);
+    if (cached) return cached;
+    const filtered = !!(opts.author || opts.type);
     const isEntry = (r: Row) => r.kind === "entry" || r.kind === "task";
-    const seqs = rows.filter(isEntry).map((r) => Number(r.ref));
-    const bySeq = new Map<number, Entry>();
-    if (seqs.length) {
-      // SQLite in a Durable Object takes at most 100 bound values per statement: look them up 90 at a time.
-      for (let i = 0; i < seqs.length; i += 90) {
-        const chunk = seqs.slice(i, i + 90);
-        for (const r of this.sql.exec(`SELECT ${ENTRY_COLS} FROM entries WHERE seq IN (${chunk.map(() => "?").join(",")})`, ...chunk).toArray()) {
-          const e = toEntry(r);
-          if (canSee(e, viewer)) bySeq.set(e.seq, e); // a people-only hit is no hit for anyone outside its people
-        }
-      }
-    }
     const entries: { entry: Entry; snippet: string }[] = [];
     const files: { name: string; version: number; snippet: string }[] = [];
-    const filtered = !!(opts.author || opts.type);
-    for (const r of rows) {
-      if (isEntry(r)) {
-        const e = bySeq.get(Number(r.ref));
-        if (!e || entries.some((x) => x.entry.seq === e.seq) || (opts.author && e.author !== opts.author) || (opts.type && e.type !== opts.type)) continue;
-        if (entries.length < limit) entries.push({ entry: e, snippet: r.snip as string });
-      } else if (!filtered && files.length < 10) {
-        const v = this.sql.exec("SELECT version FROM docs WHERE name = ?", r.ref).toArray()[0];
-        if (v) files.push({ name: r.ref as string, version: v.version as number, snippet: r.snip as string });
+    const seen = new Set<number>();
+    let skipped = 0;
+    let more: number | undefined;
+    let fetched = 0;
+    let entriesFull = false;
+    try {
+      // Pages of 40 ranked hits. Entry rows are hydrated only until this page is full (a board with many matches
+      // no longer reads 500 entries). File hits keep coming from the next pages, up to 10, without those reads.
+      while (fetched < 500) {
+        const rows = this.sql
+          .exec(
+            "SELECT kind, ref, snippet(search_idx, 0, '«', '»', ' … ', 16) AS snip FROM search_idx WHERE search_idx MATCH ? ORDER BY bm25(search_idx, 1.0, 4.0) LIMIT ? OFFSET ?",
+            match,
+            40,
+            fetched,
+          )
+          .toArray();
+        if (!rows.length) break;
+        fetched += rows.length;
+        const wantFiles = !filtered && offset === 0 && files.length < 10;
+        const seqs = entriesFull ? [] : rows.filter(isEntry).map((r) => Number(r.ref));
+        const bySeq = new Map<number, Entry>();
+        if (seqs.length) {
+          for (const r of this.sql.exec(`SELECT ${ENTRY_COLS} FROM entries WHERE seq IN (${seqs.map(() => "?").join(",")})`, ...seqs).toArray()) {
+            const e = toEntry(r);
+            if (canSee(e, viewer)) bySeq.set(e.seq, e); // a people-only hit is no hit for anyone outside its people
+          }
+        }
+        const names = wantFiles ? [...new Set(rows.filter((r) => !isEntry(r)).map((r) => r.ref as string))] : [];
+        const versions = new Map<string, number>();
+        if (names.length) {
+          for (const r of this.sql.exec(`SELECT name, version FROM docs WHERE name IN (${names.map(() => "?").join(",")})`, ...names).toArray()) versions.set(r.name as string, r.version as number);
+        }
+        for (const r of rows) {
+          if (isEntry(r)) {
+            if (entriesFull) continue;
+            const e = bySeq.get(Number(r.ref));
+            if (!e || seen.has(e.seq) || (opts.author && e.author !== opts.author) || (opts.type && e.type !== opts.type)) continue;
+            seen.add(e.seq);
+            if (skipped < offset) {
+              skipped++;
+              continue;
+            }
+            if (entries.length < limit) entries.push({ entry: e, snippet: r.snip as string });
+            else {
+              more = offset + limit;
+              entriesFull = true;
+            }
+          } else if (wantFiles && files.length < 10) {
+            const v = versions.get(r.ref as string);
+            if (v != null && !files.some((f) => f.name === r.ref)) files.push({ name: r.ref as string, version: v, snippet: r.snip as string });
+          }
+        }
+        if (rows.length < 40) break;
+        if (entriesFull && (!wantFiles || files.length >= 10 || fetched >= 160)) break;
       }
+    } catch {
+      // Anything FTS can't parse falls back to plain substring search.
+      const rows = await this.search(query, { ...opts, limit: limit + 1, offset }, viewer);
+      const page = rows.slice(0, limit).map((entry) => ({ entry, snippet: "" }));
+      return this.cacheFind(key, { entries: page, files: [], ...(rows.length > limit ? { more: offset + limit } : {}) });
     }
-    return { entries, files };
+    return this.cacheFind(key, { entries, files, ...(more != null ? { more } : {}) });
   }
 
   /** Lines in files (latest versions) containing `pattern` (case-insensitive text, or a simple regex), like grep -n. */
@@ -2597,13 +2682,16 @@ export class Board extends DurableObject<Env> {
     const info = this.info();
     const res: BoardGrepResult = { title: info.title, hits: [], encrypted: false, fallback: false, capped: false, budget: false };
     if (info.encrypted) return { ...res, encrypted: true };
+    const cacheKey = `g:${pattern}\0${JSON.stringify({ ...o, viewer: o.viewer ? { u: o.viewer.user, p: o.viewer.person } : null })}`;
+    const cached = this.cachedFind<BoardGrepResult>(cacheKey);
+    if (cached) return cached;
     let m: ReturnType<typeof compileGrep>;
     try {
       m = compileGrep(pattern, o);
     } catch (e) {
       throw new BoardError(e instanceof Error ? e.message : String(e));
     }
-    const max = clamp(o.max ?? GREP_DEFAULT_MAX, 1, GREP_HARD_MAX);
+    const max = clamp(o.max ?? GREP_DEFAULT_MAX, 1, GREP_HARD_MAX + 1); // +1 lets a caller ask whether another page exists
     const context = clamp(o.context ?? 0, 0, 2);
     const budget = newBudget();
     const sinceSeq = Math.max(0, o.sinceSeq ?? 0);
@@ -2613,17 +2701,30 @@ export class Board extends DurableObject<Env> {
     // A private entry is no hit for anyone outside its audience.
     const mayRead = (e: Row) => !e.audience || canSee({ audience: e.audience as Audience, to_people: JSON.parse((e.to_people as string | null) || "[]") }, o.viewer);
     const keep = (e: Row) => (!o.author || e.author === o.author) && (!o.type || e.type === o.type) && (!sinceTs || (e.ts as number) >= sinceTs) && mayRead(e);
-    const fromEntry = (seq: number, author: string, text: string) => {
-      for (const h of grepText(text, m, { context, max: max - res.hits.length, budget })) res.hits.push({ seq, author, text: h.text });
+    const fromEntry = (seq: number, author: string, text: string, ts?: number) => {
+      for (const h of grepText(text, m, { context, max: max - res.hits.length, budget })) res.hits.push({ seq, author, text: h.text, ...(ts ? { ts } : {}) });
     };
     const fromFile = (name: string, content: string) => {
       for (const h of grepText(content, m, { context, max: max - res.hits.length, budget })) res.hits.push({ file: name, line: h.line, text: h.text });
     };
-    const fts = grepFtsQuery(pattern, !!o.regex);
+    const before = o.beforeSeq && o.beforeSeq > 0 ? o.beforeSeq : 0;
+    const word = grepFtsQuery(pattern, !!o.regex);
+    const gram = preferGram(pattern, !!o.regex) ? grepGramQuery(pattern, !!o.regex) : null;
     let rows: Iterable<Row> | null = null;
-    if (fts) {
+    // A 3-character run (inside a word, or a regex literal like "-v2") uses the trigram index. Several words stay on
+    // the word index. Only a pattern with no 3-character run scans the newest entries.
+    if (gram) {
       try {
-        rows = this.sql.exec("SELECT kind, ref, body FROM search_idx WHERE search_idx MATCH ? ORDER BY rowid DESC LIMIT ?", fts, GREP_CANDIDATES);
+        const got = this.candidates("search_gram", gram, before);
+        // No trigram hit (index still empty, or this runtime has no such row): the word index, then the recent scan.
+        if (got.length) rows = got;
+      } catch {
+        rows = null;
+      }
+    }
+    if (!rows && word) {
+      try {
+        rows = this.candidates("search_idx", word, before);
       } catch {
         rows = null; // FTS couldn't take it: scan recent entries instead
       }
@@ -2647,7 +2748,7 @@ export class Board extends DurableObject<Env> {
           const e = ents.get(seq);
           if (!e || !keep(e)) continue;
           const t = tasks.get(seq);
-          fromEntry(seq, e.author as string, t ? [t.title, t.body].filter(Boolean).join("\n") : (e.text as string));
+          fromEntry(seq, e.author as string, t ? [t.title, t.body].filter(Boolean).join("\n") : (e.text as string), e.ts as number);
         }
       };
       try {
@@ -2661,7 +2762,7 @@ export class Board extends DurableObject<Env> {
             fromFile(r.ref as string, r.body as string);
           } else {
             const seq = Number(r.ref);
-            if (!(seq > sinceSeq) || seen.has(seq)) continue;
+            if (!(seq > sinceSeq) || (before && seq >= before) || seen.has(seq)) continue;
             // An entry's indexed body starts with its text: words that matched without a matching line cost no entry read.
             if (r.kind === "entry" && !grepText(String(r.body ?? "").slice(0, MAX_TEXT), m, { max: 1, budget }).length) continue;
             seen.add(seq);
@@ -2676,12 +2777,15 @@ export class Board extends DurableObject<Env> {
       flush();
       res.capped = n >= GREP_CANDIDATES && !done();
       res.budget = budget.hit;
-      return res;
+      return this.cacheFind(cacheKey, res);
     }
     res.fallback = true;
-    for (const e of this.sql.exec("SELECT seq, ts, author, type, text, audience, to_people FROM entries WHERE seq > ? ORDER BY seq DESC LIMIT ?", sinceSeq, GREP_RECENT)) {
+    const scan = before
+      ? this.sql.exec("SELECT seq, ts, author, type, text, audience, to_people FROM entries WHERE seq > ? AND seq < ? ORDER BY seq DESC LIMIT ?", sinceSeq, before, GREP_RECENT)
+      : this.sql.exec("SELECT seq, ts, author, type, text, audience, to_people FROM entries WHERE seq > ? ORDER BY seq DESC LIMIT ?", sinceSeq, GREP_RECENT);
+    for (const e of scan) {
       if (sinceTs && (e.ts as number) < sinceTs) break;
-      if (keep(e)) fromEntry(e.seq as number, e.author as string, e.text as string);
+      if (keep(e)) fromEntry(e.seq as number, e.author as string, e.text as string, e.ts as number);
       if (done()) break;
     }
     if (files && !done()) {
@@ -2691,11 +2795,11 @@ export class Board extends DurableObject<Env> {
       }
     }
     res.budget = budget.hit;
-    return res;
+    return this.cacheFind(cacheKey, res);
   }
 
   /** Case-insensitive substring search over text and artifact names/content, with optional filters. */
-  async search(query: string, opts: { author?: string; type?: string; limit?: number } = {}, viewer?: Viewer | null): Promise<Entry[]> {
+  async search(query: string, opts: { author?: string; type?: string; limit?: number; offset?: number } = {}, viewer?: Viewer | null): Promise<Entry[]> {
     this.info();
     const q = `%${query.replace(/[\\%_]/g, (c) => "\\" + c)}%`;
     const clauses = [
@@ -2718,9 +2822,10 @@ export class Board extends DurableObject<Env> {
       args.push(opts.type);
       clauses.push(`type = ?${args.length}`);
     }
-    args.push(clamp(opts.limit ?? 20, 1, 100));
+    args.push(clamp(opts.limit ?? 20, 1, 101));
+    args.push(clamp(opts.offset ?? 0, 0, 500));
     return this.sql
-      .exec(`SELECT ${ENTRY_COLS} FROM entries WHERE ${clauses.join(" AND ")} ORDER BY seq DESC LIMIT ?${args.length}`, ...args)
+      .exec(`SELECT ${ENTRY_COLS} FROM entries WHERE ${clauses.join(" AND ")} ORDER BY seq DESC LIMIT ?${args.length - 1} OFFSET ?${args.length}`, ...args)
       .toArray()
       .map(toEntry);
   }
@@ -2744,6 +2849,28 @@ export class Board extends DurableObject<Env> {
   // ---- per-person rate limit (abuse is bounded by budgets, not reputation: PRD) ----
 
   private rates = new Map<string, { minute: number; n: number }>();
+  // Recent ranked searches and greps. Cleared when the index changes (a post, edit, file or task).
+  private findCache = new Map<string, string>();
+  private dropFindCache() {
+    if (this.findCache.size) this.findCache.clear();
+  }
+  private cachedFind<T>(key: string): T | undefined {
+    const raw = this.findCache.get(key);
+    if (raw == null) return undefined;
+    try {
+      return JSON.parse(raw) as T;
+    } catch {
+      return undefined;
+    }
+  }
+  private cacheFind<T>(key: string, value: T): T {
+    const raw = JSON.stringify(value);
+    if (raw.length <= 64_000) {
+      if (this.findCache.size >= 32) this.findCache.clear();
+      this.findCache.set(key, raw);
+    }
+    return value;
+  }
   private rateLimit(user: string, peek = false) {
     const minute = Math.floor(Date.now() / 60_000);
     const r = this.rates.get(user);
@@ -3825,7 +3952,9 @@ export class Board extends DurableObject<Env> {
     this.sql.exec("UPDATE tasks SET title = ?, body = ?, version = ?, updated_by = ?, updated_via = ?, updated_at = ? WHERE seq = ?", title, body, version, user, opts.via ?? null, now, seq);
     if (!internal.auto) this.touchLease(user, t);
     this.sql.exec("DELETE FROM search_idx WHERE kind = 'task' AND ref = ?", String(seq));
+    this.unindexGram("task", String(seq));
     this.sql.exec("INSERT INTO search_idx (body, name, kind, ref) VALUES (?, ?, 'task', ?)", body, title, String(seq));
+    this.indexGram(body, "task", String(seq));
     this.broadcast({ type: "task", seq });
     return this.task(seq);
   }
@@ -4321,7 +4450,13 @@ export class Board extends DurableObject<Env> {
     for (let i = 0; i < rows.length; i += 90) {
       const chunk = rows.slice(i, i + 90);
       this.sql.exec(`DELETE FROM search_idx WHERE kind = 'entry' AND ref IN (${chunk.map(() => "?").join(",")})`, ...chunk.map(String));
+      try {
+        this.sql.exec(`DELETE FROM search_gram WHERE kind = 'entry' AND ref IN (${chunk.map(() => "?").join(",")})`, ...chunk.map(String));
+      } catch {
+        /* trigram index absent */
+      }
     }
+    this.dropFindCache();
     // Old versions of files go too (the current version of each stays).
     this.sql.exec("DELETE FROM doc_versions WHERE ts < ? AND version < (SELECT version FROM docs d WHERE d.name = doc_versions.name)", cutoff);
     this.entryMemo = [];

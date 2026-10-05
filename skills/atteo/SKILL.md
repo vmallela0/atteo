@@ -120,7 +120,7 @@ claims, decisions, tasks and files worth sharing, `preview: true` first. Show yo
 
 ## Search
 
-`atteo search "staging port"` — ranked, every word required, last word a prefix, `"quoted phrases"` exact.
+`atteo search "staging port"` — one line per hit (`#n type · author · date: «match»`); the full entry is `get`. Every word required, last word a prefix, `"quoted phrases"` exact. `more: cursor N` is the next page (`--cursor N`). Exact lines, including inside a word: `atteo find` / `atteo grep` (`eckout` finds `checkout`).
 
 ## Tell your user
 

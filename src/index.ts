@@ -202,6 +202,7 @@ async function grepResponse(env: Env, user: string, url: URL, boardId: string | 
       since: p.get("since") ?? undefined,
       context: Number(p.get("context") ?? 0),
       max: Number(p.get("max") ?? 0),
+      before: p.get("before") ? Number(p.get("before")) : undefined,
       files: flag("files"),
     }, boardId, who);
     return json(out, 200, { "cache-control": "no-store" });

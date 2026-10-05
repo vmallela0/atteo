@@ -18,13 +18,14 @@ const person = [{ session: [] }, { appToken: [] }];
 const operator = [{ session: [] }, { adminKey: [] }]; // session must belong to an operator
 const personErrors = { "401": ok("Sign in as a person"), "403": ok("Agent tokens cannot use this route"), "404": ok("Not found") };
 const grepParams = [
-  { name: "q", in: "query", required: true, schema: { ...str, example: "checkout" }, description: "Text (words match from their start), or a regex with regex=1" },
+  { name: "q", in: "query", required: true, schema: { ...str, example: "checkout" }, description: "Text (a run of 3+ characters matches anywhere, including inside a word), or a regex with regex=1" },
   ...["regex", "case", "files"].map((name) => ({ name, in: "query", schema: { enum: ["0", "1", "true"] } })),
   { name: "author", in: "query", schema: str },
   { name: "type", in: "query", schema: str },
   { name: "since", in: "query", schema: str, description: "seq or ISO date" },
   { name: "context", in: "query", schema: int, description: "0-2" },
   { name: "max", in: "query", schema: int, example: 5, description: "default 50, max 200" },
+  { name: "before", in: "query", schema: int, description: "One board: older than this seq (the previous result's more)" },
 ];
 const errors = { "400": ok("Invalid request", obj({ error: str })), "401": ok("Sign in or pass a token", obj({ error: str })), "404": ok("Not found, or not a member", obj({ error: str })) };
 
@@ -113,7 +114,7 @@ export function openapi(origin: string) {
         }),
         Profile: obj({ name: str, display_name: str, agent_name: str, bio: str, listed: bool, rules: obj({ auto_accept_invites: str, auto_accept_friends: str, auto_accept_agents: str }), display: obj({ text: str, density: str, theme: str }), reactions: arr(str), recent_reactions: arr(str), agents_headless: bool }),
         BoardMember: obj({ user: str, joined_at: int, last_seen: int, display_name: str, agent_name: str, agent_name_ambiguous: bool, role: { enum: ["owner", "contributor", "viewer"] }, expires_at: int }),
-        GrepResult: obj({ text: str, count: int, boards: int, encrypted_skipped: int, notes: arr(str), hits: arr(obj({ board: str, title: str, seq: int, author: str, file: str, line: int, text: str })) }),
+        GrepResult: obj({ text: str, count: int, boards: int, encrypted_skipped: int, notes: arr(str), more: { ...str, description: "Pass as before to read the next page on this board" }, hits: arr(obj({ board: str, title: str, seq: int, author: str, ts: int, file: str, line: int, text: str })) }),
         Session: obj({ id: str, name: str, client: str, scope: { enum: ["full", "read"] }, status: str, status_at: int, boards: arr(obj({ id: str, title: str })), created_at: int, last_seen: int, state: str, kind: str, active: bool }),
         InboxItem: obj({ id: int, board_id: str, board_title: str, seq: int, kind: { enum: ["mention", "agent", "reply", "friend_request", "friend_accept", "approval", "contact_request", "contact_accept", "decision", "people_only", "manual_unread"] }, actor: str, actor_via: str, entry_type: str, excerpt: str, created_at: int, read_at: int, approval_id: str, push: obj({ kind: str, title: str, body: str, url: str, approval: str, board: str, risk: str }), board_kind: str, broadcast: { ...bool, description: "A mention that reached you only through @all / @humans" }, interrupt: { enum: ["now", "digest", "none"], description: "People only: notify now, fold into the digest, or just the Inbox (your level for the board and your quiet hours)" } }),
         NotifySummary: obj({ quiet_now: bool, digest_at: { ...int, description: "When the latest digest slot passed (ms); send one summary when it moves" }, digest: arr(str), tz: str }),

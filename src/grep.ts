@@ -3,6 +3,7 @@
 // Kept cheap on purpose: no whole-board scans (Durable Object rows read are a daily budget).
 
 import * as registry from "./registry";
+import { fmtTime } from "./state";
 import type { Env, Viewer } from "./types";
 
 export const GREP_MAX_PATTERN = 200;
@@ -227,6 +228,26 @@ export function grepFtsQuery(pattern: string, regex: boolean): string | null {
     .join(" AND ");
 }
 
+/** A trigram-index query: the longest literal run of 3+ characters, quoted so punctuation is literal. null when the
+ *  pattern has no such run (the caller scans recent entries). */
+export function grepGramQuery(pattern: string, regex: boolean): string | null {
+  const runs = (regex ? regexLiterals(pattern) : [pattern.trim()]).map((s) => s.trim()).filter((s) => s.length >= 3);
+  if (!runs.length) return null;
+  const lit = runs.sort((a, b) => b.length - a.length)[0].slice(0, 48);
+  if (lit.length < 3) return null;
+  return `"${lit.replace(/"/g, '""')}"`;
+}
+
+/** Substring (trigram) rather than word-prefix. Several words, and a regex that already has required words, stay on
+ *  the word index (those words AND together). One token, or a regex whose only literal is shorter than a word
+ *  ("-v2"), is a substring: the trigram index answers it, including inside a word ("eckout" finds "checkout"). */
+export function preferGram(pattern: string, regex: boolean): boolean {
+  if (!grepGramQuery(pattern, regex)) return false;
+  if (!grepFtsQuery(pattern, regex)) return true;
+  if (regex) return false;
+  return pattern.trim().split(/\s+/).length === 1;
+}
+
 /** Checks and compiles a pattern (plain text, or a regex with regex: true). Throws GrepError with a readable reason. */
 export function compileGrep(pattern: string, o: { regex?: boolean; caseSensitive?: boolean } = {}): Matcher {
   if (typeof pattern !== "string" || !pattern.trim()) throw new GrepError("Give a pattern to look for.");
@@ -349,6 +370,7 @@ export interface GrepOptions {
   author?: string;
   type?: string;
   since?: string | number;
+  before?: number; // page older than this seq (one board; from a previous `more`)
   context?: number;
   max?: number;
   files?: boolean;
@@ -358,6 +380,7 @@ export interface GrepOptions {
 export interface BoardGrepHit {
   seq?: number;
   author?: string;
+  ts?: number;
   file?: string;
   line?: number;
   text: string;
@@ -377,6 +400,7 @@ export interface BoardGrepOpts {
   type?: string;
   sinceSeq?: number;
   sinceTs?: number;
+  beforeSeq?: number; // only entries older than this (paging)
   context?: number;
   max?: number;
   files?: boolean;
@@ -394,10 +418,65 @@ export interface GrepOutput {
   encrypted_skipped: number;
   notes: string[];
   hits: GrepHit[];
+  more?: string; // pass as `before` to read the next page (one board)
 }
 
 export function hitLine(h: GrepHit): string {
-  return h.file != null ? `${h.title}/${h.file}:${h.line}: ${h.text}` : `${h.title}#${h.seq} ${h.author}: ${h.text}`;
+  const when = h.ts ? ` · ${fmtTime(h.ts)}` : "";
+  return h.file != null ? `${h.title}/${h.file}:${h.line}: ${h.text}` : `${h.title}#${h.seq} ${h.author}: ${h.text}${when}`;
+}
+
+/** Same board, same line, once. */
+export function dedupeHits(hits: GrepHit[]): GrepHit[] {
+  const seen = new Set<string>();
+  const out: GrepHit[] = [];
+  for (const h of hits) {
+    const k = h.file != null ? `${h.board}/${h.file}:${h.line}:${h.text}` : `${h.board}#${h.seq}:${h.text}`;
+    if (seen.has(k)) continue;
+    seen.add(k);
+    out.push(h);
+  }
+  return out;
+}
+
+export interface Fanout<T> {
+  values: (T | undefined)[]; // undefined: that index was not run
+  started: number;
+  failed: number;
+}
+
+/** Run `count` items with at most `concurrency` in flight. Each call is asked for the hits still needed. Once `max`
+ *  hits are in, no further item starts (in-flight ones finish). */
+export async function fanoutHits<T>(
+  count: number,
+  concurrency: number,
+  max: number,
+  run: (index: number, ask: number) => Promise<T>,
+  hitsIn: (value: T) => number,
+): Promise<Fanout<T>> {
+  const values: (T | undefined)[] = new Array(count);
+  let next = 0;
+  let failed = 0;
+  let started = 0;
+  let got = 0;
+  const worker = async () => {
+    for (;;) {
+      if (got >= max || next >= count) return;
+      const i = next++;
+      const ask = Math.max(1, max - got);
+      started++;
+      try {
+        const value = await run(i, ask);
+        values[i] = value;
+        got += Math.min(ask, Math.max(0, hitsIn(value)));
+      } catch {
+        failed++;
+      }
+    }
+  };
+  const n = Math.max(0, Math.min(concurrency, count));
+  if (n) await Promise.all(Array.from({ length: n }, () => worker()));
+  return { values, started, failed };
 }
 
 /** Runs a grep on one board (boardId; membership already checked) or on all the user's boards (boardId null).
@@ -405,6 +484,9 @@ export function hitLine(h: GrepHit): string {
 export async function runGrep(env: Env, user: string, pattern: string, opts: GrepOptions, boardId: string | null, viewer: Viewer | null): Promise<GrepOutput> {
   compileGrep(pattern, opts); // a bad pattern fails here, before any board is asked
   const max = Math.max(1, Math.min(GREP_HARD_MAX, Math.trunc(Number(opts.max)) || GREP_DEFAULT_MAX));
+  const before = opts.before == null ? undefined : opts.before;
+  if (before != null && (!Number.isInteger(before) || before < 1)) throw new GrepError("before is a message number (more: before #N).");
+  if (!boardId && before != null) throw new GrepError("before pages one board. Drop it to search every board.");
   const bo: BoardGrepOpts = {
     regex: !!opts.regex,
     caseSensitive: !!opts.caseSensitive,
@@ -413,23 +495,34 @@ export async function runGrep(env: Env, user: string, pattern: string, opts: Gre
     context: Math.max(0, Math.min(2, Math.trunc(Number(opts.context)) || 0)),
     files: !!opts.files,
     ...parseSince(opts.since),
+    ...(before ? { beforeSeq: before } : {}),
     viewer,
   };
   const stub = (id: string) => env.BOARD.get(env.BOARD.idFromName(id));
   const notes: string[] = [];
 
   if (boardId) {
-    const r = await stub(boardId).grepLines(pattern, { ...bo, max });
+    // One extra hit tells us whether another page exists, without a second round trip.
+    const r = await stub(boardId).grepLines(pattern, { ...bo, max: max + 1 });
     const title = shortTitle(r.title, boardId);
     if (r.encrypted) {
       return { text: `0 hits in ${title} (end-to-end encrypted: the server can't read it)`, count: 0, boards: 0, encrypted_skipped: 1, notes: ["encrypted"], hits: [] };
     }
-    const hits = r.hits.map((h) => ({ ...h, board: boardId, title }));
+    const moreHit = r.hits.length > max;
+    const hits = dedupeHits(r.hits.slice(0, max).map((h) => ({ ...h, board: boardId, title })));
     if (r.fallback) notes.push(`no 3+ char literal: newest ${GREP_RECENT.toLocaleString("en-US")} entries only`);
     if (r.capped) notes.push(`newest ${GREP_CANDIDATES} candidates only`);
     if (r.budget) notes.push("time box hit");
-    if (hits.length >= max) notes.push(`stopped at max ${max}`);
-    return output(hits, `in ${title}`, 1, 0, notes);
+    let more: string | undefined;
+    if (moreHit) {
+      notes.push(`stopped at max ${max}`);
+      const cursor = [...hits].reverse().find((h) => h.seq != null)?.seq;
+      if (cursor) {
+        more = String(cursor);
+        notes.push(`more: before #${cursor}`);
+      }
+    }
+    return output(hits, `in ${title}`, 1, 0, notes, more);
   }
 
   const all = await registry.grepBoards(env, user);
@@ -437,45 +530,35 @@ export async function runGrep(env: Env, user: string, pattern: string, opts: Gre
   const encrypted = all.length - readable.length;
   const boards = readable.slice(0, GREP_BOARDS);
   if (readable.length > boards.length) notes.push(`${boards.length} most active of ${readable.length} boards`);
-  const results: (BoardGrepResult | null)[] = new Array(boards.length).fill(null);
-  let total = 0;
-  let next = 0;
-  let failed = 0;
-  let searched = 0;
   // A small pool: at most GREP_CONCURRENCY boards at once, and no new board once max hits are in.
-  const worker = async () => {
-    while (next < boards.length && total < max) {
-      const i = next++;
-      try {
-        const r = await stub(boards[i].id).grepLines(pattern, { ...bo, max: max - total });
-        results[i] = r;
-        searched++;
-        total += r.hits.length;
-      } catch {
-        failed++;
-      }
-    }
-  };
-  await Promise.all(Array.from({ length: Math.min(GREP_CONCURRENCY, boards.length) }, worker));
+  const fan = await fanoutHits(
+    boards.length,
+    GREP_CONCURRENCY,
+    max,
+    (i, ask) => stub(boards[i].id).grepLines(pattern, { ...bo, max: ask }),
+    (r) => r.hits.length,
+  );
+  const searched = fan.started - fan.failed;
   // Short titles that collide get the board id's tail, so join_board by name still finds the right one.
   const shorts = boards.map((b) => shortTitle(b.title, b.id));
   const dup = new Set(shorts.filter((s, i) => shorts.indexOf(s) !== i));
   const hits: GrepHit[] = [];
-  results.forEach((r, i) => {
+  fan.values.forEach((r, i) => {
     if (!r) return;
     const title = dup.has(shorts[i]) ? `${shorts[i]}~${boards[i].id.slice(-3)}` : shorts[i];
     for (const h of r.hits) hits.push({ ...h, board: boards[i].id, title });
   });
-  if (results.some((r) => r?.fallback)) notes.push(`no 3+ char literal: newest ${GREP_RECENT.toLocaleString("en-US")} entries per board only`);
-  if (results.some((r) => r?.capped)) notes.push(`newest ${GREP_CANDIDATES} candidates per board only`);
-  if (results.some((r) => r?.budget)) notes.push("time box hit");
-  if (failed) notes.push(`${failed} board${failed === 1 ? "" : "s"} failed`);
-  if (total >= max) notes.push(`stopped at max ${max}${searched < boards.length ? `, ${boards.length - searched} boards not searched` : ""}`);
+  const page = dedupeHits(hits).slice(0, max);
+  if (fan.values.some((r) => r?.fallback)) notes.push(`no 3+ char literal: newest ${GREP_RECENT.toLocaleString("en-US")} entries per board only`);
+  if (fan.values.some((r) => r?.capped)) notes.push(`newest ${GREP_CANDIDATES} candidates per board only`);
+  if (fan.values.some((r) => r?.budget)) notes.push("time box hit");
+  if (fan.failed) notes.push(`${fan.failed} board${fan.failed === 1 ? "" : "s"} failed`);
+  if (page.length >= max) notes.push(`stopped at max ${max}${fan.started < boards.length ? `, ${boards.length - fan.started} boards not searched` : ""}`);
   if (encrypted) notes.unshift(`${encrypted} encrypted skipped`);
-  return output(hits.slice(0, max), `in ${searched} board${searched === 1 ? "" : "s"}`, searched, encrypted, notes);
+  return output(page, `in ${searched} board${searched === 1 ? "" : "s"}`, searched, encrypted, notes);
 }
 
-function output(hits: GrepHit[], where: string, boards: number, encrypted: number, notes: string[]): GrepOutput {
+function output(hits: GrepHit[], where: string, boards: number, encrypted: number, notes: string[], more?: string): GrepOutput {
   const head = `${hits.length} hit${hits.length === 1 ? "" : "s"} ${where}${notes.length ? ` (${notes.join("; ")})` : ""}`;
-  return { text: [head, ...hits.map(hitLine)].join("\n"), count: hits.length, boards, encrypted_skipped: encrypted, notes, hits };
+  return { text: [head, ...hits.map(hitLine)].join("\n"), count: hits.length, boards, encrypted_skipped: encrypted, notes, hits, ...(more ? { more } : {}) };
 }

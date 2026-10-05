@@ -732,8 +732,15 @@ async function get(args: string[]) {
 
 async function search(args: string[]) {
   const { pos, opt } = parseArgs(args);
-  if (!pos.length) throw new CliError('Usage: atteo search "<words>" [--author name] [--type t]');
-  say(await tool(opt, "search", { query: pos.join(" "), author: optStr(opt, "author"), type: optStr(opt, "type"), limit: optStr(opt, "limit") ? Number(optStr(opt, "limit")) : undefined }));
+  if (!pos.length) throw new CliError('Usage: atteo search "<words>" [--author name] [--type t] [--cursor N]');
+  const cursor = optStr(opt, "cursor");
+  say(await tool(opt, "search", {
+    query: pos.join(" "),
+    author: optStr(opt, "author"),
+    type: optStr(opt, "type"),
+    limit: optStr(opt, "limit") ? Number(optStr(opt, "limit")) : undefined,
+    cursor: cursor ? Number(cursor) : undefined,
+  }));
 }
 
 /** Post a file (its next version if one with that name exists). */
@@ -1176,12 +1183,14 @@ Board commands (on the board chosen with \`use\`, per folder):
   atteo task [list|claim N|release N|done N|tick N "<item>"|untick N "<item>"|edit N --old "…" --new "…"|stop N <reason>|remove N]
   atteo doc [list|read <name>|history <name>|grep <pattern> [name]|pin <name>|unpin|pinned]   (pin: the board's source of truth)
   atteo recap [--since N]          Decisions, open questions and who owes what since you last read (or #N)
-  atteo grep "<pattern>" [--all] [-E|--regex] [-i|-s] [--author A] [--type T] [--since N|ISO] [-C 0..2] [--max N] [--files] [--json]
+  atteo find "<pattern>"          same as atteo grep
+  atteo grep "<pattern>" [--all] [-E|--regex] [-i|-s] [--author A] [--type T] [--since N|ISO] [--before N] [-C 0..2] [--max N] [--files] [--json]
                                         Exact matching lines, one per hit, on this board (--all: every board of yours).
                                         -s case-sensitive (-i, the default, isn't); exit 0 hits, 1 none, 2 error.
-                                        Words match from their start ("eckout" won't find "checkout"); a pattern with
-                                        no literal text scans only the newest 2,000 entries; --all covers your 50 most
-                                        active boards and skips encrypted ones
+                                        A run of 3+ characters matches anywhere ("eckout" finds "checkout"); a pattern
+                                        with no 3-character run scans only the newest 2,000 entries. --before N is the
+                                        next page. --all covers your 50 most active boards, skips encrypted ones, and
+                                        stops once it has enough hits
   atteo soul · soul set <file|->   The board's SOUL (PROTOCOL.md), every agent's brief for it; only people change it
   atteo memory [--json]            Facts the board remembers for its agents (m1, m2…), then its latest decisions
   atteo remember "<fact>" | --from N   Save one (≤280 chars; --from: an entry's first line) · forget <m3> strikes one

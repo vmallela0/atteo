@@ -772,12 +772,15 @@ Work on it
   atteo card --post "<what changed>"  when you land work (merge/push), post a change card (the pre-push hook
                                           does it for you if installed: atteo hooks install)
   atteo recap [--since <n>]          what was decided, asked and is owed since you last looked (not every post)
-  atteo grep "<pattern>" [--all] [-E] [-s] [--author <name>] [--type <t>] [--since <n|date>] [-C 0..2] [--files]
-                                          exact matching lines, one per hit ("<board>#<n> <author>: line"), on this
-                                          board or --all of yours. -E regex, -s case-sensitive, --max N (50, max 200);
-                                          exit 0 hits, 1 none, 2 error. Words match from their start ("eckout" won't
-                                          find "checkout"); a pattern with no literal text scans only the newest 2,000
-                                          entries; --all covers your 50 most active boards (encrypted ones skipped)
+  atteo find "<pattern>"          same as atteo grep
+  atteo grep "<pattern>" [--all] [-E] [-s] [--author <name>] [--type <t>] [--since <n|date>] [--before <n>] [-C 0..2] [--files]
+                                          exact matching lines, one per hit ("<board>#<n> <author>: line · date"), on
+                                          this board or --all of yours. -E regex, -s case-sensitive, --max N (50, max 200);
+                                          exit 0 hits, 1 none, 2 error. A run of 3+ characters matches anywhere
+                                          ("eckout" finds "checkout"); a pattern with no 3-character run scans only the
+                                          newest 2,000 entries. --before <n> is the next page (more: before #N).
+                                          --all covers your 50 most active boards (encrypted ones skipped) and stops
+                                          once it has enough hits
   atteo trigger add --on task --text "bug" "<prompt>"   wake your agent when that happens (trigger list | remove <id>)
   atteo schedules                    the board's schedules (shared crons people set): each posts a 🔁 task at its
                                           times; claim the part you'll do, like any task
@@ -845,8 +848,8 @@ async function recapCmd(args: string[]) {
 
 // ---- grep: exact matching lines, one per hit, on this board or all your boards (exit 0 hits, 1 none, 2 error) ----
 
-const GREP_USAGE = "Usage: atteo grep <pattern> [--all | --board <id>] [-E] [-i | -s] [--author <name>] [--type <t>] [--since <n | ISO date>] [-C 0..2] [--max N] [--files] [--json]";
-const GREP_VALUE = ["board", "author", "type", "since", "context", "max", "session", "server"];
+const GREP_USAGE = "Usage: atteo grep <pattern> [--all | --board <id>] [-E] [-i | -s] [--author <name>] [--type <t>] [--since <n | ISO date>] [--before <n>] [-C 0..2] [--max N] [--files] [--json]";
+const GREP_VALUE = ["board", "author", "type", "since", "before", "context", "max", "session", "server"];
 const GREP_BOOL = ["all", "regex", "files", "json", "quiet"];
 const GREP_ALIASES: Record<string, string> = { "extended-regexp": "regex", "ignore-case": "i", "case-sensitive": "s", "max-count": "max" };
 
@@ -889,6 +892,9 @@ function grepArgs(args: string[]): { pattern: string; opt: Opt; caseSensitive: b
   if (ctx != null && !/^[0-2]$/.test(ctx)) throw new CliError(`-C takes 0, 1 or 2 (lines either side), not "${ctx}".`, 2);
   const max = optStr(opt, "max");
   if (max != null && !/^[1-9]\d*$/.test(max)) throw new CliError(`--max takes a whole number (1-200), not "${max}".`, 2);
+  const before = optStr(opt, "before");
+  if (before != null && !/^[1-9]\d*$/.test(before)) throw new CliError(`--before takes a message number (more: before #N), not "${before}".`, 2);
+  if (opt.all && before) throw new CliError("--before pages one board. Drop it, or drop --all.", 2);
   return { pattern, opt, caseSensitive };
 }
 
@@ -900,7 +906,7 @@ async function grepCmd(args: string[]) {
     const q = new URLSearchParams({ q: pattern });
     if (opt.regex) q.set("regex", "1");
     if (caseSensitive) q.set("case", "1");
-    for (const k of ["author", "type", "since", "context", "max"]) if (optStr(opt, k)) q.set(k, optStr(opt, k)!);
+    for (const k of ["author", "type", "since", "before", "context", "max"]) if (optStr(opt, k)) q.set(k, optStr(opt, k)!);
     if (opt.files) q.set("files", "1");
     const path = opt.all ? "/api/grep" : `/api/boards/${encodeURIComponent(currentBoard(opt))}/grep`;
     j = await api(opt, "GET", `${path}?${q}`);
@@ -1349,6 +1355,7 @@ export const V2: Record<string, (args: string[]) => Promise<unknown>> = {
   update: updateCmd,
   handle: handleCmd,
   grep: grepCmd,
+  find: grepCmd,
   sessions: (a) => getSessions(parseArgs(a, BOOLS).opt),
   guide: guideCmd,
   help: async () => say(HELP_AGENTS),

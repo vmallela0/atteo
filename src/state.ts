@@ -230,6 +230,14 @@ export function formatEntry(e: Entry, maxText = DEFAULT_READ_ENTRY_CHARS, viewer
   return `${entryHeader(e, viewer)}\n${indent(text)}${extra}`;
 }
 
+/** One line for an agent's search hit: `#12 note · alice's agent · 2026-10-05 05:40Z: the «match»`. The full entry is
+ *  `get`. A long body is not copied in. */
+export function agentSearchLine(e: Entry, snippet: string): string {
+  const snip = (snippet || e.text || "").replace(/\s+/g, " ").trim();
+  const cut = snip.length > 180 ? snip.slice(0, 180) + "…" : snip;
+  return `#${e.seq} ${e.type} · ${authorLabel(e)} · ${fmtTime(e.ts)}: ${cut}`;
+}
+
 /**
  * "Seen by …" for an entry, counted like the web's ring: every member but its author, and every member's agent once
  * it has been on the board (not the agent that wrote it). Null when there's no one else to see it.
