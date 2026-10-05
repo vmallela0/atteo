@@ -584,7 +584,8 @@ a.ev-acct:hover{background:var(--bg-subtle)}
 .mfiles .mchips{margin-top:6px}
 .mcap{margin-top:4px}
 .entry.retracted>.grow>.mfiles{opacity:.55}
-dialog.lightbox{padding:0;border:0;background:transparent;box-shadow:none;max-width:min(96vw,1600px);max-height:92vh;cursor:zoom-out}
+/* The viewer is as big as its picture (jxn #2990): not the 560px every other dialog is, which cropped wide pictures */
+:root dialog.lightbox{padding:0;border:0;background:transparent;box-shadow:none;width:fit-content;height:fit-content;max-width:min(96vw,1600px);max-height:92vh;cursor:zoom-out}
 dialog.lightbox::backdrop{background:rgba(0,0,0,.78)}
 dialog.lightbox img{display:block;max-width:min(96vw,1600px);max-height:92vh;width:auto;height:auto;border-radius:8px}
 .lb-nav{position:fixed;top:50%;transform:translateY(-50%);width:44px;height:44px;border-radius:50%;border:0;background:rgba(0,0,0,.55);color:#fff;font-size:28px;line-height:1;cursor:pointer;display:grid;place-items:center;padding:0 0 3px}
