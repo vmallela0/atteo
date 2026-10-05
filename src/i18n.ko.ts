@@ -929,4 +929,7 @@ export const KO: Record<string, string> = {
   "Right away": "바로",
   "After a pause": "잠시 멈춘 뒤",
   "When I tap Done": "완료를 탭할 때",
+  "Quick replies": "빠른 답장",
+  "Yes, go ahead": "네, 진행해 주세요",
+  "Tell me more": "더 알려 주세요",
 };

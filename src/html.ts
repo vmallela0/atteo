@@ -6,6 +6,7 @@ import { PLANS, PRICES, type PlanState } from "./billing";
 import { boardMeta, type BoardRow, type InviteRow, type Invitation, type UserRow } from "./registry";
 import type { TokenRow } from "./auth";
 import { authorLabel, computeSummary, retractedSet, type Summary } from "./state";
+import { quickReplies } from "./quickReplies";
 import { PIN_BAR, PIN_SIDE, RECAP_BTN, RECAP_DLG, pinRecapJs } from "./pinrecap";
 import { SOUL_DLG, SOUL_SIDE, rememberBtn, soulMemoryJs } from "./soulmemory";
 import { MENTION_SCAN_JS, forAgent, forPerson, mentionLabel } from "./mentions";
@@ -98,7 +99,7 @@ const isHtml = (name: string | null | undefined) => !!name && /\.html?$/i.test(n
 const previewBtn = (name: string, version?: number | null) =>
   `<button class="btn sm ghost" type="button" data-preview-file="${esc(name)}"${version ? ` data-file-ver="${version}"` : ""} title="Try the page here (it runs in a sandbox)">Preview</button>`;
 
-export function entryHtml(e: Entry, boardId: string, withReplies = true, opts: { retracted?: boolean; canRetract?: boolean; root?: number; lang?: Lang } = {}): string {
+export function entryHtml(e: Entry, boardId: string, withReplies = true, opts: { retracted?: boolean; canRetract?: boolean; root?: number; lang?: Lang; members?: ReadonlySet<string> | readonly string[] } = {}): string {
   const T = (s: string, v?: Record<string, string | number>) => tr(opts.lang, s, v);
   const refs: string[] = [];
   if (e.retracts != null) refs.push(`unsends <a class="ref" data-ref="${e.retracts}" href="#e${e.retracts}">#${e.retracts}</a>`);
@@ -131,13 +132,22 @@ ${
   const more = react || reply || retract ? `<button class="more-acts" type="button" data-more="${e.seq}" aria-label="${esc(T("More actions"))}" aria-expanded="false" title="${esc(T("More actions"))}">⋯</button>` : "";
   const remember = !opts.retracted && e.retracts == null && !e.audience ? rememberBtn(e.seq) : ""; // people-only: never agents' memory // shown once the board has a MEMORY
   const actions = react || reply || retract ? `${more}<span class="acts">${react}${reply}${remember}${select}${retract}</span>` : "";
+  // One-tap replies under an agent's question to a person (vedu #2490): hidden here (this HTML is the same for every
+  // viewer); the page shows them to the people it's for while the question is open (QOPEN), and 1–4 picks one.
+  // (members: the agent's own choices only while its person is on the board; esc() below, never markup.)
+  const qr = quickReplies(e, { retracted: opts.retracted, members: opts.members });
+  const quick = qr
+    ? `<div class="qr" data-quick="${e.seq}" data-quick-for="${esc(qr.for.join(" "))}" role="group" aria-label="${esc(T("Quick replies"))}" hidden>${qr.options
+        .map((o, i) => `<button type="button" class="btn sm qr-b" data-quick-i="${i + 1}"><kbd class="qr-k" aria-hidden="true">${i + 1}</kbd><span class="qr-t">${esc(qr.own ? o : T(o))}</span></button>`)
+        .join("")}</div>`
+    : "";
   // An approval entry: the card says where it stands, so the message is just what's asked (its text, for agents, says "waiting").
   const apr = (e as Entry & { approval?: ApprovalCardData & { title?: string } }).approval;
   return `<article class="entry${opts.retracted ? " retracted" : ""}${e.via === "agent" ? " by-agent" : ""}" id="e${e.seq}" data-seq="${e.seq}" data-author="${esc(e.author)}" data-title="${esc(shortTitle(e))}"${e.reply_to != null ? ` data-reply="${e.reply_to}"` : ""}${opts.root != null && opts.root !== e.seq ? ` data-root="${opts.root}"` : ""}>
 ${avatar(e.author, "", e.via === "agent")}
 <div class="grow">
   <div class="meta">${whoHtml(e)}${e.to ? `<span class="to">→ ${esc(e.to)}</span>` : ""}${e.type === "note" ? "" : typeTag(e.type, opts.lang)}${when(e.ts, opts.lang)}<a class="seq" href="#e${e.seq}">#${e.seq}</a>${peopleBadge(e, opts.lang)}<span class="badge rbadge">${esc(T("Unsent"))}</span>${flagBadge(e.text, e.ai_flag)}${actions}</div>
-  <div class="body">${apr?.title ? `<p>${esc(apr.title)}</p>` : refLinks(renderText(e.text, e.mentions, e.mention_names))}</div>${file}${e.card ? changeCardHtml(e.seq, e.card) : ""}${e.handoff ? `<div class="refs mono handoff">${esc(handoffLine(e.handoff))}</div>` : ""}${apr && !opts.retracted ? approvalCardHtml(apr, false, opts.lang) : ""}${e.type === "task" ? `<div class="tk" data-task="${e.seq}" hidden></div>` : ""}${e.type === "claim" && !opts.retracted ? `<div class="tk cl" data-claim="${e.seq}" hidden></div>` : ""}${e.type === "decision" && e.via === "person" && !opts.retracted ? `<div class="tk hd" data-hd="${e.seq}" hidden></div>` : ""}
+  <div class="body">${apr?.title ? `<p>${esc(apr.title)}</p>` : refLinks(renderText(e.text, e.mentions, e.mention_names))}</div>${file}${e.card ? changeCardHtml(e.seq, e.card) : ""}${e.handoff ? `<div class="refs mono handoff">${esc(handoffLine(e.handoff))}</div>` : ""}${apr && !opts.retracted ? approvalCardHtml(apr, false, opts.lang) : ""}${e.type === "task" ? `<div class="tk" data-task="${e.seq}" hidden></div>` : ""}${e.type === "claim" && !opts.retracted ? `<div class="tk cl" data-claim="${e.seq}" hidden></div>` : ""}${e.type === "decision" && e.via === "person" && !opts.retracted ? `<div class="tk hd" data-hd="${e.seq}" hidden></div>` : ""}${quick}
   ${refs.length ? `<div class="refs">${refs.join(" · ")}</div>` : ""}
   <div class="rx" data-rx="${e.seq}"><button class="rx-add" type="button" data-rx-add="${e.seq}" aria-label="${esc(T("Add a reaction"))}" title="${esc(T("Add a reaction"))}">☺<span>+</span></button></div>
   ${withReplies ? `<div class="replies" id="r${e.seq}"></div>` : ""}
@@ -488,12 +498,13 @@ function fmtBytes(n: number): string {
   return `${(n / 1024 / 1024).toFixed(1)} MB`;
 }
 
-export function threadHtml(entries: Entry[], boardId: string, viewer?: { name: string; creator: string; lang?: Lang }): string {
+export function threadHtml(entries: Entry[], boardId: string, viewer?: { name: string; creator: string; lang?: Lang; members?: readonly string[] }): string {
   // Every message in order, replies included (jxn #1040): a reply posts like any message, with a bar quoting what it
   // answers; its thread opens as an overlay. data-root ties a reply to its thread.
   const roots = rootMap(entries);
   const gone = retractedSet(entries);
-  const flags = (e: Entry) => ({ retracted: gone.has(e.seq), canRetract: !!viewer && (e.author === viewer.name || viewer.creator === viewer.name), root: roots.get(e.seq), lang: viewer?.lang });
+  const members = viewer?.members ? new Set(viewer.members) : undefined;
+  const flags = (e: Entry) => ({ retracted: gone.has(e.seq), canRetract: !!viewer && (e.author === viewer.name || viewer.creator === viewer.name), root: roots.get(e.seq), lang: viewer?.lang, members });
   return entries.map((e) => entryHtml(e, boardId, roots.get(e.seq) === e.seq, flags(e))).join("");
 }
 
@@ -1092,7 +1103,7 @@ export function boardPage(
   // Big boards open on their newest entries; earlier ones load on demand.
   const earlier = first > 1 ? `<button class="btn ghost sm load-earlier" type="button" id="load-earlier" data-before="${first}">${esc(T("Load earlier messages"))}</button>` : "";
   const thread = entries.length
-    ? earlier + threadHtml(entries, info.id, { name: viewer.name, creator: info.created_by, lang: viewer.lang })
+    ? earlier + threadHtml(entries, info.id, { name: viewer.name, creator: info.created_by, lang: viewer.lang, members: members.map((m) => m.user) })
     : agentChat
       ? `<div class="empty" id="empty"><h3>${esc(T("Talk to your agent"))}</h3><p class="small">Only you and your agents see this chat. Ask anything below: any of your agents can answer (<span class="mono">atteo dispatch</span> starts one for each message), or pick one of them.</p></div>`
     : `<div class="empty" id="empty"><h3>${esc(T("Nothing here yet"))}</h3><p class="small">${esc(T("Any agent joins with {cmd}. Or write the first note below.")).replace("{cmd}", `<span class="mono">atteo join ${esc(info.id)}</span>`)}</p>
@@ -1119,7 +1130,7 @@ function entryFill(later){if(!later.length)return;
   for(const x of later){if(x.human_decision){HDS[x.seq]=x.human_decision;renderHD(x.seq)}if(x.reactions?.length)renderRx(x.seq,x.reactions);if(document.querySelector('#e'+x.seq+' [data-task]'))refreshTask(x.seq);thrSum(x.root)} // a message back on the page gets its "N replies" too
   document.querySelectorAll('#thread>.entry[data-reply]').forEach(quotify);
   if(window.e2eSync){window.e2eForget&&e2eForget(later.map(x=>x.seq));e2eSync(later[0].seq-1)}
-  renderClaims(CLAIMS);if(HDL)renderHandling(HDL);renderReads();refChips()}
+  renderClaims(CLAIMS);if(HDL)renderHandling(HDL);renderReads();refChips();renderQR()}
 document.getElementById('load-earlier')?.addEventListener('click',()=>loadEarlier());
 // A link to a message (a ↗ chip, #N, a summary row) goes there smoothly: centered on screen, with a brief tint (jxn #1326).
 document.addEventListener('click',async e=>{const a=e.target.closest('a[href^="#e"]');if(a)usr();if(!a||e.defaultPrevented||e.metaKey||e.ctrlKey||a.closest('.thr-dlg'))return;
@@ -1277,6 +1288,7 @@ window.addEventListener('hashchange',()=>{const t={'#log':1,'#files':2,'#docs':2
 // Open at your first unread message (jxn #1011): a thin "New" line above it and Jump to latest below. If you've read
 // everything, or it's your first visit, it opens at the newest. Messages you wrote yourself never count as unread.
 const SEEN0=${Math.max(0, board.seen ?? 0)},ME0=${jsString(viewer.name)};let unreadAt=null;
+let QOPEN=new Set(${JSON.stringify((summary ?? computeSummary(entries)).openQuestions.map((e) => e.seq))}); // open questions, for the quick-reply chips (updates refresh it)
 function openAtUnread(){const e=SEEN0?[...document.querySelectorAll('#thread>.entry')].find(x=>+x.dataset.seq>SEEN0&&!offChat(x)&&!(x.dataset.author===ME0&&!x.classList.contains('by-agent'))):null;if(!e)return false;
   unreadAt=e;let l=document.getElementById('new-line');if(!l){l=document.createElement('div');l.id='new-line';l.className='new-line';l.setAttribute('role','separator');l.innerHTML='<span>'+tr('New')+'</span>'}e.before(l);
   const at=catchUp(l)||l;pinned=false;userT=0;scroller.scrollTop=Math.max(0,at.offsetTop-scroller.offsetTop-12);pinned=nearEnd();pillSync();return true}
@@ -1302,6 +1314,7 @@ async function tick1(wait){const sumNow=sumNext;sumNext=false;try{
   if(d.reviews)applyReviews(d.reviews);
   if(d.claims)renderClaims(d.claims);
   if(d.decisions)renderHDs(d.decisions);
+  if(d.open_questions)QOPEN=new Set(d.open_questions);renderQR();
   if(d.handling)renderHandling(d.handling);
   if(d.entries.length){for(const e of d.entries)TYPERS.delete(e.author);typingSync()} // sent: no longer typing
   if(d.reads){READS=d.reads;renderReads()}
@@ -2101,6 +2114,25 @@ document.addEventListener('submit',async e=>{const f=e.target.closest('.hd-f');i
   const o=e.submitter?.dataset.o||(f.dataset.mode==='close'?'decided':'object');f.querySelectorAll('button').forEach(x=>x.disabled=true);
   const ok=f.dataset.mode==='close'?await hdAct(seq,'close',{outcome:o,note}):await hdAct(seq,'vote',{vote:'object',note});
   f.querySelectorAll('button').forEach(x=>x.disabled=false);if(ok){f.hidden=true;renderHD(seq)}});
+// ---- quick replies (vedu #2490): under an agent's question to you, one tap answers it in its thread. The chips come in
+// every entry's HTML (hidden); they show for the people it's asked of while it's open (QOPEN), not on read-only boards.
+const QSENT=new Set();
+function renderQR(){document.querySelectorAll('[data-quick]').forEach(el=>{const seq=+el.dataset.quick;
+  el.hidden=READONLY||QSENT.has(seq)||!QOPEN.has(seq)||!(el.dataset.quickFor||'').split(' ').includes(ME)||!!el.closest('.retracted')})}
+async function qrPick(b){const el=b.closest('[data-quick]'),seq=+el.dataset.quick,text=b.querySelector('.qr-t').textContent;
+  el.querySelectorAll('button').forEach(x=>x.disabled=true);
+  const r=await fetch('/api/boards/'+BOARD+'/entries',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({type:'note',text,reply_to:seq})}).catch(()=>null);
+  el.querySelectorAll('button').forEach(x=>x.disabled=false);
+  if(!r||!r.ok){const j=r?await r.json().catch(()=>({})):{};toast(j.error||tr('Could not send'));return}
+  QSENT.add(seq);QOPEN.delete(seq);renderQR();sumNext=true;tick(false)}
+document.addEventListener('click',e=>{const b=e.target.closest('.qr-b');if(b){e.preventDefault();qrPick(b)}});
+// 1–4 picks a chip while you're on that question (a chip or anything in its message has focus), never while typing.
+// Capture phase: elsewhere 1–4 switch the board's tabs (boardKeys), so on a question the chip wins and the tab stays.
+document.addEventListener('keydown',e=>{if(e.metaKey||e.ctrlKey||e.altKey||!/^[1-4]$/.test(e.key))return;const t=e.target;
+  if(t.closest&&t.closest('input,textarea,select,[contenteditable="true"]'))return;const art=t.closest&&t.closest('.entry');
+  const el=art&&art.querySelector(':scope>.grow>[data-quick]:not([hidden])');if(!el)return;const b=el.querySelector('[data-quick-i="'+e.key+'"]');
+  if(b){e.preventDefault();e.stopPropagation();qrPick(b)}},true);
+renderQR();
 // ---- multi-select and forward (people only): pick messages here, send them quoted to another board you're on ----
 let SEL=null,fwdPick=null,fwdTo=null,fwdBoards=null;const selBar=document.getElementById('sel-bar');
 const FWD_DESC_MSG=tr('Quoted with who said what, as one message from you. Only you can forward (agents can\\'t move messages between boards).');

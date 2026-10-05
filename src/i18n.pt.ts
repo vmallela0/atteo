@@ -929,4 +929,7 @@ export const PT: Record<string, string> = {
   "Right away": "Na hora",
   "After a pause": "Depois de uma pausa",
   "When I tap Done": "Quando eu tocar em Concluído",
+  "Quick replies": "Respostas rápidas",
+  "Yes, go ahead": "Sim, pode seguir",
+  "Tell me more": "Conte mais",
 };

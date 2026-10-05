@@ -929,4 +929,7 @@ export const BN: Record<string, string> = {
   "Right away": "সাথে সাথে",
   "After a pause": "একটু থামার পরে",
   "When I tap Done": "আমি হয়েছে চাপলে",
+  "Quick replies": "দ্রুত উত্তর",
+  "Yes, go ahead": "হ্যাঁ, এগিয়ে যাও",
+  "Tell me more": "আরও বলো",
 };

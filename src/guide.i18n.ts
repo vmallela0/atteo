@@ -103,6 +103,8 @@ const KEYS = [
   "In Board info, owners can rename or archive a board, set how long it keeps messages, or delete it (restorable for 30 days).",
   "Replies only in their threads",
   "Display → Replies → Only in their threads keeps the chat to top-level messages, each with its reply count; tap the count to open the thread.",
+  "One-tap answers to an agent",
+  "When an agent asks you a question, tap a button under it (Yes, go ahead · Not now · Tell me more, or the choices it offered) and it's answered in the thread. On the web, 1–4 picks one.",
 ];
 
 const ZH_HANS = [
@@ -206,6 +208,8 @@ const ZH_HANS = [
   "在“看板信息”中，所有者可以重命名或归档看板、设置消息保留多久，或删除看板（30 天内可恢复）。",
   "回复只在各自的话题里",
   "“显示 → 回复 → 只在各自的话题里”让聊天里只留顶层消息，每条显示回复数；点回复数即可打开话题。",
+  "一键回答智能体",
+  "智能体向你提问时，点一下下方的按钮（好，继续 · 现在不用 · 再说详细点，或它给出的选项），就会在话题里作答。网页上按 1–4 选择。",
 ];
 
 const ZH_HANT = [
@@ -309,6 +313,8 @@ const ZH_HANT = [
   "在「看板資訊」中，擁有者可以重新命名或封存看板、設定訊息保留多久，或刪除看板（30 天內可復原）。",
   "回覆只在各自的討論串裡",
   "「顯示 → 回覆 → 只在各自的討論串裡」讓聊天裡只留頂層訊息，每則顯示回覆數；點回覆數即可開啟討論串。",
+  "一鍵回答代理",
+  "代理向你提問時，點一下下方的按鈕（好，繼續 · 現在不用 · 再說詳細點，或它提供的選項），就會在討論串裡作答。網頁上按 1–4 選擇。",
 ];
 
 const ES = [
@@ -412,6 +418,8 @@ const ES = [
   "En Información del tablero, los dueños pueden renombrar o archivar un tablero, fijar cuánto tiempo guarda los mensajes o eliminarlo (se puede restaurar durante 30 días).",
   "Respuestas solo en sus hilos",
   "Visualización → Respuestas → Solo en sus hilos deja en el chat solo los mensajes principales, cada uno con su número de respuestas; toca el número para abrir el hilo.",
+  "Responde a un agente con un toque",
+  "Cuando un agente te hace una pregunta, toca un botón debajo (Sí, adelante · Ahora no · Cuéntame más, o las opciones que ofreció) y queda respondida en el hilo. En la web, 1–4 elige una.",
 ];
 
 const FR = [
@@ -515,6 +523,8 @@ const FR = [
   "Dans Infos du tableau, les propriétaires peuvent renommer ou archiver un tableau, choisir combien de temps il garde les messages, ou le supprimer (restaurable pendant 30 jours).",
   "Réponses seulement dans leurs fils",
   "Affichage → Réponses → Seulement dans leurs fils ne garde dans la discussion que les messages principaux, chacun avec son nombre de réponses ; touchez ce nombre pour ouvrir le fil.",
+  "Répondre à un agent d'un geste",
+  "Quand un agent vous pose une question, touchez un bouton dessous (Oui, vas-y · Pas maintenant · Dis-m'en plus, ou les choix qu'il propose) : la réponse part dans le fil. Sur le web, 1–4 en choisit un.",
 ];
 
 const JA = [
@@ -618,6 +628,8 @@ const JA = [
   "ボード情報で、所有者はボードの名前変更やアーカイブ、メッセージの保持期間の設定、削除（30 日以内なら復元可能）ができます。",
   "返信はスレッド内のみ",
   "表示 → 返信 → スレッド内のみ にすると、チャットには元のメッセージだけが返信数付きで並びます。返信数をタップするとスレッドが開きます。",
+  "エージェントにワンタップで返答",
+  "エージェントから質問されたら、下のボタン（はい、進めて · 今はいい · もっと詳しく、またはエージェントが示した選択肢）をタップするとスレッドで返答されます。Webでは1〜4で選べます。",
 ];
 
 const KO = [
@@ -721,6 +733,8 @@ const KO = [
   "보드 정보에서 소유자는 보드 이름을 바꾸거나 보관하고, 메시지 보존 기간을 정하거나, 삭제(30일 안에 복원 가능)할 수 있습니다.",
   "답장은 각 스레드에서만",
   "화면 → 답장 → 각 스레드에서만을 고르면 채팅에는 원래 메시지만 답장 수와 함께 남습니다. 답장 수를 누르면 스레드가 열립니다.",
+  "에이전트에게 한 번에 답하기",
+  "에이전트가 질문하면 아래 버튼(네, 진행해 주세요 · 지금은 아니요 · 더 알려 주세요, 또는 에이전트가 제시한 선택지)을 누르면 스레드에 답이 달립니다. 웹에서는 1–4로 고릅니다.",
 ];
 
 const HI = [
@@ -824,6 +838,8 @@ const HI = [
   "बोर्ड जानकारी में मालिक बोर्ड का नाम बदल सकते हैं या उसे आर्काइव कर सकते हैं, तय कर सकते हैं कि संदेश कितने समय तक रहें, या उसे हटा सकते हैं (30 दिन तक वापस लाया जा सकता है)।",
   "जवाब सिर्फ़ अपने थ्रेड में",
   "डिस्प्ले → जवाब → सिर्फ़ अपने थ्रेड में चुनने पर चैट में सिर्फ़ मुख्य संदेश रहते हैं, हर एक के साथ उसके जवाबों की गिनती; थ्रेड खोलने के लिए गिनती पर टैप करें।",
+  "एजेंट को एक टैप में जवाब",
+  "जब कोई एजेंट आपसे सवाल पूछे, तो उसके नीचे का बटन टैप करें (हाँ, आगे बढ़ो · अभी नहीं · और बताओ, या उसके दिए विकल्प) और थ्रेड में जवाब चला जाता है। वेब पर 1–4 से चुनें।",
 ];
 
 const PT = [
@@ -927,6 +943,8 @@ const PT = [
   "Em Informações do quadro, os donos podem renomear ou arquivar um quadro, definir por quanto tempo ele guarda as mensagens ou excluí-lo (dá para restaurar por 30 dias).",
   "Respostas só nas próprias conversas",
   "Exibição → Respostas → Só nas próprias conversas deixa no chat só as mensagens principais, cada uma com o número de respostas; toque no número para abrir a conversa.",
+  "Responda a um agente com um toque",
+  "Quando um agente fizer uma pergunta, toque num botão abaixo dela (Sim, pode seguir · Agora não · Conte mais, ou as opções que ele ofereceu) e ela é respondida na conversa. Na web, 1–4 escolhe uma.",
 ];
 
 const DE = [
@@ -1030,6 +1048,8 @@ const DE = [
   "In den Board-Infos können Besitzer ein Board umbenennen oder archivieren, festlegen, wie lange es Nachrichten aufbewahrt, oder es löschen (30 Tage lang wiederherstellbar).",
   "Antworten nur in ihren Threads",
   "Anzeige → Antworten → Nur in ihren Threads lässt im Chat nur die Hauptnachrichten, jede mit ihrer Antwortzahl; tippe auf die Zahl, um den Thread zu öffnen.",
+  "Einem Agenten mit einem Tippen antworten",
+  "Stellt dir ein Agent eine Frage, tippe auf einen Button darunter (Ja, mach weiter · Nicht jetzt · Erzähl mehr, oder die Optionen, die er anbietet), und sie ist im Thread beantwortet. Im Web wählt 1–4 eine aus.",
 ];
 
 const RU = [
@@ -1133,6 +1153,8 @@ const RU = [
   "В Информации о доске владельцы могут переименовать или архивировать доску, задать срок хранения сообщений или удалить её (восстановить можно в течение 30 дней).",
   "Ответы только в своих ветках",
   "Отображение → Ответы → Только в своих ветках оставляет в чате только основные сообщения со счётчиком ответов; нажмите на счётчик, чтобы открыть ветку.",
+  "Ответ агенту одним касанием",
+  "Когда агент задаёт вам вопрос, нажмите кнопку под ним (Да, продолжай · Не сейчас · Расскажи подробнее или предложенные им варианты), и ответ уйдёт в ветку. В вебе выберите 1–4.",
 ];
 
 const ID = [
@@ -1236,6 +1258,8 @@ const ID = [
   "Di Info papan, pemilik bisa mengganti nama atau mengarsipkan papan, mengatur berapa lama pesan disimpan, atau menghapusnya (bisa dipulihkan selama 30 hari).",
   "Balasan hanya di utasnya",
   "Tampilan → Balasan → Hanya di utasnya membuat obrolan hanya berisi pesan utama, masing-masing dengan jumlah balasannya; ketuk jumlahnya untuk membuka utas.",
+  "Jawab agen dengan sekali ketuk",
+  "Saat agen bertanya, ketuk tombol di bawahnya (Ya, lanjutkan · Jangan sekarang · Ceritakan lebih lanjut, atau pilihan yang ia tawarkan) dan pertanyaannya terjawab di utas. Di web, 1–4 memilih salah satunya.",
 ];
 
 const TR = [
@@ -1339,6 +1363,8 @@ const TR = [
   "Pano bilgisi'nde sahipler panoyu yeniden adlandırabilir ya da arşivleyebilir, iletilerin ne kadar saklanacağını ayarlayabilir veya silebilir (30 gün içinde geri yüklenebilir).",
   "Yanıtlar yalnızca kendi konularında",
   "Görünüm → Yanıtlar → Yalnızca kendi konularında, sohbette yalnızca ana iletileri yanıt sayılarıyla bırakır; konuyu açmak için sayıya dokunun.",
+  "Ajana tek dokunuşla yanıt",
+  "Bir ajan size soru sorduğunda altındaki bir düğmeye dokunun (Evet, devam et · Şimdi değil · Daha fazla anlat ya da sunduğu seçenekler); yanıt konuya gider. Web'de 1–4 ile seçin.",
 ];
 
 const BN = [
@@ -1442,6 +1468,8 @@ const BN = [
   "বোর্ডের তথ্য-এ মালিকরা বোর্ডের নাম বদলাতে বা আর্কাইভ করতে, বার্তা কতদিন থাকবে ঠিক করতে, বা মুছে ফেলতে পারেন (30 দিন পর্যন্ত ফিরিয়ে আনা যায়)।",
   "উত্তর শুধু নিজের থ্রেডে",
   "ডিসপ্লে → উত্তর → শুধু নিজের থ্রেডে বেছে নিলে চ্যাটে শুধু মূল বার্তাগুলো থাকে, প্রতিটির সাথে উত্তরের সংখ্যা; থ্রেড খুলতে সংখ্যায় ট্যাপ করুন।",
+  "এক ট্যাপে এজেন্টকে উত্তর",
+  "কোনো এজেন্ট প্রশ্ন করলে নিচের একটি বোতাম ট্যাপ করুন (হ্যাঁ, এগিয়ে যাও · এখন না · আরও বলো, অথবা এজেন্টের দেওয়া বিকল্প), থ্রেডে উত্তর চলে যাবে। ওয়েবে 1–4 দিয়ে বেছে নিন।",
 ];
 
 const AR = [
@@ -1545,6 +1573,8 @@ const AR = [
   "من معلومات اللوحة، يستطيع المالكون إعادة تسمية اللوحة أو أرشفتها، أو ضبط مدة احتفاظها بالرسائل، أو حذفها (قابلة للاستعادة خلال 30 يومًا).",
   "الردود في سلاسلها فقط",
   "العرض ← الردود ← في سلاسلها فقط يُبقي المحادثة للرسائل الرئيسية، كلٌّ مع عدد ردوده؛ انقر العدد لفتح السلسلة.",
+  "الرد على وكيل بلمسة واحدة",
+  "عندما يطرح عليك وكيل سؤالًا، المس زرًا أسفله (نعم، تابع · ليس الآن · أخبرني المزيد، أو الخيارات التي عرضها) فيُجاب في سلسلة الرسائل. على الويب، يختار 1–4 أحدها.",
 ];
 
 const table = (vals: string[]) => Object.fromEntries(KEYS.map((k, i) => [k, vals[i]]));

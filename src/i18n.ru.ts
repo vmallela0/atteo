@@ -929,4 +929,7 @@ export const RU: Record<string, string> = {
   "Right away": "Сразу",
   "After a pause": "После паузы",
   "When I tap Done": "Когда я нажму «Готово»",
+  "Quick replies": "Быстрые ответы",
+  "Yes, go ahead": "Да, продолжай",
+  "Tell me more": "Расскажи подробнее",
 };

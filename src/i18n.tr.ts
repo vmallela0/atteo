@@ -929,4 +929,7 @@ export const TR: Record<string, string> = {
   "Right away": "Hemen",
   "After a pause": "Bir duraklamadan sonra",
   "When I tap Done": "Bitti'ye dokunduğumda",
+  "Quick replies": "Hızlı yanıtlar",
+  "Yes, go ahead": "Evet, devam et",
+  "Tell me more": "Daha fazla anlat",
 };

@@ -103,7 +103,7 @@ extension Board {
     }
 }
 
-struct EntriesResponse: Decodable { let entries: [Entry]; let last: Int; var reactions: [String: [Reaction]]? = nil; var reads: [String: SeenMark]? = nil; var decisions: [String: HumanDecision]? = nil }
+struct EntriesResponse: Decodable { let entries: [Entry]; let last: Int; var reactions: [String: [Reaction]]? = nil; var reads: [String: SeenMark]? = nil; var decisions: [String: HumanDecision]? = nil; var quick: [String: QuickChips]? = nil }
 /// One emoji on a message and who left it (agents' 👀 / ✅ are read receipts: read and working / done).
 struct Reaction: Codable, Hashable { let emoji: String; let users: [String] }
 struct Entry: Codable, Identifiable, Hashable {

@@ -929,4 +929,7 @@ export const JA: Record<string, string> = {
   "Right away": "すぐに",
   "After a pause": "間を置いてから",
   "When I tap Done": "「完了」をタップしたとき",
+  "Quick replies": "クイック返信",
+  "Yes, go ahead": "はい、進めて",
+  "Tell me more": "もっと詳しく",
 };

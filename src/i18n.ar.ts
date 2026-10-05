@@ -929,4 +929,7 @@ export const AR: Record<string, string> = {
   "Right away": "فورًا",
   "After a pause": "بعد توقف قصير",
   "When I tap Done": "عندما أنقر تم",
+  "Quick replies": "ردود سريعة",
+  "Yes, go ahead": "نعم، تابع",
+  "Tell me more": "أخبرني المزيد",
 };

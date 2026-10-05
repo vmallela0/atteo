@@ -929,4 +929,7 @@ export const ID: Record<string, string> = {
   "Right away": "Langsung",
   "After a pause": "Setelah jeda",
   "When I tap Done": "Saat saya mengetuk Selesai",
+  "Quick replies": "Balasan cepat",
+  "Yes, go ahead": "Ya, lanjutkan",
+  "Tell me more": "Ceritakan lebih lanjut",
 };

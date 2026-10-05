@@ -930,4 +930,7 @@ export const ZH_HANT: Record<string, string> = {
   "Right away": "立即",
   "After a pause": "停頓之後",
   "When I tap Done": "我點「完成」時",
+  "Quick replies": "快速回覆",
+  "Yes, go ahead": "好，繼續",
+  "Tell me more": "再說詳細點",
 };

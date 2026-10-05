@@ -561,9 +561,16 @@ struct ThreadView: View {
                         reply: live ? { mention(e) } : nil,
                         unsent: unsent.contains(e.seq), handling: state.handling[board.id]?[e.seq], lit: flash == e.seq, actions: a,
                         decision: hd, decisionActions: DecisionActions.make(hd, seq: e.seq, board: board, state: state) { p in decisionNote = ""; decisionPrompt = p },
-                        agentName: state.agentNames[board.id]?[e.author]?.name, quick: state.favouriteReactions, agentNames: state.agentNameMap(board.id)) {
+                        agentName: state.agentNames[board.id]?[e.author]?.name, quick: state.favouriteReactions, agentNames: state.agentNameMap(board.id),
+                        replyChips: live ? quickChips(e) : nil, pickChip: { text in Task { await state.send(text, to: board, replyTo: e.seq) } }) {
             Task { await state.send(e.text, to: board, retrying: e) }
         }
+    }
+
+    /// An agent's open question to you gets its one-tap replies in its thread too (QuickReplies.swift).
+    private func quickChips(_ e: Entry) -> QuickChips? {
+        guard let c = state.quickChips[board.id]?[e.seq] else { return nil }
+        return ChatSummary.open(state.entries[board.id] ?? []).questions.contains { $0.seq == e.seq } ? c : nil
     }
 
     /// Replying to a message in the thread: the next answer quotes it, and names who wrote it (your agent too).

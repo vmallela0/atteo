@@ -929,4 +929,7 @@ export const HI: Record<string, string> = {
   "Right away": "तुरंत",
   "After a pause": "थोड़ा रुकने के बाद",
   "When I tap Done": "जब मैं हो गया टैप करूँ",
+  "Quick replies": "त्वरित जवाब",
+  "Yes, go ahead": "हाँ, आगे बढ़ो",
+  "Tell me more": "और बताओ",
 };

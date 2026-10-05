@@ -107,6 +107,7 @@ struct BoardView: View {
         let gone: Set<Int>
         let replies: [Int: [Entry]]
         let latestMine: Int?
+        var openQuestions: Set<Int> = [] // unanswered questions (a quick reply shows only under an open one)
     }
 
     private func rows() -> Rows {
@@ -120,7 +121,8 @@ struct BoardView: View {
         let shown = list.filter { $0.retracts == nil && !filteredOut($0) && !folded($0, in: bySeq) }
         let replies = Dictionary(grouping: list.filter { $0.replyTo != nil && $0.retracts == nil && $0.seq > 0 && !gone.contains($0.seq) }, by: { rootOf($0, in: bySeq) })
         let latestMine = shown.last { isMine($0) && $0.seq > 0 && $0.type != "task" && !gone.contains($0.seq) }?.seq
-        return Rows(shown: shown, bySeq: bySeq, gone: gone, replies: replies, latestMine: latestMine)
+        let open = state.quickChips[board.id]?.isEmpty == false ? Set(ChatSummary.open(list).questions.map(\.seq)) : []
+        return Rows(shown: shown, bySeq: bySeq, gone: gone, replies: replies, latestMine: latestMine, openQuestions: open)
     }
 
     private var anyUnreadThread: Bool { ThreadIndex.threads(list).contains { threadSeen.unread(board.id, $0, me: me) } }
@@ -475,6 +477,7 @@ struct BoardView: View {
         let live = e.seq > 0 && e.pending != true && e.failed != true && !unsent
         let showReceipt = mine && live && (e.seq == r.latestMine || openReceipts.contains(e.seq))
         let hd = e.type == "decision" && !unsent ? state.decisions[board.id]?[e.seq] ?? e.humanDecision : nil
+        let chips = live && r.openQuestions.contains(e.seq) ? state.quickChips[board.id]?[e.seq] : nil
         return EntryRow(e: e, grouped: grouped, mine: mine, board: board.id, tasks: state.tasks[board.id] ?? [], reactions: state.reactions[board.id]?[e.seq] ?? [],
                         parent: e.replyTo.flatMap { r.bySeq[$0] }, me: me, members: state.members[board.id] ?? [], progress: state.uploads[e.seq],
                         reply: live ? { startReply(to: e) } : nil,
@@ -483,7 +486,8 @@ struct BoardView: View {
                         openReceipt: mine && live ? { if let r = receipt(for: e) { seenBy = r } } : nil,
                         actions: actions(for: e, mine: mine, live: live, r),
                         decision: hd, decisionActions: DecisionActions.make(hd, seq: e.seq, board: board, state: state) { p in decisionNote = ""; decisionPrompt = p },
-                        agentName: state.agentNames[board.id]?[e.author]?.name, quick: state.favouriteReactions, agentNames: state.agentNameMap(board.id)) {
+                        agentName: state.agentNames[board.id]?[e.author]?.name, quick: state.favouriteReactions, agentNames: state.agentNameMap(board.id),
+                        replyChips: chips, pickChip: { text in Task { await state.send(text, to: board, replyTo: e.seq) } }) {
             Task { if e.local != nil || e.isMultiFile { await state.retryUpload(e, in: board) } else { await state.send(e.text, to: board, retrying: e) } }
         }
     }
@@ -852,6 +856,8 @@ struct EntryRow: View {
     var agentName: String? = nil // what its owner named this agent ("Jarvis"), if they did
     var quick: [String] = defaultReactions // your favourite reactions, the row on top of the long-press menu (#1163)
     var agentNames: [String: String] = [:] // named agents here, lowercased name → owner ("@Jarvis" in a message)
+    var replyChips: QuickChips? = nil // an agent's open question to you: one-tap replies (QuickReplies.swift)
+    var pickChip: (String) -> Void = { _ in }
     var retry: () -> Void = {}
     @State var drag: CGFloat = 0 // swipe right to reply
     @Environment(\.chatDensity) private var density
@@ -1115,6 +1121,7 @@ struct EntryRow: View {
                     MessageBody(text: caption, render: words)
                 }
                 if let decision, !unsent { HumanDecisionCard(hd: decision, me: me, actions: decisionActions).padding(.top, Space.xs) }
+                if let replyChips, !unsent { QuickReplyRow(chips: replyChips, pick: pickChip).padding(.top, Space.xs) }
                 footer
             }
         }
