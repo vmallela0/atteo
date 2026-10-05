@@ -41,6 +41,12 @@ export function onlyOptions(cmd: string, opt: Record<string, string | true>, kno
   if (bad.length) throw new CliError(`atteo ${cmd} doesn't take ${bad.map((k) => "--" + k).join(", ")}. Options: ${known.map((k) => "--" + k).join(" ")}`);
 }
 
+/** Flags every command takes that never have a value: `atteo members --json --board X` keeps --board for the board. */
+const ALWAYS_FLAGS = new Set(["json", "quiet"]);
+/** --json: the API's own objects, unfenced, as every --json is (the help promises it on every command). */
+const json = (opt: Record<string, string | true>) => opt.json === true;
+const printJson = (data: unknown) => say(JSON.stringify(data, null, 2));
+
 export function parseArgs(args: string[], bools: string[] = []): { pos: string[]; opt: Record<string, string | true> } {
   const pos: string[] = [];
   const opt: Record<string, string | true> = {};
@@ -48,7 +54,7 @@ export function parseArgs(args: string[], bools: string[] = []): { pos: string[]
     const a = args[i];
     if (a.startsWith("--")) {
       const key = ALIASES[a.slice(2)] ?? a.slice(2);
-      if (bools.includes(key) || i + 1 >= args.length) opt[key] = true;
+      if (ALWAYS_FLAGS.has(key) || bools.includes(key) || i + 1 >= args.length) opt[key] = true;
       else opt[key] = args[++i];
     } else pos.push(a);
   }
@@ -252,6 +258,7 @@ const int = (v: string | undefined, what: string): number => {
 
 async function boards(args: string[]) {
   const { opt } = parseArgs(args);
+  if (json(opt)) return printJson(await api(opt, "GET", "/api/me/boards"));
   say(await tool(opt, "list_boards", {}, null));
 }
 
@@ -686,6 +693,7 @@ async function people(args: string[]) {
   const { pos, opt } = parseArgs(args);
   if (!pos.length) throw new CliError("Usage: atteo people <name or part of one>");
   const j = await api(opt, "GET", `/api/people?q=${encodeURIComponent(pos.join(" "))}`);
+  if (json(opt)) return printJson(j);
   if (!j.people.length) return say(`Nobody found. Exact handles always work (e.g. "atteo people jxn"); partial names only match friends and people you share a board with.`);
   // Display names are what each person typed: inside the fence (#2181).
   say(fence(j.people.map((p: any) => `${p.name}${p.display_name ? ` (${oneLine(p.display_name)})` : ""}  ${presenceText(p)}  ${RELATION[p.relation] ? `· ${RELATION[p.relation]}` : `· add: atteo add ${p.name}`}${p.shared_boards ? ` · ${p.shared_boards} shared board${p.shared_boards === 1 ? "" : "s"}` : ""}`).join("\n")));
@@ -695,6 +703,7 @@ async function whois(args: string[]) {
   const { pos, opt } = parseArgs(args);
   if (!pos[0]) throw new CliError("Usage: atteo whois <name>");
   const j = await api(opt, "GET", `/api/people/${encodeURIComponent(pos[0].replace(/^@/, "").toLowerCase())}`);
+  if (json(opt)) return printJson(j);
   const p = j.person;
   say(`${p.name}\n  ${presenceText(p)}\n  ${RELATION[p.relation] || "not friends"}${p.shared_boards ? ` · ${p.shared_boards} shared board${p.shared_boards === 1 ? "" : "s"}` : ""}${p.display_name || p.bio ? `\n${fence([p.display_name ? `name: ${oneLine(p.display_name)}` : "", p.bio ? `bio: ${p.bio}` : ""].filter(Boolean).join("\n"))}` : ""}`);
 }
@@ -702,6 +711,7 @@ async function whois(args: string[]) {
 async function friends(args: string[]) {
   const { opt } = parseArgs(args);
   const j = await api(opt, "GET", "/api/friends");
+  if (json(opt)) return printJson(j);
   if (j.incoming.length) {
     say("Friend requests:");
     say(fence(j.incoming.map((p: { name: string; note?: string }) => `  ${p.name}${p.note ? ` — "${oneLine(p.note)}"` : ""}`).join("\n")));
@@ -744,6 +754,14 @@ async function get(args: string[]) {
 async function search(args: string[]) {
   const { pos, opt } = parseArgs(args, ["compact"]);
   if (!pos.length) throw new CliError('Usage: atteo search "<words>" [--author name] [--type t]');
+  if (json(opt)) {
+    const board = currentBoard(opt);
+    const q = new URLSearchParams({ q: pos.join(" ") });
+    if (optStr(opt, "author")) q.set("from", optStr(opt, "author")!);
+    if (optStr(opt, "type")) q.set("type", optStr(opt, "type")!);
+    if (optStr(opt, "more")) q.set("more", optStr(opt, "more")!);
+    return printJson({ board, ...(await api(opt, "GET", `/api/boards/${board}/search?${q}`)) });
+  }
   say(await tool(opt, "search", { query: pos.join(" "), author: optStr(opt, "author"), type: optStr(opt, "type"), limit: optStr(opt, "limit") ? Number(optStr(opt, "limit")) : undefined, more: optStr(opt, "more"), compact: opt.compact === true }));
 }
 
@@ -812,7 +830,7 @@ async function tickItem(opt: Record<string, string | true>, seq: number, want: s
 async function doc(args: string[]) {
   const { pos, opt } = parseArgs(args, ["regex", "json"]);
   const [action = "list", a, b] = pos;
-  if (action === "list") return say(await tool(opt, "doc", { action: "list" }));
+  if (action === "list") return json(opt) ? printJson({ board: currentBoard(opt), ...(await api(opt, "GET", `/api/boards/${currentBoard(opt)}/docs`)) }) : say(await tool(opt, "doc", { action: "list" }));
   if (action === "read") return say(await tool(opt, "doc", { action: "read", name: a, version: optStr(opt, "version") ? Number(optStr(opt, "version")) : undefined }));
   if (action === "history") return say(await tool(opt, "doc", { action: "history", name: a }));
   if (action === "grep") return say(await tool(opt, "doc", { action: "grep", pattern: a, name: b, regex: opt.regex === true }));
@@ -876,6 +894,7 @@ async function members(args: string[]) {
   const { opt } = parseArgs(args);
   const b = currentBoard(opt);
   const j = await api(opt, "GET", `/api/boards/${b}/members`);
+  if (json(opt)) return printJson({ board: b, ...j });
   for (const m of j.members) say(`${m.user.padEnd(16)} ${m.role.padEnd(12)}${m.expires_at ? `until ${day(m.expires_at)}` : ""}`);
   say(`\nYou're ${j.you === "owner" ? "an owner" : `a ${j.you}`}.${j.you === "owner" ? " Change access: atteo role <name> viewer|contributor|owner [--days N]" : ""}`);
 }
@@ -920,6 +939,7 @@ async function auditCmd(args: string[]) {
     return;
   }
   const j = await api(opt, "GET", `/api/boards/${board}/audit`);
+  if (json(opt)) return printJson({ board, ...j });
   if (!j.audit.length) return say("Nothing yet.");
   for (const a of j.audit) say(`${new Date(a.ts).toISOString().slice(0, 16).replace("T", " ")}  ${a.actor.padEnd(12)} ${a.action}${a.target ? ` ${a.target}` : ""}${a.detail ? ` (${a.detail})` : ""}`);
 }
@@ -950,6 +970,7 @@ async function keys(args: string[]) {
     return say(`Approved ${k.label ?? "that device"} (${k.id.slice(0, 8)}). It gets the keys of your encrypted boards the next time this machine reads or posts on them.`);
   }
   const ok = new Set(pins()[creds().user] ?? []);
+  if (json(opt)) return printJson({ keys: (j.keys as { id: string; public_key: string }[]).map((k) => ({ ...k, this_machine: k.id === mine, approved_here: ok.has(pinId(k.id, k.public_key)) })) });
   for (const k of j.keys) say(`${k.id}  ${k.label ?? ""}${k.id === mine ? "  (this machine)" : ok.has(pinId(k.id, k.public_key)) ? "  (approved here)" : ""}  ${new Date(k.created_at).toISOString().slice(0, 10)}`);
 }
 

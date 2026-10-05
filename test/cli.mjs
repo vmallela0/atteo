@@ -1243,6 +1243,46 @@ await step("task tick / untick / edit: tick the one checklist item matching the 
   assert(r.code === 1 && r.err.includes("Usage: atteo task edit"), r.err);
 });
 
+await step("--json on every command (alt-c #3480): members, audit, boards, friends, people, whois, keys, search, doc list, whoami parse as JSON; --json never eats the next flag", async () => {
+  // Standalone (#3007): its own board, with a member, a file and a post to find.
+  const jb = (await ops("boards", { user: A, title: `e2e cli json ${run}` })).board.id;
+  await ops("members", { board: jb, user: B });
+  await tool(tokA, jb, "post", { type: "note", text: `findable zebra ${run}` });
+  await tool(tokA, jb, "read", {});
+  await tool(tokA, jb, "post", { type: "artifact", text: "notes", artifact_name: `json-${run}.md`, artifact_content: "# hi\n" });
+  const j = async (...args) => {
+    const r = await cli([...args.slice(0, 1), ...(args[1] ? [args[1]] : []), "--json", "--board", jb, ...args.slice(2)]);
+    try {
+      return JSON.parse(r.out);
+    } catch {
+      throw new Error(`atteo ${args.join(" ")} --json isn't JSON (exit ${r.code}): ${r.out.slice(0, 200)} ${r.err.slice(0, 200)}`);
+    }
+  };
+  let o = await j("members");
+  assert(o.board === jb && o.members.some((m) => m.user === A && m.role === "owner") && o.members.some((m) => m.user === B), JSON.stringify(o));
+  o = await j("audit");
+  assert(o.board === jb && Array.isArray(o.audit), JSON.stringify(o).slice(0, 300));
+  o = await j("boards");
+  assert(JSON.stringify(o).includes(jb), "boards lists this one: " + JSON.stringify(o).slice(0, 300));
+  o = await j("friends");
+  assert(Array.isArray(o.friends) && Array.isArray(o.incoming) && Array.isArray(o.outgoing), JSON.stringify(o));
+  o = await j("people", B);
+  assert(o.people.some((p) => p.name === B), JSON.stringify(o));
+  o = await j("whois", B);
+  assert(o.person.name === B, JSON.stringify(o));
+  o = await j("keys");
+  assert(o.keys.some((k) => k.this_machine === true), JSON.stringify(o).slice(0, 300));
+  o = await j("search", "zebra");
+  assert(o.board === jb && o.entries.some((e) => e.snippet.replace(/[«»]/g, "").includes(`findable zebra ${run}`)), JSON.stringify(o).slice(0, 300));
+  o = await j("doc", "list");
+  assert(o.board === jb && JSON.stringify(o.docs).includes(`json-${run}.md`), JSON.stringify(o).slice(0, 300));
+  for (const c of ["whoami", "status"]) {
+    const r = await cli([c, "--json"]);
+    const w = JSON.parse(r.out);
+    assert(w.signed_in === true && w.user === A && w.server === BASE && !JSON.stringify(w).includes("token"), `${c}: ${r.out}`);
+  }
+});
+
 await step("task remove / retract: a task leaves the board (its author or the board's creator only), a note is unsent, a non-task isn't removed", async () => {
   const n = Number((await tool(tokB, board, "task", { action: "create", title: `Drop me ${run}`, body: "- [ ] nothing" })).match(/#(\d+)/)[1]);
   await tool(tokB, board, "read", {});

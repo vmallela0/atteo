@@ -190,6 +190,8 @@ async function offerWatcher(args: string[]) {
 
 function status() {
   const c = load();
+  // --json: from the saved login alone, like the text (no network); never the token.
+  if (process.argv.includes("--json")) return console.log(JSON.stringify(c ? { signed_in: true, user: c.user, server: c.server, expires_at: c.expires_at, expired: c.expires_at < Date.now(), store: storeName() } : { signed_in: false }, null, 2));
   if (!c) return err("Not signed in. Run: atteo login");
   const left = Math.round((c.expires_at - Date.now()) / 86400e3);
   err(`Signed in as ${c.user} on ${c.server}`);
