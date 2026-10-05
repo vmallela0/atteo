@@ -2,6 +2,7 @@
 // Minimal and quiet (in the spirit of Vercel Geist / Linear): neutral grays, one ink color for primary actions,
 // hairline borders, light + dark, works down to phone width. Type: Onest / Enriqueta / Courier Prime (fontfaces.ts).
 
+import { APPLE_TOUCH_PNG_B64 } from "./appleIcon";
 import { FONT_CSS, FONT_V } from "./fontfaces";
 import { chartHtml } from "./chart";
 import { STATUS_CSS, statusHtml } from "./status";
@@ -1281,6 +1282,10 @@ export const WORDMARK_DEFS = `<svg width="0" height="0" style="position:absolute
 export const ICON_LIGHT_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024"><defs><clipPath id="bsq"><rect width="1024" height="1024" rx="230"/></clipPath><filter id="brough" x="-10%" y="-10%" width="120%" height="120%"><feTurbulence type="fractalNoise" baseFrequency="0.018" numOctaves="2" seed="7"/><feDisplacementMap in="SourceGraphic" scale="16"/></filter></defs><g clip-path="url(#bsq)"><rect width="1024" height="1024" fill="#FAFAF7"/><g transform="translate(512 512) translate(-519.9 -507.7)"><g filter="url(#brough)" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M400.0 512.0Q512.1 403.2 650.0 330.0M400.0 512.0Q517.1 623.8 660.0 700.0" stroke="#0E0E0E" stroke-width="22"/><g stroke-width="36"><g transform="translate(400.0 512.0) rotate(-90.0)" stroke="#6A1B24"><path d="M-95 -200L-19 0H19L95 -200"/><ellipse cx="0" cy="-200" rx="95" ry="32.3"/></g><g transform="translate(650.0 330.0) rotate(53.9)" stroke="#0E0E0E"><path d="M-70 -200V-6Q0 30.8 70 -6V-200"/><ellipse cx="0" cy="-200" rx="70" ry="23.8"/></g><g transform="translate(660.0 700.0) rotate(125.9)" stroke="#0E0E0E"><path d="M-70 -200V-6Q0 30.8 70 -6V-200"/><ellipse cx="0" cy="-200" rx="70" ry="23.8"/></g></g></g></g></g></svg>`;
 export const ICON_DARK_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024"><defs><clipPath id="bsq"><rect width="1024" height="1024" rx="230"/></clipPath><filter id="brough" x="-10%" y="-10%" width="120%" height="120%"><feTurbulence type="fractalNoise" baseFrequency="0.018" numOctaves="2" seed="7"/><feDisplacementMap in="SourceGraphic" scale="16"/></filter></defs><g clip-path="url(#bsq)"><rect width="1024" height="1024" fill="#0E0E0E"/><g transform="translate(512 512) translate(-519.9 -507.7)"><g filter="url(#brough)" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M400.0 512.0Q512.1 403.2 650.0 330.0M400.0 512.0Q517.1 623.8 660.0 700.0" stroke="#FAFAF7" stroke-width="22"/><g stroke-width="36"><g transform="translate(400.0 512.0) rotate(-90.0)" stroke="#C2414D"><path d="M-95 -200L-19 0H19L95 -200"/><ellipse cx="0" cy="-200" rx="95" ry="32.3"/></g><g transform="translate(650.0 330.0) rotate(53.9)" stroke="#FAFAF7"><path d="M-70 -200V-6Q0 30.8 70 -6V-200"/><ellipse cx="0" cy="-200" rx="70" ry="23.8"/></g><g transform="translate(660.0 700.0) rotate(125.9)" stroke="#FAFAF7"><path d="M-70 -200V-6Q0 30.8 70 -6V-200"/><ellipse cx="0" cy="-200" rx="70" ry="23.8"/></g></g></g></g></g></svg>`;
 export const FAVICON_SVG = ICON_LIGHT_SVG; // the paper tile reads on light and dark tab bars alike
+// The icons' addresses carry a hash of the drawing (jxn #4247): browsers keep a favicon for days, so a new logo only
+// shows once its address changes.
+export const FAVICON_SRC = `/favicon.svg?v=${fnv(FAVICON_SVG)}`;
+export const APPLE_TOUCH_SRC = `/apple-touch-icon.png?v=${fnv(APPLE_TOUCH_PNG_B64)}`;
 
 export interface Viewer {
   name: string;
@@ -1310,7 +1315,7 @@ ${v ? `<nav class="links">${link("/", esc(tr(opts.lang, "Boards")), "boards")}</
   const html = `<!doctype html><html lang="${opts.lang ?? "en"}"${dirOf(opts.lang) === "rtl" ? ' dir="rtl"' : ""}><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${esc(title)}</title>
 ${FONT_PRELOAD}
-<link rel="icon" href="/favicon.svg" type="image/svg+xml"><link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="icon" href="${FAVICON_SRC}" type="image/svg+xml"><link rel="apple-touch-icon" href="${APPLE_TOUCH_SRC}">
 <link rel="stylesheet" href="${APP_CSS_SRC}">${DISPLAY_HEAD.replace("<script>", `<script nonce="${security.nonce}">`)}</head><body>${WORDMARK_DEFS}${nav}
 <main${opts.narrow ? ' class="narrow"' : ""}>${body}</main>
 <div id="toast" role="status" aria-live="polite"></div>
@@ -1896,7 +1901,7 @@ function rawPage(title: string, body: string, script: string, status = 200, lang
   const html = `<!doctype html><html lang="${lang}"${dirOf(lang as Lang) === "rtl" ? ' dir="rtl"' : ""}><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${esc(title)}</title>
 ${FONT_PRELOAD}${scriptPreloads(script)}
-<link rel="icon" href="/favicon.svg" type="image/svg+xml"><link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="icon" href="${FAVICON_SRC}" type="image/svg+xml"><link rel="apple-touch-icon" href="${APPLE_TOUCH_SRC}">
 <link rel="stylesheet" href="${APP_CSS_SRC}">${DISPLAY_HEAD.replace("<script>", `<script nonce="${security.nonce}">`)}</head><body>${WORDMARK_DEFS}${body.replace("<script>window.PALETTE=", `<script nonce="${security.nonce}">window.PALETTE=`)}
 <div id="toast" role="status" aria-live="polite"></div>
 ${lang === "en" ? "" : `<script nonce="${security.nonce}">window.I18N=${clientTable(lang)}</script>`}<script src="${APP_JS_SRC}" nonce="${security.nonce}"></script>${pageScripts(script, security.nonce)}</body></html>`;

@@ -832,6 +832,8 @@ await step("brand: the cone-and-cans mark (jxn #2944) is the favicon, apple-touc
   assert((t.headers.get("content-type") ?? "") === "image/png" && (await t.arrayBuffer()).byteLength > 1000, "apple-touch icon not a png");
   const html = await (await web("/chats", A)).text(); // "/" is For you in Everyday (#1272); the list is /chats
   has(html, 'class="pebble"');
+  // The icons' addresses carry the drawing's hash, so a new logo isn't stuck in browsers' favicon caches (jxn #4247).
+  assert(/<link rel="icon" href="\/favicon\.svg\?v=[a-z0-9]+"/.test(html) && /<link rel="apple-touch-icon" href="\/apple-touch-icon\.png\?v=[a-z0-9]+"/.test(html), "the page links versioned icons");
   // The tokens live in the shared, cached /app.css since web-app-assets (opus-a #3423); the page links it.
   const cssHref = html.match(/<link[^>]+href="(\/app\.css[^"]*)"/)?.[1];
   assert(cssHref, "the page links /app.css");
