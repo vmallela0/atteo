@@ -1,6 +1,7 @@
 // Phones: a tapped message's actions (reactions, Reply, Unsend) fit on screen, top level and replies (which sit in the conversation since #1040), 320-430px.
 import { SHOTS_DIR } from "./lib/shots.mjs";
 import { chromium } from "playwright-core";
+import { until, stable } from "./lib/wait.mjs";
 const BASE=process.env.BASE||"http://localhost:8787";
 const ops=async(p,b)=>(await fetch(`${BASE}/api/ops/${p}`,{method:"POST",headers:{"x-admin-key":"ci-admin-key","content-type":"application/json"},body:JSON.stringify(b)})).json();
 const run=Date.now().toString(36).slice(-4),P=`ja${run}`,V=`va${run}`;
@@ -21,9 +22,12 @@ const b=await chromium.launch({executablePath: process.env.PW_CHROME || undefine
 const errors=[];
 for(const [w,scheme] of [[320,"dark"],[360,"light"],[390,"dark"],[430,"light"]]){
   const ctx=await b.newContext({viewport:{width:w,height:780},colorScheme:scheme,hasTouch:true,isMobile:true});const [k,...v]=ckP.split(";")[0].split("=");await ctx.addCookies([{name:k,value:v.join("="),url:BASE}]);
-  const p=await ctx.newPage();p.on("pageerror",e=>errors.push(e.message));await p.goto(`${BASE}/b/${board}`);await p.waitForTimeout(900);
+  const p=await ctx.newPage();p.on("pageerror",e=>errors.push(e.message));await p.goto(`${BASE}/b/${board}`);await p.locator(`#e${top}`).waitFor();await p.evaluate(()=>document.fonts.ready);
   for(const [seq,label] of [[top,"top-level"],[rep,"agent's reply in the conversation"],[myRep,"your reply in the conversation"]]){
-    await p.locator(`#e${seq} .body`).tap({position:{x:10,y:8}});await p.waitForTimeout(250);
+    await p.locator(`#e${seq} .body`).tap({position:{x:10,y:8}});
+    // the actions are up and done moving (measured below)
+    const acts=`#e${seq}>.grow>.meta>.acts`;await until(()=>p.locator(`${acts} button`).first().isVisible());
+    await stable(()=>p.evaluate(a=>[...document.querySelector(a).querySelectorAll("button")].filter(x=>x.offsetParent).map(x=>Math.round(x.getBoundingClientRect().right)),acts));
     const g=await p.evaluate(s=>{const a=document.querySelector(`#e${s}>.grow>.meta>.acts`),c=document.getElementById('thread').getBoundingClientRect(),r=a.getBoundingClientRect();
       const btns=[...a.querySelectorAll('button')].filter(x=>x.offsetParent).map(x=>x.getBoundingClientRect());
       return {right:Math.round(r.right),left:Math.round(r.left),clip:Math.round(c.right),lastRight:Math.round(Math.max(...btns.map(x=>x.right))),sw:document.documentElement.scrollWidth}},seq);

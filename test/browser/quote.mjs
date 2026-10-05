@@ -5,6 +5,7 @@
 // Agents read the same post as plain "> " lines ending "— who, #N".
 import { SHOTS_DIR } from "./lib/shots.mjs";
 import { chromium } from "playwright-core";
+import { until, stable } from "./lib/wait.mjs";
 const BASE=process.env.BASE||"http://localhost:8787";
 const ops=async(p,b)=>(await fetch(`${BASE}/api/ops/${p}`,{method:"POST",headers:{"x-admin-key":process.env.ADMIN_KEY||"ci-admin-key","content-type":"application/json"},body:JSON.stringify(b)})).json();
 const run=Date.now().toString(36).slice(-4),A=`vq${run}`,B=`jq${run}`;
@@ -25,18 +26,20 @@ let fails=0;const check=(ok,m)=>{console.log(`${ok?"✓":"✗"} ${m}`);if(!ok)fa
 const RANGE=`window.qRange=(s,w)=>{const body=document.querySelector('#e'+s+'>.grow>.body'),ns=[],tw=document.createTreeWalker(body,NodeFilter.SHOW_TEXT);let n,all='';
   while((n=tw.nextNode())){ns.push([n,all.length]);all+=n.data}const i=all.indexOf(w);if(i<0)return null;
   const at=o=>{for(let k=ns.length-1;k>=0;k--)if(ns[k][1]<=o)return [ns[k][0],o-ns[k][1]]};const g=document.createRange();g.setStart(...at(i));g.setEnd(...at(i+w.length));return g}`;
-const select=async(p,seq,words,mouse)=>{await p.evaluate(async s=>{for(let i=0;i<4;i++){(document.getElementById('e'+s)||document.getElementById('g'+s)).scrollIntoView({block:'center'});await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))}},seq);await p.waitForTimeout(150);
+const select=async(p,seq,words,mouse)=>{await p.evaluate(async s=>{for(let i=0;i<4;i++){(document.getElementById('e'+s)||document.getElementById('g'+s)).scrollIntoView({block:'center'});await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))}},seq);await stable(()=>p.evaluate(s=>{const e=document.getElementById("e"+s);return e&&Math.round(e.getBoundingClientRect().top)},seq));
   const r=await p.evaluate(([s,w])=>{const g=qRange(s,w);if(!g)return null;const rs=[...g.getClientRects()].filter(x=>x.width),a=rs[0],z=rs[rs.length-1];return {x0:a.left,y0:a.top+a.height/2,x1:z.right,y1:z.top+z.height/2}},[seq,words]);
   if(!r)throw new Error(`"${words}" not in #${seq}`);
   if(mouse){await p.mouse.move(r.x0+0.5,r.y0);await p.mouse.down();await p.mouse.move((r.x0+r.x1)/2,r.y1,{steps:4});await p.mouse.move(r.x1-0.5,r.y1,{steps:4});await p.mouse.up()}
   else await p.evaluate(([s,w])=>{getSelection().removeAllRanges();getSelection().addRange(qRange(s,w))},[seq,words]);
-  await p.waitForTimeout(300)};
+  await until(()=>p.locator("#quote-btn").isVisible())};
+// The newest posted (not pending) message's seq: a post has landed once this goes up.
+const newest=(p)=>p.evaluate(()=>Math.max(0,...[...document.querySelectorAll("#thread>.entry:not(.pending)")].map(e=>+e.dataset.seq||0)));
 const inView=(p,sel)=>p.evaluate(s=>{const el=document.querySelector(s);if(!el)return false;const sc=document.getElementById('thread-scroll').getBoundingClientRect(),r=el.getBoundingClientRect();return r.top>=sc.top-1&&r.bottom<=sc.bottom+1},sel);
 const b=await chromium.launch({executablePath: process.env.PW_CHROME || undefined});
 for(const [label,w,h,phone] of [["desktop",1280,800,false],["phone",390,844,true]]){
   const ctx=await b.newContext({viewport:{width:w,height:h},...(phone?{hasTouch:true,isMobile:true}:{})});const [k,...v]=ckB.split(";")[0].split("=");await ctx.addCookies([{name:k,value:v.join("="),url:BASE}]);
   const p=await ctx.newPage();await p.addInitScript(RANGE);const errors=[];p.on("pageerror",e=>errors.push(e.message));
-  await p.goto(`${BASE}/b/${board}`);await p.waitForTimeout(800);
+  await p.goto(`${BASE}/b/${board}`);await p.locator("#composer-text").waitFor();
   check(await p.locator("#quote-btn").isHidden(),`${label}: no Quote button without a selection`);
   // A selection across two messages isn't a quote of one.
   await p.evaluate(async a=>{for(let i=0;i<4;i++){(document.getElementById('e'+a)||document.getElementById('g'+a)).scrollIntoView({block:'center'});await new Promise(r=>setTimeout(r,120))}},src); // dom-cap: far messages are placeholders until near
@@ -50,16 +53,16 @@ for(const [label,w,h,phone] of [["desktop",1280,800,false],["phone",390,844,true
   check(bb&&bb.x>=0&&bb.x+bb.width<=w&&bb.y>=0&&bb.y+bb.height<=h,`${label}: Quote is on screen (${JSON.stringify(bb&&{x:Math.round(bb.x),y:Math.round(bb.y)})})`);
   check(phone?bb.y>=selBox.bottom:bb.y+bb.height<=selBox.top,`${label}: Quote sits ${phone?"below the selection (the phone's own menu goes above)":"just above the selection"}`);
   await p.screenshot({path:`${SHOTS_DIR}/quote-select-${label}.png`});
-  if(phone)await qb.tap();else await qb.click();await p.waitForTimeout(250);
   const want=`> ${WORDS}\n> — ${A}'s agent, #${src}\n\n`;
+  if(phone)await qb.tap();else await qb.click();await until(async()=>(await p.locator("#composer-text").inputValue())===want);
   const val=await p.locator("#composer-text").inputValue();
   check(val===want,`${label}: Quote puts a quote block in the composer (${JSON.stringify(val)})`);
   check(await qb.isHidden()&&(await p.evaluate(()=>getSelection().isCollapsed)),`${label}: the selection and the button go away`);
   check(await p.evaluate(()=>document.activeElement?.id==="composer-text"&&document.activeElement.selectionStart===document.activeElement.value.length),`${label}: the caret waits below the quote`);
   check(await p.locator("#replying").isHidden(),`${label}: a quote isn't a reply (no second reply box)`);
-  await p.locator("#composer-text").pressSequentially(`agreed, switching ${label}`);
+  await p.locator("#composer-text").pressSequentially(`agreed, switching ${label}`);const n0=await newest(p);
   if(phone)await p.locator("form.composer .bar .btn.primary").tap();else await p.keyboard.press("Enter");
-  await p.waitForTimeout(900);
+  await until(async()=>await newest(p)>n0,10000);
   const last=p.locator("#thread>.entry").last(),seq=+(await last.getAttribute("data-seq"));
   const box=last.locator("blockquote.qt");
   check(await box.count()===1,`${label}: the post shows the quote as a box`);
@@ -70,14 +73,14 @@ for(const [label,w,h,phone] of [["desktop",1280,800,false],["phone",390,844,true
   check(await last.locator(".mention").count()===0,`${label}: the quoted @name doesn't ping anyone again`);
   await box.screenshot({path:`${SHOTS_DIR}/quote-box-${label}.png`});
   check(!(await inView(p,`#e${src}`)),`${label}: the source is out of view before the jump`);
-  if(phone)await box.locator(".qt-go").tap();else await box.locator(".qt-go").click();await p.waitForTimeout(900);
+  if(phone)await box.locator(".qt-go").tap();else await box.locator(".qt-go").click();await until(async()=>await inView(p,`#e${src}`)&&await p.locator(`#e${src}`).evaluate(e=>e.classList.contains("hit")));
   check(await inView(p,`#e${src}`)&&await p.locator(`#e${src}`).evaluate(e=>e.classList.contains("hit")),`${label}: ↗ original jumps to the source and flashes it`);
   await p.screenshot({path:`${SHOTS_DIR}/quote-jump-${label}.png`});
   // Agents read the post as plain text: the quote lines and the source #.
   await mcp("read",{});const got=await mcp("get",{seq});
   check(got.includes(`> ${WORDS}`)&&got.includes(`> — ${A}'s agent, #${src}`),`${label}: an agent reads "> …" and "— who, #${src}"`);
   // A reload renders the same box (server-side).
-  await p.reload();await p.waitForTimeout(700);
+  await p.reload();await p.locator(`#e${seq}`).waitFor();
   check(await p.locator(`#e${seq} blockquote.qt .qt-go[href="#e${src}"]`).count()===1,`${label}: the box renders the same after a reload`);
   check(errors.length===0,`${label}: no page errors ${errors.join(" | ")}`);await ctx.close();
 }
@@ -93,24 +96,24 @@ const refSeq=+(await mcp2("post",{type:"note",text:`Following up on #${tgt}: all
 const chipTitle="↗ Ship on Friday";
 const ctx=await b.newContext({viewport:{width:1280,height:800}});const [k,...v]=ckC.split(";")[0].split("=");await ctx.addCookies([{name:k,value:v.join("="),url:BASE}]);
 const p=await ctx.newPage();const errors=[];p.on("pageerror",e=>errors.push(e.message));
-await p.goto(`${BASE}/b/${board2}`);await p.waitForTimeout(800);
+await p.goto(`${BASE}/b/${board2}`);await p.locator("#thread .body a.ref").first().waitFor();
 check((await p.evaluate(()=>[...document.querySelectorAll('#thread .body a.ref')].map(a=>a.textContent)))[0]===chipTitle,`ref chip shows the title (${chipTitle})`);
 await p.evaluate(s=>{const body=document.querySelector('#e'+s+'>.grow>.body'),r=document.createRange();r.selectNodeContents(body);getSelection().removeAllRanges();getSelection().addRange(r)},refSeq);
-await p.waitForTimeout(300);
+await until(()=>p.locator("#quote-btn").isVisible());
 const qb=p.locator("#quote-btn");check(await qb.isVisible(),"selecting a message with a ref chip shows Quote");
-await qb.click();await p.waitForTimeout(250);
-await p.locator("#composer-text").pressSequentially("noted");await p.keyboard.press("Enter");await p.waitForTimeout(900);
+await qb.click();await until(async()=>(await p.locator("#composer-text").inputValue()).startsWith("> "));
+let n0=await newest(p);await p.locator("#composer-text").pressSequentially("noted");await p.keyboard.press("Enter");await until(async()=>await newest(p)>n0,10000);
 const posted=+(await p.locator("#thread>.entry").last().getAttribute("data-seq"));
 const got=await mcp2("get",{seq:posted});
 check(got.includes(`#${tgt}`)&&!got.includes(chipTitle),`posted quote has #${tgt}, not the chip title (${JSON.stringify(got.slice(0,120))})`);
 check(got.includes(`> Following up on #${tgt}: all set.`),"…with the #N in the quoted line");
 // Line breaks survive the #N swap (#1887): two lines with a chip in one, then a list, quote as separate "> " lines.
 {const multi=+(await mcp2("post",{type:"note",text:`First line, no ref\nSecond line on #${tgt} here\n\n- item one\n- item two`})).match(/#(\d+)/)[1];
-await p.goto(`${BASE}/b/${board2}`);await p.waitForTimeout(800);
+await p.goto(`${BASE}/b/${board2}`);await p.locator(`#e${multi}`).waitFor();
 await p.evaluate(s=>{const body=document.querySelector('#e'+s+'>.grow>.body'),r=document.createRange();r.selectNodeContents(body);getSelection().removeAllRanges();getSelection().addRange(r)},multi);
-await p.waitForTimeout(300);await p.locator("#quote-btn").click();await p.waitForTimeout(250);
+await until(()=>p.locator("#quote-btn").isVisible());await p.locator("#quote-btn").click();await until(async()=>(await p.inputValue("#composer-text")).startsWith("> "));
 const box=await p.inputValue("#composer-text");
-await p.locator("#composer-text").press("End");await p.locator("#composer-text").pressSequentially("ok");await p.keyboard.press("Enter");await p.waitForTimeout(900);
+n0=await newest(p);await p.locator("#composer-text").press("End");await p.locator("#composer-text").pressSequentially("ok");await p.keyboard.press("Enter");await until(async()=>await newest(p)>n0,10000);
 const posted2=+(await p.locator("#thread>.entry").last().getAttribute("data-seq"));
 const got2=await mcp2("get",{seq:posted2});
 check(/> First line, no ref\n\s*> Second line on #\d+ here\n/.test(got2)&&got2.includes(`> Second line on #${tgt} here`),`a two-line quote keeps both lines, with #${tgt} in the second (${JSON.stringify(box.slice(0,160))})`);

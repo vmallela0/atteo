@@ -21,6 +21,8 @@ await mcp(tokA, "read", {});
 await mcp(tokB, "read", {});
 let fails = 0;
 const check = (ok, m) => { console.log(`${ok ? "✓" : "✗"} ${m}`); if (!ok) fails++; };
+// The toast's text now ("" before there is one; a locator's innerText would wait 30s for it).
+const toast = (p) => p.evaluate(() => document.getElementById("toast")?.innerText || "");
 const until = async (f, ms = 5000) => { const t = Date.now(); for (;;) { const v = await f(); if (v || Date.now() - t > ms) return v; await new Promise((r) => setTimeout(r, 200)); } };
 const b = await chromium.launch({ executablePath: process.env.PW_CHROME || undefined });
 const errors = [];
@@ -31,7 +33,7 @@ const open = async (cookie, w, mobile, locale = "en-US") => {
   const p = await ctx.newPage();
   p.on("pageerror", (e) => errors.push(`${w}: ${e.message}`));
   await p.goto(`${BASE}/b/${board}`);
-  await p.waitForTimeout(900);
+  await p.locator("#po-btn").waitFor();
   return { ctx, p };
 };
 const secrets = [];
@@ -57,9 +59,9 @@ for (const [w, mobile] of [[1200, false], [390, true]]) {
   const e = p.locator(`#thread .entry:has-text("${text}")`);
   check(await until(async () => (await e.count()) === 1 && "ok"), `${w}px: it posts with no @ needed`);
   let toastSeen = "";
-  const badge = await until(async () => { const t = await p.locator("#toast").innerText().catch(() => ""); if (/Just mine/.test(t)) toastSeen = t; return (await e.locator(".badge.po.own").count()) === 1 && /just mine/.test(await e.locator(".badge.po.own").innerText()) && "ok"; });
+  const badge = await until(async () => { const t = await toast(p); if (/Just mine/.test(t)) toastSeen = t; return (await e.locator(".badge.po.own").count()) === 1 && /just mine/.test(await e.locator(".badge.po.own").innerText()) && "ok"; });
   check(badge, `${w}px: the message shows 🔒 just mine`);
-  check(toastSeen || await until(async () => /Just mine/.test(await p.locator("#toast").innerText()) && "ok", 2000), `${w}px: the server's notice shows ("${toastSeen}")`);
+  check(toastSeen || await until(async () => /Just mine/.test(await toast(p)) && "ok", 2000), `${w}px: the server's notice shows ("${toastSeen}")`);
   check(await until(async () => (await p.getAttribute("#po-btn", "aria-pressed")) === "false" && "ok", 2000) && await p.locator("#po-note").isHidden() && (await p.inputValue("#own-in")) === "", `${w}px: the lock turns off after sending`);
   check((await p.locator("#po-lbl").innerText()) === "" && /^Private$/.test(await p.getAttribute("#po-btn", "aria-label")), `${w}px: the button's label goes with it`);
   // The next tap starts at People only again, the stricter choice; it still asks for an @person.
@@ -67,8 +69,8 @@ for (const [w, mobile] of [[1200, false], [390, true]]) {
   check(await p.getAttribute('[data-po="people"]', "aria-checked") === "true" && (await p.inputValue("#po-in")) === "true" && (await p.inputValue("#own-in")) === "", `${w}px: after a Just mine post, the next tap starts at People only`);
   await p.fill("#composer-text", `nobody named ${run}`);
   await p.locator("form.composer button.primary").click();
-  await p.waitForTimeout(500);
-  check(/@ the people/.test(await p.locator("#toast").innerText()) && (await p.locator(`#thread .body:has-text("nobody named ${run}")`).count()) === 0, `${w}px: People only still needs an @person`);
+  await until(async () => /@ the people/.test(await toast(p)) && "ok");
+  check(/@ the people/.test(await toast(p)) && (await p.locator(`#thread .body:has-text("nobody named ${run}")`).count()) === 0, `${w}px: People only still needs an @person`);
   await p.fill("#composer-text", "");
   await tap("#po-btn");
   check(await p.locator("#po-note").isHidden() && (await p.inputValue("#po-in")) === "" && (await p.inputValue("#own-in")) === "", `${w}px: the lock turns off`);
