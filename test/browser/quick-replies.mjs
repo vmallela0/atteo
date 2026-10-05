@@ -18,7 +18,10 @@ const DEFAULTS = { "": ["Yes, go ahead", "Not now", "Tell me more"], ar: ["نع�
 for (const [w, lang] of [[1280, ""], [390, "ar"]]) {
   const board = (await ops("boards", { user: A, title: `Quick replies ${w} ${run}` })).board.id;
   for (const u of [B, C]) await ops("members", { board, user: u });
-  const post = (auth, body) => fetch(`${BASE}/api/boards/${board}/entries`, { method: "POST", headers: { ...auth, "content-type": "application/json" }, body: JSON.stringify(body) }).then((r) => r.json());
+  const post = async (auth, body) => { // an agent token meets the stale-read rule (SPEC §9): it reads the board first
+    if (auth.authorization) await fetch(`${BASE}/api/boards/${board}/entries?after=0&ack=1`, { headers: auth });
+    return fetch(`${BASE}/api/boards/${board}/entries`, { method: "POST", headers: { ...auth, "content-type": "application/json" }, body: JSON.stringify(body) }).then((r) => r.json());
+  };
   const own = (await post({ authorization: `Bearer ${tokB}` }, { type: "question", text: `@${A} deploy the fix now? ${run}`, data: { options: ["Deploy now", "Wait for CI"] } })).entry.seq;
   const dflt = (await post({ authorization: `Bearer ${tokB}` }, { type: "question", text: `@${A} tidy the flaky test too? ${run}` })).entry.seq;
   const p2p = (await post({ cookie: ckC }, { type: "question", text: `@${A} lunch? ${run}` })).entry.seq;

@@ -35,6 +35,8 @@ import { memberRole } from "./registry";
 
 export const MAX_TEXT = 32_000;
 export const MAX_ARTIFACT = 256_000;
+/** How many entries one post may resolve (REST and MCP alike). */
+export const MAX_RESOLVES = 50;
 export const MAX_WAIT_MS = 55_000;
 
 /** How to check a claim: run `command` (exit 0 = holds) in a sandboxed checkout of `commit`. */
@@ -897,15 +899,18 @@ export class Board extends DurableObject<Env> {
   }
 
   /**
-   * The client got entries up to `seq` from a held wait (wait {hold}): its read position moves there now. Never back,
-   * never past the end; a stale or repeated ack does nothing.
+   * The client got entries up to `seq` from a held wait (wait {hold}), or listed them with GET entries?ack=1: its read
+   * position moves there now, the one postFresh checks. Never back, never past the end; a stale or repeated ack does
+   * nothing. `member`: the caller has just checked membership (the REST listing), so a member this board hasn't
+   * registered yet is registered first, as postFresh's readCursor does (#3881); without it, an unknown reader is one
+   * removed while a wait was held, and nothing moves.
    */
-  async ack(user: string, seq: number, session?: string | null): Promise<void> {
+  async ack(user: string, seq: number, session?: string | null, member = false): Promise<void> {
     const info = this.info();
     if (!Number.isInteger(seq) || seq <= 0) return;
-    if (!this.sql.exec("SELECT 1 AS x FROM members WHERE name = ?", user).toArray().length) return; // removed meanwhile
+    if (!member && !this.sql.exec("SELECT 1 AS x FROM members WHERE name = ?", user).toArray().length) return; // removed meanwhile
     const to = Math.min(seq, info.last_seq);
-    if (session) this.readCursor(user, session);
+    if (session || member) this.readCursor(user, session);
     this.advance(user, to, session);
     this.markSeen(user, "agent", to);
   }
@@ -1181,6 +1186,8 @@ export class Board extends DurableObject<Env> {
     const hit = scanFields({ text, title, artifact_name: input.artifact_name, artifact_content: internal.docVersion != null ? null : input.artifact_content, data: dataJson });
     if (hit) throw new BoardError(blockedMessage(hit));
 
+    // One cap for every transport (REST used to cut resolves at 50 silently, MCP not at all): over it is refused.
+    if (new Set(input.resolves ?? []).size > MAX_RESOLVES) throw new BoardError(`resolves names at most ${MAX_RESOLVES} entries; resolve the rest in another post.`);
     const depends = [...new Set((input.depends_on ?? []).filter((n) => Number.isInteger(n)))].slice(0, 20);
     const refs = [input.reply_to, input.supersedes, input.retracts, ...(input.resolves ?? []), ...depends].filter((n): n is number => n != null);
     for (const n of refs) {

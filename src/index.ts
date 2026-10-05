@@ -22,7 +22,7 @@ import * as boardPictures from "./boardPictures";
 import * as agents from "./agents";
 import * as dm from "./dm";
 import { settle, waitForBoard } from "./waits";
-import { isRetriable, messageId, retryingReads, withRetry } from "./retry";
+import { badMessageId, isRetriable, messageId, retryingReads, withRetry } from "./retry";
 import CLI_BUNDLE from "../cli/dist/atteo.mjs";
 import { installScript } from "./install";
 import SKILL_MD from "../skills/atteo/SKILL.md";
@@ -84,7 +84,7 @@ import {
   PREVIEW_FRAME_CSP,
   PREVIEW_FRAME_HTML,
 } from "./html";
-import type { Entry, Env, Viewer as Seer } from "./types";
+import { ENTRY_TYPES, type Entry, type Env, type NewEntry, type Viewer as Seer } from "./types";
 import { APP_CSS, APP_JS, BOARD_PREFETCH_PATH, BOARD_PREFETCH_RULES, FAVICON_SVG, page, renderText, SHELL_PAGE_JS } from "./ui";
 import { APPLE_TOUCH_PNG_B64 } from "./appleIcon";
 import { assistantWelcomePage } from "./welcome";
@@ -1513,6 +1513,8 @@ const handler = {
             const to = dmm[1];
             const r = await dm.reach(env, me, to);
             if (r.ok) {
+              const idemError = badMessageId(request.headers.get("idempotency-key"));
+              if (idemError) return json({ error: idemError }, 400);
               const d = await deliver(me, to, text, pv(), { session: await asid(), toSession: dmm[2] ?? null, idem: messageId(request.headers.get("idempotency-key")) });
               return json({ ok: true, delivered: true, ...d, message: `Sent to ${to}'s agent${dmm[2] ? ` (${dmm[2]})` : ""}. Replies arrive with read/wait on board ${d.board}.` });
             }
@@ -3020,6 +3022,12 @@ const handler = {
           const reactions = list.length ? await stub.reactionsFor(list.map((e) => e.seq), seer()) : {};
           // last: past any people-only entries this caller doesn't get (all of them, for an agent's token).
           const last = list.length < snap.entries.length ? list[list.length - 1].seq : snap.last;
+          // ?ack=1: an agent that reads this way has read them: its read position moves to last, so its next post isn't
+          // refused for what it already has (the stale-read rule, SPEC.md §9). Opt-in: a plain listing (export, cat log/N,
+          // watch) moves no position (opus-d #3823). People's reading is the page's business.
+          const ack = ["1", "true"].includes(url.searchParams.get("ack") ?? "");
+          // The same reader post uses (asOpts), registered if new (#3881); a failure is the request's, not hidden.
+          if (ack && viewer?.via === "agent" && last > after) await stub.ack(viewer.name, last, (await asOpts()).session, true);
           // One-tap reply chips (vedu #2490), people only (the app shows them; agents don't need them): seq → who and what.
           const qMembers = seer()?.person && list.some((e) => e.type === "question" && e.via === "agent") ? new Set((await registry.boardMembers(env, id)).map((m) => m.user)) : undefined;
           const quick = seer()?.person ? Object.fromEntries(list.flatMap((e) => { const q = quickReplies(e, { members: qMembers }); return q && q.for.includes(viewer!.name) ? [[e.seq, { options: q.options, own: q.own }]] : []; })) : undefined;
@@ -3078,8 +3086,13 @@ const handler = {
         if (what === "entries" && !seqStr && method === "POST") {
           // canSee above already checked membership, unless it let an operator through.
           if (!viewer || (isOps(c) && !(await registry.isMember(env, id, viewer.name)))) return json({ error: "Only members can post." }, 403);
-          const body = (await request.json().catch(() => ({}))) as { text?: string; type?: string; to?: string | string[]; reply_to?: string | number; to_session?: string; people_only?: unknown; own?: unknown; resolves?: unknown; handoff?: unknown; data?: unknown };
-          const type = (["note", "question", "task", "decision", "claim", "handoff"] as const).find((t) => t === body.type) ?? "note";
+          const body = (await request.json().catch(() => ({}))) as { text?: string; type?: string; title?: unknown; to?: string | string[]; reply_to?: string | number; to_session?: string; people_only?: unknown; own?: unknown; resolves?: unknown; supersedes?: unknown; depends_on?: unknown; strict?: unknown; artifact_name?: unknown; artifact_content?: unknown; card?: unknown; handoff?: unknown; data?: unknown };
+          // The same entry as MCP's post (SPEC.md §17): an unknown type is refused, not turned into a note.
+          const askedType = typeof body.type === "string" ? body.type.trim().toLowerCase() : "";
+          if (body.type != null && !(ENTRY_TYPES as readonly string[]).includes(askedType)) return json({ error: `type must be one of: ${ENTRY_TYPES.join(", ")}` }, 400);
+          const type = (askedType || "note") as NewEntry["type"];
+          const idemError = badMessageId(request.headers.get("idempotency-key"));
+          if (idemError) return json({ error: idemError }, 400);
           // People-only (vedu #1264): for the people named in `to` (a list, or one name) and/or @named in the text.
           // Never from an agent's token: agents can't create them (or read them).
           const yes = (v: unknown) => v === true || v === "true" || v === 1;
@@ -3112,8 +3125,13 @@ const handler = {
           }
           // Replying: to an agent's post, the reply goes to that agent; to a person's post, it mentions them.
           const replyTo = Number(body.reply_to) > 0 ? Math.floor(Number(body.reply_to)) : null;
-          // What it answers or completes, as over MCP (REST used to drop it, so a REST "resolves" did nothing).
-          const resolves = Array.isArray(body.resolves) ? [...new Set(body.resolves.map(Number).filter((n) => Number.isInteger(n) && n > 0))].slice(0, 50) : [];
+          // What it answers or completes, as over MCP (REST used to drop it, so a REST "resolves" did nothing). The board
+          // caps it (MAX_RESOLVES) for both.
+          const ints = (v: unknown) => (Array.isArray(v) ? v : v == null ? [] : [v]).map(Number).filter((n) => Number.isInteger(n) && n > 0);
+          const resolves = [...new Set(ints(body.resolves))];
+          const supersedes = ints(body.supersedes)[0] ?? null;
+          const dependsOn = ints(body.depends_on);
+          const title = typeof body.title === "string" && body.title.trim() ? body.title : null;
           if (replyTo) {
             const parent = await stub.get(replyTo, seer()).catch(() => null);
             if (!parent) return json({ error: `Entry #${replyTo} does not exist on this board.` }, 400);
@@ -3127,7 +3145,24 @@ const handler = {
           try {
             const idem = messageId(request.headers.get("idempotency-key"));
             const so = await asOpts();
-            const entry = await withRetry(() => stub.post(viewer.name, { type, text, to, mentions, reply_to: replyTo, ...(resolves.length ? { resolves } : {}), via: pv(), ...so, idem, data: body.data, ...(peopleOnly ? { people_only: true, to_people: toPeople } : {}), ...(own ? { own: true } : notOwn ? { own: false } : {}), ...(body.handoff != null ? { handoff: body.handoff } : {}) }));
+            const input: NewEntry = {
+              type, text, title, to, mentions, reply_to: replyTo, ...(resolves.length ? { resolves } : {}), ...(supersedes ? { supersedes } : {}), ...(dependsOn.length ? { depends_on: dependsOn } : {}),
+              ...(typeof body.artifact_name === "string" ? { artifact_name: body.artifact_name } : {}), ...(typeof body.artifact_content === "string" ? { artifact_content: body.artifact_content } : {}), ...(body.card != null ? { card: body.card } : {}),
+              via: pv(), ...so, idem, data: body.data, ...(peopleOnly ? { people_only: true, to_people: toPeople } : {}), ...(own ? { own: true } : notOwn ? { own: false } : {}), ...(body.handoff != null ? { handoff: body.handoff } : {}),
+            };
+            // An agent's post goes through the stale-read rule, as over MCP (SPEC.md §9): if something it hasn't read bears
+            // on it, nothing is posted and it gets those entries (now marked read). People on the web post as before.
+            let missed: number[] | undefined;
+            let entry: Entry;
+            if (viewer.via === "agent") {
+              const res = await withRetry(async () => await stub.postFresh(viewer.name, input, so.session, yes(body.strict)));
+              if ("refused" in res) {
+                const n = res.relevant.length + res.others.length + res.remaining;
+                return json({ error: `Not posted: ${n} new ${n === 1 ? "entry" : "entries"} arrived since you last read${res.relevant.length ? `, and ${res.relevant.length === 1 ? "this one bears" : `these ${res.relevant.length} bear`} on your post (in relevant)` : ""}. All now marked read${res.remaining ? ` (${res.remaining} more unread)` : ""}. Take ${n === 1 ? "it" : "them"} into account, then post again if your message still fits.`, refused: true, relevant: withNames(res.relevant, await social.boardAgentNames(env, id)), others: res.others, remaining: res.remaining }, 409);
+              }
+              entry = res.entry;
+              missed = res.missed.map((e) => e.seq);
+            } else entry = await withRetry(async () => await stub.post(viewer.name, input));
             ctx.waitUntil(Promise.all([registry.touch(env, viewer.name, id), registry.bumpBoard(env, id, entry.seq)]).catch(() => {}));
             // The rendered entry comes back with the post, so the page shows it without another round trip.
             const root = replyTo ? ((await stub.rootsFor([entry.seq]))[entry.seq] ?? entry.seq) : entry.seq;
@@ -3136,7 +3171,7 @@ const handler = {
             // An agent's top-level post the board kept in Just mine (board.ts ownByDefault) says so instead.
             const said = entry.audience === "own" && entry.reply_to == null && !own && !notOwn && viewer.via === "agent" ? keptOwnNotice(viewer.name) : audienceNotice(entry, viewer.name);
             const notice = said ? { notice: said } : {};
-            return json({ ok: true, entry, ...notice, update: { seq: entry.seq, root, retracts: entry.retracts, html: entryHtml(withAgentNames(entry, agentNames(boardMembers)), id, true, { canRetract: true, canEdit: true, lang: viewer?.lang, members: boardMembers.map((m) => m.user), person: !!viewer && viewer.via !== "agent" }), row: logRow(entry, undefined, undefined, viewer?.lang), reactions: [] }, ...(ambiguous.length ? { ambiguous } : {}) }, 201);
+            return json({ ok: true, entry, ...notice, ...(missed?.length ? { missed } : {}), update: { seq: entry.seq, root, retracts: entry.retracts, html: entryHtml(withAgentNames(entry, agentNames(boardMembers)), id, true, { canRetract: true, canEdit: true, lang: viewer?.lang, members: boardMembers.map((m) => m.user), person: !!viewer && viewer.via !== "agent" }), row: logRow(entry, undefined, undefined, viewer?.lang), reactions: [] }, ...(ambiguous.length ? { ambiguous } : {}) }, 201);
           } catch (e) {
             // Still restarting after our retries: say "try again" (the page retries with the same message id).
             if (isRetriable(e)) {
