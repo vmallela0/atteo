@@ -135,7 +135,7 @@ struct TalkSheet: View {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: Space.m) {
                     if talk.captions.isEmpty && talk.phase != .ended {
-                        (talk.board.map { Text("Just talk. Ask about \($0.displayName(me: AppState.shared.me?.owner)), what's waiting for you, or tell your agent something.") } ?? Text("Just talk. Ask what's waiting for you, catch up on a board, or tell your agent something."))
+                        (talk.board.map { Text("Just talk. Ask about \(AppState.shared.displayName(for: $0)), what's waiting for you, or tell your agent something.") } ?? Text("Just talk. Ask what's waiting for you, catch up on a board, or tell your agent something."))
                             .font(Typo.secondary).foregroundStyle(Theme.faint)
                             .frame(maxWidth: .infinity, alignment: .center).multilineTextAlignment(.center)
                             .padding(.top, Space.xl)

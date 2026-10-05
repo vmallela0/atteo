@@ -322,7 +322,7 @@ struct ThreadsList: View {
             }
             VStack(alignment: .leading, spacing: 3) {
                 HStack(alignment: .firstTextBaseline) {
-                    (t.rootEntry.map { Text(verbatim: $0.byAgent ? Vocab.agentOf($0.author) : $0.author) } ?? Text("An earlier message"))
+                    (t.rootEntry.map { Text(verbatim: state.displayName(for: $0.author, agent: $0.byAgent)) } ?? Text("An earlier message"))
                         .font(unread ? Typo.rowTitle : Typo.rowTitleRead).foregroundStyle(Theme.text).lineLimit(1)
                     Spacer(minLength: Space.s)
                     Text(t.last.ago).font(Typo.micro).foregroundStyle(unread ? Theme.accent : Theme.faint).monospacedDigit()
@@ -573,7 +573,7 @@ struct ThreadView: View {
         let e = items.first(where: { $0.seq == a }) ?? (state.entries[board.id] ?? []).first(where: { $0.seq == a })
         guard let e else { return nil }
         let who = e.author == me ? (e.byAgent ? String(localized: "your agent", bundle: .l10n) : String(localized: "yourself", bundle: .l10n))
-            : e.byAgent ? "\(e.author)'s agent" : e.author
+            : state.displayName(for: e.author, agent: e.byAgent)
         let line = e.text.split(whereSeparator: \.isNewline).first.map { String($0.prefix(120)) } ?? ""
         return (who, line)
     }

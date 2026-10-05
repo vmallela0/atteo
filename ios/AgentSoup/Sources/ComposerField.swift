@@ -23,7 +23,20 @@ struct ComposerField: UIViewRepresentable {
     var me: String? = nil
     /// Agents named by their owners, lowercased name → owner ("jarvis" → "vedu"): "@Jarvis" is boxed too.
     var agentNames: [String: String] = [:]
+    var displayName: (String) -> String = { $0 }
+    var nameRevision: [String: String] = [:]
     var identifier = "composer"
+
+    static let mentionHandle = NSAttributedString.Key("AtteoMentionHandle")
+
+    /// Expand display runs back to addresses for drafts, sending, copying and mention matching.
+    static func rawText(_ attributed: NSAttributedString) -> String {
+        let result = NSMutableString(string: attributed.string)
+        attributed.enumerateAttribute(mentionHandle, in: NSRange(location: 0, length: attributed.length), options: .reverse) { value, range, _ in
+            if let handle = value as? String { result.replaceCharacters(in: range, with: handle) }
+        }
+        return result as String
+    }
 
     final class Box: UITextView {
         var onImages: (([UIImage]) -> Void)?
@@ -31,6 +44,10 @@ struct ComposerField: UIViewRepresentable {
         var members: Set<String> = []
         var me: String?
         var agentNames: [String: String] = [:]
+        var displayName: (String) -> String = { $0 }
+        var nameRevision: [String: String] = [:]
+        var rawText: String { ComposerField.rawText(textStorage) }
+        private(set) var isRestyling = false
         private var mentions: [(range: NSRange, mine: Bool, handle: String)] = []
         private var boxes: [UIView] = []
         private var boxesFor = "" // the text and width the boxes were placed for
@@ -38,21 +55,48 @@ struct ComposerField: UIViewRepresentable {
         /// Colors the mentions in what's typed (and leaves what you type next plain). Not while composing
         /// (marked text from an input method): restyling then would break it.
         func restyle() {
-            guard markedTextRange == nil, let font else { return }
-            let plain = text ?? ""
-            let found = ComposerField.mentions(in: plain, members: members, me: me, agentNames: agentNames)
+            guard markedTextRange == nil, !isRestyling else { return }
+            isRestyling = true
+            defer { isRestyling = false }
+            let font = Typo.composer
+            let plain = rawText
+            let found = ComposerField.mentions(in: plain, members: members, me: me, agentNames: agentNames).sorted { $0.range.location < $1.range.location }
             let base: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: UIColor(Theme.text)]
-            let bold = UIFont.systemFont(ofSize: font.pointSize, weight: .semibold)
-            let sel = selectedRange
-            textStorage.beginEditing()
-            textStorage.setAttributes(base, range: NSRange(location: 0, length: (plain as NSString).length))
-            for m in found {
-                textStorage.addAttributes([.font: bold, .foregroundColor: UIColor(m.mine ? MentionColor.mineText : MentionColor.text)], range: m.range)
+            let bold = Typo.composerMention(font)
+            // Selection is in rendered characters; preserve its positions in the underlying draft across renames.
+            let selected = selectedRange
+            func rawOffset(_ offset: Int) -> Int {
+                ComposerField.rawText(textStorage.attributedSubstring(from: NSRange(location: 0, length: min(offset, textStorage.length)))).utf16.count
             }
-            textStorage.endEditing()
-            selectedRange = sel
+            let rawSelection = NSRange(location: rawOffset(selected.location), length: rawOffset(NSMaxRange(selected)) - rawOffset(selected.location))
+            let styled = NSMutableAttributedString(string: plain, attributes: base)
+            var rendered: [(range: NSRange, mine: Bool, handle: String)] = []
+            var shift = 0
+            for m in found {
+                let address = String(m.handle.dropFirst())
+                let owner = agentNames[address.lowercased()]
+                let group = ["agents", "humans", "all"].contains(address.lowercased()) && !members.contains(address.lowercased())
+                let label = group ? m.handle : displayName(owner.map { "\($0)'s agent" } ?? address)
+                let range = NSRange(location: m.range.location + shift, length: label.utf16.count)
+                styled.replaceCharacters(in: NSRange(location: range.location, length: m.range.length), with: NSAttributedString(string: label, attributes: [
+                    .font: bold, .foregroundColor: UIColor(m.mine ? MentionColor.mineText : MentionColor.text), ComposerField.mentionHandle: m.handle,
+                ]))
+                rendered.append((range, m.mine, m.handle))
+                shift += range.length - m.range.length
+            }
+            func renderedOffset(_ offset: Int) -> Int {
+                var shift = 0
+                for (raw, shown) in zip(found, rendered) {
+                    if offset <= raw.range.location { break }
+                    if offset < NSMaxRange(raw.range) { return shown.range.location }
+                    shift += shown.range.length - raw.range.length
+                }
+                return offset + shift
+            }
+            textStorage.setAttributedString(styled)
+            selectedRange = NSRange(location: renderedOffset(rawSelection.location), length: renderedOffset(NSMaxRange(rawSelection)) - renderedOffset(rawSelection.location))
             typingAttributes = base
-            mentions = found
+            mentions = rendered
             boxesFor = ""
             setNeedsLayout()
         }
@@ -75,7 +119,7 @@ struct ComposerField: UIViewRepresentable {
                     v.layer.cornerCurve = .continuous
                     v.isUserInteractionEnabled = false
                     v.isAccessibilityElement = true
-                    let name = String(m.handle.dropFirst()) // without the "@"
+                    let name = (text as NSString).substring(with: m.range)
                     v.accessibilityLabel = String(localized: "mention, \(name)", bundle: .l10n)
                     v.accessibilityIdentifier = "composer-mention"
                     insertSubview(v, at: 0) // behind the text
@@ -87,13 +131,27 @@ struct ComposerField: UIViewRepresentable {
         /// The mentions in the box now, each one unit (MentionTokens): fresh from the text, so they're right even
         /// mid-edit, before restyle has run.
         func tokenRanges() -> [NSRange] {
-            ComposerField.mentions(in: text ?? "", members: members, me: me, agentNames: agentNames).map(\.range)
+            var ranges: [NSRange] = []
+            textStorage.enumerateAttribute(ComposerField.mentionHandle, in: NSRange(location: 0, length: textStorage.length)) { value, range, _ in
+                if value != nil { ranges.append(range) }
+            }
+            return ranges
         }
 
         override func canPerformAction(_ action: Selector, withSender sender: Any?) -> Bool {
             // A picture on the clipboard (checking doesn't read it): offer Paste even with no text there.
             if action == #selector(paste(_:)), onImages != nil, UIPasteboard.general.hasImages { return true }
             return super.canPerformAction(action, withSender: sender)
+        }
+
+        override func copy(_ sender: Any?) {
+            guard selectedRange.length > 0 else { return }
+            UIPasteboard.general.string = ComposerField.rawText(textStorage.attributedSubstring(from: selectedRange))
+        }
+
+        override func cut(_ sender: Any?) {
+            copy(sender)
+            if selectedRange.length > 0 { insertText("") }
         }
 
         override func paste(_ sender: Any?) {
@@ -132,7 +190,7 @@ struct ComposerField: UIViewRepresentable {
         let v = Box()
         v.delegate = context.coordinator
         v.backgroundColor = .clear
-        v.font = .preferredFont(forTextStyle: .callout)
+        v.font = Typo.composer
         v.adjustsFontForContentSizeCategory = true
         v.textColor = UIColor(Theme.text)
         v.tintColor = UIColor(Theme.accent)
@@ -154,12 +212,15 @@ struct ComposerField: UIViewRepresentable {
     func updateUIView(_ v: Box, context: Context) {
         context.coordinator.parent = self
         v.onImages = pasteImages
-        if v.members != members || v.me != me || v.agentNames != agentNames { v.members = members; v.me = me; v.agentNames = agentNames; v.restyle() }
+        v.displayName = displayName
+        if v.members != members || v.me != me || v.agentNames != agentNames || v.nameRevision != nameRevision {
+            v.members = members; v.me = me; v.agentNames = agentNames; v.nameRevision = nameRevision; v.restyle()
+        }
         v.placeholderLabel.text = placeholder
         v.accessibilityLabel = placeholder
-        if v.text != text {
+        if v.rawText != text {
             // Put in from outside (a mention picked, a send): the caret goes to the end.
-            v.text = text
+            v.attributedText = NSAttributedString(string: text, attributes: [.font: Typo.composer, .foregroundColor: UIColor(Theme.text)])
             v.selectedRange = NSRange(location: (text as NSString).length, length: 0)
             v.restyle()
             v.invalidateIntrinsicContentSize()
@@ -246,8 +307,8 @@ struct ComposerField: UIViewRepresentable {
         /// The caret never rests inside a mention (it steps over it, or goes to the nearer edge), and a selection that
         /// cuts into one covers it.
         func textViewDidChangeSelection(_ v: UITextView) {
-            defer { lastSelection = v.selectedRange }
-            guard !adjusting, v.markedTextRange == nil, let box = v as? Box else { return }
+            defer { lastSelection = v.selectedRange; v.typingAttributes.removeValue(forKey: ComposerField.mentionHandle) }
+            guard !adjusting, v.markedTextRange == nil, let box = v as? Box, !box.isRestyling else { return }
             let sel = v.selectedRange
             let snapped = MentionTokens.snap(sel, previous: lastSelection, tokens: box.tokenRanges())
             guard snapped != sel else { return }
@@ -256,8 +317,9 @@ struct ComposerField: UIViewRepresentable {
             adjusting = false
         }
         func textViewDidChange(_ v: UITextView) {
+            guard (v as? Box)?.isRestyling != true else { return }
             (v as? Box)?.restyle()
-            parent.text = v.text
+            parent.text = (v as? Box)?.rawText ?? v.text
             (v as? Box)?.placeholderLabel.isHidden = !v.text.isEmpty
             v.invalidateIntrinsicContentSize()
             // Past its full height it scrolls inside itself: keep the caret (what you're typing) in view, once the

@@ -21,7 +21,32 @@ final class AppState: ObservableObject {
     @Published var boardAgents: [String: [BoardAgent]] = [:] // per board: who's here, live / idle / gone
     @Published var members: [String: [String]] = [:] // per board: who's in it (for @-mentions)
     @Published var agentNames: [String: [String: AgentName]] = [:] // per board, per member: what they named their agent
-    var displayNames: [String: [String: String]] = [:] // per board, per member: their display name (dictation's hints)
+    @Published var displayNames: [String: String] = [:] // handle → latest display name from members / profiles
+
+    /// Labels only: handles remain the identity used by APIs, avatars and typed mentions.
+    func displayName(for handle: String, agent: Bool = false) -> String {
+        for suffix in ["'s agent", "’s agent", "'s assistant", "’s assistant"] where handle.hasSuffix(suffix) {
+            return displayName(for: String(handle.dropLast(suffix.count)), agent: true)
+        }
+        if let slash = handle.firstIndex(of: "/") {
+            return displayName(for: String(handle[..<slash]), agent: true) + " · " + handle[handle.index(after: slash)...]
+        }
+        let raw = profile?.name.lowercased() == handle.lowercased() ? profile?.displayName : displayNames[handle.lowercased()]
+        let name = raw?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let person = name.flatMap { $0.isEmpty ? nil : $0 } ?? handle
+        return agent ? Vocab.agentOf(person) : person
+    }
+
+    /// Keep empty names too: a person clearing their name must replace the old cached value.
+    func rememberDisplayName(_ name: String?, for handle: String) {
+        let key = handle.lowercased(), value = name ?? ""
+        if displayNames[key] != value { displayNames[key] = value }
+    }
+
+    func displayName(for board: Board) -> String {
+        board.kind == "direct" ? displayName(for: board.displayName(me: me?.owner)) : board.title
+    }
+    private var membersRefreshed: [String: Date] = [:]
     struct AgentName: Equatable { let name: String; let ambiguous: Bool }
     // Chat parity, wave 2: read receipts, who took what, and how far back each chat is loaded.
     @Published var reads: [String: [String: SeenMark]] = [:] // per board, per member: how far they've seen
@@ -38,7 +63,9 @@ final class AppState: ObservableObject {
     @Published var openRequest: Board? // a chat to open from anywhere (Message on someone's card)
     struct JumpRequest: Equatable { let board: String; let seq: Int }
     @Published var me: MeAgentResponse.Agent?
-    @Published var profile: Profile?
+    @Published var profile: Profile? {
+        didSet { if let p = profile { rememberDisplayName(p.displayName, for: p.name) } }
+    }
     /// Text size, density, theme and language (Settings → Display). Cached on the phone so launch is instant; saved per
     /// person on the server so the web follows them too (and the app follows the web).
     @Published private(set) var display: DisplayPrefs = AppState.cachedDisplay {
@@ -77,13 +104,14 @@ final class AppState: ObservableObject {
         var inbox: [InboxItem]; var approvals: [Approval]; var contacts: [ContactsResponse.Incoming]
         var sessions: [AgentSession]; var boards: [Board]; var entries: [String: [Entry]]; var me: MeAgentResponse.Agent?
         var tasks: [String: [WorkTask]]? = nil
+        var displayNames: [String: String]? = nil
     }
     private static let cacheURL = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0].appendingPathComponent("agent-soup-v1.json")
     private var saveTask: Task<Void, Never>?
 
     private func restore() {
         guard let d = try? Data(contentsOf: Self.cacheURL), let s = try? JSONDecoder().decode(Snapshot.self, from: d) else { return }
-        inbox = s.inbox; approvals = s.approvals; contacts = s.contacts; sessions = s.sessions; boards = s.boards; entries = s.entries; me = s.me; tasks = s.tasks ?? [:]
+        inbox = s.inbox; approvals = s.approvals; contacts = s.contacts; sessions = s.sessions; boards = s.boards; entries = s.entries; me = s.me; tasks = s.tasks ?? [:]; displayNames = s.displayNames ?? [:]
         AppMode.shared.note(sessions: s.sessions, fromServer: false) // Everyday or Developer (Everyday.swift)
     }
 
@@ -93,7 +121,7 @@ final class AppState: ObservableObject {
             try? await Task.sleep(nanoseconds: 400_000_000)
             guard let self, !Task.isCancelled else { return }
             let trimmed = self.entries.mapValues { Array($0.filter { $0.pending != true }.suffix(60)) }
-            let snap = Snapshot(inbox: self.inbox, approvals: self.approvals, contacts: self.contacts, sessions: self.sessions, boards: self.boards, entries: trimmed, me: self.me, tasks: self.tasks)
+            let snap = Snapshot(inbox: self.inbox, approvals: self.approvals, contacts: self.contacts, sessions: self.sessions, boards: self.boards, entries: trimmed, me: self.me, tasks: self.tasks, displayNames: self.displayNames)
             if let d = try? JSONEncoder().encode(snap) { try? d.write(to: Self.cacheURL, options: .atomic) }
         }
     }
@@ -245,6 +273,15 @@ final class AppState: ObservableObject {
             let list = r.boards.map(BoardPictureStore.shared.applyPending)
             let sorted = list.sorted { $0.lastActivity > $1.lastActivity }
             if sorted != boards { withAnimation(.smooth) { boards = sorted } } // unchanged: no publish (refreshInbox)
+            // The chat list needs names before any chat is opened. Refresh each board's member data in small batches.
+            let stale = list.filter { Date().timeIntervalSince(membersRefreshed[$0.id] ?? .distantPast) > 60 }
+            for start in stride(from: 0, to: stale.count, by: 6) {
+                await withTaskGroup(of: Void.self) { group in
+                    for board in stale[start..<min(start + 6, stale.count)] {
+                        group.addTask { await self.loadMembers(board) }
+                    }
+                }
+            }
             save()
         } catch { report(error, quiet: true) }
     }
@@ -294,7 +331,8 @@ final class AppState: ObservableObject {
             var named: [String: AgentName] = [:]
             for m in r.members { if let n = m.agentName, !n.isEmpty { named[m.user] = AgentName(name: n, ambiguous: m.agentNameAmbiguous == true) } }
             if named != agentNames[b.id] { agentNames[b.id] = named }
-            displayNames[b.id] = Dictionary(r.members.compactMap { m in m.displayName.flatMap { $0.isEmpty ? nil : (m.user, $0) } }, uniquingKeysWith: { a, _ in a })
+            for m in r.members { rememberDisplayName(m.displayName, for: m.user) }
+            membersRefreshed[b.id] = Date()
         } catch { report(error, quiet: true) }
     }
 
@@ -806,7 +844,7 @@ final class AppState: ObservableObject {
         profile = nil
         withAnimation(.smooth) {
             signedIn = false; loaded = false
-            inbox = []; approvals = []; contacts = []; sessions = []; boards = []; entries = [:]; tasks = [:]; me = nil; feedCursor = nil
+            inbox = []; approvals = []; contacts = []; sessions = []; boards = []; entries = [:]; tasks = [:]; me = nil; displayNames = [:]; members = [:]; agentNames = [:]; membersRefreshed = [:]; feedCursor = nil
         }
     }
 

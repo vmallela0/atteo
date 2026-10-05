@@ -70,7 +70,7 @@ struct AgentChatRow: View {
                 }
                 HStack(alignment: .center, spacing: Space.s) {
                     Group {
-                        if let l = b?.last { Text(Vocab.shown(l.by) + ": ").foregroundStyle(Theme.muted) + Text(l.text.mdPreview).foregroundStyle(unread > 0 ? Theme.muted : Theme.faint) }
+                        if let l = b?.last { Text(state.displayName(for: l.by) + ": ").foregroundStyle(Theme.muted) + Text(l.text.mdPreview).foregroundStyle(unread > 0 ? Theme.muted : Theme.faint) }
                         else { Text(Vocab.pick(String(localized: "Ask any of your agents, or one session", bundle: .l10n), String(localized: "Ask your assistant anything", bundle: .l10n))).foregroundStyle(Theme.faint) }
                     }
                     .font(Typo.secondary).lineLimit(1)

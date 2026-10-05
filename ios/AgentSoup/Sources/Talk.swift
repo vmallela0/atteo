@@ -427,7 +427,7 @@ final class TalkSession: ObservableObject {
     }
 
     private var subtitle: String {
-        board.map { $0.displayName(me: AppState.shared.me?.owner) } ?? String(localized: "Voice chat", bundle: .l10n)
+        board.map { AppState.shared.displayName(for: $0) } ?? String(localized: "Voice chat", bundle: .l10n)
     }
 
     private func tick() {
@@ -633,7 +633,7 @@ final class TalkSession: ObservableObject {
         seenSeq = top
         let mine = Set(list.filter { $0.author.lowercased() == me.lowercased() && $0.via != "agent" }.map(\.seq))
         for e in fresh where TalkStandby.worthReading(e, me: me, agentChat: b.isAgentChat, parentIsMine: { mine.contains($0) }) {
-            let who = e.byAgent ? agentLabel(e.author, e.agentName ?? AppState.shared.agentNames[b.id]?[e.author]?.name) : e.author
+            let who = e.byAgent ? agentLabel(AppState.shared.displayName(for: e.author), e.agentName ?? AppState.shared.agentNames[b.id]?[e.author]?.name) : AppState.shared.displayName(for: e.author)
             toRead.append(Heard(board: b.id, seq: e.seq, who: who, text: e.text, encrypted: b.encrypted == true, isPrivate: e.audience != nil))
         }
         readNext()
@@ -647,7 +647,7 @@ final class TalkSession: ObservableObject {
         let me = (AppState.shared.me?.owner ?? "").lowercased()
         for i in fresh where i.seq > 0 && !(i.actor.lowercased() == me && i.actorVia != "agent") {
             let encrypted = AppState.shared.boards.first { $0.id == i.boardId }?.encrypted == true
-            toRead.append(Heard(board: i.boardId, seq: i.seq, who: i.actorVia == "agent" ? Vocab.agentOf(i.actor) : i.actor, text: i.excerpt, encrypted: encrypted, isPrivate: true)) // For you doesn't say if it was private: never recapped
+            toRead.append(Heard(board: i.boardId, seq: i.seq, who: AppState.shared.displayName(for: i.actor, agent: i.actorVia == "agent"), text: i.excerpt, encrypted: encrypted, isPrivate: true)) // For you doesn't say if it was private: never recapped
         }
         readNext()
     }

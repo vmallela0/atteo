@@ -99,7 +99,7 @@ struct ChatComposer: View {
         guard let me else { return nil }
         return SpokenMentions(me: me, members: people,
                               agentNames: (state.agentNames[board.id] ?? [:]).filter { !$0.value.ambiguous }.mapValues(\.name),
-                              displayNames: Array((state.displayNames[board.id] ?? [:]).values))
+                              displayNames: people.map { state.displayName(for: $0) })
     }
 
     /// The "@word" being typed at the end of the message, if any.
@@ -171,6 +171,7 @@ struct ChatComposer: View {
                                   pasteImages: pasted,
                                   members: Set(mentionables.compactMap { $0.user?.lowercased() }), me: me,
                                   agentNames: state.agentNameMap(board.id),
+                                  displayName: { state.displayName(for: $0) }, nameRevision: state.displayNames,
                                   identifier: identifier)
                         .padding(.horizontal, Composer.gap)
                     if showsMic {

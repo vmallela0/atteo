@@ -25,7 +25,7 @@ struct EverydaySettings: View {
                 HStack(spacing: Space.m) {
                     Avatar(name: state.me?.owner ?? "", size: 52)
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(state.profile?.displayName?.nonEmpty ?? state.me?.owner.capitalizedFirst ?? "").font(Typo.ui(.title3).weight(.semibold)).foregroundStyle(Theme.text)
+                        Text(state.displayName(for: state.me?.owner ?? "")).font(Typo.ui(.title3).weight(.semibold)).foregroundStyle(Theme.text)
                         Text("\(chats) chats").font(Typo.secondary).foregroundStyle(Theme.muted)
                     }
                 }
@@ -283,7 +283,7 @@ struct AssistantRemembers: View {
                 if list.isEmpty { Text("Nothing yet.").foregroundStyle(Theme.muted) }
                 ForEach(list) { b in
                     NavigationLink { ChatMemory(board: b) } label: {
-                        HStack(spacing: Space.m) { BoardPicture(board: b, size: 28); Text(b.displayName(me: state.me?.owner)) }
+                        HStack(spacing: Space.m) { BoardPicture(board: b, size: 28); Text(state.displayName(for: b)) }
                     }
                 }
             } footer: { Text("What assistants keep in mind in each chat. Everyone in the chat can see it.") }
@@ -305,7 +305,7 @@ private struct ChatMemory: View {
             .listSectionSpacing(.compact)
             .scrollContentBackground(.hidden)
             .background(Theme.bg)
-            .navigationTitle(board.displayName(me: state.me?.owner))
+            .navigationTitle(state.displayName(for: board))
             .navigationBarTitleDisplayMode(.inline)
             .task { await model.load(board.id, state) }
             .sheet(isPresented: $model.editing) {
