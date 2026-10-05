@@ -95,7 +95,7 @@ describe("CSP follow-ups (opus-b #2678, jxn's agent #2681)", () => {
   it("lazy-loaded scripts inherit the document nonce", () => {
     expect(CODE_COLOR_JS).toContain("s.nonce=NONCE");
     expect(SHELL_PAGE_JS).toContain("s.nonce=NONCE");
-    expect(BUG_PAGE_JS).toContain("s.nonce=NONCE");
+    expect(BUG_PAGE_JS).not.toContain("createElement('script')"); // the bug report loads nothing more (no capture library since #4116)
   });
 });
 

@@ -94,7 +94,7 @@ export const CSS = `
   --you:var(--ink);--you-soft:color-mix(in srgb,var(--ink) 5%,transparent);--you-flash:color-mix(in srgb,var(--ink) 12%,transparent);
   --mention-fg:var(--ink);--mention-bg:color-mix(in srgb,var(--ink) 7%,transparent);--mention-line:color-mix(in srgb,var(--ink) 40%,transparent);
   --mention-you-bg:color-mix(in srgb,var(--ink) 15%,transparent);--mention-you-line:color-mix(in srgb,var(--ink) 65%,transparent);
-  --rail-mark:color-mix(in srgb,var(--muted) 16%,transparent);--rail-on:var(--muted);--rail-you:var(--ink);
+  --rail-mark:color-mix(in srgb,var(--muted) 16%,transparent);--rail-on:color-mix(in srgb,var(--muted) 60%,transparent);--rail-you:var(--ink);
   --unread:var(--ink);--voice:var(--ink);--badge-bg:var(--accent);--badge-fg:var(--on-ink);--focus:var(--accent);
   --mark:color-mix(in srgb,var(--ink) 14%,transparent);
   --private:color-mix(in srgb,var(--ink) 50%,transparent);--private-soft:color-mix(in srgb,var(--ink) 6%,transparent);
@@ -980,16 +980,14 @@ mark{background:var(--mark);color:inherit;border-radius:2px;padding:0 1px}
 .sidebar .me{display:flex;align-items:center;gap:6px}.sidebar .me>.side-link{flex:1;min-width:0}
 .bug-btn{flex:none;width:30px;height:30px;padding:0;display:inline-grid;place-items:center;border:1px solid var(--line-strong);color:var(--muted);background:var(--bg)}
 .bug-btn:hover{color:var(--ink);border-color:var(--ink);background:var(--bg)}
-/* The report dialog (jxn #4053): what happened first, then the screenshot they'll get, then Cancel / Send. */
+/* The report dialog (jxn #4053, #4116): what happened, the pictures you added (paper clip, paste or drop), then Cancel / Send. */
 #bug form{display:block}
-#bug .bd{display:grid;gap:14px}
+#bug .bd{display:grid;gap:12px}
 #bug textarea.input{min-height:110px}
-.bug-shot{position:relative;margin:0;border:1px solid var(--line);border-radius:var(--r-sm);background:var(--bg-subtle);overflow:hidden}
-.bug-shot img{display:block;width:100%;max-height:240px;object-fit:contain;object-position:top center}
-.bug-shot figcaption{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 8px 6px 12px;border-top:1px solid var(--line);font-size:13px;color:var(--muted)}
-.bug-shot[hidden]{display:none}
-#bug-shotless{margin:0;padding:12px;border:1px dashed var(--line-strong);border-radius:var(--r-sm);font-size:13px;color:var(--muted)}
-#bug .ft{display:flex;justify-content:flex-end;gap:8px;padding:0 22px 20px}
+.bug-pics{display:flex;flex-wrap:wrap;gap:10px;padding-top:4px}.bug-pics[hidden]{display:none}
+#bug.drop .bd{outline:2px dashed var(--line-strong);outline-offset:-6px;border-radius:var(--r)}
+#bug .ft{display:flex;align-items:center;gap:8px;padding:0 22px 20px}#bug .ft .grow{flex:1}
+.bug-attach{width:34px;height:34px;padding:0;display:inline-grid;place-items:center;color:var(--muted)}.bug-attach:hover{color:var(--ink)}
 .bug-private{display:flex;align-items:center;justify-content:center;min-height:44px;border:1px dashed var(--line-strong);border-radius:8px;color:var(--muted);font-size:13px;margin:10px 0;padding:0 10px;text-align:center}
 .topbar{position:sticky;top:0;z-index:10;height:48px;display:flex;align-items:center;gap:12px;padding:0 20px;border-bottom:1px solid var(--line);
   background:color-mix(in srgb,var(--bg) 85%,transparent);backdrop-filter:saturate(180%) blur(10px);-webkit-backdrop-filter:saturate(180%) blur(10px)}
@@ -1125,7 +1123,7 @@ dialog.palette{margin-top:12vh;width:min(600px,calc(100vw - 24px));border-radius
 .rail{position:absolute;top:8px;bottom:8px;right:0;width:16px;cursor:pointer;touch-action:none}
 .rail i{position:absolute;right:3px;width:8px;height:2px;margin-top:-1px;border-radius:1px;background:var(--rail-mark);transition:background .12s,width .12s}
 .rail i.on{background:var(--rail-on);width:10px}.rail i[data-n]{height:3px;margin-top:-1.5px}.rail i.me{background:var(--rail-you);width:10px}
-.rail:hover i{background:var(--sb)}.rail:hover i.on{background:var(--ink)}
+.rail:hover i{background:var(--sb)}.rail:hover i.on{background:var(--muted)}.rail:hover i.me{background:var(--rail-you)} /* only a message that mentions you is black (jxn #4120) */
 .rail-tip{position:absolute;right:22px;z-index:5;max-width:min(360px,70%);padding:5px 9px;margin-top:-13px;border-radius:7px;background:var(--ink);color:var(--on-ink);
   font-size:12px;line-height:16px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;pointer-events:none;box-shadow:var(--shadow-lg)}
 .rail-tip[hidden]{display:none}
@@ -1620,6 +1618,7 @@ export const APP_JS_SRC = `/app.js?v=${fnv(APP_JS)}`;
 // ---------- app shell (signed-in pages) ----------
 
 const ICON = {
+  clip: `<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" aria-hidden="true"><path d="M13.5 7.6 8.3 12.8a3.2 3.2 0 0 1-4.5-4.5l5.6-5.6a2.1 2.1 0 0 1 3 3L6.8 11.3a1 1 0 0 1-1.5-1.5l4.9-4.9"/></svg>`, // the composer's paper clip, for the bug report
   warn: `<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true"><path d="M8 2.3 14.4 13.4H1.6Z"/><path d="M8 6.4v3.4" stroke-linecap="round"/><circle cx="8" cy="11.5" r=".8" fill="currentColor" stroke="none"/></svg>`, // a warning triangle: Report a bug (jxn #4051)
   plug: `<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" aria-hidden="true"><path d="M6 2v3M10 2v3M4.5 5h7v2.5a3.5 3.5 0 0 1-7 0zM8 11v3"/></svg>`,
   boards: `<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><rect x="2" y="2" width="5" height="5" rx="1.2"/><rect x="9" y="2" width="5" height="5" rx="1.2"/><rect x="2" y="9" width="5" height="5" rx="1.2"/><rect x="9" y="9" width="5" height="5" rx="1.2"/></svg>`,
@@ -1744,13 +1743,13 @@ export function appPage(
 <div class="pal-filters" id="pal-filters" aria-label="${esc(T("Filters"))}"></div>
 <ul id="palette-list" role="listbox"></ul><div class="foot"><span><kbd>↑</kbd> <kbd>↓</kbd> ${esc(T("move"))}</span><span><kbd>↵</kbd> ${esc(T("open"))}</span><span><kbd>⌫</kbd> ${esc(T("remove filter"))}</span><span><kbd>esc</kbd> ${esc(T("close"))}</span></div></dialog>
 <dialog id="bug" aria-labelledby="bug-title"><form id="bug-form">
-<div class="hd"><div><h2 id="bug-title">${esc(T("Report a bug"))}</h2><p class="muted small" style="margin-top:4px">${esc(T("It goes to the developers with a screenshot of this page and what was on it. Take the private bits off the description; the screenshot below is what they see."))}</p></div><button type="button" class="btn ghost sm" data-close aria-label="${esc(T("Close"))}">✕</button></div>
+<div class="hd"><div><h2 id="bug-title">${esc(T("Report a bug"))}</h2><p class="muted small" style="margin-top:4px">${esc(T("It goes to the developers. Add pictures if they help: paste them, drop them here or use the paper clip."))}</p></div><button type="button" class="btn ghost sm" data-close aria-label="${esc(T("Close"))}">✕</button></div>
 <div class="bd">
-  <textarea class="input" id="bug-text" rows="4" required minlength="8" maxlength="4000" aria-label="${esc(T("What happened? What did you expect?"))}" placeholder="${esc(T("What happened? What did you expect?"))}"></textarea>
-  <figure class="bug-shot" id="bug-shot-box" hidden><img id="bug-shot" alt="${esc(T("Screenshot of this page"))}"><figcaption><span>${esc(T("Screenshot of this page"))}</span><button type="button" class="btn ghost sm" id="bug-remove">${esc(T("Remove screenshot"))}</button></figcaption></figure>
-  <p id="bug-shotless" hidden>${esc(T("No screenshot — the page couldn't be captured; the description helps all the more."))}</p>
+  <textarea class="input" id="bug-text" rows="4" required minlength="8" maxlength="2000" aria-label="${esc(T("What happened? What did you expect?"))}" placeholder="${esc(T("What happened? What did you expect?"))}"></textarea>
+  <div class="bug-pics" id="bug-pics" hidden></div>
+  <input type="file" id="bug-files" accept="image/*" multiple hidden>
 </div>
-<div class="ft"><button type="button" class="btn" data-close>${esc(T("Cancel"))}</button><button class="btn primary" type="submit" id="bug-send">${esc(T("Send report"))}</button></div>
+<div class="ft"><button type="button" class="btn ghost sm bug-attach" id="bug-attach" aria-label="${esc(T("Attach files"))}" title="${esc(T("Attach files or images (or paste or drop them)"))}">${ICON.clip}</button><span class="grow"></span><button type="button" class="btn" data-close>${esc(T("Cancel"))}</button><button class="btn primary" type="submit" id="bug-send">${esc(T("Send report"))}</button></div>
 </form></dialog>
 <dialog id="shortcuts"><div class="hd"><h2>${esc(T("Keyboard shortcuts"))}</h2><button class="btn ghost sm" data-close aria-label="${esc(T("Close"))}">✕</button></div>
 <div class="bd"><dl class="kv">
@@ -1821,79 +1820,50 @@ const pageScripts = (script: string, nonce: string): string =>
     .split("\u0000")
     .map((part, i) => (i % 2 ? `<script src="${esc(part)}" nonce="${nonce}"></script>` : part ? `<script nonce="${nonce}">${part}</script>` : ""))
     .join("");
-// Report a bug (jxn #3336, glm-b #3343): the sidebar button captures the page as a PNG in the browser (the DOM is
-// cloned into an SVG foreignObject and drawn on a canvas — no dependency, no permission prompt; webfonts fall back
-// to system ones in the capture), shows it with a way to remove it (moby #3342 (3)), and posts it with the note and
-// context to POST /api/bugs (glm-a #3341; 501 when the bug board isn't set up). Recent console errors ride along.
+// Report a bug (jxn #3336, #4116): the account row's button opens a form: what happened, and pictures if they help,
+// added like the composer's (the paper clip, a paste or a drop), shown as thumbnails you can remove. Nothing is captured
+// on its own. Pictures are scaled to 1600 px and sent as JPEG (PNG kept when it's already small), at most 4 and 1.9 MB
+// together (the endpoint's cap), as multipart to POST /api/bugs (501 while the bug board isn't set up).
 const BUG_JS = `
-(()=>{let shot=null;const errs=[];const MAX=2*1024*1024;
-window.addEventListener('error',e=>{errs.push(String(e.message||e.error).slice(0,300))});
-window.addEventListener('unhandledrejection',e=>{errs.push(String(e.reason).slice(0,300))});
-// Privacy (opus-d's review of #3351): the report goes to a board agents read, and an image gets past every text
-// filter — so in any capture, People-only and Just-mine entries are replaced with a placeholder, and the composer
-// too while a privacy lock (🔒) is on: what the capture may never show is what those marks say agents can't see.
-const scrub=(doc)=>{const p=(doc.ownerDocument||doc).createElement('div'); // doc: a Document (html2canvas's clone) or a cloned <html> element (the fallback)p.className='bug-private';p.textContent='🔒 '+tr('private — hidden from this report');
-  doc.querySelectorAll('.badge.po').forEach(b=>{const e=b.closest('.entry');if(e)e.replaceWith(p.cloneNode(true))});
-  doc.querySelectorAll('.po-lock').forEach(l=>{const r=l.closest('.row,.entry,li,article')||l;if(r)r.replaceWith(p.cloneNode(true))}); // Inbox / For you rows (opus-d #3380)
-  const pn=doc.querySelector('#po-note'),f=doc.querySelector('form.composer');
-  if(pn&&!pn.hidden&&f)f.replaceWith(p.cloneNode(true));
-  doc.querySelectorAll('#lightbox').forEach(l=>l.remove()); // an open lightbox shows a picture with no badge (opus-d #3380)
-  doc.querySelectorAll('#bug').forEach(d=>d.removeAttribute('open'));return doc};
-// The capture: html2canvas (self-hosted by the /api/bugs endpoint, lazy-loaded once on first use — glm-a #3364)
-// draws the real page, webfonts and images in; if it won't load, a dependency-free SVG foreignObject fallback
-// draws the clone (system fonts, no external images). Both render a closed #bug dialog and scrubbed privacy.
-const NONCE=document.currentScript?.nonce||'';
-let h2c=null;const html2canvas=()=>h2c=h2c||new Promise((res)=>{if(window.html2canvas)return res(true);const s=document.createElement('script');s.src='/vendor/html2canvas.min.js';s.nonce=NONCE;s.onload=()=>res(true);s.onerror=()=>res(false);document.head.appendChild(s)});
-const fallback=()=>new Promise((res)=>{try{
-  const cw=Math.min(innerWidth,1024),ch=innerHeight; // full viewport height, width capped
-  const clone=scrub(document.documentElement.cloneNode(true));
-  clone.querySelectorAll('script').forEach(s=>s.remove());
-  const svg='<svg xmlns="http://www.w3.org/2000/svg" width="'+cw+'" height="'+ch+'"><foreignObject width="100%" height="100%">'+new XMLSerializer().serializeToString(clone)+'</foreignObject></svg>';
-  const img=new Image();
-  img.onload=()=>{try{const c=document.createElement('canvas');c.width=cw;c.height=ch;const g=c.getContext('2d');if(!g)return res(null);
-    g.fillStyle=getComputedStyle(document.body).backgroundColor||'#fff';g.fillRect(0,0,cw,ch);g.drawImage(img,0,0,cw,ch);
-    const url=c.toDataURL('image/png');res(url.length<=MAX+70000?url:null)}catch(e){res(null)}};
-  img.onerror=()=>res(null);
-  img.src='data:image/svg+xml;charset=utf-8,'+encodeURIComponent(svg);
-}catch(e){res(null)}});
-// html2canvas 1.4 can't read the colours modern CSS computes to: color-mix() comes back as "color(srgb …)" (and oklch()
-// and friends as themselves), and it throws on the first one (jxn #4043's failed capture). While it draws, the styles
-// it reads hand it those colours as plain rgba(), converted once each through a 1×1 canvas.
-const MODERN=/\\b(?:color|oklch|oklab|lch|lab|hwb)\\([^()]*(?:\\([^()]*\\)[^()]*)*\\)/g,rgbaOf=new Map(),px=document.createElement('canvas').getContext('2d',{willReadFrequently:true});
-const toRgba=(c)=>{let v=rgbaOf.get(c);if(v)return v;px.clearRect(0,0,1,1);px.fillStyle='#000';px.fillStyle=c;px.fillRect(0,0,1,1);const d=px.getImageData(0,0,1,1).data;
-  v='rgba('+d[0]+','+d[1]+','+d[2]+','+(d[3]/255).toFixed(3)+')';rgbaOf.set(c,v);return v};
-const plain=(v)=>typeof v==='string'&&MODERN.test(v)?(MODERN.lastIndex=0,v.replace(MODERN,toRgba)):(MODERN.lastIndex=0,v);
-const styled=(w)=>{const real=w.getComputedStyle;w.getComputedStyle=function(el,ps){const cs=real.call(w,el,ps);
-  return new Proxy(cs,{get(t,k){const v=t[k];return typeof v==='function'?(k==='getPropertyValue'?(n)=>plain(t.getPropertyValue(n)):v.bind(t)):plain(v)}})};return()=>{w.getComputedStyle=real}};
-const capture=async()=>{if(!(await html2canvas()))return fallback();const undo=[styled(window)];try{
-  const c=await window.html2canvas(document.body,{backgroundColor:getComputedStyle(document.body).backgroundColor||'#fff',logging:false,
-    onclone:(d)=>{scrub(d);d.querySelectorAll('script').forEach(s=>s.remove());
-      // html2canvas draws a closed <details>' contents (the board menus); scrub also drops #lightbox and the #bug dialog.
-      d.querySelectorAll('details:not([open])>:not(summary)').forEach(x=>x.remove());if(d.defaultView)undo.push(styled(d.defaultView))}});
-  const url=c.toDataURL('image/png');return url.length<=MAX+70000?url:fallback();
-}catch(e){errs.push('capture: '+String(e&&e.message||e).slice(0,200));return fallback()}finally{undo.forEach(f=>f())}};
-// d: the screenshot, null (none: say so), or 'wait' (being taken: say that).
-const show=(d)=>{const img=document.getElementById('bug-shot'),box=document.getElementById('bug-shot-box'),less=document.getElementById('bug-shotless');
-  if(!img)return;const has=!!d&&d!=='wait';box.hidden=!has;less.hidden=has;
-  if(!has){if(less.dataset.none===undefined)less.dataset.none=less.textContent;less.textContent=d==='wait'?tr('Taking the screenshot…'):less.dataset.none}
-  if(has)img.src=d;else img.removeAttribute('src')};
-const run=async()=>{const d=document.getElementById('bug');if(!d)return;
-  document.getElementById('bug-text').value='';shot=null;show('wait');d.showModal(); // the dialog is up while the capture runs (it's scrubbed out of the image)
-  const cap=document.getElementById('bug-send');cap.disabled=true;cap.textContent=tr('Taking the screenshot…');
-  shot=await capture();cap.disabled=false;cap.textContent=tr('Send report');show(shot)};
+(()=>{const MAXN=4,MAX=1900000;let pics=[];
+const $=id=>document.getElementById(id);
+const total=()=>pics.reduce((n,p)=>n+p.blob.size,0);
+// One picture, made small enough: kept as it is when it's a small PNG/JPEG, else drawn at 1600 px or less as JPEG.
+const fit=async(file)=>{if((file.type==='image/png'||file.type==='image/jpeg')&&file.size<=600000)return file;
+  const bmp=await createImageBitmap(file),k=Math.min(1,1600/Math.max(bmp.width,bmp.height)),w=Math.round(bmp.width*k),h=Math.round(bmp.height*k);
+  const c=document.createElement('canvas');c.width=w;c.height=h;const g=c.getContext('2d');g.fillStyle='#fff';g.fillRect(0,0,w,h);g.drawImage(bmp,0,0,w,h);
+  let q=.85,b;do{b=await new Promise(r=>c.toBlob(r,'image/jpeg',q));q-=.15}while(b&&b.size>700000&&q>.3);return b};
+const render=()=>{const box=$('bug-pics');if(!box)return;box.hidden=!pics.length;box.textContent='';
+  pics.forEach((p,i)=>{const s=document.createElement('span');s.className='att';const im=document.createElement('img');im.src=p.url;im.alt='';
+    const x=document.createElement('button');x.type='button';x.className='att-x';x.dataset.bugRm=String(i);x.setAttribute('aria-label',tr('Remove'));x.textContent='✕';s.append(im,x);box.append(s)})};
+const add=async(files)=>{for(const f of files){if(!/^image[/]/.test(f.type||'')){toast(tr('Only pictures can go with a bug report.'));continue}
+    if(pics.length>=MAXN){toast(tr('At most 4 pictures in a bug report.'));break}
+    try{const b=await fit(f);if(!b||total()+b.size>MAX){toast(tr('That picture is too large for the report.'));continue}pics.push({blob:b,url:URL.createObjectURL(b)})}
+    catch(e){toast(tr("Couldn't read that picture."))}}
+  render()};
+const clear=()=>{pics.forEach(p=>URL.revokeObjectURL(p.url));pics=[];render()};
+const run=()=>{const d=$('bug');if(!d)return;$('bug-text').value='';clear();if(!d.open)d.showModal();$('bug-text').focus()};
 document.addEventListener('click',e=>{if(e.target.closest('[data-bug]'))run()});
 run(); // bug.js is only loaded on a bug click: that first click is this run
-document.addEventListener('click',e=>{if(e.target.id!=='bug-remove')return;shot=null;show(null)});
-document.getElementById('bug-form')?.addEventListener('submit',async e=>{e.preventDefault();
-  const t=document.getElementById('bug-text').value.trim();if(t.length<8)return;
-  const send=document.getElementById('bug-send');send.disabled=true;
-  try{const r=await fetch('/api/bugs',{method:'POST',headers:{'content-type':'application/json'},
-    body:JSON.stringify({note:t,path:location.pathname+location.hash,screenshot:shot,
-      context:{board:(window.BOARD_CTX||{}).id||null,os:navigator.platform,viewport:innerWidth+'x'+innerHeight,errors:errs.slice(-5)}})});
-    const j=await r.json().catch(()=>({}));
+document.addEventListener('click',e=>{const x=e.target.closest('[data-bug-rm]');if(x){const i=+x.dataset.bugRm;URL.revokeObjectURL(pics[i].url);pics.splice(i,1);render();return}
+  if(e.target.closest('#bug-attach'))$('bug-files').click()});
+$('bug-files')?.addEventListener('change',e=>{add([...e.target.files]);e.target.value=''});
+$('bug-text')?.addEventListener('paste',e=>{const fs=[...(e.clipboardData?.files||[])];if(fs.length){e.preventDefault();add(fs)}});
+const dlg=$('bug');
+dlg?.addEventListener('dragover',e=>{if([...(e.dataTransfer?.types||[])].includes('Files')){e.preventDefault();dlg.classList.add('drop')}});
+dlg?.addEventListener('dragleave',e=>{if(!dlg.contains(e.relatedTarget))dlg.classList.remove('drop')});
+dlg?.addEventListener('drop',e=>{dlg.classList.remove('drop');const fs=[...(e.dataTransfer?.files||[])];if(fs.length){e.preventDefault();add(fs)}});
+dlg?.addEventListener('close',clear);
+$('bug-form')?.addEventListener('submit',async e=>{e.preventDefault();
+  const t=$('bug-text').value.trim();if(t.length<8)return;
+  const send=$('bug-send');send.disabled=true;
+  try{const fd=new FormData();fd.append('note',t);fd.append('path',location.pathname+location.hash);
+    fd.append('context',JSON.stringify({board:(window.BOARD_CTX||{}).id||undefined,os:navigator.platform||undefined,device:'web '+innerWidth+'x'+innerHeight}));
+    pics.forEach((p,i)=>fd.append('screenshot',p.blob,'picture-'+(i+1)+(p.blob.type==='image/png'?'.png':'.jpg')));
+    const r=await fetch('/api/bugs',{method:'POST',body:fd});const j=await r.json().catch(()=>({}));
     if(r.status===501){toast(tr("Bug reporting isn't set up yet — the developers will enable it soon."));return}
     if(!r.ok)throw Error(j.error||tr('Could not send it'));
-    document.getElementById('bug').close();toast(tr('Report sent — thank you.'));errs.length=0;
+    $('bug').close();toast(tr('Report sent — thank you.'));
   }catch(err){toast(err.message||tr('Could not send it'))}finally{send.disabled=false}});
 })();`;
 

@@ -26,7 +26,6 @@ import { badMessageId, isRetriable, messageId, retryingReads, withRetry } from "
 import CLI_BUNDLE from "../cli/dist/atteo.mjs";
 import { installScript } from "./install";
 import SKILL_MD from "../skills/atteo/SKILL.md";
-import HTML2CANVAS_JS from "./vendor/html2canvas.min.js"; // the bug-report screenshot, loaded only when the dialog opens
 import { agentsMd, guidePage } from "./guide";
 import { docsPage } from "./docs";
 import { openapi } from "./openapi";
@@ -710,8 +709,6 @@ const handler = {
       if (path === "/terms" || path === "/privacy") return legalPage(path.slice(1) as "terms" | "privacy");
       if (path === "/openapi.json") return json(openapi(origin), 200, { "access-control-allow-origin": "*", "cache-control": "public, max-age=300" });
       if (path === "/skill.md") return new Response(SKILL_MD, { headers: { "content-type": "text/markdown; charset=utf-8", "cache-control": "public, max-age=300" } });
-      if (path === "/vendor/html2canvas.min.js" && method === "GET")
-        return new Response(HTML2CANVAS_JS, { headers: { "content-type": "application/javascript; charset=utf-8", "cache-control": "public, max-age=86400" } });
       if (path === "/docs") return docsPage(origin, SKILL_MD);
       if (path === "/agents.md") return new Response(agentsMd(origin), { headers: { "content-type": "text/markdown; charset=utf-8", "cache-control": "public, max-age=300", "access-control-allow-origin": "*" } });
       if (path === "/apple-touch-icon.png" || path === "/apple-touch-icon-precomposed.png") {
@@ -857,7 +854,10 @@ const handler = {
         // the reporter is named in the text.
         const stub = boardStub(env, bugsBoard);
         try {
-          const entry = report.screenshot
+          const pics = report.screenshots ?? (report.screenshot ? [report.screenshot] : []);
+          const entry = pics.length > 1
+            ? await stub.postFiles(bugs.BUG_BOT, { files: pics.map((p) => ({ name: p.name, bytes: p.bytes })), text: bugs.bugReportText(report, viewer?.name ?? "someone (signed out)"), via: "person", client: "bug-report" })
+            : report.screenshot
             ? await stub.postFile(bugs.BUG_BOT, { name: report.screenshot.name, bytes: report.screenshot.bytes, text: bugs.bugReportText(report, viewer?.name ?? "someone (signed out)"), via: "person", client: "bug-report" })
             : await stub.post(bugs.BUG_BOT, { type: "note", text: bugs.bugReportText(report, viewer?.name ?? "someone (signed out)"), via: "person", client: "bug-report" });
           if (viewer) ctx.waitUntil(registry.touch(env, viewer.name, bugsBoard).catch(() => {}));
