@@ -248,11 +248,27 @@ struct BoardView: View {
                     ProgressView().controlSize(.small).tint(Theme.faint).frame(maxWidth: .infinity).padding(.top, Space.m)
                         .accessibilityIdentifier("loading-earlier")
                 }
-                LazyVStack(alignment: .leading, spacing: 0) {
-                    ForEach(Array(r.shown.enumerated()), id: \.element.id) { i, e in
-                        row(i, r)
-                            .id(e.id)
-                            .transition(.asymmetric(insertion: insertion(e), removal: .opacity))
+                // Older history is lazy; the newest messages (30 to 50) are made up front. A lazy list near its end has
+                // only guessed heights for rows it hasn't made, and when something changed size while it was being
+                // scrolled there (opening at the first unread as tasks and members load, coming back from a thread,
+                // a reply folding into its thread), the guesses flipped every frame: SwiftUI's layout never settled
+                // and the chat froze, or came back blank (vedu #2449). Real heights at the end can't flip. The split
+                // moves in steps of 20, so a new message doesn't move a row from one stack to the other each time.
+                let tail = Self.tailStart(r.shown.count)
+                VStack(alignment: .leading, spacing: 0) {
+                    LazyVStack(alignment: .leading, spacing: 0) {
+                        ForEach(Array(r.shown[..<tail].enumerated()), id: \.element.id) { i, e in
+                            row(i, r)
+                                .id(e.id)
+                                .transition(.asymmetric(insertion: insertion(e), removal: .opacity))
+                        }
+                    }
+                    VStack(alignment: .leading, spacing: 0) {
+                        ForEach(Array(r.shown[tail...].enumerated()), id: \.element.id) { j, e in
+                            row(tail + j, r)
+                                .id(e.id)
+                                .transition(.asymmetric(insertion: insertion(e), removal: .opacity))
+                        }
                     }
                 }
                 .padding(.horizontal, Space.l).padding(.top, Space.xs).padding(.bottom, Space.s)
@@ -599,6 +615,9 @@ struct BoardView: View {
             stick = atBottom || focused
         }
     }
+
+    /// Where the chat's eagerly made tail starts: the newest 30 to 50 rows, the boundary moving in steps of 20.
+    static func tailStart(_ count: Int) -> Int { count <= 50 ? 0 : (count - 30) / 20 * 20 }
 
     /// The newest message here (sending ones aside).
     private var newestSeq: Int { list.lazy.map(\.seq).max().map { max($0, 0) } ?? 0 }
