@@ -13,7 +13,7 @@
 //
 // Env: BASE (default http://localhost:8787; must be a local server) · PW_CHROME (Chromium executable; default: the one
 //   playwright-core installed) · PAR (default 8) · SHARD=i/n (run the i-th of n balanced slices, 1-based) · ONLY="a b"
-//   · SHARED=0 (a fresh Chromium per check) · BROWSERS (shared Chromiums, default 3) · RETRY=0 (no retry) · TIMEOUT per
+//   · SHARED=0 (a fresh Chromium per check) · BROWSERS (shared Chromiums, default 3) · RETRY=0 (no retry) · RETRY_PAR (retries at once, each with its own Chromium; default 4) · TIMEOUT per
 //   check in s (default 240; on the first pass a check is stopped at 4x its checks.json time, at least 60s, and retried alone) · SHOTS_DIR (screenshots, logs and failed.txt; default <os tmp>/atteo-browser-shots)
 //   · ADMIN_KEY (default ci-admin-key, as in CI's .dev.vars) · PERSIST (the server's `wrangler dev --persist-to` dir, so
 //   checks that write to local D1 directly, live and e2e-web, reach the server's database; unset = the default .wrangler).
@@ -149,8 +149,12 @@ if (shared) await shared.close();
 
 const failed1 = list.filter((t) => !results[t].ok && !results[t].skipped);
 if (RETRY && failed1.length) {
-  console.log(`retrying alone: ${failed1.join(" ")}`);
-  for (const t of failed1) { const r = await run1(t, 0, false); results[t] = { ...r, retried: true }; line(r, r.ok ? "; passed on retry alone" : "; failed again alone"); }
+  // Each retry gets its own Chromium (not the shared ones), RETRY_PAR at a time: one by one, a dozen flaky checks cost minutes.
+  const RETRY_PAR = Math.max(1, +(process.env.RETRY_PAR || 4)), again = [...failed1];
+  console.log(`retrying alone (${Math.min(RETRY_PAR, again.length)} at a time): ${failed1.join(" ")}`);
+  await Promise.all(Array.from({ length: Math.min(RETRY_PAR, again.length) }, async () => {
+    for (let t; (t = again.shift()); ) { const r = await run1(t, 0, false); results[t] = { ...r, retried: true }; line(r, r.ok ? "; passed on retry alone" : "; failed again alone"); }
+  }));
 }
 
 const skipped = list.filter((t) => results[t].skipped);
