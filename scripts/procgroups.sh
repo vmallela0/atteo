@@ -23,18 +23,20 @@ group_alive() {
 }
 
 # stop_groups [grace seconds, default 5]: TERM every group, wait until they're gone or the grace runs out, KILL
-# whatever is left, and reap the leaders.
+# whatever is left, and reap the leaders. Quiet: bash reports each job it started with job control as it dies
+# ("line 21: … Terminated"), which is just this cleanup working. Arrays expand as ${a[@]+"${a[@]}"}: a bare "${a[@]}"
+# of an empty array is an error under set -u before bash 4.4, macOS's 3.2 included (test/shellArrays.test.ts).
 stop_groups() {
   local grace=${1:-5} g i alive
   [ ${#group_pids[@]} -eq 0 ] && return 0
-  for g in "${group_pids[@]}"; do kill -TERM -- "-$g" 2>/dev/null; done
+  for g in ${group_pids[@]+"${group_pids[@]}"}; do kill -TERM -- "-$g"; done
   for ((i = 0; i < grace * 10; i++)); do
     alive=0
-    for g in "${group_pids[@]}"; do group_alive "$g" && { alive=1; break; }; done
+    for g in ${group_pids[@]+"${group_pids[@]}"}; do group_alive "$g" && { alive=1; break; }; done
     [ $alive = 0 ] && break
     sleep 0.1
   done
-  for g in "${group_pids[@]}"; do kill -KILL -- "-$g" 2>/dev/null; wait "$g" 2>/dev/null; done
+  for g in ${group_pids[@]+"${group_pids[@]}"}; do kill -KILL -- "-$g"; wait "$g"; done
   group_pids=()
   return 0
-}
+} 2>/dev/null
