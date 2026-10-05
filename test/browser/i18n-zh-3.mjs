@@ -28,7 +28,7 @@ await ctx.addCookies([{ name: k, value: v.join("="), url: BASE }]);
 const p = await ctx.newPage();
 const errors = [];
 p.on("pageerror", (e) => errors.push(e.message));
-const BRAND = /^(Atteo|atteo|Grok|ChatGPT|Claude|Codex|Cursor|VS Code|Muse|Gemini|Conductor|CLI|MCP|API|UTC|JSON|Webhook|OpenAI|Anthropic|PROTOCOL\.md|MEMORY\.md|SOUL|Markdown|GitHub|复制 JSON)\b/;
+const BRAND = /^(Atteo|atteo|Grok|ChatGPT|Claude|Codex|Cursor|VS Code|Muse|Gemini|Conductor|CLI|MCP|API|UTC|JSON|Webhook|OpenAI|Anthropic|PROTOCOL\.md|MEMORY\.md|SOUL|Markdown|GitHub|复制 JSON|下载完整日志（JSON|下載完整日誌（JSON)\b/;
 const leftIn = (sel) => p.evaluate(([sel, run, brand]) => {
   const root = document.querySelector(sel);
   if (!root) return ["(missing " + sel + ")"];

@@ -1237,7 +1237,8 @@ function ghostSync(){const H=scroller.clientHeight;if(!ghOn||!H||document.getEle
   const th=document.getElementById('thread'),top=scroller.getBoundingClientRect().top,live=[...th.querySelectorAll(':scope>.entry')].filter(el=>!offChat(el)),tail=new Set(live.slice(-GH_TAIL)),far=[];
   for(const el of live){if(tail.has(el)||ghKeep(el))continue;const r=el.getBoundingClientRect(),d=Math.max(top-GH_FAR*H-r.bottom,r.top-top-H-GH_FAR*H);if(d>0)far.push([el,r.height,d])} // measure all, then swap
   far.sort((a,b)=>b[2]-a[2]);far.length=Math.max(0,Math.min(far.length,live.length-GH_MIN)); // a short board stays whole
-  for(const [el,h] of far)el.replaceWith(ghostOf(el,h));if(far.length)railBuild(); // the rail points at the placeholders now
+  // A placeholder keeps its message's height, but whatever is at the top of the view stays put even if one rounds differently.
+  if(far.length){const a=ghAnchor();for(const [el,h] of far)el.replaceWith(ghostOf(el,h));ghAnchorBack(a);railBuild()} // the rail points at the placeholders now
   const gs=[...th.querySelectorAll(':scope>.ghost')].filter(g=>!offChat(g)),near=[];let lo=0,hi=gs.length;
   while(lo<hi){const m=(lo+hi)>>1;if(gs[m].getBoundingClientRect().bottom<top-GH_NEAR*H)lo=m+1;else hi=m}
   for(let i=lo;i<gs.length;i++){if(gs[i].getBoundingClientRect().top>top+H+GH_NEAR*H)break;near.push(+gs[i].dataset.seq)}
@@ -2788,7 +2789,7 @@ ${canInviteAgent ? inviteAgentDialog(T, info) : ""}
       : ""
   }</section>
   <section class="acc-sec" id="acc-gate" hidden><h3 id="gate-h"></h3><ul class="acc-list" id="acc-handoffs"></ul></section>
-  <details class="acc-sec"><summary class="small muted">${esc(T("Activity"))}</summary><ul class="acc-list" id="acc-audit"></ul></details>
+  <details class="acc-sec"><summary class="small muted">${esc(T("Activity"))}</summary><ul class="acc-list" id="acc-audit"></ul><p class="xs acc-dl"><a href="/api/boards/${esc(encodeURIComponent(info.id))}/audit/export" download>${esc(T("Download the full log (JSON)"))}</a></p></details>
   ${
     true
       ? `<section class="acc-sec" id="acc-board"><h3>${esc(T("This board"))}</h3>${picSec}${info.archived ? "" : `<div class="acc-row"><button class="btn ghost sm" type="button" data-pin-board="${esc(info.id)}">${esc(T(side.some(b => b.id === info.id && b.pinned) ? "Unpin" : "Pin"))}</button></div>`}${

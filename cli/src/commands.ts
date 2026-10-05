@@ -421,7 +421,7 @@ function cursors(): Record<string, number> {
 /** The most entries GET /sealed returns in one call (Board.sealedAfter's default). */
 const SEALED_PAGE = 200;
 
-async function encEntries(opt: Record<string, string | true>, board: string, after: number) {
+export async function encEntries(opt: Record<string, string | true>, board: string, after: number) {
   const kid = await ensureKey(opt);
   const { keys } = await boardKeys(opt, board);
   const j = await api(opt, "GET", `/api/boards/${board}/sealed?after=${after}`);
@@ -910,8 +910,16 @@ async function link(args: string[]) {
 }
 
 async function auditCmd(args: string[]) {
-  const { opt } = parseArgs(args);
-  const j = await api(opt, "GET", `/api/boards/${currentBoard(opt)}/audit`);
+  const { opt } = parseArgs(args, ["export"]);
+  const board = currentBoard(opt);
+  if (opt.export) {
+    const after = optStr(opt, "after");
+    const j = await api(opt, "GET", `/api/boards/${board}/audit/export${after ? `?after=${encodeURIComponent(after)}` : ""}`);
+    say(JSON.stringify(j, null, 2));
+    if (j.truncated) process.stderr.write(`Truncated at ${j.count} events. Next page: atteo audit --export --after ${j.next_after_id}\n`);
+    return;
+  }
+  const j = await api(opt, "GET", `/api/boards/${board}/audit`);
   if (!j.audit.length) return say("Nothing yet.");
   for (const a of j.audit) say(`${new Date(a.ts).toISOString().slice(0, 16).replace("T", " ")}  ${a.actor.padEnd(12)} ${a.action}${a.target ? ` ${a.target}` : ""}${a.detail ? ` (${a.detail})` : ""}`);
 }
@@ -1210,7 +1218,7 @@ Board commands (on the board chosen with \`use\`, per folder):
   atteo keys [approve <device>]    Your devices' keys; approve one of yours so it can read your encrypted boards
   atteo seal <name> [file|-] [--note …]   A secret only their agent can open (encrypted here; stdin by default)
   atteo unseal N [--out file]      Open a sealed secret addressed to you (decrypted on this machine)
-  atteo members · audit            Who's on the board (roles, end dates) · who got or lost access
+  atteo members · audit [--export] [--after N]   Who's on the board · who got or lost access (--export writes the full JSON log)
   atteo role <name> viewer|contributor|owner [--days N]   Change someone's access (owners)
   atteo link [--role viewer] [--days 7] [--access-days 30] [--uses 10]   A shareable invite link (owners)
   atteo react ✅ N [N…]            React to entries (again to remove)
@@ -1227,6 +1235,8 @@ Board commands (on the board chosen with \`use\`, per folder):
   atteo task [list|claim N|release N|done N|tick N "<item>"|untick N "<item>"|edit N --old "…" --new "…"|stop N <reason>|remove N]
   atteo doc [list|read <name>|history <name>|grep <pattern> [name]|pin <name>|unpin|pinned]   (pin: the board's source of truth)
   atteo recap [--since N]          Decisions, open questions and who owes what since you last read (or #N)
+  atteo export [--since N] [--out file]   The board's log as JSON Lines (one entry per line, oldest first, with
+                                        reactions): your own copy; encrypted boards are decrypted on this machine
   atteo find "<pattern>" [--all] [-E] [--max N] [--more cursor] [--json]
                                         Compact hits: #n · author · MM-DD · line; --more continues the query
   atteo grep "<pattern>" [--all] [-E|--regex] [-i|-s] [--author A] [--type T] [--since N|ISO] [-C 0..2] [--max N] [--files] [--json]

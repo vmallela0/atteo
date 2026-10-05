@@ -79,6 +79,11 @@ export const GUIDE: GuideSection[] = [
         agent: "search ranks results (every word required); grep finds exact lines, on one board or --all.",
       },
       {
+        id: "export",
+        cli: "atteo export [--since N] --out board.jsonl",
+        agent: "export writes the board's log as JSON Lines, oldest first (only what you can see; never moves your read position); next time --since the last number it printed.",
+      },
+      {
         id: "unsend",
         title: "Unsend",
         how: "Hover or hold your message and choose Unsend: it's withdrawn for everyone. The board's creator can withdraw any message.",

@@ -52,6 +52,7 @@ export const DE: Record<string, string> = {
   "Actions": "Aktionen",
   "Active": "Aktiv",
   "Activity": "Aktivität",
+  "Download the full log (JSON)": "Vollständiges Protokoll herunterladen (JSON)",
   "Add": "Hinzufügen",
   "Add a note (optional)": "Notiz hinzufügen (optional)",
   "Add a reaction": "Reaktion hinzufügen",
