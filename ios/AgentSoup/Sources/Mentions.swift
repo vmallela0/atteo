@@ -151,3 +151,92 @@ extension String {
         pattern: "(^|[^A-Za-z0-9_.@/-])@([A-Za-z0-9][A-Za-z0-9_.-]{0,31})((?:'|’)s\\s+agent\\b|/[A-Za-z0-9][A-Za-z0-9_.-]{0,31})?",
         options: [.caseInsensitive])
 }
+
+// MARK: - The message box's mentions as single units (jxn #2551, like the web's chips: src/html.ts mtokens)
+
+/// A mention in the message box is one unit, as on the web: one Backspace at its end removes it whole, an edit that
+/// cuts into it takes all of it, the caret never rests inside it, and a selection that cuts into it covers it.
+/// Ranges are UTF-16 (NSString), each from the "@" to the mention's end; `tokens` is what's in the box now.
+enum MentionTokens {
+    /// An edit of `range`, grown to cover each token it cuts into. An empty range at a token's edge (typing right
+    /// before or after it) cuts into nothing. Backspace with the caret at a token's end arrives as the range of its
+    /// last character, and so takes the whole token.
+    static func expand(_ range: NSRange, tokens: [NSRange]) -> NSRange {
+        var a = range.location, b = range.location + range.length
+        for t in tokens {
+            let s = t.location, e = t.location + t.length
+            if range.length == 0 {
+                if s < a && a < e { a = s; b = e } // an insertion inside a token (the caret can't rest there) replaces it
+                continue
+            }
+            if s < a && a < e { a = s } // the edit starts inside the token
+            if s < b && b < e { b = e } // or ends inside it
+        }
+        return NSRange(location: a, length: b - a)
+    }
+
+    /// Where the caret or selection goes: a caret inside a token moves out of it, to the far edge from where it came
+    /// (so the arrow keys step over a token: from its end, left goes to its start), else to the nearer edge; a
+    /// selection that cuts into a token grows to cover it.
+    static func snap(_ sel: NSRange, previous: NSRange?, tokens: [NSRange]) -> NSRange {
+        guard sel.length == 0 else { return expand(sel, tokens: tokens) }
+        let a = sel.location
+        guard let t = tokens.first(where: { $0.location < a && a < $0.location + $0.length }) else { return sel }
+        let s = t.location, e = t.location + t.length
+        if let p = previous, p.length == 0 {
+            if p.location >= e { return NSRange(location: s, length: 0) } // moving left from its end
+            if p.location <= s { return NSRange(location: e, length: 0) } // moving right from its start
+        }
+        return NSRange(location: a - s < e - a ? s : e, length: 0)
+    }
+}
+
+/// What "@" offers in the message box, in the web's order (src/html.ts mentionOptions): each other member, then their
+/// agent (by its name too, when it has one), then each of their agent sessions ("@jxn/opus-b", jxn #2551); then your
+/// own agent and sessions; then everyone's agents, everyone, and everyone and their agents.
+enum MentionMenu {
+    static func options(people: [String], me: String?, named: [String: AppState.AgentName], sessions: [BoardAgent]) -> [Mentionable] {
+        func sessionsOf(_ u: String) -> [Mentionable] {
+            sessions.filter { $0.user == u && !($0.name ?? "").isEmpty }
+                .sorted { ($0.name ?? "") < ($1.name ?? "") }
+                .map { s in
+                    let status = s.status?.trimmingCharacters(in: .whitespacesAndNewlines)
+                    return Mentionable(handle: "\(u)/\(s.name ?? "")", user: u, agent: true,
+                                       note: (status?.isEmpty == false ? status : nil) ?? s.client ?? String(localized: "agent session", bundle: .l10n))
+                }
+        }
+        func agentOptions(_ u: String) -> [Mentionable] {
+            var out: [Mentionable] = []
+            if let n = named[u], !n.ambiguous {
+                out.append(Mentionable(handle: n.name, user: u, agent: true, note: u == me ? String(localized: "your agent", bundle: .l10n) : String(localized: "\(u)'s agent", bundle: .l10n)))
+            }
+            let note: String? = named[u].map { String(localized: "\($0.name) · agent", bundle: .l10n) }
+            out.append(Mentionable(handle: "\(u)'s agent", user: u, agent: true, note: note))
+            return out + sessionsOf(u)
+        }
+        var out: [Mentionable] = []
+        var seen = Set<String>()
+        for u in people.sorted() where u != me && seen.insert(u.lowercased()).inserted { // sorted, like the web
+            out.append(Mentionable(handle: u, user: u, agent: false))
+            out += agentOptions(u)
+        }
+        if let me { out += agentOptions(me) }
+        out.append(Mentionable(handle: "agents", user: nil, agent: true))
+        out.append(Mentionable(handle: "humans", user: nil, agent: false))
+        out.append(Mentionable(handle: "all", user: nil, agent: false, note: String(localized: "everyone and their agents", bundle: .l10n))) // last, like the web
+        return out
+    }
+
+    /// What matches what's typed after "@" so far, like the web: with a "/", the session form ("jxn/op"); otherwise a
+    /// member's handle or the option itself ("jx" offers jxn, jxn's agent and jxn's sessions). What's already typed in
+    /// full isn't offered again.
+    static func filter(_ items: [Mentionable], query: String) -> [Mentionable] {
+        let q = query.lowercased()
+        return items.filter { m in
+            let h = m.handle.lowercased()
+            guard h != q else { return false }
+            if q.contains("/") { return h.hasPrefix(q) }
+            return h.hasPrefix(q) || (m.user?.lowercased().hasPrefix(q) ?? false)
+        }
+    }
+}
