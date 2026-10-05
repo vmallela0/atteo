@@ -972,7 +972,7 @@ mark{background:var(--mark);color:inherit;border-radius:2px;padding:0 1px}
 .bpic-row{gap:12px;margin-bottom:12px}
 .sidebar .me{margin-top:auto;border-top:1px solid var(--line);padding-top:8px}
 /* Report a bug: conspicuous on purpose (jxn #3336) — a bordered button of its own above the account row. */
-.bug-btn{border:1px solid var(--line-strong);border-radius:8px;height:34px;margin:10px 2px 2px;color:var(--muted)}
+.bug-btn{border:1px solid var(--line-strong);border-radius:8px;height:34px;margin:10px 2px 2px;color:var(--muted);background:transparent} /* a <button>: the UA's ButtonFace (#6b6b6b in dark) would sit under the muted text — axe contrast (moby #3957) */
 .bug-btn:hover{color:var(--ink);background:var(--bg-hover)}
 #bug .bd{padding:14px 0 4px}
 .bug-private{display:flex;align-items:center;justify-content:center;min-height:44px;border:1px dashed var(--line-strong);border-radius:8px;color:var(--muted);font-size:13px;margin:10px 0;padding:0 10px;text-align:center}
