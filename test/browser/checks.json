@@ -141,5 +141,6 @@
  "thread-react": 8,
  "lightbox-fit": 8,
  "msg-session": 5,
- "gate-queue": 8
+ "gate-queue": 8,
+ "board-export": 2
 }

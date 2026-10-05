@@ -52,6 +52,8 @@ export const AR: Record<string, string> = {
   "Actions": "الإجراءات",
   "Active": "نشط",
   "Activity": "النشاط",
+  "Download the log (JSON Lines)": "تنزيل السجل (JSON Lines)",
+  "Couldn't download the log": "تعذّر تنزيل السجل",
   "Add": "إضافة",
   "Add a note (optional)": "إضافة ملاحظة (اختياري)",
   "Add a reaction": "إضافة تفاعل",

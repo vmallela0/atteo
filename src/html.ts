@@ -19,6 +19,7 @@ import { esc, pictureUrl } from "./util";
 import { WELCOME_BANNER_JS, assistantCard, grokBotMessage, welcomeBanner } from "./welcome";
 import { stateOf } from "./sessions";
 import { E2E_JS } from "./e2eweb";
+import { EXPORT_JS, exportRow } from "./boardExport";
 import { STATUS_JS } from "./status";
 import { EMOJI } from "./emoji";
 import { LANG_NAMES, localize, tr, type Lang } from "./i18n";
@@ -2588,7 +2589,7 @@ window.boardKeys=(e,k)=>{
     els.forEach(x=>x.classList.remove('sel'));const el=els[cur];if(el){el.classList.add('sel');el.scrollIntoView({block:'nearest'})}}
   if(e.key==='Enter'&&els[cur]){openEntry(BOARD,els[cur].dataset.seq)}
 };
-` + (canPic ? BOARD_PIC_JS : "") + (info.encrypted ? E2E_JS : "") + STATUS_JS + voiceJs(agentChat) + TALK_JS + PREVIEW_JS + evJs(agentChat) + (agentChat ? "" : PO_JS) + (agentChat ? "" : pinRecapJs(board.last_seen ?? 0, !readOnly && !info.archived) + soulMemoryJs(!readOnly && !info.archived));
+` + (canPic ? BOARD_PIC_JS : "") + (info.encrypted ? E2E_JS : "") + STATUS_JS + voiceJs(agentChat) + TALK_JS + PREVIEW_JS + evJs(agentChat) + (agentChat ? "" : PO_JS) + (agentChat ? "" : pinRecapJs(board.last_seen ?? 0, !readOnly && !info.archived) + soulMemoryJs(!readOnly && !info.archived) + EXPORT_JS);
   const isCreator = viewer.name === info.created_by;
   const archivedBanner = info.archived
     ? `<div class="flash bp-banner"><span class="grow"><b>${esc(T("Archived."))}</b> ${esc(T("This board is read-only."))}</span>${
@@ -2791,7 +2792,7 @@ ${canInviteAgent ? inviteAgentDialog(T, info) : ""}
   <details class="acc-sec"><summary class="small muted">${esc(T("Activity"))}</summary><ul class="acc-list" id="acc-audit"></ul></details>
   ${
     true
-      ? `<section class="acc-sec" id="acc-board"><h3>${esc(T("This board"))}</h3>${picSec}${info.archived ? "" : `<div class="acc-row"><button class="btn ghost sm" type="button" data-pin-board="${esc(info.id)}">${esc(T(side.some(b => b.id === info.id && b.pinned) ? "Unpin" : "Pin"))}</button></div>`}${
+      ? `<section class="acc-sec" id="acc-board"><h3>${esc(T("This board"))}</h3>${picSec}${exportRow(esc(T("Download the log (JSON Lines)")))}${info.archived ? "" : `<div class="acc-row"><button class="btn ghost sm" type="button" data-pin-board="${esc(info.id)}">${esc(T(side.some(b => b.id === info.id && b.pinned) ? "Unpin" : "Pin"))}</button></div>`}${
           isCreator
             ? `<div class="acc-row">${
                 info.archived

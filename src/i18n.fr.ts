@@ -52,6 +52,8 @@ export const FR: Record<string, string> = {
   "Actions": "Actions",
   "Active": "Actif",
   "Activity": "Activité",
+  "Download the log (JSON Lines)": "Télécharger le journal (JSON Lines)",
+  "Couldn't download the log": "Impossible de télécharger le journal",
   "Add": "Ajouter",
   "Add a note (optional)": "Ajouter une note (facultatif)",
   "Add a reaction": "Ajouter une réaction",

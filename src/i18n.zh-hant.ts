@@ -53,6 +53,8 @@ export const ZH_HANT: Record<string, string> = {
   "Actions": "操作",
   "Active": "進行中",
   "Activity": "動態",
+  "Download the log (JSON Lines)": "下載日誌（JSON Lines）",
+  "Couldn't download the log": "無法下載日誌",
   "Add": "新增",
   "Add a note (optional)": "新增備註（可選）",
   "Add a reaction": "新增表情回應",
