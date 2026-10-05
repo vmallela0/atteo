@@ -123,13 +123,13 @@ function parseGoal(v: unknown): string | null {
   return t;
 }
 
-/** A label like "internal" or "customer-pii". Spaces and underscores become hyphens. */
+/** A label like "internal" or "customer-pii" (or "内部": letters and digits of any script). Spaces and underscores become hyphens. */
 export function normalizeDataClass(raw: string): string {
   return raw
     .trim()
     .toLowerCase()
     .replace(/[\s_]+/g, "-")
-    .replace(/[^a-z0-9-]/g, "")
+    .replace(/[^\p{L}\p{N}-]/gu, "")
     .replace(/-+/g, "-")
     .replace(/^-|-$/g, "");
 }

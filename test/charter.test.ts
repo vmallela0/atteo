@@ -68,6 +68,7 @@ describe("charter fields", () => {
   it("refuses a goal, a label, a note, or a retention period that doesn't fit", () => {
     expect(() => parseCharterPatch({ goal: "x".repeat(501) })).toThrow(/500/);
     expect(() => parseCharterPatch({ data_classes: ["!!!"] })).toThrow(/letters, digits and hyphens/);
+    expect(parseCharterPatch({ data_classes: "内部, Données_client" }).data_classes).toEqual(["内部", "données-client"]); // any script (#3685)
     expect(() => parseCharterPatch({ data_classes: Array.from({ length: 13 }, (_, i) => `c${i}`) })).toThrow(/12/);
     expect(() => parseCharterPatch({ members: { ada: "x".repeat(121) } })).toThrow(/120/);
     expect(() => parseCharterPatch({ retention_days: 3651 })).toThrow(/1–3650/);
