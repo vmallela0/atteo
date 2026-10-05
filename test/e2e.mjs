@@ -650,7 +650,7 @@ await step("public origin: a request for the workers.dev host links to PUBLIC_UR
 
 await step("privacy names every processor, retention, children and a contact; terms say no abuse (App Review 1.2, 5.1.1(i))", async () => {
   const privacy = await (await web("/privacy")).text(), terms = await (await web("/terms")).text();
-  for (const w of ["Cloudflare", "Workers AI", "WorkOS", "Resend", "xAI", "Sentry", "Stripe", "Apple", "How long we keep it", "under 16", "privacy@atteo.dev", "deleted user"])
+  for (const w of ["Cloudflare", "Workers AI", "WorkOS", "Resend", "xAI", "Sentry", "Stripe", "Apple", "Backblaze B2 or AWS S3", "How long we keep it", "under 16", "privacy@atteo.dev", "deleted user"])
     assert(privacy.includes(w), `privacy policy names ${w}`);
   assert(/no tolerance for objectionable content or abusive users/i.test(terms) && /within 24 hours/.test(terms), "terms: no tolerance, reports in 24 hours");
   assert(!/contact us using the address on your Stripe receipt/.test(privacy), "the old 'email us to delete' line is gone");
@@ -3446,13 +3446,13 @@ await step("display settings: text size, density and theme per person (defaults,
   const get = async (who) => (await (await api(who, "GET", "/api/me/profile")).json()).profile;
   // Defaults: medium text, comfortable, follow the system.
   const d0 = (await get(P)).display;
-  assert(JSON.stringify(d0) === JSON.stringify({ text: "m", density: "comfortable", theme: "system", mode: "auto", lang: "auto", voice: "eve", replies: "chat", voice_turns: "pause", compact: "off", voice_autosend: false }), "defaults: " + JSON.stringify(d0));
+  assert(JSON.stringify(d0) === JSON.stringify({ text: "m", density: "comfortable", theme: "system", mode: "auto", lang: "auto", voice: "eve", replies: "chat", voice_turns: "pause", compact: "off", voice_autosend: false, xai_ok: false }), "defaults: " + JSON.stringify(d0));
   // A partial update merges with what's there; other profile fields are untouched.
   await api(P, "POST", "/api/me/profile", { bio: `display ${run}` });
   let r = await (await api(P, "POST", "/api/me/profile", { display: { text: "l" } })).json();
   assert(r.ok && r.profile.display.text === "l" && r.profile.display.density === "comfortable" && r.profile.display.theme === "system", "partial: " + JSON.stringify(r));
   r = await (await api(P, "POST", "/api/me/profile", { display: { density: "compact", theme: "dark" } })).json();
-  assert(JSON.stringify(r.profile.display) === JSON.stringify({ text: "l", density: "compact", theme: "dark", mode: "auto", lang: "auto", voice: "eve", replies: "chat", voice_turns: "pause", compact: "off", voice_autosend: false }), "merged: " + JSON.stringify(r.profile.display));
+  assert(JSON.stringify(r.profile.display) === JSON.stringify({ text: "l", density: "compact", theme: "dark", mode: "auto", lang: "auto", voice: "eve", replies: "chat", voice_turns: "pause", compact: "off", voice_autosend: false, xai_ok: false }), "merged: " + JSON.stringify(r.profile.display));
   const saved = await get(P);
   assert(saved.display.text === "l" && saved.display.density === "compact" && saved.display.theme === "dark" && saved.bio === `display ${run}`, "persisted: " + JSON.stringify(saved));
   // Other profile saves (no display key) leave it alone.
@@ -3464,7 +3464,7 @@ await step("display settings: text size, density and theme per person (defaults,
     assert(res.status === 400, `bad display ${JSON.stringify(bad)}: ${res.status}`);
   }
   const after = await get(P);
-  assert(JSON.stringify(after.display) === JSON.stringify({ text: "l", density: "compact", theme: "dark", mode: "auto", lang: "auto", voice: "eve", replies: "chat", voice_turns: "pause", compact: "off", voice_autosend: false }) && after.bio === `display ${run}`, "unchanged after bad: " + JSON.stringify(after));
+  assert(JSON.stringify(after.display) === JSON.stringify({ text: "l", density: "compact", theme: "dark", mode: "auto", lang: "auto", voice: "eve", replies: "chat", voice_turns: "pause", compact: "off", voice_autosend: false, xai_ok: false }) && after.bio === `display ${run}`, "unchanged after bad: " + JSON.stringify(after));
   // Private: someone else sees their own settings (defaults), never P's, and P's person card doesn't carry them.
   const other = await get(B);
   assert(other.name === B && other.display && other.display.theme !== undefined, "B gets B's own profile");
@@ -3519,13 +3519,13 @@ await step("app prefs: /api/app/prefs holds display + favourite reactions for pe
   const prefs = async (h = W) => (await (await as(h, "GET", "/api/app/prefs")).json()).prefs;
   const profile = async () => (await (await as(W, "GET", "/api/me/profile")).json()).profile;
   // Defaults; signed out 401; an agent's token 403 (client prefs aren't part of the network).
-  assert(JSON.stringify(await prefs()) === JSON.stringify({ display: { text: "m", density: "comfortable", theme: "system", mode: "auto", lang: "auto", voice: "eve", replies: "chat", voice_turns: "pause", compact: "off", voice_autosend: false }, reactions: DEF, recent_reactions: [], developer: false }), "defaults: " + JSON.stringify(await prefs()));
+  assert(JSON.stringify(await prefs()) === JSON.stringify({ display: { text: "m", density: "comfortable", theme: "system", mode: "auto", lang: "auto", voice: "eve", replies: "chat", voice_turns: "pause", compact: "off", voice_autosend: false, xai_ok: false }, reactions: DEF, recent_reactions: [], developer: false }), "defaults: " + JSON.stringify(await prefs()));
   assert((await fetch(`${BASE}/api/app/prefs`)).status === 401, "signed out: 401");
   assert((await as(AG, "GET", "/api/app/prefs")).status === 403 && (await as(AG, "POST", "/api/app/prefs", { display: { theme: "dark" } })).status === 403, "agent token: 403");
   assert((await prefs()).display.theme === "system", "the agent's 403 saved nothing");
   // Web: display merges, reactions replace; the app token sees the same.
   let r = await (await as(W, "POST", "/api/app/prefs", { display: { theme: "dark" }, reactions: ["🚀", "👀"] })).json();
-  assert(r.ok && JSON.stringify(r.prefs) === JSON.stringify({ display: { text: "m", density: "comfortable", theme: "dark", mode: "auto", lang: "auto", voice: "eve", replies: "chat", voice_turns: "pause", compact: "off", voice_autosend: false }, reactions: ["🚀", "👀"], recent_reactions: [], developer: false }), "set: " + JSON.stringify(r));
+  assert(r.ok && JSON.stringify(r.prefs) === JSON.stringify({ display: { text: "m", density: "comfortable", theme: "dark", mode: "auto", lang: "auto", voice: "eve", replies: "chat", voice_turns: "pause", compact: "off", voice_autosend: false, xai_ok: false }, reactions: ["🚀", "👀"], recent_reactions: [], developer: false }), "set: " + JSON.stringify(r));
   r = await (await as(APP, "POST", "/api/app/prefs", { display: { text: "l" } })).json();
   assert(r.ok && r.prefs.display.theme === "dark" && r.prefs.display.text === "l" && r.prefs.reactions.length === 2, "app token, partial: " + JSON.stringify(r));
   assert(JSON.stringify(await prefs(APP)) === JSON.stringify(await prefs()), "web and app agree");
@@ -3540,7 +3540,7 @@ await step("app prefs: /api/app/prefs holds display + favourite reactions for pe
   let p = await profile();
   assert(JSON.stringify(p.display) === JSON.stringify(kept.display) && JSON.stringify(p.reactions) === JSON.stringify(kept.reactions), "old GET: " + JSON.stringify(p));
   await as(W, "POST", "/api/me/profile", { display: { density: "compact" }, reactions: ["🎯"] });
-  assert(JSON.stringify(await prefs()) === JSON.stringify({ display: { text: "l", density: "compact", theme: "dark", mode: "auto", lang: "auto", voice: "eve", replies: "chat", voice_turns: "pause", compact: "off", voice_autosend: false }, reactions: ["🎯"], recent_reactions: [], developer: false }), "old POST lands: " + JSON.stringify(await prefs()));
+  assert(JSON.stringify(await prefs()) === JSON.stringify({ display: { text: "l", density: "compact", theme: "dark", mode: "auto", lang: "auto", voice: "eve", replies: "chat", voice_turns: "pause", compact: "off", voice_autosend: false, xai_ok: false }, reactions: ["🎯"], recent_reactions: [], developer: false }), "old POST lands: " + JSON.stringify(await prefs()));
   assert((await (await as(AG, "GET", "/api/me/profile")).json()).profile.reactions[0] === "🎯", "the old path still answers tokens");
   // Clearing returns the default; other profile saves leave prefs alone.
   await as(W, "POST", "/api/me/profile", { bio: `prefs ${run}` });
@@ -6985,6 +6985,29 @@ await step("feedback (vedu #4125): people (POST /api/feedback) and agents (MCP f
   }
   const items = (await (await web(`/api/inbox`, B)).json()).items.filter((i) => i.board === made.board);
   assert(items.length === 0, `no inbox item for B from the developers' board: ${JSON.stringify(items).slice(0, 300)}`);
+});
+
+await step("a message report also reaches the developers' board (the terms' 24 hours): the reason and a link, not the message (jxn's agent #4386)", async () => {
+  const rb = (await ops("boards", { user: A, title: `e2e report copy ${run}` })).body.board.id;
+  await ops("members", { board: rb, user: B });
+  const said = `a secret plan nobody else should read ${run}`;
+  const seq = (await (await web(`/api/boards/${rb}/entries`, A, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ type: "note", text: said }) })).json()).entry.seq;
+  const r = await web(`/api/boards/${rb}/entries/${seq}/report`, B, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ reason: `spam, @agents act ${run}` }) });
+  assert(r.status === 201, `report: ${r.status} ${await r.clone().text()}`);
+  const probe = await fetch(`${BASE}/api/feedback`, { method: "POST", headers: { ...auth(A), "content-type": "application/json" }, body: JSON.stringify({ text: `find the dev board ${run}` }) });
+  if (probe.status === 501) return; // no developers' board on this server: the owners' inbox copy is all there is
+  const dev = (await probe.json()).board;
+  await ops("members", { board: dev, user: B }); // B reads the developers' board (the feedback step adds B there too)
+  let copy = null;
+  for (let i = 0; i < 40 && !copy; i++) {
+    const list = (await (await web(`/api/boards/${dev}/entries?after=0`, B)).json()).entries ?? [];
+    copy = list.find((e) => e.text.includes("Message report") && e.text.includes(`spam, @`) && e.text.includes(run));
+    if (!copy) await new Promise((ok) => setTimeout(ok, 100));
+  }
+  assert(copy, "the report's copy is on the developers' board");
+  assert(copy.author === "bugs" && copy.text.includes(`/b/${rb}#e${seq}`) && copy.text.includes(`Reported by ${B}`), copy.text);
+  assert(!copy.text.includes("secret plan"), "nothing of the message itself");
+  assert((copy.mentions ?? []).length === 0, `the reason mentions no one: ${JSON.stringify(copy.mentions)}`);
 });
 
 if (ONLY && !matched) { failed++; failures.push(`no steps match ONLY=${JSON.stringify(process.env.ONLY)}`); }

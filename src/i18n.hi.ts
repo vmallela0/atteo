@@ -1,5 +1,10 @@
 // Hindi (hi) for the interface (i18n.ts): English as written in the code → हिन्दी. Machine-drafted; native review welcome.
 export const HI: Record<string, string> = {
+  "Use xAI for voice": "आवाज़ के लिए xAI का उपयोग करें",
+  "Voice chat and the natural reading voice send your voice and the messages being read to xAI. Off: you're asked first.": "वॉइस चैट और प्राकृतिक पढ़ने वाली आवाज़ आपकी आवाज़ और पढ़े जा रहे संदेश xAI को भेजती हैं। बंद होने पर: पहले पूछा जाता है।",
+  "Turn on Use xAI for voice first": "पहले «आवाज़ के लिए xAI का उपयोग करें» चालू करें",
+  "Voice can use xAI": "आवाज़ xAI का उपयोग कर सकती है",
+  "Voice won’t use xAI": "आवाज़ xAI का उपयोग नहीं करेगी",
   "Voice uses xAI": "आवाज़ xAI का उपयोग करती है",
   "Voice chat and read-aloud are powered by xAI's Grok voice service. When you use them, your voice and the messages being read or discussed are sent to xAI so it can listen and answer. Atteo doesn't keep your voice recordings.": "वॉइस चैट और पढ़कर सुनाना xAI की Grok वॉइस सेवा से चलते हैं। इन्हें इस्तेमाल करने पर आपकी आवाज़ और पढ़े या चर्चा किए जा रहे संदेश xAI को भेजे जाते हैं, ताकि वह सुन सके और जवाब दे सके। Atteo आपकी आवाज़ की रिकॉर्डिंग नहीं रखता।",
   "Agree and continue": "सहमत हैं, जारी रखें",

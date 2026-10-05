@@ -1,5 +1,10 @@
 // Japanese (ja) for the interface (i18n.ts): English as written in the code → 日本語. Machine-drafted; native review welcome.
 export const JA: Record<string, string> = {
+  "Use xAI for voice": "音声に xAI を使う",
+  "Voice chat and the natural reading voice send your voice and the messages being read to xAI. Off: you're asked first.": "音声チャットと自然な読み上げ音声は、あなたの声と読み上げるメッセージを xAI に送ります。オフ: 先に確認します。",
+  "Turn on Use xAI for voice first": "先に「音声に xAI を使う」をオンにしてください",
+  "Voice can use xAI": "音声で xAI を使えます",
+  "Voice won’t use xAI": "音声で xAI を使いません",
   "Voice uses xAI": "音声は xAI を使います",
   "Voice chat and read-aloud are powered by xAI's Grok voice service. When you use them, your voice and the messages being read or discussed are sent to xAI so it can listen and answer. Atteo doesn't keep your voice recordings.": "音声チャットと読み上げは xAI の Grok 音声サービスで動いています。使うと、あなたの声と読み上げ・話題にしているメッセージが xAI に送られ、聞き取りと応答に使われます。Atteo はあなたの音声の録音を保存しません。",
   "Agree and continue": "同意して続ける",

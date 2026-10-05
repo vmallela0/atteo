@@ -10,11 +10,11 @@ import { chromium } from "playwright-core";
 const BASE = process.env.BASE || "http://localhost:8787";
 const ops = async (p, b) => (await fetch(`${BASE}/api/ops/${p}`, { method: "POST", headers: { "x-admin-key": process.env.ADMIN_KEY || "ci-admin-key", "content-type": "application/json" }, body: JSON.stringify(b) })).json();
 const run = Date.now().toString(36).slice(-4), V = `tv${run}`;
-const mkUser = (u) => ops("users", { name: u, email: `${u}@example.com`, verified: "true", display: { mode: "developer", voice_turns: "quick" } }); // the service finds the turns here (voice-turns.mjs covers pause and tap)
+const mkUser = (u, xai_ok = true) => ops("users", { name: u, email: `${u}@example.com`, verified: "true", display: { mode: "developer", voice_turns: "quick", xai_ok } }); // xai_ok: the OK to use xAI (#4386) // the service finds the turns here (voice-turns.mjs covers pause and tap)
 await mkUser(V); const ckV = (await ops("sessions", { user: V })).cookie;
 // A person with a board of their own that V is on.
-async function person(tag) {
-  const me = `t${tag}${run}`; await mkUser(me);
+async function person(tag, xai = true) {
+  const me = `t${tag}${run}`; await mkUser(me, xai);
   const board = (await ops("boards", { user: me, title: `Talk ${tag} ${run}` })).board.id; await ops("members", { board, user: V });
   return { me, board, ck: (await ops("sessions", { user: me })).cookie };
 }
@@ -26,17 +26,16 @@ const until = (p, fn, arg, ms = 6000) => p.waitForFunction(fn, arg, { timeout: m
 const ok = async (fn, ms = 6000) => { for (const t = Date.now() + ms; Date.now() < t; await new Promise((r) => setTimeout(r, 25))) if (fn()) return true; return false; };
 // 24 kHz 16-bit PCM, base64: `sec` seconds of a quiet tone.
 const pcm = (sec) => { const n = Math.round(24000 * sec), b = Buffer.alloc(n * 2); for (let i = 0; i < n; i++) b.writeInt16LE(Math.round(Math.sin(i / 10) * 3000), i * 2); return b.toString("base64"); };
-const FAKE_WS = `(()=>{try{localStorage.setItem('ai-consent-xai','1')}catch(e){} /* the xAI OK (talk.ts consent) */const Real=window.WebSocket;window.__talk={sent:[],opened:0};window.__live=[];
+const FAKE_WS = `(()=>{const Real=window.WebSocket;window.__talk={sent:[],opened:0};window.__live=[];
   window.WebSocket=function(url,protocols){if(!String(url).startsWith('wss://api.x.ai')){const w=new Real(url,protocols);window.__live.push(w);return w}
     const ws={url,protocols,readyState:0,send(m){window.__talk.sent.push(JSON.parse(m))},close(){if(this.readyState===3)return;this.readyState=3;setTimeout(()=>this.onclose&&this.onclose({}),0)}};
     window.__talk.ws=ws;window.__talk.opened++;window.__talk.emit=e=>{if(ws.onmessage)ws.onmessage({data:JSON.stringify(e)})};setTimeout(()=>{ws.readyState=1;ws.onopen&&ws.onopen({})},50);return ws};
   Object.assign(window.WebSocket,{CONNECTING:0,OPEN:1,CLOSING:2,CLOSED:3});})()`;
 const b = await chromium.launch({ executablePath: process.env.PW_CHROME || undefined, args: ["--use-fake-ui-for-media-stream", "--use-fake-device-for-media-stream", "--autoplay-policy=no-user-gesture-required"] });
-async function page(path, { session, blockMic, ck, noConsent } = {}) {
+async function page(path, { session, blockMic, ck } = {}) {
   const ctx = await b.newContext({ viewport: { width: 1280, height: 860 }, permissions: ["microphone"] }); const [k, ...v] = ck.split(";")[0].split("="); await ctx.addCookies([{ name: k, value: v.join("="), url: BASE }]);
   const p = await ctx.newPage(); p.errors = []; p.on("pageerror", (e) => p.errors.push(e.message)); p.ends = [];
   await p.addInitScript(FAKE_WS); p.sessions = 0;
-  if (noConsent) await p.addInitScript(() => { try { localStorage.removeItem("ai-consent-xai"); } catch {} }); // after FAKE_WS's OK
   if (blockMic) await p.addInitScript(() => { navigator.mediaDevices.getUserMedia = () => Promise.reject(Object.assign(new Error("denied"), { name: "NotAllowedError" })); });
   await p.route("**/api/app/voice/**", async (route) => {
     const req = route.request(), headers = { ...req.headers(), "x-dev-fake-voice": "1" };
@@ -252,8 +251,8 @@ part(async (check) => { const { ck } = await person("q");
   check(!p.errors.length, `no page errors ${p.errors.join(" | ")}`); await ctx.close(); });
 
 // The xAI OK first (App Review 5.1.2(i), talk.ts consent): no session until the person agrees; Not now sends nothing.
-part(async (check) => { const { board, ck } = await person("o");
-  const { ctx, p } = await page(`/b/${board}`, { ck, noConsent: true });
+part(async (check) => { const { board, ck } = await person("o", false);
+  const { ctx, p } = await page(`/b/${board}`, { ck });
   const btn = p.locator(".bp-head [data-talk]");
   await btn.click();
   const dlg = p.locator("#ai-consent");
@@ -263,7 +262,8 @@ part(async (check) => { const { board, ck } = await person("o");
   check(!(await dlg.isVisible()) && p.sessions === 0 && !(await p.evaluate(() => window.atteoTalk.busy())), "Not now: the sheet closes and nothing is sent");
   await btn.click(); await dlg.locator("[data-yes]").click(); await listening(p);
   check(p.sessions === 1 && /Listening/.test(await st(p)), "Agree: the call connects");
-  check(await p.evaluate(() => localStorage.getItem("ai-consent-xai")) === "1", "and it's remembered in this browser");
+  const prefs = await p.evaluate(() => fetch("/api/app/prefs").then((r) => r.json()));
+  check(prefs.prefs?.display?.xai_ok === true, "and it's saved for the person (display.xai_ok), so every device follows it");
   await p.locator("#talk-end").click(); await until(p, () => !window.atteoTalk.busy(), null, 3000);
   check(!p.errors.length, `no page errors ${p.errors.join(" | ")}`); await ctx.close(); });
 for (const lines of await Promise.all(parts)) for (const l of lines) console.log(l);

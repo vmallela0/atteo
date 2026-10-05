@@ -91,6 +91,14 @@ function atobUniversal(s: string): string {
  */
 export const defang = (s: string) => s.replace(/@/g, "@\u200B");
 
+/**
+ * A message report, copied to the developers' board so we act on it within a day (the terms' promise, jxn's agent #4386):
+ * the reporter's reason (defanged) and a link to the message, nothing of what the message says.
+ */
+export function messageReportText(r: { reason: string; reporter: string; board: string; seq: number; link: string }): string {
+  return [`🚩 Message report: ${defang(r.reason)}`, "", `Reported by ${r.reporter} · board ${r.board} #${r.seq}`, r.link].join("\n");
+}
+
 /** The entry's text: the note first, then what we know, one fact per line (the screenshot rides along as a file). */
 export function bugReportText(report: BugReport, by: string): string {
   const lines = [`🐞 ${defang(report.note)}`];

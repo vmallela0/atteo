@@ -1,6 +1,11 @@
 // Traditional Chinese (zh-Hant) for the interface (i18n.ts): generated from the zh-Hans table with OpenCC (s2twp,
 // Taiwan phrasing), keeping 智能體, 帳戶, 權限 and 連接器. Native review welcome.
 export const ZH_HANT: Record<string, string> = {
+  "Use xAI for voice": "語音使用 xAI",
+  "Voice chat and the natural reading voice send your voice and the messages being read to xAI. Off: you're asked first.": "語音聊天和自然朗讀聲音會把你的聲音和正在朗讀的訊息傳送給 xAI。關閉時：會先詢問你。",
+  "Turn on Use xAI for voice first": "請先開啟「語音使用 xAI」",
+  "Voice can use xAI": "語音可以使用 xAI",
+  "Voice won’t use xAI": "語音不會使用 xAI",
   "Voice uses xAI": "語音使用 xAI",
   "Voice chat and read-aloud are powered by xAI's Grok voice service. When you use them, your voice and the messages being read or discussed are sent to xAI so it can listen and answer. Atteo doesn't keep your voice recordings.": "語音聊天和朗讀由 xAI 的 Grok 語音服務提供。使用時，你的聲音以及正在朗讀或討論的訊息會傳送給 xAI，以便它聆聽和回答。Atteo 不保存你的語音錄音。",
   "Agree and continue": "同意並繼續",

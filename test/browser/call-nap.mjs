@@ -15,7 +15,7 @@ import { chromium } from "playwright-core";
 const BASE = process.env.BASE || "http://localhost:8787";
 const ops = async (p, b) => (await fetch(`${BASE}/api/ops/${p}`, { method: "POST", headers: { "x-admin-key": process.env.ADMIN_KEY || "ci-admin-key", "content-type": "application/json" }, body: JSON.stringify(b) })).json();
 const run = Date.now().toString(36).slice(-4), V = `cv${run}`;
-const mkUser = (u) => ops("users", { name: u, email: `${u}@example.com`, verified: "true", display: { mode: "developer", voice_turns: "quick" } }); // the service finds the turns here (voice-turns.mjs covers pause and tap)
+const mkUser = (u) => ops("users", { name: u, email: `${u}@example.com`, verified: "true", display: { mode: "developer", voice_turns: "quick", xai_ok: true } }); // the service finds the turns here (voice-turns.mjs covers pause and tap)
 await mkUser(V); const ckV = (await ops("sessions", { user: V })).cookie;
 // A caller with a board of their own that V is on (sessions are rate-limited per person, and messages stay apart).
 async function caller(tag) {
@@ -33,7 +33,7 @@ const part = (fn) => { const lines = []; const check = (ok, t) => { lines.push(`
 const until = (p, fn, arg, ms = 6000) => p.waitForFunction(fn, arg, { timeout: ms, polling: 40 }).then(() => true, () => false);
 const ok = async (fn, ms = 6000) => { for (const t = Date.now() + ms; Date.now() < t; await new Promise((r) => setTimeout(r, 25))) if (fn()) return true; return false; };
 const wav = (sec) => { const n = Math.round(8000 * sec), b = Buffer.alloc(44 + n); b.write("RIFF", 0); b.writeUInt32LE(36 + n, 4); b.write("WAVEfmt ", 8); b.writeUInt32LE(16, 16); b.writeUInt16LE(1, 20); b.writeUInt16LE(1, 22); b.writeUInt32LE(8000, 24); b.writeUInt32LE(8000, 28); b.writeUInt16LE(1, 32); b.writeUInt16LE(8, 34); b.write("data", 36); b.writeUInt32LE(n, 40); b.fill(128, 44); return b; };
-const FAKE = `(()=>{try{localStorage.setItem('ai-consent-xai','1')}catch(e){} /* the xAI OK (talk.ts consent) */const Real=window.WebSocket;window.__talk={sent:[],opened:0,all:[]};window.__live=[];
+const FAKE = `(()=>{const Real=window.WebSocket;window.__talk={sent:[],opened:0,all:[]};window.__live=[];
   window.WebSocket=function(url,protocols){if(!String(url).startsWith('wss://api.x.ai')){const w=new Real(url,protocols);window.__live.push(w);return w}
     const ws={url,protocols,readyState:0,send(m){window.__talk.sent.push(JSON.parse(m))},close(){if(this.readyState===3)return;this.readyState=3;setTimeout(()=>this.onclose&&this.onclose({}),0)}};
     window.__talk.ws=ws;window.__talk.all.push(ws);window.__talk.opened++;window.__talk.emit=e=>{if(ws.onmessage)ws.onmessage({data:JSON.stringify(e)})};setTimeout(()=>{ws.readyState=1;ws.onopen&&ws.onopen({})},50);return ws};

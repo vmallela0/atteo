@@ -368,8 +368,10 @@ final class ReadAloud: NSObject, ObservableObject, AVSpeechSynthesizerDelegate, 
 
     private func serverHasVoice() async -> Bool {
         if let v = serverVoice { return v }
-        struct S: Decodable { let enabled: Bool }
-        let v = (try? await API.shared.get("/api/app/tts/status", as: S.self))?.enabled ?? false
+        struct S: Decodable { let enabled: Bool; let consent: Bool? }
+        let s = try? await API.shared.get("/api/app/tts/status", as: S.self)
+        AIConsent.sync(s?.consent) // the OK as the server has it
+        let v = s?.enabled ?? false
         serverVoice = v
         return v
     }

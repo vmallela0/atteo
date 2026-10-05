@@ -81,6 +81,7 @@ final class TalkStatus: ObservableObject {
         guard let (code, j) = try? await TalkAPI.call("GET", "/api/app/voice/status"), code == 200 else { return }
         enabled = j["enabled"] as? Bool ?? false
         autosend = j["voice_autosend"] as? Bool
+        AIConsent.sync(j["consent"]) // the OK to use xAI, as the server has it (another device may have changed it)
         update(used: j["minutes_used"], budget: j["minutes_budget"])
     }
 
@@ -347,6 +348,8 @@ final class TalkSession: ObservableObject {
             failed(error.localizedDescription, resuming: resuming); return
         }
         guard code == 200, let sid = j["session_id"] as? String, var session = j["session"] as? [String: Any] else {
+            // The OK was withdrawn elsewhere: this phone forgets it and the sheet asks again (TalkSheet watches it).
+            if AIConsent.isRefusal(code, j) { AIConsent.xai = false; failed(j["error"] as? String ?? "", resuming: resuming); return }
             if code == 503 { TalkStatus.shared.objectWillChange.send(); await TalkStatus.shared.load(force: true) }
             failed(j["error"] as? String ?? String(localized: "Couldn't start talking (\(code)).", bundle: .l10n), resuming: resuming)
             return

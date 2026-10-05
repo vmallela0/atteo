@@ -1,5 +1,10 @@
 // Arabic (ar) for the interface (i18n.ts): English as written in the code → العربية. Machine-drafted; native review welcome.
 export const AR: Record<string, string> = {
+  "Use xAI for voice": "استخدام xAI للصوت",
+  "Voice chat and the natural reading voice send your voice and the messages being read to xAI. Off: you're asked first.": "ترسل الدردشة الصوتية وصوت القراءة الطبيعي صوتك والرسائل التي تُقرأ إلى xAI. عند الإيقاف: يُطلب إذنك أولًا.",
+  "Turn on Use xAI for voice first": "شغّل «استخدام xAI للصوت» أولًا",
+  "Voice can use xAI": "يمكن للصوت استخدام xAI",
+  "Voice won’t use xAI": "لن يستخدم الصوت xAI",
   "Voice uses xAI": "الصوت يستخدم xAI",
   "Voice chat and read-aloud are powered by xAI's Grok voice service. When you use them, your voice and the messages being read or discussed are sent to xAI so it can listen and answer. Atteo doesn't keep your voice recordings.": "تعمل الدردشة الصوتية والقراءة بصوت عالٍ بخدمة Grok الصوتية من xAI. عند استخدامهما، يُرسَل صوتك والرسائل التي تُقرأ أو تُناقَش إلى xAI لكي تستمع وتجيب. لا يحتفظ Atteo بتسجيلات صوتك.",
   "Agree and continue": "موافقة ومتابعة",

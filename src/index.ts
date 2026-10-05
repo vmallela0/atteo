@@ -2929,7 +2929,14 @@ const handler = {
           const entry = await boardStub(env, m[1]).get(seq, { user: viewer.name, person: true }).then((g) => g.entry).catch(() => null);
           if (!entry) return json({ error: `Entry #${seq} does not exist on this board.` }, 404);
           if (!(await appSignin.hit(env, `reports:u:${viewer.name}`, moderation.REPORTS_PER_WINDOW))) return json({ error: "That's a lot of reports: try again in ten minutes." }, 429);
-          return json({ ok: true, ...(await moderation.report(env, m[1], seq, viewer.name, entry, reason)) }, 201);
+          const done = await moderation.report(env, m[1], seq, viewer.name, entry, reason);
+          // A copy for us on the developers' board (the terms: we look within 24 hours), reason and link only.
+          const bugsBoard = (env.BUGS_BOARD ?? "").trim();
+          if (bugsBoard) {
+            const text = bugs.messageReportText({ reason, reporter: viewer.name, board: m[1], seq, link: `${publicOrigin(env, url)}/b/${m[1]}#e${seq}` });
+            ctx.waitUntil((async () => { const s = boardStub(env, bugsBoard); await ensureBugBoard(env, bugsBoard, s); await s.post(bugs.BUG_BOT, { type: "note", text, via: "person", client: "report" }); })().catch((e) => console.error("report copy", e)));
+          }
+          return json({ ok: true, ...done }, 201);
         } catch (e) {
           if (e instanceof moderation.ModerationError) return json({ error: e.message }, e.status);
           throw e;

@@ -1,5 +1,10 @@
 // Indonesian (id) for the interface (i18n.ts): English as written in the code → Bahasa Indonesia. Machine-drafted; native review welcome.
 export const ID: Record<string, string> = {
+  "Use xAI for voice": "Gunakan xAI untuk suara",
+  "Voice chat and the natural reading voice send your voice and the messages being read to xAI. Off: you're asked first.": "Obrolan suara dan suara baca alami mengirim suaramu dan pesan yang dibaca ke xAI. Mati: kamu ditanya dulu.",
+  "Turn on Use xAI for voice first": "Nyalakan dulu Gunakan xAI untuk suara",
+  "Voice can use xAI": "Suara boleh memakai xAI",
+  "Voice won’t use xAI": "Suara tidak akan memakai xAI",
   "Voice uses xAI": "Suara memakai xAI",
   "Voice chat and read-aloud are powered by xAI's Grok voice service. When you use them, your voice and the messages being read or discussed are sent to xAI so it can listen and answer. Atteo doesn't keep your voice recordings.": "Obrolan suara dan baca keras memakai layanan suara Grok dari xAI. Saat kamu memakainya, suaramu dan pesan yang dibaca atau dibahas dikirim ke xAI agar bisa mendengar dan menjawab. Atteo tidak menyimpan rekaman suaramu.",
   "Agree and continue": "Setuju dan lanjutkan",

@@ -47552,6 +47552,98 @@
           }
         }
       }
+    },
+    "Couldn't save that. Check your connection and try again.": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo guardar. Comprueba tu conexión e inténtalo de nuevo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible d'enregistrer. Vérifie ta connexion et réessaie."
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "सहेजा नहीं जा सका। अपना कनेक्शन जाँचें और फिर कोशिश करें।"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保存できませんでした。接続を確認してもう一度お試しください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "저장하지 못했어요. 연결을 확인하고 다시 시도하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法保存。请检查网络连接后重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法儲存。請檢查網路連線後再試一次。"
+          }
+        }
+      }
+    },
+    "Turn on Use xAI for voice in Settings → Safety and privacy first.": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Activa primero «Usar xAI para la voz» en Ajustes → Seguridad y privacidad."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Active d'abord « Utiliser xAI pour la voix » dans Réglages → Sécurité et confidentialité."
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "पहले सेटिंग्स → सुरक्षा और गोपनीयता में «आवाज़ के लिए xAI का उपयोग करें» चालू करें।"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "先に 設定 → 安全とプライバシー で「音声に xAI を使う」をオンにしてください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "먼저 설정 → 안전 및 개인정보에서 ‘음성에 xAI 사용’을 켜세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请先在 设置 → 安全与隐私 中开启“语音使用 xAI”。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "請先在 設定 → 安全與隱私 中開啟「語音使用 xAI」。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

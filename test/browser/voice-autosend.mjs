@@ -13,14 +13,14 @@ const run = Date.now().toString(36).slice(-4);
 // A person (auto-send on or off) with a board of their own.
 async function person(tag, autosend) {
   const u = `t${tag}${run}`;
-  await ops("users", { name: u, email: `${u}@example.com`, verified: "true", display: { mode: "developer", voice_turns: "quick", ...(autosend ? { voice_autosend: true } : {}) } });
+  await ops("users", { name: u, email: `${u}@example.com`, verified: "true", display: { mode: "developer", voice_turns: "quick", xai_ok: true, ...(autosend ? { voice_autosend: true } : {}) } });
   return { u, board: (await ops("boards", { user: u, title: `Autosend ${tag} ${run}` })).board.id, cookie: (await ops("sessions", { user: u })).cookie };
 }
 let fails = 0; const parts = [];
 const part = (fn) => { const lines = []; const check = (ok, t) => { lines.push(`${ok ? "✓" : "✗"} ${t}`); if (!ok) fails++; }; parts.push(fn(check).then(() => lines, (e) => { fails++; return [...lines, `✗ ${e.stack || e}`]; })); };
 const until = (p, fn, arg, ms = 6000) => p.waitForFunction(fn, arg, { timeout: ms, polling: 40 }).then(() => true, () => false);
 const pcm = (sec) => { const n = Math.round(24000 * sec), b = Buffer.alloc(n * 2); for (let i = 0; i < n; i++) b.writeInt16LE(Math.round(Math.sin(i / 10) * 3000), i * 2); return b.toString("base64"); };
-const FAKE_WS = `(()=>{try{localStorage.setItem('ai-consent-xai','1')}catch(e){} /* the xAI OK (talk.ts consent) */const Real=window.WebSocket;window.__talk={sent:[],opened:0};window.__live=[];
+const FAKE_WS = `(()=>{const Real=window.WebSocket;window.__talk={sent:[],opened:0};window.__live=[];
   window.WebSocket=function(url,protocols){if(!String(url).startsWith('wss://api.x.ai')){const w=new Real(url,protocols);window.__live.push(w);return w}
     const ws={url,protocols,readyState:0,send(m){window.__talk.sent.push(JSON.parse(m))},close(){if(this.readyState===3)return;this.readyState=3;setTimeout(()=>this.onclose&&this.onclose({}),0)}};
     window.__talk.ws=ws;window.__talk.opened++;window.__talk.emit=e=>{if(ws.onmessage)ws.onmessage({data:JSON.stringify(e)})};setTimeout(()=>{ws.readyState=1;ws.onopen&&ws.onopen({})},50);return ws};

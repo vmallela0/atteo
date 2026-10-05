@@ -21,11 +21,31 @@ final class AppStoreModerationTests: XCTestCase {
 
     func testWhichRoutesSendToXAI() {
         XCTAssertTrue(AIConsent.sendsToXAI("/api/app/voice/session"))
-        XCTAssertTrue(AIConsent.sendsToXAI("/api/app/voice/autosend"))
         XCTAssertTrue(AIConsent.sendsToXAI("/api/app/tts"))
         XCTAssertFalse(AIConsent.sendsToXAI("/api/app/voice/status"), "a status check sends nothing")
         XCTAssertFalse(AIConsent.sendsToXAI("/api/app/tts/status"))
         XCTAssertFalse(AIConsent.sendsToXAI("/api/boards/b_x/entries"))
+        // Ours only (jxn's agent #4386): a call open at revoke still settles its minutes and checks autosend.
+        XCTAssertFalse(AIConsent.sendsToXAI("/api/app/voice/session/end"))
+        XCTAssertFalse(AIConsent.sendsToXAI("/api/app/voice/autosend"))
+    }
+
+    func testServerRefusalAndSync() {
+        XCTAssertTrue(AIConsent.isRefusal(403, ["needs_consent": true, "error": "x"]))
+        XCTAssertFalse(AIConsent.isRefusal(403, ["error": "Voice is for people"]), "another 403 isn't a consent refusal")
+        XCTAssertFalse(AIConsent.isRefusal(200, ["needs_consent": true]))
+        AIConsent.sync(true)
+        XCTAssertTrue(AIConsent.xai, "the server's OK lands on this phone")
+        AIConsent.sync(false)
+        XCTAssertEqual(UserDefaults.standard.bool(forKey: AIConsent.key), false, "and so does a withdrawal from another device")
+        AIConsent.sync(nil)
+        XCTAssertEqual(UserDefaults.standard.bool(forKey: AIConsent.key), false, "an old server (no field) changes nothing")
+    }
+
+    func testEndAndAutosendNotBlockedAfterRevoke() {
+        UserDefaults.standard.set(false, forKey: AIConsent.key)
+        XCTAssertNoThrow(try AIConsent.check("/api/app/voice/session/end"))
+        XCTAssertNoThrow(try AIConsent.check("/api/app/voice/autosend"))
     }
 
     func testNoVoiceSessionBeforeConsent() async throws {

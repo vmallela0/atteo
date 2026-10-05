@@ -130,9 +130,15 @@ struct SafetySection: View {
         Section {
             Toggle("Hide offensive words", isOn: $hideWords).tint(Theme.accent)
                 .accessibilityIdentifier("hide-offensive-toggle")
-            Toggle("Use xAI for voice", isOn: $xai).tint(Theme.accent)
+            // Saved for the person (display.xai_ok): off ends read-aloud's server voice and any live call, on every device.
+            Toggle("Use xAI for voice", isOn: Binding(get: { xai }, set: { on in
+                xai = on
+                if !on { ReadAloud.shared.hush() }
+                Task { if !(await AIConsent.save(on)), on { xai = false } } // couldn't save the OK: it stays off
+            })).tint(Theme.accent)
                 .accessibilityIdentifier("ai-consent-toggle")
         } header: { SectionHeader("Safety and privacy") } footer: {
+            // (the toggle's state is refreshed from the server whenever voice status loads: TalkStatus.load → AIConsent.sync)
             Text("Offensive words in other people's messages show as dots. Voice chat and the natural reading voice send your voice and the messages being read to xAI; off, you're asked first. To report a message, long-press it; to mute or block someone, open their profile.")
         }
         .listRowBackground(Theme.card)

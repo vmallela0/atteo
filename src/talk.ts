@@ -87,16 +87,19 @@ export const TALK_JS = String.raw`
 (()=>{if(window.atteoTalk)return;const T=(s,v)=>typeof tr==='function'?tr(s,v):s,RATE=24000;
 let st=null; // the live session, or null
 const btns=()=>[...document.querySelectorAll('[data-talk]')];
-const xaiOk=()=>{try{return localStorage.getItem('ai-consent-xai')==='1'}catch(e){return false}};window.atteoXaiOk=xaiOk;
+// The OK to send voice to xAI lives on the server (display.xai_ok, jxn's agent #4386): /api/app/voice/status says it, the
+// voice routes refuse without it (403 needs_consent), Agree saves it and Settings (/me) turns it off.
+let xai=false;const xaiOk=()=>xai;window.atteoXaiOk=xaiOk;
 // Shown only where it can work: the Worker has voice set up, and the browser has a microphone API and Web Audio.
 const can=!!(navigator.mediaDevices&&navigator.mediaDevices.getUserMedia&&(window.AudioContext||window.webkitAudioContext)&&window.WebSocket);
-if(can)fetch('/api/app/voice/status').then(r=>r.ok?r.json():null).then(j=>{if(j&&j.enabled)btns().forEach(b=>{b.hidden=false})}).catch(()=>{});
-document.addEventListener('click',e=>{const b=e.target.closest('[data-talk]');if(!b)return;e.preventDefault();const o={board:b.dataset.board||null,me:b.dataset.me||''};if(xaiOk())open(o);else consent(o)});
-// The one-time OK before voice goes to xAI (App Review 5.1.2(i), as the app's AIConsent.swift): per browser.
-function consent(o){let d=document.getElementById('ai-consent');if(!d){d=document.createElement('dialog');d.id='ai-consent';d.setAttribute('aria-labelledby','aic-h');
+if(can)fetch('/api/app/voice/status').then(r=>r.ok?r.json():null).then(j=>{if(j){xai=j.consent===true;if(j.enabled)btns().forEach(b=>{b.hidden=false})}}).catch(()=>{});
+document.addEventListener('click',e=>{const b=e.target.closest('[data-talk]');if(!b)return;e.preventDefault();const o={board:b.dataset.board||null,me:b.dataset.me||''};if(xai)open(o);else consent(o)});
+// The one-time OK before voice goes to xAI (App Review 5.1.2(i), as the app's AIConsent.swift), saved for the person.
+window.atteoXaiConsent=consent;
+function consent(o,after){let d=document.getElementById('ai-consent');if(!d){d=document.createElement('dialog');d.id='ai-consent';d.setAttribute('aria-labelledby','aic-h');
   d.innerHTML='<div class="talk-hd"><b id="aic-h">'+T('Voice uses xAI')+'</b></div><p style="margin:0;padding:6px 16px 12px;color:var(--muted)">'+T("Voice chat and read-aloud are powered by xAI's Grok voice service. When you use them, your voice and the messages being read or discussed are sent to xAI so it can listen and answer. Atteo doesn't keep your voice recordings.")+'</p><div class="row" style="justify-content:flex-end;gap:8px;padding:0 16px 16px"><button class="btn" type="button" data-no>'+T('Not now')+'</button><button class="btn primary" type="button" data-yes>'+T('Agree and continue')+'</button></div>';
-  document.body.appendChild(d);d.addEventListener('click',ev=>{if(ev.target.closest('[data-yes]')){try{localStorage.setItem('ai-consent-xai','1')}catch(x){}d.close();open(d._o)}else if(ev.target.closest('[data-no]'))d.close()})}
-  d._o=o;d.showModal()}
+  document.body.appendChild(d);d.addEventListener('click',async ev=>{if(ev.target.closest('[data-yes]')){const r=await fetch('/api/app/prefs',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({display:{xai_ok:true}})}).catch(()=>null);if(r&&r.ok)xai=true;d.close();if(xai){if(d._after)d._after();else if(d._o)open(d._o)}}else if(ev.target.closest('[data-no]'))d.close()})}
+  d._o=o;d._after=after||null;d.showModal()}
 
 // ---- the sheet ----
 const dlg=document.createElement('dialog');dlg.className='talk';dlg.setAttribute('aria-label',T('Talk to Atteo'));
@@ -168,6 +171,8 @@ async function connect(resume){const o=tk.o;
   let r,j;try{r=await fetch('/api/app/voice/session',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(Object.assign({hands_free:true,client_turns:true},o.board?{board:o.board}:{}))});j=await r.json().catch(()=>({}))}
   catch(e){return fail(s,T('Couldn’t reach Atteo. Check your connection and try again.'))}
   if(s!==st)return;
+  // The OK was withdrawn (another device, or Settings): close the call and ask again; nothing reached xAI.
+  if(r.status===403&&j.needs_consent){xai=false;const o=tk&&tk.o;hangUp(true);if(dlg.open)dlg.close();return consent(o)}
   if(!r.ok||!j.session_id||!j.session){return fail(s,j.error||T('Couldn’t start talking ({code}).',{code:r.status}))} // the allowance, the rate limit, not set up: the server's words
   s.sid=j.session_id;s.max=+j.max_seconds||600;if(j.end&&j.end.path)s.end=j.end.path;s.routes=j.tool_routes||{};s.session=j.session;
   s.turns=j.voice_turns==='pause'||j.voice_turns==='tap'?j.voice_turns:'quick';s.pauseMs=Math.max(400,Math.min(5000,+j.pause_ms||1500));

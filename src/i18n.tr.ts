@@ -1,5 +1,10 @@
 // Turkish (tr) for the interface (i18n.ts): English as written in the code → Türkçe. Machine-drafted; native review welcome.
 export const TR: Record<string, string> = {
+  "Use xAI for voice": "Ses için xAI kullan",
+  "Voice chat and the natural reading voice send your voice and the messages being read to xAI. Off: you're asked first.": "Sesli sohbet ve doğal okuma sesi, sesini ve okunan mesajları xAI'ye gönderir. Kapalıyken: önce sorulur.",
+  "Turn on Use xAI for voice first": "Önce Ses için xAI kullan'ı aç",
+  "Voice can use xAI": "Ses xAI kullanabilir",
+  "Voice won’t use xAI": "Ses xAI kullanmayacak",
   "Voice uses xAI": "Ses xAI kullanır",
   "Voice chat and read-aloud are powered by xAI's Grok voice service. When you use them, your voice and the messages being read or discussed are sent to xAI so it can listen and answer. Atteo doesn't keep your voice recordings.": "Sesli sohbet ve sesli okuma, xAI'nin Grok ses hizmetiyle çalışır. Bunları kullandığında sesin ve okunan ya da konuşulan mesajlar dinleyip yanıt verebilmesi için xAI'ye gönderilir. Atteo ses kayıtlarını saklamaz.",
   "Agree and continue": "Kabul et ve devam et",
