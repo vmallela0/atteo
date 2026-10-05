@@ -1243,6 +1243,38 @@ await step("task tick / untick / edit: tick the one checklist item matching the 
   assert(r.code === 1 && r.err.includes("Usage: atteo task edit"), r.err);
 });
 
+await step("task get / list --json (alt-c #3449): one task fenced or as JSON, with --history; list --json parses and --status filters", async () => {
+  // Standalone (#3007): its own board.
+  const tb = (await ops("boards", { user: A, title: `e2e cli task get ${run}` })).board.id;
+  const made = await tool(tokA, tb, "task", { action: "create", title: `Get me ${run}`, body: "- [ ] one\n- [x] two" });
+  const n = Number(made.match(/#(\d+)/)[1]);
+  const other = Number((await tool(tokA, tb, "task", { action: "create", title: `Finish me ${run}`, body: "" })).match(/#(\d+)/)[1]);
+  const t = (...args) => cli(["task", ...args, "--board", tb]);
+  let r = await t("claim", String(n));
+  assert(r.code === 0, r.out + r.err);
+  r = await t("done", String(other), "finished");
+  assert(r.code === 0, r.out + r.err);
+  r = await t("edit", String(n), "--old", "- [ ] one", "--new", "- [x] one", "--summary", "ticked one");
+  assert(r.code === 0, r.out + r.err);
+  r = await t("get", String(n));
+  assert(r.code === 0 && /<<untrusted [0-9a-f]+:/.test(r.out) && r.out.includes(`Get me ${run}`) && r.out.includes("- [x] one") && r.out.includes("[doing]"), "fenced, as it is now: " + r.out + r.err);
+  r = await t("get", `#${n}`, "--history");
+  assert(r.code === 0 && r.out.includes("v2") && r.out.includes("ticked one"), "history: " + r.out + r.err);
+  r = await t("get", String(n), "--json");
+  const g = JSON.parse(r.out);
+  assert(g.board === tb && g.task.seq === n && g.task.status === "doing" && g.task.body.includes("- [x] one") && g.task.lease_holder === A && !("html" in g.task) && g.history.length >= 2, r.out);
+  r = await t("list", "--json");
+  const all = JSON.parse(r.out);
+  assert(all.board === tb && all.tasks.some((x) => x.seq === n) && all.tasks.some((x) => x.seq === other), r.out);
+  r = await t("list", "--json", "--status", "done");
+  const done = JSON.parse(r.out).tasks;
+  assert(done.length === 1 && done[0].seq === other && done[0].done_note === "finished", r.out);
+  r = await t("list", "--json", "--mine");
+  assert(r.code === 1 && r.err.includes("--mine isn't available with --json"), r.err);
+  r = await t("get");
+  assert(r.code === 1 && r.err.includes("must be an entry number"), r.err);
+});
+
 await step("task remove / retract: a task leaves the board (its author or the board's creator only), a note is unsent, a non-task isn't removed", async () => {
   const n = Number((await tool(tokB, board, "task", { action: "create", title: `Drop me ${run}`, body: "- [ ] nothing" })).match(/#(\d+)/)[1]);
   await tool(tokB, board, "read", {});
