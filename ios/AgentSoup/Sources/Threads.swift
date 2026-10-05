@@ -133,19 +133,60 @@ extension View {
 }
 
 extension RefTitles {
-    /// The chat redraws on every change anywhere in the app: build the titles (a regex or two per message) only when
-    /// the messages or tasks they come from change. (An older message decrypted later on an encrypted board keeps its
-    /// old chip title until the list next changes.)
-    @MainActor private static var last: (key: String, titles: RefTitles)?
+    @MainActor private static let cache = Cache()
     @MainActor static func cached(_ entries: [Entry], _ tasks: [WorkTask]) -> RefTitles {
-        let key = "\(entries.count)|\(entries.first?.seq ?? 0)|\(entries.last?.seq ?? 0)|\(entries.last?.ts ?? 0)|\(entries.last?.text.count ?? 0)|\(tasks.count)|\(tasks.map(\.updatedAt).max() ?? 0)"
-        if let last, last.key == key { return last.titles }
-        var map: [Int: String] = [:]
-        for e in entries where e.seq > 0 && e.retracts == nil { map[e.seq] = ChatSummary.short(e, words: 6) }
-        for t in tasks { map[t.seq] = t.title }
-        let titles = RefTitles(map: map)
-        last = (key, titles)
-        return titles
+        cache.value(entries, tasks)
+    }
+
+    /// Keep titles for unchanged entries when history grows or a message is decrypted. Task changes reuse the entry
+    /// map; a body pass with the same arrays does no traversal. The retained arrays make storage keys safe to compare.
+    final class Cache {
+        private struct Input: Equatable {
+            let title: String?
+            let text: String
+            let artifactName: String?
+            init(_ e: Entry) { title = e.title; text = e.text; artifactName = e.artifactName }
+        }
+        private var entries: [Entry] = []
+        private var tasks: [WorkTask] = []
+        private var entryKey: ArrayStorageIdentity?
+        private var taskKey: ArrayStorageIdentity?
+        private var shortened: [Int: (input: Input, title: String)] = [:]
+        private var entryMap: [Int: String] = [:]
+        private var titles = RefTitles()
+        private let short: (Entry) -> String
+
+        init(short: @escaping (Entry) -> String = { ChatSummary.short($0, words: 6) }) {
+            self.short = short
+        }
+
+        func value(_ entries: [Entry], _ tasks: [WorkTask]) -> RefTitles {
+            let nextEntries = ArrayStorageIdentity(entries), nextTasks = ArrayStorageIdentity(tasks)
+            guard nextEntries != entryKey || nextTasks != taskKey else { return titles }
+            if nextEntries != entryKey {
+                var next: [Int: (input: Input, title: String)] = [:]
+                for e in entries where e.seq > 0 && e.retracts == nil {
+                    let input = Input(e)
+                    // Also reuse within this pass when duplicate sequence numbers appear; the last title wins as before.
+                    let previous = next[e.seq] ?? shortened[e.seq]
+                    if let previous, previous.input == input {
+                        next[e.seq] = previous
+                    } else {
+                        next[e.seq] = (input, short(e))
+                    }
+                }
+                shortened = next // evict entries that left the loaded list
+                entryMap = next.mapValues(\.title)
+            }
+            var map = entryMap
+            for t in tasks { map[t.seq] = t.title }
+            titles = RefTitles(map: map)
+            self.entries = entries
+            self.tasks = tasks
+            entryKey = nextEntries
+            taskKey = nextTasks
+            return titles
+        }
     }
 }
 
