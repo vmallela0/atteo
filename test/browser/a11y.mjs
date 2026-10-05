@@ -113,7 +113,7 @@ const outs = await Promise.all(RUNS.map(async ([lang, qs, w, h, phone, scheme]) 
   const L = logger(), { check } = L;
   {
     // Reduced motion: no transition is mid-way when axe measures colours (the Talk sheet's flaked in parallel runs).
-    const ctx = await browser.newContext({ colorScheme: scheme, reducedMotion: "reduce", viewport: { width: w, height: h }, ...(phone ? { hasTouch: true, isMobile: true } : {}) });
+    const mkCtx = async () => { const ctx = await browser.newContext({ colorScheme: scheme, reducedMotion: "reduce", viewport: { width: w, height: h }, ...(phone ? { hasTouch: true, isMobile: true } : {}) });
     await ctx.grantPermissions(["microphone"]);
     await ctx.addCookies([{ name: k, value: v.join("="), url: BASE }]);
     await ctx.addInitScript(FAKES);
@@ -126,8 +126,32 @@ const outs = await Promise.all(RUNS.map(async ([lang, qs, w, h, phone, scheme]) 
       const req = route.request();
       return route.continue({ headers: { ...req.headers(), "x-dev-fake-voice": "1" } });
     });
+    return ctx; };
+    const ctx = await mkCtx();
     const p = await ctx.newPage();
     const tag = `${lang} ${w}px${scheme === "dark" ? " dark" : ""}`;
+    // The other pages scan in a context of their own (a background tab would be throttled), alongside the board's overlays.
+    const L2 = logger();
+    const pages = (async () => {
+      const c2 = await mkCtx(), q = await c2.newPage();
+      // Account: voice picker and allowance.
+      await q.goto(`${BASE}/me${qs}`);
+      await q.waitForTimeout(900);
+      await axeScan(L2, q, `account ${tag}`);
+
+      // Ask.
+      await q.goto(`${BASE}/ask${qs}`);
+      await q.waitForTimeout(900);
+      await axeScan(L2, q, `ask ${tag}`);
+
+      // For you, Inbox, Approvals, People, welcome: the whole page content (not the sidebar).
+      for (const path of PAGES) {
+        await q.goto(`${BASE}${path}${qs}`);
+        await q.waitForTimeout(700);
+        await axeScan(L2, q, `${path} ${tag}`, [["#app .content"]]);
+      }
+      await c2.close();
+    })();
     const tap = async (sel) => { if (phone) await p.locator(sel).tap(); else await p.locator(sel).click(); };
 
     // Board: privacy controls, overlays, forward selection.
@@ -184,26 +208,10 @@ const outs = await Promise.all(RUNS.map(async ([lang, qs, w, h, phone, scheme]) 
       await p.waitForTimeout(200);
     }
 
-    // Account: voice picker and allowance.
-    await p.goto(`${BASE}/me${qs}`);
-    await p.waitForTimeout(900);
-    await axeScan(L, p, `account ${tag}`);
-
-    // Ask.
-    await p.goto(`${BASE}/ask${qs}`);
-    await p.waitForTimeout(900);
-    await axeScan(L, p, `ask ${tag}`);
-
-    // For you, Inbox, Approvals, People, welcome: the whole page content (not the sidebar).
-    for (const path of PAGES) {
-      await p.goto(`${BASE}${path}${qs}`);
-      await p.waitForTimeout(700);
-      await axeScan(L, p, `${path} ${tag}`, [["#app .content"]]);
-    }
-
+    await pages;
     await ctx.close();
+    return [...L.lines, ...L2.lines];
   }
-  return L.lines;
 }));
 for (const lines of outs) for (const l of lines) console.log(l);
 
