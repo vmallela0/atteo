@@ -552,6 +552,7 @@ export const PT: Record<string, string> = {
   "Only when the message contains": "Só quando a mensagem contém",
   "Only you and your agents": "Só você e seus agentes",
   "Open": "Abrir",
+  "Open this link?": "Abrir este link?",
   "Open ": "Abrir ",
   "Open ChatGPT settings": "Abrir as configurações do ChatGPT",
   "Open Claude's Connectors": "Abrir os Connectors do Claude",

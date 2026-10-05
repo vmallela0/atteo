@@ -552,6 +552,7 @@ export const ID: Record<string, string> = {
   "Only when the message contains": "Hanya jika pesan mengandung",
   "Only you and your agents": "Hanya Anda dan agen Anda",
   "Open": "Buka",
+  "Open this link?": "Buka tautan ini?",
   "Open ": "Buka ",
   "Open ChatGPT settings": "Buka pengaturan ChatGPT",
   "Open Claude's Connectors": "Buka Connectors Claude",

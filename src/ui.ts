@@ -984,6 +984,9 @@ mark{background:var(--mark);color:inherit;border-radius:2px;padding:0 1px}
 .bug-btn:hover{color:var(--ink);border-color:var(--ink);background:var(--bg)}
 /* Send feedback (vedu #4125): a speech bubble before the triangle, drawn here (cached) rather than in every page's HTML. */
 [data-feedback]::before{content:"";width:16px;height:16px;background:currentColor;-webkit-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%23000' stroke-width='1.5' stroke-linejoin='round'%3E%3Cpath d='M2.5 3.5h11v7.5H7l-3 2.5V11H2.5Z'/%3E%3C/svg%3E") center/16px no-repeat;mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%23000' stroke-width='1.5' stroke-linejoin='round'%3E%3Cpath d='M2.5 3.5h11v7.5H7l-3 2.5V11H2.5Z'/%3E%3C/svg%3E") center/16px no-repeat}
+/* Leaving Atteo (jxn #4173): the address in full, wrapped, before you go. */
+#leave .leave-url{margin:0;padding:10px 12px;border:1px solid var(--line);border-radius:var(--r-sm);background:var(--bg-subtle);font-size:13px;overflow-wrap:anywhere;color:var(--ink)}
+#leave .ft{display:flex;justify-content:flex-end;gap:8px;padding:0 22px 20px}
 /* The report dialog (jxn #4053, #4116): what happened, the pictures you added (paper clip, paste or drop), then Cancel / Send. */
 #bug form{display:block}
 #bug .bd{display:grid;gap:12px}
@@ -1530,6 +1533,18 @@ const CLIENT_JS = `
 // Saving a picture or a file (jxn #2684) is an <a download data-save>. On a phone that can share files (iOS Safari,
 // Android Chrome) it opens the share sheet instead (Save Image, Save to Files, AirDrop…); anywhere else, or if sharing
 // isn't allowed after the fetch, the browser downloads it.
+// Leaving Atteo (jxn #4173): a link someone wrote (a message, a file, the pinned doc) to another site asks first and
+// shows the whole address; same-site links and modified clicks (a new tab on purpose) go straight through. The dialog
+// is made the first time it's needed (no markup on every page: web-budget).
+const leaveDlg=()=>{let d=document.getElementById('leave');if(d)return d;d=document.createElement('dialog');d.id='leave';d.setAttribute('aria-labelledby','leave-title');
+  d.innerHTML='<div class="hd"><h2 id="leave-title"></h2><button type="button" class="btn ghost sm" data-close>✕</button></div><div class="bd"><p class="mono leave-url" id="leave-url"></p></div><div class="ft"><button type="button" class="btn" data-close></button><button type="button" class="btn primary" id="leave-go"></button></div>';
+  d.querySelector('h2').textContent=tr('Open this link?');const c=d.querySelectorAll('[data-close]');c[0].setAttribute('aria-label',tr('Close'));c[1].textContent=tr('Cancel');d.querySelector('#leave-go').textContent=tr('Open');
+  document.body.append(d);return d};
+document.addEventListener('click',e=>{if(e.defaultPrevented||e.button!==0||e.metaKey||e.ctrlKey||e.shiftKey||e.altKey)return;const a=e.target.closest&&e.target.closest('a[href]');
+  if(!a||a.hasAttribute('data-save')||!a.closest('.entry .body,#doc-view,.pin-peek,.pin-card'))return;let u;try{u=new URL(a.getAttribute('href'),location.href)}catch(x){return}
+  if(u.origin===location.origin||!/^https?:$/.test(u.protocol))return;const d=leaveDlg();
+  e.preventDefault();document.getElementById('leave-url').textContent=u.href;d.dataset.href=u.href;d.showModal();document.getElementById('leave-go').focus()});
+document.addEventListener('click',e=>{if(!e.target.closest||!e.target.closest('#leave-go'))return;const d=document.getElementById('leave'),h=d.dataset.href;d.close();if(h)window.open(h,'_blank','noopener,noreferrer')});
 document.addEventListener('click',async e=>{const a=e.target.closest&&e.target.closest('a[data-save]');if(!a||!navigator.canShare||!matchMedia('(pointer:coarse)').matches)return;e.preventDefault();
   const name=a.getAttribute('download')||'file',dl=()=>{const x=document.createElement('a');x.href=a.href;x.download=name;document.body.append(x);x.click();x.remove()};
   try{const b=await (await fetch(a.href)).blob(),f=new File([b],name,{type:b.type||'application/octet-stream'});if(navigator.canShare({files:[f]}))return await navigator.share({files:[f]})}
@@ -1898,6 +1913,23 @@ export const FEEDBACK_DIALOG = `<dialog id="feedback" aria-labelledby="fb-title"
 <div class="ft"><button type="button" class="btn" data-close>Cancel</button><button class="btn primary" type="submit" id="fb-send">Send</button></div>
 </form></dialog>`;
 
+/** Send feedback's script (vedu #4125), loaded on the first click of the 💬 button: fetches the form from /feedback-form
+ *  (localized there), opens it, and posts a few words for the Atteo team to /api/feedback (the board it's about rides
+ *  along by id). Served hashed and immutable like /bug.js, so pages carry only the few bytes that load it. */
+const FEEDBACK_JS = `(()=>{const $=(s)=>document.querySelector(s);
+const open=async()=>{let d=$('#feedback');
+  if(!d){const r=await fetch('/feedback-form').catch(()=>null);if(!r||!r.ok)return;document.body.insertAdjacentHTML('beforeend',await r.text());d=$('#feedback')}
+  $('#fb-status').hidden=true;d.showModal();$('#fb-text').focus()};
+document.addEventListener('click',e=>{if(e.target.closest('[data-feedback]'))open()});
+document.addEventListener('submit',async e=>{if(e.target.id!=='fb-form')return;e.preventDefault();const d=$('#feedback'),t=$('#fb-text'),st=$('#fb-status'),b=$('#fb-send');b.disabled=true;
+  const fail=(m)=>{st.hidden=false;st.textContent=m||$('#fb-err').textContent};
+  try{const r=await fetch('/api/feedback',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({text:t.value,board:location.pathname.match(/^\\/b\\/(b_[a-z0-9]+)/)?.[1]})});
+    const j=await r.json().catch(()=>({}));if(r.ok){t.value='';d.close();window.toast&&toast($('#fb-thanks').textContent)}else fail(j.error)}catch{fail()}finally{b.disabled=false}});
+open();
+})();`;
+export const FEEDBACK_PAGE_JS = FEEDBACK_JS;
+export const FEEDBACK_JS_SRC = `/feedback.js?v=${fnv(FEEDBACK_PAGE_JS)}`;
+
 const SHELL_JS = `
 (()=>{const NONCE=document.currentScript?.nonce||'';
 const $=(s,r=document)=>r.querySelector(s),$$=(s,r=document)=>[...r.querySelectorAll(s)];
@@ -1905,15 +1937,10 @@ const $=(s,r=document)=>r.querySelector(s),$$=(s,r=document)=>[...r.querySelecto
 // runs the capture for that click itself; later clicks are its own listener.
 document.addEventListener('click',e=>{const b=e.target.closest('[data-bug]');if(!b||document.getElementById('bug-js'))return;
   const s=document.createElement('script');s.id='bug-js';s.src=b.dataset.bugSrc;s.nonce=NONCE;document.head.appendChild(s)});
-// Send feedback (vedu #4125): the form comes from /feedback-form on the first click (localized there), then posts
-// a few words for the Atteo team to /api/feedback (the board it's about rides along by id).
-document.addEventListener('click',async e=>{if(!e.target.closest('[data-feedback]'))return;let d=$('#feedback');
-  if(!d){const r=await fetch('/feedback-form').catch(()=>null);if(!r||!r.ok)return;document.body.insertAdjacentHTML('beforeend',await r.text());d=$('#feedback')}
-  $('#fb-status').hidden=true;d.showModal();$('#fb-text').focus()});
-document.addEventListener('submit',async e=>{if(e.target.id!=='fb-form')return;e.preventDefault();const d=$('#feedback'),t=$('#fb-text'),st=$('#fb-status'),b=$('#fb-send');b.disabled=true;
-  const fail=(m)=>{st.hidden=false;st.textContent=m||$('#fb-err').textContent};
-  try{const r=await fetch('/api/feedback',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({text:t.value,board:location.pathname.match(/^\\/b\\/(b_[a-z0-9]+)/)?.[1]})});
-    const j=await r.json().catch(()=>({}));if(r.ok){t.value='';d.close();window.toast&&toast($('#fb-thanks').textContent)}else fail(j.error)}catch{fail()}finally{b.disabled=false}});
+// Send feedback (vedu #4125): /feedback.js (web-budget: not on every page) — the first click loads it, and it opens the
+// form for that click itself; later clicks are its own listener.
+document.addEventListener('click',e=>{if(!e.target.closest('[data-feedback]')||document.getElementById('fb-js'))return;
+  const s=document.createElement('script');s.id='fb-js';s.src='${FEEDBACK_JS_SRC}';s.nonce=NONCE;document.head.appendChild(s)});
 // Search (⌘K everywhere; ⌘F on a board starts with "This board · Messages"): filters show up front like VS Code or Lark,
 // and become chips; results mix boards and actions with ranked messages and files (this board, or all your boards).
 const pal=$('#palette'),q=$('#palette-q'),list=$('#palette-list'),pChips=$('#pal-chips'),pFilt=$('#pal-filters');
