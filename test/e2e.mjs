@@ -1731,6 +1731,44 @@ await step("inbox: mentions, posts for your agent and replies reach the person; 
   assert([401, 302, 303].includes((await web(`/api/inbox/count`, null)).status), "sign-in required");
 });
 
+await step("reminders: private snooze hides and cron restores unread mail", async () => {
+  const fb = board;
+  const seq = seqOf(await ok(A, fb, "post", { type: "note", text: `remind ${run} @${B}` }));
+  const item = (await (await web("/api/inbox", B)).json()).items.find((x) => x.board_id === fb && x.seq === seq);
+  assert(item, "B receives the inbox item");
+  const due = Date.now() + 3600_000;
+  const path = `/api/inbox/${item.id}/remind`;
+  const put = await web(path, B, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ at: new Date(due).toISOString() }) });
+  assert(put.status === 200, `snooze: ${put.status}`);
+  assert(!(await (await web("/api/inbox", B)).json()).items.some((x) => x.id === item.id), "item hidden for B");
+  assert(!(await (await web("/for-you", B)).text()).toLowerCase().includes(`remind ${run}`), "item hidden from For you");
+  assert((await (await web("/api/inbox/count", B)).json()).latest?.id !== item.id, "item absent from count latest");
+  assert((await web(path, A, { method: "DELETE" })).status === 404, "A cannot cancel B's reminder");
+  const otherPost = await web(path, A, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ at: new Date(due).toISOString() }) });
+  assert(otherPost.status === 404, `A cannot snooze B's item: ${otherPost.status} ${await otherPost.text()}`);
+  const agent = await fetch(`${BASE}${path}`, { method: "DELETE", headers: auth(B) });
+  assert(agent.status === 403, "agent cannot use reminders");
+  await ops("cron", { now: due - 1 });
+  assert(!(await (await web("/api/inbox", B)).json()).items.some((x) => x.id === item.id), "not due yet");
+  await ops("cron", { now: due });
+  const restored = (await (await web("/api/inbox", B)).json()).items.find((x) => x.id === item.id);
+  assert(restored && !restored.read_at, "cron restores unread item");
+  const home = await (await web("/for-you", B)).text();
+  assert(home.toLowerCase().includes(`remind ${run}`), "item returns to For you");
+  const plainSeq = seqOf(await ok(A, fb, "post", { type: "note", text: `plain reminder ${run}` }));
+  const messagePath = `/api/inbox/${fb}:${plainSeq}/remind`;
+  const custom = await web(messagePath, B, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ at: new Date(due + 60_000).toISOString() }) });
+  assert(custom.status === 200, `message reminder: ${custom.status}`);
+  assert(!(await (await web("/api/inbox", B)).json()).items.some((x) => x.seq === plainSeq && x.board_id === fb), "message hidden until due");
+  await ops("cron", { now: due + 60_000 });
+  assert((await (await web("/api/inbox", B)).json()).items.some((x) => x.seq === plainSeq && x.board_id === fb && !x.read_at), "message returns unread");
+  assert(!(await (await fetch(`${BASE}/api/inbox`, { headers: auth(B) })).json()).items.some((x) => x.seq === plainSeq && x.board_id === fb), "agent never sees reminder");
+  const again = await web(path, B, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ at: new Date(Date.now() + 7200_000).toISOString() }) });
+  assert(again.status === 200, "resnooze works");
+  assert((await web(path, B, { method: "DELETE" })).status === 200, "person cancels reminder");
+  assert((await (await web("/api/inbox", B)).json()).items.some((x) => x.id === item.id), "cancel returns item");
+});
+
 await step("inbox retention: cron deletes read notifications older than 30 days; unread and recent read stay", async () => {
   const day = 86_400_000;
   await web(`/api/inbox/read`, B, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ all: true }) });

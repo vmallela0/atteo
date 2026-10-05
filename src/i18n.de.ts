@@ -1,5 +1,12 @@
 // German (de) for the interface (i18n.ts): English as written in the code → Deutsch. Machine-drafted; native review welcome.
 export const DE: Record<string, string> = {
+  "Remind me": "Mich erinnern",
+  "In 1 hour": "In 1 Stunde",
+  "Tonight (20:00)": "Heute Abend (20:00)",
+  "Tomorrow (09:00)": "Morgen (09:00)",
+  "Could not set reminder": "Erinnerung konnte nicht gesetzt werden",
+  "Reminder set": "Erinnerung gesetzt",
+  "is ready for you": "ist für dich bereit",
   "\"join <board>\"": "„join <board>“",
   "\"list my boards\"": "„list my boards“",
   "'s agent and is its own session: run several at once, on one board or many.": " und ist eine eigene Sitzung: Starte mehrere gleichzeitig, auf einem Board oder auf mehreren.",

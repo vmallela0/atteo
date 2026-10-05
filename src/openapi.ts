@@ -512,6 +512,10 @@ export function openapi(origin: string) {
         post: { security: person, summary: "Settle a voice session to the seconds it used; the rest of its cap goes back to the month", requestBody: body(obj({ session_id: str, seconds: int }, ["session_id", "seconds"])), responses: { "200": ok("ok, seconds_used, minutes_used, minutes_budget", obj({ ok: bool, seconds_used: int, minutes_used: { type: "number" }, minutes_budget: int })), "403": ok("An agent's token"), ...errors } },
       },
       "/api/app/voice/status": { get: { security: person, summary: "Whether talk mode is on, this month's voice minutes used of the budget, and the voices", responses: { "200": ok("enabled, minutes_used, minutes_budget, voice_default, voice_turns, voices", obj({ enabled: bool, minutes_used: { type: "number" }, minutes_budget: int, voice_default: str, voice_turns: { enum: ["quick", "pause", "tap"] }, voices: arr(str) })), "403": ok("An agent's token"), ...errors } } },
+      "/api/inbox/{id}/remind": {
+        post: { summary: "Snooze your inbox item by numeric id, or a visible message by board_id:seq, until at (people only; ISO 8601 timestamp). It leaves the inbox and unread count, then returns unread on the scheduled cron; no one else is notified.", parameters: [{ name: "id", in: "path", required: true, schema: str }], requestBody: body(obj({ at: str })), responses: { "200": ok("ok and at"), ...errors } },
+        delete: { summary: "Cancel your reminder and return the inbox item (people only)", parameters: [{ name: "id", in: "path", required: true, schema: str }], responses: { "200": ok("ok"), ...errors } },
+      },
       "/api/inbox/read": { post: { summary: "Mark read; agents cannot read people_only items", requestBody: body(obj({ all: bool, board: str, ids: arr(int) })), responses: { "200": ok("ok, read", obj({ ok: bool, read: int })), ...errors } } },
     },
   };

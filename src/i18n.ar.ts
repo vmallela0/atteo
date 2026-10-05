@@ -1,5 +1,12 @@
 // Arabic (ar) for the interface (i18n.ts): English as written in the code → العربية. Machine-drafted; native review welcome.
 export const AR: Record<string, string> = {
+  "Remind me": "ذكّرني",
+  "In 1 hour": "بعد ساعة",
+  "Tonight (20:00)": "الليلة (20:00)",
+  "Tomorrow (09:00)": "غدًا (09:00)",
+  "Could not set reminder": "تعذّر ضبط التذكير",
+  "Reminder set": "تم ضبط التذكير",
+  "is ready for you": "جاهز لك",
   "\"join <board>\"": "“انضم إلى <لوحة>”",
   "\"list my boards\"": "“اعرض لوحاتي”",
   "'s agent and is its own session: run several at once, on one board or many.": " وهو جلسة مستقلة بذاته: شغّل عدة جلسات في وقت واحد، على لوحة واحدة أو عدة لوحات.",

@@ -22,6 +22,7 @@ import { E2E_JS } from "./e2eweb";
 import { STATUS_JS } from "./status";
 import { EMOJI } from "./emoji";
 import { LANG_NAMES, localize, tr, type Lang } from "./i18n";
+import { REMIND_BROWSER_JS } from "./remindTime";
 import { approvalCardHtml, approvalJs, type ApprovalCardData } from "./approvalCard";
 
 export type { Viewer, SideBoard };
@@ -98,7 +99,7 @@ const isHtml = (name: string | null | undefined) => !!name && /\.html?$/i.test(n
 const previewBtn = (name: string, version?: number | null) =>
   `<button class="btn sm ghost" type="button" data-preview-file="${esc(name)}"${version ? ` data-file-ver="${version}"` : ""} title="Try the page here (it runs in a sandbox)">Preview</button>`;
 
-export function entryHtml(e: Entry, boardId: string, withReplies = true, opts: { retracted?: boolean; canRetract?: boolean; root?: number; lang?: Lang } = {}): string {
+export function entryHtml(e: Entry, boardId: string, withReplies = true, opts: { retracted?: boolean; canRetract?: boolean; root?: number; lang?: Lang; person?: boolean } = {}): string {
   const T = (s: string, v?: Record<string, string | number>) => tr(opts.lang, s, v);
   const refs: string[] = [];
   if (e.retracts != null) refs.push(`unsends <a class="ref" data-ref="${e.retracts}" href="#e${e.retracts}">#${e.retracts}</a>`);
@@ -130,7 +131,8 @@ ${
   // Touch screens have no hover: a small ⋯ at the end of the line opens the actions (jxn #891); hidden with a mouse.
   const more = react || reply || retract ? `<button class="more-acts" type="button" data-more="${e.seq}" aria-label="${esc(T("More actions"))}" aria-expanded="false" title="${esc(T("More actions"))}">⋯</button>` : "";
   const remember = !opts.retracted && e.retracts == null && !e.audience ? rememberBtn(e.seq) : ""; // people-only: never agents' memory // shown once the board has a MEMORY
-  const actions = react || reply || retract ? `${more}<span class="acts">${react}${reply}${remember}${select}${retract}</span>` : "";
+  const remind = opts.person && !opts.retracted && e.retracts == null ? `<details class="remind-menu"><summary>${esc(T("Remind me"))}</summary><div><button type="button" data-remind-message="hour" data-seq="${e.seq}">${esc(T("In 1 hour"))}</button><button type="button" data-remind-message="tonight" data-seq="${e.seq}">${esc(T("Tonight (20:00)"))}</button><button type="button" data-remind-message="tomorrow" data-seq="${e.seq}">${esc(T("Tomorrow (09:00)"))}</button></div></details>` : "";
+  const actions = react || reply || retract ? `${more}<span class="acts">${react}${reply}${remember}${select}${retract}${remind}</span>` : "";
   // An approval entry: the card says where it stands, so the message is just what's asked (its text, for agents, says "waiting").
   const apr = (e as Entry & { approval?: ApprovalCardData & { title?: string } }).approval;
   return `<article class="entry${opts.retracted ? " retracted" : ""}${e.via === "agent" ? " by-agent" : ""}" id="e${e.seq}" data-seq="${e.seq}" data-author="${esc(e.author)}" data-title="${esc(shortTitle(e))}"${e.reply_to != null ? ` data-reply="${e.reply_to}"` : ""}${opts.root != null && opts.root !== e.seq ? ` data-root="${opts.root}"` : ""}>
@@ -488,12 +490,12 @@ function fmtBytes(n: number): string {
   return `${(n / 1024 / 1024).toFixed(1)} MB`;
 }
 
-export function threadHtml(entries: Entry[], boardId: string, viewer?: { name: string; creator: string; lang?: Lang }): string {
+export function threadHtml(entries: Entry[], boardId: string, viewer?: { name: string; creator: string; lang?: Lang; person?: boolean }): string {
   // Every message in order, replies included (jxn #1040): a reply posts like any message, with a bar quoting what it
   // answers; its thread opens as an overlay. data-root ties a reply to its thread.
   const roots = rootMap(entries);
   const gone = retractedSet(entries);
-  const flags = (e: Entry) => ({ retracted: gone.has(e.seq), canRetract: !!viewer && (e.author === viewer.name || viewer.creator === viewer.name), root: roots.get(e.seq), lang: viewer?.lang });
+  const flags = (e: Entry) => ({ retracted: gone.has(e.seq), canRetract: !!viewer && (e.author === viewer.name || viewer.creator === viewer.name), root: roots.get(e.seq), lang: viewer?.lang, person: viewer?.person });
   return entries.map((e) => entryHtml(e, boardId, roots.get(e.seq) === e.seq, flags(e))).join("");
 }
 
@@ -1092,13 +1094,14 @@ export function boardPage(
   // Big boards open on their newest entries; earlier ones load on demand.
   const earlier = first > 1 ? `<button class="btn ghost sm load-earlier" type="button" id="load-earlier" data-before="${first}">${esc(T("Load earlier messages"))}</button>` : "";
   const thread = entries.length
-    ? earlier + threadHtml(entries, info.id, { name: viewer.name, creator: info.created_by, lang: viewer.lang })
+    ? earlier + threadHtml(entries, info.id, { name: viewer.name, creator: info.created_by, lang: viewer.lang, person: viewer.via !== "agent" })
     : agentChat
       ? `<div class="empty" id="empty"><h3>${esc(T("Talk to your agent"))}</h3><p class="small">Only you and your agents see this chat. Ask anything below: any of your agents can answer (<span class="mono">atteo dispatch</span> starts one for each message), or pick one of them.</p></div>`
     : `<div class="empty" id="empty"><h3>${esc(T("Nothing here yet"))}</h3><p class="small">${esc(T("Any agent joins with {cmd}. Or write the first note below.")).replace("{cmd}", `<span class="mono">atteo join ${esc(info.id)}</span>`)}</p>
 <div class="row" style="gap:8px;justify-content:center;flex-wrap:wrap;margin-top:16px">${agent.connected ? "" : `<button class="btn primary lg" data-open="connect">${esc(T("Connect an agent"))}</button>`}${!canInviteAgent ? "" : `<button class="btn lg${agent.connected ? " primary" : ""}" data-open="invite-agent">${esc(T("Invite an agent"))}</button>`}</div></div>`;
   const rows = [...entries].reverse().map((e) => logRow(e, undefined, undefined, viewer.lang)).join("");
-  const script = SHEET_JS + CONNECT_JS + (agentChat ? AGENT_PICK_JS : "") + `
+  const script = SHEET_JS + CONNECT_JS + (agentChat ? AGENT_PICK_JS : "") + REMIND_BROWSER_JS + `
+document.addEventListener('click',e=>{const b=e.target.closest('[data-remind-message]');if(b)remindItem(BOARD+':'+b.dataset.seq,b.dataset.remindMessage)});
 window.BOARD=${JSON.stringify(info.id)};let last=${last};
 ${agentChat ? "" : `try{if(localStorage.getItem('atteo.pf.'+${jsString(viewer.name)})==='1')document.documentElement.setAttribute('data-pf','')}catch(e){}`} // the People filter, before anything measures the thread
 // Earlier messages, on demand (a page at a time, or as far back as a given entry for a link to an older message). Replies go
