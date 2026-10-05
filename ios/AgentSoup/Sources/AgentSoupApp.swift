@@ -20,6 +20,7 @@ struct AtteoApp: App {
                 .id(state.display.lang) // a new language: every screen is built again in its words (Language.swift)
             }
             .modifier(ToastOverlay(state: state))
+            .modifier(ShakeToReport(enabled: state.signedIn)) // shake anywhere to report a bug (ReportBug.swift)
             .environmentObject(state)
             .tint(Theme.accent)
             .task(id: state.signedIn) { if state.signedIn { await state.refreshAll() } }
