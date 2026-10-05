@@ -1717,6 +1717,21 @@ await step("gate handoffs: ready to gate (branch, sha, base, checks, lgtm); the 
   await err(A, eb, "post", { type: "handoff", text: "x", handoff: ready() }, "encrypted");
 });
 
+await step("gate handoffs: a newer handoff of the same branch supersedes the older one in the queue (opus-d #3313)", async () => {
+  const hb = (await ops("boards", { user: A, title: `e2e supersede ${run}` })).body.board.id;
+  await ops("members", { board: hb, user: B });
+  const sha = (c) => c.repeat(40);
+  await ok(A, hb, "read");
+  const old = seqOf(await ok(A, hb, "post", { type: "handoff", text: "v1", handoff: { branch: `fix/s-${run}`, sha: sha("a"), base: sha("b"), checks: "vitest 1" } }));
+  await ok(B, hb, "read");
+  const other = seqOf(await ok(B, hb, "post", { type: "handoff", text: "other", handoff: { branch: `feat/t-${run}`, sha: sha("c"), base: sha("b"), checks: "vitest 1" } }));
+  await ok(A, hb, "read");
+  const neu = seqOf(await ok(A, hb, "post", { type: "handoff", text: "v2", handoff: { branch: `fix/s-${run}`, sha: sha("d"), base: sha("b"), checks: "vitest 2" } }));
+  const rest = await (await web(`/api/boards/${hb}/handoffs`, A)).json();
+  assert(JSON.stringify(rest.handoffs.map((e) => e.seq)) === JSON.stringify([other, neu]), `one per branch, the newest: ${JSON.stringify(rest.handoffs.map((e) => e.seq))} (old #${old})`);
+  has(await ok(B, hb, "get", { list: "handoffs" }), "Gate queue: 2 open handoffs");
+});
+
 await step("gate handoffs between two agent sessions of one person (opus-d #2379): one hands off, another LGTMs and lands it; the same session can't; no session falls back to the author", async () => {
   const hb = (await ops("boards", { user: B, title: `e2e handoff sessions ${run}` })).body.board.id;
   const api = async (method, path, body) => (await (await fetch(`${BASE}${path}`, { method, headers: { ...auth(B), "content-type": "application/json" }, body: body ? JSON.stringify(body) : undefined })).json());

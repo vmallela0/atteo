@@ -3374,7 +3374,11 @@ export class Board extends DurableObject<Env> {
     this.changes++;
   }
 
-  /** The gate's queue: open handoffs, oldest first (unsent ones are gone). */
+  /**
+   * The gate's queue: open handoffs, oldest first (unsent ones are gone). A branch is in it once: a newer open handoff
+   * of the same branch (a fix, a merge of main) supersedes the older ones, which stay open on the board but leave the
+   * queue (opus-d #3313: the queue showed four shas of gate-queue).
+   */
   async handoffs(viewer?: Viewer | null): Promise<Entry[]> {
     this.info();
     const rows = this.sql
@@ -3383,7 +3387,10 @@ export class Board extends DurableObject<Env> {
            AND NOT EXISTS (SELECT 1 FROM entries r WHERE r.retracts = entries.seq) ORDER BY seq LIMIT 100`,
       )
       .toArray();
-    return rows.map(toEntry).filter((e) => canSee(e, viewer));
+    const open = rows.map(toEntry).filter((e) => canSee(e, viewer));
+    const newest = new Map<string, number>();
+    for (const e of open) if (e.handoff && "branch" in e.handoff) newest.set(e.handoff.branch, e.seq);
+    return open.filter((e) => !(e.handoff && "branch" in e.handoff) || newest.get(e.handoff.branch) === e.seq);
   }
 
   // ---- claims: asserted → evidenced → verified (never by their author), or disputed; dependents go stale ----
