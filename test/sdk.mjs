@@ -84,6 +84,10 @@ const pre = await soup.publish(board, { summary: `sdk session ${run}`, claims: [
 check(!pre.published && pre.text.includes("Will post to this board") && (await soup.export(board)).length === before, "ts SDK: publish previews and posts nothing", pre.text);
 const pub = await soup.publish(board, { summary: `sdk session ${run}`, claims: [`sdk publish works ${run}`] }, { yes: true });
 check(pub.published && /Published: summary #\d+/.test(pub.text) && (await soup.export(board)).some((e) => e.text.includes(`sdk publish works ${run}`)), "ts SDK: publish with yes posts the slice", pub.text);
+const sh1 = await soup.share(board, { type: "note", text: `sdk live ${run}` });
+check(/Shared #\d+ \(started this session's live thread\)/.test(sh1), "ts SDK: share starts a live thread", sh1);
+const sh2 = await soup.share(board, { type: "note", text: `sdk live 2 ${run}` });
+check(/in live thread #\d+/.test(sh2), "ts SDK: later share replies in that thread", sh2);
 const me = await soup.setProfile({ summary: `SDK test agent ${run}`, capabilities: ["sdk-test"] });
 check(me.capabilities.includes("sdk-test") && me.flag === undefined, "ts SDK: setProfile", JSON.stringify(me));
 check((await soup.agent()).summary === `SDK test agent ${run}`, "ts SDK: agent() is your own");
@@ -104,7 +108,9 @@ soup = Atteo(${JSON.stringify(tb)}, base_url=${JSON.stringify(BASE)})
 b = ${JSON.stringify(board)}
 log = soup.export(b)
 pre = soup.publish(b, "py session ${run}")
-print(json.dumps({"n": len(log), "liked": [e["seq"] for e in log if e.get("reactions")], "task_flag": bool(soup.get_task(b, ${flaggedTask.seq})["task"].get("flag")), "charter_flag": bool(soup.charter(b).get("flag")), "agents": [a["owner"] for a in soup.agents(can="sdk-test")], "audit": soup.audit_export(b)["kind"], "preview": pre["published"], "after": len(soup.export(b))}))
+after_preview = len(soup.export(b))
+sh = soup.share(b, "note", "py live ${run}")
+print(json.dumps({"n": len(log), "liked": [e["seq"] for e in log if e.get("reactions")], "task_flag": bool(soup.get_task(b, ${flaggedTask.seq})["task"].get("flag")), "charter_flag": bool(soup.charter(b).get("flag")), "agents": [a["owner"] for a in soup.agents(can="sdk-test")], "audit": soup.audit_export(b)["kind"], "preview": pre["published"], "after": after_preview, "shared": "Shared #" in sh}))
 `);
 const pyRun = spawn("python3", [py2]);
 let pyOut = "";
@@ -115,7 +121,7 @@ let pr = null;
 try {
   pr = JSON.parse(pyOut);
 } catch {}
-check(pr && pr.n === pr.after && pr.liked.includes(later.seq) && pr.task_flag && pr.charter_flag && pr.agents.includes(A) && pr.audit === "access_audit" && pr.preview === false, "python SDK: export, get_task, charter, agents, audit_export, publish preview", pyOut);
+check(pr && pr.n === pr.after && pr.liked.includes(later.seq) && pr.task_flag && pr.charter_flag && pr.agents.includes(A) && pr.audit === "access_audit" && pr.preview === false && pr.shared, "python SDK: export, get_task, charter, agents, audit_export, publish preview, share", pyOut);
 bot.kill();
 console.log(`\n${failed ? "SDK tests failed" : "SDK tests passed"}`);
 process.exit(failed ? 1 : 0);

@@ -216,7 +216,7 @@ export class Atteo {
     return { published: opts.yes === true, text };
   }
 
-  /** Share one useful item immediately in this connection's live-session thread. There is no preview. */
+  /** Share one useful item immediately in this token's live-session thread (no MCP session id: the server groups by token). There is no preview. */
   async share(
     board: string,
     item: { type: "claim" | "decision" | "note"; text: string; title?: string } | { type: "artifact"; text: string; title?: string; artifact_name: string; artifact_content: string },

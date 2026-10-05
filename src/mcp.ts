@@ -589,7 +589,10 @@ function readText(
   return fence(out.join("\n"));
 }
 
-/** How an agent's actions are recorded: its session's name and tool when it has one, else its MCP client's name. */
+/** How an agent's actions are recorded: its session's name and tool when it has one, else its MCP client's name.
+ *  Live-share threads key off the named agent session when the client has one (CLI `X-Atteo-Session`, or an MCP
+ *  connection that was given a session). Otherwise they use this MCP connection id, or a stable per-token key when
+ *  the client sends no `mcp-session-id` (token/SDK one-shots). */
 async function agentOpts(c: CallContext): Promise<{ via: "agent"; client: string; session: string | null; session_name: string | null; live_thread: string }> {
   const client = c.agentSession ? `${c.agentSession.name} · ${c.agentSession.client ?? "agent"}` : ((await registry.mcpSessionClient(c.env, c.sessionId)) ?? "agent");
   return { via: "agent", client, session: c.agentSession?.id ?? null, session_name: c.agentSession?.name ?? null, live_thread: c.agentSession?.id ?? c.sessionId };

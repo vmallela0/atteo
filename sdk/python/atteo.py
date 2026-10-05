@@ -153,7 +153,7 @@ class Atteo:
         return {"published": bool(yes), "text": text}
 
     def share(self, board, type, text, title=None, artifact_name=None, artifact_content=None):
-        """Share one useful item immediately in this connection's live-session thread. There is no preview."""
+        """Share one useful item immediately in this token's live-session thread (no MCP session id: the server groups by token). There is no preview."""
         args = {"type": type, "text": text}
         if title:
             args["title"] = title

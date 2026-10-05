@@ -1,4 +1,4 @@
-// SDK parity (alt-c #3879): export, purge, publish, agents, charter, audit export and task get in both SDKs. The
+// SDK parity (alt-c #3879): export, purge, share, publish, agents, charter, audit export and task get in both SDKs. The
 // TypeScript SDK runs against a fetch mock; the Python SDK against a local HTTP server that records what it sent.
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { Atteo, AtteoError } from "../sdk/typescript/atteo";

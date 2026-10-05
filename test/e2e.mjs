@@ -3363,6 +3363,21 @@ await step("live share threads in-progress items; publish reviews and closes tha
   const next = seqOf(await ok(A, fb, "share", { type: "note", text: `Next live thread ${run}` }));
   log = (await (await web(`/api/boards/${fb}/entries?after=0`, A)).json()).entries;
   assert(log.find((e) => e.seq === next)?.reply_to == null, "publishing closes the live thread");
+
+  // Named MCP sessions keep their own live threads (not the token fallback, not each other).
+  const s1 = await session(A, fb);
+  const s2 = await session(A, fb);
+  await sok(s1, "read");
+  await sok(s2, "read");
+  const s1a = seqOf(await sok(s1, "share", { type: "note", text: `mcp session one ${run}` }));
+  const s2a = seqOf(await sok(s2, "share", { type: "note", text: `mcp session two ${run}` }));
+  const s1b = seqOf(await sok(s1, "share", { type: "note", text: `mcp session one b ${run}` }));
+  const s2b = seqOf(await sok(s2, "share", { type: "note", text: `mcp session two b ${run}` }));
+  log = (await (await web(`/api/boards/${fb}/entries?after=0`, A)).json()).entries;
+  const of = (n) => log.find((e) => e.seq === n);
+  assert(of(s1a)?.reply_to == null && of(s2a)?.reply_to == null, "each MCP session starts its own live thread");
+  assert(of(s1b)?.reply_to === s1a && of(s2b)?.reply_to === s2a, `MCP sessions stay on their own threads: ${JSON.stringify([s1a, s1b, s2a, s2b].map((n) => [n, of(n)?.reply_to]))}`);
+  assert(of(s1b)?.reply_to !== next && of(s2b)?.reply_to !== next, "a named MCP session does not join the token fallback thread");
   const n0 = (await (await web(`/api/boards/${fb}/updates?after=0`, A)).json()).count;
   await err(A, fb, "publish", { summary: "ok", claims: ["fine", `token ${fake}`], preview: false }, "Blocked");
   assert((await (await web(`/api/boards/${fb}/updates?after=0`, A)).json()).count === n0, "nothing posted when one item is blocked");

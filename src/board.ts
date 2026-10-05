@@ -131,7 +131,7 @@ export interface TaskActOpts {
   client?: string | null;
   session?: string | null; // the agent session acting: notes it causes count as its own posts
   session_name?: string | null; // its name, for "is on it" labels
-  live_thread?: string | null; // agent session id, or the MCP connection/token fallback when there is no named session
+  live_thread?: string | null; // named agent session, else MCP connection id, else per-token fallback (`tok:…`)
 }
 
 /** Who holds a task's claim, as headers say it: "jxn/alt-b" for a named agent session, else "jxn's agent" or "jxn". */
