@@ -6916,14 +6916,27 @@ await step("bug reports: POST /api/bugs lands a note (+ screenshot) on the devel
   fd.append("path", "/b/somewhere");
   fd.append("context", JSON.stringify({ app_version: "e2e", device: "test runner", os: process.platform }));
   fd.append("screenshot", new File([new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10, 0, 0])], "shot.png", { type: "image/png" }));
-  const rep = await fetch(`${BASE}/api/bugs`, { method: "POST", headers: { authorization: `Bearer ${tok[A]}` }, body: fd });
-  assert(rep.status === 201, `signed-in report: ${rep.status} ${await rep.text()}`);
-  const made = await rep.json();
+  const asAgent = await fetch(`${BASE}/api/bugs`, { method: "POST", headers: { authorization: `Bearer ${tok[A]}` }, body: fd });
+  assert(asAgent.status === 403, `an agent's token can't file a bug: ${asAgent.status}`);
+  const pc = (await ops("sessions", { user: A })).body.cookie; // a person's web session
+  const rep = await fetch(`${BASE}/api/bugs`, { method: "POST", headers: { cookie: pc }, body: fd });
+  const made = await rep.json().catch(() => ({}));
+  assert(rep.status === 201, `signed-in report: ${rep.status} ${JSON.stringify(made)}`);
   assert(made.ok === true && made.board && made.seq > 0, JSON.stringify(made).slice(0, 200));
-  // The report is authored by the bug-bot member, with the reporter named in the text (opus-d #3416).
-  const bugsList = await (await fetch(`${BASE}/api/boards/${made.board}/entries/${made.seq}`, { headers: { authorization: `Bearer ${tok[A]}` } })).json().catch(() => null);
-  assert(bugsList === null || bugsList?.entry?.author === "bugs", JSON.stringify(bugsList)?.slice(0, 160));
-  const anon = await fetch(`${BASE}/api/bugs`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ note: `signed out ${run}` }) });
+  // The bot member was set up on first use (jxn #4139): a second report lands on the same board, and reporting
+  // doesn't let the reporter into the developers' board. Nobody can take the bot's name.
+  const fd2 = new FormData();
+  fd2.append("note", `a second report ${run}`);
+  const rep2 = await fetch(`${BASE}/api/bugs`, { method: "POST", headers: { cookie: pc }, body: fd2 });
+  const made2 = await rep2.json().catch(() => ({}));
+  assert(rep2.status === 201, `second report: ${rep2.status} ${JSON.stringify(made2)}`);
+  assert(made2.board === made.board && made2.seq > made.seq, JSON.stringify(made2));
+  const peek = await fetch(`${BASE}/api/boards/${made.board}/entries/${made.seq}`, { headers: { cookie: pc } });
+  assert(peek.status >= 400, `a reporter can't read the bug board: ${peek.status}`);
+  assert((await ops("users", { name: "bugs", email: `bugs-${run}@example.com` })).status === 409, "the bot's name is reserved");
+  const anonForm = new FormData();
+  anonForm.append("note", `signed out ${run}`);
+  const anon = await fetch(`${BASE}/api/bugs`, { method: "POST", body: anonForm });
   assert(anon.status === 201 || anon.status === 429, `signed-out report: ${anon.status} (429 = this IP already hit the strict limit)`);
 });
 

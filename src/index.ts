@@ -38,6 +38,7 @@ import * as auth from "./auth";
 import * as appSignin from "./appSignin";
 import * as moderation from "./moderation";
 import * as bugs from "./bugs";
+import { ensureBugBoard, isReservedUser } from "./bugBoard";
 import { handleMcp } from "./mcp";
 import * as device from "./device";
 import { EMAIL_RE, sendInvite } from "./invite";
@@ -251,7 +252,7 @@ function suggestName(email: string, display: string | null): string {
 }
 
 async function freeName(env: Env, base: string): Promise<string> {
-  if (!(await registry.userByName(env, base))) return base;
+  if (!isReservedUser(base) && !(await registry.userByName(env, base))) return base;
   for (let i = 2; i < 100; i++) {
     const n = `${base.slice(0, 29)}${i}`;
     if (!(await registry.userByName(env, n))) return n;
@@ -409,7 +410,7 @@ async function welcome(c: Ctx): Promise<Response> {
 
   const name = normalizeUser(String((await c.request.formData()).get("name") ?? ""));
   if (!name) return welcomePage(s.email, suggestion, "Use 1–32 lowercase letters, numbers, dot, dash or underscore, starting with a letter or number.");
-  if (await registry.userByName(c.env, name)) return welcomePage(s.email, name, `"${name}" is taken. Try another.`);
+  if (isReservedUser(name) || (await registry.userByName(c.env, name))) return welcomePage(s.email, name, `"${name}" is taken. Try another.`);
   if (await registry.userByWorkosId(c.env, s.workos_id)) return redirect("/");
   await registry.createUser(c.env, { name, email: s.email, email_verified: !!s.email_verified, workos_id: s.workos_id, display_name: s.display_name });
   await auth.setSessionUser(c.env, s.id_hash, name);
@@ -496,7 +497,7 @@ async function appSigninName(c: Ctx): Promise<Response> {
   }
   const name = normalizeUser(String(b.name ?? "").trim().replace(/^@/, ""));
   if (!name) return json({ error: NAME_RULES }, 400);
-  if (await registry.userByName(c.env, name)) return json({ error: `"${name}" is taken. Try another.`, suggestion: await freeName(c.env, name) }, 409);
+  if (isReservedUser(name) || (await registry.userByName(c.env, name))) return json({ error: `"${name}" is taken. Try another.`, suggestion: await freeName(c.env, name) }, 409);
   try {
     await registry.createUser(c.env, { name, email: s.email, email_verified: !!s.email_verified, workos_id: s.workos_id, display_name: s.display_name });
   } catch {
@@ -854,6 +855,7 @@ const handler = {
         // the reporter is named in the text.
         const stub = boardStub(env, bugsBoard);
         try {
+          await ensureBugBoard(env, bugsBoard, stub); // the bot member, set up on first use (jxn #4139)
           const pics = report.screenshots ?? (report.screenshot ? [report.screenshot] : []);
           const entry = pics.length > 1
             ? await stub.postFiles(bugs.BUG_BOT, { files: pics.map((p) => ({ name: p.name, bytes: p.bytes })), text: bugs.bugReportText(report, viewer?.name ?? "someone (signed out)"), via: "person", client: "bug-report" })
@@ -3365,7 +3367,7 @@ const handler = {
         if (path === "/api/ops/users" && method === "POST") {
           const name = normalizeUser(body.name);
           if (!name) return json({ error: "valid name required" }, 400);
-          if (await registry.userByName(env, name)) return json({ error: "name taken" }, 409);
+          if (isReservedUser(name) || (await registry.userByName(env, name))) return json({ error: "name taken" }, 409);
           await registry.createUser(env, {
             name,
             email: body.email ? body.email.toLowerCase() : null,
