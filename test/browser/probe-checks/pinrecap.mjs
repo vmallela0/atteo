@@ -30,16 +30,21 @@ async function mock(ctx){if(!MOCK)return;
     if(m==="DELETE"){PINNED=null;return route.fulfill({json:{ok:true,pinned:null}})}
     return route.fulfill({status:405,json:{error:"method not allowed"}})});}
 async function open(ck,{w=1280,h=860,scheme="light",touch=false}={}){const ctx=await b.newContext({viewport:{width:w,height:h},colorScheme:scheme,hasTouch:touch,isMobile:touch});const [k,...v]=ck.split(";")[0].split("=");await ctx.addCookies([{name:k,value:v.join("="),url:BASE}]);
-  await mock(ctx);const p=await ctx.newPage();p.on("pageerror",e=>errors.push(e.message));await p.goto(`${BASE}/b/${board}`);await p.waitForTimeout(1200);return {p,ctx}}
+  await mock(ctx);const p=await ctx.newPage();p.on("pageerror",e=>errors.push(e.message));
+  // Ready once the page has its pinned file (pinrecap.ts asks on load), instead of a fixed 1.2 s.
+  const pin=p.waitForResponse(r=>new URL(r.url()).pathname===`/api/boards/${board}/pin`,{timeout:8000}).catch(()=>null);
+  await p.goto(`${BASE}/b/${board}`);await pin;await p.waitForTimeout(250);return {p,ctx}}
+// The viewer's Pin button once it reads exactly this (the pin round trip done), instead of a fixed wait.
+const pinSays=(p,t)=>p.waitForFunction((t)=>document.getElementById("doc-pin")?.textContent.trim()===t,t,{timeout:8000}).catch(()=>{});
 const vis=async(p,sel)=>p.locator(sel).isVisible().catch(()=>false);
 
 // 1) Nothing pinned: no bar, no section; the file viewer offers Pin
 let {p,ctx}=await open(ckP,{scheme:"dark"});
 check(!(await vis(p,"#pin-bar"))&&!(await vis(p,"#pin-side")),"nothing pinned: no bar, no side section");
 await p.click('#board-tabs button[aria-controls="panel-docs"]');await p.waitForTimeout(600);
-await p.click('[data-doc="STATUS.md"]');await p.waitForTimeout(600);
+await p.click('[data-doc="STATUS.md"]');await pinSays(p,"Pin");
 check(await vis(p,"#doc-pin")&&(await p.locator("#doc-pin").innerText()).trim()==="Pin","the file viewer offers Pin");
-await p.click("#doc-pin");await p.waitForTimeout(900);
+await p.click("#doc-pin");await pinSays(p,"Unpin");
 check((await p.locator("#doc-pin").innerText()).trim()==="Unpin","…and once pinned it offers Unpin");
 await p.screenshot({path:`${SHOTS_DIR}/pin-viewer-dark.png`,clip:await p.locator("#doc-view").boundingBox()});
 await p.click('[data-doc="NOTES.md"]');await p.waitForTimeout(600);
@@ -58,7 +63,8 @@ await p.click('#board-tabs button[aria-controls="panel-conv"]');await p.waitForT
 await p.click("#pin-side [data-pin-open]");await p.waitForTimeout(600);
 check(!(await p.locator("#panel-docs").evaluate(x=>x.hidden)),"…and so does the side card");
 // 3) An edit to the pinned file shows live; unpinning (from elsewhere) clears it on refresh
-await mcp("doc",{action:"write",name:"STATUS.md",content:"# Release 1.4 shipped\n\nAll done.\n",base_version:1,summary:"shipped"});await p.waitForTimeout(1500);
+await mcp("doc",{action:"write",name:"STATUS.md",content:"# Release 1.4 shipped\n\nAll done.\n",base_version:1,summary:"shipped"});
+await p.waitForFunction(()=>document.getElementById("pin-peek")?.textContent==="Release 1.4 shipped",null,{timeout:8000}).catch(()=>{});
 await p.click('#board-tabs button[aria-controls="panel-conv"]');await p.waitForTimeout(300);
 check((await p.locator("#pin-peek").innerText())==="Release 1.4 shipped",`an edit to the pinned file shows live ("${await p.locator("#pin-peek").innerText()}")`);
 const {p:pl,ctx:cl}=await open(ckP,{scheme:"light"});await pl.screenshot({path:`${SHOTS_DIR}/pin-board-light.png`});await cl.close();
@@ -73,7 +79,7 @@ const {p:pl,ctx:cl}=await open(ckP,{scheme:"light"});await pl.screenshot({path:`
   check(g.r<=g.info||g.top>=g.infoBottom,"phone: …clear of the board-info button");check(g.top>=g.head+4,"phone: …with a gap under the header");
   await pm.screenshot({path:`${SHOTS_DIR}/pin-phone-dark.png`});await cm.close()}
 // Unpin from the viewer
-await p.click('#board-tabs button[aria-controls="panel-docs"]');await p.click('[data-doc="STATUS.md"]');await p.waitForTimeout(500);await p.click("#doc-pin");await p.waitForTimeout(900);
+await p.click('#board-tabs button[aria-controls="panel-docs"]');await p.click('[data-doc="STATUS.md"]');await pinSays(p,"Unpin");await p.click("#doc-pin");await pinSays(p,"Pin");
 await p.click('#board-tabs button[aria-controls="panel-conv"]');await p.waitForTimeout(300);
 check(!(await vis(p,"#pin-bar"))&&!(await vis(p,"#pin-side")),"Unpin takes the bar and the section away");
 await ctx.close();
