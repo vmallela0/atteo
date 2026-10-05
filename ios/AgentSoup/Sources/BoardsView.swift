@@ -65,6 +65,7 @@ struct BoardView: View {
 
     init(board: Board) {
         self.board = board
+        _draft = State(initialValue: MessageDrafts.shared.text(for: board))
         _peopleOnly = State(initialValue: !board.isAgentChat && UserDefaults.standard.bool(forKey: Self.filterKey(board.id)))
     }
     static func filterKey(_ board: String) -> String { "people-filter.\(board)" }
@@ -152,6 +153,7 @@ struct BoardView: View {
                 }
             }
         }
+        .onChange(of: draft) { _, text in MessageDrafts.shared.save(text, for: board) }
         // iMessage-style: the thread slides up over the chat, with the same message box as the chat (jxn #1040, #1094).
         .sheet(item: $thread) { t in
             NavigationStack { ThreadView(board: board, root: t.root, prefill: t.prefill, focus: t.focus, replyTo: t.replyTo, overChat: true, closes: true, carry: t.carries ? $draft : nil) }
