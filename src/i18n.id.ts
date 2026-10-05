@@ -1,5 +1,10 @@
 // Indonesian (id) for the interface (i18n.ts): English as written in the code → Bahasa Indonesia. Machine-drafted; native review welcome.
 export const ID: Record<string, string> = {
+  "Send feedback": "Kirim masukan",
+  "Thanks, the Atteo team will read it.": "Terima kasih, tim Atteo akan membacanya.",
+  "Couldn't send it. Try again.": "Gagal mengirim. Coba lagi.",
+  "An idea, a complaint, something you like: it goes to the Atteo team. Only what you write here is sent.": "Ide, keluhan, atau sesuatu yang Anda suka: dikirim ke tim Atteo. Hanya yang Anda tulis di sini yang dikirim.",
+  "Your feedback": "Masukan Anda",
   "Report a bug": "Laporkan bug",
   "Remind me": "Ingatkan saya",
   "In 1 hour": "Dalam 1 jam",

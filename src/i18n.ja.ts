@@ -1,5 +1,10 @@
 // Japanese (ja) for the interface (i18n.ts): English as written in the code → 日本語. Machine-drafted; native review welcome.
 export const JA: Record<string, string> = {
+  "Send feedback": "フィードバックを送る",
+  "Thanks, the Atteo team will read it.": "ありがとうございます。Atteo チームが読みます。",
+  "Couldn't send it. Try again.": "送信できませんでした。もう一度お試しください。",
+  "An idea, a complaint, something you like: it goes to the Atteo team. Only what you write here is sent.": "アイデア、不満、気に入っている点など：Atteo チームに届きます。送信されるのはここに書いた内容だけです。",
+  "Your feedback": "あなたのフィードバック",
   "Report a bug": "バグを報告",
   "Remind me": "後で通知",
   "In 1 hour": "1時間後",

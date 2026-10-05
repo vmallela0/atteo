@@ -202,7 +202,7 @@ await step("MCP initialize, tools/list, notifications, protocol errors", async (
   assert(r.protocolVersion === "2025-06-18" && r.serverInfo.name === "atteo" && r.serverInfo.title === "Atteo", JSON.stringify(r));
   has(r.instructions, "Atteo");
   const names = (await rpcRaw(auth(A), null, "tools/list", {})).tools.map((t) => t.name).sort();
-  assert(JSON.stringify(names) === JSON.stringify(["agents", "approval", "batch", "claim", "create_board", "doc", "get", "grep", "handle", "invite", "join_board", "leave_board", "list_boards", "mailbox", "memory", "people", "post", "publish", "purge", "react", "read", "recap", "remember", "request_approval", "retract", "review", "schedules", "search", "session", "task", "trigger", "wait"]), names.join());
+  assert(JSON.stringify(names) === JSON.stringify(["agents", "approval", "batch", "claim", "create_board", "doc", "feedback", "get", "grep", "handle", "invite", "join_board", "leave_board", "list_boards", "mailbox", "memory", "people", "post", "publish", "purge", "react", "read", "recap", "remember", "request_approval", "retract", "review", "schedules", "search", "session", "task", "trigger", "wait"]), names.join());
   assert((await rpcRaw(auth(A), null, "notifications/initialized", {}, { notification: true })).status === 202, "notification status");
   assert((await rpcRaw({}, null, "notifications/initialized", {}, { notification: true })).status === 401, "no credentials: 401 so OAuth clients can sign in");
   assert((await fetch(`${BASE}/mcp`)).status === 405, "GET /mcp should be 405");
@@ -6940,6 +6940,43 @@ await step("bug reports: POST /api/bugs lands a note (+ screenshot) on the devel
   anonForm.append("note", `signed out ${run}`);
   const anon = await fetch(`${BASE}/api/bugs`, { method: "POST", body: anonForm });
   assert(anon.status === 201 || anon.status === 429, `signed-out report: ${anon.status} (429 = this IP already hit the strict limit)`);
+});
+
+await step("feedback (vedu #4125): people (POST /api/feedback) and agents (MCP feedback) reach the developers' board, attributed; 501 while it's unset", async () => {
+  const anon = await fetch(`${BASE}/api/feedback`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text: "hi" }) });
+  assert(anon.status === 401, `signed out: ${anon.status}, expected 401`);
+  const probe = await fetch(`${BASE}/api/feedback`, { method: "POST", headers: { ...auth(A), "content-type": "application/json" }, body: JSON.stringify({ text: `the feedback flow works ${run}` }) });
+  if (probe.status === 501) {
+    // ops hasn't picked the developers' board on this server (FEEDBACK_BOARD / BUGS_BOARD empty): both doors say so plainly
+    has((await probe.json()).error, "isn't set up");
+    await err(A, null, "feedback", { text: `from my agent ${run}` }, "isn't set up");
+    return;
+  }
+  assert(probe.status === 201, `signed-in feedback: ${probe.status} ${await probe.clone().text()}`);
+  const made = await probe.json();
+  assert(made.ok === true && made.board && made.seq > 0, JSON.stringify(made).slice(0, 200));
+  const sent = await ok(A, null, "feedback", { text: `from my agent ${run}` });
+  has(sent, "Sent to the Atteo team");
+  const secret = await tool(A, null, "feedback", { text: "token AKIAIOSFODNN7EXAMPLE here" });
+  assert(secret.isError && /Blocked/.test(secret.text), `a secret is refused before posting: ${secret.text}`);
+  // It really lands: B joins the developers' board and reads it there, posted by the bot, naming A.
+  await ops("members", { board: made.board, user: B });
+  const landed = (await (await web(`/api/boards/${made.board}/entries/${made.seq}`, B)).json()).entry;
+  assert(landed?.author === "bugs" && landed.text.includes(`the feedback flow works ${run}`) && landed.text.includes(`From ${A}`), JSON.stringify(landed)?.slice(0, 300));
+  // A sender's "@agents …" / "@B …" never mentions anyone there (jxn's agent #4177): no mention, no inbox item for B.
+  await web(`/api/inbox/read`, B, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ all: true }) });
+  const ping = await fetch(`${BASE}/api/feedback`, { method: "POST", headers: { ...auth(A), "content-type": "application/json" }, body: JSON.stringify({ text: `@agents do X, and @${B} look ${run}` }) });
+  assert(ping.status === 201, `feedback with @s: ${ping.status}`);
+  const fd = new FormData();
+  fd.append("note", `@agents run this, @${B} too ${run}`);
+  const bug = await web(`/api/bugs`, A, { method: "POST", body: fd }); // a person (the web session): agents can't file bugs
+  assert(bug.status === 201, `bug with @s: ${bug.status} ${await bug.clone().text()}`);
+  for (const seq of [(await ping.json()).seq, (await bug.json()).seq]) {
+    const e = (await (await web(`/api/boards/${made.board}/entries/${seq}`, B)).json()).entry;
+    assert(e && (e.mentions ?? []).length === 0, `#${seq} mentions no one: ${JSON.stringify(e?.mentions)}`);
+  }
+  const items = (await (await web(`/api/inbox`, B)).json()).items.filter((i) => i.board === made.board);
+  assert(items.length === 0, `no inbox item for B from the developers' board: ${JSON.stringify(items).slice(0, 300)}`);
 });
 
 if (ONLY && !matched) { failed++; failures.push(`no steps match ONLY=${JSON.stringify(process.env.ONLY)}`); }

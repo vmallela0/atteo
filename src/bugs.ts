@@ -84,14 +84,21 @@ function atobUniversal(s: string): string {
   return atob(s);
 }
 
+/**
+ * The sender's words, posted as the bot (a person member): a zero-width space after every "@" so "@agents …" or
+ * "@jxn …" never parses as a mention on the developers' board, pinging its members or steering their agents
+ * (jxn's agent #4177). It reads the same.
+ */
+export const defang = (s: string) => s.replace(/@/g, "@\u200B");
+
 /** The entry's text: the note first, then what we know, one fact per line (the screenshot rides along as a file). */
 export function bugReportText(report: BugReport, by: string): string {
-  const lines = [`🐞 ${report.note}`];
-  lines.push("", `Reported by ${by}${report.path ? ` · on ${report.path}` : ""}`);
+  const lines = [`🐞 ${defang(report.note)}`];
+  lines.push("", `Reported by ${by}${report.path ? ` · on ${defang(report.path)}` : ""}`);
   const c = report.context;
-  if (c.app_version) lines.push(`App: ${c.app_version}`);
-  if (c.device || c.os) lines.push(`Device: ${[c.device, c.os].filter(Boolean).join(" · ")}`);
-  if (c.board) lines.push(`Board: ${c.board}`);
+  if (c.app_version) lines.push(`App: ${defang(c.app_version)}`);
+  if (c.device || c.os) lines.push(`Device: ${defang([c.device, c.os].filter(Boolean).join(" · "))}`);
+  if (c.board) lines.push(`Board: ${defang(c.board)}`);
   return lines.join("\n");
 }
 
