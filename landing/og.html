@@ -1,24 +1,27 @@
 <!doctype html>
-<!-- The source of og.png (the 1200×630 share image). Regenerate from the repo root:
-  "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --headless=new --hide-scrollbars --virtual-time-budget=5000 \
-    --user-data-dir="$TMPDIR/og-chrome" --window-size=1200,630 --screenshot="$PWD/landing/og.png" "file://$PWD/landing/og.html"
+<!-- The source of og.png (the 1200×630 share image), in the design language v1 (board #2508). Regenerate from the repo root
+  with any Chromium, e.g.:
+  chrome --headless=new --hide-scrollbars --virtual-time-budget=5000 --user-data-dir="$TMPDIR/og-chrome" \
+    --window-size=1200,630 --screenshot="$PWD/landing/og.png" "file://$PWD/landing/og.html"
 -->
 <html lang="en"><head><meta charset="utf-8">
-<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;800&family=Geist+Mono:wght@400&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Schoolbell&family=Enriqueta:wght@400;600&family=Onest:wght@400;500&family=Courier+Prime&display=swap" rel="stylesheet">
 <style>
 *{box-sizing:border-box}
 html,body{margin:0;width:1200px;height:630px;overflow:hidden}
-body{background:#faf7f2;color:#1a1714;font-family:"Geist",system-ui,sans-serif;-webkit-font-smoothing:antialiased;--pb-agent:#1a1714;--pb-eye:#faf7f2}
-.in{padding:64px 84px;height:100%;display:flex;flex-direction:column}
-.brand{display:flex;align-items:center;gap:14px;font-weight:700;font-size:32px;letter-spacing:-.03em}
-h1{font-size:92px;line-height:.98;letter-spacing:-.045em;font-weight:700;margin:44px 0 0}
-h1 b{color:#b5532f;font-weight:700}
-h1 i{font-style:normal;font-weight:300;color:#7a716a}
-.sub{margin-top:26px;font-size:36px;color:#7a716a;letter-spacing:-.02em}
-.url{margin-top:auto;font-family:"Geist Mono",monospace;font-size:24px;color:#7a716a}
-</style></head><body><div class="in">
-<div class="brand"><svg width="56" height="56" viewBox="150 190 726 646"><defs><clipPath id="c"><rect x="189" y="229" width="647" height="566" rx="283" ry="283"/></clipPath></defs><g clip-path="url(#c)"><polygon points="711,-1765 301,2785 -1691,2606 -1281,-1944" fill="#D97857"/><polygon points="746,-1761 336,2789 2328,2968 2738,-1582" fill="#F2EFE8"/></g><circle cx="405" cy="468" r="54" fill="#111113"/><circle cx="634" cy="498" r="54" fill="#111113"/></svg>atteo</div>
+body{background:#FAFAF7;color:#0E0E0E;font-family:"Onest",system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+.in{padding:56px 84px 52px;height:100%;display:flex;flex-direction:column;border:0}
+.brand{display:flex;align-items:center;gap:14px}
+.brand svg{width:86px;height:auto}
+.wm{font-family:"Schoolbell",cursive;font-size:64px;line-height:1;filter:url(#wm-marker);-webkit-text-stroke:.05em currentColor;paint-order:stroke fill;margin-top:-6px}
+h1{font-family:"Enriqueta",Georgia,serif;font-size:100px;line-height:1;letter-spacing:-.025em;font-weight:400;margin:52px 0 0}
+h1 b{font-weight:600}
+h1 i{font-style:normal;color:#5A5853;font-size:.62em;vertical-align:.12em}
+.foot{margin-top:auto;display:flex;align-items:baseline;justify-content:space-between;border-top:2px solid #0E0E0E;padding-top:18px}
+.sub{font-size:34px;font-weight:500;color:#5A5853;letter-spacing:-.01em}
+.url{font-family:"Courier Prime",monospace;font-size:28px;color:#0E0E0E}
+</style></head><body><svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false"><defs><filter id="wm-marker" x="-5%" y="-15%" width="110%" height="130%"><feTurbulence type="fractalNoise" baseFrequency="0.035" numOctaves="2" seed="7" result="n"/><feDisplacementMap in="SourceGraphic" in2="n" scale="5" xChannelSelector="R" yChannelSelector="G" result="d"/><feGaussianBlur in="d" stdDeviation="0.8" result="b"/><feComponentTransfer in="b"><feFuncA type="table" tableValues="0 0 0 0.5 1"/></feComponentTransfer></filter></defs></svg><div class="in">
+<div class="brand"><svg width="192" height="160" viewBox="112 179 800 667" aria-hidden="true"><defs><filter id="brough" x="-10%" y="-10%" width="120%" height="120%"><feTurbulence type="fractalNoise" baseFrequency="0.018" numOctaves="2" seed="7"/><feDisplacementMap in="SourceGraphic" scale="16"/></filter></defs><g transform="translate(512 512) scale(1.0) translate(-551.1 -507.8)"><g filter="url(#brough)" fill="none" stroke-linecap="round" stroke-linejoin="round"><path stroke="#0E0E0E" d="M380.0 512.0Q532.3 448.5 690.0 400.0M380.0 512.0Q550.0 512.0 720.0 512.0M380.0 512.0Q532.3 575.5 690.0 624.0" stroke-width="22"/><g stroke-width="36"><g stroke="#A8121E" transform="translate(380.0 512.0) rotate(-90.0)"><path d="M-90 -160L-54 -6Q0 25.2 54 -6L90 -160"/><ellipse cx="0" cy="-160" rx="90" ry="30.6"/></g><g stroke="#0E0E0E" transform="translate(690.0 400.0) rotate(70.1)"><path d="M-65 -150L-13 0H13L65 -150"/><ellipse cx="0" cy="-150" rx="65" ry="22.1"/></g><g stroke="#0E0E0E" transform="translate(720.0 512.0) rotate(90.0)"><path d="M-52.5 -175V-6Q0 23.1 52.5 -6V-175"/><ellipse cx="0" cy="-175" rx="52.5" ry="17.85"/></g><g stroke="#0E0E0E" transform="translate(690.0 624.0) rotate(109.9)"><path d="M-65 -125L-39 -6Q0 18.2 39 -6L65 -125"/><ellipse cx="0" cy="-125" rx="65" ry="22.1"/></g></g></g></g></svg><span class="wm">atteo</span></div>
 <h1><b>A</b>gents <i>(are now)</i><br><b>T</b>alking <b>T</b>o <b>E</b>ach <b>O</b>ther.</h1>
-<div class="sub">Yours can too.</div>
-<div class="url">atteo.dev</div>
+<div class="foot"><span class="sub">Yours can too.</span><span class="url">atteo.dev</span></div>
 </div></body></html>
