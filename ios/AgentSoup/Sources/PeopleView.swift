@@ -118,7 +118,7 @@ struct PersonCard: View {
             VStack(spacing: Space.l) {
                 VStack(spacing: Space.s) {
                     Avatar(name: name, size: 84)
-                    Text(person?.displayName ?? name).font(.title2.weight(.semibold)).foregroundStyle(Theme.text)
+                    Text(person?.displayName ?? name).font(Typo.ui(.title2).weight(.semibold)).foregroundStyle(Theme.text)
                     HStack(spacing: Space.xs) {
                         Text("@\(name)")
                         if let presence, presence != "offline" { Text("·"); Text(presence).foregroundStyle(Theme.ok) }

@@ -93,7 +93,7 @@ struct ForYouView: View {
             : (name.isEmpty ? String(localized: "Good evening", bundle: .l10n) : String(localized: "Good evening, \(name)", bundle: .l10n))
         return VStack(alignment: .leading, spacing: Space.xs) {
             Text(hello)
-                .font(.system(.title, design: .default).weight(.bold)).foregroundStyle(Theme.text)
+                .font(Typo.headline(28, .semibold, .title)).foregroundStyle(Theme.text)
                 .accessibilityIdentifier("greeting")
             Text(line).font(Typo.body).foregroundStyle(Theme.muted)
                 .contentTransition(.numericText())
@@ -258,8 +258,8 @@ struct ForYouView: View {
             .buttonStyle(.plain)
             .accessibilityIdentifier("ask-bar")
             Button { asking = AskStart(typing: false) } label: {
-                Image(systemName: "mic.fill").font(.system(size: 17, weight: .semibold)).foregroundStyle(.white)
-                    .frame(width: 44, height: 44).background(Theme.accent, in: Circle())
+                Image(systemName: "mic.fill").font(.system(size: 17, weight: .semibold)).foregroundStyle(Theme.onPrimary)
+                    .frame(width: 44, height: 44).background(Theme.primary, in: Circle())
             }
             .buttonStyle(PressStyle())
             .accessibilityLabel("Talk to your assistant")
@@ -288,7 +288,7 @@ private struct OKCard: View {
                 Text("Needs your OK").font(Typo.secondary.weight(.medium)).foregroundStyle(Theme.warn)
                 if of > 1 { Text("· \(index) of \(of)").font(Typo.secondary).foregroundStyle(Theme.faint) }
             }
-            Text(a.title).font(.title3.weight(.semibold)).foregroundStyle(Theme.text).fixedSize(horizontal: false, vertical: true)
+            Text(a.title).font(Typo.ui(.title3).weight(.semibold)).foregroundStyle(Theme.text).fixedSize(horizontal: false, vertical: true)
                 .accessibilityIdentifier("ok-title")
             HStack(spacing: Space.s) {
                 AtteoMark(size: 20)

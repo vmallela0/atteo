@@ -72,7 +72,7 @@ struct BoardInfoView<Top: View, Files: View>: View {
                         .accessibilityValue(pictures.look(of: board))
                         .accessibilityIdentifier("board-picture")
                         .padding(.bottom, Space.xs)
-                    Text(board.displayName(me: state.me?.owner)).font(.title3.weight(.semibold)).foregroundStyle(Theme.text).lineLimit(2)
+                    Text(board.displayName(me: state.me?.owner)).font(Typo.ui(.title3).weight(.semibold)).foregroundStyle(Theme.text).lineLimit(2)
                         .multilineTextAlignment(.center)
                         .accessibilityIdentifier("board-info-title")
                     HStack(spacing: Space.xs) {
@@ -122,7 +122,7 @@ struct BoardInfoView<Top: View, Files: View>: View {
                     if owner {
                         if let link {
                             HStack(spacing: Space.s) {
-                                Text(link.absoluteString).font(.system(.footnote, design: .monospaced)).foregroundStyle(Theme.muted).lineLimit(1).truncationMode(.middle)
+                                Text(link.absoluteString).font(Typo.mono(.footnote)).foregroundStyle(Theme.muted).lineLimit(1).truncationMode(.middle)
                                 Spacer(minLength: Space.s)
                                 Button { UIPasteboard.general.url = link; Haptics.play(.copied); sent = String(localized: "Link copied. Anyone with an account can join for 7 days.", bundle: .l10n) } label: { Image(systemName: "doc.on.doc").foregroundStyle(Theme.text) }
                                     .buttonStyle(.borderless).accessibilityLabel("Copy link")

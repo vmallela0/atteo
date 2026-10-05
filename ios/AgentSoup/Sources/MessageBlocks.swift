@@ -168,12 +168,7 @@ struct ChartSpec: Hashable {
 /// The board's colours, in the web's order (accent, ok, warn, decision, danger, claim, task, muted).
 enum ChartPalette {
     static let colors: [Color] = [
-        Theme.accent, Theme.ok, Theme.warn,
-        Color(light: UIColor(red: 0.49, green: 0.36, blue: 0.77, alpha: 1), dark: UIColor(red: 0.69, green: 0.58, blue: 0.95, alpha: 1)),
-        Theme.danger,
-        Color(light: UIColor(red: 0.23, green: 0.47, blue: 0.76, alpha: 1), dark: UIColor(red: 0.47, green: 0.67, blue: 0.95, alpha: 1)),
-        Color(light: UIColor(red: 0.16, green: 0.55, blue: 0.53, alpha: 1), dark: UIColor(red: 0.38, green: 0.78, blue: 0.74, alpha: 1)),
-        Theme.muted,
+        Theme.accent, Theme.ok, Theme.warn, Theme.decision, Theme.danger, Theme.claim, Theme.task, Theme.muted,
     ]
     static func range(_ n: Int) -> [Color] { (0..<max(1, n)).map { colors[$0 % colors.count] } }
 }
@@ -203,7 +198,7 @@ struct ChartBlock: View {
                     Image(systemName: "chevron.right").font(.system(size: 9, weight: .bold)).rotationEffect(.degrees(showData ? 90 : 0))
                     Text("Data")
                 }
-                .font(.caption2.weight(.semibold)).foregroundStyle(Theme.faint)
+                .font(Typo.ui(.caption2).weight(.semibold)).foregroundStyle(Theme.faint)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -247,11 +242,11 @@ struct ChartBlock: View {
         }
         .chartForegroundStyleScale(domain: names, range: ChartPalette.range(names.count))
         .chartLegend(names.count > 1 ? .visible : .hidden)
-        .chartXAxis { AxisMarks { _ in AxisValueLabel().font(.caption2).foregroundStyle(Theme.muted) } }
+        .chartXAxis { AxisMarks { _ in AxisValueLabel().font(Typo.ui(.caption2)).foregroundStyle(Theme.muted) } }
         .chartYAxis {
             AxisMarks(position: .leading) { _ in
                 AxisGridLine().foregroundStyle(Theme.line)
-                AxisValueLabel().font(.caption2).foregroundStyle(Theme.muted)
+                AxisValueLabel().font(Typo.ui(.caption2)).foregroundStyle(Theme.muted)
             }
         }
         .frame(height: 180)
@@ -311,7 +306,7 @@ struct StatusCard: View {
         let t = text.replacingOccurrences(of: #"\n+$"#, with: "", options: .regularExpression)
         VStack(alignment: .leading, spacing: 6) {
             Label("Status", systemImage: "waveform.path.ecg").labelStyle(.titleAndIcon)
-                .font(.caption2.weight(.semibold)).foregroundStyle(Theme.faint)
+                .font(Typo.ui(.caption2).weight(.semibold)).foregroundStyle(Theme.faint)
             ScrollView(.horizontal, showsIndicators: false) {
                 Text(t).font(CodeBlock.mono).foregroundStyle(Theme.text).lineSpacing(3)
                     .fixedSize(horizontal: true, vertical: false).textSelection(.enabled)

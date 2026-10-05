@@ -406,7 +406,7 @@ const GUIDE_CSS = `<style>
 .gd-item h3 a{color:var(--faint);text-decoration:none;font-weight:400;opacity:0;font-size:12px}
 .gd-item:hover h3 a,.gd-item h3 a:focus{opacity:1}
 .gd-item p{margin:0;color:var(--muted);font-size:13.5px;line-height:1.5}
-.gd-item:target{outline:2px solid var(--atteo);outline-offset:1px}
+.gd-item:target{outline:2px solid var(--focus);outline-offset:1px}
 .gd-agents{margin-top:26px;font-size:13px}
 @media (max-width:520px){.gd-list{grid-template-columns:1fr}.gd-q{max-width:none}}
 </style>`;
