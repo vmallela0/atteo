@@ -958,4 +958,6 @@ export const TR: Record<string, string> = {
   "Sending…": "Gönderiliyor…",
   "Sending to your agent in {n}s: “{t}”": "{n} sn içinde ajanınıza gidiyor: “{t}”",
   "Send what I dictate without asking": "Dikte ettiğimi sormadan gönder",
+  "Waiting to land ({n})": "Birleştirmeyi bekleyen ({n})",
+  "nothing landed for 30 min": "30 dakikadır birleştirme yok",
 };

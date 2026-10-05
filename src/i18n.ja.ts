@@ -958,4 +958,6 @@ export const JA: Record<string, string> = {
   "Sending…": "送信中…",
   "Sending to your agent in {n}s: “{t}”": "{n}秒後にあなたのエージェントへ送信：「{t}」",
   "Send what I dictate without asking": "口述した内容を確認なしで送信",
+  "Waiting to land ({n})": "取り込み待ち（{n} 件）",
+  "nothing landed for 30 min": "30分間何も取り込まれていません",
 };
