@@ -6,9 +6,11 @@
 // - HTML previews: scripts, inline handlers (onclick=) and a frame-busting file all behave as in report-only, and
 //   nothing reaches the network;
 // - the lazy bug-report script inherits the page nonce and the dialog opens;
-// - the main pages and a board with code colours and a mermaid diagram load with no violation.
+// - the main pages and a board with code colours and a mermaid diagram load with no violation;
+// - /_ops (admin-only) Overview, Access and Events, via a localhost-only ops session (lib/admin.mjs; CI has no ADMIN_EMAIL).
 import { createServer } from "node:http";
 import { chromium } from "playwright-core";
+import { adminCookie, adminSession } from "./lib/admin.mjs";
 const BASE = process.env.BASE || "http://localhost:8787";
 const ops = async (p, b) => {
   const r = await fetch(`${BASE}/api/ops/${p}`, { method: "POST", headers: { "x-admin-key": process.env.ADMIN_KEY || "ci-admin-key", "content-type": "application/json" }, body: JSON.stringify(b) });
@@ -41,17 +43,18 @@ const authorize = (state) => `${BASE}/oauth/authorize?response_type=code&client_
 let fails = 0;
 const check = (ok, t) => { console.log(`${ok ? "✓" : "✗"} ${t}`); if (!ok) fails++; };
 const b = await chromium.launch({ executablePath: process.env.PW_CHROME || undefined });
-const ctx = await b.newContext({ viewport: { width: 1200, height: 820 } });
-await ctx.addCookies([{ name: ck.split("=")[0], value: ck.split(";")[0].split("=").slice(1).join("="), url: BASE }]);
 let enforced = 0;
-await ctx.route(`${BASE}/**`, async (route) => {
+const enforce = async (route) => {
   const r = await route.fetch({ maxRedirects: 0 }).catch(() => null);
   if (!r) return route.abort().catch(() => {});
   const h = r.headers();
   if (h["content-security-policy-report-only"]) { h["content-security-policy"] = h["content-security-policy-report-only"]; delete h["content-security-policy-report-only"]; enforced++; }
   else if (/'nonce-/.test(h["content-security-policy"] ?? "")) enforced++; // CSP_ENFORCE is already on
   await route.fulfill({ response: r, headers: h }).catch(() => {});
-});
+};
+const ctx = await b.newContext({ viewport: { width: 1200, height: 820 } });
+await ctx.addCookies([{ name: ck.split("=")[0], value: ck.split(";")[0].split("=").slice(1).join("="), url: BASE }]);
+await ctx.route(`${BASE}/**`, enforce);
 // A page of its own for each part, so they run side by side; each collects its own violations.
 const open = async () => {
   const p = await ctx.newPage(), viol = [];
@@ -103,6 +106,34 @@ const bugReport = async () => {
   check(!!nonce && dynamicNonces.length === 1 && dynamicNonces.every((n) => n === nonce) && !viol.length, `the bug-report script inherits the nonce and the dialog opens ${viol.join(" | ")}`);
   await p.close();
 };
+const opsConsole = async () => {
+  const admin = await adminSession(BASE);
+  const aCtx = await b.newContext({ viewport: { width: 1200, height: 820 } });
+  await aCtx.addCookies([adminCookie(admin, BASE)]);
+  await aCtx.route(`${BASE}/**`, enforce);
+  const p = await aCtx.newPage(), viol = [];
+  p.on("console", (m) => { if (/content security policy/i.test(m.text())) viol.push(m.text().slice(0, 200)); });
+  p.on("pageerror", (e) => viol.push(`pageerror: ${e.message.slice(0, 160)}`));
+  try {
+    const response = await p.goto(`${BASE}/_ops`);
+    const title = await p.locator("h1").first().innerText().catch(() => "");
+    check(!!response?.ok() && title === "Ops", `/_ops opens for a localhost admin session (${response?.status()} ${title})`);
+    for (const [i, tab] of ["Overview", "Access", "Events"].entries()) {
+      await p.locator("#ops-tabs button").nth(i).click();
+      await p.waitForTimeout(400);
+      const selected = await p.locator("#ops-tabs button[aria-selected='true']").innerText();
+      const scriptsOk = await p.evaluate(() => {
+        const scripts = [...document.querySelectorAll("script")];
+        return scripts.length > 0 && scripts.every((s) => !!s.nonce);
+      });
+      check(selected === tab && scriptsOk && !viol.length, `/_ops ${tab}: nonce on every script, no violations ${viol.join(" | ")}`);
+    }
+  } finally {
+    await p.close();
+    await aCtx.unrouteAll({ behavior: "ignoreErrors" });
+    await aCtx.close();
+  }
+};
 const consent = async (allow) => {
   const { p, viol } = await open();
   const label = allow ? "Allow" : "Don't allow", state = `s${allow ? 1 : 0}${run}`;
@@ -117,7 +148,7 @@ const consent = async (allow) => {
   await p.close();
 };
 try {
-  await Promise.all([pages(), drawing(), ...Object.keys(files).map(preview), bugReport(), consent(true), consent(false)]);
+  await Promise.all([pages(), drawing(), ...Object.keys(files).map(preview), bugReport(), opsConsole(), consent(true), consent(false)]);
   check(!hits.some((h) => h.startsWith("/preview")), `a preview still can't reach the network (${hits.join(", ") || "nothing arrived"})`);
 } finally {
   await ctx.unrouteAll({ behavior: "ignoreErrors" });

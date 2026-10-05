@@ -1,12 +1,13 @@
 // BASE=http://localhost:8787 node test/browser/csp.mjs
 // The pages' Content-Security-Policy is report-only until CSP_ENFORCE (src/ui.ts) flips (jxn's agent #2636, #2722); this
 // check expects whichever header that switch says, so the flip needs no change here. It opens the main pages (and a
-// board with a mermaid diagram), an HTML preview and a voice call, and fails if the browser reports anything the policy
+// board with a mermaid diagram), an HTML preview, a voice call, and /_ops (localhost admin session; CI has no ADMIN_EMAIL),
 // would block, by watching for reports sent to /api/csp-report and for CSP console messages, so the switch to enforcing
 // is known to be safe. The preview runs from /preview-frame with its own enforced CSP (opus-b #2678): it must never see
 // the page's nonce, and its scripts must not reach the network.
 import { chromium } from "playwright-core";
 import { readFileSync } from "node:fs";
+import { adminCookie, adminSession } from "./lib/admin.mjs";
 const ENFORCE = /^export const CSP_ENFORCE = true;/m.test(readFileSync(new URL("../../src/ui.ts", import.meta.url), "utf8"));
 const HEADER = ENFORCE ? "content-security-policy" : "content-security-policy-report-only", OTHER = ENFORCE ? "content-security-policy-report-only" : "content-security-policy";
 const BASE = process.env.BASE || "http://localhost:8787";
@@ -101,6 +102,33 @@ try {
   }
   await page.waitForTimeout(500); // reports are sent after the fact
   check(violations.length === 0, `no CSP violations reported${violations.length ? `:\n  ${violations.join("\n  ")}` : ""}`);
+  // /_ops is operator-only (CI has no ADMIN_EMAIL): a localhost ops session, same checks as the signed-in pages.
+  const admin = await adminSession(BASE);
+  const opsCtx = await browser.newContext();
+  try {
+    await opsCtx.addCookies([adminCookie(admin, BASE)]);
+    const opsPage = await opsCtx.newPage();
+    const opsViol = [];
+    opsPage.on("console", (msg) => { if (csp.test(msg.text()) && /report-only/i.test(msg.text())) opsViol.push(`console: ${msg.text()}`); });
+    await opsPage.exposeBinding("__cspViolation", (_src, v) => opsViol.push(`violation: ${v}`));
+    await opsPage.addInitScript(() => { if (window === window.top) document.addEventListener("securitypolicyviolation", (e) => window.__cspViolation(`${e.disposition} ${e.effectiveDirective} ${e.blockedURI} ${e.sourceFile}:${e.lineNumber} ${location.pathname}`)); });
+    const opsResp = await opsPage.goto(`${BASE}/_ops`, { waitUntil: "networkidle" });
+    const opsH = opsResp?.headers() ?? {};
+    const opsPolicy = opsH[HEADER] ?? "";
+    check(!!opsResp?.ok() && (await opsPage.locator("h1").first().innerText()) === "Ops", `/_ops opens for a localhost admin session (${opsResp?.status()})`);
+    check(!!opsPolicy && !opsH[OTHER], `/_ops: ${ENFORCE ? "enforced" : "report-only"} CSP header, as CSP_ENFORCE says`);
+    check(opsPolicy.includes("report-uri /api/csp-report"), "/_ops: reports go to /api/csp-report");
+    for (const [i, tab] of ["Overview", "Access", "Events"].entries()) {
+      await opsPage.locator("#ops-tabs button").nth(i).click();
+      await opsPage.waitForTimeout(400);
+      const selected = await opsPage.locator("#ops-tabs button[aria-selected='true']").innerText();
+      check(selected === tab, `/_ops ${tab} tab runs`);
+    }
+    await opsPage.waitForTimeout(300);
+    check(opsViol.length === 0, `/_ops: no CSP violations${opsViol.length ? `:\n  ${opsViol.join("\n  ")}` : ""}`);
+  } finally {
+    await opsCtx.close();
+  }
   // The endpoint takes reports without a sign-in and always answers 204.
   const r = await fetch(`${BASE}/api/csp-report`, { method: "POST", headers: { "content-type": "application/csp-report" }, body: JSON.stringify({ "csp-report": { "effective-directive": "img-src", "blocked-uri": "https://x.example/a.png" } }) });
   check(r.status === 204, "the report endpoint answers 204 without a sign-in");

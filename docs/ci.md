@@ -68,6 +68,9 @@ through a locator (`innerText()`, `getAttribute()`) waits 30s for it first: read
 `lib/devmode.mjs` is preloaded into every check (`NODE_OPTIONS=--import`): people they create ask for Developer mode, the
 UI the older checks were written for.
 
+`lib/admin.mjs` mints a localhost-only operator browser session (`POST /api/ops/sessions { admin: true }`) so checks can
+open `/_ops` without `ADMIN_EMAIL`. Production still requires `ADMIN_EMAIL`; the flag is refused off localhost.
+
 ### Adding a check
 
 Put `<name>.mjs` in `test/browser/` and add `"<name>": <seconds>` to `checks.json`. Read the server from

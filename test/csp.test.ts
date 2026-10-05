@@ -3,7 +3,7 @@ import { page, appPage, formActionSource, CSP_ENFORCE, CSP_REPORT_PATH, VOICE_SO
 import { consentPage } from "../src/oauthPage";
 import { trackCapped } from "../src/usage";
 import type { Env } from "../src/types";
-import { landingPage, boardPage, boardTail, mePage, PREVIEW_FRAME_CSP, PREVIEW_FRAME_HTML } from "../src/html";
+import { landingPage, boardPage, boardTail, mePage, adminPage, PREVIEW_FRAME_CSP, PREVIEW_FRAME_HTML } from "../src/html";
 import { REALTIME_URL } from "../src/voice";
 import { MERMAID_JS, MERMAID_SRC, MERMAID_SRI } from "../src/mermaid";
 import { CODE_COLOR_JS } from "../src/codecolor";
@@ -31,6 +31,7 @@ describe("HTML page CSP", () => {
       () => appPage("For you", { viewer, boards: [], active: "for-you", crumbs: "", body: "" }),
       () => mePage(viewer, [], []),
       () => boardPage(viewer, [], board, [], [], []),
+      () => adminPage({ ...viewer, admin: true }, [], { boards: [], users: [], invites: [], recent: [], totalEntries: 0, access: [] }),
     ];
     const seen = new Set<string>();
     for (const render of pages) {
