@@ -40,6 +40,9 @@ struct BoardView: View {
     @State private var scrollRequest: ScrollRequest?
     @State private var thread: ThreadTarget? // the thread open, over the chat (iMessage-style), with its own box
     @State private var newAt: Int? // your first unread message when the chat opened: a thin "New" line above it
+    /// One line (jxn #2690): the folded messages you opened (they stay open as you scroll), and Open all.
+    @State private var opened: Set<Int> = []
+    @State private var openAll = false
     @State private var quiet = QuietBox() // where the list is while it's being put at the first unread (not drawn)
     @State private var unreadResolved = false // where to open (first unread or the latest) is settled, once per visit
     @State private var userScrolled = false // you've scrolled yourself since it opened (nothing moves you after)
@@ -169,6 +172,14 @@ struct BoardView: View {
                             Label(Vocab.pick(String(localized: "Hide agents", bundle: .l10n), String(localized: "Hide assistants", bundle: .l10n)), systemImage: "person")
                         }
                         .accessibilityIdentifier("people-filter")
+                    }
+                    // One line (jxn #2690): open or fold every message that isn't for you.
+                    if state.display.foldOthers, !board.isAgentChat, board.kind != "direct" {
+                        Divider()
+                        Button("Open all", systemImage: "chevron.down.2") { setAllOpen(true) }
+                            .accessibilityIdentifier("open-all")
+                        Button("Fold all", systemImage: "chevron.up.2") { setAllOpen(false) }
+                            .accessibilityIdentifier("fold-all")
                     }
                     Divider()
                     NotifyLevelMenu(boardId: board.id) // how much this chat may interrupt you (vedu #2490)
@@ -440,8 +451,43 @@ struct BoardView: View {
             if e.seq == newAt { NewDivider() }
             // A hairline between separate messages from others (bubbles are separate already).
             else if !newDay, !(mine && e.type != "task") && !prevMine { Rectangle().fill(Theme.line.opacity(grouped ? 0.45 : 0.8)).frame(height: 0.5).padding(.leading, 38).padding(.top, grouped ? (density == .compact ? Space.xxs : Space.xs) : Space.gap(density)) }
-            entryRow(e, grouped: grouped, mine: mine, r)
+            // One line (jxn #2690): not for you, so one line until you open it; opened, a Fold under it folds it again.
+            if oneLineFoldable(e, r) {
+                if oneLineOpen(e) {
+                    entryRow(e, grouped: grouped, mine: mine, r)
+                    Button { withAnimation(.snappy) { opened.remove(e.seq); openAll = false } } label: {
+                        Label("Fold", systemImage: "chevron.up").font(Typo.micro.weight(.medium)).foregroundStyle(Theme.faint)
+                    }
+                    .buttonStyle(.plain)
+                    .frame(maxWidth: .infinity, alignment: .trailing)
+                    .accessibilityIdentifier("fold-\(e.seq)")
+                } else {
+                    FoldedRow(e: e, who: oneLineWho(e)) { withAnimation(.snappy) { _ = opened.insert(e.seq) } }
+                        .padding(.top, grouped ? 0 : Space.xxs)
+                }
+            } else {
+                entryRow(e, grouped: grouped, mine: mine, r)
+            }
         }
+    }
+
+    /// One line: may this message fold (the setting is on and it isn't for you)? Whether it's folded now is `oneLineOpen`.
+    private func oneLineFoldable(_ e: Entry, _ r: Rows) -> Bool {
+        guard state.display.foldOthers, e.retracts == nil, e.seq > 0 else { return false }
+        let c = MessageFold.Context(me: me, direct: board.isAgentChat || board.kind == "direct", parent: e.replyTo.flatMap { r.bySeq[$0] },
+                                    jumpedTo: flash, firstUnread: newAt)
+        return MessageFold.folds(e, on: true, c)
+    }
+    private func oneLineOpen(_ e: Entry) -> Bool { openAll || opened.contains(e.seq) }
+    /// Open all / Fold all: every row above changes height at once, so if you were at the latest you stay there.
+    private func setAllOpen(_ on: Bool) {
+        let atLatest = stick
+        withAnimation(.snappy) { openAll = on; if !on { opened.removeAll() } }
+        guard atLatest else { return }
+        Task { try? await Task.sleep(nanoseconds: 350_000_000); toLatest() }
+    }
+    private func oneLineWho(_ e: Entry) -> String {
+        e.byAgent ? agentLabel(e.author, state.agentNames[board.id]?[e.author]?.name ?? e.agentName) : e.author
     }
 
     private func entryRow(_ e: Entry, grouped: Bool, mine: Bool, _ r: Rows) -> EntryRow {
@@ -546,6 +592,8 @@ struct BoardView: View {
                 focused = false
                 try? await Task.sleep(nanoseconds: 350_000_000)
             }
+            // One line: what you jumped to opens, and stays open once its light fades (jxn #2690).
+            if state.display.foldOthers { opened.insert(seq) }
             scrollRequest = ScrollRequest(id: seq, anchor: .center, animated: true)
             try? await Task.sleep(nanoseconds: 300_000_000)
             withAnimation(.smooth(duration: 0.25)) { flash = seq }
