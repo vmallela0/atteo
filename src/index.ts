@@ -1564,6 +1564,8 @@ const handler = {
           if (path === "/api/contacts" && method === "GET") return json(await dm.pending(env, me));
           const cm = path.match(/^\/api\/contacts\/([a-z0-9][a-z0-9_.-]{0,31})\/(accept|decline)$/);
           if (cm && method === "POST") {
+            const denied = social.contactDecisionError(viewer.via);
+            if (denied) return json({ error: denied }, 403);
             const res = await dm.decide(env, me, cm[1], cm[2] === "accept");
             if (res?.text) await deliver(res.requester, me, res.text, "agent");
             return json({ ok: true, accepted: cm[2] === "accept" });
@@ -1651,6 +1653,8 @@ const handler = {
           }
           pm = path.match(/^\/api\/friends\/([a-z0-9][a-z0-9_.-]{0,31})\/(accept|decline|remove|block|unblock)$/);
           if (pm && method === "POST") {
+            const denied = social.contactDecisionError(viewer.via);
+            if (denied) return json({ error: denied }, 403);
             if (pm[2] === "accept") return json({ ok: true, relation: await social.acceptFriend(env, me, pm[1], ctx) });
             if (pm[2] === "block") await social.blockPerson(env, me, pm[1]);
             else await social.removeFriend(env, me, pm[1]);
