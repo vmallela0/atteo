@@ -31,6 +31,7 @@ import { backupConfig, blobPartKey, objectKey, uploadPart, type PartResult } fro
 import { decodeValue, encodeValue, type DumpTables } from "./backupcore";
 import { parseAgentCharter, type AgentCharter } from "./charter";
 import { mutersOf } from "./moderation";
+import { memberRole } from "./registry";
 
 export const MAX_TEXT = 32_000;
 export const MAX_ARTIFACT = 256_000;
@@ -1191,9 +1192,10 @@ export class Board extends DurableObject<Env> {
     }
     if (input.via === "agent") this.decisions.guardResolves(input.resolves ?? []); // people decide human decisions
     if (input.supersedes != null) {
-      // Replacing an entry drops it from the summary: only its author (their agents included) or a board owner may (#3809).
+      // Replacing an entry drops it from the summary: only its author (their agents included) or a board owner may, over
+      // any transport (#3809). The role is looked up only for someone else's entry.
       const target = this.sql.exec("SELECT author FROM entries WHERE seq = ?", input.supersedes).one();
-      if (target.author !== user && info.created_by !== user && !input.by_owner) {
+      if (target.author !== user && info.created_by !== user && (await memberRole(this.env, info.id, user).catch(() => null)) !== "owner") {
         throw new BoardError(`Only ${target.author} (who posted #${input.supersedes}) or an owner of the board can supersede it; reply to it instead.`);
       }
     }

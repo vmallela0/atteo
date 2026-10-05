@@ -872,8 +872,6 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
       const agentClient = (await agentOpts(c)).client;
       const text = typeof args.text === "string" ? args.text : "";
       const { mentions, unknown, ambiguous } = mayMention(text) ? parseMentions(text, await registry.boardMembers(env, id), user, "agent") : { mentions: [], unknown: [], ambiguous: [] as string[] };
-      // An owner may supersede anyone's entry; anyone else only their own (#3809).
-      const byOwner = !!int(args.supersedes) && (await registry.memberRole(env, id, user)) === "owner";
       // One message id for this call: if a deploy restarts the board mid-post, the retry can't post it twice.
       const idem = messageId(typeof args.idempotency_key === "string" ? args.idempotency_key : null);
       const res = await withRetry(async () => await stub.postFresh(user, {
@@ -889,7 +887,6 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
         reply_to: int(args.reply_to) ?? null, // 0: top level on purpose
         resolves: intList(args.resolves),
         supersedes: int(args.supersedes) ?? null,
-        ...(byOwner ? { by_owner: true } : {}),
         depends_on: intList(args.depends_on),
         artifact_name: str(args.artifact_name) ?? null,
         artifact_content: typeof args.artifact_content === "string" ? args.artifact_content : null,

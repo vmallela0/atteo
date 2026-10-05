@@ -106,7 +106,6 @@ export interface NewEntry {
   reply_to?: number | null; // 0: top level on purpose (an agent's answer is otherwise threaded, see Board.autoThread)
   resolves?: number[];
   supersedes?: number | null;
-  by_owner?: boolean; // set by the Worker from the poster's role, never from the request: an owner may supersede anyone's entry
   retracts?: number | null;
   via?: "agent" | "person" | null;
   client?: string | null;
