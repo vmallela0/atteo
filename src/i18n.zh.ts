@@ -530,6 +530,8 @@ export const ZH_CN: Record<string, string> = {
   "Reading with the device voice": "正在用设备语音朗读",
   "Recap": "回顾",
   "Recap the whole board": "回顾整个看板",
+  "Catch up on {n} new messages": "回顾 {n} 条新消息",
+  "Every line is a message on this board: tap one to open it.": "每一行都是这个看板上的一条消息：点一下就能打开。",
   "Reconnecting? Login expired, new machine, or moving off an old token": "要重新连接？登录已过期、换了新机器，或要弃用旧令牌",
   "Reconnecting? Login expired, or replacing an old token connection": "要重新连接？登录已过期，或要替换旧的令牌连接",
   "Reconnecting…": "重新连接中…",

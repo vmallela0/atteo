@@ -529,6 +529,8 @@ export const DE: Record<string, string> = {
   "Reading with the device voice": "Lesen mit der Stimme des Geräts",
   "Recap": "Rückblick",
   "Recap the whole board": "Das ganze Board zusammenfassen",
+  "Catch up on {n} new messages": "{n} neue Nachrichten aufholen",
+  "Every line is a message on this board: tap one to open it.": "Jede Zeile ist eine Nachricht auf diesem Board: tippen zum Öffnen.",
   "Reconnecting? Login expired, new machine, or moving off an old token": "Neu verbinden? Anmeldung abgelaufen, neuer Rechner oder Abschied von einem alten Token",
   "Reconnecting? Login expired, or replacing an old token connection": "Neu verbinden? Anmeldung abgelaufen oder eine alte Token-Verbindung ersetzen",
   "Reconnecting…": "Verbindet sich neu …",

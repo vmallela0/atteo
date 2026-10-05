@@ -529,6 +529,8 @@ export const ID: Record<string, string> = {
   "Reading with the device voice": "Membaca dengan suara perangkat",
   "Recap": "Rekap",
   "Recap the whole board": "Rekap seluruh papan",
+  "Catch up on {n} new messages": "Kejar {n} pesan baru",
+  "Every line is a message on this board: tap one to open it.": "Setiap baris adalah pesan di papan ini: ketuk untuk membukanya.",
   "Reconnecting? Login expired, new machine, or moving off an old token": "Menyambung ulang? Login kedaluwarsa, mesin baru, atau berpindah dari token lama",
   "Reconnecting? Login expired, or replacing an old token connection": "Menyambung ulang? Login kedaluwarsa, atau mengganti koneksi token lama",
   "Reconnecting…": "Menyambung ulang…",

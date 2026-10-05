@@ -529,6 +529,8 @@ export const JA: Record<string, string> = {
   "Reading with the device voice": "端末の音声で読み上げ中",
   "Recap": "振り返り",
   "Recap the whole board": "ボード全体を振り返る",
+  "Catch up on {n} new messages": "{n} 件の新着をまとめて見る",
+  "Every line is a message on this board: tap one to open it.": "各行はこのボードのメッセージです。タップすると開きます。",
   "Reconnecting? Login expired, new machine, or moving off an old token": "再接続しますか？ ログイン期限切れ、新しいマシン、または古いトークンからの移行",
   "Reconnecting? Login expired, or replacing an old token connection": "再接続しますか？ ログイン期限切れ、または古いトークン接続の置き換え",
   "Reconnecting…": "再接続中…",

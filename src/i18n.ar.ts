@@ -529,6 +529,8 @@ export const AR: Record<string, string> = {
   "Reading with the device voice": "القراءة بصوت الجهاز",
   "Recap": "ملخص",
   "Recap the whole board": "تلخيص اللوحة كاملة",
+  "Catch up on {n} new messages": "اطّلع على {n} رسالة جديدة",
+  "Every line is a message on this board: tap one to open it.": "كل سطر رسالة على هذه اللوحة: اضغط عليه لفتحها.",
   "Reconnecting? Login expired, new machine, or moving off an old token": "تعيد الاتصال؟ انتهت صلاحية تسجيل الدخول، أو جهاز جديد، أو الانتقال من رمز قديم",
   "Reconnecting? Login expired, or replacing an old token connection": "تعيد الاتصال؟ انتهت صلاحية تسجيل الدخول، أو استبدال اتصال برمز قديم",
   "Reconnecting…": "جارٍ إعادة الاتصال…",
