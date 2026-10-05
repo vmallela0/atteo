@@ -310,10 +310,10 @@ dialog[open]{animation:pop .16s ease-out}dialog:focus{outline:none}@media (prefe
 :root[data-text="l"] .composer textarea{font-size:15.5px}
 :root[data-density="compact"] .entry{padding:7px 0;gap:10px}:root[data-density="compact"] .thread>.entry:first-child{padding-top:4px}:root[data-density="compact"] .replies .entry{padding:4px 0 0}
 :root[data-density="compact"] .entry .body{margin-top:0}:root[data-density="compact"] .entry .body p+p{margin-top:4px}
-.dp-lang{max-width:300px}.dp-voice-row{display:flex;gap:8px;align-items:center}.dp-voice{max-width:180px}.dp-grid{display:grid;grid-template-columns:110px 1fr;gap:12px 14px;align-items:center}.dp-grid .lbl{margin:0}
+.dp-lang{max-width:300px}.dp-voice-row{display:flex;gap:8px;align-items:center}.dp-voice{width:180px;max-width:100%}.dp-grid{display:grid;grid-template-columns:fit-content(240px) minmax(0,1fr);gap:12px 20px;align-items:center;justify-items:start}.dp-grid .lbl{margin:0;font-size:13px;font-weight:500;color:var(--ink)}
 .dp-grid .seg{flex-wrap:wrap}.dp-grid .seg input{display:inline;position:absolute;opacity:0;width:1px;height:1px;pointer-events:none}
 .dp-grid .seg input:focus-visible+label{outline:2px solid var(--accent);outline-offset:1px}
-@media (max-width:640px){.dp-grid{grid-template-columns:1fr;gap:6px}}
+@media (max-width:640px){.dp-grid{grid-template-columns:minmax(0,1fr);gap:6px}.dp-grid .lbl:not(:first-child){margin-top:8px}.dp-grid .seg{display:flex;justify-self:stretch;flex-wrap:nowrap}.dp-grid .seg label{flex:1 1 0;text-align:center}}
 .entry .acts{margin-left:auto;display:inline-flex;gap:2px;opacity:0;transition:opacity .12s}
 .entry:hover>.grow>.meta>.acts,.entry .acts:focus-within,.entry .acts:has(.danger){opacity:1} /* only the message under the pointer, not its whole thread */
 /* Retract takes no room in the header line, so narrow screens don't get a blank line under every entry. Touch
