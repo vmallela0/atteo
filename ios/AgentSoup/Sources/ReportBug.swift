@@ -153,7 +153,7 @@ struct ReportBugView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) { Button(sent ? "Done" : "Cancel") { dismiss() }.toolbarText() }
-                ToolbarItem(placement: .topBarTrailing) { sendButton }
+                ToolbarItem(placement: .confirmationAction) { sendButton }
             }
         }
     }
@@ -183,16 +183,12 @@ struct ReportBugView: View {
         }
     }
 
+    /// Send sits in the bar's own glass like every sheet's Done (jxn #4074): a filled capsule inside it read as a pill in a pill.
     private var sendButton: some View {
         Button { Task { await send() } } label: {
-            Group {
-                if sending { ProgressView().tint(Theme.onPrimary) } else { Text("Send").fontWeight(.semibold) }
-            }
-            .padding(.horizontal, Space.m)
-            .padding(.vertical, Space.xs + 2)
-            .foregroundStyle(Theme.onPrimary)
-            .background(Theme.primary.opacity(canSend ? 1 : 0.4), in: Capsule())
+            if sending { ProgressView() } else { Text("Send") }
         }
+        .toolbarText(primary: true)
         .disabled(!canSend)
         .accessibilityIdentifier("bug-send")
     }
