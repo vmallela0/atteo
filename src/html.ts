@@ -7,6 +7,7 @@ import { boardMeta, type BoardRow, type InviteRow, type Invitation, type UserRow
 import type { TokenRow } from "./auth";
 import type { AccountLogRow } from "./accountlog";
 import type { AccessAll } from "./accessAll";
+import type { StandingAction, StandingRule } from "./standingRules";
 import { authorLabel, computeSummary, retractedSet, type Summary } from "./state";
 import { PIN_BAR, PIN_SIDE, RECAP_BTN, RECAP_DLG, pinRecapJs } from "./pinrecap";
 import { SOUL_DLG, SOUL_SIDE, rememberBtn, soulMemoryJs } from "./soulmemory";
@@ -3351,6 +3352,47 @@ const ACCOUNT_EVENTS: Record<AccountLogRow["event"], string> = {
 /** Access across your boards (#3568): your role on each; on the ones you own, everyone's access, open links and
  *  invitations, with Remove / Revoke and a mark on what's worth reviewing (no end date for REVIEW_DAYS+, links that never
  *  expire). Names, titles and addresses are members' data: escaped. */
+// Standing rules (P0 network #5; the Cursor session's draft dd88bd2, its UI here #3775): one automatic yes, for one
+// person or the people on one board, until it ends. Listed with Revoke; added with a small form.
+const SR_ACTION: Record<StandingAction, string> = { accept_invites: "Join boards they invite me to", accept_friends: "Accept their friend requests", allow_agents: "Let their agents message mine" };
+function standingSection(rules: StandingRule[] | null, side: SideBoard[], lang?: Lang): string {
+  if (!rules) return "";
+  const T = (x: string, v?: Record<string, string | number>) => tr(lang, x, v);
+  const day = (ts: number) => new Date(ts).toISOString().slice(0, 10);
+  const boards = side.filter((b) => !b.kind);
+  const title = (id: string) => boards.find((b) => b.id === id)?.title ?? id;
+  const rows = rules
+    .map(
+      (r) => `<li class="sr-row" data-rule="${esc(r.id)}"><span class="grow small">${esc(T(SR_ACTION[r.action]))} · ${
+        r.scope === "person" ? `<b>@${esc(r.scope_id)}</b>` : esc(T("people on {board}", { board: title(r.scope_id) }))
+      } <span class="xs muted">· ${esc(T("until {date}", { date: day(r.expires_at) }))}</span></span><button class="btn sm ghost" type="button" data-sr-revoke="${esc(r.id)}">${esc(T("Revoke"))}</button></li>`,
+    )
+    .join("");
+  const opt = (v: string, label: string, sel = false) => `<option value="${esc(v)}"${sel ? " selected" : ""}>${esc(label)}</option>`;
+  return `<div class="section-title" style="margin-top:32px"><div><h2>${esc(T("Standing rules"))}</h2><p class="small muted" style="margin-top:4px">${esc(T("One automatic yes, for one person or the people on one board, until it ends. A block still wins."))}</p></div></div>
+<div class="card pad"><ul class="sr-list" id="sr-list">${rows || `<li class="xs muted">${esc(T("No standing rules."))}</li>`}</ul>
+<form class="sr-form" id="sr-form">
+<select class="input" name="action" aria-label="${esc(T("What to allow"))}">${(Object.keys(SR_ACTION) as StandingAction[]).map((a) => opt(a, T(SR_ACTION[a]))).join("")}</select>
+<select class="input" name="scope" aria-label="${esc(T("For whom"))}">${opt("person", T("this person"))}${boards.length ? opt("board", T("people on a board")) : ""}</select>
+<input class="input" name="person" maxlength="33" placeholder="${esc(T("their @name"))}" aria-label="${esc(T("their @name"))}" autocomplete="off">
+<select class="input" name="board" hidden aria-label="${esc(T("Board"))}">${boards.map((b) => opt(b.id, b.title)).join("")}</select>
+<select class="input" name="days" aria-label="${esc(T("Until"))}">${opt("1", T("for 1 day"))}${opt("7", T("for 7 days"), true)}${opt("30", T("for 30 days"))}${opt("90", T("for 90 days"))}</select>
+<button class="btn sm primary">${esc(T("Add rule"))}</button>
+<p class="xs sr-err" id="sr-err" role="alert" hidden></p></form></div>`;
+}
+
+const SR_JS = `
+(()=>{const f=document.getElementById('sr-form');if(!f)return;const err=document.getElementById('sr-err');
+  const pick=()=>{const b=f.scope.value==='board';f.person.hidden=b;f.board.hidden=!b};f.scope.addEventListener('change',pick);pick();
+  f.addEventListener('submit',async e=>{e.preventDefault();const btn=f.querySelector('button');btn.disabled=true;err.hidden=true;
+    const board=f.scope.value==='board';
+    const r=await fetch('/api/rules',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({action:f.action.value,scope:f.scope.value,scope_id:board?f.board.value:f.person.value,expires_in:Number(f.days.value)*86400})}).catch(()=>null);
+    const j=r?await r.json().catch(()=>({})):{};btn.disabled=false;
+    if(!r||!r.ok){err.textContent=j.error||tr('Could not save');err.hidden=false;return}location.reload()});
+  document.addEventListener('click',async e=>{const b=e.target.closest('[data-sr-revoke]');if(!b)return;b.disabled=true;
+    const r=await fetch('/api/rules/'+encodeURIComponent(b.dataset.srRevoke)+'/revoke',{method:'POST'}).catch(()=>null);
+    if(r&&r.ok){b.closest('.sr-row')?.remove();toast(tr('Rule revoked'))}else{b.disabled=false;toast(tr('Could not update'))}})})();`;
+
 function accessSection(acc: AccessAll | null, lang?: Lang): string {
   if (!acc) return "";
   const T = (x: string, v?: Record<string, string | number>) => tr(lang, x, v);
@@ -3419,7 +3461,7 @@ document.getElementById('kill-all')?.addEventListener('click',async e=>{const b=
   const r=await fetch('/api/tokens/revoke-all',{method:'POST'});const j=await r.json().catch(()=>({}));toast(r.ok?j.message:(j.error||tr('Could not disconnect')));
   if(r.ok)setTimeout(()=>location.reload(),900);else b.disabled=false});`;
 
-export function mePage(viewer: Viewer, side: SideBoard[], tokens: TokenRow[], plan: PlanState = { plan: "free", status: null, renews_at: null, cancel_at_end: false, customer: null }, billingEnabled = false, hooks: WebhookRow[] = [], prof: ProfileView | null = null, assistants: string[] = [], log: AccountLogRow[] = [], access: AccessAll | null = null): Response {
+export function mePage(viewer: Viewer, side: SideBoard[], tokens: TokenRow[], plan: PlanState = { plan: "free", status: null, renews_at: null, cancel_at_end: false, customer: null }, billingEnabled = false, hooks: WebhookRow[] = [], prof: ProfileView | null = null, assistants: string[] = [], log: AccountLogRow[] = [], access: AccessAll | null = null, rules: StandingRule[] | null = null): Response {
   const T = (x: string, v?: Record<string, string | number>) => tr(viewer.lang, x, v);
   const rows = tokens.length
     ? tokens
@@ -3467,11 +3509,12 @@ ${
     : ""
 }
 ${accessSection(access, viewer.lang)}
+${standingSection(rules, side, viewer.lang)}
 ${accountLogSection(log, viewer.lang)}
 ${webhooksSection(hooks, viewer.lang)}
 ${billingSection(plan, billingEnabled, viewer.lang)}
 ${connectDialog(viewer)}`,
-    script: CONNECT_JS + `window.revoked=()=>location.reload();` + BILLING_JS + PFP_JS + HOOKS_JS + PROFILE_JS + DISPLAY_JS + NOTIFY_JS + HEADLESS_JS + KILL_JS + ACCESS_JS,
+    script: CONNECT_JS + `window.revoked=()=>location.reload();` + BILLING_JS + PFP_JS + HOOKS_JS + PROFILE_JS + DISPLAY_JS + NOTIFY_JS + HEADLESS_JS + KILL_JS + ACCESS_JS + SR_JS,
   });
 }
 

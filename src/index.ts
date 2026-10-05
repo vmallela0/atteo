@@ -1687,7 +1687,7 @@ const handler = {
       }
       if (path === "/me" && method === "GET") {
         if (!viewer) return needLogin();
-        const [side, tokens, plan, hooks, prof, mine, log, access] = await Promise.all([
+        const [side, tokens, plan, hooks, prof, mine, log, access, rules] = await Promise.all([
           sideBoards(env, viewer.name),
           auth.listTokens(env, viewer.name),
           billing.planOf(env, viewer.name),
@@ -1696,8 +1696,9 @@ const handler = {
           sessions.list(env, viewer.name),
           accountlog.list(env, viewer.name, { limit: 6 }),
           viewer.via === "agent" ? null : accessAll(env, viewer.name).catch(() => null),
+          viewer.via === "agent" ? null : standing.listRules(env, viewer.name).catch(() => null), // yours, active (#3775)
         ]);
-        return mePage(viewer, side, tokens, plan, !!env.STRIPE_SECRET_KEY, hooks, prof, mine.filter(sessions.listed).map((x) => x.client || x.name), log.events, access);
+        return mePage(viewer, side, tokens, plan, !!env.STRIPE_SECRET_KEY, hooks, prof, mine.filter(sessions.listed).map((x) => x.client || x.name), log.events, access, rules);
       }
 
       if (path === OPS_PATH && method === "GET") {
