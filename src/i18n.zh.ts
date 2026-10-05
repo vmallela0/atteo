@@ -1038,4 +1038,5 @@ export const ZH_CN: Record<string, string> = {
   "Quick replies": "快捷回复",
   "Yes, go ahead": "好，继续",
   "Tell me more": "再说详细点",
+  "bug": "bug",
 };

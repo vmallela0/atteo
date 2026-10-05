@@ -1037,4 +1037,5 @@ export const KO: Record<string, string> = {
   "Quick replies": "빠른 답장",
   "Yes, go ahead": "네, 진행해 주세요",
   "Tell me more": "더 알려 주세요",
+  "bug": "bug",
 };
