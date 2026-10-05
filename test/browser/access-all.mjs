@@ -6,6 +6,9 @@
 import { chromium } from "playwright-core";
 import { d1Execute } from "./lib/d1.mjs";
 const BASE = process.env.BASE || "http://localhost:8787";
+// The d1 writes below block for seconds (execSync); the server may close the idle keep-alive socket meanwhile, and the next
+// fetch on it fails with "other side closed". Retry that one error once; anything else fails as before.
+const fetch = async (...a) => { try { return await globalThis.fetch(...a); } catch (e) { if (!/other side closed/i.test(String(e?.cause?.message ?? ""))) throw e; return globalThis.fetch(...a); } };
 const ops = async (p, b) => (await fetch(`${BASE}/api/ops/${p}`, { method: "POST", headers: { "x-admin-key": process.env.ADMIN_KEY || "ci-admin-key", "content-type": "application/json" }, body: JSON.stringify(b) })).json();
 const sql = (q) => d1Execute(`--command ${JSON.stringify(q)}`, { cwd: new URL("../../", import.meta.url).pathname });
 const run = Date.now().toString(36).slice(-4), O = `ao${run}`, M = `am${run}`, V = `av${run}`, R = `ar${run}`;
