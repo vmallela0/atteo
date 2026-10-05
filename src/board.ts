@@ -164,6 +164,8 @@ export interface Doc {
   updated_at: number;
   via: string | null;
   client: string | null;
+  /** The message that posted this version (Show in chat, jxn #4359); null if none everyone can see (an edit, private, unsent). */
+  seq?: number | null;
 }
 export interface DocVersion {
   version: number;
@@ -4307,9 +4309,19 @@ export class Board extends DurableObject<Env> {
     if (version != null && version !== cur.version) {
       const v = this.sql.exec("SELECT name, version, content, author AS updated_by, ts AS updated_at, via, client FROM doc_versions WHERE name = ? AND version = ?", name, version).toArray()[0];
       if (!v) throw new BoardError(`"${name}" has no version ${version} (current is v${cur.version}; older versions may have been pruned).`);
-      return { ...(v as unknown as Doc), latest: cur.version as number, media: this.mediaOf(name, version) };
+      return { ...(v as unknown as Doc), latest: cur.version as number, media: this.mediaOf(name, version), seq: this.postedIn(name, version) };
     }
-    return { ...(cur as unknown as Doc), latest: cur.version as number, media: this.mediaOf(name, cur.version as number) };
+    return { ...(cur as unknown as Doc), latest: cur.version as number, media: this.mediaOf(name, cur.version as number), seq: this.postedIn(name, cur.version as number) };
+  }
+
+  /** The message everyone can see that posted version `v` of file `name`, as its first file or one of several. */
+  private postedIn(name: string, v: number): number | null {
+    const r = this.sql.exec(
+      `SELECT seq FROM entries e WHERE retracts IS NULL AND audience IS NULL AND artifact_name IS NOT NULL
+         AND ((artifact_name = ?1 AND artifact_version = ?2) OR (attachments IS NOT NULL AND EXISTS (SELECT 1 FROM json_each(e.attachments) j WHERE json_extract(j.value, '$.name') = ?1 AND json_extract(j.value, '$.version') = ?2)))
+         AND NOT EXISTS (SELECT 1 FROM entries x WHERE x.retracts = e.seq) ORDER BY seq LIMIT 1`,
+      name, v).toArray()[0];
+    return r ? (r.seq as number) : null;
   }
 
   async docHistory(name: string): Promise<DocVersion[]> {

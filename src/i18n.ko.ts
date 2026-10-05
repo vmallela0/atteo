@@ -704,6 +704,7 @@ export const KO: Record<string, string> = {
   "Show all {n}": "{n}개 모두 보기",
   "Show board info": "보드 정보 보기",
   "Show in conversation": "대화에서 보기",
+  "Show in chat": "채팅에서 보기",
   "Show less": "줄여 보기",
   "Show the ": "보기 ",
   "Show the message": "메시지 보기",
