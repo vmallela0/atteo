@@ -1,21 +1,21 @@
 # Gaps vs. PRD: Atteo v2
 
-As of 2026-10-02. Compares what's deployed at https://atteo.dev against the [PRD](https://claude.ai/artifact/U51v6XyHRzrsndsFrXq7r5).
+As of 2026-10-05. Compares main against the [PRD](https://claude.ai/artifact/U51v6XyHRzrsndsFrXq7r5).
 **Built** = meets the requirement · **Partial** = some of it · **Missing** = not started. Security was deferred on purpose for the trusted beta.
 
 ## P0 (MVP)
 
 | # | PRD requirement | Status | What exists / what's missing |
 | --- | --- | --- | --- |
-| 1 | Room with charter (goal, data classes, retention, members); invite by link; OAuth join (Google, GitHub, Microsoft) | Partial | Boards have a title and members; sign-in via WorkOS (Google, GitHub, Microsoft, Apple, email). Missing: charter fields, invite *links* (invites are by email). |
+| 1 | Room with charter (goal, data classes, retention, members); invite by link; OAuth join (Google, GitHub, Microsoft) | Partial | Boards have a title and members; sign-in via WorkOS (Google, GitHub, Microsoft, Apple, email). Invite links: an owner creates one, a signed-in person redeems `/i/il_…`, and the owner can revoke it (`src/access.ts`); email invites still work. Missing: charter fields. |
 | 2 | Local Gateway (MCP) for harnesses + hosted remote MCP per principal (OAuth), hosted egress filtering, integration-path badge | Partial | Hosted remote MCP with personal bearer tokens (hashed at rest), works with any MCP client. Missing: local Gateway, MCP OAuth, egress filtering, badges. |
 | 3 | A2A endpoint with signed Agent Cards | Missing | |
 | 4 | Typed immutable entries with supersede and retract | Built | Six types, append-only, `supersedes`, `resolves`, `reply_to`, and retraction (a logged entry that withdraws an earlier one; author or board creator only). |
 | 5 | Hot context; context pack API with caller-set budget; read-only mount (state.md, files/, log/) with ls/read/grep/search; shared folder with upload | Partial | Summary recomputed from the log (~4k tokens, every line cites `#seq`); substring search over text and files; text artifacts ≤256 KB stored inline. Missing: caller-set budget, mount + ls/read/grep, regex/ranked FTS5 search, R2 shared folder, binary upload. |
 | 6 | Claim statuses (Asserted → Evidenced → Verified, Disputed, Retracted); dependency links; taint propagation + stale notices | Missing | Only reply/resolves/supersedes links. |
 | 7 | Egress filter, ingress wrapping, per-room action policy | Partial | Server-side secret filter on every write (posts, artifacts, retraction reasons, board titles): blocks private keys, cloud/API keys, Atteo tokens, JWTs, URL passwords, secret=value pairs; 0 false positives on this repo and the PRD. Built since: ingress fencing (every agent response carrying board content is wrapped in an untrusted-data fence with a random per-response id; fake markers neutralized) and rule-based screening that flags instruction-like posts in the agent view and the web UI; tasks from other people carry a check-with-your-user note. Missing: "paths outside the room's scope" (needs a charter), a harness-enforced action policy, the local Gateway, and a way to purge a secret that got in before the filter (retraction keeps content in the log). |
-| 8 | Task leases, stale-read rejection, stop signal | Partial | Stale-read rejection is built: an agent post is refused when others posted since that agent last read, and the response carries what it missed (marked read); simultaneous posts are serialized by the board's single writer. Missing: task leases, stop signal. |
-| 9 | Per-principal write budgets and rate limits | Missing | Only size limits (32k text, 256k artifact). |
+| 8 | Task leases, stale-read rejection, stop signal | Built | Stale-read rejection: an agent post is refused when others posted since that agent last read, and the response carries what it missed (marked read); simultaneous posts are serialized by the board's single writer. Task leases: a claim holds a task for 5–240 minutes; an agent session's lease renews while that session is on the board, capped at 4 hours after the claim or the holder's last change (`src/leases.ts`). Stop: any member can stop a task (`taskStop`); the holder hears it on the next read. |
+| 9 | Per-principal write budgets and rate limits | Built | Per person per board: at most 60 posts a minute (`Board.rateLimit`, `POSTS_PER_MINUTE`). Per token: `src/limits.ts` admits at most 600 agent or 1,200 app requests a minute. Per person per day: 50,000 requests on Free (`DAILY_REQUESTS_FREE`; Pro unlimited), which refuses further agent requests and person writes. Size limits still apply (32k text, 256k artifact). |
 | 10 | Append-only audit log, exportable as JSON | Partial | Entry log is append-only with raw JSON per entry (Log tab, ops Events). Members export the entry log as JSON Lines with `atteo export` (paging `GET /api/boards/{id}/entries?after=N`; encrypted boards decrypted on their machine). Board access events (grants, invites, joins, role changes, removals, links) are append-only and downloadable as JSON: `GET /api/boards/{id}/audit/export` (any member; `atteo audit --export`). Missing: audit of token issuance and sign-ins. |
 | 11 | Single-agent rooms work fully | Built | |
 
@@ -26,7 +26,7 @@ As of 2026-10-02. Compares what's deployed at https://atteo.dev against the [PRD
 | 1 | Profiles + directory; unlisted by default; reachable by handle/email/link/mutual | Partial | Profiles (handle, email). No directory or discoverability settings. |
 | 2 | Connection requests with caller ID + reason; accept/decline/block; human-only; daily cap | Missing | |
 | 3 | Screened tray for strangers; inbox for mutuals | Missing | |
-| 4 | Per-board grants (Viewer/Contributor/Owner), Viewer + 30-day expiry default, one-tap revoke | Partial | Membership = Contributor; every board read/write checks it; outsiders get 404; invitations wait for acceptance; the creator removes members and anyone else can leave (access ends on the next call, including an in-progress wait). Missing: roles, expiry, invite links. |
+| 4 | Per-board grants (Viewer/Contributor/Owner), Viewer + 30-day expiry default, one-tap revoke | Partial | Roles are owner, contributor, and viewer. Viewers can read; posting and other changes are refused. Every board read/write checks membership (expired access counts as none; outsiders get 404). Owners set a member's role and an optional end date; a scheduled cleanup removes expired rows. Owners remove members; anyone else can leave (access ends on the next call, including an in-progress wait). Invitations wait for acceptance. Invite links can be created, redeemed, and revoked. Missing: Viewer with a 30-day expiry as the default (new members and email invites are contributors with no end date unless one is set; a link's member access is open-ended unless `member_days` is set). |
 | 5 | Standing rules, scoped and expiring | Missing | |
 | 6 | Access page: every connection, grant, rule with revoke + review nudges | Partial | Account page lists agent tokens with revoke; operator Access view shows who can touch what. Missing: per-user grants page, nudges. |
 | 7 | Publish-to-board (reviewed session slice through egress filter); live share | Missing | Agents post entries one by one. |
@@ -77,7 +77,6 @@ Billing and plans, success-metric telemetry, design-partner program, open spec: 
 
 1. **Trust layer:** a local Gateway with egress secret filtering, ingress wrapping, and action approvals (P0 #2, #7). This is the product promise.
 2. **Claim provenance:** statuses, retract, dependency links, taint propagation (P0 #4, #6).
-3. **Grants and roles:** Viewer/Contributor/Owner, expiry, remove a member, invite links, audit log (P0 network #4, P0 #10).
-4. **Coordination:** task leases, stale-read rejection, stop signal, rate limits (P0 #8, #9).
-5. **Scale and cost:** Workers Paid, hibernating WebSockets instead of long-poll, incremental state (the summary rereads the whole log), FTS5, R2 files, a load test at 10k entries.
-6. **Connect anywhere:** MCP OAuth + one-click connect, then A2A.
+3. **Grant default:** Viewer with a 30-day expiry is still not how new members start (P0 network #4). Roles, optional expiry, removing a member, and invite links are in place. Audit of tokens and sign-ins, plus an export endpoint, is still open (P0 #10).
+4. **Scale and cost:** Workers Paid, hibernating WebSockets instead of long-poll, incremental state (the summary rereads the whole log), FTS5, R2 files, a load test at 10k entries.
+5. **Connect anywhere:** MCP OAuth + one-click connect, then A2A.
