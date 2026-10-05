@@ -1,4 +1,6 @@
 // Browser check: agents' 👀/✅ on a person's message read as one quiet receipt line; everything else stays chips.
+// It waits for each state instead of sleeping (opus-a #2824): reads are instant (no locator waits, which used to sit out
+// 30s each on an expected-empty receipt) and `until` polls for what the step should produce.
 import { SHOTS_DIR } from "./lib/shots.mjs";
 import { chromium } from "playwright-core";
 const BASE=process.env.BASE||"http://localhost:8787";
@@ -18,39 +20,42 @@ await mcp("read",{}); // V's agent picks it up: 👀 automatically
 const agentSeq=Number((await mcp("post",{type:"note",title:"Deploy done",text:"Deployed 1e60fbf",reply_to:0})).match(/#(\d+)/)[1]);
 await mcp("react",{seq:agentSeq,emoji:"✅"});
 let fails=0;const check=(ok,m)=>{console.log(`${ok?"✓":"✗"} ${m}`);if(!ok)fails++};
+/** Polls get() until ok(value) (or ms pass) and returns the last value: a step waits for its result, not a fixed time. */
+const until=async(get,ok,ms=8000)=>{const t=Date.now();let v;for(;;){v=await get();if(ok(v)||Date.now()-t>ms)return v;await new Promise(r=>setTimeout(r,40))}};
+const J=(x)=>JSON.stringify(x);
 const b=await chromium.launch({executablePath: process.env.PW_CHROME || undefined});
 const errors=[];
 async function open(scheme,ck=cookieQ){const ctx=await b.newContext({viewport:{width:1280,height:800},colorScheme:scheme});const [k,...v]=ck.split(";")[0].split("=");await ctx.addCookies([{name:k,value:v.join("="),url:BASE}]);
-  const p=await ctx.newPage();p.on("pageerror",e=>errors.push(e.message));await p.goto(`${BASE}/b/${board}`);await p.waitForTimeout(800);return p}
+  const p=await ctx.newPage();p.on("pageerror",e=>errors.push(e.message));await p.goto(`${BASE}/b/${board}`);await p.waitForFunction(()=>!!window.BOARD_CTX&&document.querySelector('#thread .entry'));return p}
 const p=await open("light");
-const rcpt=()=>p.locator(`[data-rx="${ask}"] .rx-rcpt`).innerText().catch(()=>"");
+const text=(pg,sel)=>pg.evaluate(s=>document.querySelector(s)?.innerText??"",sel); // instant: "" when it isn't there
+const parts=(pg,s)=>pg.evaluate(s=>[...document.querySelectorAll(`[data-rx="${s}"] .rx-rcpt > span[title]`)].map(x=>x.innerText),s);
+const rcpt=()=>text(p,`[data-rx="${ask}"] .rx-rcpt`);
 const chips=(s)=>p.evaluate(s=>[...document.querySelectorAll('[data-rx="'+s+'"] .rx-chip')].map(c=>c.textContent+'|'+c.title),s);
-check((await rcpt())===`🤔 ${V}'s agent is on it`,`the agent's 🤔 is a receipt: "${await rcpt()}"`);
+{const v=await until(rcpt,v=>v===`🤔 ${V}'s agent is on it`);check(v===`🤔 ${V}'s agent is on it`,`the agent's 🤔 is a receipt: "${v}"`);}
 check((await chips(ask)).length===0,`…and not a chip: ${await chips(ask)}`);
 check(JSON.stringify(await chips(agentSeq))===JSON.stringify([`✅1|${V}'s agent`]),`an agent's ✅ on an agent's post stays a chip: ${await chips(agentSeq)}`);
 // A named session reacts 👀 itself; then the agent answers: ✅ arrives live and replaces its 👀.
-await mcp("react",{seq:ask,emoji:"👀"},{"x-agent-soup-session":sess.id});await p.waitForTimeout(700);
-check((await rcpt())==="",`a session toggling 👀 takes its agent's automatic receipt back (a8de249): "${await rcpt()}"`);
-await mcp("react",{seq:ask,emoji:"👀"},{"x-agent-soup-session":sess.id});await p.waitForTimeout(700);
-check((await rcpt())===`👀 read by ${V}/builder`,`…and again adds the session's own, live: "${await rcpt()}"`);
-await mcp("post",{type:"note",text:"Checked: it's healthy.",reply_to:ask});await p.waitForTimeout(900);
-const parts=await p.locator(`[data-rx="${ask}"] .rx-rcpt > span[title]`).allInnerTexts();
-check(JSON.stringify(parts)===JSON.stringify([`✅ done by ${V}'s agent`]),`answering turns the session's own 👀 into ✅ too (0473773): ${JSON.stringify(parts)}`);
+await mcp("react",{seq:ask,emoji:"👀"},{"x-agent-soup-session":sess.id});
+{const v=await until(rcpt,v=>v==="");check(v==="",`a session toggling 👀 takes its agent's automatic receipt back (a8de249): "${v}"`);}
+await mcp("react",{seq:ask,emoji:"👀"},{"x-agent-soup-session":sess.id});
+{const v=await until(rcpt,v=>v===`👀 read by ${V}/builder`);check(v===`👀 read by ${V}/builder`,`…and again adds the session's own, live: "${v}"`);}
+await mcp("post",{type:"note",text:"Checked: it's healthy.",reply_to:ask});
+{const want=J([`✅ done by ${V}'s agent`]),v=J(await until(()=>parts(p,ask),v=>J(v)===want));check(v===want,`answering turns the session's own 👀 into ✅ too (0473773): ${v}`);}
 // A fresh question: the automatic 👀 turns into ✅ when the agent answers, live
 const rq=await fetch(`${BASE}/api/boards/${board}/entries`,{method:"POST",headers:{"content-type":"application/json",cookie},body:JSON.stringify({text:`@${V}'s agent and the logs?`})}).then(r=>r.json());
-const askF=rq.entry?.seq??rq.seq;await mcp("read",{});await p.waitForTimeout(800);
-await mcp("post",{type:"note",text:"Logs are clean.",reply_to:askF});await p.waitForTimeout(900);
-const parts3=await p.locator(`[data-rx="${askF}"] .rx-rcpt > span[title]`).allInnerTexts();
-check(JSON.stringify(parts3)===JSON.stringify([`✅ done by ${V}'s agent`]),`answering turns its 👀 into ✅ done, live: ${JSON.stringify(parts3)}`);
+const askF=rq.entry?.seq??rq.seq;await mcp("read",{});await until(()=>text(p,`[data-rx="${askF}"] .rx-rcpt`),v=>v!=="");
+await mcp("post",{type:"note",text:"Logs are clean.",reply_to:askF});
+{const want=J([`✅ done by ${V}'s agent`]),v=J(await until(()=>parts(p,askF),v=>J(v)===want));check(v===want,`answering turns its 👀 into ✅ done, live: ${v}`);}
 // People's 👀 and other emoji stay chips, next to the receipt line.
-const entry=p.locator(`#e${ask}`);await entry.hover();await entry.locator(`.acts [data-qr="${ask}"][data-emo="👍"]`).click();await p.waitForTimeout(500);
-await mcp("react",{seq:ask,emoji:":tada:"});await p.waitForTimeout(700);
-check(JSON.stringify(await chips(ask))===JSON.stringify([`👍1|you`,`🎉1|${V}'s agent`]),`your own 👍 and an agent's 🎉 are chips: ${await chips(ask)}`);
-const parts2=await p.locator(`[data-rx="${ask}"] .rx-rcpt > span[title]`).allInnerTexts();
+const entry=p.locator(`#e${ask}`);await entry.hover();await entry.locator(`.acts [data-qr="${ask}"][data-emo="👍"]`).click();await until(()=>chips(ask),v=>v.some(c=>c.startsWith("👍")));
+await mcp("react",{seq:ask,emoji:":tada:"});
+{const want=J([`👍1|you`,`🎉1|${V}'s agent`]),v=await until(()=>chips(ask),v=>J(v)===want);check(J(v)===want,`your own 👍 and an agent's 🎉 are chips: ${v}`);}
+const parts2=await parts(p,ask);
 check(parts2.length===1,`the receipt line stays: ${JSON.stringify(parts2)}`);
 const g=await p.evaluate(s=>{const row=document.querySelector('[data-rx="'+s+'"]'),r=row.querySelector('.rx-rcpt').getBoundingClientRect(),c=row.querySelector('.rx-chip').getBoundingClientRect();return {below:r.top>=c.bottom-1,h:r.height,color:getComputedStyle(row.querySelector('.rx-rcpt')).color}},ask);
 check(g.below&&g.h<=20,`the receipt sits on its own short line under the chips (${JSON.stringify(g)})`);
-let box=await entry.boundingBox();await p.mouse.move(0,0);await p.waitForTimeout(150);
+let box=await entry.boundingBox();await p.mouse.move(0,0);await p.waitForTimeout(150); // the hover actions fade out before the picture
 await p.screenshot({path:`${SHOTS_DIR}/receipts-light.png`,clip:{x:box.x,y:box.y-10,width:box.width,height:box.height+20}});
 const d=await open("dark");const de=d.locator(`#e${ask}`);box=await de.boundingBox();
 await d.screenshot({path:`${SHOTS_DIR}/receipts-dark.png`,clip:{x:box.x,y:box.y-10,width:box.width,height:box.height+20}});
@@ -58,28 +63,28 @@ const dc=await d.evaluate(s=>getComputedStyle(document.querySelector('[data-rx="
 check(dc!==g.color,`dark mode uses the dark muted token (${g.color} → ${dc})`);
 // Only receipts: a fresh person message with just the agent's 👀 shows the line and no ☺+ in the row.
 const r2=await fetch(`${BASE}/api/boards/${board}/entries`,{method:"POST",headers:{"content-type":"application/json",cookie},body:JSON.stringify({text:`@${V}'s agent and the logs?`})}).then(r=>r.json());const ask2=r2.entry?.seq ?? r2.seq;
-await mcp("read",{});await p.waitForTimeout(900);
-const t2=await p.locator(`[data-rx="${ask2}"] .rx-rcpt`).innerText().catch(()=>"(none)"),add2=await p.locator(`[data-rx="${ask2}"] .rx-add`).isVisible();
+await mcp("read",{});
+const t2=(await until(()=>text(p,`[data-rx="${ask2}"] .rx-rcpt`),v=>v===`🤔 ${V}'s agent is on it`))||"(none)",add2=await p.locator(`[data-rx="${ask2}"] .rx-add`).isVisible();
 check(t2===`🤔 ${V}'s agent is on it`&&!add2,`a new message's receipt arrives live, with no ☺+ shown in the row ("${t2}", ☺+ ${add2?"shown":"hidden"}, #${ask2})`);
 {await p.mouse.move(0,0);const bx=await p.locator(`#e${ask2}`).boundingBox();await p.screenshot({path:`${SHOTS_DIR}/receipts-only.png`,clip:{x:bx.x,y:bx.y-6,width:bx.width,height:bx.height+12}})}
 // The author's own view: no 👀 "read by" and no second line; the ring is the one read status. ✅ "done by" stays.
 const pa=await open("light",cookie);
-const t3=await pa.locator(`[data-rx="${ask2}"] .rx-rcpt`).innerText().catch(()=>""),lines3=await pa.locator(`#e${ask2} .rcpt-line`).count(),ring3=await pa.locator(`#e${ask2}>.rd`).getAttribute("aria-label").catch(()=>null);
+const t3=await until(()=>text(pa,`[data-rx="${ask2}"] .rx-rcpt`),v=>v!==""),lines3=await pa.locator(`#e${ask2} .rcpt-line`).count(),ring3=await until(()=>pa.evaluate(s=>document.querySelector(`#e${s}>.rd`)?.getAttribute("aria-label")??null,ask2),v=>/^Seen by/.test(v||""));
 check(t3===`🤔 ${V}'s agent is on it`&&lines3===0&&/^Seen by/.test(ring3||""),`on your own message: the ring for reads, 🤔 for "on it", no 👀 ("${t3}", ${lines3} lines, ring "${ring3}")`);
-const parts4=await pa.locator(`[data-rx="${askF}"] .rx-rcpt > span[title]`).allInnerTexts();
+const parts4=await parts(pa,askF);
 check(JSON.stringify(parts4)===JSON.stringify([`✅ done by ${V}'s agent`]),`…and ✅ done still shows there: ${JSON.stringify(parts4)}`);
 // 🤔: an agent working on your message says so once; its "on it" pill, when it takes the message, replaces the 🤔 line.
 const r5=await fetch(`${BASE}/api/boards/${board}/entries`,{method:"POST",headers:{"content-type":"application/json",cookie},body:JSON.stringify({text:`@${V}'s agent one more thing?`})}).then(r=>r.json());const ask5=r5.entry?.seq??r5.seq;
-await mcp("read",{});await pa.waitForTimeout(900); // the server adds its 🤔 when the agent picks it up
-const t5=await pa.locator(`[data-rx="${ask5}"] .rx-rcpt .think`).innerText().catch(()=>"");
+await mcp("read",{}); // the server adds its 🤔 when the agent picks it up
+const t5=await until(()=>text(pa,`[data-rx="${ask5}"] .rx-rcpt .think`),v=>v===`🤔 ${V}'s agent is on it`);
 check(t5===`🤔 ${V}'s agent is on it`,`🤔 reads as "on it" under your message: "${t5}"`);
 const t5r=await pa.locator(`[data-rx="${ask5}"] .rx-rcpt .read`).count();
 check(t5r===0,"…without a 👀 \"read by\" next to it");
-await mcp("handle",{seq:ask5,action:"take"});await pa.waitForTimeout(1200);
-const pill=await pa.locator(`#e${ask5}>.grow>.meta>.hdl`).innerText().catch(()=>""),thinkVis=await pa.locator(`[data-rx="${ask5}"] .rx-rcpt .think`).isVisible().catch(()=>false);
+await mcp("handle",{seq:ask5,action:"take"});
+const pill=await until(()=>text(pa,`#e${ask5}>.grow>.meta>.hdl`),v=>/on it/.test(v)),thinkVis=await pa.locator(`[data-rx="${ask5}"] .rx-rcpt .think`).isVisible().catch(()=>false);
 check(/on it/.test(pill)&&!thinkVis,`with the "on it" pill ("${pill.trim()}"), the 🤔 line hides: one marker`);
-await mcp("post",{type:"note",text:"Done.",reply_to:ask5});await mcp("handle",{seq:ask5,action:"done"}).catch(()=>{});await pa.waitForTimeout(1200);
-const pill2=await pa.locator(`#e${ask5}>.grow>.meta>.hdl`).innerText().catch(()=>""),doneVis=await pa.locator(`[data-rx="${ask5}"] .rx-rcpt .done`).isVisible().catch(()=>false);
+await mcp("post",{type:"note",text:"Done.",reply_to:ask5});await mcp("handle",{seq:ask5,action:"done"}).catch(()=>{});
+const pill2=await until(()=>text(pa,`#e${ask5}>.grow>.meta>.hdl`),v=>/done/.test(v)),doneVis=await pa.locator(`[data-rx="${ask5}"] .rx-rcpt .done`).isVisible().catch(()=>false);
 check(!/done/.test(pill2)||!doneVis,`a "done" pill and a ✅ line never both show ("${pill2.trim()}", ✅ line ${doneVis?"shown":"hidden"})`);
 check(errors.length===0,`no page errors ${errors.join(" | ")}`);
 await b.close();console.log(fails?`${fails} FAILED`:"all receipt checks passed");
