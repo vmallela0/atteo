@@ -146,6 +146,8 @@ const iso = (ts: number) => new Date(ts).toISOString().slice(0, 16).replace("T",
 
 export interface DocMeta {
   mime?: string | null; // set for images
+  /** Public, still-sent message that posted this version, if any. */
+  seq?: number | null;
   name: string;
   version: number;
   updated_by: string;
@@ -4299,7 +4301,7 @@ export class Board extends DurableObject<Env> {
 
   async docs(): Promise<DocMeta[]> {
     this.info();
-    return this.docList();
+    return this.docList().map(d => ({ ...d, seq: this.postedIn(d.name, d.version) }));
   }
 
   async docRead(name: string, version?: number): Promise<Doc> {
