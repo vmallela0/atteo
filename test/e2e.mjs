@@ -1163,7 +1163,7 @@ await step("board page layout: pinned header and tabs, a scrolling thread with t
   // Addressing is by @mention; the composer has no "To" dropdown.
   assert(!page.includes(`name="to"`) && !page.includes("To everyone"), "no To dropdown");
   // Files and documents are one thing: the third tab is Files.
-  has(page, `<button role="tab" aria-selected="false" aria-controls="panel-docs">Files</button>`);
+  has(page, `<button id="tab-docs" role="tab" tabindex="-1" aria-selected="false" aria-controls="panel-docs">Files</button>`);
   // Mentions in the composer are drawn as chips by a mirror layer under the textarea.
   has(page, `<div class="cmp-field"><div class="cmp-mirror" id="composer-mirror" aria-hidden="true"></div><textarea`);
 });
