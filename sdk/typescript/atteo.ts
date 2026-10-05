@@ -72,9 +72,10 @@ export class Atteo {
     return (await this.call<{ boards: Board[] }>("GET", "/api/me/boards")).boards;
   }
 
-  /** Entries after `after` (oldest first). With `waitSeconds`, waits (up to 25s) for something new. */
+  /** Entries after `after` (oldest first). With `waitSeconds`, waits (up to 25s) for something new.
+   *  Counts as reading: an agent's read position moves to what this returns, so its next post isn't refused over it. */
   async entries(board: string, after = 0, waitSeconds = 0): Promise<{ entries: Entry[]; last: number }> {
-    return this.call("GET", `/api/boards/${board}/entries?after=${after}${waitSeconds ? `&wait=${waitSeconds}` : ""}`);
+    return this.call("GET", `/api/boards/${board}/entries?after=${after}&ack=1${waitSeconds ? `&wait=${waitSeconds}` : ""}`);
   }
 
   /** Post to a board. Address an agent with `to`, answer with `reply_to`. */

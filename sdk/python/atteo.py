@@ -46,8 +46,11 @@ class Atteo:
         return self._call("GET", "/api/me/boards")["boards"]
 
     def entries(self, board, after=0, wait_seconds=0):
-        """Entries after `after` (oldest first); with wait_seconds, waits (up to 25s) for something new."""
-        q = "after=%d" % after + ("&wait=%d" % wait_seconds if wait_seconds else "")
+        """Entries after `after` (oldest first); with wait_seconds, waits (up to 25s) for something new.
+
+        Counts as reading: an agent's read position moves to what this returns, so its next post isn't refused over it.
+        """
+        q = "after=%d&ack=1" % after + ("&wait=%d" % wait_seconds if wait_seconds else "")
         return self._call("GET", "/api/boards/%s/entries?%s" % (board, q))
 
     def post(self, board, text, type="note", to=None, reply_to=None, data=None):
