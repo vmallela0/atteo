@@ -316,10 +316,11 @@ export interface Display {
   lang: "auto" | "en" | "zh-Hans" | "zh-Hant" | "es" | "ja" | "ko" | "hi" | "fr" | "pt" | "de" | "ru" | "id" | "tr" | "bn" | "ar"; // interface language (vedu #1645, #1650); auto = the device's
   voice: "eve" | "ara" | "leo" | "rex" | "sal"; // read-aloud and voice chat (vedu #1717); xAI's voices
   replies: "chat" | "thread"; // replies in the chat (each with a quote bar), or only in their threads (vedu #2360)
+  compact: "off" | "others"; // whole messages, or one line each for messages that aren't for you (jxn #2690, agreed with the app #2694)
   voice_turns: "quick" | "pause" | "tap"; // voice chat: when Atteo answers (vedu #2460): at once, after a long pause, or when you tap Done
   voice_autosend: boolean; // voice chat: what you dictate to your agent goes out without a yes, after a 5s Undo (vedu #2638); off by default
 }
-export const DISPLAY_DEFAULTS: Display = { text: "m", density: "comfortable", theme: "system", mode: "auto", lang: "auto", voice: "eve", replies: "chat", voice_turns: "pause", voice_autosend: false };
+export const DISPLAY_DEFAULTS: Display = { text: "m", density: "comfortable", theme: "system", mode: "auto", lang: "auto", voice: "eve", replies: "chat", voice_turns: "pause", compact: "off", voice_autosend: false };
 /** The on/off settings; every other one is one of DISPLAY_VALUES' words. */
 const DISPLAY_BOOLS = ["voice_autosend"] as const;
 type DisplayBool = (typeof DISPLAY_BOOLS)[number];
@@ -332,6 +333,7 @@ const DISPLAY_VALUES: Record<Exclude<keyof Display, DisplayBool>, readonly strin
   lang: ["auto", "en", "zh-Hans", "zh-Hant", "es", "ja", "ko", "hi", "fr", "pt", "de", "ru", "id", "tr", "bn", "ar"],
   voice: ["eve", "ara", "leo", "rex", "sal"],
   replies: ["chat", "thread"],
+  compact: ["off", "others"],
   voice_turns: ["quick", "pause", "tap"],
 };
 const isDisplayKey = (k: string): k is Exclude<keyof Display, DisplayBool> => Object.prototype.hasOwnProperty.call(DISPLAY_VALUES, k);
@@ -359,7 +361,7 @@ export function mergeDisplay(cur: Display, patch: unknown): Display {
       out[k] = v;
       continue;
     }
-    if (!isDisplayKey(k)) throw new SocialError(`Unknown display setting "${k}": use text, density, theme, mode, lang, voice, replies, voice_turns or voice_autosend.`);
+    if (!isDisplayKey(k)) throw new SocialError(`Unknown display setting "${k}": use text, density, theme, mode, lang, voice, replies, voice_turns, compact or voice_autosend.`);
     if (typeof v !== "string" || !DISPLAY_VALUES[k].includes(v)) throw new SocialError(`display.${k} must be one of: ${DISPLAY_VALUES[k].join(", ")}.`);
     out[k] = v;
   }

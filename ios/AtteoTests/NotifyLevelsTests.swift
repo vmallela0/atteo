@@ -56,4 +56,19 @@ final class NotifyLevelsTests: XCTestCase {
         XCTAssertEqual(QuietHoursRows.hhmm(QuietHoursRows.date("22:00")), "22:00")
         XCTAssertEqual(QuietHoursRows.hhmm(QuietHoursRows.date("07:05")), "07:05")
     }
+
+    /// The same start and end isn't a window (#2668): the row says so and doesn't save; any real window is fine.
+    func testSameStartAndEndIsNotAWindow() {
+        XCTAssertFalse(QuietHoursRows.isWindow(start: "22:00", end: "22:00"))
+        XCTAssertFalse(QuietHoursRows.isWindow(start: QuietHoursRows.hhmm(QuietHoursRows.date("07:00")), end: "07:00"))
+        XCTAssertTrue(QuietHoursRows.isWindow(start: "22:00", end: "07:00"))
+        XCTAssertTrue(QuietHoursRows.isWindow(start: "07:00", end: "07:01"))
+    }
+
+    /// "1 update", "2 updates" (#2668): the title is a real plural, not "1 updates".
+    func testDigestTitleIsPlural() {
+        let one = [DigestEntry(board: "A", kind: "agent")]
+        XCTAssertEqual(DigestSummary.title(one), "1 update since the last digest")
+        XCTAssertEqual(DigestSummary.title(one + one), "2 updates since the last digest")
+    }
 }

@@ -17,15 +17,41 @@ import { clientTable, dirOf, tr, type Lang } from "./i18n";
 export const CSP_ENFORCE = false;
 export const CSP_REPORT_PATH = "/api/csp-report";
 
-// Each HTML response owns its nonce. Inline CSS and style attributes are used throughout the UI.
-export function pageSecurity() {
+/** The one outside host the web may open a socket to: the voice provider (voice.ts REALTIME_URL; a test keeps them in
+ *  step). 'self' covers the board's own live socket (ws/wss on this host), so an injected script can't open one out. */
+export const VOICE_SOCKET_ORIGIN = "wss://api.x.ai";
+
+/**
+ * The form-action source for one place a form's POST may redirect to: an http(s) URL's origin, or another scheme on its
+ * own ("cursor:", an app's "atteo:"). Browsers apply form-action to the redirect after a POST too, so the OAuth consent
+ * page must allow its client's redirect_uri or connecting Claude.ai or Cursor fails once the CSP is enforced. null when
+ * the URL can't be a source (a source list is space-separated, so nothing odd goes in).
+ */
+export function formActionSource(raw: string): string | null {
+  let u: URL;
+  try {
+    u = new URL(raw);
+  } catch {
+    return null;
+  }
+  if (u.protocol === "http:" || u.protocol === "https:") return /^https?:\/\/[a-z0-9.:\[\]-]+$/i.test(u.origin) ? u.origin : null;
+  return /^[a-z][a-z0-9+.-]*:$/i.test(u.protocol) && !/^(javascript|data|blob|file|filesystem|about):$/i.test(u.protocol) ? u.protocol : null;
+}
+
+// Each HTML response owns its nonce. Inline CSS and style attributes are used throughout the UI. Mermaid is allowed as
+// its one pinned file (not the host) and loads with an SRI hash (mermaid.ts), so jsDelivr can't serve anything else.
+// The pages are private, revalidated each time (no shared cache may keep one person's page, or pin one nonce for many
+// responses); no-store would also keep them out of the back/forward cache.
+export function pageSecurity(opts: { formAction?: string[] } = {}) {
   const nonce = Array.from(crypto.getRandomValues(new Uint8Array(16)), (b) => b.toString(16).padStart(2, "0")).join("");
-  const policy = `default-src 'self'; script-src 'self' 'nonce-${nonce}' ${MERMAID_SRC}; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' ws: wss:; frame-src 'self' about:; frame-ancestors 'none'; base-uri 'none'; form-action 'self'; object-src 'none'; report-uri ${CSP_REPORT_PATH}; report-to csp`;
+  const formAction = ["'self'", ...(opts.formAction ?? []).map(formActionSource).filter((x): x is string => !!x)].join(" ");
+  const policy = `default-src 'self'; script-src 'self' 'nonce-${nonce}' ${MERMAID_SRC}; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; media-src 'self' blob: data:; connect-src 'self' ${VOICE_SOCKET_ORIGIN}; frame-src 'self' about:; frame-ancestors 'none'; base-uri 'none'; form-action ${formAction}; object-src 'none'; report-uri ${CSP_REPORT_PATH}; report-to csp`;
   const headers: Record<string, string> = {
     [CSP_ENFORCE ? "content-security-policy" : "content-security-policy-report-only"]: policy,
     "reporting-endpoints": `csp="${CSP_REPORT_PATH}"`,
     "x-content-type-options": "nosniff",
     "referrer-policy": "strict-origin-when-cross-origin",
+    "cache-control": "private, no-cache",
   };
   return { nonce, headers };
 }
@@ -463,7 +489,7 @@ a.ev-acct:hover{background:var(--bg-subtle)}
 .cl-f{display:flex;gap:6px;flex-basis:100%}.cl-f[hidden]{display:none}.cl-f .input{flex:1;height:28px;font-size:12.5px}
 /* Human decisions: a person's decision, decided by the people (pill · who's agreed · Agree / Object · Close for its author) */
 .hd-open .tk-st .dot{background:var(--decision)}.hd-decided .tk-st{color:var(--ok)}.hd-decided .tk-st .dot{background:var(--ok)}.hd-dropped .tk-st{color:var(--muted)}.hd-dropped .tk-st .dot{background:var(--muted)}
-.hd-ms{display:inline-flex;align-items:center;gap:5px}.hd-m{position:relative;display:inline-flex}.hd-m .av{width:20px;height:20px;font-size:8.5px}.hd-m.w .av{opacity:.45}
+.hd-ms{display:inline-flex;align-items:center;gap:5px}.hd-m{position:relative;display:inline-flex}.hd-m .av{width:20px;height:20px;font-size:8.5px}.hd-m.w .av{background:transparent;color:var(--muted);border:1px dashed var(--muted)}.hd-m.w .av-img{opacity:.5} /* hasn't voted: an empty dashed ring with readable initials (faded initials fell to 2:1) */
 .hd-m i{position:absolute;right:-4px;bottom:-3px;width:12px;height:12px;border-radius:50%;display:grid;place-items:center;font-size:8px;font-style:normal;font-weight:700;line-height:1;color:#fff;box-shadow:0 0 0 1.5px var(--bg-subtle)}
 .hd-m.y i{background:var(--ok)}.hd-m.n i{background:var(--danger)}
 .hd-b.on-y{color:var(--ok);border-color:color-mix(in srgb,var(--ok) 40%,var(--line))}.hd-b.on-n{color:var(--danger);border-color:color-mix(in srgb,var(--danger) 40%,var(--line))}
@@ -563,6 +589,7 @@ dialog.lightbox img{display:block;max-width:min(96vw,1600px);max-height:92vh;wid
 .lb-nav{position:fixed;top:50%;transform:translateY(-50%);width:44px;height:44px;border-radius:50%;border:0;background:rgba(0,0,0,.55);color:#fff;font-size:28px;line-height:1;cursor:pointer;display:grid;place-items:center;padding:0 0 3px}
 .lb-nav:hover{background:rgba(0,0,0,.75)}.lb-nav[hidden],.lb-count[hidden]{display:none}
 .lb-prev{left:max(8px,env(safe-area-inset-left))}.lb-next{right:max(8px,env(safe-area-inset-right))}
+.lb-save{position:fixed;top:14px;right:14px;z-index:2;background:rgba(0,0,0,.6);border-color:transparent;color:#fff}.lb-save:hover{background:rgba(0,0,0,.8)}[dir=rtl] .lb-save{right:auto;left:14px}
 .lb-count{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);color:#fff;background:rgba(0,0,0,.55);padding:3px 10px;border-radius:12px;font-variant-numeric:tabular-nums}
 .entry.pending .ph-att{padding:8px 0 0}
 .attachments{display:flex;gap:8px;flex-wrap:wrap;padding:10px 12px 0}
@@ -1132,6 +1159,17 @@ a.ref:hover{color:var(--ink);background:color-mix(in srgb,var(--accent) 12%,var(
 /* Recap: a header button and a sheet (bottom sheet on phones) */
 .recap-btn{position:relative;gap:5px;align-self:center;color:var(--muted)}.recap-btn:hover{color:var(--ink)}
 /* People (jxn #1731): only what people wrote. Agents' posts are hidden for this viewer alone (a root attribute from this browser) */
+/* One-line messages (jxn #2690): a message that doesn't mention you is its sender and first line on one row; a tap
+   opens it (.ol-open), the page's ⋯ opens them all (data-ol-all). Which ones fold is the page script's call (.ol). */
+:root[data-compact="others"]:not([data-ol-all]) #thread>.entry.ol:not(.ol-open){padding-top:5px;padding-bottom:5px;cursor:pointer;align-items:center}
+:root[data-compact="others"]:not([data-ol-all]) #thread>.entry.ol:not(.ol-open)>.av{width:20px;height:20px;font-size:9px;margin-top:0}
+:root[data-compact="others"]:not([data-ol-all]) #thread>.entry.ol:not(.ol-open)>.grow{display:flex;align-items:baseline;gap:8px;min-width:0}
+:root[data-compact="others"]:not([data-ol-all]) #thread>.entry.ol:not(.ol-open)>.grow>.meta{flex:0 1 auto;max-width:46%;flex-wrap:nowrap;overflow:hidden;white-space:nowrap}
+:root[data-compact="others"]:not([data-ol-all]) #thread>.entry.ol:not(.ol-open)>.grow>.body{flex:1;min-width:0;margin:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--muted)}
+:root[data-compact="others"]:not([data-ol-all]) #thread>.entry.ol:not(.ol-open)>.grow>.body *{display:inline;margin:0;padding:0;border:0;background:none;font-size:inherit;font-weight:inherit;white-space:nowrap}
+:root[data-compact="others"]:not([data-ol-all]) #thread>.entry.ol:not(.ol-open)>.grow>.body br,:root[data-compact="others"]:not([data-ol-all]) #thread>.entry.ol:not(.ol-open)>.grow>.body img,:root[data-compact="others"]:not([data-ol-all]) #thread>.entry.ol:not(.ol-open)>.grow>:not(.meta):not(.body),:root[data-compact="others"]:not([data-ol-all]) #thread>.entry.ol:not(.ol-open) .acts,:root[data-compact="others"]:not([data-ol-all]) #thread>.entry.ol:not(.ol-open) .more-acts,:root[data-compact="others"]:not([data-ol-all]) #thread>.entry.ol:not(.ol-open)>.rd{display:none}
+:root:not([data-compact="others"]) .ol-all{display:none}
+:root[data-compact="others"] #thread>.entry.ol:focus-visible{outline:2px solid var(--accent);outline-offset:-2px;border-radius:6px}
 :root[data-replies="thread"] #thread>.entry[data-root],:root[data-replies="thread"] #thread>.ghost[data-root]{display:none} /* replies only in their threads (vedu #2360) */
 :root[data-pf] #thread>.entry.by-agent,:root[data-pf] #thread>.ghost.by-agent,:root[data-pf] .thr-dlg:not(.thr-all) .thr-list>.entry.by-agent:not(:first-child){display:none}
 /* A thread's own Show agents (jxn #2191): only under Hide agents, only when the thread has agents' replies. */
@@ -1188,10 +1226,10 @@ export interface Viewer {
 export function page(
   title: string,
   body: string,
-  opts: { viewer?: Viewer | null; nav?: "boards" | "admin" | "me" | null; narrow?: boolean; script?: string; status?: number; headers?: HeadersInit; lang?: Lang } = {},
+  opts: { viewer?: Viewer | null; nav?: "boards" | "admin" | "me" | null; narrow?: boolean; script?: string; status?: number; headers?: HeadersInit; lang?: Lang; formAction?: string[] } = {},
 ): Response {
   const v = opts.viewer;
-  const security = pageSecurity();
+  const security = pageSecurity({ formAction: opts.formAction });
   const link = (href: string, label: string, key: string) => `<a href="${href}"${opts.nav === key ? ' aria-current="page"' : ""}>${label}</a>`;
   const nav = `<header class="nav"><div class="in">
 <a class="brand" href="/">${LOGO}<span class="wm">atteo</span></a>
@@ -1420,9 +1458,16 @@ function inline(s: string, mentions?: Mention[] | null): string {
 
 // Applies the saved Display settings before first paint, so the page never flashes the wrong size or theme.
 const DISPLAY_HEAD = `<script>try{const d=JSON.parse(localStorage.getItem('atteo-display')||'{}'),r=document.documentElement;
-if(d.text==='s'||d.text==='l')r.dataset.text=d.text;if(d.density==='compact')r.dataset.density='compact';if(d.theme==='light'||d.theme==='dark')r.dataset.theme=d.theme;if(d.ev===true)r.dataset.mode='everyday';if(d.replies==='thread')r.dataset.replies='thread'}catch{}</script>`; // mode: what the account said last time (set on the first sync)
+if(d.text==='s'||d.text==='l')r.dataset.text=d.text;if(d.density==='compact')r.dataset.density='compact';if(d.theme==='light'||d.theme==='dark')r.dataset.theme=d.theme;if(d.ev===true)r.dataset.mode='everyday';if(d.replies==='thread')r.dataset.replies='thread';if(d.compact==='others')r.dataset.compact='others'}catch{}</script>`; // mode: what the account said last time (set on the first sync)
 
 const CLIENT_JS = `
+// Saving a picture or a file (jxn #2684) is an <a download data-save>. On a phone that can share files (iOS Safari,
+// Android Chrome) it opens the share sheet instead (Save Image, Save to Files, AirDrop…); anywhere else, or if sharing
+// isn't allowed after the fetch, the browser downloads it.
+document.addEventListener('click',async e=>{const a=e.target.closest&&e.target.closest('a[data-save]');if(!a||!navigator.canShare||!matchMedia('(pointer:coarse)').matches)return;e.preventDefault();
+  const name=a.getAttribute('download')||'file',dl=()=>{const x=document.createElement('a');x.href=a.href;x.download=name;document.body.append(x);x.click();x.remove()};
+  try{const b=await (await fetch(a.href)).blob(),f=new File([b],name,{type:b.type||'application/octet-stream'});if(navigator.canShare({files:[f]}))return await navigator.share({files:[f]})}
+  catch(err){if(err&&err.name==='AbortError')return}dl()});
 document.addEventListener('load',e=>{if(e.target instanceof HTMLImageElement&&e.target.matches('.av-img,.bpic img'))e.target.classList.add('ok')},true);
 document.addEventListener('error',e=>{if(e.target instanceof HTMLImageElement&&e.target.matches('.av-img,.bpic img'))e.target.remove()},true);
 document.querySelectorAll('.av-img,.bpic img').forEach(img=>{if(img.complete){if(img.naturalWidth)img.classList.add('ok');else img.remove()}});
@@ -1443,9 +1488,11 @@ window.applyDisplay=d=>{const r=document.documentElement;d=d||{};
   if(d.theme==='light'||d.theme==='dark')r.dataset.theme=d.theme;else delete r.dataset.theme;
   // Replies only in their threads (vedu #2360): the chat shows top-level messages, each with its "N replies".
   if(d.replies==='thread')r.dataset.replies='thread';else delete r.dataset.replies;
+  // One line per message unless it mentions you (jxn #2690): the board folds the others; a tap opens one.
+  if(d.compact==='others')r.dataset.compact='others';else delete r.dataset.compact;
   // Everyday (the default) or Developer (#1272): the server says which, from your choice or (auto) whether you've connected a coding agent.
   let ev=r.dataset.mode==='everyday';if(typeof d.developer==='boolean')ev=!d.developer;if(ev)r.dataset.mode='everyday';else delete r.dataset.mode;
-  try{localStorage.setItem('atteo-display',JSON.stringify({text:d.text||'m',density:d.density||'comfortable',theme:d.theme||'system',ev,replies:d.replies==='thread'?'thread':'chat'}))}catch{}
+  try{localStorage.setItem('atteo-display',JSON.stringify({text:d.text||'m',density:d.density||'comfortable',theme:d.theme||'system',ev,replies:d.replies==='thread'?'thread':'chat',compact:d.compact==='others'?'others':'off'}))}catch{}
   document.dispatchEvent(new CustomEvent('atteo-mode',{detail:{everyday:ev}}));document.dispatchEvent(new CustomEvent('atteo-replies'))};
 if($('a[href="/me"]')){let fresh=false;try{fresh=!!sessionStorage.getItem('atteo-display-sync');sessionStorage.setItem('atteo-display-sync','1')}catch{}
   if(!fresh)fetch('/api/me/profile').then(r=>r.ok?r.json():null).then(j=>{const d=j&&j.profile&&j.profile.display;if(d&&typeof d==='object')applyDisplay({...d,developer:j.profile.developer})}).catch(()=>{})}
@@ -1655,15 +1702,14 @@ const PINS_JS = `
 const INBOX_JS = `
 (()=>{const el=document.getElementById('inbox-count');if(!el)return;const base=document.title;
 let seen=0;try{seen=+localStorage.getItem('inbox-seen')||0}catch{}
-const tz=encodeURIComponent(Intl.DateTimeFormat().resolvedOptions().timeZone||'UTC');let dg={};try{dg=JSON.parse(localStorage.getItem('inbox-dg'))||{}}catch{}
+const tz=encodeURIComponent(Intl.DateTimeFormat().resolvedOptions().timeZone||'UTC');let dgAt=0;try{dgAt=+localStorage.getItem('inbox-dg-at')||0}catch{}
 window.inboxRefresh=async()=>{try{const r=await fetch('/api/inbox/count?tz='+tz);if(!r.ok)return;const j=await r.json();
   el.hidden=!j.unread;el.textContent=j.unread>99?'99+':String(j.unread);document.title=(j.unread?'('+j.unread+') ':'')+base;
   const ap=document.getElementById('approvals-count');if(ap){ap.hidden=!j.approvals;ap.textContent=String(j.approvals||'')}
-  const can='Notification' in window&&Notification.permission==='granted',l=j.latest,due=j.notify&&j.notify.digest_at;
-  // The digest: what waited is counted; once the latest slot is newer than the last one shown, one summary.
-  if(l&&seen&&l.created_at>seen&&l.interrupt==='digest'){dg.n=(dg.n||0)+1;dg.b=[...new Set([...(dg.b||[]),l.board_title].filter(Boolean))].slice(0,5)}
-  if(due>(dg.at||0)){if(dg.n&&can)new Notification(tr('{n} updates since the last digest',{n:dg.n}),{body:(dg.b||[]).join(', '),tag:'inbox-digest'}).onclick=()=>{focus();location.href='/inbox'};dg={at:due}}
-  try{localStorage.setItem('inbox-dg',JSON.stringify(dg))}catch{}
+  const can='Notification' in window&&Notification.permission==='granted',l=j.latest,ns=j.notify||{},due=ns.digest_at,dn=ns.digest_count;
+  // The digest: the server counts what waited for the slot at digest_at; it shows once, when that slot is new here.
+  if(due>dgAt){if(dgAt&&dn&&can)new Notification(tr(dn===1?'{n} update since the last digest':'{n} updates since the last digest',{n:dn}),{body:(ns.digest_boards||[]).join(', '),tag:'inbox-digest'}).onclick=()=>{focus();location.href='/inbox'};
+    dgAt=due;try{localStorage.setItem('inbox-dg-at',String(due))}catch{}}
   if(l&&l.created_at>seen){if(l.kind!=='manual_unread'&&seen&&(!l.interrupt||l.interrupt==='now')&&can&&!(document.visibilityState==='visible'&&location.pathname==='/b/'+l.board_id)){
     const ap=l.kind==='approval',who=ap?'Your agent':l.actor_via==='agent'?l.actor+"'s agent":l.actor;
     const n=new Notification(who+(ap?' is asking for your approval':l.kind==='mention'?' mentioned you':l.kind==='decision'?' asks for a decision':l.kind==='reply'?' replied to you':l.kind==='friend_request'?' wants to be friends':l.kind==='friend_accept'?' accepted your request':' wrote to your agent'),{body:l.excerpt,tag:'inbox-'+l.id});

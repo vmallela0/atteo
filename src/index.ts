@@ -67,6 +67,8 @@ import {
   legalPage,
   profilePage,
   peoplePage,
+  PREVIEW_FRAME_CSP,
+  PREVIEW_FRAME_HTML,
 } from "./html";
 import type { Entry, Env, Viewer as Seer } from "./types";
 import { FAVICON_SVG, page, renderText } from "./ui";
@@ -666,6 +668,18 @@ const handler = {
       if (path === "/apple-touch-icon.png" || path === "/apple-touch-icon-precomposed.png") {
         return new Response(Uint8Array.from(atob(APPLE_TOUCH_PNG_B64), (c) => c.charCodeAt(0)), { headers: { "content-type": "image/png", "cache-control": "public, max-age=86400" } });
       }
+      // The HTML preview's shell (opus-b #2678): no data, its own enforced CSP, never the page's nonce. See PREVIEW_JS.
+      if (path === "/preview-frame") {
+        return new Response(PREVIEW_FRAME_HTML, {
+          headers: {
+            "content-type": "text/html; charset=utf-8",
+            "content-security-policy": PREVIEW_FRAME_CSP,
+            "x-content-type-options": "nosniff",
+            "referrer-policy": "no-referrer",
+            "cache-control": "public, max-age=3600",
+          },
+        });
+      }
       if (path === "/favicon.svg" || path === "/favicon.ico") {
         return new Response(FAVICON_SVG, { headers: { "content-type": "image/svg+xml", "cache-control": "public, max-age=86400" } });
       }
@@ -757,7 +771,7 @@ const handler = {
         if (!viewer || viewer.via === "agent") return redirect(`/auth/login?return=${encodeURIComponent(url.pathname + url.search)}`);
         try {
           const r = await oauth.startAuthorize(env, viewer.name, url.searchParams);
-          return consentPage(viewer, r.id, r.client.name, new URL(r.redirect).host, r.person);
+          return consentPage(viewer, r.id, r.client.name, r.redirect, r.person);
         } catch (e) {
           return messagePage("Can't connect", e instanceof Error ? e.message : String(e), { viewer, status: 400, action: { href: "/", label: "Your boards" } });
         }
@@ -1032,13 +1046,15 @@ const handler = {
       if (path === "/api/inbox/count" && method === "GET") {
         if (!viewer) return needLogin();
         const cnt = await inbox.inboxCount(env, viewer.name, viewer.via !== "agent");
-        if (viewer.via === "agent" || !cnt.latest) return json(cnt, 200, { "cache-control": "no-store" });
-        // People: the newest item says whether it interrupts (one level lookup for its board, not all of them).
-        const lb = cnt.latest.board_id || cnt.latest.push?.board || "";
-        const [lvl, prefs] = await Promise.all([lb ? notify.getLevel(env, viewer.name, lb) : notify.DEFAULT_LEVEL, notify.getPrefs(env, viewer.name, notify.fallbackTz(url.searchParams.get("tz")))]);
+        if (viewer.via === "agent") return json(cnt, 200, { "cache-control": "no-store" });
+        // People: the newest item says whether it interrupts, and notify carries the digest that's due (digest_count:
+        // what waited for the slot at digest_at, and on which boards), so a client shows it once without counting.
+        const [levels, prefs] = await Promise.all([notify.getLevels(env, viewer.name), notify.getPrefs(env, viewer.name, notify.fallbackTz(url.searchParams.get("tz")))]);
         const now = requestNow(env, request);
-        const [latest] = inbox.withInterrupts([cnt.latest], lb ? { [lb]: lvl } : {}, prefs, now);
-        return json({ ...cnt, latest, notify: notify.summary(prefs, now) }, 200, { "cache-control": "no-store" });
+        const sum = notify.summary(prefs, now);
+        const due = await inbox.digestDue(env, viewer.name, levels, prefs, sum.digest_at);
+        const latest = cnt.latest ? inbox.withInterrupts([cnt.latest], levels, prefs, now)[0] : null;
+        return json({ ...cnt, latest, notify: { ...sum, digest_count: due?.n ?? 0, digest_boards: due?.boards ?? [] } }, 200, { "cache-control": "no-store" });
       }
       m = path.match(/^\/api\/inbox\/([^/]+)\/remind$/);
       if (m && (method === "POST" || method === "DELETE")) {

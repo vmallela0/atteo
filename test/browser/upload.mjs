@@ -51,7 +51,7 @@ await p.waitForFunction(()=>document.querySelectorAll('#attachments .att').lengt
 const names=await p.locator("#attachments .att-name").allTextContents();
 check(names.includes("blob.bin")&&names.includes("big.log.gz"),`drop: both files queued; the 2 MB log was gzipped (${names})`);
 await p.click("#composer-text");await p.keyboard.press("Enter");
-await p.waitForFunction(()=>document.querySelectorAll('#thread a[download]').length>=2,null,{timeout:15000});
+await p.waitForFunction(()=>document.querySelector('#thread a[download="blob.bin"]'),null,{timeout:15000}); // pictures and text files have download links too (#2685)
 check(await p.locator('#thread a[download="blob.bin"]').count()===1,"binary file offers a Download");
 // served files: inert, downloads for non-images
 const head=async(name)=>{const r=await fetch(`${BASE}/api/boards/${board}/image?name=${name}`,{headers:{cookie}});return [r.status,r.headers.get("content-type"),r.headers.get("content-disposition"),r.headers.get("content-security-policy")]};

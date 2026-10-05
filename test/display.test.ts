@@ -27,6 +27,14 @@ describe("display.voice_turns", () => {
   });
 });
 
+describe("display.compact", () => {
+  it("whole messages by default, or one line unless they mention you (jxn #2690)", () => {
+    expect(DISPLAY_DEFAULTS.compact).toBe("off");
+    expect(mergeDisplay(DISPLAY_DEFAULTS, { compact: "others" }).compact).toBe("others");
+    expect(() => mergeDisplay(DISPLAY_DEFAULTS, { compact: "all" })).toThrow();
+  });
+});
+
 describe("display.voice_autosend", () => {
   it("is off by default, an on/off switch, and nothing else (vedu #2638)", () => {
     expect(DISPLAY_DEFAULTS.voice_autosend).toBe(false);
