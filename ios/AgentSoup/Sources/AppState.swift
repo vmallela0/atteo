@@ -63,7 +63,8 @@ final class AppState: ObservableObject {
         #if DEBUG
         // Simulator runs against a local server: ATTEO_TOKEN skips the browser sign-in.
         if let t = API.environment("TOKEN"), !t.isEmpty { Keychain.token = t; signedIn = true }
-        if API.environment("FRESH") != nil { try? FileManager.default.removeItem(at: Self.cacheURL) }
+        // (and the message drafts, which live in UserDefaults: each test starts with an empty message box)
+        if API.environment("FRESH") != nil { try? FileManager.default.removeItem(at: Self.cacheURL); MessageDrafts.shared.clearAll() }
         // Simulator screenshots of the sign-in screen (the token stays where it is).
         if API.environment("SIGNED_OUT") != nil { signedIn = false }
         #endif
@@ -774,6 +775,7 @@ final class AppState: ObservableObject {
         // Everyday or Developer, and the first run, are the person's too (Everyday.swift).
         AppMode.shared.forget()
         UserDefaults.standard.removeObject(forKey: BringAssistantView.doneKey)
+        MessageDrafts.shared.clearAll() // unsent words are the person's too
         profile = nil
         withAnimation(.smooth) {
             signedIn = false; loaded = false

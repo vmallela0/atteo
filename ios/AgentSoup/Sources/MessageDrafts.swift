@@ -36,4 +36,11 @@ final class MessageDrafts: ObservableObject {
     }
 
     func clear(for board: Board, root: Int? = nil) { save("", for: board, root: root) }
+
+    /// Every draft on this device (a fresh start: signing out, or a UI test's clean launch).
+    func clearAll() {
+        for k in defaults.dictionaryRepresentation().keys where k.hasPrefix("message-draft.") { defaults.removeObject(forKey: k) }
+        encrypted.removeAll()
+        revision &+= 1
+    }
 }
