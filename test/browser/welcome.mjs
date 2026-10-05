@@ -20,7 +20,7 @@ const noLink=(t)=>t.replace(/https?:\/\/\S+/g,"");
 const sideways=(p)=>p.evaluate(()=>document.documentElement.scrollWidth>window.innerWidth+1);
 
 // 1. A new person with no assistant: home shows the banner; it leads to /welcome.
-{const {ctx,p}=await open(ckN,1280,860);
+async function newPerson(){const {ctx,p}=await open(ckN,1280,860);
   await p.goto(`${BASE}/`);await p.waitForTimeout(700);
   check(await p.locator("#ev-banner").isVisible(),"a new person with no sessions sees the 'Bring your assistant' banner on home");
   await p.screenshot({path:`${SHOTS_DIR}/welcome-home-banner-1280.png`});
@@ -72,7 +72,7 @@ const sideways=(p)=>p.evaluate(()=>document.documentElement.scrollWidth>window.i
   await ctx.close()}
 
 // 5. Dismissal sticks, per person; "for developers" opens today's Connect.
-{const {ctx,p}=await open(ckD,1280,860,"dark");
+async function dismissal(){const {ctx,p}=await open(ckD,1280,860,"dark");
   await p.goto(`${BASE}/`);await p.waitForTimeout(600);
   check(await p.locator("#ev-banner").isVisible(),"another new person sees the banner");
   await p.screenshot({path:`${SHOTS_DIR}/welcome-home-banner-1280-dark.png`});
@@ -91,7 +91,7 @@ const sideways=(p)=>p.evaluate(()=>document.documentElement.scrollWidth>window.i
   await ctx.close()}
 
 // 6. Phones: 390 light/dark and 320, no sideways scroll; the sheet is a bottom sheet that fits.
-for(const [w,h,scheme] of [[390,844,"light"],[390,844,"dark"],[320,640,"light"]]){
+async function phones(){await Promise.all([[390,844,"light"],[390,844,"dark"],[320,640,"light"]].map(async([w,h,scheme])=>{
   const {ctx,p}=await open(ckD,w,h,scheme,true);
   await p.goto(`${BASE}/welcome`);await p.waitForTimeout(600);
   check(!(await sideways(p)),`${w}px ${scheme}: /welcome has no sideways scroll`);
@@ -105,12 +105,16 @@ for(const [w,h,scheme] of [[390,844,"light"],[390,844,"dark"],[320,640,"light"]]
   check((await p.evaluate(()=>navigator.clipboard.readText()))===`${BASE}/mcp`,`${w}px: Copy works by tap`);
   await p.screenshot({path:`${SHOTS_DIR}/welcome-sheet-${w}-${scheme}.png`});
   if(w===390){await p.goto(`${BASE}/me`);await p.waitForTimeout(400);check(!(await sideways(p)),`${w}px ${scheme}: Account has no sideways scroll`);await p.locator("#ev-acct").screenshot({path:`${SHOTS_DIR}/welcome-account-card-${w}-${scheme}.png`})}
-  await ctx.close()}
+  await ctx.close()}))}
 // Home banner on a phone (a third new person, nothing dismissed)
-{const P=`eh${run}`;await ops("users",{name:P,email:`${P}@example.com`,verified:"true"});const ck=(await ops("sessions",{user:P})).cookie;
+async function banner(){const P=`eh${run}`;await ops("users",{name:P,email:`${P}@example.com`,verified:"true"});const ck=(await ops("sessions",{user:P})).cookie;
   for(const [w,h] of [[390,844],[320,640]]){const {ctx,p}=await open(ck,w,h,"light",true);await p.goto(`${BASE}/`);await p.waitForTimeout(600);
     check(await p.locator("#ev-banner").isVisible()&&!(await sideways(p)),`${w}px: the home banner shows without sideways scroll`);
     await p.locator("#ev-banner").screenshot({path:`${SHOTS_DIR}/welcome-home-banner-${w}.png`});await ctx.close()}}
 
+// The new person (1–4) and the phone banner (another new person) run side by side with the second person's dismissal,
+// then that person's phones (the three sizes together: they all copy the same link, the clipboard being the browser's).
+await Promise.all([newPerson(),banner(),dismissal()]);
+await phones();
 check(!errors.length,`no page errors ${errors.join(" | ")}`);
 await b.close();console.log(fails?`${fails} FAILED`:"welcome: all passed");process.exit(fails?1:0);
