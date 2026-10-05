@@ -66,15 +66,17 @@ export async function digestDue(env: Env, user: string, levels: Record<string, L
     `SELECT n.id, n.board_id, b.title AS board_title, b.kind AS board_kind, n.seq, n.kind, n.actor, n.actor_via, n.entry_type, n.excerpt, n.created_at, n.read_at, n.data
      FROM notifications n LEFT JOIN boards b ON b.id = n.board_id
      WHERE n.user = ? AND n.read_at IS NULL AND n.created_at > ? AND n.created_at <= ? AND n.kind NOT IN ('trigger', 'from_your_person')
+       AND NOT EXISTS (SELECT 1 FROM inbox_reminders r WHERE r.notification_id = n.id AND r.user = n.user)
        AND (n.board_id = '' OR n.board_id IN (SELECT board_id FROM members WHERE user = ?))
      ORDER BY n.created_at DESC LIMIT 500`,
   )
     .bind(user, from, at, user)
     .all<InboxRow>();
+  // Snoozed items (Remind me later) wait for their reminder, not the digest; one back from a reminder needs you.
   const waited = r.results.map(withPush).filter((i) => {
     const board = i.board_id || i.push?.board || "";
     const level = (board && levels[board]) || DEFAULT_LEVEL;
-    return classify({ kind: i.kind, broadcast: i.broadcast, direct: i.board_kind === "direct", risk: i.push?.risk }, level, prefs.quiet, i.created_at) === "digest";
+    return classify({ kind: i.kind, broadcast: i.broadcast, direct: i.board_kind === "direct", risk: i.push?.risk, reminded: i.reminded }, level, prefs.quiet, i.created_at) === "digest";
   });
   const boards = [...new Set(waited.map((i) => i.board_title).filter((t): t is string => !!t))].slice(0, 5);
   return { n: waited.length, boards };

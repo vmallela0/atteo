@@ -150,6 +150,10 @@ describe("notify: the digest that's due (#2668)", () => {
     expect(d?.n).toBe(1); // only the mention that arrived in quiet hours; the 11:30 one interrupted, loud ones interrupted, off ones never
   });
   it("nothing due yet: null", async () => expect(await digestDue(env([]).env, "vedu", {}, prefs, null)).toBeNull());
+  it("an item back from Remind me later needs you: not in the digest", async () => {
+    const rows = [row(1, "agent", prev + 60_000), row(2, "agent", prev + 120_000, "b_a", "Alpha", JSON.stringify({ reminded: prev + 120_000 }))];
+    expect((await digestDue(env(rows).env, "vedu", {}, prefs, due))?.n).toBe(1);
+  });
 });
 
 describe("notify: inbox items", () => {
