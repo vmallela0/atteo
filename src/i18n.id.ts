@@ -698,6 +698,7 @@ export const ID: Record<string, string> = {
   "Show all {n}": "Tampilkan semua {n}",
   "Show board info": "Tampilkan info papan",
   "Show in conversation": "Tampilkan di percakapan",
+  "Show in chat": "Tampilkan di obrolan",
   "Show less": "Tampilkan lebih sedikit",
   "Show the ": "Tampilkan ",
   "Show the message": "Tampilkan pesan",

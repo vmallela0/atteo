@@ -1,7 +1,7 @@
 // End-to-end test: two agents talk through a board over MCP with personal tokens, plus access control,
 // web pages and the ops API.
 // Usage: BASE=http://localhost:8787 ADMIN_KEY=... node test/e2e.mjs
-// Creates e2e-* users and "e2e …" boards on the target (remove with scripts/cleanup-e2e.sh). Sends no email.
+// Creates e2e-* users and "e2e …" boards on the target (list/remove with scripts/cleanup-e2e.mjs; dry-run by default). Sends no email.
 
 import { readFileSync } from "node:fs";
 import { devFetch } from "./devfetch.mjs";
@@ -164,6 +164,12 @@ async function makeUser(name, { email, verified = "true", token = true, session 
     })(),
   ]);
 }
+// Contact decisions (accept, decline, remove, block) are the person's alone (#57, jxn #4345): agent tokens get 403,
+// so steps make them as the person, with a browser session.
+async function asPerson(who, path) {
+  if (!cookie[who]) cookie[who] = (await ops("sessions", { user: who, verified: "true" })).body.cookie;
+  return fetch(`${BASE}${path}`, { method: "POST", headers: { cookie: cookie[who], "content-type": "application/json" } });
+}
 async function makeUsers(list, opts = {}) {
   await Promise.all(list.map((n) => (typeof n === "string" ? makeUser(n, opts) : makeUser(n.name, { ...opts, ...n }))));
 }
@@ -202,7 +208,7 @@ await step("MCP initialize, tools/list, notifications, protocol errors", async (
   assert(r.protocolVersion === "2025-06-18" && r.serverInfo.name === "atteo" && r.serverInfo.title === "Atteo", JSON.stringify(r));
   has(r.instructions, "Atteo");
   const names = (await rpcRaw(auth(A), null, "tools/list", {})).tools.map((t) => t.name).sort();
-  assert(JSON.stringify(names) === JSON.stringify(["agents", "approval", "batch", "claim", "create_board", "doc", "feedback", "get", "grep", "handle", "invite", "join_board", "leave_board", "list_boards", "mailbox", "memory", "people", "post", "publish", "purge", "react", "read", "recap", "remember", "request_approval", "retract", "review", "schedules", "search", "session", "task", "trigger", "wait"]), names.join());
+  assert(JSON.stringify(names) === JSON.stringify(["agents", "approval", "batch", "claim", "create_board", "doc", "feedback", "get", "grep", "handle", "invite", "join_board", "leave_board", "list_boards", "ls", "mailbox", "memory", "people", "post", "publish", "purge", "react", "read", "recap", "remember", "request_approval", "retract", "review", "schedules", "search", "session", "task", "trigger", "wait"]), names.join());
   assert((await rpcRaw(auth(A), null, "notifications/initialized", {}, { notification: true })).status === 202, "notification status");
   assert((await rpcRaw({}, null, "notifications/initialized", {}, { notification: true })).status === 401, "no credentials: 401 so OAuth clients can sign in");
   assert((await fetch(`${BASE}/mcp`)).status === 405, "GET /mcp should be 405");
@@ -226,9 +232,9 @@ await step("A creates a board and is its only member", async () => {
   has(await ok(A, board, "read"), `Members: ${A}`);
 });
 
-await step("non-members cannot read, post, wait, get, search or invite", async () => {
+await step("non-members cannot read, post, wait, get, search, ls or invite", async () => {
   await Promise.all([
-    ...[["read", {}], ["post", { type: "note", text: "x" }], ["wait", { timeout_seconds: 1 }], ["get", { seq: 1 }], ["search", { query: "x" }], ["invite", { email: "a@b.co" }]].map(([name, args]) => err(B, board, name, args, "not a member")),
+    ...[["read", {}], ["post", { type: "note", text: "x" }], ["wait", { timeout_seconds: 1 }], ["get", { seq: 1 }], ["search", { query: "x" }], ["ls", {}], ["invite", { email: "a@b.co" }]].map(([name, args]) => err(B, board, name, args, "not a member")),
     err(OUT, "b_doesnotexist1", "read", {}, "not a member"),
     err(A, "../etc", "read", {}, "not a member"),
   ]);
@@ -895,6 +901,25 @@ await step("ops console is hidden from non-operators; ops API lists everything",
   assert(acc && acc.boards.some((x) => x.id === board) && acc.active_tokens >= 1, JSON.stringify(acc));
 });
 
+await step("ops console opens for a localhost admin test session (no ADMIN_EMAIL)", async () => {
+  const op = `e2e-op-${run}`;
+  await makeUser(op, { session: false });
+  const verified = (await ops("sessions", { user: op, verified: "true" })).body.cookie;
+  assert(verified?.startsWith("ab_session="), "verified non-admin cookie");
+  assert((await fetch(`${BASE}/_ops`, { headers: { cookie: verified } })).status === 404, "verified member still 404s without admin");
+  const admin = (await ops("sessions", { user: op, verified: "true", admin: true })).body.cookie;
+  assert(admin?.startsWith("ab_session="), "admin test cookie");
+  const r = await fetch(`${BASE}/_ops`, { headers: { cookie: admin } });
+  const html = await r.text();
+  assert(r.status === 200, `/_ops as admin test session ${r.status}`);
+  has(html, ">Ops<");
+  has(html, 'id="ops-tabs"');
+  has(html, "Overview");
+  has(html, "Access");
+  has(html, "Events");
+  has(html, 'href="/_ops"');
+});
+
 
 // ---- one board per session ----
 let board2;
@@ -1277,6 +1302,37 @@ await step("grep: exact lines on one board (MCP and REST), case, regex, context,
   assert((await web(`/api/boards/${board}/grep?q=(a%2B)%2B&regex=1`, A)).status === 400, "bad regex is a 400");
   assert((await web(`/api/boards/${board}/grep?q=${w}`, OUT)).status === 404, "outsider 404");
   has(await ok(A, board, "grep", { pattern: `nothingmatches${run}` }), "0 hits in");
+});
+
+await step("ls: read-only mount (state.md, files/, log/); MCP and REST; nothing marked read", async () => {
+  const name = `ls-${run}.md`;
+  await ok(A, board, "doc", { action: "write", name, content: `# Ls mount ${run}\n`, base_version: 0, summary: "ls file" });
+  await ok(B, board, "read");
+  has(await ok(B, board, "read"), "(nothing new)");
+  const root = await ok(B, board, "ls", {});
+  has(root, "state.md");
+  has(root, "files/");
+  has(root, "log/");
+  assert(!root.includes("<<untrusted"), "root listing is the tree, not member text: " + root.slice(0, 240));
+  const files = await ok(B, board, "ls", { path: "files/" });
+  has(files, name);
+  assert(files.includes("<<untrusted"), "files listing is fenced: " + files.slice(0, 240));
+  const rest = await (await web(`/api/boards/${board}/ls?path=${encodeURIComponent("files/")}`, B)).json();
+  assert(rest.items.some((d) => d.name === name), JSON.stringify(rest).slice(0, 400));
+  assert(rest.untrusted === undefined, "REST JSON is unfenced");
+  const vers = await ok(B, board, "ls", { path: `files/${name}` });
+  has(vers, `${name}@v1`);
+  const log = await ok(B, board, "ls", { path: "log/", limit: 5 });
+  has(log, ".md");
+  assert(log.includes("<<untrusted"), "log listing is fenced: " + log.slice(0, 240));
+  await err(B, board, "ls", { path: "../etc/passwd" }, "No such path");
+  assert((await web(`/api/boards/${board}/ls`, OUT)).status === 404, "outsider 404");
+  assert((await web(`/api/boards/${board}/ls?path=${encodeURIComponent("../etc/passwd")}`, B)).status === 400, "bad path is a 400");
+  has(await ok(B, board, "read"), "(nothing new)");
+  const eb = (await ops("boards", { user: A, title: `e2e ls enc ${run}`, encrypted: true })).body.board.id;
+  await err(A, eb, "ls", {}, "end-to-end encrypted");
+  assert((await web(`/api/boards/${eb}/ls`, A)).status === 400, "encrypted ls is a 400");
+  assert((await web(`/api/boards/${eb}/archive`, A, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ archived: true }) })).status === 200, "archive ls enc");
 });
 
 await step("grep: a pattern without a 3+ char literal scans only recent entries and says so", async () => {
@@ -2664,6 +2720,38 @@ await step("plans: Free caps boards you create; a signed Stripe webhook upgrades
   assert((r.status === 200 && j.url.startsWith("https://checkout.stripe.com/")) || /isn't set up/.test(j.error ?? ""), JSON.stringify(j).slice(0, 200));
 });
 
+await step("GitHub App webhook: signed ping and pull_request parse; 503 when the secret is unset; nothing is posted", async () => {
+  const ghsec = process.env.GITHUB_WEBHOOK_SECRET ?? (() => { try { return readFileSync(new URL("../.dev.vars", import.meta.url), "utf8").match(/^GITHUB_WEBHOOK_SECRET=(.*)$/m)?.[1]; } catch { return undefined; } })();
+  const send = async (event, body, secret) => {
+    const { createHmac } = await import("node:crypto");
+    const sig = secret ? `sha256=${createHmac("sha256", secret).update(body).digest("hex")}` : "sha256=" + "ab".repeat(32);
+    return fetch(`${BASE}/github/webhook`, { method: "POST", headers: { "content-type": "application/json", "x-github-event": event, "x-hub-signature-256": sig, "x-github-delivery": `e2e-${run}` }, body });
+  };
+  if (!ghsec) {
+    const r = await send("ping", "{}", "");
+    const j = await r.json();
+    assert(r.status === 503 && /aren't set up/.test(j.error ?? ""), `unset secret: ${r.status} ${JSON.stringify(j)}`);
+    return;
+  }
+  const pingBody = JSON.stringify({ zen: `e2e ${run}` });
+  const ping = await send("ping", pingBody, ghsec);
+  const pj = await ping.json();
+  assert(ping.status === 200 && pj.ok === true && pj.applied === "ping" && !pj.note, JSON.stringify(pj));
+  assert((await send("ping", pingBody, "wrong-secret")).status === 400, "forged webhook rejected");
+  const prBody = JSON.stringify({
+    action: "opened",
+    number: 44,
+    pull_request: { number: 44, title: `e2e header ${run}`, html_url: "https://github.com/vmallela0/agent-soup/pull/44", merged: false },
+    repository: { full_name: "vmallela0/agent-soup" },
+    sender: { login: "alice" },
+  });
+  const pr = await send("pull_request", prBody, ghsec);
+  const prj = await pr.json();
+  assert(pr.status === 200 && prj.applied === "note" && prj.note?.title === "PR opened" && prj.note?.text.includes("alice opened #44"), JSON.stringify(prj));
+  const spec = await (await fetch(`${BASE}/openapi.json`)).json();
+  assert(spec.paths["/github/webhook"]?.post, "openapi lists POST /github/webhook");
+});
+
 await step("REST API with a personal token acts as your agent; OpenAPI spec and agent skill are published", async () => {
   const tokenAuth = { authorization: `Bearer ${tok[A]}`, "content-type": "application/json" };
   const r = await fetch(`${BASE}/api/boards/${fb}/entries`, { method: "POST", headers: tokenAuth, body: JSON.stringify({ text: `via REST ${run}` }) });
@@ -2838,7 +2926,7 @@ await step("board pictures: any member sets one; served to members only, version
   await makeUsers([P1, P2]);
   const call = async (who, path) => (await fetch(`${BASE}${path}`, { method: "POST", headers: auth(who) })).json();
   await fetch(`${BASE}/api/friends/request`, { method: "POST", headers: { ...auth(P1), "content-type": "application/json" }, body: JSON.stringify({ user: P2 }) });
-  await call(P2, `/api/friends/${P1}/accept`);
+  await asPerson(P2, `/api/friends/${P1}/accept`);
   const dm = (await call(P1, `/api/direct/${P2}`)).board;
   assert(dm, "direct board");
   r = await up(P1, dm, png);
@@ -2920,7 +3008,13 @@ await step("social: find by handle, friend request with a note, accept from the 
   assert(r.relation === "pending_out", JSON.stringify(r));
   const inbox = (await (await api(B, "GET", "/api/inbox")).json()).items;
   assert(inbox.some((i) => i.kind === "friend_request" && i.actor === A && i.excerpt.includes(`from e2e ${run}`)), JSON.stringify(inbox.slice(0, 3)));
-  assert((await (await api(B, "POST", `/api/friends/${A}/accept`)).json()).relation === "friend", "accept");
+  const agentAccept = await api(B, "POST", `/api/friends/${A}/accept`);
+  assert(agentAccept.status === 403 && (await agentAccept.json()).error.includes("Only you can decide"), "an agent token can't accept (#57)");
+  // Nor by "requesting back" while A's request is pending (jxn's agent #4398): refused, still pending.
+  const requestBack = await api(B, "POST", "/api/friends/request", { user: A });
+  assert(requestBack.status === 403 && (await requestBack.json()).error.includes("Only you can decide"), `agent request-back refused: ${requestBack.status}`);
+  assert((await (await api(A, "POST", "/api/friends/request", { user: B })).json()).relation === "pending_out", "still pending after the agent's request-back");
+  assert((await (await asPerson(B, `/api/friends/${A}/accept`)).json()).relation === "friend", "accept");
   // Presence: B's agent session (MCP initialize with a client name) shows as online.
   const sb = await session(B);
   await sok(sb, "list_boards", {});
@@ -2938,11 +3032,11 @@ await step("social: find by handle, friend request with a note, accept from the 
   has(await ok(B, d.board, "read"), `dm question ${run}`);
   has(await (await web(`/u/${B}`, A)).text(), "Message");
   // Blocking hides you and stops requests; unfriending closes the direct route.
-  await api(B, "POST", `/api/friends/${OUT}/block`);
+  await asPerson(B, `/api/friends/${OUT}/block`);
   r = await (await api(OUT, "GET", `/api/people?q=${B}`)).json();
   assert(!r.people.length, "blocked people can't find you");
   assert((await api(OUT, "POST", "/api/friends/request", { user: B })).status === 400, "blocked people can't ask");
-  await api(A, "POST", `/api/friends/${B}/remove`);
+  await asPerson(A, `/api/friends/${B}/remove`);
   assert((await api(A, "POST", `/api/direct/${B}`)).status === 400, "not friends anymore");
 });
 
@@ -2975,6 +3069,21 @@ await step("access: roles (viewers read but can't change), invite links with lim
   const c2 = (await ops("sessions", { user: C2 })).body.cookie;
   const used = await fetch(`${BASE}${path}`, { headers: { cookie: c2 }, redirect: "manual" });
   assert(used.status === 410 && (await used.text()).includes("used up"), `second use: ${used.status}`);
+  // GAPS P0 network #4: omitted role/member_days → viewer for 30 days; member_days 0 stays open-ended.
+  const def = await (await j(A, `/api/boards/${fb}/links`, {})).json();
+  assert(def.link?.role === "viewer" && def.link.member_days === 30, `default grant: ${JSON.stringify(def.link)}`);
+  const forever = await (await j(A, `/api/boards/${fb}/links`, { role: "contributor", member_days: 0 })).json();
+  assert(forever.link?.role === "contributor" && forever.link.member_days == null, `member_days 0: ${JSON.stringify(forever.link)}`);
+  const G = `e2e-grant-${run}`;
+  await ops("users", { name: G, email: `${G}@example.com`, verified: "true" });
+  const inv = await (await j(A, `/api/boards/${fb}/invites`, { email: `${G}@example.com` })).json();
+  assert(inv.ok, JSON.stringify(inv));
+  const gck = (await ops("sessions", { user: G })).body.cookie;
+  assert((await fetch(`${BASE}/api/invitations/${fb}/accept`, { method: "POST", headers: { cookie: gck, "content-type": "application/json" }, body: "{}" })).status === 200, "accept default grant");
+  m = await (await j(A, `/api/boards/${fb}/members`)).json();
+  const gmem = m.members.find((x) => x.user === G);
+  assert(gmem && gmem.role === "viewer" && gmem.expires_at > Date.now() + 29 * 86400e3 && gmem.expires_at < Date.now() + 31 * 86400e3, JSON.stringify(gmem));
+  await j(A, `/api/boards/${fb}/members/${G}/remove`, {});
   const audit = (await (await j(B, `/api/boards/${fb}/audit`)).json()).audit.map((a) => a.action);
   assert(["access_changed", "link_created", "joined"].every((a) => audit.includes(a)), audit.join());
   // Back to how later steps expect it.
@@ -3366,10 +3475,53 @@ await step("sealed envelopes: stored as given, fetched only by their recipient (
   assert((await web(`/api/boards/${fb}/sealed`, A, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ to: OUT, payload: envl }) })).status === 400, "recipient must be on the board");
 });
 
+await step("ops test-accounts: list and dry-run, refuse real names, delete only named test users", async () => {
+  const digits = String(Date.now()).slice(-6);
+  const U = `e2e-cln-${run}`;
+  const T = `t${run}-test`;
+  const N = `test-${digits}`;
+  const R = `zr${run}`;
+  await makeUsers([U, T, N, R], { token: true, session: false });
+  const made = await ops("boards", { user: U, title: `e2e cln ${run}` });
+  const e2eBoard = made.body.board?.id;
+  assert(made.status === 201 && e2eBoard, JSON.stringify(made.body));
+
+  assert((await ops("test-accounts", null, "wrong")).status === 404, "operators only");
+  const listed = await ops("test-accounts");
+  assert(listed.status === 200 && listed.body.dry_run === true, JSON.stringify(listed.body).slice(0, 200));
+  const names = (listed.body.users ?? []).map((u) => u.name);
+  assert(names.includes(U) && names.includes(T) && names.includes(N), JSON.stringify(names));
+  assert(!names.includes(R) && !names.includes("vedu") && !names.includes("jxn"), "real handles stay out");
+
+  const dry = await ops("test-accounts", { dry_run: true, names: [U, T, N] });
+  assert(dry.status === 200 && dry.body.dry_run === true && !dry.body.deleted, JSON.stringify(dry.body).slice(0, 200));
+  assert((await ops("tokens", { user: U })).status === 201, "dry-run did not delete U");
+
+  const mixed = await ops("test-accounts", { confirm: "DELETE TEST ACCOUNTS", names: [U, R] });
+  assert(mixed.status === 400, JSON.stringify(mixed.body));
+  assert((await ops("tokens", { user: U })).status === 201, "refused delete is atomic");
+  assert((await ops("tokens", { user: R })).status === 201, "real-looking handle untouched");
+
+  const phrase = await ops("test-accounts", { confirm: "yes", names: [U] });
+  assert(phrase.status === 400, "wrong confirm phrase");
+
+  const gone = await ops("test-accounts", { confirm: "DELETE TEST ACCOUNTS", names: [U, T, N] });
+  assert(gone.status === 200 && gone.body.dry_run === false, JSON.stringify(gone.body).slice(0, 300));
+  assert((gone.body.deleted ?? []).sort().join() === [N, T, U].sort().join(), JSON.stringify(gone.body.deleted));
+  assert((gone.body.deleted_boards ?? []).includes(e2eBoard), JSON.stringify(gone.body.deleted_boards));
+  assert((await ops("tokens", { user: U })).status === 404, "U gone");
+  assert((await ops("tokens", { user: T })).status === 404, "T gone");
+  assert((await ops("tokens", { user: N })).status === 404, "N gone");
+  const after = ((await ops("test-accounts")).body.users ?? []).map((u) => u.name);
+  assert(!after.includes(U) && !after.includes(T) && !after.includes(N), after.join());
+  assert((await ops("tokens", { user: R })).status === 201, "untouched real-looking handle still exists");
+});
+
 await step("ops: usage metrics and server errors are on the console (operators only)", async () => {
   const r = await fetch(`${BASE}/api/ops/metrics`, { headers: { "x-admin-key": ADMIN_KEY } });
   const m = await r.json();
   assert(r.status === 200 && m.days.length === 14 && Array.isArray(m.errors) && Array.isArray(m.clients), JSON.stringify(m).slice(0, 200));
+  assert(m.success && typeof m.success.board_created === "number" && typeof m.success.first_agent_post === "number" && typeof m.success.invite_redeemed === "number" && typeof m.success.friend_accepted === "number", JSON.stringify(m.success));
   assert((await fetch(`${BASE}/api/ops/metrics`)).status !== 200, "operators only");
 });
 
@@ -3417,7 +3569,7 @@ await step("network: an opt-in directory, and standing rules (invites from frien
   assert((await (await person(B, { listed: true, bio: `hi from ${run}` })).json()).profile.listed, "listed");
   assert((await (await api(D, "GET", `/api/people?q=${partial}`)).json()).people.some((p) => p.name === B), "listed people show up by partial name");
   // Friend requests from people B shares a board with are accepted by B's rule.
-  await api(A, "POST", `/api/friends/${B}/remove`);
+  await asPerson(A, `/api/friends/${B}/remove`);
   await person(B, { rules: { auto_accept_friends: "coworkers" } });
   assert((await (await api(A, "POST", "/api/friends/request", { user: B })).json()).relation === "friend", "accepted by rule");
   // Board invites from friends join B right away.
@@ -3602,15 +3754,37 @@ await step("retention: owners set how long a board keeps messages; older ones ar
   await ops("members", { board: id, user: A }).catch(() => {});
   await ops("members", { board: id, user: B });
   await ok(A, id, "read");
-  const old = seqOf(await ok(A, id, "post", { type: "claim", text: `old secretless fact ${run}` }));
+  const marker = `old retention payload ${run}`;
+  const posted = await (await web(`/api/boards/${id}/entries`, A, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ type: "note", title: `Old title ${run}`, text: `@${B} ${marker}` }),
+  })).json();
+  const old = posted.entry.seq;
+  const editedMarker = `edited retention payload ${run}`;
+  assert((await web(`/api/boards/${id}/entries/${old}`, A, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ text: `@${B} ${editedMarker}` }) })).status === 200, "old version made");
+  const structured = (await (await web(`/api/boards/${id}/entries`, A, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ type: "claim", text: `structured retention payload ${run}`, data: { private_note: marker } }),
+  })).json()).entry.seq;
   const set = (who, days) => web(`/api/boards/${id}/retention`, who, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ days }) });
   assert((await set(B, 30)).status === 403, "owners only");
   const r = await (await set(A, 30)).json();
   assert(r.retention_days === 30 && r.pruned === 0, JSON.stringify(r));
   const p = await (await fetch(`${BASE}/api/ops/prune`, { method: "POST", headers: { "x-admin-key": ADMIN_KEY, "content-type": "application/json" }, body: JSON.stringify({ board: id, before: Date.now() + 1000 }) })).json();
   assert(p.pruned >= 1, JSON.stringify(p));
-  has(await ok(B, id, "get", { seq: old }), "removed: older than this board keeps messages");
-  assert(!(await ok(B, id, "search", { query: `secretless ${run}` })).includes(`#${old}`), "gone from search");
+  const compacted = (await (await web(`/api/boards/${id}/entries/${old}`, B)).json()).entry;
+  const compactedHistory = (await (await web(`/api/boards/${id}/entries/${old}?history=1`, B)).json()).history;
+  has(compacted.text, "removed: older than this board keeps messages");
+  assert(compacted.title == null && compactedHistory.length === 0, `title and edit history removed: ${JSON.stringify({ compacted, compactedHistory })}`);
+  const compactedStructured = (await (await web(`/api/boards/${id}/entries/${structured}`, B)).json()).entry;
+  assert(compactedStructured.data == null && compactedStructured.text.includes("removed: older than this board keeps messages"), `structured payload removed: ${JSON.stringify(compactedStructured)}`);
+  assert(!(await ok(B, id, "search", { query: marker })).includes(`#${old}`) && !(await ok(B, id, "search", { query: editedMarker })).includes(`#${old}`), "current and edited text gone from search");
+  const inbox = (await (await web("/api/inbox", B)).json()).items.find((x) => x.board_id === id && x.seq === old);
+  assert(inbox && inbox.excerpt.includes("removed: older than this board keeps messages") && !JSON.stringify(inbox).includes(marker) && !JSON.stringify(inbox).includes(editedMarker), `inbox copy compacted: ${JSON.stringify(inbox)}`);
+  const tape = (await (await web("/api/tape?after=0&limit=500", B)).json()).lines.find((x) => x.board_id === id && x.seq === old);
+  assert(tape && tape.excerpt.includes("removed: older than this board keeps messages") && !tape.excerpt.includes(marker), `tape copy compacted: ${JSON.stringify(tape)}`);
   assert((await (await web(`/api/boards/${id}/audit`, A)).json()).audit.some((a) => a.action === "retention"), "audited");
 });
 
@@ -3811,6 +3985,56 @@ await step("SSO and organization policies: SSO entry point, retention cap and in
   const link = await (await fetch(`${BASE}/api/boards/${bid}/links`, { method: "POST", headers: { cookie: pc, "content-type": "application/json" }, body: "{}" })).json();
   const join = await web(new URL(link.url).pathname, A);
   assert(join.status === 410 && (await join.text()).includes("accounts only"), `outsider blocked: ${join.status}`);
+  await setPol({ domain: dom, delete: true });
+});
+
+await step("organization directory: list members by email-domain policy", async () => {
+  const dom = `e2e-orgdir-${run}.test`;
+  const setPol = (b) => fetch(`${BASE}/api/ops/policies`, { method: "POST", headers: { "x-admin-key": ADMIN_KEY, "content-type": "application/json" }, body: JSON.stringify(b) });
+  // A public mail provider is never an organization (jxn's agent #4398), and a row without `directory` lists no one.
+  const pub = await setPol({ domain: "gmail.com", directory: true });
+  assert(pub.status === 400 && (await pub.json()).error.includes("public mail provider"), `gmail.com refused: ${pub.status}`);
+  assert((await setPol({ domain: dom })).status === 200, "policy saved (no directory yet)");
+  const O0 = `e2e-org0-${run}`;
+  await makeUsers([{ name: O0, email: `${O0}@${dom}` }]);
+  const off = await (await fetch(`${BASE}/api/org`, { headers: { authorization: `Bearer ${tok[O0]}` } })).json();
+  assert(off.domain === null && off.people.length === 0, `no directory without the flag: ${JSON.stringify(off)}`);
+  assert((await setPol({ domain: dom, directory: true })).status === 200, "directory on");
+  const O1 = `e2e-org1-${run}`;
+  const O2 = `e2e-org2-${run}`;
+  const UN = `e2e-orgunv-${run}`;
+  const OUTU = `e2e-orgout-${run}`;
+  await makeUsers([
+    { name: O1, email: `${O1}@${dom}` },
+    { name: O2, email: `${O2}@${dom}` },
+    { name: UN, email: `${UN}@${dom}`, verified: "false" },
+    { name: OUTU, email: `${OUTU}@e2e-orgout-${run}.test` },
+  ]);
+  const getOrg = async (who, q = "") => {
+    const r = await fetch(`${BASE}/api/org${q ? `?q=${encodeURIComponent(q)}` : ""}`, { headers: { authorization: `Bearer ${tok[who]}` } });
+    return { status: r.status, body: await r.json() };
+  };
+  const listed = await getOrg(O1);
+  assert((await fetch(`${BASE}/api/org`)).status === 401, "sign in required");
+  assert(listed.status === 200 && listed.body.domain === dom, JSON.stringify(listed));
+  const names = listed.body.people.map((p) => p.name);
+  assert(names.includes(O1) && names.includes(O2) && !names.includes(UN) && !names.includes(OUTU), JSON.stringify(names));
+  const dump = JSON.stringify(listed.body);
+  assert(!dump.includes(`${O1}@`) && !dump.includes(`${O2}@`) && !listed.body.people.some((p) => "email" in p), dump);
+  const outsider = await getOrg(OUTU);
+  assert(outsider.status === 200 && outsider.body.domain === null && outsider.body.people.length === 0, JSON.stringify(outsider));
+  const q = await getOrg(O1, O2.slice(0, 8));
+  assert(q.body.people.length === 1 && q.body.people[0].name === O2, JSON.stringify(q));
+  const search = await (await fetch(`${BASE}/api/people?q=${O2.slice(0, 8)}`, { headers: { authorization: `Bearer ${tok[O1]}` } })).json();
+  assert(search.people.some((p) => p.name === O2), JSON.stringify(search));
+  const stranger = await (await fetch(`${BASE}/api/people?q=${O2.slice(0, 8)}`, { headers: { authorization: `Bearer ${tok[OUTU]}` } })).json();
+  assert(!stranger.people.some((p) => p.name === O2), JSON.stringify(stranger));
+  const sa = await session(O1);
+  has(await sok(sa, "people", { action: "org" }), O2);
+  has(await sok(sa, "people", { action: "org" }), dom);
+  assert(!(await sok(sa, "people", { action: "org" })).includes(`${O2}@`), "MCP org list has no emails");
+  const sb = await session(OUTU);
+  has(await sok(sb, "people", { action: "org" }), "isn't in an organization directory");
   await setPol({ domain: dom, delete: true });
 });
 
@@ -4035,7 +4259,8 @@ await step("agent sessions: several per person, each with its own boards and rea
   const b1 = (await ops("boards", { user: A, title: `e2e sess one ${run}` })).body.board.id;
   await ops("members", { board: b1, user: B });
   const b3 = (await ops("boards", { user: A, title: `e2e sess three ${run}` })).body.board.id;
-  await web(`/api/boards/${b3}/invites`, A, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ email: `${B}@example.com` }) });
+  // Contributor on purpose: an invite with no role is a 30-day viewer now (PR 67), and B's sessions post here.
+  await web(`/api/boards/${b3}/invites`, A, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ email: `${B}@example.com`, role: "contributor" }) });
   // "The board with A": boards they share, plus invitations waiting
   const mine = (await api(B, "GET", `/api/me/boards?with=${A}`)).body;
   assert(mine.boards.some((b) => b.id === b1 && b.members.includes(A)) && mine.invitations.some((i) => i.id === b3), JSON.stringify(mine).slice(0, 400));
@@ -4194,6 +4419,7 @@ await step("read-only agent sessions: read and wait work; posting, through the A
     return { text: j.content.map((c) => c.text).join("\n"), isError: !!j.isError };
   };
   assert(!(await call("read", {})).isError, "read works");
+  assert(!(await call("ls", {})).isError, "ls works");
   const p = await call("post", { type: "note", text: `ro tool post ${run}` });
   assert(p.isError && /read-only/.test(p.text), p.text);
   // The session can't raise itself; the person (web) can.
@@ -4459,7 +4685,7 @@ await step("mailbox: DMs and mail for your agent wait until your agent polls; fu
   await makeUsers([M1, M2], { session: false });
   const call = async (who, method, path, body) => { const r = await fetch(`${BASE}${path}`, { method, headers: { ...auth(who), "content-type": "application/json" }, body: body ? JSON.stringify(body) : undefined }); return r.json(); };
   await call(M1, "POST", "/api/friends/request", { user: M2 });
-  await call(M2, "POST", `/api/friends/${M1}/accept`);
+  await asPerson(M2, `/api/friends/${M1}/accept`);
   const dm = (await call(M1, "POST", `/api/direct/${M2}`)).board;
   const long = `Can your agent review the webhook check? ${"padding ".repeat(40)}${run}`;
   await ok(M1, dm, "post", { type: "note", title: "Webhook check", text: long }); // MCP: REST posts don't take a title
@@ -4496,7 +4722,7 @@ await step("mailbox tool (MCP): new mail as compact fenced lines under one heade
   await makeUsers([M1, M2], { session: false });
   const call = async (who, method, path, body) => (await fetch(`${BASE}${path}`, { method, headers: { ...auth(who), "content-type": "application/json" }, body: body ? JSON.stringify(body) : undefined })).json();
   await call(M1, "POST", "/api/friends/request", { user: M2 });
-  await call(M2, "POST", `/api/friends/${M1}/accept`);
+  await asPerson(M2, `/api/friends/${M1}/accept`);
   const dm = (await call(M1, "POST", `/api/direct/${M2}`)).board;
   const bot = await session(M2); // a URL connection with no board joined, like a Grok Bot routine
   await sok(bot, "mailbox"); // drain anything from setup (friend request)
@@ -6111,6 +6337,7 @@ await step("forward excerpt: fabricated selectedText is refused; a real selectio
       hidden((await tool(u, pb, "grep", { pattern: SECRET })).text, `${tag} MCP grep`);
       hidden((await tool(u, pb, "grep", { pattern: SECRET, board: "all" })).text, `${tag} MCP grep (all boards)`);
       hidden(await ok(u, pb, "recap", { since: "0" }), `${tag} MCP recap`);
+      hidden(await ok(u, pb, "ls", { path: "log/", long: true, limit: 200 }), `${tag} MCP ls`);
       await err(u, pb, "react", { seq: secret, emoji: "✅" }, "does not exist");
       await err(u, pb, "post", { type: "note", text: "answering", reply_to: secret }, "does not exist");
       await err(u, pb, "retract", { seq: secret }, "does not exist");
@@ -6122,7 +6349,7 @@ await step("forward excerpt: fabricated selectedText is refused; a real selectio
       const parent = await papi(u, "GET", `/api/boards/${pb}/entries/${pub}`, null, { bearer: true });
       assert(parent.status === 200, `${tag} REST get of the public thread: ${parent.status}`);
       hidden(JSON.stringify(parent.body), `${tag} REST get's replies`);
-      for (const p of [`/api/boards/${pb}/updates?after=0`, `/api/boards/${pb}/entries?after=0`, `/api/boards/${pb}/entries?before=999999`, `/api/boards/${pb}/search?q=${SECRET}`, `/api/boards/search?q=${SECRET}`, `/api/boards/${pb}/reactions`, `/api/boards/${pb}/recap?since=0`, `/api/tape?limit=500`, `/api/boards/${pb}/grep?q=${SECRET}`, `/api/grep?q=${SECRET}`]) {
+      for (const p of [`/api/boards/${pb}/updates?after=0`, `/api/boards/${pb}/entries?after=0`, `/api/boards/${pb}/entries?before=999999`, `/api/boards/${pb}/search?q=${SECRET}`, `/api/boards/search?q=${SECRET}`, `/api/boards/${pb}/reactions`, `/api/boards/${pb}/recap?since=0`, `/api/tape?limit=500`, `/api/boards/${pb}/grep?q=${SECRET}`, `/api/grep?q=${SECRET}`, `/api/boards/${pb}/ls?path=log%2F&long=1&limit=200`]) {
         const g = await papi(u, "GET", p, null, { bearer: true });
         assert(g.status === 200, `${tag} ${p}: ${g.status}`);
         hidden(JSON.stringify(g.body), `${tag} ${p}`);
@@ -6346,6 +6573,7 @@ await step("forward excerpt: fabricated selectedText is refused; a real selectio
       hidden((await tool(u, ob, "grep", { pattern: word })).text, `${tag} MCP grep`, word);
       hidden((await tool(u, ob, "grep", { pattern: word, board: "all" })).text, `${tag} MCP grep all`, word);
       hidden(await ok(u, ob, "recap", { since: "0" }), `${tag} MCP recap`, word);
+      hidden(await ok(u, ob, "ls", { path: "log/", long: true, limit: 200 }), `${tag} MCP ls`, word);
       await err(u, ob, "react", { seq: theirs[0], emoji: "✅" }, "does not exist");
       await err(u, ob, "post", { type: "note", text: "answering", reply_to: theirs[0] }, "does not exist");
       await err(u, ob, "remember", { from: theirs[0] }, "does not exist");
@@ -6353,7 +6581,7 @@ await step("forward excerpt: fabricated selectedText is refused; a real selectio
       for (const bearer of [true, false]) {
         const as = `${tag} ${bearer ? "token" : "person"}`;
         for (const s of theirs) assert((await papi(u, "GET", `/api/boards/${ob}/entries/${s}`, null, { bearer })).status === 404, `${as} REST get #${s}`);
-        for (const p of [`/api/boards/${ob}/updates?after=0`, `/api/boards/${ob}/entries?after=0`, `/api/boards/${ob}/entries?before=999999`, `/api/boards/${ob}/entries/${pub}`, `/api/boards/${ob}/search?q=${word}`, `/api/boards/search?q=${word}`, `/api/boards/${ob}/reactions`, `/api/boards/${ob}/recap?since=0`, `/api/boards/${ob}/grep?q=${word}`, `/api/grep?q=${word}`, `/api/tape?limit=500`, "/api/mailbox?peek=1", "/api/inbox", "/api/inbox/count"]) {
+        for (const p of [`/api/boards/${ob}/updates?after=0`, `/api/boards/${ob}/entries?after=0`, `/api/boards/${ob}/entries?before=999999`, `/api/boards/${ob}/entries/${pub}`, `/api/boards/${ob}/search?q=${word}`, `/api/boards/search?q=${word}`, `/api/boards/${ob}/reactions`, `/api/boards/${ob}/recap?since=0`, `/api/boards/${ob}/grep?q=${word}`, `/api/grep?q=${word}`, `/api/tape?limit=500`, "/api/mailbox?peek=1", "/api/inbox", "/api/inbox/count", `/api/boards/${ob}/ls?path=log%2F&long=1&limit=200`]) {
           if (!bearer && (p.startsWith("/api/mailbox") || p.startsWith("/api/tape"))) continue; // agents' feeds
           const res = await papi(u, "GET", p, null, { bearer });
           assert(res.status === 200, `${as} ${p}: ${res.status}`);
@@ -6819,11 +7047,12 @@ await step("privacy suite: People only and Just mine never reach another member'
       clean((await tool(u, bd, "grep", { pattern: x, board: "all" })).text, `${tag} grep all boards`);
     }
     clean(await ok(u, bd, "recap", { since: "0" }), `${tag} recap`);
+    clean(await ok(u, bd, "ls", { path: "log/", long: true, limit: 200 }), `${tag} ls`);
     clean((await tool(u, bd, "memory", {})).text, `${tag} memory`);
     clean((await tool(u, bd, "mailbox", { peek: true })).text, `${tag} mailbox tool`);
     clean((await tool(u, bd, "doc", { action: "list" })).text, `${tag} files`);
     clean((await tool(u, other, "read", { since: 0 })).text, `${tag} the board things were forwarded to`);
-    for (const p of [`/api/boards/${bd}/entries?after=0`, `/api/boards/${bd}/updates?after=0`, `/api/boards/${bd}/search?q=${S_JM.slice(0, -3)}`, `/api/boards/search?q=${S_PO.slice(0, -3)}`, `/api/boards/${bd}/grep?pattern=${S_JMA.slice(0, -3)}`, `/api/boards/${bd}/grep?pattern=justmine`, `/api/boards/${bd}/memory`, `/api/boards/${bd}/docs`, `/api/boards/${bd}/recap?since=0`, `/api/mailbox?peek=1&limit=100`, `/api/me/boards`, `/api/inbox`]) {
+    for (const p of [`/api/boards/${bd}/entries?after=0`, `/api/boards/${bd}/updates?after=0`, `/api/boards/${bd}/search?q=${S_JM.slice(0, -3)}`, `/api/boards/search?q=${S_PO.slice(0, -3)}`, `/api/boards/${bd}/grep?pattern=${S_JMA.slice(0, -3)}`, `/api/boards/${bd}/grep?pattern=justmine`, `/api/boards/${bd}/memory`, `/api/boards/${bd}/docs`, `/api/boards/${bd}/recap?since=0`, `/api/boards/${bd}/ls?path=log%2F&long=1&limit=200`, `/api/mailbox?peek=1&limit=100`, `/api/me/boards`, `/api/inbox`]) {
       const g = await api(u, "GET", p, null, true);
       clean(JSON.stringify(g.body), `${tag} GET ${p} (${g.status})`);
     }
@@ -6850,6 +7079,7 @@ await step("privacy suite: People only and Just mine never reach another member'
   assert(!mine.includes(S_PO), `O's agent read the people-only: ${mine.slice(0, 400)}`);
   has(await ok(O, bd, "get", { seq: jm.body.entry.seq }), S_JM);
   has((await tool(O, bd, "grep", { pattern: S_JM })).text, S_JM);
+  has(await ok(O, bd, "ls", { path: "log/", long: true, limit: 200 }), S_JM);
   assert((await api(O, "GET", `/api/boards/${bd}/entries/${jm.body.entry.seq}`, null, true)).status === 200, "O's agent REST get of its Just mine");
 });
 

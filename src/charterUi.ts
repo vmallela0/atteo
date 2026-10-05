@@ -6,6 +6,7 @@ import type { Lang } from "./i18n";
 import { tr } from "./i18n";
 import type { BoardCharter, CharterRole } from "./charter";
 import { esc } from "./util";
+import { personHtml } from "./names";
 
 const ROLE: Record<CharterRole, string> = { owner: "Owner", contributor: "Can post", viewer: "View only" };
 
@@ -23,16 +24,17 @@ function keepLine(days: number | null, lang?: Lang): string {
 }
 
 /** The side-panel section. `canEdit`: an owner looking at a board that isn't archived. */
-export function charterSide(c: BoardCharter, canEdit: boolean, lang?: Lang): string {
+export function charterSide(c: BoardCharter, canEdit: boolean, lang?: Lang, names?: Record<string, string>): string {
   const T = (s: string, v?: Record<string, string | number>) => esc(tr(lang, s, v));
   const classes = c.data_classes.length
     ? c.data_classes.map((x) => `<span class="badge">${esc(x)}</span>`).join("")
     : `<span class="faint">${T("None")}</span>`;
+  const handles = c.members.map((m) => m.user);
   const people = c.members
     .map((m) => {
       const role = T(ROLE[m.role] ?? "Can post");
       const note = m.note ? ` <span class="faint">· ${esc(m.note)}</span>` : "";
-      return `<li data-user="${esc(m.user)}" data-role="${esc(m.role)}" data-note="${esc(m.note ?? "")}"><b>${esc(m.user)}</b> <span class="faint">${role}</span>${note}</li>`;
+      return `<li data-user="${esc(m.user)}" data-role="${esc(m.role)}" data-note="${esc(m.note ?? "")}"><b>${personHtml(m.user, names?.[m.user], handles)}</b> <span class="faint">${role}</span>${note}</li>`;
     })
     .join("");
   const form = canEdit
@@ -88,7 +90,7 @@ function paint(c){
   if(ul){ul.replaceChildren();const ms=c.members||[];
     if(!ms.length){const li=document.createElement('li');li.className='faint';li.textContent=tr('No members');ul.appendChild(li)}
     for(const m of ms){const li=document.createElement('li');li.dataset.user=m.user;li.dataset.role=m.role||'contributor';li.dataset.note=m.note||'';
-      const b=document.createElement('b');b.textContent=m.user;li.appendChild(b);
+      const b=document.createElement('b');b.textContent=((window.BC&&BC.dn)||{})[m.user]||m.user;if(b.textContent!==m.user)b.title='@'+m.user;li.appendChild(b);
       const r=document.createElement('span');r.className='faint';r.textContent=' '+(roleName[m.role]||m.role||'');li.appendChild(r);
       if(m.note){const n=document.createElement('span');n.className='faint';n.textContent=' · '+m.note;li.appendChild(n)}
       ul.appendChild(li)}}
@@ -96,7 +98,7 @@ function paint(c){
 }
 function noteFields(ms){const box=document.getElementById('ch-notes');if(!box)return;box.replaceChildren();
   for(const m of ms){const row=document.createElement('div');row.className='ch-note';
-    const name=document.createElement('span');name.className='xs truncate';name.textContent=m.user;row.appendChild(name);
+    const name=document.createElement('span');name.className='xs truncate';name.textContent=((window.BC&&BC.dn)||{})[m.user]||m.user;row.appendChild(name);
     const inp=document.createElement('input');inp.className='input grow';inp.maxLength=120;inp.dataset.chUser=m.user;inp.value=m.note||'';inp.setAttribute('aria-label',tr('Note for {name}',{name:m.user}));
     row.appendChild(inp);box.appendChild(row)}}
 function openEdit(){if(!CH)return;chEditing=true;const f=document.getElementById('ch-form');if(!f)return;

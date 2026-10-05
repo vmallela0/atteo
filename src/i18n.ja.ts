@@ -704,6 +704,7 @@ export const JA: Record<string, string> = {
   "Show all {n}": "{n} 件すべて表示",
   "Show board info": "ボード情報を表示",
   "Show in conversation": "会話で表示",
+  "Show in chat": "チャットで表示",
   "Show less": "表示を減らす",
   "Show the ": "表示 ",
   "Show the message": "メッセージを表示",

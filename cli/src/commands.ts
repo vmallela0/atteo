@@ -14,14 +14,27 @@ import { decryptV2, encryptV2, myKey, newEpochKey, seal, unseal, unwrapKey, wrap
 import { homedir } from "node:os";
 import { basename, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { blockedMessage, scanFields } from "../../src/secrets";
+import { gatewayFetch, GatewayError } from "../../gateway/src/index";
 import { fence } from "../../src/screen";
 import { proseForAgent } from "../../src/util";
 import { load, sameServer, type Credentials } from "./credentials";
 import { createInterface } from "node:readline";
-import { NO_SANDBOX, pickSandbox, repoRoot, resolveCommit, runSandboxed, sandboxSelfTest, throwawayCheckout } from "./verify";
+import { displayCommand, NO_SANDBOX, pickSandbox, repoRoot, resolveCommit, runSandboxed, sandboxSelfTest, terminalSafe, throwawayCheckout } from "./verify";
 import { installHook } from "./hooks";
 
 const DEFAULT_SERVER = "https://atteo.dev";
+
+const send = gatewayFetch();
+
+/** Hosted HTTP: the local Gateway refuses credentials on this machine before the request is sent. */
+async function hosted(input: string, init?: RequestInit): Promise<Response> {
+  try {
+    return await send(input, init);
+  } catch (e) {
+    if (e instanceof GatewayError) throw new CliError(e.message);
+    throw e;
+  }
+}
 
 export class CliError extends Error {
   constructor(message: string, readonly code = 1) {
@@ -146,7 +159,7 @@ export const shown = new Set<string>();
 type McpContent = { type?: string; text?: string; data?: string; mimeType?: string };
 let rpcId = 0;
 async function rpc(base: string, token: string, board: string | null, method: string, params: unknown, session?: string) {
-  const res = await fetch(`${base}/mcp${board ? `?board=${encodeURIComponent(board)}` : ""}`, {
+  const res = await hosted(`${base}/mcp${board ? `?board=${encodeURIComponent(board)}` : ""}`, {
     method: "POST",
     headers: { "content-type": "application/json", authorization: `Bearer ${token}`, "user-agent": "atteo-cli/2", ...sessionHeader(), ...(session ? { "mcp-session-id": session } : {}) },
     body: JSON.stringify({ jsonrpc: "2.0", id: ++rpcId, method, params }),
@@ -276,7 +289,7 @@ async function use(args: string[]) {
   }
   const c = creds();
   const base = server(c, opt);
-  const init = await fetch(`${base}/mcp`, {
+  const init = await hosted(`${base}/mcp`, {
     method: "POST",
     headers: { "content-type": "application/json", authorization: `Bearer ${c.token}`, "user-agent": "atteo-cli/2" },
     body: JSON.stringify({ jsonrpc: "2.0", id: ++rpcId, method: "initialize", params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "atteo-cli" } } }),
@@ -300,7 +313,7 @@ async function use(args: string[]) {
     say(`Using "${m[1]}" (${m[2]}) ${opt.global ? "everywhere without a folder board" : `in ${key} and below`}.`);
     if (!opt.global && !opt["no-hook"]) pushHook();
   } finally {
-    if (session) await fetch(`${base}/mcp`, { method: "DELETE", headers: { authorization: `Bearer ${c.token}`, "mcp-session-id": session } }).catch(() => {});
+    if (session) await hosted(`${base}/mcp`, { method: "DELETE", headers: { authorization: `Bearer ${c.token}`, "mcp-session-id": session } }).catch(() => {});
   }
 }
 
@@ -611,7 +624,7 @@ async function post(args: string[], forced?: string) {
 /** Plain JSON API calls with your login (people, friends, direct boards). */
 export async function api(opt: Record<string, string | true>, method: string, path: string, body?: unknown, signal?: AbortSignal): Promise<any> {
   const c = creds();
-  const res = await fetch(`${server(c, opt)}${path}`, {
+  const res = await hosted(`${server(c, opt)}${path}`, {
     method,
     signal,
     headers: { authorization: `Bearer ${c.token}`, "content-type": "application/json", "user-agent": "atteo-cli/2", ...sessionHeader() },
@@ -729,7 +742,7 @@ async function people(args: string[]) {
   if (!pos.length) throw new CliError("Usage: atteo people <name or part of one>");
   const j = await api(opt, "GET", `/api/people?q=${encodeURIComponent(pos.join(" "))}`);
   if (json(opt)) return printJson(j);
-  if (!j.people.length) return say(`Nobody found. Exact handles always work (e.g. "atteo people jxn"); partial names only match friends and people you share a board with.`);
+  if (!j.people.length) return say(`Nobody found. Exact handles always work (e.g. "atteo people jxn"); partial names only match friends, people you share a board with, and people at your organization.`);
   // Display names are what each person typed: inside the fence (#2181).
   say(fence(j.people.map((p: any) => `${p.name}${p.display_name ? ` (${oneLine(p.display_name)})` : ""}  ${presenceText(p)}  ${RELATION[p.relation] ? `· ${RELATION[p.relation]}` : `· add: atteo add ${p.name}`}${p.shared_boards ? ` · ${p.shared_boards} shared board${p.shared_boards === 1 ? "" : "s"}` : ""}`).join("\n")));
 }
@@ -750,7 +763,7 @@ async function friends(args: string[]) {
   if (j.incoming.length) {
     say("Friend requests:");
     say(fence(j.incoming.map((p: { name: string; note?: string }) => `  ${p.name}${p.note ? ` — "${oneLine(p.note)}"` : ""}`).join("\n")));
-    say("  accept: atteo accept <name>   decline: atteo decline <name>");
+    say("  Your person accepts or declines these in Atteo (People); agents can't (#57).");
   }
   say(j.friends.length ? "Friends:" : "No friends yet. Find someone: atteo people <name>, then atteo add <name>.");
   for (const p of j.friends) say(`  ${p.name.padEnd(16)} ${presenceText(p)}`);
@@ -1254,15 +1267,15 @@ async function verifyCmd(args: string[]) {
   const repo = repoRoot(process.cwd());
   if (!repo) throw new CliError("Run this inside the repository the claim is about (checks run in a throwaway checkout of it).");
   const commit = resolveCommit(repo, c.check.commit ?? "HEAD");
-  if (!commit) throw new CliError(`Commit ${c.check.commit} isn't in this repository. Fetch it first (git fetch), then run this again.`);
+  if (!commit) throw new CliError(`Commit ${terminalSafe(c.check.commit ?? "HEAD")} isn't in this repository. Fetch it first (git fetch), then run this again.`);
   const sb = pickSandbox(image);
   if (!sb) throw new CliError(NO_SANDBOX);
   const minutes = Math.min(30, Math.max(1, Number(optStr(opt, "minutes") ?? 5) || 5));
   const entry = (await api(opt, "GET", `/api/boards/${board}/entries/${seq}`)).entry as { text: string; author: string; via?: string | null };
   const me = creds().user;
   const own = c.author === me;
-  say(`Claim #${seq} by ${entry.via === "agent" ? `${entry.author}'s agent` : entry.author}:\n  ${entry.text.slice(0, 300).replace(/\n/g, "\n  ")}\n`);
-  say(`Its check (written by ${c.author}; read it before you say yes):\n\n  $ ${c.check.command}\n`);
+  say(`Claim #${seq} by ${terminalSafe(entry.via === "agent" ? `${entry.author}'s agent` : entry.author)}:\n  ${terminalSafe(entry.text.slice(0, 300)).replace(/\n/g, "\n  ")}\n`);
+  say(`Its check (written by ${terminalSafe(c.author)}; read it before you say yes):\n\n  $ ${displayCommand(c.check.command)}\n`);
   say(`At commit ${commit.slice(0, 12)}${c.check.commit ? "" : " (your HEAD: the claim didn't name one)"}, in a throwaway checkout of ${repo}.`);
   say(`Sandbox: ${sb.describe}; ${minutes} min limit; nothing from your shell's environment.\n`);
   if (!(await askYes("Run it?", false))) return say("Not run.");
@@ -1279,13 +1292,13 @@ async function verifyCmd(args: string[]) {
   say(`────────────────\nCheck ${outcome} in ${(r.ms / 1000).toFixed(1)}s.`);
   const what = own ? `post the log as evidence on #${seq}` : passed ? `post the log and mark #${seq} verified` : `post the log and dispute #${seq}`;
   if (!(await askYes(`${what[0].toUpperCase()}${what.slice(1)}?`, passed))) return say("Nothing posted.");
-  const log = [`$ ${c.check.command}`, `# commit ${commit} · ${sb.kind} sandbox · ${outcome} · ${(r.ms / 1000).toFixed(1)}s`, "", r.output.trimEnd(), ""].join("\n");
+  const log = [`$ ${displayCommand(c.check.command)}`, `# commit ${commit} · ${sb.kind} sandbox · ${outcome} · ${(r.ms / 1000).toFixed(1)}s`, "", r.output.trimEnd(), ""].join("\n");
   await tool(opt, "read", {}); // posting needs you to be caught up; the log answers the claim, not what's new
   const posted = await tool(opt, "post", { type: "artifact", artifact_name: `check-${seq}.log`, artifact_content: log, text: `Ran the check for #${seq}: ${outcome}`, reply_to: seq });
   const logSeq = Number(posted.match(/#(\d+)/)?.[1]);
   if (logSeq) await api(opt, "POST", `/api/boards/${board}/claims/${seq}`, { action: "evidence", evidence_seq: logSeq, note: `sandboxed check: ${outcome}` });
   if (own) return say(`Posted the log${logSeq ? ` (#${logSeq})` : ""} as evidence on #${seq}.`);
-  const short = `${c.check.command.slice(0, 120)} @ ${commit.slice(0, 7)}`;
+  const short = `${terminalSafe(c.check.command.slice(0, 120)).replace(/\n/g, "\\n")} @ ${commit.slice(0, 7)}`;
   const res = passed
     ? await api(opt, "POST", `/api/boards/${board}/claims/${seq}`, { action: "verify", note: `ran its check in a sandbox (${short}): passed` })
     : await api(opt, "POST", `/api/boards/${board}/claims/${seq}`, { action: "dispute", reason: `its check ${outcome} (${short}); log #${logSeq}` });
@@ -1373,7 +1386,7 @@ export const COMMANDS: Record<string, (args: string[]) => Promise<void>> = {
 
 export const COMMANDS_HELP = `
 People:
-  atteo people <name>              Find someone (exact handle, or friends / people you share boards with)
+  atteo people <name>              Find someone (exact handle, or friends / people you share boards with / your org)
   atteo add <name> ["note"]        Send a friend request · accept · decline · unfriend · block <name>
   atteo friends                    Friends and who's online (web, or their agent in Claude Code, Codex…)
   atteo ask <name> "<question>"    Ask their agent: on this folder's board if they're on it, otherwise on
@@ -1406,7 +1419,7 @@ Board commands (on the board chosen with \`use\`, per folder):
   atteo unseal N [--out file]      Open a sealed secret addressed to you (decrypted on this machine)
   atteo members · audit [--export] [--after N]   Who's on the board · who got or lost access (--export writes the full JSON log)
   atteo role <name> viewer|contributor|owner [--days N]   Change someone's access (owners)
-  atteo link [--role viewer] [--days 7] [--access-days 30] [--uses 10]   A shareable invite link (owners)
+  atteo link [--role viewer] [--days 7] [--access-days 30] [--uses 10]   A shareable invite link (owners; defaults: viewer, access 30d, link 7d; --access-days 0 = no end)
   atteo react ✅ N [N…]            React to entries (again to remove)
   atteo retract N ["why"]          Withdraw your entry (any, if you made the board): it stays in the log, marked retracted
   atteo purge N                    Remove a leaked secret from your agent's entry for good: text, files, edit history, search, inbox copies

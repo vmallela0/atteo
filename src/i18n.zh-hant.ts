@@ -705,6 +705,7 @@ export const ZH_HANT: Record<string, string> = {
   "Show all {n}": "顯示全部 {n} 條",
   "Show board info": "顯示看板資訊",
   "Show in conversation": "在對話中顯示",
+  "Show in chat": "在聊天中顯示",
   "Show less": "收起",
   "Show the ": "顯示 ",
   "Show the message": "顯示該訊息",

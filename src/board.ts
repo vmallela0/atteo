@@ -6,8 +6,8 @@ import { imageSize, sniffImage } from "./imageSize";
 import { fence, flagNote, flagOf, screenText } from "./screen";
 import { FOR_LABEL, pingExcerpt, triagePreview, webhookForWhom } from "./ping";
 import { DurableObject } from "cloudflare:workers";
-import { computeSummary, formatSummary, summaryWithNames, tasksFor, withinReadBudget, withNames, DEFAULT_SUMMARY_CHARS, type Summary } from "./state";
-import { noteClaimReview, noteContextPack, noteEgressBlock, notePaste, noteStaleNotice } from "./observe";
+import { computeSummary, formatSummary, summaryWithNames, summaryWithinBudget, tasksFor, withinReadBudget, withNames, DEFAULT_SUMMARY_CHARS, type Summary } from "./state";
+import { noteClaimReview, noteContextPack, noteContextPackMs, noteEgressBlock, noteFirstAgentPost, notePaste, noteStaleNotice } from "./observe";
 import { blockedMessage, scanFields, scanText, type SecretHit } from "./secrets";
 import { recordOutcome } from "./agents";
 import { ALL_AGENTS, ALL_HUMANS, ALL_MEMBERS, forAgent, forPerson, hasGroupMention, keep, MAX_GROUP_MENTIONS, MAX_MENTIONS, mentionsOwnAgent, parseMentions, SESSION_NAME_RE, type Mention } from "./mentions";
@@ -38,6 +38,42 @@ import { scrubQuote } from "./forwards";
 
 export const MAX_TEXT = 32_000;
 export const MAX_ARTIFACT = 256_000;
+/** D1 (and this SQLite) allow at most 100 bound parameters per statement. */
+export const D1_BIND_LIMIT = 100;
+/**
+ * `seq IN (...)` after two fixed binds (value + board id) stays at 92.
+ * `(last_activity, last_author) IN ((?, ?), ...)` is two binds per row plus those same two fixed
+ * binds, so a 90-row chunk would send 182 parameters and fail on D1.
+ */
+export const D1_SEQ_CHUNK = 90;
+export const D1_LAST_EXCERPT_CHUNK = 45;
+
+/** Directory copies that retention blanks before the local commit. last_excerpt is chunked tighter than seq lists. */
+export function retentionDirectoryUpdates<T>(
+  db: { prepare(sql: string): { bind(...args: unknown[]): T } },
+  blank: string,
+  boardId: string,
+  rows: { seq: number; ts: number; author: string }[],
+): T[] {
+  const stmts: T[] = [];
+  for (let i = 0; i < rows.length; i += D1_SEQ_CHUNK) {
+    const chunk = rows.slice(i, i + D1_SEQ_CHUNK);
+    const q = chunk.map(() => "?").join(",");
+    stmts.push(
+      db.prepare(`UPDATE notifications SET excerpt = ? WHERE board_id = ? AND seq IN (${q})`).bind(blank, boardId, ...chunk.map((r) => r.seq)),
+      db.prepare(`UPDATE notifications SET data = json_set(data, '$.event.line', ?) WHERE board_id = ? AND kind = 'trigger' AND json_valid(data) AND json_extract(data, '$.event.seq') IN (${q})`).bind(blank, boardId, ...chunk.map((r) => r.seq)),
+      db.prepare(`UPDATE tape SET excerpt = ? WHERE board_id = ? AND seq IN (${q})`).bind(blank, boardId, ...chunk.map((r) => r.seq)),
+    );
+    for (let j = 0; j < chunk.length; j += D1_LAST_EXCERPT_CHUNK) {
+      const pairs = chunk.slice(j, j + D1_LAST_EXCERPT_CHUNK);
+      stmts.push(
+        db.prepare(`UPDATE boards SET last_excerpt = ? WHERE id = ? AND (last_activity, last_author) IN (${pairs.map(() => "(?, ?)").join(",")})`).bind(blank, boardId, ...pairs.flatMap((r) => [r.ts, r.author])),
+      );
+    }
+  }
+  return stmts;
+}
+
 /** How many entries one post may resolve (REST and MCP alike). */
 export const MAX_RESOLVES = 50;
 export const MAX_WAIT_MS = 55_000;
@@ -164,6 +200,8 @@ export interface Doc {
   updated_at: number;
   via: string | null;
   client: string | null;
+  /** The message that posted this version (Show in chat, jxn #4359); null if none everyone can see (an edit, private, unsent). */
+  seq?: number | null;
 }
 export interface DocVersion {
   version: number;
@@ -198,12 +236,9 @@ export interface PinnedDoc {
   updated_at: number;
 }
 
-/** The summary names the pinned doc right under its members line. */
-export function withPinned(summary: string, p: PinnedDoc | null): string {
-  if (!p) return summary;
-  const lines = summary.split("\n");
-  lines.splice(Math.min(2, lines.length), 0, `Pinned doc (source of truth): ${p.name} v${p.version} (doc read ${p.name})`);
-  return lines.join("\n");
+/** The one line the summary uses for the board's pinned doc. It counts against a caller-set summary budget. */
+export function pinnedSummaryLine(p: PinnedDoc): string {
+  return `Pinned doc (source of truth): ${p.name} v${p.version} (doc read ${p.name})`;
 }
 
 export const DOC_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9 ._\-/]{0,79}$/;
@@ -720,6 +755,9 @@ export class Board extends DurableObject<Env> {
     // Optional JSON object attached at post time (entryData.ts). Null when the post had none.
     if (!cols.has("data")) this.sql.exec("ALTER TABLE entries ADD COLUMN data TEXT");
     if (!cols.has("edited_at")) this.sql.exec("ALTER TABLE entries ADD COLUMN edited_at INTEGER");
+    // Retention compacts an entry once. Unlike a sequence watermark this remains correct if clocks move backwards or an
+    // older restored entry appears after a newer one.
+    if (!cols.has("retained_at")) this.sql.exec("ALTER TABLE entries ADD COLUMN retained_at INTEGER");
     // Purged (#3853): who removed it, JSON {by, via}, so a page can show a placeholder; backfilled from the purged table.
     if (!cols.has("purged")) {
       this.sql.exec("ALTER TABLE entries ADD COLUMN purged TEXT");
@@ -1343,7 +1381,10 @@ export class Board extends DurableObject<Env> {
     if (internal.attachments) this.indexEntry(entry.seq, entry.text, internal.attachments.list.map((a) => a.name).join(" "), null, internal.attachments.text || null);
     else this.indexEntry(entry.seq, handoff && !isResult(handoff) ? `${entry.text}\n${handoffText(handoff)}` : entry.text, entry.artifact_name, entry.card ?? null, artifactContent);
     // A write that landed. System lines and board notices aren't pastes; test accounts stay out of the ops counters.
-    if (!user.startsWith("e2e-") && !internal.system && !internal.notice) notePaste(this.env, this.ctx, input.via);
+    if (!user.startsWith("e2e-") && !internal.system && !internal.notice) {
+      notePaste(this.env, this.ctx, input.via);
+      if (input.via !== "person") noteFirstAgentPost(this.env, this.ctx, user);
+    }
     // A handoff's own fields are screened like its text: instructions in checks are flagged the same way.
     const handoffFlag = handoff && !isResult(handoff) ? screenText(handoffText(handoff)) : null;
     if (handoffFlag && !handoffFlag.quoted) {
@@ -1549,7 +1590,8 @@ export class Board extends DurableObject<Env> {
    * past what was returned. The board's summary comes with a member's first read of the board, then only when asked
    * for (`summary: true`); `summary: false` never.
    */
-  async read(user: string, opts: { limit?: number; since?: number; summary?: boolean; names?: Record<string, string>; maxChars?: number } = {}, session?: string | null) {
+  async read(user: string, opts: { limit?: number; since?: number; summary?: boolean; names?: Record<string, string>; maxChars?: number; summaryChars?: number } = {}, session?: string | null) {
+    const started = Date.now();
     const info = this.info();
     this.renewLeases(user, session);
     const rules = this.rulesFor(user, session);
@@ -1581,11 +1623,18 @@ export class Board extends DurableObject<Env> {
       pin: this.pinLine(user, session, pinned), // "📌 SPEC.md updated to v4": once per version per reader, else null
       summaryText: withSummary
         ? (() => {
-            const text = withPinned(formatSummary(info, members, summaryWithNames(c.summary, opts.names), user, DEFAULT_SUMMARY_CHARS, this.decisions.tags(c.tags), c.reviewers, opts.names), pinned);
+            // summaryChars: a caller-set summary budget, already in characters (summary_budget tokens × ~4).
+            // Omit it and the summary stays at ~4k tokens. The pinned-doc line counts; the encryption notice does not.
+            const text = summaryWithinBudget(
+              (maxChars) => formatSummary(info, members, summaryWithNames(c.summary, opts.names), user, maxChars, this.decisions.tags(c.tags), c.reviewers, opts.names),
+              opts.summaryChars ?? DEFAULT_SUMMARY_CHARS,
+              pinned ? pinnedSummaryLine(pinned) : null,
+            );
             const pack = info.encrypted
               ? `This board is END-TO-END ENCRYPTED: messages are ciphertext here. Read and write it with the atteo CLI (atteo read / post / ask), which decrypts and encrypts on this machine.\n\n${text}`
               : text;
             noteContextPack(this.env, this.ctx, pack, user);
+            noteContextPackMs(this.env, this.ctx, Date.now() - started, user);
             return pack;
           })()
         : null,
@@ -4376,9 +4425,19 @@ export class Board extends DurableObject<Env> {
     if (version != null && version !== cur.version) {
       const v = this.sql.exec("SELECT name, version, content, author AS updated_by, ts AS updated_at, via, client FROM doc_versions WHERE name = ? AND version = ?", name, version).toArray()[0];
       if (!v) throw new BoardError(`"${name}" has no version ${version} (current is v${cur.version}; older versions may have been pruned).`);
-      return { ...(v as unknown as Doc), latest: cur.version as number, media: this.mediaOf(name, version) };
+      return { ...(v as unknown as Doc), latest: cur.version as number, media: this.mediaOf(name, version), seq: this.postedIn(name, version) };
     }
-    return { ...(cur as unknown as Doc), latest: cur.version as number, media: this.mediaOf(name, cur.version as number) };
+    return { ...(cur as unknown as Doc), latest: cur.version as number, media: this.mediaOf(name, cur.version as number), seq: this.postedIn(name, cur.version as number) };
+  }
+
+  /** The message everyone can see that posted version `v` of file `name`, as its first file or one of several. */
+  private postedIn(name: string, v: number): number | null {
+    const r = this.sql.exec(
+      `SELECT seq FROM entries e WHERE retracts IS NULL AND audience IS NULL AND artifact_name IS NOT NULL
+         AND ((artifact_name = ?1 AND artifact_version = ?2) OR (attachments IS NOT NULL AND EXISTS (SELECT 1 FROM json_each(e.attachments) j WHERE json_extract(j.value, '$.name') = ?1 AND json_extract(j.value, '$.version') = ?2)))
+         AND NOT EXISTS (SELECT 1 FROM entries x WHERE x.retracts = e.seq) ORDER BY seq LIMIT 1`,
+      name, v).toArray()[0];
+    return r ? (r.seq as number) : null;
   }
 
   async docHistory(name: string): Promise<DocVersion[]> {
@@ -4739,35 +4798,68 @@ export class Board extends DurableObject<Env> {
   }
 
   /**
-   * Retention: blank everything posted before `cutoff`. Entry numbers, authors and threads stay (so references still
-   * resolve); text, files, cards, sealed envelopes and their search entries go. Returns how many entries were blanked.
+   * Retention: compact everything posted before `cutoff`. Entry numbers, authors, routing and threads stay (so
+   * references and access control still work); message payloads, old edits, superseded file versions, search rows and
+   * directory excerpts go. Purged entries keep their stronger, attributed placeholder. Returns how many entries were
+   * compacted.
    */
   async prune(cutoff: number): Promise<number> {
     const BLANK = "(removed: older than this board keeps messages)";
-    // Walk forward from where the last prune stopped (entries are in time order), so each run reads only what it blanks.
-    const rows: number[] = [];
-    let from = Number(this.meta("pruned_through") ?? 0);
+    const info = this.info();
+    let count = 0;
     for (;;) {
-      const page = this.sql.exec("SELECT seq, ts FROM entries WHERE seq > ? ORDER BY seq LIMIT 500", from).toArray();
-      const old = page.filter((r) => (r.ts as number) < cutoff).map((r) => r.seq as number);
-      rows.push(...old);
-      if (old.length < page.length || !page.length) break;
-      from = old[old.length - 1];
+      // Select by timestamp rather than assuming sequence order is also time order. retained_at makes this bounded and
+      // lets a retry finish safely if the directory update succeeded but the object restarted before its local commit.
+      const rows = this.sql
+        .exec("SELECT seq, ts, author FROM entries WHERE ts < ? AND retained_at IS NULL AND purged IS NULL ORDER BY seq LIMIT 500", cutoff)
+        .toArray()
+        .map((r) => ({ seq: r.seq as number, ts: r.ts as number, author: r.author as string }));
+      if (!rows.length) break;
+
+      // Inbox/mailbox, trigger mail and the cross-board tape contain copies of message text outside this object. Blank
+      // those first: if D1 fails, the entry remains eligible for a later retry instead of claiming it was compacted.
+      // last_excerpt is included here too; pair matches are chunked at 45 so each statement stays under D1's 100 binds.
+      for (let i = 0; i < rows.length; i += D1_SEQ_CHUNK) {
+        await this.env.DB.batch(retentionDirectoryUpdates(this.env.DB, BLANK, info.id, rows.slice(i, i + D1_SEQ_CHUNK)));
+      }
+
+      this.ctx.storage.transactionSync(() => {
+        for (let i = 0; i < rows.length; i += D1_SEQ_CHUNK) {
+          const chunk = rows.slice(i, i + D1_SEQ_CHUNK);
+          const q = chunk.map(() => "?").join(",");
+          this.sql.exec(
+            `UPDATE entries
+                SET text = ?, title = NULL, artifact_name = NULL, artifact_size = NULL, artifact_version = NULL,
+                    artifact_content = NULL, card = NULL, card_diff = NULL, media = NULL, attachments = NULL,
+                    approval = NULL, data = NULL, handoff = NULL, sealed = NULL, sealed_to = NULL, ai_flag = NULL,
+                    retained_at = ?
+              WHERE seq IN (${q})`,
+            BLANK,
+            Date.now(),
+            ...chunk.map((r) => r.seq),
+          );
+          this.sql.exec(`DELETE FROM entry_versions WHERE seq IN (${q})`, ...chunk.map((r) => r.seq));
+          this.sql.exec(`DELETE FROM search_idx WHERE kind = 'entry' AND ref IN (${q})`, ...chunk.map((r) => String(r.seq)));
+        }
+      });
+      count += rows.length;
     }
-    if (!rows.length) return 0;
-    this.setMeta("pruned_through", String(rows[rows.length - 1]));
-    this.sql.exec("UPDATE entries SET text = ?, artifact_content = NULL, card = NULL, card_diff = NULL, sealed = NULL WHERE seq BETWEEN ? AND ?", BLANK, rows[0], rows[rows.length - 1]);
-    for (let i = 0; i < rows.length; i += 90) {
-      const chunk = rows.slice(i, i + 90);
-      this.sql.exec(`DELETE FROM search_idx WHERE kind = 'entry' AND ref IN (${chunk.map(() => "?").join(",")})`, ...chunk.map(String));
-    }
-    // Old versions of files go too (the current version of each stays).
-    this.sql.exec("DELETE FROM doc_versions WHERE ts < ? AND version < (SELECT version FROM docs d WHERE d.name = doc_versions.name)", cutoff);
+
+    // Old versions of files go too (the current board document stays). Delete binary and text copies together.
+    // This runs even when no entry was newly compacted, so a restart after the entry transaction cannot strand bytes.
+    this.ctx.storage.transactionSync(() => {
+      this.sql.exec(
+        "DELETE FROM blobs WHERE EXISTS (SELECT 1 FROM doc_versions v JOIN docs d ON d.name = v.name WHERE v.name = blobs.name AND v.version = blobs.version AND v.ts < ? AND v.version < d.version)",
+        cutoff,
+      );
+      this.sql.exec("DELETE FROM doc_versions WHERE ts < ? AND version < (SELECT version FROM docs d WHERE d.name = doc_versions.name)", cutoff);
+    });
+    if (!count) return 0;
     this.entryMemo = [];
     this.entryMemoTo = 0;
     this.changes++;
     this.broadcast({ type: "pruned", before: cutoff });
-    return rows.length;
+    return count;
   }
 
   /** Operators only (load tests): many plain notes at once, past the post rate limit. */

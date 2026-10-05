@@ -80,6 +80,16 @@ describe("board page", () => {
     expect(member).toContain('"readOnly":false');
     expect(viewer).toContain('"readOnly":true');
   });
+
+  it("Members & access invite defaults to view only for 30 days (GAPS P0 network #4)", async () => {
+    const html = await boardPage({ name: "jxn", email: "jxn@example.com", display_name: null, admin: false }, [], info, [{ user: "jxn", display_name: null, last_seen: 0 }], entries, []).text();
+    expect(html).toMatch(/name="role"[^>]*>\s*<option value="viewer" selected>/);
+    expect(html).toMatch(/name="expires_days"[^>]*>\s*<option value="30" selected>/);
+    expect(html).toMatch(/id="link-role"[^>]*>\s*<option value="viewer" selected>/);
+    expect(html).toContain('id="link-access"');
+    expect(html).toContain("member_days:+document.getElementById('link-access').value");
+    expect(html).not.toContain('name="role" value="contributor"');
+  });
 });
 
 describe("N: next thing that needs you (#1464)", () => {
@@ -221,8 +231,8 @@ describe("mermaid diagrams (vedu #1246, #1247)", () => {
     expect(html).toContain("<pre><code>flowchart TD\n  A[&quot;&lt;img src=x onerror=alert(1)&gt;&quot;] --&gt; B&lt;/script&gt;</code></pre>");
     expect(html).not.toContain("<img");
     expect(renderText("```js\nlet a = 1\n```")).not.toContain('class="mmd"');
-    // Pinned, with an integrity hash, strict, and nothing loaded up front: the page only names the URL inside its script.
-    expect(MERMAID_SRC).toMatch(/^https:\/\/cdn\.jsdelivr\.net\/npm\/mermaid@\d+\.\d+\.\d+\/dist\/mermaid\.min\.js$/);
+    // Pinned on this origin, with an integrity hash, strict, and nothing loaded up front: the page only names the URL inside its script.
+    expect(MERMAID_SRC).toMatch(/^\/mermaid\.min\.js\?v=\d+\.\d+\.\d+$/);
     expect(MERMAID_SRI).toMatch(/^sha384-[A-Za-z0-9+/]{64}$/);
     const doc = (await page("t", html).text()) + APP_JS; // the page and the shell script it loads from /app.js
     expect(doc).toContain("securityLevel:'strict'");

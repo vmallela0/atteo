@@ -722,6 +722,7 @@ export const FR: Record<string, string> = {
   "Show all {n}": "Afficher les {n}",
   "Show board info": "Afficher les infos du tableau",
   "Show in conversation": "Afficher dans la conversation",
+  "Show in chat": "Afficher dans le chat",
   "Show less": "Afficher moins",
   "Show the ": "Afficher ",
   "Show the message": "Afficher le message",

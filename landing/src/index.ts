@@ -8,6 +8,7 @@ import OG_PNG from "../og.png"; // 1200×630 share image, rendered from ../og.ht
 // The app's own fonts (opus-d, look-2): the same files at /fonts/<file>?v=N, which this Worker forwards to the app, so
 // the landing and the app share one copy and no page asks Google for anything.
 import { FONT_CSS, FONT_V } from "../../src/fontfaces";
+import { landingCsp } from "./csp";
 
 /**
  * Where people open the app: "Open Atteo", the install command and the MCP URL all use it. Today that's this same host
@@ -159,7 +160,8 @@ const TITLE = "Atteo · A shared chat for you, your people and your agents";
 const DESCRIPTION = "A shared chat where you, your people and your agents work things out.";
 
 /** Structured data (schema.org JSON-LD, vedu #3151): who makes Atteo and what it is on the home page; on /faq, its
- *  questions, read from the page's own <h2>/<p> pairs so the data always matches what's shown. */
+ *  questions, read from the page's own <h2>/<p> pairs so the data always matches what's shown. The landing CSP
+ *  hashes this block (landing/src/csp.ts); crawlers read it from the HTML and do not need to execute it. */
 function jsonLd(path: string): string {
   const org = { "@type": "Organization", "@id": `${SITE_URL}/#org`, name: "Atteo", url: `${SITE_URL}/`, logo: `${SITE_URL}/apple-touch-icon.png` };
   const text = (h: string) => h.replace(/<[^>]+>/g, "").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&amp;/g, "&").replace(/\s+/g, " ").trim();
@@ -378,6 +380,20 @@ const SECURITY_HEADERS = {
   "x-frame-options": "DENY",
 };
 
+/** HTML for /, /guide and /faq: enforced hash CSP (docs/security/csp.md #8), still publicly cacheable. Independent of the app's CSP_ENFORCE. */
+async function html(body: string, extra: Record<string, string> = {}): Promise<Response> {
+  return new Response(body, {
+    headers: {
+      "content-type": "text/html; charset=utf-8",
+      "cache-control": "public, max-age=300",
+      "content-security-policy": await landingCsp(body, new URL(APP_URL).origin),
+      "reporting-endpoints": 'csp="/api/csp-report"',
+      ...SECURITY_HEADERS,
+      ...extra,
+    },
+  });
+}
+
 interface Env {
   APP_ORIGIN?: string;
   APP?: Fetcher; // the app Worker as a service binding (production: Workers can't fetch a workers.dev address on their own account, error 1042)
@@ -409,23 +425,17 @@ export default {
     if (read && path === "/" && !hasSession(request)) {
       const theme = url.searchParams.get("theme");
       const t = theme === "dark" || theme === "light" ? theme : null; // ?theme= forces one (screenshots, previews)
-      return new Response(home(t), {
-        headers: { "content-type": "text/html; charset=utf-8", "cache-control": "public, max-age=300", vary: "Cookie", ...SECURITY_HEADERS },
-      });
+      return html(home(t), { vary: "Cookie" });
     }
     // The app's /guide is an app page with the sidebar for signed-in people (src/guide.ts); the landing's marketing
     // guide is the signed-out version, like "/" — anyone signed in is forwarded to the app untouched.
     if (read && path === "/guide" && !hasSession(request)) {
       const theme = url.searchParams.get("theme");
-      return new Response(guidePage(theme === "dark" || theme === "light" ? theme : null), {
-        headers: { "content-type": "text/html; charset=utf-8", "cache-control": "public, max-age=300", ...SECURITY_HEADERS },
-      });
+      return html(guidePage(theme === "dark" || theme === "light" ? theme : null));
     }
     if (read && path === "/faq") {
       const theme = url.searchParams.get("theme");
-      return new Response(faqPage(theme === "dark" || theme === "light" ? theme : null), {
-        headers: { "content-type": "text/html; charset=utf-8", "cache-control": "public, max-age=300", ...SECURITY_HEADERS },
-      });
+      return html(faqPage(theme === "dark" || theme === "light" ? theme : null));
     }
     if (read && path === "/og.png") return asset(OG_PNG, "image/png");
     if (read && path === "/robots.txt") return asset(ROBOTS, "text/plain; charset=utf-8");

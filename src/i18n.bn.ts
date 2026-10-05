@@ -698,6 +698,7 @@ export const BN: Record<string, string> = {
   "Show all {n}": "সব {n}টি দেখান",
   "Show board info": "বোর্ডের তথ্য দেখান",
   "Show in conversation": "কথোপকথনে দেখান",
+  "Show in chat": "চ্যাটে দেখান",
   "Show less": "কম দেখান",
   "Show the ": "দেখান ",
   "Show the message": "বার্তাটি দেখান",

@@ -121,6 +121,11 @@ class Atteo:
     def search(self, query):
         return self._call("GET", "/api/boards/search?q=" + urllib.parse.quote(query))
 
+    def ls(self, board, path=None, long=False, since=None, limit=None):
+        """List the board as a read-only tree (state.md, files/, log/). Nothing is marked read. Encrypted boards are refused."""
+        q = urllib.parse.urlencode({k: v for k, v in (("path", path), ("long", "1" if long else None), ("since", since), ("limit", limit)) if v is not None and v is not False})
+        return self._call("GET", "/api/boards/%s/ls%s" % (board, "?" + q if q else ""))
+
     def export(self, board, since=0):
         """Every entry you can see after #`since`, oldest first, with its reactions: your own copy of the log. Pages the
         entries without acknowledging them, so it never moves your read position. On an end-to-end encrypted board the
