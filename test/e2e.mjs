@@ -6087,14 +6087,14 @@ await step("session model: people see it on the web, agents never get it (reads,
     assert((await ops("usage-daily", { day: oldDay, metric: "requests", key: "stale", count: 1 })).status === 200, "seed old usage_daily row");
     const cronNear = await ops("cron", {});
     assert(cronNear.body.housekeeping === false, `housekeeping paused: ${JSON.stringify(cronNear.body)}`);
-    let kept = (await ops("usage-daily")).body.rows?.filter((r) => r.day === oldDay) ?? [];
+    let kept = (await ops(`usage-daily?day=${oldDay}`)).body.rows?.filter((r) => r.day === oldDay) ?? [];
     assert(kept.length === 1, `old row kept while paused: ${kept.length}`);
     await setLimits({ nearQuota: false, reset: true, shed: 0 });
     const cronOk = await ops("cron", {});
     assert(cronOk.body.housekeeping === true, `housekeeping runs again: ${JSON.stringify(cronOk.body)}`);
     for (let i = 0; i < 20 && kept.length; i++) {
       await new Promise((r) => setTimeout(r, 100));
-      kept = (await ops("usage-daily")).body.rows?.filter((r) => r.day === oldDay) ?? [];
+      kept = (await ops(`usage-daily?day=${oldDay}`)).body.rows?.filter((r) => r.day === oldDay) ?? [];
     }
     assert(kept.length === 0, `old row pruned after reset: ${kept.length}`);
   });
