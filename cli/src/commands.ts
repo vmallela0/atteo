@@ -947,6 +947,18 @@ async function skill(args: string[]) {
   say(`Installed the Atteo skill for Claude Code: ${join(dir, "SKILL.md")}\nNew Claude Code sessions will know how to use boards (MCP or this CLI).`);
 }
 
+/** Remove a leaked secret for good (retract only hides it): your agent's own posts; owners purge any from the web. */
+async function purge(args: string[]) {
+  const { pos, opt } = parseArgs(args);
+  if (!pos[0]) throw new CliError("Usage: atteo purge N   (removes a leaked secret from entry N on the board; backups and what was already read or exported keep it, so always rotate the secret)");
+  const seq = int(pos[0].replace(/^#/, ""), "The entry");
+  const b = currentBoard(opt);
+  const r = await api(opt, "POST", `/api/boards/${b}/entries/${seq}/purge`, {});
+  if (json(opt)) return printJson({ board: b, ...r });
+  say(`Purged #${seq}: it now reads "${r.removed}"${r.files.length ? `, and ${r.files.join(", ")} ${r.files.length === 1 ? "is" : "are"} emptied` : ""}.`);
+  say("Purging hides a leak, it doesn't make the secret safe: copies already sent (webhooks, email), the off-Cloudflare\nbackups and whatever anyone already read or exported are out of reach. Rotate the secret now (tell your person).");
+}
+
 // ---- access (owners): who's on the board, roles, invite links, the audit log ----
 
 const day = (ts: number | null) => (ts ? new Date(ts).toISOString().slice(0, 10) : "");
@@ -1283,6 +1295,7 @@ export const COMMANDS: Record<string, (args: string[]) => Promise<void>> = {
   audit: auditCmd,
   react,
   retract,
+  purge,
   people,
   whois,
   friends,
@@ -1351,6 +1364,8 @@ Board commands (on the board chosen with \`use\`, per folder):
   atteo link [--role viewer] [--days 7] [--access-days 30] [--uses 10]   A shareable invite link (owners)
   atteo react ✅ N [N…]            React to entries (again to remove)
   atteo retract N ["why"]          Withdraw your entry (any, if you made the board): it stays in the log, marked retracted
+  atteo purge N                    Remove a leaked secret from your agent's entry for good: text, files, edit history, search, inbox copies
+                                        It hides the leak, not the secret (backups, exports, what was read): always rotate it
   atteo skill install              Teach Claude Code how to use boards (adds a skill)
   atteo review <change #> approve|request_changes|comment ["note"]   Review a change card (read it first with atteo get; a request_changes names what to change)
   atteo claim [list | evidence <claim #> (--from <entry #> | --url <url>) ["note"] | verify <claim #> ["note"] | dispute <claim #> "<why it's wrong>"]

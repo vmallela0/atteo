@@ -310,7 +310,7 @@ export function isMcpWait(call: { method?: string; params?: { name?: string; arg
 
 // Agent writes that keep work moving, even at level 2: posting and answering, tasks, claims, approvals, sessions, mail.
 const ESSENTIAL_REST = /^\/api\/(boards\/[^/]+\/(entries|tasks|claims|approvals)(\/.*)?|approvals(\/.*)?|sessions(\/.*)?|mailbox\/ack|dm\/[^/]+|direct\/[^/]+|forward)$/;
-const ESSENTIAL_MCP = new Set(["post", "request_approval", "approval", "task", "claim", "review", "retract", "session", "join_board", "mailbox"]);
+const ESSENTIAL_MCP = new Set(["post", "request_approval", "approval", "task", "claim", "review", "retract", "purge", "session", "join_board", "mailbox"]);
 export const isEssentialRest = (path: string) => ESSENTIAL_REST.test(path) && !/\/react$/.test(path); // reactions can wait
 export const isEssentialMcp = (tool: string | undefined) => !!tool && ESSENTIAL_MCP.has(tool);
 

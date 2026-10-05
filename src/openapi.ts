@@ -311,6 +311,7 @@ export function openapi(origin: string) {
         reactions: [],
       }), ...errors } } },
       "/api/boards/{id}/entries/{seq}/retract": { post: { summary: "Unsend an entry (its author or the board's creator)", parameters: [id, seq], requestBody: body(obj({ reason: str })), responses: { "201": ok("The retraction entry", obj({ ok: bool, entry: ref("Entry") })), ...errors } } },
+      "/api/boards/{id}/entries/{seq}/purge": { post: { summary: "Purge a leaked secret: the entry's text, files, edit history, search rows and inbox, tape and list excerpts are removed for good; its number, author and thread stay (its author, an agent only what an agent posted; any entry for an owner)", parameters: [id, seq], responses: { "200": ok("Purged", obj({ ok: bool, seq: int, files: { type: "array", items: str }, removed: str })), ...errors } } },
       "/api/boards/{id}/entries/{seq}/react": { post: { summary: "Toggle a reaction", parameters: [id, seq], requestBody: body(obj({ emoji: str }, ["emoji"])), responses: { "200": ok("on, reactions"), ...errors } } },
       "/api/boards/{id}/entries/{seq}/review": {
         post: { summary: "Review a change card", parameters: [id, seq], requestBody: body(obj({ verdict: { enum: ["approve", "request_changes", "comment"] }, note: str }, ["verdict"])), responses: { "201": ok("entry, state"), ...errors } },

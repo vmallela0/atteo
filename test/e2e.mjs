@@ -189,7 +189,7 @@ await step("MCP initialize, tools/list, notifications, protocol errors", async (
   assert(r.protocolVersion === "2025-06-18" && r.serverInfo.name === "atteo" && r.serverInfo.title === "Atteo", JSON.stringify(r));
   has(r.instructions, "Atteo");
   const names = (await rpcRaw(auth(A), null, "tools/list", {})).tools.map((t) => t.name).sort();
-  assert(JSON.stringify(names) === JSON.stringify(["agents", "approval", "batch", "claim", "create_board", "doc", "get", "grep", "handle", "invite", "join_board", "leave_board", "list_boards", "mailbox", "memory", "people", "post", "publish", "react", "read", "recap", "remember", "request_approval", "retract", "review", "schedules", "search", "session", "task", "trigger", "wait"]), names.join());
+  assert(JSON.stringify(names) === JSON.stringify(["agents", "approval", "batch", "claim", "create_board", "doc", "get", "grep", "handle", "invite", "join_board", "leave_board", "list_boards", "mailbox", "memory", "people", "post", "publish", "purge", "react", "read", "recap", "remember", "request_approval", "retract", "review", "schedules", "search", "session", "task", "trigger", "wait"]), names.join());
   assert((await rpcRaw(auth(A), null, "notifications/initialized", {}, { notification: true })).status === 202, "notification status");
   assert((await rpcRaw({}, null, "notifications/initialized", {}, { notification: true })).status === 401, "no credentials: 401 so OAuth clients can sign in");
   assert((await fetch(`${BASE}/mcp`)).status === 405, "GET /mcp should be 405");
@@ -3461,6 +3461,44 @@ await step("A2A: the Agent Card is signed when the server has a key (ES256 over 
   assert(!check({ ...card, url: "https://evil.example/a2a" }), "a changed card doesn't");
   const alias = await (await fetch(`${BASE}/.well-known/agent.json`)).json();
   assert(check(alias), "the alias is signed too");
+});
+
+await step("purge (alt-c #3573): a leaked secret goes for good: text, file, search, inbox, tape; authors and owners only", async () => {
+  const id = (await ops("boards", { user: A, title: `e2e purge ${run}` })).body.board.id;
+  await ops("members", { board: id, user: A }).catch(() => {});
+  await ops("members", { board: id, user: B });
+  const leak = `hunter2-purge-${run}`;
+  await ok(B, id, "read");
+  const n = seqOf(await ok(B, id, "post", { type: "note", to: A, text: `@${A} the staging password is ${leak}` }));
+  const f = seqOf(await ok(B, id, "post", { type: "artifact", artifact_name: `env-${run}.md`, artifact_content: `staging notes: ${leak}\n`, text: "the env notes" }));
+  await ok(A, id, "read");
+  const a1 = seqOf(await ok(A, id, "post", { type: "note", reply_to: 0, text: `A's note ${leak}` }));
+  assert((await ok(A, id, "search", { query: `hunter2-purge-${run}` })).includes(`#${n}`), "findable before");
+  const purgeAs = (who, seq, agent = false) => (agent ? fetch(`${BASE}/api/boards/${id}/entries/${seq}/purge`, { method: "POST", headers: auth(who) }) : web(`/api/boards/${id}/entries/${seq}/purge`, who, { method: "POST" }));
+  // An agent: only what an agent of its person posted (MCP and REST).
+  await err(B, id, "purge", { seq: a1 }, "can purge only what an agent of");
+  const said = await ok(B, id, "purge", { seq: n });
+  assert(said.includes(`Purged #${n}`) && said.includes("doesn't make the secret safe") && said.includes("Rotate"), said);
+  await err(B, id, "purge", { seq: n }, "already purged");
+  const got = await ok(A, id, "get", { seq: n });
+  assert(got.includes(`(removed by ${B}'s agent)`) && !got.includes(leak), got);
+  assert(!(await ok(A, id, "search", { query: `hunter2-purge-${run}` })).includes(`#${n}`), "gone from search");
+  const inbox = (await (await web(`/api/inbox`, A)).json()).items.filter((i) => i.seq === n);
+  assert(inbox.length && inbox.every((i) => !i.excerpt.includes(leak)), "inbox excerpt: " + JSON.stringify(inbox));
+  const tape = (await (await web(`/api/tape?after=0&limit=500`, A)).json()).lines.filter((l) => l.board_id === id);
+  assert(tape.some((l) => l.seq === n) && tape.every((l) => l.seq === a1 || !l.excerpt.includes(leak)), "tape: " + JSON.stringify(tape));
+  let r = await purgeAs(B, f, true);
+  const j = await r.json();
+  assert(r.status === 200 && j.files.includes(`env-${run}.md v1`), JSON.stringify(j));
+  const doc = await ok(A, id, "doc", { action: "read", name: `env-${run}.md` });
+  assert(!doc.includes(leak) && !(await ok(A, id, "get", { seq: f })).includes(leak), "the file's content is gone: " + doc);
+  // People: the author, or an owner (A made the board); a contributor can't purge someone else's.
+  assert((await purgeAs(B, a1)).status === 400, "a contributor can't purge another's entry");
+  assert((await purgeAs(OUT, a1)).status === 404, "outsiders get 404");
+  r = await purgeAs(A, a1);
+  assert(r.status === 200 && (await r.json()).removed === `(removed by ${A})`, "the owner purges");
+  const audit = (await (await web(`/api/boards/${id}/audit`, A)).json()).audit.filter((x) => x.action === "purge");
+  assert(audit.length === 3 && audit.some((x) => x.target === `#${n}` && x.actor === B) && !JSON.stringify(audit).includes(leak), JSON.stringify(audit));
 });
 
 await step("A2A: Agent Card, message/send asks a member's agent, tasks/get returns the answer; tokens required", async () => {

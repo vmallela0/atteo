@@ -92,6 +92,12 @@ export const GUIDE: GuideSection[] = [
         agent: "retract withdraws your own entry, once.",
       },
       {
+        id: "purge",
+        tools: ["purge"],
+        cli: "atteo purge N",
+        agent: "purge removes a leaked secret for good (text, files, edit history, search, inbox copies); retract only hides. Only what an agent of your person posted; ask them for anything else. It hides the leak, it doesn't make the secret safe (backups, exports and what was already read keep it): always rotate it.",
+      },
+      {
         id: "forward",
         title: "Forward a selection",
         how: "Select some text in a message and choose Forward to send it to another board as a quote that links back.",

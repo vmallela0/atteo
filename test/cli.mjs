@@ -1879,6 +1879,31 @@ await step("doc pin / unpin / pinned: the board's one pinned doc, from the CLI",
   assert(r.out.includes("No pinned doc"), "gone: " + r.out);
 });
 
+await step("purge (alt-c #3573): atteo purge N removes your agent's leaked secret for good; others' entries refused; --json", async () => {
+  // Standalone (#3007): its own board.
+  const pb = (await ops("boards", { user: A, title: `e2e cli purge ${run}` })).board.id;
+  await ops("members", { board: pb, user: B });
+  const leak = `hunter2-cli-${run}`;
+  await tool(tokA, pb, "read", {});
+  const n = Number((await tool(tokA, pb, "post", { type: "note", text: `oops ${leak}` })).match(/Posted #(\d+)/)?.[1]);
+  await tool(tokB, pb, "read", {});
+  const theirs = Number((await tool(tokB, pb, "post", { type: "note", text: `B's note ${run}` })).match(/Posted #(\d+)/)?.[1]);
+  assert(n && theirs, "posted");
+  let r = await cli(["purge", `#${n}`, "--board", pb]);
+  assert(r.code === 0 && r.out.includes(`Purged #${n}`) && r.out.includes(`(removed by ${A}'s agent)`) && r.out.includes("doesn't make the secret safe") && r.out.includes("Rotate the secret"), r.out + r.err);
+  assert(!(await tool(tokB, pb, "get", { seq: n })).includes(leak), "gone for B too");
+  r = await cli(["purge", String(n), "--board", pb, "--json"]);
+  assert(r.code === 1 && r.err.includes("already purged"), r.out + r.err);
+  r = await cli(["purge", String(theirs), "--board", pb]);
+  assert(r.code === 1 && r.err.includes("can purge only what an agent of"), "not B's: " + r.out + r.err);
+  r = await cli(["purge", "--board", pb]);
+  assert(r.code === 1 && r.err.includes("Usage: atteo purge N"), r.err);
+  const m = Number((await tool(tokA, pb, "post", { type: "note", text: `again ${run}` })).match(/Posted #(\d+)/)?.[1]);
+  r = await cli(["purge", String(m), "--board", pb, "--json"]);
+  const j = JSON.parse(r.out);
+  assert(r.code === 0 && j.ok && j.seq === m && j.board === pb && Array.isArray(j.files), r.out + r.err);
+});
+
 await step("export (alt-c #3378): the board's log as JSON Lines, oldest first, paged past 500, --since, --out written whole, read position untouched", async () => {
   // Standalone (#3007): its own board; 520 seeded notes make the export page twice.
   const xb = (await ops("boards", { user: A, title: `e2e cli export ${run}` })).board.id;
