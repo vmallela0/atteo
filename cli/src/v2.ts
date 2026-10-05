@@ -8,13 +8,14 @@ import { fence, flagNote, neutralize, randomId, screenText } from "../../src/scr
 import { ENCRYPTED, mailText as mailBody, titled } from "../../src/ping";
 import { blockedMessage, scanFields } from "../../src/secrets";
 import { env } from "./env";
-import { api, askYes, boardIdIn, CliError, COMMANDS, creds, currentBoard, decryptEntry, encEntries, folderBoard, getEntry, isEncrypted, onlyOptions, optStr, parseArgs, picturesNote, say, setSession, shown, tool } from "./commands";
+import { api, askYes, boardIdIn, CliError, COMMANDS, creds, currentBoard, decryptEntry, encEntries, folderBoard, getEntry, isEncrypted, onlyOptions, optStr, parseArgs, picturesNote, say, server as serverFor, setSession, shown, tool } from "./commands";
 import { load, sameServer, storeName } from "./credentials";
 import { caller, detectModel, loadMap, saveMap, type LocalSession } from "./session";
 import { createHash } from "node:crypto";
 import { closeSync, mkdirSync, openSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync, writeSync } from "node:fs";
-import { homedir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
+import { entryLine, fileLine, parseTreePath, TREE_HELP, treePathOf, type FileMeta, type LogEntry } from "./tree";
 
 type Opt = Record<string, string | true>;
 type BoardRef = { id: string; title: string };
@@ -781,6 +782,10 @@ Work on it
   atteo recap [--since <n>]          what was decided, asked and is owed since you last looked (not every post)
   atteo export [--since <n>] [--out <file>]   the board's whole log as JSON Lines, oldest first (stdout, fenced; or a
                                           plain file written only when complete); only what you can see; never marks anything read
+  atteo ls [path] [-l]                the board as a read-only tree: state.md (the summary), files/ (name@vN for older
+                                          versions), log/ (N.md per entry; newest first, --since N / --limit N)
+  atteo cat <path>…                   print them: atteo cat state.md files/PLAN.md log/12.md (fenced; binaries saved
+                                          to a temp file); neither moves your read position
   atteo find "<pattern>" [--all] [-E] [-s] [--author <name>] [--type <t>] [--since <n|date>] [-C 0..2] [--files] [--more cursor]
                                           compact hits: #n · author · MM-DD · line; more continues the same query
   atteo grep "<pattern>"                   the same search, with the legacy output format; --compact opts in
@@ -1179,6 +1184,130 @@ const SOUL_USAGE = `Usage:
   atteo soul [--board <id>]                  the board's SOUL (PROTOCOL.md): how agents work here
   atteo soul set <file | -> [--board <id>]   replace it (people only; - reads stdin)`;
 
+// ---- atteo ls / atteo cat: the board as a read-only tree (tree.ts), on existing routes; nothing moves a read position ----
+
+const LS_LIMIT = 50;
+
+/** The tree's commands refuse encrypted boards (they'd show ciphertext): atteo read and doc read decrypt. */
+async function treeBoard(opt: Opt): Promise<string> {
+  await prepare(opt);
+  const board = currentBoard(opt);
+  if (await isEncrypted(opt, board)) throw new CliError("This board is end-to-end encrypted, and atteo ls / cat don't decrypt yet: use atteo read and atteo doc read.");
+  return board;
+}
+
+const treePath = (raw: string | undefined) => {
+  try {
+    return parseTreePath(raw);
+  } catch (e) {
+    throw new CliError((e as Error).message);
+  }
+};
+
+/** atteo ls [path] [-l]: what's in a directory of the tree (log/ newest first; --since N from there on). */
+async function lsCmd(args: string[]) {
+  const long = args.includes("-l");
+  const { pos, opt } = parseArgs(args.filter((a) => a !== "-l"), BOOLS);
+  if (pos.length > 1) throw new CliError("Usage: atteo ls [state.md | files/ | files/<name> | log/] [-l] [--since N] [--limit N]");
+  const at = treePath(pos[0]);
+  const board = await treeBoard(opt);
+  const b = encodeURIComponent(board);
+  if (at.kind === "root") {
+    const items = [{ path: "state.md", type: "file" }, { path: "files/", type: "dir" }, { path: "log/", type: "dir" }];
+    return print(opt, { board, path: "/", items }, `${items.map((i) => i.path).join("\n")}\n(${TREE_HELP})`);
+  }
+  if (at.kind === "state") return print(opt, { board, path: "state.md", items: [{ path: "state.md", type: "file" }] }, "state.md");
+  if (at.kind === "files" || at.kind === "file") {
+    const { docs } = (await api(opt, "GET", `/api/boards/${b}/files`)) as { docs: FileMeta[] };
+    if (at.kind === "files") {
+      if (asJson(opt)) return print(opt, { board, path: "files/", items: docs }, "");
+      return say(docs.length ? fence(docs.map((d) => fileLine(d, long)).join("\n")) : "(no files yet)");
+    }
+    const cur = docs.find((d) => d.name === at.name);
+    if (!cur) throw new CliError(`No file named "${at.name}" on this board (atteo ls files/).`);
+    // A file's versions, newest first: name@vN, each readable with atteo cat.
+    const { versions } = (await api(opt, "GET", `/api/boards/${b}/doc-history?name=${encodeURIComponent(at.name)}`)) as { versions: (FileMeta & { author?: string; ts?: number })[] };
+    const list = versions
+      .map((v) => ({ ...cur, ...v, name: at.name, size: v.size ?? (v.version === cur.version ? cur.size : 0), updated_by: v.updated_by ?? v.author ?? cur.updated_by, updated_at: v.updated_at ?? v.ts ?? cur.updated_at }))
+      .filter((v) => at.version == null || v.version === at.version)
+      .sort((x, y) => y.version - x.version);
+    if (asJson(opt)) return print(opt, { board, path: treePathOf(at), items: list }, "");
+    return say(fence(list.map((v) => fileLine(v, long, true)).join("\n")));
+  }
+  // log/ (or one entry): numbered entries; the newest LS_LIMIT unless --since says where to start.
+  const limit = Math.min(500, Math.max(1, Number(optStr(opt, "limit") ?? LS_LIMIT) || LS_LIMIT));
+  const since = optStr(opt, "since");
+  if (since != null && !/^\d+$/.test(since)) throw new CliError("--since takes an entry number: the listing starts after it.");
+  let after: number;
+  if (at.kind === "entry") after = at.seq - 1;
+  else if (since != null) after = Number(since);
+  else {
+    const newest = ((await api(opt, "GET", `/api/boards/${b}/entries?limit=1`)) as { entries: { seq: number }[] }).entries[0]?.seq ?? 0;
+    after = Math.max(0, newest - limit);
+  }
+  const j = (await api(opt, "GET", `/api/boards/${b}/entries?after=${after}&limit=${at.kind === "entry" ? 1 : limit}`)) as { entries: LogEntry[] };
+  let list = j.entries;
+  if (at.kind === "entry") {
+    list = list.filter((e) => e.seq === at.seq);
+    if (!list.length) throw new CliError(`There's no entry #${at.seq} you can see on this board.`);
+  } else if (since == null) list = [...list].reverse(); // newest first
+  if (asJson(opt)) return print(opt, { board, path: treePathOf(at), items: list.map((e) => ({ path: `log/${e.seq}.md`, seq: e.seq, ts: e.ts, author: e.author, via: e.via ?? null, type: e.type, title: e.title ?? null })) }, "");
+  if (!list.length) return say(since != null ? `(nothing after #${since})` : "(no entries yet)");
+  const more = at.kind === "log" && since == null && after > 0 ? `\n(older: atteo ls log/ --since ${Math.max(0, after - limit)} --limit ${limit})` : "";
+  say(fence(list.map((e) => entryLine(e, long)).join("\n")) + more);
+}
+
+/** atteo cat <path>…: state.md, a file (pictures and other binaries are saved to a temp file), or an entry. */
+async function catCmd(args: string[]) {
+  const { pos, opt } = parseArgs(args, BOOLS);
+  if (!pos.length) throw new CliError(`Usage: atteo cat <path>…   e.g. atteo cat state.md files/PLAN.md log/12.md. ${TREE_HELP}`);
+  const paths = pos.map(treePath);
+  const board = await treeBoard(opt);
+  const b = encodeURIComponent(board);
+  const out: string[] = [];
+  const data: Record<string, unknown>[] = [];
+  for (const at of paths) {
+    const path = treePathOf(at);
+    if (at.kind === "root" || at.kind === "files" || at.kind === "log") throw new CliError(`${path} is a directory: atteo ls ${path}`);
+    if (at.kind === "state") {
+      // The summary only, as atteo get board ("since" far ahead doesn't move read positions); it arrives fenced.
+      const text = (await tool(opt, "read", { since: 2 ** 31 - 1, limit: 1, summary: true }, board)).replace(/\n== Entries after #\d+ \(0\)[^\n]*\n\(nothing new\)/, "");
+      out.push(text);
+      data.push({ path, summary: text });
+    } else if (at.kind === "entry") {
+      const { text, pictures } = await getEntry(opt, at.seq, board); // as atteo get: fenced, ⚠ on flagged
+      out.push([text, picturesNote(pictures)].filter(Boolean).join("\n"));
+      data.push({ path, seq: at.seq, text, pictures });
+    } else {
+      const d = (await api(opt, "GET", `/api/boards/${b}/doc?name=${encodeURIComponent(at.name)}${at.version != null ? `&version=${at.version}` : ""}`)) as { name: string; version: number; latest?: number; content: string; updated_by: string; via: string | null; updated_at: number; media?: { mime?: string; type?: string } | null };
+      const head = `${path} · v${d.version}${d.latest && d.latest !== d.version ? ` of ${d.latest}` : ""} · ${d.via === "agent" ? `${d.updated_by}'s agent` : d.updated_by} · ${new Date(d.updated_at).toISOString().slice(0, 16).replace("T", " ")}`;
+      if (d.media) {
+        const saved = await saveFile(opt, board, d.name, d.version);
+        out.push(fence(`${head}\n(binary: ${d.media.mime ?? d.media.type ?? "file"}${saved ? `, saved to ${saved}` : ", couldn't be downloaded"})`));
+        data.push({ path, name: d.name, version: d.version, saved });
+      } else {
+        const f = screenText(d.content);
+        out.push(fence(`${head}${f ? ` · ⚠ ${flagNote(f)}` : ""}\n${d.content}`));
+        data.push({ path, name: d.name, version: d.version, content: d.content });
+      }
+    }
+  }
+  print(opt, data.length === 1 ? data[0] : data, out.join("\n"));
+}
+
+/** A file's bytes into this machine's temp folder (named by board, file and version, never a path from the board). */
+async function saveFile(opt: Opt, board: string, name: string, version: number): Promise<string | null> {
+  const c = creds();
+  const res = await fetch(`${serverFor(c, opt)}/api/boards/${encodeURIComponent(board)}/image?name=${encodeURIComponent(name)}&version=${version}`, { headers: { authorization: `Bearer ${c.token}`, "user-agent": "atteo-cli/2" } });
+  if (!res.ok) return null;
+  const dir = join(tmpdir(), "atteo", board.replace(/[^\w-]/g, "_"), "files");
+  mkdirSync(dir, { recursive: true, mode: 0o700 });
+  const ext = name.match(/\.([A-Za-z0-9]{1,8})$/)?.[1] ?? "bin";
+  const file = join(dir, `${name.replace(/\.[A-Za-z0-9]{1,8}$/, "").replace(/[^\w.-]/g, "_").slice(0, 60)}-v${version}.${ext}`);
+  writeFileSync(file, Buffer.from(await res.arrayBuffer()), { mode: 0o600 });
+  return file;
+}
+
 /** atteo soul: show it · soul set <file|->: replace it (people only, guarded by the version just read). */
 async function soulCmd(args: string[]) {
   const { pos, opt } = parseArgs(args, BOOLS);
@@ -1414,6 +1543,8 @@ export const V2: Record<string, (args: string[]) => Promise<unknown>> = {
   approval: approvalsCmd,
   recap: recapCmd,
   export: exportCmd,
+  ls: lsCmd,
+  cat: catCmd,
   trigger: triggerCmd,
   triggers: triggerCmd,
   schedules: schedulesCmd,

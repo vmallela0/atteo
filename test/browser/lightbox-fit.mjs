@@ -89,6 +89,11 @@ for (const [width, height, scheme] of [[1280, 860, "light"], [390, 844, "light"]
   await p.mouse.click(640, 430); await p.mouse.click(640, 430); // zoom, then a click again
   const again = await st();
   check(again.open && !again.zoomed && again.w === fit.w, `a click on the zoomed picture fits it again (${JSON.stringify(again)})`);
+  // The keyboard: Z (or Enter) zooms and fits; while zoomed the arrows pan instead of going to another picture.
+  await p.keyboard.press("z"); const kz = await st();
+  await p.keyboard.press("ArrowRight"); await p.keyboard.press("ArrowRight"); const kp = await st();
+  await p.keyboard.press("Enter"); const kf = await st();
+  check(kz.zoomed && kp.zoomed && kp.sl > kz.sl && !kf.zoomed && kf.open, `Z zooms, the arrows pan while zoomed (scrollLeft ${kz.sl} → ${kp.sl}), Enter fits it again`);
   await p.mouse.click(20, 20);
   check(!(await st()).open, "a click off the picture closes the viewer");
   await open("small");
