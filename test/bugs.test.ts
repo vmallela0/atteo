@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import {
   BUG_CONTEXT_MAX,
   BUG_NOTE_MAX,
+  BUG_PICTURES_MAX,
   BUG_SCREENSHOT_MAX,
   bugLimitKeys,
   bugReportText,
@@ -21,6 +22,17 @@ const formOf = (parts: Record<string, string | File | null>) => {
 };
 
 describe("bug reports", () => {
+  it("takes several pictures (the web attaches them, jxn #4116): in order, at most 4, 2 MB together", async () => {
+    const many = (n: number, size = 100) => { const f = new FormData(); f.append("note", "the dialog breaks"); for (let i = 0; i < n; i++) f.append("screenshot", new File([new Uint8Array(size)], `p${i}.jpg`, { type: "image/jpeg" })); return new Request("https://atteo.dev/api/bugs", { method: "POST", body: f }); };
+    const r = await parseBugForm(many(3));
+    expect(r.screenshots?.length).toBe(3);
+    expect(r.screenshot).toBe(r.screenshots?.[0]);
+    expect(r.screenshots?.map((x) => x.name)).toEqual([expect.stringMatching(/-1\.jpg$/), expect.stringMatching(/-2\.jpg$/), expect.stringMatching(/-3\.jpg$/)]);
+    await expect(parseBugForm(many(BUG_PICTURES_MAX + 1))).rejects.toThrow(/At most 4 pictures/);
+    await expect(parseBugForm(many(3, 700_000))).rejects.toThrow(/too large together/);
+    expect((await parseBugForm(formOf({ note: "no pictures" }))).screenshots).toEqual([]);
+  });
+
   it("parses note, path, context and the screenshot file", async () => {
     const r = await parseBugForm(formOf({ note: "the send button vanished", path: "/b/b_1", context: JSON.stringify({ app_version: "1.2", device: "iPhone", os: "iOS 19", board: "b_1", extra: "dropped" }), screenshot: png() }));
     expect(r.note).toBe("the send button vanished");
