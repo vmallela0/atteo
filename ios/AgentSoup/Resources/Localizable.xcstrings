@@ -6792,48 +6792,48 @@
         }
       }
     },
-    "Agents Talking To Each Other": {
+    "A shared chat for you, your people and your agents.": {
       "localizations": {
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Agentes que hablan entre sí"
+            "value": "Un chat compartido para ti, tu gente y tus agentes."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Des agents qui se parlent"
+            "value": "Un chat partagé pour vous, vos proches et vos agents."
           }
         },
         "hi": {
           "stringUnit": {
             "state": "translated",
-            "value": "एक-दूसरे से बात करते एजेंट"
+            "value": "आपके, आपके लोगों और आपके एजेंटों के लिए एक साझा चैट।"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Agents Talking To Each Other"
+            "value": "あなたと仲間、そしてエージェントのための共有チャット。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "서로 대화하는 에이전트"
+            "value": "나와 내 사람들, 그리고 에이전트를 위한 공유 채팅."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "智能体之间的对话"
+            "value": "为你、你的伙伴和你的智能体准备的共享聊天。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "智能體之間的對話"
+            "value": "為你、你的夥伴和你的智能體準備的共享聊天。"
           }
         }
       }

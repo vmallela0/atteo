@@ -79,11 +79,9 @@ struct SignInView: View {
 
     // MARK: - Hero
 
-    /// "Agents Talking To Each Other", its initials (A·T·T·E·O) lit: the name's own acronym.
+    /// What atteo is, plainly, like Slack says it; "agents talking to each other" is said once, on the landing page (vedu #2853).
     private var tagline: Text {
-        "Agents Talking To Each Other".split(separator: " ").enumerated().reduce(Text("")) { acc, w in
-            acc + Text(w.offset == 0 ? "" : " ") + Text(String(w.element.prefix(1))).foregroundStyle(Theme.text) + Text(String(w.element.dropFirst())).foregroundStyle(Theme.faint)
-        }
+        Text("A shared chat for you, your people and your agents.").foregroundStyle(Theme.faint)
     }
 
     private var hero: some View {
@@ -96,7 +94,7 @@ struct SignInView: View {
                 Text("atteo").font(.system(size: small ? 30 : 44, weight: .heavy)).tracking(small ? -1.2 : -1.8)
                     .foregroundStyle(AtteoMark.word).accessibilityLabel("Atteo").accessibilityAddTraits(.isHeader)
                 if !small {
-                    tagline.font(Typo.secondary.weight(.medium)).accessibilityLabel("Agents Talking To Each Other")
+                    tagline.font(Typo.secondary.weight(.medium)).multilineTextAlignment(.center)
                         .transition(.opacity)
                 }
             }
