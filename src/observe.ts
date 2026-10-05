@@ -3,10 +3,10 @@
 // across isolates. A few named counters — not an APM.
 //
 // How to read them (last 14 days, operators only):
-//   /_ops → Trust and context
+//   /_ops → Trust and context, Latency (p95)
 //   GET /api/ops/metrics → observe
 //   GET /api/ops/usage-daily → rows whose metric is paste, egress_block, context_pack, stale_notice,
-//                              claim_review or approval
+//                              claim_review, approval, entry_delivery or context_pack_ms
 //
 // paste            a write that landed on a board. key: person | agent
 // egress_block     the secret filter refused a write before it was stored. key: the rule id (never the secret)
@@ -15,6 +15,12 @@
 //                  key chars: total characters (average = chars / served)
 //                  key truncated: packs that hit the summary cap
 //                  key lt_1k | 1k_4k | 4k_8k | 8k_16k | 16k_plus: size bucket
+// entry_delivery   a post that reached an agent already waiting (post.ts → wait returned it).
+//                  key samples: how many deliveries
+//                  key ms: sum of milliseconds (average = ms / samples)
+//                  key lt_50 | 50_100 | 100_250 | 250_500 | 500_1000 | 1s_2s | 2s_plus: latency bucket
+//                  p95 is the upper edge of the bucket that holds the 95th sample (PRD: < 500 ms)
+// context_pack_ms  Board.read that handed a summary. same keys as entry_delivery (PRD: p95 < 2 s)
 // stale_notice     a disputed or retracted premise was checked for dependents.
 //                  key invalidations: disputed/retracted premises
 //                  key notices: invalidations that made at least one dependent stale
@@ -127,6 +133,104 @@ export function packBucket(chars: number): PackBucket {
 
 const TRUNCATED = "[summary truncated]";
 
+/** Latency histogram buckets shared by entry delivery and context-pack reads. `le` is exclusive except 2s_plus. */
+export const LATENCY_BUCKETS = [
+  { key: "lt_50", le: 50, label: "Under 50 ms" },
+  { key: "50_100", le: 100, label: "50–99 ms" },
+  { key: "100_250", le: 250, label: "100–249 ms" },
+  { key: "250_500", le: 500, label: "250–499 ms" },
+  { key: "500_1000", le: 1000, label: "500–999 ms" },
+  { key: "1s_2s", le: 2000, label: "1–2 seconds" },
+  { key: "2s_plus", le: Infinity, label: "2 seconds or more" },
+] as const;
+export type LatencyBucket = (typeof LATENCY_BUCKETS)[number]["key"];
+
+/** Which latency bucket a duration in milliseconds falls in. */
+export function latencyBucket(ms: number): LatencyBucket {
+  for (const b of LATENCY_BUCKETS) if (ms < b.le) return b.key;
+  return "2s_plus";
+}
+
+/**
+ * Conservative percentile from a histogram: the exclusive upper edge of the bucket that contains sample
+ * `ceil(n * p / 100)`. Overflow (2s_plus) is Infinity. Null when there are no samples.
+ */
+export function histogramPercentile(counts: Record<string, number>, p: number): number | null {
+  const total = LATENCY_BUCKETS.reduce((n, b) => n + (counts[b.key] ?? 0), 0);
+  if (!total || !Number.isFinite(p) || p <= 0) return null;
+  const target = Math.ceil((Math.min(100, p) / 100) * total);
+  let acc = 0;
+  for (const b of LATENCY_BUCKETS) {
+    acc += counts[b.key] ?? 0;
+    if (acc >= target) return b.le;
+  }
+  return Infinity;
+}
+
+/** One latency series: sample count, average, histogram p50/p95, and how many samples missed `target_ms`. */
+export interface LatencyStats {
+  samples: number;
+  avg_ms: number | null;
+  /** Exclusive upper edge of the p50/p95 bucket. Null when there are no samples, or the percentile is 2s+. */
+  p50_ms: number | null;
+  p95_ms: number | null;
+  p50_overflow: boolean;
+  p95_overflow: boolean;
+  over_target: number;
+  target_ms: number;
+  buckets: { key: LatencyBucket; label: string; count: number }[];
+}
+
+function edge(n: number | null): { ms: number | null; overflow: boolean } {
+  if (n == null) return { ms: null, overflow: false };
+  if (!Number.isFinite(n)) return { ms: null, overflow: true };
+  return { ms: n, overflow: false };
+}
+
+function latencyStats(sum: (metric: string, key?: string) => number, metric: string, targetMs: number): LatencyStats {
+  const samples = sum(metric, "samples");
+  const ms = sum(metric, "ms");
+  const buckets = LATENCY_BUCKETS.map((b) => ({ key: b.key, label: b.label, count: sum(metric, b.key) }));
+  const counts = Object.fromEntries(buckets.map((b) => [b.key, b.count]));
+  const over_target = LATENCY_BUCKETS.filter((b) => b.le > targetMs).reduce((n, b) => n + (counts[b.key] ?? 0), 0);
+  const p50 = edge(histogramPercentile(counts, 50));
+  const p95 = edge(histogramPercentile(counts, 95));
+  return {
+    samples,
+    avg_ms: samples ? ms / samples : null,
+    p50_ms: p50.ms,
+    p95_ms: p95.ms,
+    p50_overflow: p50.overflow,
+    p95_overflow: p95.overflow,
+    over_target,
+    target_ms: targetMs,
+    buckets,
+  };
+}
+
+/** Record one latency sample as daily histogram counters. Negative or non-finite `ms` is ignored. */
+export function noteLatency(env: Env | null | undefined, later: Later | null | undefined, metric: string, ms: number, user?: string | null): void {
+  if (skip(user) || !Number.isFinite(ms) || ms < 0) return;
+  const n = Math.max(0, Math.round(ms));
+  void count(env, later, metric, "samples");
+  if (n > 0) void count(env, later, metric, "ms", n);
+  void count(env, later, metric, latencyBucket(n));
+}
+
+/** A post reached an agent that was already waiting. `postedAt` is the entry's `ts`. */
+export function noteEntryDelivery(env: Env | null | undefined, later: Later | null | undefined, postedAt: number, user?: string | null): void {
+  if (!Number.isFinite(postedAt)) return;
+  noteLatency(env, later, "entry_delivery", Date.now() - postedAt, user);
+}
+
+/** Entries a wait just handed back after it had been sitting (not a catch-up of already-unread mail). */
+export function noteWakeDelivery(env: Env | null | undefined, later: Later | null | undefined, entries: { ts: number }[], user?: string | null): void {
+  if (!entries.length) return;
+  let postedAt = entries[0].ts;
+  for (const e of entries) if (e.ts < postedAt) postedAt = e.ts;
+  noteEntryDelivery(env, later, postedAt, user);
+}
+
 /** An agent was handed a context pack (the board summary on read). `user` skips test accounts. */
 export function noteContextPack(env: Env | null | undefined, later: Later | null | undefined, text: string, user?: string | null): void {
   if (skip(user)) return;
@@ -135,6 +239,11 @@ export function noteContextPack(env: Env | null | undefined, later: Later | null
   void count(env, later, "context_pack", "chars", chars);
   void count(env, later, "context_pack", packBucket(chars));
   if (text.includes(TRUNCATED)) void count(env, later, "context_pack", "truncated");
+}
+
+/** How long `Board.read` took when it handed a summary. */
+export function noteContextPackMs(env: Env | null | undefined, later: Later | null | undefined, ms: number, user?: string | null): void {
+  noteLatency(env, later, "context_pack_ms", ms, user);
 }
 
 /** A premise was disputed or retracted; count whether that produced stale notices and how many entries they cover. */
@@ -182,6 +291,8 @@ export interface Observability {
   stale_notices: { invalidations: number; notices: number; entries: number; rate: number | null };
   claim_reviews: { verified: number; disputed: number; total: number; verified_ratio: number | null };
   approvals: { requested: number; approved: number; rejected: number; by_risk: { low: number; medium: number; high: number } };
+  /** Production p95 for the PRD's two latency targets. Histogram buckets in usage_daily. */
+  latency: { entry_delivery: LatencyStats; context_pack: LatencyStats };
 }
 
 /** The trust and context counters for the last `n` UTC days, summed across isolates. */
@@ -189,7 +300,7 @@ export async function observability(env: Env, n = 14): Promise<Observability> {
   const since = day(Date.now() - (n - 1) * 86_400_000);
   const rows = (
     await env.DB.prepare(
-      `SELECT metric, key, SUM(count) AS c FROM usage_daily WHERE day >= ? AND metric IN ('paste', 'egress_block', 'context_pack', 'stale_notice', 'claim_review', 'approval') GROUP BY metric, key`,
+      `SELECT metric, key, SUM(count) AS c FROM usage_daily WHERE day >= ? AND metric IN ('paste', 'egress_block', 'context_pack', 'stale_notice', 'claim_review', 'approval', 'entry_delivery', 'context_pack_ms') GROUP BY metric, key`,
     )
       .bind(since)
       .all<{ metric: string; key: string; c: number }>()
@@ -244,6 +355,10 @@ export async function observability(env: Env, n = 14): Promise<Observability> {
         medium: sum("approval", "risk_medium"),
         high: sum("approval", "risk_high"),
       },
+    },
+    latency: {
+      entry_delivery: latencyStats(sum, "entry_delivery", 500),
+      context_pack: latencyStats(sum, "context_pack_ms", 2000),
     },
   };
 }

@@ -7,7 +7,7 @@ import { fence, flagNote, flagOf, screenText } from "./screen";
 import { FOR_LABEL, pingExcerpt, triagePreview, webhookForWhom } from "./ping";
 import { DurableObject } from "cloudflare:workers";
 import { computeSummary, formatSummary, summaryWithNames, summaryWithinBudget, tasksFor, withinReadBudget, withNames, DEFAULT_SUMMARY_CHARS, type Summary } from "./state";
-import { noteClaimReview, noteContextPack, noteEgressBlock, notePaste, noteStaleNotice } from "./observe";
+import { noteClaimReview, noteContextPack, noteContextPackMs, noteEgressBlock, notePaste, noteStaleNotice } from "./observe";
 import { blockedMessage, scanFields, scanText, type SecretHit } from "./secrets";
 import { recordOutcome } from "./agents";
 import { ALL_AGENTS, ALL_HUMANS, ALL_MEMBERS, forAgent, forPerson, hasGroupMention, keep, MAX_GROUP_MENTIONS, MAX_MENTIONS, mentionsOwnAgent, parseMentions, SESSION_NAME_RE, type Mention } from "./mentions";
@@ -1547,6 +1547,7 @@ export class Board extends DurableObject<Env> {
    * for (`summary: true`); `summary: false` never.
    */
   async read(user: string, opts: { limit?: number; since?: number; summary?: boolean; names?: Record<string, string>; maxChars?: number; summaryChars?: number } = {}, session?: string | null) {
+    const started = Date.now();
     const info = this.info();
     this.renewLeases(user, session);
     const rules = this.rulesFor(user, session);
@@ -1589,6 +1590,7 @@ export class Board extends DurableObject<Env> {
               ? `This board is END-TO-END ENCRYPTED: messages are ciphertext here. Read and write it with the atteo CLI (atteo read / post / ask), which decrypts and encrypts on this machine.\n\n${text}`
               : text;
             noteContextPack(this.env, this.ctx, pack, user);
+            noteContextPackMs(this.env, this.ctx, Date.now() - started, user);
             return pack;
           })()
         : null,

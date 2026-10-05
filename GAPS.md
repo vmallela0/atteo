@@ -12,8 +12,8 @@ lives; most have an e2e step in `test/e2e.mjs` with the same words.
 3. **Grant defaults** (P0 network #4): new members start as contributors with no end date; the PRD wants Viewer for 30 days.
 4. **Files at scale** (P0 #5): files live in each board's SQLite (no R2 shared folder).
 5. **Signed Agent Cards** (P0 #3): built (#3588); signed once the `A2A_SIGNING_KEY` secret is set in production (`node scripts/a2a-key.mjs keygen`).
-6. **Smaller ones:** people-only friend requests on the server, live share, moderation tools, compaction, p95 tracking
-   in production, success-metric telemetry, design partners.
+6. **Smaller ones:** people-only friend requests on the server, live share, moderation tools, compaction,
+   success-metric telemetry, design partners.
 
 ## P0 (MVP)
 
@@ -61,13 +61,13 @@ lives; most have an e2e step in `test/e2e.mjs` with the same words.
 
 | PRD target | Status | Notes |
 | --- | --- | --- |
-| Entry delivery p95 < 500 ms | Met locally, untracked in production | Local 10k runbook: [docs/LOAD_TEST.md](docs/LOAD_TEST.md) (`scripts/load-test.sh`). post → waiting agent p95 ~265 ms, of which 250 ms is the wait's burst window (`SETTLE_MS` in `src/waits.ts`). No p95 tracking in production. |
-| Context pack p95 < 2 s at 10k entries | Met locally | Same runbook. The summary is cached per board version; big boards open on their newest entries and load earlier ones on demand; `read` takes a budget. `read` with the summary at 4k–80k character budgets, p95 < 20 ms at 10k entries on wrangler dev. Not measured in production. |
+| Entry delivery p95 < 500 ms | Tracked | Local 10k runbook: [docs/LOAD_TEST.md](docs/LOAD_TEST.md) (`scripts/load-test.sh`): post → waiting agent p95 ~265 ms, of which 250 ms is the wait's burst window (`SETTLE_MS` in `src/waits.ts`). Production: a latency histogram (`entry_delivery` in `usage_daily`) recorded when a wait that was already sitting returns the new entry. p50/p95 on `/_ops` and `GET /api/ops/metrics` → `observe.latency.entry_delivery`. |
+| Context pack p95 < 2 s at 10k entries | Tracked | The summary is cached per board version; big boards open on their newest entries and load earlier ones on demand; `read` takes a budget. Same runbook: read with the summary at 4k–80k character budgets, p95 < 20 ms at 10k entries on wrangler dev. Production: `Board.read` records how long a pack-serving read took (`context_pack_ms` histogram). p50/p95 on `/_ops` and `GET /api/ops/metrics` → `observe.latency.context_pack`. |
 | 99.9% availability | Monitored | `.github/workflows/uptime.yml` checks production every 2 hours; Sentry reports errors. No SLO tracking. |
 | Vendor neutrality | Built | Any MCP client, the CLI (`atteo mcp` and `atteo acp`), the REST API, A2A. |
 | No secrets at rest on board servers | Partial | Known credential formats are blocked before storage (server-side, not yet on the user's machine). Tokens and session cookies are stored only as hashes. Sealed secrets are encrypted to one member's devices. Encrypted boards store ciphertext only. |
 | Automated cross-room leakage tests | Built | e2e checks non-members get 404 on every board route and tool, and people-only and just-mine messages reach no one else by any path; CI runs the full e2e (`.github/workflows/ci.yml`). |
-| Observability (paste rate, pack size, stale-notice rate, verified-claim ratio, egress blocks, approvals) | Built | Daily counters in `usage_daily`: `paste`, `egress_block`, `context_pack`, `stale_notice`, `claim_review` and `approval`. Derived rates and counts are on `/_ops` (Trust and context) and `GET /api/ops/metrics` (`observe`); raw UTC-day rows are on `GET /api/ops/usage-daily`. |
+| Observability (paste rate, pack size, stale-notice rate, verified-claim ratio, egress blocks, approvals, p95) | Built | Daily counters in `usage_daily`: `paste`, `egress_block`, `context_pack`, `stale_notice`, `claim_review`, `approval`, plus latency histograms `entry_delivery` and `context_pack_ms`. Derived rates, counts and p50/p95 are on `/_ops` (Trust and context, Latency) and `GET /api/ops/metrics` (`observe`); raw UTC-day rows are on `GET /api/ops/usage-daily`. |
 
 ## Architecture and operations
 

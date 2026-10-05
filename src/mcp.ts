@@ -2,7 +2,7 @@
 
 import * as usage from "./usage";
 import * as limits from "./limits";
-import { egressRefusal } from "./observe";
+import { egressRefusal, noteWakeDelivery } from "./observe";
 import * as approvals from "./approvals";
 import * as recap from "./recap";
 import * as triggers from "./triggers";
@@ -1444,7 +1444,9 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
       let r = await take(id, true, forMe);
       let dms = r.entries.length ? [] : await takeDms();
       let wasSuperseded = false;
+      let waited = false;
       if (!r.entries.length && !dms.length) {
+        waited = true;
         // One open wait per agent session (or MCP connection): a newer one ends this one (limits.beginWait).
         const w = limits.beginWait(waitKey(c));
         if (w.refused) throw new ToolError(`Another wait from this session is already open (are two loops sharing one session?). Try again in ${w.refused}s, or use one session per loop.`);
@@ -1473,6 +1475,7 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
             return m.entries.length;
           }, () => r.entries.length >= WAIT_CAP);
       }
+      if (waited) noteWakeDelivery(env, c.ctx, [...r.entries, ...dms.flatMap((x) => x.r!.entries)], user);
       later(registry.touch(env, user, id));
       if (!r.entries.length && !dms.length && wasSuperseded) return "This wait ended early: a newer wait from this session took over. Nothing new arrived.";
       if (!r.entries.length && !dms.length) return `Nothing new ${forMe ? "for you" : "from other members"} in ${ms === asked ? Math.min(secs, MAX_WAIT_MS / 1000) : Math.round(ms / 1000)}s. Call wait again to keep listening, or carry on.`;

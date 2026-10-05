@@ -4,12 +4,18 @@ import {
   counter,
   egressRefusal,
   egressRefusalText,
+  histogramPercentile,
+  latencyBucket,
   noteApprovalDecision,
   noteApprovalRequested,
   noteClaimReview,
   noteContextPack,
+  noteContextPackMs,
+  noteEntryDelivery,
+  noteLatency,
   notePaste,
   noteStaleNotice,
+  noteWakeDelivery,
   observability,
   packBucket,
   resetCounters,
@@ -199,6 +205,8 @@ describe("paste, secret-filter blocks and context-pack size", () => {
     expect(o.stale_notices).toEqual({ invalidations: 2, notices: 1, entries: 2, rate: 0.5 });
     expect(o.claim_reviews).toEqual({ verified: 2, disputed: 1, total: 3, verified_ratio: 2 / 3 });
     expect(o.approvals).toEqual({ requested: 2, approved: 1, rejected: 1, by_risk: { low: 0, medium: 1, high: 1 } });
+    expect(o.latency.entry_delivery.samples).toBe(0);
+    expect(o.latency.context_pack.samples).toBe(0);
     expect(src("src/usage.ts")).toContain("observability(env, n)");
     expect(src("src/usage.ts")).toContain("observe");
   });
@@ -212,6 +220,9 @@ describe("paste, secret-filter blocks and context-pack size", () => {
     await noteClaimReview(env, null, "verified", "jxn");
     noteApprovalRequested(env, null, "high", "vedu");
     await noteApprovalDecision(env, null, "approved", "vedu");
+    noteLatency(env, null, "entry_delivery", 40, "vedu");
+    noteLatency(env, null, "entry_delivery", 80, "vedu");
+    noteContextPackMs(env, null, 12, "vedu");
     await settleCounts();
     const observe = await observability(env);
     const res = adminPage(
@@ -248,7 +259,79 @@ describe("paste, secret-filter blocks and context-pack size", () => {
     expect(html).toContain("Verified-claim ratio");
     expect(html).toContain("Approval requests");
     expect(html).toContain("1 approved · 0 rejected");
+    expect(html).toContain("Latency (p95)");
+    expect(html).toContain("Entry delivery p95");
+    expect(html).toContain("Context pack p95");
+    expect(html).toContain("entry_delivery");
+    expect(html).toContain("context_pack_ms");
     expect(html).not.toContain("ghp_");
+  });
+});
+
+describe("latency histograms (entry delivery and context-pack reads)", () => {
+  it("puts a duration in the exclusive-upper bucket", () => {
+    expect(latencyBucket(0)).toBe("lt_50");
+    expect(latencyBucket(49)).toBe("lt_50");
+    expect(latencyBucket(50)).toBe("50_100");
+    expect(latencyBucket(499)).toBe("250_500");
+    expect(latencyBucket(500)).toBe("500_1000");
+    expect(latencyBucket(1999)).toBe("1s_2s");
+    expect(latencyBucket(2000)).toBe("2s_plus");
+  });
+
+  it("p95 is the upper edge of the bucket that holds the 95th sample", () => {
+    expect(histogramPercentile({}, 95)).toBeNull();
+    expect(histogramPercentile({ lt_50: 20 }, 95)).toBe(50);
+    expect(histogramPercentile({ lt_50: 19, "2s_plus": 1 }, 95)).toBe(50);
+    expect(histogramPercentile({ lt_50: 18, "2s_plus": 2 }, 95)).toBe(Infinity);
+    expect(histogramPercentile({ "250_500": 100 }, 95)).toBe(500);
+    expect(histogramPercentile({ "1s_2s": 100 }, 50)).toBe(2000);
+  });
+
+  it("records delivery and pack-read samples, and skips test accounts", async () => {
+    const { env, db } = fakeEnv();
+    noteLatency(env, null, "entry_delivery", 40, "vedu");
+    noteLatency(env, null, "entry_delivery", 80, "vedu");
+    noteLatency(env, null, "entry_delivery", 600, "vedu");
+    noteWakeDelivery(env, null, [{ ts: Date.now() - 30 }], "jxn");
+    noteContextPackMs(env, null, 15, "vedu");
+    noteContextPackMs(env, null, 2500, "vedu");
+    noteEntryDelivery(env, null, Date.now() - 10, "e2e-ada");
+    noteContextPackMs(env, null, 5, "e2e-ada");
+    expect(counter("entry_delivery", "samples")).toBe(4);
+    expect(counter("entry_delivery", "lt_50")).toBe(2);
+    expect(counter("entry_delivery", "50_100")).toBe(1);
+    expect(counter("entry_delivery", "500_1000")).toBe(1);
+    expect(counter("context_pack_ms", "samples")).toBe(2);
+    expect(counter("context_pack_ms", "lt_50")).toBe(1);
+    expect(counter("context_pack_ms", "2s_plus")).toBe(1);
+    await settleCounts();
+    const o = await observability(env, 14);
+    expect(o.latency.entry_delivery.samples).toBe(4);
+    expect(o.latency.entry_delivery.avg_ms).toBeGreaterThan(0);
+    expect(o.latency.entry_delivery.p95_ms).toBe(1000);
+    expect(o.latency.entry_delivery.p95_overflow).toBe(false);
+    expect(o.latency.entry_delivery.over_target).toBe(1);
+    expect(o.latency.entry_delivery.target_ms).toBe(500);
+    expect(o.latency.context_pack.samples).toBe(2);
+    expect(o.latency.context_pack.p95_ms).toBeNull();
+    expect(o.latency.context_pack.p95_overflow).toBe(true);
+    expect(o.latency.context_pack.over_target).toBe(1);
+    expect(o.latency.context_pack.target_ms).toBe(2000);
+    expect(JSON.parse(JSON.stringify(o.latency)).context_pack.p95_overflow).toBe(true);
+    expect(JSON.parse(JSON.stringify(o.latency)).context_pack.p95_ms).toBeNull();
+    expect(db.prepare(`SELECT metric, key, count FROM usage_daily WHERE metric IN ('entry_delivery', 'context_pack_ms') AND key = 'samples' ORDER BY metric`).all()).toEqual([
+      { metric: "context_pack_ms", key: "samples", count: 2 },
+      { metric: "entry_delivery", key: "samples", count: 4 },
+    ]);
+  });
+
+  it("the read and wait paths record those histograms", () => {
+    expect(src("src/board.ts")).toContain("noteContextPackMs(this.env, this.ctx, Date.now() - started, user)");
+    expect(src("src/mcp.ts")).toContain("noteWakeDelivery(env, c.ctx,");
+    expect(src("src/index.ts")).toContain("noteWakeDelivery(env, ctx,");
+    expect(src("src/mcp.ts")).toContain("let waited = false");
+    expect(src("src/index.ts")).toContain("let waited = false");
   });
 });
 

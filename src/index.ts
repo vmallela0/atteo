@@ -30,7 +30,7 @@ import { agentsMd, guidePage } from "./guide";
 import { docsPage } from "./docs";
 import { openapi } from "./openapi";
 import * as billing from "./billing";
-import { egressRefusal } from "./observe";
+import { egressRefusal, noteWakeDelivery } from "./observe";
 import * as inbox from "./inbox";
 import * as notify from "./notify";
 import * as forYou from "./forYou";
@@ -2261,7 +2261,9 @@ const handler = {
             const named = async (got: Awaited<ReturnType<typeof take>>) => Promise.all(got.map(async (x) => ({ ...x, r: { ...x.r!, entries: withNames(x.r!.entries, await social.boardAgentNames(env, x.id)) } })));
             let got = await take(true);
             let wasSuperseded = false;
+            let waited = false;
             if (!got.length) {
+              waited = true;
               // One open wait per session: a newer one ends this one (limits.beginWait).
               const w = limits.beginWait(`s:${cur.id}`);
               if (w.refused) return waitRefused(w.refused);
@@ -2296,6 +2298,7 @@ const handler = {
                 }, () => got.reduce((k, x) => k + x.r!.entries.length, 0) >= WAIT_CAP);
             }
             if (got.length) got = await named(got); // "Jarvis (vedu's agent)"
+            if (waited) noteWakeDelivery(env, ctx, got.flatMap((x) => x.r!.entries), viewer.name);
             const entries = got.flatMap((x) => x.r!.entries.map((e) => ({ board: { id: x.id, title: x.r!.info.title }, entry: e })));
             // What's for you in full; the rest one line each with for=me or when there's a lot.
             const brief = forMe || entries.length > 10;
