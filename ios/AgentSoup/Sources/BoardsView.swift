@@ -7,8 +7,12 @@ struct BoardView: View {
     @EnvironmentObject var state: AppState
     let board: Board
     @State private var draft = ""
-    @State private var showTasks = false
-    @State private var workPane: WorkPane? // Tasks or Files, from the top bar (always reachable)
+    @State private var tab: BoardTab // Chat · Tasks · Files under the title (BoardTabs.swift, vedu #2549)
+    @State private var taskDetail: Int? // a task opened from the Tasks tab
+    @State private var newTask = false
+    @State private var showThreads = false // every thread here, from the ⋯ menu
+    @State private var searching = false // the board's search, from the magnifying glass
+    @Environment(\.layoutDirection) private var direction
     @State private var showAgents = false
     @State private var invitingAgent = false // "Invite an agent", from the empty chat (InviteAgent.swift)
     @State private var invitePage: [InviteAgentSheet.Page] = [] // its page, kept here (InviteAgentSheet.path)
@@ -27,6 +31,26 @@ struct BoardView: View {
         case 2: return Vocab.pick(String(localized: "\(users[0]) and \(users[1])'s agents working", bundle: .l10n), String(localized: "\(users[0].capitalizedFirst) and \(users[1].capitalizedFirst)'s assistants working", bundle: .l10n))
         default: return Vocab.pick(String(localized: "\(users.count) agents working", bundle: .l10n), String(localized: "\(users.count) assistants working", bundle: .l10n))
         }
+    }
+    /// The same in a few words, when the whole line doesn't fit in the title block.
+    private var presenceShort: String {
+        let n = Set(live.map(\.user)).count
+        switch n {
+        case 0:
+            if board.encrypted == true { return String(localized: "Encrypted", bundle: .l10n) }
+            return Vocab.pick(String(localized: "No agents", bundle: .l10n), String(localized: "No assistants", bundle: .l10n))
+        case 1: return Vocab.pick(String(localized: "Agent working", bundle: .l10n), String(localized: "Assistant working", bundle: .l10n))
+        default: return Vocab.pick(String(localized: "\(n) agents working", bundle: .l10n), String(localized: "\(n) assistants working", bundle: .l10n))
+        }
+    }
+    /// The title block's widest. It's centered between the back button and the buttons on the right, so it gets twice
+    /// the smaller of the two gaps; the right holds search and ⋯, and the phone when voice is on.
+    private var titleMaxWidth: CGFloat {
+        let screen = (UIApplication.shared.connectedScenes.first as? UIWindowScene)?.screen.bounds.width ?? 390
+        let buttons = 2 + (talkStatus.enabled == true ? 1 : 0)
+        let trailing = 16 + CGFloat(buttons) * 46 + 12 // margin, buttons, the group's padding
+        let leading: CGFloat = 16 + 48 + 8 // margin, back, gap
+        return max(80, screen - 2 * max(leading, trailing) - 8)
     }
     @State private var focused = false // the message box has the keyboard
 
@@ -66,6 +90,37 @@ struct BoardView: View {
     init(board: Board) {
         self.board = board
         _peopleOnly = State(initialValue: !board.isAgentChat && UserDefaults.standard.bool(forKey: Self.filterKey(board.id)))
+        _tab = State(initialValue: BoardTab.remembered[board.id] ?? .chat)
+    }
+
+    /// To another tab: the keyboard goes (the message box is the chat's), and the board remembers it for this run.
+    private func select(_ t: BoardTab) {
+        guard t != tab else { return }
+        focused = false
+        Haptics.play(.touch)
+        withAnimation(reduceMotion ? nil : .snappy(duration: 0.22)) { tab = t }
+        BoardTab.remembered[board.id] = t
+    }
+
+    private func page(_ by: Int) { if let t = tab.step(by) { select(t) } }
+
+    private var openTasks: Int { (state.tasks[board.id] ?? []).filter { $0.status != "done" && $0.status != "stopped" && $0.parent == nil }.count }
+
+    /// Tasks or Files, over the chat (which stays where it was underneath, so coming back is instant).
+    @ViewBuilder private var workTab: some View {
+        if tab != .chat {
+            Group {
+                switch tab {
+                case .tasks: TasksPane(board: board.id, open: { taskDetail = $0 }, add: { newTask = true })
+                case .files: FilesPane(board: board.id)
+                case .chat: EmptyView()
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(Theme.bg.ignoresSafeArea())
+            .gesture(TabSwipe(forward: tab.step(1) != nil, back: true, rtl: direction == .rightToLeft, skipRows: true) { page($0) })
+            .transition(.opacity)
+        }
     }
     static func filterKey(_ board: String) -> String { "people-filter.\(board)" }
     /// `follow`: at the latest, stay there as rows leave or come back (the web's toBottom while pinned); a jump to a
@@ -158,22 +213,20 @@ struct BoardView: View {
                 .presentationBackground(Theme.bg)
         }
         .toolbar {
-            // Every thread here, newest first (a dot when one has answers you haven't seen).
+            // Search this board (jxn #2566): the same search as board info's, opened straight to its field.
             ToolbarItem(placement: .topBarTrailing) {
-                NavigationLink { ThreadsList(board: board) } label: {
-                    ToolbarIcon("bubble.left.and.text.bubble.right")
-                        .overlay(alignment: .topTrailing) {
-                            if anyUnreadThread { Circle().fill(Theme.accent).frame(width: 7, height: 7).offset(x: 3, y: -2) }
-                        }
-                }
-                .accessibilityIdentifier("threads")
-                .accessibilityLabel("Threads")
-                .accessibilityValue(anyUnreadThread ? Text("new replies") : Text(verbatim: ""))
+                Button { focused = false; searching = true } label: { ToolbarIcon("magnifyingglass") }
+                    .accessibilityIdentifier("board-search")
+                    .accessibilityLabel("Search this board")
             }
+            // ⋯: every thread here (a dot when one has answers you haven't seen) and the People filter. Tasks and Files
+            // are tabs under the title now (vedu #2549), so the top bar has no Threads button of its own.
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {
-                    Button(Vocab.tasks, systemImage: "checklist") { workPane = .tasks }
-                    Button("Files", systemImage: "doc.on.doc") { workPane = .files }
+                    Button { showThreads = true } label: {
+                        Label(anyUnreadThread ? String(localized: "All threads · new replies", bundle: .l10n) : String(localized: "All threads", bundle: .l10n), systemImage: "bubble.left.and.text.bubble.right")
+                    }
+                    .accessibilityIdentifier("threads")
                     if !board.isAgentChat {
                         Divider()
                         // Only messages people wrote (the web's Hide agents): for you, on this board.
@@ -182,9 +235,15 @@ struct BoardView: View {
                         }
                         .accessibilityIdentifier("people-filter")
                     }
-                } label: { ToolbarIcon("square.stack") }
-                .accessibilityIdentifier("work-menu")
-                .accessibilityLabel(Vocab.pick(String(localized: "Tasks and files", bundle: .l10n), String(localized: "To-dos and files", bundle: .l10n)))
+                } label: {
+                    ToolbarIcon("ellipsis")
+                        .overlay(alignment: .topTrailing) {
+                            if anyUnreadThread { Circle().fill(Theme.accent).frame(width: 7, height: 7).offset(x: 3, y: -2) }
+                        }
+                }
+                .accessibilityIdentifier("board-menu")
+                .accessibilityLabel("More")
+                .accessibilityValue(anyUnreadThread ? Text("new replies") : Text(verbatim: ""))
             }
             // Voice chat with Atteo, like a call, at the top right (vedu #1783): the message box keeps the mic for dictation.
             if talkStatus.enabled == true {
@@ -196,6 +255,9 @@ struct BoardView: View {
                 }
             }
         }
+        .navigationDestination(isPresented: $showThreads) { ThreadsList(board: board) }
+        .navigationDestination(item: $taskDetail) { seq in TaskDetail(seq: seq, board: board.id) }
+        .sheet(isPresented: $newTask) { NewTaskSheet(board: board.id).presentationDetents([.medium, .large]).presentationBackground(Theme.bg) }
         .task { await talkStatus.load() }
         .fullScreenCover(isPresented: $talking) { TalkSheet(board: board) }
         .sheet(isPresented: $invitingAgent) { InviteAgentSheet(board: board, path: $invitePage).presentationDetents([.large]).presentationBackground(Theme.bg) }
@@ -372,22 +434,25 @@ struct BoardView: View {
                 }
                 .animation(.snappy, value: atBottom) // (animated here, not with withAnimation from the scroll geometry)
             }
+            // Swipe right to left in the chat: on to Tasks (the other way on a message is Reply; from the edge, Back).
+            .gesture(TabSwipe(forward: tab == .chat, back: false, rtl: direction == .rightToLeft) { page($0) })
+            .accessibilityHidden(tab != .chat)
+            .overlay { workTab }
         }
         .safeAreaInset(edge: .top, spacing: 0) {
             VStack(spacing: 0) {
-                // Everyday: Chat · To-dos · Files under the title (Everyday.swift); Developer mode: the work strip.
-                if Vocab.everyday { EverydayChatTabs(tasks: state.tasks[board.id] ?? []) { workPane = $0 } }
-                else { WorkStrip(tasks: state.tasks[board.id] ?? []) { showTasks = true } }
+                // Chat · Tasks · Files (Everyday: To-dos), always the same height (BoardTabs.swift, vedu #2549).
+                BoardTabStrip(tab: $tab, board: board.id, openTasks: openTasks, pick: { select($0) }, newTask: { newTask = true })
+                    .gesture(TabSwipe(forward: true, back: true, rtl: direction == .rightToLeft) { page($0) })
                 // The People filter is on: says so, one tap shows everything again.
-                if peopleOnly {
+                if peopleOnly && tab == .chat {
                     PeopleFilterStrip(empty: state.entries[board.id] != nil && r.shown.isEmpty) { Haptics.play(.touch); setPeopleOnly(false) }
                         .transition(.move(edge: .top).combined(with: .opacity))
                 }
             }
         }
-        .safeAreaInset(edge: .bottom, spacing: 0) { composer }
-        .sheet(isPresented: $showTasks) { TasksSheet(board: board).environment(\.chatDensity, density).presentationDetents([.large]).presentationBackground(Theme.bg) }
-        .sheet(item: $workPane) { p in TasksSheet(board: board, initial: p).environment(\.chatDensity, density).presentationDetents([.large]).presentationBackground(Theme.bg) }
+        // The message box is the chat's: Tasks and Files have the whole height.
+        .safeAreaInset(edge: .bottom, spacing: 0) { if tab == .chat { composer } }
         .navigationTitle(board.displayName(me: state.me?.owner))
         .toolbar {
             // The title, and under it who's working here right now (tap for everyone, live / idle / gone).
@@ -398,10 +463,17 @@ struct BoardView: View {
                         HStack(spacing: Space.xs) {
                             if board.encrypted == true { Image(systemName: "lock.fill").font(.system(size: 9)).foregroundStyle(Theme.faint.fixed(scheme)) }
                             if !live.isEmpty { LiveDot(size: 6) }
-                            Text(presence).font(Typo.micro.weight(.medium)).foregroundStyle((live.isEmpty ? Theme.faint : Theme.ok).fixed(scheme)).lineLimit(1)
+                            // The whole line if it fits, else the short one ("2 agents working"), else cut with "…".
+                            ViewThatFits(in: .horizontal) {
+                                Text(presence).fixedSize()
+                                Text(presenceShort).lineLimit(1)
+                            }
+                            .font(Typo.micro.weight(.medium)).foregroundStyle((live.isEmpty ? Theme.faint : Theme.ok).fixed(scheme))
                         }
                     }
                     .padding(.horizontal, Space.s)
+                    // Never under the buttons on either side (vedu #2650): at most the room between them.
+                    .frame(maxWidth: titleMaxWidth)
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
@@ -411,6 +483,12 @@ struct BoardView: View {
         // The title opens the board's info: what's open, who's here, files, search.
         .sheet(isPresented: $showAgents) {
             BoardInfoSheet(board: board) { seq in showAgents = false; jump(to: seq, after: 0.35) }
+                .environment(\.chatDensity, density)
+                .presentationDetents([.large]).presentationBackground(Theme.bg)
+        }
+        // The magnifying glass: the same search, nothing else, its field focused. A hit goes to that message in Chat.
+        .sheet(isPresented: $searching) {
+            BoardInfoSheet(board: board, searchOnly: true) { seq in searching = false; jump(to: seq, after: 0.35) }
                 .environment(\.chatDensity, density)
                 .presentationDetents([.large]).presentationBackground(Theme.bg)
         }
@@ -551,6 +629,8 @@ struct BoardView: View {
     private func jump(to seq: Int, after delay: Double = 0) {
         Task {
             if delay > 0 { try? await Task.sleep(nanoseconds: UInt64(delay * 1e9)) }
+            // A message is in the chat: from Tasks or Files, back to it first.
+            if tab != .chat { select(.chat); try? await Task.sleep(nanoseconds: 250_000_000) }
             // An agent's post, with the People filter on: show everything again first (the web's "Showing agents' posts").
             if peopleOnly, list.first(where: { $0.seq == seq })?.byAgent == true { setPeopleOnly(false, follow: false) }
             // Further back than what's loaded: bring it in (pages of up to 500, until it's here).

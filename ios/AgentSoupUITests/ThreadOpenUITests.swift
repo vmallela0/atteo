@@ -113,10 +113,10 @@ final class ThreadOpenUITests: AtteoUITestCase {
             close(a, "\(mode)-06")
         } else { XCTFail("\(mode): long-press offers View thread") }
 
-        // 6. The Threads list in the top bar.
-        let list = a.buttons["threads"].firstMatch
-        if list.waitForExistence(timeout: 4) {
-            list.tap()
+        // 6. The Threads list, from the ⋯ menu in the top bar.
+        let menu = a.buttons["board-menu"].firstMatch
+        if menu.waitForExistence(timeout: 4) {
+            a.openThreadsList()
             let row = a.buttons.matching(NSPredicate(format: "label CONTAINS %@", t.rootText)).firstMatch
             if row.waitForExistence(timeout: 6) {
                 row.tap()
