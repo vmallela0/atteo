@@ -1362,8 +1362,8 @@ const DISPLAY_HEAD = `<script>try{const d=JSON.parse(localStorage.getItem('atteo
 if(d.text==='s'||d.text==='l')r.dataset.text=d.text;if(d.density==='compact')r.dataset.density='compact';if(d.theme==='light'||d.theme==='dark')r.dataset.theme=d.theme;if(d.ev===true)r.dataset.mode='everyday';if(d.replies==='thread')r.dataset.replies='thread'}catch{}</script>`; // mode: what the account said last time (set on the first sync)
 
 const CLIENT_JS = `
-/** Bidi controls and zero-width characters. Marks that place a Latin word in Arabic stay. */
-function bidi(s){return String(s??'').replace(/[\\u202A-\\u202E\\u2066-\\u2069\\u200B-\\u200D\\u2060\\uFEFF]/g,'')}
+/** Bidi controls, zero-width space, word joiner, and BOM. ZWJ and ZWNJ stay (emoji, Persian, Hindi, Bengali). Arabic marks stay. */
+function bidi(s){return String(s??'').replace(/[\\u202A-\\u202E\\u2066-\\u2069\\u200B\\u2060\\uFEFF]/g,'')}
 /** The one HTML escaper for every page script. */
 function esc(s){return bidi(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c])}
 /** The interface in this page's language (i18n.ts): the English as written, looked up in window.I18N; {name} filled from v. */

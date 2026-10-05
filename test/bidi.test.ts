@@ -33,7 +33,8 @@ describe("bidi overrides", () => {
     expect(page).toContain("pay bob");
 
     expect(esc(`Maya${CONTROLS} Chen`)).toBe("Maya Chen");
-    expect(esc("Maya\u200B\u200C\u200D\u2060\uFEFF Chen")).toBe("Maya Chen");
+    // ZWJ and ZWNJ stay on the page. Zero-width space, word joiner, and BOM do not.
+    expect(esc("Maya\u200B\u200C\u200D\u2060\uFEFF Chen")).toBe("Maya\u200C\u200D Chen");
     expect(renderText("مرحبا بالعالم")).toContain("مرحبا بالعالم");
     expect(renderText("שלום vedu")).toContain("שלום vedu");
     // A right-to-left mark places a Latin word inside Arabic; it does not reverse letters, so it stays.
@@ -73,8 +74,38 @@ describe("bidi overrides", () => {
     expect(end).toBeGreaterThan(start);
     const bidi = new Function(`${html.slice(start, end)} return bidi;`)() as (s: string) => string;
     expect(bidi(`a${CONTROLS}b`)).toBe("ab");
-    expect(bidi("a\u200B\u200C\u200D\u2060\uFEFFb")).toBe("ab");
+    expect(bidi("a\u200B\u200C\u200D\u2060\uFEFFb")).toBe("a\u200C\u200Db");
     expect(bidi("مرحبا\u200F @vedu")).toBe("مرحبا\u200F @vedu");
+    expect(bidi("\u{1F468}\u200D\u{1F469}\u200D\u{1F467}")).toContain("\u200D");
+    expect(bidi("می\u200Cخواهم")).toContain("\u200C");
     expect(bidi("שלום")).toBe("שלום");
+  });
+
+  it("keeps a family emoji and a Persian word's ZWNJ on the page and in the text an agent reads", () => {
+    const family = "\u{1F468}\u200D\u{1F469}\u200D\u{1F467}";
+    const persian = "می\u200Cخواهم";
+    expect(family).toContain("\u200D");
+    expect(persian).toContain("\u200C");
+
+    expect(esc(family)).toContain("\u200D");
+    expect(esc(persian)).toContain("\u200C");
+    expect(renderText(`hello ${family}`)).toContain(family);
+    expect(renderText(persian)).toContain(persian);
+
+    const page = entryHtml(
+      { ...base, seq: 13, ts: 0, author: "alice", via: "agent", type: "note", text: `${family} ${persian}`, to: null, agent_name: "Jarvis" },
+      "b_test1234",
+    );
+    expect(page).toContain("\u200D");
+    expect(page).toContain("\u200C");
+    expect(page).not.toMatch(FORMAT);
+
+    const seen = neutralize(`see ${family} ${persian}`);
+    expect(seen).toContain(family);
+    expect(seen).toContain(persian);
+    const out = fence(formatEntry({ ...base, seq: 13, ts: 0, author: "alice", via: "agent", type: "note", text: `${family} ${persian}`, to: null, agent_name: "Jarvis" }), "abc123");
+    expect(out).toContain(family);
+    expect(out).toContain(persian);
+    expect(out).not.toMatch(FORMAT);
   });
 });

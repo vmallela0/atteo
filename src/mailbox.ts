@@ -12,7 +12,7 @@
 import type { Env } from "./types";
 import { OWN_MAIL_HINT } from "./audience";
 import { FOR_LABEL, triagePreview } from "./ping";
-import { stripBidiControls } from "./util";
+import { proseForAgent } from "./util";
 
 export const MAIL_KINDS = ["agent", "mention", "reply", "contact_request", "contact_accept", "decision", "trigger", "from_your_person"];
 
@@ -108,13 +108,13 @@ export async function collect(
       if (r.kind === "trigger") {
         // A board rule your own person set: their prompt is the request; the event line is what someone did (data).
         const d = JSON.parse(r.data ?? "{}") as TriggerData;
-        const text = stripBidiControls(`${d.prompt}\n\n(Trigger ${d.trigger?.id} on ${d.trigger?.on}: ${d.event?.line} ${d.event?.url})`);
+        const text = proseForAgent(`${d.prompt}\n\n(Trigger ${d.trigger?.id} on ${d.trigger?.on}: ${d.event?.line} ${d.event?.url})`);
         return {
-          id: r.id, kind: "trigger", board: r.board_id, board_title: r.board_title == null ? null : stripBidiControls(r.board_title), seq: d.event?.seq ?? null,
+          id: r.id, kind: "trigger", board: r.board_id, board_title: r.board_title == null ? null : proseForAgent(r.board_title), seq: d.event?.seq ?? null,
           from: r.actor, from_via: "person", type: "trigger", ts: r.created_at, from_owner: true,
           text, preview: triagePreview(null, text),
           for: r.to_session ? FOR_LABEL.session : FOR_LABEL.agent,
-          trigger: d.trigger, prompt: stripBidiControls(d.prompt ?? ""), event: d.event ? { ...d.event, line: stripBidiControls(d.event.line ?? "") } : d.event,
+          trigger: d.trigger, prompt: proseForAgent(d.prompt ?? ""), event: d.event ? { ...d.event, line: proseForAgent(d.event.line ?? "") } : d.event,
           ...(r.to_session ? { to_session: r.to_session_name ?? r.to_session } : {}),
         };
       }
@@ -123,14 +123,14 @@ export async function collect(
       const full = r.board_id && !r.encrypted ? await fullText(r.board_id, r.seq).catch(() => null) : null;
       const body = full?.text ?? r.excerpt;
       // Just mine: said in the text too, so an agent that only reads the text keeps its answer private.
-      const text = stripBidiControls(own ? `${body}\n\n${OWN_MAIL_HINT}` : body);
+      const text = proseForAgent(own ? `${body}\n\n${OWN_MAIL_HINT}` : body);
       // A human decision is for the people; your agent hears about it, marked as such (informational), even in a DM.
       // Your own person on "Your agent" (board kind "agent"): a DM from them.
       const fromOwner = r.board_kind === "agent" && r.actor === user && r.actor_via === "person";
       const kind: Mail["kind"] = r.kind === "from_your_person" ? "from_your_person" : r.kind === "decision" ? "human_decision" : (r.board_kind === "direct" && r.kind !== "contact_request" && r.kind !== "contact_accept") || fromOwner ? "dm" : r.kind === "agent" ? "for_your_agent" : (r.kind as Mail["kind"]);
       return {
-        id: r.id, kind, board: r.board_id || null, board_title: r.board_title == null ? null : stripBidiControls(r.board_title), seq: r.board_id ? r.seq : null,
-        from: r.actor, from_via: r.actor_via, type: r.entry_type, ...(full?.title ? { title: stripBidiControls(full.title) } : {}), text, preview: triagePreview(full?.title, body, { sealed: !!r.encrypted }), ts: r.created_at,
+        id: r.id, kind, board: r.board_id || null, board_title: r.board_title == null ? null : proseForAgent(r.board_title), seq: r.board_id ? r.seq : null,
+        from: r.actor, from_via: r.actor_via, type: r.entry_type, ...(full?.title ? { title: proseForAgent(full.title) } : {}), text, preview: triagePreview(full?.title, body, { sealed: !!r.encrypted }), ts: r.created_at,
         for: r.to_session ? FOR_LABEL.session : kind === "mention" || kind === "human_decision" ? FOR_LABEL.person : kind === "reply" ? "a reply to you" : FOR_LABEL.agent,
         ...(r.encrypted ? { encrypted: true } : {}),
         ...(fromOwner ? { from_owner: true } : {}),
