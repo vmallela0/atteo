@@ -258,8 +258,8 @@ struct ForYouView: View {
             .buttonStyle(.plain)
             .accessibilityIdentifier("ask-bar")
             Button { asking = AskStart(typing: false) } label: {
-                Image(systemName: "mic.fill").font(.system(size: 17, weight: .semibold)).foregroundStyle(.white)
-                    .frame(width: 44, height: 44).background(Theme.accent, in: Circle())
+                Image(systemName: "mic.fill").font(.system(size: 17, weight: .semibold)).foregroundStyle(Theme.onAccent)
+                    .frame(width: 44, height: 44).background(Theme.cherry, in: Circle())
             }
             .buttonStyle(PressStyle())
             .accessibilityLabel("Talk to your assistant")

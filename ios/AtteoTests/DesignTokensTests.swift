@@ -47,16 +47,25 @@ final class DesignTokensTests: XCTestCase {
         assertContrast(Theme.faint, on: Theme.bg, atLeast: 4.5, "faint on bg")
         assertContrast(Theme.faint, on: Theme.card, atLeast: 4.5, "faint on card")
         assertContrast(Theme.onText, on: Theme.text, atLeast: 4.5, "the primary button's label")
-        assertContrast(Theme.onAccent, on: Theme.accentFill, atLeast: 4.5, "paper on a cherry fill (counts, Yes)")
-        assertContrast(Theme.text, on: Avatar.personFill, atLeast: 4.5, "a person's initial")
-        assertContrast(Avatar.agentInk, on: Avatar.agentFill, atLeast: 4.5, "an agent's initial")
+        assertContrast(Theme.onAccent, on: Theme.accent, atLeast: 4.5, "a count (on-ink on the ink accent)")
+        assertContrast(Theme.onCherryFill, on: Theme.cherryFill, atLeast: 4.5, "words on a cherry fill (Talk's Yes)")
+        for name in ["maya", "vedu", "jxn", "theo", "Checkout bug", "Zoë", "小明", "a"] {
+            assertContrast(Theme.avatarInk(name), on: Theme.avatarFill(name), atLeast: 4.5, "\(name)'s initial")
+        }
     }
 
-    func testCherryGlyphsAndStrokesAreVisible() {
-        // Cherry (cherry-bright on dark) is for dots, strokes, icons and large text: 3:1 is the bar there.
-        assertContrast(Theme.accent, on: Theme.bg, atLeast: 3, "cherry on the ground")
-        assertContrast(Theme.accent, on: Theme.card, atLeast: 3, "cherry on a card")
-        assertContrast(Theme.onAccent, on: Theme.accent, atLeast: 3, "a glyph on a cherry button")
+    func testCherryAndAtteoGlyphsAreVisible() {
+        // Cherry (cherry-bright on dark) is for the primary action and the mic: glyphs, 3:1 is the bar there.
+        assertContrast(Theme.cherry, on: Theme.bg, atLeast: 3, "cherry on the ground")
+        assertContrast(Theme.onAccent, on: Theme.cherry, atLeast: 3, "a glyph on a cherry button")
+        assertContrast(Theme.atteo, on: Theme.bg, atLeast: 4.5, "Atteo's caption in Talk")
+        assertContrast(Theme.onAccent, on: Theme.atteo, atLeast: 4.5, "the glyph on Talk's orb")
+    }
+
+    func testAvatarHueMatchesTheWeb() {
+        // Expected values from the web's ui.ts hue() (look-1), run in node over the same names.
+        let web: [String: Int] = ["maya": 322, "vedu": 28, "jxn": 140, "theo": 140, "Checkout bug": 322, "Zoë": 248, "小明": 168, "🙂ana": 280, "a": 8]
+        for (name, h) in web { XCTAssertEqual(Theme.hueDegrees(name), h, name) }
     }
 
     func testFontsRegister() {

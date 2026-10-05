@@ -178,7 +178,7 @@ struct TalkSheet: View {
                 .accessibilityIdentifier("talk-heard")
         case .grok:
             VStack(alignment: .leading, spacing: 2) {
-                Text("Atteo").font(Typo.micro.weight(.semibold)).foregroundStyle(Theme.accent)
+                Text("Atteo").font(Typo.micro.weight(.semibold)).foregroundStyle(Theme.atteo)
                     .accessibilityHidden(true)
                 Text(c.text).font(Typo.ui(.title3)).foregroundStyle(Theme.text)
                     .fixedSize(horizontal: false, vertical: true)
@@ -210,7 +210,7 @@ struct TalkSheet: View {
             HStack(spacing: Space.s) {
                 Button { talk.answerConfirm(false) } label: { Text("No").frame(maxWidth: .infinity).padding(.vertical, 10).background(Theme.raised, in: Rectangle()) }
                     .accessibilityIdentifier("talk-confirm-no")
-                Button { talk.answerConfirm(true) } label: { yesWord(c).frame(maxWidth: .infinity).padding(.vertical, 10).background(Theme.accentFill, in: Rectangle()).foregroundStyle(Theme.onAccent) }
+                Button { talk.answerConfirm(true) } label: { yesWord(c).frame(maxWidth: .infinity).padding(.vertical, 10).background(Theme.cherryFill, in: Rectangle()).foregroundStyle(Theme.onCherryFill) }
                     .accessibilityIdentifier("talk-confirm-yes")
             }
             .buttonStyle(PressStyle()).font(Typo.ui(.body).weight(.semibold)).foregroundStyle(Theme.text)
@@ -262,7 +262,7 @@ struct TalkSheet: View {
     private var controls: some View {
         let live = talk.phase == .ready
         return VStack(spacing: Space.m) {
-            Text(stateLine).font(Typo.secondary.weight(.medium)).foregroundStyle(talk.speaking ? Theme.accent : Theme.muted)
+            Text(stateLine).font(Typo.secondary.weight(.medium)).foregroundStyle(talk.speaking ? Theme.atteo : Theme.muted)
                 .accessibilityIdentifier("talk-state")
             if talk.phase == .ended {
                 Button { dismiss() } label: {
@@ -338,7 +338,7 @@ struct TalkSheet: View {
                     .font(.system(size: 44, weight: .semibold))
                     .foregroundStyle(Theme.onAccent)
                     .frame(width: 112, height: 112)
-                    .background(Theme.accent, in: Circle())
+                    .background(Theme.cherry, in: Circle())
                 Text("Resume").font(Typo.ui(.headline)).foregroundStyle(Theme.text)
             }
         }
@@ -429,25 +429,25 @@ struct TalkOrb: View {
             let l = CGFloat(level)
             ZStack {
                 // Your voice: a soft halo that follows the level.
-                Circle().fill(Theme.accent.opacity(mood == .hearing || mood == .listening || mood == .holding ? 0.10 + 0.25 * l : 0))
+                Circle().fill(Theme.atteo.opacity(mood == .hearing || mood == .listening || mood == .holding ? 0.10 + 0.25 * l : 0))
                     .scaleEffect(1 + 0.45 * l)
                 // Atteo speaking: rings going out.
                 if mood == .speaking {
                     ForEach(0..<3) { i in
                         let p = (t * 0.6 + Double(i) / 3).truncatingRemainder(dividingBy: 1)
-                        Circle().stroke(Theme.accent.opacity(Effects.enabled ? 0.5 * (1 - p) : 0.35), lineWidth: 2)
+                        Circle().stroke(Theme.atteo.opacity(Effects.enabled ? 0.5 * (1 - p) : 0.35), lineWidth: 2)
                             .scaleEffect(Effects.enabled ? 1 + 0.5 * p : 1.12)
                     }
                 }
                 // Thinking: an arc going round.
                 if mood == .thinking {
                     Circle().trim(from: 0, to: 0.28)
-                        .stroke(Theme.accent, style: StrokeStyle(lineWidth: 3, lineCap: .round))
+                        .stroke(Theme.atteo, style: StrokeStyle(lineWidth: 3, lineCap: .round))
                         .rotationEffect(.radians(t * 4))
                         .scaleEffect(1.1)
                 }
                 Circle().fill(fill)
-                    .overlay(Circle().stroke(Theme.accent.opacity(mood == .listening ? 0.35 : 0), lineWidth: 2))
+                    .overlay(Circle().stroke(Theme.atteo.opacity(mood == .listening ? 0.35 : 0), lineWidth: 2))
                     .scaleEffect(mood == .speaking ? 1 + 0.03 * sin(t * 7) : 1 + 0.12 * l)
                 Image(systemName: symbol)
                     .font(.system(size: 40, weight: .semibold))
@@ -461,7 +461,7 @@ struct TalkOrb: View {
 
     private var fill: Color {
         switch mood {
-        case .speaking, .hearing, .holding: return Theme.accent
+        case .speaking, .hearing, .holding: return Theme.atteo
         default: return Theme.raised
         }
     }

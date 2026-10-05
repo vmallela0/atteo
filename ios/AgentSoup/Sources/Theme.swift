@@ -28,26 +28,73 @@ enum Palette {
     static let graphite = rgb(0x5A5853) // secondary text
 }
 
+/// The app's roles, with the web's look-1 values (src/ui.ts, light and dark) so the two match exactly.
 enum Theme {
-    static let bg = Color(light: Palette.paper, dark: Palette.ink)
-    static let card = Color(light: Palette.bone, dark: rgb(0x1A1A19)) // grouped surfaces: task cards, the work strip, the message box
-    static let raised = Color(light: rgb(0xE8E4DB), dark: rgb(0x262523)) // your messages, avatars, pressed states (between bone and stone)
-    static let line = Color(light: Palette.stone, dark: rgb(0x33322F)) // dividers (stone)
+    static let bg = Color(light: Palette.paper, dark: Palette.ink) // --bg
+    static let card = Color(light: Palette.bone, dark: rgb(0x171716)) // --bg-subtle: task cards, the work strip, the message box
+    static let raised = Color(light: rgb(0xECE8DF), dark: rgb(0x1F1E1C)) // --bg-hover: your messages, pressed states
+    static let line = Color(light: rgb(0xE4E1D9), dark: rgb(0x2A2926)) // --line
+    static let lineStrong = Color(light: Palette.stone, dark: rgb(0x3A3935)) // --line-strong
     /// Rules: 2px ink (the spec's "2px ink rules"), for the few places that separate sections.
-    static let rule = Color(light: Palette.ink, dark: Palette.paper)
-    static let text = Color(light: Palette.ink, dark: Palette.paper)
-    static let muted = Color(light: Palette.graphite, dark: rgb(0xA8A59E)) // graphite (lifted on ink so it stays AA)
-    static let faint = Color(light: rgb(0x6E6B64), dark: rgb(0x8C8981)) // still AA on paper, bone and ink
-    /// What sits on a `text`-filled control (the primary button): paper on ink, ink on paper.
+    static let rule = Color(light: Palette.ink, dark: Palette.paper) // --ink
+    static let text = Color(light: rgb(0x161614), dark: rgb(0xEDEBE5)) // --text
+    static let muted = Color(light: Palette.graphite, dark: rgb(0xAFADA6)) // --muted (6.8:1 on paper)
+    static let faint = Color(light: rgb(0x6B6964), dark: rgb(0x8E8C85)) // --faint (5.0:1 on paper)
+    /// What sits on an ink-filled control (the primary button, a count): paper on ink, ink on paper (--on-ink).
     static let onText = Color(light: Palette.paper, dark: Palette.ink)
-    /// Cherry: strokes, glyphs, dots and large text; cherry-bright on dark, as the spec says.
-    static let accent = Color(light: Palette.cherry, dark: Palette.cherryBright)
-    /// A cherry fill that carries text (a count, the Yes button): cherry in both modes, so paper on it stays AA (12:1);
-    /// cherry-bright is too light for small paper or ink text (about 4.3:1).
-    static let accentFill = Color(uiColor: Palette.cherry)
-    static let ok = Color(light: rgb(0x2E7A47), dark: UIColor(red: 0.45, green: 0.78, blue: 0.55, alpha: 1))
-    static let warn = Color(light: rgb(0x9A6114), dark: UIColor(red: 0.95, green: 0.72, blue: 0.38, alpha: 1))
-    static let danger = Color(light: rgb(0xC63F3B), dark: UIColor(red: 0.94, green: 0.43, blue: 0.40, alpha: 1))
+    /// The accent is ink, as on the web (--accent): unread, links, focus and counts. The palette has no blue, and
+    /// cherry is kept for the primary action.
+    static let accent = Color(light: Palette.ink, dark: Palette.paper)
+    /// Cherry (--cherry): only the primary action and the mic; cherry-bright on dark. Glyphs on it are --on-ink.
+    static let cherry = Color(light: Palette.cherry, dark: Palette.cherryBright)
+    /// A cherry fill that carries words (Talk's Yes): cherry in both modes, so paper on it stays AA (7.8:1);
+    /// ink on cherry-bright is about 4.3:1, too low for text.
+    static let cherryFill = Color(uiColor: Palette.cherry)
+    /// Atteo's voice in Talk (--atteo): the caption and the orb.
+    static let atteo = Color(light: rgb(0xA34A2B), dark: rgb(0xF0A78E))
+    static let ok = Color(light: rgb(0x16A34A), dark: rgb(0x3ECF75)) // --ok
+    static let warn = Color(light: rgb(0xC2410C), dark: rgb(0xFB923C)) // --warn
+    static let danger = Color(light: rgb(0xDC2626), dark: rgb(0xF87171)) // --danger
+
+    /// The web's avatar hue (src/ui.ts hue()): FNV-1a over the name's UTF-16 code units, picked from the same ten hues.
+    static func hueDegrees(_ name: String) -> Int {
+        var h: UInt32 = 0x811c9dc5
+        // for (const c of name) h = Math.imul(h ^ c.charCodeAt(0), 0x01000193) >>> 0: one step per code point, using
+        // its first UTF-16 unit.
+        for scalar in name.unicodeScalars {
+            let unit = UInt32(String(scalar).utf16.first ?? 0)
+            h = (h ^ unit) &* 0x01000193
+        }
+        let hues = [8, 28, 46, 140, 168, 192, 214, 248, 280, 322]
+        return hues[Int(h % UInt32(hues.count))]
+    }
+    /// An avatar's tile and letter (the web's .av: hsl(h, 38%, 90%) and hsl(h, 55%, 26%) light; hsl(h, 26%, 22%) and
+    /// hsl(h, 55%, 80%) dark).
+    static func avatarFill(_ name: String) -> Color {
+        let h = Double(hueDegrees(name))
+        return Color(light: hsl(h, 0.38, 0.90), dark: hsl(h, 0.26, 0.22))
+    }
+    static func avatarInk(_ name: String) -> Color {
+        let h = Double(hueDegrees(name))
+        return Color(light: hsl(h, 0.55, 0.26), dark: hsl(h, 0.55, 0.80))
+    }
+}
+
+/// CSS hsl() as a UIColor (hue in degrees, saturation and lightness 0…1).
+func hsl(_ h: Double, _ s: Double, _ l: Double) -> UIColor {
+    let c = (1 - abs(2 * l - 1)) * s
+    let hp = (h.truncatingRemainder(dividingBy: 360)) / 60
+    let x = c * (1 - abs(hp.truncatingRemainder(dividingBy: 2) - 1))
+    let (r1, g1, b1): (Double, Double, Double) = switch hp {
+    case ..<1: (c, x, 0)
+    case ..<2: (x, c, 0)
+    case ..<3: (0, c, x)
+    case ..<4: (0, x, c)
+    case ..<5: (x, 0, c)
+    default: (c, 0, x)
+    }
+    let m = l - c / 2
+    return UIColor(red: r1 + m, green: g1 + m, blue: b1 + m, alpha: 1)
 }
 
 /// The 4-pt grid.
@@ -237,8 +284,8 @@ final class AvatarCache: ObservableObject {
     func version(_ name: String, agent: Bool) -> Int { versions["\(name):\(agent)"] ?? 0 }
 }
 
-/// A person (round, ink on bone) or an agent (square, inverted: paper on ink, the agent layer), with their initial.
-/// Their picture if they set one. (jxn #2525: no vessels in avatars; initials and pictures as before, new colours.)
+/// A person (round) or an agent (square), their initial on a calm tint picked from the name exactly as the web does
+/// (look-1's .av). Their picture if they set one. (jxn #2525: no vessels in avatars.)
 struct Avatar: View {
     let name: String
     var agent = false
@@ -246,17 +293,13 @@ struct Avatar: View {
     @ObservedObject private var cache = AvatarCache.shared
 
     private var shape: RoundedRectangle { RoundedRectangle(cornerRadius: agent ? 0 : size / 2, style: .continuous) }
-    /// People: ink on bone; agents: paper on ink (both flip on a dark screen so they still read apart).
-    static let personFill = Color(light: Palette.bone, dark: rgb(0x2A2927))
-    static let agentFill = Color(light: Palette.ink, dark: Palette.paper)
-    static let agentInk = Color(light: Palette.paper, dark: Palette.ink)
 
     var body: some View {
         ZStack {
-            shape.fill(agent ? Self.agentFill : Self.personFill)
+            shape.fill(Theme.avatarFill(name))
             Text(String(name.prefix(1)).uppercased())
                 .font(.custom("Onest-SemiBold", size: size * 0.42))
-                .foregroundStyle(agent ? Self.agentInk : Theme.text)
+                .foregroundStyle(Theme.avatarInk(name))
         }
         .frame(width: size, height: size)
         .overlay(alignment: .center) {
@@ -276,16 +319,16 @@ struct Avatar: View {
     }
 }
 
-/// A board's tile in Chats: a square with its initial (a board is a place, a person is a circle), ink on bone.
+/// A board's tile in Chats: a square with its initial (a board is a place, a person is a circle), tinted like avatars.
 struct BoardTile: View {
     let title: String
     var size: CGFloat = 40
     var body: some View {
         let initial = title.first(where: { $0.isLetter || $0.isNumber }).map { String($0).uppercased() } ?? "#"
         Rectangle()
-            .fill(Avatar.personFill)
+            .fill(Theme.avatarFill(title))
             .frame(width: size, height: size)
-            .overlay(Text(initial).font(.custom("Onest-SemiBold", size: size * 0.4)).foregroundStyle(Theme.text))
+            .overlay(Text(initial).font(.custom("Onest-SemiBold", size: size * 0.4)).foregroundStyle(Theme.avatarInk(title)))
     }
 }
 
@@ -311,19 +354,21 @@ struct SectionHeader: View {
     var body: some View { title.font(Typo.section).foregroundStyle(Theme.muted).textCase(nil) }
 }
 
-/// An unread count: a small cherry square, paper on it.
+/// An unread count: a small ink square (the accent), paper on it.
 struct CountBadge: View {
     let n: Int
     var body: some View {
         Text("\(n)").font(Typo.onest(11, .semibold, .caption2)).monospacedDigit()
             .padding(.horizontal, 6).frame(minWidth: 18, minHeight: 18)
-            .background(Theme.accentFill, in: Rectangle()).foregroundStyle(Theme.onAccent)
+            .background(Theme.accent, in: Rectangle()).foregroundStyle(Theme.onAccent)
     }
 }
 
 extension Theme {
-    /// What sits on a cherry fill (a count, the send arrow, Yes): paper in both modes (12:1 on cherry).
-    static let onAccent = Color(uiColor: Palette.paper)
+    /// What sits on an accent or cherry fill (a count, the mic, the send arrow): --on-ink (paper on light, ink on dark).
+    static let onAccent = Color(light: Palette.paper, dark: Palette.ink)
+    /// Words on a cherry fill (Talk's Yes): paper in both modes, on cherryFill.
+    static let onCherryFill = Color(uiColor: Palette.paper)
 }
 
 // MARK: - Display settings (Settings → Display; saved per person on the server, cached here)

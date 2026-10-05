@@ -88,11 +88,11 @@ struct AskView: View {
         VStack(spacing: Space.l) {
             Button { if voice.listening { voice.stop() } else { start() } } label: {
                 ZStack {
-                    Circle().fill(Theme.accent.opacity(0.08)).frame(width: 196, height: 196)
-                    Circle().fill(Theme.accent.opacity(0.14)).frame(width: 160, height: 160)
+                    Circle().fill(Theme.cherry.opacity(0.08)).frame(width: 196, height: 196)
+                    Circle().fill(Theme.cherry.opacity(0.14)).frame(width: 160, height: 160)
                         .scaleEffect(voice.listening && Effects.enabled ? 1.06 : 1)
                         .animation(voice.listening && Effects.enabled && API.environment("STILL") == nil ? .easeInOut(duration: 0.9).repeatForever(autoreverses: true) : .default, value: voice.listening)
-                    Circle().fill(Theme.accent).frame(width: 108, height: 108)
+                    Circle().fill(Theme.cherry).frame(width: 108, height: 108)
                     Image(systemName: voice.listening ? "waveform" : "mic.fill").font(.system(size: 34, weight: .semibold)).foregroundStyle(.white)
                 }
                 .contentShape(Circle())
@@ -135,7 +135,7 @@ struct AskView: View {
                     .accessibilityIdentifier("ask-field")
                 Button { Task { await ask(text) } } label: {
                     Image(systemName: "arrow.up").font(.system(size: 15, weight: .bold)).foregroundStyle(Theme.onAccent)
-                        .frame(width: 36, height: 36).background(Theme.accent, in: Circle())
+                        .frame(width: 36, height: 36).background(Theme.cherry, in: Circle())
                 }
                 .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || sending)
                 .opacity(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? 0.4 : 1)
