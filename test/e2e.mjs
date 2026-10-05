@@ -1278,6 +1278,8 @@ await step("grep: exact lines on one board (MCP and REST), case, regex, context,
 });
 
 await step("ls: read-only mount (state.md, files/, log/); MCP and REST; nothing marked read", async () => {
+  const name = `ls-${run}.md`;
+  await ok(A, board, "doc", { action: "write", name, content: `# Ls mount ${run}\n`, base_version: 0, summary: "ls file" });
   await ok(B, board, "read");
   has(await ok(B, board, "read"), "(nothing new)");
   const root = await ok(B, board, "ls", {});
@@ -1286,13 +1288,13 @@ await step("ls: read-only mount (state.md, files/, log/); MCP and REST; nothing 
   has(root, "log/");
   assert(!root.includes("<<untrusted"), "root listing is the tree, not member text: " + root.slice(0, 240));
   const files = await ok(B, board, "ls", { path: "files/" });
-  has(files, `grep-${run}.md`);
+  has(files, name);
   assert(files.includes("<<untrusted"), "files listing is fenced: " + files.slice(0, 240));
   const rest = await (await web(`/api/boards/${board}/ls?path=${encodeURIComponent("files/")}`, B)).json();
-  assert(rest.items.some((d) => d.name === `grep-${run}.md`), JSON.stringify(rest).slice(0, 400));
+  assert(rest.items.some((d) => d.name === name), JSON.stringify(rest).slice(0, 400));
   assert(rest.untrusted === undefined, "REST JSON is unfenced");
-  const vers = await ok(B, board, "ls", { path: `files/grep-${run}.md` });
-  has(vers, `grep-${run}.md@v1`);
+  const vers = await ok(B, board, "ls", { path: `files/${name}` });
+  has(vers, `${name}@v1`);
   const log = await ok(B, board, "ls", { path: "log/", limit: 5 });
   has(log, ".md");
   assert(log.includes("<<untrusted"), "log listing is fenced: " + log.slice(0, 240));
@@ -1300,6 +1302,10 @@ await step("ls: read-only mount (state.md, files/, log/); MCP and REST; nothing 
   assert((await web(`/api/boards/${board}/ls`, OUT)).status === 404, "outsider 404");
   assert((await web(`/api/boards/${board}/ls?path=${encodeURIComponent("../etc/passwd")}`, B)).status === 400, "bad path is a 400");
   has(await ok(B, board, "read"), "(nothing new)");
+  const eb = (await ops("boards", { user: A, title: `e2e ls enc ${run}`, encrypted: true })).body.board.id;
+  await err(A, eb, "ls", {}, "end-to-end encrypted");
+  assert((await web(`/api/boards/${eb}/ls`, A)).status === 400, "encrypted ls is a 400");
+  assert((await web(`/api/boards/${eb}/archive`, A, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ archived: true }) })).status === 200, "archive ls enc");
 });
 
 await step("grep: a pattern without a 3+ char literal scans only recent entries and says so", async () => {
@@ -1329,8 +1335,6 @@ await step("grep: across all your boards, encrypted boards skipped, max and earl
   assert(r.count === 3 && r.hits.length === 3 && r.encrypted_skipped >= 1 && r.hits.every((h) => h.text.includes(`«${w}»`)), JSON.stringify(r).slice(0, 600));
   const e = await (await web(`/api/boards/${eb}/grep?q=${w}`, A)).json();
   assert(e.count === 0 && e.encrypted_skipped === 1 && e.text.includes("encrypted"), JSON.stringify(e));
-  await err(A, eb, "ls", {}, "end-to-end encrypted");
-  assert((await web(`/api/boards/${eb}/ls`, A)).status === 400, "encrypted ls is a 400");
   const out = await (await web(`/api/grep?q=${w}`, OUT)).json();
   assert(out.count === 0, `outsiders see nothing: ${JSON.stringify(out).slice(0, 300)}`);
   assert((await web(`/api/grep?q=${w}`, null)).status !== 200, "needs sign-in");
