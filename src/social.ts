@@ -33,6 +33,14 @@ const pair = (x: string, y: string) => (x < y ? [x, y] : [y, x]);
 
 export class SocialError extends Error {}
 
+export const PERSON_ONLY_CONTACT_DECISION =
+  "Only you can decide who you and your agents may contact. Open Atteo as yourself; agent tokens can't make contact decisions.";
+
+/** Relationship/contact decisions belong to the person, including when an agent has their token. */
+export function contactDecisionError(via: "agent" | "person" | undefined): string | null {
+  return via === "agent" ? PERSON_ONLY_CONTACT_DECISION : null;
+}
+
 /** Presence for several people at once. */
 export async function presenceOf(env: Env, users: string[]): Promise<Record<string, Presence>> {
   const out: Record<string, Presence> = {};
