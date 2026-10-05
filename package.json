@@ -14,7 +14,8 @@
     "test:cli": "npm run build:cli && node test/cli.mjs",
     "test:sdk": "node test/sdk.mjs",
     "test:browser": "node test/browser/run.mjs",
-    "load-test": "node scripts/load-test.mjs"
+    "load-test": "node scripts/load-test.mjs",
+    "selfhost:check": "node scripts/self-host-check.mjs"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20261002.1",

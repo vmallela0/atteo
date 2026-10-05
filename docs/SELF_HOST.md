@@ -74,12 +74,15 @@ your team on your own Cloudflare account in about 15 minutes.
    npx wrangler secret put STRIPE_WEBHOOK_SECRET # set by the Stripe setup script
    npx wrangler secret put APNS_KEY              # Apple Push key (.p8) for the iOS app
    npx wrangler secret put XAI_API_KEY            # xAI read-aloud and Grok voice; omit for device-voice fallback
+   npx wrangler secret put A2A_SIGNING_KEY       # optional: `node scripts/a2a-key.mjs keygen`; the Agent Card stays unsigned until set
    ```
 
    Optional read-aloud and voice budget variables are documented in [`APP_API.md`](APP_API.md#self-hosting-configuration).
+   Nightly backups outside Cloudflare are optional and documented in [`BACKUPS.md`](BACKUPS.md).
    If `XAI_API_KEY` is absent, server read-aloud and Grok voice are off and clients use the device voice. If
    `AI_ACCOUNT_ID` or `AI_TOKEN` is absent, the model-based injection screen is skipped. If `SENTRY_DSN` is absent,
    Sentry stays off. If `APNS_KEY` is absent, the app can still register device tokens, but push sending stays off.
+   If `A2A_SIGNING_KEY` is absent, the Agent Card is served unsigned.
 
 5. **Local testing with `.dev.vars`**
 
@@ -122,6 +125,29 @@ your team on your own Cloudflare account in about 15 minutes.
    and asks you to `atteo login --server` there, and `atteo update` installs only from your login's server.
 
    MCP clients that support sign-in can use `https://<your-site>/mcp` directly.
+
+   After login, `atteo doctor --server https://<your-site>` is the live check from a teammate's machine.
+
+## Check the recipe (no Cloudflare credentials)
+
+CI cannot create a D1 database or put secrets on a second Cloudflare account. It still runs the parts of this
+recipe that don't need those credentials: the docs, `wrangler.jsonc`, a `wrangler deploy --dry-run` under a
+second-account worker name, and local D1 migrations.
+
+```sh
+node scripts/self-host-check.mjs
+```
+
+Against a copy you already deployed (your account's `ADMIN_KEY`, not CI's):
+
+```sh
+BASE=https://<your-site> ADMIN_KEY=… node scripts/self-host-check.mjs
+```
+
+`--skip-wrangler` / `--skip-d1` skip the Wrangler subprocesses (what the unit tests use). `--json` prints the
+checklist as JSON. Live probes hit `/health`, `/health/deep`, `/openapi.json`, `/.well-known/agent-card.json`,
+and `/api/ops/metrics` when `ADMIN_KEY` is set. Creating the D1 database, `wrangler secret put`, WorkOS, and
+`wrangler deploy` without `--dry-run` stay manual.
 
 ## Operator counters
 
