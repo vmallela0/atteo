@@ -6,6 +6,9 @@
 // default (whole messages) is unchanged. 1280 Developer and 390 Everyday.
 // Usage: BASE=http://localhost:8798 node one-line.mjs  (local dev only, ADMIN_KEY=ci-admin-key in .dev.vars)
 import { chromium } from "playwright-core";
+import { readFileSync } from "node:fs";
+import { createRequire } from "node:module";
+const AXE = readFileSync(createRequire(import.meta.url).resolve("axe-core/axe.min.js"), "utf8");
 const BASE = process.env.BASE || "http://localhost:8787";
 const KEY = process.env.ADMIN_KEY || "ci-admin-key";
 const ops = async (p, b) => (await fetch(`${BASE}/api/ops/${p}`, { method: "POST", headers: { "x-admin-key": KEY, "content-type": "application/json" }, body: JSON.stringify(b) })).json();
@@ -15,12 +18,12 @@ const check = (ok, t) => { console.log(`${ok ? "✓" : "✗"} ${t}`); if (!ok) f
 const browser = await chromium.launch({ executablePath: process.env.PW_CHROME || undefined });
 
 for (const [w, mode] of [[1280, "developer"], [390, "everyday"]]) {
-  const A = `ol${w}${run}`, B = `om${w}${run}`, tag = `${w}px ${mode}`, phone = w < 500;
+  const A = `ol${w}${run}`, B = `om${w}${run}`, C = `on${w}${run}`, tag = `${w}px ${mode}`, phone = w < 500;
   await ops("users", { name: A, email: `${A}@example.com`, verified: "true", display: { mode, compact: "others" } });
-  await ops("users", { name: B, email: `${B}@example.com`, verified: "true", display: { mode } });
+  for (const u of [B, C]) await ops("users", { name: u, email: `${u}@example.com`, verified: "true", display: { mode } });
   const ckA = (await ops("sessions", { user: A })).cookie.split(";")[0], ckB = (await ops("sessions", { user: B })).cookie.split(";")[0], tokB = (await ops("tokens", { user: B })).token;
   const board = (await ops("boards", { user: A, title: `One line ${w} ${run}` })).board.id;
-  await ops("members", { board, user: B });
+  for (const u of [B, C]) await ops("members", { board, user: u });
   const post = (auth, body) => fetch(`${BASE}/api/boards/${board}/entries`, { method: "POST", headers: { ...auth, "content-type": "application/json" }, body: JSON.stringify(body) }).then((r) => r.json()).then((j) => j.entry.seq);
   const long = await post({ cookie: ckB }, { text: `A long update ${run} that goes on.\n\nSecond paragraph with more detail about the deploy and what changed in it.\n\n- item one\n- item two` });
   const agent = await post({ authorization: `Bearer ${tokB}` }, { text: `Agent status: tests are running ${run}` });
@@ -31,6 +34,7 @@ for (const [w, mode] of [[1280, "developer"], [390, "everyday"]]) {
   const replyToMe = await post({ cookie: ckB }, { text: `Replying to your note ${run}`, reply_to: mine });
   const decision = await post({ cookie: ckB }, { type: "decision", text: `We ship on Friday ${run}` });
   const allAgents = await post({ cookie: ckB }, { text: `@agents status please ${run}` });
+  const peopleOnly = await post({ cookie: ckB }, { text: `Between us people ${run}`, people_only: true, to: [A, C] });
 
   const ctx = await browser.newContext({ viewport: { width: w, height: phone ? 844 : 900 }, isMobile: phone, hasTouch: phone });
   const [k, ...v] = ckA.split("=");
@@ -45,6 +49,20 @@ for (const [w, mode] of [[1280, "developer"], [390, "everyday"]]) {
   check((await folded(long)) && (await folded(agent)) && (await folded(plain)), `${tag}: others' messages fold to one line (heights ${await h(long)}, ${await h(agent)}, ${await h(plain)})`);
   check(!(await folded(mention)) && !(await folded(toMyAgent)) && !(await folded(mine)), `${tag}: a mention of you, a question to your agent and your own message stay whole`);
   check(!(await folded(replyToMe)) && !(await folded(decision)) && !(await folded(allAgents)), `${tag}: a reply to you, a decision and an @agents message stay whole`);
+  check(!(await folded(peopleOnly)), `${tag}: a People only message to you and someone else stays whole`);
+  // The keyboard: a folded row takes focus; Enter opens it, Space folds it again.
+  await p.focus(`#e${plain}`);
+  check((await p.evaluate(() => document.activeElement?.id)) === `e${plain}`, `${tag}: a folded row takes focus`);
+  await p.keyboard.press("Enter");
+  await p.waitForTimeout(150);
+  check(!(await folded(plain)), `${tag}: Enter opens it`);
+  await p.keyboard.press(" ");
+  await p.waitForTimeout(150);
+  check(await folded(plain), `${tag}: Space folds it again`);
+  // axe over the folded rows: no serious or critical issues. (The whole messages are the page as before.)
+  await p.addScriptTag({ content: AXE });
+  const bad = await p.evaluate(async () => (await axe.run({ include: [...document.querySelectorAll("#thread>.entry.ol:not(.ol-open)")].map((e) => ["#" + e.id]) }, { runOnly: { type: "tag", values: ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"] } })).violations.filter((v) => v.impact === "serious" || v.impact === "critical").map((v) => v.id + ": " + v.nodes.slice(0, 2).map((n) => n.html.slice(0, 60) + (n.any?.[0]?.data?.fgColor ? ` ${n.any[0].data.fgColor} on ${n.any[0].data.bgColor} ${n.any[0].data.contrastRatio}:1 ${n.any[0].data.fontSize}` : "") + " in " + n.target.join(" ")).join(" | ")));
+  check(!bad.length, `${tag}: axe finds nothing serious in the folded rows${bad.length ? ` (${bad.join("; ")})` : ""}`);
   const line = await p.evaluate((s) => document.getElementById("e" + s).querySelector(":scope>.grow>.body").textContent.trim().slice(0, 40), long);
   check(/^A long update/.test(line), `${tag}: the row shows the first line ("${line}")`);
   // Tap opens it; a tap on its sender line folds it again.
