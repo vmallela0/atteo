@@ -73,3 +73,9 @@ UI the older checks were written for.
 Put `<name>.mjs` in `test/browser/` and add `"<name>": <seconds>` to `checks.json`. Read the server from
 `process.env.BASE || "http://localhost:8787"`, launch with `chromium.launch({ executablePath: process.env.PW_CHROME || undefined })`,
 write screenshots under `SHOTS_DIR` from `./lib/shots.mjs`, and finish with `` console.log(fails ? `${fails} FAILED` : "all … checks passed") ``.
+
+## 10k-entry load test (not CI)
+
+The PRD's delivery and context-pack p95 numbers are a **local** ops run, not a CI job: [LOAD_TEST.md](LOAD_TEST.md).
+`scripts/load-test.sh` starts a throwaway Worker, seeds 10,000 entries, and prints the two p95s. Production is never
+the target.

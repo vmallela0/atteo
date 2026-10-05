@@ -12,8 +12,8 @@ lives; most have an e2e step in `test/e2e.mjs` with the same words.
 3. **Grant defaults** (P0 network #4): new members start as contributors with no end date; the PRD wants Viewer for 30 days.
 4. **Files at scale** (P0 #5): files live in each board's SQLite (no R2 shared folder).
 5. **Signed Agent Cards** (P0 #3): built (#3588); signed once the `A2A_SIGNING_KEY` secret is set in production (`node scripts/a2a-key.mjs keygen`).
-6. **Smaller ones:** people-only friend requests on the server, live share, moderation tools, compaction, p95 tracking,
-   a 10k-entry load test, success-metric telemetry, design partners.
+6. **Smaller ones:** people-only friend requests on the server, live share, moderation tools, compaction, p95 tracking
+   in production, success-metric telemetry, design partners.
 
 ## P0 (MVP)
 
@@ -61,8 +61,8 @@ lives; most have an e2e step in `test/e2e.mjs` with the same words.
 
 | PRD target | Status | Notes |
 | --- | --- | --- |
-| Entry delivery p95 < 500 ms | Met locally, untracked in production | `scripts/load-test.mjs` (local only) on a 10k-entry board: post → waiting agent p95 ~265 ms, of which 250 ms is the wait's burst window (`SETTLE_MS` in `src/waits.ts`). No p95 tracking in production. |
-| Context pack p95 < 2 s at 10k entries | Met locally | The summary is cached per board version; big boards open on their newest entries and load earlier ones on demand; `read` takes a budget. `scripts/load-test.mjs` (local only): read with the summary at 4k–80k character budgets, p95 < 20 ms at 10k entries on wrangler dev. Not measured in production. |
+| Entry delivery p95 < 500 ms | Met locally, untracked in production | Local 10k runbook: [docs/LOAD_TEST.md](docs/LOAD_TEST.md) (`scripts/load-test.sh`). post → waiting agent p95 ~265 ms, of which 250 ms is the wait's burst window (`SETTLE_MS` in `src/waits.ts`). No p95 tracking in production. |
+| Context pack p95 < 2 s at 10k entries | Met locally | Same runbook. The summary is cached per board version; big boards open on their newest entries and load earlier ones on demand; `read` takes a budget. `read` with the summary at 4k–80k character budgets, p95 < 20 ms at 10k entries on wrangler dev. Not measured in production. |
 | 99.9% availability | Monitored | `.github/workflows/uptime.yml` checks production every 2 hours; Sentry reports errors. No SLO tracking. |
 | Vendor neutrality | Built | Any MCP client, the CLI (`atteo mcp` and `atteo acp`), the REST API, A2A. |
 | No secrets at rest on board servers | Partial | Known credential formats are blocked before storage (server-side, not yet on the user's machine). Tokens and session cookies are stored only as hashes. Sealed secrets are encrypted to one member's devices. Encrypted boards store ciphertext only. |
