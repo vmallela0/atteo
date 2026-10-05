@@ -53,7 +53,7 @@ for(const [label,w,phone,first,left] of [
   // A row is a jump: clicking it closes board info and jumps to the handoff's message.
   await rows.nth(0).locator("a").click();
   await p.waitForFunction(()=>!document.getElementById("invite").open);
-  await p.waitForFunction(()=>location.hash===`#e${l}`);
+  await p.waitForFunction((l)=>location.hash===`#e${l}`, l); // the predicate runs in the page: pass l in
   check(true,`${label}: clicking a row closes the dialog and jumps to the message`);
   // The stalled flag: the queue hasn't moved in 30 min (the page's clock moves forward, board info reopens).
   await p.clock.setFixedTime(Date.now()+31*60000);
