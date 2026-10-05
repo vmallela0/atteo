@@ -20,10 +20,16 @@ const t2 = await post(ckA, { text: `second thread ${run}` });
 await mcp("post", { type: "note", text: `agent answer two ${run}`, reply_to: t2 });
 await post(ckB, { text: `person reply two ${run}`, reply_to: t2 });
 
+// A thread with no agent replies (one per width, made up front so nothing posts while the pages run).
+const t3s = {};
+for (const w of [1280, 390]) { t3s[w] = await post(ckB, { text: `people only thread ${w} ${run}` }); await post(ckA, { text: `a person answers ${w} ${run}`, reply_to: t3s[w] }); }
+
 let fails = 0;
 const check = (ok, t) => { console.log(`${ok ? "✓" : "✗"} ${t}`); if (!ok) fails++; };
 const b = await chromium.launch({ executablePath: process.env.PW_CHROME || undefined });
-for (const [w, mobile] of [[1280, false], [390, true]]) {
+// The two widths run side by side, each in its own context (Hide agents is per browser: localStorage).
+await Promise.all([[1280, false], [390, true]].map(([w, mobile]) => width(w, mobile)));
+async function width(w, mobile) {
   const ctx = await b.newContext({ viewport: { width: w, height: 860 }, isMobile: mobile, hasTouch: mobile });
   const [k, ...v] = ckA.split(";")[0].split("=");
   await ctx.addCookies([{ name: k, value: v.join("="), url: BASE }]);
@@ -60,8 +66,7 @@ for (const [w, mobile] of [[1280, false], [390, true]]) {
   check(await shown(`agent answer two ${run}`) && !(await btn.isVisible()), `${w}px: with Hide agents off there's no switch and agents show`);
   await tap(p.locator(".thr-dlg [data-thr-close]")); await p.waitForTimeout(300);
   // A thread with no agent replies has no switch.
-  const t3 = await post(ckB, { text: `people only thread ${run}` });
-  await post(ckA, { text: `a person answers ${run}`, reply_to: t3 });
+  const t3 = t3s[w];
   await p.reload(); await p.waitForTimeout(900);
   await p.locator("#pf-btn").click(); await p.waitForTimeout(300);
   await openT(t3);

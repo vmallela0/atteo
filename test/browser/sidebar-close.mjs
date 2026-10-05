@@ -23,9 +23,12 @@ const swipe = (p, sel, dx) => p.evaluate(({ sel, dx }) => {
   el.dispatchEvent(new TouchEvent("touchstart", { touches: [t(x)], changedTouches: [t(x)], bubbles: true }));
   el.dispatchEvent(new TouchEvent("touchend", { touches: [], changedTouches: [t(x + dx)], bubbles: true }));
 }, { sel, dx });
-for (const [who, mode] of [[D, "Developer"], [E, "Everyday"]]) {
-  const ck = (await ops("sessions", { user: who })).cookie;
-  for (const w of [390, 320]) {
+// The four phone setups, the wide screen and Arabic run side by side (each its own context; nothing they do touches the others).
+const cookies = { [D]: (await ops("sessions", { user: D })).cookie, [E]: (await ops("sessions", { user: E })).cookie };
+await Promise.all([...[[D, "Developer"], [E, "Everyday"]].flatMap(([who, mode]) => [390, 320].map((w) => phone(who, mode, w))), wide(), arabic()]);
+async function phone(who, mode, w) {
+  const ck = cookies[who];
+  {
     const tag = `${mode} ${w}px`;
     const ctx = await b.newContext({ viewport: { width: w, height: 760 }, isMobile: true, hasTouch: true });
     const [k, ...v] = ck.split(";")[0].split("=");
@@ -92,8 +95,8 @@ for (const [who, mode] of [[D, "Developer"], [E, "Everyday"]]) {
   }
 }
 // On a wide screen there's no ✕ (the sidebar is part of the page).
-{
-  const ck = (await ops("sessions", { user: D })).cookie;
+async function wide() {
+  const ck = cookies[D];
   const ctx = await b.newContext({ viewport: { width: 1280, height: 860 } });
   const [k, ...v] = ck.split(";")[0].split("=");
   await ctx.addCookies([{ name: k, value: v.join("="), url: BASE }]);
@@ -104,8 +107,8 @@ for (const [who, mode] of [[D, "Developer"], [E, "Everyday"]]) {
 }
 // Arabic (right to left): board info follows the reading direction. A swipe to the right leaves it open; a swipe to the
 // left closes it (jxn #2446). The menu drawer is not part of this check.
-{
-  const ck = (await ops("sessions", { user: D })).cookie;
+async function arabic() {
+  const ck = cookies[D];
   const ctx = await b.newContext({ viewport: { width: 390, height: 760 }, isMobile: true, hasTouch: true, locale: "ar-EG" });
   const [k, ...v] = ck.split(";")[0].split("=");
   await ctx.addCookies([{ name: k, value: v.join("="), url: BASE }]);
