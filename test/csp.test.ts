@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { page, appPage, formActionSource, CSP_ENFORCE, CSP_REPORT_PATH, VOICE_SOCKET_ORIGIN, BUG_PAGE_JS, SHELL_PAGE_JS } from "../src/ui";
+import { page, appPage, formActionSource, CSP_ENFORCE, CSP_REPORT_PATH, VOICE_SOCKET_ORIGIN, BUG_PAGE_JS, SHELL_PAGE_JS, APP_CSS, ASK_CSS_SRC, DOC_CSS_SRC, FY_CSS_SRC, GUIDE_CSS_SRC, PAGE_CSS, styleNonce } from "../src/ui";
 import { consentPage } from "../src/oauthPage";
 import { trackCapped } from "../src/usage";
 import type { Env } from "../src/types";
@@ -45,8 +45,14 @@ describe("HTML page CSP", () => {
       const scripts = [...html.matchAll(/<script\b([^>]*)>/g)];
       expect(scripts.length).toBeGreaterThan(0);
       for (const script of scripts) expect(script[1]).toContain(`nonce="${nonce}"`);
-      expect(csp.split("; ").find((x) => x.startsWith("script-src"))).not.toContain("'unsafe-inline'");
+      expect(csp.split("; ").find((x) => x.startsWith("script-src "))).not.toContain("'unsafe-inline'");
       expect(csp).toContain("script-src-attr 'none'");
+      const styleSrc = csp.split("; ").find((x) => x.startsWith("style-src ")) ?? "";
+      expect(styleSrc).toBe(`style-src 'self' 'nonce-${nonce}'`);
+      expect(styleSrc).not.toContain("'unsafe-inline'");
+      expect(csp.split("; ").find((x) => x.startsWith("style-src-attr"))).toBe("style-src-attr 'unsafe-inline'");
+      const styles = [...html.matchAll(/<style\b([^>]*)>/g)];
+      for (const style of styles) expect(style[1]).toContain(`nonce="${nonce}"`);
       expect(html).not.toMatch(/\son[a-z]+\s*=/i);
       expect(html).not.toMatch(/\b(?:href|src)\s*=\s*["']javascript:/i);
       expect(res.headers.get("x-content-type-options")).toBe("nosniff");
@@ -76,6 +82,8 @@ describe("CSP follow-ups (opus-b #2678, jxn's agent #2681)", () => {
     expect(MERMAID_JS).toContain("s.integrity=SRI");
     expect(MERMAID_JS).toContain("s.nonce=NONCE");
     expect(MERMAID_JS).toContain("s.crossOrigin='anonymous'");
+    expect(MERMAID_JS).toContain("withStyleNonce");
+    expect(MERMAID_JS).toContain("st.nonce=NONCE");
     expect((MERMAID_JS.match(/createElement\('script'\)/g) ?? []).length).toBe(1); // the only place it loads
     const { readFileSync } = (await import("node:" + "fs")) as { readFileSync: (p: string) => Uint8Array };
     const { createHash } = (await import("node:" + "crypto")) as { createHash: (a: string) => { update: (b: Uint8Array) => { digest: (e: string) => string } } };
@@ -104,6 +112,31 @@ describe("CSP follow-ups (opus-b #2678, jxn's agent #2681)", () => {
     expect(CODE_COLOR_JS).toContain("s.nonce=NONCE");
     expect(SHELL_PAGE_JS).toContain("s.nonce=NONCE");
     expect(BUG_PAGE_JS).not.toContain("createElement('script')"); // the bug report loads nothing more (no capture library since #4116)
+  });
+
+  it("page styles live in /app.css and page-only sheets; leftover <style> tags take the page nonce (csp.md #3)", async () => {
+    expect(APP_CSS).not.toContain(".fy-askwrap{");
+    expect(APP_CSS).not.toContain(".gd-list{");
+    expect(APP_CSS).not.toContain(".ask-mic{");
+    expect(APP_CSS).not.toContain(".docs .tool{");
+    expect(PAGE_CSS["/fy.css"]).toContain(".fy-askwrap{");
+    expect(PAGE_CSS["/guide.css"]).toContain(".gd-list{");
+    expect(PAGE_CSS["/ask.css"]).toContain(".ask-mic{");
+    expect(PAGE_CSS["/docs.css"]).toContain(".docs .tool{");
+    expect(FY_CSS_SRC).toMatch(/^\/fy\.css\?v=/);
+    expect(GUIDE_CSS_SRC).toMatch(/^\/guide\.css\?v=/);
+    expect(ASK_CSS_SRC).toMatch(/^\/ask\.css\?v=/);
+    expect(DOC_CSS_SRC).toMatch(/^\/docs\.css\?v=/);
+    expect(styleNonce("<noscript><style>#x{color:red}</style></noscript>", "abc")).toBe('<noscript><style nonce="abc">#x{color:red}</style></noscript>');
+    expect(styleNonce('<style nonce="abc">x</style>', "abc")).toBe('<style nonce="abc">x</style>');
+    const res = boardPage(viewer, [], board, [], [], []);
+    const html = await res.text();
+    const nonce = policyOf(res).match(/'nonce-([a-f0-9]{32})'/)![1];
+    expect(html).toContain(`<noscript><style nonce="${nonce}">`);
+    expect(html).not.toMatch(/<style(?![^>]*\bnonce=)/i);
+    expect(html).not.toContain("/fy.css");
+    const fy = await appPage("For you", { viewer, boards: [], active: "for-you", crumbs: "", body: "", css: [FY_CSS_SRC] }).text();
+    expect(fy).toContain(`href="${FY_CSS_SRC}"`);
   });
 });
 

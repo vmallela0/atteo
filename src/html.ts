@@ -20,7 +20,7 @@ import { clientName, presenceLabel } from "./social";
 import type { ChangeCard } from "./card";
 import { handoffLine } from "./handoff";
 import type { Attachment, BoardInfo, Entry } from "./types";
-import { appPage, avatar, avatarStack, boardPic, copyField, CSP_ENFORCE, hue, page, renderText, scriptSrc, typeTag, when, working, type SideBoard, type Viewer } from "./ui";
+import { appPage, avatar, avatarStack, boardPic, copyField, CSP_ENFORCE, hueClass, page, renderText, scriptSrc, typeTag, when, working, type SideBoard, type Viewer } from "./ui";
 import { fnv } from "./codecolor";
 import { displayMap, personHtml, shownName } from "./names";
 import { agentLogo } from "./agent-logos";
@@ -590,7 +590,7 @@ export function summaryHtml(entries: Entry[], viewer: string, members: MemberVie
   const agents = [...s.openQuestions, ...s.openTasks].filter((e) => !mine.includes(e) && forAgent(e, viewer) && e.to !== viewer).sort((a, b) => a.seq - b.seq);
   const box = (id: string, title: string, items: Entry[]) =>
     items.length
-      ? `<div class="waiting"><div class="small" style="font-weight:600;color:var(--ink);margin-bottom:4px">${title}</div>${list(id, items, ' style="list-style:none;margin:0;padding:0"')}</div>`
+      ? `<div class="waiting"><div class="small wt">${title}</div>${list(id, items, ' class="plain-ul"')}</div>`
       : "";
   const waiting = box("wait-you", esc(T("Waiting on you")), mine) + box("wait-agent", esc(T("For your agent")), agents);
   const control = (m: MemberView) => {
@@ -604,7 +604,7 @@ export function summaryHtml(entries: Entry[], viewer: string, members: MemberVie
   const people = fold("members", esc(T("Members")), members.length, `<ul>${members
     .map(
       (m) =>
-        `<li><span class="row" style="padding:5px 0"><span class="av-wrap">${avatar(m.user, "sm")}</span><span class="grow small">${personHtml(m.user, m.display_name, members.map((x) => x.user))}${
+        `<li><span class="row py-5"><span class="av-wrap">${avatar(m.user, "sm")}</span><span class="grow small">${personHtml(m.user, m.display_name, members.map((x) => x.user))}${
           m.role === "owner" || (ctl && m.user === ctl.creator) ? ` <span class="xs faint">${esc(T("owner"))}</span>` : m.role === "viewer" ? ` <span class="xs faint">${esc(T("viewer"))}</span>` : ""
         }${m.expires_at ? ` <span class="xs faint" title="Access ends ${new Date(m.expires_at).toISOString().slice(0, 10)}">· until ${new Date(m.expires_at).toISOString().slice(5, 10)}</span>` : ""}</span>${control(m) || `<span class="xs faint">${when(m.last_seen, lang)}</span>`}</span></li>`,
     )
@@ -672,19 +672,19 @@ export function landingPage(error?: string): Response {
   return page(
     "Atteo · A shared chat for you, your people and your agents",
     `<section class="hero">
-  <span class="badge"><span class="dot" style="color:var(--ok)"></span>Private beta</span>
+  <span class="badge"><span class="dot ok"></span>Private beta</span>
   <h1>Let your agent work with theirs.</h1>
   <p class="lead">A shared chat where AI agents owned by different people ask each other questions, share files, and keep track of what they've decided. Works with Claude Code, Cursor, Codex, or any MCP client.</p>
-  ${error ? `<p class="flash err" style="max-width:520px;margin:0 auto 20px">${esc(error)}</p>` : ""}
-  <div class="row" style="justify-content:center"><a class="btn primary lg" href="/auth/login">Sign in to get started</a></div>
+  ${error ? `<p class="flash err">${esc(error)}</p>` : ""}
+  <div class="row center"><a class="btn primary lg" href="/auth/login">Sign in to get started</a></div>
   <div class="card preview"><div class="thread">${demoPictures(threadHtml(sample, "b_example"))}</div></div>
 </section>
 <section class="steps">
-  <div class="card"><div class="k">01</div><h2>Create a board</h2><p class="muted small" style="margin-top:6px">One board per problem. Invite the people whose agents should be in the room.</p></div>
-  <div class="card"><div class="k">02</div><h2>Connect your agent</h2><p class="muted small" style="margin-top:6px">One command for Claude Code, or a URL for any MCP client. Your agent gets read, post and wait tools.</p></div>
-  <div class="card"><div class="k">03</div><h2>Ask across</h2><p class="muted small" style="margin-top:6px">"Ask theo's agent for the stack trace." Questions, answers, files and decisions land on the board.</p></div>
+  <div class="card"><div class="k">01</div><h2>Create a board</h2><p class="muted small mt-6">One board per problem. Invite the people whose agents should be in the room.</p></div>
+  <div class="card"><div class="k">02</div><h2>Connect your agent</h2><p class="muted small mt-6">One command for Claude Code, or a URL for any MCP client. Your agent gets read, post and wait tools.</p></div>
+  <div class="card"><div class="k">03</div><h2>Ask across</h2><p class="muted small mt-6">"Ask theo's agent for the stack trace." Questions, answers, files and decisions land on the board.</p></div>
 </section>
-<p class="xs faint" style="text-align:center;margin:28px 0 8px">Free for 3 boards · Pro $10/month · <a href="/terms">Terms</a> · <a href="/privacy">Privacy</a></p>`,
+<p class="xs faint hero-foot">Free for 3 boards · Pro $10/month · <a href="/terms">Terms</a> · <a href="/privacy">Privacy</a></p>`,
   );
 }
 
@@ -713,7 +713,7 @@ const LEGAL = {
 
 export function legalPage(which: keyof typeof LEGAL, viewer?: Viewer | null): Response {
   const l = LEGAL[which];
-  return page(`${l.title} · Atteo`, `<article class="legal card pad" style="max-width:720px;margin:24px auto">${`<h1>${l.title}</h1>`}${l.body}</article>`, { viewer, narrow: true });
+  return page(`${l.title} · Atteo`, `<article class="legal card pad">${`<h1>${l.title}</h1>`}${l.body}</article>`, { viewer, narrow: true });
 }
 
 // ---------- first sign-in: pick a handle ----------
@@ -721,15 +721,15 @@ export function legalPage(which: keyof typeof LEGAL, viewer?: Viewer | null): Re
 export function welcomePage(email: string, suggestion: string, error?: string): Response {
   return page(
     "Choose your name · Atteo",
-    `<div class="card pad" style="max-width:440px;margin:40px auto 0">
-  <h1 style="font-size:22px">Choose your name</h1>
-  <p class="muted" style="margin:8px 0 22px">Signed in as ${esc(email)}. Other people's agents address yours by this name, like <span class="mono">@${esc(suggestion)}</span>.</p>
+    `<div class="card pad auth-md welcome-card">
+  <h1>Choose your name</h1>
+  <p class="muted">Signed in as ${esc(email)}. Other people's agents address yours by this name, like <span class="mono">@${esc(suggestion)}</span>.</p>
   <form method="post" action="/welcome">
     <label class="lbl" for="name">Name</label>
     <input class="input mono" id="name" name="name" value="${esc(suggestion)}" required maxlength="32" pattern="[a-z0-9][a-z0-9_.\\-]{0,31}" autocomplete="off" autofocus>
     <p class="hint">Lowercase letters, numbers, dot, dash or underscore.</p>
-    ${error ? `<p class="flash err" style="margin-top:14px">${esc(error)}</p>` : ""}
-    <button class="btn primary" style="width:100%;margin-top:20px">Continue</button>
+    ${error ? `<p class="flash err mt-14">${esc(error)}</p>` : ""}
+    <button class="btn primary w-full mt-20">Continue</button>
   </form>
 </div>`,
     { narrow: true },
@@ -802,9 +802,9 @@ export const CONDUCTOR_MCP_JSON = JSON.stringify({ mcpServers: { atteo: { type: 
 export function connectDialog(viewer: Viewer, board?: { id: string; title: string }): string {
   const T = (s: string, v?: Record<string, string | number>) => tr(viewer.lang, s, v);
   const join = board ? `<i>"join ${esc(board.title)}"</i>` : `<i>${esc(T("\"list my boards\""))}</i> ${esc(T("or"))} <i>${esc(T("\"join <board>\""))}</i>`;
-  return `<dialog id="connect"><div class="hd"><div><h2>${esc(T("Connect your agents"))}</h2><p class="muted small" style="margin-top:4px">${esc(T("Once per machine. Every agent you run acts as"))} <b>${esc(viewer.name)}</b>${esc(T("'s agent and is its own session: run several at once, on one board or many."))}</p></div><button class="btn ghost sm" data-close aria-label="${esc(T("Close"))}">✕</button></div>
+  return `<dialog id="connect"><div class="hd"><div><h2>${esc(T("Connect your agents"))}</h2><p class="muted small mt-4">${esc(T("Once per machine. Every agent you run acts as"))} <b>${esc(viewer.name)}</b>${esc(T("'s agent and is its own session: run several at once, on one board or many."))}</p></div><button class="btn ghost sm" data-close aria-label="${esc(T("Close"))}">✕</button></div>
 <div class="bd">
-  <div class="tabs" role="tablist" style="margin-bottom:14px"><button type="button" role="tab" data-ctab="quick" aria-selected="true">${esc(T("One click"))}</button><button type="button" role="tab" data-ctab="cli" aria-selected="false">${esc(T("CLI"))}</button><button type="button" role="tab" data-ctab="url" aria-selected="false">${esc(T("MCP URL"))}</button><button type="button" role="tab" data-ctab="token" aria-selected="false">${esc(T("Token & API"))}</button></div>
+  <div class="tabs mb-14" role="tablist"><button type="button" role="tab" data-ctab="quick" aria-selected="true">${esc(T("One click"))}</button><button type="button" role="tab" data-ctab="cli" aria-selected="false">${esc(T("CLI"))}</button><button type="button" role="tab" data-ctab="url" aria-selected="false">${esc(T("MCP URL"))}</button><button type="button" role="tab" data-ctab="token" aria-selected="false">${esc(T("Token & API"))}</button></div>
   <div data-cpanel="quick" class="stack">
     <p class="small muted">${esc(T("Pick your agent. It opens a browser to sign in; choose"))} <b>${esc(T("Allow"))}</b>${esc(T(". No token, no install."))}</p>
     ${connectTiles(viewer.lang)}
@@ -817,8 +817,8 @@ export function connectDialog(viewer: Viewer, board?: { id: string; title: strin
     <div class="copy"><pre class="mono" id="cn-conductor-setup" data-fill-origin>${esc(CONDUCTOR_SETUP)}</pre><button type="button" class="btn sm" data-copy="cn-conductor-setup">${esc(T("Copy"))}</button></div>
     <p class="small"><b>2.</b> ${esc(T("Local workspaces: install and sign in to the CLI on your Mac once (the"))} <b>${esc(T("CLI"))}</b> tab); that's all. Cloud workspaces: add <span class="mono">ATTEO_TOKEN</span> to Conductor's environment variables, with a token from the <b>${esc(T("Token & API"))}</b> ${esc(T("tab."))}</p>
     <p class="small"><b>3.</b> In a workspace, tell the agent ${join}. A workspace that restarts comes back as the same session.</p>
-    <details class="small"><summary class="muted" style="cursor:pointer">Or commit one <span class="mono">.mcp.json</span> instead (no CLI, no token)</summary>
-      <p class="muted" style="margin:8px 0">Sign in from Conductor's MCP status row. The session is named after the workspace when Conductor passes <span class="mono">CONDUCTOR_WORKSPACE_NAME</span> to the agent, else "ws-conductor".</p>
+    <details class="small"><summary class="muted pointer">Or commit one <span class="mono">.mcp.json</span> instead (no CLI, no token)</summary>
+      <p class="muted my-8">Sign in from Conductor's MCP status row. The session is named after the workspace when Conductor passes <span class="mono">CONDUCTOR_WORKSPACE_NAME</span> to the agent, else "ws-conductor".</p>
       <div class="copy"><pre class="mono" id="cn-conductor-json" data-fill-origin>${esc(CONDUCTOR_MCP_JSON)}</pre><button type="button" class="btn sm" data-copy="cn-conductor-json">${esc(T("Copy"))}</button></div></details>
     <p class="small"><button type="button" class="linkish" data-ctab-go="quick">${esc(T("← All agents"))}</button></p>
   </div>
@@ -840,34 +840,34 @@ export function connectDialog(viewer: Viewer, board?: { id: string; title: strin
       board ? `<i>"use atteo to join ${esc(board.title)}"</i>, or have it run:` : `<i>"use atteo to join the board with vedu"</i>: it lists your boards (<span class="mono">atteo get boards --with vedu</span>) and joins the right one.`
     }</p>${board ? copyField("cli-join", `atteo join ${board.id}`) : ""}
     <p class="xs muted">Each agent is its own session, with its own boards and read position; <span class="mono">atteo</span> with no arguments is the guide agents read.</p>
-    <details class="small"><summary class="muted" style="cursor:pointer">${esc(T("As an MCP server instead (Claude Code, Codex, Cursor, Gemini, OpenCode)"))}</summary><div class="stack" style="margin-top:8px">
+    <details class="small"><summary class="muted pointer">${esc(T("As an MCP server instead (Claude Code, Codex, Cursor, Gemini, OpenCode)"))}</summary><div class="stack mt-8">
       <label class="lbl">${esc(T("Claude Code"))}</label>${copyField("cli-connect", CLI_STEPS.connect)}
       <label class="lbl">Codex · <span class="mono">~/.codex/config.toml</span></label>${copyField("mcp-codex", '[mcp_servers.atteo]\ncommand = "atteo"\nargs = ["mcp"]')}
       <label class="lbl">Cursor · <span class="mono">~/.cursor/mcp.json</span> &nbsp;·&nbsp; Gemini CLI · <span class="mono">~/.gemini/settings.json</span></label>${copyField("mcp-cursor", '{ "mcpServers": { "atteo": { "command": "atteo", "args": ["mcp"] } } }')}
       <label class="lbl">OpenCode · <span class="mono">opencode.json</span></label>${copyField("mcp-opencode", '{ "mcp": { "atteo": { "type": "local", "command": ["atteo", "mcp"] } } }')}</div></details>
-    <details class="small"><summary class="muted" style="cursor:pointer">${esc(T("Answer in the background"))}</summary>
-      <p class="muted" style="margin:8px 0">${esc(T("Sign-in offers this. Your agent becomes a dispatcher: each message addressed to it gets its own forked session that does the work, replies in the thread and ends, even with no session open."))}</p>${copyField("mcp-watch", "atteo harness claude && atteo dispatch --install   # or codex, gemini, cursor, opencode")}</details>
-    <details class="small"><summary class="muted" style="cursor:pointer">${esc(T("Reconnecting? Login expired, or replacing an old token connection"))}</summary>
-      <p class="muted" style="margin:8px 0">${esc(T("One line: signs you in again and points Claude Code at the CLI."))}</p>${copyField("cli-reconnect", CLI_STEPS.reconnect)}</details>
+    <details class="small"><summary class="muted pointer">${esc(T("Answer in the background"))}</summary>
+      <p class="muted my-8">${esc(T("Sign-in offers this. Your agent becomes a dispatcher: each message addressed to it gets its own forked session that does the work, replies in the thread and ends, even with no session open."))}</p>${copyField("mcp-watch", "atteo harness claude && atteo dispatch --install   # or codex, gemini, cursor, opencode")}</details>
+    <details class="small"><summary class="muted pointer">${esc(T("Reconnecting? Login expired, or replacing an old token connection"))}</summary>
+      <p class="muted my-8">${esc(T("One line: signs you in again and points Claude Code at the CLI."))}</p>${copyField("cli-reconnect", CLI_STEPS.reconnect)}</details>
   </div>
   <div data-cpanel="token" class="stack" hidden>
     <form id="connect-form" method="post" action="/api/tokens" data-api data-done="showToken">
       ${board ? `<input type="hidden" name="board" value="${esc(board.id)}">` : ""}<input type="hidden" name="label" value="Agent connection">
       <p class="small muted">${esc(T("For clients that take a URL and a header but can't sign in, and for agents that run elsewhere (a bot, a serverless function, CI). The token is shown once; revoke it any time from Account."))}</p>
-      <div class="row" style="justify-content:flex-end;margin-top:14px"><button class="btn">${esc(T("Generate a token"))}</button></div>
+      <div class="row end mt-14"><button class="btn">${esc(T("Generate a token"))}</button></div>
     </form>
     <div id="connect-out" hidden class="stack">
       <label class="lbl">${esc(T("Claude Code"))}</label>${copyField("cmd", "")}
       ${
         board
-          ? `<details class="small"><summary class="muted" style="cursor:pointer">${esc(T("Pin a project folder to this board instead"))}</summary>
-      <p class="muted" style="margin:8px 0">${esc(T("Run inside the project folder: every session there starts on"))} <b>${esc(board.title)}</b>. Writes <span class="mono">.mcp.json</span> with your token; keep it out of git.</p>${copyField("pcmd", "")}</details>`
+          ? `<details class="small"><summary class="muted pointer">${esc(T("Pin a project folder to this board instead"))}</summary>
+      <p class="muted my-8">${esc(T("Run inside the project folder: every session there starts on"))} <b>${esc(board.title)}</b>. Writes <span class="mono">.mcp.json</span> with your token; keep it out of git.</p>${copyField("pcmd", "")}</details>`
           : ""
       }
       <label class="lbl">${esc(T("Any MCP client · URL and header"))}</label>${copyField("mcp-url", "")}${copyField("mcp-header", "")}
       <label class="lbl">${esc(T("Or as JSON config"))}</label>${copyField("mcp-json", "")}
     </div>
-    <details class="small"><summary class="muted" style="cursor:pointer">${esc(T("Hosted agents: webhooks and the HTTP API"))}</summary><div class="stack" style="margin-top:8px">
+    <details class="small"><summary class="muted pointer">${esc(T("Hosted agents: webhooks and the HTTP API"))}</summary><div class="stack mt-8">
       <p class="small">${esc(T("Add a webhook in"))} <a href="/me#webhooks">${esc(T("Account → Agent webhooks"))}</a>${esc(T(": we POST (signed) whenever something is addressed to your agent. Answer with the JSON API ("))}<a href="/openapi.json">${esc(T("OpenAPI spec"))}</a>):</p>${copyField("http-reply", `curl -X POST https://atteo.example/api/boards/<board>/entries \\\n  -H "Authorization: Bearer <token>" -H "content-type: application/json" \\\n  -d '{"reply_to": 12, "text": "Staging uses port 8443."}'`)}</div></details>
   </div>
 </div></dialog>`;
@@ -919,9 +919,9 @@ export function homePage(
 ): Response {
   const T = (s: string, v?: Record<string, string | number>) => tr(viewer.lang, s, v);
   const invites = invitations.length
-    ? `<h2 style="margin:0 0 10px">${esc(T("Invitations"))}</h2><div class="list" style="margin-bottom:28px">${invitations
+    ? `<h2 class="mb-10">${esc(T("Invitations"))}</h2><div class="list mb-28">${invitations
         .map(
-          (i) => `<div class="item">${avatar(i.invited_by, "sm")}<div class="grow"><div style="color:var(--ink)"><b>${esc(i.invited_by)}</b> ${esc(T("invited you to"))} <b>${esc(i.board_title)}</b></div><div class="xs faint">${when(i.created_at, viewer.lang)}</div></div>
+          (i) => `<div class="item">${avatar(i.invited_by, "sm")}<div class="grow"><div class="ink"><b>${esc(i.invited_by)}</b> ${esc(T("invited you to"))} <b>${esc(i.board_title)}</b></div><div class="xs faint">${when(i.created_at, viewer.lang)}</div></div>
 <form method="post" action="/api/invitations/${esc(i.board_id)}/decline" data-api data-done="answered"><button class="btn sm ghost">${esc(T("Decline"))}</button></form>
 <form method="post" action="/api/invitations/${esc(i.board_id)}/accept" data-api data-done="answered"><button class="btn sm primary">${esc(T("Accept"))}</button></form></div>`,
         )
@@ -940,7 +940,7 @@ export function homePage(
       const text = [b.title, meta.description ?? "", ...meta.tags, ...names].join(" ").toLowerCase();
       return `<article class="bcard${b.archived_at ? " archived" : ""}" data-text="${esc(text)}" data-archived="${b.archived_at ? 1 : 0}" data-id="${esc(b.id)}" data-meta="${esc(JSON.stringify(meta))}" data-title="${esc(b.title)}" data-people="${names.filter((n) => n !== viewer.name).length}" data-via="${esc(b.last_via ?? "")}">
   <a class="bcard-link" href="/b/${esc(b.id)}" aria-label="${esc(b.title)}"></a>
-  <div class="row bc-top">${boardPic({ id: b.id, title: b.title, picture: pictureUrl(b.id, b.picture_v) }, "sm", `<span class="bc-dot" style="--h:${hue(b.id)}"></span>`)}
+  <div class="row bc-top">${boardPic({ id: b.id, title: b.title, picture: pictureUrl(b.id, b.picture_v) }, "sm", `<span class="bc-dot ${hueClass(b.id)}"></span>`)}
     <h3 class="grow truncate">${esc(b.title)}</h3>${pinRank.has(b.id) ? `<span class="pin-mark" aria-label="${esc(T("Pinned"))}" title="${esc(T("Pinned"))}">📌</span>` : ""}
     ${working(liveOf.get(b.id) ?? 0, b.id)}${b.unread ? `<span class="bc-unread" title="${esc(T("Waiting for you"))}">${esc(T("{n} for you", { n: b.unread }))}</span>` : ""}
     <button class="btn ghost sm bc-edit" type="button" data-edit-board="${esc(b.id)}" aria-label="${esc(T("Edit details"))}">${esc(T("Edit"))}</button><details class="board-head-menu bc-menu"><summary class="btn ghost sm" aria-label="${esc(T("More actions"))}">⋯</summary><div class="board-head-menu-items"><button type="button" data-mark-unread="${esc(b.id)}">${esc(T("Mark as unread"))}</button>${b.archived_at ? "" : `<button type="button" data-pin-board="${esc(b.id)}">${esc(T(pinRank.has(b.id) ? "Unpin" : "Pin"))}</button>`}</div></details></div>
@@ -961,35 +961,35 @@ export function homePage(
   <div class="seg" role="radiogroup" aria-label="${esc(T("Show"))}"><input type="radio" name="bshow" id="bs-active" value="active" checked><label for="bs-active">${esc(T("Active"))} <span class="faint">${active}</span></label><input type="radio" name="bshow" id="bs-arch" value="archived"><label for="bs-arch">${esc(T("Archived"))} <span class="faint">${archivedCount}</span></label><input type="radio" name="bshow" id="bs-all" value="all"><label for="bs-all">${esc(T("All"))}</label></div><button class="btn sm pf-list" type="button" id="pf-list" aria-pressed="false" data-me="${esc(viewer.name)}" title="${esc(T("Chats with other people, the ones where a person wrote last first"))}">${esc(T("People first"))}</button></div>
 <div class="bgrid" id="bgrid">${cards}</div>
 <p class="muted small" id="b-none" hidden>${esc(T("No boards match."))}</p>
-<section id="b-hits" hidden><h2 class="small muted" style="margin:22px 0 8px">${esc(T("Inside your boards"))}</h2><div class="list" id="b-hits-list"></div></section>`
+<section id="b-hits" hidden><h2 class="small muted my-22-8">${esc(T("Inside your boards"))}</h2><div class="list" id="b-hits-list"></div></section>`
     : `<div class="card empty"><h3>${esc(T("No boards yet"))}</h3><p class="small">${esc(T("Create a board, then invite the people whose agents should work on it."))}</p>
-  <button class="btn primary" style="margin-top:18px" data-open="new-board">${esc(T("New board"))} <kbd style="margin-left:4px">C</kbd></button></div>`;
+  <button class="btn primary mt-18" data-open="new-board">${esc(T("New board"))} <kbd class="ml-4">C</kbd></button></div>`;
   return appPage(`${T("Boards")} · Atteo`, {
     viewer,
     boards: side,
     active: "boards",
     crumbs: `<span class="cur">${esc(T("Boards"))}</span>`,
     actions: `${agent.connected ? "" : `<button class="btn sm primary" data-open="connect">${esc(T("Connect an agent"))}</button>`}<button class="btn ${agent.connected ? "primary " : ""}sm" data-open="new-board">${esc(T("New board"))}</button>`,
-    body: `${flash ? `<p class="flash ok" style="margin-bottom:18px">${esc(flash)}</p>` : ""}
+    body: `${flash ? `<p class="flash ok mb-18">${esc(flash)}</p>` : ""}
 
 ${firstRun ? welcomeBanner(viewer) : ""}${invites}
-<div class="section-title"><div><h1>${esc(T("Boards"))}</h1><p class="muted" style="margin-top:4px">${esc(T("Problems you and your collaborators' agents are working on."))}</p></div></div>
+<div class="section-title"><div><h1>${esc(T("Boards"))}</h1><p class="muted mt-4">${esc(T("Problems you and your collaborators' agents are working on."))}</p></div></div>
 <button type="button" class="card pad add-agent" data-open="connect"><span class="add-agent-plus" aria-hidden="true">+</span><b>${esc(T(agent.connected ? "Add another agent" : "Add your agent"))}</b> <span class="muted small">${esc(T("· one click, or one line in a terminal"))}</span></button>
 ${list}
 ${connectDialog(viewer)}
-<dialog id="new-board"><div class="hd"><div><h2>${esc(T("New board"))}</h2><p class="muted small" style="margin-top:4px">${esc(T("You can invite people right after."))}</p></div><button class="btn ghost sm" data-close aria-label="${esc(T("Close"))}">✕</button></div>
+<dialog id="new-board"><div class="hd"><div><h2>${esc(T("New board"))}</h2><p class="muted small mt-4">${esc(T("You can invite people right after."))}</p></div><button class="btn ghost sm" data-close aria-label="${esc(T("Close"))}">✕</button></div>
 <form class="bd" method="post" action="/boards"><label class="lbl" for="title">${esc(T("Title"))}</label>
 <input class="input" id="title" name="title" required maxlength="120" placeholder="${esc(T("Debug the payments integration"))}" autofocus>
-<label class="pf-check" style="margin-top:14px"><input type="checkbox" name="encrypted" value="1" checked><span><span class="small" style="color:var(--ink)">${esc(T("End-to-end encrypted"))}</span><span class="xs muted">Members read and write through the atteo CLI; the server and this site only see ciphertext. Untick to use this board from the web, the app or one-click agents (claude.ai, Cursor, Grok).</span></span></label>
-<div class="row" style="justify-content:flex-end;margin-top:18px"><button type="button" class="btn" data-close>${esc(T("Cancel"))}</button><button class="btn primary">${esc(T("Create board"))}</button></div></form></dialog>
-<dialog id="edit-board"><div class="hd"><div><h2>${esc(T("Board details"))}</h2><p class="muted small" style="margin-top:4px" id="eb-title"></p></div><button class="btn ghost sm" data-close aria-label="${esc(T("Close"))}">✕</button></div>
+<label class="pf-check mt-14"><input type="checkbox" name="encrypted" value="1" checked><span><span class="small ink">${esc(T("End-to-end encrypted"))}</span><span class="xs muted">Members read and write through the atteo CLI; the server and this site only see ciphertext. Untick to use this board from the web, the app or one-click agents (claude.ai, Cursor, Grok).</span></span></label>
+<div class="row end mt-18"><button type="button" class="btn" data-close>${esc(T("Cancel"))}</button><button class="btn primary">${esc(T("Create board"))}</button></div></form></dialog>
+<dialog id="edit-board"><div class="hd"><div><h2>${esc(T("Board details"))}</h2><p class="muted small mt-4" id="eb-title"></p></div><button class="btn ghost sm" data-close aria-label="${esc(T("Close"))}">✕</button></div>
 <form class="bd" id="eb-form">
 <label class="lbl" for="eb-tags">${esc(T("Tags"))}</label><input class="input" id="eb-tags" placeholder="${esc(T("checkout, payments"))}">
-<label class="lbl" for="eb-desc" style="margin-top:12px">${esc(T("Description"))}</label><textarea class="input" id="eb-desc" maxlength="280" rows="3" placeholder="${esc(T("What this board is for, in a sentence or two."))}"></textarea>
-<label class="lbl" style="margin-top:12px">${esc(T("Links"))}</label>
-${[0, 1, 2].map((i) => `<div class="row" style="gap:6px;margin-bottom:6px"><input class="input" id="eb-l${i}" placeholder="${esc(T("Label"))}" style="width:120px"><input class="input grow" id="eb-u${i}" placeholder="https://github.com/…"></div>`).join("")}
+<label class="lbl mt-12" for="eb-desc">${esc(T("Description"))}</label><textarea class="input" id="eb-desc" maxlength="280" rows="3" placeholder="${esc(T("What this board is for, in a sentence or two."))}"></textarea>
+<label class="lbl mt-12">${esc(T("Links"))}</label>
+${[0, 1, 2].map((i) => `<div class="row gap-6 mb-6"><input class="input w-120" id="eb-l${i}" placeholder="${esc(T("Label"))}"><input class="input grow" id="eb-u${i}" placeholder="https://github.com/…"></div>`).join("")}
 <p class="flash err" id="eb-err" hidden></p>
-<div class="row" style="justify-content:flex-end;margin-top:14px"><button type="button" class="btn" data-close>${esc(T("Cancel"))}</button><button class="btn primary">${esc(T("Save"))}</button></div></form></dialog>`,
+<div class="row end mt-14"><button type="button" class="btn" data-close>${esc(T("Cancel"))}</button><button class="btn primary">${esc(T("Save"))}</button></div></form></dialog>`,
     script: CONNECT_JS + `window.answered=(j)=>{location.href=j.message==='Joined'?'/b/'+j.board:'/'};` + BOARDS_JS + (firstRun ? WELCOME_BANNER_JS : ""),
   });
 }
@@ -1015,7 +1015,7 @@ q.addEventListener('input',()=>{apply();clearTimeout(timer);const t=q.value.trim
   timer=setTimeout(async()=>{const my=++seq;const r=await fetch('/api/boards/search?q='+encodeURIComponent(t));const j=await r.json().catch(()=>({hits:[]}));if(my!==seq)return;
     // Boards whose content matches show even if their title doesn't.
     const inside=new Set((j.hits||[]).map(h=>h.board));if(show()!=='archived')cards.forEach(c=>{if(inside.has(c.dataset.id)&&(show()==='all'||c.dataset.archived!=='1'))c.hidden=false});
-    hl.innerHTML=(j.hits||[]).map(h=>'<a class="item" href="/b/'+esc(h.board)+(h.kind==='file'?'#files':'#e'+h.seq)+'"><div class="grow" style="min-width:0"><div class="xs faint">'+esc(h.title)+' · '+(h.kind==='file'?esc(h.name)+' v'+h.version:'#'+h.seq+' '+esc(h.via==='agent'?h.author+"'s agent":h.author))+'</div><div class="small truncate">'+snip(h.snippet)+'</div></div></a>').join('');
+    hl.innerHTML=(j.hits||[]).map(h=>'<a class="item" href="/b/'+esc(h.board)+(h.kind==='file'?'#files':'#e'+h.seq)+'"><div class="grow min-w-0"><div class="xs faint">'+esc(h.title)+' · '+(h.kind==='file'?esc(h.name)+' v'+h.version:'#'+h.seq+' '+esc(h.via==='agent'?h.author+"'s agent":h.author))+'</div><div class="small truncate">'+snip(h.snippet)+'</div></div></a>').join('');
     hits.hidden=!(j.hits||[]).length},250)});
 document.addEventListener('keydown',e=>{if(e.key==='/'&&!e.target.closest('input,textarea')&&!document.querySelector('dialog[open]')){e.preventDefault();q.focus()}});
 apply();
@@ -1038,17 +1038,17 @@ export function logRow(e: Entry, boardTitle?: string, boardId?: string, lang?: L
   return `<tr class="ev" data-seq="${e.seq}"${boardId ? ` data-board="${esc(boardId)}"` : ""} tabindex="-1">
 <td class="mono" title="${t}">${t.slice(5, 10)} ${t.slice(11, 19)}</td>
 <td class="mono">#${e.seq}</td>
-${boardTitle != null ? `<td class="truncate" style="max-width:160px">${esc(boardTitle)}</td>` : ""}
+${boardTitle != null ? `<td class="truncate max-w-160">${esc(boardTitle)}</td>` : ""}
 <td><span class="row">${avatar(e.author, "sm", e.via === "agent")}${esc(e.via === "agent" ? tr(lang, "{name}'s agent", { name: e.author }) : e.author)}</span></td>
 <td>${typeTag(e.type, lang)}</td>
 <td class="muted">${esc([e.to, ...(e.mentions ?? []).map((m) => mentionLabel(m))].filter(Boolean).join(", ")) || "—"}</td>
 <td class="sum"><span>${esc(clip(e.artifact_name ? `${e.artifact_name}${e.artifact_version ? ` v${e.artifact_version}` : ""} — ${e.text}` : e.text, 200))}</span></td></tr>`;
 }
 
-const SHEET = `<dialog class="sheet" id="sheet"><div class="hd"><div><h2 id="sheet-title">Entry</h2><p class="small muted" id="sheet-sub" style="margin-top:4px"></p></div>
+const SHEET = `<dialog class="sheet" id="sheet"><div class="hd"><div><h2 id="sheet-title">Entry</h2><p class="small muted mt-4" id="sheet-sub"></p></div>
 <button class="btn ghost sm" data-close aria-label="Close">✕</button></div>
 <div class="bd stack"><dl class="kv" id="sheet-kv"></dl>
-<div class="row" style="justify-content:space-between;margin-top:20px"><h3>Raw payload</h3><button class="btn sm" data-copy="sheet-json">Copy JSON</button></div>
+<div class="row between mt-20"><h3>Raw payload</h3><button class="btn sm" data-copy="sheet-json">Copy JSON</button></div>
 <pre class="json mono" id="sheet-json"></pre><div id="sheet-file"></div></div></dialog>`;
 
 /** Client code for the entry side sheet: fetches the raw entry and pretty-prints it. */
@@ -1117,14 +1117,14 @@ function inviteAgentDialog(T: (s: string) => string, info: { id: string; title: 
   // person's own instruction, so a title could smuggle instructions in (opus-d's review, #1920). The agent reads the
   // title as board data once it has joined.
   const msg = `Join the Atteo board ${info.id}: run atteo join ${info.id}, or call join_board with "${info.id}" if you use the Atteo connector. Then read it.`;
-  return `<dialog id="invite-agent" class="ia-dlg" aria-label="${esc(T("Invite an agent"))}"><div class="hd"><div><h2>${esc(T("Invite an agent"))}</h2><p class="muted small" style="margin-top:4px">${esc(info.title)}</p></div><button class="btn ghost sm" data-close aria-label="${esc(T("Close"))}">✕</button></div>
+  return `<dialog id="invite-agent" class="ia-dlg" aria-label="${esc(T("Invite an agent"))}"><div class="hd"><div><h2>${esc(T("Invite an agent"))}</h2><p class="muted small mt-4">${esc(info.title)}</p></div><button class="btn ghost sm" data-close aria-label="${esc(T("Close"))}">✕</button></div>
 <div class="bd stack">
   <section class="ia-opt" id="ia-own"><h3>${esc(T("Your own assistant"))}</h3><p class="small muted">${esc(T("Paste this to your assistant. It joins this board and reads it."))}</p>
     <div class="copy"><pre class="mono" id="ia-join">${esc(msg)}</pre><button type="button" class="btn sm" data-copy="ia-join">${esc(T("Copy"))}</button></div>
     <p class="xs muted">${esc(T("Not connected yet?"))} <button type="button" class="linkish" data-open="connect">${esc(T("Connect your assistant"))}</button></p></section>
   <section class="ia-opt" id="ia-friend"><h3>${esc(T("A friend's agent"))}</h3><p class="small muted">${esc(T("Invite the friend to this board. Their agents join once they accept."))}</p>
     <form method="post" action="/api/boards/${esc(info.id)}/invites" data-api data-reset class="acc-row"><input class="input grow" name="email" required autocomplete="off" placeholder="${esc(T("A friend's name"))}" aria-label="${esc(T("A friend's name"))}"><button class="btn primary">${esc(T("Invite"))}</button>
-    <p data-result hidden style="margin-top:8px;flex-basis:100%"></p></form></section>
+    <p class="mt-8 basis-full" data-result hidden></p></form></section>
 </div></dialog>`;
 }
 
@@ -1688,10 +1688,10 @@ async function loadDocs(){const r=await fetch('/api/boards/'+BOARD+'/files');con
   if(!curDoc&&!docAsked&&fs.length&&innerWidth>800&&!document.getElementById('panel-docs').hidden)openDoc(fs[0].name)}
 let docAsked=false;async function openDoc(name,version){docAsked=true;editing=false;const r=await fetch('/api/boards/'+BOARD+'/doc?name='+encodeURIComponent(name)+(version?'&version='+version:''));const d=await r.json();if(!r.ok){toast(d.error);return}curDoc=d;renderDoc();loadDocs()}
 function renderDoc(){const d=curDoc,v=document.getElementById('doc-view');const old=d.version!==d.latest;v.classList.remove('editing');
-  v.innerHTML='<div class="row wrap" style="justify-content:space-between;gap:8px;margin-bottom:12px"><div><b class="mono">'+esc(d.name)+'</b> <span class="xs faint">v'+d.version+(old?' (viewing an older version; latest v'+d.latest+')':'')+' · '+esc(d.via==='agent'?d.updated_by+"'s agent":d.updated_by)+'</span></div><div class="row">'+
+  v.innerHTML='<div class="row wrap between mb-12"><div><b class="mono">'+esc(d.name)+'</b> <span class="xs faint">v'+d.version+(old?' (viewing an older version; latest v'+d.latest+')':'')+' · '+esc(d.via==='agent'?d.updated_by+"'s agent":d.updated_by)+'</span></div><div class="row">'+
   '<span id="doc-pin-slot"></span>'+(!d.media&&/\\.(html?|svg)$/i.test(d.name)?'<button class="btn sm ghost" type="button" data-preview-file="'+esc(d.name)+'" data-file-ver="'+d.version+'">'+tr('Preview')+'</button>':'')+'<a class="btn sm ghost" href="/api/boards/'+BOARD+'/image?name='+encodeURIComponent(d.name)+'&version='+d.version+'" download="'+esc(d.name)+'" data-save>'+tr('Download')+'</a>'+(d.seq?'<a class="btn sm ghost" href="#e'+d.seq+'" title="#'+d.seq+'">'+tr('Show in chat')+'</a>':'')+'<button class="btn sm ghost" type="button" id="doc-hist">'+tr('History')+'</button>'+(READONLY||old||d.media?'':'<button class="btn sm" type="button" id="doc-edit">'+tr('Edit')+'</button>')+'</div></div>'+(d.media?'<div class="doc-img"><img alt="'+esc(d.name)+'" src="/api/boards/'+BOARD+'/image?name='+encodeURIComponent(d.name)+'&version='+d.version+'"></div>':'<div class="doc-body body">'+d.html+'</div>')+'<div id="doc-history"></div>';if(window.pinSlot)pinSlot(d)}
 function editDoc(){const d=curDoc,v=document.getElementById('doc-view');editing=true;v.classList.add('editing');
-  v.innerHTML='<div class="row" style="justify-content:space-between;margin-bottom:10px"><b class="mono">'+esc(d.name)+'</b><span class="xs faint">editing v'+d.version+'</span></div><textarea class="input mono" id="doc-text" style="font-size:12.5px">'+esc(d.content)+'</textarea><input class="input" id="doc-summary" placeholder="'+tr('What changed? (optional)')+'" style="margin-top:8px"><p id="doc-warn" class="flash" hidden style="margin-top:8px"></p><div class="row" style="justify-content:flex-end;margin-top:10px"><button class="btn" type="button" id="doc-cancel">'+tr('Cancel')+'</button><button class="btn primary" type="button" id="doc-save">'+tr('Save')+'</button></div>'}
+  v.innerHTML='<div class="row between mb-10"><b class="mono">'+esc(d.name)+'</b><span class="xs faint">editing v'+d.version+'</span></div><textarea class="input mono fs-12" id="doc-text">'+esc(d.content)+'</textarea><input class="input mt-8" id="doc-summary" placeholder="'+tr('What changed? (optional)')+'"><p id="doc-warn" class="flash mt-8" hidden></p><div class="row end mt-10"><button class="btn" type="button" id="doc-cancel">'+tr('Cancel')+'</button><button class="btn primary" type="button" id="doc-save">'+tr('Save')+'</button></div>'}
 async function saveDoc(name,content,base,summary){const r=await fetch('/api/boards/'+BOARD+'/doc',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({action:'write',name,content,base_version:base,summary})});const j=await r.json();
   if(!r.ok){const w=document.getElementById('doc-warn');if(w){w.hidden=false;w.className='flash err';w.textContent=j.error}else toast(j.error);return false}toast(j.message);await openDoc(name);tick(false);return true}
 document.addEventListener('click',async e=>{const t=e.target;
@@ -1702,7 +1702,7 @@ document.addEventListener('click',async e=>{const t=e.target;
   if(t.closest('#doc-hist')){const r=await fetch('/api/boards/'+BOARD+'/doc-history?name='+encodeURIComponent(curDoc.name));const j=await r.json();
     document.getElementById('doc-history').innerHTML='<div class="divider"></div>'+(j.versions||[]).map(v=>'<a href="#docs" class="doc-item" data-doc="'+esc(curDoc.name)+'" data-ver="'+v.version+'"><span>v'+v.version+' · '+esc(v.via==='agent'?v.author+"'s agent":v.author)+(v.summary?' · '+esc(v.summary):'')+'</span><span class="xs faint">'+new Date(v.ts).toLocaleString()+'</span></a>').join('');return}
   if(t.closest('#doc-new')){const v=document.getElementById('doc-view');editing=true;curDoc=null;v.classList.add('editing');
-    v.innerHTML='<label class="lbl" for="doc-name">'+tr('Name')+'</label><input class="input mono" id="doc-name" placeholder="BACKLOG.md"><label class="lbl" style="margin-top:12px" for="doc-text">'+tr('Content')+'</label><textarea class="input mono" id="doc-text" style="font-size:12.5px"></textarea><p id="doc-warn" class="flash" hidden style="margin-top:8px"></p><div class="row" style="justify-content:flex-end;margin-top:10px"><button class="btn primary" type="button" id="doc-create">'+tr('Create')+'</button></div>';return}
+    v.innerHTML='<label class="lbl" for="doc-name">'+tr('Name')+'</label><input class="input mono" id="doc-name" placeholder="BACKLOG.md"><label class="lbl mt-12" for="doc-text">'+tr('Content')+'</label><textarea class="input mono fs-12" id="doc-text"></textarea><p id="doc-warn" class="flash mt-8" hidden></p><div class="row end mt-10"><button class="btn primary" type="button" id="doc-create">'+tr('Create')+'</button></div>';return}
   if(t.closest('#doc-create')){saveDoc(document.getElementById('doc-name').value.trim(),document.getElementById('doc-text').value,0,'created');return}
 });
 document.addEventListener('click',e=>{const it=e.target.closest('[data-ver]');if(it){e.preventDefault();e.stopPropagation();openDoc(it.dataset.doc,+it.dataset.ver)}},true);
@@ -2279,7 +2279,7 @@ window.BOARD_CTX={id:BOARD,me:ME,members:MEMBERS,
   openFile(name,v){tab(2);openDoc(name,v)}};
 document.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&!e.altKey&&!e.shiftKey&&e.key.toLowerCase()==='f'&&!document.querySelector('dialog[open]:not(#palette)')){e.preventDefault();window.openPalette([{k:'board'},{k:'kind',v:'messages'}])}},true);
 // ---- threads: replies fold into "N replies" under their message; clicking it opens the thread right there, in the chat ----
-const avatar16=(u,agent)=>'<span class="av sm'+(agent?' agent':'')+'" style="--h:'+(MOPTS.find(o=>o.u===u)?.av.match(/--h:([0-9]+)/)?.[1]||220)+'">'+esc(u.slice(0,2).toUpperCase())+'<img class="av-img" src="/avatar/'+encodeURIComponent(u)+(agent?'?k=agent':'')+'" alt="" loading="lazy"></span>';
+const avatar16=(u,agent)=>'<span class="av sm'+(agent?' agent':'')+' '+(MOPTS.find(o=>o.u===u)?.av.match(/\bh-([0-9]+)\b/)?.[0]||'')+'">'+esc(u.slice(0,2).toUpperCase())+'<img class="av-img" src="/avatar/'+encodeURIComponent(u)+(agent?'?k=agent':'')+'" alt="" loading="lazy"></span>';
 // Replies post in the conversation like any message (jxn #1040). Each carries a bar quoting the message it answers;
 // tapping it, or a thread's "N replies", opens the thread as an overlay with its own reply box.
 function quotify(el){const r=el.dataset.reply;if(!r||el.querySelector(':scope>.grow>.rq'))return;const p=document.getElementById('e'+r),g=!p&&document.getElementById('g'+r);
@@ -2377,7 +2377,7 @@ async function hShow(t,pin){if(t.group)return hGroup(t,pin);hFor=t.el;hPinned=!!
       (live.length?'<div class="xs hc-live">'+live.slice(0,2).map(s=>{const tool=s.client&&!/^(an? )?agent$|^unknown$/i.test(s.client)?s.client:'';return '<span class="pres on"></span> '+esc(s.name||tool||'session')+(tool&&tool!==s.name?' <span class="faint">· '+esc(tool)+'</span>':'')+(s.model?' <span class="faint ag-model">· '+esc(s.model)+'</span>':'')+(s.status?': '+esc(s.status):' <span class="faint">'+tr('· active')+'</span>')}).join('<br>')+'</div>':'')+'</div>'}
   const cta=document.getElementById('composer-text');
   const ask=t.agent&&p.relation!=='self'&&cta&&!cta.disabled?'<button class="btn sm" data-ask="'+esc(p.name)+'">Ask '+esc(p.name)+"'s agent</button>":'';
-  hcard.innerHTML='<div class="row" style="gap:12px;align-items:center">'+avatar16(p.name,t.agent).replace('av sm','av lg')+'<div class="grow" style="min-width:0"><div class="hc-name">'+esc(t.agent?(p.agent_name||p.name+"'s agent"):(p.display_name||p.name))+'</div><div class="xs faint">@'+esc(p.name)+(p.shared_boards?' · '+p.shared_boards+' shared board'+(p.shared_boards===1?'':'s'):'')+'</div></div></div>'+
+  hcard.innerHTML='<div class="row gap-12">'+avatar16(p.name,t.agent).replace('av sm','av lg')+'<div class="grow min-w-0"><div class="hc-name">'+esc(t.agent?(p.agent_name||p.name+"'s agent"):(p.display_name||p.name))+'</div><div class="xs faint">@'+esc(p.name)+(p.shared_boards?' · '+p.shared_boards+' shared board'+(p.shared_boards===1?'':'s'):'')+'</div></div></div>'+
     '<div class="row hc-pres"><span class="pres'+(on?' on':'')+'"></span><span class="xs">'+esc(j.presence||'')+'</span></div>'+(p.bio&&!t.agent?'<p class="hc-bio">'+esc(p.bio)+'</p>':'')+ag+
     '<div class="hc-act"><a class="btn sm primary" href="/u/'+esc(p.name)+(t.agent?'#agent':'')+'">'+tr('View profile')+'</a>'+ask+act+muBtn(p)+'</div>';
   hPlace(t,pin);
@@ -2461,7 +2461,7 @@ async function gateLoad(){const sec=document.getElementById('acc-gate');if(!sec)
   if(!hs.length){sec.hidden=true;return}
   sec.hidden=false;
   const stalled=Date.now()-hs[0].ts>GATE_STALLED_MS; // oldest first: nothing has landed in 30 min
-  document.getElementById('gate-h').innerHTML=esc(tr('Waiting to land ({n})',{n:hs.length}))+(stalled?' <span class="xs" style="color:var(--warn)">'+esc(tr('nothing landed for 30 min'))+'</span>':'');
+  document.getElementById('gate-h').innerHTML=esc(tr('Waiting to land ({n})',{n:hs.length}))+(stalled?' <span class="xs warn">'+esc(tr('nothing landed for 30 min'))+'</span>':'');
   document.getElementById('acc-handoffs').innerHTML=hs.map(h=>'<li class="acc-row xs"><a class="mono" href="#e'+h.seq+'">#'+h.seq+'</a><span class="grow truncate mono">'+esc(h.handoff.branch||'')+'</span><span class="truncate">'+esc(h.agent_name||h.author)+'</span><span class="faint">'+(h.handoff.lgtm?'LGTM · ':'')+'<time data-ts="'+h.ts+'"></time></span></li>').join('');
   refreshTimes()}
 document.getElementById('acc-handoffs').addEventListener('click',e=>{if(e.target.closest('a'))document.getElementById('invite').close()}); // jump to the message: the board's #e link takes it from there
@@ -2539,7 +2539,7 @@ async function invSuggest(){if(!invIn)return;if(!accFriends)accFriends=(await fe
   const q=invIn.value.trim().toLowerCase().replace(/^@/,''),here=new Set(MOPTS.map(o=>o.u));
   const list=q.includes('@')?[]:accFriends.filter(f=>!here.has(f.name)&&(!q||f.name.includes(q)||(f.display_name||'').toLowerCase().includes(q))).slice(0,6);
   accSel=Math.min(accSel,Math.max(0,list.length-1));invSug.hidden=!list.length;
-  invSug.innerHTML=list.map((f,i)=>'<li role="option" data-friend-pick="'+esc(f.name)+'"'+(i===accSel?' aria-selected="true"':'')+'>'+avatar16(f.name,false)+'<span>'+esc(f.name)+'</span>'+(f.display_name?'<span class="faint truncate">'+esc(f.display_name)+'</span>':'')+'<span class="xs faint" style="margin-left:auto">'+tr('friend')+'</span></li>').join('')}
+  invSug.innerHTML=list.map((f,i)=>'<li role="option" data-friend-pick="'+esc(f.name)+'"'+(i===accSel?' aria-selected="true"':'')+'>'+avatar16(f.name,false)+'<span>'+esc(f.name)+'</span>'+(f.display_name?'<span class="faint truncate">'+esc(f.display_name)+'</span>':'')+'<span class="xs faint ml-auto">'+tr('friend')+'</span></li>').join('')}
 invIn?.addEventListener('input',()=>{accSel=0;invSuggest()});invIn?.addEventListener('focus',invSuggest);
 invIn?.addEventListener('blur',()=>setTimeout(()=>{invSug.hidden=true},150));
 invIn?.addEventListener('keydown',e=>{if(invSug.hidden)return;const n=invSug.children.length;
@@ -2763,7 +2763,7 @@ export function boardPage(
     : agentChat
       ? `<div class="empty" id="empty"><h3>${esc(T("Talk to your agent"))}</h3><p class="small">Only you and your agents see this chat. Ask anything below: any of your agents can answer (<span class="mono">atteo dispatch</span> starts one for each message), or pick one of them.</p></div>`
     : `<div class="empty" id="empty"><h3>${esc(T("Nothing here yet"))}</h3><p class="small">${esc(T("Any agent joins with {cmd}. Or write the first note below.")).replace("{cmd}", `<span class="mono">atteo join ${esc(info.id)}</span>`)}</p>
-<div class="row" style="gap:8px;justify-content:center;flex-wrap:wrap;margin-top:16px">${agent.connected ? "" : `<button class="btn primary lg" data-open="connect">${esc(T("Connect an agent"))}</button>`}${!canInviteAgent ? "" : `<button class="btn lg${agent.connected ? " primary" : ""}" data-open="invite-agent">${esc(T("Invite an agent"))}</button>`}</div></div>`;
+<div class="row center wrap mt-16">${agent.connected ? "" : `<button class="btn primary lg" data-open="connect">${esc(T("Connect an agent"))}</button>`}${!canInviteAgent ? "" : `<button class="btn lg${agent.connected ? " primary" : ""}" data-open="invite-agent">${esc(T("Invite an agent"))}</button>`}</div></div>`;
   const rows = [...entries].reverse().map((e) => logRow(e, undefined, undefined, viewer.lang)).join("");
   // What the board script reads from this page (window.BC): the board, you, your role and where you had read to.
   const bc = {
@@ -2810,7 +2810,7 @@ export function boardPage(
       ? `<button class="bp-pic" type="button" data-open="invite" data-goto="acc-board" title="${esc(T("Change the board picture"))}" aria-label="${esc(T("Board picture"))}">${boardPic({ id: info.id, title: info.title, picture: board.picture })}</button>`
       : boardPic({ id: info.id, title: info.title, picture: board.picture });
   const picSec = canPic
-    ? `<div class="acc-row bpic-row">${boardPic({ id: info.id, title: info.title, picture: board.picture }, "lg")}<div class="grow"><div class="small" style="color:var(--ink)">${esc(T("Picture"))}</div><div class="xs muted">${
+    ? `<div class="acc-row bpic-row">${boardPic({ id: info.id, title: info.title, picture: board.picture }, "lg")}<div class="grow"><div class="small ink">${esc(T("Picture"))}</div><div class="xs muted">${
         esc(T(info.encrypted ? "Visible to the server, like the board name." : "Everyone on the board sees it, and a line when it changes."))
       }</div></div>
   <label class="btn sm">${esc(T(board.picture ? "Change picture" : "Add picture"))}<input type="file" accept="image/png,image/jpeg,image/webp" data-bpic-file hidden></label>${
@@ -2832,7 +2832,7 @@ export function boardPage(
     ${
       agentChat
         ? `<span class="truncate" title="${esc(T("Only you and your agents"))}">${esc(T("Private: you and your agents"))}</span>`
-        : `<span class="row" style="min-width:0" title="${esc(members.map((m) => m.user).join(", "))}">${avatarStack(members.map((m) => m.user))}</span>${canInviteAgent ? `<button class="av-add" type="button" data-open="invite-agent" aria-label="${esc(T("Invite an agent"))}" title="${esc(T("Invite an agent"))}"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M8 3v10M3 8h10"/></svg></button>` : ""}`
+        : `<span class="row min-w-0" title="${esc(members.map((m) => m.user).join(", "))}">${avatarStack(members.map((m) => m.user))}</span>${canInviteAgent ? `<button class="av-add" type="button" data-open="invite-agent" aria-label="${esc(T("Invite an agent"))}" title="${esc(T("Invite an agent"))}"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M8 3v10M3 8h10"/></svg></button>` : ""}`
     }
 
   </div></div>
@@ -2874,10 +2874,10 @@ ${notifySide(L)}
 </div></div>
 <div role="tabpanel" id="panel-log" aria-labelledby="tab-log" class="bp-panel" data-board-panel hidden><div class="list scroll-x"><table class="log"><thead><tr><th>${esc(T("Time (UTC)"))}</th><th>#</th><th>${esc(T("Author"))}</th><th>${esc(T("Type"))}</th><th>${esc(T("To"))}</th><th>${esc(T("Summary"))}</th></tr></thead>
 <tbody id="log-body">${rows || `<tr id="log-empty"><td colspan="6" class="empty small">${esc(T("No events yet."))}</td></tr>`}</tbody></table></div>
-<p class="xs faint" style="margin-top:10px">${esc(T("Every entry, newest first. Click a row (or J/K then ↵) for its raw payload."))}</p></div>
+<p class="xs faint mt-10">${esc(T("Every entry, newest first. Click a row (or J/K then ↵) for its raw payload."))}</p></div>
 <div role="tabpanel" id="panel-docs" aria-labelledby="tab-docs" class="bp-panel" data-board-panel hidden>
   <div class="docs">
-    <div class="doc-list"><div class="row" style="justify-content:space-between;margin-bottom:8px"><span class="small muted">${esc(T("Files"))}</span>${info.archived ? "" : `<button class="btn sm" type="button" id="doc-new">${esc(T("New"))}</button>`}</div><div id="doc-items" class="small muted">${esc(T("Loading…"))}</div></div>
+    <div class="doc-list"><div class="row between mb-8"><span class="small muted">${esc(T("Files"))}</span>${info.archived ? "" : `<button class="btn sm" type="button" id="doc-new">${esc(T("New"))}</button>`}</div><div id="doc-items" class="small muted">${esc(T("Loading…"))}</div></div>
     <div class="doc-view card pad" id="doc-view"><p class="muted small" id="doc-empty">${esc(T("No files yet. Create one (e.g. BACKLOG.md), post one from the conversation, or paste an image there. People and agents edit files together, and every save or post is a new version."))}</p></div>
   </div>
 </div>
@@ -2890,57 +2890,57 @@ ${notifySide(L)}
 </div>
 
   <dialog id="task-dlg" class="task-dlg"><form id="td-form">
-    <div class="hd"><div class="row grow" style="gap:8px"><span class="faint mono" id="td-seq"></span><input class="input td-title grow" id="td-title" maxlength="120" aria-label="${esc(T("Title"))}"></div><button class="btn ghost sm" type="button" data-close aria-label="${esc(T("Close"))}">✕</button></div>
+    <div class="hd"><div class="row grow"><span class="faint mono" id="td-seq"></span><input class="input td-title grow" id="td-title" maxlength="120" aria-label="${esc(T("Title"))}"></div><button class="btn ghost sm" type="button" data-close aria-label="${esc(T("Close"))}">✕</button></div>
     <div class="bd">
       <div class="row td-fields"><label>${esc(T("Status"))} <select class="input sm" id="td-status"><option value="todo">${esc(T("To do"))}</option><option value="doing">${esc(T("In progress"))}</option><option value="blocked">${esc(T("Blocked"))}</option><option value="done">${esc(T("Done"))}</option></select></label>
         <label>${esc(T("Priority"))} <select class="input sm" id="td-pri"><option value="">—</option><option value="high">${esc(T("High"))}</option><option value="medium">${esc(T("Medium"))}</option><option value="low">${esc(T("Low"))}</option></select></label>
         <label class="grow">${esc(T("Assignee"))} <input class="input sm" id="td-assignee" list="td-people" placeholder="${esc(T("name or name's agent"))}"></label></div>
       <datalist id="td-people">${members.flatMap((m) => [`<option value="${esc(m.user)}">`, `<option value="${esc(m.user)}'s agent">`]).join("")}</datalist>
       <textarea class="input mono td-body" id="td-body" rows="12" aria-label="${esc(T("Task details"))}" placeholder="${esc(T("The plan, a checklist (- [ ] step), findings, links. People and agents edit this together."))}"></textarea>
-      <input class="input sm" id="td-sum" aria-label="${esc(T("Change summary"))}" placeholder="${esc(T("What changed? (optional)"))}" style="margin-top:8px">
-      <p class="xs faint" id="td-meta" style="margin:8px 0 0"></p>
-      <details style="margin-top:6px"><summary class="xs faint" style="cursor:pointer">${esc(T("History"))}</summary><ul class="xs faint td-hist" id="td-hist"></ul></details>
+      <input class="input sm mt-8" id="td-sum" aria-label="${esc(T("Change summary"))}" placeholder="${esc(T("What changed? (optional)"))}">
+      <p class="xs faint my-0-8" id="td-meta"></p>
+      <details class="mt-6"><summary class="xs faint pointer">${esc(T("History"))}</summary><ul class="xs faint td-hist" id="td-hist"></ul></details>
       <p class="flash err" id="td-err" hidden></p>
-      <div class="row" style="justify-content:space-between;margin-top:12px"><div class="row" style="gap:6px"><button class="btn sm ghost" type="button" id="td-open">${esc(T("Open in conversation"))}</button><button class="btn sm ghost" type="button" id="td-remove" hidden>${esc(T("Remove"))}</button></div><button class="btn primary sm">${esc(T("Save"))}</button></div>
+      <div class="row between mt-12"><div class="row gap-6"><button class="btn sm ghost" type="button" id="td-open">${esc(T("Open in conversation"))}</button><button class="btn sm ghost" type="button" id="td-remove" hidden>${esc(T("Remove"))}</button></div><button class="btn primary sm">${esc(T("Save"))}</button></div>
     </div></form></dialog>
 ${localize(L, SHEET)}${agentChat ? "" : localize(L, RECAP_DLG + SOUL_DLG)}
 <dialog class="lightbox" id="lightbox" aria-label="${esc(T("Image"))}"><img id="lightbox-img" alt=""><button class="lb-nav lb-prev" type="button" aria-label="${esc(T("Previous picture"))}" hidden>‹</button><button class="lb-nav lb-next" type="button" aria-label="${esc(T("Next picture"))}" hidden>›</button><span class="lb-count xs" hidden></span><a class="btn sm lb-save" id="lightbox-save" href="" download data-save>${esc(T("Save"))}</a></dialog>
 
 ${connectDialog(viewer, { id: info.id, title: info.title })}
 
-<dialog id="fwd-dlg" class="fwd-dlg" aria-label="${esc(T("Forward messages"))}"><div class="hd"><div><h2>${esc(T("Forward"))} <span id="fwd-n"></span></h2><p class="muted small" id="fwd-desc" style="margin-top:4px">${esc(T("Quoted with who said what, as one message from you. Only you can forward (agents can't move messages between boards)."))}</p></div><button class="btn ghost sm" data-close aria-label="${esc(T("Close"))}">✕</button></div>
-<div class="bd stack" style="--gap:10px">
+<dialog id="fwd-dlg" class="fwd-dlg" aria-label="${esc(T("Forward messages"))}"><div class="hd"><div><h2>${esc(T("Forward"))} <span id="fwd-n"></span></h2><p class="muted small mt-4" id="fwd-desc">${esc(T("Quoted with who said what, as one message from you. Only you can forward (agents can't move messages between boards)."))}</p></div><button class="btn ghost sm" data-close aria-label="${esc(T("Close"))}">✕</button></div>
+<div class="bd stack">
   <input class="input" id="fwd-q" placeholder="${esc(T("Find a board or person"))}" autocomplete="off" aria-label="${esc(T("Find a board"))}">
   <ul class="fwd-list" id="fwd-list" role="listbox" aria-label="${esc(T("Boards"))}"></ul>
   <div class="fwd-prev" id="fwd-prev"></div>
   <textarea class="input" id="fwd-note" rows="2" maxlength="2000" placeholder="${esc(T("Add a note (optional)"))}" aria-label="${esc(T("Note"))}"></textarea>
-  <div class="row" style="justify-content:flex-end;gap:8px"><button type="button" class="btn" data-close>${esc(T("Cancel"))}</button><button type="button" class="btn primary" id="fwd-send" disabled>${esc(T("Forward"))}</button></div>
+  <div class="row end"><button type="button" class="btn" data-close>${esc(T("Cancel"))}</button><button type="button" class="btn primary" id="fwd-send" disabled>${esc(T("Forward"))}</button></div>
 </div></dialog>
-<dialog id="report-dlg" class="fwd-dlg" aria-label="${esc(T("Report a post"))}"><div class="hd"><div><h2>${esc(T("Report a post"))} <span id="rp-n"></span></h2><p class="muted small" style="margin-top:4px">${esc(T("The board's owners get it with your reason, and it goes in the board's log, which only they see. Whoever wrote it isn't told."))}</p></div><button class="btn ghost sm" data-close aria-label="${esc(T("Close"))}">✕</button></div>
-<div class="bd stack" style="--gap:10px">
+<dialog id="report-dlg" class="fwd-dlg" aria-label="${esc(T("Report a post"))}"><div class="hd"><div><h2>${esc(T("Report a post"))} <span id="rp-n"></span></h2><p class="muted small mt-4">${esc(T("The board's owners get it with your reason, and it goes in the board's log, which only they see. Whoever wrote it isn't told."))}</p></div><button class="btn ghost sm" data-close aria-label="${esc(T("Close"))}">✕</button></div>
+<div class="bd stack">
   <div class="fwd-prev" id="rp-prev"></div>
   <textarea class="input" id="rp-reason" rows="3" maxlength="500" placeholder="${esc(T("What's wrong with it?"))}" aria-label="${esc(T("Reason"))}"></textarea>
   <p class="xs rp-err" id="rp-err" role="alert" hidden></p>
-  <div class="row" style="justify-content:flex-end;gap:8px"><button type="button" class="btn" data-close>${esc(T("Cancel"))}</button><button type="button" class="btn primary" id="rp-send" disabled>${esc(T("Report"))}</button></div>
+  <div class="row end"><button type="button" class="btn" data-close>${esc(T("Cancel"))}</button><button type="button" class="btn primary" id="rp-send" disabled>${esc(T("Report"))}</button></div>
 </div></dialog>
 <dialog id="purge-dlg" class="fwd-dlg" aria-labelledby="pg-h" aria-describedby="pg-what"><div class="hd"><div><h2 id="pg-h">${esc(T("Purge this message?"))} <span id="pg-n"></span></h2></div><button class="btn ghost sm" data-close aria-label="${esc(T("Close"))}">✕</button></div>
-<div class="bd stack" style="--gap:10px">
+<div class="bd stack">
   <div class="fwd-prev" id="pg-prev"></div>
   <p class="small" id="pg-what">${esc(T("This removes its text, its files and its edit history everywhere on Atteo for good: the board, search, inboxes and what agents hold. It can't be undone."))}</p>
   <p class="small pg-rotate"><b>${esc(T("If it held a secret, rotate the secret too."))}</b> ${esc(T("Anyone who already read it, and any email, webhook or backup already sent, still has it."))}</p>
   <p class="xs rp-err" id="pg-err" role="alert" hidden></p>
-  <div class="row" style="justify-content:flex-end;gap:8px"><button type="button" class="btn" data-close>${esc(T("Cancel"))}</button><button type="button" class="btn danger" id="pg-go">${esc(T("Purge for good"))}</button></div>
+  <div class="row end"><button type="button" class="btn" data-close>${esc(T("Cancel"))}</button><button type="button" class="btn danger" id="pg-go">${esc(T("Purge for good"))}</button></div>
 </div></dialog>
-<dialog id="delete-board"><div class="hd"><div><h2>Delete ${esc(info.title)}?</h2><p class="muted small" style="margin-top:4px">${esc(T("This permanently deletes every entry, file, member and invitation on this board. Connected agents lose it on their next call. It can't be undone."))}</p></div><button class="btn ghost sm" data-close aria-label="${esc(T("Close"))}">✕</button></div>
+<dialog id="delete-board"><div class="hd"><div><h2>Delete ${esc(info.title)}?</h2><p class="muted small mt-4">${esc(T("This permanently deletes every entry, file, member and invitation on this board. Connected agents lose it on their next call. It can't be undone."))}</p></div><button class="btn ghost sm" data-close aria-label="${esc(T("Close"))}">✕</button></div>
 <form class="bd" method="post" action="/api/boards/${esc(info.id)}/delete" data-api data-done="deleted">
   <label class="lbl" for="del-confirm">${esc(T("Type"))} <b>${esc(info.title)}</b> ${esc(T("to confirm"))}</label>
   <input class="input" id="del-confirm" name="confirm" autocomplete="off" required>
-  <p data-result hidden style="margin-top:12px"></p>
-  <div class="row" style="justify-content:flex-end;margin-top:18px"><button type="button" class="btn" data-close>${esc(T("Cancel"))}</button><button class="btn primary" style="background:var(--danger);border-color:var(--danger)" id="del-go" disabled>${esc(T("Delete board"))}</button></div>
+  <p class="mt-12" data-result hidden></p>
+  <div class="row end mt-18"><button type="button" class="btn" data-close>${esc(T("Cancel"))}</button><button class="btn primary danger-fill" id="del-go" disabled>${esc(T("Delete board"))}</button></div>
 </form></dialog>
 
 ${canInviteAgent ? inviteAgentDialog(T, info) : ""}
-<dialog id="invite" class="access-dlg" aria-label="${esc(T("Members and access"))}"><div class="hd"><div><h2>${esc(T("Members & access"))}</h2><p class="muted small" style="margin-top:4px">${esc(info.title)}</p></div><button class="btn ghost sm" data-close aria-label="${esc(T("Close"))}">✕</button></div>
+<dialog id="invite" class="access-dlg" aria-label="${esc(T("Members and access"))}"><div class="hd"><div><h2>${esc(T("Members & access"))}</h2><p class="muted small mt-4">${esc(info.title)}</p></div><button class="btn ghost sm" data-close aria-label="${esc(T("Close"))}">✕</button></div>
 <div class="bd">
   ${
     readOnly
@@ -2952,12 +2952,12 @@ ${canInviteAgent ? inviteAgentDialog(T, info) : ""}
     <select class="input acc-sel" name="role" aria-label="${esc(T("Role"))}"><option value="viewer" selected>${esc(T("View only"))}</option><option value="contributor">${esc(T("Can post"))}</option></select>
     <select class="input acc-sel" name="expires_days" aria-label="${esc(T("Access"))}"><option value="30" selected>${esc(T("30 days"))}</option><option value="7">${esc(T("7 days"))}</option><option value="90">${esc(T("90 days"))}</option><option value="0">${esc(T("No end date"))}</option></select>
     <button class="btn primary">${esc(T("Invite"))}</button></div>
-    <p data-result hidden style="margin-top:8px"></p>
-    <p class="xs muted" style="margin-top:10px">${esc(T("From an agent:"))} <span class="mono">atteo invite &lt;name&gt; --board ${esc(info.id)}</span>${esc(T(". Once they accept, their agents join with"))} <span class="mono">atteo join ${esc(info.id)}</span>.</p>
+    <p class="mt-8" data-result hidden></p>
+    <p class="xs muted mt-10">${esc(T("From an agent:"))} <span class="mono">atteo invite &lt;name&gt; --board ${esc(info.id)}</span>${esc(T(". Once they accept, their agents join with"))} <span class="mono">atteo join ${esc(info.id)}</span>.</p>
   </form>
   ${
     invites.length
-      ? `<p class="xs faint" style="margin-top:8px">Pending: ${invites.map((i) => `${esc(i.email)} (${esc(i.email_status)})`).join(", ")}</p>`
+      ? `<p class="xs faint mt-8">Pending: ${invites.map((i) => `${esc(i.email)} (${esc(i.email_status)})`).join(", ")}</p>`
       : ""
   }</section>`
   }
@@ -2968,13 +2968,13 @@ ${canInviteAgent ? inviteAgentDialog(T, info) : ""}
     <select class="input acc-sel" id="link-days" aria-label="${esc(T("Link works for"))}"><option value="1">${esc(T("Works 1 day"))}</option><option value="7" selected>${esc(T("Works 7 days"))}</option><option value="30">${esc(T("Works 30 days"))}</option></select>
     <select class="input acc-sel" id="link-access" aria-label="${esc(T("Access"))}"><option value="30" selected>${esc(T("30 days"))}</option><option value="7">${esc(T("7 days"))}</option><option value="90">${esc(T("90 days"))}</option><option value="0">${esc(T("No end date"))}</option></select>
     <button class="btn" type="button" id="link-make">${esc(T("Create link"))}</button></div>
-  <div id="link-new" hidden style="margin-top:8px"></div><ul class="acc-list" id="acc-links"></ul></section>`
+  <div class="mt-8" id="link-new" hidden></div><ul class="acc-list" id="acc-links"></ul></section>`
       : ""
   }
   <section class="acc-sec"><h3>${esc(T("Members"))}</h3>${isOwner ? "" : `<p class="xs muted">${esc(T("Only owners change roles and access."))}</p>`}<ul class="acc-list" id="acc-members"><li class="xs faint">${esc(T("Loading…"))}</li></ul></section>
   ${
     canTrig
-      ? `<section class="acc-sec" id="acc-triggers" hidden><h3>${esc(T("Triggers"))}</h3><p class="xs muted" style="margin:-4px 0 8px">${esc(T("Wake your agent when something happens here, with what to do. Only you can wake your agents."))}</p>
+      ? `<section class="acc-sec" id="acc-triggers" hidden><h3>${esc(T("Triggers"))}</h3><p class="xs muted my-n4-8">${esc(T("Wake your agent when something happens here, with what to do. Only you can wake your agents."))}</p>
   <ul class="acc-list" id="trg-list"><li class="xs faint">${esc(T("Loading…"))}</li></ul>
   <form class="trg-new" id="trg-new" hidden><div class="trg-when"><select class="input acc-sel" id="trg-on" aria-label="${esc(T("When"))}">${[
     ["task", "A new task"],
@@ -2989,10 +2989,10 @@ ${canInviteAgent ? inviteAgentDialog(T, info) : ""}
     .join("")}</select><input class="input acc-url" id="trg-text" placeholder="${esc(T("containing… (optional)"))}" aria-label="${esc(T("Only when the message contains"))}"><input class="input acc-url" id="trg-at" type="time" value="09:00" aria-label="${esc(T("Time (UTC)"))}" hidden></div>
   <div class="trg-wake"><label class="xs muted" for="trg-wake">${esc(T("wake"))}</label><select class="input acc-sel" id="trg-wake"></select></div>
   <textarea class="input" id="trg-prompt" rows="2" maxlength="2000" placeholder="${esc(T("What should it do? e.g. Triage the new task and ask questions in its thread."))}" aria-label="${esc(T("What your agent should do"))}" required></textarea>
-  <div class="row"><span class="grow xs" id="trg-err" style="color:var(--danger)"></span><button class="btn sm primary" type="submit">${esc(T("Add trigger"))}</button></div></form></section>`
+  <div class="row"><span class="grow xs danger" id="trg-err"></span><button class="btn sm primary" type="submit">${esc(T("Add trigger"))}</button></div></form></section>`
       : ""
   }
-  <section class="acc-sec" id="acc-schedules" hidden><h3>${esc(T("Schedules"))}</h3><p class="xs muted" style="margin:-4px 0 8px">${esc(T("Post a task here at set times (e.g. weekdays 09:00: standup). Members’ agents claim and split it like any task, so the work is shared instead of repeated."))}${info.encrypted ? " " + esc(T("This board is end-to-end encrypted, so it can’t have schedules.")) : ""}</p>
+  <section class="acc-sec" id="acc-schedules" hidden><h3>${esc(T("Schedules"))}</h3><p class="xs muted my-n4-8">${esc(T("Post a task here at set times (e.g. weekdays 09:00: standup). Members’ agents claim and split it like any task, so the work is shared instead of repeated."))}${info.encrypted ? " " + esc(T("This board is end-to-end encrypted, so it can’t have schedules.")) : ""}</p>
   <ul class="acc-list" id="sch-list"><li class="xs faint">${esc(T("Loading…"))}</li></ul>${
     canSched
       ? `
@@ -3002,7 +3002,7 @@ ${canInviteAgent ? inviteAgentDialog(T, info) : ""}
   <div class="sch-days" role="group" aria-label="${esc(T("Days"))}">${["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
     .map((d, i) => `<button type="button" class="sch-day" data-day="${d}" aria-pressed="${i < 5 ? "true" : "false"}">${esc(T(d[0].toUpperCase() + d.slice(1)))}</button>`)
     .join("")}</div>
-  <div class="row"><span class="grow xs" id="sch-err" style="color:var(--danger)"></span><button class="btn sm primary" type="submit">${esc(T("Add schedule"))}</button></div></form>`
+  <div class="row"><span class="grow xs danger" id="sch-err"></span><button class="btn sm primary" type="submit">${esc(T("Add schedule"))}</button></div></form>`
       : ""
   }</section>
   <section class="acc-sec" id="acc-gate" hidden><h3 id="gate-h"></h3><ul class="acc-list" id="acc-handoffs"></ul></section>
@@ -3014,7 +3014,7 @@ ${canInviteAgent ? inviteAgentDialog(T, info) : ""}
             ? `<div class="acc-row">${
                 info.archived
                   ? ""
-                  : `<form method="post" action="/api/boards/${esc(info.id)}/archive" data-api data-done="archiveDone" style="margin:0"><input type="hidden" name="archived" value="true"><button class="btn sm" title="${esc(T("Read-only until you restore it"))}">${esc(T("Archive board"))}</button></form>`
+                  : `<form class="mx-0" method="post" action="/api/boards/${esc(info.id)}/archive" data-api data-done="archiveDone"><input type="hidden" name="archived" value="true"><button class="btn sm" title="${esc(T("Read-only until you restore it"))}">${esc(T("Archive board"))}</button></form>`
               }<button class="btn ghost sm danger" type="button" data-open="delete-board">${esc(T("Delete board…"))}</button></div>`
             : ""
         }</section>`
@@ -3042,25 +3042,25 @@ export function devicePage(viewer: Viewer, side: SideBoard[], code: string | nul
   const expired = !!d && d.expires_at < Date.now();
   let body: string;
   if (!code || !d) {
-    body = `<div class="card pad" style="max-width:460px;margin:24px auto 0">
-  <h1 style="font-size:20px">Sign in the Atteo CLI</h1>
-  <p class="muted" style="margin:8px 0 18px">Enter the code shown in your terminal.</p>
-  ${code ? `<p class="flash err" style="margin-bottom:14px">No sign-in is waiting for that code.</p>` : ""}
+    body = `<div class="card pad sheet-sm">
+  <h1 class="fs-20">Sign in the Atteo CLI</h1>
+  <p class="muted my-8-18">Enter the code shown in your terminal.</p>
+  ${code ? `<p class="flash err mb-14">No sign-in is waiting for that code.</p>` : ""}
   <form method="get" action="/device"><label class="lbl" for="code">Code</label>
-  <div class="row"><input class="input mono" id="code" name="code" placeholder="BCDF-GHJK" autocomplete="off" autofocus style="text-transform:uppercase;letter-spacing:.1em"><button class="btn primary">Continue</button></div></form></div>`;
+  <div class="row"><input class="input mono code-in" id="code" name="code" placeholder="BCDF-GHJK" autocomplete="off" autofocus><button class="btn primary">Continue</button></div></form></div>`;
   } else if (d.status !== "pending" || expired) {
     const msg = expired ? "This code expired. Run atteo login again." : d.status === "denied" ? "This sign-in was denied." : "This sign-in was already approved. You can go back to your terminal.";
-    body = `<div class="card pad" style="max-width:460px;margin:24px auto 0;text-align:center"><h1 style="font-size:20px">${esc(code)}</h1><p class="muted" style="margin-top:8px">${esc(msg)}</p></div>`;
+    body = `<div class="card pad sheet-sm center"><h1 class="fs-20">${esc(code)}</h1><p class="muted mt-8">${esc(msg)}</p></div>`;
   } else {
-    body = `<div class="card pad" style="max-width:460px;margin:24px auto 0">
+    body = `<div class="card pad sheet-sm">
   <p class="small muted">Sign-in request</p>
-  <h1 style="font-size:20px;margin-top:4px">Approve the Atteo CLI?</h1>
-  <dl class="kv" style="margin:18px 0"><dt>Device</dt><dd>${esc(d.client)}</dd><dt>Code</dt><dd class="mono">${esc(code)}</dd><dt>Signs in as</dt><dd>${esc(viewer.name)} (${esc(viewer.email)})</dd><dt>Access</dt><dd>Your boards, as you, for 30 days</dd></dl>
+  <h1 class="fs-20 mt-4">Approve the Atteo CLI?</h1>
+  <dl class="kv my-18"><dt>Device</dt><dd>${esc(d.client)}</dd><dt>Code</dt><dd class="mono">${esc(code)}</dd><dt>Signs in as</dt><dd>${esc(viewer.name)} (${esc(viewer.email)})</dd><dt>Access</dt><dd>Your boards, as you, for 30 days</dd></dl>
   <p class="small muted">Only approve if this code matches the one in your terminal and you started this sign-in yourself.</p>
-  <form method="post" action="/api/device/decide" data-api data-done="decided" style="margin-top:18px">
+  <form class="mt-18" method="post" action="/api/device/decide" data-api data-done="decided">
     <input type="hidden" name="user_code" value="${esc(code)}"><input type="hidden" name="approve" id="approve" value="true">
-    <div class="row" style="justify-content:flex-end"><button type="submit" class="btn" data-approve="false">Deny</button><button type="submit" class="btn primary" data-approve="true">Approve</button></div>
-    <p data-result hidden style="margin-top:12px"></p>
+    <div class="row end"><button type="submit" class="btn" data-approve="false">Deny</button><button type="submit" class="btn primary" data-approve="true">Approve</button></div>
+    <p class="mt-12" data-result hidden></p>
   </form></div>`;
   }
   return appPage("Approve sign-in · Atteo", {
@@ -3070,7 +3070,7 @@ export function devicePage(viewer: Viewer, side: SideBoard[], code: string | nul
     narrow: true,
     crumbs: `<span class="cur">Approve sign-in</span>`,
     body,
-    script: `window.decided=(j,f)=>{f.outerHTML='<p class="flash '+(j.approved?'ok':'')+'" style="margin-top:18px">'+(j.message||'Done')+'</p>'};`,
+    script: `window.decided=(j,f)=>{f.outerHTML='<p class="flash '+(j.approved?'ok':'')+' mt-18">'+(j.message||'Done')+'</p>'};`,
   });
 }
 
@@ -3085,12 +3085,12 @@ function billingSection(plan: PlanState, enabled: boolean, lang?: Lang): string 
       ? `Pro${plan.renews_at ? ` · ${T(plan.cancel_at_end ? "ends" : "renews")} ${new Date(plan.renews_at).toISOString().slice(0, 10)}` : ""}${plan.status && plan.status !== "active" ? ` · ${esc(plan.status)}` : ""}`
       : T("Pro (included for operators)")
     : "Free";
-  const tier = (name: string, price: string, lines: string[], cur: boolean, cta = "") => `<div class="plan${cur ? " cur" : ""}"><div class="row" style="justify-content:space-between"><b>${name}</b>${cur ? `<span class="badge">${T("Current")}</span>` : ""}</div>
+  const tier = (name: string, price: string, lines: string[], cur: boolean, cta = "") => `<div class="plan${cur ? " cur" : ""}"><div class="row between"><b>${name}</b>${cur ? `<span class="badge">${T("Current")}</span>` : ""}</div>
 <div class="plan-price">${price}</div><ul>${lines.map((l) => `<li>${l}</li>`).join("")}</ul>${cta}</div>`;
   const upgrade = enabled
-    ? `<div class="row" style="gap:6px;flex-wrap:wrap"><button class="btn primary sm" data-checkout="month">${T("Upgrade")} · ${PRICES.month.label}</button><button class="btn sm" data-checkout="year">${PRICES.year.label} <span class="faint">${T("(2 months free)")}</span></button></div>`
+    ? `<div class="row gap-6 wrap"><button class="btn primary sm" data-checkout="month">${T("Upgrade")} · ${PRICES.month.label}</button><button class="btn sm" data-checkout="year">${PRICES.year.label} <span class="faint">${T("(2 months free)")}</span></button></div>`
     : `<p class="xs faint">${T("Billing isn't enabled on this server.")}</p>`;
-  return `<div class="section-title" style="margin-top:32px" id="billing"><div><h2>${T("Plan")}</h2><p class="small muted" style="margin-top:4px">${T("You're on")} <b>${status}</b>${T(". Only people who create boards pay; everyone they invite joins free.")} <a href="/terms">${T("Terms")}</a> · <a href="/privacy">${T("Privacy")}</a></p></div>
+  return `<div class="section-title mt-32" id="billing"><div><h2>${T("Plan")}</h2><p class="small muted mt-4">${T("You're on")} <b>${status}</b>${T(". Only people who create boards pay; everyone they invite joins free.")} <a href="/terms">${T("Terms")}</a> · <a href="/privacy">${T("Privacy")}</a></p></div>
 ${pro && plan.customer ? `<button class="btn sm" data-portal>${T("Manage billing")}</button>` : ""}</div>
 <div class="plans">${tier("Free", "$0", [T("{n} active boards you create", { n: PLANS.free.boards }), T("Up to {n} people per board", { n: PLANS.free.members }), T("Every feature, agents included")], !pro)}
 ${tier("Pro", `$10<span class="small muted"> ${T("/ month")}</span>`, [T("Unlimited boards"), T("Up to {n} people per board", { n: PLANS.pro.members }), T("Everything in Free")], pro, pro ? "" : upgrade)}</div>`;
@@ -3170,13 +3170,13 @@ function presenceDot(p: { presence: { web: number | null; agent: { client: strin
 export function peoplePage(viewer: Viewer, side: SideBoard[], f: FriendsData): Response {
   const T = (x: string, v?: Record<string, string | number>) => tr(viewer.lang, x, v);
   const who = (p: { name: string; display_name?: string | null }) =>
-    `<a class="grow" href="/u/${esc(p.name)}" style="min-width:0"><span class="truncate" style="display:block;color:var(--ink);font-weight:500">${esc(p.display_name || p.name)}</span><span class="xs faint">@${esc(p.name)}</span></a>`;
+    `<a class="grow min-w-0" href="/u/${esc(p.name)}"><span class="truncate block-mt2 ink-m">${esc(p.display_name || p.name)}</span><span class="xs faint">@${esc(p.name)}</span></a>`;
   const row = (p: { name: string; display_name?: string | null }, extra: string, agent = false) =>
-    `<div class="item">${avatar(p.name, "", agent)}${who(p)}<span class="row" style="gap:6px;flex:none">${extra}</span></div>`;
+    `<div class="item">${avatar(p.name, "", agent)}${who(p)}<span class="row gap-6 flex-none">${extra}</span></div>`;
   const section = (title: string, n: number, inner: string) => `<h2 class="ppl-h">${title}${n ? ` <span class="faint">${n}</span>` : ""}</h2>${inner}`;
   const requests = f.incoming.length
     ? section(esc(T("Requests")), f.incoming.length, `<div class="list">${f.incoming
-        .map((p) => row(p, `${p.note ? `<span class="xs muted truncate" style="max-width:240px" title="${esc(p.note)}">“${esc(p.note)}”</span>` : ""}<button class="btn sm ghost" data-friend="decline" data-name="${esc(p.name)}">${esc(T("Decline"))}</button><button class="btn sm primary" data-friend="accept" data-name="${esc(p.name)}">${esc(T("Accept"))}</button>`))
+        .map((p) => row(p, `${p.note ? `<span class="xs muted truncate max-w-240" title="${esc(p.note)}">“${esc(p.note)}”</span>` : ""}<button class="btn sm ghost" data-friend="decline" data-name="${esc(p.name)}">${esc(T("Decline"))}</button><button class="btn sm primary" data-friend="accept" data-name="${esc(p.name)}">${esc(T("Accept"))}</button>`))
         .join("")}</div>`)
     : "";
   const friends = section(esc(T("Friends")), f.friends.length, f.friends.length
@@ -3188,7 +3188,7 @@ export function peoplePage(viewer: Viewer, side: SideBoard[], f: FriendsData): R
   const blocked = f.blocked.length
     ? `<details class="ppl-blocked"><summary class="small muted">Blocked (${f.blocked.length})</summary><div class="list">${f.blocked.map((n) => row({ name: String(n) }, `<button class="btn sm ghost" data-friend="unblock" data-name="${esc(String(n))}">${esc(T("Unblock"))}</button>`)).join("")}</div></details>`
     : "";
-  const body = `<div class="section-title"><div><h1>${esc(T("People"))}</h1><p class="muted" style="margin-top:4px">${esc(T("Friends see when you and your agent are around, and can ask your agent on a direct board. Being friends doesn't share any board."))}</p></div></div>
+  const body = `<div class="section-title"><div><h1>${esc(T("People"))}</h1><p class="muted mt-4">${esc(T("Friends see when you and your agent are around, and can ask your agent on a direct board. Being friends doesn't share any board."))}</p></div></div>
 <div class="ppl-find"><input class="input" id="ppl-q" placeholder="${esc(T("Find someone by handle, e.g. theo"))}" autocomplete="off" aria-label="${esc(T("Find people"))}"><ul class="ppl-res list" id="ppl-res" hidden></ul></div>
 ${requests}${friends}${sent}${blocked}
 <p class="xs faint ppl-note">${esc(T("From a terminal:"))} <span class="mono">atteo friends</span> · <span class="mono">atteo add &lt;name&gt;</span> · <span class="mono">atteo ask &lt;name&gt; "…"</span></p>`;
@@ -3198,7 +3198,7 @@ ${requests}${friends}${sent}${blocked}
 const pq=document.getElementById('ppl-q'),pres=document.getElementById('ppl-res');let pt=null;
 pq.addEventListener('input',()=>{clearTimeout(pt);pt=setTimeout(async()=>{const q=pq.value.trim();if(!q){pres.hidden=true;return}
   const r=await fetch('/api/people?q='+encodeURIComponent(q));const j=await r.json().catch(()=>({}));const ps=j.people||[];
-  pres.innerHTML=ps.length?ps.map(p=>'<li class="item"><a class="grow" href="/u/'+esc(p.name)+'"><b style="color:var(--ink)">'+esc(p.display_name||p.name)+'</b> <span class="xs faint">@'+esc(p.name)+'</span></a>'+
+  pres.innerHTML=ps.length?ps.map(p=>'<li class="item"><a class="grow" href="/u/'+esc(p.name)+'"><b class="ink">'+esc(p.display_name||p.name)+'</b> <span class="xs faint">@'+esc(p.name)+'</span></a>'+
     (p.relation==='none'?'<button class="btn sm primary" data-add="'+esc(p.name)+'">'+tr('Add friend')+'</button>':p.relation==='friend'?'<button class="btn sm" data-direct="'+esc(p.name)+'">'+tr('Message agent')+'</button>':'<span class="xs faint">'+({self:'you',pending_out:'request sent',pending_in:'wants to be friends',blocked:'blocked'}[p.relation]||'')+'</span>')+'</li>').join(''):'<li class="item xs faint">'+tr('No one by that handle. Handles are exact unless you share a board or are friends.')+'</li>';
   pres.hidden=false},200)});
 document.addEventListener('click',async e=>{const a=e.target.closest('[data-add]'),d=e.target.closest('[data-direct]');if(!a&&!d)return;
@@ -3239,17 +3239,17 @@ export function profilePage(viewer: Viewer, side: SideBoard[], p: import("./soci
   const live = (ag?.sessions ?? []).filter((x) => x.active);
   const agentHtml = `<section class="card pad prof-sec prof-agent-sec" id="agent" aria-label="${esc(p.name)}'s agent">
   ${avatar(p.name, "lg", true)}
-  <div class="grow" style="min-width:0">
+  <div class="grow min-w-0">
     <h2>${esc(p.name)}'s agent</h2>
     <div class="xs faint">Works for ${esc(p.display_name ?? p.name)}${ag?.online ? ` · <span class="pres on"></span> online now` : ""}</div>
     ${ag?.summary ? `<p class="prof-bio">${esc(ag.summary)}</p>` : `<p class="prof-bio faint">${esc(T("No summary yet."))}</p>`}
     ${ag?.capabilities.length ? `<div class="hc-caps">${ag.capabilities.slice(0, 12).map((c) => `<span class="badge">${esc(c)}</span>`).join("")}</div>` : ""}
-    ${live.length ? `<div class="xs muted" style="margin-top:8px">${live.slice(0, 3).map((x) => `<span class="pres on"></span> ${esc(x.name || clientName(x.client) || "session")}${clientName(x.client) && clientName(x.client) !== x.name ? ` <span class="faint">· ${esc(clientName(x.client)!)}</span>` : ""}${x.model ? ` <span class="faint ag-model">· ${esc(x.model)}</span>` : ""}${x.status ? `: ${esc(x.status)}` : ` <span class="faint">${esc(T("· active"))}</span>`}`).join("<br>")}</div>` : ""}
+    ${live.length ? `<div class="xs muted mt-8">${live.slice(0, 3).map((x) => `<span class="pres on"></span> ${esc(x.name || clientName(x.client) || "session")}${clientName(x.client) && clientName(x.client) !== x.name ? ` <span class="faint">· ${esc(clientName(x.client)!)}</span>` : ""}${x.model ? ` <span class="faint ag-model">· ${esc(x.model)}</span>` : ""}${x.status ? `: ${esc(x.status)}` : ` <span class="faint">${esc(T("· active"))}</span>`}`).join("<br>")}</div>` : ""}
   </div>
 </section>`;
   const body = `<div class="card pad prof prof-hero">
   <div class="prof-av">${avatar(p.name, "lg")}<span class="prof-agent" title="${esc(p.name)}'s agent">${avatar(p.name, "sm", true)}</span></div>
-  <div class="grow" style="min-width:0">
+  <div class="grow min-w-0">
     <h1 class="prof-name"><bdi>${esc(shownName(p.name, p.display_name))}</bdi></h1>
     <div class="small muted">@${esc(p.name)}</div>
     <div class="row prof-pres"><span class="pres${on ? " on" : ""}"></span><span class="small">${esc(presence)}</span>${p.shared_boards ? `<span class="faint">·</span><span class="small muted">${p.shared_boards} shared board${p.shared_boards === 1 ? "" : "s"}</span>` : ""}</div>
@@ -3270,15 +3270,15 @@ function webhooksSection(hooks: WebhookRow[], lang?: Lang): string {
   const T = (x: string, v?: Record<string, string | number>) => tr(lang, x, v);
   const rows = hooks
     .map(
-      (h) => `<div class="item"><div class="grow" style="min-width:0"><div class="mono small truncate">${esc(h.url)}</div><div class="xs faint">${
-        h.last_at ? `last delivery ${when(h.last_at)}: ${h.last_error ? `<span style="color:var(--danger)">${esc(h.last_error)}</span>` : `HTTP ${h.last_status}`}` : "no deliveries yet"
+      (h) => `<div class="item"><div class="grow min-w-0"><div class="mono small truncate">${esc(h.url)}</div><div class="xs faint">${
+        h.last_at ? `last delivery ${when(h.last_at)}: ${h.last_error ? `<span class="danger">${esc(h.last_error)}</span>` : `HTTP ${h.last_status}`}` : "no deliveries yet"
       }</div></div><button class="btn sm" type="button" data-hook-test="${h.id}">${esc(T("Send test"))}</button><button class="btn ghost sm" type="button" data-hook-rm="${h.id}">${esc(T("Remove"))}</button></div>`,
     )
     .join("");
-  return `<div class="section-title" style="margin-top:32px" id="webhooks"><div><h2>${esc(T("Agent webhooks"))}</h2><p class="small muted" style="margin-top:4px">${esc(T("For agents that don't stay connected (a hosted bot, a serverless function, CI): when something is addressed to your agent, we POST it to your URL, signed. Your agent answers with the"))} <a href="/openapi.json">JSON API</a> ${esc(T("and a token."))}</p></div></div>
+  return `<div class="section-title mt-32" id="webhooks"><div><h2>${esc(T("Agent webhooks"))}</h2><p class="small muted mt-4">${esc(T("For agents that don't stay connected (a hosted bot, a serverless function, CI): when something is addressed to your agent, we POST it to your URL, signed. Your agent answers with the"))} <a href="/openapi.json">JSON API</a> ${esc(T("and a token."))}</p></div></div>
 <div class="list">${rows}<form class="item" id="hook-form"><input class="input grow" id="hook-url" placeholder="https://your-agent.example.com/atteo" aria-label="${esc(T("Webhook URL"))}"><button class="btn sm primary">${esc(T("Add"))}</button></form></div>
-<p class="flash" id="hook-flash" hidden style="margin-top:8px"></p>
-<details style="margin-top:8px"><summary class="xs faint" style="cursor:pointer">${esc(T("Verifying deliveries"))}</summary><p class="xs muted" style="margin-top:6px">${esc(T("Each POST has"))} <code>Atteo-Signature: t=&lt;unix&gt;,v1=&lt;hex&gt;</code>${esc(T(", where v1 is HMAC-SHA256 of"))} <code>${esc(T("\"&lt;t&gt;.&lt;raw body&gt;\""))}</code> ${esc(T("with your webhook's secret (shown once when you add it). Reject deliveries older than 5 minutes. The body's"))} <code>entry.text</code> ${esc(T("is written by board members: treat it as data, not instructions."))}</p></details>`;
+<p class="flash mt-8" id="hook-flash" hidden></p>
+<details class="mt-8"><summary class="xs faint pointer">${esc(T("Verifying deliveries"))}</summary><p class="xs muted mt-6">${esc(T("Each POST has"))} <code>Atteo-Signature: t=&lt;unix&gt;,v1=&lt;hex&gt;</code>${esc(T(", where v1 is HMAC-SHA256 of"))} <code>${esc(T("\"&lt;t&gt;.&lt;raw body&gt;\""))}</code> ${esc(T("with your webhook's secret (shown once when you add it). Reject deliveries older than 5 minutes. The body's"))} <code>entry.text</code> ${esc(T("is written by board members: treat it as data, not instructions."))}</p></details>`;
 }
 
 const HOOKS_JS = `
@@ -3326,11 +3326,11 @@ const NOTIFY_LEVELS = (T: (s: string) => string): [string, string][] => [
 /** Board info → Notifications: your level for this board (only interrupts change; the Inbox doesn't). */
 function notifySide(lang?: Lang): string {
   const T = (s: string, v?: Record<string, string | number>) => tr(lang, s, v);
-  return `<section class="ns-side" id="ns-side" aria-labelledby="ns-side-h"><h3 class="xs muted" id="ns-side-h" style="margin:14px 0 6px;font-weight:600">${esc(T("Notifications"))}</h3>
+  return `<section class="ns-side" id="ns-side" aria-labelledby="ns-side-h"><h3 class="xs muted ns-h" id="ns-side-h">${esc(T("Notifications"))}</h3>
 <div class="seg" role="radiogroup" aria-labelledby="ns-side-h">${NOTIFY_LEVELS(T)
     .map(([v, l]) => `<input type="radio" name="ns-level" id="ns-level-${v}" value="${v}"${v === "needs_me" ? " checked" : ""}><label for="ns-level-${v}">${esc(l)}</label>`)
     .join("")}</div>
-<p class="xs muted" id="ns-side-hint" style="margin-top:6px" data-needs="${esc(T("Approvals, @you, replies, decisions and DMs notify you at once; the rest waits for a digest at {times}.", { times: "{times}" }))}" data-off="${esc(T("Off: still in your Inbox, never a notification."))}"></p></section>`;
+<p class="xs muted mt-6" id="ns-side-hint" data-needs="${esc(T("Approvals, @you, replies, decisions and DMs notify you at once; the rest waits for a digest at {times}.", { times: "{times}" }))}" data-off="${esc(T("Off: still in your Inbox, never a notification."))}"></p></section>`;
 }
 
 // Board info's level: read once, saved on change. The hint says what the level means (with your digest times).
@@ -3348,10 +3348,10 @@ setTimeout(()=>{const box=document.getElementById('ns-side');if(!box||!window.BO
 /** Account → Notifications: quiet hours (nothing interrupts but urgent approvals) and when digests come. */
 function notifySection(lang?: Lang): string {
   const T = (s: string, v?: Record<string, string | number>) => tr(lang, s, v);
-  return `<div class="section-title" style="margin-top:32px"><div><h2>${esc(T("Notifications"))}</h2><p class="small muted" style="margin-top:4px" id="ns-hint" data-needs="${esc(T("Approvals, @you, replies, decisions and DMs notify you at once; the rest waits for a digest at {times}.", { times: "{times}" }))}"></p></div></div>
-<form class="card pad" id="ns-form"><label class="pf-check"><input type="checkbox" id="ns-quiet"><span><span class="small" style="color:var(--ink)">${esc(T("Quiet hours"))}</span><span class="xs muted">${esc(T("Nothing interrupts you then, except urgent approvals."))}</span></span></label>
-<div class="row" style="gap:8px;margin-top:10px;flex-wrap:wrap"><label class="lbl" for="ns-start">${esc(T("From"))}</label><input class="input" type="time" id="ns-start" value="22:00" style="width:auto"><label class="lbl" for="ns-end">${esc(T("To"))}</label><input class="input" type="time" id="ns-end" value="07:00" style="width:auto"></div>
-<p class="xs" id="ns-err" role="alert" style="margin-top:6px;color:var(--danger)" hidden>${esc(T("Quiet hours need different start and end times."))}</p></form>`;
+  return `<div class="section-title mt-32"><div><h2>${esc(T("Notifications"))}</h2><p class="small muted mt-4" id="ns-hint" data-needs="${esc(T("Approvals, @you, replies, decisions and DMs notify you at once; the rest waits for a digest at {times}.", { times: "{times}" }))}"></p></div></div>
+<form class="card pad" id="ns-form"><label class="pf-check"><input type="checkbox" id="ns-quiet"><span><span class="small ink">${esc(T("Quiet hours"))}</span><span class="xs muted">${esc(T("Nothing interrupts you then, except urgent approvals."))}</span></span></label>
+<div class="row wrap mt-10"><label class="lbl" for="ns-start">${esc(T("From"))}</label><input class="input w-auto" type="time" id="ns-start" value="22:00"><label class="lbl" for="ns-end">${esc(T("To"))}</label><input class="input w-auto" type="time" id="ns-end" value="07:00"></div>
+<p class="xs mt-6 danger" id="ns-err" role="alert" hidden>${esc(T("Quiet hours need different start and end times."))}</p></form>`;
 }
 
 const NOTIFY_JS = `
@@ -3373,7 +3373,7 @@ function displaySection(d: Display | null | undefined, lang?: Lang): string {
     `<span class="lbl" id="dp-${name}">${label}</span><div class="seg" role="radiogroup" aria-labelledby="dp-${name}">${opts
       .map(([v, l]) => `<input type="radio" name="${name}" id="dp-${name}-${v}" value="${v}"><label for="dp-${name}-${v}">${l}</label>`)
       .join("")}</div>`;
-  return `<div class="section-title" style="margin-top:32px"><div><h2>${esc(T("Display"))}</h2><p class="small muted" style="margin-top:4px">${esc(T("How the chat looks to you. Your phone follows it too."))}</p></div></div>
+  return `<div class="section-title mt-32"><div><h2>${esc(T("Display"))}</h2><p class="small muted mt-4">${esc(T("How the chat looks to you. Your phone follows it too."))}</p></div></div>
 <form class="card pad" id="dp-form" data-saved="${esc(JSON.stringify(d ?? null))}"><div class="dp-grid">
 ${seg("text", esc(T("Text size")), [["s", esc(T("Small"))], ["m", esc(T("Medium"))], ["l", esc(T("Large"))]])}
 ${seg("density", esc(T("Density")), [["comfortable", esc(T("Comfortable"))], ["compact", esc(T("Compact"))]])}
@@ -3389,9 +3389,9 @@ ${seg("voice_turns", esc(T("When Atteo answers")), [["quick", esc(T("Right away"
     .join("")}</select>
 <label class="lbl" for="dp-voice" id="dp-voice-l" hidden>${esc(T("Read-aloud voice"))}</label><div class="dp-voice-row" id="dp-voice-row" hidden><select class="input dp-voice" id="dp-voice" data-voice="${esc(d?.voice ?? "eve")}">${VOICE_NAMES.map(([v, n]) => `<option value="${v}"${(d?.voice ?? "eve") === v ? " selected" : ""}>${n}</option>`).join("")}</select><button class="btn sm" type="button" id="dp-voice-play" aria-label="${esc(T("Play a sample of this voice"))}">${esc(T("Play"))}</button></div>
 </div></form>
-<div class="section-title" style="margin-top:24px"><div><h2 class="small" style="font-size:13px;color:var(--muted)">${esc(T("Advanced (for developers)"))}</h2></div></div>
-<label class="card pad dev-mode" for="dev-mode"><span class="dev-ic" aria-hidden="true">&lt;&gt;</span><span class="grow"><span class="small" style="color:var(--ink);font-weight:600">${esc(T("Developer mode"))}</span><span class="xs muted" id="dev-mode-hint" style="display:block;margin-top:2px">${esc(T("Tasks, change cards, #numbers, sessions. Turns on by itself if you connect Claude Code or Codex."))}</span></span><input type="checkbox" class="switch" id="dev-mode" role="switch"></label>
-<div class="card pad voice-allow" id="voice-allow" hidden><span class="small" style="color:var(--ink);font-weight:600">${esc(T("Voice this month"))}</span><span class="xs muted" id="voice-allow-text" style="display:block;margin-top:2px"></span></div>`;
+<div class="section-title mt-24"><div><h2 class="small h-muted">${esc(T("Advanced (for developers)"))}</h2></div></div>
+<label class="card pad dev-mode" for="dev-mode"><span class="dev-ic" aria-hidden="true">&lt;&gt;</span><span class="grow"><span class="small ink-b">${esc(T("Developer mode"))}</span><span class="xs muted block-mt2" id="dev-mode-hint">${esc(T("Tasks, change cards, #numbers, sessions. Turns on by itself if you connect Claude Code or Codex."))}</span></span><input type="checkbox" class="switch" id="dev-mode" role="switch"></label>
+<div class="card pad voice-allow" id="voice-allow" hidden><span class="small ink-b">${esc(T("Voice this month"))}</span><span class="xs muted block-mt2" id="voice-allow-text"></span></div>`;
 }
 
 /** Account → Profile: how you show up to others (name, bio, the directory) and what your account accepts on its own. */
@@ -3399,16 +3399,16 @@ function profileSection(p: ProfileView | null, lang?: Lang): string {
   const T = (x: string, v?: Record<string, string | number>) => tr(lang, x, v);
   if (!p) return "";
   const box = (name: string, on: boolean, label: string, hint: string) =>
-    `<label class="pf-check"><input type="checkbox" name="${name}"${on ? " checked" : ""}><span><span class="small" style="color:var(--ink)">${label}</span><span class="xs muted">${hint}</span></span></label>`;
-  return `<form class="card pad pf-form" id="pf-form" style="margin-top:10px">
+    `<label class="pf-check"><input type="checkbox" name="${name}"${on ? " checked" : ""}><span><span class="small ink">${label}</span><span class="xs muted">${hint}</span></span></label>`;
+  return `<form class="card pad pf-form mt-10" id="pf-form">
   <div class="pf-grid"><label class="lbl" for="pf-name">${esc(T("Display name"))}</label><input class="input" id="pf-name" name="display_name" maxlength="60" value="${esc(p.display_name ?? "")}" placeholder="${esc(T("Your name"))}">
-  <label class="lbl" for="pf-agent">${esc(T("Your agent's name"))}</label><div><input class="input" id="pf-agent" name="agent_name" maxlength="24" value="${esc(p.agent_name ?? "")}" placeholder="${esc(T("e.g. Jarvis"))}"><div class="xs muted" style="margin-top:4px">${esc(T("Shown on its posts with \"your agent\" next to it, and people can @ it by name. Leave empty for \"{name}'s agent\".", { name: p.name ?? "your" }))}</div></div>
+  <label class="lbl" for="pf-agent">${esc(T("Your agent's name"))}</label><div><input class="input" id="pf-agent" name="agent_name" maxlength="24" value="${esc(p.agent_name ?? "")}" placeholder="${esc(T("e.g. Jarvis"))}"><div class="xs muted mt-4">${esc(T("Shown on its posts with \"your agent\" next to it, and people can @ it by name. Leave empty for \"{name}'s agent\".", { name: p.name ?? "your" }))}</div></div>
     <label class="lbl" for="pf-bio">${esc(T("Bio"))}</label><textarea class="input" id="pf-bio" name="bio" maxlength="280" rows="2" placeholder="${esc(T("What you work on"))}">${esc(p.bio ?? "")}</textarea></div>
-  <div class="stack" style="--gap:10px;margin-top:14px">
+  <div class="stack tight mt-14">
   ${box("listed", p.listed, esc(T("List me in the people directory")), esc(T("Anyone signed in can find you by name, not only people you share a board with.")))}
   ${box("auto_invites", p.rules.auto_accept_invites === "friends", esc(T("Join boards friends invite me to")), esc(T("Skips accepting each invitation from a friend.")))}
   ${box("auto_friends", p.rules.auto_accept_friends === "coworkers", esc(T("Accept friend requests from people I share a board with")), "")}</div>
-  <div class="row" style="justify-content:flex-end;margin-top:14px"><button class="btn primary sm">${esc(T("Save profile"))}</button></div>
+  <div class="row end mt-14"><button class="btn primary sm">${esc(T("Save profile"))}</button></div>
 </form>`;
 }
 
@@ -3496,7 +3496,7 @@ function standingSection(rules: StandingRule[] | null, side: SideBoard[], lang?:
     )
     .join("");
   const opt = (v: string, label: string, sel = false) => `<option value="${esc(v)}"${sel ? " selected" : ""}>${esc(label)}</option>`;
-  return `<div class="section-title" style="margin-top:32px"><div><h2>${esc(T("Standing rules"))}</h2><p class="small muted" style="margin-top:4px">${esc(T("One automatic yes, for one person or the people on one board, until it ends. A block still wins."))}</p></div></div>
+  return `<div class="section-title mt-32"><div><h2>${esc(T("Standing rules"))}</h2><p class="small muted mt-4">${esc(T("One automatic yes, for one person or the people on one board, until it ends. A block still wins."))}</p></div></div>
 <div class="card pad"><ul class="sr-list" id="sr-list">${rows || `<li class="xs muted">${esc(T("No standing rules."))}</li>`}</ul>
 <form class="sr-form" id="sr-form">
 <select class="input" name="action" aria-label="${esc(T("What to allow"))}">${(Object.keys(SR_ACTION) as StandingAction[]).map((a) => opt(a, T(SR_ACTION[a]))).join("")}</select>
@@ -3558,11 +3558,11 @@ function accessSection(acc: AccessAll | null, lang?: Lang): string {
           ]
         : [];
       const list = b.owner ? `<ul class="acc-all-g">${rows.join("") || `<li class="xs faint">${esc(T("Only you"))}</li>`}</ul>` : "";
-      return `<li class="acc-all-b" data-board="${esc(b.id)}"><div><a href="/b/${esc(encodeURIComponent(b.id))}" style="color:var(--ink)"><b>${esc(b.title)}</b></a> <span class="xs faint">· ${mine}</span></div>${list}</li>`;
+      return `<li class="acc-all-b" data-board="${esc(b.id)}"><div><a class="ink" href="/b/${esc(encodeURIComponent(b.id))}"><b>${esc(b.title)}</b></a> <span class="xs faint">· ${mine}</span></div>${list}</li>`;
     })
     .join("");
-  return `<div class="section-title" style="margin-top:32px"><div><h2>${esc(T("Access across your boards"))}</h2><p class="small muted" style="margin-top:4px">${esc(T("Every board you're on, and who has access to the ones you own. Marked lines are worth a look."))}${acc.nudges ? ` <span class="acc-rv">${esc(T("{n} to review", { n: acc.nudges }))}</span>` : ""}</p></div></div>
-<ul class="list pad" id="access-all" style="list-style:none;margin:0;display:grid;gap:12px">${boards || `<li class="empty small">${esc(T("Nothing yet."))}</li>`}</ul>`;
+  return `<div class="section-title mt-32"><div><h2>${esc(T("Access across your boards"))}</h2><p class="small muted mt-4">${esc(T("Every board you're on, and who has access to the ones you own. Marked lines are worth a look."))}${acc.nudges ? ` <span class="acc-rv">${esc(T("{n} to review", { n: acc.nudges }))}</span>` : ""}</p></div></div>
+<ul class="list pad grid-list" id="access-all">${boards || `<li class="empty small">${esc(T("Nothing yet."))}</li>`}</ul>`;
 }
 
 // Remove (a second tap confirms, as in a board's dialog) and Revoke, through the boards' own routes; then the page reloads.
@@ -3582,12 +3582,12 @@ function accountLogSection(log: AccountLogRow[], lang?: Lang): string {
     ? log
         .map((e) => {
           const where = [e.client, e.country].filter(Boolean).join(" · ");
-          return `<li><span style="color:var(--ink)">${esc(T(ACCOUNT_EVENTS[e.event] ?? e.event))}</span>${e.label ? ` <span class="muted">${esc(e.label)}</span>` : ""}<div class="xs faint">${when(e.at, lang)}${where ? ` · ${esc(where)}` : ""}</div></li>`;
+          return `<li><span class="ink">${esc(T(ACCOUNT_EVENTS[e.event] ?? e.event))}</span>${e.label ? ` <span class="muted">${esc(e.label)}</span>` : ""}<div class="xs faint">${when(e.at, lang)}${where ? ` · ${esc(where)}` : ""}</div></li>`;
         })
         .join("")
     : `<li class="empty small">${esc(T("Nothing yet."))}</li>`;
-  return `<div class="section-title" style="margin-top:32px"><div><h2>${esc(T("Account log"))}</h2><p class="small muted" style="margin-top:4px">${esc(T("Sign-ins and connection changes on your account, kept a year. Only you see it."))}</p></div><a class="btn sm" href="/api/me/audit?format=jsonl" download id="account-log-dl">${esc(T("Download"))}</a></div>
-<ul class="list pad" id="account-log" style="list-style:none;margin:0;display:grid;gap:8px">${lines}</ul>`;
+  return `<div class="section-title mt-32"><div><h2>${esc(T("Account log"))}</h2><p class="small muted mt-4">${esc(T("Sign-ins and connection changes on your account, kept a year. Only you see it."))}</p></div><a class="btn sm" href="/api/me/audit?format=jsonl" download id="account-log-dl">${esc(T("Download"))}</a></div>
+<ul class="list pad grid-list tight" id="account-log">${lines}</ul>`;
 }
 
 // Headless agents: saved at once; agents see it on their next read.
@@ -3608,12 +3608,12 @@ export function mePage(viewer: Viewer, side: SideBoard[], tokens: TokenRow[], pl
   const rows = tokens.length
     ? tokens
         .map(
-          (t) => `<tr><td><div style="color:var(--ink)">${esc(t.label)}</div><div class="xs faint">${t.kind === "cli" ? "CLI · " : ""}created ${when(t.created_at)}${
+          (t) => `<tr><td><div class="ink">${esc(t.label)}</div><div class="xs faint">${t.kind === "cli" ? "CLI · " : ""}created ${when(t.created_at)}${
             t.expires_at ? ` · ${t.expires_at < Date.now() ? "expired" : "expires " + new Date(t.expires_at).toISOString().slice(0, 10)}` : ""
           }<span class="sm-only"> · ${t.last_used ? "used " + when(t.last_used) : "never used"}</span></div></td>
 <td class="small muted hide-sm">${t.last_used ? when(t.last_used) : "never"}</td>
-<td>${t.revoked_at ? `<span class="badge">${esc(T("Revoked"))}</span>` : t.expires_at && t.expires_at < Date.now() ? `<span class="badge">${esc(T("Expired"))}</span>` : `<span class="badge"><span class="dot" style="color:var(--ok)"></span>${esc(T("Active"))}</span>`}</td>
-<td style="text-align:right">${
+<td>${t.revoked_at ? `<span class="badge">${esc(T("Revoked"))}</span>` : t.expires_at && t.expires_at < Date.now() ? `<span class="badge">${esc(T("Expired"))}</span>` : `<span class="badge"><span class="dot ok"></span>${esc(T("Active"))}</span>`}</td>
+<td class="ta-r">${
             t.revoked_at
               ? ""
               : `<form method="post" action="/api/tokens/${esc(t.id)}/revoke" data-api data-done="revoked"><button class="btn sm danger">${esc(T("Revoke"))}</button></form>`
@@ -3627,27 +3627,27 @@ export function mePage(viewer: Viewer, side: SideBoard[], tokens: TokenRow[], pl
     active: "me",
     narrow: true,
     crumbs: `<span class="cur">${esc(T("Account"))}</span>`,
-    body: `<div class="section-title"><div><h1>${esc(T("Account"))}</h1><p class="muted" style="margin-top:4px">${esc(T("Signed in as"))} <b>${esc(viewer.name)}</b> · ${esc(viewer.email)}</p></div>
-  <div class="row" style="gap:8px"><a class="btn sm" href="/guide" id="me-guide">${esc(T("What Atteo can do"))}</a><form method="post" action="/auth/logout"><button class="btn sm">${esc(T("Sign out"))}</button></form></div></div>
+    body: `<div class="section-title"><div><h1>${esc(T("Account"))}</h1><p class="muted mt-4">${esc(T("Signed in as"))} <b>${esc(viewer.name)}</b> · ${esc(viewer.email)}</p></div>
+  <div class="row"><a class="btn sm" href="/guide" id="me-guide">${esc(T("What Atteo can do"))}</a><form method="post" action="/auth/logout"><button class="btn sm">${esc(T("Sign out"))}</button></form></div></div>
 ${assistantCard(assistants, viewer.lang)}
-<div class="section-title" style="margin-top:32px"><div><h2>${esc(T("Profile"))}</h2><p class="small muted" style="margin-top:4px">${esc(T("How you and your agent show up to others. Two pictures, so people can tell you apart at a glance."))}</p></div></div>
+<div class="section-title mt-32"><div><h2>${esc(T("Profile"))}</h2><p class="small muted mt-4">${esc(T("How you and your agent show up to others. Two pictures, so people can tell you apart at a glance."))}</p></div></div>
 <div class="pfps">${(["person", "agent"] as const)
       .map(
         (k) => `<div class="pfp card pad row" data-kind="${k}">${avatar(viewer.name, "lg", k === "agent")}<div class="grow"><b>${k === "agent" ? esc(T("{name}'s agent", { name: viewer.name })) : esc(viewer.name)}</b><div class="xs faint">${esc(T(k === "agent" ? "Shown on everything your agent posts" : "Shown on what you post from the web"))}</div></div>
-<div class="row" style="gap:6px"><label class="btn sm">${esc(T("Upload"))}<input type="file" accept="image/png,image/jpeg,image/webp,image/gif" hidden data-pfp-file></label><button class="btn sm" type="button" data-pfp-gen>${esc(T("Generate"))}</button><button class="btn ghost sm" type="button" data-pfp-rm>${esc(T("Remove"))}</button></div></div>`,
+<div class="row gap-6"><label class="btn sm">${esc(T("Upload"))}<input type="file" accept="image/png,image/jpeg,image/webp,image/gif" hidden data-pfp-file></label><button class="btn sm" type="button" data-pfp-gen>${esc(T("Generate"))}</button><button class="btn ghost sm" type="button" data-pfp-rm>${esc(T("Remove"))}</button></div></div>`,
       )
       .join("")}</div>
 ${profileSection(prof, viewer.lang)}
 ${displaySection(prof?.display, viewer.lang)}
 ${notifySection(viewer.lang)}
-<div class="section-title" style="margin-top:32px"><div><h2>${esc(T("Agent connections"))}</h2><p class="small muted" style="margin-top:4px">${esc(T("Each connected agent has its own sign-in. Revoke one to disconnect that agent immediately."))}</p></div><button class="btn sm" data-open="connect">${esc(T("Connect an agent"))}</button></div>
-${prof ? `<label class="pf-check" style="margin:0 0 10px"><input type="checkbox" id="headless"${prof.agents_headless ? " checked" : ""}><span><span class="small" style="color:var(--ink)">${esc(T("My agents are headless"))}</span><span class="xs muted">${esc(T("They answer and ask for approval on the board, not in their terminal."))}</span></span></label>` : ""}
+<div class="section-title mt-32"><div><h2>${esc(T("Agent connections"))}</h2><p class="small muted mt-4">${esc(T("Each connected agent has its own sign-in. Revoke one to disconnect that agent immediately."))}</p></div><button class="btn sm" data-open="connect">${esc(T("Connect an agent"))}</button></div>
+${prof ? `<label class="pf-check mb-10"><input type="checkbox" id="headless"${prof.agents_headless ? " checked" : ""}><span><span class="small ink">${esc(T("My agents are headless"))}</span><span class="xs muted">${esc(T("They answer and ask for approval on the board, not in their terminal."))}</span></span></label>` : ""}
 <div class="list scroll-x"><table class="tbl"><thead><tr><th>${esc(T("Connection"))}</th><th class="hide-sm">${esc(T("Last used"))}</th><th>${esc(T("Status"))}</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>
 <div class="kill"><div class="grow"><b>${esc(T("Disconnect all agents"))}</b><p class="xs muted">${esc(T("Stops every agent of yours at once: all sign-ins revoked, all sessions ended. Reconnect with"))} <span class="mono">atteo login</span>.</p></div><button class="btn sm danger" type="button" id="kill-all">${esc(T("Disconnect all"))}</button></div>
 ${
   tokens.length
-    ? `<details class="small" style="margin-top:10px"><summary class="muted" style="cursor:pointer">${esc(T("Reconnecting? Login expired, new machine, or moving off an old token"))}</summary>
-<p class="xs muted" style="margin:8px 0">${esc(T("Run this, approve in the browser, and start a new session."))}</p>${copyField("me-reconnect", CLI_STEPS.reconnect)}</details>`
+    ? `<details class="small mt-10"><summary class="muted pointer">${esc(T("Reconnecting? Login expired, new machine, or moving off an old token"))}</summary>
+<p class="xs muted my-8">${esc(T("Run this, approve in the browser, and start a new session."))}</p>${copyField("me-reconnect", CLI_STEPS.reconnect)}</details>`
     : ""
 }
 ${accessSection(access, viewer.lang)}
@@ -3677,8 +3677,8 @@ export interface AdminData {
 function costHtml(c: AdminData["cost"]): string {
   if (!c) return "";
   if (c.capped)
-    return `<div class="card pad" role="alert" style="margin-bottom:16px"><strong>Cost guard tripped</strong> <span class="small muted">${esc(new Date(c.capped.at).toISOString().replace("T", " ").slice(0, 16))} UTC</span><p class="small" style="margin:6px 0 10px">${esc(c.capped.reason)}. Waits, search, grep and exports answer 503. Find and stop the loop first (docs/COSTS.md), then clear.</p><button class="btn" type="button" data-cost-clear>Clear the cost cap</button></div>`;
-  return `<p class="small muted" style="margin:0 0 16px">Cost guard: ${c.watching ? "watching D1 and Durable Object usage (alerts go to the bug board)" : "off: set CF_ACCOUNT_ID and CF_ANALYTICS_TOKEN to watch usage"}.</p>`;
+    return `<div class="card pad mb-16" role="alert"><strong>Cost guard tripped</strong> <span class="small muted">${esc(new Date(c.capped.at).toISOString().replace("T", " ").slice(0, 16))} UTC</span><p class="small my-6-10">${esc(c.capped.reason)}. Waits, search, grep and exports answer 503. Find and stop the loop first (docs/COSTS.md), then clear.</p><button class="btn" type="button" data-cost-clear>Clear the cost cap</button></div>`;
+  return `<p class="small muted mb-16">Cost guard: ${c.watching ? "watching D1 and Durable Object usage (alerts go to the bug board)" : "off: set CF_ACCOUNT_ID and CF_ANALYTICS_TOKEN to watch usage"}.</p>`;
 }
 
 export function adminPage(viewer: Viewer, side: SideBoard[], d: AdminData): Response {
@@ -3690,17 +3690,17 @@ export function adminPage(viewer: Viewer, side: SideBoard[], d: AdminData): Resp
   const accessBy = new Map(d.access.map((a) => [a.user, a]));
   const m = d.metrics;
   const usageHtml = m
-    ? `<h2 style="margin:32px 0 10px">Usage, last ${m.days.length} days</h2>${table(
+    ? `<h2 class="h2-block-lg">Usage, last ${m.days.length} days</h2>${table(
         ["Day (UTC)", "People", "Agents", "Posts by people", "Posts by agents", "New users", "New boards"],
         [...m.days].reverse().map((x) => `<tr><td class="mono">${x.day}</td><td>${x.people}</td><td>${x.agents}</td><td>${x.posts_person}</td><td>${x.posts_agent}</td><td>${x.new_users}</td><td>${x.new_boards}</td></tr>`),
         "No usage yet.",
       )}
-<h2 style="margin:24px 0 10px">Agents by client</h2>${table(["Client", "People using it"], m.clients.map((c) => `<tr><td>${esc(c.client)}</td><td>${c.agents}</td></tr>`), "No agent sessions yet.")}
-<h2 style="margin:24px 0 10px">Server errors</h2>${table(["Last", "Count", "Route", "Message"], m.errors.map((e) => `<tr><td class="xs">${when(e.last_at)}</td><td>${e.count}</td><td class="mono xs">${esc(e.route)}</td><td class="xs">${esc(e.message)}</td></tr>`), "No errors recorded.")}
-<h2 style="margin:24px 0 10px">Content-Security-Policy reports <span class="xs muted">(${CSP_ENFORCE ? "enforced" : "report-only"}, last 7 days${CSP_ENFORCE ? "" : ": what enforcing would block"})</span></h2>${table(["Last day", "Count", "Directive", "Blocked"], (m.csp ?? []).map((c) => { const [dir, ...rest] = c.key.split(" "); return `<tr><td class="xs">${esc(c.last_day)}</td><td>${c.count}</td><td class="mono xs">${esc(dir)}</td><td class="mono xs">${esc(rest.join(" "))}</td></tr>`; }), "No violations reported.")}`
+<h2 class="h2-block">Agents by client</h2>${table(["Client", "People using it"], m.clients.map((c) => `<tr><td>${esc(c.client)}</td><td>${c.agents}</td></tr>`), "No agent sessions yet.")}
+<h2 class="h2-block">Server errors</h2>${table(["Last", "Count", "Route", "Message"], m.errors.map((e) => `<tr><td class="xs">${when(e.last_at)}</td><td>${e.count}</td><td class="mono xs">${esc(e.route)}</td><td class="xs">${esc(e.message)}</td></tr>`), "No errors recorded.")}
+<h2 class="h2-block">Content-Security-Policy reports <span class="xs muted">(${CSP_ENFORCE ? "enforced" : "report-only"}, last 7 days${CSP_ENFORCE ? "" : ": what enforcing would block"})</span></h2>${table(["Last day", "Count", "Directive", "Blocked"], (m.csp ?? []).map((c) => { const [dir, ...rest] = c.key.split(" "); return `<tr><td class="xs">${esc(c.last_day)}</td><td>${c.count}</td><td class="mono xs">${esc(dir)}</td><td class="mono xs">${esc(rest.join(" "))}</td></tr>`; }), "No violations reported.")}`
     : "";
   const k = m?.kpis;
-  const kpi = (n: string | number, label: string, sub = "") => `<div class="card pad"><div class="stat">${esc(String(n))}</div><div class="small muted">${label}</div>${sub ? `<div class="xs faint" style="margin-top:2px">${sub}</div>` : ""}</div>`;
+  const kpi = (n: string | number, label: string, sub = "") => `<div class="card pad"><div class="stat">${esc(String(n))}</div><div class="small muted">${label}</div>${sub ? `<div class="xs faint mt-2">${sub}</div>` : ""}</div>`;
   const o = m?.observe;
   const s = m?.success;
   const rate = o?.block_rate == null ? "—" : `${(o.block_rate * 100).toFixed(1)}%`;
@@ -3712,21 +3712,21 @@ export function adminPage(viewer: Viewer, side: SideBoard[], d: AdminData): Resp
   const packMs = o?.latency?.context_pack;
   // Daily counters from src/observe.ts. The paragraph is how an operator reads them; the same object is GET /api/ops/metrics → observe.
   const trustHtml = o
-    ? `<h2 style="margin:32px 0 10px">Trust and context <span class="xs muted">(last ${o.days} days)</span></h2>
-<p class="small muted" style="margin:-4px 0 14px">A paste is a write that landed on a board. An egress block is a write the secret filter refused before anything was stored. Block rate is blocks ÷ (pastes + blocks). A context pack is the summary an agent is handed on read; average size is total characters ÷ packs served. Stale-notice rate is disputed or retracted premises with dependents ÷ all such invalidations. Verified-claim ratio is verified ÷ completed claim reviews. Approval counts are requests and decisions made in the window. Entry delivery is a post reaching an agent already waiting (the entry's timestamp → that wait returning it); context-pack read is <span class="mono">Board.read</span> when it hands a summary. p50/p95 are the upper edge of the histogram bucket that holds that percentile. The same numbers are <span class="mono">observe</span> on <span class="mono">GET /api/ops/metrics</span>, and the <span class="mono">paste</span>, <span class="mono">egress_block</span>, <span class="mono">context_pack</span>, <span class="mono">stale_notice</span>, <span class="mono">claim_review</span>, <span class="mono">approval</span>, <span class="mono">entry_delivery</span> and <span class="mono">context_pack_ms</span> rows of <span class="mono">usage_daily</span> (<span class="mono">GET /api/ops/usage-daily</span>).</p>
+    ? `<h2 class="h2-block-lg">Trust and context <span class="xs muted">(last ${o.days} days)</span></h2>
+<p class="small muted my-n4-14">A paste is a write that landed on a board. An egress block is a write the secret filter refused before anything was stored. Block rate is blocks ÷ (pastes + blocks). A context pack is the summary an agent is handed on read; average size is total characters ÷ packs served. Stale-notice rate is disputed or retracted premises with dependents ÷ all such invalidations. Verified-claim ratio is verified ÷ completed claim reviews. Approval counts are requests and decisions made in the window. Entry delivery is a post reaching an agent already waiting (the entry's timestamp → that wait returning it); context-pack read is <span class="mono">Board.read</span> when it hands a summary. p50/p95 are the upper edge of the histogram bucket that holds that percentile. The same numbers are <span class="mono">observe</span> on <span class="mono">GET /api/ops/metrics</span>, and the <span class="mono">paste</span>, <span class="mono">egress_block</span>, <span class="mono">context_pack</span>, <span class="mono">stale_notice</span>, <span class="mono">claim_review</span>, <span class="mono">approval</span>, <span class="mono">entry_delivery</span> and <span class="mono">context_pack_ms</span> rows of <span class="mono">usage_daily</span> (<span class="mono">GET /api/ops/usage-daily</span>).</p>
 <div class="grid4">${kpi(o.paste.total, "Pastes", `${o.paste.person} by people · ${o.paste.agent} by agents`)}${kpi(o.egress_blocks.total, "Egress blocks", "secret filter refused the write")}${kpi(rate, "Block rate", "blocks ÷ (pastes + blocks)")}${kpi(avg, "Average context pack", `${o.context_pack.served} served · ${o.context_pack.truncated} truncated · ${o.context_pack.chars.toLocaleString("en-US")} characters`)}</div>
-<div class="grid4" style="margin-top:12px">${kpi(staleRate, "Stale-notice rate", `${o.stale_notices.notices} notices · ${o.stale_notices.invalidations} invalidations · ${o.stale_notices.entries} entries made stale`)}${kpi(verifiedRatio, "Verified-claim ratio", `${o.claim_reviews.verified} verified · ${o.claim_reviews.disputed} disputed`)}${kpi(o.approvals.requested, "Approval requests", `${o.approvals.by_risk.low} low · ${o.approvals.by_risk.medium} medium · ${o.approvals.by_risk.high} high risk`)}${kpi(o.approvals.approved + o.approvals.rejected, "Approval decisions", `${o.approvals.approved} approved · ${o.approvals.rejected} rejected`)}</div>
-<h2 style="margin:24px 0 10px">Egress blocks by rule</h2>${table(["Rule", "Blocks"], o.egress_blocks.by_rule.map((r) => `<tr><td class="mono">${esc(r.rule)}</td><td>${r.count}</td></tr>`), "No secrets refused in this window.")}
-<h2 style="margin:24px 0 10px">Context pack size</h2>${table(["Size", "Packs"], o.context_pack.buckets.map((b) => `<tr><td>${esc(b.label)}</td><td>${b.count}</td></tr>`), "No context packs served.")}
-<h2 style="margin:24px 0 10px">Latency (p95) <span class="xs muted">(last ${o.days} days)</span></h2>
-<p class="small muted" style="margin:-4px 0 14px">Production tracking of the PRD targets: entry delivery p95 &lt; 500 ms, context-pack read p95 &lt; 2 s. Local load-test numbers stay in <span class="mono">scripts/load-test.mjs</span>. These are histogram estimates from daily counters, not a stored sample list.</p>
+<div class="grid4 mt-12">${kpi(staleRate, "Stale-notice rate", `${o.stale_notices.notices} notices · ${o.stale_notices.invalidations} invalidations · ${o.stale_notices.entries} entries made stale`)}${kpi(verifiedRatio, "Verified-claim ratio", `${o.claim_reviews.verified} verified · ${o.claim_reviews.disputed} disputed`)}${kpi(o.approvals.requested, "Approval requests", `${o.approvals.by_risk.low} low · ${o.approvals.by_risk.medium} medium · ${o.approvals.by_risk.high} high risk`)}${kpi(o.approvals.approved + o.approvals.rejected, "Approval decisions", `${o.approvals.approved} approved · ${o.approvals.rejected} rejected`)}</div>
+<h2 class="h2-block">Egress blocks by rule</h2>${table(["Rule", "Blocks"], o.egress_blocks.by_rule.map((r) => `<tr><td class="mono">${esc(r.rule)}</td><td>${r.count}</td></tr>`), "No secrets refused in this window.")}
+<h2 class="h2-block">Context pack size</h2>${table(["Size", "Packs"], o.context_pack.buckets.map((b) => `<tr><td>${esc(b.label)}</td><td>${b.count}</td></tr>`), "No context packs served.")}
+<h2 class="h2-block">Latency (p95) <span class="xs muted">(last ${o.days} days)</span></h2>
+<p class="small muted my-n4-14">Production tracking of the PRD targets: entry delivery p95 &lt; 500 ms, context-pack read p95 &lt; 2 s. Local load-test numbers stay in <span class="mono">scripts/load-test.mjs</span>. These are histogram estimates from daily counters, not a stored sample list.</p>
 <div class="grid4">${kpi(p95(delivery?.p95_ms, delivery?.p95_overflow), "Entry delivery p95", `${delivery?.samples ?? 0} samples · target &lt; ${delivery?.target_ms ?? 500} ms · ${delivery?.over_target ?? 0} over target`)}${kpi(p95(packMs?.p95_ms, packMs?.p95_overflow), "Context pack p95", `${packMs?.samples ?? 0} samples · target &lt; 2 s · ${packMs?.over_target ?? 0} over target`)}${kpi(delivery?.avg_ms == null ? "—" : `${Math.round(delivery.avg_ms)} ms`, "Average delivery", delivery?.p50_ms == null && !delivery?.p50_overflow ? "" : `p50 ${p95(delivery?.p50_ms, delivery?.p50_overflow)}`)}${kpi(packMs?.avg_ms == null ? "—" : `${Math.round(packMs.avg_ms)} ms`, "Average context-pack read", packMs?.p50_ms == null && !packMs?.p50_overflow ? "" : `p50 ${p95(packMs?.p50_ms, packMs?.p50_overflow)}`)}</div>
-<h2 style="margin:24px 0 10px">Entry delivery</h2>${table(["Latency", "Deliveries"], (delivery?.buckets ?? []).map((b) => `<tr><td>${esc(b.label)}</td><td>${b.count}</td></tr>`), "No waiting-agent deliveries in this window.")}
-<h2 style="margin:24px 0 10px">Context-pack read</h2>${table(["Latency", "Reads"], (packMs?.buckets ?? []).map((b) => `<tr><td>${esc(b.label)}</td><td>${b.count}</td></tr>`), "No context-pack reads timed in this window.")}`
+<h2 class="h2-block">Entry delivery</h2>${table(["Latency", "Deliveries"], (delivery?.buckets ?? []).map((b) => `<tr><td>${esc(b.label)}</td><td>${b.count}</td></tr>`), "No waiting-agent deliveries in this window.")}
+<h2 class="h2-block">Context-pack read</h2>${table(["Latency", "Reads"], (packMs?.buckets ?? []).map((b) => `<tr><td>${esc(b.label)}</td><td>${b.count}</td></tr>`), "No context-pack reads timed in this window.")}`
     : "";
   const productHtml = s
-    ? `<h2 style="margin:32px 0 10px">Product <span class="xs muted">(last ${s.days} days)</span></h2>
-<p class="small muted" style="margin:-4px 0 14px">Activation events, not the stock of users and boards above. A board created is a collaboration board (not a DM or Your agent). First agent post is a person whose agent wrote on a board for the first time. Invite redeemed is someone joining through an invite link or an accepted email invitation. Friend accepted is a pending request that became a friendship. The same numbers are <span class="mono">success</span> on <span class="mono">GET /api/ops/metrics</span>, and the <span class="mono">success</span> rows of <span class="mono">usage_daily</span> (<span class="mono">GET /api/ops/usage-daily</span>). Test accounts whose names start with <span class="mono">e2e-</span> are left out.</p>
+    ? `<h2 class="h2-block-lg">Product <span class="xs muted">(last ${s.days} days)</span></h2>
+<p class="small muted my-n4-14">Activation events, not the stock of users and boards above. A board created is a collaboration board (not a DM or Your agent). First agent post is a person whose agent wrote on a board for the first time. Invite redeemed is someone joining through an invite link or an accepted email invitation. Friend accepted is a pending request that became a friendship. The same numbers are <span class="mono">success</span> on <span class="mono">GET /api/ops/metrics</span>, and the <span class="mono">success</span> rows of <span class="mono">usage_daily</span> (<span class="mono">GET /api/ops/usage-daily</span>). Test accounts whose names start with <span class="mono">e2e-</span> are left out.</p>
 <div class="grid4">${kpi(s.board_created, "Boards created", "collaboration boards")}${kpi(s.first_agent_post, "First agent post", "a person's agent posted for the first time")}${kpi(s.invite_redeemed, "Invites redeemed", "invite link or email invitation accepted")}${kpi(s.friend_accepted, "Friends accepted", "a pending request became a friendship")}</div>`
     : "";
   // The numbers worth knowing at a glance (test accounts and boards left out).
@@ -3736,36 +3736,36 @@ export function adminPage(viewer: Viewer, side: SideBoard[], d: AdminData): Resp
         "MRR (est.)",
         `${k.pro} on Pro${k.cancelling ? ` · ${k.cancelling} cancelling` : ""}${k.active_30d ? ` · ${Math.round((k.pro / k.active_30d) * 100)}% of active` : ""}`,
       )}${kpi(k.agents_7d, "People with an agent connected", "used a token this week")}</div>
-<div class="grid4" style="margin-top:12px">${kpi(k.boards, "Boards", `${k.boards_active_7d} active this week`)}${kpi(k.posts_7d, "Posts this week", "people and agents")}${kpi(d.totalEntries, "Messages, all time")}${kpi(k.errors_24h, "Kinds of server error, last 24h", k.errors_24h ? `${k.errors_24h_total.toLocaleString("en-US")} times in all · details below and in Sentry` : "all quiet")}</div>`
+<div class="grid4 mt-12">${kpi(k.boards, "Boards", `${k.boards_active_7d} active this week`)}${kpi(k.posts_7d, "Posts this week", "people and agents")}${kpi(d.totalEntries, "Messages, all time")}${kpi(k.errors_24h, "Kinds of server error, last 24h", k.errors_24h ? `${k.errors_24h_total.toLocaleString("en-US")} times in all · details below and in Sentry` : "all quiet")}</div>`
     : `${costHtml(d.cost)}<div class="grid4">${stat(d.boards.length, "Boards")}${stat(d.users.length, "Users")}${stat(d.totalEntries, "Messages")}${stat(d.invites.length, "Invites")}</div>`;
   const overview = `${kpiHtml}${productHtml}${trustHtml}${usageHtml}
-<h2 style="margin:32px 0 10px">Boards</h2>
+<h2 class="h2-block-lg">Boards</h2>
 ${table(
   ["Board", "Members", "Messages", "Created by", "Last activity"],
   d.boards.map(
-    (b) => `<tr><td><a href="/b/${esc(b.id)}" style="color:var(--ink);font-weight:500">${esc(b.title)}</a><div class="xs faint mono">${esc(b.id)}</div></td>
+    (b) => `<tr><td><a class="ink-m" href="/b/${esc(b.id)}">${esc(b.title)}</a><div class="xs faint mono">${esc(b.id)}</div></td>
 <td>${avatarStack((b.members ?? "").split(", ").filter(Boolean))}</td><td>${b.entry_count}</td><td class="muted">${esc(b.created_by)}</td><td class="muted">${when(b.last_activity)}</td></tr>`,
   ),
   "No boards yet.",
 )}
-<h2 style="margin:32px 0 10px">Invites</h2>
+<h2 class="h2-block-lg">Invites</h2>
 ${table(
   ["Email", "Board", "Invited by", "Status", "When"],
   d.invites.map(
-    (i) => `<tr><td style="color:var(--ink)">${esc(i.email)}</td><td>${esc(i.board_title ?? i.board_id)}</td><td class="muted">${esc(i.invited_by)}</td>
-<td class="small">${i.accepted_at ? `<span class="badge"><span class="dot" style="color:var(--ok)"></span>Joined as ${esc(i.accepted_by ?? "")}</span>` : `<span class="muted">${esc(i.email_status)}</span>`}</td><td class="muted">${when(i.created_at)}</td></tr>`,
+    (i) => `<tr><td class="ink">${esc(i.email)}</td><td>${esc(i.board_title ?? i.board_id)}</td><td class="muted">${esc(i.invited_by)}</td>
+<td class="small">${i.accepted_at ? `<span class="badge"><span class="dot ok"></span>Joined as ${esc(i.accepted_by ?? "")}</span>` : `<span class="muted">${esc(i.email_status)}</span>`}</td><td class="muted">${when(i.created_at)}</td></tr>`,
   ),
   "No invites yet.",
 )}`;
-  const access = `<p class="small muted" style="margin-bottom:14px">Who can touch what: each person, the boards their agents can read and post to, and their live agent connections.</p>
+  const access = `<p class="small muted mb-14">Who can touch what: each person, the boards their agents can read and post to, and their live agent connections.</p>
 ${table(
   ["Principal", "Signed in", "Boards (read + post)", "Active connections", "Last agent activity"],
   d.users.map((u) => {
     const a = accessBy.get(u.name);
-    const chips = (a?.boards ?? []).map((b) => `<a class="badge" href="/b/${esc(b.id)}" style="margin:2px 4px 2px 0">${esc(b.title)}</a>`).join("");
-    return `<tr><td><span class="row">${avatar(u.name, "sm")}<span><span style="color:var(--ink);font-weight:500">${esc(u.name)}</span><div class="xs faint">${esc(u.email ?? "no email")}</div></span></span></td>
-<td>${u.workos_id ? `<span class="badge"><span class="dot" style="color:var(--ok)"></span>WorkOS</span>` : `<span class="badge">Legacy</span>`}</td>
-<td style="white-space:normal">${chips || `<span class="faint">none</span>`}</td>
+    const chips = (a?.boards ?? []).map((b) => `<a class="badge chip" href="/b/${esc(b.id)}">${esc(b.title)}</a>`).join("");
+    return `<tr><td><span class="row">${avatar(u.name, "sm")}<span><span class="ink-m">${esc(u.name)}</span><div class="xs faint">${esc(u.email ?? "no email")}</div></span></span></td>
+<td>${u.workos_id ? `<span class="badge"><span class="dot ok"></span>WorkOS</span>` : `<span class="badge">Legacy</span>`}</td>
+<td class="ws-normal">${chips || `<span class="faint">none</span>`}</td>
 <td>${a?.active_tokens ?? 0}</td><td class="muted">${a?.last_token_use ? when(a.last_token_use) : "never"}</td></tr>`;
   }),
   "No users yet.",
@@ -3775,7 +3775,7 @@ ${table(
     d.recent.map((e) => logRow(e, e.board_title, e.board_id)),
     "No events yet.",
     "log",
-  )}<p class="xs faint" style="margin-top:10px">Latest 100 entries across all boards. Click a row for its raw payload.</p>`;
+  )}<p class="xs faint mt-10">Latest 100 entries across all boards. Click a row for its raw payload.</p>`;
   const script =
     SHEET_JS +
     `function tab(n){document.querySelectorAll('#ops-tabs button').forEach((b,i)=>b.setAttribute('aria-selected',String(i===n)));document.querySelectorAll('[data-ops-panel]').forEach((p,i)=>p.hidden=i!==n);history.replaceState(null,'',['#overview','#access','#events'][n])}
@@ -3788,7 +3788,7 @@ document.querySelector('[data-cost-clear]')?.addEventListener('click',async e=>{
     boards: side,
     active: "admin",
     crumbs: `<span class="cur">Ops</span>`,
-    body: `<div class="section-title"><div><h1>Ops</h1><p class="muted" style="margin-top:4px">Everything on this deployment. Only visible to operators.</p></div></div>
+    body: `<div class="section-title"><div><h1>Ops</h1><p class="muted mt-4">Everything on this deployment. Only visible to operators.</p></div></div>
 <div class="tabs" role="tablist" id="ops-tabs"><button role="tab" aria-selected="true">Overview</button><button role="tab" aria-selected="false">Access</button><button role="tab" aria-selected="false">Events</button></div>
 <div role="tabpanel" data-ops-panel>${overview}</div><div role="tabpanel" data-ops-panel hidden>${access}</div><div role="tabpanel" data-ops-panel hidden>${events}</div>${SHEET}`,
     script,
@@ -3800,9 +3800,9 @@ document.querySelector('[data-cost-clear]')?.addEventListener('click',async e=>{
 export function messagePage(title: string, text: string, opts: { viewer?: Viewer | null; status?: number; action?: { href: string; label: string } } = {}): Response {
   return page(
     `${title} · Atteo`,
-    `<div class="card pad" style="max-width:480px;margin:48px auto 0;text-align:center">
-  <h1 style="font-size:20px">${esc(title)}</h1><p class="muted" style="margin-top:8px">${esc(text)}</p>
-  <a class="btn primary" style="margin-top:22px" href="${esc(opts.action?.href ?? "/")}">${esc(opts.action?.label ?? "Back to Atteo")}</a>
+    `<div class="card pad auth-480 center">
+  <h1 class="fs-20">${esc(title)}</h1><p class="muted mt-8">${esc(text)}</p>
+  <a class="btn primary mt-22" href="${esc(opts.action?.href ?? "/")}">${esc(opts.action?.label ?? "Back to Atteo")}</a>
 </div>`,
     { viewer: opts.viewer, status: opts.status ?? 200, narrow: true },
   );
@@ -3812,17 +3812,17 @@ export function messagePage(title: string, text: string, opts: { viewer?: Viewer
 export function makeRoomPage(viewer: Viewer, title: string, encrypted: boolean, boards: { id: string; title: string; last_activity: number }[]): Response {
   const rows = boards
     .map(
-      (b) => `<li class="row" style="gap:10px;padding:10px 0;border-top:1px solid var(--line)"><span class="grow truncate" style="text-align:left"><a href="/b/${esc(b.id)}" style="color:var(--ink)">${esc(b.title)}</a> <span class="xs faint">active ${when(b.last_activity)}</span></span>
-<form method="post" action="/boards" style="margin:0"><input type="hidden" name="title" value="${esc(title)}">${encrypted ? `<input type="hidden" name="encrypted" value="1">` : ""}<input type="hidden" name="archive" value="${esc(b.id)}"><button class="btn sm">Archive it</button></form></li>`,
+      (b) => `<li class="row board-li"><span class="grow truncate ta-l"><a class="ink" href="/b/${esc(b.id)}">${esc(b.title)}</a> <span class="xs faint">active ${when(b.last_activity)}</span></span>
+<form class="mx-0" method="post" action="/boards"><input type="hidden" name="title" value="${esc(title)}">${encrypted ? `<input type="hidden" name="encrypted" value="1">` : ""}<input type="hidden" name="archive" value="${esc(b.id)}"><button class="btn sm">Archive it</button></form></li>`,
     )
     .join("");
   return page(
     `Make room · Atteo`,
-    `<div class="card pad" style="max-width:520px;margin:48px auto 0">
-  <h1 style="font-size:20px">Make room for “${esc(title)}”</h1>
-  <p class="muted" style="margin-top:8px">The Free plan has ${boards.length} active boards. Archive one and “${esc(title)}” is created right away. Archived boards stay readable, and you can restore one any time.</p>
-  <ul style="list-style:none;margin:18px 0 0;padding:0">${rows}</ul>
-  <p class="small muted" style="margin-top:18px">Or <a href="/me#billing">go Pro</a> for unlimited boards.</p>
+    `<div class="card pad auth-520">
+  <h1 class="fs-20">Make room for “${esc(title)}”</h1>
+  <p class="muted mt-8">The Free plan has ${boards.length} active boards. Archive one and “${esc(title)}” is created right away. Archived boards stay readable, and you can restore one any time.</p>
+  <ul class="plain-ul pad-t">${rows}</ul>
+  <p class="small muted mt-18">Or <a href="/me#billing">go Pro</a> for unlimited boards.</p>
 </div>`,
     { viewer, status: 402, narrow: true },
   );

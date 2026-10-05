@@ -8,7 +8,7 @@
 import { shownName } from "./names";
 import type { Approval } from "./approvals";
 import type { InboxItem } from "./inbox";
-import { appPage, avatar, directPeer, relTime, type SideBoard, type Viewer } from "./ui";
+import { appPage, avatar, directPeer, FY_CSS_SRC, relTime, type SideBoard, type Viewer } from "./ui";
 import { esc } from "./util";
 import { tr, type Lang } from "./i18n";
 
@@ -192,7 +192,7 @@ ${det}<div class="acts"><button class="btn xl" type="button" data-fy-ap="reject"
   const need = aps.length + quick.length;
   const empty = `<div class="card empty fy-empty" id="fy-empty"${need ? " hidden" : ""}><h3>${esc(T("Nothing needs you right now"))}</h3><p class="muted">${esc(T("When your assistant needs your OK, or someone asks you something, it shows up here."))}</p></div>`;
 
-  const body = `<style>${FY_CSS}</style><div class="fy" id="fy">
+  const body = `<div class="fy" id="fy">
 <header class="fy-hi"><h1 id="fy-greet" data-name="${esc(firstName(viewer))}">${esc(greetingFor(new Date(now).getUTCHours(), L))}, ${esc(firstName(viewer))}</h1>
 <p class="lede" id="fy-lede">${esc(summaryLine(need, done.length, L))}</p></header>
 ${okSec}${quickSec}${empty}${doneSec}
@@ -204,63 +204,8 @@ ${okSec}${quickSec}${empty}${doneSec}
 
   const chats = side.length;
   const actions = `<a class="btn sm" href="/">${esc(T("Chats"))} <span class="faint">${chats}</span></a>`;
-  return appPage(`${T("For you")} · Atteo`, { viewer, boards: side, active: "foryou", crumbs: `<span class="cur">${esc(T("For you"))}</span>`, actions, body, script: forYouJs(agentChat), narrow: true });
+  return appPage(`${T("For you")} · Atteo`, { viewer, boards: side, active: "foryou", crumbs: `<span class="cur">${esc(T("For you"))}</span>`, actions, body, script: forYouJs(agentChat), narrow: true, css: [FY_CSS_SRC] });
 }
-
-// Everyday sizes (NOTES.md: body ~15px, headings 26px, card titles 20px) on the web's tokens; cherry only on the mic (#2508).
-const FY_CSS = `
-.fy{font-size:15px;line-height:1.45;padding-bottom:84px}
-.fy-hi h1{font-size:26px;line-height:1.2;letter-spacing:-.025em;font-weight:650}
-.fy .lede{color:var(--muted);font-size:15px;margin-top:4px}
-.fy a.link,.fy button.link{color:var(--accent);font:inherit;font-weight:500;font-size:13.5px;background:none;border:0;padding:0;cursor:pointer}
-.fy .btn.xl{height:46px;padding:0 18px;font-size:15px;border-radius:10px}
-.fy .nc{--k:var(--q);position:relative;margin-top:16px;border:1px solid var(--line);border-radius:14px;background:var(--bg);box-shadow:var(--shadow);padding:15px 16px 16px 19px;overflow:hidden}
-.fy .nc::before{content:"";position:absolute;left:0;top:0;bottom:0;width:4px;background:var(--k)}
-.fy .nc .type{display:flex;align-items:center;gap:6px;font-size:13.5px;font-weight:500;color:color-mix(in srgb,var(--k) 72%,var(--ink))}.fy .nc .type b{color:var(--muted);font-weight:500}
-.fy .nc .tt{font-size:20px;line-height:1.25;font-weight:600;color:var(--ink);letter-spacing:-.015em;margin-top:6px;overflow-wrap:anywhere}
-.fy .nc .who{display:flex;align-items:center;gap:8px;margin-top:8px;font-size:13.5px;color:var(--muted);min-width:0}.fy .nc .who>span{min-width:0;overflow-wrap:anywhere}
-.fy .nc .who b{color:var(--text);font-weight:500}.fy .nc .who a{color:var(--text);text-decoration:underline;text-decoration-color:var(--line-strong);text-underline-offset:2px}.fy .nc .who a:hover{text-decoration-color:currentColor}
-.fy .nc .det{margin-top:12px;padding:10px 12px;border-radius:10px;background:var(--bg-subtle);border:1px solid var(--line);font-size:14px;color:var(--text)}
-.fy .nc .det .ln{display:flex;justify-content:space-between;gap:12px;min-width:0}.fy .nc .det .ln+.ln{margin-top:3px}
-.fy .nc .det .ln span{min-width:0;overflow-wrap:anywhere}.fy .nc .det .ln span:first-child:not(.one){color:var(--muted);flex:none}.fy .nc .det .ln span:last-child:not(.one){text-align:right}
-.fy .nc .acts{display:flex;gap:10px;margin-top:14px}.fy .nc .acts .btn{flex:1;min-width:0}
-.fy .stack-edge{height:7px;margin:0 10px;border:1px solid var(--line);border-top:0;border-radius:0 0 12px 12px;background:var(--bg)}
-.fy .stack-edge+.stack-edge{margin:0 20px;height:6px}
-.fy .fy-more{text-align:right;margin:6px 2px 0}
-.fy .list{border:1px solid var(--line);border-radius:12px;overflow:hidden;background:var(--bg)}
-.fy .fy-quick{margin-top:14px}
-.fy .nrow{--k:var(--accent);display:flex;align-items:center;flex-wrap:wrap;gap:8px 12px;padding:12px 14px 12px 16px;position:relative;border-top:1px solid var(--line)}
-.fy .nrow:first-child{border-top:0}
-.fy .nrow::before{content:"";position:absolute;left:0;top:10px;bottom:10px;width:3px;border-radius:0 3px 3px 0;background:var(--k)}
-.fy .nrow.k-decide{--k:var(--decision)}.fy .nrow.k-reply{--k:var(--accent)}
-.fy .nrow .grow{flex:1 1 180px}
-.fy .nrow .tt{display:block;font-size:15px;font-weight:550;color:var(--ink);line-height:1.3;overflow-wrap:anywhere}.fy .nrow a.tt:hover{text-decoration:underline}
-.fy .nrow .sub{font-size:13px;color:var(--muted);margin-top:1px;overflow-wrap:anywhere}
-.fy .nrow .fy-acts{display:flex;gap:8px;flex:none;margin-left:auto}.fy .nrow .btn{height:32px;font-size:14px}
-.fy .nrow.voted .fy-acts{color:var(--ok);font-size:13.5px;font-weight:500}
-.fy .sec{display:flex;align-items:baseline;justify-content:space-between;margin:22px 2px 10px}
-.fy .sec h2{font-size:13.5px;font-weight:600;letter-spacing:0}.fy .sec h2 .faint{font-weight:400}
-.fy .done-i{display:flex;gap:12px;align-items:flex-start;padding:10px 14px;border-top:1px solid var(--line)}
-.fy .done-i:first-child{border-top:0}.fy .done-i:hover{background:var(--bg-subtle)}
-.fy .done-i.more{display:none}.fy .fy-done.all .done-i.more{display:flex}
-.fy .ck{width:22px;height:22px;border-radius:50%;background:var(--ok);color:var(--bg);display:grid;place-items:center;flex:none;margin-top:1px}.fy .ck svg{width:12px;height:12px}
-.fy .done-i .tt{display:block;font-size:15px;color:var(--ink);line-height:1.35;overflow-wrap:anywhere}
-.fy .done-i .sub{display:block;font-size:12.5px;color:var(--faint);margin-top:1px}
-.fy .fy-empty{margin-top:16px;padding:36px 20px}
-.fy-askwrap{position:fixed;left:232px;right:0;bottom:0;z-index:15;padding:28px 24px 16px;pointer-events:none;
-  background:linear-gradient(to bottom,transparent,var(--bg) 55%)}
-/* Ask your assistant is the board's chat composer (jxn #4462): its card, border and corners, its mic and send buttons. */
-.fy-ask{pointer-events:auto;width:100%;max-width:712px;margin:0 auto;display:flex;align-items:center;gap:8px;padding:10px 12px 10px 16px}
-.fy-ask input{flex:1;border:0;outline:0;background:transparent;color:var(--ink);font:inherit;font-size:15px;min-width:0}
-.fy-ask input::placeholder{color:var(--faint)}
-.fy-toast{pointer-events:auto;max-width:712px;margin:0 auto 10px;display:flex;align-items:center;justify-content:center;gap:12px;font-size:13.5px;
-  width:max-content;padding:9px 14px;border-radius:8px;background:var(--ink);color:var(--on-ink);box-shadow:var(--shadow-lg)}
-.fy-toast .link{color:var(--on-ink);text-decoration:underline;font-weight:600}
-.fy-askwrap{display:flex;flex-direction:column-reverse}
-#toast{bottom:96px}
-@media(max-width:860px){.fy-askwrap{left:0;padding:24px 12px 12px}.fy-hi h1{font-size:24px}}
-@media(max-width:380px){.fy .nc{padding:14px 13px 14px 16px}.fy .nc .tt{font-size:18px}.fy .btn.xl{padding:0 10px}}
-`;
 
 /** Page script: local-time greeting and "today", approve / not now, decision votes, and the Ask bar (with the mic). */
 function forYouJs(agentChat: string): string {

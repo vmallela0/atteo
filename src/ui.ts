@@ -11,6 +11,7 @@ import { MERMAID_CSS, MERMAID_JS, mermaidHtml } from "./mermaid";
 import { CODE_COLOR_CSS, CODE_COLOR_JS, fnv } from "./codecolor";
 import { TALK_CSS } from "./talk";
 import { AGENT_LOGO_CSS } from "./agent-logos";
+import { ASK_CSS, DOC_CSS, FY_CSS, GUIDE_CSS } from "./pageCss";
 import { esc } from "./util";
 import { personHtml, shownName } from "./names";
 import { clientTable, dirOf, tr, type Lang } from "./i18n";
@@ -41,15 +42,16 @@ export function formActionSource(raw: string): string | null {
   return /^[a-z][a-z0-9+.-]*:$/i.test(u.protocol) && !/^(javascript|data|blob|file|filesystem|about):$/i.test(u.protocol) ? u.protocol : null;
 }
 
-// Each HTML response owns its nonce. Inline CSS and style attributes are used throughout the UI. Inline event handlers
-// are forbidden explicitly; page code uses listeners. Mermaid is this origin's pinned /mermaid.min.js and loads with an
-// SRI hash (mermaid.ts), so a substituted file fails the integrity check.
+// Each HTML response owns its nonce. Stylesheets come from 'self' (/app.css and page-only sheets); leftover <style>
+// blocks carry the nonce. Style attributes still need 'unsafe-inline' (composer height, pickers, mermaid viewBox
+// sizing). Inline event handlers are forbidden explicitly; page code uses listeners. Mermaid is this origin's pinned
+// /mermaid.min.js and loads with an SRI hash (mermaid.ts), so a substituted file fails the integrity check.
 // The pages are private, revalidated each time (no shared cache may keep one person's page, or pin one nonce for many
 // responses); no-store would also keep them out of the back/forward cache.
 export function pageSecurity(opts: { formAction?: string[] } = {}) {
   const nonce = Array.from(crypto.getRandomValues(new Uint8Array(16)), (b) => b.toString(16).padStart(2, "0")).join("");
   const formAction = ["'self'", ...(opts.formAction ?? []).map(formActionSource).filter((x): x is string => !!x)].join(" ");
-  const policy = `default-src 'self'; script-src 'self' 'nonce-${nonce}'; script-src-attr 'none'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; media-src 'self' blob: data:; connect-src 'self' ${VOICE_SOCKET_ORIGIN}; frame-src 'self' about:; frame-ancestors 'none'; base-uri 'none'; form-action ${formAction}; object-src 'none'; report-uri ${CSP_REPORT_PATH}; report-to csp`;
+  const policy = `default-src 'self'; script-src 'self' 'nonce-${nonce}'; script-src-attr 'none'; style-src 'self' 'nonce-${nonce}'; style-src-attr 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; media-src 'self' blob: data:; connect-src 'self' ${VOICE_SOCKET_ORIGIN}; frame-src 'self' about:; frame-ancestors 'none'; base-uri 'none'; form-action ${formAction}; object-src 'none'; report-uri ${CSP_REPORT_PATH}; report-to csp`;
   const headers: Record<string, string> = {
     [CSP_ENFORCE ? "content-security-policy" : "content-security-policy-report-only"]: policy,
     "reporting-endpoints": `csp="${CSP_REPORT_PATH}"`,
@@ -58,6 +60,11 @@ export function pageSecurity(opts: { formAction?: string[] } = {}) {
     "cache-control": "private, no-cache",
   };
   return { nonce, headers };
+}
+
+/** Put the page nonce on every <style> that doesn't already have one (noscript, leftover page blocks). */
+export function styleNonce(html: string, nonce: string): string {
+  return html.replace(/<style\b(?![^>]*\bnonce=)/gi, `<style nonce="${nonce}"`);
 }
 
 // Dark tokens: the system setting picks them unless Display says light; Display can also force them.
@@ -136,8 +143,46 @@ h1,h2,h3{color:var(--ink);font-weight:600;letter-spacing:-.02em;margin:0}h1,h2{f
 h1{font-size:22px;line-height:1.25}h2{font-size:15px}h3{font-size:13px}
 p{margin:0}
 .muted{color:var(--muted)}.faint{color:var(--faint)}.small{font-size:13px}.xs{font-size:12px}
-.row{display:flex;align-items:center;gap:8px}.row.wrap{flex-wrap:wrap}.grow{flex:1;min-width:0}
-.stack>*+*{margin-top:12px}
+.row{display:flex;align-items:center;gap:8px}.row.wrap{flex-wrap:wrap}.row.end{justify-content:flex-end}.row.center{justify-content:center}
+.row.gap-6{gap:6px}.row.gap-10{gap:10px}.row.gap-12{gap:12px}.grow{flex:1;min-width:0}
+.stack>*+*{margin-top:12px}.stack.tight>*+*{margin-top:10px}
+.mt-2{margin-top:2px}.mt-4{margin-top:4px}.mt-6{margin-top:6px}.mt-8{margin-top:8px}.mt-10{margin-top:10px}.mt-12{margin-top:12px}
+.mt-14{margin-top:14px}.mt-16{margin-top:16px}.mt-18{margin-top:18px}.mt-20{margin-top:20px}.mt-22{margin-top:22px}.mt-24{margin-top:24px}.mt-32{margin-top:32px}
+.mb-6{margin-bottom:6px}.mb-8{margin-bottom:8px}.mb-10{margin-bottom:10px}.mb-12{margin-bottom:12px}.mb-14{margin-bottom:14px}.mb-16{margin-bottom:16px}.mb-18{margin-bottom:18px}.mb-28{margin-bottom:28px}
+.my-8{margin:8px 0}.my-n4-8{margin:-4px 0 8px}.mx-0{margin:0}.pt-0{padding-top:0}.px-side{padding:2px 9px}.py-5{padding:5px 0}
+.row.between{justify-content:space-between}.fs-20{font-size:20px}.fs-12{font-size:12.5px}.w-auto{width:auto}
+.block-mt2{display:block;margin-top:2px}.danger{color:var(--danger)}.ok{color:var(--ok)}.warn{color:var(--warn)}
+.waiting .wt{font-weight:600;color:var(--ink);margin-bottom:4px}
+.waiting ul,.plain-ul{list-style:none;margin:0;padding:0}
+.waiting li .row{padding:5px 0}
+.ml-4{margin-left:4px}.w-120{width:120px}.max-w-160{max-width:160px}.max-w-240{max-width:240px}
+.basis-full{flex-basis:100%}.flex-none{flex:none}.ws-normal{white-space:normal}
+.btn.danger-fill,.btn.danger-fill:hover{background:var(--danger);border-color:var(--danger);color:var(--on-fill)}
+.code-in{text-transform:uppercase;letter-spacing:.1em}
+.grid-list{list-style:none;margin:0;display:grid;gap:12px}.grid-list.tight{gap:8px}
+.chip{margin:2px 4px 2px 0}
+.my-0-8{margin:8px 0 0}.my-6-10{margin:6px 0 10px}.my-8-18{margin:8px 0 18px}.my-18{margin:18px 0}.my-22-8{margin:22px 0 8px}.my-n4-14{margin:-4px 0 14px}
+.h-muted{font-size:13px;color:var(--muted)}
+.ns-h{margin:14px 0 6px;font-weight:600}
+.board-li{gap:10px;padding:10px 0;border-top:1px solid var(--line)}
+.plain-ul.pad-t{margin:18px 0 0;padding:0}
+.ta-c{text-align:center}.ta-r{text-align:right}.ta-l{text-align:left}.ml-6{margin-left:6px}.ml-auto{margin-left:auto}
+.ink{color:var(--ink)}.ink-b{color:var(--ink);font-weight:600}.ink-m{color:var(--ink);font-weight:500}
+.w-full{width:100%}.min-w-0{min-width:0}.pointer{cursor:pointer}
+.dot.ok{color:var(--ok)}.dot.warn{color:var(--warn)}.dot.danger{color:var(--danger)}
+.section-title p.muted,.section-title p.small{margin-top:4px}.section-title.spaced{margin-top:32px}.section-title.spaced-sm{margin-top:28px}
+.card.auth-sm h1{font-size:18px}
+.form-foot{justify-content:flex-end;gap:8px;margin-top:12px}
+dialog .hd p.muted,dialog .hd p.small{margin-top:4px}
+details.small>summary.muted,summary.muted.pointer{cursor:pointer}
+details.small>p.muted,details.small>p.xs{margin:8px 0}
+.card.auth{max-width:460px;margin:48px auto 0}.card.auth-sm{max-width:420px;margin:48px auto 0}
+.card.auth-md{max-width:440px;margin:40px auto 0}.card.auth-lg{max-width:560px;margin:24px auto 0}
+.card.auth-480{max-width:480px;margin:48px auto 0}.card.auth-520{max-width:520px;margin:48px auto 0}
+.card.sheet-sm{max-width:460px;margin:24px auto 0}.card.center{text-align:center}
+article.legal{max-width:720px;margin:24px auto}
+.h2-block{margin:24px 0 10px}.h2-block-lg{margin:32px 0 10px}
+.form-actions{justify-content:flex-end;gap:8px;margin-top:16px}
 .truncate{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 
 /* header */
@@ -147,6 +192,7 @@ p{margin:0}
 .brand{display:flex;align-items:center;gap:5px;font-weight:600;letter-spacing:-.01em;color:var(--ink)}
 .brand svg{display:block}
 .wm{font-family:var(--font-mark);font-weight:400;font-size:22px;line-height:1;letter-spacing:0;filter:url(#wm-marker-sm)}.wm.lg{font-size:40px;filter:url(#wm-marker)} /* the wordmark: lowercase, Schoolbell, the marker filter (#2508) */
+.wm-defs{position:absolute}
 .nav .links{display:flex;gap:4px;margin-left:8px}
 .nav .links a{color:var(--muted);padding:6px 10px;border-radius:6px}
 .nav .links a:hover,.nav .links a[aria-current]{color:var(--ink);background:var(--bg-hover)}
@@ -199,6 +245,7 @@ label.lbl{display:block;font-size:13px;font-weight:500;color:var(--ink);margin:0
 .type span:not(.dot){color:var(--muted)}
 
 /* avatars */
+.h-8{--h:8}.h-28{--h:28}.h-46{--h:46}.h-140{--h:140}.h-168{--h:168}.h-192{--h:192}.h-214{--h:214}.h-248{--h:248}.h-280{--h:280}.h-322{--h:322}
 .av{--h:220;width:28px;height:28px;flex:none;border-radius:50%;display:inline-grid;place-items:center;font-size:11.5px;font-weight:600;letter-spacing:.01em;
   background:hsl(var(--h) var(--av-s) var(--av-l));color:hsl(var(--h) 12% var(--av-c));user-select:none;position:relative;overflow:hidden}
 .av.sm{width:22px;height:22px;font-size:10px}.av.xs{width:18px;height:18px;font-size:8px;flex:none}.av.lg{width:40px;height:40px;font-size:15px}
@@ -917,7 +964,7 @@ ${AGENT_LOGO_CSS}
 .bcard .bc-edit,.bcard .bc-links a{position:relative;z-index:1}
 .bc-top{gap:8px;align-items:center}
 .bc-top h3{margin:0;font-size:14.5px;font-weight:600;color:var(--ink)}
-.bc-dot{width:10px;height:10px;border-radius:3px;background:hsl(var(--h) 8% 55%);flex:none}
+.bc-dot{--h:220;width:10px;height:10px;border-radius:3px;background:hsl(var(--h) 8% 55%);flex:none}
 .bc-unread{font-size:11px;font-weight:600;color:var(--badge-fg);background:var(--badge-bg);border-radius:9px;padding:1px 7px;white-space:nowrap}
 .bc-edit{opacity:0;transition:opacity .12s}
 .bcard:hover .bc-edit,.bc-edit:focus-visible{opacity:1}
@@ -976,7 +1023,7 @@ mark{background:var(--mark);color:inherit;border-radius:2px;padding:0 1px}
 @keyframes breathe{0%,100%{box-shadow:0 0 0 0 color-mix(in srgb,var(--ok) 45%,transparent)}50%{box-shadow:0 0 0 3px color-mix(in srgb,var(--ok) 18%,transparent)}}
 .side-board-row{display:flex;align-items:center;position:relative}.side-board-row .side-board{flex:1;min-width:0}.pin-actions{position:relative;z-index:3}.pin-actions summary{list-style:none;cursor:pointer;color:var(--muted);padding:4px 7px;border-radius:6px}.pin-actions summary::-webkit-details-marker{display:none}.pin-actions summary:hover{background:var(--bg-hover);color:var(--ink)}.pin-actions>button{position:absolute;right:0;top:100%;white-space:nowrap;border:1px solid var(--line);border-radius:7px;background:var(--bg);color:var(--ink);padding:7px 14px;box-shadow:var(--shadow-lg);cursor:pointer}.pin-actions>button:hover{background:var(--bg-hover)}.pin-mark{font-size:12px;flex:none}.side-board .working{margin-left:auto;font-size:10.5px}.side-board .working .dot{width:6px;height:6px}
 @media (prefers-reduced-motion:reduce){.working .dot,.ag-dot.live{animation:none}}
-.board-head-menu{position:relative}.bc-menu{z-index:3}.board-head-menu summary{list-style:none;cursor:pointer}.board-head-menu summary::-webkit-details-marker{display:none}.board-head-menu-items{position:absolute;right:0;top:32px;z-index:30;min-width:165px;padding:4px;background:var(--bg);border:1px solid var(--line);border-radius:8px;box-shadow:var(--shadow-lg)}.board-head-menu-items button{display:block;width:100%;padding:8px;text-align:start;border:0;background:transparent;color:var(--ink);cursor:pointer}.board-head-menu-items button:hover{background:var(--bg-hover)}.side-board-row{position:relative;display:flex;align-items:center}.side-board-row>.side-board{flex:1;min-width:0;padding-right:30px}.board-row-menu{position:absolute;right:3px;top:2px;z-index:4}.board-row-menu summary{list-style:none;cursor:pointer;padding:3px 6px;color:var(--muted)}.board-row-menu summary::-webkit-details-marker{display:none}.board-row-menu .brm-items{position:absolute;right:0;top:27px;z-index:5;min-width:150px;padding:4px;border:1px solid var(--line);border-radius:7px;background:var(--bg);box-shadow:var(--shadow-lg)}.board-row-menu .brm-items button{display:block;width:100%;white-space:nowrap;padding:8px 12px;border:0;border-radius:5px;background:transparent;color:var(--ink);text-align:start;cursor:pointer}.board-row-menu .brm-items button:hover{background:var(--bg-hover)}.side-board .bdot{width:8px;height:8px;margin:0 5px;border-radius:3px;flex:none;background:hsl(var(--h) 8% 55%)}
+.board-head-menu{position:relative}.bc-menu{z-index:3}.board-head-menu summary{list-style:none;cursor:pointer}.board-head-menu summary::-webkit-details-marker{display:none}.board-head-menu-items{position:absolute;right:0;top:32px;z-index:30;min-width:165px;padding:4px;background:var(--bg);border:1px solid var(--line);border-radius:8px;box-shadow:var(--shadow-lg)}.board-head-menu-items button{display:block;width:100%;padding:8px;text-align:start;border:0;background:transparent;color:var(--ink);cursor:pointer}.board-head-menu-items button:hover{background:var(--bg-hover)}.side-board-row{position:relative;display:flex;align-items:center}.side-board-row>.side-board{flex:1;min-width:0;padding-right:30px}.board-row-menu{position:absolute;right:3px;top:2px;z-index:4}.board-row-menu summary{list-style:none;cursor:pointer;padding:3px 6px;color:var(--muted)}.board-row-menu summary::-webkit-details-marker{display:none}.board-row-menu .brm-items{position:absolute;right:0;top:27px;z-index:5;min-width:150px;padding:4px;border:1px solid var(--line);border-radius:7px;background:var(--bg);box-shadow:var(--shadow-lg)}.board-row-menu .brm-items button{display:block;width:100%;white-space:nowrap;padding:8px 12px;border:0;border-radius:5px;background:transparent;color:var(--ink);text-align:start;cursor:pointer}.board-row-menu .brm-items button:hover{background:var(--bg-hover)}.side-board .bdot{--h:220;width:8px;height:8px;margin:0 5px;border-radius:3px;flex:none;background:hsl(var(--h) 8% 55%)}
 /* board pictures (like a group chat's photo): a rounded square, its initial underneath until the image loads */
 .bpic{--h:220;position:relative;overflow:hidden;flex:none;display:inline-grid;place-items:center;width:28px;height:28px;border-radius:7px;
   background:hsl(var(--h) 8% var(--tile-l));color:var(--on-fill);font-size:13px;font-weight:600;line-height:1;user-select:none}
@@ -1192,6 +1239,15 @@ dialog.palette{margin-top:12vh;width:min(600px,calc(100vw - 24px));border-radius
 .hero{text-align:center;padding:64px 0 40px}
 .hero h1{font-size:clamp(34px,6vw,56px);letter-spacing:-.045em;line-height:1.05;margin:18px auto 16px;max-width:760px}
 .hero p.lead{font-size:17px;color:var(--muted);max-width:560px;margin:0 auto 28px}
+.hero .flash{max-width:520px;margin:0 auto 20px}.hero>.row{justify-content:center}
+.hero-foot{text-align:center;margin:28px 0 8px}
+.steps .card p.muted{margin-top:6px}
+.welcome-card h1{font-size:22px}.welcome-card>.muted{margin:8px 0 22px}.welcome-card .btn.primary{width:100%;margin-top:20px}
+.muse h1{font-size:20px}.muse>.muted{margin:8px 0 16px}.muse-out,.muse>.row{margin-top:16px}
+.muse-msg{white-space:pre-wrap;overflow-wrap:anywhere;margin:10px 0;padding:10px 12px;border:1px solid var(--line);border-radius:var(--r-sm);background:var(--bg-subtle);color:var(--ink)}
+.oauth-who{gap:10px;margin-bottom:14px}
+.inbox-acts{gap:6px;padding:0 12px 10px 48px}
+#connect .tabs{margin-bottom:14px}
 .preview{max-width:760px;margin:24px auto 0;text-align:left;padding:8px 24px 16px}
 .steps{display:grid;gap:16px;margin-top:32px}
 @media(min-width:760px){.steps{grid-template-columns:repeat(3,1fr)}}
@@ -1287,7 +1343,7 @@ export function pebble(px: number): string {
 /** The wordmark's marker filter (lowercase "atteo" in Schoolbell, never without it): once per page. wm-marker is the
  *  design's, for big sizes (.wm.lg); at interface sizes it eats the strokes, so .wm uses wm-marker-sm: the same hand
  *  wobble scaled down. */
-export const WORDMARK_DEFS = `<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs><filter id="wm-marker" x="-5%" y="-15%" width="110%" height="130%"><feTurbulence type="fractalNoise" baseFrequency="0.035" numOctaves="2" seed="7" result="n"/><feDisplacementMap in="SourceGraphic" in2="n" scale="5" xChannelSelector="R" yChannelSelector="G" result="d"/><feGaussianBlur in="d" stdDeviation="0.8" result="b"/><feComponentTransfer in="b"><feFuncA type="table" tableValues="0 0 0 0.5 1"/></feComponentTransfer></filter><filter id="wm-marker-sm" x="-5%" y="-15%" width="110%" height="130%"><feTurbulence type="fractalNoise" baseFrequency="0.07" numOctaves="2" seed="7" result="n"/><feDisplacementMap in="SourceGraphic" in2="n" scale="2" xChannelSelector="R" yChannelSelector="G" result="d"/><feGaussianBlur in="d" stdDeviation="0.35" result="b"/><feComponentTransfer in="b"><feFuncA type="table" tableValues="0 0.4 1 1"/></feComponentTransfer></filter></defs></svg>`;
+export const WORDMARK_DEFS = `<svg class="wm-defs" width="0" height="0" aria-hidden="true"><defs><filter id="wm-marker" x="-5%" y="-15%" width="110%" height="130%"><feTurbulence type="fractalNoise" baseFrequency="0.035" numOctaves="2" seed="7" result="n"/><feDisplacementMap in="SourceGraphic" in2="n" scale="5" xChannelSelector="R" yChannelSelector="G" result="d"/><feGaussianBlur in="d" stdDeviation="0.8" result="b"/><feComponentTransfer in="b"><feFuncA type="table" tableValues="0 0 0 0.5 1"/></feComponentTransfer></filter><filter id="wm-marker-sm" x="-5%" y="-15%" width="110%" height="130%"><feTurbulence type="fractalNoise" baseFrequency="0.07" numOctaves="2" seed="7" result="n"/><feDisplacementMap in="SourceGraphic" in2="n" scale="2" xChannelSelector="R" yChannelSelector="G" result="d"/><feGaussianBlur in="d" stdDeviation="0.35" result="b"/><feComponentTransfer in="b"><feFuncA type="table" tableValues="0 0.4 1 1"/></feComponentTransfer></filter></defs></svg>`;
 
 // The app icon (atteo-icon-light / -dark): the mark on its paper (or ink) tile.
 export const ICON_LIGHT_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024"><defs><clipPath id="bsq"><rect width="1024" height="1024" rx="230"/></clipPath><filter id="brough" x="-10%" y="-10%" width="120%" height="120%"><feTurbulence type="fractalNoise" baseFrequency="0.018" numOctaves="2" seed="7"/><feDisplacementMap in="SourceGraphic" scale="16"/></filter></defs><g clip-path="url(#bsq)"><rect width="1024" height="1024" fill="#FAFAF7"/><g transform="translate(512 512) translate(-519.9 -507.7)"><g filter="url(#brough)" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M400.0 512.0Q512.1 403.2 650.0 330.0M400.0 512.0Q517.1 623.8 660.0 700.0" stroke="#0E0E0E" stroke-width="22"/><g stroke-width="36"><g transform="translate(400.0 512.0) rotate(-90.0)" stroke="#6A1B24"><path d="M-95 -200L-19 0H19L95 -200"/><ellipse cx="0" cy="-200" rx="95" ry="32.3"/></g><g transform="translate(650.0 330.0) rotate(53.9)" stroke="#0E0E0E"><path d="M-70 -200V-6Q0 30.8 70 -6V-200"/><ellipse cx="0" cy="-200" rx="70" ry="23.8"/></g><g transform="translate(660.0 700.0) rotate(125.9)" stroke="#0E0E0E"><path d="M-70 -200V-6Q0 30.8 70 -6V-200"/><ellipse cx="0" cy="-200" rx="70" ry="23.8"/></g></g></g></g></g></svg>`;
@@ -1307,10 +1363,14 @@ export interface Viewer {
   lang?: Lang; // the interface language for pages (i18n.ts); English when unset
 }
 
+function extraCss(hrefs?: string[]): string {
+  return (hrefs ?? []).map((href) => `<link rel="stylesheet" href="${href}">`).join("");
+}
+
 export function page(
   title: string,
   body: string,
-  opts: { viewer?: Viewer | null; nav?: "boards" | "admin" | "me" | null; narrow?: boolean; script?: string; status?: number; headers?: HeadersInit; lang?: Lang; formAction?: string[] } = {},
+  opts: { viewer?: Viewer | null; nav?: "boards" | "admin" | "me" | null; narrow?: boolean; script?: string; status?: number; headers?: HeadersInit; lang?: Lang; formAction?: string[]; css?: string[] } = {},
 ): Response {
   const v = opts.viewer;
   const security = pageSecurity({ formAction: opts.formAction });
@@ -1323,14 +1383,14 @@ ${v ? `<nav class="links">${link("/", esc(tr(opts.lang, "Boards")), "boards")}</
       ? `<a href="/me" class="row" title="${esc(tr(opts.lang, "Account"))}">${avatar(v.name)}<span class="small hide-sm">${esc(v.name)}</span></a>`
       : `<a class="btn sm primary" href="/auth/login">${esc(tr(opts.lang, "Sign in"))}</a>`
   }</div></div></header>`;
-  const html = `<!doctype html><html lang="${opts.lang ?? "en"}"${dirOf(opts.lang) === "rtl" ? ' dir="rtl"' : ""}><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  const html = styleNonce(`<!doctype html><html lang="${opts.lang ?? "en"}"${dirOf(opts.lang) === "rtl" ? ' dir="rtl"' : ""}><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${esc(title)}</title>
 ${FONT_PRELOAD}
 <link rel="icon" href="${FAVICON_SRC}" type="image/svg+xml"><link rel="apple-touch-icon" href="${APPLE_TOUCH_SRC}">
-<link rel="stylesheet" href="${APP_CSS_SRC}">${DISPLAY_HEAD.replace("<script>", `<script nonce="${security.nonce}">`)}</head><body>${WORDMARK_DEFS}${nav}
+<link rel="stylesheet" href="${APP_CSS_SRC}">${extraCss(opts.css)}${DISPLAY_HEAD.replace("<script>", `<script nonce="${security.nonce}">`)}</head><body>${WORDMARK_DEFS}${nav}
 <main${opts.narrow ? ' class="narrow"' : ""}>${body}</main>
 <div id="toast" role="status" aria-live="polite"></div>
-<script src="${APP_JS_SRC}" nonce="${security.nonce}"></script>${opts.script ? `<script nonce="${security.nonce}">${opts.script}</script>` : ""}</body></html>`;
+<script src="${APP_JS_SRC}" nonce="${security.nonce}"></script>${opts.script ? `<script nonce="${security.nonce}">${opts.script}</script>` : ""}</body></html>`, security.nonce);
   const headers = new Headers(opts.headers);
   headers.set("content-type", "text/html; charset=utf-8");
   for (const [name, value] of Object.entries(security.headers)) headers.set(name, value);
@@ -1347,6 +1407,10 @@ export function hue(name: string): number {
   return hues[h % hues.length];
 }
 
+export function hueClass(name: string): string {
+  return `h-${hue(name)}`;
+}
+
 export function initials(name: string): string {
   const parts = name.split(/[._\-\s]+/).filter(Boolean);
   return ((parts[0]?.[0] ?? "?") + (parts[1]?.[0] ?? parts[0]?.[1] ?? "")).toUpperCase();
@@ -1356,12 +1420,12 @@ export function initials(name: string): string {
 /** Initials on a color, covered by the member's picture when they've set one (a missing picture just stays hidden). */
 export function avatar(name: string, size: "" | "xs" | "sm" | "lg" = "", agent = false): string {
   const src = `/avatar/${encodeURIComponent(name)}${agent ? "?k=agent" : ""}`;
-  return `<span class="av ${size}${agent ? " agent" : ""}" style="--h:${hue(name)}" title="${esc(agent ? `${name}'s agent` : name)}">${esc(initials(name))}<img class="av-img" src="${esc(src)}" alt="" loading="lazy"></span>`;
+  return `<span class="av${size ? ` ${size}` : ""}${agent ? " agent" : ""} ${hueClass(name)}" title="${esc(agent ? `${name}'s agent` : name)}">${esc(initials(name))}<img class="av-img" src="${esc(src)}" alt="" loading="lazy"></span>`;
 }
 
 export function avatarStack(names: string[], max = 5): string {
   const shown = names.slice(0, max).map((n) => avatar(n, "sm")).join("");
-  const more = names.length > max ? `<span class="xs muted" style="margin-left:6px">+${names.length - max}</span>` : "";
+  const more = names.length > max ? `<span class="xs muted ml-6">+${names.length - max}</span>` : "";
   return `<span class="avs">${shown}</span>${more}`;
 }
 
@@ -1468,7 +1532,8 @@ function block(p: string, mentions?: Mention[] | null, ck = { n: 0 }): string {
       return;
     }
     const align = cells(t[1]).map((c) => (c.startsWith(":") && c.endsWith(":") ? "center" : c.endsWith(":") ? "right" : ""));
-    const td = (tag: string, c: string, i: number) => `<${tag}${align[i] ? ` style="text-align:${align[i]}"` : ""}>${inline(c, mentions)}</${tag}>`;
+    const alignCls = (i: number) => (align[i] === "center" ? " ta-c" : align[i] === "right" ? " ta-r" : "");
+    const td = (tag: string, c: string, i: number) => `<${tag}${alignCls(i) ? ` class="${alignCls(i).trim()}"` : ""}>${inline(c, mentions)}</${tag}>`;
     out.push(`<div class="md-tw"><table class="md-t"><thead><tr>${cells(t[0]).map((c, i) => td("th", c, i)).join("")}</tr></thead><tbody>${t.slice(2).map((r) => `<tr>${cells(r).map((c, i) => td("td", c, i)).join("")}</tr>`).join("")}</tbody></table></div>`);
   };
   for (const line of lines) {
@@ -1644,6 +1709,12 @@ export const APP_CSS = `${FONT_CSS}\n${CSS}`;
 export const APP_CSS_SRC = `/app.css?v=${fnv(APP_CSS)}`;
 export const APP_JS = CLIENT_JS;
 export const APP_JS_SRC = `/app.js?v=${fnv(APP_JS)}`;
+/** Page-only stylesheets (For you / Guide / Ask / Docs). Kept off /app.css so board and inbox stay in the CSS budget. */
+export const PAGE_CSS: Record<string, string> = { "/fy.css": FY_CSS, "/guide.css": GUIDE_CSS, "/ask.css": ASK_CSS, "/docs.css": DOC_CSS };
+export const FY_CSS_SRC = `/fy.css?v=${fnv(FY_CSS)}`;
+export const GUIDE_CSS_SRC = `/guide.css?v=${fnv(GUIDE_CSS)}`;
+export const ASK_CSS_SRC = `/ask.css?v=${fnv(ASK_CSS)}`;
+export const DOC_CSS_SRC = `/docs.css?v=${fnv(DOC_CSS)}`;
 
 // ---------- app shell (signed-in pages) ----------
 
@@ -1686,7 +1757,7 @@ export function boardInitial(title: string): string {
 export function boardPic(b: { id: string; title: string; picture?: string | null }, size: "" | "xs" | "sm" | "lg" = "", fallback?: string): string {
   if (!b.picture && fallback !== undefined) return fallback;
   const img = b.picture ? `<img src="${esc(b.picture)}" alt="" loading="lazy">` : "";
-  return `<span class="bpic${size ? ` ${size}` : ""}" style="--h:${hue(b.id)}" aria-hidden="true">${esc(boardInitial(b.title))}${img}</span>`;
+  return `<span class="bpic${size ? ` ${size}` : ""} ${hueClass(b.id)}" aria-hidden="true">${esc(boardInitial(b.title))}${img}</span>`;
 }
 
 /** "N working" with a breathing green dot: agents on a board right now. Always rendered (hidden at 0) so it can update live. */
@@ -1713,6 +1784,7 @@ export function appPage(
     narrow?: boolean;
     full?: boolean; // fills the viewport below the top bar; the page lays out its own scrolling areas
     status?: number;
+    css?: string[];
   },
 ): Response {
   const v = opts.viewer;
@@ -1723,7 +1795,7 @@ export function appPage(
     direct = opts.boards.filter((b) => b.kind === "direct"),
     own = opts.boards.find((b) => b.kind === "agent");
   const sideBoards = shared
-    .map((b) => `<div class="side-board-row"><a class="side-link side-board" href="/b/${esc(b.id)}"${cur(b.id)}>${boardPic(b, "xs", `<span class="bdot" style="--h:${hue(b.id)}"></span>`)}<span class="truncate">${esc(b.title)}</span>${b.pinned ? `<span class="pin-mark" aria-label="${esc(T("Pinned"))}" title="${esc(T("Pinned"))}">📌</span>` : ""}${working(b.live ?? 0, b.id)}</a><details class="board-row-menu"><summary aria-label="${esc(T("More actions"))}" title="${esc(T("More actions"))}">⋯</summary><div class="brm-items"><button type="button" data-mark-unread="${esc(b.id)}">${esc(T("Mark as unread"))}</button><button type="button" data-pin-board="${esc(b.id)}">${esc(T(b.pinned ? "Unpin" : "Pin"))}</button></div></details></div>`)
+    .map((b) => `<div class="side-board-row"><a class="side-link side-board" href="/b/${esc(b.id)}"${cur(b.id)}>${boardPic(b, "xs", `<span class="bdot ${hueClass(b.id)}"></span>`)}<span class="truncate">${esc(b.title)}</span>${b.pinned ? `<span class="pin-mark" aria-label="${esc(T("Pinned"))}" title="${esc(T("Pinned"))}">📌</span>` : ""}${working(b.live ?? 0, b.id)}</a><details class="board-row-menu"><summary aria-label="${esc(T("More actions"))}" title="${esc(T("More actions"))}">⋯</summary><div class="brm-items"><button type="button" data-mark-unread="${esc(b.id)}">${esc(T("Mark as unread"))}</button><button type="button" data-pin-board="${esc(b.id)}">${esc(T(b.pinned ? "Unpin" : "Pin"))}</button></div></details></div>`)
     .join("");
   // Direct boards read as the person you share them with.
   const sideDirect = direct
@@ -1759,12 +1831,12 @@ export function appPage(
   <a class="side-link side-connect" href="/me#connect" data-connect>${ICON.plug}<span class="dev-l">${esc(T("Connect an agent"))}</span><span class="ev-l">${esc(T("Connect your assistant"))}</span></a>
   ${v.admin ? `<a class="side-link" href="/_ops"${cur("admin")}>${ICON.admin}<span>Ops</span></a>` : ""}
   <div class="side-label"><span>${esc(T("Your boards"))}</span><a href="/?new=1" title="${esc(T("New board (C)"))}" aria-label="${esc(T("New board"))}">${ICON.plus}</a></div>
-  ${sideBoards || `<p class="xs faint" style="padding:2px 9px">${esc(T("No boards yet"))}</p>`}
+  ${sideBoards || `<p class="xs faint px-side">${esc(T("No boards yet"))}</p>`}
   <div class="side-label"><span>${esc(T("DMs"))}</span></div>${sideOwn}${sideDirect}
   <div class="me"><a class="side-link" href="/me">${avatar(v.name, "sm")}<span class="truncate">${personHtml(v.name, v.display_name, opts.boards.filter((b) => b.kind === "direct").map((b) => directPeer(b, v.name)))}</span></a><button class="btn ghost sm bug-btn" type="button" data-feedback aria-label="${esc(T("Send feedback"))}"></button><button class="btn ghost sm bug-btn" type="button" data-bug data-bug-src="${BUG_JS_SRC}" aria-label="${esc(T("Report a bug"))}" title="${esc(T("Report a bug"))}">${ICON.warn}</button></div>
 </aside>
 <div class="nav-scrim" data-nav-close aria-hidden="true"></div>
-<div class="grow" style="min-width:0">
+<div class="grow min-w-0">
   <header class="topbar"><button class="btn ghost sm menu-btn" type="button" data-nav aria-label="${esc(T("Menu"))}" aria-controls="sidebar" aria-expanded="false">${ICON.menu}</button>
     <nav class="crumbs" aria-label="Breadcrumb">${opts.crumbs}</nav><div class="actions">${opts.actions ?? ""}</div></header>
   <div class="content${opts.narrow ? " narrow" : ""}${opts.full ? " full" : ""}">${opts.body}</div>
@@ -1774,7 +1846,7 @@ export function appPage(
 <div class="pal-filters" id="pal-filters" aria-label="${esc(T("Filters"))}"></div>
 <ul id="palette-list" role="listbox"></ul><div class="foot"><span><kbd>↑</kbd> <kbd>↓</kbd> ${esc(T("move"))}</span><span><kbd>↵</kbd> ${esc(T("open"))}</span><span><kbd>⌫</kbd> ${esc(T("remove filter"))}</span><span><kbd>esc</kbd> ${esc(T("close"))}</span></div></dialog>
 <dialog id="bug" aria-labelledby="bug-title"><form id="bug-form">
-<div class="hd"><div><h2 id="bug-title">${esc(T("Report a bug"))}</h2><p class="muted small" style="margin-top:4px">${esc(T("It goes to the developers. Add pictures if they help: paste them, drop them here or use the paper clip."))}</p></div><button type="button" class="btn ghost sm" data-close aria-label="${esc(T("Close"))}">✕</button></div>
+<div class="hd"><div><h2 id="bug-title">${esc(T("Report a bug"))}</h2><p class="muted small">${esc(T("It goes to the developers. Add pictures if they help: paste them, drop them here or use the paper clip."))}</p></div><button type="button" class="btn ghost sm" data-close aria-label="${esc(T("Close"))}">✕</button></div>
 <div class="bd">
   <textarea class="input" id="bug-text" rows="4" required minlength="8" maxlength="2000" aria-label="${esc(T("What happened? What did you expect?"))}" placeholder="${esc(T("What happened? What did you expect?"))}"></textarea>
   <div class="bug-pics" id="bug-pics" hidden></div>
@@ -1798,7 +1870,7 @@ export function appPage(
 <dt><kbd>G</kbd> ${esc(T("then"))} <kbd>I</kbd> <kbd>A</kbd> <kbd>B</kbd> <kbd>P</kbd> <kbd>M</kbd></dt><dd>${esc(T("Go to Inbox / Approvals / Boards / People / Account"))}</dd>
 <dt><kbd>?</kbd></dt><dd>${esc(T("This list"))}</dd></dl></div></dialog>
 <script>window.PALETTE=${JSON.stringify(paletteItems).replace(/</g, "\\u003c")};${v.admin ? "window.OPS=1;" : ""}</script>`;
-  return rawPage(title, body, (opts.script ?? "") + scriptSrc(SHELL_JS_SRC), opts.status, v.lang ?? "en");
+  return rawPage(title, body, (opts.script ?? "") + scriptSrc(SHELL_JS_SRC), opts.status, v.lang ?? "en", opts.css);
 }
 
 const PINS_JS = `
@@ -1905,22 +1977,22 @@ $('bug-form')?.addEventListener('submit',async e=>{e.preventDefault();
 export const BOARD_PREFETCH_RULES = JSON.stringify({ prefetch: [{ source: "document", where: { href_matches: "/b/*" }, eagerness: "moderate" }] });
 export const BOARD_PREFETCH_PATH = "/speculation-rules.json";
 // Report a bug (jxn #3336, glm-b #3343): the sidebar button captures the page as a PNG in the browser (the DOM is
-function rawPage(title: string, body: string, script: string, status = 200, lang: Lang = "en"): Response {
+function rawPage(title: string, body: string, script: string, status = 200, lang: Lang = "en", css?: string[]): Response {
   const security = pageSecurity();
-  const html = `<!doctype html><html lang="${lang}"${dirOf(lang as Lang) === "rtl" ? ' dir="rtl"' : ""}><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  const html = styleNonce(`<!doctype html><html lang="${lang}"${dirOf(lang as Lang) === "rtl" ? ' dir="rtl"' : ""}><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${esc(title)}</title>
 ${FONT_PRELOAD}${scriptPreloads(script)}
 <link rel="icon" href="${FAVICON_SRC}" type="image/svg+xml"><link rel="apple-touch-icon" href="${APPLE_TOUCH_SRC}">
-<link rel="stylesheet" href="${APP_CSS_SRC}">${DISPLAY_HEAD.replace("<script>", `<script nonce="${security.nonce}">`)}</head><body>${WORDMARK_DEFS}${body.replace("<script>window.PALETTE=", `<script nonce="${security.nonce}">window.PALETTE=`)}
+<link rel="stylesheet" href="${APP_CSS_SRC}">${extraCss(css)}${DISPLAY_HEAD.replace("<script>", `<script nonce="${security.nonce}">`)}</head><body>${WORDMARK_DEFS}${body.replace("<script>window.PALETTE=", `<script nonce="${security.nonce}">window.PALETTE=`)}
 <div id="toast" role="status" aria-live="polite"></div>
-${lang === "en" ? "" : `<script nonce="${security.nonce}">window.I18N=${clientTable(lang)}</script>`}<script src="${APP_JS_SRC}" nonce="${security.nonce}"></script>${pageScripts(script, security.nonce)}</body></html>`;
+${lang === "en" ? "" : `<script nonce="${security.nonce}">window.I18N=${clientTable(lang)}</script>`}<script src="${APP_JS_SRC}" nonce="${security.nonce}"></script>${pageScripts(script, security.nonce)}</body></html>`, security.nonce);
   return new Response(html, { status, headers: { "content-type": "text/html; charset=utf-8", "content-language": lang, vary: "Accept-Language, Cookie", "speculation-rules": `"${BOARD_PREFETCH_PATH}"`, ...security.headers } });
 }
 
 /** Send feedback (vedu #4125): the form, fetched on the first click from /feedback-form and localized there, so pages
  *  don't carry it (web-budget). English as written; i18n.localize translates its text, labels and placeholder. */
 export const FEEDBACK_DIALOG = `<dialog id="feedback" aria-labelledby="fb-title"><form id="fb-form">
-<div class="hd"><div><h2 id="fb-title">Send feedback</h2><p class="muted small" style="margin-top:4px">An idea, a complaint, something you like: it goes to the Atteo team. Only what you write here is sent.</p></div><button type="button" class="btn ghost sm" data-close aria-label="Close">✕</button></div>
+<div class="hd"><div><h2 id="fb-title">Send feedback</h2><p class="muted small">An idea, a complaint, something you like: it goes to the Atteo team. Only what you write here is sent.</p></div><button type="button" class="btn ghost sm" data-close aria-label="Close">✕</button></div>
 <div class="bd"><textarea class="input" id="fb-text" rows="4" required maxlength="2000" aria-label="Your feedback" placeholder="Your feedback"></textarea><p class="small" id="fb-status" role="status" hidden></p><span id="fb-thanks" hidden>Thanks, the Atteo team will read it.</span><span id="fb-err" hidden>Couldn&#39;t send it. Try again.</span></div>
 <div class="ft"><button type="button" class="btn" data-close>Cancel</button><button class="btn primary" type="submit" id="fb-send">Send</button></div>
 </form></dialog>`;

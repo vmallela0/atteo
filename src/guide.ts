@@ -8,7 +8,7 @@
 
 import { GUIDE_TR } from "./guide.i18n";
 import { tr, type Lang } from "./i18n";
-import { appPage, page, type SideBoard, type Viewer } from "./ui";
+import { appPage, GUIDE_CSS_SRC, page, type SideBoard, type Viewer } from "./ui";
 import { esc } from "./util";
 
 export type GuideItem = {
@@ -478,25 +478,6 @@ export function gtr(lang: Lang | null | undefined, s: string): string {
   return (lang && lang !== "en" && GUIDE_TR[lang]?.[s]) || tr(lang, s);
 }
 
-const GUIDE_CSS = `<style>
-.gd-top{display:flex;flex-direction:column;gap:10px;margin-bottom:14px}
-.gd-q{width:100%;max-width:420px}
-.gd-jump{display:flex;flex-wrap:wrap;gap:6px}
-.gd-jump a{font-size:12.5px;padding:3px 9px;border:1px solid var(--line);border-radius:999px;color:var(--muted);text-decoration:none;background:var(--bg-subtle)}
-.gd-jump a:hover{color:var(--ink);border-color:var(--line-strong)}
-.gd-sec{margin:22px 0 8px;scroll-margin-top:72px}
-.gd-sec h2{font-size:15px;font-weight:600;margin:0 0 8px}
-.gd-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:10px}
-.gd-item{padding:12px 14px;scroll-margin-top:72px}
-.gd-item h3{font-size:14px;font-weight:600;margin:0 0 4px;display:flex;gap:6px;align-items:baseline}
-.gd-item h3 a{color:var(--faint);text-decoration:none;font-weight:400;opacity:0;font-size:12px}
-.gd-item:hover h3 a,.gd-item h3 a:focus{opacity:1}
-.gd-item p{margin:0;color:var(--muted);font-size:13.5px;line-height:1.5}
-.gd-item:target{outline:2px solid var(--focus);outline-offset:1px}
-.gd-agents{margin-top:26px;font-size:13px}
-@media (max-width:520px){.gd-list{grid-template-columns:1fr}.gd-q{max-width:none}}
-</style>`;
-
 const GUIDE_JS = `
 (()=>{const q=document.getElementById('gd-q'),none=document.getElementById('gd-none');if(!q)return;
 const norm=s=>s.toLowerCase().normalize('NFKD').replace(/[\\u0300-\\u036f]/g,'');
@@ -511,7 +492,7 @@ if(location.hash)document.querySelector(location.hash.replace(/[^#\\w-]/g,''))?.
 export function guidePage(lang: Lang, viewer: Viewer | null, side: SideBoard[], origin: string): Response {
   const G = (s: string) => esc(gtr(lang, s));
   const sections = GUIDE.map((s) => ({ ...s, items: s.items.filter((i) => i.title && i.how) })).filter((s) => s.items.length);
-  const body = `${GUIDE_CSS}<div class="section-title"><div><h1>${G("What Atteo can do")}</h1><p class="muted" style="margin-top:4px">${G("Everything you can do in Atteo, on the web and in the app, by task.")}</p></div></div>
+  const body = `<div class="section-title"><div><h1>${G("What Atteo can do")}</h1><p class="muted">${G("Everything you can do in Atteo, on the web and in the app, by task.")}</p></div></div>
 <div class="gd-top"><input class="input gd-q" id="gd-q" type="search" placeholder="${G("Search the guide")}" aria-label="${G("Search the guide")}" autocomplete="off">
 <nav class="gd-jump" aria-label="${G("Sections")}">${sections.map((s) => `<a href="#${s.id}">${G(s.title)}</a>`).join("")}</nav></div>
 ${sections
@@ -524,8 +505,8 @@ ${sections
 <p class="muted" id="gd-none" hidden>${G("Nothing in the guide matches that.")}</p>
 <p class="faint gd-agents">${G("Agents read the same list at")} <a href="${esc(origin)}/agents.md">${esc(origin.replace(/^https?:\/\//, ""))}/agents.md</a> (<code>atteo guide</code>).</p>`;
   const title = `${gtr(lang, "Guide")} · Atteo`;
-  if (viewer) return appPage(title, { viewer, boards: side, active: "guide", crumbs: `<span class="cur">${G("Guide")}</span>`, body, script: GUIDE_JS });
-  return page(title, body, { script: GUIDE_JS, lang, headers: { "content-language": lang, vary: "Accept-Language, Cookie" } });
+  if (viewer) return appPage(title, { viewer, boards: side, active: "guide", crumbs: `<span class="cur">${G("Guide")}</span>`, body, script: GUIDE_JS, css: [GUIDE_CSS_SRC] });
+  return page(title, body, { script: GUIDE_JS, lang, headers: { "content-language": lang, vary: "Accept-Language, Cookie" }, css: [GUIDE_CSS_SRC] });
 }
 
 /** /agents.md: the same features as tools and one-line rules, compact plain Markdown (agent-first: read it when needed). */

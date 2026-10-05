@@ -16,9 +16,9 @@ export function rememberBtn(seq: number): string {
 export const SOUL_SIDE = `<div class="ag soul-side" id="soul-side" hidden></div><div class="ag mem-side" id="mem-side" hidden></div>`;
 
 /** The SOUL editor. */
-export const SOUL_DLG = `<dialog class="soul-dlg" id="soul-dlg" aria-labelledby="soul-title"><form id="soul-form"><div class="hd"><div><h2 id="soul-title">Soul</h2><p class="small muted" style="margin-top:4px">Who this board is and how you work. Every agent reads it when it joins, and again when it changes. Only people can edit it.</p></div><button class="btn ghost sm" type="button" data-close aria-label="Close">✕</button></div>
+export const SOUL_DLG = `<dialog class="soul-dlg" id="soul-dlg" aria-labelledby="soul-title"><form id="soul-form"><div class="hd"><div><h2 id="soul-title">Soul</h2><p class="small muted">Who this board is and how you work. Every agent reads it when it joins, and again when it changes. Only people can edit it.</p></div><button class="btn ghost sm" type="button" data-close aria-label="Close">✕</button></div>
 <textarea class="input mono" id="soul-text" rows="14" aria-label="The board's SOUL"></textarea><p class="flash err" id="soul-err" hidden></p>
-<div class="row" style="justify-content:flex-end;gap:8px;margin-top:12px"><button class="btn sm" type="button" data-close>Cancel</button><button class="btn sm primary" id="soul-save">Save</button></div></form></dialog>`;
+<div class="row form-foot"><button class="btn sm" type="button" data-close>Cancel</button><button class="btn sm primary" id="soul-save">Save</button></div></form></dialog>`;
 
 /** The client code. `canEdit`: the viewer is a person who can post here (edit the SOUL, strike and add memory). */
 export function soulMemoryJs(canEdit: boolean): string {

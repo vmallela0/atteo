@@ -45,6 +45,9 @@ const SECURE = ["secure", "securityLevel", "startOnLoad", "maxTextSize", "suppre
 export const MERMAID_JS = `
 (()=>{const SRC=${JSON.stringify(MERMAID_SRC)},SRI=${JSON.stringify(MERMAID_SRI)},SECURE=${JSON.stringify(SECURE)},NONCE=document.currentScript?.nonce||'';
 let lib=null,io=null,seq=0,q=Promise.resolve(),sig='',watching=false;const seen=new WeakSet();
+const withStyleNonce=fn=>{const p=Document.prototype,orig=p.createElement;
+  p.createElement=function(name,opts){const el=orig.call(this,name,opts);if(String(name).toLowerCase()==='style')el.nonce=NONCE;return el};
+  try{return fn()}finally{p.createElement=orig}};
 const load=()=>lib||(lib=new Promise((ok,no)=>{const s=document.createElement('script');s.src=SRC;s.integrity=SRI;s.crossOrigin='anonymous';s.referrerPolicy='no-referrer';
   s.nonce=NONCE;s.onload=()=>window.mermaid?ok(window.mermaid):no(new Error('mermaid missing'));s.onerror=()=>no(new Error('mermaid did not load'));document.head.appendChild(s)}));
 const tok=n=>getComputedStyle(document.documentElement).getPropertyValue('--'+n).trim();
@@ -67,15 +70,15 @@ function scrub(html){const t=document.createElement('template');t.innerHTML=html
   s.querySelectorAll(BAD).forEach(n=>n.remove());s.querySelectorAll('style').forEach(n=>{if(n.parentNode!==s)n.remove()}); // a <style> in a label would style the whole page
   for(const n of [s,...s.querySelectorAll('*')])for(const a of [...n.attributes]){const k=a.name.toLowerCase(),val=a.value.replace(/\\s+/g,'');
     if(k.startsWith('on')||((k==='href'||k.endsWith(':href')||k==='src'||k==='action'||k==='formaction')&&!val.startsWith('#'))||(k==='style'&&/url\\((?!['"]?#)|expression|@import/i.test(val)))n.removeAttribute(a.name)}
-  s.querySelectorAll('style').forEach(st=>{st.textContent=st.textContent.replace(/@import[^;]*;?/gi,'').replace(/url\\(\\s*(?!['"]?#)[^)]*\\)/gi,'none')});
+  s.querySelectorAll('style').forEach(st=>{st.nonce=NONCE;st.textContent=st.textContent.replace(/@import[^;]*;?/gi,'').replace(/url\\(\\s*(?!['"]?#)[^)]*\\)/gi,'none')});
   // Fits the message, but never below 3/4 of its natural size (text stays readable): past that it scrolls sideways.
   const vb=(s.getAttribute('viewBox')||'').split(/[\\s,]+/).map(Number);s.removeAttribute('height');s.setAttribute('width','100%');
   if(vb.length===4&&vb[2]>0&&vb[3]>0){s.style.maxWidth=Math.ceil(vb[2])+'px';s.style.minWidth=Math.ceil(vb[2]*0.75)+'px';s.style.aspectRatio=vb[2]+' / '+vb[3]}return document.importNode(s,true)}
 // Image shapes (A@{img: "https://…"}) would fetch from anywhere while mermaid measures them: those stay as code.
 const OFFSITE=/@\\{[^}]*\\bimg\\s*:/i;
 function draw(el){q=q.then(async()=>{const code=el.querySelector('.code-b code');if(!code)return;if(OFFSITE.test(code.textContent))throw new Error('image shape');const m=await load();const c=cfg(),k=JSON.stringify(c.themeVariables);
-  if(k!==sig){m.initialize(c);sig=k}const id='mmd-'+(++seq);
-  try{const r=await m.render(id,code.textContent);const svg=scrub(r&&r.svg);if(!svg)throw new Error('no svg');
+  if(k!==sig){withStyleNonce(()=>m.initialize(c));sig=k}const id='mmd-'+(++seq);
+  try{const r=await withStyleNonce(()=>m.render(id,code.textContent));const svg=scrub(r&&r.svg);if(!svg)throw new Error('no svg');
     let d=el.querySelector(':scope>.mmd-d');if(!d){d=document.createElement('div');d.className='mmd-d';d.setAttribute('role','img');d.setAttribute('aria-label','Diagram');el.prepend(d)}
     d.replaceChildren(svg);
     if(!el.querySelector(':scope>.mmd-src')){const det=document.createElement('details');det.className='mmd-src';det.innerHTML='<summary>Code</summary>';det.append(el.querySelector(':scope>.code-b'));el.append(det)}

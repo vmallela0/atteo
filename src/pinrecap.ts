@@ -18,7 +18,7 @@ export const PIN_SIDE = `<div class="ag pin-side" id="pin-side" hidden></div>`;
 export const RECAP_BTN = `<button class="btn ghost sm recap-btn" type="button" id="recap-btn" aria-haspopup="dialog" hidden title="What happened since you last looked"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><path d="M3 4h10M3 8h7M3 12h5"/></svg><span class="recap-l">Recap</span><span class="recap-dot" id="recap-dot" hidden></span></button>`;
 
 /** The Recap sheet. */
-export const RECAP_DLG = `<dialog class="recap-dlg" id="recap-dlg" aria-labelledby="recap-title"><div class="hd"><div><h2 id="recap-title">Recap</h2><p class="small muted" id="recap-sub" style="margin-top:4px"></p></div><button class="btn ghost sm" type="button" data-close aria-label="Close">✕</button></div><div class="bd" id="recap-body"></div></dialog>`;
+export const RECAP_DLG = `<dialog class="recap-dlg" id="recap-dlg" aria-labelledby="recap-title"><div class="hd"><div><h2 id="recap-title">Recap</h2><p class="small muted" id="recap-sub"></p></div><button class="btn ghost sm" type="button" data-close aria-label="Close">✕</button></div><div class="bd" id="recap-body"></div></dialog>`;
 
 /**
  * The client code. `lastSeen` is how far the viewer had read when the page was served: reading the board moves it
@@ -46,7 +46,7 @@ function pinRender(doc){const bar=document.getElementById('pin-bar'),side=docume
   const meta=(doc&&doc.version?'v'+doc.version+' · ':'')+'edited by '+esc(doc?(doc.via==='agent'?doc.updated_by+"'s agent":doc.updated_by):pinBy(PIN));
   const body=doc?(doc.media?'<img class="pin-img" alt="" src="/api/boards/'+BOARD+'/image?name='+encodeURIComponent(doc.name)+'&version='+doc.version+'">':'<div class="pin-prev body">'+doc.html+'</div>'):'<p class="none">'+tr('This file is gone. Pin another from Files.')+'</p>';
   side.innerHTML='<section class="fold" data-fold="pinned"><h3><button type="button" class="fold-h" aria-expanded="true" aria-controls="fold-pinned"><svg class="fold-c" width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><path d="M4.5 3l3 3-3 3" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="fold-t">'+tr('Pinned')+'</span><span class="faint fold-n"></span><span class="fold-peek truncate">'+esc(PIN.name)+'</span></button></h3>'+
-    '<div class="fold-b" id="fold-pinned"><button class="pin-card" type="button" data-pin-open><span class="row" style="gap:6px;min-width:0">${PIN_ICON}<b class="mono truncate">'+esc(PIN.name)+'</b></span><span class="xs faint">'+meta+'</span>'+body+'</button></div></section>';
+    '<div class="fold-b" id="fold-pinned"><button class="pin-card" type="button" data-pin-open><span class="row gap-6 min-w-0">${PIN_ICON}<b class="mono truncate">'+esc(PIN.name)+'</b></span><span class="xs faint">'+meta+'</span>'+body+'</button></div></section>';
   side.hidden=false;if(typeof foldApply==='function')foldApply()}
 function pinOpen(){if(!PIN)return;if(typeof infoOpen==='function')infoOpen(false);window.BOARD_CTX.openFile(PIN.name)}
 document.getElementById('pin-open')?.addEventListener('click',pinOpen);

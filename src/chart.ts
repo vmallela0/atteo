@@ -73,7 +73,7 @@ function ticks(lo: number, hi: number): number[] {
 function table(s: Spec): string {
   const unit = s.unit ? ` (${esc(s.unit)})` : "";
   return `<table class="md-t"><thead><tr><th></th>${s.series.map((x) => `<th>${esc(x.name)}${unit}</th>`).join("")}</tr></thead><tbody>${s.x
-    .map((lab, i) => `<tr><td>${esc(lab)}</td>${s.series.map((x) => `<td style="text-align:right">${x.values[i] ?? ""}</td>`).join("")}</tr>`)
+    .map((lab, i) => `<tr><td>${esc(lab)}</td>${s.series.map((x) => `<td class="ta-r">${x.values[i] ?? ""}</td>`).join("")}</tr>`)
     .join("")}</tbody></table>`;
 }
 

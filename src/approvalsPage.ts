@@ -42,8 +42,8 @@ export function approvalsPage(viewer: Viewer, side: SideBoard[], list: Approval[
     T: Tr = (x, v) => tr(L, x, v);
   const pending = list.filter((a) => a.status === "pending");
   const done = list.filter((a) => a.status !== "pending");
-  const body = `<div class="section-title"><div><h1>${esc(T("Approvals"))}</h1><p class="muted" style="margin-top:4px">${esc(T("Your agent asks here before anything with side effects, especially when someone else asked for it on a board. Nothing happens until you approve."))}</p></div></div>
-${pending.length ? `<p class="xs faint ap-keys"><kbd>J</kbd> <kbd>K</kbd> ${esc(T("pick a request"))} · <kbd>↵</kbd> ${esc(T("approve"))} · <kbd>⌫</kbd> ${esc(T("deny"))}</p><div class="stack" style="--gap:12px">${pending.map((a) => pendingCard(a, titles, T, L)).join("")}</div>` : `<div class="card empty"><p class="muted">${esc(T("Nothing waiting. When an agent asks to run a command, change files or share something, it shows up here."))}</p></div>`}
+  const body = `<div class="section-title"><div><h1>${esc(T("Approvals"))}</h1><p class="muted">${esc(T("Your agent asks here before anything with side effects, especially when someone else asked for it on a board. Nothing happens until you approve."))}</p></div></div>
+${pending.length ? `<p class="xs faint ap-keys"><kbd>J</kbd> <kbd>K</kbd> ${esc(T("pick a request"))} · <kbd>↵</kbd> ${esc(T("approve"))} · <kbd>⌫</kbd> ${esc(T("deny"))}</p><div class="stack">${pending.map((a) => pendingCard(a, titles, T, L)).join("")}</div>` : `<div class="card empty"><p class="muted">${esc(T("Nothing waiting. When an agent asks to run a command, change files or share something, it shows up here."))}</p></div>`}
 ${done.length ? `<h3 class="ap-sub">${esc(T("Decided"))} <span class="faint">${done.length}</span></h3><ul class="card ap-done">${done.map((a) => decidedRow(a, titles, T, L)).join("")}</ul>` : ""}`;
   const script = `
 let decision='approve';document.addEventListener('click',e=>{const b=e.target.closest('[data-decision]');if(b)decision=b.dataset.decision});

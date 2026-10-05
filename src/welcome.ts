@@ -89,7 +89,7 @@ ${p.flow ? `<button type="button" class="btn" data-open="ev-${esc(p.id)}">${esc(
 function sheet(p: Provider, link: string, T: Tr): string {
   const f = p.flow!;
   return `<dialog class="ev-sheet" id="ev-${esc(p.id)}" aria-labelledby="ev-${esc(p.id)}-h">
-<div class="hd"><div class="row" style="gap:12px"><span class="ev-ic" aria-hidden="true">${esc(p.letter)}</span><h2 id="ev-${esc(p.id)}-h">${esc(T("Connect {name}", { name: p.name }))}</h2></div><button type="button" class="btn ghost sm" data-close aria-label="${esc(T("Close"))}">✕</button></div>
+<div class="hd"><div class="row gap-12"><span class="ev-ic" aria-hidden="true">${esc(p.letter)}</span><h2 id="ev-${esc(p.id)}-h">${esc(T("Connect {name}", { name: p.name }))}</h2></div><button type="button" class="btn ghost sm" data-close aria-label="${esc(T("Close"))}">✕</button></div>
 <div class="bd">
 <p class="ev-intro">${esc(T("About a minute: you copy one link into {name}, then sign in.", { name: p.name }))}</p>
 <ol class="ev-steps">
@@ -192,7 +192,7 @@ export const WELCOME_BANNER_JS = `
 export function assistantCard(connected: string[], lang?: Lang): string {
   const T = (x: string) => esc(tr(lang, x));
   const names = [...new Set(connected)];
-  return `<div class="section-title" style="margin-top:28px"><div><h2>${T("Your assistant")}</h2></div></div>
+  return `<div class="section-title spaced-sm"><div><h2>${T("Your assistant")}</h2></div></div>
 ${
   names.length
     ? `<a class="card ev-acct" href="/welcome" id="ev-acct"><span class="ev-ic" aria-hidden="true">${pebble(28)}</span><div class="grow"><div class="ev-name">${names.map(esc).join(", ")}</div><div class="ev-sub">${T("Connected")}</div></div><span class="ev-chg">${T("Change")} ›</span></a>`

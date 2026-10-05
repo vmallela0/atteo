@@ -93,7 +93,7 @@ import {
   PREVIEW_FRAME_HTML,
 } from "./html";
 import { ENTRY_TYPES, type Entry, type Env, type NewEntry, type Viewer as Seer } from "./types";
-import { APP_CSS, APP_JS, directPeer, BOARD_PREFETCH_PATH, BOARD_PREFETCH_RULES, BUG_PAGE_JS, FAVICON_SVG, FEEDBACK_DIALOG, FEEDBACK_PAGE_JS, page, renderText, SHELL_PAGE_JS } from "./ui";
+import { APP_CSS, APP_JS, PAGE_CSS, directPeer, BOARD_PREFETCH_PATH, BOARD_PREFETCH_RULES, BUG_PAGE_JS, FAVICON_SVG, FEEDBACK_DIALOG, FEEDBACK_PAGE_JS, page, renderText, SHELL_PAGE_JS } from "./ui";
 import { APPLE_TOUCH_PNG_B64 } from "./appleIcon";
 import { assistantWelcomePage } from "./welcome";
 import { agentCharter, applyCharter, charterAuditDetail, charterScanFields, charterView, parseCharterPatch, storedFromRow } from "./charter";
@@ -312,9 +312,9 @@ async function authSso(c: Ctx): Promise<Response> {
   if (!email) {
     return page(
       "Sign in with SSO · Atteo",
-      `<div class="card pad" style="max-width:420px;margin:48px auto 0"><h1 style="font-size:18px">Sign in with SSO</h1><p class="small muted">Use your work email; we'll send you to your company's sign-in.</p>
-<form method="get" action="/auth/sso" class="stack" style="--gap:10px;margin-top:12px"><input class="input" type="email" name="email" required placeholder="you@company.com" autofocus><button class="btn primary">Continue</button></form>
-<p class="xs faint" style="margin-top:12px"><a href="/auth/login">Other ways to sign in</a></p></div>`,
+      `<div class="card pad auth-sm"><h1>Sign in with SSO</h1><p class="small muted">Use your work email; we'll send you to your company's sign-in.</p>
+<form method="get" action="/auth/sso" class="stack mt-12"><input class="input" type="email" name="email" required placeholder="you@company.com" autofocus><button class="btn primary">Continue</button></form>
+<p class="xs faint mt-12"><a href="/auth/login">Other ways to sign in</a></p></div>`,
       { narrow: true },
     );
   }
@@ -1728,6 +1728,9 @@ const handler = {
       if ((path === "/app.css" || path === "/app.js") && method === "GET") {
         const css = path === "/app.css";
         return new Response(css ? APP_CSS : APP_JS, { headers: { "content-type": css ? "text/css; charset=utf-8" : "text/javascript; charset=utf-8", "cache-control": url.searchParams.get("v") ? "public, max-age=31536000, immutable" : "public, max-age=300", "x-content-type-options": "nosniff" } });
+      }
+      if (method === "GET" && path in PAGE_CSS) {
+        return new Response(PAGE_CSS[path], { headers: { "content-type": "text/css; charset=utf-8", "cache-control": url.searchParams.get("v") ? "public, max-age=31536000, immutable" : "public, max-age=300", "x-content-type-options": "nosniff" } });
       }
       // Syntax colours for code blocks (codecolor.ts): pages load it only once a code block is on screen; the URL is versioned.
       if (path === CODE_COLOR_PATH && method === "GET") return new Response(CODE_COLOR_SCRIPT, { headers: { "content-type": "text/javascript; charset=utf-8", "cache-control": url.searchParams.get("v") ? "public, max-age=31536000, immutable" : "public, max-age=300", "x-content-type-options": "nosniff" } });

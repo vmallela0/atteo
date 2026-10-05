@@ -192,20 +192,20 @@ export function inboxPage(viewer: Viewer, side: SideBoard[], items: InboxItem[],
       const href = i.board_id ? `/b/${esc(i.board_id)}${i.kind === "manual_unread" ? "" : `#e${i.seq}`}` : i.kind === "approval" ? "/approvals" : "/people";
       return `<li class="inbox-item${i.read_at ? "" : " unread"}"><a href="${href}" data-inbox-id="${i.id}">
 ${avatar(i.actor, "sm", i.actor_via === "agent")}
-<div class="grow" style="min-width:0"><div class="small">${i.kind === "people_only" ? `<span class="po-lock" title="${esc(T("Only people can see it. Agents can't."))}" aria-label="${esc(T("People only"))}">🔒</span> ` : ""}<b>${whoHtml}</b> ${esc(T(VERB[i.kind]))}${i.board_id ? ` <span class="faint">${esc(T("in"))}</span> ${esc(dmTitle(i.board_title ?? i.board_id))} <span class="faint">· #${i.seq}` : ` <span class="faint">`} · ${esc(relTime(i.created_at, Date.now(), L))}</span></div>
+<div class="grow"><div class="small">${i.kind === "people_only" ? `<span class="po-lock" title="${esc(T("Only people can see it. Agents can't."))}" aria-label="${esc(T("People only"))}">🔒</span> ` : ""}<b>${whoHtml}</b> ${esc(T(VERB[i.kind]))}${i.board_id ? ` <span class="faint">${esc(T("in"))}</span> ${esc(dmTitle(i.board_title ?? i.board_id))} <span class="faint">· #${i.seq}` : ` <span class="faint">`} · ${esc(relTime(i.created_at, Date.now(), L))}</span></div>
 <div class="small muted truncate">${esc(i.excerpt)}</div></div>${i.read_at ? "" : `<span class="dot" aria-label="${esc(T("unread"))}"></span>`}</a><details class="remind-menu"><summary>${esc(T("Remind me"))}</summary><div><button type="button" data-remind="hour" data-id="${i.id}">${esc(T("In 1 hour"))}</button><button type="button" data-remind="tonight" data-id="${i.id}">${esc(T("Tonight (20:00)"))}</button><button type="button" data-remind="tomorrow" data-id="${i.id}">${esc(T("Tomorrow (09:00)"))}</button></div></details>${
         approvalFor(i, approvals)
           ? approvalCardHtml(approvalFor(i, approvals)!, true, L)
           : i.kind === "contact_request" && !i.read_at
-          ? `<div class="row" style="gap:6px;padding:0 12px 10px 48px"><button class="btn sm primary" type="button" data-contact="${esc(i.actor)}" data-decide="accept">${esc(T("Let them talk"))}</button><button class="btn sm ghost" type="button" data-contact="${esc(i.actor)}" data-decide="decline">${esc(T("Decline"))}</button></div>`
+          ? `<div class="row inbox-acts"><button class="btn sm primary" type="button" data-contact="${esc(i.actor)}" data-decide="accept">${esc(T("Let them talk"))}</button><button class="btn sm ghost" type="button" data-contact="${esc(i.actor)}" data-decide="decline">${esc(T("Decline"))}</button></div>`
           : ""
       }</li>`;
     })
     .join("");
   const body = `<div class="section-title">
-<div><h1>${esc(T("Inbox"))}</h1><p class="muted" style="margin-top:4px">${esc(T("Mentions of you, posts for your agent, and replies to you."))}</p></div>
-<div class="row" style="gap:6px"><button class="btn sm" type="button" id="notif-on" hidden>${esc(T("Turn on browser notifications"))}</button>
-${unread ? `<form method="post" action="/api/inbox/read" data-api data-done="inboxCleared" style="margin:0"><input type="hidden" name="all" value="1"><button class="btn sm">${esc(T("Mark all read"))}</button></form>` : ""}</div></div>
+<div><h1>${esc(T("Inbox"))}</h1><p class="muted">${esc(T("Mentions of you, posts for your agent, and replies to you."))}</p></div>
+<div class="row gap-6"><button class="btn sm" type="button" id="notif-on" hidden>${esc(T("Turn on browser notifications"))}</button>
+${unread ? `<form class="mx-0" method="post" action="/api/inbox/read" data-api data-done="inboxCleared"><input type="hidden" name="all" value="1"><button class="btn sm">${esc(T("Mark all read"))}</button></form>` : ""}</div></div>
 ${items.length ? `<ul class="inbox card">${rows}</ul>` : `<div class="card empty"><p class="muted">${esc(T("Nothing yet. When someone @mentions you or writes to your agent, it shows up here."))}</p></div>`}`;
   const script = `
 ${REMIND_BROWSER_JS}
