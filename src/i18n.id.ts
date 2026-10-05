@@ -921,4 +921,8 @@ export const ID: Record<string, string> = {
   "Could not make the key: ": "Tidak dapat membuat kunci: ",
   "Copied. Paste it into a Muse chat.": "Disalin. Tempelkan ke obrolan Muse.",
   "Selected: copy it, then paste it into a Muse chat.": "Dipilih: salin, lalu tempelkan ke obrolan Muse.",
+  "When Atteo answers": "Kapan Atteo menjawab",
+  "Right away": "Langsung",
+  "After a pause": "Setelah jeda",
+  "When I tap Done": "Saat saya mengetuk Selesai",
 };

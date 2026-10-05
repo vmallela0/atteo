@@ -921,4 +921,8 @@ export const BN: Record<string, string> = {
   "Could not make the key: ": "কী তৈরি করা যায়নি: ",
   "Copied. Paste it into a Muse chat.": "কপি হয়েছে। একটি Muse চ্যাটে পেস্ট করুন।",
   "Selected: copy it, then paste it into a Muse chat.": "নির্বাচিত: কপি করুন, তারপর একটি Muse চ্যাটে পেস্ট করুন।",
+  "When Atteo answers": "Atteo কখন উত্তর দেবে",
+  "Right away": "সাথে সাথে",
+  "After a pause": "একটু থামার পরে",
+  "When I tap Done": "আমি হয়েছে চাপলে",
 };

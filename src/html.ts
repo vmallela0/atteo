@@ -2981,6 +2981,7 @@ export interface Display {
   mode?: "auto" | "everyday" | "developer";
   lang?: "auto" | "en" | "zh-Hans" | "zh-Hant" | "es" | "ja" | "ko" | "hi" | "fr" | "pt" | "de" | "ru" | "id" | "tr" | "bn" | "ar";
   voice?: "eve" | "ara" | "leo" | "rex" | "sal";
+  voice_turns?: "quick" | "pause" | "tap"; // when Atteo answers in a voice call (vedu #2460)
 }
 
 /** Read-aloud and voice chat voices (xAI's), as the picker names them. */
@@ -2999,6 +3000,7 @@ ${seg("text", esc(T("Text size")), [["s", esc(T("Small"))], ["m", esc(T("Medium"
 ${seg("density", esc(T("Density")), [["comfortable", esc(T("Comfortable"))], ["compact", esc(T("Compact"))]])}
 ${seg("theme", esc(T("Theme")), [["system", esc(T("System"))], ["light", esc(T("Light"))], ["dark", esc(T("Dark"))]])}
 ${seg("replies", esc(T("Replies")), [["chat", esc(T("In the chat"))], ["thread", esc(T("Only in their threads"))]])}
+${seg("voice_turns", esc(T("When Atteo answers")), [["quick", esc(T("Right away"))], ["pause", esc(T("After a pause"))], ["tap", esc(T("When I tap Done"))]]).replace(/^<span class="lbl"/, '<span class="lbl" data-voice-only hidden').replace('<div class="seg"', '<div class="seg" data-voice-only hidden')}
 <label class="lbl" for="dp-lang">${esc(T("Language"))}</label><select class="input dp-lang" id="dp-lang" data-lang="${esc(d?.lang ?? "auto")}">${(
     [["auto", T("Automatic (this browser's language)")], ...Object.entries(LANG_NAMES), ...(d?.lang && d.lang !== "auto" && !(d.lang in LANG_NAMES) ? [[d.lang, `${d.lang} (${T("set in the app; the web shows English for now")})`]] : [])] as [string, string][]
   )
@@ -3033,12 +3035,14 @@ function profileSection(p: ProfileView | null, lang?: Lang): string {
 const DISPLAY_JS = `
 (()=>{const f=document.getElementById('dp-form');if(!f)return;let saved=null,local={};
   try{saved=JSON.parse(f.dataset.saved)}catch{}try{local=JSON.parse(localStorage.getItem('atteo-display')||'{}')}catch{}
-  const cur=Object.assign({text:'m',density:'comfortable',theme:'system',replies:'chat'},local,saved||{});
-  for(const k of ['text','density','theme','replies']){const i=f.querySelector('input[name="'+k+'"][value="'+cur[k]+'"]');if(i)i.checked=true}
+  const cur=Object.assign({text:'m',density:'comfortable',theme:'system',replies:'chat',voice_turns:'pause'},local,saved||{});
+  for(const k of ['text','density','theme','replies','voice_turns']){const i=f.querySelector('input[name="'+k+'"][value="'+cur[k]+'"]');if(i)i.checked=true}
   if(saved)applyDisplay(cur);
-  f.addEventListener('change',async e=>{if(e.target.id==='dp-lang'||e.target.id==='dp-voice')return;const d={text:f.text.value,density:f.density.value,theme:f.theme.value,replies:f.replies.value};applyDisplay(d);
+  f.addEventListener('change',async e=>{if(e.target.id==='dp-lang'||e.target.id==='dp-voice')return;const d={text:f.text.value,density:f.density.value,theme:f.theme.value,replies:f.replies.value,voice_turns:f.voice_turns.value};applyDisplay(d);
     const r=await fetch('/api/me/profile',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({display:d})}).catch(()=>null);
-    toast(r&&r.ok?tr('Display saved'):tr('Saved on this device only'))})})();
+    toast(r&&r.ok?tr('Display saved'):tr('Saved on this device only'))});
+  // When Atteo answers (vedu #2460): only where voice calls are on.
+  fetch('/api/app/voice/status').then(r=>r.ok?r.json():null).then(j=>{if(j&&j.enabled)f.querySelectorAll('[data-voice-only]').forEach(x=>{x.hidden=false})}).catch(()=>{})})();
 // Read-aloud voice (vedu #1717): shown when read aloud is on; saved as display.voice, which read-aloud and voice chat use
 // whenever they don't name one. Play reads a short sample in that voice (one request per voice, kept for the visit).
 (()=>{const s=document.getElementById('dp-voice'),btn=document.getElementById('dp-voice-play');if(!s)return;const cache={};let audio=null;

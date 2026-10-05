@@ -921,4 +921,8 @@ export const RU: Record<string, string> = {
   "Could not make the key: ": "Не удалось создать ключ: ",
   "Copied. Paste it into a Muse chat.": "Скопировано. Вставьте в чат с Muse.",
   "Selected: copy it, then paste it into a Muse chat.": "Выделено: скопируйте и вставьте в чат с Muse.",
+  "When Atteo answers": "Когда Atteo отвечает",
+  "Right away": "Сразу",
+  "After a pause": "После паузы",
+  "When I tap Done": "Когда я нажму «Готово»",
 };
