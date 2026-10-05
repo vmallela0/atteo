@@ -337,7 +337,9 @@ export default {
         headers: { "content-type": "text/html; charset=utf-8", "cache-control": "public, max-age=300", vary: "Cookie", ...SECURITY_HEADERS },
       });
     }
-    if (read && path === "/guide") {
+    // The app's /guide is an app page with the sidebar for signed-in people (src/guide.ts); the landing's marketing
+    // guide is the signed-out version, like "/" — anyone signed in is forwarded to the app untouched.
+    if (read && path === "/guide" && !hasSession(request)) {
       const theme = url.searchParams.get("theme");
       return new Response(guidePage(theme === "dark" || theme === "light" ? theme : null), {
         headers: { "content-type": "text/html; charset=utf-8", "cache-control": "public, max-age=300", ...SECURITY_HEADERS },
