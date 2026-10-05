@@ -39,6 +39,7 @@ import * as device from "./device";
 import { EMAIL_RE, sendInvite } from "./invite";
 import { mayMention, parseMentions, SESSION_NAME_RE, type Mention } from "./mentions";
 import * as registry from "./registry";
+import * as backup from "./backup";
 import * as pins from "./pins";
 import * as boardkeys from "./boardkeys";
 import * as mailbox from "./mailbox";
@@ -519,7 +520,7 @@ async function opsData(env: Env): Promise<AdminData> {
 
 /** Every 5 minutes (the cron; tests call it through POST /api/ops/cron): retention, sweeps, expired memberships, and
  *  workflow triggers on a daily schedule (`now` lets a test pick the time those see). */
-async function runScheduled(env: Env, ctx: ExecutionContext, now = Date.now()): Promise<{ schedules: number; scheduled_tasks: number; housekeeping: boolean; shed: Awaited<ReturnType<typeof limits.updateShedLevel>> }> {
+async function runScheduled(env: Env, ctx: ExecutionContext, now = Date.now()): Promise<{ schedules: number; scheduled_tasks: number; housekeeping: boolean; shed: Awaited<ReturnType<typeof limits.updateShedLevel>>; backup?: backup.BackupTick }> {
   // Load shedding (src/limits.ts): today's usage sets the level every request then sees (0 normal, 1 stretch waits and
   // pause background work, 2 also refuse non-essential agent writes).
   const shed = await limits.updateShedLevel(env).catch(() => ({ level: limits.shedLevelNow(), requests: 0, rows_read: null }));
@@ -534,6 +535,7 @@ async function runScheduled(env: Env, ctx: ExecutionContext, now = Date.now()): 
     ctx.waitUntil(inbox.pruneRead(env, now).catch(() => {}));
     ctx.waitUntil(mailbox.pruneMail(env, now).catch(() => {}));
     ctx.waitUntil(usage.pruneUsageDaily(env, now).catch(() => {}));
+    ctx.waitUntil(backup.pruneBackupParts(env, now).catch(() => {}));
   }
   for (const m of await registry.expiredMembers(env)) {
     ctx.waitUntil(
@@ -563,7 +565,12 @@ async function runScheduled(env: Env, ctx: ExecutionContext, now = Date.now()): 
       .catch(() => ({ results: [] as { board_id: string }[] }))
   ).results;
   const posted = await Promise.all(dueBoards.map((b) => boardStub(env, b.board_id).runBoardSchedules(now).catch((e) => (console.error("board schedules failed", b.board_id, e), 0))));
-  return { schedules: fired.reduce((a, b) => a + b, 0), scheduled_tasks: posted.reduce((a, b) => a + b, 0), housekeeping, shed };
+  // Tonight's backup outside Cloudflare (src/backup.ts): a batch of parts per run; it waits only at the worst shed level.
+  const nightly =
+    shed.level < 2
+      ? await backup.backupTick(env, now, (id, day) => boardStub(env, id).backup(day)).catch((e) => (console.error("backup run failed", e), undefined))
+      : undefined;
+  return { schedules: fired.reduce((a, b) => a + b, 0), scheduled_tasks: posted.reduce((a, b) => a + b, 0), housekeeping, shed, ...(nightly ? { backup: nightly } : {}) };
 }
 
 const handler = {
@@ -3139,6 +3146,19 @@ const handler = {
         if (path === "/api/ops/cron" && method === "POST") {
           const at = Number((body as { now?: unknown }).now);
           return json({ ok: true, ...(await runScheduled(env, ctx, Number.isFinite(at) && at > 0 ? at : Date.now())) });
+        }
+        // Backups outside Cloudflare (src/backup.ts): the last two weeks; run tonight's share now (tests: at `now`); and the
+        // restore drill's board half (localhost, or BACKUP_RESTORE=1 for a real recovery): replaces that board's tables.
+        if (path === "/api/ops/backups" && method === "GET") return json(await backup.backupStatus(env));
+        if (path === "/api/ops/backup" && method === "POST") {
+          const at = Number((body as { now?: unknown }).now);
+          return json({ ok: true, ...(await backup.backupTick(env, Number.isFinite(at) && at > 0 ? at : Date.now(), (id, day) => boardStub(env, id).backup(day))) });
+        }
+        if (path === "/api/ops/restore-board" && method === "POST") {
+          if (env.BACKUP_RESTORE !== "1" && !isLocalHost(url.hostname)) return json({ error: "restore-board runs on localhost, or with BACKUP_RESTORE=1" }, 400);
+          const b = body as { board?: unknown; tables?: unknown; append?: unknown };
+          if (typeof b.board !== "string" || !BOARD_RE.test(b.board) || !b.tables || typeof b.tables !== "object") return json({ error: "board and tables required" }, 400);
+          return json({ ok: true, ...(await boardStub(env, b.board).restoreTables(b.tables as import("./backupcore").DumpTables, b.append === true)) });
         }
         if (path === "/api/ops/seed" && method === "POST") {
           const u = normalizeUser(body.user);

@@ -5,6 +5,7 @@
 #   e2e      own server :PORT     (the repo's .dev.vars, as ship.sh always used)
 #   cli      own server :PORT+1   (same .dev.vars; only when CLI-facing code changed, or ALL=1)
 #   browser  own server :PORT+2   (CI-style values from an --env-file: ADMIN_KEY=ci-admin-key, DEV_FAKE_*, as CI)
+#   backup   own server :PORT+4   (backup vars from an --env-file: a fake S3 on :PORT+5, run by test/backup.mjs)
 #   landing  the landing Worker :PORT+3 (its look check, then a dry-run build); only when SUITES names it
 # Each server has its own --persist-to state, so no suite loads another's server (sharing one made the slower suite
 # flake). Prints one summary and exits non-zero if any suite failed. Logs: $VERIFY_DIR/<suite>.log.
@@ -23,7 +24,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.."
 PORT=${VERIFY_PORT:-8610}
-E2E_PORT=$PORT; CLI_PORT=$((PORT + 1)); BR_PORT=$((PORT + 2)); LANDING_PORT=$((PORT + 3))
+E2E_PORT=$PORT; CLI_PORT=$((PORT + 1)); BR_PORT=$((PORT + 2)); LANDING_PORT=$((PORT + 3)); BK_PORT=$((PORT + 4)); BK_S3_PORT=$((PORT + 5))
 OUT=${VERIFY_DIR:-${TMPDIR:-/tmp}/atteo-verify}; OUT=${OUT%/}
 # The last ship's commit, kept in the repository's own git dir (in a worktree .git is a file: ask git where it is).
 LAST_SHIP_FILE="$(git rev-parse --git-common-dir)/atteo-last-ship"
@@ -100,11 +101,21 @@ if want landing; then
   ( exec npx wrangler dev -c landing/wrangler.jsonc --port "$LANDING_PORT" --var "APP_ORIGIN:http://127.0.0.1:9" >"$OUT/landing.server.log" 2>&1 ) &
   pids+=($!); ports+=("$LANDING_PORT"); pid_landing=$!
 fi
+if want backup; then
+  # The backup key pair (the private key stays in $OUT for the drill to decrypt with) and the env it needs: the Worker
+  # with backups on, pointed at the fake S3 test/backup.mjs starts on :BK_S3_PORT.
+  BK_KEY_FILE="$OUT/backup-key.json"
+  node scripts/backup.mjs keygen --out "$BK_KEY_FILE" >"$OUT/backup-keygen.log" 2>&1 || { echo "backup keygen failed (log: $OUT/backup-keygen.log)" >&2; exit 1; }
+  BK_PUB=$(sed -n 's/.*BACKUP_PUBLIC_KEY: "\(.*\)".*/\1/p' "$OUT/backup-keygen.log")
+  printf 'WORKOS_API_KEY=sk_test_ci_placeholder\nADMIN_KEY=ci-admin-key\nALLOW_LOCAL_WEBHOOKS=1\nBACKUP_S3_ENDPOINT=http://127.0.0.1:%s\nBACKUP_S3_BUCKET=atteo-test\nBACKUP_S3_REGION=us-east-1\nBACKUP_S3_KEY_ID=test\nBACKUP_S3_SECRET=test\nBACKUP_S3_PREFIX=\nBACKUP_BLOB_PART_BYTES=100\nBACKUP_PUBLIC_KEY=%s\n' "$BK_S3_PORT" "$BK_PUB" > "$OUT/backup.env"
+  serve backup "$BK_PORT" "$OUT/backup.env"
+fi
 if want cli || want browser; then npm run -s build:cli >"$OUT/build-cli.log" 2>&1 || { echo "CLI build failed (log: $OUT/build-cli.log)" >&2; exit 1; }; fi
 want e2e && up "$E2E_PORT" e2e
 want cli && up "$CLI_PORT" cli
 want browser && up "$BR_PORT" browser
 want landing && up "$LANDING_PORT" landing /robots.txt
+want backup && up "$BK_PORT" backup
 echo "servers up after $(( $(date +%s) - start ))s"
 
 # 2. The suites, concurrently. Each writes $OUT/<suite>.log and $OUT/<suite>.rc (exit code) and .secs.
@@ -120,18 +131,20 @@ want e2e && run e2e env -u ADMIN_KEY BASE="http://localhost:$E2E_PORT" DEV_LOG="
 want cli && run cli env -u ADMIN_KEY BASE="http://localhost:$CLI_PORT" node test/cli.mjs
 want browser && run browser env PERSIST="$OUT/state-browser" ADMIN_KEY=ci-admin-key BASE="http://localhost:$BR_PORT" SHOTS_DIR="$OUT/browser-shots" node test/browser/run.mjs "${browser_args[@]}"
 want landing && run landing landing_suite
+want backup && run backup env BASE="http://localhost:$BK_PORT" ADMIN_KEY=ci-admin-key BK_S3_PORT="$BK_S3_PORT" BK_KEY_FILE="$OUT/backup-key.json" node test/backup.mjs
 for p in "${suite_pids[@]}"; do wait "$p"; done
 
 # 3. One summary.
 status=0
 echo
-for name in vitest e2e cli browser landing; do
+for name in vitest e2e cli browser backup landing; do
   want "$name" || continue
   rc=$(cat "$OUT/$name.rc" 2>/dev/null || echo 1); t=$(cat "$OUT/$name.secs" 2>/dev/null || echo "?")
   case $name in
     vitest) res=$(grep -E "Tests +[0-9]" "$OUT/$name.log" | tail -1 | sed -E 's/ +/ /g') ;;
     browser) res=$(grep -E "browser checks passed" "$OUT/$name.log" | tail -1) ;;
     landing) res=$(grep -E "landing look|FAILED" "$OUT/$name.log" | tail -1) ;;
+    backup) res=$(grep -E "passed, [0-9]+ failed" "$OUT/$name.log" | tail -1) ;;
     *) res=$(grep -E "passed, [0-9]+ failed" "$OUT/$name.log" | tail -1) ;;
   esac
   [ "$rc" = 0 ] && mark="ok  " || { mark="FAIL"; status=1; }
