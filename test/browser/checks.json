@@ -149,5 +149,6 @@
  "access-all": 3,
  "moderation": 4,
  "board-prefetch": 3,
- "charter": 3
+ "charter": 3,
+ "a11y-pages": 40
 }

@@ -925,6 +925,7 @@ mark{background:var(--mark);color:inherit;border-radius:2px;padding:0 1px}
 .kcol h3{font-size:12.5px;font-weight:600;color:var(--ink);margin:2px 4px 8px}
 .kcards{display:flex;flex-direction:column;gap:6px}
 .kcard{background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:8px 10px;cursor:grab;display:flex;flex-direction:column;gap:4px}
+.kcard:focus-visible,#kanban:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .kcard:hover{border-color:color-mix(in srgb,var(--ink) 25%,var(--line))}
 .kcard.dragging{opacity:.5}
 .kres{display:flex;align-items:center;gap:6px;flex-wrap:wrap}.kres-l{color:var(--accent)}.kres-l:hover{text-decoration:underline}.kres .btn{margin-left:auto;padding:1px 10px}

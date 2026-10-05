@@ -2542,7 +2542,7 @@ function card(t){const first=t.title||'';const boxes=ckLines(t.body||'');const t
   const who=t.assignee?(t.assignee_agent?t.assignee+"'s agent":t.assignee):'';
   const hold=t.lease_holder?(t.lease_agent?(t.lease_session_name?t.lease_holder+'/'+t.lease_session_name:t.lease_holder+"'s agent"):t.lease_holder):''; // "jxn/alt-b": the session holding it (#3474)
   // Title first; one quiet line under it: number, priority, checklist, due date, and who it's for / who holds it.
-  return '<article class="kcard" draggable="true" data-seq="'+t.seq+'"><div class="ktext">'+esc(first)+'</div>'+
+  return '<article class="kcard" draggable="true" tabindex="0" data-seq="'+t.seq+'"><div class="ktext">'+esc(first)+'</div>'+
     '<div class="kmeta"><a class="seq" href="#e'+t.seq+'" data-kopen="'+t.seq+'">#'+t.seq+'</a>'+(t.priority?'<span class="badge pri-'+t.priority+'">'+t.priority+'</span>':'')+(t.status==='stopped'?'<span class="badge pri-high">'+tr('stopped')+'</span>':'')+
     (t.parent!=null?'<span class="ksub" title="'+(par?tr('Sub-task of ')+esc(par.title):tr('A sub-task'))+'">↳ '+(par?esc(par.title):'sub-task')+'</span>':'')+
     (boxes.length?'<span title="'+tr('Checklist')+'">☑ '+ticked+'/'+boxes.length+'</span>':'')+(t.children?'<span title="'+tr('Sub-tasks done')+'">'+t.children.done+'/'+t.children.total+' sub-tasks</span>':'')+(t.due?'<span>due '+new Date(t.due).toISOString().slice(5,10)+'</span>':'')+'<span class="grow"></span>'+
@@ -2561,6 +2561,7 @@ kb.addEventListener('drop',e=>{const col=e.target.closest('.kcol');if(!col||!dra
 kb.addEventListener('click',e=>{const d=e.target.closest('[data-kdone]');if(d){e.preventDefault();e.stopPropagation();taskAct(+d.dataset.kdone,{action:'update',status:'done'});return}
   const a=e.target.closest('[data-kopen]');if(a){e.preventDefault();tab(0);location.hash='#e'+a.dataset.kopen;return}
   const c=e.target.closest('.kcard');if(c)openTask(+c.dataset.seq)});
+kb.addEventListener('keydown',e=>{if((e.key==='Enter'||e.key===' ')&&e.target.classList?.contains('kcard')){e.preventDefault();openTask(+e.target.dataset.seq)}}); // cards open from the keyboard too
 document.getElementById('kb-new')?.addEventListener('submit',async e=>{e.preventDefault();const i=document.getElementById('kb-new-text');const title=i.value.trim();if(!title)return;
   const r=await fetch('/api/boards/'+BOARD+'/tasks',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({title})});
   const j=await r.json().catch(()=>({}));if(!r.ok){toast(j.error||tr('Could not add'));return}i.value='';loadTasks();tick(false);openTask(j.task.seq)});
@@ -2789,7 +2790,7 @@ ${notifySide(L)}
   <div class="kanban-head row"><span class="small muted grow kb-hint">${esc(T("Drag a card to change its status. Agents see the same board through the"))} <code>${esc(T("task"))}</code> ${esc(T("tool."))}</span>${
     info.archived ? "" : `<form class="row kb-new" id="kb-new"><input class="input sm" id="kb-new-text" placeholder="${esc(T("New task…"))}" aria-label="${esc(T("New task"))}"><button class="btn sm">${esc(T("Add"))}</button></form>`
   }</div>
-  <div class="kanban" id="kanban"><p class="muted small">${esc(T("Loading…"))}</p></div>
+  <div class="kanban" id="kanban" tabindex="0" role="region" aria-label="${esc(T("Tasks"))}"><p class="muted small">${esc(T("Loading…"))}</p></div>
 </div>
 
   <dialog id="task-dlg" class="task-dlg"><form id="td-form">
