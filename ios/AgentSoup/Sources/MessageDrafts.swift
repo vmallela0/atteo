@@ -58,20 +58,23 @@ final class MessageDrafts: ObservableObject {
     /// Called with the new text after every change (a thread's box mirrors its words into the chat's box).
     @ObservationIgnored var onChange: ((String) -> Void)?
 
-    @ObservationIgnored private var leaving: NSObjectProtocol?
+    @ObservationIgnored private var leaving: [NSObjectProtocol] = []
 
     /// A chat's box: its saved words back. Without a board it holds words but saves nothing until `attach`.
     init(board: Board? = nil, root: Int? = nil) {
         self.board = board
         self.root = root
         text = board.map { MessageDrafts.shared.text(for: $0, root: root) } ?? ""
-        // Leaving the app mid-word: saved now, not after the pause (the app may not come back).
-        leaving = NotificationCenter.default.addObserver(forName: UIApplication.willResignActiveNotification, object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.save() }
+        // Leaving the app mid-word: saved now, not after the pause (the app may not come back). Inactive comes first
+        // (the app switcher, a call, a swipe up to close it), background after; either flushes.
+        leaving = [UIApplication.willResignActiveNotification, UIApplication.didEnterBackgroundNotification].map { name in
+            NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.save() }
+            }
         }
     }
 
-    deinit { if let leaving { NotificationCenter.default.removeObserver(leaving) } }
+    deinit { leaving.forEach(NotificationCenter.default.removeObserver) }
 
     /// A thread's box, once it's shown: where it saves, and what was saved there.
     func attach(_ board: Board, root: Int?) {

@@ -1,4 +1,5 @@
 import XCTest
+import UIKit
 @testable import Atteo
 
 final class MessageDraftsTests: XCTestCase {
@@ -83,6 +84,41 @@ final class MessageDraftsTests: XCTestCase {
         box.save() // leaving the chat
         XCTAssertEqual(MessageDrafts.shared.text(for: b), "hey there")
         XCTAssertEqual(ComposerDraft(board: b).text, "hey there", "a new box restores it")
+    }
+
+    // jxn's agent #4417: with saving after a pause, nothing typed may be lost to leaving at once.
+    @MainActor
+    func testTypedThenLeftAtOnceSurvives() {
+        let b = board("box-\(UUID().uuidString)")
+        defer { MessageDrafts.shared.clear(for: b) }
+        let box = ComposerDraft(board: b)
+        box.set("typed and left at once")
+        box.save() // the chat's onDisappear
+        XCTAssertEqual(MessageDrafts.shared.text(for: b), "typed and left at once", "no wait for the pause")
+        XCTAssertEqual(ComposerDraft(board: b).text, "typed and left at once", "reopening the chat brings it back")
+    }
+
+    @MainActor
+    func testLeavingTheAppSavesAtOnce() {
+        let b = board("box-\(UUID().uuidString)")
+        defer { MessageDrafts.shared.clear(for: b) }
+        for name in [UIApplication.willResignActiveNotification, UIApplication.didEnterBackgroundNotification] {
+            let box = ComposerDraft(board: b)
+            box.set("before \(name.rawValue)")
+            NotificationCenter.default.post(name: name, object: nil)
+            XCTAssertEqual(MessageDrafts.shared.text(for: b), "before \(name.rawValue)", "\(name.rawValue) flushes it")
+        }
+    }
+
+    @MainActor
+    func testSendingClearsTheSavedDraftAtOnce() {
+        let b = board("box-\(UUID().uuidString)")
+        defer { MessageDrafts.shared.clear(for: b) }
+        let box = ComposerDraft(board: b)
+        box.set("about to send"); box.save()
+        box.set("") // what send does, then box.save() (ChatComposer.send)
+        box.save()
+        XCTAssertEqual(MessageDrafts.shared.text(for: b), "", "a sent message doesn't come back as a draft")
     }
 
     @MainActor

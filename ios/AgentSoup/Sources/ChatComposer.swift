@@ -292,6 +292,7 @@ struct ChatComposer: View {
             return
         }
         draft = ""
+        box.save() // sent: the saved draft goes now, so it can't come back if the app is closed within the pause
         withAnimation(.spring(duration: 0.3, bounce: 0.15)) { attachments = [] }
         Haptics.play(.sent)
         let session = board.isAgentChat ? toSession?.wrappedValue : nil
