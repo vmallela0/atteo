@@ -21,6 +21,7 @@ struct FullSettings: View {
     init(embedded: Bool = false) { self.embedded = embedded }
     @EnvironmentObject var state: AppState
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.closeSettings) private var closeSettings // in the drawer: Done closes it
     @Environment(\.chatDensity) private var density
     @State private var draft: Profile?
     @State private var summary = ""
@@ -124,7 +125,7 @@ struct FullSettings: View {
         .background(Theme.bg)
         .navigationTitle(embedded ? "More settings" : "Settings")
         .navigationBarTitleDisplayMode(.inline)
-        .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Done") { dismiss() }.toolbarText(primary: true) } }
+        .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Done") { if let closeSettings { closeSettings() } else { dismiss() } }.toolbarText(primary: true) } }
         .sheet(isPresented: $bring) { BringAssistantView(firstRun: false).presentationBackground(Theme.bg) }
         .confirmationDialog("Sign out of Atteo on this phone?", isPresented: $confirmSignOut, titleVisibility: .visible) {
             Button("Sign out", role: .destructive) { state.signOut() }
