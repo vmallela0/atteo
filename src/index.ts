@@ -24,6 +24,7 @@ import { isRetriable, messageId, retryingReads, withRetry } from "./retry";
 import CLI_BUNDLE from "../cli/dist/atteo.mjs";
 import { installScript } from "./install";
 import SKILL_MD from "../skills/atteo/SKILL.md";
+import HTML2CANVAS_JS from "../vendor/html2canvas.min.js"; // the bug-report screenshot, loaded only when the dialog opens
 import { agentsMd, guidePage } from "./guide";
 import { docsPage } from "./docs";
 import { openapi } from "./openapi";
@@ -34,6 +35,7 @@ import * as notify from "./notify";
 import * as forYou from "./forYou";
 import * as auth from "./auth";
 import * as appSignin from "./appSignin";
+import * as bugs from "./bugs";
 import { handleMcp } from "./mcp";
 import * as device from "./device";
 import { EMAIL_RE, sendInvite } from "./invite";
@@ -666,6 +668,8 @@ const handler = {
       if (path === "/terms" || path === "/privacy") return legalPage(path.slice(1) as "terms" | "privacy");
       if (path === "/openapi.json") return json(openapi(origin), 200, { "access-control-allow-origin": "*", "cache-control": "public, max-age=300" });
       if (path === "/skill.md") return new Response(SKILL_MD, { headers: { "content-type": "text/markdown; charset=utf-8", "cache-control": "public, max-age=300" } });
+      if (path === "/vendor/html2canvas.min.js" && method === "GET")
+        return new Response(HTML2CANVAS_JS, { headers: { "content-type": "application/javascript; charset=utf-8", "cache-control": "public, max-age=86400" } });
       if (path === "/docs") return docsPage(origin, SKILL_MD);
       if (path === "/agents.md") return new Response(agentsMd(origin), { headers: { "content-type": "text/markdown; charset=utf-8", "cache-control": "public, max-age=300", "access-control-allow-origin": "*" } });
       if (path === "/apple-touch-icon.png" || path === "/apple-touch-icon-precomposed.png") {
@@ -786,6 +790,34 @@ const handler = {
           return redirect(await oauth.finishAuthorize(env, viewer.name, f.get("request_id") ?? "", f.get("allow") === "1"));
         } catch (e) {
           return messagePage("Can't connect", e instanceof Error ? e.message : String(e), { viewer, status: 400, action: { href: "/", label: "Your boards" } });
+        }
+      }
+
+      // ---- bug reports (web + app; jxn #3336, split with vedu's agent #3337/#3342) ----
+      if (path === "/api/bugs" && method === "POST") {
+        const bugsBoard = (env.BUGS_BOARD ?? "").trim();
+        if (!bugsBoard) return json({ error: "Bug reports aren't set up." }, 501);
+        if (Number(request.headers.get("content-length") ?? 0) > bugs.BUG_SCREENSHOT_MAX + 64_000) return json({ error: "That report is too large (the screenshot is capped at 2 MB)." }, 413);
+        const ip = appSignin.clientIp(request);
+        for (const l of bugs.bugLimitKeys(viewer?.name ?? null, ip)) {
+          if (!(await appSignin.hit(env, l.key, l.limit))) return json({ error: "That's a few bug reports in a row — try again in ten minutes." }, 429);
+        }
+        let report: bugs.BugReport;
+        try {
+          report = await bugs.parseBugForm(request);
+        } catch (e) {
+          return json({ error: e instanceof Error ? e.message : String(e) }, 400);
+        }
+        const by = viewer?.name ?? "someone (signed out)";
+        const stub = boardStub(env, bugsBoard);
+        try {
+          const entry = report.screenshot
+            ? await stub.postFile(by, { name: report.screenshot.name, bytes: report.screenshot.bytes, text: bugs.bugReportText(report, by), via: "person", client: "bug-report" })
+            : await stub.post(by, { type: "note", text: bugs.bugReportText(report, by), via: "person", client: "bug-report" });
+          if (viewer) ctx.waitUntil(registry.touch(env, viewer.name, bugsBoard).catch(() => {}));
+          return json({ ok: true, board: bugsBoard, seq: entry.seq }, 201);
+        } catch (e) {
+          return json({ error: e instanceof Error ? e.message : String(e) }, 400);
         }
       }
 

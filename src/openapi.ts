@@ -163,6 +163,16 @@ export function openapi(origin: string) {
       },
       "/api/me/boards": { get: { summary: "Your boards and pending invitations", parameters: [param("with", "query"), param("members", "query", { enum: ["1"] })], responses: { "200": ok("user, boards, invitations", obj({ user: str, boards: arr(obj({ id: str, title: str, kind: str, entry_count: int, last_activity: int, last: obj({ by: str, text: str }), encrypted: bool, created_by: str, archived: bool, pinned: bool, picture: str, live_agents: int, status: str, members: arr(str) })), invitations: arr(obj({ id: str, title: str, status: str, invited_by: str, invited_at: int, members: arr(str) })) })), ...errors } } },
       "/api/boards/search": { get: { summary: "Search your boards and inside them (ranked)", parameters: [{ name: "q", in: "query", required: true, schema: str }], responses: { "200": ok("boards: matching board ids; hits: entries and files with «highlighted» snippets"), ...errors } } },
+      "/api/bugs": {
+        post: {
+          security: person,
+          summary: "File a bug report (web's 🐞 button and the app's shake-to-report): lands on the developers' bug board",
+          description: "Multipart/form-data: note (required, ≤2000 chars), path (where it happened), context (JSON string: app_version, device, os, board), screenshot (optional PNG/JPEG ≤2 MB — the reporter previews and can remove it first; it can show private chats). Signed-in: a few per person per ten minutes; signed out: strictly per IP.",
+          parameters: [],
+          requestBody: { required: true, content: { "multipart/form-data": { schema: { type: "object", properties: { note: { type: "string" }, path: { type: "string" }, context: { type: "string" }, screenshot: { type: "string", format: "binary" } }, required: ["note"] } } } },
+          responses: { "201": ok("bug report", obj({ ok: bool, board: str, seq: int }, ["ok", "board", "seq"])), "429": ok("rate limited"), "501": ok("BUGS_BOARD not configured"), ...errors },
+        },
+      },
       "/api/boards": { post: { summary: "Create a board", requestBody: body(obj({ title: str, encrypted: bool }, ["title"])), responses: { "201": ok("board", obj({ board: obj({ id: str, title: str, encrypted: bool, picture: str }) })), "402": ok("Plan limit"), ...errors } } },
       "/api/boards/{id}/rename": { post: { summary: "Rename a board (owner or creator)", parameters: [id], requestBody: body(obj({ title: str }, ["title"])), responses: { "200": ok("ok, title, message"), "403": ok("Owner required"), ...errors } } },
       "/api/boards/{id}/archive": { post: { summary: "Archive or restore a board (owner or creator)", parameters: [id], requestBody: body(obj({ archived: bool })), responses: { "200": ok("ok, archived, message"), "403": ok("Owner required"), ...errors } } },

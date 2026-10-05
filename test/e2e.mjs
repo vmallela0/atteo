@@ -6356,6 +6356,24 @@ await step("people edit own recent note: same seq, history, permissions, screen,
   assert(refused.status === 400 && /encrypted/.test((await refused.json()).error), "encrypted refusal clear");
 });
 
+await step("bug reports: POST /api/bugs lands a note (+ screenshot) on the developers' bug board; 501 while BUGS_BOARD is unset", async () => {
+  const probe = await fetch(`${BASE}/api/bugs`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({}) });
+  if (probe.status === 501) return; // ops hasn't picked the bug board on this server yet (the var is empty)
+  assert(probe.status === 400, `a bodyless report answers ${probe.status}, expected a validation message`);
+  const fd = new FormData();
+  fd.append("note", `the report flow works ${run}`);
+  fd.append("path", "/b/somewhere");
+  fd.append("context", JSON.stringify({ app_version: "e2e", device: "test runner", os: process.platform }));
+  fd.append("screenshot", new File([new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10, 0, 0])], "shot.png", { type: "image/png" }));
+  const rep = await fetch(`${BASE}/api/bugs`, { method: "POST", headers: { authorization: `Bearer ${tok[A]}` }, body: fd });
+  assert(rep.status === 201, `signed-in report: ${rep.status} ${await rep.text()}`);
+  const made = await rep.json();
+  const got = await (await fetch(`${BASE}/api/boards/${made.board}/entries/${made.seq}`, { headers: { authorization: `Bearer ${tok[A]}` } })).json().catch(() => null);
+  assert(got?.entry?.text?.includes("the report flow works"), JSON.stringify(got)?.slice(0, 200));
+  const anon = await fetch(`${BASE}/api/bugs`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ note: `signed out ${run}` }) });
+  assert(anon.status === 201 || anon.status === 429, `signed-out report: ${anon.status} (429 = this IP already hit the strict limit)`);
+});
+
 if (ONLY && !matched) { failed++; failures.push(`no steps match ONLY=${JSON.stringify(process.env.ONLY)}`); }
 console.log(`\n${passed} passed, ${failed} failed${failures.length ? `: ${failures.join("; ")}` : ""}`);
 process.exit(failed ? 1 : 0);
