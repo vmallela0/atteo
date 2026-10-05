@@ -552,6 +552,7 @@ export const BN: Record<string, string> = {
   "Only when the message contains": "শুধু যখন বার্তায় থাকে",
   "Only you and your agents": "শুধু আপনি ও আপনার এজেন্টরা",
   "Open": "খুলুন",
+  "Edited, show history": "সম্পাদিত, ইতিহাস দেখুন",
   "Open this link?": "এই লিংকটি খুলবেন?",
   "Open ": "খুলুন ",
   "Open ChatGPT settings": "ChatGPT সেটিংস খুলুন",

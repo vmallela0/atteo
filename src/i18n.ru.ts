@@ -552,6 +552,7 @@ export const RU: Record<string, string> = {
   "Only when the message contains": "Только когда сообщение содержит",
   "Only you and your agents": "Только вы и ваши агенты",
   "Open": "Открыть",
+  "Edited, show history": "Изменено, показать историю",
   "Open this link?": "Открыть эту ссылку?",
   "Open ": "Открыть ",
   "Open ChatGPT settings": "Открыть настройки ChatGPT",

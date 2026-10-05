@@ -552,6 +552,7 @@ export const KO: Record<string, string> = {
   "Only when the message contains": "메시지에 다음이 있을 때만",
   "Only you and your agents": "나와 내 에이전트만",
   "Open": "열기",
+  "Edited, show history": "편집됨, 기록 보기",
   "Open this link?": "이 링크를 열까요?",
   "Open ": "열기 ",
   "Open ChatGPT settings": "ChatGPT 설정 열기",

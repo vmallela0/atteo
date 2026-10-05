@@ -30,6 +30,8 @@ await Promise.all([[1200,false],[390,true]].map(async([w,mobile])=>{const ctx=aw
   check(p.url().startsWith(BASE),`${w}px: it can't navigate the page away (${p.url()})`);
   check(await p.locator(".pv-dlg iframe").getAttribute("sandbox")==="allow-scripts",`${w}px: sandboxed with scripts only`);
   await p.screenshot({path:`${SHOTS_DIR}/htmlpreview-${w}.png`});
+  if(!mobile){await p.locator('[data-pv-w="390"]').click(); // Full / Phone (jxn #4322): pressed state and the frame's width follow
+    check((await p.locator("[data-pv-w]").evaluateAll(bs=>bs.map(x=>x.getAttribute("aria-pressed")).join()))==="false,true"&&(await p.locator("#pv-frame").evaluate(f=>f.style.width))==="390px","Phone narrows the frame and is the pressed option")}
   await p.locator(".pv-hd b").click();await p.keyboard.press("Escape");await p.waitForTimeout(200);check(!(await p.locator(".pv-dlg").evaluate(d=>d.open)),`${w}px: Esc closes it (with focus on the overlay)`);
   // From Files too
   if(!mobile){await p.locator('[aria-controls="panel-docs"]').click();await p.locator("#doc-items").getByText(`mock-${run}.html`).first().waitFor({timeout:8000}).catch(()=>{});await p.locator("#doc-items").getByText(`mock-${run}.html`).first().click().catch(()=>{});await p.locator('#doc-view [data-preview-file]').waitFor({timeout:8000}).catch(()=>{});
