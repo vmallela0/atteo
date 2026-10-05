@@ -4,8 +4,8 @@
 // devFetch retries such a request once, logging it, and only against a local server: never production, and never a
 // response the Worker itself sent (ours are JSON or pages, never these texts).
 
-const PROXY_FAILURES = [/^Error: Network connection lost/, /^Your worker restarted mid-request/];
-const LOCAL = /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?(\/|$)/;
+export const PROXY_FAILURES = [/^Error: Network connection lost/, /^Your worker restarted mid-request/];
+export const LOCAL = /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?(\/|$)/;
 // The same drop one layer down: the proxy closes the socket before answering, and Node's fetch throws "fetch failed".
 // Refused connections aren't among them: that's a server that isn't there, and a retry wouldn't help.
 const SOCKET_DROPS = new Set(["ECONNRESET", "EPIPE", "UND_ERR_SOCKET", "UND_ERR_CLOSED"]);
@@ -38,5 +38,26 @@ export function devFetch(realFetch, log = (m) => console.log(m)) {
     }
     if (local && resendable && (await isProxyFailure(res))) return again(res.status);
     return res;
+  };
+}
+
+/** The same retry inside a browser page (#3808), for the pages a browser check drives: test/browser/lib/proxyretry.mjs
+ * adds it to every context as an init script, so it is self-contained and gets the patterns as sources
+ * (`{failures: PROXY_FAILURES sources, local: LOCAL source}`). Only a string or URL with a body it can send again. */
+export function retryPageFetch(rules, w = globalThis, log = (m) => console.warn(m)) {
+  if (w.__retryPageFetch) return;
+  w.__retryPageFetch = true;
+  const failures = rules.failures.map((s) => new RegExp(s)), local = new RegExp(rules.local), realFetch = w.fetch;
+  w.fetch = async (input, init) => {
+    const body = init?.body;
+    const resendable = (typeof input === "string" || input instanceof URL) && (body == null || typeof body === "string" || body instanceof URLSearchParams || body instanceof FormData || body instanceof Blob || body instanceof ArrayBuffer || ArrayBuffer.isView(body));
+    const url = resendable ? new URL(String(input), w.location?.href) : null;
+    const res = await realFetch(input, init);
+    if (!url || !local.test(url.href) || res.status < 500) return res;
+    const text = await res.clone().text().catch(() => "");
+    if (!failures.some((re) => re.test(text))) return res;
+    log(`(wrangler dev dropped ${init?.method ?? "GET"} ${url.pathname}: ${res.status}; retried once)`);
+    await new Promise((r) => setTimeout(r, 100));
+    return realFetch(input, init);
   };
 }
