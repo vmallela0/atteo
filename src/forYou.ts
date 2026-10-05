@@ -197,9 +197,9 @@ ${det}<div class="acts"><button class="btn xl" type="button" data-fy-ap="reject"
 <p class="lede" id="fy-lede">${esc(summaryLine(need, done.length, L))}</p></header>
 ${okSec}${quickSec}${empty}${doneSec}
 </div>
-<div class="fy-askwrap"><form class="fy-ask" id="fy-ask" autocomplete="off"><input class="grow" id="fy-ask-text" name="text" placeholder="${esc(T("Ask your assistant…"))}" aria-label="${esc(T("Ask your assistant"))}" maxlength="4000" enterkeyhint="send">
-<button class="fy-send" type="submit" id="fy-send" aria-label="${esc(T("Send"))}" hidden><svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 13V3M3.5 7.5L8 3l4.5 4.5"/></svg></button>
-<button class="fy-mic" type="button" id="fy-mic" aria-label="${esc(T("Talk"))}" aria-pressed="false" title="${esc(T("Talk to your assistant (say “send it” at the end to send)"))}" hidden><svg width="20" height="20" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" aria-hidden="true"><rect x="5.5" y="1.8" width="5" height="8.2" rx="2.5"/><path d="M3.2 7.6a4.8 4.8 0 0 0 9.6 0M8 12.4v2"/></svg></button></form>
+<div class="fy-askwrap"><form class="card composer fy-ask" id="fy-ask" autocomplete="off"><input class="grow" id="fy-ask-text" name="text" placeholder="${esc(T("Ask your assistant…"))}" aria-label="${esc(T("Ask your assistant"))}" maxlength="4000" enterkeyhint="send">
+<button class="btn primary sm post-btn" type="submit" id="fy-send" hidden>${esc(T("Send"))}</button>
+<button class="btn sm mic-btn" type="button" id="fy-mic" aria-label="${esc(T("Talk"))}" aria-pressed="false" title="${esc(T("Talk to your assistant (say “send it” at the end to send)"))}" hidden><svg width="20" height="20" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" aria-hidden="true"><rect x="5.5" y="1.8" width="5" height="8.2" rx="2.5"/><path d="M3.2 7.6a4.8 4.8 0 0 0 9.6 0M8 12.4v2"/></svg></button></form>
 <div class="fy-toast" id="fy-toast" role="status" aria-live="polite" hidden><span>${esc(T("Sent to your assistant"))}</span><a class="link" id="fy-toast-a" href="${agentChat ? `/b/${esc(agentChat)}` : "/agent"}">${esc(T("Open chat"))}</a></div></div>`;
 
   const chats = side.length;
@@ -249,15 +249,10 @@ const FY_CSS = `
 .fy .fy-empty{margin-top:16px;padding:36px 20px}
 .fy-askwrap{position:fixed;left:232px;right:0;bottom:0;z-index:15;padding:28px 24px 16px;pointer-events:none;
   background:linear-gradient(to bottom,transparent,var(--bg) 55%)}
-.fy-ask{pointer-events:auto;width:100%;max-width:712px;margin:0 auto;display:flex;align-items:center;gap:8px;height:54px;padding:0 6px 0 18px;border:1px solid var(--line-strong);
-  border-radius:27px;background:var(--bg);box-shadow:var(--shadow-lg)}
-.fy-ask:focus-within{border-color:var(--muted)}
-.fy-ask input{border:0;outline:0;background:transparent;color:var(--ink);font:inherit;font-size:15.5px;height:100%;min-width:0}
+/* Ask your assistant is the board's chat composer (jxn #4462): its card, border and corners, its mic and send buttons. */
+.fy-ask{pointer-events:auto;width:100%;max-width:712px;margin:0 auto;display:flex;align-items:center;gap:8px;padding:10px 12px 10px 16px}
+.fy-ask input{flex:1;border:0;outline:0;background:transparent;color:var(--ink);font:inherit;font-size:15px;min-width:0}
 .fy-ask input::placeholder{color:var(--faint)}
-.fy-mic,.fy-send{width:42px;height:42px;border-radius:50%;border:0;display:grid;place-items:center;flex:none;cursor:pointer}
-.fy-mic{background:var(--cta);color:var(--on-cta)}.fy-mic.on{box-shadow:0 0 0 4px color-mix(in srgb,var(--cta) 30%,transparent)}
-.fy-send{background:var(--ink);color:var(--on-ink)}
-.fy-mic:focus-visible,.fy-send:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .fy-toast{pointer-events:auto;max-width:712px;margin:0 auto 10px;display:flex;align-items:center;justify-content:center;gap:12px;font-size:13.5px;
   width:max-content;padding:9px 14px;border-radius:8px;background:var(--ink);color:var(--on-ink);box-shadow:var(--shadow-lg)}
 .fy-toast .link{color:var(--on-ink);text-decoration:underline;font-weight:600}
@@ -306,7 +301,7 @@ document.addEventListener('click',async e=>{const b=e.target.closest('[data-fy-v
 let CHAT=${JSON.stringify(agentChat)};
 const f=$('#fy-ask'),ta=$('#fy-ask-text'),send=$('#fy-send'),mic=$('#fy-mic'),tst=$('#fy-toast');let tt=null;
 const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
-function sync(){send.hidden=!!SR&&!ta.value.trim()&&!rec}
+function sync(){const t=!!ta.value.trim();send.hidden=!!SR&&!t&&!rec;if(SR)mic.hidden=t&&!rec} // like the chat composer: the mic, or Send once there's text
 var rec=null;
 ta.addEventListener('input',sync);
 f.addEventListener('submit',async e=>{e.preventDefault();const text=ta.value.trim();if(!text)return;if(rec){try{rec.stop()}catch(x){}}
