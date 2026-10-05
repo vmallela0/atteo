@@ -22,6 +22,7 @@ import { E2E_JS } from "./e2eweb";
 import { STATUS_JS } from "./status";
 import { EMOJI } from "./emoji";
 import { LANG_NAMES, localize, tr, type Lang } from "./i18n";
+import { REMIND_BROWSER_JS } from "./remindTime";
 import { approvalCardHtml, approvalJs, type ApprovalCardData } from "./approvalCard";
 
 export type { Viewer, SideBoard };
@@ -98,7 +99,7 @@ const isHtml = (name: string | null | undefined) => !!name && /\.html?$/i.test(n
 const previewBtn = (name: string, version?: number | null) =>
   `<button class="btn sm ghost" type="button" data-preview-file="${esc(name)}"${version ? ` data-file-ver="${version}"` : ""} title="Try the page here (it runs in a sandbox)">Preview</button>`;
 
-export function entryHtml(e: Entry, boardId: string, withReplies = true, opts: { retracted?: boolean; canRetract?: boolean; root?: number; lang?: Lang } = {}): string {
+export function entryHtml(e: Entry, boardId: string, withReplies = true, opts: { retracted?: boolean; canRetract?: boolean; canEdit?: boolean; root?: number; lang?: Lang; person?: boolean } = {}): string {
   const T = (s: string, v?: Record<string, string | number>) => tr(opts.lang, s, v);
   const refs: string[] = [];
   if (e.retracts != null) refs.push(`unsends <a class="ref" data-ref="${e.retracts}" href="#e${e.retracts}">#${e.retracts}</a>`);
@@ -119,6 +120,7 @@ ${
     : "";
   // Reply sets the composer to answer this entry: an agent's post gets the reply addressed to that agent.
   const reply = !opts.retracted && e.retracts == null ? `<button class="btn ghost sm" type="button" data-reply="${e.seq}" data-reply-label="${esc(e.via === "person" ? e.author : `${e.author}'s agent`)}">${esc(T("Reply"))}</button>` : "";
+  const edit = opts.canEdit && e.via === "person" && (e.type === "note" || e.type === "question") && !e.artifact_name && !e.attachments?.length && !opts.retracted && Date.now() - e.ts <= 900000 ? `<button class="btn ghost sm" type="button" data-edit="${e.seq}">${esc(T("Edit"))}</button>` : "";
   const retract = opts.canRetract && !opts.retracted && e.retracts == null ? `<button class="btn ghost sm retract" type="button" data-retract="${e.seq}">${esc(T("Unsend"))}</button>` : "";
   const react =
     !opts.retracted && e.retracts == null
@@ -128,15 +130,16 @@ ${
   // Select starts picking messages to forward (people only, from the page).
   const select = !opts.retracted && e.retracts == null && !e.audience ? `<button class="btn ghost sm sel-act" type="button" data-select="${e.seq}" aria-label="${esc(T("Select to forward"))}" title="${esc(T("Select messages to forward"))}"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><rect x="2.5" y="2.5" width="11" height="11" rx="3"/><path d="M5.5 8.2l1.8 1.8 3.4-3.6"/></svg></button>` : "";
   // Touch screens have no hover: a small ⋯ at the end of the line opens the actions (jxn #891); hidden with a mouse.
-  const more = react || reply || retract ? `<button class="more-acts" type="button" data-more="${e.seq}" aria-label="${esc(T("More actions"))}" aria-expanded="false" title="${esc(T("More actions"))}">⋯</button>` : "";
+  const more = react || reply || retract || edit ? `<button class="more-acts" type="button" data-more="${e.seq}" aria-label="${esc(T("More actions"))}" aria-expanded="false" title="${esc(T("More actions"))}">⋯</button>` : "";
   const remember = !opts.retracted && e.retracts == null && !e.audience ? rememberBtn(e.seq) : ""; // people-only: never agents' memory // shown once the board has a MEMORY
-  const actions = react || reply || retract ? `${more}<span class="acts">${react}${reply}${remember}${select}${retract}</span>` : "";
+  const remind = opts.person && !opts.retracted && e.retracts == null ? `<details class="remind-menu"><summary>${esc(T("Remind me"))}</summary><div><button type="button" data-remind-message="hour" data-seq="${e.seq}">${esc(T("In 1 hour"))}</button><button type="button" data-remind-message="tonight" data-seq="${e.seq}">${esc(T("Tonight (20:00)"))}</button><button type="button" data-remind-message="tomorrow" data-seq="${e.seq}">${esc(T("Tomorrow (09:00)"))}</button></div></details>` : "";
+  const actions = react || reply || retract || edit ? `${more}<span class="acts">${react}${reply}${remember}${select}${edit}${retract}${remind}</span>` : "";
   // An approval entry: the card says where it stands, so the message is just what's asked (its text, for agents, says "waiting").
   const apr = (e as Entry & { approval?: ApprovalCardData & { title?: string } }).approval;
   return `<article class="entry${opts.retracted ? " retracted" : ""}${e.via === "agent" ? " by-agent" : ""}" id="e${e.seq}" data-seq="${e.seq}" data-author="${esc(e.author)}" data-title="${esc(shortTitle(e))}"${e.reply_to != null ? ` data-reply="${e.reply_to}"` : ""}${opts.root != null && opts.root !== e.seq ? ` data-root="${opts.root}"` : ""}>
 ${avatar(e.author, "", e.via === "agent")}
 <div class="grow">
-  <div class="meta">${whoHtml(e)}${e.to ? `<span class="to">→ ${esc(e.to)}</span>` : ""}${e.type === "note" ? "" : typeTag(e.type, opts.lang)}${when(e.ts, opts.lang)}<a class="seq" href="#e${e.seq}">#${e.seq}</a>${peopleBadge(e, opts.lang)}<span class="badge rbadge">${esc(T("Unsent"))}</span>${flagBadge(e.text, e.ai_flag)}${actions}</div>
+  <div class="meta">${whoHtml(e)}${e.to ? `<span class="to">→ ${esc(e.to)}</span>` : ""}${e.type === "note" ? "" : typeTag(e.type, opts.lang)}${when(e.ts, opts.lang)}<a class="seq" href="#e${e.seq}">#${e.seq}</a>${peopleBadge(e, opts.lang)}${e.edited_at ? `<button class="badge" type="button" data-history="${e.seq}">${esc(T("edited"))}</button>` : ""}<span class="badge rbadge">${esc(T("Unsent"))}</span>${flagBadge(e.text, e.ai_flag)}${actions}</div>
   <div class="body">${apr?.title ? `<p>${esc(apr.title)}</p>` : refLinks(renderText(e.text, e.mentions, e.mention_names))}</div>${file}${e.card ? changeCardHtml(e.seq, e.card) : ""}${e.handoff ? `<div class="refs mono handoff">${esc(handoffLine(e.handoff))}</div>` : ""}${apr && !opts.retracted ? approvalCardHtml(apr, false, opts.lang) : ""}${e.type === "task" ? `<div class="tk" data-task="${e.seq}" hidden></div>` : ""}${e.type === "claim" && !opts.retracted ? `<div class="tk cl" data-claim="${e.seq}" hidden></div>` : ""}${e.type === "decision" && e.via === "person" && !opts.retracted ? `<div class="tk hd" data-hd="${e.seq}" hidden></div>` : ""}
   ${refs.length ? `<div class="refs">${refs.join(" · ")}</div>` : ""}
   <div class="rx" data-rx="${e.seq}"><button class="rx-add" type="button" data-rx-add="${e.seq}" aria-label="${esc(T("Add a reaction"))}" title="${esc(T("Add a reaction"))}">☺<span>+</span></button></div>
@@ -325,7 +328,10 @@ const PREVIEW_JS = `
   dlg.innerHTML='<div class="pv-hd"><b class="mono truncate" id="pv-name"></b><span class="grow"></span><div class="seg pv-w" role="group" aria-label="'+tr('Width')+'"><button type="button" class="on" data-pv-w="">'+tr('Full')+'</button><button type="button" data-pv-w="390">'+tr('Phone')+'</button></div><button type="button" class="btn ghost sm" data-pv-close aria-label="'+tr('Close preview')+'">✕</button></div><div class="pv-body"><iframe id="pv-frame" sandbox="allow-scripts" referrerpolicy="no-referrer" title="'+tr('Preview')+'"></iframe></div><p class="xs faint pv-note">Runs in a sandbox: it can\\'t see your account or reach the network.</p>';
   document.body.appendChild(dlg);const fr=dlg.querySelector('#pv-frame');
   const HEAD=${JSON.stringify(PREVIEW_HEAD).replace(/</g, "\\u003c")};
-  const withCsp=h=>HEAD+h;
+  // srcdoc inherits the parent page CSP. Give preview scripts its response nonce while the
+  // preview's own stricter meta CSP still blocks network access and form submissions.
+  const nonce=document.querySelector('script[nonce]')?.nonce||'';
+  const withCsp=h=>HEAD.replace('<scr'+'ipt>','<scr'+'ipt nonce="'+nonce+'">')+h.replace(new RegExp('<scr'+'ipt\\\\b','gi'),'<scr'+'ipt nonce="'+nonce+'"');
   async function open(name,ver){
     let html='';try{const r=await fetch('/api/boards/'+BOARD+'/doc?name='+encodeURIComponent(name)+(ver?'&version='+ver:''));const d=await r.json();if(!r.ok){toast(d.error||tr("Couldn't open it"));return}html=d.content||'';
       if(window.e2eDecryptDoc)html=await window.e2eDecryptDoc(d)||html}catch(e){toast(tr("Couldn't open it"));return}
@@ -488,12 +494,12 @@ function fmtBytes(n: number): string {
   return `${(n / 1024 / 1024).toFixed(1)} MB`;
 }
 
-export function threadHtml(entries: Entry[], boardId: string, viewer?: { name: string; creator: string; lang?: Lang }): string {
+export function threadHtml(entries: Entry[], boardId: string, viewer?: { name: string; creator: string; encrypted?: boolean; lang?: Lang; person?: boolean }): string {
   // Every message in order, replies included (jxn #1040): a reply posts like any message, with a bar quoting what it
   // answers; its thread opens as an overlay. data-root ties a reply to its thread.
   const roots = rootMap(entries);
   const gone = retractedSet(entries);
-  const flags = (e: Entry) => ({ retracted: gone.has(e.seq), canRetract: !!viewer && (e.author === viewer.name || viewer.creator === viewer.name), root: roots.get(e.seq), lang: viewer?.lang });
+  const flags = (e: Entry) => ({ retracted: gone.has(e.seq), canRetract: !!viewer && (e.author === viewer.name || viewer.creator === viewer.name), canEdit: !!viewer && !viewer.encrypted && e.author === viewer.name, root: roots.get(e.seq), lang: viewer?.lang, person: viewer?.person });
   return entries.map((e) => entryHtml(e, boardId, roots.get(e.seq) === e.seq, flags(e))).join("");
 }
 
@@ -858,7 +864,8 @@ export function homePage(
   const active = boards.filter((b) => !b.archived_at).length;
   const archivedCount = boards.length - active;
   const liveOf = new Map(side.map((b) => [b.id, b.live ?? 0]));
-  const cards = boards
+  const pinRank = new Map(side.filter(b => b.pinned).map((b, i) => [b.id, i]));
+  const cards = [...boards].sort((a, b) => (pinRank.get(a.id) ?? 5) - (pinRank.get(b.id) ?? 5))
     .map((b) => {
       const meta = boardMeta(b);
       const names = (b.members ?? "").split(", ").filter(Boolean);
@@ -866,9 +873,9 @@ export function homePage(
       return `<article class="bcard${b.archived_at ? " archived" : ""}" data-text="${esc(text)}" data-archived="${b.archived_at ? 1 : 0}" data-id="${esc(b.id)}" data-meta="${esc(JSON.stringify(meta))}" data-title="${esc(b.title)}" data-people="${names.filter((n) => n !== viewer.name).length}" data-via="${esc(b.last_via ?? "")}">
   <a class="bcard-link" href="/b/${esc(b.id)}" aria-label="${esc(b.title)}"></a>
   <div class="row bc-top">${boardPic({ id: b.id, title: b.title, picture: pictureUrl(b.id, b.picture_v) }, "sm", `<span class="bc-dot" style="--h:${hue(b.id)}"></span>`)}
-    <h3 class="grow truncate">${esc(b.title)}</h3>
+    <h3 class="grow truncate">${esc(b.title)}</h3>${pinRank.has(b.id) ? `<span class="pin-mark" aria-label="${esc(T("Pinned"))}" title="${esc(T("Pinned"))}">📌</span>` : ""}
     ${working(liveOf.get(b.id) ?? 0, b.id)}${b.unread ? `<span class="bc-unread" title="${esc(T("Waiting for you"))}">${esc(T("{n} for you", { n: b.unread }))}</span>` : ""}
-    <button class="btn ghost sm bc-edit" type="button" data-edit-board="${esc(b.id)}" aria-label="${esc(T("Edit details"))}">${esc(T("Edit"))}</button></div>
+    <button class="btn ghost sm bc-edit" type="button" data-edit-board="${esc(b.id)}" aria-label="${esc(T("Edit details"))}">${esc(T("Edit"))}</button><details class="board-head-menu bc-menu"><summary class="btn ghost sm" aria-label="${esc(T("More actions"))}">⋯</summary><div class="board-head-menu-items"><button type="button" data-mark-unread="${esc(b.id)}">${esc(T("Mark as unread"))}</button>${b.archived_at ? "" : `<button type="button" data-pin-board="${esc(b.id)}">${esc(T(pinRank.has(b.id) ? "Unpin" : "Pin"))}</button>`}</div></details></div>
   ${meta.description ? `<p class="bc-desc">${esc(meta.description)}</p>` : ""}
   ${meta.tags.length ? `<div class="bc-tags">${meta.tags.map((t) => `<span class="tag">#${esc(t)}</span>`).join("")}</div>` : ""}
   ${meta.links.length ? `<div class="bc-links">${meta.links.map((l) => `<a href="${esc(l.url)}" target="_blank" rel="noopener noreferrer">${esc(l.label)} ↗</a>`).join("")}</div>` : ""}
@@ -933,7 +940,7 @@ const pfl=document.getElementById('pf-list'),PFK='atteo.pf.'+(pfl?pfl.dataset.me
 const pfOn=()=>{try{return localStorage.getItem(PFK)==='1'}catch(e){return false}};
 function apply(){const t=q.value.trim().toLowerCase(),s=show(),pf=pfOn();let n=0;if(pfl)pfl.setAttribute('aria-pressed',String(pf));
   cards.forEach(c=>{const ok=(s==='all'||(s==='archived')===(c.dataset.archived==='1'))&&(!t||c.dataset.text.includes(t))&&(!pf||c.dataset.people!=='0');c.hidden=!ok;if(ok)n++});
-  (pf?[...cards].sort((a,b)=>(a.dataset.via==='person'?0:1)-(b.dataset.via==='person'?0:1)):cards).forEach(c=>grid.appendChild(c)); // stable: newest first within each
+  (pf?[...cards].sort((a,b)=>(a.querySelector('.pin-mark')?0:1)-(b.querySelector('.pin-mark')?0:1)||(a.dataset.via==='person'?0:1)-(b.dataset.via==='person'?0:1)):cards).forEach(c=>grid.appendChild(c)); // stable: newest first within each
   document.getElementById('b-none').hidden=n>0||!!t}
 pfl?.addEventListener('click',()=>{const on=!pfOn();try{on?localStorage.setItem(PFK,'1'):localStorage.removeItem(PFK)}catch(e){}apply()});
 document.querySelectorAll('input[name=bshow]').forEach(r=>r.addEventListener('change',apply));
@@ -1092,13 +1099,14 @@ export function boardPage(
   // Big boards open on their newest entries; earlier ones load on demand.
   const earlier = first > 1 ? `<button class="btn ghost sm load-earlier" type="button" id="load-earlier" data-before="${first}">${esc(T("Load earlier messages"))}</button>` : "";
   const thread = entries.length
-    ? earlier + threadHtml(entries, info.id, { name: viewer.name, creator: info.created_by, lang: viewer.lang })
+    ? earlier + threadHtml(entries, info.id, { name: viewer.name, creator: info.created_by, encrypted: info.encrypted, lang: viewer.lang, person: viewer.via !== "agent" })
     : agentChat
       ? `<div class="empty" id="empty"><h3>${esc(T("Talk to your agent"))}</h3><p class="small">Only you and your agents see this chat. Ask anything below: any of your agents can answer (<span class="mono">atteo dispatch</span> starts one for each message), or pick one of them.</p></div>`
     : `<div class="empty" id="empty"><h3>${esc(T("Nothing here yet"))}</h3><p class="small">${esc(T("Any agent joins with {cmd}. Or write the first note below.")).replace("{cmd}", `<span class="mono">atteo join ${esc(info.id)}</span>`)}</p>
 <div class="row" style="gap:8px;justify-content:center;flex-wrap:wrap;margin-top:16px">${agent.connected ? "" : `<button class="btn primary lg" data-open="connect">${esc(T("Connect an agent"))}</button>`}${!canInviteAgent ? "" : `<button class="btn lg${agent.connected ? " primary" : ""}" data-open="invite-agent">${esc(T("Invite an agent"))}</button>`}</div></div>`;
   const rows = [...entries].reverse().map((e) => logRow(e, undefined, undefined, viewer.lang)).join("");
-  const script = SHEET_JS + CONNECT_JS + (agentChat ? AGENT_PICK_JS : "") + `
+  const script = SHEET_JS + CONNECT_JS + (agentChat ? AGENT_PICK_JS : "") + NOTIFY_SIDE_JS + REMIND_BROWSER_JS + `
+document.addEventListener('click',e=>{const b=e.target.closest('[data-remind-message]');if(b)remindItem(BOARD+':'+b.dataset.seq,b.dataset.remindMessage)});
 window.BOARD=${JSON.stringify(info.id)};let last=${last};
 ${agentChat ? "" : `try{if(localStorage.getItem('atteo.pf.'+${jsString(viewer.name)})==='1')document.documentElement.setAttribute('data-pf','')}catch(e){}`} // the People filter, before anything measures the thread
 // Earlier messages, on demand (a page at a time, or as far back as a given entry for a link to an older message). Replies go
@@ -1279,7 +1287,16 @@ window.addEventListener('hashchange',()=>{const t={'#log':1,'#files':2,'#docs':2
 const SEEN0=${Math.max(0, board.seen ?? 0)},ME0=${jsString(viewer.name)};let unreadAt=null;
 function openAtUnread(){const e=SEEN0?[...document.querySelectorAll('#thread>.entry')].find(x=>+x.dataset.seq>SEEN0&&!offChat(x)&&!(x.dataset.author===ME0&&!x.classList.contains('by-agent'))):null;if(!e)return false;
   unreadAt=e;let l=document.getElementById('new-line');if(!l){l=document.createElement('div');l.id='new-line';l.className='new-line';l.setAttribute('role','separator');l.innerHTML='<span>'+tr('New')+'</span>'}e.before(l);
-  pinned=false;userT=0;scroller.scrollTop=Math.max(0,l.offsetTop-scroller.offsetTop-12);pinned=nearEnd();pillSync();return true}
+  const at=catchUp(l)||l;pinned=false;userT=0;scroller.scrollTop=Math.max(0,at.offsetTop-scroller.offsetTop-12);pinned=nearEnd();pillSync();return true}
+// Catch up (vedu's agent #2498 item 5): opening a board with 20 or more unread messages offers its Recap (what was decided,
+// asked and is owed since you last looked) just above the New line. Recap is built from the board itself, not a model.
+const CATCH_UP_AT=20;
+function catchUp(l){const n=[...document.querySelectorAll('#thread>.entry,#thread>.ghost')].filter(x=>+x.dataset.seq>SEEN0&&!offChat(x)&&!(x.dataset.author===ME0&&!x.classList.contains('by-agent'))).length;
+  let c=document.getElementById('catch-up');if(n<CATCH_UP_AT||!document.getElementById('recap-btn')){c?.remove();return null}
+  if(!c){c=document.createElement('div');c.id='catch-up';c.className='catch-up';c.innerHTML='<button type="button" class="btn sm"></button>';
+    c.querySelector('button').addEventListener('click',()=>{c.remove();if(window.recapOpen)recapOpen()})}
+  c.querySelector('button').innerHTML='<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><path d="M3 4h10M3 8h7M3 12h5"/></svg><span>'+esc(tr('Catch up on {n} new messages',{n}))+'</span>';
+  l.before(c);return c}
 if(!linked&&!openAtUnread())toBottom();
 window.addEventListener('load',()=>{if(linked||moved)return;if(!unreadAt||!openAtUnread())toBottom()});
 // One update fetch at a time (a post's own refresh and the live signal used to race and add the entry twice).
@@ -1341,6 +1358,7 @@ function connect(){
       if(document.documentElement.dataset.mode==='everyday')document.dispatchEvent(new CustomEvent('atteo-mode',{detail:{everyday:true}}));return}
     if(d.type==='schedule'){if(document.getElementById('invite')?.open&&window.schLoad)schLoad();return}
     if(d.type==='reaction'){renderRx(d.seq,d.reactions);return}
+    if(d.type==='edit'){location.reload();return}
     if(d.type==='answered'){sumNext=true;tick(false);return} // someone marked a question answered: refresh the open questions
     if(d.type==='approval'){window.apcApply&&apcApply(d.approval);return}
     if(d.type==='typing'){if(d.who!==ME){TYPERS.set(d.who,d.until);typingSync()}return}
@@ -2144,7 +2162,7 @@ window.BOARD_CTX={id:BOARD,me:ME,members:MEMBERS,
   openFile(name,v){tab(2);openDoc(name,v)}};
 document.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&!e.altKey&&!e.shiftKey&&e.key.toLowerCase()==='f'&&!document.querySelector('dialog[open]:not(#palette)')){e.preventDefault();window.openPalette([{k:'board'},{k:'kind',v:'messages'}])}},true);
 // ---- threads: replies fold into "N replies" under their message; clicking it opens the thread right there, in the chat ----
-const avatar16=(u,agent)=>'<span class="av sm'+(agent?' agent':'')+'" style="--h:'+(MOPTS.find(o=>o.u===u)?.av.match(/--h:([0-9]+)/)?.[1]||220)+'">'+esc(u.slice(0,2).toUpperCase())+'<img class="av-img" src="/avatar/'+encodeURIComponent(u)+(agent?'?k=agent':'')+'" alt="" loading="lazy" onerror="this.remove()" onload="this.classList.add(&quot;ok&quot;)"></span>';
+const avatar16=(u,agent)=>'<span class="av sm'+(agent?' agent':'')+'" style="--h:'+(MOPTS.find(o=>o.u===u)?.av.match(/--h:([0-9]+)/)?.[1]||220)+'">'+esc(u.slice(0,2).toUpperCase())+'<img class="av-img" src="/avatar/'+encodeURIComponent(u)+(agent?'?k=agent':'')+'" alt="" loading="lazy"></span>';
 // Replies post in the conversation like any message (jxn #1040). Each carries a bar quoting the message it answers;
 // tapping it, or a thread's "N replies", opens the thread as an overlay with its own reply box.
 function quotify(el){const r=el.dataset.reply;if(!r||el.querySelector(':scope>.grow>.rq'))return;const p=document.getElementById('e'+r),g=!p&&document.getElementById('g'+r);
@@ -2383,6 +2401,12 @@ window.applyTitle=(t)=>{t=bidi(t);const h=document.getElementById('board-title')
   inp.addEventListener('blur',()=>{if(!inp.hidden&&!inp.disabled)save()});})();
 window.archiveDone=(j)=>{toast(j.message||tr('Done'));setTimeout(()=>location.reload(),400)};
 document.getElementById('del-confirm')?.addEventListener('input',e=>{document.getElementById('del-go').disabled=e.target.value.trim()!==${jsString(info.title)}});
+document.addEventListener('click',async e=>{const b=e.target.closest('[data-edit]');if(!b)return;
+  const row=b.closest('.entry'),body=row?.querySelector('.body');if(!body||row.querySelector('[data-edit-box]'))return;
+  const seq=b.dataset.edit;const got=await fetch('/api/boards/'+BOARD+'/entries/'+seq).then(r=>r.json());if(!got.entry){toast(got.error||tr('Could not load'));return}
+  const old=body.innerHTML;body.textContent='';const box=document.createElement('textarea');box.dataset.editBox='1';box.value=got.entry.text;box.rows=4;box.style.width='100%';body.append(box);
+  const save=document.createElement('button'),cancel=document.createElement('button');save.type=cancel.type='button';save.className=cancel.className='btn sm';save.textContent=tr('Save');cancel.textContent=tr('Cancel');body.append(save,cancel);cancel.onclick=()=>{body.innerHTML=old};save.onclick=async()=>{const r=await fetch('/api/boards/'+BOARD+'/entries/'+seq,{method:'PATCH',headers:{'content-type':'application/json'},body:JSON.stringify({text:box.value})});const j=await r.json();if(!r.ok){toast(j.error||tr('Could not save'));return}location.reload()};box.focus()});
+document.addEventListener('click',async e=>{const b=e.target.closest('[data-history]');if(!b)return;const r=await fetch('/api/boards/'+BOARD+'/entries/'+b.dataset.history+'?history=1');const j=await r.json();if(!r.ok){toast(j.error||tr('Could not load'));return}const row=b.closest('.entry'),body=row.querySelector('.body');if(row.querySelector('[data-version-list]')){row.querySelector('[data-version-list]').remove();return}const list=document.createElement('div');list.dataset.versionList='1';for(const v of j.history||[]){const part=document.createElement('div');part.textContent='#'+v.version+' · '+new Date(v.ts).toLocaleString()+'\\n'+v.text;part.style.whiteSpace='pre-wrap';list.append(part)}body.after(list)});
 document.addEventListener('click',async e=>{const b=e.target.closest('[data-retract]');if(!b)return;
   if(b.dataset.armed!=='1'){b.dataset.armed='1';b.textContent=tr('Unsend #')+b.dataset.retract+'?';b.classList.add('danger');setTimeout(()=>{b.dataset.armed='';b.textContent=tr('Unsend');b.classList.remove('danger')},4000);return}
   b.disabled=true;const r=await fetch('/api/boards/'+BOARD+'/entries/'+b.dataset.retract+'/retract',{method:'POST',headers:{'content-type':'application/json'},body:'{}'});
@@ -2575,6 +2599,7 @@ window.boardKeys=(e,k)=>{
     </form>
   </section>
   <aside class="aside" id="board-info" aria-label="${esc(T("Board info"))}">${agentChat ? "" : PIN_SIDE + SOUL_SIDE}${agentsSection(agents, info.id, readOnly || !!info.archived, L, canInviteAgent)}<div class="sum" id="sum">${summaryHtml(entries, viewer.name, members, summary, ctl, L)}</div>
+${notifySide(L)}
 </aside>
 </div></div>
 <div role="tabpanel" id="panel-log" class="bp-panel" data-board-panel hidden><div class="list scroll-x"><table class="log"><thead><tr><th>${esc(T("Time (UTC)"))}</th><th>#</th><th>${esc(T("Author"))}</th><th>${esc(T("Type"))}</th><th>${esc(T("To"))}</th><th>${esc(T("Summary"))}</th></tr></thead>
@@ -2696,8 +2721,8 @@ ${canInviteAgent ? inviteAgentDialog(T, info) : ""}
   }</section>
   <details class="acc-sec"><summary class="small muted">${esc(T("Activity"))}</summary><ul class="acc-list" id="acc-audit"></ul></details>
   ${
-    isCreator || canPic
-      ? `<section class="acc-sec" id="acc-board"><h3>${esc(T("This board"))}</h3>${picSec}${
+    true
+      ? `<section class="acc-sec" id="acc-board"><h3>${esc(T("This board"))}</h3>${picSec}${info.archived ? "" : `<div class="acc-row"><button class="btn ghost sm" type="button" data-pin-board="${esc(info.id)}">${esc(T(side.some(b => b.id === info.id && b.pinned) ? "Unpin" : "Pin"))}</button></div>`}${
           isCreator
             ? `<div class="acc-row">${
                 info.archived
@@ -2716,7 +2741,7 @@ ${canInviteAgent ? inviteAgentDialog(T, info) : ""}
     crumbs: agentChat ? `<span class="cur truncate">${esc(T("Your agent"))}</span>` : `<a class="muted" href="/">${esc(T("Boards"))}</a><span class="faint">/</span><span class="cur truncate">${esc(info.title)}</span>`,
     actions: `${agent.connected ? "" : `<button class="btn sm" data-open="connect" aria-label="${esc(T("Connect an agent"))}"><span class="hide-sm">${esc(T("Connect an agent"))}</span><span class="sm-only">${esc(T("Connect"))}</span></button>`}${readOnly || agentChat ? "" : `<button class="btn sm" data-open="invite">${esc(T("Invite"))}<kbd class="hide-sm">I</kbd></button>`}${
       // Rename/archive/delete live at the bottom of Members & access; a visible way in, so they aren't hidden behind Invite.
-      isCreator || canPic ? `<button class="btn ghost sm" type="button" data-open="invite" data-goto="acc-board" title="${isCreator ? "Picture, archive or delete" : "Board picture"}" aria-label="${esc(T("Board settings"))}"><svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><circle cx="3" cy="8" r="1.4"/><circle cx="8" cy="8" r="1.4"/><circle cx="13" cy="8" r="1.4"/></svg></button>` : ""
+      `<details class="board-head-menu"><summary class="btn ghost sm" aria-label="${esc(T("More actions"))}" title="${esc(T("More actions"))}">⋯</summary><div class="board-head-menu-items"><button type="button" data-mark-unread="${esc(info.id)}">${esc(T("Mark as unread"))}</button>${isCreator || canPic ? `<button type="button" data-open="invite" data-goto="acc-board">${esc(T("Board settings"))}</button>` : ""}</div></details>`
     }`,
     body,
     script,
@@ -2747,7 +2772,7 @@ export function devicePage(viewer: Viewer, side: SideBoard[], code: string | nul
   <p class="small muted">Only approve if this code matches the one in your terminal and you started this sign-in yourself.</p>
   <form method="post" action="/api/device/decide" data-api data-done="decided" style="margin-top:18px">
     <input type="hidden" name="user_code" value="${esc(code)}"><input type="hidden" name="approve" id="approve" value="true">
-    <div class="row" style="justify-content:flex-end"><button type="submit" class="btn" onclick="document.getElementById('approve').value='false'">Deny</button><button type="submit" class="btn primary" onclick="document.getElementById('approve').value='true'">Approve</button></div>
+    <div class="row" style="justify-content:flex-end"><button type="submit" class="btn" data-approve="false">Deny</button><button type="submit" class="btn primary" data-approve="true">Approve</button></div>
     <p data-result hidden style="margin-top:12px"></p>
   </form></div>`;
   }
@@ -2996,10 +3021,56 @@ export interface Display {
   mode?: "auto" | "everyday" | "developer";
   lang?: "auto" | "en" | "zh-Hans" | "zh-Hant" | "es" | "ja" | "ko" | "hi" | "fr" | "pt" | "de" | "ru" | "id" | "tr" | "bn" | "ar";
   voice?: "eve" | "ara" | "leo" | "rex" | "sal";
+  voice_turns?: "quick" | "pause" | "tap"; // when Atteo answers in a voice call (vedu #2460)
 }
 
 /** Read-aloud and voice chat voices (xAI's), as the picker names them. */
 const VOICE_NAMES: [string, string][] = [["eve", "Eve"], ["ara", "Ara"], ["leo", "Leo"], ["rex", "Rex"], ["sal", "Sal"]];
+
+// ---- notification volume (src/notify.ts, vedu #2490): a level per board, quiet hours, the digest ----
+
+const NOTIFY_LEVELS = (T: (s: string) => string): [string, string][] => [
+  ["everything", T("Everything")],
+  ["needs_me", T("Needs me")],
+  ["off", T("Off")],
+];
+
+/** Board info → Notifications: your level for this board (only interrupts change; the Inbox doesn't). */
+function notifySide(lang?: Lang): string {
+  const T = (s: string, v?: Record<string, string | number>) => tr(lang, s, v);
+  return `<section class="ns-side" id="ns-side" aria-labelledby="ns-side-h"><h3 class="xs muted" id="ns-side-h" style="margin:14px 0 6px;font-weight:600">${esc(T("Notifications"))}</h3>
+<div class="seg" role="radiogroup" aria-labelledby="ns-side-h">${NOTIFY_LEVELS(T)
+    .map(([v, l]) => `<input type="radio" name="ns-level" id="ns-level-${v}" value="${v}"${v === "needs_me" ? " checked" : ""}><label for="ns-level-${v}">${esc(l)}</label>`)
+    .join("")}</div>
+<p class="xs muted" id="ns-side-hint" style="margin-top:6px" data-needs="${esc(T("Approvals, @you, replies, decisions and DMs notify you at once; the rest waits for a digest at {times}.", { times: "{times}" }))}" data-off="${esc(T("Off: still in your Inbox, never a notification."))}"></p></section>`;
+}
+
+// Board info's level: read once, saved on change. The hint says what the level means (with your digest times).
+const NOTIFY_SIDE_JS = `
+setTimeout(()=>{const box=document.getElementById('ns-side');if(!box||!window.BOARD)return;const hint=document.getElementById('ns-side-hint');let times='9:00, 13:00, 18:00';
+  const say=v=>{hint.textContent=v==='off'?hint.dataset.off:v==='needs_me'?hint.dataset.needs.split('{times}').join(times):''};
+  const tz=encodeURIComponent(Intl.DateTimeFormat().resolvedOptions().timeZone||'UTC');
+  fetch('/api/me/notify?tz='+tz).then(r=>r.ok?r.json():null).then(j=>{if(j&&j.digest)times=j.digest.join(', ');say(box.querySelector('input:checked').value)}).catch(()=>{});
+  fetch('/api/boards/'+window.BOARD+'/notify').then(r=>r.ok?r.json():null).then(j=>{if(!j)return;const i=document.getElementById('ns-level-'+j.level);if(i)i.checked=true;box.dataset.level=j.level;say(j.level)}).catch(()=>{});
+  box.addEventListener('change',async e=>{const v=e.target.value,prev=box.dataset.level||'needs_me';say(v);
+    const r=await fetch('/api/boards/'+window.BOARD+'/notify',{method:'PUT',headers:{'content-type':'application/json'},body:JSON.stringify({level:v})}).catch(()=>null);
+    if(r&&r.ok){box.dataset.level=v;toast(tr('Notifications saved'))}else{const i=document.getElementById('ns-level-'+prev);if(i)i.checked=true;say(prev);toast(tr('Could not save'))}})},0);`;
+
+/** Account → Notifications: quiet hours (nothing interrupts but urgent approvals) and when digests come. */
+function notifySection(lang?: Lang): string {
+  const T = (s: string, v?: Record<string, string | number>) => tr(lang, s, v);
+  return `<div class="section-title" style="margin-top:32px"><div><h2>${esc(T("Notifications"))}</h2><p class="small muted" style="margin-top:4px" id="ns-hint" data-needs="${esc(T("Approvals, @you, replies, decisions and DMs notify you at once; the rest waits for a digest at {times}.", { times: "{times}" }))}"></p></div></div>
+<form class="card pad" id="ns-form"><label class="pf-check"><input type="checkbox" id="ns-quiet"><span><span class="small" style="color:var(--ink)">${esc(T("Quiet hours"))}</span><span class="xs muted">${esc(T("Nothing interrupts you then, except urgent approvals."))}</span></span></label>
+<div class="row" style="gap:8px;margin-top:10px;flex-wrap:wrap"><label class="lbl" for="ns-start">${esc(T("From"))}</label><input class="input" type="time" id="ns-start" value="22:00" style="width:auto"><label class="lbl" for="ns-end">${esc(T("To"))}</label><input class="input" type="time" id="ns-end" value="07:00" style="width:auto"></div></form>`;
+}
+
+const NOTIFY_JS = `
+(()=>{const f=document.getElementById('ns-form');if(!f)return;const q=document.getElementById('ns-quiet'),s=document.getElementById('ns-start'),e=document.getElementById('ns-end'),hint=document.getElementById('ns-hint');
+  const tz=Intl.DateTimeFormat().resolvedOptions().timeZone||'UTC';
+  const show=j=>{q.checked=!!j.quiet.on;s.value=j.quiet.start;e.value=j.quiet.end;hint.textContent=hint.dataset.needs.split('{times}').join(j.digest.join(', '))};
+  fetch('/api/me/notify?tz='+encodeURIComponent(tz)).then(r=>r.ok?r.json():null).then(j=>{if(j)show(j)}).catch(()=>{});
+  f.addEventListener('change',async()=>{const r=await fetch('/api/me/notify',{method:'PUT',headers:{'content-type':'application/json'},body:JSON.stringify({quiet:{on:q.checked,start:s.value||'22:00',end:e.value||'07:00',tz}})}).catch(()=>null);
+    if(r&&r.ok){show(await r.json());toast(tr('Notifications saved'))}else toast(tr('Could not save'))})})();`;
 
 /** Account → Display: how the chat looks to you (Slack-style). Saved to your profile, so the web and the app match. */
 function displaySection(d: Display | null | undefined, lang?: Lang): string {
@@ -3014,6 +3085,7 @@ ${seg("text", esc(T("Text size")), [["s", esc(T("Small"))], ["m", esc(T("Medium"
 ${seg("density", esc(T("Density")), [["comfortable", esc(T("Comfortable"))], ["compact", esc(T("Compact"))]])}
 ${seg("theme", esc(T("Theme")), [["system", esc(T("System"))], ["light", esc(T("Light"))], ["dark", esc(T("Dark"))]])}
 ${seg("replies", esc(T("Replies")), [["chat", esc(T("In the chat"))], ["thread", esc(T("Only in their threads"))]])}
+${seg("voice_turns", esc(T("When Atteo answers")), [["quick", esc(T("Right away"))], ["pause", esc(T("After a pause"))], ["tap", esc(T("When I tap Done"))]]).replace(/^<span class="lbl"/, '<span class="lbl" data-voice-only hidden').replace('<div class="seg"', '<div class="seg" data-voice-only hidden')}
 <label class="lbl" for="dp-lang">${esc(T("Language"))}</label><select class="input dp-lang" id="dp-lang" data-lang="${esc(d?.lang ?? "auto")}">${(
     [["auto", T("Automatic (this browser's language)")], ...Object.entries(LANG_NAMES), ...(d?.lang && d.lang !== "auto" && !(d.lang in LANG_NAMES) ? [[d.lang, `${d.lang} (${T("set in the app; the web shows English for now")})`]] : [])] as [string, string][]
   )
@@ -3048,12 +3120,14 @@ function profileSection(p: ProfileView | null, lang?: Lang): string {
 const DISPLAY_JS = `
 (()=>{const f=document.getElementById('dp-form');if(!f)return;let saved=null,local={};
   try{saved=JSON.parse(f.dataset.saved)}catch{}try{local=JSON.parse(localStorage.getItem('atteo-display')||'{}')}catch{}
-  const cur=Object.assign({text:'m',density:'comfortable',theme:'system',replies:'chat'},local,saved||{});
-  for(const k of ['text','density','theme','replies']){const i=f.querySelector('input[name="'+k+'"][value="'+cur[k]+'"]');if(i)i.checked=true}
+  const cur=Object.assign({text:'m',density:'comfortable',theme:'system',replies:'chat',voice_turns:'pause'},local,saved||{});
+  for(const k of ['text','density','theme','replies','voice_turns']){const i=f.querySelector('input[name="'+k+'"][value="'+cur[k]+'"]');if(i)i.checked=true}
   if(saved)applyDisplay(cur);
-  f.addEventListener('change',async e=>{if(e.target.id==='dp-lang'||e.target.id==='dp-voice')return;const d={text:f.text.value,density:f.density.value,theme:f.theme.value,replies:f.replies.value};applyDisplay(d);
+  f.addEventListener('change',async e=>{if(e.target.id==='dp-lang'||e.target.id==='dp-voice')return;const d={text:f.text.value,density:f.density.value,theme:f.theme.value,replies:f.replies.value,voice_turns:f.voice_turns.value};applyDisplay(d);
     const r=await fetch('/api/me/profile',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({display:d})}).catch(()=>null);
-    toast(r&&r.ok?tr('Display saved'):tr('Saved on this device only'))})})();
+    toast(r&&r.ok?tr('Display saved'):tr('Saved on this device only'))});
+  // When Atteo answers (vedu #2460): only where voice calls are on.
+  fetch('/api/app/voice/status').then(r=>r.ok?r.json():null).then(j=>{if(j&&j.enabled)f.querySelectorAll('[data-voice-only]').forEach(x=>{x.hidden=false})}).catch(()=>{})})();
 // Read-aloud voice (vedu #1717): shown when read aloud is on; saved as display.voice, which read-aloud and voice chat use
 // whenever they don't name one. Play reads a short sample in that voice (one request per voice, kept for the visit).
 (()=>{const s=document.getElementById('dp-voice'),btn=document.getElementById('dp-voice-play');if(!s)return;const cache={};let audio=null;
@@ -3145,6 +3219,7 @@ ${assistantCard(assistants, viewer.lang)}
       .join("")}</div>
 ${profileSection(prof, viewer.lang)}
 ${displaySection(prof?.display, viewer.lang)}
+${notifySection(viewer.lang)}
 <div class="section-title" style="margin-top:32px"><div><h2>${esc(T("Agent connections"))}</h2><p class="small muted" style="margin-top:4px">${esc(T("Each connected agent has its own sign-in. Revoke one to disconnect that agent immediately."))}</p></div><button class="btn sm" data-open="connect">${esc(T("Connect an agent"))}</button></div>
 ${prof ? `<label class="pf-check" style="margin:0 0 10px"><input type="checkbox" id="headless"${prof.agents_headless ? " checked" : ""}><span><span class="small" style="color:var(--ink)">${esc(T("My agents are headless"))}</span><span class="xs muted">${esc(T("They answer and ask for approval on the board, not in their terminal."))}</span></span></label>` : ""}
 <div class="list scroll-x"><table class="tbl"><thead><tr><th>${esc(T("Connection"))}</th><th class="hide-sm">${esc(T("Last used"))}</th><th>${esc(T("Status"))}</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>
@@ -3158,7 +3233,7 @@ ${
 ${webhooksSection(hooks, viewer.lang)}
 ${billingSection(plan, billingEnabled, viewer.lang)}
 ${connectDialog(viewer)}`,
-    script: CONNECT_JS + `window.revoked=()=>location.reload();` + BILLING_JS + PFP_JS + HOOKS_JS + PROFILE_JS + DISPLAY_JS + HEADLESS_JS + KILL_JS,
+    script: CONNECT_JS + `window.revoked=()=>location.reload();` + BILLING_JS + PFP_JS + HOOKS_JS + PROFILE_JS + DISPLAY_JS + NOTIFY_JS + HEADLESS_JS + KILL_JS,
   });
 }
 
@@ -3189,7 +3264,8 @@ export function adminPage(viewer: Viewer, side: SideBoard[], d: AdminData): Resp
         "No usage yet.",
       )}
 <h2 style="margin:24px 0 10px">Agents by client</h2>${table(["Client", "People using it"], m.clients.map((c) => `<tr><td>${esc(c.client)}</td><td>${c.agents}</td></tr>`), "No agent sessions yet.")}
-<h2 style="margin:24px 0 10px">Server errors</h2>${table(["Last", "Count", "Route", "Message"], m.errors.map((e) => `<tr><td class="xs">${when(e.last_at)}</td><td>${e.count}</td><td class="mono xs">${esc(e.route)}</td><td class="xs">${esc(e.message)}</td></tr>`), "No errors recorded.")}`
+<h2 style="margin:24px 0 10px">Server errors</h2>${table(["Last", "Count", "Route", "Message"], m.errors.map((e) => `<tr><td class="xs">${when(e.last_at)}</td><td>${e.count}</td><td class="mono xs">${esc(e.route)}</td><td class="xs">${esc(e.message)}</td></tr>`), "No errors recorded.")}
+<h2 style="margin:24px 0 10px">Content-Security-Policy reports <span class="xs muted">(report-only, last 7 days: what enforcing would block)</span></h2>${table(["Last day", "Count", "Directive", "Blocked"], (m.csp ?? []).map((c) => { const [dir, ...rest] = c.key.split(" "); return `<tr><td class="xs">${esc(c.last_day)}</td><td>${c.count}</td><td class="mono xs">${esc(dir)}</td><td class="mono xs">${esc(rest.join(" "))}</td></tr>`; }), "No violations reported.")}`
     : "";
   const k = m?.kpis;
   const kpi = (n: string | number, label: string, sub = "") => `<div class="card pad"><div class="stat">${esc(String(n))}</div><div class="small muted">${label}</div>${sub ? `<div class="xs faint" style="margin-top:2px">${sub}</div>` : ""}</div>`;

@@ -3,7 +3,7 @@
 // runs with securityLevel "strict" (labels sanitised, no click handlers), and its SVG is scrubbed again before it goes
 // on the page, because board text is untrusted. Anything that goes wrong (bad syntax, offline, a blocked script) leaves
 // the code block as it is. The network keeps the plain text; agents reading the board see the source.
-// The HTML pages send no CSP today; if one is added, script-src needs https://cdn.jsdelivr.net for this.
+// The page CSP allows this pinned URL; SRI still checks its bytes.
 
 import { esc } from "./util";
 
