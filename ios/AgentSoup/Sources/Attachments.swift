@@ -217,6 +217,9 @@ struct AttachmentTray: View {
     let items: [Attachment]
     let preparing: Int
     let remove: (Attachment) -> Void
+    /// A picture tapped while you're still writing (jxn #2604): full screen over the chat; the draft, the other
+    /// attachments and the keyboard are as they were when it closes.
+    @State private var viewing: Attachment?
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: Space.s) {
@@ -243,13 +246,17 @@ struct AttachmentTray: View {
         }
         .scrollClipDisabled()
         .accessibilityIdentifier("attachments")
+        .fullScreenCover(item: $viewing) { a in DraftPictureViewer(attachment: a) }
     }
 
     @ViewBuilder private func chip(_ a: Attachment) -> some View {
         if a.isImage, let p = a.preview {
-            Image(uiImage: p).resizable().scaledToFill().frame(width: 56, height: 56)
-                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                .accessibilityElement().accessibilityLabel(a.name).accessibilityIdentifier("attachment-chip")
+            Button { Haptics.play(.touch); viewing = a } label: {
+                Image(uiImage: p).resizable().scaledToFill().frame(width: 56, height: 56)
+                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            }
+            .buttonStyle(PressStyle())
+            .accessibilityLabel(a.name).accessibilityHint(Text("Opens it full screen")).accessibilityIdentifier("attachment-chip")
         } else {
             HStack(spacing: Space.s) {
                 FileIcon(name: a.name, size: 28)
@@ -470,6 +477,47 @@ struct ImageViewer: View {
                 file = u
                 image = await Task.detached { UIImage(data: d)?.preparingForDisplay() ?? UIImage(data: d) }.value
             }
+        }
+    }
+}
+
+/// A picture waiting in the message box, full screen (jxn #2604): pinch or double-tap to zoom, swipe down or ✕ to
+/// close. It's the picture as it will be sent (the full copy, not the chip's small one).
+struct DraftPictureViewer: View {
+    let attachment: Attachment
+    @Environment(\.dismiss) private var dismiss
+    @State private var drag: CGFloat = 0
+    @State private var image: UIImage?
+
+    var body: some View {
+        ZStack {
+            Color.black.opacity(1 - min(0.6, abs(drag) / 600)).ignoresSafeArea()
+            if let image = image ?? attachment.preview {
+                ZoomableImage(image: image, dragged: { drag = $0 }, released: { dy in
+                    if abs(dy) > 120 { dismiss() } else { withAnimation(.spring(duration: 0.3)) { drag = 0 } }
+                })
+                .offset(y: drag)
+                .ignoresSafeArea()
+                .accessibilityLabel(attachment.name)
+                .accessibilityIdentifier("draft-picture")
+            }
+        }
+        .overlay(alignment: .topLeading) {
+            Button { dismiss() } label: {
+                Image(systemName: "xmark").font(.system(size: 14, weight: .bold)).foregroundStyle(.white)
+                    .frame(width: 36, height: 36).background(Color.white.opacity(0.14), in: Circle())
+                    .frame(width: 44, height: 44).contentShape(Rectangle())
+            }
+            .buttonStyle(PressStyle())
+            .padding(.horizontal, Space.s)
+            .opacity(drag == 0 ? 1 : 0)
+            .accessibilityLabel("Close")
+            .accessibilityIdentifier("draft-picture-close")
+        }
+        .statusBarHidden()
+        .task {
+            let d = attachment.data
+            image = await Task.detached { UIImage(data: d)?.preparingForDisplay() ?? UIImage(data: d) }.value
         }
     }
 }
