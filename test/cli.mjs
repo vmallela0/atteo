@@ -7,9 +7,33 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 const BASE = (process.env.BASE ?? "http://localhost:8787").replace(/\/$/, "");
+// Iteration speed (vedu #2820, jxn #2925): the suite runs as CLI_PAR shards at once (default 3), each its own process
+// with its own users and board (the run id differs per shard), so no shard sees another's state. A shard runs setup
+// plus every n-th step; ONLY=… or CLI_PAR=1 runs the whole thing in one process, as before.
+const SHARD = process.env.CLI_SHARD?.match(/^(\d+)\/(\d+)$/);
+const PAR = Math.max(1, Number(process.env.CLI_PAR ?? 3) || 1);
+if (!SHARD && !process.env.ONLY && PAR > 1) {
+  const { spawn: spawnShard } = await import("node:child_process");
+  const t0 = Date.now();
+  const shards = await Promise.all(Array.from({ length: PAR }, (_, i) => new Promise((done) => {
+    const c = spawnShard(process.execPath, [new URL(import.meta.url).pathname], { env: { ...process.env, CLI_SHARD: `${i + 1}/${PAR}` } });
+    let out = "";
+    c.stdout.on("data", (d) => (out += d));
+    c.stderr.on("data", (d) => (out += d));
+    c.on("close", (code) => done({ out, code }));
+  })));
+  let p = 0, f = 0;
+  for (const [i, { out, code }] of shards.entries()) {
+    const m = out.match(/\n(\d+) passed, (\d+) failed\s*$/);
+    if (m) { p += +m[1]; f += +m[2]; } else f++;
+    console.log(`shard ${i + 1}/${PAR}:\n${out.replace(/\n\d+ passed, \d+ failed\s*$/, "").trimEnd()}${m ? "" : `\n  ✗ shard ${i + 1} ended without a summary (exit ${code})`}`);
+  }
+  console.log(`(${PAR} shards in ${((Date.now() - t0) / 1000).toFixed(0)}s)\n\n${p} passed, ${f} failed`);
+  process.exit(f ? 1 : 0);
+}
 const ADMIN_KEY = process.env.ADMIN_KEY ?? readFileSync(new URL("../.dev.vars", import.meta.url), "utf8").match(/^ADMIN_KEY=(.*)$/m)?.[1];
 const CLI = new URL("../cli/dist/atteo.mjs", import.meta.url).pathname;
-const run = Date.now().toString(36).slice(-5);
+const run = Date.now().toString(36).slice(-5) + (SHARD ? SHARD[1] : "");
 const A = `e2e-cli-a-${run}`;
 const B = `e2e-cli-b-${run}`;
 const dir = mkdtempSync(join(tmpdir(), "agent-board-cli-"));
@@ -18,13 +42,17 @@ let passed = 0;
 let failed = 0;
 const ONLY = process.env.ONLY?.toLowerCase();
 let matched = 0;
+let stepNo = 0;
 async function step(name, fn) {
+  if (SHARD && name !== "setup" && stepNo++ % +SHARD[2] !== +SHARD[1] - 1) return;
   if (ONLY && name !== "setup" && !name.toLowerCase().includes(ONLY)) return;
   if (ONLY && name.toLowerCase().includes(ONLY)) matched++;
+  const t0 = Date.now();
   try {
     await fn();
     passed++;
-    console.log(`  ✓ ${name}`);
+    const s = (Date.now() - t0) / 1000;
+    console.log(`  ✓ ${name}${s >= 2 ? ` (${s.toFixed(1)}s)` : ""}`);
   } catch (e) {
     failed++;
     console.log(`  ✗ ${name}\n      ${e?.message ?? e}`);
@@ -898,6 +926,10 @@ await step("model: the CLI sends its agent's model for people on the web, and ne
 });
 
 await step("sessions: each agent is its own session (found from its process), joins boards with standard commands, sees its person's other sessions", async () => {
+  // Its own board (the summary comes once per member: a board A already read wouldn't show it, and whether A has
+  // depends on which steps ran first: alone, sharded or in order).
+  const board = (await ops("boards", { user: A, title: `e2e cli s1 ${run}` })).board.id;
+  await ops("members", { board, user: B });
   // Fake agents: long-lived processes named like the agent, running atteo commands from their shell (as real agents do).
   const cfg = mkdtempSync(join(tmpdir(), "atteo-sess-"));
   const agent = (name) => {
@@ -934,7 +966,7 @@ await step("sessions: each agent is its own session (found from its process), jo
     r = await claude.run(`join ${board}`);
     // Ids in the sentence; the titles only inside the fence below it (#2181).
     const fencedNames = r.out.match(/<<untrusted ([0-9a-f]+):[^\n]*>>\n([\s\S]*?)\n<<end untrusted \1>>/)?.[2] ?? "";
-    assert(r.code === 0 && r.out.startsWith(`Joined ${board}.`) && r.out.includes(`is on: `) && r.out.includes(board) && fencedNames.includes(`"e2e cli sess ${run}"`) && fencedNames.includes(`"e2e cli ${run}"`) && !r.out.split("<<untrusted")[0].includes("e2e cli"), r.out);
+    assert(r.code === 0 && r.out.startsWith(`Joined ${board}.`) && r.out.includes(`is on: `) && r.out.includes(board) && fencedNames.includes(`"e2e cli sess ${run}"`) && fencedNames.includes(`"e2e cli s1 ${run}"`) && !r.out.split("<<untrusted")[0].includes("e2e cli"), r.out);
     r = await codex.run(`get sessions`);
     assert(/claude .*Claude Code/.test(r.out) && /codex .*Codex.*← this one/.test(r.out), r.out);
     // B asks; both sessions get it; codex answers; claude sees codex's answer, labelled
@@ -1050,7 +1082,16 @@ await step("harness: the agent you choose answers your DMs (a person's message s
   assert(r.code === 0 && r.out.includes("now answers with"), r.out + r.err);
   r = await cli(["harness"], { env: { XDG_CONFIG_HOME: cfg } });
   assert(r.out.includes(stub), r.out);
-  const dm = (await (await fetch(`${BASE}/api/direct/${A}`, { method: "POST", headers: { authorization: `Bearer ${tokB}` } })).json()).board;
+  const direct = async () => (await (await fetch(`${BASE}/api/direct/${A}`, { method: "POST", headers: { authorization: `Bearer ${tokB}` } })).json()).board;
+  let dm = await direct();
+  if (!dm) {
+    // A direct board needs A and B to be friends: the people step makes them so, but this step mustn't lean on it
+    // having run first (alone with ONLY=…, or in another shard).
+    const home = mkdtempSync(join(tmpdir(), "atteo-harness-"));
+    await cli(["add", B], { cwd: home });
+    await cli(["accept", A], { cwd: home, cred: credB });
+    dm = await direct();
+  }
   assert(dm, "direct board");
   const w = spawn("node", [CLI, "watch", "--respond", "--quiet", "--dir", dir, "--server", BASE], { env });
   let out = "";
@@ -1136,6 +1177,7 @@ await step("task remove / retract: a task leaves the board (its author or the bo
 
 await step("get N on your own entry says who has seen it (people, and agents that have been here); others' entries don't", async () => {
   await tool(tokA, board, "read", {});
+  await tool(tokB, board, "read", {}); // B's agent has been here (not only when an earlier step happened to bring it)
   const n = Number((await tool(tokA, board, "post", { type: "note", text: `seen check ${run}` })).match(/Posted #(\d+)/)[1]);
   const seen = (out) => out.split("\n").find((l) => /^(Seen by|Not seen yet)/.test(l)) ?? "";
   let r = await cli(["get", "entry", String(n), "--board", board]);
@@ -1542,11 +1584,14 @@ await step("approvals: an agent asks, lists them, and waits on one (exit 0 appro
   r = await cli(["approvals", "--json"], { env: cfg });
   assert(JSON.parse(r.out).approvals.some((a) => a.id === id && a.status === "pending"), "--json: " + r.out);
   // Asked about an entry: it's on that board's list too.
-  r = await cli(["approvals", "ask", `Tag the release ${run}`, "--details", "git tag v2", "--reply", "1", "--board", board, "--json"], { env: cfg });
+  // (Its own entry to ask about, so the step doesn't lean on an earlier one having posted #1.)
+  const about = (await tool(tokA, board, "post", { type: "note", text: `release notes ${run}` })).match(/#(\d+)/)?.[1];
+  assert(about, "posted an entry to ask about");
+  r = await cli(["approvals", "ask", `Tag the release ${run}`, "--details", "git tag v2", "--reply", about, "--board", board, "--json"], { env: cfg });
   const onBoard = JSON.parse(r.out).id;
   r = await cli(["approvals", "--board", board, "--json"], { env: cfg });
   const listed = JSON.parse(r.out).approvals.map((a) => a.id);
-  assert(listed.includes(onBoard) && !listed.includes(id), "--board lists that board's: " + r.out);
+  assert(listed.includes(onBoard) && JSON.parse(r.out).approvals.every((a) => a.board_id === board), "--board lists that board's: " + r.out);
   r = await cli(["approvals", "wait", id, "--timeout", "1"], { env: cfg });
   assert(r.code === 4 && r.err.includes("Still waiting"), "undecided: exit 4: " + r.code + r.out + r.err);
   // The CLI's own token can't decide; the person in a browser can.

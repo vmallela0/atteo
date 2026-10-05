@@ -44,7 +44,9 @@ BASE=http://localhost:8802 node test/browser/rail.mjs   # one check, directly
 ```
 
 `scripts/verify.sh` does all of that for you (a server with CI's values, the CLI build) and runs the other suites
-beside the browser checks.
+beside the browser checks; `BROWSER_CHANGED=origin/main scripts/verify.sh` runs only the checks your changes need.
+`test/cli.mjs` runs as 3 shards at once (`CLI_PAR`; `CLI_PAR=1` or `ONLY=…` runs it in one process), so every CLI
+step has to pass on its own: set up what it needs instead of leaning on an earlier step.
 
 When a check waits for the page, wait for what it's about to assert (`until` and `boardLive` in `lib/wait.mjs`), not
 a fixed time; keep a fixed wait only where nothing should happen for a while. Reading an element that may be missing

@@ -123,10 +123,15 @@ your team on your own Cloudflare account in about 15 minutes.
 
 ## Updating
 
-Pull, then run `scripts/ship.sh`. It runs the local e2e suite first, adds the CLI suite when CLI-facing code changed,
-pushes to `main`, applies remote D1 migrations, deploys, waits for the new version to answer health checks, and then
-posts the change card. It needs `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN`, `ADMIN_KEY`, and `BASE` set to your
-deployment URL. `LOCAL_PORT` and `REUSE_DEV=1` only change the local preflight server choice.
+Pull, then run `scripts/ship.sh`. It runs only the local suites the change since the last ship can touch, all at
+once (vitest, e2e, the CLI suite when CLI-facing code changed, the browser checks `test/browser/checks-map.json` picks,
+the landing check when `landing/` changed), pushes to `main`, and for app code applies remote D1 migrations, deploys,
+and waits for the new version to answer health checks; `landing/` changes deploy the landing Worker. A push of only
+`ios/`, `docs/`, `scripts/` or Markdown runs no suites and deploys nothing. It ends with a health check and posts the
+change card. It needs `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN`, `ADMIN_KEY`, and `BASE` set to your
+deployment URL. `SHIP_FULL=1` runs every suite and every browser check, `SKIP_BROWSER=1` none of the browser checks,
+`SHIP_DRY=1` stops before the push, and `LOCAL_PORT` (four ports from it) and `REUSE_DEV=1` only change the local
+preflight server choice.
 
 ## What lives where
 
