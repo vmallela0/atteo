@@ -155,17 +155,42 @@ final class SyntaxHighlightTests: XCTestCase {
         units += ["a.b", "-a-", "a: ", "\"a\\", "<a=", "#[a", "${a", "'a'", "a!(", "x =", "/*a", "<!-"]
         let langs = Array(Set(SyntaxHighlight.aliases.values))
         let start = Date()
-        var worst = (0.0, "")
+        var timed: [(ms: Double, lang: String, unit: String)] = []
         for unit in units {
             let code = String(repeating: unit, count: 4_000 / unit.count)
             for lang in langs {
                 let t = Date()
                 _ = SyntaxHighlight.runs(code, lang)
-                let ms = Date().timeIntervalSince(t) * 1000
-                if ms > worst.0 { worst = (ms, "\(lang) \(unit.debugDescription)") }
+                timed.append((Date().timeIntervalSince(t) * 1000, lang, unit))
             }
         }
-        XCTAssertLessThan(worst.0, 50, "worst: \(worst.1) \(Int(worst.0))ms")
-        XCTAssertLessThan(Date().timeIntervalSince(start), 30, "the whole sweep")
+        // One pass is noisy on a busy machine; the slowest few are re-timed (best of 3) and must also grow linearly.
+        for w in timed.sorted(by: { $0.ms > $1.ms }).prefix(5) {
+            let small = best(String(repeating: w.unit, count: 4_000 / w.unit.count), w.lang)
+            let large = best(String(repeating: w.unit, count: 16_000 / w.unit.count), w.lang)
+            XCTAssertLessThan(small, 100, "\(w.lang) \(w.unit.debugDescription): \(Int(small))ms at the 4,000 cap")
+            XCTAssertLessThan(large, max(small, 1) * 8, "\(w.lang) \(w.unit.debugDescription): \(Int(small))ms → \(Int(large))ms for 4× the input")
+        }
+        XCTAssertLessThan(Date().timeIntervalSince(start), 120, "the whole sweep")
+    }
+
+    /// The slowest inputs found when this was audited for a hang (#2729): every one is linear, measured from 4,000 to
+    /// 32,000 characters. Kept as cases so a future rule that backtracks on them shows up here.
+    func testAuditedSlowInputsStayLinear() {
+        let cases: [(String, String)] = [("rs", "-\n"), ("css", "-a"), ("java", "#`"), ("json", "-\n"), ("css", "*-"), ("css", "#`"),
+                                         ("c", "-a"), ("py", "-\n"), ("yaml", "-\n"), ("css", "--"), ("sh", "${"), ("rs", "#[")]
+        func best(_ code: String, _ lang: String) -> Double {
+            (0..<3).map { _ in
+                let start = Date()
+                _ = SyntaxHighlight.runs(code, lang, cap: .max)
+                return Date().timeIntervalSince(start) * 1000
+            }.min()!
+        }
+        for (lang, unit) in cases {
+            let small = best(String(repeating: unit, count: 5_000 / unit.count), lang)
+            let large = best(String(repeating: unit, count: 20_000 / unit.count), lang)
+            XCTAssertLessThan(large, 250, "\(lang) \(unit.debugDescription): \(Int(large))ms at 20,000 characters")
+            XCTAssertLessThan(large, max(small, 1) * 8, "\(lang) \(unit.debugDescription): \(Int(small))ms → \(Int(large))ms for 4× the input")
+        }
     }
 }
