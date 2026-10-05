@@ -973,9 +973,20 @@ mark{background:var(--mark);color:inherit;border-radius:2px;padding:0 1px}
 .bpic-row{gap:12px;margin-bottom:12px}
 .sidebar .me{margin-top:auto;border-top:1px solid var(--line);padding-top:8px}
 /* Report a bug: a quiet word at the very bottom of the sidebar, under the account row (jxn #4011). */
-.bug-btn{border:0;border-radius:0;height:auto;margin:0 2px 6px;color:var(--muted);background:transparent;font-size:12px;text-align:left} /* a <button>: the UA's ButtonFace would sit under the muted text — axe contrast (moby #3957) */
-.bug-btn:hover{color:var(--ink);background:transparent}
-#bug .bd{padding:14px 0 4px}
+/* Report a bug (jxn #4051): a real button at the end of the account row, a warning triangle. */
+.sidebar .me{display:flex;align-items:center;gap:6px}.sidebar .me>.side-link{flex:1;min-width:0}
+.bug-btn{flex:none;width:30px;height:30px;padding:0;display:inline-grid;place-items:center;border:1px solid var(--line-strong);color:var(--muted);background:var(--bg)}
+.bug-btn:hover{color:var(--ink);border-color:var(--ink);background:var(--bg)}
+/* The report dialog (jxn #4053): what happened first, then the screenshot they'll get, then Cancel / Send. */
+#bug form{display:block}
+#bug .bd{display:grid;gap:14px}
+#bug textarea.input{min-height:110px}
+.bug-shot{position:relative;margin:0;border:1px solid var(--line);border-radius:var(--r-sm);background:var(--bg-subtle);overflow:hidden}
+.bug-shot img{display:block;width:100%;max-height:240px;object-fit:contain;object-position:top center}
+.bug-shot figcaption{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 8px 6px 12px;border-top:1px solid var(--line);font-size:13px;color:var(--muted)}
+.bug-shot[hidden]{display:none}
+#bug-shotless{margin:0;padding:12px;border:1px dashed var(--line-strong);border-radius:var(--r-sm);font-size:13px;color:var(--muted)}
+#bug .ft{display:flex;justify-content:flex-end;gap:8px;padding:0 22px 20px}
 .bug-private{display:flex;align-items:center;justify-content:center;min-height:44px;border:1px dashed var(--line-strong);border-radius:8px;color:var(--muted);font-size:13px;margin:10px 0;padding:0 10px;text-align:center}
 .topbar{position:sticky;top:0;z-index:10;height:48px;display:flex;align-items:center;gap:12px;padding:0 20px;border-bottom:1px solid var(--line);
   background:color-mix(in srgb,var(--bg) 85%,transparent);backdrop-filter:saturate(180%) blur(10px);-webkit-backdrop-filter:saturate(180%) blur(10px)}
@@ -1606,6 +1617,7 @@ export const APP_JS_SRC = `/app.js?v=${fnv(APP_JS)}`;
 // ---------- app shell (signed-in pages) ----------
 
 const ICON = {
+  warn: `<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true"><path d="M8 2.3 14.4 13.4H1.6Z"/><path d="M8 6.4v3.4" stroke-linecap="round"/><circle cx="8" cy="11.5" r=".8" fill="currentColor" stroke="none"/></svg>`, // a warning triangle: Report a bug (jxn #4051)
   plug: `<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" aria-hidden="true"><path d="M6 2v3M10 2v3M4.5 5h7v2.5a3.5 3.5 0 0 1-7 0zM8 11v3"/></svg>`,
   boards: `<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><rect x="2" y="2" width="5" height="5" rx="1.2"/><rect x="9" y="2" width="5" height="5" rx="1.2"/><rect x="2" y="9" width="5" height="5" rx="1.2"/><rect x="9" y="9" width="5" height="5" rx="1.2"/></svg>`,
   admin: `<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M8 1.8l5 2v4c0 3-2.2 5.2-5 6.4C5.2 13 3 10.8 3 7.8v-4z"/></svg>`,
@@ -1716,9 +1728,7 @@ export function appPage(
   <div class="side-label"><span>${esc(T("Your boards"))}</span><a href="/?new=1" title="${esc(T("New board (C)"))}" aria-label="${esc(T("New board"))}">${ICON.plus}</a></div>
   ${sideBoards || `<p class="xs faint" style="padding:2px 9px">${esc(T("No boards yet"))}</p>`}
   <div class="side-label"><span>${esc(T("DMs"))}</span></div>${sideOwn}${sideDirect}
-  <div class="me"><a class="side-link" href="/me">${avatar(v.name, "sm")}<span class="truncate">${esc(v.name)}</span></a>
-</div>
-  <button class="side-link bug-btn" type="button" data-bug data-bug-src="${BUG_JS_SRC}" aria-label="${esc(T("Report a bug"))}">${esc(T("bug"))}</button>
+  <div class="me"><a class="side-link" href="/me">${avatar(v.name, "sm")}<span class="truncate">${esc(v.name)}</span></a><button class="btn ghost sm bug-btn" type="button" data-bug data-bug-src="${BUG_JS_SRC}" aria-label="${esc(T("Report a bug"))}" title="${esc(T("Report a bug"))}">${ICON.warn}</button></div>
 </aside>
 <div class="nav-scrim" data-nav-close aria-hidden="true"></div>
 <div class="grow" style="min-width:0">
@@ -1730,13 +1740,15 @@ export function appPage(
 <div class="pal-in"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><circle cx="7" cy="7" r="4.5"/><path d="m10.5 10.5 3 3"/></svg><span class="pal-chips" id="pal-chips"></span><input class="input" id="palette-q" placeholder="${esc(T("Search messages, files, boards and actions…"))}" autocomplete="off" aria-label="Search" aria-controls="palette-list"></div>
 <div class="pal-filters" id="pal-filters" aria-label="${esc(T("Filters"))}"></div>
 <ul id="palette-list" role="listbox"></ul><div class="foot"><span><kbd>↑</kbd> <kbd>↓</kbd> ${esc(T("move"))}</span><span><kbd>↵</kbd> ${esc(T("open"))}</span><span><kbd>⌫</kbd> ${esc(T("remove filter"))}</span><span><kbd>esc</kbd> ${esc(T("close"))}</span></div></dialog>
-<dialog id="bug"><div class="hd"><div><h2>${esc(T("Report a bug"))}</h2><p class="muted small" style="margin-top:4px">${esc(T("It goes to the developers with a screenshot of this page and what was on it. Take the private bits off the description; the screenshot below is what they see."))}</p></div><button class="btn ghost sm" data-close aria-label="${esc(T("Close"))}">✕</button></div>
-<div class="bd"><form id="bug-form">
-  <img id="bug-shot" alt="${esc(T("Screenshot of this page"))}" style="max-width:100%;max-height:300px;border:1px solid var(--line);border-radius:8px;display:block">
-  <p class="muted small" id="bug-shotless" hidden style="margin:6px 0">${esc(T("No screenshot — the page couldn't be captured; the description helps all the more."))}</p>
-  <textarea id="bug-text" rows="4" required minlength="8" maxlength="4000" placeholder="${esc(T("What happened? What did you expect?"))}" style="width:100%;margin-top:12px;resize:vertical"></textarea>
-  <div class="row" style="justify-content:flex-end;margin-top:14px;gap:8px"><button type="button" class="btn ghost sm" id="bug-remove" hidden>${esc(T("Remove screenshot"))}</button><button class="btn primary" type="submit" id="bug-send">${esc(T("Send report"))}</button></div>
-</form></div></dialog>
+<dialog id="bug" aria-labelledby="bug-title"><form id="bug-form">
+<div class="hd"><div><h2 id="bug-title">${esc(T("Report a bug"))}</h2><p class="muted small" style="margin-top:4px">${esc(T("It goes to the developers with a screenshot of this page and what was on it. Take the private bits off the description; the screenshot below is what they see."))}</p></div><button type="button" class="btn ghost sm" data-close aria-label="${esc(T("Close"))}">✕</button></div>
+<div class="bd">
+  <textarea class="input" id="bug-text" rows="4" required minlength="8" maxlength="4000" aria-label="${esc(T("What happened? What did you expect?"))}" placeholder="${esc(T("What happened? What did you expect?"))}"></textarea>
+  <figure class="bug-shot" id="bug-shot-box" hidden><img id="bug-shot" alt="${esc(T("Screenshot of this page"))}"><figcaption><span>${esc(T("Screenshot of this page"))}</span><button type="button" class="btn ghost sm" id="bug-remove">${esc(T("Remove screenshot"))}</button></figcaption></figure>
+  <p id="bug-shotless" hidden>${esc(T("No screenshot — the page couldn't be captured; the description helps all the more."))}</p>
+</div>
+<div class="ft"><button type="button" class="btn" data-close>${esc(T("Cancel"))}</button><button class="btn primary" type="submit" id="bug-send">${esc(T("Send report"))}</button></div>
+</form></dialog>
 <dialog id="shortcuts"><div class="hd"><h2>${esc(T("Keyboard shortcuts"))}</h2><button class="btn ghost sm" data-close aria-label="${esc(T("Close"))}">✕</button></div>
 <div class="bd"><dl class="kv">
 <dt><kbd>⌘K</kbd> <kbd>/</kbd></dt><dd>${esc(T("Search or jump to a board"))}</dd>
@@ -1817,7 +1829,7 @@ window.addEventListener('unhandledrejection',e=>{errs.push(String(e.reason).slic
 // Privacy (opus-d's review of #3351): the report goes to a board agents read, and an image gets past every text
 // filter — so in any capture, People-only and Just-mine entries are replaced with a placeholder, and the composer
 // too while a privacy lock (🔒) is on: what the capture may never show is what those marks say agents can't see.
-const scrub=(doc)=>{const p=doc.createElement('div');p.className='bug-private';p.textContent='🔒 '+tr('private — hidden from this report');
+const scrub=(doc)=>{const p=(doc.ownerDocument||doc).createElement('div'); // doc: a Document (html2canvas's clone) or a cloned <html> element (the fallback)p.className='bug-private';p.textContent='🔒 '+tr('private — hidden from this report');
   doc.querySelectorAll('.badge.po').forEach(b=>{const e=b.closest('.entry');if(e)e.replaceWith(p.cloneNode(true))});
   doc.querySelectorAll('.po-lock').forEach(l=>{const r=l.closest('.row,.entry,li,article')||l;if(r)r.replaceWith(p.cloneNode(true))}); // Inbox / For you rows (opus-d #3380)
   const pn=doc.querySelector('#po-note'),f=doc.querySelector('form.composer');
@@ -1841,15 +1853,29 @@ const fallback=()=>new Promise((res)=>{try{
   img.onerror=()=>res(null);
   img.src='data:image/svg+xml;charset=utf-8,'+encodeURIComponent(svg);
 }catch(e){res(null)}});
-const capture=async()=>{if(!(await html2canvas()))return fallback();try{
+// html2canvas 1.4 can't read the colours modern CSS computes to: color-mix() comes back as "color(srgb …)" (and oklch()
+// and friends as themselves), and it throws on the first one (jxn #4043's failed capture). While it draws, the styles
+// it reads hand it those colours as plain rgba(), converted once each through a 1×1 canvas.
+const MODERN=/\\b(?:color|oklch|oklab|lch|lab|hwb)\\([^()]*(?:\\([^()]*\\)[^()]*)*\\)/g,rgbaOf=new Map(),px=document.createElement('canvas').getContext('2d',{willReadFrequently:true});
+const toRgba=(c)=>{let v=rgbaOf.get(c);if(v)return v;px.clearRect(0,0,1,1);px.fillStyle='#000';px.fillStyle=c;px.fillRect(0,0,1,1);const d=px.getImageData(0,0,1,1).data;
+  v='rgba('+d[0]+','+d[1]+','+d[2]+','+(d[3]/255).toFixed(3)+')';rgbaOf.set(c,v);return v};
+const plain=(v)=>typeof v==='string'&&MODERN.test(v)?(MODERN.lastIndex=0,v.replace(MODERN,toRgba)):(MODERN.lastIndex=0,v);
+const styled=(w)=>{const real=w.getComputedStyle;w.getComputedStyle=function(el,ps){const cs=real.call(w,el,ps);
+  return new Proxy(cs,{get(t,k){const v=t[k];return typeof v==='function'?(k==='getPropertyValue'?(n)=>plain(t.getPropertyValue(n)):v.bind(t)):plain(v)}})};return()=>{w.getComputedStyle=real}};
+const capture=async()=>{if(!(await html2canvas()))return fallback();const undo=[styled(window)];try{
   const c=await window.html2canvas(document.body,{backgroundColor:getComputedStyle(document.body).backgroundColor||'#fff',logging:false,
-    onclone:(d)=>{scrub(d);d.querySelectorAll('script').forEach(s=>s.remove())}}); // scrub also drops #lightbox and the #bug dialog
+    onclone:(d)=>{scrub(d);d.querySelectorAll('script').forEach(s=>s.remove());
+      // html2canvas draws a closed <details>' contents (the board menus); scrub also drops #lightbox and the #bug dialog.
+      d.querySelectorAll('details:not([open])>:not(summary)').forEach(x=>x.remove());if(d.defaultView)undo.push(styled(d.defaultView))}});
   const url=c.toDataURL('image/png');return url.length<=MAX+70000?url:fallback();
-}catch(e){return fallback()}};
-const show=(d)=>{const img=document.getElementById('bug-shot'),rm=document.getElementById('bug-remove'),less=document.getElementById('bug-shotless');
-  if(!img)return;img.hidden=!d;rm.hidden=!d;less.hidden=!!d;if(d)img.src=d};
+}catch(e){errs.push('capture: '+String(e&&e.message||e).slice(0,200));return fallback()}finally{undo.forEach(f=>f())}};
+// d: the screenshot, null (none: say so), or 'wait' (being taken: say that).
+const show=(d)=>{const img=document.getElementById('bug-shot'),box=document.getElementById('bug-shot-box'),less=document.getElementById('bug-shotless');
+  if(!img)return;const has=!!d&&d!=='wait';box.hidden=!has;less.hidden=has;
+  if(!has){if(less.dataset.none===undefined)less.dataset.none=less.textContent;less.textContent=d==='wait'?tr('Taking the screenshot…'):less.dataset.none}
+  if(has)img.src=d;else img.removeAttribute('src')};
 const run=async()=>{const d=document.getElementById('bug');if(!d)return;
-  document.getElementById('bug-text').value='';shot=null;show(null);d.showModal(); // the dialog is up while the capture runs (it's scrubbed out of the image)
+  document.getElementById('bug-text').value='';shot=null;show('wait');d.showModal(); // the dialog is up while the capture runs (it's scrubbed out of the image)
   const cap=document.getElementById('bug-send');cap.disabled=true;cap.textContent=tr('Taking the screenshot…');
   shot=await capture();cap.disabled=false;cap.textContent=tr('Send report');show(shot)};
 document.addEventListener('click',e=>{if(e.target.closest('[data-bug]'))run()});
