@@ -99,7 +99,7 @@ import { forwardDestOk, forwardExcerptInEntry, keptOwnNotice } from "./audience"
 import { audienceNotice, MAX_FILES_PER_MESSAGE, MAX_IMAGE, MAX_MESSAGE_BYTES, MAX_WAIT_MS, WAIT_CAP } from "./board";
 import * as sessions from "./sessions";
 import { compactLine, formatEntry, formatMemory, handleMessage, parseReadBudget, presentReadEntries, readHeader, readParts, withNames } from "./state";
-import { fence } from "./screen";
+import { fence, flagged } from "./screen";
 import { CODE_COLOR_PATH, CODE_COLOR_SCRIPT } from "./codecolor";
 import { fontResponse } from "./fonts";
 
@@ -1540,18 +1540,19 @@ const handler = {
       if (path === "/api/agents" || path.startsWith("/api/agents/")) {
         if (!viewer) return needLogin();
         try {
-          if (path === "/api/agents" && method === "GET") return json({ agents: await agents.findAgents(env, viewer.name, { can: url.searchParams.get("can"), q: url.searchParams.get("q"), person: viewer.via !== "agent" }) });
+          if (path === "/api/agents" && method === "GET") return json({ agents: (await agents.findAgents(env, viewer.name, { can: url.searchParams.get("can"), q: url.searchParams.get("q"), person: viewer.via !== "agent" })).map((x) => flagged(x, x.summary)) });
           const am = path.match(/^\/api\/agents\/([^/]+)$/);
           if (am && method === "GET") {
             const who = am[1] === "me" ? viewer.name : decodeURIComponent(am[1]);
             const a = await agents.agent(env, viewer.name, who, viewer.via !== "agent");
-            return a ? json({ agent: a }) : json({ error: `No agent "${who}" that you can see. Agents show up for friends, people you share a board with, and everyone if they're listed.` }, 404);
+            return a ? json({ agent: flagged(a, a.summary) }) : json({ error: `No agent "${who}" that you can see. Agents show up for friends, people you share a board with, and everyone if they're listed.` }, 404);
           }
           if (am && am[1] === "me" && method === "POST") {
             const b = (await request.json().catch(() => ({}))) as { summary?: unknown; capabilities?: unknown; listed?: unknown };
             if (viewer.via === "agent" && b.listed !== undefined) return json({ error: PEOPLE_ONLY_AGENT_LISTING }, 403);
             await agents.setProfile(env, viewer.name, b);
-            return json({ agent: await agents.agent(env, viewer.name, viewer.name, viewer.via !== "agent") });
+            const mine = await agents.agent(env, viewer.name, viewer.name, viewer.via !== "agent");
+            return json({ agent: mine && flagged(mine, mine.summary) });
           }
           return json({ error: "not found" }, 404);
         } catch (e) {
@@ -2620,7 +2621,11 @@ const handler = {
         const members = await registry.boardMembers(env, m[1]);
         const stored = storedFromRow(board);
         const canEdit = (role === "owner" || board.created_by === viewer.name) && viewer.via !== "agent" && !board.archived_at;
-        if (method === "GET") return json({ charter: charterView(stored, members), can_edit: canEdit }, 200, { "cache-control": "no-store" });
+        if (method === "GET") {
+          // The goal and members' notes are owner-written prose agents act on: screened, as in the agents' Charter line (#3778, #3879).
+          const view = charterView(stored, members);
+          return json({ charter: flagged({ ...view, members: view.members.map((x) => flagged(x, x.note)) }, stored.goal), can_edit: canEdit }, 200, { "cache-control": "no-store" });
+        }
         if (viewer.via === "agent") return json({ error: "Only people edit a board's charter. Ask your person to change it." }, 403);
         if (role !== "owner" && board.created_by !== viewer.name) return json({ error: "Only the board's owners can edit its charter." }, 403);
         if (board.archived_at) return json({ error: "This board is archived. Restore it to edit the charter." }, 403);
@@ -2754,13 +2759,13 @@ const handler = {
         if (!viewer) return needLogin();
         if (!(await registry.isMember(env, m[1], viewer.name))) return json({ error: "board not found" }, 404);
         const stub = boardStub(env, m[1]);
-        if (method === "GET" && !m[2]) return json({ tasks: await stub.tasks() });
+        if (method === "GET" && !m[2]) return json({ tasks: (await stub.tasks()).map((t) => flagged(t, `${t.title}\n${t.body}`)) });
         if (method === "GET" && m[2]) {
           try {
             const seq = parseInt(m[2], 10);
             const [task, history] = await Promise.all([stub.taskGet(seq), stub.taskHistory(seq)]);
             // html: the task as it is now, rendered like its entry (title, then body), for the live card in the chat
-            return json({ task: { ...task, html: renderText(task.body ? `${task.title}\n\n${task.body}` : task.title) }, history });
+            return json({ task: flagged({ ...task, html: renderText(task.body ? `${task.title}\n\n${task.body}` : task.title) }, `${task.title}\n${task.body}`), history });
           } catch (e) {
             return json({ error: e instanceof Error ? e.message : String(e) }, 404);
           }
