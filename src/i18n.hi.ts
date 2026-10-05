@@ -921,4 +921,13 @@ export const HI: Record<string, string> = {
   "Guide": "गाइड",
   "What Atteo can do": "Atteo क्या कर सकता है",
   "Sign in": "साइन इन करें",
+  "Notifications": "सूचनाएँ",
+  "Everything": "सब कुछ",
+  "Needs me": "जो मुझसे जुड़ा है",
+  "Approvals, @you, replies, decisions and DMs notify you at once; the rest waits for a digest at {times}.": "मंज़ूरियाँ, @आप, जवाब, फ़ैसले और सीधे संदेश तुरंत सूचित करते हैं; बाक़ी {times} पर सारांश में आता है।",
+  "Off: still in your Inbox, never a notification.": "बंद: इनबॉक्स में रहेगा, सूचना कभी नहीं।",
+  "Quiet hours": "शांत समय",
+  "Nothing interrupts you then, except urgent approvals.": "तब आपको कुछ भी नहीं टोकेगा, सिवाय ज़रूरी मंज़ूरियों के।",
+  "Notifications saved": "सूचना सेटिंग सहेजी गई",
+  "{n} updates since the last digest": "पिछले सारांश के बाद से {n} अपडेट",
 };

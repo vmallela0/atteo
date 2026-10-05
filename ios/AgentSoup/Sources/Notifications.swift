@@ -13,6 +13,11 @@ final class Notifier: NSObject, ObservableObject, UNUserNotificationCenterDelega
     static let shared = Notifier()
     static let refreshTask = "com.atteo.app.refresh"
     private static let seenKey = "notified-ids", askedKey = "notifications-asked"
+    private static let pendingKey = "digest-pending", digestAtKey = "digest-at"
+    /// The inbox, with this phone's time zone (the digest's times are local until you save quiet hours).
+    nonisolated static var inboxPath: String {
+        "/api/inbox?tz=" + (TimeZone.current.identifier.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? "UTC")
+    }
 
     @Published private(set) var status: UNAuthorizationStatus = .notDetermined
 
@@ -53,14 +58,27 @@ final class Notifier: NSObject, ObservableObject, UNUserNotificationCenterDelega
 
     /// What's new for you since last time: notifies (only when Atteo isn't on screen) and keeps the badge right.
     /// The first look ever only notes what's there, so an old inbox doesn't arrive as a pile of notifications.
-    func check(inbox: [InboxItem], approvals: [Approval], notify: Bool) async {
+    /// Only what interrupts notifies at once (the server's `interrupt`: your level for the board and your quiet hours);
+    /// digest items wait, and once the digest's slot passes they arrive as one summary (vedu #2490).
+    func check(inbox: [InboxItem], approvals: [Approval], notify: Bool, summary: NotifySummary? = nil) async {
         let ids = Set(inbox.filter { $0.readAt == nil }.map { "i\($0.id)" } + approvals.map { "a\($0.id)" })
         let stored = UserDefaults.standard.array(forKey: Self.seenKey) as? [String]
         defer { UserDefaults.standard.set(Array(ids.union(stored ?? []).suffix(500)), forKey: Self.seenKey) }
+        // On screen, you're looking at all of it: nothing waits for a digest.
+        if !notify { Self.setPending([]); if let d = summary?.digestAt { UserDefaults.standard.set(d, forKey: Self.digestAtKey) } }
         guard let stored, notify, status == .authorized || status == .provisional else { return }
         let seen = Set(stored)
         let center = UNUserNotificationCenter.current()
+        var pending = Self.pending()
+        let approvalMode = Dictionary(inbox.compactMap { i in i.approvalId.map { ($0, i.interrupt ?? "now") } }, uniquingKeysWith: { a, _ in a })
+        let titles = Dictionary(inbox.map { ($0.boardId, $0.boardTitle) }, uniquingKeysWith: { a, _ in a })
+        defer { Self.setPending(pending) }
         for a in approvals where !seen.contains("a\(a.id)") {
+            switch approvalMode[a.id] ?? "now" {
+            case "digest": pending.append(DigestEntry(board: a.boardId.flatMap { titles[$0] ?? nil }, kind: "approval")); continue
+            case "none": continue
+            default: break
+            }
             let c = UNMutableNotificationContent()
             c.title = String(localized: "Your agent asks: \(a.title)", bundle: .l10n)
             c.body = a.details.isEmpty ? String(localized: "Approve or deny in Atteo.", bundle: .l10n) : String(a.details.prefix(180))
@@ -69,7 +87,11 @@ final class Notifier: NSObject, ObservableObject, UNUserNotificationCenterDelega
             c.threadIdentifier = "approvals"
             try? await center.add(UNNotificationRequest(identifier: "a\(a.id)", content: c, trigger: nil))
         }
-        for i in inbox where i.readAt == nil && !seen.contains("i\(i.id)") && Self.worthIt(i.kind) {
+        for i in inbox where i.readAt == nil && !seen.contains("i\(i.id)") {
+            if i.kind == "approval", i.approvalId != nil { continue } // its request arrives above, once
+            let mode = i.interrupt ?? (Self.worthIt(i.kind) ? "now" : "none") // an older server: as before
+            if mode == "digest" { pending.append(DigestEntry(board: i.boardTitle, kind: i.kind)); continue }
+            guard mode == "now" else { continue }
             let c = UNMutableNotificationContent()
             let who = i.kind == "approval" ? String(localized: "Your agent", bundle: .l10n) : i.actorVia == "agent" ? String(localized: "\(i.actor)'s agent", bundle: .l10n) : i.actor
             c.title = i.boardTitle.map { String(localized: "\(who) in \($0)", bundle: .l10n, comment: "Notification title: who wrote, in which board") } ?? who
@@ -79,6 +101,27 @@ final class Notifier: NSObject, ObservableObject, UNUserNotificationCenterDelega
             c.threadIdentifier = i.boardId
             try? await center.add(UNNotificationRequest(identifier: "i\(i.id)", content: c, trigger: nil))
         }
+        // The digest: once its slot passes (the server says when, in your zone, skipping quiet hours), one summary.
+        if let due = summary?.digestAt, due > UserDefaults.standard.double(forKey: Self.digestAtKey) {
+            if !pending.isEmpty {
+                let c = UNMutableNotificationContent()
+                c.title = DigestSummary.title(pending)
+                c.body = DigestSummary.body(pending)
+                c.threadIdentifier = "digest"
+                try? await center.add(UNNotificationRequest(identifier: "digest-\(Int(due))", content: c, trigger: nil))
+            }
+            pending = []
+            UserDefaults.standard.set(due, forKey: Self.digestAtKey)
+        }
+    }
+
+    /// What's waiting for the next digest (kept between background wakes).
+    static func pending() -> [DigestEntry] {
+        guard let d = UserDefaults.standard.data(forKey: pendingKey) else { return [] }
+        return (try? JSONDecoder().decode([DigestEntry].self, from: d)) ?? []
+    }
+    static func setPending(_ p: [DigestEntry]) {
+        UserDefaults.standard.set(try? JSONEncoder().encode(Array(p.suffix(200))), forKey: pendingKey)
     }
 
     /// Mentions, replies, decisions and approvals: what's for you. (Friend and contact notes stay in the app.)
@@ -88,12 +131,12 @@ final class Notifier: NSObject, ObservableObject, UNUserNotificationCenterDelega
     func backgroundCheck() async {
         schedule()
         guard Keychain.token != nil else { return }
-        async let i = try? API.shared.get("/api/inbox", as: InboxResponse.self, timeout: 20)
+        async let i = try? API.shared.get(Self.inboxPath, as: InboxResponse.self, timeout: 20)
         async let a = try? API.shared.get("/api/approvals", as: ApprovalsResponse.self, timeout: 20)
         let (ii, aa) = await (i, a)
         guard let ii, let aa else { return }
         await readStatus()
-        await check(inbox: ii.items, approvals: aa.approvals, notify: true)
+        await check(inbox: ii.items, approvals: aa.approvals, notify: true, summary: ii.notify)
         let needs = aa.approvals.count + ii.items.filter { $0.readAt == nil && !$0.boardId.isEmpty }.count + AppState.shared.contacts.count
         await badge(needs)
     }
@@ -143,8 +186,9 @@ struct NotificationsSection: View {
             }
             .accessibilityElement(children: .contain)
             .accessibilityIdentifier("notifications-row")
+            QuietHoursRows()
         } footer: {
-            Text("A number on the app icon for what needs you, and a notification for mentions, replies and approvals while Atteo is in the background (iOS decides how often it checks).")
+            Text("A number on the app icon for what needs you. Approvals, @you, replies, decisions and DMs notify you at once; the rest comes in a digest. Change it per chat in its Info. iOS decides how often Atteo checks in the background.")
         }
         .listRowBackground(Theme.card)
         .task { await notifier.readStatus() }

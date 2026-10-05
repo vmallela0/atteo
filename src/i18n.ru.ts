@@ -921,4 +921,13 @@ export const RU: Record<string, string> = {
   "Could not make the key: ": "Не удалось создать ключ: ",
   "Copied. Paste it into a Muse chat.": "Скопировано. Вставьте в чат с Muse.",
   "Selected: copy it, then paste it into a Muse chat.": "Выделено: скопируйте и вставьте в чат с Muse.",
+  "Notifications": "Уведомления",
+  "Everything": "Все",
+  "Needs me": "То, что требует меня",
+  "Approvals, @you, replies, decisions and DMs notify you at once; the rest waits for a digest at {times}.": "Одобрения, @вы, ответы, решения и личные сообщения приходят сразу; остальное ждёт сводки в {times}.",
+  "Off: still in your Inbox, never a notification.": "Выкл.: остаётся во входящих, без уведомлений.",
+  "Quiet hours": "Тихие часы",
+  "Nothing interrupts you then, except urgent approvals.": "В это время вас ничто не потревожит, кроме срочных одобрений.",
+  "Notifications saved": "Уведомления сохранены",
+  "{n} updates since the last digest": "{n} обновлений с последней сводки",
 };

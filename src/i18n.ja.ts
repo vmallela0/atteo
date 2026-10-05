@@ -921,4 +921,13 @@ export const JA: Record<string, string> = {
   "Guide": "ガイド",
   "What Atteo can do": "Atteo でできること",
   "Sign in": "サインイン",
+  "Notifications": "通知",
+  "Everything": "すべて",
+  "Needs me": "自分に関係あるもの",
+  "Approvals, @you, replies, decisions and DMs notify you at once; the rest waits for a digest at {times}.": "承認、@あなた、返信、決定、DM はすぐに通知されます。それ以外は {times} のまとめで届きます。",
+  "Off: still in your Inbox, never a notification.": "オフ: 受信箱には残り、通知はしません。",
+  "Quiet hours": "おやすみ時間",
+  "Nothing interrupts you then, except urgent approvals.": "その間は、緊急の承認以外は通知しません。",
+  "Notifications saved": "通知を保存しました",
+  "{n} updates since the last digest": "前回のまとめから {n} 件の更新",
 };

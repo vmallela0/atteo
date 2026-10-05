@@ -109,14 +109,14 @@ final class AppState: ObservableObject {
 
     func refreshInbox() async {
         do {
-            async let i = API.shared.get("/api/inbox", as: InboxResponse.self)
+            async let i = API.shared.get(Notifier.inboxPath, as: InboxResponse.self)
             async let ap = API.shared.get("/api/approvals", as: ApprovalsResponse.self)
             async let co = API.shared.get("/api/contacts", as: ContactsResponse.self)
             let (ii, aa, cc) = try await (i, ap, co)
             withAnimation(.smooth) { inbox = ii.items; approvals = aa.approvals; contacts = cc.incoming }
             save()
             // On screen: note what's here (no notifications), and keep the app icon's number right.
-            await Notifier.shared.check(inbox: ii.items, approvals: aa.approvals, notify: false)
+            await Notifier.shared.check(inbox: ii.items, approvals: aa.approvals, notify: false, summary: ii.notify)
             await Notifier.shared.badge(needsYou)
         } catch { report(error, quiet: true) }
     }

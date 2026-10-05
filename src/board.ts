@@ -2846,11 +2846,17 @@ export class Board extends DurableObject<Env> {
     if (forPeople.length) this.ctx.waitUntil(this.deliverWebhooks(info, e, forPeople, "mention_for_you", forSession).catch(() => {}));
     if (!kinds.size) return;
     const excerpt = e.text.replace(/\s+/g, " ").trim().slice(0, 160);
+    // A mention that reached someone only through @all / @humans is a broadcast: it waits for their digest (src/notify.ts),
+    // while one that names them interrupts. (Encrypted text can't be read here: those count as named.)
+    const group = !info.encrypted && [ALL_MEMBERS, ALL_HUMANS].some((g) => hasGroupMention(e.text, g));
+    const named = (u: string) => new RegExp(`(^|[^A-Za-z0-9_.@/-])@${u.replace(/[.]/g, "\\.")}(?![A-Za-z0-9_'’/-])`, "i").test(e.text);
+    const dataFor = (u: string, k: string) =>
+      k === "from_your_person" && fromPerson ? JSON.stringify(fromPerson) : k === "mention" && group && !named(u) ? JSON.stringify({ broadcast: true }) : null;
     await this.env.DB.batch(
       [...kinds].map(([u, k]) =>
         this.env.DB.prepare(
           "INSERT OR IGNORE INTO notifications (user, board_id, seq, kind, actor, actor_via, entry_type, excerpt, created_at, to_session, read_at, agent_seen_at, data) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        ).bind(u, info.id, e.seq, k, e.author, e.via ?? null, e.type, k === "from_your_person" && info.encrypted ? "🔒 encrypted" : excerpt, e.ts, forSession && forSession.user === u ? forSession.session : null, ownMail && u === e.author ? e.ts : null, ownReply && u === e.author ? e.ts : null, k === "from_your_person" && fromPerson ? JSON.stringify(fromPerson) : null),
+        ).bind(u, info.id, e.seq, k, e.author, e.via ?? null, e.type, k === "from_your_person" && info.encrypted ? "🔒 encrypted" : excerpt, e.ts, forSession && forSession.user === u ? forSession.session : null, ownMail && u === e.author ? e.ts : null, ownReply && u === e.author ? e.ts : null, dataFor(u, k)),
       ),
     );
   }

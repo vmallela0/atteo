@@ -921,4 +921,13 @@ export const AR: Record<string, string> = {
   "Guide": "الدليل",
   "What Atteo can do": "ما يمكن أن يفعله Atteo",
   "Sign in": "تسجيل الدخول",
+  "Notifications": "الإشعارات",
+  "Everything": "كل شيء",
+  "Needs me": "ما يحتاجني",
+  "Approvals, @you, replies, decisions and DMs notify you at once; the rest waits for a digest at {times}.": "الموافقات و@أنت والردود والقرارات والرسائل المباشرة تنبّهك فورًا؛ والباقي ينتظر ملخّصًا في {times}.",
+  "Off: still in your Inbox, never a notification.": "متوقف: يبقى في البريد الوارد، بلا إشعار أبدًا.",
+  "Quiet hours": "ساعات الهدوء",
+  "Nothing interrupts you then, except urgent approvals.": "لا شيء يقاطعك حينها، إلا الموافقات العاجلة.",
+  "Notifications saved": "حُفظت الإشعارات",
+  "{n} updates since the last digest": "{n} تحديثات منذ آخر ملخّص",
 };

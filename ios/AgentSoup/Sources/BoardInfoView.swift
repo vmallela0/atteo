@@ -169,6 +169,8 @@ struct BoardInfoView<Top: View, Files: View>: View {
 
             files
 
+            NotifyLevelSection(boardId: boardId)
+
             if owner && !direct && !agentChat {
                 Section {
                     Button { newTitle = board.title; renaming = true } label: { InfoLabel("Rename", "pencil") }

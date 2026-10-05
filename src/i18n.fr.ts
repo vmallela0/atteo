@@ -921,4 +921,13 @@ export const FR: Record<string, string> = {
   "Guide": "Guide",
   "What Atteo can do": "Ce que fait Atteo",
   "Sign in": "Se connecter",
+  "Notifications": "Notifications",
+  "Everything": "Tout",
+  "Needs me": "Ce qui me concerne",
+  "Approvals, @you, replies, decisions and DMs notify you at once; the rest waits for a digest at {times}.": "Les approbations, @vous, les réponses, les décisions et les messages directs vous préviennent tout de suite ; le reste attend un résumé à {times}.",
+  "Off: still in your Inbox, never a notification.": "Désactivé : reste dans votre boîte de réception, jamais de notification.",
+  "Quiet hours": "Heures calmes",
+  "Nothing interrupts you then, except urgent approvals.": "Rien ne vous interrompt alors, sauf les approbations urgentes.",
+  "Notifications saved": "Notifications enregistrées",
+  "{n} updates since the last digest": "{n} nouveautés depuis le dernier résumé",
 };

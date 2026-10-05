@@ -1731,6 +1731,65 @@ await step("inbox: mentions, posts for your agent and replies reach the person; 
   assert([401, 302, 303].includes((await web(`/api/inbox/count`, null)).status), "sign-in required");
 });
 
+await step("notification volume (vedu #2490): per-board levels, quiet hours and the digest decide each inbox item's interrupt; people only", async () => {
+  const nb = (await ops("boards", { user: A, title: `e2e notify ${run}` })).body.board.id;
+  await ops("members", { board: nb, user: B });
+  const J = { "content-type": "application/json" };
+  const put = (who, path, body) => web(path, who, { method: "PUT", headers: J, body: JSON.stringify(body) });
+  const post = async (text) => (await (await web(`/api/boards/${nb}/entries`, A, { method: "POST", headers: J, body: JSON.stringify({ type: "note", text }) })).json()).entry;
+  const item = async (seq) => {
+    for (let i = 0; i < 40; i++) {
+      const j = await (await web(`/api/inbox?tz=Europe/Berlin`, B)).json();
+      const it = j.items.find((x) => x.board_id === nb && x.seq === seq);
+      if (it) return { it, j };
+      await new Promise((r) => setTimeout(r, 150));
+    }
+    throw new Error(`no inbox item for #${seq}`);
+  };
+  // Defaults: needs_me; quiet hours off; the digest at 9:00, 13:00, 18:00 in the client's zone until saved.
+  const d = await (await web(`/api/boards/${nb}/notify`, B)).json();
+  assert(d.level === "needs_me", JSON.stringify(d));
+  const me = await (await web(`/api/me/notify?tz=Europe/Berlin`, B)).json();
+  assert(me.quiet.on === false && me.quiet.tz === "Europe/Berlin" && me.digest.join() === "09:00,13:00,18:00" && me.default_level === "needs_me", JSON.stringify(me));
+  // A direct @B interrupts now; an @all reaches B as a broadcast and waits for the digest.
+  const direct = await item((await post(`@${B} look at this ${run}`)).seq);
+  assert(direct.it.interrupt === "now" && !direct.it.broadcast, JSON.stringify(direct.it));
+  assert(direct.j.notify && typeof direct.j.notify.digest_at === "number" && direct.j.notify.quiet_now === false, JSON.stringify(direct.j.notify));
+  const all = await item((await post(`@all heads up ${run}`)).seq);
+  assert(all.it.interrupt === "digest" && all.it.broadcast === true, JSON.stringify(all.it));
+  const both = await item((await post(`@all and @${B} too ${run}`)).seq);
+  assert(both.it.interrupt === "now" && !both.it.broadcast, `named in a broadcast: ${JSON.stringify(both.it)}`);
+  // Everything: the broadcast interrupts too. Off: nothing does (still in the Inbox, still unread).
+  assert((await (await put(B, `/api/boards/${nb}/notify`, { level: "everything" })).json()).level === "everything", "set everything");
+  assert((await item(all.it.seq)).it.interrupt === "now", "everything: @all now");
+  assert((await (await put(B, `/api/boards/${nb}/notify`, { level: "off" })).json()).level === "off", "set off");
+  assert((await item(direct.it.seq)).it.interrupt === "none", "off: none");
+  const count = await (await web(`/api/inbox/count`, B)).json();
+  assert(count.unread >= 3 && count.latest.interrupt === "none" && count.notify, `count still counts, latest has interrupt: ${JSON.stringify(count)}`);
+  // Your level is yours: A still sees the default for the same board.
+  assert((await (await web(`/api/boards/${nb}/notify`, A)).json()).level === "needs_me", "A's own level");
+  // Quiet hours all day (start == end): a direct @B is held for the digest.
+  await put(B, `/api/boards/${nb}/notify`, { level: "needs_me" });
+  const q = await (await put(B, `/api/me/notify`, { quiet: { on: true, start: "00:00", end: "00:00", tz: "UTC" } })).json();
+  assert(q.quiet.on && q.quiet_now === true, JSON.stringify(q));
+  assert((await item(direct.it.seq)).it.interrupt === "digest", "quiet: held for the digest");
+  await put(B, `/api/me/notify`, { quiet: { on: false } });
+  assert((await item(direct.it.seq)).it.interrupt === "now", "quiet off again");
+  // Bad values are refused and nothing is saved.
+  for (const bad of [{ level: "loud" }, {}]) assert((await put(B, `/api/boards/${nb}/notify`, bad)).status === 400, `bad level ${JSON.stringify(bad)}`);
+  for (const bad of [{ quiet: { start: "25:00" } }, { quiet: { tz: "Mars/Base" } }, { digest: [] }, { sound: "loud" }]) assert((await put(B, `/api/me/notify`, bad)).status === 400, `bad prefs ${JSON.stringify(bad)}`);
+  assert((await (await web(`/api/me/notify`, B)).json()).quiet.on === false, "a refused update saved nothing");
+  // Agents can't read or set any of it; outsiders get 404 for the board.
+  for (const [m, path, body] of [["GET", "/api/me/notify"], ["PUT", "/api/me/notify", { quiet: { on: true } }], ["GET", `/api/boards/${nb}/notify`], ["PUT", `/api/boards/${nb}/notify`, { level: "off" }]]) {
+    const r = await fetch(`${BASE}${path}`, { method: m, headers: { ...auth(B), ...J }, body: body ? JSON.stringify(body) : undefined });
+    assert(r.status === 403, `agent ${m} ${path}: ${r.status}`);
+  }
+  const agentInbox = await (await fetch(`${BASE}/api/inbox`, { headers: auth(B) })).json();
+  assert(!("notify" in agentInbox) && agentInbox.items.every((x) => !("interrupt" in x)), "agents get no interrupt or notify");
+  const other = (await ops("boards", { user: A, title: `e2e notify private ${run}` })).body.board.id;
+  assert((await web(`/api/boards/${other}/notify`, B)).status === 404, "not a member: 404");
+});
+
 await step("inbox retention: cron deletes read notifications older than 30 days; unread and recent read stay", async () => {
   const day = 86_400_000;
   await web(`/api/inbox/read`, B, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ all: true }) });

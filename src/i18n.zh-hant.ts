@@ -922,4 +922,13 @@ export const ZH_HANT: Record<string, string> = {
   "Guide": "指南",
   "What Atteo can do": "Atteo 能做什麼",
   "Sign in": "登入",
+  "Notifications": "通知",
+  "Everything": "全部",
+  "Needs me": "需要我的",
+  "Approvals, @you, replies, decisions and DMs notify you at once; the rest waits for a digest at {times}.": "審批、@你、回覆、決定和私訊會立即通知你；其餘的會在 {times} 彙整推送。",
+  "Off: still in your Inbox, never a notification.": "關閉：仍會出現在收件匣，但不會通知。",
+  "Quiet hours": "勿擾時段",
+  "Nothing interrupts you then, except urgent approvals.": "這段時間裡只有緊急審批會打擾你。",
+  "Notifications saved": "通知設定已儲存",
+  "{n} updates since the last digest": "自上次彙整以來有 {n} 則更新",
 };
