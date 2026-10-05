@@ -55,15 +55,41 @@ final class ReportBugTests: XCTestCase {
         XCTAssertTrue(ctx["os"]?.hasPrefix("iOS ") ?? false)
     }
 
-    func testFormIsMultipartWithTheScreenshotOnlyWhenIncluded() throws {
+    func testFormIsMultipartWithEachAddedPicture() throws {
         BugContext.board = nil
-        var with = BugReportContext.form(note: "hello", screenshot: Data([0xFF, 0xD8, 0xFF, 0xD9]))
+        var with = BugReportContext.form(note: "hello", pictures: [(Data([0xFF, 0xD8, 0xFF, 0xD9]), "image/jpeg"), (Data([0x89, 0x50, 0x4E, 0x47]), "image/png")])
         let a = String(decoding: with.finish(), as: UTF8.self)
         XCTAssertTrue(with.contentType.hasPrefix("multipart/form-data; boundary="))
         XCTAssertTrue(a.contains("name=\"note\"\r\n\r\nhello\r\n"))
         XCTAssertTrue(a.contains("name=\"path\"\r\n\r\napp\r\n"))
-        XCTAssertTrue(a.contains("name=\"screenshot\"; filename=\"screenshot.jpg\"\r\nContent-Type: image/jpeg"))
-        var without = BugReportContext.form(note: "hello", screenshot: nil)
-        XCTAssertFalse(String(decoding: without.finish(), as: UTF8.self).contains("screenshot"), "not ticked: not sent at all")
+        XCTAssertTrue(a.contains("name=\"screenshot\"; filename=\"screenshot.jpg\"\r\nContent-Type: image/jpeg"), "the first picture as the server's screenshot")
+        XCTAssertTrue(a.contains("name=\"screenshot\"; filename=\"screenshot-2.png\"\r\nContent-Type: image/png"), "the next one after it, in order")
+        var without = BugReportContext.form(note: "hello", pictures: [])
+        XCTAssertFalse(String(decoding: without.finish(), as: UTF8.self).contains("screenshot"), "no pictures added: none sent (nothing is captured for you, jxn #4116)")
+    }
+
+    func testAPictureIsSentAsAPNGOrJPEGUnderTheCap() throws {
+        let small = Attachment(name: "a.jpg", data: Data([0xFF, 0xD8, 0xFF, 0xD9]), mime: "image/jpeg")
+        XCTAssertEqual(BugScreenshot.part(small)?.mime, "image/jpeg", "a JPEG that fits goes as it is")
+        XCTAssertEqual(BugScreenshot.part(small)?.data, small.data)
+        let gifData = try XCTUnwrap(noisy(64, 64).pngData())
+        let gif = Attachment(name: "a.gif", data: gifData, mime: "image/gif")
+        let p = try XCTUnwrap(BugScreenshot.part(gif))
+        XCTAssertEqual(p.mime, "image/jpeg", "anything else is re-encoded as a JPEG")
+        XCTAssertLessThanOrEqual(p.data.count, 1_900_000)
+        XCTAssertNil(BugScreenshot.part(Attachment(name: "a.txt", data: Data("hi".utf8), mime: "text/plain")), "not a picture: left out")
+    }
+
+    func testSeveralPicturesShareTheServersTotalAndStopAtFour() throws {
+        // Four big noisy PNGs (each well over a quarter of 1.9 MB): together they must still fit the server's 2 MB.
+        let big = try XCTUnwrap(noisy(700, 700).pngData())
+        XCTAssertGreaterThan(big.count, 1_900_000 / 4)
+        let pics = (0..<5).map { Attachment(name: "p\($0).png", data: big, mime: "image/png") }
+        let parts = BugScreenshot.parts(pics)
+        XCTAssertEqual(parts.count, 4, "at most four, as the server takes")
+        XCTAssertLessThanOrEqual(parts.reduce(0) { $0 + $1.data.count }, 1_900_000, "all of them together under the cap")
+        XCTAssertTrue(parts.allSatisfy { $0.mime == "image/jpeg" }, "made smaller as JPEGs")
+        let one = BugScreenshot.parts([Attachment(name: "s.jpg", data: Data([0xFF, 0xD8, 0xFF, 0xD9]), mime: "image/jpeg")])
+        XCTAssertEqual(one.first?.data, Data([0xFF, 0xD8, 0xFF, 0xD9]), "one that fits goes as it is")
     }
 }
