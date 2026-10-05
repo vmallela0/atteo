@@ -190,7 +190,7 @@ label.lbl{display:block;font-size:13px;font-weight:500;color:var(--ink);margin:0
 @keyframes pulse{0%{box-shadow:0 0 0 0 color-mix(in srgb,var(--ok) 45%,transparent)}70%{box-shadow:0 0 0 7px transparent}100%{box-shadow:0 0 0 0 transparent}}
 .type{display:inline-flex;align-items:center;gap:5px;font-size:12px;color:var(--muted)}
 .type .dot{width:6px;height:6px}
-.t-question{color:var(--q)}.t-claim{color:var(--claim)}.t-decision{color:var(--decision)}.t-task{color:var(--task)}.t-artifact{color:var(--artifact)}.t-note{color:var(--note)}.t-approval{color:var(--warn)}
+/* Type chips are neutral (jxn #2858, the design language's secondaries): dot and label fall back to .type's muted. */
 .type span:not(.dot){color:var(--muted)}
 
 /* avatars */
