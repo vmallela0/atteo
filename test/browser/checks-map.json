@@ -1,0 +1,29 @@
+{
+  "_": "For run.mjs --changed: which browser checks a changed file needs. A file under src/, migrations/ or the build config that no rule names runs every check; a rule with [] needs none. test/browser/<check>.mjs always runs that check. Keep rules narrow: when unsure, leave a file out so it runs everything.",
+  "rules": {
+    "src/voice.ts": ["voice", "voice-chat", "voice-picker", "voice-turns", "voice-turns-privacy", "voice-allowance", "call-nap"],
+    "src/tts.ts": ["voice", "voice-chat", "voice-turns", "call-nap"],
+    "src/mermaid.ts": ["mermaid", "csp"],
+    "src/csp.ts": ["csp", "csp-enforced", "preview-sandbox", "htmlpreview", "mermaid"],
+    "src/fonts.ts": ["fonts", "web-budget", "phone-layout"],
+    "src/fontfaces.ts": ["fonts", "web-budget", "phone-layout"],
+    "src/fonts/**": ["fonts", "web-budget"],
+    "src/i18n*.ts": ["i18n-more", "i18n-zh", "i18n-zh-2", "i18n-zh-3", "a11y"],
+    "src/guide.i18n.ts": ["i18n-more"],
+    "src/openapi.ts": [],
+    "cli/**": ["e2e-web"],
+    "test/*.ts": [],
+    "test/*.mjs": [],
+    "test/browser/lib/**": "*",
+    "test/browser/run.mjs": "*",
+    "test/browser/checks.json": [],
+    "test/browser/checks-map.json": [],
+    "test/browser/web-budget.json": ["web-budget"],
+    "docs/**": [],
+    "ios/**": [],
+    "landing/**": [],
+    "scripts/**": [],
+    ".github/**": [],
+    "*.md": []
+  }
+}

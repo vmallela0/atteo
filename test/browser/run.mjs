@@ -7,11 +7,14 @@
 // with its reason, not retried, not a failure.
 //
 //   node test/browser/run.mjs [check ...]        # or: npm run test:browser
+//   node test/browser/run.mjs --changed [base]   # only the checks the files changed since base (origin/main) need,
+//                                                # per checks-map.json; a file no rule narrows runs everything
+//   node test/browser/run.mjs --changed --list   # print that selection and exit
 //
 // Env: BASE (default http://localhost:8787; must be a local server) · PW_CHROME (Chromium executable; default: the one
-//   playwright-core installed) · PAR (default 4) · SHARD=i/n (run the i-th of n balanced slices, 1-based) · ONLY="a b"
-//   · SHARED=0 (a fresh Chromium per check) · BROWSERS (shared Chromiums, default 2) · RETRY=0 (no retry) · TIMEOUT per
-//   check in s (default 240) · SHOTS_DIR (screenshots, logs and failed.txt; default <os tmp>/atteo-browser-shots)
+//   playwright-core installed) · PAR (default 8) · SHARD=i/n (run the i-th of n balanced slices, 1-based) · ONLY="a b"
+//   · SHARED=0 (a fresh Chromium per check) · BROWSERS (shared Chromiums, default 3) · RETRY=0 (no retry) · TIMEOUT per
+//   check in s (default 240; on the first pass a check is stopped at 4x its checks.json time, at least 60s, and retried alone) · SHOTS_DIR (screenshots, logs and failed.txt; default <os tmp>/atteo-browser-shots)
 //   · ADMIN_KEY (default ci-admin-key, as in CI's .dev.vars) · PERSIST (the server's `wrangler dev --persist-to` dir, so
 //   checks that write to local D1 directly, live and e2e-web, reach the server's database; unset = the default .wrangler).
 import { spawn } from "node:child_process";
@@ -24,7 +27,7 @@ import { createRequire } from "node:module";
 const DIR = dirname(fileURLToPath(import.meta.url)), ROOT = join(DIR, "../..");
 const BASE = (process.env.BASE || "http://localhost:8787").replace(/\/$/, "");
 const SHOTS_DIR = process.env.SHOTS_DIR || join(tmpdir(), "atteo-browser-shots"), LOGS = join(SHOTS_DIR, "logs");
-const PAR = Math.max(1, +(process.env.PAR || 4)), NB = Math.max(1, +(process.env.BROWSERS || 2));
+const PAR = Math.max(1, +(process.env.PAR || 8)), NB = Math.max(1, +(process.env.BROWSERS || 3));
 const TIMEOUT = +(process.env.TIMEOUT || 240) * 1000, RETRY = process.env.RETRY !== "0", SHARED = process.env.SHARED !== "0";
 const T0 = Date.now(), secs = (t) => Math.round((Date.now() - t) / 1000);
 
@@ -34,9 +37,26 @@ if (!["localhost", "127.0.0.1", "[::1]", "::1"].includes(host)) { console.error(
 
 const timings = JSON.parse(readFileSync(join(DIR, "checks.json"), "utf8"));
 const all = Object.keys(timings);
-const asked = [...process.argv.slice(2), ...(process.env.ONLY || "").split(/\s+/)].filter(Boolean);
+const argv = process.argv.slice(2), ci = argv.indexOf("--changed"), li = argv.indexOf("--list");
+const LIST_ONLY = li >= 0; if (LIST_ONLY) argv.splice(li, 1);
+// --changed [base]: only the checks the files changed since <base> (default origin/main) need, per checks-map.json.
+let changedBase = null;
+if (ci >= 0) { changedBase = argv[ci + 1] && !argv[ci + 1].startsWith("-") && !Object.hasOwn(timings, argv[ci + 1]) ? argv.splice(ci, 2)[1] : (argv.splice(ci, 1), "origin/main"); }
+const asked = [...argv, ...(process.env.ONLY || "").split(/\s+/)].filter(Boolean);
 for (const t of asked) if (!Object.hasOwn(timings, t)) { console.error(`run.mjs: no check named ${t}`); process.exit(2); }
 let list = asked.length ? asked : all;
+if (changedBase) {
+  const { execFileSync } = await import("node:child_process");
+  const git = (...a) => execFileSync("git", a, { cwd: ROOT, encoding: "utf8" });
+  const files = [...new Set([...git("diff", "--name-only", `${changedBase}...HEAD`).split("\n"), ...git("diff", "--name-only", "HEAD").split("\n")].filter(Boolean))];
+  const { checksFor } = await import("./lib/changed.mjs");
+  const pick = checksFor(files, JSON.parse(readFileSync(join(DIR, "checks-map.json"), "utf8")).rules, all);
+  list = pick === "*" ? list : list.filter((t) => pick.has(t));
+  console.log(`--changed ${changedBase}: ${files.length} file${files.length === 1 ? "" : "s"} → ${pick === "*" ? "every check (a file no rule narrows)" : `${list.length} check${list.length === 1 ? "" : "s"}`}`);
+  if (!list.length) { console.log("no browser checks needed"); process.exit(0); }
+}
+if (LIST_ONLY) { console.log(list.join(" ")); process.exit(0); }
+
 
 // SHARD=i/n: deal the checks (longest first) to whichever of n slices has the least work so far, so slices take about
 // as long as each other; deterministic, so every job agrees on the split.
@@ -79,6 +99,8 @@ const usesClipboard = (t) => {
 
 const passed = (last) => /passed|all scripts parse/.test(last) && !/FAIL/.test(last);
 // One check in a child node process; its output goes to logs/<check>.log and its last line is the verdict.
+// A check gets 4x its recorded time (at least 60s) before it counts as stalled; a retry alone gets the full TIMEOUT.
+const limitFor = (t, alone) => alone ? TIMEOUT : Math.min(TIMEOUT, Math.max(60, 4 * (timings[t] || 15)) * 1000);
 const run1 = (t, slot, useShared) => new Promise((resolve) => {
   const f = join(DIR, `${t}.mjs`), s = Date.now(), log = join(LOGS, `${t}${useShared ? "" : ".alone"}.log`);
   const env = { ...process.env, BASE, SHOTS_DIR };
@@ -94,12 +116,13 @@ const run1 = (t, slot, useShared) => new Promise((resolve) => {
   const fd = openSync(log, "w");
   const p = spawn(process.execPath, [f], { cwd: SHOTS_DIR, env, stdio: ["ignore", fd, fd] });
   let timedOut = false;
-  const timer = setTimeout(() => { timedOut = true; p.kill("SIGKILL"); }, TIMEOUT);
+  const limit = limitFor(t, !useShared);
+  const timer = setTimeout(() => { timedOut = true; p.kill("SIGKILL"); }, limit);
   p.on("close", (code) => {
     clearTimeout(timer); closeSync(fd);
     const lines = readFileSync(log, "utf8").split("\n").map((l) => l.trimEnd()).filter(Boolean);
     let last = lines.at(-1) ?? `(no output, exit ${code})`;
-    if (timedOut) last = `timed out after ${TIMEOUT / 1000}s (last: ${last})`;
+    if (timedOut) last = `timed out after ${limit / 1000}s (last: ${last})`;
     resolve({ t, last, secs: secs(s), ok: !timedOut && code === 0 && passed(last), skipped: !timedOut && code === 3 && /^SKIP: /.test(last) });
   });
 });
