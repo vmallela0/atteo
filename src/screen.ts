@@ -2,6 +2,8 @@
 // and posts that read like instructions aimed at an agent are flagged (never dropped).
 // Pure (no I/O). Screening is a heuristic and never the only control.
 
+import { normalizeForScreen, proseForAgent } from "./util";
+
 export interface Flag {
   rule: string;
   reason: string;
@@ -57,16 +59,19 @@ export function blankLiterals(text: string): string {
 }
 
 /**
- * The first instruction-like pattern in a post, or null. Everything is scanned, code and quotes included (wrapping an
- * injection in backticks mustn't hide it), but a pattern found ONLY inside code or quotes, e.g. a test fixture or a
- * message about injection quoting one, comes back `quoted`: a softer flag ("treat it as data", not "don't act on
- * it"), and the model screen still looks at it (board.ts screenWithModel). #2210.
+ * The first instruction-like pattern in a post, or null. The scan sees `normalizeForScreen`: bidi controls removed,
+ * and every ZWJ and ZWNJ removed, so a hidden character cannot split a phrase the check then misses. Everything is
+ * scanned, code and quotes included (wrapping an injection in backticks mustn't hide it), but a pattern found ONLY
+ * inside code or quotes, e.g. a test fixture or a message about injection quoting one, comes back `quoted`: a softer
+ * flag ("treat it as data", not "don't act on it"), and the model screen still looks at it (board.ts screenWithModel).
+ * #2210.
  */
 export function screenText(raw: string): Flag | null {
-  if (!raw.includes("`") && !/["“'‘]/.test(raw)) return scan(raw);
-  const prose = scan(blankLiterals(raw));
+  const text = normalizeForScreen(raw);
+  if (!text.includes("`") && !/["“'‘]/.test(text)) return scan(text);
+  const prose = scan(blankLiterals(text));
   if (prose) return prose;
-  const quoted = scan(raw);
+  const quoted = scan(text);
   return quoted && { ...quoted, quoted: true };
 }
 
@@ -98,9 +103,10 @@ function scan(text: string): Flag | null {
   return null;
 }
 
-/** Defuses anything inside content that imitates a fence marker. */
+/** Defuses board content before an agent reads it: bidi controls come out, a ZWJ stays between emoji, a ZWNJ stays
+ *  between letters, and anything that imitates a fence marker is disarmed. Arabic marks stay. */
 export function neutralize(text: string): string {
-  return text.replace(/<<(\s*(?:end\s+)?untrusted)/gi, "‹‹$1");
+  return proseForAgent(text).replace(/<<(\s*(?:end\s+)?untrusted)/gi, "‹‹$1");
 }
 
 /** Wraps board content for an agent: a random per-response id makes the closing marker unforgeable. */

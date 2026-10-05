@@ -1337,7 +1337,7 @@ function connect(){
     // Someone renamed their agent (vedu #1125): its posts here read the new name, always with whose agent it is.
     if(d.type==='profile'&&d.user){delete pcache[d.user];document.querySelectorAll('#thread .entry.by-agent[data-author="'+CSS.escape(d.user)+'"]>.grow>.meta').forEach(m=>{const w=m.querySelector('.who');if(!w)return;
       let o=m.querySelector('.via.owner');delete w.dataset.dev;if(o)delete o.dataset.dev; // the developer words change; Everyday re-words them below
-      if(d.agent_name){w.textContent=d.agent_name;if(!o){o=document.createElement('span');o.className='via owner';w.after(o)}o.textContent=d.user+"'s agent"}else if(o){w.textContent=d.user+"'s agent";o.remove()}});
+      if(d.agent_name){w.textContent=bidi(d.agent_name);if(!o){o=document.createElement('span');o.className='via owner';w.after(o)}o.textContent=d.user+"'s agent"}else if(o){w.textContent=d.user+"'s agent";o.remove()}});
       if(document.documentElement.dataset.mode==='everyday')document.dispatchEvent(new CustomEvent('atteo-mode',{detail:{everyday:true}}));return}
     if(d.type==='schedule'){if(document.getElementById('invite')?.open&&window.schLoad)schLoad();return}
     if(d.type==='reaction'){renderRx(d.seq,d.reactions);return}
@@ -1403,7 +1403,7 @@ document.addEventListener('click',async e=>{const b=e.target.closest('[data-copy
 var SENT_TEXT=null;function sendLook(on){document.querySelector('form.composer')?.classList.toggle('sending',on)}
 document.querySelector('form.composer')?.addEventListener('submit',()=>{sentKey=draftNow();const t=ta.value.trim();if(t&&!pending.length){sendLook(true);const keep=ta.value;setTimeout(()=>{if(ta.value===keep){SENT_TEXT=keep;ta.value='';taFit()}},0)}if(!t||!rpTo||rpTo.value||pending.length)return; // files get their own copy (below); replies go in their thread, after the real post
   const el=document.createElement('article');el.className='entry pending';el.innerHTML='<div class="grow"><div class="meta"><span class="who"></span><span class="xs faint">'+tr('sending…')+'</span></div><div class="body"></div></div>';
-  el.querySelector('.who').textContent=ME;el.querySelector('.body').textContent=t;document.getElementById('thread').appendChild(el);toBottom();
+  el.querySelector('.who').textContent=ME;el.querySelector('.body').textContent=bidi(t);document.getElementById('thread').appendChild(el);toBottom();
 },true);
 // While a post is retrying it says so; if it really can't be sent, your text is still in the box (the form only resets on success).
 window.postRetrying=()=>document.querySelectorAll('#thread .entry.pending .faint').forEach(x=>x.textContent='connection lost, retrying…');
@@ -1687,7 +1687,7 @@ cform.addEventListener('submit',async e=>{if(!pending.length)return;e.preventDef
   const btn=cform.querySelector('.bar .btn.primary');btn.disabled=true;const text=ta.value.trim(),files=pending.slice();sendLook(true);ta.value='';taFit();
   let ph=null;
   if(!rpTo.value){ph=document.createElement('article');ph.className='entry pending';ph.innerHTML='<div class="grow"><div class="meta"><span class="who"></span><span class="xs faint">'+tr('sending…')+'</span></div><div class="body"></div><div class="attachments ph-att"></div></div>';
-    ph.querySelector('.who').textContent=ME;ph.querySelector('.body').textContent=text;
+    ph.querySelector('.who').textContent=ME;ph.querySelector('.body').textContent=bidi(text);
     ph.querySelector('.ph-att').innerHTML=files.map(x=>x.image?'<span class="att"><img src="'+x.url+'" alt="'+esc(x.name)+'"></span>':'<span class="att file"><span class="att-name mono">'+esc(x.name)+'</span><span class="xs faint">'+kbs(x.blob.size)+'</span></span>').join('');
     document.getElementById('thread').appendChild(ph);toBottom()}
   const fail=m=>{sendLook(false);if(text&&!ta.value.trim()){ta.value=text;taFit()}if(ph){ph.classList.add('failed');ph.querySelector('.faint').textContent="Couldn't send";const p=ph;setTimeout(()=>p.remove(),6000)}toast(m)};
@@ -2354,7 +2354,7 @@ document.getElementById('link-make')?.addEventListener('click',async()=>{const r
 document.addEventListener('click',async e=>{const b=e.target.closest('[data-link-revoke]');if(!b)return;const r=await fetch('/api/boards/'+BOARD+'/links/'+b.dataset.linkRevoke,{method:'DELETE'});toast(r.ok?tr('Link revoked'):tr('Could not revoke'));accLoad()});
 window.deleted=()=>{location.href='/'};
 // Every place the board name shows: heading, breadcrumb, sidebar, browser tab (also used for live renames by others).
-window.applyTitle=(t)=>{const h=document.getElementById('board-title');if(h)h.textContent=t;document.title=t+' · Atteo';
+window.applyTitle=(t)=>{t=bidi(t);const h=document.getElementById('board-title');if(h)h.textContent=t;document.title=t+' · Atteo';
   document.querySelectorAll('.topbar .crumbs .cur, .side-board[aria-current] .truncate').forEach(x=>x.textContent=t)};
 // Inline rename (creator only): click the title or the pencil, Enter saves, Esc cancels.
 (()=>{const h=document.getElementById('board-title'),inp=document.getElementById('title-input'),pen=document.getElementById('title-pencil');if(!inp)return;
