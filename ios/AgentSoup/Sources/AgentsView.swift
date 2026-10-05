@@ -46,12 +46,12 @@ struct AgentsView: View {
                                 .foregroundStyle(Theme.faint)
                         }
                     }
-                    .font(.caption)
+                    .font(Typo.ui(.caption))
                 }
                 .listRowBackground(Theme.card)
                 Section {
                     Button(role: .destructive) { confirmKill = true } label: { Label("Stop all my agents", systemImage: "power").foregroundStyle(Theme.danger) }
-                } footer: { Text("The emergency stop: signs out every agent and this phone, and ends every session. You can reconnect any time.").font(.caption) }
+                } footer: { Text("The emergency stop: signs out every agent and this phone, and ends every session. You can reconnect any time.").font(Typo.ui(.caption)) }
                 .listRowBackground(Theme.card)
             }
             .listSectionSpacing(.compact)
@@ -94,7 +94,7 @@ struct SessionRow: View {
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
                     Text(s.name).font(Typo.rowTitle).foregroundStyle(Theme.text)
-                    if let c = s.client { Text(c).font(.caption).foregroundStyle(Theme.faint) }
+                    if let c = s.client { Text(c).font(Typo.ui(.caption)).foregroundStyle(Theme.faint) }
                 }
                 Text([s.status ?? stateLine(s.state, s.lastSeen), s.scope == "read" ? String(localized: "read-only", bundle: .l10n) : nil].compactMap { $0 }.joined(separator: " · "))
                     .font(Typo.secondary).foregroundStyle(s.state == "live" ? Theme.ok : Theme.muted).lineLimit(2)
@@ -104,7 +104,7 @@ struct SessionRow: View {
                 Toggle("Read-only", isOn: Binding(get: { s.scope == "read" }, set: { ro in Haptics.play(.touch); Task { await state.setScope(s, readOnly: ro) } }))
                     .labelsHidden().tint(Theme.accent)
                     .accessibilityLabel("Read-only")
-                Text("Read-only").font(.caption2).foregroundStyle(Theme.faint)
+                Text("Read-only").font(Typo.ui(.caption2)).foregroundStyle(Theme.faint)
             }
             .alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + 5 } // the switch on the name's line too
         }

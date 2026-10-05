@@ -203,7 +203,7 @@ struct ChartBlock: View {
                     Image(systemName: "chevron.right").font(.system(size: 9, weight: .bold)).rotationEffect(.degrees(showData ? 90 : 0))
                     Text("Data")
                 }
-                .font(.caption2.weight(.semibold)).foregroundStyle(Theme.faint)
+                .font(Typo.ui(.caption2).weight(.semibold)).foregroundStyle(Theme.faint)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -247,11 +247,11 @@ struct ChartBlock: View {
         }
         .chartForegroundStyleScale(domain: names, range: ChartPalette.range(names.count))
         .chartLegend(names.count > 1 ? .visible : .hidden)
-        .chartXAxis { AxisMarks { _ in AxisValueLabel().font(.caption2).foregroundStyle(Theme.muted) } }
+        .chartXAxis { AxisMarks { _ in AxisValueLabel().font(Typo.ui(.caption2)).foregroundStyle(Theme.muted) } }
         .chartYAxis {
             AxisMarks(position: .leading) { _ in
                 AxisGridLine().foregroundStyle(Theme.line)
-                AxisValueLabel().font(.caption2).foregroundStyle(Theme.muted)
+                AxisValueLabel().font(Typo.ui(.caption2)).foregroundStyle(Theme.muted)
             }
         }
         .frame(height: 180)
@@ -311,7 +311,7 @@ struct StatusCard: View {
         let t = text.replacingOccurrences(of: #"\n+$"#, with: "", options: .regularExpression)
         VStack(alignment: .leading, spacing: 6) {
             Label("Status", systemImage: "waveform.path.ecg").labelStyle(.titleAndIcon)
-                .font(.caption2.weight(.semibold)).foregroundStyle(Theme.faint)
+                .font(Typo.ui(.caption2).weight(.semibold)).foregroundStyle(Theme.faint)
             ScrollView(.horizontal, showsIndicators: false) {
                 Text(t).font(CodeBlock.mono).foregroundStyle(Theme.text).lineSpacing(3)
                     .fixedSize(horizontal: true, vertical: false).textSelection(.enabled)

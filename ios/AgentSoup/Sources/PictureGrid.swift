@@ -112,7 +112,7 @@ struct PictureGrid: View {
                 if more > 0 {
                     ZStack {
                         Color.black.opacity(0.45)
-                        Text("+\(more)").font(.title2.weight(.semibold)).foregroundStyle(.white)
+                        Text("+\(more)").font(Typo.ui(.title2).weight(.semibold)).foregroundStyle(.white)
                     }
                     .accessibilityHidden(true)
                 }
