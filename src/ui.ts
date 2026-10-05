@@ -971,6 +971,11 @@ mark{background:var(--mark);color:inherit;border-radius:2px;padding:0 1px}
 .bp-pic{all:unset;cursor:pointer;display:inline-flex;flex:none;border-radius:7px}.bp-pic:hover .bpic{filter:brightness(.92)}.bp-pic:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .bpic-row{gap:12px;margin-bottom:12px}
 .sidebar .me{margin-top:auto;border-top:1px solid var(--line);padding-top:8px}
+/* Report a bug: conspicuous on purpose (jxn #3336) — a bordered button of its own above the account row. */
+.bug-btn{border:1px solid var(--line-strong);border-radius:8px;height:34px;margin:10px 2px 2px;color:var(--muted)}
+.bug-btn:hover{color:var(--ink);background:var(--bg-hover)}
+#bug .bd{padding:14px 0 4px}
+.bug-private{display:flex;align-items:center;justify-content:center;min-height:44px;border:1px dashed var(--line-strong);border-radius:8px;color:var(--muted);font-size:13px;margin:10px 0;padding:0 10px;text-align:center}
 .topbar{position:sticky;top:0;z-index:10;height:48px;display:flex;align-items:center;gap:12px;padding:0 20px;border-bottom:1px solid var(--line);
   background:color-mix(in srgb,var(--bg) 85%,transparent);backdrop-filter:saturate(180%) blur(10px);-webkit-backdrop-filter:saturate(180%) blur(10px)}
 .topbar .crumbs{margin:0;display:flex;align-items:center;gap:8px;min-width:0;font-size:13px}
@@ -1611,6 +1616,7 @@ const ICON = {
   menu: `<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M2 4h12M2 8h12M2 12h12"/></svg>`,
   plus: `<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M8 3v10M3 8h10"/></svg>`,
   guide: `<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" aria-hidden="true"><path d="M8 4.2C6.6 3 4.6 2.6 2.5 2.8v9.6c2.1-.2 4.1.2 5.5 1.4 1.4-1.2 3.4-1.6 5.5-1.4V2.8c-2.1-.2-4.1.2-5.5 1.4z"/><path d="M8 4.2v9.6"/></svg>`,
+  bug: `<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" aria-hidden="true"><circle cx="8" cy="9" r="4"/><path d="M8 5V3.2M5.2 5.6L4 4.2M10.8 5.6L12 4.2M2.5 8.5h1.6M11.9 8.5h1.6M3.6 12l1.5-.9M12.4 12l-1.5-.9M5.5 10.9h5"/></svg>`,
 };
 
 export interface SideBoard {
@@ -1709,6 +1715,7 @@ export function appPage(
   <div class="side-label"><span>${esc(T("Your boards"))}</span><a href="/?new=1" title="${esc(T("New board (C)"))}" aria-label="${esc(T("New board"))}">${ICON.plus}</a></div>
   ${sideBoards || `<p class="xs faint" style="padding:2px 9px">${esc(T("No boards yet"))}</p>`}
   <div class="side-label"><span>${esc(T("DMs"))}</span></div>${sideOwn}${sideDirect}
+  <button class="side-link bug-btn" type="button" data-bug>${ICON.bug}<span>${esc(T("Report a bug"))}</span></button>
   <div class="me"><a class="side-link" href="/me">${avatar(v.name, "sm")}<span class="truncate">${esc(v.name)}</span></a>
 </div>
 </aside>
@@ -1722,6 +1729,13 @@ export function appPage(
 <div class="pal-in"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><circle cx="7" cy="7" r="4.5"/><path d="m10.5 10.5 3 3"/></svg><span class="pal-chips" id="pal-chips"></span><input class="input" id="palette-q" placeholder="${esc(T("Search messages, files, boards and actions…"))}" autocomplete="off" aria-label="Search" aria-controls="palette-list"></div>
 <div class="pal-filters" id="pal-filters" aria-label="${esc(T("Filters"))}"></div>
 <ul id="palette-list" role="listbox"></ul><div class="foot"><span><kbd>↑</kbd> <kbd>↓</kbd> ${esc(T("move"))}</span><span><kbd>↵</kbd> ${esc(T("open"))}</span><span><kbd>⌫</kbd> ${esc(T("remove filter"))}</span><span><kbd>esc</kbd> ${esc(T("close"))}</span></div></dialog>
+<dialog id="bug"><div class="hd"><div><h2>${esc(T("Report a bug"))}</h2><p class="muted small" style="margin-top:4px">${esc(T("It goes to the developers with a screenshot of this page and what was on it. Take the private bits off the description; the screenshot below is what they see."))}</p></div><button class="btn ghost sm" data-close aria-label="${esc(T("Close"))}">✕</button></div>
+<div class="bd"><form id="bug-form">
+  <img id="bug-shot" alt="${esc(T("Screenshot of this page"))}" style="max-width:100%;max-height:300px;border:1px solid var(--line);border-radius:8px;display:block">
+  <p class="muted small" id="bug-shotless" hidden style="margin:6px 0">${esc(T("No screenshot — the page couldn't be captured; the description helps all the more."))}</p>
+  <textarea id="bug-text" rows="4" required minlength="8" maxlength="4000" placeholder="${esc(T("What happened? What did you expect?"))}" style="width:100%;margin-top:12px;resize:vertical"></textarea>
+  <div class="row" style="justify-content:flex-end;margin-top:14px;gap:8px"><button type="button" class="btn ghost sm" id="bug-remove" hidden>${esc(T("Remove screenshot"))}</button><button class="btn primary" type="submit" id="bug-send">${esc(T("Send report"))}</button></div>
+</form></div></dialog>
 <dialog id="shortcuts"><div class="hd"><h2>${esc(T("Keyboard shortcuts"))}</h2><button class="btn ghost sm" data-close aria-label="${esc(T("Close"))}">✕</button></div>
 <div class="bd"><dl class="kv">
 <dt><kbd>⌘K</kbd> <kbd>/</kbd></dt><dd>${esc(T("Search or jump to a board"))}</dd>
@@ -1798,6 +1812,7 @@ const pageScripts = (script: string, nonce: string): string =>
 // the file), so there's no inline JSON script for the CSP or the script checks to deal with.
 export const BOARD_PREFETCH_RULES = JSON.stringify({ prefetch: [{ source: "document", where: { href_matches: "/b/*" }, eagerness: "moderate" }] });
 export const BOARD_PREFETCH_PATH = "/speculation-rules.json";
+// Report a bug (jxn #3336, glm-b #3343): the sidebar button captures the page as a PNG in the browser (the DOM is
 function rawPage(title: string, body: string, script: string, status = 200, lang: Lang = "en"): Response {
   const security = pageSecurity();
   const html = `<!doctype html><html lang="${lang}"${dirOf(lang as Lang) === "rtl" ? ' dir="rtl"' : ""}><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -1917,5 +1932,5 @@ document.addEventListener('click',async e=>{const b=e.target.closest('[data-mark
 
 // The app pages' shell script (sidebar, inbox badge, live counts, mark unread, pins), the same on every page: served as
 // /shell.js (index.ts), hashed and cached for good, and run right after the page's own script, as when it was inline.
-export const SHELL_PAGE_JS = SHELL_JS + INBOX_JS + LIVE_JS + MARK_UNREAD_JS + PINS_JS;
+export const SHELL_PAGE_JS = SHELL_JS + INBOX_JS + LIVE_JS + MARK_UNREAD_JS + PINS_JS + BUG_JS; // BUG_JS: the Report-a-bug capture + send
 export const SHELL_JS_SRC = `/shell.js?v=${fnv(SHELL_PAGE_JS)}`;
