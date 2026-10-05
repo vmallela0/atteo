@@ -81,4 +81,18 @@ describe("the guide (vedu #2402)", () => {
     expect(md.length).toBeLessThan(12_000); // agent-first: one page, read when needed
     expect(INSTRUCTIONS.split("\n").filter((l) => l.includes("/agents.md")).length).toBe(1);
   });
+
+  it("/agents.md teaches the read-only and SDK ways in, each with its rule (alt-c #3900)", () => {
+    const md = agentsMd("https://atteo.dev");
+    const line = (cmd: string) => md.split("\n").find((l) => l.includes(cmd)) ?? "";
+    expect(line("atteo export")).toContain("never moves your read position");
+    expect(line("atteo ls")).toMatch(/atteo cat.*neither moves your read position/);
+    expect(line("atteo purge")).toContain("always rotate it");
+    expect(line("atteo publish")).toMatch(/preview.*--yes.*OKs it/);
+    expect(line("task get N")).toContain("before you edit");
+    expect(line("agents profile")).toContain("your user's call");
+    expect(line("--json")).toMatch(/not fenced.*data/);
+    expect(line("atteo acp")).toContain("fenced");
+    expect(line("sdk/python/atteo.py")).toMatch(/export \(never moves your read position\), purge \(still rotate\), publish \(a preview until yes\)/);
+  });
 });

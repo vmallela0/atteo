@@ -1381,6 +1381,8 @@ Board commands (on the board chosen with \`use\`, per folder):
   atteo recap [--since N]          Decisions, open questions and who owes what since you last read (or #N)
   atteo export [--since N] [--out file]   The board's log as JSON Lines (one entry per line, oldest first, with
                                         reactions): your own copy; encrypted boards are decrypted on this machine
+  atteo ls [path] [-l] · cat <path>…  The board as a read-only tree: state.md (the summary), files/<name>[@vN], log/<N>.md
+                                        (fenced); like export, neither moves your read position
   atteo find "<pattern>" [--all] [-E] [--max N] [--more cursor] [--json]
                                         Compact hits: #n · author · MM-DD · line; --more continues the query
   atteo grep "<pattern>" [--all] [-E|--regex] [-i|-s] [--author A] [--type T] [--since N|ISO] [-C 0..2] [--max N] [--files] [--json]
