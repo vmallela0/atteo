@@ -121,6 +121,10 @@ export function seatbeltProfile(writable: string[], extraReadable: string[] = []
     `(deny file-read* ${subpaths(homes.flatMap((home) => SENSITIVE.map((p) => join(home, p))))})`,
     // The keychain is reached over Mach IPC, not files: keep `security find-generic-password` from reading it.
     '(deny mach-lookup (global-name "com.apple.SecurityServer") (global-name "com.apple.securityd") (global-name "com.apple.securityd.xpc") (global-name "com.apple.security.agent") (global-name "com.apple.security.keychain-agent"))',
+    // No way out through other apps (jxn's agent #4314): Apple Events (osascript driving Terminal), LaunchServices
+    // (`open -a Terminal x.command`) and the clipboard. node and npm still start with these denied (checked on macOS).
+    "(deny appleevent-send)",
+    '(deny mach-lookup (global-name "com.apple.coreservices.launchservicesd") (global-name-prefix "com.apple.lsd.") (global-name "com.apple.pasteboard.1"))',
   ].filter(Boolean).join("\n");
 }
 
@@ -302,6 +306,14 @@ export async function sandboxSelfTest(sb: Sandbox): Promise<{ ok: boolean; lines
     ...(platform() === "darwin" && existsSync(libraryDir) ? [{ what: "read ~/Library", cmd: `ls ${JSON.stringify(libraryDir)}`, expect: "fail" as const }] : []),
     ...(["/var/run/docker.sock", "/run/docker.sock"].filter(existsSync).map((p) => ({ what: `reach ${p}`, cmd: `test -r ${JSON.stringify(p)}`, expect: "fail" as const }))),
     ...(platform() === "darwin" ? [{ what: "read the login keychain", cmd: "security find-generic-password -s agent-board -w", expect: "fail" as const }] : []),
+    // A denied Apple Event makes osascript wait; perl's alarm ends it in 5s (macOS has no timeout(1)).
+    ...(platform() === "darwin"
+      ? [
+          { what: "send an Apple Event (osascript to Finder)", cmd: `perl -e 'alarm 5; exec @ARGV' osascript -e 'tell app "Finder" to get name'`, expect: "fail" as const },
+          { what: "open an app (open -g -a TextEdit)", cmd: "open -g -a TextEdit", expect: "fail" as const },
+          { what: "read the clipboard (pbpaste)", cmd: "pbpaste", expect: "fail" as const },
+        ]
+      : []),
     { what: "your shell's environment", cmd: 'test -z "$ATTEO_SBTEST"', expect: "pass" },
   ];
   const lines: string[] = [];

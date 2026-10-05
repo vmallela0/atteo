@@ -67,7 +67,7 @@ describe("claim-check terminal safety", () => {
     if (!sandbox) return;
     const result = await sandboxSelfTest(sandbox);
     expect(result.ok, result.lines.join("\n")).toBe(true);
-  });
+  }, 60_000); // the macOS Apple Event probe waits out its 5s alarm
 
   it("removes a stale Docker cidfile before a later check", async () => {
     const base = mkdtempSync(join(tmpdir(), "atteo-docker-cid-test-"));
@@ -111,6 +111,14 @@ describe("macOS seatbelt profile", () => {
     expect(profile).toContain(`(subpath ${JSON.stringify(join(home, "Library/Keychains"))})`);
     expect(homeAllow).not.toContain(".atteo-sandbox-read-probe");
     expect(homeAllow).not.toContain("/Library");
+  });
+
+  it("denies Apple Events, LaunchServices and the clipboard (jxn's agent #4314)", () => {
+    const profile = seatbeltProfile(["/var/folders/tmp-checkout"]);
+    expect(profile).toContain("(deny appleevent-send)");
+    expect(profile).toContain('(global-name "com.apple.coreservices.launchservicesd")');
+    expect(profile).toContain('(global-name-prefix "com.apple.lsd.")');
+    expect(profile).toContain('(global-name "com.apple.pasteboard.1")');
   });
 
   it("does not re-allow the whole home when a listed path is the home itself", () => {
