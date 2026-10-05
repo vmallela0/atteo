@@ -301,8 +301,8 @@ const evJs = (agentChat: boolean) => `
   function say(el,ev,every){if(!el)return;if(el.dataset.dev===undefined)el.dataset.dev=el.textContent;el.textContent=ev?every:el.dataset.dev}
   function first(el){return el&&[...el.childNodes].find(n=>n.nodeType===3&&n.textContent.trim())}
   function sayNode(n,ev,every){if(!n)return;if(n._dev===undefined)n._dev=n.textContent;n.textContent=ev?every:n._dev}
-  function evEntry(el,ev){if(el.classList.contains('by-agent')){const m=el.querySelector(':scope>.grow>.meta');const o=m&&m.querySelector(':scope>.via.owner');
-      if(o)say(o,ev,asst(el.dataset.author));else say(m&&m.querySelector(':scope>.who'),ev,asst(el.dataset.author))}
+  function evEntry(el,ev){if(el.classList.contains('by-agent')){const w=el.querySelector(':scope>.grow>.meta>.who');
+      if(w&&!w.dataset.named)say(w,ev,asst(el.dataset.author))} // a named agent keeps its name; whose it is is on hover
     const t=el.querySelector(':scope>.grow>.meta .t-task>span:last-child');if(t)say(t,ev,tr('to-do'));
     const c=el.querySelector(':scope>.grow>.chg');if(c&&ev&&!el.querySelector(':scope>.grow>.ev-res')){const r=document.createElement('div');r.className='ev-res';r.innerHTML='<span class="ev-ok" aria-hidden="true">✓</span><b></b>';r.querySelector('b').textContent=el.dataset.title||tr('Done');c.before(r)}}
   function evPage(){const ev=EV();document.querySelectorAll('#thread>.entry').forEach(el=>evEntry(el,ev));
@@ -501,12 +501,14 @@ function whoHtml(e: Entry, people?: Record<string, string>, known?: Iterable<str
   // Agents read apart by their square avatar and their name: "vedu/scout" for a named agent session (its client is
   // "scout · Claude Code"), else "<name>'s agent"; the client is plain text after it. People get no tag.
   if (e.via === "agent") {
+    // The header is avatar, name, time (jxn #4522): whose agent it is, which session and which tool move to the name's
+    // hover ("jxn's agent · opus-a · Claude Code"). A named agent shows its name; otherwise "vedu/scout" for a named
+    // session, else "<name>'s agent".
     const [session, client] = e.client && e.client.includes(" · ") ? e.client.split(" · ", 2) : [null, e.client];
+    const tool = client && client !== "agent" ? client : null;
+    if (e.agent_name) return `<span class="who" data-named="1" title="${esc([`${e.author}'s agent`, session, tool].filter(Boolean).join(" · "))}">${esc(e.agent_name)}</span>`;
     const name = session ? `${e.author}/${session}` : `${e.author}'s agent`;
-    // A named agent (vedu #1125): "Jarvis", with whose it is right next to it, always, and which of its sessions wrote
-    // it (jxn #3014: one name, several agents working; "The Thinker · jxn's agent · opus-b").
-    if (e.agent_name) return `<span class="who" title="${esc(`${e.author}'s agent, named ${e.agent_name}${session ? ` · session ${session}` : ""}${client && client !== "agent" ? ` · ${client}` : ""}`)}">${esc(e.agent_name)}</span><span class="via owner">${esc(`${e.author}'s agent`)}</span>${session ? `<span class="via sess" title="${esc(`Posted by the session ${e.author}/${session}${client && client !== "agent" ? ` with ${client}` : ""}`)}">${esc(session)}</span>` : ""}`;
-    return `<span class="who">${esc(name)}</span>${client && client !== "agent" ? `<span class="via" title="Posted by ${esc(name)} with ${esc(client)}">${esc(client)}</span>` : ""}`;
+    return `<span class="who" title="${esc([session ? `${e.author}'s agent` : null, tool].filter(Boolean).join(" · ") || name)}">${esc(name)}</span>`;
   }
   // A person by the name they chose (jxn #4369), their @handle on hover; the handle when they chose none.
   const d = people?.[e.author];
@@ -1410,8 +1412,9 @@ function connect(){
     if(d.type==='memory'){window.onMemoryEvent&&onMemoryEvent();return}
     // Someone renamed their agent (vedu #1125): its posts here read the new name, always with whose agent it is.
     if(d.type==='profile'&&d.user){delete pcache[d.user];document.querySelectorAll('#thread .entry.by-agent[data-author="'+CSS.escape(d.user)+'"]>.grow>.meta').forEach(m=>{const w=m.querySelector('.who');if(!w)return;
-      let o=m.querySelector('.via.owner');delete w.dataset.dev;if(o)delete o.dataset.dev; // the developer words change; Everyday re-words them below
-      if(d.agent_name){w.textContent=bidi(d.agent_name);if(!o){o=document.createElement('span');o.className='via owner';w.after(o)}o.textContent=d.user+"'s agent"}else if(o){w.textContent=d.user+"'s agent";o.remove()}});
+      delete w.dataset.dev; // the developer words change; Everyday re-words them below
+      // Whose agent it is stays on the name's hover (jxn #4522), ahead of the session and tool it already names.
+      if(d.agent_name){const t=w.title.replace(/^[^·]*'s agent( · )?/,'');w.textContent=bidi(d.agent_name);w.dataset.named='1';w.title=d.user+"'s agent"+(t&&t!==d.user+"'s agent"?' · '+t:'')}else if(w.dataset.named){delete w.dataset.named;w.textContent=d.user+"'s agent"}});
       // Its chips in messages that named it (jxn #3300): the new name, or "x's agent" once it has none.
       document.querySelectorAll('#thread .mention.agent[data-named][data-user="'+CSS.escape(d.user)+'"]').forEach(c=>{c.textContent=d.agent_name?'@'+d.agent_name:'@'+d.user+"'s agent"});
       if(document.documentElement.dataset.mode==='everyday')document.dispatchEvent(new CustomEvent('atteo-mode',{detail:{everyday:true}}));return}

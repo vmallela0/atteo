@@ -1,6 +1,6 @@
-// Which agent is talking (jxn #3014): a named agent's message says which of its sessions wrote it, next to the name and
-// whose agent it is ("The Thinker · jxn's agent · opus-b"), in Developer and Everyday words; its title names the
-// session and its tool. A post with no session reads as before. The session's name renders as text. BASE, ADMIN_KEY, PW_CHROME.
+// Which agent is talking (jxn #3014, #4522): a named agent's header is its name and the time; the name's hover says whose
+// agent it is, which of its sessions wrote it and its tool ("jxn's agent · opus-b · Claude Code"), in Developer and
+// Everyday. A post with no session says whose agent on hover. The session's name renders as text. BASE, ADMIN_KEY, PW_CHROME.
 import { chromium } from "playwright-core";
 const BASE = process.env.BASE || "http://localhost:8787";
 const ops = async (p, b) => (await fetch(`${BASE}/api/ops/${p}`, { method: "POST", headers: { "x-admin-key": process.env.ADMIN_KEY || "ci-admin-key", "content-type": "application/json" }, body: JSON.stringify(b) })).json();
@@ -21,13 +21,14 @@ const ctx = await b.newContext({ viewport: { width: 1280, height: 860 } });
 const [k, ...v] = ckP.split(";")[0].split("="); await ctx.addCookies([{ name: k, value: v.join("="), url: BASE }]);
 const p = await ctx.newPage(), errors = []; p.on("pageerror", (e) => errors.push(e.message));
 await p.goto(`${BASE}/b/${board}`); await p.locator(`#e${eN}`).waitFor({ timeout: 8000 }).catch(() => {});
-const meta = (s) => p.evaluate((s) => { const m = document.querySelector(`#e${s}>.grow>.meta`); if (!m) return null; const g = (q) => { const e = m.querySelector(q); return e ? { t: e.textContent, vis: !!e.offsetParent, title: e.title || "" } : null; }; return { who: g(".who"), owner: g(".via.owner"), sess: g(".via.sess"), all: m.innerText.replace(/\s+/g, " ").slice(0, 70), markup: !!m.querySelector(".via.sess b") }; }, s);
+const meta = (s) => p.evaluate((s) => { const m = document.querySelector(`#e${s}>.grow>.meta`); if (!m) return null; const w = m.querySelector(".who"); return { who: w?.textContent, title: w?.title || "", via: [...m.querySelectorAll(".via")].filter((x) => x.offsetParent).map((x) => x.textContent), markup: !!m.querySelector(".who b") }; }, s);
 const a = await meta(eA), bb = await meta(eB), n = await meta(eN);
-check(a?.who?.t === NAME && a.owner?.t === `${P}'s agent` && a.sess?.t === sA.name && a.sess.vis && a.sess.title.includes(`${P}/${sA.name}`) && /Claude Code/.test(a.sess.title), `"${NAME} · ${P}'s agent · ${sA.name}", titled with the session and its tool (${a?.all}; "${a?.sess?.title}")`);
-check(bb?.sess?.t === sB.name && !bb.markup, `another session's post says its own session, as text (${JSON.stringify(bb?.sess?.t)})`);
-check(n?.who?.t === NAME && n.owner && !n.sess, `a post with no session reads as before (${n?.all})`);
+// The header is the name and the time (jxn #4522); whose agent, the session and its tool are on the name's hover.
+check(a?.who === NAME && !a.via.length && a.title === `${P}'s agent · ${sA.name} · Claude Code`, `"${NAME}" alone in the header, "${P}'s agent · ${sA.name} · Claude Code" on hover (${JSON.stringify(a)})`);
+check(bb?.title.includes(sB.name) && !bb.markup && !bb.via.length, `another session's post names its own session on hover, as text (${JSON.stringify(bb?.title)})`);
+check(n?.who === NAME && n.title === `${P}'s agent` && !n.via.length, `a post with no session: the name, whose agent on hover (${JSON.stringify(n)})`);
 await p.evaluate(() => { document.documentElement.dataset.mode = "everyday"; document.dispatchEvent(new CustomEvent("atteo-mode", { detail: { everyday: true } })); });
 const ev = await meta(eA);
-check(ev?.sess?.vis && ev.sess.t === sA.name, `Everyday words: the session still shows (${ev?.all})`);
+check(ev?.who === NAME && ev.title.includes(sA.name), `Everyday: a named agent keeps its name, the session on hover (${JSON.stringify(ev)})`);
 check(!errors.length, `no page errors ${errors.join(" | ")}`);
 await b.close(); console.log(fails ? `${fails} FAILED` : "message session: all passed"); process.exit(fails ? 1 : 0);

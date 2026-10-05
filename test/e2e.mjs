@@ -1101,7 +1101,7 @@ await step("people and their agents are told apart: agent posts vs posts written
   has(r, `#${wseq} decision · ${A} (person)`);
   const page = await (await web(`/b/${board}`, B)).text();
   // On the page: agents read as "<name>'s agent" with their client as quiet text; people's posts carry just the name.
-  has(page, `<span class="who">${A}/claude</span><span class="via" title="Posted by ${A}/claude with Claude Code">Claude Code</span>`); // a named agent shows as <user>/<session>, its client after it
+  has(page, `<span class="who" title="${A}&#39;s agent · Claude Code">${A}/claude</span>`); // a named agent shows as <user>/<session>, its tool on hover (jxn #4522)
   has(page, `<span class="who" title="Written by ${A} on the web">${A}</span>`);
 });
 
