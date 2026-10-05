@@ -2,6 +2,7 @@
 // own "Show agents (N)" switch. It shows that thread's agent replies only, for you, and the board keeps hiding them.
 // Usage: BASE=http://localhost:8787 PW_CHROME=… node thread-agents.mjs  (local dev only, ADMIN_KEY=ci-admin-key in .dev.vars)
 import { chromium } from "playwright-core";
+import { until, stable } from "./lib/wait.mjs";
 const BASE = process.env.BASE || "http://localhost:8787";
 const KEY = process.env.ADMIN_KEY || "ci-admin-key";
 const ops = async (p, b) => (await fetch(`${BASE}/api/ops/${p}`, { method: "POST", headers: { "x-admin-key": KEY, "content-type": "application/json" }, body: JSON.stringify(b) })).json();
@@ -36,47 +37,52 @@ async function width(w, mobile) {
   const p = await ctx.newPage();
   const errors = [];
   p.on("pageerror", (e) => errors.push(e.message));
+  const ready = () => p.locator(`#e${t3s[w]} .thr-sum`).waitFor({ timeout: 8000 }).catch(() => {});
+  const pf = (on) => until(() => p.evaluate((on) => document.documentElement.hasAttribute("data-pf") === on, on), 3000);
   await p.goto(`${BASE}/b/${board}`);
-  await p.waitForTimeout(900);
+  await ready();
   // Hide agents on the board.
   await p.locator("#pf-btn").click();
-  await p.waitForTimeout(300);
+  await pf(true);
   check(await p.evaluate(() => document.documentElement.hasAttribute("data-pf")), `${w}px: Hide agents is on for the board`);
   const tap = (loc) => (mobile ? loc.tap() : loc.click());
-  const openT = async (seq) => { await tap(p.locator(`#e${seq} .thr-sum`)); await p.waitForTimeout(500); };
+  // A thread is open once its sheet shows its replies and has stopped changing (the switch is drawn with it).
+  const list = () => p.evaluate(() => { const d = document.querySelector("dialog.thr-dlg[open]"); return d ? [d.querySelectorAll(".thr-list .entry").length, d.textContent.length] : null; });
+  const openT = async (seq) => { await tap(p.locator(`#e${seq} .thr-sum`)); await until(async () => (await list())?.[0] > 0, 5000); await stable(list, 2000, 100); };
+  const closeT = async () => { await tap(p.locator(".thr-dlg [data-thr-close]")); await until(async () => !(await list()), 3000); };
   const shown = (text) => p.locator(".thr-list .entry", { hasText: text }).isVisible().catch(() => false);
   const btn = p.locator("#thr-pf");
   await openT(t1);
   check(!(await shown(`agent answer one ${run}`)) && (await shown(`person reply one ${run}`)), `${w}px: the thread follows the board: its agent reply is hidden, the person's isn't`);
   check(await btn.isVisible() && /Show agents \(1\)/.test(await btn.innerText()) && (await btn.getAttribute("aria-pressed")) === "false", `${w}px: the thread has its own switch: "${await btn.innerText().catch(() => "")}"`);
-  await tap(btn); await p.waitForTimeout(200);
+  await tap(btn); await until(async () => (await btn.getAttribute("aria-pressed")) === "true", 3000);
   check(await shown(`agent answer one ${run}`) && (await btn.getAttribute("aria-pressed")) === "true" && /Hide agents/.test(await btn.innerText()), `${w}px: Show agents shows this thread's agent reply`);
   check(await p.evaluate(() => document.documentElement.hasAttribute("data-pf")) && (await p.locator("#pf-btn").getAttribute("aria-pressed")) === "true", `${w}px: …and the board still hides agents`);
   // Another thread starts from the board's setting; the first one remembers yours (this page).
-  await tap(p.locator(".thr-dlg [data-thr-close]")); await p.waitForTimeout(300);
+  await closeT();
   await openT(t2);
   check(!(await shown(`agent answer two ${run}`)) && (await btn.getAttribute("aria-pressed")) === "false", `${w}px: another thread still follows the board`);
-  await tap(p.locator(".thr-dlg [data-thr-close]")); await p.waitForTimeout(300);
+  await closeT();
   await openT(t1);
   check(await shown(`agent answer one ${run}`), `${w}px: reopening the first thread keeps it showing agents`);
-  await tap(p.locator(".thr-dlg [data-thr-close]")); await p.waitForTimeout(300);
+  await closeT();
   // Board filter off: no switch, everything shows.
-  await p.locator("#pf-btn").click(); await p.waitForTimeout(300);
+  await p.locator("#pf-btn").click(); await pf(false);
   await openT(t2);
   check(await shown(`agent answer two ${run}`) && !(await btn.isVisible()), `${w}px: with Hide agents off there's no switch and agents show`);
-  await tap(p.locator(".thr-dlg [data-thr-close]")); await p.waitForTimeout(300);
+  await closeT();
   // A thread with no agent replies has no switch.
   const t3 = t3s[w];
-  await p.reload(); await p.waitForTimeout(900);
-  await p.locator("#pf-btn").click(); await p.waitForTimeout(300);
+  await p.reload(); await ready();
+  await p.locator("#pf-btn").click(); await pf(true);
   await openT(t3);
   check(!(await btn.isVisible()), `${w}px: no switch in a thread without agents' replies`);
-  await tap(p.locator(".thr-dlg [data-thr-close]")); await p.waitForTimeout(300);
+  await closeT();
   // Everyday words.
   await p.evaluate(() => { document.documentElement.dataset.mode = "everyday"; document.dispatchEvent(new Event("atteo-mode")); });
   await openT(t2);
   check(/Show assistants \(1\)/.test(await btn.innerText()), `${w}px: Everyday says "Show assistants": "${await btn.innerText()}"`);
-  await tap(p.locator(".thr-dlg [data-thr-close]")); await p.waitForTimeout(200);
+  await closeT();
   await p.locator("#pf-btn").click(); // leave the board's filter off for the next run
   check(!errors.length, `${w}px: no page errors ${errors.join(" | ")}`);
   await ctx.close();
