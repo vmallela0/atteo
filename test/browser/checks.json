@@ -119,5 +119,6 @@
  "web-budget": 12,
  "connect-reachable": 8,
  "crawl": 6,
- "guide": 8
+  "guide": 8,
+  "mark-unread": 10
 }

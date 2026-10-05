@@ -359,6 +359,7 @@ export const ZH_CN: Record<string, string> = {
   "Low risk": "低风险",
   "Manage": "管理",
   "Manage billing": "管理账单",
+  "Mark as unread": "标记为未读",
   "Mark all read": "全部标为已读",
   "Mark answered": "标记为已回答",
   "Mark answered: {title}": "标记为已回答：{title}",

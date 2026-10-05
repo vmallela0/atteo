@@ -359,6 +359,7 @@ export const ZH_HANT: Record<string, string> = {
   "Low risk": "低風險",
   "Manage": "管理",
   "Manage billing": "管理帳單",
+  "Mark as unread": "標記為未讀",
   "Mark all read": "全部標為已讀",
   "Mark answered": "標記為已回答",
   "Mark answered: {title}": "標記為已回答：{title}",

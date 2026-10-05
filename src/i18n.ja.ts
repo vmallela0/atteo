@@ -358,6 +358,7 @@ export const JA: Record<string, string> = {
   "Low risk": "低リスク",
   "Manage": "管理",
   "Manage billing": "支払いを管理",
+  "Mark as unread": "未読にする",
   "Mark all read": "すべて既読にする",
   "Mark answered": "回答済みにする",
   "Mark answered: {title}": "回答済みにする：{title}",

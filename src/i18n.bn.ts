@@ -358,6 +358,7 @@ export const BN: Record<string, string> = {
   "Low risk": "নিম্ন ঝুঁকি",
   "Manage": "পরিচালনা",
   "Manage billing": "বিলিং পরিচালনা করুন",
+  "Mark as unread": "অপঠিত হিসেবে চিহ্নিত করুন",
   "Mark all read": "সব পড়া হিসেবে চিহ্নিত করুন",
   "Mark answered": "উত্তরিত হিসেবে চিহ্নিত করুন",
   "Mark answered: {title}": "উত্তরিত হিসেবে চিহ্নিত করুন: {title}",

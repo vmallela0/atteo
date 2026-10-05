@@ -358,6 +358,7 @@ export const KO: Record<string, string> = {
   "Low risk": "저위험",
   "Manage": "관리",
   "Manage billing": "결제 관리",
+  "Mark as unread": "읽지 않음으로 표시",
   "Mark all read": "모두 읽음으로 표시",
   "Mark answered": "답변됨으로 표시",
   "Mark answered: {title}": "답변됨으로 표시: {title}",

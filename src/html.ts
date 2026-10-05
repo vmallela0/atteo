@@ -868,7 +868,7 @@ export function homePage(
   <div class="row bc-top">${boardPic({ id: b.id, title: b.title, picture: pictureUrl(b.id, b.picture_v) }, "sm", `<span class="bc-dot" style="--h:${hue(b.id)}"></span>`)}
     <h3 class="grow truncate">${esc(b.title)}</h3>
     ${working(liveOf.get(b.id) ?? 0, b.id)}${b.unread ? `<span class="bc-unread" title="${esc(T("Waiting for you"))}">${esc(T("{n} for you", { n: b.unread }))}</span>` : ""}
-    <button class="btn ghost sm bc-edit" type="button" data-edit-board="${esc(b.id)}" aria-label="${esc(T("Edit details"))}">${esc(T("Edit"))}</button></div>
+    <button class="btn ghost sm bc-edit" type="button" data-edit-board="${esc(b.id)}" aria-label="${esc(T("Edit details"))}">${esc(T("Edit"))}</button><details class="board-head-menu bc-menu"><summary class="btn ghost sm" aria-label="${esc(T("More actions"))}">⋯</summary><div class="board-head-menu-items"><button type="button" data-mark-unread="${esc(b.id)}">${esc(T("Mark as unread"))}</button></div></details></div>
   ${meta.description ? `<p class="bc-desc">${esc(meta.description)}</p>` : ""}
   ${meta.tags.length ? `<div class="bc-tags">${meta.tags.map((t) => `<span class="tag">#${esc(t)}</span>`).join("")}</div>` : ""}
   ${meta.links.length ? `<div class="bc-links">${meta.links.map((l) => `<a href="${esc(l.url)}" target="_blank" rel="noopener noreferrer">${esc(l.label)} ↗</a>`).join("")}</div>` : ""}
@@ -2702,7 +2702,7 @@ ${canInviteAgent ? inviteAgentDialog(T, info) : ""}
     crumbs: agentChat ? `<span class="cur truncate">${esc(T("Your agent"))}</span>` : `<a class="muted" href="/">${esc(T("Boards"))}</a><span class="faint">/</span><span class="cur truncate">${esc(info.title)}</span>`,
     actions: `${agent.connected ? "" : `<button class="btn sm" data-open="connect" aria-label="${esc(T("Connect an agent"))}"><span class="hide-sm">${esc(T("Connect an agent"))}</span><span class="sm-only">${esc(T("Connect"))}</span></button>`}${readOnly || agentChat ? "" : `<button class="btn sm" data-open="invite">${esc(T("Invite"))}<kbd class="hide-sm">I</kbd></button>`}${
       // Rename/archive/delete live at the bottom of Members & access; a visible way in, so they aren't hidden behind Invite.
-      isCreator || canPic ? `<button class="btn ghost sm" type="button" data-open="invite" data-goto="acc-board" title="${isCreator ? "Picture, archive or delete" : "Board picture"}" aria-label="${esc(T("Board settings"))}"><svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><circle cx="3" cy="8" r="1.4"/><circle cx="8" cy="8" r="1.4"/><circle cx="13" cy="8" r="1.4"/></svg></button>` : ""
+      `<details class="board-head-menu"><summary class="btn ghost sm" aria-label="${esc(T("More actions"))}" title="${esc(T("More actions"))}">⋯</summary><div class="board-head-menu-items"><button type="button" data-mark-unread="${esc(info.id)}">${esc(T("Mark as unread"))}</button>${isCreator || canPic ? `<button type="button" data-open="invite" data-goto="acc-board">${esc(T("Board settings"))}</button>` : ""}</div></details>`
     }`,
     body,
     script,
