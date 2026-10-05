@@ -2,9 +2,10 @@
 // downloads every access event, oldest first, from /api/boards/:id/audit/export. The owner downloads it at 1280 (the
 // file's name and contents); a viewer sees the link on a phone, without sideways scroll; an outsider gets a 404.
 // BASE, ADMIN_KEY, PW_CHROME.
-import { readFile } from "node:fs/promises";
 import { chromium } from "playwright-core";
 import { d1Execute } from "./lib/d1.mjs";
+// A download's text through its stream: download.path() isn't available when the browser is shared (run.mjs connects to it).
+const dlText = async (dl) => { const chunks = []; for await (const c of await dl.createReadStream()) chunks.push(c); return Buffer.concat(chunks).toString("utf8"); };
 const BASE = process.env.BASE || "http://localhost:8787";
 const ops = async (p, b) => (await fetch(`${BASE}/api/ops/${p}`, { method: "POST", headers: { "x-admin-key": process.env.ADMIN_KEY || "ci-admin-key", "content-type": "application/json" }, body: JSON.stringify(b) })).json();
 const run = Date.now().toString(36).slice(-4), A = `ad${run}`, V = `av${run}`, F = `af${run}`;
@@ -46,7 +47,7 @@ check((await link(D.p).innerText()) === "Download the full log (JSON)" && (await
 const [dl] = await Promise.all([D.p.waitForEvent("download"), link(D.p).click()]);
 const name = dl.suggestedFilename();
 check(new RegExp(`^atteo-audit-${board}-\\d{4}-\\d{2}-\\d{2}\\.json$`).test(name), `it downloads as a dated file (${name})`);
-const doc = JSON.parse(await readFile(await dl.path(), "utf8"));
+const doc = JSON.parse(await dlText(dl));
 const acts = (doc.audit || []).map((x) => x.action);
 check(doc.kind === "access_audit" && doc.board_id === board && doc.count === doc.audit.length && acts.indexOf("access_changed") > -1 && acts.indexOf("access_changed") < acts.indexOf("renamed"), `the file holds every event, oldest first (${acts.join(", ")})`);
 
