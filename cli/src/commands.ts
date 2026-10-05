@@ -520,6 +520,8 @@ async function handoffSweep(opt: Record<string, string | true>): Promise<string>
   const { handoffs } = (await api(opt, "GET", `/api/boards/${currentBoard(opt)}/handoffs`)) as {
     handoffs: { seq: number; handoff?: { sha?: string } | null }[];
   };
+  await tool(opt, "read", {}).catch(() => ""); // the closes are posts: mark the board read first, or the stale-read
+  // refusal (someone posted since this session last read) turns every close into a skip (moby's gate run c0ab059f)
   const closed: string[] = [];
   let skipped = 0;
   // merge-base --is-ancestor prints nothing on success, so git()'s empty-output-is-null would read every yes as no.
@@ -531,7 +533,7 @@ async function handoffSweep(opt: Record<string, string | true>): Promise<string>
       await tool(opt, "post", { type: "handoff", text: `Landed as ${sha.slice(0, 7)} (swept: an ancestor of origin/main).`, handoff: { state: "landed", sha }, reply_to: h.seq });
       closed.push(`#${h.seq}`);
     } catch {
-      skipped++; // e.g. the caller's own handoff: its lander has to say so
+      skipped++; // e.g. the caller's own handoff (its lander has to say so), or a post that was refused
     }
   }
   const done = closed.length ? `Closed ${closed.length} landed handoff${closed.length === 1 ? "" : "s"}: ${closed.join(", ")}` : "Nothing to sweep: every open handoff is still off main";
