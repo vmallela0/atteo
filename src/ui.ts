@@ -5,11 +5,22 @@
 import { chartHtml } from "./chart";
 import { STATUS_CSS, statusHtml } from "./status";
 import { highlightMentions, type Mention } from "./mentions";
-import { MERMAID_CSS, MERMAID_JS, mermaidHtml } from "./mermaid";
+import { MERMAID_CSS, MERMAID_JS, MERMAID_SRC, mermaidHtml } from "./mermaid";
 import { CODE_COLOR_CSS, CODE_COLOR_JS } from "./codecolor";
 import { TALK_CSS } from "./talk";
 import { esc } from "./util";
 import { clientTable, dirOf, tr, type Lang } from "./i18n";
+
+// Each HTML response owns its nonce. Inline CSS and style attributes are used throughout the UI.
+function pageSecurity() {
+  const nonce = Array.from(crypto.getRandomValues(new Uint8Array(16)), (b) => b.toString(16).padStart(2, "0")).join("");
+  const headers = {
+    "content-security-policy": `default-src 'self'; script-src 'self' 'nonce-${nonce}' ${MERMAID_SRC}; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: blob:; font-src 'self' data: https://fonts.gstatic.com; connect-src 'self' ws: wss:; frame-src 'self' about:; frame-ancestors 'none'; base-uri 'none'; form-action 'self'; object-src 'none'`,
+    "x-content-type-options": "nosniff",
+    "referrer-policy": "strict-origin-when-cross-origin",
+  };
+  return { nonce, headers };
+}
 
 // Dark tokens: the system setting picks them unless Display says light; Display can also force them.
 const DARK = `  --bg:#0a0a0a;--bg-subtle:#111111;--bg-hover:#1a1a1a;--line:#232323;--line-strong:#2e2e2e;
@@ -1137,6 +1148,7 @@ export function page(
   opts: { viewer?: Viewer | null; nav?: "boards" | "admin" | "me" | null; narrow?: boolean; script?: string; status?: number; headers?: HeadersInit; lang?: Lang } = {},
 ): Response {
   const v = opts.viewer;
+  const security = pageSecurity();
   const link = (href: string, label: string, key: string) => `<a href="${href}"${opts.nav === key ? ' aria-current="page"' : ""}>${label}</a>`;
   const nav = `<header class="nav"><div class="in">
 <a class="brand" href="/">${LOGO}<span class="wm">atteo</span></a>
@@ -1151,12 +1163,13 @@ ${v ? `<nav class="links">${link("/", esc(tr(opts.lang, "Boards")), "boards")}</
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml"><link rel="apple-touch-icon" href="/apple-touch-icon.png">
-<style>${CSS}</style>${DISPLAY_HEAD}</head><body>${nav}
+<style>${CSS}</style>${DISPLAY_HEAD.replace("<script>", `<script nonce="${security.nonce}">`)}</head><body>${nav}
 <main${opts.narrow ? ' class="narrow"' : ""}>${body}</main>
 <div id="toast" role="status" aria-live="polite"></div>
-<script>${CLIENT_JS}${opts.script ?? ""}</script></body></html>`;
+<script nonce="${security.nonce}">${CLIENT_JS}${opts.script ?? ""}</script></body></html>`;
   const headers = new Headers(opts.headers);
   headers.set("content-type", "text/html; charset=utf-8");
+  for (const [name, value] of Object.entries(security.headers)) headers.set(name, value);
   return new Response(html, { status: opts.status ?? 200, headers });
 }
 
@@ -1179,7 +1192,7 @@ export function initials(name: string): string {
 /** Initials on a color, covered by the member's picture when they've set one (a missing picture just stays hidden). */
 export function avatar(name: string, size: "" | "xs" | "sm" | "lg" = "", agent = false): string {
   const src = `/avatar/${encodeURIComponent(name)}${agent ? "?k=agent" : ""}`;
-  return `<span class="av ${size}${agent ? " agent" : ""}" style="--h:${hue(name)}" title="${esc(agent ? `${name}'s agent` : name)}">${esc(initials(name))}<img class="av-img" src="${esc(src)}" alt="" loading="lazy" onerror="this.remove()" onload="this.classList.add('ok')"></span>`;
+  return `<span class="av ${size}${agent ? " agent" : ""}" style="--h:${hue(name)}" title="${esc(agent ? `${name}'s agent` : name)}">${esc(initials(name))}<img class="av-img" src="${esc(src)}" alt="" loading="lazy"></span>`;
 }
 
 export function avatarStack(names: string[], max = 5): string {
@@ -1363,6 +1376,11 @@ const DISPLAY_HEAD = `<script>try{const d=JSON.parse(localStorage.getItem('atteo
 if(d.text==='s'||d.text==='l')r.dataset.text=d.text;if(d.density==='compact')r.dataset.density='compact';if(d.theme==='light'||d.theme==='dark')r.dataset.theme=d.theme;if(d.ev===true)r.dataset.mode='everyday';if(d.replies==='thread')r.dataset.replies='thread'}catch{}</script>`; // mode: what the account said last time (set on the first sync)
 
 const CLIENT_JS = `
+document.addEventListener('load',e=>{if(e.target instanceof HTMLImageElement&&e.target.matches('.av-img,.bpic img'))e.target.classList.add('ok')},true);
+document.addEventListener('error',e=>{if(e.target instanceof HTMLImageElement&&e.target.matches('.av-img,.bpic img'))e.target.remove()},true);
+document.querySelectorAll('.av-img,.bpic img').forEach(img=>{if(img.complete){if(img.naturalWidth)img.classList.add('ok');else img.remove()}});
+document.addEventListener('click',e=>{const b=e.target.closest('[data-approve]');if(b)document.getElementById('approve').value=b.dataset.approve},true);
+
 /** Bidi controls, zero-width space, word joiner, and BOM. ZWJ and ZWNJ stay (emoji, Persian, Hindi, Bengali). Arabic marks stay. */
 function bidi(s){return String(s??'').replace(/[\\u202A-\\u202E\\u2066-\\u2069\\u200B\\u2060\\uFEFF]/g,'')}
 /** The one HTML escaper for every page script. */
@@ -1468,7 +1486,7 @@ export function boardInitial(title: string): string {
  */
 export function boardPic(b: { id: string; title: string; picture?: string | null }, size: "" | "xs" | "sm" | "lg" = "", fallback?: string): string {
   if (!b.picture && fallback !== undefined) return fallback;
-  const img = b.picture ? `<img src="${esc(b.picture)}" alt="" loading="lazy" onload="this.classList.add('ok')" onerror="this.remove()">` : "";
+  const img = b.picture ? `<img src="${esc(b.picture)}" alt="" loading="lazy">` : "";
   return `<span class="bpic${size ? ` ${size}` : ""}" style="--h:${hue(b.id)}" aria-hidden="true">${esc(boardInitial(b.title))}${img}</span>`;
 }
 
@@ -1599,15 +1617,16 @@ window.liveRefresh=async()=>{if(document.hidden)return;try{const r=await fetch('
 setInterval(liveRefresh,60000);document.addEventListener('visibilitychange',()=>{if(!document.hidden)liveRefresh()})})();`;
 
 function rawPage(title: string, body: string, script: string, status = 200, lang: Lang = "en"): Response {
+  const security = pageSecurity();
   const html = `<!doctype html><html lang="${lang}"${dirOf(lang as Lang) === "rtl" ? ' dir="rtl"' : ""}><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${esc(title)}</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml"><link rel="apple-touch-icon" href="/apple-touch-icon.png">
-<style>${CSS}</style>${DISPLAY_HEAD}</head><body>${body}
+<style>${CSS}</style>${DISPLAY_HEAD.replace("<script>", `<script nonce="${security.nonce}">`)}</head><body>${body.replace("<script>window.PALETTE=", `<script nonce="${security.nonce}">window.PALETTE=`)}
 <div id="toast" role="status" aria-live="polite"></div>
-${lang === "en" ? "" : `<script>window.I18N=${clientTable(lang)}</script>`}<script>${CLIENT_JS}${script}</script></body></html>`;
-  return new Response(html, { status, headers: { "content-type": "text/html; charset=utf-8", "content-language": lang, vary: "Accept-Language, Cookie" } });
+${lang === "en" ? "" : `<script nonce="${security.nonce}">window.I18N=${clientTable(lang)}</script>`}<script nonce="${security.nonce}">${CLIENT_JS}${script}</script></body></html>`;
+  return new Response(html, { status, headers: { "content-type": "text/html; charset=utf-8", "content-language": lang, vary: "Accept-Language, Cookie", ...security.headers } });
 }
 
 const SHELL_JS = `

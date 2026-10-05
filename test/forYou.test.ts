@@ -95,7 +95,7 @@ describe("For you page", () => {
     expect(html).toContain('data-fy-vote="agree"');
     expect(html).toContain('href="/b/b_self0001"');
     expect(html).not.toContain("<b>Lisa</b>");
-    const scripts = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map((m) => m[1]);
+    const scripts = [...html.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/g)].map((m) => m[1]);
     expect(scripts.length).toBeGreaterThan(0);
     for (const s of scripts) expect(() => new Function(s)).not.toThrow();
   });
