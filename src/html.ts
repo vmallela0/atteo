@@ -1755,7 +1755,12 @@ lb.addEventListener('close',()=>lbZoom(false));
 lb.addEventListener('mousedown',e=>{if(!lb.classList.contains('zoomed')||e.button!==0)return;lbDrag={x:e.clientX,y:e.clientY,l:lb.scrollLeft,t:lb.scrollTop,moved:false};e.preventDefault()});
 addEventListener('mousemove',e=>{if(!lbDrag)return;const dx=e.clientX-lbDrag.x,dy=e.clientY-lbDrag.y;if(Math.abs(dx)+Math.abs(dy)>4)lbDrag.moved=true;lb.scrollLeft=lbDrag.l-dx;lb.scrollTop=lbDrag.t-dy});
 addEventListener('mouseup',()=>{if(lbDrag)setTimeout(()=>{lbDrag=null},0)});
-document.addEventListener('keydown',e=>{if(!lb.open||lbSet.length<2)return;if(e.key==='ArrowLeft'||e.key==='ArrowRight'){e.preventDefault();lbShow(lbI+(e.key==='ArrowLeft'?-1:1))}});
+document.addEventListener('keydown',e=>{if(!lb.open||e.metaKey||e.ctrlKey||e.altKey)return;const z=lb.classList.contains('zoomed');
+  // Enter or Z zooms the picture and fits it again (not on Save or the arrows, which Enter presses).
+  if((e.key==='Enter'&&!e.target.closest('a,button'))||e.key==='z'||e.key==='Z'){if(z||lbBig()){e.preventDefault();const r=lbImg.getBoundingClientRect();lbZoom(!z,r.left+r.width/2,r.top+r.height/2)}return}
+  const k={ArrowLeft:[-1,0],ArrowRight:[1,0],ArrowUp:[0,-1],ArrowDown:[0,1]}[e.key];if(!k)return;
+  if(z){e.preventDefault();lb.scrollBy(k[0]*80,k[1]*80);return} // zoomed: the arrows pan
+  if(lbSet.length>1&&k[0]){e.preventDefault();lbShow(lbI+k[0])}});
 let lbX=null,lbY=0;
 lb.addEventListener('touchstart',e=>{if(e.touches.length===1){lbX=e.touches[0].clientX;lbY=e.touches[0].clientY}else lbX=null},{passive:true});
 lb.addEventListener('touchend',e=>{if(lbX==null||lb.classList.contains('zoomed'))return;const dx=e.changedTouches[0].clientX-lbX,dy=e.changedTouches[0].clientY-lbY;lbX=null;
