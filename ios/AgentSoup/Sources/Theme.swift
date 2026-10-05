@@ -214,9 +214,10 @@ enum Typo {
     }
 }
 
-/// Atteo's mark: hand-drawn tin-can phones, a cherry cup (you) with one string branching to three ink agents (a horn,
-/// a can and a cup). It's art (the hand wobble is an SVG filter), so it ships as an image with a reversed dark variant
-/// (Assets: AtteoMark, rendered from the spec's atteo-mark.svg). Never recoloured, rotated or stretched; at least 20pt.
+/// Atteo's mark (logo B2, #2835): hand-drawn tin-can phones, a cherry horn (you) with one string branching to two ink
+/// agents (a can and a cup). It's art (the hand wobble is an SVG filter), so it ships as an image with a reversed dark
+/// variant (Assets: AtteoMark, rendered by ios/design/logo-b2/render.cjs). Never recoloured, rotated or stretched; at
+/// least 20pt.
 struct AtteoMark: View {
     var size: CGFloat = 64
     /// The wordmark's ink: ink on paper, paper on ink.
