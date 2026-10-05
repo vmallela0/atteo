@@ -4,6 +4,9 @@
 // with other people, person-last ones first. Desktop light + phone dark. The private "Your agent" chat has no toggle.
 // Usage: BASE=http://localhost:8787 node people-filter.mjs  (local dev only, ADMIN_KEY=ci-admin-key in .dev.vars)
 import { chromium } from "playwright-core";
+import { until } from "./lib/wait.mjs";
+// Fast (moby #3099 item 4): loads wait for the board page or list to be there, clicks wait for the switch or dialog to
+// reach the state being asserted — no fixed sleeps. Same assertions as before.
 const BASE = process.env.BASE || "http://localhost:8787";
 const ADMIN = process.env.ADMIN_KEY || "ci-admin-key";
 const ops = async (p, b) => (await fetch(`${BASE}/api/ops/${p}`, { method: "POST", headers: { "x-admin-key": ADMIN, "content-type": "application/json" }, body: JSON.stringify(b) })).json();
@@ -58,8 +61,9 @@ async function width(label, w, scheme) {
   p.on("pageerror", (e) => errors.push(e.message));
   p.on("request", (r) => { if (r.method() !== "GET" && r.url().startsWith(BASE)) sent.push(r.method() + " " + new URL(r.url()).pathname); });
   await p.goto(`${BASE}/b/${board}`);
-  await p.waitForTimeout(900);
   const btn = p.locator("#pf-btn");
+  await btn.waitFor({ timeout: 15000 }); // the page is ready when the Hide agents toggle is
+  await until(async () => (await p.locator("#rail i").count()) > 0, 15000); // the rail's ticks, for the count below
   check(await btn.isVisible() && (await btn.getAttribute("aria-pressed")) === "false", `${label}: Hide agents is offered, off`);
   const fit = await p.evaluate(() => ["pf-btn", "recap-btn"].map((id) => { const e = document.getElementById(id); if (!e || e.hidden) return null; const r = e.getBoundingClientRect(); return [id, Math.round(r.left), Math.round(r.right)]; }).filter(Boolean));
   check(fit.every(([, l, r]) => l >= 0 && r <= innerWidthOf(w)), `${label}: Hide agents and Recap both fit by the tabs (${JSON.stringify(fit)})`);
@@ -68,7 +72,7 @@ async function width(label, w, scheme) {
   const ticks0 = await p.locator("#rail i").count();
   sent.length = 0;
   await btn.click();
-  await p.waitForTimeout(400);
+  await until(async () => (await btn.getAttribute("aria-pressed")) === "true");
   check((await btn.getAttribute("aria-pressed")) === "true", `${label}: on`);
   check(noneOf(await visible(p, [a1, a3])), `${label}: agents' posts are hidden`);
   check(allOf(await visible(p, [p1, p2, p5])), `${label}: people's posts still show`);
@@ -80,66 +84,66 @@ async function width(label, w, scheme) {
   const a4 = await agentSay(board, "Agent: live post while hidden.");
   const p6 = await say(ckQ, board, "Person six, live.");
   await p.waitForSelector(`#e${p6}`, { state: "attached", timeout: 15000 });
-  await p.waitForTimeout(500);
+  await until(async () => { const l = await visible(p, [a4, p6]); return !l[0] && l[1]; });
   const live = await visible(p, [a4, p6]);
   check(!live[0] && live[1], `${label}: live posts follow it (agent hidden, person shown)`);
   // Threads: the agent's reply is hidden, the person's shows; a thread whose root is an agent's keeps its root.
   await p.evaluate((s) => document.querySelector(`#e${s} .thr-sum`)?.click(), p1);
-  await p.waitForTimeout(500);
+  await until(async () => p.evaluate(() => !!document.querySelector(".thr-dlg[open] .thr-list>.entry")));
   const thr = await p.evaluate(() => [...document.querySelectorAll(".thr-list>.entry")].map((e) => [e.dataset.src, getComputedStyle(e).display !== "none"]));
   const shown = (s) => thr.find(([x]) => +x === s)?.[1];
   check(shown(p1) && shown(p3) && shown(a2) === false, `${label}: in a thread, the agent's reply is hidden (${JSON.stringify(thr)})`);
   await p.keyboard.press("Escape");
-  await p.waitForTimeout(300);
+  await until(async () => !(await p.evaluate(() => !!document.querySelector(".thr-dlg[open]"))));
   await p.evaluate((s) => document.querySelector(`#e${s} .thr-sum`)?.click(), a3);
-  await p.waitForTimeout(500);
+  await until(async () => p.evaluate(() => document.querySelectorAll(".thr-dlg[open] .thr-list>.entry").length >= 2));
   const thr2 = await p.evaluate(() => [...document.querySelectorAll(".thr-list>.entry")].map((e) => [e.dataset.src, getComputedStyle(e).display !== "none"]));
   check(thr2.length >= 2 && thr2.every(([, s]) => s), `${label}: an agent-rooted thread keeps its root (${JSON.stringify(thr2)})`);
   await p.keyboard.press("Escape");
-  await p.waitForTimeout(300);
+  await until(async () => !(await p.evaluate(() => !!document.querySelector(".thr-dlg[open]"))));
   // Remembered: a reload comes back with it on, and agents' posts never show first.
   await p.reload();
   const early = await p.evaluate(() => document.documentElement.hasAttribute("data-pf"));
-  await p.waitForTimeout(700);
+  await until(async () => (await btn.getAttribute("aria-pressed")) === "true" && noneOf(await visible(p, [a1, a3])));
   check(early && (await btn.getAttribute("aria-pressed")) === "true" && noneOf(await visible(p, [a1, a3])), `${label}: remembered after a reload`);
   check(await p.evaluate((me) => localStorage.getItem("atteo.pf." + me) === "1", P), `${label}: kept per person (atteo.pf.<you>)`);
   // A link to an agent's post brings agents' posts back (for this visit; the setting stays).
   await p.evaluate((s) => document.querySelector(`#e${s} a.ref`)?.click(), p5);
-  await p.waitForTimeout(1200);
+  await until(async () => !(await p.evaluate(() => document.documentElement.hasAttribute("data-pf"))));
   const back = await p.evaluate((s) => ({ pf: document.documentElement.hasAttribute("data-pf"), show: getComputedStyle(document.getElementById("e" + s) || document.body).display !== "none", inThread: !!document.querySelector(".thr-dlg[open]") }), a2);
   check(!back.pf, `${label}: a link to an agent's post shows agents' posts again (${JSON.stringify(back)})`);
   if (back.inThread) await p.keyboard.press("Escape");
   check(await p.evaluate((me) => localStorage.getItem("atteo.pf." + me) === "1", P), `${label}: …while the remembered setting stays on`);
   await p.goto(`${BASE}/b/${board}#e${a1}`);
-  await p.waitForTimeout(900);
+  await until(async () => allOf(await visible(p, [a1])));
   check(!(await p.evaluate(() => document.documentElement.hasAttribute("data-pf"))) && allOf(await visible(p, [a1])), `${label}: opening a link to an agent's post shows it`);
   // The empty state, and turning it off.
   await p.goto(`${BASE}/b/${onlyAgents}`);
-  await p.waitForTimeout(700);
+  await p.locator("#pf-empty").waitFor({ state: "visible", timeout: 15000 });
   check(await p.locator("#pf-empty").isVisible(), `${label}: a board with no people's posts says so`);
   await p.locator("#pf-btn").click();
-  await p.waitForTimeout(300);
+  await until(async () => !(await p.locator("#pf-empty").isVisible()));
   check(!(await p.locator("#pf-empty").isVisible()) && (await p.evaluate((me) => localStorage.getItem("atteo.pf." + me), P)) === null, `${label}: off again, forgotten`);
   // Chat list: People first.
   await p.goto(`${BASE}/`);
-  await p.waitForTimeout(500);
+  await p.locator("#bgrid .bcard").first().waitFor({ timeout: 15000 });
   const order = () => p.evaluate(() => [...document.querySelectorAll("#bgrid .bcard")].filter((c) => !c.hidden).map((c) => c.dataset.title));
   const before = await order();
   const t = (n) => `${n} ${run}`;
   check(before.includes(t("Solo")) && before.indexOf(t("Agent last")) < before.indexOf(t("Person last")), `${label}: the list is by latest activity (${before.filter((x) => x.endsWith(run)).join(" | ")})`);
   await p.locator("#pf-list").click();
-  await p.waitForTimeout(300);
+  await until(async () => (await p.locator("#pf-list").getAttribute("aria-pressed")) === "true");
   const after = await order();
   check(!after.includes(t("Solo")), `${label}: People first leaves out chats with only you`);
   check(after.indexOf(t("Person last")) >= 0 && after.indexOf(t("Person last")) < after.indexOf(t("Agent last")), `${label}: chats where a person wrote last come first (${after.filter((x) => x.endsWith(run)).join(" | ")})`);
   check((await p.locator("#pf-list").getAttribute("aria-pressed")) === "true", `${label}: People first is pressed`);
   check(await p.evaluate(() => document.documentElement.scrollWidth <= innerWidth), `${label}: list, no sideways scroll`);
   await p.locator("#pf-list").click();
-  await p.waitForTimeout(200);
+  await until(async () => (await p.locator("#pf-list").getAttribute("aria-pressed")) !== "true");
   check(JSON.stringify(await order()) === JSON.stringify(before), `${label}: off again, the list is back as it was`);
   // The private "Your agent" chat has no toggle.
   const chat = await (await fetch(`${BASE}/api/me/agent-chat`, { method: "POST", headers: { "content-type": "application/json", cookie: ckP.split(";")[0] }, body: "{}" })).json();
-  if (chat.board) { await p.goto(`${BASE}/b/${chat.board}`); await p.waitForTimeout(400); check(!(await p.locator("#pf-btn").count()), `${label}: "Your agent" has no Hide agents`); }
+  if (chat.board) { await p.goto(`${BASE}/b/${chat.board}`); await p.waitForFunction(() => document.readyState === "complete" && !!document.getElementById("app"), null, { timeout: 15000 }).catch(() => {}); check(!(await p.locator("#pf-btn").count()), `${label}: "Your agent" has no Hide agents`); }
   check(!errors.length, `${label}: no page errors ${errors.join(" | ")}`);
   await ctx.close();
 }
