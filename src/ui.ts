@@ -321,7 +321,9 @@ dialog[open]{animation:pop .16s ease-out}dialog:focus{outline:none}@media (prefe
 /* The hover toolbar floats in the gap above the message (never over its text), like a small card. */
 @media(hover:hover){.entry .acts{position:absolute;top:-13px;right:6px;z-index:3;padding:1px;background:var(--bg);border:1px solid var(--line);border-radius:8px;box-shadow:var(--shadow)}
   .entry .acts .btn.sm{height:24px;padding:0 7px} /* a little tighter: the bar stays clear of the sender line's time (opus-b, #4140) */.entry .acts .rx-q{width:26px}#thread>.entry:first-child .acts{top:2px}
-  .entry .meta [data-history]{position:relative;z-index:4}} /* "edited" stays clickable under the hover bar (own messages sit on the right) */
+  .entry .meta [data-history]{position:relative;z-index:4}}
+/* "edited" reads with the time, "1m ago · edited" (jxn #4287): quiet text that opens the history, not a pill. */
+.meta .edited{border:0;padding:0;margin:0 0 0 -4px;background:none;font:inherit;font-size:12.5px;color:var(--muted);cursor:pointer}.meta .edited::before{content:"· "}.meta .edited:hover{color:var(--ink);text-decoration:underline} /* "edited" stays clickable under the hover bar (own messages sit on the right) */
 .more-acts{display:none}
 @media(hover:none){.entry .meta>.more-acts{display:inline-flex;align-items:center;justify-content:center;margin-left:auto;width:32px;height:24px;padding:0;border:0;border-radius:6px;background:none;color:var(--muted);font-size:18px;line-height:1;letter-spacing:1px;cursor:pointer}
   .entry .meta>.more-acts[aria-expanded="true"]{background:var(--bg-hover);color:var(--ink)}
