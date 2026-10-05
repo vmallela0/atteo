@@ -86,7 +86,8 @@ export const CSS = `
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){${DARK}}}
 :root[data-theme="dark"]{${DARK}}
 /* Semantic tokens (jxn #2706): components use these, never the palette or a literal, so a change of look is one place.
-   cta = oxblood, the one primary action; you, mentions, unread and links are ink (jxn #2858); status colours stay their own. */
+   cta = oxblood, the one primary action; you, mentions, unread and links are ink (jxn #2858). Entry-type chips,
+   approval tiles and status chips use the neutrals (ink, muted, line). ok / warn / danger stay for live, errors, diffs and verdicts. */
 :root{
   --cta:var(--oxblood);--on-cta:#FFFFFF; /* white on oxblood: 11.7:1 light, 7.1:1 dark */
   --you:var(--ink);--you-soft:color-mix(in srgb,var(--ink) 5%,transparent);--you-flash:color-mix(in srgb,var(--ink) 12%,transparent);
@@ -340,7 +341,7 @@ dialog[open]{animation:pop .16s ease-out}dialog:focus{outline:none}@media (prefe
 .file{margin-top:8px;border:1px solid var(--line);border-radius:8px;overflow:hidden}
 .file .fh{display:flex;align-items:center;gap:10px;padding:9px 12px;background:var(--bg-subtle)}
 .file pre{margin:0;max-height:420px;overflow:auto;padding:12px;border-top:1px solid var(--line);white-space:pre;font-size:12px}
-.t-change{color:var(--accent)}.t-handoff{color:var(--ok)}
+/* change and handoff are type chips too (jxn #2858): they use .type's muted. */
 /* Members & access */
 dialog.access-dlg{width:min(640px,calc(100vw - 24px))}
 /* Invite an agent (#1855): a small + after the members' faces, and a two-choice dialog */
@@ -498,11 +499,11 @@ a.ev-acct:hover{background:var(--bg-subtle)}
 .tk[hidden]{display:none}
 .tk-st{display:inline-flex;align-items:center;gap:6px;font-weight:500;color:var(--ink)}.tk-st .dot{width:8px;height:8px;border-radius:50%;background:var(--muted)}
 .st-doing .dot{background:var(--accent)}.st-blocked .dot,.st-stopped .dot{background:var(--warn)}.st-done .dot{background:var(--ok)}
-.cl-asserted{color:var(--muted);font-weight:400}.cl-evidenced .dot{background:var(--task)}.cl-verified{color:var(--ok)}.cl-verified .dot{background:var(--ok)}.cl-disputed{color:var(--danger)}.cl-disputed .dot{background:var(--danger)}
+.cl-asserted{color:var(--muted);font-weight:400}.cl-evidenced .dot{background:var(--ink)}.cl-verified{color:var(--ok)}.cl-verified .dot{background:var(--ok)}.cl-disputed{color:var(--danger)}.cl-disputed .dot{background:var(--danger)}
 .cl-ev a{color:var(--muted);text-decoration:underline;text-decoration-color:var(--line-strong);text-underline-offset:2px}.cl-ev a:hover{color:var(--ink)}
 .cl-acts{display:contents}.cl-f{display:flex;gap:6px;flex-basis:100%}.cl-f[hidden]{display:none}.cl-f .input{flex:1;height:28px;font-size:12.5px}
 /* Human decisions: a person's decision, decided by the people (pill · who's agreed · Agree / Object · Close for its author) */
-.hd-open .tk-st .dot{background:var(--decision)}.hd-decided .tk-st{color:var(--ok)}.hd-decided .tk-st .dot{background:var(--ok)}.hd-dropped .tk-st{color:var(--muted)}.hd-dropped .tk-st .dot{background:var(--muted)}
+.hd-open .tk-st .dot{background:var(--ink)}.hd-decided .tk-st{color:var(--muted)}.hd-decided .tk-st .dot{background:var(--muted)}.hd-dropped .tk-st{color:var(--muted)}.hd-dropped .tk-st .dot{background:var(--muted)}
 .hd-ms{display:inline-flex;align-items:center;gap:5px}.hd-m{position:relative;display:inline-flex}.hd-m .av{width:20px;height:20px;font-size:8.5px}.hd-m.w .av{background:transparent;color:var(--muted);border:1px dashed var(--muted)}.hd-m.w .av-img{opacity:.5} /* hasn't voted: an empty dashed ring with readable initials (faded initials fell to 2:1) */
 .hd-m i{position:absolute;right:-4px;bottom:-3px;width:12px;height:12px;border-radius:50%;display:grid;place-items:center;font-size:8px;font-style:normal;font-weight:700;line-height:1;color:var(--on-fill);box-shadow:0 0 0 1.5px var(--bg-subtle)}
 .hd-m.y i{background:var(--ok)}.hd-m.n i{background:var(--danger)}
@@ -518,13 +519,13 @@ a.ev-acct:hover{background:var(--bg-subtle)}
 @media(max-width:360px){.tk-bar{display:none}}
 /* approval card (conversation and Inbox): the exact command, where it stands, Approve / Deny for the person asked */
 .apc{margin-top:8px;max-width:640px}.apc>.tk{margin-top:0}.apc-cmd{margin:0 0 6px;max-height:220px;overflow:auto;padding:8px 10px;border-radius:8px;background:var(--bg-subtle);border:1px solid var(--line);font-size:12px;line-height:1.5;white-space:pre-wrap;word-break:break-word}
-.apc .tk-st .dot{background:var(--warn)}.apc.st-approved .tk-st .dot{background:var(--ok)}.apc.st-rejected .tk-st .dot{background:var(--danger)}.apc.st-expired .tk-st .dot{background:var(--muted)}
-.apc.st-approved .tk-st{color:var(--ok)}.apc.st-rejected .tk-st,.apc.st-expired .tk-st{color:var(--muted)}
+.apc .tk-st .dot{background:var(--ink)}.apc.st-approved .tk-st .dot,.apc.st-rejected .tk-st .dot,.apc.st-expired .tk-st .dot{background:var(--muted)}
+.apc.st-approved .tk-st,.apc.st-rejected .tk-st,.apc.st-expired .tk-st{color:var(--muted)}
 .apc[tabindex]:focus-visible,.apc.kbd-sel,.approval:focus-visible,.approval.sel{outline:2px solid var(--accent);outline-offset:3px;border-radius:8px}
 .apc-kbd{display:none;align-self:center;margin-right:4px}.apc-kbd kbd,.ap-keys kbd{font-size:10.5px}.apc[tabindex]:focus-visible .apc-kbd,.apc.kbd-sel .apc-kbd,.entry.sel .apc .apc-kbd{display:inline}
 /* The hint never appears on a click (it would shift the buttons under the pointer), nor on touch or narrow screens. */
 @media (hover:none),(max-width:480px){.apc-kbd,.ap-keys{display:none!important}}
-.apc-acts{display:inline-flex;gap:6px;flex:none;margin-left:auto}.apc .tk{flex-wrap:wrap} /* too narrow for both: the buttons drop under the status, still on the right */.apc-acts[hidden]{display:none}.apc-risk{color:var(--danger);font-weight:500;white-space:nowrap}.apc-note{margin:6px 0 0}
+.apc-acts{display:inline-flex;gap:6px;flex:none;margin-left:auto}.apc .tk{flex-wrap:wrap} /* too narrow for both: the buttons drop under the status, still on the right */.apc-acts[hidden]{display:none}.apc-risk{color:var(--ink);font-weight:600;white-space:nowrap}.apc-note{margin:6px 0 0}
 .inbox-item .apc{margin:0;padding:0 10px 12px 42px}.inbox-item .apc .dot{margin-top:0}
 .tk-subs{list-style:none;margin:8px 0 0;padding:0;display:flex;flex-direction:column;gap:1px;font-size:12.5px}
 .tk-subs li{display:flex;align-items:center;gap:8px;min-width:0;padding:3px 8px;border-inline-start:2px solid var(--line)}.tk-subs .grow{color:var(--text);text-decoration:none}.tk-subs a.grow:hover{text-decoration:underline}
@@ -850,17 +851,17 @@ ${TALK_CSS}
 .prof-sec{margin-top:16px}.prof-sec h2{font-size:15px;margin:0 0 8px}.prof-agent-sec{display:flex;gap:14px;align-items:flex-start}.prof-agent-sec:target,.prof-agent-sec.hl{box-shadow:0 0 0 2px var(--accent)}
 .prof-boards{display:flex;flex-wrap:wrap;gap:8px;margin:0;padding:0;list-style:none}.prof-boards a{display:inline-block;padding:5px 10px;border:1px solid var(--line);border-radius:999px;color:var(--ink);font-size:13px}.prof-boards a:hover{background:var(--hover,color-mix(in srgb,var(--muted) 10%,transparent))}
 @media (max-width:860px){.prof-hero{flex-direction:column;align-items:flex-start}.prof-hero .prof-act{width:100%}.prof-hero .prof-act .btn{flex:1;min-height:40px;justify-content:center}}
-/* approvals: risk shows as the card's left edge and its badge */
-.approval{padding:16px 18px;border-inline-start:3px solid var(--line)}.approval:target{outline:2px solid var(--accent);outline-offset:3px}.approval.risk-medium{border-inline-start-color:var(--warn)}.approval.risk-high{border-inline-start-color:var(--danger)}
+/* approvals: one ink edge and an ink badge. The words say the risk; the Approve button is the oxblood action (jxn #2858). */
+.approval{padding:16px 18px;border-inline-start:3px solid var(--ink)}.approval:target{outline:2px solid var(--accent);outline-offset:3px}
 .ap-hd{display:flex;gap:12px;align-items:flex-start}.ap-title{font-size:15px;font-weight:600;line-height:1.35;margin:0 0 3px}
-.approval.risk-medium .ap-risk{color:var(--warn);border-color:color-mix(in srgb,var(--warn) 40%,var(--line))}.approval.risk-high .ap-risk{color:var(--danger);border-color:color-mix(in srgb,var(--danger) 40%,var(--line))}
+.approval .ap-risk{color:var(--ink);border-color:var(--line-strong)}
 .ap-details{max-height:280px;overflow:auto;margin:12px 0 0;padding:10px 12px;border-radius:8px;background:var(--bg-subtle);border:1px solid var(--line);font-size:12px;line-height:1.5;white-space:pre-wrap;word-break:break-word}
 .ap-form{display:flex;gap:6px;margin-top:12px}
 .ap-sub{font-size:13px;font-weight:600;margin:28px 0 8px}
 .ap-done{padding:0;list-style:none;margin:0}.ap-done>li+li{border-top:1px solid var(--line)}
 .ap-row summary{display:flex;gap:10px;align-items:center;padding:9px 14px;cursor:pointer;list-style:none;font-size:13px}.ap-row summary::-webkit-details-marker{display:none}
 .ap-row summary:hover{background:var(--bg-hover)}.ap-row>p,.ap-row>pre{margin:0 14px 12px}
-.ap-st{flex:none;width:64px;font-size:11.5px;font-weight:600;color:var(--muted)}.ap-st.st-approved{color:var(--ok)}.ap-st.st-rejected{color:var(--danger)}
+.ap-st{flex:none;width:64px;font-size:11.5px;font-weight:600;color:var(--muted)}.ap-st.st-approved,.ap-st.st-rejected{color:var(--ink)}
 @media (max-width:640px){.ap-form{flex-wrap:wrap}.ap-form .input{flex-basis:100%}.ap-form .btn{flex:1}}
 .load-earlier{display:block;margin:6px auto 12px}
 /* Profile pictures */

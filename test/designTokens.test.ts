@@ -114,6 +114,29 @@ describe("one design language: colours and fonts come from tokens (jxn #2706)", 
     expect(css).toMatch(/--mention-fg:var\(--ink\)/);
     expect(readFileSync("src/ui.ts", "utf8")).not.toMatch(/--atteo/);
   });
+
+  it("approval tiles, status chips and entry-type chrome use the neutrals (jxn #2858, moby #3099 item 5)", () => {
+    const css = cssOf("src/ui.ts", "CSS");
+    const fy = cssOf("src/forYou.ts", "FY_CSS");
+    const st = cssOf("src/status.ts", "STATUS_CSS");
+    // The type palette (--q, --claim, --decision, --task) is for charts and JSON highlighting only.
+    const typeHue = /var\(--(?:q|claim|decision|task)\)/;
+    const bad = declarations(css)
+      .filter((d) => !isTokenBlock(d.selector) && !/\.ch-|\.json\b/.test(d.selector) && typeHue.test(d.value))
+      .map((d) => `${d.selector} { ${d.prop}: ${d.value} }`);
+    expect(bad, `type hues belong on charts, not chips:\n${bad.join("\n")}`).toEqual([]);
+    expect(fy).not.toMatch(typeHue);
+    expect(fy).not.toMatch(/var\(--ok\)/);
+    expect(st).not.toMatch(/var\(--(?:q|ok|claim|decision|task)\)/);
+    // A waiting approval is ink; a decided one is muted. The words carry Approved / Denied / High risk.
+    expect(css).toMatch(/\.apc \.tk-st \.dot\{background:var\(--ink\)\}/);
+    expect(css).toMatch(/\.approval\{[^}]*border-inline-start:3px solid var\(--ink\)/);
+    expect(css).toMatch(/\.approval \.ap-risk\{color:var\(--ink\)/);
+    expect(css).not.toMatch(/\.t-(?:question|claim|decision|task|handoff|change)\{color:/);
+    expect(fy).toMatch(/\.fy \.nc\{--k:var\(--ink\)/);
+    expect(st).toMatch(/\.st-p\.run\{color:var\(--ink\)/);
+    expect(css).toMatch(/--cta:var\(--oxblood\)/);
+  });
 });
 
 describe("the app too (jxn #2706): colours and fonts come from ios/AgentSoup/Sources/Theme.swift", () => {

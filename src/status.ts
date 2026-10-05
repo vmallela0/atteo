@@ -21,7 +21,7 @@ export const STATUS_CSS = `.st{margin:8px 0;padding:10px 12px;border:1px solid v
 .st-a,.body .st-a{color:inherit;text-decoration:none}.st-a:hover,.body .st-a:hover{text-decoration:underline}
 .st-sha{flex:none;font-size:11.5px;color:var(--muted)}
 .st-p{flex:none;font-size:11px;font-weight:500;padding:1px 7px;border-radius:999px;border:1px solid var(--line);color:var(--muted);min-width:62px;text-align:center}
-.st-p.run{color:var(--ok);border-color:color-mix(in srgb,var(--ok) 40%,transparent)}.st-p.wait{color:var(--q);border-color:color-mix(in srgb,var(--q) 40%,transparent)}
+.st-p.run{color:var(--ink);border-color:var(--line-strong)}.st-p.wait{color:var(--muted);border-color:var(--line)}
 .st-none{font-size:12.5px;color:var(--faint)}
 .st-was{margin-top:8px}.st-was summary{cursor:pointer;font-size:11.5px;color:var(--faint);list-style:none;width:max-content}.st-was summary::-webkit-details-marker{display:none}.st-was summary:hover{color:var(--ink)}`;
 
