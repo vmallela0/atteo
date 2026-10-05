@@ -244,6 +244,7 @@ struct FilesPane: View {
 
 /// One file: a tinted type icon, its name, who changed it last and when; its size and version on the right.
 struct FileRow: View {
+    @EnvironmentObject var state: AppState
     let doc: DocMeta
     var loading = false
     @Environment(\.chatDensity) private var density
@@ -254,7 +255,7 @@ struct FileRow: View {
                 Text(doc.name).font(Typo.secondary.weight(.medium)).foregroundStyle(Theme.text).lineLimit(1).truncationMode(.middle)
                 HStack(spacing: 5) {
                     Avatar(name: doc.updatedBy, agent: doc.via == "agent", size: 14)
-                    Text("\(doc.by) · \(doc.updatedAt.ago)").font(Typo.micro).foregroundStyle(Theme.muted).lineLimit(1)
+                    Text("\(state.displayName(for: doc.updatedBy, agent: doc.via == "agent")) · \(doc.updatedAt.ago)").font(Typo.micro).foregroundStyle(Theme.muted).lineLimit(1)
                 }
             }
             Spacer(minLength: Space.s)
@@ -399,7 +400,7 @@ struct DocViewer: View {
     }
 
     private func byline(_ doc: Doc) -> some View {
-        let by = doc.via == "agent" ? String(localized: "\(doc.updatedBy)'s agent", bundle: .l10n) : doc.updatedBy
+        let by = state.displayName(for: doc.updatedBy, agent: doc.via == "agent")
         let summary = versions.first(where: { $0.version == doc.version })?.summary
         return VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 6) {
