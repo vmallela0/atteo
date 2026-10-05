@@ -62,7 +62,7 @@ await Promise.all([[1280, "developer"], [390, "everyday"]].map(async ([w, mode])
   await until(() => folded(plain), 3000);
   check(await folded(plain), `${tag}: Space folds it again`);
   // axe over the folded rows: no serious or critical issues. (The whole messages are the page as before.)
-  await p.addScriptTag({ content: AXE });
+  await p.evaluate(AXE); // not addScriptTag: an inline <script> without the nonce is refused once CSP_ENFORCE is on
   const bad = await p.evaluate(async () => (await axe.run({ include: [...document.querySelectorAll("#thread>.entry.ol:not(.ol-open)")].map((e) => ["#" + e.id]) }, { runOnly: { type: "tag", values: ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"] } })).violations.filter((v) => v.impact === "serious" || v.impact === "critical").map((v) => v.id + ": " + v.nodes.slice(0, 2).map((n) => n.html.slice(0, 60) + (n.any?.[0]?.data?.fgColor ? ` ${n.any[0].data.fgColor} on ${n.any[0].data.bgColor} ${n.any[0].data.contrastRatio}:1 ${n.any[0].data.fontSize}` : "") + " in " + n.target.join(" ")).join(" | ")));
   check(!bad.length, `${tag}: axe finds nothing serious in the folded rows${bad.length ? ` (${bad.join("; ")})` : ""}`);
   const line = await p.evaluate((s) => document.getElementById("e" + s).querySelector(":scope>.grow>.body").textContent.trim().slice(0, 40), long);

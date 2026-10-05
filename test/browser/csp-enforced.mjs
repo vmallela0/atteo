@@ -49,6 +49,7 @@ await ctx.route(`${BASE}/**`, async (route) => {
   if (!r) return route.abort().catch(() => {});
   const h = r.headers();
   if (h["content-security-policy-report-only"]) { h["content-security-policy"] = h["content-security-policy-report-only"]; delete h["content-security-policy-report-only"]; enforced++; }
+  else if (/'nonce-/.test(h["content-security-policy"] ?? "")) enforced++; // CSP_ENFORCE is already on
   await route.fulfill({ response: r, headers: h }).catch(() => {});
 });
 // A page of its own for each part, so they run side by side; each collects its own violations.

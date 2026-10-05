@@ -1,10 +1,14 @@
 // BASE=http://localhost:8787 node test/browser/csp.mjs
-// The pages' Content-Security-Policy is report-only for now (jxn's agent #2636). This check opens the main pages (and a
+// The pages' Content-Security-Policy is report-only until CSP_ENFORCE (src/ui.ts) flips (jxn's agent #2636, #2722); this
+// check expects whichever header that switch says, so the flip needs no change here. It opens the main pages (and a
 // board with a mermaid diagram), an HTML preview and a voice call, and fails if the browser reports anything the policy
 // would block, by watching for reports sent to /api/csp-report and for CSP console messages, so the switch to enforcing
 // is known to be safe. The preview runs from /preview-frame with its own enforced CSP (opus-b #2678): it must never see
 // the page's nonce, and its scripts must not reach the network.
 import { chromium } from "playwright-core";
+import { readFileSync } from "node:fs";
+const ENFORCE = /^export const CSP_ENFORCE = true;/m.test(readFileSync(new URL("../../src/ui.ts", import.meta.url), "utf8"));
+const HEADER = ENFORCE ? "content-security-policy" : "content-security-policy-report-only", OTHER = ENFORCE ? "content-security-policy-report-only" : "content-security-policy";
 const BASE = process.env.BASE || "http://localhost:8787";
 const run = Date.now().toString(36).slice(-6);
 const user = `csp${run}`;
@@ -49,6 +53,9 @@ try {
   // below). An enforced block can only be the preview frame's own CSP stopping its file, which is the point (checked
   // below), not a page violation.
   page.on("console", (msg) => { if (csp.test(msg.text()) && /report-only/i.test(msg.text())) violations.push(`console: ${msg.text()}`); });
+  // Enforced or not, the page's own document hears each violation of its policy (the preview frame's are its own).
+  await page.exposeBinding("__cspViolation", (_src, v) => violations.push(`violation: ${v}`));
+  await page.addInitScript(() => { if (window === window.top) document.addEventListener("securitypolicyviolation", (e) => window.__cspViolation(`${e.disposition} ${e.effectiveDirective} ${e.blockedURI} ${e.sourceFile}:${e.lineNumber} ${location.pathname}`)); });
   page.on("pageerror", (error) => { if (csp.test(error.message)) violations.push(`error: ${error.message}`); });
   page.on("request", (req) => { if (req.url().includes("/api/csp-report")) violations.push(`report: ${req.postData()?.slice(0, 300)}`); });
   let pageNonce = "";
@@ -56,8 +63,8 @@ try {
     const response = await page.goto(`${BASE}${path}`, { waitUntil: "networkidle" });
     if (!response?.ok()) { check(false, `${path} opens (${response?.status()})`); continue; }
     const h = response.headers();
-    const policy = h["content-security-policy-report-only"] ?? "";
-    check(!!policy && !h["content-security-policy"], `${path}: report-only CSP header, not enforcing yet`);
+    const policy = h[HEADER] ?? "";
+    check(!!policy && !h[OTHER], `${path}: ${ENFORCE ? "enforced" : "report-only"} CSP header, as CSP_ENFORCE says`);
     check(policy.includes("report-uri /api/csp-report"), `${path}: reports go to /api/csp-report`);
     check(/connect-src 'self' wss:\/\/api\.x\.ai(;|$)/.test(policy), `${path}: sockets only to this host and the voice provider`);
     if (path.startsWith("/b/")) {

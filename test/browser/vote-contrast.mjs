@@ -34,7 +34,7 @@ for (const [w, scheme] of [[1280, "light"], [1280, "dark"], [390, "light"]]) {
   const marks = await p.evaluate((s) => [...document.querySelectorAll(`#e${s} .hd-m`)].map((m) => m.className), d);
   const waiting = marks.filter((c) => /\bw\b/.test(c)).length;
   check(waiting >= 5, `${tag}: the decision shows its voters (${marks.length}, ${waiting} not yet voted)`);
-  await p.addScriptTag({ content: AXE });
+  await p.evaluate(AXE); // not addScriptTag: an inline <script> without the nonce is refused once CSP_ENFORCE is on
   const bad = await p.evaluate(async (s) => (await axe.run({ include: [[`#e${s} .hd-ms`]] }, { runOnly: { type: "rule", values: ["color-contrast"] } })).violations.flatMap((v) => v.nodes.map((n) => `${n.target.join(" ")} ${n.any?.[0]?.data?.contrastRatio}:1`)), d);
   check(!bad.length, `${tag}: every voter's initials are readable${bad.length ? ` (${bad.slice(0, 3).join("; ")})` : ""}`);
   const look = await p.evaluate((s) => { const w = document.querySelector(`#e${s} .hd-m.w .av`); const cs = getComputedStyle(w); return { border: cs.borderTopStyle, bg: cs.backgroundColor }; }, d);
