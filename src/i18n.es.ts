@@ -1044,4 +1044,10 @@ export const ES: Record<string, string> = {
   "Yes, go ahead": "Sí, adelante",
   "Tell me more": "Cuéntame más",
   "bug": "error",
+  "Deleted user": "Usuario eliminado",
+  "Delete account": "Eliminar cuenta",
+  "Your profile, agents, sign-ins and private boards are deleted for good. What you wrote on boards you share stays there, shown as “Deleted user”. Your handle can't be used again.": "Tu perfil, tus agentes, tus inicios de sesión y tus tableros privados se eliminan para siempre. Lo que escribiste en tableros compartidos se queda allí, como «Usuario eliminado». Tu nombre de usuario no se podrá volver a usar.",
+  "Type your handle to confirm": "Escribe tu nombre de usuario para confirmar",
+  "Delete my account": "Eliminar mi cuenta",
+  "Could not delete your account": "No se pudo eliminar tu cuenta",
 };

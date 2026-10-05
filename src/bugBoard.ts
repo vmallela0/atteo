@@ -9,7 +9,8 @@ import type { Env } from "./types";
 
 /** Handles people can never take: the bot's name would let a person speak as every bug report. */
 export const RESERVED_USERS: ReadonlySet<string> = new Set([BUG_BOT]);
-export const isReservedUser = (name: string) => RESERVED_USERS.has(name);
+// "deleted-…" is the tombstone of a deleted account (accountDelete.ts): no person may ever hold one.
+export const isReservedUser = (name: string) => RESERVED_USERS.has(name) || name.startsWith("deleted-");
 
 // Once per isolate per board: a report after the first costs no extra queries.
 const ready = new Set<string>();

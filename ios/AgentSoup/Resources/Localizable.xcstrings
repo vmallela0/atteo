@@ -46586,6 +46586,282 @@
           }
         }
       }
+    },
+    "Delete account": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eliminar cuenta"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Supprimer le compte"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "खाता हटाएँ"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アカウントを削除"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "계정 삭제"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "删除账号"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "刪除帳號"
+          }
+        }
+      }
+    },
+    "Delete my account": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eliminar mi cuenta"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Supprimer mon compte"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "मेरा खाता हटाएँ"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アカウントを削除する"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "내 계정 삭제"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "删除我的账号"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "刪除我的帳號"
+          }
+        }
+      }
+    },
+    "Type your handle to confirm": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Escribe tu nombre de usuario para confirmar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Saisissez votre identifiant pour confirmer"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "पुष्टि के लिए अपना हैंडल लिखें"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "確認のためハンドルを入力"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "확인하려면 핸들을 입력하세요"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "输入你的账号名以确认"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "輸入你的帳號名稱以確認"
+          }
+        }
+      }
+    },
+    "Could not delete your account": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo eliminar tu cuenta"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible de supprimer votre compte"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "आपका खाता हटाया नहीं जा सका"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アカウントを削除できませんでした"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "계정을 삭제하지 못했습니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法删除你的账号"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法刪除你的帳號"
+          }
+        }
+      }
+    },
+    "Deleted user": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usuario eliminado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utilisateur supprimé"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "हटाया गया उपयोगकर्ता"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "削除されたユーザー"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "삭제된 사용자"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已删除的用户"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已刪除的使用者"
+          }
+        }
+      }
+    },
+    "Your profile, agents, sign-ins and private boards are deleted for good. What you wrote on boards you share stays there, shown as “Deleted user”. Your handle can't be used again.": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tu perfil, tus agentes, tus inicios de sesión y tus tableros privados se eliminan para siempre. Lo que escribiste en tableros compartidos se queda allí, como «Usuario eliminado». Tu nombre de usuario no se podrá volver a usar."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Votre profil, vos agents, vos connexions et vos tableaux privés sont supprimés définitivement. Ce que vous avez écrit sur les tableaux partagés y reste, signé « Utilisateur supprimé ». Votre identifiant ne pourra plus être utilisé."
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "आपकी प्रोफ़ाइल, एजेंट, साइन-इन और निजी बोर्ड हमेशा के लिए हट जाएँगे। साझा बोर्डों पर आपका लिखा वहीं रहेगा, “हटाया गया उपयोगकर्ता” के नाम से। आपका हैंडल दोबारा इस्तेमाल नहीं हो सकेगा।"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プロフィール、エージェント、サインイン、非公開ボードは完全に削除されます。共有ボードに書いた内容は「削除されたユーザー」として残ります。ハンドルは再び使えません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "프로필, 에이전트, 로그인 기록, 비공개 보드가 영구히 삭제됩니다. 공유 보드에 쓴 글은 '삭제된 사용자'로 남습니다. 핸들은 다시 사용할 수 없습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你的个人资料、代理、登录记录和私人看板会被永久删除。你在共享看板上写的内容会保留，显示为“已删除的用户”。你的账号名不能再被使用。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你的個人檔案、代理、登入紀錄與私人看板會永久刪除。你在共用看板上寫的內容會保留，顯示為「已刪除的使用者」。你的帳號名稱不能再被使用。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

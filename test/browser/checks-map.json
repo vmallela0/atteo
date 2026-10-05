@@ -17,6 +17,7 @@
     "src/moderation.ts": ["moderation"],
     "src/standingRules.ts": ["standing-rules"],
     "src/feedback.ts": ["feedback"],
+    "src/accountDelete.ts": ["delete-account"],
     "src/openapi.ts": [],
     "cli/**": ["e2e-web"],
     "test/*.ts": [],

@@ -16,6 +16,7 @@ import { charterJs, charterSide } from "./charterUi";
 import type { BoardCharter } from "./charter";
 import { MENTION_SCAN_JS, forAgent, forPerson, mentionLabel, selfMentions } from "./mentions";
 import { flagOf } from "./screen";
+import { DELETED_LABEL, isTombstone } from "./accountDelete";
 import { clientName, presenceLabel } from "./social";
 import type { ChangeCard } from "./card";
 import { handoffLine } from "./handoff";
@@ -169,7 +170,7 @@ ${
   return `<article class="entry${opts.retracted ? " retracted" : ""}${e.via === "agent" ? " by-agent" : ""}" id="e${e.seq}" data-seq="${e.seq}" data-author="${esc(e.author)}" data-title="${esc(shortTitle(e))}"${e.to ? ` data-to="${esc(e.to)}"` : ""}${e.reply_to != null ? ` data-reply="${e.reply_to}"` : ""}${opts.root != null && opts.root !== e.seq ? ` data-root="${opts.root}"` : ""}>
 ${avatar(e.author, "", e.via === "agent")}
 <div class="grow">
-  <div class="meta">${whoHtml(e)}${e.to ? `<span class="to">→ ${esc(e.to)}</span>` : ""}${e.type === "note" ? "" : typeTag(e.type, opts.lang)}${when(e.ts, opts.lang)}${e.edited_at ? `<button class="edited" type="button" data-history="${e.seq}" title="${esc(new Date(e.edited_at).toUTCString())}">${esc(T("edited"))}</button>` : ""}<a class="seq" href="#e${e.seq}">#${e.seq}</a>${peopleBadge(e, opts.lang)}<span class="badge rbadge">${esc(T("Unsent"))}</span>${flagBadge(e.text, e.ai_flag)}${actions}</div>
+  <div class="meta">${isTombstone(e.author) ? `<span class="who deleted">${esc(T(DELETED_LABEL))}</span>` : whoHtml(e)}${e.to ? `<span class="to">→ ${esc(isTombstone(e.to) ? T(DELETED_LABEL) : e.to)}</span>` : ""}${e.type === "note" ? "" : typeTag(e.type, opts.lang)}${when(e.ts, opts.lang)}${e.edited_at ? `<button class="edited" type="button" data-history="${e.seq}" title="${esc(new Date(e.edited_at).toUTCString())}">${esc(T("edited"))}</button>` : ""}<a class="seq" href="#e${e.seq}">#${e.seq}</a>${peopleBadge(e, opts.lang)}<span class="badge rbadge">${esc(T("Unsent"))}</span>${flagBadge(e.text, e.ai_flag)}${actions}</div>
   <div class="body${e.purged ? " purged" : ""}">${e.purged ? `<p>${esc(T("Purged by {name}. Its text and files were removed for good.", { name: e.purged.via === "agent" ? T("{name}'s agent", { name: e.purged.by }) : e.purged.by }))}</p>` : apr?.title ? `<p>${esc(apr.title)}</p>` : refLinks(renderText(e.text, e.mentions, e.mention_names, selfMentions(e.text, e.author, e.via)))}</div>${file}${e.card ? changeCardHtml(e.seq, e.card) : ""}${e.handoff ? `<div class="refs mono handoff">${esc(handoffLine(e.handoff))}</div>` : ""}${apr && !opts.retracted ? approvalCardHtml(apr, false, opts.lang) : ""}${e.type === "task" ? `<div class="tk" data-task="${e.seq}" hidden></div>` : ""}${e.type === "claim" && !opts.retracted ? `<div class="tk cl" data-claim="${e.seq}" hidden></div>` : ""}${e.type === "decision" && e.via === "person" && !opts.retracted ? `<div class="tk hd" data-hd="${e.seq}" hidden></div>` : ""}${quick}
   ${refs.length ? `<div class="refs">${refs.join(" · ")}</div>` : ""}
   <div class="rx" data-rx="${e.seq}"><button class="rx-add" type="button" data-rx-add="${e.seq}" aria-label="${esc(T("Add a reaction"))}" title="${esc(T("Add a reaction"))}">☺<span>+</span></button></div>
@@ -3568,6 +3569,21 @@ function accountLogSection(log: AccountLogRow[], lang?: Lang): string {
 <ul class="list pad" id="account-log" style="list-style:none;margin:0;display:grid;gap:8px">${lines}</ul>`;
 }
 
+// Delete account (Apple 5.1.1(v); jxn #4329): the handle typed back, then gone. Messages on shared boards stay as
+// "Deleted user"; everything else of theirs is removed (accountDelete.ts).
+function deleteAccountSection(name: string, lang?: Lang): string {
+  const T = (x: string, v?: Record<string, string | number>) => tr(lang, x, v);
+  return `<div class="section-title" style="margin-top:40px"><div><h2>${esc(T("Delete account"))}</h2><p class="small muted" style="margin-top:4px">${esc(T("Your profile, agents, sign-ins and private boards are deleted for good. What you wrote on boards you share stays there, shown as “Deleted user”. Your handle can't be used again."))}</p></div></div>
+<form class="row" id="delete-account" style="gap:8px;flex-wrap:wrap" data-handle="${esc(name)}"><input class="input" id="delete-confirm" autocomplete="off" spellcheck="false" aria-label="${esc(T("Type your handle to confirm"))}" placeholder="${esc(name)}" style="max-width:240px"><button class="btn danger" id="delete-go" type="submit" disabled>${esc(T("Delete my account"))}</button></form>`;
+}
+
+const DELETE_JS = `
+(()=>{const f=document.getElementById('delete-account');if(!f)return;const i=document.getElementById('delete-confirm'),b=document.getElementById('delete-go');
+i.addEventListener('input',()=>{b.disabled=i.value.trim().replace(/^@/,'').toLowerCase()!==f.dataset.handle.toLowerCase()});
+f.addEventListener('submit',async e=>{e.preventDefault();if(b.disabled)return;b.disabled=true;
+  const r=await fetch('/api/me',{method:'DELETE',headers:{'content-type':'application/json'},body:JSON.stringify({confirm:i.value})}).catch(()=>null);
+  if(r&&r.ok){location.href='/'}else{const j=r?await r.json().catch(()=>({})):{};toast(j.error||tr('Could not delete your account'));b.disabled=false}})})();`;
+
 // Headless agents: saved at once; agents see it on their next read.
 const HEADLESS_JS = `
 document.getElementById('headless')?.addEventListener('change',async e=>{const c=e.currentTarget;
@@ -3633,8 +3649,9 @@ ${standingSection(rules, side, viewer.lang)}
 ${accountLogSection(log, viewer.lang)}
 ${webhooksSection(hooks, viewer.lang)}
 ${billingSection(plan, billingEnabled, viewer.lang)}
+${deleteAccountSection(viewer.name, viewer.lang)}
 ${connectDialog(viewer)}`,
-    script: CONNECT_JS + `window.revoked=()=>location.reload();` + BILLING_JS + PFP_JS + HOOKS_JS + PROFILE_JS + DISPLAY_JS + NOTIFY_JS + HEADLESS_JS + KILL_JS + ACCESS_JS + SR_JS,
+    script: CONNECT_JS + `window.revoked=()=>location.reload();` + BILLING_JS + PFP_JS + HOOKS_JS + PROFILE_JS + DISPLAY_JS + NOTIFY_JS + HEADLESS_JS + KILL_JS + ACCESS_JS + SR_JS + DELETE_JS,
   });
 }
 

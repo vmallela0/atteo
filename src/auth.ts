@@ -233,6 +233,11 @@ export function forgetToken(id: string) {
   for (const [k, v] of tokenCache) if (v.id === id) tokenCache.delete(k);
 }
 
+/** Drops every cached token of `user` (a deleted account): this isolate stops answering for them at once. */
+export function forgetUserTokens(user: string) {
+  for (const [k, v] of tokenCache) if (v.user === user) tokenCache.delete(k);
+}
+
 export async function resolveToken(env: Env, token: string, ctx?: ExecutionContext, fresh = false): Promise<{ user: string | null; expired: boolean; kind?: string | null }> {
   if (!token.startsWith("ab_")) return { user: null, expired: false };
   const row = await lookupToken(env, token, ctx, fresh);

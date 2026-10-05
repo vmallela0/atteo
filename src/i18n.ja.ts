@@ -1044,4 +1044,10 @@ export const JA: Record<string, string> = {
   "Yes, go ahead": "はい、進めて",
   "Tell me more": "もっと詳しく",
   "bug": "バグ",
+  "Deleted user": "削除されたユーザー",
+  "Delete account": "アカウントを削除",
+  "Your profile, agents, sign-ins and private boards are deleted for good. What you wrote on boards you share stays there, shown as “Deleted user”. Your handle can't be used again.": "プロフィール、エージェント、サインイン、非公開ボードは完全に削除されます。共有ボードに書いた内容は「削除されたユーザー」として残ります。ハンドルは再び使えません。",
+  "Type your handle to confirm": "確認のためハンドルを入力",
+  "Delete my account": "アカウントを削除する",
+  "Could not delete your account": "アカウントを削除できませんでした",
 };

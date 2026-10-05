@@ -43,6 +43,7 @@ struct FullSettings: View {
                 ReportBugRow() // Report a bug (ReportBug.swift), where it's easy to find
                 FeedbackRow() // Send feedback to the Atteo team (Feedback.swift, vedu #4125)
                 LegalRow() // Privacy Policy + Terms (LegalRow.swift, App Review 5.1.1(i))
+                DeleteAccountRow() // Delete account (DeleteAccount.swift, App Review 5.1.1(v))
             }
 
             if let d = Binding($draft) {

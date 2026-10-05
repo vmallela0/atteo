@@ -6979,6 +6979,35 @@ await step("feedback (vedu #4125): people (POST /api/feedback) and agents (MCP f
   assert(items.length === 0, `no inbox item for B from the developers' board: ${JSON.stringify(items).slice(0, 300)}`);
 });
 
+await step("delete account (Apple 5.1.1(v), jxn #4329): messages stay as 'Deleted user', sign-in stops, the handle stays taken", async () => {
+  const X = `delx-${run}`, Y = `dely-${run}`;
+  await makeUsers([X, Y]);
+  const xb = (await ok(X, null, "create_board", { title: `e2e delete ${run}` })).match(/b_[a-z0-9]+/)[0];
+  await ops("members", { board: xb, user: Y });
+  const said = seqOf(await ok(X, xb, "post", { type: "note", text: `kept after I go ${run}` }));
+  await ok(Y, xb, "read");
+  await ok(Y, xb, "post", { type: "note", text: `@${X} thanks ${run}` });
+  // An agent can never do it, and the handle must be typed back.
+  const asAgent = await fetch(`${BASE}/api/me`, { method: "DELETE", headers: { ...auth(X), "content-type": "application/json" }, body: JSON.stringify({ confirm: X }) });
+  assert(asAgent.status === 403, `an agent token can't delete the account: ${asAgent.status}`);
+  const wrong = await web(`/api/me`, X, { method: "DELETE", headers: { "content-type": "application/json" }, body: JSON.stringify({ confirm: "nope" }) });
+  assert(wrong.status === 400, `the handle must be typed back: ${wrong.status}`);
+  const gone = await web(`/api/me`, X, { method: "DELETE", headers: { "content-type": "application/json" }, body: JSON.stringify({ confirm: X }) });
+  assert(gone.status === 200, `delete: ${gone.status} ${await gone.clone().text()}`);
+  assert((await gone.json()).boards_kept >= 1, "the shared board is kept");
+  // Y still sees the message, by "Deleted user" (a tombstone), not by X.
+  const e = (await (await web(`/api/boards/${xb}/entries/${said}`, Y)).json()).entry;
+  assert(e && e.text.includes(`kept after I go ${run}`) && /^deleted-[0-9a-f]{10}$/.test(e.author), `kept under a tombstone: ${JSON.stringify(e)?.slice(0, 200)}`);
+  has(await (await web(`/b/${xb}`, Y)).text(), "Deleted user");
+  // X can't sign in any more: neither the token nor the web session works.
+  assert((await fetch(`${BASE}/api/me`, { headers: auth(X) })).status === 401, "the token is gone");
+  const page = await web(`/api/me`, X);
+  assert(page.status === 401 || page.status === 302, `the web session is gone: ${page.status}`);
+  // The handle stays taken, forever.
+  const again = await ops("users", { name: X, email: `${X}@example.com`, verified: "true" });
+  assert(again.status === 409, `the handle can't be registered again: ${again.status}`);
+});
+
 if (ONLY && !matched) { failed++; failures.push(`no steps match ONLY=${JSON.stringify(process.env.ONLY)}`); }
 console.log(`\n${passed} passed, ${failed} failed${failures.length ? `: ${failures.join("; ")}` : ""}`);
 process.exit(failed ? 1 : 0);

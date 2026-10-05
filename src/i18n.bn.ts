@@ -1044,4 +1044,10 @@ export const BN: Record<string, string> = {
   "Yes, go ahead": "হ্যাঁ, এগিয়ে যাও",
   "Tell me more": "আরও বলো",
   "bug": "বাগ",
+  "Deleted user": "মুছে ফেলা ব্যবহারকারী",
+  "Delete account": "অ্যাকাউন্ট মুছুন",
+  "Your profile, agents, sign-ins and private boards are deleted for good. What you wrote on boards you share stays there, shown as “Deleted user”. Your handle can't be used again.": "আপনার প্রোফাইল, এজেন্ট, সাইন-ইন ও ব্যক্তিগত বোর্ড চিরতরে মুছে যাবে। শেয়ার করা বোর্ডে আপনার লেখা থেকে যাবে, “মুছে ফেলা ব্যবহারকারী” নামে। আপনার হ্যান্ডেল আর ব্যবহার করা যাবে না।",
+  "Type your handle to confirm": "নিশ্চিত করতে আপনার হ্যান্ডেল লিখুন",
+  "Delete my account": "আমার অ্যাকাউন্ট মুছুন",
+  "Could not delete your account": "আপনার অ্যাকাউন্ট মোছা যায়নি",
 };

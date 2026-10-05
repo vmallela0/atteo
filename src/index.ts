@@ -39,6 +39,7 @@ import * as appSignin from "./appSignin";
 import * as moderation from "./moderation";
 import * as bugs from "./bugs";
 import { ensureBugBoard, isReservedUser } from "./bugBoard";
+import { deleteAccount, isDeletedHandle, type BoardForget } from "./accountDelete";
 import * as feedback from "./feedback";
 import { handleMcp } from "./mcp";
 import * as device from "./device";
@@ -252,11 +253,16 @@ function suggestName(email: string, display: string | null): string {
   return normalizeUser(base.slice(0, 32)) ?? "me";
 }
 
+/** A handle no one may take: reserved, a deleted account's (forever, accountDelete.ts), or simply someone's. */
+async function handleTaken(env: Env, name: string): Promise<boolean> {
+  return isReservedUser(name) || !!(await registry.userByName(env, name)) || (await isDeletedHandle(env, name));
+}
+
 async function freeName(env: Env, base: string): Promise<string> {
-  if (!isReservedUser(base) && !(await registry.userByName(env, base))) return base;
+  if (!(await handleTaken(env, base))) return base;
   for (let i = 2; i < 100; i++) {
     const n = `${base.slice(0, 29)}${i}`;
-    if (!(await registry.userByName(env, n))) return n;
+    if (!(await handleTaken(env, n))) return n;
   }
   return `${base.slice(0, 24)}${crypto.randomUUID().slice(0, 6)}`;
 }
@@ -411,7 +417,7 @@ async function welcome(c: Ctx): Promise<Response> {
 
   const name = normalizeUser(String((await c.request.formData()).get("name") ?? ""));
   if (!name) return welcomePage(s.email, suggestion, "Use 1–32 lowercase letters, numbers, dot, dash or underscore, starting with a letter or number.");
-  if (isReservedUser(name) || (await registry.userByName(c.env, name))) return welcomePage(s.email, name, `"${name}" is taken. Try another.`);
+  if ((await handleTaken(c.env, name))) return welcomePage(s.email, name, `"${name}" is taken. Try another.`);
   if (await registry.userByWorkosId(c.env, s.workos_id)) return redirect("/");
   await registry.createUser(c.env, { name, email: s.email, email_verified: !!s.email_verified, workos_id: s.workos_id, display_name: s.display_name });
   await auth.setSessionUser(c.env, s.id_hash, name);
@@ -498,7 +504,7 @@ async function appSigninName(c: Ctx): Promise<Response> {
   }
   const name = normalizeUser(String(b.name ?? "").trim().replace(/^@/, ""));
   if (!name) return json({ error: NAME_RULES }, 400);
-  if (isReservedUser(name) || (await registry.userByName(c.env, name))) return json({ error: `"${name}" is taken. Try another.`, suggestion: await freeName(c.env, name) }, 409);
+  if ((await handleTaken(c.env, name))) return json({ error: `"${name}" is taken. Try another.`, suggestion: await freeName(c.env, name) }, 409);
   try {
     await registry.createUser(c.env, { name, email: s.email, email_verified: !!s.email_verified, workos_id: s.workos_id, display_name: s.display_name });
   } catch {
@@ -1410,6 +1416,17 @@ const handler = {
         if (!p) return notFound(viewer);
         const [shared, ag] = await Promise.all([p.relation === "self" || p.relation === "blocked" ? [] : social.sharedBoards(env, viewer.name, p.name).catch(() => []), agents.agent(env, viewer.name, p.name, viewer.via !== "agent").catch(() => null)]);
         return profilePage(viewer, side, p, social.presenceLabel(p.presence), { shared, agent: ag });
+      }
+      // Delete my account (Apple 5.1.1(v); jxn #4329): people only, never an agent's token, and only with the handle
+      // typed back. Messages on shared boards stay as "Deleted user"; the rest goes (accountDelete.ts).
+      if (path === "/api/me" && method === "DELETE") {
+        if (!viewer) return needLogin();
+        if (viewer.via === "agent") return json({ error: "Only you can delete your account, from the app or the web. An agent can't." }, 403);
+        const body = (await request.json().catch(() => ({}))) as { confirm?: string };
+        if (String(body.confirm ?? "").trim().replace(/^@/, "").toLowerCase() !== viewer.name.toLowerCase()) return json({ error: `Type your handle, ${viewer.name}, to confirm.` }, 400);
+        const r = await deleteAccount(env, viewer.name, (id) => boardStub(env, id) as unknown as BoardForget);
+        if (r.stripe_followup) console.warn("account deleted with a Stripe customer: cancel its subscription by hand", r.tombstone);
+        return json({ ok: true, boards_kept: r.boards_kept, boards_removed: r.boards_removed }, 200, { "Set-Cookie": auth.cookieHeader(url, auth.SESSION_COOKIE, "", 0), "cache-control": "no-store" });
       }
       // Who this is (the app checks its token here after signing in).
       if (path === "/api/me" && method === "GET") {
@@ -3386,7 +3403,7 @@ const handler = {
         if (path === "/api/ops/users" && method === "POST") {
           const name = normalizeUser(body.name);
           if (!name) return json({ error: "valid name required" }, 400);
-          if (isReservedUser(name) || (await registry.userByName(env, name))) return json({ error: "name taken" }, 409);
+          if ((await handleTaken(env, name))) return json({ error: "name taken" }, 409);
           await registry.createUser(env, {
             name,
             email: body.email ? body.email.toLowerCase() : null,

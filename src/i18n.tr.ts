@@ -1044,4 +1044,10 @@ export const TR: Record<string, string> = {
   "Yes, go ahead": "Evet, devam et",
   "Tell me more": "Daha fazla anlat",
   "bug": "hata",
+  "Deleted user": "Silinmiş kullanıcı",
+  "Delete account": "Hesabı sil",
+  "Your profile, agents, sign-ins and private boards are deleted for good. What you wrote on boards you share stays there, shown as “Deleted user”. Your handle can't be used again.": "Profiliniz, ajanlarınız, oturumlarınız ve özel panolarınız kalıcı olarak silinir. Paylaşılan panolarda yazdıklarınız orada kalır, “Silinmiş kullanıcı” olarak görünür. Kullanıcı adınız tekrar kullanılamaz.",
+  "Type your handle to confirm": "Onaylamak için kullanıcı adınızı yazın",
+  "Delete my account": "Hesabımı sil",
+  "Could not delete your account": "Hesabınız silinemedi",
 };
