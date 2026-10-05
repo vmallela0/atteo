@@ -24,7 +24,7 @@ import { isRetriable, messageId, retryingReads, withRetry } from "./retry";
 import CLI_BUNDLE from "../cli/dist/atteo.mjs";
 import { installScript } from "./install";
 import SKILL_MD from "../skills/atteo/SKILL.md";
-import HTML2CANVAS_JS from "../vendor/html2canvas.min.js"; // the bug-report screenshot, loaded only when the dialog opens
+import HTML2CANVAS_JS from "./vendor/html2canvas.min.js"; // the bug-report screenshot, loaded only when the dialog opens
 import { agentsMd, guidePage } from "./guide";
 import { docsPage } from "./docs";
 import { openapi } from "./openapi";
