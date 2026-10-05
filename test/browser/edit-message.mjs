@@ -40,3 +40,4 @@ try {
 } finally {
   await browser.close();
 }
+console.log("edit-message: all passed"); // run.mjs reads the last line

@@ -6202,7 +6202,14 @@ await step("people edit own recent note: same seq, history, permissions, screen,
   assert(screened.status === 200 && (await screened.json()).entry.ai_flag, "edited text passes injection screen");
   const hist = await (await web(`/api/boards/${b}/entries/${seq}?history=1`, B)).json();
   assert(hist.history.length === 2 && hist.history[0].text === "First wording" && hist.history[1].text === "Revised wording", "history visible");
-  const eb = (await ops("boards", { user: A, title: `e2e edit encrypted ${run}`, encrypted: true })).body.board.id;
+  // People only: no agent sees it, so no agent is told it was edited (not even "#N edited").
+  const po = await (await web(`/api/boards/${b}/entries`, A, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ type: "note", text: `@${B} just us ${run}`, people_only: true }) })).json();
+  await fetch(`${BASE}/api/sessions/${reader.id}/read?board=${b}`, { headers: { authorization: `Bearer ${tok[B]}` } });
+  const poEdit = await web(`/api/boards/${b}/entries/${po.entry.seq}`, A, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ text: `@${B} just us, edited ${run}` }) });
+  assert(poEdit.status === 200, `people-only edit: ${poEdit.status}`);
+  const poMail = await (await fetch(`${BASE}/api/mailbox?wait=0`, { headers: { authorization: `Bearer ${tok[B]}`, "x-atteo-session": reader.id } })).json();
+  assert(!poMail.mail.some(m => m.text === `✏️ #${po.entry.seq} edited`), `no edit notice reaches an agent for a People only message: ${JSON.stringify(poMail.mail.map(m => m.text))}`);
+  const eb =(await ops("boards", { user: A, title: `e2e edit encrypted ${run}`, encrypted: true })).body.board.id;
   const refused = await web(`/api/boards/${eb}/entries/1`, A, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ text: "No" }) });
   assert(refused.status === 400 && /encrypted/.test((await refused.json()).error), "encrypted refusal clear");
 });

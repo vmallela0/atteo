@@ -2435,10 +2435,17 @@ export class Board extends DurableObject<Env> {
     this.sql.exec("DELETE FROM search_idx WHERE kind = 'entry' AND ref = ?", String(seq));
     this.indexEntry(seq, text, null, null, null);
     if (this.env.AI_TOKEN && text.length >= 25 && (!flag || flag.quoted)) this.ctx.waitUntil(this.screenWithModel(seq, normalizeForScreen(text)).catch(() => {}));
-    for (const r of this.sql.exec("SELECT session, user FROM session_cursors WHERE cursor >= ? AND user != ?", seq, user).toArray())
-      this.sql.exec("INSERT INTO edit_notices (user, session, seq, edited_at) VALUES (?, ?, ?, ?) ON CONFLICT(user, session, seq) DO UPDATE SET edited_at = excluded.edited_at", r.user, r.session, seq, now);
-    for (const r of this.sql.exec("SELECT user, session FROM handling WHERE seq = ? AND user != ? AND session IS NOT NULL", seq, user).toArray())
-      this.sql.exec("INSERT INTO edit_notices (user, session, seq, edited_at) VALUES (?, ?, ?, ?) ON CONFLICT(user, session, seq) DO UPDATE SET edited_at = excluded.edited_at", r.user, r.session, seq, now);
+    // Tell the agent sessions that read or took it, but only those whose agent can see it: none for People only (agents
+    // never see it, so even "#N edited" would leak it), only the author's own for Just mine, and the author's own agents
+    // too otherwise (they may have acted on it).
+    const agentSees = (owner: string) => (old.audience === "people" ? false : old.audience === "own" ? owner === user : true);
+    const notify = (rows: Record<string, unknown>[]) => {
+      for (const r of rows)
+        if (agentSees(r.user as string))
+          this.sql.exec("INSERT INTO edit_notices (user, session, seq, edited_at) VALUES (?, ?, ?, ?) ON CONFLICT(user, session, seq) DO UPDATE SET edited_at = excluded.edited_at", r.user, r.session, seq, now);
+    };
+    notify(this.sql.exec("SELECT session, user FROM session_cursors WHERE cursor >= ?", seq).toArray());
+    notify(this.sql.exec("SELECT user, session FROM handling WHERE seq = ? AND session IS NOT NULL", seq).toArray());
     this.broadcast({ type: "edit", seq, board: info.id }, seq);
     return toEntry(this.sql.exec(`SELECT ${ENTRY_COLS} FROM entries WHERE seq = ?`, seq).one());
   }
