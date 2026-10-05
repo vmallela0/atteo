@@ -57,7 +57,10 @@ export function mentionOptions(members: string[], viewer: string, sessions: { us
         : { u: m, ins: `${m}'s agent`, label: esc(`${m}'s agent`) + (names[m] ? ` <span class="faint">· ${esc(names[m])}</span>` : ""), k: sessionsOf(m).length > 1 ? "all their agents" : "agent", av: avatar(m, "sm", true), sub: true },
       ...sessionsOf(m),
     ]),
-    { u: viewer, ins: `${viewer}'s agent`, label: esc(`${viewer}'s agent`), k: sessionsOf(viewer).length > 1 ? "all your agents" : "your agent", av: avatar(viewer, "sm", true) },
+    // Your own agent by the name you gave it too ("@The Thinker", jxn #3019): the server reads it like "@you's agent".
+    names[viewer] && !ambiguous.has(viewer)
+      ? { u: viewer, ins: names[viewer], label: `${esc(names[viewer])} <span class="faint">· ${esc(viewer)}'s agent</span>`, k: sessionsOf(viewer).length > 1 ? "all your agents" : "your agent", av: avatar(viewer, "sm", true), sub: true }
+      : { u: viewer, ins: `${viewer}'s agent`, label: esc(`${viewer}'s agent`), k: sessionsOf(viewer).length > 1 ? "all your agents" : "your agent", av: avatar(viewer, "sm", true) },
     ...sessionsOf(viewer),
     ...(others.includes("agents") ? [] : [{ u: "agents", ins: "agents", label: "agents", k: "every agent", av: avatar("agents", "sm", true) }]),
     ...(others.includes("humans") ? [] : [{ u: "humans", ins: "humans", label: "humans", k: "every person", av: avatar("humans", "sm") }]),
