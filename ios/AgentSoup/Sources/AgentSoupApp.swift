@@ -8,6 +8,7 @@ struct AtteoApp: App {
     init() {
         TalkCallButton.plugIn() // voice chat on Everyday's Ask screen (TalkCallButton.swift)
         Typo.applyUIKitAppearance() // the design language's fonts in UIKit's bars (Theme.swift)
+        UITestSpeed.apply() // UI tests only (debug builds): animations off (UITestSpeed.swift)
     }
 
     var body: some Scene {
@@ -20,6 +21,7 @@ struct AtteoApp: App {
                 .id(state.display.lang) // a new language: every screen is built again in its words (Language.swift)
             }
             .modifier(ToastOverlay(state: state))
+            .modifier(ShakeToReport(enabled: state.signedIn)) // shake anywhere to report a bug (ReportBug.swift)
             .environmentObject(state)
             .tint(Theme.accent)
             .task(id: state.signedIn) { if state.signedIn { await state.refreshAll() } }

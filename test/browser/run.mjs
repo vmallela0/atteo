@@ -107,7 +107,10 @@ const run1 = (t, slot, useShared) => new Promise((resolve) => {
   // Older checks were written for Developer mode (lib/devmode.mjs makes the people they create start there); a check whose
   // header says "// gate: everyday" tests Everyday and runs without it, as the gate does.
   const everyday = /^\/\/ gate: everyday/m.test(readFileSync(f, "utf8"));
-  const imports = everyday ? [] : [`--import=${pathToFileURL(join(DIR, "lib/devmode.mjs"))}`];
+  // Every check retries wrangler dev's dropped requests once, its own and its pages' (lib/proxyretry.mjs, #3808).
+  const imports = [`--import=${pathToFileURL(join(DIR, "lib/proxyretry.mjs"))}`];
+  if (!everyday) imports.push(`--import=${pathToFileURL(join(DIR, "lib/devmode.mjs"))}`);
+  env.BROWSER_CHECK = f;
   if (useShared) {
     imports.push(`--import=${pathToFileURL(join(DIR, "lib/shim.mjs"))}`);
     Object.assign(env, { BROWSER_SHIM_MAIN: f, BROWSER_SHIM_EXE: EXE, BROWSER_SHIM_WS: JSON.stringify({ default: shared.servers[slot % NB].wsEndpoint(), scrollbars: shared.sb.wsEndpoint() }) });

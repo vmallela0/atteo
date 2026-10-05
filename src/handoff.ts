@@ -34,7 +34,7 @@ export const isResult = (h: Handoff): h is HandoffResult => "of" in h;
 /** A full commit id (sha1 or sha256), lowercased, or an error naming the field. */
 export function fullSha(v: unknown, field: string): string {
   const s = typeof v === "string" ? v.trim().toLowerCase() : "";
-  if (!SHA_RE.test(s)) throw new HandoffError(`${field} must be a full commit id (40 hex characters; git rev-parse HEAD).`);
+  if (!SHA_RE.test(s)) throw new HandoffError(`${field} must be a full commit id (40 hex characters, or 64 in a SHA-256 repository; git rev-parse HEAD).`);
   return s;
 }
 

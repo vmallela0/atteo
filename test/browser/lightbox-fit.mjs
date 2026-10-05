@@ -67,4 +67,39 @@ for (const [width, height, scheme] of [[1280, 860, "light"], [390, 844, "light"]
   check(!errors.length, `${width}px ${scheme}: no page errors ${errors.join(" | ")}`);
   await ctx.close();
 }
+// Zoom (vedu's agent #2993): a click on a picture bigger than the screen shows it at full size, scrolled to where you
+// clicked; Esc (or a click) fits it again; a click off the picture closes; a small picture just closes.
+{ const ctx = await ctxFor(1280, 860, "light"), p = await ctx.newPage(), errors = []; p.on("pageerror", (e) => errors.push(e.message));
+  await p.goto(`${BASE}/b/${board}`);
+  const open = async (name) => { const f = p.locator("#thread .entry", { hasText: `${name} ${run}` }).locator("figure.img .img-open, figure.img [data-img]").first(); await f.scrollIntoViewIfNeeded(); await f.click();
+    await p.waitForFunction(() => { const i = document.getElementById("lightbox-img"); return document.getElementById("lightbox").open && i.complete && i.naturalWidth > 0 && document.getElementById("lightbox").classList.contains("zoomable") || i.naturalWidth <= 300; }, null, { timeout: 5000 }).catch(() => {}); };
+  const st = () => p.evaluate(() => { const d = document.getElementById("lightbox"), i = document.getElementById("lightbox-img"), r = i.getBoundingClientRect(); return { open: d.open, zoomed: d.classList.contains("zoomed"), w: Math.round(r.width), cursor: getComputedStyle(i).cursor, sl: Math.round(d.scrollLeft), st: Math.round(d.scrollTop), sw: d.scrollWidth, cw: d.clientWidth }; });
+  await open("wide"); // 1600×838, fitted to 1229 wide
+  const fit = await st();
+  await p.mouse.click(640 + 400, 430); // right of centre
+  await p.waitForFunction(() => document.getElementById("lightbox").classList.contains("zoomed"), null, { timeout: 3000 }).catch(() => {});
+  const z = await st();
+  check(fit.cursor === "zoom-in" && z.zoomed && z.w === 1600 && z.sw > z.cw && z.sl > 0, `a click on a big picture shows it at full size, scrolled toward the click (${JSON.stringify({ fit: fit.w, ...z })})`);
+  await p.mouse.move(500, 430); await p.mouse.down(); await p.mouse.move(700, 430, { steps: 5 }); await p.mouse.up();
+  const dragged = await st();
+  check(dragged.zoomed && dragged.sl < z.sl - 150, `dragging pans it, and letting go doesn't fit it again (scrollLeft ${z.sl} → ${dragged.sl})`);
+  await p.keyboard.press("Escape");
+  const back = await st();
+  check(back.open && !back.zoomed && back.w === fit.w, `Esc fits it again and the viewer stays open (${JSON.stringify(back)})`);
+  await p.mouse.click(640, 430); await p.mouse.click(640, 430); // zoom, then a click again
+  const again = await st();
+  check(again.open && !again.zoomed && again.w === fit.w, `a click on the zoomed picture fits it again (${JSON.stringify(again)})`);
+  // The keyboard: Z (or Enter) zooms and fits; while zoomed the arrows pan instead of going to another picture.
+  await p.keyboard.press("z"); const kz = await st();
+  await p.keyboard.press("ArrowRight"); await p.keyboard.press("ArrowRight"); const kp = await st();
+  await p.keyboard.press("Enter"); const kf = await st();
+  check(kz.zoomed && kp.zoomed && kp.sl > kz.sl && !kf.zoomed && kf.open, `Z zooms, the arrows pan while zoomed (scrollLeft ${kz.sl} → ${kp.sl}), Enter fits it again`);
+  await p.mouse.click(20, 20);
+  check(!(await st()).open, "a click off the picture closes the viewer");
+  await open("small");
+  const sm = await st();
+  check(sm.open && sm.cursor !== "zoom-in", `a small picture doesn't offer zoom (${JSON.stringify(sm)})`);
+  await p.mouse.click(640, 430);
+  check(!(await st()).open, "and a click on it closes, as before");
+  check(!errors.length, `zoom: no page errors ${errors.join(" | ")}`); await ctx.close(); }
 await b.close(); console.log(fails ? `${fails} FAILED` : "picture viewer fits: all passed"); process.exit(fails ? 1 : 0);

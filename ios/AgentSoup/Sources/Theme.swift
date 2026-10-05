@@ -412,14 +412,20 @@ struct DisplayPrefs: Codable, Equatable {
     /// False when the server's copy had no `voice_turns` (a server from before it): the phone's choice stands, and
     /// saves leave the key out.
     var voiceTurnsKnown = true
+    /// Messages (jxn #2690, the web's #2691): "off" shows every message whole; "others" folds the ones that aren't for
+    /// you to one line (OneLine.swift).
+    var compact: String = "off"
+    /// False when the server's copy had no `compact` (a server from before it): the phone's choice stands, and saves
+    /// leave the key out.
+    var compactKnown = true
 
     static let `default` = DisplayPrefs()
     /// xAI's voices, in the order the picker lists them (the server's tts.ts VOICES).
     static let voices = ["eve", "ara", "leo", "rex", "sal"]
 
-    private enum CodingKeys: String, CodingKey { case text, density, theme, lang, voice, replies, voiceTurns = "voice_turns" }
+    private enum CodingKeys: String, CodingKey { case text, density, theme, lang, voice, replies, voiceTurns = "voice_turns", compact }
 
-    init(text: String = "m", density: String = "comfortable", theme: String = "system", lang: String = "auto", voice: String = "eve", replies: String = "chat", voiceTurns: String = "pause") {
+    init(text: String = "m", density: String = "comfortable", theme: String = "system", lang: String = "auto", voice: String = "eve", replies: String = "chat", voiceTurns: String = "pause", compact: String = "off") {
         self.text = ["s", "m", "l"].contains(text) ? text : "m"
         self.density = ["comfortable", "compact"].contains(density) ? density : "comfortable"
         self.theme = ["system", "light", "dark"].contains(theme) ? theme : "system"
@@ -427,30 +433,36 @@ struct DisplayPrefs: Codable, Equatable {
         self.voice = Self.voices.contains(voice) ? voice : "eve"
         self.replies = ["chat", "thread"].contains(replies) ? replies : "chat"
         self.voiceTurns = VoiceTurns(rawValue: voiceTurns) != nil ? voiceTurns : "pause"
+        self.compact = ["off", "others"].contains(compact) ? compact : "off"
     }
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         let replies = try? c.decode(String.self, forKey: .replies)
         let turns = try? c.decode(String.self, forKey: .voiceTurns)
+        let compact = try? c.decode(String.self, forKey: .compact)
         self.init(text: (try? c.decode(String.self, forKey: .text)) ?? "m",
                   density: (try? c.decode(String.self, forKey: .density)) ?? "comfortable",
                   theme: (try? c.decode(String.self, forKey: .theme)) ?? "system",
                   lang: (try? c.decode(String.self, forKey: .lang)) ?? "auto",
                   voice: (try? c.decode(String.self, forKey: .voice)) ?? "eve",
                   replies: replies ?? "chat",
-                  voiceTurns: turns ?? "pause")
+                  voiceTurns: turns ?? "pause",
+                  compact: compact ?? "off")
         repliesKnown = replies != nil
         voiceTurnsKnown = turns != nil
+        compactKnown = compact != nil
     }
     static func == (a: DisplayPrefs, b: DisplayPrefs) -> Bool {
-        a.text == b.text && a.density == b.density && a.theme == b.theme && a.lang == b.lang && a.voice == b.voice && a.replies == b.replies && a.voiceTurns == b.voiceTurns
+        a.text == b.text && a.density == b.density && a.theme == b.theme && a.lang == b.lang && a.voice == b.voice && a.replies == b.replies && a.voiceTurns == b.voiceTurns && a.compact == b.compact
     }
-    /// "l,compact,dark", "l,compact,dark,zh-Hans", "l,compact,dark,zh-Hans,leo" or "l,compact,dark,zh-Hans,leo,thread"
+    /// "l,compact,dark", "l,compact,dark,zh-Hans", "l,compact,dark,zh-Hans,leo", "l,compact,dark,zh-Hans,leo,thread" or
+    /// "…,thread,others" (messages that aren't for you fold to one line)
     /// (the DEBUG ATTEO_DISPLAY override for simulator screenshots).
     init?(spec: String) {
         let p = spec.split(separator: ",").map(String.init)
-        guard (3...6).contains(p.count) else { return nil }
-        self.init(text: p[0], density: p[1], theme: p[2], lang: p.count >= 4 ? p[3] : "auto", voice: p.count >= 5 ? p[4] : "eve", replies: p.count == 6 ? p[5] : "chat")
+        guard (3...7).contains(p.count) else { return nil }
+        self.init(text: p[0], density: p[1], theme: p[2], lang: p.count >= 4 ? p[3] : "auto", voice: p.count >= 5 ? p[4] : "eve", replies: p.count >= 6 ? p[5] : "chat",
+                  compact: p.count == 7 ? p[6] : "off")
     }
 
     var chatDensity: ChatDensity { density == "compact" ? .compact : .comfortable }
@@ -459,11 +471,14 @@ struct DisplayPrefs: Codable, Equatable {
     var textSteps: Int { text == "s" ? -2 : text == "l" ? 1 : 0 }
     /// Replies stay in their thread (the chat shows "N replies" instead).
     var repliesInThread: Bool { replies == "thread" }
+    /// Messages that aren't for you fold to one line (OneLine.swift).
+    var foldOthers: Bool { compact == "others" }
     /// What's saved: everything, or without `replies` / `voice_turns` for a server that doesn't take them yet.
-    func body(replies withReplies: Bool = true, turns withTurns: Bool = true) -> [String: String] {
+    func body(replies withReplies: Bool = true, turns withTurns: Bool = true, compact withCompact: Bool = true) -> [String: String] {
         var b = ["text": text, "density": density, "theme": theme, "lang": lang, "voice": voice]
         if withReplies { b["replies"] = replies }
         if withTurns { b["voice_turns"] = voiceTurns }
+        if withCompact { b["compact"] = compact }
         return b
     }
 }

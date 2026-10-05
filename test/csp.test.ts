@@ -3,7 +3,7 @@ import { page, appPage, formActionSource, CSP_ENFORCE, CSP_REPORT_PATH, VOICE_SO
 import { consentPage } from "../src/oauthPage";
 import { trackCapped } from "../src/usage";
 import type { Env } from "../src/types";
-import { landingPage, boardPage, mePage, PREVIEW_FRAME_CSP, PREVIEW_FRAME_HTML } from "../src/html";
+import { landingPage, boardPage, boardTail, mePage, PREVIEW_FRAME_CSP, PREVIEW_FRAME_HTML } from "../src/html";
 import { REALTIME_URL } from "../src/voice";
 import { MERMAID_JS, MERMAID_SRC, MERMAID_SRI } from "../src/mermaid";
 import { allow, blockedKey, handleReport, parseReports, MAX_KEYS_PER_DAY, OVERFLOW_KEY } from "../src/csp";
@@ -74,7 +74,8 @@ describe("CSP follow-ups (opus-b #2678, jxn's agent #2681)", () => {
 
   it("the HTML preview runs from its own shell with its own CSP, and never gets the page's nonce", async () => {
     const res = boardPage(viewer, [], board, [], [], []);
-    const html = await res.text();
+    // The preview's code is in the board's tail script (/board-tail.js): read the page with it put back inline.
+    const html = (await res.text()).replace(/<script src="\/board-tail\.js\?f=([01]{4})(?:&amp;|&)v=[^"]+"[^>]*><\/script>/, (_, f) => `<script>${boardTail(f)!.js}</script>`);
     const nonce = policyOf(res).match(/'nonce-([a-f0-9]{32})'/)![1];
     expect(html).toContain("fr.src='/preview-frame?'");
     expect(html).not.toContain("srcdoc=");

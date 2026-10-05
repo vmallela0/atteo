@@ -7,7 +7,7 @@ import { chartHtml } from "./chart";
 import { STATUS_CSS, statusHtml } from "./status";
 import { highlightMentions, type Mention } from "./mentions";
 import { MERMAID_CSS, MERMAID_JS, MERMAID_SRC, mermaidHtml } from "./mermaid";
-import { CODE_COLOR_CSS, CODE_COLOR_JS } from "./codecolor";
+import { CODE_COLOR_CSS, CODE_COLOR_JS, fnv } from "./codecolor";
 import { TALK_CSS } from "./talk";
 import { esc } from "./util";
 import { clientTable, dirOf, tr, type Lang } from "./i18n";
@@ -69,6 +69,7 @@ const DARK = `  --bg:#0E0E0E;--bg-subtle:#171716;--bg-hover:#1F1E1C;--line:#2A29
 const FONT_PRELOAD = `<link rel="preload" href="/fonts/onest-latin.woff2?v=${FONT_V}" as="font" type="font/woff2" crossorigin>`;
 
 export const CSS = `
+#thread-scroll[data-wait]>#thread{visibility:hidden} /* until the board script has placed it (html.ts) */
 :root{
   /* The design language (#2508), neutral (jxn #2858): ink on paper, bone and stone around it, graphite for secondary
      text. The one accent is oxblood, only on a view's single primary action (Post, the main call to action); --cone is
@@ -295,6 +296,8 @@ dialog[open]{animation:pop .16s ease-out}dialog:focus{outline:none}@media (prefe
 .entry .fbadge{height:18px;font-size:11px;color:var(--warn);border-color:color-mix(in srgb,var(--warn) 40%,var(--line))}
 .entry .fbadge.quoted{color:var(--muted);border-color:var(--line)}
 .entry.retracted>.grow>.body,.entry.retracted>.grow>.file{text-decoration:line-through;text-decoration-color:var(--faint);opacity:.55}
+.body.purged p{color:var(--muted);font-style:italic} /* purged (#3853): the placeholder, not the words */
+#purge-dlg .pg-rotate{margin:0}
 .entry.retracted>.grow>.meta .rbadge{display:inline-flex}
 /* Display (Account → Display): text size and density for the chat; saved per person so web and app match. */
 :root[data-text="s"] .entry .body{font-size:12.5px}:root[data-text="s"] .entry .meta{font-size:12px}
@@ -422,6 +425,11 @@ a.ev-acct:hover{background:var(--bg-subtle)}
 .ag-dot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:6px;vertical-align:1px;box-sizing:border-box}.ag-dot.idle{background:var(--muted);opacity:.7}.ag-dot.gone{border:1.5px solid var(--faint)}
 .ag-row[data-state="gone"] .ag-name{color:var(--muted)}
 .ag{padding-bottom:14px;margin-bottom:14px;border-bottom:1px solid var(--line)}
+/* Board info → Charter */
+.ch-lead{margin:0 0 8px}.ch-dl{margin:0}.ch-dl dt{margin-top:8px;font-size:11px;letter-spacing:.02em;text-transform:uppercase;color:var(--faint)}.ch-dl dd{margin:2px 0 0;font-size:13px;color:var(--text);white-space:pre-wrap}
+.ch-classes{display:flex;flex-wrap:wrap;gap:4px}.ch-members{list-style:none;margin:0;padding:0}.ch-members li{font-size:13px;padding:2px 0}
+#ch-form:not([hidden]),#ch-notes{display:flex;flex-direction:column;gap:8px;margin-top:8px}.ch-note{display:flex;align-items:center;gap:8px}.ch-note .xs{width:7em;flex:none}
+.ch-err{color:var(--danger);min-height:1em;margin:0}#ch-form .lbl{margin:0}
 .kill{display:flex;align-items:center;gap:14px;margin-top:12px;padding:12px 14px;border:1px solid color-mix(in srgb,var(--danger) 30%,var(--line));border-radius:var(--r)}.kill b{color:var(--ink);font-size:13px}.kill p{margin:2px 0 0}
 .at-btn{width:30px;padding:0;justify-content:center;font-weight:600;font-size:14px;color:var(--muted)}.at-btn:hover{color:var(--ink)}
 /* quotes (forwarded messages) */
@@ -473,6 +481,13 @@ a.ev-acct:hover{background:var(--bg-subtle)}
 .acc-sug[hidden]{display:none}.acc-sug li{display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:6px;font-size:13px;cursor:pointer;min-width:0}
 .acc-sug li[aria-selected="true"],.acc-sug li:hover{background:var(--bg-hover)}
 .acc-list{list-style:none;margin:8px 0 0;padding:0;display:flex;flex-direction:column;gap:8px}
+/* Access across your boards (#3568): each owned board's grants under it; a mark on what's worth reviewing */
+.acc-all-g{list-style:none;margin:6px 0 0;padding:0 0 0 12px;border-left:2px solid var(--line);display:grid;gap:6px}
+.acc-all-r{display:flex;align-items:center;gap:8px;min-width:0}.acc-all-r .grow{min-width:0;overflow-wrap:anywhere}.acc-rv{color:var(--warn);font-weight:500}
+.sr-list{list-style:none;margin:0;padding:0;display:grid;gap:6px}.sr-row{display:flex;align-items:center;gap:8px;min-width:0}.sr-row .grow{min-width:0;overflow-wrap:anywhere}
+.sr-form{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:12px;padding-top:12px;border-top:1px solid var(--line)}.sr-form .input{width:auto;flex:1 1 150px;min-width:0}.sr-form [hidden]{display:none}.sr-err{color:var(--danger);margin:0;flex-basis:100%}
+@media (max-width:600px){.sr-form [name="action"]{flex-basis:100%}}
+.acc-dl{margin:10px 0 0} /* the full access log as JSON (#3375): the list above is only the latest 50 */
 .sum h3 .linkish,.linkish{border:0;background:none;padding:0;font:inherit;font-size:12px;color:var(--accent);cursor:pointer;text-decoration:underline;text-underline-offset:2px}.linkish:hover{text-decoration-thickness:2px}
 /* view-only members: nothing that writes */
 .ro .composer,.ro [data-qr],.ro [data-rx-add],.ro button[data-reply],.ro .rx-add,.ro [data-tk],.ro .kb-new,.ro #doc-new,.ro #doc-edit{display:none!important}
@@ -517,6 +532,8 @@ a.ev-acct:hover{background:var(--bg-subtle)}
 @media(max-width:640px){.tk{flex-wrap:nowrap}.tk>.tk-st,.tk>.btn{flex:none}.tk>.tk-prog{min-width:0}.tk-bar{width:28px}.tk>.tk-who:empty{display:none}.tk>.btn.sm{padding:0 7px}}
 @media(max-width:360px){.tk-bar{display:none}}
 /* approval card (conversation and Inbox): the exact command, where it stands, Approve / Deny for the person asked */
+.qr{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}.qr[hidden]{display:none}.qr-b{gap:6px;max-width:100%;border-radius:999px}.qr-t{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.qr-k{font:inherit;font-size:10.5px;min-width:16px;height:16px;line-height:16px;padding:0 3px;border-radius:4px;border:1px solid var(--line);color:var(--muted);background:var(--bg)}@media(hover:none){.qr-k{display:none}}
 .apc{margin-top:8px;max-width:640px}.apc>.tk{margin-top:0}.apc-cmd{margin:0 0 6px;max-height:220px;overflow:auto;padding:8px 10px;border-radius:8px;background:var(--bg-subtle);border:1px solid var(--line);font-size:12px;line-height:1.5;white-space:pre-wrap;word-break:break-word}
 .apc .tk-st .dot{background:var(--warn)}.apc.st-approved .tk-st .dot{background:var(--ok)}.apc.st-rejected .tk-st .dot{background:var(--danger)}.apc.st-expired .tk-st .dot{background:var(--muted)}
 .apc.st-approved .tk-st{color:var(--ok)}.apc.st-rejected .tk-st,.apc.st-expired .tk-st{color:var(--muted)}
@@ -602,6 +619,11 @@ a.ev-acct:hover{background:var(--bg-subtle)}
 :root dialog.lightbox{padding:0;border:0;background:transparent;box-shadow:none;width:fit-content;height:fit-content;max-width:min(96vw,1600px);max-height:92vh;cursor:zoom-out}
 dialog.lightbox::backdrop{background:rgba(0,0,0,.78)}
 dialog.lightbox img{display:block;max-width:min(96vw,1600px);max-height:92vh;width:auto;height:auto;border-radius:8px}
+/* Zoom (a picture bigger than the screen): a click shows it at full size in a viewer the size of the screen, panned by
+   scrolling or dragging; a click again fits it again. */
+dialog.lightbox.zoomable img{cursor:zoom-in}
+:root dialog.lightbox.zoomed{display:grid;width:100vw;height:100dvh;max-width:none;max-height:none;margin:0;overflow:auto;overscroll-behavior:contain;cursor:grab}
+dialog.lightbox.zoomed img{max-width:none;max-height:none;margin:auto;border-radius:0;cursor:zoom-out}
 .lb-nav{position:fixed;top:50%;transform:translateY(-50%);width:44px;height:44px;border-radius:50%;border:0;background:rgba(0,0,0,.55);color:var(--on-fill);font-size:28px;line-height:1;cursor:pointer;display:grid;place-items:center;padding:0 0 3px}
 .lb-nav:hover{background:rgba(0,0,0,.75)}.lb-nav[hidden],.lb-count[hidden]{display:none}
 .lb-prev{left:max(8px,env(safe-area-inset-left))}.lb-next{right:max(8px,env(safe-area-inset-right))}
@@ -910,6 +932,7 @@ mark{background:var(--mark);color:inherit;border-radius:2px;padding:0 1px}
 .kcol h3{font-size:12.5px;font-weight:600;color:var(--ink);margin:2px 4px 8px}
 .kcards{display:flex;flex-direction:column;gap:6px}
 .kcard{background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:8px 10px;cursor:grab;display:flex;flex-direction:column;gap:4px}
+.kcard:focus-visible,#kanban:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .kcard:hover{border-color:color-mix(in srgb,var(--ink) 25%,var(--line))}
 .kcard.dragging{opacity:.5}
 .kres{display:flex;align-items:center;gap:6px;flex-wrap:wrap}.kres-l{color:var(--accent)}.kres-l:hover{text-decoration:underline}.kres .btn{margin-left:auto;padding:1px 10px}
@@ -948,6 +971,11 @@ mark{background:var(--mark);color:inherit;border-radius:2px;padding:0 1px}
 .bp-pic{all:unset;cursor:pointer;display:inline-flex;flex:none;border-radius:7px}.bp-pic:hover .bpic{filter:brightness(.92)}.bp-pic:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .bpic-row{gap:12px;margin-bottom:12px}
 .sidebar .me{margin-top:auto;border-top:1px solid var(--line);padding-top:8px}
+/* Report a bug: conspicuous on purpose (jxn #3336) — a bordered button of its own above the account row. */
+.bug-btn{border:1px solid var(--line-strong);border-radius:8px;height:34px;margin:10px 2px 2px;color:var(--muted);background:transparent} /* a <button>: the UA's ButtonFace (#6b6b6b in dark) would sit under the muted text — axe contrast (moby #3957) */
+.bug-btn:hover{color:var(--ink);background:var(--bg-hover)}
+#bug .bd{padding:14px 0 4px}
+.bug-private{display:flex;align-items:center;justify-content:center;min-height:44px;border:1px dashed var(--line-strong);border-radius:8px;color:var(--muted);font-size:13px;margin:10px 0;padding:0 10px;text-align:center}
 .topbar{position:sticky;top:0;z-index:10;height:48px;display:flex;align-items:center;gap:12px;padding:0 20px;border-bottom:1px solid var(--line);
   background:color-mix(in srgb,var(--bg) 85%,transparent);backdrop-filter:saturate(180%) blur(10px);-webkit-backdrop-filter:saturate(180%) blur(10px)}
 .topbar .crumbs{margin:0;display:flex;align-items:center;gap:8px;min-width:0;font-size:13px}
@@ -1185,6 +1213,12 @@ a.ref:hover{color:var(--ink);background:color-mix(in srgb,var(--accent) 12%,var(
 :root[data-compact="others"]:not([data-ol-all]) #thread>.entry.ol:not(.ol-open)>.grow>.body *{display:inline;margin:0;padding:0;border:0;background:none;font-size:inherit;font-weight:inherit;white-space:nowrap}
 :root[data-compact="others"]:not([data-ol-all]) #thread>.entry.ol:not(.ol-open)>.grow>.body br,:root[data-compact="others"]:not([data-ol-all]) #thread>.entry.ol:not(.ol-open)>.grow>.body img,:root[data-compact="others"]:not([data-ol-all]) #thread>.entry.ol:not(.ol-open)>.grow>:not(.meta):not(.body),:root[data-compact="others"]:not([data-ol-all]) #thread>.entry.ol:not(.ol-open) .acts,:root[data-compact="others"]:not([data-ol-all]) #thread>.entry.ol:not(.ol-open) .more-acts,:root[data-compact="others"]:not([data-ol-all]) #thread>.entry.ol:not(.ol-open)>.rd{display:none}
 :root:not([data-compact="others"]) .ol-all{display:none}
+.mu-line{display:none}
+.entry.mu:not(.mu-open)>:not(.mu-line){display:none!important} /* a muted member's post: one line until opened (#3602) */
+.entry.mu:not(.mu-open){padding-top:3px;padding-bottom:3px}
+.entry.mu:not(.mu-open)>.mu-line{display:block;background:none;border:0;padding:2px 0;font:inherit;font-size:12.5px;color:var(--faint);cursor:pointer;text-align:left}
+.mu-line:hover{color:var(--muted)}
+.rp-err{color:var(--danger);margin:0}
 :root[data-compact="others"] #thread>.entry.ol:focus-visible{outline:2px solid var(--accent);outline-offset:-2px;border-radius:6px}
 :root[data-replies="thread"] #thread>.entry[data-root],:root[data-replies="thread"] #thread>.ghost[data-root]{display:none} /* replies only in their threads (vedu #2360) */
 :root[data-pf] #thread>.entry.by-agent,:root[data-pf] #thread>.ghost.by-agent,:root[data-pf] .thr-dlg:not(.thr-all) .thr-list>.entry.by-agent:not(:first-child){display:none}
@@ -1259,11 +1293,10 @@ ${v ? `<nav class="links">${link("/", esc(tr(opts.lang, "Boards")), "boards")}</
 <title>${esc(title)}</title>
 ${FONT_PRELOAD}
 <link rel="icon" href="/favicon.svg" type="image/svg+xml"><link rel="apple-touch-icon" href="/apple-touch-icon.png">
-<style>${FONT_CSS}
-${CSS}</style>${DISPLAY_HEAD.replace("<script>", `<script nonce="${security.nonce}">`)}</head><body>${WORDMARK_DEFS}${nav}
+<link rel="stylesheet" href="${APP_CSS_SRC}">${DISPLAY_HEAD.replace("<script>", `<script nonce="${security.nonce}">`)}</head><body>${WORDMARK_DEFS}${nav}
 <main${opts.narrow ? ' class="narrow"' : ""}>${body}</main>
 <div id="toast" role="status" aria-live="polite"></div>
-<script nonce="${security.nonce}">${CLIENT_JS}${opts.script ?? ""}</script></body></html>`;
+<script src="${APP_JS_SRC}" nonce="${security.nonce}"></script>${opts.script ? `<script nonce="${security.nonce}">${opts.script}</script>` : ""}</body></html>`;
   const headers = new Headers(opts.headers);
   headers.set("content-type", "text/html; charset=utf-8");
   for (const [name, value] of Object.entries(security.headers)) headers.set(name, value);
@@ -1561,6 +1594,14 @@ document.addEventListener('submit',async e=>{
 ${MERMAID_JS}
 ${CODE_COLOR_JS}`;
 
+// Every page's stylesheet and shell script, served by the Worker as /app.css and /app.js (index.ts), versioned by a hash of
+// their text and cached for good: a page no longer carries ~135KB of CSS and ~40KB of JS inline on every navigation, and
+// the script gets V8's code cache. A page's own script stays inline (it carries that page's data) and runs after it.
+export const APP_CSS = `${FONT_CSS}\n${CSS}`;
+export const APP_CSS_SRC = `/app.css?v=${fnv(APP_CSS)}`;
+export const APP_JS = CLIENT_JS;
+export const APP_JS_SRC = `/app.js?v=${fnv(APP_JS)}`;
+
 // ---------- app shell (signed-in pages) ----------
 
 const ICON = {
@@ -1575,6 +1616,7 @@ const ICON = {
   menu: `<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M2 4h12M2 8h12M2 12h12"/></svg>`,
   plus: `<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M8 3v10M3 8h10"/></svg>`,
   guide: `<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" aria-hidden="true"><path d="M8 4.2C6.6 3 4.6 2.6 2.5 2.8v9.6c2.1-.2 4.1.2 5.5 1.4 1.4-1.2 3.4-1.6 5.5-1.4V2.8c-2.1-.2-4.1.2-5.5 1.4z"/><path d="M8 4.2v9.6"/></svg>`,
+  bug: `<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" aria-hidden="true"><circle cx="8" cy="9" r="4"/><path d="M8 5V3.2M5.2 5.6L4 4.2M10.8 5.6L12 4.2M2.5 8.5h1.6M11.9 8.5h1.6M3.6 12l1.5-.9M12.4 12l-1.5-.9M5.5 10.9h5"/></svg>`,
 };
 
 export interface SideBoard {
@@ -1673,6 +1715,7 @@ export function appPage(
   <div class="side-label"><span>${esc(T("Your boards"))}</span><a href="/?new=1" title="${esc(T("New board (C)"))}" aria-label="${esc(T("New board"))}">${ICON.plus}</a></div>
   ${sideBoards || `<p class="xs faint" style="padding:2px 9px">${esc(T("No boards yet"))}</p>`}
   <div class="side-label"><span>${esc(T("DMs"))}</span></div>${sideOwn}${sideDirect}
+  <button class="side-link bug-btn" type="button" data-bug data-bug-src="${BUG_JS_SRC}">${ICON.bug}<span>${esc(T("Report a bug"))}</span></button>
   <div class="me"><a class="side-link" href="/me">${avatar(v.name, "sm")}<span class="truncate">${esc(v.name)}</span></a>
 </div>
 </aside>
@@ -1686,6 +1729,13 @@ export function appPage(
 <div class="pal-in"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><circle cx="7" cy="7" r="4.5"/><path d="m10.5 10.5 3 3"/></svg><span class="pal-chips" id="pal-chips"></span><input class="input" id="palette-q" placeholder="${esc(T("Search messages, files, boards and actions…"))}" autocomplete="off" aria-label="Search" aria-controls="palette-list"></div>
 <div class="pal-filters" id="pal-filters" aria-label="${esc(T("Filters"))}"></div>
 <ul id="palette-list" role="listbox"></ul><div class="foot"><span><kbd>↑</kbd> <kbd>↓</kbd> ${esc(T("move"))}</span><span><kbd>↵</kbd> ${esc(T("open"))}</span><span><kbd>⌫</kbd> ${esc(T("remove filter"))}</span><span><kbd>esc</kbd> ${esc(T("close"))}</span></div></dialog>
+<dialog id="bug"><div class="hd"><div><h2>${esc(T("Report a bug"))}</h2><p class="muted small" style="margin-top:4px">${esc(T("It goes to the developers with a screenshot of this page and what was on it. Take the private bits off the description; the screenshot below is what they see."))}</p></div><button class="btn ghost sm" data-close aria-label="${esc(T("Close"))}">✕</button></div>
+<div class="bd"><form id="bug-form">
+  <img id="bug-shot" alt="${esc(T("Screenshot of this page"))}" style="max-width:100%;max-height:300px;border:1px solid var(--line);border-radius:8px;display:block">
+  <p class="muted small" id="bug-shotless" hidden style="margin:6px 0">${esc(T("No screenshot — the page couldn't be captured; the description helps all the more."))}</p>
+  <textarea id="bug-text" rows="4" required minlength="8" maxlength="4000" placeholder="${esc(T("What happened? What did you expect?"))}" style="width:100%;margin-top:12px;resize:vertical"></textarea>
+  <div class="row" style="justify-content:flex-end;margin-top:14px;gap:8px"><button type="button" class="btn ghost sm" id="bug-remove" hidden>${esc(T("Remove screenshot"))}</button><button class="btn primary" type="submit" id="bug-send">${esc(T("Send report"))}</button></div>
+</form></div></dialog>
 <dialog id="shortcuts"><div class="hd"><h2>${esc(T("Keyboard shortcuts"))}</h2><button class="btn ghost sm" data-close aria-label="${esc(T("Close"))}">✕</button></div>
 <div class="bd"><dl class="kv">
 <dt><kbd>⌘K</kbd> <kbd>/</kbd></dt><dd>${esc(T("Search or jump to a board"))}</dd>
@@ -1702,7 +1752,7 @@ export function appPage(
 <dt><kbd>G</kbd> ${esc(T("then"))} <kbd>I</kbd> <kbd>A</kbd> <kbd>B</kbd> <kbd>P</kbd> <kbd>M</kbd></dt><dd>${esc(T("Go to Inbox / Approvals / Boards / People / Account"))}</dd>
 <dt><kbd>?</kbd></dt><dd>${esc(T("This list"))}</dd></dl></div></dialog>
 <script>window.PALETTE=${JSON.stringify(paletteItems).replace(/</g, "\\u003c")};${v.admin ? "window.OPS=1;" : ""}</script>`;
-  return rawPage(title, body, (opts.script ?? "") + SHELL_JS + INBOX_JS + LIVE_JS + MARK_UNREAD_JS + PINS_JS, opts.status, v.lang ?? "en");
+  return rawPage(title, body, (opts.script ?? "") + scriptSrc(SHELL_JS_SRC), opts.status, v.lang ?? "en");
 }
 
 const PINS_JS = `
@@ -1728,7 +1778,7 @@ window.inboxRefresh=async()=>{try{const r=await fetch('/api/inbox/count?tz='+tz)
     dgAt=due;try{localStorage.setItem('inbox-dg-at',String(due))}catch{}}
   if(l&&l.created_at>seen){if(l.kind!=='manual_unread'&&seen&&(!l.interrupt||l.interrupt==='now')&&can&&!(document.visibilityState==='visible'&&location.pathname==='/b/'+l.board_id)){
     const ap=l.kind==='approval',who=ap?'Your agent':l.actor_via==='agent'?l.actor+"'s agent":l.actor;
-    const n=new Notification(who+(ap?' is asking for your approval':l.kind==='mention'?' mentioned you':l.kind==='decision'?' asks for a decision':l.kind==='reply'?' replied to you':l.kind==='friend_request'?' wants to be friends':l.kind==='friend_accept'?' accepted your request':' wrote to your agent'),{body:l.excerpt,tag:'inbox-'+l.id});
+    const n=new Notification(who+(ap?' is asking for your approval':l.kind==='mention'?' mentioned you':l.kind==='decision'?' asks for a decision':l.kind==='reply'?' replied to you':l.kind==='friend_request'?' wants to be friends':l.kind==='friend_accept'?' accepted your request':l.kind==='report'?' reported a post to you, as an owner':' wrote to your agent'),{body:l.excerpt,tag:'inbox-'+l.id});
     n.onclick=()=>{window.focus();location.href=ap?'/approvals':l.board_id?'/b/'+l.board_id+'#e'+l.seq:'/people'}}
   seen=l.created_at;try{localStorage.setItem('inbox-seen',String(seen))}catch{}}}catch{}};
 inboxRefresh();setInterval(inboxRefresh,60000);document.addEventListener('visibilitychange',()=>{if(!document.hidden)inboxRefresh()})})();`;
@@ -1740,22 +1790,108 @@ window.liveRefresh=async()=>{if(document.hidden)return;try{const r=await fetch('
   document.querySelectorAll('[data-live]').forEach(el=>{const k=n[el.dataset.live]||0;el.hidden=!k;el.title=k+' agent'+(k===1?'':'s')+' working now';el.querySelector('.wk-n').textContent=k+' working'})}catch{}};
 setInterval(liveRefresh,60000);document.addEventListener('visibilitychange',()=>{if(!document.hidden)liveRefresh()})})();`;
 
+/** In a page's script, loads a cached script file at this point (rawPage splits the inline script around it). */
+export const scriptSrc = (src: string): string => `\u0000${src}\u0000`;
+// The page's inline script, with any scriptSrc() parts as their own <script src> between inline parts, in order.
+// …and fetched from the head on, so it's there (usually from the cache) by the time the parser reaches it.
+const scriptPreloads = (script: string): string =>
+  script
+    .split("\u0000")
+    .filter((_, i) => i % 2)
+    .map((src) => `<link rel="preload" as="script" href="${esc(src)}">`)
+    .join("");
+const pageScripts = (script: string, nonce: string): string =>
+  script
+    .split("\u0000")
+    .map((part, i) => (i % 2 ? `<script src="${esc(part)}" nonce="${nonce}"></script>` : part ? `<script nonce="${nonce}">${part}</script>` : ""))
+    .join("");
+// Report a bug (jxn #3336, glm-b #3343): the sidebar button captures the page as a PNG in the browser (the DOM is
+// cloned into an SVG foreignObject and drawn on a canvas — no dependency, no permission prompt; webfonts fall back
+// to system ones in the capture), shows it with a way to remove it (moby #3342 (3)), and posts it with the note and
+// context to POST /api/bugs (glm-a #3341; 501 when the bug board isn't set up). Recent console errors ride along.
+const BUG_JS = `
+(()=>{let shot=null;const errs=[];const MAX=2*1024*1024;
+window.addEventListener('error',e=>{errs.push(String(e.message||e.error).slice(0,300))});
+window.addEventListener('unhandledrejection',e=>{errs.push(String(e.reason).slice(0,300))});
+// Privacy (opus-d's review of #3351): the report goes to a board agents read, and an image gets past every text
+// filter — so in any capture, People-only and Just-mine entries are replaced with a placeholder, and the composer
+// too while a privacy lock (🔒) is on: what the capture may never show is what those marks say agents can't see.
+const scrub=(doc)=>{const p=doc.createElement('div');p.className='bug-private';p.textContent='🔒 '+tr('private — hidden from this report');
+  doc.querySelectorAll('.badge.po').forEach(b=>{const e=b.closest('.entry');if(e)e.replaceWith(p.cloneNode(true))});
+  doc.querySelectorAll('.po-lock').forEach(l=>{const r=l.closest('.row,.entry,li,article')||l;if(r)r.replaceWith(p.cloneNode(true))}); // Inbox / For you rows (opus-d #3380)
+  const pn=doc.querySelector('#po-note'),f=doc.querySelector('form.composer');
+  if(pn&&!pn.hidden&&f)f.replaceWith(p.cloneNode(true));
+  doc.querySelectorAll('#lightbox').forEach(l=>l.remove()); // an open lightbox shows a picture with no badge (opus-d #3380)
+  doc.querySelectorAll('#bug').forEach(d=>d.removeAttribute('open'));return doc};
+// The capture: html2canvas (self-hosted by the /api/bugs endpoint, lazy-loaded once on first use — glm-a #3364)
+// draws the real page, webfonts and images in; if it won't load, a dependency-free SVG foreignObject fallback
+// draws the clone (system fonts, no external images). Both render a closed #bug dialog and scrubbed privacy.
+let h2c=null;const html2canvas=()=>h2c=h2c||new Promise((res)=>{if(window.html2canvas)return res(true);const s=document.createElement('script');s.src='/vendor/html2canvas.min.js';s.onload=()=>res(true);s.onerror=()=>res(false);document.head.appendChild(s)});
+const fallback=()=>new Promise((res)=>{try{
+  const cw=Math.min(innerWidth,1024),ch=innerHeight; // full viewport height, width capped
+  const clone=scrub(document.documentElement.cloneNode(true));
+  clone.querySelectorAll('script').forEach(s=>s.remove());
+  const svg='<svg xmlns="http://www.w3.org/2000/svg" width="'+cw+'" height="'+ch+'"><foreignObject width="100%" height="100%">'+new XMLSerializer().serializeToString(clone)+'</foreignObject></svg>';
+  const img=new Image();
+  img.onload=()=>{try{const c=document.createElement('canvas');c.width=cw;c.height=ch;const g=c.getContext('2d');if(!g)return res(null);
+    g.fillStyle=getComputedStyle(document.body).backgroundColor||'#fff';g.fillRect(0,0,cw,ch);g.drawImage(img,0,0,cw,ch);
+    const url=c.toDataURL('image/png');res(url.length<=MAX+70000?url:null)}catch(e){res(null)}};
+  img.onerror=()=>res(null);
+  img.src='data:image/svg+xml;charset=utf-8,'+encodeURIComponent(svg);
+}catch(e){res(null)}});
+const capture=async()=>{if(!(await html2canvas()))return fallback();try{
+  const c=await window.html2canvas(document.body,{backgroundColor:getComputedStyle(document.body).backgroundColor||'#fff',logging:false,
+    onclone:(d)=>{scrub(d);d.querySelectorAll('script').forEach(s=>s.remove())}}); // scrub also drops #lightbox and the #bug dialog
+  const url=c.toDataURL('image/png');return url.length<=MAX+70000?url:fallback();
+}catch(e){return fallback()}};
+const show=(d)=>{const img=document.getElementById('bug-shot'),rm=document.getElementById('bug-remove'),less=document.getElementById('bug-shotless');
+  if(!img)return;img.hidden=!d;rm.hidden=!d;less.hidden=!!d;if(d)img.src=d};
+const run=async()=>{const d=document.getElementById('bug');if(!d)return;
+  document.getElementById('bug-text').value='';shot=null;show(null);d.showModal(); // the dialog is up while the capture runs (it's scrubbed out of the image)
+  const cap=document.getElementById('bug-send');cap.disabled=true;cap.textContent=tr('Taking the screenshot…');
+  shot=await capture();cap.disabled=false;cap.textContent=tr('Send report');show(shot)};
+document.addEventListener('click',e=>{if(e.target.closest('[data-bug]'))run()});
+run(); // bug.js is only loaded on a bug click: that first click is this run
+document.addEventListener('click',e=>{if(e.target.id!=='bug-remove')return;shot=null;show(null)});
+document.getElementById('bug-form')?.addEventListener('submit',async e=>{e.preventDefault();
+  const t=document.getElementById('bug-text').value.trim();if(t.length<8)return;
+  const send=document.getElementById('bug-send');send.disabled=true;
+  try{const r=await fetch('/api/bugs',{method:'POST',headers:{'content-type':'application/json'},
+    body:JSON.stringify({note:t,path:location.pathname+location.hash,screenshot:shot,
+      context:{board:(window.BOARD_CTX||{}).id||null,os:navigator.platform,viewport:innerWidth+'x'+innerHeight,errors:errs.slice(-5)}})});
+    const j=await r.json().catch(()=>({}));
+    if(r.status===501){toast(tr("Bug reporting isn't set up yet — the developers will enable it soon."));return}
+    if(!r.ok)throw Error(j.error||tr('Could not send it'));
+    document.getElementById('bug').close();toast(tr('Report sent — thank you.'));errs.length=0;
+  }catch(err){toast(err.message||tr('Could not send it'))}finally{send.disabled=false}});
+})();`;
+
+// Board switches feel instant (#3717): a board link held under the pointer for a moment (Chrome's "moderate") has its
+// page fetched ahead, so the click only renders. Opening a board changes nothing on the server (nothing is marked read);
+// browsers without speculation rules ignore it. App pages name the rules in a Speculation-Rules header (index.ts serves
+// the file), so there's no inline JSON script for the CSP or the script checks to deal with.
+export const BOARD_PREFETCH_RULES = JSON.stringify({ prefetch: [{ source: "document", where: { href_matches: "/b/*" }, eagerness: "moderate" }] });
+export const BOARD_PREFETCH_PATH = "/speculation-rules.json";
+// Report a bug (jxn #3336, glm-b #3343): the sidebar button captures the page as a PNG in the browser (the DOM is
 function rawPage(title: string, body: string, script: string, status = 200, lang: Lang = "en"): Response {
   const security = pageSecurity();
   const html = `<!doctype html><html lang="${lang}"${dirOf(lang as Lang) === "rtl" ? ' dir="rtl"' : ""}><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${esc(title)}</title>
-${FONT_PRELOAD}
+${FONT_PRELOAD}${scriptPreloads(script)}
 <link rel="icon" href="/favicon.svg" type="image/svg+xml"><link rel="apple-touch-icon" href="/apple-touch-icon.png">
-<style>${FONT_CSS}
-${CSS}</style>${DISPLAY_HEAD.replace("<script>", `<script nonce="${security.nonce}">`)}</head><body>${WORDMARK_DEFS}${body.replace("<script>window.PALETTE=", `<script nonce="${security.nonce}">window.PALETTE=`)}
+<link rel="stylesheet" href="${APP_CSS_SRC}">${DISPLAY_HEAD.replace("<script>", `<script nonce="${security.nonce}">`)}</head><body>${WORDMARK_DEFS}${body.replace("<script>window.PALETTE=", `<script nonce="${security.nonce}">window.PALETTE=`)}
 <div id="toast" role="status" aria-live="polite"></div>
-${lang === "en" ? "" : `<script nonce="${security.nonce}">window.I18N=${clientTable(lang)}</script>`}<script nonce="${security.nonce}">${CLIENT_JS}${script}</script></body></html>`;
-  return new Response(html, { status, headers: { "content-type": "text/html; charset=utf-8", "content-language": lang, vary: "Accept-Language, Cookie", ...security.headers } });
+${lang === "en" ? "" : `<script nonce="${security.nonce}">window.I18N=${clientTable(lang)}</script>`}<script src="${APP_JS_SRC}" nonce="${security.nonce}"></script>${pageScripts(script, security.nonce)}</body></html>`;
+  return new Response(html, { status, headers: { "content-type": "text/html; charset=utf-8", "content-language": lang, vary: "Accept-Language, Cookie", "speculation-rules": `"${BOARD_PREFETCH_PATH}"`, ...security.headers } });
 }
 
 const SHELL_JS = `
 (()=>{
 const $=(s,r=document)=>r.querySelector(s),$$=(s,r=document)=>[...r.querySelectorAll(s)];
+// Report a bug: the capture lives in /bug.js (web-budget: not on every page) — the first click loads it, and it
+// runs the capture for that click itself; later clicks are its own listener.
+document.addEventListener('click',e=>{const b=e.target.closest('[data-bug]');if(!b||document.getElementById('bug-js'))return;
+  const s=document.createElement('script');s.id='bug-js';s.src=b.dataset.bugSrc;document.head.appendChild(s)});
 // Search (⌘K everywhere; ⌘F on a board starts with "This board · Messages"): filters show up front like VS Code or Lark,
 // and become chips; results mix boards and actions with ranked messages and files (this board, or all your boards).
 const pal=$('#palette'),q=$('#palette-q'),list=$('#palette-list'),pChips=$('#pal-chips'),pFilt=$('#pal-filters');
@@ -1857,3 +1993,12 @@ if(new URLSearchParams(location.search).get('new')==='1'){const n=$('#new-board'
 const MARK_UNREAD_JS = `
 document.addEventListener('click',async e=>{const b=e.target.closest('[data-mark-unread]');if(!b)return;e.preventDefault();const id=b.dataset.markUnread;b.disabled=true;try{const r=await fetch('/api/boards/'+encodeURIComponent(id)+'/unread',{method:'POST'});const j=await r.json();if(!r.ok)throw Error(j.error||'Could not mark unread');location.href=location.pathname==='/b/'+id?'/chats':location.href}catch(err){b.disabled=false;alert(err.message)}});
 `;
+
+// The app pages' shell script (sidebar, inbox badge, live counts, mark unread, pins), the same on every page: served as
+// /shell.js (index.ts), hashed and cached for good, and run right after the page's own script, as when it was inline.
+// Report-a-bug's capture+send lives in its own file (/bug.js), not in every page's shell.js (web-budget: it only
+// runs when the button is clicked). The shell's click injects it once; BUG_JS self-runs for that first click.
+export const BUG_PAGE_JS = BUG_JS;
+export const BUG_JS_SRC = `/bug.js?v=${fnv(BUG_PAGE_JS)}`;
+export const SHELL_PAGE_JS = SHELL_JS + INBOX_JS + LIVE_JS + MARK_UNREAD_JS + PINS_JS;
+export const SHELL_JS_SRC = `/shell.js?v=${fnv(SHELL_PAGE_JS)}`;

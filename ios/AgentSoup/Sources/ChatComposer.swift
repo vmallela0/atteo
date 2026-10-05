@@ -59,12 +59,15 @@ struct ChatComposer: View {
         return !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
-    /// The mic while the box is empty (and while it's listening: what it hears fills the box, and the mic is how you
-    /// stop it); send once there's something in it.
+    /// The mic while there's no text yet (and while it's listening: what it hears fills the box, and the mic is how you
+    /// stop it), even with a picture waiting, so a caption can be said (vedu #2651); typed text gives way to send.
     private var showsMic: Bool {
         if voice.listening { return true }
-        return attachments.isEmpty && preparing == 0 && draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        return preparing == 0 && draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
+
+    /// Send once there's something to send: text, or a picture or file waiting (then it sits beside the mic).
+    private var showsSend: Bool { !showsMic || !attachments.isEmpty }
 
     // MARK: - "@"
 
@@ -76,24 +79,14 @@ struct ChatComposer: View {
         return people
     }
 
+    /// Each member, their agent (by its name too: "@Jarvis", unless another agent here has the same name, #1125) and
+    /// each of their agent sessions ("@jxn/opus-b", jxn #2551), in the web's order (MentionMenu).
     private var mentionables: [Mentionable] {
-        let named = state.agentNames[board.id] ?? [:]
-        // A named agent goes by its name too ("@Jarvis", vedu's agent), unless another agent here has the same name:
-        // then only the owner form reaches the right one (#1125).
-        var out: [Mentionable] = []
-        for u in people {
-            if let n = named[u], !n.ambiguous {
-                out.append(Mentionable(handle: n.name, user: u, agent: true, note: u == me ? String(localized: "your agent", bundle: .l10n) : String(localized: "\(u)'s agent", bundle: .l10n)))
-            }
-            let note: String? = named[u].map { String(localized: "\($0.name) · agent", bundle: .l10n) }
-            out.append(Mentionable(handle: "\(u)'s agent", user: u, agent: true, note: note))
-            if u != me { out.append(Mentionable(handle: u, user: u, agent: false)) }
-        }
-        out.append(Mentionable(handle: "agents", user: nil, agent: true))
-        out.append(Mentionable(handle: "humans", user: nil, agent: false))
-        out.append(Mentionable(handle: "all", user: nil, agent: false, note: String(localized: "everyone and their agents", bundle: .l10n))) // last, like the web
-        return out
+        MentionMenu.options(people: people, me: me, named: state.agentNames[board.id] ?? [:], sessions: state.boardAgents[board.id] ?? [])
     }
+    /// When the @ menu last fetched the board's agent sessions: while it's open, at most every 10 seconds (the web's
+    /// pace), so a session that just started or was renamed can be named.
+    @State private var agentsAt = Date.distantPast
 
     /// Dictation's mentions (Voice.swift): "at vedu" → "@vedu", for the same people "@" can name.
     private var spoken: SpokenMentions? {
@@ -113,8 +106,14 @@ struct ChatComposer: View {
 
     private var suggestions: [Mentionable] {
         guard focused, let q = mentionQuery?.lowercased() else { return [] }
-        // "theo", "theo's", "theo's ag": match the handle as typed so far (and don't offer what's already complete).
-        return Array(mentionables.filter { $0.handle.lowercased().hasPrefix(q) && $0.handle.lowercased() != q }.prefix(5))
+        // "theo", "theo's ag", "theo/sc": what's typed so far (and not what's already complete).
+        return Array(MentionMenu.filter(mentionables, query: q).prefix(12))
+    }
+
+    private func refreshSessions() {
+        guard mentionQuery != nil, Date().timeIntervalSince(agentsAt) > 10 else { return }
+        agentsAt = Date()
+        Task { await state.loadAgents(board) }
     }
 
     private func insert(_ m: Mentionable) {
@@ -139,9 +138,16 @@ struct ChatComposer: View {
             if locked { lockChoices.transition(.move(edge: .bottom).combined(with: .opacity)) }
             if let replying { replyingRow(replying).transition(.move(edge: .bottom).combined(with: .opacity)) }
             if !suggestions.isEmpty {
-                MentionList(items: suggestions, pick: insert)
-                    .padding(.horizontal, Space.m).padding(.bottom, Space.xs)
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                // Up to five rows show; more (someone's several sessions) scroll inside the list.
+                ScrollView {
+                    MentionList(items: suggestions, pick: insert)
+                }
+                .scrollBounceBehavior(.basedOnSize)
+                .scrollClipDisabled() // the list's shadow
+                .frame(maxHeight: suggestions.count > 5 ? 5.5 * 40 + 8 : nil)
+                .fixedSize(horizontal: false, vertical: suggestions.count <= 5)
+                .padding(.horizontal, Space.m).padding(.bottom, Space.xs)
+                .transition(.move(edge: .bottom).combined(with: .opacity))
             }
             VStack(spacing: 0) {
                 if !attachments.isEmpty || preparing > 0 {
@@ -164,8 +170,10 @@ struct ChatComposer: View {
                     if showsMic {
                         // Hold to talk (Voice.swift): words go in the box; "send it" at the end sends.
                         MicButton(draft: $draft, send: send, identifier: identifier == "composer" ? "mic" : "\(identifier)-mic", spoken: spoken)
+                            .padding(.trailing, showsSend ? Composer.gap : 0)
                             .transition(.scale(scale: 0.6).combined(with: .opacity))
-                    } else {
+                    }
+                    if showsSend {
                         Button(action: send) {
                             Image(systemName: "arrow.up").font(.system(size: 14, weight: .bold))
                                 .composerCircle(fill: canSend ? Theme.primary : Theme.raised)
@@ -180,6 +188,7 @@ struct ChatComposer: View {
                     }
                 }
                 .animation(.spring(duration: 0.25, bounce: 0.25), value: showsMic)
+                .animation(.spring(duration: 0.25, bounce: 0.25), value: showsSend)
             }
             .background(Theme.card, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
             .padding(.horizontal, Space.m)
@@ -192,7 +201,7 @@ struct ChatComposer: View {
         .animation(.smooth(duration: 0.25), value: state.typing[board.id])
         .animation(.spring(duration: 0.28, bounce: 0.1), value: draft.hasPrefix("/"))
         .animation(.spring(duration: 0.28, bounce: 0.1), value: privacy)
-        .onChange(of: draft) { _, d in state.typed(d, in: board) } // "maya is typing…" for everyone else here
+        .onChange(of: draft) { _, d in state.typed(d, in: board); refreshSessions() } // "maya is typing…" for everyone else here
         .photosPicker(isPresented: $showPhotos, selection: $picked, maxSelectionCount: max(1, maxAttachments - attachments.count - preparing), selectionBehavior: .ordered, matching: .images)
         .onChange(of: picked) { _, items in
             guard !items.isEmpty else { return }

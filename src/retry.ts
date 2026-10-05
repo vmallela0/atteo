@@ -22,10 +22,23 @@ export async function withRetry<T>(fn: () => Promise<T>, waits = [150, 400, 900,
   }
 }
 
-/** A message id from the sender (Idempotency-Key header or field), or a fresh one for this request. */
+export const MESSAGE_ID_RE = /^[A-Za-z0-9_.:-]{8,100}$/;
+export const BAD_MESSAGE_ID = "Idempotency-Key must be 8-100 characters: letters, digits, and _ . : - (your message's own id; send the same one when you retry).";
+
+/** Why a sender's message id (Idempotency-Key header or idempotency_key field) can't be used, or null when it's fine or absent. */
+export function badMessageId(header: string | null | undefined): string | null {
+  const h = (header ?? "").trim();
+  return h && !MESSAGE_ID_RE.test(h) ? BAD_MESSAGE_ID : null;
+}
+
+/**
+ * A message id from the sender, or a fresh one for this request when none was sent. A malformed one is refused (it used
+ * to be replaced, so the sender's retries silently posted twice).
+ */
 export function messageId(header: string | null | undefined): string {
   const h = (header ?? "").trim();
-  return /^[A-Za-z0-9_.:-]{8,100}$/.test(h) ? h : crypto.randomUUID();
+  if (badMessageId(h)) throw new Error(BAD_MESSAGE_ID);
+  return h || crypto.randomUUID();
 }
 
 

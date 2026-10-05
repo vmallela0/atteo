@@ -61,7 +61,7 @@ final class ScreensTourUITests: AtteoUITestCase {
             _ = XCTWaiter().wait(for: [XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == true AND hittable == true"), object: newest)], timeout: 20)
             sleep(2)
             save("03-board-\(tag)")
-            a.buttons["threads"].firstMatch.tap(); sleep(2)
+            a.openThreadsList(); sleep(2)
             save("05-threads-\(tag)")
             let row = a.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'thread-row-'")).firstMatch
             if row.waitForExistence(timeout: 3) {
@@ -73,16 +73,14 @@ final class ScreensTourUITests: AtteoUITestCase {
             a.buttons["presence"].firstMatch.tap(); sleep(2)
             save("06-info-\(tag)")
             closeSheet(a)
-            a.buttons["work-menu"].firstMatch.tap(); sleep(1)
-            a.buttons["Tasks"].firstMatch.tap(); sleep(2)
+            a.openBoardTab("tab-tasks"); sleep(2)
             save("07-tasks-\(tag)")
-            let seg = a.segmentedControls["work-pane"].buttons["Files"]
-            if seg.waitForExistence(timeout: 3) {
-                seg.tap(); sleep(2); save("08-files-\(tag)")
+            if a.openBoardTab("tab-files", timeout: 3) {
+                sleep(2); save("08-files-\(tag)")
                 let doc = a.buttons["file-rollout-plan.md"].firstMatch
                 if doc.waitForExistence(timeout: 3) { doc.tap(); sleep(2); save("09-doc-\(tag)"); back(a) }
             }
-            closeSheet(a)
+            a.openBoardTab("tab-chat")
             back(a)
         }
 

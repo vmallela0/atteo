@@ -298,26 +298,38 @@ export function trimLine(line: string, ranges: [number, number][] = [], width = 
 
 /** Matching lines of a text (1-based line numbers), each with up to `context` lines either side joined by " ⏎ ". */
 export function grepText(text: string, m: Matcher, o: { context?: number; max?: number; budget?: Budget } = {}): { line: number; text: string }[] {
+  return scanGrepText(text, m, o).hits;
+}
+
+/** Resume within a source without repeating identical matching lines, including duplicates on earlier pages. */
+export function scanGrepText(text: string, m: Matcher, o: { context?: number; max?: number; budget?: Budget; afterLine?: number } = {}): { hits: { line: number; text: string }[]; line: number; complete: boolean } {
   const out: { line: number; text: string }[] = [];
   const max = o.max ?? Infinity;
   const ctx = Math.max(0, Math.min(2, o.context ?? 0));
   const budget = o.budget ?? newBudget();
-  if (max <= 0 || !text) return out;
+  if (max <= 0 || !text) return { hits: out, line: o.afterLine ?? 0, complete: !text };
   const lines = text.split(/\r?\n/);
   const cap = (l: string) => (l.length > m.lineCap ? l.slice(0, m.lineCap) : l);
+  const seen = new Set<string>();
+  let line = o.afterLine ?? 0;
   for (let i = 0; i < lines.length && out.length < max; i++) {
     const l = cap(lines[i]);
+    if (i < (o.afterLine ?? 0)) { seen.add(l.trim()); continue; }
     budget.left -= l.length + 1;
     if (budget.left < 0) {
       budget.hit = true;
       break;
     }
+    line = i + 1;
     if (!m.test(l)) continue;
+    const key = l.trim();
+    if (seen.has(key)) continue;
+    seen.add(key);
     const before = lines.slice(Math.max(0, i - ctx), i).map((x) => trimLine(cap(x)));
     const after = ctx ? lines.slice(i + 1, i + 1 + ctx).map((x) => trimLine(cap(x))) : [];
     out.push({ line: i + 1, text: [...before, trimLine(l, m.ranges(l)), ...after].join(" ⏎ ") });
   }
-  return out;
+  return { hits: out, line, complete: line >= lines.length };
 }
 
 /** A board's title as a short handle for hit lines: "Atteo — dev board!" → "atteo-dev-board". */
@@ -352,6 +364,7 @@ export interface GrepOptions {
   context?: number;
   max?: number;
   files?: boolean;
+  more?: string;
 }
 
 /** What one board returns (Board.grepLines). */
@@ -361,14 +374,19 @@ export interface BoardGrepHit {
   file?: string;
   line?: number;
   text: string;
+  ts?: number;
+  /** Internal continuation after this hit, so a fan-out can keep only the hits it needs. */
+  after?: BoardGrepCursor;
 }
+export interface BoardGrepCursor { mode: "fts" | "entries" | "docs"; before: number; line: number; ts?: number }
 export interface BoardGrepResult {
   title: string;
   hits: BoardGrepHit[];
   encrypted: boolean;
-  fallback: boolean; // no literal word: only the newest GREP_RECENT entries were scanned
-  capped: boolean; // more FTS candidates than GREP_CANDIDATES
+  fallback: boolean; // no literal word: GREP_RECENT entries scanned per page
+  capped: boolean; // more FTS candidates than GREP_CANDIDATES in this page
   budget: boolean; // the time box ran out
+  more?: BoardGrepCursor | null;
 }
 export interface BoardGrepOpts {
   regex?: boolean;
@@ -381,6 +399,7 @@ export interface BoardGrepOpts {
   max?: number;
   files?: boolean;
   viewer?: Viewer | null; // who's asking: private entries only for those who may see them (absent: none)
+  more?: BoardGrepCursor;
 }
 
 export interface GrepHit extends BoardGrepHit {
@@ -394,6 +413,38 @@ export interface GrepOutput {
   encrypted_skipped: number;
   notes: string[];
   hits: GrepHit[];
+  compact: string;
+  more: string | null;
+}
+
+/** Cursors are positions, never authorization. Callers still check membership and visibility on every page. */
+export function cursorKey(value: unknown): string {
+  const s = JSON.stringify(value);
+  let h = 2166136261;
+  for (let i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 16777619);
+  return (h >>> 0).toString(36);
+}
+export function encodeCursor(key: string, position: unknown): string {
+  return btoa(JSON.stringify([1, key, position])).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+export function decodeCursor(key: string, token: string): unknown {
+  try {
+    if (token.length > 65536 || !/^[A-Za-z0-9_-]+$/.test(token)) throw new Error();
+    const [version, gotKey, position] = JSON.parse(atob(token.replace(/-/g, "+").replace(/_/g, "/")));
+    if (version !== 1 || gotKey !== key) throw new Error();
+    return position;
+  } catch { throw new GrepError("Invalid more cursor for this query."); }
+}
+export function isBoardGrepCursor(value: unknown): value is BoardGrepCursor {
+  const c = value as BoardGrepCursor | null;
+  return !!c && ["fts", "entries", "docs"].includes(c.mode) && Number.isSafeInteger(c.before) && c.before > 0 && Number.isSafeInteger(c.line) && c.line >= 0 && (c.mode !== "docs" || (Number.isSafeInteger(c.ts) && c.ts! >= 0));
+}
+
+/** Compact agent presentation; keep hitLine and the API's text field for existing callers. */
+export function compactHitLine(h: Pick<GrepHit, "seq" | "author" | "file" | "line" | "ts" | "text">, board = ""): string {
+  const ref = h.file != null ? `${h.file}:${h.line}` : `#${h.seq}`;
+  const date = h.ts != null ? new Date(h.ts).toISOString().slice(5, 10) : "—";
+  return `${board ? board + " " : ""}${ref} · ${h.author ?? "—"} · ${date} · ${h.text.replace(/\s+/g, " ").trim()}`;
 }
 
 export function hitLine(h: GrepHit): string {
@@ -417,65 +468,121 @@ export async function runGrep(env: Env, user: string, pattern: string, opts: Gre
   };
   const stub = (id: string) => env.BOARD.get(env.BOARD.idFromName(id));
   const notes: string[] = [];
-
+  const key = cursorKey(["grep", user, boardId, pattern, bo]);
+  type Pending = { id: string; more?: BoardGrepCursor };
+  const encodeMore = (boards: Pending[]) => encodeCursor(key, boards.map((b) => [b.id, b.more ? [b.more.mode === "fts" ? 0 : b.more.mode === "entries" ? 1 : 2, b.more.before, b.more.line, ...(b.more.ts != null ? [b.more.ts] : [])] : null]));
+  let pending: Pending[] | undefined;
+  if (opts.more) {
+    const value = decodeCursor(key, opts.more);
+    if (!Array.isArray(value)) throw new GrepError("Invalid more cursor.");
+    pending = value.map((b) => {
+      if (!Array.isArray(b) || b.length !== 2 || typeof b[0] !== "string") throw new GrepError("Invalid more cursor.");
+      const c = b[1];
+      if (c == null) return { id: b[0] };
+      const more = Array.isArray(c) ? { mode: ["fts", "entries", "docs"][c[0]], before: c[1], line: c[2], ts: c[3] } : null;
+      if (!isBoardGrepCursor(more)) throw new GrepError("Invalid more cursor.");
+      return { id: b[0], more };
+    });
+    if (new Set(pending!.map((b) => b.id)).size !== pending!.length) throw new GrepError("Invalid more cursor.");
+    if (boardId && (pending!.length !== 1 || pending![0].id !== boardId)) throw new GrepError("Invalid more cursor.");
+  }
+  const cleanHit = (h: BoardGrepHit, id: string, title: string): GrepHit => {
+    const { after, ...hit } = h;
+    return { ...hit, board: id, title };
+  };
+  const boardNotes = (r: BoardGrepResult, cross = false) => {
+    if (r.fallback) notes.push(`no 3+ char literal: newest ${GREP_RECENT.toLocaleString("en-US")} entries${cross ? " per board" : ""} only (this page)`);
+    if (r.capped) notes.push(`newest ${GREP_CANDIDATES} candidates${cross ? " per board" : ""} only (this page)`);
+    if (r.budget) notes.push("time box hit");
+  };
   if (boardId) {
-    const r = await stub(boardId).grepLines(pattern, { ...bo, max });
+    const r = await stub(boardId).grepLines(pattern, { ...bo, max, more: pending?.[0].more });
     const title = shortTitle(r.title, boardId);
     if (r.encrypted) {
-      return { text: `0 hits in ${title} (end-to-end encrypted: the server can't read it)`, count: 0, boards: 0, encrypted_skipped: 1, notes: ["encrypted"], hits: [] };
+      const text = `0 hits in ${title} (end-to-end encrypted: the server can't read it)`;
+      return { text, compact: text, more: null, count: 0, boards: 0, encrypted_skipped: 1, notes: ["encrypted"], hits: [] };
     }
-    const hits = r.hits.map((h) => ({ ...h, board: boardId, title }));
-    if (r.fallback) notes.push(`no 3+ char literal: newest ${GREP_RECENT.toLocaleString("en-US")} entries only`);
-    if (r.capped) notes.push(`newest ${GREP_CANDIDATES} candidates only`);
-    if (r.budget) notes.push("time box hit");
+    const hits = r.hits.map((h) => cleanHit(h, boardId, title));
+    boardNotes(r);
     if (hits.length >= max) notes.push(`stopped at max ${max}`);
-    return output(hits, `in ${title}`, 1, 0, notes);
+    const more = r.more ? encodeMore([{ id: boardId, more: r.more }]) : null;
+    return output(hits, `in ${title}`, 1, 0, notes, more, false);
   }
 
-  const all = await registry.grepBoards(env, user);
+  const all = await registry.grepBoards(env, user); // recheck current membership on every continuation
   const readable = all.filter((b) => !b.encrypted);
   const encrypted = all.length - readable.length;
-  const boards = readable.slice(0, GREP_BOARDS);
-  if (readable.length > boards.length) notes.push(`${boards.length} most active of ${readable.length} boards`);
-  const results: (BoardGrepResult | null)[] = new Array(boards.length).fill(null);
-  let total = 0;
+  const byId = new Map(readable.map((b) => [b.id, b]));
+  const remaining: Pending[] = (pending ?? readable.map((b) => ({ id: b.id }))).filter((b) => byId.has(b.id));
+  const boards = remaining.slice(0, GREP_BOARDS);
+  const queue: Pending[] = [...boards];
+  const pageSize = Math.max(1, Math.ceil(max / Math.min(GREP_CONCURRENCY, boards.length || 1)));
+  if (remaining.length > boards.length) notes.push(`${boards.length} most active of ${remaining.length} boards`);
+  const shorts = readable.map((b) => shortTitle(b.title, b.id));
+  const dup = new Set(shorts.filter((s, i) => shorts.indexOf(s) !== i));
+  const titleFor = (id: string) => {
+    const short = shortTitle(byId.get(id)!.title, id);
+    return dup.has(short) ? `${short}~${id.slice(-3)}` : short;
+  };
+  const hits: GrepHit[] = [];
+  const seen = new Set<string>();
+  const resume = new Map(remaining.map((b) => [b.id, b]));
   let next = 0;
-  let failed = 0;
   let searched = 0;
-  // A small pool: at most GREP_CONCURRENCY boards at once, and no new board once max hits are in.
+  const searchedIds = new Set<string>();
+  let failed = 0;
+  let stopped = false;
+  let finish!: () => void;
+  const enough = new Promise<void>((resolve) => { finish = resolve; });
+  // Completion order lets a fast board fill the result without waiting for an unrelated slow board.
+  // In-flight RPCs cannot be cancelled; they are handled, but never mutate a response after it is returned.
   const worker = async () => {
-    while (next < boards.length && total < max) {
-      const i = next++;
+    while (!stopped && next < queue.length && hits.length < max) {
+      const board = queue[next++];
       try {
-        const r = await stub(boards[i].id).grepLines(pattern, { ...bo, max: max - total });
-        results[i] = r;
-        searched++;
-        total += r.hits.length;
+        const limit = Math.min(pageSize, max - hits.length);
+        const r = await stub(board.id).grepLines(pattern, { ...bo, max: limit, more: board.more });
+        if (stopped) return;
+        if (!searchedIds.has(board.id)) { searchedIds.add(board.id); searched++; }
+        boardNotes(r, true);
+        let consumed = 0;
+        for (const h of r.hits) {
+          if (hits.length >= max) break;
+          consumed++;
+          const identity = JSON.stringify([board.id, h.seq, h.file, h.text]);
+          if (seen.has(identity)) continue;
+          seen.add(identity);
+          hits.push(cleanHit(h, board.id, titleFor(board.id)));
+        }
+        const position = consumed < r.hits.length ? r.hits[consumed - 1]?.after : r.more;
+        if (position) resume.set(board.id, { id: board.id, more: position });
+        else if (consumed === r.hits.length) resume.delete(board.id);
+        // Older Board RPC implementations without per-hit cursors are retried from their previous position.
+        if (hits.length >= max) { stopped = true; finish(); return; }
+        // Refill a productive board before launching more boards, so slow boards cannot hold up a full page.
+        // Scan/budget caps stay bounded to one page; only a hit limit gets refilled here.
+        if (r.more && r.hits.length >= limit) queue.splice(next, 0, { id: board.id, more: r.more });
       } catch {
-        failed++;
+        if (!stopped) failed++;
       }
     }
   };
-  await Promise.all(Array.from({ length: Math.min(GREP_CONCURRENCY, boards.length) }, worker));
-  // Short titles that collide get the board id's tail, so join_board by name still finds the right one.
-  const shorts = boards.map((b) => shortTitle(b.title, b.id));
-  const dup = new Set(shorts.filter((s, i) => shorts.indexOf(s) !== i));
-  const hits: GrepHit[] = [];
-  results.forEach((r, i) => {
-    if (!r) return;
-    const title = dup.has(shorts[i]) ? `${shorts[i]}~${boards[i].id.slice(-3)}` : shorts[i];
-    for (const h of r.hits) hits.push({ ...h, board: boards[i].id, title });
-  });
-  if (results.some((r) => r?.fallback)) notes.push(`no 3+ char literal: newest ${GREP_RECENT.toLocaleString("en-US")} entries per board only`);
-  if (results.some((r) => r?.capped)) notes.push(`newest ${GREP_CANDIDATES} candidates per board only`);
-  if (results.some((r) => r?.budget)) notes.push("time box hit");
+  const workers = Promise.all(Array.from({ length: Math.min(GREP_CONCURRENCY, boards.length) }, worker));
+  await Promise.race([workers, enough]);
+  stopped = true;
   if (failed) notes.push(`${failed} board${failed === 1 ? "" : "s"} failed`);
-  if (total >= max) notes.push(`stopped at max ${max}${searched < boards.length ? `, ${boards.length - searched} boards not searched` : ""}`);
+  if (hits.length >= max) notes.push(`stopped at max ${max}${searched < boards.length ? `, ${boards.length - searched} boards not searched` : ""}`);
   if (encrypted) notes.unshift(`${encrypted} encrypted skipped`);
-  return output(hits.slice(0, max), `in ${searched} board${searched === 1 ? "" : "s"}`, searched, encrypted, notes);
+  const more = resume.size ? encodeMore([...resume.values()]) : null;
+  return output(hits, `in ${searched} board${searched === 1 ? "" : "s"}`, searched, encrypted, [...new Set(notes)], more, true);
 }
 
-function output(hits: GrepHit[], where: string, boards: number, encrypted: number, notes: string[]): GrepOutput {
+function output(hits: GrepHit[], where: string, boards: number, encrypted: number, notes: string[], more: string | null, cross: boolean): GrepOutput {
   const head = `${hits.length} hit${hits.length === 1 ? "" : "s"} ${where}${notes.length ? ` (${notes.join("; ")})` : ""}`;
-  return { text: [head, ...hits.map(hitLine)].join("\n"), count: hits.length, boards, encrypted_skipped: encrypted, notes, hits };
+  const tail = more ? [`more: ${more}`] : [];
+  return {
+    text: [head, ...hits.map(hitLine), ...tail].join("\n"),
+    compact: [head, ...hits.map((h) => compactHitLine(h, cross ? h.title : "")), ...tail].join("\n"),
+    more, count: hits.length, boards, encrypted_skipped: encrypted, notes, hits,
+  };
 }

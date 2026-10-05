@@ -49,6 +49,10 @@ const t1 = Date.now();
   await p.evaluate(() => { window.__fr = []; let t0 = performance.now(); const f = (t) => { window.__fr.push(t - t0); t0 = t; if (window.__fr.length < 4000) requestAnimationFrame(f) }; requestAnimationFrame(f) });
   for (let i = 0; i < 160 && (s.more || s.first > 1); i++) { await p.mouse.wheel(0, -900); await p.waitForTimeout(90); if (i % 8 === 0) { s = await stats(p); maxLive = Math.max(maxLive, s.live) } }
   await stable(() => stats(p)); s = await stats(p); maxLive = Math.max(maxLive, s.live);
+  // The last wheel's smooth-scroll animation can still be running. Chrome carries its tail over to the next jump, which
+  // moved the view a few px after the jumps below (#3660's trail: scrollTop 12377 → 12368 over 130ms, before any
+  // placeholder came back). Wait until the thread has had no scroll for 300ms.
+  await p.evaluate(() => new Promise((done) => { const sc = document.getElementById("thread-scroll"); let t = setTimeout(fin, 300); const on = () => { clearTimeout(t); t = setTimeout(fin, 300); }; function fin() { sc.removeEventListener("scroll", on); done(); } sc.addEventListener("scroll", on); setTimeout(fin, 3000); }));
   frames = await p.evaluate(() => window.__fr.slice(5).sort((a, b) => a - b));
   const p95 = frames[Math.floor(frames.length * 0.95)] || 0;
   check(!s.more && s.first === 1, `scrolling up loads older messages on its own, back to #1 (first on page #${s.first})`);
@@ -61,9 +65,16 @@ const t1 = Date.now();
   for (const f of [0.3, 0.6]) {
     const a0 = await p.evaluate((f) => { const sc = document.getElementById("thread-scroll"); sc.scrollTop = sc.scrollHeight * f; const q = sc.getBoundingClientRect();
       const el = [...document.getElementById("thread").children].find((x) => x.getBoundingClientRect().bottom > q.top); return { seq: el.dataset.seq, ghost: el.classList.contains("ghost"), y: el.getBoundingClientRect().top } }, f);
+    await p.evaluate((s) => { window.__trail = []; const t0 = performance.now(); const sc = document.getElementById("thread-scroll"); const tick = () => { const el = document.getElementById("e" + s) || document.getElementById("g" + s); window.__trail.push([Math.round(performance.now() - t0), el && Math.round(el.getBoundingClientRect().top), el?.className.split(" ")[0], Math.round(sc.scrollTop), Math.round(sc.scrollHeight), document.querySelectorAll("#thread>.ghost").length, document.querySelectorAll("#thread>.entry").length]); if (window.__trail.length < 400 && !window.__trailStop) requestAnimationFrame(tick); }; window.__trailStop = false; tick(); }, a0.seq);
     const look = (s) => p.evaluate((s) => { const el = document.getElementById("e" + s) || document.getElementById("g" + s); return el && { y: el.getBoundingClientRect().top, live: el.classList.contains("entry"), ghosts: [...document.querySelectorAll("#thread>.ghost")].filter((g) => { const r = g.getBoundingClientRect(); return r.bottom > 0 && r.top < innerHeight }).length } }, s);
-    await until(async () => { const a = await look(a0.seq); return a && a.live && a.ghosts === 0; }, 5000); await stable(() => look(a0.seq), 3000, 150);
+    // Settled: it and what's in view are real, the page has nothing left to bring back within its 1.5-screen band (a fill
+    // above the view is what could still move it), and it then holds still for 400ms.
+    const band = () => p.evaluate(() => { const sc = document.getElementById("thread-scroll"), q = sc.getBoundingClientRect(), H = sc.clientHeight;
+      return [...document.querySelectorAll("#thread>.ghost")].filter((g) => { const r = g.getBoundingClientRect(); return r.bottom > q.top - 1.5 * H && r.top < q.bottom + 1.5 * H }).length });
+    await until(async () => { const a = await look(a0.seq); return a && a.live && a.ghosts === 0 && (await band()) === 0; }, 8000); await stable(() => look(a0.seq), 4000, 400);
     const a1 = await p.evaluate((s) => { const el = document.getElementById("e" + s) || document.getElementById("g" + s); return el && { y: el.getBoundingClientRect().top, live: el.classList.contains("entry"), ghosts: [...document.querySelectorAll("#thread>.ghost")].filter((g) => { const r = g.getBoundingClientRect(); return r.bottom > 0 && r.top < innerHeight }).length } }, a0.seq);
+    // If it moved, print what the page did meanwhile (ms, its top, entry/ghost, scrollTop, scrollHeight, placeholders, messages).
+    if (!(a1 && Math.abs(a1.y - a0.y) <= 3) || process.env.TRAIL) { const tr = await p.evaluate(() => { window.__trailStop = true; return window.__trail; }); let prev = ""; for (const x of tr) { const k = JSON.stringify(x.slice(1)); if (k !== prev) console.log("  trail", f, JSON.stringify(x)); prev = k; } }
     check(a0.ghost && a1 && a1.live && a1.ghosts === 0 && Math.abs(a1.y - a0.y) <= 3, `landing among placeholders at ${f * 100}%: they come back and #${a0.seq} stays put (${Math.round(a0.y)} → ${a1 ? Math.round(a1.y) : "gone"})`);
   }
   check(!p.errors.length, `no page errors ${p.errors.join(" | ")}`); await ctx.close(); }

@@ -1,3 +1,4 @@
+import type { AgentCharter } from "./charter";
 import type { EntryData } from "./entryData";
 import type { Mention } from "./mentions";
 
@@ -22,6 +23,9 @@ export interface Attachment {
   h?: number;
   version: number | null;
 }
+
+/** Inbox kinds for the person only: agent tokens never see these rows (src/inbox.ts) or count them (src/registry.ts). */
+export const PERSON_ONLY_KINDS = ["people_only", "manual_unread", "reminder", "report"] as const;
 
 export const ENTRY_TYPES = ["claim", "question", "decision", "task", "artifact", "note", "change", "handoff"] as const;
 // "approval" is posted by the server only (an agent's request_approval on a board), never by a client.
@@ -52,6 +56,7 @@ export interface Entry {
   type: EntryType;
   text: string;
   edited_at?: number | null;
+  purged?: { by: string; via: "agent" | "person" }; // its text was purged (a leaked secret), by whom; absent otherwise
   title?: string | null; // a 3–4 word summary from its author (for the sidebar and lists); absent on older entries
   to: string | null; // addressed member, or null for everyone
   mentions?: Mention[]; // people and agents @mentioned in the text; also addressed to them. Empty on older entries.
@@ -135,6 +140,7 @@ export interface BoardInfo {
   last_seq: number;
   archived?: boolean; // read-only until restored
   encrypted?: boolean; // end-to-end encrypted: messages are ciphertext only (read/write with the CLI)
+  charter?: AgentCharter | null; // goal, data classes, retention: what agents are told (#3685; mirrored from D1)
 }
 
 export interface Env {
@@ -157,6 +163,7 @@ export interface Env {
   VOICE_GLOBAL_MONTHLY_MINUTES?: string; // var: live-voice minutes for everyone together per month (default 600 ≈ $30)
   TTS_GLOBAL_MONTHLY_CHARS?: string; // var: read-aloud characters for everyone together per month (default 2,000,000 ≈ $30)
   LIMITS_LOCAL?: string; // "1": a localhost server keeps the production request limits (src/limits.ts)
+  BUGS_BOARD?: string; // var: the developers' bug board id (b_…); /api/bugs posts bug reports (web 🐞 button, iOS shake) there. Unset: the endpoint says it's not set up
   OPERATORS?: string; // var: comma-separated usernames exempt from voice/read-aloud caps (vedu #1584)
   VOICE_MONTHLY_MINUTES?: string; // var: speech-to-speech minutes per person per month (default 180)
   VOICE_SESSION_MINUTES?: string; // var: one voice session's cap, charged up front and settled at the end (default 10)
@@ -181,4 +188,19 @@ export interface Env {
   SHED_L2_D1_ROWS_READ?: string; // var: … for level 2 (default 4,500,000)
   CF_ACCOUNT_ID?: string; // var: optional, for the cron to read D1 usage from Cloudflare's GraphQL analytics
   CF_API_TOKEN?: string; // secret: optional, Account Analytics:Read token for the same
+  // Nightly backups outside Cloudflare (src/backup.ts, docs/BACKUPS.md): off until the public key and all BACKUP_S3_* but the optional ones are set.
+  A2A_SIGNING_KEY?: string; // secret: the Agent Card's ES256 private key (JWK, from scripts/a2a-key.mjs); unset: the card is served unsigned. Never kept in D1
+  BACKUP_PUBLIC_KEY?: string; // var: X25519 public key (base64, from scripts/backup.mjs keygen); the private key stays offline
+  BACKUP_S3_ENDPOINT?: string; // var: S3-compatible endpoint outside Cloudflare, e.g. https://s3.us-west-004.backblazeb2.com
+  BACKUP_S3_BUCKET?: string; // var
+  BACKUP_S3_REGION?: string; // var (default us-east-1)
+  BACKUP_S3_PREFIX?: string; // var (default "atteo/")
+  BACKUP_S3_VIRTUAL_HOST?: string; // var: "1" for bucket.host/key URLs instead of host/bucket/key
+  BACKUP_S3_KEY_ID?: string; // secret: a write-only application key
+  BACKUP_S3_SECRET?: string; // secret
+  BACKUP_HOUR?: string; // var: UTC hour the night's backup starts (default 3)
+  BACKUP_BATCH?: string; // var: boards per 5-minute cron run (default 20)
+  BACKUP_BLOB_PART_BYTES?: string; // var: a board's files are backed up in parts of about this many bytes (default 8,000,000)
+  BACKUP_ALERT_HOURS?: string; // var: hours after the start with no manifest before it's reported (default 6)
+  BACKUP_RESTORE?: string; // "1" allows POST /api/ops/restore-board off localhost (disaster recovery only)
 }

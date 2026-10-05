@@ -1,0 +1,30 @@
+// A renamed agent's chips follow its name (jxn #3300): "@Jarvis" in a message, after the agent is renamed Ada, reads
+// "@Ada" on load and changes live on the next rename; the text as written stays in the title. BASE, ADMIN_KEY, PW_CHROME.
+import { chromium } from "playwright-core";
+const BASE = process.env.BASE || "http://localhost:8787";
+const ops = async (p, b) => (await fetch(`${BASE}/api/ops/${p}`, { method: "POST", headers: { "x-admin-key": process.env.ADMIN_KEY || "ci-admin-key", "content-type": "application/json" }, body: JSON.stringify(b) })).json();
+const run = Date.now().toString(36).slice(-4), P = `mr${run}`, V = `mv${run}`;
+for (const u of [P, V]) await ops("users", { name: u, email: `${u}@example.com`, verified: "true", display: { mode: "developer" } });
+const board = (await ops("boards", { user: P, title: `Rename ${run}` })).board.id; await ops("members", { board, user: V });
+const ck = { [P]: (await ops("sessions", { user: P })).cookie.split(";")[0], [V]: (await ops("sessions", { user: V })).cookie.split(";")[0] };
+const prof = (name) => fetch(`${BASE}/api/me/profile`, { method: "POST", headers: { "content-type": "application/json", cookie: ck[V] }, body: JSON.stringify({ agent_name: name }) });
+await prof(`Jarvis${run}`);
+const seq = (await (await fetch(`${BASE}/api/boards/${board}/entries`, { method: "POST", headers: { "content-type": "application/json", cookie: ck[P] }, body: JSON.stringify({ text: `@Jarvis${run} can you check staging` }) })).json()).entry?.seq;
+await prof(`Ada${run}`);
+let fails = 0; const check = (ok, t) => { console.log(`${ok ? "✓" : "✗"} ${t}`); if (!ok) fails++; };
+const b = await chromium.launch({ executablePath: process.env.PW_CHROME || undefined });
+const ctx = await b.newContext({ viewport: { width: 1280, height: 860 } });
+const [k, ...v] = ck[P].split("="); await ctx.addCookies([{ name: k, value: v.join("="), url: BASE }]);
+const p = await ctx.newPage(), errors = []; p.on("pageerror", (e) => errors.push(e.message));
+await p.goto(`${BASE}/b/${board}`);
+const chip = p.locator(`#e${seq} .body .mention.agent[data-user="${V}"]`);
+await chip.waitFor({ timeout: 8000 }).catch(() => {});
+check((await chip.textContent()) === `@Ada${run}` && /Jarvis/.test(await chip.getAttribute("title")), `renamed: the chip reads its name today (${await chip.textContent()}, "${await chip.getAttribute("title")}")`);
+await prof(`Bo${run}`);
+await p.waitForFunction(([s, t]) => document.querySelector(`#e${s} .body .mention.agent`)?.textContent === t, [seq, `@Bo${run}`], { timeout: 8000 }).catch(() => {});
+check((await chip.textContent()) === `@Bo${run}`, `renamed again while the page is open: it changes live (${await chip.textContent()})`);
+await prof("");
+await p.waitForFunction(([s, t]) => document.querySelector(`#e${s} .body .mention.agent`)?.textContent === t, [seq, `@${V}'s agent`], { timeout: 8000 }).catch(() => {});
+check((await chip.textContent()) === `@${V}'s agent`, `name cleared: "@${V}'s agent" (${await chip.textContent()})`);
+check(!errors.length, `no page errors ${errors.join(" | ")}`);
+await b.close(); console.log(fails ? `${fails} FAILED` : "mention rename: all passed"); process.exit(fails ? 1 : 0);

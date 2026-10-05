@@ -167,7 +167,22 @@ describe("parseMentions", () => {
 
 describe("agent names", () => {
   const named = [{ user: "vedu", agent_name: "Jarvis" }, { user: "jxn", agent_name: "Big Friday" }, { user: "j.doe" }, { user: "ops-bot", agent_name: "O'Neil" }];
-  const p = (text: string, author = "jxn", via: "agent" | "person" = "person") => parseMentions(text, named, author, via);
+  // Who is mentioned; the name an agent was mentioned by (display only) is checked on its own below.
+  const p = (text: string, author = "jxn", via: "agent" | "person" = "person") => { const r = parseMentions(text, named, author, via); return { ...r, mentions: r.mentions.map(({ name: _n, ...m }) => m) }; };
+
+  it("keeps the name an agent was mentioned by, as typed, for its chip after a rename (jxn #3300)", () => {
+    expect(parseMentions("@big friday and @jxn's agent", named, "vedu", "person").mentions).toEqual([{ user: "jxn", agent: true, name: "big friday" }]);
+    expect(parseMentions("@jxn's agent and @Big Friday", named, "vedu", "person").mentions).toEqual([{ user: "jxn", agent: true }]);
+    // Drawn: under its name today, or as "x's agent" once it has none; the text stays as written.
+    const m = [{ user: "jxn", agent: true, name: "Matmul" }];
+    expect(highlightMentions("ask @Matmul now", m, { jxn: "100billion" })).toContain(">@100billion</span>");
+    expect(highlightMentions("ask @Matmul now", m, null)).toContain(">@jxn's agent</span>");
+    expect(highlightMentions("ask @Matmul now", m, { jxn: "Matmul" })).toContain(">@Matmul</span>");
+    // Older messages (no name kept): the one "@word" that's no one, when one mentioned agent has no chip.
+    expect(highlightMentions("@matmul all of you", [{ user: "jxn", agent: true }], { jxn: "100billion" })).toContain(">@100billion</span> all of you");
+    expect(highlightMentions("@matmul and @foo", [{ user: "jxn", agent: true }], { jxn: "100billion" })).not.toContain("100billion");
+    expect(highlightMentions("@matmul hi", [{ user: "vedu", agent: false }], {})).not.toContain("mention");
+  });
 
   it('"@Jarvis" is that member\'s agent: any case, with spaces and apostrophes, in order', () => {
     expect(p("@Jarvis can you check").mentions).toEqual([agent("vedu")]);
@@ -348,7 +363,7 @@ describe("summaries", () => {
     expect(opts).toContain("vedu's agent|agent");
     expect(parseMentions("@jxn's agent can you check?", [{ user: "jxn", agent_name: "The Thinker" }, { user: "vedu", agent_name: "moby" }], "jxn", "person").mentions).toEqual([{ user: "jxn", agent: true }]);
     const members = [{ user: "jxn", agent_name: "The Thinker" }, { user: "vedu", agent_name: "moby" }];
-    expect(parseMentions("@The Thinker can you check?", members, "jxn", "person").mentions).toEqual([{ user: "jxn", agent: true }]);
+    expect(parseMentions("@The Thinker can you check?", members, "jxn", "person").mentions).toEqual([{ user: "jxn", agent: true, name: "The Thinker" }]);
   });
 
   it("a person's agents are grouped under them: their agent, then each of their sessions", () => {

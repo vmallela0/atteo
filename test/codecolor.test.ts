@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { CODE_COLOR_JS, CODE_COLOR_SCRIPT, CODE_COLOR_SRC, CODE_TOKENIZER } from "../src/codecolor";
 import { renderText } from "../src/ui";
+import { growthRatio } from "./performance";
 
 type Tok = [string, string];
 const hlTokens = new Function(`${CODE_TOKENIZER};return hlTokens`)() as (code: string, lang: string) => Tok[] | null;
@@ -58,13 +59,37 @@ describe("code colours", () => {
   it("a hostile block can't make a rule backtrack for long (opus-d #2028), and odd language names are just unknown", () => {
     const N = 20000;
     const worst: [string, string][] = [["css", "-a"], ["css", "a:"], ["toml", "a."], ["yaml", "a."], ["rust", "#["], ["sh", "${"], ["js", '\\"'], ["py", "\\'"], ["sql", "'\\"], ["json", '"\\']];
+    // Equal work on each side: the 20,000-character input against its quarter tokenized 4 times. Linear costs the same
+    // (~1), quadratic backtracking 4x as much (~4). Comparing equal work (rather than 1x against 4x) keeps a busy
+    // machine's slowdowns and GC from landing on one side only: under load 40 the old 1x-vs-4x ratio reached 7.8 of 8.
+    // Each side is repeated until it takes ~15ms (fast rules finish in under a millisecond, which one preemption on a
+    // busy machine can multiply), so the ratio compares time, not scheduling.
+    const repeated = (f: () => unknown, times: number) => () => { for (let k = 0; k < times; k++) f(); };
+    const superlinear = (small: () => unknown, large: () => unknown) => {
+      large();
+      const t0 = performance.now();
+      large();
+      const k = Math.min(50, Math.max(1, Math.ceil(15 / Math.max(0.01, performance.now() - t0))));
+      // Up to three independent measurements, the least counting: a load spike can only inflate one, real backtracking
+      // inflates all. A first measurement under 2 already settles it.
+      let best = Infinity;
+      for (let i = 0; i < 3 && best >= 2; i++) best = Math.min(best, growthRatio(repeated(small, 4 * k), repeated(large, k)));
+      return best;
+    };
+    // The check itself catches quadratic work (a nested loop, 4x the input). The control takes the largest of three
+    // measurements, the mirror image: a load spike can only shrink one of them.
+    const quadratic = (n: number) => () => { let x = 0; for (let i = 0; i < n; i++) for (let j = 0; j < i; j++) x += j; return x; };
+    const control = Math.max(...[0, 1, 2].map(() => growthRatio(repeated(quadratic(1500), 4), quadratic(6000))));
+    expect(control, "a quadratic control").toBeGreaterThanOrEqual(2);
     for (const [lang, unit] of worst) {
-      const code = unit.repeat(N / unit.length), t = performance.now();
+      const small = unit.repeat(N / 4 / unit.length), code = small.repeat(4);
+      // Keep the original 20,000-character hostile inputs and every coverage assertion (checked once, outside the timing).
+      of(small, lang);
       of(code, lang);
-      expect(performance.now() - t, `${lang} ${JSON.stringify(unit)}`).toBeLessThan(200); // ~450ms before the bounds
+      expect(superlinear(() => hlTokens(small, lang), () => hlTokens(code, lang)), `${lang} ${JSON.stringify(unit)}: 4x input against 4 runs of its quarter`).toBeLessThan(2);
     }
     for (const lang of ["__proto__", "constructor", "toString", "hasOwnProperty"]) expect(hlTokens("x", lang)).toBeNull();
-  });
+  }, 60_000); // ~3s alone; a loaded machine stretches every measurement, which the ratios absorb but the clock doesn't
 
   it("the server still sends plain text: colours are added on the page", () => {
     const html = renderText("```ts\nconst a = 1\n```");

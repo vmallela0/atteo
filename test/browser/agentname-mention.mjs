@@ -41,6 +41,8 @@ for (const [mode, name] of [["developer", "HAL"], ["everyday", "v"]]) {
   for (let i = 0; i < 30 && !mail.some((m) => (m.text || "").includes(`can you look ${run}`)); i++) { mail = (await (await fetch(`${BASE}/api/mailbox?peek=1`, { headers: { authorization: `Bearer ${tokV}` } })).json()).mail ?? []; await p.waitForTimeout(150) }
   check(mail.some((m) => (m.text || "").includes(`can you look ${run}`) && m.kind === "for_your_agent"), `${mode}: ${V}'s agent gets it in its mailbox`);
   // An agent's @ of itself (vedu #2630): highlighted like any mention, live and after a reload, though it reaches no one.
+  // The stale-read rule (rest-parity): the agent acks the board before posting.
+  await fetch(`${BASE}/api/boards/${board}/entries?after=0&ack=1`, { headers: { authorization: `Bearer ${tokV}` } });
   const sp = await fetch(`${BASE}/api/boards/${board}/entries`, { method: "POST", headers: { authorization: `Bearer ${tokV}`, "content-type": "application/json" }, body: JSON.stringify({ type: "note", text: `@${V}'s agent is on it ${run}` }) });
   check(sp.ok, `${mode}: ${V}'s agent posts about itself`);
   const selfMsg = p.locator("#thread>.entry", { hasText: `is on it ${run}` }).last();
