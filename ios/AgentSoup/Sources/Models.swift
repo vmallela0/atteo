@@ -135,8 +135,19 @@ struct Entry: Codable, Identifiable, Hashable {
     /// only: `toPeople`, author included, never an agent). Nil: everyone on the board.
     var audience: String? = nil
     var toPeople: [String]? = nil
+    /// Which agent wrote an agent post: "scout · Claude Code" for a named session, else just the client.
+    var client: String? = nil
     var id: Int { seq }
     var byAgent: Bool { via == "agent" }
+    /// The agent session's name ("opus-b" from "opus-b · Claude Code"), as the web reads it (jxn #2589). Nil for
+    /// people and for an agent posting without a named session.
+    var sessionName: String? {
+        guard byAgent, let c = client, let r = c.range(of: " · ") else { return nil }
+        let s = String(c[..<r.lowerBound]).trimmingCharacters(in: .whitespaces)
+        return s.isEmpty ? nil : s
+    }
+    /// Who wrote it, for grouping a run of messages: two sessions of one person's agent are two speakers.
+    var senderKey: String { "\(author)|\(via ?? "")|\(sessionName ?? "")" }
     /// A picture shown inline (PNG, JPEG, GIF or WebP, as the server sniffed it).
     var isImage: Bool { artifactName != nil && (media?.mime.hasPrefix("image/") ?? false) }
 }
