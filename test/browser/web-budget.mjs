@@ -26,7 +26,7 @@ const q = await post(ckV, { type: "question", text: `@${P} can you check the sta
 await post(ckP, { text: "Yes: 8443, and the health check is green.", reply_to: q.entry?.seq });
 await post(ckV, { type: "task", text: "Ship the release notes\n- [ ] draft\n- [ ] review" });
 await post(ckV, { text: "The config:\n```ts\nexport const port = 8443;\nexport function ok(s: number) { return s === 200; }\n```" });
-for (let i = 0; i < 6; i++) await post(i % 2 ? ckP : ckV, { text: `Note ${i + 1}: the build passed, the docs are up to date, and nothing is waiting on review.` });
+await Promise.all([0, 1, 2, 3, 4, 5].map((i) => post(i % 2 ? ckP : ckV, { text: `Note ${i + 1}: the build passed, the docs are up to date, and nothing is waiting on review.` })));
 
 const kinds = ["html", "inline_js", "inline_css", "js", "css", "img", "data", "fonts", "requests"];
 const kb = (n) => `${(n / 1024).toFixed(1)} KB`;
@@ -71,8 +71,10 @@ async function measure(path) {
 const pages = { board: `/b/${board}`, "for-you": "/for-you", inbox: "/inbox" };
 const now = {}, notes = [];
 let fails = 0; const check = (ok, t) => { console.log(`${ok ? "✓" : "✗"} ${t}`); if (!ok) fails++; };
-for (const [name, path] of Object.entries(pages)) {
-  const r = await measure(path);
+// The three pages load side by side, each in its own context, each with its own 2.5 s window.
+const measured = await Promise.all(Object.values(pages).map(measure));
+for (const [i, name] of Object.keys(pages).entries()) {
+  const r = measured[i];
   now[name] = r.m;
   if (r.fontsOffline) notes.push(name);
   check(!r.errors.length, `${name}: loads without page errors ${r.errors.join(" | ")}`);
