@@ -147,6 +147,7 @@
  "board-export": 2,
  "claim-session": 2,
  "access-all": 3,
+ "moderation": 4,
  "board-prefetch": 3,
  "charter": 3
 }

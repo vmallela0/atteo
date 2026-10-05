@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { AUDIT_EXPORT_SQL, auditExportDocument, auditExportFilename, auditExportHeaders, forAgents, maskEmail, parseAuditAfter, type AuditExportRow } from "../src/auditExport";
+import { AUDIT_EXPORT_NO_REPORTS_SQL, AUDIT_EXPORT_SQL, auditExportDocument, auditExportFilename, auditExportHeaders, forAgents, maskEmail, parseAuditAfter, type AuditExportRow } from "../src/auditExport";
 
 const { DatabaseSync } = (await import("node:" + "sqlite")) as { DatabaseSync: new (p: string) => { exec(sql: string): void; prepare(sql: string): { all(...p: unknown[]): AuditExportRow[]; run(...p: unknown[]): void } } };
 const { readFileSync, readdirSync } = (await import("node:" + "fs")) as { readFileSync: (u: URL, enc: string) => string; readdirSync: (u: URL) => string[] };
@@ -97,5 +97,19 @@ describe("the audit as an agent sees it (#3437)", () => {
     const out = forAgents(rows);
     expect(out).toEqual([{ ...rows[0], target: "b…@example.com" }, rows[1]]);
     expect(rows[0].target).toBe("bob@example.com"); // the people's copy is untouched
+  });
+});
+
+describe("reports in the audit (#3602)", () => {
+  it("leaves reports out for members who aren't owners, with the same index and paging", () => {
+    add("b_rep", "ann", "joined", "ann", null, 10);
+    add("b_rep", "bob", "reported", "#4", "cy: spam", 20);
+    add("b_rep", "dee", "joined", "dee", null, 30);
+    const all = db.prepare(AUDIT_EXPORT_SQL).all("b_rep", 0, 10).map((r) => r.action);
+    const theirs = db.prepare(AUDIT_EXPORT_NO_REPORTS_SQL).all("b_rep", 0, 10).map((r) => r.action);
+    expect(all).toEqual(["joined", "reported", "joined"]);
+    expect(theirs).toEqual(["joined", "joined"]);
+    const steps = db.prepare(`EXPLAIN QUERY PLAN ${AUDIT_EXPORT_NO_REPORTS_SQL}`).all() as unknown as { detail: string }[];
+    expect(steps.map((x) => x.detail).filter((d) => /^SCAN\b/.test(d))).toEqual([]);
   });
 });

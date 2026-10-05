@@ -55,6 +55,7 @@ export function needsYou(i: NotifyItem): boolean {
     case "friend_request":
     case "contact_request":
     case "reminder":
+    case "report":
       return true;
     case "mention":
       return !i.broadcast;

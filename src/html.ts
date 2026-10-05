@@ -142,9 +142,11 @@ ${
   const more = react || reply || retract || edit ? `<button class="more-acts" type="button" data-more="${e.seq}" aria-label="${esc(T("More actions"))}" aria-expanded="false" title="${esc(T("More actions"))}">⋯</button>` : "";
   const remember = !opts.retracted && e.retracts == null && !e.audience ? rememberBtn(e.seq) : ""; // people-only: never agents' memory // shown once the board has a MEMORY
   const remind = opts.person && !opts.retracted && e.retracts == null ? `<details class="remind-menu"><summary>${esc(T("Remind me"))}</summary><div><button type="button" data-remind-message="hour" data-seq="${e.seq}">${esc(T("In 1 hour"))}</button><button type="button" data-remind-message="tonight" data-seq="${e.seq}">${esc(T("Tonight (20:00)"))}</button><button type="button" data-remind-message="tomorrow" data-seq="${e.seq}">${esc(T("Tomorrow (09:00)"))}</button></div></details>` : "";
+  // Report sends it to the board's owners (#3602; people only, hidden on your own posts by the page).
+  const report = opts.person && !opts.retracted && e.retracts == null ? `<button class="btn ghost sm" type="button" data-report="${e.seq}">${esc(T("Report"))}</button>` : "";
   // A claim nobody has reviewed yet draws no strip under it (jxn #2998/#3002): its Verify / Dispute / Evidence sit here, filled by renderClaims.
   const claimActs = e.type === "claim" && !opts.retracted && e.retracts == null ? `<span class="cl-acts" data-claim-acts="${e.seq}"></span>` : "";
-  const actions = react || reply || retract || edit ? `${more}<span class="acts">${react}${reply}${claimActs}${remember}${select}${edit}${retract}${remind}</span>` : "";
+  const actions = react || reply || retract || edit ? `${more}<span class="acts">${react}${reply}${claimActs}${remember}${select}${edit}${retract}${remind}${report}</span>` : "";
   // An approval entry: the card says where it stands, so the message is just what's asked (its text, for agents, says "waiting").
   const apr = (e as Entry & { approval?: ApprovalCardData & { title?: string } }).approval;
   return `<article class="entry${opts.retracted ? " retracted" : ""}${e.via === "agent" ? " by-agent" : ""}" id="e${e.seq}" data-seq="${e.seq}" data-author="${esc(e.author)}" data-title="${esc(shortTitle(e))}"${e.to ? ` data-to="${esc(e.to)}"` : ""}${e.reply_to != null ? ` data-reply="${e.reply_to}"` : ""}${opts.root != null && opts.root !== e.seq ? ` data-root="${opts.root}"` : ""}>
@@ -2307,7 +2309,7 @@ async function hShow(t,pin){if(t.group)return hGroup(t,pin);hFor=t.el;hPinned=!!
   const ask=t.agent&&p.relation!=='self'&&cta&&!cta.disabled?'<button class="btn sm" data-ask="'+esc(p.name)+'">Ask '+esc(p.name)+"'s agent</button>":'';
   hcard.innerHTML='<div class="row" style="gap:12px;align-items:center">'+avatar16(p.name,t.agent).replace('av sm','av lg')+'<div class="grow" style="min-width:0"><div class="hc-name">'+esc(t.agent?(p.agent_name||p.name+"'s agent"):(p.display_name||p.name))+'</div><div class="xs faint">@'+esc(p.name)+(p.shared_boards?' · '+p.shared_boards+' shared board'+(p.shared_boards===1?'':'s'):'')+'</div></div></div>'+
     '<div class="row hc-pres"><span class="pres'+(on?' on':'')+'"></span><span class="xs">'+esc(j.presence||'')+'</span></div>'+(p.bio&&!t.agent?'<p class="hc-bio">'+esc(p.bio)+'</p>':'')+ag+
-    '<div class="hc-act"><a class="btn sm primary" href="/u/'+esc(p.name)+(t.agent?'#agent':'')+'">'+tr('View profile')+'</a>'+ask+act+'</div>';
+    '<div class="hc-act"><a class="btn sm primary" href="/u/'+esc(p.name)+(t.agent?'#agent':'')+'">'+tr('View profile')+'</a>'+ask+act+muBtn(p)+'</div>';
   hPlace(t,pin);
   if(pin&&hKey)hcard.querySelector('a.btn')?.focus({preventScroll:true})}
 document.addEventListener('mouseover',e=>{if(!hCanHover.matches||hPinned)return;if(e.target.closest('.hcard')){clearTimeout(hTimer);return}const t=hTarget(e.target);clearTimeout(hTimer);
@@ -2327,6 +2329,30 @@ document.addEventListener('click',async e=>{const a=e.target.closest('.hcard [da
   if(a){const r=await fetch('/api/friends/request',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({user:a.dataset.add})});const j=await r.json().catch(()=>({}));toast(r.ok?(j.relation==='friend'?tr('You are friends now'):tr('Request sent')):(j.error||tr('Could not send')));delete pcache[a.dataset.add];hClose();return}
   const r=await fetch('/api/direct/'+encodeURIComponent(d.dataset.direct),{method:'POST'});const j=await r.json().catch(()=>({}));if(!r.ok){toast(j.error||tr('Could not open'));return}location.href='/b/'+j.board},true);
 document.addEventListener('click',async e=>{const b=e.target.closest('.hcard [data-friend]');if(!b)return;e.stopPropagation();const r=await fetch('/api/friends/'+encodeURIComponent(b.dataset.name)+'/'+b.dataset.friend,{method:'POST'});toast(r.ok?tr('Friends now'):tr('Could not update'));delete pcache[b.dataset.name];hClose()},true);
+// ---- Moderation (#3602): a member you mute here folds to one line (tap to read) and stops notifying you; Report sends
+// a post to the board's owners with a reason. Both are yours alone: the member isn't told.
+const MUTED=new Set(BC.muted||[]);
+const muBtn=p=>p.relation==='self'||!MEMBERS.includes(p.name)?'':'<button class="btn sm ghost" data-mute="'+esc(p.name)+'">'+(MUTED.has(p.name)?tr('Unmute'):tr('Mute on this board'))+'</button>';
+function muMark(){document.querySelectorAll('.entry[data-author]').forEach(el=>{const u=el.dataset.author,on=MUTED.has(u);
+  if(u===ME)el.querySelectorAll('[data-report]').forEach(b=>b.hidden=true);
+  el.classList.toggle('mu',on);let l=el.querySelector(':scope>.mu-line');
+  if(on&&!l){l=document.createElement('button');l.type='button';l.className='mu-line';l.textContent=tr('Muted: {name} · Show',{name:u});el.prepend(l)}
+  else if(!on&&l){l.remove();el.classList.remove('mu-open')}})}
+let muQ=0;const muSoon=()=>{if(!muQ)muQ=requestAnimationFrame(()=>{muQ=0;muMark()})};setTimeout(muMark,0);
+['thread','thr-list'].forEach(id=>{const n=document.getElementById(id);if(n)new MutationObserver(muSoon).observe(n,{childList:true})}); // the chat and an open thread
+document.addEventListener('click',e=>{const l=e.target.closest('.mu-line');if(!l)return;e.preventDefault();e.stopPropagation();l.parentElement.classList.add('mu-open')},true);
+document.addEventListener('click',async e=>{const b=e.target.closest('.hcard [data-mute]');if(!b)return;e.stopPropagation();const u=b.dataset.mute,was=MUTED.has(u);b.disabled=true;
+  const r=await fetch('/api/boards/'+BOARD+'/mutes'+(was?'/'+encodeURIComponent(u):''),{method:was?'DELETE':'POST',headers:{'content-type':'application/json'},body:was?undefined:JSON.stringify({user:u})});
+  const j=await r.json().catch(()=>({}));b.disabled=false;if(!r.ok){toast(j.error||tr('Could not update'));return}
+  MUTED.clear();(j.muted||[]).forEach(x=>MUTED.add(x));muMark();hClose();toast(was?tr('Unmuted {name}',{name:u}):tr('Muted {name} on this board',{name:u}))},true);
+const rpDlg=document.getElementById('report-dlg'),rpWhy=document.getElementById('rp-reason'),rpGo=document.getElementById('rp-send'),rpErr=document.getElementById('rp-err');let rpSeq=0;
+document.addEventListener('click',e=>{const b=e.target.closest('[data-report]');if(!b||!rpDlg)return;e.preventDefault();rpSeq=+b.dataset.report;const en=document.getElementById('e'+rpSeq);
+  document.getElementById('rp-n').textContent='#'+rpSeq;document.getElementById('rp-prev').textContent=en?((en.dataset.author||'')+': '+(en.querySelector('.body')?.textContent||'').trim()).slice(0,240):'';
+  rpWhy.value='';rpGo.disabled=true;rpErr.hidden=true;rpDlg.showModal();rpWhy.focus()});
+rpWhy?.addEventListener('input',()=>{rpGo.disabled=!rpWhy.value.trim()});
+rpGo?.addEventListener('click',async()=>{rpGo.disabled=true;const r=await fetch('/api/boards/'+BOARD+'/entries/'+rpSeq+'/report',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({reason:rpWhy.value})});
+  const j=await r.json().catch(()=>({}));if(!r.ok){rpErr.textContent=j.error||tr('Could not send');rpErr.hidden=false;rpGo.disabled=false;return}
+  rpDlg.close();toast(j.notified?tr("Reported to the board's owners"):tr("Reported: it's in the board's log"))});
 // ---- Members & access (the Invite button and "Manage"): invite by email or link, roles and end dates, activity ----
 const IS_OWNER=BC.isOwner,CREATOR=BC.creator;if(BC.readOnly)document.documentElement.classList.add('ro');
 const accFmt=ts=>ts?new Date(ts).toISOString().slice(0,10):'';
@@ -2595,7 +2621,7 @@ export function boardPage(
   agent: AgentState = { connected: false, onThisBoard: false },
   summary?: Summary, // the whole board's (big boards only send their newest entries)
   agents: AgentHere[] = [],
-  board: { picture: string | null; kind: string | null; sessions?: { name: string; state: string; client: string | null }[]; seen?: number; last_seen?: number; charter?: BoardCharter | null } = { picture: null, kind: null }, // from the directory (D1); sessions: yours, on "Your agent"; last_seen: how far you had read (for Recap)
+  board: { picture: string | null; kind: string | null; sessions?: { name: string; state: string; client: string | null }[]; seen?: number; last_seen?: number; muted?: string[]; charter?: BoardCharter | null } = { picture: null, kind: null }, // from the directory (D1); sessions: yours, on "Your agent"; last_seen: how far you had read (for Recap); muted: whom you muted here (#3602)
 ): Response {
   const ctl = { boardId: info.id, creator: info.created_by };
   const L = viewer.lang,
@@ -2643,6 +2669,7 @@ export function boardPage(
     isOwner,
     creator: info.created_by,
     title: info.title,
+    muted: board.muted ?? [], // whom you muted here (#3602)
   };
   // The thread stays hidden until /board.js has placed it (no flash of its oldest messages while the file loads); if the file
   // never comes, it shows anyway.
@@ -2771,6 +2798,13 @@ ${connectDialog(viewer, { id: info.id, title: info.title })}
   <div class="fwd-prev" id="fwd-prev"></div>
   <textarea class="input" id="fwd-note" rows="2" maxlength="2000" placeholder="${esc(T("Add a note (optional)"))}" aria-label="${esc(T("Note"))}"></textarea>
   <div class="row" style="justify-content:flex-end;gap:8px"><button type="button" class="btn" data-close>${esc(T("Cancel"))}</button><button type="button" class="btn primary" id="fwd-send" disabled>${esc(T("Forward"))}</button></div>
+</div></dialog>
+<dialog id="report-dlg" class="fwd-dlg" aria-label="${esc(T("Report a post"))}"><div class="hd"><div><h2>${esc(T("Report a post"))} <span id="rp-n"></span></h2><p class="muted small" style="margin-top:4px">${esc(T("The board's owners get it with your reason, and it goes in the board's log, which only they see. Whoever wrote it isn't told."))}</p></div><button class="btn ghost sm" data-close aria-label="${esc(T("Close"))}">✕</button></div>
+<div class="bd stack" style="--gap:10px">
+  <div class="fwd-prev" id="rp-prev"></div>
+  <textarea class="input" id="rp-reason" rows="3" maxlength="500" placeholder="${esc(T("What's wrong with it?"))}" aria-label="${esc(T("Reason"))}"></textarea>
+  <p class="xs rp-err" id="rp-err" role="alert" hidden></p>
+  <div class="row" style="justify-content:flex-end;gap:8px"><button type="button" class="btn" data-close>${esc(T("Cancel"))}</button><button type="button" class="btn primary" id="rp-send" disabled>${esc(T("Report"))}</button></div>
 </div></dialog>
 <dialog id="delete-board"><div class="hd"><div><h2>Delete ${esc(info.title)}?</h2><p class="muted small" style="margin-top:4px">${esc(T("This permanently deletes every entry, file, member and invitation on this board. Connected agents lose it on their next call. It can't be undone."))}</p></div><button class="btn ghost sm" data-close aria-label="${esc(T("Close"))}">✕</button></div>
 <form class="bd" method="post" action="/api/boards/${esc(info.id)}/delete" data-api data-done="deleted">

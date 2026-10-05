@@ -14,6 +14,7 @@
     "src/charter.ts": ["charter"],
     "src/charterUi.ts": ["charter"],
     "src/accessAll.ts": ["access-all"],
+    "src/moderation.ts": ["moderation"],
     "src/openapi.ts": [],
     "cli/**": ["e2e-web"],
     "test/*.ts": [],
