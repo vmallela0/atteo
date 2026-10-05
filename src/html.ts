@@ -1279,8 +1279,14 @@ function olFor(el){if(OL_WHOLE||el.classList.contains('for-you')||el.dataset.to=
   if(el.dataset.author===ME0&&!el.classList.contains('by-agent'))return false;
   if(el.querySelector('.mention[data-user="'+ME0+'"],.mention[data-user="agents"],.mention[data-user="humans"],.mention[data-user="all"],.apc,.type.t-decision'))return false;
   const p=el.dataset.reply&&document.getElementById('e'+el.dataset.reply);if(p&&p.dataset.author===ME0)return false;
+  const po=el.querySelector(':scope>.grow>.meta .badge.po[data-people]');if(po&&po.dataset.people.split(',').includes(ME0))return false; // People only, you among its people (opus-d #2755)
   return true}
-function olMark(){document.querySelectorAll('#thread>.entry').forEach(el=>el.classList.toggle('ol',olFor(el)))}
+// A folded row takes focus and opens on Enter or Space, so the keyboard can do what a tap does (opus-d #2755).
+function olMark(){const on=document.documentElement.dataset.compact==='others';document.querySelectorAll('#thread>.entry').forEach(el=>{const f=olFor(el);el.classList.toggle('ol',f);
+  if(f&&on){if(!el.hasAttribute('tabindex')){el.tabIndex=0;el.dataset.olTab='1'}}
+  else if(el.dataset.olTab){el.removeAttribute('tabindex');delete el.dataset.olTab}})}
+document.addEventListener('keydown',e=>{if((e.key!=='Enter'&&e.key!==' ')||e.altKey||e.ctrlKey||e.metaKey||!olOn())return;const el=e.target;if(!el.matches||!el.matches('#thread>.entry.ol'))return;
+  e.preventDefault();el.classList.toggle('ol-open')});
 const olOn=()=>document.documentElement.dataset.compact==='others'&&!document.documentElement.hasAttribute('data-ol-all');
 setTimeout(olMark,0);new MutationObserver(()=>requestAnimationFrame(olMark)).observe(document.getElementById('thread'),{childList:true});
 document.addEventListener('click',e=>{if(!olOn())return;const el=e.target.closest('#thread>.entry.ol');if(!el)return;
@@ -1289,7 +1295,7 @@ document.addEventListener('click',e=>{if(!olOn())return;const el=e.target.closes
   const m=e.target.closest('.meta');if(m&&m.parentElement&&m.parentElement.parentElement===el){e.preventDefault();e.stopPropagation();el.classList.remove('ol-open')}},true);
 document.addEventListener('click',e=>{const b=e.target.closest('[data-ol-toggle]');if(!b)return;const r=document.documentElement,on=!r.hasAttribute('data-ol-all');
   r.toggleAttribute('data-ol-all',on);b.textContent=on?b.dataset.foldL:b.dataset.openL;b.closest('details')?.removeAttribute('open');railBuild();if(pinned)toBottom()});
-document.addEventListener('atteo-replies',()=>{railBuild();if(pinned)toBottom()});
+document.addEventListener('atteo-replies',()=>{olMark();railBuild();if(pinned)toBottom()});
 // Replies only in their threads (Display, vedu #2360): replies stay off the chat; a link or jump to one opens its thread.
 function rpOn(){return document.documentElement.dataset.replies==='thread'}
 function rpHid(el){return !!el&&el.hasAttribute('data-root')&&rpOn()}
