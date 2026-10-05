@@ -247,9 +247,12 @@ struct BoardView: View {
                     Divider()
                     NotifyLevelMenu(boardId: board.id) // how much this chat may interrupt you (vedu #2490)
                 } label: {
+                    // The "…" glyph is only a few points tall, so the new-replies dot goes on the corner of a square
+                    // around it, clear of the glyph (vedu #3994: on the glyph's own frame it sat on the third dot).
                     ToolbarIcon("ellipsis")
+                        .frame(width: 24, height: 22)
                         .overlay(alignment: .topTrailing) {
-                            if anyUnreadThread { Circle().fill(Theme.accent).frame(width: 7, height: 7).offset(x: 3, y: -2) }
+                            if anyUnreadThread { Circle().fill(Theme.accent).frame(width: 7, height: 7).offset(x: 2, y: 0) }
                         }
                 }
                 .accessibilityIdentifier("board-menu")
