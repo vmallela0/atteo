@@ -1539,9 +1539,12 @@ const leaveDlg=()=>{let d=document.getElementById('leave');if(d)return d;d=docum
   d.querySelector('h2').textContent=tr('Open this link?');const c=d.querySelectorAll('[data-close]');c[0].setAttribute('aria-label',tr('Close'));c[1].textContent=tr('Cancel');d.querySelector('#leave-go').textContent=tr('Open');
   document.body.append(d);return d};
 document.addEventListener('click',e=>{if(e.defaultPrevented||e.button!==0||e.metaKey||e.ctrlKey||e.shiftKey||e.altKey)return;const a=e.target.closest&&e.target.closest('a[href]');
-  if(!a||a.hasAttribute('data-save')||!a.closest('.entry .body,#doc-view,.pin-peek,.pin-card'))return;let u;try{u=new URL(a.getAttribute('href'),location.href)}catch(x){return}
-  if(u.origin===location.origin||!/^https?:$/.test(u.protocol))return;const d=leaveDlg();
-  e.preventDefault();document.getElementById('leave-url').textContent=u.href;d.dataset.href=u.href;d.showModal();document.getElementById('leave-go').focus()});
+  if(!a||a.hasAttribute('data-save')||!a.closest('.entry .body,.entry .chg,#doc-view,.pin-peek,.pin-card'))return;let u;try{u=new URL(a.getAttribute('href'),location.href)}catch(x){return}
+  if(u.origin===location.origin||!/^https?:$/.test(u.protocol))return;e.preventDefault();window.leaveTo(u.href)});
+// leaveTo(href): ask first when it's another site, else just open it (a change card's whole-card click uses it too).
+window.leaveTo=(href)=>{let u;try{u=new URL(href,location.href)}catch(x){return}
+  if(u.origin===location.origin||!/^https?:$/.test(u.protocol)){window.open(u.href,'_blank','noopener,noreferrer');return}
+  const d=leaveDlg();document.getElementById('leave-url').textContent=u.href;d.dataset.href=u.href;d.showModal();document.getElementById('leave-go').focus()};
 document.addEventListener('click',e=>{if(!e.target.closest||!e.target.closest('#leave-go'))return;const d=document.getElementById('leave'),h=d.dataset.href;d.close();if(h)window.open(h,'_blank','noopener,noreferrer')});
 document.addEventListener('click',async e=>{const a=e.target.closest&&e.target.closest('a[data-save]');if(!a||!navigator.canShare||!matchMedia('(pointer:coarse)').matches)return;e.preventDefault();
   const name=a.getAttribute('download')||'file',dl=()=>{const x=document.createElement('a');x.href=a.href;x.download=name;document.body.append(x);x.click();x.remove()};

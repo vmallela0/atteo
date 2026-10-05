@@ -1831,7 +1831,7 @@ function tapToggle(en){const was=en.classList.contains('tap');document.querySele
 document.addEventListener('click',e=>{const b=e.target.closest('.more-acts');if(!b)return;e.preventDefault();const en=b.closest('.entry');if(en)tapToggle(en)});
 // A change card opens its PR / commit on GitHub when you tap it anywhere that isn't its own control (vedu #1097).
 document.addEventListener('click',e=>{const c=e.target.closest('.chg[data-href]');if(!c||document.documentElement.classList.contains('selecting')||e.target.closest('a,button,summary,details>ul,.chg-diff,.chg-reviews'))return;
-  if(getSelection&&String(getSelection()).trim())return;e.preventDefault();e.stopPropagation();window.open(c.dataset.href,'_blank','noopener')},true);
+  if(getSelection&&String(getSelection()).trim())return;e.preventDefault();e.stopPropagation();if(window.leaveTo)window.leaveTo(c.dataset.href);else window.open(c.dataset.href,'_blank','noopener')},true); // asks first: it's GitHub (jxn #4173, opus-d #4233)
 if(matchMedia('(hover:none)').matches)document.addEventListener('click',e=>{if(document.documentElement.classList.contains('selecting'))return;
   const en=e.target.closest('.entry');if(!en||en.classList.contains('pending')||e.target.closest('a,button,input,textarea,select,label,summary,details,.acts,.tk,[data-hc],.rd'))return;
   tapToggle(en)});
