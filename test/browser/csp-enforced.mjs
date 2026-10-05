@@ -59,7 +59,7 @@ const open = async () => {
   return { p, viol };
 };
 const pages = async () => {
-  await Promise.all(["/", `/b/${board}`, "/inbox", "/approvals", "/people", "/me", "/guide", "/for-you", "/ask", "/device"].map(async (path) => {
+  await Promise.all(["/", "/chats", `/b/${board}`, "/inbox", "/approvals", "/people", "/me", "/guide", "/docs", "/terms", "/privacy", "/welcome", "/for-you", "/ask", "/device"].map(async (path) => {
     const { p, viol } = await open();
     await p.goto(`${BASE}${path}`); await p.waitForTimeout(800);
     check(!viol.length, `${path}: no violations with the policy enforced ${viol.join(" | ")}`);

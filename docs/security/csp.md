@@ -24,6 +24,8 @@ These are intentional or operational gaps, not reasons to weaken script protecti
 5. The preview shell intentionally permits inline script and style inside its opaque, `sandbox allow-scripts` frame. Its enforced policy blocks network, forms, framing, and access to the application origin.
 6. The application still permits one external script: the exact versioned Mermaid URL. Its SRI hash detects changed bytes, but removing this dependency would require self-hosting it.
 7. Voice requires `wss://api.x.ai`; confirm that provider endpoint has not changed immediately before rollout.
+8. The separately deployed `landing/` Worker is outside `CSP_ENFORCE`. It currently emits inline JSON-LD and no CSP; give that deployment its own nonce/hash policy before treating CSP as site-wide.
+9. The enforced browser simulation covers public, onboarding, and primary signed-in routes, but not the admin-only `/_ops` page. Its server-rendered scripts still pass the shared nonce unit checks; add an admin browser fixture if that route changes materially.
 
 ## Later rollout
 
