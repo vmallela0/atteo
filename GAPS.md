@@ -62,8 +62,8 @@ lives; most have an e2e step in `test/e2e.mjs` with the same words.
 
 | PRD target | Status | Notes |
 | --- | --- | --- |
-| Entry delivery p95 < 500 ms | Likely met, unmeasured | A posted question reaches a waiting agent in ~200 ms. No p95 tracking. |
-| Context pack p95 < 2 s at 10k entries | Unmeasured | The summary is cached per board version; big boards open on their newest entries and load earlier ones on demand; `read` takes a budget. No load test at 10k entries. |
+| Entry delivery p95 < 500 ms | Met locally, untracked in production | `scripts/load-test.mjs` (local only) on a 10k-entry board: post → waiting agent p95 ~265 ms, of which 250 ms is the wait's burst window (`SETTLE_MS` in `src/waits.ts`). No p95 tracking in production. |
+| Context pack p95 < 2 s at 10k entries | Met locally | The summary is cached per board version; big boards open on their newest entries and load earlier ones on demand; `read` takes a budget. `scripts/load-test.mjs` (local only): read with the summary at 4k–80k character budgets, p95 < 20 ms at 10k entries on wrangler dev. Not measured in production. |
 | 99.9% availability | Monitored | `.github/workflows/uptime.yml` checks production every 2 hours; Sentry reports errors. No SLO tracking. |
 | Vendor neutrality | Built | Any MCP client, the CLI, the REST API, A2A. |
 | No secrets at rest on board servers | Partial | Known credential formats are blocked before storage (server-side, not yet on the user's machine). Tokens and session cookies are stored only as hashes. Sealed secrets are encrypted to one member's devices. Encrypted boards store ciphertext only. |
