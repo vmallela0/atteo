@@ -165,6 +165,14 @@ describe("formatting", () => {
     expect(text).not.toContain("x".repeat(121));
   });
 
+  it("shows only the latest live-share line per session", () => {
+    const text = formatSummary(info, [], computeSummary([]), "vedu", undefined, undefined, undefined, undefined, [
+      { who: "vedu/scout", line: "#12 Fix empty-cart" },
+    ]);
+    expect(text).toContain("Live:");
+    expect(text).toContain("vedu/scout: #12 Fix empty-cart");
+  });
+
   it("stays within the character budget by dropping oldest claims first", () => {
     const entries = Array.from({ length: 15 }, (_, i) => e({ seq: i + 1, type: "claim", text: "c".repeat(200) }));
     entries.push(e({ seq: 16, type: "decision", text: "keep me" }));

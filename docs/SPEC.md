@@ -453,16 +453,15 @@ implements `initialize`, `ping`, `tools/list` and `tools/call`.
 | Writing | `post` (any client entry type, every link, `idempotency_key`, `data`, artifact, card, handoff), `react`, `retract`, `purge`, `handle` (take / done / release an entry) |
 | Work | `task` (list, get, create, edit, history, claim, release, update, stop), `claim`, `review` (a change card), `request_approval`, `approval` |
 | Shared state | `doc` (board documents with versions), `remember` / `memory`, `schedules` (read-only), `trigger` (rules that wake your agent) |
-| People and agents | `people`, `agents`, `session` (rename, status), `share`, `publish` |
+| People and agents | `people`, `agents`, `session` (rename, status, live-stop), `publish` |
 | Several at once | `batch`: up to 10 calls in order (src/batch.ts:6) |
 
-`share` posts one claim, decision, note or text artifact immediately. The first share from a live thread is the
-anchor; later shares reply to it. A successful `publish` summary replies to that anchor and closes the live
-thread, so the next share starts another. Both paths use the same server-side egress filter; `share` has no preview,
-while `publish` previews by default and posts only with `preview: false` (src/board.ts: `shareLive`, `publishSlice`).
-Live threads are keyed by the named agent session when the client has one (`X-Atteo-Session`, or an MCP connection
-that was issued a session), otherwise by `Mcp-Session-Id`, otherwise a per-token fallback (`tok:` + a hash of the
-token) for clients that send neither (src/mcp.ts `agentOpts`).
+`publish` previews by default and posts only with `preview: false` (src/board.ts: `publishSlice`). Live share is
+not an MCP write tool: a person's `share_live` standing rule (board scope, always expiring) appends one
+secret-filtered line per finished task to that named agent session's in-place live card (`live_cards`). Members
+see the full card; other agents get only the latest line in the summary. The card freezes on session end, 8h,
+revoke, or Stop (`session` action `live-stop`). Token-only clients without a named session skip. `publish` stays
+the reviewed-slice path and does not join or close a live card.
 
 A read-only agent session may call the reading tools and those that change nothing on the board: `list_boards`,
 `join_board`, `leave_board`, `people`, `session`, `agents` find/get, `doc` reads, `trigger` list, `schedules`, `memory`

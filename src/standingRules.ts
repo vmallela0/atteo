@@ -4,12 +4,14 @@
 //   accept_invites  — join a board they invite you to
 //   accept_friends  — accept their friend request
 //   allow_agents    — their agent may DM yours without asking
+//   share_live      — this board: one live card per agent session, one filtered line per finished task (board scope only)
 // A board scope covers people who are still members of that board (and you still are). A person scope names them.
+// share_live is self-authorization on that board (not applies(owner, other)).
 
 import { randomSecret } from "./auth";
 import type { Env } from "./types";
 
-export const STANDING_ACTIONS = ["accept_invites", "accept_friends", "allow_agents"] as const;
+export const STANDING_ACTIONS = ["accept_invites", "accept_friends", "allow_agents", "share_live"] as const;
 export type StandingAction = (typeof STANDING_ACTIONS)[number];
 export type StandingScope = "board" | "person";
 
@@ -118,6 +120,7 @@ export async function createRule(
   const action = cleanAction(raw.action);
   const scopeId = cleanScopeId(scope, raw.scope_id);
   const sec = cleanExpires(raw.expires_in);
+  if (action === "share_live" && scope !== "board") throw new StandingRuleError("share_live is for one board: your agents' finished tasks appear as a live card there.");
   if (scope === "person" && scopeId === user) throw new StandingRuleError("A standing rule names someone else.");
   if (scope === "person") {
     const who = await env.DB.prepare(`SELECT 1 AS k FROM users WHERE name = ?`).bind(scopeId).first();
@@ -183,6 +186,24 @@ export async function revokeRule(env: Env, user: string, id: string, now = Date.
   const r = await env.DB.prepare(`UPDATE standing_rules SET revoked_at = ? WHERE id = ? AND user = ? AND revoked_at IS NULL`).bind(now, id, user).run();
   if (!r.meta.changes) throw new StandingRuleError("Already revoked.");
   return { ...have, revoked_at: now, state: "revoked" };
+}
+
+/** True when `user` has an active share_live rule for this board right now (board-scoped; not applies(owner, other)). */
+export async function shareLiveOn(env: Env, user: string, boardId: string, now = Date.now()): Promise<boolean> {
+  if (!user || !boardId) return false;
+  const row = await env.DB.prepare(
+    `SELECT 1 AS k FROM standing_rules WHERE user = ? AND action = 'share_live' AND scope = 'board' AND scope_id = ? AND revoked_at IS NULL AND expires_at > ? LIMIT 1`,
+  )
+    .bind(user, boardId, now)
+    .first();
+  return !!row;
+}
+
+/** Freeze live cards on these boards (one session, or every session of `user` when session is omitted). */
+export async function freezeLive(env: Env, user: string, boards: string[], session: string | null = null): Promise<void> {
+  const ids = [...new Set(boards.filter((id) => typeof id === "string" && id.startsWith("b_")))];
+  if (!user || !ids.length) return;
+  await Promise.all(ids.map((id) => env.BOARD.get(env.BOARD.idFromName(id)).freezeLiveCards(user, session).catch(() => {})));
 }
 
 /** Whom a rule covers, for the account log: "@alice", or the board's title. */

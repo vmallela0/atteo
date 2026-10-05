@@ -93,18 +93,20 @@ const MATCH_ROUTES: Record<string, Route[]> = {
   ],
   "\\/api\\/boards\\/([^/]+)\\/members\\/([^/]+)\\/remove$": [{ method: "POST", path: "/api/boards/{id}/members/{user}/remove" }],
   "\\/api\\/boards\\/([^/]+)\\/ws$": [{ method: "GET", path: "/api/boards/{id}/ws" }],
-  "\\/api\\/sessions(?:\\/([^/]+))?(?:\\/(boards|read|wait))?(?:\\/([^/]+))?$": [
+  "\\/api\\/sessions(?:\\/([^/]+))?(?:\\/(boards|read|wait|live-stop))?(?:\\/([^/]+))?$": [
     { method: "GET", path: "/api/sessions" },
     { method: "POST", path: "/api/sessions" },
     { method: "DELETE", path: "/api/sessions" },
     { method: "GET", path: "/api/sessions/{sid}" },
     { method: "POST", path: "/api/sessions/{sid}" },
     { method: "DELETE", path: "/api/sessions/{sid}" },
+    { method: "POST", path: "/api/sessions/{sid}/live-stop" },
     { method: "POST", path: "/api/sessions/{sid}/boards" },
     { method: "DELETE", path: "/api/sessions/{sid}/boards/{id}" },
     { method: "GET", path: "/api/sessions/{sid}/read" },
     { method: "GET", path: "/api/sessions/{sid}/wait" },
   ],
+  "\\/api\\/boards\\/([^/]+)\\/live-stop$": [{ method: "POST", path: "/api/boards/{id}/live-stop" }],
   "\\/api\\/boards\\/([^/]+)\\/(image|upload)$": [
     { method: "GET", path: "/api/boards/{id}/image" },
     { method: "POST", path: "/api/boards/{id}/upload" },

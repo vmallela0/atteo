@@ -292,6 +292,7 @@ export function formatSummary(
   tags?: TaskTags,
   reviewers?: Map<number, string[]>, // who has given a verdict on each change
   names?: Record<string, string>, // what members named their agents: "vedu (agent: Jarvis)"
+  live?: { who: string; line: string }[], // share_live: other agents see only the latest line per session card
 ): string {
   const s = summary;
   // Each section shows its newest items up to a cap (big boards have thousands); the rest is a search away.
@@ -329,6 +330,10 @@ export function formatSummary(
     section("Files", s.artifacts, "none", cap.files, "doc list");
     if (reviewsForYou.length) section("Changes waiting for YOUR review", reviewsForYou, "", 20);
     if (recent.length) section("Recent changes", recent, "", MAX_CHANGES);
+    if (live?.length) {
+      lines.push("", "Live:");
+      for (const x of live) lines.push(`  ${x.who}: ${x.line}`);
+    }
     lines.push("", "(One line per entry; `get` an entry number for the full text.)");
     return lines.join("\n");
   };

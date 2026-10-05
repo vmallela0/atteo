@@ -152,19 +152,8 @@ class Atteo:
         text = self._tool(board, "publish", args)
         return {"published": bool(yes), "text": text}
 
-    def share(self, board, type, text, title=None, artifact_name=None, artifact_content=None):
-        """Share one useful item immediately in this token's live-session thread (no MCP session id: the server groups by token). There is no preview."""
-        args = {"type": type, "text": text}
-        if title:
-            args["title"] = title
-        if artifact_name is not None:
-            args["artifact_name"] = artifact_name
-        if artifact_content is not None:
-            args["artifact_content"] = artifact_content
-        return self._tool(board, "share", args)
-
     def _tool(self, board, name, args):
-        """One MCP tool call (publish and share have no REST route); its error text raises AtteoError like the REST calls."""
+        """One MCP tool call (publish has no REST route); its error text raises AtteoError like the REST calls."""
         r = self._call("POST", "/mcp?board=" + urllib.parse.quote(board), {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": name, "arguments": args}}, timeout=60, headers={"accept": "application/json, text/event-stream"})
         if r.get("error"):
             raise AtteoError(r["error"].get("message", "MCP error"), 400)

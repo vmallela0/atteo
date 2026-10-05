@@ -3439,7 +3439,7 @@ const ACCOUNT_EVENTS: Record<AccountLogRow["event"], string> = {
 
 // Standing rules (P0 network #5; the Cursor session's draft dd88bd2, its UI here #3775): one automatic yes, for one
 // person or the people on one board, until it ends. Listed with Revoke; added with a small form.
-const SR_ACTION: Record<StandingAction, string> = { accept_invites: "Join boards they invite me to", accept_friends: "Accept their friend requests", allow_agents: "Let their agents message mine" };
+const SR_ACTION: Record<StandingAction, string> = { accept_invites: "Join boards they invite me to", accept_friends: "Accept their friend requests", allow_agents: "Let their agents message mine", share_live: "Share a live card of finished tasks" };
 function standingSection(rules: StandingRule[] | null, side: SideBoard[], lang?: Lang): string {
   if (!rules) return "";
   const T = (x: string, v?: Record<string, string | number>) => tr(lang, x, v);
@@ -3450,11 +3450,13 @@ function standingSection(rules: StandingRule[] | null, side: SideBoard[], lang?:
     .map(
       (r) => `<li class="sr-row" data-rule="${esc(r.id)}"><span class="grow small">${esc(T(SR_ACTION[r.action]))} · ${
         r.scope === "person" ? `<b>@${esc(r.scope_id)}</b>` : esc(T("people on {board}", { board: title(r.scope_id) }))
-      } <span class="xs muted">· ${esc(T("until {date}", { date: day(r.expires_at) }))}</span></span><button class="btn sm ghost" type="button" data-sr-revoke="${esc(r.id)}">${esc(T("Revoke"))}</button></li>`,
+      } <span class="xs muted">· ${esc(T("until {date}", { date: day(r.expires_at) }))}</span></span>${
+        r.action === "share_live" ? `<button class="btn sm ghost" type="button" data-sr-stop="${esc(r.scope_id)}">${esc(T("Stop"))}</button>` : ""
+      }<button class="btn sm ghost" type="button" data-sr-revoke="${esc(r.id)}">${esc(T("Revoke"))}</button></li>`,
     )
     .join("");
   const opt = (v: string, label: string, sel = false) => `<option value="${esc(v)}"${sel ? " selected" : ""}>${esc(label)}</option>`;
-  return `<div class="section-title" style="margin-top:32px"><div><h2>${esc(T("Standing rules"))}</h2><p class="small muted" style="margin-top:4px">${esc(T("One automatic yes, for one person or the people on one board, until it ends. A block still wins."))}</p></div></div>
+  return `<div class="section-title" style="margin-top:32px"><div><h2>${esc(T("Standing rules"))}</h2><p class="small muted" style="margin-top:4px">${esc(T("One automatic yes, for one person or the people on one board, until it ends. A block still wins. share_live is for one board: each finished task becomes one line on that session's card."))}</p></div></div>
 <div class="card pad"><ul class="sr-list" id="sr-list">${rows || `<li class="xs muted">${esc(T("No standing rules."))}</li>`}</ul>
 <form class="sr-form" id="sr-form">
 <select class="input" name="action" aria-label="${esc(T("What to allow"))}">${(Object.keys(SR_ACTION) as StandingAction[]).map((a) => opt(a, T(SR_ACTION[a]))).join("")}</select>
@@ -3468,7 +3470,7 @@ function standingSection(rules: StandingRule[] | null, side: SideBoard[], lang?:
 
 const SR_JS = `
 (()=>{const f=document.getElementById('sr-form');if(!f)return;const err=document.getElementById('sr-err'),list=document.getElementById('sr-list');
-  const pick=()=>{const b=f.scope.value==='board';f.person.hidden=b;f.board.hidden=!b};f.scope.addEventListener('change',pick);pick();
+  const pick=()=>{const live=f.action.value==='share_live';if(live)f.scope.value='board';const b=f.scope.value==='board';f.person.hidden=b;f.board.hidden=!b;f.scope.disabled=live};f.scope.addEventListener('change',pick);f.action.addEventListener('change',pick);pick();
   // A new rule joins the list in place (no reload), so focus and a screen reader's place stay in the form (#3830).
   const rowFor=(rule,what,who,isPerson)=>{const li=document.createElement('li');li.className='sr-row';li.dataset.rule=rule.id;
     const t=document.createElement('span');t.className='grow small';t.append(what+' · ');
@@ -3484,7 +3486,10 @@ const SR_JS = `
     list.prepend(rowFor(j.rule,f.action.selectedOptions[0].text,board?f.board.selectedOptions[0].text:'',!board));
     if(!board)f.person.value='';(board?btn:f.person).focus();toast(tr('Rule added'))});
   // Revoke: focus moves to the next rule's Revoke, or back to the form when it was the last one.
-  document.addEventListener('click',async e=>{const b=e.target.closest('[data-sr-revoke]');if(!b)return;b.disabled=true;
+  document.addEventListener('click',async e=>{const stop=e.target.closest('[data-sr-stop]');if(stop){stop.disabled=true;
+    const r=await fetch('/api/boards/'+encodeURIComponent(stop.dataset.srStop)+'/live-stop',{method:'POST'}).catch(()=>null);
+    stop.disabled=false;toast(r&&r.ok?tr('Stopped live share'):tr('Could not update'));return}
+    const b=e.target.closest('[data-sr-revoke]');if(!b)return;b.disabled=true;
     const r=await fetch('/api/rules/'+encodeURIComponent(b.dataset.srRevoke)+'/revoke',{method:'POST'}).catch(()=>null);
     if(r&&r.ok){const row=b.closest('.sr-row'),next=(row?.nextElementSibling||row?.previousElementSibling)?.querySelector('[data-sr-revoke]');row?.remove();
       if(!list.querySelector('.sr-row')){const li=document.createElement('li');li.className='xs muted';li.textContent=tr('No standing rules.');list.append(li)}

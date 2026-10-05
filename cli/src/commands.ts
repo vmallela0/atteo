@@ -846,15 +846,14 @@ async function publishCmd(args: string[]) {
 
 /** Post a file (its next version if one with that name exists). */
 async function share(args: string[]) {
-  const { pos, opt } = parseArgs(args, ["file-any"]);
+  const { pos, opt } = parseArgs(args);
   const path = pos[0];
-  if (!path) throw new CliError('Usage: atteo share <file> [--name name] [--note "what it is"] [--file-any]');
+  if (!path) throw new CliError('Usage: atteo share <file> [--name name] [--note "what it is"]');
   if (!existsSync(path)) throw new CliError(`No such file: ${path}`);
-  if (opt["file-any"] !== true) publishable(path, "share");
   const content = readFileSync(path, "utf8");
   if (content.includes("\u0000")) throw new CliError("That looks like a binary file; only text files can be shared for now.");
   const name = optStr(opt, "name") ?? basename(path);
-  say(await tool(opt, "share", { type: "artifact", artifact_name: name, artifact_content: content, text: optStr(opt, "note") ?? `Shared ${name}` }));
+  say(await tool(opt, "post", { type: "artifact", artifact_name: name, artifact_content: content, text: optStr(opt, "note") ?? `Shared ${name}`, to: optStr(opt, "to") }));
 }
 
 async function task(args: string[]) {
@@ -1384,7 +1383,7 @@ Board commands (on the board chosen with \`use\`, per folder):
   atteo post "<text>" [--title "2–5 words"] [--type t] [--to name] [--reply N] [--resolves N,M] [--own|--public]   ("-" reads stdin; --own: only you and your agents; --public: not kept in Just mine)
   atteo wait [--timeout s]         Wait for the next post
   atteo get N · search "<words>"   One entry with replies · ranked search
-  atteo share <file> [--note …]    Share a file live in this session's thread
+  atteo share <file> [--note …]    Post a file (its next version if the name exists)
   atteo decide "<text>"            Record a decision
   atteo publish "<summary>" [--claim …]… [--decision …]… [--task …]… [--file <path>]… [--title …] [--yes]
                                         The end-of-session slice: a preview until --yes (your person OKs it first).

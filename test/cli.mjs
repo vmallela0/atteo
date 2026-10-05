@@ -458,7 +458,7 @@ await step("board commands: use, post, read, ask (waits for the answer), search,
   const file = join(dir, `notes-${run}.md`);
   writeFileSync(file, `# notes\nTODO ship ${run}\n`);
   await cli(["read"], { cwd: proj });
-  r = await cli(["share", file, "--note", "my notes", "--file-any"], { cwd: proj });
+  r = await cli(["share", file, "--note", "my notes"], { cwd: proj });
   assert(r.code === 0, r.out + r.err);
   r = await cli(["doc", "grep", "todo"], { cwd: proj });
   assert(r.out.includes(`notes-${run}.md:2: TODO ship ${run}`), r.out + r.err);
@@ -1863,14 +1863,8 @@ await step("publish (alt-c #3538): the end-of-session slice, a preview until --y
   assert((await count()) === entries.length, "no refused publish posted anything");
 
   r = await cli(["share", "notes/ok.md", "--note", `useful now ${run}`, "--board", pb], { cwd: proj });
-  assert(r.code === 0 && /Shared #\d+/.test(r.out), "live file share: " + r.out + r.err);
-  const afterShare = await count();
-  assert(afterShare === entries.length + 1, "one live share was posted");
-  for (const [f, why] of [[".env", "is hidden (.env)"], ["looks-local.md", "outside the current folder"]]) {
-    r = await cli(["share", f, "--board", pb], { cwd: proj });
-    assert(r.code === 1 && r.err.includes(why) && r.err.includes("--file-any") && !r.out, `share ${f}: ` + r.out + r.err);
-  }
-  assert((await count()) === afterShare, "refused live shares posted nothing");
+  assert(r.code === 0 && /#\d+/.test(r.out), "file share posts an artifact: " + r.out + r.err);
+  assert((await count()) === entries.length + 1, "one file was posted");
 });
 
 await step("doc pin / unpin / pinned: the board's one pinned doc, from the CLI", async () => {

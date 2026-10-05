@@ -202,7 +202,7 @@ await step("MCP initialize, tools/list, notifications, protocol errors", async (
   assert(r.protocolVersion === "2025-06-18" && r.serverInfo.name === "atteo" && r.serverInfo.title === "Atteo", JSON.stringify(r));
   has(r.instructions, "Atteo");
   const names = (await rpcRaw(auth(A), null, "tools/list", {})).tools.map((t) => t.name).sort();
-  assert(JSON.stringify(names) === JSON.stringify(["agents", "approval", "batch", "claim", "create_board", "doc", "get", "grep", "handle", "invite", "join_board", "leave_board", "list_boards", "mailbox", "memory", "people", "post", "publish", "purge", "react", "read", "recap", "remember", "request_approval", "retract", "review", "schedules", "search", "session", "share", "task", "trigger", "wait"]), names.join());
+  assert(JSON.stringify(names) === JSON.stringify(["agents", "approval", "batch", "claim", "create_board", "doc", "get", "grep", "handle", "invite", "join_board", "leave_board", "list_boards", "mailbox", "memory", "people", "post", "publish", "purge", "react", "read", "recap", "remember", "request_approval", "retract", "review", "schedules", "search", "session", "task", "trigger", "wait"]), names.join());
   assert((await rpcRaw(auth(A), null, "notifications/initialized", {}, { notification: true })).status === 202, "notification status");
   assert((await rpcRaw({}, null, "notifications/initialized", {}, { notification: true })).status === 401, "no credentials: 401 so OAuth clients can sign in");
   assert((await fetch(`${BASE}/mcp`)).status === 405, "GET /mcp should be 405");
@@ -3336,51 +3336,64 @@ await step("the Atteo app signs in as the person (scope=person, atteo:// only): 
   assert((await as(tok[A], "POST", "/api/me/devices", { token: "b".repeat(64) })).status === 401, "agents can't register devices");
 });
 
-await step("live share threads in-progress items; publish reviews and closes that thread; secrets post nothing", async () => {
-  await ok(A, fb, "read");
-  const live1 = seqOf(await ok(A, fb, "share", { type: "claim", text: `Live checkout finding ${run}` }));
-  const live2 = seqOf(await ok(A, fb, "share", { type: "note", text: `Live checkout note ${run}` }));
-  let log = (await (await web(`/api/boards/${fb}/entries?after=0`, A)).json()).entries;
-  assert(log.find((e) => e.seq === live1)?.reply_to == null && log.find((e) => e.seq === live2)?.reply_to === live1, `live thread: ${JSON.stringify(log.filter((e) => e.seq === live1 || e.seq === live2).map((e) => [e.seq, e.reply_to]))}`);
+await step("live share: share_live standing rule posts one filtered line per finished task on a session card", async () => {
+  const lb = (await ops("boards", { user: A, title: `e2e live share ${run}` })).body.board.id;
+  await ops("members", { board: lb, user: B });
+  const api = (who, path, body) => web(path, who, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body ?? {}) });
+  const entries = async () => (await (await web(`/api/boards/${lb}/entries?after=0`, A)).json()).entries;
   const fake = ["ghp", "_", "Zx9Yw8Vu7Ts6Rq5Po4Nm3Lk2Jh1Gf0Ed9Cb8A"].join("");
-  const liveCount = log.length;
-  await err(A, fb, "share", { type: "note", text: `token ${fake}` }, "Blocked");
-  log = (await (await web(`/api/boards/${fb}/entries?after=0`, A)).json()).entries;
-  assert(log.length === liveCount, "a blocked live share posts nothing");
+
+  const sess = await session(A, lb);
+  await sok(sess, "read");
+  const t0 = seqOf(await sok(sess, "task", { action: "create", title: `no rule yet ${run}` }));
+  await sok(sess, "task", { action: "update", seq: t0, status: "done" });
+  assert(!(await entries()).some((e) => e.title && String(e.title).startsWith("Live ·")), "no card without share_live");
+
+  assert((await api(A, "/api/rules", { action: "share_live", scope: "person", scope_id: B, expires_in: 86400 })).status === 400, "share_live is board-only");
+  const rule = await (await api(A, "/api/rules", { action: "share_live", scope: "board", scope_id: lb, expires_in: 86400 })).json();
+  assert(rule.ok && rule.rule.action === "share_live", JSON.stringify(rule));
+
+  const t1 = seqOf(await sok(sess, "task", { action: "create", title: `first live task ${run}` }));
+  await sok(sess, "task", { action: "update", seq: t1, status: "done" });
+  let log = await entries();
+  const cards = log.filter((e) => e.title && String(e.title).startsWith("Live ·") && e.author === A);
+  assert(cards.length === 1, `one live card: ${JSON.stringify(cards.map((e) => [e.seq, e.title]))}`);
+  const card = cards[0];
+  has(card.text, `#${t1} first live task ${run}`);
+
+  const t2 = seqOf(await sok(sess, "task", { action: "create", title: `second live task ${run}` }));
+  await sok(sess, "task", { action: "update", seq: t2, status: "done" });
+  log = await entries();
+  const same = log.find((e) => e.seq === card.seq);
+  assert(same && same.text.includes(`#${t1}`) && same.text.includes(`#${t2}`), "the card updates in place with both lines");
+  assert(log.filter((e) => e.title && String(e.title).startsWith("Live ·") && e.author === A).length === 1, "still one card");
+
+  const sum = await ok(B, lb, "read", { summary: true });
+  has(sum, "Live:");
+  has(sum, `#${t2} second live task ${run}`);
+  assert(!sum.includes(`#${t1} first live task`), "other agents see only the latest line in the summary");
+
+  await sok(sess, "session", { action: "live-stop" });
+  const t3 = seqOf(await sok(sess, "task", { action: "create", title: `after stop ${run}` }));
+  await sok(sess, "task", { action: "update", seq: t3, status: "done" });
+  log = await entries();
+  const frozen = log.find((e) => e.seq === card.seq);
+  assert(frozen.title.includes("stopped") && !frozen.text.includes(`#${t3}`), "Stop freezes the card; later tasks add no line");
+
+  const tokDone = seqOf(await ok(A, lb, "task", { action: "create", title: `token only ${run}` }));
+  await ok(A, lb, "task", { action: "update", seq: tokDone, status: "done" });
+  assert((await entries()).filter((e) => e.title && String(e.title).startsWith("Live ·") && e.author === A).length === 1, "token-only finish does not start a card");
 
   const slice = { summary: `Debugged the flaky checkout test ${run}`, title: "Checkout flake", claims: ["The flake is a race in cart init"], decisions: ["Await cart init before charge()"], tasks: ["Add a regression test"], files: [{ name: `flake-${run}.log`, content: "race at cart.ts:42" }] };
-  const pv = await ok(A, fb, "publish", slice);
+  const pv = await ok(A, lb, "publish", slice);
   has(pv, "Will post to this board");
-  has(pv, `file: flake-${run}.log`);
-  const before = (await (await web(`/api/boards/${fb}/updates?after=0`, A)).json()).count;
-  assert((await (await web(`/api/boards/${fb}/updates?after=0`, A)).json()).count === before, "preview posts nothing");
-  const done = await ok(A, fb, "publish", { ...slice, preview: false });
-  const head = Number(done.match(/summary #(\d+)/)[1]);
-  const g = await ok(B, fb, "get", { seq: head });
+  const n0 = (await (await web(`/api/boards/${lb}/updates?after=0`, A)).json()).count;
+  assert((await (await web(`/api/boards/${lb}/updates?after=0`, A)).json()).count === n0, "preview posts nothing");
+  const published = await ok(A, lb, "publish", { ...slice, preview: false });
+  const head = Number(published.match(/summary #(\d+)/)[1]);
+  const g = await ok(B, lb, "get", { seq: head });
   for (const t of ["The flake is a race", "Await cart init", "Add a regression test", `flake-${run}.log`]) has(g, t);
-  log = (await (await web(`/api/boards/${fb}/entries?after=0`, A)).json()).entries;
-  assert(log.find((e) => e.seq === head)?.reply_to === live1, "the reviewed summary joins the live thread");
-  const next = seqOf(await ok(A, fb, "share", { type: "note", text: `Next live thread ${run}` }));
-  log = (await (await web(`/api/boards/${fb}/entries?after=0`, A)).json()).entries;
-  assert(log.find((e) => e.seq === next)?.reply_to == null, "publishing closes the live thread");
-
-  // Named MCP sessions keep their own live threads (not the token fallback, not each other).
-  const s1 = await session(A, fb);
-  const s2 = await session(A, fb);
-  await sok(s1, "read");
-  await sok(s2, "read");
-  const s1a = seqOf(await sok(s1, "share", { type: "note", text: `mcp session one ${run}` }));
-  const s2a = seqOf(await sok(s2, "share", { type: "note", text: `mcp session two ${run}` }));
-  const s1b = seqOf(await sok(s1, "share", { type: "note", text: `mcp session one b ${run}` }));
-  const s2b = seqOf(await sok(s2, "share", { type: "note", text: `mcp session two b ${run}` }));
-  log = (await (await web(`/api/boards/${fb}/entries?after=0`, A)).json()).entries;
-  const of = (n) => log.find((e) => e.seq === n);
-  assert(of(s1a)?.reply_to == null && of(s2a)?.reply_to == null, "each MCP session starts its own live thread");
-  assert(of(s1b)?.reply_to === s1a && of(s2b)?.reply_to === s2a, `MCP sessions stay on their own threads: ${JSON.stringify([s1a, s1b, s2a, s2b].map((n) => [n, of(n)?.reply_to]))}`);
-  assert(of(s1b)?.reply_to !== next && of(s2b)?.reply_to !== next, "a named MCP session does not join the token fallback thread");
-  const n0 = (await (await web(`/api/boards/${fb}/updates?after=0`, A)).json()).count;
-  await err(A, fb, "publish", { summary: "ok", claims: ["fine", `token ${fake}`], preview: false }, "Blocked");
-  assert((await (await web(`/api/boards/${fb}/updates?after=0`, A)).json()).count === n0, "nothing posted when one item is blocked");
+  await err(A, lb, "publish", { summary: "ok", claims: ["fine", `token ${fake}`], preview: false }, "Blocked");
 });
 
 await step("sealed envelopes: stored as given, fetched only by their recipient (or sender)", async () => {

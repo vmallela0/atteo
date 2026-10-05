@@ -33,9 +33,26 @@ import { parseAgentCharter, type AgentCharter } from "./charter";
 import { mutersOf } from "./moderation";
 import { memberRole } from "./registry";
 import { scrubQuote } from "./forwards";
+import { shareLiveOn } from "./standingRules";
 
 export const MAX_TEXT = 32_000;
 export const MAX_ARTIFACT = 256_000;
+/** #3829 live card: last N finished-task lines, then the card freezes after this long. */
+const LIVE_CARD_MAX_LINES = 20;
+export const LIVE_CARD_MS = 8 * 3600 * 1000;
+
+type LiveLine = { seq: number; line: string };
+const liveWho = (user: string, sessionName: string | null | undefined) => (sessionName ? `${user}/${sessionName}` : `${user}'s agent`);
+const liveCardTitle = (who: string, frozen: boolean) => (frozen ? `Live · ${who} (stopped)` : `Live · ${who}`);
+const liveCardText = (who: string, lines: LiveLine[], frozen: boolean) => {
+  const head = liveCardTitle(who, frozen);
+  const body = lines.map((x) => `- ${x.line}`).join("\n");
+  return body ? `${head}\n${body}` : head;
+};
+const liveTaskLine = (t: Pick<TaskView, "seq" | "title">) => {
+  const title = (t.title || "").replace(/\s+/g, " ").trim().slice(0, 160);
+  return `#${t.seq}${title ? ` ${title}` : ""}`;
+};
 /** How many entries one post may resolve (REST and MCP alike). */
 export const MAX_RESOLVES = 50;
 export const MAX_WAIT_MS = 55_000;
@@ -131,7 +148,6 @@ export interface TaskActOpts {
   client?: string | null;
   session?: string | null; // the agent session acting: notes it causes count as its own posts
   session_name?: string | null; // its name, for "is on it" labels
-  live_thread?: string | null; // named agent session, else MCP connection id, else per-token fallback (`tok:…`)
 }
 
 /** Who holds a task's claim, as headers say it: "jxn/alt-b" for a named agent session, else "jxn's agent" or "jxn". */
@@ -476,12 +492,16 @@ export class Board extends DurableObject<Env> {
         user TEXT NOT NULL,
         cursor INTEGER NOT NULL DEFAULT 0
       );
-      -- One incremental share thread per agent session. The first shared item is the anchor; later items and the
-      -- reviewed publish summary reply to it. Publishing closes the thread, so a later share starts a new one.
-      CREATE TABLE IF NOT EXISTS live_shares (
+      -- One live-share card per agent session (#3829): a standing-rule note that updates in place, one line per
+      -- finished task. Token-only clients without a named session never write here.
+      CREATE TABLE IF NOT EXISTS live_cards (
         user TEXT NOT NULL,
         session TEXT NOT NULL,
-        anchor INTEGER NOT NULL,
+        seq INTEGER NOT NULL,
+        who TEXT NOT NULL,
+        started_at INTEGER NOT NULL,
+        frozen INTEGER NOT NULL DEFAULT 0,
+        lines TEXT NOT NULL DEFAULT '[]',
         PRIMARY KEY (user, session)
       );
       -- Which version of the board's rules (the doc PROTOCOL.md) each reader has been handed: once per version.
@@ -1576,7 +1596,7 @@ export class Board extends DurableObject<Env> {
       pin: this.pinLine(user, session, pinned), // "📌 SPEC.md updated to v4": once per version per reader, else null
       summaryText: withSummary
         ? (() => {
-            const text = withPinned(formatSummary(info, members, summaryWithNames(c.summary, opts.names), user, DEFAULT_SUMMARY_CHARS, this.decisions.tags(c.tags), c.reviewers, opts.names), pinned);
+            const text = withPinned(formatSummary(info, members, summaryWithNames(c.summary, opts.names), user, DEFAULT_SUMMARY_CHARS, this.decisions.tags(c.tags), c.reviewers, opts.names, this.liveSummaryLines()), pinned);
             return info.encrypted
               ? `This board is END-TO-END ENCRYPTED: messages are ciphertext here. Read and write it with the atteo CLI (atteo read / post / ask), which decrypts and encrypts on this machine.\n\n${text}`
               : text;
@@ -3903,6 +3923,7 @@ export class Board extends DurableObject<Env> {
     // Finishing #N ticks every open checklist line naming it in the other open tasks (a sub-task's parent also matches by
     // title).
     await this.tickMentions(user, seq, "done", opts, after);
+    await this.appendLiveTask(user, opts, after).catch(() => {});
   }
 
   /**
@@ -4552,39 +4573,9 @@ export class Board extends DurableObject<Env> {
   }
 
   /**
-   * Share one useful item while work is still in progress. A session's first item starts its live thread; subsequent
-   * items reply to it. This intentionally uses ordinary post semantics (rate limit, triggers, screening and egress
-   * filtering), unlike publishSlice's reviewed batch.
-   */
-  async shareLive(
-    user: string,
-    item: { type: "claim" | "decision" | "note" | "artifact"; text: string; title?: string; artifact_name?: string; artifact_content?: string },
-    opts: TaskActOpts,
-  ): Promise<{ anchor: number; entry: Entry }> {
-    if (!opts.live_thread) throw new BoardError("Live share needs an active MCP session.");
-    if (!(["claim", "decision", "note", "artifact"] as const).includes(item.type)) throw new BoardError("Live share type must be claim, decision, note or artifact.");
-    const current = this.sql.exec("SELECT anchor FROM live_shares WHERE user = ? AND session = ?", user, opts.live_thread).toArray()[0]?.anchor as number | undefined;
-    const entry = await this.post(user, {
-      type: item.type,
-      text: item.text,
-      title: item.title,
-      artifact_name: item.artifact_name,
-      artifact_content: item.artifact_content,
-      reply_to: current ?? 0,
-      own: false,
-      via: opts.via,
-      client: opts.client,
-      session: opts.session,
-      session_name: opts.session_name,
-    });
-    const anchor = current ?? entry.seq;
-    if (current == null) this.sql.exec("INSERT INTO live_shares (user, session, anchor) VALUES (?, ?, ?)", user, opts.live_thread, anchor);
-    return { anchor, entry };
-  }
-
-  /**
    * Publish a slice of a work session in one go: a summary note, then its claims, decisions, tasks and files, each
    * replying to the summary. Checked as a whole first (secrets, sizes), so it posts everything or nothing.
+   * Independent of live share: the reviewed-slice path stays preview-then-post.
    */
   async publishSlice(
     user: string,
@@ -4603,14 +4594,99 @@ export class Board extends DurableObject<Env> {
     for (const f of files) if (f.content.length > MAX_ARTIFACT) throw new BoardError(`${f.name} is too large (max ${MAX_ARTIFACT} characters).`);
     const hit = scanFields(Object.fromEntries([["summary", slice.summary], ...items.map((x, i) => [`item ${i + 1}`, x.text]), ...files.map((f) => [f.name, f.content])]));
     if (hit) throw new BoardError(blockedMessage(hit));
-    const liveAnchor = opts.live_thread ? (this.sql.exec("SELECT anchor FROM live_shares WHERE user = ? AND session = ?", user, opts.live_thread).toArray()[0]?.anchor as number | undefined) : undefined;
     this.rateLimit(user); // one slice counts as one post
-    const head = await this.post(user, { type: "note", title: slice.title ?? "Session summary", text: slice.summary, reply_to: liveAnchor ?? 0, own: false, via: opts.via, client: opts.client, session: opts.session }, { seeding: true });
+    const head = await this.post(user, { type: "note", title: slice.title ?? "Session summary", text: slice.summary, reply_to: 0, own: false, via: opts.via, client: opts.client, session: opts.session }, { seeding: true });
     const posted: { seq: number; type: string }[] = [];
     for (const x of items) posted.push({ seq: (await this.post(user, { type: x.type, text: x.text, reply_to: head.seq, via: opts.via, client: opts.client, session: opts.session }, { seeding: true })).seq, type: x.type });
     for (const f of files) posted.push({ seq: (await this.post(user, { type: "artifact", artifact_name: f.name, artifact_content: f.content, text: f.note ?? `From the session: ${f.name}`, reply_to: head.seq, via: opts.via, client: opts.client, session: opts.session }, { seeding: true })).seq, type: "artifact" });
-    if (liveAnchor != null && opts.live_thread) this.sql.exec("DELETE FROM live_shares WHERE user = ? AND session = ?", user, opts.live_thread);
     return { summary: head.seq, posted };
+  }
+
+  /** Latest live-card line per unfrozen, unexpired session — what other agents see in the summary (#3829). */
+  private liveSummaryLines(now = Date.now()): { who: string; line: string }[] {
+    const out: { who: string; line: string }[] = [];
+    for (const r of this.sql.exec("SELECT who, started_at, frozen, lines FROM live_cards").toArray()) {
+      if (r.frozen) continue;
+      if ((r.started_at as number) + LIVE_CARD_MS <= now) continue;
+      const lines = JSON.parse((r.lines as string) || "[]") as LiveLine[];
+      const last = lines[lines.length - 1];
+      if (last?.line) out.push({ who: r.who as string, line: last.line });
+    }
+    return out;
+  }
+
+  /**
+   * One secret-filtered line per finished task on this session's live card (share_live standing rule). Named agent
+   * sessions only; token-only clients skip. Members see the full card; it updates in place.
+   */
+  private async appendLiveTask(user: string, opts: TaskActOpts, task: TaskView) {
+    const session = opts.session;
+    if (!session || opts.via !== "agent") return;
+    const info = this.info();
+    if (info.encrypted || info.archived) return;
+    const now = Date.now();
+    const allowed = await shareLiveOn(this.env, user, info.id, now);
+    const row = this.sql.exec("SELECT seq, who, started_at, frozen, lines FROM live_cards WHERE user = ? AND session = ?", user, session).toArray()[0];
+    if (!allowed) {
+      if (row && !row.frozen) await this.freezeLiveCards(user, session);
+      return;
+    }
+    if (row && ((row.frozen as number) || (row.started_at as number) + LIVE_CARD_MS <= now)) {
+      if (!row.frozen) await this.freezeLiveCards(user, session);
+      return;
+    }
+    const line = liveTaskLine(task);
+    if (scanFields({ line })) return;
+    const who = liveWho(user, opts.session_name);
+    if (!row) {
+      const lines = [{ seq: task.seq, line }];
+      const entry = await this.post(
+        user,
+        { type: "note", title: liveCardTitle(who, false), text: liveCardText(who, lines, false), reply_to: 0, own: false, via: opts.via, client: opts.client, session: opts.session, session_name: opts.session_name },
+        { seeding: true },
+      );
+      this.sql.exec("INSERT INTO live_cards (user, session, seq, who, started_at, frozen, lines) VALUES (?, ?, ?, ?, ?, 0, ?)", user, session, entry.seq, who, now, JSON.stringify(lines));
+      return;
+    }
+    const lines = JSON.parse((row.lines as string) || "[]") as LiveLine[];
+    if (lines.some((x) => x.seq === task.seq)) return;
+    lines.push({ seq: task.seq, line });
+    const kept = lines.slice(-LIVE_CARD_MAX_LINES);
+    this.sql.exec("UPDATE live_cards SET lines = ?, who = ? WHERE user = ? AND session = ?", JSON.stringify(kept), who, user, session);
+    this.rewriteLiveCard(row.seq as number, liveCardTitle(who, false), liveCardText(who, kept, false));
+  }
+
+  /** Freeze this person's live card(s) on this board (session end, 8h, revoke, or Stop). */
+  async freezeLiveCards(user: string, session: string | null): Promise<{ frozen: number }> {
+    const rows = session
+      ? this.sql.exec("SELECT user, session, seq, who, frozen, lines FROM live_cards WHERE user = ? AND session = ?", user, session).toArray()
+      : this.sql.exec("SELECT user, session, seq, who, frozen, lines FROM live_cards WHERE user = ?", user).toArray();
+    let n = 0;
+    for (const r of rows) {
+      if (r.frozen) continue;
+      this.sql.exec("UPDATE live_cards SET frozen = 1 WHERE user = ? AND session = ?", r.user, r.session);
+      const lines = JSON.parse((r.lines as string) || "[]") as LiveLine[];
+      this.rewriteLiveCard(r.seq as number, liveCardTitle(r.who as string, true), liveCardText(r.who as string, lines, true));
+      n++;
+    }
+    return { frozen: n };
+  }
+
+  /** In-place rewrite of a live card (no 15-minute person edit window; no "#N edited" notices to agents). */
+  private rewriteLiveCard(seq: number, title: string, text: string) {
+    const info = this.info();
+    const row = this.sql.exec(`SELECT ${ENTRY_COLS} FROM entries WHERE seq = ?`, seq).toArray()[0];
+    if (!row) return;
+    const old = toEntry(row);
+    const now = Date.now();
+    const version = ((this.sql.exec("SELECT MAX(version) AS v FROM entry_versions WHERE seq = ?", seq).one().v as number | null) ?? 0) + 1;
+    this.sql.exec("INSERT INTO entry_versions (seq, version, text, ts) VALUES (?, ?, ?, ?)", seq, version, old.text, old.edited_at ?? old.ts);
+    const flag = screenText(normalizeForScreen(text));
+    this.sql.exec("UPDATE entries SET text = ?, title = ?, edited_at = ?, ai_flag = ? WHERE seq = ?", text, title, now, flag?.reason ?? null, seq);
+    this.entryMemo = this.entryMemo.map((e) => (e.seq === seq ? { ...e, text, title, edited_at: now, ai_flag: flag?.reason ?? null } : e));
+    this.sql.exec("DELETE FROM search_idx WHERE kind = 'entry' AND ref = ?", String(seq));
+    this.indexEntry(seq, text, null, null, null);
+    this.broadcast({ type: "edit", seq, board: info.id }, seq);
   }
 
   /**

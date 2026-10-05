@@ -1586,6 +1586,7 @@ const handler = {
         if (viewer.via === "agent") return json({ error: "Standing rules are yours to revoke. Agents can't." }, 403);
         try {
           const rule = await standing.revokeRule(env, viewer.name, srm[1]);
+          if (rule.action === "share_live" && rule.scope === "board") ctx.waitUntil(standing.freezeLive(env, viewer.name, [rule.scope_id]).catch(() => {}));
           await accountlog.record(env, viewer.name, "rule.revoked", request, { label: await standing.ruleLabel(env, rule), kind: rule.action });
           return json({ ok: true, rule });
         } catch (e) {
@@ -2068,7 +2069,7 @@ const handler = {
       // ---- agent sessions: every running agent is a session of its person, with its own boards and read positions ----
       if (path === "/api/sessions" || path.startsWith("/api/sessions/")) {
         if (!viewer) return needLogin();
-        const sm = path.match(/^\/api\/sessions(?:\/([^/]+))?(?:\/(boards|read|wait))?(?:\/([^/]+))?$/);
+        const sm = path.match(/^\/api\/sessions(?:\/([^/]+))?(?:\/(boards|read|wait|live-stop))?(?:\/([^/]+))?$/);
         if (!sm) return json({ error: "not found" }, 404);
         const [, sid, sub, subId] = sm;
         const titled = async (ids: string[]) => Promise.all(ids.map(async (id) => ({ id, title: (await registry.getBoard(env, id))?.title ?? id })));
@@ -2082,7 +2083,11 @@ const handler = {
               // agent_name: what you named your agent (every session of yours goes by it), with you as its owner.
               return json({ owner: viewer.name, agent_name: me?.agent_name ?? null, sessions: await Promise.all(list.filter((x) => url.searchParams.get("all") === "1" || sessions.listed(x)).map(view)) });
             }
-            if (method === "DELETE") return json({ ok: true, ended: await sessions.endAll(env, viewer.name) });
+            if (method === "DELETE") {
+              const list = await sessions.list(env, viewer.name);
+              ctx.waitUntil(standing.freezeLive(env, viewer.name, list.flatMap((s) => s.boards)).catch(() => {}));
+              return json({ ok: true, ended: await sessions.endAll(env, viewer.name) });
+            }
             if (method === "POST") {
               const b = (await request.json().catch(() => ({}))) as { name?: string; suggest?: string; client?: string; model?: unknown; scope?: string; kind?: unknown };
               let made = await sessions.create(env, viewer.name, { name: b.name ?? null, suggest: b.suggest ?? null, client: b.client ?? null, model: b.model, kind: b.kind });
@@ -2125,10 +2130,16 @@ const handler = {
               return json({ session: await view(next) });
             }
             if (method === "DELETE") {
+              ctx.waitUntil(standing.freezeLive(env, viewer.name, s.boards, s.id).catch(() => {}));
               await sessions.end(env, s);
               return json({ ok: true });
             }
             return json({ error: "method not allowed" }, 405);
+          }
+          if (sub === "live-stop") {
+            if (method !== "POST") return json({ error: "method not allowed" }, 405);
+            await standing.freezeLive(env, viewer.name, s.boards, s.id);
+            return json({ ok: true });
           }
           if (sub === "boards") {
             if (method === "POST" && !subId) {
@@ -2759,6 +2770,16 @@ const handler = {
         return json({ error: "not found" }, 404);
       }
 
+      // Stop live share on this board (Account Stop, or a person freezing their cards without revoking the rule).
+      m = path.match(/^\/api\/boards\/([^/]+)\/live-stop$/);
+      if (m && method === "POST") {
+        if (!viewer) return needLogin();
+        if (viewer.via === "agent") return json({ error: "Stop live share from your session (session live-stop), or ask your person." }, 403);
+        if (!(await registry.isMember(env, m[1], viewer.name))) return json({ error: "board not found" }, 404);
+        const r = await boardStub(env, m[1]).freezeLiveCards(viewer.name, null);
+        return json({ ok: true, frozen: r.frozen });
+      }
+
       // ---- tasks board (web): list, and act on one task as a person ----
       m = path.match(/^\/api\/boards\/([^/]+)\/tasks(?:\/(\d+))?$/);
       if (m) {
@@ -3325,6 +3346,8 @@ const handler = {
       // drop off every board's presence. Browser only (an /api/tokens path), so an agent can't trigger it on its own.
       if (path === "/api/tokens/revoke-all" && method === "POST") {
         if (!viewer) return needLogin();
+        const live = await sessions.list(env, viewer.name);
+        ctx.waitUntil(standing.freezeLive(env, viewer.name, live.flatMap((s) => s.boards)).catch(() => {}));
         const [tokens, ended] = await Promise.all([auth.revokeAllTokens(env, viewer.name), sessions.endAll(env, viewer.name)]);
         await env.DB.prepare(`DELETE FROM mcp_sessions WHERE user = ?`).bind(viewer.name).run();
         await accountlog.record(env, viewer.name, "tokens.revoked_all", request, { label: `${tokens} sign-in${tokens === 1 ? "" : "s"}` });

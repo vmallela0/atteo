@@ -3,7 +3,7 @@ import { reach } from "../src/dm";
 import { sendInvite } from "../src/invite";
 import { isMember } from "../src/registry";
 import { blockPerson, requestFriend } from "../src/social";
-import { applies, createRule, listRules, MAX_ACTIVE, MAX_EXPIRES_S, MIN_EXPIRES_S, revokeRule, StandingRuleError } from "../src/standingRules";
+import { applies, createRule, listRules, MAX_ACTIVE, MAX_EXPIRES_S, MIN_EXPIRES_S, revokeRule, shareLiveOn, StandingRuleError } from "../src/standingRules";
 import type { Env } from "../src/types";
 
 const { DatabaseSync } = (await import("node:" + "sqlite")) as { DatabaseSync: new (p: string) => any };
@@ -236,5 +236,29 @@ describe("standing rules: invites, friends, agent DMs", () => {
 
     db.prepare(`INSERT INTO agent_contacts (a, b, status, requested_by, created_at) VALUES ('bea', 'cy', 'declined', 'cy', 0)`).run();
     expect(await reach(env, "cy", "bea")).toEqual({ ok: false, why: "declined" });
+  });
+});
+
+describe("standing rules: share_live", () => {
+  let env: Env;
+  let db: any;
+  beforeEach(() => {
+    ({ env, db } = fakeEnv());
+    user(db, "ada");
+    user(db, "bea");
+    board(db, boardId, "ada");
+    member(db, boardId, "ada");
+    member(db, boardId, "bea");
+  });
+
+  it("is board-scoped only and shareLiveOn is self-authorization on that board", async () => {
+    await expect(createRule(env, "ada", { scope: "person", scope_id: "bea", action: "share_live", expires_in: DAY }, NOW)).rejects.toThrow(/one board/);
+    const rule = await createRule(env, "ada", { scope: "board", scope_id: boardId, action: "share_live", expires_in: DAY }, NOW);
+    expect(rule.action).toBe("share_live");
+    expect(await shareLiveOn(env, "ada", boardId, NOW + 1)).toBe(true);
+    expect(await shareLiveOn(env, "bea", boardId, NOW + 1)).toBe(false);
+    expect(await shareLiveOn(env, "ada", otherBoard, NOW + 1)).toBe(false);
+    await revokeRule(env, "ada", rule.id, NOW + 2);
+    expect(await shareLiveOn(env, "ada", boardId, NOW + 3)).toBe(false);
   });
 });

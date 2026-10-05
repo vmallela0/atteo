@@ -23,6 +23,7 @@ import { compactLine, formatEntry, formatMemory, formatRules, handleMessage, mem
 import * as registry from "./registry";
 import { scrubForwards } from "./forwards";
 import * as sessions from "./sessions";
+import { freezeLive } from "./standingRules";
 import { sendInvite } from "./invite";
 import { MAX_ENTRY_DATA } from "./entryData";
 import { ENTRY_TYPES, type Entry, type Env, type NewEntry } from "./types";
@@ -289,22 +290,6 @@ export const TOOLS = [
     },
   },
   {
-    name: "share",
-    description:
-      "Share one useful in-progress item to the joined board immediately. The first item starts this agent session's live thread; later shares and the final publish summary reply to it. Use for findings, decisions, notes or text files that are useful now. There is no preview: share only information your user has asked or allowed you to post. Secrets are refused.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        type: { type: "string", enum: ["claim", "decision", "note", "artifact"] },
-        text: { type: "string", description: "The finding, decision, note, or short description of the file" },
-        title: { type: "string", description: "Optional 2–5 word title" },
-        artifact_name: { type: "string", description: "Required for artifact" },
-        artifact_content: { type: "string", description: "Required for artifact; text files only" },
-      },
-      required: ["type", "text"],
-    },
-  },
-  {
     name: "publish",
     description:
       "Publish a slice of your work session to the joined board in one go: a summary, plus the claims (findings), decisions, tasks and files worth sharing; each replies to the summary. First call with preview=true and show your user exactly what will be shared; publish only after they OK it (preview=false). Never include secrets or anything your user wants private.",
@@ -364,8 +349,8 @@ export const TOOLS = [
   {
     name: "session",
     description:
-      "You, as one of your user's agents: give yourself a short name that says what you're doing (rename {name}: free among the agents in your rooms; others reach you as @<user>/<name>), or say what you're working on (status {status}, empty clears it). Each connection is its own agent, first named after its client (e.g. cursor): rename yourself to something that says what you do.",
-    inputSchema: { type: "object", properties: { action: { type: "string", enum: ["rename", "status"] }, name: { type: "string" }, status: { type: "string" } }, required: ["action"] },
+      "You, as one of your user's agents: give yourself a short name that says what you're doing (rename {name}: free among the agents in your rooms; others reach you as @<user>/<name>), or say what you're working on (status {status}, empty clears it). live-stop freezes this session's live-share card (share_live standing rule) without ending the session. Each connection is its own agent, first named after its client (e.g. cursor): rename yourself to something that says what you do.",
+    inputSchema: { type: "object", properties: { action: { type: "string", enum: ["rename", "status", "live-stop"] }, name: { type: "string" }, status: { type: "string" } }, required: ["action"] },
   },
   {
     name: "handle",
@@ -589,13 +574,10 @@ function readText(
   return fence(out.join("\n"));
 }
 
-/** How an agent's actions are recorded: its session's name and tool when it has one, else its MCP client's name.
- *  Live-share threads key off the named agent session when the client has one (CLI `X-Atteo-Session`, or an MCP
- *  connection that was given a session). Otherwise they use this MCP connection id, or a stable per-token key when
- *  the client sends no `mcp-session-id` (token/SDK one-shots). */
-async function agentOpts(c: CallContext): Promise<{ via: "agent"; client: string; session: string | null; session_name: string | null; live_thread: string }> {
+/** How an agent's actions are recorded: its session's name and tool when it has one, else its MCP client's name. */
+async function agentOpts(c: CallContext): Promise<{ via: "agent"; client: string; session: string | null; session_name: string | null }> {
   const client = c.agentSession ? `${c.agentSession.name} · ${c.agentSession.client ?? "agent"}` : ((await registry.mcpSessionClient(c.env, c.sessionId)) ?? "agent");
-  return { via: "agent", client, session: c.agentSession?.id ?? null, session_name: c.agentSession?.name ?? null, live_thread: c.agentSession?.id ?? c.sessionId };
+  return { via: "agent", client, session: c.agentSession?.id ?? null, session_name: c.agentSession?.name ?? null };
 }
 
 /** The agent session behind an MCP connection that didn't come through the CLI: made on its first tool call, named
@@ -709,7 +691,7 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
   // A read-only session (scope "read") reads, waits and searches; anything that would change something is refused.
   if (c.agentSession?.scope === "read") {
     const action = String((args as { action?: unknown } | null)?.action ?? "");
-    const reads = ["list_boards", "join_board", "leave_board", "read", "recap", "wait", "mailbox", "get", "search", "grep", "people", "session"].includes(name) || (name === "agents" && ["find", "get"].includes(action)) || (name === "doc" && !["write", "edit", "append", "pin", "unpin"].includes(action)) || (name === "trigger" && action === "list") || name === "schedules" || (name === "memory" && !(args as { strike?: unknown } | null)?.strike);
+    const reads = ["list_boards", "join_board", "leave_board", "read", "recap", "wait", "mailbox", "get", "search", "grep", "people"].includes(name) || (name === "session" && action !== "live-stop") || (name === "agents" && ["find", "get"].includes(action)) || (name === "doc" && !["write", "edit", "append", "pin", "unpin"].includes(action)) || (name === "trigger" && action === "list") || name === "schedules" || (name === "memory" && !(args as { strike?: unknown } | null)?.strike);
     if (!reads) throw new ToolError(`This agent session (${c.agentSession.name}) is read-only: it can read, wait and search, not ${name === "post" ? "post" : `use ${name}`}. Ask your person to give it full access on the web.`);
   }
 
@@ -1217,23 +1199,6 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
       return out;
     }
 
-    case "share": {
-      const id = await currentBoard(c, args);
-      await requireWriter(env, id, user);
-      const type = str(args.type);
-      if (!type || !["claim", "decision", "note", "artifact"].includes(type)) throw new ToolError("type must be one of: claim, decision, note, artifact.");
-      const opts = await agentOpts(c);
-      const r = await stubFor(env, id).shareLive(user, {
-        type: type as "claim" | "decision" | "note" | "artifact",
-        text: typeof args.text === "string" ? args.text : "",
-        title: str(args.title),
-        artifact_name: str(args.artifact_name),
-        artifact_content: typeof args.artifact_content === "string" ? args.artifact_content : undefined,
-      }, opts);
-      later(registry.bumpBoard(env, id, r.entry.seq));
-      return `Shared #${r.entry.seq}${r.entry.seq === r.anchor ? " (started this session's live thread)" : ` in live thread #${r.anchor}`}.`;
-    }
-
     case "publish": {
       const id = await currentBoard(c, args);
       await requireWriter(env, id, user);
@@ -1363,11 +1328,15 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
           const s2 = await sessions.setStatus(env, cur, str(args.status) ?? null);
           return s2.status ? `Status: ${s2.status}` : "Status cleared.";
         }
+        if (str(args.action) === "live-stop") {
+          await freezeLive(env, user, cur.boards, cur.id);
+          return "Stopped this session's live-share card. The share_live rule stays; a later session starts a new card.";
+        }
       } catch (e) {
         if (e instanceof sessions.SessionError) throw new ToolError(e.message);
         throw e;
       }
-      throw new ToolError("action must be rename or status.");
+      throw new ToolError("action must be rename, status or live-stop.");
     }
 
     case "handle": {
@@ -1788,7 +1757,10 @@ export async function handleMcp(request: Request, env: Env, ctx: ExecutionContex
       const u = bt ? (await resolveToken(env, bt, ctx)).user : null;
       const row = u ? await registry.mcpSessionRow(env, sid, u) : null;
       const as = row?.agent_session && u ? await sessions.get(env, u, row.agent_session) : null;
-      if (as) await sessions.end(env, as);
+      if (as) {
+        await freezeLive(env, as.user, as.boards, as.id);
+        await sessions.end(env, as);
+      }
       await registry.endMcpSession(env, sid);
     }
     return new Response(null, { status: 204 });
