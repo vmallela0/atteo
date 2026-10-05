@@ -3,7 +3,8 @@
 // is drawn as an inline SVG in the board's colours, with the numbers in a table underneath (also what shows when the
 // spec can't be drawn). The network keeps the plain text; agents reading the board see the JSON.
 
-const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
+import { esc } from "./util";
+
 const MAX_SERIES = 8;
 const MAX_POINTS = 60;
 

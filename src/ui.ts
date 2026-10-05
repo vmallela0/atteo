@@ -366,6 +366,7 @@ a.ev-acct:hover{background:var(--bg-subtle)}
 .fwd-prev{max-height:160px;overflow:auto;display:flex;flex-direction:column;gap:6px}.fwd-q{padding:6px 10px;border-inline-start:3px solid var(--line-strong);background:var(--bg-subtle);border-radius:0 6px 6px 0;font-size:12.5px;min-width:0}
 .badge.hdl{position:relative;z-index:4;height:18px;font-size:11px;color:var(--accent);border-color:color-mix(in srgb,var(--accent) 35%,var(--line))}
 .badge.hdl.done{color:var(--ok);border-color:color-mix(in srgb,var(--ok) 35%,var(--line))}
+.hdl-prog{margin-top:4px;color:var(--muted);overflow-wrap:anywhere}.hdl-prog.stalled{color:var(--warn)} /* the agent's progress under a message it's on (#2498) */
 .badge.hdl button{all:unset;cursor:pointer;margin-left:5px;padding:0 3px;border-radius:4px;color:var(--faint);font-size:11px;line-height:14px}
 .badge.hdl button:hover{background:var(--bg-hover);color:var(--ink)}
 .badge.hdl button:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
@@ -1362,8 +1363,10 @@ const DISPLAY_HEAD = `<script>try{const d=JSON.parse(localStorage.getItem('atteo
 if(d.text==='s'||d.text==='l')r.dataset.text=d.text;if(d.density==='compact')r.dataset.density='compact';if(d.theme==='light'||d.theme==='dark')r.dataset.theme=d.theme;if(d.ev===true)r.dataset.mode='everyday';if(d.replies==='thread')r.dataset.replies='thread'}catch{}</script>`; // mode: what the account said last time (set on the first sync)
 
 const CLIENT_JS = `
+/** Bidi controls, zero-width space, word joiner, and BOM. ZWJ and ZWNJ stay (emoji, Persian, Hindi, Bengali). Arabic marks stay. */
+function bidi(s){return String(s??'').replace(/[\\u202A-\\u202E\\u2066-\\u2069\\u200B\\u2060\\uFEFF]/g,'')}
 /** The one HTML escaper for every page script. */
-function esc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c])}
+function esc(s){return bidi(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c])}
 /** The interface in this page's language (i18n.ts): the English as written, looked up in window.I18N; {name} filled from v. */
 function tr(s,v){let x=(window.I18N&&window.I18N[s])||s;if(v)for(const k in v)x=x.split('{'+k+'}').join(v[k]);return x}
 (()=>{

@@ -1337,7 +1337,7 @@ function connect(){
     // Someone renamed their agent (vedu #1125): its posts here read the new name, always with whose agent it is.
     if(d.type==='profile'&&d.user){delete pcache[d.user];document.querySelectorAll('#thread .entry.by-agent[data-author="'+CSS.escape(d.user)+'"]>.grow>.meta').forEach(m=>{const w=m.querySelector('.who');if(!w)return;
       let o=m.querySelector('.via.owner');delete w.dataset.dev;if(o)delete o.dataset.dev; // the developer words change; Everyday re-words them below
-      if(d.agent_name){w.textContent=d.agent_name;if(!o){o=document.createElement('span');o.className='via owner';w.after(o)}o.textContent=d.user+"'s agent"}else if(o){w.textContent=d.user+"'s agent";o.remove()}});
+      if(d.agent_name){w.textContent=bidi(d.agent_name);if(!o){o=document.createElement('span');o.className='via owner';w.after(o)}o.textContent=d.user+"'s agent"}else if(o){w.textContent=d.user+"'s agent";o.remove()}});
       if(document.documentElement.dataset.mode==='everyday')document.dispatchEvent(new CustomEvent('atteo-mode',{detail:{everyday:true}}));return}
     if(d.type==='schedule'){if(document.getElementById('invite')?.open&&window.schLoad)schLoad();return}
     if(d.type==='reaction'){renderRx(d.seq,d.reactions);return}
@@ -1364,7 +1364,7 @@ function agRow(a){const nm=a.name?a.user+'/'+a.name:a.user+"'s agent",st=AG_LABE
   const tip=a.name?a.user+"'s agent session \\""+a.name+'"'+(tool?' ('+tool+')':'')+'. Mention it as @'+a.user+'/'+a.name:a.user+"'s agent";
   return '<li class="ag-row" data-k="'+esc(a.user+'/'+(a.name||''))+'" data-state="'+st+'" title="'+esc(tip)+'">'+avatar16(a.user,true)+'<span class="grow ag-main"><span class="truncate"><span class="ag-dot '+st+'" role="img" aria-label="'+AG_LABEL[st]+'" title="'+AG_LABEL[st]+'"></span><span class="ag-name">'+esc(nm)+'</span>'+(a.client?' <span class="xs faint">'+esc(a.client)+'</span>':'')+'</span>'+(a.model||a.status?'<span class="ag-status truncate">'+(a.model?'<span class="faint ag-model">'+esc(a.model)+'</span>'+(a.status?' · ':''):'')+esc(a.status||'')+'</span>':'')+'</span><time class="when" datetime="'+new Date(a.last_seen).toISOString()+'" data-ts="'+a.last_seen+'" title="'+new Date(a.last_seen).toUTCString()+'"></time></li>'}
 let agentsAt=0;window.agentsRefresh=async()=>{if(document.hidden)return;const box=document.getElementById('agents');if(!box)return;
-  const r=await fetch('/api/boards/'+BOARD+'/agents').catch(()=>null);if(!r||!r.ok)return;const ag=(await r.json()).agents||[];agentsAt=Date.now();
+  const r=await fetch('/api/boards/'+BOARD+'/agents').catch(()=>null);if(!r||!r.ok)return;const ag=(await r.json()).agents||[];agentsAt=Date.now();window.AGENTS=ag;window.hdlProgress&&hdlProgress();
   // The @ menu's sessions follow too, so a renamed or new session is mentionable without a reload (jxn #986).
   for(let i=MOPTS.length-1;i>=0;i--)if(MOPTS[i].ins.includes('/'))MOPTS.splice(i,1);
   for(const a of ag){if(!a.name)continue;const at=MOPTS.findIndex(o=>o.ins===a.user+"'s agent");if(at<0)continue;
@@ -1403,7 +1403,7 @@ document.addEventListener('click',async e=>{const b=e.target.closest('[data-copy
 var SENT_TEXT=null;function sendLook(on){document.querySelector('form.composer')?.classList.toggle('sending',on)}
 document.querySelector('form.composer')?.addEventListener('submit',()=>{sentKey=draftNow();const t=ta.value.trim();if(t&&!pending.length){sendLook(true);const keep=ta.value;setTimeout(()=>{if(ta.value===keep){SENT_TEXT=keep;ta.value='';taFit()}},0)}if(!t||!rpTo||rpTo.value||pending.length)return; // files get their own copy (below); replies go in their thread, after the real post
   const el=document.createElement('article');el.className='entry pending';el.innerHTML='<div class="grow"><div class="meta"><span class="who"></span><span class="xs faint">'+tr('sending…')+'</span></div><div class="body"></div></div>';
-  el.querySelector('.who').textContent=ME;el.querySelector('.body').textContent=t;document.getElementById('thread').appendChild(el);toBottom();
+  el.querySelector('.who').textContent=ME;el.querySelector('.body').textContent=bidi(t);document.getElementById('thread').appendChild(el);toBottom();
 },true);
 // While a post is retrying it says so; if it really can't be sent, your text is still in the box (the form only resets on success).
 window.postRetrying=()=>document.querySelectorAll('#thread .entry.pending .faint').forEach(x=>x.textContent='connection lost, retrying…');
@@ -1687,7 +1687,7 @@ cform.addEventListener('submit',async e=>{if(!pending.length)return;e.preventDef
   const btn=cform.querySelector('.bar .btn.primary');btn.disabled=true;const text=ta.value.trim(),files=pending.slice();sendLook(true);ta.value='';taFit();
   let ph=null;
   if(!rpTo.value){ph=document.createElement('article');ph.className='entry pending';ph.innerHTML='<div class="grow"><div class="meta"><span class="who"></span><span class="xs faint">'+tr('sending…')+'</span></div><div class="body"></div><div class="attachments ph-att"></div></div>';
-    ph.querySelector('.who').textContent=ME;ph.querySelector('.body').textContent=text;
+    ph.querySelector('.who').textContent=ME;ph.querySelector('.body').textContent=bidi(text);
     ph.querySelector('.ph-att').innerHTML=files.map(x=>x.image?'<span class="att"><img src="'+x.url+'" alt="'+esc(x.name)+'"></span>':'<span class="att file"><span class="att-name mono">'+esc(x.name)+'</span><span class="xs faint">'+kbs(x.blob.size)+'</span></span>').join('');
     document.getElementById('thread').appendChild(ph);toBottom()}
   const fail=m=>{sendLook(false);if(text&&!ta.value.trim()){ta.value=text;taFit()}if(ph){ph.classList.add('failed');ph.querySelector('.faint').textContent="Couldn't send";const p=ph;setTimeout(()=>p.remove(),6000)}toast(m)};
@@ -2009,7 +2009,21 @@ function renderHandling(map){HDL=map;const seen=new Set();
     const mine=h.user===ME&&!READONLY;b.classList.toggle('done',h.done);b.dataset.seq=seq;
     b.title=h.done?tr('Done by ')+h.by:h.by+' is handling this';
     b.innerHTML=(h.done?'✓ done by '+esc(h.by):esc(h.by)+' is on it')+(mine?(h.done?'':'<button type="button" data-hdl="done" title="'+tr('Mark it done')+'" aria-label="'+tr('Mark it done')+'">✓</button>')+'<button type="button" data-hdl="release" title="'+(h.done?tr('Clear done'):tr('Drop the marker'))+'" aria-label="'+(h.done?tr('Clear done'):tr('Drop the marker'))+'">×</button>':'')}
-  document.querySelectorAll('.badge.hdl').forEach(b=>{if(!seen.has(b.dataset.seq))b.remove()})}
+  document.querySelectorAll('.badge.hdl').forEach(b=>{if(!seen.has(b.dataset.seq))b.remove()});hdlProgress()}
+// The agent's progress under a message it's on (vedu's agent #2498 item 4): its session's own status line (its words,
+// shown as text) and how long it has been on it; "stalled?" once that session has gone quiet (no activity for a few
+// minutes, the Agents panel's "working now"). Display only: the status comes from Board info's agents list.
+const hdlAgo=ms=>{const m=Math.max(0,Math.floor(ms/60000));return m<1?'<1m':m<60?m+'m':Math.floor(m/60)+'h '+(m%60)+'m'};
+let hdlAsked=false;
+function hdlProgress(){const now=Date.now(),seen=new Set();
+  if(!window.AGENTS&&!hdlAsked&&Object.values(HDL||{}).some(h=>!h.done)&&window.agentsRefresh){hdlAsked=true;setTimeout(agentsRefresh,0)} // statuses for markers on the page
+  for(const [seq,h] of Object.entries(HDL||{})){if(h.done)continue;const g=document.querySelector('#e'+seq+'>.grow');if(!g)continue;seen.add(seq);
+    const a=(window.AGENTS||[]).find(x=>x.name&&x.user+'/'+x.name===h.by),stalled=!!a&&a.state!=='live';
+    let p=g.querySelector(':scope>.hdl-prog');if(!p){p=document.createElement('div');p.className='hdl-prog xs';const b=g.querySelector(':scope>.body');if(b)b.after(p);else g.appendChild(p)}
+    p.classList.toggle('stalled',stalled);p.dataset.seq=seq;
+    p.textContent='🤔 '+h.by+(a&&a.status?': '+String(a.status).replace(/\s+/g,' ').slice(0,140):'')+(h.since?' · '+hdlAgo(now-h.since):'')+(stalled?' · '+tr('Stalled? No activity for {t}',{t:hdlAgo(now-a.last_seen)}):'')}
+  document.querySelectorAll('.hdl-prog').forEach(p=>{if(!seen.has(p.dataset.seq))p.remove()})}
+window.hdlProgress=hdlProgress;setInterval(()=>{if(!document.hidden)hdlProgress()},30000);
 document.addEventListener('click',async e=>{const x=e.target.closest('[data-hdl]');if(!x)return;const seq=x.closest('.hdl').dataset.seq;x.disabled=true;
   const r=await fetch('/api/boards/'+BOARD+'/handle/'+seq,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({action:x.dataset.hdl})});
   const j=await r.json().catch(()=>({}));toast(r.ok?j.message:(j.message||j.error||tr('Could not change it')));tick(false)});
@@ -2354,7 +2368,7 @@ document.getElementById('link-make')?.addEventListener('click',async()=>{const r
 document.addEventListener('click',async e=>{const b=e.target.closest('[data-link-revoke]');if(!b)return;const r=await fetch('/api/boards/'+BOARD+'/links/'+b.dataset.linkRevoke,{method:'DELETE'});toast(r.ok?tr('Link revoked'):tr('Could not revoke'));accLoad()});
 window.deleted=()=>{location.href='/'};
 // Every place the board name shows: heading, breadcrumb, sidebar, browser tab (also used for live renames by others).
-window.applyTitle=(t)=>{const h=document.getElementById('board-title');if(h)h.textContent=t;document.title=t+' · Atteo';
+window.applyTitle=(t)=>{t=bidi(t);const h=document.getElementById('board-title');if(h)h.textContent=t;document.title=t+' · Atteo';
   document.querySelectorAll('.topbar .crumbs .cur, .side-board[aria-current] .truncate').forEach(x=>x.textContent=t)};
 // Inline rename (creator only): click the title or the pencil, Enter saves, Esc cancels.
 (()=>{const h=document.getElementById('board-title'),inp=document.getElementById('title-input'),pen=document.getElementById('title-pencil');if(!inp)return;

@@ -93,8 +93,55 @@ export function connectCommand(origin: string, boardId: string | null, token: st
     : `claude mcp add --scope user --transport http atteo "${origin}/mcp" --header "Authorization: Bearer ${token}"`;
 }
 
+/**
+ * Hidden formatting removed before a person or an agent reads a name or message.
+ * Explicit bidi controls: embeddings (U+202A–U+202B), overrides (U+202D–U+202E), isolates (U+2066–U+2068) and their
+ * pops (U+202C, U+2069). An override draws the characters after it backwards, and the rest of the set can reorder the
+ * text around it, including someone else's name.
+ * Zero-width space (U+200B), word joiner (U+2060), and BOM (U+FEFF) can split a word without showing.
+ * ZWJ (U+200D) and ZWNJ (U+200C) are not in this set: ZWJ builds emoji, and ZWNJ is required for Persian, Hindi, and
+ * Bengali. Marks (LRM U+200E, RLM U+200F, ALM U+061C) stay too: Arabic uses them to place a Latin word, and they do
+ * not reverse letters.
+ */
+const HIDDEN_FORMAT = /[\u202A-\u202E\u2066-\u2069\u200B\u2060\uFEFF]/g;
+
+/** Drops bidi controls and zero-width characters that are not ZWJ or ZWNJ. The stored text is left as written. */
+export function stripBidiControls(s: string): string {
+  return s.replace(HIDDEN_FORMAT, "");
+}
+
+/**
+ * The copy `screenText` and the model screen read. Bidi controls are gone, and every ZWJ and ZWNJ is gone, so none
+ * of them can hide a phrase. What people see is unchanged: this string is not rendered.
+ */
+export function normalizeForScreen(s: string): string {
+  return stripBidiControls(s).replace(/[\u200C\u200D]/g, "");
+}
+
+const emojiGlue = (ch: string | undefined) => !!ch && (ch === "\uFE0F" || ch === "\uFE0E" || /\p{Emoji_Modifier}/u.test(ch));
+const emojiBase = (ch: string | undefined) => !!ch && /\p{Extended_Pictographic}/u.test(ch);
+const letter = (ch: string | undefined) => !!ch && /\p{L}/u.test(ch);
+
+/** Agent prose. A ZWJ stays when it sits between emoji (a variation selector or skin tone may sit beside it). A ZWNJ
+ *  stays when it sits between letters, as in Persian. Any other ZWJ or ZWNJ is dropped. */
+export function proseForAgent(s: string): string {
+  const chars = [...stripBidiControls(s)];
+  const besideEmoji = (i: number, dir: 1 | -1) => {
+    for (let j = i + dir; j >= 0 && j < chars.length; j += dir) {
+      if (emojiGlue(chars[j])) continue;
+      return emojiBase(chars[j]);
+    }
+    return false;
+  };
+  return chars.filter((ch, i) => {
+    if (ch === "\u200D") return besideEmoji(i, -1) && besideEmoji(i, 1);
+    if (ch === "\u200C") return letter(chars[i - 1]) && letter(chars[i + 1]);
+    return true;
+  }).join("");
+}
+
 export function esc(s: unknown): string {
-  return String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
+  return stripBidiControls(String(s ?? "")).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
 }
 
 /** One emoji (with skin tones, ZWJ sequences, flags) or a :shortcode: (custom names the web app renders). */

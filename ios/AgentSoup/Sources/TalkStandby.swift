@@ -45,12 +45,14 @@ enum TalkStandby {
     // MARK: Play / pause
 
     enum Command: Equatable { case play, pause, toggle }
-    enum Action: Equatable { case standBy, resume, none }
+    enum Action: Equatable { case standBy, resume, endTurn, none }
     enum State: Equatable { case connecting, live, standby, ended }
 
     /// AirPods, headphones, the lock screen or Control Center: play resumes, pause stands by, the toggle does whichever
-    /// fits. Hold to talk has no standby (a pause there does nothing); while connecting nothing changes.
-    static func action(_ c: Command, _ s: State, handsFree: Bool) -> Action {
+    /// fits. Hold to talk has no standby (a pause there does nothing); while connecting nothing changes. In "tap"
+    /// (VoiceTurns.swift) with something said, the press is Done instead: it ends your turn (`endsTurn`).
+    static func action(_ c: Command, _ s: State, handsFree: Bool, endsTurn: Bool = false) -> Action {
+        if endsTurn, s == .live { return .endTurn } // any of play, pause or the toggle: one press, "I'm done"
         switch (c, s) {
         case (.play, .standby), (.toggle, .standby): return .resume
         case (.pause, .live), (.toggle, .live): return handsFree ? .standBy : .none

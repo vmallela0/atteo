@@ -10,7 +10,7 @@ import { blockedMessage, scanFields, scanText, type SecretHit } from "./secrets"
 import { recordOutcome } from "./agents";
 import { ALL_AGENTS, ALL_HUMANS, ALL_MEMBERS, forAgent, forPerson, hasGroupMention, keep, MAX_GROUP_MENTIONS, MAX_MENTIONS, mentionsOwnAgent, parseMentions, SESSION_NAME_RE, type Mention } from "./mentions";
 import { ENTRY_TYPES, type ApprovalRef, type Attachment, type BoardInfo, type Entry, type Env, type Media, type Member, type NewEntry, type Viewer } from "./types";
-import { cleanTitle, EMOJI_RE, ftsQuery, USER_RE } from "./util";
+import { cleanTitle, EMOJI_RE, ftsQuery, normalizeForScreen, USER_RE } from "./util";
 import { cardText, parseCard, type ChangeCard } from "./card";
 import { closes, handoffText, HandoffError, isResult, parseReady, parseResult, type Handoff, type HandoffReady, type HandoffResult } from "./handoff";
 import { deliver } from "./webhooks";
@@ -941,16 +941,17 @@ export class Board extends DurableObject<Env> {
   }
 
   /** Who is on what, and who finished what (for pages, and to label entries agents read). */
-  handlingMap(seqs?: number[]): Record<number, { by: string; user: string; done: boolean }> {
+  handlingMap(seqs?: number[]): Record<number, { by: string; user: string; done: boolean; since?: number }> {
     // Exactly these seqs: a page can skip (5 and 100), so the range alone would attach every marker in between. The
     // range keeps it one query with two bound values, however long the page.
     const want = seqs && new Set(seqs);
     const rows = seqs
       ? seqs.length
-        ? this.sql.exec("SELECT seq, label, user, done FROM handling WHERE seq BETWEEN ? AND ?", Math.min(...seqs), Math.max(...seqs)).toArray().filter((r) => want!.has(r.seq as number))
+        ? this.sql.exec("SELECT seq, label, user, done, ts FROM handling WHERE seq BETWEEN ? AND ?", Math.min(...seqs), Math.max(...seqs)).toArray().filter((r) => want!.has(r.seq as number))
         : []
-      : this.sql.exec("SELECT seq, label, user, done FROM handling ORDER BY seq DESC LIMIT 500").toArray();
-    return Object.fromEntries(rows.map((r) => [r.seq as number, { by: r.label as string, user: r.user as string, done: !!r.done }]));
+      : this.sql.exec("SELECT seq, label, user, done, ts FROM handling ORDER BY seq DESC LIMIT 500").toArray();
+    // since: when an open marker was taken, so a page can show how long the agent has been on it (vedu's agent #2498).
+    return Object.fromEntries(rows.map((r) => [r.seq as number, { by: r.label as string, user: r.user as string, done: !!r.done, ...(r.done ? {} : { since: r.ts as number }) }]));
   }
 
   private withHandling(entries: Entry[]): Entry[] {
@@ -1405,7 +1406,8 @@ export class Board extends DurableObject<Env> {
     if (!internal.seeding && !user.startsWith("e2e-")) this.ctx.waitUntil(Promise.resolve(track(this.env, "posts", input.via ?? "agent")).catch(() => {}));
     // The model looks at everything the heuristic didn't fully flag, including text it found only in code or quotes.
     // The screen reads a ready-to-gate handoff's fields and the entry's data too: read prints both to agents.
-    const screened = screenedText({ text: handoff && !isResult(handoff) ? `${text}\n${handoffText(handoff)}` : text, data: entry.data });
+    // Both screens see the normalized copy: bidi controls removed, and every ZWJ and ZWNJ removed.
+    const screened = normalizeForScreen(screenedText({ text: handoff && !isResult(handoff) ? `${text}\n${handoffText(handoff)}` : text, data: entry.data }));
     const heuristic = screenText(screened);
     if (this.env.AI_TOKEN && !internal.seeding && screened.length >= 25 && (!heuristic || heuristic.quoted)) this.ctx.waitUntil(this.screenWithModel(entry.seq, screened).catch(() => {}));
 
@@ -2704,10 +2706,11 @@ export class Board extends DurableObject<Env> {
   // ---- a model's second opinion on prompt injection (the regex screen runs first, at render time) ----
 
   private async screenWithModel(seq: number, text: string) {
+    const visible = normalizeForScreen(text);
     const res = await fetch(`https://api.cloudflare.com/client/v4/accounts/${this.env.AI_ACCOUNT_ID}/ai/run/@cf/meta/llama-3.1-8b-instruct-fast`, {
       method: "POST",
       headers: { authorization: `Bearer ${this.env.AI_TOKEN}`, "content-type": "application/json" },
-      body: JSON.stringify({ messages: [{ role: "system", content: INJECTION_PROMPT }, { role: "user", content: `Message:\n"""\n${text.slice(0, 4000)}\n"""` }], max_tokens: 4, temperature: 0 }),
+      body: JSON.stringify({ messages: [{ role: "system", content: INJECTION_PROMPT }, { role: "user", content: `Message:\n"""\n${visible.slice(0, 4000)}\n"""` }], max_tokens: 4, temperature: 0 }),
       signal: AbortSignal.timeout(5000),
     });
     const r = (await res.json().catch(() => null)) as { result?: { response?: string } } | null;
