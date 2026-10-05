@@ -202,7 +202,7 @@ await step("MCP initialize, tools/list, notifications, protocol errors", async (
   assert(r.protocolVersion === "2025-06-18" && r.serverInfo.name === "atteo" && r.serverInfo.title === "Atteo", JSON.stringify(r));
   has(r.instructions, "Atteo");
   const names = (await rpcRaw(auth(A), null, "tools/list", {})).tools.map((t) => t.name).sort();
-  assert(JSON.stringify(names) === JSON.stringify(["agents", "approval", "batch", "claim", "create_board", "doc", "feedback", "get", "grep", "handle", "invite", "join_board", "leave_board", "list_boards", "mailbox", "memory", "people", "post", "publish", "purge", "react", "read", "recap", "remember", "request_approval", "retract", "review", "schedules", "search", "session", "task", "trigger", "wait"]), names.join());
+  assert(JSON.stringify(names) === JSON.stringify(["agents", "approval", "batch", "claim", "create_board", "doc", "feedback", "get", "grep", "handle", "invite", "join_board", "leave_board", "list_boards", "ls", "mailbox", "memory", "people", "post", "publish", "purge", "react", "read", "recap", "remember", "request_approval", "retract", "review", "schedules", "search", "session", "task", "trigger", "wait"]), names.join());
   assert((await rpcRaw(auth(A), null, "notifications/initialized", {}, { notification: true })).status === 202, "notification status");
   assert((await rpcRaw({}, null, "notifications/initialized", {}, { notification: true })).status === 401, "no credentials: 401 so OAuth clients can sign in");
   assert((await fetch(`${BASE}/mcp`)).status === 405, "GET /mcp should be 405");
@@ -226,9 +226,9 @@ await step("A creates a board and is its only member", async () => {
   has(await ok(A, board, "read"), `Members: ${A}`);
 });
 
-await step("non-members cannot read, post, wait, get, search or invite", async () => {
+await step("non-members cannot read, post, wait, get, search, ls or invite", async () => {
   await Promise.all([
-    ...[["read", {}], ["post", { type: "note", text: "x" }], ["wait", { timeout_seconds: 1 }], ["get", { seq: 1 }], ["search", { query: "x" }], ["invite", { email: "a@b.co" }]].map(([name, args]) => err(B, board, name, args, "not a member")),
+    ...[["read", {}], ["post", { type: "note", text: "x" }], ["wait", { timeout_seconds: 1 }], ["get", { seq: 1 }], ["search", { query: "x" }], ["ls", {}], ["invite", { email: "a@b.co" }]].map(([name, args]) => err(B, board, name, args, "not a member")),
     err(OUT, "b_doesnotexist1", "read", {}, "not a member"),
     err(A, "../etc", "read", {}, "not a member"),
   ]);
@@ -1275,6 +1275,37 @@ await step("grep: exact lines on one board (MCP and REST), case, regex, context,
   assert((await web(`/api/boards/${board}/grep?q=(a%2B)%2B&regex=1`, A)).status === 400, "bad regex is a 400");
   assert((await web(`/api/boards/${board}/grep?q=${w}`, OUT)).status === 404, "outsider 404");
   has(await ok(A, board, "grep", { pattern: `nothingmatches${run}` }), "0 hits in");
+});
+
+await step("ls: read-only mount (state.md, files/, log/); MCP and REST; nothing marked read", async () => {
+  const name = `ls-${run}.md`;
+  await ok(A, board, "doc", { action: "write", name, content: `# Ls mount ${run}\n`, base_version: 0, summary: "ls file" });
+  await ok(B, board, "read");
+  has(await ok(B, board, "read"), "(nothing new)");
+  const root = await ok(B, board, "ls", {});
+  has(root, "state.md");
+  has(root, "files/");
+  has(root, "log/");
+  assert(!root.includes("<<untrusted"), "root listing is the tree, not member text: " + root.slice(0, 240));
+  const files = await ok(B, board, "ls", { path: "files/" });
+  has(files, name);
+  assert(files.includes("<<untrusted"), "files listing is fenced: " + files.slice(0, 240));
+  const rest = await (await web(`/api/boards/${board}/ls?path=${encodeURIComponent("files/")}`, B)).json();
+  assert(rest.items.some((d) => d.name === name), JSON.stringify(rest).slice(0, 400));
+  assert(rest.untrusted === undefined, "REST JSON is unfenced");
+  const vers = await ok(B, board, "ls", { path: `files/${name}` });
+  has(vers, `${name}@v1`);
+  const log = await ok(B, board, "ls", { path: "log/", limit: 5 });
+  has(log, ".md");
+  assert(log.includes("<<untrusted"), "log listing is fenced: " + log.slice(0, 240));
+  await err(B, board, "ls", { path: "../etc/passwd" }, "No such path");
+  assert((await web(`/api/boards/${board}/ls`, OUT)).status === 404, "outsider 404");
+  assert((await web(`/api/boards/${board}/ls?path=${encodeURIComponent("../etc/passwd")}`, B)).status === 400, "bad path is a 400");
+  has(await ok(B, board, "read"), "(nothing new)");
+  const eb = (await ops("boards", { user: A, title: `e2e ls enc ${run}`, encrypted: true })).body.board.id;
+  await err(A, eb, "ls", {}, "end-to-end encrypted");
+  assert((await web(`/api/boards/${eb}/ls`, A)).status === 400, "encrypted ls is a 400");
+  assert((await web(`/api/boards/${eb}/archive`, A, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ archived: true }) })).status === 200, "archive ls enc");
 });
 
 await step("grep: a pattern without a 3+ char literal scans only recent entries and says so", async () => {
@@ -4192,6 +4223,7 @@ await step("read-only agent sessions: read and wait work; posting, through the A
     return { text: j.content.map((c) => c.text).join("\n"), isError: !!j.isError };
   };
   assert(!(await call("read", {})).isError, "read works");
+  assert(!(await call("ls", {})).isError, "ls works");
   const p = await call("post", { type: "note", text: `ro tool post ${run}` });
   assert(p.isError && /read-only/.test(p.text), p.text);
   // The session can't raise itself; the person (web) can.
@@ -6109,6 +6141,7 @@ await step("forward excerpt: fabricated selectedText is refused; a real selectio
       hidden((await tool(u, pb, "grep", { pattern: SECRET })).text, `${tag} MCP grep`);
       hidden((await tool(u, pb, "grep", { pattern: SECRET, board: "all" })).text, `${tag} MCP grep (all boards)`);
       hidden(await ok(u, pb, "recap", { since: "0" }), `${tag} MCP recap`);
+      hidden(await ok(u, pb, "ls", { path: "log/", long: true, limit: 200 }), `${tag} MCP ls`);
       await err(u, pb, "react", { seq: secret, emoji: "✅" }, "does not exist");
       await err(u, pb, "post", { type: "note", text: "answering", reply_to: secret }, "does not exist");
       await err(u, pb, "retract", { seq: secret }, "does not exist");
@@ -6120,7 +6153,7 @@ await step("forward excerpt: fabricated selectedText is refused; a real selectio
       const parent = await papi(u, "GET", `/api/boards/${pb}/entries/${pub}`, null, { bearer: true });
       assert(parent.status === 200, `${tag} REST get of the public thread: ${parent.status}`);
       hidden(JSON.stringify(parent.body), `${tag} REST get's replies`);
-      for (const p of [`/api/boards/${pb}/updates?after=0`, `/api/boards/${pb}/entries?after=0`, `/api/boards/${pb}/entries?before=999999`, `/api/boards/${pb}/search?q=${SECRET}`, `/api/boards/search?q=${SECRET}`, `/api/boards/${pb}/reactions`, `/api/boards/${pb}/recap?since=0`, `/api/tape?limit=500`, `/api/boards/${pb}/grep?q=${SECRET}`, `/api/grep?q=${SECRET}`]) {
+      for (const p of [`/api/boards/${pb}/updates?after=0`, `/api/boards/${pb}/entries?after=0`, `/api/boards/${pb}/entries?before=999999`, `/api/boards/${pb}/search?q=${SECRET}`, `/api/boards/search?q=${SECRET}`, `/api/boards/${pb}/reactions`, `/api/boards/${pb}/recap?since=0`, `/api/tape?limit=500`, `/api/boards/${pb}/grep?q=${SECRET}`, `/api/grep?q=${SECRET}`, `/api/boards/${pb}/ls?path=log%2F&long=1&limit=200`]) {
         const g = await papi(u, "GET", p, null, { bearer: true });
         assert(g.status === 200, `${tag} ${p}: ${g.status}`);
         hidden(JSON.stringify(g.body), `${tag} ${p}`);
@@ -6344,6 +6377,7 @@ await step("forward excerpt: fabricated selectedText is refused; a real selectio
       hidden((await tool(u, ob, "grep", { pattern: word })).text, `${tag} MCP grep`, word);
       hidden((await tool(u, ob, "grep", { pattern: word, board: "all" })).text, `${tag} MCP grep all`, word);
       hidden(await ok(u, ob, "recap", { since: "0" }), `${tag} MCP recap`, word);
+      hidden(await ok(u, ob, "ls", { path: "log/", long: true, limit: 200 }), `${tag} MCP ls`, word);
       await err(u, ob, "react", { seq: theirs[0], emoji: "✅" }, "does not exist");
       await err(u, ob, "post", { type: "note", text: "answering", reply_to: theirs[0] }, "does not exist");
       await err(u, ob, "remember", { from: theirs[0] }, "does not exist");
@@ -6351,7 +6385,7 @@ await step("forward excerpt: fabricated selectedText is refused; a real selectio
       for (const bearer of [true, false]) {
         const as = `${tag} ${bearer ? "token" : "person"}`;
         for (const s of theirs) assert((await papi(u, "GET", `/api/boards/${ob}/entries/${s}`, null, { bearer })).status === 404, `${as} REST get #${s}`);
-        for (const p of [`/api/boards/${ob}/updates?after=0`, `/api/boards/${ob}/entries?after=0`, `/api/boards/${ob}/entries?before=999999`, `/api/boards/${ob}/entries/${pub}`, `/api/boards/${ob}/search?q=${word}`, `/api/boards/search?q=${word}`, `/api/boards/${ob}/reactions`, `/api/boards/${ob}/recap?since=0`, `/api/boards/${ob}/grep?q=${word}`, `/api/grep?q=${word}`, `/api/tape?limit=500`, "/api/mailbox?peek=1", "/api/inbox", "/api/inbox/count"]) {
+        for (const p of [`/api/boards/${ob}/updates?after=0`, `/api/boards/${ob}/entries?after=0`, `/api/boards/${ob}/entries?before=999999`, `/api/boards/${ob}/entries/${pub}`, `/api/boards/${ob}/search?q=${word}`, `/api/boards/search?q=${word}`, `/api/boards/${ob}/reactions`, `/api/boards/${ob}/recap?since=0`, `/api/boards/${ob}/grep?q=${word}`, `/api/grep?q=${word}`, `/api/tape?limit=500`, "/api/mailbox?peek=1", "/api/inbox", "/api/inbox/count", `/api/boards/${ob}/ls?path=log%2F&long=1&limit=200`]) {
           if (!bearer && (p.startsWith("/api/mailbox") || p.startsWith("/api/tape"))) continue; // agents' feeds
           const res = await papi(u, "GET", p, null, { bearer });
           assert(res.status === 200, `${as} ${p}: ${res.status}`);
@@ -6817,11 +6851,12 @@ await step("privacy suite: People only and Just mine never reach another member'
       clean((await tool(u, bd, "grep", { pattern: x, board: "all" })).text, `${tag} grep all boards`);
     }
     clean(await ok(u, bd, "recap", { since: "0" }), `${tag} recap`);
+    clean(await ok(u, bd, "ls", { path: "log/", long: true, limit: 200 }), `${tag} ls`);
     clean((await tool(u, bd, "memory", {})).text, `${tag} memory`);
     clean((await tool(u, bd, "mailbox", { peek: true })).text, `${tag} mailbox tool`);
     clean((await tool(u, bd, "doc", { action: "list" })).text, `${tag} files`);
     clean((await tool(u, other, "read", { since: 0 })).text, `${tag} the board things were forwarded to`);
-    for (const p of [`/api/boards/${bd}/entries?after=0`, `/api/boards/${bd}/updates?after=0`, `/api/boards/${bd}/search?q=${S_JM.slice(0, -3)}`, `/api/boards/search?q=${S_PO.slice(0, -3)}`, `/api/boards/${bd}/grep?pattern=${S_JMA.slice(0, -3)}`, `/api/boards/${bd}/grep?pattern=justmine`, `/api/boards/${bd}/memory`, `/api/boards/${bd}/docs`, `/api/boards/${bd}/recap?since=0`, `/api/mailbox?peek=1&limit=100`, `/api/me/boards`, `/api/inbox`]) {
+    for (const p of [`/api/boards/${bd}/entries?after=0`, `/api/boards/${bd}/updates?after=0`, `/api/boards/${bd}/search?q=${S_JM.slice(0, -3)}`, `/api/boards/search?q=${S_PO.slice(0, -3)}`, `/api/boards/${bd}/grep?pattern=${S_JMA.slice(0, -3)}`, `/api/boards/${bd}/grep?pattern=justmine`, `/api/boards/${bd}/memory`, `/api/boards/${bd}/docs`, `/api/boards/${bd}/recap?since=0`, `/api/boards/${bd}/ls?path=log%2F&long=1&limit=200`, `/api/mailbox?peek=1&limit=100`, `/api/me/boards`, `/api/inbox`]) {
       const g = await api(u, "GET", p, null, true);
       clean(JSON.stringify(g.body), `${tag} GET ${p} (${g.status})`);
     }
@@ -6848,6 +6883,7 @@ await step("privacy suite: People only and Just mine never reach another member'
   assert(!mine.includes(S_PO), `O's agent read the people-only: ${mine.slice(0, 400)}`);
   has(await ok(O, bd, "get", { seq: jm.body.entry.seq }), S_JM);
   has((await tool(O, bd, "grep", { pattern: S_JM })).text, S_JM);
+  has(await ok(O, bd, "ls", { path: "log/", long: true, limit: 200 }), S_JM);
   assert((await api(O, "GET", `/api/boards/${bd}/entries/${jm.body.entry.seq}`, null, true)).status === 200, "O's agent REST get of its Just mine");
 });
 

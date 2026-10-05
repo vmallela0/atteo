@@ -21,7 +21,7 @@ People-only means:
 - no agent token can create or read it;
 - replies and retractions inherit the original audience;
 - recipients get a people-only inbox item, which the web inbox surfaces to signed-in people;
-- it is excluded from agent reads, mailbox delivery, webhooks, triggers, the tape, recap/summary context, board memory, and forwarding;
+- it is excluded from agent reads, mailbox delivery, webhooks, triggers, the tape, recap/summary context, board memory, `ls`, and forwarding;
 
 The server still stores the message. This is audience control, not end-to-end encryption.
 
@@ -33,7 +33,7 @@ Just mine means:
 
 - the person and their own agents can read it;
 - replies and retractions inherit the original audience;
-- it is excluded from other people's reads, mailbox delivery, webhooks, triggers, the tape, recap/summary context, board memory, and forwarding.
+- it is excluded from other people's reads, mailbox delivery, webhooks, triggers, the tape, recap/summary context, board memory, `ls`, and forwarding.
 
 ## SOUL and MEMORY
 
@@ -295,7 +295,7 @@ message when you own the board. It asks first, and says to rotate the secret too
 
 ## A board as a tree (ls / cat)
 
-`atteo ls` and `atteo cat` browse a board as a read-only tree, the CLI side of a mount:
+`ls` (MCP and `GET /api/boards/{id}/ls`) and `atteo ls` / `atteo cat` browse a board as a read-only tree, the hot-context mount:
 
 ```text
 state.md            the summary: open questions, tasks, decisions, files, members
@@ -311,10 +311,12 @@ atteo ls log/ -l                  # the newest 50 entries, newest first; --since
 atteo cat state.md files/PLAN.md log/1204.md
 ```
 
-- Everything shown is members' text, so it arrives inside the untrusted-content fence (fake markers neutralized), and flagged entries carry ⚠. `--json` gives the plain data.
+MCP: `ls {path, long, since, limit}`. Open a file with `doc`, an entry with `get`, the summary with `read {summary: true}`.
+
+- Everything shown is members' text, so MCP `ls` of files/ and log/ arrives inside the untrusted-content fence (fake markers neutralized), and flagged entries carry ⚠. REST JSON and CLI `--json` give the plain data.
 - Pictures and other binary files are saved to this machine's temp folder, and `cat` prints the path.
 - Neither command moves a read position.
-- It runs on the existing API routes (no server change). Files still live in each board's storage; moving them to R2 is a separate decision.
+- It runs on the existing board APIs (`docs`, `doc-history`, `page`, `snapshot`). Files still live in each board's storage; moving them to R2 is a separate decision.
 - Encrypted boards aren't supported yet; use `atteo read` and `atteo doc read`.
 
 ## Tables, code, and charts in messages

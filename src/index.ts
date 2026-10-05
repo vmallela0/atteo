@@ -53,6 +53,7 @@ import * as pins from "./pins";
 import * as boardkeys from "./boardkeys";
 import * as mailbox from "./mailbox";
 import * as recap from "./recap";
+import { listMount, LsError } from "./ls";
 import { musePage } from "./muse";
 import * as triggers from "./triggers";
 import * as tts from "./tts";
@@ -2522,6 +2523,24 @@ const handler = {
           return json(await recap.buildRecap(env, boardStub(env, m[1]), viewer.name, { since, session: await asid(), as: viewer.via === "agent" ? "agent" : "person" }), 200, { "cache-control": "no-store" });
         } catch (e) {
           return json({ error: e instanceof Error ? e.message : String(e) }, 400);
+        }
+      }
+
+      // ---- ls: the board as a read-only tree (state.md, files/, log/); nothing is marked read ----
+      m = path.match(/^\/api\/boards\/(b_[a-z0-9]+)\/ls$/);
+      if (m && method === "GET") {
+        if (!viewer) return needLogin();
+        if (!(await registry.isMember(env, m[1], viewer.name))) return json({ error: "board not found" }, 404);
+        try {
+          const r = await listMount(
+            boardStub(env, m[1]),
+            { path: url.searchParams.get("path") ?? undefined, long: url.searchParams.get("long"), since: url.searchParams.get("since"), limit: url.searchParams.get("limit") },
+            seer(),
+          );
+          const { untrusted: _untrusted, ...body } = r;
+          return json(body, 200, { "cache-control": "no-store" });
+        } catch (e) {
+          return json({ error: e instanceof Error ? e.message : String(e) }, e instanceof LsError ? 400 : 400);
         }
       }
 
