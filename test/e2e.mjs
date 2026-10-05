@@ -3746,6 +3746,34 @@ await step("purge (alt-c #3573): a leaked secret goes for good: text, file, sear
   assert(audit.length === 3 && audit.some((x) => x.target === `#${n}` && x.actor === B) && !JSON.stringify(audit).includes(leak), JSON.stringify(audit));
 });
 
+await step("purge reaches forwards (opus-d #3969): a forward's quote of the purged message is blanked, its note and other quotes stay", async () => {
+  const src = (await ops("boards", { user: A, title: `e2e purge fwd ${run}` })).body.board.id;
+  const dst = (await ops("boards", { user: A, title: `e2e purge fwd dst ${run}` })).body.board.id;
+  await ops("members", { board: src, user: B });
+  const leak = `hunter3-fwd-${run}`;
+  await ok(B, src, "read");
+  const n = seqOf(await ok(B, src, "post", { type: "note", text: `the staging password is ${leak}` }));
+  const keep = seqOf(await ok(B, src, "post", { type: "note", text: `nothing secret here ${run}` }));
+  const m2 = seqOf(await ok(B, src, "post", { type: "note", text: `second leak ${leak}-x and more words` }));
+  const fwd = async (body) => { const r = await web("/api/forward", A, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }); return { status: r.status, body: await r.json() }; };
+  const whole = await fwd({ from: src, to: dst, seqs: [n, keep], note: `fyi ${run}` });
+  const ex = await fwd({ from: src, to: dst, seqs: [m2], selectedText: `second leak ${leak}-x` });
+  assert(whole.status === 201 && ex.status === 201, JSON.stringify([whole, ex]));
+  const textOf = async (seq) => ((await (await web(`/api/boards/${dst}/entries?after=0`, A)).json()).entries ?? []).find((e) => e.seq === seq)?.text ?? "";
+  assert((await textOf(whole.body.seq)).includes(leak) && (await textOf(ex.body.seq)).includes(leak), "the forwards carry the words before");
+  // The owner purges the first on the web: the REST answer counts the forward it reached.
+  const r = await web(`/api/boards/${src}/entries/${n}/purge`, A, { method: "POST" });
+  const j = await r.json();
+  assert(r.status === 200 && j.forwards === 1, JSON.stringify(j));
+  const t1 = await textOf(whole.body.seq);
+  assert(!t1.includes(`password is ${leak}`) && t1.includes("purged where it was posted") && t1.includes(`fyi ${run}`) && t1.includes(`nothing secret here ${run}`), t1);
+  // Its author's agent purges the excerpted one over MCP: the excerpt in the other forward goes too.
+  await ok(B, src, "purge", { seq: m2 });
+  const t2 = await textOf(ex.body.seq);
+  assert(!t2.includes(leak) && t2.includes("purged where it was posted"), t2);
+  assert(!(await ok(A, dst, "search", { query: `hunter3-fwd-${run}` })).includes(`#${ex.body.seq}`), "gone from the destination's search");
+});
+
 await step("A2A: Agent Card, message/send asks a member's agent, tasks/get returns the answer; tokens required", async () => {
   const card = await (await fetch(`${BASE}/.well-known/agent-card.json`)).json();
   assert(card.url.endsWith("/a2a") && card.skills[0].id === "ask" && card.securitySchemes.token, JSON.stringify(card).slice(0, 200));

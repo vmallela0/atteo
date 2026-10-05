@@ -44,6 +44,7 @@ import * as device from "./device";
 import { EMAIL_RE, sendInvite } from "./invite";
 import { mayMention, parseMentions, SESSION_NAME_RE, type Mention } from "./mentions";
 import * as registry from "./registry";
+import { recordForward, scrubForwards } from "./forwards";
 import * as backup from "./backup";
 import * as cardsign from "./cardsign";
 import * as accountlog from "./accountlog";
@@ -2060,6 +2061,7 @@ const handler = {
           ...(forwardPeople ? { people_only: true, to_people: forwardPeople } : {}),
         });
         ctx.waitUntil(registry.bumpBoard(env, to, entry.seq).catch(() => {}));
+        await recordForward(env, from, picked.map((e) => e.seq), to, entry.seq).catch(() => {}); // so a purge of these reaches the copy (#3969)
         return json({ ok: true, board: { id: to, title: dst.title }, seq: entry.seq, forwarded: picked.length }, 201);
       }
 
@@ -2941,8 +2943,10 @@ const handler = {
         const role = await registry.memberRole(env, m[1], viewer.name);
         if (!role) return json({ error: "board not found" }, 404);
         try {
-          const r = await boardStub(env, m[1]).purge(viewer.name, parseInt(m[2], 10), { via: pv(), owner: role === "owner" });
-          return json({ ok: true, ...r });
+          const seq = parseInt(m[2], 10);
+          const r = await boardStub(env, m[1]).purge(viewer.name, seq, { via: pv(), owner: role === "owner" });
+          const forwards = await scrubForwards(env, m[1], seq).catch(() => 0); // its words quoted into other boards go too (#3969)
+          return json({ ok: true, ...r, forwards });
         } catch (e) {
           return json({ error: e instanceof Error ? e.message : String(e) }, 400);
         }

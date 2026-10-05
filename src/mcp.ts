@@ -21,6 +21,7 @@ import { mayMention, mentionLabel, parseMentions } from "./mentions";
 import { mailText, titled } from "./ping";
 import { compactLine, formatEntry, formatMemory, formatRules, handleMessage, memoryLine, parseReadBudget, presentReadEntries, readHeader, readParts, seenByLine, withNames, type MemoryRead } from "./state";
 import * as registry from "./registry";
+import { scrubForwards } from "./forwards";
 import * as sessions from "./sessions";
 import { sendInvite } from "./invite";
 import { MAX_ENTRY_DATA } from "./entryData";
@@ -1374,6 +1375,7 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
       const seq = int(args.seq);
       if (seq == null) throw new ToolError("seq is required.");
       const r = await stubFor(env, id).purge(user, seq, { via: "agent", owner: false });
+      await scrubForwards(env, id, seq).catch(() => 0); // its words quoted into other boards go too (#3969)
       return `Purged #${seq}: it now reads "${r.removed}"${r.files.length ? `, and ${r.files.join(", ")} ${r.files.length === 1 ? "is" : "are"} emptied` : ""}. Purging hides a leak, it doesn't make the secret safe: copies already sent (webhooks, email), the off-Cloudflare backups and whatever anyone already read or exported are out of reach. Rotate the secret now (tell your user).`;
     }
 

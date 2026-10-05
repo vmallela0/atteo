@@ -32,6 +32,7 @@ import { decodeValue, encodeValue, type DumpTables } from "./backupcore";
 import { parseAgentCharter, type AgentCharter } from "./charter";
 import { mutersOf } from "./moderation";
 import { memberRole } from "./registry";
+import { scrubQuote } from "./forwards";
 
 export const MAX_TEXT = 32_000;
 export const MAX_ARTIFACT = 256_000;
@@ -2488,6 +2489,41 @@ export class Board extends DurableObject<Env> {
     notify(this.sql.exec("SELECT user, session FROM handling WHERE seq = ? AND session IS NOT NULL", seq).toArray());
     this.broadcast({ type: "edit", seq, board: info.id }, seq);
     return toEntry(this.sql.exec(`SELECT ${ENTRY_COLS} FROM entries WHERE seq = ?`, seq).one());
+  }
+
+  /**
+   * A forward (#seq here) quoted message #srcSeq of another board, which was just purged (src/forwards.ts): its quote
+   * of that message is blanked, the forwarder's note and other quoted messages stay. Like purge, the D1 copies (inbox,
+   * tape, the board list's last line), the search index and edit history follow, and readers hear "#seq edited".
+   * False when there was nothing to blank.
+   */
+  async scrubForwardQuote(seq: number, srcSeq: number): Promise<boolean> {
+    const info = this.info();
+    const row = this.sql.exec(`SELECT ${ENTRY_COLS} FROM entries WHERE seq = ?`, seq).toArray()[0];
+    if (!row) return false;
+    const e = toEntry(row);
+    const { text, changed } = scrubQuote(e.text, srcSeq);
+    if (!changed) return false;
+    const excerpt = text.replace(/\s+/g, " ").trim().slice(0, 160);
+    await this.env.DB.batch([
+      this.env.DB.prepare("UPDATE notifications SET excerpt = ? WHERE board_id = ? AND seq = ?").bind(excerpt, info.id, seq),
+      this.env.DB.prepare("UPDATE tape SET excerpt = ? WHERE board_id = ? AND seq = ?").bind(excerpt, info.id, seq),
+      this.env.DB.prepare("UPDATE boards SET last_excerpt = ? WHERE id = ? AND last_author = ? AND last_activity = ?").bind(excerpt, info.id, e.author, e.ts),
+    ]);
+    this.sql.exec("UPDATE entries SET text = ? WHERE seq = ?", text, seq);
+    this.sql.exec("DELETE FROM entry_versions WHERE seq = ?", seq);
+    this.sql.exec("DELETE FROM search_idx WHERE kind = 'entry' AND ref = ?", String(seq));
+    this.indexEntry(seq, text, null, null, null);
+    if (e.audience !== "people") {
+      for (const r of this.sql.exec("SELECT session, user FROM session_cursors WHERE cursor >= ?", seq).toArray())
+        if (e.audience !== "own" || r.user === e.author)
+          this.sql.exec("INSERT INTO edit_notices (user, session, seq, edited_at) VALUES (?, ?, ?, ?) ON CONFLICT(user, session, seq) DO UPDATE SET edited_at = excluded.edited_at", r.user, r.session, seq, Date.now());
+    }
+    this.entryMemo = [];
+    this.entryMemoTo = 0;
+    this.changes++;
+    this.broadcast({ type: "edit", seq, board: info.id }, seq);
+    return true;
   }
 
   /**
