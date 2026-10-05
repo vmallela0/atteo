@@ -136,7 +136,7 @@ ${
   const actions = react || reply || retract || edit ? `${more}<span class="acts">${react}${reply}${remember}${select}${edit}${retract}${remind}</span>` : "";
   // An approval entry: the card says where it stands, so the message is just what's asked (its text, for agents, says "waiting").
   const apr = (e as Entry & { approval?: ApprovalCardData & { title?: string } }).approval;
-  return `<article class="entry${opts.retracted ? " retracted" : ""}${e.via === "agent" ? " by-agent" : ""}" id="e${e.seq}" data-seq="${e.seq}" data-author="${esc(e.author)}" data-title="${esc(shortTitle(e))}"${e.reply_to != null ? ` data-reply="${e.reply_to}"` : ""}${opts.root != null && opts.root !== e.seq ? ` data-root="${opts.root}"` : ""}>
+  return `<article class="entry${opts.retracted ? " retracted" : ""}${e.via === "agent" ? " by-agent" : ""}" id="e${e.seq}" data-seq="${e.seq}" data-author="${esc(e.author)}" data-title="${esc(shortTitle(e))}"${e.to ? ` data-to="${esc(e.to)}"` : ""}${e.reply_to != null ? ` data-reply="${e.reply_to}"` : ""}${opts.root != null && opts.root !== e.seq ? ` data-root="${opts.root}"` : ""}>
 ${avatar(e.author, "", e.via === "agent")}
 <div class="grow">
   <div class="meta">${whoHtml(e)}${e.to ? `<span class="to">→ ${esc(e.to)}</span>` : ""}${e.type === "note" ? "" : typeTag(e.type, opts.lang)}${when(e.ts, opts.lang)}<a class="seq" href="#e${e.seq}">#${e.seq}</a>${peopleBadge(e, opts.lang)}${e.edited_at ? `<button class="badge" type="button" data-history="${e.seq}">${esc(T("edited"))}</button>` : ""}<span class="badge rbadge">${esc(T("Unsent"))}</span>${flagBadge(e.text, e.ai_flag)}${actions}</div>
@@ -1269,6 +1269,27 @@ new ResizeObserver(ghostSoon).observe(scroller);
 // still on the board, agents still see everything, nothing is sent. Remembered per person, in this browser. ----
 function pfOn(){return document.documentElement.hasAttribute('data-pf')}
 function pfHid(el){return el.classList.contains('by-agent')&&pfOn()}
+// One line per message unless it's for you (Display → Messages, display.compact others; jxn #2690, the same list as the
+// app, #2695): .ol marks the ones that fold. Whole: messages that mention you, your agent or a group you're in (@agents,
+// @humans, @all), are addressed to you or answer one of yours, carry an approval, decisions, your own, and everything in
+// a direct chat or your agent's chat. A tap opens a folded one; a tap on an open one's sender line folds it again; the
+// board's ⋯ opens them all for this visit.
+const OL_WHOLE=${direct || agentChat ? "true" : "false"};
+function olFor(el){if(OL_WHOLE||el.classList.contains('for-you')||el.dataset.to===ME0)return false;
+  if(el.dataset.author===ME0&&!el.classList.contains('by-agent'))return false;
+  if(el.querySelector('.mention[data-user="'+ME0+'"],.mention[data-user="agents"],.mention[data-user="humans"],.mention[data-user="all"],.apc,.type.t-decision'))return false;
+  const p=el.dataset.reply&&document.getElementById('e'+el.dataset.reply);if(p&&p.dataset.author===ME0)return false;
+  return true}
+function olMark(){document.querySelectorAll('#thread>.entry').forEach(el=>el.classList.toggle('ol',olFor(el)))}
+const olOn=()=>document.documentElement.dataset.compact==='others'&&!document.documentElement.hasAttribute('data-ol-all');
+setTimeout(olMark,0);new MutationObserver(()=>requestAnimationFrame(olMark)).observe(document.getElementById('thread'),{childList:true});
+document.addEventListener('click',e=>{if(!olOn())return;const el=e.target.closest('#thread>.entry.ol');if(!el)return;
+  if(e.target.closest('a,button,summary,input,textarea,select,label,.rx'))return;const sel=getSelection();if(sel&&!sel.isCollapsed)return;
+  if(!el.classList.contains('ol-open')){e.preventDefault();e.stopPropagation();el.classList.add('ol-open');return}
+  const m=e.target.closest('.meta');if(m&&m.parentElement&&m.parentElement.parentElement===el){e.preventDefault();e.stopPropagation();el.classList.remove('ol-open')}},true);
+document.addEventListener('click',e=>{const b=e.target.closest('[data-ol-toggle]');if(!b)return;const r=document.documentElement,on=!r.hasAttribute('data-ol-all');
+  r.toggleAttribute('data-ol-all',on);b.textContent=on?b.dataset.foldL:b.dataset.openL;b.closest('details')?.removeAttribute('open');railBuild();if(pinned)toBottom()});
+document.addEventListener('atteo-replies',()=>{railBuild();if(pinned)toBottom()});
 // Replies only in their threads (Display, vedu #2360): replies stay off the chat; a link or jump to one opens its thread.
 function rpOn(){return document.documentElement.dataset.replies==='thread'}
 function rpHid(el){return !!el&&el.hasAttribute('data-root')&&rpOn()}
@@ -1286,9 +1307,9 @@ new MutationObserver(()=>{if(pfOn())pfEmpty()}).observe(document.getElementById(
 window.addEventListener('load',()=>setTimeout(()=>{ghOn=true;ghostSoon()},300)); // after the page has opened where it should
 const linked=/^#e\\d+$/.test(location.hash);
 // A link to a message further back than the page shows loads back to it (on open, or when the hash changes).
-async function goLinked(){const m=location.hash.match(/^#e([0-9]+)$/);if(!m)return;const here=document.getElementById('e'+m[1]);if(here){if(rpHid(here))openThread(+here.dataset.root,{focus:+m[1]});return}const seq=+m[1];pinned=false;
+async function goLinked(){const m=location.hash.match(/^#e([0-9]+)$/);if(!m)return;const here=document.getElementById('e'+m[1]);if(here){if(rpHid(here))openThread(+here.dataset.root,{focus:+m[1]});else here.classList.add('ol-open');return}const seq=+m[1];pinned=false;
   if(!(await ensureEntry(seq))){toast('#'+seq+' was not found');return}const el=document.getElementById('e'+seq);pinned=false; // loading back may have passed the bottom and re-pinned
-  if(el.closest('.replies'))openThread(+el.closest('#thread>.entry').dataset.seq,{focus:seq});else if(rpHid(el))openThread(+el.dataset.root,{focus:seq});else el.scrollIntoView({block:'center'})}
+  if(el.closest('.replies'))openThread(+el.closest('#thread>.entry').dataset.seq,{focus:seq});else if(rpHid(el))openThread(+el.dataset.root,{focus:seq});else{el.classList.add('ol-open');el.scrollIntoView({block:'center'})}}
 if(linked&&!document.getElementById(location.hash.slice(1)))setTimeout(goLinked,0);
 {const t=linked&&document.getElementById(location.hash.slice(1));if(t&&pfHid(t)){pfSet(false,false,true);t.scrollIntoView({block:'center'})}if(t&&rpHid(t))setTimeout(()=>openThread(+t.dataset.root,{focus:+t.dataset.seq}),0)} // a link to an agent's message shows it; to a reply, its thread
 window.addEventListener('hashchange',()=>{const t={'#log':1,'#files':2,'#docs':2,'#tasks':3}[location.hash];if(t)tab(t);else goLinked()});
@@ -2168,6 +2189,7 @@ window.BOARD_CTX={id:BOARD,me:ME,members:MEMBERS,
   async jump(seq){if(!(await ensureEntry(seq))){toast('#'+seq+' was not found');return}const el=document.getElementById('e'+seq);
     if(document.getElementById('panel-conv').hidden)tab(0);if(el.closest('.replies')){openThread(+el.closest('#thread>.entry').dataset.seq,{focus:seq});return}
     if(rpHid(el)){openThread(+el.dataset.root,{focus:seq});return} // replies only in threads: open it there
+    el.classList.add('ol-open'); // a folded one-line message opens where you land
     
     document.querySelectorAll('#thread .entry.hit').forEach(x=>x.classList.remove('hit'));el.classList.add('hit');pinned=false;el.scrollIntoView({block:'center',behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth'});moved=true;setTimeout(()=>el.classList.remove('hit'),2200)},
   openFile(name,v){tab(2);openDoc(name,v)}};
@@ -2752,7 +2774,7 @@ ${canInviteAgent ? inviteAgentDialog(T, info) : ""}
     crumbs: agentChat ? `<span class="cur truncate">${esc(T("Your agent"))}</span>` : `<a class="muted" href="/">${esc(T("Boards"))}</a><span class="faint">/</span><span class="cur truncate">${esc(info.title)}</span>`,
     actions: `${agent.connected ? "" : `<button class="btn sm" data-open="connect" aria-label="${esc(T("Connect an agent"))}"><span class="hide-sm">${esc(T("Connect an agent"))}</span><span class="sm-only">${esc(T("Connect"))}</span></button>`}${readOnly || agentChat ? "" : `<button class="btn sm" data-open="invite">${esc(T("Invite"))}<kbd class="hide-sm">I</kbd></button>`}${
       // Rename/archive/delete live at the bottom of Members & access; a visible way in, so they aren't hidden behind Invite.
-      `<details class="board-head-menu"><summary class="btn ghost sm" aria-label="${esc(T("More actions"))}" title="${esc(T("More actions"))}">⋯</summary><div class="board-head-menu-items"><button type="button" data-mark-unread="${esc(info.id)}">${esc(T("Mark as unread"))}</button>${isCreator || canPic ? `<button type="button" data-open="invite" data-goto="acc-board">${esc(T("Board settings"))}</button>` : ""}</div></details>`
+      `<details class="board-head-menu"><summary class="btn ghost sm" aria-label="${esc(T("More actions"))}" title="${esc(T("More actions"))}">⋯</summary><div class="board-head-menu-items"><button type="button" class="ol-all" data-ol-toggle data-open-l="${esc(T("Open all messages"))}" data-fold-l="${esc(T("Fold messages again"))}">${esc(T("Open all messages"))}</button><button type="button" data-mark-unread="${esc(info.id)}">${esc(T("Mark as unread"))}</button>${isCreator || canPic ? `<button type="button" data-open="invite" data-goto="acc-board">${esc(T("Board settings"))}</button>` : ""}</div></details>`
     }`,
     body,
     script,
@@ -3101,6 +3123,7 @@ ${seg("text", esc(T("Text size")), [["s", esc(T("Small"))], ["m", esc(T("Medium"
 ${seg("density", esc(T("Density")), [["comfortable", esc(T("Comfortable"))], ["compact", esc(T("Compact"))]])}
 ${seg("theme", esc(T("Theme")), [["system", esc(T("System"))], ["light", esc(T("Light"))], ["dark", esc(T("Dark"))]])}
 ${seg("replies", esc(T("Replies")), [["chat", esc(T("In the chat"))], ["thread", esc(T("Only in their threads"))]])}
+${seg("compact", esc(T("Messages")), [["off", esc(T("Whole messages"))], ["others", esc(T("One line unless they mention you"))]])}
 ${seg("voice_turns", esc(T("When Atteo answers")), [["quick", esc(T("Right away"))], ["pause", esc(T("After a pause"))], ["tap", esc(T("When I tap Done"))]]).replace(/^<span class="lbl"/, '<span class="lbl" data-voice-only hidden').replace('<div class="seg"', '<div class="seg" data-voice-only hidden')}
 <label class="lbl" for="dp-lang">${esc(T("Language"))}</label><select class="input dp-lang" id="dp-lang" data-lang="${esc(d?.lang ?? "auto")}">${(
     [["auto", T("Automatic (this browser's language)")], ...Object.entries(LANG_NAMES), ...(d?.lang && d.lang !== "auto" && !(d.lang in LANG_NAMES) ? [[d.lang, `${d.lang} (${T("set in the app; the web shows English for now")})`]] : [])] as [string, string][]
@@ -3136,10 +3159,10 @@ function profileSection(p: ProfileView | null, lang?: Lang): string {
 const DISPLAY_JS = `
 (()=>{const f=document.getElementById('dp-form');if(!f)return;let saved=null,local={};
   try{saved=JSON.parse(f.dataset.saved)}catch{}try{local=JSON.parse(localStorage.getItem('atteo-display')||'{}')}catch{}
-  const cur=Object.assign({text:'m',density:'comfortable',theme:'system',replies:'chat',voice_turns:'pause'},local,saved||{});
-  for(const k of ['text','density','theme','replies','voice_turns']){const i=f.querySelector('input[name="'+k+'"][value="'+cur[k]+'"]');if(i)i.checked=true}
+  const cur=Object.assign({text:'m',density:'comfortable',theme:'system',replies:'chat',voice_turns:'pause',compact:'off'},local,saved||{});
+  for(const k of ['text','density','theme','replies','voice_turns','compact']){const i=f.querySelector('input[name="'+k+'"][value="'+cur[k]+'"]');if(i)i.checked=true}
   if(saved)applyDisplay(cur);
-  f.addEventListener('change',async e=>{if(e.target.id==='dp-lang'||e.target.id==='dp-voice')return;const d={text:f.text.value,density:f.density.value,theme:f.theme.value,replies:f.replies.value,voice_turns:f.voice_turns.value};applyDisplay(d);
+  f.addEventListener('change',async e=>{if(e.target.id==='dp-lang'||e.target.id==='dp-voice')return;const d={text:f.text.value,density:f.density.value,theme:f.theme.value,replies:f.replies.value,voice_turns:f.voice_turns.value,compact:f.compact.value};applyDisplay(d);
     const r=await fetch('/api/me/profile',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({display:d})}).catch(()=>null);
     toast(r&&r.ok?tr('Display saved'):tr('Saved on this device only'))});
   // When Atteo answers (vedu #2460): only where voice calls are on.
