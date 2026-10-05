@@ -79,7 +79,10 @@ async function width(w, scheme) {
     check(m.rows.every((x) => x.sum.t >= x.who.b - 1 && x.sum.r <= x.tr.r && x.sum.w > 120 && Math.abs(x.type.t + x.type.h / 2 - (x.sum.t + x.sum.h / 2)) <= 3), `${tag}: line two is the type and a readable summary (≥120px)`);
     await p.screenshot({ path: `${OUT}log-${w}-${scheme}.png` }); await p.close(); }
   if (run("cards")) { const p = await page(`/b/${f.board}`);
-    const m = await p.evaluate(`(()=>{const R=${R};return[...document.querySelectorAll("#thread .tk")].map(t=>{const b=[...t.querySelectorAll(":scope>.btn")].map(R);return{tk:R(t),b,st:R(t.querySelector(".tk-st"))}})})()`);
+    // A .tk without its status row yet is a card mid-render (the intermittent null getBoundingClientRect): wait
+    // until every card has its .tk-st, and skip a straggler in the measure. Same assertions.
+    await until(() => p.evaluate(() => { const tks = [...document.querySelectorAll("#thread .tk")]; return tks.length >= 1 && tks.every((t) => t.querySelector(".tk-st")); }), 15000);
+    const m = await p.evaluate(`(()=>{const R=${R};return[...document.querySelectorAll("#thread .tk")].map(t=>{const st=t.querySelector(".tk-st");if(!st)return null;const b=[...t.querySelectorAll(":scope>.btn")].map(R);return{tk:R(t),b,st:R(st)}}).filter(Boolean)})()`);
     check(m.length >= 1 && m.every((x) => x.b.every((y) => y.t === x.b[0].t && Math.abs(y.t + y.h / 2 - (x.st.t + x.st.h / 2)) <= 2 && y.r <= x.tk.r)), `${tag}: task/decision cards keep their buttons on the status line (${m.length} cards)`);
     await p.close(); }
   if (run("info")) { const p = await page(`/b/${f.board}`);
