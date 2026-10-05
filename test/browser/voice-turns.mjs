@@ -6,13 +6,17 @@
 import { chromium } from "playwright-core";
 const BASE = process.env.BASE || "http://localhost:8787";
 const ops = async (p, b) => (await fetch(`${BASE}/api/ops/${p}`, { method: "POST", headers: { "x-admin-key": process.env.ADMIN_KEY || "ci-admin-key", "content-type": "application/json" }, body: JSON.stringify(b) })).json();
-const run = Date.now().toString(36).slice(-4), P = `vt${run}`;
-await ops("users", { name: P, email: `${P}@example.com`, verified: "true", display: { mode: "developer" } });
-const board = (await ops("boards", { user: P, title: `Turns ${run}` })).board.id;
-const ck = (await ops("sessions", { user: P })).cookie;
+const run = Date.now().toString(36).slice(-4);
+// Each part is its own person with their own board, and the parts run side by side; each part's lines print when it's
+// done, in order.
+async function person(tag) {
+  const P = `vt${tag}${run}`; await ops("users", { name: P, email: `${P}@example.com`, verified: "true", display: { mode: "developer" } });
+  return { board: (await ops("boards", { user: P, title: `Turns ${tag} ${run}` })).board.id, ck: (await ops("sessions", { user: P })).cookie };
+}
 // until: wait for a condition in the page instead of a fixed sleep; false when it never came (the check then says so).
 const until = (p, fn, arg, ms = 5000) => p.waitForFunction(fn, arg, { timeout: ms, polling: 40 }).then(() => true, () => false);
-let fails = 0; const check = (ok, t) => { console.log(`${ok ? "✓" : "✗"} ${t}`); if (!ok) fails++; };
+let fails = 0; const parts = [];
+const part = (fn) => { const lines = []; const check = (ok, t) => { lines.push(`${ok ? "✓" : "✗"} ${t}`); if (!ok) fails++; }; parts.push(fn(check).then(() => lines, (e) => { fails++; return [...lines, `✗ ${e.stack || e}`]; })); };
 const FAKE = `(()=>{const Real=window.WebSocket;window.__talk={sent:[],opened:0};
   window.WebSocket=function(url,protocols){if(!String(url).startsWith('wss://api.x.ai'))return new Real(url,protocols);
     const ws={url,protocols,readyState:0,send(m){window.__talk.sent.push(JSON.parse(m))},close(){if(this.readyState===3)return;this.readyState=3;setTimeout(()=>this.onclose&&this.onclose({}),0)}};
@@ -23,11 +27,11 @@ const FAKE = `(()=>{const Real=window.WebSocket;window.__talk={sent:[],opened:0}
   // A hum the test can raise (a noisy room) under the voice; window.__level sets how loud talking is.
   navigator.mediaDevices.getUserMedia=async()=>{const ac=new AudioContext(),o=ac.createOscillator(),g=ac.createGain(),h=ac.createOscillator(),hg=ac.createGain(),d=ac.createMediaStreamDestination();g.gain.value=0;hg.gain.value=window.__humStart||0;o.frequency.value=220;h.frequency.value=60;o.connect(g);g.connect(d);h.connect(hg);hg.connect(d);o.start();h.start();window.__level=0.4;window.__voice=(on)=>{g.gain.value=on?window.__level:0};window.__hum=(v)=>{hg.gain.value=v};return d.stream};})()`;
 const b = await chromium.launch({ executablePath: process.env.PW_CHROME || undefined, args: ["--autoplay-policy=no-user-gesture-required"] });
-async function call(turns, pauseMs, hum = 0) {
+async function call(turns, pauseMs, hum, { board, ck }) {
   const ctx = await b.newContext({ viewport: { width: 1280, height: 860 } });
   const [k, ...v] = ck.split(";")[0].split("="); await ctx.addCookies([{ name: k, value: v.join("="), url: BASE }]);
   const p = await ctx.newPage(); p.errors = []; p.on("pageerror", (e) => p.errors.push(e.message));
-  await p.addInitScript(`window.__humStart=${hum};`); await p.addInitScript(FAKE);
+  await p.addInitScript(`window.__humStart=${hum || 0};`); await p.addInitScript(FAKE);
   await p.route("**/api/app/voice/**", async (route) => {
     const req = route.request(), headers = { ...req.headers(), "x-dev-fake-voice": "1" };
     if (req.url().endsWith("/voice/session") && turns) { const r = await route.fetch({ headers }); const j = await r.json(); j.voice_turns = turns; j.pause_ms = pauseMs; if (turns !== "quick") j.session.turn_detection = null; return route.fulfill({ response: r, json: j }); }
@@ -48,7 +52,7 @@ const sentN = (p, t, n, ms) => until(p, ([t, n]) => window.__talk.sent.filter((x
 const talking = (p, on) => until(p, (on) => !!window.atteoTalk.state()?.talking === on, on);
 
 // 1. pause: the page answers after a pause, not between words.
-{ const { ctx, p } = await call("pause", 800);
+part(async (check) => { const { ctx, p } = await call("pause", 800, 0, await person("p"));
   check((await p.evaluate(() => window.__talk.sent[0]?.session?.turn_detection)) === null, "pause: the session has no server turn detection");
   await voice(p, true); await until(p, () => document.querySelector("dialog.talk.hearing") && /Listening/.test(document.getElementById("talk-st").textContent));
   check(/Listening/.test(await st(p)) && await p.locator("dialog.talk.hearing").count() === 1, `talking: it's hearing you ("${await st(p)}")`);
@@ -65,10 +69,10 @@ const talking = (p, on) => until(p, (on) => !!window.atteoTalk.state()?.talking 
   await p.evaluate(() => { const pcm = btoa(String.fromCharCode(...new Uint8Array(48000))); window.__talk.emit({ type: "response.created", response: { id: "r1" } }); window.__talk.emit({ type: "response.output_audio.delta", response_id: "r1", item_id: "i1", delta: pcm }); });
   await voice(p, true); await sentN(p, "response.cancel", 1); await voice(p, false);
   check(count(await sent(p), "response.cancel") === 1, "talking over Atteo cancels its answer");
-  check(!p.errors.length, `no page errors ${p.errors.join(" | ")}`); await ctx.close(); }
+  check(!p.errors.length, `no page errors ${p.errors.join(" | ")}`); await ctx.close(); });
 
 // 1b. A quiet voice in a humming room (iOS Safari's processed mic runs low): the threshold follows the room's floor.
-{ const { ctx, p } = await call("pause", 800, 0.02); // the room hums from the start, as rooms do
+part(async (check) => { const { ctx, p } = await call("pause", 800, 0.02, await person("h")); // the room hums from the start, as rooms do
   const shared = await p.evaluate(() => { const t = window.atteoTalk.call(), s = window.atteoTalk.state(); return { same: !!t.ac && t.ac === s.ac, state: t.ac && t.ac.state }; });
   check(shared.same && shared.state === "running", `the call's AudioContext is made in the tap and shared by its session (${JSON.stringify(shared)})`);
   await p.evaluate(() => { window.__level = 0.06; }); await p.waitForTimeout(1500);
@@ -77,10 +81,10 @@ const talking = (p, on) => until(p, (on) => !!window.atteoTalk.state()?.talking 
   check(await p.locator("dialog.talk.hearing").count() === 1, "a quiet voice over it is");
   await voice(p, false); await sentN(p, "input_audio_buffer.commit", 1);
   check(count(await sent(p), "input_audio_buffer.commit") === 1, "and the pause after it ends the turn, hum and all");
-  check(!p.errors.length, `no page errors ${p.errors.join(" | ")}`); await ctx.close(); }
+  check(!p.errors.length, `no page errors ${p.errors.join(" | ")}`); await ctx.close(); });
 
 // 2. tap: nothing ends your turn but Done (or the pause key).
-{ const { ctx, p } = await call("tap", 800);
+part(async (check) => { const { ctx, p } = await call("tap", 800, 0, await person("t"));
   check(await p.locator("#talk-done").isVisible() && await p.locator("#talk-done").isDisabled() && /tap Done/.test(await st(p)), `tap: a Done button, off until you've said something ("${await st(p)}")`);
   await voice(p, true); await until(p, () => !document.getElementById("talk-done").disabled); await voice(p, false); await talking(p, false); await p.waitForTimeout(1600); // twice the pause
   check(count(await sent(p), "input_audio_buffer.commit") === 0 && await p.locator("#talk-done").isEnabled() && /tap Done/.test(await st(p)), `a long pause doesn't end it ("${await st(p)}")`);
@@ -92,11 +96,11 @@ const talking = (p, on) => until(p, (on) => !!window.atteoTalk.state()?.talking 
   await p.evaluate(() => window.__ms.pause()); await sentN(p, "input_audio_buffer.commit", 2, 2000);
   s2 = await sent(p);
   check(count(s2, "input_audio_buffer.commit") === 2 && await p.evaluate(() => window.__talk.ws.readyState) === 1, "the pause key ends your turn too, and the call stays up");
-  check(!p.errors.length, `no page errors ${p.errors.join(" | ")}`); await ctx.close(); }
+  check(!p.errors.length, `no page errors ${p.errors.join(" | ")}`); await ctx.close(); });
 
 // 4. The setting: Account → Display → When Atteo answers saves display.voice_turns, and the next call asks for client
 // turns and gets that mode from the server.
-{ const ctx = await b.newContext({ viewport: { width: 1280, height: 860 } });
+part(async (check) => { const { board, ck } = await person("s"); const ctx = await b.newContext({ viewport: { width: 1280, height: 860 } });
   const [k, ...v] = ck.split(";")[0].split("="); await ctx.addCookies([{ name: k, value: v.join("="), url: BASE }]);
   const p = await ctx.newPage(); p.errors = []; p.on("pageerror", (e) => p.errors.push(e.message));
   await p.route("**/api/app/voice/**", (route) => route.continue({ headers: { ...route.request().headers(), "x-dev-fake-voice": "1" } }));
@@ -114,12 +118,13 @@ const talking = (p, on) => until(p, (on) => !!window.atteoTalk.state()?.talking 
   check(JSON.parse(req.postData() || "{}").client_turns === true && rj.voice_turns === "tap" && rj.session.turn_detection === null && await p.locator("#talk-done").isVisible(), `the call asks for client turns and runs tap mode (${rj.voice_turns}, ${JSON.stringify(rj.session.turn_detection)})`);
   await p.locator("#talk-end").click();
   await p.evaluate(() => fetch("/api/app/prefs", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ display: { voice_turns: "pause" } }) }));
-  check(!p.errors.length, `no page errors ${p.errors.join(" | ")}`); await ctx.close(); }
+  check(!p.errors.length, `no page errors ${p.errors.join(" | ")}`); await ctx.close(); });
 
 // 3. quick: the service finds the turns, as before.
-{ const { ctx, p } = await call("quick", 0);
+part(async (check) => { const { ctx, p } = await call("quick", 0, 0, await person("q"));
   await voice(p, true); await p.waitForTimeout(500); await voice(p, false); await p.waitForTimeout(1200);
   const s3 = await sent(p);
   check(count(s3, "input_audio_buffer.commit") === 0 && !(await p.locator("#talk-done").isVisible()) && await p.locator("dialog.talk.hearing").count() === 0, "quick: the page leaves turns to the service (no commit, no Done)");
-  check(!p.errors.length, `no page errors ${p.errors.join(" | ")}`); await ctx.close(); }
+  check(!p.errors.length, `no page errors ${p.errors.join(" | ")}`); await ctx.close(); });
+for (const lines of await Promise.all(parts)) for (const l of lines) console.log(l);
 await b.close(); console.log(fails ? `${fails} FAILED` : "voice turns: all passed"); process.exit(fails ? 1 : 0);
