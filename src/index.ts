@@ -6,6 +6,7 @@ import { runGrep } from "./grep";
 import * as usage from "./usage";
 import * as csp from "./csp";
 import * as limits from "./limits";
+import * as costGuard from "./costGuard";
 import * as oauth from "./oauth";
 import { consentPage } from "./oauthPage";
 import * as approvals from "./approvals";
@@ -543,7 +544,10 @@ async function opsData(env: Env): Promise<AdminData> {
       a.last_token_use = t.last;
     }
   }
-  return { boards, users, invites, recent, totalEntries: boards.reduce((n, b) => n + b.entry_count, 0), access: [...access.values()], metrics: await usage.metrics(env).catch(() => undefined) };
+  return {
+    boards, users, invites, recent, totalEntries: boards.reduce((n, b) => n + b.entry_count, 0), access: [...access.values()], metrics: await usage.metrics(env).catch(() => undefined),
+    cost: { capped: await costGuard.capped(env).catch(() => null), watching: !!(env.CF_ACCOUNT_ID && costGuard.analyticsToken(env)) },
+  };
 }
 
 // ---------- router ----------
@@ -554,6 +558,19 @@ async function runScheduled(env: Env, ctx: ExecutionContext, now = Date.now()): 
   // Load shedding (src/limits.ts): today's usage sets the level every request then sees (0 normal, 1 stretch waits and
   // pause background work, 2 also refuse non-essential agent writes).
   const shed = await limits.updateShedLevel(env).catch(() => ({ level: limits.shedLevelNow(), requests: 0, rows_read: null }));
+  // The cost guard (src/costGuard.ts, vedu #4340): today's D1 and Durable Object usage against the soft and hard caps.
+  // Alerts go to the developers' board (BUGS_BOARD) as the bug bot; no board configured, the cap still trips.
+  ctx.waitUntil(
+    costGuard
+      .check(env, async (text) => {
+        const board = (env.BUGS_BOARD ?? "").trim();
+        if (!board) return console.log(text);
+        const stub = boardStub(env, board);
+        await ensureBugBoard(env, board, stub);
+        await stub.post(bugs.BUG_BOT, { type: "note", text, via: "person", client: "cost-guard" });
+      }, now)
+      .catch((e) => console.error("cost guard failed", e)),
+  );
   // Boards with a retention period: blank what's older.
   const keep = (await env.DB.prepare(`SELECT id, retention_days FROM boards WHERE retention_days IS NOT NULL`).all<{ id: string; retention_days: number }>()).results;
   for (const b of keep) ctx.waitUntil(boardStub(env, b.id).prune(Date.now() - b.retention_days * 86_400_000).catch(() => 0));
@@ -744,6 +761,7 @@ const handler = {
           wait: limits.isWaitRequest(method, path, url),
           write: method !== "GET" && method !== "HEAD" && method !== "OPTIONS",
           essential: limits.isEssentialRest(path),
+          heavy: costGuard.isHeavyRest(method, path),
         });
         if (denied) return denied;
       }
@@ -1126,7 +1144,7 @@ const handler = {
         // One open wait per agent session: a newer one ends this one (limits.beginWait).
         const w = wait && sid ? limits.beginWait(`s:${sid}`) : null;
         if (w?.refused) return waitRefused(w.refused);
-        const editMail = sid ? (await Promise.all((await registry.boardsForUser(env, viewer.name)).map(async b =>
+        const editMail = sid && mailbox.editSweepDue(sid, wait > 0) ? (await Promise.all((await registry.boardsForUser(env, viewer.name)).map(async b =>
           (await boardStub(env, b.id).editNotices(viewer.name, sid, peek)).map((line, i) => ({ id: -Date.now() - i, kind: "edited" as const, board: b.id, board_title: b.title, seq: Number(line.match(/#(\d+)/)?.[1] ?? 0), from: "", from_via: "person", type: "edit", text: line, preview: line, for: "for your agent", ts: Date.now() }))))) .flat() : [];
         let r0: Awaited<ReturnType<typeof mailbox.collect>>;
         try {
@@ -3365,6 +3383,11 @@ const handler = {
         if (!isOps(c)) return json({ error: "not found" }, 404);
         const body = method === "POST" ? ((await request.json().catch(() => ({}))) as Record<string, string>) : {};
         if (path === "/api/ops/overview" && method === "GET") return json(await opsData(env));
+        // The cost guard (src/costGuard.ts): its state; {clear: true} lifts the hard cap.
+        if (path === "/api/ops/cost-guard") {
+          if (method === "POST" && (body as Record<string, unknown>).clear === true) await costGuard.clearCap(env, viewer?.name ?? "admin-key");
+          return json({ capped: await costGuard.capped(env), thresholds: costGuard.thresholds(env), watching: !!(env.CF_ACCOUNT_ID && costGuard.analyticsToken(env)) });
+        }
         // Proves error reporting end to end (D1 errors + Sentry): throws on purpose.
         if (path === "/api/ops/test-error" && method === "POST") throw new Error("Test error from /api/ops/test-error");
         if (path === "/api/ops/metrics" && method === "GET") return json(await usage.metrics(env, Number(url.searchParams.get("days")) || 14));

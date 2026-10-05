@@ -3648,6 +3648,15 @@ export interface AdminData {
   totalEntries: number;
   access: { user: string; boards: { id: string; title: string }[]; active_tokens: number; last_token_use: number | null }[];
   metrics?: import("./usage").Metrics;
+  cost?: { capped: { at: number; reason: string } | null; watching: boolean }; // the cost guard (src/costGuard.ts)
+}
+
+/** The cost guard's state on /_ops: tripped (with why, and Clear) or watching, or off without an analytics token. */
+function costHtml(c: AdminData["cost"]): string {
+  if (!c) return "";
+  if (c.capped)
+    return `<div class="card pad" role="alert" style="margin-bottom:16px"><strong>Cost guard tripped</strong> <span class="small muted">${esc(new Date(c.capped.at).toISOString().replace("T", " ").slice(0, 16))} UTC</span><p class="small" style="margin:6px 0 10px">${esc(c.capped.reason)}. Waits, search, grep and exports answer 503. Find and stop the loop first (docs/COSTS.md), then clear.</p><button class="btn" type="button" data-cost-clear>Clear the cost cap</button></div>`;
+  return `<p class="small muted" style="margin:0 0 16px">Cost guard: ${c.watching ? "watching D1 and Durable Object usage (alerts go to the bug board)" : "off: set CF_ACCOUNT_ID and CF_ANALYTICS_TOKEN to watch usage"}.</p>`;
 }
 
 export function adminPage(viewer: Viewer, side: SideBoard[], d: AdminData): Response {
@@ -3692,7 +3701,7 @@ export function adminPage(viewer: Viewer, side: SideBoard[], d: AdminData): Resp
         `${k.pro} on Pro${k.cancelling ? ` · ${k.cancelling} cancelling` : ""}${k.active_30d ? ` · ${Math.round((k.pro / k.active_30d) * 100)}% of active` : ""}`,
       )}${kpi(k.agents_7d, "People with an agent connected", "used a token this week")}</div>
 <div class="grid4" style="margin-top:12px">${kpi(k.boards, "Boards", `${k.boards_active_7d} active this week`)}${kpi(k.posts_7d, "Posts this week", "people and agents")}${kpi(d.totalEntries, "Messages, all time")}${kpi(k.errors_24h, "Kinds of server error, last 24h", k.errors_24h ? `${k.errors_24h_total.toLocaleString("en-US")} times in all · details below and in Sentry` : "all quiet")}</div>`
-    : `<div class="grid4">${stat(d.boards.length, "Boards")}${stat(d.users.length, "Users")}${stat(d.totalEntries, "Messages")}${stat(d.invites.length, "Invites")}</div>`;
+    : `${costHtml(d.cost)}<div class="grid4">${stat(d.boards.length, "Boards")}${stat(d.users.length, "Users")}${stat(d.totalEntries, "Messages")}${stat(d.invites.length, "Invites")}</div>`;
   const overview = `${kpiHtml}${trustHtml}${usageHtml}
 <h2 style="margin:32px 0 10px">Boards</h2>
 ${table(
@@ -3736,7 +3745,8 @@ ${table(
     `function tab(n){document.querySelectorAll('#ops-tabs button').forEach((b,i)=>b.setAttribute('aria-selected',String(i===n)));document.querySelectorAll('[data-ops-panel]').forEach((p,i)=>p.hidden=i!==n);history.replaceState(null,'',['#overview','#access','#events'][n])}
 document.querySelectorAll('#ops-tabs button').forEach((b,i)=>b.addEventListener('click',()=>tab(i)));
 tab(Math.max(0,['#overview','#access','#events'].indexOf(location.hash)));
-window.boardKeys=(e,k)=>{if(k==='1'||k==='2'||k==='3')tab(+k-1)};`;
+window.boardKeys=(e,k)=>{if(k==='1'||k==='2'||k==='3')tab(+k-1)};
+document.querySelector('[data-cost-clear]')?.addEventListener('click',async e=>{e.target.disabled=true;const r=await fetch('/api/ops/cost-guard',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({clear:true})});if(r.ok)location.reload();else e.target.disabled=false});`;
   return appPage("Ops · Atteo", {
     viewer,
     boards: side,
