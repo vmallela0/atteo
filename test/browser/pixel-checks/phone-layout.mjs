@@ -5,7 +5,7 @@ import { SHOTS_DIR } from "../lib/shots.mjs";
 import { chromium } from "playwright-core";
 import { mkdirSync } from "node:fs";
 import { BASE, CHROME, fixture, ctxFor } from "./fixture.mjs";
-import { stable } from "../lib/wait.mjs";
+import { stable, until } from "../lib/wait.mjs";
 const OUT = `${SHOTS_DIR}/after/`; mkdirSync(OUT, { recursive: true });
 const only = process.argv[2] ? process.argv[2].split(",") : null;
 const f = await fixture();
@@ -83,9 +83,13 @@ async function width(w, scheme) {
     check(m.length >= 1 && m.every((x) => x.b.every((y) => y.t === x.b[0].t && Math.abs(y.t + y.h / 2 - (x.st.t + x.st.h / 2)) <= 2 && y.r <= x.tk.r)), `${tag}: task/decision cards keep their buttons on the status line (${m.length} cards)`);
     await p.close(); }
   if (run("info")) { const p = await page(`/b/${f.board}`);
-    await p.click("#info-btn"); await p.waitForSelector("#board-info .sum li a .avs"); await settle(p, "#board-info");
+    await p.click("#info-btn"); await p.waitForSelector("#board-info .sum li a .avs");
+    // Members' rows fill in one fetch after the summary's own: wait until each .av-wrap row has its children before
+    // measuring (the intermittent null getBoundingClientRect at load ran over a half-rendered row), then settle.
+    await until(() => p.evaluate(() => { const rs = [...document.querySelectorAll("#board-info .sum li>.row")].filter((r) => r.querySelector(".av-wrap")); return rs.length >= 3 && rs.every((r) => r.lastElementChild); }), 15000);
+    await settle(p, "#board-info");
     const m = await p.evaluate(`(()=>{const R=${R};const rows=[...document.querySelectorAll("#board-info .sum li a")].filter(a=>a.querySelector(".avs")).map(a=>({a:R(a),avs:R(a.querySelector(".avs")),one:R(a.querySelector(".one"))}));
-      const mem=[...document.querySelectorAll("#board-info .sum li>.row")].filter(r=>r.querySelector(".av-wrap")).map(r=>{const l=r.lastElementChild;const range=document.createRange();range.selectNodeContents(l.matches(".btn")?l.firstChild||l:l);const tr=range.getBoundingClientRect();return{row:R(r),textR:Math.round(tr.right),fs:getComputedStyle(l.matches(".btn")?l:l).fontSize}});return{rows,mem}})()`);
+      const mem=[...document.querySelectorAll("#board-info .sum li>.row")].filter(r=>r.querySelector(".av-wrap")).map(r=>{const l=r.lastElementChild;if(!l)return null;const range=document.createRange();range.selectNodeContents(l.matches(".btn")?l.firstChild||l:l);const tr=range.getBoundingClientRect();return{row:R(r),textR:Math.round(tr.right),fs:getComputedStyle(l.matches(".btn")?l:l).fontSize}}).filter(Boolean);return{rows,mem}})()`);
     check(m.rows.length >= 3 && m.rows.every((x) => x.one.l - x.avs.l <= 44 && x.one.l - x.avs.l === m.rows[0].one.l - m.rows[0].avs.l), `${tag}: info rows: titles line up right after the avatars (${m.rows.map((x) => x.one.l - x.avs.l).join("/")}px)`);
     check(m.mem.length === 3 && m.mem.every((x) => Math.abs(x.textR - m.mem[0].textR) <= 2), `${tag}: Members: Remove and last seen end at the same edge (${m.mem.map((x) => x.textR).join("/")})`);
     await p.screenshot({ path: `${OUT}info-${w}-${scheme}.png` }); await p.close(); }
