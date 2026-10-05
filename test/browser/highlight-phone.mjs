@@ -4,6 +4,7 @@
 // hl-bleed.mjs only measured the entry's box, which the scroller clipped, so it passed while the tint sat flush with the avatar.
 // Usage: BASE=http://localhost:8798 node highlight-phone.mjs  (local dev only, ADMIN_KEY=ci-admin-key in .dev.vars)
 import { chromium } from "playwright-core";
+import { until, stable } from "./lib/wait.mjs";
 const BASE = process.env.BASE || "http://localhost:8787";
 const KEY = process.env.ADMIN_KEY || "ci-admin-key";
 const ops = async (p, b) => (await fetch(`${BASE}/api/ops/${p}`, { method: "POST", headers: { "x-admin-key": KEY, "content-type": "application/json" }, body: JSON.stringify(b) })).json();
@@ -52,23 +53,24 @@ for (const mode of ["developer", "everyday"]) {
     const p = await ctx.newPage(), errors = [];
     p.on("pageerror", (e) => errors.push(e.message));
     await p.goto(`${BASE}/b/${board}`);
-    await p.waitForTimeout(1000);
+    await p.locator(`#e${ment}`).waitFor(); await p.evaluate(() => document.fonts.ready);
     await p.evaluate((s) => document.getElementById("e" + s).scrollIntoView({ block: "center" }), ment);
-    await p.waitForTimeout(200);
+    await stable(() => p.evaluate(measure, ment));
     const m = await p.evaluate(measure, ment);
     check(/for-you/.test(m.cls), `${tag}: the mention is tinted`);
     room(tag, "the mention tint", m, phone);
     check(!m.sideways, `${tag}: nothing scrolls sideways`);
     const n = await post(ckV, `fresh ${w} ${scheme} ${run}`);
     await p.locator(`#e${n}`).waitFor({ timeout: 8000 });
-    await p.waitForTimeout(100);
+    await until(() => p.evaluate((s) => /flash-in/.test(document.getElementById("e" + s).className), n), 2000);
     const f = await p.evaluate(measure, n);
     check(/flash-in/.test(f.cls), `${tag}: a new message flashes`);
     room(tag, "the new message's flash", f, phone);
     const chip = p.locator(`#e${link} a.ref[data-ref="${target}"]`);
+    await chip.first().waitFor({ timeout: 5000 }).catch(() => {});
     if (await chip.count()) {
       await chip.first().click();
-      await p.waitForTimeout(700);
+      await until(() => p.evaluate((s) => /\bhit\b/.test(document.getElementById("e" + s).className), target)); await stable(() => p.evaluate(measure, target));
       const h = await p.evaluate(measure, target);
       check(/\bhit\b/.test(h.cls), `${tag}: a #ref jump tints its message`);
       room(tag, "the jump tint", h, phone);

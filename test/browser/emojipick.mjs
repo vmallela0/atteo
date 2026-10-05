@@ -4,6 +4,7 @@
 // a bottom sheet on phones, dark and light, no page errors.
 import { SHOTS_DIR } from "./lib/shots.mjs";
 import { chromium } from "playwright-core";
+import { until, trackBoardSocket, boardLive } from "./lib/wait.mjs";
 const BASE=process.env.BASE||"http://localhost:8787";
 const ops=async(p,b)=>(await fetch(`${BASE}/api/ops/${p}`,{method:"POST",headers:{"x-admin-key":"ci-admin-key","content-type":"application/json"},body:JSON.stringify(b)})).json();
 const run=Date.now().toString(36).slice(-4),P=`ep${run}`,V=`ev${run}`;
@@ -18,8 +19,9 @@ const b=await chromium.launch({executablePath: process.env.PW_CHROME || undefine
 const [k,...v]=ck.split(";")[0].split("=");const cookie={name:k,value:v.join("="),url:BASE};
 const errors=[];
 const ctx=await b.newContext({viewport:{width:1400,height:900},colorScheme:"light"});await ctx.addCookies([cookie]);
-const p=await ctx.newPage();p.on("pageerror",e=>errors.push(e.message));await p.goto(`${BASE}/b/${board}`);await p.waitForTimeout(1200);
+const p=await ctx.newPage();p.on("pageerror",e=>errors.push(e.message));await trackBoardSocket(p);await p.goto(`${BASE}/b/${board}`);
 const bar=(seq,q=p)=>q.locator(`#e${seq} .acts .rx-q`).evaluateAll(bs=>bs.map(b=>b.dataset.emo+(b.textContent===b.dataset.emo?"":"!")).join(""));
+await boardLive(p);await until(async()=>await bar(n1)==="👍✅🤔");
 const chips=(seq,q=p)=>q.locator(`[data-rx="${seq}"] .rx-chip`).evaluateAll(cs=>cs.map(c=>c.querySelector('.e').textContent+c.querySelector('.c').textContent+(c.classList.contains('on')?'*':'')));
 const pk=p.locator(".rx-pick");
 const results=()=>p.locator(".rx-pick .rp-body [data-ep]").evaluateAll(bs=>bs.map(b=>b.dataset.ep));
@@ -43,7 +45,7 @@ check(/No emoji match/.test(await p.locator(".rx-pick .rp-body").innerText()),"n
 // Typing goes to search; Enter picks the top hit
 await p.locator(".rx-pick .rp-search input").fill("");await p.locator(".rx-pick .rp-foot").click();await p.keyboard.type("rocket");await p.waitForTimeout(80);
 check(await p.locator(".rx-pick .rp-search input").inputValue()==="rocket"&&(await results())[0]==="🚀"&&await p.locator('.rx-pick .rp-e.kb').getAttribute('data-ep')==="🚀",`typing "rocket" goes to search and highlights 🚀`);
-await p.keyboard.press("Enter");await p.waitForTimeout(700);
+await p.keyboard.press("Enter");await until(async()=>await pk.isHidden()&&JSON.stringify(await chips(n1))===`["🚀1*"]`);
 check(await pk.isHidden()&&JSON.stringify(await chips(n1))==='["🚀1*"]',`Enter picks 🚀: the picker closes and the chip shows on the message (${await chips(n1)})`);
 // Frequently used next time; the most-used fill your row, so 🚀 leads the row and the one-click buttons.
 await p.locator(`[data-rx="${n1}"] .rx-add`).click();await p.waitForTimeout(200);
@@ -74,12 +76,12 @@ check(!(await p.locator(".rx-pick .rp-cz").isVisible())&&(await p.locator(".rx-p
 await p.keyboard.press("Escape");
 check(await bar(n1)==="🚀🎉👀",`the hover bar's one-click buttons are now 🚀 🎉 👀 (${await bar(n1)})`);
 // A message that arrives after load gets them too, and they react
-const n2=await post(`Live one ${run}`);await p.waitForTimeout(2500);
+const n2=await post(`Live one ${run}`);await until(async()=>await bar(n2)==="🚀🎉👀");
 check(await bar(n2)==="🚀🎉👀",`…also on a message that arrives live (${await bar(n2)})`);
-await p.locator(`#e${n2}`).hover();await p.locator(`#e${n2} .acts .rx-q[data-emo="🎉"]`).click();await p.waitForTimeout(700);
+await p.locator(`#e${n2}`).hover();await p.locator(`#e${n2} .acts .rx-q[data-emo="🎉"]`).click();await until(async()=>JSON.stringify(await chips(n2))===`["🎉1*"]`);
 check(JSON.stringify(await chips(n2))==='["🎉1*"]',`clicking the 🎉 one-click button reacts with 🎉 (${await chips(n2)})`);
 // Survives a reload
-await p.reload();await p.waitForTimeout(1500);
+await p.reload();await until(async()=>await bar(n1)==="🚀🎉👀"&&await bar(n2)==="🚀🎉👀");
 check(await bar(n1)==="🚀🎉👀"&&await bar(n2)==="🚀🎉👀",`after a reload the hover bars still show 🚀 🎉 👀 (${await bar(n1)} ${await bar(n2)})`);
 // Dark desktop
 await p.emulateMedia({colorScheme:"dark"});await p.locator(`[data-rx="${n1}"] .rx-add`).click();await p.waitForTimeout(200);
@@ -92,9 +94,10 @@ const afterReset=await slots();check(await p.locator(".rx-pick .rp-slot.pin").co
 await p.keyboard.press("Escape");await p.waitForTimeout(800); // the row is saved to your prefs (after a short pause)
 const rowNow=await p.evaluate(()=>quickRow().slice(0,3).join(""));
 check(await bar(n1)===rowNow&&rowNow!=="🚀🎉👀",`…and the one-click buttons go back to your most-used (${await bar(n1)})`);
-await p.evaluate(()=>{for(const k of Object.keys(localStorage))if(k.startsWith('atteo.rx.'))localStorage.removeItem(k)});await p.reload();await p.waitForTimeout(1200);
+await p.evaluate(()=>{for(const k of Object.keys(localStorage))if(k.startsWith('atteo.rx.'))localStorage.removeItem(k)});await p.reload();
 // This browser's copy gone: your most-used still come from the server (recent_reactions, every device; emoji-sync.mjs covers the rest).
 const rec=(await (await p.request.get(`${BASE}/api/app/prefs`)).json()).prefs.recent_reactions;
+await until(async()=>await bar(n1)===[...new Set([...rec,"👍","✅","🤔"])].slice(0,3).join(""));
 check(await bar(n1)===[...new Set([...rec,"👍","✅","🤔"])].slice(0,3).join(""),`with no picks and this browser's history gone, your most-used on every device lead (${await bar(n1)}; recent ${rec.join("")})`);
 const keys=await p.evaluate(()=>{quickSet(['🚀']);freqAdd('🔥');return Object.keys(localStorage).filter(k=>k.startsWith('atteo.rx.'))});
 check(keys.length>=2&&keys.every(k=>k.endsWith('.'+P)),`stored per person (${keys.join(", ")})`);
@@ -103,7 +106,7 @@ await ctx.close();
 // Phones: a bottom sheet, no sideways scroll; light and dark
 for(const [w,scheme] of [[390,"dark"],[390,"light"],[320,"light"]]){
   const c=await b.newContext({viewport:{width:w,height:800},isMobile:true,hasTouch:true,colorScheme:scheme});await c.addCookies([cookie]);const q=await c.newPage();q.on("pageerror",e=>errors.push(e.message));
-  await q.goto(`${BASE}/b/${board}`);await q.waitForTimeout(1200);
+  await q.goto(`${BASE}/b/${board}`);await until(async()=>(await bar(n1,q)).length>=3);
   await q.locator(`#e${n1} .more-acts`).tap();await q.waitForTimeout(150);await q.locator(`#e${n1} .acts [data-rx-add]`).tap();await q.waitForTimeout(300);
   const s=await q.locator(".rx-pick").evaluate(el=>{const r=el.getBoundingClientRect(),qr=el.querySelector('.rp-quick').getBoundingClientRect();return {sheet:el.classList.contains('sheet'),l:r.left,r:r.right,b:r.bottom,t:r.top,h:innerHeight,w:innerWidth,
     sw:document.documentElement.scrollWidth,psw:el.scrollWidth,pcw:el.clientWidth,bsw:el.querySelector('.rp-body').scrollWidth,bcw:el.querySelector('.rp-body').clientWidth,qr:qr.right,scrim:!document.querySelector('.rp-scrim').hidden,bg:getComputedStyle(el).backgroundColor}});
@@ -112,7 +115,7 @@ for(const [w,scheme] of [[390,"dark"],[390,"light"],[320,"light"]]){
   check(scheme==="dark"?s.bg!=="rgb(250, 250, 247)":s.bg==="rgb(250, 250, 247)",`${w}px ${scheme}: themed (${s.bg})`);
   if(w===390&&scheme==="dark")await q.screenshot({path:`${SHOTS_DIR}/emojipick-phone-dark.png`});
   if(w===390&&scheme==="light")await q.screenshot({path:`${SHOTS_DIR}/emojipick-phone-light.png`});
-  if(w===390){const [word,em]=scheme==="dark"?["fire","🔥"]:["eyes","👀"];await q.locator(".rx-pick .rp-search input").tap();await q.keyboard.type(word);await q.waitForTimeout(100);await q.locator(`.rx-pick .rp-body [data-ep="${em}"]`).tap();await q.waitForTimeout(700);
+  if(w===390){const [word,em]=scheme==="dark"?["fire","🔥"]:["eyes","👀"];await q.locator(".rx-pick .rp-search input").tap();await q.keyboard.type(word);await q.waitForTimeout(100);await q.locator(`.rx-pick .rp-body [data-ep="${em}"]`).tap();await until(async()=>await q.locator(".rx-pick").isHidden()&&(await chips(n1,q)).some(x=>x.startsWith(em+"1")));
     const ch=await chips(n1,q);check(await q.locator(".rx-pick").isHidden()&&ch.some(x=>x.startsWith(em+"1")),`${w}px ${scheme}: search "${word}" + tap ${em} reacts and closes the sheet (${ch})`);
     await q.locator(`[data-rx="${n1}"] .rx-add`).tap();await q.waitForTimeout(200);
     await q.locator(".rp-scrim").tap({position:{x:20,y:20}});await q.waitForTimeout(150);check(await q.locator(".rx-pick").isHidden(),`${w}px ${scheme}: tapping outside closes the sheet`)}
