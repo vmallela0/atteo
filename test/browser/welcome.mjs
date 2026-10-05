@@ -44,6 +44,7 @@ async function newPerson(){const {ctx,p}=await open(ckN,1280,860);
     const clip=await p.evaluate(()=>navigator.clipboard.readText());
     check(clip===`${BASE}/mcp`&&/Copied/.test(await d.locator('[data-ev-copy="link"]').innerText()),`${id}: Copy link puts ${clip} on the clipboard and says Copied`);
     const href=await d.locator("a.ev-open").getAttribute("href");check(/^https:\/\/(grok\.com|chatgpt\.com|claude\.ai)\//.test(href)&&await d.locator("a.ev-open").getAttribute("target")==="_blank",`${id}: opens ${href} in a new tab`);
+    if(id==="chatgpt")check(href==="https://chatgpt.com/#settings/Connectors","chatgpt: a desktop browser keeps the web's Connectors page");
     if(id==="grok"){await d.locator('[data-ev-copy="alt"]').click();await p.waitForTimeout(250);const m=await p.evaluate(()=>navigator.clipboard.readText());
       check(m.includes(`${BASE}/mcp`)&&/Routine/.test(m),"grok: the Grok Bot message copies too (link + mailbox Routine)")}
     if(id==="claude")await p.screenshot({path:`${SHOTS_DIR}/welcome-sheet-1280-light.png`});
@@ -116,5 +117,14 @@ async function banner(){const P=`eh${run}`;await ops("users",{name:P,email:`${P}
 // then that person's phones (the three sizes together: they all copy the same link, the clipboard being the browser's).
 await Promise.all([newPerson(),banner(),dismissal()]);
 await phones();
+// 7. On an iPhone, ChatGPT's "Open ChatGPT settings" opens its app (a universal link, same tab) (vedu #4065); the others
+// keep their web pages, and a desktop browser keeps ChatGPT's web Connectors page (checked in 2).
+{const ctx=await b.newContext({viewport:{width:390,height:844},isMobile:true,hasTouch:true,userAgent:"Mozilla/5.0 (iPhone; CPU iPhone OS 26_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Mobile/15E148 Safari/604.1"});
+  const [k,...v]=ckD.split(";")[0].split("=");await ctx.addCookies([{name:k,value:v.join("="),url:BASE}]);
+  const p=await ctx.newPage();p.on("pageerror",e=>errors.push(`iPhone ${e.message}`));await p.goto(`${BASE}/welcome`);await p.waitForTimeout(500);
+  const a=p.locator("#ev-chatgpt a.ev-open");
+  check(await a.getAttribute("href")==="https://chatgpt.com/#settings"&&await a.getAttribute("target")===null,`iPhone: ChatGPT's button opens its app's settings in the same tab (${await a.getAttribute("href")})`);
+  check(await p.locator("#ev-grok a.ev-open").getAttribute("href")==="https://grok.com/connectors","iPhone: Grok's button is unchanged");
+  await ctx.close()}
 check(!errors.length,`no page errors ${errors.join(" | ")}`);
 await b.close();console.log(fails?`${fails} FAILED`:"welcome: all passed");process.exit(fails?1:0);

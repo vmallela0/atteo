@@ -33,7 +33,7 @@ interface Provider {
   /** A page that connects it instead of the sheet (Muse's key). */
   href?: string;
   /** Absent (and no href): "Coming soon", no action. */
-  flow?: { open: { href: string; label: string }; step2: string; step3: string; note?: string; grokBot?: boolean };
+  flow?: { open: { href: string; label: string; app?: string }; step2: string; step3: string; note?: string; grokBot?: boolean };
 }
 
 // Steps are trusted HTML written here; nothing in them comes from a person.
@@ -58,7 +58,9 @@ const PROVIDERS: Provider[] = [
     letter: "C",
     match: /chatgpt|openai/i,
     flow: {
-      open: { href: "https://chatgpt.com/#settings/Connectors", label: "Open ChatGPT settings" },
+      // On a phone the button opens the ChatGPT app's settings (chatgpt.com lists "/#settings" for its app; a
+      // "#settings/Connectors" link without a connector id stays on the web). No app: the web settings (vedu #4065).
+      open: { href: "https://chatgpt.com/#settings/Connectors", label: "Open ChatGPT settings", app: "https://chatgpt.com/#settings" },
       step2: `<b>In ChatGPT's settings, open Apps &amp; Connectors and create one.</b> Name it Atteo and paste the link.`,
       step3: `<b>Sign in to Atteo when ChatGPT asks</b>, and choose Allow. Then press Done here.`,
       note: `Adding your own connector isn't on every ChatGPT plan. If you don't see a way to create one, look for Developer mode under Advanced in the same settings.`,
@@ -92,7 +94,7 @@ function sheet(p: Provider, link: string, T: Tr): string {
 <p class="ev-intro">${esc(T("About a minute: you copy one link into {name}, then sign in.", { name: p.name }))}</p>
 <ol class="ev-steps">
 <li><b>${esc(T("Copy your Atteo link."))}</b><button type="button" class="btn primary ev-copy" data-ev-copy="link">${esc(T("Copy link"))}</button><div class="ev-link mono" data-ev-link>${esc(link)}</div></li>
-<li>${T(f.step2)}<br><a class="btn ev-open" href="${esc(f.open.href)}" target="_blank" rel="noopener">${esc(T(f.open.label))} ↗</a></li>
+<li>${T(f.step2)}<br><a class="btn ev-open" href="${esc(f.open.href)}"${f.open.app ? ` data-app-href="${esc(f.open.app)}"` : ""} target="_blank" rel="noopener">${esc(T(f.open.label))} ↗</a></li>
 <li>${T(f.step3)}</li>
 </ol>
 ${f.note ? `<p class="ev-note">${T(f.note)}</p>` : ""}
@@ -144,6 +146,9 @@ function welcomeJs(name: string): string {
   return `
 (()=>{const KEY=${JSON.stringify(dismissKey(name)).replace(/</g, "\\u003c")};
 const dismiss=()=>{try{localStorage.setItem(KEY,'1')}catch(e){}};
+// Phones open a provider's app where its link has one (data-app-href): same tab, so the OS hands the universal link to
+// the installed app; without the app it's the provider's web page (vedu #4065).
+if(/iPhone|iPad|iPod|Android/i.test(navigator.userAgent)||(navigator.maxTouchPoints>1&&/Macintosh/.test(navigator.userAgent)))document.querySelectorAll('a[data-app-href]').forEach(a=>{a.href=a.dataset.appHref;a.removeAttribute('target')});
 const getJSON=async(u)=>{try{const r=await fetch(u,{cache:'no-store'});return r.ok?await r.json():null}catch(e){return null}};
 const snapshot=async()=>{const [s,t]=await Promise.all([getJSON('/api/sessions'),getJSON('/api/tokens')]);return {s:(s&&s.sessions)||[],t:(t&&t.tokens)||[]}};
 const base={};
