@@ -382,6 +382,7 @@ struct ChatRow: View {
     private var other: String? { b.kind == "direct" ? b.displayName(me: me) : nil }
     private var working: Int { b.liveAgents ?? 0 }
     @ObservedObject private var pictures = BoardPictureStore.shared
+    @ObservedObject private var drafts = MessageDrafts.shared
 
     var body: some View {
         HStack(alignment: .center, spacing: Space.m) {
@@ -406,7 +407,10 @@ struct ChatRow: View {
                 }
                 HStack(alignment: .center, spacing: Space.s) {
                     Group {
-                        if let l = b.last {
+                        if !drafts.text(for: b).isEmpty {
+                            Text(String(localized: "Draft: \(String(drafts.text(for: b).prefix(40)))", bundle: .l10n))
+                                .foregroundStyle(Theme.accent)
+                        } else if let l = b.last {
                             Text(Vocab.shown(l.by) + ": ").foregroundStyle(Theme.muted) + Text(l.text.md).foregroundStyle(unread > 0 ? Theme.muted : Theme.faint)
                         } else {
                             Text("\(b.entryCount) messages").foregroundStyle(Theme.faint)

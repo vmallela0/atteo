@@ -461,6 +461,7 @@ struct ThreadView: View {
         } message: { _ in Text("Everyone here will see it as unsent.") }
         .decisionPrompts($decisionPrompt, note: $decisionNote, board: board, state: state)
         .task {
+            if !started { draft = MessageDrafts.shared.text(for: board, root: root) }
             if !started, let carry {
                 // The chat's text, after "@who " (unless it already names them).
                 let kept = carry.wrappedValue, handle = (prefill ?? "").trimmingCharacters(in: .whitespaces)
@@ -479,7 +480,10 @@ struct ThreadView: View {
         .task(id: board.id) { if !overChat { await state.watch(board) } }
         .onAppear { markSeen() }
         .onChange(of: list.last?.seq) { _, _ in markSeen() }
-        .onChange(of: draft) { _, d in if carrying { carry?.wrappedValue = Self.without(carryAdded, d) } }
+        .onChange(of: draft) { _, d in
+            MessageDrafts.shared.save(d, for: board, root: rootSeq)
+            if carrying { carry?.wrappedValue = Self.without(carryAdded, d) }
+        }
     }
 
     /// The text without the "@who " a reply put in front of it (as typed, or with its space gone).
