@@ -54,10 +54,11 @@ const FAKE_WS = `(()=>{const Real=window.WebSocket;window.__talk={sent:[],opened
 const TTS = { enabled: true, used_chars: 20_000, budget_chars: 150_000, voices: ["eve", "ara", "leo", "rex", "sal"], voice_default: "eve" };
 const VOICE = { enabled: true, minutes_used: 12, minutes_budget: 60 };
 
+// The five runs go side by side, each in its own context; each one's lines print when it's done, in RUNS order.
 let fails = 0;
-const check = (ok, m) => { console.log(`${ok ? "✓" : "✗"} ${m}`); if (!ok) fails++; };
+const logger = () => { const lines = []; const log = (m) => lines.push(m); return { lines, log, check: (ok, m) => { log(`${ok ? "✓" : "✗"} ${m}`); if (!ok) fails++; } }; };
 
-async function axeScan(page, label, include = INCLUDES) {
+async function axeScan({ log, check }, page, label, include = INCLUDES) {
   const results = await page.evaluate(
     async (inc) => await axe.run({ include: inc }, { runOnly: { type: "tag", values: ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"] } }),
     include,
@@ -67,7 +68,7 @@ async function axeScan(page, label, include = INCLUDES) {
     for (const v of bad) {
       const why = (n) => { const d = n.any?.[0]?.data; return d && d.fgColor ? `${d.fgColor} on ${d.bgColor}, ${d.contrastRatio}:1` : n.failureSummary?.split("\n")[1]?.trim() || ""; };
       const nodes = v.nodes.slice(0, 4).map((n) => `${n.html.slice(0, 90)} (${why(n)})`).join("; ");
-      console.log(`  [${v.impact}] ${v.id}: ${v.help} — ${nodes}`);
+      log(`  [${v.impact}] ${v.id}: ${v.help} — ${nodes}`);
     }
   }
   check(bad.length === 0, `${label}: ${bad.length ? bad.map((v) => v.id).join(", ") : "no serious/critical axe violations"}`);
@@ -108,7 +109,8 @@ const browser = await chromium.launch({
 });
 const [k, ...v] = ck.split(";")[0].split("=");
 
-for (const [lang, qs, w, h, phone, scheme] of RUNS) {
+const outs = await Promise.all(RUNS.map(async ([lang, qs, w, h, phone, scheme]) => {
+  const L = logger(), { check } = L;
   {
     // Reduced motion: no transition is mid-way when axe measures colours (the Talk sheet's flaked in parallel runs).
     const ctx = await browser.newContext({ colorScheme: scheme, reducedMotion: "reduce", viewport: { width: w, height: h }, ...(phone ? { hasTouch: true, isMobile: true } : {}) });
@@ -136,7 +138,7 @@ for (const [lang, qs, w, h, phone, scheme] of RUNS) {
     await p.waitForTimeout(200);
     await p.evaluate(() => document.querySelector(".thread .code-b")?.scrollIntoView({ block: "center" }));
     await p.locator('.thread .code-b code[data-hl="on"]').first().waitFor({ timeout: 8000 }).catch(() => {});
-    await axeScan(p, `board ${tag}`);
+    await axeScan(L, p, `board ${tag}`);
 
     if (overlayRun(lang, w)) {
       // Talk to Atteo: live (listening) and Standing by after a quiet turn.
@@ -144,16 +146,16 @@ for (const [lang, qs, w, h, phone, scheme] of RUNS) {
       await tap('[data-talk]');
       await p.waitForFunction(() => /Listening/.test(document.getElementById("talk-st")?.textContent || ""), { timeout: 8000 }).catch(() => {});
       check(/Listening/.test(await p.locator("#talk-st").innerText()), `talk live ${tag}: listening`);
-      await axeScan(p, `talk live ${tag}`, [["dialog.talk"]]);
+      await axeScan(L, p, `talk live ${tag}`, [["dialog.talk"]]);
       await emit(p, { type: "input_audio_buffer.speech_started" }); await p.waitForTimeout(80);
       await emit(p, { type: "input_audio_buffer.speech_stopped" });
       await emit(p, { type: "conversation.item.input_audio_transcription.completed", transcript: `hello ${run}` });
       await emit(p, { type: "response.created", response: { id: "r1" } });
       await emit(p, { type: "response.output_audio_transcript.done", response_id: "r1", transcript: "Hi there." });
       await emit(p, { type: "response.done", response: { id: "r1" } });
-      await p.waitForTimeout(1200);
+      await p.waitForFunction(() => /Standing by/.test(document.getElementById("talk-st")?.textContent || ""), null, { timeout: 8000 }).catch(() => {});
       check(/Standing by/.test(await p.locator("#talk-st").innerText()), `talk standby ${tag}: standing by`);
-      await axeScan(p, `talk standby ${tag}`, [["dialog.talk"]]);
+      await axeScan(L, p, `talk standby ${tag}`, [["dialog.talk"]]);
       await p.keyboard.press("Escape");
       await p.waitForTimeout(200);
 
@@ -163,21 +165,21 @@ for (const [lang, qs, w, h, phone, scheme] of RUNS) {
       await p.waitForTimeout(200);
       await tap("#sel-fwd");
       await p.waitForTimeout(400);
-      await axeScan(p, `forward ${tag}`, [["#fwd-dlg"]]);
+      await axeScan(L, p, `forward ${tag}`, [["#fwd-dlg"]]);
       await p.keyboard.press("Escape");
       await p.waitForTimeout(200);
 
       // Invite an agent.
       await tap(".av-add");
       await p.waitForTimeout(400);
-      await axeScan(p, `invite agent ${tag}`, [["#invite-agent"]]);
+      await axeScan(L, p, `invite agent ${tag}`, [["#invite-agent"]]);
       await p.keyboard.press("Escape");
       await p.waitForTimeout(200);
 
       // HTML preview overlay.
       await tap(`[data-preview-file="mock-${run}.html"]`);
       await p.waitForTimeout(800);
-      await axeScan(p, `html preview ${tag}`, [[".pv-dlg"]]);
+      await axeScan(L, p, `html preview ${tag}`, [[".pv-dlg"]]);
       await p.keyboard.press("Escape");
       await p.waitForTimeout(200);
     }
@@ -185,23 +187,25 @@ for (const [lang, qs, w, h, phone, scheme] of RUNS) {
     // Account: voice picker and allowance.
     await p.goto(`${BASE}/me${qs}`);
     await p.waitForTimeout(900);
-    await axeScan(p, `account ${tag}`);
+    await axeScan(L, p, `account ${tag}`);
 
     // Ask.
     await p.goto(`${BASE}/ask${qs}`);
     await p.waitForTimeout(900);
-    await axeScan(p, `ask ${tag}`);
+    await axeScan(L, p, `ask ${tag}`);
 
     // For you, Inbox, Approvals, People, welcome: the whole page content (not the sidebar).
     for (const path of PAGES) {
       await p.goto(`${BASE}${path}${qs}`);
       await p.waitForTimeout(700);
-      await axeScan(p, `${path} ${tag}`, [["#app .content"]]);
+      await axeScan(L, p, `${path} ${tag}`, [["#app .content"]]);
     }
 
     await ctx.close();
   }
-}
+  return L.lines;
+}));
+for (const lines of outs) for (const l of lines) console.log(l);
 
 await browser.close();
 console.log(fails ? `${fails} FAILED` : "a11y: all passed");
