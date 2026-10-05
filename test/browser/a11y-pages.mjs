@@ -1,7 +1,7 @@
 // Every page, whole (#3815): axe-core (WCAG 2.1 A/AA, serious and critical fail) on each web page's full content at 1280
 // light, 1280 dark and 390 (touch), and at 390 nothing wider than the screen. a11y.mjs scans chosen regions and overlays;
 // this one walks the pages, including the newer sections and states: Account's Access across boards and Standing rules,
-// board info's charter, the Report dialog, Members & access, a hover card, a thread, Connect, New and Edit board, a muted post's fold, the Tasks and Files tabs, a profile, an invite link.
+// board info's charter, the Report and Purge dialogs, Members & access, a hover card, a thread, Connect, New and Edit board, a muted post's fold, the Tasks and Files tabs, a profile, an invite link.
 // BASE, ADMIN_KEY, PW_CHROME. ONLY=<label substring> narrows it while fixing.
 import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
@@ -74,6 +74,11 @@ const PAGES = [
     const e = p.locator(`#e${vSeq}`); await e.waitFor();
     if (phone) await e.locator("[data-more]").tap(); else await e.hover();
     await e.locator("[data-report]").click(); await p.locator("#report-dlg").waitFor(); await p.locator("#rp-reason").fill("spam");
+  }],
+  ["purge dialog", B, async (p, phone) => {
+    const e = p.locator(`#e${vSeq}`); await e.waitFor();
+    if (phone) await e.locator("[data-more]").tap(); else await e.hover();
+    await e.locator("[data-purge]").click(); await p.locator("#purge-dlg[open]").waitFor();
   }],
   ["members & access", B, async (p) => { await p.locator('[data-open="invite"]').first().click(); await p.locator("#invite").waitFor(); await p.waitForTimeout(600); }],
   ["hover card", B, async (p) => { await p.locator(`#e${vSeq} .meta .who`).first().click(); await p.locator(".hcard [data-mute]").waitFor(); }],

@@ -117,7 +117,9 @@ export function entryHtml(e: Entry, boardId: string, withReplies = true, opts: {
   if (e.resolves.length) refs.push(`resolves ${e.resolves.map((n) => `<a class="ref" data-ref="${n}" href="#e${n}">#${n}</a>`).join(", ")}`);
   if (e.supersedes != null) refs.push(`supersedes <a class="ref" data-ref="${e.supersedes}" href="#e${e.supersedes}">#${e.supersedes}</a>`);
   const img = (e.attachments?.length ?? 0) > 1 ? filesHtml(boardId, e.attachments!) : e.artifact_name && e.media?.mime.startsWith("image/") ? imageHtml(boardId, e, T) : "";
-  const file = img
+  const file = e.purged
+    ? ""
+    : img
     ? img
     : e.artifact_name
     ? `<div class="file"><div class="fh"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true"><path d="M4 1.5h5l3 3v10H4z"/><path d="M9 1.5v3h3"/></svg>
@@ -130,7 +132,7 @@ ${
     : "";
   // Reply sets the composer to answer this entry: an agent's post gets the reply addressed to that agent.
   const reply = !opts.retracted && e.retracts == null ? `<button class="btn ghost sm" type="button" data-reply="${e.seq}" data-reply-label="${esc(e.via === "person" ? e.author : `${e.author}'s agent`)}">${esc(T("Reply"))}</button>` : "";
-  const edit = opts.canEdit && e.via === "person" && (e.type === "note" || e.type === "question") && !e.artifact_name && !e.attachments?.length && !opts.retracted && Date.now() - e.ts <= 900000 ? `<button class="btn ghost sm" type="button" data-edit="${e.seq}">${esc(T("Edit"))}</button>` : "";
+  const edit = opts.canEdit && !e.purged && e.via === "person" && (e.type === "note" || e.type === "question") && !e.artifact_name && !e.attachments?.length && !opts.retracted && Date.now() - e.ts <= 900000 ? `<button class="btn ghost sm" type="button" data-edit="${e.seq}">${esc(T("Edit"))}</button>` : "";
   const retract = opts.canRetract && !opts.retracted && e.retracts == null ? `<button class="btn ghost sm retract" type="button" data-retract="${e.seq}">${esc(T("Unsend"))}</button>` : "";
   const react =
     !opts.retracted && e.retracts == null
@@ -140,21 +142,24 @@ ${
   // Select starts picking messages to forward (people only, from the page).
   const select = !opts.retracted && e.retracts == null && !e.audience ? `<button class="btn ghost sm sel-act" type="button" data-select="${e.seq}" aria-label="${esc(T("Select to forward"))}" title="${esc(T("Select messages to forward"))}"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><rect x="2.5" y="2.5" width="11" height="11" rx="3"/><path d="M5.5 8.2l1.8 1.8 3.4-3.6"/></svg></button>` : "";
   // Touch screens have no hover: a small ⋯ at the end of the line opens the actions (jxn #891); hidden with a mouse.
-  const more = react || reply || retract || edit ? `<button class="more-acts" type="button" data-more="${e.seq}" aria-label="${esc(T("More actions"))}" aria-expanded="false" title="${esc(T("More actions"))}">⋯</button>` : "";
+  const more = react || reply || retract || edit || (opts.person && !e.purged && e.retracts == null) ? `<button class="more-acts" type="button" data-more="${e.seq}" aria-label="${esc(T("More actions"))}" aria-expanded="false" title="${esc(T("More actions"))}">⋯</button>` : "";
   const remember = !opts.retracted && e.retracts == null && !e.audience ? rememberBtn(e.seq) : ""; // people-only: never agents' memory // shown once the board has a MEMORY
   const remind = opts.person && !opts.retracted && e.retracts == null ? `<details class="remind-menu"><summary>${esc(T("Remind me"))}</summary><div><button type="button" data-remind-message="hour" data-seq="${e.seq}">${esc(T("In 1 hour"))}</button><button type="button" data-remind-message="tonight" data-seq="${e.seq}">${esc(T("Tonight (20:00)"))}</button><button type="button" data-remind-message="tomorrow" data-seq="${e.seq}">${esc(T("Tomorrow (09:00)"))}</button></div></details>` : "";
   // Report sends it to the board's owners (#3602; people only, hidden on your own posts by the page).
   const report = opts.person && !opts.retracted && e.retracts == null ? `<button class="btn ghost sm" type="button" data-report="${e.seq}">${esc(T("Report"))}</button>` : "";
+  // Purge (#3853): a leaked secret leaves the board for good. Rendered hidden; the page shows it where the server allows
+  // it (your own posts, or any post when you own the board), as Report hides on your own.
+  const purge = opts.person && !e.purged && e.retracts == null ? `<button class="btn ghost sm" type="button" data-purge="${e.seq}" hidden>${esc(T("Purge"))}</button>` : "";
   // A claim nobody has reviewed yet draws no strip under it (jxn #2998/#3002): its Verify / Dispute / Evidence sit here, filled by renderClaims.
   const claimActs = e.type === "claim" && !opts.retracted && e.retracts == null ? `<span class="cl-acts" data-claim-acts="${e.seq}"></span>` : "";
-  const actions = react || reply || retract || edit ? `${more}<span class="acts">${react}${reply}${claimActs}${remember}${select}${edit}${retract}${remind}${report}</span>` : "";
+  const actions = react || reply || retract || edit || purge ? `${more}<span class="acts">${react}${reply}${claimActs}${remember}${select}${edit}${retract}${remind}${report}${purge}</span>` : "";
   // An approval entry: the card says where it stands, so the message is just what's asked (its text, for agents, says "waiting").
   const apr = (e as Entry & { approval?: ApprovalCardData & { title?: string } }).approval;
   return `<article class="entry${opts.retracted ? " retracted" : ""}${e.via === "agent" ? " by-agent" : ""}" id="e${e.seq}" data-seq="${e.seq}" data-author="${esc(e.author)}" data-title="${esc(shortTitle(e))}"${e.to ? ` data-to="${esc(e.to)}"` : ""}${e.reply_to != null ? ` data-reply="${e.reply_to}"` : ""}${opts.root != null && opts.root !== e.seq ? ` data-root="${opts.root}"` : ""}>
 ${avatar(e.author, "", e.via === "agent")}
 <div class="grow">
   <div class="meta">${whoHtml(e)}${e.to ? `<span class="to">→ ${esc(e.to)}</span>` : ""}${e.type === "note" ? "" : typeTag(e.type, opts.lang)}${when(e.ts, opts.lang)}<a class="seq" href="#e${e.seq}">#${e.seq}</a>${peopleBadge(e, opts.lang)}${e.edited_at ? `<button class="badge" type="button" data-history="${e.seq}">${esc(T("edited"))}</button>` : ""}<span class="badge rbadge">${esc(T("Unsent"))}</span>${flagBadge(e.text, e.ai_flag)}${actions}</div>
-  <div class="body">${apr?.title ? `<p>${esc(apr.title)}</p>` : refLinks(renderText(e.text, e.mentions, e.mention_names, selfMentions(e.text, e.author, e.via)))}</div>${file}${e.card ? changeCardHtml(e.seq, e.card) : ""}${e.handoff ? `<div class="refs mono handoff">${esc(handoffLine(e.handoff))}</div>` : ""}${apr && !opts.retracted ? approvalCardHtml(apr, false, opts.lang) : ""}${e.type === "task" ? `<div class="tk" data-task="${e.seq}" hidden></div>` : ""}${e.type === "claim" && !opts.retracted ? `<div class="tk cl" data-claim="${e.seq}" hidden></div>` : ""}${e.type === "decision" && e.via === "person" && !opts.retracted ? `<div class="tk hd" data-hd="${e.seq}" hidden></div>` : ""}
+  <div class="body${e.purged ? " purged" : ""}">${e.purged ? `<p>${esc(T("Purged by {name}. Its text and files were removed for good.", { name: e.purged.via === "agent" ? T("{name}'s agent", { name: e.purged.by }) : e.purged.by }))}</p>` : apr?.title ? `<p>${esc(apr.title)}</p>` : refLinks(renderText(e.text, e.mentions, e.mention_names, selfMentions(e.text, e.author, e.via)))}</div>${file}${e.card ? changeCardHtml(e.seq, e.card) : ""}${e.handoff ? `<div class="refs mono handoff">${esc(handoffLine(e.handoff))}</div>` : ""}${apr && !opts.retracted ? approvalCardHtml(apr, false, opts.lang) : ""}${e.type === "task" ? `<div class="tk" data-task="${e.seq}" hidden></div>` : ""}${e.type === "claim" && !opts.retracted ? `<div class="tk cl" data-claim="${e.seq}" hidden></div>` : ""}${e.type === "decision" && e.via === "person" && !opts.retracted ? `<div class="tk hd" data-hd="${e.seq}" hidden></div>` : ""}
   ${refs.length ? `<div class="refs">${refs.join(" · ")}</div>` : ""}
   <div class="rx" data-rx="${e.seq}"><button class="rx-add" type="button" data-rx-add="${e.seq}" aria-label="${esc(T("Add a reaction"))}" title="${esc(T("Add a reaction"))}">☺<span>+</span></button></div>
   ${withReplies ? `<div class="replies" id="r${e.seq}"></div>` : ""}
@@ -1375,7 +1380,7 @@ function connect(){
       if(document.documentElement.dataset.mode==='everyday')document.dispatchEvent(new CustomEvent('atteo-mode',{detail:{everyday:true}}));return}
     if(d.type==='schedule'){if(document.getElementById('invite')?.open&&window.schLoad)schLoad();return}
     if(d.type==='reaction'){renderRx(d.seq,d.reactions);return}
-    if(d.type==='edit'){location.reload();return}
+    if(d.type==='edit'){if(d.seq&&d.seq===window.pgDone)return;location.reload();return} // your own purge: that page shows it already, toast and all
     if(d.type==='answered'){sumNext=true;tick(false);return} // someone marked a question answered: refresh the open questions
     if(d.type==='approval'){window.apcApply&&apcApply(d.approval);return}
     if(d.type==='typing'){if(d.who!==ME){TYPERS.set(d.who,d.until);typingSync()}return}
@@ -2336,6 +2341,7 @@ const MUTED=new Set(BC.muted||[]);
 const muBtn=p=>p.relation==='self'||!MEMBERS.includes(p.name)?'':'<button class="btn sm ghost" data-mute="'+esc(p.name)+'">'+(MUTED.has(p.name)?tr('Unmute'):tr('Mute on this board'))+'</button>';
 function muMark(){document.querySelectorAll('.entry[data-author]').forEach(el=>{const u=el.dataset.author,on=MUTED.has(u);
   if(u===ME)el.querySelectorAll('[data-report]').forEach(b=>b.hidden=true);
+  if(u===ME||BC.isOwner)el.querySelectorAll('[data-purge]').forEach(b=>b.hidden=false); // the server's rule: your own, or any if you own the board
   el.classList.toggle('mu',on);let l=el.querySelector(':scope>.mu-line');
   if(on&&!l){l=document.createElement('button');l.type='button';l.className='mu-line';l.textContent=tr('Muted: {name} · Show',{name:u});el.prepend(l)}
   else if(!on&&l){l.remove();el.classList.remove('mu-open')}})}
@@ -2354,6 +2360,22 @@ rpWhy?.addEventListener('input',()=>{rpGo.disabled=!rpWhy.value.trim()});
 rpGo?.addEventListener('click',async()=>{rpGo.disabled=true;const r=await fetch('/api/boards/'+BOARD+'/entries/'+rpSeq+'/report',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({reason:rpWhy.value})});
   const j=await r.json().catch(()=>({}));if(!r.ok){rpErr.textContent=j.error||tr('Could not send');rpErr.hidden=false;rpGo.disabled=false;return}
   rpDlg.close();toast(j.notified?tr("Reported to the board's owners"):tr("Reported: it's in the board's log"))});
+// ---- Purge (#3853): a leaked secret leaves the board for good. Confirm first; the server checks who may again. ----
+const pgDlg=document.getElementById('purge-dlg'),pgGo=document.getElementById('pg-go'),pgErr=document.getElementById('pg-err');let pgSeq=0;
+document.addEventListener('click',e=>{const b=e.target.closest('[data-purge]');if(!b||!pgDlg)return;e.preventDefault();pgSeq=+b.dataset.purge;const en=document.getElementById('e'+pgSeq);
+  document.getElementById('pg-n').textContent='#'+pgSeq;document.getElementById('pg-prev').textContent=en?((en.dataset.author||'')+': '+(en.querySelector('.body')?.textContent||'').trim()).slice(0,240):'';
+  pgErr.hidden=true;pgGo.disabled=false;pgDlg.showModal();pgDlg.querySelector('[data-close]:not(.ghost)')?.focus()}); // Cancel first: nothing goes by an Enter
+pgGo?.addEventListener('click',async()=>{pgGo.disabled=true;window.pgDone=pgSeq; // set first: the board's "edited" can arrive before this reply
+  const r=await fetch('/api/boards/'+BOARD+'/entries/'+pgSeq+'/purge',{method:'POST'}).catch(()=>null);
+  const j=r?await r.json().catch(()=>({})):{};if(!r||!r.ok){window.pgDone=0;pgErr.textContent=j.error||tr('Could not purge');pgErr.hidden=false;pgGo.disabled=false;return}
+  // Everyone else's page reloads on the edit; this one swaps in the placeholder so the reminder to rotate stays readable.
+  pgDlg.close();const en=document.getElementById('e'+pgSeq);
+  if(en){const body=en.querySelector('.body');if(body){body.classList.add('purged');const p=document.createElement('p');p.textContent=tr('Purged by {name}. Its text and files were removed for good.',{name:ME});body.replaceChildren(p)}
+    en.querySelectorAll(':scope>.grow>.file,:scope>.grow>.mfiles,:scope>.grow>.img,[data-purge],[data-edit]').forEach(x=>x.remove())}
+  const gone=tr('Purged by {name}. Its text and files were removed for good.',{name:ME});document.getElementById('pg-prev').textContent='';
+  document.querySelectorAll('#log-body tr.ev[data-seq="'+pgSeq+'"] .sum').forEach(x=>x.textContent=gone); // the Log tab's copy too
+  if(en)en.dataset.title=gone;document.querySelectorAll('#thread>.entry[data-reply="'+pgSeq+'"]').forEach(r=>{r.querySelector(':scope>.grow>.rq')?.remove();quotify(r)}); // replies' quote bars
+  toast(tr('Purged. If it held a secret, rotate it.'))});
 // ---- Members & access (the Invite button and "Manage"): invite by email or link, roles and end dates, activity ----
 const IS_OWNER=BC.isOwner,CREATOR=BC.creator;if(BC.readOnly)document.documentElement.classList.add('ro');
 const accFmt=ts=>ts?new Date(ts).toISOString().slice(0,10):'';
@@ -2827,6 +2849,14 @@ ${connectDialog(viewer, { id: info.id, title: info.title })}
   <textarea class="input" id="rp-reason" rows="3" maxlength="500" placeholder="${esc(T("What's wrong with it?"))}" aria-label="${esc(T("Reason"))}"></textarea>
   <p class="xs rp-err" id="rp-err" role="alert" hidden></p>
   <div class="row" style="justify-content:flex-end;gap:8px"><button type="button" class="btn" data-close>${esc(T("Cancel"))}</button><button type="button" class="btn primary" id="rp-send" disabled>${esc(T("Report"))}</button></div>
+</div></dialog>
+<dialog id="purge-dlg" class="fwd-dlg" aria-labelledby="pg-h" aria-describedby="pg-what"><div class="hd"><div><h2 id="pg-h">${esc(T("Purge this message?"))} <span id="pg-n"></span></h2></div><button class="btn ghost sm" data-close aria-label="${esc(T("Close"))}">✕</button></div>
+<div class="bd stack" style="--gap:10px">
+  <div class="fwd-prev" id="pg-prev"></div>
+  <p class="small" id="pg-what">${esc(T("This removes its text, its files and its edit history everywhere on Atteo for good: the board, search, inboxes and what agents hold. It can't be undone."))}</p>
+  <p class="small pg-rotate"><b>${esc(T("If it held a secret, rotate the secret too."))}</b> ${esc(T("Anyone who already read it, and any email, webhook or backup already sent, still has it."))}</p>
+  <p class="xs rp-err" id="pg-err" role="alert" hidden></p>
+  <div class="row" style="justify-content:flex-end;gap:8px"><button type="button" class="btn" data-close>${esc(T("Cancel"))}</button><button type="button" class="btn danger" id="pg-go">${esc(T("Purge for good"))}</button></div>
 </div></dialog>
 <dialog id="delete-board"><div class="hd"><div><h2>Delete ${esc(info.title)}?</h2><p class="muted small" style="margin-top:4px">${esc(T("This permanently deletes every entry, file, member and invitation on this board. Connected agents lose it on their next call. It can't be undone."))}</p></div><button class="btn ghost sm" data-close aria-label="${esc(T("Close"))}">✕</button></div>
 <form class="bd" method="post" action="/api/boards/${esc(info.id)}/delete" data-api data-done="deleted">

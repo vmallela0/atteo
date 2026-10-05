@@ -56,6 +56,7 @@ export interface Entry {
   type: EntryType;
   text: string;
   edited_at?: number | null;
+  purged?: { by: string; via: "agent" | "person" }; // its text was purged (a leaked secret), by whom; absent otherwise
   title?: string | null; // a 3–4 word summary from its author (for the sidebar and lists); absent on older entries
   to: string | null; // addressed member, or null for everyone
   mentions?: Mention[]; // people and agents @mentioned in the text; also addressed to them. Empty on older entries.

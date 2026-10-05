@@ -259,6 +259,7 @@ function toEntry(r: Row): Entry {
     type: r.type as Entry["type"],
     text: r.text as string,
     edited_at: (r.edited_at as number | null) ?? null,
+    ...(r.purged ? { purged: JSON.parse(r.purged as string) as Entry["purged"] } : {}),
     to: (r.to_user as string | null) ?? null,
     mentions: JSON.parse((r.mentions as string | null) || "[]"),
     reply_to: (r.reply_to as number | null) ?? null,
@@ -293,7 +294,7 @@ const opts0 = (input: NewEntry): TaskActOpts => ({ via: input.via ?? null, clien
 /** For a session's reads: skip posts addressed to another session of the same person (binds: user, session). */
 const FOR_SESSION_OK = "(for_session IS NULL OR for_user != ? OR for_session = ?)";
 
-const ENTRY_COLS = "seq, ts, author, type, text, edited_at, title, to_user, mentions, reply_to, resolves, supersedes, retracts, via, client, artifact_name, artifact_size, artifact_version, card, media, ai_flag, attachments, approval, audience, to_people, handoff, data";
+const ENTRY_COLS = "seq, ts, author, type, text, edited_at, purged, title, to_user, mentions, reply_to, resolves, supersedes, retracts, via, client, artifact_name, artifact_size, artifact_version, card, media, ai_flag, attachments, approval, audience, to_people, handoff, data";
 
 // ---- private entries (audience.ts): people-only (vedu #1264), only the people it names, never any agent; and just
 // mine (#1748), only one person and their own agents. Every read of entries filters through these, so a path that
@@ -714,6 +715,11 @@ export class Board extends DurableObject<Env> {
     // Optional JSON object attached at post time (entryData.ts). Null when the post had none.
     if (!cols.has("data")) this.sql.exec("ALTER TABLE entries ADD COLUMN data TEXT");
     if (!cols.has("edited_at")) this.sql.exec("ALTER TABLE entries ADD COLUMN edited_at INTEGER");
+    // Purged (#3853): who removed it, JSON {by, via}, so a page can show a placeholder; backfilled from the purged table.
+    if (!cols.has("purged")) {
+      this.sql.exec("ALTER TABLE entries ADD COLUMN purged TEXT");
+      this.sql.exec("UPDATE entries SET purged = (SELECT json_object('by', p.by_user, 'via', p.via) FROM purged p WHERE p.seq = entries.seq) WHERE seq IN (SELECT seq FROM purged)");
+    }
     // Covering: hiddenFrom reads only the index (with the kind, since there are two).
     this.sql.exec("CREATE INDEX IF NOT EXISTS entries_audience2 ON entries (seq, audience, to_people) WHERE audience IS NOT NULL");
     this.sql.exec("DROP INDEX IF EXISTS entries_audience");
@@ -2508,7 +2514,7 @@ export class Board extends DurableObject<Env> {
       this.env.DB.prepare("UPDATE boards SET last_excerpt = ? WHERE id = ? AND last_author = ? AND last_activity = ?").bind(removed, info.id, e.author, e.ts),
       this.env.DB.prepare("INSERT INTO audit (board_id, actor, action, target, detail, ts) VALUES (?, ?, 'purge', ?, ?, ?)").bind(info.id, user, `#${seq}`, `${e.type} by ${e.author}${opts.via === "agent" ? ", purged by their agent" : ""}`, now),
     ]);
-    this.sql.exec("UPDATE entries SET text = ?, title = NULL, artifact_content = NULL, card = NULL, card_diff = NULL, data = NULL, handoff = NULL, sealed = NULL WHERE seq = ?", removed, seq);
+    this.sql.exec("UPDATE entries SET text = ?, title = NULL, artifact_content = NULL, card = NULL, card_diff = NULL, data = NULL, handoff = NULL, sealed = NULL, purged = ? WHERE seq = ?", removed, JSON.stringify({ by: user, via: opts.via }), seq);
     this.sql.exec("INSERT OR IGNORE INTO purged (seq, by_user, via, ts) VALUES (?, ?, ?, ?)", seq, user, opts.via, now);
     this.sql.exec("DELETE FROM entry_versions WHERE seq = ?", seq);
     this.sql.exec("DELETE FROM search_idx WHERE kind IN ('entry', 'task') AND ref = ?", String(seq));
