@@ -38,6 +38,7 @@ await Promise.all([[1280, "developer"], [390, "everyday"]].map(async ([w, mode])
   const replyToMe = await post({ cookie: ckB }, { text: `Replying to your note ${run}`, reply_to: mine });
   const decision = await post({ cookie: ckB }, { type: "decision", text: `We ship on Friday ${run}` });
   const allAgents = await post({ cookie: ckB }, { text: `@agents status please ${run}` });
+  const otherMention = await post({ cookie: ckB }, { text: `Ready to go @${C}'s agent display-layout lands ${run}` }); // jxn #4481
   const peopleOnly = await post({ cookie: ckB }, { text: `Between us people ${run}`, people_only: true, to: [A, C] });
   const replyToOther = await post({ cookie: ckB }, { text: `A reply to someone else's note ${run}, long enough to fold.\n\nWith a second paragraph.`, reply_to: long }); // jxn #4454
   const replyToMyAgent = await post({ cookie: ckB }, { text: `A reply to your agent's update ${run}`, reply_to: myAgents });
@@ -58,6 +59,9 @@ await Promise.all([[1280, "developer"], [390, "everyday"]].map(async ([w, mode])
   check(!(await folded(replyToMe)) && !(await folded(decision)) && !(await folded(allAgents)), `${tag}: a reply to you, a decision and an @agents message stay whole`);
   check(!(await folded(peopleOnly)), `${tag}: a People only message to you and someone else stays whole`);
   check((await folded(replyToOther)) && (await folded(replyToMyAgent)), `${tag}: replies fold like any other, a reply to your agent's message too (jxn #4454)`);
+  // A mention's dot gets its own space in a folded row, after the name, not over its last letter (jxn #4481).
+  const dot = await p.evaluate((s) => { const m = document.querySelector(`#e${s} .body .mention`); if (!m) return null; const t = [...m.childNodes].filter((n) => n.nodeType === 3).pop(), r = document.createRange(); r.setStart(t, t.length - 1); r.setEnd(t, t.length); return { pos: getComputedStyle(m, "::after").position, gap: m.getBoundingClientRect().right - r.getBoundingClientRect().right }; }, otherMention);
+  check((await folded(otherMention)) && dot && dot.pos !== "absolute" && dot.gap >= 6, `${tag}: a mention's dot sits clear of its name in a folded row (${JSON.stringify(dot)})`);
   check(!(await folded(askMyAgent)), `${tag}: a question in your agent's thread stays whole`);
   // The keyboard: a folded row takes focus; Enter opens it, Space folds it again.
   await p.focus(`#e${plain}`);
