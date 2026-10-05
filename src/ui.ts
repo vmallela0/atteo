@@ -423,6 +423,11 @@ a.ev-acct:hover{background:var(--bg-subtle)}
 .ag-dot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:6px;vertical-align:1px;box-sizing:border-box}.ag-dot.idle{background:var(--muted);opacity:.7}.ag-dot.gone{border:1.5px solid var(--faint)}
 .ag-row[data-state="gone"] .ag-name{color:var(--muted)}
 .ag{padding-bottom:14px;margin-bottom:14px;border-bottom:1px solid var(--line)}
+/* Board info → Charter */
+.ch-lead{margin:0 0 8px}.ch-dl{margin:0}.ch-dl dt{margin-top:8px;font-size:11px;letter-spacing:.02em;text-transform:uppercase;color:var(--faint)}.ch-dl dd{margin:2px 0 0;font-size:13px;color:var(--text);white-space:pre-wrap}
+.ch-classes{display:flex;flex-wrap:wrap;gap:4px}.ch-members{list-style:none;margin:0;padding:0}.ch-members li{font-size:13px;padding:2px 0}
+#ch-form:not([hidden]),#ch-notes{display:flex;flex-direction:column;gap:8px;margin-top:8px}.ch-note{display:flex;align-items:center;gap:8px}.ch-note .xs{width:7em;flex:none}
+.ch-err{color:var(--danger);min-height:1em;margin:0}#ch-form .lbl{margin:0}
 .kill{display:flex;align-items:center;gap:14px;margin-top:12px;padding:12px 14px;border:1px solid color-mix(in srgb,var(--danger) 30%,var(--line));border-radius:var(--r)}.kill b{color:var(--ink);font-size:13px}.kill p{margin:2px 0 0}
 .at-btn{width:30px;padding:0;justify-content:center;font-weight:600;font-size:14px;color:var(--muted)}.at-btn:hover{color:var(--ink)}
 /* quotes (forwarded messages) */

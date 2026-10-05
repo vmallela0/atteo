@@ -149,5 +149,6 @@
  "access-all": 3,
  "moderation": 4,
  "board-prefetch": 3,
- "standing-rules": 2
+ "standing-rules": 2,
+ "charter": 3
 }
