@@ -326,7 +326,10 @@ const PREVIEW_JS = `
   dlg.innerHTML='<div class="pv-hd"><b class="mono truncate" id="pv-name"></b><span class="grow"></span><div class="seg pv-w" role="group" aria-label="'+tr('Width')+'"><button type="button" class="on" data-pv-w="">'+tr('Full')+'</button><button type="button" data-pv-w="390">'+tr('Phone')+'</button></div><button type="button" class="btn ghost sm" data-pv-close aria-label="'+tr('Close preview')+'">✕</button></div><div class="pv-body"><iframe id="pv-frame" sandbox="allow-scripts" referrerpolicy="no-referrer" title="'+tr('Preview')+'"></iframe></div><p class="xs faint pv-note">Runs in a sandbox: it can\\'t see your account or reach the network.</p>';
   document.body.appendChild(dlg);const fr=dlg.querySelector('#pv-frame');
   const HEAD=${JSON.stringify(PREVIEW_HEAD).replace(/</g, "\\u003c")};
-  const withCsp=h=>HEAD+h;
+  // srcdoc inherits the parent page CSP. Give preview scripts its response nonce while the
+  // preview's own stricter meta CSP still blocks network access and form submissions.
+  const nonce=document.querySelector('script[nonce]')?.nonce||'';
+  const withCsp=h=>HEAD.replace('<scr'+'ipt>','<scr'+'ipt nonce="'+nonce+'">')+h.replace(new RegExp('<scr'+'ipt\\\\b','gi'),'<scr'+'ipt nonce="'+nonce+'"');
   async function open(name,ver){
     let html='';try{const r=await fetch('/api/boards/'+BOARD+'/doc?name='+encodeURIComponent(name)+(ver?'&version='+ver:''));const d=await r.json();if(!r.ok){toast(d.error||tr("Couldn't open it"));return}html=d.content||'';
       if(window.e2eDecryptDoc)html=await window.e2eDecryptDoc(d)||html}catch(e){toast(tr("Couldn't open it"));return}
@@ -2147,7 +2150,7 @@ window.BOARD_CTX={id:BOARD,me:ME,members:MEMBERS,
   openFile(name,v){tab(2);openDoc(name,v)}};
 document.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&!e.altKey&&!e.shiftKey&&e.key.toLowerCase()==='f'&&!document.querySelector('dialog[open]:not(#palette)')){e.preventDefault();window.openPalette([{k:'board'},{k:'kind',v:'messages'}])}},true);
 // ---- threads: replies fold into "N replies" under their message; clicking it opens the thread right there, in the chat ----
-const avatar16=(u,agent)=>'<span class="av sm'+(agent?' agent':'')+'" style="--h:'+(MOPTS.find(o=>o.u===u)?.av.match(/--h:([0-9]+)/)?.[1]||220)+'">'+esc(u.slice(0,2).toUpperCase())+'<img class="av-img" src="/avatar/'+encodeURIComponent(u)+(agent?'?k=agent':'')+'" alt="" loading="lazy" onerror="this.remove()" onload="this.classList.add(&quot;ok&quot;)"></span>';
+const avatar16=(u,agent)=>'<span class="av sm'+(agent?' agent':'')+'" style="--h:'+(MOPTS.find(o=>o.u===u)?.av.match(/--h:([0-9]+)/)?.[1]||220)+'">'+esc(u.slice(0,2).toUpperCase())+'<img class="av-img" src="/avatar/'+encodeURIComponent(u)+(agent?'?k=agent':'')+'" alt="" loading="lazy"></span>';
 // Replies post in the conversation like any message (jxn #1040). Each carries a bar quoting the message it answers;
 // tapping it, or a thread's "N replies", opens the thread as an overlay with its own reply box.
 function quotify(el){const r=el.dataset.reply;if(!r||el.querySelector(':scope>.grow>.rq'))return;const p=document.getElementById('e'+r),g=!p&&document.getElementById('g'+r);
@@ -2756,7 +2759,7 @@ export function devicePage(viewer: Viewer, side: SideBoard[], code: string | nul
   <p class="small muted">Only approve if this code matches the one in your terminal and you started this sign-in yourself.</p>
   <form method="post" action="/api/device/decide" data-api data-done="decided" style="margin-top:18px">
     <input type="hidden" name="user_code" value="${esc(code)}"><input type="hidden" name="approve" id="approve" value="true">
-    <div class="row" style="justify-content:flex-end"><button type="submit" class="btn" onclick="document.getElementById('approve').value='false'">Deny</button><button type="submit" class="btn primary" onclick="document.getElementById('approve').value='true'">Approve</button></div>
+    <div class="row" style="justify-content:flex-end"><button type="submit" class="btn" data-approve="false">Deny</button><button type="submit" class="btn primary" data-approve="true">Approve</button></div>
     <p data-result hidden style="margin-top:12px"></p>
   </form></div>`;
   }

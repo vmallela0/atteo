@@ -75,9 +75,9 @@ describe("encrypted board page", () => {
   it("its script (with the encryption part) compiles, and keeps the plaintext out of drafts", async () => {
     const info = { id: "b_enc12345", title: "Secret", created_by: "jxn", created_at: 0, entry_count: 0, last_seq: 0, encrypted: true };
     const html = await boardPage({ name: "jxn", email: "jxn@example.com", display_name: null, admin: false }, [], info, [{ user: "jxn", display_name: null, last_seen: 0 }], [], []).text();
-    const js = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map((m) => m[1]).join("\n");
+    const js = [...html.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/g)].map((m) => m[1]).join("\n");
     expect(js).toContain("window.e2eSync=");
-    for (const s of [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map((m) => m[1])) expect(() => new Function(s)).not.toThrow();
+    for (const s of [...html.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/g)].map((m) => m[1])) expect(() => new Function(s)).not.toThrow();
     expect(js).toContain("function draftSave(k,v){if(true)return;");
     expect(html).toContain('id="e2e-msg"');
   });
