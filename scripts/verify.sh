@@ -150,10 +150,10 @@ suite_pids=()
 want vitest && run vitest npx vitest run
 want e2e && run e2e env -u ADMIN_KEY BASE="http://localhost:$E2E_PORT" DEV_LOG="$OUT/e2e.server.log" node test/e2e.mjs
 want cli && run cli env -u ADMIN_KEY BASE="http://localhost:$CLI_PORT" node test/cli.mjs
-want browser && run browser env PERSIST="$OUT/state-browser" ADMIN_KEY=ci-admin-key BASE="http://localhost:$BR_PORT" SHOTS_DIR="$OUT/browser-shots" node test/browser/run.mjs "${browser_args[@]}"
+want browser && run browser env PERSIST="$OUT/state-browser" ADMIN_KEY=ci-admin-key BASE="http://localhost:$BR_PORT" SHOTS_DIR="$OUT/browser-shots" node test/browser/run.mjs ${browser_args[@]+"${browser_args[@]}"}
 want landing && run landing landing_suite
 want backup && run backup env BASE="http://localhost:$BK_PORT" ADMIN_KEY=ci-admin-key BK_S3_PORT="$BK_S3_PORT" BK_KEY_FILE="$OUT/backup-key.json" node test/backup.mjs
-for p in "${suite_pids[@]}"; do wait "$p"; done
+for p in ${suite_pids[@]+"${suite_pids[@]}"}; do wait "$p"; done
 
 # 3. One summary.
 status=0
