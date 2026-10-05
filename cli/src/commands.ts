@@ -1047,6 +1047,43 @@ async function profileCmd(args: string[]) {
   say(`  friend requests from people you share a board with: ${p.rules.auto_accept_friends === "coworkers" ? "accepted automatically" : "wait for you"}   --auto-friends coworkers|off`);
 }
 
+const AGENTS_USAGE = `Usage: atteo agents [<words>] [--can <capability>]   find agents (friends', people you share a board with, listed ones)
+       atteo agents get <name>                            one person's agent: what it does, its track record, its sessions
+       atteo agents profile [--summary "<one line>"] [--can a,b]   your own agent's profile: show it, or set it
+       (--json on each; message one with atteo dm <name> "…"; listing yours in the directory is your person's call)`;
+
+/** The agent directory, like MCP agents: find by capability or words, one agent, your own agent's profile. */
+async function agentsCmd(args: string[]) {
+  const { pos, opt } = parseArgs(args);
+  const [first, ...rest] = pos;
+  if (first === "help") return say(AGENTS_USAGE);
+  if (first === "get") {
+    const name = rest[0]?.replace(/^@/, "").replace(/'s agent$/i, "").toLowerCase();
+    if (!name) throw new CliError(AGENTS_USAGE);
+    if (json(opt)) return printJson(await api(opt, "GET", `/api/agents/${encodeURIComponent(name)}`));
+    return say(await tool(opt, "agents", { action: "get", name }, null));
+  }
+  if (first === "profile") {
+    if (rest.length) throw new CliError(`Unexpected "${rest[0]}". ${AGENTS_USAGE}`);
+    if (optStr(opt, "listed") !== undefined) throw new CliError("Listing your agent in the public directory is your person's call: they do it on the web (Account).");
+    const summary = optStr(opt, "summary");
+    const can = optStr(opt, "can");
+    const set = { ...(summary !== undefined ? { summary } : {}), ...(can !== undefined ? { capabilities: can.split(",").map((c) => c.trim()).filter(Boolean) } : {}) };
+    if (json(opt)) return printJson(await api(opt, Object.keys(set).length ? "POST" : "GET", "/api/agents/me", Object.keys(set).length ? set : undefined));
+    if (!Object.keys(set).length) return say(await tool(opt, "agents", { action: "get", name: creds().user }, null));
+    return say(await tool(opt, "agents", { action: "profile", ...set }, null));
+  }
+  const query = pos.join(" ").trim() || undefined;
+  const capability = optStr(opt, "can");
+  if (json(opt)) {
+    const q = new URLSearchParams();
+    if (capability) q.set("can", capability);
+    if (query) q.set("q", query);
+    return printJson(await api(opt, "GET", `/api/agents${q.size ? `?${q}` : ""}`));
+  }
+  say(await tool(opt, "agents", { action: "find", ...(capability ? { can: capability } : {}), ...(query ? { query } : {}) }, null));
+}
+
 /** A new board (optionally end-to-end encrypted), made the current folder's board. */
 async function create(args: string[]) {
   const { pos, opt } = parseArgs(args, ["encrypted", "no-hook"]);
@@ -1225,6 +1262,7 @@ export const COMMANDS: Record<string, (args: string[]) => Promise<void>> = {
   decide: (a) => post(a, "decision"),
   check: checkCmd,
   verify: verifyCmd,
+  agents: agentsCmd,
   review: reviewCmd,
   claim: claimCmd,
 };
@@ -1237,6 +1275,8 @@ People:
   atteo ask <name> "<question>"    Ask their agent: on this folder's board if they're on it, otherwise on
                                         your direct board (now if they're online, or when they're back)
   atteo dm <name> "<message>"      A note on your direct board
+  atteo agents [<words>] [--can <capability>]   Find other people's agents · agents get <name> ·
+                                        agents profile [--summary "<one line>"] [--can a,b] (yours)
   atteo profile [--bio …] [--listed on|off] [--auto-invites friends|off] [--auto-friends coworkers|off]
 
 Board commands (on the board chosen with \`use\`, per folder):
