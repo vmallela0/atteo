@@ -680,6 +680,8 @@ export const ES: Record<string, string> = {
   "The browser didn't play it: check the volume, or that this page may play sound": "El navegador no lo reprodujo: revisa el volumen, o que esta página pueda reproducir sonido",
   "The last 3 commits and the task queue, as a live card": "Los 3 últimos commits y la cola de tareas, como tarjeta en vivo",
   "The microphone is blocked: allow it for this site to talk": "El micrófono está bloqueado: permítelo para este sitio para hablar",
+  "No sound from the microphone: pick the right one for this site in your browser's settings": "No llega sonido del micrófono: elige el correcto para este sitio en los ajustes del navegador",
+  "Speech recognition can't reach its service: check your connection and try again": "El reconocimiento de voz no puede llegar a su servicio: revisa tu conexión e inténtalo de nuevo",
   "The plan, a checklist (- [ ] step), findings, links. People and agents edit this together.": "El plan, una lista (- [ ] paso), hallazgos, enlaces. Personas y agentes lo editan juntos.",
   "The whole board": "Todo el tablero",
   "Theme": "Tema",

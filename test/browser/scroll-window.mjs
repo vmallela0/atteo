@@ -32,8 +32,14 @@ async function open(path = "", opts = {}) {
 const stats = (p) => p.evaluate(() => ({ live: document.querySelectorAll("#thread>.entry").length, ghosts: document.querySelectorAll("#thread>.ghost").length, more: !!document.getElementById("load-earlier"), first: +document.querySelector("#thread>[data-seq]")?.dataset.seq }));
 const centred = (p, seq) => p.evaluate((s) => { const el = document.getElementById("e" + s), sc = document.getElementById("thread-scroll"); if (!el) return 1e9; const r = el.getBoundingClientRect(), q = sc.getBoundingClientRect(); return Math.abs((r.top + r.bottom) / 2 - (q.top + q.bottom) / 2) }, seq);
 const settle = (p, ms = 900) => p.waitForTimeout(ms);
+// A jump has landed once its message is a real one near the middle of the view (or after 6 s, and the check says how far off).
+const landed = (p, seq, off = 100) => p.waitForFunction(({ s, off }) => { const el = document.getElementById("e" + s), sc = document.getElementById("thread-scroll"); if (!el || !el.classList.contains("entry")) return false; const r = el.getBoundingClientRect(), q = sc.getBoundingClientRect(); return Math.abs((r.top + r.bottom) / 2 - (q.top + q.bottom) / 2) < off; }, { s: seq, off }, { timeout: 6000, polling: 100 }).then(() => settle(p, 300), () => {});
+const jumpTo = async (p, seq) => { await p.evaluate((s) => window.BOARD_CTX.jump(s), seq); await landed(p, seq); };
 
 // 1. Opening and going all the way back: older messages load as you scroll up, the page never holds more than a window.
+// (Alone: it measures frame times while scrolling.) Then 2, 3 and 3b, which only read, run side by side with 4's reduced-motion
+// pass; 4's pill count comes last, alone.
+const t1 = Date.now();
 { const { ctx, p } = await open();
   let s = await stats(p); check(s.live <= 90 && s.ghosts > 0, `opening: ${s.live} messages on the page, ${s.ghosts} placeholders`);
   await p.locator("#thread-scroll").hover({ position: { x: 300, y: 300 } });
@@ -59,23 +65,27 @@ const settle = (p, ms = 900) => p.waitForTimeout(ms);
   }
   check(!p.errors.length, `no page errors ${p.errors.join(" | ")}`); await ctx.close(); }
 
+const t2 = Date.now();
+await Promise.all([jumps(), deepLink(), phone(), newMessages("reduce")]); // reduce only checks its own message's animation
+const t4 = Date.now();
+await newMessages("no-preference"); // counts the pill, so nothing else posts meanwhile
 // 2. Jumps to messages that aren't on the page: search's jump, a #ref chip, a link, the rail and a thread.
-{ const { ctx, p } = await open();
-  await p.evaluate((s) => window.BOARD_CTX.jump(s), 5); await settle(p, 1500);
+async function jumps() { const { ctx, p } = await open();
+  await jumpTo(p, 5);
   check((await p.locator("#e5.entry").count()) === 1 && (await centred(p, 5)) < 120, `a jump to #5 (never loaded) brings it in, centred (${Math.round(await centred(p, 5))}px off)`);
-  await p.evaluate((s) => window.BOARD_CTX.jump(s), S.ref); await settle(p, 1500);
-  await p.evaluate((s) => window.BOARD_CTX.jump(s), 200); await settle(p, 1500);
+  await jumpTo(p, S.ref);
+  await jumpTo(p, 200);
   check((await centred(p, 200)) < 120, `a jump to #200 lands centred (${Math.round(await centred(p, 200))}px off)`);
   let s = await stats(p); check(s.live <= 130, `after jumping around, ${s.live} messages on the page`);
   check((await p.locator(`#g8`).count()) === 1 && (await p.locator(`#g${S.target}`).count()) === 1, `messages left behind became placeholders (#8, #${S.target})`);
-  await p.evaluate((s) => window.BOARD_CTX.jump(s), S.ref); await settle(p, 1500);
-  await p.locator(`#e${S.ref} a.ref`).first().click(); await settle(p, 1600);
+  await jumpTo(p, S.ref);
+  await p.locator(`#e${S.ref} a.ref`).first().click(); await landed(p, S.target, 140);
   check((await p.locator(`#e${S.target}.entry`).count()) === 1 && (await centred(p, S.target)) < 140, `a #ref chip jumps to #${S.target}, brought back from a placeholder`);
   // The thread's root and late reply: "2 replies" counts a reply that's a placeholder, and the overlay brings both back.
-  await p.evaluate((s) => window.BOARD_CTX.jump(s), S.root); await settle(p, 1500);
+  await jumpTo(p, S.root);
   const sum = await p.locator(`#e${S.root} .thr-sum`).innerText().catch(() => "");
   check(/2 replies/.test(sum) && (await p.locator(`#g${S.kid2}`).count()) === 1, `"2 replies" counts the late reply while it's a placeholder ("${sum.replace(/\s+/g, " ").trim()}")`);
-  await p.locator(`#e${S.root} .thr-sum`).click(); await settle(p, 1200);
+  await p.locator(`#e${S.root} .thr-sum`).click(); await p.locator("dialog.thr-dlg", { hasText: "Late answer" }).waitFor({ timeout: 6000 }).catch(() => {});
   const dl = await p.locator("dialog.thr-dlg").innerText().catch(() => "");
   check(dl.includes("First answer") && dl.includes("Late answer"), `the thread overlay brings back every reply`);
   await p.keyboard.press("Escape"); await settle(p, 400);
@@ -86,19 +96,19 @@ const settle = (p, ms = 900) => p.waitForTimeout(ms);
   check(!p.errors.length, `no page errors ${p.errors.join(" | ")}`); await ctx.close(); }
 
 // 3. A deep link to a message that's not on the page.
-{ const { ctx, p } = await open(`#e12`); await settle(p, 1200);
+async function deepLink() { const { ctx, p } = await open(`#e12`); await landed(p, 12, 200);
   check((await p.locator("#e12.entry").count()) === 1 && (await centred(p, 12)) < 200, `a link to #12 opens there (${Math.round(await centred(p, 12))}px off centre)`);
   check(!p.errors.length, `no page errors ${p.errors.join(" | ")}`); await ctx.close(); }
 
 // 3b. On a phone: the same window, and a jump still lands.
-{ const { ctx, p } = await open("", { viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true }); await settle(p, 600);
-  await p.evaluate((s) => window.BOARD_CTX.jump(s), 150); await settle(p, 1500);
+async function phone() { const { ctx, p } = await open("", { viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true }); await settle(p, 600);
+  await jumpTo(p, 150);
   const s = await stats(p);
   check((await centred(p, 150)) < 140 && s.live <= 130 && s.ghosts > 100, `phone: a jump to #150 lands (${Math.round(await centred(p, 150))}px off), ${s.live} messages on the page`);
   check(!p.errors.length, `phone: no page errors ${p.errors.join(" | ")}`); await ctx.close(); }
 
 // 4. New messages: ease in at the bottom; scrolled up, they don't push you and the pill counts them.
-for (const motion of ["no-preference", "reduce"]) {
+async function newMessages(motion) {
   const { ctx, p } = await open("", { reducedMotion: motion });
   const seqA = await post(ckV, `arrives at the bottom ${motion}`); await p.waitForSelector(`#e${seqA}`, { timeout: 8000 });
   const anim = await p.evaluate((s) => getComputedStyle(document.getElementById("e" + s)).animationName, seqA);
@@ -108,9 +118,9 @@ for (const motion of ["no-preference", "reduce"]) {
     await p.locator("#thread-scroll").hover({ position: { x: 300, y: 300 } }); for (let i = 0; i < 4; i++) { await p.mouse.wheel(0, -700); await p.waitForTimeout(120) } await settle(p, 1000);
     const pin0 = await p.locator("#new-pill").innerText();
     const before = await p.evaluate(() => { const sc = document.getElementById("thread-scroll"), q = sc.getBoundingClientRect(); const el = [...document.querySelectorAll("#thread>.entry")].find((x) => x.getBoundingClientRect().top > q.top); return { top: sc.scrollTop, id: el.id, y: el.getBoundingClientRect().top } });
-    await post(ckV, "one while you're up"); await p.waitForTimeout(2500);
+    await post(ckV, "one while you're up"); await p.locator("#new-pill", { hasText: /^1 new message/ }).waitFor({ timeout: 8000 }).catch(() => {}); await settle(p, 500);
     const pill1 = await p.locator("#new-pill").innerText();
-    await post(ckV, "two while you're up"); await post(ckV, "three while you're up"); await p.waitForTimeout(2500);
+    await post(ckV, "two while you're up"); await post(ckV, "three while you're up"); await p.locator("#new-pill", { hasText: /^3 new messages/ }).waitFor({ timeout: 8000 }).catch(() => {}); await settle(p, 800);
     const after = await p.evaluate((id) => ({ top: document.getElementById("thread-scroll").scrollTop, y: document.getElementById(id)?.getBoundingClientRect().top }), before.id);
     check(Math.abs(after.top - before.top) <= 2 && Math.abs(after.y - before.y) <= 2, `scrolled up, new messages don't push the conversation (${Math.round(before.y)} → ${Math.round(after.y)})`);
     const pill3 = await p.locator("#new-pill").innerText();

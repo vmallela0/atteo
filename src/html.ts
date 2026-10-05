@@ -416,7 +416,7 @@ const voiceJs = (agentChat: boolean) => `
       const send=/(^|[ ,.])send it[.!]?$/i.test(fin.trim());
       own=true;ta.value=base+spoken(send?fin.trim().replace(/[ ,.]*send it[.!]?$/i,''):(fin+mid).trim());ta.dispatchEvent(new Event('input',{bubbles:true}));own=false;
       if(send){micStop();if(ta.value.trim())ta.form.requestSubmit()}};
-    r.onerror=ev=>{if(ev.error==='not-allowed'||ev.error==='service-not-allowed')toast(tr('The microphone is blocked: allow it for this site to talk'))};
+    r.onerror=ev=>{const e=ev.error;if(e==='not-allowed'||e==='service-not-allowed')toast(tr('The microphone is blocked: allow it for this site to talk'));else if(e==='audio-capture'||e==='no-speech')toast(tr("No sound from the microphone: pick the right one for this site in your browser's settings"));else if(e==='network')toast(tr("Speech recognition can't reach its service: check your connection and try again"))};
     r.onend=()=>{if(rec!==r)return;rec=null;mic.setAttribute('aria-pressed','false');mic.classList.remove('on')};
     try{r.start()}catch(e){rec=null}}
   if(SR&&mic){mic.hidden=false;
@@ -1856,7 +1856,9 @@ const rxWho=u=>u===ME?'you':u===ME+"'s agent"?'your agent':u.startsWith(ME+'/')?
 // says who read them); the "on it" pill or a "done" pill on the message hides the matching part (CSS), so each shows once. Other reactions, and people's, stay chips.
 const rxAgent=u=>u.endsWith("'s agent")||u.includes('/');
 const rxNames=us=>{const n=us.map(rxWho);return n.length<3?n.join(' and '):n.slice(0,2).join(', ')+' and '+(n.length-2)+' more'};
-function renderRx(seq,list){const row=document.querySelector('[data-rx="'+seq+'"]');if(!row){RXP[seq]=list;return}delete RXP[seq];const add=row.querySelector('.rx-add');
+function renderRx(seq,list){const rows=document.querySelectorAll('[data-rx="'+seq+'"]');if(!rows.length){RXP[seq]=list;return}delete RXP[seq];rows.forEach(row=>renderRxRow(row,seq,list))}
+// One copy of a message's reaction row: the chat's, or its clone in an open thread.
+function renderRxRow(row,seq,list){const add=row.querySelector('.rx-add');
   row.querySelectorAll('.rx-chip,.rx-rcpt').forEach(c=>c.remove());
   const byPerson=!row.closest('.entry')?.classList.contains('by-agent');const seen=[],done=[],think=[],chips=[];
   for(const r of list||[]){const rc=byPerson&&(r.emoji==='👀'||r.emoji==='✅'||r.emoji==='🤔')?r.users.filter(rxAgent):[];
@@ -1968,6 +1970,7 @@ function rpFit(){if(picker.hidden)return;const sheet=innerWidth<=600;picker.clas
   picker.style.bottom='';const r=rpRect||{left:8,top:8,bottom:8},w=picker.offsetWidth,h=picker.offsetHeight;let top=r.top-h-6;
   if(top<8)top=r.bottom+6;if(top+h>innerHeight-8)top=Math.max(8,innerHeight-8-h);picker.style.left=Math.max(8,Math.min(innerWidth-w-8,r.left))+'px';picker.style.top=top+'px'}
 function openPicker(btn){const seq=btn.dataset.rxAdd;rpRect=btn.getBoundingClientRect();picker.dataset.seq=seq;
+  const host=btn.closest('dialog[open]')||document.body;if(picker.parentNode!==host){host.appendChild(rpScrim);host.appendChild(picker)} // a modal thread dialog sits above anything outside it
   rpMine=new Set([...document.querySelectorAll('[data-rx="'+seq+'"] .rx-chip.on')].map(c=>emo(c.dataset.react)));
   rpQ.value='';picker.hidden=false;czOn(false);rpRender();rpFit();if(!picker.classList.contains('sheet'))rpQ.focus({preventScroll:true})}
 function closePicker(){if(picker.contains(document.activeElement))document.activeElement.blur();picker.hidden=true;rpScrim.hidden=true;picker.dataset.seq='';picker.classList.remove('cz')}
@@ -2239,7 +2242,7 @@ window.thrRearm=()=>{if(!cmpHome||!thrOpen)return false;rpTo.value=String(thrTo|
 document.body.appendChild(thrDlg);
 function thrRender(focus){const list=document.getElementById('thr-list'),top=document.getElementById('e'+thrOpen);if(!top)return;list.innerHTML='';
   for(const src of [top,...kidsOf(thrOpen)]){const c=src.cloneNode(true);c.removeAttribute('id');c.classList.remove('flash-in','tap','sel','hit');c.dataset.src=src.dataset.seq;
-    c.querySelectorAll('[id]').forEach(x=>x.removeAttribute('id'));c.querySelectorAll('.thr-sum,.acts,.more-acts,.rd,.rx-add').forEach(x=>x.remove());
+    c.querySelectorAll('[id]').forEach(x=>x.removeAttribute('id'));c.querySelectorAll('.thr-sum,.acts,.more-acts,.rd').forEach(x=>x.remove());
     const q=c.querySelector(':scope>.grow>.rq');if(q&&q.dataset.thread===String(thrOpen)&&src.dataset.reply===String(thrOpen))q.remove();
     list.appendChild(c)}
   thrPf();

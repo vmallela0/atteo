@@ -680,6 +680,8 @@ export const KO: Record<string, string> = {
   "The browser didn't play it: check the volume, or that this page may play sound": "브라우저가 재생하지 않았습니다: 볼륨을 확인하거나 이 페이지에 소리 재생이 허용되어 있는지 확인하세요",
   "The last 3 commits and the task queue, as a live card": "최근 커밋 3개와 작업 대기열을 실시간 카드로",
   "The microphone is blocked: allow it for this site to talk": "마이크가 차단되어 있습니다: 이 사이트에 허용하면 말할 수 있습니다",
+  "No sound from the microphone: pick the right one for this site in your browser's settings": "마이크에서 소리가 들어오지 않습니다: 브라우저 설정에서 이 사이트에 맞는 마이크를 선택하세요",
+  "Speech recognition can't reach its service: check your connection and try again": "음성 인식이 서비스에 연결할 수 없습니다: 연결을 확인하고 다시 시도하세요",
   "The plan, a checklist (- [ ] step), findings, links. People and agents edit this together.": "계획, 체크리스트(- [ ] 단계), 발견한 것, 링크. 사람과 에이전트가 함께 편집합니다.",
   "The whole board": "보드 전체",
   "Theme": "테마",
