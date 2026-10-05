@@ -1,6 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { boardPage, changeCardHtml, changeLink, refLinks } from "../src/html";
+import { BOARD_JS, boardPage as boardPageRaw, changeCardHtml, changeLink, refLinks } from "../src/html";
 import { APP_CSS, APP_JS } from "../src/ui";
+// The board page loads its shared script from /board.js (and the shell's from /app.js): the checks below read the page with
+// them put back inline, where they used to be.
+const inlined = (h: string) =>
+  h.replace(/<script src="\/board\.js\?v=[^"]+"[^>]*><\/script>/, () => `<script>${BOARD_JS}</script>`).replace(/<script src="\/app\.js\?v=[^"]+"[^>]*><\/script>/, () => `<script>${APP_JS}</script>`);
+const boardPage = (...a: Parameters<typeof boardPageRaw>) => {
+  const r = boardPageRaw(...a);
+  return { status: r.status, headers: r.headers, text: async () => inlined(await r.text()) };
+};
+
 import type { BoardInfo, Entry } from "../src/types";
 
 const info: BoardInfo = { id: "b_test1234", title: "Checkout </script> bug", created_by: "jxn", created_at: 0, entry_count: 3, last_seq: 3 };
@@ -67,8 +76,9 @@ describe("board page", () => {
     const member = await page(),
       viewer = await page("viewer");
     expect(member).toContain("/api/app/prefs");
-    expect(member).toContain("let RX_SYNC=true&&!!ME");
-    expect(viewer).toContain("let RX_SYNC=false&&!!ME");
+    expect(member).toContain("let RX_SYNC=!BC.readOnly&&!!ME");
+    expect(member).toContain('"readOnly":false');
+    expect(viewer).toContain('"readOnly":true');
   });
 });
 
@@ -147,7 +157,8 @@ describe("Hide agents (jxn #1731, vedu #1060)", () => {
   it("offers the toggle, applies the remembered choice before anything measures the thread, and hides only agents' posts", async () => {
     const html = await boardPage({ name: "jxn", email: "jxn@example.com", display_name: null, admin: false }, [], info, [{ user: "jxn", display_name: null, last_seen: 0 }], entries, []).text();
     expect(html).toContain('id="pf-btn" aria-pressed="false"');
-    expect(html).toContain("if(localStorage.getItem('atteo.pf.'+\"jxn\")==='1')document.documentElement.setAttribute('data-pf','')");
+    expect(html).toContain("if(!BC.agentChat)try{if(localStorage.getItem('atteo.pf.'+BC.me)==='1')document.documentElement.setAttribute('data-pf','')}");
+    expect(html).toContain('window.BC={"board":"');
     expect(APP_CSS).toContain(":root[data-pf] #thread>.entry.by-agent,:root[data-pf] #thread>.ghost.by-agent"); // the stylesheet every page loads
     expect(html).toContain('id="pf-empty" hidden');
     // Client only: the toggle sends nothing.

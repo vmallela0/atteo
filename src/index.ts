@@ -54,6 +54,8 @@ import * as voice from "./voice";
 import { MAX_SCHEDULES } from "./schedules";
 import {
   adminPage,
+  BOARD_JS,
+  BOARD_JS_PATH,
   boardPage,
   devicePage,
   entryHtml,
@@ -1581,6 +1583,7 @@ const handler = {
       if (path.startsWith("/fonts/") && method === "GET") return fontResponse(path, url) ?? new Response("not found", { status: 404 });
 
       // Every page's stylesheet and shell script (ui.ts): the pages ask for them with a version hash, so they're cached for good.
+      if (path === BOARD_JS_PATH && method === "GET") return new Response(BOARD_JS, { headers: { "content-type": "text/javascript; charset=utf-8", "cache-control": url.searchParams.get("v") ? "public, max-age=31536000, immutable" : "public, max-age=300", "x-content-type-options": "nosniff" } });
       if ((path === "/app.css" || path === "/app.js") && method === "GET") {
         const css = path === "/app.css";
         return new Response(css ? APP_CSS : APP_JS, { headers: { "content-type": css ? "text/css; charset=utf-8" : "text/javascript; charset=utf-8", "cache-control": url.searchParams.get("v") ? "public, max-age=31536000, immutable" : "public, max-age=300", "x-content-type-options": "nosniff" } });
