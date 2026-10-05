@@ -486,8 +486,9 @@ final class TalkUITests: AtteoUITestCase {
         endAndSettle(a, before: before)
     }
 
-    /// Loudspeaker or earpiece (vedu #2384): a "Speaker" chip under the call's buttons, beside mute's job, that flips
-    /// to "Earpiece" and is remembered on this phone across launches.
+    /// Where Atteo plays, Spotify-style (vedu #2384, #2464): an output chip under the call's buttons, beside mute's
+    /// job, names the device ("Phone speaker" by default) and opens a menu: the phone's speaker or earpiece, or
+    /// Bluetooth and AirPlay (the system picker). The earpiece is remembered on this phone across launches.
     func testSpeakerChoiceIsRemembered() {
         let before = minutesUsed()
         var a = app(extra: ["AGENT_SOUP_FAKE_VOICE": "1", "AGENT_SOUP_TALK_STANDBY_SECONDS": "600"])
@@ -498,20 +499,29 @@ final class TalkUITests: AtteoUITestCase {
             a.buttons["talk"].tap()
             let state = a.staticTexts["talk-state"]
             XCTAssertTrue(eventually(state, "label == 'Listening…'", timeout: 15), "listening (\(state.label))")
-            let speaker = a.buttons["speaker-toggle"]
-            XCTAssertTrue(speaker.waitForExistence(timeout: 5), "a speaker choice in the call")
+            let output = a.buttons["audio-output"]
+            XCTAssertTrue(output.waitForExistence(timeout: 5), "an output choice in the call")
             XCTAssertTrue(a.buttons["talk-mute"].exists, "mute is still there too")
-            return speaker
+            return output
         }
-        var speaker = openCall()
-        if speaker.value as? String == "Earpiece" { speaker.tap() } // an earlier run's choice: start from the default
-        XCTAssertTrue(eventually(speaker, "value == 'Loudspeaker'", timeout: 3), "the loudspeaker by default")
-        XCTAssertEqual(speaker.label, "Speaker on")
-        shot("talk-speaker-on")
-        speaker.tap()
-        XCTAssertTrue(eventually(speaker, "value == 'Earpiece'", timeout: 3), "flips to the earpiece")
-        XCTAssertEqual(speaker.label, "Speaker off")
-        shot("talk-speaker-earpiece")
+        func choose(_ output: XCUIElement, _ name: String) {
+            output.tap()
+            XCTAssertTrue(a.buttons["Bluetooth and AirPlay…"].waitForExistence(timeout: 3), "the menu offers other devices")
+            XCTAssertTrue(a.buttons["Phone speaker"].exists && a.buttons["Phone earpiece"].exists, "and both of the phone's own")
+            a.buttons[name].tap()
+        }
+        var output = openCall()
+        if output.value as? String == "Phone earpiece" { choose(output, "Phone speaker") } // an earlier run's choice
+        XCTAssertTrue(eventually(output, "value == 'Phone speaker'", timeout: 3), "the loudspeaker by default (\(output.value ?? "nil"))")
+        XCTAssertEqual(output.label, "Audio output: Phone speaker")
+        shot("talk-output-speaker")
+        output.tap()
+        XCTAssertTrue(a.buttons["Phone earpiece"].waitForExistence(timeout: 3))
+        shot("talk-output-menu")
+        a.buttons["Phone earpiece"].tap()
+        XCTAssertTrue(eventually(output, "value == 'Phone earpiece'", timeout: 3), "the earpiece, picked")
+        XCTAssertEqual(output.label, "Audio output: Phone earpiece")
+        shot("talk-output-earpiece")
         endAndSettle(a, before: before)
 
         // A new launch keeps it.
@@ -520,10 +530,62 @@ final class TalkUITests: AtteoUITestCase {
         a = app(extra: ["AGENT_SOUP_FAKE_VOICE": "1", "AGENT_SOUP_TALK_STANDBY_SECONDS": "600"])
         a.launchArguments += ["-talk-hold-to-talk", "NO", "-talk-captions", "all"]
         a.launch()
-        speaker = openCall()
-        XCTAssertTrue(eventually(speaker, "value == 'Earpiece'", timeout: 3), "remembered across launches (\(speaker.value ?? "nil"))")
-        speaker.tap() // back to the default on this simulator
-        XCTAssertTrue(eventually(speaker, "value == 'Loudspeaker'", timeout: 3))
+        output = openCall()
+        XCTAssertTrue(eventually(output, "value == 'Phone earpiece'", timeout: 3), "remembered across launches (\(output.value ?? "nil"))")
+        choose(output, "Phone speaker") // back to the default on this simulator
+        XCTAssertTrue(eventually(output, "value == 'Phone speaker'", timeout: 3))
         endAndSettle(a, before: before2)
+    }
+
+    /// When Atteo answers (vedu #2460). "tap": the fake person says a line (the orb), and nothing comes back until Done,
+    /// however long it's quiet. Then the call's chip switches to "pause": the next line gets its answer only after the
+    /// pause, not at once. The choice is saved to the account (display.voice_turns).
+    func testWhenAtteoAnswersTapAndPause() {
+        let before = minutesUsed()
+        let a = app(extra: ["AGENT_SOUP_FAKE_VOICE": "1", "AGENT_SOUP_TALK_STANDBY_SECONDS": "600", "AGENT_SOUP_VOICE_TURNS": "tap"])
+        a.launchArguments += ["-talk-hold-to-talk", "NO", "-talk-captions", "all"]
+        a.launch()
+        openChat(a, "Checkout bug")
+        a.buttons["talk"].tap()
+        let state = a.staticTexts["talk-state"]
+        XCTAssertTrue(eventually(state, "label BEGINSWITH 'Listening. Tap Done'", timeout: 15), "tap: it says how a turn ends (\(state.label))")
+        let done = a.buttons["talk-turn-done"]
+        XCTAssertTrue(done.waitForExistence(timeout: 5), "a Done button")
+        XCTAssertFalse(done.isEnabled, "nothing said yet: Done waits")
+        XCTAssertEqual(done.label, "Your turn, Atteo")
+        shot("talk-turns-tap")
+
+        a.buttons["talk-orb"].tap() // the fake person: "What's waiting for me?"
+        XCTAssertTrue(eventually(done, "isEnabled == true", timeout: 3), "something said: Done can send it")
+        Thread.sleep(forTimeInterval: 3)
+        XCTAssertFalse(text(a, "Atteo: ").exists, "a long quiet doesn't end the turn in tap")
+        done.tap()
+        XCTAssertTrue(text(a, "You: What's waiting for me?").waitForExistence(timeout: 8), "Done sends it")
+        XCTAssertTrue(text(a, "Atteo: Here's what's waiting for you").waitForExistence(timeout: 12), "and Atteo answers")
+        XCTAssertFalse(done.isEnabled, "the next turn starts empty")
+
+        // The chip: switch to After a pause, live.
+        let chip = a.buttons["talk-turns"]
+        XCTAssertTrue(chip.waitForExistence(timeout: 5), "the When Atteo answers chip")
+        chip.tap()
+        a.buttons["talk-turns-pause"].tap()
+        XCTAssertTrue(eventually(chip, "value == 'After a pause'", timeout: 3), "switched (\(chip.value ?? "nil"))")
+        XCTAssertFalse(done.exists, "no Done after a pause")
+        let answers = a.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Atteo: '")).count
+        a.buttons["talk-orb"].tap() // "Approve the deploy request."
+        Thread.sleep(forTimeInterval: 0.8)
+        XCTAssertFalse(text(a, "You: Approve the deploy request.").exists, "not sent at once: it waits for the pause")
+        XCTAssertTrue(text(a, "You: Approve the deploy request.").waitForExistence(timeout: 8), "sent after the pause")
+        XCTAssertTrue(until(12) { a.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Atteo: '")).count > answers }, "and Atteo answers")
+        XCTAssertTrue(until(8) { ((self.call("GET", "/api/app/prefs")["prefs"] as? [String: Any])?["display"] as? [String: Any])?["voice_turns"] as? String == "pause" }, "the choice is saved to the account")
+        let no = a.buttons["talk-confirm-no"]
+        if no.waitForExistence(timeout: 5) { no.tap() } // the fake's "approve" asks for a yes: no, nothing done
+        endAndSettle(a, before: before)
+    }
+
+    private func until(_ timeout: TimeInterval, _ ok: () -> Bool) -> Bool {
+        let end = Date().addingTimeInterval(timeout)
+        while Date() < end { if ok() { return true }; Thread.sleep(forTimeInterval: 0.3) }
+        return ok()
     }
 }

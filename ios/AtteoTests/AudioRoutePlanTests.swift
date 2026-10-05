@@ -61,3 +61,34 @@ final class AudioRoutePlanTests: XCTestCase {
         XCTAssertFalse(AudioRoutePlan.shouldOverride(loudspeaker: false, outputs: [.builtInReceiver]), "the earpiece was picked")
     }
 }
+
+/// The output button's name and icon, Spotify-style (vedu #2464).
+final class AudioOutputTests: XCTestCase {
+    func testThePhoneShowsThePersonsChoiceWhateverTheRouteSays() {
+        XCTAssertEqual(AudioOutput.describe([], loudspeaker: true).kind, .speaker, "no session yet: the default, the loudspeaker")
+        XCTAssertEqual(AudioOutput.describe([(.builtInReceiver, "Receiver")], loudspeaker: true).kind, .speaker, "the override is about to move it")
+        XCTAssertEqual(AudioOutput.describe([(.builtInSpeaker, "Speaker")], loudspeaker: false).kind, .earpiece)
+        let speaker = AudioOutput.describe([(.builtInSpeaker, "Speaker")], loudspeaker: true)
+        XCTAssertEqual(speaker.name, AudioOutput.speakerName)
+        XCTAssertEqual(speaker.symbol, "speaker.wave.2.fill")
+        XCTAssertEqual(AudioOutput.describe([], loudspeaker: false).symbol, "ear")
+    }
+
+    func testDevicesAreNamedAsIOSNamesThem() {
+        let pods = AudioOutput.describe([(.bluetoothA2DP, "Vedu’s AirPods Pro")], loudspeaker: true)
+        XCTAssertEqual(pods, AudioOutput(kind: .airpods, name: "Vedu’s AirPods Pro"))
+        XCTAssertEqual(pods.symbol, "airpods")
+        XCTAssertEqual(AudioOutput.describe([(.bluetoothHFP, "airpods max")], loudspeaker: false).kind, .airpods, "any case, in a call too")
+        XCTAssertEqual(AudioOutput.describe([(.bluetoothA2DP, "JBL Flip 6")], loudspeaker: true), AudioOutput(kind: .bluetooth, name: "JBL Flip 6"))
+        XCTAssertEqual(AudioOutput.describe([(.bluetoothLE, "  ")], loudspeaker: true), AudioOutput(kind: .bluetooth, name: "Bluetooth"))
+        XCTAssertEqual(AudioOutput.describe([(.carAudio, "Tesla")], loudspeaker: true), AudioOutput(kind: .car, name: "Tesla"))
+        XCTAssertEqual(AudioOutput.describe([(.airPlay, "Living Room")], loudspeaker: true), AudioOutput(kind: .airplay, name: "Living Room"))
+        XCTAssertEqual(AudioOutput.describe([(.headphones, "Headphones")], loudspeaker: true).kind, .headphones)
+        XCTAssertEqual(AudioOutput.describe([(.usbAudio, "USB-C Headset")], loudspeaker: true), AudioOutput(kind: .headphones, name: "USB-C Headset"))
+    }
+
+    func testAnOtherDeviceWinsOverThePhoneInAMixedRoute() {
+        let o = AudioOutput.describe([(.builtInSpeaker, "Speaker"), (.airPlay, "Kitchen")], loudspeaker: true)
+        XCTAssertEqual(o, AudioOutput(kind: .airplay, name: "Kitchen"), "AirPlay mirroring with the phone speaker: name the device")
+    }
+}
