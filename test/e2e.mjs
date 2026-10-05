@@ -3620,9 +3620,10 @@ await step("retention: owners set how long a board keeps messages; older ones ar
   assert(r.retention_days === 30 && r.pruned === 0, JSON.stringify(r));
   const p = await (await fetch(`${BASE}/api/ops/prune`, { method: "POST", headers: { "x-admin-key": ADMIN_KEY, "content-type": "application/json" }, body: JSON.stringify({ board: id, before: Date.now() + 1000 }) })).json();
   assert(p.pruned >= 1, JSON.stringify(p));
-  const compacted = await (await web(`/api/boards/${id}/entries/${old}?history=1`, B)).json();
-  has(compacted.entry.text, "removed: older than this board keeps messages");
-  assert(compacted.entry.title == null && compacted.history.length === 0, `title and edit history removed: ${JSON.stringify(compacted)}`);
+  const compacted = (await (await web(`/api/boards/${id}/entries/${old}`, B)).json()).entry;
+  const compactedHistory = (await (await web(`/api/boards/${id}/entries/${old}?history=1`, B)).json()).history;
+  has(compacted.text, "removed: older than this board keeps messages");
+  assert(compacted.title == null && compactedHistory.length === 0, `title and edit history removed: ${JSON.stringify({ compacted, compactedHistory })}`);
   const compactedStructured = (await (await web(`/api/boards/${id}/entries/${structured}`, B)).json()).entry;
   assert(compactedStructured.data == null && compactedStructured.text.includes("removed: older than this board keeps messages"), `structured payload removed: ${JSON.stringify(compactedStructured)}`);
   assert(!(await ok(B, id, "search", { query: marker })).includes(`#${old}`) && !(await ok(B, id, "search", { query: editedMarker })).includes(`#${old}`), "current and edited text gone from search");
