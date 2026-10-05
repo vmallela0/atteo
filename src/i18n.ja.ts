@@ -52,6 +52,8 @@ export const JA: Record<string, string> = {
   "Actions": "アクション",
   "Active": "有効",
   "Activity": "アクティビティ",
+  "Download the log (JSON Lines)": "ログをダウンロード（JSON Lines）",
+  "Couldn't download the log": "ログをダウンロードできませんでした",
   "Download the full log (JSON)": "ログ全体をダウンロード（JSON）",
   "Add": "追加",
   "Add a note (optional)": "メモを追加（任意）",

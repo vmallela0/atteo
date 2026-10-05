@@ -12,7 +12,7 @@ import * as approvals from "./approvals";
 import { approvalsPage } from "./approvalsPage";
 import { askPage } from "./ask";
 import * as access from "./access";
-import { AUDIT_EXPORT_LIMIT, auditExportDocument, auditExportHeaders, parseAuditAfter } from "./auditExport";
+import { AUDIT_EXPORT_LIMIT, auditExportDocument, auditExportHeaders, forAgents, parseAuditAfter } from "./auditExport";
 import * as social from "./social";
 import * as webhooks from "./webhooks";
 import * as avatars from "./avatars";
@@ -24,6 +24,7 @@ import { isRetriable, messageId, retryingReads, withRetry } from "./retry";
 import CLI_BUNDLE from "../cli/dist/atteo.mjs";
 import { installScript } from "./install";
 import SKILL_MD from "../skills/atteo/SKILL.md";
+import HTML2CANVAS_JS from "./vendor/html2canvas.min.js"; // the bug-report screenshot, loaded only when the dialog opens
 import { agentsMd, guidePage } from "./guide";
 import { docsPage } from "./docs";
 import { openapi } from "./openapi";
@@ -34,6 +35,7 @@ import * as notify from "./notify";
 import * as forYou from "./forYou";
 import * as auth from "./auth";
 import * as appSignin from "./appSignin";
+import * as bugs from "./bugs";
 import { handleMcp } from "./mcp";
 import * as device from "./device";
 import { EMAIL_RE, sendInvite } from "./invite";
@@ -675,6 +677,8 @@ const handler = {
       if (path === "/terms" || path === "/privacy") return legalPage(path.slice(1) as "terms" | "privacy");
       if (path === "/openapi.json") return json(openapi(origin), 200, { "access-control-allow-origin": "*", "cache-control": "public, max-age=300" });
       if (path === "/skill.md") return new Response(SKILL_MD, { headers: { "content-type": "text/markdown; charset=utf-8", "cache-control": "public, max-age=300" } });
+      if (path === "/vendor/html2canvas.min.js" && method === "GET")
+        return new Response(HTML2CANVAS_JS, { headers: { "content-type": "application/javascript; charset=utf-8", "cache-control": "public, max-age=86400" } });
       if (path === "/docs") return docsPage(origin, SKILL_MD);
       if (path === "/agents.md") return new Response(agentsMd(origin), { headers: { "content-type": "text/markdown; charset=utf-8", "cache-control": "public, max-age=300", "access-control-allow-origin": "*" } });
       if (path === "/apple-touch-icon.png" || path === "/apple-touch-icon-precomposed.png") {
@@ -795,6 +799,36 @@ const handler = {
           return redirect(await oauth.finishAuthorize(env, viewer.name, f.get("request_id") ?? "", f.get("allow") === "1"));
         } catch (e) {
           return messagePage("Can't connect", e instanceof Error ? e.message : String(e), { viewer, status: 400, action: { href: "/", label: "Your boards" } });
+        }
+      }
+
+      // ---- bug reports (web + app; jxn #3336, split with vedu's agent #3337/#3342) ----
+      if (path === "/api/bugs" && method === "POST") {
+        const bugsBoard = (env.BUGS_BOARD ?? "").trim();
+        if (!bugsBoard) return json({ error: "Bug reports aren't set up." }, 501);
+        if (viewer?.via === "agent") return json({ error: "Bug reports come from people (the button or the app). Ask your person to file it." }, 403);
+        if (Number(request.headers.get("content-length") ?? 0) > bugs.BUG_SCREENSHOT_MAX + 64_000) return json({ error: "That report is too large (the screenshot is capped at 2 MB)." }, 413);
+        const ip = appSignin.clientIp(request);
+        for (const l of bugs.bugLimitKeys(viewer?.name ?? null, ip)) {
+          if (!(await appSignin.hit(env, l.key, l.limit))) return json({ error: "That's a few bug reports in a row — try again in ten minutes." }, 429);
+        }
+        let report: bugs.BugReport;
+        try {
+          report = await bugs.parseBugForm(request);
+        } catch (e) {
+          return json({ error: e instanceof Error ? e.message : String(e) }, 400);
+        }
+        // One bug-bot member authors every report (an entry's author must be a real member, opus-d #3416);
+        // the reporter is named in the text.
+        const stub = boardStub(env, bugsBoard);
+        try {
+          const entry = report.screenshot
+            ? await stub.postFile(bugs.BUG_BOT, { name: report.screenshot.name, bytes: report.screenshot.bytes, text: bugs.bugReportText(report, viewer?.name ?? "someone (signed out)"), via: "person", client: "bug-report" })
+            : await stub.post(bugs.BUG_BOT, { type: "note", text: bugs.bugReportText(report, viewer?.name ?? "someone (signed out)"), via: "person", client: "bug-report" });
+          if (viewer) ctx.waitUntil(registry.touch(env, viewer.name, bugsBoard).catch(() => {}));
+          return json({ ok: true, board: bugsBoard, seq: entry.seq }, 201);
+        } catch (e) {
+          return json({ error: e instanceof Error ? e.message : String(e) }, 400);
         }
       }
 
@@ -1718,15 +1752,19 @@ const handler = {
         if (!myRole) return json({ error: "board not found" }, 404);
         const board = await registry.getBoard(env, id);
         const owner = myRole === "owner" || board?.created_by === viewer.name;
+        const agentView = viewer.via === "agent"; // the audit masks invitees' email addresses for agents (#3437)
         try {
           if (what === "members" && method === "GET" && !arg) return json({ members: await registry.boardMembers(env, id), you: myRole });
           if (what === "audit" && method === "GET" && arg === "export") {
             const afterId = parseAuditAfter(url.searchParams.get("after"));
             const exportedAt = Date.now();
             const rows = await registry.auditExportRows(env, id, afterId);
-            return json(auditExportDocument(id, rows, { exportedAt, afterId, pageSize: AUDIT_EXPORT_LIMIT }), 200, auditExportHeaders(id, exportedAt));
+            return json(auditExportDocument(id, agentView ? forAgents(rows) : rows, { exportedAt, afterId, pageSize: AUDIT_EXPORT_LIMIT }), 200, auditExportHeaders(id, exportedAt));
           }
-          if (what === "audit" && method === "GET" && !arg) return json({ audit: await registry.auditLog(env, id) });
+          if (what === "audit" && method === "GET" && !arg) {
+            const rows = await registry.auditLog(env, id);
+            return json({ audit: agentView ? forAgents(rows) : rows });
+          }
           if (what === "audit") return json({ error: "not found" }, 404);
           if (!owner) return json({ error: "Only the board's owners can manage access." }, 403);
           if (what === "members" && method === "POST" && arg) {

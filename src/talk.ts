@@ -207,10 +207,11 @@ function audioOn(s){try{s.ac=tk&&tk.ac&&tk.ac.state!=='closed'?tk.ac:audioCtx();
 // in tap mode. Talking over Atteo still stops it; while it speaks, it takes a louder voice to count (echo).
 // The voice threshold follows the room: its floor is the quiet end of the last ~5 s of mic level, and speech is well
 // above it (a fixed level missed quiet mics, and iOS Safari's processed input runs low; a steady hum sets the floor).
-const VOICE_MIN=0.008;
+const VOICE_MIN=0.008,FLOOR_LEARN=18,FLOOR_PRIOR=0.01; // frames (~85 ms each) before the floor is the room's own; a quiet room's level
 function localTurn(s,l){if(s.turns==='quick'||!s.ready||s.ended)return;const now=Date.now();
   if(s.micOff){s.talking=false;return}
-  (s.lv=s.lv||[]).push(l);if(s.lv.length>60)s.lv.shift();s.floor=s.lv.slice().sort((a,b)=>a-b)[Math.floor(s.lv.length*0.15)]; // the quiet end of the last ~5 s (talk has gaps between words; a hum doesn't)
+  (s.lv=s.lv||[]).push(l);if(s.lv.length>60)s.lv.shift();const q=s.lv.slice().sort((a,b)=>a-b)[Math.floor(s.lv.length*0.15)];
+  s.floor=s.lv.length<FLOOR_LEARN?Math.min(q,FLOOR_PRIOR):q; // the first ~1.5 s: no higher than a quiet room's, so talking as the call connects isn't taken for the room (opus-b #3439) // the quiet end of the last ~5 s (talk has gaps between words; a hum doesn't)
   const on=Math.max(VOICE_MIN,s.floor*2.2+0.003)*(s.speaking?2.5:1),off=Math.max(VOICE_MIN*0.6,s.floor*1.4+0.002);
   if(l>on){s.lastVoice=s.lastAct=now;if(!s.talking){s.talking=true;s.said=true;handle(s,{type:'input_audio_buffer.speech_started'})}}
   else if(s.talking&&l<off&&now-s.lastVoice>200){s.talking=false;look()}

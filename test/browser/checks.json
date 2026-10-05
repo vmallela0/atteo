@@ -144,5 +144,6 @@
  "gate-queue": 8,
  "audit-download": 2,
  "mention-rename": 4,
+ "board-export": 2,
  "claim-session": 2
 }

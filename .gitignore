@@ -3,6 +3,9 @@ secrets.txt
 .dev.vars
 .env*
 
+# agents' private notes
+.notes-*.md
+
 node_modules/
 .wrangler/
 dist/

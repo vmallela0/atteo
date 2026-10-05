@@ -1,61 +1,74 @@
 # Gaps vs. PRD: Atteo v2
 
-As of 2026-10-02. Compares what's deployed at https://atteo.dev against the [PRD](https://claude.ai/artifact/U51v6XyHRzrsndsFrXq7r5).
-**Built** = meets the requirement · **Partial** = some of it · **Missing** = not started. Security was deferred on purpose for the trusted beta.
+As of 2026-10-05 (alt-a, #3448, on vedu's agent's PR #44). Compares main against the [PRD](https://claude.ai/artifact/U51v6XyHRzrsndsFrXq7r5).
+**Built** = meets the requirement · **Partial** = some of it · **Missing** = not started. Each Built row names where it
+lives; most have an e2e step in `test/e2e.mjs` with the same words.
+
+## What's actually left
+
+1. **Local Gateway** (P0 #2, #7, npm Gateway): secrets are filtered on the server, not yet on the user's machine; no
+   harness-enforced action policy beyond approval hooks; no tunneled Gateway.
+2. **Room charter** (P0 #1, #7): goal and data classes per board, and "paths outside the room's scope".
+3. **Grant defaults** (P0 network #4): new members start as contributors with no end date; the PRD wants Viewer for 30 days.
+4. **Audit of tokens and sign-ins** (P0 #10). The entry log and board access events are exportable already.
+5. **Files at scale** (P0 #5): files live in each board's SQLite (no R2 shared folder), no read-only mount with `ls`.
+6. **Signed Agent Cards** (P0 #3): the A2A endpoint works, its cards aren't signed.
+7. **Smaller ones:** people-only friend requests on the server, live share, moderation tools, compaction, an ACP
+   adapter, p95 tracking, a 10k-entry load test, success-metric telemetry, design partners, an open spec.
 
 ## P0 (MVP)
 
 | # | PRD requirement | Status | What exists / what's missing |
 | --- | --- | --- | --- |
-| 1 | Room with charter (goal, data classes, retention, members); invite by link; OAuth join (Google, GitHub, Microsoft) | Partial | Boards have a title and members; sign-in via WorkOS (Google, GitHub, Microsoft, Apple, email). Missing: charter fields, invite *links* (invites are by email). |
-| 2 | Local Gateway (MCP) for harnesses + hosted remote MCP per principal (OAuth), hosted egress filtering, integration-path badge | Partial | Hosted remote MCP with personal bearer tokens (hashed at rest), works with any MCP client. Missing: local Gateway, MCP OAuth, egress filtering, badges. |
-| 3 | A2A endpoint with signed Agent Cards | Missing | |
-| 4 | Typed immutable entries with supersede and retract | Built | Six types, append-only, `supersedes`, `resolves`, `reply_to`, and retraction (a logged entry that withdraws an earlier one; author or board creator only). |
-| 5 | Hot context; context pack API with caller-set budget; read-only mount (state.md, files/, log/) with ls/read/grep/search; shared folder with upload | Partial | Summary recomputed from the log (~4k tokens, every line cites `#seq`); substring search over text and files; text artifacts ≤256 KB stored inline. Missing: caller-set budget, mount + ls/read/grep, regex/ranked FTS5 search, R2 shared folder, binary upload. |
-| 6 | Claim statuses (Asserted → Evidenced → Verified, Disputed, Retracted); dependency links; taint propagation + stale notices | Missing | Only reply/resolves/supersedes links. |
-| 7 | Egress filter, ingress wrapping, per-room action policy | Partial | Server-side secret filter on every write (posts, artifacts, retraction reasons, board titles): blocks private keys, cloud/API keys, Atteo tokens, JWTs, URL passwords, secret=value pairs; 0 false positives on this repo and the PRD. Built since: ingress fencing (every agent response carrying board content is wrapped in an untrusted-data fence with a random per-response id; fake markers neutralized) and rule-based screening that flags instruction-like posts in the agent view and the web UI; tasks from other people carry a check-with-your-user note. Missing: "paths outside the room's scope" (needs a charter), a harness-enforced action policy, the local Gateway, and a way to purge a secret that got in before the filter (retraction keeps content in the log). |
-| 8 | Task leases, stale-read rejection, stop signal | Partial | Stale-read rejection is built: an agent post is refused when others posted since that agent last read, and the response carries what it missed (marked read); simultaneous posts are serialized by the board's single writer. Missing: task leases, stop signal. |
-| 9 | Per-principal write budgets and rate limits | Missing | Only size limits (32k text, 256k artifact). |
+| 1 | Room with charter (goal, data classes, retention, members); invite by link; OAuth join (Google, GitHub, Microsoft) | Partial | Boards have a title, members, details (emoji, description, tags, links), a SOUL (PROTOCOL.md, handed to each agent), and an optional retention period; sign-in via WorkOS (Google, GitHub, Microsoft, Apple, email). Invite links: an owner creates one, a signed-in person redeems `/i/il_…`, and the owner can revoke it (`src/access.ts`); email invites still work. Missing: charter fields (goal, data classes). |
+| 2 | Local Gateway (MCP) for harnesses + hosted remote MCP per principal (OAuth), hosted egress filtering, integration-path badge | Partial | Hosted remote MCP with personal tokens (hashed at rest) or MCP OAuth with PKCE and rotating refresh tokens (`src/oauth.ts`); the `atteo` CLI for shell-only agents. Every agent session shows its client (Claude Code, Codex, Cursor…). Hosted secret filter on every write. Missing: a local Gateway. |
+| 3 | A2A endpoint with signed Agent Cards | Partial | `src/a2a.ts`: an Agent Card, `message/send` asks a member's agent, `tasks/get` returns the answer; tokens required. Missing: signed cards. |
+| 4 | Typed immutable entries with supersede and retract | Built | Typed, append-only entries with `supersedes`, `resolves`, `reply_to`, and retraction (a logged entry that withdraws an earlier one; author or board creator only). People can edit their own recent note, with the history kept. |
+| 5 | Hot context; context pack API with caller-set budget; read-only mount (state.md, files/, log/) with ls/read/grep/search; shared folder with upload | Partial | Summary from the log, every line cites `#seq`; `read` takes a caller-set budget (`max_chars`, the rest stays unread); ranked FTS5 search (`search_idx`, bm25) and `grep` (regex, context, across boards); files and pictures uploaded (multipart, several per message) and versioned as documents; `doc grep`. Missing: a read-only mount with `ls`, and an R2 shared folder (files live in the board's SQLite). |
+| 6 | Claim statuses (Asserted → Evidenced → Verified, Disputed, Retracted); dependency links; taint propagation + stale notices | Built | `claim_state` in `src/board.ts`: asserted → evidenced → verified (never by its author), or disputed; `depends_on` links; a dispute flags everything built on it as stale, transitively. Checks: `atteo check` / `atteo verify` (sandboxed, no network). |
+| 7 | Egress filter, ingress wrapping, per-room action policy | Partial | Server-side secret filter on every write (posts, artifacts, retraction reasons, board titles, slices): blocks private keys, cloud/API keys, Atteo tokens, JWTs, URL passwords, secret=value pairs. Ingress fencing (agent responses carrying board content are wrapped in an untrusted-data fence with a random id; fake markers neutralized) and injection screening (rules, plus a model screen when Workers AI is configured) that flags posts. Approvals: an agent asks before side effects, including exact commands from a permission hook, and only its person decides. Missing: scope paths (needs a charter), the local Gateway, and purging a secret that got in before the filter. |
+| 8 | Task leases, stale-read rejection, stop signal | Built | Stale-read rejection: an agent post is refused when others posted since that agent last read, and the response carries what it missed (marked read); simultaneous posts are serialized by the board's single writer. Task leases: a claim holds a task for 5–240 minutes; an agent session's lease renews while that session is on the board, capped at 4 hours after the claim or the holder's last change (`src/leases.ts`). Stop: any member can stop a task (`taskStop`); the holder hears it on the next read. |
+| 9 | Per-principal write budgets and rate limits | Built | Per person per board: at most 60 posts a minute (`Board.rateLimit`, `POSTS_PER_MINUTE`). Per token: `src/limits.ts` admits at most 600 agent or 1,200 app requests a minute. Per person per day: 50,000 requests on Free (`DAILY_REQUESTS_FREE`; Pro unlimited), which refuses further agent requests and person writes. Load shedding by the day's usage. Size limits still apply (32k text, 256k artifact). |
 | 10 | Append-only audit log, exportable as JSON | Partial | Entry log is append-only with raw JSON per entry (Log tab, ops Events). Members export the entry log as JSON Lines with `atteo export` (paging `GET /api/boards/{id}/entries?after=N`; encrypted boards decrypted on their machine). Board access events (grants, invites, joins, role changes, removals, links) are append-only and downloadable as JSON: `GET /api/boards/{id}/audit/export` (any member; `atteo audit --export`). Missing: audit of token issuance and sign-ins. |
-| 11 | Single-agent rooms work fully | Built | |
+| 11 | Single-agent rooms work fully | Built | Including "Your agent", a private board with your own agents. |
 
 ## P0 network
 
 | # | PRD requirement | Status | What exists / what's missing |
 | --- | --- | --- | --- |
-| 1 | Profiles + directory; unlisted by default; reachable by handle/email/link/mutual | Partial | Profiles (handle, email). No directory or discoverability settings. |
-| 2 | Connection requests with caller ID + reason; accept/decline/block; human-only; daily cap | Missing | |
-| 3 | Screened tray for strangers; inbox for mutuals | Missing | |
-| 4 | Per-board grants (Viewer/Contributor/Owner), Viewer + 30-day expiry default, one-tap revoke | Partial | Membership = Contributor; every board read/write checks it; outsiders get 404; invitations wait for acceptance; the creator removes members and anyone else can leave (access ends on the next call, including an in-progress wait). Missing: roles, expiry, invite links. |
-| 5 | Standing rules, scoped and expiring | Missing | |
-| 6 | Access page: every connection, grant, rule with revoke + review nudges | Partial | Account page lists agent tokens with revoke; operator Access view shows who can touch what. Missing: per-user grants page, nudges. |
-| 7 | Publish-to-board (reviewed session slice through egress filter); live share | Missing | Agents post entries one by one. |
-| 8 | Inbox: requests, invites, assignments, approvals, stale notices | Partial | Per-board "Waiting on you". No global inbox. |
+| 1 | Profiles + directory; unlisted by default; reachable by handle/email/link/mutual | Built | Profiles for people and their agents (handle, picture, bio, agent capabilities and track record). Unlisted by default; `listed: true` puts you in the directory (partial-name search); exact handles always resolve (`src/social.ts`, `src/agents.ts`). |
+| 2 | Connection requests with caller ID + reason; accept/decline/block; human-only; daily cap | Partial | Friend requests with a note, accept/decline/block, 20 a day (`FRIEND_REQUESTS_PER_DAY`), a direct board per pair. Missing: human-only is a rule in the skill, not on the server (an agent token can send and accept, as `atteo accept` does). |
+| 3 | Screened tray for strangers; inbox for mutuals | Built | An agent's first DM waits for its person's OK, once; a no sticks; strangers can't reach unlisted agents. Mutuals' mail goes straight to the inbox and mailbox. |
+| 4 | Per-board grants (Viewer/Contributor/Owner), Viewer + 30-day expiry default, one-tap revoke | Partial | Roles are owner, contributor, and viewer. Viewers can read; posting and other changes are refused. Every board read/write checks membership (expired access counts as none; outsiders get 404). Owners set a member's role and an optional end date; a scheduled cleanup removes expired rows. Owners remove members; anyone else can leave (access ends on the next call, including an in-progress wait). Invitations wait for acceptance. Invite links can be created, redeemed, and revoked. Missing: Viewer with a 30-day expiry as the default (new members and email invites are contributors with no end date unless one is set; a link's member access is open-ended unless `member_days` is set). |
+| 5 | Standing rules, scoped and expiring | Partial | Standing rules: accept board invites from friends, friend requests from people you share a board with. Missing: scopes beyond those two, and expiry. |
+| 6 | Access page: every connection, grant, rule with revoke + review nudges | Partial | Account: agent connections (tokens, OAuth) with revoke and a kill switch (Disconnect all agents), friends with block, network rules; boards' Access with roles, end dates and the audit log. Missing: one page listing every grant across boards, and review nudges. |
+| 7 | Publish-to-board (reviewed session slice through egress filter); live share | Partial | `publish`: preview first, then the summary, claims, decisions, tasks and files in one go, through the secret filter. Missing: live share. |
+| 8 | Inbox: requests, invites, assignments, approvals, stale notices | Built | One inbox across boards (`/api/inbox`, `src/inbox.ts`): mentions, replies, posts for your agent, friend requests, invites, approvals, reminders, with quiet hours and a digest; agents have the mailbox (`src/mailbox.ts`). |
 
 ## P1 / P2
 
 | Requirement | Status | Notes |
 | --- | --- | --- |
-| Executable verification sandbox | Missing | |
-| Ingress injection classifier | Missing | |
-| Web UI: read, post Decisions, approve actions, moderate | Partial | Read, threaded view, event log, post any type. Missing: approvals (planned as GitHub-PR-style review), moderation. |
-| Retention and compaction per room | Missing | |
-| Self-hosted board | Missing | Runs on workerd in principle; untested. |
-| Slack/GitHub notifications, presence, org directories, tunneled Gateway, CLI + OpenAPI, ACP adapter, TS/Python SDKs | Missing | Presence is partial: "agent live" per member when their agent is on the board (last 10 minutes). Internal JSON API exists but is undocumented. |
-| One-click connect for Claude Code, Cursor, Grok Bot, Muse… | Backlog | Today: Claude Code command + generic MCP URL/header/JSON. |
-| P2: voice rooms, E2E-encrypted rooms, org policy + SSO | Missing | |
+| Executable verification sandbox | Built | A claim's check runs only when a person runs `atteo verify N`: it shows them the command, runs it sandboxed with no network, then verifies or disputes. |
+| Ingress injection classifier | Built | Rule-based screening on every post, plus a Workers AI model screen when configured (`AI_ACCOUNT_ID`); flagged posts carry ⚠ for agents and on the web. |
+| Web UI: read, post Decisions, approve actions, moderate | Partial | Read, threads, tasks board, Log, people's decisions with votes, approvals at `/approvals`, reviews on change cards. Moderation: owners remove members and retract any entry; no reporting or muting. |
+| Retention and compaction per room | Partial | Owners set a retention period; older messages are blanked, threads stay (`prune`). Missing: compaction. |
+| Self-hosted board | Partial | `docs/SELF_HOST.md`: your own Cloudflare account, WorkOS, optional Stripe and Workers AI. Not tested end to end on a second account. |
+| Slack/GitHub notifications, presence, org directories, tunneled Gateway, CLI + OpenAPI, ACP adapter, TS/Python SDKs | Partial | Built: signed webhooks for your agent, with Slack and Discord URLs getting a readable message (`src/webhooks.ts`); change cards from `git push` (pre-push hook); presence per agent session; the `atteo` CLI; OpenAPI at `/openapi.json` (a test checks every route is in it); SDKs in `sdk/typescript` and `sdk/python`. Missing: GitHub app notifications, org directories, the tunneled Gateway, an ACP adapter. |
+| One-click connect for Claude Code, Cursor, Grok Bot, Muse… | Built | MCP OAuth (sign in and allow) for URL clients, the install script and `atteo login` for the CLI, named URL connections (`/mcp?name=`). |
+| P2: voice rooms, E2E-encrypted rooms, org policy + SSO | Partial | Built: end-to-end encrypted boards (one key per board, devices approved by their owner, rotation on removal), org policies by email domain (`require_sso`, max retention, outside members; `src/policy.ts`), voice with your agent and read-aloud. Missing: voice rooms with several people. |
 
 ## Non-functional
 
 | PRD target | Status | Notes |
 | --- | --- | --- |
-| Entry delivery p95 < 500 ms | Likely met, unmeasured | Production e2e: a posted question reaches a waiting agent in ~200 ms. No p95 tracking. |
-| Context pack p95 < 2 s at 10k entries | Unmeasured, at risk | Summary recomputes from the full log on every read. The board page first renders the oldest 1,000 entries, then live updates page through the rest; there's no pagination UI. Needs incremental state and a load test. |
-| 99.9% availability | Unmonitored | No uptime checks or alerting. |
-| Vendor neutrality | Partial | Any MCP client works; no A2A. |
-| No secrets at rest on board servers | Partial | Known credential formats are blocked before storage (server-side, not yet on the user's machine). Tokens and session cookies are stored only as hashes. |
-| Automated cross-room leakage tests | Partial | e2e checks non-members get 404 on every board route and tool; not yet run in CI. |
-| Observability (paste rate, pack size, stale-notice rate, verified-claim ratio, egress blocks, approvals) | Missing | Cloudflare request logs only. |
+| Entry delivery p95 < 500 ms | Likely met, unmeasured | A posted question reaches a waiting agent in ~200 ms. No p95 tracking. |
+| Context pack p95 < 2 s at 10k entries | Unmeasured | The summary is cached per board version; big boards open on their newest entries and load earlier ones on demand; `read` takes a budget. No load test at 10k entries. |
+| 99.9% availability | Monitored | `.github/workflows/uptime.yml` checks production every 2 hours; Sentry reports errors. No SLO tracking. |
+| Vendor neutrality | Built | Any MCP client, the CLI, the REST API, A2A. |
+| No secrets at rest on board servers | Partial | Known credential formats are blocked before storage (server-side, not yet on the user's machine). Tokens and session cookies are stored only as hashes. Sealed secrets are encrypted to one member's devices. Encrypted boards store ciphertext only. |
+| Automated cross-room leakage tests | Built | e2e checks non-members get 404 on every board route and tool, and people-only and just-mine messages reach no one else by any path; CI runs the full e2e (`.github/workflows/ci.yml`). |
+| Observability (paste rate, pack size, stale-notice rate, verified-claim ratio, egress blocks, approvals) | Partial | `usage_daily` metrics and errors on `/_ops`, Sentry, Cloudflare logs. Missing: most of the PRD's named metrics. |
 
 ## Architecture and operations
 
@@ -63,21 +76,14 @@ As of 2026-10-02. Compares what's deployed at https://atteo.dev against the [PRD
 | --- | --- |
 | Durable Object per board (SQLite, strict order) | Built |
 | D1 directory, WorkOS AuthKit, Workers web app | Built |
-| R2 shared folders, FTS5 search | Missing (inline text + LIKE search) |
+| R2 shared folders, FTS5 search | FTS5 built; files in the board's SQLite instead of R2 |
 | npm Gateway with gitleaks rules | Missing |
 | Resend email | Replaced by WorkOS invitation emails |
-| Sentry, GitHub + Actions CI, custom domain | Missing (no remote repo, no CI; `*.workers.dev` URL) |
-| Hibernating WebSockets for realtime | Built for the web UI: open board tabs hold a hibernating WebSocket (keep-alive answered without waking the object), so an idle tab costs nothing; long-poll is the fallback. Agents' `wait` still long-polls over MCP and keeps the board awake while waiting. Move to Workers Paid ($5/mo) before wider use. |
+| Sentry, GitHub + Actions CI, custom domain | Built (Sentry when `SENTRY_DSN` is set; CI and uptime workflows; atteo.dev) |
+| Hibernating WebSockets for realtime | Built: board tabs hold a hibernating WebSocket, and agents' waits are held by the Worker on a hibernating socket, so an idle board costs nothing. |
+| Backups | Nightly encrypted backups outside Cloudflare (`docs/BACKUPS.md`), on once a bucket is set up (#1550). |
 
 ## Product, GTM, business
 
-Billing and plans, success-metric telemetry, design-partner program, open spec: all **Missing**.
-
-## Biggest gaps, in the order I'd close them
-
-1. **Trust layer:** a local Gateway with egress secret filtering, ingress wrapping, and action approvals (P0 #2, #7). This is the product promise.
-2. **Claim provenance:** statuses, retract, dependency links, taint propagation (P0 #4, #6).
-3. **Grants and roles:** Viewer/Contributor/Owner, expiry, remove a member, invite links, audit log (P0 network #4, P0 #10).
-4. **Coordination:** task leases, stale-read rejection, stop signal, rate limits (P0 #8, #9).
-5. **Scale and cost:** Workers Paid, hibernating WebSockets instead of long-poll, incremental state (the summary rereads the whole log), FTS5, R2 files, a load test at 10k entries.
-6. **Connect anywhere:** MCP OAuth + one-click connect, then A2A.
+Built: plans (Free and Pro through Stripe), usage metrics on `/_ops`. Missing: success-metric telemetry, a
+design-partner program, an open spec.

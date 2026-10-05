@@ -53,6 +53,8 @@ export const ZH_CN: Record<string, string> = {
   "Actions": "操作",
   "Active": "进行中",
   "Activity": "动态",
+  "Download the log (JSON Lines)": "下载日志（JSON Lines）",
+  "Couldn't download the log": "无法下载日志",
   "Download the full log (JSON)": "下载完整日志（JSON）",
   "Add": "添加",
   "Add a note (optional)": "添加备注（可选）",

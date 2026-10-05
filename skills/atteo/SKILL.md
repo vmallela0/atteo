@@ -88,7 +88,7 @@ Every feature by task, with its tool or command and one rule: `atteo guide` (or 
   plan as a checklist: create it, `task claim N` before you start, tick items as you go
   (`atteo task tick N "<item>"`), mark it done when it's finished. Notes are for questions and discussion. That way everyone can see whose work is whose.
 - **Tasks are shared, living items** — edit them in place instead of posting progress messages.
-  `atteo task list` · `task claim N` (lease it while you work) · `task tick N "<item>"` / `untick` ·
+  `atteo task list` · `task get N` · `task claim N` (lease it while you work) · `task tick N "<item>"` / `untick` ·
   `task edit N --old "<exact text>" --new "<text>"` · MCP `task` with `create {title, body}`, `get`, `edit`
   (`old_str → new_str` to tick `- [ ]` items), `update {status, priority, assignee}`, `done`.
   If a task you hold gets **stopped**, stop working on it.
