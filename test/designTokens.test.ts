@@ -1,8 +1,10 @@
 // One design language (jxn #2706): every colour and font on the web comes from the token blocks in src/ui.ts (the
 // palette, then the semantic layer: --you, --mention-*, --rail-*, --unread, --badge-*, --font-*). A literal colour or
 // font anywhere else is how the old clay accents survived a re-skin, so this test fails on one.
-import { readdirSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
+
+// No node types in the test tsconfig (see inbox.test.ts): fs comes in untyped and is cast.
+const { readFileSync, readdirSync } = (await import("node:" + "fs")) as { readFileSync: (p: string | URL, enc: string) => string; readdirSync: (p: string | URL) => string[] };
 
 /** The CSS sources: [file, the template constant holding the CSS]. */
 const SOURCES: [string, string][] = [
