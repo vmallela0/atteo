@@ -312,7 +312,7 @@ struct TalkSheet: View {
     /// "tap": your turn ends here (or with play/pause on AirPods). Enabled once you've said something.
     private var turnDoneButton: some View {
         Button { talk.endTurn() } label: {
-            Text("Done").font(.headline).frame(width: 160, height: 44)
+            Text("Done").font(Typo.ui(.headline)).frame(width: 160, height: 44)
                 .background(talk.turnHeard ? Theme.accent : Theme.raised, in: Capsule())
                 .foregroundStyle(talk.turnHeard ? Theme.onAccent : Theme.muted)
         }
