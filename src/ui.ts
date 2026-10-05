@@ -12,22 +12,24 @@ import { esc } from "./util";
 import { clientTable, dirOf, tr, type Lang } from "./i18n";
 
 // Dark tokens: the system setting picks them unless Display says light; Display can also force them.
-const DARK = `  --bg:#0a0a0a;--bg-subtle:#111111;--bg-hover:#1a1a1a;--line:#232323;--line-strong:#2e2e2e;
-  --ink:#ededed;--text:#ededed;--muted:#a1a1a1;--faint:#858585;--on-ink:#0a0a0a;--pb-agent:#F2EFE8;--pb-eye:#111113;--atteo:#F0A78E;
-  --accent:#4ea1ff;--ok:#3ecf75;--warn:#fb923c;--danger:#f87171;
+const DARK = `  --bg:#0E0E0E;--bg-subtle:#171716;--bg-hover:#1F1E1C;--line:#2A2926;--line-strong:#3A3935;
+  --ink:#FAFAF7;--text:#EDEBE5;--muted:#AFADA6;--faint:#8E8C85;--on-ink:#0E0E0E;--cherry:#E0303F;--atteo:#F0A78E;
+  --accent:#FAFAF7;--ok:#3ecf75;--warn:#fb923c;--danger:#f87171;
   --q:#fbbf24;--claim:#4ade80;--decision:#a78bfa;--task:#38bdf8;--artifact:#a3a3a3;--note:#737373;
   --shadow:0 1px 2px rgba(0,0,0,.4);--shadow-lg:0 12px 48px rgba(0,0,0,.6);
-  --av-l:22%;--av-c:78%;--av-s:40%;
+  --av-l:22%;--av-c:80%;--av-s:26%;
   color-scheme:dark;`;
 
 export const CSS = `
 :root{
-  --bg:#ffffff;--bg-subtle:#fafafa;--bg-hover:#f4f4f5;--line:#ebebeb;--line-strong:#dcdcdc;
-  --ink:#0a0a0a;--text:#171717;--muted:#595959;--faint:#737373;--on-ink:#ffffff;--pb-agent:#111113;--pb-eye:#F2EFE8;--atteo:#A34A2B; /* Atteo's voice (Talk to Atteo): 5.9:1 here, 10:1 in dark */
-  --accent:#0062d1;--ok:#16a34a;--warn:#c2410c;--danger:#dc2626;
+  /* The design language (#2508): ink on paper, bone and stone around it, graphite for secondary text, and cherry for
+     you and the one primary action in a view (cherry-bright on dark). Links and focus are ink, underlined. */
+  --bg:#FAFAF7;--bg-subtle:#F2EFE8;--bg-hover:#ECE8DF;--line:#E4E1D9;--line-strong:#D9D6CE;
+  --ink:#0E0E0E;--text:#161614;--muted:#5A5853;--faint:#6B6964;--on-ink:#FAFAF7;--cherry:#A8121E;--atteo:#A34A2B; /* Atteo's voice (Talk to Atteo): 5.9:1 here, 10:1 in dark */
+  --accent:#0E0E0E;--ok:#16a34a;--warn:#c2410c;--danger:#dc2626;
   --q:#d97706;--claim:#16a34a;--decision:#7c3aed;--task:#0284c7;--artifact:#737373;--note:#a3a3a3;
   --shadow:0 1px 2px rgba(0,0,0,.04),0 4px 16px rgba(0,0,0,.04);--shadow-lg:0 12px 48px rgba(0,0,0,.12);
-  --av-l:92%;--av-c:28%;--av-s:65%;
+  --av-l:90%;--av-c:26%;--av-s:38%;
   --r:10px;--r-sm:7px;
   color-scheme:light;
 }
@@ -53,7 +55,7 @@ html:lang(ja) body{font-family:"Geist",ui-sans-serif,system-ui,-apple-system,"Se
 html:lang(ko) body{font-family:"Geist",ui-sans-serif,system-ui,-apple-system,"Segoe UI","Apple SD Gothic Neo","Noto Sans KR","Malgun Gothic",sans-serif}
 html:lang(hi) body{font-family:"Geist",ui-sans-serif,system-ui,-apple-system,"Segoe UI","Kohinoor Devanagari","Noto Sans Devanagari","Nirmala UI",sans-serif}
 a{color:inherit;text-decoration:none}
-a.link{color:var(--accent)}a.link:hover{text-decoration:underline}
+a.link{color:var(--accent);text-decoration:underline;text-decoration-thickness:1px;text-underline-offset:2px}a.link:hover{text-decoration-thickness:2px}
 code,pre,.mono{font-family:"Geist Mono",ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px}
 h1,h2,h3{color:var(--ink);font-weight:600;letter-spacing:-.02em;margin:0}
 h1{font-size:22px;line-height:1.25}h2{font-size:15px}h3{font-size:13px}
@@ -67,9 +69,9 @@ p{margin:0}
 .nav{position:sticky;top:0;z-index:20;background:color-mix(in srgb,var(--bg) 82%,transparent);backdrop-filter:saturate(180%) blur(12px);
   -webkit-backdrop-filter:saturate(180%) blur(12px);border-bottom:1px solid var(--line)}
 .nav .in{max-width:1180px;margin:0 auto;height:56px;padding:0 20px;display:flex;align-items:center;gap:16px}
-.brand{display:flex;align-items:center;gap:9px;font-weight:600;letter-spacing:-.01em;color:var(--ink)}
+.brand{display:flex;align-items:center;gap:5px;font-weight:600;letter-spacing:-.01em;color:var(--ink)}
 .brand svg{display:block}
-.wm{font-weight:800;letter-spacing:-.03em}
+.wm{font-family:Schoolbell,'Comic Sans MS',cursive;font-weight:400;font-size:22px;line-height:1;letter-spacing:0;filter:url(#wm-marker-sm)}.wm.lg{font-size:40px;filter:url(#wm-marker)} /* the wordmark: lowercase, Schoolbell, the marker filter (#2508) */
 .nav .links{display:flex;gap:4px;margin-left:8px}
 .nav .links a{color:var(--muted);padding:6px 10px;border-radius:6px}
 .nav .links a:hover,.nav .links a[aria-current]{color:var(--ink);background:var(--bg-hover)}
@@ -203,7 +205,7 @@ dialog[open]{animation:pop .16s ease-out}dialog:focus{outline:none}@media (prefe
 .entry .body pre{background:var(--bg-subtle);border:1px solid var(--line);border-radius:8px;padding:10px 12px;overflow-x:auto;margin:8px 0;white-space:pre}
 .entry .body code{background:var(--bg-hover);padding:1px 5px;border-radius:4px}
 .entry .body pre code{background:none;padding:0}
-.entry .body a{color:var(--accent)}
+.entry .body a{color:var(--accent);text-decoration:underline;text-decoration-thickness:1px;text-underline-offset:2px}
 .entry .refs{margin-top:6px;font-size:12.5px;color:var(--faint)}
 .entry .refs a:hover{color:var(--ink)}
 .entry.flash-in{animation:flashin 1.6s ease-out,entryin .32s cubic-bezier(.2,.7,.3,1)}
@@ -292,7 +294,7 @@ dialog.ia-dlg{width:min(560px,calc(100vw - 24px))}.ia-opt h3{margin:0 0 4px;font
 .ev-soon{flex:none;white-space:nowrap}
 .ev-or{display:flex;align-items:center;gap:12px;margin:18px 0;color:var(--faint);font-size:13px}
 .ev-or::before,.ev-or::after{content:"";flex:1;height:1px;background:var(--line)}
-.ev-own{border-color:color-mix(in srgb,#D97857 45%,var(--line));background:color-mix(in srgb,#D97857 6%,var(--bg))}
+.ev-own{border-color:color-mix(in srgb,var(--cherry) 40%,var(--line));background:color-mix(in srgb,var(--cherry) 5%,var(--bg))}
 .ev-own .ev-ic{background:transparent;border-color:transparent}
 .ev-foot-links{margin-top:28px;display:flex;flex-direction:column;align-items:center;gap:10px;text-align:center;font-size:13.5px;color:var(--muted)}
 .ev-foot-links a{color:var(--accent)}.ev-foot-links a:hover{text-decoration:underline}
@@ -393,7 +395,7 @@ a.ev-acct:hover{background:var(--bg-subtle)}
 .acc-sug[hidden]{display:none}.acc-sug li{display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:6px;font-size:13px;cursor:pointer;min-width:0}
 .acc-sug li[aria-selected="true"],.acc-sug li:hover{background:var(--bg-hover)}
 .acc-list{list-style:none;margin:8px 0 0;padding:0;display:flex;flex-direction:column;gap:8px}
-.sum h3 .linkish,.linkish{border:0;background:none;padding:0;font:inherit;font-size:12px;color:var(--accent);cursor:pointer}.linkish:hover{text-decoration:underline}
+.sum h3 .linkish,.linkish{border:0;background:none;padding:0;font:inherit;font-size:12px;color:var(--accent);cursor:pointer;text-decoration:underline;text-underline-offset:2px}.linkish:hover{text-decoration-thickness:2px}
 /* view-only members: nothing that writes */
 .ro .composer,.ro [data-qr],.ro [data-rx-add],.ro button[data-reply],.ro .rx-add,.ro [data-tk],.ro .kb-new,.ro #doc-new,.ro #doc-edit{display:none!important}
 .ro .rx-chip{pointer-events:none}
@@ -535,7 +537,7 @@ dialog.lightbox img{display:block;max-width:min(96vw,1600px);max-height:92vh;wid
 .att-name{font-size:12px;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 /* Dictation (#2081, #2089): the mic sits where Post is, like the app's. Empty box: only the mic; once there's text (or a
    file), Post, and the mic steps aside unless it's listening. Text the page puts there (a reply's @mention) keeps both. */
-.composer .mic-btn{width:32px;height:32px;margin:-3px 0;padding:0;justify-content:center;border-radius:999px;background:var(--ink);border-color:var(--ink);color:var(--on-ink);touch-action:none;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none}.composer .mic-btn:hover{opacity:.88}
+.composer .mic-btn{width:32px;height:32px;margin:-3px 0;padding:0;justify-content:center;border-radius:999px;background:var(--cherry);border-color:var(--cherry);color:var(--on-ink);touch-action:none;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none}.composer .mic-btn:hover{opacity:.88}
 .composer .mic-btn.on{background:var(--danger);border-color:var(--danger)}.composer .mic-btn.on svg{animation:mic-pulse 1.2s ease-in-out infinite}@keyframes mic-pulse{50%{opacity:.5}}
 .composer:has(.mic-btn:not([hidden])):has(#attachments[hidden]):has(textarea:placeholder-shown) .post-btn{display:none}
 .composer.typed:has(textarea:not(:placeholder-shown)) .mic-btn:not(.on){display:none}
@@ -729,7 +731,7 @@ ${TALK_CSS}
 /* app shell (Linear-style): sidebar + top bar + content */
 .app{display:grid;grid-template-columns:232px minmax(0,1fr);min-height:100vh}
 .sidebar{position:sticky;top:0;height:100vh;display:flex;flex-direction:column;gap:2px;padding:10px 8px;border-right:1px solid var(--line);background:var(--bg-subtle);overflow:auto}
-.sidebar .ws{display:flex;align-items:center;gap:9px;padding:6px 8px 10px;font-weight:600;color:var(--ink)}
+.sidebar .ws{display:flex;align-items:center;gap:5px;padding:6px 8px 10px;font-weight:600;color:var(--ink)}
 .sidebar .search{display:flex;align-items:center;gap:8px;height:30px;margin:0 0 8px;padding:0 9px;border:1px solid var(--line);border-radius:7px;background:var(--bg);color:var(--faint);cursor:pointer;font:inherit;font-size:13px;text-align:left}
 .sidebar .search:hover{border-color:var(--line-strong);color:var(--muted)}
 .sidebar .search kbd{margin-left:auto}
@@ -1107,19 +1109,25 @@ dialog.recap-dlg{width:min(560px,calc(100vw - 32px));max-height:min(80vh,720px)}
 @media(max-width:640px){dialog.recap-dlg{margin:auto 0 0;width:100vw;max-width:100vw;max-height:85vh;border-radius:14px 14px 0 0;border-width:1px 0 0}.recap-dlg .bd{max-height:calc(85vh - 80px)}}
 `;
 
-// The Pebble: the app mark. One soft pebble split by a slanted seam; the clay half is you, the ink half your agent,
-// eyes meeting across the seam. Same geometry as ios/qa/design/icon.swift and AtteoMark (1024 canvas, y down).
-// Themed: on dark the agent half is bone and both eyes ink so it doesn't vanish (--pb-agent / --pb-eye in CSS).
-const LOGO = `<svg class="pebble" width="22" height="22" viewBox="150 190 726 646" aria-hidden="true"><defs><clipPath id="pbc"><rect x="189" y="229" width="647" height="566" rx="283" ry="283"/></clipPath></defs><g clip-path="url(#pbc)"><polygon points="711,-1765 301,2785 -1691,2606 -1281,-1944" fill="#D97857"/><polygon points="746,-1761 336,2789 2328,2968 2738,-1582" fill="var(--pb-agent)"/></g><circle cx="405" cy="468" r="54" fill="var(--pb-eye)"/><circle cx="634" cy="498" r="54" fill="var(--pb-eye)"/></svg>`;
+// The mark (design language v1, #2508): hand-drawn tin-can phones, a cherry cup (you) with one string branching to three
+// ink agents (a horn, a can and a cup). Its hand wobble is the SVG filter; never recoloured beyond its two tokens, which
+// follow the theme (ink and cherry, so on dark it's paper and cherry-bright). At least 20px tall.
+const LOGO = `<svg class="pebble" width="26" height="22" viewBox="112 179 800 667" aria-hidden="true"><defs><filter id="atm" x="-10%" y="-10%" width="120%" height="120%"><feTurbulence type="fractalNoise" baseFrequency="0.018" numOctaves="2" seed="7"/><feDisplacementMap in="SourceGraphic" scale="16"/></filter></defs><g transform="translate(512 512) translate(-551.1 -507.8)"><g filter="url(#atm)" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M380.0 512.0Q532.3 448.5 690.0 400.0M380.0 512.0Q550.0 512.0 720.0 512.0M380.0 512.0Q532.3 575.5 690.0 624.0" stroke="var(--ink)" stroke-width="22"/><g stroke-width="36"><g transform="translate(380.0 512.0) rotate(-90.0)" stroke="var(--cherry)"><path d="M-90 -160L-54 -6Q0 25.2 54 -6L90 -160"/><ellipse cx="0" cy="-160" rx="90" ry="30.6"/></g><g transform="translate(690.0 400.0) rotate(70.1)" stroke="var(--ink)"><path d="M-65 -150L-13 0H13L65 -150"/><ellipse cx="0" cy="-150" rx="65" ry="22.1"/></g><g transform="translate(720.0 512.0) rotate(90.0)" stroke="var(--ink)"><path d="M-52.5 -175V-6Q0 23.1 52.5 -6V-175"/><ellipse cx="0" cy="-175" rx="52.5" ry="17.85"/></g><g transform="translate(690.0 624.0) rotate(109.9)" stroke="var(--ink)"><path d="M-65 -125L-39 -6Q0 18.2 39 -6L65 -125"/><ellipse cx="0" cy="-125" rx="65" ry="22.1"/></g></g></g></g></svg>`;
 
-/** The Pebble at another size (the first-run screen and Account's "Your assistant" card). */
+/** The mark at another height (the first-run screen and Account's "Your assistant" card). */
 export function pebble(px: number): string {
-  return LOGO.replace('width="22" height="22"', `width="${px}" height="${px}"`);
+  return LOGO.replace('width="26" height="22"', `width="${Math.round(px * 1.2)}" height="${px}"`);
 }
 
-// The favicon: the Pebble on its bone tile (fixed colors), enlarged a little so it reads at 16 px.
-export const FAVICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024"><rect width="1024" height="1024" rx="230" fill="#F2EFE8"/>
-<g transform="translate(512 512) scale(1.18) translate(-512.5 -512)"><defs><clipPath id="pbf"><rect x="189" y="229" width="647" height="566" rx="283" ry="283"/></clipPath></defs><g clip-path="url(#pbf)"><polygon points="711,-1765 301,2785 -1691,2606 -1281,-1944" fill="#D97857"/><polygon points="746,-1761 336,2789 2328,2968 2738,-1582" fill="#111113"/></g><circle cx="405" cy="468" r="54" fill="#111113"/><circle cx="634" cy="498" r="54" fill="#F2EFE8"/></g></svg>`;
+/** The wordmark's marker filter (lowercase "atteo" in Schoolbell, never without it): once per page. wm-marker is the
+ *  design's, for big sizes (.wm.lg); at interface sizes it eats the strokes, so .wm uses wm-marker-sm: the same hand
+ *  wobble scaled down. */
+export const WORDMARK_DEFS = `<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs><filter id="wm-marker" x="-5%" y="-15%" width="110%" height="130%"><feTurbulence type="fractalNoise" baseFrequency="0.035" numOctaves="2" seed="7" result="n"/><feDisplacementMap in="SourceGraphic" in2="n" scale="5" xChannelSelector="R" yChannelSelector="G" result="d"/><feGaussianBlur in="d" stdDeviation="0.8" result="b"/><feComponentTransfer in="b"><feFuncA type="table" tableValues="0 0 0 0.5 1"/></feComponentTransfer></filter><filter id="wm-marker-sm" x="-5%" y="-15%" width="110%" height="130%"><feTurbulence type="fractalNoise" baseFrequency="0.07" numOctaves="2" seed="7" result="n"/><feDisplacementMap in="SourceGraphic" in2="n" scale="2" xChannelSelector="R" yChannelSelector="G" result="d"/><feGaussianBlur in="d" stdDeviation="0.35" result="b"/><feComponentTransfer in="b"><feFuncA type="table" tableValues="0 0.4 1 1"/></feComponentTransfer></filter></defs></svg>`;
+
+// The app icon (atteo-icon-light / -dark): the mark on its paper (or ink) tile.
+export const ICON_LIGHT_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024"><defs><clipPath id="bsq"><rect width="1024" height="1024" rx="230"/></clipPath><filter id="brough" x="-10%" y="-10%" width="120%" height="120%"><feTurbulence type="fractalNoise" baseFrequency="0.018" numOctaves="2" seed="7"/><feDisplacementMap in="SourceGraphic" scale="16"/></filter></defs><g clip-path="url(#bsq)"><rect width="1024" height="1024" fill="#FAFAF7"/><g transform="translate(512 512) translate(-551.1 -507.8)"><g filter="url(#brough)" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M380.0 512.0Q532.3 448.5 690.0 400.0M380.0 512.0Q550.0 512.0 720.0 512.0M380.0 512.0Q532.3 575.5 690.0 624.0" stroke="#0E0E0E" stroke-width="22"/><g stroke-width="36"><g transform="translate(380.0 512.0) rotate(-90.0)" stroke="#A8121E"><path d="M-90 -160L-54 -6Q0 25.2 54 -6L90 -160"/><ellipse cx="0" cy="-160" rx="90" ry="30.6"/></g><g transform="translate(690.0 400.0) rotate(70.1)" stroke="#0E0E0E"><path d="M-65 -150L-13 0H13L65 -150"/><ellipse cx="0" cy="-150" rx="65" ry="22.1"/></g><g transform="translate(720.0 512.0) rotate(90.0)" stroke="#0E0E0E"><path d="M-52.5 -175V-6Q0 23.1 52.5 -6V-175"/><ellipse cx="0" cy="-175" rx="52.5" ry="17.85"/></g><g transform="translate(690.0 624.0) rotate(109.9)" stroke="#0E0E0E"><path d="M-65 -125L-39 -6Q0 18.2 39 -6L65 -125"/><ellipse cx="0" cy="-125" rx="65" ry="22.1"/></g></g></g></g></g></svg>`;
+export const ICON_DARK_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024"><defs><clipPath id="bsq"><rect width="1024" height="1024" rx="230"/></clipPath><filter id="brough" x="-10%" y="-10%" width="120%" height="120%"><feTurbulence type="fractalNoise" baseFrequency="0.018" numOctaves="2" seed="7"/><feDisplacementMap in="SourceGraphic" scale="16"/></filter></defs><g clip-path="url(#bsq)"><rect width="1024" height="1024" fill="#0E0E0E"/><g transform="translate(512 512) translate(-551.1 -507.8)"><g filter="url(#brough)" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M380.0 512.0Q532.3 448.5 690.0 400.0M380.0 512.0Q550.0 512.0 720.0 512.0M380.0 512.0Q532.3 575.5 690.0 624.0" stroke="#FAFAF7" stroke-width="22"/><g stroke-width="36"><g transform="translate(380.0 512.0) rotate(-90.0)" stroke="#E0303F"><path d="M-90 -160L-54 -6Q0 25.2 54 -6L90 -160"/><ellipse cx="0" cy="-160" rx="90" ry="30.6"/></g><g transform="translate(690.0 400.0) rotate(70.1)" stroke="#FAFAF7"><path d="M-65 -150L-13 0H13L65 -150"/><ellipse cx="0" cy="-150" rx="65" ry="22.1"/></g><g transform="translate(720.0 512.0) rotate(90.0)" stroke="#FAFAF7"><path d="M-52.5 -175V-6Q0 23.1 52.5 -6V-175"/><ellipse cx="0" cy="-175" rx="52.5" ry="17.85"/></g><g transform="translate(690.0 624.0) rotate(109.9)" stroke="#FAFAF7"><path d="M-65 -125L-39 -6Q0 18.2 39 -6L65 -125"/><ellipse cx="0" cy="-125" rx="65" ry="22.1"/></g></g></g></g></g></svg>`;
+export const FAVICON_SVG = ICON_LIGHT_SVG; // the paper tile reads on light and dark tab bars alike
 
 export interface Viewer {
   name: string;
@@ -1148,9 +1156,9 @@ ${v ? `<nav class="links">${link("/", esc(tr(opts.lang, "Boards")), "boards")}</
   const html = `<!doctype html><html lang="${opts.lang ?? "en"}"${dirOf(opts.lang) === "rtl" ? ' dir="rtl"' : ""}><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${esc(title)}</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&family=Schoolbell&display=swap" rel="stylesheet">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml"><link rel="apple-touch-icon" href="/apple-touch-icon.png">
-<style>${CSS}</style>${DISPLAY_HEAD}</head><body>${nav}
+<style>${CSS}</style>${DISPLAY_HEAD}</head><body>${WORDMARK_DEFS}${nav}
 <main${opts.narrow ? ' class="narrow"' : ""}>${body}</main>
 <div id="toast" role="status" aria-live="polite"></div>
 <script>${CLIENT_JS}${opts.script ?? ""}</script></body></html>`;
@@ -1601,9 +1609,9 @@ function rawPage(title: string, body: string, script: string, status = 200, lang
   const html = `<!doctype html><html lang="${lang}"${dirOf(lang as Lang) === "rtl" ? ' dir="rtl"' : ""}><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${esc(title)}</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&family=Schoolbell&display=swap" rel="stylesheet">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml"><link rel="apple-touch-icon" href="/apple-touch-icon.png">
-<style>${CSS}</style>${DISPLAY_HEAD}</head><body>${body}
+<style>${CSS}</style>${DISPLAY_HEAD}</head><body>${WORDMARK_DEFS}${body}
 <div id="toast" role="status" aria-live="polite"></div>
 ${lang === "en" ? "" : `<script>window.I18N=${clientTable(lang)}</script>`}<script>${CLIENT_JS}${script}</script></body></html>`;
   return new Response(html, { status, headers: { "content-type": "text/html; charset=utf-8", "content-language": lang, vary: "Accept-Language, Cookie" } });
