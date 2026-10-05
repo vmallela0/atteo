@@ -4,6 +4,7 @@
 // BASE, ADMIN_KEY, PW_CHROME.
 import { readFile } from "node:fs/promises";
 import { chromium } from "playwright-core";
+import { d1Execute } from "./lib/d1.mjs";
 const BASE = process.env.BASE || "http://localhost:8787";
 const ops = async (p, b) => (await fetch(`${BASE}/api/ops/${p}`, { method: "POST", headers: { "x-admin-key": process.env.ADMIN_KEY || "ci-admin-key", "content-type": "application/json" }, body: JSON.stringify(b) })).json();
 const run = Date.now().toString(36).slice(-4), A = `ad${run}`, V = `av${run}`, F = `af${run}`;
@@ -14,6 +15,9 @@ const ck = {}; for (const u of [A, V, F]) ck[u] = (await ops("sessions", { user:
 const api = (u, path, body) => fetch(`${BASE}${path}`, { method: body ? "POST" : "GET", headers: { "content-type": "application/json", cookie: ck[u] }, body: body ? JSON.stringify(body) : undefined });
 // Two access events: V becomes a viewer, then the board is renamed.
 await api(A, `/api/boards/${board}/members/${V}`, { role: "viewer" });
+// An invitation to someone outside (written straight to the log: a local server can't send WorkOS's email).
+const INVITEE = `guest.${run}@outside.example`, MASKED = `g…@outside.example`;
+await d1Execute(`--command ${JSON.stringify(`INSERT INTO audit (board_id, actor, action, target, detail, ts) VALUES ('${board}', '${A}', 'invited', '${INVITEE}', 'viewer', ${Date.now()})`)}`, { cwd: new URL("../../", import.meta.url).pathname });
 await api(A, `/api/boards/${board}/rename`, { title: `Audit ${run} renamed` });
 
 let fails = 0; const check = (ok, t) => { console.log(`${ok ? "✓" : "✗"} ${t}`); if (!ok) fails++; };
@@ -45,6 +49,13 @@ check(new RegExp(`^atteo-audit-${board}-\\d{4}-\\d{2}-\\d{2}\\.json$`).test(name
 const doc = JSON.parse(await readFile(await dl.path(), "utf8"));
 const acts = (doc.audit || []).map((x) => x.action);
 check(doc.kind === "access_audit" && doc.board_id === board && doc.count === doc.audit.length && acts.indexOf("access_changed") > -1 && acts.indexOf("access_changed") < acts.indexOf("renamed"), `the file holds every event, oldest first (${acts.join(", ")})`);
+
+check(JSON.stringify(doc).includes(INVITEE) && (await D.p.locator("#acc-audit").innerText()).includes(INVITEE), "people see an invitee's address whole (the file and Activity)");
+
+// An agent's token (#3437): the same log, with invitees' addresses masked.
+const tok = (await ops("tokens", { user: A })).token, bearer = { headers: { authorization: `Bearer ${tok}` } };
+const viaAgent = [await (await fetch(`${BASE}/api/boards/${board}/audit`, bearer)).text(), await (await fetch(`${BASE}${href}`, bearer)).text()];
+check(viaAgent.every((t) => !t.includes(INVITEE) && t.includes(MASKED)), `an agent's /audit and export mask the address (${MASKED})`);
 
 // A viewer, phone: the same link in the drawer's dialog, nothing wider than the screen.
 const M = await open(V, { width: 390, height: 844 });

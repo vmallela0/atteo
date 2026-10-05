@@ -73,3 +73,12 @@ export function auditExportHeaders(boardId: string, exportedAt: number): Record<
     "cache-control": "no-store",
   };
 }
+
+/** An email address as an agent sees it in the audit (#3437, opus-d #3403): its first letter and domain, j…@example.com. */
+const EMAIL = /([A-Za-z0-9._%+-])[A-Za-z0-9._%+-]*@([A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,})/g;
+export const maskEmail = (s: string | null): string | null => (s == null ? s : s.replace(EMAIL, "$1…@$2"));
+
+/** Audit rows for an agent's token: invitees' addresses (an invite's target, any in a detail) masked. People see them whole. */
+export function forAgents<T extends { target: string | null; detail: string | null }>(rows: T[]): T[] {
+  return rows.map((r) => ({ ...r, target: maskEmail(r.target), detail: maskEmail(r.detail) }));
+}

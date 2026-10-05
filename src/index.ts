@@ -12,7 +12,7 @@ import * as approvals from "./approvals";
 import { approvalsPage } from "./approvalsPage";
 import { askPage } from "./ask";
 import * as access from "./access";
-import { AUDIT_EXPORT_LIMIT, auditExportDocument, auditExportHeaders, parseAuditAfter } from "./auditExport";
+import { AUDIT_EXPORT_LIMIT, auditExportDocument, auditExportHeaders, forAgents, parseAuditAfter } from "./auditExport";
 import * as social from "./social";
 import * as webhooks from "./webhooks";
 import * as avatars from "./avatars";
@@ -1711,15 +1711,19 @@ const handler = {
         if (!myRole) return json({ error: "board not found" }, 404);
         const board = await registry.getBoard(env, id);
         const owner = myRole === "owner" || board?.created_by === viewer.name;
+        const agentView = viewer.via === "agent"; // the audit masks invitees' email addresses for agents (#3437)
         try {
           if (what === "members" && method === "GET" && !arg) return json({ members: await registry.boardMembers(env, id), you: myRole });
           if (what === "audit" && method === "GET" && arg === "export") {
             const afterId = parseAuditAfter(url.searchParams.get("after"));
             const exportedAt = Date.now();
             const rows = await registry.auditExportRows(env, id, afterId);
-            return json(auditExportDocument(id, rows, { exportedAt, afterId, pageSize: AUDIT_EXPORT_LIMIT }), 200, auditExportHeaders(id, exportedAt));
+            return json(auditExportDocument(id, agentView ? forAgents(rows) : rows, { exportedAt, afterId, pageSize: AUDIT_EXPORT_LIMIT }), 200, auditExportHeaders(id, exportedAt));
           }
-          if (what === "audit" && method === "GET" && !arg) return json({ audit: await registry.auditLog(env, id) });
+          if (what === "audit" && method === "GET" && !arg) {
+            const rows = await registry.auditLog(env, id);
+            return json({ audit: agentView ? forAgents(rows) : rows });
+          }
           if (what === "audit") return json({ error: "not found" }, 404);
           if (!owner) return json({ error: "Only the board's owners can manage access." }, 403);
           if (what === "members" && method === "POST" && arg) {
