@@ -674,6 +674,8 @@ export const RU: Record<string, string> = {
   "The browser didn't play it: check the volume, or that this page may play sound": "Браузер не воспроизвёл: проверьте громкость и разрешено ли этой странице воспроизводить звук",
   "The last 3 commits and the task queue, as a live card": "Последние 3 коммита и очередь задач в виде живой карточки",
   "The microphone is blocked: allow it for this site to talk": "Микрофон заблокирован: разрешите его для этого сайта, чтобы говорить",
+  "No sound from the microphone: pick the right one for this site in your browser's settings": "Нет звука с микрофона: выберите нужный для этого сайта в настройках браузера",
+  "Speech recognition can't reach its service: check your connection and try again": "Распознавание речи не может связаться со своим сервисом: проверьте подключение и попробуйте ещё раз",
   "The plan, a checklist (- [ ] step), findings, links. People and agents edit this together.": "План, чек-лист (- [ ] шаг), находки, ссылки. Люди и агенты редактируют это вместе.",
   "The whole board": "Вся доска",
   "Theme": "Тема",

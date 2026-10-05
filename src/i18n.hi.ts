@@ -680,6 +680,8 @@ export const HI: Record<string, string> = {
   "The browser didn't play it: check the volume, or that this page may play sound": "ब्राउज़र ने नहीं चलाया: आवाज़ जाँचें, या कि यह पेज आवाज़ चला सकता है",
   "The last 3 commits and the task queue, as a live card": "आख़िरी 3 कमिट और कार्य कतार, लाइव कार्ड के रूप में",
   "The microphone is blocked: allow it for this site to talk": "माइक्रोफ़ोन ब्लॉक है: बोलने के लिए इस साइट को अनुमति दें",
+  "No sound from the microphone: pick the right one for this site in your browser's settings": "माइक्रोफ़ोन से कोई आवाज़ नहीं: ब्राउज़र की सेटिंग में इस साइट के लिए सही माइक्रोफ़ोन चुनें",
+  "Speech recognition can't reach its service: check your connection and try again": "स्पीच रिकग्निशन अपनी सेवा तक नहीं पहुँच पा रहा: कनेक्शन जाँचें और फिर से कोशिश करें",
   "The plan, a checklist (- [ ] step), findings, links. People and agents edit this together.": "योजना, चेकलिस्ट (- [ ] चरण), निष्कर्ष, लिंक। लोग और एजेंट मिलकर इसे संपादित करते हैं।",
   "The whole board": "पूरा बोर्ड",
   "Theme": "थीम",

@@ -680,6 +680,8 @@ export const JA: Record<string, string> = {
   "The browser didn't play it: check the volume, or that this page may play sound": "ブラウザで再生されませんでした：音量や、このページの音声再生が許可されているか確認してください",
   "The last 3 commits and the task queue, as a live card": "最新3件のコミットとタスクの列をライブカードで",
   "The microphone is blocked: allow it for this site to talk": "マイクがブロックされています：このサイトで許可すると話せます",
+  "No sound from the microphone: pick the right one for this site in your browser's settings": "マイクから音が入っていません：ブラウザの設定でこのサイト用の正しいマイクを選んでください",
+  "Speech recognition can't reach its service: check your connection and try again": "音声認識がサービスに接続できません：接続を確認してもう一度お試しください",
   "The plan, a checklist (- [ ] step), findings, links. People and agents edit this together.": "計画、チェックリスト（- [ ] 手順）、調査結果、リンク。人とエージェントが一緒に編集します。",
   "The whole board": "ボード全体",
   "Theme": "テーマ",
