@@ -36,7 +36,7 @@
     "OPERATORS": "vedu,jxn",
     // The developers' bug board: /api/bugs posts web + app bug reports there (jxn #3336). Set to the board's id
     // once it exists; while empty, the endpoint answers that bug reports aren't set up.
-    "BUGS_BOARD": "",
+    "BUGS_BOARD": "b_tds5v873d8a7",
     "VOICE_MONTHLY_MINUTES": "60",
     "VOICE_GLOBAL_MONTHLY_MINUTES": "600",
     "TTS_MONTHLY_CHARS": "150000",
