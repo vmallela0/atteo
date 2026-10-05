@@ -50,42 +50,60 @@ await ctx.route(`${BASE}/**`, async (route) => {
   if (h["content-security-policy-report-only"]) { h["content-security-policy"] = h["content-security-policy-report-only"]; delete h["content-security-policy-report-only"]; enforced++; }
   await route.fulfill({ response: r, headers: h }).catch(() => {});
 });
-const p = await ctx.newPage();
-const viol = [];
-p.on("console", (m) => { if (/content security policy/i.test(m.text())) viol.push(m.text().slice(0, 200)); });
-p.on("pageerror", (e) => viol.push(`pageerror: ${e.message.slice(0, 160)}`));
-try {
-  for (const path of ["/", `/b/${board}`, "/inbox", "/approvals", "/people", "/me", "/guide", "/for-you", "/ask", "/device"]) {
-    viol.length = 0;
+// A page of its own for each part, so they run side by side; each collects its own violations.
+const open = async () => {
+  const p = await ctx.newPage(), viol = [];
+  p.on("console", (m) => { if (/content security policy/i.test(m.text())) viol.push(m.text().slice(0, 200)); });
+  p.on("pageerror", (e) => viol.push(`pageerror: ${e.message.slice(0, 160)}`));
+  return { p, viol };
+};
+const pages = async () => {
+  await Promise.all(["/", `/b/${board}`, "/inbox", "/approvals", "/people", "/me", "/guide", "/for-you", "/ask", "/device"].map(async (path) => {
+    const { p, viol } = await open();
     await p.goto(`${BASE}${path}`); await p.waitForTimeout(800);
     check(!viol.length, `${path}: no violations with the policy enforced ${viol.join(" | ")}`);
-  }
+    await p.close();
+  }));
   check(enforced > 0, `the pages' policy really was enforced (${enforced} responses)`);
-  await p.goto(`${BASE}/b/${board}`); await p.waitForTimeout(1200);
+};
+const drawing = async () => {
+  const { p } = await open();
+  await p.goto(`${BASE}/b/${board}`);
   const drawn = await p.locator("#thread .mmd[data-mmd='drawn'] svg").first().waitFor({ timeout: 20000 }).then(() => true, () => false);
   check(await p.locator("#thread pre code span").count() > 0 && drawn, "code colours and the mermaid diagram render");
-  for (const k of Object.keys(files)) {
-    viol.length = 0;
-    await p.locator(`#thread [data-preview-file="ce-${k}-${run}.html"]`).click(); await p.waitForTimeout(1000);
-    const f = p.frameLocator("#pv-frame");
-    if (k === "onclick") await f.locator("#b").click().catch(() => {});
-    await p.waitForTimeout(400);
-    const o = await f.locator("#o").innerText().catch(() => "?");
-    // The preview's own policy blocking its fetch and image is expected; only the page's policy (the nonce one) counts here.
-    const page = viol.filter((v) => /'nonce-|form-action 'self'/.test(v));
-    check(o === (k === "onclick" ? "clicked" : "ran") && !page.length, `preview ${k}: works with the page's policy enforced (${o}) ${page.join(" | ")}`);
-    await p.locator(".pv-dlg [data-pv-close]").click(); await p.waitForTimeout(200);
-  }
+  await p.close();
+};
+const preview = async (k) => {
+  const { p, viol } = await open();
+  await p.goto(`${BASE}/b/${board}`);
+  await p.locator(`#thread [data-preview-file="ce-${k}-${run}.html"]`).click();
+  const f = p.frameLocator("#pv-frame");
+  if (k === "onclick") await f.locator("#b").click({ timeout: 10000 }).catch(() => {});
+  const want = k === "onclick" ? "clicked" : "ran";
+  await f.locator("#o", { hasText: want }).waitFor({ timeout: 10000 }).catch(() => {});
+  await p.waitForTimeout(300); // a violation report, if any, comes just after
+  const o = await f.locator("#o").innerText().catch(() => "?");
+  // The preview's own policy blocking its fetch and image is expected; only the page's policy (the nonce one) counts here.
+  const page = viol.filter((v) => /'nonce-|form-action 'self'/.test(v));
+  check(o === want && !page.length, `preview ${k}: works with the page's policy enforced (${o}) ${page.join(" | ")}`);
+  await p.close();
+};
+const consent = async (allow) => {
+  const { p, viol } = await open();
+  const label = allow ? "Allow" : "Don't allow", state = `s${allow ? 1 : 0}${run}`;
+  await p.goto(authorize(state));
+  await p.locator(`form[action="/oauth/authorize"] button[name="allow"][value="${allow ? 1 : 0}"]`).click();
+  const deadline = Date.now() + 10000;
+  let got;
+  while (!(got = hits.find((h) => h.startsWith("/cb") && h.includes(`state=${state}`))) && Date.now() < deadline) await p.waitForTimeout(50);
+  await p.waitForTimeout(200);
+  const ok = allow ? got && got.includes("code=") : got && got.includes("error=access_denied");
+  check(!!ok && !viol.length, `OAuth consent, ${label}: the redirect reaches the client (${(got || "nothing").slice(0, 60)}) ${viol.join(" | ")}`);
+  await p.close();
+};
+try {
+  await Promise.all([pages(), drawing(), ...Object.keys(files).map(preview), consent(true), consent(false)]);
   check(!hits.some((h) => h.startsWith("/preview")), `a preview still can't reach the network (${hits.join(", ") || "nothing arrived"})`);
-  for (const [allow, label] of [[true, "Allow"], [false, "Don't allow"]]) {
-    viol.length = 0;
-    const before = hits.length, state = `s${allow ? 1 : 0}${run}`;
-    await p.goto(authorize(state)); await p.waitForTimeout(500);
-    await p.locator(`form[action="/oauth/authorize"] button[name="allow"][value="${allow ? 1 : 0}"]`).click(); await p.waitForTimeout(1200);
-    const got = hits.slice(before).find((h) => h.startsWith("/cb"));
-    const ok = allow ? got && got.includes(`state=${state}`) && got.includes("code=") : got && got.includes("error=access_denied");
-    check(!!ok && !viol.length, `OAuth consent, ${label}: the redirect reaches the client (${(got || "nothing").slice(0, 60)}) ${viol.join(" | ")}`);
-  }
 } finally {
   await ctx.unrouteAll({ behavior: "ignoreErrors" });
   await b.close();
