@@ -93,6 +93,7 @@ describe("the guide (vedu #2402)", () => {
     expect(line("agents profile")).toContain("your user's call");
     expect(line("--json")).toMatch(/not fenced.*data/);
     expect(line("atteo acp")).toContain("fenced");
+    expect(line("entries?after=N&ack=1")).toMatch(/only with ack=1 \(the SDKs' entries\(\) sends it\); export, ls and cat never do/);
     expect(line("sdk/python/atteo.py")).toMatch(/export \(never moves your read position\), purge \(still rotate\), publish \(a preview until yes\)/);
   });
 });
