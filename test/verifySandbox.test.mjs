@@ -64,7 +64,8 @@ describe("claim-check terminal safety", () => {
   it("passes the real sandbox's isolation probes when one is installed", async () => {
     const sandbox = pickSandbox();
     if (!sandbox) return;
-    expect(await sandboxSelfTest(sandbox)).toMatchObject({ ok: true });
+    const result = await sandboxSelfTest(sandbox);
+    expect(result.ok, result.lines.join("\n")).toBe(true);
   });
 
   it("removes a stale Docker cidfile before a later check", async () => {
