@@ -514,6 +514,9 @@ await step("card: a change card from local git (commits, files incl. new ones, d
 });
 
 await step("review and claim from the shell: the change card and the claim tool's actions, with the usage errors", async () => {
+  // Standalone (#3007): its own board, and every seq read from the post's own output (shards share nothing else).
+  const rboard = (await ops("boards", { user: A, title: `e2e cli review ${run}` })).board.id;
+  await ops("members", { board: rboard, user: B });
   // A change card to review (a tiny repo, like the card step).
   const repo = mkdtempSync(join(tmpdir(), "agent-board-review-"));
   const genv = { ...process.env, GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: "t@example.com", GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: "t@example.com" };
@@ -524,40 +527,46 @@ await step("review and claim from the shell: the change card and the claim tool'
   g("switch", "-qc", "fix/tiny");
   writeFileSync(join(repo, "a.txt"), "one\ntwo\n");
   g("commit", "-qam", "Add two");
-  let r = await cli(["use", board], { cwd: repo });
+  let r = await cli(["use", rboard], { cwd: repo });
   assert(r.code === 0, r.err);
   r = await cli(["card", "--no-gh", "--no-diff", "--post", "Add two", "--to", B], { cwd: repo });
-  assert(r.code === 0, r.err + r.out);
+  assert(r.code === 0 && /Posted #\d+/.test(r.out), r.err + r.out);
   const change = Number(r.out.match(/Posted #(\d+)/)[1]);
   // Reviews: a verdict is required, request_changes needs its note, approve says the new state.
-  r = await cli(["review", String(change), "--board", board], { cred: credB });
+  r = await cli(["review", String(change), "--board", rboard], { cred: credB });
   assert(r.code === 1 && r.err.includes("approve|request_changes|comment"), r.err + r.out);
-  r = await cli(["review", String(change), "request_changes", "--board", board], { cred: credB });
+  r = await cli(["review", String(change), "request_changes", "--board", rboard], { cred: credB });
   assert(r.code === 1 && r.err.includes("needs a note"), r.err + r.out);
-  r = await cli(["review", String(change), "request_changes", "the label misses the empty case", "--board", board], { cred: credB });
+  r = await cli(["review", String(change), "request_changes", "the label misses the empty case", "--board", rboard], { cred: credB });
   assert(r.code === 0 && /Posted #\d+/.test(r.out) && /now: /.test(r.out), r.err + r.out);
-  r = await cli(["review", String(change), "approve", "--board", board], { cred: credB });
+  r = await cli(["review", String(change), "approve", "--board", rboard], { cred: credB });
   assert(r.code === 0 && /Posted #\d+/.test(r.out) && /now: /.test(r.out), r.err + r.out);
   // Claims: list, evidence by url or entry, verify and dispute, each with its usage error.
-  const c1 = Number((await tool(tokA, board, "post", { type: "claim", text: `the readme names the app ${run}` })).match(/#(\d+)/)[1]);
-  const c2 = Number((await tool(tokA, board, "post", { type: "claim", text: `the cli ships today ${run}` })).match(/#(\d+)/)[1]);
-  r = await cli(["claim", "list", "--board", board], { cred: credB });
+  const claimPost = async (text) => {
+    const out = await tool(tokA, rboard, "post", { type: "claim", text });
+    const m = out.match(/Posted #(\d+)/);
+    assert(m, `the claim post was refused: ${out.slice(0, 300)}`);
+    return Number(m[1]);
+  };
+  const c1 = await claimPost(`the readme names the app ${run}`);
+  const c2 = await claimPost(`the cli ships today ${run}`);
+  r = await cli(["claim", "list", "--board", rboard], { cred: credB });
   assert(r.code === 0 && r.out.includes(`#${c1} [asserted]`), r.out + r.err);
-  r = await cli(["claim", "evidence", String(c1), "--board", board], { cred: credA });
+  r = await cli(["claim", "evidence", String(c1), "--board", rboard], { cred: credA });
   assert(r.code === 1 && r.err.includes("--from"), r.err + r.out);
-  r = await cli(["claim", "evidence", String(c1), "--url", "https://example.com/readme", "it's in the readme", "--board", board], { cred: credA });
+  r = await cli(["claim", "evidence", String(c1), "--url", "https://example.com/readme", "it's in the readme", "--board", rboard], { cred: credA });
   assert(r.code === 0, r.err + r.out);
-  r = await cli(["claim", "list", "--board", board], { cred: credB });
+  r = await cli(["claim", "list", "--board", rboard], { cred: credB });
   assert(r.code === 0 && r.out.includes("https://example.com/readme"), r.out);
-  r = await cli(["claim", "evidence", String(c1), "--from", String(change), "--board", board], { cred: credA });
+  r = await cli(["claim", "evidence", String(c1), "--from", String(change), "--board", rboard], { cred: credA });
   assert(r.code === 0, r.err + r.out);
-  r = await cli(["claim", "verify", String(c1), "read it myself", "--board", board], { cred: credB });
+  r = await cli(["claim", "verify", String(c1), "read it myself", "--board", rboard], { cred: credB });
   assert(r.code === 0, r.err + r.out);
-  r = await cli(["claim", "dispute", String(c2), "--board", board], { cred: credB });
+  r = await cli(["claim", "dispute", String(c2), "--board", rboard], { cred: credB });
   assert(r.code === 1 && r.err.includes("dispute"), r.err + r.out);
-  r = await cli(["claim", "dispute", String(c2), "it does not ship today", "--board", board], { cred: credB });
+  r = await cli(["claim", "dispute", String(c2), "it does not ship today", "--board", rboard], { cred: credB });
   assert(r.code === 0, r.err + r.out);
-  const claims = (await (await fetch(`${BASE}/api/boards/${board}/claims`, { headers: { authorization: `Bearer ${tokB}` } })).json()).claims;
+  const claims = (await (await fetch(`${BASE}/api/boards/${rboard}/claims`, { headers: { authorization: `Bearer ${tokB}` } })).json()).claims;
   const s1 = claims.find((x) => x.seq === c1), s2 = claims.find((x) => x.seq === c2);
   assert(s1.status === "verified" && s1.verified_by === B, JSON.stringify(s1));
   assert(s2.status === "disputed" && /does not ship/.test(s2.dispute_reason), JSON.stringify(s2));
