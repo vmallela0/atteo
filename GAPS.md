@@ -13,7 +13,7 @@ lives; most have an e2e step in `test/e2e.mjs` with the same words.
 4. **Files at scale** (P0 #5): files live in each board's SQLite (no R2 shared folder).
 5. **Signed Agent Cards** (P0 #3): built (#3588); signed once the `A2A_SIGNING_KEY` secret is set in production (`node scripts/a2a-key.mjs keygen`).
 6. **Smaller ones:** people-only friend requests on the server, live share, moderation tools, compaction,
-   success-metric telemetry, design partners.
+   design partners.
 
 ## P0 (MVP)
 
@@ -84,5 +84,6 @@ lives; most have an e2e step in `test/e2e.mjs` with the same words.
 
 ## Product, GTM, business
 
-Built: plans (Free and Pro through Stripe), usage metrics on `/_ops`. An open wire spec, docs/SPEC.md (#3715). Missing:
-success-metric telemetry, a design-partner program.
+Built: plans (Free and Pro through Stripe), usage metrics on `/_ops`. An open wire spec, docs/SPEC.md (#3715). Success-metric
+telemetry: boards created, first agent post, invite redeemed and friend accepted in `usage_daily` (metric `success`), on
+`/_ops` (Product) and `GET /api/ops/metrics` (`success`). Missing: a design-partner program.

@@ -30,7 +30,7 @@ import { agentsMd, guidePage } from "./guide";
 import { docsPage } from "./docs";
 import { openapi } from "./openapi";
 import * as billing from "./billing";
-import { egressRefusal, noteWakeDelivery } from "./observe";
+import { egressRefusal, noteBoardCreated, noteWakeDelivery, type Later } from "./observe";
 import * as inbox from "./inbox";
 import * as notify from "./notify";
 import * as forYou from "./forYou";
@@ -231,12 +231,13 @@ async function grepResponse(env: Env, user: string, url: URL, boardId: string | 
 }
 
 /** Plan limits apply to people (origin given); the ops API creates boards without them. */
-async function createBoard(env: Env, title: string, user: string, origin?: string, opts: { encrypted?: boolean } = {}) {
+async function createBoard(env: Env, title: string, user: string, origin?: string, opts: { encrypted?: boolean } = {}, later: Later | null = null) {
   if (origin) await billing.checkCanCreateBoard(env, user, origin);
   const id = newBoardId();
   const info = await boardStub(env, id).init(id, title, user, opts);
   await registry.recordBoard(env, info);
   await registry.addMember(env, id, user, { role: "owner" });
+  void noteBoardCreated(env, later, user);
   if (opts.encrypted) await env.DB.prepare(`UPDATE boards SET encrypted = 1 WHERE id = ?`).bind(id).run();
   // Organization policy: boards made by people at a domain with a retention cap start with it.
   const u = await registry.userByName(env, user);
@@ -965,7 +966,7 @@ const handler = {
           ctx.waitUntil(registry.audit(env, old.id, viewer.name, "archived", null, "to make room on the Free plan").catch(() => {}));
         }
         try {
-          const info = await createBoard(env, title, viewer.name, origin, { encrypted });
+          const info = await createBoard(env, title, viewer.name, origin, { encrypted }, ctx);
           return redirect(`/b/${info.id}`);
         } catch (e) {
           const plan = e instanceof billing.BillingError;
@@ -1632,11 +1633,11 @@ const handler = {
             const note = String(b.note ?? "").trim();
             const blocked = egressRefusal(env, ctx, { note });
             if (blocked) return json({ error: blocked }, 400);
-            return json({ ok: true, relation: await social.requestFriend(env, me, String(b.user ?? ""), note) });
+            return json({ ok: true, relation: await social.requestFriend(env, me, String(b.user ?? ""), note, ctx) });
           }
           pm = path.match(/^\/api\/friends\/([a-z0-9][a-z0-9_.-]{0,31})\/(accept|decline|remove|block|unblock)$/);
           if (pm && method === "POST") {
-            if (pm[2] === "accept") return json({ ok: true, relation: await social.acceptFriend(env, me, pm[1]) });
+            if (pm[2] === "accept") return json({ ok: true, relation: await social.acceptFriend(env, me, pm[1], ctx) });
             if (pm[2] === "block") await social.blockPerson(env, me, pm[1]);
             else await social.removeFriend(env, me, pm[1]);
             return json({ ok: true });
@@ -1922,7 +1923,7 @@ const handler = {
       if (m && method === "GET") {
         if (!viewer) return needLogin();
         try {
-          return redirect(`/b/${await access.redeemLink(env, m[1], viewer.name, origin)}`);
+          return redirect(`/b/${await access.redeemLink(env, m[1], viewer.name, origin, ctx)}`);
         } catch (e) {
           return messagePage("Invite link", e instanceof Error ? e.message.replace(/: https?:\S+$/, ".") : String(e), { viewer, status: 410, action: { href: "/", label: "Your boards" } });
         }
@@ -1971,7 +1972,7 @@ const handler = {
         const blocked = egressRefusal(env, ctx, { title });
         if (blocked) return json({ error: blocked }, 400);
         try {
-          const info = await createBoard(env, title, viewer.name, url.origin, { encrypted: body.encrypted !== false });
+          const info = await createBoard(env, title, viewer.name, url.origin, { encrypted: body.encrypted !== false }, ctx);
           return json({ board: { ...info, encrypted: body.encrypted !== false, picture: null } }, 201);
         } catch (e) {
           const msg = e instanceof Error ? e.message.replace(/: https?:\S+$/, ".") : String(e);
@@ -2167,7 +2168,7 @@ const handler = {
               if (!hits.length) return json({ error: `No board of yours or invitation matches "${want}". List them: atteo get boards` }, 404);
               if (hits.length > 1) return json({ error: `"${want}" matches more than one board; use its id.`, matches: hits.map((h) => ({ id: h.id, title: h.title, status: h.invite ? "invited" : "member" })) }, 409);
               const target = hits[0];
-              if (target.invite && !(me && (await registry.acceptInvitation(env, me, target.id, origin)))) return json({ error: `Couldn't accept the invitation to ${target.id}.` }, 400);
+              if (target.invite && !(me && (await registry.acceptInvitation(env, me, target.id, origin, ctx)))) return json({ error: `Couldn't accept the invitation to ${target.id}.` }, 400);
               await boardStub(env, target.id).joinSession(viewer.name, s.id);
               const cur = await live();
               const next = await sessions.setBoards(env, cur, [...cur.boards.filter((b) => b !== target.id), target.id]);
@@ -3309,11 +3310,11 @@ const handler = {
             const friend = name && (await social.friendsOf(env, viewer.name)).friends.find((f) => f.name === name);
             const u = friend ? await registry.userByName(env, friend.name) : null;
             if (!u?.email) return json({ error: `You can invite friends by name; for anyone else, use their email.` }, 400);
-            const r = await sendInvite(env, origin, { boardId: id, email: u.email, invitedBy: viewer.name, role, expiresDays });
+            const r = await sendInvite(env, origin, { boardId: id, email: u.email, invitedBy: viewer.name, role, expiresDays }, ctx);
             return json({ ok: r.ok, added: r.added, message: await forPerson(r.message.split(` (${u.email.toLowerCase()})`).join("").split(u.email.toLowerCase()).join(u.name)) });
           }
           if (!EMAIL_RE.test(to)) return json({ error: "Enter a valid email address." }, 400);
-          const r = await sendInvite(env, origin, { boardId: id, email: to, invitedBy: viewer?.name ?? "ops", role, expiresDays });
+          const r = await sendInvite(env, origin, { boardId: id, email: to, invitedBy: viewer?.name ?? "ops", role, expiresDays }, ctx);
           return json({ ...r, message: await forPerson(r.message) });
         }
         return json({ error: "not found" }, 404);
@@ -3327,7 +3328,7 @@ const handler = {
         if (!me) return needLogin();
         let ok: boolean;
         try {
-          ok = m[2] === "accept" ? await registry.acceptInvitation(env, me, m[1], origin) : await registry.declineInvitation(env, me, m[1]);
+          ok = m[2] === "accept" ? await registry.acceptInvitation(env, me, m[1], origin, ctx) : await registry.declineInvitation(env, me, m[1]);
         } catch (e) {
           return json({ error: e instanceof Error ? e.message : String(e) }, 402);
         }
@@ -3535,7 +3536,7 @@ const handler = {
           const u = normalizeUser(body.user);
           if (!u || !(await registry.userByName(env, u)) || !body.title) return json({ error: "user and title required" }, 400);
           try {
-            return json({ board: await createBoard(env, body.title.slice(0, 120), u, undefined, { encrypted: (body as { encrypted?: unknown }).encrypted === true }) }, 201);
+            return json({ board: await createBoard(env, body.title.slice(0, 120), u, undefined, { encrypted: (body as { encrypted?: unknown }).encrypted === true }, ctx) }, 201);
           } catch (e) {
             return json({ error: e instanceof Error ? e.message : String(e) }, 400);
           }

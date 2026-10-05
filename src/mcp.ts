@@ -2,7 +2,7 @@
 
 import * as usage from "./usage";
 import * as limits from "./limits";
-import { egressRefusal, noteWakeDelivery } from "./observe";
+import { egressRefusal, noteBoardCreated, noteWakeDelivery } from "./observe";
 import * as approvals from "./approvals";
 import * as recap from "./recap";
 import * as triggers from "./triggers";
@@ -771,7 +771,7 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
       if (target.invite) {
         let joined = false;
         try {
-          joined = !!me && (await registry.acceptInvitation(env, me, target.id, c.origin));
+          joined = !!me && (await registry.acceptInvitation(env, me, target.id, c.origin, c.ctx));
         } catch (e) {
           throw new ToolError(e instanceof Error ? e.message : String(e));
         }
@@ -815,6 +815,7 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
       const info = await stubFor(env, id).init(id, title, user, { encrypted });
       await registry.recordBoard(env, info);
       await registry.addMember(env, id, user, { role: "owner" });
+      void noteBoardCreated(env, c.ctx, user);
       if (encrypted) await env.DB.prepare(`UPDATE boards SET encrypted = 1 WHERE id = ?`).bind(id).run();
       if (!c.pinnedBoard) await registry.setMcpSessionBoard(env, c.sessionId, user, id);
       return [
@@ -1657,7 +1658,7 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
       if (true) await requireWriter(env, id, user);
       const email = str(args.email);
       if (!email || !EMAIL_RE.test(email)) throw new ToolError("A valid email is required.");
-      const r = await sendInvite(env, c.origin, { boardId: id, email, invitedBy: user });
+      const r = await sendInvite(env, c.origin, { boardId: id, email, invitedBy: user }, c.ctx);
       if (!r.ok) throw new ToolError(r.message);
       return r.message;
     }

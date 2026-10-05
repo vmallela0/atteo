@@ -7,7 +7,7 @@ import { fence, flagNote, flagOf, screenText } from "./screen";
 import { FOR_LABEL, pingExcerpt, triagePreview, webhookForWhom } from "./ping";
 import { DurableObject } from "cloudflare:workers";
 import { computeSummary, formatSummary, summaryWithNames, summaryWithinBudget, tasksFor, withinReadBudget, withNames, DEFAULT_SUMMARY_CHARS, type Summary } from "./state";
-import { noteClaimReview, noteContextPack, noteContextPackMs, noteEgressBlock, notePaste, noteStaleNotice } from "./observe";
+import { noteClaimReview, noteContextPack, noteContextPackMs, noteEgressBlock, noteFirstAgentPost, notePaste, noteStaleNotice } from "./observe";
 import { blockedMessage, scanFields, scanText, type SecretHit } from "./secrets";
 import { recordOutcome } from "./agents";
 import { ALL_AGENTS, ALL_HUMANS, ALL_MEMBERS, forAgent, forPerson, hasGroupMention, keep, MAX_GROUP_MENTIONS, MAX_MENTIONS, mentionsOwnAgent, parseMentions, SESSION_NAME_RE, type Mention } from "./mentions";
@@ -1340,7 +1340,10 @@ export class Board extends DurableObject<Env> {
     if (internal.attachments) this.indexEntry(entry.seq, entry.text, internal.attachments.list.map((a) => a.name).join(" "), null, internal.attachments.text || null);
     else this.indexEntry(entry.seq, handoff && !isResult(handoff) ? `${entry.text}\n${handoffText(handoff)}` : entry.text, entry.artifact_name, entry.card ?? null, artifactContent);
     // A write that landed. System lines and board notices aren't pastes; test accounts stay out of the ops counters.
-    if (!user.startsWith("e2e-") && !internal.system && !internal.notice) notePaste(this.env, this.ctx, input.via);
+    if (!user.startsWith("e2e-") && !internal.system && !internal.notice) {
+      notePaste(this.env, this.ctx, input.via);
+      if (input.via !== "person") noteFirstAgentPost(this.env, this.ctx, user);
+    }
     // A handoff's own fields are screened like its text: instructions in checks are flagged the same way.
     const handoffFlag = handoff && !isResult(handoff) ? screenText(handoffText(handoff)) : null;
     if (handoffFlag && !handoffFlag.quoted) {

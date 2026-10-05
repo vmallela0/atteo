@@ -5,6 +5,7 @@ import { checkOutsideMember } from "./policy";
 import { sha256hex, randomSecret } from "./auth";
 import { addMember, audit, memberRole, type Role, ROLES } from "./registry";
 import { checkCanAddMember } from "./billing";
+import { noteInviteRedeemed, type Later } from "./observe";
 import type { Env } from "./types";
 
 export interface InviteLink {
@@ -68,7 +69,7 @@ export async function revokeLink(env: Env, boardId: string, id: string, by: stri
 }
 
 /** Joins the board through a link. Returns the board id (already a member: just the id). */
-export async function redeemLink(env: Env, secret: string, user: string, origin: string): Promise<string> {
+export async function redeemLink(env: Env, secret: string, user: string, origin: string, later: Later | null = null): Promise<string> {
   const l = await env.DB.prepare(`SELECT id, board_id, role, member_days, expires_at, max_uses, uses, revoked_at FROM invite_links WHERE token_hash = ?`)
     .bind(await sha256hex(secret))
     .first<InviteLink>();
@@ -87,5 +88,6 @@ export async function redeemLink(env: Env, secret: string, user: string, origin:
   await env.DB.prepare(`DELETE FROM members WHERE board_id = ? AND user = ? AND expires_at IS NOT NULL AND expires_at < ?`).bind(l.board_id, user, Date.now()).run();
   await addMember(env, l.board_id, user, { role: l.role, expires_at: l.member_days ? Date.now() + l.member_days * 86_400_000 : null, added_by: `link ${l.id}` });
   await audit(env, l.board_id, user, "joined", user, `via invite link (${l.role}${l.member_days ? `, ${l.member_days}d` : ""})`);
+  void noteInviteRedeemed(env, later, user);
   return l.board_id;
 }

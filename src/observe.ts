@@ -1,12 +1,12 @@
-// Operator counters for the trust and context paths. In-process so a test sees the increment immediately, and
-// flushed to usage_daily (the same table as the other ops counters) so /_ops and GET /api/ops/metrics can sum them
-// across isolates. A few named counters — not an APM.
+// Operator counters for the trust and context paths, and a handful of product success events. In-process so a test
+// sees the increment immediately, and flushed to usage_daily (the same table as the other ops counters) so /_ops and
+// GET /api/ops/metrics can sum them across isolates. A few named counters — not an APM.
 //
 // How to read them (last 14 days, operators only):
-//   /_ops → Trust and context, Latency (p95)
-//   GET /api/ops/metrics → observe
+//   /_ops → Trust and context, Latency (p95) · Product
+//   GET /api/ops/metrics → observe · success
 //   GET /api/ops/usage-daily → rows whose metric is paste, egress_block, context_pack, stale_notice,
-//                              claim_review, approval, entry_delivery or context_pack_ms
+//                              claim_review, approval, entry_delivery, context_pack_ms or success
 //
 // paste            a write that landed on a board. key: person | agent
 // egress_block     the secret filter refused a write before it was stored. key: the rule id (never the secret)
@@ -27,6 +27,8 @@
 //                  key entries: total entries made stale
 // claim_review     key verified | disputed: completed reviews of claims
 // approval         key requested | approved | rejected, plus risk_low | risk_medium | risk_high for requests
+// success          product activation. key: board_created | first_agent_post | invite_redeemed | friend_accepted
+//                  first_agent_post is once per person (lifetime); the others count each event.
 // Block rate is egress blocks ÷ (pastes + egress blocks); stale-notice rate is notices ÷ invalidations;
 // verified-claim ratio is verified ÷ (verified + disputed). Test accounts (e2e-*) are left out.
 
@@ -42,6 +44,14 @@ const day = (ts = Date.now()) => new Date(ts).toISOString().slice(0, 10);
 
 const local = new Map<string, number>(); // `${metric}\n${key}` → total since this isolate started (tests reset it)
 const inflight = new Set<Promise<void>>();
+const firstAgent = new Set<string>(); // people whose first agent post this isolate already recorded
+
+/** Lifetime uniqueness for first_agent_post. Not a UTC day, so the 90-day sweep must leave these rows. */
+export const SUCCESS_ONCE_DAY = "once";
+export const SUCCESS_ONCE_METRIC = "success_once";
+export const SUCCESS_METRIC = "success";
+export const SUCCESS_KEYS = ["board_created", "first_agent_post", "invite_redeemed", "friend_accepted"] as const;
+export type SuccessKey = (typeof SUCCESS_KEYS)[number];
 
 /** This isolate's total for one counter. Tests read this; operators read usage_daily. */
 export function counter(metric: string, key: string): number {
@@ -51,6 +61,7 @@ export function counter(metric: string, key: string): number {
 /** Clears this isolate's totals. Tests only. */
 export function resetCounters(): void {
   local.clear();
+  firstAgent.clear();
 }
 
 /** Waits for the D1 writes this isolate has started. */
@@ -275,6 +286,52 @@ export function noteApprovalDecision(env: Env | null | undefined, later: Later |
   return count(env, later, "approval", outcome);
 }
 
+/** A collaboration board was created (not a DM or "Your agent"). */
+export function noteBoardCreated(env: Env | null | undefined, later: Later | null | undefined, user?: string | null): Promise<void> {
+  if (skip(user)) return Promise.resolve();
+  return count(env, later, SUCCESS_METRIC, "board_created");
+}
+
+/** An invite link was used, or an email invitation was accepted, and that person joined. */
+export function noteInviteRedeemed(env: Env | null | undefined, later: Later | null | undefined, user?: string | null): Promise<void> {
+  if (skip(user)) return Promise.resolve();
+  return count(env, later, SUCCESS_METRIC, "invite_redeemed");
+}
+
+/** A pending friend request became a friendship (accepted by the person or by a standing rule). */
+export function noteFriendAccepted(env: Env | null | undefined, later: Later | null | undefined, user?: string | null, other?: string | null): Promise<void> {
+  if (skip(user) || skip(other)) return Promise.resolve();
+  return count(env, later, SUCCESS_METRIC, "friend_accepted");
+}
+
+/**
+ * A person's agent posted for the first time. Later posts by the same person are ignored. Uniqueness is a
+ * usage_daily row on SUCCESS_ONCE_DAY (kept across the 90-day sweep); the daily success counter only moves once.
+ */
+export function noteFirstAgentPost(env: Env | null | undefined, later: Later | null | undefined, user?: string | null): Promise<void> {
+  if (!user || skip(user) || firstAgent.has(user)) return Promise.resolve();
+  const db = env?.DB;
+  if (!db) {
+    firstAgent.add(user);
+    return count(env, later, SUCCESS_METRIC, "first_agent_post");
+  }
+  const who = user.slice(0, 80);
+  const p = db
+    .prepare(`INSERT OR IGNORE INTO usage_daily (day, metric, key, count) VALUES (?, ?, ?, 1)`)
+    .bind(SUCCESS_ONCE_DAY, SUCCESS_ONCE_METRIC, who)
+    .run()
+    .then((r) => {
+      firstAgent.add(user);
+      if (r.meta.changes) return count(env, later, SUCCESS_METRIC, "first_agent_post");
+    })
+    .then(() => {})
+    .catch(() => {});
+  inflight.add(p);
+  void p.finally(() => inflight.delete(p));
+  later?.waitUntil(p);
+  return p;
+}
+
 export interface Observability {
   days: number;
   paste: { person: number; agent: number; total: number };
@@ -293,6 +350,32 @@ export interface Observability {
   approvals: { requested: number; approved: number; rejected: number; by_risk: { low: number; medium: number; high: number } };
   /** Production p95 for the PRD's two latency targets. Histogram buckets in usage_daily. */
   latency: { entry_delivery: LatencyStats; context_pack: LatencyStats };
+}
+
+export interface SuccessMetrics {
+  days: number;
+  board_created: number;
+  first_agent_post: number;
+  invite_redeemed: number;
+  friend_accepted: number;
+}
+
+/** Product activation counters for the last `n` UTC days. */
+export async function successMetrics(env: Env, n = 14): Promise<SuccessMetrics> {
+  const since = day(Date.now() - (n - 1) * 86_400_000);
+  const rows = (
+    await env.DB.prepare(`SELECT key, SUM(count) AS c FROM usage_daily WHERE day >= ? AND metric = ? GROUP BY key`)
+      .bind(since, SUCCESS_METRIC)
+      .all<{ key: string; c: number }>()
+  ).results;
+  const sum = (key: SuccessKey) => rows.reduce((n, r) => (r.key === key ? n + r.c : n), 0);
+  return {
+    days: n,
+    board_created: sum("board_created"),
+    first_agent_post: sum("first_agent_post"),
+    invite_redeemed: sum("invite_redeemed"),
+    friend_accepted: sum("friend_accepted"),
+  };
 }
 
 /** The trust and context counters for the last `n` UTC days, summed across isolates. */
