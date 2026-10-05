@@ -80,9 +80,11 @@ struct FullSettings: View {
                 displayPicker("Density", id: "display-density", \.density, [("comfortable", "Comfortable"), ("compact", "Compact")])
                 displayPicker("Theme", id: "display-theme", \.theme, [("system", "System"), ("light", "Light"), ("dark", "Dark")])
                 displayPicker("Replies", id: "display-replies", \.replies, [("chat", "In the chat"), ("thread", "Only in threads")])
+                // One line (jxn #2690): messages that aren't for you fold to "who · first line" (OneLine.swift).
+                displayPicker("Messages", id: "display-compact", \.compact, [("off", "Full"), ("others", "One line")])
                 LanguagePicker()
             } header: { SectionHeader("Display") } footer: {
-                Text("Text size adds to your iPhone's own setting. Saved to your account, so the web follows it too.")
+                Text("One line folds messages that don't mention you; tap one to open it. Text size adds to your iPhone's own setting. Saved to your account, so the web follows it too.")
             }
             .listRowBackground(Theme.card)
 

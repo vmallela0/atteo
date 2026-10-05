@@ -50,7 +50,7 @@ final class WorkUITests: XCTestCase {
         return out
     }
 
-    /// Opens Checkout bug's Work sheet (from the strip at the top of the chat), full height.
+    /// Opens Checkout bug on its Tasks tab (under the title, beside Chat and Files).
     func openWork(_ a: XCUIApplication) {
         a.launch()
         XCTAssertTrue(a.navigationBars["Chats"].waitForExistence(timeout: 10))
@@ -59,14 +59,7 @@ final class WorkUITests: XCTestCase {
         let chat = a.buttons["chat-Checkout bug"].firstMatch
         XCTAssertTrue(chat.waitForExistence(timeout: 10))
         chat.tap()
-        let strip = a.buttons["work-strip"]
-        XCTAssertTrue(strip.waitForExistence(timeout: 10), "the work strip")
-        strip.tap()
-        XCTAssertTrue(a.navigationBars.matching(NSPredicate(format: "identifier BEGINSWITH 'Work on'")).firstMatch.waitForExistence(timeout: 5), "Work opens")
-        // The sheet to full height: drag its grabber (just above its navigation bar) up.
-        let bar = a.navigationBars.element(boundBy: a.navigationBars.count - 1).frame
-        let origin = a.coordinate(withNormalizedOffset: .zero)
-        origin.withOffset(CGVector(dx: bar.midX, dy: bar.minY - 8)).press(forDuration: 0.1, thenDragTo: origin.withOffset(CGVector(dx: bar.midX, dy: 60)))
+        XCTAssertTrue(a.openBoardTab("tab-tasks"), "the Tasks tab")
         sleep(1)
     }
 
@@ -177,9 +170,11 @@ final class WorkUITests: XCTestCase {
         XCTAssertTrue(a.buttons["Remove"].firstMatch.waitForExistence(timeout: 3), "swipe offers Remove")
         XCTAssertFalse(a.buttons["Claim"].exists, "and no Claim")
         shot("w05-swipe")
-        // Swipe it shut (an open swipe swallows the next touch on the list).
+        // Swipe it shut (an open swipe swallows the next touch on the list). From the row's visible part, not the
+        // screen's edge (Tasks is a tab on the pushed board now, and the edge is Back).
         let regressionRow = row(a, "Add a regression test for empty carts")
-        regressionRow.coordinate(withNormalizedOffset: CGVector(dx: 0.1, dy: 0.5)).press(forDuration: 0.05, thenDragTo: regressionRow.coordinate(withNormalizedOffset: CGVector(dx: 0.6, dy: 0.5)))
+        let screen = a.coordinate(withNormalizedOffset: .zero), y = regressionRow.frame.midY, w = a.frame.width
+        screen.withOffset(CGVector(dx: w * 0.25, dy: y)).press(forDuration: 0.05, thenDragTo: screen.withOffset(CGVector(dx: w * 0.85, dy: y)))
         let shut = expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: a.buttons["Remove"].firstMatch)
         wait(for: [shut], timeout: 3)
         sleep(1)
@@ -264,7 +259,7 @@ final class WorkUITests: XCTestCase {
         let a = app()
         openWork(a)
         let any = a.descendants(matching: .any)
-        a.buttons["Files"].tap()
+        XCTAssertTrue(a.openBoardTab("tab-files"), "the Files tab")
 
         // Every file, most recently updated first, with its type and version.
         let png = any["file-checkout-flow.png"].firstMatch, code = any["file-charge.ts"].firstMatch, plan = any["file-rollout-plan.md"].firstMatch
@@ -311,23 +306,22 @@ final class WorkUITests: XCTestCase {
         shot("w15-quicklook")
     }
 
-    /// Out of a doc and closed: back from the doc lands on Files (still in the sheet), Done closes it, the chat is there.
-    /// (Files is a pane now, not a pushed screen, so there's no second back between the doc and Done.)
+    /// Out of a doc and back to the chat: back from the doc lands on the Files tab, and Chat is one tap (the chat's
+    /// message box comes back with it).
     func testCloseFromFiles() throws {
         continueAfterFailure = false
         let a = app()
         openWork(a)
-        a.buttons["Files"].tap()
+        XCTAssertTrue(a.openBoardTab("tab-files"), "the Files tab")
         let plan = a.descendants(matching: .any)["file-rollout-plan.md"].firstMatch
         XCTAssertTrue(plan.waitForExistence(timeout: 8))
         plan.tap()
         XCTAssertTrue(a.staticTexts["Rollout plan"].waitForExistence(timeout: 8))
         back(a)
         XCTAssertTrue(plan.waitForExistence(timeout: 5), "back on Files")
-        XCTAssertEqual(a.descendants(matching: .any)["work-pane"].firstMatch.exists, true, "still in the sheet")
-        a.buttons["Done"].tap()
-        sleep(1)
-        XCTAssertTrue(a.buttons["presence"].waitForExistence(timeout: 5), "back in the chat")
-        XCTAssertFalse(a.navigationBars.matching(NSPredicate(format: "identifier BEGINSWITH 'Work on'")).firstMatch.exists, "the sheet closed")
+        XCTAssertTrue(a.boardTab("tab-files").isSelected, "still on the Files tab")
+        XCTAssertTrue(a.openBoardTab("tab-chat"), "back to Chat")
+        XCTAssertTrue(a.buttons["presence"].waitForExistence(timeout: 5), "in the chat")
+        XCTAssertTrue(a.descendants(matching: .any)["composer"].firstMatch.waitForExistence(timeout: 5), "with its message box")
     }
 }

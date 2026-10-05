@@ -208,8 +208,7 @@ final class LanguageUITests: AtteoUITestCase {
             sleep(1)
             shot("language-hi-\(mode)-chat")
             if mode == "everyday" {
-                a.buttons["tab-todos"].tap()
-                XCTAssertTrue(a.segmentedControls["work-pane"].waitForExistence(timeout: 5), "the Work screen")
+                XCTAssertTrue(a.openBoardTab("tab-tasks", timeout: 5), "the To-dos tab")
                 sleep(1)
                 shot("language-hi-everyday-work")
             }

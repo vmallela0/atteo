@@ -57,14 +57,12 @@ final class MessageNumbersUITests: AtteoUITestCase {
         a.navigationBars["Info"].buttons["Done"].tap()
 
         // Tasks: no numbers in the list.
-        let strip = a.buttons["work-strip"]
-        if strip.waitForExistence(timeout: 5) {
-            strip.tap()
+        if a.openBoardTab("tab-tasks", timeout: 5) {
             sleep(2)
             XCTAssertEqual(a.staticTexts.matching(NSPredicate(format: "label MATCHES %@", "^#[0-9]+$")).count, 0, "no numbers in Tasks")
             XCTAssertEqual(a.staticTexts.matching(NSPredicate(format: "label BEGINSWITH '#'")).count, 0, "nor at the start of a line")
             shot("numbers-03-tasks")
-            a.buttons["Done"].tap()
+            a.openBoardTab("tab-chat")
         }
     }
 }

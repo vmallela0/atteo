@@ -91,46 +91,6 @@ extension Array where Element == WorkTask {
     var done: [WorkTask] { filter { $0.status == "done" }.sorted { $0.updatedAt > $1.updatedAt } }
 }
 
-/// The strip under a chat's title: what's being worked on (and by whom), and what's next. A quiet fill, no outline.
-struct WorkStrip: View {
-    let tasks: [WorkTask]
-    let open: () -> Void
-
-    var body: some View {
-        let doing = tasks.inProgress, next = tasks.next
-        if !doing.isEmpty || !next.isEmpty {
-            Button(action: open) {
-                HStack(spacing: 10) {
-                    if let t = doing.first ?? next.first { ProgressRing(task: t).frame(width: 16, height: 16) }
-                    VStack(alignment: .leading, spacing: 1) {
-                        if let t = doing.first {
-                            (Text(t.title).foregroundStyle(Theme.text) + Text(t.who.map { "  \($0)" } ?? "").font(Typo.micro).foregroundStyle(Theme.muted))
-                                .font(Typo.meta.weight(.semibold)).lineLimit(1)
-                        }
-                        if let n = next.first {
-                            (Text("Next  ").foregroundStyle(Theme.faint) + Text(verbatim: n.title).foregroundStyle(Theme.muted)).font(Typo.micro).lineLimit(1)
-                        }
-                    }
-                    Spacer(minLength: Space.s)
-                    Text(summary(doing: doing.count, next: next.count)).font(Typo.micro).foregroundStyle(Theme.faint).monospacedDigit()
-                    Image(systemName: "chevron.right").font(Typo.ui(.caption2).weight(.semibold)).foregroundStyle(Theme.faint)
-                }
-                .padding(.horizontal, Space.m).padding(.vertical, Space.s)
-                .background(Theme.card, in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(PressStyle())
-            .padding(.horizontal, Space.m).padding(.top, Space.xxs).padding(.bottom, Space.xs)
-            .background(Theme.bg)
-            .accessibilityIdentifier("work-strip")
-        }
-    }
-
-    private func summary(doing: Int, next: Int) -> String {
-        [doing > 0 ? String(localized: "\(doing) active", bundle: .l10n) : nil, next > 0 ? String(localized: "\(next) next", bundle: .l10n) : nil].compactMap { $0 }.joined(separator: " · ")
-    }
-}
-
 /// A small ring that fills as a task's checklist gets ticked (a spinner-ish dot when there's no checklist).
 struct ProgressRing: View {
     let task: WorkTask
@@ -155,66 +115,7 @@ struct ProgressRing: View {
 
 // MARK: - Work: Tasks · Files
 
-/// The two halves of a board's work.
-enum WorkPane: String, CaseIterable, Identifiable {
-    case tasks = "Tasks", files = "Files"
-    var id: String { rawValue }
-    /// What it's called: Everyday says To-dos (Everyday.swift).
-    var label: String { self == .tasks ? Vocab.tasks : String(localized: "Files", bundle: .l10n) }
-}
-
-/// The board's work in one sheet: its tasks or its files, one segmented control apart (the control sits in the
-/// navigation bar, so the list gets the whole height). `initial` picks which half opens first.
-struct TasksSheet: View {
-    @EnvironmentObject var state: AppState
-    @Environment(\.dismiss) private var dismiss
-    let board: Board
-    @State private var pane: WorkPane
-    @State private var path = NavigationPath()
-    @State private var newTask = false
-
-    init(board: Board, initial: WorkPane = .tasks) {
-        self.board = board
-        _pane = State(initialValue: initial)
-    }
-
-    var body: some View {
-        NavigationStack(path: $path) {
-            Group {
-                switch pane {
-                case .tasks: TasksPane(board: board.id, open: { path.append($0) }, add: { newTask = true })
-                case .files: FilesPane(board: board.id)
-                }
-            }
-            .background(Theme.bg)
-            .navigationTitle("Work on \(board.title)")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                // Leading, so it stays put whichever half is showing (in the middle it shifted with the buttons
-                // beside Done); the title is hidden (it still names the screen for VoiceOver and the back button).
-                ToolbarItem(placement: .principal) { Color.clear.frame(width: 1, height: 1).accessibilityHidden(true) }
-                ToolbarItem(placement: .topBarLeading) {
-                    Picker("Show", selection: $pane.animation(.snappy(duration: 0.22))) {
-                        ForEach(WorkPane.allCases) { p in Text(p.label).tag(p) }
-                    }
-                    .pickerStyle(.segmented)
-                    .frame(width: 168)
-                    .accessibilityIdentifier("work-pane")
-                }
-                ToolbarItem(placement: .topBarTrailing) {
-                    if pane == .tasks {
-                        Button { newTask = true } label: { ToolbarIcon("plus") }
-                            .accessibilityLabel(Vocab.pick(String(localized: "New task", bundle: .l10n), String(localized: "New to-do", bundle: .l10n)))
-                    }
-                }
-                ToolbarItem(placement: .topBarTrailing) { Button("Done") { dismiss() }.toolbarText(primary: true) }
-            }
-            .navigationDestination(for: Int.self) { seq in TaskDetail(seq: seq, board: board.id) }
-            .sheet(isPresented: $newTask) { NewTaskSheet(board: board.id).presentationDetents([.medium, .large]).presentationBackground(Theme.bg) }
-        }
-        .task { await state.loadTasks(id: board.id) }
-    }
-}
+// (Tasks and Files are the board's tabs now, BoardTabs.swift: TasksPane and FilesPane, no sheet of their own.)
 
 /// Whose tasks the list shows.
 enum TaskFilter: String, CaseIterable, Identifiable {
@@ -707,7 +608,8 @@ struct TaskDetail: View {
                 let subs = tasks.filter { $0.parent == seq }.sorted { $0.seq < $1.seq }
                 VStack(alignment: .leading, spacing: 0) {
                     if let p = task.parent, let parent = tasks.first(where: { $0.seq == p }) {
-                        NavigationLink(value: p) {
+                        // A destination link, not a value: the board sits in a stack whose path holds boards.
+                        NavigationLink { TaskDetail(seq: p, board: board) } label: {
                             HStack(spacing: 5) {
                                 Image(systemName: "arrow.turn.left.up").font(.system(size: 10, weight: .semibold))
                                 Text(parent.title).lineLimit(1)
@@ -778,6 +680,10 @@ struct TaskDetail: View {
             }
         } message: { Text("It comes off the task board for everyone. The conversation keeps a note that it was removed.") }
         .sheet(item: $approval) { a in ApprovalDetail(a: a).presentationBackground(Theme.bg) }
+        // Live while it's open: pushed over the board (its Tasks tab), the board's own socket stops, so this one
+        // keeps ticks and edits from others arriving here (and in the list behind it).
+        .task(id: board) { if let b = state.boards.first(where: { $0.id == board }) { await state.watch(b) } }
+        .onChange(of: state.pulse) { _, p in if p?.board == board { Task { await state.loadTasks(id: board) } } }
     }
 
     /// The checklist, in a card: a thin bar for how far along, then one row per line (the whole row ticks it).
@@ -841,7 +747,7 @@ struct TaskDetail: View {
             }
             VStack(spacing: 0) {
                 ForEach(Array(subs.enumerated()), id: \.element.id) { k, s in
-                    NavigationLink(value: s.seq) {
+                    NavigationLink { TaskDetail(seq: s.seq, board: board) } label: {
                         HStack(spacing: 10) {
                             StatusGlyph(task: s).frame(width: 15, height: 15)
                             Text(s.title).font(Typo.secondary).foregroundStyle(s.isDone ? Theme.faint : Theme.text)

@@ -78,3 +78,27 @@ class AtteoUITestCase: XCTestCase {
         XCTWaiter().wait(for: [XCTNSPredicateExpectation(predicate: NSPredicate(format: format), object: element)], timeout: timeout) == .completed
     }
 }
+
+extension XCUIApplication {
+    /// One of a board's tabs under its title (BoardTabs.swift): "tab-chat", "tab-tasks" or "tab-files".
+    func boardTab(_ id: String) -> XCUIElement { buttons[id].firstMatch }
+
+    /// To a board's tab, and wait until it's the one showing.
+    @discardableResult
+    func openBoardTab(_ id: String, timeout: TimeInterval = 10) -> Bool {
+        let t = boardTab(id)
+        guard t.waitForExistence(timeout: timeout) else { return false }
+        t.tap()
+        return XCTWaiter().wait(for: [XCTNSPredicateExpectation(predicate: NSPredicate(format: "isSelected == true"), object: t)], timeout: 5) == .completed
+    }
+
+    /// Every thread on the board: All threads, in the ⋯ menu at the top right.
+    func openThreadsList() {
+        let menu = buttons["board-menu"].firstMatch
+        _ = menu.waitForExistence(timeout: 5)
+        menu.tap()
+        let item = buttons["threads"].firstMatch
+        _ = item.waitForExistence(timeout: 3)
+        item.tap()
+    }
+}

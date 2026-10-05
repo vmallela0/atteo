@@ -33,7 +33,7 @@ final class NotifyLevelsUITests: AtteoUITestCase {
         a.navigationBars["Info"].swipeDown(velocity: .fast)
 
         // The chat's menu: Notifications → Everything.
-        let menu = a.buttons["work-menu"]
+        let menu = a.buttons["board-menu"]
         XCTAssertTrue(menu.waitForExistence(timeout: 5))
         menu.tap()
         let sub = a.buttons["notify-level-menu"].firstMatch.exists ? a.buttons["notify-level-menu"].firstMatch : a.buttons["Notifications"].firstMatch
