@@ -987,7 +987,7 @@ mark{background:var(--mark);color:inherit;border-radius:2px;padding:0 1px}
 [data-feedback]::before{content:"";width:16px;height:16px;background:currentColor;-webkit-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%23000' stroke-width='1.5' stroke-linejoin='round'%3E%3Cpath d='M2.5 3.5h11v7.5H7l-3 2.5V11H2.5Z'/%3E%3C/svg%3E") center/16px no-repeat;mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%23000' stroke-width='1.5' stroke-linejoin='round'%3E%3Cpath d='M2.5 3.5h11v7.5H7l-3 2.5V11H2.5Z'/%3E%3C/svg%3E") center/16px no-repeat}
 /* Leaving Atteo (jxn #4173): the address in full, wrapped, before you go. */
 #leave .leave-url{margin:0;padding:10px 12px;border:1px solid var(--line);border-radius:var(--r-sm);background:var(--bg-subtle);font-size:13px;overflow-wrap:anywhere;color:var(--ink)}
-#leave .ft{display:flex;justify-content:flex-end;gap:8px;padding:0 22px 20px}
+#leave .ft,#feedback .ft{display:flex;justify-content:flex-end;gap:8px;padding:0 22px 20px}
 /* The report dialog (jxn #4053, #4116): what happened, the pictures you added (paper clip, paste or drop), then Cancel / Send. */
 #bug form{display:block}
 #bug .bd{display:grid;gap:12px}
