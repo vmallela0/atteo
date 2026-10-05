@@ -80,6 +80,16 @@ describe("board page", () => {
     expect(member).toContain('"readOnly":false');
     expect(viewer).toContain('"readOnly":true');
   });
+
+  it("Members & access invite defaults to view only for 30 days (GAPS P0 network #4)", async () => {
+    const html = await boardPage({ name: "jxn", email: "jxn@example.com", display_name: null, admin: false }, [], info, [{ user: "jxn", display_name: null, last_seen: 0 }], entries, []).text();
+    expect(html).toMatch(/name="role"[^>]*>\s*<option value="viewer" selected>/);
+    expect(html).toMatch(/name="expires_days"[^>]*>\s*<option value="30" selected>/);
+    expect(html).toMatch(/id="link-role"[^>]*>\s*<option value="viewer" selected>/);
+    expect(html).toContain('id="link-access"');
+    expect(html).toContain("member_days:+document.getElementById('link-access').value");
+    expect(html).not.toContain('name="role" value="contributor"');
+  });
 });
 
 describe("N: next thing that needs you (#1464)", () => {

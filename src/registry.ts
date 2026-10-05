@@ -129,6 +129,9 @@ export async function touch(env: Env, user: string, boardId: string | null) {
 /** The only way into a board: creating it, an accepted invite, or an existing member adding someone. */
 export type Role = "owner" | "contributor" | "viewer";
 export const ROLES: Role[] = ["owner", "contributor", "viewer"];
+/** New grants (email invites, unspecified invite-link members): view only, 30 days. Owners set contributor / no end after. */
+export const DEFAULT_GRANT_ROLE: Exclude<Role, "owner"> = "viewer";
+export const DEFAULT_GRANT_DAYS = 30;
 
 export async function addMember(env: Env, boardId: string, user: string, opts: { role?: Role; expires_at?: number | null; added_by?: string | null } = {}) {
   const now = Date.now();
@@ -357,8 +360,8 @@ export async function acceptInvitation(env: Env, user: FullUser, boardId: string
     .bind(boardId, user.email)
     .first<{ invited_by: string; role: Role | null; expires_days: number | null }>();
   await env.DB.prepare(`DELETE FROM members WHERE board_id = ? AND user = ? AND expires_at IS NOT NULL AND expires_at < ?`).bind(boardId, user.name, Date.now()).run();
-  await addMember(env, boardId, user.name, { role: inv?.role ?? "contributor", expires_at: inv?.expires_days ? Date.now() + inv.expires_days * 86_400_000 : null, added_by: inv?.invited_by ?? null });
-  await audit(env, boardId, user.name, "joined", user.name, `accepted ${inv?.invited_by ?? "an"} invitation${inv?.role && inv.role !== "contributor" ? ` as ${inv.role}` : ""}${inv?.expires_days ? ` for ${inv.expires_days}d` : ""}`);
+  await addMember(env, boardId, user.name, { role: inv?.role ?? DEFAULT_GRANT_ROLE, expires_at: inv?.expires_days ? Date.now() + inv.expires_days * 86_400_000 : null, added_by: inv?.invited_by ?? null });
+  await audit(env, boardId, user.name, "joined", user.name, `accepted ${inv?.invited_by ?? "an"} invitation${inv?.role && inv.role !== DEFAULT_GRANT_ROLE ? ` as ${inv.role}` : ""}${inv?.expires_days ? ` for ${inv.expires_days}d` : ""}`);
   await env.DB.prepare(
     `UPDATE invites SET accepted_at = ?, accepted_by = ? WHERE board_id = ? AND lower(email) = lower(?) AND accepted_at IS NULL AND declined_at IS NULL`,
   )
@@ -528,7 +531,7 @@ export async function recordInvite(env: Env, inv: InviteRow) {
   await env.DB.prepare(
     `INSERT INTO invites (id, board_id, email, invited_by, created_at, email_status, accepted_at, accepted_by, workos_invitation_id, role, expires_days) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   )
-    .bind(inv.id, inv.board_id, inv.email, inv.invited_by, inv.created_at, inv.email_status, inv.accepted_at ?? null, inv.accepted_by ?? null, inv.workos_invitation_id ?? null, inv.role ?? "contributor", inv.expires_days ?? null)
+    .bind(inv.id, inv.board_id, inv.email, inv.invited_by, inv.created_at, inv.email_status, inv.accepted_at ?? null, inv.accepted_by ?? null, inv.workos_invitation_id ?? null, inv.role ?? DEFAULT_GRANT_ROLE, inv.expires_days ?? null)
     .run();
-  await audit(env, inv.board_id, inv.invited_by, "invited", inv.email, inv.role && inv.role !== "contributor" ? inv.role : null);
+  await audit(env, inv.board_id, inv.invited_by, "invited", inv.email, inv.role && inv.role !== DEFAULT_GRANT_ROLE ? inv.role : null);
 }

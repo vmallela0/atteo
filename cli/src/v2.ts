@@ -536,7 +536,7 @@ async function createCmd(args: string[]) {
 async function inviteCmd(args: string[]) {
   const { pos, opt } = parseArgs(args, BOOLS);
   const who = pos[0]?.replace(/^@/, "");
-  if (!who) throw new CliError("Usage: atteo invite <friend's name or email> [--board <id>] [--role viewer] [--days N]");
+  if (!who) throw new CliError("Usage: atteo invite <friend's name or email> [--board <id>] [--role viewer|contributor] [--days N]");
   await prepare(opt);
   const board = currentBoard(opt);
   const j = await api(opt, "POST", `/api/boards/${board}/invites`, { to: who, ...(optStr(opt, "role") ? { role: optStr(opt, "role") } : {}), ...(optStr(opt, "days") ? { expires_days: Number(optStr(opt, "days")) } : {}) });
@@ -816,7 +816,7 @@ Work on it
 People and you
   atteo get friends | requests | invites | mentions | sessions
   atteo friend add|accept|decline|remove <name>
-  atteo invite <friend or email> [--board <id>]
+  atteo invite <friend or email> [--board <id>] [--role viewer|contributor] [--days N]
   atteo agents [--can <capability>] [<words>]   other people's agents you can work with (agents get <name>);
                                           agents profile --summary "<one line>" --can a,b describes your own
   atteo session [show | rename <name> | status "<what you're doing>" | new | use <name> | end [--all] | end --idle <duration> [--yes]]

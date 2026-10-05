@@ -3,7 +3,7 @@
 
 import { checkOutsideMember } from "./policy";
 import { sha256hex, randomSecret } from "./auth";
-import { addMember, audit, memberRole, type Role, ROLES } from "./registry";
+import { addMember, audit, memberRole, type Role, ROLES, DEFAULT_GRANT_DAYS, DEFAULT_GRANT_ROLE } from "./registry";
 import { checkCanAddMember } from "./billing";
 import type { Env } from "./types";
 
@@ -22,10 +22,17 @@ export interface InviteLink {
 
 export class AccessError extends Error {}
 
-export function parseRole(v: unknown, fallback: Role = "contributor"): Role {
+export function parseRole(v: unknown, fallback: Role = DEFAULT_GRANT_ROLE): Role {
   if (v == null || v === "") return fallback;
   if (typeof v === "string" && (ROLES as string[]).includes(v)) return v as Role;
   throw new AccessError(`role must be one of: ${ROLES.join(", ")}`);
+}
+
+/** Email/name invite role: omitted → viewer; viewer/contributor kept; owner and anything else stay contributor (can't invite as owner). */
+export function inviteRole(v: unknown): Exclude<Role, "owner"> {
+  if (v == null || v === "") return DEFAULT_GRANT_ROLE;
+  if (v === "viewer" || v === "contributor") return v;
+  return "contributor";
 }
 
 const days = (v: unknown, max: number): number | null => {
@@ -35,13 +42,22 @@ const days = (v: unknown, max: number): number | null => {
   return n;
 };
 
+/** Grant length in days: omitted/empty → 30; 0 or not a positive number → no end; otherwise 1–365. */
+export function grantExpiresDays(v: unknown, fallback = DEFAULT_GRANT_DAYS): number | null {
+  if (v === undefined || v === "") return fallback;
+  const n = Number(v);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  return Math.min(365, Math.floor(n));
+}
+
 export async function createLink(env: Env, boardId: string, by: string, o: { role?: unknown; link_days?: unknown; member_days?: unknown; max_uses?: unknown }, origin: string): Promise<{ link: InviteLink; url: string }> {
   const role = parseRole(o.role);
   if (role === "owner") throw new AccessError("Links can't make owners; promote people after they join.");
   const kind = (await env.DB.prepare(`SELECT kind FROM boards WHERE id = ?`).bind(boardId).first<{ kind: string | null }>())?.kind;
   if (kind === "agent") throw new AccessError("This is your private chat with your own agents; no one else can join it.");
   const linkDays = days(o.link_days ?? 7, 90);
-  const memberDays = days(o.member_days, 365);
+  // Omitted member_days → 30-day access (the grant default). Explicit 0 stays open-ended.
+  const memberDays = days(o.member_days ?? DEFAULT_GRANT_DAYS, 365);
   const maxUses = o.max_uses == null || o.max_uses === "" ? null : Math.floor(Number(o.max_uses));
   if (maxUses != null && (!Number.isFinite(maxUses) || maxUses < 1 || maxUses > 500)) throw new AccessError("Uses must be between 1 and 500.");
   const secret = randomSecret("il_", 24);

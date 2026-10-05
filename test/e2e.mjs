@@ -2973,6 +2973,21 @@ await step("access: roles (viewers read but can't change), invite links with lim
   const c2 = (await ops("sessions", { user: C2 })).body.cookie;
   const used = await fetch(`${BASE}${path}`, { headers: { cookie: c2 }, redirect: "manual" });
   assert(used.status === 410 && (await used.text()).includes("used up"), `second use: ${used.status}`);
+  // GAPS P0 network #4: omitted role/member_days → viewer for 30 days; member_days 0 stays open-ended.
+  const def = await (await j(A, `/api/boards/${fb}/links`, {})).json();
+  assert(def.link?.role === "viewer" && def.link.member_days === 30, `default grant: ${JSON.stringify(def.link)}`);
+  const forever = await (await j(A, `/api/boards/${fb}/links`, { role: "contributor", member_days: 0 })).json();
+  assert(forever.link?.role === "contributor" && forever.link.member_days == null, `member_days 0: ${JSON.stringify(forever.link)}`);
+  const G = `e2e-grant-${run}`;
+  await ops("users", { name: G, email: `${G}@example.com`, verified: "true" });
+  const inv = await (await j(A, `/api/boards/${fb}/invites`, { email: `${G}@example.com` })).json();
+  assert(inv.ok, JSON.stringify(inv));
+  const gck = (await ops("sessions", { user: G })).body.cookie;
+  assert((await fetch(`${BASE}/api/invitations/${fb}/accept`, { method: "POST", headers: { cookie: gck, "content-type": "application/json" }, body: "{}" })).status === 200, "accept default grant");
+  m = await (await j(A, `/api/boards/${fb}/members`)).json();
+  const gmem = m.members.find((x) => x.user === G);
+  assert(gmem && gmem.role === "viewer" && gmem.expires_at > Date.now() + 29 * 86400e3 && gmem.expires_at < Date.now() + 31 * 86400e3, JSON.stringify(gmem));
+  await j(A, `/api/boards/${fb}/members/${G}/remove`, {});
   const audit = (await (await j(B, `/api/boards/${fb}/audit`)).json()).audit.map((a) => a.action);
   assert(["access_changed", "link_created", "joined"].every((a) => audit.includes(a)), audit.join());
   // Back to how later steps expect it.

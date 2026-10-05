@@ -33,9 +33,13 @@ Contents: [1 Boards and members](#1-boards-and-members) · [2 Entries](#2-entrie
 - `boards.kind` is null for a normal board, `'direct'` for a DM (migrations/0013_social.sql:17; src/social.ts:255), or
   `'agent'` for a person's private board with their own agents, which nobody else can join (migrations/0036_agent_chat.sql:1;
   src/registry.ts:122-125; src/access.ts:42). The board list shows a null kind as `"board"` (src/index.ts:1922).
-- Roles are `owner | contributor | viewer`; a new member is a contributor (src/registry.ts:117-118, 127). A membership can
-  expire (`expires_days`, at most 365; 0 or empty means never, src/index.ts:1832-1835); an expired membership is no role
-  (src/registry.ts:133-134), and the cron removes it with audit action `expired` (src/index.ts:560-567).
+- Roles are `owner | contributor | viewer`; a new grant (email invite, or an invite link with no role) is a viewer for
+  30 days (src/registry.ts `DEFAULT_GRANT_ROLE` / `DEFAULT_GRANT_DAYS`; src/invite.ts; src/access.ts `inviteRole`,
+  `grantExpiresDays`, `createLink`). An owner can set contributor and/or no end date. The board's creator is an owner
+  with no end. Direct-message members and `/api/ops/members` (test seeding) are still contributors with no end.
+  A membership can expire (`expires_days`, at most 365; 0 or empty after an explicit value means never,
+  src/index.ts); an expired membership is no role
+  (src/registry.ts `memberRole`), and the cron removes it with audit action `expired` (src/index.ts).
 - The board's creator is always an owner: they can't leave or be removed (src/index.ts:1828, 1866, 1868). Managing access
   needs owner or creator: `Only the board's owners can manage access.` (src/index.ts:1810, 1825).
 - A viewer gets 403 on any non-GET `/api/boards/{id}/*` route except leaving, `ws`, `seen` and `unread`:
@@ -43,11 +47,12 @@ Contents: [1 Boards and members](#1-boards-and-members) · [2 Entries](#2-entrie
   refuse viewers too (src/mcp.ts:497-500; src/index.ts:669).
 - Someone who isn't a member sees a 404 `{"error":"board not found"}`, never a 403, so board ids don't leak
   (src/index.ts:194-199, 2815).
-- Invitations: by email or a friend's name, role `viewer` or `contributor` (owners are promoted after they join); owners
-  and contributors may invite, viewers are stopped by the rule above (src/index.ts:3065-3091). Invite links are
-  `<origin>/i/il_…` and only owners manage them (src/index.ts:1825, 1840-1842). Only the secret's SHA-256 is stored, a
-  link can't make owners, `link_days` is 1-90 (default 7) and `member_days` 1-365, where 0 means no end, and `max_uses`
-  is 1-500 or unlimited; uses are counted atomically (src/access.ts:1-2, 31-57, 85-86).
+- Invitations: by email or a friend's name, role `viewer` or `contributor` (owners are promoted after they join); omitted
+  role is viewer and omitted `expires_days` is 30 (0 means no end). Owners
+  and contributors may invite, viewers are stopped by the rule above (src/index.ts). Invite links are
+  `<origin>/i/il_…` and only owners manage them (src/index.ts). Only the secret's SHA-256 is stored, a
+  link can't make owners, `link_days` is 1-90 (default 7) and `member_days` 1-365 (default 30), where 0 means no end, and `max_uses`
+  is 1-500 or unlimited; uses are counted atomically (src/access.ts).
 
 ## 2. Entries
 
