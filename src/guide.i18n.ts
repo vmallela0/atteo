@@ -103,6 +103,18 @@ const KEYS = [
   "In Board info, owners can rename or archive a board, set how long it keeps messages, or delete it (restorable for 30 days).",
   "Replies only in their threads",
   "Display → Replies → Only in their threads keeps the chat to top-level messages, each with its reply count; tap the count to open the thread.",
+  "React in a thread",
+  "On the web, an open thread keeps the emoji picker on every reply, so you can react to the replies as well as to the message they answer.",
+  "Remind me",
+  "On the web, hover a message or an Inbox item and choose Remind me: it comes back in an hour, tonight at 20:00 or tomorrow at 09:00. Until then it waits in your Inbox.",
+  "Mark unread",
+  "On the web, Mark as unread in a board's ⋯ menu makes the board count as unread again — dot, bold and place in the rail — until you open it.",
+  "Pin a board",
+  "On the web, Pin in a board's ⋯ menu keeps the board at the top of your chat list; Unpin puts it back in order. For the board's source-of-truth file, see Pinned doc above.",
+  "Catch up",
+  "On the web, opening a board with 20 or more new messages offers Catch up above the New line: it opens the board's Recap of what was decided, asked and owed since you last looked.",
+  "One line",
+  "Account → Display → Messages (Settings → Display in the app): One line unless they mention you shows other people's messages as a single line until they mention you.",
 ];
 
 const ZH_HANS = [
@@ -206,6 +218,18 @@ const ZH_HANS = [
   "在“看板信息”中，所有者可以重命名或归档看板、设置消息保留多久，或删除看板（30 天内可恢复）。",
   "回复只在各自的话题里",
   "“显示 → 回复 → 只在各自的话题里”让聊天里只留顶层消息，每条显示回复数；点回复数即可打开话题。",
+  "在话题里发表情",
+  "网页版中，打开的话题里每条回复都保留表情选择器，所以除了话题的消息本身，也可以给回复发表情。",
+  "提醒我",
+  "网页版中，把鼠标悬停在消息或收件箱条目上并选择“提醒我”：它会在一小时后、今晚（20:00）或明天（09:00）回来。在那之前它会在你的收件箱里等着。",
+  "标记为未读",
+  "网页版中，在看板的 ⋯ 菜单里选择“标记为未读”，看板会重新算作未读——圆点、加粗和在侧栏里的位置——直到你打开它。",
+  "置顶看板",
+  "网页版中，在看板的 ⋯ 菜单里选择“置顶”，看板会保持在聊天列表顶部；“取消置顶”则恢复原顺序。看板的权威来源见上方的“置顶文档”。",
+  "回顾",
+  "网页版中，打开有 20 条以上新消息的看板时，会在“新建”行上方看到“回顾”按钮：点开看板的回顾，汇总自你上次看完以来决定了什么、问了什么、欠着什么。",
+  "单行显示",
+  "账户 → 显示 → 消息（应用里是设置 → 显示）：“没提到你的消息只显示一行”把别人的消息显示成一行，直到他们提到你。",
 ];
 
 const ZH_HANT = [
@@ -309,6 +333,18 @@ const ZH_HANT = [
   "在「看板資訊」中，擁有者可以重新命名或封存看板、設定訊息保留多久，或刪除看板（30 天內可復原）。",
   "回覆只在各自的討論串裡",
   "「顯示 → 回覆 → 只在各自的討論串裡」讓聊天裡只留頂層訊息，每則顯示回覆數；點回覆數即可開啟討論串。",
+  "在討論串裡加表情回應",
+  "網頁版中，開啟的討論串裡每則回覆都保留表情選擇器，所以除了討論串的訊息本身，也可以給回覆加表情回應。",
+  "提醒我",
+  "網頁版中，把游標停在訊息或收件匣項目上並選擇「提醒我」：它會在一小時後、今晚（20:00）或明天（09:00）回來。在那之前它會在你的收件匣裡等著。",
+  "標記為未讀",
+  "網頁版中，在看板的 ⋯ 選單裡選擇「標記為未讀」，看板會重新算作未讀——圓點、粗體和在側欄裡的位置——直到你開啟它。",
+  "置頂看板",
+  "網頁版中，在看板的 ⋯ 選單裡選擇「置頂」，看板會保持在聊天列表頂端；「取消置頂」則恢復原順序。看板的權威來源見上方的「置頂文件」。",
+  "回顧",
+  "網頁版中，開啟有 20 則以上新訊息的看板時，會在「新建」列上方看到「回顧」按鈕：點開看板的回顧，彙整自你上次看完以來決定了什麼、問了什麼、欠著什麼。",
+  "單行顯示",
+  "帳戶 → 顯示 → 訊息（應用程式裡是設定 → 顯示）：「沒提到你的訊息只顯示一行」把別人的訊息顯示成一行，直到他們提到你。",
 ];
 
 const ES = [
@@ -412,6 +448,18 @@ const ES = [
   "En Información del tablero, los dueños pueden renombrar o archivar un tablero, fijar cuánto tiempo guarda los mensajes o eliminarlo (se puede restaurar durante 30 días).",
   "Respuestas solo en sus hilos",
   "Visualización → Respuestas → Solo en sus hilos deja en el chat solo los mensajes principales, cada uno con su número de respuestas; toca el número para abrir el hilo.",
+  "Reaccionar en un hilo",
+  "En la web, un hilo abierto mantiene el selector de emojis en cada respuesta, así que puedes reaccionar a las respuestas además de al mensaje que las origina.",
+  "Recordármelo",
+  "En la web, pasa el cursor sobre un mensaje o un elemento de la Bandeja de entrada y elige Recordármelo: vuelve en 1 hora, esta noche (20:00) o mañana (09:00). Hasta entonces espera en tu Bandeja de entrada.",
+  "Marcar como no leído",
+  "En la web, Marcar como no leído en el menú ⋯ de un tablero hace que vuelva a contar como no leído —punto, negrita y puesto en la barra lateral— hasta que lo abras.",
+  "Fijar un tablero",
+  "En la web, Fijar en el menú ⋯ de un tablero lo mantiene en lo alto de tu lista de chats; Desfijar devuelve el orden. Para el archivo de referencia del tablero, ver Documento fijado más arriba.",
+  "Ponerse al día",
+  "En la web, al abrir un tablero con 20 o más mensajes nuevos aparece un botón de ponerse al día sobre la línea Nuevo: abre el Resumen del tablero, con lo decidido, lo preguntado y lo pendiente desde tu última lectura.",
+  "Una línea",
+  "Cuenta → Visualización → Mensajes (Ajustes → Visualización en la app): Una línea si no te mencionan muestra los mensajes de otras personas en una sola línea hasta que te mencionen.",
 ];
 
 const FR = [
@@ -515,6 +563,18 @@ const FR = [
   "Dans Infos du tableau, les propriétaires peuvent renommer ou archiver un tableau, choisir combien de temps il garde les messages, ou le supprimer (restaurable pendant 30 jours).",
   "Réponses seulement dans leurs fils",
   "Affichage → Réponses → Seulement dans leurs fils ne garde dans la discussion que les messages principaux, chacun avec son nombre de réponses ; touchez ce nombre pour ouvrir le fil.",
+  "Réagir dans un fil",
+  "Sur le web, un fil ouvert garde le sélecteur d’emojis sur chaque réponse : on peut réagir aux réponses aussi bien qu’au message d’origine.",
+  "Me le rappeler",
+  "Sur le web, survolez un message ou un élément de la Boîte de réception et choisissez Me le rappeler : il revient dans 1 heure, ce soir (20:00) ou demain (09:00). D’ici là, il attend dans votre boîte de réception.",
+  "Marquer comme non lu",
+  "Sur le web, Marquer comme non lu dans le menu ⋯ d’un tableau le fait recompter comme non lu — point, gras et place dans le rail — jusqu’à ce que vous l’ouvriez.",
+  "Épingler un tableau",
+  "Sur le web, Épingler dans le menu ⋯ d’un tableau le garde en haut de votre liste de discussions ; Désépingler remet l’ordre. Pour le fichier de référence du tableau, voir Document épinglé ci-dessus.",
+  "Rattraper",
+  "Sur le web, ouvrir un tableau de 20 messages non lus ou plus propose Rattraper au-dessus de la ligne Nouveau : le Récap du tableau montre ce qui a été décidé, demandé et dû depuis votre dernier passage.",
+  "Une ligne",
+  "Compte → Affichage → Messages (Réglages → Affichage dans l’app) : Une ligne s’ils ne vous mentionnent pas affiche les messages des autres sur une ligne, jusqu’à ce qu’ils vous mentionnent.",
 ];
 
 const JA = [
@@ -618,6 +678,18 @@ const JA = [
   "ボード情報で、所有者はボードの名前変更やアーカイブ、メッセージの保持期間の設定、削除（30 日以内なら復元可能）ができます。",
   "返信はスレッド内のみ",
   "表示 → 返信 → スレッド内のみ にすると、チャットには元のメッセージだけが返信数付きで並びます。返信数をタップするとスレッドが開きます。",
+  "スレッド内でリアクション",
+  "ウェブ版では、開いたスレッドの各返信にも絵文字ピッカーがあり、元のメッセージだけで返信にもリアクションできます。",
+  "後で通知",
+  "ウェブ版では、メッセージや受信箱の項目にカーソルを合わせて「後で通知」を選ぶと、1時間後・今夜（20:00）・明日（09:00）のいずれかで戻ってきます。それまでは受信箱で待ちます。",
+  "未読にする",
+  "ウェブ版では、ボードの ⋯ メニューの「未読にする」で、開くまでボードが再び未読として数えられます（ドット・太字・サイドバーでの位置込み）。",
+  "ボードをピン留め",
+  "ウェブ版では、ボードの ⋯ メニューの「ピン留め」でチャットリストの上部に固定できます。「ピン留めを外す」で元の順序に戻ります。ボードの基準となるファイルは上の「ピン留めしたドキュメント」を参照。",
+  "まとめて見る",
+  "ウェブ版では、新着が20件以上のボードを開くと「新規」行の上に「まとめて見る」ボタンが出ます: 最後に見てからの決定・質問・未了をまとめたボードの「振り返り」を開きます。",
+  "1行表示",
+  "アカウント → 表示 → メッセージ（アプリでは設定 → 表示）:「自分宛てでなければ1行」は、他の人のメッセージを言及されるまで1行で表示します。",
 ];
 
 const KO = [
@@ -721,6 +793,18 @@ const KO = [
   "보드 정보에서 소유자는 보드 이름을 바꾸거나 보관하고, 메시지 보존 기간을 정하거나, 삭제(30일 안에 복원 가능)할 수 있습니다.",
   "답장은 각 스레드에서만",
   "화면 → 답장 → 각 스레드에서만을 고르면 채팅에는 원래 메시지만 답장 수와 함께 남습니다. 답장 수를 누르면 스레드가 열립니다.",
+  "스레드에서 반응 달기",
+  "웹에서는 열린 스레드의 각 답글에도 이모지 선택기가 있어, 원래 메시지뿐 아니라 답글에도 반응을 달 수 있습니다.",
+  "나중에 알림",
+  "웹에서는 메시지나 받은편지함 항목에 마우스를 올리고 나중에 알림을 고르세요: 1시간 후, 오늘 밤 (20:00), 내일 (09:00) 중에 돌아옵니다. 그때까지는 받은편지함에서 기다립니다.",
+  "읽지 않음으로 표시",
+  "웹에서는 보드의 ⋯ 메뉴에서 읽지 않음으로 표시를 고르면 열 때까지 보드가 다시 읽지 않음으로 계산됩니다(점, 굵게, 사이드바 위치 포함).",
+  "보드 고정",
+  "웹에서는 보드의 ⋯ 메뉴에서 고정을 고르면 보드가 채팅 목록 맨 위에 유지됩니다; 고정 해제하면 원래 순서로 돌아갑니다. 보드의 기준 파일은 위의 고정된 문서를 참고하세요.",
+  "따라잡기",
+  "웹에서는 새 메시지가 20개 이상인 보드를 열면 새 메시지 줄 위에 따라잡기 버튼이 나타납니다: 마지막으로 본 뒤의 결정·질문·미완을 모은 보드의 요약을 엽니다.",
+  "한 줄",
+  "계정 → 화면 → 메시지 (앱에서는 설정 → 화면): 나를 언급하지 않으면 한 줄은 다른 사람의 메시지를 언급될 때까지 한 줄로 보여줍니다.",
 ];
 
 const HI = [
@@ -824,6 +908,18 @@ const HI = [
   "बोर्ड जानकारी में मालिक बोर्ड का नाम बदल सकते हैं या उसे आर्काइव कर सकते हैं, तय कर सकते हैं कि संदेश कितने समय तक रहें, या उसे हटा सकते हैं (30 दिन तक वापस लाया जा सकता है)।",
   "जवाब सिर्फ़ अपने थ्रेड में",
   "डिस्प्ले → जवाब → सिर्फ़ अपने थ्रेड में चुनने पर चैट में सिर्फ़ मुख्य संदेश रहते हैं, हर एक के साथ उसके जवाबों की गिनती; थ्रेड खोलने के लिए गिनती पर टैप करें।",
+  "थ्रेड में प्रतिक्रिया दें",
+  "वेब पर, खुले थ्रेड के हर जवाब पर इमोजी पिकर रहता है, इसलिए मूल संदेश के अलावा जवाबों पर भी प्रतिक्रिया दे सकते हैं।",
+  "मुझे याद दिलाएँ",
+  "वेब पर, किसी संदेश या इनबॉक्स आइटम पर कर्सर रखकर मुझे याद दिलाएँ चुनें: यह 1 घंटे में, आज रात (20:00) या कल (09:00) लौटता है। तब तक यह आपके इनबॉक्स में रहता है।",
+  "अपठित के रूप में चिह्नित करें",
+  "वेब पर, बोर्ड के ⋯ मेनू में अपठित के रूप में चिह्नित करें चुनने पर बोर्ड खोलने तक फिर से अपठित गिना जाता है — बिंदु, बोल्ड और साइडबार में जगह सहित।",
+  "बोर्ड पिन करें",
+  "वेब पर, बोर्ड के ⋯ मेनू में पिन करें से बोर्ड आपकी चैट सूची के ऊपर रहता है; अनपिन करने पर वापस क्रम में। बोर्ड की आधिकारिक फ़ाइल के लिए ऊपर पिन किया दस्तावेज़ देखें।",
+  "सार देखें",
+  "वेब पर, 20 या अधिक नए संदेशों वाला बोर्ड खोलने पर नई रेखा के ऊपर सार देखें बटन आता है: यह बोर्ड का सारांश खोलता है — आपके आखिरी पढ़े के बाद से क्या तय हुआ, क्या पूछा गया, क्या बाकी।",
+  "एक पंक्ति",
+  "खाता → डिस्प्ले → संदेश (ऐप में सेटिंग्स → डिस्प्ले): आपका ज़िक्र न हो तो एक पंक्ति दूसरों के संदेशों को उनके ज़िक्र तक एक पंक्ति में दिखाती है।",
 ];
 
 const PT = [
@@ -927,6 +1023,18 @@ const PT = [
   "Em Informações do quadro, os donos podem renomear ou arquivar um quadro, definir por quanto tempo ele guarda as mensagens ou excluí-lo (dá para restaurar por 30 dias).",
   "Respostas só nas próprias conversas",
   "Exibição → Respostas → Só nas próprias conversas deixa no chat só as mensagens principais, cada uma com o número de respostas; toque no número para abrir a conversa.",
+  "Reagir numa sequência",
+  "Na web, uma sequência aberta mantém o seletor de emojis em cada resposta, então você pode reagir às respostas além da mensagem que as originou.",
+  "Lembrar-me",
+  "Na web, passe o cursor sobre uma mensagem ou um item da Caixa de entrada e escolha Lembrar-me: ela volta em 1 hora, hoje à noite (20:00) ou amanhã (09:00). Até lá espera na sua Caixa de entrada.",
+  "Marcar como não lido",
+  "Na web, Marcar como não lido no menu ⋯ de um quadro faz o quadro voltar a contar como não lido — ponto, negrito e lugar na barra — até você abri-lo.",
+  "Fixar um quadro",
+  "Na web, Fixar no menu ⋯ de um quadro o mantém no topo da sua lista de chats; Desafixar devolve a ordem. Para o arquivo de referência do quadro, veja Documento fixado acima.",
+  "Ponha-se em dia",
+  "Na web, abrir um quadro com 20 ou mais mensagens novas oferece um botão de acompanhar acima da linha Novo: abre o Resumo do quadro, com o que foi decidido, perguntado e fica devendo desde sua última leitura.",
+  "Uma linha",
+  "Conta → Exibição → Mensagens (Ajustes → Exibição no app): Uma linha se não mencionarem você mostra as mensagens de outras pessoas numa única linha até que mencionem você.",
 ];
 
 const DE = [
@@ -1030,6 +1138,18 @@ const DE = [
   "In den Board-Infos können Besitzer ein Board umbenennen oder archivieren, festlegen, wie lange es Nachrichten aufbewahrt, oder es löschen (30 Tage lang wiederherstellbar).",
   "Antworten nur in ihren Threads",
   "Anzeige → Antworten → Nur in ihren Threads lässt im Chat nur die Hauptnachrichten, jede mit ihrer Antwortzahl; tippe auf die Zahl, um den Thread zu öffnen.",
+  "In einem Thread reagieren",
+  "Im Web behält ein offener Thread die Emoji-Auswahl an jeder Antwort, sodass du auf Antworten ebenso reagieren kannst wie auf die ursprüngliche Nachricht.",
+  "Mich erinnern",
+  "Im Web: Mit der Maus über eine Nachricht oder einen Posteingang-Eintrag fahren und Mich erinnern wählen — sie kommt in 1 Stunde, heute Abend (20:00) oder morgen (09:00) zurück. Bis dahin wartet sie im Posteingang.",
+  "Als ungelesen markieren",
+  "Im Web macht Als ungelesen markieren im ⋯-Menü eines Boards das Board wieder zu einem ungelesenen — Punkt, Fettung und Platz in der Leiste —, bis du es öffnest.",
+  "Board anheften",
+  "Im Web hält Anheften im ⋯-Menü eines Boards das Board oben in deiner Chatliste; Lösen stellt die Ordnung wieder her. Für die maßgebliche Datei des Boards siehe Angeheftetes Dokument oben.",
+  "Aufholen",
+  "Im Web erscheint beim Öffnen eines Boards mit 20 oder mehr neuen Nachrichten über der Neu-Marke ein Aufholen-Knopf: Er öffnet den Rückblick des Boards — was seit deinem letzten Besuch entschieden, gefragt und offen ist.",
+  "Eine Zeile",
+  "Konto → Anzeige → Nachrichten (in der App Einstellungen → Anzeige): Eine Zeile, wenn du nicht erwähnt wirst, zeigt Nachrichten anderer einzeilig, bis sie dich erwähnen.",
 ];
 
 const RU = [
@@ -1133,6 +1253,18 @@ const RU = [
   "В Информации о доске владельцы могут переименовать или архивировать доску, задать срок хранения сообщений или удалить её (восстановить можно в течение 30 дней).",
   "Ответы только в своих ветках",
   "Отображение → Ответы → Только в своих ветках оставляет в чате только основные сообщения со счётчиком ответов; нажмите на счётчик, чтобы открыть ветку.",
+  "Реакция в ветке",
+  "В веб-версии в открытой ветке выбор эмодзи остаётся у каждого ответа: реагировать можно и на ответы, а не только на исходное сообщение.",
+  "Напомнить мне",
+  "В веб-версии наведите курсор на сообщение или элемент входящих и выберите Напомнить мне: оно вернётся через 1 час, сегодня вечером (20:00) или завтра (09:00). До тех пор оно ждёт во входящих.",
+  "Отметить как непрочитанное",
+  "В веб-версии пункт Отметить как непрочитанное в меню ⋯ доски снова делает доску непрочитанной — точка, жирность и место в панели — пока вы её не откроете.",
+  "Закрепить доску",
+  "В веб-версии пункт Закрепить в меню ⋯ доски держит её вверху списка чатов; Открепить возвращает порядок. Про файл-источник доски см. выше «Закреплённый документ».",
+  "Наверстать",
+  "В веб-версии при открытии доски с 20 и более новыми сообщениями над строкой «Новое» появляется кнопка наверстать: она открывает Сводку доски — что решено, спрошено и должны с вашего последнего захода.",
+  "Одна строка",
+  "Аккаунт → Отображение → Сообщения (в приложении Настройки → Отображение): «Одна строка, если вас не упомянули» показывает чужие сообщения одной строкой, пока вас не упомянут.",
 ];
 
 const ID = [
@@ -1236,6 +1368,18 @@ const ID = [
   "Di Info papan, pemilik bisa mengganti nama atau mengarsipkan papan, mengatur berapa lama pesan disimpan, atau menghapusnya (bisa dipulihkan selama 30 hari).",
   "Balasan hanya di utasnya",
   "Tampilan → Balasan → Hanya di utasnya membuat obrolan hanya berisi pesan utama, masing-masing dengan jumlah balasannya; ketuk jumlahnya untuk membuka utas.",
+  "Bereaksi di utas",
+  "Di web, utas yang terbuka tetap menampilkan pilih emoji di setiap balasan, jadi kamu bisa bereaksi pada balasan serta pesan aslinya.",
+  "Ingatkan saya",
+  "Di web, arahkan kursor ke pesan atau item Kotak masuk dan pilih Ingatkan saya: kembali dalam 1 jam, malam ini (20.00), atau besok (09.00). Sampai saat itu ia menunggu di Kotak masuk.",
+  "Tandai belum dibaca",
+  "Di web, Tandai belum dibaca di menu ⋯ papan membuat papan dihitung belum dibaca lagi — titik, tebal, dan posisi di bilah sisi — sampai kamu membukanya.",
+  "Sematkan papan",
+  "Di web, Sematkan di menu ⋯ papan menjaga papan di atas daftar obrolanmu; Lepas sematan mengembalikan urutannya. Untuk berkas acuan papan, lihat Dokumen tersemat di atas.",
+  "Kejar",
+  "Di web, membuka papan dengan 20 pesan baru atau lebih menawarkan Kejar di atas garis Baru: membuka Rekap papan — apa yang diputuskan, ditanyakan, dan tertunggak sejak kunjunganmu terakhir.",
+  "Satu baris",
+  "Akun → Tampilan → Pesan (di aplikasi Pengaturan → Tampilan): Satu baris jika tidak menyebut Anda menampilkan pesan orang lain satu baris sampai mereka menyebut Anda.",
 ];
 
 const TR = [
@@ -1339,6 +1483,18 @@ const TR = [
   "Pano bilgisi'nde sahipler panoyu yeniden adlandırabilir ya da arşivleyebilir, iletilerin ne kadar saklanacağını ayarlayabilir veya silebilir (30 gün içinde geri yüklenebilir).",
   "Yanıtlar yalnızca kendi konularında",
   "Görünüm → Yanıtlar → Yalnızca kendi konularında, sohbette yalnızca ana iletileri yanıt sayılarıyla bırakır; konuyu açmak için sayıya dokunun.",
+  "Bir başlıkta tepki ver",
+  "Web'de, açık bir başlıktaki her yanıtta emoji seçici durur; yanıtlara da, asıl mesaja da tepki verebilirsiniz.",
+  "Bana hatırlat",
+  "Web'de, bir mesajın veya Gelen Kutusu öğesinin üzerine gelip Bana hatırlat'ı seçin: 1 saat sonra, bu akşam (20.00) veya yarın (09.00) geri gelir. O zamana kadar Gelen Kutunuzda bekler.",
+  "Okunmadı olarak işaretle",
+  "Web'de, panonun ⋯ menüsündeki Okunmadı olarak işaretle, panoyu açana kadar onu yeniden okunmamış saydırır — nokta, kalın ve kenar çubuğundaki yeriyle.",
+  "Panoyu sabitle",
+  "Web'de, pano ⋯ menüsündeki Sabitle panoyu sohbet listenizin üstünde tutar; Sabitlemeyi kaldır eski düzene döndürür. Panonun ana kaynağı için yukarıdaki Sabitlenmiş belgeye bakın.",
+  "Yetiş",
+  "Web'de, 20 veya daha fazla yeni mesajı olan bir panoyu açınca Yeni çizgisinin üstünde bir yetişme düğmesi çıkar: son ziyaretinizden beri karara bağlananları, sorulanları ve eksik kalanları toplayan panonun Özetini açar.",
+  "Tek satır",
+  "Hesap → Görünüm → Mesajlar (uygulamada Ayarlar → Görünüm): Senden bahsetmiyorsa tek satır, başkalarının mesajlarını sizi anana dek tek satır gösterir.",
 ];
 
 const BN = [
@@ -1442,6 +1598,18 @@ const BN = [
   "বোর্ডের তথ্য-এ মালিকরা বোর্ডের নাম বদলাতে বা আর্কাইভ করতে, বার্তা কতদিন থাকবে ঠিক করতে, বা মুছে ফেলতে পারেন (30 দিন পর্যন্ত ফিরিয়ে আনা যায়)।",
   "উত্তর শুধু নিজের থ্রেডে",
   "ডিসপ্লে → উত্তর → শুধু নিজের থ্রেডে বেছে নিলে চ্যাটে শুধু মূল বার্তাগুলো থাকে, প্রতিটির সাথে উত্তরের সংখ্যা; থ্রেড খুলতে সংখ্যায় ট্যাপ করুন।",
+  "থ্রেডে প্রতিক্রিয়া",
+  "ওয়েবে, খোলা থ্রেডের প্রতিটি উত্তরে ইমোজি নির্বাচক থাকে, তাই মূল বার্তার পাশাপাশি উত্তরেও প্রতিক্রিয়া দিতে পারেন।",
+  "আমাকে মনে করিয়ে দিন",
+  "ওয়েবে, কোনো বার্তা বা ইনবক্স আইটেমে কার্সর রেখে আমাকে মনে করিয়ে দিন বেছে নিন: এটি ১ ঘণ্টা পরে, আজ রাতে (২০:০০) বা আগামীকাল (০৯:০০) ফিরে আসে। ততক্ষণ এটি আপনার ইনবক্সে অপেক্ষা করে।",
+  "অপঠিত হিসেবে চিহ্নিত করুন",
+  "ওয়েবে, বোর্ডের ⋯ মেনুতে অপঠিত হিসেবে চিহ্নিত করুন বেছে নিলে বোর্ডটি না খোলা পর্যন্ত আবার অপঠিত গণনা হয় — ডট, বোল্ড এবং সাইডবারে অবস্থানসহ।",
+  "বোর্ড পিন করুন",
+  "ওয়েবে, বোর্ডের ⋯ মেনুতে পিন করুন বোর্ডটিকে আপনার চ্যাট তালিকার শীর্ষে রাখে; আনপিন করলে আবার ক্রমে ফেরে। বোর্ডের মূল উৎস ফাইলের জন্য উপরের পিন করা ডকুমেন্ট দেখুন।",
+  "সারসংক্ষেপ",
+  "ওয়েবে, ২০টি বা বেশি নতুন বার্তার বোর্ড খুললে নতুন রেখার উপরে সারসংক্ষেপ বোতাম আসে: এটি বোর্ডের রিক্যাপ খোলে — শেষ দেখার পর থেকে কী সিদ্ধান্ত, কী প্রশ্ন, কী বাকি।",
+  "এক লাইন",
+  "অ্যাকাউন্ট → ডিসপ্লে → বার্তা (অ্যাপে সেটিংস → ডিসপ্লে): আপনার উল্লেখ না থাকলে এক লাইন অন্যদের বার্তা উল্লেখ না হওয়া পর্যন্ত এক লাইনে দেখায়।",
 ];
 
 const AR = [
@@ -1545,6 +1713,18 @@ const AR = [
   "من معلومات اللوحة، يستطيع المالكون إعادة تسمية اللوحة أو أرشفتها، أو ضبط مدة احتفاظها بالرسائل، أو حذفها (قابلة للاستعادة خلال 30 يومًا).",
   "الردود في سلاسلها فقط",
   "العرض ← الردود ← في سلاسلها فقط يُبقي المحادثة للرسائل الرئيسية، كلٌّ مع عدد ردوده؛ انقر العدد لفتح السلسلة.",
+  "التفاعل داخل سلسلة",
+  "على الويب، تبقي السلسلة المفتوحة منتقي الإيموجي على كل رد، فيمكنك التفاعل مع الردود كما مع الرسالة التي تسبقها.",
+  "ذكّرني",
+  "على الويب، مرّر المؤشر فوق رسالة أو عنصر في الوارد واختر ذكّرني: يعود بعد ساعة، أو الليلة (20:00)، أو غدًا (09:00). وحتى ذلك الحين ينتظر في الوارد لديك.",
+  "وضع علامة كغير مقروء",
+  "على الويب، يجعل «وضع علامة كغير مقروء» في قائمة اللوحة ⋯ اللوحة تُحسب غير مقروءة من جديد — بالنقطة والخط العريض وموقعها في الشريط — حتى تفتحها.",
+  "تثبيت لوحة",
+  "على الويب، يُبقي «تثبيت» في قائمة اللوحة ⋯ اللوحة في أعلى قائمة محادثاتك؛ و«إلغاء التثبيت» يعيدها إلى ترتيبها. لملف اللوحة المرجعي، راجع «المستند المثبّت» أعلاه.",
+  "اطّلع على الجديد",
+  "على الويب، عند فتح لوحة فيها 20 رسالة جديدة أو أكثر يظهر زر اطّلع على الجديد فوق خط «جديد»: يفتح ملخص اللوحة بما قُرر وسُئل وما هو مستحق منذ آخر زيارة.",
+  "سطر واحد",
+  "الحساب ← العرض ← الرسائل (في التطبيق: الإعدادات ← العرض): «سطر واحد ما لم تُذكر فيها» يعرض رسائل الآخرين بسطر واحد حتى يذكروك.",
 ];
 
 const table = (vals: string[]) => Object.fromEntries(KEYS.map((k, i) => [k, vals[i]]));
