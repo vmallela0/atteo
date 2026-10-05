@@ -7,7 +7,7 @@ import { appPage, avatar, relTime, type SideBoard, type Viewer } from "./ui";
 import { tr } from "./i18n";
 import { esc } from "./util";
 import { approvalCardHtml, approvalJs, type ApprovalCardData } from "./approvalCard";
-import type { Env } from "./types";
+import { PERSON_ONLY_KINDS, type Env } from "./types";
 import { classify, DEFAULT_LEVEL, lastDigestAt, type Interrupt, type Level, type NotifyPrefs } from "./notify";
 
 export interface InboxItem {
@@ -85,7 +85,7 @@ export async function digestDue(env: Env, user: string, levels: Record<string, L
 }
 
 /** People-only items (a message only the people named can see) go to person callers only: agent tokens read this API too. */
-const NOT_PEOPLE = (person: boolean, col = "kind") => (person ? "" : ` AND ${col} NOT IN ('people_only', 'manual_unread', 'reminder', 'report')`);
+const NOT_PEOPLE = (person: boolean, col = "kind") => (person ? "" : ` AND ${col} NOT IN (${PERSON_ONLY_KINDS.map((k) => `'${k}'`).join(", ")})`);
 
 export async function listInbox(env: Env, user: string, limit = 100, person = false): Promise<InboxItem[]> {
   const r = await env.DB.prepare(
