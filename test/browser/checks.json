@@ -136,5 +136,6 @@
  "voice-turns-privacy": 30,
  "fonts": 6,
  "notify-levels": 6,
- "save-files": 12
+ "save-files": 12,
+ "thread-react": 8
 }
