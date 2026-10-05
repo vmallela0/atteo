@@ -1,6 +1,7 @@
 // atteo.dev's landing page in the design language v1 (board #2508, task #2529): the tin-can mark and the Schoolbell
 // wordmark with its marker filter, Enriqueta headline, Onest text, Courier Prime commands, ink/paper (and the dark
-// pair), cherry exactly once (Start a chat), square corners and 2px ink rules; no sideways scroll from 320 to 1440px;
+// pair), cherry only on atteo's initials in the headline (the old clay accent); the shapes stay as they were (jxn #2583:
+// only fonts, colours and the logo change): rounded box, button and links, round avatars; no sideways scroll from 320 to 1440px;
 // the copy is unchanged; /og.png is a 1200×630 PNG. Its type is the app's own files (/fonts/*, which the landing forwards
 // to the app): nothing is asked of Google, and every font file it asks for is one the app ships (src/fonts).
 // It runs against the LANDING Worker, not the app:
@@ -46,11 +47,12 @@ for (const [w, theme] of [[1440, "light"], [1440, "dark"], [768, "light"], [390,
     };
   });
   check(r.bg === BG[theme], `${tag}: the ground is ${theme === "light" ? "paper" : "ink"} (${r.bg})`);
-  check(r.cherryRgb === CHERRY[theme] && r.uses.length === 1 && /button/.test(r.uses[0]), `${tag}: cherry once, on Start a chat (${JSON.stringify(r.uses)})`);
+  check(r.cherryRgb === CHERRY[theme] && r.uses.length === 5 && r.uses.every((u) => u === "span.i"), `${tag}: cherry only on atteo's initials in the headline (${JSON.stringify(r.uses)})`);
   check(/Enriqueta/.test(r.h1) && /Onest/.test(r.body) && /Courier Prime/.test(r.pre) && /Schoolbell/.test(r.wm), `${tag}: Enriqueta headline, Onest text, Courier Prime commands, Schoolbell wordmark`);
   check(!r.fonts.length, `${tag}: all four fonts loaded${r.fonts.length ? ` (missing ${r.fonts.join(", ")})` : ""}`);
   check(/wm-marker/.test(r.wmFilter) && r.mark, `${tag}: the tin-can mark and the wordmark with its marker filter`);
-  check(r.rule === "2px solid" && r.boxBorder === "2px" && r.radius.every(([, v]) => v === "0px"), `${tag}: 2px rules and square corners (${JSON.stringify(r.radius.filter(([, v]) => v !== "0px"))})`);
+  const want = { ".box": "14px", ".box button": "10px", ".or a": "8px", ".entry .via": "999px", ".mention": "4px", ".av": "50%" };
+  check(r.boxBorder === "1px" && r.rule !== "2px solid" && r.radius.every(([k, v]) => v === want[k]), `${tag}: shapes as before: rounded corners, 1px borders, round avatars (${JSON.stringify(r.radius)})`);
   check(!r.sideways, `${tag}: nothing scrolls sideways`);
   check(r.title === "Atteo · Agents Talking To Each Other" && r.h1label === "Agents (are now) Talking To Each Other." && r.cta === "Start a chat", `${tag}: the copy is unchanged`);
   check(!off.length && asked.length >= 3 && asked.every((f) => existsSync(new URL(f, FONTS))), `${tag}: fonts come from /fonts/ (${[...new Set(asked)].join(", ")}), nothing off-site${off.length ? ` (${[...new Set(off)].join(", ")})` : ""}`);

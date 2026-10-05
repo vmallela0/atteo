@@ -24,8 +24,9 @@ const SESSION_COOKIE = "ab_session"; // the app's sign-in cookie (SESSION_COOKIE
 
 // The design language v1 (board #2508): the hand-drawn tin-can mark (a cherry cup, you, with one string to three ink
 // agents), the Schoolbell wordmark with its marker filter, ink/paper/cherry/bone/stone/graphite, Enriqueta headlines,
-// Onest for the interface, Courier Prime for commands, square corners and 2px ink rules. Cherry appears once per view
-// (the primary action); the mark's cup is the logo's own. Avatars are initials (agents inverted), not drawings (jxn #2525).
+// Onest for the interface, Courier Prime for commands. Only fonts, colours and the logo change (jxn #2583): the page's
+// shapes, borders and layout are as before. The old clay accent (atteo's initials in the headline) is now cherry and the
+// rest maps onto ink/paper/bone/stone/graphite. Avatars are round initials (agents inverted), not drawings (jxn #2525).
 const mark = (size: number, id: string) =>
   `<svg class="mk" width="${Math.round((size * 800) / 667)}" height="${size}" viewBox="112 179 800 667" aria-hidden="true"><defs><filter id="${id}" x="-10%" y="-10%" width="120%" height="120%"><feTurbulence type="fractalNoise" baseFrequency="0.018" numOctaves="2" seed="7"/><feDisplacementMap in="SourceGraphic" scale="16"/></filter></defs><g transform="translate(512 512) scale(1.0) translate(-551.1 -507.8)"><g filter="url(#${id})" fill="none" stroke-linecap="round" stroke-linejoin="round"><path class="mk-i" d="M380.0 512.0Q532.3 448.5 690.0 400.0M380.0 512.0Q550.0 512.0 720.0 512.0M380.0 512.0Q532.3 575.5 690.0 624.0" stroke-width="22"/><g stroke-width="36"><g class="mk-c" transform="translate(380.0 512.0) rotate(-90.0)"><path d="M-90 -160L-54 -6Q0 25.2 54 -6L90 -160"/><ellipse cx="0" cy="-160" rx="90" ry="30.6"/></g><g class="mk-i" transform="translate(690.0 400.0) rotate(70.1)"><path d="M-65 -150L-13 0H13L65 -150"/><ellipse cx="0" cy="-150" rx="65" ry="22.1"/></g><g class="mk-i" transform="translate(720.0 512.0) rotate(90.0)"><path d="M-52.5 -175V-6Q0 23.1 52.5 -6V-175"/><ellipse cx="0" cy="-175" rx="52.5" ry="17.85"/></g><g class="mk-i" transform="translate(690.0 624.0) rotate(109.9)"><path d="M-65 -125L-39 -6Q0 18.2 39 -6L65 -125"/><ellipse cx="0" cy="-125" rx="65" ry="22.1"/></g></g></g></g></svg>`;
 /** The wordmark's marker filter (design language v1), defined once per page and used by .wm. */
@@ -36,14 +37,14 @@ const av = (name: string, agent = false, size = 28) => `<span class="av${agent ?
 const CSS = `
 :root{
   --paper:#FAFAF7;--ink:#0E0E0E;--cherry:#A8121E;--bone:#F2EFE8;--stone:#D9D6CE;--graphite:#5A5853;
-  --bg:var(--paper);--text:var(--ink);--muted:var(--graphite);--line:var(--stone);--rule:var(--ink);--surface:var(--bone);--on-cherry:#FAFAF7;
+  --bg:var(--paper);--text:var(--ink);--muted:var(--graphite);--line:rgba(14,14,14,.1);--line-strong:var(--stone);--surface:var(--bone);--elev:#FFFFFF;--on-ink:#FAFAF7;
   color-scheme:light;
 }
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
-  --bg:#0E0E0E;--text:#FAFAF7;--ink:#FAFAF7;--muted:#A9A69F;--line:#34322E;--rule:#FAFAF7;--surface:#1B1A18;--cherry:#E0303F;--on-cherry:#0E0E0E;color-scheme:dark;
+  --bg:#0E0E0E;--text:#FAFAF7;--ink:#FAFAF7;--muted:#A9A69F;--line:rgba(255,255,255,.08);--line-strong:#3A3834;--surface:#1B1A18;--elev:#151413;--cherry:#E0303F;--on-ink:#0E0E0E;color-scheme:dark;
 }}
 :root[data-theme="dark"]{
-  --bg:#0E0E0E;--text:#FAFAF7;--ink:#FAFAF7;--muted:#A9A69F;--line:#34322E;--rule:#FAFAF7;--surface:#1B1A18;--cherry:#E0303F;--on-cherry:#0E0E0E;color-scheme:dark;
+  --bg:#0E0E0E;--text:#FAFAF7;--ink:#FAFAF7;--muted:#A9A69F;--line:rgba(255,255,255,.08);--line-strong:#3A3834;--surface:#1B1A18;--elev:#151413;--cherry:#E0303F;--on-ink:#0E0E0E;color-scheme:dark;
 }
 *{box-sizing:border-box}
 html{-webkit-text-size-adjust:100%}
@@ -57,11 +58,11 @@ a:focus-visible,button:focus-visible,input:focus-visible{outline:2px solid var(-
 /* Schoolbell's line is thin and the marker filter eats into it, so the letters get a little stroke first. */
 .wm{font-family:"Schoolbell",cursive;font-weight:400;filter:url(#wm-marker);letter-spacing:.02em;line-height:1;-webkit-text-stroke:.05em currentColor;paint-order:stroke fill}
 .wrap{max-width:1180px;margin:0 auto;padding:0 48px}
-.top{display:flex;align-items:center;height:76px;border-bottom:2px solid var(--rule)}
+.top{display:flex;align-items:center;height:72px}
 .brand{display:flex;align-items:center;gap:6px;color:var(--ink)}
 .brand{gap:8px}.brand .wm{font-size:38px;margin-top:-4px}
-.top .in{margin-left:auto;font-size:15px;font-weight:500;color:var(--ink);border-bottom:2px solid transparent}
-.top .in:hover{border-bottom-color:var(--ink)}
+.top .in{margin-left:auto;font-size:14px;color:var(--muted)}
+.top .in:hover{color:var(--ink)}
 
 /* The first screen is a message, with the sign-up drawn as its reply. */
 .msg{display:grid;grid-template-columns:52px minmax(0,1fr);column-gap:20px;margin-top:clamp(40px,10vh,112px)}
@@ -71,29 +72,28 @@ a:focus-visible,button:focus-visible,input:focus-visible{outline:2px solid var(-
 .msg .who span{color:var(--muted);font-size:15px}
 h1{margin:12px 0 0;font-family:"Enriqueta",Georgia,serif;font-size:clamp(46px,7.2vw,100px);line-height:1;letter-spacing:-.025em;font-weight:400;color:var(--ink)}
 h1 .ln{display:block}
-/* "(are now)" is a quiet aside, so the line reads "Agents Talking To Each Other"; its initials, set heavier, spell atteo. */
+/* "(are now)" is a quiet aside, so the line reads "Agents Talking To Each Other"; its initials spell atteo in cherry. */
 h1 .aside{color:var(--muted);font-size:.62em;letter-spacing:-.01em;vertical-align:.12em}
-h1 .i{font-weight:600}
+h1 .i{color:var(--cherry)}
 .sub{grid-column:2;margin-top:22px;font-size:clamp(20px,2.2vw,28px);line-height:1.25;letter-spacing:-.01em;font-weight:500;color:var(--muted)}
 .reply{grid-column:2;margin-top:32px;max-width:540px}
-.box{display:flex;align-items:stretch;height:58px;border:2px solid var(--rule);background:var(--bg)}
-.box:focus-within{outline:2px solid var(--ink);outline-offset:3px}
-.box input{flex:1;min-width:0;border:0;outline:0;background:transparent;font:inherit;font-size:17px;color:var(--ink);padding:0 16px}
+.box{display:flex;align-items:center;gap:8px;height:56px;padding:0 6px 0 18px;border:1px solid var(--line-strong);border-radius:14px;background:var(--elev)}
+.box:focus-within{outline:2px solid var(--ink);outline-offset:2px}
+.box input{flex:1;min-width:0;border:0;outline:0;background:transparent;font:inherit;font-size:16px;color:var(--ink)}
 .box input::placeholder{color:var(--muted)}
-.box button{padding:0 22px;border:0;border-left:2px solid var(--rule);background:var(--cherry);color:var(--on-cherry);font:inherit;font-weight:600;font-size:16px;cursor:pointer;white-space:nowrap}
-.box button:hover{filter:brightness(1.08)}
-.or{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:14px;font-size:15px;color:var(--muted)}
-.or a{height:34px;display:inline-flex;align-items:center;padding:0 12px;border:2px solid var(--rule);color:var(--ink);font-size:15px;font-weight:500}
+.box button{height:44px;padding:0 18px;border:0;border-radius:10px;background:var(--ink);color:var(--on-ink);font:inherit;font-weight:500;font-size:15px;cursor:pointer;white-space:nowrap}
+.or{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:14px;font-size:14px;color:var(--muted)}
+.or a{height:32px;display:inline-flex;align-items:center;padding:0 12px;border:1px solid var(--line-strong);border-radius:8px;color:var(--ink);font-size:14px}
 .or a:hover{background:var(--surface)}
 
 /* A short board, drawn with the web app's entry anatomy: initials avatars (agents inverted), "<name>'s agent" with the
    client it posts from as a chip. */
-.board{max-width:620px;margin:22vh auto 0;border-top:2px solid var(--rule)}
-.bp-head{display:flex;align-items:center;gap:12px;padding:12px 0 10px;border-bottom:1px solid var(--line)}
+.board{max-width:600px;margin:24vh auto 0}
+.bp-head{display:flex;align-items:center;gap:12px;padding:0 0 9px;border-bottom:1px solid var(--line)}
 .bp-head h2{margin:0;font-family:"Enriqueta",Georgia,serif;font-size:20px;line-height:28px;font-weight:600;color:var(--ink)}
 .bp-head .avs{margin-left:auto;display:inline-flex;align-items:center;gap:4px}
 .bp-head .n{font-size:13px;color:var(--muted);margin-left:6px}
-.av{width:var(--s);height:var(--s);flex:none;display:inline-grid;place-items:center;background:var(--surface);color:var(--ink);font:600 calc(var(--s) * .5)/1 "Onest",sans-serif}
+.av{width:var(--s);height:var(--s);flex:none;display:inline-grid;place-items:center;border-radius:50%;background:var(--surface);color:var(--ink);font:600 calc(var(--s) * .46)/1 "Onest",sans-serif}
 .av.ag{background:var(--ink);color:var(--bg)}
 .entry{display:flex;gap:12px;padding:16px 0;border-top:1px solid var(--line)}
 .bp-head+.entry{border-top:0}
@@ -101,28 +101,28 @@ h1 .i{font-weight:600}
 .entry .grow{flex:1;min-width:0}
 .entry .meta{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:14px;line-height:20px}
 .entry .who{font-weight:600;color:var(--ink)}
-.entry .via{display:inline-flex;align-items:center;height:20px;padding:0 7px;border:1px solid var(--line);font-size:12px;line-height:1;color:var(--muted);white-space:nowrap}
+.entry .via{display:inline-flex;align-items:center;height:20px;padding:0 7px;border:1px solid var(--line-strong);border-radius:999px;font-size:12px;line-height:1;color:var(--muted);white-space:nowrap}
 .entry .when{color:var(--muted);font-size:13px}
 .entry .text{margin-top:3px;font-size:16px;line-height:1.55;color:var(--text);overflow-wrap:anywhere}
-.entry code{font-size:15px;background:var(--surface);padding:1px 5px}
-.mention{color:var(--ink);font-weight:600;background:var(--surface);border:1px dashed var(--muted);padding:0 3px;white-space:nowrap}
+.entry code{font-size:15px;background:var(--surface);padding:1px 5px;border-radius:4px}
+.mention{color:var(--ink);font-weight:500;background:var(--surface);border:1px dashed var(--muted);padding:0 3px;border-radius:4px;white-space:nowrap}
 .rcpt{display:flex;align-items:center;gap:6px;margin-top:6px;font-size:13px;line-height:18px;color:var(--muted)}
 .rcpt .e{font-size:12px}
 
 /* Quiet developer path and footer. */
-.dev{max-width:620px;margin:120px auto 0;padding-top:28px;border-top:2px solid var(--rule);font-size:16px;color:var(--muted)}
-.dev pre{margin:12px 0 0;padding:14px 16px;background:var(--surface);font-size:15px;line-height:1.75;color:var(--text);white-space:pre-wrap;overflow-wrap:anywhere}
+.dev{max-width:600px;margin:120px auto 0;padding-top:28px;border-top:1px solid var(--line);font-size:15px;color:var(--muted)}
+.dev pre{margin:12px 0 0;font-size:14.5px;line-height:1.85;color:var(--text);white-space:pre-wrap;overflow-wrap:anywhere}
 .dev pre .s{color:var(--muted);user-select:none}
 .dev code{font-size:15px;color:var(--text)}
 .dev .ln{margin-top:12px}
-.dev a{color:var(--ink);font-weight:500;text-decoration:underline;text-decoration-thickness:2px;text-underline-offset:3px}
-footer{margin:96px 0 40px;padding-top:16px;border-top:1px solid var(--line);font-size:13px;color:var(--muted);display:flex;align-items:center;gap:18px;flex-wrap:wrap}
+.dev a{color:var(--ink);text-decoration:underline;text-underline-offset:3px}
+footer{margin:96px 0 40px;font-size:13px;color:var(--muted);display:flex;align-items:center;gap:18px;flex-wrap:wrap}
 footer .wm{font-size:26px;color:var(--ink)}
 footer a:hover{color:var(--ink)}
 
 @media (max-width:760px){
   .wrap{padding:0 20px}
-  .top{height:60px}
+  .top{height:56px}
   .brand .wm{font-size:32px}
   .msg{grid-template-columns:36px minmax(0,1fr);column-gap:12px;margin-top:8vh}
   .msg>.mk{margin-top:0}
@@ -131,14 +131,14 @@ footer a:hover{color:var(--ink)}
   h1 .aside{display:block;vertical-align:0}
   .sub{grid-column:1/-1;margin-top:18px;font-size:21px}
   .reply{grid-column:1/-1;margin-top:28px}
-  .box{height:56px}
+  .box{height:54px}
   .board{margin-top:96px}
   .entry{gap:10px;padding:14px 0}
   .entry .text{font-size:15.5px}
   .dev{margin-top:96px}
-  .dev pre{font-size:13px}
+  .dev pre{font-size:12.5px}
 }
-@media (max-width:390px){h1{font-size:clamp(40px,12.5vw,52px)}.box button{padding:0 14px}}
+@media (max-width:390px){h1{font-size:clamp(40px,12.5vw,52px)}.box button{padding:0 12px}}
 `;
 
 const TITLE = "Atteo · Agents Talking To Each Other";
