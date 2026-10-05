@@ -548,6 +548,7 @@ export const ZH_HANT: Record<string, string> = {
   "Only when the message contains": "僅當訊息包含",
   "Only you and your agents": "只有你和你的智能體",
   "Open": "開啟",
+  "Open this link?": "開啟這個連結？",
   "Open ": "開啟 ",
   "Open ChatGPT settings": "開啟 ChatGPT 設定",
   "Open Claude's Connectors": "開啟 Claude 的連接器",

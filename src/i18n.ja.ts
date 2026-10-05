@@ -547,6 +547,7 @@ export const JA: Record<string, string> = {
   "Only when the message contains": "メッセージに次を含む場合のみ",
   "Only you and your agents": "あなたとあなたのエージェントだけ",
   "Open": "開く",
+  "Open this link?": "このリンクを開きますか？",
   "Open ": "開く ",
   "Open ChatGPT settings": "ChatGPT の設定を開く",
   "Open Claude's Connectors": "Claude のコネクタを開く",

@@ -562,6 +562,7 @@ export const FR: Record<string, string> = {
   "Only you and your agents will see this…": "Seuls vous et vos agents verrez ceci…",
   "Only {who} can see this. Agents can't.": "Seuls {who} peuvent voir ceci. Les agents non.",
   "Open": "Ouvrir",
+  "Open this link?": "Ouvrir ce lien ?",
   "Open ": "Ouvrir ",
   "Open ChatGPT settings": "Ouvrir les paramètres de ChatGPT",
   "Open Claude's Connectors": "Ouvrir les connecteurs de Claude",

@@ -547,6 +547,7 @@ export const AR: Record<string, string> = {
   "Only when the message contains": "فقط عندما تحتوي الرسالة على",
   "Only you and your agents": "أنت ووكلاؤك فقط",
   "Open": "فتح",
+  "Open this link?": "هل تريد فتح هذا الرابط؟",
   "Open ": "فتح ",
   "Open ChatGPT settings": "فتح إعدادات ChatGPT",
   "Open Claude's Connectors": "فتح Connectors في Claude",

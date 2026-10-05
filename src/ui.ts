@@ -982,6 +982,9 @@ mark{background:var(--mark);color:inherit;border-radius:2px;padding:0 1px}
 .sidebar .me{display:flex;align-items:center;gap:6px}.sidebar .me>.side-link{flex:1;min-width:0}
 .bug-btn{flex:none;width:30px;height:30px;padding:0;display:inline-grid;place-items:center;border:1px solid var(--line-strong);color:var(--muted);background:var(--bg)}
 .bug-btn:hover{color:var(--ink);border-color:var(--ink);background:var(--bg)}
+/* Leaving Atteo (jxn #4173): the address in full, wrapped, before you go. */
+#leave .leave-url{margin:0;padding:10px 12px;border:1px solid var(--line);border-radius:var(--r-sm);background:var(--bg-subtle);font-size:13px;overflow-wrap:anywhere;color:var(--ink)}
+#leave .ft{display:flex;justify-content:flex-end;gap:8px;padding:0 22px 20px}
 /* The report dialog (jxn #4053, #4116): what happened, the pictures you added (paper clip, paste or drop), then Cancel / Send. */
 #bug form{display:block}
 #bug .bd{display:grid;gap:12px}
@@ -1528,6 +1531,18 @@ const CLIENT_JS = `
 // Saving a picture or a file (jxn #2684) is an <a download data-save>. On a phone that can share files (iOS Safari,
 // Android Chrome) it opens the share sheet instead (Save Image, Save to Files, AirDrop…); anywhere else, or if sharing
 // isn't allowed after the fetch, the browser downloads it.
+// Leaving Atteo (jxn #4173): a link someone wrote (a message, a file, the pinned doc) to another site asks first and
+// shows the whole address; same-site links and modified clicks (a new tab on purpose) go straight through. The dialog
+// is made the first time it's needed (no markup on every page: web-budget).
+const leaveDlg=()=>{let d=document.getElementById('leave');if(d)return d;d=document.createElement('dialog');d.id='leave';d.setAttribute('aria-labelledby','leave-title');
+  d.innerHTML='<div class="hd"><h2 id="leave-title"></h2><button type="button" class="btn ghost sm" data-close>✕</button></div><div class="bd"><p class="mono leave-url" id="leave-url"></p></div><div class="ft"><button type="button" class="btn" data-close></button><button type="button" class="btn primary" id="leave-go"></button></div>';
+  d.querySelector('h2').textContent=tr('Open this link?');const c=d.querySelectorAll('[data-close]');c[0].setAttribute('aria-label',tr('Close'));c[1].textContent=tr('Cancel');d.querySelector('#leave-go').textContent=tr('Open');
+  document.body.append(d);return d};
+document.addEventListener('click',e=>{if(e.defaultPrevented||e.button!==0||e.metaKey||e.ctrlKey||e.shiftKey||e.altKey)return;const a=e.target.closest&&e.target.closest('a[href]');
+  if(!a||a.hasAttribute('data-save')||!a.closest('.entry .body,#doc-view,.pin-peek,.pin-card'))return;let u;try{u=new URL(a.getAttribute('href'),location.href)}catch(x){return}
+  if(u.origin===location.origin||!/^https?:$/.test(u.protocol))return;const d=leaveDlg();
+  e.preventDefault();document.getElementById('leave-url').textContent=u.href;d.dataset.href=u.href;d.showModal();document.getElementById('leave-go').focus()});
+document.addEventListener('click',e=>{if(!e.target.closest||!e.target.closest('#leave-go'))return;const d=document.getElementById('leave'),h=d.dataset.href;d.close();if(h)window.open(h,'_blank','noopener,noreferrer')});
 document.addEventListener('click',async e=>{const a=e.target.closest&&e.target.closest('a[data-save]');if(!a||!navigator.canShare||!matchMedia('(pointer:coarse)').matches)return;e.preventDefault();
   const name=a.getAttribute('download')||'file',dl=()=>{const x=document.createElement('a');x.href=a.href;x.download=name;document.body.append(x);x.click();x.remove()};
   try{const b=await (await fetch(a.href)).blob(),f=new File([b],name,{type:b.type||'application/octet-stream'});if(navigator.canShare({files:[f]}))return await navigator.share({files:[f]})}
