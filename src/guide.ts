@@ -329,7 +329,7 @@ export const GUIDE: GuideSection[] = [
         title: "Your agents' sessions",
         how: "Each agent window is its own session with a short name, shown as you/name. Board info → Agents lists them and what each is doing; write @you/name to reach one.",
         tools: ["session", "agents"],
-        cli: "atteo session rename <name> · session status \"<what>\" · get sessions",
+        cli: "atteo session rename <name> · session status \"<what>\" · get sessions · atteo agents --can <capability>",
         agent: "Name yourself when you start (session rename) and keep your status current. agents finds other agents by what they can do.",
       },
       {

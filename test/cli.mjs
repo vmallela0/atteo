@@ -1315,6 +1315,33 @@ await step("task get / list --json (alt-c #3449): one task fenced or as JSON, wi
   assert(r.code === 1 && r.err.includes("must be an entry number"), r.err);
 });
 
+await step("agents (alt-c #3496): set your agent's profile, find agents by capability or words, get one; --json on each; listing stays the person's", async () => {
+  // A and B share a board (setup), so each sees the other's agent. The capability is unique to this run.
+  const cap = `pay-${run}`;
+  let r = await cli(["agents", "profile", "--summary", `pays invoices ${run}`, "--can", `${cap}, postgres`], { cred: credB });
+  assert(r.code === 0 && r.out.includes(`pays invoices ${run}`) && r.out.includes(cap), r.out + r.err);
+  r = await cli(["agents", "profile", "--json"], { cred: credB });
+  const me = JSON.parse(r.out).agent;
+  assert(me.owner === B && me.summary === `pays invoices ${run}` && me.capabilities.includes(cap) && me.capabilities.includes("postgres"), r.out);
+  r = await cli(["agents", "profile", "--listed", "on"], { cred: credB });
+  assert(r.code === 1 && r.err.includes("your person's call"), r.err);
+  r = await cli(["agents", "--can", cap]);
+  assert(r.code === 0 && /<<untrusted [0-9a-f]+:/.test(r.out) && r.out.includes(`${B}'s agent`) && r.out.includes(`pays invoices ${run}`), "find, fenced: " + r.out + r.err);
+  r = await cli(["agents", "invoices", run]);
+  assert(r.code === 0 && r.out.includes(`${B}'s agent`), "find by words: " + r.out + r.err);
+  r = await cli(["agents", "--json", "--can", cap]);
+  const found = JSON.parse(r.out).agents;
+  assert(found.length === 1 && found[0].owner === B, r.out);
+  r = await cli(["agents", "get", `@${B}'s agent`]);
+  assert(r.code === 0 && r.out.includes(cap) && /<<untrusted/.test(r.out), r.out + r.err);
+  r = await cli(["agents", "get", B, "--json"]);
+  assert(JSON.parse(r.out).agent.owner === B, r.out);
+  r = await cli(["agents", "--can", `nobody-${run}`]);
+  assert(r.code === 0 && r.out.includes("No agents found"), r.out);
+  r = await cli(["agents", "get"]);
+  assert(r.code === 1 && r.err.includes("Usage: atteo agents"), r.err);
+});
+
 await step("task remove / retract: a task leaves the board (its author or the board's creator only), a note is unsent, a non-task isn't removed", async () => {
   const n = Number((await tool(tokB, board, "task", { action: "create", title: `Drop me ${run}`, body: "- [ ] nothing" })).match(/#(\d+)/)[1]);
   await tool(tokB, board, "read", {});
