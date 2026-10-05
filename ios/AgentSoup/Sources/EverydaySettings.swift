@@ -58,6 +58,7 @@ struct EverydaySettings: View {
             ReportBugRow() // Report a bug (ReportBug.swift), where it's easy to find
             FeedbackRow() // Send feedback to the Atteo team (Feedback.swift, vedu #4125)
             LegalRow() // Privacy Policy + Terms (LegalRow.swift, App Review 5.1.1(i))
+            SafetySection() // hide offensive words, the xAI voice consent (Moderation.swift, App Review 1.2 / 5.1.2(i))
 
             NotificationsSection()
 

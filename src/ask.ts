@@ -137,7 +137,7 @@ fetch('/api/app/tts/status').then(r=>r.ok?r.json():null).then(j=>{tts=j}).catch(
 function stopVoice(){if(audio){audio.pause();audio=null}if(syn)syn.cancel()}
 window.voiceHush=()=>{if(rec)try{rec.abort()}catch(e){}stopVoice()}; // Talk to Atteo (talk.ts) takes the mic and the speaker
 async function speak(e){stopVoice();const text=(e.text||'').replace(/https?:[^ ]+/g,'a link').slice(0,900);
-  if(tts&&tts.enabled){try{const r=await fetch('/api/app/tts',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({board:CHAT,seq:e.seq})});
+  if(tts&&tts.enabled&&window.atteoXaiOk&&window.atteoXaiOk()){try{const r=await fetch('/api/app/tts',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({board:CHAT,seq:e.seq})});
     if(r.ok){audio=new Audio(URL.createObjectURL(await r.blob()));await audio.play();return}}catch(x){}}
   if(!syn)return;const u=new SpeechSynthesisUtterance(text);u.lang=LANG;window.__utt=u;syn.speak(u)}
 replay.addEventListener('click',()=>{if(last)speak(last)});

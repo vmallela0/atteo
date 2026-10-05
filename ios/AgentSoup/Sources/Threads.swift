@@ -354,6 +354,7 @@ struct ThreadView: View {
     @State private var carryAdded = "" // the "@who " this box put in front of the chat's text
     @State private var mentionAdded: String? // the "@who " a reply here put in front (✕ takes it out)
     @State private var unsending: Entry?
+    @State private var reporting: Entry? // Report: the reason sheet (Moderation.swift)
     @State private var reactingTo: SeqRef?
     @State private var next: ThreadTarget? // another thread, pushed on top
     @State private var profile: ProfileTarget? // someone's card
@@ -515,6 +516,7 @@ struct ThreadView: View {
         .confirmationDialog("Unsend this message?", isPresented: Binding(get: { unsending != nil }, set: { if !$0 { unsending = nil } }), titleVisibility: .visible, presenting: unsending) { e in
             Button("Unsend", role: .destructive) { Task { await state.retract(e.seq, in: board) } }
         } message: { _ in Text("Everyone here will see it as unsent.") }
+        .sheet(item: $reporting) { e in ReportMessageSheet(board: board.id, e: e).presentationDetents([.medium, .large]).presentationBackground(Theme.bg) }
         .decisionPrompts($decisionPrompt, note: $decisionNote, board: board, state: state)
         .task {
             if !started { draft = MessageDrafts.shared.text(for: board, root: root) }
@@ -603,6 +605,7 @@ struct ThreadView: View {
             a.moreReactions = { reactingTo = SeqRef(id: e.seq) }
             if mine { a.unsend = { unsending = e } }
             if !board.isAgentChat { a.remember = { Task { await state.remember(e.seq, in: board.id) } } }
+            if !mine, !board.isAgentChat { a.report = { reporting = e } }
         }
         if let p = shown.replyTo { a.jumpToParent = { open(p, here: Dictionary(items.map { ($0.seq, $0) }, uniquingKeysWith: { a, _ in a })) } }
         let rx = state.reactions[board.id]?[e.seq] ?? (fetched?.entry.seq == e.seq ? fetched?.reactions : nil) ?? []

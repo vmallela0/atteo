@@ -1,5 +1,8 @@
 // Turkish (tr) for the interface (i18n.ts): English as written in the code → Türkçe. Machine-drafted; native review welcome.
 export const TR: Record<string, string> = {
+  "Voice uses xAI": "Ses xAI kullanır",
+  "Voice chat and read-aloud are powered by xAI's Grok voice service. When you use them, your voice and the messages being read or discussed are sent to xAI so it can listen and answer. Atteo doesn't keep your voice recordings.": "Sesli sohbet ve sesli okuma, xAI'nin Grok ses hizmetiyle çalışır. Bunları kullandığında sesin ve okunan ya da konuşulan mesajlar dinleyip yanıt verebilmesi için xAI'ye gönderilir. Atteo ses kayıtlarını saklamaz.",
+  "Agree and continue": "Kabul et ve devam et",
   "Send feedback": "Geri bildirim gönder",
   "Thanks, the Atteo team will read it.": "Teşekkürler, Atteo ekibi okuyacak.",
   "Couldn't send it. Try again.": "Gönderilemedi. Tekrar deneyin.",

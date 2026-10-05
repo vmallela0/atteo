@@ -37,7 +37,7 @@ const violations = [];
 let fails = 0;
 const check = (ok, title) => { console.log(`${ok ? "✓" : "✗"} ${title}`); if (!ok) fails++; };
 // A stand-in for the voice provider's socket, as voice-chat.mjs does: the call runs its real page code without xAI.
-const FAKE_WS = `(()=>{const Real=window.WebSocket;
+const FAKE_WS = `(()=>{try{localStorage.setItem('ai-consent-xai','1')}catch(e){} /* the xAI OK (talk.ts consent) */const Real=window.WebSocket;
   window.WebSocket=function(url,protocols){if(!String(url).startsWith('wss://api.x.ai'))return new Real(url,protocols);
     const ws={url,protocols,readyState:0,send(){},close(){if(this.readyState===3)return;this.readyState=3;setTimeout(()=>this.onclose&&this.onclose({}),0)}};
     setTimeout(()=>{ws.readyState=1;ws.onopen&&ws.onopen({})},50);return ws};

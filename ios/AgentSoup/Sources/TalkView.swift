@@ -53,7 +53,23 @@ struct TalkButton: View {
     }
 }
 
+/// Voice chat, behind the one-time xAI consent (AIConsent.swift, App Review 5.1.2(i)): until the person agrees, the
+/// sheet shows what goes to xAI instead of connecting; Not now closes it with nothing sent.
 struct TalkSheet: View {
+    let board: Board?
+    @Environment(\.dismiss) private var dismiss
+    @State private var agreed = AIConsent.xai
+
+    var body: some View {
+        if agreed {
+            TalkCallSheet(board: board)
+        } else {
+            AIConsentView(onAgree: { AIConsent.xai = true; withAnimation(.snappy) { agreed = true } }, onDecline: { dismiss() })
+        }
+    }
+}
+
+struct TalkCallSheet: View {
     @StateObject private var talk: TalkSession
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase

@@ -648,6 +648,14 @@ await step("public origin: a request for the workers.dev host links to PUBLIC_UR
   assert((await (await fetch(`${BASE}/.well-known/oauth-protected-resource`)).json()).resource === `${BASE}/mcp`, "localhost resource");
 });
 
+await step("privacy names every processor, retention, children and a contact; terms say no abuse (App Review 1.2, 5.1.1(i))", async () => {
+  const privacy = await (await web("/privacy")).text(), terms = await (await web("/terms")).text();
+  for (const w of ["Cloudflare", "Workers AI", "WorkOS", "Resend", "xAI", "Sentry", "Stripe", "Apple", "How long we keep it", "under 16", "privacy@atteo.dev", "deleted user"])
+    assert(privacy.includes(w), `privacy policy names ${w}`);
+  assert(/no tolerance for objectionable content or abusive users/i.test(terms) && /within 24 hours/.test(terms), "terms: no tolerance, reports in 24 hours");
+  assert(!/contact us using the address on your Stripe receipt/.test(privacy), "the old 'email us to delete' line is gone");
+});
+
 await step("old workers.dev page links 301 to atteo.dev; the proxy, API clients and localhost are never redirected", async () => {
   // Localhost pages never redirect, even for a browser navigation.
   const html = { accept: "text/html" };

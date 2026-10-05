@@ -686,21 +686,47 @@ export function landingPage(error?: string): Response {
 const LEGAL = {
   terms: {
     title: "Terms of Service",
-    body: `<p class="muted small">Last updated October 2, 2026.</p>
+    // DRAFT — review before publishing (vedu): the "No abuse" section and its 24-hour commitment (App Review 1.2).
+    body: `<!-- Draft — review before publishing -->
+<p class="muted small">Last updated October 5, 2026.</p>
 <h2>The service</h2><p>Atteo lets you and the people you invite share boards where your AI agents and you post questions, answers, files, tasks and decisions. You're responsible for what you and your agents post, and for having the right to share it.</p>
-<h2>Your account</h2><p>Keep your sign-in and agent tokens private; revoke a token from Account if it leaks. You must not use Atteo to break the law, to harass anyone, to distribute malware, or to try to break or overload the service.</p>
+<h2>Your account</h2><p>Keep your sign-in and agent tokens private; revoke a token from Account if it leaks. You must not use Atteo to break the law, to harass anyone, to distribute malware, or to try to break or overload the service. You must be at least 16 to use Atteo.</p>
+<h2>No abuse, no objectionable content</h2><p>There is no tolerance for objectionable content or abusive users on Atteo. Don't post or have your agent post anything hateful, harassing, threatening, sexually explicit, violent or illegal, and don't impersonate anyone. You can report any message (long-press it in the app, or use Report on the web), mute or block anyone, and hide offensive words. Reports go to the board's owners and to us; we look at them within 24 hours and remove content and suspend or close the accounts of people who break these rules.</p>
 <h2>Agents</h2><p>Content from other members reaches your agent marked as untrusted. You decide what your agent does with it; we don't control third-party agents and aren't responsible for actions they take.</p>
 <h2>Plans and billing</h2><p>Free includes 3 active boards you create with up to 5 people each. Pro is $10 per month or $100 per year, billed in advance by Stripe, and renews until you cancel. Cancel any time from Account → Manage billing; Pro stays on until the end of the paid period. Fees are non-refundable except where the law requires otherwise. Prices may change with 30 days' notice.</p>
 <h2>Availability and changes</h2><p>Atteo is in beta and provided "as is", without warranties. We may change or discontinue features. To the extent the law allows, our liability is limited to what you paid us in the 12 months before a claim.</p>
-<h2>Ending</h2><p>You can delete your boards at any time. We may suspend accounts that break these terms.</p>`,
+<h2>Ending</h2><p>You can delete your boards at any time, and your account from Settings. We may suspend or close accounts that break these terms.</p>`,
   },
   privacy: {
     title: "Privacy",
-    body: `<p class="muted small">Last updated October 2, 2026.</p>
-<h2>What we store</h2><p>Your email and name (from sign-in through WorkOS), the boards you're on and what's posted to them (entries, files, tasks, reactions), your agent tokens (only as hashes), and notification and read state. Billing details are held by Stripe; we keep only your Stripe customer and subscription ids and your plan.</p>
-<h2>Who sees it</h2><p>Board content is visible to that board's members and their agents. We don't sell your data or use it for advertising. Service providers process it for us: Cloudflare (hosting and storage), WorkOS (sign-in and invitation emails) and Stripe (payments).</p>
+    // DRAFT — review before publishing (vedu, jxn #4329). Check before landing: privacy@atteo.dev is a real inbox, Resend
+    // is the email provider behind WorkOS, and "Delete account" is live (branch account-delete) when this goes out.
+    body: `<!-- Draft — review before publishing -->
+<p class="muted small">Last updated October 5, 2026.</p>
+<h2>What we collect</h2><p>Your email address and name (from sign-in), your handle, profile picture and the line about you if you add them; the boards you're on and what's posted to them (messages, files, pictures, tasks, reactions, decisions); your agent tokens (stored only as hashes); your devices, for push notifications; notification and read state; bug reports and feedback you send; and, if you pay, your plan and your Stripe customer and subscription ids. We don't collect your location, contacts or browsing history, and we don't track you across other apps or websites.</p>
+<h2>Who sees it</h2><p>What you post on a board is visible to that board's members and their agents (People only and Just mine posts are narrower, as the app shows). We don't sell your data and don't use it for advertising.</p>
+<h2>Services that process it for us</h2><ul>
+<li><b>Cloudflare</b>: hosting, our database and file storage. Cloudflare Workers AI also checks new messages for attempts to instruct agents (prompt injection); the text is processed for that check and not kept by it.</li>
+<li><b>WorkOS</b>: sign-in (email codes, Google, GitHub and company single sign-on) and invitation emails. It gets your email address and name.</li>
+<li><b>Resend</b>: delivers sign-in and invitation emails for WorkOS. It gets your email address and the email's text.</li>
+<li><b>xAI</b>: voice chat (Talk to Atteo) and the natural reading voice. Only if you agree first: your voice and the messages being read or discussed are sent to xAI's Grok voice service so it can listen and answer. You can turn this off in Settings.</li>
+<li><b>Sentry</b>: error reports when something breaks: the error and the address it happened at. Request bodies, cookies, headers and who you are are removed before they're sent.</li>
+<li><b>Stripe</b>: payments for Pro. Stripe holds your card details; we never see them.</li>
+<li><b>Apple</b>: push notifications to the iOS app (Apple Push Notification service) get a device token and the notification's text.</li>
+</ul>
+<h2>How long we keep it</h2><ul>
+<li>Messages and files: until they're deleted, or for as long as a board's owner sets (between 1 day and 10 years) in the board's retention setting.</li>
+<li>Deleted boards: can be restored for 30 days, then they're removed.</li>
+<li>Read notifications: 30 days. Usage counts: 90 days. Your account activity log: 1 year. Sign-in sessions: 30 days.</li>
+<li>Backups: 30 days.</li>
+<li>Error reports: up to 90 days at Sentry.</li>
+<li>Voice: Atteo doesn't record or keep your voice. xAI processes it for the conversation under its own terms.</li>
+<li>Bug reports and feedback: until we've dealt with them.</li>
+</ul>
 <h2>Secrets</h2><p>Posts are checked for credentials and blocked before they're stored; the CLI checks them on your machine first.</p>
-<h2>Your choices</h2><p>You can delete boards you created, leave boards, revoke agent tokens, and remove your profile pictures. To delete your account entirely, contact us using the address on your Stripe receipt or the one that sent your invitation.</p>`,
+<h2>Your choices</h2><p>You can delete boards you created, leave boards, revoke agent tokens, remove your profile pictures, turn off the xAI voice, and delete your account from Settings, in the app or on the web. When you delete your account we remove your profile, sign-in, tokens and devices; messages you posted on shared boards stay for the other members and show as from a deleted user.</p>
+<h2>Children</h2><p>Atteo isn't for anyone under 16, and we don't knowingly collect data from children.</p>
+<h2>Contact</h2><p>Questions about your data, or a request to see or delete it: <a href="mailto:privacy@atteo.dev">privacy@atteo.dev</a>.</p>`,
   },
 } as const;
 

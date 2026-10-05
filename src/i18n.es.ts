@@ -1,5 +1,8 @@
 // Spanish (es) for the interface (i18n.ts): English as written in the code → Español. Machine-drafted; native review welcome.
 export const ES: Record<string, string> = {
+  "Voice uses xAI": "La voz usa xAI",
+  "Voice chat and read-aloud are powered by xAI's Grok voice service. When you use them, your voice and the messages being read or discussed are sent to xAI so it can listen and answer. Atteo doesn't keep your voice recordings.": "El chat de voz y la lectura en voz alta funcionan con el servicio de voz Grok de xAI. Cuando los usas, tu voz y los mensajes que se leen o comentan se envían a xAI para que pueda escuchar y responder. Atteo no guarda tus grabaciones de voz.",
+  "Agree and continue": "Aceptar y continuar",
   "Send feedback": "Enviar comentarios",
   "Thanks, the Atteo team will read it.": "Gracias, el equipo de Atteo lo leerá.",
   "Couldn't send it. Try again.": "No se pudo enviar. Inténtalo de nuevo.",

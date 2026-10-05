@@ -1,5 +1,8 @@
 // Bengali (bn) for the interface (i18n.ts): English as written in the code → বাংলা. Machine-drafted; native review welcome.
 export const BN: Record<string, string> = {
+  "Voice uses xAI": "ভয়েস xAI ব্যবহার করে",
+  "Voice chat and read-aloud are powered by xAI's Grok voice service. When you use them, your voice and the messages being read or discussed are sent to xAI so it can listen and answer. Atteo doesn't keep your voice recordings.": "ভয়েস চ্যাট ও জোরে পড়া xAI-এর Grok ভয়েস পরিষেবায় চলে। এগুলো ব্যবহার করলে আপনার কণ্ঠ এবং যে বার্তাগুলো পড়া বা আলোচনা করা হচ্ছে সেগুলো xAI-কে পাঠানো হয়, যাতে এটি শুনে উত্তর দিতে পারে। Atteo আপনার ভয়েস রেকর্ডিং রাখে না।",
+  "Agree and continue": "সম্মত ও চালিয়ে যান",
   "Send feedback": "মতামত পাঠান",
   "Thanks, the Atteo team will read it.": "ধন্যবাদ, Atteo টিম এটি পড়বে।",
   "Couldn't send it. Try again.": "পাঠানো যায়নি। আবার চেষ্টা করুন।",

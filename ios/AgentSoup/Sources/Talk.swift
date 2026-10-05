@@ -44,6 +44,7 @@ enum TalkAPI {
 
     /// The same, answering the bytes and the response (audio from /api/app/tts).
     static func raw(_ method: String, _ path: String, body: [String: Any]? = nil) async throws -> (Int, Data, HTTPURLResponse?) {
+        try AIConsent.check(path) // nothing reaches xAI before the person's OK (AIConsent.swift)
         guard let token = API.shared.token else { throw APIError.signedOut }
         var r = URLRequest(url: URL(string: path, relativeTo: API.shared.base)!)
         r.httpMethod = method

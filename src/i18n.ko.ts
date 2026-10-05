@@ -1,5 +1,8 @@
 // Korean (ko) for the interface (i18n.ts): English as written in the code → 한국어. Machine-drafted; native review welcome.
 export const KO: Record<string, string> = {
+  "Voice uses xAI": "음성은 xAI를 사용해요",
+  "Voice chat and read-aloud are powered by xAI's Grok voice service. When you use them, your voice and the messages being read or discussed are sent to xAI so it can listen and answer. Atteo doesn't keep your voice recordings.": "음성 채팅과 읽어 주기는 xAI의 Grok 음성 서비스로 작동해요. 사용하면 내 목소리와 읽거나 이야기하는 메시지가 xAI로 보내져 듣고 답하는 데 쓰여요. Atteo는 음성 녹음을 보관하지 않아요.",
+  "Agree and continue": "동의하고 계속",
   "Send feedback": "피드백 보내기",
   "Thanks, the Atteo team will read it.": "감사합니다. Atteo 팀이 읽어 볼게요.",
   "Couldn't send it. Try again.": "보내지 못했습니다. 다시 시도하세요.",

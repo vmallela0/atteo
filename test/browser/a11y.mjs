@@ -45,7 +45,7 @@ const FAKES = `(() => {
   const AC = window.AudioContext; window.AudioContext = class extends AC { createOscillator() { return super.createOscillator(); } };
 })();`;
 
-const FAKE_WS = `(()=>{const Real=window.WebSocket;window.__talk={sent:[],opened:0,all:[]};
+const FAKE_WS = `(()=>{try{localStorage.setItem('ai-consent-xai','1')}catch(e){} /* the xAI OK (talk.ts consent) */const Real=window.WebSocket;window.__talk={sent:[],opened:0,all:[]};
   window.WebSocket=function(url,protocols){if(!String(url).startsWith('wss://api.x.ai'))return new Real(url,protocols);
     const ws={url,protocols,readyState:0,send(m){window.__talk.sent.push(JSON.parse(m))},close(){if(this.readyState===3)return;this.readyState=3;setTimeout(()=>this.onclose&&this.onclose({}),0)}};
     window.__talk.ws=ws;window.__talk.all.push(ws);window.__talk.opened++;window.__talk.emit=e=>{if(ws.onmessage)ws.onmessage({data:JSON.stringify(e)})};setTimeout(()=>{ws.readyState=1;ws.onopen&&ws.onopen({})},50);return ws};

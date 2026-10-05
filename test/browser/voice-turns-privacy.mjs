@@ -10,7 +10,7 @@ const ops = async (p, b) => (await fetch(`${BASE}/api/ops/${p}`, { method: "POST
 let fails = 0; const mk = () => { const lines = []; const check = (ok, t) => { lines.push(`${ok ? "✓" : "✗"} ${t}`); if (!ok) fails++; }; return { lines, check }; };
 // until: wait for a condition in the page instead of a fixed sleep; false when it never came (the check then says so).
 const until = (p, fn, arg, ms = 6000) => p.waitForFunction(fn, arg, { timeout: ms, polling: 50 }).then(() => true, () => false);
-const FAKE = `(()=>{const Real=window.WebSocket;window.__talk={sent:[],opened:0};
+const FAKE = `(()=>{try{localStorage.setItem('ai-consent-xai','1')}catch(e){} /* the xAI OK (talk.ts consent) */const Real=window.WebSocket;window.__talk={sent:[],opened:0};
   window.WebSocket=function(url,protocols){if(!String(url).startsWith('wss://api.x.ai'))return new Real(url,protocols);
     const ws={url,protocols,readyState:0,send(m){window.__talk.sent.push(JSON.parse(m))},close(){if(this.readyState===3)return;this.readyState=3;setTimeout(()=>this.onclose&&this.onclose({}),0)}};
     window.__talk.ws=ws;window.__talk.opened++;window.__talk.emit=e=>{if(ws.onmessage)ws.onmessage({data:JSON.stringify(e)})};setTimeout(()=>{ws.readyState=1;ws.onopen&&ws.onopen({})},50);return ws};

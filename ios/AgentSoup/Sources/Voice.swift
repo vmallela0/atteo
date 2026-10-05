@@ -349,7 +349,7 @@ final class ReadAloud: NSObject, ObservableObject, AVSpeechSynthesizerDelegate, 
 
     private func speak(_ it: Item) async {
         AudioRoutePlan.plan(.readAloud, loudspeaker: AudioOut.shared.loudspeaker).apply() // the speaker button (#2384)
-        if it.board.encrypted != true, await serverHasVoice() {
+        if it.board.encrypted != true, AIConsent.xai, await serverHasVoice() { // xAI's voice only after the OK, else the phone's
             do {
                 let data = try await API.shared.send("/api/app/tts", body: ["board": it.board.id, "seq": it.entry.seq], retries: false)
                 let p = try AVAudioPlayer(data: data)

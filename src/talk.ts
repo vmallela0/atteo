@@ -26,7 +26,8 @@ export const TALK_CSS = `
 .bp-head{position:relative}
 @media(max-width:859px){.bp-tabs .call-btn{position:absolute;top:2px;right:0;width:32px;padding:0;justify-content:center}.bp-tabs .call-btn .call-l{display:none}.bp-head:has(.call-btn:not([hidden])) .bp-title{padding-right:40px}}
 dialog.talk{width:min(420px,calc(100vw - 24px));padding:0;border:1px solid var(--line);border-radius:16px;background:var(--bg);color:var(--ink);box-shadow:var(--shadow-lg)}
-dialog.talk::backdrop{background:rgba(0,0,0,.25)}
+dialog.talk::backdrop,#ai-consent::backdrop{background:rgba(0,0,0,.25)}
+#ai-consent{width:min(420px,calc(100vw - 24px));padding:0;border:1px solid var(--line);border-radius:16px;background:var(--bg);color:var(--ink);box-shadow:var(--shadow-lg)}
 .talk-hd{display:flex;align-items:center;gap:10px;padding:14px 16px 6px}.talk-hd b{font-size:15px}.talk-hd .grow{flex:1}.talk-left{font-size:12.5px;color:var(--faint);font-variant-numeric:tabular-nums}
 .talk-orb{display:flex;align-items:center;justify-content:center;gap:4px;height:64px;margin:4px 0}
 .talk-orb i{width:5px;height:8px;border-radius:3px;background:var(--faint);transition:height .08s,background .2s}
@@ -86,10 +87,16 @@ export const TALK_JS = String.raw`
 (()=>{if(window.atteoTalk)return;const T=(s,v)=>typeof tr==='function'?tr(s,v):s,RATE=24000;
 let st=null; // the live session, or null
 const btns=()=>[...document.querySelectorAll('[data-talk]')];
+const xaiOk=()=>{try{return localStorage.getItem('ai-consent-xai')==='1'}catch(e){return false}};window.atteoXaiOk=xaiOk;
 // Shown only where it can work: the Worker has voice set up, and the browser has a microphone API and Web Audio.
 const can=!!(navigator.mediaDevices&&navigator.mediaDevices.getUserMedia&&(window.AudioContext||window.webkitAudioContext)&&window.WebSocket);
 if(can)fetch('/api/app/voice/status').then(r=>r.ok?r.json():null).then(j=>{if(j&&j.enabled)btns().forEach(b=>{b.hidden=false})}).catch(()=>{});
-document.addEventListener('click',e=>{const b=e.target.closest('[data-talk]');if(!b)return;e.preventDefault();open({board:b.dataset.board||null,me:b.dataset.me||''})});
+document.addEventListener('click',e=>{const b=e.target.closest('[data-talk]');if(!b)return;e.preventDefault();const o={board:b.dataset.board||null,me:b.dataset.me||''};if(xaiOk())open(o);else consent(o)});
+// The one-time OK before voice goes to xAI (App Review 5.1.2(i), as the app's AIConsent.swift): per browser.
+function consent(o){let d=document.getElementById('ai-consent');if(!d){d=document.createElement('dialog');d.id='ai-consent';d.setAttribute('aria-labelledby','aic-h');
+  d.innerHTML='<div class="talk-hd"><b id="aic-h">'+T('Voice uses xAI')+'</b></div><p style="margin:0;padding:6px 16px 12px;color:var(--muted)">'+T("Voice chat and read-aloud are powered by xAI's Grok voice service. When you use them, your voice and the messages being read or discussed are sent to xAI so it can listen and answer. Atteo doesn't keep your voice recordings.")+'</p><div class="row" style="justify-content:flex-end;gap:8px;padding:0 16px 16px"><button class="btn" type="button" data-no>'+T('Not now')+'</button><button class="btn primary" type="button" data-yes>'+T('Agree and continue')+'</button></div>';
+  document.body.appendChild(d);d.addEventListener('click',ev=>{if(ev.target.closest('[data-yes]')){try{localStorage.setItem('ai-consent-xai','1')}catch(x){}d.close();open(d._o)}else if(ev.target.closest('[data-no]'))d.close()})}
+  d._o=o;d.showModal()}
 
 // ---- the sheet ----
 const dlg=document.createElement('dialog');dlg.className='talk';dlg.setAttribute('aria-label',T('Talk to Atteo'));

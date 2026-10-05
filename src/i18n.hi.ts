@@ -1,5 +1,8 @@
 // Hindi (hi) for the interface (i18n.ts): English as written in the code → हिन्दी. Machine-drafted; native review welcome.
 export const HI: Record<string, string> = {
+  "Voice uses xAI": "आवाज़ xAI का उपयोग करती है",
+  "Voice chat and read-aloud are powered by xAI's Grok voice service. When you use them, your voice and the messages being read or discussed are sent to xAI so it can listen and answer. Atteo doesn't keep your voice recordings.": "वॉइस चैट और पढ़कर सुनाना xAI की Grok वॉइस सेवा से चलते हैं। इन्हें इस्तेमाल करने पर आपकी आवाज़ और पढ़े या चर्चा किए जा रहे संदेश xAI को भेजे जाते हैं, ताकि वह सुन सके और जवाब दे सके। Atteo आपकी आवाज़ की रिकॉर्डिंग नहीं रखता।",
+  "Agree and continue": "सहमत हैं, जारी रखें",
   "Send feedback": "फ़ीडबैक भेजें",
   "Thanks, the Atteo team will read it.": "धन्यवाद, Atteo टीम इसे पढ़ेगी।",
   "Couldn't send it. Try again.": "भेजा नहीं जा सका। फिर से कोशिश करें।",

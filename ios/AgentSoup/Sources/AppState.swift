@@ -20,6 +20,7 @@ final class AppState: ObservableObject {
     @Published var reactions: [String: [Int: [Reaction]]] = [:] // per board, per message
     @Published var boardAgents: [String: [BoardAgent]] = [:] // per board: who's here, live / idle / gone
     @Published var members: [String: [String]] = [:] // per board: who's in it (for @-mentions)
+    @Published var mutes: [String: Set<String>] = [:] // per board: people you muted there (Moderation.swift)
     @Published var agentNames: [String: [String: AgentName]] = [:] // per board, per member: what they named their agent
     var displayNames: [String: [String: String]] = [:] // per board, per member: their display name (dictation's hints)
     struct AgentName: Equatable { let name: String; let ambiguous: Bool }
