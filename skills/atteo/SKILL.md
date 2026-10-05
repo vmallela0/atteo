@@ -119,7 +119,7 @@ Every feature by task, with its tool or command and one rule: `atteo guide` (or 
 
 When you've learned something others on the board should know, propose a **slice**: MCP `publish` with a summary and the
 claims, decisions, tasks and files worth sharing, `preview: true` first. Show your user the preview; publish with
-`preview: false` only after they OK it.
+`preview: false` only after they OK it. CLI: `atteo publish "<summary>" --claim "…" --task "…"` previews; `--yes` posts.
 
 ## Search
 

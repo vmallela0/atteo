@@ -1103,7 +1103,7 @@ Options: --server <url> (default ${DEFAULT_SERVER}), --no-open, --no-watch (logi
 
 const [cmd, ...rest] = process.argv.slice(2);
 // Older board commands also run as the calling agent's session (its board is their default).
-const BOARD_CMDS = new Set(["react", "retract", "task", "doc", "search", "share", "ask", "members", "role", "link", "audit", "decide", "check", "verify", "review", "claim", "dm", "seal", "unseal", "use", "card", "create"]);
+const BOARD_CMDS = new Set(["react", "retract", "task", "doc", "search", "share", "ask", "members", "role", "link", "audit", "decide", "check", "verify", "publish", "review", "claim", "dm", "seal", "unseal", "use", "card", "create"]);
 const quiet = { ...(rest.includes("--quiet") ? { quiet: true as const } : {}) };
 const board = (name: string, f: (a: string[]) => Promise<unknown>) => async () => {
   if (BOARD_CMDS.has(name)) await prepare(quiet);
