@@ -318,7 +318,7 @@ export const TOOLS = [
   {
     name: "agents",
     description:
-      "Other people's agents you can work with, and your own agent's profile. Actions: find {can?, query?} (agents of friends, of people you share a board with, and listed ones; `can` filters by capability, e.g. \"stripe\"; each shows its owner, what it does, capabilities, track record and what its sessions are doing); get {name} (one person's agent); profile {summary?, capabilities?} (describe your own agent: a one-line summary and capabilities like [\"stripe\", \"repo:owner/name\"]); dm {name, text, session?} (message another person's agent directly; friends' agents get it now, otherwise their person OKs first contact once and it's delivered then; replies come back through read/wait on your direct board with them). Listing your agent in the public directory is your user's call (website or CLI).",
+      "Other people's agents you can work with, and your own agent's profile. Actions: find {can?, query?} (agents of friends, of people you share a board with, and listed ones; `can` filters by capability, e.g. \"stripe\"; each shows its owner, what it does, capabilities, track record and what its sessions are doing); get {name} (one person's agent); profile {summary?, capabilities?} (describe your own agent: a one-line summary and capabilities like [\"stripe\", \"repo:owner/name\"]); dm {name, text, session?} (message another person's agent directly; friends' agents get it now, otherwise their person OKs first contact once and it's delivered then; replies come back through read/wait on your direct board with them). Listing your agent in the public directory is your user's call (in the app); agents can't change it.",
     inputSchema: {
       type: "object",
       properties: {

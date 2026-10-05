@@ -3163,20 +3163,35 @@ await step("network: an opt-in directory, and standing rules (invites from frien
   await ops("users", { name: D, email: `${D}@example.com`, verified: "true" });
   tok[D] = (await ops("tokens", { user: D })).body.token;
   assert(!(await (await api(D, "GET", `/api/people?q=${partial}`)).json()).people.some((p) => p.name === B), "not listed yet");
-  assert((await (await api(B, "POST", "/api/me/profile", { listed: true, bio: `hi from ${run}` })).json()).profile.listed, "listed");
+  // Who can find you and what's accepted without asking are the person's (#3502): never an agent token, even their own.
+  const person = (who, body) => web("/api/me/profile", who, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+  for (const body of [{ listed: true }, { rules: { auto_accept_friends: "coworkers" } }, { rules: { auto_accept_agents: "coworkers" } }, { bio: "fine", listed: false }]) {
+    const r = await api(B, "POST", "/api/me/profile", body);
+    assert(r.status === 403 && (await r.json()).error.includes("your person's call"), `agent token refused: ${JSON.stringify(body)} ${r.status}`);
+  }
+  assert((await (await api(B, "GET", "/api/me/profile")).json()).profile.bio !== "fine", "a refused request saves nothing");
+  assert((await (await api(B, "POST", "/api/me/profile", { bio: `agent bio ${run}` })).json()).profile.bio === `agent bio ${run}`, "the rest of the profile stays open to agents");
+  let ra = await api(B, "POST", "/api/agents/me", { listed: true, summary: "x" });
+  assert(ra.status === 403 && (await ra.json()).error.includes("in the app"), "an agent can't list itself: " + ra.status);
+  ra = await api(B, "POST", "/api/agents/me", { summary: `helps with ${run}` });
+  assert(ra.ok && (await ra.json()).agent.summary === `helps with ${run}` && !(await (await api(B, "GET", "/api/agents/me")).json()).agent.listed, "summary yes, listing untouched");
+  ra = await web("/api/agents/me", B, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ listed: true }) });
+  assert(ra.ok && (await ra.json()).agent.listed === true, "the person lists their agent");
+  await web("/api/agents/me", B, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ listed: false }) });
+  assert((await (await person(B, { listed: true, bio: `hi from ${run}` })).json()).profile.listed, "listed");
   assert((await (await api(D, "GET", `/api/people?q=${partial}`)).json()).people.some((p) => p.name === B), "listed people show up by partial name");
   // Friend requests from people B shares a board with are accepted by B's rule.
   await api(A, "POST", `/api/friends/${B}/remove`);
-  await api(B, "POST", "/api/me/profile", { rules: { auto_accept_friends: "coworkers" } });
+  await person(B, { rules: { auto_accept_friends: "coworkers" } });
   assert((await (await api(A, "POST", "/api/friends/request", { user: B })).json()).relation === "friend", "accepted by rule");
   // Board invites from friends join B right away.
-  await api(B, "POST", "/api/me/profile", { rules: { auto_accept_invites: "friends" } });
+  await person(B, { rules: { auto_accept_invites: "friends" } });
   const nb = (await ops("boards", { user: A, title: `e2e rules ${run}` })).body.board.id;
   await ops("members", { board: nb, user: A });
   const inv = await (await web(`/api/boards/${nb}/invites`, A, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ email: `${B}@example.com` }) })).json();
   assert(inv.added && inv.message.includes("right away"), JSON.stringify(inv));
   has(await ok(B, nb, "read"), `e2e rules ${run}`);
-  await api(B, "POST", "/api/me/profile", { listed: false, rules: { auto_accept_invites: null, auto_accept_friends: null } });
+  await person(B, { listed: false, rules: { auto_accept_invites: null, auto_accept_friends: null } });
 });
 
 await step("display settings: text size, density and theme per person (defaults, partial updates merge, bad values 400, private)", async () => {
