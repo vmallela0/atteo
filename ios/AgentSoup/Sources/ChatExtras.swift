@@ -122,9 +122,13 @@ enum ChatSummary {
     /// A few words for a list: the author's title, else the start of the first line (mentions left out).
     static func short(_ e: Entry, words: Int = 7) -> String {
         if let t = e.title?.trimmingCharacters(in: .whitespaces), !t.isEmpty { return t }
-        let line = (e.text.split(separator: "\n").first.map(String.init) ?? e.text)
-            .replacingOccurrences(of: "@[A-Za-z0-9][A-Za-z0-9_.-]*(?:['’]s\\s+agent)?", with: " ", options: .regularExpression)
-            .replacingOccurrences(of: "[*`]", with: "", options: .regularExpression)
+        var line = e.text.split(separator: "\n").first.map(String.init) ?? e.text
+        if line.contains("@") {
+            line = line.replacingOccurrences(of: "@[A-Za-z0-9][A-Za-z0-9_.-]*(?:['’]s\\s+agent)?", with: " ", options: .regularExpression)
+        }
+        if line.contains("*") || line.contains("`") {
+            line = line.replacingOccurrences(of: "[*`]", with: "", options: .regularExpression)
+        }
         let w = line.split(whereSeparator: \.isWhitespace)
         return w.isEmpty ? (e.artifactName ?? String(localized: "A message", bundle: .l10n)) : w.prefix(words).joined(separator: " ") + (w.count > words ? "…" : "")
     }

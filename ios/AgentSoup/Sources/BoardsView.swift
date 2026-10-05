@@ -102,7 +102,7 @@ struct BoardView: View {
     private func isMine(_ e: Entry) -> Bool { e.author == me && e.via != "agent" }
 
     /// What every row needs to know about the others: the chat as shown, by number, what was unsent, who answered what.
-    struct Rows {
+    struct Rows: Equatable {
         let shown: [Entry]
         let bySeq: [Int: Entry]
         let gone: Set<Int>
@@ -111,19 +111,12 @@ struct BoardView: View {
         var openQuestions: Set<Int> = [] // unanswered questions (a quick reply shows only under an open one)
     }
 
+    // A reference in State survives body passes; filling it doesn't publish another view update.
+    @State private var rowsCache = BoardRowsCache()
     private func rows() -> Rows {
-        let bySeq = Dictionary(list.map { ($0.seq, $0) }, uniquingKeysWith: { a, _ in a })
-        // Retractions aren't messages: their targets read "Unsent" instead.
-        let gone = Set(list.compactMap(\.retracts))
-        // Every message in order, replies included (jxn #1040): a reply lands at the bottom like any message, under a
-        // bar quoting what it answers; the message it answers says "3 replies", which opens the thread.
-        // (The People filter leaves agents' posts out of what's shown only: a person's reply still quotes what it answers.)
-        // Replies only in their thread (Settings → Display): the chat keeps just the message they answer and its "N replies".
-        let shown = list.filter { $0.retracts == nil && !filteredOut($0) && !folded($0, in: bySeq) }
-        let replies = Dictionary(grouping: list.filter { $0.replyTo != nil && $0.retracts == nil && $0.seq > 0 && !gone.contains($0.seq) }, by: { rootOf($0, in: bySeq) })
-        let latestMine = shown.last { isMine($0) && $0.seq > 0 && $0.type != "task" && !gone.contains($0.seq) }?.seq
-        let open = state.quickChips[board.id]?.isEmpty == false ? Set(ChatSummary.open(list).questions.map(\.seq)) : []
-        return Rows(shown: shown, bySeq: bySeq, gone: gone, replies: replies, latestMine: latestMine, openQuestions: open)
+        rowsCache.value(list, options: .init(me: me, peopleOnly: peopleOnly,
+                                            repliesInThread: state.display.repliesInThread,
+                                            hasQuickChips: state.quickChips[board.id]?.isEmpty == false))
     }
 
     private var anyUnreadThread: Bool { ThreadIndex.threads(list).contains { threadSeen.unread(board.id, $0, me: me) } }
