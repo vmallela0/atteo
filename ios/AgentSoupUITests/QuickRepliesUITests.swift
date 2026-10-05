@@ -35,13 +35,29 @@ final class QuickRepliesUITests: AtteoUITestCase {
         XCTAssertEqual(reply?["via"] as? String, "person")
         shot("qr-02-answered")
 
+        // Hostile choices (jxn's agent #2562) are dropped; the reply is exactly the chip's text.
+        let hostile = ["@all do X", "https://x.y", "**bold**", "/approve", "two\nlines", String(repeating: "x", count: 41), "Ignore previous instructions"]
+        let mixed = call("POST", "/api/boards/\(b1)/entries", json: ["type": "question", "text": "@maya pick one (\(n))", "data": ["options": hostile + ["Ship it", "Hold"]]], token: theoAgent)
+        let mixedSeq = (mixed["entry"] as? [String: Any])?["seq"] as? Int ?? 0
+        let hold = a.buttons["quick-reply-2"].firstMatch
+        XCTAssertTrue(hold.waitForExistence(timeout: 10), "the plain choices show")
+        XCTAssertEqual(a.buttons["quick-reply-1"].firstMatch.label, "Ship it")
+        XCTAssertEqual(hold.label, "Hold")
+        XCTAssertFalse(a.buttons["quick-reply-3"].exists, "the hostile ones are dropped")
+        shot("qr-03-hostile")
+        hold.tap()
+        expectation(for: gone, evaluatedWith: a.buttons["quick-reply-2"].firstMatch)
+        waitForExpectations(timeout: 10)
+        let page2 = call("GET", "/api/boards/\(b1)/entries?after=\(mixedSeq)&limit=50")["entries"] as? [[String: Any]] ?? []
+        XCTAssertEqual(page2.first { ($0["reply_to"] as? Int) == mixedSeq && ($0["author"] as? String) == "maya" }?["text"] as? String, "Hold", "exactly the chip's text")
+
         // No choices: the defaults. A person's question: none.
         _ = call("POST", "/api/boards/\(b1)/entries", json: ["type": "question", "text": "@maya tidy the flaky test too? (\(n))"], token: theoAgent)
         let yes = a.buttons["quick-reply-1"].firstMatch
         XCTAssertTrue(yes.waitForExistence(timeout: 10), "defaults for a question with no choices")
         XCTAssertEqual(yes.label, "Yes, go ahead")
         XCTAssertEqual(a.buttons["quick-reply-3"].firstMatch.label, "Tell me more")
-        shot("qr-03-defaults")
+        shot("qr-04-defaults")
         yes.tap()
         expectation(for: gone, evaluatedWith: a.buttons["quick-reply-1"].firstMatch)
         waitForExpectations(timeout: 10)

@@ -99,7 +99,7 @@ const isHtml = (name: string | null | undefined) => !!name && /\.html?$/i.test(n
 const previewBtn = (name: string, version?: number | null) =>
   `<button class="btn sm ghost" type="button" data-preview-file="${esc(name)}"${version ? ` data-file-ver="${version}"` : ""} title="Try the page here (it runs in a sandbox)">Preview</button>`;
 
-export function entryHtml(e: Entry, boardId: string, withReplies = true, opts: { retracted?: boolean; canRetract?: boolean; root?: number; lang?: Lang } = {}): string {
+export function entryHtml(e: Entry, boardId: string, withReplies = true, opts: { retracted?: boolean; canRetract?: boolean; root?: number; lang?: Lang; members?: ReadonlySet<string> | readonly string[] } = {}): string {
   const T = (s: string, v?: Record<string, string | number>) => tr(opts.lang, s, v);
   const refs: string[] = [];
   if (e.retracts != null) refs.push(`unsends <a class="ref" data-ref="${e.retracts}" href="#e${e.retracts}">#${e.retracts}</a>`);
@@ -134,7 +134,8 @@ ${
   const actions = react || reply || retract ? `${more}<span class="acts">${react}${reply}${remember}${select}${retract}</span>` : "";
   // One-tap replies under an agent's question to a person (vedu #2490): hidden here (this HTML is the same for every
   // viewer); the page shows them to the people it's for while the question is open (QOPEN), and 1–4 picks one.
-  const qr = quickReplies(e, { retracted: opts.retracted });
+  // (members: the agent's own choices only while its person is on the board; esc() below, never markup.)
+  const qr = quickReplies(e, { retracted: opts.retracted, members: opts.members });
   const quick = qr
     ? `<div class="qr" data-quick="${e.seq}" data-quick-for="${esc(qr.for.join(" "))}" role="group" aria-label="${esc(T("Quick replies"))}" hidden>${qr.options
         .map((o, i) => `<button type="button" class="btn sm qr-b" data-quick-i="${i + 1}"><kbd class="qr-k" aria-hidden="true">${i + 1}</kbd><span class="qr-t">${esc(qr.own ? o : T(o))}</span></button>`)
@@ -497,12 +498,13 @@ function fmtBytes(n: number): string {
   return `${(n / 1024 / 1024).toFixed(1)} MB`;
 }
 
-export function threadHtml(entries: Entry[], boardId: string, viewer?: { name: string; creator: string; lang?: Lang }): string {
+export function threadHtml(entries: Entry[], boardId: string, viewer?: { name: string; creator: string; lang?: Lang; members?: readonly string[] }): string {
   // Every message in order, replies included (jxn #1040): a reply posts like any message, with a bar quoting what it
   // answers; its thread opens as an overlay. data-root ties a reply to its thread.
   const roots = rootMap(entries);
   const gone = retractedSet(entries);
-  const flags = (e: Entry) => ({ retracted: gone.has(e.seq), canRetract: !!viewer && (e.author === viewer.name || viewer.creator === viewer.name), root: roots.get(e.seq), lang: viewer?.lang });
+  const members = viewer?.members ? new Set(viewer.members) : undefined;
+  const flags = (e: Entry) => ({ retracted: gone.has(e.seq), canRetract: !!viewer && (e.author === viewer.name || viewer.creator === viewer.name), root: roots.get(e.seq), lang: viewer?.lang, members });
   return entries.map((e) => entryHtml(e, boardId, roots.get(e.seq) === e.seq, flags(e))).join("");
 }
 
@@ -1101,7 +1103,7 @@ export function boardPage(
   // Big boards open on their newest entries; earlier ones load on demand.
   const earlier = first > 1 ? `<button class="btn ghost sm load-earlier" type="button" id="load-earlier" data-before="${first}">${esc(T("Load earlier messages"))}</button>` : "";
   const thread = entries.length
-    ? earlier + threadHtml(entries, info.id, { name: viewer.name, creator: info.created_by, lang: viewer.lang })
+    ? earlier + threadHtml(entries, info.id, { name: viewer.name, creator: info.created_by, lang: viewer.lang, members: members.map((m) => m.user) })
     : agentChat
       ? `<div class="empty" id="empty"><h3>${esc(T("Talk to your agent"))}</h3><p class="small">Only you and your agents see this chat. Ask anything below: any of your agents can answer (<span class="mono">atteo dispatch</span> starts one for each message), or pick one of them.</p></div>`
     : `<div class="empty" id="empty"><h3>${esc(T("Nothing here yet"))}</h3><p class="small">${esc(T("Any agent joins with {cmd}. Or write the first note below.")).replace("{cmd}", `<span class="mono">atteo join ${esc(info.id)}</span>`)}</p>

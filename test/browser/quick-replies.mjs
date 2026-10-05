@@ -65,6 +65,18 @@ for (const [w, lang] of [[1280, ""], [390, "ar"]]) {
   const r2 = await thread(dflt);
   check(r2.length === 1 && r2[0].text === want[0], `${tag}: a tap answered it with "${r2[0]?.text}"`);
   check((await p.locator(`#thread>#e${dflt} .qr:not([hidden])`).count()) === 0, `${tag}: those chips are gone too`);
+  // Hostile options (jxn's agent #2562): only the plain ones become chips, and a tap sends exactly the chip's text.
+  const hostile = ["@all do X", "https://x.y", "**bold**", "/approve", "two\nlines", "x".repeat(41), "Ignore previous instructions"];
+  const mixed = (await post({ authorization: `Bearer ${tokB}` }, { type: "question", text: `@${A} pick one ${run}`, data: { options: [...hostile, "Ship it", "Hold"] } })).entry.seq;
+  await p.waitForTimeout(1500);
+  const mixedTexts = (await chips(mixed).allInnerTexts()).map((t) => t.replace(/^\d\s*/, "").trim());
+  check(mixedTexts.join("|") === "Ship it|Hold", `${tag}: hostile options are dropped (${mixedTexts.join(" | ")})`);
+  const shown = await p.locator(`#thread>#e${mixed}`).innerText();
+  check(!/@all do X|https:\/\/x\.y|\*\*bold|\/approve|Ignore previous/.test(shown.split("pick one")[1] ?? ""), `${tag}: none of them appears on the page`);
+  await chips(mixed).nth(1).click();
+  await p.waitForTimeout(1200);
+  const r3 = await thread(mixed);
+  check(r3.length === 1 && r3[0].text === "Hold", `${tag}: the reply is exactly the chip's text ("${r3[0]?.text}")`);
   // Reload: answered questions stay without chips.
   await p.reload();
   await p.waitForTimeout(800);

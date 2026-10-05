@@ -2085,7 +2085,7 @@ const handler = {
             ctx.waitUntil(Promise.all([registry.touch(env, viewer.name, id), registry.bumpBoard(env, id, entry.seq)]).catch(() => {}));
             // Like a text post, the rendered entry comes back so the page can swap its "sending" copy for it.
             const root = replyTo ? ((await stub.rootsFor([entry.seq]))[entry.seq] ?? entry.seq) : entry.seq;
-            return json({ ok: true, entry, update: { seq: entry.seq, root, retracts: entry.retracts, html: entryHtml(withAgentNames(entry, agentNames(fileMembers)), id, true, { canRetract: true, lang: viewer?.lang }), row: logRow(entry, undefined, undefined, viewer?.lang), reactions: [] } }, 201);
+            return json({ ok: true, entry, update: { seq: entry.seq, root, retracts: entry.retracts, html: entryHtml(withAgentNames(entry, agentNames(fileMembers)), id, true, { canRetract: true, lang: viewer?.lang, members: fileMembers.map((m) => m.user) }), row: logRow(entry, undefined, undefined, viewer?.lang), reactions: [] } }, 201);
           } catch (e) {
             return json({ error: e instanceof Error ? e.message : String(e) }, 400);
           }
@@ -2591,6 +2591,7 @@ const handler = {
           const roots = await stub.rootsFor(fresh.map((e) => e.seq));
           const canRetract = (e: Entry) => !!viewer && (e.author === viewer.name || snap.info.created_by === viewer.name);
           const names = Object.fromEntries(members0.filter((x) => x.agent_name).map((x) => [x.user, x.agent_name!]));
+          const memberSet = new Set(members0.map((x) => x.user));
           return json({
             entries: fresh.map((e) => ({
               seq: e.seq,
@@ -2598,7 +2599,7 @@ const handler = {
               ...(e.via === "agent" && names[e.author] ? { agent_name: names[e.author] } : {}), // "Jarvis · vedu's agent"
               root: roots[e.seq] ?? e.seq,
               retracts: e.retracts,
-              html: entryHtml(withAgentNames(e, names), id, true, { canRetract: canRetract(e), lang: viewer?.lang }),
+              html: entryHtml(withAgentNames(e, names), id, true, { canRetract: canRetract(e), lang: viewer?.lang, members: memberSet }),
               row: logRow(e, undefined, undefined, viewer?.lang),
               reactions: snap.reactions[e.seq] ?? [],
               ...(e.type === "change" ? { reviews: snap.reviews[e.seq] ?? [] } : {}),
@@ -2632,7 +2633,8 @@ const handler = {
           // last: past any people-only entries this caller doesn't get (all of them, for an agent's token).
           const last = list.length < snap.entries.length ? list[list.length - 1].seq : snap.last;
           // One-tap reply chips (vedu #2490), people only (the app shows them; agents don't need them): seq → who and what.
-          const quick = seer()?.person ? Object.fromEntries(list.flatMap((e) => { const q = quickReplies(e); return q && q.for.includes(viewer!.name) ? [[e.seq, { options: q.options, own: q.own }]] : []; })) : undefined;
+          const qMembers = seer()?.person && list.some((e) => e.type === "question" && e.via === "agent") ? new Set((await registry.boardMembers(env, id)).map((m) => m.user)) : undefined;
+          const quick = seer()?.person ? Object.fromEntries(list.flatMap((e) => { const q = quickReplies(e, { members: qMembers }); return q && q.for.includes(viewer!.name) ? [[e.seq, { options: q.options, own: q.own }]] : []; })) : undefined;
           return json({ entries: list, last, reactions, reads: snap.reads, decisions: snap.decisions, ...(quick && Object.keys(quick).length ? { quick } : {}) });
         }
         if (what === "entries" && !seqStr && method === "GET") {
@@ -2644,14 +2646,15 @@ const handler = {
             viewer ? registry.memberRole(env, id, viewer.name).then((r) => r === "owner") : false,
             stub.rootsFor(seqs),
             stub.reactionsFor(seqs, seer()),
-            registry.boardMembers(env, id).then(agentNames), // "@Jarvis" chips, as on the page (jxn #1659)
+            registry.boardMembers(env, id), // "@Jarvis" chips, as on the page (jxn #1659); who's on it (quick replies)
           ]);
+          const pageMembers = new Set(names.map((m) => m.user)), pageNames = agentNames(names);
           return json({
             first: page.length ? page[0].seq : 0,
             entries: page.map((e) => ({
               seq: e.seq,
               root: roots[e.seq] ?? e.seq,
-              html: entryHtml(withAgentNames(e, names), id, true, { canRetract: !!viewer && (e.author === viewer.name || isOwner), lang: viewer?.lang }),
+              html: entryHtml(withAgentNames(e, pageNames), id, true, { canRetract: !!viewer && (e.author === viewer.name || isOwner), lang: viewer?.lang, members: pageMembers }),
               row: logRow(e, undefined, undefined, viewer?.lang),
               reactions: reactions[e.seq] ?? [],
               ...(e.human_decision ? { human_decision: e.human_decision } : {}),
@@ -2732,7 +2735,7 @@ const handler = {
             // An agent's top-level post the board kept in Just mine (board.ts ownByDefault) says so instead.
             const said = entry.audience === "own" && entry.reply_to == null && !own && !notOwn && viewer.via === "agent" ? keptOwnNotice(viewer.name) : audienceNotice(entry, viewer.name);
             const notice = said ? { notice: said } : {};
-            return json({ ok: true, entry, ...notice, update: { seq: entry.seq, root, retracts: entry.retracts, html: entryHtml(withAgentNames(entry, agentNames(boardMembers)), id, true, { canRetract: true, lang: viewer?.lang }), row: logRow(entry, undefined, undefined, viewer?.lang), reactions: [] }, ...(ambiguous.length ? { ambiguous } : {}) }, 201);
+            return json({ ok: true, entry, ...notice, update: { seq: entry.seq, root, retracts: entry.retracts, html: entryHtml(withAgentNames(entry, agentNames(boardMembers)), id, true, { canRetract: true, lang: viewer?.lang, members: boardMembers.map((m) => m.user) }), row: logRow(entry, undefined, undefined, viewer?.lang), reactions: [] }, ...(ambiguous.length ? { ambiguous } : {}) }, 201);
           } catch (e) {
             // Still restarting after our retries: say "try again" (the page retries with the same message id).
             if (isRetriable(e)) {
