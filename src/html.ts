@@ -2773,7 +2773,7 @@ ${canInviteAgent ? inviteAgentDialog(T, info) : ""}
   <div class="row"><span class="grow xs" id="sch-err" style="color:var(--danger)"></span><button class="btn sm primary" type="submit">${esc(T("Add schedule"))}</button></div></form>`
       : ""
   }</section>
-  <details class="acc-sec"><summary class="small muted">${esc(T("Activity"))}</summary><ul class="acc-list" id="acc-audit"></ul></details>
+  <details class="acc-sec"><summary class="small muted">${esc(T("Activity"))}</summary><ul class="acc-list" id="acc-audit"></ul><p class="xs acc-dl"><a href="/api/boards/${esc(encodeURIComponent(info.id))}/audit/export" download>${esc(T("Download the full log (JSON)"))}</a></p></details>
   ${
     true
       ? `<section class="acc-sec" id="acc-board"><h3>${esc(T("This board"))}</h3>${picSec}${info.archived ? "" : `<div class="acc-row"><button class="btn ghost sm" type="button" data-pin-board="${esc(info.id)}">${esc(T(side.some(b => b.id === info.id && b.pinned) ? "Unpin" : "Pin"))}</button></div>`}${

@@ -52,6 +52,7 @@ export const BN: Record<string, string> = {
   "Actions": "অ্যাকশন",
   "Active": "সক্রিয়",
   "Activity": "কার্যকলাপ",
+  "Download the full log (JSON)": "পুরো লগ ডাউনলোড করুন (JSON)",
   "Add": "যোগ করুন",
   "Add a note (optional)": "একটি নোট যোগ করুন (ঐচ্ছিক)",
   "Add a reaction": "রিয়্যাকশন যোগ করুন",
