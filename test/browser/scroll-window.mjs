@@ -49,6 +49,10 @@ const t1 = Date.now();
   await p.evaluate(() => { window.__fr = []; let t0 = performance.now(); const f = (t) => { window.__fr.push(t - t0); t0 = t; if (window.__fr.length < 4000) requestAnimationFrame(f) }; requestAnimationFrame(f) });
   for (let i = 0; i < 160 && (s.more || s.first > 1); i++) { await p.mouse.wheel(0, -900); await p.waitForTimeout(90); if (i % 8 === 0) { s = await stats(p); maxLive = Math.max(maxLive, s.live) } }
   await stable(() => stats(p)); s = await stats(p); maxLive = Math.max(maxLive, s.live);
+  // The last wheel's smooth-scroll animation can still be running. Chrome carries its tail over to the next jump, which
+  // moved the view a few px after the jumps below (#3660's trail: scrollTop 12377 → 12368 over 130ms, before any
+  // placeholder came back). Wait until the thread has had no scroll for 300ms.
+  await p.evaluate(() => new Promise((done) => { const sc = document.getElementById("thread-scroll"); let t = setTimeout(fin, 300); const on = () => { clearTimeout(t); t = setTimeout(fin, 300); }; function fin() { sc.removeEventListener("scroll", on); done(); } sc.addEventListener("scroll", on); setTimeout(fin, 3000); }));
   frames = await p.evaluate(() => window.__fr.slice(5).sort((a, b) => a - b));
   const p95 = frames[Math.floor(frames.length * 0.95)] || 0;
   check(!s.more && s.first === 1, `scrolling up loads older messages on its own, back to #1 (first on page #${s.first})`);

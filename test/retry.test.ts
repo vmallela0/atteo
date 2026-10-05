@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isRetriable, messageId, retryingReads, withRetry } from "../src/retry";
+import { BAD_MESSAGE_ID, badMessageId, isRetriable, messageId, retryingReads, withRetry } from "../src/retry";
 
 describe("retry", () => {
   it("knows which board errors are safe to retry", () => {
@@ -18,10 +18,19 @@ describe("retry", () => {
     await expect(withRetry(async () => (++n, Promise.reject(new Error("type must be one of"))), [1, 1])).rejects.toThrow("type must be");
     expect(n).toBe(1);
   });
-  it("takes a sender's message id, or makes one", () => {
+  it("takes a sender's message id, makes one when none is sent, and refuses a malformed one (SPEC.md §17)", () => {
     expect(messageId("abc12345-xyz")).toBe("abc12345-xyz");
-    expect(messageId("bad id with spaces")).toMatch(/^[0-9a-f-]{36}$/);
+    expect(messageId(" abc12345-xyz ")).toBe("abc12345-xyz");
     expect(messageId(null)).toMatch(/^[0-9a-f-]{36}$/);
+    expect(messageId("")).toMatch(/^[0-9a-f-]{36}$/);
+    // Replaced, a malformed id meant the sender's retry posted twice; now it's refused, with what a good one looks like.
+    for (const bad of ["bad id with spaces", "short", "x".repeat(101), "émoji-123456"]) {
+      expect(badMessageId(bad)).toBe(BAD_MESSAGE_ID);
+      expect(() => messageId(bad)).toThrow(BAD_MESSAGE_ID);
+    }
+    expect(badMessageId(null)).toBeNull();
+    expect(badMessageId("0b7c6a2e-5d1f-4a7e-9c3b-1e2f3a4b5c6d")).toBeNull(); // the web's crypto.randomUUID()
+    expect(badMessageId(`${Date.now()}-${Math.random().toString(36).slice(2)}`)).toBeNull(); // its fallback
   });
 });
 

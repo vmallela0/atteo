@@ -1,52 +1,7 @@
-// Everyday's pieces inside a chat (ios/qa/design/everyday, `chat` and `compare`): the Chat · To-dos · Files row under
-// the title, and a result card in place of a change card (the same entry; Developer mode still draws the commits).
+// Everyday's pieces inside a chat (ios/qa/design/everyday, `compare`): a result card in place of a change card (the same
+// entry; Developer mode still draws the commits). The Chat · To-dos · Files row is the board's tab strip (BoardTabs.swift).
 
 import SwiftUI
-
-/// Under a chat's title in Everyday: Chat (where you are), To-dos with how many are open, and Files. To-dos and Files
-/// open the chat's work sheet on that half.
-struct EverydayChatTabs: View {
-    let tasks: [WorkTask]
-    let open: (WorkPane) -> Void
-
-    var body: some View {
-        let openCount = tasks.filter { $0.status != "done" && $0.status != "stopped" && $0.parent == nil }.count
-        HStack(spacing: Space.xl) {
-            VStack(spacing: 6) {
-                Text("Chat").font(Typo.secondary.weight(.semibold)).foregroundStyle(Theme.text)
-                Capsule().fill(Theme.text).frame(height: 2)
-            }
-            .fixedSize()
-            .accessibilityElement(children: .combine)
-            .accessibilityAddTraits([.isSelected, .isButton])
-            .accessibilityIdentifier("tab-chat")
-            tab("To-dos", count: openCount, id: "tab-todos") { open(.tasks) }
-            tab("Files", count: 0, id: "tab-files") { open(.files) }
-            Spacer(minLength: 0)
-        }
-        .padding(.horizontal, Space.l).padding(.top, Space.xs)
-        .background(alignment: .bottom) { Rectangle().fill(Theme.line).frame(height: 0.5) }
-        .background(Theme.bg)
-    }
-
-    private func tab(_ title: LocalizedStringKey, count: Int, id: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            VStack(spacing: 6) {
-                HStack(spacing: 6) {
-                    Text(title).font(Typo.secondary).foregroundStyle(Theme.muted)
-                    if count > 0 { Text("\(count)").font(Typo.meta).foregroundStyle(Theme.faint).monospacedDigit() }
-                }
-                Capsule().fill(.clear).frame(height: 2)
-            }
-            .fixedSize()
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityElement(children: .combine)
-        .accessibilityAddTraits(.isButton)
-        .accessibilityIdentifier(id)
-    }
-}
 
 /// A change in Everyday: what it is in a line, whether it's done, and a link to see it. No branch, commits or files.
 struct ResultCard: View {

@@ -1,3 +1,4 @@
+import type { AgentCharter } from "./charter";
 import type { EntryData } from "./entryData";
 import type { Mention } from "./mentions";
 
@@ -22,6 +23,9 @@ export interface Attachment {
   h?: number;
   version: number | null;
 }
+
+/** Inbox kinds for the person only: agent tokens never see these rows (src/inbox.ts) or count them (src/registry.ts). */
+export const PERSON_ONLY_KINDS = ["people_only", "manual_unread", "reminder", "report"] as const;
 
 export const ENTRY_TYPES = ["claim", "question", "decision", "task", "artifact", "note", "change", "handoff"] as const;
 // "approval" is posted by the server only (an agent's request_approval on a board), never by a client.
@@ -52,6 +56,7 @@ export interface Entry {
   type: EntryType;
   text: string;
   edited_at?: number | null;
+  purged?: { by: string; via: "agent" | "person" }; // its text was purged (a leaked secret), by whom; absent otherwise
   title?: string | null; // a 3–4 word summary from its author (for the sidebar and lists); absent on older entries
   to: string | null; // addressed member, or null for everyone
   mentions?: Mention[]; // people and agents @mentioned in the text; also addressed to them. Empty on older entries.
@@ -135,6 +140,7 @@ export interface BoardInfo {
   last_seq: number;
   archived?: boolean; // read-only until restored
   encrypted?: boolean; // end-to-end encrypted: messages are ciphertext only (read/write with the CLI)
+  charter?: AgentCharter | null; // goal, data classes, retention: what agents are told (#3685; mirrored from D1)
 }
 
 export interface Env {
@@ -183,6 +189,7 @@ export interface Env {
   CF_ACCOUNT_ID?: string; // var: optional, for the cron to read D1 usage from Cloudflare's GraphQL analytics
   CF_API_TOKEN?: string; // secret: optional, Account Analytics:Read token for the same
   // Nightly backups outside Cloudflare (src/backup.ts, docs/BACKUPS.md): off until the public key and all BACKUP_S3_* but the optional ones are set.
+  A2A_SIGNING_KEY?: string; // secret: the Agent Card's ES256 private key (JWK, from scripts/a2a-key.mjs); unset: the card is served unsigned. Never kept in D1
   BACKUP_PUBLIC_KEY?: string; // var: X25519 public key (base64, from scripts/backup.mjs keygen); the private key stays offline
   BACKUP_S3_ENDPOINT?: string; // var: S3-compatible endpoint outside Cloudflare, e.g. https://s3.us-west-004.backblazeb2.com
   BACKUP_S3_BUCKET?: string; // var

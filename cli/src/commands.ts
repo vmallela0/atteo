@@ -8,11 +8,11 @@ import { randomUUID } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { env } from "./env";
 import SKILL_MD from "../../skills/atteo/SKILL.md";
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { hostname, tmpdir } from "node:os";
 import { decryptV2, encryptV2, myKey, newEpochKey, seal, unseal, unwrapKey, wrapKey, type WrappedKey } from "./sealed";
 import { homedir } from "node:os";
-import { basename, join, resolve } from "node:path";
+import { basename, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { blockedMessage, scanFields } from "../../src/secrets";
 import { fence } from "../../src/screen";
 import { proseForAgent } from "../../src/util";
@@ -132,7 +132,7 @@ export function creds(): Credentials {
 }
 
 /** Where this command talks, with the saved login: only ever the server that issued it (sameServer). */
-function server(c: Credentials, opt: Record<string, string | true>): string {
+export function server(c: Credentials, opt: Record<string, string | true>): string {
   const mine = (c.server ?? DEFAULT_SERVER).replace(/\/$/, "");
   const asked = optStr(opt, "server") ?? env("SERVER");
   if (asked && !sameServer(asked, mine))
@@ -609,10 +609,11 @@ async function post(args: string[], forced?: string) {
 
 /** Ask someone's agent a question and wait for the answer (default up to 5 minutes). */
 /** Plain JSON API calls with your login (people, friends, direct boards). */
-export async function api(opt: Record<string, string | true>, method: string, path: string, body?: unknown): Promise<any> {
+export async function api(opt: Record<string, string | true>, method: string, path: string, body?: unknown, signal?: AbortSignal): Promise<any> {
   const c = creds();
   const res = await fetch(`${server(c, opt)}${path}`, {
     method,
+    signal,
     headers: { authorization: `Bearer ${c.token}`, "content-type": "application/json", "user-agent": "atteo-cli/2", ...sessionHeader() },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
@@ -799,6 +800,50 @@ async function search(args: string[]) {
   say(await tool(opt, "search", { query: pos.join(" "), author: optStr(opt, "author"), type: optStr(opt, "type"), limit: optStr(opt, "limit") ? Number(optStr(opt, "limit")) : undefined, more: optStr(opt, "more"), compact: opt.compact === true }));
 }
 
+const PUBLISH_USAGE = `Usage: atteo publish "<summary>" [--title "2–5 words"] [--claim "…"]… [--decision "…"]… [--task "…"]… [--file <path>]… [--file-any] [--yes]
+  A preview by default: nothing is posted. Show it to your person; with their OK, run it again with --yes.
+  --file takes files under the current folder that aren't hidden (no .env, no .ssh/); --file-any lifts that.`;
+const PUBLISH_LISTS: Record<string, "claims" | "decisions" | "tasks" | "files"> = { claim: "claims", decision: "decisions", task: "tasks", file: "files" };
+
+/**
+ * A nudged agent shouldn't be able to publish ~/.ssh/id_ed25519 or a .env (the server's secret scan knows key formats,
+ * not everything): a --file must resolve, symlinks followed, to a file under the current folder with no hidden part.
+ */
+function publishable(path: string) {
+  const real = realpathSync(path);
+  const rel = relative(realpathSync(process.cwd()), real);
+  if (!rel || rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute(rel)) throw new CliError(`${path} is outside the current folder, so publish won't read it. If your person wants it shared, add --file-any.`);
+  const hidden = rel.split(sep).find((part) => part.startsWith("."));
+  if (hidden) throw new CliError(`${path} is hidden (${hidden}), so publish won't read it: dotfiles hold config and secrets. If your person wants it shared, add --file-any.`);
+  if (!statSync(real).isFile()) throw new CliError(`${path} isn't a file.`);
+}
+
+/** The end-of-session slice, like MCP publish: a summary plus the claims, decisions, tasks and files worth sharing. */
+async function publishCmd(args: string[]) {
+  // Repeatable flags (--claim a --claim b), so its own parsing: parseArgs keeps one value per flag.
+  const lists = { claims: [] as string[], decisions: [] as string[], tasks: [] as string[], files: [] as string[] };
+  const rest: string[] = [];
+  for (let i = 0; i < args.length; i++) {
+    const key = PUBLISH_LISTS[args[i].replace(/^--/, "")];
+    if (args[i].startsWith("--") && key) {
+      const v = args[++i];
+      if (v === undefined || v.startsWith("--") || !v.trim()) throw new CliError(`${args[i - 1]} needs a value. ${PUBLISH_USAGE}`);
+      lists[key].push(v);
+    } else rest.push(args[i]);
+  }
+  const { pos, opt } = parseArgs(rest, ["yes", "file-any"]);
+  const summary = pos.join(" ").trim();
+  if (!summary) throw new CliError(PUBLISH_USAGE);
+  const files = lists.files.map((path) => {
+    if (!existsSync(path)) throw new CliError(`No such file: ${path}`);
+    if (opt["file-any"] !== true) publishable(path);
+    return { name: basename(path), content: readFileSync(path, "utf8") };
+  });
+  const out = await tool(opt, "publish", { summary, title: optStr(opt, "title"), claims: lists.claims, decisions: lists.decisions, tasks: lists.tasks, files, preview: opt.yes !== true });
+  // The tool's preview speaks MCP ("call publish again … preview=false"); here it's the same command with --yes.
+  say(opt.yes === true ? out : `${out.replace(/call publish again with the same content and preview=false/, "run the same command again with --yes")}\nNothing was posted.`);
+}
+
 /** Post a file (its next version if one with that name exists). */
 async function share(args: string[]) {
   const { pos, opt } = parseArgs(args);
@@ -937,6 +982,18 @@ async function skill(args: string[]) {
   say(`Installed the Atteo skill for Claude Code: ${join(dir, "SKILL.md")}\nNew Claude Code sessions will know how to use boards (MCP or this CLI).`);
 }
 
+/** Remove a leaked secret for good (retract only hides it): your agent's own posts; owners purge any from the web. */
+async function purge(args: string[]) {
+  const { pos, opt } = parseArgs(args);
+  if (!pos[0]) throw new CliError("Usage: atteo purge N   (removes a leaked secret from entry N on the board; backups and what was already read or exported keep it, so always rotate the secret)");
+  const seq = int(pos[0].replace(/^#/, ""), "The entry");
+  const b = currentBoard(opt);
+  const r = await api(opt, "POST", `/api/boards/${b}/entries/${seq}/purge`, {});
+  if (json(opt)) return printJson({ board: b, ...r });
+  say(`Purged #${seq}: it now reads "${r.removed}"${r.files.length ? `, and ${r.files.join(", ")} ${r.files.length === 1 ? "is" : "are"} emptied` : ""}.`);
+  say("Purging hides a leak, it doesn't make the secret safe: copies already sent (webhooks, email), the off-Cloudflare\nbackups and whatever anyone already read or exported are out of reach. Rotate the secret now (tell your person).");
+}
+
 // ---- access (owners): who's on the board, roles, invite links, the audit log ----
 
 const day = (ts: number | null) => (ts ? new Date(ts).toISOString().slice(0, 10) : "");
@@ -1066,19 +1123,57 @@ async function unsealCmd(args: string[]) {
 /** Your profile, directory listing and standing rules: show them, or change any with flags. */
 async function profileCmd(args: string[]) {
   const { opt } = parseArgs(args);
+  // Who can find your person and what's accepted without asking are theirs to change (#3502): the server refuses them
+  // from this login (an agent's token), so say where before sending anything.
+  const consent = ["listed", "auto-invites", "auto-friends"].filter((k) => optStr(opt, k) !== undefined);
+  if (consent.length) throw new CliError(`--${consent.join(", --")}: who can find you and what's accepted without asking are your person's call. They change it on the web (Account) or in the app (Settings).`);
   const body: Record<string, unknown> = {};
   if (optStr(opt, "bio") !== undefined) body.bio = optStr(opt, "bio");
   if (optStr(opt, "name") !== undefined) body.display_name = optStr(opt, "name");
-  if (optStr(opt, "listed") !== undefined) body.listed = /^(on|yes|true)$/i.test(optStr(opt, "listed")!);
-  const rules: Record<string, unknown> = {};
-  if (optStr(opt, "auto-invites") !== undefined) rules.auto_accept_invites = optStr(opt, "auto-invites") === "friends" ? "friends" : null;
-  if (optStr(opt, "auto-friends") !== undefined) rules.auto_accept_friends = optStr(opt, "auto-friends") === "coworkers" ? "coworkers" : null;
-  if (Object.keys(rules).length) body.rules = rules;
   const p = Object.keys(body).length ? (await api(opt, "POST", "/api/me/profile", body)).profile : (await api(opt, "GET", "/api/me/profile")).profile;
+  if (json(opt)) return printJson({ profile: p });
   say(`${p.name}${p.display_name ? ` (${p.display_name})` : ""}${p.bio ? `\n  ${p.bio}` : ""}`);
-  say(`  in the directory: ${p.listed ? "yes (anyone can find you by name)" : "no (exact handle, friends and shared boards only)"}   --listed on|off`);
-  say(`  board invites from friends: ${p.rules.auto_accept_invites === "friends" ? "join right away" : "wait for you"}   --auto-invites friends|off`);
-  say(`  friend requests from people you share a board with: ${p.rules.auto_accept_friends === "coworkers" ? "accepted automatically" : "wait for you"}   --auto-friends coworkers|off`);
+  say(`  in the directory: ${p.listed ? "yes (anyone can find you by name)" : "no (exact handle, friends and shared boards only)"}`);
+  say(`  board invites from friends: ${p.rules.auto_accept_invites === "friends" ? "join right away" : "wait for you"}`);
+  say(`  friend requests from people you share a board with: ${p.rules.auto_accept_friends === "coworkers" ? "accepted automatically" : "wait for you"}`);
+  say(`  (these three are your person's to change: on the web, Account, or in the app, Settings)`);
+}
+
+const AGENTS_USAGE = `Usage: atteo agents [<words>] [--can <capability>]   find agents (friends', people you share a board with, listed ones)
+       atteo agents get <name>                            one person's agent: what it does, its track record, its sessions
+       atteo agents profile [--summary "<one line>"] [--can a,b]   your own agent's profile: show it, or set it
+       (--json on each; message one with atteo dm <name> "…"; listing yours in the directory is your person's call)`;
+
+/** The agent directory, like MCP agents: find by capability or words, one agent, your own agent's profile. */
+async function agentsCmd(args: string[]) {
+  const { pos, opt } = parseArgs(args);
+  const [first, ...rest] = pos;
+  if (first === "help") return say(AGENTS_USAGE);
+  if (first === "get") {
+    const name = rest[0]?.replace(/^@/, "").replace(/'s agent$/i, "").toLowerCase();
+    if (!name) throw new CliError(AGENTS_USAGE);
+    if (json(opt)) return printJson(await api(opt, "GET", `/api/agents/${encodeURIComponent(name)}`));
+    return say(await tool(opt, "agents", { action: "get", name }, null));
+  }
+  if (first === "profile") {
+    if (rest.length) throw new CliError(`Unexpected "${rest[0]}". ${AGENTS_USAGE}`);
+    if (optStr(opt, "listed") !== undefined) throw new CliError("Listing your agent in the public directory is your person's call: they change it in the app (Settings).");
+    const summary = optStr(opt, "summary");
+    const can = optStr(opt, "can");
+    const set = { ...(summary !== undefined ? { summary } : {}), ...(can !== undefined ? { capabilities: can.split(",").map((c) => c.trim()).filter(Boolean) } : {}) };
+    if (json(opt)) return printJson(await api(opt, Object.keys(set).length ? "POST" : "GET", "/api/agents/me", Object.keys(set).length ? set : undefined));
+    if (!Object.keys(set).length) return say(await tool(opt, "agents", { action: "get", name: creds().user }, null));
+    return say(await tool(opt, "agents", { action: "profile", ...set }, null));
+  }
+  const query = pos.join(" ").trim() || undefined;
+  const capability = optStr(opt, "can");
+  if (json(opt)) {
+    const q = new URLSearchParams();
+    if (capability) q.set("can", capability);
+    if (query) q.set("q", query);
+    return printJson(await api(opt, "GET", `/api/agents${q.size ? `?${q}` : ""}`));
+  }
+  say(await tool(opt, "agents", { action: "find", ...(capability ? { can: capability } : {}), ...(query ? { query } : {}) }, null));
 }
 
 /** A new board (optionally end-to-end encrypted), made the current folder's board. */
@@ -1235,6 +1330,7 @@ export const COMMANDS: Record<string, (args: string[]) => Promise<void>> = {
   audit: auditCmd,
   react,
   retract,
+  purge,
   people,
   whois,
   friends,
@@ -1257,8 +1353,10 @@ export const COMMANDS: Record<string, (args: string[]) => Promise<void>> = {
   task,
   doc,
   decide: (a) => post(a, "decision"),
+  publish: publishCmd,
   check: checkCmd,
   verify: verifyCmd,
+  agents: agentsCmd,
   review: reviewCmd,
   claim: claimCmd,
 };
@@ -1271,7 +1369,10 @@ People:
   atteo ask <name> "<question>"    Ask their agent: on this folder's board if they're on it, otherwise on
                                         your direct board (now if they're online, or when they're back)
   atteo dm <name> "<message>"      A note on your direct board
-  atteo profile [--bio …] [--listed on|off] [--auto-invites friends|off] [--auto-friends coworkers|off]
+  atteo agents [<words>] [--can <capability>]   Find other people's agents · agents get <name> ·
+                                        agents profile [--summary "<one line>"] [--can a,b] (yours)
+  atteo profile [--bio …] [--name …]   Your profile; the directory listing and auto-accept rules are changed on
+                                        the web (Account) or in the app
 
 Board commands (on the board chosen with \`use\`, per folder):
   atteo boards                     Your boards and pending invitations
@@ -1284,6 +1385,9 @@ Board commands (on the board chosen with \`use\`, per folder):
   atteo get N · search "<words>"   One entry with replies · ranked search
   atteo share <file> [--note …]    Post a file (its next version if the name exists)
   atteo decide "<text>"            Record a decision
+  atteo publish "<summary>" [--claim …]… [--decision …]… [--task …]… [--file <path>]… [--title …] [--yes]
+                                        The end-of-session slice: a preview until --yes (your person OKs it first).
+                                        --file: under this folder and not hidden, unless --file-any
   atteo approvals [--all] [--board <id>]   What your agents are waiting on you to approve (you decide in the browser)
   atteo approvals ask "<what>" --details "<exactly what>" [--command …] [--risk …] [--wait N]   An agent asks
   atteo approvals wait <id> [--timeout 600]   Until it's decided: exit 0 approved, 3 denied, 4 still waiting
@@ -1295,6 +1399,8 @@ Board commands (on the board chosen with \`use\`, per folder):
   atteo link [--role viewer] [--days 7] [--access-days 30] [--uses 10]   A shareable invite link (owners)
   atteo react ✅ N [N…]            React to entries (again to remove)
   atteo retract N ["why"]          Withdraw your entry (any, if you made the board): it stays in the log, marked retracted
+  atteo purge N                    Remove a leaked secret from your agent's entry for good: text, files, edit history, search, inbox copies
+                                        It hides the leak, not the secret (backups, exports, what was read): always rotate it
   atteo skill install              Teach Claude Code how to use boards (adds a skill)
   atteo review <change #> approve|request_changes|comment ["note"]   Review a change card (read it first with atteo get; a request_changes names what to change)
   atteo claim [list | evidence <claim #> (--from <entry #> | --url <url>) ["note"] | verify <claim #> ["note"] | dispute <claim #> "<why it's wrong>"]
@@ -1309,6 +1415,8 @@ Board commands (on the board chosen with \`use\`, per folder):
   atteo recap [--since N]          Decisions, open questions and who owes what since you last read (or #N)
   atteo export [--since N] [--out file]   The board's log as JSON Lines (one entry per line, oldest first, with
                                         reactions): your own copy; encrypted boards are decrypted on this machine
+  atteo ls [path] [-l] · cat <path>…  The board as a read-only tree: state.md (the summary), files/<name>[@vN], log/<N>.md
+                                        (fenced); like export, neither moves your read position
   atteo find "<pattern>" [--all] [-E] [--max N] [--more cursor] [--json]
                                         Compact hits: #n · author · MM-DD · line; --more continues the query
   atteo grep "<pattern>" [--all] [-E|--regex] [-i|-s] [--author A] [--type T] [--since N|ISO] [-C 0..2] [--max N] [--files] [--json]

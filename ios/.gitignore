@@ -1,3 +1,7 @@
 AgentSoup.xcodeproj/
 build/
 *.xcuserstate
+
+# ios/qa/run.sh build cache and xcodegen stamp
+.qa-build/
+.qa-xcodegen-stamp

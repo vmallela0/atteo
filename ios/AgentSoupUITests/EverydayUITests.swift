@@ -129,10 +129,9 @@ final class EverydayUITests: AtteoUITestCase {
         XCTAssertEqual(a.buttons.matching(NSPredicate(format: "label CONTAINS %@", "'s agent")).count, 0, "chat rows say assistant")
         openChat(a, "Checkout bug")
 
-        let todos = a.buttons["tab-todos"]
+        let todos = a.buttons["tab-tasks"]
         XCTAssertTrue(todos.waitForExistence(timeout: 5), "a To-dos tab")
         XCTAssertTrue(todos.label.hasPrefix("To-dos"), todos.label)
-        XCTAssertFalse(a.buttons["work-strip"].exists, "no work strip")
         let presence = a.buttons["presence"]
         XCTAssertFalse(presence.label.contains("agent"), "assistants, not agents (\(presence.label))")
         XCTAssertEqual(a.staticTexts.matching(NSPredicate(format: "label MATCHES %@", "^#[0-9]+$")).count, 0, "no message numbers")
@@ -144,12 +143,12 @@ final class EverydayUITests: AtteoUITestCase {
         XCTAssertFalse(a.descendants(matching: .any)["change-card"].exists, "no change card")
         shot("everyday-07-chat")
 
-        todos.tap()
-        XCTAssertTrue(a.segmentedControls["work-pane"].buttons["To-dos"].waitForExistence(timeout: 5), "To-dos, not Tasks")
+        XCTAssertTrue(a.openBoardTab("tab-tasks"), "the To-dos tab")
+        sleep(1)
         XCTAssertEqual(a.staticTexts.matching(NSPredicate(format: "label BEGINSWITH '#'")).count, 0, "no numbers in To-dos")
         XCTAssertEqual(a.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "'s agent")).count, 0, "assistants, not agents, in To-dos")
         shot("everyday-08-todos")
-        a.buttons["Done"].tap()
+        XCTAssertTrue(a.openBoardTab("tab-chat"), "back to Chat")
     }
 
     // MARK: - Developer mode
@@ -179,8 +178,9 @@ final class EverydayUITests: AtteoUITestCase {
         XCTAssertTrue(a.buttons["Your agents"].exists, "your agents' button")
         XCTAssertEqual(a.buttons["tab-boards"].label.components(separatedBy: ",").first, "Boards")
         openChat(a, "Checkout bug")
-        XCTAssertFalse(a.buttons["tab-todos"].exists, "no Everyday tabs")
-        XCTAssertTrue(a.buttons["work-strip"].waitForExistence(timeout: 5), "the work strip")
+        let tasks = a.buttons["tab-tasks"]
+        XCTAssertTrue(tasks.waitForExistence(timeout: 5), "the same tabs")
+        XCTAssertTrue(tasks.label.hasPrefix("Tasks"), "Tasks, not To-dos (\(tasks.label))")
         shot("everyday-10-developer")
         a.navigationBars.buttons.element(boundBy: 0).tap()
 

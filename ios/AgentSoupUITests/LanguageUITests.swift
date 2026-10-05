@@ -113,6 +113,9 @@ final class LanguageUITests: AtteoUITestCase {
         XCTAssertTrue(has(a, needsOK), "Needs your OK → \(needsOK)")
         shot("language-\(tag)-for-you")
         openSettings(a, label: settings, title: settings)
+        // (Notifications, with its quiet hours, sits above Appearance now: scroll down to it, it's a lazy list.)
+        let header = a.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", appearance)).firstMatch
+        for _ in 0..<6 where !header.exists { a.swipeUp(velocity: .slow) }
         XCTAssertTrue(has(a, appearance), "Appearance → \(appearance)")
         shot("language-\(tag)-settings")
         XCTAssertEqual(serverLang(), code, "saved to display.lang for the web")
@@ -205,8 +208,7 @@ final class LanguageUITests: AtteoUITestCase {
             sleep(1)
             shot("language-hi-\(mode)-chat")
             if mode == "everyday" {
-                a.buttons["tab-todos"].tap()
-                XCTAssertTrue(a.segmentedControls["work-pane"].waitForExistence(timeout: 5), "the Work screen")
+                XCTAssertTrue(a.openBoardTab("tab-tasks", timeout: 5), "the To-dos tab")
                 sleep(1)
                 shot("language-hi-everyday-work")
             }

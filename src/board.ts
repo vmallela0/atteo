@@ -29,9 +29,14 @@ import { prepareEntryData, readEntryData, screenedText } from "./entryData";
 import { withinEditWindow } from "./editMessage";
 import { backupConfig, blobPartKey, objectKey, uploadPart, type PartResult } from "./backup";
 import { decodeValue, encodeValue, type DumpTables } from "./backupcore";
+import { parseAgentCharter, type AgentCharter } from "./charter";
+import { mutersOf } from "./moderation";
+import { memberRole } from "./registry";
 
 export const MAX_TEXT = 32_000;
 export const MAX_ARTIFACT = 256_000;
+/** How many entries one post may resolve (REST and MCP alike). */
+export const MAX_RESOLVES = 50;
 export const MAX_WAIT_MS = 55_000;
 
 /** How to check a claim: run `command` (exit 0 = holds) in a sandboxed checkout of `commit`. */
@@ -95,7 +100,10 @@ export interface TaskView {
   due: number | null;
   lease_holder: string | null;
   lease_agent: boolean;
+  lease_session_name: string | null; // the agent session holding the claim ("alt-b" → "jxn/alt-b has it", #3474)
   lease_until: number | null;
+  lapsed_holder: string | null; // an open task whose lease ran out: who held it ("jxn/alt-b"), until lapsed_at (#3809)
+  lapsed_at: number | null;
   stop_reason: string | null;
   done_note: string | null; // what the one who finished it said (shown on the task, not posted)
   resolved_by: number | null; // an open task: the entry that says it resolves it, from someone who can't close it (#2221)
@@ -123,6 +131,10 @@ export interface TaskActOpts {
   session?: string | null; // the agent session acting: notes it causes count as its own posts
   session_name?: string | null; // its name, for "is on it" labels
 }
+
+/** Who holds a task's claim, as headers say it: "jxn/alt-b" for a named agent session, else "jxn's agent" or "jxn". */
+export const holderLabel = (t: Pick<TaskView, "lease_holder" | "lease_agent" | "lease_session_name">): string =>
+  !t.lease_holder ? "" : t.lease_agent ? (t.lease_session_name ? `${t.lease_holder}/${t.lease_session_name}` : `${t.lease_holder}'s agent`) : t.lease_holder;
 
 /** Who "is on it": "<user>/<session name>", the one shape for taking by reply, by finishing a task and by handle. The
  *  client's first part ("scout · Codex") is only a fallback for callers that don't send the name. */
@@ -249,6 +261,7 @@ function toEntry(r: Row): Entry {
     type: r.type as Entry["type"],
     text: r.text as string,
     edited_at: (r.edited_at as number | null) ?? null,
+    ...(r.purged ? { purged: JSON.parse(r.purged as string) as Entry["purged"] } : {}),
     to: (r.to_user as string | null) ?? null,
     mentions: JSON.parse((r.mentions as string | null) || "[]"),
     reply_to: (r.reply_to as number | null) ?? null,
@@ -283,7 +296,7 @@ const opts0 = (input: NewEntry): TaskActOpts => ({ via: input.via ?? null, clien
 /** For a session's reads: skip posts addressed to another session of the same person (binds: user, session). */
 const FOR_SESSION_OK = "(for_session IS NULL OR for_user != ? OR for_session = ?)";
 
-const ENTRY_COLS = "seq, ts, author, type, text, edited_at, title, to_user, mentions, reply_to, resolves, supersedes, retracts, via, client, artifact_name, artifact_size, artifact_version, card, media, ai_flag, attachments, approval, audience, to_people, handoff, data";
+const ENTRY_COLS = "seq, ts, author, type, text, edited_at, purged, title, to_user, mentions, reply_to, resolves, supersedes, retracts, via, client, artifact_name, artifact_size, artifact_version, card, media, ai_flag, attachments, approval, audience, to_people, handoff, data";
 
 // ---- private entries (audience.ts): people-only (vedu #1264), only the people it names, never any agent; and just
 // mine (#1748), only one person and their own agents. Every read of entries filters through these, so a path that
@@ -334,6 +347,8 @@ export class Board extends DurableObject<Env> {
         card_diff TEXT,
         data TEXT
       );
+      -- Purged entries (purge): who removed each, so it isn't purged twice and the log can say so.
+      CREATE TABLE IF NOT EXISTS purged (seq INTEGER PRIMARY KEY, by_user TEXT NOT NULL, via TEXT NOT NULL, ts INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS entry_versions (seq INTEGER NOT NULL, version INTEGER NOT NULL, text TEXT NOT NULL, ts INTEGER NOT NULL, PRIMARY KEY (seq, version));
       CREATE TABLE IF NOT EXISTS edit_notices (user TEXT NOT NULL, session TEXT NOT NULL, seq INTEGER NOT NULL, edited_at INTEGER NOT NULL, PRIMARY KEY (user, session, seq));
       CREATE TABLE IF NOT EXISTS reactions (
@@ -702,6 +717,11 @@ export class Board extends DurableObject<Env> {
     // Optional JSON object attached at post time (entryData.ts). Null when the post had none.
     if (!cols.has("data")) this.sql.exec("ALTER TABLE entries ADD COLUMN data TEXT");
     if (!cols.has("edited_at")) this.sql.exec("ALTER TABLE entries ADD COLUMN edited_at INTEGER");
+    // Purged (#3853): who removed it, JSON {by, via}, so a page can show a placeholder; backfilled from the purged table.
+    if (!cols.has("purged")) {
+      this.sql.exec("ALTER TABLE entries ADD COLUMN purged TEXT");
+      this.sql.exec("UPDATE entries SET purged = (SELECT json_object('by', p.by_user, 'via', p.via) FROM purged p WHERE p.seq = entries.seq) WHERE seq IN (SELECT seq FROM purged)");
+    }
     // Covering: hiddenFrom reads only the index (with the kind, since there are two).
     this.sql.exec("CREATE INDEX IF NOT EXISTS entries_audience2 ON entries (seq, audience, to_people) WHERE audience IS NOT NULL");
     this.sql.exec("DROP INDEX IF EXISTS entries_audience");
@@ -728,7 +748,8 @@ export class Board extends DurableObject<Env> {
       if (!taskCols.has(col)) this.sql.exec(`ALTER TABLE tasks ADD COLUMN ${col} ${def}`);
     }
     // A claim by an agent session renews while that session is around (leases.ts): who, for how long, until when at most.
-    for (const [col, def] of [["lease_session", "TEXT"], ["lease_mins", "INTEGER"], ["lease_cap", "INTEGER"]]) {
+    // A lease that ran out (#3809): who held it and when it ended, so the task shows it lost its holder.
+    for (const [col, def] of [["lease_session", "TEXT"], ["lease_mins", "INTEGER"], ["lease_cap", "INTEGER"], ["lease_session_name", "TEXT"], ["lapsed_holder", "TEXT"], ["lapsed_at", "INTEGER"]]) {
       if (!taskCols.has(col)) this.sql.exec(`ALTER TABLE tasks ADD COLUMN ${col} ${def}`);
     }
     this.sql.exec("CREATE INDEX IF NOT EXISTS tasks_lease_session ON tasks(lease_session) WHERE lease_session IS NOT NULL");
@@ -826,6 +847,7 @@ export class Board extends DurableObject<Env> {
       last_seq: last,
       archived: this.meta("archived") === "1",
       encrypted: this.meta("encrypted") === "1",
+      charter: parseAgentCharter(this.meta("charter")),
     };
   }
 
@@ -877,15 +899,18 @@ export class Board extends DurableObject<Env> {
   }
 
   /**
-   * The client got entries up to `seq` from a held wait (wait {hold}): its read position moves there now. Never back,
-   * never past the end; a stale or repeated ack does nothing.
+   * The client got entries up to `seq` from a held wait (wait {hold}), or listed them with GET entries?ack=1: its read
+   * position moves there now, the one postFresh checks. Never back, never past the end; a stale or repeated ack does
+   * nothing. `member`: the caller has just checked membership (the REST listing), so a member this board hasn't
+   * registered yet is registered first, as postFresh's readCursor does (#3881); without it, an unknown reader is one
+   * removed while a wait was held, and nothing moves.
    */
-  async ack(user: string, seq: number, session?: string | null): Promise<void> {
+  async ack(user: string, seq: number, session?: string | null, member = false): Promise<void> {
     const info = this.info();
     if (!Number.isInteger(seq) || seq <= 0) return;
-    if (!this.sql.exec("SELECT 1 AS x FROM members WHERE name = ?", user).toArray().length) return; // removed meanwhile
+    if (!member && !this.sql.exec("SELECT 1 AS x FROM members WHERE name = ?", user).toArray().length) return; // removed meanwhile
     const to = Math.min(seq, info.last_seq);
-    if (session) this.readCursor(user, session);
+    if (session || member) this.readCursor(user, session);
     this.advance(user, to, session);
     this.markSeen(user, "agent", to);
   }
@@ -1161,6 +1186,8 @@ export class Board extends DurableObject<Env> {
     const hit = scanFields({ text, title, artifact_name: input.artifact_name, artifact_content: internal.docVersion != null ? null : input.artifact_content, data: dataJson });
     if (hit) throw new BoardError(blockedMessage(hit));
 
+    // One cap for every transport (REST used to cut resolves at 50 silently, MCP not at all): over it is refused.
+    if (new Set(input.resolves ?? []).size > MAX_RESOLVES) throw new BoardError(`resolves names at most ${MAX_RESOLVES} entries; resolve the rest in another post.`);
     const depends = [...new Set((input.depends_on ?? []).filter((n) => Number.isInteger(n)))].slice(0, 20);
     const refs = [input.reply_to, input.supersedes, input.retracts, ...(input.resolves ?? []), ...depends].filter((n): n is number => n != null);
     for (const n of refs) {
@@ -1177,6 +1204,14 @@ export class Board extends DurableObject<Env> {
       if (!own || forSession?.user !== user) forSession = null; // just mine may still go to one of your own sessions
     }
     if (input.via === "agent") this.decisions.guardResolves(input.resolves ?? []); // people decide human decisions
+    if (input.supersedes != null) {
+      // Replacing an entry drops it from the summary: only its author (their agents included) or a board owner may, over
+      // any transport (#3809). The role is looked up only for someone else's entry.
+      const target = this.sql.exec("SELECT author FROM entries WHERE seq = ?", input.supersedes).one();
+      if (target.author !== user && info.created_by !== user && (await memberRole(this.env, info.id, user).catch(() => null)) !== "owner") {
+        throw new BoardError(`Only ${target.author} (who posted #${input.supersedes}) or an owner of the board can supersede it; reply to it instead.`);
+      }
+    }
     if (input.retracts != null) {
       // Only the entry's author, or the board's creator, may withdraw it; once is enough.
       const target = this.sql.exec("SELECT author, retracts FROM entries WHERE seq = ?", input.retracts).one();
@@ -1374,7 +1409,8 @@ export class Board extends DurableObject<Env> {
     if (people) {
       if (entry.retracts == null && !internal.system && !internal.notice) {
         const excerpt = internal.sealed || info.encrypted ? "🔒 encrypted" : entry.text.replace(/\s+/g, " ").trim().slice(0, 160);
-        const to = people.filter((u) => u !== entry.author);
+        const muters = await mutersOf(this.env.DB, info.id, entry.author).catch(() => new Set<string>());
+        const to = people.filter((u) => u !== entry.author && !muters.has(u)); // muted (#3602): no notification
         if (to.length) {
           this.ctx.waitUntil(
             this.env.DB.batch(
@@ -2357,6 +2393,7 @@ export class Board extends DurableObject<Env> {
     );
     const answered = this.answersMine(user, list, session);
     const tasks = list.filter((e) => e.type === "task");
+    if (tasks.length) this.lapseLeases();
     const open = tasks.length
       ? new Set(
           this.sql
@@ -2451,6 +2488,74 @@ export class Board extends DurableObject<Env> {
     notify(this.sql.exec("SELECT user, session FROM handling WHERE seq = ? AND session IS NOT NULL", seq).toArray());
     this.broadcast({ type: "edit", seq, board: info.id }, seq);
     return toEntry(this.sql.exec(`SELECT ${ENTRY_COLS} FROM entries WHERE seq = ?`, seq).one());
+  }
+
+  /**
+   * Purge (GAPS P0 #7): a secret that got past the filter goes for good, where retracting only hides it. The entry keeps
+   * its number, author, time and thread (so references still resolve); its text, title, card, data, edit history, task
+   * body and versions, memory items taken from it, the file versions it published (and a doc's current copy when it is
+   * that version), search rows, and the inbox, tape and board-list excerpts go. Its author may purge it (an agent only
+   * what an agent posted); an owner (a person) any. Copies already sent (webhooks, email, backups) are out of reach.
+   */
+  async purge(user: string, seq: number, opts: { via: "agent" | "person"; owner: boolean }): Promise<{ seq: number; files: string[]; removed: string }> {
+    const info = this.info();
+    if (info.archived) throw new BoardError(archivedError(info.id));
+    const row = this.sql.exec(`SELECT ${ENTRY_COLS} FROM entries WHERE seq = ?`, seq).toArray()[0];
+    if (!row || !this.visible(seq, { user, person: opts.via === "person" })) throw new BoardError(`Entry #${seq} does not exist on this board.`);
+    const e = toEntry(row);
+    const mine = e.author === user && (opts.via === "person" || e.via === "agent");
+    const owner = opts.via === "person" && (opts.owner || info.created_by === user);
+    if (!mine && !owner) {
+      throw new BoardError(opts.via === "agent" ? `An agent can purge only what an agent of ${user} posted; #${seq} is ${e.author}'s${e.via === "person" ? " own message" : ""}. Ask your person (or an owner of the board) to purge it.` : `Only ${e.author} (who posted #${seq}) or an owner of this board can purge it.`);
+    }
+    if (this.sql.exec("SELECT 1 AS x FROM purged WHERE seq = ?", seq).toArray().length) throw new BoardError(`#${seq} is already purged.`);
+    const removed = `(removed by ${opts.via === "agent" ? `${user}'s agent` : user})`;
+    const now = Date.now();
+    // The directory's copies first (so a failure here leaves it purgeable again): inbox and mailbox excerpts (reminders
+    // included), trigger mail's event line, the tape, the board list's last line, and an audit row (the access log says
+    // who purged which entry, never what it said).
+    await this.env.DB.batch([
+      this.env.DB.prepare("UPDATE notifications SET excerpt = ? WHERE board_id = ? AND seq = ?").bind(removed, info.id, seq),
+      this.env.DB.prepare("UPDATE notifications SET data = json_set(data, '$.event.line', ?) WHERE board_id = ? AND kind = 'trigger' AND json_extract(data, '$.event.seq') = ?").bind(`#${seq} ${removed}`, info.id, seq),
+      this.env.DB.prepare("UPDATE tape SET excerpt = ? WHERE board_id = ? AND seq = ?").bind(removed, info.id, seq),
+      this.env.DB.prepare("UPDATE boards SET last_excerpt = ? WHERE id = ? AND last_author = ? AND last_activity = ?").bind(removed, info.id, e.author, e.ts),
+      this.env.DB.prepare("INSERT INTO audit (board_id, actor, action, target, detail, ts) VALUES (?, ?, 'purge', ?, ?, ?)").bind(info.id, user, `#${seq}`, `${e.type} by ${e.author}${opts.via === "agent" ? ", purged by their agent" : ""}`, now),
+    ]);
+    this.sql.exec("UPDATE entries SET text = ?, title = NULL, artifact_content = NULL, card = NULL, card_diff = NULL, data = NULL, handoff = NULL, sealed = NULL, purged = ? WHERE seq = ?", removed, JSON.stringify({ by: user, via: opts.via }), seq);
+    this.sql.exec("INSERT OR IGNORE INTO purged (seq, by_user, via, ts) VALUES (?, ?, ?, ?)", seq, user, opts.via, now);
+    this.sql.exec("DELETE FROM entry_versions WHERE seq = ?", seq);
+    this.sql.exec("DELETE FROM search_idx WHERE kind IN ('entry', 'task') AND ref = ?", String(seq));
+    if (this.sql.exec("SELECT 1 AS x FROM tasks WHERE seq = ?", seq).toArray().length) {
+      this.sql.exec("UPDATE tasks SET title = ?, body = NULL WHERE seq = ?", removed, seq);
+      this.sql.exec("DELETE FROM task_versions WHERE seq = ?", seq);
+    }
+    const mem = this.sql.exec("SELECT id FROM memory WHERE source_seq = ?", seq).toArray();
+    if (mem.length) {
+      const v = this.bumpMemV();
+      this.sql.exec("UPDATE memory SET text = ?, norm = ?, struck_by = COALESCE(struck_by, ?), struck_ts = COALESCE(struck_ts, ?), struck_v = COALESCE(struck_v, ?) WHERE source_seq = ?", removed, `purged ${seq}`, user, now, v, seq);
+    }
+    // The file versions this entry published: their contents and bytes; the doc's current copy too when it is one of them.
+    const files = [...(e.attachments ?? []).map((a) => ({ name: a.name, version: a.version })), ...(e.artifact_name && e.artifact_version != null ? [{ name: e.artifact_name, version: e.artifact_version }] : [])]
+      .filter((f, i, all) => f.version != null && all.findIndex((g) => g.name === f.name && g.version === f.version) === i);
+    for (const f of files) {
+      this.sql.exec("UPDATE doc_versions SET content = ?, summary = NULL WHERE name = ? AND version = ?", removed, f.name, f.version);
+      this.sql.exec("DELETE FROM blobs WHERE name = ? AND version = ?", f.name, f.version);
+      if (this.sql.exec("SELECT 1 AS x FROM docs WHERE name = ? AND version = ?", f.name, f.version).toArray().length) {
+        this.sql.exec("UPDATE docs SET content = ? WHERE name = ?", removed, f.name);
+        this.sql.exec("DELETE FROM search_idx WHERE kind = 'doc' AND ref = ?", f.name);
+      }
+    }
+    // Agent sessions that read it hear "#N edited", so they drop what they hold (none for People only: they never saw it).
+    if (e.audience !== "people") {
+      for (const r of this.sql.exec("SELECT session, user FROM session_cursors WHERE cursor >= ?", seq).toArray())
+        if (e.audience !== "own" || r.user === e.author)
+          this.sql.exec("INSERT INTO edit_notices (user, session, seq, edited_at) VALUES (?, ?, ?, ?) ON CONFLICT(user, session, seq) DO UPDATE SET edited_at = excluded.edited_at", r.user, r.session, seq, now);
+    }
+    this.entryMemo = [];
+    this.entryMemoTo = 0;
+    this.changes++;
+    this.broadcast({ type: "edit", seq, board: info.id }, seq);
+    return { seq, files: files.map((f) => `${f.name} v${f.version}`), removed };
   }
 
   editHistory(seq: number, viewer: Viewer): { version: number; text: string; ts: number }[] {
@@ -2968,6 +3073,11 @@ export class Board extends DurableObject<Env> {
       await this.decisions.refresh(true);
       for (const u of this.decisions.voters(e.author)) kinds.set(u, "decision");
     }
+    // Muted (#3602): whoever muted the author here isn't notified. Mail for their agent still arrives (it's work, not a ping).
+    for (const u of await mutersOf(this.env.DB, info.id, e.author).catch(() => new Set<string>())) {
+      const k = kinds.get(u);
+      if (k && k !== "agent" && k !== "from_your_person") kinds.delete(u);
+    }
     if (forAgents.size) this.ctx.waitUntil(this.deliverWebhooks(info, e, [...forAgents], "for_your_agent", forSession).catch(() => {}));
     // People @mentioned by name: only their chat hooks (Slack, Discord) hear about it; agent runtimes don't need it.
     const forPeople = [...kinds].filter(([u, k]) => k === "mention" && !forAgents.has(u)).map(([u]) => u);
@@ -3225,7 +3335,25 @@ export class Board extends DurableObject<Env> {
     this.sql.exec("UPDATE tasks SET lease_cap = ? WHERE seq = ? AND lease_session IS NOT NULL", this.leaseNow() + LEASE_CAP_MS, t.seq);
   }
 
+  /**
+   * Leases that ran out end here (no sweeper runs; whatever reads tasks calls this first): the holder is cleared, a
+   * `doing` task goes back to `todo`, and the task keeps who held it and when it lapsed until it's claimed again (#3809).
+   */
+  private lapseLeases() {
+    this.sql.exec(
+      `UPDATE tasks SET
+         lapsed_holder = CASE WHEN lease_holder IS NULL THEN lapsed_holder WHEN lease_agent = 1 AND lease_session_name IS NOT NULL THEN lease_holder || '/' || lease_session_name WHEN lease_agent = 1 THEN lease_holder || '''s agent' ELSE lease_holder END,
+         lapsed_at = CASE WHEN lease_holder IS NULL THEN lapsed_at ELSE lease_until END,
+         status = CASE WHEN status = 'doing' THEN 'todo' ELSE status END,
+         updated_at = MAX(updated_at, lease_until),
+         lease_holder = NULL, lease_agent = NULL, lease_until = NULL, lease_session = NULL, lease_session_name = NULL, lease_mins = NULL, lease_cap = NULL
+       WHERE lease_until IS NOT NULL AND lease_until <= ?`,
+      this.leaseNow(),
+    );
+  }
+
   taskRows(filter: { status?: string; assignee?: string } = {}): TaskView[] {
+    this.lapseLeases();
     const now = this.leaseNow();
     const rows = this.sql
       .exec(
@@ -3246,7 +3374,10 @@ export class Board extends DurableObject<Env> {
         due: (r.due as number | null) ?? null,
         lease_holder: (r.lease_until as number | null) && (r.lease_until as number) > now ? ((r.lease_holder as string | null) ?? null) : null,
         lease_agent: r.lease_agent === 1,
+        lease_session_name: (r.lease_until as number | null) && (r.lease_until as number) > now && r.lease_agent === 1 ? ((r.lease_session_name as string | null) ?? null) : null,
         lease_until: (r.lease_until as number | null) && (r.lease_until as number) > now ? (r.lease_until as number) : null,
+        lapsed_holder: r.status === "done" || r.status === "stopped" ? null : ((r.lapsed_holder as string | null) ?? null),
+        lapsed_at: r.status === "done" || r.status === "stopped" ? null : ((r.lapsed_at as number | null) ?? null),
         stop_reason: (r.stop_reason as string | null) ?? null,
         done_note: r.status === "done" ? ((r.done_note as string | null) ?? null) : null,
         resolved_by: r.status === "done" || r.status === "stopped" ? null : ((r.resolved_by as number | null) ?? null),
@@ -3374,7 +3505,11 @@ export class Board extends DurableObject<Env> {
     this.changes++;
   }
 
-  /** The gate's queue: open handoffs, oldest first (unsent ones are gone). */
+  /**
+   * The gate's queue: open handoffs, oldest first (unsent ones are gone). A branch is in it once: a newer open handoff
+   * of the same branch (a fix, a merge of main) supersedes the older ones, which stay open on the board but leave the
+   * queue (opus-d #3313: the queue showed four shas of gate-queue).
+   */
   async handoffs(viewer?: Viewer | null): Promise<Entry[]> {
     this.info();
     const rows = this.sql
@@ -3383,7 +3518,10 @@ export class Board extends DurableObject<Env> {
            AND NOT EXISTS (SELECT 1 FROM entries r WHERE r.retracts = entries.seq) ORDER BY seq LIMIT 100`,
       )
       .toArray();
-    return rows.map(toEntry).filter((e) => canSee(e, viewer));
+    const open = rows.map(toEntry).filter((e) => canSee(e, viewer));
+    const newest = new Map<string, number>();
+    for (const e of open) if (e.handoff && "branch" in e.handoff) newest.set(e.handoff.branch, e.seq);
+    return open.filter((e) => !(e.handoff && "branch" in e.handoff) || newest.get(e.handoff.branch) === e.seq);
   }
 
   // ---- claims: asserted → evidenced → verified (never by their author), or disputed; dependents go stale ----
@@ -3583,6 +3721,7 @@ export class Board extends DurableObject<Env> {
       if (t.priority) bits.push(`${t.priority} priority`);
       if (t.assignee) bits.push(`for ${t.assignee_agent ? `${t.assignee}'s agent` : t.assignee}`);
       if (t.lease_holder) bits.push(`${t.lease_agent ? `${t.lease_holder}'s agent` : t.lease_holder} holds it until ${iso(t.lease_until!)}`);
+      else if (t.lapsed_holder) bits.push(`${t.lapsed_holder}'s claim lapsed ${iso(t.lapsed_at!)}`);
       if (t.stop_reason) bits.push(t.stop_reason);
       if (t.due) bits.push(`due ${iso(t.due).slice(0, 10)}`);
       merge(t.seq, bits.join(" · "));
@@ -3598,15 +3737,21 @@ export class Board extends DurableObject<Env> {
     const t = this.task(seq);
     if (t.status === "done") throw new BoardError(`#${seq} is already done.`);
     if (t.lease_holder && t.lease_holder !== user) {
-      throw new BoardError(`#${seq} is claimed by ${t.lease_agent ? `${t.lease_holder}'s agent` : t.lease_holder} until ${iso(t.lease_until!)}. Pick another task, or ask them on the board.`);
+      throw new BoardError(`#${seq} is claimed by ${holderLabel(t)} until ${iso(t.lease_until!)}. Pick another task, or ask them on the board.`);
+    }
+    // Another session of the same person (#3474): the claim is that session's, not the person's, so it isn't taken
+    // over silently. The person on the web (no session) still can; so can a release from any of their sessions.
+    const held = t.lease_holder === user && t.lease_agent && opts.session ? (this.sql.exec("SELECT lease_session FROM tasks WHERE seq = ?", seq).toArray()[0]?.lease_session as string | null) : null;
+    if (held && held !== opts.session) {
+      throw new BoardError(`#${seq} is claimed by ${holderLabel(t)}, another of your sessions, until ${iso(t.lease_until!)}. Pick another task, or ask it on the board; if that session is gone, release it first (task release ${seq}).`);
     }
     const mins = Math.min(240, Math.max(5, Math.floor(minutes || 30)));
     const now = this.leaseNow();
     const until = now + mins * 60_000;
     const session = opts.session ?? null;
     this.sql.exec(
-      "UPDATE tasks SET lease_holder = ?, lease_agent = ?, lease_until = ?, lease_session = ?, lease_mins = ?, lease_cap = ?, status = CASE WHEN status IN ('todo','stopped') THEN 'doing' ELSE status END, stop_reason = NULL, updated_at = ? WHERE seq = ?",
-      user, opts.via === "agent" ? 1 : 0, until, session, session ? mins : null, session ? now + LEASE_CAP_MS : null, Date.now(), seq,
+      "UPDATE tasks SET lease_holder = ?, lease_agent = ?, lease_until = ?, lease_session = ?, lease_session_name = ?, lease_mins = ?, lease_cap = ?, status = CASE WHEN status IN ('todo','stopped') THEN 'doing' ELSE status END, stop_reason = NULL, lapsed_holder = NULL, lapsed_at = NULL, updated_at = ? WHERE seq = ?",
+      user, opts.via === "agent" ? 1 : 0, until, session, session ? (opts.session_name ?? null) : null, session ? mins : null, session ? now + LEASE_CAP_MS : null, Date.now(), seq,
     );
     if (session) this.leaseSessions?.add(session);
     void info;
@@ -3648,7 +3793,7 @@ export class Board extends DurableObject<Env> {
     }
     if (change.status && change.status !== t.status) {
       if (!TASK_STATUSES.includes(change.status)) throw new BoardError(`status must be one of: ${TASK_STATUSES.join(", ")}`);
-      this.sql.exec("UPDATE tasks SET status = ?, stop_reason = CASE WHEN ? = 'stopped' THEN stop_reason ELSE NULL END, done_note = NULL, resolved_by = NULL WHERE seq = ?", change.status, change.status, seq);
+      this.sql.exec("UPDATE tasks SET status = ?, stop_reason = CASE WHEN ? = 'stopped' THEN stop_reason ELSE NULL END, done_note = NULL, resolved_by = NULL, lapsed_holder = NULL, lapsed_at = NULL WHERE seq = ?", change.status, change.status, seq);
       if (change.status === "done") this.sql.exec("UPDATE tasks SET lease_holder = NULL, lease_until = NULL WHERE seq = ?", seq);
       parts.push(`status → ${change.status}`);
     }
@@ -3863,6 +4008,14 @@ export class Board extends DurableObject<Env> {
     const info = this.info();
     if (info.archived) throw new BoardError(archivedError(info.id));
     const t = this.task(seq);
+    // Like any other change to the task, refused while someone else holds it (#3809); the server's own ticks aren't blocked.
+    if (!internal.auto && t.lease_holder && t.lease_holder !== user && info.created_by !== user) {
+      throw new BoardError(`#${seq} is claimed by ${holderLabel(t)} until ${iso(t.lease_until!)}; post on the board instead of changing it.`);
+    }
+    // A base_version, when given, is checked for old_str edits too: the piece may still be there while the rest moved on (#3809).
+    if (edit.base_version != null && edit.base_version !== t.version) {
+      throw new BoardError(`Task #${seq} is at v${t.version}, not v${edit.base_version}. Its current body:\n${fence(t.body)}`);
+    }
     let title = t.title;
     let body = t.body;
     if (edit.title !== undefined) {
@@ -3876,7 +4029,7 @@ export class Board extends DurableObject<Env> {
       if (body.indexOf(edit.old_str, i + 1) >= 0) throw new BoardError("old_str appears more than once; include more surrounding text.");
       body = body.slice(0, i) + (edit.new_str ?? "") + body.slice(i + edit.old_str.length);
     } else if (edit.body !== undefined) {
-      if (edit.base_version !== t.version) throw new BoardError(`Task #${seq} is at v${t.version}, not v${edit.base_version ?? "?"}. Its current body:\n${fence(t.body)}`);
+      if (edit.base_version == null) throw new BoardError(`Task #${seq} is at v${t.version}, not v${edit.base_version ?? "?"}. Its current body:\n${fence(t.body)}`);
       body = edit.body;
     }
     if (body.length > MAX_TEXT) throw new BoardError(`A task's body is limited to ${MAX_TEXT} characters; put long material in a file.`);
@@ -4182,6 +4335,11 @@ export class Board extends DurableObject<Env> {
   }
 
   /** New title (checked for secrets); open tabs update live. Access is checked by the Worker. */
+  /** The charter agents are told (#3685): the Worker mirrors it here from D1 whenever it changes. */
+  async setCharter(c: AgentCharter | null): Promise<void> {
+    this.setMeta("charter", c ? JSON.stringify(c) : "");
+  }
+
   async rename(title: string): Promise<BoardInfo> {
     const t = title.trim().slice(0, 120);
     if (!t) throw new BoardError("Give the board a name.");

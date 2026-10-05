@@ -1,5 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { boardPage, changeCardHtml, changeLink, refLinks } from "../src/html";
+import { BOARD_JS, boardPage as boardPageRaw, boardTail, changeCardHtml, changeLink, refLinks } from "../src/html";
+import { APP_CSS, APP_JS, SHELL_PAGE_JS } from "../src/ui";
+// The board page loads its shared script from /board.js (and the shell's from /app.js): the checks below read the page with
+// them put back inline, where they used to be.
+const inlined = (h: string) =>
+  h.replace(/<script src="\/board\.js\?v=[^"]+"[^>]*><\/script>/, () => `<script>${BOARD_JS}</script>`).replace(/<script src="\/board-tail\.js\?f=([01]{4})&amp;v=[^"]+"[^>]*><\/script>|<script src="\/board-tail\.js\?f=([01]{4})&v=[^"]+"[^>]*><\/script>/, (_, a, b) => `<script>${boardTail(a ?? b)!.js}</script>`).replace(/<script src="\/app\.js\?v=[^"]+"[^>]*><\/script>/, () => `<script>${APP_JS}</script>`).replace(/<script src="\/shell\.js\?v=[^"]+"[^>]*><\/script>/, () => `<script>${SHELL_PAGE_JS}</script>`);
+const boardPage = (...a: Parameters<typeof boardPageRaw>) => {
+  const r = boardPageRaw(...a);
+  return { status: r.status, headers: r.headers, text: async () => inlined(await r.text()) };
+};
+
 import type { BoardInfo, Entry } from "../src/types";
 
 const info: BoardInfo = { id: "b_test1234", title: "Checkout </script> bug", created_by: "jxn", created_at: 0, entry_count: 3, last_seq: 3 };
@@ -66,8 +76,9 @@ describe("board page", () => {
     const member = await page(),
       viewer = await page("viewer");
     expect(member).toContain("/api/app/prefs");
-    expect(member).toContain("let RX_SYNC=true&&!!ME");
-    expect(viewer).toContain("let RX_SYNC=false&&!!ME");
+    expect(member).toContain("let RX_SYNC=!BC.readOnly&&!!ME");
+    expect(member).toContain('"readOnly":false');
+    expect(viewer).toContain('"readOnly":true');
   });
 });
 
@@ -146,8 +157,9 @@ describe("Hide agents (jxn #1731, vedu #1060)", () => {
   it("offers the toggle, applies the remembered choice before anything measures the thread, and hides only agents' posts", async () => {
     const html = await boardPage({ name: "jxn", email: "jxn@example.com", display_name: null, admin: false }, [], info, [{ user: "jxn", display_name: null, last_seen: 0 }], entries, []).text();
     expect(html).toContain('id="pf-btn" aria-pressed="false"');
-    expect(html).toContain("if(localStorage.getItem('atteo.pf.'+\"jxn\")==='1')document.documentElement.setAttribute('data-pf','')");
-    expect(html).toContain(":root[data-pf] #thread>.entry.by-agent,:root[data-pf] #thread>.ghost.by-agent");
+    expect(html).toContain("if(!BC.agentChat)try{if(localStorage.getItem('atteo.pf.'+BC.me)==='1')document.documentElement.setAttribute('data-pf','')}");
+    expect(html).toContain('window.BC={"board":"');
+    expect(APP_CSS).toContain(":root[data-pf] #thread>.entry.by-agent,:root[data-pf] #thread>.ghost.by-agent"); // the stylesheet every page loads
     expect(html).toContain('id="pf-empty" hidden');
     // Client only: the toggle sends nothing.
     const js = html.slice(html.indexOf("function pfSet"), html.indexOf("pfBtn?.addEventListener"));
@@ -160,7 +172,7 @@ describe("replies in the conversation (jxn #1351)", () => {
     const html = await boardPage({ name: "jxn", email: "jxn@example.com", display_name: null, admin: false }, [], info, [{ user: "jxn", display_name: null, last_seen: 0 }], entries, []).text();
     expect(html).toContain("e.target.closest('button[data-reply]')");
     expect(html).not.toContain("e.target.closest('[data-reply]')");
-    expect(html).toContain(".ro button[data-reply]");
+    expect(APP_CSS).toContain(".ro button[data-reply]"); // the stylesheet every page loads
     expect(html).not.toContain(".ro [data-reply]");
   });
 });
@@ -212,7 +224,7 @@ describe("mermaid diagrams (vedu #1246, #1247)", () => {
     // Pinned, with an integrity hash, strict, and nothing loaded up front: the page only names the URL inside its script.
     expect(MERMAID_SRC).toMatch(/^https:\/\/cdn\.jsdelivr\.net\/npm\/mermaid@\d+\.\d+\.\d+\/dist\/mermaid\.min\.js$/);
     expect(MERMAID_SRI).toMatch(/^sha384-[A-Za-z0-9+/]{64}$/);
-    const doc = await page("t", html).text();
+    const doc = (await page("t", html).text()) + APP_JS; // the page and the shell script it loads from /app.js
     expect(doc).toContain("securityLevel:'strict'");
     expect(doc).toContain("s.integrity=SRI");
     expect(doc).not.toMatch(/<script[^>]+src=[^>]*mermaid/);

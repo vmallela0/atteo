@@ -17,7 +17,9 @@ for (const u of [M, V]) await ops("members", { board, user: u });
 const ck = (await ops("sessions", { user: O })).cookie, ckV = (await ops("sessions", { user: V })).cookie;
 const tokO = (await ops("tokens", { user: O })).token, tokM = (await ops("tokens", { user: M })).token;
 await fetch(`${BASE}/api/boards/${board}/members/${V}`, { method: "POST", headers: { cookie: ck.split(";")[0], "content-type": "application/json" }, body: JSON.stringify({ role: "viewer" }) });
-const post = async (tok, body) => (await (await fetch(`${BASE}/api/boards/${board}/entries`, { method: "POST", headers: { authorization: `Bearer ${tok}`, "content-type": "application/json" }, body: JSON.stringify(body) })).json()).entry.seq;
+const post = async (tok, body) => { // an agent token goes through the stale-read rule (rest-parity): ack the board first
+  await fetch(`${BASE}/api/boards/${board}/entries?after=0&ack=1`, { headers: { authorization: `Bearer ${tok}` } });
+  return (await (await fetch(`${BASE}/api/boards/${board}/entries`, { method: "POST", headers: { authorization: `Bearer ${tok}`, "content-type": "application/json" }, body: JSON.stringify(body) })).json()).entry.seq; };
 const qs = [];
 for (let i = 1; i <= 5; i++) qs.push(await post(tokO, { type: "question", text: `Question number ${i} about the rollout?` }));
 let fails = 0;

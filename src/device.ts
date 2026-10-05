@@ -1,6 +1,7 @@
 // CLI login via the device authorization flow (like `gh auth login`): the CLI gets a short code and a link
 // (shown as a QR code too), the person approves it in the browser while signed in, and the CLI polls for its token.
 
+import { record } from "./accountlog";
 import { createToken, randomSecret, sha256hex } from "./auth";
 import type { Env } from "./types";
 
@@ -77,6 +78,7 @@ export async function decideDeviceLogin(env: Env, userCode: string, user: string
 export async function pollDeviceLogin(
   env: Env,
   deviceCode: string,
+  request: Request | null = null,
 ): Promise<{ status: "pending" | "denied" | "expired" | "used" } | { status: "ok"; token: string; user: string; expires_at: number }> {
   const hash = await sha256hex(deviceCode);
   const d = await env.DB.prepare(`SELECT user_code, client, expires_at, status, approved_by FROM device_logins WHERE device_hash = ?`)
@@ -92,5 +94,6 @@ export async function pollDeviceLogin(
   const expires = Date.now() + CLI_TOKEN_TTL_MS;
   const t = await createToken(env, d.approved_by!, d.client, { expiresAt: expires, kind: "cli" });
   await env.DB.prepare(`UPDATE device_logins SET token_id = ? WHERE device_hash = ?`).bind(t.id, hash).run();
+  await record(env, d.approved_by!, "cli.login", request ?? null, { label: d.client, kind: "cli" });
   return { status: "ok", token: t.token, user: d.approved_by!, expires_at: expires };
 }

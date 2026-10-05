@@ -1,10 +1,11 @@
 // D1 directory: which boards exist, who uses them, and invites. Kept in step with the boards by the Worker.
 
-import { AUDIT_EXPORT_LIMIT, AUDIT_EXPORT_SQL, type AuditExportRow } from "./auditExport";
+import { charterBinds, type StoredCharter } from "./charter";
+import { AUDIT_EXPORT_LIMIT, AUDIT_EXPORT_NO_REPORTS_SQL, AUDIT_EXPORT_SQL, type AuditExportRow } from "./auditExport";
 import { checkOutsideMember } from "./policy";
 import { checkCanAddMember } from "./billing";
 import { agentNameIndex, foldAgentName } from "./mentions";
-import type { Env } from "./types";
+import { PERSON_ONLY_KINDS, type Env } from "./types";
 
 export interface BoardRow {
   id: string;
@@ -24,6 +25,10 @@ export interface BoardRow {
   last_via?: string | null;
   last_excerpt?: string | null;
   picture_v?: number | null; // the board picture's version (when it was set), or null (boardPictures.ts)
+  retention_days?: number | null; // blank messages older than this many days; null keeps everything
+  goal?: string | null; // charter: what this board is for
+  data_classes?: string | null; // charter: JSON array of short labels
+  member_notes?: string | null; // charter: JSON object { user: note }
 }
 
 export interface BoardMeta {
@@ -49,12 +54,20 @@ export function boardMeta(b: BoardRow): BoardMeta {
 export async function boardsOverview(env: Env, user: string, person = false): Promise<(BoardRow & { members: string | null; unread: number })[]> {
   const r = await env.DB.prepare(
     `SELECT b.*, (SELECT GROUP_CONCAT(user, ', ') FROM members m2 WHERE m2.board_id = b.id) AS members,
-            (SELECT COUNT(*) FROM notifications n WHERE n.user = ?1 AND n.board_id = b.id AND n.read_at IS NULL${person ? "" : " AND n.kind NOT IN ('people_only', 'manual_unread')"}) AS unread
+            (SELECT COUNT(*) FROM notifications n WHERE n.user = ?1 AND n.board_id = b.id AND n.read_at IS NULL${person ? "" : ` AND n.kind NOT IN (${PERSON_ONLY_KINDS.map((k) => `'${k}'`).join(", ")})`}) AS unread
      FROM members m JOIN boards b ON b.id = m.board_id WHERE m.user = ?1 AND b.deleted_at IS NULL ORDER BY b.last_activity DESC`,
   )
     .bind(user)
     .all<BoardRow & { members: string | null; unread: number }>();
   return r.results;
+}
+
+/** Writes the charter columns (goal, data classes, retention, member notes). */
+export async function saveBoardCharter(env: Env, boardId: string, stored: StoredCharter): Promise<void> {
+  const b = charterBinds(stored);
+  await env.DB.prepare(`UPDATE boards SET goal = ?, data_classes = ?, retention_days = ?, member_notes = ? WHERE id = ?`)
+    .bind(b.goal, b.data_classes, b.retention_days, b.member_notes, boardId)
+    .run();
 }
 
 export async function setBoardMeta(env: Env, boardId: string, meta: BoardMeta): Promise<void> {
@@ -144,13 +157,14 @@ export async function audit(env: Env, boardId: string, actor: string, action: st
   await env.DB.prepare(`INSERT INTO audit (board_id, actor, action, target, detail, ts) VALUES (?, ?, ?, ?, ?, ?)`).bind(boardId, actor, action, target, detail, Date.now()).run();
 }
 
-export async function auditLog(env: Env, boardId: string, limit = 100) {
-  return (await env.DB.prepare(`SELECT actor, action, target, detail, ts FROM audit WHERE board_id = ? ORDER BY ts DESC, id DESC LIMIT ?`).bind(boardId, limit).all<{ actor: string; action: string; target: string | null; detail: string | null; ts: number }>()).results;
+/** The board's access log, newest first. Reports (#3602) only for its owners (owner: true). */
+export async function auditLog(env: Env, boardId: string, limit = 100, owner = true) {
+  return (await env.DB.prepare(`SELECT actor, action, target, detail, ts FROM audit WHERE board_id = ?${owner ? "" : " AND action != 'reported'"} ORDER BY ts DESC, id DESC LIMIT ?`).bind(boardId, limit).all<{ actor: string; action: string; target: string | null; detail: string | null; ts: number }>()).results;
 }
 
 /** One page of the access audit in append order, plus a lookahead row when another page exists. */
-export async function auditExportRows(env: Env, boardId: string, afterId: number): Promise<AuditExportRow[]> {
-  return (await env.DB.prepare(AUDIT_EXPORT_SQL).bind(boardId, afterId, AUDIT_EXPORT_LIMIT + 1).all<AuditExportRow>()).results;
+export async function auditExportRows(env: Env, boardId: string, afterId: number, owner = true): Promise<AuditExportRow[]> {
+  return (await env.DB.prepare(owner ? AUDIT_EXPORT_SQL : AUDIT_EXPORT_NO_REPORTS_SQL).bind(boardId, afterId, AUDIT_EXPORT_LIMIT + 1).all<AuditExportRow>()).results;
 }
 
 /** Memberships whose time ran out: removed (with an audit entry) by the scheduled cleanup. */

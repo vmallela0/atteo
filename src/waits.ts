@@ -47,17 +47,21 @@ export async function waitForBoard(stub: DurableObjectStub<Board>, q: WaitFor, t
   return false;
 }
 
-/** How long a wake lingers for more of the same burst (a few posts in a row come back as one answer), and how often. */
+/** The original four 250ms rounds still bound how long a wake gathers the same burst. */
 export const SETTLE_MS = 250;
 export const SETTLE_ROUNDS = 4;
+export const QUIET_MS = 40;
 
 /**
- * After a wake: `more` takes what has landed since (advancing the reader), every SETTLE_MS while something keeps
- * arriving, up to SETTLE_ROUNDS times or until `full()`. Without it a wake returned only the post that woke it.
+ * After a wake: `more` takes what has landed since (advancing the reader), every QUIET_MS until a check finds
+ * nothing new or `full()`. A continuous burst gets at most SETTLE_MS * SETTLE_ROUNDS ms of gathering time.
  */
 export async function settle(more: () => Promise<number>, full: () => boolean): Promise<void> {
-  for (let i = 0; i < SETTLE_ROUNDS && !full(); i++) {
-    await sleep(SETTLE_MS);
+  const deadline = Date.now() + SETTLE_MS * SETTLE_ROUNDS;
+  while (!full()) {
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) return;
+    await sleep(Math.min(QUIET_MS, remaining));
     if (!(await more())) return;
   }
 }

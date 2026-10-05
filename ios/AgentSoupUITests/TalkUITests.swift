@@ -10,6 +10,12 @@ final class TalkUITests: AtteoUITestCase {
     private func text(_ a: XCUIApplication, _ prefix: String) -> XCUIElement {
         a.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", prefix)).firstMatch
     }
+    /// A caption on the Talk sheet only. The chat behind the sheet stays in the accessibility tree, and its rows read
+    /// "You: …" for your own messages (other tests post some on the same board), so "no captions of you" has to look
+    /// in the captions, not the whole screen.
+    private func caption(_ a: XCUIApplication, _ prefix: String) -> XCUIElement {
+        a.descendants(matching: .any)["talk-captions"].firstMatch.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", prefix)).firstMatch
+    }
 
     /// The fake has no mic, so a call is quiet between taps: tests that aren't about standing by (jxn #2071) keep it
     /// live for 10 minutes instead of 5 seconds.
@@ -159,14 +165,16 @@ final class TalkUITests: AtteoUITestCase {
         let before = minutesUsed()
         let a = launch(standby: "5")
         openChat(a, "Checkout bug")
+        // Timed from the tap: listening starts after it, so a standby after 5 quiet seconds is always at least that far
+        // from here. (Timing from when the test saw "Listening…" came up short on a busy machine, where that is seen late.)
+        let started = Date()
         a.buttons["talk"].tap()
         let state = a.staticTexts["talk-state"]
         XCTAssertTrue(eventually(state, "label == 'Listening…'", timeout: 15), "listening (\(state.label))")
-        let started = Date()
 
         // 1. Quiet: it stands by after about 5 seconds, and the session is over (only those seconds were used).
         XCTAssertTrue(eventually(state, "label == 'Standing by'", timeout: 15), "standing by (\(state.label))")
-        XCTAssertGreaterThanOrEqual(Date().timeIntervalSince(started), 4, "not before it was quiet for a while")
+        XCTAssertGreaterThanOrEqual(Date().timeIntervalSince(started), 4.5, "not before it was quiet for a while")
         let resume = a.buttons["talk-resume"]
         XCTAssertTrue(resume.exists, "a big Resume")
         XCTAssertEqual(a.staticTexts["talk-standby-hint"].label, "Tap or press play on your AirPods to talk")
@@ -236,20 +244,20 @@ final class TalkUITests: AtteoUITestCase {
 
         // Atteo only: the answer, a whole sentence at a time; not what you said.
         orb.tap()
-        let answer = text(a, "Atteo: Here's what's waiting for you")
+        let answer = caption(a, "Atteo: Here's what's waiting for you")
         XCTAssertTrue(answer.waitForExistence(timeout: 10), "Atteo's answer")
         XCTAssertTrue(answer.label.hasSuffix("."), "a finished sentence, not words as they come: \(answer.label)")
-        XCTAssertFalse(text(a, "You:").exists, "your words aren't shown in Atteo only")
+        XCTAssertFalse(caption(a, "You:").exists, "your words aren't shown in Atteo only")
         XCTAssertTrue(eventually(answer, "label ENDSWITH 'right now.'", timeout: 10), "the whole answer")
         XCTAssertTrue(eventually(state, "label == 'Listening…'", timeout: 10))
-        XCTAssertFalse(text(a, "You:").exists)
+        XCTAssertFalse(caption(a, "You:").exists)
         shot("talk-captions-atteo")
 
         // All: your final words, once.
         pick("talk-captions-all")
-        XCTAssertTrue(text(a, "You: What's waiting for me?").waitForExistence(timeout: 5), "your earlier words show in All")
+        XCTAssertTrue(caption(a, "You: What's waiting for me?").waitForExistence(timeout: 5), "your earlier words show in All")
         orb.tap()
-        XCTAssertTrue(text(a, "You: Approve the deploy request.").waitForExistence(timeout: 8))
+        XCTAssertTrue(caption(a, "You: Approve the deploy request.").waitForExistence(timeout: 8))
         let card = a.descendants(matching: .any)["talk-confirm"]
         XCTAssertTrue(card.waitForExistence(timeout: 10))
         shot("talk-captions-all")
@@ -257,8 +265,8 @@ final class TalkUITests: AtteoUITestCase {
         // Off: nothing but a note, and the confirm card stays.
         pick("talk-captions-off")
         XCTAssertTrue(a.staticTexts["talk-captions-off"].waitForExistence(timeout: 5), "Captions are off.")
-        XCTAssertFalse(text(a, "Atteo:").exists, "no Atteo captions")
-        XCTAssertFalse(text(a, "You:").exists, "no captions of you")
+        XCTAssertFalse(caption(a, "Atteo:").exists, "no Atteo captions")
+        XCTAssertFalse(caption(a, "You:").exists, "no captions of you")
         XCTAssertTrue(card.exists && a.buttons["talk-confirm-yes"].exists, "the confirm card shows whatever the setting")
         shot("talk-captions-off")
         a.buttons["talk-confirm-no"].tap()
