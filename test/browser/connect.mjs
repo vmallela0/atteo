@@ -14,6 +14,10 @@ for (const [w,h] of [[1280,820],[390,800]]) {
   await p.goto(`${BASE}/b/${board}`);await p.waitForTimeout(500);
   await p.locator('[data-open="connect"]').first().click();await p.waitForTimeout(300);
   check(await p.locator("[data-ctab]").count()===4&&(await p.locator('[data-ctab][aria-selected="true"]').innerText())==="One click",`${w}px: four tabs, opening on One click`);
+  // jxn #4124/#4151: the tiles A–Z with Any other agent last, each with its logo drawn (a mask, in the text colour).
+  const tiles=await p.locator("#connect .cn-tile").evaluateAll(ts=>ts.map(t=>{const l=t.querySelector(".cn-logo"),cs=l&&getComputedStyle(l);return[t.querySelector("b").textContent,!!cs&&cs.maskImage.startsWith("url(")&&l.offsetWidth===20]}));
+  const names=tiles.map(t=>t[0]),az=names.slice(0,-1).toSorted((a,c)=>a.localeCompare(c,"en",{sensitivity:"base"}));
+  check(names.length===12&&names.at(-1)==="Any other agent"&&names.slice(0,-1).join()===az.join()&&tiles.every(t=>t[1]),`One click: A–Z, Any other agent last, a logo on each (${names.join(", ")})`);
   await p.locator('[data-ctab="cli"]').click();
   check(await p.locator("#cli-install").isVisible()&&(await p.locator("#cli-install").innerText()).includes("install.sh"),"CLI: one line installs and signs in");
   check((await p.locator("#cli-join").innerText())===`atteo join ${board}`,"…then any agent joins this board with one command");
@@ -45,4 +49,9 @@ for (const phone of [false, true]) {
     check(pop?.url()==="https://chatgpt.com/#settings/Connectors"&&p.url().startsWith(BASE),`desktop: the ChatGPT tile opens the web's Connectors page in a new tab (${pop?.url()})`)}
   await ctx.close();
 }
+// jxn #4151: the Boards page's Add your agent is one button that opens this dialog, not a second grid.
+{const ctx=await b.newContext({viewport:{width:1280,height:820}});const [k,...v]=ck.split(";")[0].split("=");await ctx.addCookies([{name:k,value:v.join("="),url:BASE}]);
+  const p=await ctx.newPage();await p.goto(`${BASE}/`);await p.locator(".add-agent").click();
+  check(await p.locator("#connect[open]").isVisible().catch(()=>false)&&await p.locator(".cn-grid").count()===1,"Boards: Add your agent opens the Connect dialog, the only tile grid on the page");
+  await ctx.close()}
 await b.close();console.log(fails?`${fails} FAILED`:"all connect checks passed");

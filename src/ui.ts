@@ -9,6 +9,7 @@ import { highlightMentions, type Mention } from "./mentions";
 import { MERMAID_CSS, MERMAID_JS, MERMAID_SRC, mermaidHtml } from "./mermaid";
 import { CODE_COLOR_CSS, CODE_COLOR_JS, fnv } from "./codecolor";
 import { TALK_CSS } from "./talk";
+import { AGENT_LOGO_CSS } from "./agent-logos";
 import { esc } from "./util";
 import { clientTable, dirOf, tr, type Lang } from "./i18n";
 
@@ -356,7 +357,7 @@ dialog.ia-dlg{width:min(560px,calc(100vw - 24px))}.ia-opt h3{margin:0 0 4px;font
 /* phones: a member's name on one line, role and end date side by side under it, lined up with the name */
 @media(max-width:640px){#acc-members{gap:12px}#acc-members .acc-row{display:grid;grid-template-columns:auto auto minmax(0,1fr);gap:6px 8px}#acc-members .acc-row>.grow{grid-column:2/4}#acc-members .acc-sel{grid-row:2;width:100%;min-width:0;padding-right:26px;background-position:right 9px center}#acc-members .acc-sel:first-of-type{grid-column:2}#acc-members .acc-sel:last-of-type{grid-column:3}}
 @media(max-width:360px){#acc-members .acc-sel:first-of-type{grid-column:1/3}#acc-members .acc-sel{font-size:12.5px;padding-left:8px;padding-right:22px;background-position:right 6px center}} /* the narrowest phones: the role starts under the picture so the end date fits (Onest runs a little wider than Geist did) */
-.add-agent{margin:0 0 22px}.add-agent>summary{cursor:pointer;list-style:none}.add-agent>summary::-webkit-details-marker{display:none}.add-agent .cn-grid{grid-template-columns:repeat(auto-fill,minmax(150px,1fr))}
+.add-agent{display:block;width:100%;margin:0 0 22px;font:inherit;color:var(--ink);text-align:start;cursor:pointer}.add-agent:hover{border-color:var(--line-strong)}.add-agent-plus{font-weight:600;color:var(--muted);margin-inline-end:8px}
 /* Everyday: "Bring your assistant" (/welcome), the home banner that points to it, and Account's "Your assistant" card.
    Plain words, big tiles; headings a step above the web's h1 like the Everyday mockups (ios/qa/design/everyday). */
 .ev{max-width:560px;margin:4px auto 0}
@@ -410,7 +411,7 @@ a.ev-acct:hover{background:var(--bg-subtle)}
 }
 @media (max-width:360px){.ev-row{gap:10px;padding:12px}.ev-ic{width:34px;height:34px;font-size:14px}.ev-row>.btn{padding:0 12px}.ev-name{font-size:15px}}
 .cn-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}@media (max-width:560px){.cn-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
-.cn-tile{display:flex;flex-direction:column;align-items:flex-start;gap:2px;padding:10px 12px;border:1px solid var(--line);border-radius:var(--r);background:var(--bg);color:var(--ink);font:inherit;text-align:left;cursor:pointer;text-decoration:none}.cn-tile:hover{border-color:var(--line-strong);background:var(--bg-subtle)}.cn-tile b{font-size:13.5px;font-weight:600}.cn-tile span{font-size:12px;color:var(--muted)}
+.cn-tile{display:grid;grid-template-columns:20px minmax(0,1fr);column-gap:10px;row-gap:2px;align-items:center;justify-items:start;padding:10px 12px;border:1px solid var(--line);border-radius:var(--r);background:var(--bg);color:var(--ink);font:inherit;text-align:left;cursor:pointer;text-decoration:none}.cn-tile:hover{border-color:var(--line-strong);background:var(--bg-subtle)}.cn-tile .cn-logo{grid-row:span 2}.cn-tile b{font-size:13.5px;font-weight:600}.cn-tile span{font-size:12px;color:var(--muted)}
 .cn-list{list-style:none;margin:4px 0 0;padding:0;display:flex;flex-direction:column;gap:10px}.cn-list li>.copy{margin-top:5px}
 .doc-code{margin:0;font-size:12.5px;line-height:1.55;white-space:pre-wrap;word-break:break-word}
 @media (max-width:640px){.pfp{flex-wrap:wrap}.pfp>.row:last-child{flex-basis:100%;justify-content:flex-start}}
@@ -728,6 +729,7 @@ input.switch::after{content:"";position:absolute;top:3px;left:3px;width:18px;hei
 ${MERMAID_CSS}
 ${CODE_COLOR_CSS}
 ${TALK_CSS}
+${AGENT_LOGO_CSS}
 .slash-menu li{align-items:baseline}.slash-menu li b{flex:none;white-space:nowrap}.slash-menu li .k{margin-left:10px;flex:1;min-width:0;text-align:left} /* "/task" never splits (jxn #1391) */
 .mem-act{display:none}.mem-on .mem-act{display:inline-flex;width:30px;padding:0;justify-content:center;color:var(--muted)}.mem-on .mem-act:hover{color:var(--ink)}
 .soul-prev{white-space:pre-wrap;font-size:12.5px;line-height:1.5;color:var(--text);max-height:7.5em;overflow:hidden;-webkit-mask-image:linear-gradient(#000 70%,transparent);mask-image:linear-gradient(#000 70%,transparent)}
