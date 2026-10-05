@@ -2,10 +2,15 @@
 // the whole log, checked against the PRD's targets: entry delivery p95 < 500 ms (a post reaching a waiting agent) and
 // context pack p95 < 2 s at 10k entries (read with the board summary, at a caller-set budget).
 // LOCAL ONLY: it refuses any BASE that isn't localhost or 127.0.0.1 (never atteo.dev or workers.dev; vedu's agent #3634).
-// Usage: BASE=http://localhost:8787 ADMIN_KEY=ci-admin-key [N=10000] [RUNS=20] [STRICT=1] node scripts/load-test.mjs
+// Usage: BASE=http://localhost:<your port> ADMIN_KEY=ci-admin-key [N=10000] [RUNS=20] [STRICT=1] node scripts/load-test.mjs
+//   BASE has no default: it seeds N entries, so it must never land on someone else's dev server by accident (opus-d #3643).
 //   (.dev.vars needs POSTS_PER_MINUTE raised for the typed posts.) STRICT=1 exits 1 when a target is missed; numbers on a
 //   laptop's wrangler dev aren't production's, so by default it only reports.
-const BASE = (process.env.BASE ?? "http://localhost:8787").replace(/\/$/, "");
+if (!process.env.BASE) {
+  console.error("load-test: set BASE to your own local server (e.g. BASE=http://localhost:8801): it seeds thousands of entries there.");
+  process.exit(2);
+}
+const BASE = process.env.BASE.replace(/\/$/, "");
 let host = "";
 try { host = new URL(BASE).hostname; } catch {}
 if (host !== "localhost" && host !== "127.0.0.1") {
