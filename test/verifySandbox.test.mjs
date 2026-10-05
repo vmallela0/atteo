@@ -27,6 +27,10 @@ describe("claim-check terminal safety", () => {
     expect(terminalSafe("ok\u001b]52;c;payload\u0007\rhidden\n")).toBe(
       "ok\\x1b]52;c;payload\\x07\\rhidden\n",
     );
+    expect(displayCommand("git status # \u202egnp.mr")).toBe(
+      "\"git status # \\\\u202egnp.mr\"",
+    );
+    expect(terminalSafe("safe\u2066spoof\u2069")).toBe("safe\\u2066spoof\\u2069");
   });
 
   it("sanitizes, bounds and drains command output", async () => {
