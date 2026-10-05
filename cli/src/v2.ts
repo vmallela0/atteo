@@ -20,7 +20,7 @@ type Opt = Record<string, string | true>;
 type BoardRef = { id: string; title: string };
 type ServerSession = { id: string; name: string; client: string | null; status?: string | null; boards: BoardRef[]; created_at: number; last_seen: number; active?: boolean };
 
-const BOOLS = ["json", "pending", "all", "members", "encrypted", "quiet", "mine", "summary", "brief", "clear", "peek", "own", "public", "for-me", "yes"];
+const BOOLS = ["json", "pending", "all", "members", "encrypted", "quiet", "mine", "summary", "brief", "clear", "peek", "own", "public", "for-me", "yes", "sweep"]; // sweep: post handoff --sweep (a flag, never a value)
 
 /** args without the first positional word (keeping every --flag and its value). */
 function dropFirstWord(args: string[]): string[] {
