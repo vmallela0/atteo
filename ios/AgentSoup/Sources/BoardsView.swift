@@ -55,7 +55,10 @@ struct BoardView: View {
     @State private var focused = false // the message box has the keyboard
 
     private var list: [Entry] { state.entries[board.id] ?? [] }
-    @State private var atBottom = true
+    // At the latest (within 80 points of the end): only the buttons over the chat draw from it (LatestButtons), so the
+    // chat itself isn't made again each time a scroll crosses that line (jxn #4077).
+    @State private var scroll = ChatScroll()
+    private var atBottom: Bool { scroll.atBottom }
     @State private var stick = true // pinned to the latest until you scroll up yourself (like any messenger)
     @State private var position = ScrollPosition(edge: .bottom) // like any messenger: you start at the latest
 
@@ -310,7 +313,6 @@ struct BoardView: View {
     @ViewBuilder private var chat: some View {
         let r = rows()
         let unseen = unseenCount(r)
-        let pillShown = !stick && !atBottom && unseen > 0
         ScrollViewReader { proxy in
         ScrollView {
                 // Placeholders and messages are separate containers: sharing one list would give them colliding ids
@@ -386,7 +388,10 @@ struct BoardView: View {
                 // unread was near the end, and the app froze on opening. It's applied once that's done.
                 quiet.bottom = bottom
                 guard !quiet.on else { return }
-                if bottom != atBottom { atBottom = bottom }
+                if bottom != scroll.atBottom { scroll.atBottom = bottom }
+                // Your own drag takes it away from the latest: unpinned. (A drag that stays there changes nothing, so
+                // the chat isn't made again twice a swipe at the bottom, jxn #4077.)
+                if !bottom, quiet.dragging, stick { stick = false }
                 // Back at the latest: nothing's unseen.
                 if bottom, unseenAfter != nil { unseenAfter = nil }
             }
@@ -405,58 +410,24 @@ struct BoardView: View {
             }
             // Only your own scrolling unpins it; coming back to the latest re-pins.
             .onScrollPhaseChange { old, phase in
-                if phase == .interacting { stick = false; userScrolled = true }
-                else if phase == .idle && (old == .interacting || old == .decelerating) { stick = atBottom } // after a swipe, not our own scrolls
+                if phase == .interacting {
+                    quiet.dragging = true
+                    if !userScrolled { userScrolled = true }
+                    if !scroll.atBottom, stick { stick = false }
+                } else if phase == .idle && (old == .interacting || old == .decelerating) { // after a swipe, not our own scrolls
+                    quiet.dragging = false
+                    if stick != scroll.atBottom { stick = scroll.atBottom }
+                } else if phase == .idle { quiet.dragging = false }
             }
             .onChange(of: list.last?.id) { _, _ in
                 // A new message: yours always scrolls into view (and re-pins); others' do if you're at the latest.
                 if list.last.map({ $0.author == state.me?.owner && $0.via != "agent" }) == true { stick = true }
-                if stick { withAnimation(.smooth(duration: 0.3)) { position.scrollTo(edge: .bottom) } }
+                if stick, !quiet.dragging { withAnimation(.smooth(duration: 0.3)) { position.scrollTo(edge: .bottom) } }
             }
-            // Scrolled up and something arrived: "3 new messages ↓" (the web's pill), which takes you down to them.
-            .overlay(alignment: .bottom) {
-                ZStack {
-                    if pillShown {
-                        let words = String(localized: "\(unseen) new messages", bundle: .l10n)
-                        Button { toLatest() } label: {
-                            HStack(spacing: Space.xs) {
-                                Text(words).font(Typo.micro.weight(.semibold)).contentTransition(.numericText())
-                                Image(systemName: "arrow.down").font(.system(size: 11, weight: .bold))
-                            }
-                            .foregroundStyle(Theme.text)
-                            .padding(.horizontal, Space.m).frame(height: 32)
-                            .background(Theme.raised, in: Capsule())
-                            .shadow(color: .black.opacity(0.35), radius: 8, y: 2)
-                            .frame(minHeight: 44).contentShape(Capsule())
-                        }
-                        .buttonStyle(PressStyle())
-                        .padding(.bottom, Space.xs)
-                        .transition(.scale(scale: 0.8).combined(with: .opacity))
-                        .accessibilityLabel(words)
-                        .accessibilityHint(String(localized: "Jump to latest", bundle: .l10n))
-                        .accessibilityIdentifier("new-messages-pill")
-                    }
-                }
-                .animation(.snappy, value: pillShown)
-                .animation(.snappy, value: unseen)
-            }
-            .overlay(alignment: .bottomTrailing) {
-                ZStack {
-                    if !atBottom && !list.isEmpty && !pillShown {
-                        Button { toLatest() } label: {
-                            Image(systemName: "chevron.down").font(.system(size: 14, weight: .semibold)).foregroundStyle(Theme.text)
-                                .frame(width: 36, height: 36).background(Theme.raised, in: Circle())
-                                .shadow(color: .black.opacity(0.4), radius: 8, y: 2)
-                                .frame(width: 44, height: 44).contentShape(Circle())
-                        }
-                        .buttonStyle(PressStyle())
-                        .padding(.trailing, Space.s).padding(.bottom, Space.xs)
-                        .transition(.scale(scale: 0.6).combined(with: .opacity))
-                        .accessibilityLabel("Jump to latest")
-                    }
-                }
-                .animation(.snappy, value: atBottom) // (animated here, not with withAnimation from the scroll geometry)
-            }
+            // Scrolled up and something arrived: "3 new messages ↓" (the web's pill), which takes you down to them; scrolled up
+            // otherwise, the ⌄ button. They read "at the latest" themselves (LatestButtons).
+            .overlay(alignment: .bottom) { LatestButtons(scroll: scroll, stick: stick, unseen: unseen, empty: list.isEmpty, pill: true) { toLatest() } }
+            .overlay(alignment: .bottomTrailing) { LatestButtons(scroll: scroll, stick: stick, unseen: unseen, empty: list.isEmpty, pill: false) { toLatest() } }
             // Swipe right to left in the chat: on to Tasks (the other way on a message is Reply; from the edge, Back).
             .gesture(TabSwipe(forward: tab == .chat, back: false, rtl: direction == .rightToLeft) { page($0) })
             .accessibilityHidden(tab != .chat)
@@ -571,7 +542,7 @@ struct BoardView: View {
             // One line (jxn #2690): not for you, so one line until you open it; opened, a Fold under it folds it again.
             if oneLineFoldable(e, r) {
                 if oneLineOpen(e) {
-                    entryRow(e, grouped: grouped, mine: mine, r)
+                    entryRow(e, grouped: grouped, mine: mine, r).equatable()
                     Button { withAnimation(.snappy) { setOpen(e.seq, false) } } label: {
                         Label("Fold", systemImage: "chevron.up").font(Typo.micro.weight(.medium)).foregroundStyle(Theme.faint)
                     }
@@ -583,7 +554,7 @@ struct BoardView: View {
                         .padding(.top, grouped ? 0 : Space.xxs)
                 }
             } else {
-                entryRow(e, grouped: grouped, mine: mine, r)
+                entryRow(e, grouped: grouped, mine: mine, r).equatable()
             }
         }
     }
@@ -639,8 +610,7 @@ struct BoardView: View {
         if live {
             a.react = { emoji in Task { await state.react(emoji, to: e.seq, in: board) } }
             a.moreReactions = { reactingTo = SeqRef(id: e.seq) }
-            let root = rootOf(e, in: r.bySeq)
-            a.openThread = { focused = false; thread = ThreadTarget(root: root, focus: e.replyTo != nil ? e.seq : nil) }
+            a.openThread = { focused = false; thread = ThreadTarget(root: rootOf(e, in: rows().bySeq), focus: e.replyTo != nil ? e.seq : nil) }
             if mine {
                 a.unsend = { unsending = e }
                 a.toggleReceipt = { withAnimation(.snappy) { if openReceipts.contains(e.seq) { openReceipts.remove(e.seq) } else { openReceipts.insert(e.seq) } } }
@@ -649,7 +619,7 @@ struct BoardView: View {
             if !board.isAgentChat { a.remember = { Task { await state.remember(e.seq, in: board.id) } } }
         }
         // A reply's quote bar: its thread, over the chat, on this reply (jxn #1040).
-        if e.replyTo != nil, e.seq > 0 { let root = rootOf(e, in: r.bySeq); a.jumpToParent = { focused = false; thread = ThreadTarget(root: root, focus: e.seq) } }
+        if e.replyTo != nil, e.seq > 0 { a.jumpToParent = { focused = false; thread = ThreadTarget(root: rootOf(e, in: rows().bySeq), focus: e.seq) } }
         return a
     }
 
@@ -758,7 +728,7 @@ struct BoardView: View {
                 }
             }
             quiet.on = false
-            atBottom = quiet.bottom
+            scroll.atBottom = quiet.bottom
             // Everything unread fits, or you're typing: stay with the latest. (A tap into the box and back out meanwhile
             // leaves it at the first unread, not pinned.)
             stick = atBottom || focused
@@ -970,6 +940,8 @@ struct SwipeToReply: UIGestureRecognizerRepresentable {
 
 /// What you can do to a message (nil: not here, not now).
 struct EntryActions {
+    /// Which actions there are (a row compares these, not the closures).
+    var shape: [Bool] { [react != nil, moreReactions != nil, unsend != nil, openThread != nil, jumpToParent != nil, toggleReceipt != nil, takeOn != nil, openProfile != nil, remember != nil] }
     var react: ((String) -> Void)? = nil // toggle your reaction
     var moreReactions: (() -> Void)? = nil // the full emoji picker
     var unsend: (() -> Void)? = nil // yours: take it back
@@ -979,6 +951,24 @@ struct EntryActions {
     var takeOn: (() -> Void)? = nil // "On it", for a question or task for you
     var openProfile: ((String, Bool) -> Void)? = nil // tap a picture or a name: their card (agent: their agent's)
     var remember: (() -> Void)? = nil // add it to the board's MEMORY (people)
+}
+
+/// A row in the chat is only made again when something it shows changed (jxn #4077). Its closures can't be compared,
+/// and SwiftUI re-ran every row's body each time the chat's own state changed: at the latest, every swipe flips
+/// "pinned" and "at the latest" (each flip a pass over the chat), and the newest 80 to 99 rows are all made up front
+/// (the freeze fix, tailStart), so each flip re-ran ~80 message bodies (markdown, code, chips) mid-scroll and the
+/// bottom stuttered while higher up, where nothing flips, it was smooth. The closures only use what's compared here
+/// (the message, whether it's live or mine) or look things up when they're called, and which ones exist is compared.
+extension EntryRow: Equatable {
+    static func == (a: EntryRow, b: EntryRow) -> Bool {
+        a.e == b.e && a.grouped == b.grouped && a.mine == b.mine && a.board == b.board && a.tasks == b.tasks
+            && a.reactions == b.reactions && a.parent == b.parent && a.me == b.me && a.members == b.members
+            && a.progress == b.progress && (a.reply == nil) == (b.reply == nil) && a.unsent == b.unsent
+            && a.replies == b.replies && a.threadUnread == b.threadUnread && a.handling == b.handling && a.lit == b.lit
+            && a.receipt == b.receipt && (a.openReceipt == nil) == (b.openReceipt == nil) && a.actions.shape == b.actions.shape
+            && a.decision == b.decision && a.decisionActions.shape == b.decisionActions.shape && a.agentName == b.agentName
+            && a.quick == b.quick && a.agentNames == b.agentNames && a.replyChips == b.replyChips
+    }
 }
 
 struct EntryRow: View {
@@ -1350,7 +1340,67 @@ struct PeopleFilterStrip: View {
 
 /// Whether the chat is at the latest while it's being put at the first unread (`on`): a reference, so noting it doesn't
 /// draw the chat again.
-final class QuietBox { var on = false; var bottom = true }
+final class QuietBox { var on = false; var bottom = true; var dragging = false }
+
+/// The chat's "at the latest", observed only by the buttons over it.
+@Observable final class ChatScroll { var atBottom = true }
+
+/// Over the chat: the "N new messages ↓" pill (scrolled up and something arrived) or the ⌄ button (scrolled up). Its own
+/// view, so "at the latest" changing as you scroll redraws these, not the chat under them (jxn #4077).
+struct LatestButtons: View {
+    let scroll: ChatScroll
+    let stick: Bool
+    let unseen: Int
+    let empty: Bool
+    let pill: Bool // the pill (bottom centre), else the ⌄ button (bottom trailing)
+    let action: () -> Void
+
+    var body: some View {
+        let pillShown = !stick && !scroll.atBottom && unseen > 0
+        if pill {
+            ZStack {
+                if pillShown {
+                    let words = String(localized: "\(unseen) new messages", bundle: .l10n)
+                    Button(action: action) {
+                        HStack(spacing: Space.xs) {
+                            Text(words).font(Typo.micro.weight(.semibold)).contentTransition(.numericText())
+                            Image(systemName: "arrow.down").font(.system(size: 11, weight: .bold))
+                        }
+                        .foregroundStyle(Theme.text)
+                        .padding(.horizontal, Space.m).frame(height: 32)
+                        .background(Theme.raised, in: Capsule())
+                        .shadow(color: .black.opacity(0.35), radius: 8, y: 2)
+                        .frame(minHeight: 44).contentShape(Capsule())
+                    }
+                    .buttonStyle(PressStyle())
+                    .padding(.bottom, Space.xs)
+                    .transition(.scale(scale: 0.8).combined(with: .opacity))
+                    .accessibilityLabel(words)
+                    .accessibilityHint(String(localized: "Jump to latest", bundle: .l10n))
+                    .accessibilityIdentifier("new-messages-pill")
+                }
+            }
+            .animation(.snappy, value: pillShown)
+            .animation(.snappy, value: unseen)
+        } else {
+            ZStack {
+                if !scroll.atBottom && !empty && !pillShown {
+                    Button(action: action) {
+                        Image(systemName: "chevron.down").font(.system(size: 14, weight: .semibold)).foregroundStyle(Theme.text)
+                            .frame(width: 36, height: 36).background(Theme.raised, in: Circle())
+                            .shadow(color: .black.opacity(0.4), radius: 8, y: 2)
+                            .frame(width: 44, height: 44).contentShape(Circle())
+                    }
+                    .buttonStyle(PressStyle())
+                    .padding(.trailing, Space.s).padding(.bottom, Space.xs)
+                    .transition(.scale(scale: 0.6).combined(with: .opacity))
+                    .accessibilityLabel("Jump to latest")
+                }
+            }
+            .animation(.snappy, value: scroll.atBottom) // (animated here, not with withAnimation from the scroll geometry)
+        }
+    }
+}
 
 /// Where your unread messages start (jxn #1011): "NEW" and a thin line, in the web's red.
 struct NewDivider: View {
