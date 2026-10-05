@@ -186,6 +186,8 @@ dialog[open]{animation:pop .16s ease-out}dialog:focus{outline:none}@media (prefe
 @media(min-width:960px){.layout{grid-template-columns:minmax(0,1fr) 300px}.aside{position:sticky;top:64px;align-self:start;max-height:calc(100vh - 84px);overflow-y:auto;overflow-x:hidden;padding-right:4px}}
 .thread{display:flex;flex-direction:column}
 .entry{display:flex;gap:12px;padding:16px 0;border-top:1px solid var(--line)}
+.catch-up{display:flex;justify-content:center;margin:10px 0 8px}.catch-up .btn{border-radius:999px;gap:6px}
+.rc-src{margin-top:14px;padding-top:10px;border-top:1px solid var(--line)}
 .new-line{display:flex;align-items:center;gap:8px;margin:0;font-size:11px;line-height:1;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--danger)}.new-line span{line-height:1;padding-top:1px}.new-line::after{content:"";flex:1;height:1px;background:color-mix(in srgb,var(--danger) 45%,transparent)}.new-line+.entry{border-top-color:transparent}
 .thread>.entry:first-child{border-top:0;padding-top:4px}
 .entry .meta{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:13px;line-height:20px}

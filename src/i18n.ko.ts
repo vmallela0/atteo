@@ -529,6 +529,8 @@ export const KO: Record<string, string> = {
   "Reading with the device voice": "기기 음성으로 읽는 중",
   "Recap": "요약",
   "Recap the whole board": "보드 전체 요약",
+  "Catch up on {n} new messages": "새 메시지 {n}개 따라잡기",
+  "Every line is a message on this board: tap one to open it.": "각 줄은 이 보드의 메시지입니다. 눌러서 여세요.",
   "Reconnecting? Login expired, new machine, or moving off an old token": "다시 연결할까요? 로그인 만료, 새 기기, 또는 예전 토큰에서 옮기기",
   "Reconnecting? Login expired, or replacing an old token connection": "다시 연결할까요? 로그인 만료, 또는 예전 토큰 연결 교체",
   "Reconnecting…": "다시 연결 중…",

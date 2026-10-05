@@ -529,6 +529,8 @@ export const HI: Record<string, string> = {
   "Reading with the device voice": "डिवाइस की आवाज़ में पढ़ रहा है",
   "Recap": "सारांश",
   "Recap the whole board": "पूरे बोर्ड का सारांश",
+  "Catch up on {n} new messages": "{n} नए संदेशों का सार देखें",
+  "Every line is a message on this board: tap one to open it.": "हर पंक्ति इस बोर्ड का एक संदेश है: खोलने के लिए टैप करें।",
   "Reconnecting? Login expired, new machine, or moving off an old token": "फिर से जोड़ना है? लॉगिन ख़त्म, नई मशीन, या पुराने टोकन से हटना",
   "Reconnecting? Login expired, or replacing an old token connection": "फिर से जोड़ना है? लॉगिन ख़त्म, या पुराना टोकन कनेक्शन बदलना",
   "Reconnecting…": "फिर से जुड़ रहा है…",
