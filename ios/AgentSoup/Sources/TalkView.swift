@@ -240,7 +240,11 @@ struct TalkSheet: View {
             if talk.hearing { return String(localized: "Listening…", bundle: .l10n) }
             if talk.thinking { return String(localized: "Thinking…", bundle: .l10n) }
             if talk.micMuted { return String(localized: "Mic off", bundle: .l10n) }
-            return String(localized: "Listening…", bundle: .l10n)
+            switch talk.turns {
+            case .pause: return String(localized: "Listening… Atteo answers after a pause", bundle: .l10n)
+            case .tap: return String(localized: "Listening. Tap Done when you’re finished", bundle: .l10n)
+            case .quick: return String(localized: "Listening…", bundle: .l10n)
+            }
         case .ready:
             if talk.holding { return String(localized: "Listening… let go to send", bundle: .l10n) }
             if talk.speaking { return String(localized: "Atteo is speaking · tap to interrupt", bundle: .l10n) }
@@ -281,9 +285,16 @@ struct TalkSheet: View {
                     speakerButton.disabled(!live)
                 }
                 .frame(height: 160)
+                if live, talk.handsFree, talk.turns == .tap { turnDoneButton }
             }
             // Loudspeaker or earpiece (vedu #2384), beside mute's job: mute silences Atteo, this picks where it plays.
-            if talk.phase == .ready || talk.phase == .standby { SpeakerToggle(style: .chip) }
+            // And when Atteo answers (vedu #2460), hands-free: right away, after a pause, or when you tap Done.
+            if talk.phase == .ready || talk.phase == .standby {
+                HStack(spacing: Space.s) {
+                    SpeakerToggle(style: .chip)
+                    if talk.handsFree { TurnsChip(turns: talk.turns, set: { [talk] t in talk.setTurns(t) }).equatable() }
+                }
+            }
             if talk.phase == .standby {
                 Text("Tap or press play on your AirPods to talk")
                     .font(Typo.meta).foregroundStyle(Theme.muted).multilineTextAlignment(.center)
@@ -298,8 +309,33 @@ struct TalkSheet: View {
         .padding(.top, Space.m).padding(.bottom, Space.l)
     }
 
+    /// "tap": your turn ends here (or with play/pause on AirPods). Enabled once you've said something.
+    private var turnDoneButton: some View {
+        Button { talk.endTurn() } label: {
+            Text("Done").font(.headline).frame(width: 160, height: 44)
+                .background(talk.turnHeard ? Theme.accent : Theme.raised, in: Capsule())
+                .foregroundStyle(talk.turnHeard ? Theme.onAccent : Theme.muted)
+        }
+        .buttonStyle(PressStyle())
+        .disabled(!talk.turnHeard)
+        .accessibilityLabel("Your turn, Atteo")
+        .accessibilityHint("Sends what you said. Play or pause on your AirPods does the same.")
+        .accessibilityIdentifier("talk-turn-done")
+    }
+
     @ViewBuilder private func orb(_ live: Bool) -> some View {
         let o = TalkOrb(mood: mood, level: talk.level, live: live)
+            // "pause": a ring fills while you're quiet; Atteo answers when it's full.
+            .overlay {
+                if let p = talk.pauseProgress {
+                    Circle().trim(from: 0, to: p)
+                        .stroke(Theme.accent.opacity(0.7), style: StrokeStyle(lineWidth: 3, lineCap: .round))
+                        .rotationEffect(.degrees(-90))
+                        .frame(width: 150, height: 150)
+                        .allowsHitTesting(false)
+                        .accessibilityHidden(true)
+                }
+            }
         if talk.handsFree {
             o.contentShape(Circle())
                 .onTapGesture { talk.orbTapped() }
@@ -376,6 +412,57 @@ struct TalkSheet: View {
         .accessibilityIdentifier("talk-mute")
         .accessibilityLabel(talk.muted ? "Unmute Atteo" : "Mute Atteo")
         .accessibilityHint("What Atteo says still shows as captions.")
+    }
+}
+
+/// When Atteo answers (vedu #2460), on the call: a small chip that switches it live and saves it. Its own Equatable
+/// view, like TalkMenu: an open menu redrawn with the clock never settles.
+struct TurnsChip: View, Equatable {
+    let turns: VoiceTurns
+    let set: (VoiceTurns) -> Void
+
+    static func == (a: TurnsChip, b: TurnsChip) -> Bool { a.turns == b.turns }
+
+    var body: some View {
+        Menu {
+            Section("When Atteo answers") {
+                ForEach(VoiceTurns.allCases) { t in
+                    Button { set(t) } label: {
+                        if t == turns { Label(t.title, systemImage: "checkmark") } else { Text(t.title) }
+                    }
+                    .accessibilityIdentifier("talk-turns-\(t.rawValue)")
+                }
+            }
+        } label: {
+            Label { Text(turns.title) } icon: { Image(systemName: turns == .tap ? "hand.tap" : turns == .pause ? "pause.circle" : "bolt") }
+                .font(Typo.meta).foregroundStyle(Theme.text)
+                .padding(.horizontal, Space.m).padding(.vertical, 6)
+                .background(Theme.raised, in: Capsule())
+        }
+        .accessibilityLabel(Text("When Atteo answers"))
+        .accessibilityValue(Text(turns.title))
+        .accessibilityIdentifier("talk-turns")
+    }
+}
+
+/// Settings → Voice chat → When Atteo answers (vedu #2460), saved to display.voice_turns (the web follows it).
+struct VoiceTurnsPicker: View {
+    @EnvironmentObject var state: AppState
+
+    var body: some View {
+        Picker(selection: Binding(get: { VoiceTurns(rawValue: state.display.voiceTurns) ?? .pause }, set: { t in
+            Haptics.play(.touch)
+            var d = state.display
+            d.voiceTurns = t.rawValue
+            state.setDisplay(d)
+        })) {
+            ForEach(VoiceTurns.allCases) { t in Text(t.title).tag(t) }
+        } label: {
+            Text("When Atteo answers")
+        }
+        .pickerStyle(.menu)
+        .tint(Theme.accent)
+        .accessibilityIdentifier("voice-turns")
     }
 }
 
@@ -499,6 +586,7 @@ struct TalkSection: View {
             .accessibilityElement(children: .combine)
             .accessibilityIdentifier("talk-settings")
             VoicePicker()
+            VoiceTurnsPicker()
         } footer: {
             Text(status.enabled == false
                  ? "Voice isn't set up yet. Typing, the mic in the message box and reading replies aloud still work."
