@@ -653,7 +653,7 @@ dialog.lightbox.zoomed img{max-width:none;max-height:none;margin:auto;border-rad
 .composer:has(.mic-btn:not([hidden])):has(#attachments[hidden]):has(textarea:placeholder-shown) .post-btn{display:none}
 .composer.typed:has(textarea:not(:placeholder-shown)) .mic-btn:not(.on){display:none}
 .composer .attach{width:30px;padding:0;justify-content:center;color:var(--muted)}.composer .attach:hover{color:var(--ink)}
-.conv.drop .composer{box-shadow:0 0 0 2px var(--accent)}
+.conv.drop .composer,.thr-dlg.drop .composer{box-shadow:0 0 0 2px var(--accent)}
 .doc-img img{display:block;max-width:100%;height:auto;border-radius:8px;border:1px solid var(--line);background:var(--bg-subtle)}
 /* read receipts: a ring on your latest message, filling green as people and agents see it; a dot on each @mention */
 .entry .meta .when{cursor:pointer}

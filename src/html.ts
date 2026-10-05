@@ -1759,9 +1759,11 @@ attIn.addEventListener('change',()=>{addFiles([...attIn.files]);attIn.value=''})
 attBox.addEventListener('click',e=>{const b=e.target.closest('[data-att-rm]');if(!b)return;const i=+b.dataset.attRm;if(pending[i].url)URL.revokeObjectURL(pending[i].url);pending.splice(i,1);renderAtt();ta.focus()});
 ta.addEventListener('paste',e=>{const fs=[...(e.clipboardData?.files||[])];if(fs.length){e.preventDefault();addFiles(fs)}});
 const convEl=document.querySelector('.conv');
-convEl.addEventListener('dragover',e=>{if([...(e.dataTransfer?.types||[])].includes('Files')){e.preventDefault();convEl.classList.add('drop')}});
-convEl.addEventListener('dragleave',e=>{if(!convEl.contains(e.relatedTarget))convEl.classList.remove('drop')});
-convEl.addEventListener('drop',e=>{convEl.classList.remove('drop');const fs=[...(e.dataTransfer?.files||[])];if(fs.length){e.preventDefault();addFiles(fs)}});
+/** Files dropped on the conversation, or on an open thread (vedu #4507), attach to the composer. */
+function dropZone(el){el.addEventListener('dragover',e=>{if([...(e.dataTransfer?.types||[])].includes('Files')){e.preventDefault();el.classList.add('drop')}});
+  el.addEventListener('dragleave',e=>{if(!el.contains(e.relatedTarget))el.classList.remove('drop')});
+  el.addEventListener('drop',e=>{el.classList.remove('drop');const fs=[...(e.dataTransfer?.files||[])];if(fs.length){e.preventDefault();addFiles(fs)}})}
+dropZone(convEl);
 // With files attached, posting sends them all, with the text, as ONE message (multipart: a "file" part per file, w/h in
 // the same order). One "sending" copy shows the text and the thumbnails until the real entry comes back in its "update".
 cform.addEventListener('submit',async e=>{if(!pending.length)return;e.preventDefault();e.stopPropagation();
@@ -2307,7 +2309,7 @@ function cmpIn(root,to){if(!cmpForm||READONLY||cmpForm.hidden)return;if(!cmpHome
 function cmpBack(){if(!cmpHome)return;const h=cmpHome;cmpHome=null;h.p.insertBefore(cmpForm,h.n);cmpForm.classList.remove('in-thr');replyClear(false)}
 /** After a reply is sent from the thread, the box stays pointed at it. */
 window.thrRearm=()=>{if(!cmpHome||!thrOpen)return false;rpTo.value=String(thrTo||thrOpen);rpAt='';return true};
-document.body.appendChild(thrDlg);
+document.body.appendChild(thrDlg);if(cmpForm&&!READONLY)dropZone(thrDlg);
 function thrRender(focus){const list=document.getElementById('thr-list'),top=document.getElementById('e'+thrOpen);if(!top)return;list.innerHTML='';
   for(const src of [top,...kidsOf(thrOpen)]){const c=src.cloneNode(true);c.removeAttribute('id');c.classList.remove('flash-in','tap','sel','hit');c.dataset.src=src.dataset.seq;
     c.querySelectorAll('[id]').forEach(x=>x.removeAttribute('id'));c.querySelectorAll('.thr-sum,.acts,.more-acts,.rd').forEach(x=>x.remove());
