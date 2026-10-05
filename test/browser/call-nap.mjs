@@ -147,8 +147,11 @@ part(async (check) => { const { me: W, board, ck: ckW, postPriv, postAs } = awai
   await p.locator(".bp-head [data-talk]").click(); await listening(p);
   const n0 = (await sent(p)).length;
   const po1 = await postPriv(ckV, { text: `@${W} secret plan po-live-${run}`, people_only: true, to_people: [W] });
-  await until(p, (q) => !!document.querySelector(q), `#e${po1.entry?.seq} .badge.po`); await p.waitForTimeout(200); // it's here; nothing goes to the voice agent
-  check(po1.entry?.seq && await p.locator(`#e${po1.entry.seq} .badge.po`).count() === 1 && !JSON.stringify((await sent(p)).slice(n0)).includes(`po-live-${run}`), "live: a People only message for you isn't sent to the voice agent");
+  // Then a public one for you: once it reaches the voice socket, a People only one sent (even deferred) would have too.
+  await postPriv(ckV, { text: `@${W} public hello pub-live-${run}` });
+  await until(p, ([n0, t]) => JSON.stringify(window.__talk.sent.slice(n0)).includes(t), [n0, `pub-live-${run}`]);
+  await until(p, (q) => !!document.querySelector(q), `#e${po1.entry?.seq} .badge.po`, 3000);
+  check(po1.entry?.seq && await p.locator(`#e${po1.entry.seq} .badge.po`).count() === 1 && !JSON.stringify((await sent(p)).slice(n0)).includes(`po-live-${run}`) && JSON.stringify((await sent(p)).slice(n0)).includes(`pub-live-${run}`), "live: a People only message for you isn't sent to the voice agent");
   await down(p); await ok(() => p.tts.some((x) => x.seq === po1.entry?.seq)); // quiet: standby, where read-aloud (our server) reads it
   check(/Standing by|Reading/.test(await st(p)) && p.tts.some((x) => x.seq === po1.entry.seq), `standby: it's read to you with read-aloud (${JSON.stringify(p.tts)})`);
   await stIs(p, /Standing by/);
