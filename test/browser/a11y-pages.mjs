@@ -1,7 +1,7 @@
 // Every page, whole (#3815): axe-core (WCAG 2.1 A/AA, serious and critical fail) on each web page's full content at 1280
 // light, 1280 dark and 390 (touch), and at 390 nothing wider than the screen. a11y.mjs scans chosen regions and overlays;
 // this one walks the pages, including the newer sections and states: Account's Access across boards and Standing rules,
-// board info's charter, the Report dialog, Members & access, a hover card, a muted post's fold, the Tasks and Files tabs, a profile, an invite link.
+// board info's charter, the Report dialog, Members & access, a hover card, a thread, Connect, New and Edit board, a muted post's fold, the Tasks and Files tabs, a profile, an invite link.
 // BASE, ADMIN_KEY, PW_CHROME. ONLY=<label substring> narrows it while fixing.
 import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
@@ -26,6 +26,7 @@ const vSeq = await post(V, { type: "note", text: `@${P} a note to report ${run}`
 await post(V, { type: "question", text: `@${P} can you look? ${run}` });
 await post(P, { type: "task", text: `A task for the tab ${run}` });
 await post(P, { type: "decision", text: `We ship Friday ${run}` });
+await post(P, { type: "note", text: `a reply in a thread ${run}`, reply_to: vSeq });
 await api(P, `/api/boards/${board}/charter`, "POST", { goal: `Ship the checkout ${run}`, data_classes: "internal, customer-pii", retention_days: 30 });
 const linkUrl = (await (await api(P, `/api/boards/${board}/links`, "POST", { role: "viewer", link_days: 7 })).json()).url;
 await api(P, `/api/boards/${board}/invites`, "POST", { to: `someone-${run}@example.com` });
@@ -46,7 +47,7 @@ const PAGES = [
   ["guide", "/guide"],
   ["docs", "/docs"],
   ["welcome", "/welcome"],
-  ["boards", "/boards"],
+  ["boards", "/?home=1"],
   ["chats", "/chats"],
   ["agent chat", "/agent"],
   ["for you", "/for-you"],
@@ -76,6 +77,10 @@ const PAGES = [
   }],
   ["members & access", B, async (p) => { await p.locator('[data-open="invite"]').first().click(); await p.locator("#invite").waitFor(); await p.waitForTimeout(600); }],
   ["hover card", B, async (p) => { await p.locator(`#e${vSeq} .meta .who`).first().click(); await p.locator(".hcard [data-mute]").waitFor(); }],
+  ["thread", B, async (p) => { await p.locator(`#e${vSeq} [data-thread]`).first().click(); await p.locator("dialog.thr-dlg[open]").waitFor(); }],
+  ["connect an agent", B, async (p) => { await p.locator('[data-open="connect"]').first().click(); await p.locator("#connect[open]").waitFor(); }],
+  ["new board", "/?home=1", async (p) => { await p.locator('[data-open="new-board"]:visible').first().click(); await p.locator("#new-board[open]").waitFor(); }],
+  ["edit board", "/?home=1", async (p) => { const c = p.locator(".bcard").first(); await c.hover(); await c.locator("[data-edit-board]").click(); await p.locator("#edit-board[open]").waitFor(); }],
   ["muted fold", `/b/${muted}`, async (p) => { await p.locator(".mu-line").first().waitFor(); }],
 ];
 
@@ -105,6 +110,8 @@ await Promise.all(RUNS.map(async ([tag, viewport, phone, scheme, lang]) => {
       if (new URL(p.url()).origin !== new URL(BASE).origin) { check(true, `${name}: hands over to ${new URL(p.url()).host}, not scanned`); await p.close(); continue; }
       if (setup) await setup(p, phone);
       await p.waitForTimeout(300);
+      // Colours mid-fade (a post for you flashes for 1.6s) aren't what anyone reads: let finite animations finish first.
+      await p.evaluate(() => Promise.race([Promise.all(document.getAnimations().filter((a) => a.effect?.getComputedTiming().endTime !== Infinity).map((a) => a.finished.catch(() => {}))), new Promise((r) => setTimeout(r, 3000))]));
       const r = await p.evaluate(async () => await axe.run(document, { runOnly: { type: "tag", values: ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"] } }));
       const bad = r.violations.filter((v) => v.impact === "serious" || v.impact === "critical");
       const why = (n) => { const d = n.any?.[0]?.data; return d && d.fgColor ? `${d.fgColor} on ${d.bgColor}, ${d.contrastRatio}:1` : n.failureSummary?.split("\n")[1]?.trim() || ""; };
