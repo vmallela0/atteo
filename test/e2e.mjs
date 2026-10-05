@@ -202,7 +202,7 @@ await step("MCP initialize, tools/list, notifications, protocol errors", async (
   assert(r.protocolVersion === "2025-06-18" && r.serverInfo.name === "atteo" && r.serverInfo.title === "Atteo", JSON.stringify(r));
   has(r.instructions, "Atteo");
   const names = (await rpcRaw(auth(A), null, "tools/list", {})).tools.map((t) => t.name).sort();
-  assert(JSON.stringify(names) === JSON.stringify(["agents", "approval", "batch", "claim", "create_board", "doc", "get", "grep", "handle", "invite", "join_board", "leave_board", "list_boards", "mailbox", "memory", "people", "post", "publish", "purge", "react", "read", "recap", "remember", "request_approval", "retract", "review", "schedules", "search", "session", "task", "trigger", "wait"]), names.join());
+  assert(JSON.stringify(names) === JSON.stringify(["agents", "approval", "batch", "claim", "create_board", "doc", "get", "grep", "handle", "invite", "join_board", "leave_board", "list_boards", "mailbox", "memory", "people", "post", "publish", "purge", "react", "read", "recap", "remember", "request_approval", "retract", "review", "schedules", "search", "session", "share", "task", "trigger", "wait"]), names.join());
   assert((await rpcRaw(auth(A), null, "notifications/initialized", {}, { notification: true })).status === 202, "notification status");
   assert((await rpcRaw({}, null, "notifications/initialized", {}, { notification: true })).status === 401, "no credentials: 401 so OAuth clients can sign in");
   assert((await fetch(`${BASE}/mcp`)).status === 405, "GET /mcp should be 405");
@@ -3336,8 +3336,18 @@ await step("the Atteo app signs in as the person (scope=person, atteo:// only): 
   assert((await as(tok[A], "POST", "/api/me/devices", { token: "b".repeat(64) })).status === 401, "agents can't register devices");
 });
 
-await step("publish a session slice: preview first, then everything in one go linked to a summary; secrets stop it all", async () => {
+await step("live share threads in-progress items; publish reviews and closes that thread; secrets post nothing", async () => {
   await ok(A, fb, "read");
+  const live1 = seqOf(await ok(A, fb, "share", { type: "claim", text: `Live checkout finding ${run}` }));
+  const live2 = seqOf(await ok(A, fb, "share", { type: "note", text: `Live checkout note ${run}` }));
+  let log = (await (await web(`/api/boards/${fb}/entries?after=0`, A)).json()).entries;
+  assert(log.find((e) => e.seq === live1)?.reply_to == null && log.find((e) => e.seq === live2)?.reply_to === live1, `live thread: ${JSON.stringify(log.filter((e) => e.seq === live1 || e.seq === live2).map((e) => [e.seq, e.reply_to]))}`);
+  const fake = ["ghp", "_", "Zx9Yw8Vu7Ts6Rq5Po4Nm3Lk2Jh1Gf0Ed9Cb8A"].join("");
+  const liveCount = log.length;
+  await err(A, fb, "share", { type: "note", text: `token ${fake}` }, "Blocked");
+  log = (await (await web(`/api/boards/${fb}/entries?after=0`, A)).json()).entries;
+  assert(log.length === liveCount, "a blocked live share posts nothing");
+
   const slice = { summary: `Debugged the flaky checkout test ${run}`, title: "Checkout flake", claims: ["The flake is a race in cart init"], decisions: ["Await cart init before charge()"], tasks: ["Add a regression test"], files: [{ name: `flake-${run}.log`, content: "race at cart.ts:42" }] };
   const pv = await ok(A, fb, "publish", slice);
   has(pv, "Will post to this board");
@@ -3348,7 +3358,11 @@ await step("publish a session slice: preview first, then everything in one go li
   const head = Number(done.match(/summary #(\d+)/)[1]);
   const g = await ok(B, fb, "get", { seq: head });
   for (const t of ["The flake is a race", "Await cart init", "Add a regression test", `flake-${run}.log`]) has(g, t);
-  const fake = ["ghp", "_", "Zx9Yw8Vu7Ts6Rq5Po4Nm3Lk2Jh1Gf0Ed9Cb8A"].join("");
+  log = (await (await web(`/api/boards/${fb}/entries?after=0`, A)).json()).entries;
+  assert(log.find((e) => e.seq === head)?.reply_to === live1, "the reviewed summary joins the live thread");
+  const next = seqOf(await ok(A, fb, "share", { type: "note", text: `Next live thread ${run}` }));
+  log = (await (await web(`/api/boards/${fb}/entries?after=0`, A)).json()).entries;
+  assert(log.find((e) => e.seq === next)?.reply_to == null, "publishing closes the live thread");
   const n0 = (await (await web(`/api/boards/${fb}/updates?after=0`, A)).json()).count;
   await err(A, fb, "publish", { summary: "ok", claims: ["fine", `token ${fake}`], preview: false }, "Blocked");
   assert((await (await web(`/api/boards/${fb}/updates?after=0`, A)).json()).count === n0, "nothing posted when one item is blocked");

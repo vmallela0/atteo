@@ -1861,6 +1861,16 @@ await step("publish (alt-c #3538): the end-of-session slice, a preview until --y
   r = await pub("--file", "looks-local.md", "--file-any");
   assert(r.code === 0 && r.out.includes("looks-local.md") && r.out.includes("Nothing was posted."), "--file-any lifts it: " + r.out + r.err);
   assert((await count()) === entries.length, "no refused publish posted anything");
+
+  r = await cli(["share", "notes/ok.md", "--note", `useful now ${run}`, "--board", pb], { cwd: proj });
+  assert(r.code === 0 && /Shared #\d+/.test(r.out), "live file share: " + r.out + r.err);
+  const afterShare = await count();
+  assert(afterShare === entries.length + 1, "one live share was posted");
+  for (const [f, why] of [[".env", "is hidden (.env)"], ["looks-local.md", "outside the current folder"]]) {
+    r = await cli(["share", f, "--board", pb], { cwd: proj });
+    assert(r.code === 1 && r.err.includes(why) && r.err.includes("--file-any") && !r.out, `share ${f}: ` + r.out + r.err);
+  }
+  assert((await count()) === afterShare, "refused live shares posted nothing");
 });
 
 await step("doc pin / unpin / pinned: the board's one pinned doc, from the CLI", async () => {

@@ -809,12 +809,12 @@ const PUBLISH_LISTS: Record<string, "claims" | "decisions" | "tasks" | "files"> 
  * A nudged agent shouldn't be able to publish ~/.ssh/id_ed25519 or a .env (the server's secret scan knows key formats,
  * not everything): a --file must resolve, symlinks followed, to a file under the current folder with no hidden part.
  */
-function publishable(path: string) {
+function publishable(path: string, action = "publish") {
   const real = realpathSync(path);
   const rel = relative(realpathSync(process.cwd()), real);
-  if (!rel || rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute(rel)) throw new CliError(`${path} is outside the current folder, so publish won't read it. If your person wants it shared, add --file-any.`);
+  if (!rel || rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute(rel)) throw new CliError(`${path} is outside the current folder, so ${action} won't read it. If your person wants it shared, add --file-any.`);
   const hidden = rel.split(sep).find((part) => part.startsWith("."));
-  if (hidden) throw new CliError(`${path} is hidden (${hidden}), so publish won't read it: dotfiles hold config and secrets. If your person wants it shared, add --file-any.`);
+  if (hidden) throw new CliError(`${path} is hidden (${hidden}), so ${action} won't read it: dotfiles hold config and secrets. If your person wants it shared, add --file-any.`);
   if (!statSync(real).isFile()) throw new CliError(`${path} isn't a file.`);
 }
 
@@ -846,14 +846,15 @@ async function publishCmd(args: string[]) {
 
 /** Post a file (its next version if one with that name exists). */
 async function share(args: string[]) {
-  const { pos, opt } = parseArgs(args);
+  const { pos, opt } = parseArgs(args, ["file-any"]);
   const path = pos[0];
-  if (!path) throw new CliError('Usage: atteo share <file> [--name name] [--note "what it is"]');
+  if (!path) throw new CliError('Usage: atteo share <file> [--name name] [--note "what it is"] [--file-any]');
   if (!existsSync(path)) throw new CliError(`No such file: ${path}`);
+  if (opt["file-any"] !== true) publishable(path, "share");
   const content = readFileSync(path, "utf8");
   if (content.includes("\u0000")) throw new CliError("That looks like a binary file; only text files can be shared for now.");
   const name = optStr(opt, "name") ?? basename(path);
-  say(await tool(opt, "post", { type: "artifact", artifact_name: name, artifact_content: content, text: optStr(opt, "note") ?? `Shared ${name}`, to: optStr(opt, "to") }));
+  say(await tool(opt, "share", { type: "artifact", artifact_name: name, artifact_content: content, text: optStr(opt, "note") ?? `Shared ${name}` }));
 }
 
 async function task(args: string[]) {
@@ -1383,7 +1384,7 @@ Board commands (on the board chosen with \`use\`, per folder):
   atteo post "<text>" [--title "2–5 words"] [--type t] [--to name] [--reply N] [--resolves N,M] [--own|--public]   ("-" reads stdin; --own: only you and your agents; --public: not kept in Just mine)
   atteo wait [--timeout s]         Wait for the next post
   atteo get N · search "<words>"   One entry with replies · ranked search
-  atteo share <file> [--note …]    Post a file (its next version if the name exists)
+  atteo share <file> [--note …]    Share a file live in this session's thread
   atteo decide "<text>"            Record a decision
   atteo publish "<summary>" [--claim …]… [--decision …]… [--task …]… [--file <path>]… [--title …] [--yes]
                                         The end-of-session slice: a preview until --yes (your person OKs it first).

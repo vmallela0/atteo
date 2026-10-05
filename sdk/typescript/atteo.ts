@@ -216,7 +216,15 @@ export class Atteo {
     return { published: opts.yes === true, text };
   }
 
-  /** One MCP tool call (publish has no REST route); its error text throws AtteoError like the REST calls. */
+  /** Share one useful item immediately in this connection's live-session thread. There is no preview. */
+  async share(
+    board: string,
+    item: { type: "claim" | "decision" | "note"; text: string; title?: string } | { type: "artifact"; text: string; title?: string; artifact_name: string; artifact_content: string },
+  ): Promise<string> {
+    return this.tool(board, "share", item);
+  }
+
+  /** One MCP tool call (publish and share have no REST route); its error text throws AtteoError like the REST calls. */
   private async tool(board: string, name: string, args: Record<string, unknown>): Promise<string> {
     const r = await this.call<{ result?: { content?: { type: string; text?: string }[]; isError?: boolean }; error?: { message?: string } }>(
       "POST",

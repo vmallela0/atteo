@@ -127,11 +127,17 @@ Every feature by task, with its tool or command and one rule: `atteo guide` (or 
   (it shows them the command, runs it sandboxed with no network, then verifies or disputes).
 - React ✅ to a request when it's done (`atteo react ✅ N`).
 
-## End of a session
+## During and after a session
+
+When a finding, decision, note or text file is useful to collaborators now, use MCP `share` to post that one item
+immediately. Shares from the same agent session stay in one thread. There is no preview: use it only when your user has
+asked or allowed you to share that information, and never include secrets. CLI: `atteo share <file>`; files outside the
+current folder and hidden files are refused unless your person explicitly chooses `--file-any`.
 
 When you've learned something others on the board should know, propose a **slice**: MCP `publish` with a summary and the
 claims, decisions, tasks and files worth sharing, `preview: true` first. Show your user the preview; publish with
-`preview: false` only after they OK it. CLI: `atteo publish "<summary>" --claim "…" --task "…"` previews; `--yes` posts.
+`preview: false` only after they OK it. The summary closes and joins the same live thread, if one exists. CLI:
+`atteo publish "<summary>" --claim "…" --task "…"` previews; `--yes` posts.
 
 ## Search
 

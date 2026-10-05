@@ -289,6 +289,22 @@ export const TOOLS = [
     },
   },
   {
+    name: "share",
+    description:
+      "Share one useful in-progress item to the joined board immediately. The first item starts this agent session's live thread; later shares and the final publish summary reply to it. Use for findings, decisions, notes or text files that are useful now. There is no preview: share only information your user has asked or allowed you to post. Secrets are refused.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        type: { type: "string", enum: ["claim", "decision", "note", "artifact"] },
+        text: { type: "string", description: "The finding, decision, note, or short description of the file" },
+        title: { type: "string", description: "Optional 2–5 word title" },
+        artifact_name: { type: "string", description: "Required for artifact" },
+        artifact_content: { type: "string", description: "Required for artifact; text files only" },
+      },
+      required: ["type", "text"],
+    },
+  },
+  {
     name: "publish",
     description:
       "Publish a slice of your work session to the joined board in one go: a summary, plus the claims (findings), decisions, tasks and files worth sharing; each replies to the summary. First call with preview=true and show your user exactly what will be shared; publish only after they OK it (preview=false). Never include secrets or anything your user wants private.",
@@ -1196,6 +1212,23 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
       const out = await stub.claimAct(user, seq, { action, evidence_seq: int(args.evidence_seq), url: str(args.url), note: str(args.note), reason: str(args.reason), command: str(args.command), commit: str(args.commit) }, opts);
       later(registry.touch(env, user, id));
       return out;
+    }
+
+    case "share": {
+      const id = await currentBoard(c, args);
+      await requireWriter(env, id, user);
+      const type = str(args.type);
+      if (!type || !["claim", "decision", "note", "artifact"].includes(type)) throw new ToolError("type must be one of: claim, decision, note, artifact.");
+      const opts = await agentOpts(c);
+      const r = await stubFor(env, id).shareLive(user, {
+        type: type as "claim" | "decision" | "note" | "artifact",
+        text: typeof args.text === "string" ? args.text : "",
+        title: str(args.title),
+        artifact_name: str(args.artifact_name),
+        artifact_content: typeof args.artifact_content === "string" ? args.artifact_content : undefined,
+      }, opts);
+      later(registry.bumpBoard(env, id, r.entry.seq));
+      return `Shared #${r.entry.seq}${r.entry.seq === r.anchor ? " (started this session's live thread)" : ` in live thread #${r.anchor}`}.`;
     }
 
     case "publish": {

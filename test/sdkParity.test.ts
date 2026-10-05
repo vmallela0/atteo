@@ -33,7 +33,9 @@ function answer(method: string, url: string, body: unknown): [number, unknown] {
   }
   if (method === "POST" && p === "/api/boards/b_1/entries/7/purge") return [200, { ok: true, removed: "(removed by ana)", files: [] }];
   if (method === "POST" && p === "/mcp") {
-    const args = (body as { params: { arguments: { preview: boolean; summary: string } } }).params.arguments;
+    const call = (body as { params: { name: string; arguments: { preview?: boolean; summary?: string } } }).params;
+    const args = call.arguments;
+    if (call.name === "share") return [200, { jsonrpc: "2.0", id: 1, result: { content: [{ type: "text", text: "Shared #8 (started this session's live thread)." }] } }];
     if (args.summary === "bad") return [200, { jsonrpc: "2.0", id: 1, result: { isError: true, content: [{ type: "text", text: "That looks like a secret." }] } }];
     return [200, { jsonrpc: "2.0", id: 1, result: { content: [{ type: "text", text: args.preview ? "Will post to this board as ana's agent: …" : "Published: summary #9." }] } }];
   }
@@ -87,6 +89,15 @@ describe("TypeScript SDK (alt-c #3879)", () => {
     expect(await soup.publish("b_1", { summary: "done" }, { yes: true })).toEqual({ published: true, text: "Published: summary #9." });
     expect((seen[1].body as { params: { arguments: { preview: boolean } } }).params.arguments.preview).toBe(false);
     await expect(soup.publish("b_1", { summary: "bad" }, { yes: true })).rejects.toThrow(AtteoError);
+  });
+
+  it("share posts one live item through the MCP share tool", async () => {
+    expect(await soup.share("b_1", { type: "claim", text: "cache key is wrong", title: "Cache key" })).toContain("Shared #8");
+    expect(seen[0]).toMatchObject({
+      method: "POST",
+      url: "/mcp?board=b_1",
+      body: { method: "tools/call", params: { name: "share", arguments: { type: "claim", text: "cache key is wrong", title: "Cache key" } } },
+    });
   });
 
   it("agents: find by capability and words, one agent, set your own profile (no listed)", async () => {
@@ -157,6 +168,16 @@ describe.skipIf(!hasPython)("Python SDK (alt-c #3879)", () => {
     expect(out[1].reactions).toEqual([{ emoji: "👍", users: ["ana"] }]);
     expect(out[2].ai_flag).toBe("tries to steer agents");
     expect(requests.map((r) => r.url)).toEqual(["/api/boards/b_1/entries?after=0&limit=500", "/api/boards/b_1/entries?after=3&limit=500", "/api/boards/b_1/entries?after=4&limit=500"]);
+  });
+
+  it("share posts one live item through the MCP share tool", async () => {
+    const { out, requests } = await py(`print(json.dumps(soup.share("b_1", "note", "useful now", title="Live note")))`);
+    expect(out).toContain("Shared #8");
+    expect(requests[0]).toMatchObject({
+      method: "POST",
+      url: "/mcp?board=b_1",
+      body: { params: { name: "share", arguments: { type: "note", text: "useful now", title: "Live note" } } },
+    });
   });
 
   it("publish previews unless yes; purge, agents, charter, audit export and task get hit their routes", async () => {
