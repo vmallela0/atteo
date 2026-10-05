@@ -126,8 +126,9 @@ $('talk-quiet').addEventListener('click',()=>{if(!st||st.ended)return;st.quiet=!
 $('talk-end').addEventListener('click',()=>{if(tk)hangUp();else dlg.close()});
 $('talk-wake').addEventListener('click',()=>wake());
 $('talk-done').addEventListener('click',()=>endTurn(st));
-dlg.addEventListener('close',()=>{if(tk)hangUp()});
-addEventListener('pagehide',()=>{if(tk)hangUp(true)});
+dlg.addEventListener('close',()=>{unhold();if(tk)hangUp()});
+addEventListener('pagehide',()=>{unhold();if(tk)hangUp(true)});
+addEventListener('beforeunload',()=>unhold());
 
 // ---- start ----
 // A call (jxn #2071, #2078; claude #2080) is one or more paid sessions with standby between them: after NAP_MS with
@@ -150,8 +151,8 @@ async function open(o){if(tk){if(!dlg.open)dlg.showModal();if(tk.nap)wake();retu
 function audioCtx(){try{const AC=window.AudioContext||window.webkitAudioContext,ac=new AC();ac.resume&&ac.resume().catch(()=>{});return ac}catch(e){return null}}
 function wake(){if(!tk||!tk.nap)return;quietRead();tk.nap=false;tk.note='';try{if(!tk.ac||tk.ac.state==='closed')tk.ac=audioCtx();else tk.ac.resume&&tk.ac.resume().catch(()=>{})}catch(e){}connect(true)}
 function nap(note){if(!tk||!st||st.ended)return;tk.note=note||'';finish(null,false,true);readNext()}
-function hangUp(leaving){quietRead();if(st&&!st.ended)finish(null,leaving);else endCall();if(st&&!st.problem&&!leaving)say(T('Ended.'))}
-function endCall(){if(!tk)return;const c=tk;tk=null;try{c.ac&&c.ac.state!=='closed'&&c.ac.close()}catch(e){}c.q.length=0;mediaOff(c);$('talk-end').textContent=T('Close');dlg.classList.remove('napping','speaking','hearing');$('talk-wake').hidden=true;$('talk-mic').hidden=$('talk-quiet').hidden=false}
+function hangUp(leaving){unhold(leaving?null:'I ended the call: don’t send what was waiting to my agent.');quietRead();if(st&&!st.ended)finish(null,leaving);else endCall();if(st&&!st.problem&&!leaving)say(T('Ended.'))}
+function endCall(){unhold();if(!tk)return;const c=tk;tk=null;try{c.ac&&c.ac.state!=='closed'&&c.ac.close()}catch(e){}c.q.length=0;mediaOff(c);$('talk-end').textContent=T('Close');dlg.classList.remove('napping','speaking','hearing');$('talk-wake').hidden=true;$('talk-mic').hidden=$('talk-quiet').hidden=false}
 function remember(id,who,text){if(!tk||!text)return;const h=tk.hist,i=h.findIndex(x=>x[0]===id);if(i>=0)h[i][2]=text;else h.push([id,who,text]);if(h.length>12)h.shift()}
 async function connect(resume){const o=tk.o;
   st={o,resume,ready:false,ended:false,speaking:false,hearing:false,thinking:false,micOff:false,quiet:false,problem:null,active:null,cancelled:new Set(),calls:new Set(),want:false,tools:0,
@@ -234,7 +235,7 @@ function interrupt(s){const left=s.ac?Math.max(0,s.playUntil-s.ac.currentTime):0
 function respond(s){if(s.active)s.want=true;else send({type:'response.create'},s)}
 function handle(s,e){if(s!==st||s.ended||!e||!e.type)return;s.lastEvt=Date.now();const rid=e.response_id||(e.response&&e.response.id);if(rid&&s.cancelled.has(rid)&&e.type!=='response.done')return;
   switch(e.type){
-  case 'response.created':s.active=rid||('r'+Date.now());s.thinking=true;s.stoppedAt=0;break;
+  case 'response.created':s.active=rid||('r'+Date.now());s.thinking=true;s.stoppedAt=0;if(s.lastYou&&!s.lastYou.resp)s.lastYou.resp=s.active;break;
   case 'response.output_audio.delta':case 'response.audio.delta':if(e.delta){play(s,e.delta,e.item_id);if(!s.quiet&&!s.speaking){s.speaking=true}}break;
   case 'input_audio_buffer.speech_started':s.youAfter=s.atteoEnd?Date.now()-s.atteoEnd:null;s.youStarted=true;if(s.confirm)s.confirm.armed=true;s.hearing=true;s.stoppedAt=0;if(s.speaking||s.active)interrupt(s);if(!s.you){s.you='y'+Date.now();cap('you',T('Listening…'),s.you).classList.add('live');fade()}break;
   case 'input_audio_buffer.speech_stopped':s.hearing=false;s.thinking=true;s.stoppedAt=Date.now();break;
@@ -244,7 +245,7 @@ function handle(s,e){if(s!==st||s.ended||!e||!e.type)return;s.lastEvt=Date.now()
   case 'conversation.item.input_audio_transcription.completed':{const t=(e.transcript||'').trim(),id=s.you||('y'+Date.now());const p=cap('you',t||T('(spoke)'),id);p.classList.remove('live');s.you=null;fade();remember(id,'You',t);s.lastYou=t?{text:t,after:s.youStarted?s.youAfter:-1}:null;s.youStarted=false;if(s.confirm)heardYes(s,t);break}
   case 'response.function_call_arguments.done':call(s,e.name,e.call_id,e.arguments);break;
   case 'response.output_item.done':if(e.item&&e.item.type==='function_call')call(s,e.item.name,e.item.call_id,e.item.arguments);break;
-  case 'response.done':if(rid||s.active)atteoDone(s,'a'+(rid||s.active));if(rid)s.cancelled.delete(rid);s.active=null;s.thinking=s.tools>0;if(s.want){s.want=false;send({type:'response.create'},s)}break;
+  case 'response.done':if(s.lastYou&&s.lastYou.resp&&s.lastYou.resp===(rid||s.active))s.lastYou=null;if(rid||s.active)atteoDone(s,'a'+(rid||s.active));if(rid)s.cancelled.delete(rid);s.active=null;s.thinking=s.tools>0;if(s.want){s.want=false;send({type:'response.create'},s)}break;
   case 'error':{const m=(e.error&&e.error.message)||'';if(m&&!/cancel|truncat/i.test(m))cap('note err',m.replace(/grok/gi,'Atteo'));break} // nothing to cancel is harmless
   }look()}
 
@@ -285,15 +286,21 @@ async function route(s,name,a){const board=()=>(a.board&&String(a.board))||s.o.b
 // (the mic's words, not Atteo's) goes without a yes, after a 5 s hold with Undo. The server decides (voiceAutosend.ts);
 // the page only adds when you started speaking after Atteo's voice (s.lastYou.after: a hostile message read aloud on
 // the loudspeaker can come back as "you"; a transcript with no speech start of its own counts as heard over Atteo).
-// What's posted is the server's slice of your transcript, word for word. One transcript sends once.
+// What's posted is the server's slice of your transcript, word for word. One transcript sends once, and only while
+// it's fresh: it's dropped when Atteo's answer to it finishes (opus-d #2726), so it can't qualify a later post.
 async function autoCheck(s,text,board){try{return JSON.parse(await api('/api/app/voice/autosend',{transcript:s.lastYou.text,text,board:board||null,call_board:s.o.board||null,spoke_after_ms:s.lastYou.after}))}catch(e){return null}}
-function hold(s,text,board,ms){s.lastYou=null;const args=board?{text,board}:{text},box=document.createElement('div'),p=document.createElement('div'),row=document.createElement('div'),u=document.createElement('button');
+// One hold at a time, tied to the call (opus-b #2721): ending the call, closing the sheet or leaving the page drops it
+// unsent (unhold); only its own timer sends it, and only while the call is still open.
+let held=null;
+function unhold(why){const h=held;if(!h)return;held=null;clearInterval(h.iv);clearTimeout(h.to);h.box.remove();
+  const s=st;if(why&&s&&!s.ended){send({type:'conversation.item.create',item:{type:'message',role:'user',content:[{type:'input_text',text:why}]}},s);respond(s)}}
+function hold(s,text,board,ms){s.lastYou=null;unhold();const args=board?{text,board}:{text},box=document.createElement('div'),p=document.createElement('div'),row=document.createElement('div'),u=document.createElement('button');
   box.className='talk-ok talk-hold';box.setAttribute('role','status');row.className='row';u.className='btn sm';u.dataset.undo='';u.textContent=T('Undo');row.append(u);box.append(p,row);okEl.before(box);
   let left=Math.ceil(ms/1000);const show=()=>{p.textContent=T('Sending to your agent in {n}s: “{t}”',{n:left,t:text.length>160?text.slice(0,157)+'…':text})};show();
-  const iv=setInterval(()=>{if(--left>0)show()},1000);
-  const to=setTimeout(async()=>{clearInterval(iv);u.disabled=true;p.textContent=T('Sending…');const out=await route(s,'post_to_my_agent',args);box.remove();
+  const h={box,iv:setInterval(()=>{if(--left>0)show()},1000),to:0};held=h;
+  h.to=setTimeout(async()=>{if(held!==h||!tk||!dlg.open)return unhold();held=null;clearInterval(h.iv);u.disabled=true;p.textContent=T('Sending…');const out=await route(s,'post_to_my_agent',args);box.remove();
     if(s===st&&!s.ended)send({type:'conversation.item.create',item:{type:'message',role:'user',content:[{type:'input_text',text:'The app sent my words to my agent, word for word: "'+text+'". Result: '+out}]}},s)},ms);
-  u.onclick=()=>{clearInterval(iv);clearTimeout(to);box.remove();if(s===st&&!s.ended){send({type:'conversation.item.create',item:{type:'message',role:'user',content:[{type:'input_text',text:'I tapped Undo: don’t send it to my agent.'}]}},s);respond(s)}};
+  u.onclick=()=>{if(held===h)unhold('I tapped Undo: don’t send it to my agent.')};
   return J({done:false,scheduled:true,undo_ms:ms,text,message:'Not sent yet: the app sends these exact words in '+Math.round(ms/1000)+' seconds unless the person taps Undo. Say in a few words that it is on its way. Do not ask for a yes, and do not call post_to_my_agent again for it.'})}
 // The OK: read back on the sheet, a tap or a short yes said after it.
 function askYes(s,c){c.yes=false;c.armed=false;c.at=Date.now();s.confirm=c;okEl.hidden=false;okEl.innerHTML='';const p=document.createElement('div');p.textContent=c.ask+' '+T('Say yes, or tap.');

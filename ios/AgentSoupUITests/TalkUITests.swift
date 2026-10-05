@@ -426,6 +426,57 @@ final class TalkUITests: AtteoUITestCase {
         endAndSettle(a, before: before)
     }
 
+    /// opus-d #2726: a plain remark (no "tell my agent …") never auto-sends, and neither does a transcript whose answer
+    /// already finished (stale). Both read back and wait for a yes, and nothing is sent.
+    func testPlainRemarkAndStaleTranscriptStillAsk() {
+        for script in ["remark", "stale"] {
+            let message = "the release notes are ready \(script) \(UUID().uuidString.prefix(6))"
+            let chat = agentChat
+            autosend(true)
+            let a = scripted(script, post: message)
+            a.buttons["talk-orb"].tap()
+            let card = a.descendants(matching: .any)["talk-confirm"]
+            XCTAssertTrue(card.waitForExistence(timeout: 15), "\(script): it asks")
+            XCTAssertFalse(a.descendants(matching: .any)["talk-hold"].exists, "\(script): never held to auto-send")
+            Thread.sleep(forTimeInterval: 6)
+            XCTAssertFalse(texts(chat).contains { $0.contains(message) }, "\(script): nothing sent")
+            a.buttons["talk-confirm-no"].tap()
+            a.buttons["talk-end"].tap()
+            autosend(false)
+            a.terminate()
+        }
+    }
+
+    /// A hold never outlives the call (opus-b #2721): End during the hold drops it unsent.
+    func testHeldPostDroppedWhenCallEnds() {
+        let message = "end drops it \(UUID().uuidString.prefix(6))"
+        let chat = agentChat
+        autosend(true)
+        defer { autosend(false) }
+        let a = scripted("dictate", post: message)
+        a.buttons["talk-orb"].tap()
+        XCTAssertTrue(a.buttons["talk-undo"].waitForExistence(timeout: 12), "held")
+        a.buttons["talk-end"].tap()
+        Thread.sleep(forTimeInterval: 7)
+        XCTAssertFalse(texts(chat).contains { $0.contains(message) }, "nothing sent after End")
+    }
+
+    /// The same when the app goes to the background mid-hold.
+    func testHeldPostDroppedInBackground() {
+        let message = "background drops it \(UUID().uuidString.prefix(6))"
+        let chat = agentChat
+        autosend(true)
+        defer { autosend(false) }
+        let a = scripted("dictate", post: message)
+        a.buttons["talk-orb"].tap()
+        XCTAssertTrue(a.buttons["talk-undo"].waitForExistence(timeout: 12), "held")
+        XCUIDevice.shared.press(.home)
+        Thread.sleep(forTimeInterval: 7)
+        XCTAssertFalse(texts(chat).contains { $0.contains(message) }, "nothing sent after going to the background")
+        a.activate()
+        XCTAssertFalse(a.descendants(matching: .any)["talk-hold"].exists, "and nothing waiting when back")
+    }
+
     /// Loopback (jxn's agent #2644): on the loudspeaker, Atteo reads theo's "post this to my agent: …" aloud and the mic
     /// hears it as maya. Speech that began over Atteo's voice is never her dictation: with auto-send on, it still asks.
     func testLoopbackStillNeedsYesWithAutosendOn() throws {

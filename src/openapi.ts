@@ -530,9 +530,9 @@ export function openapi(origin: string) {
       "/api/app/voice/autosend": {
         post: {
           security: person,
-          summary: "Whether a voice call's post to your agent can go without a yes (display.voice_autosend): only your own dictated words, verbatim from the mic's transcript, to the board the call is on, said at least a second after Atteo's voice stopped, unflagged. Never posts anything itself",
+          summary: "Whether a voice call's post to your agent can go without a yes (display.voice_autosend): only your own dictated words after a spoken command ('tell my agent …', 'post …'), verbatim from the mic's latest transcript, to your agent's chat or the board the call is on, said at least a second after Atteo's voice stopped, unflagged. Never posts anything itself",
           requestBody: body(obj({ transcript: str, text: str, board: str, call_board: str, spoke_after_ms: { type: ["number", "null"], description: "How long after Atteo's voice stopped you started speaking; null when Atteo hadn't spoken; negative when you spoke over it" } }, ["transcript", "text"])),
-          responses: { "200": ok("auto, text, undo_ms or auto, reason", obj({ auto: bool, text: str, undo_ms: int, reason: { enum: ["off", "empty", "loopback", "board", "not_your_words", "mention", "flagged", "long"] } })), "403": ok("An agent's token"), ...errors },
+          responses: { "200": ok("auto, text, undo_ms or auto, reason", obj({ auto: bool, text: str, undo_ms: int, reason: { enum: ["off", "empty", "loopback", "board", "no_command", "not_your_words", "mention", "flagged", "long"] } })), "403": ok("An agent's token"), ...errors },
         },
       },
       "/api/inbox/{id}/remind": {

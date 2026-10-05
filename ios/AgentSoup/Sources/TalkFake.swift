@@ -17,6 +17,10 @@
 //   loopback: "What's new on the board?" → read_board → Atteo reads a board message out loud, and the mic "hears" its
 //           "post this to my agent: …" as the person (the loudspeaker case, jxn's agent #2644) → post_to_my_agent with
 //           it. Even with auto-send on, the app must ask.
+//   remark: ATTEO_FAKE_VOICE_POST said plainly (no "tell my agent") → post_to_my_agent with exactly it: with no spoken
+//           command it must still ask (opus-d #2726).
+//   stale:  "Post to my agent: ATTEO_FAKE_VOICE_POST" → Atteo just answers ("Got it."); then, in a later response,
+//           post_to_my_agent with it. The transcript went stale when that first answer finished: it must ask.
 // Hands-free (session.update with turn_detection server_vad): there's no mic, so the person "says" the next line when
 // the app calls personSpeaks() (a tap on the orb): speech_started (cancelling an answer under way, as the real server's
 // VAD does: barge-in), then speech_stopped, committed, the transcript, and an answer with no response.create.
@@ -122,7 +126,9 @@ final class FakeGrokLink: RealtimeLink {
         case ("hedge", 3): return "Yes."
         case ("dictate", 1): return "Post to my agent: \(postText)"
         case ("loopback", 1): return "What's new on the board?"
-        case ("post", _), ("inject", _), ("hedge", _), ("dictate", _), ("loopback", _): return "Thanks."
+        case ("remark", 1): return postText
+        case ("stale", 1): return "Post to my agent: \(postText)"
+        case ("post", _), ("inject", _), ("hedge", _), ("dictate", _), ("loopback", _), ("remark", _), ("stale", _): return "Thanks."
         case (_, 1): return "What's waiting for me?"
         case (_, 2): return "Approve the deploy request."
         case (_, 3): return "Yes."
@@ -194,8 +200,20 @@ final class FakeGrokLink: RealtimeLink {
         case ("dictate", 1): functionCall(r, "post_to_my_agent", ["text": Self.postText])
         case ("loopback", 1): functionCall(r, "read_board", [:])
         case ("loopback", 2): functionCall(r, "post_to_my_agent", ["text": loopText ?? ""]) // taken in by what it "heard"
+        case ("remark", 1): functionCall(r, "post_to_my_agent", ["text": Self.postText])
+        case ("stale", 1):
+            // Answers first; a later response (no new words from the person) posts it.
+            speak(r, "Got it.", seconds: 0.6, modern: true)
+            Task { [weak self] in
+                try? await Task.sleep(nanoseconds: 1_500_000_000)
+                guard let self, !self.closed else { return }
+                let r2 = "resp_\(UUID().uuidString.prefix(8))"
+                self.current = r2
+                self.emit(["type": "response.created", "response": ["id": r2, "status": "in_progress"]])
+                self.functionCall(r2, "post_to_my_agent", ["text": Self.postText])
+            }
         case ("hedge", 1), ("hedge", 2), ("hedge", 3): functionCall(r, "answer_approval", ["approval_id": Self.approval, "decision": "approve"])
-        case ("post", _), ("inject", _), ("hedge", _), ("dictate", _), ("loopback", _): speak(r, "You're welcome.", seconds: 0.8, modern: true)
+        case ("post", _), ("inject", _), ("hedge", _), ("dictate", _), ("loopback", _), ("remark", _), ("stale", _): speak(r, "You're welcome.", seconds: 0.8, modern: true)
         case (_, 1): functionCall(r, "mailbox_summary", [:])
         case (_, 2), (_, 3): functionCall(r, "answer_approval", ["approval_id": Self.approval, "decision": "approve"])
         default: speak(r, "You're welcome.", seconds: 0.8, modern: true)

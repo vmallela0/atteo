@@ -79,6 +79,24 @@ const call = async (p) => { await p.locator(".bp-head [data-talk]").click(); awa
   await p.locator("#talk-ok button", { hasText: "No" }).click(); await p.waitForTimeout(300);
   check(!(await agentChat(p)).some((t) => t.includes(keys)), "and nothing was posted");
 
+  // opus-d #2726: a plain remark (no spoken command) asks.
+  await p.waitForTimeout(1200);
+  const remark = `the release notes are ready ${run}`;
+  await say(p, remark);
+  await fnCall(p, "a7", "post_to_my_agent", { text: remark }); await p.waitForTimeout(600);
+  check(/needs_confirmation/.test(await outOf(p, "a7")) && !(await p.locator(".talk-hold").count()), "a plain remark, with no \"tell my agent\", asks");
+  await p.locator("#talk-ok button", { hasText: "No" }).click(); await p.waitForTimeout(300);
+  // …and a transcript whose answer already finished (stale) asks, even with a command.
+  const stale = `ship at noon ${run}`;
+  await say(p, `Post to my agent: ${stale}`);
+  await emit(p, { type: "response.created", response: { id: "r20" } });
+  await emit(p, { type: "response.output_audio_transcript.done", response_id: "r20", transcript: "Got it." });
+  await emit(p, { type: "response.done", response: { id: "r20" } }); await p.waitForTimeout(300);
+  await fnCall(p, "a8", "post_to_my_agent", { text: stale }); await p.waitForTimeout(600);
+  check(/needs_confirmation/.test(await outOf(p, "a8")) && !(await p.locator(".talk-hold").count()), "a stale transcript (its answer already finished) asks");
+  await p.locator("#talk-ok button", { hasText: "No" }).click(); await p.waitForTimeout(300);
+  check(!(await agentChat(p)).some((t) => t.includes(remark) || t.includes(stale)), "and neither was posted");
+
   // Another board than the call's asks.
   const other = (await ops("boards", { user: P, title: `Other ${run}` })).board.id;
   await p.waitForTimeout(1200); // well clear of Atteo's voice
@@ -86,8 +104,28 @@ const call = async (p) => { await p.locator(".bp-head [data-talk]").click(); awa
   await fnCall(p, "a5", "post_to_my_agent", { text: `lunch at noon ${run}`, board: other }); await p.waitForTimeout(600);
   check(/needs_confirmation/.test(await outOf(p, "a5")), "a different board asks");
   await p.locator("#talk-ok button", { hasText: "No" }).click();
+  // A hold never outlives the call (opus-b #2721): End during the hold sends nothing.
+  await p.waitForTimeout(1200);
+  const ended = `ended mid hold ${run}`;
+  await say(p, `Post to my agent: ${ended}`);
+  await fnCall(p, "a6", "post_to_my_agent", { text: ended }); await p.waitForTimeout(600);
+  check(await p.locator(".talk-hold").isVisible(), "held");
+  await p.locator("#talk-end").click(); await p.waitForTimeout(6000);
+  check(!(await agentChat(p)).some((t) => t.includes(ended)) && !(await p.locator(".talk-hold").count()), "End during the hold: nothing posted, and the box is gone");
   check(p.errors.length === 0, `no page errors (${p.errors.join("; ")})`);
-  await p.locator("#talk-end").click(); await p.waitForTimeout(300); await ctx.close(); }
+  await ctx.close(); }
+
+// 1b. Closing the sheet (Esc) during a hold sends nothing either.
+{ const { ctx, p } = await page(P, `/b/${board}`);
+  await call(p);
+  const closed = `closed mid hold ${run}`;
+  await say(p, `Post to my agent: ${closed}`);
+  await fnCall(p, "c1", "post_to_my_agent", { text: closed }); await p.waitForTimeout(600);
+  check(await p.locator(".talk-hold").isVisible(), "held again");
+  await p.keyboard.press("Escape"); await p.waitForTimeout(6000);
+  check(!(await p.locator("dialog.talk").evaluate((d) => d.open)) && !(await agentChat(p)).some((t) => t.includes(closed)) && !(await p.locator(".talk-hold").count()), "closing the sheet during the hold: nothing posted, nothing left on screen");
+  check(p.errors.length === 0, `no page errors (${p.errors.join("; ")})`);
+  await ctx.close(); }
 
 // 2. Setting off (the default): your own words still ask.
 { const { ctx, p } = await page(V, `/b/${board}`);

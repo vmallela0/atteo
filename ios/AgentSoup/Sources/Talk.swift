@@ -271,8 +271,10 @@ final class TalkSession: ObservableObject {
     private var atteoEnd: Date? // when Atteo's voice stops (or stopped): playback queued until then, cut short by a barge-in
     private var youStartedAfter: Double? // ms after Atteo's voice stopped that this turn's speech began (negative: over it)
     private var youStartedSeen = false // this turn had a speech start of its own
-    private struct LastYou { let text: String; let afterMs: Double? }
-    private var lastYou: LastYou? // your last final transcript, once: an auto-send uses it up
+    private struct LastYou { let text: String; let afterMs: Double?; var response: String? = nil }
+    /// Your last final transcript, once and only while fresh: an auto-send uses it up, and it's dropped when Atteo's
+    /// answer to it (the next response) finishes (opus-d #2726), so it can't qualify a later post.
+    private var lastYou: LastYou?
     /// Your own words, held before they go (5 s, with Undo).
     struct PendingSend: Equatable { let id: UUID; let text: String; var secondsLeft: Int; var sending = false }
     @Published private(set) var pendingSend: PendingSend?
@@ -463,6 +465,9 @@ final class TalkSession: ObservableObject {
         guard !ended else { return }
         ended = true
         if let p { problem = p }
+        // A held auto-send never outlives the call (opus-b #2721): End, dismissing Talk and the app going to the
+        // background all come here, and what was waiting is dropped unsent.
+        if pendingSend?.sending != true { pendingTask?.cancel(); pendingTask = nil; pendingSend = nil }
         let (sid, seconds) = closeSession()
         ticker?.cancel()
         stopReading()
@@ -963,6 +968,7 @@ final class TalkSession: ObservableObject {
             activeResponse = rid ?? "r-\(UUID().uuidString)"
             thinking = true
             stoppedAt = nil
+            if lastYou != nil, lastYou?.response == nil { lastYou?.response = activeResponse } // Atteo's answer to it
         case "response.output_audio.delta", "response.audio.delta":
             guard let b64 = e["delta"] as? String, let pcm = Data(base64Encoded: b64) else { return }
             let d = audio.play(pcm)
@@ -1000,6 +1006,7 @@ final class TalkSession: ObservableObject {
                 call(name: item["name"] as? String, id: item["call_id"] as? String, arguments: item["arguments"])
             }
         case "response.done":
+            if let mine = lastYou?.response, mine == (rid ?? activeResponse) { lastYou = nil } // that answer is over: stale now
             if let r = rid ?? activeResponse {
                 flushGrok("grok-\(r)")
                 if let i = captions.lastIndex(where: { $0.id == "grok-\(r)" }) { captions[i].done = true }
@@ -1093,8 +1100,9 @@ final class TalkSession: ObservableObject {
         let note = Caption(id: "tool-\(id)", who: .note, text: Self.doing(name, args, confirmed: confirm?.confirmed == true))
         captions.append(note)
         let gen = generation
+        let you = lastYou // as it is now: its response may finish (and drop it) before the task runs
         Task {
-            let output = await runTool(name, args)
+            let output = await runTool(name, args, you: you)
             if let i = captions.firstIndex(where: { $0.id == note.id }) { captions[i].done = true }
             guard gen == generation else { return } // its session stood by or ended meanwhile
             toolsRunning -= 1
@@ -1120,7 +1128,7 @@ final class TalkSession: ObservableObject {
 
     /// answer_approval and post_to_my_agent ask first: a second call after a yes for exactly the same thing runs it;
     /// anything else (a first call, other words, another board) asks again. Text on a board can't post by itself (#1761).
-    private func runTool(_ name: String, _ a: [String: Any]) async -> String {
+    private func runTool(_ name: String, _ a: [String: Any], you: LastYou? = nil) async -> String {
         switch name {
         case "answer_approval":
             let id = a["approval_id"] as? String ?? "", decision = a["decision"] as? String ?? ""
@@ -1147,7 +1155,7 @@ final class TalkSession: ObservableObject {
                 return await runRoute(name, Self.postArgs(text, target)) // exactly what was read back and confirmed
             }
             // Your own dictated words (display.voice_autosend): held 5 s with Undo, then sent; anything else asks below.
-            if autosend, confirm == nil, pendingSend == nil, let words = await autosendWords(text, board: target) {
+            if autosend, confirm == nil, pendingSend == nil, let you, let words = await autosendWords(text, board: target, you: you) {
                 return hold(words, board: target)
             }
             confirm = Confirm(kind: kind)
@@ -1181,8 +1189,7 @@ final class TalkSession: ObservableObject {
     }
 
     /// The exact words to send, when the server says this post is your own (else nil: ask).
-    private func autosendWords(_ text: String, board target: String?) async -> String? {
-        guard let you = lastYou else { return nil }
+    private func autosendWords(_ text: String, board target: String?, you: LastYou) async -> String? {
         let body: [String: Any] = [
             "transcript": you.text, "text": text,
             "board": target ?? NSNull(), "call_board": board?.id ?? NSNull(),
@@ -1206,7 +1213,7 @@ final class TalkSession: ObservableObject {
                 guard let self, !Task.isCancelled, self.pendingSend?.id == p.id else { return }
                 if left > 0 { self.pendingSend?.secondsLeft = left }
             }
-            guard let self, !Task.isCancelled, self.pendingSend?.id == p.id else { return }
+            guard let self, !Task.isCancelled, !self.ended, self.pendingSend?.id == p.id else { return }
             self.pendingSend?.sending = true
             let out = await self.runRoute("post_to_my_agent", Self.postArgs(words, target))
             guard self.pendingSend?.id == p.id else { return }

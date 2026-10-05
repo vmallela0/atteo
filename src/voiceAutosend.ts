@@ -1,10 +1,13 @@
-// Auto-send from a voice call (vedu #2638, rules jxn's agent #2644). With display.voice_autosend on, a post to your agent
-// can go out without the spoken or tapped yes, but only when it is your own words, as the mic heard them:
-//   - the text Atteo's tool call carries must be your last transcript (the speech-to-text of the mic, never the model's
-//     rephrasing), or that transcript after a spoken command like "tell my agent" / "post to the board:". What gets
-//     posted is that slice of the transcript, verbatim, not the tool call's text;
+// Auto-send from a voice call (vedu #2638, rules jxn's agent #2644, opus-d #2726). With display.voice_autosend on, a post
+// to your agent can go out without the spoken or tapped yes, but only when it is your own words, as the mic heard them:
+//   - your last transcript (the speech-to-text of the mic, never the model's rephrasing) starts with a spoken command
+//     ("tell my agent …", "post to the board: …", "send …"), and the tool call's text is exactly what followed it. That
+//     slice of the transcript is what gets posted, verbatim, not the tool call's text. A plain remark said to Atteo,
+//     with no command, never qualifies (#2726);
 //   - you started speaking at least LOOPBACK_MS after Atteo's voice stopped (the client measures it): on the loudspeaker,
 //     Atteo reading a hostile message aloud can reach the mic and come back as "your" transcript;
+//   - the transcript is fresh: the client drops it once Atteo's answer to it finishes (#2726), so a transcript can't
+//     qualify a post made later in the call;
 //   - the transcript passes the injection screen, names nobody (no @), and isn't long;
 //   - it goes only to your agent's own chat (private to you) or to the board the call is on, with that board's normal
 //     audience: post_to_my_agent never sets people_only or just-mine. Any other board asks.
@@ -33,18 +36,23 @@ export function sayWords(s: string): string {
 const FILLER = new Set(["um", "umm", "uh", "uhh", "erm", "er", "hmm", "mm"]);
 
 // A spoken command before the message itself: "tell my agent", "post to the board:", "send this to my agent that".
-const COMMAND = /^\s*(?:(?:hey|ok|okay|so)[,\s]+)?(?:atteo[,\s]+)?(?:(?:please|can you|could you)\s+)?(?:post|send|tell|say|write|message|ask)\b(?:\s+(?:this|that|it))?(?:\s+(?:to|on|for)?\s*(?:my|the)\s+(?:agent'?s?|agent'?s chat|board|agent board|chat|assistant))?(?:\s+(?:board|chat))?\s*(?:[:,–—-]\s*|(?:that|saying|to)\b\s*)?/iu;
+const COMMAND = /^\s*(?:(?:hey|ok|okay|so)[,\s]+)?(?:atteo[,\s]+)?(?:(?:please|can you|could you)\s+)?(?:post|send|tell|write|message)\b(?:\s+(?:this|that|it))?(?:\s+(?:to|on|for)?\s*(?:my|the)\s+(?:agent'?s?|agent'?s chat|board|agent board|chat|assistant))?(?:\s+(?:board|chat))?\s*(?:[:,–—-]\s*|(?:that|saying|to)\b\s*)?/iu;
+
+/** The message after a leading spoken command, or null when the transcript has no command (a plain remark). */
+export function commandedPart(transcript: string): string | null {
+  const t = String(transcript ?? "").trim();
+  const m = t.match(COMMAND);
+  if (!m || !m[0].trim()) return null;
+  const rest = t.slice(m[0].length).trim();
+  return rest || null;
+}
 
 /** The message part of what was said: the transcript without a leading spoken command (or all of it). */
 export function messagePart(transcript: string): string {
-  const t = String(transcript ?? "").trim();
-  const m = t.match(COMMAND);
-  if (!m || !m[0].trim()) return t;
-  const rest = t.slice(m[0].length).trim();
-  return rest || t;
+  return commandedPart(transcript) ?? String(transcript ?? "").trim();
 }
 
-export type AutosendReason = "off" | "empty" | "loopback" | "board" | "not_your_words" | "mention" | "flagged" | "long";
+export type AutosendReason = "off" | "empty" | "loopback" | "board" | "no_command" | "not_your_words" | "mention" | "flagged" | "long";
 export type AutosendVerdict = { auto: true; text: string; undo_ms: number } | { auto: false; reason: AutosendReason };
 
 /**
@@ -59,13 +67,11 @@ export function autosendVerdict(o: { enabled: boolean; transcript: string; text:
   if (o.spokeAfterMs !== null && !(o.spokeAfterMs >= LOOPBACK_MS)) return { auto: false, reason: "loopback" };
   // Your agent's own chat (no board) is private to you; a board must be the one this call is on.
   if (o.board && o.board !== o.callBoard) return { auto: false, reason: "board" };
+  const post = commandedPart(transcript);
+  if (post === null) return { auto: false, reason: "no_command" };
   const said = sayWords(o.text);
-  const part = messagePart(transcript);
-  let post: string | null = null;
-  if (said && said === sayWords(part)) post = part;
-  else if (said && said === sayWords(transcript)) post = transcript;
-  if (post === null) return { auto: false, reason: "not_your_words" };
-  if (/@/.test(post) || /@/.test(transcript)) return { auto: false, reason: "mention" };
+  if (!said || said !== sayWords(post)) return { auto: false, reason: "not_your_words" };
+  if (/@/.test(transcript)) return { auto: false, reason: "mention" };
   if (screenText(transcript)) return { auto: false, reason: "flagged" };
   if (post.length > MAX_AUTOSEND_CHARS) return { auto: false, reason: "long" };
   return { auto: true, text: post, undo_ms: UNDO_MS };
