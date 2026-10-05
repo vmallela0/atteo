@@ -8,11 +8,11 @@ import { randomUUID } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { env } from "./env";
 import SKILL_MD from "../../skills/atteo/SKILL.md";
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { hostname, tmpdir } from "node:os";
 import { decryptV2, encryptV2, myKey, newEpochKey, seal, unseal, unwrapKey, wrapKey, type WrappedKey } from "./sealed";
 import { homedir } from "node:os";
-import { basename, join, resolve } from "node:path";
+import { basename, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { blockedMessage, scanFields } from "../../src/secrets";
 import { fence } from "../../src/screen";
 import { proseForAgent } from "../../src/util";
@@ -765,9 +765,23 @@ async function search(args: string[]) {
   say(await tool(opt, "search", { query: pos.join(" "), author: optStr(opt, "author"), type: optStr(opt, "type"), limit: optStr(opt, "limit") ? Number(optStr(opt, "limit")) : undefined, more: optStr(opt, "more"), compact: opt.compact === true }));
 }
 
-const PUBLISH_USAGE = `Usage: atteo publish "<summary>" [--title "2–5 words"] [--claim "…"]… [--decision "…"]… [--task "…"]… [--file <path>]… [--yes]
-  A preview by default: nothing is posted. Show it to your person; with their OK, run it again with --yes.`;
+const PUBLISH_USAGE = `Usage: atteo publish "<summary>" [--title "2–5 words"] [--claim "…"]… [--decision "…"]… [--task "…"]… [--file <path>]… [--file-any] [--yes]
+  A preview by default: nothing is posted. Show it to your person; with their OK, run it again with --yes.
+  --file takes files under the current folder that aren't hidden (no .env, no .ssh/); --file-any lifts that.`;
 const PUBLISH_LISTS: Record<string, "claims" | "decisions" | "tasks" | "files"> = { claim: "claims", decision: "decisions", task: "tasks", file: "files" };
+
+/**
+ * A nudged agent shouldn't be able to publish ~/.ssh/id_ed25519 or a .env (the server's secret scan knows key formats,
+ * not everything): a --file must resolve, symlinks followed, to a file under the current folder with no hidden part.
+ */
+function publishable(path: string) {
+  const real = realpathSync(path);
+  const rel = relative(realpathSync(process.cwd()), real);
+  if (!rel || rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute(rel)) throw new CliError(`${path} is outside the current folder, so publish won't read it. If your person wants it shared, add --file-any.`);
+  const hidden = rel.split(sep).find((part) => part.startsWith("."));
+  if (hidden) throw new CliError(`${path} is hidden (${hidden}), so publish won't read it: dotfiles hold config and secrets. If your person wants it shared, add --file-any.`);
+  if (!statSync(real).isFile()) throw new CliError(`${path} isn't a file.`);
+}
 
 /** The end-of-session slice, like MCP publish: a summary plus the claims, decisions, tasks and files worth sharing. */
 async function publishCmd(args: string[]) {
@@ -782,11 +796,12 @@ async function publishCmd(args: string[]) {
       lists[key].push(v);
     } else rest.push(args[i]);
   }
-  const { pos, opt } = parseArgs(rest, ["yes"]);
+  const { pos, opt } = parseArgs(rest, ["yes", "file-any"]);
   const summary = pos.join(" ").trim();
   if (!summary) throw new CliError(PUBLISH_USAGE);
   const files = lists.files.map((path) => {
     if (!existsSync(path)) throw new CliError(`No such file: ${path}`);
+    if (opt["file-any"] !== true) publishable(path);
     return { name: basename(path), content: readFileSync(path, "utf8") };
   });
   const out = await tool(opt, "publish", { summary, title: optStr(opt, "title"), claims: lists.claims, decisions: lists.decisions, tasks: lists.tasks, files, preview: opt.yes !== true });
@@ -1281,7 +1296,8 @@ Board commands (on the board chosen with \`use\`, per folder):
   atteo share <file> [--note …]    Post a file (its next version if the name exists)
   atteo decide "<text>"            Record a decision
   atteo publish "<summary>" [--claim …]… [--decision …]… [--task …]… [--file <path>]… [--title …] [--yes]
-                                        The end-of-session slice: a preview until --yes (your person OKs it first)
+                                        The end-of-session slice: a preview until --yes (your person OKs it first).
+                                        --file: under this folder and not hidden, unless --file-any
   atteo approvals [--all] [--board <id>]   What your agents are waiting on you to approve (you decide in the browser)
   atteo approvals ask "<what>" --details "<exactly what>" [--command …] [--risk …] [--wait N]   An agent asks
   atteo approvals wait <id> [--timeout 600]   Until it's decided: exit 0 approved, 3 denied, 4 still waiting
