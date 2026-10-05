@@ -26,3 +26,13 @@ describe("display.voice_turns", () => {
     expect(() => mergeDisplay(DISPLAY_DEFAULTS, { voice_turns: "called" })).toThrow();
   });
 });
+
+describe("display.voice_autosend", () => {
+  it("is off by default, an on/off switch, and nothing else (vedu #2638)", () => {
+    expect(DISPLAY_DEFAULTS.voice_autosend).toBe(false);
+    expect(mergeDisplay(DISPLAY_DEFAULTS, { voice_autosend: true }).voice_autosend).toBe(true);
+    expect(mergeDisplay({ ...DISPLAY_DEFAULTS, voice_autosend: true }, { voice_autosend: false }).voice_autosend).toBe(false);
+    expect(mergeDisplay({ ...DISPLAY_DEFAULTS, voice_autosend: true }, { text: "l" }).voice_autosend).toBe(true);
+    for (const bad of ["true", "on", 1, null]) expect(() => mergeDisplay(DISPLAY_DEFAULTS, { voice_autosend: bad })).toThrow(/true or false/);
+  });
+});

@@ -30,6 +30,7 @@ import { isOperator } from "./tts";
 import type { Env } from "./types";
 import * as registry from "./registry";
 import { isLocalHost } from "./util";
+import { autosendVerdict } from "./voiceAutosend";
 import { monthOf, NOT_SET_UP, rateHit, VOICES, DEFAULT_VOICE, type Voice } from "./tts";
 
 export const MODEL = "grok-voice-latest";
@@ -260,6 +261,8 @@ export interface VoiceDeps {
   /** The person's saved voice (display.voice), used when a session names none (vedu #1717). */
   defaultVoice?: Voice;
   defaultTurns?: VoiceTurns;
+  /** display.voice_autosend: dictated posts to your agent go without a yes (voiceAutosend.ts). */
+  autosend?: boolean;
   /** Everyone's minutes per month; Infinity for operators (vedu #1584). */
   globalMinutes?: number;
   sessionMinutes: number;
@@ -318,6 +321,7 @@ export async function createSession(user: { name: string; display_name?: string 
       hands_free: body.hands_free === true,
       voice_turns: turns,
       pause_ms: PAUSE_MS,
+      voice_autosend: deps.autosend === true,
       max_seconds: s.seconds,
       minutes_used: minutes(used),
       minutes_budget: deps.budgetMinutes,
@@ -341,15 +345,37 @@ export async function finishSession(user: string, raw: unknown, deps: Pick<Voice
 }
 
 /** GET /api/app/voice/status: whether to show talk mode, and this month's minutes. */
-export async function status(user: string, deps: Pick<VoiceDeps, "db" | "provider" | "budgetMinutes" | "now" | "defaultVoice" | "defaultTurns">) {
+export async function status(user: string, deps: Pick<VoiceDeps, "db" | "provider" | "budgetMinutes" | "now" | "defaultVoice" | "defaultTurns" | "autosend">) {
   return {
     enabled: !!deps.provider,
     minutes_used: minutes(await usedSeconds(deps.db, user, (deps.now ?? Date.now)())),
     minutes_budget: deps.budgetMinutes,
     voice_default: deps.defaultVoice ?? DEFAULT_VOICE,
     voice_turns: deps.defaultTurns ?? DEFAULT_VOICE_TURNS,
+    voice_autosend: deps.autosend === true,
     voices: [...VOICES],
   };
+}
+
+/**
+ * POST /api/app/voice/autosend {transcript, text, board?, call_board?, spoke_after_ms?}: whether a post_to_my_agent call can
+ * go without a yes (voiceAutosend.ts). {auto: true, text, undo_ms} gives the words to post (your transcript, verbatim)
+ * and how long the client holds them with an Undo; {auto: false, reason} means ask as usual. It never posts anything.
+ */
+export function autosendCheck(raw: unknown, enabled: boolean): Response {
+  const b = (raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {}) as Record<string, unknown>;
+  const str = (v: unknown) => (typeof v === "string" ? v : "");
+  const id = (v: unknown) => (typeof v === "string" && v ? v : null);
+  if (b.spoke_after_ms != null && typeof b.spoke_after_ms !== "number") return err("spoke_after_ms must be a number (null when Atteo hadn't spoken).", 400);
+  const verdict = autosendVerdict({
+    enabled,
+    transcript: str(b.transcript).slice(0, 4000),
+    text: str(b.text).slice(0, 4000),
+    board: id(b.board),
+    callBoard: id(b.call_board),
+    spokeAfterMs: typeof b.spoke_after_ms === "number" ? b.spoke_after_ms : null,
+  });
+  return Response.json(verdict, { headers: { "cache-control": "no-store" } });
 }
 
 /**
@@ -358,7 +384,11 @@ export async function status(user: string, deps: Pick<VoiceDeps, "db" | "provide
  */
 export async function route(request: Request, env: Env, path: string, viewer: { name: string; display_name?: string | null; via?: "agent" | "person" } | null): Promise<Response> {
   const method = request.method;
-  const known = (path === "/api/app/voice/session" && method === "POST") || (path === "/api/app/voice/session/end" && method === "POST") || (path === "/api/app/voice/status" && method === "GET");
+  const known =
+    (path === "/api/app/voice/session" && method === "POST") ||
+    (path === "/api/app/voice/session/end" && method === "POST") ||
+    (path === "/api/app/voice/autosend" && method === "POST") ||
+    (path === "/api/app/voice/status" && method === "GET");
   if (!known) return err("not found", 404);
   if (!viewer) return err("sign in required", 401);
   if (viewer.via === "agent") return err("Voice is for people, in the web or the app.", 403);
@@ -367,6 +397,7 @@ export async function route(request: Request, env: Env, path: string, viewer: { 
   const deps: VoiceDeps = {
     defaultVoice: saved.voice,
     defaultTurns: saved.voice_turns,
+    autosend: saved.voice_autosend,
     db: env.DB,
     provider: providerFor(env, request),
     budgetMinutes: isOperator(env, me) ? 100_000 : budgetMinutesFor(env),
@@ -381,6 +412,7 @@ export async function route(request: Request, env: Env, path: string, viewer: { 
   };
   if (path === "/api/app/voice/status") return Response.json({ ...(await status(me, deps)), operator: isOperator(env, me) }, { headers: { "cache-control": "no-store" } });
   const body = await request.json().catch(() => null);
+  if (path === "/api/app/voice/autosend") return autosendCheck(body, saved.voice_autosend);
   if (path === "/api/app/voice/session/end") return finishSession(me, body, deps);
   return createSession(viewer, body, deps);
 }

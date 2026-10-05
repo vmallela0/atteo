@@ -929,4 +929,8 @@ export const JA: Record<string, string> = {
   "Right away": "すぐに",
   "After a pause": "間を置いてから",
   "When I tap Done": "「完了」をタップしたとき",
+  "Undo": "取り消す",
+  "Sending…": "送信中…",
+  "Sending to your agent in {n}s: “{t}”": "{n}秒後にあなたのエージェントへ送信：「{t}」",
+  "Send what I dictate without asking": "口述した内容を確認なしで送信",
 };

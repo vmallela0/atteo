@@ -929,4 +929,8 @@ export const AR: Record<string, string> = {
   "Right away": "فورًا",
   "After a pause": "بعد توقف قصير",
   "When I tap Done": "عندما أنقر تم",
+  "Undo": "تراجع",
+  "Sending…": "جارٍ الإرسال…",
+  "Sending to your agent in {n}s: “{t}”": "سيُرسل إلى وكيلك خلال {n} ث: «{t}»",
+  "Send what I dictate without asking": "إرسال ما أمليه دون سؤال",
 };

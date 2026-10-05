@@ -317,9 +317,14 @@ export interface Display {
   voice: "eve" | "ara" | "leo" | "rex" | "sal"; // read-aloud and voice chat (vedu #1717); xAI's voices
   replies: "chat" | "thread"; // replies in the chat (each with a quote bar), or only in their threads (vedu #2360)
   voice_turns: "quick" | "pause" | "tap"; // voice chat: when Atteo answers (vedu #2460): at once, after a long pause, or when you tap Done
+  voice_autosend: boolean; // voice chat: what you dictate to your agent goes out without a yes, after a 5s Undo (vedu #2638); off by default
 }
-export const DISPLAY_DEFAULTS: Display = { text: "m", density: "comfortable", theme: "system", mode: "auto", lang: "auto", voice: "eve", replies: "chat", voice_turns: "pause" };
-const DISPLAY_VALUES: Record<keyof Display, readonly string[]> = {
+export const DISPLAY_DEFAULTS: Display = { text: "m", density: "comfortable", theme: "system", mode: "auto", lang: "auto", voice: "eve", replies: "chat", voice_turns: "pause", voice_autosend: false };
+/** The on/off settings; every other one is one of DISPLAY_VALUES' words. */
+const DISPLAY_BOOLS = ["voice_autosend"] as const;
+type DisplayBool = (typeof DISPLAY_BOOLS)[number];
+const isDisplayBool = (k: string): k is DisplayBool => (DISPLAY_BOOLS as readonly string[]).includes(k);
+const DISPLAY_VALUES: Record<Exclude<keyof Display, DisplayBool>, readonly string[]> = {
   text: ["s", "m", "l"],
   density: ["comfortable", "compact"],
   theme: ["system", "light", "dark"],
@@ -329,7 +334,7 @@ const DISPLAY_VALUES: Record<keyof Display, readonly string[]> = {
   replies: ["chat", "thread"],
   voice_turns: ["quick", "pause", "tap"],
 };
-const isDisplayKey = (k: string): k is keyof Display => Object.prototype.hasOwnProperty.call(DISPLAY_VALUES, k);
+const isDisplayKey = (k: string): k is Exclude<keyof Display, DisplayBool> => Object.prototype.hasOwnProperty.call(DISPLAY_VALUES, k);
 
 /** The stored JSON as a full Display: a missing (or unrecognised) value is the default. */
 function readDisplay(raw: string | null): Display {
@@ -338,17 +343,23 @@ function readDisplay(raw: string | null): Display {
     const parsed: unknown = raw ? JSON.parse(raw) : {};
     if (parsed && typeof parsed === "object") v = parsed as Record<string, unknown>;
   } catch {}
-  const out: Record<string, string> = { ...DISPLAY_DEFAULTS };
-  for (const k of Object.keys(DISPLAY_VALUES) as (keyof Display)[]) if (typeof v[k] === "string" && DISPLAY_VALUES[k].includes(v[k] as string)) out[k] = v[k] as string;
+  const out: Record<string, string | boolean> = { ...DISPLAY_DEFAULTS };
+  for (const k of Object.keys(DISPLAY_VALUES) as Exclude<keyof Display, DisplayBool>[]) if (typeof v[k] === "string" && DISPLAY_VALUES[k].includes(v[k] as string)) out[k] = v[k] as string;
+  for (const k of DISPLAY_BOOLS) if (typeof v[k] === "boolean") out[k] = v[k] as boolean;
   return out as unknown as Display;
 }
 
 /** A partial update merged onto the current settings. A bad key or value throws (a 400; nothing is saved). */
 export function mergeDisplay(cur: Display, patch: unknown): Display {
   if (!patch || typeof patch !== "object" || Array.isArray(patch)) throw new SocialError('display must be an object, e.g. {"text":"l"}.');
-  const out: Record<string, string> = { ...cur };
+  const out: Record<string, string | boolean> = { ...cur };
   for (const [k, v] of Object.entries(patch as Record<string, unknown>)) {
-    if (!isDisplayKey(k)) throw new SocialError(`Unknown display setting "${k}": use text, density, theme, mode, lang, voice, replies or voice_turns.`);
+    if (isDisplayBool(k)) {
+      if (typeof v !== "boolean") throw new SocialError(`display.${k} must be true or false.`);
+      out[k] = v;
+      continue;
+    }
+    if (!isDisplayKey(k)) throw new SocialError(`Unknown display setting "${k}": use text, density, theme, mode, lang, voice, replies, voice_turns or voice_autosend.`);
     if (typeof v !== "string" || !DISPLAY_VALUES[k].includes(v)) throw new SocialError(`display.${k} must be one of: ${DISPLAY_VALUES[k].join(", ")}.`);
     out[k] = v;
   }
@@ -436,11 +447,11 @@ export async function savedVoice(env: Env, user: string): Promise<Display["voice
   return (await savedVoicePrefs(env, user)).voice;
 }
 
-/** The voice chat prefs (display.voice and display.voice_turns), one primary-key read. */
-export async function savedVoicePrefs(env: Env, user: string): Promise<Pick<Display, "voice" | "voice_turns">> {
+/** The voice chat prefs (display.voice, voice_turns and voice_autosend), one primary-key read. */
+export async function savedVoicePrefs(env: Env, user: string): Promise<Pick<Display, "voice" | "voice_turns" | "voice_autosend">> {
   const r = await env.DB.prepare(`SELECT display FROM users WHERE name = ?`).bind(user).first<{ display: string | null }>().catch(() => null);
   const d = readDisplay(r?.display ?? null);
-  return { voice: d.voice, voice_turns: d.voice_turns };
+  return { voice: d.voice, voice_turns: d.voice_turns, voice_autosend: d.voice_autosend };
 }
 
 export async function appPrefs(env: Env, user: string): Promise<AppPrefs | null> {

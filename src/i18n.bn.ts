@@ -929,4 +929,8 @@ export const BN: Record<string, string> = {
   "Right away": "সাথে সাথে",
   "After a pause": "একটু থামার পরে",
   "When I tap Done": "আমি হয়েছে চাপলে",
+  "Undo": "পূর্বাবস্থায় ফেরান",
+  "Sending…": "পাঠানো হচ্ছে…",
+  "Sending to your agent in {n}s: “{t}”": "{n} সেকেন্ডে আপনার এজেন্টকে পাঠানো হবে: “{t}”",
+  "Send what I dictate without asking": "আমি যা বলি তা জিজ্ঞাসা না করেই পাঠান",
 };

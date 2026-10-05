@@ -930,4 +930,8 @@ export const ZH_CN: Record<string, string> = {
   "Right away": "立即",
   "After a pause": "停顿之后",
   "When I tap Done": "我点“完成”时",
+  "Undo": "撤销",
+  "Sending…": "正在发送…",
+  "Sending to your agent in {n}s: “{t}”": "{n} 秒后发给你的智能体：“{t}”",
+  "Send what I dictate without asking": "不经确认就发送我口述的内容",
 };

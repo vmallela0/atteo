@@ -929,4 +929,8 @@ export const HI: Record<string, string> = {
   "Right away": "तुरंत",
   "After a pause": "थोड़ा रुकने के बाद",
   "When I tap Done": "जब मैं हो गया टैप करूँ",
+  "Undo": "पूर्ववत करें",
+  "Sending…": "भेजा जा रहा है…",
+  "Sending to your agent in {n}s: “{t}”": "{n} सेकंड में आपके एजेंट को भेजा जाएगा: “{t}”",
+  "Send what I dictate without asking": "जो मैं बोलूँ उसे बिना पूछे भेजें",
 };

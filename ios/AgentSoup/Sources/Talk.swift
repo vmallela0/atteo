@@ -68,6 +68,9 @@ final class TalkStatus: ObservableObject {
     @Published private(set) var enabled: Bool?
     @Published private(set) var minutesUsed: Double = 0
     @Published private(set) var minutesBudget: Int = 0
+    /// display.voice_autosend (vedu #2638): your own dictated words to your agent go without a yes, after 5 s with Undo.
+    /// nil: a server from before it (the switch stays hidden).
+    @Published private(set) var autosend: Bool?
     private var loading = false
 
     func load(force: Bool = false) async {
@@ -76,7 +79,15 @@ final class TalkStatus: ObservableObject {
         defer { loading = false }
         guard let (code, j) = try? await TalkAPI.call("GET", "/api/app/voice/status"), code == 200 else { return }
         enabled = j["enabled"] as? Bool ?? false
+        autosend = j["voice_autosend"] as? Bool
         update(used: j["minutes_used"], budget: j["minutes_budget"])
+    }
+
+    /// Settings → Voice chat → "Send what I dictate without asking": saved to display.voice_autosend (the web follows it).
+    func setAutosend(_ on: Bool) async {
+        let was = autosend
+        autosend = on
+        guard let (code, _) = try? await TalkAPI.call("POST", "/api/app/prefs", body: ["display": ["voice_autosend": on]]), code == 200 else { autosend = was; return }
     }
 
     func update(used: Any?, budget: Any?) {
@@ -255,6 +266,17 @@ final class TalkSession: ObservableObject {
     private var tracker = TalkTurns() // pause / tap: where you start and stop, from the mic level
     private var bufferSince = Date() // pause / tap: when the buffer was last cleared (or a turn sent)
     private var requestedTurns: VoiceTurns? // switched during this call: the next session asks for it
+    // Auto-send (vedu #2638, jxn's agent #2644): your own last transcript can post to your agent without a yes.
+    private var autosend = false // display.voice_autosend, from the session
+    private var atteoEnd: Date? // when Atteo's voice stops (or stopped): playback queued until then, cut short by a barge-in
+    private var youStartedAfter: Double? // ms after Atteo's voice stopped that this turn's speech began (negative: over it)
+    private var youStartedSeen = false // this turn had a speech start of its own
+    private struct LastYou { let text: String; let afterMs: Double? }
+    private var lastYou: LastYou? // your last final transcript, once: an auto-send uses it up
+    /// Your own words, held before they go (5 s, with Undo).
+    struct PendingSend: Equatable { let id: UUID; let text: String; var secondsLeft: Int; var sending = false }
+    @Published private(set) var pendingSend: PendingSend?
+    private var pendingTask: Task<Void, Never>?
 
     static let holdKey = "talk-hold-to-talk"
 
@@ -330,6 +352,7 @@ final class TalkSession: ObservableObject {
         if let p = (j["end"] as? [String: Any])?["path"] as? String { endPath = p }
         routes = j["tool_routes"] as? [String: [String: Any]] ?? [:]
         turns = VoiceTurns(server: j["voice_turns"])
+        autosend = j["voice_autosend"] as? Bool ?? false
         tracker = TalkTurns(pause: ((j["pause_ms"] as? NSNumber)?.doubleValue ?? 1500) / 1000)
         turnHeard = false; pauseProgress = nil; bufferSince = Date()
         maxSeconds = (j["max_seconds"] as? NSNumber)?.intValue ?? 600
@@ -747,6 +770,7 @@ final class TalkSession: ObservableObject {
         let now = Date()
         switch tracker.feed(l, atteoTalking: speaking || activeResponse != nil, now: now) {
         case .started:
+            youStarted()
             hearing = true
             stoppedAt = nil
             lastActive = now
@@ -802,6 +826,7 @@ final class TalkSession: ObservableObject {
     /// The fake voice has no microphone: a tap on the orb is the person saying a line and stopping (a breath of
     /// silence in the buffer, so the commit has something). pause then waits its pause; tap waits for Done.
     private func fakeSpoke() {
+        youStarted()
         if speaking || activeResponse != nil { interrupt() }
         link?.send(["type": "input_audio_buffer.append", "audio": Data(count: 4800).base64EncodedString()])
         tracker.spoke()
@@ -860,6 +885,7 @@ final class TalkSession: ObservableObject {
         let left = max(0, audioUntil.timeIntervalSinceNow)
         audio.stopPlayback()
         audioUntil = .distantPast
+        if let e = atteoEnd, e > Date() { atteoEnd = Date() } // its voice stops now
         speaking = false
         if let r = activeResponse {
             cancelled.insert(r)
@@ -941,12 +967,14 @@ final class TalkSession: ObservableObject {
             guard let b64 = e["delta"] as? String, let pcm = Data(base64Encoded: b64) else { return }
             let d = audio.play(pcm)
             audioUntil = max(audioUntil, Date()) + d
+            atteoEnd = audioUntil
             if !speaking { speaking = true }
             if let item = e["item_id"] as? String {
                 if item != audioItem { audioItem = item; itemAudio = 0 }
                 itemAudio += d
             }
         case "input_audio_buffer.speech_started":
+            youStarted()
             // You started talking: if Atteo was, it stops right now (barge-in).
             hearing = true
             stoppedAt = nil
@@ -1038,6 +1066,7 @@ final class TalkSession: ObservableObject {
             if !final.isEmpty { captions[i].text = final }
             captions[i].done = true
             youCaption = nil
+            heard(final)
             // The yes (or no) an approval or a post is waiting on. Neither (a hedge, a question): it keeps waiting.
             if let c = confirm {
                 switch TalkYes.verdict(final, to: c.decision) {
@@ -1117,6 +1146,10 @@ final class TalkSession: ObservableObject {
                 confirm = nil
                 return await runRoute(name, Self.postArgs(text, target)) // exactly what was read back and confirmed
             }
+            // Your own dictated words (display.voice_autosend): held 5 s with Undo, then sent; anything else asks below.
+            if autosend, confirm == nil, pendingSend == nil, let words = await autosendWords(text, board: target) {
+                return hold(words, board: target)
+            }
             confirm = Confirm(kind: kind)
             Haptics.play(.warning)
             return Self.json(["done": false, "needs_confirmation": true,
@@ -1124,6 +1157,77 @@ final class TalkSession: ObservableObject {
         default:
             return await runRoute(name, a)
         }
+    }
+
+    // MARK: Auto-send (vedu #2638, jxn's agent #2644)
+    //
+    // With display.voice_autosend on, a post_to_my_agent that is your own last transcript (the mic's words, never Atteo's
+    // rewording) goes without a yes: held 5 s with Undo, then sent, word for word from the transcript. The server decides
+    // (POST /api/app/voice/autosend, voiceAutosend.ts); the app adds when your speech began relative to Atteo's voice,
+    // since on the loudspeaker a hostile message read aloud can come back as "you". Anything it refuses asks as before.
+
+    /// This turn's speech began now: how long after Atteo's voice stopped (negative while it's still playing).
+    private func youStarted() {
+        youStartedSeen = true
+        youStartedAfter = atteoEnd.map { Date().timeIntervalSince($0) * 1000 }
+    }
+
+    /// A final transcript: remembered once, with its start; one that had no speech start of its own counts as heard
+    /// over Atteo (it asks).
+    private func heard(_ transcript: String) {
+        let t = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
+        lastYou = t.isEmpty ? nil : LastYou(text: t, afterMs: youStartedSeen ? youStartedAfter : -1)
+        youStartedSeen = false
+    }
+
+    /// The exact words to send, when the server says this post is your own (else nil: ask).
+    private func autosendWords(_ text: String, board target: String?) async -> String? {
+        guard let you = lastYou else { return nil }
+        let body: [String: Any] = [
+            "transcript": you.text, "text": text,
+            "board": target ?? NSNull(), "call_board": board?.id ?? NSNull(),
+            "spoke_after_ms": you.afterMs ?? NSNull(),
+        ]
+        guard let (code, j) = try? await TalkAPI.call("POST", "/api/app/voice/autosend", body: body), code == 200,
+              j["auto"] as? Bool == true, let words = j["text"] as? String, !words.isEmpty else { return nil }
+        return words
+    }
+
+    /// Holds your words for 5 s on the sheet (Undo), then sends them. Grok hears it's scheduled, not to ask.
+    private func hold(_ words: String, board target: String?) -> String {
+        lastYou = nil // one transcript sends once
+        let p = PendingSend(id: UUID(), text: words, secondsLeft: 5)
+        pendingSend = p
+        Haptics.play(.touch)
+        let gen = generation
+        pendingTask = Task { [weak self] in
+            for left in stride(from: 4, through: 0, by: -1) {
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
+                guard let self, !Task.isCancelled, self.pendingSend?.id == p.id else { return }
+                if left > 0 { self.pendingSend?.secondsLeft = left }
+            }
+            guard let self, !Task.isCancelled, self.pendingSend?.id == p.id else { return }
+            self.pendingSend?.sending = true
+            let out = await self.runRoute("post_to_my_agent", Self.postArgs(words, target))
+            guard self.pendingSend?.id == p.id else { return }
+            self.pendingSend = nil
+            Haptics.play(.approved)
+            guard gen == self.generation, !self.ended else { return }
+            self.link?.send(["type": "conversation.item.create", "item": ["type": "message", "role": "user", "content": [["type": "input_text", "text": "The app sent my words to my agent, word for word: \"\(words)\". Result: \(out)"]]]])
+        }
+        return Self.json(["done": false, "scheduled": true, "undo_ms": 5000, "text": words,
+                          "message": "Not sent yet: the app sends these exact words in 5 seconds unless the person taps Undo. Say in a few words that it's on its way. Don't ask for a yes, and don't call post_to_my_agent again for it."])
+    }
+
+    /// Undo on the sheet: nothing is sent, and Atteo hears so.
+    func undoPending() {
+        guard let p = pendingSend, !p.sending else { return }
+        pendingTask?.cancel(); pendingTask = nil
+        pendingSend = nil
+        Haptics.play(.denied)
+        guard !ended else { return }
+        link?.send(["type": "conversation.item.create", "item": ["type": "message", "role": "user", "content": [["type": "input_text", "text": "I tapped Undo: don't send it to my agent."]]]])
+        requestResponse()
     }
 
     /// Runs a tool's Atteo route (voice.ts TOOL_ROUTES) as the person. The answer is short JSON for Grok.

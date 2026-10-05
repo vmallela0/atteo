@@ -163,6 +163,7 @@ async function connect(resume){const o=tk.o;
   if(!r.ok||!j.session_id||!j.session){return fail(s,j.error||T('Couldn’t start talking ({code}).',{code:r.status}))} // the allowance, the rate limit, not set up: the server's words
   s.sid=j.session_id;s.max=+j.max_seconds||600;if(j.end&&j.end.path)s.end=j.end.path;s.routes=j.tool_routes||{};s.session=j.session;
   s.turns=j.voice_turns==='pause'||j.voice_turns==='tap'?j.voice_turns:'quick';s.pauseMs=Math.max(400,Math.min(5000,+j.pause_ms||1500));
+  s.autosend=j.voice_autosend===true; // your own dictated words to your agent go without a yes (autoCheck, hold)
   if(s.ended)return settle(s);
   // The microphone first: a blocked one is a plain message, and nothing is spent (the session is settled at 0 s).
   try{s.mic=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true,autoGainControl:true,channelCount:1}})}
@@ -219,12 +220,12 @@ function b64(buf){const u=new Uint8Array(buf);let s='';for(let i=0;i<u.length;i+
 function play(s,data,item){if(!s.ac)return 0;const bin=atob(data),n=bin.length>>1;if(!n)return 0;const buf=s.ac.createBuffer(1,n,RATE),ch=buf.getChannelData(0);
   for(let i=0;i<n;i++){let v=bin.charCodeAt(2*i)|(bin.charCodeAt(2*i+1)<<8);if(v>=0x8000)v-=0x10000;ch[i]=v/0x8000}
   const d=n/RATE;if(item&&item!==s.item){s.item=item;s.itemDur=0}if(item)s.itemDur+=d;
-  const t0=Math.max(s.ac.currentTime,s.playUntil);s.playUntil=t0+d;if(s.quiet)return d;
+  const t0=Math.max(s.ac.currentTime,s.playUntil);s.playUntil=t0+d;s.atteoEnd=Date.now()+(s.playUntil-s.ac.currentTime)*1000;if(s.quiet)return d;
   const src=s.ac.createBufferSource();src.buffer=buf;src.connect(s.ac.destination);src.start(t0);s.srcs.push(src);src.onended=()=>{s.srcs=s.srcs.filter(x=>x!==src)};return d}
 function stopPlay(){const s=st;if(!s)return;s.srcs.forEach(x=>{try{x.stop()}catch(e){}});s.srcs=[]}
 // You talked over Atteo (or tapped End mid-answer): its voice stops now, the rest of the answer is cancelled, and the reply
 // in the conversation is cut to what you actually heard, so it knows.
-function interrupt(s){const left=s.ac?Math.max(0,s.playUntil-s.ac.currentTime):0;stopPlay();if(s.ac)s.playUntil=s.ac.currentTime;s.speaking=false;
+function interrupt(s){const left=s.ac?Math.max(0,s.playUntil-s.ac.currentTime):0;stopPlay();if(s.ac)s.playUntil=s.ac.currentTime;if(s.atteoEnd>Date.now())s.atteoEnd=Date.now();s.speaking=false;
   if(s.active){s.cancelled.add(s.active);send({type:'response.cancel'},s)}
   if(s.item&&s.itemDur>0)send({type:'conversation.item.truncate',item_id:s.item,content_index:0,audio_end_ms:Math.floor(Math.max(0,s.itemDur-left)*1000)},s);
   s.item=null;s.itemDur=0;const last=s.active&&(atteoDone(s,'a'+s.active),caps.querySelector('[data-id="a'+s.active+'"]'));if(last&&!/ —$/.test(last.lastChild.textContent))last.lastChild.textContent+=' —';look()}
@@ -235,12 +236,12 @@ function handle(s,e){if(s!==st||s.ended||!e||!e.type)return;s.lastEvt=Date.now()
   switch(e.type){
   case 'response.created':s.active=rid||('r'+Date.now());s.thinking=true;s.stoppedAt=0;break;
   case 'response.output_audio.delta':case 'response.audio.delta':if(e.delta){play(s,e.delta,e.item_id);if(!s.quiet&&!s.speaking){s.speaking=true}}break;
-  case 'input_audio_buffer.speech_started':if(s.confirm)s.confirm.armed=true;s.hearing=true;s.stoppedAt=0;if(s.speaking||s.active)interrupt(s);if(!s.you){s.you='y'+Date.now();cap('you',T('Listening…'),s.you).classList.add('live');fade()}break;
+  case 'input_audio_buffer.speech_started':s.youAfter=s.atteoEnd?Date.now()-s.atteoEnd:null;s.youStarted=true;if(s.confirm)s.confirm.armed=true;s.hearing=true;s.stoppedAt=0;if(s.speaking||s.active)interrupt(s);if(!s.you){s.you='y'+Date.now();cap('you',T('Listening…'),s.you).classList.add('live');fade()}break;
   case 'input_audio_buffer.speech_stopped':s.hearing=false;s.thinking=true;s.stoppedAt=Date.now();break;
   case 'response.output_audio_transcript.delta':case 'response.audio_transcript.delta':case 'response.output_text.delta':case 'response.text.delta':if(e.delta)atteoSays(s,'a'+(rid||s.active),e.delta);break;
   case 'response.output_audio_transcript.done':case 'response.audio_transcript.done':case 'response.output_text.done':case 'response.text.done':atteoDone(s,'a'+(rid||s.active),e.transcript||e.text);break;
   case 'conversation.item.input_audio_transcription.delta':case 'conversation.item.input_audio_transcription.updated':break; // your words settle once, when final
-  case 'conversation.item.input_audio_transcription.completed':{const t=(e.transcript||'').trim(),id=s.you||('y'+Date.now());const p=cap('you',t||T('(spoke)'),id);p.classList.remove('live');s.you=null;fade();remember(id,'You',t);if(s.confirm)heardYes(s,t);break}
+  case 'conversation.item.input_audio_transcription.completed':{const t=(e.transcript||'').trim(),id=s.you||('y'+Date.now());const p=cap('you',t||T('(spoke)'),id);p.classList.remove('live');s.you=null;fade();remember(id,'You',t);s.lastYou=t?{text:t,after:s.youStarted?s.youAfter:-1}:null;s.youStarted=false;if(s.confirm)heardYes(s,t);break}
   case 'response.function_call_arguments.done':call(s,e.name,e.call_id,e.arguments);break;
   case 'response.output_item.done':if(e.item&&e.item.type==='function_call')call(s,e.item.name,e.item.call_id,e.item.arguments);break;
   case 'response.done':if(rid||s.active)atteoDone(s,'a'+(rid||s.active));if(rid)s.cancelled.delete(rid);s.active=null;s.thinking=s.tools>0;if(s.want){s.want=false;send({type:'response.create'},s)}break;
@@ -258,6 +259,7 @@ async function tool(s,name,a){
   if(name==='answer_approval'){const id=String(a.approval_id||''),d=a.decision;if(!/^ap_/.test(id)||(d!=='approve'&&d!=='deny'))return J({error:'Send approval_id (ap_…) and decision (approve or deny).'});
     return gate(s,{name,args:{approval_id:id,decision:d},d,ask:(d==='deny'?T('Deny {id}?',{id}):T('Approve {id}?',{id})),what:(d==='deny'?'denying':'approving')+' '+id+' will do'})}
   if(name==='post_to_my_agent'){const text=String(a.text||'').trim();if(!text)return J({error:'Nothing to send.'});const board=a.board?String(a.board):'';
+    if(s.autosend&&s.lastYou&&!(s.confirm&&s.confirm.name===name)){const v=await autoCheck(s,text,board);if(v&&v.auto&&typeof v.text==='string')return hold(s,v.text,board,+v.undo_ms||5000)}
     return gate(s,{name,args:board?{text,board}:{text},d:'post',ask:T('Post to your agent: “{t}”?',{t:text.length>160?text.slice(0,157)+'…':text}),what:'you will post, word for word ("'+text.slice(0,300)+'")'})}
   return route(s,name,a)}
 // Acting for you waits for your OK: the same call again after a clear yes runs it; anything else reads it back and asks.
@@ -279,6 +281,20 @@ async function route(s,name,a){const board=()=>(a.board&&String(a.board))||s.o.b
   case 'answer_approval':{const id=String(a.approval_id),p=(s.routes.answer_approval&&s.routes.answer_approval.paths)||{};
     const path=(p[a.decision]||(a.decision==='deny'?'/api/approvals/{approval_id}/reject':'/api/approvals/{approval_id}/approve')).replace('{approval_id}',encodeURIComponent(id));return trim(await api(path,{}))}
   default:return J({error:'Unknown tool '+name+'.'})}}catch(e){return J({error:String(e.message||e)})}}
+// Auto-send (vedu #2638, jxn's agent #2644): with display.voice_autosend on, a post that is your own last transcript
+// (the mic's words, not Atteo's) goes without a yes, after a 5 s hold with Undo. The server decides (voiceAutosend.ts);
+// the page only adds when you started speaking after Atteo's voice (s.lastYou.after: a hostile message read aloud on
+// the loudspeaker can come back as "you"; a transcript with no speech start of its own counts as heard over Atteo).
+// What's posted is the server's slice of your transcript, word for word. One transcript sends once.
+async function autoCheck(s,text,board){try{return JSON.parse(await api('/api/app/voice/autosend',{transcript:s.lastYou.text,text,board:board||null,call_board:s.o.board||null,spoke_after_ms:s.lastYou.after}))}catch(e){return null}}
+function hold(s,text,board,ms){s.lastYou=null;const args=board?{text,board}:{text},box=document.createElement('div'),p=document.createElement('div'),row=document.createElement('div'),u=document.createElement('button');
+  box.className='talk-ok talk-hold';box.setAttribute('role','status');row.className='row';u.className='btn sm';u.dataset.undo='';u.textContent=T('Undo');row.append(u);box.append(p,row);okEl.before(box);
+  let left=Math.ceil(ms/1000);const show=()=>{p.textContent=T('Sending to your agent in {n}s: “{t}”',{n:left,t:text.length>160?text.slice(0,157)+'…':text})};show();
+  const iv=setInterval(()=>{if(--left>0)show()},1000);
+  const to=setTimeout(async()=>{clearInterval(iv);u.disabled=true;p.textContent=T('Sending…');const out=await route(s,'post_to_my_agent',args);box.remove();
+    if(s===st&&!s.ended)send({type:'conversation.item.create',item:{type:'message',role:'user',content:[{type:'input_text',text:'The app sent my words to my agent, word for word: "'+text+'". Result: '+out}]}},s)},ms);
+  u.onclick=()=>{clearInterval(iv);clearTimeout(to);box.remove();if(s===st&&!s.ended){send({type:'conversation.item.create',item:{type:'message',role:'user',content:[{type:'input_text',text:'I tapped Undo: don’t send it to my agent.'}]}},s);respond(s)}};
+  return J({done:false,scheduled:true,undo_ms:ms,text,message:'Not sent yet: the app sends these exact words in '+Math.round(ms/1000)+' seconds unless the person taps Undo. Say in a few words that it is on its way. Do not ask for a yes, and do not call post_to_my_agent again for it.'})}
 // The OK: read back on the sheet, a tap or a short yes said after it.
 function askYes(s,c){c.yes=false;c.armed=false;c.at=Date.now();s.confirm=c;okEl.hidden=false;okEl.innerHTML='';const p=document.createElement('div');p.textContent=c.ask+' '+T('Say yes, or tap.');
   const row=document.createElement('div');row.className='row';const y=document.createElement('button'),n=document.createElement('button');y.className='btn primary sm';n.className='btn sm';y.textContent=T('Yes');n.textContent=T('No');row.append(y,n);okEl.append(p,row);

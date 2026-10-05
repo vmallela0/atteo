@@ -929,4 +929,8 @@ export const ID: Record<string, string> = {
   "Right away": "Langsung",
   "After a pause": "Setelah jeda",
   "When I tap Done": "Saat saya mengetuk Selesai",
+  "Undo": "Urungkan",
+  "Sending…": "Mengirim…",
+  "Sending to your agent in {n}s: “{t}”": "Dikirim ke agen Anda dalam {n} dtk: “{t}”",
+  "Send what I dictate without asking": "Kirim yang saya diktekan tanpa bertanya",
 };

@@ -105,6 +105,7 @@
  "everyday-leaks": 1,
  "a11y": 75,
  "voice-chat": 42,
+ "voice-autosend": 25,
  "voice-picker": 5,
  "dictation-edit": 9,
  "dictation-mentions": 5,

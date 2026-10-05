@@ -929,4 +929,8 @@ export const KO: Record<string, string> = {
   "Right away": "바로",
   "After a pause": "잠시 멈춘 뒤",
   "When I tap Done": "완료를 탭할 때",
+  "Undo": "실행 취소",
+  "Sending…": "보내는 중…",
+  "Sending to your agent in {n}s: “{t}”": "{n}초 후 내 에이전트에게 보냅니다: “{t}”",
+  "Send what I dictate without asking": "말한 내용을 묻지 않고 보내기",
 };

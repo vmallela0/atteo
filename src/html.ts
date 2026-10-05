@@ -3006,6 +3006,7 @@ export interface Display {
   lang?: "auto" | "en" | "zh-Hans" | "zh-Hant" | "es" | "ja" | "ko" | "hi" | "fr" | "pt" | "de" | "ru" | "id" | "tr" | "bn" | "ar";
   voice?: "eve" | "ara" | "leo" | "rex" | "sal";
   voice_turns?: "quick" | "pause" | "tap"; // when Atteo answers in a voice call (vedu #2460)
+  voice_autosend?: boolean; // your own dictated words to your agent go without a yes, after a 5 s Undo (vedu #2638)
 }
 
 /** Read-aloud and voice chat voices (xAI's), as the picker names them. */
@@ -3025,6 +3026,7 @@ ${seg("density", esc(T("Density")), [["comfortable", esc(T("Comfortable"))], ["c
 ${seg("theme", esc(T("Theme")), [["system", esc(T("System"))], ["light", esc(T("Light"))], ["dark", esc(T("Dark"))]])}
 ${seg("replies", esc(T("Replies")), [["chat", esc(T("In the chat"))], ["thread", esc(T("Only in their threads"))]])}
 ${seg("voice_turns", esc(T("When Atteo answers")), [["quick", esc(T("Right away"))], ["pause", esc(T("After a pause"))], ["tap", esc(T("When I tap Done"))]]).replace(/^<span class="lbl"/, '<span class="lbl" data-voice-only hidden').replace('<div class="seg"', '<div class="seg" data-voice-only hidden')}
+<span class="lbl" id="dp-voice_autosend" data-voice-only hidden>${esc(T("Send what I dictate without asking"))}</span><div data-voice-only hidden><input type="checkbox" class="switch" name="voice_autosend" id="dp-voice-autosend" role="switch" aria-labelledby="dp-voice_autosend"></div>
 <label class="lbl" for="dp-lang">${esc(T("Language"))}</label><select class="input dp-lang" id="dp-lang" data-lang="${esc(d?.lang ?? "auto")}">${(
     [["auto", T("Automatic (this browser's language)")], ...Object.entries(LANG_NAMES), ...(d?.lang && d.lang !== "auto" && !(d.lang in LANG_NAMES) ? [[d.lang, `${d.lang} (${T("set in the app; the web shows English for now")})`]] : [])] as [string, string][]
   )
@@ -3061,8 +3063,9 @@ const DISPLAY_JS = `
   try{saved=JSON.parse(f.dataset.saved)}catch{}try{local=JSON.parse(localStorage.getItem('atteo-display')||'{}')}catch{}
   const cur=Object.assign({text:'m',density:'comfortable',theme:'system',replies:'chat',voice_turns:'pause'},local,saved||{});
   for(const k of ['text','density','theme','replies','voice_turns']){const i=f.querySelector('input[name="'+k+'"][value="'+cur[k]+'"]');if(i)i.checked=true}
+  const auto=f.querySelector('input[name="voice_autosend"]');if(auto)auto.checked=cur.voice_autosend===true;
   if(saved)applyDisplay(cur);
-  f.addEventListener('change',async e=>{if(e.target.id==='dp-lang'||e.target.id==='dp-voice')return;const d={text:f.text.value,density:f.density.value,theme:f.theme.value,replies:f.replies.value,voice_turns:f.voice_turns.value};applyDisplay(d);
+  f.addEventListener('change',async e=>{if(e.target.id==='dp-lang'||e.target.id==='dp-voice')return;const d={text:f.text.value,density:f.density.value,theme:f.theme.value,replies:f.replies.value,voice_turns:f.voice_turns.value,voice_autosend:!!(auto&&auto.checked)};applyDisplay(d);
     const r=await fetch('/api/me/profile',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({display:d})}).catch(()=>null);
     toast(r&&r.ok?tr('Display saved'):tr('Saved on this device only'))});
   // When Atteo answers (vedu #2460): only where voice calls are on.

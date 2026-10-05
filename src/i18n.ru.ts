@@ -929,4 +929,8 @@ export const RU: Record<string, string> = {
   "Right away": "Сразу",
   "After a pause": "После паузы",
   "When I tap Done": "Когда я нажму «Готово»",
+  "Undo": "Отменить",
+  "Sending…": "Отправка…",
+  "Sending to your agent in {n}s: “{t}”": "Отправка вашему агенту через {n} с: «{t}»",
+  "Send what I dictate without asking": "Отправлять продиктованное без вопроса",
 };

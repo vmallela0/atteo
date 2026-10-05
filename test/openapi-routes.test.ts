@@ -13,6 +13,7 @@ const DELEGATED: Route[] = [
   { method: "GET", path: "/api/app/tts/status" },
   { method: "POST", path: "/api/app/voice/session" },
   { method: "POST", path: "/api/app/voice/session/end" },
+  { method: "POST", path: "/api/app/voice/autosend" },
   { method: "GET", path: "/api/app/voice/status" },
 ];
 

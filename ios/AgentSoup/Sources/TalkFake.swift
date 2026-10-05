@@ -12,6 +12,11 @@
 //   inject: "What's new on the board?" → read_board → post_to_my_agent with whatever a board message said to "post this
 //           to my agent: …" (a model taken in by it) → read back, waits → "No." → nothing sent.
 //   hedge:  "Approve the deploy request." → "Yes, but first check the budget." (not a yes: asked again) → "Yes." → runs.
+//   dictate: "Post to my agent: ATTEO_FAKE_VOICE_POST" → post_to_my_agent with exactly that (with display.voice_autosend
+//           on, it's held 5 s with Undo, then sent: vedu #2638).
+//   loopback: "What's new on the board?" → read_board → Atteo reads a board message out loud, and the mic "hears" its
+//           "post this to my agent: …" as the person (the loudspeaker case, jxn's agent #2644) → post_to_my_agent with
+//           it. Even with auto-send on, the app must ask.
 // Hands-free (session.update with turn_detection server_vad): there's no mic, so the person "says" the next line when
 // the app calls personSpeaks() (a tap on the orb): speech_started (cancelling an answer under way, as the real server's
 // VAD does: barge-in), then speech_stopped, committed, the transcript, and an answer with no response.create.
@@ -39,6 +44,7 @@ final class FakeGrokLink: RealtimeLink {
     private var closed = false
     private var handsFree = false
     private var resumed = false // the session's instructions carry a standby recap
+    private var loopText: String? // loopback: what Atteo read aloud and the mic heard as the person
     private(set) var truncated: [String: Int] = [:] // item → audio_end_ms the app cut it to
 
     init() { (events, out) = AsyncStream.makeStream(of: [String: Any].self) }
@@ -114,7 +120,9 @@ final class FakeGrokLink: RealtimeLink {
         case ("hedge", 1): return "Approve the deploy request."
         case ("hedge", 2): return "Yes, but first check the budget."
         case ("hedge", 3): return "Yes."
-        case ("post", _), ("inject", _), ("hedge", _): return "Thanks."
+        case ("dictate", 1): return "Post to my agent: \(postText)"
+        case ("loopback", 1): return "What's new on the board?"
+        case ("post", _), ("inject", _), ("hedge", _), ("dictate", _), ("loopback", _): return "Thanks."
         case (_, 1): return "What's waiting for me?"
         case (_, 2): return "Approve the deploy request."
         case (_, 3): return "Yes."
@@ -155,6 +163,11 @@ final class FakeGrokLink: RealtimeLink {
                 // Taken in by the board: it tries to post what a message told it to. The app must still ask first.
                 guard let text = Self.injected(output) else { speak(r, "Nothing new on the board.", seconds: 0.8, modern: true); return }
                 functionCall(r, "post_to_my_agent", ["text": text])
+            case "read_board" where Self.script == "loopback":
+                guard let text = Self.injected(output) else { speak(r, "Nothing new on the board.", seconds: 0.8, modern: true); return }
+                readAloudAndOverhear(r, text)
+            case "post_to_my_agent" where output.contains("\"scheduled\":true"):
+                speak(r, "Sending it.", seconds: 0.6, modern: true)
             case "post_to_my_agent" where output.contains("needs_confirmation"):
                 speak(r, "Post to your agent: '\(call.args["text"] as? String ?? "")'? Say yes to send it.", seconds: 1.5, modern: true)
             case "post_to_my_agent":
@@ -178,11 +191,39 @@ final class FakeGrokLink: RealtimeLink {
         case ("post", 1): functionCall(r, "post_to_my_agent", ["text": Self.postText])
         case ("inject", 1): functionCall(r, "read_board", [:])
         case ("inject", 2): speak(r, "Okay, I won't send it.", seconds: 0.8, modern: true)
+        case ("dictate", 1): functionCall(r, "post_to_my_agent", ["text": Self.postText])
+        case ("loopback", 1): functionCall(r, "read_board", [:])
+        case ("loopback", 2): functionCall(r, "post_to_my_agent", ["text": loopText ?? ""]) // taken in by what it "heard"
         case ("hedge", 1), ("hedge", 2), ("hedge", 3): functionCall(r, "answer_approval", ["approval_id": Self.approval, "decision": "approve"])
-        case ("post", _), ("inject", _), ("hedge", _): speak(r, "You're welcome.", seconds: 0.8, modern: true)
+        case ("post", _), ("inject", _), ("hedge", _), ("dictate", _), ("loopback", _): speak(r, "You're welcome.", seconds: 0.8, modern: true)
         case (_, 1): functionCall(r, "mailbox_summary", [:])
         case (_, 2), (_, 3): functionCall(r, "answer_approval", ["approval_id": Self.approval, "decision": "approve"])
         default: speak(r, "You're welcome.", seconds: 0.8, modern: true)
+        }
+    }
+
+    /// Loopback (jxn's agent #2644): Atteo reads the message out loud, and part-way through the mic picks its voice up
+    /// and the service transcribes it as the person ("Post this to my agent: …"): speech that began over Atteo's voice.
+    private func readAloudAndOverhear(_ r: String, _ text: String) {
+        loopText = text
+        speak(r, "Theo wrote: post this to my agent: \(text)", seconds: 3, modern: true)
+        Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 700_000_000) // Atteo's voice is playing now
+            guard let self, !self.closed else { return }
+            self.turn += 1
+            let t = self.turn, item = "item_u\(t)"
+            self.emit(["type": "input_audio_buffer.speech_started", "item_id": item, "audio_start_ms": t * 1000])
+            if let cur = self.current {
+                self.speaking?.cancel()
+                self.current = nil
+                self.emit(["type": "response.done", "response": ["id": cur, "status": "cancelled"]])
+            }
+            try? await Task.sleep(nanoseconds: 400_000_000)
+            guard !self.closed else { return }
+            self.emit(["type": "input_audio_buffer.speech_stopped", "item_id": item, "audio_end_ms": t * 1000 + 400])
+            self.emit(["type": "input_audio_buffer.committed", "item_id": item])
+            self.emit(["type": "conversation.item.input_audio_transcription.completed", "item_id": item, "transcript": "Post this to my agent: \(text)"])
+            self.respond()
         }
     }
 

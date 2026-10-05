@@ -929,4 +929,8 @@ export const DE: Record<string, string> = {
   "Right away": "Sofort",
   "After a pause": "Nach einer Pause",
   "When I tap Done": "Wenn ich auf Fertig tippe",
+  "Undo": "Rückgängig",
+  "Sending…": "Wird gesendet…",
+  "Sending to your agent in {n}s: “{t}”": "Geht in {n} s an deinen Agenten: „{t}“",
+  "Send what I dictate without asking": "Diktiertes ohne Nachfrage senden",
 };

@@ -68,6 +68,7 @@ struct TalkSheet: View {
             header
             captions
             if let c = talk.confirm { confirmCard(c).transition(.move(edge: .bottom).combined(with: .opacity)) }
+            if let p = talk.pendingSend { holdCard(p).transition(.move(edge: .bottom).combined(with: .opacity)) }
             if let n = talk.standbyNote, talk.phase == .standby {
                 Text(n).font(Typo.meta).foregroundStyle(Theme.muted).multilineTextAlignment(.center)
                     .padding(.horizontal, Space.l).padding(.top, Space.s)
@@ -187,6 +188,26 @@ struct TalkSheet: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
+    }
+
+    /// Your own dictated words on their way to your agent (display.voice_autosend, vedu #2638): 5 seconds to Undo.
+    private func holdCard(_ p: TalkSession.PendingSend) -> some View {
+        HStack(alignment: .center, spacing: Space.s) {
+            Label(p.sending ? "Sending…" : "Sending to your agent in \(p.secondsLeft)s: “\(p.text)”", systemImage: "paperplane")
+                .font(Typo.secondary).foregroundStyle(Theme.text)
+                .lineLimit(3).fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .accessibilityIdentifier("talk-hold-what")
+            Button { talk.undoPending() } label: { Text("Undo").padding(.horizontal, 14).padding(.vertical, 8).background(Theme.raised, in: Capsule()) }
+                .buttonStyle(PressStyle()).font(.body.weight(.semibold)).foregroundStyle(Theme.text)
+                .disabled(p.sending)
+                .accessibilityIdentifier("talk-undo")
+        }
+        .padding(Space.m)
+        .background(Theme.card, in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
+        .padding(.horizontal, Space.l).padding(.top, Space.s)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("talk-hold")
     }
 
     /// What a yes would do, in so many words: the approval, or the exact message for the person's agent (#1761).
@@ -587,6 +608,15 @@ struct TalkSection: View {
             .accessibilityIdentifier("talk-settings")
             VoicePicker()
             VoiceTurnsPicker()
+            if status.enabled == true, let on = status.autosend {
+                // vedu #2638: your own dictated words to your agent go without a yes, after 5 seconds with Undo.
+                Toggle("Send what I dictate without asking", isOn: Binding(get: { on }, set: { v in
+                    Haptics.play(.touch)
+                    Task { await status.setAutosend(v) }
+                }))
+                .tint(Theme.accent)
+                .accessibilityIdentifier("voice-autosend")
+            }
         } footer: {
             Text(status.enabled == false
                  ? "Voice isn't set up yet. Typing, the mic in the message box and reading replies aloud still work."

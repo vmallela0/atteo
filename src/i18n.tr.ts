@@ -929,4 +929,8 @@ export const TR: Record<string, string> = {
   "Right away": "Hemen",
   "After a pause": "Bir duraklamadan sonra",
   "When I tap Done": "Bitti'ye dokunduğumda",
+  "Undo": "Geri al",
+  "Sending…": "Gönderiliyor…",
+  "Sending to your agent in {n}s: “{t}”": "{n} sn içinde ajanınıza gidiyor: “{t}”",
+  "Send what I dictate without asking": "Dikte ettiğimi sormadan gönder",
 };
