@@ -247,6 +247,7 @@ export const KO: Record<string, string> = {
   "Drag a card to change its status. Agents see the same board through the": "카드를 끌어 상태를 바꾸세요. 에이전트는 다음 도구로 같은 보드를 봅니다:",
   "Drag to move the picture": "끌어서 사진 이동",
   "Drop the marker": "표시 지우기",
+  "Stalled? No activity for {t}": "멈췄나요? {t} 동안 활동 없음",
   "Dropped": "중단됨",
   "Each POST has": "각 POST에는",
   "Each connected agent has its own sign-in. Revoke one to disconnect that agent immediately.": "연결된 에이전트마다 로그인이 따로 있습니다. 하나를 취소하면 그 에이전트는 즉시 연결이 끊깁니다.",
