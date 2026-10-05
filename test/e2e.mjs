@@ -3439,6 +3439,32 @@ await step("retention: owners set how long a board keeps messages; older ones ar
   assert((await (await web(`/api/boards/${id}/audit`, A)).json()).audit.some((a) => a.action === "retention"), "audited");
 });
 
+await step("standing rules: one automatic yes for one person or one board's people, always expiring, people only; an agent-DM rule lets that person's agent in until it's revoked", async () => {
+  const [S1, S2, S3] = [`e2e-sr1-${run}`, `e2e-sr2-${run}`, `e2e-sr3-${run}`];
+  await makeUsers([S1, S2, S3]);
+  const api = (who, path, body) => web(path, who, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body ?? {}) });
+  const add = (body) => api(S1, "/api/rules", { action: "allow_agents", scope: "person", scope_id: S2, expires_in: 86400, ...body });
+  assert((await fetch(`${BASE}/api/rules`, { method: "POST", headers: { ...auth(S1), "content-type": "application/json" }, body: JSON.stringify({ action: "allow_agents", scope: "person", scope_id: S2, expires_in: 86400 }) })).status === 403, "people only");
+  assert((await add({ expires_in: undefined })).status === 400, "it always expires");
+  assert((await add({ expires_in: 91 * 86400 })).status === 400, "90 days at most");
+  assert((await add({ scope_id: S1 })).status === 400, "names someone else");
+  assert((await add({ scope: "board", scope_id: "b_notaboard1" })).status === 400, "a board you're on");
+  assert((await api(S2, `/api/dm/${S1}`, { text: `before ${run}` })).status === 403, "no rule: S2's agent can't reach S1's");
+  const r = await (await add({})).json();
+  assert(r.ok && r.rule.state === "active" && r.rule.expires_at > Date.now() + 86_000_000, JSON.stringify(r));
+  assert((await add({})).status === 400, "no duplicates");
+  const d = await (await api(S2, `/api/dm/${S1}`, { text: `by the rule ${run}` })).json();
+  assert(d.delivered && /^b_/.test(d.board), JSON.stringify(d));
+  has(await ok(S1, d.board, "read"), `by the rule ${run}`);
+  assert((await api(S3, `/api/dm/${S1}`, { text: `not me ${run}` })).status === 403, "the rule names S2 only");
+  assert((await api(S1, `/api/rules/${r.rule.id}/revoke`)).status === 200, "revoke");
+  assert((await api(S2, `/api/dm/${S1}`, { text: `after ${run}` })).status !== 200, "revoked: S2's agent asks again");
+  const all = (await (await web("/api/rules?all=1", S1)).json()).rules;
+  assert(all.length === 1 && all[0].state === "revoked" && (await (await web("/api/rules", S1)).json()).rules.length === 0, JSON.stringify(all));
+  const log = (await (await web("/api/me/audit", S1)).json()).events ?? [];
+  assert(log.some((e) => e.event === "rule.added" && e.label === `@${S2}` && e.kind === "allow_agents") && log.some((e) => e.event === "rule.revoked"), JSON.stringify(log));
+});
+
 await step("A2A: the Agent Card is signed when the server has a key (ES256 over its canonical form, key at its jku), and says so when it isn't", async () => {
   const { createPublicKey, verify } = await import("node:crypto");
   const res = await fetch(`${BASE}/.well-known/agent-card.json`);

@@ -3367,11 +3367,10 @@ const ACCOUNT_EVENTS: Record<AccountLogRow["event"], string> = {
   "token.created": "Made a key",
   "token.revoked": "Revoked a connection",
   "tokens.revoked_all": "Disconnected all agents",
+  "rule.added": "Added a standing rule",
+  "rule.revoked": "Revoked a standing rule",
 };
 
-/** Access across your boards (#3568): your role on each; on the ones you own, everyone's access, open links and
- *  invitations, with Remove / Revoke and a mark on what's worth reviewing (no end date for REVIEW_DAYS+, links that never
- *  expire). Names, titles and addresses are members' data: escaped. */
 // Standing rules (P0 network #5; the Cursor session's draft dd88bd2, its UI here #3775): one automatic yes, for one
 // person or the people on one board, until it ends. Listed with Revoke; added with a small form.
 const SR_ACTION: Record<StandingAction, string> = { accept_invites: "Join boards they invite me to", accept_friends: "Accept their friend requests", allow_agents: "Let their agents message mine" };
@@ -3413,6 +3412,9 @@ const SR_JS = `
     const r=await fetch('/api/rules/'+encodeURIComponent(b.dataset.srRevoke)+'/revoke',{method:'POST'}).catch(()=>null);
     if(r&&r.ok){b.closest('.sr-row')?.remove();toast(tr('Rule revoked'))}else{b.disabled=false;toast(tr('Could not update'))}})})();`;
 
+/** Access across your boards (#3568): your role on each; on the ones you own, everyone's access, open links and
+ *  invitations, with Remove / Revoke and a mark on what's worth reviewing (no end date for REVIEW_DAYS+, links that never
+ *  expire). Names, titles and addresses are members' data: escaped. */
 function accessSection(acc: AccessAll | null, lang?: Lang): string {
   if (!acc) return "";
   const T = (x: string, v?: Record<string, string | number>) => tr(lang, x, v);

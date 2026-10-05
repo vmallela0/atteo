@@ -479,6 +479,7 @@ a.ev-acct:hover{background:var(--bg-subtle)}
 .acc-all-r{display:flex;align-items:center;gap:8px;min-width:0}.acc-all-r .grow{min-width:0;overflow-wrap:anywhere}.acc-rv{color:var(--warn);font-weight:500}
 .sr-list{list-style:none;margin:0;padding:0;display:grid;gap:6px}.sr-row{display:flex;align-items:center;gap:8px;min-width:0}.sr-row .grow{min-width:0;overflow-wrap:anywhere}
 .sr-form{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:12px;padding-top:12px;border-top:1px solid var(--line)}.sr-form .input{width:auto;flex:1 1 150px;min-width:0}.sr-form [hidden]{display:none}.sr-err{color:var(--danger);margin:0;flex-basis:100%}
+@media (max-width:600px){.sr-form [name="action"]{flex-basis:100%}}
 .acc-dl{margin:10px 0 0} /* the full access log as JSON (#3375): the list above is only the latest 50 */
 .sum h3 .linkish,.linkish{border:0;background:none;padding:0;font:inherit;font-size:12px;color:var(--accent);cursor:pointer;text-decoration:underline;text-underline-offset:2px}.linkish:hover{text-decoration-thickness:2px}
 /* view-only members: nothing that writes */

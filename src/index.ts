@@ -1562,7 +1562,9 @@ const handler = {
         try {
           if (method === "GET") return json({ rules: await standing.listRules(env, viewer.name, url.searchParams.get("all") === "1") });
           const b = (await request.json().catch(() => ({}))) as { scope?: unknown; scope_id?: unknown; action?: unknown; expires_in?: unknown };
-          return json({ ok: true, rule: await standing.createRule(env, viewer.name, b) }, 201);
+          const rule = await standing.createRule(env, viewer.name, b);
+          await accountlog.record(env, viewer.name, "rule.added", request, { label: await standing.ruleLabel(env, rule), kind: rule.action });
+          return json({ ok: true, rule }, 201);
         } catch (e) {
           if (e instanceof standing.StandingRuleError) return json({ error: e.message }, 400);
           throw e;
@@ -1573,7 +1575,9 @@ const handler = {
         if (!viewer) return needLogin();
         if (viewer.via === "agent") return json({ error: "Standing rules are yours to revoke. Agents can't." }, 403);
         try {
-          return json({ ok: true, rule: await standing.revokeRule(env, viewer.name, srm[1]) });
+          const rule = await standing.revokeRule(env, viewer.name, srm[1]);
+          await accountlog.record(env, viewer.name, "rule.revoked", request, { label: await standing.ruleLabel(env, rule), kind: rule.action });
+          return json({ ok: true, rule });
         } catch (e) {
           if (e instanceof standing.StandingRuleError) return json({ error: e.message }, 400);
           throw e;

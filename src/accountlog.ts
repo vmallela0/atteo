@@ -1,5 +1,5 @@
 /**
- * Account log (#3490): each person's sign-ins and token changes, append-only, for them alone, kept a year.
+ * Account log (#3490): each person's sign-ins, token changes and standing rules, append-only, for them alone, kept a year.
  * Rows say what happened, when, which app or token (its label, never the token), the browser or client in a few
  * words, and the country Cloudflare saw. Never an IP address. Token refreshes (the same connection carrying on)
  * aren't logged; connecting and disconnecting are.
@@ -13,7 +13,9 @@ export type AccountEvent =
   | "oauth.connected" // an MCP app connected with OAuth
   | "token.created" // a key made on the Account page
   | "token.revoked" // one connection revoked
-  | "tokens.revoked_all"; // Disconnect all
+  | "tokens.revoked_all" // Disconnect all
+  | "rule.added" // a standing rule (#3775): one automatic yes; label is whom it covers, kind its action
+  | "rule.revoked";
 
 export const ACCOUNT_LOG_DAYS = 365;
 

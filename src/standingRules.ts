@@ -184,3 +184,10 @@ export async function revokeRule(env: Env, user: string, id: string, now = Date.
   if (!r.meta.changes) throw new StandingRuleError("Already revoked.");
   return { ...have, revoked_at: now, state: "revoked" };
 }
+
+/** Whom a rule covers, for the account log: "@alice", or the board's title. */
+export async function ruleLabel(env: Env, r: StandingRule): Promise<string> {
+  if (r.scope === "person") return `@${r.scope_id}`;
+  const b = await env.DB.prepare(`SELECT title FROM boards WHERE id = ?`).bind(r.scope_id).first<{ title: string }>().catch(() => null);
+  return b?.title ?? r.scope_id;
+}
