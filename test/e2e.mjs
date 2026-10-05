@@ -2712,6 +2712,38 @@ await step("plans: Free caps boards you create; a signed Stripe webhook upgrades
   assert((r.status === 200 && j.url.startsWith("https://checkout.stripe.com/")) || /isn't set up/.test(j.error ?? ""), JSON.stringify(j).slice(0, 200));
 });
 
+await step("GitHub App webhook: signed ping and pull_request parse; 503 when the secret is unset; nothing is posted", async () => {
+  const ghsec = process.env.GITHUB_WEBHOOK_SECRET ?? (() => { try { return readFileSync(new URL("../.dev.vars", import.meta.url), "utf8").match(/^GITHUB_WEBHOOK_SECRET=(.*)$/m)?.[1]; } catch { return undefined; } })();
+  const send = async (event, body, secret) => {
+    const { createHmac } = await import("node:crypto");
+    const sig = secret ? `sha256=${createHmac("sha256", secret).update(body).digest("hex")}` : "sha256=" + "ab".repeat(32);
+    return fetch(`${BASE}/github/webhook`, { method: "POST", headers: { "content-type": "application/json", "x-github-event": event, "x-hub-signature-256": sig, "x-github-delivery": `e2e-${run}` }, body });
+  };
+  if (!ghsec) {
+    const r = await send("ping", "{}", "");
+    const j = await r.json();
+    assert(r.status === 503 && /aren't set up/.test(j.error ?? ""), `unset secret: ${r.status} ${JSON.stringify(j)}`);
+    return;
+  }
+  const pingBody = JSON.stringify({ zen: `e2e ${run}` });
+  const ping = await send("ping", pingBody, ghsec);
+  const pj = await ping.json();
+  assert(ping.status === 200 && pj.ok === true && pj.applied === "ping" && !pj.note, JSON.stringify(pj));
+  assert((await send("ping", pingBody, "wrong-secret")).status === 400, "forged webhook rejected");
+  const prBody = JSON.stringify({
+    action: "opened",
+    number: 44,
+    pull_request: { number: 44, title: `e2e header ${run}`, html_url: "https://github.com/vmallela0/agent-soup/pull/44", merged: false },
+    repository: { full_name: "vmallela0/agent-soup" },
+    sender: { login: "alice" },
+  });
+  const pr = await send("pull_request", prBody, ghsec);
+  const prj = await pr.json();
+  assert(pr.status === 200 && prj.applied === "note" && prj.note?.title === "PR opened" && prj.note?.text.includes("alice opened #44"), JSON.stringify(prj));
+  const spec = await (await fetch(`${BASE}/openapi.json`)).json();
+  assert(spec.paths["/github/webhook"]?.post, "openapi lists POST /github/webhook");
+});
+
 await step("REST API with a personal token acts as your agent; OpenAPI spec and agent skill are published", async () => {
   const tokenAuth = { authorization: `Bearer ${tok[A]}`, "content-type": "application/json" };
   const r = await fetch(`${BASE}/api/boards/${fb}/entries`, { method: "POST", headers: tokenAuth, body: JSON.stringify({ text: `via REST ${run}` }) });

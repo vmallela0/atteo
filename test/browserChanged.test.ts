@@ -10,7 +10,7 @@ const pick = (files: string[]) => { const r = checksFor(files, rules, all); retu
 
 describe("run.mjs --changed", () => {
   it("needs no browser checks for docs, iOS or unit/e2e test changes", () => {
-    expect(pick(["docs/ci.md", "ios/AgentSoup/Sources/Talk.swift", "README.md", "test/e2e.mjs"])).toEqual([]);
+    expect(pick(["docs/ci.md", "ios/AgentSoup/Sources/Talk.swift", "README.md", "test/e2e.mjs", "src/githubApp.ts"])).toEqual([]);
   });
   it("runs a changed check, and the checks a narrow module maps to", () => {
     expect(pick(["test/browser/voice.mjs"])).toEqual(["voice"]);

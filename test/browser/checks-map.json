@@ -20,6 +20,7 @@
     "src/standingRules.ts": ["standing-rules"],
     "src/feedback.ts": ["feedback"],
     "src/openapi.ts": [],
+    "src/githubApp.ts": [],
     "cli/**": ["e2e-web"],
     "test/*.ts": [],
     "test/*.mjs": [],

@@ -30,6 +30,7 @@ import { agentsMd, guidePage } from "./guide";
 import { docsPage } from "./docs";
 import { openapi } from "./openapi";
 import * as billing from "./billing";
+import * as githubApp from "./githubApp";
 import { egressRefusal, noteBoardCreated, noteWakeDelivery, type Later } from "./observe";
 import * as inbox from "./inbox";
 import * as notify from "./notify";
@@ -1191,6 +1192,18 @@ const handler = {
         const ids = Array.isArray(body.ids) ? body.ids.map(Number) : undefined;
         const n = await inbox.markRead(env, viewer.name, { all: body.all === true || body.all === "1", board: typeof body.board === "string" ? body.board : undefined, ids }, viewer.via !== "agent");
         return json({ ok: true, read: n });
+      }
+
+      // ---- GitHub App (signed inbound webhooks; outbound check-run payloads are formatted, not sent) ----
+      if (path === "/github/webhook" && method === "POST") {
+        const raw = await request.text();
+        const result = await githubApp.handleWebhook(env, raw, {
+          event: request.headers.get("x-github-event"),
+          signature: request.headers.get("x-hub-signature-256"),
+          delivery: request.headers.get("x-github-delivery"),
+        });
+        if (result.status !== 200) return json({ error: result.error }, result.status);
+        return json({ ok: true, applied: result.applied, ...(result.note ? { note: result.note } : {}) });
       }
 
       // ---- billing: Stripe Checkout and portal (hosted), webhook keeps plans in sync ----

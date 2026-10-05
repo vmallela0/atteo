@@ -207,6 +207,7 @@ function shouldDocument(path: string): boolean {
     path.startsWith("/oauth/") ||
     path.startsWith("/.well-known/") ||
     path === "/a2a" ||
+    path === "/github/webhook" ||
     path === "/openapi.json"
   );
 }
