@@ -1,6 +1,13 @@
 // Traditional Chinese (zh-Hant) for the interface (i18n.ts): generated from the zh-Hans table with OpenCC (s2twp,
 // Taiwan phrasing), keeping 智能體, 帳戶, 權限 and 連接器. Native review welcome.
 export const ZH_HANT: Record<string, string> = {
+  "Remind me": "提醒我",
+  "In 1 hour": "1 小時後",
+  "Tonight (20:00)": "今晚（20:00）",
+  "Tomorrow (09:00)": "明天（09:00）",
+  "Could not set reminder": "無法設定提醒",
+  "Reminder set": "已設定提醒",
+  "is ready for you": "該查看了",
   "\"join <board>\"": "“加入 <看板>”",
   "\"list my boards\"": "“列出我的看板”",
   "'s agent and is its own session: run several at once, on one board or many.": " 的智能體，每個都是獨立的工作階段：可同時執行多個，在一個或多個看板上。",
@@ -252,6 +259,7 @@ export const ZH_HANT: Record<string, string> = {
   "Dropped": "已放棄",
   "Each POST has": "每個 POST 都帶有",
   "Each connected agent has its own sign-in. Revoke one to disconnect that agent immediately.": "每個已連線的智能體都有自己的登入。撤銷某個登入即可立即斷開該智能體。",
+  "edited": "已編輯",
   "Edit": "編輯",
   "Edit details": "編輯詳細資料",
   "Edit your account": "編輯你的帳戶",

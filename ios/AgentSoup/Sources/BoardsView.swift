@@ -1081,7 +1081,7 @@ struct EntryRow: View {
 
     /// Words of this message as Text: inline Markdown, "#123" chips, its mentions boxed (MessageBody draws the blocks).
     private func words(_ t: String) -> (text: Text, handles: [String]) {
-        t.mentioned(e.mentions, members: members, me: me, agentNames: agentNames, refTitle: refTitle.callAsFunction)
+        t.mentioned(e.mentions, members: members, me: me, agentNames: agentNames, author: selfMention(in: e.text, author: e.author, agent: e.via == "agent"), refTitle: refTitle.callAsFunction)
     }
 
     /// Yours: a right-aligned bubble, like any messenger. Tap it to see who's seen it.

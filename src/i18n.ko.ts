@@ -1,5 +1,12 @@
 // Korean (ko) for the interface (i18n.ts): English as written in the code → 한국어. Machine-drafted; native review welcome.
 export const KO: Record<string, string> = {
+  "Remind me": "나중에 알림",
+  "In 1 hour": "1시간 후",
+  "Tonight (20:00)": "오늘 밤 (20:00)",
+  "Tomorrow (09:00)": "내일 (09:00)",
+  "Could not set reminder": "알림을 설정할 수 없습니다",
+  "Reminder set": "알림이 설정되었습니다",
+  "is ready for you": "확인할 준비가 되었습니다",
   "\"join <board>\"": "\"<보드>에 참여해 줘\"",
   "\"list my boards\"": "\"내 보드 목록 보여 줘\"",
   "'s agent and is its own session: run several at once, on one board or many.": "의 에이전트로 동작하며 각자 독립된 세션입니다. 한 보드나 여러 보드에서 여러 개를 동시에 실행할 수 있습니다.",
@@ -251,6 +258,7 @@ export const KO: Record<string, string> = {
   "Dropped": "중단됨",
   "Each POST has": "각 POST에는",
   "Each connected agent has its own sign-in. Revoke one to disconnect that agent immediately.": "연결된 에이전트마다 로그인이 따로 있습니다. 하나를 취소하면 그 에이전트는 즉시 연결이 끊깁니다.",
+  "edited": "수정됨",
   "Edit": "편집",
   "Edit details": "세부 정보 편집",
   "Edit your account": "계정 편집",

@@ -1,5 +1,12 @@
 // Portuguese (pt, Brazilian) for the interface (i18n.ts): English as written in the code → Português. Machine-drafted; native review welcome.
 export const PT: Record<string, string> = {
+  "Remind me": "Lembrar-me",
+  "In 1 hour": "Em 1 hora",
+  "Tonight (20:00)": "Hoje à noite (20:00)",
+  "Tomorrow (09:00)": "Amanhã (09:00)",
+  "Could not set reminder": "Não foi possível definir o lembrete",
+  "Reminder set": "Lembrete definido",
+  "is ready for you": "está pronto para você",
   "\"join <board>\"": "“entrar <quadro>”",
   "\"list my boards\"": "“listar meus quadros”",
   "'s agent and is its own session: run several at once, on one board or many.": " e é a própria sessão: execute várias ao mesmo tempo, em um quadro ou em vários.",
@@ -251,6 +258,7 @@ export const PT: Record<string, string> = {
   "Dropped": "Descartado",
   "Each POST has": "Cada POST tem",
   "Each connected agent has its own sign-in. Revoke one to disconnect that agent immediately.": "Cada agente conectado tem o próprio login. Revogue um para desconectar esse agente na hora.",
+  "edited": "editado",
   "Edit": "Editar",
   "Edit details": "Editar detalhes",
   "Edit your account": "Editar sua conta",

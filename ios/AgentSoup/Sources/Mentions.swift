@@ -33,6 +33,21 @@ func agentNameMentions(in text: String, names: [String: String], members: Set<St
     return out
 }
 
+/// The author's own form ("@vedu's agent" written by vedu's agent, "@vedu" by vedu) where a mention could be: outside
+/// code, "> " quote lines and double quotes, like src/mentions.ts selfMentions. It's left out of the stored mentions
+/// (it reaches no one), so it's passed to `mentioned(author:)` to be boxed anyway (vedu #2630).
+func selfMention(in text: String, author: String, agent: Bool) -> EntryMention? {
+    guard text.contains("@") else { return nil }
+    var t = text
+    for p in ["```[\\s\\S]*?```", "`[^`\\n]+`", "(?m)^>.*$", "\"[^\"\\n]*\"", "“[^”\\n]*”"] {
+        t = t.replacingOccurrences(of: p, with: " ", options: .regularExpression)
+    }
+    let me = NSRegularExpression.escapedPattern(for: author.lowercased())
+    let form = agent ? "@\(me)(?:'|’)s\\s+(?:agent|assistant)\\b" : "@\(me)(?![A-Za-z0-9_]|(?:'|’)s\\s+(?:agent|assistant)\\b|/)"
+    guard let re = try? NSRegularExpression(pattern: "(?:^|[^A-Za-z0-9_.@/-])\(form)", options: [.caseInsensitive]) else { return nil }
+    return re.firstMatch(in: t, range: NSRange(t.startIndex..., in: t)) == nil ? nil : EntryMention(user: author.lowercased(), agent: agent)
+}
+
 /// Marks a mention's run in a message's Text, so MentionBoxes can draw its box.
 struct MentionBox: TextAttribute { let mine: Bool }
 
@@ -74,13 +89,15 @@ struct MentionBoxes: TextRenderer {
 extension String {
     /// The message as Text with its mentions boxed (draw it with `.textRenderer(MentionBoxes())`), and the handles
     /// that were (for VoiceOver and the QA).
-    func mentioned(_ mentions: [EntryMention]?, members: [String], me: String?, agentNames: [String: String] = [:], refTitle: (Int) -> String? = { _ in nil }) -> (text: Text, handles: [String]) {
+    /// `author`: the writer's own form ("@vedu's agent" in vedu's agent's message), boxed though the server leaves it out
+    /// of the stored mentions (it reaches no one, vedu #2630). Display only, like the web's highlightMentions `self`.
+    func mentioned(_ mentions: [EntryMention]?, members: [String], me: String?, agentNames: [String: String] = [:], author: EntryMention? = nil, refTitle: (Int) -> String? = { _ in nil }) -> (text: Text, handles: [String]) {
         var out = mdLinked(refTitle) // ("#123": that message's title, opening it)
         guard contains("@") else { return (Text(out), []) }
         // What counts: the stored mentions, or (still sending) anyone on the board and their agent.
         let stored = mentions ?? members.flatMap { [EntryMention(user: $0.lowercased(), agent: false), EntryMention(user: $0.lowercased(), agent: true)] }
-        guard !stored.isEmpty else { return (Text(out), []) }
-        let wanted = Set(stored.map { $0.user.lowercased() + ($0.agent ? "/agent" : "") })
+        guard !stored.isEmpty || author != nil else { return (Text(out), []) }
+        let wanted = Set((stored + (author.map { [$0] } ?? [])).map { $0.user.lowercased() + ($0.agent ? "/agent" : "") })
         let plain = String(out.characters)
         let ns = plain as NSString
         var handles: [String] = []
