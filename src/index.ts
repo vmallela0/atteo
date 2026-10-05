@@ -87,6 +87,7 @@ import type { Entry, Env, Viewer as Seer } from "./types";
 import { APP_CSS, APP_JS, BOARD_PREFETCH_PATH, BOARD_PREFETCH_RULES, FAVICON_SVG, page, renderText, SHELL_PAGE_JS } from "./ui";
 import { APPLE_TOUCH_PNG_B64 } from "./appleIcon";
 import { assistantWelcomePage } from "./welcome";
+import { agentCharter, applyCharter, charterAuditDetail, charterScanFields, charterView, parseCharterPatch, storedFromRow } from "./charter";
 import { atteoHeader, BOARD_RE, connectCommand, esc, newBoardId, legacyHostRedirect, normalizeUser, parseBoardMeta, publicOrigin, requestNow } from "./util";
 import { isLocalHost } from "./util";
 
@@ -235,7 +236,10 @@ async function createBoard(env: Env, title: string, user: string, origin?: strin
   // Organization policy: boards made by people at a domain with a retention cap start with it.
   const u = await registry.userByName(env, user);
   const pol = u?.email ? await orgPolicy(env, u.email) : null;
-  if (pol?.max_retention_days) await env.DB.prepare(`UPDATE boards SET retention_days = ? WHERE id = ?`).bind(pol.max_retention_days, id).run();
+  if (pol?.max_retention_days) {
+    await env.DB.prepare(`UPDATE boards SET retention_days = ? WHERE id = ?`).bind(pol.max_retention_days, id).run();
+    await boardStub(env, id).setCharter({ goal: null, data_classes: [], retention_days: pol.max_retention_days }); // what agents read (#3685)
+  }
   return info;
 }
 
@@ -982,10 +986,11 @@ const handler = {
         const named = await Promise.all(invites.map(async (i) => ((await registry.userByEmail(env, i.email))?.name ?? null)));
         const shown = invites.map((i, k) => (named[k] ? { ...i, email: named[k]!, email_status: "waiting to accept" } : i));
         const kind = (row as { kind?: string | null } | null)?.kind ?? null;
+        const charter = charterView(storedFromRow(row), members.map((x) => ({ user: x.user, role: x.role })));
         // "Your agent": the composer's picker lists your agents (live or idle) by name.
         const mine = kind === "agent" ? (await sessions.list(env, viewer.name)).filter(sessions.listed).map((x) => ({ name: x.name, state: x.state, client: x.client })) : undefined;
         const agentNamed = agentNames(members);
-        return boardPage(viewer, side, snap.info, withAgents, snap.entries.map((e) => withAgentNames(e, agentNamed)), shown, { connected: status.connected, onThisBoard: !!live[viewer.name] }, snap.summary, agentsHere, { picture: boardPictures.pictureUrl(m[2], row?.picture_v), kind, sessions: mine, seen: snap.reads?.[viewer.name]?.person_seen ?? 0, last_seen: snap.reads?.[viewer.name]?.person_seen ?? 0, muted });
+        return boardPage(viewer, side, snap.info, withAgents, snap.entries.map((e) => withAgentNames(e, agentNamed)), shown, { connected: status.connected, onThisBoard: !!live[viewer.name] }, snap.summary, agentsHere, { picture: boardPictures.pictureUrl(m[2], row?.picture_v), kind, charter, sessions: mine, seen: snap.reads?.[viewer.name]?.person_seen ?? 0, last_seen: snap.reads?.[viewer.name]?.person_seen ?? 0, muted });
       }
 
       // ---- inbox: mentions of you, posts for your agent, replies to you ----
@@ -2573,6 +2578,50 @@ const handler = {
         return json({ error: "not found" }, 404);
       }
 
+      // ---- board charter: goal, data classes, retention, and a note for each member ----
+      m = path.match(/^\/api\/boards\/(b_[a-z0-9]+)\/charter$/);
+      if (m && (method === "GET" || method === "POST")) {
+        if (!viewer) return needLogin();
+        const role = await registry.memberRole(env, m[1], viewer.name);
+        if (!role) return json({ error: "board not found" }, 404);
+        const board = await registry.getBoard(env, m[1]);
+        if (!board) return json({ error: "board not found" }, 404);
+        const members = await registry.boardMembers(env, m[1]);
+        const stored = storedFromRow(board);
+        const canEdit = (role === "owner" || board.created_by === viewer.name) && viewer.via !== "agent" && !board.archived_at;
+        if (method === "GET") return json({ charter: charterView(stored, members), can_edit: canEdit }, 200, { "cache-control": "no-store" });
+        if (viewer.via === "agent") return json({ error: "Only people edit a board's charter. Ask your person to change it." }, 403);
+        if (role !== "owner" && board.created_by !== viewer.name) return json({ error: "Only the board's owners can edit its charter." }, 403);
+        if (board.archived_at) return json({ error: "This board is archived. Restore it to edit the charter." }, 403);
+        let patch;
+        try {
+          patch = parseCharterPatch(await request.json().catch(() => ({})));
+        } catch (e) {
+          return json({ error: e instanceof Error ? e.message : String(e) }, 400);
+        }
+        let next;
+        try {
+          next = applyCharter(stored, patch, members.map((x) => x.user));
+        } catch (e) {
+          return json({ error: e instanceof Error ? e.message : String(e) }, 400);
+        }
+        const hit = scanFields(charterScanFields(next, patch));
+        if (hit) return json({ error: blockedMessage(hit) }, 400);
+        if (patch.retention_days !== undefined) {
+          const creator = await registry.userByName(env, board.created_by);
+          const pol = creator?.email ? await orgPolicy(env, creator.email) : null;
+          if (pol?.max_retention_days && (next.retention_days == null || next.retention_days > pol.max_retention_days)) return json({ error: `${pol.domain} keeps messages at most ${pol.max_retention_days} days.` }, 400);
+        }
+        const changed = JSON.stringify(stored) !== JSON.stringify(next);
+        if (changed) {
+          await registry.saveBoardCharter(env, m[1], next);
+          await boardStub(env, m[1]).setCharter(agentCharter(next)); // agents read it from the board (#3685)
+          await registry.audit(env, m[1], viewer.name, "charter", null, charterAuditDetail(next));
+        }
+        const pruned = patch.retention_days !== undefined && next.retention_days ? await boardStub(env, m[1]).prune(Date.now() - next.retention_days * 86_400_000) : 0;
+        return json({ ok: true, charter: charterView(next, members), pruned });
+      }
+
       // ---- board details (any member edits) and search across your boards ----
       m = path.match(/^\/api\/boards\/(b_[a-z0-9]+)\/retention$/);
       if (m && method === "POST") {
@@ -2586,6 +2635,7 @@ const handler = {
         const pol = creator?.email ? await orgPolicy(env, creator.email) : null;
         if (pol?.max_retention_days && (days == null || days > pol.max_retention_days)) return json({ error: `${pol.domain} keeps messages at most ${pol.max_retention_days} days.` }, 400);
         await env.DB.prepare(`UPDATE boards SET retention_days = ? WHERE id = ?`).bind(days, m[1]).run();
+        await boardStub(env, m[1]).setCharter(agentCharter({ ...storedFromRow(board), retention_days: days })); // the charter agents read says it (#3685)
         await registry.audit(env, m[1], viewer.name, "retention", null, days ? `keep ${days} days` : "keep everything");
         const pruned = days ? await boardStub(env, m[1]).prune(Date.now() - days * 86_400_000) : 0;
         return json({ ok: true, retention_days: days, pruned });

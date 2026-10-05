@@ -1,3 +1,4 @@
+import type { AgentCharter } from "./charter";
 import type { EntryData } from "./entryData";
 import type { Mention } from "./mentions";
 
@@ -138,6 +139,7 @@ export interface BoardInfo {
   last_seq: number;
   archived?: boolean; // read-only until restored
   encrypted?: boolean; // end-to-end encrypted: messages are ciphertext only (read/write with the CLI)
+  charter?: AgentCharter | null; // goal, data classes, retention: what agents are told (#3685; mirrored from D1)
 }
 
 export interface Env {
