@@ -13,6 +13,9 @@ export interface CspHit {
 
 const MAX_PER_REQUEST = 20;
 const MAX_BODY = 64 * 1024;
+/** Distinct "directive blocked" keys kept per day; anyone can post reports, so past this they count as one overflow row. */
+export const MAX_KEYS_PER_DAY = 100;
+export const OVERFLOW_KEY = "(other) (over the daily limit of distinct reports)";
 
 /** "https://cdn.x.com/a.js?v=1" → "https://cdn.x.com"; keywords (inline, eval, data, blob…) stay as they are. */
 export function blockedKey(raw: unknown): string {
@@ -66,12 +69,41 @@ export function allow(ip: string, now = Date.now()): boolean {
   return r.n <= PER_WINDOW;
 }
 
+/** The body as text, but never more than `max` bytes read (a chunked body has no content-length to refuse up front). */
+async function readCapped(request: Request, max: number): Promise<string> {
+  if (!request.body) return "";
+  const reader = request.body.getReader();
+  const parts: Uint8Array[] = [];
+  let n = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      n += value.byteLength;
+      if (n > max) {
+        await reader.cancel().catch(() => {});
+        return "";
+      }
+      parts.push(value);
+    }
+  } catch {
+    return "";
+  }
+  const all = new Uint8Array(n);
+  let o = 0;
+  for (const p of parts) {
+    all.set(p, o);
+    o += p.byteLength;
+  }
+  return new TextDecoder().decode(all);
+}
+
 /** POST /api/csp-report: no sign-in (browsers send it themselves), 204 always, counted when allowed. */
 export async function handleReport(request: Request, env: Env): Promise<Response> {
   const ip = request.headers.get("cf-connecting-ip") ?? "local";
   const len = Number(request.headers.get("content-length") ?? 0);
   if (len > MAX_BODY || !allow(ip)) return new Response(null, { status: 204 });
-  const text = (await request.text().catch(() => "")).slice(0, MAX_BODY);
+  const text = await readCapped(request, MAX_BODY);
   let body: unknown = null;
   try {
     body = JSON.parse(text);
@@ -79,6 +111,7 @@ export async function handleReport(request: Request, env: Env): Promise<Response
     return new Response(null, { status: 204 });
   }
   const hits = parseReports(body);
-  await Promise.all(hits.map((h) => usage.track(env, "csp", `${h.directive} ${h.blocked}`)));
+  // One at a time, so the cap is counted as the rows go in.
+  for (const h of hits) await usage.trackCapped(env, "csp", `${h.directive} ${h.blocked}`, MAX_KEYS_PER_DAY, OVERFLOW_KEY).catch(() => {});
   return new Response(null, { status: 204 });
 }

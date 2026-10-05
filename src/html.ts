@@ -332,23 +332,25 @@ export const PREVIEW_FRAME_CSP =
   "sandbox allow-scripts; default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; font-src data:; media-src data: blob:; connect-src 'none'; form-action 'none'; base-uri 'none'; frame-ancestors 'self'";
 export const PREVIEW_FRAME_HTML =
   `<!doctype html><meta charset="utf-8"><title>Preview</title><script>addEventListener("message",function f(e){var d=e.data;if(e.source!==parent||!d||d.t!=="atteo-preview"||typeof d.html!=="string"||typeof d.head!=="string")return;` +
-  `removeEventListener("message",f);document.open();document.write("<!doctype html>"+d.head+d.html);document.close()});parent.postMessage({t:"atteo-preview-ready"},"*")</script>`;
+  `removeEventListener("message",f);document.open();document.write("<!doctype html>"+d.head+d.html);document.close()});parent.postMessage({t:"atteo-preview-ready",tok:location.hash.slice(1)},"*")</script>`;
 const PREVIEW_JS = `
 (()=>{const dlg=document.createElement('dialog');dlg.className='pv-dlg';dlg.setAttribute('aria-label',tr('Preview'));
   dlg.innerHTML='<div class="pv-hd"><b class="mono truncate" id="pv-name"></b><span class="grow"></span><div class="seg pv-w" role="group" aria-label="'+tr('Width')+'"><button type="button" class="on" data-pv-w="">'+tr('Full')+'</button><button type="button" data-pv-w="390">'+tr('Phone')+'</button></div><button type="button" class="btn ghost sm" data-pv-close aria-label="'+tr('Close preview')+'">✕</button></div><div class="pv-body"><iframe id="pv-frame" sandbox="allow-scripts" referrerpolicy="no-referrer" title="'+tr('Preview')+'"></iframe></div><p class="xs faint pv-note">Runs in a sandbox: it can\\'t see your account or reach the network.</p>';
   document.body.appendChild(dlg);const fr=dlg.querySelector('#pv-frame');
   const HEAD=${JSON.stringify(PREVIEW_HEAD).replace(/</g, "\\u003c")};
   // The shell says when it's listening; it gets the text once per open (a page that says "ready" again gets nothing).
-  let pending=null;
-  addEventListener('message',e=>{if(e.source!==fr.contentWindow||pending===null||!e.data||e.data.t!=='atteo-preview-ready')return;
-    const html=pending;pending=null;fr.contentWindow.postMessage({t:'atteo-preview',head:HEAD,html},'*')});
+  // Each open has its own token in the shell's #fragment, which 'ready' must echo: a page the previous file navigated
+  // the frame to (sandboxed frames may navigate themselves) can't know it, so it can never pass for the new shell.
+  let pending=null,tok='';
+  addEventListener('message',e=>{if(e.source!==fr.contentWindow||pending===null||!e.data||e.data.t!=='atteo-preview-ready'||!tok||e.data.tok!==tok)return;
+    const html=pending;pending=null;tok='';fr.contentWindow.postMessage({t:'atteo-preview',head:HEAD,html},'*')});
   async function open(name,ver){
     let html='';try{const r=await fetch('/api/boards/'+BOARD+'/doc?name='+encodeURIComponent(name)+(ver?'&version='+ver:''));const d=await r.json();if(!r.ok){toast(d.error||tr("Couldn't open it"));return}html=d.content||'';
       if(window.e2eDecryptDoc)html=await window.e2eDecryptDoc(d)||html}catch(e){toast(tr("Couldn't open it"));return}
-    dlg.querySelector('#pv-name').textContent=name;pending=html;fr.src='/preview-frame?'+Date.now();setW('');if(!dlg.open)dlg.showModal()}
+    dlg.querySelector('#pv-name').textContent=name;pending=html;tok=Array.from(crypto.getRandomValues(new Uint8Array(16)),b=>b.toString(16).padStart(2,'0')).join('');fr.src='/preview-frame?'+Date.now()+'#'+tok;setW('');if(!dlg.open)dlg.showModal()}
   function setW(w){fr.style.width=w?w+'px':'100%';dlg.querySelectorAll('[data-pv-w]').forEach(b=>b.classList.toggle('on',b.dataset.pvW===w))}
   dlg.addEventListener('click',e=>{if(e.target===dlg||e.target.closest('[data-pv-close]')){dlg.close();return}const w=e.target.closest('[data-pv-w]');if(w)setW(w.dataset.pvW)});
-  dlg.addEventListener('close',()=>{pending=null;fr.src='about:blank'});
+  dlg.addEventListener('close',()=>{pending=null;tok='';fr.src='about:blank'});
   document.addEventListener('click',e=>{const b=e.target.closest('[data-preview-file]');if(!b)return;e.preventDefault();e.stopPropagation();open(b.dataset.previewFile,b.dataset.fileVer?+b.dataset.fileVer:undefined)},true);
 })();
 `;

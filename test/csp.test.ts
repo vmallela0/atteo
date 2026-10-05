@@ -1,9 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { page, appPage, CSP_ENFORCE, CSP_REPORT_PATH, VOICE_SOCKET_ORIGIN } from "../src/ui";
+import { page, appPage, formActionSource, CSP_ENFORCE, CSP_REPORT_PATH, VOICE_SOCKET_ORIGIN } from "../src/ui";
+import { consentPage } from "../src/oauthPage";
+import { trackCapped } from "../src/usage";
+import type { Env } from "../src/types";
 import { landingPage, boardPage, mePage, PREVIEW_FRAME_CSP, PREVIEW_FRAME_HTML } from "../src/html";
 import { REALTIME_URL } from "../src/voice";
 import { MERMAID_JS, MERMAID_SRC, MERMAID_SRI } from "../src/mermaid";
-import { allow, blockedKey, parseReports } from "../src/csp";
+import { allow, blockedKey, handleReport, parseReports, MAX_KEYS_PER_DAY, OVERFLOW_KEY } from "../src/csp";
 
 const viewer = { name: "csp", email: "csp@example.com", display_name: null, admin: false };
 const board = { id: "b_csp", title: "CSP", created_by: "csp", created_at: 0, entry_count: 0, last_seq: 0 };
@@ -113,5 +116,74 @@ describe("CSP reports", () => {
     for (let i = 0; i < 40; i++) if (allow("1.2.3.4-test", t)) ok++;
     expect(ok).toBe(30);
     expect(allow("1.2.3.4-test", t + 61_000)).toBe(true);
+  });
+});
+
+// Before enforcing (#2722, opus-d #2703/#2720).
+const { DatabaseSync } = (await import("node:" + "sqlite")) as { DatabaseSync: new (p: string) => any };
+function usageDb() {
+  const db = new DatabaseSync(":memory:");
+  db.exec("CREATE TABLE usage_daily (day TEXT NOT NULL, metric TEXT NOT NULL, key TEXT NOT NULL, count INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (day, metric, key))");
+  const stmt = (sql: string, args: unknown[] = []): any => ({
+    bind: (...a: unknown[]) => stmt(sql, a),
+    run: async () => db.prepare(sql).run(...args),
+  });
+  return { env: { DB: { prepare: (sql: string) => stmt(sql) } } as unknown as Env, db };
+}
+
+describe("before enforcing (#2722)", () => {
+  const policyOf = (res: Response) => res.headers.get(HEADER) ?? "";
+  const formAction = (res: Response) => policyOf(res).split("; ").find((x) => x.startsWith("form-action ")) ?? "";
+
+  it("the OAuth consent page lets its form redirect to the client's redirect_uri, and only there", () => {
+    expect(formAction(consentPage(viewer, "r1", "Claude", "https://claude.ai/api/mcp/auth_callback?x=1"))).toBe("form-action 'self' https://claude.ai");
+    expect(formAction(consentPage(viewer, "r1", "CLI", "http://127.0.0.1:53682/callback"))).toBe("form-action 'self' http://127.0.0.1:53682");
+    expect(formAction(consentPage(viewer, "r1", "Cursor", "cursor://anysphere.cursor-deeplink/mcp/auth"))).toBe("form-action 'self' cursor:");
+    expect(formAction(consentPage(viewer, "r1", "App", "atteo:/oauth", true))).toBe("form-action 'self' atteo:");
+    expect(formAction(page("Other", "<p>x</p>"))).toBe("form-action 'self'");
+    expect(formAction(landingPage())).toBe("form-action 'self'");
+  });
+
+  it("nothing odd gets into the source list", () => {
+    for (const raw of ["https://a.example; script-src *", "https://a.example/x;y 'unsafe-inline'", "https://a.example%20'unsafe-inline'/"]) {
+      const src = formActionSource(raw);
+      expect(src === null || /^https:\/\/[a-z0-9.:-]+$/.test(src)).toBe(true); // only ever an origin: no space, quote or ;
+    }
+    expect(formActionSource("https://a.example/p?q=';'")).toBe("https://a.example");
+    expect(formActionSource("javascript:alert(1)")).toBe(null);
+    expect(formActionSource("data:text/html,x")).toBe(null);
+    expect(formActionSource("not a url")).toBe(null);
+    expect(formActionSource("https://[::1]:8443/cb")).toBe("https://[::1]:8443");
+  });
+
+  it("HTML pages are private and revalidated: no shared cache keeps a page or pins its nonce", () => {
+    for (const res of [landingPage(), page("P", "<p>x</p>"), appPage("For you", { viewer, boards: [], active: "for-you", crumbs: "", body: "" }), boardPage(viewer, [], board, [], [], [])])
+      expect(res.headers.get("cache-control")).toBe("private, no-cache");
+  });
+
+  it("the preview shell answers 'ready' with its #token, and the page checks it", () => {
+    expect(PREVIEW_FRAME_HTML).toContain("tok:location.hash.slice(1)");
+  });
+
+  it("csp-report keeps at most MAX_KEYS_PER_DAY distinct keys a day; past that, new ones count as one overflow row", async () => {
+    const { env, db } = usageDb();
+    for (let i = 0; i < MAX_KEYS_PER_DAY + 30; i++) await trackCapped(env, "csp", `script-src https://x${i}.example`, MAX_KEYS_PER_DAY, OVERFLOW_KEY);
+    await trackCapped(env, "csp", "script-src https://x0.example", MAX_KEYS_PER_DAY, OVERFLOW_KEY); // a known key still counts as itself
+    const rows = db.prepare("SELECT key, count FROM usage_daily WHERE metric = 'csp'").all() as { key: string; count: number }[];
+    expect(rows.length).toBe(MAX_KEYS_PER_DAY + 1);
+    expect(rows.find((r) => r.key === OVERFLOW_KEY)?.count).toBe(30);
+    expect(rows.find((r) => r.key === "script-src https://x0.example")?.count).toBe(2);
+    expect(OVERFLOW_KEY.split(" ")[0]).toBe("(other)"); // the ops console splits directive / blocked at the first space
+  });
+
+  it("a report body over the limit is dropped even without a content-length", async () => {
+    const { env, db } = usageDb();
+    const big = JSON.stringify({ "csp-report": { "effective-directive": "script-src", "blocked-uri": "inline", pad: "x".repeat(70 * 1024) } });
+    const chunked = new Request("http://localhost/api/csp-report", { method: "POST", body: new Blob([big]).stream(), duplex: "half" } as RequestInit);
+    expect((await handleReport(chunked, env)).status).toBe(204);
+    const small = new Request("http://localhost/api/csp-report", { method: "POST", headers: { "cf-connecting-ip": "9.9.9.9-test" }, body: JSON.stringify({ "csp-report": { "effective-directive": "script-src", "blocked-uri": "inline" } }) });
+    expect((await handleReport(small, env)).status).toBe(204);
+    const rows = db.prepare("SELECT key, count FROM usage_daily").all() as { key: string; count: number }[];
+    expect(rows).toEqual([{ key: "script-src inline", count: 1 }]);
   });
 });

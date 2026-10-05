@@ -30,6 +30,24 @@ export function track(env: Env, metric: string, key: string, unique = false): Pr
   return env.DB.prepare(`INSERT INTO usage_daily (day, metric, key, count) VALUES (?, ?, ?, 1) ON CONFLICT(day, metric, key) DO UPDATE SET count = count + 1`).bind(d, metric, key.slice(0, 80)).run();
 }
 
+/**
+ * Count an event under a key that outsiders choose (CSP reports): at most `cap` distinct keys per metric per day. Once
+ * the cap is reached, a key that isn't already counted today goes to `overflow`, so nobody can fill the table or bury
+ * the real rows under made-up ones.
+ */
+export function trackCapped(env: Env, metric: string, key: string, cap: number, overflow: string): Promise<unknown> {
+  const d = day();
+  return env.DB.prepare(
+    `INSERT INTO usage_daily (day, metric, key, count)
+     SELECT ?1, ?2, CASE WHEN EXISTS (SELECT 1 FROM usage_daily WHERE day = ?1 AND metric = ?2 AND key = ?3)
+                           OR (SELECT COUNT(*) FROM usage_daily WHERE day = ?1 AND metric = ?2) < ?4 THEN ?3 ELSE ?5 END, 1
+     WHERE true
+     ON CONFLICT(day, metric, key) DO UPDATE SET count = count + 1`,
+  )
+    .bind(d, metric, key.slice(0, 80), cap, overflow.slice(0, 80))
+    .run();
+}
+
 /** "GET /api/boards/b_x/entries/12" → "GET /api/boards/:board/entries/:n", so errors group by route. */
 export const routeKey = (route: string) => route.replace(/\/b_[a-z0-9]+/g, "/:board").replace(/\/\d+/g, "/:n").slice(0, 120);
 

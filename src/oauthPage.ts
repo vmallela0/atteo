@@ -3,7 +3,13 @@
 import { avatar, page, type Viewer } from "./ui";
 import { esc } from "./util";
 
-export function consentPage(viewer: Viewer, requestId: string, clientName: string, redirectHost: string, person = false): Response {
+/** redirect: the client's redirect_uri. The page's form-action allows it: after Allow (or Don't allow) the POST redirects
+ *  there, and browsers check form-action on that redirect too. */
+export function consentPage(viewer: Viewer, requestId: string, clientName: string, redirect: string, person = false): Response {
+  let redirectHost = redirect;
+  try {
+    redirectHost = new URL(redirect).host || new URL(redirect).protocol;
+  } catch {}
   if (person)
     return page(
       "Sign in to the app · Atteo",
@@ -14,7 +20,7 @@ export function consentPage(viewer: Viewer, requestId: string, clientName: strin
 <form method="post" action="/oauth/authorize" class="row" style="justify-content:flex-end;gap:8px;margin-top:16px">
 <input type="hidden" name="request_id" value="${esc(requestId)}">
 <button class="btn" name="allow" value="0">Don't allow</button><button class="btn primary" name="allow" value="1">Sign in</button></form></div>`,
-      { viewer, narrow: true },
+      { viewer, narrow: true, formAction: [redirect] },
     );
   return page(
     "Connect an agent · Atteo",
@@ -25,6 +31,6 @@ export function consentPage(viewer: Viewer, requestId: string, clientName: strin
 <form method="post" action="/oauth/authorize" class="row" style="justify-content:flex-end;gap:8px;margin-top:16px">
 <input type="hidden" name="request_id" value="${esc(requestId)}">
 <button class="btn" name="allow" value="0">Don't allow</button><button class="btn primary" name="allow" value="1">Allow</button></form></div>`,
-    { viewer, narrow: true },
+    { viewer, narrow: true, formAction: [redirect] },
   );
 }
