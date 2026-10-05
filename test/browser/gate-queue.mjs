@@ -1,5 +1,7 @@
 // Browser check for #3209: board info shows the gate's queue — open handoffs oldest first (branch, who, age, LGTM),
 // each a jump to its message; hidden when the queue is empty; a queue idle 30 min is flagged. 1280 and 390.
+// (opus-d's server run caught two things: the handoff's base must be a 40-hex sha, and the lander has to be caught
+// up before its closing reply — so B lands through its own MCP session, read first.)
 import { SHOTS_DIR } from "./lib/shots.mjs";
 import { chromium } from "playwright-core";
 const BASE=process.env.BASE||"http://localhost:8787";
@@ -7,15 +9,18 @@ const ops=async(p,b)=>(await fetch(`${BASE}/api/ops/${p}`,{method:"POST",headers
 const run=Date.now().toString(36).slice(-4),A=`gq${run}`,B=`gq${run}x`;
 for(const u of [A,B])await ops("users",{name:u,email:`${u}@example.com`,verified:"true"});
 const board=(await ops("boards",{user:A,title:`Gate ${run}`})).board.id;await ops("members",{board,user:B});
-const tokA=(await ops("tokens",{user:A})).token;
+const tokA=(await ops("tokens",{user:A})).token,tokB=(await ops("tokens",{user:B})).token;
 const ckB=(await ops("sessions",{user:B})).cookie;
-const mcp=async(name,args)=>(await (await fetch(`${BASE}/mcp?board=${board}`,{method:"POST",headers:{"content-type":"application/json",accept:"application/json, text/event-stream",authorization:`Bearer ${tokA}`},body:JSON.stringify({jsonrpc:"2.0",id:1,method:"tools/call",params:{name,arguments:args}})})).json()).result.content[0].text;
-const apiB=(path,body)=>fetch(`${BASE}${path}`,{method:"POST",headers:{"content-type":"application/json",cookie:ckB},body:JSON.stringify(body)}).then(r=>r.json());
+const mcp=(tok)=>async(name,args)=>(await (await fetch(`${BASE}/mcp?board=${board}`,{method:"POST",headers:{"content-type":"application/json",accept:"application/json, text/event-stream",authorization:`Bearer ${tok}`},body:JSON.stringify({jsonrpc:"2.0",id:1,method:"tools/call",params:{name,arguments:args}})})).json()).result.content[0].text;
+const a=mcp(tokA),bMcp=mcp(tokB);
+// A refused post answers without a number: say so loudly instead of crashing on the match.
+const posted=async(t,args)=>{const r=await t("post",args);const m=r.match(/#(\d+)/);if(!m)throw new Error(`post refused: ${r.slice(0,300)}`);return Number(m[1])};
 let fails=0;const check=(ok,m)=>{console.log(`${ok?"✓":"✗"} ${m}`);if(!ok)fails++};
-await mcp("read",{});
-// Two open handoffs. Only another session can land one (the author can only withdraw), so B closes them from its cookie.
-const h1=Number((await mcp("post",{type:"handoff",title:"Ready to gate: fix-cart",text:"the cart fix",handoff:{branch:"fix-cart",sha:"a".repeat(40),base:"main",checks:"vitest 12/12"}})).match(/#(\d+)/)[1]);
-const h2=Number((await mcp("post",{type:"handoff",title:"Ready to gate: docs-page",text:"the docs page",handoff:{branch:"docs-page",sha:"b".repeat(40),base:"main",checks:"tsc clean"}})).match(/#(\d+)/)[1]);
+await a("read",{});
+const SHA=(c)=>c.repeat(40); // branch bases and shas are 40-hex (the server refuses anything shorter)
+// Two open handoffs. Only another session can land one (the author can only withdraw), so B lands through its own MCP.
+const h1=await posted(a,{type:"handoff",title:"Ready to gate: fix-cart",text:"the cart fix",handoff:{branch:"fix-cart",sha:SHA("a"),base:SHA("1"),checks:"vitest 12/12"}});
+const h2=await posted(a,{type:"handoff",title:"Ready to gate: docs-page",text:"the docs page",handoff:{branch:"docs-page",sha:SHA("b"),base:SHA("2"),checks:"tsc clean"}});
 const b=await chromium.launch({executablePath: process.env.PW_CHROME || undefined});
 const open=async(w,phone)=>{const ctx=await b.newContext({viewport:{width:w,height:820},...(phone?{hasTouch:true,isMobile:true}:{})});const [k,...v]=ckB.split(";")[0].split("=");await ctx.addCookies([{name:k,value:v.join("="),url:BASE}]);const p=await ctx.newPage();const errors=[];p.on("pageerror",e=>errors.push(e.message));return {ctx,p,errors}};
 const seeQueue=async(p)=>{await p.locator('[data-open="invite"]').first().click();await p.locator("#acc-gate:not([hidden])").waitFor()};
@@ -24,7 +29,7 @@ for(const [label,w,phone,first,left] of [
   // the phone pass runs after the desktop one landed h1: a third handoff keeps two in the queue for it
   ["phone",390,true,null,null],
 ]){
-  if(!first)var h3=Number((await mcp("post",{type:"handoff",title:"Ready to gate: third",text:"one more",handoff:{branch:"third",sha:"d".repeat(40),base:"main",checks:"ok"}})).match(/#(\d+)/)[1]);
+  if(!first){await bMcp("read",{});var h3=await posted(bMcp,{type:"handoff",title:"Ready to gate: third",text:"one more",handoff:{branch:"third",sha:SHA("d"),base:SHA("4"),checks:"ok"}})}
   const f=first??h2,l=left??h3,branch=label==="desktop"?"fix-cart":"docs-page";
   const {ctx,p,errors}=await open(w,phone);
   await p.goto(`${BASE}/b/${board}`);await p.locator("#composer-text").waitFor();
@@ -38,8 +43,10 @@ for(const [label,w,phone,first,left] of [
   check(!(await p.locator("#gate-h").innerText()).toLowerCase().includes("30"),`${label}: not flagged stalled yet`);
   await p.screenshot({path:`${SHOTS_DIR}/gate-queue-${label}.png`});
   // The queue updates live: B (another session) lands the oldest; the closing reply is a handoff entry, so the open
-  // dialog's refresh drops the queue to one without reopening anything.
-  await apiB(`/api/boards/${board}/entries`,{type:"handoff",reply_to:f,text:"landed",handoff:{state:"landed",sha:"c".repeat(40)}});
+  // dialog's refresh drops the queue to one without reopening anything. B reads first: a post in a thread it hasn't
+  // read is refused.
+  await bMcp("read",{});
+  await posted(bMcp,{type:"handoff",reply_to:f,text:"landed",handoff:{state:"landed",sha:SHA("c")}});
   await p.locator("#gate-h").filter({hasText:"1"}).waitFor({timeout:15000});
   check(await rows.count()===1,`${label}: a landed handoff leaves the queue (2 → 1)`);
   check((await rows.nth(0).locator("a").getAttribute("href"))===`#e${l}`,`${label}: …and the one left is the right one`);
