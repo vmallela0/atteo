@@ -93,8 +93,8 @@ describe("deleting an account (Apple 5.1.1(v), jxn #4329)", () => {
     // Free text and emails that name them (jxn's agent #4389).
     db.prepare("INSERT INTO audit (board_id, actor, action, target, detail, ts) VALUES ('b_shared', 'theo', 'invited', 'maya@example.com', NULL, 1)").run();
     db.prepare("INSERT INTO audit (board_id, actor, action, target, detail, ts) VALUES ('b_shared', 'theo', 'reported', '#3', 'maya: spam', 2)").run();
-    db.prepare("INSERT INTO audit (board_id, actor, action, target, detail, ts) VALUES ('b_shared', 'theo', 'note', '#4', 'note by maya', 3)").run();
-    db.prepare("INSERT INTO audit (board_id, actor, action, target, detail, ts) VALUES ('b_shared', 'theo', 'note', '#5', 'note by mayanne', 4)").run();
+    db.prepare("INSERT INTO audit (board_id, actor, action, target, detail, ts) VALUES ('b_shared', 'theo', 'purge', '#4', 'note by maya', 3)").run();
+    db.prepare("INSERT INTO audit (board_id, actor, action, target, detail, ts) VALUES ('b_shared', 'theo', 'purge', '#5', 'note by mayanne', 4)").run();
     db.prepare("INSERT INTO invites (id, board_id, email, invited_by, created_at, email_status, accepted_at, accepted_by) VALUES ('i1', 'b_shared', 'maya@example.com', 'theo', 1, 'sent', 2, 'maya')").run();
     // A conversation of two.
     board(db, "b_dm", "theo", "direct", { title: "maya ↔ theo", key: "maya|theo" });
@@ -196,6 +196,63 @@ describe("deleting an account (Apple 5.1.1(v), jxn #4329)", () => {
     expect(db.prepare("SELECT role FROM members WHERE board_id = 'b_left' AND user = 'theo'").get()).toEqual({ role: "contributor" }); // untouched
   });
 
+  it.each(["actor", "target"])("boards they left are rewritten after tape pruning when audit names them as %s", async (column) => {
+    const { env, db } = fakeEnv();
+    user(db, "maya");
+    user(db, "theo");
+    board(db, "b_left", "theo");
+    member(db, "b_left", "theo");
+    const { b, db: boardDb } = boardFixture();
+    boardDb.prepare("INSERT INTO entries (seq, ts, author, type, text) VALUES (1, 1, 'maya', 'note', 'hello')").run();
+    db.prepare("INSERT INTO audit (board_id, actor, action, target, detail, ts) VALUES ('b_left', ?, ?, ?, NULL, 1)")
+      .run(column === "actor" ? "maya" : "theo", column === "actor" ? "left" : "removed", column === "target" ? "maya" : null);
+    expect(db.prepare("SELECT COUNT(*) AS n FROM tape").get()).toEqual({ n: 0 });
+    const stub = vi.fn(() => b as unknown as BoardForget);
+    const r = await deleteAccount(env, "maya", stub);
+    expect(stub).toHaveBeenCalledWith("b_left");
+    expect(r.boards_kept).toBe(1);
+    expect(boardDb.prepare("SELECT author, text FROM entries").all()).toEqual([{ author: r.tombstone, text: "hello" }]);
+  });
+
+  it("rewrites only exact author tokens in report and purge details on their boards", async () => {
+    const { env, db } = fakeEnv();
+    user(db, "may");
+    user(db, "theo");
+    for (const id of ["b_shared", "b_other"]) {
+      board(db, id, "theo");
+      member(db, id, "theo");
+    }
+    member(db, "b_shared", "may");
+    const details = [
+      ["b_shared", "renamed", "plans for may"],
+      ["b_shared", "renamed", "may: plans"],
+      ["b_shared", "renamed", "note by may"],
+      ["b_other", "reported", "may: spam"],
+      ["b_other", "purge", "note by may"],
+      ["b_shared", "reported", "may: may be spam"],
+      ["b_shared", "purge", "note by may"],
+      ["b_shared", "purge", "task by may, purged by their agent"],
+      ["b_shared", "reported", "theo: may be spam"],
+      ["b_shared", "reported", "mayanne: spam"],
+      ["b_shared", "reported", "May: spam"],
+      ["b_shared", "purge", "note by mayanne"],
+      ["b_shared", "purge", "note by May"],
+      ["b_shared", "purge", "note by may.other"],
+      ["b_shared", "purge", "note by may with extra text"],
+    ];
+    for (const [id, action, detail] of details) {
+      db.prepare("INSERT INTO audit (board_id, actor, action, target, detail, ts) VALUES (?, 'theo', ?, '#1', ?, 1)").run(id, action, detail);
+    }
+    const { stub, forgot } = fakeBoards();
+    const r = await deleteAccount(env, "may", stub);
+    expect(forgot.map((f) => f.id)).toEqual(["b_shared"]);
+    const expected = details.map((row) => row[2]);
+    expected[5] = `${r.tombstone}: may be spam`;
+    expected[6] = `note by ${r.tombstone}`;
+    expected[7] = `task by ${r.tombstone}, purged by their agent`;
+    expect(db.prepare("SELECT detail FROM audit WHERE actor = 'theo' ORDER BY id").all().map((row: { detail: string }) => row.detail)).toEqual(expected);
+  });
+
   it("a large account stays within D1's 100-value limit per statement", async () => {
     const { env, db, maxBinds } = fakeEnv();
     user(db, "maya");
@@ -206,6 +263,10 @@ describe("deleting an account (Apple 5.1.1(v), jxn #4329)", () => {
       member(db, `b_${i}`, "theo");
       tape(db, `b_${i}`, "maya");
       db.prepare("INSERT INTO audit (board_id, actor, action, target, detail, ts) VALUES (?, 'theo', 'reported', '#1', 'maya: spam', 1)").run(`b_${i}`);
+    }
+    // More than one page of audit details on a single board, as well as more than 100 boards.
+    for (let i = 0; i < 50; i++) {
+      db.prepare("INSERT INTO audit (board_id, actor, action, target, detail, ts) VALUES ('b_0', 'theo', 'purge', '#1', 'note by maya', 1)").run();
     }
     const { stub, forgot } = fakeBoards();
     const r = await deleteAccount(env, "maya", stub);

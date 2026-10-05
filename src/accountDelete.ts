@@ -109,7 +109,9 @@ export async function deleteAccount(env: Env, name: string, stub: (boardId: stri
   const rows = (await env.DB.prepare(
     `SELECT b.id AS id, b.kind AS kind, b.created_by AS created_by, b.direct_key AS direct_key, b.title AS title, m.role AS role
      FROM boards b LEFT JOIN members m ON m.board_id = b.id AND m.user = ?1
-     WHERE m.user IS NOT NULL OR b.created_by = ?1 OR b.id IN (SELECT DISTINCT board_id FROM tape WHERE author = ?1 OR to_user = ?1)`,
+     WHERE m.user IS NOT NULL OR b.created_by = ?1
+       OR b.id IN (SELECT DISTINCT board_id FROM tape WHERE author = ?1 OR to_user = ?1)
+       OR b.id IN (SELECT board_id FROM audit WHERE actor = ?1 OR target = ?1)`,
   ).bind(name).all<{ id: string; kind: string | null; created_by: string | null; direct_key: string | null; title: string; role: string | null }>()).results;
 
   let kept = 0, removed = 0, promoted = 0;
@@ -151,13 +153,25 @@ export async function deleteAccount(env: Env, name: string, stub: (boardId: stri
   const email = user.email ?? null;
   const n = name, t = tomb;
   const S = (sql: string, ...v: unknown[]) => env.DB.prepare(sql).bind(...v);
-  // Audit details name people in free text ("maya: spam", "note by maya"): rewritten a few rows at a time.
-  for (let last = 0; ; ) {
-    const hits = (await S(`SELECT id, detail FROM audit WHERE detail LIKE ? ESCAPE '\\' AND id > ? ORDER BY id LIMIT 45`, `%${n.replace(/[\\%_]/g, "\\$&")}%`, last).all<{ id: number; detail: string }>()).results;
-    const changed = hits.map((h) => ({ id: h.id, detail: swapHandle(h.detail, n, t) })).filter((h, i) => h.detail !== hits[i].detail);
-    if (changed.length) await env.DB.batch(changed.map((h) => S(`UPDATE audit SET detail = ? WHERE id = ?`, h.detail, h.id)));
-    if (hits.length < 45) break;
-    last = hits[hits.length - 1].id;
+  // Only reports and purges embed an author. Use the original board set (membership has changed above),
+  // one board at a time to keep binds fixed; leave titles, reasons and other people's history alone.
+  for (const b of rows) {
+    for (let last = 0; ; ) {
+      const hits = (await S(`SELECT id, action, detail FROM audit WHERE board_id = ? AND action IN ('reported', 'purge') AND detail IS NOT NULL AND id > ? ORDER BY id LIMIT 45`, b.id, last).all<{ id: number; action: string; detail: string }>()).results;
+      const changed = hits.map((h) => {
+        let detail = h.detail;
+        if (h.action === "reported" && detail.startsWith(`${n}: `)) {
+          detail = t + detail.slice(n.length);
+        } else if (h.action === "purge") {
+          const author = /^(\S+ by )(\S+)(, purged by their agent)?$/.exec(detail);
+          if (author?.[2] === n) detail = author[1] + t + (author[3] ?? "");
+        }
+        return { id: h.id, detail };
+      }).filter((h, i) => h.detail !== hits[i].detail);
+      if (changed.length) await env.DB.batch(changed.map((h) => S(`UPDATE audit SET detail = ? WHERE id = ?`, h.detail, h.id)));
+      if (hits.length < 45) break;
+      last = hits[hits.length - 1].id;
+    }
   }
   // What other people's records say about them: kept, pointing at the tombstone.
   const rename = [
