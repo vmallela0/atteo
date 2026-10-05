@@ -27,7 +27,7 @@ export async function sendInvite(
   const email = opts.email.trim().toLowerCase();
   const board = await registry.getBoard(env, opts.boardId);
   const signInUrl = `${origin}/auth/login?login_hint=${encodeURIComponent(email)}`;
-  const base = { id: crypto.randomUUID(), board_id: opts.boardId, email, invited_by: opts.invitedBy, created_at: Date.now(), role: opts.role ?? "contributor", expires_days: opts.expiresDays ?? null };
+  const base = { id: crypto.randomUUID(), board_id: opts.boardId, email, invited_by: opts.invitedBy, created_at: Date.now(), role: opts.role ?? registry.DEFAULT_GRANT_ROLE, expires_days: opts.expiresDays === undefined ? registry.DEFAULT_GRANT_DAYS : opts.expiresDays || null };
   // "Your agent" is between a person and their own agents: no one else is ever invited.
   if ((board as { kind?: string | null } | null)?.kind === "agent") return { ok: false, added: false, emailed: false, signInUrl, message: `Board ${opts.boardId} is your private chat with your own agents; no one else can join it.` };
 

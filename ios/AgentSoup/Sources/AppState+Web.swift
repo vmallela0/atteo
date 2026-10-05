@@ -219,10 +219,10 @@ extension AppState {
         } catch { report(error); return nil }
     }
 
-    /// A link anyone with an account can use to join (can post, valid 7 days).
+    /// A link anyone with an account can use to join (view only, access 30 days; the link works 7 days).
     func inviteLink(_ board: String) async -> URL? {
         do {
-            let d = try await API.shared.send("/api/boards/\(board)/links", body: ["role": "contributor", "link_days": 7], retries: false)
+            let d = try await API.shared.send("/api/boards/\(board)/links", body: ["link_days": 7], retries: false)
             return URL(string: try JSONDecoder.soup.decode(InviteLinkResponse.self, from: d).url)
         } catch { report(error); return nil }
     }

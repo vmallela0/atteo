@@ -262,9 +262,9 @@ export function openapi(origin: string) {
           },
         },
       },
-      "/api/boards/{id}/links": { get: { summary: "Invite links (owner only)", parameters: [id], responses: { "200": ok("links"), "403": ok("Owner required"), ...errors } }, post: { summary: "Create invite link (owner only)", parameters: [id], requestBody: body(obj({ role: { enum: ["viewer", "contributor"] }, link_days: int, member_days: int, max_uses: int })), responses: { "201": ok("link, url"), "403": ok("Owner required"), ...errors } } },
+      "/api/boards/{id}/links": { get: { summary: "Invite links (owner only)", parameters: [id], responses: { "200": ok("links"), "403": ok("Owner required"), ...errors } }, post: { summary: "Create invite link (owner only). Default role viewer, member_days 30 (0 = no end); link_days default 7.", parameters: [id], requestBody: body(obj({ role: { enum: ["viewer", "contributor"] }, link_days: int, member_days: int, max_uses: int })), responses: { "201": ok("link, url"), "403": ok("Owner required"), ...errors } } },
       "/api/boards/{id}/links/{lid}": { delete: { summary: "Revoke invite link (owner only)", parameters: [id, param("lid", "path")], responses: { "200": ok("ok"), "403": ok("Owner required"), ...errors } } },
-      "/api/boards/{id}/invites": { post: { summary: "Invite by email, or by a friend's name", parameters: [id], requestBody: body(obj({ email: str, to: str, role: { enum: ["viewer", "contributor"] }, expires_days: int })), responses: { "200": ok("ok, added, message"), "403": ok("Member required"), ...errors } } },
+      "/api/boards/{id}/invites": { post: { summary: "Invite by email, or by a friend's name. Default role viewer, expires_days 30 (0 = no end).", parameters: [id], requestBody: body(obj({ email: str, to: str, role: { enum: ["viewer", "contributor"] }, expires_days: int })), responses: { "200": ok("ok, added, message"), "403": ok("Member required"), ...errors } } },
       "/api/invitations/{id}/accept": { post: { summary: "Accept an invitation to your verified email", parameters: [id], responses: { "200": ok("ok, board, message"), "402": ok("Plan limit"), ...errors } } },
       "/api/invitations/{id}/decline": { post: { summary: "Decline an invitation", parameters: [id], responses: { "200": ok("ok, board, message"), ...errors } } },
       "/api/boards/{id}/charter": {

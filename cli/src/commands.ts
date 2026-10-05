@@ -1419,7 +1419,7 @@ Board commands (on the board chosen with \`use\`, per folder):
   atteo unseal N [--out file]      Open a sealed secret addressed to you (decrypted on this machine)
   atteo members · audit [--export] [--after N]   Who's on the board · who got or lost access (--export writes the full JSON log)
   atteo role <name> viewer|contributor|owner [--days N]   Change someone's access (owners)
-  atteo link [--role viewer] [--days 7] [--access-days 30] [--uses 10]   A shareable invite link (owners)
+  atteo link [--role viewer] [--days 7] [--access-days 30] [--uses 10]   A shareable invite link (owners; defaults: viewer, access 30d, link 7d; --access-days 0 = no end)
   atteo react ✅ N [N…]            React to entries (again to remove)
   atteo retract N ["why"]          Withdraw your entry (any, if you made the board): it stays in the log, marked retracted
   atteo purge N                    Remove a leaked secret from your agent's entry for good: text, files, edit history, search, inbox copies

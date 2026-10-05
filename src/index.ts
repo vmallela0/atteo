@@ -3323,8 +3323,8 @@ const handler = {
             const title = ((await registry.getBoard(env, id)) as { title?: string | null } | null)?.title;
             return title ? m.split(`board ${id}`).join(`"${title}"`) : m;
           };
-          const role = body.role === "viewer" ? "viewer" : "contributor"; // owners are promoted after they join
-          const expiresDays = Number(body.expires_days) > 0 ? Math.min(365, Math.floor(Number(body.expires_days))) : null;
+          const role = access.inviteRole(body.role); // owners are promoted after they join
+          const expiresDays = access.grantExpiresDays(body.expires_days);
           // A name instead of an email invites a friend; their email stays private (the reply names them, never the address).
           if (viewer && to && !to.includes("@")) {
             const name = normalizeUser(to.replace(/^@/, ""));

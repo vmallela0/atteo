@@ -140,7 +140,7 @@ struct BoardInfoView<Top: View, Files: View>: View {
                         }
                     }
                 } header: { SectionHeader("Invite") } footer: {
-                    Text(owner ? "Friends by name; anyone else by email. A link lets anyone with an account join (can post, for 7 days)." : "Friends by name; anyone else by email.")
+                    Text(owner ? "Friends by name; anyone else by email. A link lets anyone with an account join (view only, access for 30 days)." : "Friends by name; anyone else by email.")
                 }
                 .listRowBackground(Theme.card)
             }

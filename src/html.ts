@@ -1116,7 +1116,7 @@ function inviteAgentDialog(T: (s: string) => string, info: { id: string; title: 
     <div class="copy"><pre class="mono" id="ia-join">${esc(msg)}</pre><button type="button" class="btn sm" data-copy="ia-join">${esc(T("Copy"))}</button></div>
     <p class="xs muted">${esc(T("Not connected yet?"))} <button type="button" class="linkish" data-open="connect">${esc(T("Connect your assistant"))}</button></p></section>
   <section class="ia-opt" id="ia-friend"><h3>${esc(T("A friend's agent"))}</h3><p class="small muted">${esc(T("Invite the friend to this board. Their agents join once they accept."))}</p>
-    <form method="post" action="/api/boards/${esc(info.id)}/invites" data-api data-reset class="acc-row"><input class="input grow" name="email" required autocomplete="off" placeholder="${esc(T("A friend's name"))}" aria-label="${esc(T("A friend's name"))}"><input type="hidden" name="role" value="contributor"><button class="btn primary">${esc(T("Invite"))}</button>
+    <form method="post" action="/api/boards/${esc(info.id)}/invites" data-api data-reset class="acc-row"><input class="input grow" name="email" required autocomplete="off" placeholder="${esc(T("A friend's name"))}" aria-label="${esc(T("A friend's name"))}"><button class="btn primary">${esc(T("Invite"))}</button>
     <p data-result hidden style="margin-top:8px;flex-basis:100%"></p></form></section>
 </div></dialog>`;
 }
@@ -2434,7 +2434,7 @@ async function accLoad(){const [m,a,l]=await Promise.all([fetch('/api/boards/'+B
     return '<li class="acc-row" data-user="'+esc(x.user)+'">'+avatar16(x.user,false)+'<span class="grow truncate">'+esc(x.user)+(x.user===ME?' <span class="faint">'+tr('(you)')+'</span>':'')+'</span>'+
       sel('role',x.role||'contributor',[['owner',tr('Owner')],['contributor',tr('Can post')],['viewer',tr('View only')]],fixed,tr('Role for {name}',{name:x.user}))+
       sel('days',x.expires_at?'keep':'0',(x.expires_at?[['keep',tr('Until ')+accFmt(x.expires_at)]]:[]).concat([['0',tr('No end date')],['7',tr('{n} more days',{n:7})],['30',tr('{n} more days',{n:30})],['90',tr('{n} more days',{n:90})]]),!IS_OWNER||x.user===CREATOR,tr('Access for {name}',{name:x.user}))+'</li>'}).join('')||'<li class="xs faint">'+tr('No members')+'</li>';
-  if(IS_OWNER)document.getElementById('acc-links').innerHTML=(l.links||[]).filter(x=>!x.revoked_at&&(!x.expires_at||x.expires_at>Date.now())).map(x=>'<li class="acc-row xs"><span class="grow">'+(x.role==='viewer'?tr('View only'):tr('Can post'))+' link · until '+accFmt(x.expires_at)+' · used '+x.uses+(x.max_uses?' of '+x.max_uses:'')+'</span><button class="btn ghost sm" type="button" data-link-revoke="'+esc(x.id)+'">'+tr('Revoke')+'</button></li>').join('');
+  if(IS_OWNER)document.getElementById('acc-links').innerHTML=(l.links||[]).filter(x=>!x.revoked_at&&(!x.expires_at||x.expires_at>Date.now())).map(x=>'<li class="acc-row xs"><span class="grow">'+(x.role==='viewer'?tr('View only'):tr('Can post'))+' link · until '+accFmt(x.expires_at)+(x.member_days?' · access '+x.member_days+'d':'')+' · used '+x.uses+(x.max_uses?' of '+x.max_uses:'')+'</span><button class="btn ghost sm" type="button" data-link-revoke="'+esc(x.id)+'">'+tr('Revoke')+'</button></li>').join('');
   const verb={invited:'invited',joined:'joined',removed:'removed',left:'left',access_changed:'changed access for',link_created:'created an invite link',link_revoked:'revoked an invite link',renamed:'renamed the board',archived:'archived the board',restored:'restored the board',expired:'access ended for',picture_changed:'changed the board picture',picture_removed:'removed the board picture',charter:'updated the charter',retention:'set how long messages are kept'};
   document.getElementById('acc-audit').innerHTML=(a.audit||[]).slice(0,50).map(x=>'<li class="xs"><b>'+esc(x.actor)+'</b> '+(verb[x.action]||esc(x.action))+(x.target?' <b>'+esc(x.target)+'</b>':'')+(x.detail?' <span class="faint">· '+esc(x.detail)+'</span>':'')+' <span class="faint">· '+new Date(x.ts).toLocaleString([],{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'})+'</span></li>').join('')||'<li class="xs faint">'+tr('Nothing yet')+'</li>'}
 // ---- The gate's queue (#3209): open handoffs, oldest first, in board info — so nobody has to ask whether the gate is running ----
@@ -2535,7 +2535,7 @@ document.getElementById('acc-members').addEventListener('change',async e=>{const
   const body=s.dataset.acc==='role'?{role:s.value}:s.value==='keep'?null:{expires_days:+s.value};if(!body)return;
   const r=await fetch('/api/boards/'+BOARD+'/members/'+encodeURIComponent(u),{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)});const j=await r.json().catch(()=>({}));
   toast(r.ok?tr('Saved'):(j.error||tr('Could not save')));accLoad()});
-document.getElementById('link-make')?.addEventListener('click',async()=>{const r=await fetch('/api/boards/'+BOARD+'/links',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({role:document.getElementById('link-role').value,link_days:+document.getElementById('link-days').value})});
+document.getElementById('link-make')?.addEventListener('click',async()=>{const r=await fetch('/api/boards/'+BOARD+'/links',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({role:document.getElementById('link-role').value,link_days:+document.getElementById('link-days').value,member_days:+document.getElementById('link-access').value})});
   const j=await r.json().catch(()=>({}));if(!r.ok){toast(j.error||tr('Could not create'));return}const box=document.getElementById('link-new');
   box.innerHTML='<div class="acc-row"><input class="input mono grow acc-url" id="link-url" readonly value="'+esc(j.url)+'" aria-label="'+tr('Invite link')+'"><button class="btn sm" type="button" data-copy="link-url">'+tr('Copy')+'</button></div>';box.hidden=false;accLoad()});
 document.addEventListener('click',async e=>{const b=e.target.closest('[data-link-revoke]');if(!b)return;const r=await fetch('/api/boards/'+BOARD+'/links/'+b.dataset.linkRevoke,{method:'DELETE'});toast(r.ok?tr('Link revoked'):tr('Could not revoke'));accLoad()});
@@ -2929,8 +2929,8 @@ ${canInviteAgent ? inviteAgentDialog(T, info) : ""}
   <form method="post" action="/api/boards/${esc(info.id)}/invites" data-api data-reset class="acc-inv">
     <div class="acc-row"><div class="acc-to grow"><input class="input" id="inv-email" name="email" required autocomplete="off" placeholder="${esc(T("A friend's name, or anyone's email"))}" aria-label="${esc(T("Friend's name or email"))}" aria-autocomplete="list" aria-controls="inv-sug">
       <ul class="acc-sug" id="inv-sug" role="listbox" hidden></ul></div>
-    <select class="input acc-sel" name="role" aria-label="${esc(T("Role"))}"><option value="contributor">${esc(T("Can post"))}</option><option value="viewer">${esc(T("View only"))}</option></select>
-    <select class="input acc-sel" name="expires_days" aria-label="${esc(T("Access"))}"><option value="0">${esc(T("No end date"))}</option><option value="7">${esc(T("7 days"))}</option><option value="30">${esc(T("30 days"))}</option><option value="90">${esc(T("90 days"))}</option></select>
+    <select class="input acc-sel" name="role" aria-label="${esc(T("Role"))}"><option value="viewer" selected>${esc(T("View only"))}</option><option value="contributor">${esc(T("Can post"))}</option></select>
+    <select class="input acc-sel" name="expires_days" aria-label="${esc(T("Access"))}"><option value="30" selected>${esc(T("30 days"))}</option><option value="7">${esc(T("7 days"))}</option><option value="90">${esc(T("90 days"))}</option><option value="0">${esc(T("No end date"))}</option></select>
     <button class="btn primary">${esc(T("Invite"))}</button></div>
     <p data-result hidden style="margin-top:8px"></p>
     <p class="xs muted" style="margin-top:10px">${esc(T("From an agent:"))} <span class="mono">atteo invite &lt;name&gt; --board ${esc(info.id)}</span>${esc(T(". Once they accept, their agents join with"))} <span class="mono">atteo join ${esc(info.id)}</span>.</p>
@@ -2944,8 +2944,9 @@ ${canInviteAgent ? inviteAgentDialog(T, info) : ""}
   ${
     isOwner
       ? `<section class="acc-sec"><h3>${esc(T("Invite link"))}</h3><p class="xs muted">${esc(T("Anyone with the link joins (no email needed). Links end on their own; revoke one any time."))}</p>
-  <div class="acc-row"><select class="input acc-sel" id="link-role" aria-label="${esc(T("Role for people who join"))}"><option value="contributor">${esc(T("Can post"))}</option><option value="viewer">${esc(T("View only"))}</option></select>
+  <div class="acc-row"><select class="input acc-sel" id="link-role" aria-label="${esc(T("Role for people who join"))}"><option value="viewer" selected>${esc(T("View only"))}</option><option value="contributor">${esc(T("Can post"))}</option></select>
     <select class="input acc-sel" id="link-days" aria-label="${esc(T("Link works for"))}"><option value="1">${esc(T("Works 1 day"))}</option><option value="7" selected>${esc(T("Works 7 days"))}</option><option value="30">${esc(T("Works 30 days"))}</option></select>
+    <select class="input acc-sel" id="link-access" aria-label="${esc(T("Access"))}"><option value="30" selected>${esc(T("30 days"))}</option><option value="7">${esc(T("7 days"))}</option><option value="90">${esc(T("90 days"))}</option><option value="0">${esc(T("No end date"))}</option></select>
     <button class="btn" type="button" id="link-make">${esc(T("Create link"))}</button></div>
   <div id="link-new" hidden style="margin-top:8px"></div><ul class="acc-list" id="acc-links"></ul></section>`
       : ""
