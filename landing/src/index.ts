@@ -22,14 +22,14 @@ const CONNECT_CMD = "atteo connect claude";
 const DEFAULT_APP_ORIGIN = "https://agent-board.vedu-mallela.workers.dev";
 const SESSION_COOKIE = "ab_session"; // the app's sign-in cookie (SESSION_COOKIE in src/auth.ts)
 
-// The design language v1 (board #2508): the hand-drawn tin-can mark (a cherry cup, you, with one string to three ink
-// agents), the Schoolbell wordmark with its marker filter, ink/paper/cherry/bone/stone/graphite, Enriqueta headlines,
+// The design language v1 (board #2508): the hand-drawn tin-can mark (an oxblood cone, you, wired to two ink cans: jxn
+// #2944, vedu #2968), the Schoolbell wordmark with its marker filter, ink/paper/oxblood/bone/stone/graphite, Enriqueta headlines,
 // Onest for the interface, Courier Prime for commands. Only fonts, colours and the logo change (jxn #2583): the page's
 // shapes, borders and layout are as before. One accent (jxn #2858): oxblood, only on the main action (Start a chat);
 // everything else is on the neutral secondaries (ink/graphite/stone/bone), and the page is white whatever the system
-// theme (?theme=dark still previews the dark pair). The mark keeps its own cherry cup (the logo isn't recoloured). Avatars are round initials (agents inverted), not drawings (jxn #2525).
+// theme (?theme=dark still previews the dark pair). The mark's cone is its own colour (--cone). Avatars are round initials (agents inverted), not drawings (jxn #2525).
 const mark = (size: number, id: string) =>
-  `<svg class="mk" width="${Math.round((size * 800) / 667)}" height="${size}" viewBox="112 179 800 667" aria-hidden="true"><defs><filter id="${id}" x="-10%" y="-10%" width="120%" height="120%"><feTurbulence type="fractalNoise" baseFrequency="0.018" numOctaves="2" seed="7"/><feDisplacementMap in="SourceGraphic" scale="16"/></filter></defs><g transform="translate(512 512) scale(1.0) translate(-551.1 -507.8)"><g filter="url(#${id})" fill="none" stroke-linecap="round" stroke-linejoin="round"><path class="mk-i" d="M380.0 512.0Q532.3 448.5 690.0 400.0M380.0 512.0Q550.0 512.0 720.0 512.0M380.0 512.0Q532.3 575.5 690.0 624.0" stroke-width="22"/><g stroke-width="36"><g class="mk-c" transform="translate(380.0 512.0) rotate(-90.0)"><path d="M-90 -160L-54 -6Q0 25.2 54 -6L90 -160"/><ellipse cx="0" cy="-160" rx="90" ry="30.6"/></g><g class="mk-i" transform="translate(690.0 400.0) rotate(70.1)"><path d="M-65 -150L-13 0H13L65 -150"/><ellipse cx="0" cy="-150" rx="65" ry="22.1"/></g><g class="mk-i" transform="translate(720.0 512.0) rotate(90.0)"><path d="M-52.5 -175V-6Q0 23.1 52.5 -6V-175"/><ellipse cx="0" cy="-175" rx="52.5" ry="17.85"/></g><g class="mk-i" transform="translate(690.0 624.0) rotate(109.9)"><path d="M-65 -125L-39 -6Q0 18.2 39 -6L65 -125"/><ellipse cx="0" cy="-125" rx="65" ry="22.1"/></g></g></g></g></svg>`;
+  `<svg class="mk" width="${size}" height="${size}" viewBox="112 112 800 800" aria-hidden="true"><defs><filter id="${id}" x="-10%" y="-10%" width="120%" height="120%"><feTurbulence type="fractalNoise" baseFrequency="0.018" numOctaves="2" seed="7"/><feDisplacementMap in="SourceGraphic" scale="16"/></filter></defs><g transform="translate(512 512) translate(-519.9 -507.7)"><g filter="url(#${id})" fill="none" stroke-linecap="round" stroke-linejoin="round"><path class="mk-i" d="M400.0 512.0Q512.1 403.2 650.0 330.0M400.0 512.0Q517.1 623.8 660.0 700.0" stroke-width="22"/><g stroke-width="36"><g class="mk-c" transform="translate(400.0 512.0) rotate(-90.0)"><path d="M-95 -200L-19 0H19L95 -200"/><ellipse cx="0" cy="-200" rx="95" ry="32.3"/></g><g class="mk-i" transform="translate(650.0 330.0) rotate(53.9)"><path d="M-70 -200V-6Q0 30.8 70 -6V-200"/><ellipse cx="0" cy="-200" rx="70" ry="23.8"/></g><g class="mk-i" transform="translate(660.0 700.0) rotate(125.9)"><path d="M-70 -200V-6Q0 30.8 70 -6V-200"/><ellipse cx="0" cy="-200" rx="70" ry="23.8"/></g></g></g></g></svg>`;
 /** The wordmark's marker filter (design language v1), defined once per page and used by .wm. */
 const WM_FILTER = `<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false"><defs><filter id="wm-marker" x="-5%" y="-15%" width="110%" height="130%"><feTurbulence type="fractalNoise" baseFrequency="0.035" numOctaves="2" seed="7" result="n"/><feDisplacementMap in="SourceGraphic" in2="n" scale="5" xChannelSelector="R" yChannelSelector="G" result="d"/><feGaussianBlur in="d" stdDeviation="0.8" result="b"/><feComponentTransfer in="b"><feFuncA type="table" tableValues="0 0 0 0.5 1"/></feComponentTransfer></filter></defs></svg>`;
 /** An avatar: the initial on bone for a person, inverted (paper on ink) for an agent. */
@@ -37,12 +37,12 @@ const av = (name: string, agent = false, size = 28) => `<span class="av${agent ?
 
 const CSS = `
 :root{
-  --ink:#0E0E0E;--cherry:#A8121E;--oxblood:#6A1B24;--bone:#F2EFE8;--stone:#D9D6CE;--graphite:#5A5853;
+  --ink:#0E0E0E;--cone:#6A1B24;--oxblood:#6A1B24;--bone:#F2EFE8;--stone:#D9D6CE;--graphite:#5A5853;
   --bg:#FFFFFF;--text:var(--ink);--muted:var(--graphite);--line:rgba(14,14,14,.1);--line-strong:var(--stone);--surface:var(--bone);--elev:#FFFFFF;--on-accent:#FFFFFF;
   color-scheme:light;
 }
 :root[data-theme="dark"]{
-  --bg:#0E0E0E;--text:#FAFAF7;--ink:#FAFAF7;--muted:#A9A69F;--line:rgba(255,255,255,.08);--line-strong:#3A3834;--surface:#1B1A18;--elev:#151413;--cherry:#E0303F;--oxblood:#C2414D;--on-accent:#0E0E0E;color-scheme:dark;
+  --bg:#0E0E0E;--text:#FAFAF7;--ink:#FAFAF7;--muted:#A9A69F;--line:rgba(255,255,255,.08);--line-strong:#3A3834;--surface:#1B1A18;--elev:#151413;--cone:#C2414D;--oxblood:#C2414D;--on-accent:#0E0E0E;color-scheme:dark;
 }
 *{box-sizing:border-box}
 html{-webkit-text-size-adjust:100%}
@@ -51,7 +51,7 @@ a{color:inherit;text-decoration:none}
 code,pre{font-family:"Courier Prime",ui-monospace,Menlo,monospace}
 p{margin:0}
 a:focus-visible,button:focus-visible,input:focus-visible{outline:2px solid var(--ink);outline-offset:3px}
-.mk .mk-i{stroke:var(--ink)}.mk .mk-c{stroke:var(--cherry)}
+.mk .mk-i{stroke:var(--ink)}.mk .mk-c{stroke:var(--cone)}
 .mk{display:block;flex:none}
 /* Schoolbell's line is thin and the marker filter eats into it, so the letters get a little stroke first. */
 .wm{font-family:"Schoolbell",cursive;font-weight:400;filter:url(#wm-marker);letter-spacing:.02em;line-height:1;-webkit-text-stroke:.05em currentColor;paint-order:stroke fill}
