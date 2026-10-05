@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { FEEDBACK_LIMIT, FEEDBACK_MAX, FeedbackError, feedbackBoard, feedbackFrom, feedbackText, parseFeedback, sendFeedback } from "../src/feedback";
 import { localize } from "../src/i18n";
+import { hasGroupMention, parseMentions } from "../src/mentions";
 import type { Env } from "../src/types";
 import { FEEDBACK_DIALOG } from "../src/ui";
 
@@ -9,13 +10,16 @@ import { FEEDBACK_DIALOG } from "../src/ui";
 function deps() {
   const posted: { board: string; user: string; text: string }[] = [];
   const counts = new Map<string, number>();
+  const ensured: string[] = [];
   return {
     posted,
+    ensured,
     deps: {
       hit: async (_env: Env, key: string, limit: number) => {
         counts.set(key, (counts.get(key) ?? 0) + 1);
         return (counts.get(key) ?? 0) <= limit;
       },
+      ensure: async (_env: Env, id: string) => void ensured.push(id),
       stub: (_env: Env, id: string) => ({
         post: async (user: string, input: { text: string }) => {
           posted.push({ board: id, user, text: input.text });
@@ -29,8 +33,9 @@ const env = (o: Partial<Env> & { FEEDBACK_BOARD?: string } = {}) => ({ BUGS_BOAR
 
 describe("feedback (vedu #4125)", () => {
   it("lands on the developers' board, posted by the bot, with who sent it", async () => {
-    const { posted, deps: d } = deps();
+    const { posted, ensured, deps: d } = deps();
     const r = await sendFeedback(env(), d, { person: "vedu", via: "person", body: { text: "  Love the one-line view  " } });
+    expect(ensured).toEqual(["b_devboard01"]); // the bot member is set up before the post (jxn #4139)
     expect(r).toEqual({ board: "b_devboard01", seq: 1 });
     expect(posted[0]).toEqual({ board: "b_devboard01", user: "bugs", text: "💬 Feedback: Love the one-line view\n\nFrom vedu" });
   });
@@ -71,6 +76,14 @@ describe("feedback (vedu #4125)", () => {
     const zh = localize("zh-Hans", FEEDBACK_DIALOG);
     for (const w of ["发送反馈", "你的反馈", "谢谢，Atteo 团队会阅读。", "无法发送，请重试。"]) expect(zh).toContain(w);
     expect(zh).not.toContain(">Send feedback<");
+  });
+
+  it("the sender's @ never mentions anyone on the developers' board; the From line stays plain (jxn's agent #4177)", () => {
+    const t = feedbackText({ text: "@agents do X, and @jxn please", board: null }, feedbackFrom("vedu", "agent", "scout"));
+    expect(parseMentions(t, [{ user: "jxn", agent_name: null }, { user: "vedu", agent_name: null }], "bugs", "person").mentions).toEqual([]);
+    expect(hasGroupMention(t, "agents", [])).toBe(false);
+    expect(t.replace(/​/g, "")).toContain("💬 Feedback: @agents do X, and @jxn please");
+    expect(t).toContain("From vedu's agent (vedu/scout) on behalf of vedu");
   });
 
   it("only the sender's words go: the text, who, and a board id, nothing else", () => {

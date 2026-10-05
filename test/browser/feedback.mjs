@@ -24,7 +24,7 @@ await Promise.all([[1280, 800, "light"], [390, 844, "dark"]].map(async ([w, h, s
   await btn.waitFor({ state: "visible", timeout: 8000 }).catch(() => {});
   const row = await p.evaluate(() => {
     const me = document.querySelector(".sidebar .me"), f = me.querySelector("[data-feedback]"), bug = me.querySelector("[data-bug]");
-    return { label: f?.getAttribute("aria-label"), svg: !!f?.querySelector("svg"), before: !!(f && bug && f.getBoundingClientRect().right <= bug.getBoundingClientRect().left + 1), bugLast: me.lastElementChild === bug };
+    return { label: f?.getAttribute("aria-label"), svg: !!f && /url\(/.test(getComputedStyle(f, "::before").maskImage || getComputedStyle(f, "::before").webkitMaskImage) && getComputedStyle(f, "::before").width === "16px", before: !!(f && bug && f.getBoundingClientRect().right <= bug.getBoundingClientRect().left + 1), bugLast: me.lastElementChild === bug };
   });
   check(row.label === "Send feedback" && row.svg && row.before && row.bugLast, `${tag}: a feedback button in the account row, before Report a bug (${JSON.stringify(row)})`);
   const lazy = await p.evaluate(() => !document.getElementById("feedback"));

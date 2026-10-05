@@ -22,6 +22,7 @@ import { handoffLine } from "./handoff";
 import type { Attachment, BoardInfo, Entry } from "./types";
 import { appPage, avatar, avatarStack, boardPic, copyField, CSP_ENFORCE, hue, page, renderText, scriptSrc, typeTag, when, working, type SideBoard, type Viewer } from "./ui";
 import { fnv } from "./codecolor";
+import { agentLogo } from "./agent-logos";
 import { esc, pictureUrl } from "./util";
 import { WELCOME_BANNER_JS, assistantCard, grokBotMessage, welcomeBanner } from "./welcome";
 import { stateOf } from "./sessions";
@@ -145,7 +146,7 @@ ${
   // Touch screens have no hover: a small ⋯ at the end of the line opens the actions (jxn #891); hidden with a mouse.
   const more = react || reply || retract || edit || (opts.person && !e.purged && e.retracts == null) ? `<button class="more-acts" type="button" data-more="${e.seq}" aria-label="${esc(T("More actions"))}" aria-expanded="false" title="${esc(T("More actions"))}">⋯</button>` : "";
   const remember = !opts.retracted && e.retracts == null && !e.audience ? rememberBtn(e.seq) : ""; // people-only: never agents' memory // shown once the board has a MEMORY
-  const remind = opts.person && !opts.retracted && e.retracts == null ? `<details class="remind-menu"><summary>${esc(T("Remind me"))}</summary><div><button type="button" data-remind-message="hour" data-seq="${e.seq}">${esc(T("In 1 hour"))}</button><button type="button" data-remind-message="tonight" data-seq="${e.seq}">${esc(T("Tonight (20:00)"))}</button><button type="button" data-remind-message="tomorrow" data-seq="${e.seq}">${esc(T("Tomorrow (09:00)"))}</button></div></details>` : "";
+  const remind = opts.person && !opts.retracted && e.retracts == null ? `<details class="remind-menu"><summary class="btn ghost sm">${esc(T("Remind me"))}</summary><div><button type="button" data-remind-message="hour" data-seq="${e.seq}">${esc(T("In 1 hour"))}</button><button type="button" data-remind-message="tonight" data-seq="${e.seq}">${esc(T("Tonight (20:00)"))}</button><button type="button" data-remind-message="tomorrow" data-seq="${e.seq}">${esc(T("Tomorrow (09:00)"))}</button></div></details>` : "";
   // Report sends it to the board's owners (#3602; people only, hidden on your own posts by the page).
   const report = opts.person && !opts.retracted && e.retracts == null ? `<button class="btn ghost sm" type="button" data-report="${e.seq}">${esc(T("Report"))}</button>` : "";
   // Purge (#3853): a leaked secret leaves the board for good. Rendered hidden; the page shows it where the server allows
@@ -735,22 +736,36 @@ export const CLI_STEPS = {
 };
 
 /** One-click connect tiles (install links, copy-and-open, one-line commands), with their own status line. */
+/** The one-click tiles: [name, logo, what it does, attributes]. Shown A–Z (case-insensitive) with "Any other agent" last
+ *  (jxn #4124); only the web draws these, so the order lives here. */
+type Tile = [name: string, logo: string, act: string, attrs: string, tag?: "a"];
+const CONNECT_TILES: Tile[] = [
+  ["Cursor", "cursor", "Install", 'data-cn-link="cursor" href="#"', "a"],
+  ["VS Code", "vscode", "Install", 'data-cn-link="vscode" href="#"', "a"],
+  ["Grok", "grok", "Copy URL & open", 'data-cn-open="https://grok.com/connectors" data-cn-where="Grok: New Connector → Custom"'],
+  ["Claude", "claude", "Copy URL & open", 'data-cn-open="https://claude.ai/settings/connectors" data-cn-where="Claude: Add custom connector"'],
+  ["ChatGPT", "chatgpt", "Copy URL & open", 'data-cn-open="https://chatgpt.com/#settings/Connectors" data-cn-app="https://chatgpt.com/#settings" data-cn-where="ChatGPT: Connectors → Create"'],
+  ["Claude Code", "claudecode", "Copy command", 'data-cn-cmd="claude"'],
+  ["Codex", "codex", "Copy command", 'data-cn-cmd="codex"'],
+  ["Gemini CLI", "gemini", "Copy command", 'data-cn-cmd="gemini"'],
+  ["Grok CLI", "grok", "Copy command", 'data-cn-cmd="grok"'],
+  ["Grok Bot", "grok", "Copy message", 'data-cn-say="grokbot"'],
+  ["Muse", "muse", "Get a key", 'href="/connect/muse" data-cn-muse', "a"],
+];
+const CONNECT_TILES_AZ: Tile[] = [
+  ...[...CONNECT_TILES].sort((a, b) => a[0].localeCompare(b[0], "en", { sensitivity: "base" })),
+  ["Any other agent", "", "Copy message", 'data-cn-say="any"'],
+];
+
 export function connectTiles(lang?: Lang): string {
   const T = (s: string) => tr(lang, s);
+  const tile = ([name, logo, act, attrs, tag]: Tile) =>
+    tag === "a"
+      ? `<a class="cn-tile" ${attrs}>${agentLogo(logo)}<b>${esc(T(name))}</b><span>${esc(T(act))}</span></a>`
+      : `<button type="button" class="cn-tile" ${attrs}>${agentLogo(logo)}<b>${esc(T(name))}</b><span>${esc(T(act))}</span></button>`;
   return `<div data-cn-box>
     <div class="cn-grid">
-      <a class="cn-tile" data-cn-link="cursor" href="#"><b>${esc(T("Cursor"))}</b><span>${esc(T("Install"))}</span></a>
-      <a class="cn-tile" data-cn-link="vscode" href="#"><b>${esc(T("VS Code"))}</b><span>${esc(T("Install"))}</span></a>
-      <button type="button" class="cn-tile" data-cn-open="https://grok.com/connectors" data-cn-where="Grok: New Connector → Custom"><b>${esc(T("Grok"))}</b><span>${esc(T("Copy URL & open"))}</span></button>
-      <button type="button" class="cn-tile" data-cn-open="https://claude.ai/settings/connectors" data-cn-where="Claude: Add custom connector"><b>${esc(T("Claude"))}</b><span>${esc(T("Copy URL & open"))}</span></button>
-      <button type="button" class="cn-tile" data-cn-open="https://chatgpt.com/#settings/Connectors" data-cn-app="https://chatgpt.com/#settings" data-cn-where="ChatGPT: Connectors → Create"><b>${esc(T("ChatGPT"))}</b><span>${esc(T("Copy URL & open"))}</span></button>
-      <button type="button" class="cn-tile" data-cn-cmd="claude"><b>${esc(T("Claude Code"))}</b><span>${esc(T("Copy command"))}</span></button>
-      <button type="button" class="cn-tile" data-cn-cmd="codex"><b>${esc(T("Codex"))}</b><span>${esc(T("Copy command"))}</span></button>
-      <button type="button" class="cn-tile" data-cn-cmd="gemini"><b>${esc(T("Gemini CLI"))}</b><span>${esc(T("Copy command"))}</span></button>
-      <button type="button" class="cn-tile" data-cn-cmd="grok"><b>${esc(T("Grok CLI"))}</b><span>${esc(T("Copy command"))}</span></button>
-      <button type="button" class="cn-tile" data-cn-say="grokbot"><b>${esc(T("Grok Bot"))}</b><span>${esc(T("Copy message"))}</span></button>
-      <a class="cn-tile" href="/connect/muse" data-cn-muse><b>${esc(T("Muse"))}</b><span>${esc(T("Get a key"))}</span></a>
-      <button type="button" class="cn-tile" data-cn-say="any"><b>${esc(T("Any other agent"))}</b><span>${esc(T("Copy message"))}</span></button>
+      ${CONNECT_TILES_AZ.map(tile).join("\n      ")}
     </div>
     <p class="small cn-done" role="status" aria-live="polite"></p>
   </div>`;
@@ -949,10 +964,7 @@ export function homePage(
 
 ${firstRun ? welcomeBanner(viewer) : ""}${invites}
 <div class="section-title"><div><h1>${esc(T("Boards"))}</h1><p class="muted" style="margin-top:4px">${esc(T("Problems you and your collaborators' agents are working on."))}</p></div></div>
-<details class="card pad add-agent"${agent.connected ? "" : " open"}><summary><b>${esc(T(agent.connected ? "Add another agent" : "Add your agent"))}</b> <span class="muted small">${esc(T("· one click, or one line in a terminal"))}</span></summary>
-  <div class="stack" style="margin-top:12px">${connectTiles(viewer.lang)}
-  <p class="small muted" style="margin:4px 0 0">${esc(T("Or in any terminal (installs the CLI and signs you in):"))}</p><div class="copy"><pre class="mono" id="home-install" data-fill-origin>${esc(CLI_STEPS.install)}</pre><button type="button" class="btn sm" data-copy="home-install">${esc(T("Copy"))}</button></div></div>
-</details>
+<button type="button" class="card pad add-agent" data-open="connect"><span class="add-agent-plus" aria-hidden="true">+</span><b>${esc(T(agent.connected ? "Add another agent" : "Add your agent"))}</b> <span class="muted small">${esc(T("· one click, or one line in a terminal"))}</span></button>
 ${list}
 ${connectDialog(viewer)}
 <dialog id="new-board"><div class="hd"><div><h2>${esc(T("New board"))}</h2><p class="muted small" style="margin-top:4px">${esc(T("You can invite people right after."))}</p></div><button class="btn ghost sm" data-close aria-label="${esc(T("Close"))}">✕</button></div>

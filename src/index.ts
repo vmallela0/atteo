@@ -26,7 +26,6 @@ import { badMessageId, isRetriable, messageId, retryingReads, withRetry } from "
 import CLI_BUNDLE from "../cli/dist/atteo.mjs";
 import { installScript } from "./install";
 import SKILL_MD from "../skills/atteo/SKILL.md";
-import HTML2CANVAS_JS from "./vendor/html2canvas.min.js"; // the bug-report screenshot, loaded only when the dialog opens
 import { agentsMd, guidePage } from "./guide";
 import { docsPage } from "./docs";
 import { openapi } from "./openapi";
@@ -39,6 +38,7 @@ import * as auth from "./auth";
 import * as appSignin from "./appSignin";
 import * as moderation from "./moderation";
 import * as bugs from "./bugs";
+import { ensureBugBoard, isReservedUser } from "./bugBoard";
 import * as feedback from "./feedback";
 import { handleMcp } from "./mcp";
 import * as device from "./device";
@@ -253,7 +253,7 @@ function suggestName(email: string, display: string | null): string {
 }
 
 async function freeName(env: Env, base: string): Promise<string> {
-  if (!(await registry.userByName(env, base))) return base;
+  if (!isReservedUser(base) && !(await registry.userByName(env, base))) return base;
   for (let i = 2; i < 100; i++) {
     const n = `${base.slice(0, 29)}${i}`;
     if (!(await registry.userByName(env, n))) return n;
@@ -411,7 +411,7 @@ async function welcome(c: Ctx): Promise<Response> {
 
   const name = normalizeUser(String((await c.request.formData()).get("name") ?? ""));
   if (!name) return welcomePage(s.email, suggestion, "Use 1–32 lowercase letters, numbers, dot, dash or underscore, starting with a letter or number.");
-  if (await registry.userByName(c.env, name)) return welcomePage(s.email, name, `"${name}" is taken. Try another.`);
+  if (isReservedUser(name) || (await registry.userByName(c.env, name))) return welcomePage(s.email, name, `"${name}" is taken. Try another.`);
   if (await registry.userByWorkosId(c.env, s.workos_id)) return redirect("/");
   await registry.createUser(c.env, { name, email: s.email, email_verified: !!s.email_verified, workos_id: s.workos_id, display_name: s.display_name });
   await auth.setSessionUser(c.env, s.id_hash, name);
@@ -498,7 +498,7 @@ async function appSigninName(c: Ctx): Promise<Response> {
   }
   const name = normalizeUser(String(b.name ?? "").trim().replace(/^@/, ""));
   if (!name) return json({ error: NAME_RULES }, 400);
-  if (await registry.userByName(c.env, name)) return json({ error: `"${name}" is taken. Try another.`, suggestion: await freeName(c.env, name) }, 409);
+  if (isReservedUser(name) || (await registry.userByName(c.env, name))) return json({ error: `"${name}" is taken. Try another.`, suggestion: await freeName(c.env, name) }, 409);
   try {
     await registry.createUser(c.env, { name, email: s.email, email_verified: !!s.email_verified, workos_id: s.workos_id, display_name: s.display_name });
   } catch {
@@ -711,8 +711,6 @@ const handler = {
       if (path === "/terms" || path === "/privacy") return legalPage(path.slice(1) as "terms" | "privacy");
       if (path === "/openapi.json") return json(openapi(origin), 200, { "access-control-allow-origin": "*", "cache-control": "public, max-age=300" });
       if (path === "/skill.md") return new Response(SKILL_MD, { headers: { "content-type": "text/markdown; charset=utf-8", "cache-control": "public, max-age=300" } });
-      if (path === "/vendor/html2canvas.min.js" && method === "GET")
-        return new Response(HTML2CANVAS_JS, { headers: { "content-type": "application/javascript; charset=utf-8", "cache-control": "public, max-age=86400" } });
       if (path === "/docs") return docsPage(origin, SKILL_MD);
       if (path === "/agents.md") return new Response(agentsMd(origin), { headers: { "content-type": "text/markdown; charset=utf-8", "cache-control": "public, max-age=300", "access-control-allow-origin": "*" } });
       if (path === "/apple-touch-icon.png" || path === "/apple-touch-icon-precomposed.png") {
@@ -858,7 +856,11 @@ const handler = {
         // the reporter is named in the text.
         const stub = boardStub(env, bugsBoard);
         try {
-          const entry = report.screenshot
+          await ensureBugBoard(env, bugsBoard, stub); // the bot member, set up on first use (jxn #4139)
+          const pics = report.screenshots ?? (report.screenshot ? [report.screenshot] : []);
+          const entry = pics.length > 1
+            ? await stub.postFiles(bugs.BUG_BOT, { files: pics.map((p) => ({ name: p.name, bytes: p.bytes })), text: bugs.bugReportText(report, viewer?.name ?? "someone (signed out)"), via: "person", client: "bug-report" })
+            : report.screenshot
             ? await stub.postFile(bugs.BUG_BOT, { name: report.screenshot.name, bytes: report.screenshot.bytes, text: bugs.bugReportText(report, viewer?.name ?? "someone (signed out)"), via: "person", client: "bug-report" })
             : await stub.post(bugs.BUG_BOT, { type: "note", text: bugs.bugReportText(report, viewer?.name ?? "someone (signed out)"), via: "person", client: "bug-report" });
           if (viewer) ctx.waitUntil(registry.touch(env, viewer.name, bugsBoard).catch(() => {}));
@@ -877,7 +879,7 @@ const handler = {
         if (!viewer) return json({ error: "Sign in to send feedback." }, 401);
         try {
           const body = await request.json().catch(() => null);
-          const r = await feedback.sendFeedback(env, { hit: appSignin.hit, stub: boardStub }, { person: viewer.name, via: viewer.via === "agent" ? "agent" : "person", body });
+          const r = await feedback.sendFeedback(env, { hit: appSignin.hit, stub: boardStub, ensure: (e, b) => ensureBugBoard(e, b, boardStub(e, b)) }, { person: viewer.name, via: viewer.via === "agent" ? "agent" : "person", body });
           return json({ ok: true, ...r }, 201);
         } catch (e) {
           if (e instanceof feedback.FeedbackError) return json({ error: e.message }, e.status);
@@ -3383,7 +3385,7 @@ const handler = {
         if (path === "/api/ops/users" && method === "POST") {
           const name = normalizeUser(body.name);
           if (!name) return json({ error: "valid name required" }, 400);
-          if (await registry.userByName(env, name)) return json({ error: "name taken" }, 409);
+          if (isReservedUser(name) || (await registry.userByName(env, name))) return json({ error: "name taken" }, 409);
           await registry.createUser(env, {
             name,
             email: body.email ? body.email.toLowerCase() : null,

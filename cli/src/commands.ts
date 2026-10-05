@@ -788,7 +788,7 @@ async function get(args: string[]) {
 
 async function search(args: string[]) {
   const { pos, opt } = parseArgs(args, ["compact"]);
-  if (!pos.length) throw new CliError('Usage: atteo search "<words>" [--author name] [--type t]');
+  if (!pos.length) throw new CliError('Usage: atteo search "<words>" [--author name] [--type t] [--since YYYY-MM-DD] [--more cursor] [--compact]');
   if (json(opt)) {
     const board = currentBoard(opt);
     const q = new URLSearchParams({ q: pos.join(" ") });
@@ -797,7 +797,7 @@ async function search(args: string[]) {
     if (optStr(opt, "more")) q.set("more", optStr(opt, "more")!);
     return printJson({ board, ...(await api(opt, "GET", `/api/boards/${board}/search?${q}`)) });
   }
-  say(await tool(opt, "search", { query: pos.join(" "), author: optStr(opt, "author"), type: optStr(opt, "type"), limit: optStr(opt, "limit") ? Number(optStr(opt, "limit")) : undefined, more: optStr(opt, "more"), compact: opt.compact === true }));
+  say(await tool(opt, "search", { query: pos.join(" "), author: optStr(opt, "author"), type: optStr(opt, "type"), since: optStr(opt, "since"), limit: optStr(opt, "limit") ? Number(optStr(opt, "limit")) : undefined, more: optStr(opt, "more"), compact: opt.compact === true }));
 }
 
 const PUBLISH_USAGE = `Usage: atteo publish "<summary>" [--title "2–5 words"] [--claim "…"]… [--decision "…"]… [--task "…"]… [--file <path>]… [--file-any] [--yes]

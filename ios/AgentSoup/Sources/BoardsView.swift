@@ -1014,10 +1014,11 @@ struct EntryRow: View {
         guard e.byAgent, let s = e.sessionName else { return who }
         return "\(agentLabel(e.author, agentName ?? e.agentName)), \(s)"
     }
-    /// Someone else's message that @mentions you (the person, not your agent): tinted, like the web's.
+    /// Someone else's message that @mentions you by name (the person, not your agent, a session or a group): tinted,
+    /// like the web's (jxn #4120).
     private var forYou: Bool {
         guard !mine, !unsent, let me = me?.lowercased(), e.author.lowercased() != me || e.byAgent else { return false }
-        return (e.mentions ?? []).contains { !$0.agent && $0.user.lowercased() == me }
+        return mentionsPersonDirectly(text: e.text, mentions: e.mentions, me: me)
     }
     /// UI tests read the highlight's frame (it must stay inside its own message, jxn #2595); nobody else sees it.
     private static let markLit: Bool = {

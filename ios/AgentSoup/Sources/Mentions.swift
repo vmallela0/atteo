@@ -48,6 +48,22 @@ func selfMention(in text: String, author: String, agent: Bool) -> EntryMention? 
     return re.firstMatch(in: t, range: NSRange(t.startIndex..., in: t)) == nil ? nil : EntryMention(user: author.lowercased(), agent: agent)
 }
 
+/// Does this message @mention `me` the person, by name (jxn #4120)? The server stored a person mention of `me` AND the
+/// text says "@me" itself, outside code, quotes and "> " lines: not "@me's agent", not a session ("@me/scout"), and not
+/// only a group (@humans, @all expand to every person but don't name you). Like the web's markMe (a person chip whose
+/// user is you). Drives the row's tint only; "for you" in notifications and read-aloud keep their own rules.
+func mentionsPersonDirectly(text: String, mentions: [EntryMention]?, me: String?) -> Bool {
+    guard let me = me?.lowercased(), !me.isEmpty, (mentions ?? []).contains(where: { !$0.agent && $0.user.lowercased() == me }) else { return false }
+    var t = text
+    for p in ["```[\\s\\S]*?```", "`[^`\\n]+`", "(?m)^>.*$", "\"[^\"\\n]*\"", "“[^”\\n]*”"] {
+        t = t.replacingOccurrences(of: p, with: " ", options: .regularExpression)
+    }
+    let h = NSRegularExpression.escapedPattern(for: me)
+    let pattern = "(?:^|[^A-Za-z0-9_.@/-])@\(h)(?![A-Za-z0-9_]|(?:'|’)s\\s+(?:agent|assistant)\\b|/)"
+    guard let re = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else { return false }
+    return re.firstMatch(in: t, range: NSRange(t.startIndex..., in: t)) != nil
+}
+
 /// Marks a mention's run in a message's Text, so MentionBoxes can draw its box.
 struct MentionBox: TextAttribute { let mine: Bool }
 

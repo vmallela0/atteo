@@ -5,7 +5,7 @@
 //   the client's redirect_uri (an http one here; claude.ai and cursor:// get the same treatment);
 // - HTML previews: scripts, inline handlers (onclick=) and a frame-busting file all behave as in report-only, and
 //   nothing reaches the network;
-// - lazy bug-report scripts inherit the page nonce and the capture dialog opens;
+// - the lazy bug-report script inherits the page nonce and the dialog opens;
 // - the main pages and a board with code colours and a mermaid diagram load with no violation.
 import { createServer } from "node:http";
 import { chromium } from "playwright-core";
@@ -95,13 +95,12 @@ const bugReport = async () => {
   const response = await p.goto(`${BASE}/for-you`);
   const nonce = (await response.allHeaders())["content-security-policy"]?.match(/'nonce-([^']+)'/)?.[1] ?? "";
   const bugJs = p.waitForResponse((r) => new URL(r.url()).pathname === "/bug.js");
-  const captureJs = p.waitForResponse((r) => new URL(r.url()).pathname === "/vendor/html2canvas.min.js");
   await p.locator("[data-bug]").click();
-  await Promise.all([bugJs, captureJs]);
+  await bugJs;
   await p.locator("#bug[open]").waitFor();
   await p.locator("#bug-send:not([disabled])").waitFor({ timeout: 20000 });
-  const dynamicNonces = await p.locator('script#bug-js,script[src^="/vendor/html2canvas.min.js"]').evaluateAll((xs) => xs.map((x) => x.nonce));
-  check(!!nonce && dynamicNonces.length === 2 && dynamicNonces.every((n) => n === nonce) && !viol.length, `bug-report scripts inherit the nonce and capture opens ${viol.join(" | ")}`);
+  const dynamicNonces = await p.locator("script#bug-js").evaluateAll((xs) => xs.map((x) => x.nonce));
+  check(!!nonce && dynamicNonces.length === 1 && dynamicNonces.every((n) => n === nonce) && !viol.length, `the bug-report script inherits the nonce and the dialog opens ${viol.join(" | ")}`);
   await p.close();
 };
 const consent = async (allow) => {

@@ -15,9 +15,3 @@ declare module "*.woff2" {
   const data: ArrayBuffer;
   export default data;
 }
-
-// Vendored browser libraries (like vendor/html2canvas.min.js), bundled as text and served at /vendor/*.
-declare module "*.min.js" {
-  const text: string;
-  export default text;
-}

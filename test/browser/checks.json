@@ -2,6 +2,7 @@
  "mention-nickname": 2,
  "verify-layout": 11,
  "rail": 6,
+ "rail-you": 2,
  "chips": 4,
  "files": 4,
  "reads": 7,
@@ -156,5 +157,6 @@
  "purge": 4,
  "tab-keyboard": 11,
  "bug-report": 6,
- "feedback": 6
+ "feedback": 6,
+ "acts-style": 3
 }

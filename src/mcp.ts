@@ -29,6 +29,7 @@ import { ENTRY_TYPES, type Entry, type Env, type NewEntry } from "./types";
 import { bearer, resolveToken, sha256hex } from "./auth";
 import { fence, flagOf } from "./screen";
 import * as appSignin from "./appSignin";
+import { ensureBugBoard } from "./bugBoard";
 import * as feedback from "./feedback";
 import { EMAIL_RE } from "./invite";
 import { atteoHeader, BOARD_RE, newBoardId, normalizeUser, publicOrigin, requestNow } from "./util";
@@ -419,16 +420,17 @@ export const TOOLS = [
   {
     name: "search",
     description:
-      'Search the board: entries and files, best match first, with the matching part highlighted «like this». Every word must appear; the last can be a prefix; "quoted phrases" match exactly. compact: true gives one line per hit (#n · author · MM-DD · matching text). Pass the returned more cursor with the same query to continue. Optional author/type filters (entries only). For exact lines inside files, use doc action "grep".',
+      'Search the board: entries and files, best match first. Each hit is a short card (#n type · author · date · rel, its title, the matching part «like this»), and the whole answer stays under ~500 tokens; read a hit in full with get. Every word must appear; the last can be a prefix; "quoted phrases" match exactly. compact: true gives one line per hit. Pass the returned more cursor with the same query to continue. Optional author/type/since filters (entries only). For exact lines inside files, use doc action "grep".',
     inputSchema: {
       type: "object",
       properties: {
                 query: { type: "string" },
         author: { type: "string" },
         type: { type: "string", enum: [...ENTRY_TYPES] },
-        limit: { type: "integer" },
+        since: { type: "string", description: "Only entries from this date on (YYYY-MM-DD or an ISO time)" },
+        limit: { type: "integer", description: "Most hits to consider (default 5, max 20); the ~500-token cap still applies" },
         more: { type: "string", description: "Continuation cursor from the same query" },
-        compact: { type: "boolean", description: "One line per hit: #n · author · MM-DD · matching text (the full entry and snippet by default)" },
+        compact: { type: "boolean", description: "One line per hit: #n · author · MM-DD · matching text (a short card per hit by default)" },
       },
       required: ["query"],
     },
@@ -1383,7 +1385,7 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
 
     case "feedback": {
       try {
-        const r = await feedback.sendFeedback(env, { hit: appSignin.hit, stub: stubFor }, { person: user, via: "agent", session: c.agentSession?.name ?? c.sessionName ?? null, body: args });
+        const r = await feedback.sendFeedback(env, { hit: appSignin.hit, stub: stubFor, ensure: (e, b) => ensureBugBoard(e, b, stubFor(e, b)) }, { person: user, via: "agent", session: c.agentSession?.name ?? c.sessionName ?? null, body: args });
         return `Sent to the Atteo team (feedback #${r.seq}). Tell your user it went through.`;
       } catch (e) {
         if (e instanceof feedback.FeedbackError) throw new ToolError(e.message);
@@ -1575,24 +1577,20 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
       const id = await currentBoard(c, args);
       const query = typeof args.query === "string" ? args.query : "";
       if (!query.trim()) throw new ToolError("query is required.");
+      const sinceArg = str(args.since);
+      const since = sinceArg ? Date.parse(sinceArg) : undefined;
+      if (sinceArg && !Number.isFinite(since)) throw new ToolError("since: give a date like 2026-10-01 or an ISO time.");
       const options = {
         author: normalizeUser(str(args.author)) ?? undefined,
         type: str(args.type),
+        since,
         limit: int(args.limit),
         more: str(args.more),
       };
       if (args.compact !== true) {
-        const r = await stubFor(env, id).rankedSearch(query, options, { user, person: false });
-        if (!r.entries.length && !r.files.length && !r.more) return `Nothing matches "${query}".`;
-        const out: string[] = [];
-        if (r.files.length) out.push("Files (latest version; read with doc):", ...r.files.map((f) => `  ${f.name} v${f.version}: ${f.snippet.replace(/\s+/g, " ")}`), "");
-        if (r.entries.length) {
-          out.push(`Entries, best match first (${r.entries.length}):`);
-          const names = await social.boardAgentNames(env, id);
-          for (const { entry, snippet } of r.entries) out.push(formatEntry(withNames([entry], names)[0], 300, user) + (snippet ? `\n    match: ${snippet.replace(/\s+/g, " ")}` : ""));
-        }
-        if (r.more) out.push(`more: ${r.more}`);
-        return fence(out.join("\n"));
+        const r = await stubFor(env, id).searchCards(query, options, { user, person: false });
+        if (!r.count && !r.more) return `Nothing matches "${query}".`;
+        return fence(r.text);
       }
       const r = await stubFor(env, id).searchLines(query, options, { user, person: false });
       if (!r.count && !r.more) return `Nothing matches "${query}".`;

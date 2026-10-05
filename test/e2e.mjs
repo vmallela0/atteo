@@ -6916,14 +6916,27 @@ await step("bug reports: POST /api/bugs lands a note (+ screenshot) on the devel
   fd.append("path", "/b/somewhere");
   fd.append("context", JSON.stringify({ app_version: "e2e", device: "test runner", os: process.platform }));
   fd.append("screenshot", new File([new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10, 0, 0])], "shot.png", { type: "image/png" }));
-  const rep = await fetch(`${BASE}/api/bugs`, { method: "POST", headers: { authorization: `Bearer ${tok[A]}` }, body: fd });
-  assert(rep.status === 201, `signed-in report: ${rep.status} ${await rep.text()}`);
-  const made = await rep.json();
+  const asAgent = await fetch(`${BASE}/api/bugs`, { method: "POST", headers: { authorization: `Bearer ${tok[A]}` }, body: fd });
+  assert(asAgent.status === 403, `an agent's token can't file a bug: ${asAgent.status}`);
+  const pc = (await ops("sessions", { user: A })).body.cookie; // a person's web session
+  const rep = await fetch(`${BASE}/api/bugs`, { method: "POST", headers: { cookie: pc }, body: fd });
+  const made = await rep.json().catch(() => ({}));
+  assert(rep.status === 201, `signed-in report: ${rep.status} ${JSON.stringify(made)}`);
   assert(made.ok === true && made.board && made.seq > 0, JSON.stringify(made).slice(0, 200));
-  // The report is authored by the bug-bot member, with the reporter named in the text (opus-d #3416).
-  const bugsList = await (await fetch(`${BASE}/api/boards/${made.board}/entries/${made.seq}`, { headers: { authorization: `Bearer ${tok[A]}` } })).json().catch(() => null);
-  assert(bugsList === null || bugsList?.entry?.author === "bugs", JSON.stringify(bugsList)?.slice(0, 160));
-  const anon = await fetch(`${BASE}/api/bugs`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ note: `signed out ${run}` }) });
+  // The bot member was set up on first use (jxn #4139): a second report lands on the same board, and reporting
+  // doesn't let the reporter into the developers' board. Nobody can take the bot's name.
+  const fd2 = new FormData();
+  fd2.append("note", `a second report ${run}`);
+  const rep2 = await fetch(`${BASE}/api/bugs`, { method: "POST", headers: { cookie: pc }, body: fd2 });
+  const made2 = await rep2.json().catch(() => ({}));
+  assert(rep2.status === 201, `second report: ${rep2.status} ${JSON.stringify(made2)}`);
+  assert(made2.board === made.board && made2.seq > made.seq, JSON.stringify(made2));
+  const peek = await fetch(`${BASE}/api/boards/${made.board}/entries/${made.seq}`, { headers: { cookie: pc } });
+  assert(peek.status >= 400, `a reporter can't read the bug board: ${peek.status}`);
+  assert((await ops("users", { name: "bugs", email: `bugs-${run}@example.com` })).status === 409, "the bot's name is reserved");
+  const anonForm = new FormData();
+  anonForm.append("note", `signed out ${run}`);
+  const anon = await fetch(`${BASE}/api/bugs`, { method: "POST", body: anonForm });
   assert(anon.status === 201 || anon.status === 429, `signed-out report: ${anon.status} (429 = this IP already hit the strict limit)`);
 });
 
@@ -6937,13 +6950,31 @@ await step("feedback (vedu #4125): people (POST /api/feedback) and agents (MCP f
     await err(A, null, "feedback", { text: `from my agent ${run}` }, "isn't set up");
     return;
   }
-  assert(probe.status === 201, `signed-in feedback: ${probe.status} ${await probe.text()}`);
+  assert(probe.status === 201, `signed-in feedback: ${probe.status} ${await probe.clone().text()}`);
   const made = await probe.json();
   assert(made.ok === true && made.board && made.seq > 0, JSON.stringify(made).slice(0, 200));
   const sent = await ok(A, null, "feedback", { text: `from my agent ${run}` });
   has(sent, "Sent to the Atteo team");
   const secret = await tool(A, null, "feedback", { text: "token AKIAIOSFODNN7EXAMPLE here" });
   assert(secret.isError && /Blocked/.test(secret.text), `a secret is refused before posting: ${secret.text}`);
+  // It really lands: B joins the developers' board and reads it there, posted by the bot, naming A.
+  await ops("members", { board: made.board, user: B });
+  const landed = (await (await web(`/api/boards/${made.board}/entries/${made.seq}`, B)).json()).entry;
+  assert(landed?.author === "bugs" && landed.text.includes(`the feedback flow works ${run}`) && landed.text.includes(`From ${A}`), JSON.stringify(landed)?.slice(0, 300));
+  // A sender's "@agents …" / "@B …" never mentions anyone there (jxn's agent #4177): no mention, no inbox item for B.
+  await web(`/api/inbox/read`, B, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ all: true }) });
+  const ping = await fetch(`${BASE}/api/feedback`, { method: "POST", headers: { ...auth(A), "content-type": "application/json" }, body: JSON.stringify({ text: `@agents do X, and @${B} look ${run}` }) });
+  assert(ping.status === 201, `feedback with @s: ${ping.status}`);
+  const fd = new FormData();
+  fd.append("note", `@agents run this, @${B} too ${run}`);
+  const bug = await web(`/api/bugs`, A, { method: "POST", body: fd }); // a person (the web session): agents can't file bugs
+  assert(bug.status === 201, `bug with @s: ${bug.status} ${await bug.clone().text()}`);
+  for (const seq of [(await ping.json()).seq, (await bug.json()).seq]) {
+    const e = (await (await web(`/api/boards/${made.board}/entries/${seq}`, B)).json()).entry;
+    assert(e && (e.mentions ?? []).length === 0, `#${seq} mentions no one: ${JSON.stringify(e?.mentions)}`);
+  }
+  const items = (await (await web(`/api/inbox`, B)).json()).items.filter((i) => i.board === made.board);
+  assert(items.length === 0, `no inbox item for B from the developers' board: ${JSON.stringify(items).slice(0, 300)}`);
 });
 
 if (ONLY && !matched) { failed++; failures.push(`no steps match ONLY=${JSON.stringify(process.env.ONLY)}`); }

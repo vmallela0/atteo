@@ -6,7 +6,8 @@
 export const BUG_NOTE_MAX = 2000;
 export const BUG_PATH_MAX = 300;
 export const BUG_CONTEXT_MAX = 1000;
-export const BUG_SCREENSHOT_MAX = 2_000_000; // ~2 MB: a phone or desktop window at PNG size
+export const BUG_SCREENSHOT_MAX = 2_000_000; // ~2 MB: a phone or desktop window at PNG size; all of a report's pictures together
+export const BUG_PICTURES_MAX = 4; // pictures in one report (jxn #4116: the web attaches them like the composer)
 const SCREENSHOT_MIMES = ["image/png", "image/jpeg"];
 /** Every report is posted by this one member of the bug board; the reporter is named in the text (opus-d #3416). */
 export const BUG_BOT = "bugs";
@@ -15,7 +16,8 @@ export interface BugReport {
   note: string;
   path: string;
   context: { app_version?: string; device?: string; os?: string; board?: string };
-  screenshot: { bytes: ArrayBuffer; mime: string; name: string } | null;
+  screenshot: { bytes: ArrayBuffer; mime: string; name: string } | null; // the first picture (the app sends one)
+  screenshots?: { bytes: ArrayBuffer; mime: string; name: string }[]; // every picture, in order (one or more `screenshot` parts)
 }
 
 /** Pure parts (parse/validate/render) are here so tests can run without a Worker; the route in index.ts calls them. */
@@ -48,23 +50,33 @@ export async function parseBugForm(
       context = { app_version: pick("app_version"), device: pick("device"), os: pick("os"), board: pick("board") };
     }
   }
-  const shot = form.get("screenshot");
-  let screenshot: BugReport["screenshot"] = null;
-  if (shot && typeof shot !== "string") {
-    if (shot.size > BUG_SCREENSHOT_MAX) throw new Error("The screenshot is too large (max 2 MB).");
-    const mime = (shot.type || "").split(";")[0];
-    if (!SCREENSHOT_MIMES.includes(mime)) throw new Error("The screenshot must be a PNG or a JPEG.");
-    screenshot = { bytes: await shot.arrayBuffer(), mime, name: `bug-${Date.now()}.${mime === "image/png" ? "png" : "jpg"}` };
-  } else if (typeof shot === "string" && shot) {
-    // a string part: they sent it as a data URL — accept a base64 PNG/JPEG data URL up to the same cap
-    const raw = shot;
-    const m = raw.match(/^data:(image\/(?:png|jpeg));base64,(.+)$/s);
-    if (!m) throw new Error("The screenshot must be a PNG or JPEG file part (or a data URL of one).");
-    const bytes = Uint8Array.from(atobUniversal(m[2]), (c) => c.charCodeAt(0));
-    if (bytes.byteLength > BUG_SCREENSHOT_MAX) throw new Error("The screenshot is too large (max 2 MB).");
-    screenshot = { bytes: bytes.buffer, mime: m[1], name: `bug-${Date.now()}.${m[1] === "image/png" ? "png" : "jpg"}` };
+  // One or more `screenshot` parts (the web sends each attached picture as one), each a PNG/JPEG file or data URL,
+  // at most BUG_PICTURES_MAX, all of them together within BUG_SCREENSHOT_MAX.
+  const parts = form.getAll("screenshot").filter((x) => typeof x !== "string" || x);
+  if (parts.length > BUG_PICTURES_MAX) throw new Error(`At most ${BUG_PICTURES_MAX} pictures in one report.`);
+  const screenshots: NonNullable<BugReport["screenshot"]>[] = [];
+  let total = 0;
+  for (const [i, shot] of parts.entries()) {
+    const suffix = parts.length > 1 ? `-${i + 1}` : "";
+    let pic: NonNullable<BugReport["screenshot"]>;
+    if (typeof shot !== "string") {
+      if (shot.size > BUG_SCREENSHOT_MAX) throw new Error("The screenshot is too large (max 2 MB).");
+      const mime = (shot.type || "").split(";")[0];
+      if (!SCREENSHOT_MIMES.includes(mime)) throw new Error("The screenshot must be a PNG or a JPEG.");
+      pic = { bytes: await shot.arrayBuffer(), mime, name: `bug-${Date.now()}${suffix}.${mime === "image/png" ? "png" : "jpg"}` };
+    } else {
+      // a string part: they sent it as a data URL — accept a base64 PNG/JPEG data URL up to the same cap
+      const m = shot.match(/^data:(image\/(?:png|jpeg));base64,(.+)$/s);
+      if (!m) throw new Error("The screenshot must be a PNG or JPEG file part (or a data URL of one).");
+      const bytes = Uint8Array.from(atobUniversal(m[2]), (c) => c.charCodeAt(0));
+      if (bytes.byteLength > BUG_SCREENSHOT_MAX) throw new Error("The screenshot is too large (max 2 MB).");
+      pic = { bytes: bytes.buffer, mime: m[1], name: `bug-${Date.now()}${suffix}.${m[1] === "image/png" ? "png" : "jpg"}` };
+    }
+    total += pic.bytes.byteLength;
+    if (total > BUG_SCREENSHOT_MAX) throw new Error("The pictures are too large together (max 2 MB).");
+    screenshots.push(pic);
   }
-  return { note, path, context, screenshot };
+  return { note, path, context, screenshot: screenshots[0] ?? null, screenshots };
 }
 
 function atobUniversal(s: string): string {
@@ -72,14 +84,21 @@ function atobUniversal(s: string): string {
   return atob(s);
 }
 
+/**
+ * The sender's words, posted as the bot (a person member): a zero-width space after every "@" so "@agents …" or
+ * "@jxn …" never parses as a mention on the developers' board, pinging its members or steering their agents
+ * (jxn's agent #4177). It reads the same.
+ */
+export const defang = (s: string) => s.replace(/@/g, "@\u200B");
+
 /** The entry's text: the note first, then what we know, one fact per line (the screenshot rides along as a file). */
 export function bugReportText(report: BugReport, by: string): string {
-  const lines = [`🐞 ${report.note}`];
-  lines.push("", `Reported by ${by}${report.path ? ` · on ${report.path}` : ""}`);
+  const lines = [`🐞 ${defang(report.note)}`];
+  lines.push("", `Reported by ${by}${report.path ? ` · on ${defang(report.path)}` : ""}`);
   const c = report.context;
-  if (c.app_version) lines.push(`App: ${c.app_version}`);
-  if (c.device || c.os) lines.push(`Device: ${[c.device, c.os].filter(Boolean).join(" · ")}`);
-  if (c.board) lines.push(`Board: ${c.board}`);
+  if (c.app_version) lines.push(`App: ${defang(c.app_version)}`);
+  if (c.device || c.os) lines.push(`Device: ${defang([c.device, c.os].filter(Boolean).join(" · "))}`);
+  if (c.board) lines.push(`Board: ${defang(c.board)}`);
   return lines.join("\n");
 }
 

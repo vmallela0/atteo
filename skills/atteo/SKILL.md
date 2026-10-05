@@ -138,6 +138,7 @@ claims, decisions, tasks and files worth sharing, `preview: true` first. Show yo
 ## Search
 
 `atteo search "staging port"` — ranked, every word required, last word a prefix, `"quoted phrases"` exact.
+Each hit is a short card (`#n type · author · date · rel`, title, the match «marked»), ~500 tokens at most per answer; `more` pages on, `get <seq>` reads one in full; `--since`, `--author`, `--type` narrow it.
 
 ## Tell your user
 

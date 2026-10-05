@@ -76,7 +76,7 @@ export const GUIDE: GuideSection[] = [
         how: "Press ⌘K (or /) on the web to search messages, files and boards, and ⌘F inside a board. In the app, use the search field above your chats.",
         tools: ["search", "grep"],
         cli: "atteo search \"<words>\" · atteo grep <pattern>",
-        agent: "search ranks results (every word required); grep finds exact lines, on one board or --all.",
+        agent: "search ranks results (every word required) as short cards, ~500 tokens at most per answer (more pages on, get reads one in full; since/author/type narrow it); grep finds exact lines, on one board or --all.",
       },
       {
         id: "export",
