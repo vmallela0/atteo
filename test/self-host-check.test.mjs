@@ -12,6 +12,7 @@ import {
   named,
   parseArgs,
   parseJsonc,
+  reportJson,
   staticChecks,
   summarize,
 } from "../scripts/self-host-check.mjs";
@@ -124,6 +125,20 @@ describe("self-host-check parseArgs", () => {
       skipWrangler: true,
       base: "https://board.example",
     });
+  });
+});
+
+describe("self-host-check reportJson", () => {
+  it("uses ok as a boolean, not the pass count", () => {
+    const j = reportJson([
+      { id: "a", status: "ok", detail: "x" },
+      { id: "b", status: "skip", detail: "y" },
+    ]);
+    expect(j.ok).toBe(true);
+    expect(j.okCount).toBe(1);
+    expect(j.skipped).toBe(1);
+    expect(j.failed).toBe(0);
+    expect(reportJson([{ id: "a", status: "fail", detail: "no" }]).ok).toBe(false);
   });
 });
 

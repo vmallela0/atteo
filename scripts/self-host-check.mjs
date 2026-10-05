@@ -352,8 +352,8 @@ export async function d1LocalCheck(root) {
     const log = `${r.out}\n${r.err}`;
     if (r.code !== 0) return check("d1-local", "fail", `exit ${r.code}: ${log.trim().slice(-800)}`);
     if (/No migrations to apply/.test(log)) return check("d1-local", "fail", "no migrations applied on a fresh persist-to (migrations_dir / database_name?)");
-    const n = (log.match(/^\d{4}_.*\.sql/gm) ?? []).length || (log.match(/✅/g) ?? []).length;
-    return check("d1-local", "ok", `local D1 migrations applied (${n || "ok"}; no Cloudflare credentials)`);
+    const n = readdirSync(join(root, "migrations")).filter((name) => /^\d+_.*\.sql$/.test(name)).length;
+    return check("d1-local", "ok", `${n} D1 migrations applied locally (no Cloudflare credentials)`);
   } finally {
     rmSync(persist, { recursive: true, force: true });
   }
@@ -458,6 +458,11 @@ export function summarize(checks) {
   return { ok, fail, skip, passed: fail === 0 };
 }
 
+export function reportJson(checks) {
+  const s = summarize(checks);
+  return { ok: s.passed, okCount: s.ok, failed: s.fail, skipped: s.skip, checks };
+}
+
 export function formatReport(checks) {
   const lines = [];
   const width = Math.max(...checks.map((c) => c.id.length));
@@ -492,7 +497,7 @@ export async function main(argv = process.argv.slice(2)) {
   }
   const checks = await runChecks(opts);
   const s = summarize(checks);
-  if (opts.json) console.log(JSON.stringify({ ok: s.passed, ...s, checks }, null, 2));
+  if (opts.json) console.log(JSON.stringify(reportJson(checks), null, 2));
   else {
     console.log(opts.base ? `self-host check (live ${opts.base.replace(/\/+$/, "")})\n` : "self-host check (dry-run; no Cloudflare credentials)\n");
     console.log(formatReport(checks));
