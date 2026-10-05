@@ -523,7 +523,7 @@ async function handoffSweep(opt: Record<string, string | true>): Promise<string>
   await tool(opt, "read", {}).catch(() => ""); // the closes are posts: mark the board read first, or the stale-read
   // refusal (someone posted since this session last read) turns every close into a skip (moby's gate run c0ab059f)
   const closed: string[] = [];
-  let skipped = 0;
+  const refused: string[] = [];
   // merge-base --is-ancestor prints nothing on success, so git()'s empty-output-is-null would read every yes as no.
   const isAncestor = (sha: string) => { try { execFileSync("git", ["merge-base", "--is-ancestor", sha, main], { cwd: process.cwd(), stdio: "ignore", timeout: 15_000 }); return true; } catch { return false; } };
   for (const h of handoffs) {
@@ -532,12 +532,12 @@ async function handoffSweep(opt: Record<string, string | true>): Promise<string>
     try {
       await tool(opt, "post", { type: "handoff", text: `Landed as ${sha.slice(0, 7)} (swept: an ancestor of origin/main).`, handoff: { state: "landed", sha }, reply_to: h.seq });
       closed.push(`#${h.seq}`);
-    } catch {
-      skipped++; // e.g. the caller's own handoff (its lander has to say so), or a post that was refused
+    } catch (e) {
+      refused.push(`#${h.seq}: ${String((e as Error).message || e).split("\n")[0].slice(0, 160)}`); // the caller's own (its lander must say so), or a refused post — say which
     }
   }
   const done = closed.length ? `Closed ${closed.length} landed handoff${closed.length === 1 ? "" : "s"}: ${closed.join(", ")}` : "Nothing to sweep: every open handoff is still off main";
-  return `${done}${skipped ? `; skipped ${skipped} (the hander-off's lander must close ${skipped === 1 ? "it" : "them"})` : ""}.`;
+  return `${done}${refused.length ? `; not closed — ${refused.join("; ")}` : ""}.`;
 }
 
 /** git's answer here (trimmed), or null when it fails or there's no repo. */

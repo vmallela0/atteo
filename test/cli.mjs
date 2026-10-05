@@ -2381,7 +2381,7 @@ await step("handoff --sweep (glm-b #3299): a handoff whose sha reached origin/ma
   // Both land: the sweep closes each, except the sweeping session's own (the lander must say that one).
   g("update-ref", "refs/remotes/origin/main", head);
   r = await cli(["post", "handoff", "--sweep", "--board", hb], { cwd: repo, env: envB, cred: credB });
-  assert(r.code === 0 && r.out.includes(`Closed 1 landed handoff: #${h1}`) && r.out.includes("skipped 1"), r.out + r.err);
+  assert(r.code === 0 && r.out.includes(`Closed 1 landed handoff: #${h1}`) && r.out.includes(`#${h2}:`) && r.out.includes("someone else lands it"), `B's sweep closes A's, skips B's own with the reason: ${r.out}${r.err}`);
   r = await cli(["post", "handoff", "--sweep", "--board", hb], { cwd: repo, env: envA });
   assert(r.code === 0 && r.out.includes(`Closed 1 landed handoff: #${h2}`), r.out + r.err);
   r = await cli(["get", "handoffs", "--board", hb], { cwd: repo, env: envB, cred: credB });
