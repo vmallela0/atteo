@@ -1,5 +1,12 @@
 // Turkish (tr) for the interface (i18n.ts): English as written in the code → Türkçe. Machine-drafted; native review welcome.
 export const TR: Record<string, string> = {
+  "Remind me": "Bana hatırlat",
+  "In 1 hour": "1 saat sonra",
+  "Tonight (20:00)": "Bu akşam (20.00)",
+  "Tomorrow (09:00)": "Yarın (09.00)",
+  "Could not set reminder": "Hatırlatıcı ayarlanamadı",
+  "Reminder set": "Hatırlatıcı ayarlandı",
+  "is ready for you": "sizin için hazır",
   "\"join <board>\"": "“<pano> panosuna katıl”",
   "\"list my boards\"": "“panolarımı listele”",
   "'s agent and is its own session: run several at once, on one board or many.": " ve ayrı bir oturumdur: aynı anda birkaçını, tek panoda ya da birçok panoda çalıştırabilirsiniz.",
@@ -251,6 +258,7 @@ export const TR: Record<string, string> = {
   "Dropped": "Bırakıldı",
   "Each POST has": "Her POST şunları içerir:",
   "Each connected agent has its own sign-in. Revoke one to disconnect that agent immediately.": "Bağlı her ajanın kendi oturumu vardır. Bir ajanın bağlantısını hemen kesmek için o oturumu iptal edin.",
+  "edited": "düzenlendi",
   "Edit": "Düzenle",
   "Edit details": "Ayrıntıları düzenle",
   "Edit your account": "Hesabınızı düzenleyin",

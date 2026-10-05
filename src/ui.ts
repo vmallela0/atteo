@@ -6,11 +6,29 @@ import { FONT_CSS, FONT_V } from "./fontfaces";
 import { chartHtml } from "./chart";
 import { STATUS_CSS, statusHtml } from "./status";
 import { highlightMentions, type Mention } from "./mentions";
-import { MERMAID_CSS, MERMAID_JS, mermaidHtml } from "./mermaid";
+import { MERMAID_CSS, MERMAID_JS, MERMAID_SRC, mermaidHtml } from "./mermaid";
 import { CODE_COLOR_CSS, CODE_COLOR_JS } from "./codecolor";
 import { TALK_CSS } from "./talk";
 import { esc } from "./util";
 import { clientTable, dirOf, tr, type Lang } from "./i18n";
+
+/** Report-only for now (jxn's agent #2636): violations go to /api/csp-report and the ops console. Set this to true to
+ *  enforce once a day of reports is clean; nothing else changes (every inline script already carries the nonce). */
+export const CSP_ENFORCE = false;
+export const CSP_REPORT_PATH = "/api/csp-report";
+
+// Each HTML response owns its nonce. Inline CSS and style attributes are used throughout the UI.
+export function pageSecurity() {
+  const nonce = Array.from(crypto.getRandomValues(new Uint8Array(16)), (b) => b.toString(16).padStart(2, "0")).join("");
+  const policy = `default-src 'self'; script-src 'self' 'nonce-${nonce}' ${MERMAID_SRC}; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' ws: wss:; frame-src 'self' about:; frame-ancestors 'none'; base-uri 'none'; form-action 'self'; object-src 'none'; report-uri ${CSP_REPORT_PATH}; report-to csp`;
+  const headers: Record<string, string> = {
+    [CSP_ENFORCE ? "content-security-policy" : "content-security-policy-report-only"]: policy,
+    "reporting-endpoints": `csp="${CSP_REPORT_PATH}"`,
+    "x-content-type-options": "nosniff",
+    "referrer-policy": "strict-origin-when-cross-origin",
+  };
+  return { nonce, headers };
+}
 
 // Dark tokens: the system setting picks them unless Display says light; Display can also force them.
 const DARK = `  --bg:#0E0E0E;--bg-subtle:#171716;--bg-hover:#1F1E1C;--line:#2A2926;--line-strong:#3A3935;
@@ -208,6 +226,10 @@ dialog[open]{animation:pop .16s ease-out}dialog:focus{outline:none}@media (prefe
 .entry .who{font-weight:600;color:var(--ink)}
 .entry .to{color:var(--muted)}
 .entry .when,.entry .seq{color:var(--faint);font-size:12.5px}
+.entry [data-edit-box]{display:block;width:100%;min-height:100px;resize:vertical;padding:10px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--ink);font:inherit}
+.entry [data-edit-box]+.btn{margin-top:8px;margin-right:6px}
+.entry [data-version-list]{margin:8px 0;padding:8px 10px;border-left:2px solid var(--line);color:var(--muted);font-size:13px}
+.entry [data-version-list]>div+div{margin-top:8px;padding-top:8px;border-top:1px solid var(--line)}
 .entry .seq:hover{color:var(--ink)}
 .entry .body{margin-top:3px;color:var(--text);word-wrap:break-word;overflow-wrap:anywhere}
 .entry .body p+p{margin-top:8px}
@@ -252,7 +274,8 @@ dialog[open]{animation:pop .16s ease-out}dialog:focus{outline:none}@media (prefe
 .entry{position:relative}
 /* The hover toolbar floats in the gap above the message (never over its text), like a small card. */
 @media(hover:hover){.entry .acts{position:absolute;top:-13px;right:6px;z-index:3;padding:1px;background:var(--bg);border:1px solid var(--line);border-radius:8px;box-shadow:var(--shadow)}
-  .entry .acts .btn.sm{height:24px}.entry .acts .rx-q{width:26px}#thread>.entry:first-child .acts{top:2px}}
+  .entry .acts .btn.sm{height:24px}.entry .acts .rx-q{width:26px}#thread>.entry:first-child .acts{top:2px}
+  .entry .meta [data-history]{position:relative;z-index:4}} /* "edited" stays clickable under the hover bar (own messages sit on the right) */
 .more-acts{display:none}
 @media(hover:none){.entry .meta>.more-acts{display:inline-flex;align-items:center;justify-content:center;margin-left:auto;width:32px;height:24px;padding:0;border:0;border-radius:6px;background:none;color:var(--muted);font-size:18px;line-height:1;letter-spacing:1px;cursor:pointer}
   .entry .meta>.more-acts[aria-expanded="true"]{background:var(--bg-hover);color:var(--ink)}
@@ -857,14 +880,23 @@ mark{background:color-mix(in srgb,var(--warn) 30%,transparent);color:inherit;bor
 .inbox-item a:hover{background:var(--bg-hover)}
 .inbox-item.unread b{color:var(--ink)}
 .inbox-item .dot{width:8px;height:8px;border-radius:50%;background:var(--accent);flex:none;margin-top:6px}
+.remind-menu{position:relative;z-index:5;display:inline-block;font-size:12px}
+.remind-menu summary{cursor:pointer;list-style:none;padding:5px 8px;border-radius:6px;color:var(--muted)}
+.remind-menu summary:hover{background:var(--bg-hover);color:var(--ink)}
+.remind-menu summary::-webkit-details-marker{display:none}
+.remind-menu>div{position:absolute;right:0;top:100%;width:175px;padding:4px;background:var(--bg);border:1px solid var(--line);border-radius:8px;box-shadow:var(--shadow);z-index:20}
+.remind-menu button{display:block;width:100%;padding:7px 8px;border:0;border-radius:5px;background:none;color:var(--ink);text-align:start;cursor:pointer;font:inherit}
+.remind-menu button:hover{background:var(--bg-hover)}
+.inbox-item>.remind-menu{margin:0 0 6px 44px}
+
 .side-label{font-size:11.5px;font-weight:500;color:var(--faint);padding:14px 9px 4px;display:flex;justify-content:space-between;align-items:center}
 .side-label a{color:var(--faint)}.side-label a:hover{color:var(--ink)}
 .working{display:inline-flex;align-items:center;gap:5px;flex:none;font-size:11px;font-weight:500;color:var(--muted);white-space:nowrap}.working[hidden]{display:none}
 .working .dot,.ag-dot.live{background:var(--ok);animation:breathe 2.4s ease-in-out infinite}
 @keyframes breathe{0%,100%{box-shadow:0 0 0 0 color-mix(in srgb,var(--ok) 45%,transparent)}50%{box-shadow:0 0 0 3px color-mix(in srgb,var(--ok) 18%,transparent)}}
-.side-board .working{margin-left:auto;font-size:10.5px}.side-board .working .dot{width:6px;height:6px}
+.side-board-row{display:flex;align-items:center;position:relative}.side-board-row .side-board{flex:1;min-width:0}.pin-actions{position:relative;z-index:3}.pin-actions summary{list-style:none;cursor:pointer;color:var(--muted);padding:4px 7px;border-radius:6px}.pin-actions summary::-webkit-details-marker{display:none}.pin-actions summary:hover{background:var(--bg-hover);color:var(--ink)}.pin-actions>button{position:absolute;right:0;top:100%;white-space:nowrap;border:1px solid var(--line);border-radius:7px;background:var(--bg);color:var(--ink);padding:7px 14px;box-shadow:var(--shadow-lg);cursor:pointer}.pin-actions>button:hover{background:var(--bg-hover)}.pin-mark{font-size:12px;flex:none}.side-board .working{margin-left:auto;font-size:10.5px}.side-board .working .dot{width:6px;height:6px}
 @media (prefers-reduced-motion:reduce){.working .dot,.ag-dot.live{animation:none}}
-.board-head-menu{position:relative}.bc-menu{z-index:3}.board-head-menu summary{list-style:none;cursor:pointer}.board-head-menu summary::-webkit-details-marker{display:none}.board-head-menu-items{position:absolute;right:0;top:32px;z-index:30;min-width:165px;padding:4px;background:var(--bg);border:1px solid var(--line);border-radius:8px;box-shadow:var(--shadow-lg)}.board-head-menu-items button{display:block;width:100%;padding:8px;text-align:start;border:0;background:transparent;color:var(--ink);cursor:pointer}.board-head-menu-items button:hover{background:var(--bg-hover)}.side-board-row{position:relative;display:flex;align-items:center}.side-board-row>.side-board{flex:1;min-width:0;padding-right:30px}.board-row-menu{position:absolute;right:3px;top:2px;z-index:4}.board-row-menu summary{list-style:none;cursor:pointer;padding:3px 6px;color:var(--muted)}.board-row-menu summary::-webkit-details-marker{display:none}.board-row-menu button{position:absolute;right:0;top:27px;white-space:nowrap;padding:8px 12px;border:1px solid var(--line);border-radius:7px;background:var(--bg);color:var(--ink);box-shadow:var(--shadow-lg);cursor:pointer}.side-board .bdot{width:8px;height:8px;margin:0 5px;border-radius:3px;flex:none;background:hsl(var(--h) 55% 55%)}
+.board-head-menu{position:relative}.bc-menu{z-index:3}.board-head-menu summary{list-style:none;cursor:pointer}.board-head-menu summary::-webkit-details-marker{display:none}.board-head-menu-items{position:absolute;right:0;top:32px;z-index:30;min-width:165px;padding:4px;background:var(--bg);border:1px solid var(--line);border-radius:8px;box-shadow:var(--shadow-lg)}.board-head-menu-items button{display:block;width:100%;padding:8px;text-align:start;border:0;background:transparent;color:var(--ink);cursor:pointer}.board-head-menu-items button:hover{background:var(--bg-hover)}.side-board-row{position:relative;display:flex;align-items:center}.side-board-row>.side-board{flex:1;min-width:0;padding-right:30px}.board-row-menu{position:absolute;right:3px;top:2px;z-index:4}.board-row-menu summary{list-style:none;cursor:pointer;padding:3px 6px;color:var(--muted)}.board-row-menu summary::-webkit-details-marker{display:none}.board-row-menu .brm-items{position:absolute;right:0;top:27px;z-index:5;min-width:150px;padding:4px;border:1px solid var(--line);border-radius:7px;background:var(--bg);box-shadow:var(--shadow-lg)}.board-row-menu .brm-items button{display:block;width:100%;white-space:nowrap;padding:8px 12px;border:0;border-radius:5px;background:transparent;color:var(--ink);text-align:start;cursor:pointer}.board-row-menu .brm-items button:hover{background:var(--bg-hover)}.side-board .bdot{width:8px;height:8px;margin:0 5px;border-radius:3px;flex:none;background:hsl(var(--h) 55% 55%)}
 /* board pictures (like a group chat's photo): a rounded square, its initial underneath until the image loads */
 .bpic{--h:220;position:relative;overflow:hidden;flex:none;display:inline-grid;place-items:center;width:28px;height:28px;border-radius:7px;
   background:hsl(var(--h) 55% 55%);color:#fff;font-size:13px;font-weight:600;line-height:1;user-select:none}
@@ -1159,6 +1191,7 @@ export function page(
   opts: { viewer?: Viewer | null; nav?: "boards" | "admin" | "me" | null; narrow?: boolean; script?: string; status?: number; headers?: HeadersInit; lang?: Lang } = {},
 ): Response {
   const v = opts.viewer;
+  const security = pageSecurity();
   const link = (href: string, label: string, key: string) => `<a href="${href}"${opts.nav === key ? ' aria-current="page"' : ""}>${label}</a>`;
   const nav = `<header class="nav"><div class="in">
 <a class="brand" href="/">${LOGO}<span class="wm">atteo</span></a>
@@ -1173,12 +1206,13 @@ ${v ? `<nav class="links">${link("/", esc(tr(opts.lang, "Boards")), "boards")}</
 ${FONT_PRELOAD}
 <link rel="icon" href="/favicon.svg" type="image/svg+xml"><link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <style>${FONT_CSS}
-${CSS}</style>${DISPLAY_HEAD}</head><body>${WORDMARK_DEFS}${nav}
+${CSS}</style>${DISPLAY_HEAD.replace("<script>", `<script nonce="${security.nonce}">`)}</head><body>${WORDMARK_DEFS}${nav}
 <main${opts.narrow ? ' class="narrow"' : ""}>${body}</main>
 <div id="toast" role="status" aria-live="polite"></div>
-<script>${CLIENT_JS}${opts.script ?? ""}</script></body></html>`;
+<script nonce="${security.nonce}">${CLIENT_JS}${opts.script ?? ""}</script></body></html>`;
   const headers = new Headers(opts.headers);
   headers.set("content-type", "text/html; charset=utf-8");
+  for (const [name, value] of Object.entries(security.headers)) headers.set(name, value);
   return new Response(html, { status: opts.status ?? 200, headers });
 }
 
@@ -1201,7 +1235,7 @@ export function initials(name: string): string {
 /** Initials on a color, covered by the member's picture when they've set one (a missing picture just stays hidden). */
 export function avatar(name: string, size: "" | "xs" | "sm" | "lg" = "", agent = false): string {
   const src = `/avatar/${encodeURIComponent(name)}${agent ? "?k=agent" : ""}`;
-  return `<span class="av ${size}${agent ? " agent" : ""}" style="--h:${hue(name)}" title="${esc(agent ? `${name}'s agent` : name)}">${esc(initials(name))}<img class="av-img" src="${esc(src)}" alt="" loading="lazy" onerror="this.remove()" onload="this.classList.add('ok')"></span>`;
+  return `<span class="av ${size}${agent ? " agent" : ""}" style="--h:${hue(name)}" title="${esc(agent ? `${name}'s agent` : name)}">${esc(initials(name))}<img class="av-img" src="${esc(src)}" alt="" loading="lazy"></span>`;
 }
 
 export function avatarStack(names: string[], max = 5): string {
@@ -1385,6 +1419,11 @@ const DISPLAY_HEAD = `<script>try{const d=JSON.parse(localStorage.getItem('atteo
 if(d.text==='s'||d.text==='l')r.dataset.text=d.text;if(d.density==='compact')r.dataset.density='compact';if(d.theme==='light'||d.theme==='dark')r.dataset.theme=d.theme;if(d.ev===true)r.dataset.mode='everyday';if(d.replies==='thread')r.dataset.replies='thread'}catch{}</script>`; // mode: what the account said last time (set on the first sync)
 
 const CLIENT_JS = `
+document.addEventListener('load',e=>{if(e.target instanceof HTMLImageElement&&e.target.matches('.av-img,.bpic img'))e.target.classList.add('ok')},true);
+document.addEventListener('error',e=>{if(e.target instanceof HTMLImageElement&&e.target.matches('.av-img,.bpic img'))e.target.remove()},true);
+document.querySelectorAll('.av-img,.bpic img').forEach(img=>{if(img.complete){if(img.naturalWidth)img.classList.add('ok');else img.remove()}});
+document.addEventListener('click',e=>{const b=e.target.closest('[data-approve]');if(b)document.getElementById('approve').value=b.dataset.approve},true);
+
 /** Bidi controls, zero-width space, word joiner, and BOM. ZWJ and ZWNJ stay (emoji, Persian, Hindi, Bengali). Arabic marks stay. */
 function bidi(s){return String(s??'').replace(/[\\u202A-\\u202E\\u2066-\\u2069\\u200B\\u2060\\uFEFF]/g,'')}
 /** The one HTML escaper for every page script. */
@@ -1476,6 +1515,7 @@ export interface SideBoard {
   title: string;
   kind?: string | null; // "direct": a private board between two friends (title "a ↔ b"); "agent": "Your agent", you and your own agents
   live?: number; // agent sessions working on it right now
+  pinned?: boolean;
   picture?: string | null; // the board picture's URL (members only, versioned), or null
 }
 
@@ -1490,7 +1530,7 @@ export function boardInitial(title: string): string {
  */
 export function boardPic(b: { id: string; title: string; picture?: string | null }, size: "" | "xs" | "sm" | "lg" = "", fallback?: string): string {
   if (!b.picture && fallback !== undefined) return fallback;
-  const img = b.picture ? `<img src="${esc(b.picture)}" alt="" loading="lazy" onload="this.classList.add('ok')" onerror="this.remove()">` : "";
+  const img = b.picture ? `<img src="${esc(b.picture)}" alt="" loading="lazy">` : "";
   return `<span class="bpic${size ? ` ${size}` : ""}" style="--h:${hue(b.id)}" aria-hidden="true">${esc(boardInitial(b.title))}${img}</span>`;
 }
 
@@ -1528,7 +1568,7 @@ export function appPage(
     direct = opts.boards.filter((b) => b.kind === "direct"),
     own = opts.boards.find((b) => b.kind === "agent");
   const sideBoards = shared
-    .map((b) => `<div class="side-board-row"><a class="side-link side-board" href="/b/${esc(b.id)}"${cur(b.id)}>${boardPic(b, "xs", `<span class="bdot" style="--h:${hue(b.id)}"></span>`)}<span class="truncate">${esc(b.title)}</span>${working(b.live ?? 0, b.id)}</a><details class="board-row-menu"><summary aria-label="${esc(T("More actions"))}" title="${esc(T("More actions"))}">⋯</summary><button type="button" data-mark-unread="${esc(b.id)}">${esc(T("Mark as unread"))}</button></details></div>`)
+    .map((b) => `<div class="side-board-row"><a class="side-link side-board" href="/b/${esc(b.id)}"${cur(b.id)}>${boardPic(b, "xs", `<span class="bdot" style="--h:${hue(b.id)}"></span>`)}<span class="truncate">${esc(b.title)}</span>${b.pinned ? `<span class="pin-mark" aria-label="${esc(T("Pinned"))}" title="${esc(T("Pinned"))}">📌</span>` : ""}${working(b.live ?? 0, b.id)}</a><details class="board-row-menu"><summary aria-label="${esc(T("More actions"))}" title="${esc(T("More actions"))}">⋯</summary><div class="brm-items"><button type="button" data-mark-unread="${esc(b.id)}">${esc(T("Mark as unread"))}</button><button type="button" data-pin-board="${esc(b.id)}">${esc(T(b.pinned ? "Unpin" : "Pin"))}</button></div></details></div>`)
     .join("");
   // Direct boards read as the person you share them with.
   const sideDirect = direct
@@ -1595,8 +1635,15 @@ export function appPage(
 <dt><kbd>G</kbd> ${esc(T("then"))} <kbd>I</kbd> <kbd>A</kbd> <kbd>B</kbd> <kbd>P</kbd> <kbd>M</kbd></dt><dd>${esc(T("Go to Inbox / Approvals / Boards / People / Account"))}</dd>
 <dt><kbd>?</kbd></dt><dd>${esc(T("This list"))}</dd></dl></div></dialog>
 <script>window.PALETTE=${JSON.stringify(paletteItems).replace(/</g, "\\u003c")};${v.admin ? "window.OPS=1;" : ""}</script>`;
-  return rawPage(title, body, (opts.script ?? "") + SHELL_JS + INBOX_JS + LIVE_JS + MARK_UNREAD_JS, opts.status, v.lang ?? "en");
+  return rawPage(title, body, (opts.script ?? "") + SHELL_JS + INBOX_JS + LIVE_JS + MARK_UNREAD_JS + PINS_JS, opts.status, v.lang ?? "en");
 }
+
+const PINS_JS = `
+(()=>{document.addEventListener('click',async e=>{const b=e.target.closest('[data-pin-board]');if(!b)return;e.preventDefault();e.stopPropagation();
+  b.disabled=true;try{const r=await fetch('/api/me/pins',{cache:'no-store'}),j=await r.json();if(!r.ok)throw Error(j.error||tr('Could not save'));
+    const id=b.dataset.pinBoard,old=j.pins||[],next=old.includes(id)?old.filter(x=>x!==id):[...old,id];
+    const put=await fetch('/api/me/pins',{method:'PUT',headers:{'content-type':'application/json'},body:JSON.stringify({pins:next})});const saved=await put.json();if(!put.ok)throw Error(saved.error||tr('Could not save'));location.reload();
+  }catch(err){alert(err.message)}finally{b.disabled=false}})})();`;
 
 // Inbox badge on every signed-in page: checks on load, when the tab comes back, and every minute. With permission,
 // a new item also shows a browser notification (once per item, across tabs), but only what interrupts (src/notify.ts):
@@ -1627,15 +1674,16 @@ window.liveRefresh=async()=>{if(document.hidden)return;try{const r=await fetch('
 setInterval(liveRefresh,60000);document.addEventListener('visibilitychange',()=>{if(!document.hidden)liveRefresh()})})();`;
 
 function rawPage(title: string, body: string, script: string, status = 200, lang: Lang = "en"): Response {
+  const security = pageSecurity();
   const html = `<!doctype html><html lang="${lang}"${dirOf(lang as Lang) === "rtl" ? ' dir="rtl"' : ""}><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${esc(title)}</title>
 ${FONT_PRELOAD}
 <link rel="icon" href="/favicon.svg" type="image/svg+xml"><link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <style>${FONT_CSS}
-${CSS}</style>${DISPLAY_HEAD}</head><body>${WORDMARK_DEFS}${body}
+${CSS}</style>${DISPLAY_HEAD.replace("<script>", `<script nonce="${security.nonce}">`)}</head><body>${WORDMARK_DEFS}${body.replace("<script>window.PALETTE=", `<script nonce="${security.nonce}">window.PALETTE=`)}
 <div id="toast" role="status" aria-live="polite"></div>
-${lang === "en" ? "" : `<script>window.I18N=${clientTable(lang)}</script>`}<script>${CLIENT_JS}${script}</script></body></html>`;
-  return new Response(html, { status, headers: { "content-type": "text/html; charset=utf-8", "content-language": lang, vary: "Accept-Language, Cookie" } });
+${lang === "en" ? "" : `<script nonce="${security.nonce}">window.I18N=${clientTable(lang)}</script>`}<script nonce="${security.nonce}">${CLIENT_JS}${script}</script></body></html>`;
+  return new Response(html, { status, headers: { "content-type": "text/html; charset=utf-8", "content-language": lang, vary: "Accept-Language, Cookie", ...security.headers } });
 }
 
 const SHELL_JS = `

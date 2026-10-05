@@ -22,6 +22,15 @@ describe("notify: what needs you", () => {
     [{ kind: "contact_accept" }, false],
   ];
   for (const [item, want] of cases) it(`${item.kind}${item.broadcast ? " (broadcast)" : ""}${item.direct ? " (DM)" : ""} → ${want}`, () => expect(needsYou(item)).toBe(want));
+
+  it("a reminder coming back needs you, whatever it was; off and quiet hours still hold", () => {
+    expect(needsYou({ kind: "reminder" })).toBe(true);
+    expect(needsYou({ kind: "mention", broadcast: true, reminded: true })).toBe(true);
+    expect(needsYou({ kind: "agent", reminded: true })).toBe(true);
+    expect(classify({ kind: "mention", broadcast: true, reminded: true }, "needs_me", off, noon)).toBe("now");
+    expect(classify({ kind: "agent", reminded: true }, "off", off, noon)).toBe("none");
+    expect(classify({ kind: "reminder" }, "needs_me", { on: true, start: "11:00", end: "13:00", tz: "UTC" }, noon)).toBe("digest");
+  });
 });
 
 describe("notify: classify by level", () => {

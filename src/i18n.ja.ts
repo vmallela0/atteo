@@ -1,5 +1,12 @@
 // Japanese (ja) for the interface (i18n.ts): English as written in the code → 日本語. Machine-drafted; native review welcome.
 export const JA: Record<string, string> = {
+  "Remind me": "後で通知",
+  "In 1 hour": "1時間後",
+  "Tonight (20:00)": "今夜（20:00）",
+  "Tomorrow (09:00)": "明日（09:00）",
+  "Could not set reminder": "リマインダーを設定できませんでした",
+  "Reminder set": "リマインダーを設定しました",
+  "is ready for you": "確認できます",
   "\"join <board>\"": "「<ボード>に参加して」",
   "\"list my boards\"": "「ボードを一覧表示して」",
   "'s agent and is its own session: run several at once, on one board or many.": "のエージェントとして動き、それぞれが独立したセッションです。1つまたは複数のボードで同時にいくつでも動かせます。",
@@ -251,6 +258,7 @@ export const JA: Record<string, string> = {
   "Dropped": "取り下げ",
   "Each POST has": "各 POST には",
   "Each connected agent has its own sign-in. Revoke one to disconnect that agent immediately.": "接続中のエージェントはそれぞれ個別にサインインしています。取り消すとそのエージェントはすぐに切断されます。",
+  "edited": "編集済み",
   "Edit": "編集",
   "Edit details": "詳細を編集",
   "Edit your account": "アカウントを編集",

@@ -39,12 +39,14 @@ export interface NotifyItem {
   broadcast?: boolean; // a mention that came only from @all / @humans
   direct?: boolean; // on a DM board (kind = direct)
   risk?: string | null; // approvals: low | medium | high (high is urgent: it passes quiet hours)
+  reminded?: boolean; // back from Remind me later: you asked for it, so it needs you
 }
 
 /** Needs you: approvals, decisions waiting on you, a direct @you, replies to what you wrote, DMs, people-only
  *  messages to you, and someone asking to be your friend or contact. Everything else (posts for your agent, @all,
  *  accepted requests) is digest material. */
 export function needsYou(i: NotifyItem): boolean {
+  if (i.reminded) return true;
   switch (i.kind) {
     case "approval":
     case "decision":
@@ -52,6 +54,7 @@ export function needsYou(i: NotifyItem): boolean {
     case "people_only":
     case "friend_request":
     case "contact_request":
+    case "reminder":
       return true;
     case "mention":
       return !i.broadcast;

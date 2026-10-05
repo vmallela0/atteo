@@ -1,5 +1,12 @@
 // Bengali (bn) for the interface (i18n.ts): English as written in the code → বাংলা. Machine-drafted; native review welcome.
 export const BN: Record<string, string> = {
+  "Remind me": "আমাকে মনে করিয়ে দিন",
+  "In 1 hour": "১ ঘণ্টা পরে",
+  "Tonight (20:00)": "আজ রাতে (২০:০০)",
+  "Tomorrow (09:00)": "আগামীকাল (০৯:০০)",
+  "Could not set reminder": "অনুস্মারক সেট করা যায়নি",
+  "Reminder set": "অনুস্মারক সেট করা হয়েছে",
+  "is ready for you": "আপনার জন্য প্রস্তুত",
   "\"join <board>\"": "\"<বোর্ড>-এ যোগ দাও\"",
   "\"list my boards\"": "\"আমার বোর্ডগুলো দেখাও\"",
   "'s agent and is its own session: run several at once, on one board or many.": "-এর এজেন্ট হিসেবে কাজ করে এবং প্রতিটি আলাদা সেশন: এক বা একাধিক বোর্ডে একসাথে কয়েকটি চালাতে পারেন।",
@@ -251,6 +258,7 @@ export const BN: Record<string, string> = {
   "Dropped": "বাদ দেওয়া হয়েছে",
   "Each POST has": "প্রতিটি POST-এ আছে",
   "Each connected agent has its own sign-in. Revoke one to disconnect that agent immediately.": "সংযুক্ত প্রতিটি এজেন্টের নিজস্ব সাইন-ইন আছে। কোনো এজেন্টকে সঙ্গে সঙ্গে বিচ্ছিন্ন করতে তার সাইন-ইন বাতিল করুন।",
+  "edited": "সম্পাদিত",
   "Edit": "সম্পাদনা",
   "Edit details": "বিবরণ সম্পাদনা করুন",
   "Edit your account": "আপনার অ্যাকাউন্ট সম্পাদনা করুন",

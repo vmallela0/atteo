@@ -1,6 +1,7 @@
 // Inbox: posts that @mention you, are addressed to your agent, or reply to something you posted.
 // Rows are written by the board when the post lands (see Board.notify); every signed-in page shows the unread count.
 
+import { REMIND_BROWSER_JS } from "./remindTime";
 import { MAIL_KINDS } from "./mailbox";
 import { appPage, avatar, relTime, type SideBoard, type Viewer } from "./ui";
 import { tr } from "./i18n";
@@ -14,13 +15,15 @@ export interface InboxItem {
   board_id: string;
   board_title: string | null;
   seq: number;
-  kind: "mention" | "agent" | "reply" | "friend_request" | "friend_accept" | "approval" | "contact_request" | "contact_accept" | "decision" | "people_only" | "manual_unread";
+  kind: "mention" | "agent" | "reply" | "friend_request" | "friend_accept" | "approval" | "contact_request" | "contact_accept" | "decision" | "people_only" | "manual_unread" | "reminder";
   actor: string;
   actor_via: string | null;
   entry_type: string;
   excerpt: string;
   created_at: number;
   read_at: number | null;
+  reminded_at?: number | null;
+  reminded?: boolean; // came back from Remind me later: it needs the person now (src/notify.ts)
   approval_id?: string; // kind approval: the request (GET /api/approvals/:id)
   push?: { kind: "approval_needed"; title: string; body: string; url: string; approval: string; board: string | null; risk: string }; // ready for a phone notification
   board_kind?: string | null; // direct (a DM), agent ("Your agent"), or null
@@ -34,8 +37,8 @@ function withPush(r: InboxRow): InboxItem {
   const { data, ...item } = r;
   if (!data) return item;
   try {
-    const d = JSON.parse(data) as { push?: InboxItem["push"]; broadcast?: boolean };
-    const out: InboxItem = d.broadcast ? { ...item, broadcast: true } : item;
+    const d = JSON.parse(data) as { push?: InboxItem["push"]; broadcast?: boolean; reminded?: number };
+    const out: InboxItem = { ...item, ...(d.broadcast ? { broadcast: true } : {}), ...(d.reminded ? { reminded: true } : {}) };
     return d.push ? { ...out, approval_id: d.push.approval, push: d.push } : out;
   } catch {
     return item;
@@ -47,7 +50,7 @@ export function withInterrupts<T extends InboxItem>(items: T[], levels: Record<s
   return items.map((i) => {
     const board = i.board_id || i.push?.board || "";
     const level = (board && levels[board]) || DEFAULT_LEVEL;
-    return { ...i, interrupt: classify({ kind: i.kind, broadcast: i.broadcast, direct: i.board_kind === "direct", risk: i.push?.risk }, level, prefs.quiet, now) };
+    return { ...i, interrupt: classify({ kind: i.kind, broadcast: i.broadcast, direct: i.board_kind === "direct", risk: i.push?.risk, reminded: i.reminded }, level, prefs.quiet, now) };
   });
 }
 
@@ -78,13 +81,13 @@ export async function digestDue(env: Env, user: string, levels: Record<string, L
 }
 
 /** People-only items (a message only the people named can see) go to person callers only: agent tokens read this API too. */
-const NOT_PEOPLE = (person: boolean, col = "kind") => (person ? "" : ` AND ${col} NOT IN ('people_only', 'manual_unread')`);
+const NOT_PEOPLE = (person: boolean, col = "kind") => (person ? "" : ` AND ${col} NOT IN ('people_only', 'manual_unread', 'reminder')`);
 
 export async function listInbox(env: Env, user: string, limit = 100, person = false): Promise<InboxItem[]> {
   const r = await env.DB.prepare(
-    `SELECT n.id, n.board_id, b.title AS board_title, b.kind AS board_kind, n.seq, n.kind, n.actor, n.actor_via, n.entry_type, n.excerpt, n.created_at, n.read_at, n.data
-     FROM notifications n LEFT JOIN boards b ON b.id = n.board_id
-     WHERE n.user = ? AND n.kind NOT IN ('trigger', 'from_your_person')${NOT_PEOPLE(person, "n.kind")} AND (n.board_id = '' OR n.board_id IN (SELECT board_id FROM members WHERE user = ?))
+    `SELECT n.id, n.board_id, b.title AS board_title, b.kind AS board_kind, n.seq, n.kind, n.actor, n.actor_via, n.entry_type, n.excerpt, n.created_at, n.read_at, n.data, r.due_at AS reminded_at
+     FROM notifications n LEFT JOIN boards b ON b.id = n.board_id LEFT JOIN inbox_reminders r ON r.notification_id = n.id AND r.user = n.user
+     WHERE n.user = ? AND n.kind NOT IN ('trigger', 'from_your_person')${NOT_PEOPLE(person, "n.kind")} AND r.notification_id IS NULL AND (n.board_id = '' OR n.board_id IN (SELECT board_id FROM members WHERE user = ?))
      ORDER BY n.created_at DESC LIMIT ?`,
   )
     .bind(user, user, limit)
@@ -94,7 +97,7 @@ export async function listInbox(env: Env, user: string, limit = 100, person = fa
 
 /** The unread count (hot: every open page polls it), shared with test/queryPlans.test.ts: it must use an index. */
 export const unreadCountSql = (person: boolean) =>
-  `SELECT COUNT(*) AS n FROM notifications WHERE user = ? AND read_at IS NULL AND kind != 'trigger'${NOT_PEOPLE(person)} AND (board_id = '' OR board_id IN (SELECT board_id FROM members WHERE user = ?))`;
+  `SELECT COUNT(*) AS n FROM notifications WHERE user = ? AND read_at IS NULL AND kind != 'trigger' AND NOT EXISTS (SELECT 1 FROM inbox_reminders r WHERE r.notification_id = notifications.id AND r.user = notifications.user)${NOT_PEOPLE(person)} AND (board_id = '' OR board_id IN (SELECT board_id FROM members WHERE user = ?))`;
 
 /** Unread count plus the newest unread item (for a browser notification when the count goes up). */
 export async function inboxCount(env: Env, user: string, person = false): Promise<{ unread: number; latest: InboxItem | null; approvals: number }> {
@@ -103,8 +106,8 @@ export async function inboxCount(env: Env, user: string, person = false): Promis
       .bind(user, user)
       .first<{ n: number }>(),
     env.DB.prepare(
-      `SELECT n.id, n.board_id, b.title AS board_title, b.kind AS board_kind, n.seq, n.kind, n.actor, n.actor_via, n.entry_type, n.excerpt, n.created_at, n.read_at, n.data
-       FROM notifications n LEFT JOIN boards b ON b.id = n.board_id WHERE n.user = ? AND n.read_at IS NULL AND n.kind != 'trigger'${NOT_PEOPLE(person, "n.kind")} ORDER BY n.created_at DESC LIMIT 1`,
+      `SELECT n.id, n.board_id, b.title AS board_title, b.kind AS board_kind, n.seq, n.kind, n.actor, n.actor_via, n.entry_type, n.excerpt, n.created_at, n.read_at, n.data, r.due_at AS reminded_at
+       FROM notifications n LEFT JOIN boards b ON b.id = n.board_id LEFT JOIN inbox_reminders r ON r.notification_id = n.id AND r.user = n.user WHERE n.user = ? AND n.read_at IS NULL AND n.kind != 'trigger' AND r.notification_id IS NULL${NOT_PEOPLE(person, "n.kind")} ORDER BY n.created_at DESC LIMIT 1`,
     )
       .bind(user)
       .first<InboxRow>(),
@@ -121,6 +124,7 @@ const READ_RETENTION_DAYS = 30;
  * collected (opus-d #2278); mail nobody collects at all (no agent connected) goes after UNCOLLECTED_DAYS instead.
  */
 export const PRUNE_READ_SQL = `DELETE FROM notifications WHERE read_at IS NOT NULL AND read_at < ?
+  AND NOT EXISTS (SELECT 1 FROM inbox_reminders r WHERE r.notification_id = notifications.id)
   AND (agent_seen_at IS NOT NULL OR kind NOT IN (${MAIL_KINDS.map((k) => `'${k}'`).join(", ")}) OR created_at < ?)`;
 const UNCOLLECTED_DAYS = 90;
 
@@ -155,6 +159,7 @@ const VERB: Record<InboxItem["kind"], string> = {
   decision: "asks for a decision",
   people_only: "wrote to you privately (only people can see it)",
   manual_unread: "marked this board unread",
+  reminder: "is ready for you",
 };
 
 /** Pairs an approval notification with its approval: by id when the row carries one, else by the moment it was asked. */
@@ -174,7 +179,7 @@ export function inboxPage(viewer: Viewer, side: SideBoard[], items: InboxItem[],
       return `<li class="inbox-item${i.read_at ? "" : " unread"}"><a href="${href}" data-inbox-id="${i.id}">
 ${avatar(i.actor, "sm", i.actor_via === "agent")}
 <div class="grow" style="min-width:0"><div class="small">${i.kind === "people_only" ? `<span class="po-lock" title="${esc(T("Only people can see it. Agents can't."))}" aria-label="${esc(T("People only"))}">🔒</span> ` : ""}<b>${esc(who)}</b> ${esc(T(VERB[i.kind]))}${i.board_id ? ` <span class="faint">${esc(T("in"))}</span> ${esc(i.board_title ?? i.board_id)} <span class="faint">· #${i.seq}` : ` <span class="faint">`} · ${esc(relTime(i.created_at, Date.now(), L))}</span></div>
-<div class="small muted truncate">${esc(i.excerpt)}</div></div>${i.read_at ? "" : `<span class="dot" aria-label="${esc(T("unread"))}"></span>`}</a>${
+<div class="small muted truncate">${esc(i.excerpt)}</div></div>${i.read_at ? "" : `<span class="dot" aria-label="${esc(T("unread"))}"></span>`}</a><details class="remind-menu"><summary>${esc(T("Remind me"))}</summary><div><button type="button" data-remind="hour" data-id="${i.id}">${esc(T("In 1 hour"))}</button><button type="button" data-remind="tonight" data-id="${i.id}">${esc(T("Tonight (20:00)"))}</button><button type="button" data-remind="tomorrow" data-id="${i.id}">${esc(T("Tomorrow (09:00)"))}</button></div></details>${
         approvalFor(i, approvals)
           ? approvalCardHtml(approvalFor(i, approvals)!, true, L)
           : i.kind === "contact_request" && !i.read_at
@@ -189,6 +194,8 @@ ${avatar(i.actor, "sm", i.actor_via === "agent")}
 ${unread ? `<form method="post" action="/api/inbox/read" data-api data-done="inboxCleared" style="margin:0"><input type="hidden" name="all" value="1"><button class="btn sm">${esc(T("Mark all read"))}</button></form>` : ""}</div></div>
 ${items.length ? `<ul class="inbox card">${rows}</ul>` : `<div class="card empty"><p class="muted">${esc(T("Nothing yet. When someone @mentions you or writes to your agent, it shows up here."))}</p></div>`}`;
   const script = `
+${REMIND_BROWSER_JS}
+document.addEventListener('click',async e=>{const b=e.target.closest('[data-remind]');if(b&&await remindItem(b.dataset.id,b.dataset.remind))b.closest('.inbox-item')?.remove()});
 window.inboxCleared=()=>location.reload();
 // Approvals: Approve / Deny right here, without opening the board.
 ${approvalJs(viewer.name)}
@@ -199,4 +206,28 @@ document.addEventListener('click',async e=>{const b=e.target.closest('[data-cont
 const nb=document.getElementById('notif-on');
 if('Notification' in window&&Notification.permission==='default'){nb.hidden=false;nb.onclick=async()=>{await Notification.requestPermission();nb.hidden=true}}`;
   return appPage(`${T("Inbox")} · Atteo`, { viewer, boards: side, active: "inbox", crumbs: `<span class="cur">${esc(T("Inbox"))}</span>`, body, script, narrow: true });
+}
+
+/** A reminder belongs to one person; the notification stays intact for everyone else and for agent mail. */
+export async function remind(env: Env, user: string, id: number, at: number): Promise<boolean> {
+  const row = await env.DB.prepare(`SELECT id FROM notifications WHERE id = ? AND user = ? AND kind NOT IN ('trigger', 'from_your_person')`).bind(id, user).first();
+  if (!row) return false;
+  await env.DB.prepare(`INSERT INTO inbox_reminders (user, notification_id, due_at) VALUES (?, ?, ?) ON CONFLICT(user, notification_id) DO UPDATE SET due_at = excluded.due_at`).bind(user, id, at).run();
+  return true;
+}
+
+export async function cancelReminder(env: Env, user: string, id: number): Promise<boolean> {
+  const result = await env.DB.prepare(`DELETE FROM inbox_reminders WHERE user = ? AND notification_id = ?`).bind(user, id).run();
+  return (result.meta.changes ?? 0) > 0;
+}
+
+export async function fireReminders(env: Env, now = Date.now()): Promise<number> {
+  const due = (await env.DB.prepare(`SELECT user, notification_id FROM inbox_reminders WHERE due_at <= ? LIMIT 200`).bind(now).all<{ user: string; notification_id: number }>()).results;
+  for (const r of due) {
+    await env.DB.batch([
+      env.DB.prepare(`UPDATE notifications SET read_at = NULL, data = CASE WHEN json_valid(data) THEN json_set(data, '$.reminded', ?) ELSE json_object('reminded', ?) END WHERE id = ? AND user = ?`).bind(now, now, r.notification_id, r.user),
+      env.DB.prepare(`DELETE FROM inbox_reminders WHERE user = ? AND notification_id = ?`).bind(r.user, r.notification_id),
+    ]);
+  }
+  return due.length;
 }

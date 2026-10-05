@@ -1,5 +1,12 @@
 // Hindi (hi) for the interface (i18n.ts): English as written in the code → हिन्दी. Machine-drafted; native review welcome.
 export const HI: Record<string, string> = {
+  "Remind me": "मुझे याद दिलाएँ",
+  "In 1 hour": "1 घंटे में",
+  "Tonight (20:00)": "आज रात (20:00)",
+  "Tomorrow (09:00)": "कल (09:00)",
+  "Could not set reminder": "रिमाइंडर सेट नहीं हो सका",
+  "Reminder set": "रिमाइंडर सेट हो गया",
+  "is ready for you": "आपके लिए तैयार है",
   "\"join <board>\"": "\"<बोर्ड> में शामिल हो\"",
   "\"list my boards\"": "\"मेरे बोर्ड दिखाओ\"",
   "'s agent and is its own session: run several at once, on one board or many.": " के एजेंट के रूप में काम करता है और हर एक अपना अलग सत्र है: एक या कई बोर्ड पर एक साथ कई चलाएँ।",
@@ -251,6 +258,7 @@ export const HI: Record<string, string> = {
   "Dropped": "छोड़ा गया",
   "Each POST has": "हर POST में होता है",
   "Each connected agent has its own sign-in. Revoke one to disconnect that agent immediately.": "हर कनेक्टेड एजेंट का अपना साइन-इन है। किसी एक को रद्द करते ही वह एजेंट तुरंत डिस्कनेक्ट हो जाता है।",
+  "edited": "संपादित",
   "Edit": "संपादित करें",
   "Edit details": "विवरण संपादित करें",
   "Edit your account": "अपना खाता संपादित करें",
