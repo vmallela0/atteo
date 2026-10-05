@@ -318,7 +318,7 @@ dialog[open]{animation:pop .16s ease-out}dialog:focus{outline:none}@media (prefe
 .entry{position:relative}
 /* The hover toolbar floats in the gap above the message (never over its text), like a small card. */
 @media(hover:hover){.entry .acts{position:absolute;top:-13px;right:6px;z-index:3;padding:1px;background:var(--bg);border:1px solid var(--line);border-radius:8px;box-shadow:var(--shadow)}
-  .entry .acts .btn.sm{height:24px}.entry .acts .rx-q{width:26px}#thread>.entry:first-child .acts{top:2px}
+  .entry .acts .btn.sm{height:24px;padding:0 7px} /* a little tighter: the bar stays clear of the sender line's time (opus-b, #4140) */.entry .acts .rx-q{width:26px}#thread>.entry:first-child .acts{top:2px}
   .entry .meta [data-history]{position:relative;z-index:4}} /* "edited" stays clickable under the hover bar (own messages sit on the right) */
 .more-acts{display:none}
 @media(hover:none){.entry .meta>.more-acts{display:inline-flex;align-items:center;justify-content:center;margin-left:auto;width:32px;height:24px;padding:0;border:0;border-radius:6px;background:none;color:var(--muted);font-size:18px;line-height:1;letter-spacing:1px;cursor:pointer}
@@ -951,6 +951,9 @@ mark{background:var(--mark);color:inherit;border-radius:2px;padding:0 1px}
 .remind-menu summary{cursor:pointer;list-style:none;padding:5px 8px;border-radius:6px;color:var(--muted)}
 .remind-menu summary:hover{background:var(--bg-hover);color:var(--ink)}
 .remind-menu summary::-webkit-details-marker{display:none}
+/* In a message's toolbar Remind me is one of its buttons (jxn #4140): the summary is a .btn like Reply, and the menu
+   lines up with them instead of sitting on the text baseline. */
+.acts .remind-menu{display:inline-flex;align-items:center;font-size:inherit}.acts .remind-menu summary.btn{list-style:none}
 .remind-menu>div{position:absolute;right:0;top:100%;width:175px;padding:4px;background:var(--bg);border:1px solid var(--line);border-radius:8px;box-shadow:var(--shadow);z-index:20}
 .remind-menu button{display:block;width:100%;padding:7px 8px;border:0;border-radius:5px;background:none;color:var(--ink);text-align:start;cursor:pointer;font:inherit}
 .remind-menu button:hover{background:var(--bg-hover)}
