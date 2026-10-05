@@ -1364,7 +1364,7 @@ function agRow(a){const nm=a.name?a.user+'/'+a.name:a.user+"'s agent",st=AG_LABE
   const tip=a.name?a.user+"'s agent session \\""+a.name+'"'+(tool?' ('+tool+')':'')+'. Mention it as @'+a.user+'/'+a.name:a.user+"'s agent";
   return '<li class="ag-row" data-k="'+esc(a.user+'/'+(a.name||''))+'" data-state="'+st+'" title="'+esc(tip)+'">'+avatar16(a.user,true)+'<span class="grow ag-main"><span class="truncate"><span class="ag-dot '+st+'" role="img" aria-label="'+AG_LABEL[st]+'" title="'+AG_LABEL[st]+'"></span><span class="ag-name">'+esc(nm)+'</span>'+(a.client?' <span class="xs faint">'+esc(a.client)+'</span>':'')+'</span>'+(a.model||a.status?'<span class="ag-status truncate">'+(a.model?'<span class="faint ag-model">'+esc(a.model)+'</span>'+(a.status?' · ':''):'')+esc(a.status||'')+'</span>':'')+'</span><time class="when" datetime="'+new Date(a.last_seen).toISOString()+'" data-ts="'+a.last_seen+'" title="'+new Date(a.last_seen).toUTCString()+'"></time></li>'}
 let agentsAt=0;window.agentsRefresh=async()=>{if(document.hidden)return;const box=document.getElementById('agents');if(!box)return;
-  const r=await fetch('/api/boards/'+BOARD+'/agents').catch(()=>null);if(!r||!r.ok)return;const ag=(await r.json()).agents||[];agentsAt=Date.now();
+  const r=await fetch('/api/boards/'+BOARD+'/agents').catch(()=>null);if(!r||!r.ok)return;const ag=(await r.json()).agents||[];agentsAt=Date.now();window.AGENTS=ag;window.hdlProgress&&hdlProgress();
   // The @ menu's sessions follow too, so a renamed or new session is mentionable without a reload (jxn #986).
   for(let i=MOPTS.length-1;i>=0;i--)if(MOPTS[i].ins.includes('/'))MOPTS.splice(i,1);
   for(const a of ag){if(!a.name)continue;const at=MOPTS.findIndex(o=>o.ins===a.user+"'s agent");if(at<0)continue;
@@ -2009,7 +2009,21 @@ function renderHandling(map){HDL=map;const seen=new Set();
     const mine=h.user===ME&&!READONLY;b.classList.toggle('done',h.done);b.dataset.seq=seq;
     b.title=h.done?tr('Done by ')+h.by:h.by+' is handling this';
     b.innerHTML=(h.done?'✓ done by '+esc(h.by):esc(h.by)+' is on it')+(mine?(h.done?'':'<button type="button" data-hdl="done" title="'+tr('Mark it done')+'" aria-label="'+tr('Mark it done')+'">✓</button>')+'<button type="button" data-hdl="release" title="'+(h.done?tr('Clear done'):tr('Drop the marker'))+'" aria-label="'+(h.done?tr('Clear done'):tr('Drop the marker'))+'">×</button>':'')}
-  document.querySelectorAll('.badge.hdl').forEach(b=>{if(!seen.has(b.dataset.seq))b.remove()})}
+  document.querySelectorAll('.badge.hdl').forEach(b=>{if(!seen.has(b.dataset.seq))b.remove()});hdlProgress()}
+// The agent's progress under a message it's on (vedu's agent #2498 item 4): its session's own status line (its words,
+// shown as text) and how long it has been on it; "stalled?" once that session has gone quiet (no activity for a few
+// minutes, the Agents panel's "working now"). Display only: the status comes from Board info's agents list.
+const hdlAgo=ms=>{const m=Math.max(0,Math.floor(ms/60000));return m<1?'<1m':m<60?m+'m':Math.floor(m/60)+'h '+(m%60)+'m'};
+let hdlAsked=false;
+function hdlProgress(){const now=Date.now(),seen=new Set();
+  if(!window.AGENTS&&!hdlAsked&&Object.values(HDL||{}).some(h=>!h.done)&&window.agentsRefresh){hdlAsked=true;setTimeout(agentsRefresh,0)} // statuses for markers on the page
+  for(const [seq,h] of Object.entries(HDL||{})){if(h.done)continue;const g=document.querySelector('#e'+seq+'>.grow');if(!g)continue;seen.add(seq);
+    const a=(window.AGENTS||[]).find(x=>x.name&&x.user+'/'+x.name===h.by),stalled=!!a&&a.state!=='live';
+    let p=g.querySelector(':scope>.hdl-prog');if(!p){p=document.createElement('div');p.className='hdl-prog xs';const b=g.querySelector(':scope>.body');if(b)b.after(p);else g.appendChild(p)}
+    p.classList.toggle('stalled',stalled);p.dataset.seq=seq;
+    p.textContent='🤔 '+h.by+(a&&a.status?': '+String(a.status).replace(/\s+/g,' ').slice(0,140):'')+(h.since?' · '+hdlAgo(now-h.since):'')+(stalled?' · '+tr('Stalled? No activity for {t}',{t:hdlAgo(now-a.last_seen)}):'')}
+  document.querySelectorAll('.hdl-prog').forEach(p=>{if(!seen.has(p.dataset.seq))p.remove()})}
+window.hdlProgress=hdlProgress;setInterval(()=>{if(!document.hidden)hdlProgress()},30000);
 document.addEventListener('click',async e=>{const x=e.target.closest('[data-hdl]');if(!x)return;const seq=x.closest('.hdl').dataset.seq;x.disabled=true;
   const r=await fetch('/api/boards/'+BOARD+'/handle/'+seq,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({action:x.dataset.hdl})});
   const j=await r.json().catch(()=>({}));toast(r.ok?j.message:(j.message||j.error||tr('Could not change it')));tick(false)});

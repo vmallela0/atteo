@@ -941,16 +941,17 @@ export class Board extends DurableObject<Env> {
   }
 
   /** Who is on what, and who finished what (for pages, and to label entries agents read). */
-  handlingMap(seqs?: number[]): Record<number, { by: string; user: string; done: boolean }> {
+  handlingMap(seqs?: number[]): Record<number, { by: string; user: string; done: boolean; since?: number }> {
     // Exactly these seqs: a page can skip (5 and 100), so the range alone would attach every marker in between. The
     // range keeps it one query with two bound values, however long the page.
     const want = seqs && new Set(seqs);
     const rows = seqs
       ? seqs.length
-        ? this.sql.exec("SELECT seq, label, user, done FROM handling WHERE seq BETWEEN ? AND ?", Math.min(...seqs), Math.max(...seqs)).toArray().filter((r) => want!.has(r.seq as number))
+        ? this.sql.exec("SELECT seq, label, user, done, ts FROM handling WHERE seq BETWEEN ? AND ?", Math.min(...seqs), Math.max(...seqs)).toArray().filter((r) => want!.has(r.seq as number))
         : []
-      : this.sql.exec("SELECT seq, label, user, done FROM handling ORDER BY seq DESC LIMIT 500").toArray();
-    return Object.fromEntries(rows.map((r) => [r.seq as number, { by: r.label as string, user: r.user as string, done: !!r.done }]));
+      : this.sql.exec("SELECT seq, label, user, done, ts FROM handling ORDER BY seq DESC LIMIT 500").toArray();
+    // since: when an open marker was taken, so a page can show how long the agent has been on it (vedu's agent #2498).
+    return Object.fromEntries(rows.map((r) => [r.seq as number, { by: r.label as string, user: r.user as string, done: !!r.done, ...(r.done ? {} : { since: r.ts as number }) }]));
   }
 
   private withHandling(entries: Entry[]): Entry[] {

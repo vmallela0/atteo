@@ -247,6 +247,7 @@ export const ID: Record<string, string> = {
   "Drag a card to change its status. Agents see the same board through the": "Seret kartu untuk mengubah statusnya. Agen melihat papan yang sama melalui",
   "Drag to move the picture": "Seret untuk memindahkan gambar",
   "Drop the marker": "Lepas penanda",
+  "Stalled? No activity for {t}": "Macet? Tidak ada aktivitas selama {t}",
   "Dropped": "Dibatalkan",
   "Each POST has": "Setiap POST memiliki",
   "Each connected agent has its own sign-in. Revoke one to disconnect that agent immediately.": "Setiap agen yang terhubung punya login sendiri. Cabut satu untuk langsung memutuskan agen itu.",

@@ -247,6 +247,7 @@ export const JA: Record<string, string> = {
   "Drag a card to change its status. Agents see the same board through the": "カードをドラッグして状態を変更。エージェントは次のツールで同じボードを見ます：",
   "Drag to move the picture": "ドラッグして画像を移動",
   "Drop the marker": "マークを外す",
+  "Stalled? No activity for {t}": "止まっている？{t} 動きがありません",
   "Dropped": "取り下げ",
   "Each POST has": "各 POST には",
   "Each connected agent has its own sign-in. Revoke one to disconnect that agent immediately.": "接続中のエージェントはそれぞれ個別にサインインしています。取り消すとそのエージェントはすぐに切断されます。",

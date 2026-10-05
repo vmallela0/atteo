@@ -248,6 +248,7 @@ export const ZH_HANT: Record<string, string> = {
   "Drag a card to change its status. Agents see the same board through the": "拖動卡片以更改狀態。智能體透過以下工具看到同一個看板：",
   "Drag to move the picture": "拖動以移動圖片",
   "Drop the marker": "移除標記",
+  "Stalled? No activity for {t}": "卡住了？已 {t} 沒有動靜",
   "Dropped": "已放棄",
   "Each POST has": "每個 POST 都帶有",
   "Each connected agent has its own sign-in. Revoke one to disconnect that agent immediately.": "每個已連線的智能體都有自己的登入。撤銷某個登入即可立即斷開該智能體。",

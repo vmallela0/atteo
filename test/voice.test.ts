@@ -5,12 +5,14 @@ import {
   DEFAULT_PER_MINUTE,
   finishSession,
   instructionsFor,
+  PAUSE_MS,
   perMinuteFor,
   providerFor,
   REALTIME_URL,
   status,
   TOOLS,
   TOOL_ROUTES,
+  turnDetection,
   VoiceProviderError,
   xaiClientSecret,
   type VoiceDeps,
@@ -112,15 +114,41 @@ describe("voice: POST /api/app/voice/session", () => {
     expect(JSON.parse(String(xai.seen[0].init.body))).toEqual({ expires_after: { seconds: 120 } });
   });
 
-  it("hands_free asks for server VAD; voice and board are validated; not a member → 404", async () => {
+  it("hands-free quick asks for server VAD; voice and board are validated; not a member → 404", async () => {
     const { deps } = setup();
-    const hf = await J(createSession(ME, { hands_free: true, voice: "Ara" }, deps));
+    const hf = await J(createSession(ME, { hands_free: true, voice: "Ara", voice_turns: "quick" }, deps));
     expect(hf.session.turn_detection).toEqual({ type: "server_vad" });
+    expect(hf.voice_turns).toBe("quick");
     expect(hf.voice).toBe("ara");
     expect(hf.session.instructions).not.toContain("open:");
-    for (const [body, status] of [[{ voice: "darth" }, 400], [{ hands_free: "yes" }, 400], [{ board: "nope" }, 400], [{ board: "b_zzzzzzzz99" }, 404]] as const) {
+    for (const [body, status] of [[{ voice: "darth" }, 400], [{ hands_free: "yes" }, 400], [{ board: "nope" }, 400], [{ board: "b_zzzzzzzz99" }, 404], [{ voice_turns: "called" }, 400], [{ client_turns: "yes" }, 400]] as const) {
       expect((await createSession(ME, body, deps)).status).toBe(status);
     }
+  });
+
+  it("voice_turns (vedu #2460): pause (the default) and tap leave the turn to a client that can end it; the saved pref applies; the body overrides it", async () => {
+    const { deps } = setup();
+    const d = await J(createSession(ME, { hands_free: true, client_turns: true }, deps));
+    expect(d.voice_turns).toBe("pause");
+    expect(d.pause_ms).toBe(PAUSE_MS);
+    expect(d.session.turn_detection).toBeNull(); // the client ends the turn after the pause: xAI has no silence length
+    const tap = await J(createSession(ME, { hands_free: true, client_turns: true, voice_turns: "tap" }, deps));
+    expect(tap.voice_turns).toBe("tap");
+    expect(tap.session.turn_detection).toBeNull();
+    const saved = await J(createSession(ME, { hands_free: true, client_turns: true }, { ...deps, defaultTurns: "quick" }));
+    expect(saved.voice_turns).toBe("quick");
+    expect(saved.session.turn_detection).toEqual({ type: "server_vad" });
+    // An older client (no client_turns) can't end a turn itself: it keeps the server's VAD, and is told "quick".
+    for (const body of [{ hands_free: true }, { hands_free: true, voice_turns: "tap" }]) {
+      const old = await J(createSession(ME, body, { ...deps, defaultTurns: "tap" }));
+      expect(old.session.turn_detection).toEqual({ type: "server_vad" });
+      expect(old.voice_turns).toBe("quick");
+    }
+    const held = await J(createSession(ME, { hands_free: false, client_turns: true, voice_turns: "quick" }, deps));
+    expect(held.session.turn_detection).toBeNull(); // hold to talk is always the client's
+    expect((await status("vedu", { ...deps, defaultTurns: "tap" })).voice_turns).toBe("tap");
+    expect(turnDetection(true, "quick")).toEqual({ type: "server_vad" });
+    for (const t of ["pause", "tap"] as const) expect(turnDetection(true, t)).toBeNull();
   });
 
   it("a board title can't break out of the prompt", () => {

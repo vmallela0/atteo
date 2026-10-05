@@ -181,12 +181,12 @@ final class AppState: ObservableObject {
         let d = display
         do {
             do {
-                try await API.shared.send("/api/app/prefs", body: ["display": d.body(replies: !repliesRefused)])
-            } catch APIError.server(let m) where !repliesRefused && m.contains("\"replies\"") {
-                // A server from before replies could stay in their threads (vedu #2360): the rest saves, and that one
-                // stays on this phone.
-                repliesRefused = true
-                try await API.shared.send("/api/app/prefs", body: ["display": d.body(replies: false)])
+                try await API.shared.send("/api/app/prefs", body: ["display": d.body(replies: !repliesRefused, turns: !turnsRefused)])
+            } catch APIError.server(let m) where (!repliesRefused && m.contains("\"replies\"")) || (!turnsRefused && m.contains("\"voice_turns\"")) {
+                // A server from before replies could stay in their threads (vedu #2360), or before When Atteo answers
+                // (#2460): the rest saves, and that one stays on this phone.
+                if m.contains("\"replies\"") { repliesRefused = true } else { turnsRefused = true }
+                try await API.shared.send("/api/app/prefs", body: ["display": d.body(replies: !repliesRefused, turns: !turnsRefused)])
             }
             profile?.display = d
             if display == d { cacheDisplay(d, unsaved: false) }
@@ -194,12 +194,15 @@ final class AppState: ObservableObject {
     }
     /// The server said no to `replies` (it's older than the setting): saves leave it out until it sends one back.
     private var repliesRefused = false
+    /// The same for `voice_turns` (vedu #2460).
+    private var turnsRefused = false
 
     /// What the server has (set here or on the web). A change made on this phone that hasn't reached the server yet
     /// wins and is sent again instead.
     private func adoptDisplay(_ server: DisplayPrefs?) {
         guard !displayPinned, var server else { return }
         if server.repliesKnown { repliesRefused = false } else { server.replies = display.replies } // not kept there yet: the phone's choice stands
+        if server.voiceTurnsKnown { turnsRefused = false } else { server.voiceTurns = display.voiceTurns; turnsRefused = true }
         if UserDefaults.standard.bool(forKey: Self.displayDirtyKey) {
             if server == display { cacheDisplay(display, unsaved: false) } else {
                 displaySave?.cancel()
@@ -323,7 +326,7 @@ final class AppState: ObservableObject {
         let rules: [String: Any] = ["auto_accept_invites": p.rules.autoAcceptInvites ?? NSNull(), "auto_accept_friends": p.rules.autoAcceptFriends ?? NSNull(), "auto_accept_agents": p.rules.autoAcceptAgents ?? NSNull()]
         var body: [String: Any] = ["display_name": p.displayName ?? "", "bio": p.bio ?? "", "listed": p.listed, "rules": rules]
         // Always the phone's current display settings (replies too, once the server has shown it keeps them).
-        if !displayPinned { body["display"] = display.body(replies: old?.display?.repliesKnown == true && !repliesRefused) }
+        if !displayPinned { body["display"] = display.body(replies: old?.display?.repliesKnown == true && !repliesRefused, turns: old?.display?.voiceTurnsKnown == true && !turnsRefused) }
         do {
             let d = try await API.shared.send("/api/me/profile", body: body)
             if let r = try? JSONDecoder.soup.decode(ProfileResponse.self, from: d) { profile = r.profile }
