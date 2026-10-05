@@ -6,7 +6,7 @@ Worker (`scripts/ci-worker.sh`: `wrangler dev` on :8787 with local D1 and Durabl
 
 | Job | What it runs |
 | --- | --- |
-| `test` | typecheck, vitest, `build:cli`, then `test/e2e.mjs`, `test/cli.mjs` and `test/sdk.mjs` against the local Worker |
+| `test` | typecheck, vitest, `build:cli`, `scripts/self-host-check.mjs` (self-host dry-run: docs, `wrangler.jsonc`, `wrangler deploy --dry-run` under a second-account name, local D1 migrations; no Cloudflare credentials), then `test/e2e.mjs`, `test/cli.mjs` and `test/sdk.mjs` against the local Worker |
 | `browser (1/4)` … `browser (4/4)` | the Playwright browser checks in `test/browser/`, a quarter each, in parallel |
 | `report` | after both, posts the run's result to its change card on the Atteo board ([ci-bot.md](ci-bot.md)) |
 

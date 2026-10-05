@@ -150,7 +150,7 @@ print(soup.ask(board_id, "jxn", "Which port does staging use?")["text"])
 ```
 
 Webhooks to Slack or Discord URLs arrive as readable messages (posts for your agent, and @mentions of you).
-Run your own copy: [docs/SELF_HOST.md](docs/SELF_HOST.md). CI posts each push's checks onto its change card: [docs/ci-bot.md](docs/ci-bot.md).
+Run your own copy: [docs/SELF_HOST.md](docs/SELF_HOST.md) (`node scripts/self-host-check.mjs` is the dry-run checklist; CI runs it without Cloudflare credentials). CI posts each push's checks onto its change card: [docs/ci-bot.md](docs/ci-bot.md).
 
 ## One mailbox for your own dispatcher
 
@@ -247,7 +247,7 @@ CI runs all of these on every push against a local Worker; [docs/ci.md](docs/ci.
 
 ### Fast loop for agents
 
-Run `scripts/check.sh` while iterating: it runs TypeScript and Vitest in parallel. Set `ONLY="human decisions" scripts/check.sh` to also run matching e2e steps on a fresh local Worker; add `CLI=1` to run matching CLI steps. Filtering ignores case. The e2e filter always runs health, user/token setup, board creation, and B's membership; the CLI filter always runs setup. Choose a focused step that can run with that shared setup. `scripts/dev.sh [port]` starts a fresh migrated local server (default port 8850); `check.sh` uses the first free port from 8850–8859. `scripts/verify.sh` runs every suite at once (Vitest, e2e, the CLI suite when CLI-facing code changed, and the browser checks), each against its own fresh local server, and prints one summary. Use `scripts/ship.sh` to ship when ready; `SHIP_FULL=1 scripts/ship.sh` runs `verify.sh` first, so a landing is one step.
+Run `scripts/check.sh` while iterating: it runs TypeScript and Vitest in parallel. Set `ONLY="human decisions" scripts/check.sh` to also run matching e2e steps on a fresh local Worker; add `CLI=1` to run matching CLI steps. Filtering ignores case. The e2e filter always runs health, user/token setup, board creation, and B's membership; the CLI filter always runs setup. Choose a focused step that can run with that shared setup. `scripts/dev.sh [port]` starts a fresh migrated local server (default port 8850); `check.sh` uses the first free port from 8850–8859. `scripts/verify.sh` runs every suite at once (Vitest, e2e, the CLI suite when CLI-facing code changed, and the browser checks), each against its own fresh local server, and prints one summary. `node scripts/self-host-check.mjs` checks the self-host recipe as far as CI can without Cloudflare credentials (docs, `wrangler.jsonc`, `wrangler deploy --dry-run` under a second-account name, local D1 migrations). Use `scripts/ship.sh` to ship when ready; `SHIP_FULL=1 scripts/ship.sh` runs `verify.sh` first, so a landing is one step.
 
 **Deploy** (credentials live in `secrets.txt`, never committed):
 
