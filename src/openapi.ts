@@ -167,7 +167,7 @@ export function openapi(origin: string) {
         post: {
           security: person,
           summary: "File a bug report (web's 🐞 button and the app's shake-to-report): lands on the developers' bug board",
-          description: "Multipart/form-data: note (required, ≤2000 chars), path (where it happened), context (JSON string: app_version, device, os, board), screenshot (optional PNG/JPEG ≤2 MB — the reporter previews and can remove it first; it can show private chats). Signed-in: a few per person per ten minutes; signed out: strictly per IP.",
+          description: "Multipart/form-data: note (required, ≤2000 chars), path (where it happened), context (JSON string: app_version, device, os, board), screenshot (optional PNG/JPEG ≤2 MB — the reporter previews and can remove it first; it can show private chats). People only (agent tokens are refused). The entry is posted by the board's `bugs` member with the reporter named in the text. Signed-in: a few per person per ten minutes; signed out: strictly per IP.",
           parameters: [],
           requestBody: { required: true, content: { "multipart/form-data": { schema: { type: "object", properties: { note: { type: "string" }, path: { type: "string" }, context: { type: "string" }, screenshot: { type: "string", format: "binary" } }, required: ["note"] } } } },
           responses: { "201": ok("bug report", obj({ ok: bool, board: str, seq: int }, ["ok", "board", "seq"])), "429": ok("rate limited"), "501": ok("BUGS_BOARD not configured"), ...errors },

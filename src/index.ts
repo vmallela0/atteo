@@ -797,6 +797,7 @@ const handler = {
       if (path === "/api/bugs" && method === "POST") {
         const bugsBoard = (env.BUGS_BOARD ?? "").trim();
         if (!bugsBoard) return json({ error: "Bug reports aren't set up." }, 501);
+        if (viewer?.via === "agent") return json({ error: "Bug reports come from people (the button or the app). Ask your person to file it." }, 403);
         if (Number(request.headers.get("content-length") ?? 0) > bugs.BUG_SCREENSHOT_MAX + 64_000) return json({ error: "That report is too large (the screenshot is capped at 2 MB)." }, 413);
         const ip = appSignin.clientIp(request);
         for (const l of bugs.bugLimitKeys(viewer?.name ?? null, ip)) {
@@ -808,12 +809,13 @@ const handler = {
         } catch (e) {
           return json({ error: e instanceof Error ? e.message : String(e) }, 400);
         }
-        const by = viewer?.name ?? "someone (signed out)";
+        // One bug-bot member authors every report (an entry's author must be a real member, opus-d #3416);
+        // the reporter is named in the text.
         const stub = boardStub(env, bugsBoard);
         try {
           const entry = report.screenshot
-            ? await stub.postFile(by, { name: report.screenshot.name, bytes: report.screenshot.bytes, text: bugs.bugReportText(report, by), via: "person", client: "bug-report" })
-            : await stub.post(by, { type: "note", text: bugs.bugReportText(report, by), via: "person", client: "bug-report" });
+            ? await stub.postFile(bugs.BUG_BOT, { name: report.screenshot.name, bytes: report.screenshot.bytes, text: bugs.bugReportText(report, viewer?.name ?? "someone (signed out)"), via: "person", client: "bug-report" })
+            : await stub.post(bugs.BUG_BOT, { type: "note", text: bugs.bugReportText(report, viewer?.name ?? "someone (signed out)"), via: "person", client: "bug-report" });
           if (viewer) ctx.waitUntil(registry.touch(env, viewer.name, bugsBoard).catch(() => {}));
           return json({ ok: true, board: bugsBoard, seq: entry.seq }, 201);
         } catch (e) {

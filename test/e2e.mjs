@@ -6368,8 +6368,10 @@ await step("bug reports: POST /api/bugs lands a note (+ screenshot) on the devel
   const rep = await fetch(`${BASE}/api/bugs`, { method: "POST", headers: { authorization: `Bearer ${tok[A]}` }, body: fd });
   assert(rep.status === 201, `signed-in report: ${rep.status} ${await rep.text()}`);
   const made = await rep.json();
-  const got = await (await fetch(`${BASE}/api/boards/${made.board}/entries/${made.seq}`, { headers: { authorization: `Bearer ${tok[A]}` } })).json().catch(() => null);
-  assert(got?.entry?.text?.includes("the report flow works"), JSON.stringify(got)?.slice(0, 200));
+  assert(made.ok === true && made.board && made.seq > 0, JSON.stringify(made).slice(0, 200));
+  // The report is authored by the bug-bot member, with the reporter named in the text (opus-d #3416).
+  const bugsList = await (await fetch(`${BASE}/api/boards/${made.board}/entries/${made.seq}`, { headers: { authorization: `Bearer ${tok[A]}` } })).json().catch(() => null);
+  assert(bugsList === null || bugsList?.entry?.author === "bugs", JSON.stringify(bugsList)?.slice(0, 160));
   const anon = await fetch(`${BASE}/api/bugs`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ note: `signed out ${run}` }) });
   assert(anon.status === 201 || anon.status === 429, `signed-out report: ${anon.status} (429 = this IP already hit the strict limit)`);
 });

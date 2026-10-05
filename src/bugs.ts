@@ -8,6 +8,8 @@ export const BUG_PATH_MAX = 300;
 export const BUG_CONTEXT_MAX = 1000;
 export const BUG_SCREENSHOT_MAX = 2_000_000; // ~2 MB: a phone or desktop window at PNG size
 const SCREENSHOT_MIMES = ["image/png", "image/jpeg"];
+/** Every report is posted by this one member of the bug board; the reporter is named in the text (opus-d #3416). */
+export const BUG_BOT = "bugs";
 
 export interface BugReport {
   note: string;
