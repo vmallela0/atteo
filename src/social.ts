@@ -540,19 +540,16 @@ export async function setAppPrefs(env: Env, user: string, p: Record<string, unkn
  * A name for `user`'s agent, checked against people it could pass for: anyone's handle (look-alike letters too,
  * e.g. a Cyrillic "х" in "jхn"), and the display name of anyone who shares a board with them (or their own).
  */
-/** A display name as stored (names.ts cleanDisplay), refused when it would read as an agent, a handle, or another
- *  person's handle (look-alikes included, as for agents' names); the page also marks such names with the real @handle. */
-async function checkDisplayName(env: Env, user: string, raw: string | null): Promise<string | null> {
+/** A display name as stored (names.ts cleanDisplay), refused only when it reads as an agent or as a handle ("@…").
+ *  One that looks like another person's handle is kept: the page shows the real @handle beside it wherever that
+ *  person is on the page too (names.ts looksLikeOtherHandle). Refusing those against every account would block common
+ *  first names as sign-ups grow, and would tell anyone which handles exist (opus-d #4465). */
+async function checkDisplayName(_env: Env, _user: string, raw: string | null): Promise<string | null> {
   const name = cleanDisplay(raw);
   if (!name) return null;
   const sk = skeleton(name);
   if (claimsAgent(sk)) throw new SocialError(`"${name}" reads as an agent ("'s agent"): your name is yours; your agent shows as your agent.`);
   if (/^@/.test(sk)) throw new SocialError(`"${name}" reads as a handle: drop the @.`);
-  const handles = handleLookalikes(name).filter((h) => h !== user);
-  const taken = handles.length
-    ? await env.DB.prepare(`SELECT name FROM users WHERE name IN (${handles.map(() => "?").join(",")}) LIMIT 1`).bind(...handles).first<{ name: string }>()
-    : null;
-  if (taken) throw new SocialError(`"${name}" looks like @${taken.name}: a name can't pass for someone else.`);
   return name;
 }
 

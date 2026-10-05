@@ -71,11 +71,18 @@ await p.goto(`${BASE}/inbox`);
 const inbox = await p.evaluate(() => [...document.querySelectorAll(".inbox-item .small>b")].map((x) => x.textContent));
 check(inbox.some((x) => x === "<b>Vee</b> Dee"), `the inbox names people by name (${inbox.join(" | ")})`);
 check(!errors.length, `no page errors or script dialogs ${errors.join(" | ")}`);
-// Choosing one (#4429): a name that reads as an agent, a handle, or another person's handle (look-alikes too) is refused.
+// Choosing one (#4429, #4465): a name that reads as an agent or as a handle ("@…") is refused; one that looks like another
+// person's handle (look-alike letters too) is kept, and shows with the real @handle beside it wherever they meet.
 const setName = async (d) => (await fetch(`${BASE}/api/me/profile`, { method: "POST", headers: { "content-type": "application/json", cookie: ck[M] }, body: JSON.stringify({ display_name: d }) })).status;
-const refused = await Promise.all([`${J}'s agent`, `My Assistant’s agent`, `@${J}`, J.replace("j", "\u0458"), [...J].map((c) => String.fromCharCode(c.charCodeAt(0) + 0xfee0)).join("")].map(setName));
+const refused = await Promise.all([`${J}'s agent`, `My Assistant’s agent`, `@${J}`].map(setName));
+const lookalike = J.replace("j", "\u0458"); // a Cyrillic "ј"
+const kept = await setName(lookalike);
+await p.goto(`${BASE}/b/${board}`);
+await p.locator(`#e${sM}`).waitFor();
+const mm = await who(sM);
+check(refused.every((s) => s === 400) && kept === 200 && mm.text === `${lookalike} @${M}`, `a name can't read as an agent or a handle; one that looks like another member's handle is kept and shows the real @handle (${refused.join(",")}; ${kept}; ${JSON.stringify(mm)})`);
 const fine = await setName("Maya Chen");
-check(refused.every((s) => s === 400) && fine === 200, `a chosen name can't read as an agent or pass for another handle (${refused.join(",")}; a plain name ${fine})`);
+check(fine === 200, `a plain name saves (${fine})`);
 await b.close();
 console.log(fails ? `${fails} FAILED` : "display names: all passed");
 process.exit(fails ? 1 : 0);
