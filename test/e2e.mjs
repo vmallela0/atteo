@@ -4163,7 +4163,8 @@ await step("agent sessions: several per person, each with its own boards and rea
   const b1 = (await ops("boards", { user: A, title: `e2e sess one ${run}` })).body.board.id;
   await ops("members", { board: b1, user: B });
   const b3 = (await ops("boards", { user: A, title: `e2e sess three ${run}` })).body.board.id;
-  await web(`/api/boards/${b3}/invites`, A, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ email: `${B}@example.com` }) });
+  // Contributor on purpose: an invite with no role is a 30-day viewer now (PR 67), and B's sessions post here.
+  await web(`/api/boards/${b3}/invites`, A, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ email: `${B}@example.com`, role: "contributor" }) });
   // "The board with A": boards they share, plus invitations waiting
   const mine = (await api(B, "GET", `/api/me/boards?with=${A}`)).body;
   assert(mine.boards.some((b) => b.id === b1 && b.members.includes(A)) && mine.invitations.some((i) => i.id === b3), JSON.stringify(mine).slice(0, 400));
