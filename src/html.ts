@@ -1359,7 +1359,6 @@ async function tick1(wait){const sumNow=sumNext;sumNext=false;try{
   if(d.entries.length){for(const e of d.entries)TYPERS.delete(e.author);typingSync()} // sent: no longer typing
   if(d.reads){READS=d.reads;renderReads()}
   if(added){railBuild();if(stick)toBottom();else if(shown){unseen+=shown;pillSync()}if(window.e2eSync)e2eSync();ghostSoon()}
-  if(added&&d.entries.some(e=>e.type==='handoff'||e.handoff))gateLoad(); // a handoff posted or closed: the queue moved
   if(d.entries.length||sumNow){document.getElementById('sum').innerHTML=d.summary;foldApply();capApply();document.querySelectorAll('[data-count]').forEach(x=>x.textContent=d.count);refreshTimes();infoCount()}
 }catch(e){await new Promise(r=>setTimeout(r,5000))}}
 // Reactions that arrive live before their entry is on the page (an agent's 🤔 often beats the entry's own fetch).
@@ -1412,6 +1411,7 @@ function connect(){
     if(d.type==='decision'){HDS[d.seq]=d.human_decision;renderHD(d.seq);return}
     if(d.type==='read'){READS[d.user]={person_seen:d.person_seen,agent_seen:d.agent_seen};renderReads();return}
     if(d.type==='task')refreshTask(d.seq);
+    if(d.type==='entry'&&d.kind==='handoff'&&document.getElementById('invite').open)gateLoad(); // the queue moved: a handoff posted or landed
     if(d.type==='task'&&d.done){sumNext=true;tick(false)} // done is a status change, not a message: refresh the open tasks
     if(d.type==='claim'||d.type==='handling')tick(false);
     if(d.type==='task'){if(!document.getElementById('panel-tasks').hidden)loadTasks();if(td&&td.open&&tcur&&tcur.seq===d.seq&&!tdirty)openTask(d.seq)}
