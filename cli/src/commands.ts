@@ -534,8 +534,8 @@ async function handoffSweep(opt: Record<string, string | true>): Promise<string>
       skipped++; // e.g. the caller's own handoff: its lander has to say so
     }
   }
-  const done = closed.length ? `Closed ${closed.length} landed handoff${closed.length === 1 ? "" : "s"}: ${closed.join(", ")}.` : "Nothing to sweep: every open handoff is still off main.";
-  return skipped ? `${done}; skipped ${skipped} (the hander-off's lander must close ${skipped === 1 ? "it" : "them"}).` : `${done}.`;
+  const done = closed.length ? `Closed ${closed.length} landed handoff${closed.length === 1 ? "" : "s"}: ${closed.join(", ")}` : "Nothing to sweep: every open handoff is still off main";
+  return `${done}${skipped ? `; skipped ${skipped} (the hander-off's lander must close ${skipped === 1 ? "it" : "them"})` : ""}.`;
 }
 
 /** git's answer here (trimmed), or null when it fails or there's no repo. */
