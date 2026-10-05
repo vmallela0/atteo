@@ -1,7 +1,7 @@
 // Every page, whole (#3815): axe-core (WCAG 2.1 A/AA, serious and critical fail) on each web page's full content at 1280
 // light, 1280 dark and 390 (touch), and at 390 nothing wider than the screen. a11y.mjs scans chosen regions and overlays;
 // this one walks the pages, including the newer sections and states: Account's Access across boards and Standing rules,
-// board info's charter, the Report dialog, a muted post's fold, the Tasks and Files tabs, a profile, an invite link.
+// board info's charter, the Report dialog, Members & access, a hover card, a muted post's fold, the Tasks and Files tabs, a profile, an invite link.
 // BASE, ADMIN_KEY, PW_CHROME. ONLY=<label substring> narrows it while fixing.
 import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
@@ -74,14 +74,18 @@ const PAGES = [
     if (phone) await e.locator("[data-more]").tap(); else await e.hover();
     await e.locator("[data-report]").click(); await p.locator("#report-dlg").waitFor(); await p.locator("#rp-reason").fill("spam");
   }],
+  ["members & access", B, async (p) => { await p.locator('[data-open="invite"]').first().click(); await p.locator("#invite").waitFor(); await p.waitForTimeout(600); }],
+  ["hover card", B, async (p) => { await p.locator(`#e${vSeq} .meta .who`).first().click(); await p.locator(".hcard [data-mute]").waitFor(); }],
   ["muted fold", `/b/${muted}`, async (p) => { await p.locator(".mu-line").first().waitFor(); }],
 ];
 
-const RUNS = [["1280", { width: 1280, height: 860 }, false, "light"], ["1280 dark", { width: 1280, height: 860 }, false, "dark"], ["390", { width: 390, height: 844 }, true, "light"]];
+// LANGS=de,ar,… adds each language at 390 (longer words, right to left), with ?lang= on every page.
+const RUNS = [["1280", { width: 1280, height: 860 }, false, "light", ""], ["1280 dark", { width: 1280, height: 860 }, false, "dark", ""], ["390", { width: 390, height: 844 }, true, "light", ""],
+  ...(process.env.LANGS ?? "").split(",").filter(Boolean).map((l) => [`390 ${l}`, { width: 390, height: 844 }, true, "light", l])];
 let fails = 0; const out = [];
 const check = (ok, t, more = []) => { out.push(`${ok ? "✓" : "✗"} ${t}`, ...more); if (!ok) fails++; };
 const b = await chromium.launch({ executablePath: process.env.PW_CHROME || undefined });
-await Promise.all(RUNS.map(async ([tag, viewport, phone, scheme]) => {
+await Promise.all(RUNS.map(async ([tag, viewport, phone, scheme, lang]) => {
   const ctxs = {};
   const ctxFor = async (who) => {
     if (ctxs[who ?? "-"]) return ctxs[who ?? "-"];
@@ -96,7 +100,7 @@ await Promise.all(RUNS.map(async ([tag, viewport, phone, scheme]) => {
     if (!path) { check(false, `${name}: no path (setup failed)`); continue; }
     const p = await (await ctxFor(who)).newPage(), errors = []; p.on("pageerror", (e) => errors.push(e.message));
     try {
-      await p.goto(`${BASE}${path}`, { waitUntil: "load" }); await p.waitForTimeout(700);
+      await p.goto(`${BASE}${path}${lang ? `${path.includes("?") ? "&" : "?"}lang=${lang}` : ""}`, { waitUntil: "load" }); await p.waitForTimeout(700);
       // Signing in hands over to WorkOS's hosted page: not ours to scan.
       if (new URL(p.url()).origin !== new URL(BASE).origin) { check(true, `${name}: hands over to ${new URL(p.url()).host}, not scanned`); await p.close(); continue; }
       if (setup) await setup(p, phone);
