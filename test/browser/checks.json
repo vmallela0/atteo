@@ -148,5 +148,10 @@
  "claim-session": 2,
  "access-all": 3,
  "moderation": 4,
- "board-prefetch": 3
+ "board-prefetch": 3,
+ "standing-rules": 2,
+ "charter": 3,
+ "a11y-pages": 70,
+ "quick-replies": 11,
+ "purge": 4
 }

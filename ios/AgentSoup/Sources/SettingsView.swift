@@ -21,6 +21,7 @@ struct FullSettings: View {
     init(embedded: Bool = false) { self.embedded = embedded }
     @EnvironmentObject var state: AppState
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.closeSettings) private var closeSettings // in the drawer: Done closes it
     @Environment(\.chatDensity) private var density
     @State private var draft: Profile?
     @State private var summary = ""
@@ -79,9 +80,11 @@ struct FullSettings: View {
                 displayPicker("Density", id: "display-density", \.density, [("comfortable", "Comfortable"), ("compact", "Compact")])
                 displayPicker("Theme", id: "display-theme", \.theme, [("system", "System"), ("light", "Light"), ("dark", "Dark")])
                 displayPicker("Replies", id: "display-replies", \.replies, [("chat", "In the chat"), ("thread", "Only in threads")])
+                // One line (jxn #2690): messages that aren't for you fold to "who · first line" (OneLine.swift).
+                displayPicker("Messages", id: "display-compact", \.compact, [("off", "Full"), ("others", "One line")])
                 LanguagePicker()
             } header: { SectionHeader("Display") } footer: {
-                Text("Text size adds to your iPhone's own setting. Saved to your account, so the web follows it too.")
+                Text("One line folds messages that don't mention you; tap one to open it. Text size adds to your iPhone's own setting. Saved to your account, so the web follows it too.")
             }
             .listRowBackground(Theme.card)
 
@@ -136,7 +139,7 @@ struct FullSettings: View {
         .background(Theme.bg)
         .navigationTitle(embedded ? "More settings" : "Settings")
         .navigationBarTitleDisplayMode(.inline)
-        .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Done") { dismiss() }.toolbarText(primary: true) } }
+        .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Done") { if let closeSettings { closeSettings() } else { dismiss() } }.toolbarText(primary: true) } }
         .sheet(isPresented: $bring) { BringAssistantView(firstRun: false).presentationBackground(Theme.bg) }
         .confirmationDialog("Sign out of Atteo on this phone?", isPresented: $confirmSignOut, titleVisibility: .visible) {
             Button("Sign out", role: .destructive) { state.signOut() }

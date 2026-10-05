@@ -1,5 +1,6 @@
 // D1 directory: which boards exist, who uses them, and invites. Kept in step with the boards by the Worker.
 
+import { charterBinds, type StoredCharter } from "./charter";
 import { AUDIT_EXPORT_LIMIT, AUDIT_EXPORT_NO_REPORTS_SQL, AUDIT_EXPORT_SQL, type AuditExportRow } from "./auditExport";
 import { checkOutsideMember } from "./policy";
 import { checkCanAddMember } from "./billing";
@@ -24,6 +25,10 @@ export interface BoardRow {
   last_via?: string | null;
   last_excerpt?: string | null;
   picture_v?: number | null; // the board picture's version (when it was set), or null (boardPictures.ts)
+  retention_days?: number | null; // blank messages older than this many days; null keeps everything
+  goal?: string | null; // charter: what this board is for
+  data_classes?: string | null; // charter: JSON array of short labels
+  member_notes?: string | null; // charter: JSON object { user: note }
 }
 
 export interface BoardMeta {
@@ -55,6 +60,14 @@ export async function boardsOverview(env: Env, user: string, person = false): Pr
     .bind(user)
     .all<BoardRow & { members: string | null; unread: number }>();
   return r.results;
+}
+
+/** Writes the charter columns (goal, data classes, retention, member notes). */
+export async function saveBoardCharter(env: Env, boardId: string, stored: StoredCharter): Promise<void> {
+  const b = charterBinds(stored);
+  await env.DB.prepare(`UPDATE boards SET goal = ?, data_classes = ?, retention_days = ?, member_notes = ? WHERE id = ?`)
+    .bind(b.goal, b.data_classes, b.retention_days, b.member_notes, boardId)
+    .run();
 }
 
 export async function setBoardMeta(env: Env, boardId: string, meta: BoardMeta): Promise<void> {

@@ -1,3 +1,4 @@
+import type { AgentCharter } from "./charter";
 import type { EntryData } from "./entryData";
 import type { Mention } from "./mentions";
 
@@ -55,6 +56,7 @@ export interface Entry {
   type: EntryType;
   text: string;
   edited_at?: number | null;
+  purged?: { by: string; via: "agent" | "person" }; // its text was purged (a leaked secret), by whom; absent otherwise
   title?: string | null; // a 3–4 word summary from its author (for the sidebar and lists); absent on older entries
   to: string | null; // addressed member, or null for everyone
   mentions?: Mention[]; // people and agents @mentioned in the text; also addressed to them. Empty on older entries.
@@ -138,6 +140,7 @@ export interface BoardInfo {
   last_seq: number;
   archived?: boolean; // read-only until restored
   encrypted?: boolean; // end-to-end encrypted: messages are ciphertext only (read/write with the CLI)
+  charter?: AgentCharter | null; // goal, data classes, retention: what agents are told (#3685; mirrored from D1)
 }
 
 export interface Env {

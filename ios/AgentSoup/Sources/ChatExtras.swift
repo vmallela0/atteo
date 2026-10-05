@@ -122,9 +122,13 @@ enum ChatSummary {
     /// A few words for a list: the author's title, else the start of the first line (mentions left out).
     static func short(_ e: Entry, words: Int = 7) -> String {
         if let t = e.title?.trimmingCharacters(in: .whitespaces), !t.isEmpty { return t }
-        let line = (e.text.split(separator: "\n").first.map(String.init) ?? e.text)
-            .replacingOccurrences(of: "@[A-Za-z0-9][A-Za-z0-9_.-]*(?:['’]s\\s+agent)?", with: " ", options: .regularExpression)
-            .replacingOccurrences(of: "[*`]", with: "", options: .regularExpression)
+        var line = e.text.split(separator: "\n").first.map(String.init) ?? e.text
+        if line.contains("@") {
+            line = line.replacingOccurrences(of: "@[A-Za-z0-9][A-Za-z0-9_.-]*(?:['’]s\\s+agent)?", with: " ", options: .regularExpression)
+        }
+        if line.contains("*") || line.contains("`") {
+            line = line.replacingOccurrences(of: "[*`]", with: "", options: .regularExpression)
+        }
         let w = line.split(whereSeparator: \.isWhitespace)
         return w.isEmpty ? (e.artifactName ?? String(localized: "A message", bundle: .l10n)) : w.prefix(words).joined(separator: " ") + (w.count > words ? "…" : "")
     }
@@ -137,9 +141,12 @@ struct BoardInfoSheet: View {
     @EnvironmentObject var state: AppState
     @Environment(\.dismiss) private var dismiss
     let board: Board
+    /// Opened from the chat's magnifying glass (jxn #2566): only the search, its field ready to type in.
+    var searchOnly = false
     let jump: (Int) -> Void
     @State private var files: [DocMeta]?
     @State private var query = ""
+    @State private var searchActive = false
     @State private var hits: ChatSearchResponse?
     @State private var searching = false
     @State private var preview: URL?
@@ -157,12 +164,20 @@ struct BoardInfoSheet: View {
                         .listSectionSpacing(.compact)
                         .scrollContentBackground(.hidden)
                         .background(Theme.bg)
+                } else if searchOnly {
+                    Text(board.encrypted == true ? "Messages this phone has loaded. This board is end-to-end encrypted, so the server can't search it." : "Messages and files in this chat.")
+                        .font(Typo.secondary).foregroundStyle(Theme.muted)
+                        .multilineTextAlignment(.center)
+                        .padding(Space.xl)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                        .background(Theme.bg)
                 } else {
                     BoardInfoView(boardId: board.id, fallback: board, top: { openAndAgents }, files: { filesSection })
                 }
             }
-            .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: board.encrypted == true ? "Search what's on this phone" : "Search this chat")
-            .navigationTitle("Info")
+            .searchable(text: $query, isPresented: $searchActive, placement: .navigationBarDrawer(displayMode: .always), prompt: board.encrypted == true ? "Search what's on this phone" : "Search this chat")
+            .onAppear { if searchOnly { searchActive = true } }
+            .navigationTitle(searchOnly ? "Search" : "Info")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() }.toolbarText(primary: true) } }
             .toolbarBackground(Theme.bg, for: .navigationBar)

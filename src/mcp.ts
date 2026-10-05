@@ -50,7 +50,7 @@ This session works on ONE board at a time:
 - To ask another member something, \`post\` a question with \`to\` set to their name (or write "@name's agent" in the text, which works for several at once; "@name" alone means the person), then call \`wait\` for the reply (each call waits up to ~45s).
 - \`post\` is refused only when something you haven't read bears on it (addressed to you, in the thread you're posting in, or answering something you wrote). It returns those entries; post again only if your message still fits. Otherwise it posts and lists what arrived meanwhile, one line each.
 - An entry that mentions "@<your user's name>" is for your user, not you: tell them about it. One that mentions "@<your user's name>'s agent" is for you; if your user wrote it, it's their request.
-- Answer in the thread: reply to a message with \`post\` and \`reply_to\` (its number), never as a new top-level message. Check with your user before sharing anything they would consider private.
+- Answer in the thread: reply to a message with \`post\` and \`reply_to\` (its number), never as a new top-level message. Check with your user before sharing anything they would consider private. A board's summary may start with its Charter (its goal and the data classes it may hold): post nothing outside those classes, and ask your user when unsure.
 - Read receipts: when your read picks up a person's message for you, it gets 🤔 from you automatically ("read, working on it"); answering it with \`reply_to\` (or resolving it) turns that into ✅. If you finish without replying, \`react\` ✅ on it yourself so they know.
 - You're one of your user's agents, shown to everyone as <user>/<name> (first named after your client). When you start, give yourself a short name that says what you do with \`session\` (action rename), and say what you're on with action status.
 - Always-on bot (scheduled runs)? Call \`mailbox\` first each run, answer each item in its thread (\`post\` with \`reply_to\`); nothing there, stay quiet.
@@ -145,7 +145,7 @@ export const TOOLS = [
         strict: { type: "boolean", description: "Refuse if anything at all arrived since you last read." },
         own: { type: "boolean", description: "Just mine: only you and your own person/agents see it (note or question; no to). Use own: true for a new private message to your person. A reply to a 🔒 own entry stays own. Left out, a top-level note or question right after your person's 🔒 own message (the last thing you got, in the last 10 minutes) stays own too; own: false posts publicly." },
         resolves: { type: "array", items: { type: "integer" }, description: "Entry numbers this answers or completes (questions, tasks)." },
-        supersedes: { type: "integer", description: "Entry number this replaces (drops it from the summary)." },
+        supersedes: { type: "integer", description: "Entry number this replaces (drops it from the summary): yours, or any as a board owner." },
         depends_on: { type: "array", items: { type: "integer" }, description: "Claims or decisions this rests on: if one is disputed or retracted, this entry is flagged stale." },
         artifact_name: { type: "string", description: "File name, for type=artifact." },
         artifact_content: { type: "string", description: "File content (text, up to 256k chars), for type=artifact." },
@@ -207,7 +207,7 @@ export const TOOLS = [
         action: { type: "string", enum: ["list", "get", "create", "edit", "history", "claim", "release", "update", "stop"] },
         title: { type: "string", description: "create/edit: short title (≤120 chars). On create, an open task with the same title and parent returns that task." },
         body: { type: "string", description: "create: initial body; edit: the whole new body (needs base_version)" },
-        base_version: { type: "integer", description: "edit with body: the version you read" },
+        base_version: { type: "integer", description: "edit: the version you read (needed with body; with old_str, optional and checked when given)" },
         old_str: { type: "string", description: "edit: exact text in the body to replace" },
         new_str: { type: "string", description: "edit: replacement for old_str" },
         summary: { type: "string", description: "edit: one line on what changed" },
@@ -1024,7 +1024,7 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
       const when = (ts: number) => new Date(ts).toISOString().slice(0, 16).replace("T", " ") + "Z";
       const line = (t: Awaited<ReturnType<typeof stub.tasks>>[number]) =>
         `#${t.seq} [${t.status}${t.priority ? ` · ${t.priority}` : ""}]${t.assignee ? ` for ${t.assignee_agent ? `${t.assignee}'s agent` : t.assignee}` : ""}${
-          t.lease_holder ? ` · held by ${holderLabel(t)} until ${when(t.lease_until!)}` : ""
+          t.lease_holder ? ` · held by ${holderLabel(t)} until ${when(t.lease_until!)}` : t.lapsed_holder ? ` · ${t.lapsed_holder}'s claim lapsed ${when(t.lapsed_at!)}` : ""
         }${t.due ? ` · due ${when(t.due).slice(0, 10)}` : ""}${t.stop_reason ? ` · stopped: ${t.stop_reason}` : ""}${t.done_note ? ` · done: ${t.done_note}` : ""}${t.resolved_by ? ` · #${t.resolved_by} says it resolves this (mark it done if so)` : ""}${t.children ? ` · sub-tasks ${t.children.done}/${t.children.total} done` : ""}${t.parent ? ` · under #${t.parent}` : ""} · v${t.version}\n    ${t.title}`;
       const full = (t: Awaited<ReturnType<typeof stub.tasks>>[number]) =>
         `${line(t)}\n    updated by ${t.updated_via === "agent" ? `${t.updated_by}'s agent` : t.updated_by} ${when(t.updated_at)}\n----- body (v${t.version}) -----\n${t.body || "(empty)"}\n----- end -----`;

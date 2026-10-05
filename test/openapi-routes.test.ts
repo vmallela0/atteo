@@ -66,6 +66,7 @@ const MATCH_ROUTES: Record<string, Route[]> = {
     { method: "POST", path: "/api/agents/me" },
   ],
   "\\/api\\/people\\/([a-z0-9][a-z0-9_.-]{0,31})$": [{ method: "GET", path: "/api/people/{user}" }],
+  "\\/api\\/rules\\/(sr_[A-Za-z0-9_-]+)\\/revoke$": [{ method: "POST", path: "/api/rules/{id}/revoke" }],
   "\\/api\\/friends\\/([a-z0-9][a-z0-9_.-]{0,31})\\/(accept|decline|remove|block|unblock)$": [{ method: "POST", path: "/api/friends/{user}/{action}" }],
   "\\/api\\/direct\\/([a-z0-9][a-z0-9_.-]{0,31})$": [{ method: "POST", path: "/api/direct/{user}" }],
   "\\/api\\/boards\\/([^/]+)\\/(rename|archive|unarchive)$": [
@@ -147,6 +148,10 @@ const MATCH_ROUTES: Record<string, Route[]> = {
   "\\/api\\/boards\\/([^/]+)\\/(?:entries\\/(\\d+)\\/react|reactions)$": [
     { method: "GET", path: "/api/boards/{id}/reactions" },
     { method: "POST", path: "/api/boards/{id}/entries/{seq}/react" },
+  ],
+  "\\/api\\/boards\\/(b_[a-z0-9]+)\\/charter$": [
+    { method: "GET", path: "/api/boards/{id}/charter" },
+    { method: "POST", path: "/api/boards/{id}/charter" },
   ],
   "\\/api\\/boards\\/(b_[a-z0-9]+)\\/retention$": [{ method: "POST", path: "/api/boards/{id}/retention" }],
   "\\/api\\/boards\\/([^/]+)\\/meta$": [{ method: "POST", path: "/api/boards/{id}/meta" }],

@@ -15,6 +15,7 @@ import * as access from "./access";
 import { accessAll } from "./accessAll";
 import { AUDIT_EXPORT_LIMIT, auditExportDocument, auditExportHeaders, forAgents, parseAuditAfter } from "./auditExport";
 import * as social from "./social";
+import * as standing from "./standingRules";
 import * as webhooks from "./webhooks";
 import * as avatars from "./avatars";
 import * as boardPictures from "./boardPictures";
@@ -87,6 +88,7 @@ import { ENTRY_TYPES, type Entry, type Env, type NewEntry, type Viewer as Seer }
 import { APP_CSS, APP_JS, BOARD_PREFETCH_PATH, BOARD_PREFETCH_RULES, FAVICON_SVG, page, renderText, SHELL_PAGE_JS } from "./ui";
 import { APPLE_TOUCH_PNG_B64 } from "./appleIcon";
 import { assistantWelcomePage } from "./welcome";
+import { agentCharter, applyCharter, charterAuditDetail, charterScanFields, charterView, parseCharterPatch, storedFromRow } from "./charter";
 import { atteoHeader, BOARD_RE, connectCommand, esc, newBoardId, legacyHostRedirect, normalizeUser, parseBoardMeta, publicOrigin, requestNow } from "./util";
 import { isLocalHost } from "./util";
 
@@ -97,8 +99,9 @@ import { forwardDestOk, forwardExcerptInEntry, keptOwnNotice } from "./audience"
 import { audienceNotice, MAX_FILES_PER_MESSAGE, MAX_IMAGE, MAX_MESSAGE_BYTES, MAX_WAIT_MS, WAIT_CAP } from "./board";
 import * as sessions from "./sessions";
 import { compactLine, formatEntry, formatMemory, handleMessage, parseReadBudget, presentReadEntries, readHeader, readParts, withNames } from "./state";
-import { fence } from "./screen";
+import { fence, flagged } from "./screen";
 import { CODE_COLOR_PATH, CODE_COLOR_SCRIPT } from "./codecolor";
+import { quickReplies } from "./quickReplies";
 import { fontResponse } from "./fonts";
 
 const OPS_PATH = "/_ops";
@@ -235,7 +238,10 @@ async function createBoard(env: Env, title: string, user: string, origin?: strin
   // Organization policy: boards made by people at a domain with a retention cap start with it.
   const u = await registry.userByName(env, user);
   const pol = u?.email ? await orgPolicy(env, u.email) : null;
-  if (pol?.max_retention_days) await env.DB.prepare(`UPDATE boards SET retention_days = ? WHERE id = ?`).bind(pol.max_retention_days, id).run();
+  if (pol?.max_retention_days) {
+    await env.DB.prepare(`UPDATE boards SET retention_days = ? WHERE id = ?`).bind(pol.max_retention_days, id).run();
+    await boardStub(env, id).setCharter({ goal: null, data_classes: [], retention_days: pol.max_retention_days }); // what agents read (#3685)
+  }
   return info;
 }
 
@@ -982,10 +988,11 @@ const handler = {
         const named = await Promise.all(invites.map(async (i) => ((await registry.userByEmail(env, i.email))?.name ?? null)));
         const shown = invites.map((i, k) => (named[k] ? { ...i, email: named[k]!, email_status: "waiting to accept" } : i));
         const kind = (row as { kind?: string | null } | null)?.kind ?? null;
+        const charter = charterView(storedFromRow(row), members.map((x) => ({ user: x.user, role: x.role })));
         // "Your agent": the composer's picker lists your agents (live or idle) by name.
         const mine = kind === "agent" ? (await sessions.list(env, viewer.name)).filter(sessions.listed).map((x) => ({ name: x.name, state: x.state, client: x.client })) : undefined;
         const agentNamed = agentNames(members);
-        return boardPage(viewer, side, snap.info, withAgents, snap.entries.map((e) => withAgentNames(e, agentNamed)), shown, { connected: status.connected, onThisBoard: !!live[viewer.name] }, snap.summary, agentsHere, { picture: boardPictures.pictureUrl(m[2], row?.picture_v), kind, sessions: mine, seen: snap.reads?.[viewer.name]?.person_seen ?? 0, last_seen: snap.reads?.[viewer.name]?.person_seen ?? 0, muted });
+        return boardPage(viewer, side, snap.info, withAgents, snap.entries.map((e) => withAgentNames(e, agentNamed)), shown, { connected: status.connected, onThisBoard: !!live[viewer.name] }, snap.summary, agentsHere, { picture: boardPictures.pictureUrl(m[2], row?.picture_v), kind, charter, sessions: mine, seen: snap.reads?.[viewer.name]?.person_seen ?? 0, last_seen: snap.reads?.[viewer.name]?.person_seen ?? 0, muted });
       }
 
       // ---- inbox: mentions of you, posts for your agent, replies to you ----
@@ -1536,22 +1543,52 @@ const handler = {
       if (path === "/api/agents" || path.startsWith("/api/agents/")) {
         if (!viewer) return needLogin();
         try {
-          if (path === "/api/agents" && method === "GET") return json({ agents: await agents.findAgents(env, viewer.name, { can: url.searchParams.get("can"), q: url.searchParams.get("q"), person: viewer.via !== "agent" }) });
+          if (path === "/api/agents" && method === "GET") return json({ agents: (await agents.findAgents(env, viewer.name, { can: url.searchParams.get("can"), q: url.searchParams.get("q"), person: viewer.via !== "agent" })).map((x) => flagged(x, x.summary)) });
           const am = path.match(/^\/api\/agents\/([^/]+)$/);
           if (am && method === "GET") {
             const who = am[1] === "me" ? viewer.name : decodeURIComponent(am[1]);
             const a = await agents.agent(env, viewer.name, who, viewer.via !== "agent");
-            return a ? json({ agent: a }) : json({ error: `No agent "${who}" that you can see. Agents show up for friends, people you share a board with, and everyone if they're listed.` }, 404);
+            return a ? json({ agent: flagged(a, a.summary) }) : json({ error: `No agent "${who}" that you can see. Agents show up for friends, people you share a board with, and everyone if they're listed.` }, 404);
           }
           if (am && am[1] === "me" && method === "POST") {
             const b = (await request.json().catch(() => ({}))) as { summary?: unknown; capabilities?: unknown; listed?: unknown };
             if (viewer.via === "agent" && b.listed !== undefined) return json({ error: PEOPLE_ONLY_AGENT_LISTING }, 403);
             await agents.setProfile(env, viewer.name, b);
-            return json({ agent: await agents.agent(env, viewer.name, viewer.name, viewer.via !== "agent") });
+            const mine = await agents.agent(env, viewer.name, viewer.name, viewer.via !== "agent");
+            return json({ agent: mine && flagged(mine, mine.summary) });
           }
           return json({ error: "not found" }, 404);
         } catch (e) {
           if (e instanceof agents.AgentError) return json({ error: e.message }, 400);
+          throw e;
+        }
+      }
+
+      // Standing rules: one automatic yes, for one board or one person, until it expires. People only.
+      if (path === "/api/rules" && (method === "GET" || method === "POST")) {
+        if (!viewer) return needLogin();
+        if (viewer.via === "agent") return json({ error: "Standing rules are yours to set. Agents can't create or list them." }, 403);
+        try {
+          if (method === "GET") return json({ rules: await standing.listRules(env, viewer.name, url.searchParams.get("all") === "1") });
+          const b = (await request.json().catch(() => ({}))) as { scope?: unknown; scope_id?: unknown; action?: unknown; expires_in?: unknown };
+          const rule = await standing.createRule(env, viewer.name, b);
+          await accountlog.record(env, viewer.name, "rule.added", request, { label: await standing.ruleLabel(env, rule), kind: rule.action });
+          return json({ ok: true, rule }, 201);
+        } catch (e) {
+          if (e instanceof standing.StandingRuleError) return json({ error: e.message }, 400);
+          throw e;
+        }
+      }
+      const srm = path.match(/^\/api\/rules\/(sr_[A-Za-z0-9_-]+)\/revoke$/);
+      if (srm && method === "POST") {
+        if (!viewer) return needLogin();
+        if (viewer.via === "agent") return json({ error: "Standing rules are yours to revoke. Agents can't." }, 403);
+        try {
+          const rule = await standing.revokeRule(env, viewer.name, srm[1]);
+          await accountlog.record(env, viewer.name, "rule.revoked", request, { label: await standing.ruleLabel(env, rule), kind: rule.action });
+          return json({ ok: true, rule });
+        } catch (e) {
+          if (e instanceof standing.StandingRuleError) return json({ error: e.message }, 400);
           throw e;
         }
       }
@@ -1670,7 +1707,7 @@ const handler = {
       }
       if (path === "/me" && method === "GET") {
         if (!viewer) return needLogin();
-        const [side, tokens, plan, hooks, prof, mine, log, access] = await Promise.all([
+        const [side, tokens, plan, hooks, prof, mine, log, access, rules] = await Promise.all([
           sideBoards(env, viewer.name),
           auth.listTokens(env, viewer.name),
           billing.planOf(env, viewer.name),
@@ -1679,8 +1716,9 @@ const handler = {
           sessions.list(env, viewer.name),
           accountlog.list(env, viewer.name, { limit: 6 }),
           viewer.via === "agent" ? null : accessAll(env, viewer.name).catch(() => null),
+          viewer.via === "agent" ? null : standing.listRules(env, viewer.name).catch(() => null), // yours, active (#3775)
         ]);
-        return mePage(viewer, side, tokens, plan, !!env.STRIPE_SECRET_KEY, hooks, prof, mine.filter(sessions.listed).map((x) => x.client || x.name), log.events, access);
+        return mePage(viewer, side, tokens, plan, !!env.STRIPE_SECRET_KEY, hooks, prof, mine.filter(sessions.listed).map((x) => x.client || x.name), log.events, access, rules);
       }
 
       if (path === OPS_PATH && method === "GET") {
@@ -2333,7 +2371,7 @@ const handler = {
             ctx.waitUntil(Promise.all([registry.touch(env, viewer.name, id), registry.bumpBoard(env, id, entry.seq)]).catch(() => {}));
             // Like a text post, the rendered entry comes back so the page can swap its "sending" copy for it.
             const root = replyTo ? ((await stub.rootsFor([entry.seq]))[entry.seq] ?? entry.seq) : entry.seq;
-            return json({ ok: true, entry, update: { seq: entry.seq, root, retracts: entry.retracts, html: entryHtml(withAgentNames(entry, agentNames(fileMembers)), id, true, { canRetract: true, canEdit: true, lang: viewer?.lang, person: !!viewer && viewer.via !== "agent" }), row: logRow(entry, undefined, undefined, viewer?.lang), reactions: [] } }, 201);
+            return json({ ok: true, entry, update: { seq: entry.seq, root, retracts: entry.retracts, html: entryHtml(withAgentNames(entry, agentNames(fileMembers)), id, true, { canRetract: true, canEdit: true, lang: viewer?.lang, members: fileMembers.map((m) => m.user), person: !!viewer && viewer.via !== "agent" }), row: logRow(entry, undefined, undefined, viewer?.lang), reactions: [] } }, 201);
           } catch (e) {
             return json({ error: e instanceof Error ? e.message : String(e) }, 400);
           }
@@ -2575,6 +2613,54 @@ const handler = {
         return json({ error: "not found" }, 404);
       }
 
+      // ---- board charter: goal, data classes, retention, and a note for each member ----
+      m = path.match(/^\/api\/boards\/(b_[a-z0-9]+)\/charter$/);
+      if (m && (method === "GET" || method === "POST")) {
+        if (!viewer) return needLogin();
+        const role = await registry.memberRole(env, m[1], viewer.name);
+        if (!role) return json({ error: "board not found" }, 404);
+        const board = await registry.getBoard(env, m[1]);
+        if (!board) return json({ error: "board not found" }, 404);
+        const members = await registry.boardMembers(env, m[1]);
+        const stored = storedFromRow(board);
+        const canEdit = (role === "owner" || board.created_by === viewer.name) && viewer.via !== "agent" && !board.archived_at;
+        if (method === "GET") {
+          // The goal and members' notes are owner-written prose agents act on: screened, as in the agents' Charter line (#3778, #3879).
+          const view = charterView(stored, members);
+          return json({ charter: flagged({ ...view, members: view.members.map((x) => flagged(x, x.note)) }, stored.goal), can_edit: canEdit }, 200, { "cache-control": "no-store" });
+        }
+        if (viewer.via === "agent") return json({ error: "Only people edit a board's charter. Ask your person to change it." }, 403);
+        if (role !== "owner" && board.created_by !== viewer.name) return json({ error: "Only the board's owners can edit its charter." }, 403);
+        if (board.archived_at) return json({ error: "This board is archived. Restore it to edit the charter." }, 403);
+        let patch;
+        try {
+          patch = parseCharterPatch(await request.json().catch(() => ({})));
+        } catch (e) {
+          return json({ error: e instanceof Error ? e.message : String(e) }, 400);
+        }
+        let next;
+        try {
+          next = applyCharter(stored, patch, members.map((x) => x.user));
+        } catch (e) {
+          return json({ error: e instanceof Error ? e.message : String(e) }, 400);
+        }
+        const hit = scanFields(charterScanFields(next, patch));
+        if (hit) return json({ error: blockedMessage(hit) }, 400);
+        if (patch.retention_days !== undefined) {
+          const creator = await registry.userByName(env, board.created_by);
+          const pol = creator?.email ? await orgPolicy(env, creator.email) : null;
+          if (pol?.max_retention_days && (next.retention_days == null || next.retention_days > pol.max_retention_days)) return json({ error: `${pol.domain} keeps messages at most ${pol.max_retention_days} days.` }, 400);
+        }
+        const changed = JSON.stringify(stored) !== JSON.stringify(next);
+        if (changed) {
+          await registry.saveBoardCharter(env, m[1], next);
+          await boardStub(env, m[1]).setCharter(agentCharter(next)); // agents read it from the board (#3685)
+          await registry.audit(env, m[1], viewer.name, "charter", null, charterAuditDetail(next));
+        }
+        const pruned = patch.retention_days !== undefined && next.retention_days ? await boardStub(env, m[1]).prune(Date.now() - next.retention_days * 86_400_000) : 0;
+        return json({ ok: true, charter: charterView(next, members), pruned });
+      }
+
       // ---- board details (any member edits) and search across your boards ----
       m = path.match(/^\/api\/boards\/(b_[a-z0-9]+)\/retention$/);
       if (m && method === "POST") {
@@ -2588,6 +2674,7 @@ const handler = {
         const pol = creator?.email ? await orgPolicy(env, creator.email) : null;
         if (pol?.max_retention_days && (days == null || days > pol.max_retention_days)) return json({ error: `${pol.domain} keeps messages at most ${pol.max_retention_days} days.` }, 400);
         await env.DB.prepare(`UPDATE boards SET retention_days = ? WHERE id = ?`).bind(days, m[1]).run();
+        await boardStub(env, m[1]).setCharter(agentCharter({ ...storedFromRow(board), retention_days: days })); // the charter agents read says it (#3685)
         await registry.audit(env, m[1], viewer.name, "retention", null, days ? `keep ${days} days` : "keep everything");
         const pruned = days ? await boardStub(env, m[1]).prune(Date.now() - days * 86_400_000) : 0;
         return json({ ok: true, retention_days: days, pruned });
@@ -2675,13 +2762,13 @@ const handler = {
         if (!viewer) return needLogin();
         if (!(await registry.isMember(env, m[1], viewer.name))) return json({ error: "board not found" }, 404);
         const stub = boardStub(env, m[1]);
-        if (method === "GET" && !m[2]) return json({ tasks: await stub.tasks() });
+        if (method === "GET" && !m[2]) return json({ tasks: (await stub.tasks()).map((t) => flagged(t, `${t.title}\n${t.body}`)) });
         if (method === "GET" && m[2]) {
           try {
             const seq = parseInt(m[2], 10);
             const [task, history] = await Promise.all([stub.taskGet(seq), stub.taskHistory(seq)]);
             // html: the task as it is now, rendered like its entry (title, then body), for the live card in the chat
-            return json({ task: { ...task, html: renderText(task.body ? `${task.title}\n\n${task.body}` : task.title) }, history });
+            return json({ task: flagged({ ...task, html: renderText(task.body ? `${task.title}\n\n${task.body}` : task.title) }, `${task.title}\n${task.body}`), history });
           } catch (e) {
             return json({ error: e instanceof Error ? e.message : String(e) }, 404);
           }
@@ -2894,6 +2981,7 @@ const handler = {
           const roots = await stub.rootsFor(fresh.map((e) => e.seq));
           const canRetract = (e: Entry) => !!viewer && (e.author === viewer.name || snap.info.created_by === viewer.name);
           const names = Object.fromEntries(members0.filter((x) => x.agent_name).map((x) => [x.user, x.agent_name!]));
+          const memberSet = new Set(members0.map((x) => x.user));
           return json({
             entries: fresh.map((e) => ({
               seq: e.seq,
@@ -2901,7 +2989,7 @@ const handler = {
               ...(e.via === "agent" && names[e.author] ? { agent_name: names[e.author] } : {}), // "Jarvis · vedu's agent"
               root: roots[e.seq] ?? e.seq,
               retracts: e.retracts,
-              html: entryHtml(withAgentNames(e, names), id, true, { canRetract: canRetract(e), canEdit: !!viewer && !snap.info.encrypted && e.author === viewer.name, lang: viewer?.lang, person: !!viewer && viewer.via !== "agent" }),
+              html: entryHtml(withAgentNames(e, names), id, true, { canRetract: canRetract(e), canEdit: !!viewer && !snap.info.encrypted && e.author === viewer.name, lang: viewer?.lang, members: memberSet, person: !!viewer && viewer.via !== "agent" }),
               row: logRow(e, undefined, undefined, viewer?.lang),
               reactions: snap.reactions[e.seq] ?? [],
               ...(e.type === "change" ? { reviews: snap.reviews[e.seq] ?? [] } : {}),
@@ -2912,6 +3000,7 @@ const handler = {
             reviews: snap.reviews, // every card's current verdicts (small), so open tabs can update cards above the fold
             claims: snap.claims, // every claim's status and every stale entry, same idea
             decisions: snap.decisions, // every human decision's state, votes and who it's waiting on
+            open_questions: snap.summary.openQuestions.map((e) => e.seq), // the quick-reply chips show only while their question is open
             handling: snap.handling, // which agent took which message ("vedu/scout")
             reads: snap.reads, // how far each member has seen, as a person and through their agent (read receipts)
             typing_agents: snap.typing_agents, // agents working on a person's message right now ("… is typing")
@@ -2939,7 +3028,10 @@ const handler = {
           const ack = ["1", "true"].includes(url.searchParams.get("ack") ?? "");
           // The same reader post uses (asOpts), registered if new (#3881); a failure is the request's, not hidden.
           if (ack && viewer?.via === "agent" && last > after) await stub.ack(viewer.name, last, (await asOpts()).session, true);
-          return json({ entries: list, last, reactions, reads: snap.reads, decisions: snap.decisions });
+          // One-tap reply chips (vedu #2490), people only (the app shows them; agents don't need them): seq → who and what.
+          const qMembers = seer()?.person && list.some((e) => e.type === "question" && e.via === "agent") ? new Set((await registry.boardMembers(env, id)).map((m) => m.user)) : undefined;
+          const quick = seer()?.person ? Object.fromEntries(list.flatMap((e) => { const q = quickReplies(e, { members: qMembers }); return q && q.for.includes(viewer!.name) ? [[e.seq, { options: q.options, own: q.own }]] : []; })) : undefined;
+          return json({ entries: list, last, reactions, reads: snap.reads, decisions: snap.decisions, ...(quick && Object.keys(quick).length ? { quick } : {}) });
         }
         if (what === "entries" && !seqStr && method === "GET") {
           // Earlier entries for "Load earlier messages", rendered like live updates.
@@ -2950,15 +3042,16 @@ const handler = {
             viewer ? registry.memberRole(env, id, viewer.name).then((r) => r === "owner") : false,
             stub.rootsFor(seqs),
             stub.reactionsFor(seqs, seer()),
-            registry.boardMembers(env, id).then(agentNames), // "@Jarvis" chips, as on the page (jxn #1659)
+            registry.boardMembers(env, id), // "@Jarvis" chips, as on the page (jxn #1659); who's on it (quick replies)
             stub.info(),
           ]);
+          const pageMembers = new Set(names.map((m) => m.user)), pageNames = agentNames(names);
           return json({
             first: page.length ? page[0].seq : 0,
             entries: page.map((e) => ({
               seq: e.seq,
               root: roots[e.seq] ?? e.seq,
-              html: entryHtml(withAgentNames(e, names), id, true, { canRetract: !!viewer && (e.author === viewer.name || isOwner), canEdit: !!viewer && !pageInfo.encrypted && e.author === viewer.name, lang: viewer?.lang, person: !!viewer && viewer.via !== "agent" }),
+              html: entryHtml(withAgentNames(e, pageNames), id, true, { canRetract: !!viewer && (e.author === viewer.name || isOwner), canEdit: !!viewer && !pageInfo.encrypted && e.author === viewer.name, lang: viewer?.lang, members: pageMembers, person: !!viewer && viewer.via !== "agent" }),
               row: logRow(e, undefined, undefined, viewer?.lang),
               reactions: reactions[e.seq] ?? [],
               ...(e.human_decision ? { human_decision: e.human_decision } : {}),
@@ -3078,7 +3171,7 @@ const handler = {
             // An agent's top-level post the board kept in Just mine (board.ts ownByDefault) says so instead.
             const said = entry.audience === "own" && entry.reply_to == null && !own && !notOwn && viewer.via === "agent" ? keptOwnNotice(viewer.name) : audienceNotice(entry, viewer.name);
             const notice = said ? { notice: said } : {};
-            return json({ ok: true, entry, ...notice, ...(missed?.length ? { missed } : {}), update: { seq: entry.seq, root, retracts: entry.retracts, html: entryHtml(withAgentNames(entry, agentNames(boardMembers)), id, true, { canRetract: true, canEdit: true, lang: viewer?.lang, person: !!viewer && viewer.via !== "agent" }), row: logRow(entry, undefined, undefined, viewer?.lang), reactions: [] }, ...(ambiguous.length ? { ambiguous } : {}) }, 201);
+            return json({ ok: true, entry, ...notice, ...(missed?.length ? { missed } : {}), update: { seq: entry.seq, root, retracts: entry.retracts, html: entryHtml(withAgentNames(entry, agentNames(boardMembers)), id, true, { canRetract: true, canEdit: true, lang: viewer?.lang, members: boardMembers.map((m) => m.user), person: !!viewer && viewer.via !== "agent" }), row: logRow(entry, undefined, undefined, viewer?.lang), reactions: [] }, ...(ambiguous.length ? { ambiguous } : {}) }, 201);
           } catch (e) {
             // Still restarting after our retries: say "try again" (the page retries with the same message id).
             if (isRetriable(e)) {

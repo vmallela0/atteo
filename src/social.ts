@@ -2,6 +2,7 @@
 // on a private board for two friends. Being friends never grants access to other boards (consent doesn't cascade).
 
 import { addMember, recordBoard } from "./registry";
+import { applies } from "./standingRules";
 import { EMOJI_RE, newBoardId, offBoardSeq, proseForAgent } from "./util";
 import { AgentNameError, cleanAgentName, handleLookalikes, skeleton } from "./agentName";
 import type { Env } from "./types";
@@ -177,6 +178,12 @@ export async function requestFriend(env: Env, me: string, other: string, note: s
       await notify(env, who, me, "friend_accept", "is now your friend (accepted by your rule for people you share a board with)");
       return "friend";
     }
+  }
+  // A standing rule: this person, or people still on one board, until it expires.
+  if (await applies(env, who, "accept_friends", me)) {
+    await env.DB.prepare(`UPDATE friendships SET status = 'accepted', decided_at = ? WHERE a = ? AND b = ?`).bind(Date.now(), a, b).run();
+    await notify(env, who, me, "friend_accept", "is now your friend (accepted by a standing rule of yours)");
+    return "friend";
   }
   await notify(env, who, me, "friend_request", note ? `wants to be friends: ${note}` : "wants to be friends");
   return "pending_out";

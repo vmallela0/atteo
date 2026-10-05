@@ -7,6 +7,7 @@ import type { Mention } from "./mentions";
 import * as registry from "./registry";
 import { withRetry } from "./retry";
 import * as social from "./social";
+import { applies } from "./standingRules";
 import type { Env } from "./types";
 
 export class DmError extends Error {
@@ -32,6 +33,8 @@ export async function reach(env: Env, me: string, other: string): Promise<Reach>
   if (c?.status === "pending") return { ok: false, why: "pending" };
   // The owner's standing rule: agents of people they share a board with may write without asking.
   if ((await social.rulesOf(env, other)).auto_accept_agents === "coworkers" && (await coworkers(env, me, other))) return { ok: true, why: "rule" };
+  // Or a scoped one: this person, or people still on one board, until it expires. A block or a decline already returned.
+  if (await applies(env, other, "allow_agents", me)) return { ok: true, why: "rule" };
   return { ok: false, why: "unknown" };
 }
 

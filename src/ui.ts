@@ -296,6 +296,8 @@ dialog[open]{animation:pop .16s ease-out}dialog:focus{outline:none}@media (prefe
 .entry .fbadge{height:18px;font-size:11px;color:var(--warn);border-color:color-mix(in srgb,var(--warn) 40%,var(--line))}
 .entry .fbadge.quoted{color:var(--muted);border-color:var(--line)}
 .entry.retracted>.grow>.body,.entry.retracted>.grow>.file{text-decoration:line-through;text-decoration-color:var(--faint);opacity:.55}
+.body.purged p{color:var(--muted);font-style:italic} /* purged (#3853): the placeholder, not the words */
+#purge-dlg .pg-rotate{margin:0}
 .entry.retracted>.grow>.meta .rbadge{display:inline-flex}
 /* Display (Account → Display): text size and density for the chat; saved per person so web and app match. */
 :root[data-text="s"] .entry .body{font-size:12.5px}:root[data-text="s"] .entry .meta{font-size:12px}
@@ -423,6 +425,11 @@ a.ev-acct:hover{background:var(--bg-subtle)}
 .ag-dot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:6px;vertical-align:1px;box-sizing:border-box}.ag-dot.idle{background:var(--muted);opacity:.7}.ag-dot.gone{border:1.5px solid var(--faint)}
 .ag-row[data-state="gone"] .ag-name{color:var(--muted)}
 .ag{padding-bottom:14px;margin-bottom:14px;border-bottom:1px solid var(--line)}
+/* Board info → Charter */
+.ch-lead{margin:0 0 8px}.ch-dl{margin:0}.ch-dl dt{margin-top:8px;font-size:11px;letter-spacing:.02em;text-transform:uppercase;color:var(--faint)}.ch-dl dd{margin:2px 0 0;font-size:13px;color:var(--text);white-space:pre-wrap}
+.ch-classes{display:flex;flex-wrap:wrap;gap:4px}.ch-members{list-style:none;margin:0;padding:0}.ch-members li{font-size:13px;padding:2px 0}
+#ch-form:not([hidden]),#ch-notes{display:flex;flex-direction:column;gap:8px;margin-top:8px}.ch-note{display:flex;align-items:center;gap:8px}.ch-note .xs{width:7em;flex:none}
+.ch-err{color:var(--danger);min-height:1em;margin:0}#ch-form .lbl{margin:0}
 .kill{display:flex;align-items:center;gap:14px;margin-top:12px;padding:12px 14px;border:1px solid color-mix(in srgb,var(--danger) 30%,var(--line));border-radius:var(--r)}.kill b{color:var(--ink);font-size:13px}.kill p{margin:2px 0 0}
 .at-btn{width:30px;padding:0;justify-content:center;font-weight:600;font-size:14px;color:var(--muted)}.at-btn:hover{color:var(--ink)}
 /* quotes (forwarded messages) */
@@ -477,6 +484,9 @@ a.ev-acct:hover{background:var(--bg-subtle)}
 /* Access across your boards (#3568): each owned board's grants under it; a mark on what's worth reviewing */
 .acc-all-g{list-style:none;margin:6px 0 0;padding:0 0 0 12px;border-left:2px solid var(--line);display:grid;gap:6px}
 .acc-all-r{display:flex;align-items:center;gap:8px;min-width:0}.acc-all-r .grow{min-width:0;overflow-wrap:anywhere}.acc-rv{color:var(--warn);font-weight:500}
+.sr-list{list-style:none;margin:0;padding:0;display:grid;gap:6px}.sr-row{display:flex;align-items:center;gap:8px;min-width:0}.sr-row .grow{min-width:0;overflow-wrap:anywhere}
+.sr-form{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:12px;padding-top:12px;border-top:1px solid var(--line)}.sr-form .input{width:auto;flex:1 1 150px;min-width:0}.sr-form [hidden]{display:none}.sr-err{color:var(--danger);margin:0;flex-basis:100%}
+@media (max-width:600px){.sr-form [name="action"]{flex-basis:100%}}
 .acc-dl{margin:10px 0 0} /* the full access log as JSON (#3375): the list above is only the latest 50 */
 .sum h3 .linkish,.linkish{border:0;background:none;padding:0;font:inherit;font-size:12px;color:var(--accent);cursor:pointer;text-decoration:underline;text-underline-offset:2px}.linkish:hover{text-decoration-thickness:2px}
 /* view-only members: nothing that writes */
@@ -522,6 +532,8 @@ a.ev-acct:hover{background:var(--bg-subtle)}
 @media(max-width:640px){.tk{flex-wrap:nowrap}.tk>.tk-st,.tk>.btn{flex:none}.tk>.tk-prog{min-width:0}.tk-bar{width:28px}.tk>.tk-who:empty{display:none}.tk>.btn.sm{padding:0 7px}}
 @media(max-width:360px){.tk-bar{display:none}}
 /* approval card (conversation and Inbox): the exact command, where it stands, Approve / Deny for the person asked */
+.qr{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}.qr[hidden]{display:none}.qr-b{gap:6px;max-width:100%;border-radius:999px}.qr-t{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.qr-k{font:inherit;font-size:10.5px;min-width:16px;height:16px;line-height:16px;padding:0 3px;border-radius:4px;border:1px solid var(--line);color:var(--muted);background:var(--bg)}@media(hover:none){.qr-k{display:none}}
 .apc{margin-top:8px;max-width:640px}.apc>.tk{margin-top:0}.apc-cmd{margin:0 0 6px;max-height:220px;overflow:auto;padding:8px 10px;border-radius:8px;background:var(--bg-subtle);border:1px solid var(--line);font-size:12px;line-height:1.5;white-space:pre-wrap;word-break:break-word}
 .apc .tk-st .dot{background:var(--warn)}.apc.st-approved .tk-st .dot{background:var(--ok)}.apc.st-rejected .tk-st .dot{background:var(--danger)}.apc.st-expired .tk-st .dot{background:var(--muted)}
 .apc.st-approved .tk-st{color:var(--ok)}.apc.st-rejected .tk-st,.apc.st-expired .tk-st{color:var(--muted)}
@@ -920,6 +932,7 @@ mark{background:var(--mark);color:inherit;border-radius:2px;padding:0 1px}
 .kcol h3{font-size:12.5px;font-weight:600;color:var(--ink);margin:2px 4px 8px}
 .kcards{display:flex;flex-direction:column;gap:6px}
 .kcard{background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:8px 10px;cursor:grab;display:flex;flex-direction:column;gap:4px}
+.kcard:focus-visible,#kanban:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .kcard:hover{border-color:color-mix(in srgb,var(--ink) 25%,var(--line))}
 .kcard.dragging{opacity:.5}
 .kres{display:flex;align-items:center;gap:6px;flex-wrap:wrap}.kres-l{color:var(--accent)}.kres-l:hover{text-decoration:underline}.kres .btn{margin-left:auto;padding:1px 10px}

@@ -33,6 +33,7 @@ final class AppState: ObservableObject {
     var typingSent: [String: Date] = [:] // per board: when this phone last said you're typing
     @Published var agentSessions: [AgentChatSession] = [] // "Your agent": the sessions you can send to (AgentChat.swift)
     @Published var decisions: [String: [Int: HumanDecision]] = [:] // per board, per message: human decisions (HumanDecisions.swift)
+    @Published var quickChips: [String: [Int: QuickChips]] = [:] // per board, per question: one-tap replies for you (QuickReplies.swift)
     @Published var jumpRequest: JumpRequest? // a message to show once its chat opens (a search hit in Chats)
     @Published var openRequest: Board? // a chat to open from anywhere (Message on someone's card)
     struct JumpRequest: Equatable { let board: String; let seq: Int }
@@ -62,7 +63,8 @@ final class AppState: ObservableObject {
         #if DEBUG
         // Simulator runs against a local server: ATTEO_TOKEN skips the browser sign-in.
         if let t = API.environment("TOKEN"), !t.isEmpty { Keychain.token = t; signedIn = true }
-        if API.environment("FRESH") != nil { try? FileManager.default.removeItem(at: Self.cacheURL) }
+        // (and the message drafts, which live in UserDefaults: each test starts with an empty message box)
+        if API.environment("FRESH") != nil { try? FileManager.default.removeItem(at: Self.cacheURL); MessageDrafts.shared.clearAll() }
         // Simulator screenshots of the sign-in screen (the token stays where it is).
         if API.environment("SIGNED_OUT") != nil { signedIn = false }
         #endif
@@ -180,13 +182,19 @@ final class AppState: ObservableObject {
     private func saveDisplay() async {
         let d = display
         do {
-            do {
-                try await API.shared.send("/api/app/prefs", body: ["display": d.body(replies: !repliesRefused, turns: !turnsRefused)])
-            } catch APIError.server(let m) where (!repliesRefused && m.contains("\"replies\"")) || (!turnsRefused && m.contains("\"voice_turns\"")) {
-                // A server from before replies could stay in their threads (vedu #2360), or before When Atteo answers
-                // (#2460): the rest saves, and that one stays on this phone.
-                if m.contains("\"replies\"") { repliesRefused = true } else { turnsRefused = true }
-                try await API.shared.send("/api/app/prefs", body: ["display": d.body(replies: !repliesRefused, turns: !turnsRefused)])
+            // A server from before replies could stay in their threads (vedu #2360), before When Atteo answers (#2460),
+            // or before One line (jxn #2690) refuses that key: the rest saves, and that one stays on this phone.
+            var tries = 0
+            while true {
+                do {
+                    try await API.shared.send("/api/app/prefs", body: ["display": d.body(replies: !repliesRefused, turns: !turnsRefused, compact: !compactRefused)])
+                    break
+                } catch APIError.server(let m) where tries < 3 && ((!repliesRefused && m.contains("\"replies\"")) || (!turnsRefused && m.contains("\"voice_turns\"")) || (!compactRefused && m.contains("\"compact\""))) {
+                    tries += 1
+                    if !repliesRefused && m.contains("\"replies\"") { repliesRefused = true }
+                    else if !turnsRefused && m.contains("\"voice_turns\"") { turnsRefused = true }
+                    else { compactRefused = true }
+                }
             }
             profile?.display = d
             if display == d { cacheDisplay(d, unsaved: false) }
@@ -196,6 +204,8 @@ final class AppState: ObservableObject {
     private var repliesRefused = false
     /// The same for `voice_turns` (vedu #2460).
     private var turnsRefused = false
+    /// The same for `compact` (One line, jxn #2690).
+    private var compactRefused = false
 
     /// What the server has (set here or on the web). A change made on this phone that hasn't reached the server yet
     /// wins and is sent again instead.
@@ -203,6 +213,7 @@ final class AppState: ObservableObject {
         guard !displayPinned, var server else { return }
         if server.repliesKnown { repliesRefused = false } else { server.replies = display.replies } // not kept there yet: the phone's choice stands
         if server.voiceTurnsKnown { turnsRefused = false } else { server.voiceTurns = display.voiceTurns; turnsRefused = true }
+        if server.compactKnown { compactRefused = false } else { server.compact = display.compact } // the phone's choice stands
         if UserDefaults.standard.bool(forKey: Self.displayDirtyKey) {
             if server == display { cacheDisplay(display, unsaved: false) } else {
                 displaySave?.cancel()
@@ -238,6 +249,7 @@ final class AppState: ObservableObject {
             if rx != reactions[b.id] { withAnimation(.smooth) { reactions[b.id] = rx } }
             if let rd = r.reads, rd != reads[b.id] { withAnimation(.smooth) { reads[b.id] = rd } }
             adoptDecisions(b.id, entries: r.entries, map: r.decisions)
+            adoptQuick(b.id, r.quick)
             let mine = (entries[b.id] ?? []).filter { $0.pending == true || $0.failed == true }
             let fresh = older + got + mine.filter { m in !r.entries.contains { $0.author == m.author && $0.text == m.text && $0.ts >= m.ts - 60_000 } }
             if fresh != entries[b.id] {
@@ -326,7 +338,7 @@ final class AppState: ObservableObject {
         let rules: [String: Any] = ["auto_accept_invites": p.rules.autoAcceptInvites ?? NSNull(), "auto_accept_friends": p.rules.autoAcceptFriends ?? NSNull(), "auto_accept_agents": p.rules.autoAcceptAgents ?? NSNull()]
         var body: [String: Any] = ["display_name": p.displayName ?? "", "bio": p.bio ?? "", "listed": p.listed, "rules": rules]
         // Always the phone's current display settings (replies too, once the server has shown it keeps them).
-        if !displayPinned { body["display"] = display.body(replies: old?.display?.repliesKnown == true && !repliesRefused, turns: old?.display?.voiceTurnsKnown == true && !turnsRefused) }
+        if !displayPinned { body["display"] = display.body(replies: old?.display?.repliesKnown == true && !repliesRefused, turns: old?.display?.voiceTurnsKnown == true && !turnsRefused, compact: old?.display?.compactKnown == true && !compactRefused) }
         do {
             let d = try await API.shared.send("/api/me/profile", body: body)
             if let r = try? JSONDecoder.soup.decode(ProfileResponse.self, from: d) { profile = r.profile }
@@ -632,14 +644,16 @@ final class AppState: ObservableObject {
     func firstLoaded(_ b: Board) -> Int? { (entries[b.id] ?? []).lazy.filter { $0.seq > 0 }.map(\.seq).min() }
 
     /// Older messages, put in front of what's loaded: a page of 60, or back to `through` (a reply's parent, a search
-    /// hit) in one go (at most 500). Returns false when there's nothing older.
+    /// hit) in one go (at most 500), with a page above it. Returns false when there's nothing older.
     @discardableResult
     func loadEarlier(_ b: Board, through target: Int? = nil) async -> Bool {
         guard let first = firstLoaded(b), first > 1, !loadingEarlier.contains(b.id) else { return false }
         loadingEarlier.insert(b.id)
         defer { loadingEarlier.remove(b.id) }
         var after = max(0, first - 1 - 60)
-        if let target { after = max(0, min(after, target - 6), first - 1 - 500) }
+        // A page above the target, not a few rows: landing near the top of what's loaded fetched the page before it at
+        // once, and those rows going in above pushed the message you jumped to off the screen.
+        if let target { after = max(0, min(after, target - 60), first - 1 - 500) }
         do {
             let r = try await API.shared.get("/api/boards/\(b.id)/entries?after=\(after)&limit=\(first - 1 - after)", as: EntriesResponse.self)
             let got = await decrypted(r.entries.filter { $0.seq < first }, board: b, after: after)
@@ -647,6 +661,7 @@ final class AppState: ObservableObject {
             for (k, v) in r.reactions ?? [:] { if let n = Int(k), n < first { rx[n] = v } }
             reactions[b.id] = rx
             adoptDecisions(b.id, entries: r.entries, map: nil)
+            adoptQuick(b.id, r.quick)
             let have = Set((entries[b.id] ?? []).map(\.seq))
             entries[b.id] = got.filter { !have.contains($0.seq) } + (entries[b.id] ?? [])
             return after > 0
@@ -771,6 +786,7 @@ final class AppState: ObservableObject {
         // Everyday or Developer, and the first run, are the person's too (Everyday.swift).
         AppMode.shared.forget()
         UserDefaults.standard.removeObject(forKey: BringAssistantView.doneKey)
+        MessageDrafts.shared.clearAll() // unsent words are the person's too
         profile = nil
         withAnimation(.smooth) {
             signedIn = false; loaded = false

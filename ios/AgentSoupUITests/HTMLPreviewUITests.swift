@@ -149,10 +149,7 @@ final class HTMLPreviewUITests: AtteoUITestCase {
         XCTAssertTrue(composer(a).exists, "back in the chat")
 
         // Files: the same file has Preview.
-        a.buttons["work-strip"].tap()
-        let files = a.buttons["Files"]
-        XCTAssertTrue(files.waitForExistence(timeout: 5))
-        files.tap()
+        XCTAssertTrue(a.openBoardTab("tab-files", timeout: 5), "the Files tab")
         let row = any["file-\(name)"].firstMatch
         XCTAssertTrue(row.waitForExistence(timeout: 10), "in Files")
         let rowPreview = try XCTUnwrap(a.buttons.matching(identifier: "file-preview").allElementsBoundByIndex.min { abs($0.frame.midY - row.frame.midY) < abs($1.frame.midY - row.frame.midY) })
@@ -167,7 +164,7 @@ final class HTMLPreviewUITests: AtteoUITestCase {
         XCTAssertTrue(row.exists, "back on Files")
 
         // Board info's files: Preview runs it too (the row itself still opens the source).
-        a.buttons["Done"].tap()
+        XCTAssertTrue(a.openBoardTab("tab-chat"), "back to Chat")
         XCTAssertTrue(a.buttons["presence"].waitForExistence(timeout: 5))
         a.buttons["presence"].tap()
         XCTAssertTrue(a.navigationBars["Info"].waitForExistence(timeout: 5), "Info")

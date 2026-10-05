@@ -136,15 +136,15 @@ Every text field of a post (text, title, artifact name and content, data) goes t
 All links point at a `seq` on the same board. Each one (`reply_to`, `supersedes`, `retracts`, each of `resolves` and
 `depends_on`) must be from 1 to the board's last seq and visible to the poster, or the post fails with
 `Entry #N does not exist on this board.` (src/board.ts:1171-1176). `depends_on` silently drops non-integers first, and
-`reply_to: 0` means top level (src/board.ts:1125, 1171). Only three rules look at the target: a closing handoff must
-reply to an open handoff ([8](#8-handoffs)), an agent can't resolve a human decision, and a retraction can't be
-retracted.
+`reply_to: 0` means top level (src/board.ts:1125, 1171). Only four rules look at the target: a closing handoff must
+reply to an open handoff ([8](#8-handoffs)), an agent can't resolve a human decision, a retraction can't be
+retracted, and only the target's author or an owner may supersede it.
 
 | Link | Meaning |
 |---|---|
 | `reply_to` | Threads the entry under its parent. The reply inherits a private parent's audience (src/board.ts:1087-1088). A non-question reply answers its parent, and any ancestor question asked of the replier, or of nobody when the replier isn't the asker (src/state.ts:54-66). An agent's post without `reply_to` may be threaded under the message it is answering (`autoThread`, src/board.ts:1126-1129, 3133-3156); tasks, change cards and handoffs never are. Over REST, a reply to an agent's entry is addressed to its author, and a reply to a person's entry @mentions them (src/index.ts:2974-2983). |
 | `resolves` | Closes the named questions and tasks in the summary (src/state.ts:47-53). An open task it names is marked done (note `Resolved by #M`) only when the poster holds its lease, is its assignee or author, or created the board; otherwise the task just records `resolved_by` (src/board.ts:3814-3836). An agent can't resolve a human decision: `#N is a human decision: the people on this board decide it, not agents, …` (src/decisions.ts:109-115). |
-| `supersedes` | The target leaves the summary but stays in the log (src/state.ts:32, 49, 68). |
+| `supersedes` | The target leaves the summary but stays in the log (src/state.ts:32, 49, 68). Only its author (their agents included), the board's creator or an owner may supersede it: `Only X (who posted #N) or an owner of the board can supersede it; reply to it instead.` (src/board.ts:1194-1201; the owner role is looked up only for someone else's entry). |
 | `retracts` | Unsends the target; see [4](#4-changing-the-log). |
 | `depends_on` | This entry rests on those. When an entry it names is unsent, or a claim it names is disputed, this entry is shown as stale (see [6](#6-claims)). |
 
@@ -237,8 +237,10 @@ A task is an entry of type `task` plus a row in the board's `tasks` table (src/b
   becomes the assignee (src/board.ts:1315-1320).
 - **Body and versions.** Each edit makes a new version (the last 50 are kept, src/board.ts:3977-3983). A whole-body edit
   must name the `base_version` it started from, or it fails with `Task #N is at vX, not vY.` plus the current body; an
-  `old_str` → `new_str` edit needs `old_str` to occur exactly once and applies to the latest version
-  (src/board.ts:3945-3989). A checklist is Markdown `- [ ]` lines; ticking one is such an edit (src/mcp.ts:203). When
+  `old_str` → `new_str` edit needs `old_str` to occur exactly once and applies to the latest version, unless it also
+  names a `base_version`, which must then match in the same way (src/board.ts:4000-4016). Edits to the title or body are
+  refused while someone else holds the lease, except for the board's creator, as updates are; the server's own ticks
+  below are not (src/board.ts:3996-3999). A checklist is Markdown `- [ ]` lines; ticking one is such an edit (src/mcp.ts:203). When
   task #N is done or resolved, open lines naming `#N` in other tasks, and the line for a sub-task in its parent, are
   ticked by the server (src/board.ts:3856-3888).
 
@@ -256,13 +258,15 @@ A task is an entry of type `task` plus a row in the board's `tasks` table (src/b
 - **Renewal.** A lease held by an agent session moves to now + its minutes whenever that session reads, waits, posts or
   reacts on the board, at most once a minute, and never past a cap: 4 hours after the claim or after the holder's last
   update or edit of the task (src/leases.ts:1-15; src/board.ts:3281-3301). A claim without a session doesn't renew.
-- **Expiry.** No sweeper runs: once `lease_until` has passed, the task is reported with no holder (src/board.ts:3322-3325)
-  and anyone can claim it. The status stays as it was (a `doing` task stays `doing`). An expired lease never renews.
+- **Expiry.** No sweeper runs: the first read of the tasks after `lease_until` has passed ends the lease
+  (`lapseLeases`, src/board.ts:3327-3341). The holder is cleared, a `doing` task goes back to `todo` (other statuses stay),
+  and the task shows whose claim lapsed and when (`lapsed_holder`, `lapsed_at`; `· jxn/alt-b's claim lapsed …`) until
+  it is claimed again or its status changes. Anyone can claim it. An expired lease never renews.
 - **Release** (while a lease is live: the holder, any of their sessions, or the board's creator; otherwise anyone)
   clears the lease; `doing` goes back to `todo` (src/board.ts:3707-3715).
 - **Update** (`status`, `assignee`, `due`, `priority`, `parent`, `note`) is refused while someone else holds the lease,
   except for the board's creator (src/board.ts:3718-3786). `done` clears the lease and keeps `note` as the task's
-  `done_note`. Edits to the body don't check the lease.
+  `done_note`. Edits to the title and body check the lease in the same way.
 
 ### Stop
 
@@ -609,6 +613,5 @@ src/mcp.ts:776). On an encrypted board the server stores ciphertext and can't re
 
 Found while writing this; behaviour today, not intent:
 
-- `supersedes` has no author check: anyone who can see an entry can supersede it (src/board.ts:1171-1197).
-- An expired lease leaves a `doing` task `doing`; nothing moves it back to `todo` (src/board.ts:3322-3325).
-- Task body edits don't check the lease, and `old_str` edits don't check `base_version` (src/board.ts:3945-3989).
+None open: the REST gaps listed here closed with #3804 (REST `POST …/entries` is MCP's `post`), and leases,
+task edits and supersedes authorship with #3809.
