@@ -49,6 +49,18 @@ function assert(cond, msg) {
 function has(text, needle) {
   assert(text.includes(needle), `expected to find ${JSON.stringify(needle)} in:\n${String(text).slice(0, 1200)}`);
 }
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+// Poll until fn() is truthy. Fixed sleeps stay only where they arm a long-poll or guard a negative
+// ("this did not happen"), because those have nothing to poll and their timing asserts must not move.
+async function until(fn, ms = 5000) {
+  const t0 = Date.now();
+  let v = await fn();
+  while (!v && Date.now() - t0 < ms) {
+    await sleep(40);
+    v = await fn();
+  }
+  return v;
+}
 
 // ---- helpers ----
 const run = Date.now().toString(36).slice(-5);
@@ -131,6 +143,26 @@ async function serr(sess, name, args, needle) {
 const web = (path, who, init = {}) =>
   fetch(`${BASE}${path}`, { redirect: "manual", ...init, headers: { ...(init.headers ?? {}), ...(who ? { cookie: cookie[who] } : {}) } });
 const seqOf = (t) => Number(t.match(/#(\d+)/)[1]);
+// Several people at once. A user row has to exist before its token and session, and those two don't wait on each other.
+async function makeUser(name, { email, verified = "true", token = true, session = true, label = "e2e" } = {}) {
+  const r = await ops("users", { name, email: email ?? `${name}@example.com`, verified });
+  assert(r.status === 201, `create ${name}: ${r.status} ${JSON.stringify(r.body)}`);
+  await Promise.all([
+    token && (async () => {
+      const t = await ops("tokens", { user: name, ...(label != null ? { label } : {}) });
+      assert(t.body.token?.startsWith("ab_"), JSON.stringify(t.body));
+      tok[name] = t.body.token;
+    })(),
+    session && (async () => {
+      const s = await ops("sessions", { user: name });
+      cookie[name] = s.body.cookie;
+      assert(cookie[name]?.startsWith("ab_session="), JSON.stringify(s.body));
+    })(),
+  ]);
+}
+async function makeUsers(list, opts = {}) {
+  await Promise.all(list.map((n) => (typeof n === "string" ? makeUser(n, opts) : makeUser(n.name, { ...opts, ...n }))));
+}
 
 console.log(`E2E against ${BASE}`);
 let board;
@@ -142,22 +174,14 @@ await step("health", async () => {
 
 await step("setup through the ops API: users, tokens, sessions", async () => {
   assert(ADMIN_KEY, "ADMIN_KEY not available");
-  for (const [n, e, v] of [[A, `${A}@example.com`, "true"], [B, `${B}@example.com`, "true"], [OUT, `${OUT}@example.com`, "true"], [UNV, `${UNV}@example.com`, "false"]]) {
-    const r = await ops("users", { name: n, email: e, verified: v });
-    assert(r.status === 201, `create ${n}: ${r.status} ${JSON.stringify(r.body)}`);
-    const t = await ops("tokens", { user: n, label: "e2e" });
-    assert(t.body.token?.startsWith("ab_"), JSON.stringify(t.body));
-    tok[n] = t.body.token;
-    const s = await ops("sessions", { user: n });
-    cookie[n] = s.body.cookie;
-    assert(cookie[n]?.startsWith("ab_session="), JSON.stringify(s.body));
-  }
+  await makeUsers([{ name: A }, { name: B }, { name: OUT }, { name: UNV, verified: "false" }]);
   assert((await ops("users", { name: A })).status === 409, "duplicate name should conflict");
 });
 
 await step("ops API is invisible without the key", async () => {
-  assert((await ops("overview", null, null)).status === 404, "no key should 404");
-  assert((await ops("overview", null, "wrong")).status === 404, "wrong key should 404");
+  const [none, wrong] = await Promise.all([ops("overview", null, null), ops("overview", null, "wrong")]);
+  assert(none.status === 404, "no key should 404");
+  assert(wrong.status === 404, "wrong key should 404");
 });
 
 await step("MCP initialize, tools/list, notifications, protocol errors", async () => {
@@ -190,11 +214,11 @@ await step("A creates a board and is its only member", async () => {
 });
 
 await step("non-members cannot read, post, wait, get, search or invite", async () => {
-  for (const [name, args] of [["read", {}], ["post", { type: "note", text: "x" }], ["wait", { timeout_seconds: 1 }], ["get", { seq: 1 }], ["search", { query: "x" }], ["invite", { email: "a@b.co" }]]) {
-    await err(B, board, name, args, "not a member");
-  }
-  await err(OUT, "b_doesnotexist1", "read", {}, "not a member");
-  await err(A, "../etc", "read", {}, "not a member");
+  await Promise.all([
+    ...[["read", {}], ["post", { type: "note", text: "x" }], ["wait", { timeout_seconds: 1 }], ["get", { seq: 1 }], ["search", { query: "x" }], ["invite", { email: "a@b.co" }]].map(([name, args]) => err(B, board, name, args, "not a member")),
+    err(OUT, "b_doesnotexist1", "read", {}, "not a member"),
+    err(A, "../etc", "read", {}, "not a member"),
+  ]);
 });
 
 await step("adding B as a member grants access", async () => {
@@ -411,7 +435,6 @@ await step("wait {for: \"me\"}: other agents' cards and chatter don't wake it; a
   const waiting = ok(A, board, "wait", { for: "me", timeout_seconds: 20 });
   await new Promise((r) => setTimeout(r, 300));
   const n1 = seqOf(await ok(B, board, "post", { type: "note", text: `chatter ${run}`, reply_to: 0 }));
-  await new Promise((r) => setTimeout(r, 300));
   const m = seqOf(await ok(B, board, "post", { type: "note", text: `@${A}'s agent ping ${run}`, reply_to: 0 }));
   const got = await waiting;
   has(got, "(1 for you");
@@ -874,8 +897,11 @@ await step("join_board by id and by name; read/post act on the joined board only
   has(await sok(s1, "list_boards"), `${board2}  "e2e second ${run}"`);
   has(await sok(s1, "list_boards"), "← this session");
   // Presence: the web shows A's agent live on board2, and a join prompt on the board it left.
-  await new Promise((r) => setTimeout(r, 300));
-  const p2 = await (await web(`/b/${board2}`, A)).text();
+  let p2 = "";
+  await until(async () => {
+    p2 = await (await web(`/b/${board2}`, A)).text();
+    return p2.includes(`<span class="ag-name">${A}/agent`);
+  });
   // Presence lives in one place: Board info → Agents.
   has(p2, `<span class="ag-name">${A}/agent`); // Board info → Agents lists the agent on the board: each MCP connection is a named session
   assert(!p2.includes("Your agent is on this board.") && !p2.includes(">agent live<"), "no presence text");
@@ -1302,7 +1328,7 @@ await step("live updates over WebSocket: members get a signal on each post; outs
     });
   const m = await open(B);
   assert(m.ok, "member should connect");
-  await new Promise((r) => setTimeout(r, 300));
+  await until(() => m.msgs.some((x) => x.includes('"type":"hello"')));
   assert(m.msgs.some((x) => JSON.parse(x).type === "hello"), "expected hello");
   const t0 = Date.now();
   const posted = seqOf(await ok(A, board, "post", { type: "note", title: "WS ping", text: `ws ping ${run} ${"padding ".repeat(40)}` }));
@@ -1312,7 +1338,7 @@ await step("live updates over WebSocket: members get a signal on each post; outs
   const sig = JSON.parse(m.msgs.find((x) => x.includes(`"seq":${posted}`)));
   assert(sig.kind === "note" && sig.entry_title === "WS ping" && sig.excerpt.startsWith(`ws ping ${run} padding`) && sig.excerpt.endsWith("…") && sig.excerpt.length <= 200 && !sig.flagged, JSON.stringify(sig));
   m.ws.send("ping");
-  await new Promise((r) => setTimeout(r, 400));
+  await until(() => m.msgs.includes("pong"));
   assert(m.msgs.includes("pong"), "keep-alive ping should be answered");
   m.ws.close();
   assert(!(await open(OUT)).ok, "outsider must not connect");
@@ -1329,13 +1355,18 @@ await step("creator removes a member: their wait ends, their access is gone", as
   // OUT accepted an invitation to board2 in the previous step; A created board2.
   const so = await session(OUT);
   await sok(so, "join_board", { board: board2 });
+  const sockMsgs = [];
   const closed = new Promise((resolve) => {
     const ws = new WebSocket(BASE.replace(/^http/, "ws") + `/api/boards/${board2}/ws`, { headers: { cookie: cookie[OUT] } });
-    ws.onmessage = (m) => String(m.data).includes('"removed"') && resolve("removed");
+    ws.onmessage = (m) => {
+      const s = String(m.data);
+      sockMsgs.push(s);
+      if (s.includes('"removed"')) resolve("removed");
+    };
     ws.onclose = (e) => resolve(e.code === 4003 ? "removed" : `closed ${e.code}`);
     setTimeout(() => resolve("timeout"), 8000);
   });
-  await new Promise((r) => setTimeout(r, 400));
+  await until(() => sockMsgs.some((x) => x.includes('"type":"hello"')));
   const t0 = Date.now();
   const waiting = stool(so, "wait", { timeout_seconds: 30 });
   await new Promise((r) => setTimeout(r, 400));
@@ -1905,8 +1936,9 @@ await step("inbox retention: cron deletes read notifications older than 30 days;
   await fetch(`${BASE}/api/mailbox/ack`, { method: "POST", headers: { ...auth(B), "content-type": "application/json" }, body: JSON.stringify({ ids: [oldItem.id] }) });
   const markedAt = Date.now();
   await ops("cron", { now: markedAt + 31 * day });
-  await new Promise((r) => setTimeout(r, 400));
-  assert(!(await (await web(`/api/inbox`, B)).json()).items.some((i) => i.seq === oldSeq), "old read pruned");
+  let pruned = false;
+  await until(async () => (pruned = !(await (await web(`/api/inbox`, B)).json()).items.some((i) => i.seq === oldSeq)));
+  assert(pruned, "old read pruned");
   const recentSeq = seqOf(await ok(A, fb, "post", { type: "note", text: `@${B} keep recent ${run}` }));
   const unreadSeq = seqOf(await ok(A, fb, "post", { type: "note", text: `@${B} keep unread ${run}` }));
   const recentItem = (await (await web(`/api/inbox`, B)).json()).items.find((i) => i.seq === recentSeq);
@@ -1937,8 +1969,11 @@ await step("mailbox retention: cron deletes mail acked over 30 days ago once the
   assert(keptMail && (await call(B, "POST", "/api/mailbox/ack", { ids: [keptMail.id] })).delivered === 1, "ack the unread one");
   const ackedAt = Date.now();
   await ops("cron", { now: ackedAt + 31 * day });
-  await new Promise((r) => setTimeout(r, 400));
-  const after = (await (await web(`/api/inbox`, B)).json()).items;
+  let after = [];
+  await until(async () => {
+    after = (await (await web(`/api/inbox`, B)).json()).items;
+    return !after.some((i) => i.seq === oldSeq && i.board_id === mb);
+  });
   assert(!after.some((i) => i.seq === oldSeq && i.board_id === mb), "old acked and read: pruned");
   assert(after.some((i) => i.seq === keptSeq && i.board_id === mb && !i.read_at), "old acked but unread in the inbox: kept");
   // Recent acked + unacked: both kept by a cron run at the current time.
@@ -2563,11 +2598,7 @@ await step("board pictures: any member sets one; served to members only, version
   assert((await lines()).includes(`📷 ${A} removed the board picture`), "removal line");
   // Direct boards show the other person's avatar instead.
   const P1 = `e2e-pic1-${run}`, P2 = `e2e-pic2-${run}`;
-  for (const n of [P1, P2]) {
-    await ops("users", { name: n, email: `${n}@example.com`, verified: "true" });
-    tok[n] = (await ops("tokens", { user: n, label: "e2e" })).body.token;
-    cookie[n] = (await ops("sessions", { user: n })).body.cookie;
-  }
+  await makeUsers([P1, P2]);
   const call = async (who, path) => (await fetch(`${BASE}${path}`, { method: "POST", headers: auth(who) })).json();
   await fetch(`${BASE}/api/friends/request`, { method: "POST", headers: { ...auth(P1), "content-type": "application/json" }, body: JSON.stringify({ user: P2 }) });
   await call(P2, `/api/friends/${P1}/accept`);
@@ -2921,9 +2952,12 @@ await step("@humans pings every person on the board (not their agents), includin
   const seq = seqOf(await ok(A, board, "post", { type: "note", text: `@humans standup in 5 ${run}` }));
   const e = (await (await web(`/api/boards/${board}/entries/${seq}`, B)).json()).entry;
   assert(e.mentions.some((m) => m.user === H && !m.agent) && e.mentions.every((m) => !m.agent), JSON.stringify(e.mentions));
-  await new Promise((r) => setTimeout(r, 800));
   const ck = (await ops("sessions", { user: H })).body.cookie;
-  const inbox = await (await fetch(`${BASE}/api/inbox`, { headers: { cookie: ck } })).json();
+  let inbox = { items: [] };
+  await until(async () => {
+    inbox = await (await fetch(`${BASE}/api/inbox`, { headers: { cookie: ck } })).json();
+    return inbox.items.some((i) => i.seq === seq && i.kind === "mention");
+  });
   assert(inbox.items.some((i) => i.seq === seq && i.kind === "mention"), "a member who never opened the board still gets the mention");
 });
 
@@ -3107,7 +3141,7 @@ await step("usage_daily retention: cron deletes rows older than 90 days; recent 
   assert((await rows(oldDay)).rows.some((r) => r.key === "old"), "old present");
   assert((await rows(recentDay)).rows.some((r) => r.key === "recent"), "recent present");
   await ops("cron", { now: T0 });
-  await new Promise((r) => setTimeout(r, 400));
+  await until(async () => !(await rows(oldDay)).rows.some((r) => r.metric === metric && r.key === "old"));
   assert(!(await rows(oldDay)).rows.some((r) => r.metric === metric && r.key === "old"), "old pruned");
   assert((await rows(recentDay)).rows.some((r) => r.metric === metric && r.key === "recent"), "recent kept");
 });
@@ -3522,12 +3556,17 @@ await step("delete a board: creator only, typed confirmation, everything goes", 
   assert(!(await (await web(`/b/${del}`, B)).text()).includes("Delete board…"), "only the creator sees delete");
   const sb = await session(B);
   await sok(sb, "join_board", { board: del });
+  const delMsgs = [];
   const told = new Promise((resolve) => {
     const ws = new WebSocket(BASE.replace(/^http/, "ws") + `/api/boards/${del}/ws`, { headers: { cookie: cookie[B] } });
-    ws.onmessage = (m) => String(m.data).includes('"deleted"') && resolve("deleted");
+    ws.onmessage = (m) => {
+      const s = String(m.data);
+      delMsgs.push(s);
+      if (s.includes('"deleted"')) resolve("deleted");
+    };
     setTimeout(() => resolve("timeout"), 8000);
   });
-  await new Promise((r) => setTimeout(r, 400));
+  await until(() => delMsgs.some((x) => x.includes('"type":"hello"')));
   const post = (who, confirm) => web(`/api/boards/${del}/delete`, who, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ confirm }) });
   assert((await post(B, title)).status === 403, "member can't delete");
   assert((await post(A, "wrong name")).status === 400, "confirmation must match");
@@ -3636,7 +3675,6 @@ await step("agent sessions: several per person, each with its own boards and rea
   const mineWait = api(B, "GET", `/api/sessions/${s1.id}/wait?timeout=20&for=me`);
   await new Promise((r) => setTimeout(r, 600));
   await ok(A, b3, "post", { type: "note", text: `chatter for-me ${run}`, reply_to: 0 });
-  await new Promise((r) => setTimeout(r, 600));
   await ok(A, b3, "post", { type: "note", text: `@${B}'s agent for-me ping ${run}`, reply_to: 0 });
   const fm = (await mineWait).body;
   assert(!fm.timed_out && fm.text.includes(`chatter for-me ${run}`) && fm.text.includes(`for-me ping ${run}`) && fm.text.includes("1 for you"), JSON.stringify(fm).slice(0, 400));
@@ -3746,11 +3784,7 @@ await step("read-only agent sessions: read and wait work; posting, through the A
 await step("handling: taking by reply or by finishing a task names the session (user/session) over REST too; a page with gaps maps only its own seqs", async () => {
   // Its own two people (P asks, Q's agents answer), so the mail it makes doesn't crowd A's and B's later checks.
   const P = `e2e-hp-${run}`, Q = `e2e-hq-${run}`;
-  for (const n of [P, Q]) {
-    await ops("users", { name: n, email: `${n}@example.com`, verified: "true" });
-    tok[n] = (await ops("tokens", { user: n, label: "e2e" })).body.token;
-    cookie[n] = (await ops("sessions", { user: n })).body.cookie;
-  }
+  await makeUsers([P, Q]);
   const api = async (who, method, path, body, session) => {
     const r = await fetch(`${BASE}${path}`, { method, headers: { ...auth(who), ...(session ? { "x-atteo-session": session.id } : {}), "content-type": "application/json" }, body: body ? JSON.stringify(body) : undefined });
     return { status: r.status, body: await r.json().catch(() => ({})) };
@@ -3942,10 +3976,7 @@ await step("kill switch: Disconnect all agents revokes every sign-in and ends ev
 
 await step("mailbox: DMs and mail for your agent wait until your agent polls; full text; delivery is separate from your web reading; wait and ack", async () => {
   const M1 = `e2e-mb1-${run}`, M2 = `e2e-mb2-${run}`;
-  for (const n of [M1, M2]) {
-    await ops("users", { name: n, email: `${n}@example.com`, verified: "true" });
-    tok[n] = (await ops("tokens", { user: n, label: "e2e" })).body.token;
-  }
+  await makeUsers([M1, M2], { session: false });
   const call = async (who, method, path, body) => { const r = await fetch(`${BASE}${path}`, { method, headers: { ...auth(who), "content-type": "application/json" }, body: body ? JSON.stringify(body) : undefined }); return r.json(); };
   await call(M1, "POST", "/api/friends/request", { user: M2 });
   await call(M2, "POST", `/api/friends/${M1}/accept`);
@@ -3982,10 +4013,7 @@ await step("mailbox: DMs and mail for your agent wait until your agent polls; fu
 
 await step("mailbox tool (MCP): new mail as compact fenced lines under one header, then nothing; peek keeps it; wait returns when mail lands", async () => {
   const M1 = `e2e-mt1-${run}`, M2 = `e2e-mt2-${run}`;
-  for (const n of [M1, M2]) {
-    await ops("users", { name: n, email: `${n}@example.com`, verified: "true" });
-    tok[n] = (await ops("tokens", { user: n, label: "e2e" })).body.token;
-  }
+  await makeUsers([M1, M2], { session: false });
   const call = async (who, method, path, body) => (await fetch(`${BASE}${path}`, { method, headers: { ...auth(who), "content-type": "application/json" }, body: body ? JSON.stringify(body) : undefined })).json();
   await call(M1, "POST", "/api/friends/request", { user: M2 });
   await call(M2, "POST", `/api/friends/${M1}/accept`);
@@ -4031,11 +4059,7 @@ await step("mailbox tool (MCP): new mail as compact fenced lines under one heade
 
 await step("mailbox from_your_person (#2184): your own \"@you's agent\" / @agents / @all on a shared board is your agents' mail (already read for you); people-only and plain posts aren't; Just mine and \"Your agent\" come once, as before", async () => {
   const P = `e2e-fyp-${run}`, Q = `e2e-fyq-${run}`;
-  for (const n of [P, Q]) {
-    await ops("users", { name: n, email: `${n}@example.com`, verified: "true" });
-    tok[n] = (await ops("tokens", { user: n, label: "e2e" })).body.token;
-    cookie[n] = (await ops("sessions", { user: n })).body.cookie;
-  }
+  await makeUsers([P, Q]);
   const sb = (await ops("boards", { user: Q, title: `e2e fyp ${run}` })).body.board.id;
   await ops("members", { board: sb, user: P });
   const say = async (board, body) => {
@@ -4105,11 +4129,7 @@ await step("mailbox from_your_person (#2184): your own \"@you's agent\" / @agent
 
 await step("mailbox drain lease (#2184): one drainer per person; while S1 holds it S2 only peeks (with a hint), acks deliver nothing but its own session's mail; once it lapses S2 drains", async () => {
   const L = `e2e-dl-${run}`, R = `e2e-dr-${run}`;
-  for (const n of [L, R]) {
-    await ops("users", { name: n, email: `${n}@example.com`, verified: "true" });
-    tok[n] = (await ops("tokens", { user: n, label: "e2e" })).body.token;
-    cookie[n] = (await ops("sessions", { user: n })).body.cookie;
-  }
+  await makeUsers([L, R]);
   const lb = (await ops("boards", { user: R, title: `e2e lease ${run}` })).body.board.id;
   await ops("members", { board: lb, user: L });
   const call = async (method, path, { body, sess, now } = {}) => {
@@ -4527,11 +4547,7 @@ await step("new board as JSON (the app): POST /api/boards makes an encrypted boa
 
 await step("Your agent: a private chat with your own agents, made on first open; only you; your posts are DMs from your user; @you/<session> reaches that one session; replies land in the thread", async () => {
   const Y = `e2e-you-${run}`, Z = `e2e-zed-${run}`;
-  for (const n of [Y, Z]) {
-    assert((await ops("users", { name: n, email: `${n}@example.com`, verified: "true" })).status === 201, `user ${n}`);
-    tok[n] = (await ops("tokens", { user: n, label: "e2e" })).body.token;
-    cookie[n] = (await ops("sessions", { user: n })).body.cookie;
-  }
+  await makeUsers([Y, Z]);
   const api = async (who, method, path, body, headers = {}) => {
     const r = await fetch(`${BASE}${path}`, { method, headers: { ...auth(who), "content-type": "application/json", ...headers }, body: body ? JSON.stringify(body) : undefined });
     return { status: r.status, body: await r.json().catch(() => ({})) };
@@ -4628,12 +4644,6 @@ const wsOpen = (bid, who) =>
     ws.onopen = () => resolve({ ws, msgs, ok: true });
     ws.onerror = () => resolve({ ws, msgs, ok: false });
   });
-const until = async (f, ms = 5000) => {
-  const t0 = Date.now();
-  while (!(await f()) && Date.now() - t0 < ms) await new Promise((r) => setTimeout(r, 100));
-  return f();
-};
-
 await step("pinned doc: any member pins one doc; non-members can't; summary, GET board and a 📌 line once per version", async () => {
   fourBoard = (await ops("boards", { user: A, title: `e2e four ${run}` })).body.board.id; // (A is past the free plan's board count here)
   assert((await ops("members", { board: fourBoard, user: B })).status === 200, "add B");
@@ -4791,7 +4801,6 @@ await step("workflow triggers: CRUD, fire into the right mailbox, only your own 
   };
   const T = `/api/boards/${fourBoard}/triggers`;
   const mail = async (who, headers = {}) => (await tapi(who, "GET", "/api/mailbox?peek=1&limit=100", null, headers)).body.mail.filter((m) => m.kind === "trigger");
-  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   // Nobody wakes someone else's agent; bad rules are refused; outsiders see nothing.
   assert((await tapi(A, "POST", T, { on: "entry", prompt: "x", wake: { user: B } })).status === 403, "can't wake B's agent");
   assert((await tapi(A, "POST", T, { on: "entry", prompt: "x", wake: { session: `${B}/claude` } })).status === 403, "nor B's session");
@@ -4848,8 +4857,11 @@ await step("workflow triggers: CRUD, fire into the right mailbox, only your own 
   const t3 = (await tapi(A, "POST", T, { on: "entry", match: { text: `rl-${run}` }, prompt: "rate" })).body.trigger;
   for (let i = 0; i < 32; i++) await jpost(`/api/boards/${fourBoard}/entries`, B, { type: "note", text: `rl-${run} ${i}` });
   assert(await until(async () => (await mail(A)).filter((m) => m.trigger?.id === t3.id).length >= 30), "30 delivered");
-  await sleep(500);
-  const t3now = (await tapi(A, "GET", T)).body.triggers.find((x) => x.id === t3.id);
+  let t3now;
+  await until(async () => {
+    t3now = (await tapi(A, "GET", T)).body.triggers.find((x) => x.id === t3.id);
+    return t3now && t3now.fires === 30 && t3now.dropped === 2;
+  });
   assert(t3now.fires === 30 && t3now.dropped === 2 && t3now.last_fired_at > 0 && (await mail(A)).filter((m) => m.trigger?.id === t3.id).length === 30, JSON.stringify(t3now));
   // Mentions and approvals, through the MCP tool (an agent manages its own).
   has(await ok(A, fourBoard, "trigger", { action: "add", on: "mention", prompt: "Answer when mentioned" }), "Added tr_");
@@ -4893,7 +4905,6 @@ await step("schedules (shared crons): people add them, agents only list; each du
     const r = await fetch(`${BASE}${path}`, { method, headers: { ...(asAgent ? { authorization: `Bearer ${tok[who]}` } : { cookie: cookie[who] }), "content-type": "application/json" }, body: body == null ? undefined : JSON.stringify(body) });
     return { status: r.status, body: await r.json().catch(() => ({})) };
   };
-  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const sb = (await ops("boards", { user: A, title: `e2e schedules ${run}` })).body.board.id;
   await ops("members", { board: sb, user: B });
   const S = `/api/boards/${sb}/schedules`;
@@ -4992,7 +5003,6 @@ await step("schedules (shared crons): people add them, agents only list; each du
   const eb = (await ops("boards", { user: A, title: `e2e schedule enc ${run}`, encrypted: true })).body.board.id;
   const enc = await sapi(A, "POST", `/api/boards/${eb}/schedules`, { title: "x", at: "09:00" });
   assert(enc.status === 400 && enc.body.error.includes("encrypted"), JSON.stringify(enc));
-  await sleep(10);
 });
 
 // ---- #1090: a board's MEMORY (short durable facts for every agent) and @all ----
@@ -5169,13 +5179,9 @@ const anApi = (who, method, path, body) => fetch(`${BASE}${path}`, { method, hea
 const anSet = (who, agent_name) => anApi(who, "POST", "/api/me/profile", { agent_name });
 
 await step("agent names: set, trim, clear; refused when it could pass for a person (look-alike letters too), is reserved, says whose agent it is, or is too long", async () => {
-  for (const n of Object.values(AN)) {
-    await ops("users", { name: n, email: `${n}@example.com`, verified: "true" });
-    tok[n] = (await ops("tokens", { user: n, label: "e2e" })).body.token;
-    cookie[n] = (await ops("sessions", { user: n })).body.cookie;
-  }
+  await makeUsers(Object.values(AN));
   anBoard = (await ops("boards", { user: AN.v, title: `e2e agent names ${run}` })).body.board.id;
-  for (const n of [AN.j, AN.k]) await ops("members", { board: anBoard, user: n });
+  await Promise.all([AN.j, AN.k].map((n) => ops("members", { board: anBoard, user: n })));
   const get = async () => (await (await anApi(AN.v, "GET", "/api/me/profile")).json()).profile;
   assert((await get()).agent_name === null, "none by default");
   let r = await (await anSet(AN.v, "  Jarvis  ")).json();
@@ -5290,9 +5296,11 @@ await step("agent names: entries, members, agents and people carry agent_name wi
 
 await step("side panel: a question closes when the member it's for answers in its thread; people mark one answered (not agents, not viewers)", async () => {
   const [O, M, V] = ["o", "m", "v"].map((x) => `e2e-sp${x}-${run}`);
-  for (const u of [O, M, V]) await ops("users", { name: u, email: `${u}@example.com`, verified: "true" });
-  for (const u of [O, M]) tok[u] = (await ops("tokens", { user: u })).body.token;
-  for (const u of [O, V]) cookie[u] = (await ops("sessions", { user: u })).body.cookie;
+  await Promise.all([O, M, V].map((u) => ops("users", { name: u, email: `${u}@example.com`, verified: "true" })));
+  await Promise.all([
+    ...[O, M].map(async (u) => { tok[u] = (await ops("tokens", { user: u })).body.token; }),
+    ...[O, V].map(async (u) => { cookie[u] = (await ops("sessions", { user: u })).body.cookie; }),
+  ]);
   const b = (await ops("boards", { user: O, title: `e2e side panel ${run}` })).body.board.id;
   for (const u of [M, V]) await ops("members", { board: b, user: u });
   assert((await web(`/api/boards/${b}/members/${V}`, O, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ role: "viewer" }) })).ok, "V is a viewer");
@@ -6163,15 +6171,16 @@ await step("session model: people see it on the web, agents never get it (reads,
     assert(s.status === 201, `session: ${s.status} ${JSON.stringify(s.body)}`);
     const sid = s.body.session.id;
     assert((await call(t, "POST", `/api/sessions/${sid}/boards`, { board: bd })).status < 300, "join"); // 2
-    // Ten idle waits of every kind: none counted, all answered.
+    // Ten idle waits of every kind: none counted, all answered. They don't share one wait slot, so each round holds
+    // them together; each still runs out its own 1s.
     for (let i = 0; i < 2; i++) {
-      const w = [
-        await call(t, "GET", `/api/sessions/${sid}/wait?timeout=1`),
-        await call(t, "GET", "/api/mailbox?wait=1"),
-        await call(t, "GET", `/api/boards/${bd}/updates?after=999999&wait=1`),
-        await mcpCall("wait", { timeout_seconds: 1 }),
-        await mcpCall("mailbox", { wait_seconds: 1 }),
-      ];
+      const w = await Promise.all([
+        call(t, "GET", `/api/sessions/${sid}/wait?timeout=1`),
+        call(t, "GET", "/api/mailbox?wait=1"),
+        call(t, "GET", `/api/boards/${bd}/updates?after=999999&wait=1`),
+        mcpCall("wait", { timeout_seconds: 1 }),
+        mcpCall("mailbox", { wait_seconds: 1 }),
+      ]);
       assert(w.every((x) => x.status === 200 && !x.body.error), `waits round ${i + 1}: ${w.map((x) => `${x.status} ${JSON.stringify(x.body).slice(0, 80)}`).join(" | ")}`);
     }
     assert((await call(t, "GET", "/api/me")).status === 200, "3rd counted call");
@@ -6193,14 +6202,13 @@ await step("session model: people see it on the web, agents never get it (reads,
 // mine (you and your own agents) never reach another member's agent, by any path; your own agent does get your Just mine.
 await step("privacy suite: People only and Just mine never reach another member's agent (read, get, search, grep, recap, summary, memory, mailbox, files, webhooks, forward, wait, live signals) or another member as a person (board list, inbox, For you); your own agent gets your Just mine", async () => {
   const O = `e2e-po-${run}`, P = `e2e-pp-${run}`, M = `e2e-pm-${run}`; // O writes; P is named in O's people-only; M is just another member
-  for (const n of [O, P, M]) {
-    await ops("users", { name: n, email: `${n}@example.com`, verified: "true" });
-    tok[n] = (await ops("tokens", { user: n, label: "e2e" })).body.token;
-    cookie[n] = (await ops("sessions", { user: n })).body.cookie;
-  }
-  const bd = (await ops("boards", { user: O, title: `e2e privacy ${run}` })).body.board.id;
-  const other = (await ops("boards", { user: M, title: `e2e privacy elsewhere ${run}` })).body.board.id;
-  for (const n of [P, M]) await ops("members", { board: bd, user: n });
+  await makeUsers([O, P, M]);
+  const [{ body: ob }, { body: mb }] = await Promise.all([
+    ops("boards", { user: O, title: `e2e privacy ${run}` }),
+    ops("boards", { user: M, title: `e2e privacy elsewhere ${run}` }),
+  ]);
+  const bd = ob.board.id, other = mb.board.id;
+  await Promise.all([P, M].map((n) => ops("members", { board: bd, user: n })));
   const api = async (who, method, path, body, bearer) => {
     const r = await fetch(`${BASE}${path}`, { method, headers: { ...(bearer ? auth(who) : { cookie: cookie[who] }), "content-type": "application/json" }, body: body == null ? undefined : JSON.stringify(body) });
     return { status: r.status, body: await r.json().catch(() => ({})) };
@@ -6208,7 +6216,7 @@ await step("privacy suite: People only and Just mine never reach another member'
   const S_PO = `peopleonly-${run}-zq`, S_JM = `justmine-${run}-zq`, S_JMA = `justmine-agent-${run}-zq`, ALL = [S_PO, S_JM, S_JMA];
   const local = /localhost|127\.0\.0\.1/.test(BASE);
   if (local) assert((await api(M, "POST", "/api/webhooks", { url: `${BASE}/__webhook-sink` })).status === 201, "M's webhook");
-  for (const n of [O, P, M]) await ok(n, bd, "read");
+  await Promise.all([O, P, M].map((n) => ok(n, bd, "read")));
   const pub = (await api(O, "POST", `/api/boards/${bd}/entries`, { text: `public marker ${run}` })).body.entry.seq;
   // Live: M's agent and M as a person listen on the board's socket, and M's agent waits; none may carry the private text.
   const ws = (headers) => new Promise((resolve) => {
