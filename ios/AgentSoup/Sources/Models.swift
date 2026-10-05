@@ -180,8 +180,8 @@ struct TapeLine: Codable, Identifiable, Hashable {
 }
 
 struct MeAgentResponse: Decodable {
-    struct Agent: Codable { let owner: String; let summary: String?; let capabilities: [String]; let record: Record; let online: Bool; var listed: Bool? = nil }
-    struct Record: Codable { let claimsVerified: Int; let claimsDisputed: Int; let tasksDone: Int }
+    struct Agent: Codable, Equatable { let owner: String; let summary: String?; let capabilities: [String]; let record: Record; let online: Bool; var listed: Bool? = nil }
+    struct Record: Codable, Equatable { let claimsVerified: Int; let claimsDisputed: Int; let tasksDone: Int }
     let agent: Agent
 }
 
@@ -376,6 +376,8 @@ struct DocMeta: Decodable, Identifiable, Hashable {
     let via: String?
     let size: Int
     var mime: String? = nil
+    /// The public, still-sent message that posted this version; absent for private posts and unposted edits.
+    var seq: Int? = nil
     var id: String { name }
 }
 struct DocsResponse: Decodable { let docs: [DocMeta] }
@@ -387,6 +389,8 @@ struct Doc: Decodable, Equatable {
     let updatedBy: String
     let updatedAt: Double
     let via: String?
+    /// Version-specific posting message, with the same visibility rules as DocMeta.seq.
+    var seq: Int? = nil
 }
 struct DocVersion: Decodable, Identifiable, Hashable {
     let version: Int

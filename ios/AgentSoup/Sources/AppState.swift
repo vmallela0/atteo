@@ -143,7 +143,15 @@ final class AppState: ObservableObject {
             async let ap = API.shared.get("/api/approvals", as: ApprovalsResponse.self)
             async let co = API.shared.get("/api/contacts", as: ContactsResponse.self)
             let (ii, aa, cc) = try await (i, ap, co)
-            withAnimation(.smooth) { inbox = ii.items; approvals = aa.approvals; contacts = cc.incoming }
+            // Only what changed: every assignment publishes AppState, which redraws every screen that watches it, and
+            // this runs on each bit of activity anywhere (startFeed), mostly with nothing new here (jxn #4181).
+            if ii.items != inbox || aa.approvals != approvals || cc.incoming != contacts {
+                withAnimation(.smooth) {
+                    if ii.items != inbox { inbox = ii.items }
+                    if aa.approvals != approvals { approvals = aa.approvals }
+                    if cc.incoming != contacts { contacts = cc.incoming }
+                }
+            }
             save()
             // On screen: note what's here (no notifications), and keep the app icon's number right.
             await Notifier.shared.check(inbox: ii.items, approvals: aa.approvals, notify: false, summary: ii.notify)
@@ -157,9 +165,14 @@ final class AppState: ObservableObject {
             async let m = API.shared.get("/api/agents/me", as: MeAgentResponse.self)
             async let p = try? API.shared.get("/api/me/profile", as: ProfileResponse.self)
             let (ss, mm) = try await (s, m)
-            withAnimation(.smooth) { sessions = ss.sessions; me = mm.agent }
+            if ss.sessions != sessions || mm.agent != me {
+                withAnimation(.smooth) {
+                    if ss.sessions != sessions { sessions = ss.sessions }
+                    if mm.agent != me { me = mm.agent }
+                }
+            }
             AppMode.shared.note(sessions: ss.sessions, fromServer: true) // a coding agent turns Developer mode on (Everyday.swift)
-            if let pp = await p { profile = pp.profile; adoptDisplay(pp.profile.display) }
+            if let pp = await p { if pp.profile != profile { profile = pp.profile }; adoptDisplay(pp.profile.display) }
             save()
         } catch { report(error, quiet: true) }
     }
@@ -258,7 +271,8 @@ final class AppState: ObservableObject {
             let r = try await API.shared.get("/api/me/boards", as: BoardsResponse.self)
             // A picture changing right now keeps showing what it's changing to (BoardPicture.swift).
             let list = r.boards.map(BoardPictureStore.shared.applyPending)
-            withAnimation(.smooth) { boards = list.sorted { $0.lastActivity > $1.lastActivity } }
+            let sorted = list.sorted { $0.lastActivity > $1.lastActivity }
+            if sorted != boards { withAnimation(.smooth) { boards = sorted } } // unchanged: no publish (refreshInbox)
             // The chat list needs names before any chat is opened. Refresh each board's member data in small batches.
             let stale = list.filter { Date().timeIntervalSince(membersRefreshed[$0.id] ?? .distantPast) > 60 }
             for start in stride(from: 0, to: stale.count, by: 6) {
@@ -525,8 +539,10 @@ final class AppState: ObservableObject {
         }
     }
 
-    /// How far each picture or file you're sending has gone up (by its stand-in's seq), 0…1.
-    @Published var uploads: [Int: Double] = [:]
+    /// How far each picture or file you're sending has gone up (by its stand-in's seq), 0…1. A store of its own, not
+    /// published here: progress ticks many times a second, and each publish of AppState redraws every screen that
+    /// watches it (jxn #4181). Only the row that's sending reads it (EntryRow.progress).
+    let uploads = SendingProgress()
     private static let outbox = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0].appendingPathComponent("outbox", isDirectory: true)
 
     /// Sends pictures and files the way the web composer does: one upload each, in order, what you typed going with
@@ -837,5 +853,14 @@ final class AppState: ObservableObject {
         if case APIError.signedOut = e { signOut(); return }
         if quiet, case APIError.offline = e { return }
         error = e.localizedDescription
+    }
+}
+
+/// Upload progress by stand-in seq (AppState.uploads). Only rows still sending read it, so a tick redraws those alone.
+@Observable final class SendingProgress {
+    private var values: [Int: Double] = [:]
+    subscript(seq: Int) -> Double? {
+        get { values[seq] }
+        set { values[seq] = newValue }
     }
 }

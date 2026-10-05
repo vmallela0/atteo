@@ -236,7 +236,7 @@ struct BoardInfoSheet: View {
                 if files.isEmpty { Text("No files yet.").font(Typo.secondary).foregroundStyle(Theme.muted) }
                 ForEach(files.prefix(5)) { f in fileRow(f) }
                 if files.count > 5 {
-                    NavigationLink { FilesList(board: board.id) } label: { InfoLabel("All \(files.count) files", "doc.on.doc") }
+                    NavigationLink { FilesList(board: board.id, jump: jump) } label: { InfoLabel("All \(files.count) files", "doc.on.doc") }
                         .accessibilityIdentifier("board-files")
                 }
             } else { ProgressView().tint(Theme.faint) }
@@ -282,11 +282,11 @@ struct BoardInfoSheet: View {
         } else if HTMLPreview.available(board: board.id, name: f.name, stored: false) {
             // An .html file: Preview runs it (HTMLPreview.swift); the row still opens its source.
             HStack(spacing: Space.s) {
-                NavigationLink { DocViewer(board: board.id, name: f.name) } label: { label }.accessibilityIdentifier("file-\(f.name)")
+                NavigationLink { DocViewer(board: board.id, name: f.name, jump: jump) } label: { label }.accessibilityIdentifier("file-\(f.name)")
                 PreviewButton { running = HTMLPreviewTarget(board: board.id, name: f.name, version: f.version) }
             }
         } else {
-            NavigationLink { DocViewer(board: board.id, name: f.name) } label: { label }.accessibilityIdentifier("file-\(f.name)")
+            NavigationLink { DocViewer(board: board.id, name: f.name, jump: jump) } label: { label }.accessibilityIdentifier("file-\(f.name)")
         }
     }
 

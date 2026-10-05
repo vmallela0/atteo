@@ -1121,7 +1121,7 @@ function inviteAgentDialog(T: (s: string) => string, info: { id: string; title: 
     <div class="copy"><pre class="mono" id="ia-join">${esc(msg)}</pre><button type="button" class="btn sm" data-copy="ia-join">${esc(T("Copy"))}</button></div>
     <p class="xs muted">${esc(T("Not connected yet?"))} <button type="button" class="linkish" data-open="connect">${esc(T("Connect your assistant"))}</button></p></section>
   <section class="ia-opt" id="ia-friend"><h3>${esc(T("A friend's agent"))}</h3><p class="small muted">${esc(T("Invite the friend to this board. Their agents join once they accept."))}</p>
-    <form method="post" action="/api/boards/${esc(info.id)}/invites" data-api data-reset class="acc-row"><input class="input grow" name="email" required autocomplete="off" placeholder="${esc(T("A friend's name"))}" aria-label="${esc(T("A friend's name"))}"><input type="hidden" name="role" value="contributor"><button class="btn primary">${esc(T("Invite"))}</button>
+    <form method="post" action="/api/boards/${esc(info.id)}/invites" data-api data-reset class="acc-row"><input class="input grow" name="email" required autocomplete="off" placeholder="${esc(T("A friend's name"))}" aria-label="${esc(T("A friend's name"))}"><button class="btn primary">${esc(T("Invite"))}</button>
     <p data-result hidden style="margin-top:8px;flex-basis:100%"></p></form></section>
 </div></dialog>`;
 }
@@ -1414,6 +1414,7 @@ function connect(){
     if(d.type==='schedule'){if(document.getElementById('invite')?.open&&window.schLoad)schLoad();return}
     if(d.type==='reaction'){renderRx(d.seq,d.reactions);return}
     if(d.type==='edit'){if(d.seq&&d.seq===window.pgDone)return;location.reload();return} // your own purge: that page shows it already, toast and all
+    if(d.type==='pruned'){location.reload();return} // retention changed existing rows; fetch their compacted placeholders
     if(d.type==='answered'){sumNext=true;tick(false);return} // someone marked a question answered: refresh the open questions
     if(d.type==='approval'){window.apcApply&&apcApply(d.approval);return}
     if(d.type==='typing'){if(d.who!==ME){TYPERS.set(d.who,d.until);typingSync()}return}
@@ -2440,7 +2441,7 @@ async function accLoad(){const [m,a,l]=await Promise.all([fetch('/api/boards/'+B
     return '<li class="acc-row" data-user="'+esc(x.user)+'">'+avatar16(x.user,false)+'<span class="grow truncate">'+esc(x.user)+(x.user===ME?' <span class="faint">'+tr('(you)')+'</span>':'')+'</span>'+
       sel('role',x.role||'contributor',[['owner',tr('Owner')],['contributor',tr('Can post')],['viewer',tr('View only')]],fixed,tr('Role for {name}',{name:x.user}))+
       sel('days',x.expires_at?'keep':'0',(x.expires_at?[['keep',tr('Until ')+accFmt(x.expires_at)]]:[]).concat([['0',tr('No end date')],['7',tr('{n} more days',{n:7})],['30',tr('{n} more days',{n:30})],['90',tr('{n} more days',{n:90})]]),!IS_OWNER||x.user===CREATOR,tr('Access for {name}',{name:x.user}))+'</li>'}).join('')||'<li class="xs faint">'+tr('No members')+'</li>';
-  if(IS_OWNER)document.getElementById('acc-links').innerHTML=(l.links||[]).filter(x=>!x.revoked_at&&(!x.expires_at||x.expires_at>Date.now())).map(x=>'<li class="acc-row xs"><span class="grow">'+(x.role==='viewer'?tr('View only'):tr('Can post'))+' link · until '+accFmt(x.expires_at)+' · used '+x.uses+(x.max_uses?' of '+x.max_uses:'')+'</span><button class="btn ghost sm" type="button" data-link-revoke="'+esc(x.id)+'">'+tr('Revoke')+'</button></li>').join('');
+  if(IS_OWNER)document.getElementById('acc-links').innerHTML=(l.links||[]).filter(x=>!x.revoked_at&&(!x.expires_at||x.expires_at>Date.now())).map(x=>'<li class="acc-row xs"><span class="grow">'+(x.role==='viewer'?tr('View only'):tr('Can post'))+' link · until '+accFmt(x.expires_at)+(x.member_days?' · access '+x.member_days+'d':'')+' · used '+x.uses+(x.max_uses?' of '+x.max_uses:'')+'</span><button class="btn ghost sm" type="button" data-link-revoke="'+esc(x.id)+'">'+tr('Revoke')+'</button></li>').join('');
   const verb={invited:'invited',joined:'joined',removed:'removed',left:'left',access_changed:'changed access for',link_created:'created an invite link',link_revoked:'revoked an invite link',renamed:'renamed the board',archived:'archived the board',restored:'restored the board',expired:'access ended for',picture_changed:'changed the board picture',picture_removed:'removed the board picture',charter:'updated the charter',retention:'set how long messages are kept'};
   document.getElementById('acc-audit').innerHTML=(a.audit||[]).slice(0,50).map(x=>'<li class="xs"><b>'+esc(x.actor)+'</b> '+(verb[x.action]||esc(x.action))+(x.target?' <b>'+esc(x.target)+'</b>':'')+(x.detail?' <span class="faint">· '+esc(x.detail)+'</span>':'')+' <span class="faint">· '+new Date(x.ts).toLocaleString([],{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'})+'</span></li>').join('')||'<li class="xs faint">'+tr('Nothing yet')+'</li>'}
 // ---- The gate's queue (#3209): open handoffs, oldest first, in board info — so nobody has to ask whether the gate is running ----
@@ -2541,7 +2542,7 @@ document.getElementById('acc-members').addEventListener('change',async e=>{const
   const body=s.dataset.acc==='role'?{role:s.value}:s.value==='keep'?null:{expires_days:+s.value};if(!body)return;
   const r=await fetch('/api/boards/'+BOARD+'/members/'+encodeURIComponent(u),{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)});const j=await r.json().catch(()=>({}));
   toast(r.ok?tr('Saved'):(j.error||tr('Could not save')));accLoad()});
-document.getElementById('link-make')?.addEventListener('click',async()=>{const r=await fetch('/api/boards/'+BOARD+'/links',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({role:document.getElementById('link-role').value,link_days:+document.getElementById('link-days').value})});
+document.getElementById('link-make')?.addEventListener('click',async()=>{const r=await fetch('/api/boards/'+BOARD+'/links',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({role:document.getElementById('link-role').value,link_days:+document.getElementById('link-days').value,member_days:+document.getElementById('link-access').value})});
   const j=await r.json().catch(()=>({}));if(!r.ok){toast(j.error||tr('Could not create'));return}const box=document.getElementById('link-new');
   box.innerHTML='<div class="acc-row"><input class="input mono grow acc-url" id="link-url" readonly value="'+esc(j.url)+'" aria-label="'+tr('Invite link')+'"><button class="btn sm" type="button" data-copy="link-url">'+tr('Copy')+'</button></div>';box.hidden=false;accLoad()});
 document.addEventListener('click',async e=>{const b=e.target.closest('[data-link-revoke]');if(!b)return;const r=await fetch('/api/boards/'+BOARD+'/links/'+b.dataset.linkRevoke,{method:'DELETE'});toast(r.ok?tr('Link revoked'):tr('Could not revoke'));accLoad()});
@@ -2939,8 +2940,8 @@ ${canInviteAgent ? inviteAgentDialog(T, info) : ""}
   <form method="post" action="/api/boards/${esc(info.id)}/invites" data-api data-reset class="acc-inv">
     <div class="acc-row"><div class="acc-to grow"><input class="input" id="inv-email" name="email" required autocomplete="off" placeholder="${esc(T("A friend's name, or anyone's email"))}" aria-label="${esc(T("Friend's name or email"))}" aria-autocomplete="list" aria-controls="inv-sug">
       <ul class="acc-sug" id="inv-sug" role="listbox" hidden></ul></div>
-    <select class="input acc-sel" name="role" aria-label="${esc(T("Role"))}"><option value="contributor">${esc(T("Can post"))}</option><option value="viewer">${esc(T("View only"))}</option></select>
-    <select class="input acc-sel" name="expires_days" aria-label="${esc(T("Access"))}"><option value="0">${esc(T("No end date"))}</option><option value="7">${esc(T("7 days"))}</option><option value="30">${esc(T("30 days"))}</option><option value="90">${esc(T("90 days"))}</option></select>
+    <select class="input acc-sel" name="role" aria-label="${esc(T("Role"))}"><option value="viewer" selected>${esc(T("View only"))}</option><option value="contributor">${esc(T("Can post"))}</option></select>
+    <select class="input acc-sel" name="expires_days" aria-label="${esc(T("Access"))}"><option value="30" selected>${esc(T("30 days"))}</option><option value="7">${esc(T("7 days"))}</option><option value="90">${esc(T("90 days"))}</option><option value="0">${esc(T("No end date"))}</option></select>
     <button class="btn primary">${esc(T("Invite"))}</button></div>
     <p data-result hidden style="margin-top:8px"></p>
     <p class="xs muted" style="margin-top:10px">${esc(T("From an agent:"))} <span class="mono">atteo invite &lt;name&gt; --board ${esc(info.id)}</span>${esc(T(". Once they accept, their agents join with"))} <span class="mono">atteo join ${esc(info.id)}</span>.</p>
@@ -2954,8 +2955,9 @@ ${canInviteAgent ? inviteAgentDialog(T, info) : ""}
   ${
     isOwner
       ? `<section class="acc-sec"><h3>${esc(T("Invite link"))}</h3><p class="xs muted">${esc(T("Anyone with the link joins (no email needed). Links end on their own; revoke one any time."))}</p>
-  <div class="acc-row"><select class="input acc-sel" id="link-role" aria-label="${esc(T("Role for people who join"))}"><option value="contributor">${esc(T("Can post"))}</option><option value="viewer">${esc(T("View only"))}</option></select>
+  <div class="acc-row"><select class="input acc-sel" id="link-role" aria-label="${esc(T("Role for people who join"))}"><option value="viewer" selected>${esc(T("View only"))}</option><option value="contributor">${esc(T("Can post"))}</option></select>
     <select class="input acc-sel" id="link-days" aria-label="${esc(T("Link works for"))}"><option value="1">${esc(T("Works 1 day"))}</option><option value="7" selected>${esc(T("Works 7 days"))}</option><option value="30">${esc(T("Works 30 days"))}</option></select>
+    <select class="input acc-sel" id="link-access" aria-label="${esc(T("Access"))}"><option value="30" selected>${esc(T("30 days"))}</option><option value="7">${esc(T("7 days"))}</option><option value="90">${esc(T("90 days"))}</option><option value="0">${esc(T("No end date"))}</option></select>
     <button class="btn" type="button" id="link-make">${esc(T("Create link"))}</button></div>
   <div id="link-new" hidden style="margin-top:8px"></div><ul class="acc-list" id="acc-links"></ul></section>`
       : ""
@@ -3691,18 +3693,32 @@ export function adminPage(viewer: Viewer, side: SideBoard[], d: AdminData): Resp
   const k = m?.kpis;
   const kpi = (n: string | number, label: string, sub = "") => `<div class="card pad"><div class="stat">${esc(String(n))}</div><div class="small muted">${label}</div>${sub ? `<div class="xs faint" style="margin-top:2px">${sub}</div>` : ""}</div>`;
   const o = m?.observe;
+  const s = m?.success;
   const rate = o?.block_rate == null ? "—" : `${(o.block_rate * 100).toFixed(1)}%`;
   const avg = o?.context_pack.avg_chars == null ? "—" : Math.round(o.context_pack.avg_chars).toLocaleString("en-US");
   const staleRate = o?.stale_notices.rate == null ? "—" : `${(o.stale_notices.rate * 100).toFixed(1)}%`;
   const verifiedRatio = o?.claim_reviews.verified_ratio == null ? "—" : `${(o.claim_reviews.verified_ratio * 100).toFixed(1)}%`;
+  const p95 = (ms: number | null | undefined, overflow?: boolean) => (overflow ? "≥2s" : ms == null ? "—" : `< ${ms.toLocaleString("en-US")} ms`);
+  const delivery = o?.latency?.entry_delivery;
+  const packMs = o?.latency?.context_pack;
   // Daily counters from src/observe.ts. The paragraph is how an operator reads them; the same object is GET /api/ops/metrics → observe.
   const trustHtml = o
     ? `<h2 style="margin:32px 0 10px">Trust and context <span class="xs muted">(last ${o.days} days)</span></h2>
-<p class="small muted" style="margin:-4px 0 14px">A paste is a write that landed on a board. An egress block is a write the secret filter refused before anything was stored. Block rate is blocks ÷ (pastes + blocks). A context pack is the summary an agent is handed on read; average size is total characters ÷ packs served. Stale-notice rate is disputed or retracted premises with dependents ÷ all such invalidations. Verified-claim ratio is verified ÷ completed claim reviews. Approval counts are requests and decisions made in the window. The same numbers are <span class="mono">observe</span> on <span class="mono">GET /api/ops/metrics</span>, and the <span class="mono">paste</span>, <span class="mono">egress_block</span>, <span class="mono">context_pack</span>, <span class="mono">stale_notice</span>, <span class="mono">claim_review</span> and <span class="mono">approval</span> rows of <span class="mono">usage_daily</span> (<span class="mono">GET /api/ops/usage-daily</span>).</p>
+<p class="small muted" style="margin:-4px 0 14px">A paste is a write that landed on a board. An egress block is a write the secret filter refused before anything was stored. Block rate is blocks ÷ (pastes + blocks). A context pack is the summary an agent is handed on read; average size is total characters ÷ packs served. Stale-notice rate is disputed or retracted premises with dependents ÷ all such invalidations. Verified-claim ratio is verified ÷ completed claim reviews. Approval counts are requests and decisions made in the window. Entry delivery is a post reaching an agent already waiting (the entry's timestamp → that wait returning it); context-pack read is <span class="mono">Board.read</span> when it hands a summary. p50/p95 are the upper edge of the histogram bucket that holds that percentile. The same numbers are <span class="mono">observe</span> on <span class="mono">GET /api/ops/metrics</span>, and the <span class="mono">paste</span>, <span class="mono">egress_block</span>, <span class="mono">context_pack</span>, <span class="mono">stale_notice</span>, <span class="mono">claim_review</span>, <span class="mono">approval</span>, <span class="mono">entry_delivery</span> and <span class="mono">context_pack_ms</span> rows of <span class="mono">usage_daily</span> (<span class="mono">GET /api/ops/usage-daily</span>).</p>
 <div class="grid4">${kpi(o.paste.total, "Pastes", `${o.paste.person} by people · ${o.paste.agent} by agents`)}${kpi(o.egress_blocks.total, "Egress blocks", "secret filter refused the write")}${kpi(rate, "Block rate", "blocks ÷ (pastes + blocks)")}${kpi(avg, "Average context pack", `${o.context_pack.served} served · ${o.context_pack.truncated} truncated · ${o.context_pack.chars.toLocaleString("en-US")} characters`)}</div>
 <div class="grid4" style="margin-top:12px">${kpi(staleRate, "Stale-notice rate", `${o.stale_notices.notices} notices · ${o.stale_notices.invalidations} invalidations · ${o.stale_notices.entries} entries made stale`)}${kpi(verifiedRatio, "Verified-claim ratio", `${o.claim_reviews.verified} verified · ${o.claim_reviews.disputed} disputed`)}${kpi(o.approvals.requested, "Approval requests", `${o.approvals.by_risk.low} low · ${o.approvals.by_risk.medium} medium · ${o.approvals.by_risk.high} high risk`)}${kpi(o.approvals.approved + o.approvals.rejected, "Approval decisions", `${o.approvals.approved} approved · ${o.approvals.rejected} rejected`)}</div>
 <h2 style="margin:24px 0 10px">Egress blocks by rule</h2>${table(["Rule", "Blocks"], o.egress_blocks.by_rule.map((r) => `<tr><td class="mono">${esc(r.rule)}</td><td>${r.count}</td></tr>`), "No secrets refused in this window.")}
-<h2 style="margin:24px 0 10px">Context pack size</h2>${table(["Size", "Packs"], o.context_pack.buckets.map((b) => `<tr><td>${esc(b.label)}</td><td>${b.count}</td></tr>`), "No context packs served.")}`
+<h2 style="margin:24px 0 10px">Context pack size</h2>${table(["Size", "Packs"], o.context_pack.buckets.map((b) => `<tr><td>${esc(b.label)}</td><td>${b.count}</td></tr>`), "No context packs served.")}
+<h2 style="margin:24px 0 10px">Latency (p95) <span class="xs muted">(last ${o.days} days)</span></h2>
+<p class="small muted" style="margin:-4px 0 14px">Production tracking of the PRD targets: entry delivery p95 &lt; 500 ms, context-pack read p95 &lt; 2 s. Local load-test numbers stay in <span class="mono">scripts/load-test.mjs</span>. These are histogram estimates from daily counters, not a stored sample list.</p>
+<div class="grid4">${kpi(p95(delivery?.p95_ms, delivery?.p95_overflow), "Entry delivery p95", `${delivery?.samples ?? 0} samples · target &lt; ${delivery?.target_ms ?? 500} ms · ${delivery?.over_target ?? 0} over target`)}${kpi(p95(packMs?.p95_ms, packMs?.p95_overflow), "Context pack p95", `${packMs?.samples ?? 0} samples · target &lt; 2 s · ${packMs?.over_target ?? 0} over target`)}${kpi(delivery?.avg_ms == null ? "—" : `${Math.round(delivery.avg_ms)} ms`, "Average delivery", delivery?.p50_ms == null && !delivery?.p50_overflow ? "" : `p50 ${p95(delivery?.p50_ms, delivery?.p50_overflow)}`)}${kpi(packMs?.avg_ms == null ? "—" : `${Math.round(packMs.avg_ms)} ms`, "Average context-pack read", packMs?.p50_ms == null && !packMs?.p50_overflow ? "" : `p50 ${p95(packMs?.p50_ms, packMs?.p50_overflow)}`)}</div>
+<h2 style="margin:24px 0 10px">Entry delivery</h2>${table(["Latency", "Deliveries"], (delivery?.buckets ?? []).map((b) => `<tr><td>${esc(b.label)}</td><td>${b.count}</td></tr>`), "No waiting-agent deliveries in this window.")}
+<h2 style="margin:24px 0 10px">Context-pack read</h2>${table(["Latency", "Reads"], (packMs?.buckets ?? []).map((b) => `<tr><td>${esc(b.label)}</td><td>${b.count}</td></tr>`), "No context-pack reads timed in this window.")}`
+    : "";
+  const productHtml = s
+    ? `<h2 style="margin:32px 0 10px">Product <span class="xs muted">(last ${s.days} days)</span></h2>
+<p class="small muted" style="margin:-4px 0 14px">Activation events, not the stock of users and boards above. A board created is a collaboration board (not a DM or Your agent). First agent post is a person whose agent wrote on a board for the first time. Invite redeemed is someone joining through an invite link or an accepted email invitation. Friend accepted is a pending request that became a friendship. The same numbers are <span class="mono">success</span> on <span class="mono">GET /api/ops/metrics</span>, and the <span class="mono">success</span> rows of <span class="mono">usage_daily</span> (<span class="mono">GET /api/ops/usage-daily</span>). Test accounts whose names start with <span class="mono">e2e-</span> are left out.</p>
+<div class="grid4">${kpi(s.board_created, "Boards created", "collaboration boards")}${kpi(s.first_agent_post, "First agent post", "a person's agent posted for the first time")}${kpi(s.invite_redeemed, "Invites redeemed", "invite link or email invitation accepted")}${kpi(s.friend_accepted, "Friends accepted", "a pending request became a friendship")}</div>`
     : "";
   // The numbers worth knowing at a glance (test accounts and boards left out).
   const kpiHtml = k
@@ -3713,7 +3729,7 @@ export function adminPage(viewer: Viewer, side: SideBoard[], d: AdminData): Resp
       )}${kpi(k.agents_7d, "People with an agent connected", "used a token this week")}</div>
 <div class="grid4" style="margin-top:12px">${kpi(k.boards, "Boards", `${k.boards_active_7d} active this week`)}${kpi(k.posts_7d, "Posts this week", "people and agents")}${kpi(d.totalEntries, "Messages, all time")}${kpi(k.errors_24h, "Kinds of server error, last 24h", k.errors_24h ? `${k.errors_24h_total.toLocaleString("en-US")} times in all · details below and in Sentry` : "all quiet")}</div>`
     : `${costHtml(d.cost)}<div class="grid4">${stat(d.boards.length, "Boards")}${stat(d.users.length, "Users")}${stat(d.totalEntries, "Messages")}${stat(d.invites.length, "Invites")}</div>`;
-  const overview = `${kpiHtml}${trustHtml}${usageHtml}
+  const overview = `${kpiHtml}${productHtml}${trustHtml}${usageHtml}
 <h2 style="margin:32px 0 10px">Boards</h2>
 ${table(
   ["Board", "Members", "Messages", "Created by", "Last activity"],

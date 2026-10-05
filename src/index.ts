@@ -18,6 +18,7 @@ import { accessAll } from "./accessAll";
 import { AUDIT_EXPORT_LIMIT, auditExportDocument, auditExportHeaders, forAgents, parseAuditAfter } from "./auditExport";
 import * as social from "./social";
 import * as standing from "./standingRules";
+import { isPublicMailDomain, orgPolicy } from "./policy";
 import * as webhooks from "./webhooks";
 import * as avatars from "./avatars";
 import * as boardPictures from "./boardPictures";
@@ -32,7 +33,8 @@ import { agentsMd, guidePage } from "./guide";
 import { docsPage } from "./docs";
 import { openapi } from "./openapi";
 import * as billing from "./billing";
-import { egressRefusal } from "./observe";
+import * as githubApp from "./githubApp";
+import { egressRefusal, noteBoardCreated, noteWakeDelivery, type Later } from "./observe";
 import * as inbox from "./inbox";
 import * as notify from "./notify";
 import * as forYou from "./forYou";
@@ -55,6 +57,8 @@ import * as pins from "./pins";
 import * as boardkeys from "./boardkeys";
 import * as mailbox from "./mailbox";
 import * as recap from "./recap";
+import { listMount, LsError } from "./ls";
+import * as testAccounts from "./testAccounts";
 import { musePage } from "./muse";
 import * as triggers from "./triggers";
 import * as tts from "./tts";
@@ -102,11 +106,12 @@ export { Board } from "./board";
 import { forwardDestOk, forwardExcerptInEntry, keptOwnNotice } from "./audience";
 import { audienceNotice, MAX_FILES_PER_MESSAGE, MAX_IMAGE, MAX_MESSAGE_BYTES, MAX_WAIT_MS, WAIT_CAP } from "./board";
 import * as sessions from "./sessions";
-import { compactLine, formatEntry, formatMemory, handleMessage, parseReadBudget, presentReadEntries, readHeader, readParts, withNames } from "./state";
+import { compactLine, formatEntry, formatMemory, handleMessage, parseReadBudget, parseSummaryBudget, presentReadEntries, readHeader, readParts, withNames } from "./state";
 import { fence, flagged } from "./screen";
 import { CODE_COLOR_PATH, CODE_COLOR_SCRIPT } from "./codecolor";
 import { quickReplies } from "./quickReplies";
 import { fontResponse } from "./fonts";
+import { MERMAID_PATH, mermaidResponse } from "./mermaid";
 
 const OPS_PATH = "/_ops";
 
@@ -177,7 +182,7 @@ async function loadViewer(env: Env, session: auth.Session | null, request?: Requ
     name: u.name,
     email: u.email ?? session.email,
     display_name: u.display_name,
-    admin: !!session.email_verified && auth.isAdminEmail(env, session.email),
+    admin: auth.isAdminViewer(env, session, request ? new URL(request.url).hostname : null),
     lang: pickLang(typeof pref === "string" ? pref : null, request ? new URL(request.url).searchParams.get("lang") : null, request?.headers.get("accept-language") ?? null),
   };
 }
@@ -241,12 +246,13 @@ async function grepResponse(env: Env, user: string, url: URL, boardId: string | 
 }
 
 /** Plan limits apply to people (origin given); the ops API creates boards without them. */
-async function createBoard(env: Env, title: string, user: string, origin?: string, opts: { encrypted?: boolean } = {}) {
+async function createBoard(env: Env, title: string, user: string, origin?: string, opts: { encrypted?: boolean } = {}, later: Later | null = null) {
   if (origin) await billing.checkCanCreateBoard(env, user, origin);
   const id = newBoardId();
   const info = await boardStub(env, id).init(id, title, user, opts);
   await registry.recordBoard(env, info);
   await registry.addMember(env, id, user, { role: "owner" });
+  void noteBoardCreated(env, later, user);
   if (opts.encrypted) await env.DB.prepare(`UPDATE boards SET encrypted = 1 WHERE id = ?`).bind(id).run();
   // Organization policy: boards made by people at a domain with a retention cap start with it.
   const u = await registry.userByName(env, user);
@@ -299,18 +305,6 @@ async function authLogin(c: Ctx): Promise<Response> {
  */
 const PEOPLE_ONLY_SETTING = "Who can find you and what's accepted without asking (your directory listing and the auto-accept rules) are your person's call: they change them on the web (Account) or in the app (Settings).";
 const PEOPLE_ONLY_AGENT_LISTING = "Listing your agent in the public directory is your person's call: they change it in the app (Settings). Your agent can still set its summary and capabilities.";
-
-export interface OrgPolicy {
-  domain: string;
-  require_sso: number;
-  max_retention_days: number | null;
-  allow_outside_members: number;
-}
-
-async function orgPolicy(env: Env, email: string): Promise<OrgPolicy | null> {
-  const domain = email.split("@")[1]?.toLowerCase();
-  return domain ? env.DB.prepare(`SELECT domain, require_sso, max_retention_days, allow_outside_members FROM org_policies WHERE domain = ?`).bind(domain).first<OrgPolicy>() : null;
-}
 
 /** "Sign in with SSO": find the organization for a work email's domain and send the person to its identity provider. */
 async function authSso(c: Ctx): Promise<Response> {
@@ -583,7 +577,7 @@ async function runScheduled(env: Env, ctx: ExecutionContext, now = Date.now()): 
   );
   // Boards with a retention period: blank what's older.
   const keep = (await env.DB.prepare(`SELECT id, retention_days FROM boards WHERE retention_days IS NOT NULL`).all<{ id: string; retention_days: number }>()).results;
-  for (const b of keep) ctx.waitUntil(boardStub(env, b.id).prune(Date.now() - b.retention_days * 86_400_000).catch(() => 0));
+  for (const b of keep) ctx.waitUntil(boardStub(env, b.id).prune(now - b.retention_days * 86_400_000).catch(() => 0));
   // Housekeeping sweeps wait while shedding load (they catch up on a quieter run).
   const housekeeping = shed.level < 1;
   if (housekeeping) {
@@ -992,7 +986,7 @@ const handler = {
           ctx.waitUntil(registry.audit(env, old.id, viewer.name, "archived", null, "to make room on the Free plan").catch(() => {}));
         }
         try {
-          const info = await createBoard(env, title, viewer.name, origin, { encrypted });
+          const info = await createBoard(env, title, viewer.name, origin, { encrypted }, ctx);
           return redirect(`/b/${info.id}`);
         } catch (e) {
           const plan = e instanceof billing.BillingError;
@@ -1221,6 +1215,18 @@ const handler = {
         const ids = Array.isArray(body.ids) ? body.ids.map(Number) : undefined;
         const n = await inbox.markRead(env, viewer.name, { all: body.all === true || body.all === "1", board: typeof body.board === "string" ? body.board : undefined, ids }, viewer.via !== "agent");
         return json({ ok: true, read: n });
+      }
+
+      // ---- GitHub App (signed inbound webhooks; outbound check-run payloads are formatted, not sent) ----
+      if (path === "/github/webhook" && method === "POST") {
+        const raw = await request.text();
+        const result = await githubApp.handleWebhook(env, raw, {
+          event: request.headers.get("x-github-event"),
+          signature: request.headers.get("x-hub-signature-256"),
+          delivery: request.headers.get("x-github-delivery"),
+        });
+        if (result.status !== 200) return json({ error: result.error }, result.status);
+        return json({ ok: true, applied: result.applied, ...(result.note ? { note: result.note } : {}) });
       }
 
       // ---- billing: Stripe Checkout and portal (hosted), webhook keeps plans in sync ----
@@ -1583,6 +1589,8 @@ const handler = {
           if (path === "/api/contacts" && method === "GET") return json(await dm.pending(env, me));
           const cm = path.match(/^\/api\/contacts\/([a-z0-9][a-z0-9_.-]{0,31})\/(accept|decline)$/);
           if (cm && method === "POST") {
+            const denied = social.contactDecisionError(viewer.via);
+            if (denied) return json({ error: denied }, 403);
             const res = await dm.decide(env, me, cm[1], cm[2] === "accept");
             if (res?.text) await deliver(res.requester, me, res.text, "agent");
             return json({ ok: true, accepted: cm[2] === "accept" });
@@ -1649,11 +1657,12 @@ const handler = {
         }
       }
 
-      if (path.startsWith("/api/people") || path.startsWith("/api/friends") || path.startsWith("/api/direct/")) {
+      if (path.startsWith("/api/people") || path.startsWith("/api/friends") || path.startsWith("/api/direct/") || path === "/api/org") {
         if (!viewer) return needLogin();
         const me = viewer.name;
         const err = (e: unknown) => json({ error: e instanceof Error ? e.message : String(e) }, e instanceof social.SocialError ? 400 : 500);
         try {
+          if (path === "/api/org" && method === "GET") return json(await social.orgPeople(env, me, url.searchParams.get("q") ?? ""));
           if (path === "/api/people" && method === "GET") return json({ people: await social.findPeople(env, me, url.searchParams.get("q") ?? "") });
           let pm = path.match(/^\/api\/people\/([a-z0-9][a-z0-9_.-]{0,31})$/);
           if (pm && method === "GET") {
@@ -1666,11 +1675,19 @@ const handler = {
             const note = String(b.note ?? "").trim();
             const blocked = egressRefusal(env, ctx, { note });
             if (blocked) return json({ error: blocked }, 400);
-            return json({ ok: true, relation: await social.requestFriend(env, me, String(b.user ?? ""), note) });
+            try {
+              return json({ ok: true, relation: await social.requestFriend(env, me, String(b.user ?? ""), note, ctx, viewer.via === "agent") });
+            } catch (e) {
+              // An agent "requesting back" a pending request would accept it: that's the person's call (#57).
+              if (e instanceof social.SocialError && e.message.includes(social.PERSON_ONLY_CONTACT_DECISION)) return json({ error: e.message }, 403);
+              throw e;
+            }
           }
           pm = path.match(/^\/api\/friends\/([a-z0-9][a-z0-9_.-]{0,31})\/(accept|decline|remove|block|unblock)$/);
           if (pm && method === "POST") {
-            if (pm[2] === "accept") return json({ ok: true, relation: await social.acceptFriend(env, me, pm[1]) });
+            const denied = social.contactDecisionError(viewer.via);
+            if (denied) return json({ error: denied }, 403);
+            if (pm[2] === "accept") return json({ ok: true, relation: await social.acceptFriend(env, me, pm[1], ctx) });
             if (pm[2] === "block") await social.blockPerson(env, me, pm[1]);
             else await social.removeFriend(env, me, pm[1]);
             return json({ ok: true });
@@ -1714,6 +1731,8 @@ const handler = {
       }
       // Syntax colours for code blocks (codecolor.ts): pages load it only once a code block is on screen; the URL is versioned.
       if (path === CODE_COLOR_PATH && method === "GET") return new Response(CODE_COLOR_SCRIPT, { headers: { "content-type": "text/javascript; charset=utf-8", "cache-control": url.searchParams.get("v") ? "public, max-age=31536000, immutable" : "public, max-age=300", "x-content-type-options": "nosniff" } });
+      // Mermaid (mermaid.ts): pages load the pinned UMD build only once a diagram is on screen; SRI checks its bytes.
+      if (path === MERMAID_PATH && method === "GET") return mermaidResponse(env, url);
 
       // ---- read aloud (an app/web client feature, all in tts.ts): /api/app/tts, /api/app/tts/status ----
       if (path.startsWith("/api/app/tts")) return tts.route(request, env, ctx, path, viewer);
@@ -1956,7 +1975,7 @@ const handler = {
       if (m && method === "GET") {
         if (!viewer) return needLogin();
         try {
-          return redirect(`/b/${await access.redeemLink(env, m[1], viewer.name, origin)}`);
+          return redirect(`/b/${await access.redeemLink(env, m[1], viewer.name, origin, ctx)}`);
         } catch (e) {
           return messagePage("Invite link", e instanceof Error ? e.message.replace(/: https?:\S+$/, ".") : String(e), { viewer, status: 410, action: { href: "/", label: "Your boards" } });
         }
@@ -2005,7 +2024,7 @@ const handler = {
         const blocked = egressRefusal(env, ctx, { title });
         if (blocked) return json({ error: blocked }, 400);
         try {
-          const info = await createBoard(env, title, viewer.name, url.origin, { encrypted: body.encrypted !== false });
+          const info = await createBoard(env, title, viewer.name, url.origin, { encrypted: body.encrypted !== false }, ctx);
           return json({ board: { ...info, encrypted: body.encrypted !== false, picture: null } }, 201);
         } catch (e) {
           const msg = e instanceof Error ? e.message.replace(/: https?:\S+$/, ".") : String(e);
@@ -2201,7 +2220,7 @@ const handler = {
               if (!hits.length) return json({ error: `No board of yours or invitation matches "${want}". List them: atteo get boards` }, 404);
               if (hits.length > 1) return json({ error: `"${want}" matches more than one board; use its id.`, matches: hits.map((h) => ({ id: h.id, title: h.title, status: h.invite ? "invited" : "member" })) }, 409);
               const target = hits[0];
-              if (target.invite && !(me && (await registry.acceptInvitation(env, me, target.id, origin)))) return json({ error: `Couldn't accept the invitation to ${target.id}.` }, 400);
+              if (target.invite && !(me && (await registry.acceptInvitation(env, me, target.id, origin, ctx)))) return json({ error: `Couldn't accept the invitation to ${target.id}.` }, 400);
               await boardStub(env, target.id).joinSession(viewer.name, s.id);
               const cur = await live();
               const next = await sessions.setBoards(env, cur, [...cur.boards.filter((b) => b !== target.id), target.id]);
@@ -2248,6 +2267,7 @@ const handler = {
           if (method === "GET" && sub === "read") {
             const limit = Number(url.searchParams.get("limit")) || undefined;
             const maxChars = parseReadBudget(url.searchParams.get("max_chars"));
+            const summaryChars = parseSummaryBudget(url.searchParams.get("summary_budget"));
             // ?summary=all: every board's summary; none: no summary. Otherwise (older CLIs send a comma list of boards)
             // a board's summary comes with the member's first read of it, then only on request.
             const sumParam = url.searchParams.get("summary");
@@ -2255,7 +2275,7 @@ const handler = {
             const headless = await social.agentsHeadless(env, viewer.name);
             const out = await Promise.all(
               ids.map(async (id) => {
-                const r = await boardStub(env, id).read(viewer.name, { limit, summary: summary(id), names: await social.boardAgentNames(env, id), maxChars }, cur.id);
+                const r = await boardStub(env, id).read(viewer.name, { limit, summary: summary(id), names: await social.boardAgentNames(env, id), maxChars, summaryChars }, cur.id);
                 const b = { id, title: r.info.title, encrypted: r.info.encrypted };
                 const p = readParts(r);
                 p.lines.push(...await boardStub(env, id).editNotices(viewer.name, cur.id));
@@ -2294,7 +2314,9 @@ const handler = {
             const named = async (got: Awaited<ReturnType<typeof take>>) => Promise.all(got.map(async (x) => ({ ...x, r: { ...x.r!, entries: withNames(x.r!.entries, await social.boardAgentNames(env, x.id)) } })));
             let got = await take(true);
             let wasSuperseded = false;
+            let waited = false;
             if (!got.length) {
+              waited = true;
               // One open wait per session: a newer one ends this one (limits.beginWait).
               const w = limits.beginWait(`s:${cur.id}`);
               if (w.refused) return waitRefused(w.refused);
@@ -2329,6 +2351,7 @@ const handler = {
                 }, () => got.reduce((k, x) => k + x.r!.entries.length, 0) >= WAIT_CAP);
             }
             if (got.length) got = await named(got); // "Jarvis (vedu's agent)"
+            if (waited) noteWakeDelivery(env, ctx, got.flatMap((x) => x.r!.entries), viewer.name);
             const entries = got.flatMap((x) => x.r!.entries.map((e) => ({ board: { id: x.id, title: x.r!.info.title }, entry: e })));
             // What's for you in full; the rest one line each with for=me or when there's a lot.
             const brief = forMe || entries.length > 10;
@@ -2559,6 +2582,24 @@ const handler = {
         }
       }
 
+      // ---- ls: the board as a read-only tree (state.md, files/, log/); nothing is marked read ----
+      m = path.match(/^\/api\/boards\/(b_[a-z0-9]+)\/ls$/);
+      if (m && method === "GET") {
+        if (!viewer) return needLogin();
+        if (!(await registry.isMember(env, m[1], viewer.name))) return json({ error: "board not found" }, 404);
+        try {
+          const r = await listMount(
+            boardStub(env, m[1]),
+            { path: url.searchParams.get("path") ?? undefined, long: url.searchParams.get("long"), since: url.searchParams.get("since"), limit: url.searchParams.get("limit") },
+            seer(),
+          );
+          const { untrusted: _untrusted, ...body } = r;
+          return json(body, 200, { "cache-control": "no-store" });
+        } catch (e) {
+          return json({ error: e instanceof Error ? e.message : String(e) }, e instanceof LsError ? 400 : 400);
+        }
+      }
+
       // ---- the pinned doc: one document a board pins as its source of truth (any member who can post) ----
       m = path.match(/^\/api\/boards\/(b_[a-z0-9]+)\/pin$/);
       if (m) {
@@ -2726,6 +2767,7 @@ const handler = {
         if (!viewer) return needLogin();
         const board = await registry.getBoard(env, m[1]);
         if (!board || ((await registry.memberRole(env, m[1], viewer.name)) !== "owner" && board.created_by !== viewer.name)) return json({ error: "Only the board's owners can set how long it keeps messages." }, 403);
+        if (board.archived_at) return json({ error: "This board is archived. Restore it to change retention." }, 403);
         const b = (await request.json().catch(() => ({}))) as { days?: number | string | null };
         const days = b.days == null || b.days === "" || Number(b.days) === 0 ? null : Math.floor(Number(b.days));
         if (days != null && (!Number.isFinite(days) || days < 1 || days > 3650)) return json({ error: "days must be 1–3650, or empty to keep everything." }, 400);
@@ -3313,19 +3355,19 @@ const handler = {
             const title = ((await registry.getBoard(env, id)) as { title?: string | null } | null)?.title;
             return title ? m.split(`board ${id}`).join(`"${title}"`) : m;
           };
-          const role = body.role === "viewer" ? "viewer" : "contributor"; // owners are promoted after they join
-          const expiresDays = Number(body.expires_days) > 0 ? Math.min(365, Math.floor(Number(body.expires_days))) : null;
+          const role = access.inviteRole(body.role); // owners are promoted after they join
+          const expiresDays = access.grantExpiresDays(body.expires_days);
           // A name instead of an email invites a friend; their email stays private (the reply names them, never the address).
           if (viewer && to && !to.includes("@")) {
             const name = normalizeUser(to.replace(/^@/, ""));
             const friend = name && (await social.friendsOf(env, viewer.name)).friends.find((f) => f.name === name);
             const u = friend ? await registry.userByName(env, friend.name) : null;
             if (!u?.email) return json({ error: `You can invite friends by name; for anyone else, use their email.` }, 400);
-            const r = await sendInvite(env, origin, { boardId: id, email: u.email, invitedBy: viewer.name, role, expiresDays });
+            const r = await sendInvite(env, origin, { boardId: id, email: u.email, invitedBy: viewer.name, role, expiresDays }, ctx);
             return json({ ok: r.ok, added: r.added, message: await forPerson(r.message.split(` (${u.email.toLowerCase()})`).join("").split(u.email.toLowerCase()).join(u.name)) });
           }
           if (!EMAIL_RE.test(to)) return json({ error: "Enter a valid email address." }, 400);
-          const r = await sendInvite(env, origin, { boardId: id, email: to, invitedBy: viewer?.name ?? "ops", role, expiresDays });
+          const r = await sendInvite(env, origin, { boardId: id, email: to, invitedBy: viewer?.name ?? "ops", role, expiresDays }, ctx);
           return json({ ...r, message: await forPerson(r.message) });
         }
         return json({ error: "not found" }, 404);
@@ -3339,7 +3381,7 @@ const handler = {
         if (!me) return needLogin();
         let ok: boolean;
         try {
-          ok = m[2] === "accept" ? await registry.acceptInvitation(env, me, m[1], origin) : await registry.declineInvitation(env, me, m[1]);
+          ok = m[2] === "accept" ? await registry.acceptInvitation(env, me, m[1], origin, ctx) : await registry.declineInvitation(env, me, m[1]);
         } catch (e) {
           return json({ error: e instanceof Error ? e.message : String(e) }, 402);
         }
@@ -3400,6 +3442,16 @@ const handler = {
         if (!isOps(c)) return json({ error: "not found" }, 404);
         const body = method === "POST" ? ((await request.json().catch(() => ({}))) as Record<string, string>) : {};
         if (path === "/api/ops/overview" && method === "GET") return json(await opsData(env));
+        // Leftover e2e/test accounts: GET lists; POST dry-runs unless confirm is exactly DELETE TEST ACCOUNTS.
+        if (path === "/api/ops/test-accounts" && method === "GET") return json({ ...(await testAccounts.preview(env)), dry_run: true });
+        if (path === "/api/ops/test-accounts" && method === "POST") {
+          const b = body as testAccounts.ApplyOpts;
+          const result = await testAccounts.apply(env, b);
+          if (result.status === 200 && result.body && "dry_run" in result.body && result.body.dry_run === false) {
+            for (const id of result.body.deleted_boards ?? []) ctx.waitUntil(boardStub(env, id).destroy().catch(() => {}));
+          }
+          return json(result.body, result.status);
+        }
         // The cost guard (src/costGuard.ts): its state; {clear: true} lifts the hard cap.
         if (path === "/api/ops/cost-guard") {
           if (method === "POST" && (body as Record<string, unknown>).clear === true) await costGuard.clearCap(env, viewer?.name ?? "admin-key");
@@ -3451,11 +3503,15 @@ const handler = {
           const u = normalizeUser(body.user);
           const row = u ? await registry.userByName(env, u) : null;
           if (!row) return json({ error: "user not found" }, 404);
+          // Local tests only: a browser session that can open /_ops without ADMIN_EMAIL (csp-enforced.mjs). Needs
+          // DEV_FAKE_ADMIN=1 in .dev.vars (never wrangler.jsonc) and localhost; production still requires ADMIN_EMAIL.
+          const admin = ["true", "1"].includes(String(body.admin ?? "")); // JSON true stringifies to "true"
+          if (admin && (env.DEV_FAKE_ADMIN !== "1" || !isLocalHost(url.hostname))) return json({ error: "admin test sessions require DEV_FAKE_ADMIN=1 on localhost" }, 400);
           const secret = await auth.createSession(env, {
             user: row.name,
-            workos_id: row.workos_id ?? "ops-issued",
+            workos_id: admin ? auth.OPS_ADMIN_WORKOS_ID : (row.workos_id ?? "ops-issued"),
             email: row.email ?? "",
-            email_verified: String(body.verified) === "true",
+            email_verified: admin || String(body.verified) === "true",
             display_name: row.display_name,
           });
           await accountlog.record(env, row.name, "signin.web", request, { client: "operator" });
@@ -3465,16 +3521,18 @@ const handler = {
         if (path === "/api/ops/policies" && method === "POST") {
           const domain = String(body.domain ?? "").trim().toLowerCase();
           if (!/^[a-z0-9.-]+\.[a-z]{2,}$/.test(domain)) return json({ error: "domain required (e.g. acme.com)" }, 400);
+          // Free and public mail (gmail.com, outlook.com…) is not an organization: no policy, and so never a directory.
+          if (!body.delete && isPublicMailDomain(domain)) return json({ error: `${domain} is a public mail provider, not an organization` }, 400);
           if (body.delete) {
             await env.DB.prepare(`DELETE FROM org_policies WHERE domain = ?`).bind(domain).run();
             return json({ ok: true });
           }
           const ret = body.max_retention_days == null || body.max_retention_days === "" ? null : Math.max(1, Math.floor(Number(body.max_retention_days)));
           await env.DB.prepare(
-            `INSERT INTO org_policies (domain, require_sso, max_retention_days, allow_outside_members, updated_at) VALUES (?, ?, ?, ?, ?)
-             ON CONFLICT(domain) DO UPDATE SET require_sso = excluded.require_sso, max_retention_days = excluded.max_retention_days, allow_outside_members = excluded.allow_outside_members, updated_at = excluded.updated_at`,
+            `INSERT INTO org_policies (domain, require_sso, max_retention_days, allow_outside_members, directory, updated_at) VALUES (?, ?, ?, ?, ?, ?)
+             ON CONFLICT(domain) DO UPDATE SET require_sso = excluded.require_sso, max_retention_days = excluded.max_retention_days, allow_outside_members = excluded.allow_outside_members, directory = excluded.directory, updated_at = excluded.updated_at`,
           )
-            .bind(domain, ["true", "1"].includes(String(body.require_sso)) ? 1 : 0, ret, String(body.allow_outside_members) === "false" ? 0 : 1, Date.now())
+            .bind(domain, ["true", "1"].includes(String(body.require_sso)) ? 1 : 0, ret, String(body.allow_outside_members) === "false" ? 0 : 1, ["true", "1"].includes(String(body.directory)) ? 1 : 0, Date.now())
             .run();
           return json({ ok: true });
         }
@@ -3552,7 +3610,7 @@ const handler = {
           const u = normalizeUser(body.user);
           if (!u || !(await registry.userByName(env, u)) || !body.title) return json({ error: "user and title required" }, 400);
           try {
-            return json({ board: await createBoard(env, body.title.slice(0, 120), u, undefined, { encrypted: (body as { encrypted?: unknown }).encrypted === true }) }, 201);
+            return json({ board: await createBoard(env, body.title.slice(0, 120), u, undefined, { encrypted: (body as { encrypted?: unknown }).encrypted === true }, ctx) }, 201);
           } catch (e) {
             return json({ error: e instanceof Error ? e.message : String(e) }, 400);
           }

@@ -259,6 +259,19 @@ export class Atteo {
   async search(query: string): Promise<{ boards: string[]; hits: { board: string; kind: string; seq?: number; name?: string; snippet: string }[] }> {
     return this.call("GET", `/api/boards/search?q=${encodeURIComponent(query)}`);
   }
+
+  /**
+   * List the board as a read-only tree (state.md, files/, log/). Nothing is marked read. Encrypted boards are refused.
+   */
+  async ls(board: string, opts: { path?: string; long?: boolean; since?: number; limit?: number } = {}): Promise<{ board: string; path: string; items: unknown[]; text: string; more?: string }> {
+    const q = new URLSearchParams({
+      ...(opts.path ? { path: opts.path } : {}),
+      ...(opts.long ? { long: "1" } : {}),
+      ...(opts.since != null ? { since: String(opts.since) } : {}),
+      ...(opts.limit != null ? { limit: String(opts.limit) } : {}),
+    }).toString();
+    return this.call("GET", `/api/boards/${board}/ls${q ? `?${q}` : ""}`);
+  }
 }
 
 /**
