@@ -36,7 +36,7 @@ export function charterSide(c: BoardCharter, canEdit: boolean, lang?: Lang): str
     })
     .join("");
   const form = canEdit
-    ? `<button class="btn sm ghost" type="button" id="ch-edit">${T("Edit")}</button>
+    ? `<button class="btn sm ghost" type="button" id="ch-edit" aria-expanded="false" aria-controls="ch-form">${T("Edit")}</button>
 <form id="ch-form" hidden>
 <label class="lbl" for="ch-goal-in">${T("Goal")}</label>
 <textarea class="input" id="ch-goal-in" rows="3" maxlength="500" aria-label="${T("Goal")}"></textarea>
@@ -105,9 +105,12 @@ function openEdit(){if(!CH)return;chEditing=true;const f=document.getElementById
   document.getElementById('ch-days-in').value=CH.retention_days||'';
   noteFields(CH.members||[]);
   const err=document.getElementById('ch-err');if(err)err.textContent='';
-  f.hidden=false;document.getElementById('ch-goal-in').focus()}
+  f.hidden=false;document.getElementById('ch-edit')?.setAttribute('aria-expanded','true');document.getElementById('ch-goal-in').focus()}
+// Closing the form (Cancel, Escape, a save) hands focus back to Edit, so a keyboard isn't dropped on the page (#3830).
+function closeEdit(){chEditing=false;const f=document.getElementById('ch-form');if(f)f.hidden=true;const ed=document.getElementById('ch-edit');ed?.setAttribute('aria-expanded','false');ed?.focus()}
 document.getElementById('ch-edit')?.addEventListener('click',openEdit);
-document.getElementById('ch-cancel')?.addEventListener('click',()=>{chEditing=false;const f=document.getElementById('ch-form');if(f)f.hidden=true});
+document.getElementById('ch-cancel')?.addEventListener('click',closeEdit);
+document.getElementById('ch-form')?.addEventListener('keydown',e=>{if(e.key==='Escape'){e.preventDefault();e.stopPropagation();closeEdit()}});
 document.getElementById('ch-form')?.addEventListener('submit',async e=>{e.preventDefault();const err=document.getElementById('ch-err');if(err)err.textContent='';
   const btn=e.target.querySelector('[type=submit]');btn.disabled=true;
   const days=document.getElementById('ch-days-in').value.trim();
@@ -116,7 +119,7 @@ document.getElementById('ch-form')?.addEventListener('submit',async e=>{e.preven
   const r=await fetch('/api/boards/'+BOARD+'/charter',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)}).catch(()=>null);
   const j=r?await r.json().catch(()=>({})):{};btn.disabled=false;
   if(!r||!r.ok){if(err)err.textContent=j.error||tr('Could not save the charter');return}
-  chEditing=false;document.getElementById('ch-form').hidden=true;if(j.charter)paint(j.charter);toast(tr('Charter saved'))});
+  closeEdit();if(j.charter)paint(j.charter);toast(tr('Charter saved'))});
 window.charterRefresh=async()=>{let r;try{r=await fetch('/api/boards/'+BOARD+'/charter')}catch(e){return}
   if(!r.ok)return;const j=await r.json().catch(()=>null);if(!j||!j.charter)return;paint(j.charter);
   const edit=document.getElementById('ch-edit');if(edit)edit.hidden=j.can_edit===false}; // the page renders it fresh: no fetch on load
