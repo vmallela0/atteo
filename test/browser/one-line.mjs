@@ -2,7 +2,8 @@
 // mention you", others' messages fold to their sender and first line on one row; messages that mention you or your agent,
 // are addressed to your agent, or are yours stay whole. A tap opens a folded one and a tap on its sender line folds it
 // again; the board's ⋯ → "Open all messages" opens them all for the visit and folds them back; a link to a folded
-// message opens it. The default (whole messages) is unchanged. 1280 Developer and 390 Everyday.
+// message opens it. Replies to you, decisions and @agents stay whole too (the list agreed with the app, #2695). The
+// default (whole messages) is unchanged. 1280 Developer and 390 Everyday.
 // Usage: BASE=http://localhost:8798 node one-line.mjs  (local dev only, ADMIN_KEY=ci-admin-key in .dev.vars)
 import { chromium } from "playwright-core";
 const BASE = process.env.BASE || "http://localhost:8787";
@@ -15,7 +16,7 @@ const browser = await chromium.launch({ executablePath: process.env.PW_CHROME ||
 
 for (const [w, mode] of [[1280, "developer"], [390, "everyday"]]) {
   const A = `ol${w}${run}`, B = `om${w}${run}`, tag = `${w}px ${mode}`, phone = w < 500;
-  await ops("users", { name: A, email: `${A}@example.com`, verified: "true", display: { mode, messages: "oneline" } });
+  await ops("users", { name: A, email: `${A}@example.com`, verified: "true", display: { mode, compact: "others" } });
   await ops("users", { name: B, email: `${B}@example.com`, verified: "true", display: { mode } });
   const ckA = (await ops("sessions", { user: A })).cookie.split(";")[0], ckB = (await ops("sessions", { user: B })).cookie.split(";")[0], tokB = (await ops("tokens", { user: B })).token;
   const board = (await ops("boards", { user: A, title: `One line ${w} ${run}` })).board.id;
@@ -27,6 +28,9 @@ for (const [w, mode] of [[1280, "developer"], [390, "everyday"]]) {
   const toMyAgent = await post({ authorization: `Bearer ${tokB}` }, { type: "question", to: A, text: `Question for your agent ${run}` });
   const mine = await post({ cookie: ckA }, { text: `My own note ${run}` });
   const plain = await post({ cookie: ckB }, { text: `Plain note from B ${run}` });
+  const replyToMe = await post({ cookie: ckB }, { text: `Replying to your note ${run}`, reply_to: mine });
+  const decision = await post({ cookie: ckB }, { type: "decision", text: `We ship on Friday ${run}` });
+  const allAgents = await post({ cookie: ckB }, { text: `@agents status please ${run}` });
 
   const ctx = await browser.newContext({ viewport: { width: w, height: phone ? 844 : 900 }, isMobile: phone, hasTouch: phone });
   const [k, ...v] = ckA.split("=");
@@ -37,9 +41,10 @@ for (const [w, mode] of [[1280, "developer"], [390, "everyday"]]) {
   await p.waitForTimeout(1000);
   const h = (s) => p.evaluate((s) => Math.round(document.getElementById("e" + s).getBoundingClientRect().height), s);
   const folded = (s) => p.evaluate((s) => { const e = document.getElementById("e" + s), b = e.querySelector(":scope>.grow>.body"); return e.classList.contains("ol") && !e.classList.contains("ol-open") && getComputedStyle(b).whiteSpace === "nowrap" && e.getBoundingClientRect().height < 44; }, s);
-  check((await p.evaluate(() => document.documentElement.dataset.messages)) === "oneline", `${tag}: the page follows the account's Display setting`);
+  check((await p.evaluate(() => document.documentElement.dataset.compact)) === "others", `${tag}: the page follows the account's Display setting`);
   check((await folded(long)) && (await folded(agent)) && (await folded(plain)), `${tag}: others' messages fold to one line (heights ${await h(long)}, ${await h(agent)}, ${await h(plain)})`);
   check(!(await folded(mention)) && !(await folded(toMyAgent)) && !(await folded(mine)), `${tag}: a mention of you, a question to your agent and your own message stay whole`);
+  check(!(await folded(replyToMe)) && !(await folded(decision)) && !(await folded(allAgents)), `${tag}: a reply to you, a decision and an @agents message stay whole`);
   const line = await p.evaluate((s) => document.getElementById("e" + s).querySelector(":scope>.grow>.body").textContent.trim().slice(0, 40), long);
   check(/^A long update/.test(line), `${tag}: the row shows the first line ("${line}")`);
   // Tap opens it; a tap on its sender line folds it again.
@@ -71,11 +76,11 @@ for (const [w, mode] of [[1280, "developer"], [390, "everyday"]]) {
   // Account → Display offers it; "Whole messages" turns it off.
   await p.goto(`${BASE}/me`);
   await p.waitForTimeout(600);
-  check(await p.locator("#dp-messages-oneline").isChecked(), `${tag}: Display shows "One line unless they mention you" chosen`);
-  await p.locator('label[for="dp-messages-full"]').click();
+  check(await p.locator("#dp-compact-others").isChecked(), `${tag}: Display shows "One line unless they mention you" chosen`);
+  await p.locator('label[for="dp-compact-off"]').click();
   await p.waitForTimeout(600);
   const prefs = (await (await fetch(`${BASE}/api/app/prefs`, { headers: { cookie: ckA } })).json()).prefs;
-  check(prefs?.display?.messages === "full", `${tag}: "Whole messages" saves (${prefs?.display?.messages})`);
+  check(prefs?.display?.compact === "off", `${tag}: "Whole messages" saves (${prefs?.display?.compact})`);
   await p.goto(`${BASE}/b/${board}`);
   await p.waitForTimeout(800);
   check(!(await folded(long)) && !(await folded(plain)), `${tag}: with whole messages nothing folds`);
