@@ -12,6 +12,11 @@ const c1=+(await mcp("post",{type:"claim",title:"Cart crash cause",text:"charge(
 await mcp("read",{});const c2=+(await mcp("post",{type:"claim",title:"Retry fixes it",text:"Retrying charge() fixes the crash",depends_on:[c1]})).match(/#(\d+)/)[1];
 await mcp("read",{});const d1=+(await mcp("post",{type:"decision",title:"Ship the retry",text:"Ship the retry",depends_on:[c2]})).match(/#(\d+)/)[1];
 await mcp("claim",{action:"check",seq:c1,command:"npm test -- checkout/empty-cart"});
+// Unreviewed claims draw no strip (jxn #2998/#3002): one by someone else's agent, one by the viewer's own agent.
+await mcp("read",{});const c3=+(await mcp("post",{type:"claim",title:"Cache is cold",text:"The first request after deploy misses the cache"})).match(/#(\d+)/)[1];
+const tokB=(await ops("tokens",{user:B})).token;
+const mcpB=async(name,args)=>(await (await fetch(`${BASE}/mcp?board=${board}`,{method:"POST",headers:{"content-type":"application/json",accept:"application/json, text/event-stream",authorization:`Bearer ${tokB}`},body:JSON.stringify({jsonrpc:"2.0",id:1,method:"tools/call",params:{name,arguments:args}})})).json()).result.content[0].text;
+await mcpB("read",{});const c4=+(await mcpB("post",{type:"claim",title:"Logs rotate daily",text:"The logs rotate once a day"})).match(/#(\d+)/)[1];
 const ck=(await ops("sessions",{user:B})).cookie;
 let fails=0;const check=(ok,m)=>{console.log(`${ok?"✓":"✗"} ${m}`);if(!ok)fails++};
 const b = await chromium.launch({ executablePath: process.env.PW_CHROME || undefined });
@@ -31,6 +36,18 @@ check((await s1.innerText()).includes(`Disputed by ${B}`)&&(await s1.innerText()
 check(await p.locator(`#e${c2} .badge.stale`).isVisible()&&await p.locator(`#e${d1} .badge.stale`).isVisible(),"everything resting on it is flagged Stale (directly and through another claim)");
 await p.locator(`[data-claim="${c2}"] [data-cl="verify"]`).click();await p.waitForTimeout(1000);
 check((await p.locator(`[data-claim="${c2}"]`).innerText()).includes(`Verified by ${B}`),"Verify marks it verified by you");
+const s3=p.locator(`[data-claim="${c3}"]`),a3=p.locator(`#e${c3} .acts`);
+check(!(await s3.isVisible())&&await a3.locator('[data-cl="verify"]').count()===1&&await a3.locator('[data-cl="dispute"]').count()===1&&await a3.locator('[data-cl="evidence"]').count()===1,
+  "an unreviewed claim draws no strip; Verify, Dispute and Evidence sit in its action row");
+const a4=p.locator(`#e${c4} .acts`);
+check(!(await p.locator(`[data-claim="${c4}"]`).isVisible())&&await a4.locator('[data-cl="evidence"]').count()===1&&!(await a4.locator('[data-cl="verify"],[data-cl="dispute"]').count()),
+  "your own agent's unreviewed claim: no strip, and only Evidence in its action row");
+await p.locator(`#e${c3}`).hover();await a3.locator('[data-cl="evidence"]').click();
+check(await s3.locator(".cl-f").isVisible(),"Evidence from the action row opens the form under the claim");
+await s3.locator(".cl-f input").fill(`#${c1}`);await s3.locator(".cl-f .primary").click();
+const t0=Date.now();while(Date.now()-t0<5000&&!(await s3.isVisible()&&(await s3.innerText()).includes("Has evidence")))await p.waitForTimeout(100);
+check(await s3.isVisible()&&(await s3.innerText()).includes("Has evidence")&&!(await a3.locator("[data-cl]").count()),"once it has evidence the strip shows, and the actions move back into it");
+await p.locator(`#e${c4}`).screenshot({path:`${SHOTS_DIR}/claim-quiet.png`});
 await p.locator(`[data-claim="${c1}"]`).screenshot({path:`${SHOTS_DIR}/claim.png`});
 await p.screenshot({path:`${SHOTS_DIR}/claims.png`});
 check(errors.length===0,`no page errors ${errors.join(" | ")}`);
