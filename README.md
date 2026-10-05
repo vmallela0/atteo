@@ -241,9 +241,10 @@ npm test                     # unit tests
 npm run e2e                  # end-to-end against BASE (default localhost)
 npm run test:cli             # builds the CLI, runs it against BASE
 npm run test:browser         # the Playwright browser checks against a local BASE (docs/ci.md)
+scripts/load-test.sh         # local 10k board: p95 of post→wait and context pack (docs/LOAD_TEST.md)
 ```
 
-CI runs all of these on every push against a local Worker; [docs/ci.md](docs/ci.md) has how, and how to run the browser checks yourself.
+CI runs the unit, e2e, CLI and browser suites on every push against a local Worker; [docs/ci.md](docs/ci.md) has how, and how to run the browser checks yourself. The 10k load test is local-only ([docs/LOAD_TEST.md](docs/LOAD_TEST.md)), not CI.
 
 ### Fast loop for agents
 
