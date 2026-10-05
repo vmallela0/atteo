@@ -1,7 +1,8 @@
 // Runs a claim's check (a command another member wrote) on this machine, safely enough to be worth doing:
 // in a throwaway git worktree at the claim's commit, inside an OS sandbox with no network, writes only inside that
-// checkout, your keys and credentials hidden, a minimal environment (no tokens from your shell), and a time limit.
-// A person always reads the exact command and says yes first; with no sandbox available it refuses to run.
+// checkout, the host home unreadable, your keys and credentials hidden, a minimal environment (no tokens from your
+// shell), and a time limit. A person always reads the exact command and says yes first; with no sandbox available it
+// refuses to run.
 
 import { spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
@@ -60,20 +61,67 @@ function trustedRuntime(): { path: string; mounts: string[] } {
   };
 }
 
-/** macOS sandbox-exec profile: everything allowed except network, writes outside `writable`, secrets and the keychain. */
-function seatbeltProfile(writable: string[]): string {
-  const home = realpathSync(homedir());
-  const q = (p: string) => JSON.stringify(p);
+function resolved(path: string): string {
+  try {
+    return existsSync(path) ? realpathSync(path) : path;
+  } catch {
+    return path;
+  }
+}
+
+function uniqueResolved(paths: string[]): string[] {
+  return [...new Set(paths.map(resolved))];
+}
+
+function isInside(parent: string, path: string): boolean {
+  return path === parent || path.startsWith(parent.endsWith("/") ? parent : parent + "/");
+}
+
+/** `$HOME` and its real path, so a symlink like `/home/me` → `/Users/me` can't bypass the deny. */
+function hostHomes(): string[] {
+  const found = new Set<string>();
+  const add = (path: string) => {
+    if (path) found.add(path);
+    try {
+      if (path && existsSync(path)) found.add(realpathSync(path));
+    } catch {}
+  };
+  add(homedir());
+  return [...found];
+}
+
+/** Node/npm plus this checkout's linked dependency folders (the paths Linux bind-mounts read-only). */
+function readableMounts(dir: string): string[] {
+  const deps = DEP_DIRS.map((d) => join(dir, d)).filter(existsSync).map((p) => realpathSync(p));
+  const bins = trustedRuntime().path.split(":").filter((p) => p && existsSync(p)).map((p) => realpathSync(p));
+  return uniqueResolved([dir, ...bins, ...trustedRuntime().mounts, ...deps]);
+}
+
+const subpaths = (paths: string[]) => paths.map((p) => `(subpath ${JSON.stringify(p)})`).join(" ");
+
+/**
+ * macOS sandbox-exec profile: no network, writes only inside `writable`, host home unreadable except
+ * `extraReadable` (the checkout, its deps, and the Node runtime). Last matching rule wins, so the home deny
+ * comes first, then re-allows, then the credential denylist (so a dep folder inside ~/.ssh stays blocked).
+ */
+export function seatbeltProfile(writable: string[], extraReadable: string[] = []): string {
+  const homes = hostHomes();
+  const allowRead = uniqueResolved([...writable, ...extraReadable]).filter((p) =>
+    homes.some((home) => isInside(home, p) && p !== home),
+  );
   return [
     "(version 1)",
     "(allow default)",
     "(deny network*)",
     "(deny file-write*)",
-    `(allow file-write* ${writable.map((w) => `(subpath ${q(w)})`).join(" ")} (literal "/dev/null") (literal "/dev/zero") (literal "/dev/tty") (regex #"^/dev/fd/") (regex #"^/dev/ttys"))`,
-    `(deny file-read* ${SENSITIVE.map((p) => `(subpath ${q(join(home, p))})`).join(" ")})`,
+    `(allow file-write* ${subpaths(writable)} (literal "/dev/null") (literal "/dev/zero") (literal "/dev/tty") (regex #"^/dev/fd/") (regex #"^/dev/ttys"))`,
+    // Same idea as Linux's empty tmpfs over $HOME: unlisted files under the host home are not readable.
+    `(deny file-read* ${subpaths(homes)})`,
+    allowRead.length ? `(allow file-read* ${subpaths(allowRead)})` : "",
+    `(deny file-read* ${subpaths(homes.flatMap((home) => SENSITIVE.map((p) => join(home, p))))})`,
     // The keychain is reached over Mach IPC, not files: keep `security find-generic-password` from reading it.
     '(deny mach-lookup (global-name "com.apple.SecurityServer") (global-name "com.apple.securityd") (global-name "com.apple.securityd.xpc") (global-name "com.apple.security.agent") (global-name "com.apple.security.keychain-agent"))',
-  ].join("\n");
+  ].filter(Boolean).join("\n");
 }
 
 /** The sandbox to use here, or null (the caller refuses to run without one). `image` opts into Docker. */
@@ -101,8 +149,8 @@ export function pickSandbox(image?: string): Sandbox | null {
   if (platform() === "darwin" && existsSync("/usr/bin/sandbox-exec")) {
     return {
       kind: "sandbox-exec",
-      describe: "macOS sandbox: no network, writes only inside the checkout, keys/credentials/keychain hidden",
-      argv: (command, _dir, writable) => ["/usr/bin/sandbox-exec", "-p", seatbeltProfile(writable), "/bin/sh", "-c", command],
+      describe: "macOS sandbox: no network, writes only inside the checkout, host home unreadable, keys/credentials/keychain hidden",
+      argv: (command, dir, writable) => ["/usr/bin/sandbox-exec", "-p", seatbeltProfile(writable, readableMounts(dir)), "/bin/sh", "-c", command],
     };
   }
   const bwrap = platform() === "linux" ? which("bwrap") : "";
@@ -112,8 +160,7 @@ export function pickSandbox(image?: string): Sandbox | null {
       describe: "bubblewrap: no network or host files, read-only system/dependencies, writes only inside the checkout",
       argv: (command, dir, writable) => {
         const system = ["/usr", "/bin", "/sbin", "/lib", "/lib64", "/etc/alternatives", "/etc/ssl", "/etc/pki", "/nix/store"].filter(existsSync);
-        const deps = DEP_DIRS.map((d) => join(dir, d)).filter(existsSync).map((p) => realpathSync(p));
-        const readable = [...new Set([...system, ...trustedRuntime().mounts, ...deps])];
+        const readable = [...new Set([...system, ...readableMounts(dir)])];
         const hostHome = realpathSync(homedir());
         return [
           bwrap,
@@ -230,8 +277,8 @@ export function throwawayCheckout(repo: string, commit: string): { dir: string; 
 }
 
 /**
- * Proves the sandbox holds here: network blocked, writes outside the checkout blocked (home, and a sibling folder),
- * credentials unreadable, writes inside allowed. Returns one line per probe.
+ * Proves the sandbox holds here: network blocked, writes outside the checkout blocked, unlisted home files and
+ * credentials unreadable, writes inside (checkout and synthetic HOME) allowed. Returns one line per probe.
  */
 export async function sandboxSelfTest(sb: Sandbox): Promise<{ ok: boolean; lines: string[] }> {
   const base = realpathSync(mkdtempSync(join(tmpdir(), "atteo-sbtest-")));
@@ -239,23 +286,31 @@ export async function sandboxSelfTest(sb: Sandbox): Promise<{ ok: boolean; lines
   mkdirSync(dir);
   const outside = join(homedir(), `.atteo-sandbox-probe-${process.pid}`);
   const hostSecret = join(homedir(), `.atteo-sandbox-read-probe-${process.pid}`);
+  const nestedDir = join(homedir(), `.atteo-sandbox-read-nested-${process.pid}`);
+  const nestedSecret = join(nestedDir, "secret.txt");
+  const libraryDir = join(homedir(), "Library");
   const secretDir = join(homedir(), ".ssh");
-  writeFileSync(hostSecret, "must stay on the host", { mode: 0o600 });
   const probes: { what: string; cmd: string; expect: "fail" | "pass" }[] = [
     { what: "write inside the checkout", cmd: "echo ok > inside.txt && cat inside.txt", expect: "pass" },
+    { what: "write inside the synthetic HOME", cmd: 'echo ok > "$HOME/in-home.txt" && cat "$HOME/in-home.txt"', expect: "pass" },
     { what: "network (HTTPS)", cmd: "curl -sS -m 5 -o /dev/null https://example.com", expect: "fail" },
     { what: "network (raw TCP)", cmd: "nc -z -w 3 1.1.1.1 443", expect: "fail" },
     { what: "write to your home folder", cmd: `touch ${JSON.stringify(outside)}`, expect: "fail" },
     { what: "read an unlisted file from your home folder", cmd: `cat ${JSON.stringify(hostSecret)}`, expect: "fail" },
+    { what: "read an unlisted nested file from your home folder", cmd: `cat ${JSON.stringify(nestedSecret)}`, expect: "fail" },
     ...(existsSync(secretDir) ? [{ what: "read ~/.ssh", cmd: `ls ${JSON.stringify(secretDir)}`, expect: "fail" as const }] : []),
+    ...(platform() === "darwin" && existsSync(libraryDir) ? [{ what: "read ~/Library", cmd: `ls ${JSON.stringify(libraryDir)}`, expect: "fail" as const }] : []),
     ...(["/var/run/docker.sock", "/run/docker.sock"].filter(existsSync).map((p) => ({ what: `reach ${p}`, cmd: `test -r ${JSON.stringify(p)}`, expect: "fail" as const }))),
     ...(platform() === "darwin" ? [{ what: "read the login keychain", cmd: "security find-generic-password -s agent-board -w", expect: "fail" as const }] : []),
     { what: "your shell's environment", cmd: 'test -z "$ATTEO_SBTEST"', expect: "pass" },
   ];
-  process.env.ATTEO_SBTEST = "leak";
   const lines: string[] = [];
   let ok = true;
   try {
+    mkdirSync(nestedDir, { recursive: true, mode: 0o700 });
+    writeFileSync(hostSecret, "must stay on the host", { mode: 0o600 });
+    writeFileSync(nestedSecret, "must stay nested on the host", { mode: 0o600 });
+    process.env.ATTEO_SBTEST = "leak";
     for (const p of probes) {
       const r = await runSandboxed(sb, p.cmd, dir, scratch, [base], 15_000, () => {});
       const passed = r.code === 0;
@@ -270,6 +325,7 @@ export async function sandboxSelfTest(sb: Sandbox): Promise<{ ok: boolean; lines
   } finally {
     delete process.env.ATTEO_SBTEST;
     rmSync(hostSecret, { force: true });
+    rmSync(nestedDir, { recursive: true, force: true });
     rmSync(base, { recursive: true, force: true });
   }
   return { ok, lines };

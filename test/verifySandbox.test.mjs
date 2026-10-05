@@ -1,5 +1,5 @@
-import { existsSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, mkdtempSync, mkdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
@@ -8,6 +8,7 @@ import {
   pickSandbox,
   runSandboxed,
   sandboxSelfTest,
+  seatbeltProfile,
   TERMINAL_OUTPUT_LIMIT,
   terminalSafe,
 } from "../cli/src/verify";
@@ -90,5 +91,32 @@ describe("claim-check terminal safety", () => {
     } finally {
       rmSync(base, { recursive: true, force: true });
     }
+  });
+});
+
+describe("macOS seatbelt profile", () => {
+  it("denies the host home so unlisted files are blocked, then re-allows checkout paths under it", () => {
+    const home = realpathSync(homedir());
+    const allowed = join(home, "atteo-verify-allowed-under-home");
+    const nvm = join(home, ".nvm", "versions", "node", "v20.0.0");
+    const profile = seatbeltProfile([allowed], [nvm]);
+    const lines = profile.split("\n");
+    const homeDeny = lines.find((line) => line.startsWith("(deny file-read*") && line.includes(JSON.stringify(home)) && !line.includes(".ssh"));
+    const homeAllow = lines.find((line) => line.startsWith("(allow file-read*"));
+    expect(homeDeny).toBeTruthy();
+    expect(homeAllow).toContain(`(subpath ${JSON.stringify(allowed)})`);
+    expect(homeAllow).toContain(`(subpath ${JSON.stringify(nvm)})`);
+    expect(homeAllow).not.toContain(`(subpath ${JSON.stringify(home)})`);
+    expect(profile).toContain(`(subpath ${JSON.stringify(join(home, ".ssh"))})`);
+    expect(profile).toContain(`(subpath ${JSON.stringify(join(home, "Library/Keychains"))})`);
+    expect(homeAllow).not.toContain(".atteo-sandbox-read-probe");
+    expect(homeAllow).not.toContain("/Library");
+  });
+
+  it("does not re-allow the whole home when a listed path is the home itself", () => {
+    const home = realpathSync(homedir());
+    const profile = seatbeltProfile(["/var/folders/tmp-checkout"], [home]);
+    expect(profile).toContain(`(subpath ${JSON.stringify(home)})`);
+    expect(profile).not.toContain("(allow file-read*");
   });
 });
