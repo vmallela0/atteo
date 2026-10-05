@@ -247,6 +247,7 @@ export const HI: Record<string, string> = {
   "Drag a card to change its status. Agents see the same board through the": "स्थिति बदलने के लिए कार्ड खींचें। एजेंट यही बोर्ड इस टूल से देखते हैं:",
   "Drag to move the picture": "तस्वीर हिलाने के लिए खींचें",
   "Drop the marker": "निशान हटाएँ",
+  "Stalled? No activity for {t}": "अटका हुआ? {t} से कोई गतिविधि नहीं",
   "Dropped": "छोड़ा गया",
   "Each POST has": "हर POST में होता है",
   "Each connected agent has its own sign-in. Revoke one to disconnect that agent immediately.": "हर कनेक्टेड एजेंट का अपना साइन-इन है। किसी एक को रद्द करते ही वह एजेंट तुरंत डिस्कनेक्ट हो जाता है।",
