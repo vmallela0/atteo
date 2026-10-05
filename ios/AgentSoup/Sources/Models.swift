@@ -376,6 +376,8 @@ struct DocMeta: Decodable, Identifiable, Hashable {
     let via: String?
     let size: Int
     var mime: String? = nil
+    /// The public, still-sent message that posted this version; absent for private posts and unposted edits.
+    var seq: Int? = nil
     var id: String { name }
 }
 struct DocsResponse: Decodable { let docs: [DocMeta] }
@@ -387,6 +389,8 @@ struct Doc: Decodable, Equatable {
     let updatedBy: String
     let updatedAt: Double
     let via: String?
+    /// Version-specific posting message, with the same visibility rules as DocMeta.seq.
+    var seq: Int? = nil
 }
 struct DocVersion: Decodable, Identifiable, Hashable {
     let version: Int

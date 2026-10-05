@@ -1,7 +1,7 @@
 // A board's files: every file posted on a board is a versioned document. The list (newest first, searchable, a type
 // icon, size, version, who changed it last and when), and a clean reader: Markdown set as text (headings, lists,
 // checklists, quotes, tables, code in monospace that scrolls sideways), code and data as they are (line numbers;
-// CSV as a table); older versions one tap away. Pictures and other stored files open in Quick Look. Everything shares.
+// CSV as a table); older versions one tap away. The reader also offers Quick Look for stored files. Everything shares.
 
 import SwiftUI
 
@@ -91,8 +91,9 @@ enum FileSort: String, CaseIterable, Identifiable {
 /// A board's files as their own screen (Board info → Files).
 struct FilesList: View {
     let board: String
+    let jump: (Int) -> Void
     var body: some View {
-        FilesPane(board: board)
+        FilesPane(board: board, jump: jump)
             .background(Theme.bg)
             .navigationTitle("Files")
             .navigationBarTitleDisplayMode(.inline)
@@ -117,17 +118,16 @@ struct FileSortMenu: View {
     }
 }
 
-/// A board's files: search, sort (recently updated first), one dense row each. Text opens in the reader; pictures
-/// and other stored files in Quick Look; an .html file also has Preview (HTMLPreview.swift). Long-press to share or copy the name. Embeddable in any navigation stack.
+/// A board's files: search, sort (recently updated first), one dense row each. All files open in the reader, whose
+/// toolbar links back to chat; stored files also offer Quick Look. HTML has Preview (HTMLPreview.swift).
 struct FilesPane: View {
     @EnvironmentObject var state: AppState
     @ObservedObject private var index = FileIndex.shared
     let board: String
+    let jump: (Int) -> Void
     @State private var sort: FileSort = .recent
     @State private var query = ""
     @State private var reading: DocMeta?
-    @State private var preview: URL?
-    @State private var opening: String?
     @State private var sharing: SharedFile?
     @State private var running: HTMLPreviewTarget? // an .html file, previewed (HTMLPreview.swift)
     @FocusState private var searching: Bool
@@ -151,7 +151,7 @@ struct FilesPane: View {
             ForEach(shown) { d in
                 let html = HTMLPreview.available(board: board, name: d.name, stored: d.stored)
                 HStack(spacing: Space.s) {
-                    Button { open(d) } label: { FileRow(doc: d, loading: opening == d.name) }
+                    Button { open(d) } label: { FileRow(doc: d) }
                         .buttonStyle(RowPressStyle())
                         .accessibilityIdentifier("file-\(d.name)")
                     if html { PreviewButton { running = HTMLPreviewTarget(board: board, name: d.name, version: d.version) } }
@@ -161,8 +161,12 @@ struct FilesPane: View {
                     .listRowSeparatorTint(Theme.line)
                     .alignmentGuide(.listRowSeparatorLeading) { _ in 46 }
                     .contextMenu {
-                        Button(d.stored ? "Preview" : "Open", systemImage: d.stored ? "eye" : "doc.text") { open(d) }
+                        Button("Open", systemImage: "doc.text") { open(d) }
                         if html { Button("Preview", systemImage: "eye") { running = HTMLPreviewTarget(board: board, name: d.name, version: d.version) } }
+                        if let seq = d.seq {
+                            Button("Show in chat", systemImage: "bubble.left") { searching = false; jump(seq) }
+                                .accessibilityIdentifier("file-show-in-chat-\(d.name)")
+                        }
                         Button("Share…", systemImage: "square.and.arrow.up") { share(d) }
                         Button("Copy name", systemImage: "doc.on.doc") { UIPasteboard.general.string = d.name }
                     }
@@ -187,8 +191,7 @@ struct FilesPane: View {
         }
         }
         .background(Theme.bg)
-        .navigationDestination(item: $reading) { d in DocViewer(board: board, name: d.name) }
-        .quickLookPreview($preview)
+        .navigationDestination(item: $reading) { d in DocViewer(board: board, name: d.name, jump: jump, stored: d.stored) }
         .htmlPreview($running)
         .sheet(item: $sharing) { s in ShareSheet(items: [s.url]).presentationDetents([.medium, .large]).ignoresSafeArea() }
         .task { await index.load(board) }
@@ -226,13 +229,7 @@ struct FilesPane: View {
 
     private func open(_ d: DocMeta) {
         searching = false
-        guard d.stored else { reading = d; return }
-        guard opening == nil else { return }
-        opening = d.name
-        Task {
-            defer { opening = nil }
-            do { preview = try await FileExport.url(board: board, doc: d) } catch { Haptics.play(.failed); state.report(error) }
-        }
+        reading = d
     }
 
     private func share(_ d: DocMeta) {
@@ -329,8 +326,11 @@ struct ShareSheet: UIViewControllerRepresentable {
 /// One file: its latest version, or any older one from the picker at the top. Share sends the version you're reading.
 struct DocViewer: View {
     @EnvironmentObject var state: AppState
+    @Environment(\.dismiss) private var dismiss
     let board: String
     let name: String
+    let jump: (Int) -> Void
+    var stored = false
     @State private var doc: Doc?
     @State private var versions: [DocVersion] = []
     @State private var failed = false
@@ -338,7 +338,7 @@ struct DocViewer: View {
     @State private var image: UIImage?
     @State private var preview: URL?
 
-    private var kind: FileKind { FileKind(name: name, mime: nil) }
+    private var kind: FileKind { FileKind(name: name, mime: stored ? "application/octet-stream" : nil) }
 
     var body: some View {
         ScrollView {
@@ -362,6 +362,13 @@ struct DocViewer: View {
         .navigationTitle(name)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
+            if let seq = doc?.seq {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button { dismiss(); jump(seq) } label: { ToolbarIcon("bubble.left") }
+                        .accessibilityLabel("Show in chat")
+                        .accessibilityIdentifier("doc-show-in-chat")
+                }
+            }
             if versions.count > 1, let doc {
                 ToolbarItem(placement: .topBarTrailing) {
                     Menu {
@@ -396,6 +403,10 @@ struct DocViewer: View {
             versions = await h
         }
         .refreshable { await load(doc?.version == doc?.latest ? nil : doc?.version) }
+        .onChange(of: state.entries[board]?.last(where: { $0.retracts == doc?.seq && $0.retracts != nil })?.seq) { _, seq in
+            // An unsend while the reader is open removes its chat action too.
+            if seq != nil { Task { await load(doc?.version) } }
+        }
     }
 
     private func byline(_ doc: Doc) -> some View {

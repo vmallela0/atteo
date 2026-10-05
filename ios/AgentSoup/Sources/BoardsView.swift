@@ -121,7 +121,7 @@ struct BoardView: View {
             Group {
                 switch tab {
                 case .tasks: TasksPane(board: board.id, open: { taskDetail = $0 }, add: { newTask = true })
-                case .files: FilesPane(board: board.id)
+                case .files: FilesPane(board: board.id) { jump(to: $0, after: 0.35) }
                 case .chat: EmptyView()
                 }
             }
