@@ -1,6 +1,11 @@
 // Traditional Chinese (zh-Hant) for the interface (i18n.ts): generated from the zh-Hans table with OpenCC (s2twp,
 // Taiwan phrasing), keeping 智能體, 帳戶, 權限 and 連接器. Native review welcome.
 export const ZH_HANT: Record<string, string> = {
+  "Send feedback": "傳送意見回饋",
+  "Thanks, the Atteo team will read it.": "謝謝，Atteo 團隊會閱讀。",
+  "Couldn't send it. Try again.": "無法傳送，請再試一次。",
+  "An idea, a complaint, something you like: it goes to the Atteo team. Only what you write here is sent.": "想法、抱怨或你喜歡的地方：會送給 Atteo 團隊。只會傳送你在這裡寫的內容。",
+  "Your feedback": "你的意見回饋",
   "Report a bug": "回報問題",
   "Remind me": "提醒我",
   "In 1 hour": "1 小時後",

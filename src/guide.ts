@@ -103,6 +103,12 @@ export const GUIDE: GuideSection[] = [
         agent: "purge removes a leaked secret for good (text, files, edit history, search, inbox copies); retract only hides. Only what an agent of your person posted; ask them for anything else. It hides the leak, it doesn't make the secret safe (backups, exports and what was already read keep it): always rotate it.",
       },
       {
+        id: "feedback",
+        tools: ["feedback"],
+        cli: 'atteo feedback "<text>"',
+        agent: "feedback sends your person's words about Atteo itself (an idea, a complaint, \"feedback: …\") to the Atteo team; read the wording back first and send it once they agree. Only your text goes, no board content.",
+      },
+      {
         id: "forward",
         title: "Forward a selection",
         how: "Select some text in a message and choose Forward to send it to another board as a quote that links back.",

@@ -1908,6 +1908,14 @@ await step("purge (alt-c #3573): atteo purge N removes your agent's leaked secre
   assert(r.code === 0 && j.ok && j.seq === m && j.board === pb && Array.isArray(j.files), r.out + r.err);
 });
 
+await step("feedback (vedu #4125): atteo feedback sends the person's words to the Atteo team; usage without text", async () => {
+  let r = await cli(["feedback"]);
+  assert(r.code === 1 && r.err.includes('Usage: atteo feedback'), r.out + r.err);
+  r = await cli(["feedback", `the CLI feedback path works ${run}`]);
+  // 501-style message while this server has no developers' board (FEEDBACK_BOARD / BUGS_BOARD unset); sent otherwise
+  assert((r.code === 0 && r.out.includes("Sent to the Atteo team")) || (r.code === 1 && r.err.includes("isn't set up")), r.out + r.err);
+});
+
 await step("acp (alt-c #3646): an editor speaks Agent Client Protocol to atteo acp; the answer streams back fenced; cancel withdraws", async () => {
   // Standalone (#3007): its own board.
   const ab = (await ops("boards", { user: A, title: `e2e cli acp ${run}` })).board.id;

@@ -982,6 +982,8 @@ mark{background:var(--mark);color:inherit;border-radius:2px;padding:0 1px}
 .sidebar .me{display:flex;align-items:center;gap:6px}.sidebar .me>.side-link{flex:1;min-width:0}
 .bug-btn{flex:none;width:30px;height:30px;padding:0;display:inline-grid;place-items:center;border:1px solid var(--line-strong);color:var(--muted);background:var(--bg)}
 .bug-btn:hover{color:var(--ink);border-color:var(--ink);background:var(--bg)}
+/* Send feedback (vedu #4125): a speech bubble before the triangle, drawn here (cached) rather than in every page's HTML. */
+[data-feedback]::before{content:"";width:16px;height:16px;background:currentColor;-webkit-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%23000' stroke-width='1.5' stroke-linejoin='round'%3E%3Cpath d='M2.5 3.5h11v7.5H7l-3 2.5V11H2.5Z'/%3E%3C/svg%3E") center/16px no-repeat;mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%23000' stroke-width='1.5' stroke-linejoin='round'%3E%3Cpath d='M2.5 3.5h11v7.5H7l-3 2.5V11H2.5Z'/%3E%3C/svg%3E") center/16px no-repeat}
 /* Leaving Atteo (jxn #4173): the address in full, wrapped, before you go. */
 #leave .leave-url{margin:0;padding:10px 12px;border:1px solid var(--line);border-radius:var(--r-sm);background:var(--bg-subtle);font-size:13px;overflow-wrap:anywhere;color:var(--ink)}
 #leave .ft{display:flex;justify-content:flex-end;gap:8px;padding:0 22px 20px}
@@ -1747,7 +1749,7 @@ export function appPage(
   <div class="side-label"><span>${esc(T("Your boards"))}</span><a href="/?new=1" title="${esc(T("New board (C)"))}" aria-label="${esc(T("New board"))}">${ICON.plus}</a></div>
   ${sideBoards || `<p class="xs faint" style="padding:2px 9px">${esc(T("No boards yet"))}</p>`}
   <div class="side-label"><span>${esc(T("DMs"))}</span></div>${sideOwn}${sideDirect}
-  <div class="me"><a class="side-link" href="/me">${avatar(v.name, "sm")}<span class="truncate">${esc(v.name)}</span></a><button class="btn ghost sm bug-btn" type="button" data-bug data-bug-src="${BUG_JS_SRC}" aria-label="${esc(T("Report a bug"))}" title="${esc(T("Report a bug"))}">${ICON.warn}</button></div>
+  <div class="me"><a class="side-link" href="/me">${avatar(v.name, "sm")}<span class="truncate">${esc(v.name)}</span></a><button class="btn ghost sm bug-btn" type="button" data-feedback aria-label="${esc(T("Send feedback"))}"></button><button class="btn ghost sm bug-btn" type="button" data-bug data-bug-src="${BUG_JS_SRC}" aria-label="${esc(T("Report a bug"))}" title="${esc(T("Report a bug"))}">${ICON.warn}</button></div>
 </aside>
 <div class="nav-scrim" data-nav-close aria-hidden="true"></div>
 <div class="grow" style="min-width:0">
@@ -1903,6 +1905,31 @@ ${lang === "en" ? "" : `<script nonce="${security.nonce}">window.I18N=${clientTa
   return new Response(html, { status, headers: { "content-type": "text/html; charset=utf-8", "content-language": lang, vary: "Accept-Language, Cookie", "speculation-rules": `"${BOARD_PREFETCH_PATH}"`, ...security.headers } });
 }
 
+/** Send feedback (vedu #4125): the form, fetched on the first click from /feedback-form and localized there, so pages
+ *  don't carry it (web-budget). English as written; i18n.localize translates its text, labels and placeholder. */
+export const FEEDBACK_DIALOG = `<dialog id="feedback" aria-labelledby="fb-title"><form id="fb-form">
+<div class="hd"><div><h2 id="fb-title">Send feedback</h2><p class="muted small" style="margin-top:4px">An idea, a complaint, something you like: it goes to the Atteo team. Only what you write here is sent.</p></div><button type="button" class="btn ghost sm" data-close aria-label="Close">✕</button></div>
+<div class="bd"><textarea class="input" id="fb-text" rows="4" required maxlength="2000" aria-label="Your feedback" placeholder="Your feedback"></textarea><p class="small" id="fb-status" role="status" hidden></p><span id="fb-thanks" hidden>Thanks, the Atteo team will read it.</span><span id="fb-err" hidden>Couldn&#39;t send it. Try again.</span></div>
+<div class="ft"><button type="button" class="btn" data-close>Cancel</button><button class="btn primary" type="submit" id="fb-send">Send</button></div>
+</form></dialog>`;
+
+/** Send feedback's script (vedu #4125), loaded on the first click of the 💬 button: fetches the form from /feedback-form
+ *  (localized there), opens it, and posts a few words for the Atteo team to /api/feedback (the board it's about rides
+ *  along by id). Served hashed and immutable like /bug.js, so pages carry only the few bytes that load it. */
+const FEEDBACK_JS = `(()=>{const $=(s)=>document.querySelector(s);
+const open=async()=>{let d=$('#feedback');
+  if(!d){const r=await fetch('/feedback-form').catch(()=>null);if(!r||!r.ok)return;document.body.insertAdjacentHTML('beforeend',await r.text());d=$('#feedback')}
+  $('#fb-status').hidden=true;d.showModal();$('#fb-text').focus()};
+document.addEventListener('click',e=>{if(e.target.closest('[data-feedback]'))open()});
+document.addEventListener('submit',async e=>{if(e.target.id!=='fb-form')return;e.preventDefault();const d=$('#feedback'),t=$('#fb-text'),st=$('#fb-status'),b=$('#fb-send');b.disabled=true;
+  const fail=(m)=>{st.hidden=false;st.textContent=m||$('#fb-err').textContent};
+  try{const r=await fetch('/api/feedback',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({text:t.value,board:location.pathname.match(/^\\/b\\/(b_[a-z0-9]+)/)?.[1]})});
+    const j=await r.json().catch(()=>({}));if(r.ok){t.value='';d.close();window.toast&&toast($('#fb-thanks').textContent)}else fail(j.error)}catch{fail()}finally{b.disabled=false}});
+open();
+})();`;
+export const FEEDBACK_PAGE_JS = FEEDBACK_JS;
+export const FEEDBACK_JS_SRC = `/feedback.js?v=${fnv(FEEDBACK_PAGE_JS)}`;
+
 const SHELL_JS = `
 (()=>{const NONCE=document.currentScript?.nonce||'';
 const $=(s,r=document)=>r.querySelector(s),$$=(s,r=document)=>[...r.querySelectorAll(s)];
@@ -1910,6 +1937,10 @@ const $=(s,r=document)=>r.querySelector(s),$$=(s,r=document)=>[...r.querySelecto
 // runs the capture for that click itself; later clicks are its own listener.
 document.addEventListener('click',e=>{const b=e.target.closest('[data-bug]');if(!b||document.getElementById('bug-js'))return;
   const s=document.createElement('script');s.id='bug-js';s.src=b.dataset.bugSrc;s.nonce=NONCE;document.head.appendChild(s)});
+// Send feedback (vedu #4125): /feedback.js (web-budget: not on every page) — the first click loads it, and it opens the
+// form for that click itself; later clicks are its own listener.
+document.addEventListener('click',e=>{if(!e.target.closest('[data-feedback]')||document.getElementById('fb-js'))return;
+  const s=document.createElement('script');s.id='fb-js';s.src='${FEEDBACK_JS_SRC}';s.nonce=NONCE;document.head.appendChild(s)});
 // Search (⌘K everywhere; ⌘F on a board starts with "This board · Messages"): filters show up front like VS Code or Lark,
 // and become chips; results mix boards and actions with ranked messages and files (this board, or all your boards).
 const pal=$('#palette'),q=$('#palette-q'),list=$('#palette-list'),pChips=$('#pal-chips'),pFilt=$('#pal-filters');
