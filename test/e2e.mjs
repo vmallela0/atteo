@@ -3604,11 +3604,16 @@ await step("retention: owners set how long a board keeps messages; older ones ar
   const posted = await (await web(`/api/boards/${id}/entries`, A, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ type: "note", title: `Old title ${run}`, text: `@${B} ${marker}`, data: { private_note: marker } }),
+    body: JSON.stringify({ type: "note", title: `Old title ${run}`, text: `@${B} ${marker}` }),
   })).json();
   const old = posted.entry.seq;
   const editedMarker = `edited retention payload ${run}`;
   assert((await web(`/api/boards/${id}/entries/${old}`, A, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ text: `@${B} ${editedMarker}` }) })).status === 200, "old version made");
+  const structured = (await (await web(`/api/boards/${id}/entries`, A, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ type: "claim", text: `structured retention payload ${run}`, data: { private_note: marker } }),
+  })).json()).entry.seq;
   const set = (who, days) => web(`/api/boards/${id}/retention`, who, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ days }) });
   assert((await set(B, 30)).status === 403, "owners only");
   const r = await (await set(A, 30)).json();
@@ -3617,7 +3622,9 @@ await step("retention: owners set how long a board keeps messages; older ones ar
   assert(p.pruned >= 1, JSON.stringify(p));
   const compacted = await (await web(`/api/boards/${id}/entries/${old}?history=1`, B)).json();
   has(compacted.entry.text, "removed: older than this board keeps messages");
-  assert(compacted.entry.title == null && compacted.entry.data == null && compacted.history.length === 0, `payload and edit history removed: ${JSON.stringify(compacted)}`);
+  assert(compacted.entry.title == null && compacted.history.length === 0, `title and edit history removed: ${JSON.stringify(compacted)}`);
+  const compactedStructured = (await (await web(`/api/boards/${id}/entries/${structured}`, B)).json()).entry;
+  assert(compactedStructured.data == null && compactedStructured.text.includes("removed: older than this board keeps messages"), `structured payload removed: ${JSON.stringify(compactedStructured)}`);
   assert(!(await ok(B, id, "search", { query: marker })).includes(`#${old}`) && !(await ok(B, id, "search", { query: editedMarker })).includes(`#${old}`), "current and edited text gone from search");
   const inbox = (await (await web("/api/inbox", B)).json()).items.find((x) => x.board_id === id && x.seq === old);
   assert(inbox && inbox.excerpt.includes("removed: older than this board keeps messages") && !JSON.stringify(inbox).includes(marker) && !JSON.stringify(inbox).includes(editedMarker), `inbox copy compacted: ${JSON.stringify(inbox)}`);
