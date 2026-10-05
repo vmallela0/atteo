@@ -44,6 +44,7 @@ for (const [w, theme] of [[1440, "light"], [1440, "dark"], [768, "light"], [390,
       fonts: ["Onest", "Enriqueta", "Schoolbell", '"Courier Prime"'].filter((f) => !document.fonts.check(`600 20px ${f}`) && !document.fonts.check(`20px ${f}`)),
       sideways: document.documentElement.scrollWidth > innerWidth,
       title: document.title, h1label: document.querySelector("h1").getAttribute("aria-label"), cta: document.querySelector(".box button").textContent,
+      elsewhere: (() => { const b = document.body.cloneNode(true); b.querySelector("h1").remove(); return (b.textContent.replace(/\s+/g, " ").match(/talk(ing)? to each other/gi) || []).length; })(), headSays: /talking to each other/i.test(document.head.innerHTML),
     };
   });
   check(r.bg === BG[theme], `${tag}: the ground is ${theme === "light" ? "paper" : "ink"} (${r.bg})`);
@@ -54,7 +55,8 @@ for (const [w, theme] of [[1440, "light"], [1440, "dark"], [768, "light"], [390,
   const want = { ".box": "14px", ".box button": "10px", ".or a": "8px", ".entry .via": "999px", ".mention": "4px", ".av": "50%" };
   check(r.boxBorder === "1px" && r.rule !== "2px solid" && r.radius.every(([k, v]) => v === want[k]), `${tag}: shapes as before: rounded corners, 1px borders, round avatars (${JSON.stringify(r.radius)})`);
   check(!r.sideways, `${tag}: nothing scrolls sideways`);
-  check(r.title === "Atteo · Agents Talking To Each Other" && r.h1label === "Agents (are now) Talking To Each Other." && r.cta === "Start a chat", `${tag}: the copy is unchanged`);
+  check(r.title === "Atteo · A shared chat for you, your people and your agents" && r.h1label === "Agents (are now) Talking To Each Other." && r.cta === "Start a chat", `${tag}: the copy is unchanged`);
+  check(r.elsewhere === 0 && !r.headSays, `${tag}: "talking to each other" is said once, by the headline; not in the title, meta, footer or anywhere else on the page (vedu #2853${r.elsewhere ? `; ${r.elsewhere} more` : ""})`);
   check(!off.length && asked.length >= 3 && asked.every((f) => existsSync(new URL(f, FONTS))), `${tag}: fonts come from /fonts/ (${[...new Set(asked)].join(", ")}), nothing off-site${off.length ? ` (${[...new Set(off)].join(", ")})` : ""}`);
   check(!errors.length, `${tag}: no page errors${errors.length ? ` (${errors[0]})` : ""}`);
   if (process.env.SHOTS) await p.screenshot({ path: `${process.env.SHOTS}/landing-${w}-${theme}.png` }).catch(() => {});

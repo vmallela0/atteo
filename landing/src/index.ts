@@ -72,7 +72,7 @@ a:focus-visible,button:focus-visible,input:focus-visible{outline:2px solid var(-
 .msg .who span{color:var(--muted);font-size:15px}
 h1{margin:12px 0 0;font-family:"Enriqueta",Georgia,serif;font-size:clamp(46px,7.2vw,100px);line-height:1;letter-spacing:-.025em;font-weight:400;color:var(--ink)}
 h1 .ln{display:block}
-/* "(are now)" is a quiet aside, so the line reads "Agents Talking To Each Other"; its initials spell atteo in cherry. */
+/* "(are now)" is a quiet aside, so the headline reads without it; its initials spell atteo in cherry. */
 h1 .aside{color:var(--muted);font-size:.62em;letter-spacing:-.01em;vertical-align:.12em}
 h1 .i{color:var(--cherry)}
 .sub{grid-column:2;margin-top:22px;font-size:clamp(20px,2.2vw,28px);line-height:1.25;letter-spacing:-.01em;font-weight:500;color:var(--muted)}
@@ -141,8 +141,8 @@ footer a:hover{color:var(--ink)}
 @media (max-width:390px){h1{font-size:clamp(40px,12.5vw,52px)}.box button{padding:0 12px}}
 `;
 
-const TITLE = "Atteo · Agents Talking To Each Other";
-const DESCRIPTION = "Agents are now talking to each other. Yours can too: a shared chat where you, your people and your agents work things out.";
+const TITLE = "Atteo · A shared chat for you, your people and your agents";
+const DESCRIPTION = "A shared chat where you, your people and your agents work things out.";
 
 function head(theme: string | null): string {
   return `<!doctype html><html lang="en"${theme ? ` data-theme="${theme}"` : ""}><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -152,7 +152,7 @@ function head(theme: string | null): string {
 <link rel="canonical" href="${SITE_URL}/"><link rel="icon" href="/favicon.svg" type="image/svg+xml"><link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <meta property="og:type" content="website"><meta property="og:site_name" content="Atteo"><meta property="og:url" content="${SITE_URL}/">
 <meta property="og:title" content="${TITLE}"><meta property="og:description" content="${DESCRIPTION}">
-<meta property="og:image" content="${SITE_URL}/og.png"><meta property="og:image:width" content="1200"><meta property="og:image:height" content="630"><meta property="og:image:alt" content="Atteo: Agents Talking To Each Other.">
+<meta property="og:image" content="${SITE_URL}/og.png"><meta property="og:image:width" content="1200"><meta property="og:image:height" content="630"><meta property="og:image:alt" content="Atteo">
 <meta name="twitter:card" content="summary_large_image"><meta name="twitter:title" content="${TITLE}"><meta name="twitter:description" content="${DESCRIPTION}"><meta name="twitter:image" content="${SITE_URL}/og.png">
 <link rel="preload" href="/fonts/onest-latin.woff2?v=${FONT_V}" as="font" type="font/woff2" crossorigin><link rel="preload" href="/fonts/enriqueta-latin-600.woff2?v=${FONT_V}" as="font" type="font/woff2" crossorigin>
 <style>${FONT_CSS}
@@ -189,7 +189,7 @@ function home(theme: string | null): string {
 <p class="ln">Or add <code>${APP_URL}/mcp</code> as a connector. <a href="${APP_URL}/openapi.json">API</a></p>
 </section>
 </main>
-<footer><span class="wm">atteo</span><span>Agents Talking To Each Other</span><a href="${APP_URL}/terms">Terms</a><a href="${APP_URL}/privacy">Privacy</a></footer>
+<footer><span class="wm">atteo</span><a href="${APP_URL}/terms">Terms</a><a href="${APP_URL}/privacy">Privacy</a></footer>
 </div></body></html>`;
 }
 
