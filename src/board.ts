@@ -95,6 +95,7 @@ export interface TaskView {
   due: number | null;
   lease_holder: string | null;
   lease_agent: boolean;
+  lease_session_name: string | null; // the agent session holding the claim ("alt-b" → "jxn/alt-b has it", #3474)
   lease_until: number | null;
   stop_reason: string | null;
   done_note: string | null; // what the one who finished it said (shown on the task, not posted)
@@ -123,6 +124,10 @@ export interface TaskActOpts {
   session?: string | null; // the agent session acting: notes it causes count as its own posts
   session_name?: string | null; // its name, for "is on it" labels
 }
+
+/** Who holds a task's claim, as headers say it: "jxn/alt-b" for a named agent session, else "jxn's agent" or "jxn". */
+export const holderLabel = (t: Pick<TaskView, "lease_holder" | "lease_agent" | "lease_session_name">): string =>
+  !t.lease_holder ? "" : t.lease_agent ? (t.lease_session_name ? `${t.lease_holder}/${t.lease_session_name}` : `${t.lease_holder}'s agent`) : t.lease_holder;
 
 /** Who "is on it": "<user>/<session name>", the one shape for taking by reply, by finishing a task and by handle. The
  *  client's first part ("scout · Codex") is only a fallback for callers that don't send the name. */
@@ -728,7 +733,7 @@ export class Board extends DurableObject<Env> {
       if (!taskCols.has(col)) this.sql.exec(`ALTER TABLE tasks ADD COLUMN ${col} ${def}`);
     }
     // A claim by an agent session renews while that session is around (leases.ts): who, for how long, until when at most.
-    for (const [col, def] of [["lease_session", "TEXT"], ["lease_mins", "INTEGER"], ["lease_cap", "INTEGER"]]) {
+    for (const [col, def] of [["lease_session", "TEXT"], ["lease_mins", "INTEGER"], ["lease_cap", "INTEGER"], ["lease_session_name", "TEXT"]]) {
       if (!taskCols.has(col)) this.sql.exec(`ALTER TABLE tasks ADD COLUMN ${col} ${def}`);
     }
     this.sql.exec("CREATE INDEX IF NOT EXISTS tasks_lease_session ON tasks(lease_session) WHERE lease_session IS NOT NULL");
@@ -3246,6 +3251,7 @@ export class Board extends DurableObject<Env> {
         due: (r.due as number | null) ?? null,
         lease_holder: (r.lease_until as number | null) && (r.lease_until as number) > now ? ((r.lease_holder as string | null) ?? null) : null,
         lease_agent: r.lease_agent === 1,
+        lease_session_name: (r.lease_until as number | null) && (r.lease_until as number) > now && r.lease_agent === 1 ? ((r.lease_session_name as string | null) ?? null) : null,
         lease_until: (r.lease_until as number | null) && (r.lease_until as number) > now ? (r.lease_until as number) : null,
         stop_reason: (r.stop_reason as string | null) ?? null,
         done_note: r.status === "done" ? ((r.done_note as string | null) ?? null) : null,
@@ -3605,15 +3611,21 @@ export class Board extends DurableObject<Env> {
     const t = this.task(seq);
     if (t.status === "done") throw new BoardError(`#${seq} is already done.`);
     if (t.lease_holder && t.lease_holder !== user) {
-      throw new BoardError(`#${seq} is claimed by ${t.lease_agent ? `${t.lease_holder}'s agent` : t.lease_holder} until ${iso(t.lease_until!)}. Pick another task, or ask them on the board.`);
+      throw new BoardError(`#${seq} is claimed by ${holderLabel(t)} until ${iso(t.lease_until!)}. Pick another task, or ask them on the board.`);
+    }
+    // Another session of the same person (#3474): the claim is that session's, not the person's, so it isn't taken
+    // over silently. The person on the web (no session) still can; so can a release from any of their sessions.
+    const held = t.lease_holder === user && t.lease_agent && opts.session ? (this.sql.exec("SELECT lease_session FROM tasks WHERE seq = ?", seq).toArray()[0]?.lease_session as string | null) : null;
+    if (held && held !== opts.session) {
+      throw new BoardError(`#${seq} is claimed by ${holderLabel(t)}, another of your sessions, until ${iso(t.lease_until!)}. Pick another task, or ask it on the board; if that session is gone, release it first (task release ${seq}).`);
     }
     const mins = Math.min(240, Math.max(5, Math.floor(minutes || 30)));
     const now = this.leaseNow();
     const until = now + mins * 60_000;
     const session = opts.session ?? null;
     this.sql.exec(
-      "UPDATE tasks SET lease_holder = ?, lease_agent = ?, lease_until = ?, lease_session = ?, lease_mins = ?, lease_cap = ?, status = CASE WHEN status IN ('todo','stopped') THEN 'doing' ELSE status END, stop_reason = NULL, updated_at = ? WHERE seq = ?",
-      user, opts.via === "agent" ? 1 : 0, until, session, session ? mins : null, session ? now + LEASE_CAP_MS : null, Date.now(), seq,
+      "UPDATE tasks SET lease_holder = ?, lease_agent = ?, lease_until = ?, lease_session = ?, lease_session_name = ?, lease_mins = ?, lease_cap = ?, status = CASE WHEN status IN ('todo','stopped') THEN 'doing' ELSE status END, stop_reason = NULL, updated_at = ? WHERE seq = ?",
+      user, opts.via === "agent" ? 1 : 0, until, session, session ? (opts.session_name ?? null) : null, session ? mins : null, session ? now + LEASE_CAP_MS : null, Date.now(), seq,
     );
     if (session) this.leaseSessions?.add(session);
     void info;

@@ -11,7 +11,7 @@ import * as social from "./social";
 import * as billing from "./billing";
 import { formatCard } from "./card";
 import { queueLine } from "./handoff";
-import { MAX_WAIT_MS, MEMORY_MAX, WAIT_CAP } from "./board";
+import { holderLabel, MAX_WAIT_MS, MEMORY_MAX, WAIT_CAP } from "./board";
 import { settle, waitForBoard } from "./waits";
 import * as agents from "./agents";
 import * as dm from "./dm";
@@ -1016,7 +1016,7 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
       const when = (ts: number) => new Date(ts).toISOString().slice(0, 16).replace("T", " ") + "Z";
       const line = (t: Awaited<ReturnType<typeof stub.tasks>>[number]) =>
         `#${t.seq} [${t.status}${t.priority ? ` · ${t.priority}` : ""}]${t.assignee ? ` for ${t.assignee_agent ? `${t.assignee}'s agent` : t.assignee}` : ""}${
-          t.lease_holder ? ` · held by ${t.lease_agent ? `${t.lease_holder}'s agent` : t.lease_holder} until ${when(t.lease_until!)}` : ""
+          t.lease_holder ? ` · held by ${holderLabel(t)} until ${when(t.lease_until!)}` : ""
         }${t.due ? ` · due ${when(t.due).slice(0, 10)}` : ""}${t.stop_reason ? ` · stopped: ${t.stop_reason}` : ""}${t.done_note ? ` · done: ${t.done_note}` : ""}${t.resolved_by ? ` · #${t.resolved_by} says it resolves this (mark it done if so)` : ""}${t.children ? ` · sub-tasks ${t.children.done}/${t.children.total} done` : ""}${t.parent ? ` · under #${t.parent}` : ""} · v${t.version}\n    ${t.title}`;
       const full = (t: Awaited<ReturnType<typeof stub.tasks>>[number]) =>
         `${line(t)}\n    updated by ${t.updated_via === "agent" ? `${t.updated_by}'s agent` : t.updated_by} ${when(t.updated_at)}\n----- body (v${t.version}) -----\n${t.body || "(empty)"}\n----- end -----`;
@@ -1495,7 +1495,7 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
       if (r.entry.type === "task" && r.entry.retracts == null) {
         const [t, info] = await Promise.all([stub.taskGet(seq).catch(() => null), stub.info()]);
         if (t && (t.version > 1 || t.status !== "todo")) {
-          const who = t.lease_holder ? `, ${t.lease_holder}${t.lease_agent ? "'s agent" : ""} has it` : t.assignee ? `, for ${t.assignee}${t.assignee_agent ? "'s agent" : ""}` : "";
+          const who = t.lease_holder ? `, ${holderLabel(t)} has it` : t.assignee ? `, for ${t.assignee}${t.assignee_agent ? "'s agent" : ""}` : "";
           const why = t.status === "stopped" && t.stop_reason ? `: ${t.stop_reason}` : t.status === "done" && t.done_note ? `: ${t.done_note}` : "";
           const now = info.encrypted ? ["    🔒 encrypted"] : [`    ${t.title}`, ...(t.body ? t.body.split("\n").map((l) => `    ${l}`) : [])]; // ciphertext isn't text
           out.push("", `Now (v${t.version}, ${t.status}${who}${why}):`, ...(t.version > 1 ? now : []));

@@ -2046,6 +2046,36 @@ await step("tasks: claim leases, conflicts, release, assign, done closes it, sto
   assert(out.isError, "outsiders can't see tasks");
 });
 
+// #3474: a claim is its agent session's. glm-c took alt-b's claimed tasks twice (#3375, #3437): the claim read "jxn's
+// agent has it", and another session of the same person could take it over without a word.
+await step("tasks: a claim names its agent session (B/claimer), and another session of the same person can't take it over", async () => {
+  const cb = (await ops("boards", { user: B, title: `e2e claim sessions ${run}` })).body.board.id;
+  const api = async (method, path, body) => (await (await fetch(`${BASE}${path}`, { method, headers: { ...auth(B), "content-type": "application/json" }, body: body ? JSON.stringify(body) : undefined })).json());
+  const s1 = (await api("POST", "/api/sessions", { suggest: "claimer", client: "Claude Code" })).session;
+  const s2 = (await api("POST", "/api/sessions", { suggest: "other", client: "Claude Code" })).session;
+  for (const s of [s1, s2]) await api("POST", `/api/sessions/${s.id}/boards`, { board: cb });
+  const as = async (s, name, args) => {
+    const r = await rpcRaw({ ...auth(B), "x-atteo-session": s.id }, cb, "tools/call", { name, arguments: args });
+    return { text: r.content.map((c) => c.text).join("\n"), isError: !!r.isError };
+  };
+  const okAs = async (s, name, args) => { await as(s, "read", {}); const r = await as(s, name, args); assert(!r.isError, `${name} failed: ${r.text}`); return r.text; };
+  const errAs = async (s, name, args, needle) => { await as(s, "read", {}); const r = await as(s, name, args); assert(r.isError, `${name} should have failed: ${r.text}`); has(r.text, needle); };
+  const t = seqOf(await okAs(s1, "post", { type: "task", text: `Claimed by a session ${run}` }));
+  const one = `${B}/${s1.name}`;
+  has(await okAs(s1, "task", { action: "claim", seq: t }), `held by ${one}`);
+  has(await okAs(s2, "get", { seq: t }), `${one} has it`);
+  has(await okAs(s2, "task", { action: "list" }), `held by ${one}`);
+  await errAs(s2, "task", { action: "claim", seq: t }, `claimed by ${one}, another of your sessions`);
+  has(await okAs(s1, "task", { action: "claim", seq: t }), `held by ${one}`); // its own session renews it
+  const listed = await api("GET", `/api/boards/${cb}/tasks`);
+  const row = listed.tasks.find((x) => x.seq === t);
+  assert(row?.lease_session_name === s1.name && !JSON.stringify(listed).includes(s1.id), `the API names the session, never its id: ${JSON.stringify(row).slice(0, 200)}`);
+  // Ways out: another session releases it (that one may be gone), or B without a session (the person's side) takes it.
+  await okAs(s2, "task", { action: "release", seq: t });
+  has(await okAs(s2, "task", { action: "claim", seq: t }), `held by ${B}/${s2.name}`);
+  has(await ok(B, cb, "task", { action: "claim", seq: t }), `held by ${B}'s agent`);
+});
+
 // jxn #2172, opus-a #2175: the message that resolves a task is the record that it's done, so the task list agrees.
 await step("tasks: a card or note that resolves an open task marks it done when its author could close it (author, holder, assignee, board creator), else leaves a one-tap hint; REST too; done or stopped tasks stay; a private message can't", async () => {
   await ok(A, fb, "read");
@@ -2169,8 +2199,8 @@ await step("claims renew while their session is around: a polling session keeps 
   const mk = async (s, title) => Number((await sok(s, "task", { action: "create", title })).match(/Created task #(\d+)/)[1]);
   const t1 = await mk(busy, `kept ${run}`);
   const t2 = await mk(quiet, `dropped ${run}`);
-  has(await sok(busy, "task", { action: "claim", seq: t1, minutes: 5 }), `held by ${A}'s agent`);
-  has(await sok(quiet, "task", { action: "claim", seq: t2, minutes: 5 }), `held by ${A}'s agent`);
+  has(await sok(busy, "task", { action: "claim", seq: t1, minutes: 5 }), `held by ${A}/lease-busy-${run}`); // the session that holds it (#3474)
+  has(await sok(quiet, "task", { action: "claim", seq: t2, minutes: 5 }), `held by ${A}/lease-quiet-${run}`);
   if (!(await clock(0))) return console.log("      (skipped the time-based part: add DEV_FAKE_CLOCK=1 to .dev.vars to move the lease clock)");
   const held = async (seq) => /held by /.test(await ok(B, lb, "task", { action: "get", seq }));
   try {
