@@ -70,4 +70,57 @@ final class DictationMergeTests: XCTestCase {
         XCTAssertEqual(DictationMerge.after("a b", in: "a bc d"), "d") // not at a word's end: by word count
         XCTAssertEqual(DictationMerge.after("a b", in: "a b"), "")
     }
+
+    // MARK: Pauses (TranscriptJoin, jxn #3339): after a pause the recognizer's transcript starts over with only the new words.
+
+    /// Talk, pause, talk again: what was said before the pause stays and the new words go after it.
+    func testAPauseKeepsWhatWasSaid() {
+        var j = TranscriptJoin()
+        XCTAssertEqual(j.add("Check the"), "Check the")
+        XCTAssertEqual(j.add("Check the deploy logs"), "Check the deploy logs")
+        XCTAssertEqual(j.add("Then"), "Check the deploy logs Then") // the pause: a new stretch
+        XCTAssertEqual(j.add("Then roll back"), "Check the deploy logs Then roll back")
+        XCTAssertEqual(j.add("Today"), "Check the deploy logs Then roll back Today") // a second pause
+    }
+
+    /// The recognizer rewriting the words of the current stretch is a revision, not a pause.
+    func testRevisionsStillReplaceEachOther() {
+        var j = TranscriptJoin()
+        XCTAssertEqual(j.add("hello wor"), "hello wor")
+        XCTAssertEqual(j.add("Hello world"), "Hello world") // capitals and punctuation don't count
+        XCTAssertEqual(j.add("Hello, world."), "Hello, world.")
+        XCTAssertEqual(j.add("hey"), "Hello, world. hey")
+        XCTAssertEqual(j.add("hi there"), "Hello, world. hi there") // a one-word stretch revised into another word
+    }
+
+    /// An empty transcript in between (the recognizer starting over) loses nothing.
+    func testAnEmptyTranscriptStartsOver() {
+        var j = TranscriptJoin()
+        XCTAssertEqual(j.add("ship it"), "ship it")
+        XCTAssertEqual(j.add(""), "ship it")
+        XCTAssertEqual(j.add("after lunch"), "ship it after lunch")
+    }
+
+    /// The whole path: typed text, dictation, an edit by hand, a pause, more dictation. Nothing is replaced.
+    func testAPauseAfterAnEditKeepsTheBox() {
+        var j = TranscriptJoin()
+        var m = DictationMerge("Hi team,")
+        var box = m.merge(j.add("please check the"), into: "Hi team,")
+        XCTAssertEqual(box, "Hi team, please check the")
+        box = "Hi team, please check the staging" // typed by hand while it listens
+        box = m.merge(j.add("please check the logs"), into: box)
+        XCTAssertEqual(box, "Hi team, please check the staging logs")
+        box = m.merge(j.add("Thanks"), into: box) // after a pause
+        XCTAssertEqual(box, "Hi team, please check the staging logs Thanks")
+        box = m.merge(j.add("Thanks everyone"), into: box)
+        XCTAssertEqual(box, "Hi team, please check the staging logs Thanks everyone")
+    }
+
+    /// A new listen (the mic tapped again) starts its own transcript.
+    func testANewListenStartsItsOwnTranscript() {
+        var first = TranscriptJoin()
+        _ = first.add("deploy it")
+        var second = TranscriptJoin()
+        XCTAssertEqual(second.add("then ping maya"), "then ping maya")
+    }
 }

@@ -79,6 +79,7 @@ const MATCH_ROUTES: Record<string, Route[]> = {
     { method: "GET", path: "/api/boards/{id}/members" },
     { method: "POST", path: "/api/boards/{id}/members/{user}" },
     { method: "GET", path: "/api/boards/{id}/audit" },
+    { method: "GET", path: "/api/boards/{id}/audit/export" },
     { method: "GET", path: "/api/boards/{id}/links" },
     { method: "POST", path: "/api/boards/{id}/links" },
     { method: "DELETE", path: "/api/boards/{id}/links/{lid}" },
@@ -161,6 +162,7 @@ const MATCH_ROUTES: Record<string, Route[]> = {
     { method: "POST", path: "/api/boards/{id}/entries/{seq}/close" },
   ],
   "\\/api\\/boards\\/([^/]+)\\/entries\\/(\\d+)\\/retract$": [{ method: "POST", path: "/api/boards/{id}/entries/{seq}/retract" }],
+  "\\/api\\/boards\\/([^/]+)\\/entries\\/(\\d+)\\/purge$": [{ method: "POST", path: "/api/boards/{id}/entries/{seq}/purge" }],
   "\\/api\\/boards\\/([^/]+)\\/(updates|entries|invites|seen|search|grep|handle|typing|answered|handoffs)(?:\\/(\\d+))?$": [
     { method: "GET", path: "/api/boards/{id}/updates" },
     { method: "GET", path: "/api/boards/{id}/entries" },

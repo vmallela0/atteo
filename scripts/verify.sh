@@ -5,7 +5,8 @@
 #   e2e      own server :PORT     (the repo's .dev.vars, as ship.sh always used)
 #   cli      own server :PORT+1   (same .dev.vars; only when CLI-facing code changed, or ALL=1)
 #   browser  own server :PORT+2   (CI-style values from an --env-file: ADMIN_KEY=ci-admin-key, DEV_FAKE_*, as CI)
-#   landing  the landing Worker :PORT+3 (its look check, then a dry-run build); only when SUITES names it
+#   backup   own server :PORT+4   (backup vars from an --env-file: a fake S3 on :PORT+5, run by test/backup.mjs)
+#   landing  the landing Worker :PORT+3 (its look check, its Core Web Vitals, then a dry-run build); only when SUITES names it
 # Each server has its own --persist-to state, so no suite loads another's server (sharing one made the slower suite
 # flake). Prints one summary and exits non-zero if any suite failed. Logs: $VERIFY_DIR/<suite>.log.
 #
@@ -18,12 +19,14 @@
 #   it) · ALL=1 (run cli regardless) · BASE_REF (what "changed" means for the cli rule; default the last ship, else
 #   origin/main) · BROWSER_CHANGED (a ref: run only the browser checks checks-map.json picks for the files changed
 #   since it; when it picks none, the browser server isn't started either) · VERIFY_DIR (logs and state; default
-#   <tmp>/atteo-verify) · PAR / BROWSERS / RETRY (read by test/browser/run.mjs) · CLI_PAR (read by test/cli.mjs).
+#   <tmp>/atteo-verify) · KEEP_STATE=1 (keep the servers' state, the landing build and the browser shots, which are
+#   otherwise removed on exit, kept only when the browser suite failed) · PAR / BROWSERS / RETRY (read by
+#   test/browser/run.mjs) · CLI_PAR (read by test/cli.mjs).
 # Local only: every server here is a localhost wrangler dev; production never gets these suites.
 set -uo pipefail
 cd "$(dirname "$0")/.."
 PORT=${VERIFY_PORT:-8610}
-E2E_PORT=$PORT; CLI_PORT=$((PORT + 1)); BR_PORT=$((PORT + 2)); LANDING_PORT=$((PORT + 3))
+E2E_PORT=$PORT; CLI_PORT=$((PORT + 1)); BR_PORT=$((PORT + 2)); LANDING_PORT=$((PORT + 3)); BK_PORT=$((PORT + 4)); BK_S3_PORT=$((PORT + 5))
 OUT=${VERIFY_DIR:-${TMPDIR:-/tmp}/atteo-verify}; OUT=${OUT%/}
 # The last ship's commit, kept in the repository's own git dir (in a worktree .git is a file: ask git where it is).
 LAST_SHIP_FILE="$(git rev-parse --git-common-dir)/atteo-last-ship"
@@ -54,14 +57,24 @@ if want browser && [ -n "${BROWSER_CHANGED:-}" ]; then
   fi
 fi
 
-pids=(); ports=()
-# The servers this run started, and whatever is still listening on their ports (wrangler's workerd can outlive npx).
+. scripts/procgroups.sh
+ports=()
+# On any exit (done, failed, Ctrl-C, killed): every server and suite this run started, with everything they started
+# (each is a process group), then anything still listening on their ports, then what the run left in $OUT (/tmp is
+# often a tmpfs, so leftovers cost RAM). The logs stay.
 cleanup() {
-  for p in "${pids[@]:-}"; do [ -n "$p" ] && kill "$p" 2>/dev/null; done
-  for port in "${ports[@]:-}"; do [ -n "$port" ] && lsof -ti "tcp:$port" -sTCP:LISTEN 2>/dev/null | xargs kill 2>/dev/null; done
+  trap - EXIT INT TERM
+  stop_groups 5
+  for port in "${ports[@]:-}"; do [ -n "$port" ] && lsof -ti "tcp:$port" -sTCP:LISTEN 2>/dev/null | xargs kill -9 2>/dev/null; done
+  if [ -z "${KEEP_STATE:-}" ]; then
+    rm -rf "$OUT"/state-* "$OUT/landing-build" "$OUT/backup-key.json"
+    if ! want browser || [ "$(cat "$OUT/browser.rc" 2>/dev/null)" = 0 ]; then rm -rf "$OUT/browser-shots"; fi
+  fi
   return 0
 }
-trap cleanup EXIT INT TERM
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 busy() { curl -s -o /dev/null --max-time 2 "http://localhost:$1/health"; }
 # serve <name> <port> [env file]: migrate a fresh state dir and start wrangler dev on it, in the background. The env
@@ -70,10 +83,15 @@ serve() {
   local name=$1 port=$2 envf=${3:-} dir="$OUT/state-$1"
   if busy "$port"; then echo "port $port is busy: stop that server or set VERIFY_PORT" >&2; exit 2; fi
   rm -rf "$dir"
-  ( CI=1 npx wrangler d1 migrations apply agent-board --local --persist-to "$dir" >"$OUT/$name.migrate.log" 2>&1 \
-      || { echo "migrations failed for $name (log: $OUT/$name.migrate.log)" >&2; exit 1; }
-    exec npx wrangler dev --port "$port" --persist-to "$dir" ${envf:+--env-file "$envf"} >"$OUT/$name.server.log" 2>&1 ) &
-  pids+=($!); ports+=("$port"); eval "pid_$name=$!"
+  in_group server "$name" "$port" "$dir" "$envf"
+  ports+=("$port"); eval "pid_$name=$group_pid"
+}
+server() {
+  local name=$1 port=$2 dir=$3 envf=$4
+  CI=1 npx wrangler d1 migrations apply agent-board --local --persist-to "$dir" >"$OUT/$name.migrate.log" 2>&1 \
+    || { echo "migrations failed for $name (log: $OUT/$name.migrate.log)" >&2; exit 1; }
+  # Its own inspector port too: servers started together otherwise race for wrangler's default one and lose (bind()).
+  exec npx wrangler dev --port "$port" --inspector-port $((port + 1000)) --persist-to "$dir" ${envf:+--env-file "$envf"} >"$OUT/$name.server.log" 2>&1
 }
 # up <port> <name> [path]: wait for it to answer; give up at once if the server (or its migration) already died.
 up() {
@@ -97,41 +115,57 @@ if want landing; then
   # The landing Worker on its own: it forwards everything else to APP_ORIGIN, which nothing here needs (the look
   # check answers /fonts/* itself), so that points nowhere.
   if busy "$LANDING_PORT"; then echo "port $LANDING_PORT is busy: stop that server or set VERIFY_PORT" >&2; exit 2; fi
-  ( exec npx wrangler dev -c landing/wrangler.jsonc --port "$LANDING_PORT" --var "APP_ORIGIN:http://127.0.0.1:9" >"$OUT/landing.server.log" 2>&1 ) &
-  pids+=($!); ports+=("$LANDING_PORT"); pid_landing=$!
+  in_group bash -c 'exec npx wrangler dev -c landing/wrangler.jsonc --port "$1" --inspector-port $(($1 + 1000)) --var "APP_ORIGIN:http://127.0.0.1:9" >"$2" 2>&1' _ "$LANDING_PORT" "$OUT/landing.server.log"
+  ports+=("$LANDING_PORT"); pid_landing=$group_pid
+fi
+if want backup; then
+  # The backup key pair (the private key stays in $OUT for the drill to decrypt with) and the env it needs: the Worker
+  # with backups on, pointed at the fake S3 test/backup.mjs starts on :BK_S3_PORT.
+  BK_KEY_FILE="$OUT/backup-key.json"
+  node scripts/backup.mjs keygen --out "$BK_KEY_FILE" >"$OUT/backup-keygen.log" 2>&1 || { echo "backup keygen failed (log: $OUT/backup-keygen.log)" >&2; exit 1; }
+  BK_PUB=$(sed -n 's/.*BACKUP_PUBLIC_KEY: "\(.*\)".*/\1/p' "$OUT/backup-keygen.log")
+  printf 'WORKOS_API_KEY=sk_test_ci_placeholder\nADMIN_KEY=ci-admin-key\nALLOW_LOCAL_WEBHOOKS=1\nBACKUP_S3_ENDPOINT=http://127.0.0.1:%s\nBACKUP_S3_BUCKET=atteo-test\nBACKUP_S3_REGION=us-east-1\nBACKUP_S3_KEY_ID=test\nBACKUP_S3_SECRET=test\nBACKUP_S3_PREFIX=\nBACKUP_BLOB_PART_BYTES=100\nBACKUP_PUBLIC_KEY=%s\n' "$BK_S3_PORT" "$BK_PUB" > "$OUT/backup.env"
+  serve backup "$BK_PORT" "$OUT/backup.env"
 fi
 if want cli || want browser; then npm run -s build:cli >"$OUT/build-cli.log" 2>&1 || { echo "CLI build failed (log: $OUT/build-cli.log)" >&2; exit 1; }; fi
 want e2e && up "$E2E_PORT" e2e
 want cli && up "$CLI_PORT" cli
 want browser && up "$BR_PORT" browser
 want landing && up "$LANDING_PORT" landing /robots.txt
+want backup && up "$BK_PORT" backup
 echo "servers up after $(( $(date +%s) - start ))s"
 
 # 2. The suites, concurrently. Each writes $OUT/<suite>.log and $OUT/<suite>.rc (exit code) and .secs.
 run() { # run <suite> <command...>
-  local name=$1; shift
-  ( s=$(date +%s); "$@" >"$OUT/$name.log" 2>&1; rc=$?; echo $rc >"$OUT/$name.rc"; echo $(( $(date +%s) - s )) >"$OUT/$name.secs" ) &
-  pids+=($!); suite_pids+=($!)
+  rm -f "$OUT/$1.rc"
+  in_group suite "$@"
+  suite_pids+=("$group_pid")
 }
-landing_suite() { LANDING="http://localhost:$LANDING_PORT" node test/browser/landing-look.mjs && npx wrangler deploy -c landing/wrangler.jsonc --dry-run --outdir "$OUT/landing-build"; }
+suite() {
+  local name=$1; shift
+  local s; s=$(date +%s); "$@" >"$OUT/$name.log" 2>&1; rc=$?; echo $rc >"$OUT/$name.rc"; echo $(( $(date +%s) - s )) >"$OUT/$name.secs"
+}
+landing_suite() { LANDING="http://localhost:$LANDING_PORT" node test/browser/landing-look.mjs && LANDING="http://localhost:$LANDING_PORT" node test/browser/landing-vitals.mjs && npx wrangler deploy -c landing/wrangler.jsonc --dry-run --outdir "$OUT/landing-build"; }
 suite_pids=()
 want vitest && run vitest npx vitest run
 want e2e && run e2e env -u ADMIN_KEY BASE="http://localhost:$E2E_PORT" DEV_LOG="$OUT/e2e.server.log" node test/e2e.mjs
 want cli && run cli env -u ADMIN_KEY BASE="http://localhost:$CLI_PORT" node test/cli.mjs
-want browser && run browser env PERSIST="$OUT/state-browser" ADMIN_KEY=ci-admin-key BASE="http://localhost:$BR_PORT" SHOTS_DIR="$OUT/browser-shots" node test/browser/run.mjs "${browser_args[@]}"
+want browser && run browser env PERSIST="$OUT/state-browser" ADMIN_KEY=ci-admin-key BASE="http://localhost:$BR_PORT" SHOTS_DIR="$OUT/browser-shots" node test/browser/run.mjs ${browser_args[@]+"${browser_args[@]}"}
 want landing && run landing landing_suite
-for p in "${suite_pids[@]}"; do wait "$p"; done
+want backup && run backup env BASE="http://localhost:$BK_PORT" ADMIN_KEY=ci-admin-key BK_S3_PORT="$BK_S3_PORT" BK_KEY_FILE="$OUT/backup-key.json" node test/backup.mjs
+for p in ${suite_pids[@]+"${suite_pids[@]}"}; do wait "$p"; done
 
 # 3. One summary.
 status=0
 echo
-for name in vitest e2e cli browser landing; do
+for name in vitest e2e cli browser backup landing; do
   want "$name" || continue
   rc=$(cat "$OUT/$name.rc" 2>/dev/null || echo 1); t=$(cat "$OUT/$name.secs" 2>/dev/null || echo "?")
   case $name in
     vitest) res=$(grep -E "Tests +[0-9]" "$OUT/$name.log" | tail -1 | sed -E 's/ +/ /g') ;;
     browser) res=$(grep -E "browser checks passed" "$OUT/$name.log" | tail -1) ;;
     landing) res=$(grep -E "landing look|FAILED" "$OUT/$name.log" | tail -1) ;;
+    backup) res=$(grep -E "passed, [0-9]+ failed" "$OUT/$name.log" | tail -1) ;;
     *) res=$(grep -E "passed, [0-9]+ failed" "$OUT/$name.log" | tail -1) ;;
   esac
   [ "$rc" = 0 ] && mark="ok  " || { mark="FAIL"; status=1; }

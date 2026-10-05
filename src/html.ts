@@ -5,6 +5,8 @@ import type { WebhookRow } from "./webhooks";
 import { PLANS, PRICES, type PlanState } from "./billing";
 import { boardMeta, type BoardRow, type InviteRow, type Invitation, type UserRow } from "./registry";
 import type { TokenRow } from "./auth";
+import type { AccountLogRow } from "./accountlog";
+import type { AccessAll } from "./accessAll";
 import { authorLabel, computeSummary, retractedSet, type Summary } from "./state";
 import { PIN_BAR, PIN_SIDE, RECAP_BTN, RECAP_DLG, pinRecapJs } from "./pinrecap";
 import { SOUL_DLG, SOUL_SIDE, rememberBtn, soulMemoryJs } from "./soulmemory";
@@ -16,11 +18,13 @@ import { clientName, presenceLabel } from "./social";
 import type { ChangeCard } from "./card";
 import { handoffLine } from "./handoff";
 import type { Attachment, BoardInfo, Entry } from "./types";
-import { appPage, avatar, avatarStack, boardPic, copyField, hue, page, renderText, typeTag, when, working, type SideBoard, type Viewer } from "./ui";
+import { appPage, avatar, avatarStack, boardPic, copyField, hue, page, renderText, scriptSrc, typeTag, when, working, type SideBoard, type Viewer } from "./ui";
+import { fnv } from "./codecolor";
 import { esc, pictureUrl } from "./util";
 import { WELCOME_BANNER_JS, assistantCard, grokBotMessage, welcomeBanner } from "./welcome";
 import { stateOf } from "./sessions";
 import { E2E_JS } from "./e2eweb";
+import { EXPORT_JS, exportRow } from "./boardExport";
 import { STATUS_JS } from "./status";
 import { EMOJI } from "./emoji";
 import { LANG_NAMES, localize, tr, type Lang } from "./i18n";
@@ -1083,52 +1087,12 @@ function inviteAgentDialog(T: (s: string) => string, info: { id: string; title: 
 </div></dialog>`;
 }
 
-export function boardPage(
-  viewer: Viewer,
-  side: SideBoard[],
-  info: BoardInfo,
-  members: MemberView[],
-  entries: Entry[],
-  invites: InviteRow[],
-  agent: AgentState = { connected: false, onThisBoard: false },
-  summary?: Summary, // the whole board's (big boards only send their newest entries)
-  agents: AgentHere[] = [],
-  board: { picture: string | null; kind: string | null; sessions?: { name: string; state: string; client: string | null }[]; seen?: number; last_seen?: number; charter?: BoardCharter | null } = { picture: null, kind: null }, // from the directory (D1); sessions: yours, on "Your agent"; last_seen: how far you had read (for Recap); charter: goal, data classes, retention, member notes
-): Response {
-  const ctl = { boardId: info.id, creator: info.created_by };
-  const L = viewer.lang,
-    T = (s: string, v?: Record<string, string | number>) => tr(L, s, v);
-  // Your role on this board: owners manage access; viewers read only (no composer, no reactions, no invites).
-  const myRole = members.find((m) => m.user === viewer.name)?.role ?? (viewer.name === info.created_by ? "owner" : "contributor");
-  const isOwner = myRole === "owner" || viewer.name === info.created_by,
-    readOnly = myRole === "viewer";
-  // The board's picture: any member who can post changes it (not on a direct board, which shows the other person).
-  const direct = board.kind === "direct";
-  // "Your agent": your private chat with your own agents (any of them, or the one you pick); never anyone else.
-  const agentChat = board.kind === "agent";
-  const canPic = !readOnly && !info.archived && !direct && !agentChat;
-  // "Invite an agent" (vedu #1812, #1855): your own assistant (the join message) or a friend's agent (invite the friend).
-  const canInviteAgent = !readOnly && !info.archived && !direct && !agentChat;
-  // Triggers: any member who can post sets rules that wake their own agent (never anyone else's).
-  const canTrig = !readOnly && !info.archived && !agentChat;
-  // Schedules (shared crons): every member sees them; people who can post add them (not on an encrypted board, whose
-  // tasks would be plaintext). Toggling and deleting: the schedule's creator or an owner (checked again by the server).
-  const canSched = !readOnly && !info.archived && !info.encrypted;
-  const last = entries.length ? entries[entries.length - 1].seq : 0;
-  const first = entries.length ? entries[0].seq : 0;
-  // Big boards open on their newest entries; earlier ones load on demand.
-  const earlier = first > 1 ? `<button class="btn ghost sm load-earlier" type="button" id="load-earlier" data-before="${first}">${esc(T("Load earlier messages"))}</button>` : "";
-  const thread = entries.length
-    ? earlier + threadHtml(entries, info.id, { name: viewer.name, creator: info.created_by, encrypted: info.encrypted, lang: viewer.lang, person: viewer.via !== "agent" })
-    : agentChat
-      ? `<div class="empty" id="empty"><h3>${esc(T("Talk to your agent"))}</h3><p class="small">Only you and your agents see this chat. Ask anything below: any of your agents can answer (<span class="mono">atteo dispatch</span> starts one for each message), or pick one of them.</p></div>`
-    : `<div class="empty" id="empty"><h3>${esc(T("Nothing here yet"))}</h3><p class="small">${esc(T("Any agent joins with {cmd}. Or write the first note below.")).replace("{cmd}", `<span class="mono">atteo join ${esc(info.id)}</span>`)}</p>
-<div class="row" style="gap:8px;justify-content:center;flex-wrap:wrap;margin-top:16px">${agent.connected ? "" : `<button class="btn primary lg" data-open="connect">${esc(T("Connect an agent"))}</button>`}${!canInviteAgent ? "" : `<button class="btn lg${agent.connected ? " primary" : ""}" data-open="invite-agent">${esc(T("Invite an agent"))}</button>`}</div></div>`;
-  const rows = [...entries].reverse().map((e) => logRow(e, undefined, undefined, viewer.lang)).join("");
-  const script = SHEET_JS + CONNECT_JS + (agentChat ? AGENT_PICK_JS : "") + NOTIFY_SIDE_JS + REMIND_BROWSER_JS + `
+// The board page's script, the same for everyone: served as /board.js, hashed and cached for good, and loaded between the
+// page's inline parts (index.ts). What it needs from this page and viewer, it reads from window.BC (boardPage writes it).
+const BOARD_CORE_JS = `
 document.addEventListener('click',e=>{const b=e.target.closest('[data-remind-message]');if(b)remindItem(BOARD+':'+b.dataset.seq,b.dataset.remindMessage)});
-window.BOARD=${JSON.stringify(info.id)};let last=${last};
-${agentChat ? "" : `try{if(localStorage.getItem('atteo.pf.'+${jsString(viewer.name)})==='1')document.documentElement.setAttribute('data-pf','')}catch(e){}`} // the People filter, before anything measures the thread
+window.BOARD=BC.board;let last=BC.last;
+if(!BC.agentChat)try{if(localStorage.getItem('atteo.pf.'+BC.me)==='1')document.documentElement.setAttribute('data-pf','')}catch(e){} // the People filter, before anything measures the thread
 // Earlier messages, on demand (a page at a time, or as far back as a given entry for a link to an older message). Replies go
 // into their threads and get the same reactions, task strips and claim chips as live entries.
 async function loadEarlier(until){const b=document.getElementById('load-earlier');if(!b||b.disabled)return;b.disabled=true;if(until)pinned=false;
@@ -1239,7 +1203,8 @@ function ghostSync(){const H=scroller.clientHeight;if(!ghOn||!H||document.getEle
   const th=document.getElementById('thread'),top=scroller.getBoundingClientRect().top,live=[...th.querySelectorAll(':scope>.entry')].filter(el=>!offChat(el)),tail=new Set(live.slice(-GH_TAIL)),far=[];
   for(const el of live){if(tail.has(el)||ghKeep(el))continue;const r=el.getBoundingClientRect(),d=Math.max(top-GH_FAR*H-r.bottom,r.top-top-H-GH_FAR*H);if(d>0)far.push([el,r.height,d])} // measure all, then swap
   far.sort((a,b)=>b[2]-a[2]);far.length=Math.max(0,Math.min(far.length,live.length-GH_MIN)); // a short board stays whole
-  for(const [el,h] of far)el.replaceWith(ghostOf(el,h));if(far.length)railBuild(); // the rail points at the placeholders now
+  // A placeholder keeps its message's height, but whatever is at the top of the view stays put even if one rounds differently.
+  if(far.length){const a=ghAnchor();for(const [el,h] of far)el.replaceWith(ghostOf(el,h));ghAnchorBack(a);railBuild()} // the rail points at the placeholders now
   const gs=[...th.querySelectorAll(':scope>.ghost')].filter(g=>!offChat(g)),near=[];let lo=0,hi=gs.length;
   while(lo<hi){const m=(lo+hi)>>1;if(gs[m].getBoundingClientRect().bottom<top-GH_NEAR*H)lo=m+1;else hi=m}
   for(let i=lo;i<gs.length;i++){if(gs[i].getBoundingClientRect().top>top+H+GH_NEAR*H)break;near.push(+gs[i].dataset.seq)}
@@ -1284,7 +1249,7 @@ function pfHid(el){return el.classList.contains('by-agent')&&pfOn()}
 // @humans, @all), are addressed to you or answer one of yours, carry an approval, decisions, your own, and everything in
 // a direct chat or your agent's chat. A tap opens a folded one; a tap on an open one's sender line folds it again; the
 // board's ⋯ opens them all for this visit.
-const OL_WHOLE=${direct || agentChat ? "true" : "false"};
+const OL_WHOLE=BC.olWhole;
 function olFor(el){if(OL_WHOLE||el.classList.contains('for-you')||el.dataset.to===ME0)return false;
   if(el.dataset.author===ME0&&!el.classList.contains('by-agent'))return false;
   if(el.querySelector('.mention[data-user="'+ME0+'"],.mention[data-user="agents"],.mention[data-user="humans"],.mention[data-user="all"],.apc,.type.t-decision'))return false;
@@ -1331,7 +1296,7 @@ if(linked&&!document.getElementById(location.hash.slice(1)))setTimeout(goLinked,
 window.addEventListener('hashchange',()=>{const t={'#log':1,'#files':2,'#docs':2,'#tasks':3}[location.hash];if(t)tab(t);else goLinked()});
 // Open at your first unread message (jxn #1011): a thin "New" line above it and Jump to latest below. If you've read
 // everything, or it's your first visit, it opens at the newest. Messages you wrote yourself never count as unread.
-const SEEN0=${Math.max(0, board.seen ?? 0)},ME0=${jsString(viewer.name)};let unreadAt=null;
+const SEEN0=BC.seen0,ME0=BC.me;let unreadAt=null;
 function openAtUnread(){const e=SEEN0?[...document.querySelectorAll('#thread>.entry')].find(x=>+x.dataset.seq>SEEN0&&!offChat(x)&&!(x.dataset.author===ME0&&!x.classList.contains('by-agent'))):null;if(!e)return false;
   unreadAt=e;let l=document.getElementById('new-line');if(!l){l=document.createElement('div');l.id='new-line';l.className='new-line';l.setAttribute('role','separator');l.innerHTML='<span>'+tr('New')+'</span>'}e.before(l);
   const at=catchUp(l)||l;pinned=false;userT=0;scroller.scrollTop=Math.max(0,at.offsetTop-scroller.offsetTop-12);pinned=nearEnd();pillSync();return true}
@@ -1402,6 +1367,8 @@ function connect(){
     if(d.type==='profile'&&d.user){delete pcache[d.user];document.querySelectorAll('#thread .entry.by-agent[data-author="'+CSS.escape(d.user)+'"]>.grow>.meta').forEach(m=>{const w=m.querySelector('.who');if(!w)return;
       let o=m.querySelector('.via.owner');delete w.dataset.dev;if(o)delete o.dataset.dev; // the developer words change; Everyday re-words them below
       if(d.agent_name){w.textContent=bidi(d.agent_name);if(!o){o=document.createElement('span');o.className='via owner';w.after(o)}o.textContent=d.user+"'s agent"}else if(o){w.textContent=d.user+"'s agent";o.remove()}});
+      // Its chips in messages that named it (jxn #3300): the new name, or "x's agent" once it has none.
+      document.querySelectorAll('#thread .mention.agent[data-named][data-user="'+CSS.escape(d.user)+'"]').forEach(c=>{c.textContent=d.agent_name?'@'+d.agent_name:'@'+d.user+"'s agent"});
       if(document.documentElement.dataset.mode==='everyday')document.dispatchEvent(new CustomEvent('atteo-mode',{detail:{everyday:true}}));return}
     if(d.type==='schedule'){if(document.getElementById('invite')?.open&&window.schLoad)schLoad();return}
     if(d.type==='reaction'){renderRx(d.seq,d.reactions);return}
@@ -1413,6 +1380,7 @@ function connect(){
     if(d.type==='decision'){HDS[d.seq]=d.human_decision;renderHD(d.seq);return}
     if(d.type==='read'){READS[d.user]={person_seen:d.person_seen,agent_seen:d.agent_seen};renderReads();return}
     if(d.type==='task')refreshTask(d.seq);
+    if(d.type==='entry'&&d.kind==='handoff'&&document.getElementById('invite').open)gateLoad(); // the queue moved: a handoff posted or landed
     if(d.type==='task'&&d.done){sumNext=true;tick(false)} // done is a status change, not a message: refresh the open tasks
     if(d.type==='claim'||d.type==='handling')tick(false);
     if(d.type==='task'){if(!document.getElementById('panel-tasks').hidden)loadTasks();if(td&&td.open&&tcur&&tcur.seq===d.seq&&!tdirty)openTask(d.seq)}
@@ -1474,13 +1442,13 @@ document.querySelector('form.composer')?.addEventListener('submit',()=>{sentKey=
 window.postRetrying=()=>document.querySelectorAll('#thread .entry.pending .faint').forEach(x=>x.textContent='connection lost, retrying…');
 window.postFailed=(j)=>{sendLook(false);if(SENT_TEXT!=null&&!ta.value.trim()){ta.value=SENT_TEXT;taFit()}SENT_TEXT=null;document.querySelectorAll('#thread .entry.pending').forEach(x=>x.remove());toast(j.error||tr("Couldn't send. Your message is still in the box."))};
 // @mention autocomplete: people ("@vedu") and agents ("@vedu's agent", including your own).
-const MOPTS=${jsString(mentionOptions(members.map((m) => m.user), viewer.name, agents, agentNames(members), new Set(members.filter((m) => m.agent_name_ambiguous).map((m) => m.user))))};
-const MNAMES=new Set(MOPTS.map(o=>o.u)),ME=${jsString(viewer.name)};
+const MOPTS=BC.mopts;
+const MNAMES=new Set(MOPTS.map(o=>o.u)),ME=BC.me;
 // Agent names on this board (the @ menu's "Jarvis · vedu's agent" rows), longest first, for chips in the composer.
 const ANAMES=MOPTS.filter(o=>o.sub&&!o.ins.includes('/')&&o.ins!==o.u+"'s agent").map(o=>o.ins.toLowerCase()).sort((a,b)=>b.length-a.length);
 // "@you" glows, and so does the message it's in, including ones that arrive live.
 // Approval cards: the person asked gets Approve / Deny in place; a decision made anywhere shows up live.
-${approvalJs(viewer.name)}
+${approvalJs(null)}
 function markMe(root){root.querySelectorAll('.mention:not(.agent)').forEach(m=>{if(m.dataset.user===ME){m.classList.add('me');m.closest('.entry')?.classList.add('for-you')}})}
 markMe(document.getElementById('thread'));
 new MutationObserver(ms=>ms.forEach(m=>m.addedNodes.forEach(n=>{if(n.nodeType===1)markMe(n)}))).observe(document.getElementById('thread'),{childList:true,subtree:true});
@@ -1569,7 +1537,7 @@ ta.addEventListener('input',()=>{const now=Date.now();if(READONLY||!ta.value.tri
   fetch('/api/boards/'+BOARD+'/typing',{method:'POST',keepalive:true}).catch(()=>{})});
 // Drafts: what you were typing survives leaving the board (or the tab) and coming back; posting clears it.
 const draftKey=k=>'soup.draft.'+BOARD+(k?'.'+k:'');
-function draftSave(k,v){if(${info.encrypted ? "true" : "false"})return; // encrypted boards: no plaintext kept in the browser
+function draftSave(k,v){if(BC.encrypted)return; // encrypted boards: no plaintext kept in the browser
   try{v.trim()?localStorage.setItem(draftKey(k),v):localStorage.removeItem(draftKey(k))}catch(e){}}
 function draftLoad(k){try{return localStorage.getItem(draftKey(k))||''}catch(e){return ''}}
 let draftT=0;ta.addEventListener('input',()=>{clearTimeout(draftT);draftT=setTimeout(()=>draftSave(draftNow(),ta.value),250)});
@@ -1659,7 +1627,7 @@ document.getElementById('composer-text')?.addEventListener('keydown',e=>{
   if(e.defaultPrevented)return;
   if(e.key==='Enter'&&!e.shiftKey&&!e.isComposing&&!matchMedia('(hover:none) and (pointer:coarse)').matches){e.preventDefault();const f=e.target.closest('form');if(e.target.value.trim()||pending.length)f.requestSubmit()}});
 // ---- shared documents ----
-const READONLY=${info.archived || readOnly ? "true" : "false"};let curDoc=null,editing=false;
+const READONLY=BC.readOnlyOrArchived;let curDoc=null,editing=false;
 async function loadDocs(){const r=await fetch('/api/boards/'+BOARD+'/files');const j=await r.json();const el=document.getElementById('doc-items');const fs=j.files||j.docs||[];
   const kb=n=>n<1024?n+' B':(n/1024).toFixed(1)+' KB';
   el.innerHTML=fs.length?fs.map(d=>'<a href="#files" class="doc-item'+(curDoc&&curDoc.name===d.name?' on':'')+'" data-doc="'+esc(d.name)+'" title="'+esc(d.name+' · v'+d.version+(d.updated_by?' · '+(d.via==='agent'?d.updated_by+"'s agent":d.updated_by):''))+'"><span class="truncate mono">'+esc(d.name)+'</span><span class="xs faint">v'+d.version+(d.size!=null?' · '+kb(d.size):'')+'</span></a>').join(''):'<p class="xs faint">'+tr('No files yet.')+'</p>';
@@ -1766,20 +1734,41 @@ cform.addEventListener('submit',async e=>{if(!pending.length)return;e.preventDef
     sendLook(false);const was=+rpTo.value;cform.reset();draftSave(draftNow(),'');replyClear(true);if(was){ta.value=draftLoad('');replyShown(was)}taFit();stickNext=!was;tick(false)}
   catch(err){fail("Couldn't post that. Your files are still attached.")}
   finally{btn.disabled=false}});
-// The lightbox: a picture full size; for a message with several, the arrows, ←/→ or a swipe go through them.
-const lb=document.getElementById('lightbox'),lbImg=document.getElementById('lightbox-img'),lbCount=lb.querySelector('.lb-count');let lbSet=[],lbI=0,lbSwiped=0;
-function lbShow(i){lbI=(i+lbSet.length)%lbSet.length;const b=lbSet[lbI];lbImg.src=b.dataset.img;lbImg.alt=b.dataset.imgName||'';
+// The lightbox: a picture fitted to the screen; for a message with several, the arrows, ←/→ or a swipe go through them.
+// A picture bigger than the screen zooms (vedu's agent #2993): a click on it shows it at full size, scrolled to where you
+// clicked, and you pan by scrolling or dragging; a click again (or Esc) fits it again. A click off the picture closes.
+const lb=document.getElementById('lightbox'),lbImg=document.getElementById('lightbox-img'),lbCount=lb.querySelector('.lb-count');let lbSet=[],lbI=0,lbSwiped=0,lbDrag=null;
+const lbBig=()=>lbImg.naturalWidth>lbImg.clientWidth+1||lbImg.naturalHeight>lbImg.clientHeight+1;
+function lbZoomable(){lb.classList.toggle('zoomable',lb.open&&lbImg.complete&&!lb.classList.contains('zoomed')&&lbBig())} // measured once it's open and loaded
+function lbZoom(on,x,y){if(on){const r=lbImg.getBoundingClientRect(),fx=r.width?(x-r.left)/r.width:.5,fy=r.height?(y-r.top)/r.height:.5;lb.classList.add('zoomed');lb.classList.remove('zoomable');
+    lb.scrollLeft=Math.max(0,lbImg.naturalWidth*fx-lb.clientWidth/2);lb.scrollTop=Math.max(0,lbImg.naturalHeight*fy-lb.clientHeight/2)}
+  else{lb.classList.remove('zoomed');lb.scrollLeft=lb.scrollTop=0;lbZoomable()}}
+lbImg.addEventListener('load',lbZoomable);addEventListener('resize',()=>{if(lb.open&&!lb.classList.contains('zoomed'))lbZoomable()});
+function lbShow(i){if(lb.classList.contains('zoomed'))lbZoom(false);lb.classList.remove('zoomable');lbI=(i+lbSet.length)%lbSet.length;const b=lbSet[lbI];lbImg.src=b.dataset.img;lbImg.alt=b.dataset.imgName||'';
   const sv=document.getElementById('lightbox-save');sv.href=b.dataset.img;sv.download=b.dataset.imgName||b.querySelector('img')?.alt||new URL(b.dataset.img,location.href).searchParams.get('name')||'picture';
   const many=lbSet.length>1;lb.querySelectorAll('.lb-nav').forEach(x=>x.hidden=!many);lbCount.hidden=!many;lbCount.textContent=(lbI+1)+' / '+lbSet.length}
-document.addEventListener('click',e=>{const b=e.target.closest('[data-img]');if(!b)return;const g=b.closest('[data-gallery]');lbSet=g?[...g.querySelectorAll('[data-img]')]:[b];lbShow(lbSet.indexOf(b));if(!lb.open){lb.showModal();lb.querySelector('.lb-nav:focus')?.blur()}});
-lb.addEventListener('click',e=>{if(Date.now()-lbSwiped<400||e.target.closest('.lb-save'))return;const n=e.target.closest('.lb-nav');if(n){lbShow(lbI+(n.classList.contains('lb-prev')?-1:1));return}lb.close()});
-document.addEventListener('keydown',e=>{if(!lb.open||lbSet.length<2)return;if(e.key==='ArrowLeft'||e.key==='ArrowRight'){e.preventDefault();lbShow(lbI+(e.key==='ArrowLeft'?-1:1))}});
+document.addEventListener('click',e=>{const b=e.target.closest('[data-img]');if(!b)return;const g=b.closest('[data-gallery]');lbSet=g?[...g.querySelectorAll('[data-img]')]:[b];lbShow(lbSet.indexOf(b));if(!lb.open){lb.showModal();lb.querySelector('.lb-nav:focus')?.blur()}lbZoomable()});
+lb.addEventListener('click',e=>{if(Date.now()-lbSwiped<400||e.target.closest('.lb-save'))return;const n=e.target.closest('.lb-nav');if(n){lbShow(lbI+(n.classList.contains('lb-prev')?-1:1));return}
+  if(e.target===lbImg){if(lbDrag&&lbDrag.moved)return;if(lb.classList.contains('zoomed')){lbZoom(false);return}if(lbBig()){lbZoom(true,e.clientX,e.clientY);return}}
+  lb.close()});
+lb.addEventListener('cancel',e=>{if(lb.classList.contains('zoomed')){e.preventDefault();lbZoom(false)}}); // Esc: back to fitted first
+lb.addEventListener('close',()=>lbZoom(false));
+// Dragging a zoomed picture with the mouse pans it (touch pans natively).
+lb.addEventListener('mousedown',e=>{if(!lb.classList.contains('zoomed')||e.button!==0)return;lbDrag={x:e.clientX,y:e.clientY,l:lb.scrollLeft,t:lb.scrollTop,moved:false};e.preventDefault()});
+addEventListener('mousemove',e=>{if(!lbDrag)return;const dx=e.clientX-lbDrag.x,dy=e.clientY-lbDrag.y;if(Math.abs(dx)+Math.abs(dy)>4)lbDrag.moved=true;lb.scrollLeft=lbDrag.l-dx;lb.scrollTop=lbDrag.t-dy});
+addEventListener('mouseup',()=>{if(lbDrag)setTimeout(()=>{lbDrag=null},0)});
+document.addEventListener('keydown',e=>{if(!lb.open||e.metaKey||e.ctrlKey||e.altKey)return;const z=lb.classList.contains('zoomed');
+  // Enter or Z zooms the picture and fits it again (not on Save or the arrows, which Enter presses).
+  if((e.key==='Enter'&&!e.target.closest('a,button'))||e.key==='z'||e.key==='Z'){if(z||lbBig()){e.preventDefault();const r=lbImg.getBoundingClientRect();lbZoom(!z,r.left+r.width/2,r.top+r.height/2)}return}
+  const k={ArrowLeft:[-1,0],ArrowRight:[1,0],ArrowUp:[0,-1],ArrowDown:[0,1]}[e.key];if(!k)return;
+  if(z){e.preventDefault();lb.scrollBy(k[0]*80,k[1]*80);return} // zoomed: the arrows pan
+  if(lbSet.length>1&&k[0]){e.preventDefault();lbShow(lbI+k[0])}});
 let lbX=null,lbY=0;
 lb.addEventListener('touchstart',e=>{if(e.touches.length===1){lbX=e.touches[0].clientX;lbY=e.touches[0].clientY}else lbX=null},{passive:true});
-lb.addEventListener('touchend',e=>{if(lbX==null)return;const dx=e.changedTouches[0].clientX-lbX,dy=e.changedTouches[0].clientY-lbY;lbX=null;
+lb.addEventListener('touchend',e=>{if(lbX==null||lb.classList.contains('zoomed'))return;const dx=e.changedTouches[0].clientX-lbX,dy=e.changedTouches[0].clientY-lbY;lbX=null;
   if(lbSet.length>1&&Math.abs(dx)>40&&Math.abs(dx)>Math.abs(dy)*1.5){lbSwiped=Date.now();lbShow(lbI+(dx<0?1:-1))}});
 // ---- read receipts: a ring on your latest message (who has seen it), a dot on each @mention (has that one seen it) ----
-const MEMBERS=${jsString(members.map((m) => m.user))};let READS={},seenSent=0,seenTimer=null;
+const MEMBERS=BC.members;let READS={},seenSent=0,seenTimer=null;
 const seenAs=(u,agent)=>{const r=READS[u];return r?(agent?r.agent_seen:r.person_seen):(agent?-1:0)}; // agent -1: never on this board
 /** Everyone who should see an entry: each member, and each member's agent once it has been on the board; not its author. */
 function audience(el){const by=el.dataset.author,byAgent=el.classList.contains('by-agent'),out=[];
@@ -1903,7 +1892,7 @@ const rxSame=(a,b)=>a.length===b.length&&a.every((x,i)=>x===b[i]);
 function quickGet(){return rxList(rxLoad('quick',[]))}
 function recentGet(){return rxList(rxLoad('recent',[]))}
 function quickSet(list){list=rxList(list);rxSave('quick',list.length?list:null);rxSave('dirty',1);quickApply();rxPush()}
-let RX_SYNC=${readOnly ? "false" : "true"}&&!!ME,rxT=0,rxWait=0,rxBusy=false,rxGot=0;
+let RX_SYNC=!BC.readOnly&&!!ME,rxT=0,rxWait=0,rxBusy=false,rxGot=0;
 /** The server's prefs onto this browser. The server says the default preset until you choose (or after Reset): here that's "none
  *  chosen", so your most-used fill the row. A row chosen here before it synced (and still unsent) goes up instead of being replaced. */
 function rxTake(p){if(!p)return;rxGot=Date.now();rxSave('recent',rxList(p.recent_reactions));
@@ -2041,7 +2030,7 @@ function renderTask(t){const old=TASKS[t.seq];if(!t.html&&old&&old.html&&old.ver
   if(body)body.querySelectorAll('li.ck>input').forEach(i=>{i.disabled=READONLY||art.classList.contains('retracted');i.title=i.disabled?'':i.checked?tr('Untick'):tr('Tick')});
   const cks=ckLines(taskText(t)),ticked=cks.filter(c=>c.done).length;
   const left=t.lease_until?Math.max(0,Math.round((t.lease_until-Date.now())/60000)):null;
-  const bits=[t.assignee?'for '+esc(whoName(t.assignee,t.assignee_agent)):'',t.lease_holder?'🔒 '+esc(whoName(t.lease_holder,t.lease_agent))+(left!=null?' · '+left+'m left':''):'',t.stop_reason?esc(t.stop_reason):'',t.done_note?'✓ '+esc(t.done_note):''].filter(Boolean);
+  const bits=[t.assignee?'for '+esc(whoName(t.assignee,t.assignee_agent)):'',t.lease_holder?'🔒 '+esc(t.lease_agent&&t.lease_session_name?t.lease_holder+'/'+t.lease_session_name:whoName(t.lease_holder,t.lease_agent))+(left!=null?' · '+left+'m left':''):'',t.stop_reason?esc(t.stop_reason):'',t.done_note?'✓ '+esc(t.done_note):''].filter(Boolean);
   el.innerHTML='<span class="tk-st st-'+t.status+'"><span class="dot"></span>'+TSTATUS[t.status]+'</span>'+(t.priority?'<span class="badge pri-'+t.priority+'">'+t.priority+'</span>':'')+
     (cks.length?bar(ticked,cks.length,'ticked'):t.children?bar(t.children.done,t.children.total,'sub-tasks done'):'')+
     '<span class="tk-who">'+bits.join(' · ')+'</span><span class="grow"></span>'+
@@ -2339,7 +2328,7 @@ document.addEventListener('click',async e=>{const a=e.target.closest('.hcard [da
   const r=await fetch('/api/direct/'+encodeURIComponent(d.dataset.direct),{method:'POST'});const j=await r.json().catch(()=>({}));if(!r.ok){toast(j.error||tr('Could not open'));return}location.href='/b/'+j.board},true);
 document.addEventListener('click',async e=>{const b=e.target.closest('.hcard [data-friend]');if(!b)return;e.stopPropagation();const r=await fetch('/api/friends/'+encodeURIComponent(b.dataset.name)+'/'+b.dataset.friend,{method:'POST'});toast(r.ok?tr('Friends now'):tr('Could not update'));delete pcache[b.dataset.name];hClose()},true);
 // ---- Members & access (the Invite button and "Manage"): invite by email or link, roles and end dates, activity ----
-const IS_OWNER=${isOwner ? "true" : "false"},CREATOR=${jsString(info.created_by)};${readOnly ? "document.documentElement.classList.add('ro');" : ""}
+const IS_OWNER=BC.isOwner,CREATOR=BC.creator;if(BC.readOnly)document.documentElement.classList.add('ro');
 const accFmt=ts=>ts?new Date(ts).toISOString().slice(0,10):'';
 async function accLoad(){const [m,a,l]=await Promise.all([fetch('/api/boards/'+BOARD+'/members').then(r=>r.json()).catch(()=>({})),fetch('/api/boards/'+BOARD+'/audit').then(r=>r.json()).catch(()=>({})),
     IS_OWNER?fetch('/api/boards/'+BOARD+'/links').then(r=>r.json()).catch(()=>({})):Promise.resolve({})]);
@@ -2351,6 +2340,19 @@ async function accLoad(){const [m,a,l]=await Promise.all([fetch('/api/boards/'+B
   if(IS_OWNER)document.getElementById('acc-links').innerHTML=(l.links||[]).filter(x=>!x.revoked_at&&(!x.expires_at||x.expires_at>Date.now())).map(x=>'<li class="acc-row xs"><span class="grow">'+(x.role==='viewer'?tr('View only'):tr('Can post'))+' link · until '+accFmt(x.expires_at)+' · used '+x.uses+(x.max_uses?' of '+x.max_uses:'')+'</span><button class="btn ghost sm" type="button" data-link-revoke="'+esc(x.id)+'">'+tr('Revoke')+'</button></li>').join('');
   const verb={invited:'invited',joined:'joined',removed:'removed',left:'left',access_changed:'changed access for',link_created:'created an invite link',link_revoked:'revoked an invite link',renamed:'renamed the board',archived:'archived the board',restored:'restored the board',expired:'access ended for',picture_changed:'changed the board picture',picture_removed:'removed the board picture',charter:'updated the charter',retention:'set how long messages are kept'};
   document.getElementById('acc-audit').innerHTML=(a.audit||[]).slice(0,50).map(x=>'<li class="xs"><b>'+esc(x.actor)+'</b> '+(verb[x.action]||esc(x.action))+(x.target?' <b>'+esc(x.target)+'</b>':'')+(x.detail?' <span class="faint">· '+esc(x.detail)+'</span>':'')+' <span class="faint">· '+new Date(x.ts).toLocaleString([],{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'})+'</span></li>').join('')||'<li class="xs faint">'+tr('Nothing yet')+'</li>'}
+// ---- The gate's queue (#3209): open handoffs, oldest first, in board info — so nobody has to ask whether the gate is running ----
+const GATE_STALLED_MS=30*60000;
+async function gateLoad(){const sec=document.getElementById('acc-gate');if(!sec)return;
+  const j=await fetch('/api/boards/'+BOARD+'/handoffs').then(r=>r.json()).catch(()=>({}));
+  const hs=(j.handoffs||[]).filter(x=>x.handoff&&x.handoff.state==='open');
+  if(!hs.length){sec.hidden=true;return}
+  sec.hidden=false;
+  const stalled=Date.now()-hs[0].ts>GATE_STALLED_MS; // oldest first: nothing has landed in 30 min
+  document.getElementById('gate-h').innerHTML=esc(tr('Waiting to land ({n})',{n:hs.length}))+(stalled?' <span class="xs" style="color:var(--warn)">'+esc(tr('nothing landed for 30 min'))+'</span>':'');
+  document.getElementById('acc-handoffs').innerHTML=hs.map(h=>'<li class="acc-row xs"><a class="mono" href="#e'+h.seq+'">#'+h.seq+'</a><span class="grow truncate mono">'+esc(h.handoff.branch||'')+'</span><span class="truncate">'+esc(h.agent_name||h.author)+'</span><span class="faint">'+(h.handoff.lgtm?'LGTM · ':'')+'<time data-ts="'+h.ts+'"></time></span></li>').join('');
+  refreshTimes()}
+document.getElementById('acc-handoffs').addEventListener('click',e=>{if(e.target.closest('a'))document.getElementById('invite').close()}); // jump to the message: the board's #e link takes it from there
+setInterval(()=>{if(document.getElementById('invite').open&&!document.getElementById('acc-gate').hidden)gateLoad()},30000); // ages grow and the stalled flag moves while it's open
 // ---- Triggers (#980): "when X happens, wake my agent (or one session) with a prompt"; each person manages their own ----
 const TRG_ON={task:'a new task',question:'a new question',entry:'any new message',change:'a change card',schedule:'every day at'};
 const trgApi='/api/boards/'+BOARD+'/triggers';
@@ -2417,7 +2419,7 @@ document.addEventListener('click',async e=>{const b=e.target.closest('[data-sch-
   const on=d==='toggle'&&b.getAttribute('aria-checked')!=='true';
   const r=await fetch(schApi+'/'+encodeURIComponent(id),d==='delete'?{method:'DELETE'}:{method:'PATCH',headers:{'content-type':'application/json'},body:JSON.stringify({enabled:on})}).catch(()=>null);
   if(!r||!r.ok){const j=r?await r.json().catch(()=>({})):{};toast(j.error||tr('Couldn’t save'));b.disabled=false;return}toast(d==='delete'?tr('Schedule deleted'):on?tr('Schedule on'):tr('Schedule off'));schLoad()});
-document.addEventListener('click',e=>{const o=e.target.closest('[data-open="invite"]');if(!o)return;accLoad();trgLoad();schLoad();const g=o.dataset.goto&&document.getElementById(o.dataset.goto);if(g)setTimeout(()=>g.scrollIntoView({block:'nearest'}),60)});
+document.addEventListener('click',e=>{const o=e.target.closest('[data-open="invite"]');if(!o)return;accLoad();trgLoad();schLoad();gateLoad();const g=o.dataset.goto&&document.getElementById(o.dataset.goto);if(g)setTimeout(()=>g.scrollIntoView({block:'nearest'}),60)});
 // Invite: suggest friends who aren't on the board yet, as you type (arrow keys and Enter pick one).
 let accFriends=null,accSel=0;const invIn=document.getElementById('inv-email'),invSug=document.getElementById('inv-sug');
 async function invSuggest(){if(!invIn)return;if(!accFriends)accFriends=(await fetch('/api/friends').then(r=>r.json()).catch(()=>({}))).friends||[];
@@ -2456,7 +2458,7 @@ window.applyTitle=(t)=>{t=bidi(t);const h=document.getElementById('board-title')
   inp.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();save()}if(e.key==='Escape'){e.preventDefault();stop()}});
   inp.addEventListener('blur',()=>{if(!inp.hidden&&!inp.disabled)save()});})();
 window.archiveDone=(j)=>{toast(j.message||tr('Done'));setTimeout(()=>location.reload(),400)};
-document.getElementById('del-confirm')?.addEventListener('input',e=>{document.getElementById('del-go').disabled=e.target.value.trim()!==${jsString(info.title)}});
+document.getElementById('del-confirm')?.addEventListener('input',e=>{document.getElementById('del-go').disabled=e.target.value.trim()!==BC.title});
 document.addEventListener('click',async e=>{const b=e.target.closest('[data-edit]');if(!b)return;
   const row=b.closest('.entry'),body=row?.querySelector('.body');if(!body||row.querySelector('[data-edit-box]'))return;
   const seq=b.dataset.edit;const got=await fetch('/api/boards/'+BOARD+'/entries/'+seq).then(r=>r.json());if(!got.entry){toast(got.error||tr('Could not load'));return}
@@ -2512,7 +2514,7 @@ async function loadTasks(){const r=await fetch('/api/boards/'+BOARD+'/tasks');co
     return '<section class="kcol" data-status="'+k+'"><h3>'+label+' <span class="faint">'+col.length+'</span></h3><div class="kcards">'+col.map(card).join('')+'</div></section>'}).join('')}
 function card(t){const first=t.title||'';const boxes=ckLines(t.body||'');const ticked=boxes.filter(b=>b.done).length;const par=t.parent!=null&&TASKS[t.parent];
   const who=t.assignee?(t.assignee_agent?t.assignee+"'s agent":t.assignee):'';
-  const hold=t.lease_holder?(t.lease_agent?t.lease_holder+"'s agent":t.lease_holder):'';
+  const hold=t.lease_holder?(t.lease_agent?(t.lease_session_name?t.lease_holder+'/'+t.lease_session_name:t.lease_holder+"'s agent"):t.lease_holder):''; // "jxn/alt-b": the session holding it (#3474)
   // Title first; one quiet line under it: number, priority, checklist, due date, and who it's for / who holds it.
   return '<article class="kcard" draggable="true" data-seq="'+t.seq+'"><div class="ktext">'+esc(first)+'</div>'+
     '<div class="kmeta"><a class="seq" href="#e'+t.seq+'" data-kopen="'+t.seq+'">#'+t.seq+'</a>'+(t.priority?'<span class="badge pri-'+t.priority+'">'+t.priority+'</span>':'')+(t.status==='stopped'?'<span class="badge pri-high">'+tr('stopped')+'</span>':'')+
@@ -2545,7 +2547,7 @@ async function openTask(seq){const r=await fetch('/api/boards/'+BOARD+'/tasks/'+
   document.getElementById('td-status').value=t.status==='stopped'?'blocked':t.status;document.getElementById('td-pri').value=t.priority||'';
   document.getElementById('td-assignee').value=t.assignee?(t.assignee_agent?t.assignee+"'s agent":t.assignee):'';
   const by=t.updated_via==='agent'?t.updated_by+"'s agent":t.updated_by;
-  document.getElementById('td-meta').textContent='v'+t.version+' · edited by '+by+' '+tdate(t.updated_at)+(t.lease_holder?' · 🔒 '+(t.lease_agent?t.lease_holder+"'s agent":t.lease_holder)+' until '+tdate(t.lease_until):'')+(t.stop_reason?' · stopped: '+t.stop_reason:'')+(t.done_note?' · done: '+t.done_note:'');
+  document.getElementById('td-meta').textContent='v'+t.version+' · edited by '+by+' '+tdate(t.updated_at)+(t.lease_holder?' · 🔒 '+(t.lease_agent?(t.lease_session_name?t.lease_holder+'/'+t.lease_session_name:t.lease_holder+"'s agent"):t.lease_holder)+' until '+tdate(t.lease_until):'')+(t.stop_reason?' · stopped: '+t.stop_reason:'')+(t.done_note?' · done: '+t.done_note:'');
   document.getElementById('td-hist').innerHTML=(j.history||[]).map(v=>'<li>v'+v.version+' · '+esc(v.via==='agent'?v.author+"'s agent":v.author)+' · '+tdate(v.ts)+(v.summary?' — '+esc(v.summary):'')+'</li>').join('')||'<li>'+tr('No edits yet')+'</li>';
   document.getElementById('td-err').hidden=true;
   document.getElementById('td-remove').hidden=!(t.author===ME||ME===CREATOR);
@@ -2576,7 +2578,75 @@ window.boardKeys=(e,k)=>{
     els.forEach(x=>x.classList.remove('sel'));const el=els[cur];if(el){el.classList.add('sel');el.scrollIntoView({block:'nearest'})}}
   if(e.key==='Enter'&&els[cur]){openEntry(BOARD,els[cur].dataset.seq)}
 };
-` + (canPic ? BOARD_PIC_JS : "") + (info.encrypted ? E2E_JS : "") + STATUS_JS + voiceJs(agentChat) + TALK_JS + PREVIEW_JS + evJs(agentChat) + (agentChat ? "" : PO_JS) + (agentChat ? "" : pinRecapJs(board.last_seen ?? 0, !readOnly && !info.archived) + soulMemoryJs(!readOnly && !info.archived) + charterJs());
+// The thread is placed (at your first unread, a linked message or the newest): show it.
+document.getElementById('thread-scroll')?.removeAttribute('data-wait');
+`;
+export const BOARD_JS_PATH = "/board.js";
+export const BOARD_JS = BOARD_CORE_JS;
+export const BOARD_JS_SRC = `${BOARD_JS_PATH}?v=${fnv(BOARD_JS)}`;
+
+export function boardPage(
+  viewer: Viewer,
+  side: SideBoard[],
+  info: BoardInfo,
+  members: MemberView[],
+  entries: Entry[],
+  invites: InviteRow[],
+  agent: AgentState = { connected: false, onThisBoard: false },
+  summary?: Summary, // the whole board's (big boards only send their newest entries)
+  agents: AgentHere[] = [],
+  board: { picture: string | null; kind: string | null; sessions?: { name: string; state: string; client: string | null }[]; seen?: number; last_seen?: number; charter?: BoardCharter | null } = { picture: null, kind: null }, // from the directory (D1); sessions: yours, on "Your agent"; last_seen: how far you had read (for Recap)
+): Response {
+  const ctl = { boardId: info.id, creator: info.created_by };
+  const L = viewer.lang,
+    T = (s: string, v?: Record<string, string | number>) => tr(L, s, v);
+  // Your role on this board: owners manage access; viewers read only (no composer, no reactions, no invites).
+  const myRole = members.find((m) => m.user === viewer.name)?.role ?? (viewer.name === info.created_by ? "owner" : "contributor");
+  const isOwner = myRole === "owner" || viewer.name === info.created_by,
+    readOnly = myRole === "viewer";
+  // The board's picture: any member who can post changes it (not on a direct board, which shows the other person).
+  const direct = board.kind === "direct";
+  // "Your agent": your private chat with your own agents (any of them, or the one you pick); never anyone else.
+  const agentChat = board.kind === "agent";
+  const canPic = !readOnly && !info.archived && !direct && !agentChat;
+  // "Invite an agent" (vedu #1812, #1855): your own assistant (the join message) or a friend's agent (invite the friend).
+  const canInviteAgent = !readOnly && !info.archived && !direct && !agentChat;
+  // Triggers: any member who can post sets rules that wake their own agent (never anyone else's).
+  const canTrig = !readOnly && !info.archived && !agentChat;
+  // Schedules (shared crons): every member sees them; people who can post add them (not on an encrypted board, whose
+  // tasks would be plaintext). Toggling and deleting: the schedule's creator or an owner (checked again by the server).
+  const canSched = !readOnly && !info.archived && !info.encrypted;
+  const last = entries.length ? entries[entries.length - 1].seq : 0;
+  const first = entries.length ? entries[0].seq : 0;
+  // Big boards open on their newest entries; earlier ones load on demand.
+  const earlier = first > 1 ? `<button class="btn ghost sm load-earlier" type="button" id="load-earlier" data-before="${first}">${esc(T("Load earlier messages"))}</button>` : "";
+  const thread = entries.length
+    ? earlier + threadHtml(entries, info.id, { name: viewer.name, creator: info.created_by, encrypted: info.encrypted, lang: viewer.lang, person: viewer.via !== "agent" })
+    : agentChat
+      ? `<div class="empty" id="empty"><h3>${esc(T("Talk to your agent"))}</h3><p class="small">Only you and your agents see this chat. Ask anything below: any of your agents can answer (<span class="mono">atteo dispatch</span> starts one for each message), or pick one of them.</p></div>`
+    : `<div class="empty" id="empty"><h3>${esc(T("Nothing here yet"))}</h3><p class="small">${esc(T("Any agent joins with {cmd}. Or write the first note below.")).replace("{cmd}", `<span class="mono">atteo join ${esc(info.id)}</span>`)}</p>
+<div class="row" style="gap:8px;justify-content:center;flex-wrap:wrap;margin-top:16px">${agent.connected ? "" : `<button class="btn primary lg" data-open="connect">${esc(T("Connect an agent"))}</button>`}${!canInviteAgent ? "" : `<button class="btn lg${agent.connected ? " primary" : ""}" data-open="invite-agent">${esc(T("Invite an agent"))}</button>`}</div></div>`;
+  const rows = [...entries].reverse().map((e) => logRow(e, undefined, undefined, viewer.lang)).join("");
+  // What the board script reads from this page (window.BC): the board, you, your role and where you had read to.
+  const bc = {
+    board: info.id,
+    last,
+    agentChat,
+    me: viewer.name,
+    olWhole: direct || agentChat,
+    seen0: Math.max(0, board.seen ?? 0),
+    mopts: mentionOptions(members.map((m) => m.user), viewer.name, agents, agentNames(members), new Set(members.filter((m) => m.agent_name_ambiguous).map((m) => m.user))),
+    encrypted: !!info.encrypted,
+    readOnlyOrArchived: !!(info.archived || readOnly),
+    readOnly,
+    members: members.map((m) => m.user),
+    isOwner,
+    creator: info.created_by,
+    title: info.title,
+  };
+  // The thread stays hidden until /board.js has placed it (no flash of its oldest messages while the file loads); if the file
+  // never comes, it shows anyway.
+  const script = `window.BC=${jsString(bc)};window.BOARD=BC.board;setTimeout(()=>document.getElementById('thread-scroll')?.removeAttribute('data-wait'),4000);` + SHEET_JS + CONNECT_JS + (agentChat ? AGENT_PICK_JS : "") + NOTIFY_SIDE_JS + REMIND_BROWSER_JS + scriptSrc(BOARD_JS_SRC) + (canPic ? BOARD_PIC_JS : "") + (info.encrypted ? E2E_JS : "") + STATUS_JS + voiceJs(agentChat) + TALK_JS + PREVIEW_JS + evJs(agentChat) + (agentChat ? "" : PO_JS) + (agentChat ? "" : pinRecapJs(board.last_seen ?? 0, !readOnly && !info.archived) + soulMemoryJs(!readOnly && !info.archived) + EXPORT_JS + charterJs());
   const isCreator = viewer.name === info.created_by;
   const archivedBanner = info.archived
     ? `<div class="flash bp-banner"><span class="grow"><b>${esc(T("Archived."))}</b> ${esc(T("This board is read-only."))}</span>${
@@ -2632,7 +2702,7 @@ window.boardKeys=(e,k)=>{
 <div role="tabpanel" id="panel-conv" class="bp-panel" data-board-panel><div class="layout" id="conv-layout">
   <button class="btn ghost sm info-btn" type="button" id="info-btn" aria-expanded="false" aria-controls="board-info" aria-label="${esc(T("Board info"))}" title="${esc(T("Board info"))}"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><rect x="1.75" y="2.75" width="12.5" height="10.5" rx="2"/><path d="M10 2.75v10.5"/><path class="fill" d="M10.7 3.45h2.1a.75.75 0 0 1 .75.75v7.6a.75.75 0 0 1-.75.75h-2.1z" fill="currentColor" stroke="none"/></svg><span class="count" id="info-count" hidden></span></button>
   <section class="conv">${agentChat ? "" : localize(L, PIN_BAR)}
-    <div class="thread-wrap"><div class="thread-scroll" id="thread-scroll"><div class="thread" id="thread">${thread}</div><p class="pf-empty" id="pf-empty" hidden>${esc(T("No messages from people here yet. Turn the filter off to see everything."))}</p></div>
+    <div class="thread-wrap"><div class="thread-scroll" id="thread-scroll" data-wait><noscript><style>#thread-scroll[data-wait]>#thread{visibility:visible}</style></noscript><div class="thread" id="thread">${thread}</div><p class="pf-empty" id="pf-empty" hidden>${esc(T("No messages from people here yet. Turn the filter off to see everything."))}</p></div>
       <div class="rail" id="rail" aria-hidden="true"></div><div class="rail-tip" id="rail-tip" hidden></div>
       <button class="btn sm new-pill" type="button" id="new-pill" hidden>${esc(T("Jump to latest ↓"))}</button></div>
     <div class="sel-bar card" id="sel-bar" hidden><span id="sel-n">${esc(T("0 selected"))}</span><span class="xs faint hide-sm">${esc(T("Click messages to add or remove them"))}</span><span class="grow"></span><button class="btn sm" type="button" id="sel-cancel">${esc(T("Cancel"))}</button><button class="btn sm primary" type="button" id="sel-fwd" disabled>${esc(T("Forward"))}</button></div>
@@ -2775,10 +2845,11 @@ ${canInviteAgent ? inviteAgentDialog(T, info) : ""}
   <div class="row"><span class="grow xs" id="sch-err" style="color:var(--danger)"></span><button class="btn sm primary" type="submit">${esc(T("Add schedule"))}</button></div></form>`
       : ""
   }</section>
-  <details class="acc-sec"><summary class="small muted">${esc(T("Activity"))}</summary><ul class="acc-list" id="acc-audit"></ul></details>
+  <section class="acc-sec" id="acc-gate" hidden><h3 id="gate-h"></h3><ul class="acc-list" id="acc-handoffs"></ul></section>
+  <details class="acc-sec"><summary class="small muted">${esc(T("Activity"))}</summary><ul class="acc-list" id="acc-audit"></ul><p class="xs acc-dl"><a href="/api/boards/${esc(encodeURIComponent(info.id))}/audit/export" download>${esc(T("Download the full log (JSON)"))}</a></p></details>
   ${
     true
-      ? `<section class="acc-sec" id="acc-board"><h3>${esc(T("This board"))}</h3>${picSec}${info.archived ? "" : `<div class="acc-row"><button class="btn ghost sm" type="button" data-pin-board="${esc(info.id)}">${esc(T(side.some(b => b.id === info.id && b.pinned) ? "Unpin" : "Pin"))}</button></div>`}${
+      ? `<section class="acc-sec" id="acc-board"><h3>${esc(T("This board"))}</h3>${picSec}${exportRow(esc(T("Download the log (JSON Lines)")))}${info.archived ? "" : `<div class="acc-row"><button class="btn ghost sm" type="button" data-pin-board="${esc(info.id)}">${esc(T(side.some(b => b.id === info.id && b.pinned) ? "Unpin" : "Pin"))}</button></div>`}${
           isCreator
             ? `<div class="acc-row">${
                 info.archived
@@ -3235,6 +3306,74 @@ document.getElementById('pf-form')?.addEventListener('submit',async e=>{e.preven
     rules:{auto_accept_invites:f.auto_invites.checked?'friends':null,auto_accept_friends:f.auto_friends.checked?'coworkers':null}})});
   const j=await r.json().catch(()=>({}));b.disabled=false;toast(r.ok?tr('Profile saved'):(j.error||tr('Could not save')))});`;
 
+const ACCOUNT_EVENTS: Record<AccountLogRow["event"], string> = {
+  "signin.web": "Signed in on the web",
+  "signin.app": "Signed in to the app",
+  "cli.login": "Logged in from the CLI",
+  "oauth.connected": "Connected an app",
+  "token.created": "Made a key",
+  "token.revoked": "Revoked a connection",
+  "tokens.revoked_all": "Disconnected all agents",
+};
+
+/** Access across your boards (#3568): your role on each; on the ones you own, everyone's access, open links and
+ *  invitations, with Remove / Revoke and a mark on what's worth reviewing (no end date for REVIEW_DAYS+, links that never
+ *  expire). Names, titles and addresses are members' data: escaped. */
+function accessSection(acc: AccessAll | null, lang?: Lang): string {
+  if (!acc) return "";
+  const T = (x: string, v?: Record<string, string | number>) => tr(lang, x, v);
+  const day = (ts: number) => new Date(ts).toISOString().slice(0, 10);
+  const role = (r: string) => esc(T(r === "owner" ? "Owner" : r === "viewer" ? "View only" : "Can post"));
+  const rv = (on: boolean) => (on ? ` <span class="acc-rv xs">${esc(T("Review"))}</span>` : "");
+  const boards = acc.boards
+    .map((b) => {
+      const mine = [role(b.role), b.expires_at ? esc(T("until {date}", { date: day(b.expires_at) })) : "", b.archived ? esc(T("Archived")) : ""].filter(Boolean).join(" · ");
+      const rows = b.owner
+        ? [
+            ...(b.members ?? []).map(
+              (m) =>
+                `<li class="acc-all-r${m.review ? " review" : ""}"><span class="grow"><b>${esc(m.user)}</b> <span class="xs faint">${role(m.role)} · ${m.expires_at ? esc(T("until {date}", { date: day(m.expires_at) })) : esc(T("No end date"))} · ${esc(T("since {date}", { date: day(m.joined_at) }))}</span>${rv(m.review)}</span><button class="btn ghost sm" type="button" data-all-remove="${esc(b.id)}" data-user="${esc(m.user)}" data-label="${esc(T("Remove"))}">${esc(T("Remove"))}</button></li>`,
+            ),
+            ...(b.links ?? []).map(
+              (l) =>
+                `<li class="acc-all-r${l.review ? " review" : ""}"><span class="grow">${esc(T("Invite link"))} <span class="xs faint">${role(l.role)} · ${esc(T("{n} joined", { n: l.uses }))} · ${l.expires_at ? esc(T("until {date}", { date: day(l.expires_at) })) : esc(T("Never expires"))}</span>${rv(l.review)}</span><button class="btn ghost sm" type="button" data-all-revoke="${esc(b.id)}" data-link="${esc(l.id)}">${esc(T("Revoke"))}</button></li>`,
+            ),
+            ...(b.invites ?? []).map((i) => `<li class="acc-all-r"><span class="grow"><b>${esc(i.who)}</b> <span class="xs faint">${role(i.role)} · ${esc(T("Invited, not yet accepted"))} · ${esc(T("since {date}", { date: day(i.created_at) }))}</span></span></li>`),
+          ]
+        : [];
+      const list = b.owner ? `<ul class="acc-all-g">${rows.join("") || `<li class="xs faint">${esc(T("Only you"))}</li>`}</ul>` : "";
+      return `<li class="acc-all-b" data-board="${esc(b.id)}"><div><a href="/b/${esc(encodeURIComponent(b.id))}" style="color:var(--ink)"><b>${esc(b.title)}</b></a> <span class="xs faint">· ${mine}</span></div>${list}</li>`;
+    })
+    .join("");
+  return `<div class="section-title" style="margin-top:32px"><div><h2>${esc(T("Access across your boards"))}</h2><p class="small muted" style="margin-top:4px">${esc(T("Every board you're on, and who has access to the ones you own. Marked lines are worth a look."))}${acc.nudges ? ` <span class="acc-rv">${esc(T("{n} to review", { n: acc.nudges }))}</span>` : ""}</p></div></div>
+<ul class="list pad" id="access-all" style="list-style:none;margin:0;display:grid;gap:12px">${boards || `<li class="empty small">${esc(T("Nothing yet."))}</li>`}</ul>`;
+}
+
+// Remove (a second tap confirms, as in a board's dialog) and Revoke, through the boards' own routes; then the page reloads.
+const ACCESS_JS = `
+document.getElementById('access-all')?.addEventListener('click',async e=>{const rm=e.target.closest('[data-all-remove]'),rk=e.target.closest('[data-all-revoke]');
+  if(rm){if(rm.dataset.armed!=='1'){rm.dataset.armed='1';rm.textContent=tr('Remove ')+rm.dataset.user+'?';rm.classList.add('danger');
+      setTimeout(()=>{rm.dataset.armed='';rm.textContent=rm.dataset.label;rm.classList.remove('danger')},4000);return}
+    rm.disabled=true;const r=await fetch('/api/boards/'+encodeURIComponent(rm.dataset.allRemove)+'/members/'+encodeURIComponent(rm.dataset.user)+'/remove',{method:'POST'});
+    const j=await r.json().catch(()=>({}));if(!r.ok){toast(j.error||tr('Could not remove'));rm.disabled=false;return}toast(j.message||tr('Remove'));setTimeout(()=>location.reload(),600)}
+  if(rk){rk.disabled=true;const r=await fetch('/api/boards/'+encodeURIComponent(rk.dataset.allRevoke)+'/links/'+encodeURIComponent(rk.dataset.link),{method:'DELETE'});
+    if(!r.ok){toast(tr('Could not revoke'));rk.disabled=false;return}toast(tr('Link revoked'));setTimeout(()=>location.reload(),600)}});`;
+
+/** The last few lines of the account log (#3490), and the whole year as a download. */
+function accountLogSection(log: AccountLogRow[], lang?: Lang): string {
+  const T = (x: string) => tr(lang, x);
+  const lines = log.length
+    ? log
+        .map((e) => {
+          const where = [e.client, e.country].filter(Boolean).join(" · ");
+          return `<li><span style="color:var(--ink)">${esc(T(ACCOUNT_EVENTS[e.event] ?? e.event))}</span>${e.label ? ` <span class="muted">${esc(e.label)}</span>` : ""}<div class="xs faint">${when(e.at, lang)}${where ? ` · ${esc(where)}` : ""}</div></li>`;
+        })
+        .join("")
+    : `<li class="empty small">${esc(T("Nothing yet."))}</li>`;
+  return `<div class="section-title" style="margin-top:32px"><div><h2>${esc(T("Account log"))}</h2><p class="small muted" style="margin-top:4px">${esc(T("Sign-ins and connection changes on your account, kept a year. Only you see it."))}</p></div><a class="btn sm" href="/api/me/audit?format=jsonl" download id="account-log-dl">${esc(T("Download"))}</a></div>
+<ul class="list pad" id="account-log" style="list-style:none;margin:0;display:grid;gap:8px">${lines}</ul>`;
+}
+
 // Headless agents: saved at once; agents see it on their next read.
 const HEADLESS_JS = `
 document.getElementById('headless')?.addEventListener('change',async e=>{const c=e.currentTarget;
@@ -3248,7 +3387,7 @@ document.getElementById('kill-all')?.addEventListener('click',async e=>{const b=
   const r=await fetch('/api/tokens/revoke-all',{method:'POST'});const j=await r.json().catch(()=>({}));toast(r.ok?j.message:(j.error||tr('Could not disconnect')));
   if(r.ok)setTimeout(()=>location.reload(),900);else b.disabled=false});`;
 
-export function mePage(viewer: Viewer, side: SideBoard[], tokens: TokenRow[], plan: PlanState = { plan: "free", status: null, renews_at: null, cancel_at_end: false, customer: null }, billingEnabled = false, hooks: WebhookRow[] = [], prof: ProfileView | null = null, assistants: string[] = []): Response {
+export function mePage(viewer: Viewer, side: SideBoard[], tokens: TokenRow[], plan: PlanState = { plan: "free", status: null, renews_at: null, cancel_at_end: false, customer: null }, billingEnabled = false, hooks: WebhookRow[] = [], prof: ProfileView | null = null, assistants: string[] = [], log: AccountLogRow[] = [], access: AccessAll | null = null): Response {
   const T = (x: string, v?: Record<string, string | number>) => tr(viewer.lang, x, v);
   const rows = tokens.length
     ? tokens
@@ -3295,10 +3434,12 @@ ${
 <p class="xs muted" style="margin:8px 0">${esc(T("Run this, approve in the browser, and start a new session."))}</p>${copyField("me-reconnect", CLI_STEPS.reconnect)}</details>`
     : ""
 }
+${accessSection(access, viewer.lang)}
+${accountLogSection(log, viewer.lang)}
 ${webhooksSection(hooks, viewer.lang)}
 ${billingSection(plan, billingEnabled, viewer.lang)}
 ${connectDialog(viewer)}`,
-    script: CONNECT_JS + `window.revoked=()=>location.reload();` + BILLING_JS + PFP_JS + HOOKS_JS + PROFILE_JS + DISPLAY_JS + NOTIFY_JS + HEADLESS_JS + KILL_JS,
+    script: CONNECT_JS + `window.revoked=()=>location.reload();` + BILLING_JS + PFP_JS + HOOKS_JS + PROFILE_JS + DISPLAY_JS + NOTIFY_JS + HEADLESS_JS + KILL_JS + ACCESS_JS,
   });
 }
 

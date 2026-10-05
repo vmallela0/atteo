@@ -56,7 +56,7 @@ async function page(path, { width = 1280, session, tts, ck } = {}) {
   await p.route("**/api/app/tts", (route) => { p.tts.push(JSON.parse(route.request().postData() || "{}")); return tts ? tts(route) : route.fulfill({ status: 200, contentType: "audio/wav", body: wav(0.4) }); });
   await p.goto(`${BASE}${path}`);
   await until(p, () => window.__live.some((w) => w.readyState === 1), null, 8000); // the board's live updates are on
-  await p.locator(".bp-head [data-talk]").waitFor({ state: "visible", timeout: 5000 }).catch(() => {});
+  await p.locator(".bp-head [data-talk]").waitFor({ state: "visible", timeout: 15000 }) // it shows once the voice status answers: slow on a busy machine.catch(() => {});
   return { ctx, p };
 }
 const sent = (p) => p.evaluate(() => window.__talk.sent);

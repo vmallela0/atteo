@@ -2,6 +2,7 @@
 // over HTTP, ChatGPT, and others). The agent registers itself (RFC 7591), sends the person here to sign in and approve,
 // and exchanges a single-use code (PKCE S256 required) for a personal token, the same kind `atteo login` gets.
 
+import { record } from "./accountlog";
 import { createToken, randomSecret, revokeToken, sha256hex } from "./auth";
 import type { Env } from "./types";
 
@@ -148,7 +149,7 @@ async function refresh(env: Env, f: { refresh_token?: string; client_id?: string
 }
 
 /** Code (+ PKCE verifier) → a personal token for the person's agent; or a refresh token → a fresh pair. */
-export async function exchange(env: Env, f: { grant_type?: string; code?: string; redirect_uri?: string; client_id?: string; code_verifier?: string; refresh_token?: string }) {
+export async function exchange(env: Env, f: { grant_type?: string; code?: string; redirect_uri?: string; client_id?: string; code_verifier?: string; refresh_token?: string }, request: Request | null = null) {
   if (f.grant_type === "refresh_token") return refresh(env, f);
   if (f.grant_type !== "authorization_code") throw new OAuthError("unsupported_grant_type", "Only authorization_code and refresh_token are supported.");
   const hash = await sha256hex(f.code ?? "");
@@ -162,5 +163,9 @@ export async function exchange(env: Env, f: { grant_type?: string; code?: string
   if (!f.code_verifier || (await s256(f.code_verifier)) !== row.code_challenge) throw new OAuthError("invalid_grant", "PKCE verification failed.");
   const c = await client(env, row.client_id);
   const person = row.scope === "person";
-  return issue(env, row.user, row.client_id, person ? "person" : null, person ? "Atteo app" : (c?.name ?? "MCP app"), person ? "app" : "cli");
+  const label = person ? "Atteo app" : (c?.name ?? "MCP app");
+  const out = await issue(env, row.user, row.client_id, person ? "person" : null, label, person ? "app" : "cli");
+  // A refresh carries the same connection on, so only the first exchange is logged.
+  await record(env, row.user, person ? "signin.app" : "oauth.connected", request, { label, kind: person ? "app" : "cli" });
+  return out;
 }

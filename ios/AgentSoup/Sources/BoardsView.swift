@@ -667,7 +667,11 @@ struct BoardView: View {
         }
         .background(Theme.bg)
         .animation(.snappy, value: ReadAloud.shared.queue.count)
-        .onDisappear { ReadAloud.shared.leave(board.id) }
+        .onAppear { BugContext.board = board.id } // a bug report says which chat was open (ReportBug.swift)
+        .onDisappear {
+            ReadAloud.shared.leave(board.id)
+            if BugContext.board == board.id { BugContext.board = nil }
+        }
     }
 
     /// "Message theo", "Message Checkout bug", "Message your agent…" / "Message builder…".

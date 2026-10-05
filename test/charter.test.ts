@@ -17,7 +17,7 @@ import type { BoardInfo, Entry } from "../src/types";
 
 const { DatabaseSync } = (await import("node:" + "sqlite")) as { DatabaseSync: new (p: string) => any };
 const { readFileSync } = (await import("node:" + "fs")) as { readFileSync: (u: URL, enc: string) => string };
-const migrationUrl = new URL("../migrations/0058_board_charter.sql", (import.meta as unknown as { url: string }).url);
+const migrationUrl = new URL("../migrations/0062_board_charter.sql", (import.meta as unknown as { url: string }).url);
 
 const members = [
   { user: "ada", role: "owner" as const },

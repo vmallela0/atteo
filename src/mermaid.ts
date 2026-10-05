@@ -69,9 +69,10 @@ function draw(el){q=q.then(async()=>{const code=el.querySelector('.code-b code')
 function watch(){if(watching)return;watching=true;const re=()=>setTimeout(()=>document.querySelectorAll('.mmd[data-mmd="drawn"]').forEach(draw),0);
   matchMedia('(prefers-color-scheme: dark)').addEventListener?.('change',re);new MutationObserver(re).observe(document.documentElement,{attributes:true,attributeFilter:['data-theme']})}
 // Each block once (a copy made before it was drawn, e.g. into the thread view, is a new element and gets its own turn).
-function scan(){const els=[...document.querySelectorAll('.mmd:not([data-mmd="drawn"]):not([data-mmd="code"])')].filter(el=>!seen.has(el));if(!els.length)return;els.forEach(el=>seen.add(el));
+// Not before the page has parsed: its scripts place the thread first (a block on top before that isn't really on screen).
+function scan(){if(document.readyState==='loading')return;const els=[...document.querySelectorAll('.mmd:not([data-mmd="drawn"]):not([data-mmd="code"])')].filter(el=>!seen.has(el));if(!els.length)return;els.forEach(el=>seen.add(el));
   if(!('IntersectionObserver' in window)){els.forEach(el=>{el.dataset.mmd='wait';draw(el)});return}
   io=io||new IntersectionObserver(es=>es.forEach(e=>{if(e.isIntersecting){io.unobserve(e.target);draw(e.target)}}),{rootMargin:'300px 0px'});
   els.forEach(el=>{el.dataset.mmd='wait';io.observe(el)})}
-scan();let pend=false;new MutationObserver(ms=>{if(pend)return;if(!ms.some(m=>m.addedNodes.length))return;pend=true;requestAnimationFrame(()=>{pend=false;scan()})}).observe(document.body,{childList:true,subtree:true});
+scan();document.addEventListener('DOMContentLoaded',scan);let pend=false;new MutationObserver(ms=>{if(pend)return;if(!ms.some(m=>m.addedNodes.length))return;pend=true;requestAnimationFrame(()=>{pend=false;scan()})}).observe(document.body,{childList:true,subtree:true});
 })();`;

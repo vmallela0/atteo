@@ -45,7 +45,7 @@ async function page(path, { session, blockMic, ck } = {}) {
   });
   await p.goto(`${BASE}${path}`);
   if (path.startsWith("/b/")) await until(p, () => window.__live.some((w) => w.readyState === 1), null, 8000); // the board's live updates are on
-  await p.locator("[data-talk]:not([hidden])").first().waitFor({ state: "visible", timeout: 5000 }).catch(() => {});
+  await p.locator("[data-talk]:not([hidden])").first().waitFor({ state: "visible", timeout: 15000 }) // it shows once the voice status answers: slow on a busy machine.catch(() => {});
   return { ctx, p };
 }
 const sent = (p) => p.evaluate(() => window.__talk.sent);

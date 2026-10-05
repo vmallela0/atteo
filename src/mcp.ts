@@ -11,7 +11,7 @@ import * as social from "./social";
 import * as billing from "./billing";
 import { formatCard } from "./card";
 import { queueLine } from "./handoff";
-import { MAX_WAIT_MS, MEMORY_MAX, WAIT_CAP } from "./board";
+import { holderLabel, MAX_WAIT_MS, MEMORY_MAX, WAIT_CAP } from "./board";
 import { settle, waitForBoard } from "./waits";
 import * as agents from "./agents";
 import * as dm from "./dm";
@@ -318,7 +318,7 @@ export const TOOLS = [
   {
     name: "agents",
     description:
-      "Other people's agents you can work with, and your own agent's profile. Actions: find {can?, query?} (agents of friends, of people you share a board with, and listed ones; `can` filters by capability, e.g. \"stripe\"; each shows its owner, what it does, capabilities, track record and what its sessions are doing); get {name} (one person's agent); profile {summary?, capabilities?} (describe your own agent: a one-line summary and capabilities like [\"stripe\", \"repo:owner/name\"]); dm {name, text, session?} (message another person's agent directly; friends' agents get it now, otherwise their person OKs first contact once and it's delivered then; replies come back through read/wait on your direct board with them). Listing your agent in the public directory is your user's call (website or CLI).",
+      "Other people's agents you can work with, and your own agent's profile. Actions: find {can?, query?} (agents of friends, of people you share a board with, and listed ones; `can` filters by capability, e.g. \"stripe\"; each shows its owner, what it does, capabilities, track record and what its sessions are doing); get {name} (one person's agent); profile {summary?, capabilities?} (describe your own agent: a one-line summary and capabilities like [\"stripe\", \"repo:owner/name\"]); dm {name, text, session?} (message another person's agent directly; friends' agents get it now, otherwise their person OKs first contact once and it's delivered then; replies come back through read/wait on your direct board with them). Listing your agent in the public directory is your user's call (in the app); agents can't change it.",
     inputSchema: {
       type: "object",
       properties: {
@@ -367,6 +367,12 @@ export const TOOLS = [
     },
   },
   {
+    name: "purge",
+    description:
+      "Remove a leaked secret from the joined board for good: the entry keeps its number, author and thread, and its text, title, files, edit history, search rows and inbox copies go. Retract only hides an entry; purge is for a secret or private data that got past the filter. You can purge only what an agent of your user posted; anything else, ask your user (an owner of the board can purge any entry). It can't reach copies already sent (webhooks, email), the off-Cloudflare backups, or what anyone already read or exported: purging hides a leak, it doesn't make the secret safe, so always rotate it (tell your user).",
+    inputSchema: { type: "object", properties: { seq: { type: "integer", description: "Entry number to purge." } }, required: ["seq"] },
+  },
+  {
     name: "wait",
     description:
       "Wait for other members to post (long-poll). Returns everything new as soon as something arrives, or after timeout_seconds with nothing. Use after asking a question. for: \"me\" wakes only for what's for you (to/@ you or your session, @agents/@all, people's posts, answers to you, open tasks) and then returns all that's new.",
@@ -400,7 +406,7 @@ export const TOOLS = [
   {
     name: "search",
     description:
-      'Search the board: entries and files, best match first, with the matching part highlighted «like this». Every word must appear; the last can be a prefix; "quoted phrases" match exactly. Optional author/type filters (entries only). For exact lines inside files, use doc action "grep".',
+      'Search the board: entries and files, best match first, with the matching part highlighted «like this». Every word must appear; the last can be a prefix; "quoted phrases" match exactly. compact: true gives one line per hit (#n · author · MM-DD · matching text). Pass the returned more cursor with the same query to continue. Optional author/type filters (entries only). For exact lines inside files, use doc action "grep".',
     inputSchema: {
       type: "object",
       properties: {
@@ -408,6 +414,8 @@ export const TOOLS = [
         author: { type: "string" },
         type: { type: "string", enum: [...ENTRY_TYPES] },
         limit: { type: "integer" },
+        more: { type: "string", description: "Continuation cursor from the same query" },
+        compact: { type: "boolean", description: "One line per hit: #n · author · MM-DD · matching text (the full entry and snippet by default)" },
       },
       required: ["query"],
     },
@@ -415,7 +423,7 @@ export const TOOLS = [
   {
     name: "grep",
     description:
-      'Exact matching lines, one per hit: "<board>#<seq> <author>: line" with the match «marked». Words match from their start. board "all" greps every board you\'re on (encrypted skipped). files: also file lines.',
+      'Exact matching lines with the match «marked». compact: true gives #n · author · MM-DD · line; otherwise the legacy "<board>#<seq> <author>: line". Words match from their start. board "all" greps every board you\'re on (encrypted skipped). files: also file lines. Pass more with the same pattern and filters to continue.',
     inputSchema: {
       type: "object",
       properties: {
@@ -429,6 +437,8 @@ export const TOOLS = [
         context: { type: "integer", description: "0-2 lines around" },
         max: { type: "integer", description: "default 50, max 200" },
         files: { type: "boolean" },
+        compact: { type: "boolean", description: "One line: #n · author · MM-DD · matching text (legacy format by default)" },
+        more: { type: "string", description: "Continuation cursor from the same pattern and filters" },
       },
       required: ["pattern"],
     },
@@ -1012,7 +1022,7 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
       const when = (ts: number) => new Date(ts).toISOString().slice(0, 16).replace("T", " ") + "Z";
       const line = (t: Awaited<ReturnType<typeof stub.tasks>>[number]) =>
         `#${t.seq} [${t.status}${t.priority ? ` · ${t.priority}` : ""}]${t.assignee ? ` for ${t.assignee_agent ? `${t.assignee}'s agent` : t.assignee}` : ""}${
-          t.lease_holder ? ` · held by ${t.lease_agent ? `${t.lease_holder}'s agent` : t.lease_holder} until ${when(t.lease_until!)}` : ""
+          t.lease_holder ? ` · held by ${holderLabel(t)} until ${when(t.lease_until!)}` : ""
         }${t.due ? ` · due ${when(t.due).slice(0, 10)}` : ""}${t.stop_reason ? ` · stopped: ${t.stop_reason}` : ""}${t.done_note ? ` · done: ${t.done_note}` : ""}${t.resolved_by ? ` · #${t.resolved_by} says it resolves this (mark it done if so)` : ""}${t.children ? ` · sub-tasks ${t.children.done}/${t.children.total} done` : ""}${t.parent ? ` · under #${t.parent}` : ""} · v${t.version}\n    ${t.title}`;
       const full = (t: Awaited<ReturnType<typeof stub.tasks>>[number]) =>
         `${line(t)}\n    updated by ${t.updated_via === "agent" ? `${t.updated_by}'s agent` : t.updated_by} ${when(t.updated_at)}\n----- body (v${t.version}) -----\n${t.body || "(empty)"}\n----- end -----`;
@@ -1356,6 +1366,15 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
       return `Retracted #${seq} (logged as #${entry.seq}). It's out of the summary and marked retracted in the log.`;
     }
 
+    case "purge": {
+      const id = await currentBoard(c, args);
+      await requireWriter(env, id, user);
+      const seq = int(args.seq);
+      if (seq == null) throw new ToolError("seq is required.");
+      const r = await stubFor(env, id).purge(user, seq, { via: "agent", owner: false });
+      return `Purged #${seq}: it now reads "${r.removed}"${r.files.length ? `, and ${r.files.join(", ")} ${r.files.length === 1 ? "is" : "are"} emptied` : ""}. Purging hides a leak, it doesn't make the secret safe: copies already sent (webhooks, email), the off-Cloudflare backups and whatever anyone already read or exported are out of reach. Rotate the secret now (tell your user).`;
+    }
+
     case "wait": {
       const id = await currentBoard(c, args);
       const secs = int(args.timeout_seconds) ?? 45;
@@ -1491,7 +1510,7 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
       if (r.entry.type === "task" && r.entry.retracts == null) {
         const [t, info] = await Promise.all([stub.taskGet(seq).catch(() => null), stub.info()]);
         if (t && (t.version > 1 || t.status !== "todo")) {
-          const who = t.lease_holder ? `, ${t.lease_holder}${t.lease_agent ? "'s agent" : ""} has it` : t.assignee ? `, for ${t.assignee}${t.assignee_agent ? "'s agent" : ""}` : "";
+          const who = t.lease_holder ? `, ${holderLabel(t)} has it` : t.assignee ? `, for ${t.assignee}${t.assignee_agent ? "'s agent" : ""}` : "";
           const why = t.status === "stopped" && t.stop_reason ? `: ${t.stop_reason}` : t.status === "done" && t.done_note ? `: ${t.done_note}` : "";
           const now = info.encrypted ? ["    🔒 encrypted"] : [`    ${t.title}`, ...(t.body ? t.body.split("\n").map((l) => `    ${l}`) : [])]; // ciphertext isn't text
           out.push("", `Now (v${t.version}, ${t.status}${who}${why}):`, ...(t.version > 1 ? now : []));
@@ -1530,20 +1549,28 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
       const id = await currentBoard(c, args);
       const query = typeof args.query === "string" ? args.query : "";
       if (!query.trim()) throw new ToolError("query is required.");
-      const r = await stubFor(env, id).rankedSearch(query, {
+      const options = {
         author: normalizeUser(str(args.author)) ?? undefined,
         type: str(args.type),
         limit: int(args.limit),
-      }, { user, person: false });
-      if (!r.entries.length && !r.files.length) return `Nothing matches "${query}".`;
-      const out: string[] = [];
-      if (r.files.length) out.push("Files (latest version; read with doc):", ...r.files.map((f) => `  ${f.name} v${f.version}: ${f.snippet.replace(/\s+/g, " ")}`), "");
-      if (r.entries.length) {
-        out.push(`Entries, best match first (${r.entries.length}):`);
-        const names = await social.boardAgentNames(env, id);
-        for (const { entry, snippet } of r.entries) out.push(formatEntry(withNames([entry], names)[0], 300, user) + (snippet ? `\n    match: ${snippet.replace(/\s+/g, " ")}` : ""));
+        more: str(args.more),
+      };
+      if (args.compact !== true) {
+        const r = await stubFor(env, id).rankedSearch(query, options, { user, person: false });
+        if (!r.entries.length && !r.files.length && !r.more) return `Nothing matches "${query}".`;
+        const out: string[] = [];
+        if (r.files.length) out.push("Files (latest version; read with doc):", ...r.files.map((f) => `  ${f.name} v${f.version}: ${f.snippet.replace(/\s+/g, " ")}`), "");
+        if (r.entries.length) {
+          out.push(`Entries, best match first (${r.entries.length}):`);
+          const names = await social.boardAgentNames(env, id);
+          for (const { entry, snippet } of r.entries) out.push(formatEntry(withNames([entry], names)[0], 300, user) + (snippet ? `\n    match: ${snippet.replace(/\s+/g, " ")}` : ""));
+        }
+        if (r.more) out.push(`more: ${r.more}`);
+        return fence(out.join("\n"));
       }
-      return fence(out.join("\n"));
+      const r = await stubFor(env, id).searchLines(query, options, { user, person: false });
+      if (!r.count && !r.more) return `Nothing matches "${query}".`;
+      return fence(r.text);
     }
 
     case "grep": {
@@ -1559,8 +1586,10 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
           context: int(args.context),
           max: int(args.max),
           files: args.files === true,
+          more: str(args.more),
         }, id, { user, person: false });
-        return r.count ? fence(r.text) : r.text;
+        const text = args.compact === true ? r.compact : r.text;
+        return r.count ? fence(text) : text;
       } catch (e) {
         throw new ToolError(e instanceof Error ? e.message : String(e));
       }

@@ -4,6 +4,7 @@
 // Creates e2e-* users and "e2e …" boards on the target (remove with scripts/cleanup-e2e.sh). Sends no email.
 
 import { readFileSync } from "node:fs";
+import { devFetch } from "./devfetch.mjs";
 import { createCipheriv, createDecipheriv, createPrivateKey, createPublicKey, diffieHellman, generateKeyPairSync, hkdfSync, randomBytes } from "node:crypto";
 
 const BASE = (process.env.BASE ?? "http://localhost:8787").replace(/\/$/, "");
@@ -15,6 +16,8 @@ if (!ADMIN_KEY) {
 }
 // A failed step can leave a background wait() promise rejected; report it instead of crashing the run.
 process.on("unhandledRejection", (e) => console.log(`      (background: ${e?.message ?? e})`));
+// A request wrangler dev's proxy drops on its way to the local Worker is retried once (test/devfetch.mjs, #3673).
+globalThis.fetch = devFetch(globalThis.fetch);
 
 let passed = 0;
 let failed = 0;
@@ -49,9 +52,22 @@ function assert(cond, msg) {
 function has(text, needle) {
   assert(text.includes(needle), `expected to find ${JSON.stringify(needle)} in:\n${String(text).slice(0, 1200)}`);
 }
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+// Poll until fn() is truthy. Fixed sleeps stay only where they arm a long-poll or guard a negative
+// ("this did not happen"), because those have nothing to poll and their timing asserts must not move.
+async function until(fn, ms = 5000) {
+  const t0 = Date.now();
+  let v = await fn();
+  while (!v && Date.now() - t0 < ms) {
+    await sleep(40);
+    v = await fn();
+  }
+  return v;
+}
 
 // ---- helpers ----
-const run = Date.now().toString(36).slice(-5);
+// Unique across runs started in the same millisecond (concurrent runs against one server share its users table).
+const run = Date.now().toString(36).slice(-4) + Math.random().toString(36).slice(2, 4);
 const A = `e2e-vedu-${run}`;
 const B = `e2e-jxn-${run}`;
 const OUT = `e2e-out-${run}`;
@@ -131,6 +147,35 @@ async function serr(sess, name, args, needle) {
 const web = (path, who, init = {}) =>
   fetch(`${BASE}${path}`, { redirect: "manual", ...init, headers: { ...(init.headers ?? {}), ...(who ? { cookie: cookie[who] } : {}) } });
 const seqOf = (t) => Number(t.match(/#(\d+)/)[1]);
+// Several people at once. A user row has to exist before its token and session, and those two don't wait on each other.
+async function makeUser(name, { email, verified = "true", token = true, session = true, label = "e2e" } = {}) {
+  const r = await ops("users", { name, email: email ?? `${name}@example.com`, verified });
+  assert(r.status === 201, `create ${name}: ${r.status} ${JSON.stringify(r.body)}`);
+  await Promise.all([
+    token && (async () => {
+      const t = await ops("tokens", { user: name, ...(label != null ? { label } : {}) });
+      assert(t.body.token?.startsWith("ab_"), JSON.stringify(t.body));
+      tok[name] = t.body.token;
+    })(),
+    session && (async () => {
+      const s = await ops("sessions", { user: name });
+      cookie[name] = s.body.cookie;
+      assert(cookie[name]?.startsWith("ab_session="), JSON.stringify(s.body));
+    })(),
+  ]);
+}
+async function makeUsers(list, opts = {}) {
+  await Promise.all(list.map((n) => (typeof n === "string" ? makeUser(n, opts) : makeUser(n.name, { ...opts, ...n }))));
+}
+// The board page loads its shared script from /board.js (#3431), and every app page its shell from /shell.js: the steps
+// that read the page's code put them back inline.
+const withBoardJs = async (html) => {
+  for (const m of [...html.matchAll(/<script src="(\/(?:board|shell)\.js\?v=[^"]+)"[^>]*><\/script>/g)]) {
+    const js = await (await fetch(BASE + m[1])).text();
+    html = html.replace(m[0], () => `<script>${js}</script>`);
+  }
+  return html;
+};
 
 console.log(`E2E against ${BASE}`);
 let board;
@@ -142,22 +187,14 @@ await step("health", async () => {
 
 await step("setup through the ops API: users, tokens, sessions", async () => {
   assert(ADMIN_KEY, "ADMIN_KEY not available");
-  for (const [n, e, v] of [[A, `${A}@example.com`, "true"], [B, `${B}@example.com`, "true"], [OUT, `${OUT}@example.com`, "true"], [UNV, `${UNV}@example.com`, "false"]]) {
-    const r = await ops("users", { name: n, email: e, verified: v });
-    assert(r.status === 201, `create ${n}: ${r.status} ${JSON.stringify(r.body)}`);
-    const t = await ops("tokens", { user: n, label: "e2e" });
-    assert(t.body.token?.startsWith("ab_"), JSON.stringify(t.body));
-    tok[n] = t.body.token;
-    const s = await ops("sessions", { user: n });
-    cookie[n] = s.body.cookie;
-    assert(cookie[n]?.startsWith("ab_session="), JSON.stringify(s.body));
-  }
+  await makeUsers([{ name: A }, { name: B }, { name: OUT }, { name: UNV, verified: "false" }]);
   assert((await ops("users", { name: A })).status === 409, "duplicate name should conflict");
 });
 
 await step("ops API is invisible without the key", async () => {
-  assert((await ops("overview", null, null)).status === 404, "no key should 404");
-  assert((await ops("overview", null, "wrong")).status === 404, "wrong key should 404");
+  const [none, wrong] = await Promise.all([ops("overview", null, null), ops("overview", null, "wrong")]);
+  assert(none.status === 404, "no key should 404");
+  assert(wrong.status === 404, "wrong key should 404");
 });
 
 await step("MCP initialize, tools/list, notifications, protocol errors", async () => {
@@ -165,7 +202,7 @@ await step("MCP initialize, tools/list, notifications, protocol errors", async (
   assert(r.protocolVersion === "2025-06-18" && r.serverInfo.name === "atteo" && r.serverInfo.title === "Atteo", JSON.stringify(r));
   has(r.instructions, "Atteo");
   const names = (await rpcRaw(auth(A), null, "tools/list", {})).tools.map((t) => t.name).sort();
-  assert(JSON.stringify(names) === JSON.stringify(["agents", "approval", "batch", "claim", "create_board", "doc", "get", "grep", "handle", "invite", "join_board", "leave_board", "list_boards", "mailbox", "memory", "people", "post", "publish", "react", "read", "recap", "remember", "request_approval", "retract", "review", "schedules", "search", "session", "task", "trigger", "wait"]), names.join());
+  assert(JSON.stringify(names) === JSON.stringify(["agents", "approval", "batch", "claim", "create_board", "doc", "get", "grep", "handle", "invite", "join_board", "leave_board", "list_boards", "mailbox", "memory", "people", "post", "publish", "purge", "react", "read", "recap", "remember", "request_approval", "retract", "review", "schedules", "search", "session", "task", "trigger", "wait"]), names.join());
   assert((await rpcRaw(auth(A), null, "notifications/initialized", {}, { notification: true })).status === 202, "notification status");
   assert((await rpcRaw({}, null, "notifications/initialized", {}, { notification: true })).status === 401, "no credentials: 401 so OAuth clients can sign in");
   assert((await fetch(`${BASE}/mcp`)).status === 405, "GET /mcp should be 405");
@@ -190,11 +227,11 @@ await step("A creates a board and is its only member", async () => {
 });
 
 await step("non-members cannot read, post, wait, get, search or invite", async () => {
-  for (const [name, args] of [["read", {}], ["post", { type: "note", text: "x" }], ["wait", { timeout_seconds: 1 }], ["get", { seq: 1 }], ["search", { query: "x" }], ["invite", { email: "a@b.co" }]]) {
-    await err(B, board, name, args, "not a member");
-  }
-  await err(OUT, "b_doesnotexist1", "read", {}, "not a member");
-  await err(A, "../etc", "read", {}, "not a member");
+  await Promise.all([
+    ...[["read", {}], ["post", { type: "note", text: "x" }], ["wait", { timeout_seconds: 1 }], ["get", { seq: 1 }], ["search", { query: "x" }], ["invite", { email: "a@b.co" }]].map(([name, args]) => err(B, board, name, args, "not a member")),
+    err(OUT, "b_doesnotexist1", "read", {}, "not a member"),
+    err(A, "../etc", "read", {}, "not a member"),
+  ]);
 });
 
 await step("adding B as a member grants access", async () => {
@@ -411,7 +448,6 @@ await step("wait {for: \"me\"}: other agents' cards and chatter don't wake it; a
   const waiting = ok(A, board, "wait", { for: "me", timeout_seconds: 20 });
   await new Promise((r) => setTimeout(r, 300));
   const n1 = seqOf(await ok(B, board, "post", { type: "note", text: `chatter ${run}`, reply_to: 0 }));
-  await new Promise((r) => setTimeout(r, 300));
   const m = seqOf(await ok(B, board, "post", { type: "note", text: `@${A}'s agent ping ${run}`, reply_to: 0 }));
   const got = await waiting;
   has(got, "(1 for you");
@@ -643,7 +679,7 @@ await step("old workers.dev page links 301 to atteo.dev; the proxy, API clients 
 await step("web: members see the board; outsiders get 404", async () => {
   const page = await web(`/b/${board}`, A);
   assert(page.status === 200, `member ${page.status}`);
-  const html = await page.text();
+  const html = await withBoardJs(await page.text());
   has(html, `e2e ${run}`);
   has(html, "Connect your agents");
   has(html, "burst 19");
@@ -796,7 +832,10 @@ await step("brand: the cone-and-cans mark (jxn #2944) is the favicon, apple-touc
   assert((t.headers.get("content-type") ?? "") === "image/png" && (await t.arrayBuffer()).byteLength > 1000, "apple-touch icon not a png");
   const html = await (await web("/chats", A)).text(); // "/" is For you in Everyday (#1272); the list is /chats
   has(html, 'class="pebble"');
-  has(html, "--cone:#6A1B24");
+  // The tokens live in the shared, cached /app.css since web-app-assets (opus-a #3423); the page links it.
+  const cssHref = html.match(/<link[^>]+href="(\/app\.css[^"]*)"/)?.[1];
+  assert(cssHref, "the page links /app.css");
+  has(await (await fetch(`${BASE}${cssHref}`)).text(), "--cone:#6A1B24");
   has(html, 'class="wm">atteo<');
 });
 
@@ -875,8 +914,11 @@ await step("join_board by id and by name; read/post act on the joined board only
   has(await sok(s1, "list_boards"), `${board2}  "e2e second ${run}"`);
   has(await sok(s1, "list_boards"), "← this session");
   // Presence: the web shows A's agent live on board2, and a join prompt on the board it left.
-  await new Promise((r) => setTimeout(r, 300));
-  const p2 = await (await web(`/b/${board2}`, A)).text();
+  let p2 = "";
+  await until(async () => {
+    p2 = await (await web(`/b/${board2}`, A)).text();
+    return p2.includes(`<span class="ag-name">${A}/agent`);
+  });
   // Presence lives in one place: Board info → Agents.
   has(p2, `<span class="ag-name">${A}/agent`); // Board info → Agents lists the agent on the board: each MCP connection is a named session
   assert(!p2.includes("Your agent is on this board.") && !p2.includes(">agent live<"), "no presence text");
@@ -1094,7 +1136,7 @@ await step("@mentions: people vs agents, unknown handles, and handing work to yo
 });
 
 await step("board page layout: pinned header and tabs, a scrolling thread with the composer under it, board info, one-line summaries", async () => {
-  const page = await (await web(`/b/${board}`, B)).text();
+  const page = await withBoardJs(await (await web(`/b/${board}`, B)).text());
   has(page, `<div class="content full">`);
   // Header (title, meta, tabs) comes first; each view is a panel that fills the rest and scrolls on its own.
   assert(page.indexOf(`class="bp-head"`) < page.indexOf(`id="board-tabs"`) && page.indexOf(`id="board-tabs"`) < page.indexOf(`id="panel-conv" class="bp-panel"`), "head before panels");
@@ -1157,7 +1199,7 @@ await step("read receipts: how far each member has seen, as a person (web) and t
   assert(u.reads[B].person_seen >= p, `B saw it on the web: ${JSON.stringify(u.reads[B])}`);
   const ej = await (await web(`/api/boards/${board}/entries?after=${p - 1}`, A)).json();
   assert(ej.reads?.[B]?.person_seen >= p && ej.reads[B].agent_seen >= p, `entries JSON carries reads: ${JSON.stringify(ej.reads)}`);
-  const pg = await (await web(`/b/${board}`, A)).text();
+  const pg = await withBoardJs(await (await web(`/b/${board}`, A)).text());
   assert(pg.includes("Seen by everyone") && pg.includes("rd-pop"), "board page has the read ring");
   // Marks never go back, can't run past the end, and outsiders can't set them.
   await web(`/api/boards/${board}/seen`, B, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ seq: 1 }) });
@@ -1303,7 +1345,7 @@ await step("live updates over WebSocket: members get a signal on each post; outs
     });
   const m = await open(B);
   assert(m.ok, "member should connect");
-  await new Promise((r) => setTimeout(r, 300));
+  await until(() => m.msgs.some((x) => x.includes('"type":"hello"')));
   assert(m.msgs.some((x) => JSON.parse(x).type === "hello"), "expected hello");
   const t0 = Date.now();
   const posted = seqOf(await ok(A, board, "post", { type: "note", title: "WS ping", text: `ws ping ${run} ${"padding ".repeat(40)}` }));
@@ -1313,7 +1355,7 @@ await step("live updates over WebSocket: members get a signal on each post; outs
   const sig = JSON.parse(m.msgs.find((x) => x.includes(`"seq":${posted}`)));
   assert(sig.kind === "note" && sig.entry_title === "WS ping" && sig.excerpt.startsWith(`ws ping ${run} padding`) && sig.excerpt.endsWith("…") && sig.excerpt.length <= 200 && !sig.flagged, JSON.stringify(sig));
   m.ws.send("ping");
-  await new Promise((r) => setTimeout(r, 400));
+  await until(() => m.msgs.includes("pong"));
   assert(m.msgs.includes("pong"), "keep-alive ping should be answered");
   m.ws.close();
   assert(!(await open(OUT)).ok, "outsider must not connect");
@@ -1330,13 +1372,18 @@ await step("creator removes a member: their wait ends, their access is gone", as
   // OUT accepted an invitation to board2 in the previous step; A created board2.
   const so = await session(OUT);
   await sok(so, "join_board", { board: board2 });
+  const sockMsgs = [];
   const closed = new Promise((resolve) => {
     const ws = new WebSocket(BASE.replace(/^http/, "ws") + `/api/boards/${board2}/ws`, { headers: { cookie: cookie[OUT] } });
-    ws.onmessage = (m) => String(m.data).includes('"removed"') && resolve("removed");
+    ws.onmessage = (m) => {
+      const s = String(m.data);
+      sockMsgs.push(s);
+      if (s.includes('"removed"')) resolve("removed");
+    };
     ws.onclose = (e) => resolve(e.code === 4003 ? "removed" : `closed ${e.code}`);
     setTimeout(() => resolve("timeout"), 8000);
   });
-  await new Promise((r) => setTimeout(r, 400));
+  await until(() => sockMsgs.some((x) => x.includes('"type":"hello"')));
   const t0 = Date.now();
   const waiting = stool(so, "wait", { timeout_seconds: 30 });
   await new Promise((r) => setTimeout(r, 400));
@@ -1686,6 +1733,21 @@ await step("gate handoffs: ready to gate (branch, sha, base, checks, lgtm); the 
   await err(A, eb, "post", { type: "handoff", text: "x", handoff: ready() }, "encrypted");
 });
 
+await step("gate handoffs: a newer handoff of the same branch supersedes the older one in the queue (opus-d #3313)", async () => {
+  const hb = (await ops("boards", { user: A, title: `e2e supersede ${run}` })).body.board.id;
+  await ops("members", { board: hb, user: B });
+  const sha = (c) => c.repeat(40);
+  await ok(A, hb, "read");
+  const old = seqOf(await ok(A, hb, "post", { type: "handoff", text: "v1", handoff: { branch: `fix/s-${run}`, sha: sha("a"), base: sha("b"), checks: "vitest 1" } }));
+  await ok(B, hb, "read");
+  const other = seqOf(await ok(B, hb, "post", { type: "handoff", text: "other", handoff: { branch: `feat/t-${run}`, sha: sha("c"), base: sha("b"), checks: "vitest 1" } }));
+  await ok(A, hb, "read");
+  const neu = seqOf(await ok(A, hb, "post", { type: "handoff", text: "v2", handoff: { branch: `fix/s-${run}`, sha: sha("d"), base: sha("b"), checks: "vitest 2" } }));
+  const rest = await (await web(`/api/boards/${hb}/handoffs`, A)).json();
+  assert(JSON.stringify(rest.handoffs.map((e) => e.seq)) === JSON.stringify([other, neu]), `one per branch, the newest: ${JSON.stringify(rest.handoffs.map((e) => e.seq))} (old #${old})`);
+  has(await ok(B, hb, "get", { list: "handoffs" }), "Gate queue: 2 open handoffs");
+});
+
 await step("gate handoffs between two agent sessions of one person (opus-d #2379): one hands off, another LGTMs and lands it; the same session can't; no session falls back to the author", async () => {
   const hb = (await ops("boards", { user: B, title: `e2e handoff sessions ${run}` })).body.board.id;
   const api = async (method, path, body) => (await (await fetch(`${BASE}${path}`, { method, headers: { ...auth(B), "content-type": "application/json" }, body: body ? JSON.stringify(body) : undefined })).json());
@@ -1906,8 +1968,9 @@ await step("inbox retention: cron deletes read notifications older than 30 days;
   await fetch(`${BASE}/api/mailbox/ack`, { method: "POST", headers: { ...auth(B), "content-type": "application/json" }, body: JSON.stringify({ ids: [oldItem.id] }) });
   const markedAt = Date.now();
   await ops("cron", { now: markedAt + 31 * day });
-  await new Promise((r) => setTimeout(r, 400));
-  assert(!(await (await web(`/api/inbox`, B)).json()).items.some((i) => i.seq === oldSeq), "old read pruned");
+  let pruned = false;
+  await until(async () => (pruned = !(await (await web(`/api/inbox`, B)).json()).items.some((i) => i.seq === oldSeq)));
+  assert(pruned, "old read pruned");
   const recentSeq = seqOf(await ok(A, fb, "post", { type: "note", text: `@${B} keep recent ${run}` }));
   const unreadSeq = seqOf(await ok(A, fb, "post", { type: "note", text: `@${B} keep unread ${run}` }));
   const recentItem = (await (await web(`/api/inbox`, B)).json()).items.find((i) => i.seq === recentSeq);
@@ -1938,8 +2001,11 @@ await step("mailbox retention: cron deletes mail acked over 30 days ago once the
   assert(keptMail && (await call(B, "POST", "/api/mailbox/ack", { ids: [keptMail.id] })).delivered === 1, "ack the unread one");
   const ackedAt = Date.now();
   await ops("cron", { now: ackedAt + 31 * day });
-  await new Promise((r) => setTimeout(r, 400));
-  const after = (await (await web(`/api/inbox`, B)).json()).items;
+  let after = [];
+  await until(async () => {
+    after = (await (await web(`/api/inbox`, B)).json()).items;
+    return !after.some((i) => i.seq === oldSeq && i.board_id === mb);
+  });
   assert(!after.some((i) => i.seq === oldSeq && i.board_id === mb), "old acked and read: pruned");
   assert(after.some((i) => i.seq === keptSeq && i.board_id === mb && !i.read_at), "old acked but unread in the inbox: kept");
   // Recent acked + unacked: both kept by a cron run at the current time.
@@ -1994,6 +2060,36 @@ await step("tasks: claim leases, conflicts, release, assign, done closes it, sto
   await err(A, fb, "task", { action: "fly", seq: t3 }, "action must be");
   const out = await tool(OUT, fb, "task", { action: "list" });
   assert(out.isError, "outsiders can't see tasks");
+});
+
+// #3474: a claim is its agent session's. glm-c took alt-b's claimed tasks twice (#3375, #3437): the claim read "jxn's
+// agent has it", and another session of the same person could take it over without a word.
+await step("tasks: a claim names its agent session (B/claimer), and another session of the same person can't take it over", async () => {
+  const cb = (await ops("boards", { user: B, title: `e2e claim sessions ${run}` })).body.board.id;
+  const api = async (method, path, body) => (await (await fetch(`${BASE}${path}`, { method, headers: { ...auth(B), "content-type": "application/json" }, body: body ? JSON.stringify(body) : undefined })).json());
+  const s1 = (await api("POST", "/api/sessions", { suggest: "claimer", client: "Claude Code" })).session;
+  const s2 = (await api("POST", "/api/sessions", { suggest: "other", client: "Claude Code" })).session;
+  for (const s of [s1, s2]) await api("POST", `/api/sessions/${s.id}/boards`, { board: cb });
+  const as = async (s, name, args) => {
+    const r = await rpcRaw({ ...auth(B), "x-atteo-session": s.id }, cb, "tools/call", { name, arguments: args });
+    return { text: r.content.map((c) => c.text).join("\n"), isError: !!r.isError };
+  };
+  const okAs = async (s, name, args) => { await as(s, "read", {}); const r = await as(s, name, args); assert(!r.isError, `${name} failed: ${r.text}`); return r.text; };
+  const errAs = async (s, name, args, needle) => { await as(s, "read", {}); const r = await as(s, name, args); assert(r.isError, `${name} should have failed: ${r.text}`); has(r.text, needle); };
+  const t = seqOf(await okAs(s1, "post", { type: "task", text: `Claimed by a session ${run}` }));
+  const one = `${B}/${s1.name}`;
+  has(await okAs(s1, "task", { action: "claim", seq: t }), `held by ${one}`);
+  has(await okAs(s2, "get", { seq: t }), `${one} has it`);
+  has(await okAs(s2, "task", { action: "list" }), `held by ${one}`);
+  await errAs(s2, "task", { action: "claim", seq: t }, `claimed by ${one}, another of your sessions`);
+  has(await okAs(s1, "task", { action: "claim", seq: t }), `held by ${one}`); // its own session renews it
+  const listed = await api("GET", `/api/boards/${cb}/tasks`);
+  const row = listed.tasks.find((x) => x.seq === t);
+  assert(row?.lease_session_name === s1.name && !JSON.stringify(listed).includes(s1.id), `the API names the session, never its id: ${JSON.stringify(row).slice(0, 200)}`);
+  // Ways out: another session releases it (that one may be gone), or B without a session (the person's side) takes it.
+  await okAs(s2, "task", { action: "release", seq: t });
+  has(await okAs(s2, "task", { action: "claim", seq: t }), `held by ${B}/${s2.name}`);
+  has(await ok(B, cb, "task", { action: "claim", seq: t }), `held by ${B}'s agent`);
 });
 
 // jxn #2172, opus-a #2175: the message that resolves a task is the record that it's done, so the task list agrees.
@@ -2119,8 +2215,8 @@ await step("claims renew while their session is around: a polling session keeps 
   const mk = async (s, title) => Number((await sok(s, "task", { action: "create", title })).match(/Created task #(\d+)/)[1]);
   const t1 = await mk(busy, `kept ${run}`);
   const t2 = await mk(quiet, `dropped ${run}`);
-  has(await sok(busy, "task", { action: "claim", seq: t1, minutes: 5 }), `held by ${A}'s agent`);
-  has(await sok(quiet, "task", { action: "claim", seq: t2, minutes: 5 }), `held by ${A}'s agent`);
+  has(await sok(busy, "task", { action: "claim", seq: t1, minutes: 5 }), `held by ${A}/lease-busy-${run}`); // the session that holds it (#3474)
+  has(await sok(quiet, "task", { action: "claim", seq: t2, minutes: 5 }), `held by ${A}/lease-quiet-${run}`);
   if (!(await clock(0))) return console.log("      (skipped the time-based part: add DEV_FAKE_CLOCK=1 to .dev.vars to move the lease clock)");
   const held = async (seq) => /held by /.test(await ok(B, lb, "task", { action: "get", seq }));
   try {
@@ -2189,7 +2285,7 @@ await step("tasks board (web): list, move between columns, priority, claim confl
 await step("every page's inline scripts parse (a template escaping slip breaks the whole page)", async () => {
   const { Script } = await import("node:vm");
   for (const path of [`/b/${fb}`, `/b/${board}`, "/", "/inbox", "/me", "/ask"]) {
-    const html = await (await web(path, A)).text();
+    const html = await withBoardJs(await (await web(path, A)).text());
     const scripts = [...html.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/g)].map((m) => m[1]);
     assert(scripts.length, `no scripts on ${path}`);
     if (path === `/b/${board}`) assert(scripts.some((x) => x.includes("rpAt=who===ME?'':'@'+who+' '") && x.includes("ta.value.startsWith(rpM)")), "reply prefill logic missing");
@@ -2294,7 +2390,7 @@ await step("tasks are shared items: create, get, edit in place (versions, confli
   // Remove: the author (here the creator) drops it from the task list; a member who is neither author nor creator gets a 4xx; the page offers the control.
   const rmSeq = (await nt.json()).task.seq;
   const retractWeb = (who) => web(`/api/boards/${fb}/entries/${rmSeq}/retract`, who, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ reason: "removed from the task board" }) });
-  const bpage = await (await web(`/b/${fb}`, A)).text();
+  const bpage = await withBoardJs(await (await web(`/b/${fb}`, A)).text());
   assert(bpage.includes('id="td-remove"') && bpage.includes("Remove this task from the board?"), "board page should carry the remove control");
   const denied = await retractWeb(B);
   assert(denied.status >= 400 && denied.status < 500, `non-author retract ${denied.status}`);
@@ -2564,11 +2660,7 @@ await step("board pictures: any member sets one; served to members only, version
   assert((await lines()).includes(`📷 ${A} removed the board picture`), "removal line");
   // Direct boards show the other person's avatar instead.
   const P1 = `e2e-pic1-${run}`, P2 = `e2e-pic2-${run}`;
-  for (const n of [P1, P2]) {
-    await ops("users", { name: n, email: `${n}@example.com`, verified: "true" });
-    tok[n] = (await ops("tokens", { user: n, label: "e2e" })).body.token;
-    cookie[n] = (await ops("sessions", { user: n })).body.cookie;
-  }
+  await makeUsers([P1, P2]);
   const call = async (who, path) => (await fetch(`${BASE}${path}`, { method: "POST", headers: auth(who) })).json();
   await fetch(`${BASE}/api/friends/request`, { method: "POST", headers: { ...auth(P1), "content-type": "application/json" }, body: JSON.stringify({ user: P2 }) });
   await call(P2, `/api/friends/${P1}/accept`);
@@ -2714,6 +2806,15 @@ await step("access: roles (viewers read but can't change), invite links with lim
   await j(A, `/api/boards/${fb}/members/${B}`, { role: "contributor" });
   await j(A, `/api/boards/${fb}/members/${OUT}/remove`, {});
   assert((await (await j(A, `/api/boards/${fb}/audit`)).json()).audit[0].action === "removed", "removal is audited");
+  const expRes = await j(B, `/api/boards/${fb}/audit/export`);
+  assert((expRes.headers.get("content-disposition") ?? "").includes(`attachment; filename="atteo-audit-${fb}-`), "export is a download");
+  const exp = await expRes.json();
+  assert(exp.kind === "access_audit" && exp.order === "append" && exp.truncated === false && exp.audit.some((a) => a.action === "removed"), JSON.stringify(exp).slice(0, 240));
+  for (let i = 1; i < exp.audit.length; i++) assert(exp.audit[i].id > exp.audit[i - 1].id, "append order");
+  assert((await fetch(`${BASE}/api/boards/${fb}/audit/export`)).status === 401, "export requires sign-in");
+  assert((await j(B, `/api/boards/${fb}/audit/export?after=nope`)).status === 400, "bad cursor");
+  const page = await (await j(B, `/api/boards/${fb}/audit/export?after=${exp.audit[0].id}`)).json();
+  assert(page.after_id === exp.audit[0].id && page.audit.every((a) => a.id > exp.audit[0].id) && !page.audit.some((a) => a.id === exp.audit[0].id), "cursor");
 });
 
 await step("approvals: an agent asks before side effects; only the person decides, in a browser; the agent sees the answer", async () => {
@@ -2922,9 +3023,12 @@ await step("@humans pings every person on the board (not their agents), includin
   const seq = seqOf(await ok(A, board, "post", { type: "note", text: `@humans standup in 5 ${run}` }));
   const e = (await (await web(`/api/boards/${board}/entries/${seq}`, B)).json()).entry;
   assert(e.mentions.some((m) => m.user === H && !m.agent) && e.mentions.every((m) => !m.agent), JSON.stringify(e.mentions));
-  await new Promise((r) => setTimeout(r, 800));
   const ck = (await ops("sessions", { user: H })).body.cookie;
-  const inbox = await (await fetch(`${BASE}/api/inbox`, { headers: { cookie: ck } })).json();
+  let inbox = { items: [] };
+  await until(async () => {
+    inbox = await (await fetch(`${BASE}/api/inbox`, { headers: { cookie: ck } })).json();
+    return inbox.items.some((i) => i.seq === seq && i.kind === "mention");
+  });
   assert(inbox.items.some((i) => i.seq === seq && i.kind === "mention"), "a member who never opened the board still gets the mention");
 });
 
@@ -3108,7 +3212,7 @@ await step("usage_daily retention: cron deletes rows older than 90 days; recent 
   assert((await rows(oldDay)).rows.some((r) => r.key === "old"), "old present");
   assert((await rows(recentDay)).rows.some((r) => r.key === "recent"), "recent present");
   await ops("cron", { now: T0 });
-  await new Promise((r) => setTimeout(r, 400));
+  await until(async () => !(await rows(oldDay)).rows.some((r) => r.metric === metric && r.key === "old"));
   assert(!(await rows(oldDay)).rows.some((r) => r.metric === metric && r.key === "old"), "old pruned");
   assert((await rows(recentDay)).rows.some((r) => r.metric === metric && r.key === "recent"), "recent kept");
 });
@@ -3120,20 +3224,35 @@ await step("network: an opt-in directory, and standing rules (invites from frien
   await ops("users", { name: D, email: `${D}@example.com`, verified: "true" });
   tok[D] = (await ops("tokens", { user: D })).body.token;
   assert(!(await (await api(D, "GET", `/api/people?q=${partial}`)).json()).people.some((p) => p.name === B), "not listed yet");
-  assert((await (await api(B, "POST", "/api/me/profile", { listed: true, bio: `hi from ${run}` })).json()).profile.listed, "listed");
+  // Who can find you and what's accepted without asking are the person's (#3502): never an agent token, even their own.
+  const person = (who, body) => web("/api/me/profile", who, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+  for (const body of [{ listed: true }, { rules: { auto_accept_friends: "coworkers" } }, { rules: { auto_accept_agents: "coworkers" } }, { bio: "fine", listed: false }]) {
+    const r = await api(B, "POST", "/api/me/profile", body);
+    assert(r.status === 403 && (await r.json()).error.includes("your person's call"), `agent token refused: ${JSON.stringify(body)} ${r.status}`);
+  }
+  assert((await (await api(B, "GET", "/api/me/profile")).json()).profile.bio !== "fine", "a refused request saves nothing");
+  assert((await (await api(B, "POST", "/api/me/profile", { bio: `agent bio ${run}` })).json()).profile.bio === `agent bio ${run}`, "the rest of the profile stays open to agents");
+  let ra = await api(B, "POST", "/api/agents/me", { listed: true, summary: "x" });
+  assert(ra.status === 403 && (await ra.json()).error.includes("in the app"), "an agent can't list itself: " + ra.status);
+  ra = await api(B, "POST", "/api/agents/me", { summary: `helps with ${run}` });
+  assert(ra.ok && (await ra.json()).agent.summary === `helps with ${run}` && !(await (await api(B, "GET", "/api/agents/me")).json()).agent.listed, "summary yes, listing untouched");
+  ra = await web("/api/agents/me", B, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ listed: true }) });
+  assert(ra.ok && (await ra.json()).agent.listed === true, "the person lists their agent");
+  await web("/api/agents/me", B, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ listed: false }) });
+  assert((await (await person(B, { listed: true, bio: `hi from ${run}` })).json()).profile.listed, "listed");
   assert((await (await api(D, "GET", `/api/people?q=${partial}`)).json()).people.some((p) => p.name === B), "listed people show up by partial name");
   // Friend requests from people B shares a board with are accepted by B's rule.
   await api(A, "POST", `/api/friends/${B}/remove`);
-  await api(B, "POST", "/api/me/profile", { rules: { auto_accept_friends: "coworkers" } });
+  await person(B, { rules: { auto_accept_friends: "coworkers" } });
   assert((await (await api(A, "POST", "/api/friends/request", { user: B })).json()).relation === "friend", "accepted by rule");
   // Board invites from friends join B right away.
-  await api(B, "POST", "/api/me/profile", { rules: { auto_accept_invites: "friends" } });
+  await person(B, { rules: { auto_accept_invites: "friends" } });
   const nb = (await ops("boards", { user: A, title: `e2e rules ${run}` })).body.board.id;
   await ops("members", { board: nb, user: A });
   const inv = await (await web(`/api/boards/${nb}/invites`, A, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ email: `${B}@example.com` }) })).json();
   assert(inv.added && inv.message.includes("right away"), JSON.stringify(inv));
   has(await ok(B, nb, "read"), `e2e rules ${run}`);
-  await api(B, "POST", "/api/me/profile", { listed: false, rules: { auto_accept_invites: null, auto_accept_friends: null } });
+  await person(B, { listed: false, rules: { auto_accept_invites: null, auto_accept_friends: null } });
 });
 
 await step("display settings: text size, density and theme per person (defaults, partial updates merge, bad values 400, private)", async () => {
@@ -3318,6 +3437,81 @@ await step("retention: owners set how long a board keeps messages; older ones ar
   has(await ok(B, id, "get", { seq: old }), "removed: older than this board keeps messages");
   assert(!(await ok(B, id, "search", { query: `secretless ${run}` })).includes(`#${old}`), "gone from search");
   assert((await (await web(`/api/boards/${id}/audit`, A)).json()).audit.some((a) => a.action === "retention"), "audited");
+});
+
+await step("A2A: the Agent Card is signed when the server has a key (ES256 over its canonical form, key at its jku), and says so when it isn't", async () => {
+  const { createPublicKey, verify } = await import("node:crypto");
+  const res = await fetch(`${BASE}/.well-known/agent-card.json`);
+  const card = await res.json();
+  const keys = await (await fetch(`${BASE}/.well-known/jwks.json`)).json();
+  if (!card.signatures) {
+    // No A2A_SIGNING_KEY on this server: unsigned, marked, and no key to check against.
+    assert(res.headers.get("atteo-card-signature") === "none" && Array.isArray(keys.keys) && keys.keys.length === 0, JSON.stringify(keys));
+    return;
+  }
+  assert(res.headers.get("atteo-card-signature") === "es256", "marked signed");
+  // A client of our own, sharing no code with the server: drop signatures, 0.3 defaults and empty values; sort keys.
+  const canon = (c) => {
+    const { signatures, ...r } = c;
+    if (r.protocolVersion === "0.3.0") delete r.protocolVersion;
+    if (r.preferredTransport === "JSONRPC") delete r.preferredTransport;
+    for (const sc of Object.values(r.securitySchemes ?? {})) if (["http", "apiKey", "oauth2", "openIdConnect", "mutualTLS"].includes(sc.type)) delete sc.type;
+    const clean = (v) => Array.isArray(v) ? ((v = v.map(clean).filter((x) => x !== undefined)).length ? v : undefined)
+      : v && typeof v === "object" ? ((v = Object.fromEntries(Object.keys(v).sort().map((k) => [k, clean(v[k])]).filter(([, x]) => x !== undefined))), Object.keys(v).length ? v : undefined)
+      : v === "" || v === null ? undefined : v;
+    return JSON.stringify(clean(r));
+  };
+  const check = (c) => {
+    const { protected: p, signature } = c.signatures[0];
+    const h = JSON.parse(Buffer.from(p, "base64url").toString());
+    const k = keys.keys.find((x) => x.kid === h.kid);
+    if (h.alg !== "ES256" || h.typ !== "JOSE" || !k) return false;
+    return verify("sha256", Buffer.from(`${p}.${Buffer.from(canon(structuredClone(c))).toString("base64url")}`), { key: createPublicKey({ key: k, format: "jwk" }), dsaEncoding: "ieee-p1363" }, Buffer.from(signature, "base64url"));
+  };
+  const h = JSON.parse(Buffer.from(card.signatures[0].protected, "base64url").toString());
+  assert(h.jku === `${new URL(card.url).origin}/.well-known/jwks.json` && keys.keys.length === 1 && !("d" in keys.keys[0]), JSON.stringify({ h, keys }));
+  assert(check(card), "the card's signature checks out");
+  assert(!check({ ...card, url: "https://evil.example/a2a" }), "a changed card doesn't");
+  const alias = await (await fetch(`${BASE}/.well-known/agent.json`)).json();
+  assert(check(alias), "the alias is signed too");
+});
+
+await step("purge (alt-c #3573): a leaked secret goes for good: text, file, search, inbox, tape; authors and owners only", async () => {
+  const id = (await ops("boards", { user: A, title: `e2e purge ${run}` })).body.board.id;
+  await ops("members", { board: id, user: A }).catch(() => {});
+  await ops("members", { board: id, user: B });
+  const leak = `hunter2-purge-${run}`;
+  await ok(B, id, "read");
+  const n = seqOf(await ok(B, id, "post", { type: "note", to: A, text: `@${A} the staging password is ${leak}` }));
+  const f = seqOf(await ok(B, id, "post", { type: "artifact", artifact_name: `env-${run}.md`, artifact_content: `staging notes: ${leak}\n`, text: "the env notes" }));
+  await ok(A, id, "read");
+  const a1 = seqOf(await ok(A, id, "post", { type: "note", reply_to: 0, text: `A's note ${leak}` }));
+  assert((await ok(A, id, "search", { query: `hunter2-purge-${run}` })).includes(`#${n}`), "findable before");
+  const purgeAs = (who, seq, agent = false) => (agent ? fetch(`${BASE}/api/boards/${id}/entries/${seq}/purge`, { method: "POST", headers: auth(who) }) : web(`/api/boards/${id}/entries/${seq}/purge`, who, { method: "POST" }));
+  // An agent: only what an agent of its person posted (MCP and REST).
+  await err(B, id, "purge", { seq: a1 }, "can purge only what an agent of");
+  const said = await ok(B, id, "purge", { seq: n });
+  assert(said.includes(`Purged #${n}`) && said.includes("doesn't make the secret safe") && said.includes("Rotate"), said);
+  await err(B, id, "purge", { seq: n }, "already purged");
+  const got = await ok(A, id, "get", { seq: n });
+  assert(got.includes(`(removed by ${B}'s agent)`) && !got.includes(leak), got);
+  assert(!(await ok(A, id, "search", { query: `hunter2-purge-${run}` })).includes(`#${n}`), "gone from search");
+  const inbox = (await (await web(`/api/inbox`, A)).json()).items.filter((i) => i.seq === n);
+  assert(inbox.length && inbox.every((i) => !i.excerpt.includes(leak)), "inbox excerpt: " + JSON.stringify(inbox));
+  const tape = (await (await web(`/api/tape?after=0&limit=500`, A)).json()).lines.filter((l) => l.board_id === id);
+  assert(tape.some((l) => l.seq === n) && tape.every((l) => l.seq === a1 || !l.excerpt.includes(leak)), "tape: " + JSON.stringify(tape));
+  let r = await purgeAs(B, f, true);
+  const j = await r.json();
+  assert(r.status === 200 && j.files.includes(`env-${run}.md v1`), JSON.stringify(j));
+  const doc = await ok(A, id, "doc", { action: "read", name: `env-${run}.md` });
+  assert(!doc.includes(leak) && !(await ok(A, id, "get", { seq: f })).includes(leak), "the file's content is gone: " + doc);
+  // People: the author, or an owner (A made the board); a contributor can't purge someone else's.
+  assert((await purgeAs(B, a1)).status === 400, "a contributor can't purge another's entry");
+  assert((await purgeAs(OUT, a1)).status === 404, "outsiders get 404");
+  r = await purgeAs(A, a1);
+  assert(r.status === 200 && (await r.json()).removed === `(removed by ${A})`, "the owner purges");
+  const audit = (await (await web(`/api/boards/${id}/audit`, A)).json()).audit.filter((x) => x.action === "purge");
+  assert(audit.length === 3 && audit.some((x) => x.target === `#${n}` && x.actor === B) && !JSON.stringify(audit).includes(leak), JSON.stringify(audit));
 });
 
 await step("A2A: Agent Card, message/send asks a member's agent, tasks/get returns the answer; tokens required", async () => {
@@ -3523,12 +3717,17 @@ await step("delete a board: creator only, typed confirmation, everything goes", 
   assert(!(await (await web(`/b/${del}`, B)).text()).includes("Delete board…"), "only the creator sees delete");
   const sb = await session(B);
   await sok(sb, "join_board", { board: del });
+  const delMsgs = [];
   const told = new Promise((resolve) => {
     const ws = new WebSocket(BASE.replace(/^http/, "ws") + `/api/boards/${del}/ws`, { headers: { cookie: cookie[B] } });
-    ws.onmessage = (m) => String(m.data).includes('"deleted"') && resolve("deleted");
+    ws.onmessage = (m) => {
+      const s = String(m.data);
+      delMsgs.push(s);
+      if (s.includes('"deleted"')) resolve("deleted");
+    };
     setTimeout(() => resolve("timeout"), 8000);
   });
-  await new Promise((r) => setTimeout(r, 400));
+  await until(() => delMsgs.some((x) => x.includes('"type":"hello"')));
   const post = (who, confirm) => web(`/api/boards/${del}/delete`, who, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ confirm }) });
   assert((await post(B, title)).status === 403, "member can't delete");
   assert((await post(A, "wrong name")).status === 400, "confirmation must match");
@@ -3637,7 +3836,6 @@ await step("agent sessions: several per person, each with its own boards and rea
   const mineWait = api(B, "GET", `/api/sessions/${s1.id}/wait?timeout=20&for=me`);
   await new Promise((r) => setTimeout(r, 600));
   await ok(A, b3, "post", { type: "note", text: `chatter for-me ${run}`, reply_to: 0 });
-  await new Promise((r) => setTimeout(r, 600));
   await ok(A, b3, "post", { type: "note", text: `@${B}'s agent for-me ping ${run}`, reply_to: 0 });
   const fm = (await mineWait).body;
   assert(!fm.timed_out && fm.text.includes(`chatter for-me ${run}`) && fm.text.includes(`for-me ping ${run}`) && fm.text.includes("1 for you"), JSON.stringify(fm).slice(0, 400));
@@ -3747,11 +3945,7 @@ await step("read-only agent sessions: read and wait work; posting, through the A
 await step("handling: taking by reply or by finishing a task names the session (user/session) over REST too; a page with gaps maps only its own seqs", async () => {
   // Its own two people (P asks, Q's agents answer), so the mail it makes doesn't crowd A's and B's later checks.
   const P = `e2e-hp-${run}`, Q = `e2e-hq-${run}`;
-  for (const n of [P, Q]) {
-    await ops("users", { name: n, email: `${n}@example.com`, verified: "true" });
-    tok[n] = (await ops("tokens", { user: n, label: "e2e" })).body.token;
-    cookie[n] = (await ops("sessions", { user: n })).body.cookie;
-  }
+  await makeUsers([P, Q]);
   const api = async (who, method, path, body, session) => {
     const r = await fetch(`${BASE}${path}`, { method, headers: { ...auth(who), ...(session ? { "x-atteo-session": session.id } : {}), "content-type": "application/json" }, body: body ? JSON.stringify(body) : undefined });
     return { status: r.status, body: await r.json().catch(() => ({})) };
@@ -3941,12 +4135,66 @@ await step("kill switch: Disconnect all agents revokes every sign-in and ends ev
   has(await (await fetch(`${BASE}/me`, { headers: { cookie: ck } })).text(), "Disconnect all agents");
 });
 
+await step("account log: each sign-in and token change lands once, for its person only; agent tokens can't read it; JSON Lines download", async () => {
+  const { createHash, randomBytes } = await import("node:crypto");
+  const L = `e2e-alog-${run}`, O = `e2e-alog2-${run}`;
+  await makeUsers([L, O], { token: false }); // one operator sign-in each
+  const ag = (await ops("tokens", { user: L, label: "ops agent" })).body.token; // an operator-made key
+  const json = { "content-type": "application/json" };
+  // A key made on the Account page, then revoked
+  const made = await (await web("/api/tokens", L, { method: "POST", headers: json, body: JSON.stringify({ label: "audit key" }) })).json();
+  assert(made.id, JSON.stringify(made));
+  assert((await web(`/api/tokens/${made.id}/revoke`, L, { method: "POST" })).status === 200, "revoke");
+  // A CLI login
+  const start = await (await fetch(`${BASE}/api/device/start`, { method: "POST", headers: json, body: JSON.stringify({ client: "audit laptop" }) })).json();
+  await web("/api/device/decide", L, { method: "POST", headers: json, body: JSON.stringify({ user_code: start.user_code, approve: true }) });
+  const cli = await (await fetch(`${BASE}/api/device/token`, { method: "POST", headers: { ...json, "user-agent": "atteo-cli/9.9 node/22" }, body: JSON.stringify({ device_code: start.device_code }) })).json();
+  assert(cli.status === "ok", JSON.stringify(cli));
+  // An MCP app over OAuth, then a refresh (the same connection carrying on: not logged)
+  const cb = "http://localhost:47125/cb";
+  const reg = await (await fetch(`${BASE}/oauth/register`, { method: "POST", headers: json, body: JSON.stringify({ client_name: "Audit MCP", redirect_uris: [cb] }) })).json();
+  const verifier = randomBytes(32).toString("base64url");
+  const q = new URLSearchParams({ response_type: "code", client_id: reg.client_id, redirect_uri: cb, code_challenge: createHash("sha256").update(verifier).digest("base64url"), code_challenge_method: "S256", state: "s" });
+  const rid = (await (await web(`/oauth/authorize?${q}`, L)).text()).match(/name="request_id" value="([^"]+)"/)[1];
+  const code = new URL((await web(`/oauth/authorize`, L, { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" }, body: `request_id=${rid}&allow=1` })).headers.get("location")).searchParams.get("code");
+  const tokenCall = (f) => fetch(`${BASE}/oauth/token`, { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" }, body: new URLSearchParams(f) }).then((r) => r.json());
+  const t = await tokenCall({ grant_type: "authorization_code", code, redirect_uri: cb, client_id: reg.client_id, code_verifier: verifier });
+  assert(t.refresh_token, JSON.stringify(t));
+  assert((await tokenCall({ grant_type: "refresh_token", refresh_token: t.refresh_token, client_id: reg.client_id })).access_token, "refresh");
+  // Disconnect all
+  assert((await web("/api/tokens/revoke-all", L, { method: "POST" })).status === 200, "revoke-all");
+
+  const log = await (await web("/api/me/audit", L)).json();
+  const seen = log.events.map((e) => `${e.event}${e.label ? ` ${e.label}` : ""}`);
+  assert(
+    JSON.stringify(seen) === JSON.stringify(["tokens.revoked_all 3 sign-ins", "oauth.connected Audit MCP", "cli.login audit laptop", "token.revoked audit key", "token.created audit key", "token.created ops agent", "signin.web"]),
+    JSON.stringify(log.events),
+  );
+  const cliLine = log.events.find((e) => e.event === "cli.login");
+  assert(cliLine.client === "atteo-cli/9.9" && cliLine.kind === "cli", JSON.stringify(cliLine));
+  assert(log.events.find((e) => e.event === "signin.web").client === "operator", "operator sign-ins say so");
+  assert(!JSON.stringify(log).includes("ab_") && !JSON.stringify(log).includes("ort_"), "never a token");
+  // Only its person: the other person sees only their own sign-in; the agent's token (revoked or live) can't read it.
+  const other = (await (await web("/api/me/audit", O)).json()).events;
+  assert(other.length === 1 && other[0].event === "signin.web", JSON.stringify(other));
+  const agentTok = (await ops("tokens", { user: L, label: "agent reading" })).body.token;
+  assert((await fetch(`${BASE}/api/me/audit`, { headers: { authorization: `Bearer ${agentTok}` } })).status === 403, "agent tokens get 403");
+  assert((await fetch(`${BASE}/api/me/audit`, { headers: { authorization: `Bearer ${ag}` } })).status === 401, "a revoked token gets nothing");
+  assert((await fetch(`${BASE}/api/me/audit`)).status === 401, "signed out");
+  // Download and the Account page
+  const dl = await web("/api/me/audit?format=jsonl", L);
+  assert(/attachment; filename="atteo-account-/.test(dl.headers.get("content-disposition") ?? ""), dl.headers.get("content-disposition"));
+  const lines = (await dl.text()).trim().split("\n").map((l) => JSON.parse(l));
+  assert(lines.length === 8 && lines[0].event === "token.created" && lines[0].label === "agent reading" && /^\d{4}-\d\d-\d\dT/.test(lines[0].at), JSON.stringify(lines[0]));
+  const me = await (await web("/me", L)).text();
+  has(me, "Account log");
+  has(me, "Disconnected all agents");
+  has(me, 'href="/api/me/audit?format=jsonl"');
+});
+
 await step("mailbox: DMs and mail for your agent wait until your agent polls; full text; delivery is separate from your web reading; wait and ack", async () => {
   const M1 = `e2e-mb1-${run}`, M2 = `e2e-mb2-${run}`;
-  for (const n of [M1, M2]) {
-    await ops("users", { name: n, email: `${n}@example.com`, verified: "true" });
-    tok[n] = (await ops("tokens", { user: n, label: "e2e" })).body.token;
-  }
+  await makeUsers([M1, M2], { session: false });
   const call = async (who, method, path, body) => { const r = await fetch(`${BASE}${path}`, { method, headers: { ...auth(who), "content-type": "application/json" }, body: body ? JSON.stringify(body) : undefined }); return r.json(); };
   await call(M1, "POST", "/api/friends/request", { user: M2 });
   await call(M2, "POST", `/api/friends/${M1}/accept`);
@@ -3983,10 +4231,7 @@ await step("mailbox: DMs and mail for your agent wait until your agent polls; fu
 
 await step("mailbox tool (MCP): new mail as compact fenced lines under one header, then nothing; peek keeps it; wait returns when mail lands", async () => {
   const M1 = `e2e-mt1-${run}`, M2 = `e2e-mt2-${run}`;
-  for (const n of [M1, M2]) {
-    await ops("users", { name: n, email: `${n}@example.com`, verified: "true" });
-    tok[n] = (await ops("tokens", { user: n, label: "e2e" })).body.token;
-  }
+  await makeUsers([M1, M2], { session: false });
   const call = async (who, method, path, body) => (await fetch(`${BASE}${path}`, { method, headers: { ...auth(who), "content-type": "application/json" }, body: body ? JSON.stringify(body) : undefined })).json();
   await call(M1, "POST", "/api/friends/request", { user: M2 });
   await call(M2, "POST", `/api/friends/${M1}/accept`);
@@ -4032,11 +4277,7 @@ await step("mailbox tool (MCP): new mail as compact fenced lines under one heade
 
 await step("mailbox from_your_person (#2184): your own \"@you's agent\" / @agents / @all on a shared board is your agents' mail (already read for you); people-only and plain posts aren't; Just mine and \"Your agent\" come once, as before", async () => {
   const P = `e2e-fyp-${run}`, Q = `e2e-fyq-${run}`;
-  for (const n of [P, Q]) {
-    await ops("users", { name: n, email: `${n}@example.com`, verified: "true" });
-    tok[n] = (await ops("tokens", { user: n, label: "e2e" })).body.token;
-    cookie[n] = (await ops("sessions", { user: n })).body.cookie;
-  }
+  await makeUsers([P, Q]);
   const sb = (await ops("boards", { user: Q, title: `e2e fyp ${run}` })).body.board.id;
   await ops("members", { board: sb, user: P });
   const say = async (board, body) => {
@@ -4106,11 +4347,7 @@ await step("mailbox from_your_person (#2184): your own \"@you's agent\" / @agent
 
 await step("mailbox drain lease (#2184): one drainer per person; while S1 holds it S2 only peeks (with a hint), acks deliver nothing but its own session's mail; once it lapses S2 drains", async () => {
   const L = `e2e-dl-${run}`, R = `e2e-dr-${run}`;
-  for (const n of [L, R]) {
-    await ops("users", { name: n, email: `${n}@example.com`, verified: "true" });
-    tok[n] = (await ops("tokens", { user: n, label: "e2e" })).body.token;
-    cookie[n] = (await ops("sessions", { user: n })).body.cookie;
-  }
+  await makeUsers([L, R]);
   const lb = (await ops("boards", { user: R, title: `e2e lease ${run}` })).body.board.id;
   await ops("members", { board: lb, user: L });
   const call = async (method, path, { body, sess, now } = {}) => {
@@ -4528,11 +4765,7 @@ await step("new board as JSON (the app): POST /api/boards makes an encrypted boa
 
 await step("Your agent: a private chat with your own agents, made on first open; only you; your posts are DMs from your user; @you/<session> reaches that one session; replies land in the thread", async () => {
   const Y = `e2e-you-${run}`, Z = `e2e-zed-${run}`;
-  for (const n of [Y, Z]) {
-    assert((await ops("users", { name: n, email: `${n}@example.com`, verified: "true" })).status === 201, `user ${n}`);
-    tok[n] = (await ops("tokens", { user: n, label: "e2e" })).body.token;
-    cookie[n] = (await ops("sessions", { user: n })).body.cookie;
-  }
+  await makeUsers([Y, Z]);
   const api = async (who, method, path, body, headers = {}) => {
     const r = await fetch(`${BASE}${path}`, { method, headers: { ...auth(who), "content-type": "application/json", ...headers }, body: body ? JSON.stringify(body) : undefined });
     return { status: r.status, body: await r.json().catch(() => ({})) };
@@ -4629,12 +4862,6 @@ const wsOpen = (bid, who) =>
     ws.onopen = () => resolve({ ws, msgs, ok: true });
     ws.onerror = () => resolve({ ws, msgs, ok: false });
   });
-const until = async (f, ms = 5000) => {
-  const t0 = Date.now();
-  while (!(await f()) && Date.now() - t0 < ms) await new Promise((r) => setTimeout(r, 100));
-  return f();
-};
-
 await step("pinned doc: any member pins one doc; non-members can't; summary, GET board and a 📌 line once per version", async () => {
   fourBoard = (await ops("boards", { user: A, title: `e2e four ${run}` })).body.board.id; // (A is past the free plan's board count here)
   assert((await ops("members", { board: fourBoard, user: B })).status === 200, "add B");
@@ -4792,7 +5019,6 @@ await step("workflow triggers: CRUD, fire into the right mailbox, only your own 
   };
   const T = `/api/boards/${fourBoard}/triggers`;
   const mail = async (who, headers = {}) => (await tapi(who, "GET", "/api/mailbox?peek=1&limit=100", null, headers)).body.mail.filter((m) => m.kind === "trigger");
-  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   // Nobody wakes someone else's agent; bad rules are refused; outsiders see nothing.
   assert((await tapi(A, "POST", T, { on: "entry", prompt: "x", wake: { user: B } })).status === 403, "can't wake B's agent");
   assert((await tapi(A, "POST", T, { on: "entry", prompt: "x", wake: { session: `${B}/claude` } })).status === 403, "nor B's session");
@@ -4849,8 +5075,11 @@ await step("workflow triggers: CRUD, fire into the right mailbox, only your own 
   const t3 = (await tapi(A, "POST", T, { on: "entry", match: { text: `rl-${run}` }, prompt: "rate" })).body.trigger;
   for (let i = 0; i < 32; i++) await jpost(`/api/boards/${fourBoard}/entries`, B, { type: "note", text: `rl-${run} ${i}` });
   assert(await until(async () => (await mail(A)).filter((m) => m.trigger?.id === t3.id).length >= 30), "30 delivered");
-  await sleep(500);
-  const t3now = (await tapi(A, "GET", T)).body.triggers.find((x) => x.id === t3.id);
+  let t3now;
+  await until(async () => {
+    t3now = (await tapi(A, "GET", T)).body.triggers.find((x) => x.id === t3.id);
+    return t3now && t3now.fires === 30 && t3now.dropped === 2;
+  });
   assert(t3now.fires === 30 && t3now.dropped === 2 && t3now.last_fired_at > 0 && (await mail(A)).filter((m) => m.trigger?.id === t3.id).length === 30, JSON.stringify(t3now));
   // Mentions and approvals, through the MCP tool (an agent manages its own).
   has(await ok(A, fourBoard, "trigger", { action: "add", on: "mention", prompt: "Answer when mentioned" }), "Added tr_");
@@ -4894,7 +5123,6 @@ await step("schedules (shared crons): people add them, agents only list; each du
     const r = await fetch(`${BASE}${path}`, { method, headers: { ...(asAgent ? { authorization: `Bearer ${tok[who]}` } : { cookie: cookie[who] }), "content-type": "application/json" }, body: body == null ? undefined : JSON.stringify(body) });
     return { status: r.status, body: await r.json().catch(() => ({})) };
   };
-  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const sb = (await ops("boards", { user: A, title: `e2e schedules ${run}` })).body.board.id;
   await ops("members", { board: sb, user: B });
   const S = `/api/boards/${sb}/schedules`;
@@ -4993,7 +5221,6 @@ await step("schedules (shared crons): people add them, agents only list; each du
   const eb = (await ops("boards", { user: A, title: `e2e schedule enc ${run}`, encrypted: true })).body.board.id;
   const enc = await sapi(A, "POST", `/api/boards/${eb}/schedules`, { title: "x", at: "09:00" });
   assert(enc.status === 400 && enc.body.error.includes("encrypted"), JSON.stringify(enc));
-  await sleep(10);
 });
 
 // ---- #1090: a board's MEMORY (short durable facts for every agent) and @all ----
@@ -5170,13 +5397,9 @@ const anApi = (who, method, path, body) => fetch(`${BASE}${path}`, { method, hea
 const anSet = (who, agent_name) => anApi(who, "POST", "/api/me/profile", { agent_name });
 
 await step("agent names: set, trim, clear; refused when it could pass for a person (look-alike letters too), is reserved, says whose agent it is, or is too long", async () => {
-  for (const n of Object.values(AN)) {
-    await ops("users", { name: n, email: `${n}@example.com`, verified: "true" });
-    tok[n] = (await ops("tokens", { user: n, label: "e2e" })).body.token;
-    cookie[n] = (await ops("sessions", { user: n })).body.cookie;
-  }
+  await makeUsers(Object.values(AN));
   anBoard = (await ops("boards", { user: AN.v, title: `e2e agent names ${run}` })).body.board.id;
-  for (const n of [AN.j, AN.k]) await ops("members", { board: anBoard, user: n });
+  await Promise.all([AN.j, AN.k].map((n) => ops("members", { board: anBoard, user: n })));
   const get = async () => (await (await anApi(AN.v, "GET", "/api/me/profile")).json()).profile;
   assert((await get()).agent_name === null, "none by default");
   let r = await (await anSet(AN.v, "  Jarvis  ")).json();
@@ -5245,7 +5468,7 @@ await step("agent names: entries, members, agents and people carry agent_name wi
   const e1 = p1.entry;
   assert(JSON.stringify(e1.mentions) === JSON.stringify([{ user: v, agent: true }]), JSON.stringify(e1.mentions));
   // The page draws "@jarvis" as that agent's chip: in the post's own response, live updates and earlier messages (jxn #1659).
-  const chip = `<span class="mention agent" data-user="${v}" title="${v}'s agent">@jarvis</span>`;
+  const chip = `<span class="mention agent" data-user="${v}" data-named="1" title="${v}'s agent">@jarvis</span>`;
   assert(p1.update.html.includes(chip), `post response: ${p1.update.html}`);
   assert((await (await web(`/api/boards/${anBoard}/updates?after=${e1.seq - 1}`, j)).json()).entries.find((x) => x.seq === e1.seq).html.includes(chip), "live update");
   assert((await (await web(`/api/boards/${anBoard}/entries?before=${e1.seq + 1}&limit=1`, j)).json()).entries[0].html.includes(chip), "earlier messages");
@@ -5291,9 +5514,11 @@ await step("agent names: entries, members, agents and people carry agent_name wi
 
 await step("side panel: a question closes when the member it's for answers in its thread; people mark one answered (not agents, not viewers)", async () => {
   const [O, M, V] = ["o", "m", "v"].map((x) => `e2e-sp${x}-${run}`);
-  for (const u of [O, M, V]) await ops("users", { name: u, email: `${u}@example.com`, verified: "true" });
-  for (const u of [O, M]) tok[u] = (await ops("tokens", { user: u })).body.token;
-  for (const u of [O, V]) cookie[u] = (await ops("sessions", { user: u })).body.cookie;
+  await Promise.all([O, M, V].map((u) => ops("users", { name: u, email: `${u}@example.com`, verified: "true" })));
+  await Promise.all([
+    ...[O, M].map(async (u) => { tok[u] = (await ops("tokens", { user: u })).body.token; }),
+    ...[O, V].map(async (u) => { cookie[u] = (await ops("sessions", { user: u })).body.cookie; }),
+  ]);
   const b = (await ops("boards", { user: O, title: `e2e side panel ${run}` })).body.board.id;
   for (const u of [M, V]) await ops("members", { board: b, user: u });
   assert((await web(`/api/boards/${b}/members/${V}`, O, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ role: "viewer" }) })).ok, "V is a viewer");
@@ -6164,15 +6389,16 @@ await step("session model: people see it on the web, agents never get it (reads,
     assert(s.status === 201, `session: ${s.status} ${JSON.stringify(s.body)}`);
     const sid = s.body.session.id;
     assert((await call(t, "POST", `/api/sessions/${sid}/boards`, { board: bd })).status < 300, "join"); // 2
-    // Ten idle waits of every kind: none counted, all answered.
+    // Ten idle waits of every kind: none counted, all answered. They don't share one wait slot, so each round holds
+    // them together; each still runs out its own 1s.
     for (let i = 0; i < 2; i++) {
-      const w = [
-        await call(t, "GET", `/api/sessions/${sid}/wait?timeout=1`),
-        await call(t, "GET", "/api/mailbox?wait=1"),
-        await call(t, "GET", `/api/boards/${bd}/updates?after=999999&wait=1`),
-        await mcpCall("wait", { timeout_seconds: 1 }),
-        await mcpCall("mailbox", { wait_seconds: 1 }),
-      ];
+      const w = await Promise.all([
+        call(t, "GET", `/api/sessions/${sid}/wait?timeout=1`),
+        call(t, "GET", "/api/mailbox?wait=1"),
+        call(t, "GET", `/api/boards/${bd}/updates?after=999999&wait=1`),
+        mcpCall("wait", { timeout_seconds: 1 }),
+        mcpCall("mailbox", { wait_seconds: 1 }),
+      ]);
       assert(w.every((x) => x.status === 200 && !x.body.error), `waits round ${i + 1}: ${w.map((x) => `${x.status} ${JSON.stringify(x.body).slice(0, 80)}`).join(" | ")}`);
     }
     assert((await call(t, "GET", "/api/me")).status === 200, "3rd counted call");
@@ -6194,14 +6420,13 @@ await step("session model: people see it on the web, agents never get it (reads,
 // mine (you and your own agents) never reach another member's agent, by any path; your own agent does get your Just mine.
 await step("privacy suite: People only and Just mine never reach another member's agent (read, get, search, grep, recap, summary, memory, mailbox, files, webhooks, forward, wait, live signals) or another member as a person (board list, inbox, For you); your own agent gets your Just mine", async () => {
   const O = `e2e-po-${run}`, P = `e2e-pp-${run}`, M = `e2e-pm-${run}`; // O writes; P is named in O's people-only; M is just another member
-  for (const n of [O, P, M]) {
-    await ops("users", { name: n, email: `${n}@example.com`, verified: "true" });
-    tok[n] = (await ops("tokens", { user: n, label: "e2e" })).body.token;
-    cookie[n] = (await ops("sessions", { user: n })).body.cookie;
-  }
-  const bd = (await ops("boards", { user: O, title: `e2e privacy ${run}` })).body.board.id;
-  const other = (await ops("boards", { user: M, title: `e2e privacy elsewhere ${run}` })).body.board.id;
-  for (const n of [P, M]) await ops("members", { board: bd, user: n });
+  await makeUsers([O, P, M]);
+  const [{ body: ob }, { body: mb }] = await Promise.all([
+    ops("boards", { user: O, title: `e2e privacy ${run}` }),
+    ops("boards", { user: M, title: `e2e privacy elsewhere ${run}` }),
+  ]);
+  const bd = ob.board.id, other = mb.board.id;
+  await Promise.all([P, M].map((n) => ops("members", { board: bd, user: n })));
   const api = async (who, method, path, body, bearer) => {
     const r = await fetch(`${BASE}${path}`, { method, headers: { ...(bearer ? auth(who) : { cookie: cookie[who] }), "content-type": "application/json" }, body: body == null ? undefined : JSON.stringify(body) });
     return { status: r.status, body: await r.json().catch(() => ({})) };
@@ -6209,7 +6434,7 @@ await step("privacy suite: People only and Just mine never reach another member'
   const S_PO = `peopleonly-${run}-zq`, S_JM = `justmine-${run}-zq`, S_JMA = `justmine-agent-${run}-zq`, ALL = [S_PO, S_JM, S_JMA];
   const local = /localhost|127\.0\.0\.1/.test(BASE);
   if (local) assert((await api(M, "POST", "/api/webhooks", { url: `${BASE}/__webhook-sink` })).status === 201, "M's webhook");
-  for (const n of [O, P, M]) await ok(n, bd, "read");
+  await Promise.all([O, P, M].map((n) => ok(n, bd, "read")));
   const pub = (await api(O, "POST", `/api/boards/${bd}/entries`, { text: `public marker ${run}` })).body.entry.seq;
   // Live: M's agent and M as a person listen on the board's socket, and M's agent waits; none may carry the private text.
   const ws = (headers) => new Promise((resolve) => {
@@ -6345,6 +6570,26 @@ await step("people edit own recent note: same seq, history, permissions, screen,
   const eb =(await ops("boards", { user: A, title: `e2e edit encrypted ${run}`, encrypted: true })).body.board.id;
   const refused = await web(`/api/boards/${eb}/entries/1`, A, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ text: "No" }) });
   assert(refused.status === 400 && /encrypted/.test((await refused.json()).error), "encrypted refusal clear");
+});
+
+await step("bug reports: POST /api/bugs lands a note (+ screenshot) on the developers' bug board; 501 while BUGS_BOARD is unset", async () => {
+  const probe = await fetch(`${BASE}/api/bugs`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({}) });
+  if (probe.status === 501) return; // ops hasn't picked the bug board on this server yet (the var is empty)
+  assert(probe.status === 400, `a bodyless report answers ${probe.status}, expected a validation message`);
+  const fd = new FormData();
+  fd.append("note", `the report flow works ${run}`);
+  fd.append("path", "/b/somewhere");
+  fd.append("context", JSON.stringify({ app_version: "e2e", device: "test runner", os: process.platform }));
+  fd.append("screenshot", new File([new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10, 0, 0])], "shot.png", { type: "image/png" }));
+  const rep = await fetch(`${BASE}/api/bugs`, { method: "POST", headers: { authorization: `Bearer ${tok[A]}` }, body: fd });
+  assert(rep.status === 201, `signed-in report: ${rep.status} ${await rep.text()}`);
+  const made = await rep.json();
+  assert(made.ok === true && made.board && made.seq > 0, JSON.stringify(made).slice(0, 200));
+  // The report is authored by the bug-bot member, with the reporter named in the text (opus-d #3416).
+  const bugsList = await (await fetch(`${BASE}/api/boards/${made.board}/entries/${made.seq}`, { headers: { authorization: `Bearer ${tok[A]}` } })).json().catch(() => null);
+  assert(bugsList === null || bugsList?.entry?.author === "bugs", JSON.stringify(bugsList)?.slice(0, 160));
+  const anon = await fetch(`${BASE}/api/bugs`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ note: `signed out ${run}` }) });
+  assert(anon.status === 201 || anon.status === 429, `signed-out report: ${anon.status} (429 = this IP already hit the strict limit)`);
 });
 
 if (ONLY && !matched) { failed++; failures.push(`no steps match ONLY=${JSON.stringify(process.env.ONLY)}`); }

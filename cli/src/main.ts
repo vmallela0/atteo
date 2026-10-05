@@ -14,7 +14,8 @@ import { blockedMessage, scanFields } from "../../src/secrets";
 import { pingTail, type PingContent, type PingFor } from "../../src/ping";
 import { CARD_HELP, cardCommand } from "./card";
 import { hooksCmd } from "./hooks";
-import { api, boardIdIn, CliError, COMMANDS, COMMANDS_HELP, decryptEntry } from "./commands";
+import { api, boardIdIn, CliError, COMMANDS, COMMANDS_HELP, decryptEntry, folderBoard, isEncrypted, optStr, parseArgs, tool } from "./commands";
+import { AcpAgent, type AcpBoard } from "./acp";
 import { entryKey, FORK_TOOLS, forkName, forkPrompt, needsFork, type Mail } from "./dispatch";
 import { agentCommand, HARNESSES, splitCommand } from "./harness";
 import { myKey } from "./sealed";
@@ -190,6 +191,8 @@ async function offerWatcher(args: string[]) {
 
 function status() {
   const c = load();
+  // --json: from the saved login alone, like the text (no network); never the token.
+  if (process.argv.includes("--json")) return console.log(JSON.stringify(c ? { signed_in: true, user: c.user, server: c.server, expires_at: c.expires_at, expired: c.expires_at < Date.now(), store: storeName() } : { signed_in: false }, null, 2));
   if (!c) return err("Not signed in. Run: atteo login");
   const left = Math.round((c.expires_at - Date.now()) / 86400e3);
   err(`Signed in as ${c.user} on ${c.server}`);
@@ -1077,6 +1080,9 @@ const HELP = `Atteo CLI ${VERSION} (the atteo command)
                            claude mcp add --scope user atteo -- atteo mcp
                          With Claude Code Channels (preview), new posts reach a running session:
                            claude --dangerously-load-development-channels server:atteo
+  atteo acp [--to <member>] [--board <id>] [--wait <seconds>]
+                         An Agent Client Protocol agent for editors (Zed…): each prompt asks the board (one member's
+                         agent with --to) and their answer streams back. Board: --board, else the folder's (atteo use)
   atteo harness <agent>   Which agent answers for you (DMs, questions, tasks): ${Object.keys(HARNESSES).join(", ")}, or "<command> {prompt}"; off
   atteo dispatch   You stay the main agent: every message for your agent gets a fork, its own session running your
                          harness, which claims it, does the work, replies in the thread and ends (what login sets up)
@@ -1099,9 +1105,67 @@ ${COMMANDS_HELP}${CARD_HELP}
 
 Options: --server <url> (default ${DEFAULT_SERVER}), --no-open, --no-watch (login: don't offer the background dispatcher)`;
 
+/**
+ * atteo acp [--to <member>] [--board <id>] [--wait <seconds>]: an Agent Client Protocol agent on stdio (acp.ts), for
+ * editors like Zed: each prompt asks the board (one member's agent, with --to) and their answer streams back.
+ */
+async function acpCmd(args: string[]) {
+  const { opt } = parseArgs(args);
+  const to = optStr(opt, "to")?.replace(/^@/, "").toLowerCase() ?? null;
+  const waitSec = Number(optStr(opt, "wait") ?? 600);
+  if (!Number.isFinite(waitSec) || waitSec < 1) throw new CliError("--wait is how many seconds a prompt waits for its answer (at least 1).");
+  // stdout carries the protocol and nothing else.
+  console.log = (...a: unknown[]) => console.error(...a);
+  const rpcError = (code: number, message: string) => Object.assign(new Error(message), { rpcCode: code });
+  const signedIn = () => {
+    const c = load();
+    if (!c) throw rpcError(-32000, "Not signed in to Atteo: run atteo login in a terminal, then start a new thread.");
+    return c;
+  };
+  let me = "";
+  const board: AcpBoard = {
+    async resolve(cwd) {
+      me = signedIn().user;
+      await prepare({ quiet: true });
+      const id = optStr(opt, "board") ?? env("BOARD") ?? folderBoard(cwd ?? process.cwd());
+      if (!id) throw rpcError(-32602, `No board for ${cwd ?? "this folder"}. Run atteo use "<board>" there, or start atteo acp with --board <id>.`);
+      if (await isEncrypted(opt, id)) throw rpcError(-32602, "That board is end-to-end encrypted, which atteo acp doesn't do yet: use atteo ask in a terminal.");
+      await tool(opt, "read", { limit: 1, summary: true }, id); // a member? (and caught up, so the first post isn't refused)
+      return id;
+    },
+    async ask(id, text, { to, replyTo }) {
+      const post = { type: "question", text, ...(to ? { to } : {}), ...(replyTo ? { reply_to: replyTo } : {}) };
+      await tool(opt, "read", { limit: 1, summary: true }, id);
+      // A refusal for unread entries marks them read, so the second try goes through.
+      const out = await tool(opt, "post", post, id).catch((e) => (e instanceof CliError && e.code === 2 ? tool(opt, "post", post, id) : Promise.reject(e)));
+      const seq = Number(out.match(/Posted #(\d+)/)?.[1]);
+      if (!seq) throw new Error(out.split("\n")[0]);
+      return seq;
+    },
+    after: (id, after, wait, signal) => api(opt, "GET", `/api/boards/${encodeURIComponent(id)}/entries?after=${after}&wait=${wait}`, undefined, signal),
+    async withdraw(id, seq) {
+      await tool(opt, "retract", { seq, reason: "Withdrawn: the editor cancelled the question." }, id);
+    },
+    me: () => me,
+  };
+  const agent = new AcpAgent((m) => process.stdout.write(JSON.stringify(m) + "\n"), board, { to, waitSec, version: VERSION });
+  const rl = createInterface({ input: process.stdin });
+  rl.on("line", (line) => {
+    if (!line.trim()) return;
+    let msg: unknown;
+    try {
+      msg = JSON.parse(line);
+    } catch {
+      return void process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: null, error: { code: -32700, message: "Not JSON." } }) + "\n");
+    }
+    void agent.handle(msg as Parameters<AcpAgent["handle"]>[0]); // prompts run side by side: one may wait while another cancels
+  });
+  await new Promise<void>((res) => rl.on("close", res));
+}
+
 const [cmd, ...rest] = process.argv.slice(2);
 // Older board commands also run as the calling agent's session (its board is their default).
-const BOARD_CMDS = new Set(["react", "retract", "task", "doc", "search", "share", "ask", "members", "role", "link", "audit", "decide", "check", "verify", "dm", "seal", "unseal", "use", "card", "create"]);
+const BOARD_CMDS = new Set(["react", "retract", "purge", "task", "doc", "search", "share", "ask", "members", "role", "link", "audit", "decide", "check", "verify", "publish", "review", "claim", "dm", "seal", "unseal", "use", "card", "create"]);
 const quiet = { ...(rest.includes("--quiet") ? { quiet: true as const } : {}) };
 const board = (name: string, f: (a: string[]) => Promise<unknown>) => async () => {
   if (BOARD_CMDS.has(name)) await prepare(quiet);
@@ -1116,6 +1180,7 @@ const run: Record<string, () => unknown> = {
   doctor: () => doctorCmd(rest), // read-only: no session, no version line after (it checks the version itself)
   logout,
   mcp: () => mcp(rest),
+  acp: () => acpCmd(rest),
   watch: () => (rest.includes("--install") ? serviceInstall(rest) : rest.includes("--uninstall") ? serviceUninstall() : rest.includes("--status") ? serviceStatus() : watch(rest)),
   dispatch: () => (rest.includes("--install") ? serviceInstall(rest, "dispatch") : rest.includes("--uninstall") ? serviceUninstall() : rest.includes("--status") ? serviceStatus() : dispatch(rest)),
   ...Object.fromEntries(Object.entries(COMMANDS).map(([k, f]) => [k, board(k, f)])),
@@ -1137,6 +1202,6 @@ try {
 Promise.resolve((run[cmd] ?? (() => (cmd ? err(`Unknown command "${cmd}".\n\n${HELP_AGENTS}`) : console.log(HELP_AGENTS + "\n\nSetup, the background watcher and every command: atteo help --all"))))()).catch(async (e: Error) => {
   err(e.message);
   if (e instanceof CliError && e.code === 2) await mentionLine(quiet); // a refused post showed what was missed
-  if (cmd !== "update" && cmd !== "mcp" && cmd !== "watch" && cmd !== "hooks" && cmd !== "dispatch" && cmd !== "doctor") await versionCheck(quiet); // an old CLI is a likely reason for a failure
+  if (cmd !== "update" && cmd !== "mcp" && cmd !== "acp" && cmd !== "watch" && cmd !== "hooks" && cmd !== "dispatch" && cmd !== "doctor") await versionCheck(quiet); // an old CLI is a likely reason for a failure
   process.exit(e instanceof CliError ? e.code : 1);
 });

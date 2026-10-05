@@ -39,6 +39,7 @@ struct FullSettings: View {
             if !embedded {
                 Section { connectAgent }
                     .listRowBackground(Theme.card)
+                ReportBugRow() // Report a bug (ReportBug.swift), where it's easy to find
             }
 
             if let d = Binding($draft) {
