@@ -59,6 +59,8 @@ import {
   adminPage,
   BOARD_JS,
   BOARD_JS_PATH,
+  BOARD_TAIL_PATH,
+  boardTail,
   boardPage,
   devicePage,
   entryHtml,
@@ -1603,6 +1605,11 @@ const handler = {
       // Every page's stylesheet and shell script (ui.ts): the pages ask for them with a version hash, so they're cached for good.
       if (path === BOARD_PREFETCH_PATH && method === "GET") return new Response(BOARD_PREFETCH_RULES, { headers: { "content-type": "application/speculationrules+json", "cache-control": "public, max-age=3600", "x-content-type-options": "nosniff" } });
       if (path === "/shell.js" && method === "GET") return new Response(SHELL_PAGE_JS, { headers: { "content-type": "text/javascript; charset=utf-8", "cache-control": url.searchParams.get("v") ? "public, max-age=31536000, immutable" : "public, max-age=300", "x-content-type-options": "nosniff" } });
+      if (path === BOARD_TAIL_PATH && method === "GET") {
+        const t = boardTail(url.searchParams.get("f") ?? "");
+        if (!t) return new Response("not found", { status: 404 });
+        return new Response(t.js, { headers: { "content-type": "text/javascript; charset=utf-8", "cache-control": url.searchParams.get("v") ? "public, max-age=31536000, immutable" : "public, max-age=300", "x-content-type-options": "nosniff" } });
+      }
       if (path === BOARD_JS_PATH && method === "GET") return new Response(BOARD_JS, { headers: { "content-type": "text/javascript; charset=utf-8", "cache-control": url.searchParams.get("v") ? "public, max-age=31536000, immutable" : "public, max-age=300", "x-content-type-options": "nosniff" } });
       if ((path === "/app.css" || path === "/app.js") && method === "GET") {
         const css = path === "/app.css";

@@ -2608,6 +2608,25 @@ document.getElementById('thread-scroll')?.removeAttribute('data-wait');
 export const BOARD_JS_PATH = "/board.js";
 export const BOARD_JS = BOARD_CORE_JS;
 export const BOARD_JS_SRC = `${BOARD_JS_PATH}?v=${fnv(BOARD_JS)}`;
+// The scripts that run after it: the same for every board with the same four flags (can change its picture, encrypted,
+// your agent chat, can post), so each combination is its own cached file, /board-tail.js?f=<flags> (index.ts). Where
+// you had read to (Recap's starting point) comes from window.BC like the rest.
+export const BOARD_TAIL_PATH = "/board-tail.js";
+const boardTailJs = (canPic: boolean, encrypted: boolean, agentChat: boolean, canEdit: boolean) =>
+  (canPic ? BOARD_PIC_JS : "") + (encrypted ? E2E_JS : "") + STATUS_JS + voiceJs(agentChat) + TALK_JS + PREVIEW_JS + evJs(agentChat) + (agentChat ? "" : PO_JS) + (agentChat ? "" : pinRecapJs(null, canEdit) + soulMemoryJs(canEdit) + EXPORT_JS);
+const TAILS = new Map<string, { js: string; src: string }>();
+/** The tail for flags "0101" (canPic, encrypted, agentChat, canEdit), or null for anything else. */
+export function boardTail(flags: string): { js: string; src: string } | null {
+  if (!/^[01]{4}$/.test(flags)) return null;
+  let t = TAILS.get(flags);
+  if (!t) {
+    const [canPic, encrypted, agentChat, canEdit] = [...flags].map((c) => c === "1");
+    const js = boardTailJs(canPic, encrypted, agentChat, canEdit);
+    t = { js, src: `${BOARD_TAIL_PATH}?f=${flags}&v=${fnv(js)}` };
+    TAILS.set(flags, t);
+  }
+  return t;
+}
 
 export function boardPage(
   viewer: Viewer,
@@ -2668,10 +2687,11 @@ export function boardPage(
     creator: info.created_by,
     title: info.title,
     muted: board.muted ?? [], // whom you muted here (#3602)
+    recapSince: board.last_seen ?? 0,
   };
   // The thread stays hidden until /board.js has placed it (no flash of its oldest messages while the file loads); if the file
   // never comes, it shows anyway.
-  const script = `window.BC=${jsString(bc)};window.BOARD=BC.board;setTimeout(()=>document.getElementById('thread-scroll')?.removeAttribute('data-wait'),4000);` + SHEET_JS + CONNECT_JS + (agentChat ? AGENT_PICK_JS : "") + NOTIFY_SIDE_JS + REMIND_BROWSER_JS + scriptSrc(BOARD_JS_SRC) + (canPic ? BOARD_PIC_JS : "") + (info.encrypted ? E2E_JS : "") + STATUS_JS + voiceJs(agentChat) + TALK_JS + PREVIEW_JS + evJs(agentChat) + (agentChat ? "" : PO_JS) + (agentChat ? "" : pinRecapJs(board.last_seen ?? 0, !readOnly && !info.archived) + soulMemoryJs(!readOnly && !info.archived) + EXPORT_JS);
+  const script = `window.BC=${jsString(bc)};window.BOARD=BC.board;setTimeout(()=>document.getElementById('thread-scroll')?.removeAttribute('data-wait'),4000);` + SHEET_JS + CONNECT_JS + (agentChat ? AGENT_PICK_JS : "") + NOTIFY_SIDE_JS + REMIND_BROWSER_JS + scriptSrc(BOARD_JS_SRC) + scriptSrc(boardTail([canPic, !!info.encrypted, agentChat, !readOnly && !info.archived].map((b) => (b ? 1 : 0)).join(""))!.src);
   const isCreator = viewer.name === info.created_by;
   const archivedBanner = info.archived
     ? `<div class="flash bp-banner"><span class="grow"><b>${esc(T("Archived."))}</b> ${esc(T("This board is read-only."))}</span>${
