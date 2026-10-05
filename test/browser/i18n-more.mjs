@@ -45,8 +45,10 @@ const LANGS = [
   ["bn-BD", "bn", /নতুন বোর্ড/, /পোস্ট করুন/, /ডিসপ্লে/, /[ঀ-৿]/],
   ["ar-EG", "ar", /لوحة جديدة/, /.+/, /العرض|عرض/, /[\u0600-\u06ff]/],
 ];
-for (const [locale, lang, home, boardRe, account, script] of LANGS) {
-  for (const w of [1300, 390]) {
+// Each (language, width) gets its own context, six at a time; each one's lines print together once it's done. Arabic's
+// right-to-left run goes with them; the picker comes last, alone, since it changes the account's saved language.
+const runs = LANGS.flatMap(([locale, lang, home, boardRe, account, script]) => [1300, 390].map((w) => async () => {
+    const out = [], check = (ok, m) => { out.push(`${ok ? "✓" : "✗"} ${m}`); if (!ok) fails++; };
     const { ctx, p } = await open(locale, w);
     for (const [path, re, name] of [["/", home, "home"], [`/b/${board}`, boardRe, "the board"], ["/me", account, "Account"]]) {
       await p.goto(BASE + path);
@@ -60,8 +62,24 @@ for (const [locale, lang, home, boardRe, account, script] of LANGS) {
       if (path.startsWith("/b/")) check(!/Any agent joins|Connect an agent|Or write the first/.test(text), `${lang} ${w}px: the empty-board hint and Connect button in ${lang} too`);
     }
     await ctx.close();
-  }
-}
+    console.log(out.join("\n"));
+}));
+// Arabic reads right to left (#2335): the page says so, the phone menu comes in from the right, and an English message
+// keeps its own direction.
+runs.push(async () => {
+  const out = [], check = (ok, m) => { out.push(`${ok ? "✓" : "✗"} ${m}`); if (!ok) fails++; };
+  const { ctx, p } = await open("ar-EG", 390);
+  await p.goto(`${BASE}/b/${board}`); await ready(p, true);
+  const dir = await p.evaluate(() => document.documentElement.dir);
+  const msg = await p.evaluate(() => { const b = [...document.querySelectorAll("#thread .entry .body")].find((x) => /staging port/.test(x.textContent)); if (!b) return null; const r = document.createRange(); r.selectNodeContents(b.querySelector("p") || b); return Math.round(r.getBoundingClientRect().left - b.getBoundingClientRect().left); });
+  await p.locator("[data-nav]").click(); await stable(() => p.evaluate(() => document.getElementById("sidebar").getBoundingClientRect().left), 3000, 80);
+  const sb = await p.evaluate(() => { const r = document.getElementById("sidebar").getBoundingClientRect(); return { right: Math.round(innerWidth - r.right), left: Math.round(r.left) }; });
+  check(dir === "rtl" && sb.right === 0 && sb.left > 0, `ar: dir=rtl and the phone menu opens from the right (${dir}, ${JSON.stringify(sb)})`);
+  check(msg !== null && msg < 4, `ar: an English message starts at its left edge (${msg})`);
+  await ctx.close();
+  console.log(out.join("\n"));
+});
+{ const queue = [...runs]; await Promise.all(Array.from({ length: 6 }, async () => { while (queue.length) await queue.shift()(); })); }
 // The picker lists every language in its own words; choosing 日本語 saves it and reloads in Japanese, then Automatic.
 {
   const { ctx, p } = await open("en-US", 1300);
@@ -77,19 +95,6 @@ for (const [locale, lang, home, boardRe, account, script] of LANGS) {
   await p.goto(`${BASE}/me`);
   await Promise.all([p.waitForNavigation(), p.locator("#dp-lang").selectOption("auto")]);
   check((await p.locator("html").getAttribute("lang")) === "en", "back to Automatic: the browser's English again");
-  await ctx.close();
-}
-// Arabic reads right to left (#2335): the page says so, the phone menu comes in from the right, and an English message
-// keeps its own direction.
-{
-  const { ctx, p } = await open("ar-EG", 390);
-  await p.goto(`${BASE}/b/${board}`); await ready(p, true);
-  const dir = await p.evaluate(() => document.documentElement.dir);
-  const msg = await p.evaluate(() => { const b = [...document.querySelectorAll("#thread .entry .body")].find((x) => /staging port/.test(x.textContent)); if (!b) return null; const r = document.createRange(); r.selectNodeContents(b.querySelector("p") || b); return Math.round(r.getBoundingClientRect().left - b.getBoundingClientRect().left); });
-  await p.locator("[data-nav]").click(); await stable(() => p.evaluate(() => document.getElementById("sidebar").getBoundingClientRect().left), 3000, 80);
-  const sb = await p.evaluate(() => { const r = document.getElementById("sidebar").getBoundingClientRect(); return { right: Math.round(innerWidth - r.right), left: Math.round(r.left) }; });
-  check(dir === "rtl" && sb.right === 0 && sb.left > 0, `ar: dir=rtl and the phone menu opens from the right (${dir}, ${JSON.stringify(sb)})`);
-  check(msg !== null && msg < 4, `ar: an English message starts at its left edge (${msg})`);
   await ctx.close();
 }
 check(errors.length === 0, `no page errors (${errors.join(" | ")})`);
