@@ -7,6 +7,7 @@ import { tr } from "./i18n";
 import { esc } from "./util";
 import { approvalCardHtml, approvalJs, type ApprovalCardData } from "./approvalCard";
 import type { Env } from "./types";
+import { classify, DEFAULT_LEVEL, type Interrupt, type Level, type NotifyPrefs } from "./notify";
 
 export interface InboxItem {
   id: number;
@@ -22,19 +23,32 @@ export interface InboxItem {
   read_at: number | null;
   approval_id?: string; // kind approval: the request (GET /api/approvals/:id)
   push?: { kind: "approval_needed"; title: string; body: string; url: string; approval: string; board: string | null; risk: string }; // ready for a phone notification
+  board_kind?: string | null; // direct (a DM), agent ("Your agent"), or null
+  broadcast?: boolean; // a mention that reached you only through @all / @humans
+  interrupt?: Interrupt; // people only: now (notify), digest (fold into the summary) or none (src/notify.ts)
 }
 
 type InboxRow = InboxItem & { data?: string | null };
-/** Parses a row's data into its push-ready fields (approvals: "Approval needed"). */
+/** Parses a row's data into its push-ready fields (approvals: "Approval needed") and the broadcast mark. */
 function withPush(r: InboxRow): InboxItem {
   const { data, ...item } = r;
   if (!data) return item;
   try {
-    const d = JSON.parse(data) as { push?: InboxItem["push"] };
-    return d.push ? { ...item, approval_id: d.push.approval, push: d.push } : item;
+    const d = JSON.parse(data) as { push?: InboxItem["push"]; broadcast?: boolean };
+    const out: InboxItem = d.broadcast ? { ...item, broadcast: true } : item;
+    return d.push ? { ...out, approval_id: d.push.approval, push: d.push } : out;
   } catch {
     return item;
   }
+}
+
+/** Stamps each item with whether it interrupts (a person's level for its board, their quiet hours, now). */
+export function withInterrupts<T extends InboxItem>(items: T[], levels: Record<string, Level>, prefs: NotifyPrefs, now = Date.now()): T[] {
+  return items.map((i) => {
+    const board = i.board_id || i.push?.board || "";
+    const level = (board && levels[board]) || DEFAULT_LEVEL;
+    return { ...i, interrupt: classify({ kind: i.kind, broadcast: i.broadcast, direct: i.board_kind === "direct", risk: i.push?.risk }, level, prefs.quiet, now) };
+  });
 }
 
 /** People-only items (a message only the people named can see) go to person callers only: agent tokens read this API too. */
@@ -42,7 +56,7 @@ const NOT_PEOPLE = (person: boolean, col = "kind") => (person ? "" : ` AND ${col
 
 export async function listInbox(env: Env, user: string, limit = 100, person = false): Promise<InboxItem[]> {
   const r = await env.DB.prepare(
-    `SELECT n.id, n.board_id, b.title AS board_title, n.seq, n.kind, n.actor, n.actor_via, n.entry_type, n.excerpt, n.created_at, n.read_at, n.data
+    `SELECT n.id, n.board_id, b.title AS board_title, b.kind AS board_kind, n.seq, n.kind, n.actor, n.actor_via, n.entry_type, n.excerpt, n.created_at, n.read_at, n.data
      FROM notifications n LEFT JOIN boards b ON b.id = n.board_id
      WHERE n.user = ? AND n.kind NOT IN ('trigger', 'from_your_person')${NOT_PEOPLE(person, "n.kind")} AND (n.board_id = '' OR n.board_id IN (SELECT board_id FROM members WHERE user = ?))
      ORDER BY n.created_at DESC LIMIT ?`,
@@ -63,7 +77,7 @@ export async function inboxCount(env: Env, user: string, person = false): Promis
       .bind(user, user)
       .first<{ n: number }>(),
     env.DB.prepare(
-      `SELECT n.id, n.board_id, b.title AS board_title, n.seq, n.kind, n.actor, n.actor_via, n.entry_type, n.excerpt, n.created_at, n.read_at, n.data
+      `SELECT n.id, n.board_id, b.title AS board_title, b.kind AS board_kind, n.seq, n.kind, n.actor, n.actor_via, n.entry_type, n.excerpt, n.created_at, n.read_at, n.data
        FROM notifications n LEFT JOIN boards b ON b.id = n.board_id WHERE n.user = ? AND n.read_at IS NULL AND n.kind != 'trigger'${NOT_PEOPLE(person, "n.kind")} ORDER BY n.created_at DESC LIMIT 1`,
     )
       .bind(user)

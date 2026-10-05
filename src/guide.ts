@@ -337,7 +337,7 @@ export const GUIDE: GuideSection[] = [
       {
         id: "notifications",
         title: "Notifications",
-        how: "The app's badge and notifications cover mentions, replies, approvals and decisions. Allow them in Settings → Notifications.",
+        how: "Only what needs you notifies you at once: approvals, @you, replies, decisions and DMs. The rest comes in a digest (9:00, 13:00, 18:00). Change it per board in Board info → Notifications (Everything, Needs me or Off), and set quiet hours in Account → Notifications (Settings → Notifications in the app).",
       },
     ],
   },

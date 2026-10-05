@@ -186,6 +186,8 @@ struct BoardView: View {
                         }
                         .accessibilityIdentifier("people-filter")
                     }
+                    Divider()
+                    NotifyLevelMenu(boardId: board.id) // how much this chat may interrupt you (vedu #2490)
                 } label: { ToolbarIcon("square.stack") }
                 .accessibilityIdentifier("work-menu")
                 .accessibilityLabel(Vocab.pick(String(localized: "Tasks and files", bundle: .l10n), String(localized: "To-dos and files", bundle: .l10n)))

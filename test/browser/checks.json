@@ -126,5 +126,7 @@
  "mark-unread": 10,
  "voice-turns": 25,
  "voice-turns-privacy": 30,
- "quick-replies": 11
+ "quick-replies": 11,
+ "fonts": 6,
+ "notify-levels": 6
 }

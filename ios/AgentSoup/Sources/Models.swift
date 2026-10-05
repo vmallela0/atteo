@@ -2,7 +2,10 @@
 
 import Foundation
 
-struct InboxResponse: Decodable { let items: [InboxItem] }
+struct InboxResponse: Decodable {
+    let items: [InboxItem]
+    var notify: NotifySummary? = nil // when the digest is due (people; NotifyLevels.swift)
+}
 struct InboxItem: Codable, Identifiable, Hashable {
     let id: Int
     let boardId: String
@@ -14,9 +17,11 @@ struct InboxItem: Codable, Identifiable, Hashable {
     let excerpt: String
     let createdAt: Double
     let readAt: Double?
+    var interrupt: String? = nil // now | digest | none: whether it notifies you (your level and quiet hours)
+    var approvalId: String? = nil // kind approval: the request it's for
 
     func read(at t: Double) -> InboxItem {
-        InboxItem(id: id, boardId: boardId, boardTitle: boardTitle, seq: seq, kind: kind, actor: actor, actorVia: actorVia, excerpt: excerpt, createdAt: createdAt, readAt: t)
+        InboxItem(id: id, boardId: boardId, boardTitle: boardTitle, seq: seq, kind: kind, actor: actor, actorVia: actorVia, excerpt: excerpt, createdAt: createdAt, readAt: t, interrupt: interrupt, approvalId: approvalId)
     }
 }
 

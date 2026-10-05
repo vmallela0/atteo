@@ -2987,6 +2987,52 @@
         }
       }
     },
+    "%lld in %@": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld en %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld dans %@"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ में %lld"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ で %lld 件"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@에서 %lld개"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 中 %lld 条"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 中 %lld 則"
+          }
+        }
+      }
+    },
     "%lld lines": {
       "localizations": {
         "en": {
@@ -3283,6 +3329,52 @@
           "stringUnit": {
             "state": "translated",
             "value": "%lld 條訊息"
+          }
+        }
+      }
+    },
+    "%lld more": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld más"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld de plus"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld और"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ほか %lld 件"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld개 더"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "另外 %lld 个"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "另外 %lld 個"
           }
         }
       }
@@ -4707,6 +4799,52 @@
         }
       }
     },
+    "%lld updates since the last digest": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld novedades desde el último resumen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld nouveautés depuis le dernier résumé"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "पिछले सारांश के बाद से %lld अपडेट"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "前回のまとめから %lld 件の更新"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "지난 요약 이후 업데이트 %lld개"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自上次汇总以来有 %lld 条更新"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自上次彙整以來有 %lld 則更新"
+          }
+        }
+      }
+    },
     "%lld working": {
       "localizations": {
         "es": {
@@ -5526,6 +5664,52 @@
           "stringUnit": {
             "state": "translated",
             "value": "給所有人的備註（可選）"
+          }
+        }
+      }
+    },
+    "A number on the app icon for what needs you. Approvals, @you, replies, decisions and DMs notify you at once; the rest comes in a digest. Change it per chat in its Info. iOS decides how often Atteo checks in the background.": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un número en el icono de la app para lo que te necesita. Las aprobaciones, @tú, las respuestas, las decisiones y los mensajes directos te avisan al momento; lo demás llega en un resumen. Cámbialo en la Información de cada chat. iOS decide cada cuánto revisa Atteo en segundo plano."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un nombre sur l'icône de l'app pour ce qui vous concerne. Les approbations, @vous, les réponses, les décisions et les messages directs vous préviennent tout de suite ; le reste arrive dans un résumé. Changez-le par discussion dans ses Infos. iOS décide à quelle fréquence Atteo vérifie en arrière-plan."
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ऐप आइकन पर एक संख्या, जो आपसे जुड़ा है उसके लिए। मंज़ूरियाँ, @आप, जवाब, फ़ैसले और सीधे संदेश तुरंत सूचित करते हैं; बाक़ी सारांश में आता है। हर चैट की जानकारी में इसे बदलें। Atteo पृष्ठभूमि में कितनी बार देखे, यह iOS तय करता है।"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自分に関係あるものの数をアプリのアイコンに表示します。承認、@あなた、返信、決定、DM はすぐに通知され、それ以外はまとめで届きます。チャットごとに情報から変更できます。Atteo がバックグラウンドで確認する頻度は iOS が決めます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "나에게 필요한 것의 개수를 앱 아이콘에 표시합니다. 승인, @나, 답장, 결정, DM은 바로 알리고 나머지는 요약으로 옵니다. 채팅마다 정보에서 바꿀 수 있습니다. Atteo가 백그라운드에서 확인하는 빈도는 iOS가 정합니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "应用图标上的数字表示需要你的事项。审批、@你、回复、决定和私信会立即通知你；其余的会汇总推送。可在每个聊天的信息里修改。Atteo 在后台检查的频率由 iOS 决定。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "App 圖示上的數字表示需要你的事項。審批、@你、回覆、決定和私訊會立即通知你；其餘的會彙整推送。可在每個聊天的資訊裡修改。Atteo 在背景檢查的頻率由 iOS 決定。"
           }
         }
       }
@@ -7320,6 +7504,52 @@
           "stringUnit": {
             "state": "translated",
             "value": "核准詳細資料"
+          }
+        }
+      }
+    },
+    "Approvals, @you, replies, decisions and DMs notify you at once; the rest comes in a digest.": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Las aprobaciones, @tú, las respuestas, las decisiones y los mensajes directos te avisan al momento; lo demás llega en un resumen."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les approbations, @vous, les réponses, les décisions et les messages directs vous préviennent tout de suite ; le reste arrive dans un résumé."
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "मंज़ूरियाँ, @आप, जवाब, फ़ैसले और सीधे संदेश तुरंत सूचित करते हैं; बाक़ी सारांश में आता है।"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "承認、@あなた、返信、決定、DM はすぐに通知されます。それ以外はまとめで届きます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "승인, @나, 답장, 결정, DM은 바로 알리고 나머지는 요약으로 모아서 보냅니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "审批、@你、回复、决定和私信会立即通知你；其余的会汇总推送。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "審批、@你、回覆、決定和私訊會立即通知你；其餘的會彙整推送。"
           }
         }
       }
@@ -13734,6 +13964,52 @@
         }
       }
     },
+    "Digest at %@.": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Resumen a las %@."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Résumé à %@."
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ पर सारांश।"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "まとめは %@ に届きます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "요약은 %@에 옵니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "汇总推送时间：%@。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "彙整推送時間：%@。"
+          }
+        }
+      }
+    },
     "Disconnect all": {
       "localizations": {
         "es": {
@@ -14700,6 +14976,52 @@
         }
       }
     },
+    "Ends": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Termina"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fin"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "समाप्त"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "終了"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "종료"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "结束"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "結束"
+          }
+        }
+      }
+    },
     "Enter a valid email address.": {
       "localizations": {
         "es": {
@@ -14880,6 +15202,52 @@
           "stringUnit": {
             "state": "translated",
             "value": "所有智能體會立即停止。之後可以用 atteo login 重新連線。"
+          }
+        }
+      }
+    },
+    "Every message here notifies you.": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cada mensaje de aquí te avisa."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chaque message ici vous prévient."
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "यहाँ का हर संदेश आपको सूचित करता है।"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ここのすべてのメッセージが通知されます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "여기의 모든 메시지를 알립니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这里的每条消息都会通知你。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這裡的每則訊息都會通知你。"
           }
         }
       }
@@ -15203,6 +15571,52 @@
           "stringUnit": {
             "state": "translated",
             "value": "所有人會重新看到首字母頭像，看板上也會出現一條你移除了圖片的提示。"
+          }
+        }
+      }
+    },
+    "Everything": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Todo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tout"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "सब कुछ"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すべて"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "전체"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "全部"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "全部"
           }
         }
       }
@@ -21141,6 +21555,52 @@
         }
       }
     },
+    "Needs me": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lo que me necesita"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce qui me concerne"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "जो मुझसे जुड़ा है"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自分に関係あるもの"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "나에게 필요한 것"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "需要我的"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "需要我的"
+          }
+        }
+      }
+    },
     "Needs you · %lld": {
       "localizations": {
         "es": {
@@ -23487,6 +23947,52 @@
         }
       }
     },
+    "Nothing interrupts you then, except urgent approvals.": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nada te interrumpe entonces, salvo las aprobaciones urgentes."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rien ne vous interrompt alors, sauf les approbations urgentes."
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "तब आपको कुछ भी नहीं टोकेगा, सिवाय ज़रूरी मंज़ूरियों के।"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "その間は、緊急の承認以外は通知しません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "그 시간에는 긴급 승인 말고는 알리지 않습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这段时间里只有紧急审批会打扰你。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這段時間裡只有緊急審批會打擾你。"
+          }
+        }
+      }
+    },
     "Nothing needs you right now.": {
       "localizations": {
         "es": {
@@ -23951,6 +24457,52 @@
           "stringUnit": {
             "state": "translated",
             "value": "關"
+          }
+        }
+      }
+    },
+    "Off: still in your Inbox, never a notification.": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desactivado: sigue en tu Bandeja, nunca una notificación."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Désactivé : reste dans votre boîte de réception, jamais de notification."
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "बंद: इनबॉक्स में रहेगा, सूचना कभी नहीं।"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オフ: 受信箱には残り、通知はしません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "끔: 받은함에는 남고 알림은 오지 않습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "关闭：仍会出现在收件箱，但不会通知。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "關閉：仍會出現在收件匣，但不會通知。"
           }
         }
       }
@@ -26297,6 +26849,52 @@
           "stringUnit": {
             "state": "translated",
             "value": "在得到回答前保持開放的問題"
+          }
+        }
+      }
+    },
+    "Quiet hours": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Horas de silencio"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Heures calmes"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "शांत समय"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "おやすみ時間"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "방해 금지 시간"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "免打扰时段"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "勿擾時段"
           }
         }
       }
@@ -31397,6 +31995,52 @@
         }
       }
     },
+    "Starts": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Empieza"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Début"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "शुरू"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開始"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "시작"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "开始"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開始"
+          }
+        }
+      }
+    },
     "Status": {
       "localizations": {
         "es": {
@@ -31583,12 +32227,6 @@
     },
     "Stopped": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Stopped"
-          }
-        },
         "es": {
           "stringUnit": {
             "state": "translated",
@@ -40301,18 +40939,58 @@
     "task-group.blocked": {
       "comment": "A group in the task list: tasks waiting on something",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Blocked" } },
-        "es": { "stringUnit": { "state": "translated", "value": "Bloqueadas" } },
-        "fr": { "stringUnit": { "state": "translated", "value": "Bloquées" } },
-        "hi": { "stringUnit": { "state": "translated", "value": "अवरुद्ध" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "ブロック中" } },
-        "ko": { "stringUnit": { "state": "translated", "value": "차단됨" } },
-        "zh-Hans": { "stringUnit": { "state": "translated", "value": "受阻" } },
-        "zh-Hant": { "stringUnit": { "state": "translated", "value": "受阻" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Blocked"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bloqueadas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bloquées"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "अवरुद्ध"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブロック中"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "차단됨"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "受阻"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "受阻"
+          }
+        }
       }
     },
     "task-group.open": {
-      "comment": "A group in the task list: not started yet (to do); not the verb",
+      "comment": "A group in the task list: not started yet (to do, and blocked); not the verb",
       "localizations": {
         "en": {
           "stringUnit": {
