@@ -174,12 +174,13 @@ function jsonLd(path: string): string {
   return graph ? `<script type="application/ld+json">${JSON.stringify({ "@context": "https://schema.org", "@graph": graph }).replace(/</g, "\\u003c")}</script>\n` : "";
 }
 
+// The icons are the app's (forwarded); "?v=" is bumped with each new logo, since browsers keep a favicon for days (jxn #4247).
 function head(theme: string | null, title = TITLE, desc = DESCRIPTION, path = "/"): string {
   return `<!doctype html><html lang="en"${theme ? ` data-theme="${theme}"` : ""}><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${title}</title>
 <meta name="description" content="${desc}"><meta name="robots" content="index,follow,max-image-preview:large">
 <meta name="theme-color" content="#FFFFFF">
-<link rel="canonical" href="${SITE_URL}${path}"><link rel="icon" href="/favicon.svg" type="image/svg+xml"><link rel="apple-touch-icon" href="/apple-touch-icon.png"><link rel="alternate" type="text/plain" href="${SITE_URL}/llms.txt" title="Atteo for language models">
+<link rel="canonical" href="${SITE_URL}${path}"><link rel="icon" href="/favicon.svg?v=cone" type="image/svg+xml"><link rel="apple-touch-icon" href="/apple-touch-icon.png?v=cone"><link rel="alternate" type="text/plain" href="${SITE_URL}/llms.txt" title="Atteo for language models">
 <meta property="og:type" content="website"><meta property="og:locale" content="en_US"><meta property="og:site_name" content="Atteo"><meta property="og:url" content="${SITE_URL}${path}">
 <meta property="og:title" content="${title}"><meta property="og:description" content="${desc}">
 <meta property="og:image" content="${SITE_URL}/og.png"><meta property="og:image:width" content="1200"><meta property="og:image:height" content="630"><meta property="og:image:alt" content="Atteo">

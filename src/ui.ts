@@ -2,6 +2,7 @@
 // Minimal and quiet (in the spirit of Vercel Geist / Linear): neutral grays, one ink color for primary actions,
 // hairline borders, light + dark, works down to phone width. Type: Onest / Enriqueta / Courier Prime (fontfaces.ts).
 
+import { APPLE_TOUCH_PNG_B64 } from "./appleIcon";
 import { FONT_CSS, FONT_V } from "./fontfaces";
 import { chartHtml } from "./chart";
 import { STATUS_CSS, statusHtml } from "./status";
@@ -320,7 +321,9 @@ dialog[open]{animation:pop .16s ease-out}dialog:focus{outline:none}@media (prefe
 /* The hover toolbar floats in the gap above the message (never over its text), like a small card. */
 @media(hover:hover){.entry .acts{position:absolute;top:-13px;right:6px;z-index:3;padding:1px;background:var(--bg);border:1px solid var(--line);border-radius:8px;box-shadow:var(--shadow)}
   .entry .acts .btn.sm{height:24px;padding:0 7px} /* a little tighter: the bar stays clear of the sender line's time (opus-b, #4140) */.entry .acts .rx-q{width:26px}#thread>.entry:first-child .acts{top:2px}
-  .entry .meta [data-history]{position:relative;z-index:4}} /* "edited" stays clickable under the hover bar (own messages sit on the right) */
+  .entry .meta [data-history]{position:relative;z-index:4}}
+/* "edited" reads with the time, "1m ago · edited" (jxn #4287): quiet text that opens the history, not a pill. */
+.meta .edited{border:0;padding:0;margin:0 0 0 -4px;background:none;font:inherit;font-size:12.5px;color:var(--muted);cursor:pointer}.meta .edited::before{content:"· "}.meta .edited:hover{color:var(--ink);text-decoration:underline} /* "edited" stays clickable under the hover bar (own messages sit on the right) */
 .more-acts{display:none}
 @media(hover:none){.entry .meta>.more-acts{display:inline-flex;align-items:center;justify-content:center;margin-left:auto;width:32px;height:24px;padding:0;border:0;border-radius:6px;background:none;color:var(--muted);font-size:18px;line-height:1;letter-spacing:1px;cursor:pointer}
   .entry .meta>.more-acts[aria-expanded="true"]{background:var(--bg-hover);color:var(--ink)}
@@ -986,7 +989,7 @@ mark{background:var(--mark);color:inherit;border-radius:2px;padding:0 1px}
 [data-feedback]::before{content:"";width:16px;height:16px;background:currentColor;-webkit-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%23000' stroke-width='1.5' stroke-linejoin='round'%3E%3Cpath d='M2.5 3.5h11v7.5H7l-3 2.5V11H2.5Z'/%3E%3C/svg%3E") center/16px no-repeat;mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%23000' stroke-width='1.5' stroke-linejoin='round'%3E%3Cpath d='M2.5 3.5h11v7.5H7l-3 2.5V11H2.5Z'/%3E%3C/svg%3E") center/16px no-repeat}
 /* Leaving Atteo (jxn #4173): the address in full, wrapped, before you go. */
 #leave .leave-url{margin:0;padding:10px 12px;border:1px solid var(--line);border-radius:var(--r-sm);background:var(--bg-subtle);font-size:13px;overflow-wrap:anywhere;color:var(--ink)}
-#leave .ft{display:flex;justify-content:flex-end;gap:8px;padding:0 22px 20px}
+#leave .ft,#feedback .ft{display:flex;justify-content:flex-end;gap:8px;padding:0 22px 20px}
 /* The report dialog (jxn #4053, #4116): what happened, the pictures you added (paper clip, paste or drop), then Cancel / Send. */
 #bug form{display:block}
 #bug .bd{display:grid;gap:12px}
@@ -1283,6 +1286,10 @@ export const WORDMARK_DEFS = `<svg width="0" height="0" style="position:absolute
 export const ICON_LIGHT_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024"><defs><clipPath id="bsq"><rect width="1024" height="1024" rx="230"/></clipPath><filter id="brough" x="-10%" y="-10%" width="120%" height="120%"><feTurbulence type="fractalNoise" baseFrequency="0.018" numOctaves="2" seed="7"/><feDisplacementMap in="SourceGraphic" scale="16"/></filter></defs><g clip-path="url(#bsq)"><rect width="1024" height="1024" fill="#FAFAF7"/><g transform="translate(512 512) translate(-519.9 -507.7)"><g filter="url(#brough)" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M400.0 512.0Q512.1 403.2 650.0 330.0M400.0 512.0Q517.1 623.8 660.0 700.0" stroke="#0E0E0E" stroke-width="22"/><g stroke-width="36"><g transform="translate(400.0 512.0) rotate(-90.0)" stroke="#6A1B24"><path d="M-95 -200L-19 0H19L95 -200"/><ellipse cx="0" cy="-200" rx="95" ry="32.3"/></g><g transform="translate(650.0 330.0) rotate(53.9)" stroke="#0E0E0E"><path d="M-70 -200V-6Q0 30.8 70 -6V-200"/><ellipse cx="0" cy="-200" rx="70" ry="23.8"/></g><g transform="translate(660.0 700.0) rotate(125.9)" stroke="#0E0E0E"><path d="M-70 -200V-6Q0 30.8 70 -6V-200"/><ellipse cx="0" cy="-200" rx="70" ry="23.8"/></g></g></g></g></g></svg>`;
 export const ICON_DARK_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024"><defs><clipPath id="bsq"><rect width="1024" height="1024" rx="230"/></clipPath><filter id="brough" x="-10%" y="-10%" width="120%" height="120%"><feTurbulence type="fractalNoise" baseFrequency="0.018" numOctaves="2" seed="7"/><feDisplacementMap in="SourceGraphic" scale="16"/></filter></defs><g clip-path="url(#bsq)"><rect width="1024" height="1024" fill="#0E0E0E"/><g transform="translate(512 512) translate(-519.9 -507.7)"><g filter="url(#brough)" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M400.0 512.0Q512.1 403.2 650.0 330.0M400.0 512.0Q517.1 623.8 660.0 700.0" stroke="#FAFAF7" stroke-width="22"/><g stroke-width="36"><g transform="translate(400.0 512.0) rotate(-90.0)" stroke="#C2414D"><path d="M-95 -200L-19 0H19L95 -200"/><ellipse cx="0" cy="-200" rx="95" ry="32.3"/></g><g transform="translate(650.0 330.0) rotate(53.9)" stroke="#FAFAF7"><path d="M-70 -200V-6Q0 30.8 70 -6V-200"/><ellipse cx="0" cy="-200" rx="70" ry="23.8"/></g><g transform="translate(660.0 700.0) rotate(125.9)" stroke="#FAFAF7"><path d="M-70 -200V-6Q0 30.8 70 -6V-200"/><ellipse cx="0" cy="-200" rx="70" ry="23.8"/></g></g></g></g></g></svg>`;
 export const FAVICON_SVG = ICON_LIGHT_SVG; // the paper tile reads on light and dark tab bars alike
+// The icons' addresses carry a hash of the drawing (jxn #4247): browsers keep a favicon for days, so a new logo only
+// shows once its address changes.
+export const FAVICON_SRC = `/favicon.svg?v=${fnv(FAVICON_SVG)}`;
+export const APPLE_TOUCH_SRC = `/apple-touch-icon.png?v=${fnv(APPLE_TOUCH_PNG_B64)}`;
 
 export interface Viewer {
   name: string;
@@ -1312,7 +1319,7 @@ ${v ? `<nav class="links">${link("/", esc(tr(opts.lang, "Boards")), "boards")}</
   const html = `<!doctype html><html lang="${opts.lang ?? "en"}"${dirOf(opts.lang) === "rtl" ? ' dir="rtl"' : ""}><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${esc(title)}</title>
 ${FONT_PRELOAD}
-<link rel="icon" href="/favicon.svg" type="image/svg+xml"><link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="icon" href="${FAVICON_SRC}" type="image/svg+xml"><link rel="apple-touch-icon" href="${APPLE_TOUCH_SRC}">
 <link rel="stylesheet" href="${APP_CSS_SRC}">${DISPLAY_HEAD.replace("<script>", `<script nonce="${security.nonce}">`)}</head><body>${WORDMARK_DEFS}${nav}
 <main${opts.narrow ? ' class="narrow"' : ""}>${body}</main>
 <div id="toast" role="status" aria-live="polite"></div>
@@ -1533,18 +1540,15 @@ const CLIENT_JS = `
 // Saving a picture or a file (jxn #2684) is an <a download data-save>. On a phone that can share files (iOS Safari,
 // Android Chrome) it opens the share sheet instead (Save Image, Save to Files, AirDrop…); anywhere else, or if sharing
 // isn't allowed after the fetch, the browser downloads it.
-// Leaving Atteo (jxn #4173): a link someone wrote (a message, a file, the pinned doc) to another site asks first and
-// shows the whole address; same-site links and modified clicks (a new tab on purpose) go straight through. The dialog
-// is made the first time it's needed (no markup on every page: web-budget).
-const leaveDlg=()=>{let d=document.getElementById('leave');if(d)return d;d=document.createElement('dialog');d.id='leave';d.setAttribute('aria-labelledby','leave-title');
-  d.innerHTML='<div class="hd"><h2 id="leave-title"></h2><button type="button" class="btn ghost sm" data-close>✕</button></div><div class="bd"><p class="mono leave-url" id="leave-url"></p></div><div class="ft"><button type="button" class="btn" data-close></button><button type="button" class="btn primary" id="leave-go"></button></div>';
-  d.querySelector('h2').textContent=tr('Open this link?');const c=d.querySelectorAll('[data-close]');c[0].setAttribute('aria-label',tr('Close'));c[1].textContent=tr('Cancel');d.querySelector('#leave-go').textContent=tr('Open');
-  document.body.append(d);return d};
-document.addEventListener('click',e=>{if(e.defaultPrevented||e.button!==0||e.metaKey||e.ctrlKey||e.shiftKey||e.altKey)return;const a=e.target.closest&&e.target.closest('a[href]');
-  if(!a||a.hasAttribute('data-save')||!a.closest('.entry .body,#doc-view,.pin-peek,.pin-card'))return;let u;try{u=new URL(a.getAttribute('href'),location.href)}catch(x){return}
-  if(u.origin===location.origin||!/^https?:$/.test(u.protocol))return;const d=leaveDlg();
-  e.preventDefault();document.getElementById('leave-url').textContent=u.href;d.dataset.href=u.href;d.showModal();document.getElementById('leave-go').focus()});
-document.addEventListener('click',e=>{if(!e.target.closest||!e.target.closest('#leave-go'))return;const d=document.getElementById('leave'),h=d.dataset.href;d.close();if(h)window.open(h,'_blank','noopener,noreferrer')});
+// Another site asks first, with the whole address (jxn #4173).
+const ext=h=>{try{const u=new URL(h,location.href);return u.origin!==location.origin&&/^https?:$/.test(u.protocol)?u.href:''}catch(x){return''}},$l=i=>document.getElementById(i);
+document.addEventListener('click',e=>{if(e.defaultPrevented||e.button||e.metaKey||e.ctrlKey||e.shiftKey||e.altKey)return;const a=e.target.closest?.('a[href]:not([data-save])');
+  if(a&&a.closest('.entry .body,.entry .chg,#doc-view,.pin-peek,.pin-card')&&ext(a.getAttribute('href'))){e.preventDefault();leaveTo(a.href)}
+  else if(e.target.closest?.('#leave-go')){const d=$l('leave');d.close();open(d.dataset.href,'_blank','noopener,noreferrer')}});
+window.leaveTo=h=>{const x=ext(h);if(!x)return open(h,'_blank','noopener,noreferrer');let d=$l('leave');
+  if(!d){d=document.createElement('dialog');d.id='leave';d.setAttribute('aria-labelledby','leave-title');d.innerHTML='<div class="hd"><h2 id="leave-title"></h2><button type="button" class="btn ghost sm" data-close>✕</button></div><div class="bd"><p class="mono leave-url" id="leave-url"></p></div><div class="ft"><button type="button" class="btn" data-close></button><button type="button" class="btn primary" id="leave-go"></button></div>';
+    const b=d.querySelectorAll('button');d.querySelector('h2').textContent=tr('Open this link?');b[0].ariaLabel=tr('Close');b[1].textContent=tr('Cancel');b[2].textContent=tr('Open');document.body.append(d)}
+  $l('leave-url').textContent=x;d.dataset.href=x;d.showModal();$l('leave-go').focus()};
 document.addEventListener('click',async e=>{const a=e.target.closest&&e.target.closest('a[data-save]');if(!a||!navigator.canShare||!matchMedia('(pointer:coarse)').matches)return;e.preventDefault();
   const name=a.getAttribute('download')||'file',dl=()=>{const x=document.createElement('a');x.href=a.href;x.download=name;document.body.append(x);x.click();x.remove()};
   try{const b=await (await fetch(a.href)).blob(),f=new File([b],name,{type:b.type||'application/octet-stream'});if(navigator.canShare({files:[f]}))return await navigator.share({files:[f]})}
@@ -1898,7 +1902,7 @@ function rawPage(title: string, body: string, script: string, status = 200, lang
   const html = `<!doctype html><html lang="${lang}"${dirOf(lang as Lang) === "rtl" ? ' dir="rtl"' : ""}><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${esc(title)}</title>
 ${FONT_PRELOAD}${scriptPreloads(script)}
-<link rel="icon" href="/favicon.svg" type="image/svg+xml"><link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="icon" href="${FAVICON_SRC}" type="image/svg+xml"><link rel="apple-touch-icon" href="${APPLE_TOUCH_SRC}">
 <link rel="stylesheet" href="${APP_CSS_SRC}">${DISPLAY_HEAD.replace("<script>", `<script nonce="${security.nonce}">`)}</head><body>${WORDMARK_DEFS}${body.replace("<script>window.PALETTE=", `<script nonce="${security.nonce}">window.PALETTE=`)}
 <div id="toast" role="status" aria-live="polite"></div>
 ${lang === "en" ? "" : `<script nonce="${security.nonce}">window.I18N=${clientTable(lang)}</script>`}<script src="${APP_JS_SRC}" nonce="${security.nonce}"></script>${pageScripts(script, security.nonce)}</body></html>`;

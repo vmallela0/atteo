@@ -85,6 +85,7 @@
  "thread-collapse": 3,
  "resolve-hint": 5,
  "preview-sandbox": 6,
+ "svg-preview": 4,
  "muse-tile": 3,
  "hostile-text": 9,
  "refjump": 7,
