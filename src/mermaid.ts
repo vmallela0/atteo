@@ -27,10 +27,10 @@ export const MERMAID_CSS = `.mmd{margin:6px 0;max-width:100%}.mmd>.code-b{margin
 // injected CSS apply), the sanitiser config and HTML labels.
 const SECURE = ["secure", "securityLevel", "startOnLoad", "maxTextSize", "suppressErrorRendering", "maxEdges", "theme", "themeVariables", "themeCSS", "darkMode", "fontFamily", "altFontFamily", "dompurifyConfig", "htmlLabels"];
 export const MERMAID_JS = `
-(()=>{const SRC=${JSON.stringify(MERMAID_SRC)},SRI=${JSON.stringify(MERMAID_SRI)},SECURE=${JSON.stringify(SECURE)};
+(()=>{const SRC=${JSON.stringify(MERMAID_SRC)},SRI=${JSON.stringify(MERMAID_SRI)},SECURE=${JSON.stringify(SECURE)},NONCE=document.currentScript?.nonce||'';
 let lib=null,io=null,seq=0,q=Promise.resolve(),sig='',watching=false;const seen=new WeakSet();
 const load=()=>lib||(lib=new Promise((ok,no)=>{const s=document.createElement('script');s.src=SRC;s.integrity=SRI;s.crossOrigin='anonymous';s.referrerPolicy='no-referrer';
-  s.onload=()=>window.mermaid?ok(window.mermaid):no(new Error('mermaid missing'));s.onerror=()=>no(new Error('mermaid did not load'));document.head.appendChild(s)}));
+  s.nonce=NONCE;s.onload=()=>window.mermaid?ok(window.mermaid):no(new Error('mermaid missing'));s.onerror=()=>no(new Error('mermaid did not load'));document.head.appendChild(s)}));
 const tok=n=>getComputedStyle(document.documentElement).getPropertyValue('--'+n).trim();
 // The board's tokens as mermaid's base theme (it needs real colours, so they're read from the page, light or dark).
 function cfg(){const v={bg:tok('bg'),sub:tok('bg-subtle'),hov:tok('bg-hover'),line:tok('line'),strong:tok('line-strong'),text:tok('text'),muted:tok('muted'),faint:tok('faint'),ink:tok('ink')},

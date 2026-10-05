@@ -38,14 +38,15 @@ export function formActionSource(raw: string): string | null {
   return /^[a-z][a-z0-9+.-]*:$/i.test(u.protocol) && !/^(javascript|data|blob|file|filesystem|about):$/i.test(u.protocol) ? u.protocol : null;
 }
 
-// Each HTML response owns its nonce. Inline CSS and style attributes are used throughout the UI. Mermaid is allowed as
-// its one pinned file (not the host) and loads with an SRI hash (mermaid.ts), so jsDelivr can't serve anything else.
+// Each HTML response owns its nonce. Inline CSS and style attributes are used throughout the UI. Inline event handlers
+// are forbidden explicitly; page code uses listeners. Mermaid is allowed as its one pinned file (not the host) and loads
+// with an SRI hash (mermaid.ts), so jsDelivr can't serve anything else.
 // The pages are private, revalidated each time (no shared cache may keep one person's page, or pin one nonce for many
 // responses); no-store would also keep them out of the back/forward cache.
 export function pageSecurity(opts: { formAction?: string[] } = {}) {
   const nonce = Array.from(crypto.getRandomValues(new Uint8Array(16)), (b) => b.toString(16).padStart(2, "0")).join("");
   const formAction = ["'self'", ...(opts.formAction ?? []).map(formActionSource).filter((x): x is string => !!x)].join(" ");
-  const policy = `default-src 'self'; script-src 'self' 'nonce-${nonce}' ${MERMAID_SRC}; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; media-src 'self' blob: data:; connect-src 'self' ${VOICE_SOCKET_ORIGIN}; frame-src 'self' about:; frame-ancestors 'none'; base-uri 'none'; form-action ${formAction}; object-src 'none'; report-uri ${CSP_REPORT_PATH}; report-to csp`;
+  const policy = `default-src 'self'; script-src 'self' 'nonce-${nonce}' ${MERMAID_SRC}; script-src-attr 'none'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; media-src 'self' blob: data:; connect-src 'self' ${VOICE_SOCKET_ORIGIN}; frame-src 'self' about:; frame-ancestors 'none'; base-uri 'none'; form-action ${formAction}; object-src 'none'; report-uri ${CSP_REPORT_PATH}; report-to csp`;
   const headers: Record<string, string> = {
     [CSP_ENFORCE ? "content-security-policy" : "content-security-policy-report-only"]: policy,
     "reporting-endpoints": `csp="${CSP_REPORT_PATH}"`,
@@ -1826,7 +1827,8 @@ const scrub=(doc)=>{const p=doc.createElement('div');p.className='bug-private';p
 // The capture: html2canvas (self-hosted by the /api/bugs endpoint, lazy-loaded once on first use — glm-a #3364)
 // draws the real page, webfonts and images in; if it won't load, a dependency-free SVG foreignObject fallback
 // draws the clone (system fonts, no external images). Both render a closed #bug dialog and scrubbed privacy.
-let h2c=null;const html2canvas=()=>h2c=h2c||new Promise((res)=>{if(window.html2canvas)return res(true);const s=document.createElement('script');s.src='/vendor/html2canvas.min.js';s.onload=()=>res(true);s.onerror=()=>res(false);document.head.appendChild(s)});
+const NONCE=document.currentScript?.nonce||'';
+let h2c=null;const html2canvas=()=>h2c=h2c||new Promise((res)=>{if(window.html2canvas)return res(true);const s=document.createElement('script');s.src='/vendor/html2canvas.min.js';s.nonce=NONCE;s.onload=()=>res(true);s.onerror=()=>res(false);document.head.appendChild(s)});
 const fallback=()=>new Promise((res)=>{try{
   const cw=Math.min(innerWidth,1024),ch=innerHeight; // full viewport height, width capped
   const clone=scrub(document.documentElement.cloneNode(true));
@@ -1886,12 +1888,12 @@ ${lang === "en" ? "" : `<script nonce="${security.nonce}">window.I18N=${clientTa
 }
 
 const SHELL_JS = `
-(()=>{
+(()=>{const NONCE=document.currentScript?.nonce||'';
 const $=(s,r=document)=>r.querySelector(s),$$=(s,r=document)=>[...r.querySelectorAll(s)];
 // Report a bug: the capture lives in /bug.js (web-budget: not on every page) — the first click loads it, and it
 // runs the capture for that click itself; later clicks are its own listener.
 document.addEventListener('click',e=>{const b=e.target.closest('[data-bug]');if(!b||document.getElementById('bug-js'))return;
-  const s=document.createElement('script');s.id='bug-js';s.src=b.dataset.bugSrc;document.head.appendChild(s)});
+  const s=document.createElement('script');s.id='bug-js';s.src=b.dataset.bugSrc;s.nonce=NONCE;document.head.appendChild(s)});
 // Search (⌘K everywhere; ⌘F on a board starts with "This board · Messages"): filters show up front like VS Code or Lark,
 // and become chips; results mix boards and actions with ranked messages and files (this board, or all your boards).
 const pal=$('#palette'),q=$('#palette-q'),list=$('#palette-list'),pChips=$('#pal-chips'),pFilt=$('#pal-filters');
