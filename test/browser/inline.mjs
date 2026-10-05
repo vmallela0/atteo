@@ -12,10 +12,13 @@ const root=await post("Which region do we deploy to?");for(let i=1;i<=6;i++)awai
 const ck=(await ops("sessions",{user:A})).cookie;
 let fails=0;const check=(ok,m)=>{console.log(`${ok?"✓":"✗"} ${m}`);if(!ok)fails++};
 const b=await chromium.launch({executablePath: process.env.PW_CHROME || undefined});
+// Until the thread overlay holds n messages and the conversation's newest is this text (the server's copy), up to 8 s.
+const inThread=async(n,t)=>{for(let k=0;k<80;k++){const ok=await pg.evaluate(([n,t])=>document.querySelectorAll('.thr-dlg .thr-list>.entry').length===n&&([...document.querySelectorAll('#thread>.entry:not(.pending)')].pop()?.querySelector('.body')?.textContent||'').includes(t),[n,t]);if(ok)break;await pg.waitForTimeout(100)}await pg.waitForTimeout(150)};
+let pg;
 let nRep=0;for(const [w,h] of [[1280,800],[390,800]]){
 const ctx=await b.newContext({viewport:{width:w,height:h},hasTouch:w<500});const [k,...v]=ck.split(";")[0].split("=");await ctx.addCookies([{name:k,value:v.join("="),url:BASE}]);
-const p=await ctx.newPage();const errors=[];p.on("pageerror",e=>errors.push(e.message));await p.goto(`${BASE}/b/${board}`);await p.waitForTimeout(800);
-const rep=await post(`us-east-1, ${w}px`,root);nRep++;await p.waitForTimeout(1500);
+const p=await ctx.newPage();pg=p;const errors=[];p.on("pageerror",e=>errors.push(e.message));await p.goto(`${BASE}/b/${board}`);await p.waitForTimeout(800);
+const rep=await post(`us-east-1, ${w}px`,root);nRep++;await p.waitForSelector(`#thread>#e${rep}`,{timeout:8000}).catch(()=>{});await p.waitForFunction(([r,n])=>new RegExp(n+' repl').test(document.querySelector('#e'+r+' .thr-sum')?.innerText||''),[root,nRep],{timeout:5000}).catch(()=>{});
 const g=await p.evaluate(([r,root])=>{const el=document.getElementById('e'+r);const last=[...document.querySelectorAll('#thread>.entry')].pop();const q=el?.querySelector(':scope>.grow>.rq');
   return {top:el?.parentElement?.id,last:last?.id,q:q?.innerText.replace(/\s+/g,' ').trim(),sum:document.querySelector('#e'+root+' .thr-sum')?.innerText.replace(/\s+/g,' ').trim()}},[rep,root]);
 check(g.top==="thread"&&g.last===`e${rep}`,`${w}px: a reply lands at the bottom like any message (${g.top}, last ${g.last})`);
@@ -31,11 +34,11 @@ const c=await p.evaluate(()=>{const f=document.querySelector('form.composer'),d=
     inside:r.left>=dr.left-0.5&&r.right<=dr.right+0.5&&r.bottom<=dr.bottom+0.5,to:document.getElementById('reply-to').value,val:document.getElementById('composer-text').value}});
 check(c.inDlg&&c.one===1&&c.btns>=2&&c.inside,`${w}px: the thread's reply box is the conversation's composer, with its attach / @ / mic buttons (${JSON.stringify(c)})`);
 check(c.to===String(root)||c.to===String(rep),`${w}px: …replying in the thread: to the reply it was opened from, or its first message (${c.to})`); // #1351: a thread opened at a reply answers that reply
-await p.fill('.thr-dlg #composer-text',`and the db ${w}?`);await p.locator('.thr-dlg form.composer button.primary').click();await p.waitForTimeout(1500);
+await p.fill('.thr-dlg #composer-text',`and the db ${w}?`);await p.locator('.thr-dlg form.composer button.primary').click();await inThread(nRep+2,`and the db ${w}?`);
 const n2=await p.locator('.thr-dlg .thr-list>.entry').count(),lastMain=await p.evaluate(()=>[...document.querySelectorAll('#thread>.entry')].pop().querySelector('.body')?.textContent);
 nRep++;check(n2===nRep+1&&/and the db/.test(lastMain||""),`${w}px: replying in the overlay adds to it and to the conversation (${n2}, "${lastMain}")`);
 check(await p.inputValue('.thr-dlg #composer-text')===""&&[String(root),String(rep)].includes(await p.inputValue('#reply-to')),`${w}px: after sending, the box is empty and still replies to the thread`);
-await p.fill('.thr-dlg #composer-text',`second in a row ${w}`);await p.keyboard.press(w<500?'Tab':'Enter');if(w<500)await p.locator('.thr-dlg form.composer button.primary').click();await p.waitForTimeout(1500);
+await p.fill('.thr-dlg #composer-text',`second in a row ${w}`);await p.keyboard.press(w<500?'Tab':'Enter');if(w<500)await p.locator('.thr-dlg form.composer button.primary').click();await inThread(nRep+2,`second in a row ${w}`);
 nRep++;check(await p.locator('.thr-dlg .thr-list>.entry').count()===nRep+1,`${w}px: a second reply in a row lands in the thread too`);
 await p.fill('.thr-dlg #composer-text',`unsent thread draft ${w}`);
 await p.locator('[data-thr-close]').click();await p.waitForTimeout(200);
