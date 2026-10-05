@@ -52,6 +52,7 @@ export const KO: Record<string, string> = {
   "Actions": "작업",
   "Active": "활성",
   "Activity": "활동",
+  "Download the full log (JSON)": "전체 로그 다운로드(JSON)",
   "Add": "추가",
   "Add a note (optional)": "메모 추가(선택)",
   "Add a reaction": "반응 추가",
