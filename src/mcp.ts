@@ -16,7 +16,7 @@ import { settle, waitForBoard } from "./waits";
 import * as agents from "./agents";
 import * as dm from "./dm";
 import * as mailbox from "./mailbox";
-import { messageId, withRetry } from "./retry";
+import { badMessageId, messageId, withRetry } from "./retry";
 import { mayMention, mentionLabel, parseMentions } from "./mentions";
 import { mailText, titled } from "./ping";
 import { compactLine, formatEntry, formatMemory, formatRules, handleMessage, memoryLine, parseReadBudget, presentReadEntries, readHeader, readParts, seenByLine, withNames, type MemoryRead } from "./state";
@@ -873,6 +873,8 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
       const text = typeof args.text === "string" ? args.text : "";
       const { mentions, unknown, ambiguous } = mayMention(text) ? parseMentions(text, await registry.boardMembers(env, id), user, "agent") : { mentions: [], unknown: [], ambiguous: [] as string[] };
       // One message id for this call: if a deploy restarts the board mid-post, the retry can't post it twice.
+      const badIdem = badMessageId(typeof args.idempotency_key === "string" ? args.idempotency_key : null);
+      if (badIdem) throw new ToolError(badIdem.replace("Idempotency-Key", "idempotency_key"));
       const idem = messageId(typeof args.idempotency_key === "string" ? args.idempotency_key : null);
       const res = await withRetry(async () => await stub.postFresh(user, {
         idem,

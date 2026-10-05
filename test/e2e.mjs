@@ -2128,7 +2128,9 @@ await step("tasks: a card or note that resolves an open task marks it done when 
   // The assignee's resolve closes it.
   const n3 = seqOf(await ok(B, fb, "post", { type: "note", text: `mine is done ${run}`, resolves: [forB] }));
   assert((await task(forB)).status === "done" && (await task(forB)).done_note === `Resolved by #${n3}`, "the assignee's resolve closes it");
-  // REST posts carry resolves now (they used to drop it): the author's agent through the REST API closes it.
+  // REST posts carry resolves now (they used to drop it): the author's agent through the REST API closes it. It reads
+  // the board first, as an agent does: a REST post goes through the stale-read rule too (SPEC.md §9).
+  await fetch(`${BASE}/api/boards/${fb}/entries?after=0`, { headers: { authorization: `Bearer ${tok[A]}` } });
   const rp = await (await fetch(`${BASE}/api/boards/${fb}/entries`, { method: "POST", headers: { authorization: `Bearer ${tok[A]}`, "content-type": "application/json" }, body: JSON.stringify({ type: "note", text: `via REST ${run}`, resolves: [rest] }) })).json();
   assert(JSON.stringify(rp.entry?.resolves) === JSON.stringify([rest]), `REST keeps resolves: ${JSON.stringify(rp.entry?.resolves)}`);
   assert((await task(rest)).status === "done" && (await task(rest)).done_note === `Resolved by #${rp.entry.seq}`, "a REST resolve closes it");
@@ -2586,6 +2588,76 @@ await step("REST API with a personal token acts as your agent; OpenAPI spec and 
   const spec = await (await fetch(`${BASE}/openapi.json`)).json();
   assert(spec.openapi === "3.1.0" && spec.paths["/api/boards/{id}/tasks/{seq}"] && spec.servers[0].url === BASE, "openapi");
   has(await (await fetch(`${BASE}/skill.md`)).text(), "name: atteo");
+});
+
+await step("REST posts are MCP's post (SPEC.md §17): types, links, title, the stale-read rule for agents, idempotency keys, caps", async () => {
+  const pb = (await ops("boards", { user: A, title: `e2e parity ${run}` })).body.board.id;
+  await ops("members", { board: pb, user: B });
+  const post = async (who, body, headers = {}) => {
+    const r = await fetch(`${BASE}/api/boards/${pb}/entries`, { method: "POST", headers: { ...auth(who), "content-type": "application/json", ...headers }, body: JSON.stringify(body) });
+    return { status: r.status, body: await r.json() };
+  };
+  // B posts as a person on the web (people aren't checked), so only A's agent token meets the rule below.
+  const person = async (body) => {
+    const r = await web(`/api/boards/${pb}/entries`, B, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+    assert(r.status === 201, `B's web post: ${r.status}`);
+    return (await r.json()).entry;
+  };
+  // An unknown type is refused (it used to become a note); a malformed message id too (it used to be replaced).
+  let r = await post(A, { type: "memo", text: `memo ${run}` });
+  assert(r.status === 400 && /type must be one of: claim, question/.test(r.body.error), JSON.stringify(r));
+  r = await post(A, { type: "note", text: `bad key ${run}` }, { "idempotency-key": "bad key" });
+  assert(r.status === 400 && /Idempotency-Key must be 8-100 characters/.test(r.body.error), JSON.stringify(r));
+  has(await err(A, pb, "post", { type: "note", text: `bad key mcp ${run}`, idempotency_key: "no" }), "idempotency_key must be 8-100 characters");
+  const same = { "idempotency-key": `parity-${run}` };
+  const once = await post(A, { type: "note", text: `keyed ${run}` }, same), again = await post(A, { type: "note", text: `keyed ${run}` }, same);
+  assert(once.status === 201 && again.body.entry?.seq === once.body.entry.seq, `a good key still stores once: ${JSON.stringify(again).slice(0, 200)}`);
+  // The handoff sha error names both lengths git uses.
+  r = await post(A, { type: "handoff", text: `gate ${run}`, handoff: { branch: "parity", sha: "abc1234", base: "abc1234", checks: "x" } });
+  assert(r.status === 400 && r.body.error.includes("40 hex characters, or 64 in a SHA-256 repository"), JSON.stringify(r));
+  // resolves: one cap, refused over it, over REST and MCP alike.
+  const many = Array.from({ length: 51 }, (_, k) => k + 1);
+  r = await post(A, { type: "note", text: `too many ${run}`, resolves: many });
+  assert(r.status === 400 && /resolves names at most 50 entries/.test(r.body.error), JSON.stringify(r));
+  has(await err(A, pb, "post", { type: "note", text: `too many mcp ${run}`, resolves: many }), "resolves names at most 50 entries");
+  // title, supersedes, depends_on and artifacts pass through (REST used to drop them).
+  const first = (await post(A, { type: "note", text: `first ${run}`, title: "Parity title" })).body.entry;
+  assert(first.title === "Parity title", JSON.stringify(first));
+  const claim = (await post(A, { type: "claim", text: `the parity suite passes ${run}` })).body.entry;
+  r = await post(A, { type: "note", text: `rests on the claim ${run}`, supersedes: first.seq, depends_on: [claim.seq] });
+  const rests = r.body.entry;
+  assert(r.status === 201 && rests.supersedes === first.seq, JSON.stringify(r).slice(0, 300));
+  const file = (await post(A, { type: "artifact", text: `a file ${run}`, artifact_name: `parity-${run}.md`, artifact_content: "# parity" })).body.entry;
+  assert(file?.artifact_name === `parity-${run}.md` && file.artifact_version === 1, JSON.stringify(file));
+  const d = await (await fetch(`${BASE}/api/boards/${pb}/claims/${claim.seq}`, { method: "POST", headers: { ...auth(B), "content-type": "application/json" }, body: JSON.stringify({ action: "dispute", reason: `not on main ${run}` }) })).json();
+  assert(d.ok, JSON.stringify(d));
+  const u = await (await web(`/api/boards/${pb}/updates?after=0`, A)).json();
+  assert(u.claims?.[rests.seq]?.stale_from === claim.seq, `depends_on reached the board: ${JSON.stringify(u.claims)}`);
+  // The stale-read rule, for an agent's token: the dispute note (to A) is unread, so A's next post is refused with it…
+  r = await post(A, { type: "note", text: `carrying on ${run}` });
+  assert(r.status === 409 && r.body.refused && r.body.relevant.some((e) => /Disputed/.test(e.text)) && /Not posted: 1 new entry/.test(r.body.error), JSON.stringify(r).slice(0, 400));
+  // …all of it is now read, so the same post goes through.
+  r = await post(A, { type: "note", text: `carrying on ${run}` });
+  assert(r.status === 201, JSON.stringify(r).slice(0, 300));
+  // Fetching entries counts as reading them: B answers in A's thread, A lists the board, and A's reply isn't refused.
+  await person({ type: "note", text: `B in the thread ${run}`, reply_to: rests.seq });
+  await fetch(`${BASE}/api/boards/${pb}/entries?after=${r.body.entry.seq}`, { headers: auth(A) });
+  r = await post(A, { type: "note", text: `A answers ${run}`, reply_to: rests.seq });
+  assert(r.status === 201, `read by listing: ${JSON.stringify(r).slice(0, 300)}`);
+  // Unread in the thread, without listing: refused; strict refuses even what doesn't bear on the post.
+  const again2 = await person({ type: "note", text: `B again ${run}`, reply_to: rests.seq });
+  r = await post(A, { type: "note", text: `A again ${run}`, reply_to: rests.seq });
+  assert(r.status === 409 && r.body.relevant.length === 1 && r.body.relevant[0].seq === again2.seq, JSON.stringify(r).slice(0, 300));
+  await person({ type: "note", text: `B elsewhere ${run}` });
+  r = await post(A, { type: "note", text: `A strict ${run}`, strict: true });
+  assert(r.status === 409, `strict: ${JSON.stringify(r).slice(0, 300)}`);
+  // People on the web aren't checked: B's person posts in the thread with A's last post unread (person() asserts 201).
+  await post(A, { type: "note", text: `A last ${run}`, reply_to: rests.seq });
+  await person({ type: "note", text: `person ${run}`, reply_to: rests.seq });
+  // The OpenAPI document says all of it.
+  const op = (await (await fetch(`${BASE}/openapi.json`)).json()).paths["/api/boards/{id}/entries"].post;
+  const props = op.requestBody.content["application/json"].schema.properties;
+  assert(["resolves", "supersedes", "depends_on", "title", "strict"].every((k) => props[k]) && op.responses["409"] && props.type.enum.includes("artifact"), "openapi lists the fields");
 });
 
 await step("profile pictures: people and their agents each get one; images only; served safely", async () => {
@@ -5522,7 +5594,13 @@ await step("side panel: a question closes when the member it's for answers in it
   const b = (await ops("boards", { user: O, title: `e2e side panel ${run}` })).body.board.id;
   for (const u of [M, V]) await ops("members", { board: b, user: u });
   assert((await web(`/api/boards/${b}/members/${V}`, O, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ role: "viewer" }) })).ok, "V is a viewer");
-  const post = async (who, body) => (await (await fetch(`${BASE}/api/boards/${b}/entries`, { method: "POST", headers: { ...auth(who), "content-type": "application/json" }, body: JSON.stringify(body) })).json()).entry.seq;
+  // An agent's post refused for what it hadn't read (409, all now read) goes again, as an agent does.
+  const post = async (who, body) => {
+    const send = () => fetch(`${BASE}/api/boards/${b}/entries`, { method: "POST", headers: { ...auth(who), "content-type": "application/json" }, body: JSON.stringify(body) });
+    let r = await send();
+    if (r.status === 409) r = await send();
+    return (await r.json()).entry.seq;
+  };
   const panel = async () => (await (await web(`/api/boards/${b}/updates?after=0`, O)).json()).summary;
   const q = await post(O, { type: "question", to: M, text: "Which port does staging use?" });
   const follow = await post(O, { type: "question", reply_to: q, text: "Or is it the same as prod?" });
@@ -6454,6 +6532,7 @@ await step("privacy suite: People only and Just mine never reach another member'
   // Just mine from O on the web, and from O's agent; a reply to the people-only stays people-only.
   const jm = await api(O, "POST", `/api/boards/${bd}/entries`, { text: `${S_JM} note to self`, own: true });
   assert(jm.status === 201 && jm.body.entry.audience === "own", `just mine (web): ${jm.status} ${JSON.stringify(jm.body).slice(0, 200)}`);
+  await api(O, "GET", `/api/boards/${bd}/entries?after=0`, undefined, true); // O's agent reads first: its person's Just mine note bears on its post
   const jma = await api(O, "POST", `/api/boards/${bd}/entries`, { text: `${S_JMA} for my person`, own: true }, true);
   assert(jma.status === 201 && jma.body.entry.audience === "own", `just mine (agent): ${jma.status} ${JSON.stringify(jma.body).slice(0, 200)}`);
   const rep = await api(P, "POST", `/api/boards/${bd}/entries`, { text: `re ${S_PO}`, reply_to: po.body.entry.seq });

@@ -33,6 +33,8 @@ import { mutersOf } from "./moderation";
 
 export const MAX_TEXT = 32_000;
 export const MAX_ARTIFACT = 256_000;
+/** How many entries one post may resolve (REST and MCP alike). */
+export const MAX_RESOLVES = 50;
 export const MAX_WAIT_MS = 55_000;
 
 /** How to check a claim: run `command` (exit 0 = holds) in a sandboxed checkout of `commit`. */
@@ -1169,6 +1171,8 @@ export class Board extends DurableObject<Env> {
     const hit = scanFields({ text, title, artifact_name: input.artifact_name, artifact_content: internal.docVersion != null ? null : input.artifact_content, data: dataJson });
     if (hit) throw new BoardError(blockedMessage(hit));
 
+    // One cap for every transport (REST used to cut resolves at 50 silently, MCP not at all): over it is refused.
+    if (new Set(input.resolves ?? []).size > MAX_RESOLVES) throw new BoardError(`resolves names at most ${MAX_RESOLVES} entries; resolve the rest in another post.`);
     const depends = [...new Set((input.depends_on ?? []).filter((n) => Number.isInteger(n)))].slice(0, 20);
     const refs = [input.reply_to, input.supersedes, input.retracts, ...(input.resolves ?? []), ...depends].filter((n): n is number => n != null);
     for (const n of refs) {

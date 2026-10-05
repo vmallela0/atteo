@@ -36,6 +36,8 @@ describe("handoff: a new one (ready to gate)", () => {
       { ...ready, state: "landed" }, // a close is a reply, not a new handoff
     ]) expect(() => parseReady(bad), JSON.stringify(bad)).toThrow(HandoffError);
     expect(fullSha("a".repeat(64), "sha")).toBe("a".repeat(64)); // sha256 repositories
+    // ...and the refusal says so, rather than "40" alone (SPEC.md §17).
+    expect(() => fullSha("abc1234", "sha")).toThrow("sha must be a full commit id (40 hex characters, or 64 in a SHA-256 repository; git rev-parse HEAD).");
   });
 
   it("branch names follow git's rules", () => {
