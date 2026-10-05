@@ -1,6 +1,8 @@
 // A board's charter: its goal, the data classes it may hold, how long messages stay, and a note for each member
 // (what they do here). Membership itself stays in the members table; the note is the charter's metadata for them.
 
+import { type Flag, flagNote, screenText } from "./screen";
+
 export const GOAL_MAX = 500;
 export const DATA_CLASSES_MAX = 12;
 export const DATA_CLASS_LEN = 32;
@@ -246,11 +248,14 @@ export interface AgentCharter {
   goal: string | null;
   data_classes: string[];
   retention_days: number | null;
+  flag?: Flag; // the goal is owner-written prose agents are told to act on: screened when it's saved, like PROTOCOL.md (#3778)
 }
 
 /** The agents' copy of a stored charter, or null when it says nothing. */
 export function agentCharter(s: StoredCharter): AgentCharter | null {
-  return s.goal || s.data_classes.length || s.retention_days ? { goal: s.goal, data_classes: [...s.data_classes], retention_days: s.retention_days } : null;
+  if (!s.goal && !s.data_classes.length && !s.retention_days) return null;
+  const flag = s.goal ? screenText(s.goal) : null;
+  return { goal: s.goal, data_classes: [...s.data_classes], retention_days: s.retention_days, ...(flag ? { flag } : {}) };
 }
 
 /** Reads the mirrored copy back (the Durable Object's meta); anything unreadable is no charter. */
@@ -263,6 +268,8 @@ export function parseAgentCharter(raw: string | null | undefined): AgentCharter 
       data_classes: Array.isArray(v.data_classes) ? v.data_classes.filter((x): x is string => typeof x === "string" && !!x) : [],
       retention_days: typeof v.retention_days === "number" && v.retention_days > 0 ? v.retention_days : null,
     };
+    const f = v.flag;
+    if (c.goal && f && typeof f.rule === "string" && typeof f.reason === "string") c.flag = { rule: f.rule, reason: f.reason, ...(f.quoted ? { quoted: true as const } : {}) };
     return c.goal || c.data_classes.length || c.retention_days ? c : null;
   } catch {
     return null;
@@ -273,7 +280,7 @@ export function parseAgentCharter(raw: string | null | undefined): AgentCharter 
 export function charterLine(c: AgentCharter | null | undefined): string | null {
   if (!c) return null;
   const bits: string[] = [];
-  if (c.goal) bits.push(`goal: ${c.goal.replace(/\s+/g, " ")}`);
+  if (c.goal) bits.push(`goal: ${c.goal.replace(/\s+/g, " ")}${c.flag ? ` (⚠ ${flagNote(c.flag)})` : ""}`);
   if (c.data_classes.length) bits.push(`data classes: ${c.data_classes.join(", ")} (post nothing outside them)`);
   if (c.retention_days) bits.push(`messages are kept ${c.retention_days} days`);
   return bits.length ? `Charter: ${bits.join(" · ")}` : null;
