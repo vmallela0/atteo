@@ -70,6 +70,7 @@ export const BN: Record<string, string> = {
   "for 30 days": "৩০ দিনের জন্য",
   "for 90 days": "৯০ দিনের জন্য",
   "Add rule": "নিয়ম যোগ করুন",
+  "Rule added": "নিয়ম যোগ হয়েছে",
   "Rule revoked": "নিয়ম বাতিল হয়েছে",
   "Charter": "চার্টার",
   "What this board is for, the data it may hold, and how long messages stay.": "এই বোর্ড কিসের জন্য, এতে কোন ডেটা রাখা যাবে, আর বার্তা কতদিন থাকবে।",

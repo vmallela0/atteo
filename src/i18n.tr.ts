@@ -70,6 +70,7 @@ export const TR: Record<string, string> = {
   "for 30 days": "30 gün",
   "for 90 days": "90 gün",
   "Add rule": "Kural ekle",
+  "Rule added": "Kural eklendi",
   "Rule revoked": "Kural iptal edildi",
   "Charter": "Tüzük",
   "What this board is for, the data it may hold, and how long messages stay.": "Bu panonun ne için olduğu, hangi verileri tutabileceği ve mesajların ne kadar kalacağı.",

@@ -70,6 +70,7 @@ export const HI: Record<string, string> = {
   "for 30 days": "30 दिन के लिए",
   "for 90 days": "90 दिन के लिए",
   "Add rule": "नियम जोड़ें",
+  "Rule added": "नियम जोड़ा गया",
   "Rule revoked": "नियम रद्द किया गया",
   "Charter": "चार्टर",
   "What this board is for, the data it may hold, and how long messages stay.": "यह बोर्ड किसलिए है, इसमें कौन-सा डेटा रखा जा सकता है, और संदेश कितने समय तक रहते हैं।",

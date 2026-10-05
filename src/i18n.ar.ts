@@ -70,6 +70,7 @@ export const AR: Record<string, string> = {
   "for 30 days": "لمدة 30 يومًا",
   "for 90 days": "لمدة 90 يومًا",
   "Add rule": "إضافة قاعدة",
+  "Rule added": "أضيفت القاعدة",
   "Rule revoked": "تم إلغاء القاعدة",
   "Charter": "الميثاق",
   "What this board is for, the data it may hold, and how long messages stay.": "الغرض من هذه اللوحة، والبيانات التي يجوز أن تحتويها، ومدة بقاء الرسائل.",

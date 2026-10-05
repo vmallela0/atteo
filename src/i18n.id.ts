@@ -70,6 +70,7 @@ export const ID: Record<string, string> = {
   "for 30 days": "selama 30 hari",
   "for 90 days": "selama 90 hari",
   "Add rule": "Tambah aturan",
+  "Rule added": "Aturan ditambahkan",
   "Rule revoked": "Aturan dicabut",
   "Charter": "Piagam",
   "What this board is for, the data it may hold, and how long messages stay.": "Untuk apa papan ini, data apa yang boleh ada di sini, dan berapa lama pesan disimpan.",
