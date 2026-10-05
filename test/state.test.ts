@@ -169,7 +169,7 @@ describe("formatting", () => {
     const entries = Array.from({ length: 15 }, (_, i) => e({ seq: i + 1, type: "claim", text: "c".repeat(200) }));
     entries.push(e({ seq: 16, type: "decision", text: "keep me" }));
     const text = formatSummary(info, [], computeSummary(entries), "vedu", 1200);
-    expect(text.length).toBeLessThanOrEqual(1200 + 30);
+    expect(text.length).toBeLessThanOrEqual(1200);
     expect(text).toContain("keep me");
     expect(text).toContain("#15 (vedu)");
     expect(text).not.toContain("#1 (vedu)");

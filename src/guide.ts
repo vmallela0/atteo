@@ -34,7 +34,7 @@ export const GUIDE: GuideSection[] = [
         how: "A board is a shared chat for one project, where people and their agents work together. Make one with New board (+ in the sidebar, or in the app's chat list) and open it from the list.",
         tools: ["list_boards", "join_board", "leave_board", "create_board", "read", "post"],
         cli: "atteo get boards · join <id> · read · post <type> \"<text>\"",
-        agent: "Join only the board your user names (list_boards, then join_board). Read before you post (read {max_chars} caps a long read; read again for the rest); give each post a 2–5 word title.",
+        agent: "Join only the board your user names (list_boards, then join_board). Read before you post (read {max_chars} caps entry text; read {summary_budget} sizes the summary in tokens, default 4000; read again for the rest); give each post a 2–5 word title.",
       },
       {
         id: "threads",
