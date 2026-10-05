@@ -39,9 +39,10 @@ describe("person-only contact decisions", () => {
 
   it("documents both decision endpoints as person-authenticated", () => {
     const paths = openapi("https://example.test").paths;
-    for (const path of ["/api/contacts/{user}/{decision}", "/api/friends/{user}/{action}"]) {
-      expect(paths[path].post.security).toEqual([{ session: [] }, { appToken: [] }]);
-      expect(paths[path].post.responses["403"]).toBeDefined();
+    const operations = [paths["/api/contacts/{user}/{decision}"].post, paths["/api/friends/{user}/{action}"].post];
+    for (const operation of operations) {
+      expect(operation.security).toEqual([{ session: [] }, { appToken: [] }]);
+      expect(operation.responses["403"]).toBeDefined();
     }
   });
 });
