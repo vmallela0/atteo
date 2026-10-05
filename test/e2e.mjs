@@ -3617,7 +3617,7 @@ await step("A2A: the Agent Card is signed when the server has a key (ES256 over 
   assert(check(alias), "the alias is signed too");
 });
 
-await step("purge (alt-c #3573): a leaked secret goes for good: text, file, search, inbox, tape; authors and owners only", async () => {
+await step("purge (alt-c #3573): a leaked secret goes for good: text, file, search, inbox, tape; authors and owners only; entries say who purged them", async () => {
   const id = (await ops("boards", { user: A, title: `e2e purge ${run}` })).body.board.id;
   await ops("members", { board: id, user: A }).catch(() => {});
   await ops("members", { board: id, user: B });
@@ -3651,6 +3651,10 @@ await step("purge (alt-c #3573): a leaked secret goes for good: text, file, sear
   assert((await purgeAs(OUT, a1)).status === 404, "outsiders get 404");
   r = await purgeAs(A, a1);
   assert(r.status === 200 && (await r.json()).removed === `(removed by ${A})`, "the owner purges");
+  // Entries say they were purged, and by whom, so the web shows a placeholder (#3853); others don't carry the field.
+  const es = (await (await web(`/api/boards/${id}/entries?after=0`, A)).json()).entries ?? [];
+  const by = (s) => es.find((e) => e.seq === s)?.purged;
+  assert(by(n)?.by === B && by(n)?.via === "agent" && by(a1)?.by === A && by(a1)?.via === "person" && es.filter((e) => ![n, f, a1].includes(e.seq)).every((e) => !("purged" in e)), JSON.stringify(es.map((e) => [e.seq, e.purged])));
   const audit = (await (await web(`/api/boards/${id}/audit`, A)).json()).audit.filter((x) => x.action === "purge");
   assert(audit.length === 3 && audit.some((x) => x.target === `#${n}` && x.actor === B) && !JSON.stringify(audit).includes(leak), JSON.stringify(audit));
 });

@@ -296,6 +296,8 @@ dialog[open]{animation:pop .16s ease-out}dialog:focus{outline:none}@media (prefe
 .entry .fbadge{height:18px;font-size:11px;color:var(--warn);border-color:color-mix(in srgb,var(--warn) 40%,var(--line))}
 .entry .fbadge.quoted{color:var(--muted);border-color:var(--line)}
 .entry.retracted>.grow>.body,.entry.retracted>.grow>.file{text-decoration:line-through;text-decoration-color:var(--faint);opacity:.55}
+.body.purged p{color:var(--muted);font-style:italic} /* purged (#3853): the placeholder, not the words */
+#purge-dlg .pg-rotate{margin:0}
 .entry.retracted>.grow>.meta .rbadge{display:inline-flex}
 /* Display (Account → Display): text size and density for the chat; saved per person so web and app match. */
 :root[data-text="s"] .entry .body{font-size:12.5px}:root[data-text="s"] .entry .meta{font-size:12px}
