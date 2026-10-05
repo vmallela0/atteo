@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { BOARD_JS, boardPage as boardPageRaw, changeCardHtml, changeLink, refLinks } from "../src/html";
+import { BOARD_JS, boardPage as boardPageRaw, boardTail, changeCardHtml, changeLink, refLinks } from "../src/html";
 import { APP_CSS, APP_JS, SHELL_PAGE_JS } from "../src/ui";
 // The board page loads its shared script from /board.js (and the shell's from /app.js): the checks below read the page with
 // them put back inline, where they used to be.
 const inlined = (h: string) =>
-  h.replace(/<script src="\/board\.js\?v=[^"]+"[^>]*><\/script>/, () => `<script>${BOARD_JS}</script>`).replace(/<script src="\/app\.js\?v=[^"]+"[^>]*><\/script>/, () => `<script>${APP_JS}</script>`).replace(/<script src="\/shell\.js\?v=[^"]+"[^>]*><\/script>/, () => `<script>${SHELL_PAGE_JS}</script>`);
+  h.replace(/<script src="\/board\.js\?v=[^"]+"[^>]*><\/script>/, () => `<script>${BOARD_JS}</script>`).replace(/<script src="\/board-tail\.js\?f=([01]{4})&amp;v=[^"]+"[^>]*><\/script>|<script src="\/board-tail\.js\?f=([01]{4})&v=[^"]+"[^>]*><\/script>/, (_, a, b) => `<script>${boardTail(a ?? b)!.js}</script>`).replace(/<script src="\/app\.js\?v=[^"]+"[^>]*><\/script>/, () => `<script>${APP_JS}</script>`).replace(/<script src="\/shell\.js\?v=[^"]+"[^>]*><\/script>/, () => `<script>${SHELL_PAGE_JS}</script>`);
 const boardPage = (...a: Parameters<typeof boardPageRaw>) => {
   const r = boardPageRaw(...a);
   return { status: r.status, headers: r.headers, text: async () => inlined(await r.text()) };

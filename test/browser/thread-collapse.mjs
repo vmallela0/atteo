@@ -36,6 +36,8 @@ const runs = [[1280, "developer"], [390, "everyday"]].map(([w, mode]) => async (
   p.on("pageerror", (e) => errors.push(e.message));
   await p.goto(`${BASE}/b/${board}`);
   await p.locator(`#e${root} .thr-sum`).waitFor({ timeout: 8000 }).catch(() => {});
+  // The account's Display setting arrives after load (the shell fetches /api/me/profile): wait for it to apply.
+  await until(() => p.evaluate(() => document.documentElement.dataset.replies === "thread"), 5000);
   const vis = (s) => p.locator(`#e${s}`).isVisible();
   check((await p.evaluate(() => document.documentElement.dataset.replies)) === "thread", `${tag}: the page follows the account's Display setting`);
   check((await vis(root)) && (await vis(other)) && !(await vis(r1)) && !(await vis(r2)), `${tag}: top-level messages show; replies don't`);

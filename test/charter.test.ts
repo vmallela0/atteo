@@ -12,7 +12,7 @@ import {
   storedFromRow,
 } from "../src/charter";
 import { charterJs } from "../src/charterUi";
-import { boardPage } from "../src/html";
+import { boardPage, boardTail } from "../src/html";
 import type { BoardInfo, Entry } from "../src/types";
 
 const { DatabaseSync } = (await import("node:" + "sqlite")) as { DatabaseSync: new (p: string) => any };
@@ -124,7 +124,10 @@ describe("charter on the board page", () => {
     expect(html).toContain("Keep messages 90 days");
     expect(html).toContain("eng lead");
     expect(html).toContain('id="ch-edit"');
-    expect(html).toContain("/api/boards/'+BOARD+'/charter");
+    // The charter's script runs from the board page's cached tail (/board-tail.js), which the page loads.
+    const tail = /\/board-tail\.js\?f=([01]{4})/.exec(html)?.[1];
+    expect(tail).toBeTruthy();
+    expect(boardTail(tail!)!.js).toContain("/api/boards/'+BOARD+'/charter");
     for (const s of [...html.matchAll(/<script[^>]*>([\s\S]*?)<\/script>/g)].map((m) => m[1]).filter((s) => s.includes("charterRefresh"))) expect(() => new Function(s)).not.toThrow();
     expect(() => new Function(charterJs())).not.toThrow();
 

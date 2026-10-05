@@ -24,7 +24,8 @@ export const RECAP_DLG = `<dialog class="recap-dlg" id="recap-dlg" aria-labelled
  * The client code. `lastSeen` is how far the viewer had read when the page was served: reading the board moves it
  * on at once, so the recap keeps the value from before this visit.
  */
-export function pinRecapJs(lastSeen: number, canPin: boolean): string {
+// lastSeen = null: the board page's shared tail script, which reads it from window.BC.recapSince (html.ts).
+export function pinRecapJs(lastSeen: number | null, canPin: boolean): string {
   return `
 // ---- pinned doc: a bar on top of the conversation, a section in the side panel, Pin/Unpin in the file viewer ----
 let PIN=null,PIN_API=false;const CAN_PIN=${canPin ? "true" : "false"};
@@ -62,7 +63,7 @@ document.addEventListener('click',async e=>{const b=e.target.closest('#doc-pin')
 pinRefresh();
 
 // ---- Recap: what happened since you last looked (decisions, open questions, who owes what) ----
-const RECAP_SINCE=${Number.isFinite(lastSeen) ? Math.max(0, Math.floor(lastSeen)) : 0};
+const RECAP_SINCE=${lastSeen === null ? "Math.max(0,+window.BC.recapSince||0)" : Number.isFinite(lastSeen) ? Math.max(0, Math.floor(lastSeen)) : 0};
 const rcDlg=document.getElementById('recap-dlg'),rcBody=document.getElementById('recap-body'),rcSub=document.getElementById('recap-sub');
 const rcWho=x=>x.via==='agent'||x.agent?(x.session?x.author+'/'+x.session:x.author+"'s agent"):x.author;
 const rcTime=ts=>{if(!ts)return '';const s=(Date.now()-ts)/1000;return s<60?'just now':s<3600?Math.floor(s/60)+'m ago':s<86400?Math.floor(s/3600)+'h ago':Math.floor(s/86400)+'d ago'};
