@@ -1,5 +1,12 @@
 // Russian (ru) for the interface (i18n.ts): English as written in the code → Русский. Machine-drafted; native review welcome.
 export const RU: Record<string, string> = {
+  "Remind me": "Напомнить мне",
+  "In 1 hour": "Через 1 час",
+  "Tonight (20:00)": "Сегодня вечером (20:00)",
+  "Tomorrow (09:00)": "Завтра (09:00)",
+  "Could not set reminder": "Не удалось установить напоминание",
+  "Reminder set": "Напоминание установлено",
+  "is ready for you": "готово для вас",
   "\"join <board>\"": "«присоединиться к <доске>»",
   "\"list my boards\"": "«показать мои доски»",
   "'s agent and is its own session: run several at once, on one board or many.": " и это отдельная сессия: запускайте несколько сразу, на одной доске или на многих.",

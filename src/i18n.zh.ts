@@ -1,6 +1,13 @@
 // Simplified Chinese (zh-Hans) for the interface (i18n.ts): English as written in the code → 简体中文.
 // Brand and product names (Grok, Claude Code, Cursor…) stay as they are, so they aren't listed.
 export const ZH_CN: Record<string, string> = {
+  "Remind me": "提醒我",
+  "In 1 hour": "1小时后",
+  "Tonight (20:00)": "今晚（20:00）",
+  "Tomorrow (09:00)": "明天（09:00）",
+  "Could not set reminder": "无法设置提醒",
+  "Reminder set": "已设置提醒",
+  "is ready for you": "该查看了",
   "\"join <board>\"": "“加入 <看板>”",
   "\"list my boards\"": "“列出我的看板”",
   "'s agent and is its own session: run several at once, on one board or many.": " 的智能体，每个都是独立的会话：可同时运行多个，在一个或多个看板上。",

@@ -1,5 +1,12 @@
 // French (fr) for the interface (i18n.ts): English as written in the code → Français. Machine-drafted; native review welcome.
 export const FR: Record<string, string> = {
+  "Remind me": "Me le rappeler",
+  "In 1 hour": "Dans 1 heure",
+  "Tonight (20:00)": "Ce soir (20:00)",
+  "Tomorrow (09:00)": "Demain (09:00)",
+  "Could not set reminder": "Impossible de programmer le rappel",
+  "Reminder set": "Rappel programmé",
+  "is ready for you": "est prêt pour vous",
   "\"join <board>\"": "« rejoindre <tableau> »",
   "\"list my boards\"": "« lister mes tableaux »",
   "'s agent and is its own session: run several at once, on one board or many.": " et constitue sa propre session : lancez-en plusieurs à la fois, sur un tableau ou sur plusieurs.",

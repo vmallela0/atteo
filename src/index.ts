@@ -545,6 +545,7 @@ async function runScheduled(env: Env, ctx: ExecutionContext, now = Date.now()): 
       .catch(() => ({ results: [] as { board_id: string }[] }))
   ).results;
   const fired = await Promise.all(due.map((b) => boardStub(env, b.board_id).runSchedules(now).catch(() => 0)));
+  await inbox.fireReminders(env, now);
   // Shared crons (board schedules): boards with one due by now post its task (each due time once; the board knows).
   const dueBoards = (
     await env.DB.prepare(`SELECT DISTINCT board_id FROM board_schedules WHERE next_at <= ?`)
@@ -919,7 +920,11 @@ const handler = {
         const mentions = mail.filter((i) => i.kind !== "decision" && i.entry_type !== "question" && i.entry_type !== "decision");
         const ids = [...new Set([...side.slice(0, forYou.FOR_YOU_BOARDS).map((b) => b.id), ...mail.map((i) => i.board_id)])].slice(0, forYou.FOR_YOU_BOARDS + 4);
         const boards = (await Promise.all(ids.map((id) => boardStub(env, id).forYou(viewer.name, now - forYou.DONE_WINDOW_MS).catch(() => null)))).filter((b): b is forYou.ForYouCore => !!b);
-        return forYou.forYouPage(viewer, side, { approvals: aps, boards, mentions, now });
+        const snoozedRows = (await env.DB.prepare(`SELECT n.board_id, n.seq, n.data FROM inbox_reminders r JOIN notifications n ON n.id = r.notification_id WHERE r.user = ?`).bind(viewer.name).all<{ board_id: string; seq: number; data: string | null }>()).results;
+        const snoozed = new Set(snoozedRows.map((r) => `${r.board_id}:${r.seq}`));
+        const snoozedApprovals = new Set(snoozedRows.flatMap((r) => { try { const id = JSON.parse(r.data ?? "null")?.push?.approval; return id ? [id as string] : []; } catch { return []; } }));
+        const visible = boards.map((b) => ({ ...b, decisions: b.decisions.filter((x) => !snoozed.has(`${b.board.id}:${x.seq}`)), questions: b.questions.filter((x) => !snoozed.has(`${b.board.id}:${x.seq}`)) }));
+        return forYou.forYouPage(viewer, side, { approvals: aps.filter((a) => !snoozedApprovals.has(a.id)), boards: visible, mentions, now });
       }
       if (path === "/api/inbox" && method === "GET") {
         if (!viewer) return needLogin();
@@ -984,6 +989,29 @@ const handler = {
       if (path === "/api/inbox/count" && method === "GET") {
         if (!viewer) return needLogin();
         return json(await inbox.inboxCount(env, viewer.name, viewer.via !== "agent"), 200, { "cache-control": "no-store" });
+      }
+      m = path.match(/^\/api\/inbox\/([^/]+)\/remind$/);
+      if (m && (method === "POST" || method === "DELETE")) {
+        if (!viewer) return needLogin();
+        if (viewer.via === "agent") return json({ error: "people only" }, 403);
+        const body = method === "POST" ? (await request.json().catch(() => ({}))) as { at?: unknown } : {};
+        const at = typeof body.at === "string" ? Date.parse(body.at) : body.at;
+        if (method === "POST" && (typeof at !== "number" || !Number.isSafeInteger(at) || at <= Date.now() || at > Date.now() + 365 * 86_400_000)) return json({ error: "at must be a future ISO time within one year" }, 400);
+        let id = Number(m[1]);
+        if (!/^\d+$/.test(m[1])) {
+          const target = m[1].match(/^([a-zA-Z0-9_-]+):(\d+)$/);
+          if (!target || !BOARD_RE.test(target[1]) || !(await canSee(c, target[1]))) return json({ error: "message not found" }, 404);
+          const existing = await env.DB.prepare(`SELECT id FROM notifications WHERE user = ? AND board_id = ? AND seq = ?`).bind(viewer.name, target[1], Number(target[2])).first<{ id: number }>();
+          if (existing) id = existing.id;
+          else if (method === "POST") {
+            const entry = (await boardStub(env, target[1]).get(Number(target[2]), { user: viewer.name, person: true }).catch(() => null))?.entry;
+            if (!entry) return json({ error: "message not found" }, 404);
+            const created = await env.DB.prepare(`INSERT INTO notifications (user, board_id, seq, kind, actor, actor_via, entry_type, excerpt, created_at, read_at) VALUES (?, ?, ?, 'reminder', ?, ?, ?, ?, ?, ?) RETURNING id`).bind(viewer.name, target[1], entry.seq, entry.author, entry.via, entry.type, entry.text.slice(0, 180), Date.now(), Date.now()).first<{ id: number }>();
+            id = created!.id;
+          } else return json({ error: "reminder not found" }, 404);
+        }
+        if (method === "DELETE") return (await inbox.cancelReminder(env, viewer.name, id)) ? json({ ok: true }) : json({ error: "reminder not found" }, 404);
+        return (await inbox.remind(env, viewer.name, id, at as number)) ? json({ ok: true, at }) : json({ error: "inbox item not found" }, 404);
       }
       if (path === "/api/inbox/read" && method === "POST") {
         if (!viewer) return needLogin();

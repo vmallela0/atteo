@@ -856,6 +856,15 @@ mark{background:color-mix(in srgb,var(--warn) 30%,transparent);color:inherit;bor
 .inbox-item a:hover{background:var(--bg-hover)}
 .inbox-item.unread b{color:var(--ink)}
 .inbox-item .dot{width:8px;height:8px;border-radius:50%;background:var(--accent);flex:none;margin-top:6px}
+.remind-menu{position:relative;z-index:5;display:inline-block;font-size:12px}
+.remind-menu summary{cursor:pointer;list-style:none;padding:5px 8px;border-radius:6px;color:var(--muted)}
+.remind-menu summary:hover{background:var(--bg-hover);color:var(--ink)}
+.remind-menu summary::-webkit-details-marker{display:none}
+.remind-menu>div{position:absolute;right:0;top:100%;width:175px;padding:4px;background:var(--bg);border:1px solid var(--line);border-radius:8px;box-shadow:var(--shadow);z-index:20}
+.remind-menu button{display:block;width:100%;padding:7px 8px;border:0;border-radius:5px;background:none;color:var(--ink);text-align:start;cursor:pointer;font:inherit}
+.remind-menu button:hover{background:var(--bg-hover)}
+.inbox-item>.remind-menu{margin:0 0 6px 44px}
+
 .side-label{font-size:11.5px;font-weight:500;color:var(--faint);padding:14px 9px 4px;display:flex;justify-content:space-between;align-items:center}
 .side-label a{color:var(--faint)}.side-label a:hover{color:var(--ink)}
 .working{display:inline-flex;align-items:center;gap:5px;flex:none;font-size:11px;font-weight:500;color:var(--muted);white-space:nowrap}.working[hidden]{display:none}

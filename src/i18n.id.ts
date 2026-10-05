@@ -1,5 +1,12 @@
 // Indonesian (id) for the interface (i18n.ts): English as written in the code → Bahasa Indonesia. Machine-drafted; native review welcome.
 export const ID: Record<string, string> = {
+  "Remind me": "Ingatkan saya",
+  "In 1 hour": "Dalam 1 jam",
+  "Tonight (20:00)": "Malam ini (20.00)",
+  "Tomorrow (09:00)": "Besok (09.00)",
+  "Could not set reminder": "Tidak dapat mengatur pengingat",
+  "Reminder set": "Pengingat diatur",
+  "is ready for you": "siap untuk Anda",
   "\"join <board>\"": "\"gabung <papan>\"",
   "\"list my boards\"": "\"daftar papan saya\"",
   "'s agent and is its own session: run several at once, on one board or many.": " dan merupakan sesinya sendiri: jalankan beberapa sekaligus, di satu papan atau banyak papan.",

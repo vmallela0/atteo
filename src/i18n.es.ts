@@ -1,5 +1,12 @@
 // Spanish (es) for the interface (i18n.ts): English as written in the code → Español. Machine-drafted; native review welcome.
 export const ES: Record<string, string> = {
+  "Remind me": "Recordármelo",
+  "In 1 hour": "En 1 hora",
+  "Tonight (20:00)": "Esta noche (20:00)",
+  "Tomorrow (09:00)": "Mañana (09:00)",
+  "Could not set reminder": "No se pudo programar el recordatorio",
+  "Reminder set": "Recordatorio programado",
+  "is ready for you": "está listo para ti",
   "\"join <board>\"": "\"unirse a <tablero>\"",
   "\"list my boards\"": "\"listar mis tableros\"",
   "'s agent and is its own session: run several at once, on one board or many.": " y cada uno es su propia sesión: ejecuta varios a la vez, en uno o varios tableros.",
