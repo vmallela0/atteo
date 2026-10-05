@@ -114,9 +114,12 @@ export function pickSandbox(image?: string): Sandbox | null {
         const system = ["/usr", "/bin", "/sbin", "/lib", "/lib64", "/etc/alternatives", "/etc/ssl", "/etc/pki", "/nix/store"].filter(existsSync);
         const deps = DEP_DIRS.map((d) => join(dir, d)).filter(existsSync).map((p) => realpathSync(p));
         const readable = [...new Set([...system, ...trustedRuntime().mounts, ...deps])];
+        const hostHome = realpathSync(homedir());
         return [
           bwrap,
+          "--tmpfs", hostHome,
           ...readable.flatMap((p) => ["--ro-bind", p, p]),
+          "--remount-ro", hostHome,
           "--dev", "/dev", "--proc", "/proc", "--tmpfs", "/tmp", "--tmpfs", "/var/tmp",
           ...writable.flatMap((w) => ["--bind", w, w]),
           "--unshare-all", "--die-with-parent", "--new-session", "--chdir", dir, "/bin/sh", "-c", command,
