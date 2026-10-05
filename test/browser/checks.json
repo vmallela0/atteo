@@ -150,5 +150,6 @@
  "moderation": 4,
  "board-prefetch": 3,
  "standing-rules": 2,
- "charter": 3
+ "charter": 3,
+ "a11y-pages": 70
 }

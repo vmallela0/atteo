@@ -2359,11 +2359,11 @@ const IS_OWNER=BC.isOwner,CREATOR=BC.creator;if(BC.readOnly)document.documentEle
 const accFmt=ts=>ts?new Date(ts).toISOString().slice(0,10):'';
 async function accLoad(){const [m,a,l]=await Promise.all([fetch('/api/boards/'+BOARD+'/members').then(r=>r.json()).catch(()=>({})),fetch('/api/boards/'+BOARD+'/audit').then(r=>r.json()).catch(()=>({})),
     IS_OWNER?fetch('/api/boards/'+BOARD+'/links').then(r=>r.json()).catch(()=>({})):Promise.resolve({})]);
-  const sel=(name,val,opts,dis)=>'<select class="input acc-sel" data-acc="'+name+'"'+(dis?' disabled':'')+'>'+opts.map(o=>'<option value="'+o[0]+'"'+(o[0]===val?' selected':'')+'>'+o[1]+'</option>').join('')+'</select>';
+  const sel=(name,val,opts,dis,label)=>'<select class="input acc-sel" data-acc="'+name+'" aria-label="'+esc(label)+'"'+(dis?' disabled':'')+'>'+opts.map(o=>'<option value="'+o[0]+'"'+(o[0]===val?' selected':'')+'>'+o[1]+'</option>').join('')+'</select>';
   document.getElementById('acc-members').innerHTML=(m.members||[]).map(x=>{const fixed=!IS_OWNER||x.user===CREATOR;
     return '<li class="acc-row" data-user="'+esc(x.user)+'">'+avatar16(x.user,false)+'<span class="grow truncate">'+esc(x.user)+(x.user===ME?' <span class="faint">'+tr('(you)')+'</span>':'')+'</span>'+
-      sel('role',x.role||'contributor',[['owner',tr('Owner')],['contributor',tr('Can post')],['viewer',tr('View only')]],fixed)+
-      sel('days',x.expires_at?'keep':'0',(x.expires_at?[['keep',tr('Until ')+accFmt(x.expires_at)]]:[]).concat([['0',tr('No end date')],['7','7 more days'],['30','30 more days'],['90','90 more days']]),!IS_OWNER||x.user===CREATOR)+'</li>'}).join('')||'<li class="xs faint">'+tr('No members')+'</li>';
+      sel('role',x.role||'contributor',[['owner',tr('Owner')],['contributor',tr('Can post')],['viewer',tr('View only')]],fixed,tr('Role for {name}',{name:x.user}))+
+      sel('days',x.expires_at?'keep':'0',(x.expires_at?[['keep',tr('Until ')+accFmt(x.expires_at)]]:[]).concat([['0',tr('No end date')],['7',tr('{n} more days',{n:7})],['30',tr('{n} more days',{n:30})],['90',tr('{n} more days',{n:90})]]),!IS_OWNER||x.user===CREATOR,tr('Access for {name}',{name:x.user}))+'</li>'}).join('')||'<li class="xs faint">'+tr('No members')+'</li>';
   if(IS_OWNER)document.getElementById('acc-links').innerHTML=(l.links||[]).filter(x=>!x.revoked_at&&(!x.expires_at||x.expires_at>Date.now())).map(x=>'<li class="acc-row xs"><span class="grow">'+(x.role==='viewer'?tr('View only'):tr('Can post'))+' link · until '+accFmt(x.expires_at)+' · used '+x.uses+(x.max_uses?' of '+x.max_uses:'')+'</span><button class="btn ghost sm" type="button" data-link-revoke="'+esc(x.id)+'">'+tr('Revoke')+'</button></li>').join('');
   const verb={invited:'invited',joined:'joined',removed:'removed',left:'left',access_changed:'changed access for',link_created:'created an invite link',link_revoked:'revoked an invite link',renamed:'renamed the board',archived:'archived the board',restored:'restored the board',expired:'access ended for',picture_changed:'changed the board picture',picture_removed:'removed the board picture',charter:'updated the charter',retention:'set how long messages are kept'};
   document.getElementById('acc-audit').innerHTML=(a.audit||[]).slice(0,50).map(x=>'<li class="xs"><b>'+esc(x.actor)+'</b> '+(verb[x.action]||esc(x.action))+(x.target?' <b>'+esc(x.target)+'</b>':'')+(x.detail?' <span class="faint">· '+esc(x.detail)+'</span>':'')+' <span class="faint">· '+new Date(x.ts).toLocaleString([],{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'})+'</span></li>').join('')||'<li class="xs faint">'+tr('Nothing yet')+'</li>'}
@@ -2543,7 +2543,7 @@ function card(t){const first=t.title||'';const boxes=ckLines(t.body||'');const t
   const who=t.assignee?(t.assignee_agent?t.assignee+"'s agent":t.assignee):'';
   const hold=t.lease_holder?(t.lease_agent?(t.lease_session_name?t.lease_holder+'/'+t.lease_session_name:t.lease_holder+"'s agent"):t.lease_holder):''; // "jxn/alt-b": the session holding it (#3474)
   // Title first; one quiet line under it: number, priority, checklist, due date, and who it's for / who holds it.
-  return '<article class="kcard" draggable="true" data-seq="'+t.seq+'"><div class="ktext">'+esc(first)+'</div>'+
+  return '<article class="kcard" draggable="true" tabindex="0" data-seq="'+t.seq+'"><div class="ktext">'+esc(first)+'</div>'+
     '<div class="kmeta"><a class="seq" href="#e'+t.seq+'" data-kopen="'+t.seq+'">#'+t.seq+'</a>'+(t.priority?'<span class="badge pri-'+t.priority+'">'+t.priority+'</span>':'')+(t.status==='stopped'?'<span class="badge pri-high">'+tr('stopped')+'</span>':'')+
     (t.parent!=null?'<span class="ksub" title="'+(par?tr('Sub-task of ')+esc(par.title):tr('A sub-task'))+'">↳ '+(par?esc(par.title):'sub-task')+'</span>':'')+
     (boxes.length?'<span title="'+tr('Checklist')+'">☑ '+ticked+'/'+boxes.length+'</span>':'')+(t.children?'<span title="'+tr('Sub-tasks done')+'">'+t.children.done+'/'+t.children.total+' sub-tasks</span>':'')+(t.due?'<span>due '+new Date(t.due).toISOString().slice(5,10)+'</span>':'')+'<span class="grow"></span>'+
@@ -2562,6 +2562,7 @@ kb.addEventListener('drop',e=>{const col=e.target.closest('.kcol');if(!col||!dra
 kb.addEventListener('click',e=>{const d=e.target.closest('[data-kdone]');if(d){e.preventDefault();e.stopPropagation();taskAct(+d.dataset.kdone,{action:'update',status:'done'});return}
   const a=e.target.closest('[data-kopen]');if(a){e.preventDefault();tab(0);location.hash='#e'+a.dataset.kopen;return}
   const c=e.target.closest('.kcard');if(c)openTask(+c.dataset.seq)});
+kb.addEventListener('keydown',e=>{if((e.key==='Enter'||e.key===' ')&&e.target.classList?.contains('kcard')){e.preventDefault();openTask(+e.target.dataset.seq)}}); // cards open from the keyboard too
 document.getElementById('kb-new')?.addEventListener('submit',async e=>{e.preventDefault();const i=document.getElementById('kb-new-text');const title=i.value.trim();if(!title)return;
   const r=await fetch('/api/boards/'+BOARD+'/tasks',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({title})});
   const j=await r.json().catch(()=>({}));if(!r.ok){toast(j.error||tr('Could not add'));return}i.value='';loadTasks();tick(false);openTask(j.task.seq)});
@@ -2790,7 +2791,7 @@ ${notifySide(L)}
   <div class="kanban-head row"><span class="small muted grow kb-hint">${esc(T("Drag a card to change its status. Agents see the same board through the"))} <code>${esc(T("task"))}</code> ${esc(T("tool."))}</span>${
     info.archived ? "" : `<form class="row kb-new" id="kb-new"><input class="input sm" id="kb-new-text" placeholder="${esc(T("New task…"))}" aria-label="${esc(T("New task"))}"><button class="btn sm">${esc(T("Add"))}</button></form>`
   }</div>
-  <div class="kanban" id="kanban"><p class="muted small">${esc(T("Loading…"))}</p></div>
+  <div class="kanban" id="kanban" tabindex="0" role="region" aria-label="${esc(T("Tasks"))}"><p class="muted small">${esc(T("Loading…"))}</p></div>
 </div>
 
   <dialog id="task-dlg" class="task-dlg"><form id="td-form">
