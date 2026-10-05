@@ -1,6 +1,7 @@
 // Board invites. Nobody is added without answering: invitations wait until the invitee accepts them
 // (on the web, or by asking their agent to join). New people get a sign-up email from WorkOS.
 
+import { applies } from "./standingRules";
 import { isFriend, rulesOf } from "./social";
 import { sendWorkosInvitation } from "./auth";
 import * as registry from "./registry";
@@ -36,11 +37,22 @@ export async function sendInvite(
     return { ok: true, added: false, emailed: false, signInUrl, message: `${email} already has an open invitation to board ${opts.boardId}.` };
   }
   if (existing) {
-    // Their standing rule: invites from friends join them right away.
-    if (opts.invitedBy !== "ops" && (await rulesOf(env, existing.name)).auto_accept_invites === "friends" && (await isFriend(env, opts.invitedBy, existing.name))) {
-      await registry.recordInvite(env, { ...base, email_status: "accepted by their rule (invites from friends)" });
+    // Account-wide: invites from friends join them right away. A standing rule does the same for one person or
+    // for current members of one board, until it expires.
+    const byFriend = opts.invitedBy !== "ops" && (await rulesOf(env, existing.name)).auto_accept_invites === "friends" && (await isFriend(env, opts.invitedBy, existing.name));
+    const byStanding = opts.invitedBy !== "ops" && (await applies(env, existing.name, "accept_invites", opts.invitedBy));
+    if (byFriend || byStanding) {
+      await registry.recordInvite(env, { ...base, email_status: byFriend ? "accepted by their rule (invites from friends)" : "accepted by their standing rule" });
       if (await registry.acceptInvitation(env, existing, opts.boardId, origin).catch(() => false)) {
-        return { ok: true, added: true, emailed: false, signInUrl, message: `${existing.name} joined board ${opts.boardId} right away (they accept invites from friends automatically).` };
+        return {
+          ok: true,
+          added: true,
+          emailed: false,
+          signInUrl,
+          message: byFriend
+            ? `${existing.name} joined board ${opts.boardId} right away (they accept invites from friends automatically).`
+            : `${existing.name} joined board ${opts.boardId} right away (a standing rule of theirs).`,
+        };
       }
     }
     // Has an account: no email needed. The invitation waits in their Atteo until they accept it.

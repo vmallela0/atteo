@@ -13,6 +13,7 @@ import { approvalsPage } from "./approvalsPage";
 import { askPage } from "./ask";
 import * as access from "./access";
 import * as social from "./social";
+import * as standing from "./standingRules";
 import * as webhooks from "./webhooks";
 import * as avatars from "./avatars";
 import * as boardPictures from "./boardPictures";
@@ -1456,6 +1457,31 @@ const handler = {
           return json({ error: "not found" }, 404);
         } catch (e) {
           if (e instanceof agents.AgentError) return json({ error: e.message }, 400);
+          throw e;
+        }
+      }
+
+      // Standing rules: one automatic yes, for one board or one person, until it expires. People only.
+      if (path === "/api/rules" && (method === "GET" || method === "POST")) {
+        if (!viewer) return needLogin();
+        if (viewer.via === "agent") return json({ error: "Standing rules are yours to set. Agents can't create or list them." }, 403);
+        try {
+          if (method === "GET") return json({ rules: await standing.listRules(env, viewer.name, url.searchParams.get("all") === "1") });
+          const b = (await request.json().catch(() => ({}))) as { scope?: unknown; scope_id?: unknown; action?: unknown; expires_in?: unknown };
+          return json({ ok: true, rule: await standing.createRule(env, viewer.name, b) }, 201);
+        } catch (e) {
+          if (e instanceof standing.StandingRuleError) return json({ error: e.message }, 400);
+          throw e;
+        }
+      }
+      const srm = path.match(/^\/api\/rules\/(sr_[A-Za-z0-9_-]+)\/revoke$/);
+      if (srm && method === "POST") {
+        if (!viewer) return needLogin();
+        if (viewer.via === "agent") return json({ error: "Standing rules are yours to revoke. Agents can't." }, 403);
+        try {
+          return json({ ok: true, rule: await standing.revokeRule(env, viewer.name, srm[1]) });
+        } catch (e) {
+          if (e instanceof standing.StandingRuleError) return json({ error: e.message }, 400);
           throw e;
         }
       }

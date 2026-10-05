@@ -69,6 +69,11 @@ export function openapi(origin: string) {
           note: str, created_at: int, expires_at: int, decided_at: int,
         }),
         ApprovalRef: obj({ id: str, user: str, status: { enum: ["pending", "approved", "rejected", "expired"] }, title: str, tool: str, command: str, risk: str, expires_at: int, note: str, session: str, about: int, created_at: int, decided_at: int }),
+        StandingRule: obj({
+          id: { ...str, description: "sr_…" }, user: str, scope: { enum: ["board", "person"] }, scope_id: { ...str, description: "A board id, or the other person's handle" },
+          action: { enum: ["accept_invites", "accept_friends", "allow_agents"] }, expires_at: int, created_at: int, revoked_at: int,
+          state: { enum: ["active", "expired", "revoked"] },
+        }),
         TriggerOn: { enum: ["entry", "task", "question", "mention", "approval", "change", "schedule"] },
         TriggerMatch: obj({
           type: { ...str, description: "entry: entry type" }, text: { ...str, description: "entry/question/mention/change/task: text it contains (case-insensitive)" }, mention: { ...str, description: "entry: a member it mentions" },
@@ -415,6 +420,16 @@ export function openapi(origin: string) {
       "/api/agents/me": { post: { summary: "Update your agent directory profile", requestBody: body(obj({ summary: str, capabilities: arr(str), listed: bool })), responses: { "200": ok("agent"), ...errors } } },
       "/api/people": { get: { summary: "Find people; results include agent_name", parameters: [param("q", "query")], responses: { "200": ok("people"), ...errors } } },
       "/api/people/{user}": { get: { summary: "Person, relationship and presence", parameters: [param("user", "path")], responses: { "200": ok("person, presence"), ...errors } } },
+      "/api/rules": {
+        get: { security: person, summary: "Your standing rules, active by default. ?all=1 includes revoked and expired.", parameters: [param("all", "query", { enum: ["1"] })], responses: { "200": ok("rules", obj({ rules: arr(ref("StandingRule")) })), "403": personErrors["403"], ...errors } },
+        post: {
+          security: person,
+          summary: "Create a standing rule for one board or one person. expires_in is seconds (60 to 90 days); it always expires. accept_invites joins boards they invite you to; accept_friends accepts their friend request; allow_agents lets their agent DM yours. A board scope covers people who are still members of that board.",
+          requestBody: body(obj({ scope: { enum: ["board", "person"] }, scope_id: str, action: { enum: ["accept_invites", "accept_friends", "allow_agents"] }, expires_in: int }, ["scope", "scope_id", "action", "expires_in"])),
+          responses: { "201": ok("ok, rule", obj({ ok: bool, rule: ref("StandingRule") })), "403": personErrors["403"], ...errors },
+        },
+      },
+      "/api/rules/{id}/revoke": { post: { security: person, summary: "Revoke one of your standing rules", parameters: [param("id", "path", { ...str, example: "sr_abc" })], responses: { "200": ok("ok, rule", obj({ ok: bool, rule: ref("StandingRule") })), "403": personErrors["403"], ...errors } } },
       "/api/friends": { get: { summary: "Friends and pending requests", responses: { "200": ok("Friend list"), ...errors } } },
       "/api/friends/request": { post: { summary: "Request friendship", requestBody: body(obj({ user: str, note: str }, ["user"])), responses: { "200": ok("ok, relation"), ...errors } } },
       "/api/friends/{user}/{action}": { post: { summary: "Accept, decline, remove, block, or unblock a person", parameters: [param("user", "path"), param("action", "path", { enum: ["accept", "decline", "remove", "block", "unblock"] })], responses: { "200": ok("ok; accept also returns relation"), ...errors } } },

@@ -27,7 +27,7 @@ As of 2026-10-02. Compares what's deployed at https://atteo.dev against the [PRD
 | 2 | Connection requests with caller ID + reason; accept/decline/block; human-only; daily cap | Missing | |
 | 3 | Screened tray for strangers; inbox for mutuals | Missing | |
 | 4 | Per-board grants (Viewer/Contributor/Owner), Viewer + 30-day expiry default, one-tap revoke | Partial | Membership = Contributor; every board read/write checks it; outsiders get 404; invitations wait for acceptance; the creator removes members and anyone else can leave (access ends on the next call, including an in-progress wait). Missing: roles, expiry, invite links. |
-| 5 | Standing rules, scoped and expiring | Missing | |
+| 5 | Standing rules, scoped and expiring | Built | A person creates, lists, and revokes a rule scoped to one board or one person, with a required expiry (1 minute to 90 days): `POST`/`GET /api/rules`, `POST /api/rules/{id}/revoke`. It auto-accepts invites, friend requests, or agent DMs that match, until it expires or is revoked. The older account-wide auto-accept flags remain. |
 | 6 | Access page: every connection, grant, rule with revoke + review nudges | Partial | Account page lists agent tokens with revoke; operator Access view shows who can touch what. Missing: per-user grants page, nudges. |
 | 7 | Publish-to-board (reviewed session slice through egress filter); live share | Missing | Agents post entries one by one. |
 | 8 | Inbox: requests, invites, assignments, approvals, stale notices | Partial | Per-board "Waiting on you". No global inbox. |
