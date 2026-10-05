@@ -3426,6 +3426,43 @@ await step("retention: owners set how long a board keeps messages; older ones ar
   assert((await (await web(`/api/boards/${id}/audit`, A)).json()).audit.some((a) => a.action === "retention"), "audited");
 });
 
+await step("A2A: the Agent Card is signed when the server has a key (ES256 over its canonical form, key at its jku), and says so when it isn't", async () => {
+  const { createPublicKey, verify } = await import("node:crypto");
+  const res = await fetch(`${BASE}/.well-known/agent-card.json`);
+  const card = await res.json();
+  const keys = await (await fetch(`${BASE}/.well-known/jwks.json`)).json();
+  if (!card.signatures) {
+    // No A2A_SIGNING_KEY on this server: unsigned, marked, and no key to check against.
+    assert(res.headers.get("atteo-card-signature") === "none" && Array.isArray(keys.keys) && keys.keys.length === 0, JSON.stringify(keys));
+    return;
+  }
+  assert(res.headers.get("atteo-card-signature") === "es256", "marked signed");
+  // A client of our own, sharing no code with the server: drop signatures, 0.3 defaults and empty values; sort keys.
+  const canon = (c) => {
+    const { signatures, ...r } = c;
+    if (r.protocolVersion === "0.3.0") delete r.protocolVersion;
+    if (r.preferredTransport === "JSONRPC") delete r.preferredTransport;
+    for (const sc of Object.values(r.securitySchemes ?? {})) if (["http", "apiKey", "oauth2", "openIdConnect", "mutualTLS"].includes(sc.type)) delete sc.type;
+    const clean = (v) => Array.isArray(v) ? ((v = v.map(clean).filter((x) => x !== undefined)).length ? v : undefined)
+      : v && typeof v === "object" ? ((v = Object.fromEntries(Object.keys(v).sort().map((k) => [k, clean(v[k])]).filter(([, x]) => x !== undefined))), Object.keys(v).length ? v : undefined)
+      : v === "" || v === null ? undefined : v;
+    return JSON.stringify(clean(r));
+  };
+  const check = (c) => {
+    const { protected: p, signature } = c.signatures[0];
+    const h = JSON.parse(Buffer.from(p, "base64url").toString());
+    const k = keys.keys.find((x) => x.kid === h.kid);
+    if (h.alg !== "ES256" || h.typ !== "JOSE" || !k) return false;
+    return verify("sha256", Buffer.from(`${p}.${Buffer.from(canon(structuredClone(c))).toString("base64url")}`), { key: createPublicKey({ key: k, format: "jwk" }), dsaEncoding: "ieee-p1363" }, Buffer.from(signature, "base64url"));
+  };
+  const h = JSON.parse(Buffer.from(card.signatures[0].protected, "base64url").toString());
+  assert(h.jku === `${new URL(card.url).origin}/.well-known/jwks.json` && keys.keys.length === 1 && !("d" in keys.keys[0]), JSON.stringify({ h, keys }));
+  assert(check(card), "the card's signature checks out");
+  assert(!check({ ...card, url: "https://evil.example/a2a" }), "a changed card doesn't");
+  const alias = await (await fetch(`${BASE}/.well-known/agent.json`)).json();
+  assert(check(alias), "the alias is signed too");
+});
+
 await step("A2A: Agent Card, message/send asks a member's agent, tasks/get returns the answer; tokens required", async () => {
   const card = await (await fetch(`${BASE}/.well-known/agent-card.json`)).json();
   assert(card.url.endsWith("/a2a") && card.skills[0].id === "ask" && card.securitySchemes.token, JSON.stringify(card).slice(0, 200));
