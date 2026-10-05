@@ -11,7 +11,10 @@ const require = createRequire(import.meta.url);
 let axePath;
 try { axePath = require.resolve("axe-core/axe.min.js"); } catch { console.log("SKIP: axe-core isn't installed: run npm ci"); process.exit(3); }
 const AXE = readFileSync(axePath, "utf8");
-const BASE = (process.env.BASE || "http://localhost:8787").replace(/\/$/, "");
+const BASE = (process.env.BASE || "http://localhost:8787").replace(/\/$/, ""), ORIGIN = new URL(BASE).origin;
+// Pages scanned at once in each run (A11Y_PAR): their fixed waits overlap. 4 is faster alone (23s) but starves
+// CPU-timed checks running beside it in the gate (scroll-window's DOM cap overshot 2 runs in 6), so 2.
+const PAR = Math.max(1, +(process.env.A11Y_PAR || 2));
 const ops = async (p, b) => (await fetch(`${BASE}/api/ops/${p}`, { method: "POST", headers: { "x-admin-key": process.env.ADMIN_KEY || "ci-admin-key", "content-type": "application/json" }, body: JSON.stringify(b) })).json();
 // P reads in everyday mode, V in developer mode (the Log tab, ids): both looks get scanned. W isn't on the board.
 const run = Date.now().toString(36).slice(-4), P = `ap${run}`, V = `av${run}`, W = `aw${run}`;
@@ -102,21 +105,37 @@ await Promise.all(RUNS.map(async ([tag, viewport, phone, scheme, lang]) => {
     const ctx = await b.newContext({ viewport, colorScheme: scheme, reducedMotion: "reduce", ...(phone ? { hasTouch: true, isMobile: true } : {}) });
     if (who) { const [k, ...v] = ck[who].split(";")[0].split("="); await ctx.addCookies([{ name: k, value: v.join("="), url: BASE }]); }
     await ctx.addInitScript(AXE);
+    // Signing in hands over to WorkOS's hosted page: answer that navigation here instead of loading the real one.
+    await ctx.route((u) => u.origin !== ORIGIN, (r) => (r.request().isNavigationRequest() ? r.fulfill({ contentType: "text/html", body: "<!doctype html><title>Sign in</title>" }) : r.continue()));
     return (ctxs[who ?? "-"] = ctx);
   };
-  for (const [label, path, setup, who = P] of PAGES) {
-    if (process.env.ONLY && !label.includes(process.env.ONLY)) continue;
+  // A few pages at a time (each its own page, in its run's contexts); each page's lines print in PAGES order.
+  const lines = PAGES.map(() => []);
+  const scan = async (i) => {
+    const [label, path, setup, who = P] = PAGES[i];
+    if (process.env.ONLY && !label.includes(process.env.ONLY)) return;
+    const check = (ok, t, more = []) => { lines[i].push(`${ok ? "✓" : "✗"} ${t}`, ...more); if (!ok) fails++; };
     const name = `${label} ${tag}`;
-    if (!path) { check(false, `${name}: no path (setup failed)`); continue; }
+    if (!path) { check(false, `${name}: no path (setup failed)`); return; }
     const p = await (await ctxFor(who)).newPage(), errors = []; p.on("pageerror", (e) => errors.push(e.message));
     try {
       await p.goto(`${BASE}${path}${lang ? `${path.includes("?") ? "&" : "?"}lang=${lang}` : ""}`, { waitUntil: "load" }); await p.waitForTimeout(700);
       // Signing in hands over to WorkOS's hosted page: not ours to scan.
-      if (new URL(p.url()).origin !== new URL(BASE).origin) { check(true, `${name}: hands over to ${new URL(p.url()).host}, not scanned`); await p.close(); continue; }
+      if (new URL(p.url()).origin !== ORIGIN) { check(true, `${name}: hands over to ${new URL(p.url()).host}, not scanned`); await p.close(); return; }
       if (setup) await setup(p, phone);
       await p.waitForTimeout(300);
       // Colours mid-fade (a post for you flashes for 1.6s) aren't what anyone reads: let finite animations finish first.
-      await p.evaluate(() => Promise.race([Promise.all(document.getAnimations().filter((a) => a.effect?.getComputedTiming().endTime !== Infinity).map((a) => a.finished.catch(() => {}))), new Promise((r) => setTimeout(r, 3000))]));
+      // A fade can start a frame or two later (an entry's actions fade out once a dialog takes the pointer's hover), so
+      // wait until a couple of frames pass with none running (3s at most).
+      await p.evaluate(async () => {
+        const end = performance.now() + 3000, frames = () => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+        for (;;) {
+          await frames();
+          const running = document.getAnimations().filter((a) => a.playState === "running" && a.effect?.getComputedTiming().endTime !== Infinity);
+          if (!running.length || performance.now() > end) break;
+          await Promise.race([Promise.all(running.map((a) => a.finished.catch(() => {}))), new Promise((r) => setTimeout(r, end - performance.now()))]);
+        }
+      });
       const r = await p.evaluate(async () => await axe.run(document, { runOnly: { type: "tag", values: ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"] } }));
       const bad = r.violations.filter((v) => v.impact === "serious" || v.impact === "critical");
       const why = (n) => { const d = n.any?.[0]?.data; return d && d.fgColor ? `${d.fgColor} on ${d.bgColor}, ${d.contrastRatio}:1` : n.failureSummary?.split("\n")[1]?.trim() || ""; };
@@ -135,7 +154,10 @@ await Promise.all(RUNS.map(async ([tag, viewport, phone, scheme, lang]) => {
       check(false, `${name}: ${String(e.message).split("\n")[0]}`);
     }
     await p.close();
-  }
+  };
+  let next = 0;
+  await Promise.all(Array.from({ length: PAR }, async () => { for (let i; (i = next++) < PAGES.length; ) await scan(i); }));
+  out.push(...lines.flat());
 }));
 await b.close();
 console.log(out.join("\n")); console.log(fails ? `${fails} FAILED` : "every page: all passed"); process.exit(fails ? 1 : 0);
