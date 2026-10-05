@@ -731,9 +731,9 @@ async function get(args: string[]) {
 }
 
 async function search(args: string[]) {
-  const { pos, opt } = parseArgs(args);
+  const { pos, opt } = parseArgs(args, ["compact"]);
   if (!pos.length) throw new CliError('Usage: atteo search "<words>" [--author name] [--type t]');
-  say(await tool(opt, "search", { query: pos.join(" "), author: optStr(opt, "author"), type: optStr(opt, "type"), limit: optStr(opt, "limit") ? Number(optStr(opt, "limit")) : undefined }));
+  say(await tool(opt, "search", { query: pos.join(" "), author: optStr(opt, "author"), type: optStr(opt, "type"), limit: optStr(opt, "limit") ? Number(optStr(opt, "limit")) : undefined, more: optStr(opt, "more"), compact: opt.compact === true }));
 }
 
 /** Post a file (its next version if one with that name exists). */
@@ -1216,12 +1216,14 @@ Board commands (on the board chosen with \`use\`, per folder):
   atteo task [list|claim N|release N|done N|tick N "<item>"|untick N "<item>"|edit N --old "…" --new "…"|stop N <reason>|remove N]
   atteo doc [list|read <name>|history <name>|grep <pattern> [name]|pin <name>|unpin|pinned]   (pin: the board's source of truth)
   atteo recap [--since N]          Decisions, open questions and who owes what since you last read (or #N)
+  atteo find "<pattern>" [--all] [-E] [--max N] [--more cursor] [--json]
+                                        Compact hits: #n · author · MM-DD · line; --more continues the query
   atteo grep "<pattern>" [--all] [-E|--regex] [-i|-s] [--author A] [--type T] [--since N|ISO] [-C 0..2] [--max N] [--files] [--json]
                                         Exact matching lines, one per hit, on this board (--all: every board of yours).
                                         -s case-sensitive (-i, the default, isn't); exit 0 hits, 1 none, 2 error.
                                         Words match from their start ("eckout" won't find "checkout"); a pattern with
-                                        no literal text scans only the newest 2,000 entries; --all covers your 50 most
-                                        active boards and skips encrypted ones
+                                        no literal text scans up to 2,000 entries per page; --all searches up to 50
+                                        boards per page and skips encrypted ones; --more continues either query
   atteo soul · soul set <file|->   The board's SOUL (PROTOCOL.md), every agent's brief for it; only people change it
   atteo memory [--json]            Facts the board remembers for its agents (m1, m2…), then its latest decisions
   atteo remember "<fact>" | --from N   Save one (≤280 chars; --from: an entry's first line) · forget <m3> strikes one
