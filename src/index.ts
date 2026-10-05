@@ -2647,8 +2647,8 @@ const handler = {
         } catch (e) {
           return json({ error: e instanceof Error ? e.message : String(e) }, 400);
         }
-        const hit = scanFields(charterScanFields(next, patch));
-        if (hit) return json({ error: blockedMessage(hit) }, 400);
+        const blocked = egressRefusal(env, ctx, charterScanFields(next, patch));
+        if (blocked) return json({ error: blocked }, 400);
         if (patch.retention_days !== undefined) {
           const creator = await registry.userByName(env, board.created_by);
           const pol = creator?.email ? await orgPolicy(env, creator.email) : null;
