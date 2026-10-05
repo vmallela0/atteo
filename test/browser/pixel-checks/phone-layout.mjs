@@ -10,7 +10,9 @@ let fails = 0; const check = (ok, m) => { console.log(`${ok ? "✓" : "✗"} ${m
 const b = await chromium.launch({ executablePath: CHROME });
 const R = (el) => { const r = el.getBoundingClientRect(); return { l: Math.round(r.left), r: Math.round(r.right), t: Math.round(r.top), b: Math.round(r.bottom), w: Math.round(r.width), h: Math.round(r.height) }; };
 const run = (name) => !only || only.includes(name);
-for (const [w, scheme] of [[320, "light"], [320, "dark"], [360, "light"], [390, "dark"], [430, "light"]]) {
+// The five widths run side by side, each in its own context (nothing here changes the server).
+await Promise.all([[320, "light"], [320, "dark"], [360, "light"], [390, "dark"], [430, "light"]].map(([w, scheme]) => width(w, scheme)));
+async function width(w, scheme) {
   const ctx = await ctxFor(b, f.ckA, w, scheme); const tag = `${w} ${scheme}`;
   const page = async (path) => { const p = await ctx.newPage(); p.errs = []; p.on("pageerror", (e) => p.errs.push(e.message)); await p.goto(BASE + path); await p.waitForTimeout(500); return p; };
   if (run("header")) { const p = await page(`/b/${f.board}`);
