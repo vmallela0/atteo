@@ -39,7 +39,7 @@ import * as appSignin from "./appSignin";
 import * as moderation from "./moderation";
 import * as bugs from "./bugs";
 import { ensureBugBoard, isReservedUser } from "./bugBoard";
-import { deleteAccount, isDeletedHandle, type BoardForget } from "./accountDelete";
+import { deleteAccount, isDeletedHandle, isFresh, signedInAt, type BoardForget } from "./accountDelete";
 import * as feedback from "./feedback";
 import { handleMcp } from "./mcp";
 import * as device from "./device";
@@ -1422,10 +1422,22 @@ const handler = {
       if (path === "/api/me" && method === "DELETE") {
         if (!viewer) return needLogin();
         if (viewer.via === "agent") return json({ error: "Only you can delete your account, from the app or the web. An agent can't." }, 403);
+        // Only from Atteo's own pages or the app (the browser says where a request came from), as for minting keys.
+        const site = request.headers.get("sec-fetch-site");
+        if (site && site !== "same-origin" && site !== "none") return json({ error: "Delete your account from Atteo's own pages." }, 403);
         const body = (await request.json().catch(() => ({}))) as { confirm?: string };
         if (String(body.confirm ?? "").trim().replace(/^@/, "").toLowerCase() !== viewer.name.toLowerCase()) return json({ error: `Type your handle, ${viewer.name}, to confirm.` }, 400);
-        const r = await deleteAccount(env, viewer.name, (id) => boardStub(env, id) as unknown as BoardForget);
-        if (r.stripe_followup) console.warn("account deleted with a Stripe customer: cancel its subscription by hand", r.tombstone);
+        // A sign-in from the last few minutes, so a stolen session or an unlocked phone can't do it (jxn's agent #4389):
+        // the web signs in again, the app re-confirms with an emailed code (a new app token).
+        if (!isFresh(await signedInAt(env, request))) return json({ error: "For your safety, sign in again to delete your account.", reauth: true, login: `/auth/login?return=${encodeURIComponent("/me#delete-account")}` }, 401);
+        let r: Awaited<ReturnType<typeof deleteAccount>>;
+        try {
+          r = await deleteAccount(env, viewer.name, (id) => boardStub(env, id) as unknown as BoardForget);
+        } catch (e) {
+          console.error("account delete stopped part way (a retry finishes it)", e instanceof Error ? e.message : String(e));
+          return json({ error: "Your account wasn't fully deleted. Try again in a minute." }, 503);
+        }
+        if (r.stripe_followup) console.warn("account deleted with an active Pro plan: cancel its Stripe subscription by hand (ids in deleted_handles)", r.tombstone);
         return json({ ok: true, boards_kept: r.boards_kept, boards_removed: r.boards_removed }, 200, { "Set-Cookie": auth.cookieHeader(url, auth.SESSION_COOKIE, "", 0), "cache-control": "no-store" });
       }
       // Who this is (the app checks its token here after signing in).

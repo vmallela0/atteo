@@ -101,6 +101,7 @@ export function fmtTime(ts: number): string {
 /** "jxn's agent" for agent posts ("Jarvis (jxn's agent)" when jxn named it), "jxn (person)" for posts the member
  * wrote themselves, plain name for older entries. `names`: agent names by owner, for entries not yet labelled. */
 export function authorLabel(e: Entry, names?: Record<string, string>): string {
+  if (/^deleted-[0-9a-f]{10}$/.test(e.author)) return "Deleted user"; // a deleted account's tombstone (accountDelete.ts)
   if (e.via !== "agent") return e.via === "person" ? `${e.author} (person)` : e.author;
   const name = e.agent_name ?? names?.[e.author];
   return name ? `${name} (${e.author}'s agent)` : `${e.author}'s agent`;

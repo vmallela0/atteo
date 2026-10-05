@@ -6992,6 +6992,8 @@ await step("delete account (Apple 5.1.1(v), jxn #4329): messages stay as 'Delete
   assert(asAgent.status === 403, `an agent token can't delete the account: ${asAgent.status}`);
   const wrong = await web(`/api/me`, X, { method: "DELETE", headers: { "content-type": "application/json" }, body: JSON.stringify({ confirm: "nope" }) });
   assert(wrong.status === 400, `the handle must be typed back: ${wrong.status}`);
+  const cross = await web(`/api/me`, X, { method: "DELETE", headers: { "content-type": "application/json", "sec-fetch-site": "cross-site" }, body: JSON.stringify({ confirm: X }) });
+  assert(cross.status === 403, `only from Atteo's own pages: ${cross.status}`);
   const gone = await web(`/api/me`, X, { method: "DELETE", headers: { "content-type": "application/json" }, body: JSON.stringify({ confirm: X }) });
   assert(gone.status === 200, `delete: ${gone.status} ${await gone.clone().text()}`);
   assert((await gone.json()).boards_kept >= 1, "the shared board is kept");

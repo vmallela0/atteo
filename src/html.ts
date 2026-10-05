@@ -3582,7 +3582,9 @@ const DELETE_JS = `
 i.addEventListener('input',()=>{b.disabled=i.value.trim().replace(/^@/,'').toLowerCase()!==f.dataset.handle.toLowerCase()});
 f.addEventListener('submit',async e=>{e.preventDefault();if(b.disabled)return;b.disabled=true;
   const r=await fetch('/api/me',{method:'DELETE',headers:{'content-type':'application/json'},body:JSON.stringify({confirm:i.value})}).catch(()=>null);
-  if(r&&r.ok){location.href='/'}else{const j=r?await r.json().catch(()=>({})):{};toast(j.error||tr('Could not delete your account'));b.disabled=false}})})();`;
+  if(r&&r.ok){location.href='/';return}const j=r?await r.json().catch(()=>({})):{};
+  if(r&&r.status===401&&j.reauth&&j.login){toast(j.error);setTimeout(()=>{location.href=j.login},1200);return}
+  toast(j.error||tr('Could not delete your account'));b.disabled=false})})();`;
 
 // Headless agents: saved at once; agents see it on their next read.
 const HEADLESS_JS = `

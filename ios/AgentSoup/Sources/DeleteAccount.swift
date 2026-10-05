@@ -1,8 +1,9 @@
 import SwiftUI
 
 /// Settings → Delete account (App Review 5.1.1(v): an account made in the app can be deleted in the app; jxn #4329).
-/// The handle is typed back, then DELETE /api/me: messages on shared boards stay as "Deleted user", everything else
-/// of the person's goes, and this phone signs out.
+/// The handle is typed back, then a code emailed to them confirms it's really them now (the server wants a sign-in
+/// from the last few minutes, jxn's agent #4389: verifying the code makes a fresh app token). Then DELETE /api/me:
+/// messages on shared boards stay as "Deleted user", everything else of the person's goes, and this phone signs out.
 struct DeleteAccountRow: View {
     @State private var open = false
 
@@ -33,15 +34,19 @@ func deleteConfirmMatches(_ typed: String, handle: String) -> Bool {
     return !handle.isEmpty && t.lowercased() == handle.lowercased()
 }
 
+private struct MeEmail: Decodable { let email: String? }
+
 struct DeleteAccountView: View {
     @EnvironmentObject private var state: AppState
     @Environment(\.dismiss) private var dismiss
     @State private var typed = ""
-    @State private var deleting = false
+    @State private var email: String?
+    @State private var code = ""
+    @State private var working = false
     @State private var failure: String?
 
     private var handle: String { state.me?.owner ?? "" }
-    private var canDelete: Bool { !deleting && deleteConfirmMatches(typed, handle: handle) }
+    private var handleOK: Bool { deleteConfirmMatches(typed, handle: handle) }
 
     var body: some View {
         NavigationStack {
@@ -55,18 +60,34 @@ struct DeleteAccountView: View {
                     TextField(handle, text: $typed)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
+                        .disabled(email != nil)
                         .accessibilityLabel("Type your handle to confirm")
                         .accessibilityIdentifier("delete-confirm")
-                } header: { SectionHeader("Type your handle to confirm") } footer: {
-                    if let failure { Text(failure).foregroundStyle(Theme.danger) }
-                }
+                } header: { SectionHeader("Type your handle to confirm") }
                 .listRowBackground(Theme.card)
-                Section {
-                    Button(role: .destructive) { Task { await delete() } } label: {
-                        if deleting { ProgressView() } else { Text("Delete my account").foregroundStyle(canDelete ? Theme.danger : Theme.muted) }
+                if let email {
+                    Section {
+                        TextField("123456", text: $code)
+                            .keyboardType(.numberPad)
+                            .textContentType(.oneTimeCode)
+                            .accessibilityLabel("Code from your email")
+                            .accessibilityIdentifier("delete-code")
+                    } header: { SectionHeader("Code from your email") } footer: {
+                        Text("We sent a code to \(email) to make sure it's you.")
                     }
-                    .disabled(!canDelete)
+                    .listRowBackground(Theme.card)
+                }
+                Section {
+                    Button(role: .destructive) { Task { await next() } } label: {
+                        if working { ProgressView() } else {
+                            Text(email == nil ? "Email me a code" : "Delete my account")
+                                .foregroundStyle(canGo ? Theme.danger : Theme.muted)
+                        }
+                    }
+                    .disabled(!canGo)
                     .accessibilityIdentifier("delete-go")
+                } footer: {
+                    if let failure { Text(failure).foregroundStyle(Theme.danger) }
                 }
                 .listRowBackground(Theme.card)
             }
@@ -78,16 +99,33 @@ struct DeleteAccountView: View {
         }
     }
 
-    private func delete() async {
-        deleting = true
+    private var canGo: Bool { !working && handleOK && (email == nil || code.filter(\.isNumber).count == 6) }
+
+    private func next() async {
+        working = true
         failure = nil
+        defer { working = false }
         do {
+            if email == nil {
+                // Step 1: a code to the account's email.
+                guard let e = try await API.shared.get("/api/me", as: MeEmail.self).email, !e.isEmpty else {
+                    failure = String(localized: "Could not delete your account", bundle: .l10n)
+                    return
+                }
+                try await EmailSignIn.start(email: e)
+                email = e
+                return
+            }
+            // Step 2: the code makes a fresh sign-in, then the account goes.
+            guard case .signedIn = try await EmailSignIn.verify(email: email!, code: code.filter(\.isNumber)) else {
+                failure = String(localized: "Could not delete your account", bundle: .l10n)
+                return
+            }
             try await API.shared.send("/api/me", method: "DELETE", body: ["confirm": typed], retries: false)
             dismiss()
             state.signOut()
         } catch {
-            failure = String(localized: "Could not delete your account", bundle: .l10n)
-            deleting = false
+            failure = (error as? LocalizedError)?.errorDescription ?? String(localized: "Could not delete your account", bundle: .l10n)
         }
     }
 }

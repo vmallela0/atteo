@@ -2,8 +2,9 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 vi.mock("cloudflare:workers", () => ({ DurableObject: class {} }));
 vi.stubGlobal("WebSocketRequestResponsePair", class {});
 import { Board } from "../src/board";
-import { deleteAccount, isDeletedHandle, isTombstone, shownName, type BoardForget } from "../src/accountDelete";
+import { deleteAccount, FRESH_SIGNIN_MS, isDeletedHandle, isFresh, isTombstone, shownName, signedInAt, swapHandle, type BoardForget } from "../src/accountDelete";
 import { isReservedUser } from "../src/bugBoard";
+import { sha256hex } from "../src/auth";
 import type { Env } from "../src/types";
 
 const { DatabaseSync } = (await import("node:" + "sqlite")) as { DatabaseSync: new (p: string) => any };
@@ -45,30 +46,44 @@ function seedEverything(db: any, who: string) {
     db.prepare(`INSERT OR IGNORE INTO ${t} (${cols.map((c) => c.name).join(", ")}) VALUES (${cols.map(() => "?").join(", ")})`).run(...vals);
   }
 }
-/** Every table/column still holding `who` exactly. */
-function leftovers(db: any, who: string): string[] {
+/** Every table/column where any of `needles` still appears, anywhere in the value (handles in text, emails, JSON). */
+function leftovers(db: any, ...needles: string[]): string[] {
   const out: string[] = [];
-  for (const { name: t } of db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'").all())
+  for (const { name: t } of db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name != 'oauth_clients'").all())
     for (const c of db.prepare(`PRAGMA table_info(${t})`).all() as { name: string }[])
-      if (t !== "oauth_clients" && (db.prepare(`SELECT COUNT(*) AS n FROM ${t} WHERE "${c.name}" = ?`).get(who) as { n: number }).n) out.push(`${t}.${c.name}`);
+      for (const n of needles)
+        if ((db.prepare(`SELECT COUNT(*) AS n FROM ${t} WHERE CAST("${c.name}" AS TEXT) LIKE ?`).get(`%${n}%`) as { n: number }).n) out.push(`${t}.${c.name}~${n}`);
   return out;
 }
 
-function fakeBoards() {
-  const forgot: string[] = [], destroyed: string[] = [];
-  const stub = (id: string): BoardForget => ({ forgetUser: async () => (forgot.push(id), {}), destroy: async () => void destroyed.push(id) });
+function fakeBoards(opts: { failForget?: Set<string>; failDestroy?: Set<string> } = {}) {
+  const forgot: { id: string; tomb: string; title?: string | null }[] = [], destroyed: string[] = [];
+  const stub = (id: string): BoardForget => ({
+    forgetUser: async (_u, tomb, o) => {
+      if (opts.failForget?.delete(id)) throw new Error(`DO ${id} unavailable`);
+      forgot.push({ id, tomb, title: o?.title });
+      return {};
+    },
+    destroy: async () => {
+      if (opts.failDestroy?.delete(id)) throw new Error(`DO ${id} unavailable`);
+      destroyed.push(id);
+    },
+  });
   return { stub, forgot, destroyed };
 }
 
-const board = (db: any, id: string, by: string, kind: string | null = null) =>
-  db.prepare("INSERT INTO boards (id, title, created_by, created_at, entry_count, last_activity, kind) VALUES (?, ?, ?, 1, 0, 1, ?)").run(id, id, by, kind);
-const member = (db: any, id: string, user: string, role = "contributor", at = 1) =>
-  db.prepare("INSERT INTO members (board_id, user, joined_at, last_seen, role) VALUES (?, ?, ?, 1, ?)").run(id, user, at, role);
-const user = (db: any, name: string, extra: Record<string, unknown> = {}) =>
-  db.prepare(`INSERT OR REPLACE INTO users (name, email, first_seen, last_seen, workos_id, display_name, bio${extra.stripe_customer ? ", stripe_customer" : ""}) VALUES (?, ?, 1, 1, ?, ?, ?${extra.stripe_customer ? ", ?" : ""})`).run(name, `${name}@example.com`, `wos_${name}`, `${name} D`, "hi", ...(extra.stripe_customer ? [extra.stripe_customer] : []));
+const board = (db: any, id: string, by: string, kind: string | null = null, extra: { title?: string; key?: string } = {}) =>
+  db.prepare("INSERT INTO boards (id, title, created_by, created_at, entry_count, last_activity, kind, direct_key) VALUES (?, ?, ?, 1, 0, 1, ?, ?)").run(id, extra.title ?? id, by, kind, extra.key ?? null);
+const member = (db: any, id: string, user: string, role = "contributor", at = 1, expires: number | null = null) =>
+  db.prepare("INSERT INTO members (board_id, user, joined_at, last_seen, role, expires_at) VALUES (?, ?, ?, 1, ?, ?)").run(id, user, at, role, expires);
+const user = (db: any, name: string, extra: { pro?: boolean; customer?: string } = {}) =>
+  db.prepare(`INSERT OR REPLACE INTO users (name, email, first_seen, last_seen, workos_id, display_name, bio, plan, plan_status, stripe_customer, stripe_subscription) VALUES (?, ?, 1, 1, ?, ?, ?, ?, ?, ?, ?)`)
+    .run(name, `${name}@example.com`, `wos_${name}`, `${name} D`, "hi", extra.pro ? "pro" : "free", extra.pro ? "active" : null, extra.customer ?? null, extra.customer ? "sub_1" : null);
+const tape = (db: any, boardId: string, author: string, excerpt = "hello") =>
+  db.prepare("INSERT INTO tape (board_id, seq, ts, author, type, excerpt) VALUES (?, 1, 1, ?, 'note', ?)").run(boardId, author, excerpt);
 
 describe("deleting an account (Apple 5.1.1(v), jxn #4329)", () => {
-  it("leaves no row anywhere naming them: theirs is gone, what others keep points at the tombstone", async () => {
+  it("leaves no trace of their handle or email anywhere: theirs is gone, what others keep points at the tombstone", async () => {
     const { env, db } = fakeEnv();
     seedEverything(db, "maya");
     user(db, "maya");
@@ -76,39 +91,110 @@ describe("deleting an account (Apple 5.1.1(v), jxn #4329)", () => {
     board(db, "b_shared", "maya");
     member(db, "b_shared", "theo");
     member(db, "b_shared", "maya", "owner");
-    const { stub } = fakeBoards();
+    // Free text and emails that name them (jxn's agent #4389).
+    db.prepare("INSERT INTO audit (board_id, actor, action, target, detail, ts) VALUES ('b_shared', 'theo', 'invited', 'maya@example.com', NULL, 1)").run();
+    db.prepare("INSERT INTO audit (board_id, actor, action, target, detail, ts) VALUES ('b_shared', 'theo', 'reported', '#3', 'maya: spam', 2)").run();
+    db.prepare("INSERT INTO audit (board_id, actor, action, target, detail, ts) VALUES ('b_shared', 'theo', 'note', '#4', 'note by maya', 3)").run();
+    db.prepare("INSERT INTO audit (board_id, actor, action, target, detail, ts) VALUES ('b_shared', 'theo', 'note', '#5', 'note by mayanne', 4)").run();
+    db.prepare("INSERT INTO invites (id, board_id, email, invited_by, created_at, email_status, accepted_at, accepted_by) VALUES ('i1', 'b_shared', 'maya@example.com', 'theo', 1, 'sent', 2, 'maya')").run();
+    // A conversation of two.
+    board(db, "b_dm", "theo", "direct", { title: "maya ↔ theo", key: "maya|theo" });
+    member(db, "b_dm", "maya");
+    member(db, "b_dm", "theo");
+    // A private board, with a tape and a notification excerpt that must go with it.
+    board(db, "b_mine", "maya");
+    member(db, "b_mine", "maya", "owner");
+    tape(db, "b_mine", "maya", "my private plan");
+    db.prepare("INSERT INTO notifications (user, board_id, seq, kind, actor, entry_type, excerpt, created_at) VALUES ('theo', 'b_mine', 1, 'mention', 'maya', 'note', 'my private plan', 1)").run();
+    const { stub, forgot } = fakeBoards();
     const r = await deleteAccount(env, "maya", stub);
-    expect(leftovers(db, "maya")).toEqual([]);
+    expect(leftovers(db, "maya@example.com")).toEqual([]);
+    expect(leftovers(db, "maya")).toEqual(["audit.detail~maya"]); // only "note by mayanne": someone else
+    expect(db.prepare("SELECT detail FROM audit WHERE board_id = 'b_shared' AND actor = 'theo' ORDER BY ts").all().map((x: { detail: string | null }) => x.detail)).toEqual([null, `${r.tombstone}: spam`, `note by ${r.tombstone}`, "note by mayanne"]);
     expect(isTombstone(r.tombstone)).toBe(true);
     expect(db.prepare("SELECT created_by FROM boards WHERE id = 'b_shared'").get()).toEqual({ created_by: r.tombstone });
-    expect(db.prepare("SELECT COUNT(*) AS n FROM users WHERE email = 'maya@example.com' OR workos_id = 'wos_maya'").get()).toEqual({ n: 0 });
+    expect(db.prepare("SELECT title, direct_key FROM boards WHERE id = 'b_dm'").get()).toEqual({ title: `${r.tombstone} ↔ theo`, direct_key: [r.tombstone, "theo"].sort().join("|") });
+    expect(forgot.find((f) => f.id === "b_dm")?.title).toBe(`${r.tombstone} ↔ theo`);
+    expect(db.prepare("SELECT COUNT(*) AS n FROM tape WHERE board_id = 'b_mine'").get()).toEqual({ n: 0 });
+    expect(db.prepare("SELECT COUNT(*) AS n FROM notifications WHERE board_id = 'b_mine'").get()).toEqual({ n: 0 });
+    expect(db.prepare("SELECT COUNT(*) AS n FROM invites").get()).toEqual({ n: 0 });
     expect(await isDeletedHandle(env, "maya")).toBe(true);
     expect(await isDeletedHandle(env, "Maya")).toBe(true);
     expect(await isDeletedHandle(env, "theo")).toBe(false);
-    // only a hash of the handle is kept
-    expect(JSON.stringify(db.prepare("SELECT * FROM deleted_handles").all())).not.toContain("maya");
+    // Done: only a hash of the handle is kept, and no longer tied to the tombstone.
+    expect(db.prepare("SELECT tombstone, deleted_at IS NOT NULL AS done FROM deleted_handles").all()).toEqual([{ tombstone: null, done: 1 }]);
   });
 
-  it("shared boards keep their messages; private ones go; a board left without an owner gets one", async () => {
+  it("a run that stops part way is finished by a retry, under the same tombstone", async () => {
     const { env, db } = fakeEnv();
     user(db, "maya");
     user(db, "theo");
-    user(db, "ivy");
+    for (const id of ["b_1", "b_2"]) {
+      board(db, id, "theo");
+      member(db, id, "theo");
+      member(db, id, "maya");
+    }
+    const fake = fakeBoards({ failForget: new Set(["b_2"]) });
+    await expect(deleteAccount(env, "maya", fake.stub)).rejects.toThrow(/unavailable/);
+    expect(db.prepare("SELECT COUNT(*) AS n FROM users WHERE name = 'maya'").get()).toEqual({ n: 1 }); // can sign in and retry
+    const r = await deleteAccount(env, "maya", fake.stub);
+    expect(new Set(fake.forgot.map((f) => f.tomb))).toEqual(new Set([r.tombstone]));
+    expect(db.prepare("SELECT DISTINCT author FROM tape").all()).toEqual([]);
+  });
+
+  it("a board whose storage can't be destroyed keeps its row until a retry does it", async () => {
+    const { env, db } = fakeEnv();
+    user(db, "maya");
+    board(db, "b_mine", "maya");
+    member(db, "b_mine", "maya", "owner");
+    const fake = fakeBoards({ failDestroy: new Set(["b_mine"]) });
+    await expect(deleteAccount(env, "maya", fake.stub)).rejects.toThrow(/unavailable/);
+    expect(db.prepare("SELECT COUNT(*) AS n FROM boards WHERE id = 'b_mine'").get()).toEqual({ n: 1 });
+    await deleteAccount(env, "maya", fake.stub);
+    expect(fake.destroyed).toEqual(["b_mine"]);
+    expect(db.prepare("SELECT COUNT(*) AS n FROM boards WHERE id = 'b_mine'").get()).toEqual({ n: 0 });
+  });
+
+  it("shared boards keep their messages; private ones go; a new owner is an active member, a contributor first", async () => {
+    const { env, db } = fakeEnv();
+    for (const u of ["maya", "theo", "ivy", "old"]) user(db, u);
     board(db, "b_shared", "maya");
     member(db, "b_shared", "maya", "owner", 1);
-    member(db, "b_shared", "theo", "contributor", 5);
-    member(db, "b_shared", "ivy", "viewer", 9);
+    member(db, "b_shared", "old", "contributor", 2, 5); // access long expired
+    member(db, "b_shared", "ivy", "viewer", 3);
+    member(db, "b_shared", "theo", "contributor", 9);
+    board(db, "b_viewers", "maya");
+    member(db, "b_viewers", "maya", "owner", 1);
+    member(db, "b_viewers", "old", "contributor", 2, 5);
+    member(db, "b_viewers", "ivy", "viewer", 3);
     board(db, "b_agent", "maya", "agent");
     member(db, "b_agent", "maya", "owner");
-    board(db, "b_alone", "maya");
-    member(db, "b_alone", "maya", "owner");
+    board(db, "b_expired_only", "maya");
+    member(db, "b_expired_only", "maya", "owner");
+    member(db, "b_expired_only", "old", "contributor", 2, 5);
     const { stub, forgot, destroyed } = fakeBoards();
+    const r = await deleteAccount(env, "maya", stub, 1000);
+    expect(forgot.map((f) => f.id).sort()).toEqual(["b_shared", "b_viewers"]);
+    expect(destroyed.sort()).toEqual(["b_agent", "b_expired_only"]);
+    expect(r).toMatchObject({ boards_kept: 2, boards_removed: 2, owners_promoted: 2 });
+    const role = (b: string, u: string) => (db.prepare("SELECT role FROM members WHERE board_id = ? AND user = ?").get(b, u) as { role: string } | undefined)?.role;
+    expect(role("b_shared", "theo")).toBe("owner"); // the active contributor, not the expired one or the viewer
+    expect(role("b_shared", "old")).toBe("contributor");
+    expect(role("b_viewers", "ivy")).toBe("owner"); // only an active viewer is left
+  });
+
+  it("boards they left, were removed from or ran out of access on are rewritten too", async () => {
+    const { env, db } = fakeEnv();
+    user(db, "maya");
+    user(db, "theo");
+    board(db, "b_left", "theo");
+    member(db, "b_left", "theo");
+    tape(db, "b_left", "maya");
+    const { stub, forgot } = fakeBoards();
     const r = await deleteAccount(env, "maya", stub);
-    expect(forgot).toEqual(["b_shared"]);
-    expect(destroyed.sort()).toEqual(["b_agent", "b_alone"]);
-    expect(r).toMatchObject({ boards_kept: 1, boards_removed: 2, owners_promoted: 1 });
-    expect(db.prepare("SELECT role FROM members WHERE board_id = 'b_shared' AND user = 'theo'").get()).toEqual({ role: "owner" }); // longest-standing
-    expect(db.prepare("SELECT COUNT(*) AS n FROM boards WHERE id IN ('b_agent', 'b_alone')").get()).toEqual({ n: 0 });
+    expect(forgot).toEqual([{ id: "b_left", tomb: r.tombstone, title: null }]);
+    expect(db.prepare("SELECT author FROM tape WHERE board_id = 'b_left'").get()).toEqual({ author: r.tombstone });
+    expect(db.prepare("SELECT role FROM members WHERE board_id = 'b_left' AND user = 'theo'").get()).toEqual({ role: "contributor" }); // untouched
   });
 
   it("a large account stays within D1's 100-value limit per statement", async () => {
@@ -119,7 +205,8 @@ describe("deleting an account (Apple 5.1.1(v), jxn #4329)", () => {
       board(db, `b_${i}`, i % 2 ? "theo" : "maya");
       member(db, `b_${i}`, "maya", i % 2 ? "contributor" : "owner");
       member(db, `b_${i}`, "theo");
-      db.prepare("INSERT INTO tape (board_id, seq, ts, author, type, excerpt) VALUES (?, 1, 1, 'maya', 'note', 'hello')").run(`b_${i}`);
+      tape(db, `b_${i}`, "maya");
+      db.prepare("INSERT INTO audit (board_id, actor, action, target, detail, ts) VALUES (?, 'theo', 'reported', '#1', 'maya: spam', 1)").run(`b_${i}`);
     }
     const { stub, forgot } = fakeBoards();
     const r = await deleteAccount(env, "maya", stub);
@@ -129,18 +216,36 @@ describe("deleting an account (Apple 5.1.1(v), jxn #4329)", () => {
     expect(leftovers(db, "maya")).toEqual([]);
   });
 
-  it("flags a Pro customer for a manual Stripe follow-up rather than cancelling in code", async () => {
+  it("an active Pro plan keeps its Stripe ids for ops (not cancelled in code); a past customer doesn't flag", async () => {
     const { env, db } = fakeEnv();
-    user(db, "maya", { stripe_customer: "cus_123" });
-    const r = await deleteAccount(env, "maya", fakeBoards().stub);
-    expect(r.stripe_followup).toBe(true);
+    user(db, "maya", { pro: true, customer: "cus_123" });
+    user(db, "theo", { customer: "cus_old" });
+    expect((await deleteAccount(env, "maya", fakeBoards().stub)).stripe_followup).toBe(true);
+    expect((await deleteAccount(env, "theo", fakeBoards().stub)).stripe_followup).toBe(false);
+    expect(db.prepare("SELECT stripe_customer, stripe_subscription FROM deleted_handles WHERE stripe_customer IS NOT NULL").all()).toEqual([{ stripe_customer: "cus_123", stripe_subscription: "sub_1" }]);
   });
 
-  it("tombstones can't be registered, and read as 'Deleted user'", () => {
+  it("only a sign-in from the last few minutes may delete (a stolen session can't)", async () => {
+    const { env, db } = fakeEnv();
+    const now = Date.now();
+    db.prepare("INSERT INTO sessions (id_hash, user, workos_id, email, created_at, expires_at) VALUES (?, 'maya', 'w', 'm@x', ?, ?)").run(await sha256hex("old"), now - FRESH_SIGNIN_MS - 60_000, now + 1e9);
+    db.prepare("INSERT INTO sessions (id_hash, user, workos_id, email, created_at, expires_at) VALUES (?, 'maya', 'w', 'm@x', ?, ?)").run(await sha256hex("new"), now - 60_000, now + 1e9);
+    db.prepare("INSERT INTO tokens (id, hash, user, label, created_at, kind) VALUES ('t1', ?, 'maya', 'Atteo app', ?, 'app')").run(await sha256hex("ab_fresh"), now - 30_000);
+    const req = (h: Record<string, string>) => new Request("https://x/api/me", { method: "DELETE", headers: h });
+    expect(isFresh(await signedInAt(env, req({ cookie: "ab_session=old" })), now)).toBe(false);
+    expect(isFresh(await signedInAt(env, req({ cookie: "ab_session=new" })), now)).toBe(true);
+    expect(isFresh(await signedInAt(env, req({ authorization: "Bearer ab_fresh" })), now)).toBe(true);
+    expect(isFresh(await signedInAt(env, req({})), now)).toBe(false);
+  });
+
+  it("tombstones can't be registered, read as 'Deleted user', and a handle is swapped only as a whole word", () => {
     expect(isReservedUser("deleted-1a2b3c4d5e")).toBe(true);
     expect(isReservedUser("deleteduser")).toBe(false);
     expect(shownName("deleted-1a2b3c4d5e")).toBe("Deleted user");
     expect(shownName("theo")).toBe("theo");
+    expect(swapHandle("maya ↔ theo", "maya", "T")).toBe("T ↔ theo");
+    expect(swapHandle("note by mayanne, and maya.", "maya", "T")).toBe("note by mayanne, and T.");
+    expect(swapHandle("maya.bot was here", "maya", "T")).toBe("maya.bot was here");
   });
 });
 
@@ -165,6 +270,7 @@ function boardFixture() {
   (b as unknown as { setMeta(k: string, v: string): void }).setMeta("created_by", "maya");
   return { b, db };
 }
+type Forget = { forgetUser(u: string, t: string, o?: { title?: string | null }): Promise<{ entries: number }> };
 
 describe("a board forgets a deleted member", () => {
   it("their messages stay under the tombstone; their reactions, mentions and read state follow", async () => {
@@ -174,7 +280,7 @@ describe("a board forgets a deleted member", () => {
     db.prepare("INSERT INTO entries (seq, ts, author, type, text, mentions, to_people) VALUES (1, 1, 'maya', 'note', 'hello all', NULL, NULL)").run();
     db.prepare(`INSERT INTO entries (seq, ts, author, type, text, mentions, to_people) VALUES (2, 1, 'theo', 'note', '@maya look', '[{"user":"maya","agent":false}]', '["maya","theo"]')`).run();
     db.prepare("INSERT INTO reactions (seq, user, emoji, ts) VALUES (2, 'maya', '👍', 1)").run();
-    const r = await (b as unknown as { forgetUser(u: string, t: string): Promise<{ entries: number }> }).forgetUser("maya", T);
+    const r = await (b as unknown as Forget).forgetUser("maya", T);
     expect(r.entries).toBe(1);
     expect(db.prepare("SELECT author FROM entries WHERE seq = 1").get()).toEqual({ author: T });
     const e2 = db.prepare("SELECT mentions, to_people FROM entries WHERE seq = 2").get() as { mentions: string; to_people: string };
@@ -183,5 +289,21 @@ describe("a board forgets a deleted member", () => {
     expect(db.prepare("SELECT user FROM reactions").all()).toEqual([{ user: T }]);
     expect(db.prepare("SELECT name FROM members ORDER BY name").all()).toEqual([{ name: "theo" }]);
     expect(db.prepare("SELECT value FROM meta WHERE key = 'created_by'").get()).toEqual({ value: T });
+  });
+
+  it("purges, sealed secrets, lapsed leases, JSON and a conversation's title follow too (jxn's agent #4389)", async () => {
+    const { b, db } = boardFixture();
+    const T = "deleted-5566778899";
+    db.prepare("INSERT INTO members (name, cursor, joined_at, last_seen) VALUES ('maya', 3, 1, 1), ('theo', 3, 1, 1)").run();
+    db.prepare(`INSERT INTO entries (seq, ts, author, type, text, purged, sealed_to, data) VALUES (1, 1, 'theo', 'note', 'x', '{"by":"maya","via":"person"}', 'maya', '{"people":["maya/alt-b","theo"]}')`).run();
+    db.prepare("INSERT INTO tasks (seq, status, updated_at, lapsed_holder) VALUES (1, 'todo', 1, 'maya/alt-b')").run();
+    db.prepare("INSERT OR REPLACE INTO meta (key, value) VALUES ('title', 'maya ↔ theo')").run();
+    await (b as unknown as Forget).forgetUser("maya", T, { title: `${T} ↔ theo` });
+    const e = db.prepare("SELECT purged, sealed_to, data FROM entries WHERE seq = 1").get() as { purged: string; sealed_to: string; data: string };
+    expect(JSON.parse(e.purged)).toEqual({ by: T, via: "person" });
+    expect(e.sealed_to).toBe(T);
+    expect(JSON.parse(e.data)).toEqual({ people: [`${T}/alt-b`, "theo"] });
+    expect(db.prepare("SELECT lapsed_holder FROM tasks").get()).toEqual({ lapsed_holder: `${T}/alt-b` });
+    expect(db.prepare("SELECT value FROM meta WHERE key = 'title'").get()).toEqual({ value: `${T} ↔ theo` });
   });
 });
