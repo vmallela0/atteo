@@ -893,6 +893,25 @@ await step("ops console is hidden from non-operators; ops API lists everything",
   assert(acc && acc.boards.some((x) => x.id === board) && acc.active_tokens >= 1, JSON.stringify(acc));
 });
 
+await step("ops console opens for a localhost admin test session (no ADMIN_EMAIL)", async () => {
+  const op = `e2e-op-${run}`;
+  await makeUser(op, { session: false });
+  const verified = (await ops("sessions", { user: op, verified: "true" })).body.cookie;
+  assert(verified?.startsWith("ab_session="), "verified non-admin cookie");
+  assert((await fetch(`${BASE}/_ops`, { headers: { cookie: verified } })).status === 404, "verified member still 404s without admin");
+  const admin = (await ops("sessions", { user: op, verified: "true", admin: true })).body.cookie;
+  assert(admin?.startsWith("ab_session="), "admin test cookie");
+  const r = await fetch(`${BASE}/_ops`, { headers: { cookie: admin } });
+  const html = await r.text();
+  assert(r.status === 200, `/_ops as admin test session ${r.status}`);
+  has(html, ">Ops<");
+  has(html, 'id="ops-tabs"');
+  has(html, "Overview");
+  has(html, "Access");
+  has(html, "Events");
+  has(html, 'href="/_ops"');
+});
+
 
 // ---- one board per session ----
 let board2;

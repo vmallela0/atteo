@@ -176,7 +176,7 @@ async function loadViewer(env: Env, session: auth.Session | null, request?: Requ
     name: u.name,
     email: u.email ?? session.email,
     display_name: u.display_name,
-    admin: !!session.email_verified && auth.isAdminEmail(env, session.email),
+    admin: auth.isAdminViewer(env, session, request ? new URL(request.url).hostname : null),
     lang: pickLang(typeof pref === "string" ? pref : null, request ? new URL(request.url).searchParams.get("lang") : null, request?.headers.get("accept-language") ?? null),
   };
 }
@@ -3435,11 +3435,15 @@ const handler = {
           const u = normalizeUser(body.user);
           const row = u ? await registry.userByName(env, u) : null;
           if (!row) return json({ error: "user not found" }, 404);
+          // Local tests only: a browser session that can open /_ops without ADMIN_EMAIL (csp-enforced.mjs). Needs
+          // DEV_FAKE_ADMIN=1 in .dev.vars (never wrangler.jsonc) and localhost; production still requires ADMIN_EMAIL.
+          const admin = body.admin === true || ["true", "1"].includes(String(body.admin ?? ""));
+          if (admin && (env.DEV_FAKE_ADMIN !== "1" || !isLocalHost(url.hostname))) return json({ error: "admin test sessions require DEV_FAKE_ADMIN=1 on localhost" }, 400);
           const secret = await auth.createSession(env, {
             user: row.name,
-            workos_id: row.workos_id ?? "ops-issued",
+            workos_id: admin ? auth.OPS_ADMIN_WORKOS_ID : (row.workos_id ?? "ops-issued"),
             email: row.email ?? "",
-            email_verified: String(body.verified) === "true",
+            email_verified: admin || String(body.verified) === "true",
             display_name: row.display_name,
           });
           await accountlog.record(env, row.name, "signin.web", request, { client: "operator" });

@@ -11,7 +11,7 @@ The application CSP is **report-only**. `CSP_ENFORCE` in `src/ui.ts` must remain
 - HTML responses are private and revalidated so a shared cache cannot reuse a nonce.
 - The untrusted HTML preview has a separate, enforced sandbox policy and never receives the application page's nonce.
 - `/api/csp-report` accepts browser reports with request, rate, and daily-key limits.
-- `test/browser/csp-enforced.mjs` rewrites the report-only header to an enforced header in the browser and covers primary pages, OAuth redirects, previews, Mermaid/code rendering, and the lazy bug-report capture.
+- `test/browser/csp-enforced.mjs` rewrites the report-only header to an enforced header in the browser and covers primary pages, OAuth redirects, previews, Mermaid/code rendering, the lazy bug-report capture, and the admin-only `/_ops` page (via `test/browser/lib/admin.mjs`).
 
 ## Remaining gaps before enforcement
 
@@ -25,7 +25,7 @@ These are intentional or operational gaps, not reasons to weaken script protecti
 6. The application still permits one external script: the exact versioned Mermaid URL. Its SRI hash detects changed bytes, but removing this dependency would require self-hosting it.
 7. Voice requires `wss://api.x.ai`; confirm that provider endpoint has not changed immediately before rollout.
 8. The separately deployed `landing/` Worker is outside `CSP_ENFORCE`. It currently emits inline JSON-LD and no CSP; give that deployment its own nonce/hash policy before treating CSP as site-wide.
-9. The enforced browser simulation covers public, onboarding, and primary signed-in routes, but not the admin-only `/_ops` page (CI sets no `ADMIN_EMAIL`). It was checked by hand on 2026-10-05 with an operator session and `CSP_ENFORCE = true`: every script carries the nonce, and its Overview, Access and Events tabs run with no violation. Its server-rendered scripts still pass the shared nonce unit checks; add an admin browser fixture if that route changes materially.
+9. Done: the enforced browser simulation covers `/_ops` through a localhost-only operator session (`POST /api/ops/sessions { admin: true }` with `DEV_FAKE_ADMIN=1` in local `.dev.vars`, `test/browser/lib/admin.mjs`). CI still sets no `ADMIN_EMAIL`; production still requires it. The test marker (`workos_id` `ops-admin`) is ignored without the flag or off localhost. `csp-enforced.mjs` and `csp.mjs` walk Overview, Access and Events; server-rendered scripts pass the shared nonce unit checks.
 
 ## Later rollout
 
