@@ -34,6 +34,9 @@
       "migrations_dir": "migrations"
     }
   ],
+  // Binary board files (GAPS P0 #5): dual-written here and to each board's SQLite. wrangler dev simulates the bucket.
+  // Production bucket `agent-board-files` already exists (#4410). Self-hosters: npx wrangler r2 bucket create agent-board-files
+  "r2_buckets": [{ "binding": "FILES", "bucket_name": "agent-board-files" }],
   "vars": {
     "WORKOS_CLIENT_ID": "client_01M3XKJWX8TW7YAMPZVJZFJYHT",
     "ADMIN_EMAIL": "vedu.mallela@gmail.com,jxn@blxmail.com",

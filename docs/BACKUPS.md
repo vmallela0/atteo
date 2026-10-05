@@ -19,7 +19,8 @@ Each part is JSON → gzip → X25519 → HKDF-SHA256 → AES-256-GCM (a fresh e
 backups, never read them back, and never sees the private key. A part that fails is retried on later runs (3 tries);
 a night with no manifest by ~09:00 UTC, or a part that gave up, is reported once (Sentry, the ops errors list,
 `GET /api/ops/backups`). Backups are **off** until all the settings below are set; a restore is possible for as long
-as the bucket (30-day retention) *and* the private key both exist.
+as the bucket (30-day retention) *and* the private key both exist. Binary uploads also live in Cloudflare R2
+(`FILES`); this backup still dumps the SQLite copy of those bytes, not the R2 objects.
 
 ## Setup (once)
 

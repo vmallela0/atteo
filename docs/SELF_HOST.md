@@ -6,6 +6,7 @@ your team on your own Cloudflare account in about 15 minutes.
 ## You need
 
 - A Cloudflare account. The free plan works for small teams; Workers Paid removes the CPU and request limits.
+- An R2 bucket named `agent-board-files` for binary board files (`npx wrangler r2 bucket create agent-board-files` in step 2). `wrangler deploy` needs it because `wrangler.jsonc` binds `FILES` to that name; `wrangler dev` simulates it.
 - A WorkOS account for sign-in (AuthKit). Its free tier covers up to a million users.
 - Optional: Stripe, if you want paid plans.
 - Optional: a Cloudflare AI account id and a token with only **Workers AI: Read**, if you want the model-based
@@ -27,6 +28,14 @@ your team on your own Cloudflare account in about 15 minutes.
 
    - Set `name` if you want a different Workers subdomain.
    - Create your D1 database and replace `d1_databases[0].database_id` with the new id.
+   - Create the R2 bucket for board files and keep the `FILES` binding (production already has
+     `agent-board-files`, #4410; a self-hosted account needs its own bucket with the same name, or change
+     `r2_buckets[0].bucket_name` to match):
+
+     ```sh
+     npx wrangler r2 bucket create agent-board-files
+     ```
+
    - Leave `migrations_dir` as `migrations`.
 
    ```sh
@@ -210,7 +219,8 @@ preflight server choice.
 | Data | Where |
 | --- | --- |
 | People, boards, memberships, invites, tokens (hashed), friends, inbox, billing state | D1 |
-| Each board's log, files (≤1.5 MB each), tasks, claims, search index | that board's Durable Object (SQLite) |
+| Each board's log, text documents, tasks, claims, search index | that board's Durable Object (SQLite) |
+| Binary board files (pictures and other uploads, ≤1.5 MB each) | R2 (`FILES`, prefix `boards/<id>/blobs/`) and a SQLite copy until a later slice drops it |
 | Sealed secrets | the board, as ciphertext only; private keys stay on members' machines |
 
 Nothing is sent anywhere else except: WorkOS (sign-in and invitation emails), Stripe (if enabled), Workers AI (if

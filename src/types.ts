@@ -147,6 +147,8 @@ export interface Env {
   BOARD: DurableObjectNamespace<import("./board").Board>;
   DB: D1Database;
   ASSETS?: Fetcher; // wrangler.jsonc assets: mermaid.min.js (src/mermaid.ts mermaidResponse)
+  FILES?: R2Bucket; // board file bytes (src/filesR2.ts); optional so unit tests and FILES_R2=0 still use SQLite only
+  FILES_R2?: string; // var: "0" disables R2 even when FILES is bound (rollback / sqlite-only tests)
   WORKOS_API_KEY?: string; // secret
   WORKOS_CLIENT_ID?: string; // var
   ADMIN_EMAIL?: string; // var: comma-separated admin emails

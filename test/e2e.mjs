@@ -192,7 +192,10 @@ let board;
 let q1;
 
 await step("health", async () => {
-  assert((await fetch(`${BASE}/health`)).ok, "not ok");
+  const r = await fetch(`${BASE}/health`);
+  assert(r.ok, "not ok");
+  const j = await r.json();
+  assert(j.ok === true && (j.files === "r2" || j.files === "sqlite"), `health files: ${JSON.stringify(j)}`);
 });
 
 await step("setup through the ops API: users, tokens, sessions", async () => {
@@ -836,6 +839,45 @@ await step("web: several files in one message (multipart upload): one entry, att
   const [emj, esj] = [await em.json(), await es.json()];
   assert(em.status === 400 && es.status === 400 && emj.error === esj.error && emj.error.includes("end-to-end encrypted"), `encrypted ${em.status} ${emj.error} / ${es.status} ${esj.error}`);
   assert(!(await (await web(`/api/boards/${eb}/files`, E)).json()).docs.some((d) => d.name === "a.png" || d.name === "b.png"), "nothing stored on the encrypted board");
+});
+
+await step("R2 shared folder: binary upload dual-writes, list/read, sqlite files still listed, migrate is a no-op copy", async () => {
+  const payload = Buffer.alloc(64, 7);
+  payload[0] = 0;
+  payload[1] = 1;
+  const name = `r2-${run}.bin`;
+  const up = await web(`/api/boards/${board}/upload?name=${name}&text=${encodeURIComponent("r2 slice")}`, A, {
+    method: "POST",
+    headers: { "content-type": "application/octet-stream" },
+    body: payload,
+  });
+  const uj = await up.json();
+  assert(up.status === 201 && uj.entry?.artifact_name === name, `upload ${up.status} ${JSON.stringify(uj).slice(0, 300)}`);
+  const version = uj.entry.artifact_version ?? uj.entry.attachments?.[0]?.version;
+  const textName = `r2-text-${run}.md`;
+  const textPost = await web(`/api/boards/${board}/entries`, A, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ type: "artifact", text: "text stays in sqlite", artifact_name: textName, artifact_content: `# r2 ${run}\n` }),
+  });
+  assert(textPost.status === 201, `text artifact ${textPost.status}`);
+  const files = await (await web(`/api/boards/${board}/files`, A)).json();
+  const doc = files.docs.find((d) => d.name === name);
+  assert(doc && doc.version === version && doc.size === payload.length, `catalog ${JSON.stringify(doc)}`);
+  assert(doc.storage === "both" || doc.storage === "sqlite", `storage ${doc.storage}`);
+  const textDoc = files.docs.find((d) => d.name === textName);
+  assert(textDoc && textDoc.storage === "sqlite", `text doc ${JSON.stringify(textDoc)}`);
+  const folder = await (await web(`/api/boards/${board}/folder`, A)).json();
+  assert(folder.backend === "r2" || folder.backend === "sqlite", `folder ${JSON.stringify(folder).slice(0, 300)}`);
+  if (folder.backend === "r2") {
+    assert(folder.bound === true && folder.objects.some((o) => o.name === name && o.version === version && o.size === payload.length), `r2 object missing: ${JSON.stringify(folder.objects).slice(0, 400)}`);
+    assert(doc.storage === "both", `dual-write storage ${doc.storage}`);
+  }
+  const got = await web(`/api/boards/${board}/image?name=${encodeURIComponent(name)}&version=${version}`, B);
+  assert(got.status === 200 && Buffer.from(await got.arrayBuffer()).equals(payload), `read ${got.status}`);
+  const mig = await ops("files-migrate", { board });
+  assert(mig.status === 200 && mig.body.ok && (folder.backend === "r2" ? mig.body.already >= 1 : true), `migrate ${mig.status} ${JSON.stringify(mig.body)}`);
+  assert((await web(`/api/boards/${board}/folder`, OUT)).status === 404, "outsiders can't list the folder");
 });
 
 await step("brand: the cone-and-cans mark (jxn #2944) is the favicon, apple-touch icon and header mark", async () => {

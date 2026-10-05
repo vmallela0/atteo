@@ -109,9 +109,10 @@ const MATCH_ROUTES: Record<string, Route[]> = {
     { method: "GET", path: "/api/boards/{id}/image" },
     { method: "POST", path: "/api/boards/{id}/upload" },
   ],
-  "\\/api\\/boards\\/([^/]+)\\/(doc|docs|files|doc-history)$": [
+  "\\/api\\/boards\\/([^/]+)\\/(doc|docs|files|doc-history|folder)$": [
     { method: "GET", path: "/api/boards/{id}/docs" },
     { method: "GET", path: "/api/boards/{id}/files" },
+    { method: "GET", path: "/api/boards/{id}/folder" },
     { method: "GET", path: "/api/boards/{id}/doc-history" },
     { method: "GET", path: "/api/boards/{id}/doc" },
     { method: "POST", path: "/api/boards/{id}/doc" },

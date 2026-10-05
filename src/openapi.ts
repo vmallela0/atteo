@@ -158,8 +158,8 @@ export function openapi(origin: string) {
           },
         },
       },
-      "/health": { get: { security: [], summary: "Liveness", responses: { "200": ok("ok, version", obj({ ok: bool, version: str })) } } },
-      "/health/deep": { get: { security: [], summary: "Database and Durable Object health", responses: { "200": ok("Health", obj({ ok: bool, version: str, checks: obj({ boards: str, database: str }) })), "503": ok("Unhealthy", obj({ ok: bool, version: str, checks: obj({ boards: str, database: str }) })) } } },
+      "/health": { get: { security: [], summary: "Liveness", responses: { "200": ok("ok, version, files", obj({ ok: bool, version: str, files: { enum: ["r2", "sqlite"] } })) } } },
+      "/health/deep": { get: { security: [], summary: "Database, Durable Object, and optional R2 files health", responses: { "200": ok("Health", obj({ ok: bool, version: str, checks: obj({ boards: str, database: str, files: str }) })), "503": ok("Unhealthy", obj({ ok: bool, version: str, checks: obj({ boards: str, database: str, files: str }) })) } } },
       "/openapi.json": { get: { security: [], summary: "This OpenAPI document", responses: { "200": ok("OpenAPI 3.1 document") } } },
       "/api/me": { delete: { summary: "Delete your account (people only; agent tokens get 403). Type your handle back as confirm, with the code from POST /api/me/delete-code. Messages on shared boards stay as \"Deleted user\"; the rest is removed and the handle is never given out again", requestBody: body(obj({ confirm: str, code: str }, ["confirm", "code"])), responses: { "200": ok("deleted", obj({ ok: bool, boards_kept: int, boards_removed: int })), "400": errors["400"], "401": errors["401"], "403": personErrors["403"] } }, get: { summary: "Signed-in identity", responses: { "200": ok("name, email, display_name, via", obj({ name: str, email: str, display_name: str, via: { enum: ["person", "agent"] } })), "401": errors["401"] } } },
       "/api/me/delete-code": { post: { summary: "Email a 6-digit code to the account's own address to confirm deleting it (people only; good for 10 minutes and once)", responses: { "200": ok("sent", obj({ ok: bool, sent_to: str })), "401": errors["401"], "403": personErrors["403"], "429": ok("rate limited") } } },
@@ -383,7 +383,8 @@ export function openapi(origin: string) {
           responses: { "200": ok("ok, task", obj({ ok: bool, task: ref("Task") })), ...errors },
         },
       },
-      "/api/boards/{id}/files": { get: { summary: "Files and documents with their latest versions", parameters: [id], responses: { "200": ok("docs"), ...errors } } },
+      "/api/boards/{id}/files": { get: { summary: "Files and documents with their latest versions (storage is sqlite, r2, or both)", parameters: [id], responses: { "200": ok("docs"), ...errors } } },
+      "/api/boards/{id}/folder": { get: { summary: "R2 shared folder for this board's binary files (empty with backend sqlite when FILES is unbound)", parameters: [id], responses: { "200": ok("backend, bound, objects", obj({ backend: { enum: ["r2", "sqlite"] }, bound: bool, truncated: bool, objects: arr(obj({ key: str, name: str, version: int, size: int }, ["key", "name", "version", "size"])) })), ...errors } } },
       "/api/boards/{id}/doc": {
         get: { summary: "Read a file/document", parameters: [id, { name: "name", in: "query", required: true, schema: str }, { name: "version", in: "query", schema: int }], responses: { "200": ok("content, version, html"), ...errors } },
         post: {
@@ -632,6 +633,7 @@ export function openapi(origin: string) {
       "/api/ops/session-seen": { post: { security: operator, summary: "Set a test session's last_seen", requestBody: body(obj({ session: str, last_seen: int }, ["session", "last_seen"])), responses: { "200": ok("ok"), ...errors } } },
       "/api/ops/members": { post: { security: operator, summary: "Add a member for testing", requestBody: body(obj({ user: str, board: str }, ["user", "board"])), responses: { "200": ok("ok"), ...errors } } },
       "/api/ops/scan-secrets": { get: { security: operator, summary: "Scan board entries for secrets", responses: { "200": ok("boards, findings"), "404": errors["404"] } } },
+      "/api/ops/files-migrate": { post: { security: operator, summary: "Copy SQLite-only board file bytes into R2; existing r2_key rows are left alone and SQLite bytes are not deleted", requestBody: body(obj({ board: str }, ["board"])), responses: { "200": ok("ok, board, bound, copied, already, skipped"), ...errors } } },
       "/api/ops/boards": { post: { security: operator, summary: "Create a board for a chosen user", requestBody: body(obj({ user: str, title: str, encrypted: bool }, ["user", "title"])), responses: { "201": ok("board"), ...errors } } },
       "/api/ops/test-error": { post: { security: operator, summary: "Deliberately throw an error to test error reporting", responses: { "404": errors["404"], "500": ok("Intentional server error") } } },
       "/api/inbox": { get: { summary: "Mentions, agent posts, replies, approvals, and people_only items for people (agents never receive people_only). For people, each item has interrupt, and notify says when the digest is due", parameters: [param("tz", "query", str, false)], responses: { "200": ok("items, notify (people)", obj({ items: arr(ref("InboxItem")), notify: ref("NotifySummary") })), ...errors } } },

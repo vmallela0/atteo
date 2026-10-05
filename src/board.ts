@@ -35,6 +35,7 @@ import { parseAgentCharter, type AgentCharter } from "./charter";
 import { mutersOf } from "./moderation";
 import { memberRole } from "./registry";
 import { dropForward, forwardsFor, PURGED_QUOTE, RETAINED_QUOTE, scrubQuote, type ForwardRow } from "./forwards";
+import { deleteBoardFile, deleteBoardFiles, fileKey, filesBucket, getBoardFile, listBoardFiles, putBoardFile, toArrayBuffer, type FileStorage, type FolderList, type MigrateResult } from "./filesR2";
 
 export const MAX_TEXT = 32_000;
 export const MAX_ARTIFACT = 256_000;
@@ -191,6 +192,7 @@ export interface DocMeta {
   via: string | null;
   client: string | null;
   size: number;
+  storage?: FileStorage; // binary files: sqlite (legacy / R2 off), r2, or both (dual-write). Text docs are sqlite.
 }
 export interface Doc {
   media?: Media | null; // set for images
@@ -471,6 +473,7 @@ export class Board extends DurableObject<Env> {
         bytes BLOB NOT NULL,
         width INTEGER,
         height INTEGER,
+        r2_key TEXT,
         PRIMARY KEY (name, version)
       );
       CREATE TABLE IF NOT EXISTS doc_versions (
@@ -831,6 +834,9 @@ export class Board extends DurableObject<Env> {
       for (const d of this.sql.exec("SELECT name, content FROM docs").toArray()) this.indexDoc(d.name as string, d.content as string);
       this.setMeta("fts_built", "1");
     }
+    // R2 shared folder (GAPS P0 #5): where this version's bytes also live. Null = SQLite only (legacy, or R2 off).
+    const blobCols = new Set(this.sql.exec("PRAGMA table_info(blobs)").toArray().map((r) => r.name as string));
+    if (blobCols.size && !blobCols.has("r2_key")) this.sql.exec("ALTER TABLE blobs ADD COLUMN r2_key TEXT");
     // Tasks posted before the tasks table existed: give them a row once (done if something resolved them).
     if (this.meta("tasks_backfilled") !== "1") {
       this.sql.exec(
@@ -2715,8 +2721,13 @@ export class Board extends DurableObject<Env> {
     const files = [...(e.attachments ?? []).map((a) => ({ name: a.name, version: a.version })), ...(e.artifact_name && e.artifact_version != null ? [{ name: e.artifact_name, version: e.artifact_version }] : [])]
       .filter((f, i, all) => f.version != null && all.findIndex((g) => g.name === f.name && g.version === f.version) === i);
     for (const f of files) {
+      const blob = this.sql.exec("SELECT r2_key FROM blobs WHERE name = ? AND version = ?", f.name, f.version).toArray()[0] as { r2_key: string | null } | undefined;
       this.sql.exec("UPDATE doc_versions SET content = ?, summary = NULL WHERE name = ? AND version = ?", removed, f.name, f.version);
       this.sql.exec("DELETE FROM blobs WHERE name = ? AND version = ?", f.name, f.version);
+      if (blob?.r2_key) {
+        const bucket = filesBucket(this.env);
+        if (bucket) this.ctx.waitUntil(deleteBoardFile(bucket, blob.r2_key).catch(() => {}));
+      }
       if (this.sql.exec("SELECT 1 AS x FROM docs WHERE name = ? AND version = ?", f.name, f.version).toArray().length) {
         this.sql.exec("UPDATE docs SET content = ? WHERE name = ?", removed, f.name);
         this.sql.exec("DELETE FROM search_idx WHERE kind = 'doc' AND ref = ?", f.name);
@@ -4316,7 +4327,7 @@ export class Board extends DurableObject<Env> {
     const name = binaryName(f.name, image);
     const media = mediaFor(image, bytes.byteLength, f.width, f.height, bytes);
     const about = aboutBinary(media);
-    const version = this.storeBlob(user, name, about, media, f.bytes, { via: f.via, client: f.client, summary: text || `Shared ${name}` });
+    const version = await this.storeBlob(user, name, about, media, f.bytes, { via: f.via, client: f.client, summary: text || `Shared ${name}` });
     return this.post(user, { type: "artifact", text: text || `Shared ${name}`, artifact_name: name, artifact_content: about, mentions: f.mentions, reply_to: f.reply_to ?? null, via: f.via, client: f.client }, { docVersion: version, media });
   }
 
@@ -4328,12 +4339,39 @@ export class Board extends DurableObject<Env> {
     if (a) throw new BoardError(`#${replyTo} is ${audienceWord(a.audience)}, and files are shared with the whole board, so a file can't go in its thread.`);
   }
 
-  /** A binary file's next version: its description as the doc version's text, its bytes in `blobs`. */
-  private storeBlob(user: string, name: string, about: string, media: Media, bytes: ArrayBuffer, opts: DocEditOpts): number {
+  /** A binary file's next version: its description as the doc version's text, its bytes in `blobs` and (when R2 is
+   *  bound) also in the board's shared folder. SQLite keeps a copy so a missing bucket or an R2 error never loses the file. */
+  private async storeBlob(user: string, name: string, about: string, media: Media, bytes: ArrayBuffer, opts: DocEditOpts): Promise<number> {
     const version = this.storeVersion(user, name, about, opts);
-    this.sql.exec("INSERT OR REPLACE INTO blobs (name, version, mime, bytes, width, height) VALUES (?, ?, ?, ?, ?, ?)", name, version, media.mime, bytes, media.w, media.h);
+    this.sql.exec("INSERT OR REPLACE INTO blobs (name, version, mime, bytes, width, height, r2_key) VALUES (?, ?, ?, ?, ?, ?, NULL)", name, version, media.mime, bytes, media.w, media.h);
+    const old = this.sql.exec("SELECT name, version, r2_key FROM blobs WHERE name = ? AND version <= ?", name, version - 50).toArray() as { name: string; version: number; r2_key: string | null }[];
     this.sql.exec("DELETE FROM blobs WHERE name = ? AND version <= ?", name, version - 50); // same history depth as text versions
+    const bucket = filesBucket(this.env);
+    if (bucket && old.length) {
+      const board = this.meta("id");
+      for (const r of old) {
+        const key = r.r2_key || (board ? fileKey(board, r.name, r.version) : null);
+        if (key) this.ctx.waitUntil(deleteBoardFile(bucket, key).catch(() => {}));
+      }
+    }
+    await this.copyBlobToR2(name, version, media.mime, bytes);
     return version;
+  }
+
+  /** Writes this version to R2 and records r2_key. Failures leave the SQLite copy as the source of truth. */
+  private async copyBlobToR2(name: string, version: number, mime: string, bytes: ArrayBuffer): Promise<string | null> {
+    const bucket = filesBucket(this.env);
+    const board = this.meta("id");
+    if (!bucket || !board) return null;
+    const key = fileKey(board, name, version);
+    try {
+      await putBoardFile(bucket, key, bytes, { board, name, version, mime });
+      this.sql.exec("UPDATE blobs SET r2_key = ? WHERE name = ? AND version = ?", key, name, version);
+      return key;
+    } catch (e) {
+      console.error("R2 put failed", board, name, version, e);
+      return null;
+    }
   }
 
   /**
@@ -4380,12 +4418,12 @@ export class Board extends DurableObject<Env> {
     if (hit) throw new BoardError(this.secretBlock(hit));
     const caption = text || `Shared ${filesLabel(files.map((x) => ({ mime: x.media?.mime ?? "text/plain" })))}`;
     const opts: DocEditOpts = { via: f.via, client: f.client, summary: caption };
-    const list: Attachment[] = files.map((x) => {
-      const version = x.raw && x.media ? this.storeBlob(user, x.name, x.content, x.media, x.raw, opts) : this.storeVersion(user, x.name, x.content, opts);
+    const list: Attachment[] = await Promise.all(files.map(async (x) => {
+      const version = x.raw && x.media ? await this.storeBlob(user, x.name, x.content, x.media, x.raw, opts) : this.storeVersion(user, x.name, x.content, opts);
       const a: Attachment = { name: x.name, mime: x.media?.mime ?? "text/plain", size: x.media?.size ?? new TextEncoder().encode(x.content).length, version };
       if (x.media?.w && x.media?.h) Object.assign(a, { w: x.media.w, h: x.media.h });
       return a;
-    });
+    }));
     const first = files[0];
     const texts = files.filter((x) => !x.raw).map((x) => x.content).join("\n").slice(0, MAX_ARTIFACT);
     return this.post(
@@ -4403,8 +4441,22 @@ export class Board extends DurableObject<Env> {
     this.info();
     const v = version ?? (this.sql.exec("SELECT version FROM docs WHERE name = ?", name).toArray()[0]?.version as number | undefined);
     if (v == null) return null;
-    const r = this.sql.exec("SELECT mime, bytes FROM blobs WHERE name = ? AND version = ?", name, v).toArray()[0];
-    if (r) return { mime: r.mime as string, bytes: r.bytes as ArrayBuffer };
+    const r = this.sql.exec("SELECT mime, bytes, r2_key FROM blobs WHERE name = ? AND version = ?", name, v).toArray()[0] as
+      | { mime: string; bytes: unknown; r2_key: string | null }
+      | undefined;
+    if (r) {
+      const sqliteBytes = toArrayBuffer(r.bytes);
+      const bucket = filesBucket(this.env);
+      if (bucket && r.r2_key) {
+        const fromR2 = await getBoardFile(bucket, r.r2_key);
+        if (fromR2) return { mime: r.mime, bytes: fromR2 };
+      }
+      if (sqliteBytes) {
+        // Legacy rows (and R2 misses): serve SQLite and copy to the folder in the background.
+        if (bucket && !r.r2_key) this.ctx.waitUntil(this.copyBlobToR2(name, v, r.mime, sqliteBytes).then(() => {}));
+        return { mime: r.mime, bytes: sqliteBytes };
+      }
+    }
     const t = this.sql.exec("SELECT content FROM doc_versions WHERE name = ? AND version = ?", name, v).toArray()[0];
     return t ? { mime: "text/plain", bytes: new TextEncoder().encode(t.content as string).buffer as ArrayBuffer } : null;
   }
@@ -4414,7 +4466,8 @@ export class Board extends DurableObject<Env> {
   docList(): DocMeta[] {
     return this.sql
       .exec(
-        `SELECT d.name, d.version, d.updated_by, d.updated_at, d.via, d.client, COALESCE(length(b.bytes), length(d.content)) AS size, b.mime
+        `SELECT d.name, d.version, d.updated_by, d.updated_at, d.via, d.client, COALESCE(length(b.bytes), length(d.content)) AS size, b.mime,
+                CASE WHEN b.r2_key IS NOT NULL AND length(b.bytes) > 0 THEN 'both' WHEN b.r2_key IS NOT NULL THEN 'r2' ELSE 'sqlite' END AS storage
          FROM docs d LEFT JOIN blobs b ON b.name = d.name AND b.version = d.version ORDER BY d.updated_at DESC`,
       )
       .toArray() as unknown as DocMeta[];
@@ -4423,6 +4476,43 @@ export class Board extends DurableObject<Env> {
   async docs(): Promise<DocMeta[]> {
     this.info();
     return this.docList().map(d => ({ ...d, seq: this.postedIn(d.name, d.version) }));
+  }
+
+  /** The R2 shared folder for this board (empty with backend "sqlite" when FILES is unbound). */
+  async folderList(): Promise<FolderList> {
+    this.info();
+    return listBoardFiles(filesBucket(this.env), this.meta("id")!);
+  }
+
+  /** Copies SQLite-only blobs into R2. Existing r2_key rows are left alone. Does not delete SQLite bytes. */
+  async migrateBlobsToR2(): Promise<MigrateResult> {
+    this.info();
+    const rows = this.sql.exec("SELECT name, version, mime, bytes, r2_key FROM blobs").toArray() as {
+      name: string;
+      version: number;
+      mime: string;
+      bytes: unknown;
+      r2_key: string | null;
+    }[];
+    const bound = !!filesBucket(this.env);
+    let copied = 0;
+    let already = 0;
+    let skipped = 0;
+    for (const r of rows) {
+      if (r.r2_key) {
+        already++;
+        continue;
+      }
+      const bytes = toArrayBuffer(r.bytes);
+      if (!bytes || !bound) {
+        skipped++;
+        continue;
+      }
+      const key = await this.copyBlobToR2(r.name, r.version, r.mime, bytes);
+      if (key) copied++;
+      else skipped++;
+    }
+    return { bound, copied, already, skipped };
   }
 
   async docRead(name: string, version?: number): Promise<Doc> {
@@ -4576,6 +4666,7 @@ export class Board extends DurableObject<Env> {
       } catch {}
     }
     this.wakeWaits();
+    if (id) await deleteBoardFiles(filesBucket(this.env), id).catch(() => 0);
     await this.ctx.storage.deleteAll();
     this.metaCache.clear();
     this.entryMemo = [];

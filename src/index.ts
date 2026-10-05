@@ -52,6 +52,7 @@ import { mayMention, parseMentions, SESSION_NAME_RE, type Mention } from "./ment
 import * as registry from "./registry";
 import { recordForward, scrubForwards } from "./forwards";
 import * as backup from "./backup";
+import { filesEnabled } from "./filesR2";
 import * as cardsign from "./cardsign";
 import * as accountlog from "./accountlog";
 import * as pins from "./pins";
@@ -654,7 +655,7 @@ const handler = {
 
     try {
       if (path === "/mcp") return await handleMcp(request, env, ctx);
-      if (path === "/health") return json({ ok: true, version: env.CF_VERSION_METADATA?.id ?? null });
+      if (path === "/health") return json({ ok: true, version: env.CF_VERSION_METADATA?.id ?? null, files: filesEnabled(env) ? "r2" : "sqlite" });
       // Browsers post what the report-only CSP would have blocked (jxn's agent #2636): no sign-in, always 204.
       if (path === "/api/csp-report" && method === "POST") return await csp.handleReport(request, env);
       if (path === "/health/deep") {
@@ -672,6 +673,12 @@ const handler = {
           checks.database = "ok";
         } catch (e) {
           checks.database = (e instanceof Error ? e.message : String(e)).slice(0, 200);
+        }
+        try {
+          if (filesEnabled(env)) await env.FILES!.list({ limit: 1 });
+          checks.files = "ok";
+        } catch (e) {
+          checks.files = (e instanceof Error ? e.message : String(e)).slice(0, 200);
         }
         const ok = Object.values(checks).every((v) => v === "ok");
         return json({ ok, version: env.CF_VERSION_METADATA?.id ?? null, checks }, ok ? 200 : 503, { "cache-control": "no-store" });
@@ -2531,7 +2538,7 @@ const handler = {
       }
 
       // ---- shared documents (members; operators can read) ----
-      m = path.match(/^\/api\/boards\/([^/]+)\/(doc|docs|files|doc-history)$/);
+      m = path.match(/^\/api\/boards\/([^/]+)\/(doc|docs|files|doc-history|folder)$/);
       if (m) {
         const [, id, what] = m;
         if (!viewer && !hasOpsKey(c)) return needLogin();
@@ -2540,6 +2547,7 @@ const handler = {
         const name = url.searchParams.get("name") ?? "";
         try {
           if ((what === "docs" || what === "files") && method === "GET") return json({ docs: await stub.docs() });
+          if (what === "folder" && method === "GET") return json(await stub.folderList());
           if (what === "doc-history" && method === "GET") return json({ versions: await stub.docHistory(name) });
           if (what === "doc" && method === "GET") {
             const v = url.searchParams.get("version");
@@ -3681,6 +3689,11 @@ const handler = {
             for (const h of await boardStub(env, b.id).scanSecrets()) found.push({ board: b.id, title: b.title, seq: h.seq, rule: h.hit.rule, field: h.hit.field, line: h.hit.line });
           }
           return json({ boards: boards.length, findings: found });
+        }
+        if (path === "/api/ops/files-migrate" && method === "POST") {
+          const b = (body as { board?: unknown }).board;
+          if (typeof b !== "string" || !BOARD_RE.test(b) || !(await registry.getBoard(env, b))) return json({ error: "board required" }, 400);
+          return json({ ok: true, board: b, ...(await boardStub(env, b).migrateBlobsToR2()) });
         }
         if (path === "/api/ops/boards" && method === "POST") {
           const u = normalizeUser(body.user);
