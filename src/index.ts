@@ -12,6 +12,7 @@ import * as approvals from "./approvals";
 import { approvalsPage } from "./approvalsPage";
 import { askPage } from "./ask";
 import * as access from "./access";
+import { accessAll } from "./accessAll";
 import { AUDIT_EXPORT_LIMIT, auditExportDocument, auditExportHeaders, forAgents, parseAuditAfter } from "./auditExport";
 import * as social from "./social";
 import * as webhooks from "./webhooks";
@@ -1385,6 +1386,13 @@ const handler = {
         }
         return json(await accountlog.list(env, viewer.name, { before: Number(url.searchParams.get("before")) || undefined, limit: Number(url.searchParams.get("limit")) || 50 }), 200, { "cache-control": "no-store" });
       }
+      // Access across your boards (#3568): your role on each, and on the boards you own everyone's access, open links and
+      // invitations, with review nudges. People only, like the account log.
+      if (path === "/api/me/access" && method === "GET") {
+        if (!viewer) return needLogin();
+        if (viewer.via === "agent") return json({ error: "Your access page is for you, not your agents." }, 403);
+        return json(await accessAll(env, viewer.name), 200, { "cache-control": "no-store" });
+      }
       if (path === "/api/me/pins" && (method === "GET" || method === "PUT")) {
         if (!viewer) return needLogin();
         if (viewer.via === "agent") return json({ error: "Pins are for people." }, 403);
@@ -1638,7 +1646,7 @@ const handler = {
       }
       if (path === "/me" && method === "GET") {
         if (!viewer) return needLogin();
-        const [side, tokens, plan, hooks, prof, mine, log] = await Promise.all([
+        const [side, tokens, plan, hooks, prof, mine, log, access] = await Promise.all([
           sideBoards(env, viewer.name),
           auth.listTokens(env, viewer.name),
           billing.planOf(env, viewer.name),
@@ -1646,8 +1654,9 @@ const handler = {
           social.profile(env, viewer.name),
           sessions.list(env, viewer.name),
           accountlog.list(env, viewer.name, { limit: 6 }),
+          viewer.via === "agent" ? null : accessAll(env, viewer.name).catch(() => null),
         ]);
-        return mePage(viewer, side, tokens, plan, !!env.STRIPE_SECRET_KEY, hooks, prof, mine.filter(sessions.listed).map((x) => x.client || x.name), log.events);
+        return mePage(viewer, side, tokens, plan, !!env.STRIPE_SECRET_KEY, hooks, prof, mine.filter(sessions.listed).map((x) => x.client || x.name), log.events, access);
       }
 
       if (path === OPS_PATH && method === "GET") {

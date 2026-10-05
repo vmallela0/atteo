@@ -6,6 +6,7 @@ import { PLANS, PRICES, type PlanState } from "./billing";
 import { boardMeta, type BoardRow, type InviteRow, type Invitation, type UserRow } from "./registry";
 import type { TokenRow } from "./auth";
 import type { AccountLogRow } from "./accountlog";
+import type { AccessAll } from "./accessAll";
 import { authorLabel, computeSummary, retractedSet, type Summary } from "./state";
 import { PIN_BAR, PIN_SIDE, RECAP_BTN, RECAP_DLG, pinRecapJs } from "./pinrecap";
 import { SOUL_DLG, SOUL_SIDE, rememberBtn, soulMemoryJs } from "./soulmemory";
@@ -3263,6 +3264,49 @@ const ACCOUNT_EVENTS: Record<AccountLogRow["event"], string> = {
   "tokens.revoked_all": "Disconnected all agents",
 };
 
+/** Access across your boards (#3568): your role on each; on the ones you own, everyone's access, open links and
+ *  invitations, with Remove / Revoke and a mark on what's worth reviewing (no end date for REVIEW_DAYS+, links that never
+ *  expire). Names, titles and addresses are members' data: escaped. */
+function accessSection(acc: AccessAll | null, lang?: Lang): string {
+  if (!acc) return "";
+  const T = (x: string, v?: Record<string, string | number>) => tr(lang, x, v);
+  const day = (ts: number) => new Date(ts).toISOString().slice(0, 10);
+  const role = (r: string) => esc(T(r === "owner" ? "Owner" : r === "viewer" ? "View only" : "Can post"));
+  const rv = (on: boolean) => (on ? ` <span class="acc-rv xs">${esc(T("Review"))}</span>` : "");
+  const boards = acc.boards
+    .map((b) => {
+      const mine = [role(b.role), b.expires_at ? esc(T("until {date}", { date: day(b.expires_at) })) : "", b.archived ? esc(T("Archived")) : ""].filter(Boolean).join(" · ");
+      const rows = b.owner
+        ? [
+            ...(b.members ?? []).map(
+              (m) =>
+                `<li class="acc-all-r${m.review ? " review" : ""}"><span class="grow"><b>${esc(m.user)}</b> <span class="xs faint">${role(m.role)} · ${m.expires_at ? esc(T("until {date}", { date: day(m.expires_at) })) : esc(T("No end date"))} · ${esc(T("since {date}", { date: day(m.joined_at) }))}</span>${rv(m.review)}</span><button class="btn ghost sm" type="button" data-all-remove="${esc(b.id)}" data-user="${esc(m.user)}" data-label="${esc(T("Remove"))}">${esc(T("Remove"))}</button></li>`,
+            ),
+            ...(b.links ?? []).map(
+              (l) =>
+                `<li class="acc-all-r${l.review ? " review" : ""}"><span class="grow">${esc(T("Invite link"))} <span class="xs faint">${role(l.role)} · ${esc(T("{n} joined", { n: l.uses }))} · ${l.expires_at ? esc(T("until {date}", { date: day(l.expires_at) })) : esc(T("Never expires"))}</span>${rv(l.review)}</span><button class="btn ghost sm" type="button" data-all-revoke="${esc(b.id)}" data-link="${esc(l.id)}">${esc(T("Revoke"))}</button></li>`,
+            ),
+            ...(b.invites ?? []).map((i) => `<li class="acc-all-r"><span class="grow"><b>${esc(i.who)}</b> <span class="xs faint">${role(i.role)} · ${esc(T("Invited, not yet accepted"))} · ${esc(T("since {date}", { date: day(i.created_at) }))}</span></span></li>`),
+          ]
+        : [];
+      const list = b.owner ? `<ul class="acc-all-g">${rows.join("") || `<li class="xs faint">${esc(T("Only you"))}</li>`}</ul>` : "";
+      return `<li class="acc-all-b" data-board="${esc(b.id)}"><div><a href="/b/${esc(encodeURIComponent(b.id))}" style="color:var(--ink)"><b>${esc(b.title)}</b></a> <span class="xs faint">· ${mine}</span></div>${list}</li>`;
+    })
+    .join("");
+  return `<div class="section-title" style="margin-top:32px"><div><h2>${esc(T("Access across your boards"))}</h2><p class="small muted" style="margin-top:4px">${esc(T("Every board you're on, and who has access to the ones you own. Marked lines are worth a look."))}${acc.nudges ? ` <span class="acc-rv">${esc(T("{n} to review", { n: acc.nudges }))}</span>` : ""}</p></div></div>
+<ul class="list pad" id="access-all" style="list-style:none;margin:0;display:grid;gap:12px">${boards || `<li class="empty small">${esc(T("Nothing yet."))}</li>`}</ul>`;
+}
+
+// Remove (a second tap confirms, as in a board's dialog) and Revoke, through the boards' own routes; then the page reloads.
+const ACCESS_JS = `
+document.getElementById('access-all')?.addEventListener('click',async e=>{const rm=e.target.closest('[data-all-remove]'),rk=e.target.closest('[data-all-revoke]');
+  if(rm){if(rm.dataset.armed!=='1'){rm.dataset.armed='1';rm.textContent=tr('Remove ')+rm.dataset.user+'?';rm.classList.add('danger');
+      setTimeout(()=>{rm.dataset.armed='';rm.textContent=rm.dataset.label;rm.classList.remove('danger')},4000);return}
+    rm.disabled=true;const r=await fetch('/api/boards/'+encodeURIComponent(rm.dataset.allRemove)+'/members/'+encodeURIComponent(rm.dataset.user)+'/remove',{method:'POST'});
+    const j=await r.json().catch(()=>({}));if(!r.ok){toast(j.error||tr('Could not remove'));rm.disabled=false;return}toast(j.message||tr('Remove'));setTimeout(()=>location.reload(),600)}
+  if(rk){rk.disabled=true;const r=await fetch('/api/boards/'+encodeURIComponent(rk.dataset.allRevoke)+'/links/'+encodeURIComponent(rk.dataset.link),{method:'DELETE'});
+    if(!r.ok){toast(tr('Could not revoke'));rk.disabled=false;return}toast(tr('Link revoked'));setTimeout(()=>location.reload(),600)}});`;
+
 /** The last few lines of the account log (#3490), and the whole year as a download. */
 function accountLogSection(log: AccountLogRow[], lang?: Lang): string {
   const T = (x: string) => tr(lang, x);
@@ -3291,7 +3335,7 @@ document.getElementById('kill-all')?.addEventListener('click',async e=>{const b=
   const r=await fetch('/api/tokens/revoke-all',{method:'POST'});const j=await r.json().catch(()=>({}));toast(r.ok?j.message:(j.error||tr('Could not disconnect')));
   if(r.ok)setTimeout(()=>location.reload(),900);else b.disabled=false});`;
 
-export function mePage(viewer: Viewer, side: SideBoard[], tokens: TokenRow[], plan: PlanState = { plan: "free", status: null, renews_at: null, cancel_at_end: false, customer: null }, billingEnabled = false, hooks: WebhookRow[] = [], prof: ProfileView | null = null, assistants: string[] = [], log: AccountLogRow[] = []): Response {
+export function mePage(viewer: Viewer, side: SideBoard[], tokens: TokenRow[], plan: PlanState = { plan: "free", status: null, renews_at: null, cancel_at_end: false, customer: null }, billingEnabled = false, hooks: WebhookRow[] = [], prof: ProfileView | null = null, assistants: string[] = [], log: AccountLogRow[] = [], access: AccessAll | null = null): Response {
   const T = (x: string, v?: Record<string, string | number>) => tr(viewer.lang, x, v);
   const rows = tokens.length
     ? tokens
@@ -3338,11 +3382,12 @@ ${
 <p class="xs muted" style="margin:8px 0">${esc(T("Run this, approve in the browser, and start a new session."))}</p>${copyField("me-reconnect", CLI_STEPS.reconnect)}</details>`
     : ""
 }
+${accessSection(access, viewer.lang)}
 ${accountLogSection(log, viewer.lang)}
 ${webhooksSection(hooks, viewer.lang)}
 ${billingSection(plan, billingEnabled, viewer.lang)}
 ${connectDialog(viewer)}`,
-    script: CONNECT_JS + `window.revoked=()=>location.reload();` + BILLING_JS + PFP_JS + HOOKS_JS + PROFILE_JS + DISPLAY_JS + NOTIFY_JS + HEADLESS_JS + KILL_JS,
+    script: CONNECT_JS + `window.revoked=()=>location.reload();` + BILLING_JS + PFP_JS + HOOKS_JS + PROFILE_JS + DISPLAY_JS + NOTIFY_JS + HEADLESS_JS + KILL_JS + ACCESS_JS,
   });
 }
 

@@ -169,6 +169,13 @@ export function openapi(origin: string) {
           },
         },
       },
+      "/api/me/access": {
+        get: {
+          security: person,
+          summary: "Access across your boards: your role and end date on each; on the boards you own, every member's role and end date, open invite links and invitations not yet accepted. review marks access with no end date held 90+ days and links that never expire",
+          responses: { "200": ok("boards, review_days, nudges"), ...personErrors },
+        },
+      },
       "/api/me/pins": {
         get: { security: person, summary: "Your ordered pinned boards (up to five active boards)", responses: { "200": ok("pins", obj({ pins: arr(str) }, ["pins"])), ...personErrors } },
         put: { security: person, summary: "Replace your ordered pinned boards", requestBody: body(obj({ pins: { type: "array", items: str, maxItems: 5, uniqueItems: true } }, ["pins"])), responses: { "200": ok("pins", obj({ pins: arr(str) }, ["pins"])), "400": errors["400"], ...personErrors } },

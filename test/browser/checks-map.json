@@ -11,6 +11,7 @@
     "src/i18n*.ts": ["i18n-more", "i18n-zh", "i18n-zh-2", "i18n-zh-3", "a11y"],
     "src/guide.i18n.ts": ["i18n-more"],
     "src/boardExport.ts": ["board-export", "e2e-web"],
+    "src/accessAll.ts": ["access-all"],
     "src/openapi.ts": [],
     "cli/**": ["e2e-web"],
     "test/*.ts": [],
