@@ -100,7 +100,7 @@ export { Board } from "./board";
 import { forwardDestOk, forwardExcerptInEntry, keptOwnNotice } from "./audience";
 import { audienceNotice, MAX_FILES_PER_MESSAGE, MAX_IMAGE, MAX_MESSAGE_BYTES, MAX_WAIT_MS, WAIT_CAP } from "./board";
 import * as sessions from "./sessions";
-import { compactLine, formatEntry, formatMemory, handleMessage, parseReadBudget, presentReadEntries, readHeader, readParts, withNames } from "./state";
+import { compactLine, formatEntry, formatMemory, handleMessage, parseReadBudget, parseSummaryBudget, presentReadEntries, readHeader, readParts, withNames } from "./state";
 import { fence, flagged } from "./screen";
 import { CODE_COLOR_PATH, CODE_COLOR_SCRIPT } from "./codecolor";
 import { quickReplies } from "./quickReplies";
@@ -2213,6 +2213,7 @@ const handler = {
           if (method === "GET" && sub === "read") {
             const limit = Number(url.searchParams.get("limit")) || undefined;
             const maxChars = parseReadBudget(url.searchParams.get("max_chars"));
+            const summaryChars = parseSummaryBudget(url.searchParams.get("summary_budget"));
             // ?summary=all: every board's summary; none: no summary. Otherwise (older CLIs send a comma list of boards)
             // a board's summary comes with the member's first read of it, then only on request.
             const sumParam = url.searchParams.get("summary");
@@ -2220,7 +2221,7 @@ const handler = {
             const headless = await social.agentsHeadless(env, viewer.name);
             const out = await Promise.all(
               ids.map(async (id) => {
-                const r = await boardStub(env, id).read(viewer.name, { limit, summary: summary(id), names: await social.boardAgentNames(env, id), maxChars }, cur.id);
+                const r = await boardStub(env, id).read(viewer.name, { limit, summary: summary(id), names: await social.boardAgentNames(env, id), maxChars, summaryChars }, cur.id);
                 const b = { id, title: r.info.title, encrypted: r.info.encrypted };
                 const p = readParts(r);
                 p.lines.push(...await boardStub(env, id).editNotices(viewer.name, cur.id));
