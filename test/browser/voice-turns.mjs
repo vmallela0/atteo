@@ -31,7 +31,9 @@ async function call(turns, pauseMs) {
     return route.continue({ headers });
   });
   await p.goto(`${BASE}/b/${board}`); await p.waitForTimeout(700);
-  await p.locator(".bp-head [data-talk]").click(); await p.waitForTimeout(700);
+  await p.locator(".bp-head [data-talk]").click();
+  await p.waitForFunction(() => window.__talk.sent.length > 0 && window.atteoTalk.state()?.ready, null, { timeout: 10000 }).catch(() => {}); // connected (slow when the machine is busy)
+  await p.waitForTimeout(300);
   return { ctx, p };
 }
 const sent = (p) => p.evaluate(() => window.__talk.sent.map((x) => x.type).filter((t) => t !== "input_audio_buffer.append"));
