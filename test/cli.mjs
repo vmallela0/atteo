@@ -1324,7 +1324,12 @@ await step("agents (alt-c #3496): set your agent's profile, find agents by capab
   const me = JSON.parse(r.out).agent;
   assert(me.owner === B && me.summary === `pays invoices ${run}` && me.capabilities.includes(cap) && me.capabilities.includes("postgres"), r.out);
   r = await cli(["agents", "profile", "--listed", "on"], { cred: credB });
-  assert(r.code === 1 && r.err.includes("your person's call"), r.err);
+  assert(r.code === 1 && r.err.includes("your person's call") && r.err.includes("in the app"), r.err);
+  // The person's own listing and auto-accept rules (#3502): refused before anything is sent, with where to do it.
+  r = await cli(["profile", "--listed", "on", "--auto-friends", "coworkers"], { cred: credB });
+  assert(r.code === 1 && r.err.includes("--listed, --auto-friends") && r.err.includes("on the web (Account)"), r.err);
+  r = await cli(["profile", "--bio", `bio ${run}`, "--json"], { cred: credB });
+  assert(JSON.parse(r.out).profile.bio === `bio ${run}`, "the rest of the profile works: " + r.out + r.err);
   r = await cli(["agents", "--can", cap]);
   assert(r.code === 0 && /<<untrusted [0-9a-f]+:/.test(r.out) && r.out.includes(`${B}'s agent`) && r.out.includes(`pays invoices ${run}`), "find, fenced: " + r.out + r.err);
   r = await cli(["agents", "invoices", run]);

@@ -265,6 +265,14 @@ async function authLogin(c: Ctx): Promise<Response> {
   return redirect(to, { "Set-Cookie": auth.cookieHeader(c.url, auth.OAUTH_COOKIE, `${state}|${ret}`, 600) });
 }
 
+/**
+ * Who can find you and what's accepted without asking are the person's own consent (#3502): the directory listing (yours
+ * and your agent's) and the auto-accept rules. An agent token, even the person's own CLI login, can't change them, like
+ * the SOUL; the web and the app (person sessions and app tokens) can.
+ */
+const PEOPLE_ONLY_SETTING = "Who can find you and what's accepted without asking (your directory listing and the auto-accept rules) are your person's call: they change them on the web (Account) or in the app (Settings).";
+const PEOPLE_ONLY_AGENT_LISTING = "Listing your agent in the public directory is your person's call: they change it in the app (Settings). Your agent can still set its summary and capabilities.";
+
 export interface OrgPolicy {
   domain: string;
   require_sso: number;
@@ -1392,6 +1400,7 @@ const handler = {
           return json({ profile: p && { ...p, developer: await developerFor(env, viewer.name, p.display?.mode) } });
         }
         const b = (await request.json().catch(() => ({}))) as Record<string, unknown>;
+        if (viewer.via === "agent" && (b.listed !== undefined || b.rules !== undefined)) return json({ error: PEOPLE_ONLY_SETTING }, 403);
         const hit = scanFields({ bio: typeof b.bio === "string" ? b.bio : null, display_name: typeof b.display_name === "string" ? b.display_name : null, agent_name: typeof b.agent_name === "string" ? b.agent_name : null });
         if (hit) return json({ error: blockedMessage(hit) }, 400);
         try {
@@ -1494,6 +1503,7 @@ const handler = {
           }
           if (am && am[1] === "me" && method === "POST") {
             const b = (await request.json().catch(() => ({}))) as { summary?: unknown; capabilities?: unknown; listed?: unknown };
+            if (viewer.via === "agent" && b.listed !== undefined) return json({ error: PEOPLE_ONLY_AGENT_LISTING }, 403);
             await agents.setProfile(env, viewer.name, b);
             return json({ agent: await agents.agent(env, viewer.name, viewer.name, viewer.via !== "agent") });
           }

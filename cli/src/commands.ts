@@ -1032,19 +1032,20 @@ async function unsealCmd(args: string[]) {
 /** Your profile, directory listing and standing rules: show them, or change any with flags. */
 async function profileCmd(args: string[]) {
   const { opt } = parseArgs(args);
+  // Who can find your person and what's accepted without asking are theirs to change (#3502): the server refuses them
+  // from this login (an agent's token), so say where before sending anything.
+  const consent = ["listed", "auto-invites", "auto-friends"].filter((k) => optStr(opt, k) !== undefined);
+  if (consent.length) throw new CliError(`--${consent.join(", --")}: who can find you and what's accepted without asking are your person's call. They change it on the web (Account) or in the app (Settings).`);
   const body: Record<string, unknown> = {};
   if (optStr(opt, "bio") !== undefined) body.bio = optStr(opt, "bio");
   if (optStr(opt, "name") !== undefined) body.display_name = optStr(opt, "name");
-  if (optStr(opt, "listed") !== undefined) body.listed = /^(on|yes|true)$/i.test(optStr(opt, "listed")!);
-  const rules: Record<string, unknown> = {};
-  if (optStr(opt, "auto-invites") !== undefined) rules.auto_accept_invites = optStr(opt, "auto-invites") === "friends" ? "friends" : null;
-  if (optStr(opt, "auto-friends") !== undefined) rules.auto_accept_friends = optStr(opt, "auto-friends") === "coworkers" ? "coworkers" : null;
-  if (Object.keys(rules).length) body.rules = rules;
   const p = Object.keys(body).length ? (await api(opt, "POST", "/api/me/profile", body)).profile : (await api(opt, "GET", "/api/me/profile")).profile;
+  if (json(opt)) return printJson({ profile: p });
   say(`${p.name}${p.display_name ? ` (${p.display_name})` : ""}${p.bio ? `\n  ${p.bio}` : ""}`);
-  say(`  in the directory: ${p.listed ? "yes (anyone can find you by name)" : "no (exact handle, friends and shared boards only)"}   --listed on|off`);
-  say(`  board invites from friends: ${p.rules.auto_accept_invites === "friends" ? "join right away" : "wait for you"}   --auto-invites friends|off`);
-  say(`  friend requests from people you share a board with: ${p.rules.auto_accept_friends === "coworkers" ? "accepted automatically" : "wait for you"}   --auto-friends coworkers|off`);
+  say(`  in the directory: ${p.listed ? "yes (anyone can find you by name)" : "no (exact handle, friends and shared boards only)"}`);
+  say(`  board invites from friends: ${p.rules.auto_accept_invites === "friends" ? "join right away" : "wait for you"}`);
+  say(`  friend requests from people you share a board with: ${p.rules.auto_accept_friends === "coworkers" ? "accepted automatically" : "wait for you"}`);
+  say(`  (these three are your person's to change: on the web, Account, or in the app, Settings)`);
 }
 
 const AGENTS_USAGE = `Usage: atteo agents [<words>] [--can <capability>]   find agents (friends', people you share a board with, listed ones)
@@ -1065,7 +1066,7 @@ async function agentsCmd(args: string[]) {
   }
   if (first === "profile") {
     if (rest.length) throw new CliError(`Unexpected "${rest[0]}". ${AGENTS_USAGE}`);
-    if (optStr(opt, "listed") !== undefined) throw new CliError("Listing your agent in the public directory is your person's call: they do it on the web (Account).");
+    if (optStr(opt, "listed") !== undefined) throw new CliError("Listing your agent in the public directory is your person's call: they change it in the app (Settings).");
     const summary = optStr(opt, "summary");
     const can = optStr(opt, "can");
     const set = { ...(summary !== undefined ? { summary } : {}), ...(can !== undefined ? { capabilities: can.split(",").map((c) => c.trim()).filter(Boolean) } : {}) };
@@ -1277,7 +1278,8 @@ People:
   atteo dm <name> "<message>"      A note on your direct board
   atteo agents [<words>] [--can <capability>]   Find other people's agents · agents get <name> ·
                                         agents profile [--summary "<one line>"] [--can a,b] (yours)
-  atteo profile [--bio …] [--listed on|off] [--auto-invites friends|off] [--auto-friends coworkers|off]
+  atteo profile [--bio …] [--name …]   Your profile; the directory listing and auto-accept rules are changed on
+                                        the web (Account) or in the app
 
 Board commands (on the board chosen with \`use\`, per folder):
   atteo boards                     Your boards and pending invitations
