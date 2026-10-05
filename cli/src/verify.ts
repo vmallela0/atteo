@@ -4,9 +4,9 @@
 // A person always reads the exact command and says yes first; with no sandbox available it refuses to run.
 
 import { spawn, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { homedir, platform, tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, dirname, join } from "node:path";
 
 /** Paths under $HOME that commonly hold keys, tokens and logins; the sandbox can't read them. */
 const SENSITIVE = [
@@ -43,6 +43,22 @@ export interface Sandbox {
 }
 
 const which = (cmd: string) => spawnSync("sh", ["-c", `command -v ${cmd}`], { encoding: "utf8" }).stdout.trim();
+
+/** A small, host-independent PATH plus the Node/npm runtime that launched this CLI. */
+function trustedRuntime(): { path: string; mounts: string[] } {
+  const bins = [dirname(process.execPath), "/usr/local/bin", "/usr/bin", "/bin"];
+  const mounts = [process.execPath];
+  const npm = which("npm");
+  if (npm) {
+    const npmBin = dirname(npm);
+    bins.push(npmBin);
+    mounts.push(basename(npmBin) === "bin" ? dirname(npmBin) : npm);
+  }
+  return {
+    path: [...new Set(bins.filter(existsSync))].join(":"),
+    mounts: [...new Set(mounts.filter(existsSync).map((p) => realpathSync(p)))],
+  };
+}
 
 /** macOS sandbox-exec profile: everything allowed except network, writes outside `writable`, secrets and the keychain. */
 function seatbeltProfile(writable: string[]): string {
@@ -93,11 +109,18 @@ export function pickSandbox(image?: string): Sandbox | null {
   if (bwrap) {
     return {
       kind: "bwrap",
-      describe: "bubblewrap: no network, read-only system, writes only inside the checkout, keys/credentials hidden",
+      describe: "bubblewrap: no network or host files, read-only system/dependencies, writes only inside the checkout",
       argv: (command, dir, writable) => {
-        const home = homedir();
-        const hide = SENSITIVE.map((p) => join(home, p)).filter((p) => existsSync(p)).flatMap((p) => (spawnSync("test", ["-d", p]).status === 0 ? ["--tmpfs", p] : ["--ro-bind", "/dev/null", p]));
-        return [bwrap, "--ro-bind", "/", "/", "--dev", "/dev", "--proc", "/proc", "--tmpfs", "/tmp", ...writable.flatMap((w) => ["--bind", w, w]), ...hide, "--unshare-all", "--die-with-parent", "--new-session", "--chdir", dir, "/bin/sh", "-c", command];
+        const system = ["/usr", "/bin", "/sbin", "/lib", "/lib64", "/etc/alternatives", "/etc/ssl", "/etc/pki", "/nix/store"].filter(existsSync);
+        const deps = DEP_DIRS.map((d) => join(dir, d)).filter(existsSync).map((p) => realpathSync(p));
+        const readable = [...new Set([...system, ...trustedRuntime().mounts, ...deps])];
+        return [
+          bwrap,
+          ...readable.flatMap((p) => ["--ro-bind", p, p]),
+          "--dev", "/dev", "--proc", "/proc", "--tmpfs", "/tmp", "--tmpfs", "/var/tmp",
+          ...writable.flatMap((w) => ["--bind", w, w]),
+          "--unshare-all", "--die-with-parent", "--new-session", "--chdir", dir, "/bin/sh", "-c", command,
+        ];
       },
     };
   }
@@ -122,7 +145,7 @@ export function runSandboxed(sb: Sandbox, command: string, dir: string, scratch:
   mkdirSync(home, { recursive: true });
   mkdirSync(tmp, { recursive: true });
   // A minimal environment: nothing from your shell (tokens, cloud credentials) beyond what finds the tools.
-  const env: Record<string, string> = { PATH: process.env.PATH ?? "/usr/bin:/bin", HOME: home, TMPDIR: tmp, TMP: tmp, TEMP: tmp, LANG: process.env.LANG ?? "en_US.UTF-8", TERM: "dumb", CI: "1", NO_COLOR: "1" };
+  const env: Record<string, string> = { PATH: trustedRuntime().path, HOME: home, TMPDIR: tmp, TMP: tmp, TEMP: tmp, LANG: process.env.LANG ?? "en_US.UTF-8", TERM: "dumb", CI: "1", NO_COLOR: "1" };
   // Docker leaves its cidfile behind even with --rm; each probe/check gets a fresh one.
   if (sb.kind === "docker") rmSync(join(writable[0], "docker.cid"), { force: true });
   const argv = sb.argv(command, dir, writable);
@@ -191,13 +214,10 @@ export function throwawayCheckout(repo: string, commit: string): { dir: string; 
     throw new Error(`Couldn't check out ${commit.slice(0, 7)}: ${add.stderr.trim()}`);
   }
   for (const d of DEP_DIRS) if (existsSync(join(repo, d)) && !existsSync(join(dir, d))) symlinkSync(join(repo, d), join(dir, d));
-  // git inside the checkout writes to its admin folder in the main repo (.git/worktrees/<name>).
-  const admin = git(dir, ["rev-parse", "--git-dir"]).stdout.trim();
-  const writable = [base, ...(admin ? [realpathSync(admin)] : [])];
   return {
     dir,
     scratch,
-    writable,
+    writable: [base],
     cleanup: () => {
       git(repo, ["worktree", "remove", "--force", dir]);
       rmSync(base, { recursive: true, force: true });
@@ -215,13 +235,17 @@ export async function sandboxSelfTest(sb: Sandbox): Promise<{ ok: boolean; lines
   const dir = join(base, "checkout"), scratch = join(base, "scratch");
   mkdirSync(dir);
   const outside = join(homedir(), `.atteo-sandbox-probe-${process.pid}`);
+  const hostSecret = join(homedir(), `.atteo-sandbox-read-probe-${process.pid}`);
   const secretDir = join(homedir(), ".ssh");
+  writeFileSync(hostSecret, "must stay on the host", { mode: 0o600 });
   const probes: { what: string; cmd: string; expect: "fail" | "pass" }[] = [
     { what: "write inside the checkout", cmd: "echo ok > inside.txt && cat inside.txt", expect: "pass" },
     { what: "network (HTTPS)", cmd: "curl -sS -m 5 -o /dev/null https://example.com", expect: "fail" },
     { what: "network (raw TCP)", cmd: "nc -z -w 3 1.1.1.1 443", expect: "fail" },
     { what: "write to your home folder", cmd: `touch ${JSON.stringify(outside)}`, expect: "fail" },
+    { what: "read an unlisted file from your home folder", cmd: `cat ${JSON.stringify(hostSecret)}`, expect: "fail" },
     ...(existsSync(secretDir) ? [{ what: "read ~/.ssh", cmd: `ls ${JSON.stringify(secretDir)}`, expect: "fail" as const }] : []),
+    ...(["/var/run/docker.sock", "/run/docker.sock"].filter(existsSync).map((p) => ({ what: `reach ${p}`, cmd: `test -r ${JSON.stringify(p)}`, expect: "fail" as const }))),
     ...(platform() === "darwin" ? [{ what: "read the login keychain", cmd: "security find-generic-password -s agent-board -w", expect: "fail" as const }] : []),
     { what: "your shell's environment", cmd: 'test -z "$ATTEO_SBTEST"', expect: "pass" },
   ];
@@ -242,6 +266,7 @@ export async function sandboxSelfTest(sb: Sandbox): Promise<{ ok: boolean; lines
     }
   } finally {
     delete process.env.ATTEO_SBTEST;
+    rmSync(hostSecret, { force: true });
     rmSync(base, { recursive: true, force: true });
   }
   return { ok, lines };
