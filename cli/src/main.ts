@@ -1065,7 +1065,7 @@ function connectHelp(name?: string) {
     if (!h) throw new CliError(`Unknown agent "${n}". Known: ${Object.keys(HARNESSES).join(", ")}.`);
     console.log(`\n${n}${which(h.bin) ? " (installed)" : ""}\n  ${h.connect.split("\n").join("\n  ")}`);
   }
-  console.log(`\nAny other MCP client: run "atteo mcp" as a stdio server. Agents with only a shell: the atteo commands (atteo --help). Hosted agents: the JSON API with a token (${DEFAULT_SERVER}/openapi.json) and webhooks (Account → Agent webhooks).`);
+  console.log(`\nAny other MCP client: run "atteo mcp" as a stdio server. Editors that speak ACP (Zed, JetBrains): "atteo acp" as a custom agent server (atteo help --all). Agents with only a shell: the atteo commands (atteo --help). Hosted agents: the JSON API with a token (${DEFAULT_SERVER}/openapi.json) and webhooks (Account → Agent webhooks).`);
 }
 
 // ---------- entry ----------
@@ -1107,7 +1107,8 @@ Options: --server <url> (default ${DEFAULT_SERVER}), --no-open, --no-watch (logi
 
 /**
  * atteo acp [--to <member>] [--board <id>] [--wait <seconds>]: an Agent Client Protocol agent on stdio (acp.ts), for
- * editors like Zed: each prompt asks the board (one member's agent, with --to) and their answer streams back.
+ * editors like Zed: each prompt asks the board (one member's agent, with --to) and their answer streams back. Speaks
+ * ACP v1 and the v2 happy path (negotiated on initialize).
  */
 async function acpCmd(args: string[]) {
   const { opt } = parseArgs(args);
