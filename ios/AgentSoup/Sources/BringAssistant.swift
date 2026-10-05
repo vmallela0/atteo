@@ -30,6 +30,18 @@ enum AssistantProvider: String, Identifiable, CaseIterable {
         case .coding: return "Claude Code, Codex"
         }
     }
+    /// Its logo in the asset catalog (a one-colour template, tinted like text), only to say which tool it is (jxn #4124).
+    /// Muse is Meta's, so it wears Meta's mark; a coding agent is any of several, so it keeps "</>". Sources: ChatGPT,
+    /// Claude and Grok from @lobehub/icons (MIT), Meta from Simple Icons (CC0), flattened to one-colour 24pt SVGs.
+    var logo: String? {
+        switch self {
+        case .grok: return "ProviderGrok"
+        case .muse: return "ProviderMuse"
+        case .chatgpt: return "ProviderChatGPT"
+        case .claude: return "ProviderClaude"
+        case .coding: return nil
+        }
+    }
     var letter: String {
         switch self {
         case .grok: return "G"
@@ -70,7 +82,9 @@ enum AssistantProvider: String, Identifiable, CaseIterable {
     /// #2422): it opens in the browser, where the person's web session signs in, makes the key and copies one message to
     /// paste into a Muse chat. Always atteo.dev (publicBase), never the workers.dev host the app talks to.
     static var museConnectPage: URL? { API.shared.publicBase.appendingPathComponent("connect/muse") }
-    static let tiles: [AssistantProvider] = [.grok, .muse, .chatgpt, .claude]
+    /// A–Z by name (jxn #4124); a coding agent, the catch-all, always goes after these.
+    static let tiles: [AssistantProvider] = [AssistantProvider.grok, .muse, .chatgpt, .claude]
+        .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
 }
 
 /// A provider page: `app` is an https universal link that opens the provider's installed app (nil: its app has none
@@ -101,13 +115,20 @@ enum AppOpener {
     }
 }
 
-/// A provider's tile mark: its letter (or "</>") in a small rounded square.
+/// A provider's tile mark: its logo (or, with none, its letter or "</>") in a small rounded square.
 struct ProviderMark: View {
     let provider: AssistantProvider
     var body: some View {
-        Text(provider.letter).font(.system(size: 17, weight: .semibold)).foregroundStyle(Theme.text)
-            .frame(width: 40, height: 40).background(Theme.card, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(Theme.line))
+        Group {
+            if let logo = provider.logo {
+                Image(logo).resizable().renderingMode(.template).scaledToFit().frame(width: 22, height: 22)
+            } else {
+                Text(provider.letter).font(.system(size: 17, weight: .semibold))
+            }
+        }
+        .foregroundStyle(Theme.text)
+        .frame(width: 40, height: 40).background(Theme.card, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(Theme.line))
     }
 }
 
