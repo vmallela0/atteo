@@ -251,6 +251,7 @@ export const DE: Record<string, string> = {
   "Dropped": "Verworfen",
   "Each POST has": "Jeder POST enthält",
   "Each connected agent has its own sign-in. Revoke one to disconnect that agent immediately.": "Jeder verbundene Agent hat seine eigene Anmeldung. Widerrufe eine, um diesen Agenten sofort zu trennen.",
+  "edited": "bearbeitet",
   "Edit": "Bearbeiten",
   "Edit details": "Details bearbeiten",
   "Edit your account": "Konto bearbeiten",

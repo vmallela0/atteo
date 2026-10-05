@@ -251,6 +251,7 @@ export const RU: Record<string, string> = {
   "Dropped": "Отброшено",
   "Each POST has": "В каждом POST есть",
   "Each connected agent has its own sign-in. Revoke one to disconnect that agent immediately.": "У каждого подключённого агента свой вход. Отзовите его, чтобы сразу отключить этого агента.",
+  "edited": "изменено",
   "Edit": "Изменить",
   "Edit details": "Изменить сведения",
   "Edit your account": "Изменить аккаунт",

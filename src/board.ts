@@ -25,6 +25,7 @@ import { cleanSchedule, MAX_SCHEDULES, nextDue, lastDue, scheduleLabel, SCHEDULE
 import { LEASE_CAP_MS, RENEW_EVERY_MS, renewedUntil } from "./leases";
 import { similarOpen, taskTitleKey } from "./taskTitles";
 import { prepareEntryData, readEntryData, screenedText } from "./entryData";
+import { withinEditWindow } from "./editMessage";
 
 export const MAX_TEXT = 32_000;
 export const MAX_ARTIFACT = 256_000;
@@ -244,6 +245,7 @@ function toEntry(r: Row): Entry {
     author: r.author as string,
     type: r.type as Entry["type"],
     text: r.text as string,
+    edited_at: (r.edited_at as number | null) ?? null,
     to: (r.to_user as string | null) ?? null,
     mentions: JSON.parse((r.mentions as string | null) || "[]"),
     reply_to: (r.reply_to as number | null) ?? null,
@@ -278,7 +280,7 @@ const opts0 = (input: NewEntry): TaskActOpts => ({ via: input.via ?? null, clien
 /** For a session's reads: skip posts addressed to another session of the same person (binds: user, session). */
 const FOR_SESSION_OK = "(for_session IS NULL OR for_user != ? OR for_session = ?)";
 
-const ENTRY_COLS = "seq, ts, author, type, text, title, to_user, mentions, reply_to, resolves, supersedes, retracts, via, client, artifact_name, artifact_size, artifact_version, card, media, ai_flag, attachments, approval, audience, to_people, handoff, data";
+const ENTRY_COLS = "seq, ts, author, type, text, edited_at, title, to_user, mentions, reply_to, resolves, supersedes, retracts, via, client, artifact_name, artifact_size, artifact_version, card, media, ai_flag, attachments, approval, audience, to_people, handoff, data";
 
 // ---- private entries (audience.ts): people-only (vedu #1264), only the people it names, never any agent; and just
 // mine (#1748), only one person and their own agents. Every read of entries filters through these, so a path that
@@ -329,6 +331,8 @@ export class Board extends DurableObject<Env> {
         card_diff TEXT,
         data TEXT
       );
+      CREATE TABLE IF NOT EXISTS entry_versions (seq INTEGER NOT NULL, version INTEGER NOT NULL, text TEXT NOT NULL, ts INTEGER NOT NULL, PRIMARY KEY (seq, version));
+      CREATE TABLE IF NOT EXISTS edit_notices (user TEXT NOT NULL, session TEXT NOT NULL, seq INTEGER NOT NULL, edited_at INTEGER NOT NULL, PRIMARY KEY (user, session, seq));
       CREATE TABLE IF NOT EXISTS reactions (
         seq INTEGER NOT NULL,
         user TEXT NOT NULL,
@@ -694,6 +698,7 @@ export class Board extends DurableObject<Env> {
     if (!cols.has("handoff")) this.sql.exec("ALTER TABLE entries ADD COLUMN handoff TEXT");
     // Optional JSON object attached at post time (entryData.ts). Null when the post had none.
     if (!cols.has("data")) this.sql.exec("ALTER TABLE entries ADD COLUMN data TEXT");
+    if (!cols.has("edited_at")) this.sql.exec("ALTER TABLE entries ADD COLUMN edited_at INTEGER");
     // Covering: hiddenFrom reads only the index (with the kind, since there are two).
     this.sql.exec("CREATE INDEX IF NOT EXISTS entries_audience2 ON entries (seq, audience, to_people) WHERE audience IS NOT NULL");
     this.sql.exec("DROP INDEX IF EXISTS entries_audience");
@@ -2403,6 +2408,51 @@ export class Board extends DurableObject<Env> {
         ws.close(4003, "removed from board");
       } catch {}
     }
+  }
+
+  edit(user: string, via: string | null, seq: number, text: string): Entry {
+    const info = this.info();
+    if (info.encrypted) throw new BoardError("Messages on an encrypted board cannot be edited.");
+    if (via !== "person") throw new BoardError("Only people can edit their messages.");
+    const row = this.sql.exec(`SELECT ${ENTRY_COLS} FROM entries WHERE seq = ?`, seq).toArray()[0];
+    if (!row) throw new BoardError(`Entry #${seq} does not exist on this board.`);
+    const old = toEntry(row);
+    if (old.author !== user || old.via !== "person") throw new BoardError("You can only edit your own messages.");
+    if (old.type !== "note" && old.type !== "question") throw new BoardError("Only notes and questions can be edited.");
+    if (old.artifact_name || old.attachments?.length || old.card || old.handoff || old.data) throw new BoardError("This message cannot be edited.");
+    if (!withinEditWindow(old.ts, Date.now())) throw new BoardError("The 15-minute edit window has passed.");
+    if (this.sql.exec("SELECT 1 FROM entries WHERE retracts = ?", seq).toArray().length) throw new BoardError("An unsent message cannot be edited.");
+    text = text.trim();
+    if (!text || text.length > MAX_TEXT) throw new BoardError(`Message text must be 1–${MAX_TEXT} characters.`);
+    const hit = scanFields({ text });
+    if (hit) throw new BoardError(blockedMessage(hit));
+    const now = Date.now();
+    const version = (this.sql.exec("SELECT MAX(version) AS v FROM entry_versions WHERE seq = ?", seq).one().v as number | null ?? 0) + 1;
+    this.sql.exec("INSERT INTO entry_versions (seq, version, text, ts) VALUES (?, ?, ?, ?)", seq, version, old.text, old.edited_at ?? old.ts);
+    const flag = screenText(normalizeForScreen(text));
+    this.sql.exec("UPDATE entries SET text = ?, edited_at = ?, ai_flag = ? WHERE seq = ?", text, now, flag?.reason ?? null, seq);
+    this.entryMemo = this.entryMemo.map(e => e.seq === seq ? { ...e, text, edited_at: now, ai_flag: flag?.reason ?? null } : e);
+    this.sql.exec("DELETE FROM search_idx WHERE kind = 'entry' AND ref = ?", String(seq));
+    this.indexEntry(seq, text, null, null, null);
+    if (this.env.AI_TOKEN && text.length >= 25 && (!flag || flag.quoted)) this.ctx.waitUntil(this.screenWithModel(seq, normalizeForScreen(text)).catch(() => {}));
+    for (const r of this.sql.exec("SELECT session, user FROM session_cursors WHERE cursor >= ? AND user != ?", seq, user).toArray())
+      this.sql.exec("INSERT INTO edit_notices (user, session, seq, edited_at) VALUES (?, ?, ?, ?) ON CONFLICT(user, session, seq) DO UPDATE SET edited_at = excluded.edited_at", r.user, r.session, seq, now);
+    for (const r of this.sql.exec("SELECT user, session FROM handling WHERE seq = ? AND user != ? AND session IS NOT NULL", seq, user).toArray())
+      this.sql.exec("INSERT INTO edit_notices (user, session, seq, edited_at) VALUES (?, ?, ?, ?) ON CONFLICT(user, session, seq) DO UPDATE SET edited_at = excluded.edited_at", r.user, r.session, seq, now);
+    this.broadcast({ type: "edit", seq, board: info.id }, seq);
+    return toEntry(this.sql.exec(`SELECT ${ENTRY_COLS} FROM entries WHERE seq = ?`, seq).one());
+  }
+
+  editHistory(seq: number, viewer: Viewer): { version: number; text: string; ts: number }[] {
+    const entry = this.sql.exec(`SELECT ${ENTRY_COLS} FROM entries WHERE seq = ?`, seq).toArray()[0];
+    if (!entry || !canSee(toEntry(entry), viewer)) throw new BoardError(`Entry #${seq} does not exist on this board.`);
+    return this.sql.exec("SELECT version, text, ts FROM entry_versions WHERE seq = ? ORDER BY version", seq).toArray() as { version: number; text: string; ts: number }[];
+  }
+
+  editNotices(user: string, session: string, peek = false): string[] {
+    const rows = this.sql.exec("SELECT seq FROM edit_notices WHERE user = ? AND session = ? ORDER BY edited_at", user, session).toArray();
+    if (!peek) this.sql.exec("DELETE FROM edit_notices WHERE user = ? AND session = ?", user, session);
+    return rows.map(r => `✏️ #${r.seq} edited`);
   }
 
   /** One entry with its replies. `viewer` absent: an agent's view (a people-only entry "does not exist"). */

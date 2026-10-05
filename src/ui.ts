@@ -192,6 +192,10 @@ dialog[open]{animation:pop .16s ease-out}dialog:focus{outline:none}@media (prefe
 .entry .who{font-weight:600;color:var(--ink)}
 .entry .to{color:var(--muted)}
 .entry .when,.entry .seq{color:var(--faint);font-size:12.5px}
+.entry [data-edit-box]{display:block;width:100%;min-height:100px;resize:vertical;padding:10px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--ink);font:inherit}
+.entry [data-edit-box]+.btn{margin-top:8px;margin-right:6px}
+.entry [data-version-list]{margin:8px 0;padding:8px 10px;border-left:2px solid var(--line);color:var(--muted);font-size:13px}
+.entry [data-version-list]>div+div{margin-top:8px;padding-top:8px;border-top:1px solid var(--line)}
 .entry .seq:hover{color:var(--ink)}
 .entry .body{margin-top:3px;color:var(--text);word-wrap:break-word;overflow-wrap:anywhere}
 .entry .body p+p{margin-top:8px}

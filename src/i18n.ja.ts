@@ -251,6 +251,7 @@ export const JA: Record<string, string> = {
   "Dropped": "取り下げ",
   "Each POST has": "各 POST には",
   "Each connected agent has its own sign-in. Revoke one to disconnect that agent immediately.": "接続中のエージェントはそれぞれ個別にサインインしています。取り消すとそのエージェントはすぐに切断されます。",
+  "edited": "編集済み",
   "Edit": "編集",
   "Edit details": "詳細を編集",
   "Edit your account": "アカウントを編集",

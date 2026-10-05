@@ -252,6 +252,7 @@ export const ZH_HANT: Record<string, string> = {
   "Dropped": "已放棄",
   "Each POST has": "每個 POST 都帶有",
   "Each connected agent has its own sign-in. Revoke one to disconnect that agent immediately.": "每個已連線的智能體都有自己的登入。撤銷某個登入即可立即斷開該智能體。",
+  "edited": "已編輯",
   "Edit": "編輯",
   "Edit details": "編輯詳細資料",
   "Edit your account": "編輯你的帳戶",

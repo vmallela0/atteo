@@ -251,6 +251,7 @@ export const ID: Record<string, string> = {
   "Dropped": "Dibatalkan",
   "Each POST has": "Setiap POST memiliki",
   "Each connected agent has its own sign-in. Revoke one to disconnect that agent immediately.": "Setiap agen yang terhubung punya login sendiri. Cabut satu untuk langsung memutuskan agen itu.",
+  "edited": "diedit",
   "Edit": "Edit",
   "Edit details": "Edit detail",
   "Edit your account": "Edit akun Anda",

@@ -251,6 +251,7 @@ export const TR: Record<string, string> = {
   "Dropped": "Bırakıldı",
   "Each POST has": "Her POST şunları içerir:",
   "Each connected agent has its own sign-in. Revoke one to disconnect that agent immediately.": "Bağlı her ajanın kendi oturumu vardır. Bir ajanın bağlantısını hemen kesmek için o oturumu iptal edin.",
+  "edited": "düzenlendi",
   "Edit": "Düzenle",
   "Edit details": "Ayrıntıları düzenle",
   "Edit your account": "Hesabınızı düzenleyin",

@@ -98,7 +98,7 @@ const isHtml = (name: string | null | undefined) => !!name && /\.html?$/i.test(n
 const previewBtn = (name: string, version?: number | null) =>
   `<button class="btn sm ghost" type="button" data-preview-file="${esc(name)}"${version ? ` data-file-ver="${version}"` : ""} title="Try the page here (it runs in a sandbox)">Preview</button>`;
 
-export function entryHtml(e: Entry, boardId: string, withReplies = true, opts: { retracted?: boolean; canRetract?: boolean; root?: number; lang?: Lang } = {}): string {
+export function entryHtml(e: Entry, boardId: string, withReplies = true, opts: { retracted?: boolean; canRetract?: boolean; canEdit?: boolean; root?: number; lang?: Lang } = {}): string {
   const T = (s: string, v?: Record<string, string | number>) => tr(opts.lang, s, v);
   const refs: string[] = [];
   if (e.retracts != null) refs.push(`unsends <a class="ref" data-ref="${e.retracts}" href="#e${e.retracts}">#${e.retracts}</a>`);
@@ -119,6 +119,7 @@ ${
     : "";
   // Reply sets the composer to answer this entry: an agent's post gets the reply addressed to that agent.
   const reply = !opts.retracted && e.retracts == null ? `<button class="btn ghost sm" type="button" data-reply="${e.seq}" data-reply-label="${esc(e.via === "person" ? e.author : `${e.author}'s agent`)}">${esc(T("Reply"))}</button>` : "";
+  const edit = opts.canEdit && e.via === "person" && (e.type === "note" || e.type === "question") && !e.artifact_name && !e.attachments?.length && !opts.retracted && Date.now() - e.ts <= 900000 ? `<button class="btn ghost sm" type="button" data-edit="${e.seq}">${esc(T("Edit"))}</button>` : "";
   const retract = opts.canRetract && !opts.retracted && e.retracts == null ? `<button class="btn ghost sm retract" type="button" data-retract="${e.seq}">${esc(T("Unsend"))}</button>` : "";
   const react =
     !opts.retracted && e.retracts == null
@@ -128,15 +129,15 @@ ${
   // Select starts picking messages to forward (people only, from the page).
   const select = !opts.retracted && e.retracts == null && !e.audience ? `<button class="btn ghost sm sel-act" type="button" data-select="${e.seq}" aria-label="${esc(T("Select to forward"))}" title="${esc(T("Select messages to forward"))}"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><rect x="2.5" y="2.5" width="11" height="11" rx="3"/><path d="M5.5 8.2l1.8 1.8 3.4-3.6"/></svg></button>` : "";
   // Touch screens have no hover: a small ⋯ at the end of the line opens the actions (jxn #891); hidden with a mouse.
-  const more = react || reply || retract ? `<button class="more-acts" type="button" data-more="${e.seq}" aria-label="${esc(T("More actions"))}" aria-expanded="false" title="${esc(T("More actions"))}">⋯</button>` : "";
+  const more = react || reply || retract || edit ? `<button class="more-acts" type="button" data-more="${e.seq}" aria-label="${esc(T("More actions"))}" aria-expanded="false" title="${esc(T("More actions"))}">⋯</button>` : "";
   const remember = !opts.retracted && e.retracts == null && !e.audience ? rememberBtn(e.seq) : ""; // people-only: never agents' memory // shown once the board has a MEMORY
-  const actions = react || reply || retract ? `${more}<span class="acts">${react}${reply}${remember}${select}${retract}</span>` : "";
+  const actions = react || reply || retract || edit ? `${more}<span class="acts">${react}${reply}${remember}${select}${edit}${retract}</span>` : "";
   // An approval entry: the card says where it stands, so the message is just what's asked (its text, for agents, says "waiting").
   const apr = (e as Entry & { approval?: ApprovalCardData & { title?: string } }).approval;
   return `<article class="entry${opts.retracted ? " retracted" : ""}${e.via === "agent" ? " by-agent" : ""}" id="e${e.seq}" data-seq="${e.seq}" data-author="${esc(e.author)}" data-title="${esc(shortTitle(e))}"${e.reply_to != null ? ` data-reply="${e.reply_to}"` : ""}${opts.root != null && opts.root !== e.seq ? ` data-root="${opts.root}"` : ""}>
 ${avatar(e.author, "", e.via === "agent")}
 <div class="grow">
-  <div class="meta">${whoHtml(e)}${e.to ? `<span class="to">→ ${esc(e.to)}</span>` : ""}${e.type === "note" ? "" : typeTag(e.type, opts.lang)}${when(e.ts, opts.lang)}<a class="seq" href="#e${e.seq}">#${e.seq}</a>${peopleBadge(e, opts.lang)}<span class="badge rbadge">${esc(T("Unsent"))}</span>${flagBadge(e.text, e.ai_flag)}${actions}</div>
+  <div class="meta">${whoHtml(e)}${e.to ? `<span class="to">→ ${esc(e.to)}</span>` : ""}${e.type === "note" ? "" : typeTag(e.type, opts.lang)}${when(e.ts, opts.lang)}<a class="seq" href="#e${e.seq}">#${e.seq}</a>${peopleBadge(e, opts.lang)}${e.edited_at ? `<button class="badge" type="button" data-history="${e.seq}">${esc(T("edited"))}</button>` : ""}<span class="badge rbadge">${esc(T("Unsent"))}</span>${flagBadge(e.text, e.ai_flag)}${actions}</div>
   <div class="body">${apr?.title ? `<p>${esc(apr.title)}</p>` : refLinks(renderText(e.text, e.mentions, e.mention_names))}</div>${file}${e.card ? changeCardHtml(e.seq, e.card) : ""}${e.handoff ? `<div class="refs mono handoff">${esc(handoffLine(e.handoff))}</div>` : ""}${apr && !opts.retracted ? approvalCardHtml(apr, false, opts.lang) : ""}${e.type === "task" ? `<div class="tk" data-task="${e.seq}" hidden></div>` : ""}${e.type === "claim" && !opts.retracted ? `<div class="tk cl" data-claim="${e.seq}" hidden></div>` : ""}${e.type === "decision" && e.via === "person" && !opts.retracted ? `<div class="tk hd" data-hd="${e.seq}" hidden></div>` : ""}
   ${refs.length ? `<div class="refs">${refs.join(" · ")}</div>` : ""}
   <div class="rx" data-rx="${e.seq}"><button class="rx-add" type="button" data-rx-add="${e.seq}" aria-label="${esc(T("Add a reaction"))}" title="${esc(T("Add a reaction"))}">☺<span>+</span></button></div>
@@ -488,12 +489,12 @@ function fmtBytes(n: number): string {
   return `${(n / 1024 / 1024).toFixed(1)} MB`;
 }
 
-export function threadHtml(entries: Entry[], boardId: string, viewer?: { name: string; creator: string; lang?: Lang }): string {
+export function threadHtml(entries: Entry[], boardId: string, viewer?: { name: string; creator: string; encrypted?: boolean; lang?: Lang }): string {
   // Every message in order, replies included (jxn #1040): a reply posts like any message, with a bar quoting what it
   // answers; its thread opens as an overlay. data-root ties a reply to its thread.
   const roots = rootMap(entries);
   const gone = retractedSet(entries);
-  const flags = (e: Entry) => ({ retracted: gone.has(e.seq), canRetract: !!viewer && (e.author === viewer.name || viewer.creator === viewer.name), root: roots.get(e.seq), lang: viewer?.lang });
+  const flags = (e: Entry) => ({ retracted: gone.has(e.seq), canRetract: !!viewer && (e.author === viewer.name || viewer.creator === viewer.name), canEdit: !!viewer && !viewer.encrypted && e.author === viewer.name, root: roots.get(e.seq), lang: viewer?.lang });
   return entries.map((e) => entryHtml(e, boardId, roots.get(e.seq) === e.seq, flags(e))).join("");
 }
 
@@ -1092,7 +1093,7 @@ export function boardPage(
   // Big boards open on their newest entries; earlier ones load on demand.
   const earlier = first > 1 ? `<button class="btn ghost sm load-earlier" type="button" id="load-earlier" data-before="${first}">${esc(T("Load earlier messages"))}</button>` : "";
   const thread = entries.length
-    ? earlier + threadHtml(entries, info.id, { name: viewer.name, creator: info.created_by, lang: viewer.lang })
+    ? earlier + threadHtml(entries, info.id, { name: viewer.name, creator: info.created_by, encrypted: info.encrypted, lang: viewer.lang })
     : agentChat
       ? `<div class="empty" id="empty"><h3>${esc(T("Talk to your agent"))}</h3><p class="small">Only you and your agents see this chat. Ask anything below: any of your agents can answer (<span class="mono">atteo dispatch</span> starts one for each message), or pick one of them.</p></div>`
     : `<div class="empty" id="empty"><h3>${esc(T("Nothing here yet"))}</h3><p class="small">${esc(T("Any agent joins with {cmd}. Or write the first note below.")).replace("{cmd}", `<span class="mono">atteo join ${esc(info.id)}</span>`)}</p>
@@ -1341,6 +1342,7 @@ function connect(){
       if(document.documentElement.dataset.mode==='everyday')document.dispatchEvent(new CustomEvent('atteo-mode',{detail:{everyday:true}}));return}
     if(d.type==='schedule'){if(document.getElementById('invite')?.open&&window.schLoad)schLoad();return}
     if(d.type==='reaction'){renderRx(d.seq,d.reactions);return}
+    if(d.type==='edit'){location.reload();return}
     if(d.type==='answered'){sumNext=true;tick(false);return} // someone marked a question answered: refresh the open questions
     if(d.type==='approval'){window.apcApply&&apcApply(d.approval);return}
     if(d.type==='typing'){if(d.who!==ME){TYPERS.set(d.who,d.until);typingSync()}return}
@@ -2383,6 +2385,12 @@ window.applyTitle=(t)=>{t=bidi(t);const h=document.getElementById('board-title')
   inp.addEventListener('blur',()=>{if(!inp.hidden&&!inp.disabled)save()});})();
 window.archiveDone=(j)=>{toast(j.message||tr('Done'));setTimeout(()=>location.reload(),400)};
 document.getElementById('del-confirm')?.addEventListener('input',e=>{document.getElementById('del-go').disabled=e.target.value.trim()!==${jsString(info.title)}});
+document.addEventListener('click',async e=>{const b=e.target.closest('[data-edit]');if(!b)return;
+  const row=b.closest('.entry'),body=row?.querySelector('.body');if(!body||row.querySelector('[data-edit-box]'))return;
+  const seq=b.dataset.edit;const got=await fetch('/api/boards/'+BOARD+'/entries/'+seq).then(r=>r.json());if(!got.entry){toast(got.error||tr('Could not load'));return}
+  const old=body.innerHTML;body.textContent='';const box=document.createElement('textarea');box.dataset.editBox='1';box.value=got.entry.text;box.rows=4;box.style.width='100%';body.append(box);
+  const save=document.createElement('button'),cancel=document.createElement('button');save.type=cancel.type='button';save.className=cancel.className='btn sm';save.textContent=tr('Save');cancel.textContent=tr('Cancel');body.append(save,cancel);cancel.onclick=()=>{body.innerHTML=old};save.onclick=async()=>{const r=await fetch('/api/boards/'+BOARD+'/entries/'+seq,{method:'PATCH',headers:{'content-type':'application/json'},body:JSON.stringify({text:box.value})});const j=await r.json();if(!r.ok){toast(j.error||tr('Could not save'));return}location.reload()};box.focus()});
+document.addEventListener('click',async e=>{const b=e.target.closest('[data-history]');if(!b)return;const r=await fetch('/api/boards/'+BOARD+'/entries/'+b.dataset.history+'?history=1');const j=await r.json();if(!r.ok){toast(j.error||tr('Could not load'));return}const row=b.closest('.entry'),body=row.querySelector('.body');if(row.querySelector('[data-version-list]')){row.querySelector('[data-version-list]').remove();return}const list=document.createElement('div');list.dataset.versionList='1';for(const v of j.history||[]){const part=document.createElement('div');part.textContent='#'+v.version+' · '+new Date(v.ts).toLocaleString()+'\\n'+v.text;part.style.whiteSpace='pre-wrap';list.append(part)}body.after(list)});
 document.addEventListener('click',async e=>{const b=e.target.closest('[data-retract]');if(!b)return;
   if(b.dataset.armed!=='1'){b.dataset.armed='1';b.textContent=tr('Unsend #')+b.dataset.retract+'?';b.classList.add('danger');setTimeout(()=>{b.dataset.armed='';b.textContent=tr('Unsend');b.classList.remove('danger')},4000);return}
   b.disabled=true;const r=await fetch('/api/boards/'+BOARD+'/entries/'+b.dataset.retract+'/retract',{method:'POST',headers:{'content-type':'application/json'},body:'{}'});

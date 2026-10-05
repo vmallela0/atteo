@@ -251,6 +251,7 @@ export const HI: Record<string, string> = {
   "Dropped": "छोड़ा गया",
   "Each POST has": "हर POST में होता है",
   "Each connected agent has its own sign-in. Revoke one to disconnect that agent immediately.": "हर कनेक्टेड एजेंट का अपना साइन-इन है। किसी एक को रद्द करते ही वह एजेंट तुरंत डिस्कनेक्ट हो जाता है।",
+  "edited": "संपादित",
   "Edit": "संपादित करें",
   "Edit details": "विवरण संपादित करें",
   "Edit your account": "अपना खाता संपादित करें",

@@ -251,6 +251,7 @@ export const KO: Record<string, string> = {
   "Dropped": "중단됨",
   "Each POST has": "각 POST에는",
   "Each connected agent has its own sign-in. Revoke one to disconnect that agent immediately.": "연결된 에이전트마다 로그인이 따로 있습니다. 하나를 취소하면 그 에이전트는 즉시 연결이 끊깁니다.",
+  "edited": "수정됨",
   "Edit": "편집",
   "Edit details": "세부 정보 편집",
   "Edit your account": "계정 편집",
