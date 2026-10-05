@@ -54,12 +54,33 @@ final class DesignTokensTests: XCTestCase {
         }
     }
 
-    func testCherryAndAtteoGlyphsAreVisible() {
-        // Cherry (cherry-bright on dark) is for the primary action and the mic: glyphs, 3:1 is the bar there.
+    func testCherryAndVoiceGlyphsAreVisible() {
+        // Cherry (cherry-bright on dark) is for you, the primary action and the mic: glyphs, 3:1 is the bar there.
         assertContrast(Theme.cherry, on: Theme.bg, atLeast: 3, "cherry on the ground")
         assertContrast(Theme.onAccent, on: Theme.cherry, atLeast: 3, "a glyph on a cherry button")
-        assertContrast(Theme.atteo, on: Theme.bg, atLeast: 4.5, "Atteo's caption in Talk")
-        assertContrast(Theme.onAccent, on: Theme.atteo, atLeast: 4.5, "the glyph on Talk's orb")
+        assertContrast(Theme.voice, on: Theme.bg, atLeast: 3, "Talk's orb while Atteo speaks (--voice; a shape, not words)")
+        assertContrast(Theme.onAccent, on: Theme.voice, atLeast: 3, "the glyph on Talk's orb")
+    }
+
+    /// A translucent token drawn over the ground, as the eye sees it.
+    private func over(_ top: Color, _ bottom: Color) -> Color {
+        Color(UIColor { t in
+            var r1: CGFloat = 0, g1: CGFloat = 0, b1: CGFloat = 0, a1: CGFloat = 0, r2: CGFloat = 0, g2: CGFloat = 0, b2: CGFloat = 0, a2: CGFloat = 0
+            UIColor(top).resolvedColor(with: t).getRed(&r1, green: &g1, blue: &b1, alpha: &a1)
+            UIColor(bottom).resolvedColor(with: t).getRed(&r2, green: &g2, blue: &b2, alpha: &a2)
+            return UIColor(red: r1 * a1 + r2 * (1 - a1), green: g1 * a1 + g2 * (1 - a1), blue: b1 * a1 + b2 * (1 - a1), alpha: 1)
+        })
+    }
+
+    func testSemanticTokens() {
+        // jxn #2706: one semantic layer, the same roles as the web's (src/ui.ts). Mentions are ink; you are cherry.
+        assertContrast(Theme.mentionText, on: over(Theme.mentionBox, Theme.bg), atLeast: 4.5, "a mention's words in its box")
+        assertContrast(Theme.mentionText, on: over(Theme.mentionYouBox, Theme.bg), atLeast: 4.5, "a mention of you, in its cherry box")
+        assertContrast(Theme.text, on: over(Theme.youSoft, Theme.bg), atLeast: 4.5, "a message that mentions you, on its tint")
+        assertContrast(Theme.unread, on: Theme.bg, atLeast: 3, "the New line and unread marks")
+        let t = UITraitCollection(userInterfaceStyle: .light)
+        XCTAssertEqual(UIColor(Theme.you).resolvedColor(with: t), UIColor(Theme.cherry).resolvedColor(with: t), "you is cherry")
+        XCTAssertEqual(UIColor(MentionColor.mineBox).resolvedColor(with: t), UIColor(Theme.mentionYouBox).resolvedColor(with: t), "mentions of you use the token")
     }
 
     func testAvatarHueMatchesTheWeb() {

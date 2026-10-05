@@ -19,9 +19,7 @@ enum SyntaxKind: String, Hashable {
 
 /// The web's --sx-* colours (each at least 4.5:1 on the code background), light and dark.
 enum SyntaxPalette {
-    private static func hex(_ v: UInt32) -> UIColor {
-        UIColor(red: CGFloat((v >> 16) & 0xff) / 255, green: CGFloat((v >> 8) & 0xff) / 255, blue: CGFloat(v & 0xff) / 255, alpha: 1)
-    }
+    private static func hex(_ v: UInt32) -> UIColor { rgb(v) }
     private static func pair(_ light: UInt32, _ dark: UInt32) -> Color { Color(light: hex(light), dark: hex(dark)) }
 
     static func color(_ k: SyntaxKind) -> Color {

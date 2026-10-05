@@ -48,8 +48,6 @@ enum Theme {
     /// A cherry fill that carries words (Talk's Yes): cherry in both modes, so paper on it stays AA (7.8:1);
     /// ink on cherry-bright is about 4.3:1, too low for text.
     static let cherryFill = Color(uiColor: Palette.cherry)
-    /// Atteo's voice in Talk (--atteo): the caption and the orb.
-    static let atteo = Color(light: rgb(0xA34A2B), dark: rgb(0xF0A78E))
     static let ok = Color(light: rgb(0x16A34A), dark: rgb(0x3ECF75)) // --ok
     static let warn = Color(light: rgb(0xC2410C), dark: rgb(0xFB923C)) // --warn
     static let danger = Color(light: rgb(0xDC2626), dark: rgb(0xF87171)) // --danger
@@ -355,6 +353,34 @@ struct CountBadge: View {
             .padding(.horizontal, 6).frame(minWidth: 18, minHeight: 18)
             .background(Theme.accent, in: Capsule()).foregroundStyle(Theme.onAccent)
     }
+}
+
+/// Semantic tokens (jxn #2706): views use these roles, never the palette or a literal, the same roles as the web's
+/// semantic layer in src/ui.ts. You are cherry; mentions of other people are ink; status colours keep their meaning.
+extension Theme {
+    /// You, and what's for you (--you): cherry, cherry-bright on dark.
+    static let you = Theme.cherry
+    /// A message that mentions you, at rest (--you-soft).
+    static let youSoft = Color(light: Palette.cherry.withAlphaComponent(0.07), dark: Palette.cherryBright.withAlphaComponent(0.12))
+    /// A mention's words (--mention-fg) and box (--mention-bg); a mention of you sits on --mention-you-bg.
+    static let mentionText = Color(light: Palette.ink, dark: Palette.paper)
+    static let mentionBox = Color(light: Palette.ink.withAlphaComponent(0.07), dark: Palette.paper.withAlphaComponent(0.12))
+    static let mentionYouBox = Color(light: Palette.cherry.withAlphaComponent(0.14), dark: Palette.cherryBright.withAlphaComponent(0.26))
+    /// The New line and unread marks (--unread).
+    static let unread = Theme.cherry
+    /// Atteo speaking in Talk (--voice): the spec gives the speaker cherry.
+    static let voice = Theme.cherry
+    /// The board's type colours, the web's values (--decision, --task, --claim).
+    static let decision = Color(light: rgb(0x7C3AED), dark: rgb(0xA78BFA))
+    static let task = Color(light: rgb(0x0284C7), dark: rgb(0x38BDF8))
+    static let claim = Color(light: rgb(0x16A34A), dark: rgb(0x4ADE80))
+    /// A change card's added and removed lines.
+    static let diffAdded = Color(light: rgb(0x228C45), dark: rgb(0x5CC778))
+    static let diffRemoved = Color(light: rgb(0xC73833), dark: rgb(0xF26B66))
+    /// File kinds in Files (their icon tint).
+    static let kindDoc = Color(light: rgb(0x8CA8F2), dark: rgb(0x8CA8F2))
+    static let kindCode = Color(light: rgb(0xB399F2), dark: rgb(0xB399F2))
+    static let kindImage = Color(light: rgb(0x73C7D1), dark: rgb(0x73C7D1))
 }
 
 extension Theme {

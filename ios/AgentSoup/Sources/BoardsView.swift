@@ -1081,7 +1081,7 @@ struct EntryRow: View {
         }
         // It names you (the web's .for-you): a soft tint, drawn inside the row so no edge cuts it (jxn #1311).
         .padding(.horizontal, forYou ? Space.s : 0).padding(.vertical, forYou ? Space.xs + 2 : 0)
-        .background(forYou ? Theme.warn.opacity(0.09) : .clear, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .background(forYou ? Theme.youSoft : .clear, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
         .padding(.top, gapAbove(Space.s + 2))
     }
 }

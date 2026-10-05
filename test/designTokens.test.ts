@@ -1,7 +1,7 @@
 // One design language (jxn #2706): every colour and font on the web comes from the token blocks in src/ui.ts (the
 // palette, then the semantic layer: --you, --mention-*, --rail-*, --unread, --badge-*, --font-*). A literal colour or
 // font anywhere else is how the old clay accents survived a re-skin, so this test fails on one.
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 /** The CSS sources: [file, the template constant holding the CSS]. */
@@ -106,5 +106,26 @@ describe("one design language: colours and fonts come from tokens (jxn #2706)", 
     expect(css).toMatch(/--you:var\(--cherry\)/);
     expect(css).toMatch(/--mention-fg:var\(--ink\)/);
     expect(readFileSync("src/ui.ts", "utf8")).not.toMatch(/--atteo/);
+  });
+});
+
+describe("the app too (jxn #2706): colours and fonts come from ios/AgentSoup/Sources/Theme.swift", () => {
+  it("no colour or font literal in the app's sources outside Theme.swift", () => {
+    const dir = "ios/AgentSoup/Sources";
+    // SyntaxHighlight's palette is the app's mirror of codecolor.ts's --sx-* token block, values passed as pair(0x…).
+    const banned = /Color\(red:|UIColor\(red:|Color\(hex|UIColor\(hex|"#[0-9A-Fa-f]{6}"|\.custom\(|Font\.custom|UIFont\(name:|rgb\(0x/;
+    const bad: string[] = [];
+    const files = readdirSync(dir).filter((f) => f.endsWith(".swift") && f !== "Theme.swift");
+    expect(files.length).toBeGreaterThan(20);
+    for (const f of files)
+      readFileSync(`${dir}/${f}`, "utf8").split("\n").forEach((line, i) => {
+        if (!line.trim().startsWith("//") && banned.test(line)) bad.push(`${f}:${i + 1}: ${line.trim()}`);
+      });
+    expect(bad, `use a Theme token (Theme.swift) instead:\n${bad.join("\n")}`).toEqual([]);
+  });
+  it("the app's semantic layer mirrors the web's roles, and Atteo's old terracotta is gone", () => {
+    const theme = readFileSync("ios/AgentSoup/Sources/Theme.swift", "utf8");
+    for (const t of ["you", "youSoft", "mentionText", "mentionBox", "mentionYouBox", "unread", "voice"]) expect(theme, t).toMatch(new RegExp(`static let ${t} =`));
+    expect(theme).not.toMatch(/static let atteo\b|0xA34A2B|0xF0A78E/);
   });
 });

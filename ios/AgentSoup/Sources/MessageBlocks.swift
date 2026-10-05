@@ -168,12 +168,7 @@ struct ChartSpec: Hashable {
 /// The board's colours, in the web's order (accent, ok, warn, decision, danger, claim, task, muted).
 enum ChartPalette {
     static let colors: [Color] = [
-        Theme.accent, Theme.ok, Theme.warn,
-        Color(light: UIColor(red: 0.49, green: 0.36, blue: 0.77, alpha: 1), dark: UIColor(red: 0.69, green: 0.58, blue: 0.95, alpha: 1)),
-        Theme.danger,
-        Color(light: UIColor(red: 0.23, green: 0.47, blue: 0.76, alpha: 1), dark: UIColor(red: 0.47, green: 0.67, blue: 0.95, alpha: 1)),
-        Color(light: UIColor(red: 0.16, green: 0.55, blue: 0.53, alpha: 1), dark: UIColor(red: 0.38, green: 0.78, blue: 0.74, alpha: 1)),
-        Theme.muted,
+        Theme.accent, Theme.ok, Theme.warn, Theme.decision, Theme.danger, Theme.claim, Theme.task, Theme.muted,
     ]
     static func range(_ n: Int) -> [Color] { (0..<max(1, n)).map { colors[$0 % colors.count] } }
 }
