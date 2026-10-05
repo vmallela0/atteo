@@ -121,7 +121,9 @@ final class RepliesUITests: AtteoUITestCase {
         let read = seq(call("POST", "/api/boards/\(q4)/entries", json: ["type": "note", "text": "Read up to here \(n)"], token: otherApp))
         call("POST", "/api/boards/\(q4)/seen", json: ["seq": read])
         // …then theo says a lot more.
-        for i in 1...24 { call("POST", "/api/boards/\(q4)/entries", json: ["type": "note", "text": "Unread \(n) number \(i)"], token: otherApp) }
+        // 30, not 24: with the new look's shorter rows, 24 one-line messages overflowed the screen by less than the
+        // chat's 80-point "at the latest" slack, so it was rightly treated as at the latest (no Jump to latest).
+        for i in 1...30 { call("POST", "/api/boards/\(q4)/entries", json: ["type": "note", "text": "Unread \(n) number \(i)"], token: otherApp) }
 
         let a = app()
         a.launch()
@@ -131,21 +133,21 @@ final class RepliesUITests: AtteoUITestCase {
         let first = a.staticTexts["Unread \(n) number 1"]
         XCTAssertTrue(eventually(first, "hittable == true", timeout: 6), "opens at the first unread")
         XCTAssertTrue(eventually(line, "hittable == true"), "with the New line above it in view")
-        XCTAssertFalse(a.staticTexts["Unread \(n) number 24"].isHittable, "not at the newest")
+        XCTAssertFalse(a.staticTexts["Unread \(n) number 30"].isHittable, "not at the newest")
         let jump = a.buttons["Jump to latest"]
         XCTAssertTrue(jump.waitForExistence(timeout: 5), "Jump to latest")
         sleep(2)
         XCTAssertTrue(first.isHittable, "it stays there while the layout settles")
         shot("unread-01-new-line")
         jump.tap()
-        XCTAssertTrue(eventually(a.staticTexts["Unread \(n) number 24"], "hittable == true"), "Jump to latest goes to the newest")
+        XCTAssertTrue(eventually(a.staticTexts["Unread \(n) number 30"], "hittable == true"), "Jump to latest goes to the newest")
         shot("unread-02-latest")
 
         // Read now: opening it again lands on the latest, no New line.
         a.navigationBars.buttons.element(boundBy: 0).tap()
         sleep(2)
         openChat(a, "Q4 data migration")
-        XCTAssertTrue(eventually(a.staticTexts["Unread \(n) number 24"], "hittable == true"), "everything read: the latest")
+        XCTAssertTrue(eventually(a.staticTexts["Unread \(n) number 30"], "hittable == true"), "everything read: the latest")
         XCTAssertFalse(line.exists, "no New line")
     }
 

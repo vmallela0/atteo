@@ -302,10 +302,10 @@ struct BoardView: View {
                         .transition(.opacity)
                 }
             }
-            // At the latest: what you can see, above the composer, reaches within 80 points of the end. (The visible rect
-            // runs under the composer, which is the bottom inset: counted as seen, the newest messages could sit under
-            // the box and just off screen with no Jump to latest, once rows were a little shorter.)
-            .onScrollGeometryChange(for: Bool.self) { g in g.visibleRect.maxY - g.contentInsets.bottom >= g.contentSize.height - 80 } action: { _, bottom in
+            // At the latest: the visible part (which includes what's under the composer) reaches the end. (Not measured
+            // above the composer: its inset moves as the keyboard and the box animate, and a flag that flips mid-layout
+            // brought back the freeze below.)
+            .onScrollGeometryChange(for: Bool.self) { g in g.visibleRect.maxY >= g.contentSize.height - 80 } action: { _, bottom in
                 // While it's being put at your first unread, nothing here changes the chat: a change drawn mid-scroll
                 // (this flag, the pill's count, an animation) kept SwiftUI's lazy layout from settling when the first
                 // unread was near the end, and the app froze on opening. It's applied once that's done.
@@ -324,7 +324,9 @@ struct BoardView: View {
             }
             // Near the top of what's loaded (and it's long enough to scroll): bring in the page before it.
             .onScrollGeometryChange(for: Bool.self) { g in g.contentSize.height > g.containerSize.height && g.visibleRect.minY < 360 } action: { _, top in
-                if top && !stick { loadOlder() }
+                // (Not while it's being put at your first unread: that row is often the first one loaded, so this fired and
+                // older rows went in above while the passes were still scrolling, and the list never settled.)
+                if top && !stick && !quiet.on { loadOlder() }
             }
             // Only your own scrolling unpins it; coming back to the latest re-pins.
             .onScrollPhaseChange { old, phase in
@@ -657,7 +659,7 @@ struct BoardView: View {
 
     /// The page before what's loaded, put in above without moving what you're reading.
     private func loadOlder() {
-        guard !holdBottom, !state.loadingEarlier.contains(board.id), let first = state.firstLoaded(board), first > 1 else { return }
+        guard !holdBottom, !quiet.on, !state.loadingEarlier.contains(board.id), let first = state.firstLoaded(board), first > 1 else { return }
         holdBottom = true
         Task {
             await state.loadEarlier(board)

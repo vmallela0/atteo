@@ -44,10 +44,12 @@ final class MentionTokensUITests: AtteoUITestCase {
         option.tap()
         let marker = "check the alert \(name)"
         box.typeText(marker)
+        // Read after where the board is now: a page from 0 is the oldest 500, and Checkout bug passes that in a full run.
+        let since = (call("GET", "/api/boards/\(b)/entries?after=999999999")["last"] as? Int) ?? 0
         a.buttons["send"].tap()
         var mention: [String: Any]?
         for _ in 0..<20 where mention == nil {
-            let entries = call("GET", "/api/boards/\(b)/entries?after=0&limit=1000")["entries"] as? [[String: Any]] ?? []
+            let entries = call("GET", "/api/boards/\(b)/entries?after=\(since)&limit=500")["entries"] as? [[String: Any]] ?? []
             let e = entries.last { ($0["text"] as? String)?.contains(marker) == true }
             mention = (e?["mentions"] as? [[String: Any]])?.first { $0["session"] as? String == name }
             if mention == nil { sleep(1) }
