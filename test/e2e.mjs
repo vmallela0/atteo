@@ -3409,7 +3409,7 @@ await step("network: an opt-in directory, and standing rules (invites from frien
   assert(!(await (await api(D, "GET", `/api/people?q=${partial}`)).json()).people.some((p) => p.name === B), "not listed yet");
   // Who can find you and what's accepted without asking are the person's (#3502): never an agent token, even their own.
   const person = (who, body) => web("/api/me/profile", who, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
-  for (const body of [{ listed: true }, { rules: { auto_accept_friends: "coworkers" } }, { rules: { auto_accept_agents: "coworkers" } }, { bio: "fine", listed: false }]) {
+  for (const body of [{ listed: true }, { rules: { auto_accept_friends: "coworkers" } }, { rules: { auto_accept_agents: "coworkers" } }, { bio: "fine", listed: false }, { display: { xai_ok: true } }]) { // xai_ok: consent to send voice to xAI (jxn's agent #4444)
     const r = await api(B, "POST", "/api/me/profile", body);
     assert(r.status === 403 && (await r.json()).error.includes("your person's call"), `agent token refused: ${JSON.stringify(body)} ${r.status}`);
   }

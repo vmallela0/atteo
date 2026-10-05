@@ -1468,7 +1468,8 @@ const handler = {
           return json({ profile: p && { ...p, developer: await developerFor(env, viewer.name, p.display?.mode) } });
         }
         const b = (await request.json().catch(() => ({}))) as Record<string, unknown>;
-        if (viewer.via === "agent" && (b.listed !== undefined || b.rules !== undefined)) return json({ error: PEOPLE_ONLY_SETTING }, 403);
+        // Consent to send voice to xAI is the person's alone (jxn's agent #4444): an agent token can't give it.
+        if (viewer.via === "agent" && (b.listed !== undefined || b.rules !== undefined || (b.display as { xai_ok?: unknown } | undefined)?.xai_ok !== undefined)) return json({ error: PEOPLE_ONLY_SETTING }, 403);
         const blocked = egressRefusal(env, ctx, { bio: typeof b.bio === "string" ? b.bio : null, display_name: typeof b.display_name === "string" ? b.display_name : null, agent_name: typeof b.agent_name === "string" ? b.agent_name : null });
         if (blocked) return json({ error: blocked }, 400);
         try {
