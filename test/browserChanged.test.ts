@@ -1,10 +1,11 @@
-import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error a plain .mjs helper of the browser runner
 import { checksFor } from "./browser/lib/changed.mjs";
+import map from "./browser/checks-map.json";
+import timings from "./browser/checks.json";
 
-const rules = JSON.parse(readFileSync(new URL("./browser/checks-map.json", import.meta.url), "utf8")).rules;
-const all = Object.keys(JSON.parse(readFileSync(new URL("./browser/checks.json", import.meta.url), "utf8")));
+const rules = map.rules as Record<string, string[] | "*">;
+const all = Object.keys(timings);
 const pick = (files: string[]) => { const r = checksFor(files, rules, all); return r === "*" ? "*" : [...r].sort(); };
 
 describe("run.mjs --changed", () => {
