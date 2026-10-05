@@ -94,7 +94,7 @@ export const CSS = `
   --you:var(--ink);--you-soft:color-mix(in srgb,var(--ink) 5%,transparent);--you-flash:color-mix(in srgb,var(--ink) 12%,transparent);
   --mention-fg:var(--ink);--mention-bg:color-mix(in srgb,var(--ink) 7%,transparent);--mention-line:color-mix(in srgb,var(--ink) 40%,transparent);
   --mention-you-bg:color-mix(in srgb,var(--ink) 15%,transparent);--mention-you-line:color-mix(in srgb,var(--ink) 65%,transparent);
-  --rail-mark:color-mix(in srgb,var(--muted) 16%,transparent);--rail-on:var(--muted);--rail-you:var(--ink);
+  --rail-mark:color-mix(in srgb,var(--muted) 16%,transparent);--rail-on:color-mix(in srgb,var(--muted) 60%,transparent);--rail-you:var(--ink);
   --unread:var(--ink);--voice:var(--ink);--badge-bg:var(--accent);--badge-fg:var(--on-ink);--focus:var(--accent);
   --mark:color-mix(in srgb,var(--ink) 14%,transparent);
   --private:color-mix(in srgb,var(--ink) 50%,transparent);--private-soft:color-mix(in srgb,var(--ink) 6%,transparent);
@@ -1120,7 +1120,7 @@ dialog.palette{margin-top:12vh;width:min(600px,calc(100vw - 24px));border-radius
 .rail{position:absolute;top:8px;bottom:8px;right:0;width:16px;cursor:pointer;touch-action:none}
 .rail i{position:absolute;right:3px;width:8px;height:2px;margin-top:-1px;border-radius:1px;background:var(--rail-mark);transition:background .12s,width .12s}
 .rail i.on{background:var(--rail-on);width:10px}.rail i[data-n]{height:3px;margin-top:-1.5px}.rail i.me{background:var(--rail-you);width:10px}
-.rail:hover i{background:var(--sb)}.rail:hover i.on{background:var(--ink)}
+.rail:hover i{background:var(--sb)}.rail:hover i.on{background:var(--muted)}.rail:hover i.me{background:var(--rail-you)} /* only a message that mentions you is black (jxn #4120) */
 .rail-tip{position:absolute;right:22px;z-index:5;max-width:min(360px,70%);padding:5px 9px;margin-top:-13px;border-radius:7px;background:var(--ink);color:var(--on-ink);
   font-size:12px;line-height:16px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;pointer-events:none;box-shadow:var(--shadow-lg)}
 .rail-tip[hidden]{display:none}
