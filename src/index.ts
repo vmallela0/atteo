@@ -56,6 +56,7 @@ import * as boardkeys from "./boardkeys";
 import * as mailbox from "./mailbox";
 import * as recap from "./recap";
 import { listMount, LsError } from "./ls";
+import * as testAccounts from "./testAccounts";
 import { musePage } from "./muse";
 import * as triggers from "./triggers";
 import * as tts from "./tts";
@@ -3400,6 +3401,16 @@ const handler = {
         if (!isOps(c)) return json({ error: "not found" }, 404);
         const body = method === "POST" ? ((await request.json().catch(() => ({}))) as Record<string, string>) : {};
         if (path === "/api/ops/overview" && method === "GET") return json(await opsData(env));
+        // Leftover e2e/test accounts: GET lists; POST dry-runs unless confirm is exactly DELETE TEST ACCOUNTS.
+        if (path === "/api/ops/test-accounts" && method === "GET") return json({ ...(await testAccounts.preview(env)), dry_run: true });
+        if (path === "/api/ops/test-accounts" && method === "POST") {
+          const b = body as testAccounts.ApplyOpts;
+          const result = await testAccounts.apply(env, b);
+          if (result.status === 200 && result.body && "dry_run" in result.body && result.body.dry_run === false) {
+            for (const id of result.body.deleted_boards ?? []) ctx.waitUntil(boardStub(env, id).destroy().catch(() => {}));
+          }
+          return json(result.body, result.status);
+        }
         // Proves error reporting end to end (D1 errors + Sentry): throws on purpose.
         if (path === "/api/ops/test-error" && method === "POST") throw new Error("Test error from /api/ops/test-error");
         if (path === "/api/ops/metrics" && method === "GET") return json(await usage.metrics(env, Number(url.searchParams.get("days")) || 14));
