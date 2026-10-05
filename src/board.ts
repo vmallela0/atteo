@@ -4124,6 +4124,17 @@ export class Board extends DurableObject<Env> {
     this.markSeen(user, "person", Math.min(Math.max(0, Math.floor(seq) || 0), info.last_seq));
   }
 
+  /** Put only the person's read receipt immediately before the latest entry. */
+  async markUnread(user: string): Promise<number> {
+    const last = this.info().last_seq;
+    if (!last) return 0;
+    const row = this.sql.exec("SELECT person_seen FROM members WHERE name = ?", user).toArray()[0];
+    if (!row) return 0;
+    const seq = last - 1;
+    this.sql.exec("UPDATE members SET person_seen = ? WHERE name = ?", seq, user);
+    return last;
+  }
+
   /** Each member's marks: how far they've seen as a person and through their agent. */
   reads(): Record<string, { person_seen: number; agent_seen: number }> {
     const out: Record<string, { person_seen: number; agent_seen: number }> = {};

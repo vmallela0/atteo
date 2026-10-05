@@ -90,14 +90,17 @@ function rcRender(j,since){
   const quiet=since>0&&(n!=null?n===0:!dec.length&&!qs.length&&!owed.length);
   rcSub.textContent=quiet?tr('Nothing new since you last looked'):since>0?(n!=null?tr(n===1?'{n} new message since you last looked':'{n} new messages since you last looked',{n}):tr('Since you last looked')):tr('The whole board')+(n?' · '+tr(n===1?'{n} message':'{n} messages',{n}):'');
   const all='<p class="small muted rc-none">'+(quiet?'':tr('Want more? '))+'<button class="linkish" type="button" data-recap-all>'+tr('Recap the whole board')+'</button></p>';
-  rcBody.innerHTML=quiet?(qs.length?rcSec(tr('Still open'),qs,''):'')+(owed.length?ow:'')+more+all
-    :rcSec(tr('Decisions'),dec,tr('No new decisions.'))+rcSec(tr('Open questions'),qs,tr('No open questions.'))+ow+more+(since>0?all:'')}
+  // Where it comes from (vedu's agent #2498 item 5): every line is one of the board's own messages, linked; nothing is model-written.
+  const src='<p class="xs faint rc-src">'+esc(tr('Every line is a message on this board: tap one to open it.'))+'</p>';
+  rcBody.innerHTML=(quiet?(qs.length?rcSec(tr('Still open'),qs,''):'')+(owed.length?ow:'')+more+all
+    :rcSec(tr('Decisions'),dec,tr('No new decisions.'))+rcSec(tr('Open questions'),qs,tr('No open questions.'))+ow+more+(since>0?all:''))+src}
 async function rcOpen(since){rcSub.textContent=tr('Loading…');rcBody.innerHTML='<p class="small muted">'+tr('Loading…')+'</p>';if(!rcDlg.open)rcDlg.showModal();
   let r;try{r=await fetch('/api/boards/'+BOARD+'/recap?since='+since)}catch(e){r=null}
   if(!r||r.status===404||r.status===405){rcSub.textContent='';rcBody.innerHTML='<p class="small muted">Recap isn\\'t available on this server yet.</p>';return}
   const j=await r.json().catch(()=>({}));if(!r.ok){rcSub.textContent='';rcBody.innerHTML='<p class="flash err">'+esc(j.error||tr("Couldn't load the recap"))+'</p>';return}
   rcRender(j,since)}
-document.getElementById('recap-btn')?.addEventListener('click',()=>{const dot=document.getElementById('recap-dot');if(dot)dot.hidden=true;rcOpen(RECAP_SINCE)});
+window.recapOpen=()=>{const dot=document.getElementById('recap-dot');if(dot)dot.hidden=true;rcOpen(RECAP_SINCE)}; // also the board's Catch up offer
+document.getElementById('recap-btn')?.addEventListener('click',()=>recapOpen());
 rcDlg?.addEventListener('click',e=>{if(e.target===rcDlg||e.target.closest('[data-close]')){rcDlg.close();return}
   if(e.target.closest('[data-recap-all]')){rcOpen(0);return}
   const f=e.target.closest('[data-recap-file]');if(f){e.preventDefault();rcDlg.close();window.BOARD_CTX.openFile(f.dataset.recapFile);return}

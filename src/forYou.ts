@@ -206,7 +206,7 @@ ${okSec}${quickSec}${empty}${doneSec}
   return appPage(`${T("For you")} · Atteo`, { viewer, boards: side, active: "foryou", crumbs: `<span class="cur">${esc(T("For you"))}</span>`, actions, body, script: forYouJs(agentChat), narrow: true });
 }
 
-// Everyday sizes (NOTES.md: body ~15px, headings 26px, card titles 20px) on the web's tokens; clay only on the mic.
+// Everyday sizes (NOTES.md: body ~15px, headings 26px, card titles 20px) on the web's tokens; cherry only on the mic (#2508).
 const FY_CSS = `
 .fy{font-size:15px;line-height:1.45;padding-bottom:84px}
 .fy-hi h1{font-size:26px;line-height:1.2;letter-spacing:-.025em;font-weight:650}
@@ -254,7 +254,7 @@ const FY_CSS = `
 .fy-ask input{border:0;outline:0;background:transparent;color:var(--ink);font:inherit;font-size:15.5px;height:100%;min-width:0}
 .fy-ask input::placeholder{color:var(--faint)}
 .fy-mic,.fy-send{width:42px;height:42px;border-radius:50%;border:0;display:grid;place-items:center;flex:none;cursor:pointer}
-.fy-mic{background:#D97857;color:#fff}.fy-mic.on{box-shadow:0 0 0 4px color-mix(in srgb,#D97857 30%,transparent)}
+.fy-mic{background:var(--cherry);color:var(--on-ink)}.fy-mic.on{box-shadow:0 0 0 4px color-mix(in srgb,var(--cherry) 30%,transparent)}
 .fy-send{background:var(--ink);color:var(--on-ink)}
 .fy-mic:focus-visible,.fy-send:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .fy-toast{pointer-events:auto;max-width:712px;margin:0 auto 10px;display:flex;align-items:center;justify-content:center;gap:12px;font-size:13.5px;
