@@ -30,6 +30,7 @@ struct FullSettings: View {
     @State private var bring = false
 
     var body: some View {
+        ScrollViewReader { scroller in
         List {
             Section { pictures }
                 .listRowBackground(Color.clear)
@@ -73,6 +74,7 @@ struct FullSettings: View {
 
             Section {
                 displayPicker("Text size", id: "display-text", \.text, [("s", "S"), ("m", "M"), ("l", "L")])
+                    .id("display-text")
                 displayPicker("Density", id: "display-density", \.density, [("comfortable", "Comfortable"), ("compact", "Compact")])
                 displayPicker("Theme", id: "display-theme", \.theme, [("system", "System"), ("light", "Light"), ("dark", "Dark")])
                 displayPicker("Replies", id: "display-replies", \.replies, [("chat", "In the chat"), ("thread", "Only in threads")])
@@ -121,6 +123,15 @@ struct FullSettings: View {
         .listSectionSpacing(.compact)
         .listDensity(density)
         .scrollContentBackground(.hidden)
+        // A new text size re-lays everything above: keep the Text size row in view, where you just tapped it,
+        // instead of letting it slide off the top.
+        .onChange(of: state.display.text) { _, _ in
+            Task { @MainActor in
+                try? await Task.sleep(for: .milliseconds(150))
+                withAnimation(.easeOut(duration: 0.2)) { scroller.scrollTo("display-text", anchor: .center) }
+            }
+        }
+        }
         .background(Theme.bg)
         .navigationTitle(embedded ? "More settings" : "Settings")
         .navigationBarTitleDisplayMode(.inline)
