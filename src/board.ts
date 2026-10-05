@@ -36,6 +36,42 @@ import { scrubQuote } from "./forwards";
 
 export const MAX_TEXT = 32_000;
 export const MAX_ARTIFACT = 256_000;
+/** D1 (and this SQLite) allow at most 100 bound parameters per statement. */
+export const D1_BIND_LIMIT = 100;
+/**
+ * `seq IN (...)` after two fixed binds (value + board id) stays at 92.
+ * `(last_activity, last_author) IN ((?, ?), ...)` is two binds per row plus those same two fixed
+ * binds, so a 90-row chunk would send 182 parameters and fail on D1.
+ */
+export const D1_SEQ_CHUNK = 90;
+export const D1_LAST_EXCERPT_CHUNK = 45;
+
+/** Directory copies that retention blanks before the local commit. last_excerpt is chunked tighter than seq lists. */
+export function retentionDirectoryUpdates<T>(
+  db: { prepare(sql: string): { bind(...args: unknown[]): T } },
+  blank: string,
+  boardId: string,
+  rows: { seq: number; ts: number; author: string }[],
+): T[] {
+  const stmts: T[] = [];
+  for (let i = 0; i < rows.length; i += D1_SEQ_CHUNK) {
+    const chunk = rows.slice(i, i + D1_SEQ_CHUNK);
+    const q = chunk.map(() => "?").join(",");
+    stmts.push(
+      db.prepare(`UPDATE notifications SET excerpt = ? WHERE board_id = ? AND seq IN (${q})`).bind(blank, boardId, ...chunk.map((r) => r.seq)),
+      db.prepare(`UPDATE notifications SET data = json_set(data, '$.event.line', ?) WHERE board_id = ? AND kind = 'trigger' AND json_valid(data) AND json_extract(data, '$.event.seq') IN (${q})`).bind(blank, boardId, ...chunk.map((r) => r.seq)),
+      db.prepare(`UPDATE tape SET excerpt = ? WHERE board_id = ? AND seq IN (${q})`).bind(blank, boardId, ...chunk.map((r) => r.seq)),
+    );
+    for (let j = 0; j < chunk.length; j += D1_LAST_EXCERPT_CHUNK) {
+      const pairs = chunk.slice(j, j + D1_LAST_EXCERPT_CHUNK);
+      stmts.push(
+        db.prepare(`UPDATE boards SET last_excerpt = ? WHERE id = ? AND (last_activity, last_author) IN (${pairs.map(() => "(?, ?)").join(",")})`).bind(blank, boardId, ...pairs.flatMap((r) => [r.ts, r.author])),
+      );
+    }
+  }
+  return stmts;
+}
+
 /** How many entries one post may resolve (REST and MCP alike). */
 export const MAX_RESOLVES = 50;
 export const MAX_WAIT_MS = 55_000;
@@ -4659,22 +4695,14 @@ export class Board extends DurableObject<Env> {
 
       // Inbox/mailbox, trigger mail and the cross-board tape contain copies of message text outside this object. Blank
       // those first: if D1 fails, the entry remains eligible for a later retry instead of claiming it was compacted.
-      for (let i = 0; i < rows.length; i += 90) {
-        const chunk = rows.slice(i, i + 90);
-        const q = chunk.map(() => "?").join(",");
-        await this.env.DB.batch([
-          this.env.DB.prepare(`UPDATE notifications SET excerpt = ? WHERE board_id = ? AND seq IN (${q})`).bind(BLANK, info.id, ...chunk.map((r) => r.seq)),
-          this.env.DB.prepare(`UPDATE notifications SET data = json_set(data, '$.event.line', ?) WHERE board_id = ? AND kind = 'trigger' AND json_valid(data) AND json_extract(data, '$.event.seq') IN (${q})`).bind(BLANK, info.id, ...chunk.map((r) => r.seq)),
-          this.env.DB.prepare(`UPDATE tape SET excerpt = ? WHERE board_id = ? AND seq IN (${q})`).bind(BLANK, info.id, ...chunk.map((r) => r.seq)),
-          // Only replace the preview when its exact source entry is being retained. A newer or already-purged preview
-          // keeps its own text and, for purge, its attributed placeholder.
-          this.env.DB.prepare(`UPDATE boards SET last_excerpt = ? WHERE id = ? AND (last_activity, last_author) IN (${chunk.map(() => "(?, ?)").join(",")})`).bind(BLANK, info.id, ...chunk.flatMap((r) => [r.ts, r.author])),
-        ]);
+      // last_excerpt is included here too; pair matches are chunked at 45 so each statement stays under D1's 100 binds.
+      for (let i = 0; i < rows.length; i += D1_SEQ_CHUNK) {
+        await this.env.DB.batch(retentionDirectoryUpdates(this.env.DB, BLANK, info.id, rows.slice(i, i + D1_SEQ_CHUNK)));
       }
 
       this.ctx.storage.transactionSync(() => {
-        for (let i = 0; i < rows.length; i += 90) {
-          const chunk = rows.slice(i, i + 90);
+        for (let i = 0; i < rows.length; i += D1_SEQ_CHUNK) {
+          const chunk = rows.slice(i, i + D1_SEQ_CHUNK);
           const q = chunk.map(() => "?").join(",");
           this.sql.exec(
             `UPDATE entries
