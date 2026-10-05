@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { CODE_COLOR_JS, CODE_COLOR_SCRIPT, CODE_COLOR_SRC, CODE_TOKENIZER } from "../src/codecolor";
 import { renderText } from "../src/ui";
+import { growthRatio } from "./performance";
 
 type Tok = [string, string];
 const hlTokens = new Function(`${CODE_TOKENIZER};return hlTokens`)() as (code: string, lang: string) => Tok[] | null;
@@ -59,9 +60,11 @@ describe("code colours", () => {
     const N = 20000;
     const worst: [string, string][] = [["css", "-a"], ["css", "a:"], ["toml", "a."], ["yaml", "a."], ["rust", "#["], ["sh", "${"], ["js", '\\"'], ["py", "\\'"], ["sql", "'\\"], ["json", '"\\']];
     for (const [lang, unit] of worst) {
-      const code = unit.repeat(N / unit.length), t = performance.now();
-      of(code, lang);
-      expect(performance.now() - t, `${lang} ${JSON.stringify(unit)}`).toBeLessThan(200); // ~450ms before the bounds
+      const small = unit.repeat(N / 4 / unit.length), code = small.repeat(4);
+      const growth = growthRatio(() => of(small, lang), () => of(code, lang));
+      // 4x input should cost ~4x; quadratic backtracking costs ~16x.
+      // Keep the original 20,000-character hostile inputs and every coverage assertion.
+      expect(growth, `${lang} ${JSON.stringify(unit)} growth for 4x input`).toBeLessThan(8);
     }
     for (const lang of ["__proto__", "constructor", "toString", "hasOwnProperty"]) expect(hlTokens("x", lang)).toBeNull();
   });
