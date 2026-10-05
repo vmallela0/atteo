@@ -167,3 +167,80 @@ describe("atteo acp (Agent Client Protocol v1)", () => {
     expect(speaker({ seq: 1, author: "ana", via: "person", type: "note", text: "", reply_to: null })).toBe("ana");
   });
 });
+
+describe("atteo acp (Agent Client Protocol v2)", () => {
+  async function v2(to: string | null = "theo", b = fakeBoard(), waitSec = 30) {
+    const x = agent(to, b, waitSec);
+    await x.call(0, "initialize", { protocolVersion: 2, info: { name: "zed", version: "1" }, capabilities: {} });
+    return x;
+  }
+
+  it("initialize answers protocol 2 with session capabilities and info, not the v1 field names", async () => {
+    const { call } = agent("theo");
+    const r = (await call(0, "initialize", { protocolVersion: 2, info: { name: "zed", version: "1" }, capabilities: {} })).result;
+    expect(r.protocolVersion).toBe(2);
+    expect(r.capabilities).toEqual({ session: { prompt: { embeddedContext: {} } } });
+    expect(r.info).toMatchObject({ name: "atteo", title: "Atteo: theo's agent" });
+    expect(r.agentCapabilities).toBeUndefined();
+    expect(r.agentInfo).toBeUndefined();
+    expect(r.authMethods).toEqual([]);
+  });
+
+  it("a client asking for a newer version is answered with 2", async () => {
+    const { call } = agent("theo");
+    expect((await call(0, "initialize", { protocolVersion: 9, info: { name: "x", version: "1" }, capabilities: {} })).result.protocolVersion).toBe(2);
+  });
+
+  it("session/prompt returns messageId once the question is posted; an idle state_update ends the turn", async () => {
+    const { a, sent, call, b } = await v2();
+    expect((await call(1, "session/new", { cwd: "/repo" })).result).toEqual({ sessionId: "s1" });
+    const turn = a.handle({ jsonrpc: "2.0", id: 2, method: "session/prompt", params: { sessionId: "s1", prompt: [{ type: "text", text: "Which port does staging use?" }] } });
+    await tick();
+    expect(sent.find((m) => m.id === 2)?.result).toEqual({ messageId: "msg-q-1" });
+    expect(b.asked[0]).toEqual({ text: "Which port does staging use?", to: "theo", replyTo: null });
+    expect(sent.some((m) => m.params?.update?.sessionUpdate === "state_update" && m.params.update.state === "idle")).toBe(false);
+    expect(sent.some((m) => m.params?.update?.sessionUpdate === "tool_call")).toBe(false);
+    b.post({ author: "theo", via: "agent", type: "note", text: "8443, behind the VPN", reply_to: 1 });
+    await turn;
+    expect(sent.find((m) => m.params?.update?.sessionUpdate === "state_update" && m.params.update.state === "idle")?.params.update).toEqual({
+      sessionUpdate: "state_update",
+      state: "idle",
+      stopReason: "end_turn",
+    });
+    const chunk = sent.find((m) => m.params?.update?.sessionUpdate === "agent_message_chunk");
+    expect(chunk.params.update.messageId).toBe("msg-2");
+    expect(chunk.params.update.content.text).toMatch(/theo's agent:\n8443, behind the VPN/);
+    expect(sent.some((m) => m.params?.update?.sessionUpdate === "user_message" && m.params.update.messageId === "msg-q-1")).toBe(true);
+    expect(sent.filter((m) => m.params?.update?.toolCallId === "ask-1").map((m) => m.params.update.status)).toEqual(["in_progress", "completed"]);
+  });
+
+  it("session/cancel after the question is posted ends idle as cancelled and withdraws it", async () => {
+    const { a, sent, call, b } = await v2();
+    await call(1, "session/new", { cwd: "/repo" });
+    const turn = a.handle({ jsonrpc: "2.0", id: 2, method: "session/prompt", params: { sessionId: "s1", prompt: [{ type: "text", text: "hello?" }] } });
+    await tick();
+    await a.handle({ jsonrpc: "2.0", id: 3, method: "session/cancel", params: { sessionId: "s1" } });
+    await turn;
+    expect(sent.find((m) => m.id === 2)?.result).toEqual({ messageId: "msg-q-1" });
+    expect(sent.find((m) => m.id === 3)?.result).toEqual({});
+    expect(sent.find((m) => m.params?.update?.state === "idle")?.params.update.stopReason).toBe("cancelled");
+    expect(b.withdrawn).toEqual([1]);
+  });
+
+  it("session/list, resume (this process only), and close: the v2 baseline stubs", async () => {
+    const { call } = await v2();
+    await call(1, "session/new", { cwd: "/repo" });
+    expect((await call(2, "session/list", {})).result.sessions).toEqual([{ sessionId: "s1", cwd: "/repo", updatedAt: expect.any(String) }]);
+    expect((await call(3, "session/resume", { sessionId: "s1", cwd: "/repo" })).result).toEqual({});
+    expect((await call(4, "session/resume", { sessionId: "gone" })).error.message).toMatch(/only keeps sessions while this process runs/);
+    expect((await call(5, "session/close", { sessionId: "s1" })).result).toEqual({});
+    expect((await call(6, "session/list", {})).result.sessions).toEqual([]);
+    expect((await call(7, "session/load", { sessionId: "s1" })).error.code).toBe(-32601);
+  });
+
+  it("v1 still rejects session/list", async () => {
+    const { call } = agent("theo");
+    await call(0, "initialize", { protocolVersion: 1, clientCapabilities: {} });
+    expect((await call(1, "session/list", {})).error.code).toBe(-32601);
+  });
+});

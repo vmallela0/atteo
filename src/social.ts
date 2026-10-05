@@ -2,10 +2,15 @@
 // on a private board for two friends. Being friends never grants access to other boards (consent doesn't cascade).
 
 import { addMember, recordBoard } from "./registry";
+import { orgDomainOf } from "./policy";
 import { applies } from "./standingRules";
+import { noteFriendAccepted, type Later } from "./observe";
 import { EMOJI_RE, newBoardId, offBoardSeq, proseForAgent } from "./util";
 import { AgentNameError, cleanAgentName, handleLookalikes, skeleton } from "./agentName";
 import type { Env } from "./types";
+
+/** Cap for GET /api/org: a first slice, not a paged directory. */
+export const ORG_DIRECTORY_LIMIT = 100;
 
 export const FRIEND_REQUESTS_PER_DAY = 20;
 const ONLINE_MS = 3 * 60 * 1000; // a browser or agent active this recently counts as online
@@ -32,6 +37,14 @@ export interface Person {
 const pair = (x: string, y: string) => (x < y ? [x, y] : [y, x]);
 
 export class SocialError extends Error {}
+
+export const PERSON_ONLY_CONTACT_DECISION =
+  "Only you can decide who you and your agents may contact. Open Atteo as yourself; agent tokens can't make contact decisions.";
+
+/** Relationship/contact decisions belong to the person, including when an agent has their token. */
+export function contactDecisionError(via: "agent" | "person" | undefined): string | null {
+  return via === "agent" ? PERSON_ONLY_CONTACT_DECISION : null;
+}
 
 /** Presence for several people at once. */
 export async function presenceOf(env: Env, users: string[]): Promise<Record<string, Presence>> {
@@ -86,13 +99,16 @@ export async function relationOf(env: Env, me: string, other: string): Promise<{
 }
 
 /**
- * Who you can find: anyone by their exact handle, plus friends and people you share a board with by partial name.
+ * Who you can find: anyone by their exact handle, plus friends, people you share a board with, listed people,
+ * and (when an operator has set an org policy for your verified email domain) people at that domain, by partial name.
  * Someone who blocked you doesn't show up.
  */
 export async function findPeople(env: Env, me: string, query: string): Promise<Person[]> {
   const q = query.trim().toLowerCase().replace(/^@/, "").slice(0, 40);
   if (!q) return [];
   const like = `%${q.replace(/[\\%_]/g, (c) => "\\" + c)}%`;
+  const domain = await orgDomainOf(env, me);
+  const orgSql = domain ? ` OR (u.email_verified = 1 AND u.email IS NOT NULL AND lower(substr(u.email, instr(u.email, '@') + 1)) = ?4)` : "";
   const rows = (
     await env.DB.prepare(
       `SELECT u.name, u.display_name, u.bio, u.agent_name FROM users u
@@ -100,13 +116,39 @@ export async function findPeople(env: Env, me: string, query: string): Promise<P
           OR ((u.name LIKE ?2 ESCAPE '\\' OR lower(u.display_name) LIKE ?2 ESCAPE '\\') AND (
                 EXISTS (SELECT 1 FROM members m1 JOIN members m2 ON m1.board_id = m2.board_id WHERE m1.user = ?3 AND m2.user = u.name)
              OR EXISTS (SELECT 1 FROM friendships f WHERE f.status = 'accepted' AND ((f.a = ?3 AND f.b = u.name) OR (f.b = ?3 AND f.a = u.name)))
-             OR u.listed = 1))
+             OR u.listed = 1${orgSql}))
        ORDER BY (u.name = ?1) DESC, u.name LIMIT 20`,
     )
-      .bind(q, like, me)
+      .bind(...(domain ? [q, like, me, domain] : [q, like, me]))
       .all<{ name: string; display_name: string | null; bio: string | null; agent_name: string | null }>()
   ).results;
   return describe(env, me, rows);
+}
+
+/**
+ * People at `me`'s organization: the same verified email domain, only when that domain has an org_policies row.
+ * Handles and presence only — never emails. `domain` is null when the caller isn't in an organization.
+ */
+export async function orgPeople(env: Env, me: string, query = ""): Promise<{ domain: string | null; people: Person[] }> {
+  const domain = await orgDomainOf(env, me);
+  if (!domain) return { domain: null, people: [] };
+  const q = query.trim().toLowerCase().replace(/^@/, "").slice(0, 40);
+  const like = q ? `%${q.replace(/[\\%_]/g, (c) => "\\" + c)}%` : null;
+  const rows = (
+    like
+      ? await env.DB.prepare(
+          `SELECT name, display_name, bio, agent_name FROM users
+           WHERE email_verified = 1 AND email IS NOT NULL AND lower(substr(email, instr(email, '@') + 1)) = ?
+             AND (name LIKE ? ESCAPE '\\' OR lower(display_name) LIKE ? ESCAPE '\\' OR name = ?)
+           ORDER BY name LIMIT ?`,
+        ).bind(domain, like, like, q, ORG_DIRECTORY_LIMIT).all<{ name: string; display_name: string | null; bio: string | null; agent_name: string | null }>()
+      : await env.DB.prepare(
+          `SELECT name, display_name, bio, agent_name FROM users
+           WHERE email_verified = 1 AND email IS NOT NULL AND lower(substr(email, instr(email, '@') + 1)) = ?
+           ORDER BY name LIMIT ?`,
+        ).bind(domain, ORG_DIRECTORY_LIMIT).all<{ name: string; display_name: string | null; bio: string | null; agent_name: string | null }>()
+  ).results;
+  return { domain, people: await describe(env, me, rows) };
 }
 
 async function describe(env: Env, me: string, rows: { name: string; display_name: string | null; bio: string | null; agent_name?: string | null }[]): Promise<Person[]> {
@@ -155,7 +197,9 @@ export async function notify(env: Env, user: string, actor: string, kind: "frien
 }
 
 /** Ask to be friends (or accept, if they already asked you). Returns the new relation. */
-export async function requestFriend(env: Env, me: string, other: string, note: string): Promise<Relation> {
+/** `agent`: the request comes from an agent's token. It may ask, but if they already asked you, saying yes is the
+ *  person's decision (#57; jxn's agent #4398), so it's refused rather than turned into an accept. */
+export async function requestFriend(env: Env, me: string, other: string, note: string, later: Later | null = null, agent = false): Promise<Relation> {
   const who = other.toLowerCase().replace(/^@/, "");
   if (who === me) throw new SocialError("That's you.");
   const exists = await env.DB.prepare(`SELECT 1 AS x FROM users WHERE name = ?`).bind(who).first();
@@ -165,7 +209,10 @@ export async function requestFriend(env: Env, me: string, other: string, note: s
   if (rel === "pending_out") return rel;
   if (rel === "blocked") throw new SocialError(`You blocked ${who}. Unblock them first.`);
   if (rel === "blocked_you") throw new SocialError(`You can't send ${who} a request.`);
-  if (rel === "pending_in") return acceptFriend(env, me, who);
+  if (rel === "pending_in") {
+    if (agent) throw new SocialError(`${who} already asked to be friends. ${PERSON_ONLY_CONTACT_DECISION}`);
+    return acceptFriend(env, me, who, later);
+  }
   const today = (await env.DB.prepare(`SELECT COUNT(*) AS n FROM friendships WHERE requested_by = ? AND created_at > ?`).bind(me, Date.now() - 86_400_000).first<{ n: number }>())?.n ?? 0;
   if (today >= FRIEND_REQUESTS_PER_DAY) throw new SocialError(`That's ${FRIEND_REQUESTS_PER_DAY} friend requests today; try again tomorrow.`);
   const [a, b] = pair(me, who);
@@ -176,6 +223,7 @@ export async function requestFriend(env: Env, me: string, other: string, note: s
     if (shared) {
       await env.DB.prepare(`UPDATE friendships SET status = 'accepted', decided_at = ? WHERE a = ? AND b = ?`).bind(Date.now(), a, b).run();
       await notify(env, who, me, "friend_accept", "is now your friend (accepted by your rule for people you share a board with)");
+      void noteFriendAccepted(env, later, me, who);
       return "friend";
     }
   }
@@ -183,13 +231,14 @@ export async function requestFriend(env: Env, me: string, other: string, note: s
   if (await applies(env, who, "accept_friends", me)) {
     await env.DB.prepare(`UPDATE friendships SET status = 'accepted', decided_at = ? WHERE a = ? AND b = ?`).bind(Date.now(), a, b).run();
     await notify(env, who, me, "friend_accept", "is now your friend (accepted by a standing rule of yours)");
+    void noteFriendAccepted(env, later, me, who);
     return "friend";
   }
   await notify(env, who, me, "friend_request", note ? `wants to be friends: ${note}` : "wants to be friends");
   return "pending_out";
 }
 
-export async function acceptFriend(env: Env, me: string, other: string): Promise<Relation> {
+export async function acceptFriend(env: Env, me: string, other: string, later: Later | null = null): Promise<Relation> {
   const who = other.toLowerCase().replace(/^@/, "");
   const { rel } = await relationOf(env, me, who);
   if (rel === "friend") return rel;
@@ -197,6 +246,7 @@ export async function acceptFriend(env: Env, me: string, other: string): Promise
   const [a, b] = pair(me, who);
   await env.DB.prepare(`UPDATE friendships SET status = 'accepted', decided_at = ? WHERE a = ? AND b = ?`).bind(Date.now(), a, b).run();
   await notify(env, who, me, "friend_accept", "accepted your friend request");
+  void noteFriendAccepted(env, later, me, who);
   return "friend";
 }
 

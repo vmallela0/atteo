@@ -146,6 +146,7 @@ export interface BoardInfo {
 export interface Env {
   BOARD: DurableObjectNamespace<import("./board").Board>;
   DB: D1Database;
+  ASSETS?: Fetcher; // wrangler.jsonc assets: mermaid.min.js (src/mermaid.ts mermaidResponse)
   WORKOS_API_KEY?: string; // secret
   WORKOS_CLIENT_ID?: string; // var
   ADMIN_EMAIL?: string; // var: comma-separated admin emails
@@ -156,6 +157,9 @@ export interface Env {
   PUBLIC_URL?: string; // var: the public address (https://atteo.dev) for every link back to the product; see publicOrigin in util.ts
   ALLOW_LOCAL_WEBHOOKS?: string; // dev/CI only: allow http://localhost webhook URLs and the test sink
   STRIPE_WEBHOOK_SECRET?: string; // secret
+  GITHUB_WEBHOOK_SECRET?: string; // secret: GitHub App webhook HMAC; unset: POST /github/webhook is 503. Never in wrangler.jsonc
+  GITHUB_APP_ID?: string; // secret or var: GitHub App id for outbound Checks/comments; unused until outbound posting is wired
+  GITHUB_APP_PRIVATE_KEY?: string; // secret: GitHub App private key (PEM). Unset: outbound stays a stub. Never kept in D1
   SENTRY_DSN?: string; // secret (so dev/CI never report): Sentry project DSN; absent in dev/CI, then Sentry is off
   XAI_API_KEY?: string; // secret: xAI text-to-speech (POST /api/app/tts, src/tts.ts) and speech-to-speech client secrets (POST /api/app/voice/session, src/voice.ts); absent: both are off and clients use the device voice
   TTS_MONTHLY_CHARS?: string; // var: read-aloud characters per person per month (default 900,000)
@@ -176,6 +180,7 @@ export interface Env {
   DEV_FAKE_MAGIC?: string; // LOCAL .dev.vars ONLY, never wrangler.jsonc: "1" lets test emails sign in to the app with code 000000 on localhost (src/appSignin.ts)
   DEV_FAKE_CLOCK?: string; // LOCAL .dev.vars ONLY, never wrangler.jsonc: "1" + localhost + x-dev-now → test request time (src/util.ts)
   DEV_FAKE_NEAR_QUOTA?: string; // LOCAL .dev.vars ONLY, never wrangler.jsonc: "1" lets POST /api/ops/limits {nearQuota: true} fake load-shedding level 1 on localhost (src/limits.ts)
+  DEV_FAKE_ADMIN?: string; // LOCAL .dev.vars ONLY, never wrangler.jsonc: "1" + localhost lets POST /api/ops/sessions { admin: true } mint an operator browser session for /_ops checks (src/auth.ts)
   CF_VERSION_METADATA?: { id: string; tag?: string; timestamp?: string }; // which deploy is serving (ship.sh waits for it)
   // Free-plan guardrails (src/limits.ts; INFRA-ASSESSMENT §4i). All optional vars; the defaults are in limits().
   RATE_AGENT_PER_MIN?: string; // var: requests per minute per agent token (default 600; per isolate)

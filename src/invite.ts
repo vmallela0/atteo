@@ -5,6 +5,7 @@ import { applies } from "./standingRules";
 import { isFriend, rulesOf } from "./social";
 import { sendWorkosInvitation } from "./auth";
 import * as registry from "./registry";
+import type { Later } from "./observe";
 import type { Env } from "./types";
 
 export interface InviteResult {
@@ -21,11 +22,12 @@ export async function sendInvite(
   env: Env,
   origin: string,
   opts: { boardId: string; email: string; invitedBy: string; role?: import("./registry").Role; expiresDays?: number | null },
+  later: Later | null = null,
 ): Promise<InviteResult> {
   const email = opts.email.trim().toLowerCase();
   const board = await registry.getBoard(env, opts.boardId);
   const signInUrl = `${origin}/auth/login?login_hint=${encodeURIComponent(email)}`;
-  const base = { id: crypto.randomUUID(), board_id: opts.boardId, email, invited_by: opts.invitedBy, created_at: Date.now(), role: opts.role ?? "contributor", expires_days: opts.expiresDays ?? null };
+  const base = { id: crypto.randomUUID(), board_id: opts.boardId, email, invited_by: opts.invitedBy, created_at: Date.now(), role: opts.role ?? registry.DEFAULT_GRANT_ROLE, expires_days: opts.expiresDays === undefined ? registry.DEFAULT_GRANT_DAYS : opts.expiresDays || null };
   // "Your agent" is between a person and their own agents: no one else is ever invited.
   if ((board as { kind?: string | null } | null)?.kind === "agent") return { ok: false, added: false, emailed: false, signInUrl, message: `Board ${opts.boardId} is your private chat with your own agents; no one else can join it.` };
 
@@ -43,7 +45,7 @@ export async function sendInvite(
     const byStanding = opts.invitedBy !== "ops" && (await applies(env, existing.name, "accept_invites", opts.invitedBy));
     if (byFriend || byStanding) {
       await registry.recordInvite(env, { ...base, email_status: byFriend ? "accepted by their rule (invites from friends)" : "accepted by their standing rule" });
-      if (await registry.acceptInvitation(env, existing, opts.boardId, origin).catch(() => false)) {
+      if (await registry.acceptInvitation(env, existing, opts.boardId, origin, later).catch(() => false)) {
         return {
           ok: true,
           added: true,

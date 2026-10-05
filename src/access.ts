@@ -3,8 +3,9 @@
 
 import { checkOutsideMember } from "./policy";
 import { sha256hex, randomSecret } from "./auth";
-import { addMember, audit, memberRole, type Role, ROLES } from "./registry";
+import { addMember, audit, memberRole, type Role, ROLES, DEFAULT_GRANT_DAYS, DEFAULT_GRANT_ROLE } from "./registry";
 import { checkCanAddMember } from "./billing";
+import { noteInviteRedeemed, type Later } from "./observe";
 import type { Env } from "./types";
 
 export interface InviteLink {
@@ -22,10 +23,17 @@ export interface InviteLink {
 
 export class AccessError extends Error {}
 
-export function parseRole(v: unknown, fallback: Role = "contributor"): Role {
+export function parseRole(v: unknown, fallback: Role = DEFAULT_GRANT_ROLE): Role {
   if (v == null || v === "") return fallback;
   if (typeof v === "string" && (ROLES as string[]).includes(v)) return v as Role;
   throw new AccessError(`role must be one of: ${ROLES.join(", ")}`);
+}
+
+/** Email/name invite role: omitted → viewer; viewer/contributor kept; owner and anything else stay contributor (can't invite as owner). */
+export function inviteRole(v: unknown): Exclude<Role, "owner"> {
+  if (v == null || v === "") return DEFAULT_GRANT_ROLE;
+  if (v === "viewer" || v === "contributor") return v;
+  return "contributor";
 }
 
 const days = (v: unknown, max: number): number | null => {
@@ -35,13 +43,24 @@ const days = (v: unknown, max: number): number | null => {
   return n;
 };
 
+/** Grant length in days: only an explicit 0 means no end; 1–365 as given; anything else (omitted, empty, null, NaN,
+ *  negative, garbage such as the CLI's `--days abc` → null) is the 30-day default, never an open-ended grant
+ *  (jxn's agent #4399). */
+export function grantExpiresDays(v: unknown, fallback = DEFAULT_GRANT_DAYS): number | null {
+  if (v === 0 || v === "0") return null;
+  const n = typeof v === "number" || (typeof v === "string" && v.trim() !== "") ? Number(v) : NaN;
+  if (!Number.isFinite(n) || n < 1) return fallback;
+  return Math.min(365, Math.floor(n));
+}
+
 export async function createLink(env: Env, boardId: string, by: string, o: { role?: unknown; link_days?: unknown; member_days?: unknown; max_uses?: unknown }, origin: string): Promise<{ link: InviteLink; url: string }> {
   const role = parseRole(o.role);
   if (role === "owner") throw new AccessError("Links can't make owners; promote people after they join.");
   const kind = (await env.DB.prepare(`SELECT kind FROM boards WHERE id = ?`).bind(boardId).first<{ kind: string | null }>())?.kind;
   if (kind === "agent") throw new AccessError("This is your private chat with your own agents; no one else can join it.");
   const linkDays = days(o.link_days ?? 7, 90);
-  const memberDays = days(o.member_days, 365);
+  // Omitted member_days → 30-day access (the grant default). Explicit 0 stays open-ended.
+  const memberDays = days(o.member_days ?? DEFAULT_GRANT_DAYS, 365);
   const maxUses = o.max_uses == null || o.max_uses === "" ? null : Math.floor(Number(o.max_uses));
   if (maxUses != null && (!Number.isFinite(maxUses) || maxUses < 1 || maxUses > 500)) throw new AccessError("Uses must be between 1 and 500.");
   const secret = randomSecret("il_", 24);
@@ -68,7 +87,7 @@ export async function revokeLink(env: Env, boardId: string, id: string, by: stri
 }
 
 /** Joins the board through a link. Returns the board id (already a member: just the id). */
-export async function redeemLink(env: Env, secret: string, user: string, origin: string): Promise<string> {
+export async function redeemLink(env: Env, secret: string, user: string, origin: string, later: Later | null = null): Promise<string> {
   const l = await env.DB.prepare(`SELECT id, board_id, role, member_days, expires_at, max_uses, uses, revoked_at FROM invite_links WHERE token_hash = ?`)
     .bind(await sha256hex(secret))
     .first<InviteLink>();
@@ -87,5 +106,6 @@ export async function redeemLink(env: Env, secret: string, user: string, origin:
   await env.DB.prepare(`DELETE FROM members WHERE board_id = ? AND user = ? AND expires_at IS NOT NULL AND expires_at < ?`).bind(l.board_id, user, Date.now()).run();
   await addMember(env, l.board_id, user, { role: l.role, expires_at: l.member_days ? Date.now() + l.member_days * 86_400_000 : null, added_by: `link ${l.id}` });
   await audit(env, l.board_id, user, "joined", user, `via invite link (${l.role}${l.member_days ? `, ${l.member_days}d` : ""})`);
+  void noteInviteRedeemed(env, later, user);
   return l.board_id;
 }

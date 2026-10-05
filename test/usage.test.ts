@@ -46,6 +46,14 @@ describe("usage_daily retention sweep", () => {
     expect(rows(db, recentDay)).toEqual([{ metric: "requests", key: "recent" }]);
   });
 
+  it("leaves lifetime uniqueness rows (first agent post) when it sweeps", async () => {
+    const { env, db } = fakeEnv();
+    insert(db, "once", "success_once", "vedu");
+    insert(db, fmt(T0 - 91 * day), "success", "board_created");
+    expect(await pruneUsageDaily(env, T0)).toBe(1);
+    expect(rows(db, "once")).toEqual([{ metric: "success_once", key: "vedu" }]);
+  });
+
   it("leaves nothing to delete when all rows are within the window", async () => {
     const { env, db } = fakeEnv();
     insert(db, fmt(T0 - 30 * day), "requests", "vedu");

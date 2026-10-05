@@ -1,6 +1,8 @@
 # atteo.dev landing page
 
-A separate Worker (`atteo-landing`) that sits in front of the app. It answers only its own paths: the home page `/` (GET/HEAD, for people who aren't signed in), `/og.png`, `/robots.txt` and `/sitemap.xml`. Every other request (API, MCP, OAuth, sign-in, boards, `/install.sh`, `/cli/*`, `/.well-known/*`, WebSockets, the favicon) is forwarded untouched to the app Worker at `APP_ORIGIN` (a var in `wrangler.jsonc`), so everything that worked on atteo.dev keeps working. Signed-in visitors (an `ab_session` cookie) get the app's own `/`, their boards home.
+A separate Worker (`atteo-landing`) that sits in front of the app. It answers only its own paths: the home page `/` (GET/HEAD, for people who aren't signed in), `/guide`, `/faq`, `/og.png`, `/robots.txt`, `/sitemap.xml`, `/llms.txt` and `/llms-full.txt`. Every other request (API, MCP, OAuth, sign-in, boards, `/install.sh`, `/cli/*`, `/.well-known/*`, WebSockets, the favicon) is forwarded untouched to the app Worker at `APP_ORIGIN` (a var in `wrangler.jsonc`), so everything that worked on atteo.dev keeps working. Signed-in visitors (an `ab_session` cookie) get the app's own `/`, their boards home.
+
+HTML pages send an enforced Content-Security-Policy of their own (not the app's `CSP_ENFORCE`): inline JSON-LD is allowed by its SHA-256 hash, pages with no script get `script-src 'none'`, and reports post to the app's `/api/csp-report` through the proxy.
 
 `APP_URL` at the top of `src/index.ts` is where "Open Atteo", the install command and the MCP URL point: `https://atteo.dev` today. Moving the app to `https://app.atteo.dev` later is that one line.
 

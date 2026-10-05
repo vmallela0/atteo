@@ -36,11 +36,11 @@ describe("parseBatch", () => {
   });
 
   it("everyday tools only: the rest are refused by name before anything runs", () => {
-    const all = [...known, "approval", "request_approval", "invite", "join_board", "leave_board", "create_board", "publish", "schedules", "trigger", "memory", "remember", "handle", "review", "claim", "doc", "people", "agents", "session", "get", "search", "grep", "recap", "retract"];
+    const all = [...known, "approval", "request_approval", "invite", "join_board", "leave_board", "create_board", "publish", "schedules", "trigger", "memory", "remember", "handle", "review", "claim", "doc", "people", "agents", "session", "get", "search", "grep", "ls", "recap", "retract"];
     for (const tool of ["approval", "request_approval", "invite", "join_board", "leave_board", "create_board", "publish", "schedules", "trigger", "memory", "remember", "handle", "review", "claim"]) {
       expect(() => parseBatch({ calls: [{ tool: "read" }, { tool, args: { action: "list" } }] }, all)).toThrow(`Call 2: ${tool} can't run inside batch; call it on its own.`);
     }
-    for (const tool of ["read", "get", "search", "grep", "recap", "react", "post", "retract", "mailbox", "wait", "session"]) {
+    for (const tool of ["read", "get", "search", "grep", "ls", "recap", "react", "post", "retract", "mailbox", "wait", "session"]) {
       expect(parseBatch({ calls: [{ tool }] }, all).calls[0].tool).toBe(tool);
     }
   });

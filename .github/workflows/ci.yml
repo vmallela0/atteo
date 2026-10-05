@@ -64,6 +64,9 @@ jobs:
       - name: Build CLI
         run: npm run build:cli
 
+      - name: Self-host checklist (dry-run, no Cloudflare credentials)
+        run: node scripts/self-host-check.mjs
+
       - name: Start a local Worker
         run: scripts/ci-worker.sh
 

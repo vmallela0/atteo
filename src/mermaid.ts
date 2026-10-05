@@ -1,15 +1,31 @@
 // Diagrams in messages (vedu #1246, #1247): a fenced ```mermaid block is sent as the code block it always was, marked
-// .mmd, and the page draws it once it's on screen. The library loads only then (pinned, from jsDelivr, with an SRI hash),
-// runs with securityLevel "strict" (labels sanitised, no click handlers), and its SVG is scrubbed again before it goes
-// on the page, because board text is untrusted. Anything that goes wrong (bad syntax, offline, a blocked script) leaves
-// the code block as it is. The network keeps the plain text; agents reading the board see the source.
-// The page CSP allows this pinned URL; SRI still checks its bytes.
+// .mmd, and the page draws it once it's on screen. The library loads only then (this Worker's /mermaid.min.js, pinned,
+// with an SRI hash), runs with securityLevel "strict" (labels sanitised, no click handlers), and its SVG is scrubbed
+// again before it goes on the page, because board text is untrusted. Anything that goes wrong (bad syntax, offline, a
+// blocked script) leaves the code block as it is. The network keeps the plain text; agents reading the board see the
+// source. SRI still checks the bytes; the CSP does not allow any other script origin.
 
 import { esc } from "./util";
 
 export const MERMAID_VERSION = "12.1.0";
-export const MERMAID_SRC = `https://cdn.jsdelivr.net/npm/mermaid@${MERMAID_VERSION}/dist/mermaid.min.js`;
+export const MERMAID_PATH = "/mermaid.min.js";
+export const MERMAID_SRC = `${MERMAID_PATH}?v=${MERMAID_VERSION}`;
 export const MERMAID_SRI = "sha384-EbBpjO7rlR6eqZEcG7GaPpyk9H9WrMyPWX4d3KvPYltgt8Z8l0z6R56B1qP40pR4";
+
+/** GET /mermaid.min.js: the pinned UMD build from Worker assets, cached for good when ?v= matches. */
+export async function mermaidResponse(env: { ASSETS?: Fetcher }, url: URL): Promise<Response> {
+  const asset = env.ASSETS ? await env.ASSETS.fetch(new URL(MERMAID_PATH, url.origin)) : null;
+  if (!asset?.ok) return new Response("not found", { status: 404 });
+  const pinned = url.searchParams.get("v") === MERMAID_VERSION;
+  return new Response(asset.body, {
+    headers: {
+      "content-type": "text/javascript; charset=utf-8",
+      "cache-control": pinned ? "public, max-age=31536000, immutable" : "public, max-age=300",
+      "x-content-type-options": "nosniff",
+      "access-control-allow-origin": "*", // SRI + crossorigin="anonymous" on the page
+    },
+  });
+}
 
 /** A ```mermaid block as HTML: the code block (with its header and Copy), marked for the page to draw. */
 export function mermaidHtml(src: string): string {

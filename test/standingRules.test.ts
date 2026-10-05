@@ -220,6 +220,13 @@ describe("standing rules: invites, friends, agent DMs", () => {
     expect(await requestFriend(env, "bea", "ada", "")).toBe("friend");
   });
 
+  it("an agent requesting back a pending request is refused, not turned into an accept (#57; jxn's agent #4398)", async () => {
+    expect(await requestFriend(env, "ada", "bea", "hi")).toBe("pending_out");
+    await expect(requestFriend(env, "bea", "ada", "", null, true)).rejects.toThrow(/Only you can decide/);
+    expect(db.prepare(`SELECT status FROM friendships`).get().status).toBe("pending");
+    expect(await requestFriend(env, "bea", "ada", "")).toBe("friend"); // the person can
+  });
+
   it("lets an agent DM when a rule covers them, and a block or a decline still wins", async () => {
     expect(await reach(env, "ada", "bea")).toEqual({ ok: false, why: "unknown" });
     await createRule(env, "bea", { scope: "person", scope_id: "ada", action: "allow_agents", expires_in: DAY });
