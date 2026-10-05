@@ -43,14 +43,21 @@ struct BoardView: View {
         default: return Vocab.pick(String(localized: "\(n) agents working", bundle: .l10n), String(localized: "\(n) assistants working", bundle: .l10n))
         }
     }
-    /// The title block's widest. It's centered between the back button and the buttons on the right, so it gets twice
-    /// the smaller of the two gaps; the right holds search and ⋯, and the phone when voice is on.
+    /// The header's widest: the room between the back button and the buttons on the right (search and ⋯, and the phone
+    /// when voice is on). It sits left-aligned after the back button, so it gets all of that room, not twice the smaller
+    /// gap as when it was centred (vedu #4355: "Atte…" with room to spare).
     private var titleMaxWidth: CGFloat {
         let screen = (UIApplication.shared.connectedScenes.first as? UIWindowScene)?.screen.bounds.width ?? 390
         let buttons = 2 + (talkStatus.enabled == true ? 1 : 0)
-        let trailing = 16 + CGFloat(buttons) * 46 + 12 // margin, buttons, the group's padding
-        let leading: CGFloat = 16 + 48 + 8 // margin, back, gap
-        return max(80, screen - 2 * max(leading, trailing) - 8)
+        // Measured on iOS 26: the bar's margins are 16 points (20 on the Max and Plus phones), the header starts a margin
+        // plus 60 in (back button and gap), the glass group is about 51 points a button, and the bar keeps some 24 points
+        // between the two. Any wider and it drops the phone instead.
+        let margin: CGFloat = screen >= 428 ? 20 : 16
+        return max(100, screen - (margin + 60) - (margin + CGFloat(buttons) * 51) - 24)
+    }
+    private var header: some View {
+        ChatHeader(board: board, title: board.displayName(me: state.me?.owner), presence: presence, presenceShort: presenceShort,
+                   live: !live.isEmpty, maxWidth: titleMaxWidth) { showAgents = true }
     }
     @State private var focused = false // the message box has the keyboard
 
@@ -448,30 +455,15 @@ struct BoardView: View {
         .safeAreaInset(edge: .bottom, spacing: 0) { if tab == .chat { composer } }
         .navigationTitle(board.displayName(me: state.me?.owner))
         .toolbar {
-            // The title, and under it who's working here right now (tap for everyone, live / idle / gone).
-            ToolbarItem(placement: .principal) {
-                Button { showAgents = true } label: {
-                    VStack(spacing: 1) {
-                        HStack(spacing: 6) { BoardPicture(board: board, size: 20).accessibilityHidden(true); Text(board.displayName(me: state.me?.owner)).font(Typo.ui(.headline)).foregroundStyle(Theme.text.fixed(scheme)).lineLimit(1) }
-                        HStack(spacing: Space.xs) {
-                            if board.encrypted == true { Image(systemName: "lock.fill").font(.system(size: 9)).foregroundStyle(Theme.faint.fixed(scheme)) }
-                            if !live.isEmpty { LiveDot(size: 6) }
-                            // The whole line if it fits, else the short one ("2 agents working"), else cut with "…".
-                            ViewThatFits(in: .horizontal) {
-                                Text(presence).fixedSize()
-                                Text(presenceShort).lineLimit(1)
-                            }
-                            .font(Typo.micro.weight(.medium)).foregroundStyle((live.isEmpty ? Theme.faint : Theme.ok).fixed(scheme))
-                        }
-                    }
-                    .padding(.horizontal, Space.s)
-                    // Never under the buttons on either side (vedu #2650): at most the room between them.
-                    .frame(maxWidth: titleMaxWidth)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityIdentifier("presence")
+            // The board's picture, name and who's working here right now, left-aligned after the back button (vedu #4355;
+            // tap for everyone, live / idle / gone). ChatHeader.swift.
+            if #available(iOS 26.0, *) {
+                ToolbarItem(placement: .topBarLeading) { header }.sharedBackgroundVisibility(.hidden)
+            } else {
+                ToolbarItem(placement: .topBarLeading) { header }
             }
+            // The header already names the board: nothing in the middle (the title stays for the back button and VoiceOver).
+            ToolbarItem(placement: .principal) { Color.clear.frame(width: 1, height: 1).accessibilityHidden(true) }
         }
         // The title opens the board's info: what's open, who's here, files, search.
         .sheet(isPresented: $showAgents) {
