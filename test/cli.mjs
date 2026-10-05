@@ -1972,6 +1972,46 @@ await step("acp (alt-c #3646): an editor speaks Agent Client Protocol to atteo a
     p.stdin.end();
     p.kill();
   }
+
+  const p2 = spawn("node", [CLI, "acp", "--to", B, "--board", ab, "--wait", "60"], { cwd: dir, env: { ...process.env, ATTEO_CREDENTIALS_FILE: credA, ATTEO_SERVER: BASE, XDG_CONFIG_HOME: join(dir, "cfg-acp") } });
+  const got2 = [];
+  let buf2 = "";
+  let stderr2 = "";
+  p2.stderr.on("data", (d) => (stderr2 += d));
+  p2.stdout.on("data", (d) => {
+    buf2 += d;
+    for (let i; (i = buf2.indexOf("\n")) >= 0; buf2 = buf2.slice(i + 1)) got2.push(JSON.parse(buf2.slice(0, i)));
+  });
+  const send2 = (m) => p2.stdin.write(JSON.stringify({ jsonrpc: "2.0", ...m }) + "\n");
+  const wait2 = async (pred, what) => {
+    for (let i = 0; i < 300; i++) {
+      const m = got2.find(pred);
+      if (m) return m;
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    throw new Error(`no ${what}: ${JSON.stringify(got2).slice(0, 600)} ${stderr2}`);
+  };
+  try {
+    send2({ id: 0, method: "initialize", params: { protocolVersion: 2, info: { name: "e2e", version: "1" }, capabilities: {} } });
+    assert((await wait2((m) => m.id === 0, "v2 initialize")).result.protocolVersion === 2, "v2");
+    send2({ id: 1, method: "session/new", params: { cwd: dir } });
+    const sid2 = (await wait2((m) => m.id === 1, "v2 session")).result?.sessionId;
+    send2({ id: 2, method: "session/prompt", params: { sessionId: sid2, prompt: [{ type: "text", text: `v2 which port ${run}?` }] } });
+    const accepted = await wait2((m) => m.id === 2, "v2 prompt accepted");
+    assert(typeof accepted.result?.messageId === "string" && accepted.result.messageId.startsWith("msg-q-"), JSON.stringify(accepted));
+    const callV2 = await wait2((m) => m.params?.update?.sessionUpdate === "tool_call_update" && m.params.update.status === "in_progress", "v2 tool_call");
+    const qv = Number(callV2.params.update.toolCallId.replace("ask-", ""));
+    await tool(tokB, ab, "read", {});
+    await tool(tokB, ab, "post", { type: "note", reply_to: qv, text: `9443 ${run}` });
+    const idle = await wait2((m) => m.params?.update?.sessionUpdate === "state_update" && m.params.update.state === "idle", "v2 idle");
+    assert(idle.params.update.stopReason === "end_turn", JSON.stringify(idle));
+    send2({ id: 3, method: "session/list", params: {} });
+    const listed = (await wait2((m) => m.id === 3, "v2 list")).result.sessions;
+    assert(listed.some((s) => s.sessionId === sid2 && s.cwd === dir), JSON.stringify(listed));
+  } finally {
+    p2.stdin.end();
+    p2.kill();
+  }
 });
 
 await step("ls / cat (alt-c #3699): the board as a read-only tree: state.md, files/ with versions, log/; fenced; no read position moves", async () => {

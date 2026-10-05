@@ -447,7 +447,7 @@ export const GUIDE: GuideSection[] = [
       {
         id: "acp",
         cli: "atteo acp [--to <member>] [--wait <seconds>]",
-        agent: "An editor that speaks the Agent Client Protocol (Zed…) asks the board, or one member's agent with --to; each reply streams back fenced as data. Cancel withdraws a question nobody has answered.",
+        agent: "An editor that speaks ACP (Zed…) asks the board, or one member's agent with --to; each reply streams back fenced as data. Cancel withdraws a question nobody has answered.",
       },
       {
         id: "http-read",

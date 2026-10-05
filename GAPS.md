@@ -12,8 +12,8 @@ lives; most have an e2e step in `test/e2e.mjs` with the same words.
 3. **Grant defaults** (P0 network #4): new members start as contributors with no end date; the PRD wants Viewer for 30 days.
 4. **Files at scale** (P0 #5): files live in each board's SQLite (no R2 shared folder), no read-only mount with `ls`.
 5. **Signed Agent Cards** (P0 #3): built (#3588); signed once the `A2A_SIGNING_KEY` secret is set in production (`node scripts/a2a-key.mjs keygen`).
-6. **Smaller ones:** people-only friend requests on the server, live share, moderation tools, compaction, an ACP
-   adapter, p95 tracking, a 10k-entry load test, success-metric telemetry, design partners.
+6. **Smaller ones:** people-only friend requests on the server, live share, moderation tools, compaction, p95 tracking,
+   a 10k-entry load test, success-metric telemetry, design partners.
 
 ## P0 (MVP)
 
@@ -53,7 +53,7 @@ lives; most have an e2e step in `test/e2e.mjs` with the same words.
 | Web UI: read, post Decisions, approve actions, moderate | Built | Read, threads, tasks board, Log, people's decisions with votes, approvals at `/approvals`, reviews on change cards. Moderation: owners remove members and retract any entry; anyone reports a post to the owners with a reason (their inbox, and the board's log, which only owners see), and mutes a member on a board for themselves (their posts fold to one line and stop notifying you) (`src/moderation.ts`, #3602). |
 | Retention and compaction per room | Partial | Owners set a retention period; older messages are blanked, threads stay (`prune`). Missing: compaction. |
 | Self-hosted board | Partial | `docs/SELF_HOST.md`: your own Cloudflare account, WorkOS, optional Stripe and Workers AI. Not tested end to end on a second account. |
-| Slack/GitHub notifications, presence, org directories, tunneled Gateway, CLI + OpenAPI, ACP adapter, TS/Python SDKs | Partial | Built: signed webhooks for your agent, with Slack and Discord URLs getting a readable message (`src/webhooks.ts`); change cards from `git push` (pre-push hook); presence per agent session; the `atteo` CLI; OpenAPI at `/openapi.json` (a test checks every route is in it); SDKs in `sdk/typescript` and `sdk/python`. Missing: GitHub app notifications, org directories, the tunneled Gateway, an ACP adapter. |
+| Slack/GitHub notifications, presence, org directories, tunneled Gateway, CLI + OpenAPI, ACP adapter, TS/Python SDKs | Partial | Built: signed webhooks for your agent, with Slack and Discord URLs getting a readable message (`src/webhooks.ts`); change cards from `git push` (pre-push hook); presence per agent session; the `atteo` CLI; OpenAPI at `/openapi.json` (a test checks every route is in it); SDKs in `sdk/typescript` and `sdk/python`; `atteo acp` (`cli/src/acp.ts`) — Agent Client Protocol v1 plus the v2 happy path (initialize, session/new, prompt, streamed replies, cancel; list/resume/close in this process). Missing: GitHub app notifications, org directories, the tunneled Gateway. |
 | One-click connect for Claude Code, Cursor, Grok Bot, Muse… | Built | MCP OAuth (sign in and allow) for URL clients, the install script and `atteo login` for the CLI, named URL connections (`/mcp?name=`). |
 | P2: voice rooms, E2E-encrypted rooms, org policy + SSO | Partial | Built: end-to-end encrypted boards (one key per board, devices approved by their owner, rotation on removal), org policies by email domain (`require_sso`, max retention, outside members; `src/policy.ts`), voice with your agent and read-aloud. Missing: voice rooms with several people. |
 
@@ -64,7 +64,7 @@ lives; most have an e2e step in `test/e2e.mjs` with the same words.
 | Entry delivery p95 < 500 ms | Met locally, untracked in production | `scripts/load-test.mjs` (local only) on a 10k-entry board: post → waiting agent p95 ~265 ms, of which 250 ms is the wait's burst window (`SETTLE_MS` in `src/waits.ts`). No p95 tracking in production. |
 | Context pack p95 < 2 s at 10k entries | Met locally | The summary is cached per board version; big boards open on their newest entries and load earlier ones on demand; `read` takes a budget. `scripts/load-test.mjs` (local only): read with the summary at 4k–80k character budgets, p95 < 20 ms at 10k entries on wrangler dev. Not measured in production. |
 | 99.9% availability | Monitored | `.github/workflows/uptime.yml` checks production every 2 hours; Sentry reports errors. No SLO tracking. |
-| Vendor neutrality | Built | Any MCP client, the CLI, the REST API, A2A. |
+| Vendor neutrality | Built | Any MCP client, the CLI (`atteo mcp` and `atteo acp`), the REST API, A2A. |
 | No secrets at rest on board servers | Partial | Known credential formats are blocked before storage (server-side, not yet on the user's machine). Tokens and session cookies are stored only as hashes. Sealed secrets are encrypted to one member's devices. Encrypted boards store ciphertext only. |
 | Automated cross-room leakage tests | Built | e2e checks non-members get 404 on every board route and tool, and people-only and just-mine messages reach no one else by any path; CI runs the full e2e (`.github/workflows/ci.yml`). |
 | Observability (paste rate, pack size, stale-notice rate, verified-claim ratio, egress blocks, approvals) | Built | Daily counters in `usage_daily`: `paste`, `egress_block`, `context_pack`, `stale_notice`, `claim_review` and `approval`. Derived rates and counts are on `/_ops` (Trust and context) and `GET /api/ops/metrics` (`observe`); raw UTC-day rows are on `GET /api/ops/usage-daily`. |
