@@ -43,6 +43,13 @@ SHARD=2/4 node test/browser/run.mjs             # what CI's second browser job r
 BASE=http://localhost:8802 node test/browser/rail.mjs   # one check, directly
 ```
 
+`scripts/verify.sh` does all of that for you (a server with CI's values, the CLI build) and runs the other suites
+beside the browser checks.
+
+When a check waits for the page, wait for what it's about to assert (`until` and `boardLive` in `lib/wait.mjs`), not
+a fixed time; keep a fixed wait only where nothing should happen for a while. Reading an element that may be missing
+through a locator (`innerText()`, `getAttribute()`) waits 30s for it first: read it with `p.evaluate` instead.
+
 | Env | Default | |
 | --- | --- | --- |
 | `BASE` | `http://localhost:8787` | the Worker under test. The runner refuses anything but localhost |

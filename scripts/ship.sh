@@ -14,7 +14,7 @@ before=$(git rev-parse origin/main 2>/dev/null || git rev-parse HEAD~1)
 # server with its own local state (--persist-to), so they run in parallel without loading one server: sharing one made
 # whichever suite was slower flake ("Error: Network…"). REUSE_DEV=1 runs both against a server already up on LOCAL_PORT.
 # The CLI suite runs when CLI-facing code changed since the last ship from this checkout (not just since origin/main:
-# another agent may have pushed those commits already).
+# another agent may have pushed those commits already). SHIP_FULL=1 runs the browser checks and vitest too, all at once.
 last_ship=$(cat .git/atteo-last-ship 2>/dev/null || echo "$before")
 git cat-file -e "$last_ship" 2>/dev/null || last_ship="$before"
 need_cli=""
@@ -22,6 +22,11 @@ if git diff --name-only "$last_ship" HEAD | grep -qE '^(cli/|src/(mcp|secrets|de
 devs=()
 # (A kill that fails, e.g. the server already exited, must not turn a good ship into exit 1 under set -e.)
 trap 'for p in "${devs[@]:-}"; do [ -n "$p" ] && kill "$p" 2>/dev/null || true; done' EXIT
+if [ -n "${SHIP_FULL:-}" ]; then
+  # SHIP_FULL=1: a landing in one step (vedu #2791). scripts/verify.sh runs vitest, e2e, the CLI suite (by the rule
+  # above) and the browser checks at once, each against its own fresh local server on LOCAL_PORT..LOCAL_PORT+2.
+  VERIFY_PORT=${LOCAL##*:} SUITES="vitest e2e ${need_cli:+cli }browser" scripts/verify.sh || { echo "local suites failed: not shipping"; exit 1; }
+else
 serve() { # serve <port> <state dir>: a fresh dev server with its own migrated local state
   local port=$1 dir=$2
   if curl -s -o /dev/null "http://localhost:$port/health"; then echo "port $port is busy: stop that server or set LOCAL_PORT (REUSE_DEV=1 to reuse it)"; exit 1; fi
@@ -48,6 +53,7 @@ status=0
 wait $e2e || status=1; tail -1 /tmp/ship-e2e.log; grep "✗" -A2 /tmp/ship-e2e.log || true
 if [ -n "$cli" ]; then wait $cli || status=1; tail -1 /tmp/ship-cli.log; grep "✗" -A2 /tmp/ship-cli.log || true; fi
 [ "$status" = 0 ] || { echo "local suites failed: not shipping"; exit 1; }
+fi
 echo "local suites passed after $(( $(date +%s) - start ))s"
 
 # 2. Push, migrate (new D1 migrations first, so new code never runs on an old schema), deploy.
