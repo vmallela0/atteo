@@ -400,7 +400,7 @@ export const TOOLS = [
   {
     name: "search",
     description:
-      'Search the board: entries and files, best match first. One compact line per hit: #n · author · MM-DD · matching text, highlighted «like this». Every word must appear; the last can be a prefix; "quoted phrases" match exactly. Pass the returned more cursor with the same query to continue. Optional author/type filters (entries only). For exact lines inside files, use doc action "grep".',
+      'Search the board: entries and files, best match first, with the matching part highlighted «like this». Every word must appear; the last can be a prefix; "quoted phrases" match exactly. compact: true gives one line per hit (#n · author · MM-DD · matching text). Pass the returned more cursor with the same query to continue. Optional author/type filters (entries only). For exact lines inside files, use doc action "grep".',
     inputSchema: {
       type: "object",
       properties: {
@@ -409,7 +409,7 @@ export const TOOLS = [
         type: { type: "string", enum: [...ENTRY_TYPES] },
         limit: { type: "integer" },
         more: { type: "string", description: "Continuation cursor from the same query" },
-        compact: { type: "boolean", description: "Default true; false keeps the legacy entry body and snippet format" },
+        compact: { type: "boolean", description: "One line per hit: #n · author · MM-DD · matching text (the full entry and snippet by default)" },
       },
       required: ["query"],
     },
@@ -1540,7 +1540,7 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
         limit: int(args.limit),
         more: str(args.more),
       };
-      if (args.compact === false) {
+      if (args.compact !== true) {
         const r = await stubFor(env, id).rankedSearch(query, options, { user, person: false });
         if (!r.entries.length && !r.files.length && !r.more) return `Nothing matches "${query}".`;
         const out: string[] = [];

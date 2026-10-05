@@ -2539,7 +2539,6 @@ export class Board extends DurableObject<Env> {
       const after = position && "score" in position ? position : null;
       rows = this.sql.exec(`SELECT rowid AS pos, kind, ref, bm25(search_idx, 1.0, 4.0) AS score,
         snippet(search_idx, 0, '«', '»', ' … ', 16) AS snip FROM search_idx WHERE search_idx MATCH ?
-        AND (kind != 'entry' OR NOT EXISTS (SELECT 1 FROM tasks WHERE seq = CAST(search_idx.ref AS INTEGER)))
         ${after ? "AND (bm25(search_idx, 1.0, 4.0) > ? OR (bm25(search_idx, 1.0, 4.0) = ? AND rowid > ?))" : ""}
         ORDER BY score, rowid LIMIT 501`, match, ...(after ? [after.score, after.score, after.row] : []));
     } catch { return fallback(); }
@@ -2565,14 +2564,20 @@ export class Board extends DurableObject<Env> {
         last = { score: r.score as number, row: r.pos as number };
         if (r.kind === "entry" || r.kind === "task") {
           const e = bySeq.get(Number(r.ref));
-          if (!e || seen.has(e.seq) || (opts.author && e.author !== opts.author) || (opts.type && e.type !== opts.type)) continue;
+          if (!e || (opts.author && e.author !== opts.author) || (opts.type && e.type !== opts.type)) continue;
+          // An edited task is indexed twice: its first text (kind "entry") and its live title/body (kind "task").
+          // One hit per entry, and the live text's snippet wins whichever ranks first.
+          if (seen.has(e.seq)) {
+            if (r.kind === "task") { const hit = entries.find((x) => x.entry.seq === e.seq); if (hit) hit.snippet = r.snip as string; }
+            continue;
+          }
           seen.add(e.seq);
           entries.push({ entry: e, snippet: r.snip as string });
-        } else if (!filtered) {
+        } else if (!filtered && files.length < 10) {
           const d = this.sql.exec("SELECT version, updated_by, updated_at FROM docs WHERE name = ?", r.ref).toArray()[0];
           if (d) files.push({ name: r.ref as string, version: d.version as number, snippet: r.snip as string, author: d.updated_by as string, ts: d.updated_at as number });
         }
-        if (entries.length >= limit || files.length >= 10) { full = true; more = encodeCursor(key, last); break; }
+        if (entries.length >= limit) { full = true; more = encodeCursor(key, last); break; }
       }
     };
     for (const r of rows) {
@@ -2642,7 +2647,12 @@ export class Board extends DurableObject<Env> {
     const info = this.info();
     const res: BoardGrepResult = { title: info.title, hits: [], encrypted: false, fallback: false, capped: false, budget: false, more: null };
     if (info.encrypted) return { ...res, encrypted: true };
-    const m = compileGrep(pattern, o);
+    let m: ReturnType<typeof compileGrep>;
+    try {
+      m = compileGrep(pattern, o);
+    } catch (e) {
+      throw new BoardError(e instanceof Error ? e.message : String(e));
+    }
     if (o.more && !isBoardGrepCursor(o.more)) throw new BoardError("Invalid more cursor.");
     const max = clamp(o.max ?? GREP_DEFAULT_MAX, 1, GREP_HARD_MAX);
     const context = clamp(o.context ?? 0, 0, 2);
