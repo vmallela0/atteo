@@ -50,6 +50,9 @@
 	<array>
 		<string>fetch</string>
 	</array>
+	<!-- Export compliance (docs/APP_STORE_READINESS.md): only encryption built into iOS (HTTPS, CryptoKit for end-to-end boards). -->
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>NSCameraUsageDescription</key>
@@ -57,7 +60,7 @@
 	<key>NSPhotoLibraryAddUsageDescription</key>
 	<string>Save pictures from a chat to your Photos.</string>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>Hold the mic in the message box to talk instead of typing.</string>
+	<string>Hold the mic in the message box to talk instead of typing (turned into text on this iPhone). In a voice chat with Grok, your voice is sent to xAI.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
 	<string>What you say is turned into text on this iPhone, for the message box.</string>
 	<key>NSAppTransportSecurity</key>
