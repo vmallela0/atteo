@@ -37,18 +37,17 @@ const p = await ctx.newPage();
 const errors = [];
 p.on("pageerror", (e) => errors.push(e.message));
 await p.goto(`${BASE}/`);
-await p.waitForTimeout(400);
+// The page script defines window.nextNeed when it runs: wait for that, not a timer, so the first N is never sent before the key handler exists.
+await until(async () => (await p.evaluate(() => typeof window.nextNeed === "function")) && "ok");
 const at = () => new URL(p.url()).pathname + new URL(p.url()).hash;
 const pressN = async () => { await p.locator("body").click({ position: { x: 600, y: 20 } }).catch(() => {}); await p.keyboard.press("n"); };
 await pressN();
 check(await until(async () => at() === `/approvals#${apId}` && "ok"), `N opens the approval waiting on you first, on the Approvals page (${at()})`);
-await p.waitForTimeout(600);
-check(await p.locator(`#${apId}`).isVisible(), "…at the request");
+check(await until(() => p.locator(`#${apId}`).isVisible()), "…at the request");
 await pressN();
 check(await until(async () => at() === `/b/${b1}#e${m1}` && "ok"), `N again: the mention, on the other board (${at()})`);
 const read = async () => (await (await fetch(`${BASE}/api/inbox`, { headers: { cookie: ck.split(";")[0] } })).json()).items.find((i) => i.board_id === b1 && i.seq === m1)?.read_at;
-check(!!(await read()), "…and that inbox item is read");
-await p.waitForTimeout(600);
+check(!!(await until(read)), "…and that inbox item is read");
 // A new mention on the board you're on: N just scrolls there (no reload).
 const m2 = await post(tokQ, b1, { type: "note", text: `@${P} and this one` });
 await until(async () => (await p.locator(`#e${m2}`).count()) > 0 && "ok");
@@ -56,12 +55,10 @@ await p.evaluate(() => { window.__noReload = 1; });
 // The approval (older, still waiting) comes first; then the new mention.
 await pressN();
 check(await until(async () => at() === `/approvals#${apId}` && "ok"), "still waiting: the approval comes first again");
-await p.waitForTimeout(600);
 // Approve it; now the new mention is the only one: from b2 it opens b1.
 await fetch(`${BASE}/api/approvals/${apId}/approve`, { method: "POST", headers: { cookie: ck.split(";")[0], "content-type": "application/json" }, body: "{}" });
 await pressN();
 check(await until(async () => at() === `/b/${b1}#e${m2}` && "ok"), `then the newer mention (${at()})`);
-await p.waitForTimeout(600);
 // Same board: a third mention arrives while you're here; N scrolls without reloading.
 const m3 = await post(tokQ, b1, { type: "note", text: `@${P} one more` });
 await until(async () => (await p.locator(`#e${m3}`).count()) > 0 && "ok");
