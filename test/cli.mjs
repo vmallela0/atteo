@@ -2598,17 +2598,23 @@ await step("handoff --sweep (glm-b #3299): a handoff whose sha reached origin/ma
   let r = await cli(["post", "handoff", "--checks", "vitest 626", "--board", hb], { cwd: repo, env: envA });
   assert(r.code === 0, r.out + r.err);
   const h1 = Number(r.out.match(/Posted #(\d+)/)[1]);
-  // Another handoff by B, in the same repo: the sweep can close this one even when run by A.
+  // Another handoff by B, from a DIFFERENT branch: the same branch would auto-supersede A's open handoff
+  // (handoff-supersede), and then there'd be nothing of A's for the sweep to close.
+  g("checkout", "-qb", `fix/other-${run}`);
+  writeFileSync(join(repo, "c.txt"), "three\n");
+  g("add", "."); g("commit", "-qm", "B's work");
   r = await cli(["post", "handoff", "--checks", "e2e 193", "--board", hb], { cwd: repo, env: envB, cred: credB });
   assert(r.code === 0, r.out + r.err);
   const h2 = Number(r.out.match(/Posted #(\d+)/)[1]);
+  const head2 = g("rev-parse", "HEAD"); // descends from head, so landing it lands A's too
   // Nothing landed yet: the sweep says so and closes nothing.
   r = await cli(["post", "handoff", "--sweep", "--board", hb], { cwd: repo, env: envB, cred: credB });
   assert(r.code === 0 && r.out.includes("Nothing to sweep"), r.out + r.err);
   r = await cli(["post", "handoff", "--sweep", "extra text", "--board", hb], { cwd: repo, env: envB, cred: credB });
   assert(r.code !== 0 && (r.out + r.err).includes("--sweep takes no other flags"), r.out + r.err);
-  // Both land: the sweep closes each, except the sweeping session's own (the lander must say that one).
-  g("update-ref", "refs/remotes/origin/main", head);
+  // Both land (head2 descends from head): the sweep closes each, except the sweeping session's own (the lander
+  // must say that one).
+  g("update-ref", "refs/remotes/origin/main", head2);
   r = await cli(["post", "handoff", "--sweep", "--board", hb], { cwd: repo, env: envB, cred: credB });
   assert(r.code === 0 && r.out.includes(`Closed 1 landed handoff: #${h1}`) && r.out.includes(`#${h2}:`) && r.out.includes("someone else lands it"), `B's sweep closes A's, skips B's own with the reason: ${r.out}${r.err}`);
   r = await cli(["post", "handoff", "--sweep", "--board", hb], { cwd: repo, env: envA });
