@@ -45,7 +45,7 @@ struct NewMessageSheet: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .topBarLeading) { Button("Cancel") { dismiss() }.toolbarText() } }
             .navigationDestination(for: Person.self) { p in PersonCard(name: p.name, initial: p, open: open) }
-            .task { focused = true; friends = await state.friends() }
+            .task { focused = true; friends = await state.friends(); state.noteNames((friends ?? []).map { ($0.name, $0.displayName) }) }
             .task(id: query) {
                 let q = query
                 guard !q.trimmingCharacters(in: .whitespaces).isEmpty else { results = []; searching = false; return }
@@ -54,6 +54,7 @@ struct NewMessageSheet: View {
                 guard !Task.isCancelled else { return }
                 let r = await state.searchPeople(q)
                 guard !Task.isCancelled else { return }
+                state.noteNames(r.map { ($0.name, $0.displayName) })
                 withAnimation(.smooth) { results = r }
                 searching = false
             }
@@ -89,7 +90,7 @@ struct PersonRow: View {
         HStack(spacing: Space.m) {
             Avatar(name: p.name, size: 40)
             VStack(alignment: .leading, spacing: Space.xxs) {
-                Text(p.displayName ?? p.name).font(Typo.rowTitleRead).foregroundStyle(Theme.text).lineLimit(1)
+                Text(PersonName.shown(p.name, p.displayName)).font(Typo.rowTitleRead).foregroundStyle(Theme.text).lineLimit(1)
                 Text(["@\(p.name)", p.relationLabel].compactMap { $0 }.joined(separator: " · ")).font(Typo.micro).foregroundStyle(Theme.faint).lineLimit(1)
             }
         }
@@ -118,7 +119,7 @@ struct PersonCard: View {
             VStack(spacing: Space.l) {
                 VStack(spacing: Space.s) {
                     Avatar(name: name, size: 84)
-                    Text(person?.displayName ?? name).font(Typo.ui(.title2).weight(.semibold)).foregroundStyle(Theme.text)
+                    Text(PersonName.shown(name, person?.displayName)).font(Typo.ui(.title2).weight(.semibold)).foregroundStyle(Theme.text)
                     HStack(spacing: Space.xs) {
                         Text("@\(name)")
                         if let presence, presence != "offline" { Text("·"); Text(presence).foregroundStyle(Theme.ok) }
@@ -162,7 +163,7 @@ struct PersonCard: View {
             async let a = try? API.shared.get("/api/agents/\(name)", as: MeAgentResponse.self)
             let (rr, aa) = await (r, a)
             withAnimation(.smooth) {
-                if let rr { p = rr.person; presence = rr.presence }
+                if let rr { p = rr.person; presence = rr.presence; state.noteNames([(name, rr.person.displayName)]) }
                 agent = aa?.agent
             }
         }

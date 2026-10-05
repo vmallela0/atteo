@@ -447,13 +447,13 @@ struct BoardView: View {
         }
         // The message box is the chat's: Tasks and Files have the whole height.
         .safeAreaInset(edge: .bottom, spacing: 0) { if tab == .chat { composer } }
-        .navigationTitle(board.displayName(me: state.me?.owner))
+        .navigationTitle(headerTitle)
         .toolbar {
             // The title, and under it who's working here right now (tap for everyone, live / idle / gone).
             ToolbarItem(placement: .principal) {
                 Button { showAgents = true } label: {
                     VStack(spacing: 1) {
-                        HStack(spacing: 6) { BoardPicture(board: board, size: 20).accessibilityHidden(true); Text(board.displayName(me: state.me?.owner)).font(Typo.ui(.headline)).foregroundStyle(Theme.text.fixed(scheme)).lineLimit(1) }
+                        HStack(spacing: 6) { BoardPicture(board: board, size: 20).accessibilityHidden(true); Text(headerTitle).font(Typo.ui(.headline)).foregroundStyle(Theme.text.fixed(scheme)).lineLimit(1) }
                         HStack(spacing: Space.xs) {
                             if board.encrypted == true { Image(systemName: "lock.fill").font(.system(size: 9)).foregroundStyle(Theme.faint.fixed(scheme)) }
                             if !live.isEmpty { LiveDot(size: 6) }
@@ -549,7 +549,7 @@ struct BoardView: View {
                     .frame(maxWidth: .infinity, alignment: .trailing)
                     .accessibilityIdentifier("fold-\(e.seq)")
                 } else {
-                    FoldedRow(e: e, who: oneLineWho(e)) { withAnimation(.snappy) { setOpen(e.seq, true) } }
+                    FoldedRow(e: e, who: oneLineWho(e), at: e.byAgent ? nil : e.author) { withAnimation(.snappy) { setOpen(e.seq, true) } }
                         .padding(.top, grouped ? 0 : Space.xxs)
                 }
             } else {
@@ -580,7 +580,7 @@ struct BoardView: View {
         Task { try? await Task.sleep(nanoseconds: 350_000_000); toLatest() }
     }
     private func oneLineWho(_ e: Entry) -> String {
-        e.byAgent ? agentLabel(e.author, state.agentNames[board.id]?[e.author]?.name ?? e.agentName) : e.author
+        e.byAgent ? agentLabel(e.author, state.agentNames[board.id]?[e.author]?.name ?? e.agentName) : PersonName.shown(e.author, state.personNames[e.author])
     }
 
     private func entryRow(_ e: Entry, grouped: Bool, mine: Bool, _ r: Rows) -> EntryRow {
@@ -592,7 +592,7 @@ struct BoardView: View {
         let parent = e.replyTo.flatMap { r.bySeq[$0] }
         // Only a task row shows the tasks (as they are now): the others don't redraw when one is ticked.
         return EntryRow(e: e, grouped: grouped, mine: mine, board: board.id, tasks: e.type == "task" ? state.tasks[board.id] ?? [] : [], reactions: state.reactions[board.id]?[e.seq] ?? [],
-                        parent: parent, me: me, members: state.members[board.id] ?? [],
+                        parent: parent, me: me, members: state.members[board.id] ?? [], names: state.personNames,
                         reply: live ? { startReply(to: e) } : nil,
                         unsent: unsent, replies: r.replies[e.seq] ?? [], threadUnread: threadUnread(e.seq, r), handling: state.handling[board.id]?[e.seq], lit: flash == e.seq,
                         receipt: showReceipt ? receipt(for: e) : nil,
@@ -801,7 +801,7 @@ struct BoardView: View {
         for u in reads.keys.sorted() where !names.contains(u) { names.append(u) }
         var out: [Reader] = []
         for u in names {
-            if u != me { out.append(Reader(user: u, agent: false, mine: false, seen: (reads[u]?.personSeen ?? 0) >= e.seq)) }
+            if u != me { out.append(Reader(user: u, agent: false, mine: false, seen: (reads[u]?.personSeen ?? 0) >= e.seq, display: state.personNames[u])) }
             if let a = reads[u]?.agentSeen, a >= 0 { out.append(Reader(user: u, agent: true, mine: u == me, seen: a >= e.seq)) }
         }
         return out.isEmpty ? nil : out
@@ -835,11 +835,13 @@ struct BoardView: View {
         }
     }
 
+    /// A DM's header is the other person by the name they chose (jxn #4369); a board keeps its title.
+    private var headerTitle: String { board.shownTitle(me: state.me?.owner, names: state.personNames) }
+
     /// "Message theo", "Message Checkout bug", "Message your agent…" / "Message builder…".
     private var placeholder: String {
         if board.isAgentChat { return toSession.map { String(localized: "Message \($0)…", bundle: .l10n) } ?? String(localized: "Message your agent…", bundle: .l10n) }
-        let name = board.kind == "direct" ? board.displayName(me: state.me?.owner) : board.title
-        return String(localized: "Message \(name)", bundle: .l10n)
+        return String(localized: "Message \(headerTitle)", bundle: .l10n)
     }
 }
 
@@ -877,6 +879,7 @@ struct Mentionable: Hashable {
     let user: String? // nil: a group
     let agent: Bool
     var note: String? = nil // what it is, on the right ("vedu's agent" for "@Jarvis", "everyone and their agents")
+    var alias: String? = nil // a person's display name, shown beside @handle; the handle is what gets inserted
 }
 
 /// What "@" suggests, just above the message box: a compact list, one tap to insert.
@@ -892,7 +895,14 @@ struct MentionList: View {
                             Image(systemName: m.agent ? "sparkles" : m.handle == "all" ? "person.3.fill" : "person.2.fill").font(.system(size: 11, weight: .semibold)).foregroundStyle(Theme.muted)
                                 .frame(width: 24, height: 24).background(Theme.raised, in: Circle())
                         }
-                        Text("@" + m.handle).font(Typo.secondary.weight(.medium)).foregroundStyle(Theme.text)
+                        // A person: the name they chose, with @handle beside it (what's inserted is still the handle, jxn #4369).
+                        if let alias = m.alias, !m.agent {
+                            (Text(verbatim: alias).font(Typo.secondary.weight(.medium)).foregroundStyle(Theme.text)
+                                + Text(verbatim: " @\(m.handle)").font(Typo.secondary).foregroundStyle(Theme.faint))
+                                .lineLimit(1)
+                        } else {
+                            Text("@" + m.handle).font(Typo.secondary.weight(.medium)).foregroundStyle(Theme.text)
+                        }
                         Spacer(minLength: Space.s)
                         (m.note.map { Text(verbatim: $0) } ?? (m.user == nil ? (m.agent ? Text("every agent here") : Text("everyone here")) : (m.agent ? Text("agent") : Text("person")))).font(Typo.micro).foregroundStyle(Theme.faint).lineLimit(1)
                     }
@@ -970,6 +980,7 @@ extension EntryRow: Equatable {
             && a.receipt == b.receipt && (a.openReceipt == nil) == (b.openReceipt == nil) && a.actions.shape == b.actions.shape
             && a.decision == b.decision && a.decisionActions.shape == b.decisionActions.shape && a.agentName == b.agentName
             && a.quick == b.quick && a.agentNames == b.agentNames && a.replyChips == b.replyChips && a.refTitle == b.refTitle
+            && a.names == b.names
     }
 }
 
@@ -1000,6 +1011,7 @@ struct EntryRow: View {
     var agentName: String? = nil // what its owner named this agent ("Jarvis"), if they did
     var quick: [String] = defaultReactions // your favourite reactions, the row on top of the long-press menu (#1163)
     var agentNames: [String: String] = [:] // named agents here, lowercased name → owner ("@Jarvis" in a message)
+    var names: [String: String] = [:] // handle → display name (jxn #4369)
     var replyChips: QuickChips? = nil // an agent's open question to you: one-tap replies (QuickReplies.swift)
     /// What the "#123"s in it (and in what it answers) are called: only its own (RefTitles.only), not the chat's whole
     /// map from the environment, which changes with every message and made every row again (jxn #4181).
@@ -1014,17 +1026,24 @@ struct EntryRow: View {
     }
 
     /// Like the web's author line (jxn #2589): a named agent reads "Jarvis · vedu's agent"; a named session
-    /// "vedu/scout"; any other agent post "vedu's agent"; people their name.
+    /// "vedu/scout"; any other agent post "vedu's agent". A person is the name they chose (jxn #4369), else their handle.
     private var who: String {
-        guard e.byAgent else { return e.author }
+        guard e.byAgent else { return PersonName.shown(e.author, names[e.author]) }
         if let n = agentName ?? e.agentName, !n.isEmpty { return agentLabel(e.author, n) }
         if let s = e.sessionName { return "\(e.author)/\(s)" }
         return agentLabel(e.author, nil)
     }
-    /// What VoiceOver says for the sender: "vedu's agent, scout" for a session.
+    /// What VoiceOver says for the sender: "vedu's agent, scout" for a session; "Vedu Mallela, @vedu" for a person.
     private var whoSpoken: String {
-        guard e.byAgent, let s = e.sessionName else { return who }
-        return "\(agentLabel(e.author, agentName ?? e.agentName)), \(s)"
+        if e.byAgent, let s = e.sessionName { return "\(agentLabel(e.author, agentName ?? e.agentName)), \(s)" }
+        if e.byAgent { return who }
+        return PersonName.spoken(e.author, names: names)
+    }
+    /// A faint @handle beside the name when it could be read as someone else (the web's .pn-h).
+    private var beside: String? {
+        guard !e.byAgent, let d = PersonName.clean(names[e.author]), d != e.author,
+              PersonName.looksLikeOther(e.author, d, known: members) else { return nil }
+        return "@\(e.author)"
     }
     /// Someone else's message that @mentions you by name (the person, not your agent, a session or a group): tinted,
     /// like the web's (jxn #4120).
@@ -1129,7 +1148,16 @@ struct EntryRow: View {
     /// Tap: the thread, on this reply (in a thread: scrolls to what it answers). Numbers read as titles (#675).
     @ViewBuilder private var quote: some View {
         if e.replyTo != nil {
-            let name = parent.map { $0.byAgent ? Vocab.agentOf($0.author) : ($0.author == me && $0.via != "agent" ? String(localized: "You", bundle: .l10n) : $0.author) }
+            let name = parent.map { p -> String in
+                if p.byAgent { return Vocab.agentOf(p.author) }
+                if p.author == me && p.via != "agent" { return String(localized: "You", bundle: .l10n) }
+                return PersonName.shown(p.author, names[p.author])
+            }
+            let nameHint: String? = parent.flatMap { p in
+                guard !p.byAgent, p.author != me || p.via == "agent" else { return nil }
+                let shown = PersonName.shown(p.author, names[p.author])
+                return shown == p.author ? nil : "@\(p.author)"
+            }
             let line = parent.map { ThreadPreview.line($0).plainRefs(refTitle.callAsFunction) } ?? ""
             Button { actions.jumpToParent?() } label: {
                 HStack(spacing: 0) {
@@ -1149,7 +1177,7 @@ struct EntryRow: View {
             .disabled(actions.jumpToParent == nil)
             .padding(.vertical, 1)
             .accessibilityElement(children: .ignore)
-            .accessibilityLabel(name.map { String(localized: "Reply to \($0): \(line)", bundle: .l10n) } ?? String(localized: "Reply to an earlier message", bundle: .l10n))
+            .accessibilityLabel(name.map { String(localized: "Reply to \($0)\(nameHint.map { " (\($0))" } ?? ""): \(line)", bundle: .l10n) } ?? String(localized: "Reply to an earlier message", bundle: .l10n))
             .accessibilityAddTraits(.isButton)
             .accessibilityIdentifier("reply-quote")
             .accessibilityHint("Opens the thread")
@@ -1164,8 +1192,10 @@ struct EntryRow: View {
                 .accessibilityIdentifier("own-badge")
         } else if e.audience == "people" {
             let others = (e.toPeople ?? []).filter { $0 != me }
-            Text(verbatim: "🔒 " + String(localized: "People only", bundle: .l10n) + (others.isEmpty ? "" : " · " + others.joined(separator: ", ")))
+            let shown = others.map { PersonName.shown($0, names[$0]) }
+            Text(verbatim: "🔒 " + String(localized: "People only", bundle: .l10n) + (shown.isEmpty ? "" : " · " + shown.joined(separator: ", ")))
                 .font(Typo.micro.weight(.medium)).foregroundStyle(Theme.warn).lineLimit(1)
+                .accessibilityValue(others.map { "@\($0)" }.joined(separator: ", "))
                 .accessibilityIdentifier("people-badge")
         }
     }
@@ -1214,12 +1244,12 @@ struct EntryRow: View {
         if !unsent {
             if !chips.isEmpty || !receipts.isEmpty {
                 VStack(alignment: mine ? .trailing : .leading, spacing: Space.xs) {
-                    if !chips.isEmpty { ReactionChips(reactions: chips, me: me, trailing: mine, toggle: actions.react, more: actions.moreReactions) }
-                    if !receipts.isEmpty { ReactionLine(reactions: receipts, trailing: mine) }
+                    if !chips.isEmpty { ReactionChips(reactions: chips, me: me, trailing: mine, names: names, toggle: actions.react, more: actions.moreReactions) }
+                    if !receipts.isEmpty { ReactionLine(reactions: receipts, trailing: mine, names: names) }
                 }
             }
             if !replies.isEmpty, let open = actions.openThread { ThreadPreview(seq: e.seq, replies: replies, unread: threadUnread, open: open).padding(.top, Space.xs) }
-            if let h = handling { HandlingLine(h: h, me: me) }
+            if let h = handling { HandlingLine(h: h, me: me, names: names) }
             else if let take = actions.takeOn { OnItButton(seq: e.seq, take: take).padding(.top, Space.xxs) }
         }
     }
@@ -1242,7 +1272,7 @@ struct EntryRow: View {
                     .background(Theme.raised, in: RoundedRectangle(cornerRadius: Radius.bubble, style: .continuous))
                     .onTapGesture { actions.toggleReceipt?() }
             }
-            if let decision, !unsent { HumanDecisionCard(hd: decision, me: me, trailing: true, actions: decisionActions) }
+            if let decision, !unsent { HumanDecisionCard(hd: decision, me: me, trailing: true, actions: decisionActions, names: names) }
             footer
             if e.pending == true {
                 Text("Sending…").font(Typo.ui(.caption2)).foregroundStyle(Theme.faint)
@@ -1279,18 +1309,26 @@ struct EntryRow: View {
                     .contentShape(Rectangle())
                     .onTapGesture { actions.openProfile?(e.author, e.byAgent) }
                     .accessibilityAddTraits(.isButton)
-                    .accessibilityLabel(who)
-                    .accessibilityIdentifier("avatar-\(who)")
+                    .accessibilityLabel(whoSpoken)
+                    .accessibilityIdentifier(e.byAgent ? "avatar-\(who)" : "avatar-\(e.author)")
             }
             VStack(alignment: .leading, spacing: Space.xxs) {
                 if !grouped {
                     HStack(alignment: .firstTextBaseline, spacing: 6) {
-                        Text(who).font(Typo.secondary.weight(.semibold)).foregroundStyle(Theme.text).lineLimit(1)
+                        HStack(alignment: .firstTextBaseline, spacing: 4) {
+                            Text(who).font(Typo.secondary.weight(.semibold)).foregroundStyle(Theme.text).lineLimit(1)
+                            if let beside { Text(verbatim: beside).font(Typo.micro).foregroundStyle(Theme.faint).lineLimit(1) }
+                        }
                             .onTapGesture { actions.openProfile?(e.author, e.byAgent) }
+                            .accessibilityElement(children: .combine)
                             .accessibilityLabel(whoSpoken)
-                            .accessibilityIdentifier("sender-\(who)")
+                            .accessibilityIdentifier(e.byAgent ? "sender-\(who)" : "sender-\(e.author)")
                         if let k = kind { Text(k).font(Typo.micro.weight(.medium)).foregroundStyle(e.type == "question" ? Theme.warn : Theme.faint) }
-                        if let to = e.to { Text("to \(to)").font(Typo.micro).foregroundStyle(Theme.faint).lineLimit(1) }
+                        if let to = e.to {
+                            let shown = PersonName.label(to, names: names)
+                            Text("to \(shown)").font(Typo.micro).foregroundStyle(Theme.faint).lineLimit(1)
+                                .accessibilityLabel(shown == to ? "to \(to)" : "to \(shown), @\(to)")
+                        }
                         Spacer(minLength: Space.xs)
                         Text(e.ts.ago).font(Typo.micro).foregroundStyle(Theme.faint).monospacedDigit()
                     }
@@ -1298,10 +1336,10 @@ struct EntryRow: View {
                 attachment.padding(.vertical, Space.xxs)
                 quote
                 audienceNote
-                if unsent { unsentBody } else if e.type == "change" { Group { if Vocab.everyday { ResultCard(e: e) } else { ChangeCardView(e: e, board: board) } }.padding(.top, Space.xxs) } else if e.type == "task" { TaskCard(seq: e.seq, board: board, text: e.text, tasks: tasks).padding(.top, Space.xxs) } else if let caption {
+                if unsent { unsentBody } else if e.type == "change" { Group { if Vocab.everyday { ResultCard(e: e) } else { ChangeCardView(e: e, board: board) } }.padding(.top, Space.xxs) } else if e.type == "task" { TaskCard(seq: e.seq, board: board, text: e.text, tasks: tasks, names: names).padding(.top, Space.xxs) } else if let caption {
                     MessageBody(text: caption, render: words)
                 }
-                if let decision, !unsent { HumanDecisionCard(hd: decision, me: me, actions: decisionActions).padding(.top, Space.xs) }
+                if let decision, !unsent { HumanDecisionCard(hd: decision, me: me, actions: decisionActions, names: names).padding(.top, Space.xs) }
                 if let replyChips, !unsent { QuickReplyRow(chips: replyChips, pick: pickChip).padding(.top, Space.xs) }
                 footer
             }
@@ -1460,6 +1498,7 @@ struct TaskCard: View {
     let board: String
     let text: String
     let tasks: [WorkTask]
+    var names: [String: String] = [:]
     @State private var open = false
 
     var body: some View {
@@ -1479,7 +1518,7 @@ struct TaskCard: View {
                     VStack(alignment: .leading, spacing: Space.xxs) {
                         Text((t?.title ?? String(text.split(separator: "\n").first ?? Substring(text))).md)
                             .font(Typo.secondary.weight(.semibold)).foregroundStyle(t?.status == "done" ? Theme.muted : Theme.text).lineLimit(2)
-                        (t.map { Text(verbatim: $0.caption) } ?? Text("Task")).font(Typo.micro).foregroundStyle(Theme.faint).lineLimit(1)
+                        (t.map { Text(verbatim: $0.caption(names: names)) } ?? Text("Task")).font(Typo.micro).foregroundStyle(Theme.faint).lineLimit(1)
                     }
                     Spacer(minLength: 0)
                 }
@@ -1487,7 +1526,7 @@ struct TaskCard: View {
                     VStack(alignment: .leading, spacing: 6) {
                         ForEach(Array(items.prefix(6).enumerated()), id: \.offset) { _, it in CheckLine(text: it.text, done: it.done, compact: true) }
                         if items.count > 6 { Text("+\(items.count - 6) more").font(Typo.micro).foregroundStyle(Theme.faint) }
-                        ForEach(subs.prefix(6)) { s in SubTaskLine(task: s) }
+                        ForEach(subs.prefix(6)) { s in SubTaskLine(task: s, names: names) }
                     }
                     .padding(.leading, 26)
                 }
@@ -1499,7 +1538,7 @@ struct TaskCard: View {
         }
         .buttonStyle(PressStyle())
         .accessibilityIdentifier("task-card-\(seq)")
-        .accessibilityValue(t?.caption ?? "")
+        .accessibilityValue(t?.caption(names: names) ?? "")
         .sheet(isPresented: $open) {
             NavigationStack {
                 TaskDetail(seq: seq, board: board)
@@ -1559,6 +1598,7 @@ func stateLine(_ state: String?, _ lastSeen: Double) -> String {
 struct ReactionLine: View {
     let reactions: [Reaction]
     let trailing: Bool
+    var names: [String: String] = [:]
     var body: some View {
         HStack(spacing: 8) {
             ForEach(reactions, id: \.emoji) { r in
@@ -1568,16 +1608,22 @@ struct ReactionLine: View {
                     Text(receipt ? names(r.users) : "\(r.users.count)").font(Typo.ui(.caption2)).foregroundStyle(r.emoji == "✅" ? Theme.ok : Theme.faint).lineLimit(1)
                 }
                 .accessibilityElement(children: .combine)
-                .accessibilityLabel(receipt ? (r.emoji == "✅" ? String(localized: "Done: \(names(r.users))", bundle: .l10n) : String(localized: "Seen, working: \(names(r.users))", bundle: .l10n)) : "\(r.emoji) \(r.users.count)")
+                .accessibilityLabel(receipt ? (r.emoji == "✅" ? String(localized: "Done: \(heard(r.users))", bundle: .l10n) : String(localized: "Seen, working: \(heard(r.users))", bundle: .l10n)) : "\(r.emoji) \(r.users.count)")
             }
         }
         .frame(maxWidth: .infinity, alignment: trailing ? .trailing : .leading)
         .padding(.top, 2)
         .transition(.opacity)
     }
-    private func names(_ users: [String]) -> String {
+    private func names(_ users: [String]) -> String { joined(users, speak: false) }
+    /// VoiceOver: a person's display name and @handle. The row itself shows the name.
+    private func heard(_ users: [String]) -> String { joined(users, speak: true) }
+    private func joined(_ users: [String], speak: Bool) -> String {
         // Everyday: "Theo's assistant" for the server's "theo's agent" (display only).
-        let shown = users.map(Vocab.shown)
+        let shown = users.map { u -> String in
+            if EntryRow.isAgent(u) { return Vocab.shown(u) }
+            return speak ? PersonName.spoken(u, names: names) : PersonName.shown(u, names[u])
+        }
         return shown.count <= 2 ? shown.joined(separator: ", ") : String(localized: "\(shown[0]) and \(shown.count - 1) more", bundle: .l10n)
     }
 }

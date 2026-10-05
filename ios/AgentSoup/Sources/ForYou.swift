@@ -82,7 +82,7 @@ struct ForYouView: View {
 
     private var greeting: some View {
         let h = Calendar.current.component(.hour, from: Date())
-        let raw = state.profile?.displayName?.trimmingCharacters(in: .whitespaces).nonEmpty ?? state.me?.owner ?? ""
+        let raw = PersonName.clean(state.profile?.displayName) ?? state.me?.owner ?? ""
         let name = raw.split(separator: " ").first.map { String($0).capitalizedFirst } ?? ""
         let did = done.count
         let line = needCount == 0
@@ -133,8 +133,9 @@ struct ForYouView: View {
     /// A decision to make, or someone asking you: answer it here (Agree / Not this) or Reply in its chat.
     private func askRow(_ i: InboxItem) -> some View {
         let decision = i.kind == "decision"
-        let who = i.actorVia == "agent" ? Vocab.agentOf(i.actor) : i.actor.capitalizedFirst
-        return NeedRow(edge: decision ? Color.purple : Color.blue, title: i.excerpt, sub: "\(who) · \(i.boardTitle ?? String(localized: "a chat", bundle: .l10n))") {
+        let who = i.actorVia == "agent" ? Vocab.agentOf(i.actor) : PersonName.shown(i.actor, state.personNames[i.actor])
+        let where_ = i.boardTitle.map { PersonName.boardTitle($0, names: state.personNames) } ?? String(localized: "a chat", bundle: .l10n)
+        return NeedRow(edge: decision ? Color.purple : Color.blue, title: i.excerpt, sub: "\(who) · \(where_)") {
             if decision {
                 small("Agree", id: "decide-agree") { Task { await vote(i, agree: true) } }
                 small("Not this", id: "decide-object") { Task { await vote(i, agree: false) } }
@@ -143,6 +144,7 @@ struct ForYouView: View {
             }
         }
         .accessibilityIdentifier(decision ? "need-decision" : "need-ask")
+        .accessibilityValue(i.actorVia == "agent" ? "" : PersonName.spoken(i.actor, names: state.personNames))
     }
 
     private func contactRow(_ c: ContactsResponse.Incoming) -> some View {
@@ -164,7 +166,7 @@ struct ForYouView: View {
         .accessibilityIdentifier(id)
     }
 
-    private func title(of board: String?) -> String? { board.flatMap { id in state.boards.first { $0.id == id }?.displayName(me: state.me?.owner) } }
+    private func title(of board: String?) -> String? { board.flatMap { id in state.boards.first { $0.id == id }?.shownTitle(me: state.me?.owner, names: state.personNames) } }
 
     private func reply(_ i: InboxItem) {
         guard let b = state.boards.first(where: { $0.id == i.boardId }) else { return }
@@ -209,7 +211,7 @@ struct ForYouView: View {
                                     .frame(width: 22, height: 22).background(Theme.ok, in: Circle()).onFirstLine(7)
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text(d.title).font(Typo.body).foregroundStyle(Theme.text).lineLimit(2).multilineTextAlignment(.leading)
-                                    Text("\(d.board.displayName(me: state.me?.owner)) · \(Date(timeIntervalSince1970: d.at / 1000).formatted(date: .omitted, time: .shortened))")
+                                    Text("\(d.board.shownTitle(me: state.me?.owner, names: state.personNames)) · \(Date(timeIntervalSince1970: d.at / 1000).formatted(date: .omitted, time: .shortened))")
                                         .font(Typo.meta).foregroundStyle(Theme.faint)
                                 }
                                 Spacer(minLength: 0)

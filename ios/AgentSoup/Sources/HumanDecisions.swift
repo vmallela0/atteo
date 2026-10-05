@@ -113,6 +113,7 @@ struct HumanDecisionCard: View {
     let me: String?
     var trailing = false
     var actions = DecisionActions()
+    var names: [String: String] = [:] // handle → display name
 
     private var tint: Color { hd.state == "decided" ? Theme.ok : hd.state == "dropped" ? Theme.faint : Theme.warn }
 
@@ -134,12 +135,17 @@ struct HumanDecisionCard: View {
                 }
             }
             ForEach(hd.votes.filter { $0.vote == "object" && !($0.note ?? "").isEmpty }, id: \.user) { v in
-                ((v.user == me ? Text("You") : Text(verbatim: v.user)).fontWeight(.semibold) + Text(String(localized: " object: \(v.note ?? "")", bundle: .l10n)))
+                let who = v.user == me ? String(localized: "You", bundle: .l10n) : PersonName.shown(v.user, names[v.user])
+                ((v.user == me ? Text("You") : Text(verbatim: who)).fontWeight(.semibold) + Text(String(localized: " object: \(v.note ?? "")", bundle: .l10n)))
                     .font(Typo.micro).foregroundStyle(Theme.muted).lineLimit(3)
+                    .accessibilityLabel(v.user == me || who == v.user ? "\(who) object: \(v.note ?? "")" : "\(PersonName.spoken(v.user, names: names)) object: \(v.note ?? "")")
             }
             if let n = hd.note, !n.isEmpty {
-                (((hd.closedBy ?? hd.author ?? "") == me ? Text("You") : Text(verbatim: hd.closedBy ?? hd.author ?? "")).fontWeight(.semibold) + Text(verbatim: ": " + n))
+                let closer = hd.closedBy ?? hd.author ?? ""
+                let who = closer == me ? String(localized: "You", bundle: .l10n) : PersonName.shown(closer, names[closer])
+                ((closer == me ? Text("You") : Text(verbatim: who)).fontWeight(.semibold) + Text(verbatim: ": " + n))
                     .font(Typo.micro).foregroundStyle(Theme.muted).lineLimit(3)
+                    .accessibilityLabel(closer == me || who == closer || closer.isEmpty ? "\(who): \(n)" : "\(PersonName.spoken(closer, names: names)): \(n)")
             }
             if actions.agree != nil || actions.object != nil || actions.close != nil {
                 HStack(spacing: Space.s) {
@@ -181,7 +187,7 @@ struct HumanDecisionCard: View {
                 }
             }
             .accessibilityElement()
-            .accessibilityLabel(u == me ? String(localized: "You", bundle: .l10n) : u)
+            .accessibilityLabel(u == me ? String(localized: "You", bundle: .l10n) : PersonName.spoken(u, names: names))
             .accessibilityValue(v.map { $0.vote == "agree" ? String(localized: "agreed", bundle: .l10n) : String(localized: "objected", bundle: .l10n) } ?? String(localized: "hasn't voted", bundle: .l10n))
             .accessibilityIdentifier("voter-\(u)")
     }

@@ -12,8 +12,15 @@ struct ReactionChips: View {
     let reactions: [Reaction]
     let me: String?
     let trailing: Bool
+    var names: [String: String] = [:]
     var toggle: ((String) -> Void)? = nil
     var more: (() -> Void)? = nil
+
+    private func who(_ u: String) -> String {
+        if u == me { return String(localized: "you", bundle: .l10n) }
+        if EntryRow.isAgent(u) { return Vocab.shown(u) }
+        return PersonName.spoken(u, names: names)
+    }
 
     var body: some View {
         HStack(spacing: 6) {
@@ -33,12 +40,12 @@ struct ReactionChips: View {
                 .buttonStyle(PressStyle())
                 .contextMenu {
                     Section("\(r.emoji) \(r.users.count) reactions") {
-                        ForEach(r.users, id: \.self) { u in u == me ? Text("You") : Text(verbatim: u) }
+                        ForEach(r.users, id: \.self) { u in u == me ? Text("You") : Text(verbatim: who(u)) }
                     }
                 }
                 .accessibilityLabel("\(r.emoji) \(r.users.count)")
                 .accessibilityValue(yours ? "yours" : "")
-                .accessibilityHint(r.users.map { $0 == me ? String(localized: "you", bundle: .l10n) : $0 }.joined(separator: ", "))
+                .accessibilityHint(r.users.map(who).joined(separator: ", "))
                 .accessibilityIdentifier("reaction-\(r.emoji)")
                 .transition(.scale(scale: 0.6).combined(with: .opacity))
             }
@@ -71,14 +78,17 @@ extension Character {
 struct HandlingLine: View {
     let h: Handling
     let me: String?
+    var names: [String: String] = [:]
+    private var who: String { PersonName.label(h.by, names: names) }
     var body: some View {
         let you = h.by == me
-        let title: LocalizedStringKey = h.done == true ? (you ? "Done by you" : "Done by \(h.by)") : (you ? "You're on it" : "\(h.by) is on it")
+        let title: LocalizedStringKey = h.done == true ? (you ? "Done by you" : "Done by \(who)") : (you ? "You're on it" : "\(who) is on it")
         Label(title,
               systemImage: h.done == true ? "checkmark.circle.fill" : "hand.raised.fill")
             .font(Typo.micro.weight(.medium)).foregroundStyle(h.done == true ? Theme.ok : Theme.muted)
             .padding(.top, Space.xxs)
             .accessibilityIdentifier("handling")
+            .accessibilityValue(you || who == h.by ? "" : "@\(h.by)")
     }
 }
 
@@ -249,7 +259,7 @@ struct BoardInfoSheet: View {
                 Image(systemName: icon).font(.system(size: 15)).foregroundStyle(tint).frame(width: 22).onFirstLine()
                 VStack(alignment: .leading, spacing: 1) {
                     Text(ChatSummary.short(e)).font(Typo.secondary.weight(.medium)).foregroundStyle(Theme.text).lineLimit(1)
-                    Text((e.byAgent ? Vocab.agentOf(e.author) : e.author) + (e.to.map { " → \($0)" } ?? "") + " · " + e.ts.ago)
+                    Text((e.byAgent ? Vocab.agentOf(e.author) : PersonName.shown(e.author, state.personNames[e.author])) + (e.to.map { " → \(PersonName.label($0, names: state.personNames))" } ?? "") + " · " + e.ts.ago)
                         .font(Typo.micro).foregroundStyle(Theme.faint).lineLimit(1)
                 }
                 Spacer(minLength: 0)
@@ -268,7 +278,7 @@ struct BoardInfoSheet: View {
             }
             VStack(alignment: .leading, spacing: 1) {
                 Text(f.name).font(Typo.secondary.weight(.medium)).foregroundStyle(Theme.text).lineLimit(1).truncationMode(.middle)
-                Text([f.size.bytes, f.version > 1 ? "v\(f.version)" : nil, f.via == "agent" ? Vocab.agentOf(f.updatedBy) : f.updatedBy, f.updatedAt.ago].compactMap { $0 }.joined(separator: " · "))
+                Text([f.size.bytes, f.version > 1 ? "v\(f.version)" : nil, f.via == "agent" ? Vocab.agentOf(f.updatedBy) : PersonName.shown(f.updatedBy, state.personNames[f.updatedBy]), f.updatedAt.ago].compactMap { $0 }.joined(separator: " · "))
                     .font(Typo.micro).foregroundStyle(Theme.faint).lineLimit(1)
             }
             Spacer(minLength: 0)
@@ -300,7 +310,7 @@ struct BoardInfoSheet: View {
             }
             if !hits.entries.isEmpty {
                 Section {
-                    ForEach(hits.entries) { h in SearchHitRow(hit: h) { jump(h.seq) } }
+                    ForEach(hits.entries) { h in SearchHitRow(hit: h, names: state.personNames) { jump(h.seq) } }
                 } header: { SectionHeader(board.encrypted == true ? "On this phone" : "Messages") }
             }
             if let fs = hits.files, !fs.isEmpty {
@@ -359,14 +369,17 @@ struct BoardInfoSheet: View {
 struct SearchHitRow: View {
     let hit: ChatSearchResponse.Hit
     var board: String? = nil // across boards: which one
+    var names: [String: String] = [:]
     let open: () -> Void
+    private var who: String { hit.via == "agent" ? Vocab.agentOf(hit.author) : PersonName.shown(hit.author, names[hit.author]) }
     var body: some View {
         Button(action: open) {
             HStack(alignment: .top, spacing: Space.m) {
                 Avatar(name: hit.author, agent: hit.via == "agent", size: 28)
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(spacing: Space.xs) {
-                        Text(hit.via == "agent" ? Vocab.agentOf(hit.author) : hit.author).font(Typo.meta.weight(.semibold)).foregroundStyle(Theme.text).lineLimit(1)
+                        Text(who).font(Typo.meta.weight(.semibold)).foregroundStyle(Theme.text).lineLimit(1)
+                            .accessibilityLabel(hit.via == "agent" ? who : PersonName.spoken(hit.author, names: names))
                         if let board { Text("in \(board)").font(Typo.micro).foregroundStyle(Theme.faint).lineLimit(1) }
                         Spacer(minLength: Space.s)
                         if hit.ts > 0 { Text(hit.ts.ago).font(Typo.micro).foregroundStyle(Theme.faint) }
@@ -408,8 +421,9 @@ struct Reader: Hashable, Identifiable {
     let agent: Bool
     let mine: Bool // your own agent
     let seen: Bool
+    var display: String? = nil
     var id: String { "\(user)/\(agent)" }
-    var label: String { mine ? Vocab.yourAgent.lowercased() : agent ? Vocab.agentOf(user) : user }
+    var label: String { mine ? Vocab.yourAgent.lowercased() : agent ? Vocab.agentOf(user) : PersonName.shown(user, display) }
 }
 
 /// The line under your message: what it says, how far it got (0 delivered, 1 seen by some, 2 by everyone), and who.
@@ -449,7 +463,8 @@ struct SeenBySheet: View {
                             ForEach(group) { r in
                                 HStack(spacing: Space.m) {
                                     Avatar(name: r.user, agent: r.agent, size: 30)
-                                    Text(r.mine ? Vocab.yourAgent : r.agent ? Vocab.agentOf(r.user) : r.user).font(Typo.rowTitleRead).foregroundStyle(Theme.text).lineLimit(1)
+                                    Text(r.mine ? Vocab.yourAgent : r.agent ? Vocab.agentOf(r.user) : r.label).font(Typo.rowTitleRead).foregroundStyle(Theme.text).lineLimit(1)
+                                        .accessibilityValue(!r.agent && !r.mine && r.label != r.user ? "@\(r.user)" : "")
                                     Spacer(minLength: Space.s)
                                     if r.seen {
                                         Label("Seen", systemImage: "checkmark").font(Typo.micro.weight(.semibold)).foregroundStyle(Theme.ok)
@@ -500,7 +515,10 @@ struct GroupSheet: View {
             .navigationBarTitleDisplayMode(.inline)
             .task {
                 if agents || all { await state.loadAgents(board) }
-                if !agents || all { members = await state.boardMembers(board.id) }
+                if !agents || all {
+                    members = await state.boardMembers(board.id)
+                    if let mm = members { state.noteNames(mm.members.map { ($0.user, $0.displayName) }) }
+                }
             }
         }
     }
@@ -526,15 +544,17 @@ struct GroupSheet: View {
         Section {
             if members == nil { ProgressView().frame(maxWidth: .infinity) }
             ForEach(members?.members ?? []) { m in
+                let shown = PersonName.shown(m.user, m.displayName)
                 NavigationLink { PersonCard(name: m.user, open: { b in state.openRequest = b }) } label: {
                     HStack(spacing: Space.m) {
                         Avatar(name: m.user, size: 30)
                         VStack(alignment: .leading, spacing: 1) {
-                            Text(verbatim: m.user == state.me?.owner ? String(localized: "\(m.displayName ?? m.user) (you)", bundle: .l10n) : m.displayName ?? m.user).font(Typo.rowTitleRead).foregroundStyle(Theme.text).lineLimit(1)
+                            Text(verbatim: m.user == state.me?.owner ? String(localized: "\(shown) (you)", bundle: .l10n) : shown).font(Typo.rowTitleRead).foregroundStyle(Theme.text).lineLimit(1)
                             Text(verbatim: m.lastSeen.map { Date().timeIntervalSince1970 - $0 / 1000 < 60 ? String(localized: "here just now", bundle: .l10n) : String(localized: "here \($0.ago) ago", bundle: .l10n) } ?? "@\(m.user)").font(Typo.micro).foregroundStyle(Theme.faint)
                         }
                     }
                 }
+                .accessibilityValue(shown == m.user ? "" : "@\(m.user)")
                 .accessibilityIdentifier("group-person-\(m.user)")
             }
         } header: { if all { SectionHeader("People") } }

@@ -40,6 +40,8 @@ struct BoardInfoView<Top: View, Files: View>: View {
     /// The board as it is now (a rename shows at once), else what we were handed.
     private var board: Board { state.boards.first { $0.id == boardId } ?? fallback }
     private var direct: Bool { board.kind == "direct" }
+    /// A DM is the other person by the name they chose; a board keeps its title.
+    private var shownTitle: String { board.shownTitle(me: state.me?.owner, names: state.personNames) }
     /// "Your agent": only you and your agents, so nobody to invite and no members to list.
     private var agentChat: Bool { board.isAgentChat }
     private var owner: Bool { members?.you == "owner" || board.createdBy == state.me?.owner }
@@ -68,11 +70,12 @@ struct BoardInfoView<Top: View, Files: View>: View {
                             }
                         }
                         .accessibilityElement()
-                        .accessibilityLabel(direct ? "\(board.displayName(me: state.me?.owner))'s picture" : "Board picture")
+                        .accessibilityLabel(direct ? "\(PersonName.spoken(board.displayName(me: state.me?.owner), names: state.personNames))'s picture" : "Board picture")
                         .accessibilityValue(pictures.look(of: board))
                         .accessibilityIdentifier("board-picture")
                         .padding(.bottom, Space.xs)
-                    Text(board.displayName(me: state.me?.owner)).font(Typo.ui(.title3).weight(.semibold)).foregroundStyle(Theme.text).lineLimit(2)
+                    Text(shownTitle).font(Typo.ui(.title3).weight(.semibold)).foregroundStyle(Theme.text).lineLimit(2)
+                        .accessibilityLabel(direct ? PersonName.spoken(board.displayName(me: state.me?.owner), names: state.personNames) : shownTitle)
                         .multilineTextAlignment(.center)
                         .accessibilityIdentifier("board-info-title")
                     HStack(spacing: Space.xs) {
@@ -149,12 +152,13 @@ struct BoardInfoView<Top: View, Files: View>: View {
             Section {
                 ForEach(members?.members ?? []) { m in
                     // Tap: their card (picture, bio, Message / Add friend, and their agent).
+                    let shown = PersonName.shown(m.user, m.displayName)
                     NavigationLink { PersonCard(name: m.user, open: { b in state.openRequest = b }) } label: {
                     HStack(spacing: Space.m) {
                         Avatar(name: m.user, size: 32)
                         VStack(alignment: .leading, spacing: Space.xxs) {
-                            Text(verbatim: m.user == state.me?.owner ? String(localized: "\(m.displayName ?? m.user) (you)", bundle: .l10n) : m.displayName ?? m.user).font(Typo.rowTitleRead).foregroundStyle(Theme.text).lineLimit(1)
-                            if m.displayName != nil { Text("@\(m.user)").font(Typo.micro).foregroundStyle(Theme.faint) }
+                            Text(verbatim: m.user == state.me?.owner ? String(localized: "\(shown) (you)", bundle: .l10n) : shown).font(Typo.rowTitleRead).foregroundStyle(Theme.text).lineLimit(1)
+                            if shown != m.user { Text("@\(m.user)").font(Typo.micro).foregroundStyle(Theme.faint) }
                         }
                         Spacer()
                         Text(m.role == "owner" ? "Owner" : m.role == "viewer" ? "Can view" : "Can post").font(Typo.micro).foregroundStyle(Theme.faint)
@@ -231,6 +235,8 @@ struct BoardInfoView<Top: View, Files: View>: View {
             async let m = state.boardMembers(boardId)
             async let f = state.friends()
             let (mm, ff) = await (m, f)
+            if let mm { state.noteNames(mm.members.map { ($0.user, $0.displayName) }) }
+            state.noteNames(ff.map { ($0.name, $0.displayName) })
             withAnimation(.smooth) { members = mm; friends = ff }
         }
         .refreshable { members = await state.boardMembers(boardId) }

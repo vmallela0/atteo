@@ -177,7 +177,7 @@ struct SoulMemorySections: View {
                             .lineLimit(expanded ? nil : 5)
                             .onTapGesture { withAnimation(.snappy) { expanded.toggle() } }
                             .accessibilityIdentifier("soul-text")
-                        Text(verbatim: ["v\(soul.version)", soul.updatedBy.map { String(localized: "edited by \($0)", bundle: .l10n) }, soul.updatedAt.map(\.agoPhrase)].compactMap { $0 }.joined(separator: " · "))
+                        Text(verbatim: ["v\(soul.version)", soul.updatedBy.map { String(localized: "edited by \(PersonName.label($0, names: state.personNames))", bundle: .l10n) }, soul.updatedAt.map(\.agoPhrase)].compactMap { $0 }.joined(separator: " · "))
                             .font(Typo.micro).foregroundStyle(Theme.faint)
                     }
                     if canEdit {
@@ -196,7 +196,7 @@ struct SoulMemorySections: View {
                         HStack(alignment: .firstTextBaseline, spacing: Space.s) {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(it.text).font(Typo.secondary).foregroundStyle(Theme.text)
-                                Text(verbatim: [it.who, it.from.map { "#\($0)" }, it.ts.agoPhrase].compactMap { $0 }.joined(separator: " · "))
+                                Text(verbatim: [it.via == "agent" ? it.who : PersonName.shown(it.by, state.personNames[it.by]), it.from.map { "#\($0)" }, it.ts.agoPhrase].compactMap { $0 }.joined(separator: " · "))
                                     .font(Typo.micro).foregroundStyle(Theme.faint)
                             }
                             Spacer(minLength: Space.s)

@@ -50,7 +50,7 @@ struct InviteAgentSheet: View {
                     }
                     .accessibilityIdentifier("invite-agent-friend")
                 } header: {
-                    Text(verbatim: board.displayName(me: state.me?.owner)).font(Typo.section).foregroundStyle(Theme.muted).textCase(nil).lineLimit(1)
+                    Text(verbatim: board.shownTitle(me: state.me?.owner, names: state.personNames)).font(Typo.section).foregroundStyle(Theme.muted).textCase(nil).lineLimit(1)
                 }
                 .listRowBackground(Theme.card)
             }

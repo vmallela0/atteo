@@ -322,7 +322,7 @@ struct ThreadsList: View {
             }
             VStack(alignment: .leading, spacing: 3) {
                 HStack(alignment: .firstTextBaseline) {
-                    (t.rootEntry.map { Text(verbatim: $0.byAgent ? Vocab.agentOf($0.author) : $0.author) } ?? Text("An earlier message"))
+                    (t.rootEntry.map { e in Text(verbatim: e.byAgent ? Vocab.agentOf(e.author) : PersonName.shown(e.author, state.personNames[e.author])) } ?? Text("An earlier message"))
                         .font(unread ? Typo.rowTitle : Typo.rowTitleRead).foregroundStyle(Theme.text).lineLimit(1)
                     Spacer(minLength: Space.s)
                     Text(t.last.ago).font(Typo.micro).foregroundStyle(unread ? Theme.accent : Theme.faint).monospacedDigit()
@@ -573,7 +573,7 @@ struct ThreadView: View {
         let e = items.first(where: { $0.seq == a }) ?? (state.entries[board.id] ?? []).first(where: { $0.seq == a })
         guard let e else { return nil }
         let who = e.author == me ? (e.byAgent ? String(localized: "your agent", bundle: .l10n) : String(localized: "yourself", bundle: .l10n))
-            : e.byAgent ? "\(e.author)'s agent" : e.author
+            : e.byAgent ? "\(e.author)'s agent" : PersonName.shown(e.author, state.personNames[e.author])
         let line = e.text.split(whereSeparator: \.isNewline).first.map { String($0.prefix(120)) } ?? ""
         return (who, line)
     }
@@ -624,7 +624,7 @@ struct ThreadView: View {
         let rx = state.reactions[board.id]?[e.seq] ?? (fetched?.entry.seq == e.seq ? fetched?.reactions : nil) ?? []
         let hd = e.type == "decision" && !unsent.contains(e.seq) ? state.decisions[board.id]?[e.seq] ?? e.humanDecision : nil
         return EntryRow(e: shown, mine: mine, board: board.id, tasks: shown.type == "task" ? state.tasks[board.id] ?? [] : [], reactions: rx, parent: parent,
-                        me: me, members: state.members[board.id] ?? [],
+                        me: me, members: state.members[board.id] ?? [], names: state.personNames,
                         reply: live ? { mention(e) } : nil,
                         unsent: unsent.contains(e.seq), handling: state.handling[board.id]?[e.seq], lit: flash == e.seq, actions: a,
                         decision: hd, decisionActions: DecisionActions.make(hd, seq: e.seq, board: board, state: state) { p in decisionNote = ""; decisionPrompt = p },

@@ -31,7 +31,7 @@ struct AskView: View {
     private var suggestions: [(icon: String, text: String)] {
         var out: [(String, String)] = [("checklist", String(localized: "What needs me today?", bundle: .l10n))]
         if let b = state.boards.first(where: { $0.archived != true && !$0.isAgentChat }) {
-            out.append(("bubble.left", String(localized: "What did I miss in \(b.displayName(me: state.me?.owner))?", bundle: .l10n)))
+            out.append(("bubble.left", String(localized: "What did I miss in \(b.shownTitle(me: state.me?.owner, names: state.personNames))?", bundle: .l10n)))
         }
         out.append(("calendar", String(localized: "Find a time to meet next week", bundle: .l10n)))
         out.append(("bell", String(localized: "Remind me about this tomorrow morning", bundle: .l10n)))

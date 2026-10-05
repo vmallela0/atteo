@@ -20,8 +20,10 @@ extension WorkTask {
     /// How far along its checklist is, in words: "2 of 4".
     var progress: String? { checklist.map { String(localized: "\($0.done) of \($0.total)", bundle: .l10n) } }
     /// One line under a task's title: where it stands (always first), who's on it, how far along.
-    var caption: String {
-        [statusLabel, who, progress].compactMap { $0 }.joined(separator: " · ")
+    var caption: String { caption(names: [:]) }
+    func caption(names: [String: String]) -> String {
+        let owner = who.map { PersonName.label($0, names: names) }
+        return [statusLabel, owner, progress].compactMap { $0 }.joined(separator: " · ")
     }
     /// Whether a checklist line is about this task ("#12 …" or its title).
     func covers(_ line: String) -> Bool {
@@ -74,12 +76,13 @@ struct CheckLine: View {
 /// A sub-task under its parent: its own ring, title and who's on it.
 struct SubTaskLine: View {
     let task: WorkTask
+    var names: [String: String] = [:]
     var body: some View {
         HStack(spacing: Space.s) {
             ProgressRing(task: task).frame(width: 12, height: 12)
             Text(task.title).font(Typo.meta).foregroundStyle(task.status == "done" ? Theme.faint : Theme.text).strikethrough(task.status == "done", color: Theme.faint).lineLimit(1)
             Spacer(minLength: 6)
-            if task.status != "done", let w = task.who { Text(w).font(Typo.micro).foregroundStyle(Theme.faint).lineLimit(1) }
+            if task.status != "done", let w = task.who { Text(PersonName.label(w, names: names)).font(Typo.micro).foregroundStyle(Theme.faint).lineLimit(1) }
         }
     }
 }
@@ -256,7 +259,7 @@ struct TasksPane: View {
         .listRowSeparatorTint(Theme.line)
         .alignmentGuide(.listRowSeparatorLeading) { _ in depth == 0 ? 28 : 54 }
         .accessibilityIdentifier("task-row-\(t.title)")
-        .accessibilityValue(t.caption)
+        .accessibilityValue(t.caption(names: state.personNames))
         .modifier(TaskSwipes(task: t, board: board))
         .contextMenu { TaskMenu(task: t, board: board, open: { open(t.seq) }) }
     }
@@ -456,11 +459,12 @@ struct OwnerAvatar: View {
     /// "theo's agent is on it", "theo", …
     private func ownerLabel(_ o: (name: String, agent: Bool)) -> String {
         let live = task.holder != nil && !task.isDone
+        let person = PersonName.shown(o.name, AppState.shared.personNames[o.name])
         switch (o.agent, live) {
         case (true, true): return String(localized: "\(o.name)'s agent is on it", bundle: .l10n)
         case (true, false): return String(localized: "\(o.name)'s agent", bundle: .l10n)
-        case (false, true): return String(localized: "\(o.name) is on it", bundle: .l10n)
-        case (false, false): return o.name
+        case (false, true): return String(localized: "\(person) is on it", bundle: .l10n)
+        case (false, false): return person
         }
     }
     var body: some View {
@@ -647,7 +651,7 @@ struct TaskDetail: View {
                     }
                     checklist(task)
                     if !subs.isEmpty { subTasks(subs) }
-                    Text([task.author.map { String(localized: "Added by \($0)", bundle: .l10n) }, Date().timeIntervalSince1970 - task.updatedAt / 1000 < 60 ? String(localized: "updated just now", bundle: .l10n) : String(localized: "updated \(task.updatedAt.ago) ago", bundle: .l10n)].compactMap { $0 }.joined(separator: " · ").capitalizedFirst)
+                    Text([task.author.map { String(localized: "Added by \(PersonName.label($0, names: state.personNames))", bundle: .l10n) }, Date().timeIntervalSince1970 - task.updatedAt / 1000 < 60 ? String(localized: "updated just now", bundle: .l10n) : String(localized: "updated \(task.updatedAt.ago) ago", bundle: .l10n)].compactMap { $0 }.joined(separator: " · ").capitalizedFirst)
                         .font(Typo.micro).foregroundStyle(Theme.faint)
                         .padding(.top, Space.xl)
                 }
@@ -806,9 +810,9 @@ struct TaskActionBar: View {
             HStack(spacing: 6) {
                 OwnerAvatar(task: task, size: 18)
                 if task.holder != nil, !task.isDone {
-                    (Text(verbatim: task.who ?? "") + Text(" is on it").foregroundStyle(Theme.muted)).font(Typo.meta.weight(.medium)).foregroundStyle(Theme.text).lineLimit(1)
+                    (Text(verbatim: task.who.map { PersonName.label($0, names: state.personNames) } ?? "") + Text(" is on it").foregroundStyle(Theme.muted)).font(Typo.meta.weight(.medium)).foregroundStyle(Theme.text).lineLimit(1)
                 } else {
-                    (task.who.map { Text(verbatim: $0) } ?? Text("Unassigned")).font(Typo.meta.weight(.medium)).foregroundStyle(task.who == nil ? Theme.faint : Theme.text).lineLimit(1)
+                    (task.who.map { Text(verbatim: PersonName.label($0, names: state.personNames)) } ?? Text("Unassigned")).font(Typo.meta.weight(.medium)).foregroundStyle(task.who == nil ? Theme.faint : Theme.text).lineLimit(1)
                 }
             }
             .padding(.leading, 6).padding(.trailing, 10).frame(height: 30)

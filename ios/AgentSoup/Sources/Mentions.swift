@@ -224,7 +224,7 @@ enum MentionTokens {
 /// agent (by its name too, when it has one), then each of their agent sessions ("@jxn/opus-b", jxn #2551); then your
 /// own agent and sessions; then everyone's agents, everyone, and everyone and their agents.
 enum MentionMenu {
-    static func options(people: [String], me: String?, named: [String: AppState.AgentName], sessions: [BoardAgent]) -> [Mentionable] {
+    static func options(people: [String], me: String?, named: [String: AppState.AgentName], sessions: [BoardAgent], names: [String: String] = [:]) -> [Mentionable] {
         func sessionsOf(_ u: String) -> [Mentionable] {
             sessions.filter { $0.user == u && !($0.name ?? "").isEmpty }
                 .sorted { ($0.name ?? "") < ($1.name ?? "") }
@@ -246,7 +246,8 @@ enum MentionMenu {
         var out: [Mentionable] = []
         var seen = Set<String>()
         for u in people.sorted() where u != me && seen.insert(u.lowercased()).inserted { // sorted, like the web
-            out.append(Mentionable(handle: u, user: u, agent: false))
+            let alias = PersonName.clean(names[u]).flatMap { $0 == u ? nil : $0 }
+            out.append(Mentionable(handle: u, user: u, agent: false, alias: alias))
             out += agentOptions(u)
         }
         if let me { out += agentOptions(me) }
@@ -265,7 +266,9 @@ enum MentionMenu {
             let h = m.handle.lowercased()
             guard h != q else { return false }
             if q.contains("/") { return h.hasPrefix(q) }
-            return h.hasPrefix(q) || (m.user?.lowercased().hasPrefix(q) ?? false)
+            // The start of a person's chosen name finds them too; the handle is still what gets inserted (jxn #4369).
+            let alias = (!m.agent ? m.alias?.lowercased() : nil) ?? ""
+            return h.hasPrefix(q) || (m.user?.lowercased().hasPrefix(q) ?? false) || (!alias.isEmpty && alias.hasPrefix(q))
         }
     }
 }

@@ -88,7 +88,7 @@ struct ChatComposer: View {
     /// Each member, their agent (by its name too: "@Jarvis", unless another agent here has the same name, #1125) and
     /// each of their agent sessions ("@jxn/opus-b", jxn #2551), in the web's order (MentionMenu).
     private var mentionables: [Mentionable] {
-        MentionMenu.options(people: people, me: me, named: state.agentNames[board.id] ?? [:], sessions: state.boardAgents[board.id] ?? [])
+        MentionMenu.options(people: people, me: me, named: state.agentNames[board.id] ?? [:], sessions: state.boardAgents[board.id] ?? [], names: state.personNames)
     }
     /// When the @ menu last fetched the board's agent sessions: while it's open, at most every 10 seconds (the web's
     /// pace), so a session that just started or was renamed can be named.

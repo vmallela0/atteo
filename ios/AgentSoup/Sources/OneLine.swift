@@ -53,6 +53,7 @@ enum MessageFold {
 struct FoldedRow: View {
     let e: Entry
     let who: String
+    var at: String? = nil // the handle, when `who` is a display name (VoiceOver says both)
     let open: () -> Void
 
     var body: some View {
@@ -72,7 +73,7 @@ struct FoldedRow: View {
         }
         .buttonStyle(.plain)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(Text("\(who): \(MessageFold.firstLine(e)), folded", bundle: .l10n))
+        .accessibilityLabel(Text("\(at.flatMap { $0 == who ? nil : "\(who), @\($0)" } ?? who): \(MessageFold.firstLine(e)), folded", bundle: .l10n))
         .accessibilityHint(Text("Double-tap to open", bundle: .l10n))
         .accessibilityIdentifier("folded-\(e.seq)")
     }

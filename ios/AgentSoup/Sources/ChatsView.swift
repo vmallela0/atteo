@@ -146,7 +146,7 @@ struct ChatsView: View {
                     }
                     ForEach(chats) { b in
                         // A row you tap (no disclosure arrow): the whole row opens the chat.
-                        ChatRow(b: b, unread: unread(b), me: state.me?.owner)
+                        ChatRow(b: b, unread: unread(b), me: state.me?.owner, names: state.personNames)
                             .contentShape(Rectangle())
                             .onTapGesture { path.append(b) }
                             .accessibilityAddTraits(.isButton)
@@ -182,7 +182,7 @@ struct ChatsView: View {
                 if !query.trimmingCharacters(in: .whitespaces).isEmpty, let hits = found?.hits.filter({ $0.kind == "entry" && $0.seq != nil }), !hits.isEmpty {
                     Section {
                         ForEach(hits) { h in
-                            SearchHitRow(hit: .init(seq: h.seq ?? 0, ts: 0, author: h.author ?? "", via: h.via, type: "note", title: nil, snippet: h.snippet), board: h.title) {
+                            SearchHitRow(hit: .init(seq: h.seq ?? 0, ts: 0, author: h.author ?? "", via: h.via, type: "note", title: nil, snippet: h.snippet), board: PersonName.boardTitle(h.title, names: state.personNames), names: state.personNames) {
                                 guard let b = state.boards.first(where: { $0.id == h.board }) else { return }
                                 state.jumpRequest = AppState.JumpRequest(board: b.id, seq: h.seq ?? 0)
                                 path = [b]
@@ -380,8 +380,15 @@ struct ChatRow: View {
     let b: Board
     let unread: Int
     var me: String? = nil
-    /// A DM is titled "maya ↔ priya": show the other person.
+    var names: [String: String] = [:]
+    /// A DM is titled "maya ↔ priya": show the other person, by the name they chose.
     private var other: String? { b.kind == "direct" ? b.displayName(me: me) : nil }
+    private var title: String { b.shownTitle(me: me, names: names) }
+    /// "vedu: …" or "vedu's agent: …" under a chat. Agents keep the handle; a person is their display name.
+    private func previewAuthor(_ by: String) -> String {
+        if by.hasSuffix("'s agent") || by.contains("/") { return Vocab.shown(by) }
+        return PersonName.shown(by, names[by])
+    }
     private var working: Int { b.liveAgents ?? 0 }
     @ObservedObject private var pictures = BoardPictureStore.shared
     @ObservedObject private var drafts = MessageDrafts.shared
@@ -397,7 +404,8 @@ struct ChatRow: View {
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: Space.xxs) {
                 HStack(alignment: .firstTextBaseline, spacing: Space.xs) {
-                    Text(other ?? b.title).font(unread > 0 ? Typo.rowTitle : Typo.rowTitleRead).foregroundStyle(Theme.text).lineLimit(1)
+                    Text(title).font(unread > 0 ? Typo.rowTitle : Typo.rowTitleRead).foregroundStyle(Theme.text).lineLimit(1)
+                        .accessibilityLabel(other.map { PersonName.spoken($0, names: names) } ?? title)
                     if b.encrypted == true { Image(systemName: "lock.fill").font(.system(size: 10)).foregroundStyle(Theme.faint) }
                     Spacer(minLength: Space.s)
                     if working > 0 {
@@ -413,7 +421,7 @@ struct ChatRow: View {
                             Text(String(localized: "Draft: \(String(drafts.text(for: b).prefix(40)))", bundle: .l10n))
                                 .foregroundStyle(Theme.accent)
                         } else if let l = b.last {
-                            Text(Vocab.shown(l.by) + ": ").foregroundStyle(Theme.muted) + Text(l.text.mdPreview).foregroundStyle(unread > 0 ? Theme.muted : Theme.faint)
+                            Text(previewAuthor(l.by) + ": ").foregroundStyle(Theme.muted) + Text(l.text.mdPreview).foregroundStyle(unread > 0 ? Theme.muted : Theme.faint)
                         } else {
                             Text("\(b.entryCount) messages").foregroundStyle(Theme.faint)
                         }
@@ -552,7 +560,8 @@ struct ArchivedChats: View {
                     HStack(spacing: Space.m) {
                         BoardPicture(board: b, size: 36)
                         VStack(alignment: .leading, spacing: Space.xxs) {
-                            Text(b.displayName(me: state.me?.owner)).font(Typo.rowTitleRead).foregroundStyle(Theme.text).lineLimit(1)
+                            Text(b.shownTitle(me: state.me?.owner, names: state.personNames)).font(Typo.rowTitleRead).foregroundStyle(Theme.text).lineLimit(1)
+                                .accessibilityLabel(b.kind == "direct" ? PersonName.spoken(b.displayName(me: state.me?.owner), names: state.personNames) : b.title)
                             Text("Archived · read-only").font(Typo.micro).foregroundStyle(Theme.faint)
                         }
                         Spacer(minLength: Space.s)

@@ -53,7 +53,7 @@ struct TypingRow: View {
                             Avatar(name: u, size: 18).padding(1.5).background(Theme.bg, in: Circle()).zIndex(Double(3 - i))
                         }
                     }
-                    Text(Self.line(who)).font(Typo.micro).foregroundStyle(Theme.muted).lineLimit(1)
+                    Text(Self.line(who, names: state.personNames)).font(Typo.micro).foregroundStyle(Theme.muted).lineLimit(1)
                     TypingDots()
                     Spacer(minLength: 0)
                 }
@@ -62,7 +62,7 @@ struct TypingRow: View {
                 .padding(.bottom, Space.xs)
                 .transition(.opacity.combined(with: .move(edge: .bottom)))
                 .accessibilityElement(children: .ignore)
-                .accessibilityLabel(Self.line(who))
+                .accessibilityLabel(Self.line(who, names: state.personNames, spoken: true))
                 .accessibilityIdentifier("typing")
             }
         }
@@ -70,11 +70,13 @@ struct TypingRow: View {
     }
 
     /// "jxn is typing", "jxn and theo are typing", "jxn and 2 others are typing".
-    static func line(_ who: [String]) -> String {
+    /// `spoken`: VoiceOver hears the @handle too ("Vedu Mallela, @vedu is typing").
+    static func line(_ who: [String], names: [String: String] = [:], spoken: Bool = false) -> String {
+        let label: (String) -> String = { spoken ? PersonName.spoken($0, names: names) : PersonName.shown($0, names[$0]) }
         switch who.count {
-        case 1: return String(localized: "\(who[0]) is typing", bundle: .l10n)
-        case 2: return String(localized: "\(who[0]) and \(who[1]) are typing", bundle: .l10n)
-        default: return String(localized: "\(who[0]) and \(who.count - 1) others are typing", bundle: .l10n)
+        case 1: return String(localized: "\(label(who[0])) is typing", bundle: .l10n)
+        case 2: return String(localized: "\(label(who[0])) and \(label(who[1])) are typing", bundle: .l10n)
+        default: return String(localized: "\(label(who[0])) and \(who.count - 1) others are typing", bundle: .l10n)
         }
     }
 }

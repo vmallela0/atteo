@@ -12,13 +12,13 @@ struct ApprovalDetail: View {
     @FocusState private var noting: Bool
 
     private var riskColor: Color { a.risk == "high" ? Theme.danger : a.risk == "medium" ? Theme.warn : Theme.ok }
-    private var boardTitle: String? { a.boardId.flatMap { id in state.boards.first { $0.id == id }?.displayName(me: state.me?.owner) } }
+    private var boardTitle: String? { a.boardId.flatMap { id in state.boards.first { $0.id == id }?.shownTitle(me: state.me?.owner, names: state.personNames) } }
     /// "Your agent", or "Your agent in Claude Code" when it says which tool it runs in.
     private var asker: String { Vocab.everyday ? Vocab.yourAgent : a.client.flatMap { $0.isEmpty || $0 == "agent" ? nil : String(localized: "Your agent in \($0)", bundle: .l10n) } ?? String(localized: "Your agent", bundle: .l10n) }
     /// After the asker: " asks on Checkout bug · 5m", " asks because theo asked · 5m", …
     private var asks: String {
         let ago = a.createdAt.ago
-        let by = a.requestedBy.flatMap { $0 == state.me?.owner ? nil : $0 }
+        let by = a.requestedBy.flatMap { $0 == state.me?.owner ? nil : PersonName.shown($0, state.personNames[$0]) }
         switch (by, boardTitle) {
         case let (by?, board?): return String(localized: " asks because \(by) asked on \(board) · \(ago)", bundle: .l10n)
         case let (by?, nil): return String(localized: " asks because \(by) asked · \(ago)", bundle: .l10n)

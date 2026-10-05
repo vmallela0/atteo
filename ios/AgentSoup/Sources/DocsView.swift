@@ -136,7 +136,10 @@ struct FilesPane: View {
 
     private var shown: [DocMeta] {
         let q = query.trimmingCharacters(in: .whitespaces).lowercased()
-        let hits = (docs ?? []).filter { q.isEmpty || $0.name.lowercased().contains(q) || $0.by.lowercased().contains(q) }
+        let hits = (docs ?? []).filter { d in
+            q.isEmpty || d.name.lowercased().contains(q) || d.by.lowercased().contains(q)
+                || (d.via != "agent" && PersonName.shown(d.updatedBy, state.personNames[d.updatedBy]).lowercased().contains(q))
+        }
         switch sort {
         case .recent: return hits.sorted { $0.updatedAt > $1.updatedAt }
         case .name: return hits.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
@@ -246,7 +249,12 @@ struct FilesPane: View {
 struct FileRow: View {
     let doc: DocMeta
     var loading = false
+    @EnvironmentObject private var state: AppState
     @Environment(\.chatDensity) private var density
+    /// A person is the name they chose; an agent stays "<handle>'s agent".
+    private var byline: String {
+        doc.via == "agent" ? String(localized: "\(doc.updatedBy)'s agent", bundle: .l10n) : PersonName.shown(doc.updatedBy, state.personNames[doc.updatedBy])
+    }
     var body: some View {
         HStack(spacing: Space.m) {
             FileKindIcon(kind: doc.kind)
@@ -254,7 +262,7 @@ struct FileRow: View {
                 Text(doc.name).font(Typo.secondary.weight(.medium)).foregroundStyle(Theme.text).lineLimit(1).truncationMode(.middle)
                 HStack(spacing: 5) {
                     Avatar(name: doc.updatedBy, agent: doc.via == "agent", size: 14)
-                    Text("\(doc.by) · \(doc.updatedAt.ago)").font(Typo.micro).foregroundStyle(Theme.muted).lineLimit(1)
+                    Text("\(byline) · \(doc.updatedAt.ago)").font(Typo.micro).foregroundStyle(Theme.muted).lineLimit(1)
                 }
             }
             Spacer(minLength: Space.s)
@@ -270,6 +278,7 @@ struct FileRow: View {
         .frame(minHeight: density == .compact ? 44 : 56)
         .contentShape(Rectangle())
         .accessibilityElement(children: .combine)
+        .accessibilityValue(doc.via == "agent" || byline == doc.updatedBy ? "" : "@\(doc.updatedBy)")
     }
 }
 
@@ -367,7 +376,7 @@ struct DocViewer: View {
                     Menu {
                         ForEach(versions.sorted { $0.version > $1.version }) { v in
                             Button { Task { await load(v.version) } } label: {
-                                let who = v.via == "agent" ? String(localized: "\(v.author)'s agent", bundle: .l10n) : v.author
+                                let who = v.via == "agent" ? String(localized: "\(v.author)'s agent", bundle: .l10n) : PersonName.shown(v.author, state.personNames[v.author])
                                 Label(v.version == doc.latest ? "v\(v.version) · latest · \(who)" : "v\(v.version) · \(who)", systemImage: v.version == doc.version ? "checkmark" : "clock")
                                 Text([v.summary, v.ts.ago].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · "))
                             }
@@ -399,12 +408,13 @@ struct DocViewer: View {
     }
 
     private func byline(_ doc: Doc) -> some View {
-        let by = doc.via == "agent" ? String(localized: "\(doc.updatedBy)'s agent", bundle: .l10n) : doc.updatedBy
+        let by = doc.via == "agent" ? String(localized: "\(doc.updatedBy)'s agent", bundle: .l10n) : PersonName.shown(doc.updatedBy, state.personNames[doc.updatedBy])
         let summary = versions.first(where: { $0.version == doc.version })?.summary
         return VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 6) {
                 Avatar(name: doc.updatedBy, agent: doc.via == "agent", size: 18)
                 Text(by).font(Typo.meta.weight(.medium)).foregroundStyle(Theme.text)
+                    .accessibilityLabel(doc.via == "agent" || by == doc.updatedBy ? by : PersonName.spoken(doc.updatedBy, names: state.personNames))
                 Text("· \(doc.updatedAt.ago) · v\(doc.version) of \(doc.latest)").font(Typo.meta).foregroundStyle(Theme.faint).monospacedDigit()
                 Spacer(minLength: 0)
                 if doc.version < doc.latest { Pill(text: "Older version", color: Theme.warn) }

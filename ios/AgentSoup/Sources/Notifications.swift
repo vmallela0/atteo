@@ -93,8 +93,10 @@ final class Notifier: NSObject, ObservableObject, UNUserNotificationCenterDelega
             if mode == "digest" { pending.append(DigestEntry(board: i.boardTitle, kind: i.kind)); continue }
             guard mode == "now" else { continue }
             let c = UNMutableNotificationContent()
-            let who = i.kind == "approval" ? String(localized: "Your agent", bundle: .l10n) : i.actorVia == "agent" ? String(localized: "\(i.actor)'s agent", bundle: .l10n) : i.actor
-            c.title = i.boardTitle.map { String(localized: "\(who) in \($0)", bundle: .l10n, comment: "Notification title: who wrote, in which board") } ?? who
+            let names = AppState.shared.personNames
+            let who = i.kind == "approval" ? String(localized: "Your agent", bundle: .l10n) : i.actorVia == "agent" ? String(localized: "\(i.actor)'s agent", bundle: .l10n) : PersonName.shown(i.actor, names[i.actor])
+            let where_ = i.boardTitle.map { PersonName.boardTitle($0, names: names) }
+            c.title = where_.map { String(localized: "\(who) in \($0)", bundle: .l10n, comment: "Notification title: who wrote, in which board") } ?? who
             c.body = String(i.excerpt.prefix(180))
             c.sound = .default
             c.userInfo = i.boardId.isEmpty ? [:] : ["board": i.boardId, "seq": i.seq]

@@ -22,6 +22,10 @@ final class AppState: ObservableObject {
     @Published var members: [String: [String]] = [:] // per board: who's in it (for @-mentions)
     @Published var agentNames: [String: [String: AgentName]] = [:] // per board, per member: what they named their agent
     var displayNames: [String: [String: String]] = [:] // per board, per member: their display name (dictation's hints)
+    /// Handle → the name they chose, from every board's members, friends and your profile (jxn #4369).
+    @Published var personNames: [String: String] = [:]
+    private var namesAt: [String: Date] = [:] // when each board's members were last read for names
+    private var namesInflight: Set<String> = []
     struct AgentName: Equatable { let name: String; let ambiguous: Bool }
     // Chat parity, wave 2: read receipts, who took what, and how far back each chat is loaded.
     @Published var reads: [String: [String: SeenMark]] = [:] // per board, per member: how far they've seen
@@ -144,7 +148,11 @@ final class AppState: ObservableObject {
                 }
             }
             AppMode.shared.note(sessions: ss.sessions, fromServer: true) // a coding agent turns Developer mode on (Everyday.swift)
-            if let pp = await p { if pp.profile != profile { profile = pp.profile }; adoptDisplay(pp.profile.display) }
+            if let pp = await p {
+                if pp.profile != profile { profile = pp.profile }
+                adoptDisplay(pp.profile.display)
+                if let owner = mm.agent.owner { noteNames([(owner, pp.profile.displayName)]) }
+            }
             save()
         } catch { report(error, quiet: true) }
     }
@@ -246,6 +254,7 @@ final class AppState: ObservableObject {
             let sorted = list.sorted { $0.lastActivity > $1.lastActivity }
             if sorted != boards { withAnimation(.smooth) { boards = sorted } } // unchanged: no publish (refreshInbox)
             save()
+            ensurePersonNames()
         } catch { report(error, quiet: true) }
     }
 
@@ -294,8 +303,55 @@ final class AppState: ObservableObject {
             var named: [String: AgentName] = [:]
             for m in r.members { if let n = m.agentName, !n.isEmpty { named[m.user] = AgentName(name: n, ambiguous: m.agentNameAmbiguous == true) } }
             if named != agentNames[b.id] { agentNames[b.id] = named }
-            displayNames[b.id] = Dictionary(r.members.compactMap { m in m.displayName.flatMap { $0.isEmpty ? nil : (m.user, $0) } }, uniquingKeysWith: { a, _ in a })
+            var chosen: [String: String] = [:]
+            for m in r.members {
+                if let d = PersonName.clean(m.displayName), d != m.user { chosen[m.user] = d }
+            }
+            displayNames[b.id] = chosen
+            noteNames(r.members.map { ($0.user, $0.displayName) })
+            namesAt[b.id] = Date()
         } catch { report(error, quiet: true) }
+    }
+
+    /// Remember display names (nil or blank clears one we had). Views that print a person read `personNames`.
+    func noteNames(_ rows: [(String, String?)]) {
+        var next = personNames
+        var changed = false
+        for (handle, raw) in rows {
+            let d = PersonName.clean(raw)
+            if let d, d != handle {
+                if next[handle] != d { next[handle] = d; changed = true }
+            } else if raw != nil, next[handle] != nil {
+                next.removeValue(forKey: handle)
+                changed = true
+            }
+        }
+        if changed { personNames = next }
+    }
+
+    /// Names for the chat list and the inbox: each board's members, and friends, at most once a minute.
+    private func ensurePersonNames() {
+        let now = Date()
+        let due = boards.filter { b in b.archived != true && !namesInflight.contains(b.id) && now.timeIntervalSince(namesAt[b.id] ?? .distantPast) > 60 }
+        let friendsDue = !namesInflight.contains("*friends") && now.timeIntervalSince(namesAt["*friends"] ?? .distantPast) > 60
+        guard !due.isEmpty || friendsDue else { return }
+        for b in due { namesInflight.insert(b.id); namesAt[b.id] = now }
+        if friendsDue { namesInflight.insert("*friends") }
+        Task { [weak self] in
+            guard let self else { return }
+            if friendsDue {
+                let ff = await self.friends()
+                self.noteNames(ff.map { ($0.name, $0.displayName) })
+                self.namesAt["*friends"] = Date()
+                self.namesInflight.remove("*friends")
+            }
+            await withTaskGroup(of: Void.self) { group in
+                for b in due {
+                    group.addTask { await self.loadMembers(b) }
+                }
+            }
+            for b in due { self.namesInflight.remove(b.id) }
+        }
     }
 
     /// A board's tasks (the work strip and the task list).
@@ -343,6 +399,7 @@ final class AppState: ObservableObject {
             let (pp, cc) = try await (p, c)
             adoptDisplay(pp.profile.display)
             withAnimation(.smooth) { profile = pp.profile; connections = cc.tokens.filter { $0.revokedAt == nil && ($0.expiresAt ?? .infinity) > Date().timeIntervalSince1970 * 1000 } }
+            if let owner = me?.owner { noteNames([(owner, pp.profile.displayName)]) }
         } catch { report(error, quiet: true) }
     }
 
@@ -356,6 +413,7 @@ final class AppState: ObservableObject {
         do {
             let d = try await API.shared.send("/api/me/profile", body: body)
             if let r = try? JSONDecoder.soup.decode(ProfileResponse.self, from: d) { profile = r.profile }
+            if let owner = me?.owner { noteNames([(owner, profile?.displayName)]) }
         } catch { profile = old; report(error) }
     }
 

@@ -283,7 +283,11 @@ struct AssistantRemembers: View {
                 if list.isEmpty { Text("Nothing yet.").foregroundStyle(Theme.muted) }
                 ForEach(list) { b in
                     NavigationLink { ChatMemory(board: b) } label: {
-                        HStack(spacing: Space.m) { BoardPicture(board: b, size: 28); Text(b.displayName(me: state.me?.owner)) }
+                        HStack(spacing: Space.m) {
+                            BoardPicture(board: b, size: 28)
+                            Text(b.shownTitle(me: state.me?.owner, names: state.personNames))
+                                .accessibilityLabel(b.kind == "direct" ? PersonName.spoken(b.displayName(me: state.me?.owner), names: state.personNames) : b.title)
+                        }
                     }
                 }
             } footer: { Text("What assistants keep in mind in each chat. Everyone in the chat can see it.") }
@@ -305,7 +309,7 @@ private struct ChatMemory: View {
             .listSectionSpacing(.compact)
             .scrollContentBackground(.hidden)
             .background(Theme.bg)
-            .navigationTitle(board.displayName(me: state.me?.owner))
+            .navigationTitle(board.shownTitle(me: state.me?.owner, names: state.personNames))
             .navigationBarTitleDisplayMode(.inline)
             .task { await model.load(board.id, state) }
             .sheet(isPresented: $model.editing) {
