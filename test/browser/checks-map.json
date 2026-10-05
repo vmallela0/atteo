@@ -12,6 +12,7 @@
     "src/guide.i18n.ts": ["i18n-more"],
     "src/boardExport.ts": ["board-export", "e2e-web"],
     "src/accessAll.ts": ["access-all"],
+    "src/moderation.ts": ["moderation"],
     "src/openapi.ts": [],
     "cli/**": ["e2e-web"],
     "test/*.ts": [],

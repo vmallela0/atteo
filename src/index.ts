@@ -36,6 +36,7 @@ import * as notify from "./notify";
 import * as forYou from "./forYou";
 import * as auth from "./auth";
 import * as appSignin from "./appSignin";
+import * as moderation from "./moderation";
 import * as bugs from "./bugs";
 import { handleMcp } from "./mcp";
 import * as device from "./device";
@@ -953,7 +954,7 @@ const handler = {
         if (m[1] === "join") return redirect(`/b/${m[2]}`);
         if (!viewer) return needLogin();
         if (!(await canSee(c, m[2]))) return notFound(viewer);
-        const [snap, members, invites, side, live, status, row] = await Promise.all([
+        const [snap, members, invites, side, live, status, row, muted] = await Promise.all([
           boardStub(env, m[2]).snapshot(0, { latest: 80 }, seer()), // fewer messages on the page keeps scrolling smooth (jxn #1365); older ones load as you go back
           registry.boardMembers(env, m[2]),
           registry.pendingInvites(env, m[2]),
@@ -961,6 +962,7 @@ const handler = {
           registry.agentsOnBoard(env, m[2]),
           registry.agentStatus(env, viewer.name),
           registry.getBoard(env, m[2]),
+          viewer.via === "agent" ? [] : moderation.mutedOn(env, viewer.name, m[2]).catch(() => []), // whom you muted here (#3602)
         ]);
         // Agents here: named sessions, plus members' agents connected without one (e.g. an MCP URL connection).
         const memberSet = new Set(members.map((x) => x.user));
@@ -979,7 +981,7 @@ const handler = {
         // "Your agent": the composer's picker lists your agents (live or idle) by name.
         const mine = kind === "agent" ? (await sessions.list(env, viewer.name)).filter(sessions.listed).map((x) => ({ name: x.name, state: x.state, client: x.client })) : undefined;
         const agentNamed = agentNames(members);
-        return boardPage(viewer, side, snap.info, withAgents, snap.entries.map((e) => withAgentNames(e, agentNamed)), shown, { connected: status.connected, onThisBoard: !!live[viewer.name] }, snap.summary, agentsHere, { picture: boardPictures.pictureUrl(m[2], row?.picture_v), kind, sessions: mine, seen: snap.reads?.[viewer.name]?.person_seen ?? 0, last_seen: snap.reads?.[viewer.name]?.person_seen ?? 0 });
+        return boardPage(viewer, side, snap.info, withAgents, snap.entries.map((e) => withAgentNames(e, agentNamed)), shown, { connected: status.connected, onThisBoard: !!live[viewer.name] }, snap.summary, agentsHere, { picture: boardPictures.pictureUrl(m[2], row?.picture_v), kind, sessions: mine, seen: snap.reads?.[viewer.name]?.person_seen ?? 0, last_seen: snap.reads?.[viewer.name]?.person_seen ?? 0, muted });
       }
 
       // ---- inbox: mentions of you, posts for your agent, replies to you ----
@@ -1810,11 +1812,11 @@ const handler = {
           if (what === "audit" && method === "GET" && arg === "export") {
             const afterId = parseAuditAfter(url.searchParams.get("after"));
             const exportedAt = Date.now();
-            const rows = await registry.auditExportRows(env, id, afterId);
+            const rows = await registry.auditExportRows(env, id, afterId, owner);
             return json(auditExportDocument(id, agentView ? forAgents(rows) : rows, { exportedAt, afterId, pageSize: AUDIT_EXPORT_LIMIT }), 200, auditExportHeaders(id, exportedAt));
           }
           if (what === "audit" && method === "GET" && !arg) {
-            const rows = await registry.auditLog(env, id);
+            const rows = await registry.auditLog(env, id, 100, owner);
             return json({ audit: agentView ? forAgents(rows) : rows });
           }
           if (what === "audit") return json({ error: "not found" }, 404);
@@ -2318,7 +2320,7 @@ const handler = {
             ctx.waitUntil(Promise.all([registry.touch(env, viewer.name, id), registry.bumpBoard(env, id, entry.seq)]).catch(() => {}));
             // Like a text post, the rendered entry comes back so the page can swap its "sending" copy for it.
             const root = replyTo ? ((await stub.rootsFor([entry.seq]))[entry.seq] ?? entry.seq) : entry.seq;
-            return json({ ok: true, entry, update: { seq: entry.seq, root, retracts: entry.retracts, html: entryHtml(withAgentNames(entry, agentNames(fileMembers)), id, true, { canRetract: true, canEdit: true, lang: viewer?.lang }), row: logRow(entry, undefined, undefined, viewer?.lang), reactions: [] } }, 201);
+            return json({ ok: true, entry, update: { seq: entry.seq, root, retracts: entry.retracts, html: entryHtml(withAgentNames(entry, agentNames(fileMembers)), id, true, { canRetract: true, canEdit: true, lang: viewer?.lang, person: !!viewer && viewer.via !== "agent" }), row: logRow(entry, undefined, undefined, viewer?.lang), reactions: [] } }, 201);
           } catch (e) {
             return json({ error: e instanceof Error ? e.message : String(e) }, 400);
           }
@@ -2769,6 +2771,47 @@ const handler = {
       }
 
       // ---- retract an entry (its author or the board's creator) ----
+      // Moderation (#3602, src/moderation.ts): mute a member on this board (your view and your notifications), and
+      // report an entry to the board's owners. People only.
+      m = path.match(/^\/api\/boards\/(b_[a-z0-9]+)\/mutes(?:\/([^/]+))?$/);
+      if (m && (method === "GET" || method === "POST" || method === "DELETE")) {
+        if (!viewer) return needLogin();
+        if (viewer.via === "agent") return json({ error: "Muting is for people, not their agents." }, 403);
+        if (!(await registry.isMember(env, m[1], viewer.name))) return json({ error: "board not found" }, 404);
+        try {
+          if (method === "GET" && !m[2]) return json({ muted: await moderation.mutedOn(env, viewer.name, m[1]) });
+          if (method === "POST" && !m[2]) {
+            const body = (await request.json().catch(() => ({}))) as { user?: unknown };
+            const who = typeof body.user === "string" ? body.user.trim().toLowerCase().replace(/^@/, "") : "";
+            if (!who) return json({ error: "Say whom to mute (user)." }, 400);
+            return json({ ok: true, muted: await moderation.mute(env, viewer.name, m[1], who) });
+          }
+          if (method === "DELETE" && m[2]) return json({ ok: true, muted: await moderation.unmute(env, viewer.name, m[1], decodeURIComponent(m[2])) });
+          return json({ error: "not found" }, 404);
+        } catch (e) {
+          if (e instanceof moderation.ModerationError) return json({ error: e.message }, e.status);
+          throw e;
+        }
+      }
+      m = path.match(/^\/api\/boards\/(b_[a-z0-9]+)\/entries\/(\d+)\/report$/);
+      if (m && method === "POST") {
+        if (!viewer) return needLogin();
+        if (viewer.via === "agent") return json({ error: "Reporting is for people, not their agents." }, 403);
+        if (!(await registry.isMember(env, m[1], viewer.name))) return json({ error: "board not found" }, 404);
+        const body = (await request.json().catch(() => ({}))) as { reason?: unknown };
+        const seq = parseInt(m[2], 10);
+        try {
+          const reason = moderation.reportReason(body.reason);
+          const entry = await boardStub(env, m[1]).get(seq, { user: viewer.name, person: true }).then((g) => g.entry).catch(() => null);
+          if (!entry) return json({ error: `Entry #${seq} does not exist on this board.` }, 404);
+          if (!(await appSignin.hit(env, `reports:u:${viewer.name}`, moderation.REPORTS_PER_WINDOW))) return json({ error: "That's a lot of reports: try again in ten minutes." }, 429);
+          return json({ ok: true, ...(await moderation.report(env, m[1], seq, viewer.name, entry, reason)) }, 201);
+        } catch (e) {
+          if (e instanceof moderation.ModerationError) return json({ error: e.message }, e.status);
+          throw e;
+        }
+      }
+
       m = path.match(/^\/api\/boards\/([^/]+)\/entries\/(\d+)\/retract$/);
       if (m && method === "POST") {
         if (!viewer) return needLogin();
@@ -2845,7 +2888,7 @@ const handler = {
               ...(e.via === "agent" && names[e.author] ? { agent_name: names[e.author] } : {}), // "Jarvis · vedu's agent"
               root: roots[e.seq] ?? e.seq,
               retracts: e.retracts,
-              html: entryHtml(withAgentNames(e, names), id, true, { canRetract: canRetract(e), canEdit: !!viewer && !snap.info.encrypted && e.author === viewer.name, lang: viewer?.lang }),
+              html: entryHtml(withAgentNames(e, names), id, true, { canRetract: canRetract(e), canEdit: !!viewer && !snap.info.encrypted && e.author === viewer.name, lang: viewer?.lang, person: !!viewer && viewer.via !== "agent" }),
               row: logRow(e, undefined, undefined, viewer?.lang),
               reactions: snap.reactions[e.seq] ?? [],
               ...(e.type === "change" ? { reviews: snap.reviews[e.seq] ?? [] } : {}),
@@ -2896,7 +2939,7 @@ const handler = {
             entries: page.map((e) => ({
               seq: e.seq,
               root: roots[e.seq] ?? e.seq,
-              html: entryHtml(withAgentNames(e, names), id, true, { canRetract: !!viewer && (e.author === viewer.name || isOwner), canEdit: !!viewer && !pageInfo.encrypted && e.author === viewer.name, lang: viewer?.lang }),
+              html: entryHtml(withAgentNames(e, names), id, true, { canRetract: !!viewer && (e.author === viewer.name || isOwner), canEdit: !!viewer && !pageInfo.encrypted && e.author === viewer.name, lang: viewer?.lang, person: !!viewer && viewer.via !== "agent" }),
               row: logRow(e, undefined, undefined, viewer?.lang),
               reactions: reactions[e.seq] ?? [],
               ...(e.human_decision ? { human_decision: e.human_decision } : {}),
@@ -2989,7 +3032,7 @@ const handler = {
             // An agent's top-level post the board kept in Just mine (board.ts ownByDefault) says so instead.
             const said = entry.audience === "own" && entry.reply_to == null && !own && !notOwn && viewer.via === "agent" ? keptOwnNotice(viewer.name) : audienceNotice(entry, viewer.name);
             const notice = said ? { notice: said } : {};
-            return json({ ok: true, entry, ...notice, update: { seq: entry.seq, root, retracts: entry.retracts, html: entryHtml(withAgentNames(entry, agentNames(boardMembers)), id, true, { canRetract: true, canEdit: true, lang: viewer?.lang }), row: logRow(entry, undefined, undefined, viewer?.lang), reactions: [] }, ...(ambiguous.length ? { ambiguous } : {}) }, 201);
+            return json({ ok: true, entry, ...notice, update: { seq: entry.seq, root, retracts: entry.retracts, html: entryHtml(withAgentNames(entry, agentNames(boardMembers)), id, true, { canRetract: true, canEdit: true, lang: viewer?.lang, person: !!viewer && viewer.via !== "agent" }), row: logRow(entry, undefined, undefined, viewer?.lang), reactions: [] }, ...(ambiguous.length ? { ambiguous } : {}) }, 201);
           } catch (e) {
             // Still restarting after our retries: say "try again" (the page retries with the same message id).
             if (isRetriable(e)) {

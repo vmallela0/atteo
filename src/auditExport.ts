@@ -7,6 +7,8 @@ export const AUDIT_EXPORT_LIMIT = 5000;
 
 /** Oldest first (append order). Bound: board id, last id already returned, page size + 1. */
 export const AUDIT_EXPORT_SQL = `SELECT id, actor, action, target, detail, ts FROM audit WHERE board_id = ? AND id > ? ORDER BY id ASC LIMIT ?`;
+/** The same for a member who isn't an owner: reports (#3602) are the owners' to read. */
+export const AUDIT_EXPORT_NO_REPORTS_SQL = AUDIT_EXPORT_SQL.replace("AND id > ?", "AND id > ? AND action != 'reported'");
 
 export interface AuditExportRow {
   id: number;

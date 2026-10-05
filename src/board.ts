@@ -29,6 +29,7 @@ import { prepareEntryData, readEntryData, screenedText } from "./entryData";
 import { withinEditWindow } from "./editMessage";
 import { backupConfig, blobPartKey, objectKey, uploadPart, type PartResult } from "./backup";
 import { decodeValue, encodeValue, type DumpTables } from "./backupcore";
+import { mutersOf } from "./moderation";
 
 export const MAX_TEXT = 32_000;
 export const MAX_ARTIFACT = 256_000;
@@ -1381,7 +1382,8 @@ export class Board extends DurableObject<Env> {
     if (people) {
       if (entry.retracts == null && !internal.system && !internal.notice) {
         const excerpt = internal.sealed || info.encrypted ? "🔒 encrypted" : entry.text.replace(/\s+/g, " ").trim().slice(0, 160);
-        const to = people.filter((u) => u !== entry.author);
+        const muters = await mutersOf(this.env.DB, info.id, entry.author).catch(() => new Set<string>());
+        const to = people.filter((u) => u !== entry.author && !muters.has(u)); // muted (#3602): no notification
         if (to.length) {
           this.ctx.waitUntil(
             this.env.DB.batch(
@@ -3042,6 +3044,11 @@ export class Board extends DurableObject<Env> {
     if (isHumanDecisionPost(e) && this.decisions.isHuman(e.seq)) {
       await this.decisions.refresh(true);
       for (const u of this.decisions.voters(e.author)) kinds.set(u, "decision");
+    }
+    // Muted (#3602): whoever muted the author here isn't notified. Mail for their agent still arrives (it's work, not a ping).
+    for (const u of await mutersOf(this.env.DB, info.id, e.author).catch(() => new Set<string>())) {
+      const k = kinds.get(u);
+      if (k && k !== "agent" && k !== "from_your_person") kinds.delete(u);
     }
     if (forAgents.size) this.ctx.waitUntil(this.deliverWebhooks(info, e, [...forAgents], "for_your_agent", forSession).catch(() => {}));
     // People @mentioned by name: only their chat hooks (Slack, Discord) hear about it; agent runtimes don't need it.

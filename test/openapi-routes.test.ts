@@ -22,6 +22,12 @@ const DELEGATED: Route[] = [
  * When index.ts adds a new API path.match, add it here or the test fails.
  */
 const MATCH_ROUTES: Record<string, Route[]> = {
+  "\\/api\\/boards\\/(b_[a-z0-9]+)\\/mutes(?:\\/([^/]+))?$": [
+    { method: "GET", path: "/api/boards/{id}/mutes" },
+    { method: "POST", path: "/api/boards/{id}/mutes" },
+    { method: "DELETE", path: "/api/boards/{id}/mutes/{user}" },
+  ],
+  "\\/api\\/boards\\/(b_[a-z0-9]+)\\/entries\\/(\\d+)\\/report$": [{ method: "POST", path: "/api/boards/{id}/entries/{seq}/report" }],
   "\\/api\\/inbox\\/([^/]+)\\/remind$": [{ method: "POST", path: "/api/inbox/{id}/remind" }, { method: "DELETE", path: "/api/inbox/{id}/remind" }],
   "\\/api\\/boards\\/([^/]+)\\/agents$": [{ method: "GET", path: "/api/boards/{id}/agents" }],
   "\\/api\\/boards\\/([^/]+)\\/notify$": [
