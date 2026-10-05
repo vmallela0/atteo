@@ -120,7 +120,8 @@ describe("the app too (jxn #2706): colours and fonts come from ios/AgentSoup/Sou
   it("no colour or font literal in the app's sources outside Theme.swift", () => {
     const dir = "ios/AgentSoup/Sources";
     // SyntaxHighlight's palette is the app's mirror of codecolor.ts's --sx-* token block, values passed as pair(0x…).
-    const banned = /Color\(red:|UIColor\(red:|Color\(hex|UIColor\(hex|"#[0-9A-Fa-f]{6}"|\.custom\(|Font\.custom|UIFont\(name:|rgb\(0x/;
+    // .custom(identifier:) is a sheet detent (LinkGate), not a font.
+    const banned = /Color\(red:|UIColor\(red:|Color\(hex|UIColor\(hex|"#[0-9A-Fa-f]{6}"|\.custom\((?!identifier:)|Font\.custom|UIFont\(name:|rgb\(0x/;
     const bad: string[] = [];
     const files = readdirSync(dir).filter((f) => f.endsWith(".swift") && f !== "Theme.swift");
     expect(files.length).toBeGreaterThan(20);
