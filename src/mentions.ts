@@ -82,7 +82,8 @@ export function hasGroupMention(text: string, group: string, members?: Iterable<
   return false;
 }
 
-const key = (m: Mention) => `${m.user}${m.agent ? "/agent" : ""}`;
+// One entry per target: several sessions of one person each count (jxn's agent #2702), as does "@x's agent" beside them.
+const key = (m: Mention) => `${m.user}${m.agent ? "/agent" : ""}${m.agent && m.session ? `/${m.session.toLowerCase()}` : ""}`;
 
 /** A member of the board, by name, with the name they gave their agent (if any). */
 export type MemberRef = string | { user: string; agent_name?: string | null };
@@ -269,9 +270,27 @@ export function mentionLabel(m: Mention, viewer?: string, viewerIs: "agent" | "p
   return m.session ? `@${m.user}/${m.session}` : m.agent ? `@${m.user}'s agent` : `@${m.user}`;
 }
 
-/** Already-escaped HTML with each stored mention wrapped in `<span class="mention">` (plus `agent` for agents). */
-export function highlightMentions(escaped: string, mentions: Mention[] | null | undefined, names?: Record<string, string> | null): string {
-  if (!mentions?.length) return escaped;
+/** The author's own form ("@vedu's agent" written by vedu's agent, "@vedu" by vedu) when it appears where a mention
+ *  could (outside code and quotes, as parseMentions reads it): highlightMentions' `self`, for display only (vedu #2630).
+ *  A quote of someone else's words that names the author stays plain, like any quoted @name. */
+export function selfMentions(text: string, author: string, via?: "agent" | "person" | null): Mention[] {
+  const me = author.toLowerCase();
+  const agent = via === "agent";
+  // Any "> " line is someone's words being quoted (a forward, a reply's quote): never the author's own @.
+  for (const m of mentionScan(text).replace(/^>.*$/gm, " ").matchAll(MENTION_RE)) {
+    const r = resolve(m[2], m[3], (n) => n === me);
+    if (r.known && r.user === me && r.agent === agent && !r.session) return [{ user: me, agent }];
+  }
+  return [];
+}
+
+/** Already-escaped HTML with each stored mention wrapped in `<span class="mention">` (plus `agent` for agents).
+ *  `self`: the author's own forms ("@vedu's agent" in vedu's agent's post), drawn as chips though keep() leaves them
+ *  out of `mentions`, so they route to no one (vedu #2630). Display only: they don't change what @agents, @humans or
+ *  @all draw as. */
+export function highlightMentions(escaped: string, mentions: Mention[] | null | undefined, names?: Record<string, string> | null, self?: Mention[] | null): string {
+  if (!mentions?.length && !self?.length) return escaped;
+  mentions ??= [];
   // "@Jarvis": a mentioned agent by the name its person gave it (names: owner → name), drawn as that agent's chip.
   const named: string[] = [];
   if (names) {
@@ -284,7 +303,7 @@ export function highlightMentions(escaped: string, mentions: Mention[] | null | 
     }
   }
   const back = (s: string) => (named.length ? s.replace(/\u0000(\d+)\u0000/g, (_x, i: string) => named[+i]) : s);
-  const wanted = new Set(mentions.map(key));
+  const wanted = new Set([...mentions, ...(self ?? [])].map(key));
   return back(escaped.replace(MENTION_RE, (all, pre: string, handle: string, suffix: string | undefined) => {
     const g = groupOf(handle);
     const chip = (cls: string) => `${pre}<span class="mention${cls}" data-user="${g}">@${handle.slice(0, g.length)}</span>${handle.slice(g.length)}`;

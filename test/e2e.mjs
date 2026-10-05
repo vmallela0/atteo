@@ -799,6 +799,22 @@ await step("brand: the tin-can mark (design language v1, #2508) is the favicon, 
   has(html, 'class="wm">atteo<');
 });
 
+await step("HTML preview shell: its own enforced CSP (sandbox, no network), no data and never the page's nonce (opus-b #2678)", async () => {
+  const page = await web("/chats", A);
+  const nonce = (page.headers.get("content-security-policy-report-only") ?? page.headers.get("content-security-policy") ?? "").match(/'nonce-([a-f0-9]+)'/)?.[1];
+  assert(nonce, "the page has a nonce");
+  for (const who of [A, null]) { // the shell holds no data, so it's the same signed in or not
+    const r = who ? await web("/preview-frame", who) : await fetch(`${BASE}/preview-frame`);
+    assert(r.status === 200 && (r.headers.get("content-type") ?? "").startsWith("text/html"), `preview-frame ${r.status}`);
+    const csp = r.headers.get("content-security-policy") ?? "";
+    for (const d of ["sandbox allow-scripts", "default-src 'none'", "connect-src 'none'", "frame-ancestors 'self'"]) has(csp, d);
+    assert(!csp.includes("nonce") && !csp.includes("allow-same-origin"), csp);
+    const body = await r.text();
+    assert(!body.includes(nonce) && !body.includes("nonce"), "no nonce in the shell");
+    assert(!/@|e2e/.test(body.replace(/charset="utf-8"/, "")), "the shell carries no board or person data");
+  }
+});
+
 await step("web: home lists my boards; tokens can be created and revoked", async () => {
   has(await (await web("/chats", A)).text(), `e2e ${run}`);
   const r = await web("/api/tokens", A, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ board, label: "e2e web" }) });
@@ -1055,12 +1071,19 @@ await step("@mentions: people vs agents, unknown handles, and handing work to yo
   has(rb2, `#${h2} task · ${B} (person) · mentions you`);
   assert(!rb2.includes(`just a note ${run}`), "B's own plain note is not news to B's agent");
   has(section(rb2, "Tasks for YOU"), `#${h2} (`);
-  // An agent mentioning itself is just text.
+  // An agent mentioning itself reaches no one: no mention, no inbox item for its person (vedu #2630)…
+  const inboxBefore = (await (await web(`/api/inbox`, B)).json()).items.length;
   const self = await ok(B, board, "post", { type: "note", text: `@${B}'s agent note to self` });
   assert(!self.includes("mentions"), self);
+  const selfSeq = seqOf(self);
+  assert(JSON.stringify((await (await web(`/api/boards/${board}/entries/${selfSeq}`, B)).json()).entry.mentions ?? []) === "[]", "a self-mention isn't stored");
+  assert((await (await web(`/api/inbox`, B)).json()).items.length === inboxBefore, "no inbox item from your own agent's self-mention");
 
   // The web: highlighted mentions, the summary split, and the autocomplete choices.
   const page = await (await web(`/b/${board}`, B)).text();
+  // …but it's still drawn as its chip (display only).
+  const selfArticle = page.slice(page.indexOf(`id="e${selfSeq}"`), page.indexOf("</article>", page.indexOf(`id="e${selfSeq}"`)));
+  has(selfArticle, `<span class="mention agent" data-user="${B}">@${B}&#39;s agent</span> note to self`);
   has(page, `<span class="mention agent" data-user="${B}">@${B}&#39;s agent</span>`);
   has(page, `<span class="mention" data-user="${B}">@${B}</span>`);
   has(page, "For your agent");
@@ -1833,15 +1856,29 @@ await step("notification volume (vedu #2490): per-board levels, quiet hours and 
   assert((await item(direct.it.seq)).it.interrupt === "none", "off: none");
   const count = await (await web(`/api/inbox/count`, B)).json();
   assert(count.unread >= 3 && count.latest.interrupt === "none" && count.notify, `count still counts, latest has interrupt: ${JSON.stringify(count)}`);
+  // The digest that's due is counted by the server (#2668): a number and its boards, never on an agent's count.
+  assert(Number.isInteger(count.notify.digest_count) && Array.isArray(count.notify.digest_boards), `digest_count: ${JSON.stringify(count.notify)}`);
+  assert(!("notify" in (await (await fetch(`${BASE}/api/inbox/count`, { headers: auth(B) })).json())), "agents get no notify on the count");
   // Your level is yours: A still sees the default for the same board.
   assert((await (await web(`/api/boards/${nb}/notify`, A)).json()).level === "needs_me", "A's own level");
-  // Quiet hours all day (start == end): a direct @B is held for the digest.
+  // Quiet hours around now (UTC): a direct @B is held for the digest.
   await put(B, `/api/boards/${nb}/notify`, { level: "needs_me" });
-  const q = await (await put(B, `/api/me/notify`, { quiet: { on: true, start: "00:00", end: "00:00", tz: "UTC" } })).json();
+  const hm = (t) => new Date(t).toISOString().slice(11, 16);
+  const q = await (await put(B, `/api/me/notify`, { quiet: { on: true, start: hm(Date.now() - 3_600_000), end: hm(Date.now() + 3_600_000), tz: "UTC" } })).json();
   assert(q.quiet.on && q.quiet_now === true, JSON.stringify(q));
+  // The same start and end is no window: refused, with a message the UI shows (#2668), and nothing changes.
+  const same = await put(B, `/api/me/notify`, { quiet: { start: "06:15", end: "06:15" } });
+  assert(same.status === 400 && /different start and end/.test((await same.json()).error), "same start and end: 400");
+  assert((await (await web(`/api/me/notify`, B)).json()).quiet.start === q.quiet.start, "the refused times weren't saved");
   assert((await item(direct.it.seq)).it.interrupt === "digest", "quiet: held for the digest");
   await put(B, `/api/me/notify`, { quiet: { on: false } });
   assert((await item(direct.it.seq)).it.interrupt === "now", "quiet off again");
+  // The digest that's due counts every item that waited (the @all broadcast here), not one per poll: a digest time just
+  // ahead, asked a few minutes later (the dev clock), covers everything since the same time yesterday.
+  await put(B, `/api/me/notify`, { digest: [hm(Date.now() + 120_000)] });
+  const later = await (await web(`/api/inbox/count`, B, { headers: { "x-dev-now": String(Date.now() + 300_000) } })).json();
+  assert(later.notify.digest_count >= 1 && later.notify.digest_boards.includes(`e2e notify ${run}`), `the digest due: ${JSON.stringify(later.notify)}`);
+  await put(B, `/api/me/notify`, { digest: ["09:00", "13:00", "18:00"] });
   // Bad values are refused and nothing is saved.
   for (const bad of [{ level: "loud" }, {}]) assert((await put(B, `/api/boards/${nb}/notify`, bad)).status === 400, `bad level ${JSON.stringify(bad)}`);
   for (const bad of [{ quiet: { start: "25:00" } }, { quiet: { tz: "Mars/Base" } }, { digest: [] }, { sound: "loud" }]) assert((await put(B, `/api/me/notify`, bad)).status === 400, `bad prefs ${JSON.stringify(bad)}`);

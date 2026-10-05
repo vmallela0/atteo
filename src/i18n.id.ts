@@ -950,4 +950,6 @@ export const ID: Record<string, string> = {
   "Right away": "Langsung",
   "After a pause": "Setelah jeda",
   "When I tap Done": "Saat saya mengetuk Selesai",
+  "{n} update since the last digest": "{n} pembaruan sejak ringkasan terakhir",
+  "Quiet hours need different start and end times.": "Jam tenang perlu waktu mulai dan selesai yang berbeda.",
 };

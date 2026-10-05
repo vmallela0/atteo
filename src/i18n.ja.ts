@@ -950,4 +950,6 @@ export const JA: Record<string, string> = {
   "Right away": "すぐに",
   "After a pause": "間を置いてから",
   "When I tap Done": "「完了」をタップしたとき",
+  "{n} update since the last digest": "前回のまとめから {n} 件の更新",
+  "Quiet hours need different start and end times.": "おやすみ時間の開始と終了は別の時刻にしてください。",
 };

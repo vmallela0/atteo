@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { page, appPage, CSP_ENFORCE, CSP_REPORT_PATH } from "../src/ui";
-import { landingPage, boardPage, mePage } from "../src/html";
+import { page, appPage, CSP_ENFORCE, CSP_REPORT_PATH, VOICE_SOCKET_ORIGIN } from "../src/ui";
+import { landingPage, boardPage, mePage, PREVIEW_FRAME_CSP, PREVIEW_FRAME_HTML } from "../src/html";
+import { REALTIME_URL } from "../src/voice";
+import { MERMAID_JS, MERMAID_SRC, MERMAID_SRI } from "../src/mermaid";
 import { allow, blockedKey, parseReports } from "../src/csp";
 
 const viewer = { name: "csp", email: "csp@example.com", display_name: null, admin: false };
@@ -42,6 +44,43 @@ describe("HTML page CSP", () => {
       expect(res.headers.get("x-content-type-options")).toBe("nosniff");
       expect(res.headers.get("referrer-policy")).toBe("strict-origin-when-cross-origin");
     }
+  });
+});
+
+describe("CSP follow-ups (opus-b #2678, jxn's agent #2681)", () => {
+  const policyOf = (res: Response) => res.headers.get(HEADER) ?? "";
+  const directive = (csp: string, name: string) => csp.split("; ").find((x) => x.startsWith(name + " ")) ?? "";
+
+  it("sockets: only this host and the voice provider, never any wss host", () => {
+    const connect = directive(policyOf(landingPage()), "connect-src");
+    expect(connect).toBe(`connect-src 'self' ${VOICE_SOCKET_ORIGIN}`);
+    expect(connect).not.toMatch(/(^| )wss?:( |$)/);
+    expect(new URL(REALTIME_URL).origin).toBe(VOICE_SOCKET_ORIGIN);
+  });
+
+  it("mermaid: the one pinned file, loaded with SRI and crossorigin, not the whole CDN", () => {
+    const script = directive(policyOf(landingPage()), "script-src");
+    expect(script).toContain(MERMAID_SRC);
+    expect(MERMAID_SRC).toMatch(/^https:\/\/cdn\.jsdelivr\.net\/npm\/mermaid@\d+\.\d+\.\d+\/dist\/mermaid\.min\.js$/);
+    expect(script).not.toMatch(/https:\/\/cdn\.jsdelivr\.net\/?( |$)/);
+    expect(MERMAID_SRI).toMatch(/^sha384-[A-Za-z0-9+/]{64}$/);
+    expect(MERMAID_JS).toContain("s.integrity=SRI");
+    expect(MERMAID_JS).toContain("s.crossOrigin='anonymous'");
+    expect((MERMAID_JS.match(/createElement\('script'\)/g) ?? []).length).toBe(1); // the only place it loads
+  });
+
+  it("the HTML preview runs from its own shell with its own CSP, and never gets the page's nonce", async () => {
+    const res = boardPage(viewer, [], board, [], [], []);
+    const html = await res.text();
+    const nonce = policyOf(res).match(/'nonce-([a-f0-9]{32})'/)![1];
+    expect(html).toContain("fr.src='/preview-frame?'");
+    expect(html).not.toContain("srcdoc=");
+    expect(html).not.toMatch(/withCsp|\.nonce\b/);
+    expect(PREVIEW_FRAME_HTML).not.toContain(nonce);
+    expect(PREVIEW_FRAME_HTML).not.toContain("nonce");
+    for (const d of ["sandbox allow-scripts", "default-src 'none'", "connect-src 'none'", "form-action 'none'", "base-uri 'none'", "frame-ancestors 'self'"]) expect(PREVIEW_FRAME_CSP).toContain(d);
+    expect(PREVIEW_FRAME_CSP).not.toContain("allow-same-origin");
+    expect(PREVIEW_FRAME_CSP).not.toMatch(/'nonce-/);
   });
 });
 

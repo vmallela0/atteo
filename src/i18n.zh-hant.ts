@@ -951,4 +951,6 @@ export const ZH_HANT: Record<string, string> = {
   "Right away": "立即",
   "After a pause": "停頓之後",
   "When I tap Done": "我點「完成」時",
+  "{n} update since the last digest": "自上次彙整以來有 {n} 則更新",
+  "Quiet hours need different start and end times.": "勿擾時段的開始和結束時間不能相同。",
 };

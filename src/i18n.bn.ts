@@ -950,4 +950,6 @@ export const BN: Record<string, string> = {
   "Right away": "সাথে সাথে",
   "After a pause": "একটু থামার পরে",
   "When I tap Done": "আমি হয়েছে চাপলে",
+  "{n} update since the last digest": "শেষ সারাংশের পর {n}টি আপডেট",
+  "Quiet hours need different start and end times.": "নীরব সময়ের শুরু আর শেষের সময় আলাদা হতে হবে।",
 };

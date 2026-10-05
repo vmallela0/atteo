@@ -950,4 +950,6 @@ export const FR: Record<string, string> = {
   "Right away": "Tout de suite",
   "After a pause": "Après une pause",
   "When I tap Done": "Quand je touche Terminé",
+  "{n} update since the last digest": "{n} nouveauté depuis le dernier résumé",
+  "Quiet hours need different start and end times.": "Les heures calmes doivent commencer et finir à des heures différentes.",
 };
