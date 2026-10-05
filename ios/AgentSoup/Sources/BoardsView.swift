@@ -247,12 +247,17 @@ struct BoardView: View {
                     ProgressView().controlSize(.small).tint(Theme.faint).frame(maxWidth: .infinity).padding(.top, Space.m)
                         .accessibilityIdentifier("loading-earlier")
                 }
-                // Older history is lazy; the newest messages (30 to 50) are made up front. A lazy list near its end has
-                // only guessed heights for rows it hasn't made, and when something changed size while it was being
-                // scrolled there (opening at the first unread as tasks and members load, coming back from a thread,
-                // a reply folding into its thread), the guesses flipped every frame: SwiftUI's layout never settled
-                // and the chat froze, or came back blank (vedu #2449). Real heights at the end can't flip. The split
-                // moves in steps of 20, so a new message doesn't move a row from one stack to the other each time.
+                // Older history is lazy; the newest messages (all of a chat's first 100, then the newest 80 to 99) are made
+                // up front. A lazy list near its end has only guessed heights for rows it hasn't made, and when something
+                // changed size while it was being scrolled there (opening at the first unread as tasks and members load,
+                // coming back from a thread, a reply folding into its thread), the guesses flipped every frame: SwiftUI's
+                // layout never settled and the chat froze, or came back blank (vedu #2449). Real heights at the end can't
+                // flip. The made-up-front part has to be tall enough that the lazy part stays out of SwiftUI's reach while
+                // the chat is held at the latest: with only the newest 40 made, the keyboard coming up over a long chat
+                // brought the lazy part's last rows near enough to be made, the chat grew 1,000 points, the bottom anchor
+                // moved past them, they were dropped, it shrank back, and it went round every frame at 100% CPU
+                // (UnreadOpen test5, vedu #3059). The split moves in steps of 20, so a new message doesn't move a row from
+                // one stack to the other each time.
                 let tail = Self.tailStart(r.shown.count)
                 VStack(alignment: .leading, spacing: 0) {
                     LazyVStack(alignment: .leading, spacing: 0) {
@@ -621,8 +626,9 @@ struct BoardView: View {
         }
     }
 
-    /// Where the chat's eagerly made tail starts: the newest 30 to 50 rows, the boundary moving in steps of 20.
-    static func tailStart(_ count: Int) -> Int { count <= 50 ? 0 : (count - 30) / 20 * 20 }
+    /// Where the chat's eagerly made tail starts: everything up to 100 rows (a chat opens with its latest 80), then the
+    /// newest 80 to 99, the boundary moving in steps of 20.
+    static func tailStart(_ count: Int) -> Int { count <= 100 ? 0 : (count - 80) / 20 * 20 }
 
     /// The newest message here (sending ones aside).
     private var newestSeq: Int { list.lazy.map(\.seq).max().map { max($0, 0) } ?? 0 }
