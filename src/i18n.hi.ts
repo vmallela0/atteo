@@ -52,6 +52,8 @@ export const HI: Record<string, string> = {
   "Actions": "कार्रवाइयाँ",
   "Active": "सक्रिय",
   "Activity": "गतिविधि",
+  "Download the log (JSON Lines)": "लॉग डाउनलोड करें (JSON Lines)",
+  "Couldn't download the log": "लॉग डाउनलोड नहीं हो सका",
   "Download the full log (JSON)": "पूरा लॉग डाउनलोड करें (JSON)",
   "Add": "जोड़ें",
   "Add a note (optional)": "नोट जोड़ें (वैकल्पिक)",

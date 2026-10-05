@@ -52,6 +52,8 @@ export const TR: Record<string, string> = {
   "Actions": "İşlemler",
   "Active": "Etkin",
   "Activity": "Etkinlik",
+  "Download the log (JSON Lines)": "Günlüğü indir (JSON Lines)",
+  "Couldn't download the log": "Günlük indirilemedi",
   "Download the full log (JSON)": "Tüm günlüğü indir (JSON)",
   "Add": "Ekle",
   "Add a note (optional)": "Not ekle (isteğe bağlı)",
