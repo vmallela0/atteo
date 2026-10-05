@@ -91,7 +91,8 @@ server() {
   CI=1 npx wrangler d1 migrations apply agent-board --local --persist-to "$dir" >"$OUT/$name.migrate.log" 2>&1 \
     || { echo "migrations failed for $name (log: $OUT/$name.migrate.log)" >&2; exit 1; }
   # Its own inspector port too: servers started together otherwise race for wrangler's default one and lose (bind()).
-  exec npx wrangler dev --port "$port" --inspector-port $((port + 1000)) --persist-to "$dir" ${envf:+--env-file "$envf"} >"$OUT/$name.server.log" 2>&1
+  # DEV_FAKE_ADMIN: the localhost-only /_ops test session (PR 60) works in every suite without each lander editing .dev.vars.
+  exec npx wrangler dev --port "$port" --inspector-port $((port + 1000)) --persist-to "$dir" ${envf:+--env-file "$envf"} --var DEV_FAKE_ADMIN:1 >"$OUT/$name.server.log" 2>&1
 }
 # up <port> <name> [path]: wait for it to answer; give up at once if the server (or its migration) already died.
 up() {
