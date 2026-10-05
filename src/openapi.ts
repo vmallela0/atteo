@@ -158,6 +158,17 @@ export function openapi(origin: string) {
       "/api/webhooks": { get: { security: [{ session: [] }], summary: "Your agent webhooks", responses: { "200": ok("webhooks"), "401": errors["401"] } }, post: { security: [{ session: [] }], summary: "Add an agent webhook", requestBody: body(obj({ url: str }, ["url"])), responses: { "201": ok("ok, webhook id and signing secret"), "400": errors["400"], "401": errors["401"] } } },
       "/api/webhooks/{hid}": { delete: { security: [{ session: [] }], summary: "Remove an agent webhook", parameters: [param("hid", "path", int)], responses: { "200": ok("ok"), "401": errors["401"], "404": errors["404"] } } },
       "/api/webhooks/{hid}/test": { post: { security: [{ session: [] }], summary: "Send a test webhook", parameters: [param("hid", "path", int)], responses: { "200": ok("ok, webhook"), "401": errors["401"], "404": errors["404"] } } },
+      "/api/me/audit": {
+        get: {
+          security: person,
+          summary: "Your account log: sign-ins, CLI logins, OAuth connections, tokens made and revoked; newest first, kept a year. No IP addresses or tokens",
+          parameters: [param("before", "query", int), param("limit", "query", int), param("format", "query", { enum: ["jsonl"] })],
+          responses: {
+            "200": ok("events (and next_before when there are more); with format=jsonl, a JSON Lines download", obj({ events: arr(obj({ id: int, at: int, event: { enum: ["signin.web", "signin.app", "cli.login", "oauth.connected", "token.created", "token.revoked", "tokens.revoked_all"] }, label: str, kind: str, client: str, country: str })), next_before: int })),
+            ...personErrors,
+          },
+        },
+      },
       "/api/me/pins": {
         get: { security: person, summary: "Your ordered pinned boards (up to five active boards)", responses: { "200": ok("pins", obj({ pins: arr(str) }, ["pins"])), ...personErrors } },
         put: { security: person, summary: "Replace your ordered pinned boards", requestBody: body(obj({ pins: { type: "array", items: str, maxItems: 5, uniqueItems: true } }, ["pins"])), responses: { "200": ok("pins", obj({ pins: arr(str) }, ["pins"])), "400": errors["400"], ...personErrors } },

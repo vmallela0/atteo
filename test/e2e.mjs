@@ -4014,6 +4014,63 @@ await step("kill switch: Disconnect all agents revokes every sign-in and ends ev
   has(await (await fetch(`${BASE}/me`, { headers: { cookie: ck } })).text(), "Disconnect all agents");
 });
 
+await step("account log: each sign-in and token change lands once, for its person only; agent tokens can't read it; JSON Lines download", async () => {
+  const { createHash, randomBytes } = await import("node:crypto");
+  const L = `e2e-alog-${run}`, O = `e2e-alog2-${run}`;
+  await makeUsers([L, O], { token: false }); // one operator sign-in each
+  const ag = (await ops("tokens", { user: L, label: "ops agent" })).body.token; // an operator-made key
+  const json = { "content-type": "application/json" };
+  // A key made on the Account page, then revoked
+  const made = await (await web("/api/tokens", L, { method: "POST", headers: json, body: JSON.stringify({ label: "audit key" }) })).json();
+  assert(made.id, JSON.stringify(made));
+  assert((await web(`/api/tokens/${made.id}/revoke`, L, { method: "POST" })).status === 200, "revoke");
+  // A CLI login
+  const start = await (await fetch(`${BASE}/api/device/start`, { method: "POST", headers: json, body: JSON.stringify({ client: "audit laptop" }) })).json();
+  await web("/api/device/decide", L, { method: "POST", headers: json, body: JSON.stringify({ user_code: start.user_code, approve: true }) });
+  const cli = await (await fetch(`${BASE}/api/device/token`, { method: "POST", headers: { ...json, "user-agent": "atteo-cli/9.9 node/22" }, body: JSON.stringify({ device_code: start.device_code }) })).json();
+  assert(cli.status === "ok", JSON.stringify(cli));
+  // An MCP app over OAuth, then a refresh (the same connection carrying on: not logged)
+  const cb = "http://localhost:47125/cb";
+  const reg = await (await fetch(`${BASE}/oauth/register`, { method: "POST", headers: json, body: JSON.stringify({ client_name: "Audit MCP", redirect_uris: [cb] }) })).json();
+  const verifier = randomBytes(32).toString("base64url");
+  const q = new URLSearchParams({ response_type: "code", client_id: reg.client_id, redirect_uri: cb, code_challenge: createHash("sha256").update(verifier).digest("base64url"), code_challenge_method: "S256", state: "s" });
+  const rid = (await (await web(`/oauth/authorize?${q}`, L)).text()).match(/name="request_id" value="([^"]+)"/)[1];
+  const code = new URL((await web(`/oauth/authorize`, L, { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" }, body: `request_id=${rid}&allow=1` })).headers.get("location")).searchParams.get("code");
+  const tokenCall = (f) => fetch(`${BASE}/oauth/token`, { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" }, body: new URLSearchParams(f) }).then((r) => r.json());
+  const t = await tokenCall({ grant_type: "authorization_code", code, redirect_uri: cb, client_id: reg.client_id, code_verifier: verifier });
+  assert(t.refresh_token, JSON.stringify(t));
+  assert((await tokenCall({ grant_type: "refresh_token", refresh_token: t.refresh_token, client_id: reg.client_id })).access_token, "refresh");
+  // Disconnect all
+  assert((await web("/api/tokens/revoke-all", L, { method: "POST" })).status === 200, "revoke-all");
+
+  const log = await (await web("/api/me/audit", L)).json();
+  const seen = log.events.map((e) => `${e.event}${e.label ? ` ${e.label}` : ""}`);
+  assert(
+    JSON.stringify(seen) === JSON.stringify(["tokens.revoked_all 3 sign-ins", "oauth.connected Audit MCP", "cli.login audit laptop", "token.revoked audit key", "token.created audit key", "token.created ops agent", "signin.web"]),
+    JSON.stringify(log.events),
+  );
+  const cliLine = log.events.find((e) => e.event === "cli.login");
+  assert(cliLine.client === "atteo-cli/9.9" && cliLine.kind === "cli", JSON.stringify(cliLine));
+  assert(log.events.find((e) => e.event === "signin.web").client === "operator", "operator sign-ins say so");
+  assert(!JSON.stringify(log).includes("ab_") && !JSON.stringify(log).includes("ort_"), "never a token");
+  // Only its person: the other person sees only their own sign-in; the agent's token (revoked or live) can't read it.
+  const other = (await (await web("/api/me/audit", O)).json()).events;
+  assert(other.length === 1 && other[0].event === "signin.web", JSON.stringify(other));
+  const agentTok = (await ops("tokens", { user: L, label: "agent reading" })).body.token;
+  assert((await fetch(`${BASE}/api/me/audit`, { headers: { authorization: `Bearer ${agentTok}` } })).status === 403, "agent tokens get 403");
+  assert((await fetch(`${BASE}/api/me/audit`, { headers: { authorization: `Bearer ${ag}` } })).status === 401, "a revoked token gets nothing");
+  assert((await fetch(`${BASE}/api/me/audit`)).status === 401, "signed out");
+  // Download and the Account page
+  const dl = await web("/api/me/audit?format=jsonl", L);
+  assert(/attachment; filename="atteo-account-/.test(dl.headers.get("content-disposition") ?? ""), dl.headers.get("content-disposition"));
+  const lines = (await dl.text()).trim().split("\n").map((l) => JSON.parse(l));
+  assert(lines.length === 8 && lines[0].event === "token.created" && lines[0].label === "agent reading" && /^\d{4}-\d\d-\d\dT/.test(lines[0].at), JSON.stringify(lines[0]));
+  const me = await (await web("/me", L)).text();
+  has(me, "Account log");
+  has(me, "Disconnected all agents");
+  has(me, 'href="/api/me/audit?format=jsonl"');
+});
+
 await step("mailbox: DMs and mail for your agent wait until your agent polls; full text; delivery is separate from your web reading; wait and ack", async () => {
   const M1 = `e2e-mb1-${run}`, M2 = `e2e-mb2-${run}`;
   await makeUsers([M1, M2], { session: false });

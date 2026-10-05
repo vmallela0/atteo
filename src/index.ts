@@ -42,6 +42,7 @@ import { EMAIL_RE, sendInvite } from "./invite";
 import { mayMention, parseMentions, SESSION_NAME_RE, type Mention } from "./mentions";
 import * as registry from "./registry";
 import * as backup from "./backup";
+import * as accountlog from "./accountlog";
 import * as pins from "./pins";
 import * as boardkeys from "./boardkeys";
 import * as mailbox from "./mailbox";
@@ -370,6 +371,7 @@ async function authCallback(c: Ctx): Promise<Response> {
   headers.append("Set-Cookie", auth.cookieHeader(c.url, auth.SESSION_COOKIE, session, 30 * 24 * 3600));
   headers.append("Set-Cookie", auth.cookieHeader(c.url, auth.OAUTH_COOKIE, "", 0));
 
+  if (user) await accountlog.record(c.env, user.name, "signin.web", c.request);
   if (!user) {
     headers.set("Location", `/welcome?return=${encodeURIComponent(safeReturn(ret))}`);
     return new Response(null, { status: 303, headers });
@@ -398,6 +400,7 @@ async function welcome(c: Ctx): Promise<Response> {
   if (await registry.userByWorkosId(c.env, s.workos_id)) return redirect("/");
   await registry.createUser(c.env, { name, email: s.email, email_verified: !!s.email_verified, workos_id: s.workos_id, display_name: s.display_name });
   await auth.setSessionUser(c.env, s.id_hash, name);
+  await accountlog.record(c.env, name, "signin.web", c.request); // their first, finished on /welcome
   return redirect(safeReturn(c.url.searchParams.get("return")));
 }
 
@@ -407,8 +410,10 @@ const NAME_RULES = "Use 1–32 lowercase letters, numbers, dot, dash or undersco
 const tooMany = () => json({ error: "Too many tries. Wait a few minutes, then try again." }, 429, { "retry-after": "600" });
 
 /** The same token the OAuth sign-in gives the app (scope "person"): kind "app", 30 days, listed in Settings → Connected. */
-async function appToken(env: Env, user: registry.FullUser, device: string | null) {
-  const t = await auth.createToken(env, user.name, device ? `Atteo app · ${device}` : "Atteo app", { expiresAt: Date.now() + oauth.OAUTH_TOKEN_TTL_MS, kind: "app" });
+async function appToken(env: Env, user: registry.FullUser, device: string | null, request: Request) {
+  const label = device ? `Atteo app · ${device}` : "Atteo app";
+  const t = await auth.createToken(env, user.name, label, { expiresAt: Date.now() + oauth.OAUTH_TOKEN_TTL_MS, kind: "app" });
+  await accountlog.record(env, user.name, "signin.app", request, { label, kind: "app" });
   return { token: t.token, token_type: "Bearer", expires_in: Math.floor(oauth.OAUTH_TOKEN_TTL_MS / 1000), user: { name: user.name, email: user.email, display_name: user.display_name } };
 }
 
@@ -457,7 +462,7 @@ async function appSigninVerify(c: Ctx): Promise<Response> {
   const who = await memberForWorkosUser(c.env, wu);
   if ("ssoRequired" in who) return json({ error: `${who.ssoRequired} requires single sign-on. Use “Continue with Google, GitHub or SSO” below.` }, 403);
   const device = appSignin.deviceLabel(b.device_name);
-  if (who.user) return json(await appToken(c.env, who.user, device), 200, { "cache-control": "no-store" });
+  if (who.user) return json(await appToken(c.env, who.user, device, c.request), 200, { "cache-control": "no-store" });
   // New here: pick a name (the app's version of /welcome).
   const ticket = await appSignin.createSignup(c.env, { workos_id: wu.id, email: wu.email, email_verified: who.verified ? 1 : 0, display_name: who.display, device_name: device });
   const suggestion = await freeName(c.env, suggestName(wu.email, who.display));
@@ -474,7 +479,7 @@ async function appSigninName(c: Ctx): Promise<Response> {
   const existing = await registry.userByWorkosId(c.env, s.workos_id);
   if (existing) {
     await appSignin.useSignup(c.env, ticket);
-    return json(await appToken(c.env, existing, s.device_name), 200, { "cache-control": "no-store" });
+    return json(await appToken(c.env, existing, s.device_name, c.request), 200, { "cache-control": "no-store" });
   }
   const name = normalizeUser(String(b.name ?? "").trim().replace(/^@/, ""));
   if (!name) return json({ error: NAME_RULES }, 400);
@@ -487,7 +492,7 @@ async function appSigninName(c: Ctx): Promise<Response> {
   await appSignin.useSignup(c.env, ticket);
   const user = await registry.userByName(c.env, name);
   if (!user) return json({ error: "Couldn't finish signing up. Try again." }, 500);
-  return json(await appToken(c.env, user, s.device_name), 201, { "cache-control": "no-store" });
+  return json(await appToken(c.env, user, s.device_name, c.request), 201, { "cache-control": "no-store" });
 }
 
 // ---------- ops data ----------
@@ -546,6 +551,7 @@ async function runScheduled(env: Env, ctx: ExecutionContext, now = Date.now()): 
     ctx.waitUntil(mailbox.pruneMail(env, now).catch(() => {}));
     ctx.waitUntil(usage.pruneUsageDaily(env, now).catch(() => {}));
     ctx.waitUntil(backup.pruneBackupParts(env, now).catch(() => {}));
+    ctx.waitUntil(accountlog.prune(env, now).catch(() => {}));
   }
   for (const m of await registry.expiredMembers(env)) {
     ctx.waitUntil(
@@ -786,7 +792,7 @@ const handler = {
         const ct = request.headers.get("content-type") ?? "";
         const f = ct.includes("json") ? ((await request.json().catch(() => ({}))) as Record<string, string>) : Object.fromEntries(new URLSearchParams(await request.text()));
         try {
-          return json(await oauth.exchange(env, f), 200, { ...cors, "cache-control": "no-store" });
+          return json(await oauth.exchange(env, f, request), 200, { ...cors, "cache-control": "no-store" });
         } catch (e) {
           return json({ error: e instanceof oauth.OAuthError ? e.code : "invalid_request", error_description: e instanceof Error ? e.message : String(e) }, 400, cors);
         }
@@ -861,7 +867,7 @@ const handler = {
       if (path === "/api/device/token" && method === "POST") {
         const body = (await request.json().catch(() => ({}))) as { device_code?: string };
         if (!body.device_code) return json({ error: "device_code required" }, 400);
-        const r = await device.pollDeviceLogin(env, body.device_code);
+        const r = await device.pollDeviceLogin(env, body.device_code, request);
         return json(r, r.status === "ok" ? 200 : r.status === "pending" ? 428 : 400);
       }
       if (path === "/device" && method === "GET") {
@@ -1367,6 +1373,18 @@ const handler = {
         if (!viewer) return needLogin();
         return json({ name: viewer.name, email: viewer.email, display_name: viewer.display_name, via: viewer.via ?? "person" }, 200, { "cache-control": "no-store" });
       }
+      // The account log (#3490): this person's sign-ins and token changes, newest first. People only: an agent's token
+      // shouldn't read where its person signs in. ?format=jsonl downloads the year.
+      if (path === "/api/me/audit" && method === "GET") {
+        if (!viewer) return needLogin();
+        if (viewer.via === "agent") return json({ error: "Your account log is for you, not your agents." }, 403);
+        if (url.searchParams.get("format") === "jsonl") {
+          return new Response(await accountlog.jsonl(env, viewer.name), {
+            headers: { "content-type": "application/x-ndjson; charset=utf-8", "content-disposition": `attachment; filename="atteo-account-${viewer.name}-${new Date().toISOString().slice(0, 10)}.jsonl"`, "cache-control": "no-store" },
+          });
+        }
+        return json(await accountlog.list(env, viewer.name, { before: Number(url.searchParams.get("before")) || undefined, limit: Number(url.searchParams.get("limit")) || 50 }), 200, { "cache-control": "no-store" });
+      }
       if (path === "/api/me/pins" && (method === "GET" || method === "PUT")) {
         if (!viewer) return needLogin();
         if (viewer.via === "agent") return json({ error: "Pins are for people." }, 403);
@@ -1615,15 +1633,16 @@ const handler = {
       }
       if (path === "/me" && method === "GET") {
         if (!viewer) return needLogin();
-        const [side, tokens, plan, hooks, prof, mine] = await Promise.all([
+        const [side, tokens, plan, hooks, prof, mine, log] = await Promise.all([
           sideBoards(env, viewer.name),
           auth.listTokens(env, viewer.name),
           billing.planOf(env, viewer.name),
           webhooks.listWebhooks(env, viewer.name),
           social.profile(env, viewer.name),
           sessions.list(env, viewer.name),
+          accountlog.list(env, viewer.name, { limit: 6 }),
         ]);
-        return mePage(viewer, side, tokens, plan, !!env.STRIPE_SECRET_KEY, hooks, prof, mine.filter(sessions.listed).map((x) => x.client || x.name));
+        return mePage(viewer, side, tokens, plan, !!env.STRIPE_SECRET_KEY, hooks, prof, mine.filter(sessions.listed).map((x) => x.client || x.name), log.events);
       }
 
       if (path === OPS_PATH && method === "GET") {
@@ -3064,7 +3083,9 @@ const handler = {
         const board = body.board && (await canSee(c, body.board)) ? body.board : null;
         const days = Number(body.expires_in_days);
         const expiresAt = Number.isFinite(days) && days >= 1 ? Date.now() + Math.min(365, Math.floor(days)) * 86400e3 : null;
-        const t = await auth.createToken(env, viewer.name, String(body.label ?? "").slice(0, 80) || "Agent", { expiresAt });
+        const label = String(body.label ?? "").slice(0, 80) || "Agent";
+        const t = await auth.createToken(env, viewer.name, label, { expiresAt });
+        await accountlog.record(env, viewer.name, "token.created", request, { label, kind: "manual" });
         return json(
           {
             id: t.id,
@@ -3082,12 +3103,16 @@ const handler = {
         if (!viewer) return needLogin();
         const [tokens, ended] = await Promise.all([auth.revokeAllTokens(env, viewer.name), sessions.endAll(env, viewer.name)]);
         await env.DB.prepare(`DELETE FROM mcp_sessions WHERE user = ?`).bind(viewer.name).run();
+        await accountlog.record(env, viewer.name, "tokens.revoked_all", request, { label: `${tokens} sign-in${tokens === 1 ? "" : "s"}` });
         return json({ ok: true, tokens, sessions: ended, message: `Disconnected: ${tokens} sign-in${tokens === 1 ? "" : "s"} revoked and ${ended} agent session${ended === 1 ? "" : "s"} ended. Run atteo login to connect again.` });
       }
       m = path.match(/^\/api\/tokens\/([^/]+)\/revoke$/);
       if (m && method === "POST") {
         if (!viewer) return needLogin();
-        return (await auth.revokeToken(env, viewer.name, m[1])) ? json({ ok: true, message: "Revoked" }) : json({ error: "token not found" }, 404);
+        const gone = await auth.revokeToken(env, viewer.name, m[1]);
+        if (!gone) return json({ error: "token not found" }, 404);
+        await accountlog.record(env, viewer.name, "token.revoked", request, { label: gone.label, kind: gone.kind });
+        return json({ ok: true, message: "Revoked" });
       }
 
       // ---- ops API: operator session or x-admin-key (automation and tests) ----
@@ -3134,6 +3159,7 @@ const handler = {
           const ttl = Number(body.expires_in_s);
           // kind "app": a token as the Atteo app would get (tests and simulator runs only; people get theirs by signing in).
           const t = await auth.createToken(env, u, body.label || "ops-issued", { ...(Number.isFinite(ttl) ? { expiresAt: Date.now() + ttl * 1000 } : {}), ...(body.kind === "app" ? { kind: "app" as const } : {}) });
+          await accountlog.record(env, u, "token.created", request, { label: body.label || "ops-issued", kind: body.kind === "app" ? "app" : "manual", client: "operator" });
           return json({ token: t.token, command: connectCommand(origin, body.board ?? null, t.token) }, 201);
         }
         if (path === "/api/ops/sessions" && method === "POST") {
@@ -3147,6 +3173,7 @@ const handler = {
             email_verified: String(body.verified) === "true",
             display_name: row.display_name,
           });
+          await accountlog.record(env, row.name, "signin.web", request, { client: "operator" });
           return json({ cookie: `${auth.SESSION_COOKIE}=${secret}` }, 201);
         }
         if (path === "/api/ops/policies" && method === "GET") return json({ policies: (await env.DB.prepare(`SELECT * FROM org_policies ORDER BY domain`).all()).results });
