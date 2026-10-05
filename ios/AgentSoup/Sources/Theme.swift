@@ -566,4 +566,11 @@ extension String {
     var md: AttributedString {
         (try? AttributedString(markdown: self, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))) ?? AttributedString(self)
     }
+    /// The same, with no tappable links: for a one-line preview inside a row you tap as a whole (a link there took
+    /// the row's tap and left the app, jxn #4173).
+    var mdPreview: AttributedString {
+        var a = md
+        for r in a.runs.filter({ $0.link != nil }).map(\.range) { a[r].link = nil }
+        return a
+    }
 }

@@ -413,7 +413,7 @@ struct ChatRow: View {
                             Text(String(localized: "Draft: \(String(drafts.text(for: b).prefix(40)))", bundle: .l10n))
                                 .foregroundStyle(Theme.accent)
                         } else if let l = b.last {
-                            Text(Vocab.shown(l.by) + ": ").foregroundStyle(Theme.muted) + Text(l.text.md).foregroundStyle(unread > 0 ? Theme.muted : Theme.faint)
+                            Text(Vocab.shown(l.by) + ": ").foregroundStyle(Theme.muted) + Text(l.text.mdPreview).foregroundStyle(unread > 0 ? Theme.muted : Theme.faint)
                         } else {
                             Text("\(b.entryCount) messages").foregroundStyle(Theme.faint)
                         }
