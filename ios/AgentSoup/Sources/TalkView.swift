@@ -287,11 +287,11 @@ struct TalkSheet: View {
                 .frame(height: 160)
                 if live, talk.handsFree, talk.turns == .tap { turnDoneButton }
             }
-            // Loudspeaker or earpiece (vedu #2384), beside mute's job: mute silences Atteo, this picks where it plays.
+            // Where Atteo plays (vedu #2384, #2464), beside mute's job: mute silences Atteo, this picks the device.
             // And when Atteo answers (vedu #2460), hands-free: right away, after a pause, or when you tap Done.
             if talk.phase == .ready || talk.phase == .standby {
                 HStack(spacing: Space.s) {
-                    SpeakerToggle(style: .chip)
+                    AudioOutputButton(style: .chip)
                     if talk.handsFree { TurnsChip(turns: talk.turns, set: { [talk] t in talk.setTurns(t) }).equatable() }
                 }
             }

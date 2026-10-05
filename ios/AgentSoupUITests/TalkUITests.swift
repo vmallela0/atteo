@@ -486,8 +486,9 @@ final class TalkUITests: AtteoUITestCase {
         endAndSettle(a, before: before)
     }
 
-    /// Loudspeaker or earpiece (vedu #2384): a "Speaker" chip under the call's buttons, beside mute's job, that flips
-    /// to "Earpiece" and is remembered on this phone across launches.
+    /// Where Atteo plays, Spotify-style (vedu #2384, #2464): an output chip under the call's buttons, beside mute's
+    /// job, names the device ("Phone speaker" by default) and opens a menu: the phone's speaker or earpiece, or
+    /// Bluetooth and AirPlay (the system picker). The earpiece is remembered on this phone across launches.
     func testSpeakerChoiceIsRemembered() {
         let before = minutesUsed()
         var a = app(extra: ["AGENT_SOUP_FAKE_VOICE": "1", "AGENT_SOUP_TALK_STANDBY_SECONDS": "600"])
@@ -498,20 +499,29 @@ final class TalkUITests: AtteoUITestCase {
             a.buttons["talk"].tap()
             let state = a.staticTexts["talk-state"]
             XCTAssertTrue(eventually(state, "label == 'Listening…'", timeout: 15), "listening (\(state.label))")
-            let speaker = a.buttons["speaker-toggle"]
-            XCTAssertTrue(speaker.waitForExistence(timeout: 5), "a speaker choice in the call")
+            let output = a.buttons["audio-output"]
+            XCTAssertTrue(output.waitForExistence(timeout: 5), "an output choice in the call")
             XCTAssertTrue(a.buttons["talk-mute"].exists, "mute is still there too")
-            return speaker
+            return output
         }
-        var speaker = openCall()
-        if speaker.value as? String == "Earpiece" { speaker.tap() } // an earlier run's choice: start from the default
-        XCTAssertTrue(eventually(speaker, "value == 'Loudspeaker'", timeout: 3), "the loudspeaker by default")
-        XCTAssertEqual(speaker.label, "Speaker on")
-        shot("talk-speaker-on")
-        speaker.tap()
-        XCTAssertTrue(eventually(speaker, "value == 'Earpiece'", timeout: 3), "flips to the earpiece")
-        XCTAssertEqual(speaker.label, "Speaker off")
-        shot("talk-speaker-earpiece")
+        func choose(_ output: XCUIElement, _ name: String) {
+            output.tap()
+            XCTAssertTrue(a.buttons["Bluetooth and AirPlay…"].waitForExistence(timeout: 3), "the menu offers other devices")
+            XCTAssertTrue(a.buttons["Phone speaker"].exists && a.buttons["Phone earpiece"].exists, "and both of the phone's own")
+            a.buttons[name].tap()
+        }
+        var output = openCall()
+        if output.value as? String == "Phone earpiece" { choose(output, "Phone speaker") } // an earlier run's choice
+        XCTAssertTrue(eventually(output, "value == 'Phone speaker'", timeout: 3), "the loudspeaker by default (\(output.value ?? "nil"))")
+        XCTAssertEqual(output.label, "Audio output: Phone speaker")
+        shot("talk-output-speaker")
+        output.tap()
+        XCTAssertTrue(a.buttons["Phone earpiece"].waitForExistence(timeout: 3))
+        shot("talk-output-menu")
+        a.buttons["Phone earpiece"].tap()
+        XCTAssertTrue(eventually(output, "value == 'Phone earpiece'", timeout: 3), "the earpiece, picked")
+        XCTAssertEqual(output.label, "Audio output: Phone earpiece")
+        shot("talk-output-earpiece")
         endAndSettle(a, before: before)
 
         // A new launch keeps it.
@@ -520,10 +530,10 @@ final class TalkUITests: AtteoUITestCase {
         a = app(extra: ["AGENT_SOUP_FAKE_VOICE": "1", "AGENT_SOUP_TALK_STANDBY_SECONDS": "600"])
         a.launchArguments += ["-talk-hold-to-talk", "NO", "-talk-captions", "all"]
         a.launch()
-        speaker = openCall()
-        XCTAssertTrue(eventually(speaker, "value == 'Earpiece'", timeout: 3), "remembered across launches (\(speaker.value ?? "nil"))")
-        speaker.tap() // back to the default on this simulator
-        XCTAssertTrue(eventually(speaker, "value == 'Loudspeaker'", timeout: 3))
+        output = openCall()
+        XCTAssertTrue(eventually(output, "value == 'Phone earpiece'", timeout: 3), "remembered across launches (\(output.value ?? "nil"))")
+        choose(output, "Phone speaker") // back to the default on this simulator
+        XCTAssertTrue(eventually(output, "value == 'Phone speaker'", timeout: 3))
         endAndSettle(a, before: before2)
     }
 
