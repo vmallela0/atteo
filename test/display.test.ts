@@ -17,3 +17,12 @@ describe("display.replies", () => {
     expect(() => mergeDisplay(DISPLAY_DEFAULTS, { replies: "hidden" })).toThrow();
   });
 });
+
+describe("display.voice_turns", () => {
+  it("voice chat waits for a long pause by default; quick and tap are the other choices (vedu #2460)", () => {
+    expect(DISPLAY_DEFAULTS.voice_turns).toBe("pause");
+    expect(mergeDisplay(DISPLAY_DEFAULTS, { voice_turns: "tap" }).voice_turns).toBe("tap");
+    expect(mergeDisplay(DISPLAY_DEFAULTS, { voice_turns: "quick" }).voice_turns).toBe("quick");
+    expect(() => mergeDisplay(DISPLAY_DEFAULTS, { voice_turns: "called" })).toThrow();
+  });
+});

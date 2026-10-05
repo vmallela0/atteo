@@ -316,8 +316,9 @@ export interface Display {
   lang: "auto" | "en" | "zh-Hans" | "zh-Hant" | "es" | "ja" | "ko" | "hi" | "fr" | "pt" | "de" | "ru" | "id" | "tr" | "bn" | "ar"; // interface language (vedu #1645, #1650); auto = the device's
   voice: "eve" | "ara" | "leo" | "rex" | "sal"; // read-aloud and voice chat (vedu #1717); xAI's voices
   replies: "chat" | "thread"; // replies in the chat (each with a quote bar), or only in their threads (vedu #2360)
+  voice_turns: "quick" | "pause" | "tap"; // voice chat: when Atteo answers (vedu #2460): at once, after a long pause, or when you tap Done
 }
-export const DISPLAY_DEFAULTS: Display = { text: "m", density: "comfortable", theme: "system", mode: "auto", lang: "auto", voice: "eve", replies: "chat" };
+export const DISPLAY_DEFAULTS: Display = { text: "m", density: "comfortable", theme: "system", mode: "auto", lang: "auto", voice: "eve", replies: "chat", voice_turns: "pause" };
 const DISPLAY_VALUES: Record<keyof Display, readonly string[]> = {
   text: ["s", "m", "l"],
   density: ["comfortable", "compact"],
@@ -326,6 +327,7 @@ const DISPLAY_VALUES: Record<keyof Display, readonly string[]> = {
   lang: ["auto", "en", "zh-Hans", "zh-Hant", "es", "ja", "ko", "hi", "fr", "pt", "de", "ru", "id", "tr", "bn", "ar"],
   voice: ["eve", "ara", "leo", "rex", "sal"],
   replies: ["chat", "thread"],
+  voice_turns: ["quick", "pause", "tap"],
 };
 const isDisplayKey = (k: string): k is keyof Display => Object.prototype.hasOwnProperty.call(DISPLAY_VALUES, k);
 
@@ -346,7 +348,7 @@ export function mergeDisplay(cur: Display, patch: unknown): Display {
   if (!patch || typeof patch !== "object" || Array.isArray(patch)) throw new SocialError('display must be an object, e.g. {"text":"l"}.');
   const out: Record<string, string> = { ...cur };
   for (const [k, v] of Object.entries(patch as Record<string, unknown>)) {
-    if (!isDisplayKey(k)) throw new SocialError(`Unknown display setting "${k}": use text, density, theme, mode, lang, voice or replies.`);
+    if (!isDisplayKey(k)) throw new SocialError(`Unknown display setting "${k}": use text, density, theme, mode, lang, voice, replies or voice_turns.`);
     if (typeof v !== "string" || !DISPLAY_VALUES[k].includes(v)) throw new SocialError(`display.${k} must be one of: ${DISPLAY_VALUES[k].join(", ")}.`);
     out[k] = v;
   }
@@ -431,8 +433,14 @@ export interface AppPrefs {
 
 /** The person's saved read-aloud / voice chat voice (display.voice), one primary-key read. */
 export async function savedVoice(env: Env, user: string): Promise<Display["voice"]> {
+  return (await savedVoicePrefs(env, user)).voice;
+}
+
+/** The voice chat prefs (display.voice and display.voice_turns), one primary-key read. */
+export async function savedVoicePrefs(env: Env, user: string): Promise<Pick<Display, "voice" | "voice_turns">> {
   const r = await env.DB.prepare(`SELECT display FROM users WHERE name = ?`).bind(user).first<{ display: string | null }>().catch(() => null);
-  return readDisplay(r?.display ?? null).voice;
+  const d = readDisplay(r?.display ?? null);
+  return { voice: d.voice, voice_turns: d.voice_turns };
 }
 
 export async function appPrefs(env: Env, user: string): Promise<AppPrefs | null> {

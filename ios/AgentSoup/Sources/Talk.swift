@@ -15,6 +15,9 @@
 // A long hands-free call stands by when it goes quiet (TalkStandby.swift, jxn #2071): the socket closes and the
 // session settles, the sheet stays; a tap or AirPods' play starts a new session that's told the last few turns. While
 // it stands by, new messages are read aloud (/api/app/tts {board, seq, from: true}).
+// When Atteo answers (vedu #2460, VoiceTurns.swift): hands-free "quick" is the server's VAD, as above; "pause" and "tap"
+// (the session's turn_detection null) end the turn here, with commit + response.create: after a pause of quiet once you
+// spoke, or on Done / AirPods' play-pause. Talking over Atteo still stops it (TalkTurns hears you start).
 // The UI is TalkView.swift, the audio TalkAudio.swift, and the local fake (DEBUG only) TalkFake.swift.
 
 import AVFoundation
@@ -196,6 +199,10 @@ final class TalkSession: ObservableObject {
     @Published private(set) var endNote: String?
     @Published private(set) var reading = false // standing by: a new message is being read aloud
     @Published private(set) var standbyNote: String? // standing by: why it couldn't resume, or read-aloud is used up
+    /// When Atteo answers (VoiceTurns.swift): what this call runs (the server's say, from the person's choice).
+    @Published private(set) var turns: VoiceTurns = .quick
+    @Published private(set) var turnHeard = false // pause / tap: you've said something this turn (Done can send it)
+    @Published private(set) var pauseProgress: Double? // pause: how full the wait after you went quiet is (0…1)
 
     let board: Board?
     private var link: RealtimeLink?
@@ -245,6 +252,9 @@ final class TalkSession: ObservableObject {
     private var itemAudio: TimeInterval = 0 // seconds of it queued so far
     private var stoppedAt: Date? // when the VAD last heard you stop
     private var grokPending: [String: String] = [:] // caption id → Atteo's words after its last finished sentence
+    private var tracker = TalkTurns() // pause / tap: where you start and stop, from the mic level
+    private var bufferSince = Date() // pause / tap: when the buffer was last cleared (or a turn sent)
+    private var requestedTurns: VoiceTurns? // switched during this call: the next session asks for it
 
     static let holdKey = "talk-hold-to-talk"
 
@@ -305,6 +315,8 @@ final class TalkSession: ObservableObject {
         var body: [String: Any] = [:]
         if let b = board, b.encrypted != true { body["board"] = b.id }
         body["hands_free"] = handsFree
+        body["client_turns"] = true // this app can end a turn itself (pause, tap)
+        body["voice_turns"] = (requestedTurns ?? VoiceTurns.chosen).rawValue
         let code: Int, j: [String: Any]
         do { (code, j) = try await TalkAPI.call("POST", "/api/app/voice/session", body: body) } catch {
             failed(error.localizedDescription, resuming: resuming); return
@@ -317,6 +329,9 @@ final class TalkSession: ObservableObject {
         sessionId = sid
         if let p = (j["end"] as? [String: Any])?["path"] as? String { endPath = p }
         routes = j["tool_routes"] as? [String: [String: Any]] ?? [:]
+        turns = VoiceTurns(server: j["voice_turns"])
+        tracker = TalkTurns(pause: ((j["pause_ms"] as? NSNumber)?.doubleValue ?? 1500) / 1000)
+        turnHeard = false; pauseProgress = nil; bufferSince = Date()
         maxSeconds = (j["max_seconds"] as? NSNumber)?.intValue ?? 600
         if let used = (j["minutes_used"] as? NSNumber)?.doubleValue, let budget = (j["minutes_budget"] as? NSNumber)?.doubleValue {
             monthLeft = max(0, budget - used) // used already counts this session's whole cap
@@ -346,6 +361,8 @@ final class TalkSession: ObservableObject {
             guard let self else { return }
             let on = self.handsFree ? !self.micMuted : self.holding
             self.level = on ? l : 0
+            // As listen(): without echo cancelling the mic doesn't count while Atteo talks (that would be its own voice).
+            if on, self.clientTurns, self.audio.echoCancelling || !self.speaking { self.heard(level: l) }
         }
         // The fake stays silent (its "voice" is only timed): a simulator under test can hang starting audio I/O.
         if audio.useMic {
@@ -402,13 +419,17 @@ final class TalkSession: ObservableObject {
             else { finish(problem: String(localized: "That's this session's time. Start another to keep talking.", bundle: .l10n)) }
             return
         }
+        if clientTurns {
+            pauseProgress = turns == .pause ? tracker.progress(now: now) : nil
+            if turns == .pause, tracker.due(now: now) { endTurn() }
+        } else if pauseProgress != nil { pauseProgress = nil }
         let a = activity
         if a.busy { lastActive = now }
         if TalkStandby.shouldStandBy(now: now, lastActive: lastActive, a) { standBy() }
     }
 
     private var activity: TalkStandby.Activity {
-        TalkStandby.Activity(handsFree: handsFree, hearing: hearing || holding, speaking: speaking, thinking: thinking || activeResponse != nil,
+        TalkStandby.Activity(handsFree: handsFree, hearing: hearing || holding || turnHeard, speaking: speaking, thinking: thinking || activeResponse != nil,
                              toolsRunning: toolsRunning, confirmWaiting: confirm != nil)
     }
 
@@ -513,9 +534,10 @@ final class TalkSession: ObservableObject {
         }
         // One AirPods press can arrive twice during a live call (the mute gesture and a play/pause): act on the first.
         guard Date().timeIntervalSince(lastRemote) > 1 else { return }
-        switch TalkStandby.action(c, state, handsFree: handsFree) {
+        switch TalkStandby.action(c, state, handsFree: handsFree, endsTurn: clientTurns && turns == .tap && tracker.heard) {
         case .standBy: lastRemote = Date(); standBy()
         case .resume: lastRemote = Date(); resume()
+        case .endTurn: lastRemote = Date(); endTurn()
         case .none: break
         }
     }
@@ -527,6 +549,7 @@ final class TalkSession: ObservableObject {
         activeResponse = nil; cancelled = []; wantResponse = false; toolsRunning = 0
         audioUntil = .distantPast; audioItem = nil; itemAudio = 0; stoppedAt = nil; youCaption = nil; grokPending = [:]
         holding = false; speaking = false; thinking = false; hearing = false; level = 0
+        tracker.reset(); turnHeard = false; pauseProgress = nil
         elapsed = 0
     }
 
@@ -679,8 +702,9 @@ final class TalkSession: ObservableObject {
         audio.stopCapture()
         link?.send(["type": "input_audio_buffer.clear"])
         var s = session
-        s["turn_detection"] = on ? ["type": "server_vad"] : NSNull()
+        s["turn_detection"] = on && turns == .quick ? ["type": "server_vad"] : NSNull()
         session = s
+        tracker.reset(); turnHeard = false; pauseProgress = nil; bufferSince = Date()
         link?.send(["type": "session.update", "session": s])
         if on { listen() }
         Haptics.play(.touch)
@@ -694,6 +718,7 @@ final class TalkSession: ObservableObject {
         if micMuted {
             level = 0
             hearing = false
+            tracker.reset(); turnHeard = false; pauseProgress = nil
             if phase == .ready { link?.send(["type": "input_audio_buffer.clear"]) } // no half-heard turn left behind
         }
     }
@@ -702,10 +727,89 @@ final class TalkSession: ObservableObject {
     func orbTapped() {
         guard phase == .ready else { return }
         #if DEBUG
-        if let fake = link as? FakeGrokLink { if !micMuted { fake.personSpeaks() }; return }
+        if let fake = link as? FakeGrokLink {
+            guard !micMuted else { return }
+            if clientTurns { fakeSpoke() } else { fake.personSpeaks() }
+            return
+        }
         #endif
         if speaking || activeResponse != nil { interrupt() }
     }
+
+    // MARK: When Atteo answers (pause, tap)
+
+    /// Hands-free with the turns ours (pause, tap): the session has no server VAD.
+    var clientTurns: Bool { handsFree && turns != .quick && phase == .ready }
+
+    /// A mic level, in pause or tap: you started (barge in if Atteo is talking, as the server's VAD does), went quiet,
+    /// or talk again. Until you say something the buffer is cleared every few seconds, so a turn doesn't carry silence.
+    private func heard(level l: Float) {
+        let now = Date()
+        switch tracker.feed(l, atteoTalking: speaking || activeResponse != nil, now: now) {
+        case .started:
+            hearing = true
+            stoppedAt = nil
+            lastActive = now
+            if speaking || activeResponse != nil { interrupt() }
+            if youCaption == nil { let id = "you-\(UUID().uuidString)"; youCaption = id; captions.append(Caption(id: id, who: .you, text: "…")) }
+        case .again: hearing = true; lastActive = now
+        case .quiet: hearing = false
+        case .none: break
+        }
+        if turnHeard != tracker.heard { turnHeard = tracker.heard }
+        if !tracker.heard, now.timeIntervalSince(bufferSince) > 5 {
+            bufferSince = now
+            link?.send(["type": "input_audio_buffer.clear"])
+        }
+    }
+
+    /// The end of your turn in pause or tap (the pause ran out, Done, or AirPods): what you said goes, Atteo answers.
+    func endTurn() {
+        guard clientTurns, tracker.heard else { return }
+        tracker.reset(); turnHeard = false; pauseProgress = nil; hearing = false
+        bufferSince = Date()
+        lastActive = Date()
+        link?.send(["type": "input_audio_buffer.commit"])
+        if youCaption == nil { let id = "you-\(UUID().uuidString)"; youCaption = id; captions.append(Caption(id: id, who: .you, text: "…")) }
+        thinking = true
+        stoppedAt = Date()
+        Haptics.play(.touch)
+        requestResponse()
+    }
+
+    /// When Atteo answers, switched during the call (the chip): saved as the person's choice, and the live session
+    /// changes at once (session.update with the matching turn detection).
+    func setTurns(_ t: VoiceTurns) {
+        guard t != turns else { return }
+        requestedTurns = t
+        var d = AppState.shared.display
+        d.voiceTurns = t.rawValue
+        AppState.shared.setDisplay(d)
+        turns = t
+        tracker.reset(); turnHeard = false; pauseProgress = nil; hearing = false
+        bufferSince = Date()
+        lastActive = Date()
+        Haptics.play(.touch)
+        guard phase == .ready, handsFree, !session.isEmpty else { return }
+        link?.send(["type": "input_audio_buffer.clear"])
+        var s = session
+        s["turn_detection"] = t == .quick ? ["type": "server_vad"] : NSNull()
+        session = s
+        link?.send(["type": "session.update", "session": s])
+    }
+
+    #if DEBUG
+    /// The fake voice has no microphone: a tap on the orb is the person saying a line and stopping (a breath of
+    /// silence in the buffer, so the commit has something). pause then waits its pause; tap waits for Done.
+    private func fakeSpoke() {
+        if speaking || activeResponse != nil { interrupt() }
+        link?.send(["type": "input_audio_buffer.append", "audio": Data(count: 4800).base64EncodedString()])
+        tracker.spoke()
+        turnHeard = true
+        lastActive = Date()
+        if youCaption == nil { let id = "you-\(UUID().uuidString)"; youCaption = id; captions.append(Caption(id: id, who: .you, text: "…")) }
+    }
+    #endif
 
     // MARK: Push to talk
 
