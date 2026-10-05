@@ -40,6 +40,15 @@ for (const [mode, name] of [["developer", "HAL"], ["everyday", "v"]]) {
   let mail = [];
   for (let i = 0; i < 30 && !mail.some((m) => (m.text || "").includes(`can you look ${run}`)); i++) { mail = (await (await fetch(`${BASE}/api/mailbox?peek=1`, { headers: { authorization: `Bearer ${tokV}` } })).json()).mail ?? []; await p.waitForTimeout(150) }
   check(mail.some((m) => (m.text || "").includes(`can you look ${run}`) && m.kind === "for_your_agent"), `${mode}: ${V}'s agent gets it in its mailbox`);
+  // An agent's @ of itself (vedu #2630): highlighted like any mention, live and after a reload, though it reaches no one.
+  const sp = await fetch(`${BASE}/api/boards/${board}/entries`, { method: "POST", headers: { authorization: `Bearer ${tokV}`, "content-type": "application/json" }, body: JSON.stringify({ type: "note", text: `@${V}'s agent is on it ${run}` }) });
+  check(sp.ok, `${mode}: ${V}'s agent posts about itself`);
+  const selfMsg = p.locator("#thread>.entry", { hasText: `is on it ${run}` }).last();
+  const selfChip = async () => selfMsg.locator(`.body .mention.agent[data-user="${V}"]`).innerText().catch(() => "");
+  await selfMsg.waitFor({ timeout: 8000 }).catch(() => {}); await p.waitForTimeout(400);
+  check((await selfChip()) === `@${V}'s agent`, `${mode}: the agent's "@${V}'s agent" about itself is a chip (live)`);
+  await p.reload(); await p.waitForTimeout(800);
+  check((await selfChip()) === `@${V}'s agent`, `${mode}: …and after a reload`);
   check(!errors.length, `${mode}: no page errors ${errors.join(" | ")}`); await ctx.close();
 }
 await b.close(); console.log(fails ? `${fails} FAILED` : "agent-name mentions: all passed"); process.exit(fails ? 1 : 0);
