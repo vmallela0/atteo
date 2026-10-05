@@ -1,7 +1,8 @@
 // Design system: tokens, base styles, components and the shared client script.
 // Minimal and quiet (in the spirit of Vercel Geist / Linear): neutral grays, one ink color for primary actions,
-// hairline borders, Geist type, light + dark, works down to phone width.
+// hairline borders, light + dark, works down to phone width. Type: Onest / Enriqueta / Courier Prime (fontfaces.ts).
 
+import { FONT_CSS, FONT_V } from "./fontfaces";
 import { chartHtml } from "./chart";
 import { STATUS_CSS, statusHtml } from "./status";
 import { highlightMentions, type Mention } from "./mentions";
@@ -19,6 +20,9 @@ const DARK = `  --bg:#0a0a0a;--bg-subtle:#111111;--bg-hover:#1a1a1a;--line:#2323
   --shadow:0 1px 2px rgba(0,0,0,.4);--shadow-lg:0 12px 48px rgba(0,0,0,.6);
   --av-l:22%;--av-c:78%;--av-s:40%;
   color-scheme:dark;`;
+
+/** The interface face, fetched with the page instead of after the CSS parses (latin; other subsets load as needed). */
+const FONT_PRELOAD = `<link rel="preload" href="/fonts/onest-latin.woff2?v=${FONT_V}" as="font" type="font/woff2" crossorigin>`;
 
 export const CSS = `
 :root{
@@ -46,16 +50,24 @@ export const CSS = `
 :hover::-webkit-scrollbar-thumb{background:var(--sb-hover)}
 @supports not selector(::-webkit-scrollbar){*{scrollbar-width:thin;scrollbar-color:var(--sb) transparent}*:hover{scrollbar-color:var(--sb-hover) transparent}}
 html{-webkit-text-size-adjust:100%}
-body{margin:0;background:var(--bg);color:var(--text);font:13.5px/1.5 "Geist",ui-sans-serif,system-ui,-apple-system,"Segoe UI","PingFang SC","Hiragino Sans GB","Noto Sans SC","Microsoft YaHei",sans-serif;
-  -webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;font-feature-settings:"ss01","cv11"}
-html:lang(zh-Hant) body{font-family:"Geist",ui-sans-serif,system-ui,-apple-system,"Segoe UI","PingFang TC","Noto Sans TC","Microsoft JhengHei",sans-serif}
-html:lang(ja) body{font-family:"Geist",ui-sans-serif,system-ui,-apple-system,"Segoe UI","Hiragino Sans","Hiragino Kaku Gothic ProN","Noto Sans JP","Yu Gothic UI",Meiryo,sans-serif}
-html:lang(ko) body{font-family:"Geist",ui-sans-serif,system-ui,-apple-system,"Segoe UI","Apple SD Gothic Neo","Noto Sans KR","Malgun Gothic",sans-serif}
-html:lang(hi) body{font-family:"Geist",ui-sans-serif,system-ui,-apple-system,"Segoe UI","Kohinoor Devanagari","Noto Sans Devanagari","Nirmala UI",sans-serif}
+/* Type (design language v1, #2508): Onest for the interface, Enriqueta for headlines, Courier Prime for ids and payloads,
+   all served by this Worker (fontfaces.ts). Onest covers Latin, Cyrillic and Vietnamese; other scripts fall through to
+   the system's own font for that script, per page language. */
+:root{--font-ui:"Onest",ui-sans-serif,system-ui,-apple-system,"Segoe UI","PingFang SC","Hiragino Sans GB","Noto Sans SC","Microsoft YaHei",sans-serif;
+  --font-head:"Enriqueta","Onest",Georgia,"Times New Roman",serif;--font-mono:"Courier Prime",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+html:lang(zh-Hant){--font-ui:"Onest",ui-sans-serif,system-ui,-apple-system,"Segoe UI","PingFang TC","Noto Sans TC","Microsoft JhengHei",sans-serif}
+html:lang(ja){--font-ui:"Onest",ui-sans-serif,system-ui,-apple-system,"Segoe UI","Hiragino Sans","Hiragino Kaku Gothic ProN","Noto Sans JP","Yu Gothic UI",Meiryo,sans-serif}
+html:lang(ko){--font-ui:"Onest",ui-sans-serif,system-ui,-apple-system,"Segoe UI","Apple SD Gothic Neo","Noto Sans KR","Malgun Gothic",sans-serif}
+html:lang(hi){--font-ui:"Onest",ui-sans-serif,system-ui,-apple-system,"Segoe UI","Kohinoor Devanagari","Noto Sans Devanagari","Nirmala UI",sans-serif}
+html:lang(bn){--font-ui:"Onest",ui-sans-serif,system-ui,-apple-system,"Segoe UI","Kohinoor Bangla","Noto Sans Bengali","Nirmala UI",sans-serif}
+html:lang(ar){--font-ui:"Onest",ui-sans-serif,system-ui,-apple-system,"Segoe UI","Geeza Pro","Noto Sans Arabic","Noto Naskh Arabic",Tahoma,sans-serif}
+html:lang(zh-Hant),html:lang(ja),html:lang(ko),html:lang(hi),html:lang(bn),html:lang(ar),html:lang(zh-Hans),html:lang(zh){--font-head:var(--font-ui)} /* Enriqueta is Latin only: a headline in these scripts uses the interface stack */
+body{margin:0;background:var(--bg);color:var(--text);font:13.5px/1.5 var(--font-ui);
+  -webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
 a{color:inherit;text-decoration:none}
 a.link{color:var(--accent)}a.link:hover{text-decoration:underline}
-code,pre,.mono{font-family:"Geist Mono",ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px}
-h1,h2,h3{color:var(--ink);font-weight:600;letter-spacing:-.02em;margin:0}
+code,pre,.mono{font-family:var(--font-mono);font-size:13px}
+h1,h2,h3{color:var(--ink);font-weight:600;letter-spacing:-.02em;margin:0}h1,h2{font-family:var(--font-head);letter-spacing:-.01em}
 h1{font-size:22px;line-height:1.25}h2{font-size:15px}h3{font-size:13px}
 p{margin:0}
 .muted{color:var(--muted)}.faint{color:var(--faint)}.small{font-size:13px}.xs{font-size:12px}
@@ -272,7 +284,7 @@ dialog.ia-dlg{width:min(560px,calc(100vw - 24px))}.ia-opt h3{margin:0 0 4px;font
 .acc-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.acc-sel{width:auto;height:30px;font-size:12.5px;padding:0 8px}
 /* phones: a member's name on one line, role and end date side by side under it, lined up with the name */
 @media(max-width:640px){#acc-members{gap:12px}#acc-members .acc-row{display:grid;grid-template-columns:auto auto minmax(0,1fr);gap:6px 8px}#acc-members .acc-row>.grow{grid-column:2/4}#acc-members .acc-sel{grid-row:2;width:100%;min-width:0;padding-right:26px;background-position:right 9px center}#acc-members .acc-sel:first-of-type{grid-column:2}#acc-members .acc-sel:last-of-type{grid-column:3}}
-@media(max-width:360px){#acc-members .acc-sel:first-of-type{grid-column:1/3}} /* the narrowest phones: the role starts under the picture so the end date fits */
+@media(max-width:360px){#acc-members .acc-sel:first-of-type{grid-column:1/3}#acc-members .acc-sel{font-size:12.5px;padding-left:8px;padding-right:22px;background-position:right 6px center}} /* the narrowest phones: the role starts under the picture so the end date fits (Onest runs a little wider than Geist did) */
 .add-agent{margin:0 0 22px}.add-agent>summary{cursor:pointer;list-style:none}.add-agent>summary::-webkit-details-marker{display:none}.add-agent .cn-grid{grid-template-columns:repeat(auto-fill,minmax(150px,1fr))}
 /* Everyday: "Bring your assistant" (/welcome), the home banner that points to it, and Account's "Your assistant" card.
    Plain words, big tiles; headings a step above the web's h1 like the Everyday mockups (ios/qa/design/everyday). */
@@ -877,7 +889,7 @@ mark{background:color-mix(in srgb,var(--warn) 30%,transparent);color:inherit;bor
 .side-connect{display:none}@media(max-width:860px){.side-connect{display:flex}}
 .side-connect .ev-l,:root[data-mode="everyday"] .side-connect .dev-l{display:none}:root[data-mode="everyday"] .side-connect .ev-l{display:inline}
 kbd{display:inline-flex;align-items:center;justify-content:center;min-width:18px;height:18px;padding:0 4px;border:1px solid var(--line-strong);border-bottom-width:2px;
-  border-radius:4px;font:500 10.5px/1 "Geist Mono",ui-monospace,monospace;color:var(--muted);background:var(--bg)}
+  border-radius:4px;font:500 10.5px/1 var(--font-mono);color:var(--muted);background:var(--bg)}
 
 /* tabs */
 .tabs{display:flex;gap:2px;border-bottom:1px solid var(--line);margin-bottom:18px}
@@ -1148,10 +1160,10 @@ ${v ? `<nav class="links">${link("/", esc(tr(opts.lang, "Boards")), "boards")}</
   }</div></div></header>`;
   const html = `<!doctype html><html lang="${opts.lang ?? "en"}"${dirOf(opts.lang) === "rtl" ? ' dir="rtl"' : ""}><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${esc(title)}</title>
-<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
+${FONT_PRELOAD}
 <link rel="icon" href="/favicon.svg" type="image/svg+xml"><link rel="apple-touch-icon" href="/apple-touch-icon.png">
-<style>${CSS}</style>${DISPLAY_HEAD}</head><body>${nav}
+<style>${FONT_CSS}
+${CSS}</style>${DISPLAY_HEAD}</head><body>${nav}
 <main${opts.narrow ? ' class="narrow"' : ""}>${body}</main>
 <div id="toast" role="status" aria-live="polite"></div>
 <script>${CLIENT_JS}${opts.script ?? ""}</script></body></html>`;
@@ -1601,10 +1613,10 @@ setInterval(liveRefresh,60000);document.addEventListener('visibilitychange',()=>
 function rawPage(title: string, body: string, script: string, status = 200, lang: Lang = "en"): Response {
   const html = `<!doctype html><html lang="${lang}"${dirOf(lang as Lang) === "rtl" ? ' dir="rtl"' : ""}><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${esc(title)}</title>
-<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
+${FONT_PRELOAD}
 <link rel="icon" href="/favicon.svg" type="image/svg+xml"><link rel="apple-touch-icon" href="/apple-touch-icon.png">
-<style>${CSS}</style>${DISPLAY_HEAD}</head><body>${body}
+<style>${FONT_CSS}
+${CSS}</style>${DISPLAY_HEAD}</head><body>${body}
 <div id="toast" role="status" aria-live="polite"></div>
 ${lang === "en" ? "" : `<script>window.I18N=${clientTable(lang)}</script>`}<script>${CLIENT_JS}${script}</script></body></html>`;
   return new Response(html, { status, headers: { "content-type": "text/html; charset=utf-8", "content-language": lang, vary: "Accept-Language, Cookie" } });
