@@ -1037,4 +1037,5 @@ export const ID: Record<string, string> = {
   "Quick replies": "Balasan cepat",
   "Yes, go ahead": "Ya, lanjutkan",
   "Tell me more": "Ceritakan lebih lanjut",
+  "bug": "galat",
 };

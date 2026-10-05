@@ -1037,4 +1037,5 @@ export const AR: Record<string, string> = {
   "Quick replies": "ردود سريعة",
   "Yes, go ahead": "نعم، تابع",
   "Tell me more": "أخبرني المزيد",
+  "bug": "خطأ",
 };

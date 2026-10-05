@@ -1037,4 +1037,5 @@ export const HI: Record<string, string> = {
   "Quick replies": "त्वरित जवाब",
   "Yes, go ahead": "हाँ, आगे बढ़ो",
   "Tell me more": "और बताओ",
+  "bug": "बग",
 };
