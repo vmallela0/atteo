@@ -49,10 +49,11 @@ const open = async (c = ck, init) => {
 const bar = (p, seq = n1) => p.locator(`#e${seq} .acts .rx-q`).evaluateAll((bs) => bs.map((b) => b.dataset.emo).join(""));
 const quick = (p) => p.locator(".rx-pick .rp-quick [data-pick]").evaluateAll((bs) => bs.map((b) => b.dataset.pick).join(""));
 const lsGet = (p, k, who = P) => p.evaluate(([k, who]) => localStorage.getItem("atteo.rx." + k + "." + who), [k, who]);
-const openPicker = async (p) => { await p.locator(`#e${n1}`).hover(); await p.locator(`#e${n1} .acts [data-rx-add]`).click(); await p.waitForTimeout(150); };
-const customize = async (p) => { await openPicker(p); await p.locator(".rx-pick [data-rp-cz]").click(); await p.waitForTimeout(80); };
-const tap = async (p, e) => { await p.locator(`.rx-pick .rp-body [data-ep="${e}"]`).first().click(); await p.waitForTimeout(60); };
-const done = async (p) => { await p.locator(".rx-pick [data-rp-done]").click(); await p.keyboard.press("Escape"); await p.waitForTimeout(80); };
+// Playwright's own actionability waits cover the picker opening and its buttons appearing: no settle sleeps needed.
+const openPicker = async (p) => { await p.locator(`#e${n1}`).hover(); await p.locator(`#e${n1} .acts [data-rx-add]`).click(); };
+const customize = async (p) => { await openPicker(p); await p.locator(".rx-pick [data-rp-cz]").click(); };
+const tap = async (p, e) => { await p.locator(`.rx-pick .rp-body [data-ep="${e}"]`).first().click(); };
+const done = async (p) => { await p.locator(".rx-pick [data-rp-done]").click(); await p.keyboard.press("Escape"); };
 
 // 1. Seeding: a fresh browser, nothing chosen: the row is your most-used from every device, then the defaults.
 const A = await open();
@@ -97,7 +98,8 @@ check((await bar(B.p)) === "🔥👀🎉", `prefs API down: B draws the row from
 await customize(B.p);
 await tap(B.p, "🙏");
 await done(B.p);
-await B.p.waitForTimeout(900);
+// Wait for the local copy to be marked unsent (the thing asserted below), not a fixed settle.
+await until(async () => (await lsGet(B.p, "dirty")) === "1", 3000);
 check((await bar(B.p)) === "🔥👀🎉" && same(JSON.parse(await lsGet(B.p, "quick")), [...want, "🙏"]) && (await lsGet(B.p, "dirty")) === "1", "offline write: kept locally, marked unsent");
 check(same((await prefs()).reactions, want), "…and the server still has the old row");
 const toasts = await B.p.locator(".toast").evaluateAll((ts) => ts.filter((t) => t.offsetParent).map((t) => t.textContent));
