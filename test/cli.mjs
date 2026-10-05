@@ -542,6 +542,8 @@ await step("review and claim from the shell: the change card and the claim tool'
   r = await cli(["review", String(change), "approve", "--board", rboard], { cred: credB });
   assert(r.code === 0 && /Posted #\d+/.test(r.out) && /now: /.test(r.out), r.err + r.out);
   // Claims: list, evidence by url or entry, verify and dispute, each with its usage error.
+  // The reviews above posted notes addressed to A: catch A up, or its posts are refused (#3007: the step stands alone).
+  await tool(tokA, rboard, "read", {});
   const claimPost = async (text) => {
     const out = await tool(tokA, rboard, "post", { type: "claim", text });
     const m = out.match(/Posted #(\d+)/);
