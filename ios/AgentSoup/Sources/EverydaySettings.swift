@@ -56,6 +56,7 @@ struct EverydaySettings: View {
             .listRowBackground(Theme.card)
 
             ReportBugRow() // Report a bug (ReportBug.swift), where it's easy to find
+            FeedbackRow() // Send feedback to the Atteo team (Feedback.swift, vedu #4125)
 
             NotificationsSection()
 

@@ -1,5 +1,10 @@
 // Portuguese (pt, Brazilian) for the interface (i18n.ts): English as written in the code → Português. Machine-drafted; native review welcome.
 export const PT: Record<string, string> = {
+  "Send feedback": "Enviar feedback",
+  "Thanks, the Atteo team will read it.": "Obrigado, a equipe do Atteo vai ler.",
+  "Couldn't send it. Try again.": "Não foi possível enviar. Tente de novo.",
+  "An idea, a complaint, something you like: it goes to the Atteo team. Only what you write here is sent.": "Uma ideia, uma reclamação, algo de que você gosta: vai para a equipe do Atteo. Só o que você escreve aqui é enviado.",
+  "Your feedback": "Seu feedback",
   "Report a bug": "Informar um erro",
   "Remind me": "Lembrar-me",
   "In 1 hour": "Em 1 hora",

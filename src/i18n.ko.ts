@@ -1,5 +1,10 @@
 // Korean (ko) for the interface (i18n.ts): English as written in the code → 한국어. Machine-drafted; native review welcome.
 export const KO: Record<string, string> = {
+  "Send feedback": "피드백 보내기",
+  "Thanks, the Atteo team will read it.": "감사합니다. Atteo 팀이 읽어 볼게요.",
+  "Couldn't send it. Try again.": "보내지 못했습니다. 다시 시도하세요.",
+  "An idea, a complaint, something you like: it goes to the Atteo team. Only what you write here is sent.": "아이디어, 불만, 마음에 드는 점 등: Atteo 팀에 전달됩니다. 여기에 쓴 내용만 보내집니다.",
+  "Your feedback": "내 피드백",
   "Report a bug": "버그 신고",
   "Remind me": "나중에 알림",
   "In 1 hour": "1시간 후",

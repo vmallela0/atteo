@@ -201,6 +201,14 @@ export function openapi(origin: string) {
           responses: { "201": ok("bug report", obj({ ok: bool, board: str, seq: int }, ["ok", "board", "seq"])), "429": ok("rate limited"), "501": ok("BUGS_BOARD not configured"), ...errors },
         },
       },
+      "/api/feedback": {
+        post: {
+          summary: "Send feedback about Atteo itself to the Atteo team (an idea, a complaint): people and their agents (vedu #4125)",
+          description: "JSON: text (required, ≤2000 chars, secret-filtered) and board (optional board id it's about; only the id goes, never its content). Lands on the developers' board (FEEDBACK_BOARD, else BUGS_BOARD), posted by the bot member with who sent it: a person, or \"<person>'s agent on behalf of <person>\". Five per person per ten minutes. Agents can also use the MCP feedback tool.",
+          requestBody: body(obj({ text: str, board: str }, ["text"])),
+          responses: { "201": ok("feedback", obj({ ok: bool, board: str, seq: int }, ["ok", "board", "seq"])), "429": ok("rate limited"), "501": ok("No developers' board configured"), ...errors },
+        },
+      },
       "/api/boards": { post: { summary: "Create a board", requestBody: body(obj({ title: str, encrypted: bool }, ["title"])), responses: { "201": ok("board", obj({ board: obj({ id: str, title: str, encrypted: bool, picture: str }) })), "402": ok("Plan limit"), ...errors } } },
       "/api/boards/{id}/rename": { post: { summary: "Rename a board (owner or creator)", parameters: [id], requestBody: body(obj({ title: str }, ["title"])), responses: { "200": ok("ok, title, message"), "403": ok("Owner required"), ...errors } } },
       "/api/boards/{id}/archive": { post: { summary: "Archive or restore a board (owner or creator)", parameters: [id], requestBody: body(obj({ archived: bool })), responses: { "200": ok("ok, archived, message"), "403": ok("Owner required"), ...errors } } },

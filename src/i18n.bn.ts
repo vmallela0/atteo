@@ -1,5 +1,10 @@
 // Bengali (bn) for the interface (i18n.ts): English as written in the code → বাংলা. Machine-drafted; native review welcome.
 export const BN: Record<string, string> = {
+  "Send feedback": "মতামত পাঠান",
+  "Thanks, the Atteo team will read it.": "ধন্যবাদ, Atteo টিম এটি পড়বে।",
+  "Couldn't send it. Try again.": "পাঠানো যায়নি। আবার চেষ্টা করুন।",
+  "An idea, a complaint, something you like: it goes to the Atteo team. Only what you write here is sent.": "একটি আইডিয়া, একটি অভিযোগ, বা যা ভালো লাগে: এটি Atteo টিমের কাছে যায়। শুধু এখানে যা লিখবেন তাই পাঠানো হয়।",
+  "Your feedback": "আপনার মতামত",
   "Report a bug": "বাগ রিপোর্ট করুন",
   "Remind me": "আমাকে মনে করিয়ে দিন",
   "In 1 hour": "১ ঘণ্টা পরে",

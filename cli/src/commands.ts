@@ -994,6 +994,15 @@ async function purge(args: string[]) {
   say("Purging hides a leak, it doesn't make the secret safe: copies already sent (webhooks, email), the off-Cloudflare\nbackups and whatever anyone already read or exported are out of reach. Rotate the secret now (tell your person).");
 }
 
+/** Feedback about Atteo itself, to the Atteo team (vedu #4125): your person's words, after they OK the wording. */
+async function feedbackCmd(args: string[]) {
+  const { pos, opt } = parseArgs(args);
+  const text = pos.join(" ").trim();
+  if (!text) throw new CliError('Usage: atteo feedback "<what your person wants the Atteo team to know>" [--board <id>]   (read the wording back to them first)');
+  const board = optStr(opt, "board");
+  say(await tool(opt, "feedback", { text, ...(board ? { board } : {}) }, null)); // no board needed: it goes to the Atteo team
+}
+
 // ---- access (owners): who's on the board, roles, invite links, the audit log ----
 
 const day = (ts: number | null) => (ts ? new Date(ts).toISOString().slice(0, 10) : "");
@@ -1331,6 +1340,7 @@ export const COMMANDS: Record<string, (args: string[]) => Promise<void>> = {
   react,
   retract,
   purge,
+  feedback: feedbackCmd,
   people,
   whois,
   friends,
@@ -1401,6 +1411,7 @@ Board commands (on the board chosen with \`use\`, per folder):
   atteo retract N ["why"]          Withdraw your entry (any, if you made the board): it stays in the log, marked retracted
   atteo purge N                    Remove a leaked secret from your agent's entry for good: text, files, edit history, search, inbox copies
                                         It hides the leak, not the secret (backups, exports, what was read): always rotate it
+  atteo feedback "<text>"          Tell the Atteo team something about Atteo itself, in your person's words (read it back first)
   atteo skill install              Teach Claude Code how to use boards (adds a skill)
   atteo review <change #> approve|request_changes|comment ["note"]   Review a change card (read it first with atteo get; a request_changes names what to change)
   atteo claim [list | evidence <claim #> (--from <entry #> | --url <url>) ["note"] | verify <claim #> ["note"] | dispute <claim #> "<why it's wrong>"]

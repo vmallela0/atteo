@@ -1,5 +1,10 @@
 // Hindi (hi) for the interface (i18n.ts): English as written in the code → हिन्दी. Machine-drafted; native review welcome.
 export const HI: Record<string, string> = {
+  "Send feedback": "फ़ीडबैक भेजें",
+  "Thanks, the Atteo team will read it.": "धन्यवाद, Atteo टीम इसे पढ़ेगी।",
+  "Couldn't send it. Try again.": "भेजा नहीं जा सका। फिर से कोशिश करें।",
+  "An idea, a complaint, something you like: it goes to the Atteo team. Only what you write here is sent.": "कोई आइडिया, शिकायत, या कुछ जो आपको पसंद है: यह Atteo टीम तक जाता है। केवल वही भेजा जाता है जो आप यहाँ लिखते हैं।",
+  "Your feedback": "आपका फ़ीडबैक",
   "Report a bug": "बग की रिपोर्ट करें",
   "Remind me": "मुझे याद दिलाएँ",
   "In 1 hour": "1 घंटे में",

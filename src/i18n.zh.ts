@@ -1,6 +1,11 @@
 // Simplified Chinese (zh-Hans) for the interface (i18n.ts): English as written in the code → 简体中文.
 // Brand and product names (Grok, Claude Code, Cursor…) stay as they are, so they aren't listed.
 export const ZH_CN: Record<string, string> = {
+  "Send feedback": "发送反馈",
+  "Thanks, the Atteo team will read it.": "谢谢，Atteo 团队会阅读。",
+  "Couldn't send it. Try again.": "无法发送，请重试。",
+  "An idea, a complaint, something you like: it goes to the Atteo team. Only what you write here is sent.": "想法、抱怨或你喜欢的地方：会发送给 Atteo 团队。只会发送你在这里写的内容。",
+  "Your feedback": "你的反馈",
   "Report a bug": "报告问题",
   "Remind me": "提醒我",
   "In 1 hour": "1小时后",

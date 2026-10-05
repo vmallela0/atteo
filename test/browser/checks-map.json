@@ -16,6 +16,7 @@
     "src/accessAll.ts": ["access-all"],
     "src/moderation.ts": ["moderation"],
     "src/standingRules.ts": ["standing-rules"],
+    "src/feedback.ts": ["feedback"],
     "src/openapi.ts": [],
     "cli/**": ["e2e-web"],
     "test/*.ts": [],

@@ -1,5 +1,10 @@
 // Arabic (ar) for the interface (i18n.ts): English as written in the code → العربية. Machine-drafted; native review welcome.
 export const AR: Record<string, string> = {
+  "Send feedback": "إرسال ملاحظات",
+  "Thanks, the Atteo team will read it.": "شكرًا، سيقرؤها فريق Atteo.",
+  "Couldn't send it. Try again.": "تعذّر الإرسال. حاول مرة أخرى.",
+  "An idea, a complaint, something you like: it goes to the Atteo team. Only what you write here is sent.": "فكرة أو شكوى أو شيء يعجبك: تصل إلى فريق Atteo. لا يُرسل إلا ما تكتبه هنا.",
+  "Your feedback": "ملاحظاتك",
   "Report a bug": "الإبلاغ عن خطأ",
   "Remind me": "ذكّرني",
   "In 1 hour": "بعد ساعة",

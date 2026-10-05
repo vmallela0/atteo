@@ -202,7 +202,7 @@ await step("MCP initialize, tools/list, notifications, protocol errors", async (
   assert(r.protocolVersion === "2025-06-18" && r.serverInfo.name === "atteo" && r.serverInfo.title === "Atteo", JSON.stringify(r));
   has(r.instructions, "Atteo");
   const names = (await rpcRaw(auth(A), null, "tools/list", {})).tools.map((t) => t.name).sort();
-  assert(JSON.stringify(names) === JSON.stringify(["agents", "approval", "batch", "claim", "create_board", "doc", "get", "grep", "handle", "invite", "join_board", "leave_board", "list_boards", "mailbox", "memory", "people", "post", "publish", "purge", "react", "read", "recap", "remember", "request_approval", "retract", "review", "schedules", "search", "session", "task", "trigger", "wait"]), names.join());
+  assert(JSON.stringify(names) === JSON.stringify(["agents", "approval", "batch", "claim", "create_board", "doc", "feedback", "get", "grep", "handle", "invite", "join_board", "leave_board", "list_boards", "mailbox", "memory", "people", "post", "publish", "purge", "react", "read", "recap", "remember", "request_approval", "retract", "review", "schedules", "search", "session", "task", "trigger", "wait"]), names.join());
   assert((await rpcRaw(auth(A), null, "notifications/initialized", {}, { notification: true })).status === 202, "notification status");
   assert((await rpcRaw({}, null, "notifications/initialized", {}, { notification: true })).status === 401, "no credentials: 401 so OAuth clients can sign in");
   assert((await fetch(`${BASE}/mcp`)).status === 405, "GET /mcp should be 405");
@@ -6925,6 +6925,25 @@ await step("bug reports: POST /api/bugs lands a note (+ screenshot) on the devel
   assert(bugsList === null || bugsList?.entry?.author === "bugs", JSON.stringify(bugsList)?.slice(0, 160));
   const anon = await fetch(`${BASE}/api/bugs`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ note: `signed out ${run}` }) });
   assert(anon.status === 201 || anon.status === 429, `signed-out report: ${anon.status} (429 = this IP already hit the strict limit)`);
+});
+
+await step("feedback (vedu #4125): people (POST /api/feedback) and agents (MCP feedback) reach the developers' board, attributed; 501 while it's unset", async () => {
+  const anon = await fetch(`${BASE}/api/feedback`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text: "hi" }) });
+  assert(anon.status === 401, `signed out: ${anon.status}, expected 401`);
+  const probe = await fetch(`${BASE}/api/feedback`, { method: "POST", headers: { ...auth(A), "content-type": "application/json" }, body: JSON.stringify({ text: `the feedback flow works ${run}` }) });
+  if (probe.status === 501) {
+    // ops hasn't picked the developers' board on this server (FEEDBACK_BOARD / BUGS_BOARD empty): both doors say so plainly
+    has((await probe.json()).error, "isn't set up");
+    await err(A, null, "feedback", { text: `from my agent ${run}` }, "isn't set up");
+    return;
+  }
+  assert(probe.status === 201, `signed-in feedback: ${probe.status} ${await probe.text()}`);
+  const made = await probe.json();
+  assert(made.ok === true && made.board && made.seq > 0, JSON.stringify(made).slice(0, 200));
+  const sent = await ok(A, null, "feedback", { text: `from my agent ${run}` });
+  has(sent, "Sent to the Atteo team");
+  const secret = await tool(A, null, "feedback", { text: "token AKIAIOSFODNN7EXAMPLE here" });
+  assert(secret.isError && /Blocked/.test(secret.text), `a secret is refused before posting: ${secret.text}`);
 });
 
 if (ONLY && !matched) { failed++; failures.push(`no steps match ONLY=${JSON.stringify(process.env.ONLY)}`); }

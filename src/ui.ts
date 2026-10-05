@@ -1617,6 +1617,7 @@ export const APP_JS_SRC = `/app.js?v=${fnv(APP_JS)}`;
 // ---------- app shell (signed-in pages) ----------
 
 const ICON = {
+  chat: `<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 3.5h11v7.5H7l-3 2.5V11H2.5Z"/></svg>`,
   warn: `<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true"><path d="M8 2.3 14.4 13.4H1.6Z"/><path d="M8 6.4v3.4" stroke-linecap="round"/><circle cx="8" cy="11.5" r=".8" fill="currentColor" stroke="none"/></svg>`, // a warning triangle: Report a bug (jxn #4051)
   plug: `<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" aria-hidden="true"><path d="M6 2v3M10 2v3M4.5 5h7v2.5a3.5 3.5 0 0 1-7 0zM8 11v3"/></svg>`,
   boards: `<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><rect x="2" y="2" width="5" height="5" rx="1.2"/><rect x="9" y="2" width="5" height="5" rx="1.2"/><rect x="2" y="9" width="5" height="5" rx="1.2"/><rect x="9" y="9" width="5" height="5" rx="1.2"/></svg>`,
@@ -1728,7 +1729,7 @@ export function appPage(
   <div class="side-label"><span>${esc(T("Your boards"))}</span><a href="/?new=1" title="${esc(T("New board (C)"))}" aria-label="${esc(T("New board"))}">${ICON.plus}</a></div>
   ${sideBoards || `<p class="xs faint" style="padding:2px 9px">${esc(T("No boards yet"))}</p>`}
   <div class="side-label"><span>${esc(T("DMs"))}</span></div>${sideOwn}${sideDirect}
-  <div class="me"><a class="side-link" href="/me">${avatar(v.name, "sm")}<span class="truncate">${esc(v.name)}</span></a><button class="btn ghost sm bug-btn" type="button" data-bug data-bug-src="${BUG_JS_SRC}" aria-label="${esc(T("Report a bug"))}" title="${esc(T("Report a bug"))}">${ICON.warn}</button></div>
+  <div class="me"><a class="side-link" href="/me">${avatar(v.name, "sm")}<span class="truncate">${esc(v.name)}</span></a><button class="btn ghost sm bug-btn" type="button" data-feedback data-fail="${esc(T("Couldn't send it. Try again."))}" aria-label="${esc(T("Send feedback"))}" title="${esc(T("Send feedback"))}">${ICON.chat}</button><button class="btn ghost sm bug-btn" type="button" data-bug data-bug-src="${BUG_JS_SRC}" aria-label="${esc(T("Report a bug"))}" title="${esc(T("Report a bug"))}">${ICON.warn}</button></div>
 </aside>
 <div class="nav-scrim" data-nav-close aria-hidden="true"></div>
 <div class="grow" style="min-width:0">
@@ -1913,6 +1914,14 @@ ${lang === "en" ? "" : `<script nonce="${security.nonce}">window.I18N=${clientTa
   return new Response(html, { status, headers: { "content-type": "text/html; charset=utf-8", "content-language": lang, vary: "Accept-Language, Cookie", "speculation-rules": `"${BOARD_PREFETCH_PATH}"`, ...security.headers } });
 }
 
+/** Send feedback (vedu #4125): the form, fetched on the first click from /feedback-form and localized there, so pages
+ *  don't carry it (web-budget). English as written; i18n.localize translates its text, labels and placeholder. */
+export const FEEDBACK_DIALOG = `<dialog id="feedback" aria-labelledby="fb-title"><form id="fb-form">
+<div class="hd"><div><h2 id="fb-title">Send feedback</h2><p class="muted small" style="margin-top:4px">An idea, a complaint, something you like: it goes to the Atteo team. Only what you write here is sent.</p></div><button type="button" class="btn ghost sm" data-close aria-label="Close">✕</button></div>
+<div class="bd"><textarea class="input" id="fb-text" rows="4" required maxlength="2000" aria-label="Your feedback" placeholder="Your feedback"></textarea><p class="small" id="fb-status" role="status" hidden></p><span id="fb-thanks" hidden>Thanks, the Atteo team will read it.</span><span id="fb-err" hidden>Couldn&#39;t send it. Try again.</span></div>
+<div class="ft"><button type="button" class="btn" data-close>Cancel</button><button class="btn primary" type="submit" id="fb-send">Send</button></div>
+</form></dialog>`;
+
 const SHELL_JS = `
 (()=>{const NONCE=document.currentScript?.nonce||'';
 const $=(s,r=document)=>r.querySelector(s),$$=(s,r=document)=>[...r.querySelectorAll(s)];
@@ -1920,6 +1929,15 @@ const $=(s,r=document)=>r.querySelector(s),$$=(s,r=document)=>[...r.querySelecto
 // runs the capture for that click itself; later clicks are its own listener.
 document.addEventListener('click',e=>{const b=e.target.closest('[data-bug]');if(!b||document.getElementById('bug-js'))return;
   const s=document.createElement('script');s.id='bug-js';s.src=b.dataset.bugSrc;s.nonce=NONCE;document.head.appendChild(s)});
+// Send feedback (vedu #4125): the form comes from /feedback-form on the first click (localized there), then posts
+// a few words for the Atteo team to /api/feedback (the board it's about rides along by id).
+document.addEventListener('click',async e=>{if(!e.target.closest('[data-feedback]'))return;let d=$('#feedback');
+  if(!d){const r=await fetch('/feedback-form').catch(()=>null);if(!r||!r.ok)return window.toast&&toast(e.target.closest('[data-feedback]').dataset.fail);document.body.insertAdjacentHTML('beforeend',await r.text());d=$('#feedback')}
+  $('#fb-status').hidden=true;d.showModal();$('#fb-text').focus()});
+document.addEventListener('submit',async e=>{if(e.target.id!=='fb-form')return;e.preventDefault();const d=$('#feedback'),t=$('#fb-text'),st=$('#fb-status'),b=$('#fb-send');b.disabled=true;
+  const fail=(m)=>{st.hidden=false;st.textContent=m||$('#fb-err').textContent};
+  try{const r=await fetch('/api/feedback',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({text:t.value,board:location.pathname.match(/^\\/b\\/(b_[a-z0-9]+)/)?.[1]})});
+    const j=await r.json().catch(()=>({}));if(r.ok){t.value='';d.close();window.toast&&toast($('#fb-thanks').textContent)}else fail(j.error)}catch{fail()}finally{b.disabled=false}});
 // Search (⌘K everywhere; ⌘F on a board starts with "This board · Messages"): filters show up front like VS Code or Lark,
 // and become chips; results mix boards and actions with ranked messages and files (this board, or all your boards).
 const pal=$('#palette'),q=$('#palette-q'),list=$('#palette-list'),pChips=$('#pal-chips'),pFilt=$('#pal-filters');

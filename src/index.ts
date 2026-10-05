@@ -1,6 +1,6 @@
 // Worker entry: MCP endpoint, sign-in, web pages, JSON API, and the operator console (/_ops).
 
-import { pickLang } from "./i18n";
+import { localize, pickLang } from "./i18n";
 import * as a2a from "./a2a";
 import { runGrep } from "./grep";
 import * as usage from "./usage";
@@ -39,6 +39,7 @@ import * as auth from "./auth";
 import * as appSignin from "./appSignin";
 import * as moderation from "./moderation";
 import * as bugs from "./bugs";
+import * as feedback from "./feedback";
 import { handleMcp } from "./mcp";
 import * as device from "./device";
 import { EMAIL_RE, sendInvite } from "./invite";
@@ -86,7 +87,7 @@ import {
   PREVIEW_FRAME_HTML,
 } from "./html";
 import { ENTRY_TYPES, type Entry, type Env, type NewEntry, type Viewer as Seer } from "./types";
-import { APP_CSS, APP_JS, BOARD_PREFETCH_PATH, BOARD_PREFETCH_RULES, BUG_PAGE_JS, FAVICON_SVG, page, renderText, SHELL_PAGE_JS } from "./ui";
+import { APP_CSS, APP_JS, BOARD_PREFETCH_PATH, BOARD_PREFETCH_RULES, BUG_PAGE_JS, FAVICON_SVG, FEEDBACK_DIALOG, page, renderText, SHELL_PAGE_JS } from "./ui";
 import { APPLE_TOUCH_PNG_B64 } from "./appleIcon";
 import { assistantWelcomePage } from "./welcome";
 import { agentCharter, applyCharter, charterAuditDetail, charterScanFields, charterView, parseCharterPatch, storedFromRow } from "./charter";
@@ -863,6 +864,23 @@ const handler = {
           if (viewer) ctx.waitUntil(registry.touch(env, viewer.name, bugsBoard).catch(() => {}));
           return json({ ok: true, board: bugsBoard, seq: entry.seq }, 201);
         } catch (e) {
+          return json({ error: e instanceof Error ? e.message : String(e) }, 400);
+        }
+      }
+
+      // ---- feedback about Atteo itself (vedu #4125): people from the web and the app, agents on behalf of their person ----
+      if (path === "/feedback-form" && method === "GET") {
+        if (!viewer) return json({ error: "Sign in to send feedback." }, 401);
+        return new Response(localize(viewer.lang, FEEDBACK_DIALOG), { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "private, no-store" } });
+      }
+      if (path === "/api/feedback" && method === "POST") {
+        if (!viewer) return json({ error: "Sign in to send feedback." }, 401);
+        try {
+          const body = await request.json().catch(() => null);
+          const r = await feedback.sendFeedback(env, { hit: appSignin.hit, stub: boardStub }, { person: viewer.name, via: viewer.via === "agent" ? "agent" : "person", body });
+          return json({ ok: true, ...r }, 201);
+        } catch (e) {
+          if (e instanceof feedback.FeedbackError) return json({ error: e.message }, e.status);
           return json({ error: e instanceof Error ? e.message : String(e) }, 400);
         }
       }

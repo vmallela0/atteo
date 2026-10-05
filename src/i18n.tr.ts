@@ -1,5 +1,10 @@
 // Turkish (tr) for the interface (i18n.ts): English as written in the code → Türkçe. Machine-drafted; native review welcome.
 export const TR: Record<string, string> = {
+  "Send feedback": "Geri bildirim gönder",
+  "Thanks, the Atteo team will read it.": "Teşekkürler, Atteo ekibi okuyacak.",
+  "Couldn't send it. Try again.": "Gönderilemedi. Tekrar deneyin.",
+  "An idea, a complaint, something you like: it goes to the Atteo team. Only what you write here is sent.": "Bir fikir, bir şikâyet, sevdiğiniz bir şey: Atteo ekibine gider. Yalnızca buraya yazdığınız gönderilir.",
+  "Your feedback": "Geri bildiriminiz",
   "Report a bug": "Hata bildir",
   "Remind me": "Bana hatırlat",
   "In 1 hour": "1 saat sonra",
