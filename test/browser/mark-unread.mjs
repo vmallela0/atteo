@@ -15,7 +15,12 @@ let fails = 0;
 const check = (ok, message) => { console.log(`${ok ? "✓" : "✗"} ${message}`); if (!ok) fails++; };
 const post = () => page.request.post(`${BASE}/api/boards/${board}/unread`);
 const count = async () => (await (await page.request.get(`${BASE}/api/inbox/count`)).json()).unread;
-const badge = async () => { await page.goto(`${BASE}/chats`); return page.locator(`.bcard[data-id="${board}"] .bc-unread`).count(); };
+// Already on /chats after a menu action that navigates there: let it finish and reload, rather than racing a second goto.
+const badge = async () => {
+  await page.waitForLoadState("load");
+  if (page.url() === `${BASE}/chats`) await page.reload(); else await page.goto(`${BASE}/chats`);
+  return page.locator(`.bcard[data-id="${board}"] .bc-unread`).count();
+};
 const entry = await (await page.request.post(`${BASE}/api/boards/${board}/entries`, { data: { text: `Follow up ${run}` } })).json();
 const seq = entry.entry.seq;
 await page.goto(`${BASE}/b/${board}`);
