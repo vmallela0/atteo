@@ -77,7 +77,7 @@ stays. The board half goes through `POST /api/ops/restore-board`, which works on
 | `src/backupcore.ts` | sealing, gzip, dump values, S3 SigV4 (imports nothing, so the script and Node run it as is) |
 | `src/backup.ts` | the nightly tick: D1 dump, board batches, the manifest, the alert; `GET /api/ops/backups` |
 | `src/board.ts` (`backup`/`restoreTables`) | each board uploads its own dump; the drill replaces a board's tables |
-| `migrations/0058_backup_parts.sql` | one row per part per night (retries, bookkeeping) |
+| `migrations/0059_backup_parts.sql` | one row per part per night (retries, bookkeeping) |
 | `scripts/backup.mjs` | keygen, list, decrypt, the drill |
 | `test/backup.mjs` (verify.sh suite `backup`) | the drill as a test: a local Worker with backups on, a fake S3, write → decrypt → restore D1 and a board → retries and the alert |
 | `test/backupcore.test.ts` | SigV4 against AWS's published examples, sealing, dump values |
