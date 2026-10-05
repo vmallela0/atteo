@@ -46586,6 +46586,98 @@
           }
         }
       }
+    },
+    "Add a picture": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Añadir una imagen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajouter une image"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "तस्वीर जोड़ें"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "画像を追加"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사진 추가"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "添加图片"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "加入圖片"
+          }
+        }
+      }
+    },
+    "Add a screenshot with the paper clip or Paste. It goes to the developers' board, so leave out private chats. We add the app version, your phone model, iOS and which chat you had open.": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Añade una captura con el clip o pegándola. Va al tablero de los desarrolladores, así que no incluyas chats privados. Añadimos la versión de la app, el modelo de tu teléfono, iOS y el chat que tenías abierto."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajoutez une capture avec le trombone ou en la collant. Elle va sur le tableau des développeurs : évitez les discussions privées. Nous ajoutons la version de l'app, le modèle de votre téléphone, iOS et la discussion ouverte."
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "पेपर क्लिप या पेस्ट से स्क्रीनशॉट जोड़ें। यह डेवलपर्स के बोर्ड पर जाता है, इसलिए निजी चैट न डालें। हम ऐप का वर्शन, आपके फ़ोन का मॉडल, iOS और खुली चैट जोड़ते हैं।"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クリップか貼り付けでスクリーンショットを追加できます。開発者のボードに届くので、非公開のチャットは含めないでください。アプリのバージョン、端末の機種、iOS、開いていたチャットを添えます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "클립 버튼이나 붙여넣기로 스크린샷을 추가하세요. 개발자 보드로 가니 비공개 채팅은 빼 주세요. 앱 버전, 휴대폰 모델, iOS, 열려 있던 채팅을 함께 보냅니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用回形针或粘贴添加截图。它会发到开发者的看板，请不要包含私密聊天。我们会附上应用版本、手机型号、iOS 版本和你打开的聊天。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用迴紋針或貼上加入截圖。它會發到開發者的看板，請不要包含私密聊天。我們會附上 App 版本、手機型號、iOS 版本和你開著的聊天。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
