@@ -27,7 +27,7 @@ import { LEASE_CAP_MS, RENEW_EVERY_MS, renewedUntil } from "./leases";
 import { similarOpen, taskTitleKey } from "./taskTitles";
 import { prepareEntryData, readEntryData, screenedText } from "./entryData";
 import { withinEditWindow } from "./editMessage";
-import { backupConfig, objectKey, uploadPart, type PartResult } from "./backup";
+import { backupConfig, blobPartKey, objectKey, uploadPart, type PartResult } from "./backup";
 import { decodeValue, encodeValue, type DumpTables } from "./backupcore";
 
 export const MAX_TEXT = 32_000;
@@ -4155,35 +4155,55 @@ export class Board extends DurableObject<Env> {
 
   // ---- backups outside Cloudflare (#1550, src/backup.ts) ----
 
-  /** Every table as columns + rows. The search index is dumped as its rows, not FTS5's internal tables. */
+  /** Every table as columns + rows. The search index is dumped as its rows, not FTS5's internal tables. `blobs` (files
+   *  and pictures) comes back with its columns and no rows: backup() writes it in parts of its own. */
   dumpTables(): DumpTables {
     const all = this.sql.exec("SELECT name, sql FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '_cf_%' ORDER BY name").toArray() as { name: string; sql: string | null }[];
     const virtual = all.filter((t) => /^create virtual table/i.test(t.sql ?? "")).map((t) => t.name);
     const out: DumpTables = {};
     for (const { name } of all) {
       if (virtual.some((v) => name.startsWith(`${v}_`))) continue; // FTS5 shadow tables: rebuilt from the rows
-      const cur = this.sql.exec(`SELECT * FROM "${name.replace(/"/g, '""')}"`);
+      const cur = this.sql.exec(`SELECT * FROM "${name.replace(/"/g, '""')}"${name === "blobs" ? " LIMIT 0" : ""}`);
       const rows = [...cur.raw()].map((r) => r.map(encodeValue));
       out[name] = { columns: cur.columnNames, rows };
     }
     return out;
   }
 
-  /** Tonight's part for this board: dumped, sealed and uploaded from here, so the Worker never holds it. */
+  /** Tonight's parts for this board, dumped, sealed and uploaded from here so the Worker never holds them: the files
+   *  (`blobs`) first, a few MB of them per part so a board with many pictures never builds one huge object in this
+   *  object's 128 MB, then everything else, which names its file parts. */
   async backup(day: string): Promise<PartResult> {
     const cfg = backupConfig(this.env);
     const id = this.meta("id");
     if (!cfg || !id) throw new BoardError(cfg ? "board has no id" : "backups are not configured");
-    return uploadPart(cfg, objectKey(cfg, day, `board:${id}`), { kind: "board", board: id, day, created_at: Date.now(), tables: this.dumpTables() });
+    const cap = Math.max(1, Number(this.env.BACKUP_BLOB_PART_BYTES) || 8_000_000);
+    const chunks: { name: string; version: number }[][] = [];
+    let size = cap;
+    for (const r of this.sql.exec("SELECT name, version, length(bytes) AS n FROM blobs ORDER BY name, version").toArray() as { name: string; version: number; n: number }[]) {
+      if (size + r.n > cap) (chunks.push([]), (size = 0));
+      chunks[chunks.length - 1].push({ name: r.name, version: r.version });
+      size += r.n;
+    }
+    const extra: Omit<PartResult, "extra">[] = [];
+    for (let k = 0; k < chunks.length; k++) {
+      const [first, last] = [chunks[k][0], chunks[k][chunks[k].length - 1]]; // a range: 4 parameters however many files
+      const cur = this.sql.exec("SELECT * FROM blobs WHERE (name, version) >= (?, ?) AND (name, version) <= (?, ?) ORDER BY name, version", first.name, first.version, last.name, last.version);
+      const rows = [...cur.raw()].map((r) => r.map(encodeValue));
+      extra.push(await uploadPart(cfg, blobPartKey(cfg, day, id, k), { kind: "board-files", board: id, day, part: k, tables: { blobs: { columns: cur.columnNames, rows } } }));
+    }
+    const main = await uploadPart(cfg, objectKey(cfg, day, `board:${id}`), { kind: "board", board: id, day, created_at: Date.now(), tables: this.dumpTables(), file_parts: extra.map((e) => e.object_key.slice(e.object_key.lastIndexOf("/") + 1)) });
+    return { ...main, extra };
   }
 
-  /** Restore drill / disaster recovery: replaces every table with a backup's rows (columns this schema lacks are dropped). */
-  async restoreTables(tables: DumpTables): Promise<{ tables: number; rows: number; skipped: string[] }> {
+  /** Restore drill / disaster recovery: replaces every table in `tables` with the backup's rows (columns this schema
+   *  lacks are dropped). `append`: adds them instead, for a board's file parts after its main part. */
+  async restoreTables(tables: DumpTables, append = false): Promise<{ tables: number; rows: number; skipped: string[] }> {
     const here = new Set((this.sql.exec("SELECT name FROM sqlite_master WHERE type = 'table'").toArray() as { name: string }[]).map((t) => t.name));
     const skipped: string[] = [];
     let rows = 0;
     this.ctx.storage.transactionSync(() => {
-      for (const name of here) if (!name.startsWith("sqlite_") && !name.startsWith("_cf_") && tables[name]) this.sql.exec(`DELETE FROM "${name.replace(/"/g, '""')}"`);
+      if (!append) for (const name of here) if (!name.startsWith("sqlite_") && !name.startsWith("_cf_") && tables[name]) this.sql.exec(`DELETE FROM "${name.replace(/"/g, '""')}"`);
       for (const [name, t] of Object.entries(tables)) {
         if (!here.has(name)) {
           skipped.push(name);

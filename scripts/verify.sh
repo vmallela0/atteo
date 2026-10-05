@@ -107,7 +107,7 @@ if want backup; then
   BK_KEY_FILE="$OUT/backup-key.json"
   node scripts/backup.mjs keygen --out "$BK_KEY_FILE" >"$OUT/backup-keygen.log" 2>&1 || { echo "backup keygen failed (log: $OUT/backup-keygen.log)" >&2; exit 1; }
   BK_PUB=$(sed -n 's/.*BACKUP_PUBLIC_KEY: "\(.*\)".*/\1/p' "$OUT/backup-keygen.log")
-  printf 'WORKOS_API_KEY=sk_test_ci_placeholder\nADMIN_KEY=ci-admin-key\nALLOW_LOCAL_WEBHOOKS=1\nBACKUP_S3_ENDPOINT=http://127.0.0.1:%s\nBACKUP_S3_BUCKET=atteo-test\nBACKUP_S3_REGION=us-east-1\nBACKUP_S3_KEY_ID=test\nBACKUP_S3_SECRET=test\nBACKUP_S3_PREFIX=\nBACKUP_PUBLIC_KEY=%s\n' "$BK_S3_PORT" "$BK_PUB" > "$OUT/backup.env"
+  printf 'WORKOS_API_KEY=sk_test_ci_placeholder\nADMIN_KEY=ci-admin-key\nALLOW_LOCAL_WEBHOOKS=1\nBACKUP_S3_ENDPOINT=http://127.0.0.1:%s\nBACKUP_S3_BUCKET=atteo-test\nBACKUP_S3_REGION=us-east-1\nBACKUP_S3_KEY_ID=test\nBACKUP_S3_SECRET=test\nBACKUP_S3_PREFIX=\nBACKUP_BLOB_PART_BYTES=100\nBACKUP_PUBLIC_KEY=%s\n' "$BK_S3_PORT" "$BK_PUB" > "$OUT/backup.env"
   serve backup "$BK_PORT" "$OUT/backup.env"
 fi
 if want cli || want browser; then npm run -s build:cli >"$OUT/build-cli.log" 2>&1 || { echo "CLI build failed (log: $OUT/build-cli.log)" >&2; exit 1; }; fi

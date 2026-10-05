@@ -192,6 +192,7 @@ export interface Env {
   BACKUP_S3_SECRET?: string; // secret
   BACKUP_HOUR?: string; // var: UTC hour the night's backup starts (default 3)
   BACKUP_BATCH?: string; // var: boards per 5-minute cron run (default 20)
+  BACKUP_BLOB_PART_BYTES?: string; // var: a board's files are backed up in parts of about this many bytes (default 8,000,000)
   BACKUP_ALERT_HOURS?: string; // var: hours after the start with no manifest before it's reported (default 6)
   BACKUP_RESTORE?: string; // "1" allows POST /api/ops/restore-board off localhost (disaster recovery only)
 }

@@ -16,6 +16,10 @@ const BASE = (process.env.BASE ?? "http://localhost:8787").replace(/\/$/, "");
 const ADMIN_KEY = process.env.ADMIN_KEY ?? readFileSync(new URL("../.dev.vars", import.meta.url), "utf8").match(/^ADMIN_KEY=(.*)$/m)?.[1];
 const S3PORT = Number(process.env.BK_S3_PORT ?? 8615);
 const KEY_FILE = process.env.BK_KEY_FILE ?? "backup-key.json";
+const FILES = ["a.png", "b.png", "c.png"];
+// A valid 10×10 PNG with the file's name appended after IEND, so each file's bytes differ.
+const png = (name) => Buffer.concat([Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAoAAAAKCAYAAACNMs+9AAAAFUlEQVR42mP8z8BQz0AEYBxVSF+FABJADveWkH6oAAAAAElFTkSuQmCC", "base64"), Buffer.from(name)]);
+const s3env = () => ({ ...process.env, BACKUP_S3_ENDPOINT: `http://127.0.0.1:${S3PORT}`, BACKUP_S3_BUCKET: "atteo-test", BACKUP_S3_KEY_ID: "test", BACKUP_S3_SECRET: "test", BACKUP_S3_PREFIX: "" });
 
 let passed = 0;
 let failed = 0;
@@ -112,19 +116,34 @@ const steps = [
     assert(d1.tables.boards?.rows.length >= 1, "boards dumped");
     assert(!Object.keys(d1.tables).some((t) => t.startsWith("sqlite_")), "no sqlite internals");
   }],
-  ["the board part decrypts with its entries and blobs as $b64", async () => {
+  ["the board part decrypts with its entries; its files are in parts of their own, as $b64", async () => {
     globalThis.__board = await unseal(`${day}/boards/${globalThis.__boardId}.json.gz.enc`);
     const b = globalThis.__board;
     assert(b.kind === "board" && b.board === globalThis.__boardId, "board header");
     const entries = b.tables.entries.rows.map((r) => r[b.tables.entries.columns.indexOf("text")]);
-    assert(b.tables.entries.rows.length === 5 && entries.every((t) => /^bk-seed \d/.test(t)), `entries as of the backup: ${entries.join(" | ")}`);
-    assert(b.tables.search_idx.rows.length === 5, "the search index as rows");
+    assert(entries.length === 6 && entries.slice(0, 5).every((t) => /^bk-seed \d/.test(t)) && entries[5] === "bk-files", `entries as of the backup: ${entries.join(" | ")}`);
+    assert(b.tables.search_idx.rows.length >= 6, "the search index as rows");
     assert(!("search_idx_data" in b.tables), "no FTS5 shadow tables");
+    assert(b.tables.blobs && b.tables.blobs.rows.length === 0 && b.tables.blobs.columns.includes("bytes"), "the main part has no file bytes");
+    assert(b.file_parts?.length === 3, `one file part per file at this part size: ${JSON.stringify(b.file_parts)}`);
+    const names = [];
+    for (const fp of b.file_parts) {
+      const f = await unseal(`${day}/boards/${fp}`);
+      const t = f.tables.blobs;
+      assert(f.kind === "board-files" && t.rows.length === 1, `a file part: ${fp}`);
+      const row = t.rows[0];
+      names.push(row[t.columns.indexOf("name")]);
+      assert(Buffer.from(row[t.columns.indexOf("bytes")].$b64, "base64").equals(png(row[t.columns.indexOf("name")])), "the bytes, exactly");
+    }
+    assert(names.sort().join() === FILES.join(), `every file once: ${names}`);
+    const m = await unseal(`${day}/manifest.json.gz.enc`);
+    const bp = m.parts.find((p) => p.part === `board:${globalThis.__boardId}`);
+    assert(bp?.extra?.length === 3 && bp.extra.every((e) => /^[0-9a-f]{64}$/.test(e.sha256)), `the manifest lists the file parts with their hashes: ${JSON.stringify(bp)}`);
   }],
   ["d1-sql (scripts/backup.mjs) turns the night into SQL sqlite3 accepts", async () => {
     const dir = mkdtempSync(join(tmpdir(), "atteo-bk-"));
     const sqlFile = join(dir, "d1.sql");
-    const env = { ...process.env, BACKUP_S3_ENDPOINT: `http://127.0.0.1:${S3PORT}`, BACKUP_S3_BUCKET: "atteo-test", BACKUP_S3_KEY_ID: "test", BACKUP_S3_SECRET: "test", BACKUP_S3_PREFIX: "" };
+    const env = s3env();
     // Async: the fake S3 the script calls is served by this process's event loop.
     await promisify(execFile)(process.execPath, ["scripts/backup.mjs", "d1-sql", day, "--key", KEY_FILE, "--out", sqlFile], { env }).catch((e) => {
       throw new Error(`d1-sql failed: ${e.stderr || e.message}`);
@@ -136,15 +155,19 @@ const steps = [
     assert(q.stdout.trim() === "bk-user", `the user restored into sqlite: ${q.stdout}${q.stderr}`);
     rmSync(dir, { recursive: true, force: true });
   }],
-  ["restore-board: the board back as of the night (a later entry gone)", async () => {
+  ["restore-board (scripts/backup.mjs): the board back as of the night, files included (a later entry gone)", async () => {
     await ops("seed", { user: "bk-user", board: globalThis.__boardId, count: 3, prefix: "bk-after" }); // 3 more entries, after the backup
-    const tables = globalThis.__board.tables;
-    const r = await ops("restore-board", { board: globalThis.__boardId, tables });
-    assert(r.status === 200 && r.body.ok === true && r.body.tables >= 10 && r.body.skipped.length === 0, JSON.stringify(r.body));
+    const { stdout } = await promisify(execFile)(process.execPath, ["scripts/backup.mjs", "restore-board", day, globalThis.__boardId, "--key", KEY_FILE, "--base", BASE, "--admin-key", ADMIN_KEY], { env: s3env() }).catch((e) => {
+      throw new Error(`restore-board failed: ${e.stderr || e.message}`);
+    });
+    assert(/restored from .*"skipped":\[\].*, 3 files from 3 file parts/.test(stdout), `the script's report: ${stdout}`);
     const after = await fetch(`${BASE}/api/boards/${globalThis.__boardId}/entries?after=0&limit=100`, { headers: { authorization: `Bearer ${globalThis.__token}` } });
-    const j = await after.json();
-    const texts = j.entries.map((e) => e.text);
-    assert(texts.length === 5 && texts.every((t) => /^bk-seed \d/.test(t)), `entries back as of the night, not after: ${texts.join(" | ")}`);
+    const texts = (await after.json()).entries.map((e) => e.text);
+    assert(texts.length === 6 && !texts.some((t) => /bk-after/.test(t)), `entries back as of the night, not after: ${texts.join(" | ")}`);
+    for (const name of FILES) {
+      const r = await fetch(`${BASE}/api/boards/${globalThis.__boardId}/image?name=${name}`, { headers: { authorization: `Bearer ${globalThis.__token}` } });
+      assert(r.status === 200 && Buffer.from(await r.arrayBuffer()).equals(png(name)), `${name} served again, byte for byte (${r.status})`);
+    }
   }],
   ["a complete night isn't reported late in the day", async () => {
     const r = await ops("backup", { now: at(10) });
@@ -179,12 +202,23 @@ const setup = [
     globalThis.__token = t.body.token;
     const s = await ops("seed", { user: "bk-user", board: globalThis.__boardId, count: 5, prefix: "bk-seed" });
     assert(s.status === 200 && s.body.count === 5, "5 entries seeded");
+    // Three pictures in one message, each its own bytes (the server's BACKUP_BLOB_PART_BYTES is tiny here, so each gets
+    // a file part of its own).
+    const fd = new FormData();
+    for (const name of FILES) {
+      fd.append("file", new Blob([png(name)], { type: "image/png" }), name);
+      fd.append("w", "10");
+      fd.append("h", "10");
+    }
+    fd.append("text", "bk-files");
+    const up = await fetch(`${BASE}/api/boards/${globalThis.__boardId}/upload`, { method: "POST", headers: { authorization: `Bearer ${globalThis.__token}` }, body: fd });
+    assert(up.status === 201, `files uploaded: ${up.status} ${(await up.text()).slice(0, 200)}`);
   },
 ];
 
 try {
   for (const fn of setup) await fn();
-  ok("setup: user, token, board with 5 entries");
+  ok("setup: user, token, board with 5 entries and a message with 3 pictures");
   for (const [name, fn] of steps) {
     const t0 = Date.now();
     try {

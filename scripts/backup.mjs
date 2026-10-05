@@ -125,15 +125,26 @@ try {
     if (!day || !id) die("usage: restore-board <YYYY-MM-DD> <board id> --base http://localhost:8787 [--admin-key k]");
     const base = need("base").replace(/\/$/, "");
     const { key } = await privKey();
-    const part = await bc.unpackPart(key, await bc.getObject(s3cfg(), partKey(s3cfg(), day, `boards/${id}`)));
-    const adminKey = flag("admin-key") || (readFileSync(".dev.vars", "utf8").match(/^ADMIN_KEY=(.*)$/m) || [])[1] || "";
-    const r = await fetch(`${base}/api/ops/restore-board`, {
-      method: "POST",
-      headers: { "content-type": "application/json", "x-admin-key": adminKey },
-      body: JSON.stringify({ board: id, tables: part.tables }),
-    });
-    if (!r.ok) die(`restore-board ${r.status}: ${await r.text()}`);
-    console.log(`${id} restored from ${day}: ${JSON.stringify(await r.json())}`);
+    const cfg = s3cfg();
+    const adminKey = flag("admin-key") || (existsSync(".dev.vars") ? (readFileSync(".dev.vars", "utf8").match(/^ADMIN_KEY=(.*)$/m) || [])[1] : "") || "";
+    const post = async (tables, append) => {
+      const r = await fetch(`${base}/api/ops/restore-board`, {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-admin-key": adminKey },
+        body: JSON.stringify({ board: id, tables, append }),
+      });
+      if (!r.ok) die(`restore-board ${r.status}: ${await r.text()}`);
+      return r.json();
+    };
+    // The board's tables first (that empties its files), then its file parts one at a time, so no request is huge.
+    const part = await bc.unpackPart(key, await bc.getObject(cfg, partKey(cfg, day, `boards/${id}`)));
+    const main = await post(part.tables, false);
+    let files = 0;
+    for (const name of part.file_parts ?? []) {
+      const fp = await bc.unpackPart(key, await bc.getObject(cfg, `${cfg.prefix}${day}/boards/${name}`));
+      files += (await post(fp.tables, true)).rows;
+    }
+    console.log(`${id} restored from ${day}: ${JSON.stringify(main)}, ${files} files from ${(part.file_parts ?? []).length} file parts`);
   } else if (cmd === "help" || cmd === "--help" || cmd === "") {
     console.log(readFileSync(new URL(import.meta.url), "utf8").split("\n\n")[0].replace(/^\/\/ ?/gm, "").replace(/^#!.*\n/, ""));
   } else {

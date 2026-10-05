@@ -1,7 +1,8 @@
 // Nightly encrypted backups outside Cloudflare (#1550, INFRA-ASSESSMENT rec 2). The 5-minute cron runs backupTick: from
 // BACKUP_HOUR (UTC, default 3) it writes the night's parts to the bucket, a few per run so no run is long:
 //   <prefix><day>/d1.json.gz.enc            every D1 table
-//   <prefix><day>/boards/<id>.json.gz.enc   every table of one board's Durable Object (the board uploads it itself)
+//   <prefix><day>/boards/<id>.json.gz.enc   every table of one board's Durable Object (the board uploads it itself),
+//   <prefix><day>/boards/<id>.files-<k>…    except its files and pictures, a few MB per part (BACKUP_BLOB_PART_BYTES)
 //   <prefix><day>/manifest.json.gz.enc      written last: every part with its size and SHA-256, and any that failed
 // A part that fails is retried on later runs (3 tries). If the manifest isn't written BACKUP_ALERT_HOURS after the start,
 // or a part gave up, the cron reports it once that day (Sentry, the ops errors list, the log). Retention (30 days) is the
@@ -21,6 +22,7 @@ export interface PartResult {
   object_key: string;
   bytes: number;
   sha256: string;
+  extra?: Omit<PartResult, "extra">[]; // a board's file parts, written before it
 }
 
 const MAX_ATTEMPTS = 3;
@@ -43,6 +45,9 @@ export function backupConfig(env: Env): BackupConfig | null {
 
 export const objectKey = (cfg: BackupConfig, day: string, part: string) =>
   `${cfg.s3.prefix}${day}/${part.startsWith("board:") ? `boards/${part.slice(6)}` : part}.json.gz.enc`;
+
+/** A board's files, a few MB per part: <day>/boards/<id>.files-<k>.json.gz.enc. */
+export const blobPartKey = (cfg: BackupConfig, day: string, board: string, k: number) => `${cfg.s3.prefix}${day}/boards/${board}.files-${k}.json.gz.enc`;
 
 /** Packs, seals and uploads one part. */
 export async function uploadPart(cfg: BackupConfig, key: string, value: unknown): Promise<PartResult> {
@@ -88,8 +93,8 @@ async function claim(env: Env, day: string, part: string, now: number): Promise<
 
 async function finish(env: Env, day: string, part: string, r: PromiseSettledResult<PartResult>): Promise<boolean> {
   if (r.status === "fulfilled")
-    await env.DB.prepare(`UPDATE backup_parts SET status = 'done', object_key = ?, bytes = ?, sha256 = ?, error = NULL, done_at = ? WHERE day = ? AND part = ?`)
-      .bind(r.value.object_key, r.value.bytes, r.value.sha256, Date.now(), day, part)
+    await env.DB.prepare(`UPDATE backup_parts SET status = 'done', object_key = ?, bytes = ?, sha256 = ?, extra = ?, error = NULL, done_at = ? WHERE day = ? AND part = ?`)
+      .bind(r.value.object_key, r.value.bytes + (r.value.extra ?? []).reduce((n, e) => n + e.bytes, 0), r.value.sha256, r.value.extra?.length ? JSON.stringify(r.value.extra) : null, Date.now(), day, part)
       .run();
   else {
     const msg = (r.reason instanceof Error ? r.reason.message : String(r.reason)).slice(0, 500);
@@ -161,7 +166,7 @@ export async function backupTick(env: Env, now: number, board: (id: string, day:
     .bind(day, MAX_ATTEMPTS, day, MAX_ATTEMPTS)
     .first<{ n: number }>();
   if (!left?.n && (await claim(env, day, "manifest", now))) {
-    const parts = (await env.DB.prepare(`SELECT part, status, object_key, bytes, sha256, error, attempts FROM backup_parts WHERE day = ? AND part NOT IN ('manifest', 'alert') ORDER BY part`).bind(day).all()).results;
+    const parts = (await env.DB.prepare(`SELECT part, status, object_key, bytes, sha256, extra, error, attempts FROM backup_parts WHERE day = ? AND part NOT IN ('manifest', 'alert') ORDER BY part`).bind(day).all()).results.map((p) => ({ ...p, extra: p.extra ? JSON.parse(p.extra as string) : undefined }));
     out.manifest = await run(env, day, "manifest", async () => uploadPart(cfg, objectKey(cfg, day, "manifest"), { kind: "manifest", day, created_at: Date.now(), key_id: await keyId(cfg.publicKey), parts }));
   }
 

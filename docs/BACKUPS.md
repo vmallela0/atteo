@@ -8,7 +8,9 @@ What it writes, from the 5-minute cron, a few boards per run (so no run is long)
 
 ```
 <bucket>/atteo/<day>/d1.json.gz.enc             every D1 table (users, sessions, boards, members, …)
-<bucket>/atteo/<day>/boards/<id>.json.gz.enc   every table of one board's Durable Object (the board uploads it itself)
+<bucket>/atteo/<day>/boards/<id>.json.gz.enc   every table of one board's Durable Object (the board uploads it itself)…
+<bucket>/atteo/<day>/boards/<id>.files-<k>…     …except its files and pictures, about 8 MB per part, so a board with
+                                                many never builds one huge object in its 128 MB
 <bucket>/atteo/<day>/manifest.json.gz.enc       written last: every part, its size and SHA-256, and any that failed
 ```
 
@@ -31,7 +33,8 @@ as the bucket (30-day retention) *and* the private key both exist.
 4. **Settings** — `wrangler.jsonc` vars: `BACKUP_S3_ENDPOINT` (e.g. `https://s3.us-west-004.backblazeb2.com`),
    `BACKUP_S3_BUCKET`, `BACKUP_S3_REGION` (B2: the bucket's region, e.g. `us-west-004`; S3: e.g. `us-east-1`),
    optionally `BACKUP_S3_PREFIX` (default `atteo/`), `BACKUP_S3_VIRTUAL_HOST: "1"` for virtual-hosted URLs (S3),
-   `BACKUP_HOUR` (UTC, default 3), `BACKUP_BATCH` (boards per cron run, default 20), `BACKUP_ALERT_HOURS` (default 6).
+   `BACKUP_HOUR` (UTC, default 3), `BACKUP_BATCH` (boards per cron run, default 20), `BACKUP_ALERT_HOURS` (default 6),
+   `BACKUP_BLOB_PART_BYTES` (a board's files per part, default 8,000,000).
    Secrets (`wrangler secret put`): `BACKUP_S3_KEY_ID`, `BACKUP_S3_SECRET`.
 5. **Deploy, then verify the next day**: `GET /api/ops/backups` (operator) shows `configured: true` and the nights;
    `node scripts/backup.mjs list --endpoint … --bucket atteo-backups --key-id … --secret <read-only key>` lists the
@@ -55,7 +58,7 @@ CI=1 npx wrangler d1 execute agent-board --local --persist-to "$state" --file d1
 
 # 2. One board back: a Worker on that state (ADMIN_KEY in .dev.vars), then the board's tables through the ops route
 npx wrangler dev --port $port --persist-to "$state" &
-node scripts/backup.mjs restore-board "$day" "$b" --base http://localhost:$port
+node scripts/backup.mjs restore-board "$day" "$b" --base http://localhost:$port   # its tables, then each file part
 
 # 3. e2e against it (drill passed = this comes back green)
 BASE=http://localhost:$port node test/e2e.mjs

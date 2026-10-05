@@ -7,6 +7,7 @@ CREATE TABLE backup_parts (
   object_key TEXT,
   bytes INTEGER,
   sha256 TEXT,
+  extra TEXT, -- a board's file parts: JSON [{object_key, bytes, sha256}]
   error TEXT,
   attempts INTEGER NOT NULL DEFAULT 0,
   started_at INTEGER,

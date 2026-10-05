@@ -3145,9 +3145,9 @@ const handler = {
         }
         if (path === "/api/ops/restore-board" && method === "POST") {
           if (env.BACKUP_RESTORE !== "1" && !isLocalHost(url.hostname)) return json({ error: "restore-board runs on localhost, or with BACKUP_RESTORE=1" }, 400);
-          const b = body as { board?: unknown; tables?: unknown };
+          const b = body as { board?: unknown; tables?: unknown; append?: unknown };
           if (typeof b.board !== "string" || !BOARD_RE.test(b.board) || !b.tables || typeof b.tables !== "object") return json({ error: "board and tables required" }, 400);
-          return json({ ok: true, ...(await boardStub(env, b.board).restoreTables(b.tables as import("./backupcore").DumpTables)) });
+          return json({ ok: true, ...(await boardStub(env, b.board).restoreTables(b.tables as import("./backupcore").DumpTables, b.append === true)) });
         }
         if (path === "/api/ops/seed" && method === "POST") {
           const u = normalizeUser(body.user);
