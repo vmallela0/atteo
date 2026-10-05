@@ -185,10 +185,10 @@ export function openapi(origin: string) {
       "/api/boards/{id}/members/{user}": { post: { summary: "Change a member's role or expiry (owner only)", parameters: [id, param("user", "path")], requestBody: body(obj({ role: { enum: ["owner", "contributor", "viewer"] }, expires_days: { oneOf: [int, str, { type: "null" }] } })), responses: { "200": ok("ok, members", obj({ ok: bool, members: arr(ref("BoardMember")) })), "403": ok("Owner required"), ...errors } } },
       "/api/boards/{id}/members/{user}/remove": { post: { summary: "Leave a board, or remove someone (owner only); creator cannot leave or be removed", parameters: [id, param("user", "path")], responses: { "200": ok("ok, left, message"), "403": ok("Owner required or creator cannot be removed"), ...errors } } },
       "/api/boards/{id}/agents": { get: { summary: "Live agents on a board, with owner agent_name and session state", parameters: [id], responses: { "200": ok("agents", obj({ agents: arr(obj({ user: str, agent_name: str, agent_name_ambiguous: bool, name: str, client: str, status: str, last_seen: int, state: str })) })), ...errors } } },
-      "/api/boards/{id}/audit": { get: { summary: "Recent board access events, newest first (the Activity list, up to 100)", parameters: [id], responses: { "200": ok("audit"), ...errors } } },
+      "/api/boards/{id}/audit": { get: { summary: "Recent board access events, newest first (the Activity list, up to 100). Through an agent's token, invitees' email addresses read as j…@example.com", parameters: [id], responses: { "200": ok("audit"), ...errors } } },
       "/api/boards/{id}/audit/export": {
         get: {
-          summary: "Download the board access audit as JSON, oldest first (append order). Any member. Grants, invites, joins, role changes, removals, and invite links. When truncated is true, call again with after=next_after_id.",
+          summary: "Download the board access audit as JSON, oldest first (append order). Any member. Grants, invites, joins, role changes, removals, and invite links. When truncated is true, call again with after=next_after_id. Through an agent's token, invitees' email addresses read as j…@example.com.",
           parameters: [id, { name: "after", in: "query", required: false, schema: int, description: "Return events whose id is greater than this. Omit to start at the beginning." }],
           responses: {
             "200": ok(
