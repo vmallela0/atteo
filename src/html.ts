@@ -3673,8 +3673,8 @@ export function adminPage(viewer: Viewer, side: SideBoard[], d: AdminData): Resp
   const staleRate = o?.stale_notices.rate == null ? "—" : `${(o.stale_notices.rate * 100).toFixed(1)}%`;
   const verifiedRatio = o?.claim_reviews.verified_ratio == null ? "—" : `${(o.claim_reviews.verified_ratio * 100).toFixed(1)}%`;
   const p95 = (ms: number | null | undefined, overflow?: boolean) => (overflow ? "≥2s" : ms == null ? "—" : `< ${ms.toLocaleString("en-US")} ms`);
-  const delivery = o?.latency.entry_delivery;
-  const packMs = o?.latency.context_pack;
+  const delivery = o?.latency?.entry_delivery;
+  const packMs = o?.latency?.context_pack;
   // Daily counters from src/observe.ts. The paragraph is how an operator reads them; the same object is GET /api/ops/metrics → observe.
   const trustHtml = o
     ? `<h2 style="margin:32px 0 10px">Trust and context <span class="xs muted">(last ${o.days} days)</span></h2>
