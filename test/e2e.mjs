@@ -3010,6 +3010,10 @@ await step("social: find by handle, friend request with a note, accept from the 
   assert(inbox.some((i) => i.kind === "friend_request" && i.actor === A && i.excerpt.includes(`from e2e ${run}`)), JSON.stringify(inbox.slice(0, 3)));
   const agentAccept = await api(B, "POST", `/api/friends/${A}/accept`);
   assert(agentAccept.status === 403 && (await agentAccept.json()).error.includes("Only you can decide"), "an agent token can't accept (#57)");
+  // Nor by "requesting back" while A's request is pending (jxn's agent #4398): refused, still pending.
+  const requestBack = await api(B, "POST", "/api/friends/request", { user: A });
+  assert(requestBack.status === 403 && (await requestBack.json()).error.includes("Only you can decide"), `agent request-back refused: ${requestBack.status}`);
+  assert((await (await api(A, "POST", "/api/friends/request", { user: B })).json()).relation === "pending_out", "still pending after the agent's request-back");
   assert((await (await asPerson(B, `/api/friends/${A}/accept`)).json()).relation === "friend", "accept");
   // Presence: B's agent session (MCP initialize with a client name) shows as online.
   const sb = await session(B);
@@ -3987,7 +3991,15 @@ await step("SSO and organization policies: SSO entry point, retention cap and in
 await step("organization directory: list members by email-domain policy", async () => {
   const dom = `e2e-orgdir-${run}.test`;
   const setPol = (b) => fetch(`${BASE}/api/ops/policies`, { method: "POST", headers: { "x-admin-key": ADMIN_KEY, "content-type": "application/json" }, body: JSON.stringify(b) });
-  assert((await setPol({ domain: dom })).status === 200, "policy saved");
+  // A public mail provider is never an organization (jxn's agent #4398), and a row without `directory` lists no one.
+  const pub = await setPol({ domain: "gmail.com", directory: true });
+  assert(pub.status === 400 && (await pub.json()).error.includes("public mail provider"), `gmail.com refused: ${pub.status}`);
+  assert((await setPol({ domain: dom })).status === 200, "policy saved (no directory yet)");
+  const O0 = `e2e-org0-${run}`;
+  await makeUsers([{ name: O0, email: `${O0}@${dom}` }]);
+  const off = await (await fetch(`${BASE}/api/org`, { headers: { authorization: `Bearer ${tok[O0]}` } })).json();
+  assert(off.domain === null && off.people.length === 0, `no directory without the flag: ${JSON.stringify(off)}`);
+  assert((await setPol({ domain: dom, directory: true })).status === 200, "directory on");
   const O1 = `e2e-org1-${run}`;
   const O2 = `e2e-org2-${run}`;
   const UN = `e2e-orgunv-${run}`;

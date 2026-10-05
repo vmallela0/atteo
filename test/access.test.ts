@@ -71,12 +71,12 @@ describe("grant defaults (GAPS P0 network #4)", () => {
     expect(parseRole("contributor")).toBe("contributor");
   });
 
-  it("grantExpiresDays: omitted is 30; 0 / empty-after-value is no end", () => {
+  it("grantExpiresDays: only an explicit 0 is no end; omitted or garbage is the 30-day default (jxn's agent #4399)", () => {
     expect(grantExpiresDays(undefined)).toBe(DEFAULT_GRANT_DAYS);
     expect(grantExpiresDays("")).toBe(DEFAULT_GRANT_DAYS);
     expect(grantExpiresDays(0)).toBe(null);
     expect(grantExpiresDays("0")).toBe(null);
-    expect(grantExpiresDays(null)).toBe(null);
+    for (const junk of [null, NaN, "abc", -5, "-1", "  ", {}, true]) expect(grantExpiresDays(junk), String(junk)).toBe(DEFAULT_GRANT_DAYS);
     expect(grantExpiresDays(7)).toBe(7);
     expect(grantExpiresDays("90")).toBe(90);
     expect(grantExpiresDays(400)).toBe(365);

@@ -2,7 +2,7 @@
 // domain that has an org_policies row. Handles and presence only; never emails.
 
 import { beforeEach, describe, expect, it } from "vitest";
-import { checkOutsideMember, emailDomain, orgDomainOf, orgPolicy } from "../src/policy";
+import { checkOutsideMember, emailDomain, isPublicMailDomain, orgDomainOf, orgPolicy } from "../src/policy";
 import { blockPerson, findPeople, orgPeople } from "../src/social";
 import type { Env } from "../src/types";
 
@@ -47,8 +47,8 @@ function fakeEnv() {
 function user(db: any, name: string, email: string | null, verified = 1) {
   db.prepare(`INSERT INTO users (name, email, email_verified, first_seen, last_seen) VALUES (?, ?, ?, 0, 0)`).run(name, email, verified);
 }
-function policy(db: any, domain: string, allowOutside = 1) {
-  db.prepare(`INSERT INTO org_policies (domain, require_sso, max_retention_days, allow_outside_members, updated_at) VALUES (?, 0, NULL, ?, 0)`).run(domain, allowOutside);
+function policy(db: any, domain: string, allowOutside = 1, directory = 1) {
+  db.prepare(`INSERT INTO org_policies (domain, require_sso, max_retention_days, allow_outside_members, directory, updated_at) VALUES (?, 0, NULL, ?, ?, 0)`).run(domain, allowOutside, directory);
 }
 function board(db: any, id: string, by: string) {
   db.prepare(`INSERT INTO boards (id, title, created_by, created_at, last_activity) VALUES (?, ?, ?, 0, 0)`).run(id, id, by);
@@ -116,10 +116,37 @@ describe("org directory: list members by domain policy", () => {
     expect((await orgPeople(env, "ada")).people.map((p) => p.name)).toEqual(["ada"]);
   });
 
+  it("a policy row without its directory flag lists no one (a row for retention or SSO isn't a directory)", async () => {
+    policy(db, "acme.com", 1, 0);
+    expect(await orgPolicy(env, "ada@acme.com")).not.toBeNull();
+    expect(await orgDomainOf(env, "ada")).toBeNull();
+    expect(await orgPeople(env, "ada")).toEqual({ domain: null, people: [] });
+    expect((await findPeople(env, "ada", "be")).map((p) => p.name)).toEqual([]);
+  });
+
+  it("a public mail provider never lists anyone, even with a policy row and the directory flag", async () => {
+    user(db, "fay", "fay@gmail.com");
+    policy(db, "gmail.com");
+    expect(await orgDomainOf(env, "eve")).toBeNull();
+    expect(await orgPeople(env, "eve")).toEqual({ domain: null, people: [] });
+    expect((await findPeople(env, "eve", "fa")).map((p) => p.name)).toEqual([]);
+  });
+
   it("keeps in-house boards to the domain when allow_outside_members is off", async () => {
     policy(db, "acme.com", 0);
     board(db, "b_aaaaaaaa", "ada");
     await expect(checkOutsideMember(env, "b_aaaaaaaa", "dot@other.test")).rejects.toThrow(/acme.com accounts only/);
     await expect(checkOutsideMember(env, "b_aaaaaaaa", "bea@acme.com")).resolves.toBeUndefined();
+  });
+});
+
+describe("isPublicMailDomain (jxn's agent #4398)", () => {
+  it("knows free and public providers, at any country domain and subdomain", () => {
+    for (const d of ["gmail.com", "googlemail.com", "outlook.com", "outlook.co.uk", "hotmail.fr", "live.com", "msn.com", "icloud.com", "me.com", "mac.com", "yahoo.com", "yahoo.co.jp", "mail.yahoo.com", "ymail.com", "aol.com", "proton.me", "protonmail.ch", "pm.me", "gmx.de", "gmx.net", "mail.com", "yandex.ru", "zoho.com", "fastmail.fm", "hey.com", "qq.com", "163.com", "126.com", "GMAIL.COM"])
+      expect(isPublicMailDomain(d), d).toBe(true);
+  });
+  it("leaves company domains alone, including ones that contain a provider's name", () => {
+    for (const d of ["acme.com", "anthropic.com", "outlook.acme.com", "livenation.com", "mymail.com", "gmailer.io", "yahoo-fans.org", "", null])
+      expect(isPublicMailDomain(d as string), String(d)).toBe(false);
   });
 });

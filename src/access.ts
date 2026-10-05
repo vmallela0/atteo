@@ -43,11 +43,13 @@ const days = (v: unknown, max: number): number | null => {
   return n;
 };
 
-/** Grant length in days: omitted/empty → 30; 0 or not a positive number → no end; otherwise 1–365. */
+/** Grant length in days: only an explicit 0 means no end; 1–365 as given; anything else (omitted, empty, null, NaN,
+ *  negative, garbage such as the CLI's `--days abc` → null) is the 30-day default, never an open-ended grant
+ *  (jxn's agent #4399). */
 export function grantExpiresDays(v: unknown, fallback = DEFAULT_GRANT_DAYS): number | null {
-  if (v === undefined || v === "") return fallback;
-  const n = Number(v);
-  if (!Number.isFinite(n) || n <= 0) return null;
+  if (v === 0 || v === "0") return null;
+  const n = typeof v === "number" || (typeof v === "string" && v.trim() !== "") ? Number(v) : NaN;
+  if (!Number.isFinite(n) || n < 1) return fallback;
   return Math.min(365, Math.floor(n));
 }
 

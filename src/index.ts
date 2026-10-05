@@ -16,7 +16,7 @@ import { accessAll } from "./accessAll";
 import { AUDIT_EXPORT_LIMIT, auditExportDocument, auditExportHeaders, forAgents, parseAuditAfter } from "./auditExport";
 import * as social from "./social";
 import * as standing from "./standingRules";
-import { orgPolicy } from "./policy";
+import { isPublicMailDomain, orgPolicy } from "./policy";
 import * as webhooks from "./webhooks";
 import * as avatars from "./avatars";
 import * as boardPictures from "./boardPictures";
@@ -1640,7 +1640,13 @@ const handler = {
             const note = String(b.note ?? "").trim();
             const blocked = egressRefusal(env, ctx, { note });
             if (blocked) return json({ error: blocked }, 400);
-            return json({ ok: true, relation: await social.requestFriend(env, me, String(b.user ?? ""), note, ctx) });
+            try {
+              return json({ ok: true, relation: await social.requestFriend(env, me, String(b.user ?? ""), note, ctx, viewer.via === "agent") });
+            } catch (e) {
+              // An agent "requesting back" a pending request would accept it: that's the person's call (#57).
+              if (e instanceof social.SocialError && e.message.includes(social.PERSON_ONLY_CONTACT_DECISION)) return json({ error: e.message }, 403);
+              throw e;
+            }
           }
           pm = path.match(/^\/api\/friends\/([a-z0-9][a-z0-9_.-]{0,31})\/(accept|decline|remove|block|unblock)$/);
           if (pm && method === "POST") {
@@ -3475,16 +3481,18 @@ const handler = {
         if (path === "/api/ops/policies" && method === "POST") {
           const domain = String(body.domain ?? "").trim().toLowerCase();
           if (!/^[a-z0-9.-]+\.[a-z]{2,}$/.test(domain)) return json({ error: "domain required (e.g. acme.com)" }, 400);
+          // Free and public mail (gmail.com, outlook.com…) is not an organization: no policy, and so never a directory.
+          if (!body.delete && isPublicMailDomain(domain)) return json({ error: `${domain} is a public mail provider, not an organization` }, 400);
           if (body.delete) {
             await env.DB.prepare(`DELETE FROM org_policies WHERE domain = ?`).bind(domain).run();
             return json({ ok: true });
           }
           const ret = body.max_retention_days == null || body.max_retention_days === "" ? null : Math.max(1, Math.floor(Number(body.max_retention_days)));
           await env.DB.prepare(
-            `INSERT INTO org_policies (domain, require_sso, max_retention_days, allow_outside_members, updated_at) VALUES (?, ?, ?, ?, ?)
-             ON CONFLICT(domain) DO UPDATE SET require_sso = excluded.require_sso, max_retention_days = excluded.max_retention_days, allow_outside_members = excluded.allow_outside_members, updated_at = excluded.updated_at`,
+            `INSERT INTO org_policies (domain, require_sso, max_retention_days, allow_outside_members, directory, updated_at) VALUES (?, ?, ?, ?, ?, ?)
+             ON CONFLICT(domain) DO UPDATE SET require_sso = excluded.require_sso, max_retention_days = excluded.max_retention_days, allow_outside_members = excluded.allow_outside_members, directory = excluded.directory, updated_at = excluded.updated_at`,
           )
-            .bind(domain, ["true", "1"].includes(String(body.require_sso)) ? 1 : 0, ret, String(body.allow_outside_members) === "false" ? 0 : 1, Date.now())
+            .bind(domain, ["true", "1"].includes(String(body.require_sso)) ? 1 : 0, ret, String(body.allow_outside_members) === "false" ? 0 : 1, ["true", "1"].includes(String(body.directory)) ? 1 : 0, Date.now())
             .run();
           return json({ ok: true });
         }
