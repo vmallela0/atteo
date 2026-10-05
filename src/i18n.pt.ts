@@ -1,5 +1,6 @@
 // Portuguese (pt, Brazilian) for the interface (i18n.ts): English as written in the code → Português. Machine-drafted; native review welcome.
 export const PT: Record<string, string> = {
+  "Report a bug": "Informar um erro",
   "Remind me": "Lembrar-me",
   "In 1 hour": "Em 1 hora",
   "Tonight (20:00)": "Hoje à noite (20:00)",

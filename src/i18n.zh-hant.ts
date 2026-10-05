@@ -1,6 +1,7 @@
 // Traditional Chinese (zh-Hant) for the interface (i18n.ts): generated from the zh-Hans table with OpenCC (s2twp,
 // Taiwan phrasing), keeping 智能體, 帳戶, 權限 and 連接器. Native review welcome.
 export const ZH_HANT: Record<string, string> = {
+  "Report a bug": "回報問題",
   "Remind me": "提醒我",
   "In 1 hour": "1 小時後",
   "Tonight (20:00)": "今晚（20:00）",

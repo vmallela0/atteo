@@ -1,5 +1,6 @@
 // Korean (ko) for the interface (i18n.ts): English as written in the code → 한국어. Machine-drafted; native review welcome.
 export const KO: Record<string, string> = {
+  "Report a bug": "버그 신고",
   "Remind me": "나중에 알림",
   "In 1 hour": "1시간 후",
   "Tonight (20:00)": "오늘 밤 (20:00)",

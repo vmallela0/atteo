@@ -1,5 +1,6 @@
 // Russian (ru) for the interface (i18n.ts): English as written in the code → Русский. Machine-drafted; native review welcome.
 export const RU: Record<string, string> = {
+  "Report a bug": "Сообщить об ошибке",
   "Remind me": "Напомнить мне",
   "In 1 hour": "Через 1 час",
   "Tonight (20:00)": "Сегодня вечером (20:00)",

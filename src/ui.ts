@@ -971,6 +971,11 @@ mark{background:var(--mark);color:inherit;border-radius:2px;padding:0 1px}
 .bp-pic{all:unset;cursor:pointer;display:inline-flex;flex:none;border-radius:7px}.bp-pic:hover .bpic{filter:brightness(.92)}.bp-pic:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .bpic-row{gap:12px;margin-bottom:12px}
 .sidebar .me{margin-top:auto;border-top:1px solid var(--line);padding-top:8px}
+/* Report a bug: conspicuous on purpose (jxn #3336) — a bordered button of its own above the account row. */
+.bug-btn{border:1px solid var(--line-strong);border-radius:8px;height:34px;margin:10px 2px 2px;color:var(--muted);background:transparent} /* a <button>: the UA's ButtonFace (#6b6b6b in dark) would sit under the muted text — axe contrast (moby #3957) */
+.bug-btn:hover{color:var(--ink);background:var(--bg-hover)}
+#bug .bd{padding:14px 0 4px}
+.bug-private{display:flex;align-items:center;justify-content:center;min-height:44px;border:1px dashed var(--line-strong);border-radius:8px;color:var(--muted);font-size:13px;margin:10px 0;padding:0 10px;text-align:center}
 .topbar{position:sticky;top:0;z-index:10;height:48px;display:flex;align-items:center;gap:12px;padding:0 20px;border-bottom:1px solid var(--line);
   background:color-mix(in srgb,var(--bg) 85%,transparent);backdrop-filter:saturate(180%) blur(10px);-webkit-backdrop-filter:saturate(180%) blur(10px)}
 .topbar .crumbs{margin:0;display:flex;align-items:center;gap:8px;min-width:0;font-size:13px}
@@ -1611,6 +1616,7 @@ const ICON = {
   menu: `<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M2 4h12M2 8h12M2 12h12"/></svg>`,
   plus: `<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M8 3v10M3 8h10"/></svg>`,
   guide: `<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" aria-hidden="true"><path d="M8 4.2C6.6 3 4.6 2.6 2.5 2.8v9.6c2.1-.2 4.1.2 5.5 1.4 1.4-1.2 3.4-1.6 5.5-1.4V2.8c-2.1-.2-4.1.2-5.5 1.4z"/><path d="M8 4.2v9.6"/></svg>`,
+  bug: `<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" aria-hidden="true"><circle cx="8" cy="9" r="4"/><path d="M8 5V3.2M5.2 5.6L4 4.2M10.8 5.6L12 4.2M2.5 8.5h1.6M11.9 8.5h1.6M3.6 12l1.5-.9M12.4 12l-1.5-.9M5.5 10.9h5"/></svg>`,
 };
 
 export interface SideBoard {
@@ -1709,6 +1715,7 @@ export function appPage(
   <div class="side-label"><span>${esc(T("Your boards"))}</span><a href="/?new=1" title="${esc(T("New board (C)"))}" aria-label="${esc(T("New board"))}">${ICON.plus}</a></div>
   ${sideBoards || `<p class="xs faint" style="padding:2px 9px">${esc(T("No boards yet"))}</p>`}
   <div class="side-label"><span>${esc(T("DMs"))}</span></div>${sideOwn}${sideDirect}
+  <button class="side-link bug-btn" type="button" data-bug data-bug-src="${BUG_JS_SRC}">${ICON.bug}<span>${esc(T("Report a bug"))}</span></button>
   <div class="me"><a class="side-link" href="/me">${avatar(v.name, "sm")}<span class="truncate">${esc(v.name)}</span></a>
 </div>
 </aside>
@@ -1722,6 +1729,13 @@ export function appPage(
 <div class="pal-in"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><circle cx="7" cy="7" r="4.5"/><path d="m10.5 10.5 3 3"/></svg><span class="pal-chips" id="pal-chips"></span><input class="input" id="palette-q" placeholder="${esc(T("Search messages, files, boards and actions…"))}" autocomplete="off" aria-label="Search" aria-controls="palette-list"></div>
 <div class="pal-filters" id="pal-filters" aria-label="${esc(T("Filters"))}"></div>
 <ul id="palette-list" role="listbox"></ul><div class="foot"><span><kbd>↑</kbd> <kbd>↓</kbd> ${esc(T("move"))}</span><span><kbd>↵</kbd> ${esc(T("open"))}</span><span><kbd>⌫</kbd> ${esc(T("remove filter"))}</span><span><kbd>esc</kbd> ${esc(T("close"))}</span></div></dialog>
+<dialog id="bug"><div class="hd"><div><h2>${esc(T("Report a bug"))}</h2><p class="muted small" style="margin-top:4px">${esc(T("It goes to the developers with a screenshot of this page and what was on it. Take the private bits off the description; the screenshot below is what they see."))}</p></div><button class="btn ghost sm" data-close aria-label="${esc(T("Close"))}">✕</button></div>
+<div class="bd"><form id="bug-form">
+  <img id="bug-shot" alt="${esc(T("Screenshot of this page"))}" style="max-width:100%;max-height:300px;border:1px solid var(--line);border-radius:8px;display:block">
+  <p class="muted small" id="bug-shotless" hidden style="margin:6px 0">${esc(T("No screenshot — the page couldn't be captured; the description helps all the more."))}</p>
+  <textarea id="bug-text" rows="4" required minlength="8" maxlength="4000" placeholder="${esc(T("What happened? What did you expect?"))}" style="width:100%;margin-top:12px;resize:vertical"></textarea>
+  <div class="row" style="justify-content:flex-end;margin-top:14px;gap:8px"><button type="button" class="btn ghost sm" id="bug-remove" hidden>${esc(T("Remove screenshot"))}</button><button class="btn primary" type="submit" id="bug-send">${esc(T("Send report"))}</button></div>
+</form></div></dialog>
 <dialog id="shortcuts"><div class="hd"><h2>${esc(T("Keyboard shortcuts"))}</h2><button class="btn ghost sm" data-close aria-label="${esc(T("Close"))}">✕</button></div>
 <div class="bd"><dl class="kv">
 <dt><kbd>⌘K</kbd> <kbd>/</kbd></dt><dd>${esc(T("Search or jump to a board"))}</dd>
@@ -1791,6 +1805,66 @@ const pageScripts = (script: string, nonce: string): string =>
     .split("\u0000")
     .map((part, i) => (i % 2 ? `<script src="${esc(part)}" nonce="${nonce}"></script>` : part ? `<script nonce="${nonce}">${part}</script>` : ""))
     .join("");
+// Report a bug (jxn #3336, glm-b #3343): the sidebar button captures the page as a PNG in the browser (the DOM is
+// cloned into an SVG foreignObject and drawn on a canvas — no dependency, no permission prompt; webfonts fall back
+// to system ones in the capture), shows it with a way to remove it (moby #3342 (3)), and posts it with the note and
+// context to POST /api/bugs (glm-a #3341; 501 when the bug board isn't set up). Recent console errors ride along.
+const BUG_JS = `
+(()=>{let shot=null;const errs=[];const MAX=2*1024*1024;
+window.addEventListener('error',e=>{errs.push(String(e.message||e.error).slice(0,300))});
+window.addEventListener('unhandledrejection',e=>{errs.push(String(e.reason).slice(0,300))});
+// Privacy (opus-d's review of #3351): the report goes to a board agents read, and an image gets past every text
+// filter — so in any capture, People-only and Just-mine entries are replaced with a placeholder, and the composer
+// too while a privacy lock (🔒) is on: what the capture may never show is what those marks say agents can't see.
+const scrub=(doc)=>{const p=doc.createElement('div');p.className='bug-private';p.textContent='🔒 '+tr('private — hidden from this report');
+  doc.querySelectorAll('.badge.po').forEach(b=>{const e=b.closest('.entry');if(e)e.replaceWith(p.cloneNode(true))});
+  doc.querySelectorAll('.po-lock').forEach(l=>{const r=l.closest('.row,.entry,li,article')||l;if(r)r.replaceWith(p.cloneNode(true))}); // Inbox / For you rows (opus-d #3380)
+  const pn=doc.querySelector('#po-note'),f=doc.querySelector('form.composer');
+  if(pn&&!pn.hidden&&f)f.replaceWith(p.cloneNode(true));
+  doc.querySelectorAll('#lightbox').forEach(l=>l.remove()); // an open lightbox shows a picture with no badge (opus-d #3380)
+  doc.querySelectorAll('#bug').forEach(d=>d.removeAttribute('open'));return doc};
+// The capture: html2canvas (self-hosted by the /api/bugs endpoint, lazy-loaded once on first use — glm-a #3364)
+// draws the real page, webfonts and images in; if it won't load, a dependency-free SVG foreignObject fallback
+// draws the clone (system fonts, no external images). Both render a closed #bug dialog and scrubbed privacy.
+let h2c=null;const html2canvas=()=>h2c=h2c||new Promise((res)=>{if(window.html2canvas)return res(true);const s=document.createElement('script');s.src='/vendor/html2canvas.min.js';s.onload=()=>res(true);s.onerror=()=>res(false);document.head.appendChild(s)});
+const fallback=()=>new Promise((res)=>{try{
+  const cw=Math.min(innerWidth,1024),ch=innerHeight; // full viewport height, width capped
+  const clone=scrub(document.documentElement.cloneNode(true));
+  clone.querySelectorAll('script').forEach(s=>s.remove());
+  const svg='<svg xmlns="http://www.w3.org/2000/svg" width="'+cw+'" height="'+ch+'"><foreignObject width="100%" height="100%">'+new XMLSerializer().serializeToString(clone)+'</foreignObject></svg>';
+  const img=new Image();
+  img.onload=()=>{try{const c=document.createElement('canvas');c.width=cw;c.height=ch;const g=c.getContext('2d');if(!g)return res(null);
+    g.fillStyle=getComputedStyle(document.body).backgroundColor||'#fff';g.fillRect(0,0,cw,ch);g.drawImage(img,0,0,cw,ch);
+    const url=c.toDataURL('image/png');res(url.length<=MAX+70000?url:null)}catch(e){res(null)}};
+  img.onerror=()=>res(null);
+  img.src='data:image/svg+xml;charset=utf-8,'+encodeURIComponent(svg);
+}catch(e){res(null)}});
+const capture=async()=>{if(!(await html2canvas()))return fallback();try{
+  const c=await window.html2canvas(document.body,{backgroundColor:getComputedStyle(document.body).backgroundColor||'#fff',logging:false,
+    onclone:(d)=>{scrub(d);d.querySelectorAll('script').forEach(s=>s.remove())}}); // scrub also drops #lightbox and the #bug dialog
+  const url=c.toDataURL('image/png');return url.length<=MAX+70000?url:fallback();
+}catch(e){return fallback()}};
+const show=(d)=>{const img=document.getElementById('bug-shot'),rm=document.getElementById('bug-remove'),less=document.getElementById('bug-shotless');
+  if(!img)return;img.hidden=!d;rm.hidden=!d;less.hidden=!!d;if(d)img.src=d};
+const run=async()=>{const d=document.getElementById('bug');if(!d)return;
+  document.getElementById('bug-text').value='';shot=null;show(null);d.showModal(); // the dialog is up while the capture runs (it's scrubbed out of the image)
+  const cap=document.getElementById('bug-send');cap.disabled=true;cap.textContent=tr('Taking the screenshot…');
+  shot=await capture();cap.disabled=false;cap.textContent=tr('Send report');show(shot)};
+document.addEventListener('click',e=>{if(e.target.closest('[data-bug]'))run()});
+run(); // bug.js is only loaded on a bug click: that first click is this run
+document.addEventListener('click',e=>{if(e.target.id!=='bug-remove')return;shot=null;show(null)});
+document.getElementById('bug-form')?.addEventListener('submit',async e=>{e.preventDefault();
+  const t=document.getElementById('bug-text').value.trim();if(t.length<8)return;
+  const send=document.getElementById('bug-send');send.disabled=true;
+  try{const r=await fetch('/api/bugs',{method:'POST',headers:{'content-type':'application/json'},
+    body:JSON.stringify({note:t,path:location.pathname+location.hash,screenshot:shot,
+      context:{board:(window.BOARD_CTX||{}).id||null,os:navigator.platform,viewport:innerWidth+'x'+innerHeight,errors:errs.slice(-5)}})});
+    const j=await r.json().catch(()=>({}));
+    if(r.status===501){toast(tr("Bug reporting isn't set up yet — the developers will enable it soon."));return}
+    if(!r.ok)throw Error(j.error||tr('Could not send it'));
+    document.getElementById('bug').close();toast(tr('Report sent — thank you.'));errs.length=0;
+  }catch(err){toast(err.message||tr('Could not send it'))}finally{send.disabled=false}});
+})();`;
 
 // Board switches feel instant (#3717): a board link held under the pointer for a moment (Chrome's "moderate") has its
 // page fetched ahead, so the click only renders. Opening a board changes nothing on the server (nothing is marked read);
@@ -1798,6 +1872,7 @@ const pageScripts = (script: string, nonce: string): string =>
 // the file), so there's no inline JSON script for the CSP or the script checks to deal with.
 export const BOARD_PREFETCH_RULES = JSON.stringify({ prefetch: [{ source: "document", where: { href_matches: "/b/*" }, eagerness: "moderate" }] });
 export const BOARD_PREFETCH_PATH = "/speculation-rules.json";
+// Report a bug (jxn #3336, glm-b #3343): the sidebar button captures the page as a PNG in the browser (the DOM is
 function rawPage(title: string, body: string, script: string, status = 200, lang: Lang = "en"): Response {
   const security = pageSecurity();
   const html = `<!doctype html><html lang="${lang}"${dirOf(lang as Lang) === "rtl" ? ' dir="rtl"' : ""}><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -1813,6 +1888,10 @@ ${lang === "en" ? "" : `<script nonce="${security.nonce}">window.I18N=${clientTa
 const SHELL_JS = `
 (()=>{
 const $=(s,r=document)=>r.querySelector(s),$$=(s,r=document)=>[...r.querySelectorAll(s)];
+// Report a bug: the capture lives in /bug.js (web-budget: not on every page) — the first click loads it, and it
+// runs the capture for that click itself; later clicks are its own listener.
+document.addEventListener('click',e=>{const b=e.target.closest('[data-bug]');if(!b||document.getElementById('bug-js'))return;
+  const s=document.createElement('script');s.id='bug-js';s.src=b.dataset.bugSrc;document.head.appendChild(s)});
 // Search (⌘K everywhere; ⌘F on a board starts with "This board · Messages"): filters show up front like VS Code or Lark,
 // and become chips; results mix boards and actions with ranked messages and files (this board, or all your boards).
 const pal=$('#palette'),q=$('#palette-q'),list=$('#palette-list'),pChips=$('#pal-chips'),pFilt=$('#pal-filters');
@@ -1917,5 +1996,9 @@ document.addEventListener('click',async e=>{const b=e.target.closest('[data-mark
 
 // The app pages' shell script (sidebar, inbox badge, live counts, mark unread, pins), the same on every page: served as
 // /shell.js (index.ts), hashed and cached for good, and run right after the page's own script, as when it was inline.
+// Report-a-bug's capture+send lives in its own file (/bug.js), not in every page's shell.js (web-budget: it only
+// runs when the button is clicked). The shell's click injects it once; BUG_JS self-runs for that first click.
+export const BUG_PAGE_JS = BUG_JS;
+export const BUG_JS_SRC = `/bug.js?v=${fnv(BUG_PAGE_JS)}`;
 export const SHELL_PAGE_JS = SHELL_JS + INBOX_JS + LIVE_JS + MARK_UNREAD_JS + PINS_JS;
 export const SHELL_JS_SRC = `/shell.js?v=${fnv(SHELL_PAGE_JS)}`;

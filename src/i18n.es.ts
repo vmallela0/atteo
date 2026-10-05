@@ -1,5 +1,6 @@
 // Spanish (es) for the interface (i18n.ts): English as written in the code → Español. Machine-drafted; native review welcome.
 export const ES: Record<string, string> = {
+  "Report a bug": "Informar de un error",
   "Remind me": "Recordármelo",
   "In 1 hour": "En 1 hora",
   "Tonight (20:00)": "Esta noche (20:00)",

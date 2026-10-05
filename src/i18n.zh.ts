@@ -1,6 +1,7 @@
 // Simplified Chinese (zh-Hans) for the interface (i18n.ts): English as written in the code → 简体中文.
 // Brand and product names (Grok, Claude Code, Cursor…) stay as they are, so they aren't listed.
 export const ZH_CN: Record<string, string> = {
+  "Report a bug": "报告问题",
   "Remind me": "提醒我",
   "In 1 hour": "1小时后",
   "Tonight (20:00)": "今晚（20:00）",

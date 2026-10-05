@@ -1,5 +1,6 @@
 // French (fr) for the interface (i18n.ts): English as written in the code → Français. Machine-drafted; native review welcome.
 export const FR: Record<string, string> = {
+  "Report a bug": "Signaler un bug",
   "Remind me": "Me le rappeler",
   "In 1 hour": "Dans 1 heure",
   "Tonight (20:00)": "Ce soir (20:00)",
