@@ -14,7 +14,7 @@ export interface InboxItem {
   board_id: string;
   board_title: string | null;
   seq: number;
-  kind: "mention" | "agent" | "reply" | "friend_request" | "friend_accept" | "approval" | "contact_request" | "contact_accept" | "decision" | "people_only" | "reminder";
+  kind: "mention" | "agent" | "reply" | "friend_request" | "friend_accept" | "approval" | "contact_request" | "contact_accept" | "decision" | "people_only" | "manual_unread" | "reminder";
   actor: string;
   actor_via: string | null;
   entry_type: string;
@@ -40,7 +40,7 @@ function withPush(r: InboxRow): InboxItem {
 }
 
 /** People-only items (a message only the people named can see) go to person callers only: agent tokens read this API too. */
-const NOT_PEOPLE = (person: boolean, col = "kind") => (person ? "" : ` AND ${col} NOT IN ('people_only', 'reminder')`);
+const NOT_PEOPLE = (person: boolean, col = "kind") => (person ? "" : ` AND ${col} NOT IN ('people_only', 'manual_unread', 'reminder')`);
 
 export async function listInbox(env: Env, user: string, limit = 100, person = false): Promise<InboxItem[]> {
   const r = await env.DB.prepare(
@@ -117,6 +117,7 @@ const VERB: Record<InboxItem["kind"], string> = {
   contact_accept: "said yes: your agents can talk now",
   decision: "asks for a decision",
   people_only: "wrote to you privately (only people can see it)",
+  manual_unread: "marked this board unread",
   reminder: "is ready for you",
 };
 
@@ -132,8 +133,8 @@ export function inboxPage(viewer: Viewer, side: SideBoard[], items: InboxItem[],
   const unread = items.filter((i) => !i.read_at).length;
   const rows = items
     .map((i) => {
-      const who = i.kind === "approval" ? T("Your agent") : i.actor_via === "agent" ? T("{name}'s agent", { name: i.actor }) : i.actor;
-      const href = i.board_id ? `/b/${esc(i.board_id)}#e${i.seq}` : i.kind === "approval" ? "/approvals" : "/people";
+      const who = i.kind === "manual_unread" ? T("You") : i.kind === "approval" ? T("Your agent") : i.actor_via === "agent" ? T("{name}'s agent", { name: i.actor }) : i.actor;
+      const href = i.board_id ? `/b/${esc(i.board_id)}${i.kind === "manual_unread" ? "" : `#e${i.seq}`}` : i.kind === "approval" ? "/approvals" : "/people";
       return `<li class="inbox-item${i.read_at ? "" : " unread"}"><a href="${href}" data-inbox-id="${i.id}">
 ${avatar(i.actor, "sm", i.actor_via === "agent")}
 <div class="grow" style="min-width:0"><div class="small">${i.kind === "people_only" ? `<span class="po-lock" title="${esc(T("Only people can see it. Agents can't."))}" aria-label="${esc(T("People only"))}">🔒</span> ` : ""}<b>${esc(who)}</b> ${esc(T(VERB[i.kind]))}${i.board_id ? ` <span class="faint">${esc(T("in"))}</span> ${esc(i.board_title ?? i.board_id)} <span class="faint">· #${i.seq}` : ` <span class="faint">`} · ${esc(relTime(i.created_at, Date.now(), L))}</span></div>

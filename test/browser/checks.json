@@ -124,5 +124,11 @@
  "pins": 5,
  "edit-message": 1,
  "remind": 20,
- "csp": 8
+ "csp": 8,
+ "voice-allowance": 10,
+ "catch-up": 8,
+ "mark-unread": 10,
+ "voice-turns": 25,
+ "voice-turns-privacy": 30,
+ "fonts": 6
 }

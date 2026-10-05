@@ -109,7 +109,7 @@ for(const [w,scheme] of [[390,"dark"],[390,"light"],[320,"light"]]){
     sw:document.documentElement.scrollWidth,psw:el.scrollWidth,pcw:el.clientWidth,bsw:el.querySelector('.rp-body').scrollWidth,bcw:el.querySelector('.rp-body').clientWidth,qr:qr.right,scrim:!document.querySelector('.rp-scrim').hidden,bg:getComputedStyle(el).backgroundColor}});
   check(s.sheet&&s.l===0&&Math.round(s.r)===w&&Math.abs(s.b-s.h)<2&&s.t>s.h*0.2&&s.scrim,`${w}px ${scheme}: a bottom sheet across the width (${JSON.stringify({l:s.l,r:s.r,t:s.t,b:s.b})})`);
   check(s.sw<=w&&s.psw<=s.pcw&&s.bsw<=s.bcw&&s.qr<=w,`${w}px ${scheme}: no sideways scroll (page ${s.sw}, sheet ${s.psw}/${s.pcw}, grid ${s.bsw}/${s.bcw})`);
-  check(scheme==="dark"?s.bg!=="rgb(255, 255, 255)":s.bg==="rgb(255, 255, 255)",`${w}px ${scheme}: themed (${s.bg})`);
+  check(scheme==="dark"?s.bg!=="rgb(250, 250, 247)":s.bg==="rgb(250, 250, 247)",`${w}px ${scheme}: themed (${s.bg})`);
   if(w===390&&scheme==="dark")await q.screenshot({path:`${SHOTS_DIR}/emojipick-phone-dark.png`});
   if(w===390&&scheme==="light")await q.screenshot({path:`${SHOTS_DIR}/emojipick-phone-light.png`});
   if(w===390){const [word,em]=scheme==="dark"?["fire","🔥"]:["eyes","👀"];await q.locator(".rx-pick .rp-search input").tap();await q.keyboard.type(word);await q.waitForTimeout(100);await q.locator(`.rx-pick .rp-body [data-ep="${em}"]`).tap();await q.waitForTimeout(700);

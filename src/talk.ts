@@ -30,7 +30,7 @@ dialog.talk::backdrop{background:rgba(0,0,0,.25)}
 .talk-hd{display:flex;align-items:center;gap:10px;padding:14px 16px 6px}.talk-hd b{font-size:15px}.talk-hd .grow{flex:1}.talk-left{font-size:12.5px;color:var(--faint);font-variant-numeric:tabular-nums}
 .talk-orb{display:flex;align-items:center;justify-content:center;gap:4px;height:64px;margin:4px 0}
 .talk-orb i{width:5px;height:8px;border-radius:3px;background:var(--faint);transition:height .08s,background .2s}
-.talk.napping .talk-orb i{opacity:.45}.talk.hearing .talk-orb i{background:var(--accent)}.talk.speaking .talk-orb i{background:var(--atteo);animation:talkWave 1s ease-in-out infinite}
+.talk.napping .talk-orb i{opacity:.45}.talk.waiting .talk-orb i{background:var(--accent);opacity:.55;animation:talkWait 1.2s ease-in-out infinite}@keyframes talkWait{50%{opacity:.2}}.talk.hearing .talk-orb i{background:var(--accent)}.talk.speaking .talk-orb i{background:var(--atteo);animation:talkWave 1s ease-in-out infinite}
 .talk.speaking .talk-orb i:nth-child(2n){animation-delay:.15s}.talk.speaking .talk-orb i:nth-child(3n){animation-delay:.3s}
 @keyframes talkWave{50%{height:30px}}
 @media (prefers-reduced-motion:reduce){.talk-orb i{animation:none!important;transition:none}}
@@ -96,7 +96,7 @@ const dlg=document.createElement('dialog');dlg.className='talk';dlg.setAttribute
 dlg.innerHTML='<div class="talk-hd"><b>'+T('Talk to Atteo')+'</b><span class="grow"></span><label class="talk-cc">'+T('Captions')+' <select id="talk-cc"><option value="all">'+T('All')+'</option><option value="atteo">'+T('Atteo only')+'</option><option value="off">'+T('Off')+'</option></select></label><span class="talk-left" id="talk-left"></span></div>'+
   '<div class="talk-orb" aria-hidden="true">'+'<i></i>'.repeat(9)+'</div><p class="talk-st" id="talk-st" role="status" aria-live="polite"></p>'+
   '<div class="talk-caps" id="talk-caps" aria-live="polite"></div><div class="talk-ok" id="talk-ok" hidden></div>'+
-  '<div class="talk-ft"><button class="btn primary" type="button" id="talk-wake" hidden>'+T('Talk')+'</button><button class="btn" type="button" id="talk-mic" aria-pressed="false">'+T('Mute mic')+'</button><button class="btn" type="button" id="talk-quiet" aria-pressed="false">'+T('Mute Atteo')+'</button><button class="btn danger" type="button" id="talk-end">'+T('End')+'</button></div>';
+  '<div class="talk-ft"><button class="btn primary" type="button" id="talk-wake" hidden>'+T('Talk')+'</button><button class="btn primary" type="button" id="talk-done" hidden>'+T('Done')+'</button><button class="btn" type="button" id="talk-mic" aria-pressed="false">'+T('Mute mic')+'</button><button class="btn" type="button" id="talk-quiet" aria-pressed="false">'+T('Mute Atteo')+'</button><button class="btn danger" type="button" id="talk-end">'+T('End')+'</button></div>';
 document.body.appendChild(dlg);
 const $=id=>dlg.querySelector('#'+id),caps=$('talk-caps'),stEl=$('talk-st'),okEl=$('talk-ok'),bars=[...dlg.querySelectorAll('.talk-orb i')];
 function say(t){stEl.textContent=t}
@@ -114,16 +114,18 @@ function atteoSays(s,id,d){s.abuf=(s.abuf||'')+d;let m;while((m=s.abuf.match(/^(
 function atteoDone(s,id,full){const p=caps.querySelector('[data-id="'+id+'"]');if(full){line('atteo',id).lastChild.textContent=full}else if(s.abuf&&s.abuf.trim()){const p=line('atteo',id),cur=p.lastChild.textContent;p.lastChild.textContent=(cur?cur+' ':'')+s.abuf.trim()}
   s.abuf='';const q=caps.querySelector('[data-id="'+id+'"]');if(q){q.lastChild.textContent=q.lastChild.textContent.trim();remember(id,'Atteo',q.lastChild.textContent)}fade();caps.scrollTop=caps.scrollHeight}
 function look(){if(!st)return;const nap=!!(tk&&tk.nap);dlg.classList.toggle('napping',nap);dlg.classList.toggle('speaking',nap?tk.reading:st.speaking);dlg.classList.toggle('hearing',!nap&&st.hearing&&!st.micOff);
-  $('talk-wake').hidden=!nap;$('talk-mic').hidden=$('talk-quiet').hidden=nap;
+  $('talk-wake').hidden=!nap;$('talk-mic').hidden=$('talk-quiet').hidden=nap;$('talk-done').hidden=nap||st.ended||!st.ready||st.turns!=='tap';$('talk-done').disabled=!st.said;
+  dlg.classList.toggle('waiting',!nap&&!st.ended&&st.turns==='pause'&&!!st.said&&!st.talking);
   try{if(tk&&navigator.mediaSession)navigator.mediaSession.playbackState=nap?'paused':'playing'}catch(e){}
   if(nap)return say(tk.reading?(rd&&rd.dev?T('Reading you a new message with the device voice'):T('Reading you a new message')):(tk.note?tk.note+' ':'')+T('Standing by. Tap Talk or press play to keep talking.'));
-  say(st.ended?(st.problem||T('Ended.')):st.problem&&!st.ready?st.problem:!st.ready?T('Connecting…'):st.speaking?T('Atteo is speaking'):st.micOff?T('Mic is off'):st.thinking?T('Thinking…'):st.hearing?T('Listening…'):T('Listening: just talk'))}
+  say(st.ended?(st.problem||T('Ended.')):st.problem&&!st.ready?st.problem:!st.ready?T('Connecting…'):st.speaking?T('Atteo is speaking'):st.micOff?T('Mic is off'):st.thinking?T('Thinking…'):st.hearing?(st.turns==='tap'?T('Listening… tap Done when you’re finished'):st.turns==='pause'&&st.said&&!st.talking?T('Atteo answers when you pause…'):T('Listening…')):st.turns==='tap'?T('Listening: talk, then tap Done'):T('Listening: just talk'))}
 $('talk-mic').addEventListener('click',()=>{if(!st||st.ended)return;st.micOff=!st.micOff;$('talk-mic').setAttribute('aria-pressed',String(st.micOff));$('talk-mic').textContent=st.micOff?T('Unmute mic'):T('Mute mic');
   if(st.micOff){st.hearing=false;send({type:'input_audio_buffer.clear'})}look()}); // no half-heard turn left behind
 $('talk-quiet').addEventListener('click',()=>{if(!st||st.ended)return;st.quiet=!st.quiet;$('talk-quiet').setAttribute('aria-pressed',String(st.quiet));$('talk-quiet').textContent=st.quiet?T('Unmute Atteo'):T('Mute Atteo');
   if(st.quiet)stopPlay();look()}); // captions keep coming
 $('talk-end').addEventListener('click',()=>{if(tk)hangUp();else dlg.close()});
 $('talk-wake').addEventListener('click',()=>wake());
+$('talk-done').addEventListener('click',()=>endTurn(st));
 dlg.addEventListener('close',()=>{if(tk)hangUp()});
 addEventListener('pagehide',()=>{if(tk)hangUp(true)});
 
@@ -152,11 +154,12 @@ async function connect(resume){const o=tk.o;
   st={o,resume,ready:false,ended:false,speaking:false,hearing:false,thinking:false,micOff:false,quiet:false,problem:null,active:null,cancelled:new Set(),calls:new Set(),want:false,tools:0,
     playUntil:0,srcs:[],item:null,itemDur:0,you:null,confirm:null,opened:0,lastAct:0,lastEvt:0,max:600,sid:null,end:'/api/app/voice/session/end',ws:null,ac:null,mic:null,proc:null,timer:0};
   const s=st;dlg.classList.remove('speaking','hearing');if(!dlg.open)dlg.showModal();look();
-  let r,j;try{r=await fetch('/api/app/voice/session',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(Object.assign({hands_free:true},o.board?{board:o.board}:{}))});j=await r.json().catch(()=>({}))}
+  let r,j;try{r=await fetch('/api/app/voice/session',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(Object.assign({hands_free:true,client_turns:true},o.board?{board:o.board}:{}))});j=await r.json().catch(()=>({}))}
   catch(e){return fail(s,T('Couldn’t reach Atteo. Check your connection and try again.'))}
   if(s!==st)return;
   if(!r.ok||!j.session_id||!j.session){return fail(s,j.error||T('Couldn’t start talking ({code}).',{code:r.status}))} // the allowance, the rate limit, not set up: the server's words
   s.sid=j.session_id;s.max=+j.max_seconds||600;if(j.end&&j.end.path)s.end=j.end.path;s.routes=j.tool_routes||{};s.session=j.session;
+  s.turns=j.voice_turns==='pause'||j.voice_turns==='tap'?j.voice_turns:'quick';s.pauseMs=Math.max(400,Math.min(5000,+j.pause_ms||1500));
   if(s.ended)return settle(s);
   // The microphone first: a blocked one is a plain message, and nothing is spent (the session is settled at 0 s).
   try{s.mic=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true,autoGainControl:true,channelCount:1}})}
@@ -179,19 +182,31 @@ function tick(s){if(s!==st||s.ended)return;const ac=s.ac,now=ac?ac.currentTime:0
   if(used>=s.max)return nap(T('That’s this session’s time.'));
   // Standby: nothing for Atteo for napMs(). A read-back waiting for your yes keeps it up for 20 s; an answer that's
   // being worked on, while the service is still sending something (10 s at most between events).
-  const now2=Date.now(),busy=(s.thinking||s.active||s.tools)&&now2-s.lastEvt<10000;if(sp||s.hearing||busy||(s.confirm&&now2-s.confirm.at<20000))s.lastAct=now2;
-  if(tk&&now2-s.lastAct>=napMs())nap();else if(tk&&tk.q.length)readNext()}
+  const now2=Date.now(),busy=(s.thinking||s.active||s.tools)&&now2-s.lastEvt<10000;if(sp||(s.turns==='quick'?s.hearing:s.talking)||busy||(s.confirm&&now2-s.confirm.at<20000))s.lastAct=now2;
+  // A turn the page is holding open (tap, or pause between words) gets 30 s of quiet before standby, not napMs.
+  if(tk&&now2-s.lastAct>=(s.said?Math.max(napMs(),30000):napMs()))nap();else if(tk&&tk.q.length)readNext()}
 
 // ---- audio: the mic streams 24 kHz PCM; Atteo's PCM plays as it arrives ----
 function audioOn(s){try{const AC=window.AudioContext||window.webkitAudioContext;s.ac=new AC();s.ac.resume&&s.ac.resume();
   const src=s.ac.createMediaStreamSource(s.mic),proc=s.ac.createScriptProcessor(4096,1,1),mute=s.ac.createGain();mute.gain.value=0;
   const ratio=s.ac.sampleRate/RATE;
-  proc.onaudioprocess=ev=>{if(s.ended)return;const x=ev.inputBuffer.getChannelData(0);let sum=0;for(let i=0;i<x.length;i+=16)sum+=x[i]*x[i];level(s,Math.sqrt(sum/(x.length/16)));
+  proc.onaudioprocess=ev=>{if(s.ended)return;const x=ev.inputBuffer.getChannelData(0);let sum=0;for(let i=0;i<x.length;i+=16)sum+=x[i]*x[i];const rms=Math.sqrt(sum/(x.length/16));level(s,rms);localTurn(s,rms);
     if(s.micOff)return;const n=Math.floor(x.length/ratio),out=new Int16Array(n);
     for(let i=0;i<n;i++){const p=i*ratio,k=Math.floor(p),f=p-k,v=(x[k]||0)*(1-f)+(x[k+1]||x[k]||0)*f;out[i]=Math.max(-1,Math.min(1,v))*0x7fff}
     send({type:'input_audio_buffer.append',audio:b64(out.buffer)},s)};
   src.connect(proc);proc.connect(mute);mute.connect(s.ac.destination);s.proc=proc}
   catch(e){s.problem=T('Audio isn’t working here; captions still show.');look()}}
+// ---- whose turn (voice_turns, vedu #2460): quick = the service's own turn detection, as before. pause and tap = the
+// service doesn't end turns (turn_detection null), so the page does, from the mic's level: pause answers after pause_ms
+// of quiet following speech; tap waits for Done (or the play/pause key). No wake word (jxn): only a tap ends a turn
+// in tap mode. Talking over Atteo still stops it; while it speaks, it takes a louder voice to count (echo).
+const VOICE_ON=0.03,VOICE_OFF=0.015;
+function localTurn(s,l){if(s.turns==='quick'||!s.ready||s.ended)return;const now=Date.now();
+  if(s.micOff){s.talking=false;return}
+  if(l>(s.speaking?VOICE_ON*2.5:VOICE_ON)){s.lastVoice=s.lastAct=now;if(!s.talking){s.talking=true;s.said=true;handle(s,{type:'input_audio_buffer.speech_started'})}}
+  else if(s.talking&&l<VOICE_OFF&&now-s.lastVoice>200){s.talking=false;look()}
+  if(s.turns==='pause'&&s.said&&!s.talking&&now-s.lastVoice>=s.pauseMs)endTurn(s)}
+function endTurn(s){if(!s||s.ended||!s.said)return;s.said=s.talking=false;handle(s,{type:'input_audio_buffer.speech_stopped'});send({type:'input_audio_buffer.commit'},s);respond(s);look()}
 function level(s,l){const on=!s.micOff;bars.forEach((b,i)=>{if(s.speaking)return b.style.height='';b.style.height=(on?Math.min(40,8+l*300*(0.6+0.4*Math.sin(i*1.7))):8)+'px'})}
 function b64(buf){const u=new Uint8Array(buf);let s='';for(let i=0;i<u.length;i+=0x8000)s+=String.fromCharCode.apply(null,u.subarray(i,i+0x8000));return btoa(s)}
 function play(s,data,item){if(!s.ac)return 0;const bin=atob(data),n=bin.length>>1;if(!n)return 0;const buf=s.ac.createBuffer(1,n,RATE),ch=buf.getChannelData(0);
@@ -316,7 +331,7 @@ function silentWav(){if(silence)return silence;const n=8000*6,b=new ArrayBuffer(
   new Uint8Array(b,44).fill(128);return silence=URL.createObjectURL(new Blob([b],{type:'audio/wav'}))}
 function mediaOn(){const ms=navigator.mediaSession;if(!ms||!tk)return;try{const a=tk.loop=new Audio(silentWav());a.loop=true;a.play().catch(()=>{})}catch(e){}
   try{if(window.MediaMetadata)ms.metadata=new MediaMetadata({title:T('Talk to Atteo'),artist:'Atteo'})}catch(e){}
-  const on=(k,f)=>{try{ms.setActionHandler(k,f)}catch(e){}};on('play',()=>{if(tk&&tk.nap)wake()});on('pause',()=>{if(tk&&!tk.nap)nap()});on('stop',()=>{if(tk)hangUp()})}
+  const on=(k,f)=>{try{ms.setActionHandler(k,f)}catch(e){}};on('play',()=>{if(tk&&tk.nap)wake()});on('pause',()=>{if(tk&&!tk.nap){if(st&&st.turns==='tap'&&st.said)return endTurn(st);nap()}});on('stop',()=>{if(tk)hangUp()})}
 function mediaOff(c){const ms=navigator.mediaSession;if(c.loop){try{c.loop.pause()}catch(e){}c.loop=null}if(!ms)return;
   for(const k of ['play','pause','stop'])try{ms.setActionHandler(k,null)}catch(e){}try{ms.metadata=null;ms.playbackState='none'}catch(e){}}
 window.atteoTalk={open,state:()=>st,call:()=>tk,busy:()=>!!(st&&!st.ended)};

@@ -10,7 +10,7 @@
   "preview_urls": false,
   "triggers": { "crons": ["*/5 * * * *"] },
   // The agent skill (skills/atteo/SKILL.md) is bundled as text and served at /skill.md.
-  "rules": [{ "type": "Text", "globs": ["**/*.md", "**/atteo.mjs"], "fallthrough": true }],
+  "rules": [{ "type": "Text", "globs": ["**/*.md", "**/atteo.mjs"], "fallthrough": true }, { "type": "Data", "globs": ["**/*.woff2"], "fallthrough": true }],
   // The CLI is bundled into one file and served at /cli/atteo.mjs (curl …/install.sh | sh installs it).
   "build": { "command": "npm run -s build:cli" },
   "durable_objects": {

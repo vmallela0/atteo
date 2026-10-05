@@ -1,7 +1,8 @@
 // Design system: tokens, base styles, components and the shared client script.
 // Minimal and quiet (in the spirit of Vercel Geist / Linear): neutral grays, one ink color for primary actions,
-// hairline borders, Geist type, light + dark, works down to phone width.
+// hairline borders, light + dark, works down to phone width. Type: Onest / Enriqueta / Courier Prime (fontfaces.ts).
 
+import { FONT_CSS, FONT_V } from "./fontfaces";
 import { chartHtml } from "./chart";
 import { STATUS_CSS, statusHtml } from "./status";
 import { highlightMentions, type Mention } from "./mentions";
@@ -19,7 +20,7 @@ export const CSP_REPORT_PATH = "/api/csp-report";
 // Each HTML response owns its nonce. Inline CSS and style attributes are used throughout the UI.
 export function pageSecurity() {
   const nonce = Array.from(crypto.getRandomValues(new Uint8Array(16)), (b) => b.toString(16).padStart(2, "0")).join("");
-  const policy = `default-src 'self'; script-src 'self' 'nonce-${nonce}' ${MERMAID_SRC}; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: blob:; font-src 'self' data: https://fonts.gstatic.com; connect-src 'self' ws: wss:; frame-src 'self' about:; frame-ancestors 'none'; base-uri 'none'; form-action 'self'; object-src 'none'; report-uri ${CSP_REPORT_PATH}; report-to csp`;
+  const policy = `default-src 'self'; script-src 'self' 'nonce-${nonce}' ${MERMAID_SRC}; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' ws: wss:; frame-src 'self' about:; frame-ancestors 'none'; base-uri 'none'; form-action 'self'; object-src 'none'; report-uri ${CSP_REPORT_PATH}; report-to csp`;
   const headers: Record<string, string> = {
     [CSP_ENFORCE ? "content-security-policy" : "content-security-policy-report-only"]: policy,
     "reporting-endpoints": `csp="${CSP_REPORT_PATH}"`,
@@ -30,22 +31,27 @@ export function pageSecurity() {
 }
 
 // Dark tokens: the system setting picks them unless Display says light; Display can also force them.
-const DARK = `  --bg:#0a0a0a;--bg-subtle:#111111;--bg-hover:#1a1a1a;--line:#232323;--line-strong:#2e2e2e;
-  --ink:#ededed;--text:#ededed;--muted:#a1a1a1;--faint:#858585;--on-ink:#0a0a0a;--pb-agent:#F2EFE8;--pb-eye:#111113;--atteo:#F0A78E;
-  --accent:#4ea1ff;--ok:#3ecf75;--warn:#fb923c;--danger:#f87171;
+const DARK = `  --bg:#0E0E0E;--bg-subtle:#171716;--bg-hover:#1F1E1C;--line:#2A2926;--line-strong:#3A3935;
+  --ink:#FAFAF7;--text:#EDEBE5;--muted:#AFADA6;--faint:#8E8C85;--on-ink:#0E0E0E;--cherry:#E0303F;--atteo:#F0A78E;
+  --accent:#FAFAF7;--ok:#3ecf75;--warn:#fb923c;--danger:#f87171;
   --q:#fbbf24;--claim:#4ade80;--decision:#a78bfa;--task:#38bdf8;--artifact:#a3a3a3;--note:#737373;
   --shadow:0 1px 2px rgba(0,0,0,.4);--shadow-lg:0 12px 48px rgba(0,0,0,.6);
-  --av-l:22%;--av-c:78%;--av-s:40%;
+  --av-l:22%;--av-c:80%;--av-s:26%;
   color-scheme:dark;`;
+
+/** The interface face, fetched with the page instead of after the CSS parses (latin; other subsets load as needed). */
+const FONT_PRELOAD = `<link rel="preload" href="/fonts/onest-latin.woff2?v=${FONT_V}" as="font" type="font/woff2" crossorigin>`;
 
 export const CSS = `
 :root{
-  --bg:#ffffff;--bg-subtle:#fafafa;--bg-hover:#f4f4f5;--line:#ebebeb;--line-strong:#dcdcdc;
-  --ink:#0a0a0a;--text:#171717;--muted:#595959;--faint:#737373;--on-ink:#ffffff;--pb-agent:#111113;--pb-eye:#F2EFE8;--atteo:#A34A2B; /* Atteo's voice (Talk to Atteo): 5.9:1 here, 10:1 in dark */
-  --accent:#0062d1;--ok:#16a34a;--warn:#c2410c;--danger:#dc2626;
+  /* The design language (#2508): ink on paper, bone and stone around it, graphite for secondary text, and cherry for
+     you and the one primary action in a view (cherry-bright on dark). Links and focus are ink, underlined. */
+  --bg:#FAFAF7;--bg-subtle:#F2EFE8;--bg-hover:#ECE8DF;--line:#E4E1D9;--line-strong:#D9D6CE;
+  --ink:#0E0E0E;--text:#161614;--muted:#5A5853;--faint:#6B6964;--on-ink:#FAFAF7;--cherry:#A8121E;--atteo:#A34A2B; /* Atteo's voice (Talk to Atteo): 5.9:1 here, 10:1 in dark */
+  --accent:#0E0E0E;--ok:#16a34a;--warn:#c2410c;--danger:#dc2626;
   --q:#d97706;--claim:#16a34a;--decision:#7c3aed;--task:#0284c7;--artifact:#737373;--note:#a3a3a3;
   --shadow:0 1px 2px rgba(0,0,0,.04),0 4px 16px rgba(0,0,0,.04);--shadow-lg:0 12px 48px rgba(0,0,0,.12);
-  --av-l:92%;--av-c:28%;--av-s:65%;
+  --av-l:90%;--av-c:26%;--av-s:38%;
   --r:10px;--r-sm:7px;
   color-scheme:light;
 }
@@ -64,16 +70,24 @@ export const CSS = `
 :hover::-webkit-scrollbar-thumb{background:var(--sb-hover)}
 @supports not selector(::-webkit-scrollbar){*{scrollbar-width:thin;scrollbar-color:var(--sb) transparent}*:hover{scrollbar-color:var(--sb-hover) transparent}}
 html{-webkit-text-size-adjust:100%}
-body{margin:0;background:var(--bg);color:var(--text);font:13.5px/1.5 "Geist",ui-sans-serif,system-ui,-apple-system,"Segoe UI","PingFang SC","Hiragino Sans GB","Noto Sans SC","Microsoft YaHei",sans-serif;
-  -webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;font-feature-settings:"ss01","cv11"}
-html:lang(zh-Hant) body{font-family:"Geist",ui-sans-serif,system-ui,-apple-system,"Segoe UI","PingFang TC","Noto Sans TC","Microsoft JhengHei",sans-serif}
-html:lang(ja) body{font-family:"Geist",ui-sans-serif,system-ui,-apple-system,"Segoe UI","Hiragino Sans","Hiragino Kaku Gothic ProN","Noto Sans JP","Yu Gothic UI",Meiryo,sans-serif}
-html:lang(ko) body{font-family:"Geist",ui-sans-serif,system-ui,-apple-system,"Segoe UI","Apple SD Gothic Neo","Noto Sans KR","Malgun Gothic",sans-serif}
-html:lang(hi) body{font-family:"Geist",ui-sans-serif,system-ui,-apple-system,"Segoe UI","Kohinoor Devanagari","Noto Sans Devanagari","Nirmala UI",sans-serif}
+/* Type (design language v1, #2508): Onest for the interface, Enriqueta for headlines, Courier Prime for ids and payloads,
+   all served by this Worker (fontfaces.ts). Onest covers Latin, Cyrillic and Vietnamese; other scripts fall through to
+   the system's own font for that script, per page language. */
+:root{--font-ui:"Onest",ui-sans-serif,system-ui,-apple-system,"Segoe UI","PingFang SC","Hiragino Sans GB","Noto Sans SC","Microsoft YaHei",sans-serif;
+  --font-head:"Enriqueta","Onest",Georgia,"Times New Roman",serif;--font-mono:"Courier Prime",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+html:lang(zh-Hant){--font-ui:"Onest",ui-sans-serif,system-ui,-apple-system,"Segoe UI","PingFang TC","Noto Sans TC","Microsoft JhengHei",sans-serif}
+html:lang(ja){--font-ui:"Onest",ui-sans-serif,system-ui,-apple-system,"Segoe UI","Hiragino Sans","Hiragino Kaku Gothic ProN","Noto Sans JP","Yu Gothic UI",Meiryo,sans-serif}
+html:lang(ko){--font-ui:"Onest",ui-sans-serif,system-ui,-apple-system,"Segoe UI","Apple SD Gothic Neo","Noto Sans KR","Malgun Gothic",sans-serif}
+html:lang(hi){--font-ui:"Onest",ui-sans-serif,system-ui,-apple-system,"Segoe UI","Kohinoor Devanagari","Noto Sans Devanagari","Nirmala UI",sans-serif}
+html:lang(bn){--font-ui:"Onest",ui-sans-serif,system-ui,-apple-system,"Segoe UI","Kohinoor Bangla","Noto Sans Bengali","Nirmala UI",sans-serif}
+html:lang(ar){--font-ui:"Onest",ui-sans-serif,system-ui,-apple-system,"Segoe UI","Geeza Pro","Noto Sans Arabic","Noto Naskh Arabic",Tahoma,sans-serif}
+html:lang(zh-Hant),html:lang(ja),html:lang(ko),html:lang(hi),html:lang(bn),html:lang(ar),html:lang(zh-Hans),html:lang(zh){--font-head:var(--font-ui)} /* Enriqueta is Latin only: a headline in these scripts uses the interface stack */
+body{margin:0;background:var(--bg);color:var(--text);font:13.5px/1.5 var(--font-ui);
+  -webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
 a{color:inherit;text-decoration:none}
-a.link{color:var(--accent)}a.link:hover{text-decoration:underline}
-code,pre,.mono{font-family:"Geist Mono",ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px}
-h1,h2,h3{color:var(--ink);font-weight:600;letter-spacing:-.02em;margin:0}
+a.link{color:var(--accent);text-decoration:underline;text-decoration-thickness:1px;text-underline-offset:2px}a.link:hover{text-decoration-thickness:2px}
+code,pre,.mono{font-family:var(--font-mono);font-size:13px}
+h1,h2,h3{color:var(--ink);font-weight:600;letter-spacing:-.02em;margin:0}h1,h2{font-family:var(--font-head);letter-spacing:-.01em}
 h1{font-size:22px;line-height:1.25}h2{font-size:15px}h3{font-size:13px}
 p{margin:0}
 .muted{color:var(--muted)}.faint{color:var(--faint)}.small{font-size:13px}.xs{font-size:12px}
@@ -85,9 +99,9 @@ p{margin:0}
 .nav{position:sticky;top:0;z-index:20;background:color-mix(in srgb,var(--bg) 82%,transparent);backdrop-filter:saturate(180%) blur(12px);
   -webkit-backdrop-filter:saturate(180%) blur(12px);border-bottom:1px solid var(--line)}
 .nav .in{max-width:1180px;margin:0 auto;height:56px;padding:0 20px;display:flex;align-items:center;gap:16px}
-.brand{display:flex;align-items:center;gap:9px;font-weight:600;letter-spacing:-.01em;color:var(--ink)}
+.brand{display:flex;align-items:center;gap:5px;font-weight:600;letter-spacing:-.01em;color:var(--ink)}
 .brand svg{display:block}
-.wm{font-weight:800;letter-spacing:-.03em}
+.wm{font-family:Schoolbell,'Comic Sans MS',cursive;font-weight:400;font-size:22px;line-height:1;letter-spacing:0;filter:url(#wm-marker-sm)}.wm.lg{font-size:40px;filter:url(#wm-marker)} /* the wordmark: lowercase, Schoolbell, the marker filter (#2508) */
 .nav .links{display:flex;gap:4px;margin-left:8px}
 .nav .links a{color:var(--muted);padding:6px 10px;border-radius:6px}
 .nav .links a:hover,.nav .links a[aria-current]{color:var(--ink);background:var(--bg-hover)}
@@ -204,6 +218,8 @@ dialog[open]{animation:pop .16s ease-out}dialog:focus{outline:none}@media (prefe
 @media(min-width:960px){.layout{grid-template-columns:minmax(0,1fr) 300px}.aside{position:sticky;top:64px;align-self:start;max-height:calc(100vh - 84px);overflow-y:auto;overflow-x:hidden;padding-right:4px}}
 .thread{display:flex;flex-direction:column}
 .entry{display:flex;gap:12px;padding:16px 0;border-top:1px solid var(--line)}
+.catch-up{display:flex;justify-content:center;margin:10px 0 8px}.catch-up .btn{border-radius:999px;gap:6px}
+.rc-src{margin-top:14px;padding-top:10px;border-top:1px solid var(--line)}
 .new-line{display:flex;align-items:center;gap:8px;margin:0;font-size:11px;line-height:1;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--danger)}.new-line span{line-height:1;padding-top:1px}.new-line::after{content:"";flex:1;height:1px;background:color-mix(in srgb,var(--danger) 45%,transparent)}.new-line+.entry{border-top-color:transparent}
 .thread>.entry:first-child{border-top:0;padding-top:4px}
 .entry .meta{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:13px;line-height:20px}
@@ -225,7 +241,7 @@ dialog[open]{animation:pop .16s ease-out}dialog:focus{outline:none}@media (prefe
 .entry .body pre{background:var(--bg-subtle);border:1px solid var(--line);border-radius:8px;padding:10px 12px;overflow-x:auto;margin:8px 0;white-space:pre}
 .entry .body code{background:var(--bg-hover);padding:1px 5px;border-radius:4px}
 .entry .body pre code{background:none;padding:0}
-.entry .body a{color:var(--accent)}
+.entry .body a{color:var(--accent);text-decoration:underline;text-decoration-thickness:1px;text-underline-offset:2px}
 .entry .refs{margin-top:6px;font-size:12.5px;color:var(--faint)}
 .entry .refs a:hover{color:var(--ink)}
 .entry.flash-in{animation:flashin 1.6s ease-out,entryin .32s cubic-bezier(.2,.7,.3,1)}
@@ -294,7 +310,7 @@ dialog.ia-dlg{width:min(560px,calc(100vw - 24px))}.ia-opt h3{margin:0 0 4px;font
 .acc-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.acc-sel{width:auto;height:30px;font-size:12.5px;padding:0 8px}
 /* phones: a member's name on one line, role and end date side by side under it, lined up with the name */
 @media(max-width:640px){#acc-members{gap:12px}#acc-members .acc-row{display:grid;grid-template-columns:auto auto minmax(0,1fr);gap:6px 8px}#acc-members .acc-row>.grow{grid-column:2/4}#acc-members .acc-sel{grid-row:2;width:100%;min-width:0;padding-right:26px;background-position:right 9px center}#acc-members .acc-sel:first-of-type{grid-column:2}#acc-members .acc-sel:last-of-type{grid-column:3}}
-@media(max-width:360px){#acc-members .acc-sel:first-of-type{grid-column:1/3}} /* the narrowest phones: the role starts under the picture so the end date fits */
+@media(max-width:360px){#acc-members .acc-sel:first-of-type{grid-column:1/3}#acc-members .acc-sel{font-size:12.5px;padding-left:8px;padding-right:22px;background-position:right 6px center}} /* the narrowest phones: the role starts under the picture so the end date fits (Onest runs a little wider than Geist did) */
 .add-agent{margin:0 0 22px}.add-agent>summary{cursor:pointer;list-style:none}.add-agent>summary::-webkit-details-marker{display:none}.add-agent .cn-grid{grid-template-columns:repeat(auto-fill,minmax(150px,1fr))}
 /* Everyday: "Bring your assistant" (/welcome), the home banner that points to it, and Account's "Your assistant" card.
    Plain words, big tiles; headings a step above the web's h1 like the Everyday mockups (ios/qa/design/everyday). */
@@ -314,7 +330,7 @@ dialog.ia-dlg{width:min(560px,calc(100vw - 24px))}.ia-opt h3{margin:0 0 4px;font
 .ev-soon{flex:none;white-space:nowrap}
 .ev-or{display:flex;align-items:center;gap:12px;margin:18px 0;color:var(--faint);font-size:13px}
 .ev-or::before,.ev-or::after{content:"";flex:1;height:1px;background:var(--line)}
-.ev-own{border-color:color-mix(in srgb,#D97857 45%,var(--line));background:color-mix(in srgb,#D97857 6%,var(--bg))}
+.ev-own{border-color:color-mix(in srgb,var(--cherry) 40%,var(--line));background:color-mix(in srgb,var(--cherry) 5%,var(--bg))}
 .ev-own .ev-ic{background:transparent;border-color:transparent}
 .ev-foot-links{margin-top:28px;display:flex;flex-direction:column;align-items:center;gap:10px;text-align:center;font-size:13.5px;color:var(--muted)}
 .ev-foot-links a{color:var(--accent)}.ev-foot-links a:hover{text-decoration:underline}
@@ -416,7 +432,7 @@ a.ev-acct:hover{background:var(--bg-subtle)}
 .acc-sug[hidden]{display:none}.acc-sug li{display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:6px;font-size:13px;cursor:pointer;min-width:0}
 .acc-sug li[aria-selected="true"],.acc-sug li:hover{background:var(--bg-hover)}
 .acc-list{list-style:none;margin:8px 0 0;padding:0;display:flex;flex-direction:column;gap:8px}
-.sum h3 .linkish,.linkish{border:0;background:none;padding:0;font:inherit;font-size:12px;color:var(--accent);cursor:pointer}.linkish:hover{text-decoration:underline}
+.sum h3 .linkish,.linkish{border:0;background:none;padding:0;font:inherit;font-size:12px;color:var(--accent);cursor:pointer;text-decoration:underline;text-underline-offset:2px}.linkish:hover{text-decoration-thickness:2px}
 /* view-only members: nothing that writes */
 .ro .composer,.ro [data-qr],.ro [data-rx-add],.ro button[data-reply],.ro .rx-add,.ro [data-tk],.ro .kb-new,.ro #doc-new,.ro #doc-edit{display:none!important}
 .ro .rx-chip{pointer-events:none}
@@ -558,7 +574,7 @@ dialog.lightbox img{display:block;max-width:min(96vw,1600px);max-height:92vh;wid
 .att-name{font-size:12px;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 /* Dictation (#2081, #2089): the mic sits where Post is, like the app's. Empty box: only the mic; once there's text (or a
    file), Post, and the mic steps aside unless it's listening. Text the page puts there (a reply's @mention) keeps both. */
-.composer .mic-btn{width:32px;height:32px;margin:-3px 0;padding:0;justify-content:center;border-radius:999px;background:var(--ink);border-color:var(--ink);color:var(--on-ink);touch-action:none;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none}.composer .mic-btn:hover{opacity:.88}
+.composer .mic-btn{width:32px;height:32px;margin:-3px 0;padding:0;justify-content:center;border-radius:999px;background:var(--cherry);border-color:var(--cherry);color:var(--on-ink);touch-action:none;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none}.composer .mic-btn:hover{opacity:.88}
 .composer .mic-btn.on{background:var(--danger);border-color:var(--danger)}.composer .mic-btn.on svg{animation:mic-pulse 1.2s ease-in-out infinite}@keyframes mic-pulse{50%{opacity:.5}}
 .composer:has(.mic-btn:not([hidden])):has(#attachments[hidden]):has(textarea:placeholder-shown) .post-btn{display:none}
 .composer.typed:has(textarea:not(:placeholder-shown)) .mic-btn:not(.on){display:none}
@@ -752,7 +768,7 @@ ${TALK_CSS}
 /* app shell (Linear-style): sidebar + top bar + content */
 .app{display:grid;grid-template-columns:232px minmax(0,1fr);min-height:100vh}
 .sidebar{position:sticky;top:0;height:100vh;display:flex;flex-direction:column;gap:2px;padding:10px 8px;border-right:1px solid var(--line);background:var(--bg-subtle);overflow:auto}
-.sidebar .ws{display:flex;align-items:center;gap:9px;padding:6px 8px 10px;font-weight:600;color:var(--ink)}
+.sidebar .ws{display:flex;align-items:center;gap:5px;padding:6px 8px 10px;font-weight:600;color:var(--ink)}
 .sidebar .search{display:flex;align-items:center;gap:8px;height:30px;margin:0 0 8px;padding:0 9px;border:1px solid var(--line);border-radius:7px;background:var(--bg);color:var(--faint);cursor:pointer;font:inherit;font-size:13px;text-align:left}
 .sidebar .search:hover{border-color:var(--line-strong);color:var(--muted)}
 .sidebar .search kbd{margin-left:auto}
@@ -879,7 +895,7 @@ mark{background:color-mix(in srgb,var(--warn) 30%,transparent);color:inherit;bor
 @keyframes breathe{0%,100%{box-shadow:0 0 0 0 color-mix(in srgb,var(--ok) 45%,transparent)}50%{box-shadow:0 0 0 3px color-mix(in srgb,var(--ok) 18%,transparent)}}
 .side-board-row{display:flex;align-items:center;position:relative}.side-board-row .side-board{flex:1;min-width:0}.pin-actions{position:relative;z-index:3}.pin-actions summary{list-style:none;cursor:pointer;color:var(--muted);padding:4px 7px;border-radius:6px}.pin-actions summary::-webkit-details-marker{display:none}.pin-actions summary:hover{background:var(--bg-hover);color:var(--ink)}.pin-actions>button{position:absolute;right:0;top:100%;white-space:nowrap;border:1px solid var(--line);border-radius:7px;background:var(--bg);color:var(--ink);padding:7px 14px;box-shadow:var(--shadow-lg);cursor:pointer}.pin-actions>button:hover{background:var(--bg-hover)}.pin-mark{font-size:12px;flex:none}.side-board .working{margin-left:auto;font-size:10.5px}.side-board .working .dot{width:6px;height:6px}
 @media (prefers-reduced-motion:reduce){.working .dot,.ag-dot.live{animation:none}}
-.side-board .bdot{width:8px;height:8px;margin:0 5px;border-radius:3px;flex:none;background:hsl(var(--h) 55% 55%)}
+.board-head-menu{position:relative}.bc-menu{z-index:3}.board-head-menu summary{list-style:none;cursor:pointer}.board-head-menu summary::-webkit-details-marker{display:none}.board-head-menu-items{position:absolute;right:0;top:32px;z-index:30;min-width:165px;padding:4px;background:var(--bg);border:1px solid var(--line);border-radius:8px;box-shadow:var(--shadow-lg)}.board-head-menu-items button{display:block;width:100%;padding:8px;text-align:start;border:0;background:transparent;color:var(--ink);cursor:pointer}.board-head-menu-items button:hover{background:var(--bg-hover)}.side-board-row{position:relative;display:flex;align-items:center}.side-board-row>.side-board{flex:1;min-width:0;padding-right:30px}.board-row-menu{position:absolute;right:3px;top:2px;z-index:4}.board-row-menu summary{list-style:none;cursor:pointer;padding:3px 6px;color:var(--muted)}.board-row-menu summary::-webkit-details-marker{display:none}.board-row-menu .brm-items{position:absolute;right:0;top:27px;z-index:5;min-width:150px;padding:4px;border:1px solid var(--line);border-radius:7px;background:var(--bg);box-shadow:var(--shadow-lg)}.board-row-menu .brm-items button{display:block;width:100%;white-space:nowrap;padding:8px 12px;border:0;border-radius:5px;background:transparent;color:var(--ink);text-align:start;cursor:pointer}.board-row-menu .brm-items button:hover{background:var(--bg-hover)}.side-board .bdot{width:8px;height:8px;margin:0 5px;border-radius:3px;flex:none;background:hsl(var(--h) 55% 55%)}
 /* board pictures (like a group chat's photo): a rounded square, its initial underneath until the image loads */
 .bpic{--h:220;position:relative;overflow:hidden;flex:none;display:inline-grid;place-items:center;width:28px;height:28px;border-radius:7px;
   background:hsl(var(--h) 55% 55%);color:#fff;font-size:13px;font-weight:600;line-height:1;user-select:none}
@@ -908,7 +924,7 @@ mark{background:color-mix(in srgb,var(--warn) 30%,transparent);color:inherit;bor
 .side-connect{display:none}@media(max-width:860px){.side-connect{display:flex}}
 .side-connect .ev-l,:root[data-mode="everyday"] .side-connect .dev-l{display:none}:root[data-mode="everyday"] .side-connect .ev-l{display:inline}
 kbd{display:inline-flex;align-items:center;justify-content:center;min-width:18px;height:18px;padding:0 4px;border:1px solid var(--line-strong);border-bottom-width:2px;
-  border-radius:4px;font:500 10.5px/1 "Geist Mono",ui-monospace,monospace;color:var(--muted);background:var(--bg)}
+  border-radius:4px;font:500 10.5px/1 var(--font-mono);color:var(--muted);background:var(--bg)}
 
 /* tabs */
 .tabs{display:flex;gap:2px;border-bottom:1px solid var(--line);margin-bottom:18px}
@@ -1139,19 +1155,25 @@ dialog.recap-dlg{width:min(560px,calc(100vw - 32px));max-height:min(80vh,720px)}
 @media(max-width:640px){dialog.recap-dlg{margin:auto 0 0;width:100vw;max-width:100vw;max-height:85vh;border-radius:14px 14px 0 0;border-width:1px 0 0}.recap-dlg .bd{max-height:calc(85vh - 80px)}}
 `;
 
-// The Pebble: the app mark. One soft pebble split by a slanted seam; the clay half is you, the ink half your agent,
-// eyes meeting across the seam. Same geometry as ios/qa/design/icon.swift and AtteoMark (1024 canvas, y down).
-// Themed: on dark the agent half is bone and both eyes ink so it doesn't vanish (--pb-agent / --pb-eye in CSS).
-const LOGO = `<svg class="pebble" width="22" height="22" viewBox="150 190 726 646" aria-hidden="true"><defs><clipPath id="pbc"><rect x="189" y="229" width="647" height="566" rx="283" ry="283"/></clipPath></defs><g clip-path="url(#pbc)"><polygon points="711,-1765 301,2785 -1691,2606 -1281,-1944" fill="#D97857"/><polygon points="746,-1761 336,2789 2328,2968 2738,-1582" fill="var(--pb-agent)"/></g><circle cx="405" cy="468" r="54" fill="var(--pb-eye)"/><circle cx="634" cy="498" r="54" fill="var(--pb-eye)"/></svg>`;
+// The mark (design language v1, #2508): hand-drawn tin-can phones, a cherry cup (you) with one string branching to three
+// ink agents (a horn, a can and a cup). Its hand wobble is the SVG filter; never recoloured beyond its two tokens, which
+// follow the theme (ink and cherry, so on dark it's paper and cherry-bright). At least 20px tall.
+const LOGO = `<svg class="pebble" width="26" height="22" viewBox="112 179 800 667" aria-hidden="true"><defs><filter id="atm" x="-10%" y="-10%" width="120%" height="120%"><feTurbulence type="fractalNoise" baseFrequency="0.018" numOctaves="2" seed="7"/><feDisplacementMap in="SourceGraphic" scale="16"/></filter></defs><g transform="translate(512 512) translate(-551.1 -507.8)"><g filter="url(#atm)" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M380.0 512.0Q532.3 448.5 690.0 400.0M380.0 512.0Q550.0 512.0 720.0 512.0M380.0 512.0Q532.3 575.5 690.0 624.0" stroke="var(--ink)" stroke-width="22"/><g stroke-width="36"><g transform="translate(380.0 512.0) rotate(-90.0)" stroke="var(--cherry)"><path d="M-90 -160L-54 -6Q0 25.2 54 -6L90 -160"/><ellipse cx="0" cy="-160" rx="90" ry="30.6"/></g><g transform="translate(690.0 400.0) rotate(70.1)" stroke="var(--ink)"><path d="M-65 -150L-13 0H13L65 -150"/><ellipse cx="0" cy="-150" rx="65" ry="22.1"/></g><g transform="translate(720.0 512.0) rotate(90.0)" stroke="var(--ink)"><path d="M-52.5 -175V-6Q0 23.1 52.5 -6V-175"/><ellipse cx="0" cy="-175" rx="52.5" ry="17.85"/></g><g transform="translate(690.0 624.0) rotate(109.9)" stroke="var(--ink)"><path d="M-65 -125L-39 -6Q0 18.2 39 -6L65 -125"/><ellipse cx="0" cy="-125" rx="65" ry="22.1"/></g></g></g></g></svg>`;
 
-/** The Pebble at another size (the first-run screen and Account's "Your assistant" card). */
+/** The mark at another height (the first-run screen and Account's "Your assistant" card). */
 export function pebble(px: number): string {
-  return LOGO.replace('width="22" height="22"', `width="${px}" height="${px}"`);
+  return LOGO.replace('width="26" height="22"', `width="${Math.round(px * 1.2)}" height="${px}"`);
 }
 
-// The favicon: the Pebble on its bone tile (fixed colors), enlarged a little so it reads at 16 px.
-export const FAVICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024"><rect width="1024" height="1024" rx="230" fill="#F2EFE8"/>
-<g transform="translate(512 512) scale(1.18) translate(-512.5 -512)"><defs><clipPath id="pbf"><rect x="189" y="229" width="647" height="566" rx="283" ry="283"/></clipPath></defs><g clip-path="url(#pbf)"><polygon points="711,-1765 301,2785 -1691,2606 -1281,-1944" fill="#D97857"/><polygon points="746,-1761 336,2789 2328,2968 2738,-1582" fill="#111113"/></g><circle cx="405" cy="468" r="54" fill="#111113"/><circle cx="634" cy="498" r="54" fill="#F2EFE8"/></g></svg>`;
+/** The wordmark's marker filter (lowercase "atteo" in Schoolbell, never without it): once per page. wm-marker is the
+ *  design's, for big sizes (.wm.lg); at interface sizes it eats the strokes, so .wm uses wm-marker-sm: the same hand
+ *  wobble scaled down. */
+export const WORDMARK_DEFS = `<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs><filter id="wm-marker" x="-5%" y="-15%" width="110%" height="130%"><feTurbulence type="fractalNoise" baseFrequency="0.035" numOctaves="2" seed="7" result="n"/><feDisplacementMap in="SourceGraphic" in2="n" scale="5" xChannelSelector="R" yChannelSelector="G" result="d"/><feGaussianBlur in="d" stdDeviation="0.8" result="b"/><feComponentTransfer in="b"><feFuncA type="table" tableValues="0 0 0 0.5 1"/></feComponentTransfer></filter><filter id="wm-marker-sm" x="-5%" y="-15%" width="110%" height="130%"><feTurbulence type="fractalNoise" baseFrequency="0.07" numOctaves="2" seed="7" result="n"/><feDisplacementMap in="SourceGraphic" in2="n" scale="2" xChannelSelector="R" yChannelSelector="G" result="d"/><feGaussianBlur in="d" stdDeviation="0.35" result="b"/><feComponentTransfer in="b"><feFuncA type="table" tableValues="0 0.4 1 1"/></feComponentTransfer></filter></defs></svg>`;
+
+// The app icon (atteo-icon-light / -dark): the mark on its paper (or ink) tile.
+export const ICON_LIGHT_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024"><defs><clipPath id="bsq"><rect width="1024" height="1024" rx="230"/></clipPath><filter id="brough" x="-10%" y="-10%" width="120%" height="120%"><feTurbulence type="fractalNoise" baseFrequency="0.018" numOctaves="2" seed="7"/><feDisplacementMap in="SourceGraphic" scale="16"/></filter></defs><g clip-path="url(#bsq)"><rect width="1024" height="1024" fill="#FAFAF7"/><g transform="translate(512 512) translate(-551.1 -507.8)"><g filter="url(#brough)" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M380.0 512.0Q532.3 448.5 690.0 400.0M380.0 512.0Q550.0 512.0 720.0 512.0M380.0 512.0Q532.3 575.5 690.0 624.0" stroke="#0E0E0E" stroke-width="22"/><g stroke-width="36"><g transform="translate(380.0 512.0) rotate(-90.0)" stroke="#A8121E"><path d="M-90 -160L-54 -6Q0 25.2 54 -6L90 -160"/><ellipse cx="0" cy="-160" rx="90" ry="30.6"/></g><g transform="translate(690.0 400.0) rotate(70.1)" stroke="#0E0E0E"><path d="M-65 -150L-13 0H13L65 -150"/><ellipse cx="0" cy="-150" rx="65" ry="22.1"/></g><g transform="translate(720.0 512.0) rotate(90.0)" stroke="#0E0E0E"><path d="M-52.5 -175V-6Q0 23.1 52.5 -6V-175"/><ellipse cx="0" cy="-175" rx="52.5" ry="17.85"/></g><g transform="translate(690.0 624.0) rotate(109.9)" stroke="#0E0E0E"><path d="M-65 -125L-39 -6Q0 18.2 39 -6L65 -125"/><ellipse cx="0" cy="-125" rx="65" ry="22.1"/></g></g></g></g></g></svg>`;
+export const ICON_DARK_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024"><defs><clipPath id="bsq"><rect width="1024" height="1024" rx="230"/></clipPath><filter id="brough" x="-10%" y="-10%" width="120%" height="120%"><feTurbulence type="fractalNoise" baseFrequency="0.018" numOctaves="2" seed="7"/><feDisplacementMap in="SourceGraphic" scale="16"/></filter></defs><g clip-path="url(#bsq)"><rect width="1024" height="1024" fill="#0E0E0E"/><g transform="translate(512 512) translate(-551.1 -507.8)"><g filter="url(#brough)" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M380.0 512.0Q532.3 448.5 690.0 400.0M380.0 512.0Q550.0 512.0 720.0 512.0M380.0 512.0Q532.3 575.5 690.0 624.0" stroke="#FAFAF7" stroke-width="22"/><g stroke-width="36"><g transform="translate(380.0 512.0) rotate(-90.0)" stroke="#E0303F"><path d="M-90 -160L-54 -6Q0 25.2 54 -6L90 -160"/><ellipse cx="0" cy="-160" rx="90" ry="30.6"/></g><g transform="translate(690.0 400.0) rotate(70.1)" stroke="#FAFAF7"><path d="M-65 -150L-13 0H13L65 -150"/><ellipse cx="0" cy="-150" rx="65" ry="22.1"/></g><g transform="translate(720.0 512.0) rotate(90.0)" stroke="#FAFAF7"><path d="M-52.5 -175V-6Q0 23.1 52.5 -6V-175"/><ellipse cx="0" cy="-175" rx="52.5" ry="17.85"/></g><g transform="translate(690.0 624.0) rotate(109.9)" stroke="#FAFAF7"><path d="M-65 -125L-39 -6Q0 18.2 39 -6L65 -125"/><ellipse cx="0" cy="-125" rx="65" ry="22.1"/></g></g></g></g></g></svg>`;
+export const FAVICON_SVG = ICON_LIGHT_SVG; // the paper tile reads on light and dark tab bars alike
 
 export interface Viewer {
   name: string;
@@ -1180,10 +1202,10 @@ ${v ? `<nav class="links">${link("/", esc(tr(opts.lang, "Boards")), "boards")}</
   }</div></div></header>`;
   const html = `<!doctype html><html lang="${opts.lang ?? "en"}"${dirOf(opts.lang) === "rtl" ? ' dir="rtl"' : ""}><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${esc(title)}</title>
-<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
+${FONT_PRELOAD}
 <link rel="icon" href="/favicon.svg" type="image/svg+xml"><link rel="apple-touch-icon" href="/apple-touch-icon.png">
-<style>${CSS}</style>${DISPLAY_HEAD.replace("<script>", `<script nonce="${security.nonce}">`)}</head><body>${nav}
+<style>${FONT_CSS}
+${CSS}</style>${DISPLAY_HEAD.replace("<script>", `<script nonce="${security.nonce}">`)}</head><body>${WORDMARK_DEFS}${nav}
 <main${opts.narrow ? ' class="narrow"' : ""}>${body}</main>
 <div id="toast" role="status" aria-live="polite"></div>
 <script nonce="${security.nonce}">${CLIENT_JS}${opts.script ?? ""}</script></body></html>`;
@@ -1545,7 +1567,7 @@ export function appPage(
     direct = opts.boards.filter((b) => b.kind === "direct"),
     own = opts.boards.find((b) => b.kind === "agent");
   const sideBoards = shared
-    .map((b) => `<div class="side-board-row"><a class="side-link side-board" href="/b/${esc(b.id)}"${cur(b.id)}>${boardPic(b, "xs", `<span class="bdot" style="--h:${hue(b.id)}"></span>`)}<span class="truncate">${esc(b.title)}</span>${b.pinned ? `<span class="pin-mark" aria-label="${esc(T("Pinned"))}" title="${esc(T("Pinned"))}">📌</span>` : ""}${working(b.live ?? 0, b.id)}</a><details class="pin-actions"><summary aria-label="${esc(T("More actions"))}" title="${esc(T("More actions"))}">⋯</summary><button type="button" data-pin-board="${esc(b.id)}">${esc(T(b.pinned ? "Unpin" : "Pin"))}</button></details></div>`)
+    .map((b) => `<div class="side-board-row"><a class="side-link side-board" href="/b/${esc(b.id)}"${cur(b.id)}>${boardPic(b, "xs", `<span class="bdot" style="--h:${hue(b.id)}"></span>`)}<span class="truncate">${esc(b.title)}</span>${b.pinned ? `<span class="pin-mark" aria-label="${esc(T("Pinned"))}" title="${esc(T("Pinned"))}">📌</span>` : ""}${working(b.live ?? 0, b.id)}</a><details class="board-row-menu"><summary aria-label="${esc(T("More actions"))}" title="${esc(T("More actions"))}">⋯</summary><div class="brm-items"><button type="button" data-mark-unread="${esc(b.id)}">${esc(T("Mark as unread"))}</button><button type="button" data-pin-board="${esc(b.id)}">${esc(T(b.pinned ? "Unpin" : "Pin"))}</button></div></details></div>`)
     .join("");
   // Direct boards read as the person you share them with.
   const sideDirect = direct
@@ -1612,7 +1634,7 @@ export function appPage(
 <dt><kbd>G</kbd> ${esc(T("then"))} <kbd>I</kbd> <kbd>A</kbd> <kbd>B</kbd> <kbd>P</kbd> <kbd>M</kbd></dt><dd>${esc(T("Go to Inbox / Approvals / Boards / People / Account"))}</dd>
 <dt><kbd>?</kbd></dt><dd>${esc(T("This list"))}</dd></dl></div></dialog>
 <script>window.PALETTE=${JSON.stringify(paletteItems).replace(/</g, "\\u003c")};${v.admin ? "window.OPS=1;" : ""}</script>`;
-  return rawPage(title, body, (opts.script ?? "") + SHELL_JS + INBOX_JS + LIVE_JS + PINS_JS, opts.status, v.lang ?? "en");
+  return rawPage(title, body, (opts.script ?? "") + SHELL_JS + INBOX_JS + LIVE_JS + MARK_UNREAD_JS + PINS_JS, opts.status, v.lang ?? "en");
 }
 
 const PINS_JS = `
@@ -1630,7 +1652,7 @@ let seen=0;try{seen=+localStorage.getItem('inbox-seen')||0}catch{}
 window.inboxRefresh=async()=>{try{const r=await fetch('/api/inbox/count');if(!r.ok)return;const j=await r.json();
   el.hidden=!j.unread;el.textContent=j.unread>99?'99+':String(j.unread);document.title=(j.unread?'('+j.unread+') ':'')+base;
   const ap=document.getElementById('approvals-count');if(ap){ap.hidden=!j.approvals;ap.textContent=String(j.approvals||'')}
-  const l=j.latest;if(l&&l.created_at>seen){if(seen&&'Notification' in window&&Notification.permission==='granted'&&!(document.visibilityState==='visible'&&location.pathname==='/b/'+l.board_id)){
+  const l=j.latest;if(l&&l.created_at>seen){if(l.kind!=='manual_unread'&&seen&&'Notification' in window&&Notification.permission==='granted'&&!(document.visibilityState==='visible'&&location.pathname==='/b/'+l.board_id)){
     const ap=l.kind==='approval',who=ap?'Your agent':l.actor_via==='agent'?l.actor+"'s agent":l.actor;
     const n=new Notification(who+(ap?' is asking for your approval':l.kind==='mention'?' mentioned you':l.kind==='decision'?' asks for a decision':l.kind==='reply'?' replied to you':l.kind==='friend_request'?' wants to be friends':l.kind==='friend_accept'?' accepted your request':' wrote to your agent'),{body:l.excerpt,tag:'inbox-'+l.id});
     n.onclick=()=>{window.focus();location.href=ap?'/approvals':l.board_id?'/b/'+l.board_id+'#e'+l.seq:'/people'}}
@@ -1648,10 +1670,10 @@ function rawPage(title: string, body: string, script: string, status = 200, lang
   const security = pageSecurity();
   const html = `<!doctype html><html lang="${lang}"${dirOf(lang as Lang) === "rtl" ? ' dir="rtl"' : ""}><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${esc(title)}</title>
-<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
+${FONT_PRELOAD}
 <link rel="icon" href="/favicon.svg" type="image/svg+xml"><link rel="apple-touch-icon" href="/apple-touch-icon.png">
-<style>${CSS}</style>${DISPLAY_HEAD.replace("<script>", `<script nonce="${security.nonce}">`)}</head><body>${body.replace("<script>window.PALETTE=", `<script nonce="${security.nonce}">window.PALETTE=`)}
+<style>${FONT_CSS}
+${CSS}</style>${DISPLAY_HEAD.replace("<script>", `<script nonce="${security.nonce}">`)}</head><body>${WORDMARK_DEFS}${body.replace("<script>window.PALETTE=", `<script nonce="${security.nonce}">window.PALETTE=`)}
 <div id="toast" role="status" aria-live="polite"></div>
 ${lang === "en" ? "" : `<script nonce="${security.nonce}">window.I18N=${clientTable(lang)}</script>`}<script nonce="${security.nonce}">${CLIENT_JS}${script}</script></body></html>`;
   return new Response(html, { status, headers: { "content-type": "text/html; charset=utf-8", "content-language": lang, vary: "Accept-Language, Cookie", ...security.headers } });
@@ -1756,4 +1778,8 @@ async function nextNeed(){if(nnBusy)return;nnBusy=true;try{
 window.nextNeed=nextNeed;
 if(new URLSearchParams(location.search).get('new')==='1'){const n=$('#new-board');n&&n.showModal()}
 })();
+`;
+
+const MARK_UNREAD_JS = `
+document.addEventListener('click',async e=>{const b=e.target.closest('[data-mark-unread]');if(!b)return;e.preventDefault();const id=b.dataset.markUnread;b.disabled=true;try{const r=await fetch('/api/boards/'+encodeURIComponent(id)+'/unread',{method:'POST'});const j=await r.json();if(!r.ok)throw Error(j.error||'Could not mark unread');location.href=location.pathname==='/b/'+id?'/chats':location.href}catch(err){b.disabled=false;alert(err.message)}});
 `;
