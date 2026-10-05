@@ -163,6 +163,14 @@ async function makeUser(name, { email, verified = "true", token = true, session 
 async function makeUsers(list, opts = {}) {
   await Promise.all(list.map((n) => (typeof n === "string" ? makeUser(n, opts) : makeUser(n.name, { ...opts, ...n }))));
 }
+// The board page loads its shared script from /board.js (#3431): the steps that read the page's code put it back inline.
+const withBoardJs = async (html) => {
+  for (const m of [...html.matchAll(/<script src="(\/board\.js\?v=[^"]+)"[^>]*><\/script>/g)]) {
+    const js = await (await fetch(BASE + m[1])).text();
+    html = html.replace(m[0], () => `<script>${js}</script>`);
+  }
+  return html;
+};
 
 console.log(`E2E against ${BASE}`);
 let board;
@@ -666,7 +674,7 @@ await step("old workers.dev page links 301 to atteo.dev; the proxy, API clients 
 await step("web: members see the board; outsiders get 404", async () => {
   const page = await web(`/b/${board}`, A);
   assert(page.status === 200, `member ${page.status}`);
-  const html = await page.text();
+  const html = await withBoardJs(await page.text());
   has(html, `e2e ${run}`);
   has(html, "Connect your agents");
   has(html, "burst 19");
@@ -1123,7 +1131,7 @@ await step("@mentions: people vs agents, unknown handles, and handing work to yo
 });
 
 await step("board page layout: pinned header and tabs, a scrolling thread with the composer under it, board info, one-line summaries", async () => {
-  const page = await (await web(`/b/${board}`, B)).text();
+  const page = await withBoardJs(await (await web(`/b/${board}`, B)).text());
   has(page, `<div class="content full">`);
   // Header (title, meta, tabs) comes first; each view is a panel that fills the rest and scrolls on its own.
   assert(page.indexOf(`class="bp-head"`) < page.indexOf(`id="board-tabs"`) && page.indexOf(`id="board-tabs"`) < page.indexOf(`id="panel-conv" class="bp-panel"`), "head before panels");
@@ -1186,7 +1194,7 @@ await step("read receipts: how far each member has seen, as a person (web) and t
   assert(u.reads[B].person_seen >= p, `B saw it on the web: ${JSON.stringify(u.reads[B])}`);
   const ej = await (await web(`/api/boards/${board}/entries?after=${p - 1}`, A)).json();
   assert(ej.reads?.[B]?.person_seen >= p && ej.reads[B].agent_seen >= p, `entries JSON carries reads: ${JSON.stringify(ej.reads)}`);
-  const pg = await (await web(`/b/${board}`, A)).text();
+  const pg = await withBoardJs(await (await web(`/b/${board}`, A)).text());
   assert(pg.includes("Seen by everyone") && pg.includes("rd-pop"), "board page has the read ring");
   // Marks never go back, can't run past the end, and outsiders can't set them.
   await web(`/api/boards/${board}/seen`, B, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ seq: 1 }) });
@@ -2272,7 +2280,7 @@ await step("tasks board (web): list, move between columns, priority, claim confl
 await step("every page's inline scripts parse (a template escaping slip breaks the whole page)", async () => {
   const { Script } = await import("node:vm");
   for (const path of [`/b/${fb}`, `/b/${board}`, "/", "/inbox", "/me", "/ask"]) {
-    const html = await (await web(path, A)).text();
+    const html = await withBoardJs(await (await web(path, A)).text());
     const scripts = [...html.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/g)].map((m) => m[1]);
     assert(scripts.length, `no scripts on ${path}`);
     if (path === `/b/${board}`) assert(scripts.some((x) => x.includes("rpAt=who===ME?'':'@'+who+' '") && x.includes("ta.value.startsWith(rpM)")), "reply prefill logic missing");
@@ -2377,7 +2385,7 @@ await step("tasks are shared items: create, get, edit in place (versions, confli
   // Remove: the author (here the creator) drops it from the task list; a member who is neither author nor creator gets a 4xx; the page offers the control.
   const rmSeq = (await nt.json()).task.seq;
   const retractWeb = (who) => web(`/api/boards/${fb}/entries/${rmSeq}/retract`, who, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ reason: "removed from the task board" }) });
-  const bpage = await (await web(`/b/${fb}`, A)).text();
+  const bpage = await withBoardJs(await (await web(`/b/${fb}`, A)).text());
   assert(bpage.includes('id="td-remove"') && bpage.includes("Remove this task from the board?"), "board page should carry the remove control");
   const denied = await retractWeb(B);
   assert(denied.status >= 400 && denied.status < 500, `non-author retract ${denied.status}`);
