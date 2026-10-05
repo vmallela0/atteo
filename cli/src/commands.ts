@@ -510,6 +510,32 @@ function handoffFrom(opt: Record<string, string | true>, words: string[]): { han
   return { handoff: { branch, sha, base, checks, ...(lgtm ? { lgtm } : {}) }, text: text || `Ready to gate: ${branch}` };
 }
 
+/** `atteo post handoff --sweep`: close the board's open handoffs whose sha is already an ancestor of this repo's
+ *  origin/main — the work was merged but nobody closed the entry, so the gate's queue lies about what's waiting
+ *  (vedu #3261). Only provably-landed ones close; a handoff off main stays open, and the server refuses the sweep
+ *  closing the caller's own (whoever handed it off, someone else lands it), so those are skipped too. */
+async function handoffSweep(opt: Record<string, string | true>): Promise<string> {
+  const main = git(["rev-parse", "--verify", "--quiet", "origin/main"]);
+  if (!main) throw new CliError("No origin/main in this repo: git fetch origin first, then sweep.");
+  const { handoffs } = (await api(opt, "GET", `/api/boards/${currentBoard(opt)}/handoffs`)) as {
+    handoffs: { seq: number; handoff?: { sha?: string } | null }[];
+  };
+  const closed: string[] = [];
+  let skipped = 0;
+  for (const h of handoffs) {
+    const sha = h.handoff?.sha;
+    if (!sha || git(["merge-base", "--is-ancestor", sha, main]) === null) continue; // still off main: leave it open
+    try {
+      await tool(opt, "post", { type: "handoff", text: `Landed as ${sha.slice(0, 7)} (swept: an ancestor of origin/main).`, handoff: { state: "landed", sha }, reply_to: h.seq });
+      closed.push(`#${h.seq}`);
+    } catch {
+      skipped++; // e.g. the caller's own handoff: its lander has to say so
+    }
+  }
+  const done = closed.length ? `Closed ${closed.length} landed handoff${closed.length === 1 ? "" : "s"}: ${closed.join(", ")}.` : "Nothing to sweep: every open handoff is still off main";
+  return skipped ? `${done}; skipped ${skipped} (the hander-off's lander must close ${skipped === 1 ? "it" : "them"}).` : `${done}.`;
+}
+
 /** git's answer here (trimmed), or null when it fails or there's no repo. */
 function git(args: string[]): string | null {
   try {
@@ -529,14 +555,18 @@ function gitSha(ref: string, flag: string): string {
 }
 
 async function post(args: string[], forced?: string) {
-  const { pos, opt } = parseArgs(args, ["own", "public"]);
-  onlyOptions(forced ?? "post", opt, ["board", "server", "type", "to", "reply", "title", "resolves", "supersedes", "own", "public", "branch", "sha", "base", "checks", "lgtm", "landed", "failed"]);
+  const { pos, opt } = parseArgs(args, ["own", "public", "sweep"]);
+  onlyOptions(forced ?? "post", opt, ["board", "server", "type", "to", "reply", "title", "resolves", "supersedes", "own", "public", "branch", "sha", "base", "checks", "lgtm", "landed", "failed", "sweep"]);
   if (opt.own && opt.public) throw new CliError("Pick one: --own (just you and your agents) or --public.");
   const type = forced ?? optStr(opt, "type") ?? "note";
   const gateFlags = ["branch", "sha", "base", "checks", "lgtm", "landed", "failed"].filter((k) => opt[k] !== undefined);
   if (gateFlags.length && type !== "handoff") throw new CliError(`--${gateFlags[0]} goes with: atteo post handoff`);
   if (type === "handoff") {
     if (await isEncrypted(opt, currentBoard(opt))) throw new CliError("Handoffs aren't available on an end-to-end encrypted board.");
+    if (opt.sweep !== undefined) {
+      if (pos.length || gateFlags.length) throw new CliError("--sweep takes no other flags or text: atteo post handoff --sweep");
+      return say(await handoffSweep(opt));
+    }
     const h = handoffFrom(opt, pos);
     return say(
       await tool(opt, "post", {

@@ -2351,6 +2351,44 @@ await step("post handoff (#2173 item 3): branch, HEAD and the tested main come f
   assert(r.code === 0 && r.out.includes("No open handoffs"), `empty queue: ${r.out}${r.err}`);
 });
 
+await step("handoff --sweep (glm-b #3299): a handoff whose sha reached origin/main closes; one still off main stays; the caller's own is skipped", async () => {
+  const hb = (await ops("boards", { user: A, title: `e2e cli sweep ${run}` })).board.id;
+  await ops("members", { board: hb, user: B });
+  const repo = mkdtempSync(join(tmpdir(), "atteo-sweep-"));
+  const genv = { ...process.env, GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: "t@example.com", GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: "t@example.com" };
+  const g = (...a) => execFileSync("git", a, { cwd: repo, env: genv, stdio: "pipe" }).toString().trim();
+  g("init", "-q", "-b", "main");
+  writeFileSync(join(repo, "a.txt"), "one\n");
+  g("add", "."); g("commit", "-qm", "main");
+  g("update-ref", "refs/remotes/origin/main", g("rev-parse", "HEAD")); // as if fetched
+  g("checkout", "-qb", `fix/swept-${run}`);
+  writeFileSync(join(repo, "b.txt"), "two\n");
+  g("commit", "-qam", "the work");
+  const head = g("rev-parse", "HEAD");
+  const envA = { XDG_CONFIG_HOME: join(dir, "cfg-sweep-a") }, envB = { XDG_CONFIG_HOME: join(dir, "cfg-sweep-b") };
+  let r = await cli(["post", "handoff", "--checks", "vitest 626", "--board", hb], { cwd: repo, env: envA });
+  assert(r.code === 0, r.out + r.err);
+  const h1 = Number(r.out.match(/Posted #(\d+)/)[1]);
+  // Another handoff by B, in the same repo: the sweep can close this one even when run by A.
+  r = await cli(["post", "handoff", "--checks", "e2e 193", "--board", hb], { cwd: repo, env: envB, cred: credB });
+  assert(r.code === 0, r.out + r.err);
+  const h2 = Number(r.out.match(/Posted #(\d+)/)[1]);
+  // Nothing landed yet: the sweep says so and closes nothing.
+  r = await cli(["post", "handoff", "--sweep", "--board", hb], { cwd: repo, env: envB, cred: credB });
+  assert(r.code === 0 && r.out.includes("Nothing to sweep"), r.out + r.err);
+  r = await cli(["post", "handoff", "--sweep", "extra text", "--board", hb], { cwd: repo, env: envB, cred: credB });
+  assert(r.code !== 0 && (r.out + r.err).includes("--sweep takes no other flags"), r.out + r.err);
+  // Both land: the sweep closes each, except the sweeping session's own (the lander must say that one).
+  g("update-ref", "refs/remotes/origin/main", head);
+  r = await cli(["post", "handoff", "--sweep", "--board", hb], { cwd: repo, env: envB, cred: credB });
+  assert(r.code === 0 && r.out.includes(`Closed 1 landed handoff: #${h1}`) && r.out.includes("skipped 1"), r.out + r.err);
+  r = await cli(["post", "handoff", "--sweep", "--board", hb], { cwd: repo, env: envA });
+  assert(r.code === 0 && r.out.includes(`Closed 1 landed handoff: #${h2}`), r.out + r.err);
+  r = await cli(["get", "handoffs", "--board", hb], { cwd: repo, env: envB, cred: credB });
+  assert(r.code === 0 && r.out.includes("No open handoffs"), `queue empty after the sweep: ${r.out}${r.err}`);
+  assert(g("rev-parse", "HEAD") === head, "the sweep never touches the repo");
+});
+
 if (ONLY && !matched) { failed++; console.log(`  ✗ no steps match ONLY=${JSON.stringify(process.env.ONLY)}`); }
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

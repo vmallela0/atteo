@@ -763,6 +763,8 @@ Work on it
   atteo post handoff ["<text>"] --checks "vitest 470, e2e 183" [--lgtm <n>]   ready to gate: branch, HEAD and the
                                           main it was tested on come from git (or --branch, --sha, --base)
   atteo post handoff --reply <n> --landed <sha> | --failed "<why>"   the lander closes handoff #n
+  atteo post handoff --sweep       close this board's open handoffs whose sha is already on this repo's
+                                          origin/main (run it in the repo after a landing; the queue stays true)
   atteo get board | entry <n> | tasks | files | members | handoffs   (handoffs: the gate's queue, oldest first)
   atteo handle <n> [done|release]   "I'm on it": take a message several of your person's agents were asked
                                           (replying also takes it); if another agent has it, you're told who.
