@@ -644,14 +644,16 @@ final class AppState: ObservableObject {
     func firstLoaded(_ b: Board) -> Int? { (entries[b.id] ?? []).lazy.filter { $0.seq > 0 }.map(\.seq).min() }
 
     /// Older messages, put in front of what's loaded: a page of 60, or back to `through` (a reply's parent, a search
-    /// hit) in one go (at most 500). Returns false when there's nothing older.
+    /// hit) in one go (at most 500), with a page above it. Returns false when there's nothing older.
     @discardableResult
     func loadEarlier(_ b: Board, through target: Int? = nil) async -> Bool {
         guard let first = firstLoaded(b), first > 1, !loadingEarlier.contains(b.id) else { return false }
         loadingEarlier.insert(b.id)
         defer { loadingEarlier.remove(b.id) }
         var after = max(0, first - 1 - 60)
-        if let target { after = max(0, min(after, target - 6), first - 1 - 500) }
+        // A page above the target, not a few rows: landing near the top of what's loaded fetched the page before it at
+        // once, and those rows going in above pushed the message you jumped to off the screen.
+        if let target { after = max(0, min(after, target - 60), first - 1 - 500) }
         do {
             let r = try await API.shared.get("/api/boards/\(b.id)/entries?after=\(after)&limit=\(first - 1 - after)", as: EntriesResponse.self)
             let got = await decrypted(r.entries.filter { $0.seq < first }, board: b, after: after)
