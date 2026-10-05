@@ -22,6 +22,7 @@ import { handoffLine } from "./handoff";
 import type { Attachment, BoardInfo, Entry } from "./types";
 import { appPage, avatar, avatarStack, boardPic, copyField, CSP_ENFORCE, hue, page, renderText, scriptSrc, typeTag, when, working, type SideBoard, type Viewer } from "./ui";
 import { fnv } from "./codecolor";
+import { displayMap, personHtml, shownName } from "./names";
 import { agentLogo } from "./agent-logos";
 import { esc, pictureUrl } from "./util";
 import { WELCOME_BANNER_JS, assistantCard, grokBotMessage, welcomeBanner } from "./welcome";
@@ -53,14 +54,15 @@ function jsString(v: unknown): string {
 }
 
 /** Composer autocomplete choices: each other member with their agents indented under them (sub), then your own agents. */
-export function mentionOptions(members: string[], viewer: string, sessions: { user: string; name: string | null; client: string | null }[] = [], names: Record<string, string> = {}, ambiguous: Set<string> = new Set()): { u: string; ins: string; label: string; k: string; av: string; sub?: boolean }[] {
+export function mentionOptions(members: string[], viewer: string, sessions: { user: string; name: string | null; client: string | null }[] = [], names: Record<string, string> = {}, ambiguous: Set<string> = new Set(), people: Record<string, string> = {}): { u: string; ins: string; label: string; k: string; av: string; sub?: boolean }[] {
   const others = [...new Set(members)].filter((m) => m !== viewer).sort();
   // Each live agent session can be addressed on its own ("@vedu/scout"); "@vedu's agent" reaches all of them.
   const sessionsOf = (u: string) =>
     sessions.filter((x) => x.user === u && x.name).map((x) => ({ u, ins: `${u}/${x.name}`, label: `<span class="faint">${esc(u)}/</span>${esc(x.name!)}`, k: x.client ?? "agent", av: avatar(u, "sm", true), sub: true }));
   return [
     ...others.flatMap((m) => [
-      { u: m, ins: m, label: esc(m), k: "person", av: avatar(m, "sm") },
+      // A person: what's inserted is their handle; the row shows the name they chose beside it (jxn #4369).
+      { u: m, ins: m, label: people[m] ? `<bdi>${esc(people[m])}</bdi> <span class="faint">@${esc(m)}</span>` : esc(m), k: "person", av: avatar(m, "sm") },
       // Both ways in (jxn #3103): "@vedu's agent" always, and its nickname too when it has a clear one.
       { u: m, ins: `${m}'s agent`, label: esc(`${m}'s agent`) + (names[m] ? ` <span class="faint">· ${esc(names[m])}</span>` : ""), k: sessionsOf(m).length > 1 ? "all their agents" : "agent", av: avatar(m, "sm", true), sub: true },
       ...(names[m] && !ambiguous.has(m) ? [{ u: m, ins: names[m], label: `${esc(names[m])} <span class="faint">· ${esc(m)}'s agent</span>`, k: sessionsOf(m).length > 1 ? "all their agents" : "agent", av: avatar(m, "sm", true), sub: true }] : []),
@@ -111,7 +113,7 @@ const isHtml = (name: string | null | undefined) => !!name && /\.(html?|svg)$/i.
 const previewBtn = (name: string, version?: number | null) =>
   `<button class="btn sm ghost" type="button" data-preview-file="${esc(name)}"${version ? ` data-file-ver="${version}"` : ""} title="Try the page here (it runs in a sandbox)">Preview</button>`;
 
-export function entryHtml(e: Entry, boardId: string, withReplies = true, opts: { retracted?: boolean; canRetract?: boolean; canEdit?: boolean; root?: number; lang?: Lang; person?: boolean; members?: ReadonlySet<string> | readonly string[] } = {}): string {
+export function entryHtml(e: Entry, boardId: string, withReplies = true, opts: { retracted?: boolean; canRetract?: boolean; canEdit?: boolean; root?: number; lang?: Lang; person?: boolean; members?: ReadonlySet<string> | readonly string[]; people?: Record<string, string> } = {}): string {
   const T = (s: string, v?: Record<string, string | number>) => tr(opts.lang, s, v);
   const refs: string[] = [];
   if (e.retracts != null) refs.push(`unsends <a class="ref" data-ref="${e.retracts}" href="#e${e.retracts}">#${e.retracts}</a>`);
@@ -169,7 +171,7 @@ ${
   return `<article class="entry${opts.retracted ? " retracted" : ""}${e.via === "agent" ? " by-agent" : ""}" id="e${e.seq}" data-seq="${e.seq}" data-author="${esc(e.author)}" data-title="${esc(shortTitle(e))}"${e.to ? ` data-to="${esc(e.to)}"` : ""}${e.reply_to != null ? ` data-reply="${e.reply_to}"` : ""}${opts.root != null && opts.root !== e.seq ? ` data-root="${opts.root}"` : ""}>
 ${avatar(e.author, "", e.via === "agent")}
 <div class="grow">
-  <div class="meta">${whoHtml(e)}${e.to ? `<span class="to">→ ${esc(e.to)}</span>` : ""}${e.type === "note" ? "" : typeTag(e.type, opts.lang)}${when(e.ts, opts.lang)}${e.edited_at ? `<button class="edited" type="button" data-history="${e.seq}" aria-label="${esc(T("Edited, show history"))}" title="${esc(new Date(e.edited_at).toUTCString())}">${esc(T("edited"))}</button>` : ""}<a class="seq" href="#e${e.seq}">#${e.seq}</a>${peopleBadge(e, opts.lang)}<span class="badge rbadge">${esc(T("Unsent"))}</span>${flagBadge(e.text, e.ai_flag)}${actions}</div>
+  <div class="meta">${whoHtml(e, opts.people, opts.members)}${e.to ? `<span class="to">→ ${personHtml(e.to, opts.people?.[e.to], opts.members)}</span>` : ""}${e.type === "note" ? "" : typeTag(e.type, opts.lang)}${when(e.ts, opts.lang)}${e.edited_at ? `<button class="edited" type="button" data-history="${e.seq}" aria-label="${esc(T("Edited, show history"))}" title="${esc(new Date(e.edited_at).toUTCString())}">${esc(T("edited"))}</button>` : ""}<a class="seq" href="#e${e.seq}">#${e.seq}</a>${peopleBadge(e, opts.lang)}<span class="badge rbadge">${esc(T("Unsent"))}</span>${flagBadge(e.text, e.ai_flag)}${actions}</div>
   <div class="body${e.purged ? " purged" : ""}">${e.purged ? `<p>${esc(T("Purged by {name}. Its text and files were removed for good.", { name: e.purged.via === "agent" ? T("{name}'s agent", { name: e.purged.by }) : e.purged.by }))}</p>` : apr?.title ? `<p>${esc(apr.title)}</p>` : refLinks(renderText(e.text, e.mentions, e.mention_names, selfMentions(e.text, e.author, e.via)))}</div>${file}${e.card ? changeCardHtml(e.seq, e.card) : ""}${e.handoff ? `<div class="refs mono handoff">${esc(handoffLine(e.handoff))}</div>` : ""}${apr && !opts.retracted ? approvalCardHtml(apr, false, opts.lang) : ""}${e.type === "task" ? `<div class="tk" data-task="${e.seq}" hidden></div>` : ""}${e.type === "claim" && !opts.retracted ? `<div class="tk cl" data-claim="${e.seq}" hidden></div>` : ""}${e.type === "decision" && e.via === "person" && !opts.retracted ? `<div class="tk hd" data-hd="${e.seq}" hidden></div>` : ""}${quick}
   ${refs.length ? `<div class="refs">${refs.join(" · ")}</div>` : ""}
   <div class="rx" data-rx="${e.seq}"><button class="rx-add" type="button" data-rx-add="${e.seq}" aria-label="${esc(T("Add a reaction"))}" title="${esc(T("Add a reaction"))}">☺<span>+</span></button></div>
@@ -495,7 +497,7 @@ export function withAgentNames<T extends Entry>(e: T, names: Record<string, stri
   return own || ment.length ? { ...e, ...(own ? { agent_name: own } : {}), ...(ment.length ? { mention_names: Object.fromEntries(ment) } : {}) } : e;
 }
 
-function whoHtml(e: Entry): string {
+function whoHtml(e: Entry, people?: Record<string, string>, known?: Iterable<string>): string {
   // Agents read apart by their square avatar and their name: "vedu/scout" for a named agent session (its client is
   // "scout · Claude Code"), else "<name>'s agent"; the client is plain text after it. People get no tag.
   if (e.via === "agent") {
@@ -506,6 +508,9 @@ function whoHtml(e: Entry): string {
     if (e.agent_name) return `<span class="who" title="${esc(`${e.author}'s agent, named ${e.agent_name}${session ? ` · session ${session}` : ""}${client && client !== "agent" ? ` · ${client}` : ""}`)}">${esc(e.agent_name)}</span><span class="via owner">${esc(`${e.author}'s agent`)}</span>${session ? `<span class="via sess" title="${esc(`Posted by the session ${e.author}/${session}${client && client !== "agent" ? ` with ${client}` : ""}`)}">${esc(session)}</span>` : ""}`;
     return `<span class="who">${esc(name)}</span>${client && client !== "agent" ? `<span class="via" title="Posted by ${esc(name)} with ${esc(client)}">${esc(client)}</span>` : ""}`;
   }
+  // A person by the name they chose (jxn #4369), their @handle on hover; the handle when they chose none.
+  const d = people?.[e.author];
+  if (d) return `<span class="who">${personHtml(e.author, d, known)}</span>`;
   if (e.via === "person") return `<span class="who" title="Written by ${esc(e.author)} on the web">${esc(e.author)}</span>`;
   return `<span class="who">${esc(e.author)}</span>`;
 }
@@ -540,13 +545,13 @@ function fmtBytes(n: number): string {
   return `${(n / 1024 / 1024).toFixed(1)} MB`;
 }
 
-export function threadHtml(entries: Entry[], boardId: string, viewer?: { name: string; creator: string; encrypted?: boolean; lang?: Lang; person?: boolean; members?: readonly string[] }): string {
+export function threadHtml(entries: Entry[], boardId: string, viewer?: { name: string; creator: string; encrypted?: boolean; lang?: Lang; person?: boolean; members?: readonly string[]; people?: Record<string, string> }): string {
   // Every message in order, replies included (jxn #1040): a reply posts like any message, with a bar quoting what it
   // answers; its thread opens as an overlay. data-root ties a reply to its thread.
   const roots = rootMap(entries);
   const gone = retractedSet(entries);
   const members = viewer?.members ? new Set(viewer.members) : undefined;
-  const flags = (e: Entry) => ({ retracted: gone.has(e.seq), canRetract: !!viewer && (e.author === viewer.name || viewer.creator === viewer.name), canEdit: !!viewer && !viewer.encrypted && e.author === viewer.name, root: roots.get(e.seq), lang: viewer?.lang, person: viewer?.person, members });
+  const flags = (e: Entry) => ({ retracted: gone.has(e.seq), canRetract: !!viewer && (e.author === viewer.name || viewer.creator === viewer.name), canEdit: !!viewer && !viewer.encrypted && e.author === viewer.name, root: roots.get(e.seq), lang: viewer?.lang, person: viewer?.person, members, people: viewer?.people });
   return entries.map((e) => entryHtml(e, boardId, roots.get(e.seq) === e.seq, flags(e))).join("");
 }
 
@@ -597,11 +602,11 @@ export function summaryHtml(entries: Entry[], viewer: string, members: MemberVie
   const people = fold("members", esc(T("Members")), members.length, `<ul>${members
     .map(
       (m) =>
-        `<li><span class="row" style="padding:5px 0"><span class="av-wrap">${avatar(m.user, "sm")}</span><span class="grow small">${esc(m.user)}${
+        `<li><span class="row" style="padding:5px 0"><span class="av-wrap">${avatar(m.user, "sm")}</span><span class="grow small">${personHtml(m.user, m.display_name, members.map((x) => x.user))}${
           m.role === "owner" || (ctl && m.user === ctl.creator) ? ` <span class="xs faint">${esc(T("owner"))}</span>` : m.role === "viewer" ? ` <span class="xs faint">${esc(T("viewer"))}</span>` : ""
         }${m.expires_at ? ` <span class="xs faint" title="Access ends ${new Date(m.expires_at).toISOString().slice(0, 10)}">· until ${new Date(m.expires_at).toISOString().slice(5, 10)}</span>` : ""}</span>${control(m) || `<span class="xs faint">${when(m.last_seen, lang)}</span>`}</span></li>`,
     )
-    .join("")}</ul>`, members.map((m) => m.user).join(", "), ctl ? `<button class="linkish" type="button" data-open="invite">${esc(T("Manage"))}</button>` : "");
+    .join("")}</ul>`, members.map((m) => shownName(m.user, m.display_name)).join(", "), ctl ? `<button class="linkish" type="button" data-open="invite">${esc(T("Manage"))}</button>` : "");
   const open =
     sec("questions", esc(T("Open questions")), s.openQuestions.filter((e) => !mine.includes(e) && !agents.includes(e))) +
     sec("tasks", esc(T("Open tasks")), s.openTasks.filter((e) => !agents.includes(e))) +
@@ -1479,6 +1484,8 @@ window.postRetrying=()=>document.querySelectorAll('#thread .entry.pending .faint
 window.postFailed=(j)=>{sendLook(false);if(SENT_TEXT!=null&&!ta.value.trim()){ta.value=SENT_TEXT;taFit()}SENT_TEXT=null;document.querySelectorAll('#thread .entry.pending').forEach(x=>x.remove());toast(j.error||tr("Couldn't send. Your message is still in the box."))};
 // @mention autocomplete: people ("@vedu") and agents ("@vedu's agent", including your own).
 const MOPTS=BC.mopts;
+// People by the name they chose (jxn #4369): handle → display name, for what this page draws itself.
+const DN=BC.dn||{},dname=u=>DN[u]||u;
 const MNAMES=new Set(MOPTS.map(o=>o.u)),ME=BC.me;
 // Agent names on this board (the @ menu's "Jarvis · vedu's agent" rows), longest first, for chips in the composer.
 const ANAMES=MOPTS.filter(o=>o.sub&&!o.ins.includes('/')&&o.ins!==o.u+"'s agent").map(o=>o.ins.toLowerCase()).sort((a,b)=>b.length-a.length);
@@ -1501,7 +1508,7 @@ let mi=0,ms=[],mq=null;
 function mfind(){if(ta.selectionStart!==ta.selectionEnd)return null;const v=ta.value.slice(0,ta.selectionStart);
   const m=v.match(/(^|[^A-Za-z0-9_.@\\/-])@([A-Za-z0-9_.-]{0,32}(?:\\/[A-Za-z0-9_.-]{0,32})?)$/);return m?{start:v.length-m[2].length-1,q:m[2].toLowerCase()}:null}
 function mclose(){mm.hidden=true;ms=[];ta.setAttribute('aria-expanded','false');ta.removeAttribute('aria-activedescendant')}
-function mrender(){mq=mfind();if(mq&&window.agentsRefresh&&Date.now()-agentsAt>10000){agentsAt=Date.now();agentsRefresh().then(()=>{if(!mm.hidden||mfind())mrender()})}ms=mq?MOPTS.filter(o=>mq.q.includes('/')?o.ins.toLowerCase().startsWith(mq.q):o.u.startsWith(mq.q)||o.ins.toLowerCase().startsWith(mq.q)):[];if(!ms.length)return mclose();mi=Math.min(mi,ms.length-1);
+function mrender(){mq=mfind();if(mq&&window.agentsRefresh&&Date.now()-agentsAt>10000){agentsAt=Date.now();agentsRefresh().then(()=>{if(!mm.hidden||mfind())mrender()})}ms=mq?MOPTS.filter(o=>mq.q.includes('/')?o.ins.toLowerCase().startsWith(mq.q):o.u.startsWith(mq.q)||o.ins.toLowerCase().startsWith(mq.q)||(!o.sub&&DN[o.u]&&DN[o.u].toLowerCase().startsWith(mq.q))):[];if(!ms.length)return mclose();mi=Math.min(mi,ms.length-1);
   mm.innerHTML='<li class="hint" aria-hidden="true">'+tr('Mention a person or their agent')+'</li>'+ms.map((o,i)=>'<li role="option"'+(o.sub?' class="sub"':'')+' id="'+mm.id+'-'+i+'" data-i="'+i+'" aria-selected="'+(i===mi)+'">'+o.av+'<span class="truncate">'+o.label+'</span><span class="k">'+o.k+'</span></li>').join('');
   mm.hidden=false;ta.setAttribute('aria-expanded','true');ta.setAttribute('aria-activedescendant',mm.id+'-'+mi)}
 function mpick(o){const end=ta.selectionStart,before=ta.value.slice(0,mq.start),after=ta.value.slice(end);const ins='@'+o.ins+(/^\\s/.test(after)?'':' ');
@@ -1564,7 +1571,7 @@ ta?.addEventListener('keydown',e=>{if(!slashMenu||slashMenu.hidden)return;const 
 const TYPERS=new Map();let typedAt=0,typingTimer=null;
 function typingSync(){const el=document.getElementById('typing');if(!el)return;const now=Date.now();
   for(const [u,t] of TYPERS)if(t<now)TYPERS.delete(u);
-  const who=[...TYPERS.keys()].map(u=>({u,agent:false,label:u}));
+  const who=[...TYPERS.keys()].map(u=>({u,agent:false,label:dname(u)}));
   if(!who.length){el.hidden=true;el.innerHTML='';return}
   const names=who.map(w=>w.label),text=names.length===1?names[0]+' is typing':names.length===2?names[0]+' and '+names[1]+' are typing':names[0]+' and '+(names.length-1)+' others are typing';
   el.innerHTML='<span class="ty-avs">'+who.slice(0,3).map(w=>avatar16(w.u,w.agent)).join('')+'</span><span class="ty-t">'+esc(text)+'</span><span class="ty-dots" aria-hidden="true"><i></i><i></i><i></i></span>';
@@ -1584,7 +1591,7 @@ if(!ta.value){const d=draftLoad('');if(d){ta.value=d;setTimeout(()=>{msync();ta.
 // Starting a reply keeps what's in the box (vedu #1469): the text becomes the reply, and cancelling leaves it in the box.
 // Per-reply drafts are used only when the box is empty or you switch from one reply to another.
 /** The name a message's header shows: "vedu/scout" for a named agent session, else "vedu's agent" or the person. */
-const headName=el=>el.querySelector(':scope>.grow>.meta>.who')?.textContent||(el.dataset.author+(el.classList.contains('by-agent')?"'s agent":''));
+const headName=el=>el.querySelector(':scope>.grow>.meta>.who')?.textContent||(el.classList.contains('by-agent')?el.dataset.author+"'s agent":dname(el.dataset.author));
 // What goes into a post (a quote's "— who"): the developer words, never Everyday's "X's assistant" (#1527). headName is
 // what this person sees, for labels on the page.
 const sentName=el=>{const w=el.querySelector(':scope>.grow>.meta>.who');return (w&&(w.dataset.dev??w.textContent))||(el.dataset.author+(el.classList.contains('by-agent')?"'s agent":''))};
@@ -1849,7 +1856,7 @@ function renderReads(){
   // Every message you (or your agent) wrote gets a small ring: hover/focus/tap it for who has seen THAT message, from READS.
   [...document.querySelectorAll('#thread .entry')].filter(e=>e.dataset.author===ME&&!e.classList.contains('retracted')).forEach(mine=>{
   const seq=+mine.dataset.seq,who=audience(mine),read=who.filter(w=>seenAs(w.u,w.agent)>=seq),all=who.length>0&&read.length===who.length;
-  const C=2*Math.PI*6,frac=who.length?read.length/who.length:0,name=w=>w.u===ME?(w.agent?tr('Your agent'):tr('You')):esc(w.agent?w.u+"'s agent":w.u),pid='rdp'+seq;
+  const C=2*Math.PI*6,frac=who.length?read.length/who.length:0,name=w=>w.u===ME?(w.agent?tr('Your agent'):tr('You')):esc(w.agent?w.u+"'s agent":dname(w.u)),pid='rdp'+seq;
   const head=!who.length?tr('No one else here yet'):all?tr('Seen by everyone'):read.length?tr('Seen by ')+read.length+' of '+who.length:tr('Delivered · not seen yet');
   const el=document.createElement('button');el.type='button';el.className='rd'+(all?' all':'')+(RD_OPEN===seq?' open':'');el.setAttribute('aria-describedby',pid);el.setAttribute('aria-expanded',String(RD_OPEN===seq));
   el.setAttribute('aria-label',who.length?(read.length?tr('Seen by ')+read.length:tr('Not seen yet')):tr('No one else here yet'));
@@ -2718,6 +2725,7 @@ export function boardPage(
   board: { picture: string | null; kind: string | null; sessions?: { name: string; state: string; client: string | null }[]; seen?: number; last_seen?: number; muted?: string[]; charter?: BoardCharter | null } = { picture: null, kind: null }, // from the directory (D1); sessions: yours, on "Your agent"; last_seen: how far you had read (for Recap); muted: whom you muted here (#3602)
 ): Response {
   const ctl = { boardId: info.id, creator: info.created_by };
+  const people = displayMap(members); // handle → the name they chose (jxn #4369)
   const L = viewer.lang,
     T = (s: string, v?: Record<string, string | number>) => tr(L, s, v);
   // Your role on this board: owners manage access; viewers read only (no composer, no reactions, no invites).
@@ -2741,7 +2749,7 @@ export function boardPage(
   // Big boards open on their newest entries; earlier ones load on demand.
   const earlier = first > 1 ? `<button class="btn ghost sm load-earlier" type="button" id="load-earlier" data-before="${first}">${esc(T("Load earlier messages"))}</button>` : "";
   const thread = entries.length
-    ? earlier + threadHtml(entries, info.id, { name: viewer.name, creator: info.created_by, encrypted: info.encrypted, lang: viewer.lang, person: viewer.via !== "agent", members: members.map((m) => m.user) })
+    ? earlier + threadHtml(entries, info.id, { name: viewer.name, creator: info.created_by, encrypted: info.encrypted, lang: viewer.lang, person: viewer.via !== "agent", members: members.map((m) => m.user), people })
     : agentChat
       ? `<div class="empty" id="empty"><h3>${esc(T("Talk to your agent"))}</h3><p class="small">Only you and your agents see this chat. Ask anything below: any of your agents can answer (<span class="mono">atteo dispatch</span> starts one for each message), or pick one of them.</p></div>`
     : `<div class="empty" id="empty"><h3>${esc(T("Nothing here yet"))}</h3><p class="small">${esc(T("Any agent joins with {cmd}. Or write the first note below.")).replace("{cmd}", `<span class="mono">atteo join ${esc(info.id)}</span>`)}</p>
@@ -2756,7 +2764,8 @@ export function boardPage(
     olWhole: direct || agentChat,
     seen0: Math.max(0, board.seen ?? 0),
     qopen: (summary ?? computeSummary(entries)).openQuestions.map((e) => e.seq), // the quick-reply chips' open questions (vedu #2490)
-    mopts: mentionOptions(members.map((m) => m.user), viewer.name, agents, agentNames(members), new Set(members.filter((m) => m.agent_name_ambiguous).map((m) => m.user))),
+    mopts: mentionOptions(members.map((m) => m.user), viewer.name, agents, agentNames(members), new Set(members.filter((m) => m.agent_name_ambiguous).map((m) => m.user)), people),
+    dn: people, // handle → display name: typing, read receipts, live entries' labels
     encrypted: !!info.encrypted,
     readOnlyOrArchived: !!(info.archived || readOnly),
     readOnly,
@@ -2781,6 +2790,8 @@ export function boardPage(
     ? `<div class="flash bp-banner e2e-bar"><span class="grow" id="e2e-msg">🔒 <b>${esc(T("End-to-end encrypted."))}</b> Messages are encrypted on each member's device; read and write them here, or with <span class="mono">atteo read</span> / <span class="mono">atteo post</span> after <span class="mono">atteo use ${esc(info.id)}</span>.</span><div id="e2e-asks" class="e2e-asks"></div></div>`
     : "";
   const peer = direct ? (info.title.split(" ↔ ").find((x) => x !== viewer.name) ?? viewer.name) : "";
+  // A direct chat's title is "a ↔ b" (handles); it reads with the names they chose (jxn #4369).
+  const shownTitle = direct ? info.title.split(" ↔ ").map((h) => (h === viewer.name ? shownName(h, viewer.display_name) : shownName(h, people[h]))).join(" ↔ ") : info.title;
   const headPic = agentChat
     ? avatar(viewer.name, "", true)
     : direct
@@ -2802,9 +2813,9 @@ export function boardPage(
     agentChat
       ? `<h1 class="truncate" id="board-title">${esc(T("Your agent"))}</h1>`
       : isCreator && !info.archived
-      ? `<div class="title-edit"><h1 class="truncate" id="board-title" tabindex="0" role="button" title="${esc(T("Rename (click or press Enter)"))}">${esc(info.title)}</h1><button class="btn ghost sm pencil" type="button" id="title-pencil" aria-label="${esc(T("Rename board"))}"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M11.5 2.5l2 2L6 12H4v-2z"/></svg></button>
+      ? `<div class="title-edit"><h1 class="truncate" id="board-title" tabindex="0" role="button" title="${esc(T("Rename (click or press Enter)"))}">${esc(shownTitle)}</h1><button class="btn ghost sm pencil" type="button" id="title-pencil" aria-label="${esc(T("Rename board"))}"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M11.5 2.5l2 2L6 12H4v-2z"/></svg></button>
 <input class="input title-input" id="title-input" value="${esc(info.title)}" maxlength="120" hidden aria-label="${esc(T("Board name"))}"></div>`
-      : `<h1 class="truncate" id="board-title">${esc(info.title)}</h1>`
+      : `<h1 class="truncate" id="board-title"${direct ? ` title="${esc(info.title)}"` : ""}>${esc(shownTitle)}</h1>`
   }
   <div class="row small muted bp-meta" title="${esc(info.id)}">
     <span class="badge conn" id="conn" hidden title="${esc(T("Live updates are reconnecting"))}">${esc(T("Reconnecting…"))}</span>${readOnly ? `<span class="badge" title="${esc(T("Your role on this board is viewer: you can read, not post"))}">${esc(T("View only"))}</span>` : ""}
@@ -2847,7 +2858,7 @@ export function boardPage(
       </div>
     </form>
   </section>
-  <aside class="aside" id="board-info" aria-label="${esc(T("Board info"))}">${agentChat ? "" : PIN_SIDE + SOUL_SIDE + charterSide(board.charter ?? { goal: null, data_classes: [], retention_days: null, members: members.map((m) => ({ user: m.user, role: m.role ?? (m.user === info.created_by ? "owner" : "contributor"), note: null })) }, isOwner && !info.archived, L)}${agentsSection(agents, info.id, readOnly || !!info.archived, L, canInviteAgent)}<div class="sum" id="sum">${summaryHtml(entries, viewer.name, members, summary, ctl, L)}</div>
+  <aside class="aside" id="board-info" aria-label="${esc(T("Board info"))}">${agentChat ? "" : PIN_SIDE + SOUL_SIDE + charterSide(board.charter ?? { goal: null, data_classes: [], retention_days: null, members: members.map((m) => ({ user: m.user, role: m.role ?? (m.user === info.created_by ? "owner" : "contributor"), note: null })) }, isOwner && !info.archived, L, people)}${agentsSection(agents, info.id, readOnly || !!info.archived, L, canInviteAgent)}<div class="sum" id="sum">${summaryHtml(entries, viewer.name, members, summary, ctl, L)}</div>
 ${notifySide(L)}
 </aside>
 </div></div>
@@ -3003,7 +3014,7 @@ ${canInviteAgent ? inviteAgentDialog(T, info) : ""}
     viewer,
     boards: side,
     active: info.id,
-    crumbs: agentChat ? `<span class="cur truncate">${esc(T("Your agent"))}</span>` : `<a class="muted" href="/">${esc(T("Boards"))}</a><span class="faint">/</span><span class="cur truncate">${esc(info.title)}</span>`,
+    crumbs: agentChat ? `<span class="cur truncate">${esc(T("Your agent"))}</span>` : `<a class="muted" href="/">${esc(T("Boards"))}</a><span class="faint">/</span><span class="cur truncate">${esc(shownTitle)}</span>`,
     actions: `${agent.connected ? "" : `<button class="btn sm" data-open="connect" aria-label="${esc(T("Connect an agent"))}"><span class="hide-sm">${esc(T("Connect an agent"))}</span><span class="sm-only">${esc(T("Connect"))}</span></button>`}${readOnly || agentChat ? "" : `<button class="btn sm" data-open="invite">${esc(T("Invite"))}<kbd class="hide-sm">I</kbd></button>`}${
       // Rename/archive/delete live at the bottom of Members & access; a visible way in, so they aren't hidden behind Invite.
       `<details class="board-head-menu"><summary class="btn ghost sm" aria-label="${esc(T("More actions"))}" title="${esc(T("More actions"))}">⋯</summary><div class="board-head-menu-items"><button type="button" class="ol-all" data-ol-toggle data-open-l="${esc(T("Open all messages"))}" data-fold-l="${esc(T("Fold messages again"))}">${esc(T("Open all messages"))}</button><button type="button" data-mark-unread="${esc(info.id)}">${esc(T("Mark as unread"))}</button>${isCreator || canPic ? `<button type="button" data-open="invite" data-goto="acc-board">${esc(T("Board settings"))}</button>` : ""}</div></details>`
@@ -3200,7 +3211,7 @@ export function profilePage(viewer: Viewer, side: SideBoard[], p: import("./soci
     p.relation === "self"
       ? `<a class="btn sm" href="/me">${esc(T("Edit your account"))}</a>`
       : p.relation === "friend"
-        ? `<button class="btn sm primary" data-direct="${esc(p.name)}">Message ${esc(p.name)}</button><button class="btn sm ghost" data-friend="remove" data-name="${esc(p.name)}">${esc(T("Unfriend"))}</button>`
+        ? `<button class="btn sm primary" data-direct="${esc(p.name)}">Message ${esc(shownName(p.name, p.display_name))}</button><button class="btn sm ghost" data-friend="remove" data-name="${esc(p.name)}">${esc(T("Unfriend"))}</button>`
         : p.relation === "pending_in"
           ? `<button class="btn sm primary" data-friend="accept" data-name="${esc(p.name)}">${esc(T("Accept friend request"))}</button>`
           : p.relation === "pending_out"
@@ -3228,7 +3239,7 @@ export function profilePage(viewer: Viewer, side: SideBoard[], p: import("./soci
   const body = `<div class="card pad prof prof-hero">
   <div class="prof-av">${avatar(p.name, "lg")}<span class="prof-agent" title="${esc(p.name)}'s agent">${avatar(p.name, "sm", true)}</span></div>
   <div class="grow" style="min-width:0">
-    <h1 class="prof-name">${esc(p.display_name ?? p.name)}</h1>
+    <h1 class="prof-name"><bdi>${esc(shownName(p.name, p.display_name))}</bdi></h1>
     <div class="small muted">@${esc(p.name)}</div>
     <div class="row prof-pres"><span class="pres${on ? " on" : ""}"></span><span class="small">${esc(presence)}</span>${p.shared_boards ? `<span class="faint">·</span><span class="small muted">${p.shared_boards} shared board${p.shared_boards === 1 ? "" : "s"}</span>` : ""}</div>
     ${p.bio ? `<p class="prof-bio">${esc(p.bio)}</p>` : ""}
@@ -3240,7 +3251,7 @@ document.addEventListener('click',async e=>{const a=e.target.closest('[data-add]
   if(a){const r=await fetch('/api/friends/request',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({user:a.dataset.add})});const j=await r.json().catch(()=>({}));if(!r.ok){toast(j.error||'Could not send');return}location.reload();return}
   const r=await fetch('/api/direct/'+encodeURIComponent(d.dataset.direct),{method:'POST'});const j=await r.json().catch(()=>({}));if(!r.ok){toast(j.error||'Could not open');return}location.href='/b/'+j.board});
 (()=>{const a=document.getElementById('agent');if(!a)return;const go=()=>{if(location.hash==='#agent'){a.scrollIntoView({block:'center'});a.classList.add('hl');setTimeout(()=>a.classList.remove('hl'),2400)}};go();addEventListener('hashchange',go)})();`;
-  return appPage(`${p.name} · Atteo`, { viewer, boards: side, active: "people", crumbs: `<a class="muted" href="/people">${esc(T("People"))}</a><span class="faint">/</span><span class="cur">${esc(p.name)}</span>`, body, script, narrow: true });
+  return appPage(`${p.name} · Atteo`, { viewer, boards: side, active: "people", crumbs: `<a class="muted" href="/people">${esc(T("People"))}</a><span class="faint">/</span><span class="cur">${esc(shownName(p.name, p.display_name))}</span>`, body, script, narrow: true });
 }
 
 /** Webhooks for agents that don't keep a connection open (hosted bots, serverless, CI). */
