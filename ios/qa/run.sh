@@ -8,8 +8,10 @@
 #   - Builds once: build-for-testing into QA_DERIVED (default ios/.qa-build), then test-without-building. QA_BUILD=0 reuses
 #     the last build as is (nothing changed in the app since); QA_BUILD=1 (default) rebuilds incrementally first.
 #   - xcodegen runs only when project.yml or the set of source files changed since the last generate.
-#   - QA_PARALLEL=N runs test classes on N clones of the simulator at once (default 1; 2 suits this Mac). Classes that
-#     share seeded data still pass: each test reads its own board or creates what it needs.
+#   - QA_PARALLEL=N runs test classes on N clones of the simulator at once (default 1, off). Measured Oct 5 on a busy Mac:
+#     2 clones took 990s against 628s serial, and two classes collided on the shared seeded boards
+#     (NewMessagesUITests counted another test's message). Use it only on an otherwise idle Mac, and expect that collision
+#     until the seed gives each worker its own boards.
 #   - Test timeouts: a test that runs past QA_TEST_ALLOWANCE seconds (default 300) is stopped and reported as failed,
 #     instead of a frozen app (or XCTest stuck symbolicating a failure) holding the whole run for many minutes.
 set -euo pipefail
