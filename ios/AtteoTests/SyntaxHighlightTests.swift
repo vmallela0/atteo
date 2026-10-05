@@ -128,16 +128,25 @@ final class SyntaxHighlightTests: XCTestCase {
         XCTAssertEqual(String(SyntaxHighlight.attributed(over, language: "swift").characters), over)
     }
 
-    /// The web's regexes took ~450ms on these (#2028); here each is well under 50ms even at 20,000 characters.
+    /// The web's regexes took ~450ms on these (#2028) and grew quadratically. Here each grows linearly: 4× the input
+    /// takes well under 8× the time (quadratic would be ~16×), and stays far below the web's 450ms even at 20,000
+    /// characters. Each timing is the best of 3, and the bound is a ratio, so a busy machine (simulators, servers)
+    /// doesn't turn it red while a backtracking regression still does.
     func testHostileInputIsLinear() {
         let cases: [(String, String)] = [("css", "-a"), ("toml", "a."), ("css", "a:"), ("yaml", "a."), ("js", "\"\\"), ("py", "'\\"), ("html", "<a \""),
                                          ("sh", "${"), ("rs", "#["), ("json", "\"a\" "), ("c", "\n#"), ("css", "a:("), ("toml", "\n["), ("sql", "'")]
+        func best(_ code: String, _ lang: String) -> Double {
+            (0..<3).map { _ in
+                let start = Date()
+                _ = SyntaxHighlight.runs(code, lang, cap: .max)
+                return Date().timeIntervalSince(start) * 1000
+            }.min()!
+        }
         for (lang, unit) in cases {
-            let code = String(repeating: unit, count: 20_000 / unit.count)
-            let start = Date()
-            _ = SyntaxHighlight.runs(code, lang, cap: .max)
-            let ms = Date().timeIntervalSince(start) * 1000
-            XCTAssertLessThan(ms, 50, "\(lang) \(unit.debugDescription): \(Int(ms))ms")
+            let small = best(String(repeating: unit, count: 5_000 / unit.count), lang)
+            let large = best(String(repeating: unit, count: 20_000 / unit.count), lang)
+            XCTAssertLessThan(large, 250, "\(lang) \(unit.debugDescription): \(Int(large))ms at 20,000 characters")
+            XCTAssertLessThan(large, max(small, 1) * 8, "\(lang) \(unit.debugDescription): \(Int(small))ms → \(Int(large))ms for 4× the input")
         }
         // Every 2-character repeat of the characters the rules care about, and some 3-character ones, in every
         // language, at the cap.
