@@ -1718,7 +1718,7 @@ export function appPage(
   <div class="side-label"><span>${esc(T("DMs"))}</span></div>${sideOwn}${sideDirect}
   <div class="me"><a class="side-link" href="/me">${avatar(v.name, "sm")}<span class="truncate">${esc(v.name)}</span></a>
 </div>
-  <button class="side-link bug-btn" type="button" data-bug data-bug-src="${BUG_JS_SRC}" aria-label="${esc(T("Report a bug"))}">bug</button>
+  <button class="side-link bug-btn" type="button" data-bug data-bug-src="${BUG_JS_SRC}" aria-label="${esc(T("Report a bug"))}">${esc(T("bug"))}</button>
 </aside>
 <div class="nav-scrim" data-nav-close aria-hidden="true"></div>
 <div class="grow" style="min-width:0">
