@@ -1,7 +1,7 @@
 // BASE=http://localhost:8787 node test/browser/csp.mjs
 // The pages' Content-Security-Policy is report-only until CSP_ENFORCE (src/ui.ts) flips (jxn's agent #2636, #2722); this
 // check expects whichever header that switch says, so the flip needs no change here. It opens the main pages (and a
-// board with a mermaid diagram), an HTML preview, a voice call, and /_ops (localhost admin session; CI has no ADMIN_EMAIL),
+// board with a mermaid diagram), an HTML preview, a voice call, and /_ops (DEV_FAKE_ADMIN localhost session; CI has no ADMIN_EMAIL), and fails if the browser reports anything the policy
 // would block, by watching for reports sent to /api/csp-report and for CSP console messages, so the switch to enforcing
 // is known to be safe. The preview runs from /preview-frame with its own enforced CSP (opus-b #2678): it must never see
 // the page's nonce, and its scripts must not reach the network.

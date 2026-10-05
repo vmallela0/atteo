@@ -1,5 +1,5 @@
-// Localhost-only operator browser session (POST /api/ops/sessions { admin: true }).
-// Production still requires ADMIN_EMAIL; the Worker refuses this flag off localhost (src/auth.ts OPS_ADMIN_WORKOS_ID).
+// Localhost-only operator browser session (POST /api/ops/sessions { admin: true } with DEV_FAKE_ADMIN=1 in .dev.vars).
+// Production still requires ADMIN_EMAIL; the Worker refuses this flag without the var or off localhost.
 const KEY = process.env.ADMIN_KEY || "ci-admin-key";
 
 export async function adminSession(base = process.env.BASE || "http://localhost:8787") {

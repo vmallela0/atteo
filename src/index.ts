@@ -3392,10 +3392,10 @@ const handler = {
           const u = normalizeUser(body.user);
           const row = u ? await registry.userByName(env, u) : null;
           if (!row) return json({ error: "user not found" }, 404);
-          // Local tests only: a browser session that can open /_ops without ADMIN_EMAIL (csp-enforced.mjs). Production
-          // still requires ADMIN_EMAIL; this flag is refused off localhost and ignored there even if a cookie leaked.
+          // Local tests only: a browser session that can open /_ops without ADMIN_EMAIL (csp-enforced.mjs). Needs
+          // DEV_FAKE_ADMIN=1 in .dev.vars (never wrangler.jsonc) and localhost; production still requires ADMIN_EMAIL.
           const admin = body.admin === true || ["true", "1"].includes(String(body.admin ?? ""));
-          if (admin && !isLocalHost(url.hostname)) return json({ error: "admin test sessions are localhost-only" }, 400);
+          if (admin && (env.DEV_FAKE_ADMIN !== "1" || !isLocalHost(url.hostname))) return json({ error: "admin test sessions require DEV_FAKE_ADMIN=1 on localhost" }, 400);
           const secret = await auth.createSession(env, {
             user: row.name,
             workos_id: admin ? auth.OPS_ADMIN_WORKOS_ID : (row.workos_id ?? "ops-issued"),

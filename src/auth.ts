@@ -298,8 +298,9 @@ export function isAdminEmail(env: Env, email: string | null | undefined): boolea
 export const OPS_ADMIN_WORKOS_ID = "ops-admin";
 
 /**
- * Operator for this request: an email in ADMIN_EMAIL (production), or a localhost-only ops test session.
- * The test marker is ignored off localhost, so production still requires ADMIN_EMAIL.
+ * Operator for this request: an email in ADMIN_EMAIL (production), or a localhost ops test session.
+ * The test marker needs DEV_FAKE_ADMIN=1 in local .dev.vars (never wrangler.jsonc) and a localhost host;
+ * production still requires ADMIN_EMAIL.
  */
 export function isAdminViewer(
   env: Env,
@@ -308,5 +309,5 @@ export function isAdminViewer(
 ): boolean {
   if (!session.email_verified) return false;
   if (isAdminEmail(env, session.email)) return true;
-  return !!hostname && isLocalHost(hostname) && session.workos_id === OPS_ADMIN_WORKOS_ID;
+  return env.DEV_FAKE_ADMIN === "1" && !!hostname && isLocalHost(hostname) && session.workos_id === OPS_ADMIN_WORKOS_ID;
 }

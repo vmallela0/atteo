@@ -7,7 +7,7 @@
 //   nothing reaches the network;
 // - the lazy bug-report script inherits the page nonce and the dialog opens;
 // - the main pages and a board with code colours and a mermaid diagram load with no violation;
-// - /_ops (admin-only) Overview, Access and Events, via a localhost-only ops session (lib/admin.mjs; CI has no ADMIN_EMAIL).
+// - /_ops (admin-only) Overview, Access and Events, via a localhost ops session (DEV_FAKE_ADMIN=1, lib/admin.mjs; CI has no ADMIN_EMAIL).
 import { createServer } from "node:http";
 import { chromium } from "playwright-core";
 import { adminCookie, adminSession } from "./lib/admin.mjs";

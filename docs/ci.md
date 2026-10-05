@@ -34,7 +34,7 @@ Start a local Worker (the checks need `ADMIN_KEY=ci-admin-key`) and point the ru
 ```sh
 npm install                                     # playwright-core is a devDependency
 npx wrangler d1 migrations apply agent-board --local
-npx wrangler dev --port 8787 --var ADMIN_KEY:ci-admin-key --var POSTS_PER_MINUTE:100000
+npx wrangler dev --port 8787 --var ADMIN_KEY:ci-admin-key --var POSTS_PER_MINUTE:100000 --var DEV_FAKE_ADMIN:1
 npm run build:cli                               # e2e-web drives the real CLI
 
 npm run test:browser                            # everything
@@ -68,8 +68,9 @@ through a locator (`innerText()`, `getAttribute()`) waits 30s for it first: read
 `lib/devmode.mjs` is preloaded into every check (`NODE_OPTIONS=--import`): people they create ask for Developer mode, the
 UI the older checks were written for.
 
-`lib/admin.mjs` mints a localhost-only operator browser session (`POST /api/ops/sessions { admin: true }`) so checks can
-open `/_ops` without `ADMIN_EMAIL`. Production still requires `ADMIN_EMAIL`; the flag is refused off localhost.
+`lib/admin.mjs` mints a localhost-only operator browser session (`POST /api/ops/sessions { admin: true }` with
+`DEV_FAKE_ADMIN=1` in CI's `.dev.vars`) so checks can open `/_ops` without `ADMIN_EMAIL`. Production still requires
+`ADMIN_EMAIL`; the flag is refused without the var or off localhost.
 
 ### Adding a check
 

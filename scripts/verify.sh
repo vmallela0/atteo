@@ -108,7 +108,7 @@ up() {
 want e2e && serve e2e "$E2E_PORT"
 want cli && serve cli "$CLI_PORT"
 if want browser; then
-  printf 'WORKOS_API_KEY=sk_test_ci_placeholder\nADMIN_KEY=ci-admin-key\nPOSTS_PER_MINUTE=100000\nALLOW_LOCAL_WEBHOOKS=1\nDEV_FAKE_CLOCK=1\nDEV_FAKE_VOICE=1\nDEV_FAKE_NEAR_QUOTA=1\nPUBLIC_URL=http://localhost:%s\n' "$BR_PORT" > "$OUT/browser.env"
+  printf 'WORKOS_API_KEY=sk_test_ci_placeholder\nADMIN_KEY=ci-admin-key\nPOSTS_PER_MINUTE=100000\nALLOW_LOCAL_WEBHOOKS=1\nDEV_FAKE_CLOCK=1\nDEV_FAKE_VOICE=1\nDEV_FAKE_NEAR_QUOTA=1\nDEV_FAKE_ADMIN=1\nPUBLIC_URL=http://localhost:%s\n' "$BR_PORT" > "$OUT/browser.env"
   serve browser "$BR_PORT" "$OUT/browser.env"
 fi
 if want landing; then

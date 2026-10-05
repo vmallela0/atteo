@@ -25,7 +25,7 @@ These are intentional or operational gaps, not reasons to weaken script protecti
 6. The application still permits one external script: the exact versioned Mermaid URL. Its SRI hash detects changed bytes, but removing this dependency would require self-hosting it.
 7. Voice requires `wss://api.x.ai`; confirm that provider endpoint has not changed immediately before rollout.
 8. The separately deployed `landing/` Worker is outside `CSP_ENFORCE`. It currently emits inline JSON-LD and no CSP; give that deployment its own nonce/hash policy before treating CSP as site-wide.
-9. Done: the enforced browser simulation covers `/_ops` through a localhost-only operator session (`POST /api/ops/sessions { admin: true }`, `test/browser/lib/admin.mjs`). CI still sets no `ADMIN_EMAIL`; production still requires it. The test marker (`workos_id` `ops-admin`) is ignored off localhost. `csp-enforced.mjs` and `csp.mjs` walk Overview, Access and Events; server-rendered scripts pass the shared nonce unit checks.
+9. Done: the enforced browser simulation covers `/_ops` through a localhost-only operator session (`POST /api/ops/sessions { admin: true }` with `DEV_FAKE_ADMIN=1` in local `.dev.vars`, `test/browser/lib/admin.mjs`). CI still sets no `ADMIN_EMAIL`; production still requires it. The test marker (`workos_id` `ops-admin`) is ignored without the flag or off localhost. `csp-enforced.mjs` and `csp.mjs` walk Overview, Access and Events; server-rendered scripts pass the shared nonce unit checks.
 
 ## Later rollout
 

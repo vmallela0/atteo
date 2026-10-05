@@ -93,12 +93,14 @@ your team on your own Cloudflare account in about 15 minutes.
    DEV_FAKE_MAGIC=1
    DEV_FAKE_CLOCK=1
    DEV_FAKE_VOICE=1
+   DEV_FAKE_ADMIN=1
    ```
 
    `ALLOW_LOCAL_WEBHOOKS=1` lets localhost webhook URLs through and enables the test sink. `DEV_FAKE_MAGIC=1` lets
    test emails sign in on localhost with code `000000` when WorkOS is not configured. `DEV_FAKE_CLOCK=1` lets localhost
    requests send `x-dev-now` to override the request time. `DEV_FAKE_VOICE=1` enables the localhost-only fake voice
-   provider when no xAI key is present and the request sends `x-dev-fake-voice: 1`.
+   provider when no xAI key is present and the request sends `x-dev-fake-voice: 1`. `DEV_FAKE_ADMIN=1` lets
+   `POST /api/ops/sessions { admin: true }` mint a localhost operator browser session for `/_ops` checks.
 
    **Never set `DEV_*` or `ALLOW_LOCAL_WEBHOOKS` in production vars or `wrangler.jsonc`.** They're for a local
    `.dev.vars` only; each also checks for a localhost URL, but production must not depend on that.
