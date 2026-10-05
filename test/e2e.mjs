@@ -2249,6 +2249,84 @@ await step("claims renew while their session is around: a polling session keeps 
   }
 });
 
+// SPEC §17 (alt-c #3809): an expired lease puts a doing task back to todo and says whose claim lapsed; body edits respect
+// the lease (the server's own ticks excepted); old_str edits check base_version when given; only an entry's author or a
+// board owner can supersede it.
+await step("tasks and leases (alt-c #3809): a lapsed lease goes back to todo, edits respect the lease and base_version, supersedes needs the author or an owner", async () => {
+  const lb = (await ops("boards", { user: B, title: `e2e spec17 ${run}` })).body.board.id;
+  assert((await ops("members", { board: lb, user: A })).status === 200, "add A");
+  const clock = async (min) => (await ops("dev-clock", { board: lb, offset_ms: Math.round(min * 60_000) })).status === 200;
+  const mk = async (who, title, body) => Number((await ok(who, lb, "task", { action: "create", title, ...(body ? { body } : {}) })).match(/Created task #(\d+)/)[1]);
+  const version = async (seq) => Number((await ok(B, lb, "task", { action: "get", seq })).match(/ · v(\d+)\n/)[1]);
+
+  // Edits respect the lease: on A's board, while A holds the task, B can't change it.
+  const ab = (await ops("boards", { user: A, title: `e2e spec17 A ${run}` })).body.board.id;
+  assert((await ops("members", { board: ab, user: B })).status === 200, "add B to A's board");
+  const t = Number((await ok(A, ab, "task", { action: "create", title: `plan ${run}`, body: "- [ ] one\n- [ ] two" })).match(/Created task #(\d+)/)[1]);
+  const sub = Number((await ok(A, ab, "task", { action: "create", title: `sub ${run}` })).match(/Created task #(\d+)/)[1]);
+  await ok(A, ab, "task", { action: "edit", seq: t, old_str: "- [ ] two", new_str: `- [ ] two\n- [ ] #${sub}` });
+  await ok(A, ab, "task", { action: "claim", seq: t, minutes: 30 });
+  await err(B, ab, "task", { action: "edit", seq: t, old_str: "- [ ] one", new_str: "- [x] one" }, `#${t} is claimed by ${A}'s agent`);
+  const v = Number((await ok(B, ab, "task", { action: "get", seq: t })).match(/ · v(\d+)\n/)[1]);
+  await err(B, ab, "task", { action: "edit", seq: t, body: "mine now", base_version: v }, "is claimed by");
+  await err(B, ab, "task", { action: "edit", seq: t, title: "renamed" }, "is claimed by");
+  await ok(A, ab, "task", { action: "edit", seq: t, old_str: "- [ ] one", new_str: "- [x] one" }); // the holder can
+  has(await ok(B, ab, "task", { action: "get", seq: t }), "- [x] one");
+  // The server's own tick (a sub-task done) still lands while A holds it.
+  await ok(B, ab, "task", { action: "update", seq: sub, status: "done" });
+  has(await ok(B, ab, "task", { action: "get", seq: t }), `- [x] #${sub}`);
+  // Released, B can edit again.
+  await ok(A, ab, "task", { action: "release", seq: t });
+  await ok(B, ab, "task", { action: "edit", seq: t, old_str: "- [ ] two", new_str: "- [x] two" });
+
+  // old_str edits check base_version when given: a stale one is refused with the current body; the right one, or none, applies.
+  const e = await mk(B, `versions ${run}`, "alpha\nbeta");
+  const v1 = await version(e);
+  await ok(A, lb, "task", { action: "edit", seq: e, old_str: "alpha", new_str: "ALPHA" });
+  const stale = await err(B, lb, "task", { action: "edit", seq: e, old_str: "beta", new_str: "BETA", base_version: v1 }, `is at v${v1 + 1}, not v${v1}`);
+  has(stale, "ALPHA"); // with the current body to merge into
+  await ok(B, lb, "task", { action: "edit", seq: e, old_str: "beta", new_str: "BETA", base_version: v1 + 1 });
+  await ok(B, lb, "task", { action: "edit", seq: e, old_str: "BETA", new_str: "gamma" }); // none given: as before
+  has(await ok(A, lb, "task", { action: "get", seq: e }), "ALPHA\ngamma");
+  await err(B, lb, "task", { action: "edit", seq: e, body: "whole" }, "not v?"); // a whole-body edit still needs one
+
+  // supersedes: not someone else's entry, unless you're an owner; your own (or the board creator's) is fine.
+  const bNote = seqOf(await ok(B, lb, "post", { type: "claim", text: `staging uses port 8080 ${run}`, reply_to: 0 }));
+  const aNote = seqOf(await ok(A, lb, "post", { type: "claim", text: `prod uses port 443 ${run}`, reply_to: 0 }));
+  await err(A, lb, "post", { type: "claim", text: `staging uses 8081 ${run}`, supersedes: bNote, reply_to: 0 }, `Only ${B} (who posted #${bNote}) or an owner of the board can supersede it`);
+  const own = seqOf(await ok(A, lb, "post", { type: "claim", text: `prod uses port 8443 ${run}`, supersedes: aNote, reply_to: 0 })); // their own
+  assert(own === aNote + 1, `the refused post didn't land: #${own} after #${aNote}`);
+  has(await ok(B, lb, "get", { seq: own }), `supersedes #${aNote}`);
+  const made = await web(`/api/boards/${lb}/members/${A}`, B, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ role: "owner" }) });
+  assert(made.status === 200, `make A an owner: ${made.status}`);
+  has(await ok(B, lb, "get", { seq: seqOf(await ok(A, lb, "post", { type: "claim", text: `staging uses port 8081 ${run}`, supersedes: bNote, reply_to: 0 })) }), `supersedes #${bNote}`); // an owner may
+
+  // An expired lease: the doing task goes back to todo, shows whose claim lapsed, and claiming it again clears that.
+  const l = await mk(B, `lapse ${run}`);
+  has(await ok(A, lb, "task", { action: "claim", seq: l, minutes: 5 }), `#${l} [doing]`);
+  if (!(await clock(0))) return console.log("      (skipped the lease-expiry part: add DEV_FAKE_CLOCK=1 to .dev.vars to move the lease clock)");
+  try {
+    await clock(6);
+    const got = await ok(B, lb, "task", { action: "get", seq: l });
+    has(got, `#${l} [todo]`);
+    has(got, `${A}'s agent's claim lapsed`);
+    assert(!/held by/.test(got), got);
+    has(await ok(B, lb, "task", { action: "list", status: "todo" }), `#${l} [todo]`);
+    has(await ok(B, lb, "read", { summary: true }), "claim lapsed");
+    const again = await ok(B, lb, "task", { action: "claim", seq: l, minutes: 5 });
+    has(again, `#${l} [doing]`);
+    assert(!again.includes("lapsed"), again);
+    // A blocked task keeps its status when the lease runs out; only doing goes back to todo.
+    await ok(B, lb, "task", { action: "update", seq: l, status: "blocked" });
+    await clock(12);
+    const blocked = await ok(A, lb, "task", { action: "get", seq: l });
+    has(blocked, `#${l} [blocked]`);
+    has(blocked, `${B}'s agent's claim lapsed`);
+  } finally {
+    await clock(0);
+  }
+});
+
 await step("@agents reaches every member's agent, from the web and from an agent", async () => {
   const j = await (await web(`/api/boards/${fb}/entries`, A, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ type: "question", text: `@agents status check ${run}?` }) })).json();
   const users = j.entry.mentions.filter((m) => m.agent).map((m) => m.user).sort();

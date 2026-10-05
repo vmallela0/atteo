@@ -145,7 +145,7 @@ export const TOOLS = [
         strict: { type: "boolean", description: "Refuse if anything at all arrived since you last read." },
         own: { type: "boolean", description: "Just mine: only you and your own person/agents see it (note or question; no to). Use own: true for a new private message to your person. A reply to a 🔒 own entry stays own. Left out, a top-level note or question right after your person's 🔒 own message (the last thing you got, in the last 10 minutes) stays own too; own: false posts publicly." },
         resolves: { type: "array", items: { type: "integer" }, description: "Entry numbers this answers or completes (questions, tasks)." },
-        supersedes: { type: "integer", description: "Entry number this replaces (drops it from the summary)." },
+        supersedes: { type: "integer", description: "Entry number this replaces (drops it from the summary): yours, or any as a board owner." },
         depends_on: { type: "array", items: { type: "integer" }, description: "Claims or decisions this rests on: if one is disputed or retracted, this entry is flagged stale." },
         artifact_name: { type: "string", description: "File name, for type=artifact." },
         artifact_content: { type: "string", description: "File content (text, up to 256k chars), for type=artifact." },
@@ -207,7 +207,7 @@ export const TOOLS = [
         action: { type: "string", enum: ["list", "get", "create", "edit", "history", "claim", "release", "update", "stop"] },
         title: { type: "string", description: "create/edit: short title (≤120 chars). On create, an open task with the same title and parent returns that task." },
         body: { type: "string", description: "create: initial body; edit: the whole new body (needs base_version)" },
-        base_version: { type: "integer", description: "edit with body: the version you read" },
+        base_version: { type: "integer", description: "edit: the version you read (needed with body; with old_str, optional and checked when given)" },
         old_str: { type: "string", description: "edit: exact text in the body to replace" },
         new_str: { type: "string", description: "edit: replacement for old_str" },
         summary: { type: "string", description: "edit: one line on what changed" },
@@ -872,6 +872,8 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
       const agentClient = (await agentOpts(c)).client;
       const text = typeof args.text === "string" ? args.text : "";
       const { mentions, unknown, ambiguous } = mayMention(text) ? parseMentions(text, await registry.boardMembers(env, id), user, "agent") : { mentions: [], unknown: [], ambiguous: [] as string[] };
+      // An owner may supersede anyone's entry; anyone else only their own (#3809).
+      const byOwner = !!int(args.supersedes) && (await registry.memberRole(env, id, user)) === "owner";
       // One message id for this call: if a deploy restarts the board mid-post, the retry can't post it twice.
       const idem = messageId(typeof args.idempotency_key === "string" ? args.idempotency_key : null);
       const res = await withRetry(async () => await stub.postFresh(user, {
@@ -887,6 +889,7 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
         reply_to: int(args.reply_to) ?? null, // 0: top level on purpose
         resolves: intList(args.resolves),
         supersedes: int(args.supersedes) ?? null,
+        ...(byOwner ? { by_owner: true } : {}),
         depends_on: intList(args.depends_on),
         artifact_name: str(args.artifact_name) ?? null,
         artifact_content: typeof args.artifact_content === "string" ? args.artifact_content : null,
@@ -1022,7 +1025,7 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
       const when = (ts: number) => new Date(ts).toISOString().slice(0, 16).replace("T", " ") + "Z";
       const line = (t: Awaited<ReturnType<typeof stub.tasks>>[number]) =>
         `#${t.seq} [${t.status}${t.priority ? ` · ${t.priority}` : ""}]${t.assignee ? ` for ${t.assignee_agent ? `${t.assignee}'s agent` : t.assignee}` : ""}${
-          t.lease_holder ? ` · held by ${holderLabel(t)} until ${when(t.lease_until!)}` : ""
+          t.lease_holder ? ` · held by ${holderLabel(t)} until ${when(t.lease_until!)}` : t.lapsed_holder ? ` · ${t.lapsed_holder}'s claim lapsed ${when(t.lapsed_at!)}` : ""
         }${t.due ? ` · due ${when(t.due).slice(0, 10)}` : ""}${t.stop_reason ? ` · stopped: ${t.stop_reason}` : ""}${t.done_note ? ` · done: ${t.done_note}` : ""}${t.resolved_by ? ` · #${t.resolved_by} says it resolves this (mark it done if so)` : ""}${t.children ? ` · sub-tasks ${t.children.done}/${t.children.total} done` : ""}${t.parent ? ` · under #${t.parent}` : ""} · v${t.version}\n    ${t.title}`;
       const full = (t: Awaited<ReturnType<typeof stub.tasks>>[number]) =>
         `${line(t)}\n    updated by ${t.updated_via === "agent" ? `${t.updated_by}'s agent` : t.updated_by} ${when(t.updated_at)}\n----- body (v${t.version}) -----\n${t.body || "(empty)"}\n----- end -----`;
