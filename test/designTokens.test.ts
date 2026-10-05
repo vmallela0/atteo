@@ -108,8 +108,9 @@ describe("one design language: colours and fonts come from tokens (jxn #2706)", 
     expect(css).toMatch(/--cta:var\(--oxblood\)/);
     expect(css).toMatch(/\.btn\.primary\{background:var\(--cta\)/);
     expect(css).toMatch(/--you:var\(--ink\)/);
-    // cherry is the logo's alone (jxn #2858): no component paints with it
-    expect(css.replace(/--cherry:#[0-9A-F]{6}/g, "")).not.toMatch(/var\(--cherry\)/);
+    // the cone colour is the logo's alone (jxn #2858, #2944): no component paints with it
+    expect(css.replace(/--cone:#[0-9A-F]{6}/g, "")).not.toMatch(/var\(--cone\)/);
+    expect(css).not.toMatch(/--cherry/);
     expect(css).toMatch(/--mention-fg:var\(--ink\)/);
     expect(readFileSync("src/ui.ts", "utf8")).not.toMatch(/--atteo/);
   });

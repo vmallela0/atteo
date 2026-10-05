@@ -784,18 +784,19 @@ await step("web: several files in one message (multipart upload): one entry, att
   assert(!(await (await web(`/api/boards/${eb}/files`, E)).json()).docs.some((d) => d.name === "a.png" || d.name === "b.png"), "nothing stored on the encrypted board");
 });
 
-await step("brand: the tin-can mark (design language v1, #2508) is the favicon, apple-touch icon and header mark", async () => {
+await step("brand: the cone-and-cans mark (jxn #2944) is the favicon, apple-touch icon and header mark", async () => {
   const f = await fetch(`${BASE}/favicon.svg`);
   assert((f.headers.get("content-type") ?? "").includes("image/svg+xml"), "favicon not svg");
   const svg = await f.text();
   has(svg, "<svg");
-  has(svg, "#A8121E"); // cherry: the cup that is you
+  has(svg, "#6A1B24"); // oxblood: the cone that is you (jxn #2944)
+  assert(!svg.includes("#A8121E"), "old cherry mark still in favicon");
   assert(!svg.includes("#f59e0b"), "old soup-bowl steam still in favicon");
   const t = await fetch(`${BASE}/apple-touch-icon.png`);
   assert((t.headers.get("content-type") ?? "") === "image/png" && (await t.arrayBuffer()).byteLength > 1000, "apple-touch icon not a png");
   const html = await (await web("/chats", A)).text(); // "/" is For you in Everyday (#1272); the list is /chats
   has(html, 'class="pebble"');
-  has(html, "#A8121E");
+  has(html, "--cone:#6A1B24");
   has(html, 'class="wm">atteo<');
 });
 
