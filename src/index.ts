@@ -39,7 +39,7 @@ import * as appSignin from "./appSignin";
 import * as moderation from "./moderation";
 import * as bugs from "./bugs";
 import { ensureBugBoard, isReservedUser } from "./bugBoard";
-import { deleteAccount, isDeletedHandle, isFresh, signedInAt, type BoardForget } from "./accountDelete";
+import { checkDeleteCode, deleteAccount, isDeletedHandle, noteDeleteCodeSent, type BoardForget } from "./accountDelete";
 import * as feedback from "./feedback";
 import { handleMcp } from "./mcp";
 import * as device from "./device";
@@ -1419,23 +1419,51 @@ const handler = {
       }
       // Delete my account (Apple 5.1.1(v); jxn #4329): people only, never an agent's token, and only with the handle
       // typed back. Messages on shared boards stay as "Deleted user"; the rest goes (accountDelete.ts).
-      if (path === "/api/me" && method === "DELETE") {
+      // Delete my account (Apple 5.1.1(v); jxn #4329): people only, never an agent's token, from Atteo's own pages or the
+      // app, with the handle typed back and the code emailed to the account's own address (jxn's agent #4414: a stolen
+      // session or token alone isn't enough). Messages on shared boards stay as "Deleted user"; the rest goes.
+      if ((path === "/api/me/delete-code" && method === "POST") || (path === "/api/me" && method === "DELETE")) {
         if (!viewer) return needLogin();
         if (viewer.via === "agent") return json({ error: "Only you can delete your account, from the app or the web. An agent can't." }, 403);
-        // Only from Atteo's own pages or the app (the browser says where a request came from), as for minting keys.
         const site = request.headers.get("sec-fetch-site");
         if (site && site !== "same-origin" && site !== "none") return json({ error: "Delete your account from Atteo's own pages." }, 403);
-        const body = (await request.json().catch(() => ({}))) as { confirm?: string };
+        const email = appSignin.normalizeEmail(viewer.email);
+        if (!email) return json({ error: "Your account has no email to send a code to. Write to support to delete it." }, 400);
+        const ip = appSignin.clientIp(request);
+        const lim = appSignin.limits(env);
+        const fake = appSignin.fakeAllowed(env, url, email);
+        if (method === "POST") {
+          if (!(await appSignin.hit(env, `delcode:ip:${ip}`, lim.startPerIp)) || !(await appSignin.hit(env, await appSignin.emailKey("delcode", email), lim.startPerEmail))) return tooMany();
+          if (!fake) {
+            if (!appSignin.workosConfigured(env)) return json({ error: "Codes aren't set up on this server." }, 503);
+            const sent = await appSignin.sendCode(env, email, ip, request.headers.get("user-agent"));
+            if (!sent.ok) {
+              console.error(`delete account: WorkOS didn't send a code: ${sent.error}`);
+              return json({ error: "Couldn't send the code. Try again in a minute." }, 502);
+            }
+          }
+          await noteDeleteCodeSent(env, viewer.name);
+          return json({ ok: true, sent_to: email }, 200, { "cache-control": "no-store" });
+        }
+        const body = (await request.json().catch(() => ({}))) as { confirm?: string; code?: string };
         if (String(body.confirm ?? "").trim().replace(/^@/, "").toLowerCase() !== viewer.name.toLowerCase()) return json({ error: `Type your handle, ${viewer.name}, to confirm.` }, 400);
-        // A sign-in from the last few minutes, so a stolen session or an unlocked phone can't do it (jxn's agent #4389):
-        // the web signs in again, the app re-confirms with an emailed code (a new app token).
-        if (!isFresh(await signedInAt(env, request))) return json({ error: "For your safety, sign in again to delete your account.", reauth: true, login: `/auth/login?return=${encodeURIComponent("/me#delete-account")}` }, 401);
+        if (!(await appSignin.hit(env, `delverify:ip:${ip}`, lim.verifyPerIp)) || !(await appSignin.hit(env, await appSignin.emailKey("delverify", email), lim.verifyPerEmail))) return tooMany();
+        const code = String(body.code ?? "").replace(/\s+/g, "");
+        const verdict = await checkDeleteCode(env, viewer.name, email, code, async (e, c) => {
+          if (fake) {
+            if (c !== appSignin.FAKE_CODE) throw new Error("bad code");
+            return { email: e };
+          }
+          return await appSignin.authenticateMagic(env, e, c, ip, request.headers.get("user-agent"));
+        });
+        if (verdict !== "ok")
+          return json(verdict === "bad" ? { error: appSignin.BAD_CODE, need_code: true } : { error: "Send yourself a new code first: codes work once, for 10 minutes.", need_code: true, need_new_code: true }, 400);
         let r: Awaited<ReturnType<typeof deleteAccount>>;
         try {
           r = await deleteAccount(env, viewer.name, (id) => boardStub(env, id) as unknown as BoardForget);
         } catch (e) {
           console.error("account delete stopped part way (a retry finishes it)", e instanceof Error ? e.message : String(e));
-          return json({ error: "Your account wasn't fully deleted. Try again in a minute." }, 503);
+          return json({ error: "Your account wasn't fully deleted. Send a new code and try again." }, 503);
         }
         if (r.stripe_followup) console.warn("account deleted with an active Pro plan: cancel its Stripe subscription by hand (ids in deleted_handles)", r.tombstone);
         return json({ ok: true, boards_kept: r.boards_kept, boards_removed: r.boards_removed }, 200, { "Set-Cookie": auth.cookieHeader(url, auth.SESSION_COOKIE, "", 0), "cache-control": "no-store" });

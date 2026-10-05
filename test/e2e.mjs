@@ -6994,7 +6994,18 @@ await step("delete account (Apple 5.1.1(v), jxn #4329): messages stay as 'Delete
   assert(wrong.status === 400, `the handle must be typed back: ${wrong.status}`);
   const cross = await web(`/api/me`, X, { method: "DELETE", headers: { "content-type": "application/json", "sec-fetch-site": "cross-site" }, body: JSON.stringify({ confirm: X }) });
   assert(cross.status === 403, `only from Atteo's own pages: ${cross.status}`);
-  const gone = await web(`/api/me`, X, { method: "DELETE", headers: { "content-type": "application/json" }, body: JSON.stringify({ confirm: X }) });
+  // A stolen session or app token alone can't (jxn's agent #4414): it needs the code emailed to the account.
+  const appTok = (await ops("tokens", { user: X, label: "Atteo app", kind: "app" })).body.token;
+  const del = (headers, body) => fetch(`${BASE}/api/me`, { method: "DELETE", headers: { ...headers, "content-type": "application/json" }, body: JSON.stringify(body) });
+  const stolen = await del({ authorization: `Bearer ${appTok}` }, { confirm: X, code: "000000" });
+  assert(stolen.status === 400 && (await stolen.json()).need_new_code, `a stolen app token with no code sent: ${stolen.status}`);
+  const noCode = await web(`/api/me`, X, { method: "DELETE", headers: { "content-type": "application/json" }, body: JSON.stringify({ confirm: X }) });
+  assert(noCode.status === 400, `no code: ${noCode.status}`);
+  const sent = await web(`/api/me/delete-code`, X, { method: "POST" });
+  assert(sent.status === 200 && (await sent.json()).sent_to === `${X}@example.com`, `the code goes to the account's own email: ${sent.status}`);
+  const bad = await web(`/api/me`, X, { method: "DELETE", headers: { "content-type": "application/json" }, body: JSON.stringify({ confirm: X, code: "123123" }) });
+  assert(bad.status === 400 && (await bad.json()).need_code, `a wrong code: ${bad.status}`);
+  const gone = await web(`/api/me`, X, { method: "DELETE", headers: { "content-type": "application/json" }, body: JSON.stringify({ confirm: X, code: "000000" }) });
   assert(gone.status === 200, `delete: ${gone.status} ${await gone.clone().text()}`);
   assert((await gone.json()).boards_kept >= 1, "the shared board is kept");
   // Y still sees the message, by "Deleted user" (a tombstone), not by X.
@@ -7005,6 +7016,8 @@ await step("delete account (Apple 5.1.1(v), jxn #4329): messages stay as 'Delete
   assert((await fetch(`${BASE}/api/me`, { headers: auth(X) })).status === 401, "the token is gone");
   const page = await web(`/api/me`, X);
   assert(page.status === 401 || page.status === 302, `the web session is gone: ${page.status}`);
+  const twice = await web(`/api/me`, X, { method: "DELETE", headers: { "content-type": "application/json" }, body: JSON.stringify({ confirm: X, code: "000000" }) });
+  assert(twice.status === 401, `the code worked once; after that there's no account to delete: ${twice.status}`);
   // The handle stays taken, forever.
   const again = await ops("users", { name: X, email: `${X}@example.com`, verified: "true" });
   assert(again.status === 409, `the handle can't be registered again: ${again.status}`);

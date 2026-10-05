@@ -1,4 +1,5 @@
-// Delete account on the web (Apple 5.1.1(v); jxn #4329): Account → Delete account. The button stays off until the
+// Delete account on the web (Apple 5.1.1(v); jxn #4329): Account → Delete account. The handle typed back sends a code to
+// the account's email; the code deletes it (a wrong one is refused). The button stays off until the
 // handle is typed back; then the account is gone, you land signed out, and a shared board shows what you wrote as
 // "Deleted user". Light 1280 and dark 390, each its own person. BASE, ADMIN_KEY, PW_CHROME.
 import { chromium } from "playwright-core";
@@ -30,6 +31,15 @@ await Promise.all([[1280, 800, "light"], [390, 844, "dark"]].map(async ([w, h, s
   check(await go.isDisabled(), `${tag}: a wrong handle keeps it off`);
   await p.locator("#delete-confirm").fill(P);
   check(!(await go.isDisabled()), `${tag}: the right handle turns it on`);
+  // Step 1 emails a code to the account (jxn's agent #4414); the local server's code is 000000.
+  const [sent] = await Promise.all([p.waitForResponse((r) => r.url().endsWith("/api/me/delete-code")), go.click()]);
+  check(sent.status() === 200, `${tag}: a code is sent (${sent.status()})`);
+  await p.locator("#delete-code").waitFor({ state: "visible", timeout: 5000 }).catch(() => {});
+  check(await go.isDisabled(), `${tag}: the code field shows, and Delete waits for 6 digits`);
+  await p.locator("#delete-code").fill("123123");
+  const [wrong] = await Promise.all([p.waitForResponse((r) => r.url().endsWith("/api/me") && r.request().method() === "DELETE"), go.click()]);
+  check(wrong.status() === 400 && (await p.locator("#delete-code").isVisible()), `${tag}: a wrong code is refused and the field stays (${wrong.status()})`);
+  await p.locator("#delete-code").fill("000000");
   const [res] = await Promise.all([p.waitForResponse((r) => r.url().endsWith("/api/me") && r.request().method() === "DELETE"), go.click()]);
   check(res.status() === 200, `${tag}: deleted (${res.status()})`);
   await p.waitForURL((u) => !u.pathname.startsWith("/me"), { timeout: 8000 }).catch(() => {});

@@ -1051,4 +1051,7 @@ export const ES: Record<string, string> = {
   "Type your handle to confirm": "Escribe tu nombre de usuario para confirmar",
   "Delete my account": "Eliminar mi cuenta",
   "Could not delete your account": "No se pudo eliminar tu cuenta",
+  "Email me a code": "Envíame un código",
+  "Code from your email": "Código de tu correo",
+  "We sent a code to your email to make sure it's you.": "Te enviamos un código por correo para confirmar que eres tú.",
 };

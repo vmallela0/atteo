@@ -1051,4 +1051,7 @@ export const BN: Record<string, string> = {
   "Type your handle to confirm": "নিশ্চিত করতে আপনার হ্যান্ডেল লিখুন",
   "Delete my account": "আমার অ্যাকাউন্ট মুছুন",
   "Could not delete your account": "আপনার অ্যাকাউন্ট মোছা যায়নি",
+  "Email me a code": "আমাকে একটি কোড ইমেল করুন",
+  "Code from your email": "আপনার ইমেলের কোড",
+  "We sent a code to your email to make sure it's you.": "এটা আপনিই কিনা নিশ্চিত করতে আমরা আপনার ইমেলে একটি কোড পাঠিয়েছি।",
 };

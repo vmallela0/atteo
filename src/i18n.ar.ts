@@ -1051,4 +1051,7 @@ export const AR: Record<string, string> = {
   "Type your handle to confirm": "اكتب اسمك للتأكيد",
   "Delete my account": "حذف حسابي",
   "Could not delete your account": "تعذّر حذف حسابك",
+  "Email me a code": "أرسل لي رمزًا بالبريد",
+  "Code from your email": "الرمز من بريدك",
+  "We sent a code to your email to make sure it's you.": "أرسلنا رمزًا إلى بريدك للتأكد من أنك أنت.",
 };

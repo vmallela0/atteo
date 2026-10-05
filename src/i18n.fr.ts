@@ -1051,4 +1051,7 @@ export const FR: Record<string, string> = {
   "Type your handle to confirm": "Saisissez votre identifiant pour confirmer",
   "Delete my account": "Supprimer mon compte",
   "Could not delete your account": "Impossible de supprimer votre compte",
+  "Email me a code": "M'envoyer un code",
+  "Code from your email": "Code reçu par e-mail",
+  "We sent a code to your email to make sure it's you.": "Nous vous avons envoyé un code par e-mail pour vérifier que c'est bien vous.",
 };

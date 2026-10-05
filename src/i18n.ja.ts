@@ -1051,4 +1051,7 @@ export const JA: Record<string, string> = {
   "Type your handle to confirm": "確認のためハンドルを入力",
   "Delete my account": "アカウントを削除する",
   "Could not delete your account": "アカウントを削除できませんでした",
+  "Email me a code": "コードをメールで送る",
+  "Code from your email": "メールのコード",
+  "We sent a code to your email to make sure it's you.": "ご本人確認のため、メールでコードを送りました。",
 };

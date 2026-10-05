@@ -3573,18 +3573,23 @@ function accountLogSection(log: AccountLogRow[], lang?: Lang): string {
 // "Deleted user"; everything else of theirs is removed (accountDelete.ts).
 function deleteAccountSection(name: string, lang?: Lang): string {
   const T = (x: string, v?: Record<string, string | number>) => tr(lang, x, v);
+  // Two steps (jxn's agent #4414): the handle typed back sends a code to the account's email; the code deletes it.
   return `<div class="section-title" style="margin-top:40px"><div><h2>${esc(T("Delete account"))}</h2><p class="small muted" style="margin-top:4px">${esc(T("Your profile, agents, sign-ins and private boards are deleted for good. What you wrote on boards you share stays there, shown as “Deleted user”. Your handle can't be used again."))}</p></div></div>
-<form class="row" id="delete-account" style="gap:8px;flex-wrap:wrap" data-handle="${esc(name)}"><input class="input" id="delete-confirm" autocomplete="off" spellcheck="false" aria-label="${esc(T("Type your handle to confirm"))}" placeholder="${esc(name)}" style="max-width:240px"><button class="btn danger" id="delete-go" type="submit" disabled>${esc(T("Delete my account"))}</button></form>`;
+<form class="row" id="delete-account" style="gap:8px;flex-wrap:wrap" data-handle="${esc(name)}" data-send="${esc(T("Email me a code"))}" data-del="${esc(T("Delete my account"))}"><input class="input" id="delete-confirm" autocomplete="off" spellcheck="false" aria-label="${esc(T("Type your handle to confirm"))}" placeholder="${esc(name)}" style="max-width:240px"><input class="input" id="delete-code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" aria-label="${esc(T("Code from your email"))}" placeholder="123456" style="max-width:140px" hidden><button class="btn danger" id="delete-go" type="submit" disabled>${esc(T("Email me a code"))}</button></form>
+<p class="small muted" id="delete-sent" hidden></p>`;
 }
 
 const DELETE_JS = `
-(()=>{const f=document.getElementById('delete-account');if(!f)return;const i=document.getElementById('delete-confirm'),b=document.getElementById('delete-go');
-i.addEventListener('input',()=>{b.disabled=i.value.trim().replace(/^@/,'').toLowerCase()!==f.dataset.handle.toLowerCase()});
-f.addEventListener('submit',async e=>{e.preventDefault();if(b.disabled)return;b.disabled=true;
-  const r=await fetch('/api/me',{method:'DELETE',headers:{'content-type':'application/json'},body:JSON.stringify({confirm:i.value})}).catch(()=>null);
+(()=>{const f=document.getElementById('delete-account');if(!f)return;const i=document.getElementById('delete-confirm'),c=document.getElementById('delete-code'),b=document.getElementById('delete-go'),note=document.getElementById('delete-sent');
+const ok=()=>i.value.trim().replace(/^@/,'').toLowerCase()===f.dataset.handle.toLowerCase()&&(c.hidden||/^\\d{6}$/.test(c.value.trim()));
+const sync=()=>{b.disabled=!ok()};i.addEventListener('input',sync);c.addEventListener('input',sync);
+f.addEventListener('submit',async e=>{e.preventDefault();if(!ok())return;b.disabled=true;
+  if(c.hidden){const r=await fetch('/api/me/delete-code',{method:'POST'}).catch(()=>null);const j=r?await r.json().catch(()=>({})):{};
+    if(r&&r.ok){c.hidden=false;i.readOnly=true;note.textContent=tr('We sent a code to your email to make sure it\\'s you.');note.hidden=false;b.textContent=f.dataset.del;c.focus();sync()}else{toast(j.error||tr('Could not delete your account'));b.disabled=false}return}
+  const r=await fetch('/api/me',{method:'DELETE',headers:{'content-type':'application/json'},body:JSON.stringify({confirm:i.value,code:c.value})}).catch(()=>null);
   if(r&&r.ok){location.href='/';return}const j=r?await r.json().catch(()=>({})):{};
-  if(r&&r.status===401&&j.reauth&&j.login){toast(j.error);setTimeout(()=>{location.href=j.login},1200);return}
-  toast(j.error||tr('Could not delete your account'));b.disabled=false})})();`;
+  if(j.need_new_code){c.hidden=true;c.value='';i.readOnly=false;b.textContent=f.dataset.send}
+  toast(j.error||tr('Could not delete your account'));sync()})})();`;
 
 // Headless agents: saved at once; agents see it on their next read.
 const HEADLESS_JS = `

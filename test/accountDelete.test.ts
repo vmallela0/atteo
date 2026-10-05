@@ -2,9 +2,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 vi.mock("cloudflare:workers", () => ({ DurableObject: class {} }));
 vi.stubGlobal("WebSocketRequestResponsePair", class {});
 import { Board } from "../src/board";
-import { deleteAccount, FRESH_SIGNIN_MS, isDeletedHandle, isFresh, isTombstone, shownName, signedInAt, swapHandle, type BoardForget } from "../src/accountDelete";
+import { checkDeleteCode, DELETE_CODE_TTL_MS, deleteAccount, isDeletedHandle, isTombstone, noteDeleteCodeSent, shownName, swapHandle, type BoardForget } from "../src/accountDelete";
 import { isReservedUser } from "../src/bugBoard";
-import { sha256hex } from "../src/auth";
 import type { Env } from "../src/types";
 
 const { DatabaseSync } = (await import("node:" + "sqlite")) as { DatabaseSync: new (p: string) => any };
@@ -225,17 +224,32 @@ describe("deleting an account (Apple 5.1.1(v), jxn #4329)", () => {
     expect(db.prepare("SELECT stripe_customer, stripe_subscription FROM deleted_handles WHERE stripe_customer IS NOT NULL").all()).toEqual([{ stripe_customer: "cus_123", stripe_subscription: "sub_1" }]);
   });
 
-  it("only a sign-in from the last few minutes may delete (a stolen session can't)", async () => {
-    const { env, db } = fakeEnv();
-    const now = Date.now();
-    db.prepare("INSERT INTO sessions (id_hash, user, workos_id, email, created_at, expires_at) VALUES (?, 'maya', 'w', 'm@x', ?, ?)").run(await sha256hex("old"), now - FRESH_SIGNIN_MS - 60_000, now + 1e9);
-    db.prepare("INSERT INTO sessions (id_hash, user, workos_id, email, created_at, expires_at) VALUES (?, 'maya', 'w', 'm@x', ?, ?)").run(await sha256hex("new"), now - 60_000, now + 1e9);
-    db.prepare("INSERT INTO tokens (id, hash, user, label, created_at, kind) VALUES ('t1', ?, 'maya', 'Atteo app', ?, 'app')").run(await sha256hex("ab_fresh"), now - 30_000);
-    const req = (h: Record<string, string>) => new Request("https://x/api/me", { method: "DELETE", headers: h });
-    expect(isFresh(await signedInAt(env, req({ cookie: "ab_session=old" })), now)).toBe(false);
-    expect(isFresh(await signedInAt(env, req({ cookie: "ab_session=new" })), now)).toBe(true);
-    expect(isFresh(await signedInAt(env, req({ authorization: "Bearer ab_fresh" })), now)).toBe(true);
-    expect(isFresh(await signedInAt(env, req({})), now)).toBe(false);
+  it("deleting needs the code emailed to the account: none, a wrong one or an old one fails; a right one works once", async () => {
+    const { env } = fakeEnv();
+    const t0 = 1_000_000;
+    // A stand-in for WorkOS magic auth: the code it emailed, to which address, and whether it's been used.
+    const issued = new Map<string, { email: string; used: boolean }>();
+    const verify = async (email: string, code: string) => {
+      const c = issued.get(code);
+      if (!c || c.used || c.email !== email) throw new Error("invalid_code");
+      c.used = true;
+      return { email };
+    };
+    // A stolen session or token alone: no code was ever sent for this account.
+    expect(await checkDeleteCode(env, "maya", "maya@example.com", "123456", verify, t0)).toBe("none");
+    await noteDeleteCodeSent(env, "maya", t0);
+    issued.set("123456", { email: "maya@example.com", used: false });
+    expect(await checkDeleteCode(env, "maya", "maya@example.com", "999999", verify, t0 + 1000)).toBe("bad"); // wrong
+    expect(await checkDeleteCode(env, "maya", "maya@example.com", "12345", verify, t0 + 1000)).toBe("bad"); // not 6 digits
+    expect(await checkDeleteCode(env, "maya", "maya@example.com", "123456", verify, t0 + DELETE_CODE_TTL_MS + 1)).toBe("expired"); // old
+    expect(await checkDeleteCode(env, "maya", "maya@example.com", "123456", verify, t0 + 2000)).toBe("ok");
+    expect(await checkDeleteCode(env, "maya", "maya@example.com", "123456", verify, t0 + 3000)).toBe("none"); // once
+    // A code someone got for another address (their own) doesn't confirm maya's deletion.
+    await noteDeleteCodeSent(env, "maya", t0 + 5000);
+    issued.set("555555", { email: "thief@example.com", used: false });
+    expect(await checkDeleteCode(env, "maya", "maya@example.com", "555555", verify, t0 + 6000)).toBe("bad");
+    const lying = async (_e: string, _c: string) => ({ email: "thief@example.com" });
+    expect(await checkDeleteCode(env, "maya", "maya@example.com", "555555", lying, t0 + 7000)).toBe("bad");
   });
 
   it("tombstones can't be registered, read as 'Deleted user', and a handle is swapped only as a whole word", () => {

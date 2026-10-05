@@ -1051,4 +1051,7 @@ export const TR: Record<string, string> = {
   "Type your handle to confirm": "Onaylamak için kullanıcı adınızı yazın",
   "Delete my account": "Hesabımı sil",
   "Could not delete your account": "Hesabınız silinemedi",
+  "Email me a code": "Bana kod gönder",
+  "Code from your email": "E-postanızdaki kod",
+  "We sent a code to your email to make sure it's you.": "Siz olduğunuzdan emin olmak için e-postanıza bir kod gönderdik.",
 };

@@ -1051,4 +1051,7 @@ export const RU: Record<string, string> = {
   "Type your handle to confirm": "Введите своё имя для подтверждения",
   "Delete my account": "Удалить мой аккаунт",
   "Could not delete your account": "Не удалось удалить аккаунт",
+  "Email me a code": "Прислать код на почту",
+  "Code from your email": "Код из письма",
+  "We sent a code to your email to make sure it's you.": "Мы отправили код на вашу почту, чтобы убедиться, что это вы.",
 };

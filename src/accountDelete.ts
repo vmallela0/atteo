@@ -8,7 +8,7 @@
 // account never ends up split across two (jxn's agent #4389).
 
 import * as registry from "./registry";
-import { forgetUserTokens, readCookie, SESSION_COOKIE, sha256hex } from "./auth";
+import { forgetUserTokens, sha256hex } from "./auth";
 import type { Env } from "./types";
 
 /** Tombstones look like "deleted-3f9a1c2b7e": a handle no one can register (bugBoard.isReservedUser). */
@@ -17,9 +17,6 @@ export const isTombstone = (name: string | null | undefined): boolean => !!name 
 /** What a tombstone reads as, everywhere a name is shown. */
 export const DELETED_LABEL = "Deleted user";
 export const shownName = (name: string): string => (isTombstone(name) ? DELETED_LABEL : name);
-
-/** Deleting needs a sign-in this recent (a stolen session or a phone left open can't do it). */
-export const FRESH_SIGNIN_MS = 10 * 60_000;
 
 export function newTombstone(): string {
   const b = new Uint8Array(5);
@@ -34,21 +31,39 @@ export async function isDeletedHandle(env: Env, name: string): Promise<boolean> 
   return !!(await env.DB.prepare(`SELECT 1 AS x FROM deleted_handles WHERE hash = ?`).bind(await handleHash(name)).first());
 }
 
-/** When the request's sign-in happened: the web session's, or the bearer token's (the app's) creation time. */
-export async function signedInAt(env: Env, request: Request): Promise<number | null> {
-  const cookie = readCookie(request, SESSION_COOKIE);
-  if (cookie) {
-    const r = await env.DB.prepare(`SELECT created_at FROM sessions WHERE id_hash = ?`).bind(await sha256hex(cookie)).first<{ created_at: number }>();
-    if (r) return r.created_at;
-  }
-  const bearer = request.headers.get("authorization")?.match(/^Bearer\s+(\S+)$/i)?.[1];
-  if (bearer) {
-    const r = await env.DB.prepare(`SELECT created_at FROM tokens WHERE hash = ? AND revoked_at IS NULL`).bind(await sha256hex(bearer)).first<{ created_at: number }>();
-    if (r) return r.created_at;
-  }
-  return null;
+// ---------- the emailed code that confirms a deletion (jxn's agent #4414) ----------
+// A stolen session or token can't delete an account on its own: DELETE /api/me also needs the 6-digit code WorkOS
+// emails to the account's own address (POST /api/me/delete-code), checked server-side, good for 10 minutes and once.
+
+export const DELETE_CODE_TTL_MS = 10 * 60_000;
+
+/** Records that a code was just sent to `user` (a new one replaces the last). */
+export async function noteDeleteCodeSent(env: Env, user: string, now = Date.now()): Promise<void> {
+  await env.DB.prepare(`INSERT INTO delete_codes (user, sent_at, used_at) VALUES (?, ?, NULL) ON CONFLICT(user) DO UPDATE SET sent_at = excluded.sent_at, used_at = NULL`).bind(user, now).run();
 }
-export const isFresh = (at: number | null, now = Date.now()) => at != null && now - at <= FRESH_SIGNIN_MS;
+
+export type CodeCheck = "ok" | "none" | "expired" | "bad";
+
+/**
+ * Checks `code` for `user` against the code sent to `email`. `verify` asks WorkOS (or, on a local run, the fake code);
+ * it throws for a wrong or expired code, and returns the email it authenticated. A good code is used up here, at most
+ * once (the update only wins if it wasn't used already).
+ */
+export async function checkDeleteCode(env: Env, user: string, email: string, code: string, verify: (email: string, code: string) => Promise<{ email: string }>, now = Date.now()): Promise<CodeCheck> {
+  const row = await env.DB.prepare(`SELECT sent_at, used_at FROM delete_codes WHERE user = ?`).bind(user).first<{ sent_at: number; used_at: number | null }>();
+  if (!row || row.used_at != null) return "none";
+  if (now - row.sent_at > DELETE_CODE_TTL_MS) return "expired";
+  if (!/^\d{6}$/.test(code)) return "bad";
+  let who: { email: string };
+  try {
+    who = await verify(email, code);
+  } catch {
+    return "bad";
+  }
+  if (who.email.toLowerCase() !== email.toLowerCase()) return "bad";
+  const used = await env.DB.prepare(`UPDATE delete_codes SET used_at = ? WHERE user = ? AND used_at IS NULL AND sent_at = ?`).bind(now, user, row.sent_at).run();
+  return (used.meta?.changes ?? 0) === 1 ? "ok" : "none";
+}
 
 export interface BoardForget {
   forgetUser(user: string, tomb: string, opts?: { title?: string | null }): Promise<unknown>;
@@ -198,6 +213,7 @@ export async function deleteAccount(env: Env, name: string, stub: (boardId: stri
     S(`DELETE FROM account_audit WHERE user = ?`, n),
     S(`DELETE FROM approvals WHERE user = ?`, n),
     S(`DELETE FROM mutes WHERE user = ?`, n),
+    S(`DELETE FROM delete_codes WHERE user = ?`, n),
     S(`DELETE FROM friendships WHERE a = ? OR b = ?`, n, n),
     S(`DELETE FROM agent_contacts WHERE a = ? OR b = ?`, n, n),
     S(`DELETE FROM members WHERE user = ?`, n),

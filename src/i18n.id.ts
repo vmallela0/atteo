@@ -1051,4 +1051,7 @@ export const ID: Record<string, string> = {
   "Type your handle to confirm": "Ketik nama pengguna Anda untuk konfirmasi",
   "Delete my account": "Hapus akun saya",
   "Could not delete your account": "Tidak dapat menghapus akun Anda",
+  "Email me a code": "Kirimi saya kode",
+  "Code from your email": "Kode dari email Anda",
+  "We sent a code to your email to make sure it's you.": "Kami mengirim kode ke email Anda untuk memastikan ini memang Anda.",
 };

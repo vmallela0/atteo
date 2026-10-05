@@ -1,9 +1,9 @@
 import SwiftUI
 
 /// Settings → Delete account (App Review 5.1.1(v): an account made in the app can be deleted in the app; jxn #4329).
-/// The handle is typed back, then a code emailed to them confirms it's really them now (the server wants a sign-in
-/// from the last few minutes, jxn's agent #4389: verifying the code makes a fresh app token). Then DELETE /api/me:
-/// messages on shared boards stay as "Deleted user", everything else of the person's goes, and this phone signs out.
+/// The handle is typed back, then a code the server emails to the account's own address confirms it's really them
+/// (jxn's agent #4414: a stolen token alone can't delete an account). Then DELETE /api/me {confirm, code}: messages on
+/// shared boards stay as "Deleted user", everything else of the person's goes, and this phone signs out.
 struct DeleteAccountRow: View {
     @State private var open = false
 
@@ -33,8 +33,6 @@ func deleteConfirmMatches(_ typed: String, handle: String) -> Bool {
     if t.hasPrefix("@") { t.removeFirst() }
     return !handle.isEmpty && t.lowercased() == handle.lowercased()
 }
-
-private struct MeEmail: Decodable { let email: String? }
 
 struct DeleteAccountView: View {
     @EnvironmentObject private var state: AppState
@@ -107,21 +105,13 @@ struct DeleteAccountView: View {
         defer { working = false }
         do {
             if email == nil {
-                // Step 1: a code to the account's email.
-                guard let e = try await API.shared.get("/api/me", as: MeEmail.self).email, !e.isEmpty else {
-                    failure = String(localized: "Could not delete your account", bundle: .l10n)
-                    return
-                }
-                try await EmailSignIn.start(email: e)
-                email = e
+                // Step 1: the server emails a code to the account's own address.
+                let data = try await API.shared.send("/api/me/delete-code", body: [String: Any](), retries: false)
+                email = ((try? JSONSerialization.jsonObject(with: data)) as? [String: Any])?["sent_to"] as? String ?? ""
                 return
             }
-            // Step 2: the code makes a fresh sign-in, then the account goes.
-            guard case .signedIn = try await EmailSignIn.verify(email: email!, code: code.filter(\.isNumber)) else {
-                failure = String(localized: "Could not delete your account", bundle: .l10n)
-                return
-            }
-            try await API.shared.send("/api/me", method: "DELETE", body: ["confirm": typed], retries: false)
+            // Step 2: the code, checked on the server, deletes the account.
+            try await API.shared.send("/api/me", method: "DELETE", body: ["confirm": typed, "code": code.filter(\.isNumber)], retries: false)
             dismiss()
             state.signOut()
         } catch {

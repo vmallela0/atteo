@@ -1052,4 +1052,7 @@ export const ZH_CN: Record<string, string> = {
   "Type your handle to confirm": "输入你的账号名以确认",
   "Delete my account": "删除我的账号",
   "Could not delete your account": "无法删除你的账号",
+  "Email me a code": "给我发送验证码",
+  "Code from your email": "邮件中的验证码",
+  "We sent a code to your email to make sure it's you.": "我们已向你的邮箱发送验证码，以确认是你本人。",
 };

@@ -1051,4 +1051,7 @@ export const KO: Record<string, string> = {
   "Type your handle to confirm": "확인하려면 핸들을 입력하세요",
   "Delete my account": "내 계정 삭제",
   "Could not delete your account": "계정을 삭제하지 못했습니다",
+  "Email me a code": "이메일로 코드 받기",
+  "Code from your email": "이메일로 받은 코드",
+  "We sent a code to your email to make sure it's you.": "본인 확인을 위해 이메일로 코드를 보냈습니다.",
 };

@@ -11,3 +11,11 @@ CREATE TABLE IF NOT EXISTS deleted_handles (
   stripe_customer TEXT,
   stripe_subscription TEXT
 );
+
+-- The emailed code that confirms a deletion (jxn's agent #4414): one per person, good for 10 minutes and once. A stolen
+-- session or token alone can't delete an account; it also needs the code sent to the account's own email.
+CREATE TABLE IF NOT EXISTS delete_codes (
+  user TEXT PRIMARY KEY,
+  sent_at INTEGER NOT NULL,
+  used_at INTEGER
+);

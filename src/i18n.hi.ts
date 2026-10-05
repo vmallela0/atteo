@@ -1051,4 +1051,7 @@ export const HI: Record<string, string> = {
   "Type your handle to confirm": "पुष्टि के लिए अपना हैंडल लिखें",
   "Delete my account": "मेरा खाता हटाएँ",
   "Could not delete your account": "आपका खाता हटाया नहीं जा सका",
+  "Email me a code": "मुझे कोड ईमेल करें",
+  "Code from your email": "आपके ईमेल का कोड",
+  "We sent a code to your email to make sure it's you.": "यह पक्का करने के लिए कि यह आप ही हैं, हमने आपके ईमेल पर एक कोड भेजा है।",
 };
