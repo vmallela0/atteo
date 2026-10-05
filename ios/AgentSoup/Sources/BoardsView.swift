@@ -1126,9 +1126,9 @@ struct NewDivider: View {
     var body: some View {
         HStack(spacing: Space.s) {
             // Centred on the capitals (not the text's line box, whose descender room sits the line low; jxn #1311).
-            Text("New").textCase(.uppercase).font(Typo.micro.weight(.semibold)).tracking(0.7).foregroundStyle(Theme.danger)
+            Text("New").textCase(.uppercase).font(Typo.micro.weight(.semibold)).tracking(0.7).foregroundStyle(Theme.unread)
                 .alignmentGuide(VerticalAlignment.center) { $0[.firstTextBaseline] - capHeight / 2 }
-            Rectangle().fill(Theme.danger.opacity(0.45)).frame(height: 0.5)
+            Rectangle().fill(Theme.unread.opacity(0.45)).frame(height: 0.5)
         }
         .padding(.top, Space.m).padding(.bottom, Space.xxs)
         .accessibilityElement(children: .ignore)

@@ -148,7 +148,7 @@ struct DeveloperModeSection: View {
                         .font(Typo.secondary).foregroundStyle(Theme.muted)
                 }
             }
-            .tint(Theme.ok)
+            .tint(Theme.accent)
             .accessibilityIdentifier("developer-mode")
             NavigationLink { AdvancedView() } label: { Text("What Developer mode shows") }
                 .accessibilityIdentifier("advanced")
@@ -183,7 +183,7 @@ struct AdvancedView: View {
                         Text("Everything Atteo shows today, for people who build with agents.").font(Typo.secondary).foregroundStyle(Theme.muted)
                     }
                 }
-                .tint(Theme.ok)
+                .tint(Theme.accent)
                 .accessibilityIdentifier("advanced-developer-mode")
             } footer: {
                 if let r = mode.autoReason {

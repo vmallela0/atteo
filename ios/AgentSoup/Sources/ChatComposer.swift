@@ -168,8 +168,8 @@ struct ChatComposer: View {
                     } else {
                         Button(action: send) {
                             Image(systemName: "arrow.up").font(.system(size: 14, weight: .bold))
-                                .composerCircle(fill: canSend ? Theme.cherry : Theme.raised)
-                                .foregroundStyle(canSend ? Theme.onAccent : Theme.faint)
+                                .composerCircle(fill: canSend ? Theme.primary : Theme.raised)
+                                .foregroundStyle(canSend ? Theme.onPrimary : Theme.faint)
                                 .animation(.spring(duration: 0.3, bounce: 0.35), value: canSend)
                         }
                         .buttonStyle(PressStyle())
@@ -329,8 +329,8 @@ struct ChatComposer: View {
             withAnimation(.spring(duration: 0.28, bounce: 0.1)) { privacy = privacy == .everyone ? .people : .everyone; lockWarning = false }
         } label: {
             Image(systemName: locked ? "lock.fill" : "lock").font(.system(size: 13, weight: .semibold))
-                .composerCircle(fill: !locked ? Theme.raised : privacy == .own ? Theme.cherry : Theme.text)
-                .foregroundStyle(!locked ? Theme.muted : privacy == .own ? Color.black : Theme.onText)
+                .composerCircle(fill: !locked ? Theme.raised : privacy == .own ? Theme.muted : Theme.text)
+                .foregroundStyle(!locked ? Theme.muted : Theme.onText)
         }
         .buttonStyle(PressStyle())
         .padding(.leading, -Composer.inset) // snug against the +
@@ -355,7 +355,7 @@ struct ChatComposer: View {
     private var lockChoices: some View {
         VStack(alignment: .leading, spacing: Space.xs) {
             HStack(spacing: Space.xs) {
-                Image(systemName: "lock.fill").font(.system(size: 11, weight: .semibold)).foregroundStyle(privacy == .own ? Theme.cherry : Theme.muted)
+                Image(systemName: "lock.fill").font(.system(size: 11, weight: .semibold)).foregroundStyle(privacy == .own ? Theme.text : Theme.muted)
                     .accessibilityHidden(true)
                 lockChoice(.everyone, id: "lock-everyone")
                 lockChoice(.people, id: "lock-people")
@@ -381,9 +381,9 @@ struct ChatComposer: View {
             withAnimation(.spring(duration: 0.28, bounce: 0.1)) { privacy = p; lockWarning = false }
         } label: {
             Text(privacyName(p)).font(Typo.micro.weight(.semibold))
-                .foregroundStyle(on ? (p == .own ? Color.black : Theme.onText) : Theme.text)
+                .foregroundStyle(on ? Theme.onText : Theme.text)
                 .padding(.horizontal, 10).frame(minHeight: 28)
-                .background(on ? (p == .own ? Theme.cherry : Theme.text) : Theme.card, in: Capsule())
+                .background(on ? (p == .own ? Theme.muted : Theme.text) : Theme.card, in: Capsule())
                 .contentShape(Capsule())
         }
         .buttonStyle(PressStyle())

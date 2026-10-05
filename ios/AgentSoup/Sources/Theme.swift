@@ -1,6 +1,6 @@
 // The look (design language v1, board #2508): ink on paper, bone and stone for surfaces and rules, graphite for
-// what's secondary, and one cherry used once per screen: you, the primary action, what needs you (cherry-bright on
-// dark). Type is Onest for the interface, Enriqueta for headlines and Courier Prime for the agent layer (ids,
+// what's secondary. Neutral (jxn #2858): the one accent is oxblood, only on a screen's primary action (Send, the mic);
+// you, mentions and unread are ink, and cherry is the logo's alone. Type is Onest for the interface, Enriqueta for headlines and Courier Prime for the agent layer (ids,
 // payloads). Only colours, fonts and the logo changed (jxn #2584): shapes, spacing and layout are as before. Every
 // color has a dark and a light variant and follows the appearance (Settings → Display → Theme).
 
@@ -21,8 +21,10 @@ func rgb(_ hex: UInt32, _ alpha: CGFloat = 1) -> UIColor {
 enum Palette {
     static let ink = rgb(0x0E0E0E) // text, strings, the agent layer
     static let paper = rgb(0xFAFAF7) // the default ground
-    static let cherry = rgb(0xA8121E) // you, the primary action: once per screen
-    static let cherryBright = rgb(0xE0303F) // cherry on dark surfaces only
+    static let cherry = rgb(0xA8121E) // the logo's horn (art, never recoloured)
+    static let cherryBright = rgb(0xE0303F) // the logo's horn on dark
+    static let oxblood = rgb(0x6A1B24) // the one accent: a screen's primary action (jxn #2858, #2861)
+    static let oxbloodDark = rgb(0x9D333C) // oxblood on dark: #C2414D (#2861) darkened just enough for white at 7:1
     static let bone = rgb(0xF2EFE8) // secondary surfaces
     static let stone = rgb(0xD9D6CE) // dividers
     static let graphite = rgb(0x5A5853) // secondary text
@@ -41,13 +43,11 @@ enum Theme {
     /// What sits on an ink-filled control (the primary button, a count): paper on ink, ink on paper (--on-ink).
     static let onText = Color(light: Palette.paper, dark: Palette.ink)
     /// The accent is ink, as on the web (--accent): unread, links, focus and counts. The palette has no blue, and
-    /// cherry is kept for the primary action.
+    /// oxblood is kept for the primary action.
     static let accent = Color(light: Palette.ink, dark: Palette.paper)
-    /// Cherry (--cherry): only the primary action and the mic; cherry-bright on dark. Glyphs on it are --on-ink.
-    static let cherry = Color(light: Palette.cherry, dark: Palette.cherryBright)
-    /// A cherry fill that carries words (Talk's Yes): cherry in both modes, so paper on it stays AA (7.8:1);
-    /// ink on cherry-bright is about 4.3:1, too low for text.
-    static let cherryFill = Color(uiColor: Palette.cherry)
+    /// The primary action (--cta): oxblood, only on a screen's one main action (Send, the mic, Talk's Yes). Glyphs and
+    /// words on it are white (onPrimary): 11.7:1 light, 7.1:1 dark.
+    static let primary = Color(light: Palette.oxblood, dark: Palette.oxbloodDark)
     static let ok = Color(light: rgb(0x16A34A), dark: rgb(0x3ECF75)) // --ok
     static let warn = Color(light: rgb(0xC2410C), dark: rgb(0xFB923C)) // --warn
     static let danger = Color(light: rgb(0xDC2626), dark: rgb(0xF87171)) // --danger
@@ -68,11 +68,11 @@ enum Theme {
     /// hsl(h, 55%, 80%) dark).
     static func avatarFill(_ name: String) -> Color {
         let h = Double(hueDegrees(name))
-        return Color(light: hsl(h, 0.38, 0.90), dark: hsl(h, 0.26, 0.22))
+        return Color(light: hsl(h, 0.08, 0.90), dark: hsl(h, 0.06, 0.22)) // a whisper of hue, near stone (jxn #2858)
     }
     static func avatarInk(_ name: String) -> Color {
         let h = Double(hueDegrees(name))
-        return Color(light: hsl(h, 0.55, 0.26), dark: hsl(h, 0.55, 0.80))
+        return Color(light: hsl(h, 0.12, 0.26), dark: hsl(h, 0.12, 0.80))
     }
 }
 
@@ -357,20 +357,21 @@ struct CountBadge: View {
 }
 
 /// Semantic tokens (jxn #2706): views use these roles, never the palette or a literal, the same roles as the web's
-/// semantic layer in src/ui.ts. You are cherry; mentions of other people are ink; status colours keep their meaning.
+/// semantic layer in src/ui.ts. You and mentions are ink (jxn #2858); status colours keep their meaning.
 extension Theme {
-    /// You, and what's for you (--you): cherry, cherry-bright on dark.
-    static let you = Theme.cherry
+    /// You, and what's for you (--you): ink, paper on dark.
+    static let you = Theme.accent
     /// A message that mentions you, at rest (--you-soft).
-    static let youSoft = Color(light: Palette.cherry.withAlphaComponent(0.07), dark: Palette.cherryBright.withAlphaComponent(0.12))
+    static let youSoft = Color(light: Palette.ink.withAlphaComponent(0.05), dark: Palette.paper.withAlphaComponent(0.08))
     /// A mention's words (--mention-fg) and box (--mention-bg); a mention of you sits on --mention-you-bg.
     static let mentionText = Color(light: Palette.ink, dark: Palette.paper)
     static let mentionBox = Color(light: Palette.ink.withAlphaComponent(0.07), dark: Palette.paper.withAlphaComponent(0.12))
-    static let mentionYouBox = Color(light: Palette.cherry.withAlphaComponent(0.14), dark: Palette.cherryBright.withAlphaComponent(0.26))
+    /// A mention of you: the same ink box, twice as strong (--mention-you-bg).
+    static let mentionYouBox = Color(light: Palette.ink.withAlphaComponent(0.15), dark: Palette.paper.withAlphaComponent(0.24))
     /// The New line and unread marks (--unread).
-    static let unread = Theme.cherry
-    /// Atteo speaking in Talk (--voice): the spec gives the speaker cherry.
-    static let voice = Theme.cherry
+    static let unread = Theme.accent
+    /// Atteo speaking in Talk (--voice): ink, neutral like the rest (jxn #2858).
+    static let voice = Theme.accent
     /// The board's type colours, the web's values (--decision, --task, --claim).
     static let decision = Color(light: rgb(0x7C3AED), dark: rgb(0xA78BFA))
     static let task = Color(light: rgb(0x0284C7), dark: rgb(0x38BDF8))
@@ -385,10 +386,10 @@ extension Theme {
 }
 
 extension Theme {
-    /// What sits on an accent or cherry fill (a count, the mic, the send arrow): --on-ink (paper on light, ink on dark).
+    /// What sits on an accent fill (a count, Talk's orb): --on-ink (paper on light, ink on dark).
     static let onAccent = Color(light: Palette.paper, dark: Palette.ink)
-    /// Words on a cherry fill (Talk's Yes): paper in both modes, on cherryFill.
-    static let onCherryFill = Color(uiColor: Palette.paper)
+    /// Glyphs and words on the primary fill (the send arrow, the mic, Talk's Yes): white in both modes (--on-cta).
+    static let onPrimary = Color(uiColor: .white)
 }
 
 // MARK: - Display settings (Settings → Display; saved per person on the server, cached here)

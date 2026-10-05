@@ -210,7 +210,7 @@ struct TalkSheet: View {
             HStack(spacing: Space.s) {
                 Button { talk.answerConfirm(false) } label: { Text("No").frame(maxWidth: .infinity).padding(.vertical, 10).background(Theme.raised, in: Capsule()) }
                     .accessibilityIdentifier("talk-confirm-no")
-                Button { talk.answerConfirm(true) } label: { yesWord(c).frame(maxWidth: .infinity).padding(.vertical, 10).background(Theme.cherryFill, in: Capsule()).foregroundStyle(Theme.onCherryFill) }
+                Button { talk.answerConfirm(true) } label: { yesWord(c).frame(maxWidth: .infinity).padding(.vertical, 10).background(Theme.primary, in: Capsule()).foregroundStyle(Theme.onPrimary) }
                     .accessibilityIdentifier("talk-confirm-yes")
             }
             .buttonStyle(PressStyle()).font(Typo.ui(.body).weight(.semibold)).foregroundStyle(Theme.text)
@@ -372,9 +372,9 @@ struct TalkSheet: View {
             VStack(spacing: Space.s) {
                 Image(systemName: "play.fill")
                     .font(.system(size: 44, weight: .semibold))
-                    .foregroundStyle(Theme.onAccent)
+                    .foregroundStyle(Theme.onPrimary)
                     .frame(width: 112, height: 112)
-                    .background(Theme.cherry, in: Circle())
+                    .background(Theme.primary, in: Circle())
                 Text("Resume").font(Typo.ui(.headline)).foregroundStyle(Theme.text)
             }
         }

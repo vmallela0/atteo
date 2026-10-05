@@ -99,11 +99,15 @@ describe("one design language: colours and fonts come from tokens (jxn #2706)", 
     expect(bad, bad.join("\n")).toEqual([]);
   });
 
-  it("the semantic layer exists and points at the palette (you is cherry; mentions and links are ink)", () => {
+  it("the semantic layer exists and points at the palette (oxblood is the one primary action; you, mentions and links are ink)", () => {
     const css = cssOf("src/ui.ts", "CSS");
     for (const t of ["--you", "--you-soft", "--mention-fg", "--mention-bg", "--mention-you-bg", "--rail-mark", "--rail-you", "--unread", "--badge-bg", "--badge-fg", "--voice", "--font-ui", "--font-head", "--font-mono"])
       expect(css, t).toMatch(new RegExp(`${t}:`));
-    expect(css).toMatch(/--you:var\(--cherry\)/);
+    expect(css).toMatch(/--cta:var\(--oxblood\)/);
+    expect(css).toMatch(/\.btn\.primary\{background:var\(--cta\)/);
+    expect(css).toMatch(/--you:var\(--ink\)/);
+    // cherry is the logo's alone (jxn #2858): no component paints with it
+    expect(css.replace(/--cherry:#[0-9A-F]{6}/g, "")).not.toMatch(/var\(--cherry\)/);
     expect(css).toMatch(/--mention-fg:var\(--ink\)/);
     expect(readFileSync("src/ui.ts", "utf8")).not.toMatch(/--atteo/);
   });

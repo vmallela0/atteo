@@ -34,6 +34,8 @@ final class DesignTokensTests: XCTestCase {
         XCTAssertEqual(hex(Palette.paper), "#FAFAF7")
         XCTAssertEqual(hex(Palette.cherry), "#A8121E")
         XCTAssertEqual(hex(Palette.cherryBright), "#E0303F")
+        XCTAssertEqual(hex(Palette.oxblood), "#6A1B24")
+        XCTAssertEqual(hex(Palette.oxbloodDark), "#9D333C")
         XCTAssertEqual(hex(Palette.bone), "#F2EFE8")
         XCTAssertEqual(hex(Palette.stone), "#D9D6CE")
         XCTAssertEqual(hex(Palette.graphite), "#5A5853")
@@ -48,16 +50,19 @@ final class DesignTokensTests: XCTestCase {
         assertContrast(Theme.faint, on: Theme.card, atLeast: 4.5, "faint on card")
         assertContrast(Theme.onText, on: Theme.text, atLeast: 4.5, "the primary button's label")
         assertContrast(Theme.onAccent, on: Theme.accent, atLeast: 4.5, "a count (on-ink on the ink accent)")
-        assertContrast(Theme.onCherryFill, on: Theme.cherryFill, atLeast: 4.5, "words on a cherry fill (Talk's Yes)")
+        assertContrast(Theme.onText, on: Theme.muted, atLeast: 4.5, "the selected Just mine chip (neutral, #2858)")
+        assertContrast(Theme.onText, on: Theme.text, atLeast: 4.5, "the selected People chip")
+        assertContrast(Theme.onPrimary, on: Theme.primary, atLeast: 7, "words on the primary action (Send, Talk's Yes): 7:1 (jxn #2861)")
         for name in ["maya", "vedu", "jxn", "theo", "Checkout bug", "Zoë", "小明", "a"] {
             assertContrast(Theme.avatarInk(name), on: Theme.avatarFill(name), atLeast: 4.5, "\(name)'s initial")
         }
     }
 
-    func testCherryAndVoiceGlyphsAreVisible() {
-        // Cherry (cherry-bright on dark) is for you, the primary action and the mic: glyphs, 3:1 is the bar there.
-        assertContrast(Theme.cherry, on: Theme.bg, atLeast: 3, "cherry on the ground")
-        assertContrast(Theme.onAccent, on: Theme.cherry, atLeast: 3, "a glyph on a cherry button")
+    func testPrimaryAndVoiceGlyphsAreVisible() {
+        // Oxblood is the one accent, on the primary action (jxn #2858). Its dark value is darkened for white text at
+        // 7:1, which leaves it just under 3:1 against the dark ground; its white label carries it there.
+        XCTAssertGreaterThanOrEqual(contrast(Theme.primary, Theme.bg, .light), 3, "oxblood on paper")
+        XCTAssertGreaterThanOrEqual(contrast(Theme.primary, Theme.bg, .dark), 2.5, "oxblood on the dark ground")
         assertContrast(Theme.voice, on: Theme.bg, atLeast: 3, "Talk's orb while Atteo speaks (--voice; a shape, not words)")
         assertContrast(Theme.onAccent, on: Theme.voice, atLeast: 3, "the glyph on Talk's orb")
     }
@@ -73,13 +78,13 @@ final class DesignTokensTests: XCTestCase {
     }
 
     func testSemanticTokens() {
-        // jxn #2706: one semantic layer, the same roles as the web's (src/ui.ts). Mentions are ink; you are cherry.
+        // jxn #2706: one semantic layer, the same roles as the web's (src/ui.ts). Mentions and you are ink (jxn #2858).
         assertContrast(Theme.mentionText, on: over(Theme.mentionBox, Theme.bg), atLeast: 4.5, "a mention's words in its box")
-        assertContrast(Theme.mentionText, on: over(Theme.mentionYouBox, Theme.bg), atLeast: 4.5, "a mention of you, in its cherry box")
+        assertContrast(Theme.mentionText, on: over(Theme.mentionYouBox, Theme.bg), atLeast: 4.5, "a mention of you, in its stronger ink box")
         assertContrast(Theme.text, on: over(Theme.youSoft, Theme.bg), atLeast: 4.5, "a message that mentions you, on its tint")
         assertContrast(Theme.unread, on: Theme.bg, atLeast: 3, "the New line and unread marks")
         let t = UITraitCollection(userInterfaceStyle: .light)
-        XCTAssertEqual(UIColor(Theme.you).resolvedColor(with: t), UIColor(Theme.cherry).resolvedColor(with: t), "you is cherry")
+        XCTAssertEqual(UIColor(Theme.you).resolvedColor(with: t), UIColor(Theme.accent).resolvedColor(with: t), "you is ink")
         XCTAssertEqual(UIColor(MentionColor.mineBox).resolvedColor(with: t), UIColor(Theme.mentionYouBox).resolvedColor(with: t), "mentions of you use the token")
     }
 
@@ -106,7 +111,10 @@ final class DesignTokensTests: XCTestCase {
     func testTheArtShips() {
         XCTAssertNotNil(UIImage(named: "AtteoMark"), "the mark")
         XCTAssertNotNil(UIImage(named: "AtteoWordmark"), "the wordmark")
-        let dark = UITraitCollection(userInterfaceStyle: .dark)
-        XCTAssertNotNil(UIImage(named: "AtteoMark", in: nil, compatibleWith: dark), "the reversed mark for dark")
+        // UIImage(named:compatibleWith:) falls back to the light art when the dark variant is missing, so compare pixels.
+        let light = UIImage(named: "AtteoMark", in: nil, compatibleWith: UITraitCollection(userInterfaceStyle: .light))
+        let dark = UIImage(named: "AtteoMark", in: nil, compatibleWith: UITraitCollection(userInterfaceStyle: .dark))
+        XCTAssertNotNil(dark, "the reversed mark for dark")
+        XCTAssertNotEqual(light?.pngData(), dark?.pngData(), "the dark mark is its own art (paper strokes), not the light one")
     }
 }

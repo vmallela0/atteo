@@ -55,7 +55,7 @@ struct MentionBox: TextAttribute { let mine: Bool }
 enum MentionColor {
     static let box = Theme.mentionBox
     static let text = Theme.mentionText
-    static let mineBox = Theme.mentionYouBox // you: cherry-tinted, as on the web (jxn #2706)
+    static let mineBox = Theme.mentionYouBox // you: a stronger ink box, as on the web (jxn #2706, #2858)
     static let mineText = Theme.mentionText
 }
 
