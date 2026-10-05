@@ -116,7 +116,7 @@ final class WorkUITests: XCTestCase {
         openWork(a)
         let any = a.descendants(matching: .any)
 
-        // Grouped by each task's own status, with counts.
+        // Grouped by where they stand (In progress, Open, Blocked, Stopped, Done), with counts; sub-tasks under their parent.
         let doing = any["group-doing"].firstMatch, open = any["group-open"].firstMatch
         let blockedGroup = any["group-blocked"].firstMatch
         XCTAssertTrue(doing.waitForExistence(timeout: 8), "In progress group")
@@ -126,9 +126,8 @@ final class WorkUITests: XCTestCase {
         XCTAssertTrue(doing.label.hasPrefix("In progress, "), doing.label)
         let parent = row(a, "Guard empty carts in charge()"), sub = row(a, "Ship")
         XCTAssertTrue(parent.waitForExistence(timeout: 5) && sub.exists, "the parent and its sub-task")
-        XCTAssertLessThan(parent.frame.minY, open.frame.minY, "in-progress parent stays in its group")
-        XCTAssertGreaterThan(sub.frame.minY, open.frame.minY, "to-do sub-task appears in Open")
-        XCTAssertLessThan(sub.frame.minY, blockedGroup.frame.minY)
+        XCTAssertGreaterThan(sub.frame.minY, parent.frame.minY, "the sub-task sits under its parent")
+        XCTAssertLessThan(sub.frame.minY, open.frame.minY, "…in the parent's group")
         // Blocked, waiting on your approval, how far along, at a glance.
         let blocked = row(a, "Rotate the Stripe webhook secret")
         XCTAssertTrue(blocked.exists)

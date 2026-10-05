@@ -492,7 +492,7 @@ struct ThreadView: View {
         .onAppear { markSeen() }
         .onChange(of: list.last?.seq) { _, _ in markSeen() }
         .onChange(of: draft) { _, d in
-            MessageDrafts.shared.save(d, for: board, root: rootSeq)
+            MessageDrafts.shared.save(d, for: board, root: root) // the same key it was restored from (rootSeq can move to a sub-thread)
             if carrying { carry?.wrappedValue = Self.without(carryAdded, d) }
         }
     }

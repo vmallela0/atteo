@@ -262,7 +262,7 @@ enum TaskGroup: String, CaseIterable, Identifiable {
     func holds(_ t: WorkTask) -> Bool {
         switch self {
         case .doing: return t.status == "doing"
-        case .open: return t.status == "todo"
+        case .open: return !["doing", "blocked", "stopped", "done"].contains(t.status) // to do, and any status this app doesn't know yet
         case .blocked: return t.status == "blocked"
         case .stopped: return t.status == "stopped"
         case .done: return t.status == "done"
@@ -278,7 +278,7 @@ enum TaskGroup: String, CaseIterable, Identifiable {
 }
 
 /// A board's tasks: filter chips, then In progress / Open / Blocked / Stopped / Done (each collapsible, with a count).
-/// Sub-tasks sit under their parent when they share a status. Tap a row for its detail; swipe or long-press it to act on it. `open`
+/// Sub-tasks sit under their parent, whatever their own status. Tap a row for its detail; swipe or long-press it to act on it. `open`
 /// shows a task's detail, `add` starts a new one.
 struct TasksPane: View {
     @EnvironmentObject var state: AppState
@@ -298,16 +298,15 @@ struct TasksPane: View {
         List {
             ForEach(TaskGroup.allCases) { g in
                 // A task is a top-level row in its own group unless its parent is showing (then it sits under it).
-                let groupTasks = shown.filter(g.holds)
-                let ids = Set(groupTasks.map(\.seq))
-                let top = groupTasks.filter { $0.parent.map { !ids.contains($0) } ?? true }.sorted(by: g.sort)
+                let ids = Set(shown.map(\.seq))
+                let top = shown.filter { g.holds($0) && ($0.parent.map { !ids.contains($0) } ?? true) }.sorted(by: g.sort)
                 if !top.isEmpty {
-                    let count = groupTasks.count
+                    let count = top.reduce(0) { n, t in n + 1 + shown.filter { $0.parent == t.seq }.count }
                     // Headers are rows, not section headers: plain-list section headers bring their own (large) spacing.
                     header(g, count: count, first: g == TaskGroup.allCases.first { gg in shown.contains { gg.holds($0) } })
                     if !collapsed.contains(g) {
                         ForEach(top) { t in
-                            let kids = groupTasks.filter { $0.parent == t.seq }.sorted { $0.seq < $1.seq }
+                            let kids = shown.filter { $0.parent == t.seq }.sorted { $0.seq < $1.seq }
                             row(t, depth: 0, kidsShown: !kids.isEmpty)
                             ForEach(kids) { s in row(s, depth: 1) }
                         }
