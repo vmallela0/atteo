@@ -92,7 +92,7 @@ extension String {
         out += src[cursor...]
         return out
     }
-    private static let entryRE = try! NSRegularExpression(pattern: "(?<![\\w&/#])(#(\\d{1,7}))\\b")
+    fileprivate static let entryRE = try! NSRegularExpression(pattern: "(?<![\\w&/#])(#(\\d{1,7}))\\b")
 
     /// A plain line (a quote bar, a thread's row) with each "#123" read as "↗ <its title>", like mdLinked's chips:
     /// people never see message numbers (#675).
@@ -116,6 +116,20 @@ extension String {
 struct RefTitles: Equatable, Sendable {
     var map: [Int: String] = [:]
     func callAsFunction(_ n: Int) -> String? { map[n] }
+}
+extension RefTitles {
+    /// Only the titles these texts refer to ("#123"). A chat row holds just its own: the chat's whole map changes with
+    /// every message that arrives, and every row reading it was made again each time (jxn #4181).
+    func only(_ texts: String?...) -> RefTitles {
+        var out: [Int: String] = [:]
+        for case let t? in texts where t.contains("#") {
+            let ns = t as NSString
+            for m in String.entryRE.matches(in: t, range: NSRange(location: 0, length: ns.length)) {
+                if let n = Int(ns.substring(with: m.range(at: 2))), let title = map[n] { out[n] = title }
+            }
+        }
+        return RefTitles(map: out)
+    }
 }
 private struct RefTitleKey: EnvironmentKey { static let defaultValue = RefTitles() }
 extension EnvironmentValues {
@@ -344,10 +358,11 @@ struct ThreadView: View {
     /// A reply started in the chat (a swipe or Reply) carries the chat's box (vedu #1469, like the web): what was typed
     /// there starts this box after the "@who ", and until it's sent the chat's box follows this one without that
     /// "@who ", so cancelling the reply (✕, Close or a swipe down) leaves the text in the chat. Sending clears both.
-    var carry: Binding<String>? = nil
+    var carry: ComposerDraft? = nil // the chat's box: an object, so the chat behind never reads its words (jxn #4181)
     @State private var top: Int? // the real root, once known (opened on an answer: its thread)
     @State private var fetched: ThreadResponse?
-    @State private var draft = ""
+    /// The box's words, outside this view's state: only the box redraws as you type (jxn #4181, MessageDrafts.swift).
+    @State private var draft = ComposerDraft()
     @State private var answering: Int? // what the next answer quotes (nil: the root)
     @State private var started = false // the box's first words and what it answers are set, once
     @State private var carrying = false // the chat's box follows this one (until a send)
@@ -502,7 +517,7 @@ struct ThreadView: View {
                 PersonCard(name: p.name, open: { b in profile = nil; state.openRequest = b }, agentFirst: p.agent, ask: {
                     profile = nil
                     let handle = "@\(p.name)'s agent "
-                    if !draft.localizedCaseInsensitiveContains(handle.trimmingCharacters(in: .whitespaces)) { draft = handle + draft }
+                    if !draft.text.localizedCaseInsensitiveContains(handle.trimmingCharacters(in: .whitespaces)) { draft.set(handle + draft.text) }
                     focused = true
                 })
             }
@@ -517,29 +532,30 @@ struct ThreadView: View {
         } message: { _ in Text("Everyone here will see it as unsent.") }
         .decisionPrompts($decisionPrompt, note: $decisionNote, board: board, state: state)
         .task {
-            if !started { draft = MessageDrafts.shared.text(for: board, root: root) }
+            if !started {
+                draft.attach(board, root: root) // the same key it saves to (rootSeq can move to a sub-thread)
+                // While a reply from the chat carries its box, the chat's box follows this one (without the "@who ").
+                draft.onChange = { d in if carrying { carry?.set(Self.without(carryAdded, d)) } }
+            }
             if !started, let carry {
                 // The chat's text, after "@who " (unless it already names them).
-                let kept = carry.wrappedValue, handle = (prefill ?? "").trimmingCharacters(in: .whitespaces)
+                let kept = carry.text, handle = (prefill ?? "").trimmingCharacters(in: .whitespaces)
                 carryAdded = handle.isEmpty || kept.localizedCaseInsensitiveContains(handle) ? "" : prefill ?? ""
-                started = true; answering = replyTo; draft = carryAdded + kept; carrying = true; focused = true
+                started = true; answering = replyTo; draft.set(carryAdded + kept); carrying = true; focused = true
             }
-            else if !started, let prefill { started = true; answering = replyTo; draft = prefill; focused = true }
+            else if !started, let prefill { started = true; answering = replyTo; draft.set(prefill); focused = true }
             else if !started, replyTo != nil { started = true; answering = replyTo; focused = true }
             await load()
             // Opened on the thread itself ("N replies", a quote bar): the box starts with who wrote the message, like
             // the web (only your own start empty).
-            if !started { started = true; if draft.isEmpty, let r = items.first(where: { $0.seq == rootSeq }) { draft = BoardView.replyHandle(r, me: me) ?? "" } }
+            if !started { started = true; if draft.text.isEmpty, let r = items.first(where: { $0.seq == rootSeq }) { draft.set(BoardView.replyHandle(r, me: me) ?? "") } }
             if let focus { try? await Task.sleep(nanoseconds: 250_000_000); open(focus, here: Dictionary(items.map { ($0.seq, $0) }, uniquingKeysWith: { a, _ in a })) }
         }
         // New answers arrive live (over the chat, its socket already brings them).
         .task(id: board.id) { if !overChat { await state.watch(board) } }
         .onAppear { markSeen() }
         .onChange(of: list.last?.seq) { _, _ in markSeen() }
-        .onChange(of: draft) { _, d in
-            MessageDrafts.shared.save(d, for: board, root: root) // the same key it was restored from (rootSeq can move to a sub-thread)
-            if carrying { carry?.wrappedValue = Self.without(carryAdded, d) }
-        }
+        .onDisappear { draft.save() } // what was typed last, without waiting for the pause
     }
 
     /// The text without the "@who " a reply put in front of it (as typed, or with its space gone).
@@ -566,7 +582,7 @@ struct ThreadView: View {
     /// answers the thread again, without the "@who " it added. The text stays either way.
     private func cancelReply() {
         if carrying, answering == replyTo { dismiss(); return }
-        if let m = mentionAdded { draft = Self.without(m, draft) }
+        if let m = mentionAdded { draft.set(Self.without(m, draft.text)) }
         mentionAdded = nil
         withAnimation(.smooth(duration: 0.2)) { answering = nil }
     }
@@ -607,13 +623,15 @@ struct ThreadView: View {
         if let p = shown.replyTo { a.jumpToParent = { open(p, here: Dictionary(items.map { ($0.seq, $0) }, uniquingKeysWith: { a, _ in a })) } }
         let rx = state.reactions[board.id]?[e.seq] ?? (fetched?.entry.seq == e.seq ? fetched?.reactions : nil) ?? []
         let hd = e.type == "decision" && !unsent.contains(e.seq) ? state.decisions[board.id]?[e.seq] ?? e.humanDecision : nil
-        return EntryRow(e: shown, mine: mine, board: board.id, tasks: state.tasks[board.id] ?? [], reactions: rx, parent: parent,
-                        me: me, members: state.members[board.id] ?? [], progress: state.uploads[e.seq],
+        return EntryRow(e: shown, mine: mine, board: board.id, tasks: shown.type == "task" ? state.tasks[board.id] ?? [] : [], reactions: rx, parent: parent,
+                        me: me, members: state.members[board.id] ?? [],
                         reply: live ? { mention(e) } : nil,
                         unsent: unsent.contains(e.seq), handling: state.handling[board.id]?[e.seq], lit: flash == e.seq, actions: a,
                         decision: hd, decisionActions: DecisionActions.make(hd, seq: e.seq, board: board, state: state) { p in decisionNote = ""; decisionPrompt = p },
                         agentName: state.agentNames[board.id]?[e.author]?.name, quick: state.favouriteReactions, agentNames: state.agentNameMap(board.id),
-                        replyChips: live ? quickChips(e) : nil, pickChip: { text in Task { await state.send(text, to: board, replyTo: e.seq) } }) {
+                        replyChips: live ? quickChips(e) : nil,
+                        refTitle: RefTitles.cached(state.entries[board.id] ?? [], state.tasks[board.id] ?? []).only(shown.text, parent?.text),
+                        pickChip: { text in Task { await state.send(text, to: board, replyTo: e.seq) } }) {
             Task { await state.send(e.text, to: board, retrying: e) }
         }
     }
@@ -628,20 +646,20 @@ struct ThreadView: View {
     private func mention(_ e: Entry) {
         answering = e.seq == rootSeq ? nil : e.seq
         mentionAdded = nil
-        if let handle = BoardView.replyHandle(e, me: me)?.trimmingCharacters(in: .whitespaces), !draft.localizedCaseInsensitiveContains(handle) {
+        if let handle = BoardView.replyHandle(e, me: me)?.trimmingCharacters(in: .whitespaces), !draft.text.localizedCaseInsensitiveContains(handle) {
             mentionAdded = handle + " "
-            draft = handle + " " + draft
+            draft.set(handle + " " + draft.text)
         }
         focused = true
     }
 
     /// The chat's own message box (jxn #1094): typing, "/", "@", pictures and files, send.
     private var composer: some View {
-        ChatComposer(board: board, draft: $draft, focused: $focused, placeholder: String(localized: "Reply…", bundle: .l10n), replyTo: answering ?? rootSeq,
+        ChatComposer(board: board, box: draft, focused: $focused, placeholder: String(localized: "Reply…", bundle: .l10n), replyTo: answering ?? rootSeq,
                      identifier: "thread-composer", sendIdentifier: "thread-send", attachIdentifier: "thread-attach",
                      sent: {
                          // Sent: the chat's box is done with it too (it no longer follows this one).
-                         if carrying { carry?.wrappedValue = ""; carrying = false }
+                         if carrying { carry?.set(""); carrying = false }
                          answering = nil; mentionAdded = nil
                          await load()
                      },
