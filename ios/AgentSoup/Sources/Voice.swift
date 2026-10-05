@@ -20,6 +20,7 @@ final class VoiceInput: ObservableObject {
     private var request: SFSpeechAudioBufferRecognitionRequest?
     private var task: SFSpeechRecognitionTask?
     private var heard = "" // the latest transcript of this hold
+    private var joined = TranscriptJoin() // keeps what was said before a pause (jxn #3339)
     private var onText: ((String, Bool) -> Void)?
     private var hints: [String] = [] // words to listen for: this board's @groups, members and agents (jxn #1731)
     private var wanted = false // still held (permission prompts take a moment)
@@ -111,6 +112,7 @@ final class VoiceInput: ObservableObject {
             req.contextualStrings = hints
             request = req
             heard = ""
+            joined = TranscriptJoin()
             session += 1
             let mine = session
             let input = engine.inputNode
@@ -129,7 +131,7 @@ final class VoiceInput: ObservableObject {
                 Task { @MainActor in
                     guard let self, self.session == mine else { return } // an earlier listen's late words
                     if let result {
-                        self.heard = result.bestTranscription.formattedString
+                        self.heard = self.joined.add(result.bestTranscription.formattedString)
                         if result.isFinal { self.finish() } else { self.onText?(self.heard, false) }
                     } else if error != nil { self.finish() }
                 }
@@ -207,6 +209,41 @@ struct MicButton: View {
                 draft.wrappedValue = merge.value.merge(text, into: draft.wrappedValue, say)
             }
         }
+    }
+}
+
+/// One listen's whole transcript. After a pause the on-device recognizer starts its transcript over with only the new
+/// words, so taken as the whole it replaced everything said before the pause (jxn #3339). A transcript that doesn't
+/// carry on from the last one (it no longer starts with the same first word, or it's emptied) is a new stretch: the
+/// last one is kept and the new one goes after it. Revisions of the current stretch (the recognizer rewriting its
+/// last words) still replace each other.
+struct TranscriptJoin {
+    private(set) var done = "" // stretches the recognizer has dropped
+    private var last = "" // the current stretch as last heard
+
+    /// The whole transcript so far, given the recognizer's latest one.
+    mutating func add(_ t: String) -> String {
+        if Self.startedOver(from: last, to: t) { done = Self.join(done, last) }
+        last = t
+        return Self.join(done, t)
+    }
+
+    /// Whether `new` begins a new stretch rather than revising `old`.
+    static func startedOver(from old: String, to new: String) -> Bool {
+        let o = words(old), n = words(new)
+        guard let o0 = o.first else { return false }
+        guard let n0 = n.first else { return true } // emptied: it's starting over
+        // A one-word stretch can be revised into another word ("hey" → "hi there"); after that the first word holds.
+        return o0 != n0 && (o.count >= 2 || n.count < o.count)
+    }
+
+    private static func words(_ s: String) -> [String] {
+        s.lowercased().split(whereSeparator: \.isWhitespace).map { $0.trimmingCharacters(in: .punctuationCharacters) }.filter { !$0.isEmpty }
+    }
+
+    private static func join(_ a: String, _ b: String) -> String {
+        let a = a.trimmingCharacters(in: .whitespaces), b = b.trimmingCharacters(in: .whitespaces)
+        return a.isEmpty ? b : b.isEmpty ? a : a + " " + b
     }
 }
 

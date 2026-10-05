@@ -7,7 +7,7 @@ import { chartHtml } from "./chart";
 import { STATUS_CSS, statusHtml } from "./status";
 import { highlightMentions, type Mention } from "./mentions";
 import { MERMAID_CSS, MERMAID_JS, MERMAID_SRC, mermaidHtml } from "./mermaid";
-import { CODE_COLOR_CSS, CODE_COLOR_JS } from "./codecolor";
+import { CODE_COLOR_CSS, CODE_COLOR_JS, fnv } from "./codecolor";
 import { TALK_CSS } from "./talk";
 import { esc } from "./util";
 import { clientTable, dirOf, tr, type Lang } from "./i18n";
@@ -69,6 +69,7 @@ const DARK = `  --bg:#0E0E0E;--bg-subtle:#171716;--bg-hover:#1F1E1C;--line:#2A29
 const FONT_PRELOAD = `<link rel="preload" href="/fonts/onest-latin.woff2?v=${FONT_V}" as="font" type="font/woff2" crossorigin>`;
 
 export const CSS = `
+#thread-scroll[data-wait]>#thread{visibility:hidden} /* until the board script has placed it (html.ts) */
 :root{
   /* The design language (#2508), neutral (jxn #2858): ink on paper, bone and stone around it, graphite for secondary
      text. The one accent is oxblood, only on a view's single primary action (Post, the main call to action); --cone is
@@ -473,6 +474,10 @@ a.ev-acct:hover{background:var(--bg-subtle)}
 .acc-sug[hidden]{display:none}.acc-sug li{display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:6px;font-size:13px;cursor:pointer;min-width:0}
 .acc-sug li[aria-selected="true"],.acc-sug li:hover{background:var(--bg-hover)}
 .acc-list{list-style:none;margin:8px 0 0;padding:0;display:flex;flex-direction:column;gap:8px}
+/* Access across your boards (#3568): each owned board's grants under it; a mark on what's worth reviewing */
+.acc-all-g{list-style:none;margin:6px 0 0;padding:0 0 0 12px;border-left:2px solid var(--line);display:grid;gap:6px}
+.acc-all-r{display:flex;align-items:center;gap:8px;min-width:0}.acc-all-r .grow{min-width:0;overflow-wrap:anywhere}.acc-rv{color:var(--warn);font-weight:500}
+.acc-dl{margin:10px 0 0} /* the full access log as JSON (#3375): the list above is only the latest 50 */
 .sum h3 .linkish,.linkish{border:0;background:none;padding:0;font:inherit;font-size:12px;color:var(--accent);cursor:pointer;text-decoration:underline;text-underline-offset:2px}.linkish:hover{text-decoration-thickness:2px}
 /* view-only members: nothing that writes */
 .ro .composer,.ro [data-qr],.ro [data-rx-add],.ro button[data-reply],.ro .rx-add,.ro [data-tk],.ro .kb-new,.ro #doc-new,.ro #doc-edit{display:none!important}
@@ -602,6 +607,11 @@ a.ev-acct:hover{background:var(--bg-subtle)}
 :root dialog.lightbox{padding:0;border:0;background:transparent;box-shadow:none;width:fit-content;height:fit-content;max-width:min(96vw,1600px);max-height:92vh;cursor:zoom-out}
 dialog.lightbox::backdrop{background:rgba(0,0,0,.78)}
 dialog.lightbox img{display:block;max-width:min(96vw,1600px);max-height:92vh;width:auto;height:auto;border-radius:8px}
+/* Zoom (a picture bigger than the screen): a click shows it at full size in a viewer the size of the screen, panned by
+   scrolling or dragging; a click again fits it again. */
+dialog.lightbox.zoomable img{cursor:zoom-in}
+:root dialog.lightbox.zoomed{display:grid;width:100vw;height:100dvh;max-width:none;max-height:none;margin:0;overflow:auto;overscroll-behavior:contain;cursor:grab}
+dialog.lightbox.zoomed img{max-width:none;max-height:none;margin:auto;border-radius:0;cursor:zoom-out}
 .lb-nav{position:fixed;top:50%;transform:translateY(-50%);width:44px;height:44px;border-radius:50%;border:0;background:rgba(0,0,0,.55);color:var(--on-fill);font-size:28px;line-height:1;cursor:pointer;display:grid;place-items:center;padding:0 0 3px}
 .lb-nav:hover{background:rgba(0,0,0,.75)}.lb-nav[hidden],.lb-count[hidden]{display:none}
 .lb-prev{left:max(8px,env(safe-area-inset-left))}.lb-next{right:max(8px,env(safe-area-inset-right))}
@@ -1185,6 +1195,12 @@ a.ref:hover{color:var(--ink);background:color-mix(in srgb,var(--accent) 12%,var(
 :root[data-compact="others"]:not([data-ol-all]) #thread>.entry.ol:not(.ol-open)>.grow>.body *{display:inline;margin:0;padding:0;border:0;background:none;font-size:inherit;font-weight:inherit;white-space:nowrap}
 :root[data-compact="others"]:not([data-ol-all]) #thread>.entry.ol:not(.ol-open)>.grow>.body br,:root[data-compact="others"]:not([data-ol-all]) #thread>.entry.ol:not(.ol-open)>.grow>.body img,:root[data-compact="others"]:not([data-ol-all]) #thread>.entry.ol:not(.ol-open)>.grow>:not(.meta):not(.body),:root[data-compact="others"]:not([data-ol-all]) #thread>.entry.ol:not(.ol-open) .acts,:root[data-compact="others"]:not([data-ol-all]) #thread>.entry.ol:not(.ol-open) .more-acts,:root[data-compact="others"]:not([data-ol-all]) #thread>.entry.ol:not(.ol-open)>.rd{display:none}
 :root:not([data-compact="others"]) .ol-all{display:none}
+.mu-line{display:none}
+.entry.mu:not(.mu-open)>:not(.mu-line){display:none!important} /* a muted member's post: one line until opened (#3602) */
+.entry.mu:not(.mu-open){padding-top:3px;padding-bottom:3px}
+.entry.mu:not(.mu-open)>.mu-line{display:block;background:none;border:0;padding:2px 0;font:inherit;font-size:12.5px;color:var(--faint);cursor:pointer;text-align:left}
+.mu-line:hover{color:var(--muted)}
+.rp-err{color:var(--danger);margin:0}
 :root[data-compact="others"] #thread>.entry.ol:focus-visible{outline:2px solid var(--accent);outline-offset:-2px;border-radius:6px}
 :root[data-replies="thread"] #thread>.entry[data-root],:root[data-replies="thread"] #thread>.ghost[data-root]{display:none} /* replies only in their threads (vedu #2360) */
 :root[data-pf] #thread>.entry.by-agent,:root[data-pf] #thread>.ghost.by-agent,:root[data-pf] .thr-dlg:not(.thr-all) .thr-list>.entry.by-agent:not(:first-child){display:none}
@@ -1259,11 +1275,10 @@ ${v ? `<nav class="links">${link("/", esc(tr(opts.lang, "Boards")), "boards")}</
 <title>${esc(title)}</title>
 ${FONT_PRELOAD}
 <link rel="icon" href="/favicon.svg" type="image/svg+xml"><link rel="apple-touch-icon" href="/apple-touch-icon.png">
-<style>${FONT_CSS}
-${CSS}</style>${DISPLAY_HEAD.replace("<script>", `<script nonce="${security.nonce}">`)}</head><body>${WORDMARK_DEFS}${nav}
+<link rel="stylesheet" href="${APP_CSS_SRC}">${DISPLAY_HEAD.replace("<script>", `<script nonce="${security.nonce}">`)}</head><body>${WORDMARK_DEFS}${nav}
 <main${opts.narrow ? ' class="narrow"' : ""}>${body}</main>
 <div id="toast" role="status" aria-live="polite"></div>
-<script nonce="${security.nonce}">${CLIENT_JS}${opts.script ?? ""}</script></body></html>`;
+<script src="${APP_JS_SRC}" nonce="${security.nonce}"></script>${opts.script ? `<script nonce="${security.nonce}">${opts.script}</script>` : ""}</body></html>`;
   const headers = new Headers(opts.headers);
   headers.set("content-type", "text/html; charset=utf-8");
   for (const [name, value] of Object.entries(security.headers)) headers.set(name, value);
@@ -1561,6 +1576,14 @@ document.addEventListener('submit',async e=>{
 ${MERMAID_JS}
 ${CODE_COLOR_JS}`;
 
+// Every page's stylesheet and shell script, served by the Worker as /app.css and /app.js (index.ts), versioned by a hash of
+// their text and cached for good: a page no longer carries ~135KB of CSS and ~40KB of JS inline on every navigation, and
+// the script gets V8's code cache. A page's own script stays inline (it carries that page's data) and runs after it.
+export const APP_CSS = `${FONT_CSS}\n${CSS}`;
+export const APP_CSS_SRC = `/app.css?v=${fnv(APP_CSS)}`;
+export const APP_JS = CLIENT_JS;
+export const APP_JS_SRC = `/app.js?v=${fnv(APP_JS)}`;
+
 // ---------- app shell (signed-in pages) ----------
 
 const ICON = {
@@ -1702,7 +1725,7 @@ export function appPage(
 <dt><kbd>G</kbd> ${esc(T("then"))} <kbd>I</kbd> <kbd>A</kbd> <kbd>B</kbd> <kbd>P</kbd> <kbd>M</kbd></dt><dd>${esc(T("Go to Inbox / Approvals / Boards / People / Account"))}</dd>
 <dt><kbd>?</kbd></dt><dd>${esc(T("This list"))}</dd></dl></div></dialog>
 <script>window.PALETTE=${JSON.stringify(paletteItems).replace(/</g, "\\u003c")};${v.admin ? "window.OPS=1;" : ""}</script>`;
-  return rawPage(title, body, (opts.script ?? "") + SHELL_JS + INBOX_JS + LIVE_JS + MARK_UNREAD_JS + PINS_JS, opts.status, v.lang ?? "en");
+  return rawPage(title, body, (opts.script ?? "") + scriptSrc(SHELL_JS_SRC), opts.status, v.lang ?? "en");
 }
 
 const PINS_JS = `
@@ -1728,7 +1751,7 @@ window.inboxRefresh=async()=>{try{const r=await fetch('/api/inbox/count?tz='+tz)
     dgAt=due;try{localStorage.setItem('inbox-dg-at',String(due))}catch{}}
   if(l&&l.created_at>seen){if(l.kind!=='manual_unread'&&seen&&(!l.interrupt||l.interrupt==='now')&&can&&!(document.visibilityState==='visible'&&location.pathname==='/b/'+l.board_id)){
     const ap=l.kind==='approval',who=ap?'Your agent':l.actor_via==='agent'?l.actor+"'s agent":l.actor;
-    const n=new Notification(who+(ap?' is asking for your approval':l.kind==='mention'?' mentioned you':l.kind==='decision'?' asks for a decision':l.kind==='reply'?' replied to you':l.kind==='friend_request'?' wants to be friends':l.kind==='friend_accept'?' accepted your request':' wrote to your agent'),{body:l.excerpt,tag:'inbox-'+l.id});
+    const n=new Notification(who+(ap?' is asking for your approval':l.kind==='mention'?' mentioned you':l.kind==='decision'?' asks for a decision':l.kind==='reply'?' replied to you':l.kind==='friend_request'?' wants to be friends':l.kind==='friend_accept'?' accepted your request':l.kind==='report'?' reported a post to you, as an owner':' wrote to your agent'),{body:l.excerpt,tag:'inbox-'+l.id});
     n.onclick=()=>{window.focus();location.href=ap?'/approvals':l.board_id?'/b/'+l.board_id+'#e'+l.seq:'/people'}}
   seen=l.created_at;try{localStorage.setItem('inbox-seen',String(seen))}catch{}}}catch{}};
 inboxRefresh();setInterval(inboxRefresh,60000);document.addEventListener('visibilitychange',()=>{if(!document.hidden)inboxRefresh()})})();`;
@@ -1740,17 +1763,38 @@ window.liveRefresh=async()=>{if(document.hidden)return;try{const r=await fetch('
   document.querySelectorAll('[data-live]').forEach(el=>{const k=n[el.dataset.live]||0;el.hidden=!k;el.title=k+' agent'+(k===1?'':'s')+' working now';el.querySelector('.wk-n').textContent=k+' working'})}catch{}};
 setInterval(liveRefresh,60000);document.addEventListener('visibilitychange',()=>{if(!document.hidden)liveRefresh()})})();`;
 
+/** In a page's script, loads a cached script file at this point (rawPage splits the inline script around it). */
+export const scriptSrc = (src: string): string => `\u0000${src}\u0000`;
+// The page's inline script, with any scriptSrc() parts as their own <script src> between inline parts, in order.
+// …and fetched from the head on, so it's there (usually from the cache) by the time the parser reaches it.
+const scriptPreloads = (script: string): string =>
+  script
+    .split("\u0000")
+    .filter((_, i) => i % 2)
+    .map((src) => `<link rel="preload" as="script" href="${esc(src)}">`)
+    .join("");
+const pageScripts = (script: string, nonce: string): string =>
+  script
+    .split("\u0000")
+    .map((part, i) => (i % 2 ? `<script src="${esc(part)}" nonce="${nonce}"></script>` : part ? `<script nonce="${nonce}">${part}</script>` : ""))
+    .join("");
+
+// Board switches feel instant (#3717): a board link held under the pointer for a moment (Chrome's "moderate") has its
+// page fetched ahead, so the click only renders. Opening a board changes nothing on the server (nothing is marked read);
+// browsers without speculation rules ignore it. App pages name the rules in a Speculation-Rules header (index.ts serves
+// the file), so there's no inline JSON script for the CSP or the script checks to deal with.
+export const BOARD_PREFETCH_RULES = JSON.stringify({ prefetch: [{ source: "document", where: { href_matches: "/b/*" }, eagerness: "moderate" }] });
+export const BOARD_PREFETCH_PATH = "/speculation-rules.json";
 function rawPage(title: string, body: string, script: string, status = 200, lang: Lang = "en"): Response {
   const security = pageSecurity();
   const html = `<!doctype html><html lang="${lang}"${dirOf(lang as Lang) === "rtl" ? ' dir="rtl"' : ""}><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${esc(title)}</title>
-${FONT_PRELOAD}
+${FONT_PRELOAD}${scriptPreloads(script)}
 <link rel="icon" href="/favicon.svg" type="image/svg+xml"><link rel="apple-touch-icon" href="/apple-touch-icon.png">
-<style>${FONT_CSS}
-${CSS}</style>${DISPLAY_HEAD.replace("<script>", `<script nonce="${security.nonce}">`)}</head><body>${WORDMARK_DEFS}${body.replace("<script>window.PALETTE=", `<script nonce="${security.nonce}">window.PALETTE=`)}
+<link rel="stylesheet" href="${APP_CSS_SRC}">${DISPLAY_HEAD.replace("<script>", `<script nonce="${security.nonce}">`)}</head><body>${WORDMARK_DEFS}${body.replace("<script>window.PALETTE=", `<script nonce="${security.nonce}">window.PALETTE=`)}
 <div id="toast" role="status" aria-live="polite"></div>
-${lang === "en" ? "" : `<script nonce="${security.nonce}">window.I18N=${clientTable(lang)}</script>`}<script nonce="${security.nonce}">${CLIENT_JS}${script}</script></body></html>`;
-  return new Response(html, { status, headers: { "content-type": "text/html; charset=utf-8", "content-language": lang, vary: "Accept-Language, Cookie", ...security.headers } });
+${lang === "en" ? "" : `<script nonce="${security.nonce}">window.I18N=${clientTable(lang)}</script>`}<script src="${APP_JS_SRC}" nonce="${security.nonce}"></script>${pageScripts(script, security.nonce)}</body></html>`;
+  return new Response(html, { status, headers: { "content-type": "text/html; charset=utf-8", "content-language": lang, vary: "Accept-Language, Cookie", "speculation-rules": `"${BOARD_PREFETCH_PATH}"`, ...security.headers } });
 }
 
 const SHELL_JS = `
@@ -1857,3 +1901,8 @@ if(new URLSearchParams(location.search).get('new')==='1'){const n=$('#new-board'
 const MARK_UNREAD_JS = `
 document.addEventListener('click',async e=>{const b=e.target.closest('[data-mark-unread]');if(!b)return;e.preventDefault();const id=b.dataset.markUnread;b.disabled=true;try{const r=await fetch('/api/boards/'+encodeURIComponent(id)+'/unread',{method:'POST'});const j=await r.json();if(!r.ok)throw Error(j.error||'Could not mark unread');location.href=location.pathname==='/b/'+id?'/chats':location.href}catch(err){b.disabled=false;alert(err.message)}});
 `;
+
+// The app pages' shell script (sidebar, inbox badge, live counts, mark unread, pins), the same on every page: served as
+// /shell.js (index.ts), hashed and cached for good, and run right after the page's own script, as when it was inline.
+export const SHELL_PAGE_JS = SHELL_JS + INBOX_JS + LIVE_JS + MARK_UNREAD_JS + PINS_JS;
+export const SHELL_JS_SRC = `/shell.js?v=${fnv(SHELL_PAGE_JS)}`;

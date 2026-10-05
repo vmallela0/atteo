@@ -25,13 +25,14 @@ const FAKE = `(()=>{const Real=window.WebSocket;window.__talk={sent:[],opened:0}
   window.__ms={};const ms=navigator.mediaSession;if(ms){const set=ms.setActionHandler.bind(ms);ms.setActionHandler=(k,f)=>{window.__ms[k]=f;return set(k,f)}}
   // The microphone: a tone the test switches on (talking) and off (quiet).
   // A hum the test can raise (a noisy room) under the voice; window.__level sets how loud talking is.
-  navigator.mediaDevices.getUserMedia=async()=>{const ac=new AudioContext(),o=ac.createOscillator(),g=ac.createGain(),h=ac.createOscillator(),hg=ac.createGain(),d=ac.createMediaStreamDestination();g.gain.value=0;hg.gain.value=window.__humStart||0;o.frequency.value=220;h.frequency.value=60;o.connect(g);g.connect(d);h.connect(hg);hg.connect(d);o.start();h.start();window.__level=0.4;window.__voice=(on)=>{g.gain.value=on?window.__level:0};window.__hum=(v)=>{hg.gain.value=v};return d.stream};})()`;
+  navigator.mediaDevices.getUserMedia=async()=>{const ac=new AudioContext(),o=ac.createOscillator(),g=ac.createGain(),h=ac.createOscillator(),hg=ac.createGain(),d=ac.createMediaStreamDestination();g.gain.value=window.__voiceOnStart?0.4:0;hg.gain.value=window.__humStart||0;o.frequency.value=220;h.frequency.value=60;o.connect(g);g.connect(d);h.connect(hg);hg.connect(d);o.start();h.start();window.__level=0.4;window.__voice=(on)=>{g.gain.value=on?window.__level:0};window.__hum=(v)=>{hg.gain.value=v};return d.stream};})()`;
 const b = await chromium.launch({ executablePath: process.env.PW_CHROME || undefined, args: ["--autoplay-policy=no-user-gesture-required"] });
-async function call(turns, pauseMs, hum, { board, ck }) {
+async function call(turns, pauseMs, hum, { board, ck }, { early = false } = {}) {
   const ctx = await b.newContext({ viewport: { width: 1280, height: 860 } });
   const [k, ...v] = ck.split(";")[0].split("="); await ctx.addCookies([{ name: k, value: v.join("="), url: BASE }]);
   const p = await ctx.newPage(); p.errors = []; p.on("pageerror", (e) => p.errors.push(e.message));
-  await p.addInitScript(`window.__humStart=${hum || 0};`); await p.addInitScript(FAKE);
+  // early: already talking as the call connects.
+  await p.addInitScript(`window.__humStart=${hum || 0};window.__voiceOnStart=${early};`); await p.addInitScript(FAKE);
   await p.route("**/api/app/voice/**", async (route) => {
     const req = route.request(), headers = { ...req.headers(), "x-dev-fake-voice": "1" };
     if (req.url().endsWith("/voice/session") && turns) { const r = await route.fetch({ headers }); const j = await r.json(); j.voice_turns = turns; j.pause_ms = pauseMs; if (turns !== "quick") j.session.turn_detection = null; return route.fulfill({ response: r, json: j }); }
@@ -41,7 +42,7 @@ async function call(turns, pauseMs, hum, { board, ck }) {
   await p.locator(".bp-head [data-talk]").click();
   await p.waitForFunction(() => window.__talk.sent.length > 0 && window.atteoTalk.state()?.ready, null, { timeout: 10000 }).catch(() => {}); // connected (slow when the machine is busy)
   // The room's floor comes from the mic's first frames: let it hear the quiet room for a few (~0.3 s) before talking.
-  if (turns && turns !== "quick") await until(p, () => (window.atteoTalk.state()?.lv?.length || 0) >= 4);
+  if (!early) if (turns && turns !== "quick") await until(p, () => (window.atteoTalk.state()?.lv?.length || 0) >= 4);
   return { ctx, p };
 }
 const sent = (p) => p.evaluate(() => window.__talk.sent.map((x) => x.type).filter((t) => t !== "input_audio_buffer.append"));
@@ -81,6 +82,14 @@ part(async (check) => { const { ctx, p } = await call("pause", 800, 0.02, await 
   check(await p.locator("dialog.talk.hearing").count() === 1, "a quiet voice over it is");
   await voice(p, false); await sentN(p, "input_audio_buffer.commit", 1);
   check(count(await sent(p), "input_audio_buffer.commit") === 1, "and the pause after it ends the turn, hum and all");
+  check(!p.errors.length, `no page errors ${p.errors.join(" | ")}`); await ctx.close(); });
+
+// 1c. Already talking as the call connects (opus-b #3439): it hears you, and the pause after still ends the turn. Its
+// quiet level was learned from your own voice before, so nothing counted as talking until you paused.
+part(async (check) => { const { ctx, p } = await call("pause", 800, 0, await person("e"), { early: true });
+  check(await until(p, () => !!document.querySelector("dialog.talk.hearing"), null, 3000), "talking from the first moment of the call is heard");
+  await voice(p, false); await sentN(p, "input_audio_buffer.commit", 1);
+  check(count(await sent(p), "input_audio_buffer.commit") === 1, "and the pause after it ends the turn");
   check(!p.errors.length, `no page errors ${p.errors.join(" | ")}`); await ctx.close(); });
 
 // 2. tap: nothing ends your turn but Done (or the pause key).

@@ -9,8 +9,9 @@
   "workers_dev": true,
   "preview_urls": false,
   "triggers": { "crons": ["*/5 * * * *"] },
-  // The agent skill (skills/atteo/SKILL.md) is bundled as text and served at /skill.md.
-  "rules": [{ "type": "Text", "globs": ["**/*.md", "**/atteo.mjs"], "fallthrough": true }, { "type": "Data", "globs": ["**/*.woff2"], "fallthrough": true }],
+  // The agent skill (skills/atteo/SKILL.md) is bundled as text and served at /skill.md; vendor/*.js (html2canvas,
+  // the bug-report screenshot) is bundled as text and served at /vendor/<file>.
+  "rules": [{ "type": "Text", "globs": ["**/*.md", "**/atteo.mjs", "**/vendor/html2canvas.min.js"], "fallthrough": true }, { "type": "Data", "globs": ["**/*.woff2"], "fallthrough": true }],
   // The CLI is bundled into one file and served at /cli/atteo.mjs (curl …/install.sh | sh installs it).
   "build": { "command": "npm run -s build:cli" },
   "durable_objects": {
@@ -33,6 +34,9 @@
     "PUBLIC_URL": "https://atteo.dev",
     // Voice + read-aloud caps (vedu #1582: strict; #1584: operators exempt). Per person per month, and everyone together.
     "OPERATORS": "vedu,jxn",
+    // The developers' bug board: /api/bugs posts web + app bug reports there (jxn #3336). Set to the board's id
+    // once it exists; while empty, the endpoint answers that bug reports aren't set up.
+    "BUGS_BOARD": "",
     "VOICE_MONTHLY_MINUTES": "60",
     "VOICE_GLOBAL_MONTHLY_MINUTES": "600",
     "TTS_MONTHLY_CHARS": "150000",

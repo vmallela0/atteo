@@ -44,6 +44,7 @@ else
   if [ -n "$app" ] || has '^test/e2e\.mjs$'; then suites="$suites e2e"; fi
   if has '^(cli/|src/(mcp|secrets|device|auth|index|board|mailbox|sessions)\.ts|test/cli\.mjs)'; then suites="$suites cli"; fi
   if [ -z "${SKIP_BROWSER:-}" ] && { [ -n "$app" ] || has '^test/browser/'; }; then suites="$suites browser"; fi
+  if [ -n "$app" ] || has '^(src/backup(core)?\.ts|migrations/[0-9]+_backup|test/backup\.mjs|scripts/backup\.mjs)'; then suites="$suites backup"; fi
   [ -n "$landing" ] && suites="$suites landing"
 fi
 suites=$(echo $suites)

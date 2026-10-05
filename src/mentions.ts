@@ -17,6 +17,7 @@ export interface Mention {
   user: string;
   agent: boolean; // true: "@user's agent"; false: the person
   session?: string; // "@user/name": one of their agent sessions (agent is true)
+  name?: string; // "@Jarvis": the agent name it was mentioned by, as typed; display only, so a renamed agent's chip shows its new name (jxn #3300)
 }
 
 export const MAX_MENTIONS = 20;
@@ -194,8 +195,8 @@ export function parseMentions(
       at: h.at,
       run: () => {
         if (h.owners.length > 1) return void ambiguous.add(h.typed);
-        const a = { user: h.owners[0], agent: true };
-        if (keep(a, author, via)) mentions.set(key(a), a);
+        const a = { user: h.owners[0], agent: true, name: h.typed };
+        if (keep(a, author, via) && !mentions.has(key(a))) mentions.set(key(a), a);
       },
     });
   }
@@ -221,7 +222,7 @@ export function parseMentions(
           const after = m[3] ? "" : plain.slice((m.index ?? 0) + m[0].length);
           if (!NOT_A_HANDLE_AFTER.test(after) && nearMember(r.user, near)) unknown.add(r.user);
         }
-        else if (keep(r, author, via)) mentions.set(key(r), { user: r.user, agent: r.agent, ...(r.session ? { session: r.session } : {}) });
+        else if (keep(r, author, via) && !mentions.has(key(r))) mentions.set(key(r), { user: r.user, agent: r.agent, ...(r.session ? { session: r.session } : {}) });
       },
     });
   }
@@ -291,30 +292,51 @@ export function selfMentions(text: string, author: string, via?: "agent" | "pers
 export function highlightMentions(escaped: string, mentions: Mention[] | null | undefined, names?: Record<string, string> | null, self?: Mention[] | null): string {
   if (!mentions?.length && !self?.length) return escaped;
   mentions ??= [];
-  // "@Jarvis": a mentioned agent by the name its person gave it (names: owner → name), drawn as that agent's chip.
   const named: string[] = [];
+  const esc1 = (n: string) => n.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
+  const reFor = (shown: string) => new RegExp(`(^|[^\\w@/.-])@(${shown.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")})(?![\\p{L}\\p{N}_])`, "giu");
+  // An agent its person has renamed since (jxn #3300): "@matmul" in an old message is drawn as the agent's chip with
+  // its name today ("@100billion"), or "@jxn's agent" once it has none. Display only; the text stays as written.
+  const nowLabel = (u: string) => (names?.[u] ? `@${esc1(names[u])}` : `@${u}'s agent`);
+  const renamedChip = (u: string, was: string) => `<span class="mention agent" data-user="${u}" data-named="1" title="${esc1(`${u}'s agent, mentioned as @${was}`)}">${nowLabel(u)}</span>`;
+  const drawn = new Set<string>(); // agents (no session) drawn as chips: who an old, unnamed mention could still be
+  for (const m of mentions) {
+    if (!m.agent || m.session || !m.name || (names?.[m.user] && foldAgentName(names[m.user]) === foldAgentName(m.name))) continue;
+    escaped = escaped.replace(reFor(esc1(m.name)), (_all, pre: string) => (drawn.add(m.user), `${pre}\u0000${named.push(renamedChip(m.user, m.name!)) - 1}\u0000`));
+  }
+  // "@Jarvis": a mentioned agent by the name its person gave it (names: owner → name), drawn as that agent's chip.
   if (names) {
     for (const m of mentions) {
       const n = m.agent && !m.session ? names[m.user] : undefined;
       if (!n) continue;
       const shown = n.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
       const re = new RegExp(`(^|[^\\w@/.-])@(${shown.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")})(?![\\p{L}\\p{N}_])`, "giu");
-      escaped = escaped.replace(re, (_all, pre: string, typed: string) => `${pre}\u0000${named.push(`<span class="mention agent" data-user="${m.user}" title="${m.user}'s agent">@${typed}</span>`) - 1}\u0000`);
+      escaped = escaped.replace(re, (_all, pre: string, typed: string) => (drawn.add(m.user), `${pre}\u0000${named.push(`<span class="mention agent" data-user="${m.user}" data-named="1" title="${m.user}'s agent">@${typed}</span>`) - 1}\u0000`));
     }
   }
   const back = (s: string) => (named.length ? s.replace(/\u0000(\d+)\u0000/g, (_x, i: string) => named[+i]) : s);
   const wanted = new Set([...mentions, ...(self ?? [])].map(key));
-  return back(escaped.replace(MENTION_RE, (all, pre: string, handle: string, suffix: string | undefined) => {
+  const loose: { pre: string; handle: string; all: string }[] = []; // "@tokens" that are no stored mention
+  const out = escaped.replace(MENTION_RE, (all, pre: string, handle: string, suffix: string | undefined) => {
     const g = groupOf(handle);
     const chip = (cls: string) => `${pre}<span class="mention${cls}" data-user="${g}">@${handle.slice(0, g.length)}</span>${handle.slice(g.length)}`;
     if (g === ALL_AGENTS && !suffix && !wanted.has(ALL_AGENTS) && mentions.some((m) => m.agent)) return chip(" agent");
     if (g === ALL_HUMANS && !suffix && !wanted.has(ALL_HUMANS) && mentions.some((m) => !m.agent)) return chip("");
     if (g === ALL_MEMBERS && !suffix && !wanted.has(ALL_MEMBERS) && mentions.length) return chip("");
     const r = resolve(handle, suffix, (n) => wanted.has(n) || wanted.has(n + "/agent"));
-    if (!wanted.has(key(r))) return all; // not a stored mention (e.g. a dropped self-mention): plain text
+    if (!wanted.has(key(r))) { // not a stored mention (e.g. a dropped self-mention): plain text
+      if (!suffix) return `\u0001${loose.push({ pre, handle, all }) - 1}\u0001`;
+      return all;
+    }
+    if (r.agent && !r.session) drawn.add(r.user);
     const shown = handle.slice(0, r.user.length);
     const rest = handle.slice(r.user.length);
     const label = r.agent ? `@${shown}${suffix}` : `@${shown}`;
     return `${pre}<span class="mention${r.agent ? " agent" : ""}" data-user="${r.user}">${label}</span>${rest}${r.agent ? "" : (suffix ?? "")}`;
-  }));
+  });
+  // A message from before the typed name was kept: it mentions an agent that no chip shows, and has one "@word" that
+  // isn't anyone. That word was the agent's name then; draw it as the agent's chip with its name today.
+  const undrawn = mentions.filter((m) => m.agent && !m.session && !m.name && !drawn.has(m.user));
+  const lone = undrawn.length === 1 && loose.length === 1 ? undrawn[0].user : null;
+  return back(out.replace(/\u0001(\d+)\u0001/g, (_x, i: string) => { const t = loose[+i]; return lone ? `${t.pre}${renamedChip(lone, t.handle)}` : t.all; }));
 }

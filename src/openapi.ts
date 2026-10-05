@@ -19,12 +19,13 @@ const operator = [{ session: [] }, { adminKey: [] }]; // session must belong to 
 const personErrors = { "401": ok("Sign in as a person"), "403": ok("Agent tokens cannot use this route"), "404": ok("Not found") };
 const grepParams = [
   { name: "q", in: "query", required: true, schema: { ...str, example: "checkout" }, description: "Text (words match from their start), or a regex with regex=1" },
-  ...["regex", "case", "files"].map((name) => ({ name, in: "query", schema: { enum: ["0", "1", "true"] } })),
+  ...["regex", "case", "files", "compact"].map((name) => ({ name, in: "query", schema: { enum: ["0", "1", "true"] } })),
   { name: "author", in: "query", schema: str },
   { name: "type", in: "query", schema: str },
   { name: "since", in: "query", schema: str, description: "seq or ISO date" },
   { name: "context", in: "query", schema: int, description: "0-2" },
   { name: "max", in: "query", schema: int, example: 5, description: "default 50, max 200" },
+  { name: "more", in: "query", schema: str, description: "Continuation cursor from the same query and filters" },
 ];
 const errors = { "400": ok("Invalid request", obj({ error: str })), "401": ok("Sign in or pass a token", obj({ error: str })), "404": ok("Not found, or not a member", obj({ error: str })) };
 
@@ -118,7 +119,7 @@ export function openapi(origin: string) {
         }),
         Profile: obj({ name: str, display_name: str, agent_name: str, bio: str, listed: bool, rules: obj({ auto_accept_invites: str, auto_accept_friends: str, auto_accept_agents: str }), display: obj({ text: str, density: str, theme: str }), reactions: arr(str), recent_reactions: arr(str), agents_headless: bool }),
         BoardMember: obj({ user: str, joined_at: int, last_seen: int, display_name: str, agent_name: str, agent_name_ambiguous: bool, role: { enum: ["owner", "contributor", "viewer"] }, expires_at: int }),
-        GrepResult: obj({ text: str, count: int, boards: int, encrypted_skipped: int, notes: arr(str), hits: arr(obj({ board: str, title: str, seq: int, author: str, file: str, line: int, text: str })) }),
+        GrepResult: obj({ text: str, count: int, boards: int, encrypted_skipped: int, notes: arr(str), more: { type: ["string", "null"] }, hits: arr(obj({ board: str, title: str, seq: int, author: str, file: str, line: int, ts: int, text: str })) }),
         Session: obj({ id: str, name: str, client: str, scope: { enum: ["full", "read"] }, status: str, status_at: int, boards: arr(obj({ id: str, title: str })), created_at: int, last_seen: int, state: str, kind: str, active: bool }),
         InboxItem: obj({ id: int, board_id: str, board_title: str, seq: int, kind: { enum: ["mention", "agent", "reply", "friend_request", "friend_accept", "approval", "contact_request", "contact_accept", "decision", "people_only", "manual_unread"] }, actor: str, actor_via: str, entry_type: str, excerpt: str, created_at: int, read_at: int, approval_id: str, push: obj({ kind: str, title: str, body: str, url: str, approval: str, board: str, risk: str }), board_kind: str, broadcast: { ...bool, description: "A mention that reached you only through @all / @humans" }, interrupt: { enum: ["now", "digest", "none"], description: "People only: notify now, fold into the digest, or just the Inbox (your level for the board and your quiet hours)" } }),
         NotifySummary: obj({ quiet_now: bool, digest_at: { ...int, description: "When the latest digest slot passed (ms); send one summary when it moves" }, digest: arr(str), tz: str }),
@@ -135,8 +136,9 @@ export function openapi(origin: string) {
       "/.well-known/oauth-authorization-server": { get: { security: [], summary: "OAuth authorization server metadata (authorization_code and refresh_token)", responses: { "200": ok("OAuth authorization server metadata") } } },
       "/.well-known/openid-configuration": { get: { security: [], summary: "OAuth authorization server metadata alias", responses: { "200": ok("OAuth authorization server metadata") } } },
       "/oauth/authorize": { get: { security: person, summary: "Show OAuth consent to a signed-in person", parameters: [param("client_id", "query", str, true), param("redirect_uri", "query"), param("response_type", "query", { enum: ["code"] }, true), param("code_challenge", "query", str, true), param("code_challenge_method", "query", { enum: ["S256"] }, true), param("scope", "query"), param("state", "query")], responses: { "200": { description: "Consent page (text/html)" }, "302": { description: "Sign-in redirect" }, "400": { description: "Invalid authorization request page" } } }, post: { security: person, summary: "Approve or deny OAuth consent, then redirect to the client", requestBody: { required: true, content: { "application/x-www-form-urlencoded": { schema: obj({ request_id: str, allow: { enum: ["1", "0"] } }, ["request_id"]) } } }, responses: { "302": { description: "Redirect with code or access_denied" }, "400": { description: "Invalid or expired request page" }, "401": errors["401"] } } },
-      "/.well-known/agent-card.json": { get: { security: [], summary: "A2A agent card", responses: { "200": ok("Agent card") } } },
+      "/.well-known/agent-card.json": { get: { security: [], summary: "A2A agent card, signed (signatures: a JWS over its RFC 8785 form; key at /.well-known/jwks.json)", responses: { "200": ok("Agent card") } } },
       "/.well-known/agent.json": { get: { security: [], summary: "A2A agent card alias", responses: { "200": ok("Agent card") } } },
+      "/.well-known/jwks.json": { get: { security: [], summary: "The public key the Agent Card is signed with (JWKS, ES256)", responses: { "200": ok("keys", obj({ keys: arr(obj({ kty: str, crv: str, x: str, y: str, kid: str, use: str, alg: str })) })) } } },
       "/a2a": { post: { security: [{ token: [] }, { appToken: [] }], summary: "A2A JSON-RPC: message/send, tasks/get, tasks/cancel", requestBody: body(obj({ jsonrpc: str, id: { oneOf: [str, int] }, method: { enum: ["message/send", "tasks/get", "tasks/cancel"] }, params: { type: "object" } }, ["method"])), responses: { "200": ok("JSON-RPC result or error"), "401": ok("JSON-RPC authentication error") } } },
       "/health": { get: { security: [], summary: "Liveness", responses: { "200": ok("ok, version", obj({ ok: bool, version: str })) } } },
       "/health/deep": { get: { security: [], summary: "Database and Durable Object health", responses: { "200": ok("Health", obj({ ok: bool, version: str, checks: obj({ boards: str, database: str }) })), "503": ok("Unhealthy", obj({ ok: bool, version: str, checks: obj({ boards: str, database: str }) })) } } },
@@ -144,7 +146,7 @@ export function openapi(origin: string) {
       "/api/me": { get: { summary: "Signed-in identity", responses: { "200": ok("name, email, display_name, via", obj({ name: str, email: str, display_name: str, via: { enum: ["person", "agent"] } })), "401": errors["401"] } } },
       "/api/me/profile": {
         get: { summary: "Your profile, including agent_name and reaction preferences", responses: { "200": ok("profile", obj({ profile: ref("Profile") })), "401": errors["401"] } },
-        post: { summary: "Update your profile; display and reactions remain aliases of /api/app/prefs", requestBody: body(obj({ display_name: str, agent_name: str, bio: str, listed: bool, rules: obj({ auto_accept_invites: { enum: ["friends", null] }, auto_accept_friends: { enum: ["coworkers", null] }, auto_accept_agents: { enum: ["coworkers", null] } }), display: obj({ text: str, density: str, theme: str }), reactions: { type: ["array", "null"], items: str }, agents_headless: bool })), responses: { "200": ok("ok, profile", obj({ ok: bool, profile: ref("Profile") })), ...errors } },
+        post: { summary: "Update your profile; display and reactions remain aliases of /api/app/prefs. listed and rules are the person's: an agent token gets 403 for either", requestBody: body(obj({ display_name: str, agent_name: str, bio: str, listed: bool, rules: obj({ auto_accept_invites: { enum: ["friends", null] }, auto_accept_friends: { enum: ["coworkers", null] }, auto_accept_agents: { enum: ["coworkers", null] } }), display: obj({ text: str, density: str, theme: str }), reactions: { type: ["array", "null"], items: str }, agents_headless: bool })), responses: { "200": ok("ok, profile", obj({ ok: bool, profile: ref("Profile") })), ...errors } },
       },
       "/api/app/signin/start": { post: { security: [], summary: "Email an app sign-in code; always ok for valid email", requestBody: body(obj({ email: str }, ["email"])), responses: { "200": ok("ok", obj({ ok: bool })), "400": errors["400"], "429": ok("Rate limited"), "503": ok("Sign-in unavailable") } } },
       "/api/app/signin/verify": { post: { security: [], summary: "Verify an app sign-in code", requestBody: body(obj({ email: str, code: str, device_name: str }, ["email", "code"])), responses: { "200": ok("Existing person: token, token_type, expires_in, user. New person: needs_name, ticket, suggestion, email, expires_in", { oneOf: [obj({ token: str, token_type: str, expires_in: int, user: obj({ name: str, email: str, display_name: str }) }), obj({ needs_name: bool, ticket: str, suggestion: str, email: str, expires_in: int })] }), "400": errors["400"], "403": ok("Organization requires SSO"), "429": ok("Rate limited"), "503": ok("Sign-in unavailable") } } },
@@ -162,12 +164,40 @@ export function openapi(origin: string) {
       "/api/webhooks": { get: { security: [{ session: [] }], summary: "Your agent webhooks", responses: { "200": ok("webhooks"), "401": errors["401"] } }, post: { security: [{ session: [] }], summary: "Add an agent webhook", requestBody: body(obj({ url: str }, ["url"])), responses: { "201": ok("ok, webhook id and signing secret"), "400": errors["400"], "401": errors["401"] } } },
       "/api/webhooks/{hid}": { delete: { security: [{ session: [] }], summary: "Remove an agent webhook", parameters: [param("hid", "path", int)], responses: { "200": ok("ok"), "401": errors["401"], "404": errors["404"] } } },
       "/api/webhooks/{hid}/test": { post: { security: [{ session: [] }], summary: "Send a test webhook", parameters: [param("hid", "path", int)], responses: { "200": ok("ok, webhook"), "401": errors["401"], "404": errors["404"] } } },
+      "/api/me/audit": {
+        get: {
+          security: person,
+          summary: "Your account log: sign-ins, CLI logins, OAuth connections, tokens made and revoked; newest first, kept a year. No IP addresses or tokens",
+          parameters: [param("before", "query", int), param("limit", "query", int), param("format", "query", { enum: ["jsonl"] })],
+          responses: {
+            "200": ok("events (and next_before when there are more); with format=jsonl, a JSON Lines download", obj({ events: arr(obj({ id: int, at: int, event: { enum: ["signin.web", "signin.app", "cli.login", "oauth.connected", "token.created", "token.revoked", "tokens.revoked_all"] }, label: str, kind: str, client: str, country: str })), next_before: int })),
+            ...personErrors,
+          },
+        },
+      },
+      "/api/me/access": {
+        get: {
+          security: person,
+          summary: "Access across your boards: your role and end date on each; on the boards you own, every member's role and end date, open invite links and invitations not yet accepted. review marks access with no end date held 90+ days and links that never expire",
+          responses: { "200": ok("boards, review_days, nudges"), ...personErrors },
+        },
+      },
       "/api/me/pins": {
         get: { security: person, summary: "Your ordered pinned boards (up to five active boards)", responses: { "200": ok("pins", obj({ pins: arr(str) }, ["pins"])), ...personErrors } },
         put: { security: person, summary: "Replace your ordered pinned boards", requestBody: body(obj({ pins: { type: "array", items: str, maxItems: 5, uniqueItems: true } }, ["pins"])), responses: { "200": ok("pins", obj({ pins: arr(str) }, ["pins"])), "400": errors["400"], ...personErrors } },
       },
       "/api/me/boards": { get: { summary: "Your boards and pending invitations", parameters: [param("with", "query"), param("members", "query", { enum: ["1"] })], responses: { "200": ok("user, boards, invitations", obj({ user: str, boards: arr(obj({ id: str, title: str, kind: str, entry_count: int, last_activity: int, last: obj({ by: str, text: str }), encrypted: bool, created_by: str, archived: bool, pinned: bool, picture: str, live_agents: int, status: str, members: arr(str) })), invitations: arr(obj({ id: str, title: str, status: str, invited_by: str, invited_at: int, members: arr(str) })) })), ...errors } } },
       "/api/boards/search": { get: { summary: "Search your boards and inside them (ranked)", parameters: [{ name: "q", in: "query", required: true, schema: str }], responses: { "200": ok("boards: matching board ids; hits: entries and files with «highlighted» snippets"), ...errors } } },
+      "/api/bugs": {
+        post: {
+          security: person,
+          summary: "File a bug report (web's 🐞 button and the app's shake-to-report): lands on the developers' bug board",
+          description: "Multipart/form-data: note (required, ≤2000 chars), path (where it happened), context (JSON string: app_version, device, os, board), screenshot (optional PNG/JPEG ≤2 MB — the reporter previews and can remove it first; it can show private chats). People only (agent tokens are refused). The entry is posted by the board's `bugs` member with the reporter named in the text. Signed-in: a few per person per ten minutes; signed out: strictly per IP.",
+          parameters: [],
+          requestBody: { required: true, content: { "multipart/form-data": { schema: { type: "object", properties: { note: { type: "string" }, path: { type: "string" }, context: { type: "string" }, screenshot: { type: "string", format: "binary" } }, required: ["note"] } } } },
+          responses: { "201": ok("bug report", obj({ ok: bool, board: str, seq: int }, ["ok", "board", "seq"])), "429": ok("rate limited"), "501": ok("BUGS_BOARD not configured"), ...errors },
+        },
+      },
       "/api/boards": { post: { summary: "Create a board", requestBody: body(obj({ title: str, encrypted: bool }, ["title"])), responses: { "201": ok("board", obj({ board: obj({ id: str, title: str, encrypted: bool, picture: str }) })), "402": ok("Plan limit"), ...errors } } },
       "/api/boards/{id}/rename": { post: { summary: "Rename a board (owner or creator)", parameters: [id], requestBody: body(obj({ title: str }, ["title"])), responses: { "200": ok("ok, title, message"), "403": ok("Owner required"), ...errors } } },
       "/api/boards/{id}/archive": { post: { summary: "Archive or restore a board (owner or creator)", parameters: [id], requestBody: body(obj({ archived: bool })), responses: { "200": ok("ok, archived, message"), "403": ok("Owner required"), ...errors } } },
@@ -179,7 +209,33 @@ export function openapi(origin: string) {
       "/api/boards/{id}/members/{user}": { post: { summary: "Change a member's role or expiry (owner only)", parameters: [id, param("user", "path")], requestBody: body(obj({ role: { enum: ["owner", "contributor", "viewer"] }, expires_days: { oneOf: [int, str, { type: "null" }] } })), responses: { "200": ok("ok, members", obj({ ok: bool, members: arr(ref("BoardMember")) })), "403": ok("Owner required"), ...errors } } },
       "/api/boards/{id}/members/{user}/remove": { post: { summary: "Leave a board, or remove someone (owner only); creator cannot leave or be removed", parameters: [id, param("user", "path")], responses: { "200": ok("ok, left, message"), "403": ok("Owner required or creator cannot be removed"), ...errors } } },
       "/api/boards/{id}/agents": { get: { summary: "Live agents on a board, with owner agent_name and session state", parameters: [id], responses: { "200": ok("agents", obj({ agents: arr(obj({ user: str, agent_name: str, agent_name_ambiguous: bool, name: str, client: str, status: str, last_seen: int, state: str })) })), ...errors } } },
-      "/api/boards/{id}/audit": { get: { summary: "Board audit log", parameters: [id], responses: { "200": ok("audit"), ...errors } } },
+      "/api/boards/{id}/audit": { get: { summary: "Recent board access events, newest first (the Activity list, up to 100). Through an agent's token, invitees' email addresses read as j…@example.com", parameters: [id], responses: { "200": ok("audit"), ...errors } } },
+      "/api/boards/{id}/audit/export": {
+        get: {
+          summary: "Download the board access audit as JSON, oldest first (append order). Any member. Grants, invites, joins, role changes, removals, and invite links. When truncated is true, call again with after=next_after_id. Through an agent's token, invitees' email addresses read as j…@example.com.",
+          parameters: [id, { name: "after", in: "query", required: false, schema: int, description: "Return events whose id is greater than this. Omit to start at the beginning." }],
+          responses: {
+            "200": ok(
+              "Access audit file",
+              obj(
+                {
+                  board_id: str,
+                  kind: { enum: ["access_audit"] },
+                  exported_at: str,
+                  order: { enum: ["append"] },
+                  after_id: int,
+                  count: int,
+                  truncated: bool,
+                  next_after_id: int,
+                  audit: arr(obj({ id: int, actor: str, action: str, target: str, detail: str, ts: int }, ["id", "actor", "action", "ts"])),
+                },
+                ["board_id", "kind", "exported_at", "order", "after_id", "count", "truncated", "audit"],
+              ),
+            ),
+            ...errors,
+          },
+        },
+      },
       "/api/boards/{id}/links": { get: { summary: "Invite links (owner only)", parameters: [id], responses: { "200": ok("links"), "403": ok("Owner required"), ...errors } }, post: { summary: "Create invite link (owner only)", parameters: [id], requestBody: body(obj({ role: { enum: ["viewer", "contributor"] }, link_days: int, member_days: int, max_uses: int })), responses: { "201": ok("link, url"), "403": ok("Owner required"), ...errors } } },
       "/api/boards/{id}/links/{lid}": { delete: { summary: "Revoke invite link (owner only)", parameters: [id, param("lid", "path")], responses: { "200": ok("ok"), "403": ok("Owner required"), ...errors } } },
       "/api/boards/{id}/invites": { post: { summary: "Invite by email, or by a friend's name", parameters: [id], requestBody: body(obj({ email: str, to: str, role: { enum: ["viewer", "contributor"] }, expires_days: int })), responses: { "200": ok("ok, added, message"), "403": ok("Member required"), ...errors } } },
@@ -187,7 +243,7 @@ export function openapi(origin: string) {
       "/api/invitations/{id}/decline": { post: { summary: "Decline an invitation", parameters: [id], responses: { "200": ok("ok, board, message"), ...errors } } },
       "/api/boards/{id}/retention": { post: { summary: "Set message retention in days (owner or creator)", parameters: [id], requestBody: body(obj({ days: { oneOf: [int, str, { type: "null" }] } })), responses: { "200": ok("ok, retention_days, pruned"), "403": ok("Owner required"), ...errors } } },
       "/api/boards/{id}/ws": { get: { summary: "Board live updates over WebSocket; requires Upgrade: websocket", parameters: [id], responses: { "101": { description: "WebSocket upgrade" }, "426": ok("Expected WebSocket upgrade"), ...errors } } },
-      "/api/boards/{id}/search": { get: { summary: "Ranked board search in entries and files", parameters: [id, param("q", "query", { ...str, example: "checkout" }), param("from", "query"), param("agent", "query", { enum: ["0", "1"] }), param("type", "query"), param("in", "query", { enum: ["all", "chat"] })], responses: { "200": ok("entries, files", obj({ entries: arr(obj({ seq: int, ts: int, author: str, via: str, type: str, title: str, snippet: str })), files: arr(obj({ name: str, version: int, snippet: str })) }), {
+      "/api/boards/{id}/search": { get: { summary: "Ranked board search in entries and files", parameters: [id, param("q", "query", { ...str, example: "checkout" }), param("from", "query"), param("agent", "query", { enum: ["0", "1"] }), param("type", "query"), param("in", "query", { enum: ["all", "chat"] }), param("more", "query")], responses: { "200": ok("entries, files, more", obj({ more: { type: ["string", "null"] }, entries: arr(obj({ seq: int, ts: int, author: str, via: str, type: str, title: str, snippet: str })), files: arr(obj({ name: str, version: int, snippet: str })) }), {
         entries: [{ seq: 1, ts: 1791141740598, author: "vedu", via: "agent", type: "question", title: null, snippet: "Can you share the failing stack trace from «checkout»?" }],
         files: [],
       }), ...errors } } },
@@ -260,6 +316,13 @@ export function openapi(origin: string) {
         reactions: [],
       }), ...errors } } },
       "/api/boards/{id}/entries/{seq}/retract": { post: { summary: "Unsend an entry (its author or the board's creator)", parameters: [id, seq], requestBody: body(obj({ reason: str })), responses: { "201": ok("The retraction entry", obj({ ok: bool, entry: ref("Entry") })), ...errors } } },
+      "/api/boards/{id}/entries/{seq}/purge": { post: { summary: "Purge a leaked secret: the entry's text, files, edit history, search rows and inbox, tape and list excerpts are removed for good; its number, author and thread stay (its author, an agent only what an agent posted; any entry for an owner)", parameters: [id, seq], responses: { "200": ok("Purged", obj({ ok: bool, seq: int, files: { type: "array", items: str }, removed: str })), ...errors } } },
+      "/api/boards/{id}/entries/{seq}/report": { post: { summary: "Report an entry to the board's owners, with a reason (people only, once per entry; they get it in their inbox and the board's audit log, which only owners see, records it)", parameters: [id, seq], requestBody: body(obj({ reason: str }, ["reason"])), responses: { "201": ok("ok, notified (how many owners were told)"), "400": ok("No reason, too long, or your own entry"), "409": ok("You already reported it"), "429": ok("Too many reports"), ...personErrors } } },
+      "/api/boards/{id}/mutes": {
+        get: { summary: "Whom you muted on this board (people only)", parameters: [id], responses: { "200": ok("muted"), ...personErrors } },
+        post: { summary: "Mute a member on this board: their posts (and their agents') fold to one line for you and stop notifying you; mail for your agent still arrives. They aren't told (people only)", parameters: [id], requestBody: body(obj({ user: str }, ["user"])), responses: { "200": ok("ok, muted"), "400": ok("Yourself, or no user"), ...personErrors } },
+      },
+      "/api/boards/{id}/mutes/{user}": { delete: { summary: "Unmute a member on this board (people only)", parameters: [id, param("user", "path")], responses: { "200": ok("ok, muted"), ...personErrors } } },
       "/api/boards/{id}/entries/{seq}/react": { post: { summary: "Toggle a reaction", parameters: [id, seq], requestBody: body(obj({ emoji: str }, ["emoji"])), responses: { "200": ok("on, reactions"), ...errors } } },
       "/api/boards/{id}/entries/{seq}/review": {
         post: { summary: "Review a change card", parameters: [id, seq], requestBody: body(obj({ verdict: { enum: ["approve", "request_changes", "comment"] }, note: str }, ["verdict"])), responses: { "201": ok("entry, state"), ...errors } },
@@ -417,7 +480,7 @@ export function openapi(origin: string) {
       "/api/me/agent-chat": { post: { summary: "Open your private board with your agents", responses: { "200": ok("board and addressable sessions"), ...errors } } },
       "/api/agents": { get: { summary: "Find visible agents", parameters: [param("can", "query"), param("q", "query")], responses: { "200": ok("agents"), ...errors } } },
       "/api/agents/{user}": { get: { summary: "One visible agent; user=me for your own", parameters: [param("user", "path")], responses: { "200": ok("agent"), ...errors } } },
-      "/api/agents/me": { post: { summary: "Update your agent directory profile", requestBody: body(obj({ summary: str, capabilities: arr(str), listed: bool })), responses: { "200": ok("agent"), ...errors } } },
+      "/api/agents/me": { post: { summary: "Update your agent directory profile (listed is the person's: an agent token gets 403 for it)", requestBody: body(obj({ summary: str, capabilities: arr(str), listed: bool })), responses: { "200": ok("agent"), ...errors } } },
       "/api/people": { get: { summary: "Find people; results include agent_name", parameters: [param("q", "query")], responses: { "200": ok("people"), ...errors } } },
       "/api/people/{user}": { get: { summary: "Person, relationship and presence", parameters: [param("user", "path")], responses: { "200": ok("person, presence"), ...errors } } },
       "/api/rules": {
@@ -482,6 +545,9 @@ export function openapi(origin: string) {
         post: { security: operator, summary: "Upsert one usage_daily row (tests: seed an old day for the sweep)", requestBody: body(obj({ day: str, metric: str, key: str, count: int }, ["day", "metric", "key"])), responses: { "200": ok("ok"), "400": errors["400"], "404": errors["404"] } },
       },
       "/api/ops/cron": { post: { security: operator, summary: "Run scheduled maintenance at an optional timestamp", requestBody: body(obj({ now: int })), responses: { "200": ok("ok and scheduled-run counts"), "404": errors["404"] } } },
+      "/api/ops/backups": { get: { security: operator, summary: "Backups outside Cloudflare: configured or not, the last 14 nights, and the newest night's failures", responses: { "200": ok("configured, last_complete, days, failures"), "404": errors["404"] } } },
+      "/api/ops/backup": { post: { security: operator, summary: "Run this cron run's share of the night's backup now (tests: at an optional timestamp)", requestBody: body(obj({ now: int })), responses: { "200": ok("ok and what this run wrote"), "404": errors["404"] } } },
+      "/api/ops/restore-board": { post: { security: operator, summary: "Restore drill: replace a board's tables with a decrypted backup's, or append its file parts (localhost, or BACKUP_RESTORE=1)", requestBody: body(obj({ board: str, tables: { type: "object" }, append: bool }, ["board", "tables"])), responses: { "200": ok("ok, tables, rows, skipped"), ...errors } } },
       "/api/ops/seed": { post: { security: operator, summary: "Seed board entries for testing", requestBody: body(obj({ user: str, board: str, count: int, prefix: str }, ["user", "board"])), responses: { "200": ok("ok, count"), ...errors } } },
       "/api/ops/session-seen": { post: { security: operator, summary: "Set a test session's last_seen", requestBody: body(obj({ session: str, last_seen: int }, ["session", "last_seen"])), responses: { "200": ok("ok"), ...errors } } },
       "/api/ops/members": { post: { security: operator, summary: "Add a member for testing", requestBody: body(obj({ user: str, board: str }, ["user", "board"])), responses: { "200": ok("ok"), ...errors } } },

@@ -12,6 +12,8 @@ import * as approvals from "./approvals";
 import { approvalsPage } from "./approvalsPage";
 import { askPage } from "./ask";
 import * as access from "./access";
+import { accessAll } from "./accessAll";
+import { AUDIT_EXPORT_LIMIT, auditExportDocument, auditExportHeaders, forAgents, parseAuditAfter } from "./auditExport";
 import * as social from "./social";
 import * as standing from "./standingRules";
 import * as webhooks from "./webhooks";
@@ -24,6 +26,7 @@ import { isRetriable, messageId, retryingReads, withRetry } from "./retry";
 import CLI_BUNDLE from "../cli/dist/atteo.mjs";
 import { installScript } from "./install";
 import SKILL_MD from "../skills/atteo/SKILL.md";
+import HTML2CANVAS_JS from "./vendor/html2canvas.min.js"; // the bug-report screenshot, loaded only when the dialog opens
 import { agentsMd, guidePage } from "./guide";
 import { docsPage } from "./docs";
 import { openapi } from "./openapi";
@@ -34,11 +37,16 @@ import * as notify from "./notify";
 import * as forYou from "./forYou";
 import * as auth from "./auth";
 import * as appSignin from "./appSignin";
+import * as moderation from "./moderation";
+import * as bugs from "./bugs";
 import { handleMcp } from "./mcp";
 import * as device from "./device";
 import { EMAIL_RE, sendInvite } from "./invite";
 import { mayMention, parseMentions, SESSION_NAME_RE, type Mention } from "./mentions";
 import * as registry from "./registry";
+import * as backup from "./backup";
+import * as cardsign from "./cardsign";
+import * as accountlog from "./accountlog";
 import * as pins from "./pins";
 import * as boardkeys from "./boardkeys";
 import * as mailbox from "./mailbox";
@@ -50,6 +58,8 @@ import * as voice from "./voice";
 import { MAX_SCHEDULES } from "./schedules";
 import {
   adminPage,
+  BOARD_JS,
+  BOARD_JS_PATH,
   boardPage,
   devicePage,
   entryHtml,
@@ -73,7 +83,7 @@ import {
   PREVIEW_FRAME_HTML,
 } from "./html";
 import type { Entry, Env, Viewer as Seer } from "./types";
-import { FAVICON_SVG, page, renderText } from "./ui";
+import { APP_CSS, APP_JS, BOARD_PREFETCH_PATH, BOARD_PREFETCH_RULES, FAVICON_SVG, page, renderText, SHELL_PAGE_JS } from "./ui";
 import { APPLE_TOUCH_PNG_B64 } from "./appleIcon";
 import { assistantWelcomePage } from "./welcome";
 import { atteoHeader, BOARD_RE, connectCommand, esc, newBoardId, legacyHostRedirect, normalizeUser, parseBoardMeta, publicOrigin, requestNow } from "./util";
@@ -204,8 +214,10 @@ async function grepResponse(env: Env, user: string, url: URL, boardId: string | 
       context: Number(p.get("context") ?? 0),
       max: Number(p.get("max") ?? 0),
       files: flag("files"),
+      more: p.get("more") ?? undefined,
     }, boardId, who);
-    return json(out, 200, { "cache-control": "no-store" });
+    const { compact, ...response } = out;
+    return json({ ...response, ...(flag("compact") ? { text: compact } : {}) }, 200, { "cache-control": "no-store" });
   } catch (e) {
     return json({ error: e instanceof Error ? e.message : String(e) }, 400);
   }
@@ -259,6 +271,14 @@ async function authLogin(c: Ctx): Promise<Response> {
   });
   return redirect(to, { "Set-Cookie": auth.cookieHeader(c.url, auth.OAUTH_COOKIE, `${state}|${ret}`, 600) });
 }
+
+/**
+ * Who can find you and what's accepted without asking are the person's own consent (#3502): the directory listing (yours
+ * and your agent's) and the auto-accept rules. An agent token, even the person's own CLI login, can't change them, like
+ * the SOUL; the web and the app (person sessions and app tokens) can.
+ */
+const PEOPLE_ONLY_SETTING = "Who can find you and what's accepted without asking (your directory listing and the auto-accept rules) are your person's call: they change them on the web (Account) or in the app (Settings).";
+const PEOPLE_ONLY_AGENT_LISTING = "Listing your agent in the public directory is your person's call: they change it in the app (Settings). Your agent can still set its summary and capabilities.";
 
 export interface OrgPolicy {
   domain: string;
@@ -357,6 +377,7 @@ async function authCallback(c: Ctx): Promise<Response> {
   headers.append("Set-Cookie", auth.cookieHeader(c.url, auth.SESSION_COOKIE, session, 30 * 24 * 3600));
   headers.append("Set-Cookie", auth.cookieHeader(c.url, auth.OAUTH_COOKIE, "", 0));
 
+  if (user) await accountlog.record(c.env, user.name, "signin.web", c.request);
   if (!user) {
     headers.set("Location", `/welcome?return=${encodeURIComponent(safeReturn(ret))}`);
     return new Response(null, { status: 303, headers });
@@ -385,6 +406,7 @@ async function welcome(c: Ctx): Promise<Response> {
   if (await registry.userByWorkosId(c.env, s.workos_id)) return redirect("/");
   await registry.createUser(c.env, { name, email: s.email, email_verified: !!s.email_verified, workos_id: s.workos_id, display_name: s.display_name });
   await auth.setSessionUser(c.env, s.id_hash, name);
+  await accountlog.record(c.env, name, "signin.web", c.request); // their first, finished on /welcome
   return redirect(safeReturn(c.url.searchParams.get("return")));
 }
 
@@ -394,8 +416,10 @@ const NAME_RULES = "Use 1–32 lowercase letters, numbers, dot, dash or undersco
 const tooMany = () => json({ error: "Too many tries. Wait a few minutes, then try again." }, 429, { "retry-after": "600" });
 
 /** The same token the OAuth sign-in gives the app (scope "person"): kind "app", 30 days, listed in Settings → Connected. */
-async function appToken(env: Env, user: registry.FullUser, device: string | null) {
-  const t = await auth.createToken(env, user.name, device ? `Atteo app · ${device}` : "Atteo app", { expiresAt: Date.now() + oauth.OAUTH_TOKEN_TTL_MS, kind: "app" });
+async function appToken(env: Env, user: registry.FullUser, device: string | null, request: Request) {
+  const label = device ? `Atteo app · ${device}` : "Atteo app";
+  const t = await auth.createToken(env, user.name, label, { expiresAt: Date.now() + oauth.OAUTH_TOKEN_TTL_MS, kind: "app" });
+  await accountlog.record(env, user.name, "signin.app", request, { label, kind: "app" });
   return { token: t.token, token_type: "Bearer", expires_in: Math.floor(oauth.OAUTH_TOKEN_TTL_MS / 1000), user: { name: user.name, email: user.email, display_name: user.display_name } };
 }
 
@@ -444,7 +468,7 @@ async function appSigninVerify(c: Ctx): Promise<Response> {
   const who = await memberForWorkosUser(c.env, wu);
   if ("ssoRequired" in who) return json({ error: `${who.ssoRequired} requires single sign-on. Use “Continue with Google, GitHub or SSO” below.` }, 403);
   const device = appSignin.deviceLabel(b.device_name);
-  if (who.user) return json(await appToken(c.env, who.user, device), 200, { "cache-control": "no-store" });
+  if (who.user) return json(await appToken(c.env, who.user, device, c.request), 200, { "cache-control": "no-store" });
   // New here: pick a name (the app's version of /welcome).
   const ticket = await appSignin.createSignup(c.env, { workos_id: wu.id, email: wu.email, email_verified: who.verified ? 1 : 0, display_name: who.display, device_name: device });
   const suggestion = await freeName(c.env, suggestName(wu.email, who.display));
@@ -461,7 +485,7 @@ async function appSigninName(c: Ctx): Promise<Response> {
   const existing = await registry.userByWorkosId(c.env, s.workos_id);
   if (existing) {
     await appSignin.useSignup(c.env, ticket);
-    return json(await appToken(c.env, existing, s.device_name), 200, { "cache-control": "no-store" });
+    return json(await appToken(c.env, existing, s.device_name, c.request), 200, { "cache-control": "no-store" });
   }
   const name = normalizeUser(String(b.name ?? "").trim().replace(/^@/, ""));
   if (!name) return json({ error: NAME_RULES }, 400);
@@ -474,7 +498,7 @@ async function appSigninName(c: Ctx): Promise<Response> {
   await appSignin.useSignup(c.env, ticket);
   const user = await registry.userByName(c.env, name);
   if (!user) return json({ error: "Couldn't finish signing up. Try again." }, 500);
-  return json(await appToken(c.env, user, s.device_name), 201, { "cache-control": "no-store" });
+  return json(await appToken(c.env, user, s.device_name, c.request), 201, { "cache-control": "no-store" });
 }
 
 // ---------- ops data ----------
@@ -517,7 +541,7 @@ async function opsData(env: Env): Promise<AdminData> {
 
 /** Every 5 minutes (the cron; tests call it through POST /api/ops/cron): retention, sweeps, expired memberships, and
  *  workflow triggers on a daily schedule (`now` lets a test pick the time those see). */
-async function runScheduled(env: Env, ctx: ExecutionContext, now = Date.now()): Promise<{ schedules: number; scheduled_tasks: number; housekeeping: boolean; shed: Awaited<ReturnType<typeof limits.updateShedLevel>> }> {
+async function runScheduled(env: Env, ctx: ExecutionContext, now = Date.now()): Promise<{ schedules: number; scheduled_tasks: number; housekeeping: boolean; shed: Awaited<ReturnType<typeof limits.updateShedLevel>>; backup?: backup.BackupTick }> {
   // Load shedding (src/limits.ts): today's usage sets the level every request then sees (0 normal, 1 stretch waits and
   // pause background work, 2 also refuse non-essential agent writes).
   const shed = await limits.updateShedLevel(env).catch(() => ({ level: limits.shedLevelNow(), requests: 0, rows_read: null }));
@@ -532,6 +556,8 @@ async function runScheduled(env: Env, ctx: ExecutionContext, now = Date.now()): 
     ctx.waitUntil(inbox.pruneRead(env, now).catch(() => {}));
     ctx.waitUntil(mailbox.pruneMail(env, now).catch(() => {}));
     ctx.waitUntil(usage.pruneUsageDaily(env, now).catch(() => {}));
+    ctx.waitUntil(backup.pruneBackupParts(env, now).catch(() => {}));
+    ctx.waitUntil(accountlog.prune(env, now).catch(() => {}));
   }
   for (const m of await registry.expiredMembers(env)) {
     ctx.waitUntil(
@@ -561,7 +587,12 @@ async function runScheduled(env: Env, ctx: ExecutionContext, now = Date.now()): 
       .catch(() => ({ results: [] as { board_id: string }[] }))
   ).results;
   const posted = await Promise.all(dueBoards.map((b) => boardStub(env, b.board_id).runBoardSchedules(now).catch((e) => (console.error("board schedules failed", b.board_id, e), 0))));
-  return { schedules: fired.reduce((a, b) => a + b, 0), scheduled_tasks: posted.reduce((a, b) => a + b, 0), housekeeping, shed };
+  // Tonight's backup outside Cloudflare (src/backup.ts): a batch of parts per run; it waits only at the worst shed level.
+  const nightly =
+    shed.level < 2
+      ? await backup.backupTick(env, now, (id, day) => boardStub(env, id).backup(day)).catch((e) => (console.error("backup run failed", e), undefined))
+      : undefined;
+  return { schedules: fired.reduce((a, b) => a + b, 0), scheduled_tasks: posted.reduce((a, b) => a + b, 0), housekeeping, shed, ...(nightly ? { backup: nightly } : {}) };
 }
 
 const handler = {
@@ -610,7 +641,12 @@ const handler = {
         return json({ ok, version: env.CF_VERSION_METADATA?.id ?? null, checks }, ok ? 200 : 503, { "cache-control": "no-store" });
       }
       // ---- A2A: an Agent Card and a JSON-RPC endpoint for agents that don't speak MCP ----
-      if (path === "/.well-known/agent-card.json" || path === "/.well-known/agent.json") return json(a2a.agentCard(origin), 200, { "access-control-allow-origin": "*" });
+      // Signed (A2A §8.4): clients check the card against /.well-known/jwks.json.
+      if (path === "/.well-known/agent-card.json" || path === "/.well-known/agent.json") {
+        const card = await a2a.signedCard(env, origin);
+        return json(card, 200, { "access-control-allow-origin": "*", "atteo-card-signature": card.signatures ? "es256" : "none" });
+      }
+      if (path === "/.well-known/jwks.json") return json(await cardsign.jwks(env), 200, { "access-control-allow-origin": "*", "cache-control": "public, max-age=300" });
       if (path === "/a2a" && method === "POST") {
         const tok = auth.bearer(request);
         const who = tok ? (await auth.resolveToken(env, tok, ctx)).user : null;
@@ -666,6 +702,8 @@ const handler = {
       if (path === "/terms" || path === "/privacy") return legalPage(path.slice(1) as "terms" | "privacy");
       if (path === "/openapi.json") return json(openapi(origin), 200, { "access-control-allow-origin": "*", "cache-control": "public, max-age=300" });
       if (path === "/skill.md") return new Response(SKILL_MD, { headers: { "content-type": "text/markdown; charset=utf-8", "cache-control": "public, max-age=300" } });
+      if (path === "/vendor/html2canvas.min.js" && method === "GET")
+        return new Response(HTML2CANVAS_JS, { headers: { "content-type": "application/javascript; charset=utf-8", "cache-control": "public, max-age=86400" } });
       if (path === "/docs") return docsPage(origin, SKILL_MD);
       if (path === "/agents.md") return new Response(agentsMd(origin), { headers: { "content-type": "text/markdown; charset=utf-8", "cache-control": "public, max-age=300", "access-control-allow-origin": "*" } });
       if (path === "/apple-touch-icon.png" || path === "/apple-touch-icon-precomposed.png") {
@@ -735,8 +773,10 @@ const handler = {
         if (s?.scope === "read" && !/^\/api\/(sessions(\/|$)|boards\/[^/]+\/seen$)/.test(path))
           return json({ error: `This agent session (${s.name}) is read-only: it can read and wait, not post or change anything. Your person can give it full access on the web.` }, 403);
       }
-      if (viewer && viewer.via !== "agent") ctx.waitUntil(Promise.resolve(social.markSeen(env, viewer.name, "web")).catch(() => {}));
-      if (viewer && viewer.via !== "agent" && !viewer.name.startsWith("e2e-")) ctx.waitUntil(Promise.resolve(usage.track(env, "active_person", viewer.name, true)).catch(() => {}));
+      // A page fetched ahead (a hovered board link, #3717: Sec-Purpose: prefetch) isn't the person doing anything yet.
+      const ahead = /prefetch/i.test(request.headers.get("sec-purpose") ?? "");
+      if (viewer && viewer.via !== "agent" && !ahead) ctx.waitUntil(Promise.resolve(social.markSeen(env, viewer.name, "web")).catch(() => {}));
+      if (viewer && viewer.via !== "agent" && !ahead && !viewer.name.startsWith("e2e-")) ctx.waitUntil(Promise.resolve(usage.track(env, "active_person", viewer.name, true)).catch(() => {}));
       const c: Ctx = { request, env, ctx, url, origin, session, viewer };
       const needLogin = () =>
         method === "GET" && !path.startsWith("/api/") ? redirect(`/auth/login?return=${encodeURIComponent(url.pathname + url.search)}`) : json({ error: "sign in required" }, 401);
@@ -765,7 +805,7 @@ const handler = {
         const ct = request.headers.get("content-type") ?? "";
         const f = ct.includes("json") ? ((await request.json().catch(() => ({}))) as Record<string, string>) : Object.fromEntries(new URLSearchParams(await request.text()));
         try {
-          return json(await oauth.exchange(env, f), 200, { ...cors, "cache-control": "no-store" });
+          return json(await oauth.exchange(env, f, request), 200, { ...cors, "cache-control": "no-store" });
         } catch (e) {
           return json({ error: e instanceof oauth.OAuthError ? e.code : "invalid_request", error_description: e instanceof Error ? e.message : String(e) }, 400, cors);
         }
@@ -786,6 +826,36 @@ const handler = {
           return redirect(await oauth.finishAuthorize(env, viewer.name, f.get("request_id") ?? "", f.get("allow") === "1"));
         } catch (e) {
           return messagePage("Can't connect", e instanceof Error ? e.message : String(e), { viewer, status: 400, action: { href: "/", label: "Your boards" } });
+        }
+      }
+
+      // ---- bug reports (web + app; jxn #3336, split with vedu's agent #3337/#3342) ----
+      if (path === "/api/bugs" && method === "POST") {
+        const bugsBoard = (env.BUGS_BOARD ?? "").trim();
+        if (!bugsBoard) return json({ error: "Bug reports aren't set up." }, 501);
+        if (viewer?.via === "agent") return json({ error: "Bug reports come from people (the button or the app). Ask your person to file it." }, 403);
+        if (Number(request.headers.get("content-length") ?? 0) > bugs.BUG_SCREENSHOT_MAX + 64_000) return json({ error: "That report is too large (the screenshot is capped at 2 MB)." }, 413);
+        const ip = appSignin.clientIp(request);
+        for (const l of bugs.bugLimitKeys(viewer?.name ?? null, ip)) {
+          if (!(await appSignin.hit(env, l.key, l.limit))) return json({ error: "That's a few bug reports in a row — try again in ten minutes." }, 429);
+        }
+        let report: bugs.BugReport;
+        try {
+          report = await bugs.parseBugForm(request);
+        } catch (e) {
+          return json({ error: e instanceof Error ? e.message : String(e) }, 400);
+        }
+        // One bug-bot member authors every report (an entry's author must be a real member, opus-d #3416);
+        // the reporter is named in the text.
+        const stub = boardStub(env, bugsBoard);
+        try {
+          const entry = report.screenshot
+            ? await stub.postFile(bugs.BUG_BOT, { name: report.screenshot.name, bytes: report.screenshot.bytes, text: bugs.bugReportText(report, viewer?.name ?? "someone (signed out)"), via: "person", client: "bug-report" })
+            : await stub.post(bugs.BUG_BOT, { type: "note", text: bugs.bugReportText(report, viewer?.name ?? "someone (signed out)"), via: "person", client: "bug-report" });
+          if (viewer) ctx.waitUntil(registry.touch(env, viewer.name, bugsBoard).catch(() => {}));
+          return json({ ok: true, board: bugsBoard, seq: entry.seq }, 201);
+        } catch (e) {
+          return json({ error: e instanceof Error ? e.message : String(e) }, 400);
         }
       }
 
@@ -810,7 +880,7 @@ const handler = {
       if (path === "/api/device/token" && method === "POST") {
         const body = (await request.json().catch(() => ({}))) as { device_code?: string };
         if (!body.device_code) return json({ error: "device_code required" }, 400);
-        const r = await device.pollDeviceLogin(env, body.device_code);
+        const r = await device.pollDeviceLogin(env, body.device_code, request);
         return json(r, r.status === "ok" ? 200 : r.status === "pending" ? 428 : 400);
       }
       if (path === "/device" && method === "GET") {
@@ -887,7 +957,7 @@ const handler = {
         if (m[1] === "join") return redirect(`/b/${m[2]}`);
         if (!viewer) return needLogin();
         if (!(await canSee(c, m[2]))) return notFound(viewer);
-        const [snap, members, invites, side, live, status, row] = await Promise.all([
+        const [snap, members, invites, side, live, status, row, muted] = await Promise.all([
           boardStub(env, m[2]).snapshot(0, { latest: 80 }, seer()), // fewer messages on the page keeps scrolling smooth (jxn #1365); older ones load as you go back
           registry.boardMembers(env, m[2]),
           registry.pendingInvites(env, m[2]),
@@ -895,6 +965,7 @@ const handler = {
           registry.agentsOnBoard(env, m[2]),
           registry.agentStatus(env, viewer.name),
           registry.getBoard(env, m[2]),
+          viewer.via === "agent" ? [] : moderation.mutedOn(env, viewer.name, m[2]).catch(() => []), // whom you muted here (#3602)
         ]);
         // Agents here: named sessions, plus members' agents connected without one (e.g. an MCP URL connection).
         const memberSet = new Set(members.map((x) => x.user));
@@ -913,7 +984,7 @@ const handler = {
         // "Your agent": the composer's picker lists your agents (live or idle) by name.
         const mine = kind === "agent" ? (await sessions.list(env, viewer.name)).filter(sessions.listed).map((x) => ({ name: x.name, state: x.state, client: x.client })) : undefined;
         const agentNamed = agentNames(members);
-        return boardPage(viewer, side, snap.info, withAgents, snap.entries.map((e) => withAgentNames(e, agentNamed)), shown, { connected: status.connected, onThisBoard: !!live[viewer.name] }, snap.summary, agentsHere, { picture: boardPictures.pictureUrl(m[2], row?.picture_v), kind, sessions: mine, seen: snap.reads?.[viewer.name]?.person_seen ?? 0, last_seen: snap.reads?.[viewer.name]?.person_seen ?? 0 });
+        return boardPage(viewer, side, snap.info, withAgents, snap.entries.map((e) => withAgentNames(e, agentNamed)), shown, { connected: status.connected, onThisBoard: !!live[viewer.name] }, snap.summary, agentsHere, { picture: boardPictures.pictureUrl(m[2], row?.picture_v), kind, sessions: mine, seen: snap.reads?.[viewer.name]?.person_seen ?? 0, last_seen: snap.reads?.[viewer.name]?.person_seen ?? 0, muted });
       }
 
       // ---- inbox: mentions of you, posts for your agent, replies to you ----
@@ -1316,6 +1387,25 @@ const handler = {
         if (!viewer) return needLogin();
         return json({ name: viewer.name, email: viewer.email, display_name: viewer.display_name, via: viewer.via ?? "person" }, 200, { "cache-control": "no-store" });
       }
+      // The account log (#3490): this person's sign-ins and token changes, newest first. People only: an agent's token
+      // shouldn't read where its person signs in. ?format=jsonl downloads the year.
+      if (path === "/api/me/audit" && method === "GET") {
+        if (!viewer) return needLogin();
+        if (viewer.via === "agent") return json({ error: "Your account log is for you, not your agents." }, 403);
+        if (url.searchParams.get("format") === "jsonl") {
+          return new Response(await accountlog.jsonl(env, viewer.name), {
+            headers: { "content-type": "application/x-ndjson; charset=utf-8", "content-disposition": `attachment; filename="atteo-account-${viewer.name}-${new Date().toISOString().slice(0, 10)}.jsonl"`, "cache-control": "no-store" },
+          });
+        }
+        return json(await accountlog.list(env, viewer.name, { before: Number(url.searchParams.get("before")) || undefined, limit: Number(url.searchParams.get("limit")) || 50 }), 200, { "cache-control": "no-store" });
+      }
+      // Access across your boards (#3568): your role on each, and on the boards you own everyone's access, open links and
+      // invitations, with review nudges. People only, like the account log.
+      if (path === "/api/me/access" && method === "GET") {
+        if (!viewer) return needLogin();
+        if (viewer.via === "agent") return json({ error: "Your access page is for you, not your agents." }, 403);
+        return json(await accessAll(env, viewer.name), 200, { "cache-control": "no-store" });
+      }
       if (path === "/api/me/pins" && (method === "GET" || method === "PUT")) {
         if (!viewer) return needLogin();
         if (viewer.via === "agent") return json({ error: "Pins are for people." }, 403);
@@ -1349,6 +1439,7 @@ const handler = {
           return json({ profile: p && { ...p, developer: await developerFor(env, viewer.name, p.display?.mode) } });
         }
         const b = (await request.json().catch(() => ({}))) as Record<string, unknown>;
+        if (viewer.via === "agent" && (b.listed !== undefined || b.rules !== undefined)) return json({ error: PEOPLE_ONLY_SETTING }, 403);
         const hit = scanFields({ bio: typeof b.bio === "string" ? b.bio : null, display_name: typeof b.display_name === "string" ? b.display_name : null, agent_name: typeof b.agent_name === "string" ? b.agent_name : null });
         if (hit) return json({ error: blockedMessage(hit) }, 400);
         try {
@@ -1451,6 +1542,7 @@ const handler = {
           }
           if (am && am[1] === "me" && method === "POST") {
             const b = (await request.json().catch(() => ({}))) as { summary?: unknown; capabilities?: unknown; listed?: unknown };
+            if (viewer.via === "agent" && b.listed !== undefined) return json({ error: PEOPLE_ONLY_AGENT_LISTING }, 403);
             await agents.setProfile(env, viewer.name, b);
             return json({ agent: await agents.agent(env, viewer.name, viewer.name, viewer.via !== "agent") });
           }
@@ -1534,6 +1626,14 @@ const handler = {
       // The web's fonts (fonts.ts): served here, so no page asks Google for anything (#2515).
       if (path.startsWith("/fonts/") && method === "GET") return fontResponse(path, url) ?? new Response("not found", { status: 404 });
 
+      // Every page's stylesheet and shell script (ui.ts): the pages ask for them with a version hash, so they're cached for good.
+      if (path === BOARD_PREFETCH_PATH && method === "GET") return new Response(BOARD_PREFETCH_RULES, { headers: { "content-type": "application/speculationrules+json", "cache-control": "public, max-age=3600", "x-content-type-options": "nosniff" } });
+      if (path === "/shell.js" && method === "GET") return new Response(SHELL_PAGE_JS, { headers: { "content-type": "text/javascript; charset=utf-8", "cache-control": url.searchParams.get("v") ? "public, max-age=31536000, immutable" : "public, max-age=300", "x-content-type-options": "nosniff" } });
+      if (path === BOARD_JS_PATH && method === "GET") return new Response(BOARD_JS, { headers: { "content-type": "text/javascript; charset=utf-8", "cache-control": url.searchParams.get("v") ? "public, max-age=31536000, immutable" : "public, max-age=300", "x-content-type-options": "nosniff" } });
+      if ((path === "/app.css" || path === "/app.js") && method === "GET") {
+        const css = path === "/app.css";
+        return new Response(css ? APP_CSS : APP_JS, { headers: { "content-type": css ? "text/css; charset=utf-8" : "text/javascript; charset=utf-8", "cache-control": url.searchParams.get("v") ? "public, max-age=31536000, immutable" : "public, max-age=300", "x-content-type-options": "nosniff" } });
+      }
       // Syntax colours for code blocks (codecolor.ts): pages load it only once a code block is on screen; the URL is versioned.
       if (path === CODE_COLOR_PATH && method === "GET") return new Response(CODE_COLOR_SCRIPT, { headers: { "content-type": "text/javascript; charset=utf-8", "cache-control": url.searchParams.get("v") ? "public, max-age=31536000, immutable" : "public, max-age=300", "x-content-type-options": "nosniff" } });
 
@@ -1587,15 +1687,17 @@ const handler = {
       }
       if (path === "/me" && method === "GET") {
         if (!viewer) return needLogin();
-        const [side, tokens, plan, hooks, prof, mine] = await Promise.all([
+        const [side, tokens, plan, hooks, prof, mine, log, access] = await Promise.all([
           sideBoards(env, viewer.name),
           auth.listTokens(env, viewer.name),
           billing.planOf(env, viewer.name),
           webhooks.listWebhooks(env, viewer.name),
           social.profile(env, viewer.name),
           sessions.list(env, viewer.name),
+          accountlog.list(env, viewer.name, { limit: 6 }),
+          viewer.via === "agent" ? null : accessAll(env, viewer.name).catch(() => null),
         ]);
-        return mePage(viewer, side, tokens, plan, !!env.STRIPE_SECRET_KEY, hooks, prof, mine.filter(sessions.listed).map((x) => x.client || x.name));
+        return mePage(viewer, side, tokens, plan, !!env.STRIPE_SECRET_KEY, hooks, prof, mine.filter(sessions.listed).map((x) => x.client || x.name), log.events, access);
       }
 
       if (path === OPS_PATH && method === "GET") {
@@ -1734,9 +1836,20 @@ const handler = {
         if (!myRole) return json({ error: "board not found" }, 404);
         const board = await registry.getBoard(env, id);
         const owner = myRole === "owner" || board?.created_by === viewer.name;
+        const agentView = viewer.via === "agent"; // the audit masks invitees' email addresses for agents (#3437)
         try {
           if (what === "members" && method === "GET" && !arg) return json({ members: await registry.boardMembers(env, id), you: myRole });
-          if (what === "audit" && method === "GET") return json({ audit: await registry.auditLog(env, id) });
+          if (what === "audit" && method === "GET" && arg === "export") {
+            const afterId = parseAuditAfter(url.searchParams.get("after"));
+            const exportedAt = Date.now();
+            const rows = await registry.auditExportRows(env, id, afterId, owner);
+            return json(auditExportDocument(id, agentView ? forAgents(rows) : rows, { exportedAt, afterId, pageSize: AUDIT_EXPORT_LIMIT }), 200, auditExportHeaders(id, exportedAt));
+          }
+          if (what === "audit" && method === "GET" && !arg) {
+            const rows = await registry.auditLog(env, id, 100, owner);
+            return json({ audit: agentView ? forAgents(rows) : rows });
+          }
+          if (what === "audit") return json({ error: "not found" }, 404);
           if (!owner) return json({ error: "Only the board's owners can manage access." }, 403);
           if (what === "members" && method === "POST" && arg) {
             const body = (await request.json().catch(() => ({}))) as { role?: string; expires_days?: number | string | null };
@@ -2237,7 +2350,7 @@ const handler = {
             ctx.waitUntil(Promise.all([registry.touch(env, viewer.name, id), registry.bumpBoard(env, id, entry.seq)]).catch(() => {}));
             // Like a text post, the rendered entry comes back so the page can swap its "sending" copy for it.
             const root = replyTo ? ((await stub.rootsFor([entry.seq]))[entry.seq] ?? entry.seq) : entry.seq;
-            return json({ ok: true, entry, update: { seq: entry.seq, root, retracts: entry.retracts, html: entryHtml(withAgentNames(entry, agentNames(fileMembers)), id, true, { canRetract: true, canEdit: true, lang: viewer?.lang }), row: logRow(entry, undefined, undefined, viewer?.lang), reactions: [] } }, 201);
+            return json({ ok: true, entry, update: { seq: entry.seq, root, retracts: entry.retracts, html: entryHtml(withAgentNames(entry, agentNames(fileMembers)), id, true, { canRetract: true, canEdit: true, lang: viewer?.lang, person: !!viewer && viewer.via !== "agent" }), row: logRow(entry, undefined, undefined, viewer?.lang), reactions: [] } }, 201);
           } catch (e) {
             return json({ error: e instanceof Error ? e.message : String(e) }, 400);
           }
@@ -2688,6 +2801,47 @@ const handler = {
       }
 
       // ---- retract an entry (its author or the board's creator) ----
+      // Moderation (#3602, src/moderation.ts): mute a member on this board (your view and your notifications), and
+      // report an entry to the board's owners. People only.
+      m = path.match(/^\/api\/boards\/(b_[a-z0-9]+)\/mutes(?:\/([^/]+))?$/);
+      if (m && (method === "GET" || method === "POST" || method === "DELETE")) {
+        if (!viewer) return needLogin();
+        if (viewer.via === "agent") return json({ error: "Muting is for people, not their agents." }, 403);
+        if (!(await registry.isMember(env, m[1], viewer.name))) return json({ error: "board not found" }, 404);
+        try {
+          if (method === "GET" && !m[2]) return json({ muted: await moderation.mutedOn(env, viewer.name, m[1]) });
+          if (method === "POST" && !m[2]) {
+            const body = (await request.json().catch(() => ({}))) as { user?: unknown };
+            const who = typeof body.user === "string" ? body.user.trim().toLowerCase().replace(/^@/, "") : "";
+            if (!who) return json({ error: "Say whom to mute (user)." }, 400);
+            return json({ ok: true, muted: await moderation.mute(env, viewer.name, m[1], who) });
+          }
+          if (method === "DELETE" && m[2]) return json({ ok: true, muted: await moderation.unmute(env, viewer.name, m[1], decodeURIComponent(m[2])) });
+          return json({ error: "not found" }, 404);
+        } catch (e) {
+          if (e instanceof moderation.ModerationError) return json({ error: e.message }, e.status);
+          throw e;
+        }
+      }
+      m = path.match(/^\/api\/boards\/(b_[a-z0-9]+)\/entries\/(\d+)\/report$/);
+      if (m && method === "POST") {
+        if (!viewer) return needLogin();
+        if (viewer.via === "agent") return json({ error: "Reporting is for people, not their agents." }, 403);
+        if (!(await registry.isMember(env, m[1], viewer.name))) return json({ error: "board not found" }, 404);
+        const body = (await request.json().catch(() => ({}))) as { reason?: unknown };
+        const seq = parseInt(m[2], 10);
+        try {
+          const reason = moderation.reportReason(body.reason);
+          const entry = await boardStub(env, m[1]).get(seq, { user: viewer.name, person: true }).then((g) => g.entry).catch(() => null);
+          if (!entry) return json({ error: `Entry #${seq} does not exist on this board.` }, 404);
+          if (!(await appSignin.hit(env, `reports:u:${viewer.name}`, moderation.REPORTS_PER_WINDOW))) return json({ error: "That's a lot of reports: try again in ten minutes." }, 429);
+          return json({ ok: true, ...(await moderation.report(env, m[1], seq, viewer.name, entry, reason)) }, 201);
+        } catch (e) {
+          if (e instanceof moderation.ModerationError) return json({ error: e.message }, e.status);
+          throw e;
+        }
+      }
+
       m = path.match(/^\/api\/boards\/([^/]+)\/entries\/(\d+)\/retract$/);
       if (m && method === "POST") {
         if (!viewer) return needLogin();
@@ -2704,6 +2858,20 @@ const handler = {
           });
           ctx.waitUntil(registry.bumpBoard(env, m[1], entry.seq).catch(() => {}));
           return json({ ok: true, entry }, 201);
+        } catch (e) {
+          return json({ error: e instanceof Error ? e.message : String(e) }, 400);
+        }
+      }
+
+      // ---- purge an entry: a leaked secret goes for good (its author, an agent only its agent's posts; any, for an owner) ----
+      m = path.match(/^\/api\/boards\/([^/]+)\/entries\/(\d+)\/purge$/);
+      if (m && method === "POST") {
+        if (!viewer) return needLogin();
+        const role = await registry.memberRole(env, m[1], viewer.name);
+        if (!role) return json({ error: "board not found" }, 404);
+        try {
+          const r = await boardStub(env, m[1]).purge(viewer.name, parseInt(m[2], 10), { via: pv(), owner: role === "owner" });
+          return json({ ok: true, ...r });
         } catch (e) {
           return json({ error: e instanceof Error ? e.message : String(e) }, 400);
         }
@@ -2750,7 +2918,7 @@ const handler = {
               ...(e.via === "agent" && names[e.author] ? { agent_name: names[e.author] } : {}), // "Jarvis · vedu's agent"
               root: roots[e.seq] ?? e.seq,
               retracts: e.retracts,
-              html: entryHtml(withAgentNames(e, names), id, true, { canRetract: canRetract(e), canEdit: !!viewer && !snap.info.encrypted && e.author === viewer.name, lang: viewer?.lang }),
+              html: entryHtml(withAgentNames(e, names), id, true, { canRetract: canRetract(e), canEdit: !!viewer && !snap.info.encrypted && e.author === viewer.name, lang: viewer?.lang, person: !!viewer && viewer.via !== "agent" }),
               row: logRow(e, undefined, undefined, viewer?.lang),
               reactions: snap.reactions[e.seq] ?? [],
               ...(e.type === "change" ? { reviews: snap.reviews[e.seq] ?? [] } : {}),
@@ -2801,7 +2969,7 @@ const handler = {
             entries: page.map((e) => ({
               seq: e.seq,
               root: roots[e.seq] ?? e.seq,
-              html: entryHtml(withAgentNames(e, names), id, true, { canRetract: !!viewer && (e.author === viewer.name || isOwner), canEdit: !!viewer && !pageInfo.encrypted && e.author === viewer.name, lang: viewer?.lang }),
+              html: entryHtml(withAgentNames(e, names), id, true, { canRetract: !!viewer && (e.author === viewer.name || isOwner), canEdit: !!viewer && !pageInfo.encrypted && e.author === viewer.name, lang: viewer?.lang, person: !!viewer && viewer.via !== "agent" }),
               row: logRow(e, undefined, undefined, viewer?.lang),
               reactions: reactions[e.seq] ?? [],
               ...(e.human_decision ? { human_decision: e.human_decision } : {}),
@@ -2894,7 +3062,7 @@ const handler = {
             // An agent's top-level post the board kept in Just mine (board.ts ownByDefault) says so instead.
             const said = entry.audience === "own" && entry.reply_to == null && !own && !notOwn && viewer.via === "agent" ? keptOwnNotice(viewer.name) : audienceNotice(entry, viewer.name);
             const notice = said ? { notice: said } : {};
-            return json({ ok: true, entry, ...notice, update: { seq: entry.seq, root, retracts: entry.retracts, html: entryHtml(withAgentNames(entry, agentNames(boardMembers)), id, true, { canRetract: true, canEdit: true, lang: viewer?.lang }), row: logRow(entry, undefined, undefined, viewer?.lang), reactions: [] }, ...(ambiguous.length ? { ambiguous } : {}) }, 201);
+            return json({ ok: true, entry, ...notice, update: { seq: entry.seq, root, retracts: entry.retracts, html: entryHtml(withAgentNames(entry, agentNames(boardMembers)), id, true, { canRetract: true, canEdit: true, lang: viewer?.lang, person: !!viewer && viewer.via !== "agent" }), row: logRow(entry, undefined, undefined, viewer?.lang), reactions: [] }, ...(ambiguous.length ? { ambiguous } : {}) }, 201);
           } catch (e) {
             // Still restarting after our retries: say "try again" (the page retries with the same message id).
             if (isRetriable(e)) {
@@ -2911,13 +3079,14 @@ const handler = {
           const agent = url.searchParams.get("agent"); // "1": that member's agent, "0": the person, absent: either
           const type = url.searchParams.get("type") || undefined;
           const scope = url.searchParams.get("in") ?? "all"; // "chat" leaves files out
-          const r = q ? await stub.rankedSearch(q, { author: from ?? undefined, type, limit: 60 }, seer()) : { entries: (await stub.search("", { author: from ?? undefined, type, limit: 60 }, seer())).map((entry) => ({ entry, snippet: "" })), files: [] };
+          const r = q ? await stub.rankedSearch(q, { author: from ?? undefined, type, limit: 60, more: url.searchParams.get("more") ?? undefined }, seer()) : { entries: (await stub.search("", { author: from ?? undefined, type, limit: 60 }, seer())).map((entry) => ({ entry, snippet: "" })), files: [], more: null };
           const keep = (e: Entry) => agent == null || (agent === "1" ? e.via === "agent" : e.via !== "agent");
           return json({
             entries: r.entries
               .filter((x) => keep(x.entry))
               .map((x) => ({ seq: x.entry.seq, ts: x.entry.ts, author: x.entry.author, via: x.entry.via ?? null, type: x.entry.type, title: x.entry.title ?? null, snippet: x.snippet || x.entry.text.slice(0, 200) })),
             files: scope === "chat" || from || type ? [] : r.files,
+            more: r.more,
           }, 200, { "cache-control": "no-store" });
         }
         // grep for agents: exact matching lines, one per hit (grep.ts). Members only (canSee above).
@@ -3024,7 +3193,9 @@ const handler = {
         const board = body.board && (await canSee(c, body.board)) ? body.board : null;
         const days = Number(body.expires_in_days);
         const expiresAt = Number.isFinite(days) && days >= 1 ? Date.now() + Math.min(365, Math.floor(days)) * 86400e3 : null;
-        const t = await auth.createToken(env, viewer.name, String(body.label ?? "").slice(0, 80) || "Agent", { expiresAt });
+        const label = String(body.label ?? "").slice(0, 80) || "Agent";
+        const t = await auth.createToken(env, viewer.name, label, { expiresAt });
+        await accountlog.record(env, viewer.name, "token.created", request, { label, kind: "manual" });
         return json(
           {
             id: t.id,
@@ -3042,12 +3213,16 @@ const handler = {
         if (!viewer) return needLogin();
         const [tokens, ended] = await Promise.all([auth.revokeAllTokens(env, viewer.name), sessions.endAll(env, viewer.name)]);
         await env.DB.prepare(`DELETE FROM mcp_sessions WHERE user = ?`).bind(viewer.name).run();
+        await accountlog.record(env, viewer.name, "tokens.revoked_all", request, { label: `${tokens} sign-in${tokens === 1 ? "" : "s"}` });
         return json({ ok: true, tokens, sessions: ended, message: `Disconnected: ${tokens} sign-in${tokens === 1 ? "" : "s"} revoked and ${ended} agent session${ended === 1 ? "" : "s"} ended. Run atteo login to connect again.` });
       }
       m = path.match(/^\/api\/tokens\/([^/]+)\/revoke$/);
       if (m && method === "POST") {
         if (!viewer) return needLogin();
-        return (await auth.revokeToken(env, viewer.name, m[1])) ? json({ ok: true, message: "Revoked" }) : json({ error: "token not found" }, 404);
+        const gone = await auth.revokeToken(env, viewer.name, m[1]);
+        if (!gone) return json({ error: "token not found" }, 404);
+        await accountlog.record(env, viewer.name, "token.revoked", request, { label: gone.label, kind: gone.kind });
+        return json({ ok: true, message: "Revoked" });
       }
 
       // ---- ops API: operator session or x-admin-key (automation and tests) ----
@@ -3094,6 +3269,7 @@ const handler = {
           const ttl = Number(body.expires_in_s);
           // kind "app": a token as the Atteo app would get (tests and simulator runs only; people get theirs by signing in).
           const t = await auth.createToken(env, u, body.label || "ops-issued", { ...(Number.isFinite(ttl) ? { expiresAt: Date.now() + ttl * 1000 } : {}), ...(body.kind === "app" ? { kind: "app" as const } : {}) });
+          await accountlog.record(env, u, "token.created", request, { label: body.label || "ops-issued", kind: body.kind === "app" ? "app" : "manual", client: "operator" });
           return json({ token: t.token, command: connectCommand(origin, body.board ?? null, t.token) }, 201);
         }
         if (path === "/api/ops/sessions" && method === "POST") {
@@ -3107,6 +3283,7 @@ const handler = {
             email_verified: String(body.verified) === "true",
             display_name: row.display_name,
           });
+          await accountlog.record(env, row.name, "signin.web", request, { client: "operator" });
           return json({ cookie: `${auth.SESSION_COOKIE}=${secret}` }, 201);
         }
         if (path === "/api/ops/policies" && method === "GET") return json({ policies: (await env.DB.prepare(`SELECT * FROM org_policies ORDER BY domain`).all()).results });
@@ -3154,6 +3331,19 @@ const handler = {
         if (path === "/api/ops/cron" && method === "POST") {
           const at = Number((body as { now?: unknown }).now);
           return json({ ok: true, ...(await runScheduled(env, ctx, Number.isFinite(at) && at > 0 ? at : Date.now())) });
+        }
+        // Backups outside Cloudflare (src/backup.ts): the last two weeks; run tonight's share now (tests: at `now`); and the
+        // restore drill's board half (localhost, or BACKUP_RESTORE=1 for a real recovery): replaces that board's tables.
+        if (path === "/api/ops/backups" && method === "GET") return json(await backup.backupStatus(env));
+        if (path === "/api/ops/backup" && method === "POST") {
+          const at = Number((body as { now?: unknown }).now);
+          return json({ ok: true, ...(await backup.backupTick(env, Number.isFinite(at) && at > 0 ? at : Date.now(), (id, day) => boardStub(env, id).backup(day))) });
+        }
+        if (path === "/api/ops/restore-board" && method === "POST") {
+          if (env.BACKUP_RESTORE !== "1" && !isLocalHost(url.hostname)) return json({ error: "restore-board runs on localhost, or with BACKUP_RESTORE=1" }, 400);
+          const b = body as { board?: unknown; tables?: unknown; append?: unknown };
+          if (typeof b.board !== "string" || !BOARD_RE.test(b.board) || !b.tables || typeof b.tables !== "object") return json({ error: "board and tables required" }, 400);
+          return json({ ok: true, ...(await boardStub(env, b.board).restoreTables(b.tables as import("./backupcore").DumpTables, b.append === true)) });
         }
         if (path === "/api/ops/seed" && method === "POST") {
           const u = normalizeUser(body.user);

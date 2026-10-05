@@ -15,7 +15,7 @@ export interface InboxItem {
   board_id: string;
   board_title: string | null;
   seq: number;
-  kind: "mention" | "agent" | "reply" | "friend_request" | "friend_accept" | "approval" | "contact_request" | "contact_accept" | "decision" | "people_only" | "manual_unread" | "reminder";
+  kind: "mention" | "agent" | "reply" | "friend_request" | "friend_accept" | "approval" | "contact_request" | "contact_accept" | "decision" | "people_only" | "manual_unread" | "reminder" | "report";
   actor: string;
   actor_via: string | null;
   entry_type: string;
@@ -37,8 +37,10 @@ function withPush(r: InboxRow): InboxItem {
   const { data, ...item } = r;
   if (!data) return item;
   try {
-    const d = JSON.parse(data) as { push?: InboxItem["push"]; broadcast?: boolean; reminded?: number };
-    const out: InboxItem = { ...item, ...(d.broadcast ? { broadcast: true } : {}), ...(d.reminded ? { reminded: true } : {}) };
+    const d = JSON.parse(data) as { push?: InboxItem["push"]; broadcast?: boolean; reminded?: number; entry?: number };
+    // A report's row has a key of its own (src/moderation.ts); the entry it's about is data.entry, which links use as seq.
+    const at = item.kind === "report" && Number.isSafeInteger(d.entry) ? { seq: d.entry! } : {};
+    const out: InboxItem = { ...item, ...at, ...(d.broadcast ? { broadcast: true } : {}), ...(d.reminded ? { reminded: true } : {}) };
     return d.push ? { ...out, approval_id: d.push.approval, push: d.push } : out;
   } catch {
     return item;
@@ -83,7 +85,7 @@ export async function digestDue(env: Env, user: string, levels: Record<string, L
 }
 
 /** People-only items (a message only the people named can see) go to person callers only: agent tokens read this API too. */
-const NOT_PEOPLE = (person: boolean, col = "kind") => (person ? "" : ` AND ${col} NOT IN ('people_only', 'manual_unread', 'reminder')`);
+const NOT_PEOPLE = (person: boolean, col = "kind") => (person ? "" : ` AND ${col} NOT IN ('people_only', 'manual_unread', 'reminder', 'report')`);
 
 export async function listInbox(env: Env, user: string, limit = 100, person = false): Promise<InboxItem[]> {
   const r = await env.DB.prepare(
@@ -162,6 +164,7 @@ const VERB: Record<InboxItem["kind"], string> = {
   people_only: "wrote to you privately (only people can see it)",
   manual_unread: "marked this board unread",
   reminder: "is ready for you",
+  report: "reported a post to you, as an owner",
 };
 
 /** Pairs an approval notification with its approval: by id when the row carries one, else by the moment it was asked. */

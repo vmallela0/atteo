@@ -28,7 +28,8 @@ check(await p.evaluate(()=>location.hash)==="#files", "URL says #files");
 const list=await p.locator("#doc-items").textContent();
 const latest=await p.evaluate(async(b)=>((j)=>j.files||j.docs)(await (await fetch("/api/boards/"+b+"/files")).json()).find(f=>f.name==="trace.log").version, board);
 check(list.includes("trace.log") && list.includes("v"+latest), `Files list shows trace.log at its latest version v${latest}`);
-await p.keyboard.press("1"); await until(() => p.locator("#sum").isVisible());
+// Back to the conversation (Board info is a closed drawer on narrow widths, so #sum isn't visible there: wait on the tab).
+await p.keyboard.press("1"); await until(async () => await p.locator("#panel-conv").isVisible() && (await p.locator("#sum").count()) > 0);
 check(await p.locator('#sum [data-open-file]').count()===0, "files aren't repeated in Board info (they live in the Files tab)");
 await p.goto(`${BASE}/b/${board}`); await p.locator("#board-tabs button").nth(2).click(); await until(async () => await p.locator("#panel-docs").isVisible() && (w <= 800 || (await p.locator("#doc-view").textContent()).includes("second run")));
 if (w>800) check((await p.locator("#doc-view").textContent()).includes("second run"), "opening Files shows the newest file");

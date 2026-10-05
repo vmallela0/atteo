@@ -4,7 +4,7 @@ import { boardPage, entryHtml } from "../src/html";
 import { fence, neutralize } from "../src/screen";
 import { formatEntry } from "../src/state";
 import type { BoardInfo, Entry } from "../src/types";
-import { renderText } from "../src/ui";
+import { APP_JS, renderText } from "../src/ui";
 import { esc } from "../src/util";
 
 // Explicit bidi formatting: embeddings, overrides, isolates, and their pops.
@@ -67,7 +67,7 @@ describe("bidi overrides", () => {
       [{ user: "jxn", display_name: null, last_seen: 0 }],
       [],
       [],
-    ).text();
+    ).text() + APP_JS; // the shell script the page loads from /app.js
     const start = html.indexOf("function bidi(s)");
     const end = html.indexOf("function esc(s)");
     expect(start).toBeGreaterThan(-1);

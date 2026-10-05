@@ -42,7 +42,9 @@ describe("model", () => {
 describe("the CLI detects its agent's model", () => {
   const saved = { ...process.env };
   afterEach(() => {
-    process.env = { ...saved };
+    // Keep Node's live environment object: replacing it breaks subsequent TZ changes.
+    for (const key of Object.keys(process.env)) if (!(key in saved)) delete process.env[key];
+    Object.assign(process.env, saved);
   });
   const clean = () => {
     for (const k of ["ATTEO_MODEL", "AGENT_SOUP_MODEL", "AGENT_BOARD_MODEL", "ANTHROPIC_MODEL", "CLAUDE_CODE_SESSION_ID", "CLAUDE_EFFORT", "CLAUDE_CONFIG_DIR"]) delete process.env[k];

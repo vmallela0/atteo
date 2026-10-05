@@ -7,7 +7,7 @@ import { SHOTS_DIR } from "./lib/shots.mjs";
 import { chromium } from "playwright-core";
 import { spawn } from "node:child_process";
 import { d1Execute } from "./lib/d1.mjs";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 const BASE=process.env.BASE||"http://localhost:8787", WT=new URL("../../", import.meta.url).pathname, CLI=WT+"cli/dist/agent-soup.mjs";
@@ -31,6 +31,10 @@ const login=async(u,opts={})=>{const ck=(await ops("sessions",{user:u})).cookie;
 const errors=[];const watch=p=>p.on("pageerror",e=>errors.push(e.message));
 const post=async(p,text)=>{await p.locator("#composer-text").fill(text);await p.locator("form.composer button.primary").click()};
 const bodyOf=(p,text)=>p.locator("#thread .entry .e2e-text",{hasText:text});
+// The board's log download (#3401): Members & access → This board → Download the log; the saved .jsonl, line by line.
+const logOf=async p=>{await p.locator('[data-open="invite"]').first().click();await p.locator("#log-export").waitFor();
+  const [dl]=await Promise.all([p.waitForEvent("download"),p.locator("#log-export").click()]);const t=readFileSync(await dl.path(),"utf8");
+  await p.evaluate(()=>document.getElementById("invite").close());return t.split("\n").filter(Boolean).map(l=>JSON.parse(l))};
 const sealed=async()=>(await fetch(`${BASE}/api/boards/${board}/sealed?after=0`,{headers:{authorization:`Bearer ${tok[A]}`}}).then(r=>r.json())).entries;
 
 // B's CLI is on the board first (its key exists, so the web wraps epoch 1 to it on first sight).
@@ -57,6 +61,8 @@ check(r.out.includes(`hello from the web ${run}`),"CLI reads what the web wrote"
 r=await cli(B,["post",`hello from the cli ${run}`]);
 await bodyOf(pa,`hello from the cli ${run}`).waitFor({timeout:8000}).catch(()=>{});
 check(await bodyOf(pa,`hello from the cli ${run}`).count()===1,`web reads what the CLI wrote, live (${r.code})`);
+const logA=await logOf(pa);
+check(logA.some(e=>e.text===`hello from the web ${run}`)&&logA.some(e=>e.text===`hello from the cli ${run}`)&&logA.every(e=>e.encrypted===true&&!("payload" in e)),`the log download is decrypted in this browser, never the ciphertext (${logA.length} lines)`);
 // Thread reply from the web, read by the CLI
 await pa.locator(`#thread .entry:has(.e2e-text:has-text("hello from the cli ${run}")) [data-reply]`).first().click();
 check(/hello from the cli/.test(await pa.locator("#replying").innerText()),"Reply points the composer at the message (its decrypted first line shows in the reply line)");
@@ -91,6 +97,8 @@ const wait=await until(()=>pb.locator("#e2e-msg").innerText().catch(()=>""),t=>/
 await until(()=>pb.locator("#thread .e2e-none").count(),n=>n>=3);
 check(/waiting for the board's key/.test(wait)&&await pb.locator("form.composer").isHidden(),"Bob's new browser waits for the key (no composer)");
 check(await pb.locator("#thread .e2e-none").count()>=3&&await pb.locator("#thread .e2e-text").count()===0,"…messages show \"Can't read this on this device yet\"");
+const logB=await logOf(pb);
+check(logB.length>=3&&logB.every(e=>/^\(Can't /.test(e.text))&&!JSON.stringify(logB).includes(`hello from`),`…its log download keeps each entry with the reason instead (${JSON.stringify(logB[0]?.text).slice(0,60)})`);
 await pb.screenshot({path:`${SHOTS_DIR}/e2e-waiting-light.png`});
 await pa.evaluate(()=>e2eSync());await pa.waitForTimeout(400); // a negative: nothing should be granted
 await pb.evaluate(()=>e2eSync());await pb.waitForTimeout(400);

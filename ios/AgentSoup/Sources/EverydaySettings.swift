@@ -54,6 +54,8 @@ struct EverydaySettings: View {
             }
             .listRowBackground(Theme.card)
 
+            ReportBugRow() // Report a bug (ReportBug.swift), where it's easy to find
+
             NotificationsSection()
 
             Section {

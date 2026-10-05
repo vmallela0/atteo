@@ -119,6 +119,20 @@ final class API: @unchecked Sendable {
         return try check(data, resp)
     }
 
+    /// One POST of a ready body (multipart, say) with no retries, answering with the status and body as they came (a 401
+    /// still signs you out): for callers that tell the server's answers apart themselves (Report a bug: 501 means the
+    /// server has no bug board).
+    func post(_ path: String, body: Data, contentType: String) async throws -> (status: Int, data: Data) {
+        var r = try request("POST", path, idempotencyKey: UUID().uuidString, timeout: 30)
+        r.setValue(contentType, forHTTPHeaderField: "content-type")
+        r.httpBody = body
+        let data: Data, resp: URLResponse
+        do { (data, resp) = try await session.data(for: r) } catch { throw APIError.offline }
+        guard let http = resp as? HTTPURLResponse else { throw APIError.offline }
+        if http.statusCode == 401 { _ = try check(data, resp) }
+        return (http.statusCode, data)
+    }
+
     /// A write. Safe to retry (Idempotency-Key): network errors, 408, 429 and 5xx are retried for about two minutes.
     @discardableResult
     func send(_ path: String, method: String = "POST", body: Any? = [String: Any](), retries: Bool = true) async throws -> Data {

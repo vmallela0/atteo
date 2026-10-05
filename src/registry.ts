@@ -1,5 +1,6 @@
 // D1 directory: which boards exist, who uses them, and invites. Kept in step with the boards by the Worker.
 
+import { AUDIT_EXPORT_LIMIT, AUDIT_EXPORT_NO_REPORTS_SQL, AUDIT_EXPORT_SQL, type AuditExportRow } from "./auditExport";
 import { checkOutsideMember } from "./policy";
 import { checkCanAddMember } from "./billing";
 import { agentNameIndex, foldAgentName } from "./mentions";
@@ -143,8 +144,14 @@ export async function audit(env: Env, boardId: string, actor: string, action: st
   await env.DB.prepare(`INSERT INTO audit (board_id, actor, action, target, detail, ts) VALUES (?, ?, ?, ?, ?, ?)`).bind(boardId, actor, action, target, detail, Date.now()).run();
 }
 
-export async function auditLog(env: Env, boardId: string, limit = 100) {
-  return (await env.DB.prepare(`SELECT actor, action, target, detail, ts FROM audit WHERE board_id = ? ORDER BY ts DESC, id DESC LIMIT ?`).bind(boardId, limit).all<{ actor: string; action: string; target: string | null; detail: string | null; ts: number }>()).results;
+/** The board's access log, newest first. Reports (#3602) only for its owners (owner: true). */
+export async function auditLog(env: Env, boardId: string, limit = 100, owner = true) {
+  return (await env.DB.prepare(`SELECT actor, action, target, detail, ts FROM audit WHERE board_id = ?${owner ? "" : " AND action != 'reported'"} ORDER BY ts DESC, id DESC LIMIT ?`).bind(boardId, limit).all<{ actor: string; action: string; target: string | null; detail: string | null; ts: number }>()).results;
+}
+
+/** One page of the access audit in append order, plus a lookahead row when another page exists. */
+export async function auditExportRows(env: Env, boardId: string, afterId: number, owner = true): Promise<AuditExportRow[]> {
+  return (await env.DB.prepare(owner ? AUDIT_EXPORT_SQL : AUDIT_EXPORT_NO_REPORTS_SQL).bind(boardId, afterId, AUDIT_EXPORT_LIMIT + 1).all<AuditExportRow>()).results;
 }
 
 /** Memberships whose time ran out: removed (with an audit entry) by the scheduled cleanup. */

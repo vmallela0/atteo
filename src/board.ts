@@ -20,13 +20,16 @@ import type { RecapCore, RecapOwner, RecapTask } from "./recap";
 import type { ForYouCore } from "./forYou";
 import { cleanMatch, cleanTrigger, eventLine, lastOccurrence, matches, MAX_FIRES_PER_HOUR, MAX_TRIGGERS, minuteOf, SCHEDULE_GRACE_MS, type Trigger, type TriggerEvent, type TriggerMatch } from "./triggers";
 import { offBoardSeq } from "./util";
-import { compileGrep, grepFtsQuery, grepText, newBudget, GREP_CANDIDATES, GREP_DEFAULT_MAX, GREP_HARD_MAX, GREP_RECENT, type BoardGrepOpts, type BoardGrepResult } from "./grep";
+import { compileGrep, grepFtsQuery, scanGrepText, newBudget, isBoardGrepCursor, compactHitLine, cursorKey, decodeCursor, encodeCursor, trimLine, GREP_CANDIDATES, GREP_DEFAULT_MAX, GREP_HARD_MAX, GREP_RECENT, type BoardGrepOpts, type BoardGrepResult } from "./grep";
 import { audienceOk, audienceWord, canSee, ownByDefault, OWN_DEFAULT_MS, OWN_MAIL_HINT, PEOPLE_ONLY_TYPES, type Audience } from "./audience";
 import { cleanSchedule, MAX_SCHEDULES, nextDue, lastDue, scheduleLabel, SCHEDULE_FIRES_PER_HOUR, taskText, tickAction, type Day, type Schedule } from "./schedules";
 import { LEASE_CAP_MS, RENEW_EVERY_MS, renewedUntil } from "./leases";
 import { similarOpen, taskTitleKey } from "./taskTitles";
 import { prepareEntryData, readEntryData, screenedText } from "./entryData";
 import { withinEditWindow } from "./editMessage";
+import { backupConfig, blobPartKey, objectKey, uploadPart, type PartResult } from "./backup";
+import { decodeValue, encodeValue, type DumpTables } from "./backupcore";
+import { mutersOf } from "./moderation";
 
 export const MAX_TEXT = 32_000;
 export const MAX_ARTIFACT = 256_000;
@@ -93,6 +96,7 @@ export interface TaskView {
   due: number | null;
   lease_holder: string | null;
   lease_agent: boolean;
+  lease_session_name: string | null; // the agent session holding the claim ("alt-b" → "jxn/alt-b has it", #3474)
   lease_until: number | null;
   stop_reason: string | null;
   done_note: string | null; // what the one who finished it said (shown on the task, not posted)
@@ -121,6 +125,10 @@ export interface TaskActOpts {
   session?: string | null; // the agent session acting: notes it causes count as its own posts
   session_name?: string | null; // its name, for "is on it" labels
 }
+
+/** Who holds a task's claim, as headers say it: "jxn/alt-b" for a named agent session, else "jxn's agent" or "jxn". */
+export const holderLabel = (t: Pick<TaskView, "lease_holder" | "lease_agent" | "lease_session_name">): string =>
+  !t.lease_holder ? "" : t.lease_agent ? (t.lease_session_name ? `${t.lease_holder}/${t.lease_session_name}` : `${t.lease_holder}'s agent`) : t.lease_holder;
 
 /** Who "is on it": "<user>/<session name>", the one shape for taking by reply, by finishing a task and by handle. The
  *  client's first part ("scout · Codex") is only a fallback for callers that don't send the name. */
@@ -332,6 +340,8 @@ export class Board extends DurableObject<Env> {
         card_diff TEXT,
         data TEXT
       );
+      -- Purged entries (purge): who removed each, so it isn't purged twice and the log can say so.
+      CREATE TABLE IF NOT EXISTS purged (seq INTEGER PRIMARY KEY, by_user TEXT NOT NULL, via TEXT NOT NULL, ts INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS entry_versions (seq INTEGER NOT NULL, version INTEGER NOT NULL, text TEXT NOT NULL, ts INTEGER NOT NULL, PRIMARY KEY (seq, version));
       CREATE TABLE IF NOT EXISTS edit_notices (user TEXT NOT NULL, session TEXT NOT NULL, seq INTEGER NOT NULL, edited_at INTEGER NOT NULL, PRIMARY KEY (user, session, seq));
       CREATE TABLE IF NOT EXISTS reactions (
@@ -726,7 +736,7 @@ export class Board extends DurableObject<Env> {
       if (!taskCols.has(col)) this.sql.exec(`ALTER TABLE tasks ADD COLUMN ${col} ${def}`);
     }
     // A claim by an agent session renews while that session is around (leases.ts): who, for how long, until when at most.
-    for (const [col, def] of [["lease_session", "TEXT"], ["lease_mins", "INTEGER"], ["lease_cap", "INTEGER"]]) {
+    for (const [col, def] of [["lease_session", "TEXT"], ["lease_mins", "INTEGER"], ["lease_cap", "INTEGER"], ["lease_session_name", "TEXT"]]) {
       if (!taskCols.has(col)) this.sql.exec(`ALTER TABLE tasks ADD COLUMN ${col} ${def}`);
     }
     this.sql.exec("CREATE INDEX IF NOT EXISTS tasks_lease_session ON tasks(lease_session) WHERE lease_session IS NOT NULL");
@@ -1372,7 +1382,8 @@ export class Board extends DurableObject<Env> {
     if (people) {
       if (entry.retracts == null && !internal.system && !internal.notice) {
         const excerpt = internal.sealed || info.encrypted ? "🔒 encrypted" : entry.text.replace(/\s+/g, " ").trim().slice(0, 160);
-        const to = people.filter((u) => u !== entry.author);
+        const muters = await mutersOf(this.env.DB, info.id, entry.author).catch(() => new Set<string>());
+        const to = people.filter((u) => u !== entry.author && !muters.has(u)); // muted (#3602): no notification
         if (to.length) {
           this.ctx.waitUntil(
             this.env.DB.batch(
@@ -2451,6 +2462,74 @@ export class Board extends DurableObject<Env> {
     return toEntry(this.sql.exec(`SELECT ${ENTRY_COLS} FROM entries WHERE seq = ?`, seq).one());
   }
 
+  /**
+   * Purge (GAPS P0 #7): a secret that got past the filter goes for good, where retracting only hides it. The entry keeps
+   * its number, author, time and thread (so references still resolve); its text, title, card, data, edit history, task
+   * body and versions, memory items taken from it, the file versions it published (and a doc's current copy when it is
+   * that version), search rows, and the inbox, tape and board-list excerpts go. Its author may purge it (an agent only
+   * what an agent posted); an owner (a person) any. Copies already sent (webhooks, email, backups) are out of reach.
+   */
+  async purge(user: string, seq: number, opts: { via: "agent" | "person"; owner: boolean }): Promise<{ seq: number; files: string[]; removed: string }> {
+    const info = this.info();
+    if (info.archived) throw new BoardError(archivedError(info.id));
+    const row = this.sql.exec(`SELECT ${ENTRY_COLS} FROM entries WHERE seq = ?`, seq).toArray()[0];
+    if (!row || !this.visible(seq, { user, person: opts.via === "person" })) throw new BoardError(`Entry #${seq} does not exist on this board.`);
+    const e = toEntry(row);
+    const mine = e.author === user && (opts.via === "person" || e.via === "agent");
+    const owner = opts.via === "person" && (opts.owner || info.created_by === user);
+    if (!mine && !owner) {
+      throw new BoardError(opts.via === "agent" ? `An agent can purge only what an agent of ${user} posted; #${seq} is ${e.author}'s${e.via === "person" ? " own message" : ""}. Ask your person (or an owner of the board) to purge it.` : `Only ${e.author} (who posted #${seq}) or an owner of this board can purge it.`);
+    }
+    if (this.sql.exec("SELECT 1 AS x FROM purged WHERE seq = ?", seq).toArray().length) throw new BoardError(`#${seq} is already purged.`);
+    const removed = `(removed by ${opts.via === "agent" ? `${user}'s agent` : user})`;
+    const now = Date.now();
+    // The directory's copies first (so a failure here leaves it purgeable again): inbox and mailbox excerpts (reminders
+    // included), trigger mail's event line, the tape, the board list's last line, and an audit row (the access log says
+    // who purged which entry, never what it said).
+    await this.env.DB.batch([
+      this.env.DB.prepare("UPDATE notifications SET excerpt = ? WHERE board_id = ? AND seq = ?").bind(removed, info.id, seq),
+      this.env.DB.prepare("UPDATE notifications SET data = json_set(data, '$.event.line', ?) WHERE board_id = ? AND kind = 'trigger' AND json_extract(data, '$.event.seq') = ?").bind(`#${seq} ${removed}`, info.id, seq),
+      this.env.DB.prepare("UPDATE tape SET excerpt = ? WHERE board_id = ? AND seq = ?").bind(removed, info.id, seq),
+      this.env.DB.prepare("UPDATE boards SET last_excerpt = ? WHERE id = ? AND last_author = ? AND last_activity = ?").bind(removed, info.id, e.author, e.ts),
+      this.env.DB.prepare("INSERT INTO audit (board_id, actor, action, target, detail, ts) VALUES (?, ?, 'purge', ?, ?, ?)").bind(info.id, user, `#${seq}`, `${e.type} by ${e.author}${opts.via === "agent" ? ", purged by their agent" : ""}`, now),
+    ]);
+    this.sql.exec("UPDATE entries SET text = ?, title = NULL, artifact_content = NULL, card = NULL, card_diff = NULL, data = NULL, handoff = NULL, sealed = NULL WHERE seq = ?", removed, seq);
+    this.sql.exec("INSERT OR IGNORE INTO purged (seq, by_user, via, ts) VALUES (?, ?, ?, ?)", seq, user, opts.via, now);
+    this.sql.exec("DELETE FROM entry_versions WHERE seq = ?", seq);
+    this.sql.exec("DELETE FROM search_idx WHERE kind IN ('entry', 'task') AND ref = ?", String(seq));
+    if (this.sql.exec("SELECT 1 AS x FROM tasks WHERE seq = ?", seq).toArray().length) {
+      this.sql.exec("UPDATE tasks SET title = ?, body = NULL WHERE seq = ?", removed, seq);
+      this.sql.exec("DELETE FROM task_versions WHERE seq = ?", seq);
+    }
+    const mem = this.sql.exec("SELECT id FROM memory WHERE source_seq = ?", seq).toArray();
+    if (mem.length) {
+      const v = this.bumpMemV();
+      this.sql.exec("UPDATE memory SET text = ?, norm = ?, struck_by = COALESCE(struck_by, ?), struck_ts = COALESCE(struck_ts, ?), struck_v = COALESCE(struck_v, ?) WHERE source_seq = ?", removed, `purged ${seq}`, user, now, v, seq);
+    }
+    // The file versions this entry published: their contents and bytes; the doc's current copy too when it is one of them.
+    const files = [...(e.attachments ?? []).map((a) => ({ name: a.name, version: a.version })), ...(e.artifact_name && e.artifact_version != null ? [{ name: e.artifact_name, version: e.artifact_version }] : [])]
+      .filter((f, i, all) => f.version != null && all.findIndex((g) => g.name === f.name && g.version === f.version) === i);
+    for (const f of files) {
+      this.sql.exec("UPDATE doc_versions SET content = ?, summary = NULL WHERE name = ? AND version = ?", removed, f.name, f.version);
+      this.sql.exec("DELETE FROM blobs WHERE name = ? AND version = ?", f.name, f.version);
+      if (this.sql.exec("SELECT 1 AS x FROM docs WHERE name = ? AND version = ?", f.name, f.version).toArray().length) {
+        this.sql.exec("UPDATE docs SET content = ? WHERE name = ?", removed, f.name);
+        this.sql.exec("DELETE FROM search_idx WHERE kind = 'doc' AND ref = ?", f.name);
+      }
+    }
+    // Agent sessions that read it hear "#N edited", so they drop what they hold (none for People only: they never saw it).
+    if (e.audience !== "people") {
+      for (const r of this.sql.exec("SELECT session, user FROM session_cursors WHERE cursor >= ?", seq).toArray())
+        if (e.audience !== "own" || r.user === e.author)
+          this.sql.exec("INSERT INTO edit_notices (user, session, seq, edited_at) VALUES (?, ?, ?, ?) ON CONFLICT(user, session, seq) DO UPDATE SET edited_at = excluded.edited_at", r.user, r.session, seq, now);
+    }
+    this.entryMemo = [];
+    this.entryMemoTo = 0;
+    this.changes++;
+    this.broadcast({ type: "edit", seq, board: info.id }, seq);
+    return { seq, files: files.map((f) => `${f.name} v${f.version}`), removed };
+  }
+
   editHistory(seq: number, viewer: Viewer): { version: number; text: string; ts: number }[] {
     const entry = this.sql.exec(`SELECT ${ENTRY_COLS} FROM entries WHERE seq = ?`, seq).toArray()[0];
     if (!entry || !canSee(toEntry(entry), viewer)) throw new BoardError(`Entry #${seq} does not exist on this board.`);
@@ -2502,53 +2581,102 @@ export class Board extends DurableObject<Env> {
    */
   async rankedSearch(
     query: string,
-    opts: { author?: string; type?: string; limit?: number } = {},
+    opts: { author?: string; type?: string; limit?: number; more?: string } = {},
     viewer?: Viewer | null, // absent: an agent's search (no people-only entries)
-  ): Promise<{ entries: { entry: Entry; snippet: string }[]; files: { name: string; version: number; snippet: string }[] }> {
-    this.info();
+  ): Promise<{ entries: { entry: Entry; snippet: string }[]; files: { name: string; version: number; snippet: string; author?: string; ts?: number }[]; more: string | null; compact: string }> {
+    const info = this.info();
     const match = ftsQuery(query);
-    if (!match) return { entries: [], files: [] };
     const limit = clamp(opts.limit ?? 20, 1, 100);
-    let rows: Row[];
-    try {
-      rows = this.sql
-        .exec(
-          "SELECT kind, ref, snippet(search_idx, 0, '«', '»', ' … ', 16) AS snip FROM search_idx WHERE search_idx MATCH ? ORDER BY bm25(search_idx, 1.0, 4.0) LIMIT 500",
-          match,
-        )
-        .toArray();
-    } catch {
-      // Anything FTS can't parse falls back to plain substring search.
-      return { entries: (await this.search(query, opts, viewer)).map((entry) => ({ entry, snippet: "" })), files: [] };
-    }
-    // A task's live title/body is indexed as kind "task"; it points at the task's entry like an entry hit.
-    const isEntry = (r: Row) => r.kind === "entry" || r.kind === "task";
-    const seqs = rows.filter(isEntry).map((r) => Number(r.ref));
-    const bySeq = new Map<number, Entry>();
-    if (seqs.length) {
-      // SQLite in a Durable Object takes at most 100 bound values per statement: look them up 90 at a time.
-      for (let i = 0; i < seqs.length; i += 90) {
-        const chunk = seqs.slice(i, i + 90);
-        for (const r of this.sql.exec(`SELECT ${ENTRY_COLS} FROM entries WHERE seq IN (${chunk.map(() => "?").join(",")})`, ...chunk).toArray()) {
-          const e = toEntry(r);
-          if (canSee(e, viewer)) bySeq.set(e.seq, e); // a people-only hit is no hit for anyone outside its people
-        }
-      }
+    const key = cursorKey(["search", info.id, query, opts.author ?? null, opts.type ?? null, viewer ?? null]);
+    type Position = { score: number; row: number } | { before: number };
+    let position: Position | null = null;
+    if (opts.more) {
+      position = decodeCursor(key, opts.more) as Position;
+      if (!position || typeof position !== "object" || (!("before" in position) && !("score" in position))) throw new BoardError("Invalid more cursor.");
+      if ("before" in position ? !Number.isSafeInteger(position.before) || position.before <= 0 : !Number.isFinite(position.score) || !Number.isSafeInteger(position.row) || position.row <= 0) throw new BoardError("Invalid more cursor.");
     }
     const entries: { entry: Entry; snippet: string }[] = [];
-    const files: { name: string; version: number; snippet: string }[] = [];
+    const files: { name: string; version: number; snippet: string; author?: string; ts?: number }[] = [];
+    let more: string | null = null;
+    const result = () => {
+      const lines: string[] = [];
+      if (files.length) lines.push("Files (latest version; read with doc):", ...files.map((f) => `${f.name} v${f.version} · ${f.author ?? "—"} · ${f.ts ? new Date(f.ts).toISOString().slice(5, 10) : "—"} · ${trimLine(f.snippet.replace(/\s+/g, " "))}`));
+      if (entries.length) lines.push(`Entries, best match first (${entries.length}):`, ...entries.map(({ entry, snippet }) => compactHitLine({ seq: entry.seq, author: entry.author, ts: entry.ts, text: trimLine((snippet || entry.text).replace(/\s+/g, " ")) })));
+      if (more) lines.push(`more: ${more}`);
+      return { entries, files, more, compact: lines.join("\n") };
+    };
+    if (!match) return result();
+    const fallback = async () => {
+      const found = await this.search(query, { ...opts, limit, before: position && "before" in position ? position.before : undefined }, viewer);
+      for (const entry of found) entries.push({ entry, snippet: "" });
+      if (entries.length >= limit) more = encodeCursor(key, { before: entries[entries.length - 1].entry.seq });
+      return result();
+    };
+    if (position && "before" in position) return fallback();
+    let rows: Iterable<Row>;
+    try {
+      const after = position && "score" in position ? position : null;
+      rows = this.sql.exec(`SELECT rowid AS pos, kind, ref, bm25(search_idx, 1.0, 4.0) AS score,
+        snippet(search_idx, 0, '«', '»', ' … ', 16) AS snip FROM search_idx WHERE search_idx MATCH ?
+        ${after ? "AND (bm25(search_idx, 1.0, 4.0) > ? OR (bm25(search_idx, 1.0, 4.0) = ? AND rowid > ?))" : ""}
+        ORDER BY score, rowid LIMIT 501`, match, ...(after ? [after.score, after.score, after.row] : []));
+    } catch { return fallback(); }
+    const seen = new Set<number>();
+    let batch: Row[] = [];
+    let last: Position | null = null;
+    let scanned = 0;
+    let full = false;
     const filtered = !!(opts.author || opts.type);
-    for (const r of rows) {
-      if (isEntry(r)) {
-        const e = bySeq.get(Number(r.ref));
-        if (!e || entries.some((x) => x.entry.seq === e.seq) || (opts.author && e.author !== opts.author) || (opts.type && e.type !== opts.type)) continue;
-        if (entries.length < limit) entries.push({ entry: e, snippet: r.snip as string });
-      } else if (!filtered && files.length < 10) {
-        const v = this.sql.exec("SELECT version FROM docs WHERE name = ?", r.ref).toArray()[0];
-        if (v) files.push({ name: r.ref as string, version: v.version as number, snippet: r.snip as string });
+    const flush = () => {
+      const candidates = batch;
+      batch = [];
+      if (!candidates.length || full) return;
+      const seqs = [...new Set(candidates.filter((r) => r.kind !== "doc").map((r) => Number(r.ref)))];
+      const bySeq = new Map<number, Entry>();
+      if (seqs.length) {
+        for (const r of this.sql.exec(`SELECT ${ENTRY_COLS} FROM entries WHERE seq IN (${seqs.map(() => "?").join(",")})`, ...seqs)) {
+          const e = toEntry(r);
+          if (canSee(e, viewer)) bySeq.set(e.seq, e);
+        }
       }
+      for (const r of candidates) {
+        last = { score: r.score as number, row: r.pos as number };
+        if (r.kind === "entry" || r.kind === "task") {
+          const e = bySeq.get(Number(r.ref));
+          if (!e || (opts.author && e.author !== opts.author) || (opts.type && e.type !== opts.type)) continue;
+          // An edited task is indexed twice: its first text (kind "entry") and its live title/body (kind "task").
+          // One hit per entry, and the live text's snippet wins whichever ranks first.
+          if (seen.has(e.seq)) {
+            if (r.kind === "task") { const hit = entries.find((x) => x.entry.seq === e.seq); if (hit) hit.snippet = r.snip as string; }
+            continue;
+          }
+          seen.add(e.seq);
+          entries.push({ entry: e, snippet: r.snip as string });
+        } else if (!filtered && files.length < 10) {
+          const d = this.sql.exec("SELECT version, updated_by, updated_at FROM docs WHERE name = ?", r.ref).toArray()[0];
+          if (d) files.push({ name: r.ref as string, version: d.version as number, snippet: r.snip as string, author: d.updated_by as string, ts: d.updated_at as number });
+        }
+        if (entries.length >= limit) { full = true; more = encodeCursor(key, last); break; }
+      }
+    };
+    for (const r of rows) {
+      if (++scanned > 500) {
+        flush();
+        if (!full && last) more = encodeCursor(key, last);
+        break;
+      }
+      batch.push(r);
+      if (batch.length >= Math.min(90, Math.max(1, limit - entries.length))) flush();
+      if (full) break;
     }
-    return { entries, files };
+    flush();
+    return result();
+  }
+
+  /** Agent search only transports the compact text over RPC; rankedSearch keeps full entries for existing callers. */
+  async searchLines(query: string, opts: { author?: string; type?: string; limit?: number; more?: string } = {}, viewer?: Viewer | null): Promise<{ text: string; count: number; more: string | null }> {
+    const r = await this.rankedSearch(query, opts, viewer);
+    return { text: r.compact, count: r.entries.length + r.files.length, more: r.more };
   }
 
   /** Lines in files (latest versions) containing `pattern` (case-insensitive text, or a simple regex), like grep -n. */
@@ -2591,11 +2719,12 @@ export class Board extends DurableObject<Env> {
   /**
    * grep for agents (grep.ts): exact matching lines in messages (and the latest file versions with files), newest first.
    * The FTS index picks up to GREP_CANDIDATES candidates from the pattern's literal words; only those are read and
-   * matched line by line. A pattern without a 3+ character literal scans just the newest GREP_RECENT entries.
+   * matched line by line. A pattern without a 3+ character literal scans GREP_RECENT entries per page.
+   * The continuation retains both the source position and its line number when a limit or budget is reached.
    */
   async grepLines(pattern: string, o: BoardGrepOpts = {}): Promise<BoardGrepResult> {
     const info = this.info();
-    const res: BoardGrepResult = { title: info.title, hits: [], encrypted: false, fallback: false, capped: false, budget: false };
+    const res: BoardGrepResult = { title: info.title, hits: [], encrypted: false, fallback: false, capped: false, budget: false, more: null };
     if (info.encrypted) return { ...res, encrypted: true };
     let m: ReturnType<typeof compileGrep>;
     try {
@@ -2603,6 +2732,7 @@ export class Board extends DurableObject<Env> {
     } catch (e) {
       throw new BoardError(e instanceof Error ? e.message : String(e));
     }
+    if (o.more && !isBoardGrepCursor(o.more)) throw new BoardError("Invalid more cursor.");
     const max = clamp(o.max ?? GREP_DEFAULT_MAX, 1, GREP_HARD_MAX);
     const context = clamp(o.context ?? 0, 0, 2);
     const budget = newBudget();
@@ -2610,83 +2740,95 @@ export class Board extends DurableObject<Env> {
     const sinceTs = o.sinceTs ?? 0;
     const files = !!o.files && !o.author && !o.type;
     const done = () => res.hits.length >= max || budget.hit;
-    // A private entry is no hit for anyone outside its audience.
-    const mayRead = (e: Row) => !e.audience || canSee({ audience: e.audience as Audience, to_people: JSON.parse((e.to_people as string | null) || "[]") }, o.viewer);
-    const keep = (e: Row) => (!o.author || e.author === o.author) && (!o.type || e.type === o.type) && (!sinceTs || (e.ts as number) >= sinceTs) && mayRead(e);
-    const fromEntry = (seq: number, author: string, text: string) => {
-      for (const h of grepText(text, m, { context, max: max - res.hits.length, budget })) res.hits.push({ seq, author, text: h.text });
+    const keep = (e: Row) => (!o.author || e.author === o.author) && (!o.type || e.type === o.type) && (!sinceTs || (e.ts as number) >= sinceTs) && canSee({ audience: e.audience as Audience, to_people: JSON.parse((e.to_people as string | null) || "[]") }, o.viewer);
+    const scan = (mode: "fts" | "entries" | "docs", pos: number, text: string, meta: { seq?: number; author?: string; file?: string; ts: number }) => {
+      const afterLine = o.more?.mode === mode && o.more.before === pos ? o.more.line : 0;
+      const r = scanGrepText(text, m, { context, max: max - res.hits.length, budget, afterLine });
+      const position = { mode, before: pos, ...(mode === "docs" ? { ts: meta.ts } : {}) };
+      for (const h of r.hits) res.hits.push({ ...meta, line: h.line, text: h.text, after: { ...position, line: h.line } });
+      res.more = done() ? { ...position, line: r.complete ? 0 : r.line } : null;
     };
-    const fromFile = (name: string, content: string) => {
-      for (const h of grepText(content, m, { context, max: max - res.hits.length, budget })) res.hits.push({ file: name, line: h.line, text: h.text });
-    };
+    const bound = (mode: string) => o.more?.mode === mode ? o.more.before : Number.MAX_SAFE_INTEGER;
+    const comparison = (mode: string) => o.more?.mode === mode && o.more.line > 0 ? "<=" : "<";
     const fts = grepFtsQuery(pattern, !!o.regex);
-    let rows: Iterable<Row> | null = null;
-    if (fts) {
-      try {
-        rows = this.sql.exec("SELECT kind, ref, body FROM search_idx WHERE search_idx MATCH ? ORDER BY rowid DESC LIMIT ?", fts, GREP_CANDIDATES);
-      } catch {
-        rows = null; // FTS couldn't take it: scan recent entries instead
-      }
-    }
-    if (rows) {
+    if (fts && (!o.more || o.more.mode === "fts")) {
+      // Live tasks have their own index row: don't also return their original posted text.
+      const rows = this.sql.exec(`SELECT rowid AS pos, kind, ref, ${files ? "CASE WHEN kind = 'doc' THEN body END" : "NULL"} AS body FROM search_idx WHERE search_idx MATCH ?
+        AND rowid ${comparison("fts")} ? AND (kind != 'entry' OR NOT EXISTS (SELECT 1 FROM tasks WHERE seq = CAST(search_idx.ref AS INTEGER)))
+        ${files ? "" : "AND kind != 'doc'"} ORDER BY rowid DESC LIMIT ?`, fts, bound("fts"), GREP_CANDIDATES + 1);
       let n = 0;
-      const seen = new Set<number>();
-      let batch: number[] = [];
-      // Candidates' entries (and live task text) 90 at a time: a Durable Object statement takes at most 100 bound values.
+      let last = 0;
+      let batch: Row[] = [];
       const flush = () => {
-        const seqs = batch;
+        const candidates = batch;
         batch = [];
-        if (!seqs.length || done()) return;
-        const marks = seqs.map(() => "?").join(",");
+        if (!candidates.length || done()) return;
+        const seqs = [...new Set(candidates.filter((r) => r.kind !== "doc").map((r) => Number(r.ref)))];
         const ents = new Map<number, Row>();
         const tasks = new Map<number, Row>();
-        for (const r of this.sql.exec(`SELECT seq, ts, author, type, text, audience, to_people FROM entries WHERE seq IN (${marks})`, ...seqs)) ents.set(r.seq as number, r);
-        for (const r of this.sql.exec(`SELECT seq, title, body FROM tasks WHERE seq IN (${marks})`, ...seqs)) tasks.set(r.seq as number, r);
-        for (const seq of seqs) {
-          if (done()) return;
-          const e = ents.get(seq);
-          if (!e || !keep(e)) continue;
-          const t = tasks.get(seq);
-          fromEntry(seq, e.author as string, t ? [t.title, t.body].filter(Boolean).join("\n") : (e.text as string));
+        if (seqs.length) {
+          const marks = seqs.map(() => "?").join(",");
+          for (const r of this.sql.exec(`SELECT seq, ts, author, type, text, audience, to_people FROM entries WHERE seq IN (${marks})`, ...seqs)) ents.set(r.seq as number, r);
+          const taskSeqs = candidates.filter((r) => r.kind === "task").map((r) => Number(r.ref));
+          if (taskSeqs.length) for (const r of this.sql.exec(`SELECT seq, title, body FROM tasks WHERE seq IN (${taskSeqs.map(() => "?").join(",")})`, ...taskSeqs)) tasks.set(r.seq as number, r);
         }
-      };
-      try {
-        for (const r of rows) {
-          n++;
+        for (const r of candidates) {
+          if (done()) return;
+          last = r.pos as number;
           if (r.kind === "doc") {
-            if (!files) continue;
-            flush(); // keep newest-first order
-            if (done()) break;
-            if (sinceTs && !this.sql.exec("SELECT 1 FROM docs WHERE name = ? AND updated_at >= ?", r.ref, sinceTs).toArray().length) continue;
-            fromFile(r.ref as string, r.body as string);
+            const d = this.sql.exec("SELECT updated_by, updated_at FROM docs WHERE name = ?", r.ref).toArray()[0];
+            if (d && (d.updated_at as number) >= sinceTs) scan("fts", last, r.body as string, { file: r.ref as string, author: d.updated_by as string, ts: d.updated_at as number });
           } else {
             const seq = Number(r.ref);
-            if (!(seq > sinceSeq) || seen.has(seq)) continue;
-            // An entry's indexed body starts with its text: words that matched without a matching line cost no entry read.
-            if (r.kind === "entry" && !grepText(String(r.body ?? "").slice(0, MAX_TEXT), m, { max: 1, budget }).length) continue;
-            seen.add(seq);
-            batch.push(seq);
-            if (batch.length >= 90) flush();
+            const e = ents.get(seq);
+            if (!(seq > sinceSeq) || !e || !keep(e)) continue;
+            const t = tasks.get(seq);
+            scan("fts", last, t ? [t.title, t.body].filter(Boolean).join("\n") : e.text as string, { seq, author: e.author as string, ts: e.ts as number });
           }
-          if (done()) break;
         }
-      } catch {
-        // keep what was found
+      };
+      for (const r of rows) {
+        if (++n > GREP_CANDIDATES) {
+          flush();
+          if (!done()) { res.capped = true; res.more = { mode: "fts", before: last, line: 0 }; }
+          break;
+        }
+        batch.push(r);
+        if (batch.length >= Math.min(90, max - res.hits.length)) flush();
+        if (done()) break;
       }
       flush();
-      res.capped = n >= GREP_CANDIDATES && !done();
       res.budget = budget.hit;
       return res;
     }
     res.fallback = true;
-    for (const e of this.sql.exec("SELECT seq, ts, author, type, text, audience, to_people FROM entries WHERE seq > ? ORDER BY seq DESC LIMIT ?", sinceSeq, GREP_RECENT)) {
-      if (sinceTs && (e.ts as number) < sinceTs) break;
-      if (keep(e)) fromEntry(e.seq as number, e.author as string, e.text as string);
-      if (done()) break;
+    if (!o.more || o.more.mode === "entries") {
+      let n = 0;
+      let last = 0;
+      for (const e of this.sql.exec(`SELECT seq, ts, author, type, text, audience, to_people FROM entries
+        WHERE seq > ? AND seq ${comparison("entries")} ? ORDER BY seq DESC LIMIT ?`, sinceSeq, bound("entries"), GREP_RECENT + 1)) {
+        if (++n > GREP_RECENT) { res.more = { mode: "entries", before: last, line: 0 }; break; }
+        last = e.seq as number;
+        if (sinceTs && (e.ts as number) < sinceTs) break;
+        if (keep(e)) {
+          const task = e.type === "task" ? this.sql.exec("SELECT title, body FROM tasks WHERE seq = ?", last).toArray()[0] : null;
+          scan("entries", last, task ? [task.title, task.body].filter(Boolean).join("\n") : e.text as string, { seq: last, author: e.author as string, ts: e.ts as number });
+        }
+        if (done()) break;
+      }
     }
-    if (files && !done()) {
-      for (const d of this.sql.exec("SELECT name, content FROM docs WHERE updated_at >= ? ORDER BY updated_at DESC LIMIT 50", sinceTs)) {
-        fromFile(d.name as string, d.content as string);
+    if (files && !res.more && !done()) {
+      let n = 0;
+      let last = 0;
+      let lastTs = 0;
+      const after = o.more?.mode === "docs" ? o.more : null;
+      for (const d of this.sql.exec(`SELECT rowid AS pos, name, content, updated_by, updated_at FROM docs WHERE updated_at >= ?
+        ${after ? `AND (updated_at < ? OR (updated_at = ? AND rowid ${comparison("docs")} ?))` : ""}
+        ORDER BY updated_at DESC, rowid DESC LIMIT 51`, sinceTs, ...(after ? [after.ts!, after.ts!, after.before] : []))) {
+        if (++n > 50) { res.more = { mode: "docs", before: last, ts: lastTs, line: 0 }; break; }
+        last = d.pos as number;
+        lastTs = d.updated_at as number;
+        scan("docs", last, d.content as string, { file: d.name as string, author: d.updated_by as string, ts: d.updated_at as number });
         if (done()) break;
       }
     }
@@ -2695,7 +2837,7 @@ export class Board extends DurableObject<Env> {
   }
 
   /** Case-insensitive substring search over text and artifact names/content, with optional filters. */
-  async search(query: string, opts: { author?: string; type?: string; limit?: number } = {}, viewer?: Viewer | null): Promise<Entry[]> {
+  async search(query: string, opts: { author?: string; type?: string; limit?: number; before?: number } = {}, viewer?: Viewer | null): Promise<Entry[]> {
     this.info();
     const q = `%${query.replace(/[\\%_]/g, (c) => "\\" + c)}%`;
     const clauses = [
@@ -2717,6 +2859,10 @@ export class Board extends DurableObject<Env> {
     if (opts.type) {
       args.push(opts.type);
       clauses.push(`type = ?${args.length}`);
+    }
+    if (opts.before != null) {
+      args.push(opts.before);
+      clauses.push(`seq < ?${args.length}`);
     }
     args.push(clamp(opts.limit ?? 20, 1, 100));
     return this.sql
@@ -2898,6 +3044,11 @@ export class Board extends DurableObject<Env> {
     if (isHumanDecisionPost(e) && this.decisions.isHuman(e.seq)) {
       await this.decisions.refresh(true);
       for (const u of this.decisions.voters(e.author)) kinds.set(u, "decision");
+    }
+    // Muted (#3602): whoever muted the author here isn't notified. Mail for their agent still arrives (it's work, not a ping).
+    for (const u of await mutersOf(this.env.DB, info.id, e.author).catch(() => new Set<string>())) {
+      const k = kinds.get(u);
+      if (k && k !== "agent" && k !== "from_your_person") kinds.delete(u);
     }
     if (forAgents.size) this.ctx.waitUntil(this.deliverWebhooks(info, e, [...forAgents], "for_your_agent", forSession).catch(() => {}));
     // People @mentioned by name: only their chat hooks (Slack, Discord) hear about it; agent runtimes don't need it.
@@ -3177,6 +3328,7 @@ export class Board extends DurableObject<Env> {
         due: (r.due as number | null) ?? null,
         lease_holder: (r.lease_until as number | null) && (r.lease_until as number) > now ? ((r.lease_holder as string | null) ?? null) : null,
         lease_agent: r.lease_agent === 1,
+        lease_session_name: (r.lease_until as number | null) && (r.lease_until as number) > now && r.lease_agent === 1 ? ((r.lease_session_name as string | null) ?? null) : null,
         lease_until: (r.lease_until as number | null) && (r.lease_until as number) > now ? (r.lease_until as number) : null,
         stop_reason: (r.stop_reason as string | null) ?? null,
         done_note: r.status === "done" ? ((r.done_note as string | null) ?? null) : null,
@@ -3305,7 +3457,11 @@ export class Board extends DurableObject<Env> {
     this.changes++;
   }
 
-  /** The gate's queue: open handoffs, oldest first (unsent ones are gone). */
+  /**
+   * The gate's queue: open handoffs, oldest first (unsent ones are gone). A branch is in it once: a newer open handoff
+   * of the same branch (a fix, a merge of main) supersedes the older ones, which stay open on the board but leave the
+   * queue (opus-d #3313: the queue showed four shas of gate-queue).
+   */
   async handoffs(viewer?: Viewer | null): Promise<Entry[]> {
     this.info();
     const rows = this.sql
@@ -3314,7 +3470,10 @@ export class Board extends DurableObject<Env> {
            AND NOT EXISTS (SELECT 1 FROM entries r WHERE r.retracts = entries.seq) ORDER BY seq LIMIT 100`,
       )
       .toArray();
-    return rows.map(toEntry).filter((e) => canSee(e, viewer));
+    const open = rows.map(toEntry).filter((e) => canSee(e, viewer));
+    const newest = new Map<string, number>();
+    for (const e of open) if (e.handoff && "branch" in e.handoff) newest.set(e.handoff.branch, e.seq);
+    return open.filter((e) => !(e.handoff && "branch" in e.handoff) || newest.get(e.handoff.branch) === e.seq);
   }
 
   // ---- claims: asserted → evidenced → verified (never by their author), or disputed; dependents go stale ----
@@ -3529,15 +3688,21 @@ export class Board extends DurableObject<Env> {
     const t = this.task(seq);
     if (t.status === "done") throw new BoardError(`#${seq} is already done.`);
     if (t.lease_holder && t.lease_holder !== user) {
-      throw new BoardError(`#${seq} is claimed by ${t.lease_agent ? `${t.lease_holder}'s agent` : t.lease_holder} until ${iso(t.lease_until!)}. Pick another task, or ask them on the board.`);
+      throw new BoardError(`#${seq} is claimed by ${holderLabel(t)} until ${iso(t.lease_until!)}. Pick another task, or ask them on the board.`);
+    }
+    // Another session of the same person (#3474): the claim is that session's, not the person's, so it isn't taken
+    // over silently. The person on the web (no session) still can; so can a release from any of their sessions.
+    const held = t.lease_holder === user && t.lease_agent && opts.session ? (this.sql.exec("SELECT lease_session FROM tasks WHERE seq = ?", seq).toArray()[0]?.lease_session as string | null) : null;
+    if (held && held !== opts.session) {
+      throw new BoardError(`#${seq} is claimed by ${holderLabel(t)}, another of your sessions, until ${iso(t.lease_until!)}. Pick another task, or ask it on the board; if that session is gone, release it first (task release ${seq}).`);
     }
     const mins = Math.min(240, Math.max(5, Math.floor(minutes || 30)));
     const now = this.leaseNow();
     const until = now + mins * 60_000;
     const session = opts.session ?? null;
     this.sql.exec(
-      "UPDATE tasks SET lease_holder = ?, lease_agent = ?, lease_until = ?, lease_session = ?, lease_mins = ?, lease_cap = ?, status = CASE WHEN status IN ('todo','stopped') THEN 'doing' ELSE status END, stop_reason = NULL, updated_at = ? WHERE seq = ?",
-      user, opts.via === "agent" ? 1 : 0, until, session, session ? mins : null, session ? now + LEASE_CAP_MS : null, Date.now(), seq,
+      "UPDATE tasks SET lease_holder = ?, lease_agent = ?, lease_until = ?, lease_session = ?, lease_session_name = ?, lease_mins = ?, lease_cap = ?, status = CASE WHEN status IN ('todo','stopped') THEN 'doing' ELSE status END, stop_reason = NULL, updated_at = ? WHERE seq = ?",
+      user, opts.via === "agent" ? 1 : 0, until, session, session ? (opts.session_name ?? null) : null, session ? mins : null, session ? now + LEASE_CAP_MS : null, Date.now(), seq,
     );
     if (session) this.leaseSessions?.add(session);
     void info;
@@ -4149,6 +4314,79 @@ export class Board extends DurableObject<Env> {
     this.entryMemo = [];
     this.entryMemoTo = 0;
     this.cache = null;
+  }
+
+  // ---- backups outside Cloudflare (#1550, src/backup.ts) ----
+
+  /** Every table as columns + rows. The search index is dumped as its rows, not FTS5's internal tables. `blobs` (files
+   *  and pictures) comes back with its columns and no rows: backup() writes it in parts of its own. */
+  dumpTables(): DumpTables {
+    const all = this.sql.exec("SELECT name, sql FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '_cf_%' ORDER BY name").toArray() as { name: string; sql: string | null }[];
+    const virtual = all.filter((t) => /^create virtual table/i.test(t.sql ?? "")).map((t) => t.name);
+    const out: DumpTables = {};
+    for (const { name } of all) {
+      if (virtual.some((v) => name.startsWith(`${v}_`))) continue; // FTS5 shadow tables: rebuilt from the rows
+      const cur = this.sql.exec(`SELECT * FROM "${name.replace(/"/g, '""')}"${name === "blobs" ? " LIMIT 0" : ""}`);
+      const rows = [...cur.raw()].map((r) => r.map(encodeValue));
+      out[name] = { columns: cur.columnNames, rows };
+    }
+    return out;
+  }
+
+  /** Tonight's parts for this board, dumped, sealed and uploaded from here so the Worker never holds them: the files
+   *  (`blobs`) first, a few MB of them per part so a board with many pictures never builds one huge object in this
+   *  object's 128 MB, then everything else, which names its file parts. */
+  async backup(day: string): Promise<PartResult> {
+    const cfg = backupConfig(this.env);
+    const id = this.meta("id");
+    if (!cfg || !id) throw new BoardError(cfg ? "board has no id" : "backups are not configured");
+    const cap = Math.max(1, Number(this.env.BACKUP_BLOB_PART_BYTES) || 8_000_000);
+    const chunks: { name: string; version: number }[][] = [];
+    let size = cap;
+    for (const r of this.sql.exec("SELECT name, version, length(bytes) AS n FROM blobs ORDER BY name, version").toArray() as { name: string; version: number; n: number }[]) {
+      if (size + r.n > cap) (chunks.push([]), (size = 0));
+      chunks[chunks.length - 1].push({ name: r.name, version: r.version });
+      size += r.n;
+    }
+    const extra: Omit<PartResult, "extra">[] = [];
+    for (let k = 0; k < chunks.length; k++) {
+      const [first, last] = [chunks[k][0], chunks[k][chunks[k].length - 1]]; // a range: 4 parameters however many files
+      const cur = this.sql.exec("SELECT * FROM blobs WHERE (name, version) >= (?, ?) AND (name, version) <= (?, ?) ORDER BY name, version", first.name, first.version, last.name, last.version);
+      const rows = [...cur.raw()].map((r) => r.map(encodeValue));
+      extra.push(await uploadPart(cfg, blobPartKey(cfg, day, id, k), { kind: "board-files", board: id, day, part: k, tables: { blobs: { columns: cur.columnNames, rows } } }));
+    }
+    const main = await uploadPart(cfg, objectKey(cfg, day, `board:${id}`), { kind: "board", board: id, day, created_at: Date.now(), tables: this.dumpTables(), file_parts: extra.map((e) => e.object_key.slice(e.object_key.lastIndexOf("/") + 1)) });
+    return { ...main, extra };
+  }
+
+  /** Restore drill / disaster recovery: replaces every table in `tables` with the backup's rows (columns this schema
+   *  lacks are dropped). `append`: adds them instead, for a board's file parts after its main part. */
+  async restoreTables(tables: DumpTables, append = false): Promise<{ tables: number; rows: number; skipped: string[] }> {
+    const here = new Set((this.sql.exec("SELECT name FROM sqlite_master WHERE type = 'table'").toArray() as { name: string }[]).map((t) => t.name));
+    const skipped: string[] = [];
+    let rows = 0;
+    this.ctx.storage.transactionSync(() => {
+      if (!append) for (const name of here) if (!name.startsWith("sqlite_") && !name.startsWith("_cf_") && tables[name]) this.sql.exec(`DELETE FROM "${name.replace(/"/g, '""')}"`);
+      for (const [name, t] of Object.entries(tables)) {
+        if (!here.has(name)) {
+          skipped.push(name);
+          continue;
+        }
+        const q = `"${name.replace(/"/g, '""')}"`;
+        const have = new Set((this.sql.exec(`SELECT name FROM pragma_table_info(?)`, name).toArray() as { name: string }[]).map((c) => c.name));
+        const keep = t.columns.map((c, i) => [c, i] as const).filter(([c]) => have.has(c));
+        const sql = `INSERT INTO ${q} (${keep.map(([c]) => `"${c.replace(/"/g, '""')}"`).join(", ")}) VALUES (${keep.map(() => "?").join(", ")})`;
+        for (const r of t.rows) this.sql.exec(sql, ...keep.map(([, i]) => decodeValue(r[i])));
+        rows += t.rows.length;
+      }
+    });
+    this.metaCache.clear();
+    this.entryMemo = [];
+    this.entryMemoTo = 0;
+    this.cache = null;
+    this.triggerMemo = null;
+    this.leaseSessions = null;
+    return { tables: Object.keys(tables).length - skipped.length, rows, skipped };
   }
 
   /** Operator audit: entries that would be blocked by today's filter (seq and rule only, never the value). */

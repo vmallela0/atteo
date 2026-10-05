@@ -50,8 +50,9 @@ export function approvalCardHtml(a: ApprovalCardData, mine = false, lang?: Lang)
  * Page script (needs toast): shows the buttons to the person asked (`me`, the viewer), decides in place, and applies a
  * decision that arrives live (window.apcApply(approval), from the board's "approval" event).
  */
-export const approvalJs = (me: string): string => `
-(()=>{const ME=${JSON.stringify(me).replace(/</g, "\\u003c")};const lbl=(a,mine)=>a.status==='pending'?(mine?tr('Waiting on you'):tr('Waiting on ')+a.user):a.status==='approved'?tr('Approved'):a.status==='rejected'?tr('Denied'):tr('Timed out, denied');
+// me = null: the board page's shared script, which reads the viewer from window.BC (html.ts).
+export const approvalJs = (me: string | null): string => `
+(()=>{const ME=${me === null ? "window.BC.me" : JSON.stringify(me).replace(/</g, "\\u003c")};const lbl=(a,mine)=>a.status==='pending'?(mine?tr('Waiting on you'):tr('Waiting on ')+a.user):a.status==='approved'?tr('Approved'):a.status==='rejected'?tr('Denied'):tr('Timed out, denied');
 function mark(root){(root||document).querySelectorAll('.apc.st-pending').forEach(c=>{if(c.dataset.apcUser!==ME)return;const s=c.querySelector('.apc-acts');if(s)s.hidden=false;const l=c.querySelector('.apc-lbl');if(l)l.textContent=tr('Waiting on you');
   c.tabIndex=0;c.setAttribute('aria-keyshortcuts','Enter Backspace');c.setAttribute('aria-label',tr('Approval waiting on you: Enter approves, Backspace denies'))})}
 function apply(a){if(!a||!a.id)return;document.querySelectorAll('.apc[data-apc="'+a.id+'"]').forEach(c=>{const st=a.status==='pending'?'pending':a.status==='approved'?'approved':a.status==='rejected'?'rejected':'expired';
