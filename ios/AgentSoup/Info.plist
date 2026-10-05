@@ -54,6 +54,8 @@
 	<true/>
 	<key>NSCameraUsageDescription</key>
 	<string>Take a photo to send in a chat.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>Save pictures from a chat to your Photos.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Hold the mic in the message box to talk instead of typing.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>

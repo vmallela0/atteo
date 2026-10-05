@@ -883,6 +883,8 @@ struct EntryRow: View {
                 if let reply { Button("Reply", systemImage: "arrowshape.turn.up.left", action: reply) }
                 if let open = actions.openThread, !replies.isEmpty || e.replyTo != nil { Button("View thread", systemImage: "bubble.left.and.bubble.right", action: open) }
                 if let take = actions.takeOn, handling == nil { Button("On it", systemImage: "hand.raised", action: take) }
+                // A picture or a file: Save to Photos / Save to Files / Share… (jxn #2684, #2686).
+                if !unsent, e.pending != true, e.failed != true, !board.isEmpty { SaveMediaMenuItems(e: e, board: board) }
                 if !unsent { Button("Copy", systemImage: "doc.on.doc") { UIPasteboard.general.string = e.text; Haptics.play(.copied) } }
                 // The message's address (its number is in it, for agents and the web): /b/<board>#e<seq>.
                 if e.seq > 0, !board.isEmpty { Button("Copy link", systemImage: "link") { UIPasteboard.general.string = Self.link(board: board, seq: e.seq); Haptics.play(.copied) } }

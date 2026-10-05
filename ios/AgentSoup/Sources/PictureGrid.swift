@@ -198,6 +198,7 @@ struct GalleryViewer: View {
                 Text("\(index + 1) of \(pictures.count)").font(Typo.meta.weight(.semibold)).foregroundStyle(.white).monospacedDigit()
                     .accessibilityIdentifier("gallery-position")
                 Spacer()
+                SaveToPhotosButton(file: files[index]) // the picture showing, straight into Photos (jxn #2686)
                 if let file = files[index] {
                     ShareLink(item: file) {
                         Image(systemName: "square.and.arrow.up").font(.system(size: 15, weight: .semibold)).foregroundStyle(.white)
@@ -214,6 +215,7 @@ struct GalleryViewer: View {
             .opacity(drag == 0 ? 1 : 0)
         }
         .statusBarHidden()
+        .modifier(ToastOverlay(state: AppState.shared)) // "Saved to Photos" shows over the viewer, not under it
     }
 }
 
