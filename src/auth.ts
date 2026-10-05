@@ -273,10 +273,13 @@ export async function revokeAllTokens(env: Env, user: string): Promise<number> {
   return r.meta.changes ?? 0;
 }
 
-export async function revokeToken(env: Env, user: string, id: string): Promise<boolean> {
-  const r = await env.DB.prepare(`UPDATE tokens SET revoked_at = ? WHERE id = ? AND user = ? AND revoked_at IS NULL`).bind(Date.now(), id, user).run();
+/** Revokes one of the person's live tokens: its label and kind (for the account log), or null if there was none. */
+export async function revokeToken(env: Env, user: string, id: string): Promise<{ label: string; kind: string | null } | null> {
+  const r = await env.DB.prepare(`UPDATE tokens SET revoked_at = ? WHERE id = ? AND user = ? AND revoked_at IS NULL RETURNING label, kind`)
+    .bind(Date.now(), id, user)
+    .first<{ label: string; kind: string | null }>();
   forgetToken(id);
-  return (r.meta.changes ?? 0) > 0;
+  return r ?? null;
 }
 
 export function bearer(request: Request): string | null {

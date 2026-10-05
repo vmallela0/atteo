@@ -9,6 +9,7 @@ import { PRUNE_READ_SQL, unreadCountSql } from "../src/inbox";
 import { PRUNE_USAGE_DAILY_SQL } from "../src/usage";
 import { LEASE_GET_SQL, PRUNE_MAIL_SQL, UNDELIVERED_SQL } from "../src/mailbox";
 import { TOKEN_SQL } from "../src/auth";
+import { ACCOUNT_LOG_SQL, PRUNE_ACCOUNT_LOG_SQL } from "../src/accountlog";
 import { BUMP_SQL, REQUESTS_TODAY_SQL, SHED_GET_SQL, SHED_SET_SQL } from "../src/limits";
 
 const { DatabaseSync } = (await import("node:" + "sqlite")) as { DatabaseSync: new (p: string) => any };
@@ -37,6 +38,8 @@ const HOT: Record<string, string> = {
   "tape newest": TAPE_TOP_SQL,
   "tape prune": TAPE_PRUNE_SQL,
   "token lookup": TOKEN_SQL,
+  "account log (a person, newest first)": ACCOUNT_LOG_SQL,
+  "account log prune": PRUNE_ACCOUNT_LOG_SQL,
   "usage counter flush": BUMP_SQL,
   "shed level read": SHED_GET_SQL,
   "shed level write": SHED_SET_SQL,

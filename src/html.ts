@@ -5,6 +5,7 @@ import type { WebhookRow } from "./webhooks";
 import { PLANS, PRICES, type PlanState } from "./billing";
 import { boardMeta, type BoardRow, type InviteRow, type Invitation, type UserRow } from "./registry";
 import type { TokenRow } from "./auth";
+import type { AccountLogRow } from "./accountlog";
 import { authorLabel, computeSummary, retractedSet, type Summary } from "./state";
 import { PIN_BAR, PIN_SIDE, RECAP_BTN, RECAP_DLG, pinRecapJs } from "./pinrecap";
 import { SOUL_DLG, SOUL_SIDE, rememberBtn, soulMemoryJs } from "./soulmemory";
@@ -3252,6 +3253,31 @@ document.getElementById('pf-form')?.addEventListener('submit',async e=>{e.preven
     rules:{auto_accept_invites:f.auto_invites.checked?'friends':null,auto_accept_friends:f.auto_friends.checked?'coworkers':null}})});
   const j=await r.json().catch(()=>({}));b.disabled=false;toast(r.ok?tr('Profile saved'):(j.error||tr('Could not save')))});`;
 
+const ACCOUNT_EVENTS: Record<AccountLogRow["event"], string> = {
+  "signin.web": "Signed in on the web",
+  "signin.app": "Signed in to the app",
+  "cli.login": "Logged in from the CLI",
+  "oauth.connected": "Connected an app",
+  "token.created": "Made a key",
+  "token.revoked": "Revoked a connection",
+  "tokens.revoked_all": "Disconnected all agents",
+};
+
+/** The last few lines of the account log (#3490), and the whole year as a download. */
+function accountLogSection(log: AccountLogRow[], lang?: Lang): string {
+  const T = (x: string) => tr(lang, x);
+  const lines = log.length
+    ? log
+        .map((e) => {
+          const where = [e.client, e.country].filter(Boolean).join(" · ");
+          return `<li><span style="color:var(--ink)">${esc(T(ACCOUNT_EVENTS[e.event] ?? e.event))}</span>${e.label ? ` <span class="muted">${esc(e.label)}</span>` : ""}<div class="xs faint">${when(e.at, lang)}${where ? ` · ${esc(where)}` : ""}</div></li>`;
+        })
+        .join("")
+    : `<li class="empty small">${esc(T("Nothing yet."))}</li>`;
+  return `<div class="section-title" style="margin-top:32px"><div><h2>${esc(T("Account log"))}</h2><p class="small muted" style="margin-top:4px">${esc(T("Sign-ins and connection changes on your account, kept a year. Only you see it."))}</p></div><a class="btn sm" href="/api/me/audit?format=jsonl" download id="account-log-dl">${esc(T("Download"))}</a></div>
+<ul class="list pad" id="account-log" style="list-style:none;margin:0;display:grid;gap:8px">${lines}</ul>`;
+}
+
 // Headless agents: saved at once; agents see it on their next read.
 const HEADLESS_JS = `
 document.getElementById('headless')?.addEventListener('change',async e=>{const c=e.currentTarget;
@@ -3265,7 +3291,7 @@ document.getElementById('kill-all')?.addEventListener('click',async e=>{const b=
   const r=await fetch('/api/tokens/revoke-all',{method:'POST'});const j=await r.json().catch(()=>({}));toast(r.ok?j.message:(j.error||tr('Could not disconnect')));
   if(r.ok)setTimeout(()=>location.reload(),900);else b.disabled=false});`;
 
-export function mePage(viewer: Viewer, side: SideBoard[], tokens: TokenRow[], plan: PlanState = { plan: "free", status: null, renews_at: null, cancel_at_end: false, customer: null }, billingEnabled = false, hooks: WebhookRow[] = [], prof: ProfileView | null = null, assistants: string[] = []): Response {
+export function mePage(viewer: Viewer, side: SideBoard[], tokens: TokenRow[], plan: PlanState = { plan: "free", status: null, renews_at: null, cancel_at_end: false, customer: null }, billingEnabled = false, hooks: WebhookRow[] = [], prof: ProfileView | null = null, assistants: string[] = [], log: AccountLogRow[] = []): Response {
   const T = (x: string, v?: Record<string, string | number>) => tr(viewer.lang, x, v);
   const rows = tokens.length
     ? tokens
@@ -3312,6 +3338,7 @@ ${
 <p class="xs muted" style="margin:8px 0">${esc(T("Run this, approve in the browser, and start a new session."))}</p>${copyField("me-reconnect", CLI_STEPS.reconnect)}</details>`
     : ""
 }
+${accountLogSection(log, viewer.lang)}
 ${webhooksSection(hooks, viewer.lang)}
 ${billingSection(plan, billingEnabled, viewer.lang)}
 ${connectDialog(viewer)}`,
