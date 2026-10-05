@@ -71,18 +71,19 @@ const buf = Buffer.from(await og.arrayBuffer());
   check(bg === BG.light, `a system set to dark still gets the white page (${bg})`); await ctx.close(); }
 check(og.ok && og.headers.get("content-type") === "image/png" && buf.readUInt32BE(16) === 1200 && buf.readUInt32BE(20) === 630, `/og.png is a 1200×630 PNG (${buf.readUInt32BE(16)}×${buf.readUInt32BE(20)})`);
 // Found by search and answer engines (vedu #3151, task #3152): robots lets the AI crawlers read the public pages but
-// not the app's; the sitemap lists the public pages; /llms.txt and /llms-full.txt answer; the page's JSON-LD parses
-// and its FAQ is the one on the page.
+// not the app's; the sitemap lists the public pages; /llms.txt and /llms-full.txt answer;
+// and the JSON-LD parses: the home page says what Atteo is, and /faq's FAQPage data is its own questions.
 { const txt = async (p) => { const r = await fetch(`${BASE}${p}`); return { ok: r.ok, type: r.headers.get("content-type") || "", body: await r.text() }; };
-  const [robots, sitemap, llms, full, home] = await Promise.all(["/robots.txt", "/sitemap.xml", "/llms.txt", "/llms-full.txt", "/"].map(txt));
+  const [robots, sitemap, llms, full, home, faqPg] = await Promise.all(["/robots.txt", "/sitemap.xml", "/llms.txt", "/llms-full.txt", "/", "/faq"].map(txt));
   const group = (ua) => (robots.body.split(/\n\s*\n/).find((g) => g.startsWith(`User-agent: ${ua}\n`)) || "");
   check(["*", "GPTBot", "ClaudeBot", "PerplexityBot", "Google-Extended"].every((ua) => /^Allow: \/$/m.test(group(ua)) && /^Disallow: \/b\/$/m.test(group(ua)) && /^Disallow: \/api\/$/m.test(group(ua))) && /^Sitemap: https:\/\/atteo\.dev\/sitemap\.xml$/m.test(robots.body), "robots.txt: public pages open to all crawlers, AI ones by name; boards and the API closed");
   check(["/", "/guide", "/llms.txt"].every((p) => sitemap.body.includes(`<loc>https://atteo.dev${p}</loc>`)), "sitemap.xml lists the public pages");
   check(llms.ok && llms.body.startsWith("# Atteo\n") && /\(https:\/\/atteo\.dev\/llms-full\.txt\)/.test(llms.body) && full.ok && /text\/plain/.test(full.type) && /PRIVACY/.test(full.body), "/llms.txt (Markdown, links the full text) and /llms-full.txt answer");
-  let ld = null; try { ld = JSON.parse(home.body.match(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/)[1]); } catch {}
-  const faq = ld?.["@graph"]?.find((g) => g["@type"] === "FAQPage")?.mainEntity?.map((q) => q.name) || [];
-  const shown = [...home.body.matchAll(/<summary>([^<]*)<\/summary>/g)].map((m) => m[1].replace(/&amp;/g, "&"));
-  check(["Organization", "SoftwareApplication", "FAQPage"].every((t) => ld?.["@graph"]?.some((g) => g["@type"] === t)) && faq.length >= 3 && JSON.stringify(faq) === JSON.stringify(shown), `the JSON-LD parses, and its FAQ is the page's (${faq.length} questions)`); }
+  const ldOf = (h) => { try { return JSON.parse(h.match(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/)[1]); } catch { return null; } };
+  const ld = ldOf(home.body), fq = ldOf(faqPg.body);
+  const faq = fq?.["@graph"]?.find((g) => g["@type"] === "FAQPage")?.mainEntity?.map((q) => q.name) || [];
+  const shown = [...faqPg.body.matchAll(/<h2>([\s\S]*?)<\/h2>/g)].map((m) => m[1].replace(/<[^>]+>/g, "").replace(/&amp;/g, "&").trim());
+  check(["Organization", "SoftwareApplication"].every((t) => ld?.["@graph"]?.some((g) => g["@type"] === t)) && faq.length >= 3 && JSON.stringify(faq) === JSON.stringify(shown), `the JSON-LD parses, and /faq's FAQPage is its questions (${faq.length})`); }
 await browser.close();
 console.log(fails ? `${fails} FAILED` : "landing look: all passed");
 process.exit(fails ? 1 : 0);
