@@ -91,15 +91,26 @@ const sum = (g: Groups, k: string) => (g ?? []).reduce((n, x) => n + (x.sum?.[k]
 export const analyticsToken = (env: Env) => env.CF_ANALYTICS_TOKEN || env.CF_API_TOKEN || "";
 
 let warned = false;
+let warnedFail = false;
 
-/** Today's usage so far, or null when there's no token or Cloudflare didn't answer. */
-export async function usageToday(env: Env, now = Date.now(), fetcher: typeof fetch = fetch): Promise<Usage | null> {
+/** What one read of today's usage came to: the totals, why it failed (never the token), or off without the settings. */
+export type Reading = { usage: Usage } | { error: string } | { off: true };
+
+const short = (s: string) => s.replace(/\s+/g, " ").trim().slice(0, 200);
+
+export async function readUsage(env: Env, now = Date.now(), fetcher: typeof fetch = fetch): Promise<Reading> {
   const token = analyticsToken(env);
   if (!env.CF_ACCOUNT_ID || !token) {
     if (!warned) console.log("cost guard: off (set CF_ACCOUNT_ID and CF_ANALYTICS_TOKEN to watch D1 and Durable Object usage)");
     warned = true;
-    return null;
+    return { off: true };
   }
+  // Said once per isolate; every failure is still recorded for /_ops (check below).
+  const failed = (error: string): Reading => {
+    if (!warnedFail) console.warn(`cost guard: can't read today's usage (${error})`);
+    warnedFail = true;
+    return { error };
+  };
   try {
     const r = await fetcher("https://api.cloudflare.com/client/v4/graphql", {
       method: "POST",
@@ -107,19 +118,30 @@ export async function usageToday(env: Env, now = Date.now(), fetcher: typeof fet
       body: JSON.stringify({ query: ANALYTICS_QUERY, variables: { a: env.CF_ACCOUNT_ID, d: new Date(now).toISOString().slice(0, 10) } }),
       signal: AbortSignal.timeout(8000),
     });
-    const j = (await r.json()) as { data?: { viewer?: { accounts?: { d1?: Groups; dosql?: Groups; doreq?: Groups }[] } }; errors?: unknown };
+    const j = (await r.json().catch(() => ({}))) as { data?: { viewer?: { accounts?: { d1?: Groups; dosql?: Groups; doreq?: Groups }[] } }; errors?: { message?: unknown }[] | null };
+    const gql = Array.isArray(j.errors) && j.errors.length ? short(String(j.errors[0]?.message ?? "unknown error")) : "";
+    if (!r.ok) return failed(short(`Cloudflare answered HTTP ${r.status}${gql ? `: ${gql}` : ""}`));
+    if (gql) return failed(`Cloudflare analytics error: ${gql}`);
     const a = j.data?.viewer?.accounts?.[0];
-    if (!a) return null;
+    if (!a) return failed("Cloudflare returned no data for this account (check CF_ACCOUNT_ID and the token's Account Analytics: Read)");
     return {
-      d1RowsRead: sum(a.d1, "rowsRead"),
-      d1RowsWritten: sum(a.d1, "rowsWritten"),
-      doRowsRead: sum(a.dosql, "rowsRead"),
-      doRowsWritten: sum(a.dosql, "rowsWritten"),
-      doRequests: sum(a.doreq, "requests"),
+      usage: {
+        d1RowsRead: sum(a.d1, "rowsRead"),
+        d1RowsWritten: sum(a.d1, "rowsWritten"),
+        doRowsRead: sum(a.dosql, "rowsRead"),
+        doRowsWritten: sum(a.dosql, "rowsWritten"),
+        doRequests: sum(a.doreq, "requests"),
+      },
     };
-  } catch {
-    return null;
+  } catch (e) {
+    return failed(e instanceof Error && e.name === "TimeoutError" ? "Cloudflare analytics timed out" : short(`request failed: ${e instanceof Error ? e.message : String(e)}`));
   }
+}
+
+/** Today's usage so far, or null when there's no token or Cloudflare didn't answer. */
+export async function usageToday(env: Env, now = Date.now(), fetcher: typeof fetch = fetch): Promise<Usage | null> {
+  const r = await readUsage(env, now, fetcher);
+  return "usage" in r ? r.usage : null;
 }
 
 // ---------- the switch: one row, set by the cron past a hard cap, cleared by an operator ----------
@@ -128,6 +150,12 @@ export const CAP_GET_SQL = `SELECT capped_at, reason FROM cost_guard WHERE id = 
 export const CAP_SET_SQL = `INSERT INTO cost_guard (id, capped_at, reason, cleared_at, cleared_by) VALUES (1, ?, ?, NULL, NULL)
   ON CONFLICT(id) DO UPDATE SET capped_at = excluded.capped_at, reason = excluded.reason, cleared_at = NULL, cleared_by = NULL WHERE cost_guard.capped_at IS NULL`;
 export const CAP_CLEAR_SQL = `UPDATE cost_guard SET capped_at = NULL, cleared_at = ?, cleared_by = ? WHERE id = 1`;
+// Each check's outcome on the same row (migration 0068, vedu #4665): the last good read with its totals, or the last error.
+export const STATUS_OK_SQL = `INSERT INTO cost_guard (id, checked_ok_at, usage_json) VALUES (1, ?, ?)
+  ON CONFLICT(id) DO UPDATE SET checked_ok_at = excluded.checked_ok_at, usage_json = excluded.usage_json`;
+export const STATUS_ERR_SQL = `INSERT INTO cost_guard (id, error_at, error) VALUES (1, ?, ?)
+  ON CONFLICT(id) DO UPDATE SET error_at = excluded.error_at, error = excluded.error`;
+export const STATUS_GET_SQL = `SELECT checked_ok_at, usage_json, error_at, error FROM cost_guard WHERE id = 1`;
 // One alert per metric per UTC day (usage_daily is (day, metric, key) → count; INSERT OR IGNORE is the once-only).
 export const ALERT_ONCE_SQL = `INSERT OR IGNORE INTO usage_daily (day, metric, key, count) VALUES (?, 'cost_alert', ?, 1)`;
 
@@ -149,11 +177,34 @@ export async function capped(env: Env, now = Date.now()): Promise<{ at: number; 
 export const resetCapCache = () => {
   capCache = null;
   warned = false;
+  warnedFail = false;
 };
 
 export async function clearCap(env: Env, by: string, now = Date.now()): Promise<void> {
   await env.DB.prepare(CAP_CLEAR_SQL).bind(now, by).run();
   capCache = { at: now, capped: null };
+}
+
+export interface Status {
+  last_ok: { at: number; totals: Record<Metric, number> } | null;
+  last_error: { at: number; message: string } | null;
+}
+
+/** The last check's outcome for /_ops (nulls before the first check, or on a database without migration 0068). */
+export async function status(env: Env): Promise<Status> {
+  try {
+    const r = await env.DB.prepare(STATUS_GET_SQL).first<{ checked_ok_at: number | null; usage_json: string | null; error_at: number | null; error: string | null }>();
+    let t: Record<Metric, number> | null = null;
+    try {
+      t = r?.usage_json ? (JSON.parse(r.usage_json) as Record<Metric, number>) : null;
+    } catch {}
+    return {
+      last_ok: r?.checked_ok_at && t ? { at: r.checked_ok_at, totals: t } : null,
+      last_error: r?.error_at && r.error ? { at: r.error_at, message: r.error } : null,
+    };
+  } catch {
+    return { last_ok: null, last_error: null };
+  }
 }
 
 const fmt = (n: number) => n.toLocaleString("en-US");
@@ -169,6 +220,7 @@ export interface Tick {
   hard: Metric[];
   alerted: Metric[];
   capped: boolean;
+  error?: string; // why today's usage couldn't be read (also recorded for /_ops)
 }
 
 /**
@@ -176,11 +228,17 @@ export interface Tick {
  * `post` writes the alert (the developers' board); injected so tests needn't run a board.
  */
 export async function check(env: Env, post: (text: string) => Promise<unknown>, now = Date.now(), fetcher: typeof fetch = fetch): Promise<Tick> {
-  const usage = await usageToday(env, now, fetcher);
-  if (!usage) return { usage: null, soft: [], hard: [], alerted: [], capped: !!(await capped(env, now)) };
+  const reading = await readUsage(env, now, fetcher);
+  if (!("usage" in reading)) {
+    const error = "error" in reading ? reading.error : undefined;
+    if (error) await env.DB.prepare(STATUS_ERR_SQL).bind(now, error).run().catch(() => {});
+    return { usage: null, soft: [], hard: [], alerted: [], capped: !!(await capped(env, now)), error };
+  }
+  const usage = reading.usage;
   const t = thresholds(env);
   const { soft, hard } = judge(usage, t);
   const vals = totals(usage);
+  await env.DB.prepare(STATUS_OK_SQL).bind(now, JSON.stringify(vals)).run().catch(() => {});
   const d = new Date(now).toISOString().slice(0, 10);
   const alerted: Metric[] = [];
   for (const m of [...hard, ...soft]) {
