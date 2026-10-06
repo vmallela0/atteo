@@ -21,10 +21,10 @@ async function width(w, scheme) {
   const settle = async (p, sel = "body") => { await p.evaluate(() => document.fonts.ready.then(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))))); await stable(() => p.evaluate((s) => { const e = document.querySelector(s); if (!e) return null; const r = e.getBoundingClientRect(); return [r.left, r.top, r.width, r.height]; }, sel), 3000, 60); };
   const page = async (path) => { const p = await ctx.newPage(); p.errs = []; p.on("pageerror", (e) => p.errs.push(e.message)); await p.goto(BASE + path); await settle(p, path.startsWith("/b/") ? ".bp-head" : "body"); return p; };
   if (run("header")) { const p = await page(`/b/${f.board}`);
-    const m = await p.evaluate(`(${R})&&(()=>{const R=${R};const h=document.querySelector(".bp-head"),t=document.querySelector(".bp-title"),av=[...document.querySelectorAll(".bp-meta .av")],tabs=document.querySelector(".bp-tabs");return{head:R(h),title:R(t),lastAv:R(av[av.length-1]),tabs:R(tabs),h1:R(document.getElementById("board-title"))}})()`);
+    const m = await p.evaluate(`(${R})&&(()=>{const R=${R};const h=document.querySelector(".bp-head"),t=document.querySelector(".bp-title"),av=[...document.querySelectorAll(".bp-meta .av")],tabs=document.querySelector(".bp-tabs");return{head:R(h),title:R(t),lastAv:R(av[av.length-1]),tabs:R(tabs),h1:R(document.querySelector(".topbar .crumbs .cur"))}})()`);
     check(m.title.r <= m.head.r && m.tabs.r <= m.head.r, `${tag}: board header rows fit the screen (title ${m.title.r}, tabs ${m.tabs.r} ≤ ${m.head.r})`);
     check(m.lastAv.r <= m.head.r, `${tag}: every member avatar shows (${m.lastAv.r} ≤ ${m.head.r})`);
-    check(m.h1.w >= 100, `${tag}: the board name keeps room (${m.h1.w}px)`);
+    check(m.h1.w >= (w >= 360 ? 60 : 40), `${tag}: the board name keeps room in the header (${m.h1.w}px)`); // jxn #4860: the name moved up
     check(!p.errs.length, `${tag}: no page errors ${p.errs.join(" | ")}`);
     await p.locator(".bp-head").screenshot({ path: `${OUT}header-${w}-${scheme}.png` }); await p.close(); }
   if (run("account")) { const p = await page(`/me`);

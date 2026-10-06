@@ -2665,7 +2665,10 @@ const narrow=matchMedia('(max-width:959px)');let infoHidden=false;try{infoHidden
 function infoSync(){const wide=!narrow.matches;convLayout.classList.toggle('info-collapsed',wide&&infoHidden);
   const shown=wide?!infoHidden:convLayout.classList.contains('info-open');infoBtn.setAttribute('aria-expanded',String(shown));infoBtn.title=shown?tr('Hide board info'):tr('Show board info');
   infoBtn.setAttribute('aria-label',!wide&&shown?tr('Close board info'):tr('Board info'))} // on a phone the open panel's button is its ✕ (jxn #2223)
-function infoOpen(o){convLayout.classList.toggle('info-open',o);infoSync()}
+function infoOpen(o){convLayout.classList.toggle('info-open',o);infoSync();if(o&&phone.matches)setTimeout(()=>document.getElementById('board-info').focus({preventScroll:true}),0)}
+// A phone's rail is a slide-over (jxn #4860): focus goes into it, and a tap on the dimmed page beside it closes it.
+const phone=matchMedia('(max-width:640px)');document.getElementById('board-info').tabIndex=-1;
+convLayout.addEventListener('click',e=>{if(e.target===convLayout&&phone.matches)infoClose()});
 narrow.addEventListener('change',()=>infoOpen(false));infoSync();
 function infoCount(){const n=document.querySelectorAll('#sum .waiting li').length,c=document.getElementById('info-count');c.textContent=n||'';c.hidden=!n}
 infoBtn.addEventListener('click',()=>{if(narrow.matches){infoOpen(!convLayout.classList.contains('info-open'));return}
@@ -3098,12 +3101,14 @@ ${canInviteAgent ? inviteAgentDialog(T, info) : ""}
       : ""
   }
 </div></dialog>`;
+  const liveHere = side.find((b) => b.id === info.id)?.live ?? 0;
   return appPage(`${info.title} · Atteo`, {
     viewer,
     boards: side,
     active: info.id,
-    crumbs: agentChat ? `<span class="cur truncate">${esc(T("Your agent"))}</span>` : `<a class="muted" href="/">${esc(T("Boards"))}</a><span class="faint">/</span><span class="cur truncate">${esc(shownTitle)}</span>`,
-    actions: `${agent.connected ? "" : `<button class="btn sm" data-open="connect" aria-label="${esc(T("Connect an agent"))}"><span class="hide-sm">${esc(T("Connect an agent"))}</span><span class="sm-only">${esc(T("Connect"))}</span></button>`}${readOnly || agentChat ? "" : `<button class="btn sm" data-open="invite">${esc(T("Invite"))}<kbd class="hide-sm">I</kbd></button>`}${
+    crumbs: `${agentChat ? `<span class="cur truncate">${esc(T("Your agent"))}</span>` : `<a class="muted" href="/">${esc(T("Boards"))}</a><span class="faint">/</span><span class="bh-pic">${boardPic({ id: info.id, title: info.title, picture: board.picture }, "xs")}</span><span class="cur truncate">${esc(shownTitle)}</span>`}${liveHere ? `<small class="bh-wk">${esc(T("{n} working", { n: liveHere }))}</small>` : ""}`,
+    // Phones (jxn #4860): the header is menu, the board and "N working", search and the rail button.
+    actions: `<button class="btn ghost sm bh-b" type="button" data-palette aria-label="${esc(T("Search or jump to…"))}"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><circle cx="7" cy="7" r="4.5"/><path d="m10.5 10.5 3 3"/></svg></button>${agent.connected ? "" : `<button class="btn sm" data-open="connect" aria-label="${esc(T("Connect an agent"))}"><span class="hide-sm">${esc(T("Connect an agent"))}</span><span class="sm-only">${esc(T("Connect"))}</span></button>`}${readOnly || agentChat ? "" : `<button class="btn sm" data-open="invite">${esc(T("Invite"))}<kbd class="hide-sm">I</kbd></button>`}${
       // Rename/archive/delete live at the bottom of Members & access; a visible way in, so they aren't hidden behind Invite.
       `<details class="board-head-menu"><summary class="btn ghost sm" aria-label="${esc(T("More actions"))}" title="${esc(T("More actions"))}">⋯</summary><div class="board-head-menu-items"><button type="button" class="ol-all" data-ol-toggle data-open-l="${esc(T("Open all messages"))}" data-fold-l="${esc(T("Fold messages again"))}">${esc(T("Open all messages"))}</button><button type="button" data-mark-unread="${esc(info.id)}">${esc(T("Mark as unread"))}</button>${isCreator || canPic ? `<button type="button" data-open="invite" data-goto="acc-board">${esc(T("Board settings"))}</button>` : ""}</div></details>`
     }`,

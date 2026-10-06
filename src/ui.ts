@@ -1044,7 +1044,7 @@ mark{background:var(--mark);color:inherit;border-radius:2px;padding:0 1px}
   background:color-mix(in srgb,var(--bg) 85%,transparent);backdrop-filter:saturate(180%) blur(10px);-webkit-backdrop-filter:saturate(180%) blur(10px)}
 .topbar .crumbs{margin:0;display:flex;align-items:center;gap:8px;min-width:0;font-size:13px}
 .topbar .crumbs .cur{color:var(--ink);font-weight:500}
-.topbar .actions{margin-left:auto;display:flex;gap:8px;align-items:center}
+.topbar .actions{margin-left:auto;display:flex;gap:8px;align-items:center}.bh-pic,.bh-wk,.bh-b{display:none}
 /* phones: just the current page's name (the menu button leads back to Boards/People), so a long board name still shows */
 @media(max-width:480px){.topbar .crumbs>:not(.cur){display:none}.topbar .crumbs .cur{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}}
 .content{max-width:1120px;margin:0 auto;padding:28px 24px 96px}
@@ -1226,6 +1226,25 @@ dialog.palette{margin-top:12vh;width:min(600px,calc(100vw - 24px));border-radius
   .info-btn[aria-expanded="true"]>svg,.info-btn[aria-expanded="true"]>.count{display:none}.info-btn[aria-expanded="true"]::after{content:"✕"} /* its ✕ while the panel covers the conversation (jxn #2223) */
   .bp-panel .rail{top:44px}
   .layout.info-open>.conv{visibility:hidden} /* only the open panel's scrollbar shows */
+}
+/* mobile web frame (jxn #4860): the rail slides over from the right above a scrim that dims the page only; tabs are pills */
+@media(max-width:640px){
+  .bp-panel .aside,.layout.info-open>.aside{display:block;position:fixed;inset:0 0 0 auto;z-index:61;width:min(340px,88vw);margin:0;padding:calc(44px + env(safe-area-inset-top)) 16px 16px;background:var(--bg);box-shadow:var(--shadow-lg);transform:translateX(100%);visibility:hidden;transition:transform .2s,visibility .2s}
+  [dir=rtl] .bp-panel .aside{inset:0 auto 0 0;transform:translateX(-100%)}
+  .layout.info-open>.aside{transform:none;visibility:visible}.layout.info-open>.conv{visibility:visible}
+  .layout.info-open::before{content:"";position:fixed;inset:0;z-index:60;background:rgba(0,0,0,.32)}
+  .bp-panel .info-btn{position:fixed;top:8px;right:8px;z-index:62}.nav-open .bp-panel .info-btn{visibility:hidden}.info-btn[aria-expanded="true"]::after{display:grid;place-items:center}.app:has(#info-btn) .topbar .actions{padding-inline-end:30px;gap:4px}[dir=rtl] .bp-panel .info-btn{right:auto;left:8px}
+  .bp-tabs .tabs{gap:4px}.bp-tabs .tabs button{padding:5px 12px;border:0;border-radius:999px;margin:0}.bp-tabs .tabs button[aria-selected=true]{background:var(--ink);color:var(--bg)}
+  .app>.grow{display:flex;flex-direction:column}.topbar{order:-1}.app>.grow>.content{width:100%}.content.full{--top:88px}.bp-title{display:none}
+  .strip{display:flex;height:40px;padding:0 4px;background:none}.strip>:not(.btabs){display:none}.btab{padding:0 10px}
+  .topbar .crumbs:has(>.bh-pic){display:grid;grid-template-columns:auto minmax(0,1fr);column-gap:8px;line-height:1.2}
+  .topbar .crumbs>.bh-pic{display:flex;grid-row:span 2}.topbar .crumbs>:is(.cur,.bh-wk){grid-column:2}.topbar .crumbs>.cur{align-self:center}.topbar .crumbs>.cur:last-child{grid-row:span 2}.topbar .crumbs>.bh-wk{display:block;color:var(--muted);font-size:11.5px}.topbar .bh-b{display:inline-flex}
+  /* no agent yet: Connect takes the search's and the picture's room */
+  /* the header has no member stack: the rail's "Invite an agent" stays, in everyday mode too */
+  :root[data-mode="everyday"] .ag-hint:has(>[data-open=invite-agent]){display:block!important}
+  .topbar:has([data-open=connect]) :is(.bh-b,.crumbs>.bh-pic){display:none}.topbar:has([data-open=connect]) .crumbs{column-gap:0}
+  .sidebar{width:min(320px,86vw);flex-flow:row wrap;align-content:flex-start;padding-top:calc(10px + env(safe-area-inset-top))}.sidebar>:not(.nav-x){width:100%}
+  .sidebar>a.side-link:not(.side-board){flex:none;width:calc(25% - 8px);height:58px;margin:0 3px 6px;flex-direction:column;justify-content:center;gap:4px;padding:0 2px;background:var(--bg-hover);border-radius:10px;font-size:11px;text-align:center}
 }
 @media(max-width:859px){
   .content.full{padding:4px 12px 0}

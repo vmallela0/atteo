@@ -30,8 +30,10 @@ const open = async (u, viewport) => {
 };
 // Members & access → This board → Download the log; the saved file, read back as lines.
 const download = async (p, phone) => {
-  if (phone) await p.locator("#info-btn").click();
-  await p.locator('[data-open="invite"]').first().click(); await p.locator("#log-export").waitFor();
+  // A phone has no Invite in its header (jxn #4860): Members & access opens from the rail's Members → Manage.
+  if (phone) { await p.locator("#info-btn").click(); await p.locator('#board-info [data-open="invite"]').first().click(); }
+  else await p.locator('[data-open="invite"]').first().click();
+  await p.locator("#log-export").waitFor();
   const [dl] = await Promise.all([p.waitForEvent("download"), p.locator("#log-export").click()]);
   const text = await dlText(dl);
   return { name: dl.suggestedFilename(), text, lines: text.split("\n").filter(Boolean).map((l) => JSON.parse(l)) };

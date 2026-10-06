@@ -11,7 +11,8 @@ for (const u of [A, B]) await ops("users", { name: u, email: `${u}@example.com`,
 const board = (await ops("boards", { user: A, title: `Roadmap ${run}` })).board.id; await ops("members", { board, user: B });
 let fails = 0; const check = (ok, m) => { console.log(`${ok ? "✓" : "✗"} ${m}`); if (!ok) fails++; };
 const b = await chromium.launch({ executablePath: process.env.PW_CHROME || undefined });
-for (const [w, scheme] of [[390, "light"], [390, "dark"], [820, "light"], [1280, "dark"]]) {
+// Phones (390) show the board in the header instead (jxn #4860), renamed from ⋯ → Board settings; the tablet keeps the touch case.
+for (const [w, scheme] of [[820, "light"], [820, "dark"], [1280, "dark"]]) {
   const touch = w < 1000; // 820 = a tablet
   const ctx = await b.newContext({ viewport: { width: w, height: 700 }, isMobile: touch, hasTouch: touch, deviceScaleFactor: 2, colorScheme: scheme });
   const ck = (await ops("sessions", { user: A })).cookie; const [k, ...v] = ck.split(";")[0].split("=");

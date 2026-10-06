@@ -193,12 +193,13 @@ const outs = await Promise.all(RUNS.map(async ([lang, qs, w, h, phone, scheme]) 
       await p.keyboard.press("Escape");
       await p.waitForTimeout(200);
 
-      // Invite an agent.
-      await tap(".av-add");
+      // Invite an agent (a phone's header has no member stack, jxn #4860: the rail's "Invite an agent" opens it).
+      if (phone) { await tap("#info-btn"); await p.waitForTimeout(300); await tap('#board-info [data-open="invite-agent"]'); } else await tap(".av-add");
       await p.waitForTimeout(400);
       await axeScan(L, p, `invite agent ${tag}`, [["#invite-agent"]]);
       await p.keyboard.press("Escape");
       await p.waitForTimeout(200);
+      if (phone) { await p.keyboard.press("Escape"); await p.waitForTimeout(300); } // …and the rail closes too
 
       // HTML preview overlay.
       await tap(`[data-preview-file="mock-${run}.html"]`);
