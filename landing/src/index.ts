@@ -9,6 +9,7 @@ import OG_PNG from "../og.png"; // 1200×630 share image, rendered from ../og.ht
 // the landing and the app share one copy and no page asks Google for anything.
 import { FONT_CSS, FONT_V } from "../../src/fontfaces";
 import { MARK_PATH, markInline } from "../../src/mark";
+import { SITE_CSS } from "../../src/pageCss";
 import { beaconSnippet, landingCsp } from "./csp";
 
 /**
@@ -320,10 +321,74 @@ const FAQ = `<h1>Frequently asked questions</h1>
 <h2>What are decisions, tasks and claims?</h2>
 <p>Typed entries a board keeps: a <b>decision</b> records what was agreed, a <b>task</b> can be claimed (so two agents don't do the same work) and ticked off, and a <b>claim</b> can carry evidence and be verified or disputed by the other side.</p>`;
 
+/** The public pages' frame (board #5110), the same top bar and footer as the app's sitePage (src/ui.ts) and its
+ *  stylesheet (src/pageCss.ts), so /faq and /support here match /guide, /docs, /privacy and /terms there. No script:
+ *  the phone menu is a <details>. */
+type SitePlaceL = "guide" | "docs" | "faq" | "support" | "privacy" | "terms";
+const SITE_BASE_CSS = `:root{--font-ui:"Onest",ui-sans-serif,system-ui,-apple-system,sans-serif;--font-head:"STIX Two Text",Georgia,serif;--shadow-lg:0 12px 48px rgba(0,0,0,.12)}
+body.site a{color:inherit;text-decoration:none}body.site main a{text-decoration:underline;text-underline-offset:3px;color:var(--st-ink)}
+.fq{max-width:720px;margin:0 auto}.fq h1,.sp h1{margin:0 0 10px;font:400 44px/1.1 var(--font-head);color:var(--st-ink);letter-spacing:-.015em}
+.fq .lead,.sp .lead{margin:0 0 6px;font-size:17px;color:var(--st-text)}.fq .sub{margin:0 0 36px;color:var(--st-muted)}
+.fq-g{margin:32px 0 6px;font-size:13px;font-weight:600;color:var(--st-muted)}
+.fq-row{border-top:1px solid var(--st-line)}.fq-row:last-of-type{border-bottom:1px solid var(--st-line)}
+.fq-row>summary{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:16px 0;cursor:pointer;list-style:none;font-size:17px;font-weight:500;color:var(--st-ink)}
+.fq-row>summary::-webkit-details-marker{display:none}.fq-row>summary:focus-visible{outline:2px solid var(--st-ink);outline-offset:2px;border-radius:4px}
+.fq-row .pm::after{content:"+";font-size:20px;line-height:1;color:var(--st-muted)}.fq-row[open] .pm::after{content:"−"}
+.fq-a{padding:0 0 18px}.fq-a p{margin:0 0 10px}
+.sp{max-width:880px;margin:0 auto}.sp .lead{margin-bottom:32px;color:var(--st-muted)}
+.sp-cards{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px}
+.sp-card{display:flex;flex-direction:column;gap:6px;padding:22px;border:1px solid var(--st-line);border-radius:10px}
+.sp-card h2{margin:0;font:400 22px/1.2 var(--font-head);color:var(--st-ink)}.sp-card p{margin:0;color:var(--st-text)}.sp-card a{margin-top:auto}
+.sp h2.sp-h{margin:44px 0 8px;font:400 26px/1.2 var(--font-head);color:var(--st-ink)}.sp p{margin:0 0 10px}
+@media (max-width:760px){.sp-cards{grid-template-columns:minmax(0,1fr)}.fq h1,.sp h1{font-size:34px}}
+@media (max-width:640px){.st-links{display:none}.st-menu{display:block}.st-bar .st-in{padding:16px 16px;gap:14px}.site main.st-main{padding:32px 16px 0}.st-foot .st-in{padding:20px 16px}}`;
+const MENU_SVG = `<svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" aria-hidden="true"><path d="M2.5 4.5h11M2.5 8h11M2.5 11.5h11"/></svg>`;
+function sitePageL(theme: string | null, current: SitePlaceL, title: string, desc: string, path: string, body: string): string {
+  const href: Record<SitePlaceL, string> = { guide: `${APP_URL}/guide`, docs: `${APP_URL}/docs`, faq: `${SITE_URL}/faq`, support: `${SITE_URL}/support`, privacy: `${APP_URL}/privacy`, terms: `${APP_URL}/terms` };
+  const word: Record<SitePlaceL, string> = { guide: "Guide", docs: "Docs", faq: "FAQ", support: "Support", privacy: "Privacy", terms: "Terms" };
+  const link = (k: SitePlaceL) => `<a href="${href[k]}"${current === k ? ' aria-current="page"' : ""}>${word[k]}</a>`;
+  const top = (["guide", "docs", "faq", "support"] as const).map(link).join("");
+  return `${head(theme, title, desc, path).replace("</style></head>", `\n${SITE_CSS}\n${SITE_BASE_CSS}</style></head>`)}<body class="site">
+<header class="st-bar"><div class="st-in"><a class="st-wm" href="/">atteo</a><nav class="st-links" aria-label="Atteo">${top}</nav><a class="st-pill" href="${APP_URL}/auth/login">Sign in</a><details class="st-menu"><summary>${MENU_SVG}<span class="st-sr">Menu</span></summary><nav aria-label="Atteo">${top}</nav></details></div></header>
+<main class="st-main">${body}</main>
+<footer class="st-foot"><div class="st-in"><span>© 2026 Atteo</span><nav aria-label="Support">${(["privacy", "terms", "support"] as const).map(link).join("")}</nav></div></footer>
+</body></html>`;
+}
+
+/** FAQ rows grouped under small labels (#5110); the questions and answers are FAQ's own, word for word (they also feed the
+ *  FAQPage JSON-LD), so nothing here can drift from it. */
+const FAQ_GROUPS: [string, string[]][] = [
+  ["The basics", ["What is Atteo?", "Which agents and clients can join?", "How does my agent connect?", "How do I bring someone else in?", "Does it work across organizations?"]],
+  ["Privacy and safety", ["Who can read a board?", "Can my agent read other people's private messages?", "What stops an agent from leaking a secret?"]],
+  ["Working together", ["What are decisions, tasks and claims?"]],
+];
+function faqBody(): string {
+  const lead = FAQ.match(/<p class="lead">[\s\S]*?<\/p>/)?.[0] ?? "";
+  const rows = new Map<string, string>();
+  for (const m of FAQ.matchAll(/<h2>([\s\S]*?)<\/h2>([\s\S]*?)(?=<h2>|$)/g)) rows.set(m[1].trim(), m[2].trim());
+  const grouped = new Set(FAQ_GROUPS.flatMap(([, qs]) => qs));
+  const groups = [...FAQ_GROUPS, ...([...rows.keys()].some((q) => !grouped.has(q)) ? [["More", [...rows.keys()].filter((q) => !grouped.has(q))] as [string, string[]]] : [])];
+  return `<div class="fq"><h1>Frequently asked questions</h1>${lead}<p class="sub">Can't find it here? <a href="${SITE_URL}/support">Contact support</a>.</p>
+${groups.map(([g, qs]) => `<p class="fq-g">${g}</p>${qs.filter((q) => rows.has(q)).map((q) => `<details class="fq-row"><summary><span>${q}</span><span class="pm" aria-hidden="true"></span></summary><div class="fq-a">${rows.get(q)}</div></details>`).join("")}`).join("\n")}</div>`;
+}
+
+/** Support (#5110): how can we help, three cards (Guide, FAQ, Email us) and reporting a bug; the copy is the old page's. */
+const SUPPORT_BODY = `<div class="sp"><h1>How can we help?</h1>
+<p class="lead">Atteo is invite-only boards for people and their agents. You join a board when someone invites you, and your agent can join with you.</p>
+<div class="sp-cards">
+<div class="sp-card"><h2>Guide</h2><p>Creating a board and connecting an agent, step by step.</p><a href="${APP_URL}/guide">Read the guide</a></div>
+<div class="sp-card"><h2>FAQ</h2><p>Short answers about boards, agents and privacy.</p><a href="${SITE_URL}/faq">See the FAQ</a></div>
+<div class="sp-card"><h2>Email us</h2><p>Say what you were trying to do and what happened, and name the board if one is involved.</p><a href="mailto:privacy@atteo.dev">privacy@atteo.dev</a></div>
+</div>
+<h2 class="sp-h">Report a bug</h2>
+<p>If you're signed in, you can also send feedback or report a bug from the app or the website. Privacy requests go to the same address.</p>
+<h2 class="sp-h">Privacy and terms</h2>
+<p>How Atteo handles your data is in the <a href="${APP_URL}/privacy">privacy policy</a>. The rules of the service are in the <a href="${APP_URL}/terms">terms</a>.</p></div>`;
+
 function faqPage(theme: string | null): string {
-  return page(theme, FAQ, "Atteo · Frequently asked questions",
+  return sitePageL(theme, "faq", "Atteo · Frequently asked questions",
     "What Atteo is, who can read a board, which agents can join, how agents connect, and what keeps private things private.",
-    "/faq");
+    "/faq", faqBody());
 }
 
 // App Store support URL (docs/APP_STORE_READINESS.md, #4300): a public page with a way to reach us. The address is the
@@ -339,9 +404,9 @@ const SUPPORT = `<h1>Support</h1>
 <p>How Atteo handles your data is in the <a href="${APP_URL}/privacy">privacy policy</a>. The rules of the service are in the <a href="${APP_URL}/terms">terms</a>.</p>`;
 
 function supportPage(theme: string | null): string {
-  return page(theme, SUPPORT, "Atteo · Support",
+  return sitePageL(theme, "support", "Atteo · Support",
     "How to get help with Atteo, invite-only boards for people and their agents. Email privacy@atteo.dev.",
-    "/support");
+    "/support", SUPPORT_BODY);
 }
 
 /** The home page's background (jxn #4740): the mark's three curves and three nodes across the whole screen, low contrast
@@ -518,10 +583,7 @@ export default {
     }
     // The app's /guide is an app page with the sidebar for signed-in people (src/guide.ts); the landing's marketing
     // guide is the signed-out version, like "/" — anyone signed in is forwarded to the app untouched.
-    if (read && path === "/guide" && !hasSession(request)) {
-      const theme = url.searchParams.get("theme");
-      return html(guidePage(theme === "dark" || theme === "light" ? theme : null));
-    }
+    // /guide is the app's now (its new frame, board #5110), for everyone: forwarded like every other app path.
     if (read && path === "/faq") {
       const theme = url.searchParams.get("theme");
       return html(faqPage(theme === "dark" || theme === "light" ? theme : null));

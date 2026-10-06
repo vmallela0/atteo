@@ -5,7 +5,7 @@
 // to 1440px; /og.png is a 1200×630 PNG. Its type is the app's own files (/fonts/*, which the landing forwards to the app):
 // nothing is asked of Google, and every font file it asks for is one the app ships (src/fonts).
 // HTML pages send an enforced hash CSP (docs/security/csp.md #8): JSON-LD and the Copy script are allowed by sha256,
-// /guide and /support are script-src 'none'.
+// /support is script-src 'none'. /guide is the app's now (its new frame, board #5110): the landing forwards it.
 // It runs against the LANDING Worker, not the app:
 //   npx wrangler dev -c landing/wrangler.jsonc --port 8798 --inspector-port 9237 --var APP_ORIGIN:http://127.0.0.1:9
 //   LANDING=http://localhost:8798 node test/browser/landing-look.mjs
@@ -100,20 +100,20 @@ check(og.ok && og.headers.get("content-type") === "image/png" && buf.readUInt32B
   check(["*", "GPTBot", "ClaudeBot", "PerplexityBot", "Google-Extended"].every((ua) => /^Allow: \/$/m.test(group(ua)) && /^Disallow: \/b\/$/m.test(group(ua)) && /^Disallow: \/api\/$/m.test(group(ua))) && /^Sitemap: https:\/\/atteo\.dev\/sitemap\.xml$/m.test(robots.body), "robots.txt: public pages open to all crawlers, AI ones by name; boards and the API closed");
   check(["/", "/guide", "/support", "/llms.txt"].every((p) => sitemap.body.includes(`<loc>https://atteo.dev${p}</loc>`)), "sitemap.xml lists the public pages");
   check(support.ok && /<title>Atteo · Support<\/title>/.test(support.body) && /mailto:privacy@atteo\.dev/.test(support.body) && /href="https:\/\/atteo\.dev\/privacy"/.test(support.body) && /href="https:\/\/atteo\.dev\/terms"/.test(support.body) && /invite-only boards for people and their agents/.test(support.body) && /href="https:\/\/atteo\.dev\/support">support<\/a>/i.test(home.body), "/support is public, with the privacy contact, legal links, and a home footer link");
-  check(["/docs", "/llms.txt", "/guide", "/faq"].every((p) => home.body.includes(`href="https://atteo.dev${p}"`)) && ["/docs", "/llms.txt", "/guide", "/faq", "/openapi.json", "/mcp"].every((p) => faqPg.body.includes(`href="https://atteo.dev${p}"`)), "footer has docs, llms.txt, guide, faq, OpenAPI and the MCP URL");
+  check(["/docs", "/llms.txt", "/guide", "/faq"].every((p) => home.body.includes(`href="https://atteo.dev${p}"`)) && ["/docs", "/guide", "/faq", "/support", "/llms.txt"].every((p) => faqPg.body.includes(`href="https://atteo.dev${p}"`)), "home and /faq link docs, guide, faq and llms.txt (/faq in its top bar, #5110)");
   check(/claude mcp add --transport http --scope user atteo https:\/\/atteo\.dev\/mcp/.test(home.body) && /MCP server \(streamable HTTP, OAuth sign-in\): https:\/\/atteo\.dev\/mcp/.test(llms.body) && !/listed on Smithery/i.test(home.body), "home has the connect lines; directories read the MCP endpoint from /llms.txt; no fake listings");
   check(llms.ok && llms.body.startsWith("# Atteo\n") && /\(https:\/\/atteo\.dev\/llms-full\.txt\)/.test(llms.body) && full.ok && /text\/plain/.test(full.type) && /PRIVACY/.test(full.body), "/llms.txt (Markdown, links the full text) and /llms-full.txt answer");
   const ldOf = (h) => { try { return JSON.parse(h.match(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/)[1]); } catch { return null; } };
   const ld = ldOf(home.body), fq = ldOf(faqPg.body);
   const faq = fq?.["@graph"]?.find((g) => g["@type"] === "FAQPage")?.mainEntity?.map((q) => q.name) || [];
-  const shown = [...faqPg.body.matchAll(/<h2>([\s\S]*?)<\/h2>/g)].map((m) => m[1].replace(/<[^>]+>/g, "").replace(/&amp;/g, "&").trim());
-  check(["Organization", "SoftwareApplication"].every((t) => ld?.["@graph"]?.some((g) => g["@type"] === t)) && faq.length >= 3 && JSON.stringify(faq) === JSON.stringify(shown), `the JSON-LD parses, and /faq's FAQPage is its questions (${faq.length})`);
+  const shown = [...faqPg.body.matchAll(/<summary><span>([\s\S]*?)<\/span>/g)].map((m) => m[1].replace(/<[^>]+>/g, "").replace(/&amp;/g, "&").trim());
+  check(["Organization", "SoftwareApplication"].every((t) => ld?.["@graph"]?.some((g) => g["@type"] === t)) && faq.length >= 3 && JSON.stringify([...faq].sort()) === JSON.stringify([...shown].sort()), `the JSON-LD parses, and /faq's FAQPage is its questions (${faq.length}; the page groups them, #5110)`);
   const sha = async (s) => Buffer.from(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s))).toString("base64");
   const inline = (h) => [...h.matchAll(/<script(\s[^>]*)?>([\s\S]*?)<\/script>/gi)].filter((m) => !/\ssrc\s*=/i.test(m[1] || "")).map((m) => m[2]);
-  for (const [p, r] of [["/", home], ["/guide", guide], ["/faq", faqPg], ["/support", support]]) {
+  for (const [p, r] of [["/", home], ["/faq", faqPg], ["/support", support]]) {
     const scripts = inline(r.body), src = r.csp.split("; ").find((d) => d.startsWith("script-src ")) || "";
     check(!!r.csp && !r.report && /script-src-attr 'none'/.test(r.csp) && !src.includes("'unsafe-inline'"), `${p}: enforced hash CSP, no unsafe-inline scripts`);
-    if (p === "/guide" || p === "/support") check(scripts.length === 0 && /script-src 'none'/.test(src), `${p}: script-src 'none'`);
+    if (p === "/support") check(scripts.length === 0 && /script-src 'none'/.test(src), `${p}: script-src 'none'`);
     else { const want = p === "/" ? 2 : 1; const hashed = (await Promise.all(scripts.map(sha))).every((h) => src.includes(`'sha256-${h}'`));
       check(scripts.length === want && hashed, `${p}: ${want === 2 ? "JSON-LD and the Copy script" : "JSON-LD"} hashed in script-src (${scripts.length})`); }
   }
