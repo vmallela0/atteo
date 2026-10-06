@@ -94,7 +94,7 @@ final class DesignTokensTests: XCTestCase {
     }
 
     func testFontsRegister() {
-        for name in ["Onest-Regular", "Onest-Medium", "Onest-SemiBold", "Enriqueta-Regular", "Enriqueta-SemiBold", "CourierPrime-Regular", "Schoolbell-Regular"] {
+        for name in ["Onest-Regular", "Onest-Medium", "Onest-SemiBold", "Enriqueta-Regular", "Enriqueta-SemiBold", "CourierPrime-Regular", "Schoolbell-Regular", "STIXTwoText"] {
             XCTAssertNotNil(UIFont(name: name, size: 17), "\(name) is bundled and registered (Info.plist UIAppFonts)")
         }
     }
@@ -107,13 +107,23 @@ final class DesignTokensTests: XCTestCase {
         XCTAssertEqual(UIFont(descriptor: medium, size: 17).fontName, "Onest-Medium")
     }
 
-    func testTheArtShips() {
-        XCTAssertNotNil(UIImage(named: "AtteoMark"), "the mark")
-        XCTAssertNotNil(UIImage(named: "AtteoWordmark"), "the wordmark")
-        // UIImage(named:compatibleWith:) falls back to the light art when the dark variant is missing, so compare pixels.
-        let light = UIImage(named: "AtteoMark", in: nil, compatibleWith: UITraitCollection(userInterfaceStyle: .light))
-        let dark = UIImage(named: "AtteoMark", in: nil, compatibleWith: UITraitCollection(userInterfaceStyle: .dark))
-        XCTAssertNotNil(dark, "the reversed mark for dark")
-        XCTAssertNotEqual(light?.pngData(), dark?.pngData(), "the dark mark is its own art (paper strokes), not the light one")
+    func testTheGraphMark() {
+        // The web's src/mark.ts: three cubic curves (a start point + three segments each) through three nodes.
+        XCTAssertEqual(AtteoGraph.curves.count, 3)
+        for c in AtteoGraph.curves { XCTAssertEqual(c.count, 2 + 3 * 6, "a start point and three cubic segments") }
+        XCTAssertEqual(AtteoGraph.nodes, [CGPoint(x: 24, y: 27), CGPoint(x: 61, y: 39), CGPoint(x: 26, y: 77)])
+        // Each curve passes through its nodes: segment ends land on them.
+        let ends = AtteoGraph.curves.flatMap { c in stride(from: 6, to: c.count, by: 6).map { CGPoint(x: c[$0], y: c[$0 + 1]) } }
+        for n in AtteoGraph.nodes { XCTAssertTrue(ends.contains(n), "a curve meets the node at \(n)") }
+        // Drawn to the frame it's given.
+        let box = AtteoGraph.Nodes(radius: 4.8).path(in: CGRect(x: 0, y: 0, width: 200, height: 200)).boundingRect
+        XCTAssertEqual(box.minX, (24 - 4.8) * 2, accuracy: 0.01)
+        XCTAssertEqual(box.maxY, (77 + 4.8) * 2, accuracy: 0.01)
+    }
+
+    func testTheWordmarkIsSTIXRegular() {
+        let f = UIFont(name: "STIXTwoText", size: 40)
+        XCTAssertEqual(f?.familyName, "STIX Two Text")
+        XCTAssertEqual(f?.fontDescriptor.object(forKey: .face) as? String, "Regular")
     }
 }
