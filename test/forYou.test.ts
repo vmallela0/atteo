@@ -14,7 +14,8 @@ describe("For you words", () => {
     expect(greetingFor(2)).toBe("Good evening");
   });
   it("greets by first name, else the handle", () => {
-    expect(firstName(viewer)).toBe("Maya");
+    expect(firstName(viewer)).toBe("Maya Chen"); // the whole name as shown (jxn #4438: "Good afternoon, The" for "The Puppeteer")
+    expect(firstName({ name: "jxn", display_name: "The Puppeteer" })).toBe("The Puppeteer");
     expect(firstName({ name: "sam", display_name: null })).toBe("sam");
     expect(firstName({ name: "sam", display_name: "  " })).toBe("sam");
   });

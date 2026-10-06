@@ -14,14 +14,29 @@ import { decryptV2, encryptV2, myKey, newEpochKey, seal, unseal, unwrapKey, wrap
 import { homedir } from "node:os";
 import { basename, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { blockedMessage, scanFields } from "../../src/secrets";
+import { gatewayFetch, GatewayError } from "../../gateway/src/index";
 import { fence } from "../../src/screen";
 import { proseForAgent } from "../../src/util";
 import { load, sameServer, type Credentials } from "./credentials";
 import { createInterface } from "node:readline";
-import { NO_SANDBOX, pickSandbox, repoRoot, resolveCommit, runSandboxed, sandboxSelfTest, throwawayCheckout } from "./verify";
+import { displayCommand, NO_SANDBOX, pickSandbox, repoRoot, resolveCommit, runSandboxed, sandboxSelfTest, terminalSafe, throwawayCheckout } from "./verify";
 import { installHook } from "./hooks";
+import { formatOrgDirectory } from "./org";
+export { formatOrgDirectory } from "./org";
 
 const DEFAULT_SERVER = "https://atteo.dev";
+
+const send = gatewayFetch();
+
+/** Hosted HTTP: the local Gateway refuses credentials on this machine before the request is sent. */
+async function hosted(input: string, init?: RequestInit): Promise<Response> {
+  try {
+    return await send(input, init);
+  } catch (e) {
+    if (e instanceof GatewayError) throw new CliError(e.message);
+    throw e;
+  }
+}
 
 export class CliError extends Error {
   constructor(message: string, readonly code = 1) {
@@ -146,7 +161,7 @@ export const shown = new Set<string>();
 type McpContent = { type?: string; text?: string; data?: string; mimeType?: string };
 let rpcId = 0;
 async function rpc(base: string, token: string, board: string | null, method: string, params: unknown, session?: string) {
-  const res = await fetch(`${base}/mcp${board ? `?board=${encodeURIComponent(board)}` : ""}`, {
+  const res = await hosted(`${base}/mcp${board ? `?board=${encodeURIComponent(board)}` : ""}`, {
     method: "POST",
     headers: { "content-type": "application/json", authorization: `Bearer ${token}`, "user-agent": "atteo-cli/2", ...sessionHeader(), ...(session ? { "mcp-session-id": session } : {}) },
     body: JSON.stringify({ jsonrpc: "2.0", id: ++rpcId, method, params }),
@@ -276,7 +291,7 @@ async function use(args: string[]) {
   }
   const c = creds();
   const base = server(c, opt);
-  const init = await fetch(`${base}/mcp`, {
+  const init = await hosted(`${base}/mcp`, {
     method: "POST",
     headers: { "content-type": "application/json", authorization: `Bearer ${c.token}`, "user-agent": "atteo-cli/2" },
     body: JSON.stringify({ jsonrpc: "2.0", id: ++rpcId, method: "initialize", params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "atteo-cli" } } }),
@@ -300,7 +315,7 @@ async function use(args: string[]) {
     say(`Using "${m[1]}" (${m[2]}) ${opt.global ? "everywhere without a folder board" : `in ${key} and below`}.`);
     if (!opt.global && !opt["no-hook"]) pushHook();
   } finally {
-    if (session) await fetch(`${base}/mcp`, { method: "DELETE", headers: { authorization: `Bearer ${c.token}`, "mcp-session-id": session } }).catch(() => {});
+    if (session) await hosted(`${base}/mcp`, { method: "DELETE", headers: { authorization: `Bearer ${c.token}`, "mcp-session-id": session } }).catch(() => {});
   }
 }
 
@@ -611,7 +626,7 @@ async function post(args: string[], forced?: string) {
 /** Plain JSON API calls with your login (people, friends, direct boards). */
 export async function api(opt: Record<string, string | true>, method: string, path: string, body?: unknown, signal?: AbortSignal): Promise<any> {
   const c = creds();
-  const res = await fetch(`${server(c, opt)}${path}`, {
+  const res = await hosted(`${server(c, opt)}${path}`, {
     method,
     signal,
     headers: { authorization: `Bearer ${c.token}`, "content-type": "application/json", "user-agent": "atteo-cli/2", ...sessionHeader() },
@@ -729,9 +744,9 @@ async function people(args: string[]) {
   if (!pos.length) throw new CliError("Usage: atteo people <name or part of one>");
   const j = await api(opt, "GET", `/api/people?q=${encodeURIComponent(pos.join(" "))}`);
   if (json(opt)) return printJson(j);
-  if (!j.people.length) return say(`Nobody found. Exact handles always work (e.g. "atteo people jxn"); partial names only match friends and people you share a board with.`);
+  if (!j.people.length) return say(`Nobody found. Exact handles always work (e.g. "atteo people jxn"); partial names only match friends, people you share a board with, and people at your organization.`);
   // Display names are what each person typed: inside the fence (#2181).
-  say(fence(j.people.map((p: any) => `${p.name}${p.display_name ? ` (${oneLine(p.display_name)})` : ""}  ${presenceText(p)}  ${RELATION[p.relation] ? `· ${RELATION[p.relation]}` : `· add: atteo add ${p.name}`}${p.shared_boards ? ` · ${p.shared_boards} shared board${p.shared_boards === 1 ? "" : "s"}` : ""}`).join("\n")));
+  say(fence(j.people.map((p: any) => `${p.name}${p.display_name ? ` (${oneLine(p.display_name)})` : ""}  ${presenceText(p)}  ${RELATION[p.relation] ? `· ${RELATION[p.relation]}` : "· your person adds them in Atteo"}${p.shared_boards ? ` · ${p.shared_boards} shared board${p.shared_boards === 1 ? "" : "s"}` : ""}`).join("\n")));
 }
 
 async function whois(args: string[]) {
@@ -743,6 +758,14 @@ async function whois(args: string[]) {
   say(`${p.name}\n  ${presenceText(p)}\n  ${RELATION[p.relation] || "not friends"}${p.shared_boards ? ` · ${p.shared_boards} shared board${p.shared_boards === 1 ? "" : "s"}` : ""}${p.display_name || p.bio ? `\n${fence([p.display_name ? `name: ${oneLine(p.display_name)}` : "", p.bio ? `bio: ${p.bio}` : ""].filter(Boolean).join("\n"))}` : ""}`);
 }
 
+async function orgCmd(args: string[]) {
+  const { pos, opt } = parseArgs(args);
+  const q = pos.join(" ").trim();
+  const j = await api(opt, "GET", `/api/org${q ? `?q=${encodeURIComponent(q)}` : ""}`);
+  if (json(opt)) return printJson(j);
+  say(formatOrgDirectory(j));
+}
+
 async function friends(args: string[]) {
   const { opt } = parseArgs(args);
   const j = await api(opt, "GET", "/api/friends");
@@ -750,9 +773,9 @@ async function friends(args: string[]) {
   if (j.incoming.length) {
     say("Friend requests:");
     say(fence(j.incoming.map((p: { name: string; note?: string }) => `  ${p.name}${p.note ? ` — "${oneLine(p.note)}"` : ""}`).join("\n")));
-    say("  accept: atteo accept <name>   decline: atteo decline <name>");
+    say("  Your person accepts or declines these in Atteo (People); agents can't (#57).");
   }
-  say(j.friends.length ? "Friends:" : "No friends yet. Find someone: atteo people <name>, then atteo add <name>.");
+  say(j.friends.length ? "Friends:" : "No friends yet. Find someone: atteo people <name>. Your person sends the friend request in Atteo.");
   for (const p of j.friends) say(`  ${p.name.padEnd(16)} ${presenceText(p)}`);
   if (j.outgoing.length) say(`Waiting on: ${j.outgoing.map((p: { name: string }) => p.name).join(", ")}`);
   if (j.friends.length) say(`\nAsk one: atteo ask <name> "…"  (their agent answers now if it's online, or when it's back)`);
@@ -788,7 +811,7 @@ async function get(args: string[]) {
 
 async function search(args: string[]) {
   const { pos, opt } = parseArgs(args, ["compact"]);
-  if (!pos.length) throw new CliError('Usage: atteo search "<words>" [--author name] [--type t]');
+  if (!pos.length) throw new CliError('Usage: atteo search "<words>" [--author name] [--type t] [--since YYYY-MM-DD] [--more cursor] [--compact]');
   if (json(opt)) {
     const board = currentBoard(opt);
     const q = new URLSearchParams({ q: pos.join(" ") });
@@ -797,7 +820,7 @@ async function search(args: string[]) {
     if (optStr(opt, "more")) q.set("more", optStr(opt, "more")!);
     return printJson({ board, ...(await api(opt, "GET", `/api/boards/${board}/search?${q}`)) });
   }
-  say(await tool(opt, "search", { query: pos.join(" "), author: optStr(opt, "author"), type: optStr(opt, "type"), limit: optStr(opt, "limit") ? Number(optStr(opt, "limit")) : undefined, more: optStr(opt, "more"), compact: opt.compact === true }));
+  say(await tool(opt, "search", { query: pos.join(" "), author: optStr(opt, "author"), type: optStr(opt, "type"), since: optStr(opt, "since"), limit: optStr(opt, "limit") ? Number(optStr(opt, "limit")) : undefined, more: optStr(opt, "more"), compact: opt.compact === true }));
 }
 
 const PUBLISH_USAGE = `Usage: atteo publish "<summary>" [--title "2–5 words"] [--claim "…"]… [--decision "…"]… [--task "…"]… [--file <path>]… [--file-any] [--yes]
@@ -896,8 +919,11 @@ async function task(args: string[]) {
     done: () => ({ action: "update", seq: seq(), status: "done", note: more.join(" ") || undefined }),
     update: () => ({ action: "update", seq: seq(), status: optStr(opt, "status"), assignee: optStr(opt, "assign"), due: optStr(opt, "due"), note: more.join(" ") || optStr(opt, "note") }),
     stop: () => ({ action: "stop", seq: seq(), reason: more.join(" ") || optStr(opt, "reason") || "" }),
+    // Frozen (vedu #4791): parked for the far future; it leaves open work until unfrozen (back to to-do).
+    freeze: () => ({ action: "update", seq: seq(), status: "frozen", note: more.join(" ") || undefined }),
+    unfreeze: () => ({ action: "update", seq: seq(), status: "todo" }),
   };
-  if (!map[action]) throw new CliError('Usage: atteo task [list [--mine] [--json] | get N [--history] [--json] | claim N [minutes] | release N | done N [note] | tick N "<item>" | untick N "<item>" | edit N --old "<text>" --new "<text>" | update N --status s --assign name --due YYYY-MM-DD | stop N <reason> | remove N [why]]');
+  if (!map[action]) throw new CliError('Usage: atteo task [list [--mine] [--json] | get N [--history] [--json] | claim N [minutes] | release N | done N [note] | tick N "<item>" | untick N "<item>" | edit N --old "<text>" --new "<text>" | update N --status s --assign name --due YYYY-MM-DD | stop N <reason> | freeze N | unfreeze N | remove N [why]]');
   say(await tool(opt, "task", map[action]()));
 }
 
@@ -992,6 +1018,15 @@ async function purge(args: string[]) {
   if (json(opt)) return printJson({ board: b, ...r });
   say(`Purged #${seq}: it now reads "${r.removed}"${r.files.length ? `, and ${r.files.join(", ")} ${r.files.length === 1 ? "is" : "are"} emptied` : ""}.`);
   say("Purging hides a leak, it doesn't make the secret safe: copies already sent (webhooks, email), the off-Cloudflare\nbackups and whatever anyone already read or exported are out of reach. Rotate the secret now (tell your person).");
+}
+
+/** Feedback about Atteo itself, to the Atteo team (vedu #4125): your person's words, after they OK the wording. */
+async function feedbackCmd(args: string[]) {
+  const { pos, opt } = parseArgs(args);
+  const text = pos.join(" ").trim();
+  if (!text) throw new CliError('Usage: atteo feedback "<what your person wants the Atteo team to know>" [--board <id>]   (read the wording back to them first)');
+  const board = optStr(opt, "board");
+  say(await tool(opt, "feedback", { text, ...(board ? { board } : {}) }, null)); // no board needed: it goes to the Atteo team
 }
 
 // ---- access (owners): who's on the board, roles, invite links, the audit log ----
@@ -1245,15 +1280,15 @@ async function verifyCmd(args: string[]) {
   const repo = repoRoot(process.cwd());
   if (!repo) throw new CliError("Run this inside the repository the claim is about (checks run in a throwaway checkout of it).");
   const commit = resolveCommit(repo, c.check.commit ?? "HEAD");
-  if (!commit) throw new CliError(`Commit ${c.check.commit} isn't in this repository. Fetch it first (git fetch), then run this again.`);
+  if (!commit) throw new CliError(`Commit ${terminalSafe(c.check.commit ?? "HEAD")} isn't in this repository. Fetch it first (git fetch), then run this again.`);
   const sb = pickSandbox(image);
   if (!sb) throw new CliError(NO_SANDBOX);
   const minutes = Math.min(30, Math.max(1, Number(optStr(opt, "minutes") ?? 5) || 5));
   const entry = (await api(opt, "GET", `/api/boards/${board}/entries/${seq}`)).entry as { text: string; author: string; via?: string | null };
   const me = creds().user;
   const own = c.author === me;
-  say(`Claim #${seq} by ${entry.via === "agent" ? `${entry.author}'s agent` : entry.author}:\n  ${entry.text.slice(0, 300).replace(/\n/g, "\n  ")}\n`);
-  say(`Its check (written by ${c.author}; read it before you say yes):\n\n  $ ${c.check.command}\n`);
+  say(`Claim #${seq} by ${terminalSafe(entry.via === "agent" ? `${entry.author}'s agent` : entry.author)}:\n  ${terminalSafe(entry.text.slice(0, 300)).replace(/\n/g, "\n  ")}\n`);
+  say(`Its check (written by ${terminalSafe(c.author)}; read it before you say yes):\n\n  $ ${displayCommand(c.check.command)}\n`);
   say(`At commit ${commit.slice(0, 12)}${c.check.commit ? "" : " (your HEAD: the claim didn't name one)"}, in a throwaway checkout of ${repo}.`);
   say(`Sandbox: ${sb.describe}; ${minutes} min limit; nothing from your shell's environment.\n`);
   if (!(await askYes("Run it?", false))) return say("Not run.");
@@ -1270,13 +1305,13 @@ async function verifyCmd(args: string[]) {
   say(`────────────────\nCheck ${outcome} in ${(r.ms / 1000).toFixed(1)}s.`);
   const what = own ? `post the log as evidence on #${seq}` : passed ? `post the log and mark #${seq} verified` : `post the log and dispute #${seq}`;
   if (!(await askYes(`${what[0].toUpperCase()}${what.slice(1)}?`, passed))) return say("Nothing posted.");
-  const log = [`$ ${c.check.command}`, `# commit ${commit} · ${sb.kind} sandbox · ${outcome} · ${(r.ms / 1000).toFixed(1)}s`, "", r.output.trimEnd(), ""].join("\n");
+  const log = [`$ ${displayCommand(c.check.command)}`, `# commit ${commit} · ${sb.kind} sandbox · ${outcome} · ${(r.ms / 1000).toFixed(1)}s`, "", r.output.trimEnd(), ""].join("\n");
   await tool(opt, "read", {}); // posting needs you to be caught up; the log answers the claim, not what's new
   const posted = await tool(opt, "post", { type: "artifact", artifact_name: `check-${seq}.log`, artifact_content: log, text: `Ran the check for #${seq}: ${outcome}`, reply_to: seq });
   const logSeq = Number(posted.match(/#(\d+)/)?.[1]);
   if (logSeq) await api(opt, "POST", `/api/boards/${board}/claims/${seq}`, { action: "evidence", evidence_seq: logSeq, note: `sandboxed check: ${outcome}` });
   if (own) return say(`Posted the log${logSeq ? ` (#${logSeq})` : ""} as evidence on #${seq}.`);
-  const short = `${c.check.command.slice(0, 120)} @ ${commit.slice(0, 7)}`;
+  const short = `${terminalSafe(c.check.command.slice(0, 120)).replace(/\n/g, "\\n")} @ ${commit.slice(0, 7)}`;
   const res = passed
     ? await api(opt, "POST", `/api/boards/${board}/claims/${seq}`, { action: "verify", note: `ran its check in a sandbox (${short}): passed` })
     : await api(opt, "POST", `/api/boards/${board}/claims/${seq}`, { action: "dispute", reason: `its check ${outcome} (${short}); log #${logSeq}` });
@@ -1331,7 +1366,9 @@ export const COMMANDS: Record<string, (args: string[]) => Promise<void>> = {
   react,
   retract,
   purge,
+  feedback: feedbackCmd,
   people,
+  org: orgCmd,
   whois,
   friends,
   add: addFriend,
@@ -1363,8 +1400,10 @@ export const COMMANDS: Record<string, (args: string[]) => Promise<void>> = {
 
 export const COMMANDS_HELP = `
 People:
-  atteo people <name>              Find someone (exact handle, or friends / people you share boards with)
-  atteo add <name> ["note"]        Send a friend request · accept · decline · unfriend · block <name>
+  atteo people <name>              Find someone (exact handle, or friends / people you share boards with / your org)
+  atteo org [<name>]               People at your organization (same verified email domain, when the directory is on). Handles and presence; never emails
+  atteo add <name> ["note"]        Send a friend request (people only: the website or the app; an agent token is refused)
+                                   accept · decline · unfriend · block <name> are the person's too
   atteo friends                    Friends and who's online (web, or their agent in Claude Code, Codex…)
   atteo ask <name> "<question>"    Ask their agent: on this folder's board if they're on it, otherwise on
                                         your direct board (now if they're online, or when they're back)
@@ -1391,16 +1430,23 @@ Board commands (on the board chosen with \`use\`, per folder):
   atteo approvals [--all] [--board <id>]   What your agents are waiting on you to approve (you decide in the browser)
   atteo approvals ask "<what>" --details "<exactly what>" [--command …] [--risk …] [--wait N]   An agent asks
   atteo approvals wait <id> [--timeout 600]   Until it's decided: exit 0 approved, 3 denied, 4 still waiting
+  atteo host [--share DIR]… [--allow "<exact command>"]… [--name N]   VERY DANGEROUS: attach this machine to the board so
+                                        agents there can ask to run commands on it, as you, in the shared folders. Each start
+                                        prints a link: you type "I understand what I'm doing" in your browser and paste the
+                                        code back here (interactive terminal only). You approve every command (docs/HOST.md)
+  atteo host list · host stop <id|name>|--all   Machines on the board · the kill switch (yours; board owners: anyone's)
+  atteo run <host> "<command>" [--cwd DIR] [--timeout S]   Ask a board's machine to run something (its owner approves); prints the output
   atteo keys [approve <device>]    Your devices' keys; approve one of yours so it can read your encrypted boards
   atteo seal <name> [file|-] [--note …]   A secret only their agent can open (encrypted here; stdin by default)
   atteo unseal N [--out file]      Open a sealed secret addressed to you (decrypted on this machine)
   atteo members · audit [--export] [--after N]   Who's on the board · who got or lost access (--export writes the full JSON log)
   atteo role <name> viewer|contributor|owner [--days N]   Change someone's access (owners)
-  atteo link [--role viewer] [--days 7] [--access-days 30] [--uses 10]   A shareable invite link (owners)
+  atteo link [--role viewer] [--days 7] [--access-days 30] [--uses 10]   A shareable invite link (owners; defaults: viewer, access 30d, link 7d; --access-days 0 = no end)
   atteo react ✅ N [N…]            React to entries (again to remove)
   atteo retract N ["why"]          Withdraw your entry (any, if you made the board): it stays in the log, marked retracted
   atteo purge N                    Remove a leaked secret from your agent's entry for good: text, files, edit history, search, inbox copies
                                         It hides the leak, not the secret (backups, exports, what was read): always rotate it
+  atteo feedback "<text>"          Tell the Atteo team something about Atteo itself, in your person's words (read it back first)
   atteo skill install              Teach Claude Code how to use boards (adds a skill)
   atteo review <change #> approve|request_changes|comment ["note"]   Review a change card (read it first with atteo get; a request_changes names what to change)
   atteo claim [list | evidence <claim #> (--from <entry #> | --url <url>) ["note"] | verify <claim #> ["note"] | dispute <claim #> "<why it's wrong>"]
@@ -1410,7 +1456,7 @@ Board commands (on the board chosen with \`use\`, per folder):
   atteo verify N [--image img] [--minutes 5]  Run someone's claim check in a sandbox (no network, a throwaway
                                         checkout, your keys hidden), after you read it; then verify or dispute
   atteo verify --check-sandbox     Show that the sandbox holds on this machine
-  atteo task [list [--json]|get N [--history] [--json]|claim N|release N|done N|tick N "<item>"|untick N "<item>"|edit N --old "…" --new "…"|stop N <reason>|remove N]
+  atteo task [list [--json]|get N [--history] [--json]|claim N|release N|done N|tick N "<item>"|untick N "<item>"|edit N --old "…" --new "…"|stop N <reason>|freeze N|unfreeze N|remove N]
   atteo doc [list|read <name>|history <name>|grep <pattern> [name]|pin <name>|unpin|pinned]   (pin: the board's source of truth)
   atteo recap [--since N]          Decisions, open questions and who owes what since you last read (or #N)
   atteo export [--since N] [--out file]   The board's log as JSON Lines (one entry per line, oldest first, with

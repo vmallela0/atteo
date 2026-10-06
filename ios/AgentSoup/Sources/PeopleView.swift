@@ -84,12 +84,13 @@ struct NewMessageSheet: View {
 }
 
 struct PersonRow: View {
+    @EnvironmentObject var state: AppState
     let p: Person
     var body: some View {
         HStack(spacing: Space.m) {
             Avatar(name: p.name, size: 40)
             VStack(alignment: .leading, spacing: Space.xxs) {
-                Text(p.displayName ?? p.name).font(Typo.rowTitleRead).foregroundStyle(Theme.text).lineLimit(1)
+                Text(state.displayName(for: p.name)).font(Typo.rowTitleRead).foregroundStyle(Theme.text).lineLimit(1)
                 Text(["@\(p.name)", p.relationLabel].compactMap { $0 }.joined(separator: " · ")).font(Typo.micro).foregroundStyle(Theme.faint).lineLimit(1)
             }
         }
@@ -105,6 +106,7 @@ struct PersonCard: View {
     let open: (Board) -> Void
     var agentFirst = false // opened on their agent ("@theo's agent", an agent's picture): its section leads, lit
     var ask: (() -> Void)? = nil // "Ask theo's agent" here (a chat's box); nil: in a DM
+    var board: String? = nil // opened from a chat: Mute on this board is in its menu (Moderation.swift)
     @State private var agent: MeAgentResponse.Agent?
     @State private var p: Person?
     @State private var presence: String?
@@ -118,7 +120,7 @@ struct PersonCard: View {
             VStack(spacing: Space.l) {
                 VStack(spacing: Space.s) {
                     Avatar(name: name, size: 84)
-                    Text(person?.displayName ?? name).font(Typo.ui(.title2).weight(.semibold)).foregroundStyle(Theme.text)
+                    Text(state.displayName(for: name)).font(Typo.ui(.title2).weight(.semibold)).foregroundStyle(Theme.text)
                     HStack(spacing: Space.xs) {
                         Text("@\(name)")
                         if let presence, presence != "offline" { Text("·"); Text(presence).foregroundStyle(Theme.ok) }
@@ -148,13 +150,22 @@ struct PersonCard: View {
             if person?.relation != "blocked" {
                 ToolbarItem(placement: .topBarTrailing) {
                     Menu {
-                        Button("Block \(name)", systemImage: "hand.raised", role: .destructive) { confirmBlock = true }
+                        // Mute on this board: their posts (and their agents') fold to one line and stop notifying you.
+                        if let board, name.lowercased() != state.me?.owner.lowercased() {
+                            if state.isMuted(name, on: board) {
+                                Button("Unmute on this board", systemImage: "speaker.wave.2") { Task { _ = await state.unmute(name, on: board) } }
+                            } else {
+                                Button("Mute on this board", systemImage: "speaker.slash") { Task { _ = await state.mute(name, on: board) } }
+                                    .accessibilityIdentifier("person-mute")
+                            }
+                        }
+                        Button("Block \(state.displayName(for: name))", systemImage: "hand.raised", role: .destructive) { confirmBlock = true }
                     } label: { ToolbarIcon("ellipsis").frame(width: 32, height: 32).contentShape(Rectangle()) }
                     .accessibilityLabel("More")
                 }
             }
         }
-        .confirmationDialog("Block \(name)?", isPresented: $confirmBlock, titleVisibility: .visible) {
+        .confirmationDialog("Block \(state.displayName(for: name))?", isPresented: $confirmBlock, titleVisibility: .visible) {
             Button("Block", role: .destructive) { Task { if await state.block(name) { p?.relation = "blocked"; if p == nil, var i = initial { i.relation = "blocked"; p = i } } } }
         } message: { Text("They can't message you, add you as a friend, or find you. You can unblock them on the web.") }
         .task {
@@ -178,7 +189,7 @@ struct PersonCard: View {
                     Avatar(name: name, agent: true, size: 44)
                         .overlay(alignment: .bottomTrailing) { if let best { StateDot(state: best.state).padding(2).background(Theme.card, in: Circle()).offset(x: 4, y: 4) } }
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(Vocab.agentOf(name)).font(Typo.rowTitle).foregroundStyle(Theme.text)
+                        Text(state.displayName(for: name, agent: true)).font(Typo.rowTitle).foregroundStyle(Theme.text)
                         Text(best.map { $0.status ?? stateLine($0.state, $0.lastSeen) } ?? (agent?.online == true ? String(localized: "online", bundle: .l10n) : String(localized: "not on a board you share right now", bundle: .l10n)))
                             .font(Typo.meta).foregroundStyle(best?.state == "live" ? Theme.ok : Theme.muted).lineLimit(2)
                     }
@@ -196,7 +207,7 @@ struct PersonCard: View {
                     Text("\(rec.tasksDone) tasks done · \(rec.claimsVerified) claims verified").font(Typo.micro).foregroundStyle(Theme.faint)
                 }
                 if name != state.me?.owner || ask != nil {
-                    big("Ask \(Vocab.agentOf(name))", "sparkles", primary: false, id: "profile-ask-agent") {
+                    big("Ask \(state.displayName(for: name, agent: true))", "sparkles", primary: false, id: "profile-ask-agent") {
                         if let ask { ask(); return }
                         busy = true
                         Task { if let b = await state.openDirect(name) { open(b) }; busy = false }

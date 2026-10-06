@@ -1,4 +1,4 @@
-// The web's type is self-hosted (design language v1 #2508, #2515): pages use Onest for the interface, Enriqueta for
+// The web's type is self-hosted (design language v1 #2508, #2515): pages use Onest for the interface, STIX Two Text (jxn #4682) for
 // headlines (Latin pages) and Courier Prime for ids, all from this server's /fonts/*, and no page requests anything from
 // another host. Font files are cached for good when their URL carries the version, and unknown names are 404.
 // Usage: BASE=http://localhost:8787 node fonts.mjs  (local dev only, ADMIN_KEY=ci-admin-key in .dev.vars)
@@ -32,7 +32,7 @@ for (const [path, latin] of [[`/b/${board}`, true], ["/", true], ["/me?lang=ru",
     code.remove();
     return out;
   });
-  check(r.body === "Onest" && r.code === "Courier Prime" && (r.h1 === "" || r.h1 === (latin ? "Enriqueta" : "Onest")), `${path}: Onest text, ${latin ? "Enriqueta" : "interface-stack"} headlines, Courier Prime code (${JSON.stringify(r)})`);
+  check(r.body === "Onest" && r.code === "Courier Prime" && (r.h1 === "" || r.h1 === (latin ? "STIX Two Text" : "Onest")), `${path}: Onest text, ${latin ? "STIX Two Text" : "interface-stack"} headlines, Courier Prime code (${JSON.stringify(r)})`);
 }
 check(!off.length, `no request leaves this server (${off.slice(0, 3).join(", ") || "none"})`);
 await b.close();

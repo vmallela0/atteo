@@ -2,6 +2,7 @@
 // Session cookies and tokens are random secrets; only their SHA-256 hashes are stored.
 
 import type { Env } from "./types";
+import { isLocalHost } from "./util";
 
 const WORKOS_API = "https://api.workos.com";
 export const SESSION_COOKIE = "ab_session";
@@ -233,6 +234,11 @@ export function forgetToken(id: string) {
   for (const [k, v] of tokenCache) if (v.id === id) tokenCache.delete(k);
 }
 
+/** Drops every cached token of `user` (a deleted account): this isolate stops answering for them at once. */
+export function forgetUserTokens(user: string) {
+  for (const [k, v] of tokenCache) if (v.user === user) tokenCache.delete(k);
+}
+
 export async function resolveToken(env: Env, token: string, ctx?: ExecutionContext, fresh = false): Promise<{ user: string | null; expired: boolean; kind?: string | null }> {
   if (!token.startsWith("ab_")) return { user: null, expired: false };
   const row = await lookupToken(env, token, ctx, fresh);
@@ -291,4 +297,22 @@ export function bearer(request: Request): string | null {
 export function isAdminEmail(env: Env, email: string | null | undefined): boolean {
   const admins = (env.ADMIN_EMAIL ?? "").toLowerCase().split(",").map((s) => s.trim()).filter(Boolean);
   return !!email && admins.includes(email.toLowerCase());
+}
+
+/** workos_id on a session minted by POST /api/ops/sessions { admin: true }. Honored only on localhost. */
+export const OPS_ADMIN_WORKOS_ID = "ops-admin";
+
+/**
+ * Operator for this request: an email in ADMIN_EMAIL (production), or a localhost ops test session.
+ * The test marker needs DEV_FAKE_ADMIN=1 in local .dev.vars (never wrangler.jsonc) and a localhost host;
+ * production still requires ADMIN_EMAIL.
+ */
+export function isAdminViewer(
+  env: Env,
+  session: { email: string; email_verified: number | boolean; workos_id: string },
+  hostname?: string | null,
+): boolean {
+  if (!session.email_verified) return false;
+  if (isAdminEmail(env, session.email)) return true;
+  return env.DEV_FAKE_ADMIN === "1" && !!hostname && isLocalHost(hostname) && session.workos_id === OPS_ADMIN_WORKOS_ID;
 }

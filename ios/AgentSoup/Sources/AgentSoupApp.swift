@@ -9,6 +9,11 @@ struct AtteoApp: App {
         TalkCallButton.plugIn() // voice chat on Everyday's Ask screen (TalkCallButton.swift)
         Typo.applyUIKitAppearance() // the design language's fonts in UIKit's bars (Theme.swift)
         UITestSpeed.apply() // UI tests only (debug builds): animations off (UITestSpeed.swift)
+        Analytics.start() // product analytics, release builds only (Analytics.swift)
+        #if DEBUG
+        // The share extension (ShareExtension/) can't see this run's ATTEO_SERVER: it reads the server from here instead.
+        Keychain.setData(Data(API.shared.base.absoluteString.utf8), for: "share-server")
+        #endif
     }
 
     var body: some Scene {
@@ -23,9 +28,11 @@ struct AtteoApp: App {
             .modifier(ToastOverlay(state: state))
             .modifier(ShakeToReport(enabled: state.signedIn)) // shake anywhere to report a bug (ReportBug.swift)
             .environmentObject(state)
+            .environment(\.openURL, LinkGate.action) // any link that leaves Atteo asks first (jxn #4173, LinkGate.swift)
             .tint(Theme.accent)
             .task(id: state.signedIn) { if state.signedIn { await state.refreshAll() } }
             .task { Notifier.shared.setUp() }
+            .onChange(of: state.sessions.count) { _, n in if state.loaded, let h = state.me?.owner { Analytics.sessionsSeen(n, for: h) } }
             .onChange(of: phase) { _, p in
                 guard state.signedIn else { return }
                 if p == .active { Task { await state.refreshAll() } } else if p == .background { state.stopFeed(); Notifier.shared.schedule() }

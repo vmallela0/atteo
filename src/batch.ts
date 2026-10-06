@@ -19,6 +19,7 @@ export const BATCH_TOOLS: Readonly<Record<string, readonly string[] | null>> = {
   get: null,
   search: null,
   grep: null,
+  ls: null,
   recap: null,
   react: null,
   post: null,

@@ -3,7 +3,7 @@
 // an agent from acting; this gives every agent a standard, visible way to ask and wait, and gives people one queue.
 
 import { randomSecret } from "./auth";
-import { blockedMessage, scanFields } from "./secrets";
+import { egressRefusal, noteApprovalDecision, noteApprovalRequested, type Later } from "./observe";
 import type { ApprovalRef, Env } from "./types";
 import { offBoardSeq } from "./util";
 
@@ -50,6 +50,7 @@ export async function requestApproval(
   env: Env,
   user: string,
   r: { client?: string | null; session?: string | null; board_id?: string | null; seq?: number | null; requested_by?: string | null; title: string; details: string; risk?: string; tool?: string | null; command?: string | null; expires_in?: number | null },
+  later: Later | null = null,
 ): Promise<Approval> {
   // The command is kept exactly as sent (never trimmed or cut): it's what the person approves.
   const command = typeof r.command === "string" && r.command.trim() ? r.command : null;
@@ -59,8 +60,8 @@ export async function requestApproval(
   const details = (r.details ?? "").trim().slice(0, 20_000);
   if (!title) throw new ApprovalError("Say what you want to do (title).");
   if (!details && !command) throw new ApprovalError("Show exactly what will happen (details, or command): the command, the diff, or the steps.");
-  const hit = scanFields({ title, details, command });
-  if (hit) throw new ApprovalError(blockedMessage(hit));
+  const blocked = egressRefusal(env, later, { title, details, command });
+  if (blocked) throw new ApprovalError(blocked);
   const pending = (await env.DB.prepare(`SELECT COUNT(*) AS n FROM approvals WHERE user = ? AND status = 'pending' AND expires_at > ?`).bind(user, Date.now()).first<{ n: number }>())?.n ?? 0;
   if (pending >= MAX_PENDING) throw new ApprovalError(`Your user already has ${MAX_PENDING} approvals waiting. Wait for them to catch up.`);
   const risk = (["low", "medium", "high"] as const).find((x) => x === r.risk) ?? "medium";
@@ -99,6 +100,7 @@ export async function requestApproval(
       JSON.stringify({ push: pushFor(a) }),
     ),
   ]);
+  noteApprovalRequested(env, later, risk, user);
   return a;
 }
 
@@ -120,7 +122,7 @@ export async function listApprovals(env: Env, user: string, which: "pending" | "
  * never an agent's token (the route refuses those), and an approval is found only under the person it belongs to, so
  * another member gets "No such approval". A request that timed out stays denied.
  */
-export async function decide(env: Env, user: string, id: string, approve: boolean, note: string): Promise<Approval> {
+export async function decide(env: Env, user: string, id: string, approve: boolean, note: string, later: Later | null = null): Promise<Approval> {
   const a = await getApproval(env, user, id);
   if (!a) throw new ApprovalError("No such approval.");
   if (a.status !== "pending") throw new ApprovalError(a.status === "expired" ? "Already denied (timed out)." : `Already ${a.status}.`);
@@ -131,6 +133,7 @@ export async function decide(env: Env, user: string, id: string, approve: boolea
     .run();
   if (!r.meta.changes) throw new ApprovalError("Already decided or timed out.");
   const status = approve ? "approved" : "rejected";
+  void noteApprovalDecision(env, later, status, user);
   return { ...a, status, state: status, note: n, decided_at: now };
 }
 

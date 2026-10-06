@@ -169,15 +169,25 @@ extension AppState {
     func searchPeople(_ q: String) async -> [Person] {
         let q = q.trimmingCharacters(in: .whitespaces)
         guard !q.isEmpty, let enc = q.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) else { return [] }
-        do { return try await API.shared.get("/api/people?q=\(enc)", as: PeopleResponse.self).people.filter { $0.relation != "self" } } catch { report(error, quiet: true); return [] }
+        do {
+            let people = try await API.shared.get("/api/people?q=\(enc)", as: PeopleResponse.self).people
+            for p in people { rememberDisplayName(p.displayName, for: p.name) }
+            return people.filter { $0.relation != "self" }
+        } catch { report(error, quiet: true); return [] }
     }
 
     func friends() async -> [Person] {
-        do { return try await API.shared.get("/api/friends", as: FriendsResponse.self).friends } catch { report(error, quiet: true); return [] }
+        do {
+            let people = try await API.shared.get("/api/friends", as: FriendsResponse.self).friends
+            for p in people { rememberDisplayName(p.displayName, for: p.name) }
+            return people
+        } catch { report(error, quiet: true); return [] }
     }
 
     func person(_ name: String) async -> PersonResponse? {
-        try? await API.shared.get("/api/people/\(name)", as: PersonResponse.self)
+        let response = try? await API.shared.get("/api/people/\(name)", as: PersonResponse.self)
+        if let p = response?.person { rememberDisplayName(p.displayName, for: p.name) }
+        return response
     }
 
     /// Asks to be friends (or accepts, if they asked first). Returns the new relation.
@@ -207,7 +217,11 @@ extension AppState {
     // MARK: - Boards: members, invites, rename, archive, new
 
     func boardMembers(_ board: String) async -> BoardMembersResponse? {
-        do { return try await API.shared.get("/api/boards/\(board)/members", as: BoardMembersResponse.self) } catch { report(error, quiet: true); return nil }
+        do {
+            let response = try await API.shared.get("/api/boards/\(board)/members", as: BoardMembersResponse.self)
+            for m in response.members { rememberDisplayName(m.displayName, for: m.user) }
+            return response
+        } catch { report(error, quiet: true); return nil }
     }
 
     /// Invites a friend (by name) or anyone (by email). Returns what happened, in words.
@@ -215,14 +229,16 @@ extension AppState {
         do {
             let d = try await API.shared.send("/api/boards/\(board)/invites", body: ["to": to.trimmingCharacters(in: .whitespaces)], retries: false)
             Haptics.play(.completed)
+            Analytics.capture("invite_sent", via: to.contains("@") ? "email" : "name")
             return (try? JSONDecoder.soup.decode(InviteResponse.self, from: d))?.message ?? String(localized: "Invited \(to).", bundle: .l10n)
         } catch { report(error); return nil }
     }
 
-    /// A link anyone with an account can use to join (can post, valid 7 days).
+    /// A link anyone with an account can use to join (view only, access 30 days; the link works 7 days).
     func inviteLink(_ board: String) async -> URL? {
         do {
-            let d = try await API.shared.send("/api/boards/\(board)/links", body: ["role": "contributor", "link_days": 7], retries: false)
+            let d = try await API.shared.send("/api/boards/\(board)/links", body: ["link_days": 7], retries: false)
+            Analytics.capture("invite_sent", via: "link")
             return URL(string: try JSONDecoder.soup.decode(InviteLinkResponse.self, from: d).url)
         } catch { report(error); return nil }
     }
@@ -287,6 +303,7 @@ extension AppState {
             let d = try await API.shared.send("/api/boards", body: ["title": title, "encrypted": encrypted], retries: false)
             let r = try JSONDecoder.soup.decode(NewBoardResponse.self, from: d)
             Haptics.play(.completed)
+            Analytics.capture("board_created")
             await refreshBoards()
             return boards.first { $0.id == r.board.id } ?? Board(id: r.board.id, title: r.board.title, kind: "board", entryCount: 0, lastActivity: Date().timeIntervalSince1970 * 1000, encrypted: encrypted, last: nil, createdBy: me?.owner)
         } catch { report(error); return nil }

@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { reach } from "../src/dm";
 import { sendInvite } from "../src/invite";
 import { isMember } from "../src/registry";
-import { blockPerson, requestFriend } from "../src/social";
+import { blockPerson, PERSON_ONLY_CONTACT_DECISION, requestFriend } from "../src/social";
 import { applies, createRule, listRules, MAX_ACTIVE, MAX_EXPIRES_S, MIN_EXPIRES_S, revokeRule, shareLiveOn, StandingRuleError } from "../src/standingRules";
 import type { Env } from "../src/types";
 
@@ -220,6 +220,21 @@ describe("standing rules: invites, friends, agent DMs", () => {
     expect(await requestFriend(env, "bea", "ada", "")).toBe("friend");
   });
 
+  it("an agent token cannot initiate a friend request, and a person still can", async () => {
+    await expect(requestFriend(env, "ada", "bea", "from an agent", null, true)).rejects.toThrow(PERSON_ONLY_CONTACT_DECISION);
+    expect(db.prepare(`SELECT COUNT(*) AS n FROM friendships`).get().n).toBe(0);
+    expect(db.prepare(`SELECT COUNT(*) AS n FROM notifications`).get().n).toBe(0);
+    expect(await requestFriend(env, "ada", "bea", "hi")).toBe("pending_out");
+    expect(db.prepare(`SELECT status, note FROM friendships`).get()).toMatchObject({ status: "pending", note: "hi" });
+  });
+
+  it("an agent requesting back a pending request is refused, not turned into an accept (#57; jxn's agent #4398)", async () => {
+    expect(await requestFriend(env, "ada", "bea", "hi")).toBe("pending_out");
+    await expect(requestFriend(env, "bea", "ada", "", null, true)).rejects.toThrow(/Only you can decide/);
+    expect(db.prepare(`SELECT status FROM friendships`).get().status).toBe("pending");
+    expect(await requestFriend(env, "bea", "ada", "")).toBe("friend"); // the person can
+  });
+
   it("lets an agent DM when a rule covers them, and a block or a decline still wins", async () => {
     expect(await reach(env, "ada", "bea")).toEqual({ ok: false, why: "unknown" });
     await createRule(env, "bea", { scope: "person", scope_id: "ada", action: "allow_agents", expires_in: DAY });
@@ -255,6 +270,8 @@ describe("standing rules: share_live", () => {
     await expect(createRule(env, "ada", { scope: "person", scope_id: "bea", action: "share_live", expires_in: DAY }, NOW)).rejects.toThrow(/one board/);
     const rule = await createRule(env, "ada", { scope: "board", scope_id: boardId, action: "share_live", expires_in: DAY }, NOW);
     expect(rule.action).toBe("share_live");
+    expect(await shareLiveOn(env, "ada", boardId, rule.expires_at - 1)).toBe(true);
+    expect(await shareLiveOn(env, "ada", boardId, rule.expires_at)).toBe(false);
     expect(await shareLiveOn(env, "ada", boardId, NOW + 1)).toBe(true);
     expect(await shareLiveOn(env, "bea", boardId, NOW + 1)).toBe(false);
     expect(await shareLiveOn(env, "ada", otherBoard, NOW + 1)).toBe(false);

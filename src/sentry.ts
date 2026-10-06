@@ -8,7 +8,8 @@ import type { ErrorEvent } from "@sentry/cloudflare";
  */
 export function scrubForSentry<E extends ErrorEvent>(event: E): E | null {
   const msg = event.exception?.values?.map((v) => v.value ?? "").join(" ") ?? event.message ?? "";
-  if (/reset because its code was updated/i.test(msg) && /\/(ws|wait)(\?|$)/.test(event.request?.url ?? "")) return null;
+  // Long waits too: /wait, /ws, and any ?wait=N poll like /api/mailbox?wait=15 (SOUP-1/SOUP-7, vedu #4844): the client polls again.
+  if (/reset because its code was updated/i.test(msg) && /\/(ws|wait)(\?|$)|[?&]wait=[1-9]/.test(event.request?.url ?? "")) return null;
   if (event.request) {
     delete event.request.cookies;
     delete event.request.headers;

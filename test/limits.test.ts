@@ -10,6 +10,7 @@ import {
   isWaitRequest,
   nearQuotaActive,
   nearQuotaAllowed,
+  publicAllowed,
   pollAfterMs,
   rateCheck,
   secondsToMidnight,
@@ -288,5 +289,34 @@ describe("an MCP batch counts as its calls (calls/counted)", () => {
     expect((await admit(env, ctx, agent({ tokenKey: null, calls: 2, counted: 2 }), T0 + 1))?.status).toBe(429);
     expect(await admit(env, ctx, agent({ tokenKey: null }), T0 + 2)).toBeNull(); // the refused batch didn't count
     expect((await admit(env, ctx, agent({ tokenKey: null }), T0 + 3))?.status).toBe(429);
+  });
+});
+
+describe("publicAllowed (signed-out endpoints, vedu #4598)", () => {
+  const binding = (success: boolean | Error) => {
+    const keys: string[] = [];
+    return { keys, limit: async ({ key }: { key: string }) => { keys.push(key); if (success instanceof Error) throw success; return { success }; } };
+  };
+  const prod = { PUBLIC_URL: "https://atteo.dev" };
+  const req = (h: Record<string, string> = { "cf-connecting-ip": "1.2.3.4" }) => new Request("https://x.test/", { headers: h });
+  it("asks the binding per endpoint and address", async () => {
+    const b = binding(true);
+    expect(await publicAllowed({ ...prod, PUBLIC_WRITES: b } as never, "oauth-register", req())).toBe(true);
+    expect(b.keys).toEqual(["oauth-register:1.2.3.4"]);
+  });
+  it("refuses once the binding says so", async () => {
+    expect(await publicAllowed({ ...prod, PUBLIC_WRITES: binding(false) } as never, "device-start", req())).toBe(false);
+  });
+  it("lets the request through without a binding, on a local server, or when the limiter fails", async () => {
+    expect(await publicAllowed(prod as never, "health", req())).toBe(true);
+    const b = binding(false);
+    expect(await publicAllowed({ PUBLIC_URL: "http://localhost:8787", PUBLIC_WRITES: b } as never, "health", req())).toBe(true);
+    expect(b.keys).toEqual([]);
+    expect(await publicAllowed({ ...prod, PUBLIC_WRITES: binding(new Error("down")) } as never, "health", req())).toBe(true);
+  });
+  it("doesn't count requests that come through the atteo.dev proxy (all of them share its address)", async () => {
+    const b = binding(false);
+    expect(await publicAllowed({ ...prod, PUBLIC_WRITES: b } as never, "oauth-register", req({ "cf-connecting-ip": "2a06:98c0:3600::103", "cf-worker": "atteo.dev" }))).toBe(true);
+    expect(b.keys).toEqual([]);
   });
 });

@@ -95,9 +95,9 @@ export const CODE_COLOR_SRC = `${CODE_COLOR_PATH}?v=${fnv(CODE_COLOR_SCRIPT)}`;
 // new ones). A block is coloured once; a copy made before that (e.g. into the thread view) gets its own turn.
 // Only text nodes and spans with a fixed class go into the page; if the script can't load, blocks stay as they are.
 export const CODE_COLOR_JS = `
-(()=>{const SRC=${JSON.stringify(CODE_COLOR_SRC)},MAX=4000;let lib=null,io=null;
+(()=>{const SRC=${JSON.stringify(CODE_COLOR_SRC)},MAX=4000,NONCE=document.currentScript?.nonce||'';let lib=null,io=null;
 const load=()=>lib||(lib=new Promise((ok,no)=>{if(window.__atteoHl)return ok(window.__atteoHl);const s=document.createElement('script');s.src=SRC;s.async=true;
-  s.onload=()=>window.__atteoHl?ok(window.__atteoHl):no(new Error('no tokenizer'));s.onerror=()=>no(new Error('tokenizer did not load'));document.head.appendChild(s)}));
+  s.nonce=NONCE;s.onload=()=>window.__atteoHl?ok(window.__atteoHl):no(new Error('no tokenizer'));s.onerror=()=>no(new Error('tokenizer did not load'));document.head.appendChild(s)}));
 // A block that scrolls sideways can be scrolled from the keyboard too (axe: scrollable-region-focusable).
 const reach=pre=>{if(pre&&!pre.hasAttribute('tabindex')&&pre.scrollWidth>pre.clientWidth+1){pre.tabIndex=0;pre.setAttribute('aria-label','Code')}};
 async function paint(code){if(code.dataset.hl==='on'||code.dataset.hl==='plain')return;code.dataset.hl='plain';reach(code.parentElement);const b=code.closest('.code-b'),h=b&&b.querySelector('.code-h .mono');if(!h||b.closest('.mmd'))return;

@@ -1,16 +1,23 @@
 // Design system: tokens, base styles, components and the shared client script.
 // Minimal and quiet (in the spirit of Vercel Geist / Linear): neutral grays, one ink color for primary actions,
-// hairline borders, light + dark, works down to phone width. Type: Onest / Enriqueta / Courier Prime (fontfaces.ts).
+// hairline borders, light + dark, works down to phone width. Type: Onest / STIX Two Text / Courier Prime (fontfaces.ts).
 
-import { FONT_CSS, FONT_V } from "./fontfaces";
+import { PALETTE_JS_SRC, PALETTE_CSS_SRC } from "./palette";
+import { APPLE_TOUCH_PNG_B64 } from "./appleIcon";
+import { APP_FONT_CSS, FONT_V } from "./fontfaces";
+import { markFile, markInline } from "./mark";
 import { chartHtml } from "./chart";
 import { STATUS_CSS, statusHtml } from "./status";
 import { highlightMentions, type Mention } from "./mentions";
-import { MERMAID_CSS, MERMAID_JS, MERMAID_SRC, mermaidHtml } from "./mermaid";
+import { MERMAID_CSS, MERMAID_JS, mermaidHtml } from "./mermaid";
 import { CODE_COLOR_CSS, CODE_COLOR_JS, fnv } from "./codecolor";
 import { TALK_CSS } from "./talk";
+import { AGENT_LOGO_CSS } from "./agent-logos";
+import { ASK_CSS, DOC_CSS, GUIDE_CSS } from "./pageCss";
 import { esc } from "./util";
+import { personHtml, shownName } from "./names";
 import { clientTable, dirOf, tr, type Lang } from "./i18n";
+import { analyticsScriptTag, currentAnalytics } from "./analytics";
 
 /** Report-only for now (jxn's agent #2636): violations go to /api/csp-report and the ops console. Set this to true to
  *  enforce once a day of reports is clean; nothing else changes (every inline script already carries the nonce). */
@@ -38,14 +45,27 @@ export function formActionSource(raw: string): string | null {
   return /^[a-z][a-z0-9+.-]*:$/i.test(u.protocol) && !/^(javascript|data|blob|file|filesystem|about):$/i.test(u.protocol) ? u.protocol : null;
 }
 
-// Each HTML response owns its nonce. Inline CSS and style attributes are used throughout the UI. Mermaid is allowed as
-// its one pinned file (not the host) and loads with an SRI hash (mermaid.ts), so jsDelivr can't serve anything else.
+// Each HTML response owns its nonce. Stylesheets come from 'self' (/app.css and page-only sheets); leftover <style>
+// blocks carry the nonce. style-src-attr separately allows server/client HTML style attributes; CSSOM property
+// assignments (composer height, pickers, diagram sizing) don't require it. Inline handlers are forbidden; page code
+// uses listeners. Mermaid is this origin's pinned
+// /mermaid.min.js and loads with an SRI hash (mermaid.ts), so a substituted file fails the integrity check.
 // The pages are private, revalidated each time (no shared cache may keep one person's page, or pin one nonce for many
 // responses); no-store would also keep them out of the back/forward cache.
+// img-src blob: is upload thumbnails and bug-report pictures (URL.createObjectURL). Avatars, board pictures and posted
+// images are this origin. Icons are inline SVG or clip-path, so data: is not an image source. font-src is only
+// /fonts/*.woff2. media-src blob: is read-aloud, the Display voice sample, and Talk's silent media-key wav; live Talk
+// audio is WebAudio on connect-src, not a media element. No data: font or media, and no media host besides 'self'.
+// The pinned mermaid.min.js inserts one fixed <style> block of its own (a nonce can't reach it), so it's allowed by its hash;
+// a new mermaid build changes the hash and the csp browser checks name the new one.
+const MERMAID_STYLE_HASH = "'sha256-lCZPv+siQGbLyHufN87S4tT1GlG+V8T7J184kcDeWZ4='";
 export function pageSecurity(opts: { formAction?: string[] } = {}) {
   const nonce = Array.from(crypto.getRandomValues(new Uint8Array(16)), (b) => b.toString(16).padStart(2, "0")).join("");
   const formAction = ["'self'", ...(opts.formAction ?? []).map(formActionSource).filter((x): x is string => !!x)].join(" ");
-  const policy = `default-src 'self'; script-src 'self' 'nonce-${nonce}' ${MERMAID_SRC}; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; media-src 'self' blob: data:; connect-src 'self' ${VOICE_SOCKET_ORIGIN}; frame-src 'self' about:; frame-ancestors 'none'; base-uri 'none'; form-action ${formAction}; object-src 'none'; report-uri ${CSP_REPORT_PATH}; report-to csp`;
+  // PostHog's ingest host is added only while a project key is configured (src/analytics.ts). script-src stays first-party.
+  const ph = currentAnalytics();
+  const connect = ph ? `'self' ${VOICE_SOCKET_ORIGIN} ${ph.host}` : `'self' ${VOICE_SOCKET_ORIGIN}`;
+  const policy = `default-src 'self'; script-src 'self' 'nonce-${nonce}'; script-src-attr 'none'; style-src 'self' 'nonce-${nonce}' ${MERMAID_STYLE_HASH}; style-src-attr 'unsafe-inline'; img-src 'self' blob:; font-src 'self'; media-src 'self' blob:; connect-src ${connect}; frame-src 'self' about:; frame-ancestors 'none'; base-uri 'none'; form-action ${formAction}; object-src 'none'; report-uri ${CSP_REPORT_PATH}; report-to csp`;
   const headers: Record<string, string> = {
     [CSP_ENFORCE ? "content-security-policy" : "content-security-policy-report-only"]: policy,
     "reporting-endpoints": `csp="${CSP_REPORT_PATH}"`,
@@ -56,9 +76,14 @@ export function pageSecurity(opts: { formAction?: string[] } = {}) {
   return { nonce, headers };
 }
 
+/** Put the page nonce on every <style> that doesn't already have one (noscript, leftover page blocks). */
+export function styleNonce(html: string, nonce: string): string {
+  return html.replace(/<style\b(?![^>]*\bnonce=)/gi, `<style nonce="${nonce}"`);
+}
+
 // Dark tokens: the system setting picks them unless Display says light; Display can also force them.
-const DARK = `  --bg:#0E0E0E;--bg-subtle:#171716;--bg-hover:#1F1E1C;--line:#2A2926;--line-strong:#3A3935;
-  --ink:#FAFAF7;--text:#EDEBE5;--muted:#AFADA6;--faint:#8E8C85;--on-ink:#0E0E0E;--cone:#C2414D;--oxblood:#9D333C;--bg-raised:#141414;
+const DARK = `  --bg:#0E0E0E;--bg-subtle:#1A1918;--bg-hover:#1F1E1C;--line:#2A2926;--line-strong:#3A3935;
+  --ink:#FAFAF7;--text:#EDEBE5;--muted:#A9A69F;--faint:#8E8C85;--on-ink:#0E0E0E;--cone:#C2414D;--oxblood:#B5484A;--bg-raised:#141414;
   --accent:#FAFAF7;--ok:#3ecf75;--warn:#fb923c;--danger:#f87171;
   --q:#fbbf24;--claim:#4ade80;--decision:#a78bfa;--task:#38bdf8;--artifact:#a3a3a3;--note:#737373;
   --shadow:0 1px 2px rgba(0,0,0,.4);--shadow-lg:0 12px 48px rgba(0,0,0,.6);
@@ -71,11 +96,11 @@ const FONT_PRELOAD = `<link rel="preload" href="/fonts/onest-latin.woff2?v=${FON
 export const CSS = `
 #thread-scroll[data-wait]>#thread{visibility:hidden} /* until the board script has placed it (html.ts) */
 :root{
-  /* The design language (#2508), neutral (jxn #2858): ink on paper, bone and stone around it, graphite for secondary
-     text. The one accent is oxblood, only on a view's single primary action (Post, the main call to action); --cone is
-     the logo's cone alone (jxn #2944). You, mentions, unread, links and focus are ink. */
+  /* The design language (v1, jxn #4682): neutral throughout. Ink on paper, bone and stone around it, line for dividers,
+     graphite for secondary text. Oxblood has one job, human intervention: Stop and halted states, nowhere else (on ink
+     it's oxblood-lifted); --cone is the current logo's alone until the new mark lands. Primary actions, you, mentions, unread, links and focus are ink. */
   --bg:#FAFAF7;--bg-subtle:#F2EFE8;--bg-hover:#ECE8DF;--line:#E4E1D9;--line-strong:#D9D6CE;
-  --ink:#0E0E0E;--text:#161614;--muted:#5A5853;--faint:#6B6964;--on-ink:#FAFAF7;--cone:#6A1B24;--oxblood:#6A1B24;--bg-raised:#FAFAF7;
+  --ink:#0E0E0E;--text:#161614;--muted:#5A5853;--faint:#6B6964;--on-ink:#FAFAF7;--cone:#6A1B24;--oxblood:#6E1F22;--bg-raised:#FAFAF7;
   --on-fill:#FFFFFF;--preview-bg:#FFFFFF; /* text on a saturated fill (avatars, status marks, scrims); an HTML preview's page */
   --accent:#0E0E0E;--ok:#16a34a;--warn:#c2410c;--danger:#dc2626;
   --q:#d97706;--claim:#16a34a;--decision:#7c3aed;--task:#0284c7;--artifact:#737373;--note:#a3a3a3;
@@ -87,13 +112,13 @@ export const CSS = `
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){${DARK}}}
 :root[data-theme="dark"]{${DARK}}
 /* Semantic tokens (jxn #2706): components use these, never the palette or a literal, so a change of look is one place.
-   cta = oxblood, the one primary action; you, mentions, unread and links are ink (jxn #2858); status colours stay their own. */
+   cta = ink, the one primary action; intervene = oxblood, Stop and halted only (jxn #4682); status colours stay their own. */
 :root{
-  --cta:var(--oxblood);--on-cta:#FFFFFF; /* white on oxblood: 11.7:1 light, 7.1:1 dark */
+  --cta:var(--ink);--on-cta:var(--on-ink);--intervene:var(--oxblood);--on-intervene:#FAFAF7; /* paper on oxblood: 10.7:1; on oxblood-lifted 5.0:1 */
   --you:var(--ink);--you-soft:color-mix(in srgb,var(--ink) 5%,transparent);--you-flash:color-mix(in srgb,var(--ink) 12%,transparent);
   --mention-fg:var(--ink);--mention-bg:color-mix(in srgb,var(--ink) 7%,transparent);--mention-line:color-mix(in srgb,var(--ink) 40%,transparent);
   --mention-you-bg:color-mix(in srgb,var(--ink) 15%,transparent);--mention-you-line:color-mix(in srgb,var(--ink) 65%,transparent);
-  --rail-mark:color-mix(in srgb,var(--muted) 16%,transparent);--rail-on:var(--muted);--rail-you:var(--ink);
+  --rail-mark:color-mix(in srgb,var(--muted) 16%,transparent);--rail-on:color-mix(in srgb,var(--muted) 60%,transparent);--rail-you:var(--ink);
   --unread:var(--ink);--voice:var(--ink);--badge-bg:var(--accent);--badge-fg:var(--on-ink);--focus:var(--accent);
   --mark:color-mix(in srgb,var(--ink) 14%,transparent);
   --private:color-mix(in srgb,var(--ink) 50%,transparent);--private-soft:color-mix(in srgb,var(--ink) 6%,transparent);
@@ -111,18 +136,19 @@ export const CSS = `
 :hover::-webkit-scrollbar-thumb{background:var(--sb-hover)}
 @supports not selector(::-webkit-scrollbar){*{scrollbar-width:thin;scrollbar-color:var(--sb) transparent}*:hover{scrollbar-color:var(--sb-hover) transparent}}
 html{-webkit-text-size-adjust:100%}
-/* Type (design language v1, #2508): Onest for the interface, Enriqueta for headlines, Courier Prime for ids and payloads,
+/* Type (design language v1, jxn #4682): three layers. STIX Two Text for the brand and titles, Courier Prime for ids,
+   payloads and code, Onest for message text and the controls around it (jxn #4726: message text isn't mono),
    all served by this Worker (fontfaces.ts). Onest covers Latin, Cyrillic and Vietnamese; other scripts fall through to
    the system's own font for that script, per page language. */
 :root{--font-ui:"Onest",ui-sans-serif,system-ui,-apple-system,"Segoe UI","PingFang SC","Hiragino Sans GB","Noto Sans SC","Microsoft YaHei",sans-serif;
-  --font-head:"Enriqueta","Onest",Georgia,"Times New Roman",serif;--font-mono:"Courier Prime",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;--font-mark:Schoolbell,"Comic Sans MS",cursive}
+  --font-head:"STIX Two Text","Onest",Georgia,"Times New Roman",serif;--font-mono:"Courier Prime",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
 html:lang(zh-Hant){--font-ui:"Onest",ui-sans-serif,system-ui,-apple-system,"Segoe UI","PingFang TC","Noto Sans TC","Microsoft JhengHei",sans-serif}
 html:lang(ja){--font-ui:"Onest",ui-sans-serif,system-ui,-apple-system,"Segoe UI","Hiragino Sans","Hiragino Kaku Gothic ProN","Noto Sans JP","Yu Gothic UI",Meiryo,sans-serif}
 html:lang(ko){--font-ui:"Onest",ui-sans-serif,system-ui,-apple-system,"Segoe UI","Apple SD Gothic Neo","Noto Sans KR","Malgun Gothic",sans-serif}
 html:lang(hi){--font-ui:"Onest",ui-sans-serif,system-ui,-apple-system,"Segoe UI","Kohinoor Devanagari","Noto Sans Devanagari","Nirmala UI",sans-serif}
 html:lang(bn){--font-ui:"Onest",ui-sans-serif,system-ui,-apple-system,"Segoe UI","Kohinoor Bangla","Noto Sans Bengali","Nirmala UI",sans-serif}
 html:lang(ar){--font-ui:"Onest",ui-sans-serif,system-ui,-apple-system,"Segoe UI","Geeza Pro","Noto Sans Arabic","Noto Naskh Arabic",Tahoma,sans-serif}
-html:lang(zh-Hant),html:lang(ja),html:lang(ko),html:lang(hi),html:lang(bn),html:lang(ar),html:lang(zh-Hans),html:lang(zh){--font-head:var(--font-ui)} /* Enriqueta is Latin only: a headline in these scripts uses the interface stack */
+html:lang(zh-Hant),html:lang(ja),html:lang(ko),html:lang(hi),html:lang(bn),html:lang(ar),html:lang(zh-Hans),html:lang(zh){--font-head:var(--font-ui)} /* STIX Two covers Latin, Greek and Cyrillic only: a headline in these scripts uses the interface stack */
 body{margin:0;background:var(--bg);color:var(--text);font:13.5px/1.5 var(--font-ui);
   -webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
 a{color:inherit;text-decoration:none}
@@ -140,9 +166,9 @@ p{margin:0}
 .nav{position:sticky;top:0;z-index:20;background:color-mix(in srgb,var(--bg) 82%,transparent);backdrop-filter:saturate(180%) blur(12px);
   -webkit-backdrop-filter:saturate(180%) blur(12px);border-bottom:1px solid var(--line)}
 .nav .in{max-width:1180px;margin:0 auto;height:56px;padding:0 20px;display:flex;align-items:center;gap:16px}
-.brand{display:flex;align-items:center;gap:5px;font-weight:600;letter-spacing:-.01em;color:var(--ink)}
+.brand{display:flex;align-items:center;gap:8px;font-weight:600;letter-spacing:-.01em;color:var(--ink)}
 .brand svg{display:block}
-.wm{font-family:var(--font-mark);font-weight:400;font-size:22px;line-height:1;letter-spacing:0;filter:url(#wm-marker-sm)}.wm.lg{font-size:40px;filter:url(#wm-marker)} /* the wordmark: lowercase, Schoolbell, the marker filter (#2508) */
+.wm{font-family:var(--font-head);font-weight:400;font-size:22px;line-height:1;letter-spacing:-.01em}.wm.lg{font-size:40px} /* the wordmark: lowercase "atteo" in STIX Two Text 400 (jxn #4682) */
 .nav .links{display:flex;gap:4px;margin-left:8px}
 .nav .links a{color:var(--muted);padding:6px 10px;border-radius:6px}
 .nav .links a:hover,.nav .links a[aria-current]{color:var(--ink);background:var(--bg-hover)}
@@ -158,7 +184,7 @@ main.narrow{max-width:720px}
 .btn.primary{background:var(--cta);border-color:var(--cta);color:var(--on-cta)}
 .btn.primary:hover{opacity:.88}
 .btn.ghost{border-color:transparent;background:transparent;color:var(--muted)}.btn.ghost:hover{color:var(--ink);background:var(--bg-hover)}
-.btn.danger{color:var(--danger)}
+.btn.danger{color:var(--danger)}.btn.intervene{background:var(--intervene);border-color:var(--intervene);color:var(--on-intervene)}
 .btn.sm{height:26px;padding:0 9px;font-size:12.5px}.btn.lg{height:40px;padding:0 18px;font-size:14.5px}
 .btn[disabled]{opacity:.5;cursor:default}
 /* touch: small buttons keep their look but take a 40px-tall tap (an invisible margin above and below); the composer bar and message actions keep theirs, so a tap meant for the message lands on it */
@@ -169,14 +195,14 @@ main.narrow{max-width:720px}
   transition:border-color .15s,box-shadow .15s}
 .input:focus{outline:none;border-color:var(--faint);box-shadow:0 0 0 3px color-mix(in srgb,var(--faint) 22%,transparent)}
 textarea.input{height:auto;min-height:84px;padding:10px 12px;resize:vertical;line-height:1.5}
-select.input{appearance:none;padding-right:30px;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%23888' fill='none' stroke-width='1.4'/%3E%3C/svg%3E");
-  background-repeat:no-repeat;background-position:right 11px center}
+select.input{appearance:none;padding-right:30px;background-image:linear-gradient(135deg,transparent 45%,var(--faint) 45%,var(--faint) 55%,transparent 55%),linear-gradient(45deg,transparent 45%,var(--faint) 45%,var(--faint) 55%,transparent 55%);
+  background-repeat:no-repeat;background-position:right 15px center,right 10px center;background-size:6px 6px,6px 6px}
 label.lbl{display:block;font-size:13px;font-weight:500;color:var(--ink);margin:0 0 6px}
 .hint{font-size:12.5px;color:var(--muted);margin-top:6px}
 .field+.field{margin-top:16px}
 .seg{display:inline-flex;padding:2px;border:1px solid var(--line);border-radius:8px;background:var(--bg-subtle)}
-.seg input{display:none}.seg label{padding:4px 10px;border-radius:6px;font-size:13px;color:var(--muted);cursor:pointer}
-.seg input:checked+label{background:var(--bg);color:var(--ink);box-shadow:var(--shadow);font-weight:500}
+.seg input{display:none}.seg label,.seg button{padding:4px 10px;border:0;border-radius:6px;background:none;font:inherit;font-size:13px;color:var(--muted);cursor:pointer}
+.seg input:checked+label,.seg button[aria-pressed="true"]{background:var(--bg);color:var(--ink);box-shadow:var(--shadow);font-weight:500}.seg button:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
 
 /* surfaces */
 .card{border:1px solid var(--line);border-radius:var(--r);background:var(--bg);box-shadow:var(--shadow)}
@@ -306,10 +332,10 @@ dialog[open]{animation:pop .16s ease-out}dialog:focus{outline:none}@media (prefe
 :root[data-text="l"] .composer textarea{font-size:15.5px}
 :root[data-density="compact"] .entry{padding:7px 0;gap:10px}:root[data-density="compact"] .thread>.entry:first-child{padding-top:4px}:root[data-density="compact"] .replies .entry{padding:4px 0 0}
 :root[data-density="compact"] .entry .body{margin-top:0}:root[data-density="compact"] .entry .body p+p{margin-top:4px}
-.dp-lang{max-width:300px}.dp-voice-row{display:flex;gap:8px;align-items:center}.dp-voice{max-width:180px}.dp-grid{display:grid;grid-template-columns:110px 1fr;gap:12px 14px;align-items:center}.dp-grid .lbl{margin:0}
+.dp-lang{max-width:300px}.dp-voice-row{display:flex;gap:8px;align-items:center}.dp-voice{width:180px;max-width:100%}.dp-grid{display:grid;grid-template-columns:fit-content(240px) minmax(0,1fr);gap:12px 20px;align-items:center;justify-items:start}.dp-grid .lbl{margin:0;font-size:13px;font-weight:500;color:var(--ink)}
 .dp-grid .seg{flex-wrap:wrap}.dp-grid .seg input{display:inline;position:absolute;opacity:0;width:1px;height:1px;pointer-events:none}
 .dp-grid .seg input:focus-visible+label{outline:2px solid var(--accent);outline-offset:1px}
-@media (max-width:640px){.dp-grid{grid-template-columns:1fr;gap:6px}}
+@media (max-width:640px){.dp-grid{grid-template-columns:minmax(0,1fr);gap:6px}.dp-grid .lbl:not(:first-child){margin-top:8px}.dp-grid .seg{display:flex;justify-self:stretch;flex-wrap:nowrap}.dp-grid .seg label{flex:1 1 0;text-align:center}}
 .entry .acts{margin-left:auto;display:inline-flex;gap:2px;opacity:0;transition:opacity .12s}
 .entry:hover>.grow>.meta>.acts,.entry .acts:focus-within,.entry .acts:has(.danger){opacity:1} /* only the message under the pointer, not its whole thread */
 /* Retract takes no room in the header line, so narrow screens don't get a blank line under every entry. Touch
@@ -317,8 +343,10 @@ dialog[open]{animation:pop .16s ease-out}dialog:focus{outline:none}@media (prefe
 .entry{position:relative}
 /* The hover toolbar floats in the gap above the message (never over its text), like a small card. */
 @media(hover:hover){.entry .acts{position:absolute;top:-13px;right:6px;z-index:3;padding:1px;background:var(--bg);border:1px solid var(--line);border-radius:8px;box-shadow:var(--shadow)}
-  .entry .acts .btn.sm{height:24px}.entry .acts .rx-q{width:26px}#thread>.entry:first-child .acts{top:2px}
-  .entry .meta [data-history]{position:relative;z-index:4}} /* "edited" stays clickable under the hover bar (own messages sit on the right) */
+  .entry .acts .btn.sm{height:24px;padding:0 7px} /* a little tighter: the bar stays clear of the sender line's time (opus-b, #4140) */.entry .acts .rx-q{width:26px}#thread>.entry:first-child .acts{top:2px}
+  .entry .meta [data-history]{position:relative;z-index:4}}
+/* "edited" reads with the time, "1m ago · edited" (jxn #4287): quiet text that opens the history, not a pill. */
+.meta .edited{border:0;padding:0;margin:0 0 0 -4px;background:none;font:inherit;font-size:12.5px;color:var(--muted);cursor:pointer}.meta .edited::before{content:"· "}.meta .edited:hover{color:var(--ink);text-decoration:underline} /* "edited" stays clickable under the hover bar (own messages sit on the right) */
 .more-acts{display:none}
 @media(hover:none){.entry .meta>.more-acts{display:inline-flex;align-items:center;justify-content:center;margin-left:auto;width:32px;height:24px;padding:0;border:0;border-radius:6px;background:none;color:var(--muted);font-size:18px;line-height:1;letter-spacing:1px;cursor:pointer}
   .entry .meta>.more-acts[aria-expanded="true"]{background:var(--bg-hover);color:var(--ink)}
@@ -355,7 +383,7 @@ dialog.ia-dlg{width:min(560px,calc(100vw - 24px))}.ia-opt h3{margin:0 0 4px;font
 /* phones: a member's name on one line, role and end date side by side under it, lined up with the name */
 @media(max-width:640px){#acc-members{gap:12px}#acc-members .acc-row{display:grid;grid-template-columns:auto auto minmax(0,1fr);gap:6px 8px}#acc-members .acc-row>.grow{grid-column:2/4}#acc-members .acc-sel{grid-row:2;width:100%;min-width:0;padding-right:26px;background-position:right 9px center}#acc-members .acc-sel:first-of-type{grid-column:2}#acc-members .acc-sel:last-of-type{grid-column:3}}
 @media(max-width:360px){#acc-members .acc-sel:first-of-type{grid-column:1/3}#acc-members .acc-sel{font-size:12.5px;padding-left:8px;padding-right:22px;background-position:right 6px center}} /* the narrowest phones: the role starts under the picture so the end date fits (Onest runs a little wider than Geist did) */
-.add-agent{margin:0 0 22px}.add-agent>summary{cursor:pointer;list-style:none}.add-agent>summary::-webkit-details-marker{display:none}.add-agent .cn-grid{grid-template-columns:repeat(auto-fill,minmax(150px,1fr))}
+.add-agent{display:block;width:100%;margin:0 0 22px;font:inherit;color:var(--ink);text-align:start;cursor:pointer}.add-agent:hover{border-color:var(--line-strong)}.add-agent-plus{font-weight:600;color:var(--muted);margin-inline-end:8px}
 /* Everyday: "Bring your assistant" (/welcome), the home banner that points to it, and Account's "Your assistant" card.
    Plain words, big tiles; headings a step above the web's h1 like the Everyday mockups (ios/qa/design/everyday). */
 .ev{max-width:560px;margin:4px auto 0}
@@ -409,7 +437,7 @@ a.ev-acct:hover{background:var(--bg-subtle)}
 }
 @media (max-width:360px){.ev-row{gap:10px;padding:12px}.ev-ic{width:34px;height:34px;font-size:14px}.ev-row>.btn{padding:0 12px}.ev-name{font-size:15px}}
 .cn-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}@media (max-width:560px){.cn-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
-.cn-tile{display:flex;flex-direction:column;align-items:flex-start;gap:2px;padding:10px 12px;border:1px solid var(--line);border-radius:var(--r);background:var(--bg);color:var(--ink);font:inherit;text-align:left;cursor:pointer;text-decoration:none}.cn-tile:hover{border-color:var(--line-strong);background:var(--bg-subtle)}.cn-tile b{font-size:13.5px;font-weight:600}.cn-tile span{font-size:12px;color:var(--muted)}
+.cn-tile{display:grid;grid-template-columns:20px minmax(0,1fr);column-gap:10px;row-gap:2px;align-items:center;justify-items:start;padding:10px 12px;border:1px solid var(--line);border-radius:var(--r);background:var(--bg);color:var(--ink);font:inherit;text-align:left;cursor:pointer;text-decoration:none}.cn-tile:hover{border-color:var(--line-strong);background:var(--bg-subtle)}.cn-tile .cn-logo{grid-row:span 2}.cn-tile b{font-size:13.5px;font-weight:600}.cn-tile span{font-size:12px;color:var(--muted)}
 .cn-list{list-style:none;margin:4px 0 0;padding:0;display:flex;flex-direction:column;gap:10px}.cn-list li>.copy{margin-top:5px}
 .doc-code{margin:0;font-size:12.5px;line-height:1.55;white-space:pre-wrap;word-break:break-word}
 @media (max-width:640px){.pfp{flex-wrap:wrap}.pfp>.row:last-child{flex-basis:100%;justify-content:flex-start}}
@@ -427,10 +455,12 @@ a.ev-acct:hover{background:var(--bg-subtle)}
 .ag{padding-bottom:14px;margin-bottom:14px;border-bottom:1px solid var(--line)}
 /* Board info → Charter */
 .ch-lead{margin:0 0 8px}.ch-dl{margin:0}.ch-dl dt{margin-top:8px;font-size:11px;letter-spacing:.02em;text-transform:uppercase;color:var(--faint)}.ch-dl dd{margin:2px 0 0;font-size:13px;color:var(--text);white-space:pre-wrap}
+/* A person's display name, and their real @handle beside it when the name reads like someone else's (jxn #4369). */
+.pn-h{color:var(--faint);font-weight:400;font-size:.92em}
 .ch-classes{display:flex;flex-wrap:wrap;gap:4px}.ch-members{list-style:none;margin:0;padding:0}.ch-members li{font-size:13px;padding:2px 0}
 #ch-form:not([hidden]),#ch-notes{display:flex;flex-direction:column;gap:8px;margin-top:8px}.ch-note{display:flex;align-items:center;gap:8px}.ch-note .xs{width:7em;flex:none}
 .ch-err{color:var(--danger);min-height:1em;margin:0}#ch-form .lbl{margin:0}
-.kill{display:flex;align-items:center;gap:14px;margin-top:12px;padding:12px 14px;border:1px solid color-mix(in srgb,var(--danger) 30%,var(--line));border-radius:var(--r)}.kill b{color:var(--ink);font-size:13px}.kill p{margin:2px 0 0}
+.kill{display:flex;align-items:center;gap:14px;margin-top:12px;padding:12px 14px;border:1px solid color-mix(in srgb,var(--intervene) 40%,var(--line));border-radius:var(--r)}.kill b{color:var(--ink);font-size:13px}.kill p{margin:2px 0 0}
 .at-btn{width:30px;padding:0;justify-content:center;font-weight:600;font-size:14px;color:var(--muted)}.at-btn:hover{color:var(--ink)}
 /* quotes (forwarded messages) */
 .body blockquote.md-q{margin:6px 0;padding:6px 10px;border-inline-start:3px solid var(--line-strong);background:var(--bg-subtle);border-radius:0 6px 6px 0;color:var(--text)}
@@ -439,13 +469,12 @@ a.ev-acct:hover{background:var(--bg-subtle)}
 .qt-hd{display:flex;align-items:baseline;gap:10px;margin-bottom:2px;font-size:12.5px}.qt-who{font-weight:600;color:var(--ink);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .qt-go{margin-left:auto;flex:none;text-decoration:none}.qt-go:hover{text-decoration:underline}
 .sel-float{position:fixed;z-index:60;display:flex;gap:6px;box-shadow:var(--shadow-lg);border-radius:var(--r-sm);background:var(--bg);padding:4px}
-/* multi-select and forward */
+/* multi-select and forward (vedu #4601): an in-flow gutter survives message highlight padding. */
 .sel-bar{display:none;align-items:center;gap:10px;padding:10px 12px;margin-bottom:8px;font-size:13px}.selecting .sel-bar:not([hidden]){display:flex}
-.selecting .composer{display:none}.selecting #thread .entry{cursor:pointer;padding-left:30px}.selecting .entry .acts{display:none!important}
-.selecting #thread .entry::before{content:"";position:absolute;left:4px;top:18px;width:16px;height:16px;border:1.5px solid var(--line-strong);border-radius:50%;background:var(--bg)}
+.selecting .composer,.selecting #thread .rd,.selecting .rail,.selecting .rail-tip{display:none}.selecting #thread .entry{cursor:pointer}.selecting .entry .acts,.selecting .entry .more-acts{display:none!important}
+.selecting #thread .entry::before{content:"";flex:none;align-self:flex-start;margin-top:6px;width:16px;height:16px;border:1.5px solid var(--line-strong);border-radius:50%;background:var(--bg)}
 .selecting #thread .entry.picked::before{border-color:var(--accent);background:var(--accent);box-shadow:inset 0 0 0 3px var(--bg)}
-.selecting #thread .entry.picked{background:color-mix(in srgb,var(--accent) 5%,transparent)}
-.selecting #thread .entry.for-you{padding-left:calc(30px + var(--hl-l))}.selecting #thread .entry.for-you::before{left:calc(4px + var(--hl-l))} /* its highlight bleeds left */
+.selecting #thread .entry.picked{background:color-mix(in srgb,var(--accent) 9%,var(--bg));border-radius:8px}
 .fwd-dlg{width:min(520px,calc(100vw - 24px))}.fwd-list{list-style:none;margin:0;padding:0;max-height:220px;overflow:auto;border:1px solid var(--line);border-radius:var(--r-sm)}
 .fwd-list li{display:flex;align-items:center;gap:8px;padding:8px 10px;cursor:pointer;font-size:13px;min-width:0}.fwd-list li+li{border-top:1px solid var(--line)}
 .fwd-list li:hover{background:var(--bg-hover)}.fwd-list li[aria-selected="true"]{background:color-mix(in srgb,var(--accent) 9%,var(--bg));color:var(--ink)}
@@ -453,7 +482,7 @@ a.ev-acct:hover{background:var(--bg-subtle)}
 .fwd-prev{max-height:160px;overflow:auto;display:flex;flex-direction:column;gap:6px}.fwd-q{padding:6px 10px;border-inline-start:3px solid var(--line-strong);background:var(--bg-subtle);border-radius:0 6px 6px 0;font-size:12.5px;min-width:0}
 .badge.hdl{position:relative;z-index:4;height:18px;font-size:11px;color:var(--accent);border-color:color-mix(in srgb,var(--accent) 35%,var(--line))}
 .badge.hdl.done{color:var(--ok);border-color:color-mix(in srgb,var(--ok) 35%,var(--line))}
-.hdl-prog{margin-top:4px;color:var(--muted);overflow-wrap:anywhere}.hdl-prog.stalled{color:var(--warn)} /* the agent's progress under a message it's on (#2498) */
+.hdl-prog{margin-top:4px;color:var(--muted);overflow-wrap:anywhere}.hdl-prog.stalled{color:var(--intervene)} /* the agent's progress under a message it's on (#2498) */
 .badge.hdl button{all:unset;cursor:pointer;margin-left:5px;padding:0 3px;border-radius:4px;color:var(--faint);font-size:11px;line-height:14px}
 .badge.hdl button:hover{background:var(--bg-hover);color:var(--ink)}
 .badge.hdl button:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
@@ -500,7 +529,7 @@ a.ev-acct:hover{background:var(--bg-subtle)}
 .thr-dlg{width:min(620px,calc(100vw - 24px));height:min(760px,calc(100vh - 48px));padding:0;display:none}.thr-dlg[open]{display:flex;flex-direction:column}
 .thr-hd{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:12px 16px;border-bottom:1px solid var(--line)}.thr-hd b{color:var(--ink)}.thr-hd .grow{flex:1}
 .thr-list{flex:1;overflow:auto;padding:4px 16px 12px}.thr-list>.entry:first-child{border-top:0}.thr-list>.entry.hit{background:color-mix(in srgb,var(--accent) 7%,transparent)}
-.thr-dlg>.composer.in-thr{margin:0 12px 12px;flex:none}.composer.in-thr .replying{display:none}.composer.in-thr .input{max-height:30vh}
+.thr-dlg>.composer.in-thr{margin:0 12px 12px;flex:none}.thr-dlg>.typing{margin:0 12px 6px 16px;flex:none}.composer.in-thr .replying{display:none}.composer.in-thr .input{max-height:30vh}
 @media (max-width:640px){.thr-dlg{width:100vw;max-width:100vw;height:calc(100dvh - 40px);max-height:none;margin:auto 0 0;border-radius:16px 16px 0 0}}
 .thr-sum{display:flex;flex-direction:column;align-items:stretch;gap:2px;width:fit-content;max-width:100%;margin-top:6px;padding:3px 10px 4px 4px;text-align:left;border:1px solid transparent;border-radius:8px;background:none;font:inherit;font-size:12.5px;color:var(--accent);cursor:pointer}
 .thr-sum:hover{border-color:var(--line);background:var(--bg-subtle)}.thr-sum .faint{color:var(--faint)}
@@ -512,7 +541,7 @@ a.ev-acct:hover{background:var(--bg-subtle)}
 .tk{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:8px;padding:6px 6px 6px 10px;border:1px solid var(--line);border-radius:8px;background:var(--bg-subtle);font-size:12.5px}
 .tk[hidden]{display:none}
 .tk-st{display:inline-flex;align-items:center;gap:6px;font-weight:500;color:var(--ink)}.tk-st .dot{width:8px;height:8px;border-radius:50%;background:var(--muted)}
-.st-doing .dot{background:var(--accent)}.st-blocked .dot,.st-stopped .dot{background:var(--warn)}.st-done .dot{background:var(--ok)}
+.st-doing .dot{background:var(--accent)}.st-blocked .dot,.st-stopped .dot{background:var(--warn)}.st-done .dot{background:var(--ok)}.st-frozen .dot{background:var(--faint)}
 .cl-asserted{color:var(--muted);font-weight:400}.cl-evidenced .dot{background:var(--task)}.cl-verified{color:var(--ok)}.cl-verified .dot{background:var(--ok)}.cl-disputed{color:var(--danger)}.cl-disputed .dot{background:var(--danger)}
 .cl-ev a{color:var(--muted);text-decoration:underline;text-decoration-color:var(--line-strong);text-underline-offset:2px}.cl-ev a:hover{color:var(--ink)}
 .cl-acts{display:contents}.cl-f{display:flex;gap:6px;flex-basis:100%}.cl-f[hidden]{display:none}.cl-f .input{flex:1;height:28px;font-size:12.5px}
@@ -557,6 +586,7 @@ a.ev-acct:hover{background:var(--bg-subtle)}
 .rx-add{display:none;align-items:center;height:24px;padding:0 7px;border-radius:999px;border:1px dashed var(--line-strong);background:none;color:var(--muted);font:inherit;font-size:13px;cursor:pointer}
 .rx-add span{font-size:11px;margin-left:1px}.rx-add:hover{color:var(--ink);border-style:solid}
 .rx.has .rx-add{display:inline-flex}
+.thr-list .thr-un{margin-left:auto;opacity:0}.thr-list>.entry:is(:hover,:focus-within) .thr-un,.thr-list .thr-un[data-armed="1"]{opacity:1}@media (hover:none){.thr-list .thr-un{opacity:1}} /* your Unsend in a thread (vedu #4761) */
 .thr-list .rx .rx-add{display:inline-flex} /* a thread has no hover action bar, so its replies keep the add-reaction button */ /* with no reactions yet, "☺+" lives in the message's hover actions */
 /* agents' 🤔 / ✅ on a person's message: a quiet receipt line under it, like the app */
 .rx.has-rcpt{margin-top:4px}.rx.has.has-rcpt{margin-top:6px}
@@ -594,8 +624,8 @@ a.ev-acct:hover{background:var(--bg-subtle)}
 .rx-tip[hidden]{display:none}.rx-tip .big{font-size:24px;line-height:1}.rx-tip .faint{color:color-mix(in srgb,var(--on-ink) 65%,transparent)}
 .entry .acts .rx-q{width:28px;padding:0;justify-content:center;font-size:14px}
 /* images: inline in the conversation (real proportions, capped), full size in a lightbox; attachments in the composer */
-.img{margin:8px 0 0}.img-open{display:block;padding:0;border:0;background:none;cursor:zoom-in;max-width:100%}
-.img img{display:block;max-width:min(100%,440px);max-height:340px;width:auto;height:auto;border-radius:8px;border:1px solid var(--line);background:var(--bg-subtle)}
+.img{margin:8px 0 0}.img-open{display:block;padding:0;border:0;background:none;cursor:zoom-in;max-width:100%;touch-action:manipulation;-webkit-touch-callout:none;-webkit-user-select:none;user-select:none}
+.img img{display:block;max-width:min(100%,440px);max-height:340px;width:auto;height:auto;border-radius:8px;border:1px solid var(--line);background:var(--bg-subtle);pointer-events:none;-webkit-user-drag:none}
 .img figcaption{margin-top:4px}
 /* a message with several files: pictures in a grid (1, 2, 1+2, 2×2; "+N" on the last), other files as chips below */
 .mfiles{margin-top:8px;width:min(100%,440px)}
@@ -604,9 +634,9 @@ a.ev-acct:hover{background:var(--bg-subtle)}
 .mgrid.g3{grid-template-columns:2fr 1fr;grid-template-rows:1fr 1fr;aspect-ratio:3/2}
 .mgrid.g3 .mg-tile:first-child{grid-row:span 2}
 .mgrid.g4{grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr;aspect-ratio:4/3}
-.mg-tile{position:relative;display:block;padding:0;border:0;background:var(--bg-subtle);cursor:zoom-in;min-width:0;min-height:0;overflow:hidden}
+.mg-tile{position:relative;display:block;padding:0;border:0;background:var(--bg-subtle);cursor:zoom-in;min-width:0;min-height:0;overflow:hidden;touch-action:manipulation;-webkit-touch-callout:none;-webkit-user-select:none;user-select:none}
 .mg-tile[hidden]{display:none}
-.mg-tile img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+.mg-tile img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;pointer-events:none;-webkit-user-drag:none}
 .mgrid.g1{display:block;border:0;background:none;border-radius:0}
 .mgrid.g1 .mg-tile{background:none;max-width:100%}
 .mgrid.g1 .mg-tile img{position:static;display:block;max-width:100%;max-height:340px;width:auto;height:auto;object-fit:contain;border-radius:8px;border:1px solid var(--line);background:var(--bg-subtle)}
@@ -624,6 +654,15 @@ dialog.lightbox img{display:block;max-width:min(96vw,1600px);max-height:92vh;wid
 dialog.lightbox.zoomable img{cursor:zoom-in}
 :root dialog.lightbox.zoomed{display:grid;width:100vw;height:100dvh;max-width:none;max-height:none;margin:0;overflow:auto;overscroll-behavior:contain;cursor:grab}
 dialog.lightbox.zoomed img{max-width:none;max-height:none;margin:auto;border-radius:0;cursor:zoom-out}
+/* Phones (vedu #4650): a tap opens a full-bleed viewer. fit-content + 96vw/92vh lets WebKit size the dialog to the
+   picture's intrinsic pixels, so a wide screenshot is cropped and the page (mention chips, message chrome) shows
+   through the transparent frame. Thumbnails aren't selectable, so the tap doesn't put handles on nearby @mentions. */
+@media (max-width:640px),(hover:none){
+  :root dialog.lightbox[open]{display:grid;place-items:center;inset:0;width:100vw;height:100dvh;max-width:none;max-height:none;margin:0;overflow:hidden;border-radius:0;background:rgba(0,0,0,1)}
+  dialog.lightbox::backdrop{background:rgba(0,0,0,1)}
+  dialog.lightbox img{max-width:100vw;max-height:100dvh;border-radius:0;-webkit-touch-callout:none}
+  :root dialog.lightbox.zoomed{overflow:auto;place-items:initial}
+}
 .lb-nav{position:fixed;top:50%;transform:translateY(-50%);width:44px;height:44px;border-radius:50%;border:0;background:rgba(0,0,0,.55);color:var(--on-fill);font-size:28px;line-height:1;cursor:pointer;display:grid;place-items:center;padding:0 0 3px}
 .lb-nav:hover{background:rgba(0,0,0,.75)}.lb-nav[hidden],.lb-count[hidden]{display:none}
 .lb-prev{left:max(8px,env(safe-area-inset-left))}.lb-next{right:max(8px,env(safe-area-inset-right))}
@@ -645,7 +684,7 @@ dialog.lightbox.zoomed img{max-width:none;max-height:none;margin:auto;border-rad
 .composer:has(.mic-btn:not([hidden])):has(#attachments[hidden]):has(textarea:placeholder-shown) .post-btn{display:none}
 .composer.typed:has(textarea:not(:placeholder-shown)) .mic-btn:not(.on){display:none}
 .composer .attach{width:30px;padding:0;justify-content:center;color:var(--muted)}.composer .attach:hover{color:var(--ink)}
-.conv.drop .composer{box-shadow:0 0 0 2px var(--accent)}
+.conv.drop .composer,.thr-dlg.drop .composer{box-shadow:0 0 0 2px var(--accent)}
 .doc-img img{display:block;max-width:100%;height:auto;border-radius:8px;border:1px solid var(--line);background:var(--bg-subtle)}
 /* read receipts: a ring on your latest message, filling green as people and agents see it; a dot on each @mention */
 .entry .meta .when{cursor:pointer}
@@ -676,7 +715,9 @@ dialog.lightbox.zoomed img{max-width:none;max-height:none;margin:auto;border-rad
 /* change cards: a git change as a card (branch → base, CI, PR, commits, files, reviews, diff on demand) */
 .meta .via.owner{color:var(--muted)}.meta .via.sess{font-family:var(--font-mono);font-size:12.5px;color:var(--muted)}
 .composer.sending .attachments{display:none}
-.upd-bar{position:fixed;top:12px;left:50%;transform:translateX(-50%);z-index:60;display:flex;align-items:center;gap:10px;padding:6px 6px 6px 14px;border:1px solid var(--line);border-radius:999px;background:var(--bg);box-shadow:var(--shadow-lg);font-size:13px;color:var(--ink);white-space:nowrap}
+/* One piece (jxn #4304, #4325): Reload keeps its corners and sits the same 4px in on top, right and bottom; the bar
+   takes the button's corners (its radius plus the inset and the 1px border), so the edges line up. */
+.upd-bar{position:fixed;top:12px;left:50%;transform:translateX(-50%);z-index:60;display:flex;align-items:center;gap:10px;padding:4px 4px 4px 16px;border:1px solid var(--line);border-radius:calc(var(--r-sm) + 5px);background:var(--bg);box-shadow:var(--shadow-lg);font-size:13px;color:var(--ink);white-space:nowrap}
 .md-tw{overflow-x:auto;margin:6px 0;max-width:100%}.md-t{border-collapse:collapse;font-size:13px;line-height:1.45}.md-t th,.md-t td{border:1px solid var(--line);padding:4px 9px;text-align:left;vertical-align:top}.md-t th{background:var(--bg-subtle);color:var(--ink);font-weight:600}
 .ch{margin:8px 0;padding:10px 12px 6px;border:1px solid var(--line);border-radius:10px;background:var(--bg);max-width:620px}.ch-t{font-size:13px;font-weight:600;color:var(--ink);margin-bottom:4px}
 .ch{container-type:inline-size}.ch-svg{display:block;width:100%;height:auto;overflow:visible}.ch-narrow{display:none}@container (max-width:420px){.ch-wide{display:none}.ch-narrow{display:block}}.ch-grid{stroke:var(--line);stroke-width:1}.ch-axis{stroke:var(--line-strong,var(--line));stroke-width:1}
@@ -709,24 +750,27 @@ input.switch::after{content:"";position:absolute;top:3px;left:3px;width:18px;hei
 .composer .po-btn.on{width:auto;padding:0 9px 0 7px;gap:4px}.po-lbl{font-size:12px;font-weight:600;white-space:nowrap}.po-lbl:empty{display:none}
 .composer .po-btn.on.own{background:var(--accent);border-color:var(--accent);color:var(--bg)}
 @media(max-width:640px){.composer .po-btn.on{padding:0 8px 0 6px}.po-lbl{font-size:11.5px}}
-.po-note{margin:0 0 8px;padding:6px 10px;border-radius:8px;background:var(--private-soft);font-size:12.5px;color:var(--text)}.po-note[hidden]{display:none}
+.po-note{margin:0 0 8px;padding:6px 10px;border-radius:8px;background:var(--private-soft);font-size:12.5px;color:var(--text)}.po-note[hidden]{display:none}.po-note.inh .po-seg{display:none}.po-btn:disabled{opacity:1;cursor:default}
 .po-seg{display:inline-flex;vertical-align:baseline;border:1px solid var(--line);border-radius:999px;padding:1px;background:var(--bg);margin-right:2px}
 .po-seg button{border:0;background:none;font:inherit;font-size:12px;line-height:1.5;padding:1px 9px;border-radius:999px;color:var(--muted);cursor:pointer}
 .po-seg button:hover{color:var(--ink)}.po-seg button[aria-checked="true"]{background:var(--ink);color:var(--on-ink);font-weight:600}
 .po-seg button:focus-visible{outline:2px solid var(--accent);outline-offset:1px}.composer.po{box-shadow:0 0 0 1.5px var(--private)}
 .pv-dlg{width:min(1100px,calc(100vw - 24px));height:min(860px,calc(100vh - 40px));padding:0;display:none}.pv-dlg[open]{display:flex;flex-direction:column}
-.pv-hd{display:flex;align-items:center;gap:8px;padding:10px 12px;border-bottom:1px solid var(--line)}.pv-hd .mono{min-width:0;font-size:13px}.pv-w button{padding:3px 10px;font-size:12px}
+.pv-hd{display:flex;align-items:center;gap:8px;padding:10px 12px;border-bottom:1px solid var(--line)}.pv-hd .mono{min-width:0;font-size:13px}
 .pv-body{flex:1;min-height:0;display:flex;justify-content:center;background:var(--bg-subtle);overflow:auto}.pv-body iframe{border:0;height:100%;background:var(--preview-bg);transition:width .2s}.pv-note{margin:0;padding:6px 12px;border-top:1px solid var(--line)}
 @media(max-width:640px){.pv-dlg{width:100vw;max-width:100vw;height:100dvh;max-height:none;margin:0;border-radius:0}.pv-w{display:none}}
 /* Highlights (mention tint, new-message flash, jump tint) bleed past the avatar whatever the density, so it never sits on the edge (jxn #1311),
    and on the right only as far as the rail, never under it (jxn #2003). The thread's scroller makes room for the left bleed so it isn't clipped. */
-#thread>.entry.for-you,#thread>.entry.flash-in,#thread>.entry.hit,.thr-list>.entry.for-you,.thr-list>.entry.hit{margin-left:calc(-1*var(--hl-l));margin-right:calc(-1*var(--hl-r));padding-left:var(--hl-l);padding-right:var(--hl-r);border-radius:8px}
+/* The linked message (:target, which stays after a reload) and the keyboard's j/k pick (.sel) bleed the same way, so no tinted card
+   sits 12px in from the rest (jxn #4680). */
+#thread>.entry:is(.for-you,.flash-in,.hit,.sel,:target),.thr-list>.entry:is(.for-you,.hit,:target){margin-left:calc(-1*var(--hl-l));margin-right:calc(-1*var(--hl-r));padding-left:var(--hl-l);padding-right:var(--hl-r);border-radius:8px}
 /* …and a seen-by ring on such a message stays where it was, clear of the rail (jxn #1751). */
-#thread>.entry.for-you>.rd,#thread>.entry.flash-in>.rd,#thread>.entry.hit>.rd,.thr-list>.entry.for-you>.rd,.thr-list>.entry.hit>.rd{right:var(--hl-r)}
-@media (pointer:coarse){#thread>.entry.for-you>.rd,#thread>.entry.flash-in>.rd,#thread>.entry.hit>.rd,.thr-list>.entry.for-you>.rd,.thr-list>.entry.hit>.rd{right:calc(var(--hl-r) - 2px)}}
+#thread>.entry:is(.for-you,.flash-in,.hit,.sel,:target)>.rd,.thr-list>.entry:is(.for-you,.hit,:target)>.rd{right:var(--hl-r)}
+@media (pointer:coarse){#thread>.entry:is(.for-you,.flash-in,.hit,.sel,:target)>.rd,.thr-list>.entry:is(.for-you,.hit,:target)>.rd{right:calc(var(--hl-r) - 2px)}}
 ${MERMAID_CSS}
 ${CODE_COLOR_CSS}
 ${TALK_CSS}
+${AGENT_LOGO_CSS}
 .slash-menu li{align-items:baseline}.slash-menu li b{flex:none;white-space:nowrap}.slash-menu li .k{margin-left:10px;flex:1;min-width:0;text-align:left} /* "/task" never splits (jxn #1391) */
 .mem-act{display:none}.mem-on .mem-act{display:inline-flex;width:30px;padding:0;justify-content:center;color:var(--muted)}.mem-on .mem-act:hover{color:var(--ink)}
 .soul-prev{white-space:pre-wrap;font-size:12.5px;line-height:1.5;color:var(--text);max-height:7.5em;overflow:hidden;-webkit-mask-image:linear-gradient(#000 70%,transparent);mask-image:linear-gradient(#000 70%,transparent)}
@@ -834,7 +878,7 @@ ${TALK_CSS}
 /* app shell (Linear-style): sidebar + top bar + content */
 .app{display:grid;grid-template-columns:232px minmax(0,1fr);min-height:100vh}
 .sidebar{position:sticky;top:0;height:100vh;display:flex;flex-direction:column;gap:2px;padding:10px 8px;border-right:1px solid var(--line);background:var(--bg-subtle);overflow:auto}
-.sidebar .ws{display:flex;align-items:center;gap:5px;padding:6px 8px 10px;font-weight:600;color:var(--ink)}
+.sidebar .ws{display:flex;align-items:center;gap:8px;padding:6px 8px 10px;font-weight:600;color:var(--ink)}
 .sidebar .search{display:flex;align-items:center;gap:8px;height:30px;margin:0 0 8px;padding:0 9px;border:1px solid var(--line);border-radius:7px;background:var(--bg);color:var(--faint);cursor:pointer;font:inherit;font-size:13px;text-align:left}
 .sidebar .search:hover{border-color:var(--line-strong);color:var(--muted)}
 .sidebar .search kbd{margin-left:auto}
@@ -850,6 +894,7 @@ ${TALK_CSS}
 .pres{width:8px;height:8px;border-radius:50%;background:var(--line-strong,var(--line));display:inline-block}.pres.on{background:var(--ok)}
 /* People and profiles */
 .ppl-h{font-size:13px;font-weight:600;color:var(--ink);margin:28px 0 8px}.ppl-h .faint{font-weight:400}
+.ppl-org-hint{margin:0 0 10px}
 .ppl-find{position:relative;margin-top:16px}.ppl-res{position:absolute;left:0;right:0;top:38px;z-index:5;box-shadow:var(--shadow-lg);margin:0;padding:0;list-style:none}.ppl-res[hidden]{display:none}
 .ppl-pres{gap:6px}.ppl-note{margin-top:10px}.ppl-blocked{margin-top:20px}.ppl-blocked summary{cursor:pointer}.ppl-blocked .list{margin-top:8px}
 .prof{display:flex;gap:18px;align-items:flex-start;flex-wrap:wrap}
@@ -926,10 +971,11 @@ mark{background:var(--mark);color:inherit;border-radius:2px;padding:0 1px}
 .td-hist{margin:6px 0 0;padding-left:16px}
 .kanban-head{gap:10px;padding:12px 0;align-items:center;flex:none}
 .kb-new{gap:6px;margin:0}.kb-new .input{width:240px}.kb-new .btn{height:32px} /* as tall as the box beside it */
-.kanban{display:grid;grid-template-columns:repeat(4,minmax(220px,1fr));gap:12px;overflow-x:auto;align-items:start;padding-bottom:6px}
+.kanban{display:grid;grid-template-columns:repeat(4,minmax(220px,1fr)) auto;gap:12px;overflow-x:auto;align-items:start;padding-bottom:6px}
 .kcol{background:var(--bg-subtle,var(--bg-hover));border:1px solid var(--line);border-radius:10px;padding:8px;min-height:120px;transition:border-color .1s,background .1s}
 .kcol.over{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 6%,var(--bg))}
 .kcol h3{font-size:12.5px;font-weight:600;color:var(--ink);margin:2px 4px 8px}
+.kfrozen{opacity:.7;min-width:120px}.kfrozen.open{min-width:220px}.kfz{all:unset;cursor:pointer;display:inline-flex;gap:4px}.kfz:focus-visible{outline:2px solid var(--accent);outline-offset:2px} /* frozen: parked, folded until opened (vedu #4791) */
 .kcards{display:flex;flex-direction:column;gap:6px}
 .kcard{background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:8px 10px;cursor:grab;display:flex;flex-direction:column;gap:4px}
 .kcard:focus-visible,#kanban:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
@@ -950,6 +996,9 @@ mark{background:var(--mark);color:inherit;border-radius:2px;padding:0 1px}
 .remind-menu summary{cursor:pointer;list-style:none;padding:5px 8px;border-radius:6px;color:var(--muted)}
 .remind-menu summary:hover{background:var(--bg-hover);color:var(--ink)}
 .remind-menu summary::-webkit-details-marker{display:none}
+/* In a message's toolbar Remind me is one of its buttons (jxn #4140): the summary is a .btn like Reply, and the menu
+   lines up with them instead of sitting on the text baseline. */
+.acts .remind-menu{display:inline-flex;align-items:center;font-size:inherit}.acts .remind-menu summary.btn{list-style:none}
 .remind-menu>div{position:absolute;right:0;top:100%;width:175px;padding:4px;background:var(--bg);border:1px solid var(--line);border-radius:8px;box-shadow:var(--shadow);z-index:20}
 .remind-menu button{display:block;width:100%;padding:7px 8px;border:0;border-radius:5px;background:none;color:var(--ink);text-align:start;cursor:pointer;font:inherit}
 .remind-menu button:hover{background:var(--bg-hover)}
@@ -971,10 +1020,24 @@ mark{background:var(--mark);color:inherit;border-radius:2px;padding:0 1px}
 .bp-pic{all:unset;cursor:pointer;display:inline-flex;flex:none;border-radius:7px}.bp-pic:hover .bpic{filter:brightness(.92)}.bp-pic:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .bpic-row{gap:12px;margin-bottom:12px}
 .sidebar .me{margin-top:auto;border-top:1px solid var(--line);padding-top:8px}
-/* Report a bug: conspicuous on purpose (jxn #3336) — a bordered button of its own above the account row. */
-.bug-btn{border:1px solid var(--line-strong);border-radius:8px;height:34px;margin:10px 2px 2px;color:var(--muted);background:transparent} /* a <button>: the UA's ButtonFace (#6b6b6b in dark) would sit under the muted text — axe contrast (moby #3957) */
-.bug-btn:hover{color:var(--ink);background:var(--bg-hover)}
-#bug .bd{padding:14px 0 4px}
+/* Report a bug: a quiet word at the very bottom of the sidebar, under the account row (jxn #4011). */
+/* Report a bug (jxn #4051): a real button at the end of the account row, a warning triangle. */
+.sidebar .me{display:flex;align-items:center;gap:6px}.sidebar .me>.side-link{flex:1;min-width:0}
+.bug-help{margin-top:4px}
+.bug-btn{flex:none;width:30px;height:30px;padding:0;display:inline-grid;place-items:center;border:1px solid var(--line-strong);color:var(--muted);background:var(--bg)}
+.bug-btn:hover{color:var(--ink);border-color:var(--ink);background:var(--bg)}
+/* Send feedback (vedu #4125): the speech bubble is an inline SVG in the button (img-src does not allow data:). */
+/* Leaving Atteo (jxn #4173): the address in full, wrapped, before you go. */
+#leave .leave-url{margin:0;padding:10px 12px;border:1px solid var(--line);border-radius:var(--r-sm);background:var(--bg-subtle);font-size:13px;overflow-wrap:anywhere;color:var(--ink)}
+#leave .ft,#feedback .ft{display:flex;justify-content:flex-end;gap:8px;padding:0 22px 20px}
+/* The report dialog (jxn #4053, #4116): what happened, the pictures you added (paper clip, paste or drop), then Cancel / Send. */
+#bug form{display:block}
+#bug .bd{display:grid;gap:12px}
+#bug textarea.input{min-height:110px}
+.bug-pics{display:flex;flex-wrap:wrap;gap:10px;padding-top:4px}.bug-pics[hidden]{display:none}
+#bug.drop .bd{outline:2px dashed var(--line-strong);outline-offset:-6px;border-radius:var(--r)}
+#bug .ft{display:flex;align-items:center;gap:8px;padding:0 22px 20px}#bug .ft .grow{flex:1}
+.bug-attach{width:34px;height:34px;padding:0;display:inline-grid;place-items:center;color:var(--muted)}.bug-attach:hover{color:var(--ink)}
 .bug-private{display:flex;align-items:center;justify-content:center;min-height:44px;border:1px dashed var(--line-strong);border-radius:8px;color:var(--muted);font-size:13px;margin:10px 0;padding:0 10px;text-align:center}
 .topbar{position:sticky;top:0;z-index:10;height:48px;display:flex;align-items:center;gap:12px;padding:0 20px;border-bottom:1px solid var(--line);
   background:color-mix(in srgb,var(--bg) 85%,transparent);backdrop-filter:saturate(180%) blur(10px);-webkit-backdrop-filter:saturate(180%) blur(10px)}
@@ -1025,27 +1088,8 @@ dialog.sheet[open]{animation:slide .18s ease-out}
 pre.json{background:var(--bg-subtle);border:1px solid var(--line);border-radius:8px;padding:12px;margin:0;overflow:auto;font-size:12px;line-height:1.55;max-height:50vh}
 .json .k{color:var(--accent)}.json .s{color:var(--claim)}.json .n{color:var(--decision)}
 
-/* command palette */
-dialog.palette{margin-top:12vh;width:min(600px,calc(100vw - 24px));border-radius:12px}
-.palette input{border:0;border-radius:0;height:48px;padding:0 4px;font-size:15px;background:transparent;box-shadow:none!important}
-.palette ul{list-style:none;margin:0;padding:6px;max-height:50vh;overflow:auto}
-.pal-in{display:flex;align-items:center;gap:8px;padding:0 12px;border-bottom:1px solid var(--line);color:var(--muted)}
-.pal-in input{flex:1;min-width:120px;box-shadow:none!important}
-.pal-chips{display:inline-flex;gap:6px;flex-wrap:wrap}
-.pal-chip{display:inline-flex;align-items:center;gap:4px;height:24px;padding:0 4px 0 8px;border-radius:6px;font-size:12.5px;font-weight:500;color:var(--accent);background:color-mix(in srgb,var(--accent) 10%,transparent);white-space:nowrap}
-.pal-chip button{border:0;background:none;color:inherit;opacity:.6;cursor:pointer;font-size:10px;padding:2px 3px}.pal-chip button:hover{opacity:1}
-.pal-filters{display:flex;gap:6px;flex-wrap:wrap;padding:8px 12px;border-bottom:1px solid var(--line)}.pal-filters[hidden]{display:none}
-.pal-opt{height:24px;padding:0 9px;border-radius:999px;border:1px solid var(--line);background:var(--bg-subtle);color:var(--muted);font:inherit;font-size:12px;cursor:pointer}
-.pal-opt:hover{color:var(--ink);border-color:var(--line-strong)}
-.palette li.pal-g{padding:8px 10px 2px;font-size:11.5px;color:var(--faint);cursor:default;text-transform:uppercase;letter-spacing:.04em}
-.palette .pal-l{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.palette .pal-l mark{background:var(--mark);color:inherit;border-radius:3px;padding:0 1px}
-.palette li{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:7px;cursor:pointer;font-size:13.5px;color:var(--text)}
-.palette li[aria-selected=true]{background:var(--bg-hover);color:var(--ink)}
-.palette li .k{flex:none;white-space:nowrap;margin-left:auto;color:var(--faint);font-size:12px}
-.palette .foot{display:flex;gap:14px;padding:8px 14px;border-top:1px solid var(--line);font-size:12px;color:var(--faint)}
-@media (pointer:coarse){.palette .foot{display:none}}
-@media (max-width:640px){.palette li:not(.pal-g){flex-wrap:wrap;row-gap:1px}.palette li .pal-l{flex:1 1 100%}.palette li .k{margin-left:0;font-size:11.5px}}
-.entry.sel{background:var(--bg-subtle);box-shadow:-12px 0 0 var(--bg-subtle),12px 0 0 var(--bg-subtle)}
+
+.entry.sel{background:var(--bg-subtle);border-radius:8px}
 
 /* inline board title rename */
 .title-edit{display:flex;align-items:center;gap:6px;min-width:0}
@@ -1110,7 +1154,7 @@ dialog.palette{margin-top:12vh;width:min(600px,calc(100vw - 24px));border-radius
 .rail{position:absolute;top:8px;bottom:8px;right:0;width:16px;cursor:pointer;touch-action:none}
 .rail i{position:absolute;right:3px;width:8px;height:2px;margin-top:-1px;border-radius:1px;background:var(--rail-mark);transition:background .12s,width .12s}
 .rail i.on{background:var(--rail-on);width:10px}.rail i[data-n]{height:3px;margin-top:-1.5px}.rail i.me{background:var(--rail-you);width:10px}
-.rail:hover i{background:var(--sb)}.rail:hover i.on{background:var(--ink)}
+.rail:hover i{background:var(--sb)}.rail:hover i.on{background:var(--muted)}.rail:hover i.me{background:var(--rail-you)} /* only a message that mentions you is black (jxn #4120) */
 .rail-tip{position:absolute;right:22px;z-index:5;max-width:min(360px,70%);padding:5px 9px;margin-top:-13px;border-radius:7px;background:var(--ink);color:var(--on-ink);
   font-size:12px;line-height:16px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;pointer-events:none;box-shadow:var(--shadow-lg)}
 .rail-tip[hidden]{display:none}
@@ -1212,6 +1256,13 @@ a.ref:hover{color:var(--ink);background:color-mix(in srgb,var(--accent) 12%,var(
 :root[data-compact="others"]:not([data-ol-all]) #thread>.entry.ol:not(.ol-open)>.grow>.body{flex:1;min-width:0;margin:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--muted)}
 :root[data-compact="others"]:not([data-ol-all]) #thread>.entry.ol:not(.ol-open)>.grow>.body *{display:inline;margin:0;padding:0;border:0;background:none;font-size:inherit;font-weight:inherit;white-space:nowrap}
 :root[data-compact="others"]:not([data-ol-all]) #thread>.entry.ol:not(.ol-open)>.grow>.body br,:root[data-compact="others"]:not([data-ol-all]) #thread>.entry.ol:not(.ol-open)>.grow>.body img,:root[data-compact="others"]:not([data-ol-all]) #thread>.entry.ol:not(.ol-open)>.grow>:not(.meta):not(.body),:root[data-compact="others"]:not([data-ol-all]) #thread>.entry.ol:not(.ol-open) .acts,:root[data-compact="others"]:not([data-ol-all]) #thread>.entry.ol:not(.ol-open) .more-acts,:root[data-compact="others"]:not([data-ol-all]) #thread>.entry.ol:not(.ol-open)>.rd{display:none}
+/* Folded rows keep only avatar, name, time and text (jxn #4635); metadata returns when opened. */
+:root[data-compact="others"]:not([data-ol-all]) #thread>.entry.ol:not(.ol-open)>.grow>.meta>:not(.who):not(.when),
+:root[data-compact="others"]:not([data-ol-all]) #thread>.entry.ol:not(.ol-open)>.grow>.body .mention::after{display:none}
+.agent-info{display:none;color:var(--muted)}
+:root[data-compact="others"] #thread>.entry.ol:is(.ol-open,[data-ol-all] .ol)>.grow>.meta>.agent-info{display:inline}
+:root[data-compact="others"] #thread>.entry.ol:is(.ol-open,[data-ol-all] .ol)>.grow>.meta>.who{order:-2}:root[data-compact="others"] #thread>.entry.ol:is(.ol-open,[data-ol-all] .ol)>.grow>.meta>.when{order:-1} /* name, time, then the details: the time stays clear of the first row's action bar */
+:root[data-compact="others"] #thread>.entry.ol:is(.ol-open,[data-ol-all] .ol)>.grow>.meta>:is(.seq,.t-change){display:inline-flex!important}
 :root:not([data-compact="others"]) .ol-all{display:none}
 .mu-line{display:none}
 .entry.mu:not(.mu-open)>:not(.mu-line){display:none!important} /* a muted member's post: one line until opened (#3602) */
@@ -1244,25 +1295,28 @@ dialog.recap-dlg{width:min(560px,calc(100vw - 32px));max-height:min(80vh,720px)}
 @media(max-width:640px){dialog.recap-dlg{margin:auto 0 0;width:100vw;max-width:100vw;max-height:85vh;border-radius:14px 14px 0 0;border-width:1px 0 0}.recap-dlg .bd{max-height:calc(85vh - 80px)}}
 `;
 
-// The mark (jxn #2944/#2980, vedu #2968): hand-drawn tin-can phones, an oxblood cone (you) wired to two ink cans
-// (agents). Its hand wobble is the SVG filter; never recoloured beyond its two tokens, which follow the theme (ink and
-// cone, so on dark it's paper and the brighter oxblood). At least 20px tall. Same drawing as ios/design/logo-cans.
-const LOGO = `<svg class="pebble" width="24" height="24" viewBox="112 112 800 800" aria-hidden="true"><defs><filter id="atm" x="-10%" y="-10%" width="120%" height="120%"><feTurbulence type="fractalNoise" baseFrequency="0.018" numOctaves="2" seed="7"/><feDisplacementMap in="SourceGraphic" scale="16"/></filter></defs><g transform="translate(512 512) translate(-519.9 -507.7)"><g filter="url(#atm)" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M400.0 512.0Q512.1 403.2 650.0 330.0M400.0 512.0Q517.1 623.8 660.0 700.0" stroke="var(--ink)" stroke-width="22"/><g stroke-width="36"><g transform="translate(400.0 512.0) rotate(-90.0)" stroke="var(--cone)"><path d="M-95 -200L-19 0H19L95 -200"/><ellipse cx="0" cy="-200" rx="95" ry="32.3"/></g><g transform="translate(650.0 330.0) rotate(53.9)" stroke="var(--ink)"><path d="M-70 -200V-6Q0 30.8 70 -6V-200"/><ellipse cx="0" cy="-200" rx="70" ry="23.8"/></g><g transform="translate(660.0 700.0) rotate(125.9)" stroke="var(--ink)"><path d="M-70 -200V-6Q0 30.8 70 -6V-200"/><ellipse cx="0" cy="-200" rx="70" ry="23.8"/></g></g></g></g></svg>`;
+// The mark (jxn's atteo_design.pdf; src/mark.ts): the graph, no tile, in the text colour.
+// The lockup (PDF page 1): the mark as tall as the wordmark's cap height plus descender (≈20px beside 22px STIX), 0.35em apart.
+const LOGO = markInline(20, "pebble");
 
 /** The mark at another height (the first-run screen and Account's "Your assistant" card). */
 export function pebble(px: number): string {
-  return LOGO.replace('width="24" height="24"', `width="${px}" height="${px}"`);
+  return markInline(px, "pebble");
 }
 
-/** The wordmark's marker filter (lowercase "atteo" in Schoolbell, never without it): once per page. wm-marker is the
- *  design's, for big sizes (.wm.lg); at interface sizes it eats the strokes, so .wm uses wm-marker-sm: the same hand
- *  wobble scaled down. */
-export const WORDMARK_DEFS = `<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs><filter id="wm-marker" x="-5%" y="-15%" width="110%" height="130%"><feTurbulence type="fractalNoise" baseFrequency="0.035" numOctaves="2" seed="7" result="n"/><feDisplacementMap in="SourceGraphic" in2="n" scale="5" xChannelSelector="R" yChannelSelector="G" result="d"/><feGaussianBlur in="d" stdDeviation="0.8" result="b"/><feComponentTransfer in="b"><feFuncA type="table" tableValues="0 0 0 0.5 1"/></feComponentTransfer></filter><filter id="wm-marker-sm" x="-5%" y="-15%" width="110%" height="130%"><feTurbulence type="fractalNoise" baseFrequency="0.07" numOctaves="2" seed="7" result="n"/><feDisplacementMap in="SourceGraphic" in2="n" scale="2" xChannelSelector="R" yChannelSelector="G" result="d"/><feGaussianBlur in="d" stdDeviation="0.35" result="b"/><feComponentTransfer in="b"><feFuncA type="table" tableValues="0 0.4 1 1"/></feComponentTransfer></filter></defs></svg>`;
+/** The wordmark is plain STIX Two Text now (jxn #4682), with no filter: kept so pages that place it still build. */
+export const WORDMARK_DEFS = "";
 
 // The app icon (atteo-icon-light / -dark): the mark on its paper (or ink) tile.
-export const ICON_LIGHT_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024"><defs><clipPath id="bsq"><rect width="1024" height="1024" rx="230"/></clipPath><filter id="brough" x="-10%" y="-10%" width="120%" height="120%"><feTurbulence type="fractalNoise" baseFrequency="0.018" numOctaves="2" seed="7"/><feDisplacementMap in="SourceGraphic" scale="16"/></filter></defs><g clip-path="url(#bsq)"><rect width="1024" height="1024" fill="#FAFAF7"/><g transform="translate(512 512) translate(-519.9 -507.7)"><g filter="url(#brough)" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M400.0 512.0Q512.1 403.2 650.0 330.0M400.0 512.0Q517.1 623.8 660.0 700.0" stroke="#0E0E0E" stroke-width="22"/><g stroke-width="36"><g transform="translate(400.0 512.0) rotate(-90.0)" stroke="#6A1B24"><path d="M-95 -200L-19 0H19L95 -200"/><ellipse cx="0" cy="-200" rx="95" ry="32.3"/></g><g transform="translate(650.0 330.0) rotate(53.9)" stroke="#0E0E0E"><path d="M-70 -200V-6Q0 30.8 70 -6V-200"/><ellipse cx="0" cy="-200" rx="70" ry="23.8"/></g><g transform="translate(660.0 700.0) rotate(125.9)" stroke="#0E0E0E"><path d="M-70 -200V-6Q0 30.8 70 -6V-200"/><ellipse cx="0" cy="-200" rx="70" ry="23.8"/></g></g></g></g></g></svg>`;
-export const ICON_DARK_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024"><defs><clipPath id="bsq"><rect width="1024" height="1024" rx="230"/></clipPath><filter id="brough" x="-10%" y="-10%" width="120%" height="120%"><feTurbulence type="fractalNoise" baseFrequency="0.018" numOctaves="2" seed="7"/><feDisplacementMap in="SourceGraphic" scale="16"/></filter></defs><g clip-path="url(#bsq)"><rect width="1024" height="1024" fill="#0E0E0E"/><g transform="translate(512 512) translate(-519.9 -507.7)"><g filter="url(#brough)" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M400.0 512.0Q512.1 403.2 650.0 330.0M400.0 512.0Q517.1 623.8 660.0 700.0" stroke="#FAFAF7" stroke-width="22"/><g stroke-width="36"><g transform="translate(400.0 512.0) rotate(-90.0)" stroke="#C2414D"><path d="M-95 -200L-19 0H19L95 -200"/><ellipse cx="0" cy="-200" rx="95" ry="32.3"/></g><g transform="translate(650.0 330.0) rotate(53.9)" stroke="#FAFAF7"><path d="M-70 -200V-6Q0 30.8 70 -6V-200"/><ellipse cx="0" cy="-200" rx="70" ry="23.8"/></g><g transform="translate(660.0 700.0) rotate(125.9)" stroke="#FAFAF7"><path d="M-70 -200V-6Q0 30.8 70 -6V-200"/><ellipse cx="0" cy="-200" rx="70" ry="23.8"/></g></g></g></g></g></svg>`;
-export const FAVICON_SVG = ICON_LIGHT_SVG; // the paper tile reads on light and dark tab bars alike
+export const ICON_LIGHT_SVG = markFile("#FAFAF7", "#0E0E0E"); // the PDF's light mark, verbatim
+export const ICON_DARK_SVG = markFile("#0E0E0E", "#FAFAF7", "#3A3935"); // swapped, with a hair of edge so the tile shows on a dark page
+// The tab icon is the small-size cut (thicker lines, bigger nodes): at 16px the drawing's own lines blur away. The paper
+// tile reads on light and dark tab bars alike.
+export const FAVICON_SVG = markFile("#FAFAF7", "#0E0E0E", null, true);
+// The icons' addresses carry a hash of the drawing (jxn #4247): browsers keep a favicon for days, so a new logo only
+// shows once its address changes.
+export const FAVICON_SRC = `/favicon.svg?v=${fnv(FAVICON_SVG)}`;
+export const APPLE_TOUCH_SRC = `/apple-touch-icon.png?v=${fnv(APPLE_TOUCH_PNG_B64)}`;
 
 export interface Viewer {
   name: string;
@@ -1273,14 +1327,18 @@ export interface Viewer {
   lang?: Lang; // the interface language for pages (i18n.ts); English when unset
 }
 
+function extraCss(hrefs?: string[]): string {
+  return (hrefs ?? []).map((href) => `<link rel="stylesheet" href="${esc(href)}">`).join("");
+}
+
 export function page(
   title: string,
   body: string,
-  opts: { viewer?: Viewer | null; nav?: "boards" | "admin" | "me" | null; narrow?: boolean; script?: string; status?: number; headers?: HeadersInit; lang?: Lang; formAction?: string[] } = {},
+  opts: { viewer?: Viewer | null; nav?: "boards" | "admin" | "me" | null; narrow?: boolean; script?: string; status?: number; headers?: HeadersInit; lang?: Lang; formAction?: string[]; css?: string[] } = {},
 ): Response {
   const v = opts.viewer;
   const security = pageSecurity({ formAction: opts.formAction });
-  const link = (href: string, label: string, key: string) => `<a href="${href}"${opts.nav === key ? ' aria-current="page"' : ""}>${label}</a>`;
+  const link = (href: string, label: string, key: string) => `<a href="${esc(href)}"${opts.nav === key ? ' aria-current="page"' : ""}>${label}</a>`;
   const nav = `<header class="nav"><div class="in">
 <a class="brand" href="/">${LOGO}<span class="wm">atteo</span></a>
 ${v ? `<nav class="links">${link("/", esc(tr(opts.lang, "Boards")), "boards")}</nav>` : ""}
@@ -1289,14 +1347,14 @@ ${v ? `<nav class="links">${link("/", esc(tr(opts.lang, "Boards")), "boards")}</
       ? `<a href="/me" class="row" title="${esc(tr(opts.lang, "Account"))}">${avatar(v.name)}<span class="small hide-sm">${esc(v.name)}</span></a>`
       : `<a class="btn sm primary" href="/auth/login">${esc(tr(opts.lang, "Sign in"))}</a>`
   }</div></div></header>`;
-  const html = `<!doctype html><html lang="${opts.lang ?? "en"}"${dirOf(opts.lang) === "rtl" ? ' dir="rtl"' : ""}><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  const html = styleNonce(`<!doctype html><html lang="${opts.lang ?? "en"}"${dirOf(opts.lang) === "rtl" ? ' dir="rtl"' : ""}><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${esc(title)}</title>
 ${FONT_PRELOAD}
-<link rel="icon" href="/favicon.svg" type="image/svg+xml"><link rel="apple-touch-icon" href="/apple-touch-icon.png">
-<link rel="stylesheet" href="${APP_CSS_SRC}">${DISPLAY_HEAD.replace("<script>", `<script nonce="${security.nonce}">`)}</head><body>${WORDMARK_DEFS}${nav}
+<link rel="icon" href="${FAVICON_SRC}" type="image/svg+xml"><link rel="apple-touch-icon" href="${APPLE_TOUCH_SRC}">
+<link rel="stylesheet" href="${APP_CSS_SRC}">${extraCss(opts.css)}${DISPLAY_HEAD.replace("<script>", `<script nonce="${security.nonce}">`)}</head><body>${WORDMARK_DEFS}${nav}
 <main${opts.narrow ? ' class="narrow"' : ""}>${body}</main>
 <div id="toast" role="status" aria-live="polite"></div>
-<script src="${APP_JS_SRC}" nonce="${security.nonce}"></script>${opts.script ? `<script nonce="${security.nonce}">${opts.script}</script>` : ""}</body></html>`;
+${analyticsScriptTag(security.nonce)}<script src="${APP_JS_SRC}" nonce="${security.nonce}"></script>${opts.script ? `<script nonce="${security.nonce}">${opts.script}</script>` : ""}</body></html>`, security.nonce);
   const headers = new Headers(opts.headers);
   headers.set("content-type", "text/html; charset=utf-8");
   for (const [name, value] of Object.entries(security.headers)) headers.set(name, value);
@@ -1513,6 +1571,15 @@ const CLIENT_JS = `
 // Saving a picture or a file (jxn #2684) is an <a download data-save>. On a phone that can share files (iOS Safari,
 // Android Chrome) it opens the share sheet instead (Save Image, Save to Files, AirDrop…); anywhere else, or if sharing
 // isn't allowed after the fetch, the browser downloads it.
+// Another site asks first, with the whole address (jxn #4173).
+const ext=h=>{try{const u=new URL(h,location.href);return u.origin!==location.origin&&/^https?:$/.test(u.protocol)?u.href:''}catch(x){return''}},$l=i=>document.getElementById(i);
+document.addEventListener('click',e=>{if(e.defaultPrevented||e.button||e.metaKey||e.ctrlKey||e.shiftKey||e.altKey)return;const a=e.target.closest?.('a[href]:not([data-save])');
+  if(a&&a.closest('.entry .body,.entry .chg,#doc-view,.pin-peek,.pin-card')&&ext(a.getAttribute('href'))){e.preventDefault();leaveTo(a.href)}
+  else if(e.target.closest?.('#leave-go')){const d=$l('leave');d.close();open(d.dataset.href,'_blank','noopener,noreferrer')}});
+window.leaveTo=h=>{const x=ext(h);if(!x)return open(h,'_blank','noopener,noreferrer');let d=$l('leave');
+  if(!d){d=document.createElement('dialog');d.id='leave';d.setAttribute('aria-labelledby','leave-title');d.innerHTML='<div class="hd"><h2 id="leave-title"></h2><button type="button" class="btn ghost sm" data-close>✕</button></div><div class="bd"><p class="mono leave-url" id="leave-url"></p></div><div class="ft"><button type="button" class="btn" data-close></button><button type="button" class="btn primary" id="leave-go"></button></div>';
+    const b=d.querySelectorAll('button');d.querySelector('h2').textContent=tr('Open this link?');b[0].ariaLabel=tr('Close');b[1].textContent=tr('Cancel');b[2].textContent=tr('Open');document.body.append(d)}
+  $l('leave-url').textContent=x;d.dataset.href=x;d.showModal();$l('leave-go').focus()};
 document.addEventListener('click',async e=>{const a=e.target.closest&&e.target.closest('a[data-save]');if(!a||!navigator.canShare||!matchMedia('(pointer:coarse)').matches)return;e.preventDefault();
   const name=a.getAttribute('download')||'file',dl=()=>{const x=document.createElement('a');x.href=a.href;x.download=name;document.body.append(x);x.click();x.remove()};
   try{const b=await (await fetch(a.href)).blob(),f=new File([b],name,{type:b.type||'application/octet-stream'});if(navigator.canShare({files:[f]}))return await navigator.share({files:[f]})}
@@ -1597,14 +1664,22 @@ ${CODE_COLOR_JS}`;
 // Every page's stylesheet and shell script, served by the Worker as /app.css and /app.js (index.ts), versioned by a hash of
 // their text and cached for good: a page no longer carries ~135KB of CSS and ~40KB of JS inline on every navigation, and
 // the script gets V8's code cache. A page's own script stays inline (it carries that page's data) and runs after it.
-export const APP_CSS = `${FONT_CSS}\n${CSS}`;
+export const APP_CSS = `${APP_FONT_CSS}\n${CSS}`;
 export const APP_CSS_SRC = `/app.css?v=${fnv(APP_CSS)}`;
 export const APP_JS = CLIENT_JS;
 export const APP_JS_SRC = `/app.js?v=${fnv(APP_JS)}`;
+/** Page-only stylesheets (Guide / Ask / Docs). Kept off /app.css so board and inbox stay in the CSS budget. */
+export const PAGE_CSS: Record<string, string> = { "/guide.css": GUIDE_CSS, "/ask.css": ASK_CSS, "/docs.css": DOC_CSS };
+export const GUIDE_CSS_SRC = `/guide.css?v=${fnv(GUIDE_CSS)}`;
+export const ASK_CSS_SRC = `/ask.css?v=${fnv(ASK_CSS)}`;
+export const DOC_CSS_SRC = `/docs.css?v=${fnv(DOC_CSS)}`;
 
 // ---------- app shell (signed-in pages) ----------
 
 const ICON = {
+  clip: `<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" aria-hidden="true"><path d="M13.5 7.6 8.3 12.8a3.2 3.2 0 0 1-4.5-4.5l5.6-5.6a2.1 2.1 0 0 1 3 3L6.8 11.3a1 1 0 0 1-1.5-1.5l4.9-4.9"/></svg>`, // the composer's paper clip, for the bug report
+  warn: `<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true"><path d="M8 2.3 14.4 13.4H1.6Z"/><path d="M8 6.4v3.4" stroke-linecap="round"/><circle cx="8" cy="11.5" r=".8" fill="currentColor" stroke="none"/></svg>`, // a warning triangle: Report a bug (jxn #4051)
+  feedback: `<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 3.5h11v7.5H7l-3 2.5V11H2.5Z"/></svg>`, // speech bubble: Send feedback (vedu #4125)
   plug: `<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" aria-hidden="true"><path d="M6 2v3M10 2v3M4.5 5h7v2.5a3.5 3.5 0 0 1-7 0zM8 11v3"/></svg>`,
   boards: `<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><rect x="2" y="2" width="5" height="5" rx="1.2"/><rect x="9" y="2" width="5" height="5" rx="1.2"/><rect x="2" y="9" width="5" height="5" rx="1.2"/><rect x="9" y="9" width="5" height="5" rx="1.2"/></svg>`,
   admin: `<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M8 1.8l5 2v4c0 3-2.2 5.2-5 6.4C5.2 13 3 10.8 3 7.8v-4z"/></svg>`,
@@ -1626,6 +1701,7 @@ export interface SideBoard {
   live?: number; // agent sessions working on it right now
   pinned?: boolean;
   picture?: string | null; // the board picture's URL (members only, versioned), or null
+  peer_name?: string | null; // a direct board: the other person's display name (jxn #4369)
 }
 
 /** The first letter of a board's title (or its first emoji), for a board without a picture. */
@@ -1667,6 +1743,7 @@ export function appPage(
     narrow?: boolean;
     full?: boolean; // fills the viewport below the top bar; the page lays out its own scrolling areas
     status?: number;
+    css?: string[];
   },
 ): Response {
   const v = opts.viewer;
@@ -1681,23 +1758,23 @@ export function appPage(
     .join("");
   // Direct boards read as the person you share them with.
   const sideDirect = direct
-    .map((b) => `<a class="side-link side-board" href="/b/${esc(b.id)}"${cur(b.id)}>${avatar(directPeer(b, v.name), "xs")}<span class="truncate">${esc(directPeer(b, v.name))}</span>${working(b.live ?? 0, b.id)}</a>`)
+    .map((b) => `<a class="side-link side-board" href="/b/${esc(b.id)}"${cur(b.id)}>${avatar(directPeer(b, v.name), "xs")}<span class="truncate">${personHtml(directPeer(b, v.name), b.peer_name, [v.name])}</span>${working(b.live ?? 0, b.id)}</a>`)
     .join("");
   // "Your agent", pinned first under DMs: your private chat with your own agents (/agent makes it the first time).
   const sideOwn = `<a class="side-link side-board" href="${own ? `/b/${esc(own.id)}` : "/agent"}"${own ? cur(own.id) : ""} data-agent-chat>${avatar(v.name, "xs", true)}<span class="truncate">${esc(T("Your agent"))}</span>${own ? working(own.live ?? 0, own.id) : ""}</a>`;
   const paletteItems = [
     { label: T("Your agent"), hint: T("Chat"), href: own ? `/b/${own.id}` : "/agent" },
-    ...opts.boards.filter((b) => b.kind !== "agent").map((b) => ({ label: b.kind === "direct" ? T("{name} (direct)", { name: directPeer(b, v.name) }) : b.title, hint: T("Board"), href: `/b/${b.id}` })),
+    ...opts.boards.filter((b) => b.kind !== "agent").map((b) => ({ label: b.kind === "direct" ? T("{name} (direct)", { name: shownName(directPeer(b, v.name), b.peer_name) }) : b.title, hint: T(b.kind === "direct" ? "DMs" : "Board"), kind: "board", href: `/b/${b.id}` })),
     { label: T("For you"), hint: T("Home"), href: "/for-you" },
     { label: T("Inbox"), hint: "G I", href: "/inbox" },
     { label: T("Approvals"), hint: "G A", href: "/approvals" },
-    { label: T("People and friends"), hint: "G P", href: "/people" },
+    { label: T("People"), hint: "G P", href: "/people" },
     { label: T("New board"), hint: "C", href: "/?new=1" },
-    { label: T("All boards"), hint: "G B", href: "/" },
-    { label: T("Account and agent connections"), hint: "G M", href: "/me" },
+    { label: T("Boards"), hint: "G B", href: "/" },
+    { label: T("Settings"), hint: "G M", href: "/me" },
     { label: T("Guide"), hint: T("What Atteo can do"), href: "/guide" },
     { label: T("Keyboard shortcuts"), hint: "?", href: "#shortcuts" },
-    ...(v.admin ? [{ label: "Ops console", hint: "Operators", href: "/_ops" }] : []),
+    ...(v.admin ? [{ label: T("Ops"), hint: "G O", href: "/_ops" }] : []),
   ];
   const body = `<div class="app" id="app">
 <aside class="sidebar" id="sidebar" aria-label="${esc(T("Navigation"))}">
@@ -1715,9 +1792,7 @@ export function appPage(
   <div class="side-label"><span>${esc(T("Your boards"))}</span><a href="/?new=1" title="${esc(T("New board (C)"))}" aria-label="${esc(T("New board"))}">${ICON.plus}</a></div>
   ${sideBoards || `<p class="xs faint" style="padding:2px 9px">${esc(T("No boards yet"))}</p>`}
   <div class="side-label"><span>${esc(T("DMs"))}</span></div>${sideOwn}${sideDirect}
-  <button class="side-link bug-btn" type="button" data-bug data-bug-src="${BUG_JS_SRC}">${ICON.bug}<span>${esc(T("Report a bug"))}</span></button>
-  <div class="me"><a class="side-link" href="/me">${avatar(v.name, "sm")}<span class="truncate">${esc(v.name)}</span></a>
-</div>
+  <div class="me"><a class="side-link" href="/me">${avatar(v.name, "sm")}<span class="truncate">${personHtml(v.name, v.display_name, opts.boards.filter((b) => b.kind === "direct").map((b) => directPeer(b, v.name)))}</span></a><button class="btn ghost sm bug-btn" type="button" data-feedback aria-label="${esc(T("Send feedback"))}">${ICON.feedback}</button><button class="btn ghost sm bug-btn" type="button" data-bug data-bug-src="${BUG_JS_SRC}" aria-label="${esc(T("Report a bug"))}" title="${esc(T("Report a bug"))}">${ICON.warn}</button></div>
 </aside>
 <div class="nav-scrim" data-nav-close aria-hidden="true"></div>
 <div class="grow" style="min-width:0">
@@ -1725,17 +1800,6 @@ export function appPage(
     <nav class="crumbs" aria-label="Breadcrumb">${opts.crumbs}</nav><div class="actions">${opts.actions ?? ""}</div></header>
   <div class="content${opts.narrow ? " narrow" : ""}${opts.full ? " full" : ""}">${opts.body}</div>
 </div></div>
-<dialog class="palette" id="palette" aria-label="${esc(T("Search"))}">
-<div class="pal-in"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><circle cx="7" cy="7" r="4.5"/><path d="m10.5 10.5 3 3"/></svg><span class="pal-chips" id="pal-chips"></span><input class="input" id="palette-q" placeholder="${esc(T("Search messages, files, boards and actions…"))}" autocomplete="off" aria-label="Search" aria-controls="palette-list"></div>
-<div class="pal-filters" id="pal-filters" aria-label="${esc(T("Filters"))}"></div>
-<ul id="palette-list" role="listbox"></ul><div class="foot"><span><kbd>↑</kbd> <kbd>↓</kbd> ${esc(T("move"))}</span><span><kbd>↵</kbd> ${esc(T("open"))}</span><span><kbd>⌫</kbd> ${esc(T("remove filter"))}</span><span><kbd>esc</kbd> ${esc(T("close"))}</span></div></dialog>
-<dialog id="bug"><div class="hd"><div><h2>${esc(T("Report a bug"))}</h2><p class="muted small" style="margin-top:4px">${esc(T("It goes to the developers with a screenshot of this page and what was on it. Take the private bits off the description; the screenshot below is what they see."))}</p></div><button class="btn ghost sm" data-close aria-label="${esc(T("Close"))}">✕</button></div>
-<div class="bd"><form id="bug-form">
-  <img id="bug-shot" alt="${esc(T("Screenshot of this page"))}" style="max-width:100%;max-height:300px;border:1px solid var(--line);border-radius:8px;display:block">
-  <p class="muted small" id="bug-shotless" hidden style="margin:6px 0">${esc(T("No screenshot — the page couldn't be captured; the description helps all the more."))}</p>
-  <textarea id="bug-text" rows="4" required minlength="8" maxlength="4000" placeholder="${esc(T("What happened? What did you expect?"))}" style="width:100%;margin-top:12px;resize:vertical"></textarea>
-  <div class="row" style="justify-content:flex-end;margin-top:14px;gap:8px"><button type="button" class="btn ghost sm" id="bug-remove" hidden>${esc(T("Remove screenshot"))}</button><button class="btn primary" type="submit" id="bug-send">${esc(T("Send report"))}</button></div>
-</form></div></dialog>
 <dialog id="shortcuts"><div class="hd"><h2>${esc(T("Keyboard shortcuts"))}</h2><button class="btn ghost sm" data-close aria-label="${esc(T("Close"))}">✕</button></div>
 <div class="bd"><dl class="kv">
 <dt><kbd>⌘K</kbd> <kbd>/</kbd></dt><dd>${esc(T("Search or jump to a board"))}</dd>
@@ -1752,7 +1816,7 @@ export function appPage(
 <dt><kbd>G</kbd> ${esc(T("then"))} <kbd>I</kbd> <kbd>A</kbd> <kbd>B</kbd> <kbd>P</kbd> <kbd>M</kbd></dt><dd>${esc(T("Go to Inbox / Approvals / Boards / People / Account"))}</dd>
 <dt><kbd>?</kbd></dt><dd>${esc(T("This list"))}</dd></dl></div></dialog>
 <script>window.PALETTE=${JSON.stringify(paletteItems).replace(/</g, "\\u003c")};${v.admin ? "window.OPS=1;" : ""}</script>`;
-  return rawPage(title, body, (opts.script ?? "") + scriptSrc(SHELL_JS_SRC), opts.status, v.lang ?? "en");
+  return rawPage(title, body, (opts.script ?? "") + scriptSrc(SHELL_JS_SRC), opts.status, v.lang ?? "en", opts.css);
 }
 
 const PINS_JS = `
@@ -1777,7 +1841,7 @@ window.inboxRefresh=async()=>{try{const r=await fetch('/api/inbox/count?tz='+tz)
   if(due>dgAt){if(dgAt&&dn&&can)new Notification(tr(dn===1?'{n} update since the last digest':'{n} updates since the last digest',{n:dn}),{body:(ns.digest_boards||[]).join(', '),tag:'inbox-digest'}).onclick=()=>{focus();location.href='/inbox'};
     dgAt=due;try{localStorage.setItem('inbox-dg-at',String(due))}catch{}}
   if(l&&l.created_at>seen){if(l.kind!=='manual_unread'&&seen&&(!l.interrupt||l.interrupt==='now')&&can&&!(document.visibilityState==='visible'&&location.pathname==='/b/'+l.board_id)){
-    const ap=l.kind==='approval',who=ap?'Your agent':l.actor_via==='agent'?l.actor+"'s agent":l.actor;
+    const ap=l.kind==='approval',who=ap?'Your agent':l.actor_via==='agent'?l.actor+"'s agent":(l.actor_name||l.actor);
     const n=new Notification(who+(ap?' is asking for your approval':l.kind==='mention'?' mentioned you':l.kind==='decision'?' asks for a decision':l.kind==='reply'?' replied to you':l.kind==='friend_request'?' wants to be friends':l.kind==='friend_accept'?' accepted your request':l.kind==='report'?' reported a post to you, as an owner':' wrote to your agent'),{body:l.excerpt,tag:'inbox-'+l.id});
     n.onclick=()=>{window.focus();location.href=ap?'/approvals':l.board_id?'/b/'+l.board_id+'#e'+l.seq:'/people'}}
   seen=l.created_at;try{localStorage.setItem('inbox-seen',String(seen))}catch{}}}catch{}};
@@ -1805,64 +1869,65 @@ const pageScripts = (script: string, nonce: string): string =>
     .split("\u0000")
     .map((part, i) => (i % 2 ? `<script src="${esc(part)}" nonce="${nonce}"></script>` : part ? `<script nonce="${nonce}">${part}</script>` : ""))
     .join("");
-// Report a bug (jxn #3336, glm-b #3343): the sidebar button captures the page as a PNG in the browser (the DOM is
-// cloned into an SVG foreignObject and drawn on a canvas — no dependency, no permission prompt; webfonts fall back
-// to system ones in the capture), shows it with a way to remove it (moby #3342 (3)), and posts it with the note and
-// context to POST /api/bugs (glm-a #3341; 501 when the bug board isn't set up). Recent console errors ride along.
+/** Loaded and localized on the first bug-report click, like the feedback form. */
+export const BUG_DIALOG = `<dialog id="bug" aria-labelledby="bug-title"><form id="bug-form">
+<div class="hd"><div><h2 id="bug-title">Report a bug</h2><p class="muted small bug-help">It goes to the developers. Add pictures if they help: paste them, drop them here or use the paper clip.</p></div><button type="button" class="btn ghost sm" data-close aria-label="Close">✕</button></div>
+<div class="bd">
+  <textarea class="input" id="bug-text" rows="4" required minlength="8" maxlength="2000" aria-label="What happened? What did you expect?" placeholder="What happened? What did you expect?"></textarea>
+  <div class="bug-pics" id="bug-pics" hidden></div>
+  <input type="file" id="bug-files" accept="image/*" multiple hidden>
+</div>
+<div class="ft"><button type="button" class="btn ghost sm bug-attach" id="bug-attach" aria-label="Attach files" title="Attach files or images (or paste or drop them)">${ICON.clip}</button><span class="grow"></span><button type="button" class="btn" data-close>Cancel</button><button class="btn primary" type="submit" id="bug-send">Send report</button></div>
+</form></dialog>`;
+
+// Report a bug (jxn #3336, #4116): the account row's button opens a form: what happened, and pictures if they help,
+// added like the composer's (the paper clip, a paste or a drop), shown as thumbnails you can remove. Nothing is captured
+// on its own. Pictures are scaled to 1600 px and sent as JPEG (PNG kept when it's already small), at most 4 and 1.9 MB
+// together (the endpoint's cap), as multipart to POST /api/bugs (501 while the bug board isn't set up).
 const BUG_JS = `
-(()=>{let shot=null;const errs=[];const MAX=2*1024*1024;
-window.addEventListener('error',e=>{errs.push(String(e.message||e.error).slice(0,300))});
-window.addEventListener('unhandledrejection',e=>{errs.push(String(e.reason).slice(0,300))});
-// Privacy (opus-d's review of #3351): the report goes to a board agents read, and an image gets past every text
-// filter — so in any capture, People-only and Just-mine entries are replaced with a placeholder, and the composer
-// too while a privacy lock (🔒) is on: what the capture may never show is what those marks say agents can't see.
-const scrub=(doc)=>{const p=doc.createElement('div');p.className='bug-private';p.textContent='🔒 '+tr('private — hidden from this report');
-  doc.querySelectorAll('.badge.po').forEach(b=>{const e=b.closest('.entry');if(e)e.replaceWith(p.cloneNode(true))});
-  doc.querySelectorAll('.po-lock').forEach(l=>{const r=l.closest('.row,.entry,li,article')||l;if(r)r.replaceWith(p.cloneNode(true))}); // Inbox / For you rows (opus-d #3380)
-  const pn=doc.querySelector('#po-note'),f=doc.querySelector('form.composer');
-  if(pn&&!pn.hidden&&f)f.replaceWith(p.cloneNode(true));
-  doc.querySelectorAll('#lightbox').forEach(l=>l.remove()); // an open lightbox shows a picture with no badge (opus-d #3380)
-  doc.querySelectorAll('#bug').forEach(d=>d.removeAttribute('open'));return doc};
-// The capture: html2canvas (self-hosted by the /api/bugs endpoint, lazy-loaded once on first use — glm-a #3364)
-// draws the real page, webfonts and images in; if it won't load, a dependency-free SVG foreignObject fallback
-// draws the clone (system fonts, no external images). Both render a closed #bug dialog and scrubbed privacy.
-let h2c=null;const html2canvas=()=>h2c=h2c||new Promise((res)=>{if(window.html2canvas)return res(true);const s=document.createElement('script');s.src='/vendor/html2canvas.min.js';s.onload=()=>res(true);s.onerror=()=>res(false);document.head.appendChild(s)});
-const fallback=()=>new Promise((res)=>{try{
-  const cw=Math.min(innerWidth,1024),ch=innerHeight; // full viewport height, width capped
-  const clone=scrub(document.documentElement.cloneNode(true));
-  clone.querySelectorAll('script').forEach(s=>s.remove());
-  const svg='<svg xmlns="http://www.w3.org/2000/svg" width="'+cw+'" height="'+ch+'"><foreignObject width="100%" height="100%">'+new XMLSerializer().serializeToString(clone)+'</foreignObject></svg>';
-  const img=new Image();
-  img.onload=()=>{try{const c=document.createElement('canvas');c.width=cw;c.height=ch;const g=c.getContext('2d');if(!g)return res(null);
-    g.fillStyle=getComputedStyle(document.body).backgroundColor||'#fff';g.fillRect(0,0,cw,ch);g.drawImage(img,0,0,cw,ch);
-    const url=c.toDataURL('image/png');res(url.length<=MAX+70000?url:null)}catch(e){res(null)}};
-  img.onerror=()=>res(null);
-  img.src='data:image/svg+xml;charset=utf-8,'+encodeURIComponent(svg);
-}catch(e){res(null)}});
-const capture=async()=>{if(!(await html2canvas()))return fallback();try{
-  const c=await window.html2canvas(document.body,{backgroundColor:getComputedStyle(document.body).backgroundColor||'#fff',logging:false,
-    onclone:(d)=>{scrub(d);d.querySelectorAll('script').forEach(s=>s.remove())}}); // scrub also drops #lightbox and the #bug dialog
-  const url=c.toDataURL('image/png');return url.length<=MAX+70000?url:fallback();
-}catch(e){return fallback()}};
-const show=(d)=>{const img=document.getElementById('bug-shot'),rm=document.getElementById('bug-remove'),less=document.getElementById('bug-shotless');
-  if(!img)return;img.hidden=!d;rm.hidden=!d;less.hidden=!!d;if(d)img.src=d};
-const run=async()=>{const d=document.getElementById('bug');if(!d)return;
-  document.getElementById('bug-text').value='';shot=null;show(null);d.showModal(); // the dialog is up while the capture runs (it's scrubbed out of the image)
-  const cap=document.getElementById('bug-send');cap.disabled=true;cap.textContent=tr('Taking the screenshot…');
-  shot=await capture();cap.disabled=false;cap.textContent=tr('Send report');show(shot)};
+(async()=>{
+try{const r=await fetch('/bug-form');if(!r.ok)throw Error();document.body.insertAdjacentHTML('beforeend',await r.text())}
+catch{document.getElementById('bug-js')?.remove();toast(tr("Couldn't open it"));return}
+const MAXN=4,MAX=1900000;let pics=[];
+const $=id=>document.getElementById(id);
+const total=()=>pics.reduce((n,p)=>n+p.blob.size,0);
+// One picture, made small enough: kept as it is when it's a small PNG/JPEG, else drawn at 1600 px or less as JPEG.
+const fit=async(file)=>{if((file.type==='image/png'||file.type==='image/jpeg')&&file.size<=600000)return file;
+  const bmp=await createImageBitmap(file),k=Math.min(1,1600/Math.max(bmp.width,bmp.height)),w=Math.round(bmp.width*k),h=Math.round(bmp.height*k);
+  const c=document.createElement('canvas');c.width=w;c.height=h;const g=c.getContext('2d');g.fillStyle='#fff';g.fillRect(0,0,w,h);g.drawImage(bmp,0,0,w,h);
+  let q=.85,b;do{b=await new Promise(r=>c.toBlob(r,'image/jpeg',q));q-=.15}while(b&&b.size>700000&&q>.3);return b};
+const render=()=>{const box=$('bug-pics');if(!box)return;box.hidden=!pics.length;box.textContent='';
+  pics.forEach((p,i)=>{const s=document.createElement('span');s.className='att';const im=document.createElement('img');im.src=p.url;im.alt='';
+    const x=document.createElement('button');x.type='button';x.className='att-x';x.dataset.bugRm=String(i);x.setAttribute('aria-label',tr('Remove'));x.textContent='✕';s.append(im,x);box.append(s)})};
+const add=async(files)=>{for(const f of files){if(!/^image[/]/.test(f.type||'')){toast(tr('Only pictures can go with a bug report.'));continue}
+    if(pics.length>=MAXN){toast(tr('At most 4 pictures in a bug report.'));break}
+    try{const b=await fit(f);if(!b||total()+b.size>MAX){toast(tr('That picture is too large for the report.'));continue}pics.push({blob:b,url:URL.createObjectURL(b)})}
+    catch(e){toast(tr("Couldn't read that picture."))}}
+  render()};
+const clear=()=>{pics.forEach(p=>URL.revokeObjectURL(p.url));pics=[];render()};
+const run=()=>{const d=$('bug');if(!d)return;$('bug-text').value='';clear();if(!d.open)d.showModal();$('bug-text').focus()};
 document.addEventListener('click',e=>{if(e.target.closest('[data-bug]'))run()});
 run(); // bug.js is only loaded on a bug click: that first click is this run
-document.addEventListener('click',e=>{if(e.target.id!=='bug-remove')return;shot=null;show(null)});
-document.getElementById('bug-form')?.addEventListener('submit',async e=>{e.preventDefault();
-  const t=document.getElementById('bug-text').value.trim();if(t.length<8)return;
-  const send=document.getElementById('bug-send');send.disabled=true;
-  try{const r=await fetch('/api/bugs',{method:'POST',headers:{'content-type':'application/json'},
-    body:JSON.stringify({note:t,path:location.pathname+location.hash,screenshot:shot,
-      context:{board:(window.BOARD_CTX||{}).id||null,os:navigator.platform,viewport:innerWidth+'x'+innerHeight,errors:errs.slice(-5)}})});
-    const j=await r.json().catch(()=>({}));
+document.addEventListener('click',e=>{const x=e.target.closest('[data-bug-rm]');if(x){const i=+x.dataset.bugRm;URL.revokeObjectURL(pics[i].url);pics.splice(i,1);render();return}
+  if(e.target.closest('#bug-attach'))$('bug-files').click()});
+$('bug-files')?.addEventListener('change',e=>{add([...e.target.files]);e.target.value=''});
+$('bug-text')?.addEventListener('paste',e=>{const fs=[...(e.clipboardData?.files||[])];if(fs.length){e.preventDefault();add(fs)}});
+const dlg=$('bug');
+dlg.addEventListener('click',e=>{if(e.target===dlg)dlg.close()});
+dlg?.addEventListener('dragover',e=>{if([...(e.dataTransfer?.types||[])].includes('Files')){e.preventDefault();dlg.classList.add('drop')}});
+dlg?.addEventListener('dragleave',e=>{if(!dlg.contains(e.relatedTarget))dlg.classList.remove('drop')});
+dlg?.addEventListener('drop',e=>{dlg.classList.remove('drop');const fs=[...(e.dataTransfer?.files||[])];if(fs.length){e.preventDefault();add(fs)}});
+dlg?.addEventListener('close',clear);
+$('bug-form')?.addEventListener('submit',async e=>{e.preventDefault();
+  const t=$('bug-text').value.trim();if(t.length<8)return;
+  const send=$('bug-send');send.disabled=true;
+  try{const fd=new FormData();fd.append('note',t);fd.append('path',location.pathname+location.hash);
+    fd.append('context',JSON.stringify({board:(window.BOARD_CTX||{}).id||undefined,os:navigator.platform||undefined,device:'web '+innerWidth+'x'+innerHeight}));
+    pics.forEach((p,i)=>fd.append('screenshot',p.blob,'picture-'+(i+1)+(p.blob.type==='image/png'?'.png':'.jpg')));
+    const r=await fetch('/api/bugs',{method:'POST',body:fd});const j=await r.json().catch(()=>({}));
     if(r.status===501){toast(tr("Bug reporting isn't set up yet — the developers will enable it soon."));return}
     if(!r.ok)throw Error(j.error||tr('Could not send it'));
-    document.getElementById('bug').close();toast(tr('Report sent — thank you.'));errs.length=0;
+    $('bug').close();toast(tr('Report sent — thank you.'));
   }catch(err){toast(err.message||tr('Could not send it'))}finally{send.disabled=false}});
 })();`;
 
@@ -1873,78 +1938,67 @@ document.getElementById('bug-form')?.addEventListener('submit',async e=>{e.preve
 export const BOARD_PREFETCH_RULES = JSON.stringify({ prefetch: [{ source: "document", where: { href_matches: "/b/*" }, eagerness: "moderate" }] });
 export const BOARD_PREFETCH_PATH = "/speculation-rules.json";
 // Report a bug (jxn #3336, glm-b #3343): the sidebar button captures the page as a PNG in the browser (the DOM is
-function rawPage(title: string, body: string, script: string, status = 200, lang: Lang = "en"): Response {
+function rawPage(title: string, body: string, script: string, status = 200, lang: Lang = "en", css?: string[]): Response {
   const security = pageSecurity();
-  const html = `<!doctype html><html lang="${lang}"${dirOf(lang as Lang) === "rtl" ? ' dir="rtl"' : ""}><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  const html = styleNonce(`<!doctype html><html lang="${lang}"${dirOf(lang as Lang) === "rtl" ? ' dir="rtl"' : ""}><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${esc(title)}</title>
 ${FONT_PRELOAD}${scriptPreloads(script)}
-<link rel="icon" href="/favicon.svg" type="image/svg+xml"><link rel="apple-touch-icon" href="/apple-touch-icon.png">
-<link rel="stylesheet" href="${APP_CSS_SRC}">${DISPLAY_HEAD.replace("<script>", `<script nonce="${security.nonce}">`)}</head><body>${WORDMARK_DEFS}${body.replace("<script>window.PALETTE=", `<script nonce="${security.nonce}">window.PALETTE=`)}
+<link rel="icon" href="${FAVICON_SRC}" type="image/svg+xml"><link rel="apple-touch-icon" href="${APPLE_TOUCH_SRC}">
+<link rel="stylesheet" href="${APP_CSS_SRC}">${extraCss(css)}${DISPLAY_HEAD.replace("<script>", `<script nonce="${security.nonce}">`)}</head><body>${WORDMARK_DEFS}${body.replace("<script>window.PALETTE=", `<script nonce="${security.nonce}">window.PALETTE=`)}
 <div id="toast" role="status" aria-live="polite"></div>
-${lang === "en" ? "" : `<script nonce="${security.nonce}">window.I18N=${clientTable(lang)}</script>`}<script src="${APP_JS_SRC}" nonce="${security.nonce}"></script>${pageScripts(script, security.nonce)}</body></html>`;
+${lang === "en" ? "" : `<script nonce="${security.nonce}">window.I18N=${clientTable(lang)}</script>`}${analyticsScriptTag(security.nonce)}<script src="${APP_JS_SRC}" nonce="${security.nonce}"></script>${pageScripts(script, security.nonce)}</body></html>`, security.nonce);
   return new Response(html, { status, headers: { "content-type": "text/html; charset=utf-8", "content-language": lang, vary: "Accept-Language, Cookie", "speculation-rules": `"${BOARD_PREFETCH_PATH}"`, ...security.headers } });
 }
 
+/** Send feedback (vedu #4125): the form, fetched on the first click from /feedback-form and localized there, so pages
+ *  don't carry it (web-budget). English as written; i18n.localize translates its text, labels and placeholder. */
+export const FEEDBACK_DIALOG = `<dialog id="feedback" aria-labelledby="fb-title"><form id="fb-form">
+<div class="hd"><div><h2 id="fb-title">Send feedback</h2><p class="muted small" style="margin-top:4px">An idea, a complaint, something you like: it goes to the Atteo team. Only what you write here is sent.</p></div><button type="button" class="btn ghost sm" data-close aria-label="Close">✕</button></div>
+<div class="bd"><textarea class="input" id="fb-text" rows="4" required maxlength="2000" aria-label="Your feedback" placeholder="Your feedback"></textarea><p class="small" id="fb-status" role="status" hidden></p><span id="fb-thanks" hidden>Thanks, the Atteo team will read it.</span><span id="fb-err" hidden>Couldn&#39;t send it. Try again.</span></div>
+<div class="ft"><button type="button" class="btn" data-close>Cancel</button><button class="btn primary" type="submit" id="fb-send">Send</button></div>
+</form></dialog>`;
+
+/** Send feedback's script (vedu #4125), loaded on the first click of the 💬 button: fetches the form from /feedback-form
+ *  (localized there), opens it, and posts a few words for the Atteo team to /api/feedback (the board it's about rides
+ *  along by id). Served hashed and immutable like /bug.js, so pages carry only the few bytes that load it. */
+const FEEDBACK_JS = `(()=>{const $=(s)=>document.querySelector(s);
+const open=async()=>{let d=$('#feedback');
+  if(!d){const r=await fetch('/feedback-form').catch(()=>null);if(!r||!r.ok)return;document.body.insertAdjacentHTML('beforeend',await r.text());d=$('#feedback')}
+  $('#fb-status').hidden=true;d.showModal();$('#fb-text').focus()};
+document.addEventListener('click',e=>{if(e.target.closest('[data-feedback]'))open()});
+document.addEventListener('submit',async e=>{if(e.target.id!=='fb-form')return;e.preventDefault();const d=$('#feedback'),t=$('#fb-text'),st=$('#fb-status'),b=$('#fb-send');b.disabled=true;
+  const fail=(m)=>{st.hidden=false;st.textContent=m||$('#fb-err').textContent};
+  try{const r=await fetch('/api/feedback',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({text:t.value,board:location.pathname.match(/^\\/b\\/(b_[a-z0-9]+)/)?.[1]})});
+    const j=await r.json().catch(()=>({}));if(r.ok){t.value='';d.close();window.toast&&toast($('#fb-thanks').textContent)}else fail(j.error)}catch{fail()}finally{b.disabled=false}});
+open();
+})();`;
+export const FEEDBACK_PAGE_JS = FEEDBACK_JS;
+export const FEEDBACK_JS_SRC = `/feedback.js?v=${fnv(FEEDBACK_PAGE_JS)}`;
+
 const SHELL_JS = `
-(()=>{
+(()=>{const NONCE=document.currentScript?.nonce||'';
 const $=(s,r=document)=>r.querySelector(s),$$=(s,r=document)=>[...r.querySelectorAll(s)];
 // Report a bug: the capture lives in /bug.js (web-budget: not on every page) — the first click loads it, and it
 // runs the capture for that click itself; later clicks are its own listener.
 document.addEventListener('click',e=>{const b=e.target.closest('[data-bug]');if(!b||document.getElementById('bug-js'))return;
-  const s=document.createElement('script');s.id='bug-js';s.src=b.dataset.bugSrc;document.head.appendChild(s)});
-// Search (⌘K everywhere; ⌘F on a board starts with "This board · Messages"): filters show up front like VS Code or Lark,
-// and become chips; results mix boards and actions with ranked messages and files (this board, or all your boards).
-const pal=$('#palette'),q=$('#palette-q'),list=$('#palette-list'),pChips=$('#pal-chips'),pFilt=$('#pal-filters');
-let sel=0,items=[],chips=[],mode=null,run=0,timer=null;
-const B=()=>window.BOARD_CTX||null; // on a board page: {id, me, members, jump(seq), openFile(name, version)}
-const KINDS=[['messages',tr('Messages')],['files',tr('Files')],['boards',tr('Boards')],['actions',tr('Actions')]],TYPES=['question','task','decision','claim','note','change','artifact'];
-const h=x=>String(x==null?'':x).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
-const has=(k,v)=>chips.some(c=>c.k===k&&(v==null||c.v===v)),chip=k=>chips.find(c=>c.k===k);
-const who=(u,agent)=>{const me=B()&&B().me;return u===me?(agent?'your agent':'you'):(agent?u+"'s agent":u)};
-const label=c=>c.k==='board'?tr('This board'):c.k==='kind'?KINDS.find(k=>k[0]===c.v)[1]:c.k==='type'?tr('type:')+' '+tr(c.v):tr('from')+' '+who(c.v,c.agent);
-function paintChips(){pChips.innerHTML=chips.map((c,i)=>'<span class="pal-chip">'+h(label(c))+'<button type="button" data-pchip="'+i+'" aria-label="Remove '+h(label(c))+'">✕</button></span>').join('');
-  const o=[];if(B()&&!has('board'))o.push(['board','',tr('This board')]);if(!has('kind'))KINDS.forEach(([v,l])=>o.push(['kind',v,l]));
-  if(B()&&!has('from'))o.push(['from','',tr('From…')]);if(!has('type'))o.push(['type','',tr('Type…')]);
-  pFilt.innerHTML=o.map(x=>'<button type="button" class="pal-opt" data-popt="'+x[0]+'" data-v="'+x[1]+'">'+h(x[2])+'</button>').join('');pFilt.hidden=!o.length}
-function paint(rows){items=rows;sel=Math.min(sel,Math.max(0,rows.length-1));let g='';
-  list.innerHTML=rows.map((r,n)=>(r.g!==g?'<li class="pal-g" aria-hidden="true">'+(g=r.g)+'</li>':'')+'<li role="option" data-n="'+n+'" id="po-'+n+'" aria-selected="'+(n===sel)+'"><span class="pal-l">'+r.label+'</span><span class="k">'+h(r.hint||'')+'</span></li>').join('')||'<li class="faint pal-none">'+(q.value.trim()?'No matches':'Type to search')+'</li>';
-  q.setAttribute('aria-activedescendant',rows.length?'po-'+sel:'')}
-function pickList(){const t=q.value.trim().replace(/^@/,'').toLowerCase();
-  const rows=mode==='from'?(B()?B().members:[]).flatMap(u=>[{u,agent:false},{u,agent:true}]).filter(x=>x.u.startsWith(t)).map(x=>({g:tr('From'),label:h(who(x.u,x.agent)),pick:{k:'from',v:x.u,agent:x.agent}}))
-    :TYPES.filter(x=>x.startsWith(t)).map(x=>({g:tr('Type'),label:h(tr(x)),pick:{k:'type',v:x}}));paint(rows)}
-const snip=x=>h(x||'').split('«').join('<mark>').split('»').join('</mark>');
-function render(){const my=++run;if(mode){pickList();return}const t=q.value.trim(),kind=chip('kind')&&chip('kind').v,b=B(),scoped=b&&(has('board')||has('from')||has('type'));
-  const rows=[];
-  if((!kind||kind==='boards'||kind==='actions')&&!scoped&&!has('from')&&!has('type'))
-    PALETTE.filter(i=>!t||i.label.toLowerCase().includes(t.toLowerCase())).filter(i=>!kind||(kind==='boards')===(i.hint==='Board')).slice(0,t?8:6)
-      .forEach(i=>rows.push({g:i.hint===tr('Board')?tr('Boards'):tr('Actions'),label:h(i.label),hint:i.hint==='Board'?'':i.hint,href:i.href}));
-  paint(rows);
-  if(kind==='boards'||kind==='actions'||(!t&&!has('from')&&!has('type')))return;
-  clearTimeout(timer);timer=setTimeout(async()=>{const more=[];
-    try{if(scoped){const p=new URLSearchParams({q:t});const f=chip('from');if(f){p.set('from',f.v);p.set('agent',f.agent?'1':'0')}if(chip('type'))p.set('type',chip('type').v);if(kind==='messages')p.set('in','chat');
-        const j=await (await fetch('/api/boards/'+b.id+'/search?'+p)).json();
-        if(kind!=='files')(j.entries||[]).forEach(x=>more.push({g:tr('Messages'),label:(x.title?'<b>'+h(x.title)+'</b> ':'')+snip(x.snippet),hint:who(x.author,x.via==='agent')+' · #'+x.seq,act:()=>b.jump(x.seq)}));
-        if(kind!=='messages')(j.files||[]).forEach(x=>more.push({g:tr('Files'),label:'<span class="mono">'+h(x.name)+'</span> '+snip(x.snippet),hint:'v'+x.version,act:()=>b.openFile(x.name,x.version)}))}
-      else if(t){const j=await (await fetch('/api/boards/search?q='+encodeURIComponent(t))).json();
-        (j.hits||[]).filter(x=>kind==='files'?x.kind==='file':kind==='messages'?x.kind==='entry':true).forEach(x=>{const here=b&&x.board===b.id;
-          more.push({g:x.kind==='file'?'Files':'Messages',label:(x.kind==='file'?'<span class="mono">'+h(x.name)+'</span> ':'')+snip(x.snippet),hint:x.title+(x.seq?' · #'+x.seq:''),
-            act:here?(x.kind==='file'?()=>b.openFile(x.name,x.version):()=>b.jump(x.seq)):null,href:'/b/'+x.board+(x.kind==='file'?'#files':'#e'+x.seq)})})}}catch(e){}
-    if(my===run)paint(rows.concat(more))},150)}
-function go(i){if(!i)return;if(i.pick){chips=chips.filter(c=>c.k!==i.pick.k);chips.push(i.pick);mode=null;q.value='';paintChips();sel=0;render();q.focus();return}
-  pal.close();if(i.href==='#shortcuts'){$('#shortcuts').showModal();return}if(i.act){i.act();return}location.href=i.href}
-window.openPalette=(preset)=>{chips=(preset||[]).slice();mode=null;q.value='';sel=0;paintChips();render();if(!pal.open)pal.showModal();q.focus()};
-q.addEventListener('input',()=>{sel=0;if(!mode&&q.value.startsWith('@')&&B())mode='from';if(mode&&!q.value&&mode==='from')mode=null;render()});
-q.addEventListener('keydown',e=>{if(e.key==='ArrowDown'){sel=Math.min(sel+1,items.length-1);paint(items);e.preventDefault()}
-  else if(e.key==='ArrowUp'){sel=Math.max(sel-1,0);paint(items);e.preventDefault()}else if(e.key==='Enter'){go(items[sel]);e.preventDefault()}
-  else if(e.key==='Backspace'&&!q.value&&(mode||chips.length)){if(mode)mode=null;else chips.pop();paintChips();render();e.preventDefault()}});
-list.addEventListener('mousedown',e=>{const li=e.target.closest('[data-n]');if(li){e.preventDefault();go(items[+li.dataset.n])}});
-pChips.addEventListener('click',e=>{const b=e.target.closest('[data-pchip]');if(!b)return;chips.splice(+b.dataset.pchip,1);paintChips();render();q.focus()});
-pFilt.addEventListener('click',e=>{const b=e.target.closest('[data-popt]');if(!b)return;const k=b.dataset.popt;
-  if(k==='from'||k==='type'){mode=k;q.value='';sel=0;render();q.focus();return}chips.push({k,v:b.dataset.v||null});paintChips();render();q.focus()});
+  const s=document.createElement('script');s.id='bug-js';s.src=b.dataset.bugSrc;s.nonce=NONCE;document.head.appendChild(s)});
+// Send feedback (vedu #4125): /feedback.js (web-budget: not on every page) — the first click loads it, and it opens the
+// form for that click itself; later clicks are its own listener.
+document.addEventListener('click',e=>{if(!e.target.closest('[data-feedback]')||document.getElementById('fb-js'))return;
+  const s=document.createElement('script');s.id='fb-js';s.src='${FEEDBACK_JS_SRC}';s.nonce=NONCE;document.head.appendChild(s)});
+// The existing palette (including board search) is fetched only when opened.
+let paletteLoad;
+window.openPalette=(preset)=>{if(!paletteLoad)paletteLoad=new Promise((resolve,reject)=>{
+  const css=document.createElement('link');css.rel='stylesheet';css.href='${PALETTE_CSS_SRC}';
+  const script=document.createElement('script');script.src='${PALETTE_JS_SRC}';script.nonce=NONCE;
+  const fail=()=>{css.remove();script.remove();paletteLoad=null;reject(Error('palette'))};
+  css.onerror=script.onerror=fail;script.onload=resolve;css.onload=()=>document.head.appendChild(script);document.head.appendChild(css);
+});return paletteLoad.then(()=>window.openPalette(preset)).catch(()=>toast(tr('Could not load')))};
 // The phone menu (a drawer): opens from the menu button; closes with its ✕, the dimmed page beside it, a swipe back to
 // the left or Esc, and focus goes back to the button (jxn #2223). It's never kept open across a reload or a Back.
-let navFrom=null;
-function navSet(on){const app=$('#app');if(!app||app.classList.contains('nav-open')===on)return;app.classList.toggle('nav-open',on);const mb=$('[data-nav]');mb?.setAttribute('aria-expanded',String(on));
+let navFrom=null;const navNarrow=matchMedia('(max-width:860px)');
+function navSet(on){const app=$('#app');if(!app)return;const changed=app.classList.contains('nav-open')!==on;app.classList.toggle('nav-open',on);const mb=$('[data-nav]');mb?.setAttribute('aria-expanded',String(on));
+  const sb=$('#sidebar');if(sb)sb.inert=navNarrow.matches&&!on;if(!changed)return;
   if(on){navFrom=document.activeElement;$('.nav-x')?.focus({preventScroll:true})}else{const f=navFrom&&document.contains(navFrom)?navFrom:mb;navFrom=null;if(app.contains(document.activeElement)||document.activeElement===document.body)f?.focus?.({preventScroll:true})}}
 document.addEventListener('click',e=>{if(e.target.closest('[data-palette]'))openPalette();if(e.target.closest('[data-nav]'))navSet(!$('#app')?.classList.contains('nav-open'));else if(e.target.closest('[data-nav-close]'))navSet(false)});
 document.addEventListener('keydown',e=>{if(e.key==='Escape'&&$('#app')?.classList.contains('nav-open')&&!$('dialog[open]')){e.preventDefault();navSet(false)}});
@@ -1955,10 +2009,10 @@ if(location.hash==='#connect'){const d=$('dialog#connect');if(d&&!d.open)d.showM
 {let sx=0,sy=0,on=false;const sb=$('#sidebar');
   sb?.addEventListener('touchstart',e=>{const t=e.touches[0];sx=t.clientX;sy=t.clientY;on=$('#app')?.classList.contains('nav-open')},{passive:true});
   sb?.addEventListener('touchend',e=>{const t=e.changedTouches[0],dx=t.clientX-sx,dy=t.clientY-sy;if(on&&(document.dir==='rtl'?dx>50:dx<-50)&&Math.abs(dx)>Math.abs(dy)*1.5)navSet(false)},{passive:true})}
-addEventListener('pageshow',()=>navSet(false));
+navNarrow.addEventListener('change',()=>navSet(false));navSet(false);addEventListener('pageshow',()=>navSet(false));
 let g=false,gt;
 document.addEventListener('keydown',e=>{
-  if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==='k'){e.preventDefault();pal.open?pal.close():openPalette();return}
+  if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==='k'){e.preventDefault();$('#palette')?.open?$('#palette').close():openPalette();return}
   const t=e.target;if(e.metaKey||e.ctrlKey||e.altKey||t.closest('input,textarea,select,[contenteditable]')||$('dialog[open]'))return;
   const k=e.key.toLowerCase();
   if(g){g=false;clearTimeout(gt);const to={b:'/',i:'/inbox',a:'/approvals',m:'/me',p:'/people',o:window.OPS?'/_ops':null}[k];if(to){location.href=to;e.preventDefault()}return}

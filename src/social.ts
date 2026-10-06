@@ -2,10 +2,16 @@
 // on a private board for two friends. Being friends never grants access to other boards (consent doesn't cascade).
 
 import { addMember, recordBoard } from "./registry";
+import { orgDomainOf } from "./policy";
 import { applies } from "./standingRules";
+import { noteFriendAccepted, type Later } from "./observe";
 import { EMOJI_RE, newBoardId, offBoardSeq, proseForAgent } from "./util";
 import { AgentNameError, cleanAgentName, handleLookalikes, skeleton } from "./agentName";
+import { claimsAgent, cleanDisplay } from "./names";
 import type { Env } from "./types";
+
+/** Cap for GET /api/org: a first slice, not a paged directory. */
+export const ORG_DIRECTORY_LIMIT = 100;
 
 export const FRIEND_REQUESTS_PER_DAY = 20;
 const ONLINE_MS = 3 * 60 * 1000; // a browser or agent active this recently counts as online
@@ -32,6 +38,14 @@ export interface Person {
 const pair = (x: string, y: string) => (x < y ? [x, y] : [y, x]);
 
 export class SocialError extends Error {}
+
+export const PERSON_ONLY_CONTACT_DECISION =
+  "Only you can decide who you and your agents may contact. Open Atteo as yourself; agent tokens can't make contact decisions.";
+
+/** Relationship/contact decisions belong to the person, including when an agent has their token. */
+export function contactDecisionError(via: "agent" | "person" | undefined): string | null {
+  return via === "agent" ? PERSON_ONLY_CONTACT_DECISION : null;
+}
 
 /** Presence for several people at once. */
 export async function presenceOf(env: Env, users: string[]): Promise<Record<string, Presence>> {
@@ -86,13 +100,16 @@ export async function relationOf(env: Env, me: string, other: string): Promise<{
 }
 
 /**
- * Who you can find: anyone by their exact handle, plus friends and people you share a board with by partial name.
+ * Who you can find: anyone by their exact handle, plus friends, people you share a board with, listed people,
+ * and (when an operator has set an org policy for your verified email domain) people at that domain, by partial name.
  * Someone who blocked you doesn't show up.
  */
 export async function findPeople(env: Env, me: string, query: string): Promise<Person[]> {
   const q = query.trim().toLowerCase().replace(/^@/, "").slice(0, 40);
   if (!q) return [];
   const like = `%${q.replace(/[\\%_]/g, (c) => "\\" + c)}%`;
+  const domain = await orgDomainOf(env, me);
+  const orgSql = domain ? ` OR (u.email_verified = 1 AND u.email IS NOT NULL AND lower(substr(u.email, instr(u.email, '@') + 1)) = ?4)` : "";
   const rows = (
     await env.DB.prepare(
       `SELECT u.name, u.display_name, u.bio, u.agent_name FROM users u
@@ -100,13 +117,39 @@ export async function findPeople(env: Env, me: string, query: string): Promise<P
           OR ((u.name LIKE ?2 ESCAPE '\\' OR lower(u.display_name) LIKE ?2 ESCAPE '\\') AND (
                 EXISTS (SELECT 1 FROM members m1 JOIN members m2 ON m1.board_id = m2.board_id WHERE m1.user = ?3 AND m2.user = u.name)
              OR EXISTS (SELECT 1 FROM friendships f WHERE f.status = 'accepted' AND ((f.a = ?3 AND f.b = u.name) OR (f.b = ?3 AND f.a = u.name)))
-             OR u.listed = 1))
+             OR u.listed = 1${orgSql}))
        ORDER BY (u.name = ?1) DESC, u.name LIMIT 20`,
     )
-      .bind(q, like, me)
+      .bind(...(domain ? [q, like, me, domain] : [q, like, me]))
       .all<{ name: string; display_name: string | null; bio: string | null; agent_name: string | null }>()
   ).results;
   return describe(env, me, rows);
+}
+
+/**
+ * People at `me`'s organization: the same verified email domain, only when that domain has an org_policies row.
+ * Handles and presence only — never emails. `domain` is null when the caller isn't in an organization.
+ */
+export async function orgPeople(env: Env, me: string, query = ""): Promise<{ domain: string | null; people: Person[] }> {
+  const domain = await orgDomainOf(env, me);
+  if (!domain) return { domain: null, people: [] };
+  const q = query.trim().toLowerCase().replace(/^@/, "").slice(0, 40);
+  const like = q ? `%${q.replace(/[\\%_]/g, (c) => "\\" + c)}%` : null;
+  const rows = (
+    like
+      ? await env.DB.prepare(
+          `SELECT name, display_name, bio, agent_name FROM users
+           WHERE email_verified = 1 AND email IS NOT NULL AND lower(substr(email, instr(email, '@') + 1)) = ?
+             AND (name LIKE ? ESCAPE '\\' OR lower(display_name) LIKE ? ESCAPE '\\' OR name = ?)
+           ORDER BY name LIMIT ?`,
+        ).bind(domain, like, like, q, ORG_DIRECTORY_LIMIT).all<{ name: string; display_name: string | null; bio: string | null; agent_name: string | null }>()
+      : await env.DB.prepare(
+          `SELECT name, display_name, bio, agent_name FROM users
+           WHERE email_verified = 1 AND email IS NOT NULL AND lower(substr(email, instr(email, '@') + 1)) = ?
+           ORDER BY name LIMIT ?`,
+        ).bind(domain, ORG_DIRECTORY_LIMIT).all<{ name: string; display_name: string | null; bio: string | null; agent_name: string | null }>()
+  ).results;
+  return { domain, people: await describe(env, me, rows) };
 }
 
 async function describe(env: Env, me: string, rows: { name: string; display_name: string | null; bio: string | null; agent_name?: string | null }[]): Promise<Person[]> {
@@ -154,8 +197,13 @@ export async function notify(env: Env, user: string, actor: string, kind: "frien
     .run();
 }
 
-/** Ask to be friends (or accept, if they already asked you). Returns the new relation. */
-export async function requestFriend(env: Env, me: string, other: string, note: string): Promise<Relation> {
+/**
+ * Ask to be friends (or accept, if they already asked you). Returns the new relation.
+ * `agent`: the caller's token is an agent's. Starting a request is the person's decision, the same as
+ * accepting one, so it's refused before any friendship row or inbox item is written.
+ */
+export async function requestFriend(env: Env, me: string, other: string, note: string, later: Later | null = null, agent = false): Promise<Relation> {
+  if (agent) throw new SocialError(PERSON_ONLY_CONTACT_DECISION);
   const who = other.toLowerCase().replace(/^@/, "");
   if (who === me) throw new SocialError("That's you.");
   const exists = await env.DB.prepare(`SELECT 1 AS x FROM users WHERE name = ?`).bind(who).first();
@@ -165,7 +213,7 @@ export async function requestFriend(env: Env, me: string, other: string, note: s
   if (rel === "pending_out") return rel;
   if (rel === "blocked") throw new SocialError(`You blocked ${who}. Unblock them first.`);
   if (rel === "blocked_you") throw new SocialError(`You can't send ${who} a request.`);
-  if (rel === "pending_in") return acceptFriend(env, me, who);
+  if (rel === "pending_in") return acceptFriend(env, me, who, later);
   const today = (await env.DB.prepare(`SELECT COUNT(*) AS n FROM friendships WHERE requested_by = ? AND created_at > ?`).bind(me, Date.now() - 86_400_000).first<{ n: number }>())?.n ?? 0;
   if (today >= FRIEND_REQUESTS_PER_DAY) throw new SocialError(`That's ${FRIEND_REQUESTS_PER_DAY} friend requests today; try again tomorrow.`);
   const [a, b] = pair(me, who);
@@ -176,6 +224,7 @@ export async function requestFriend(env: Env, me: string, other: string, note: s
     if (shared) {
       await env.DB.prepare(`UPDATE friendships SET status = 'accepted', decided_at = ? WHERE a = ? AND b = ?`).bind(Date.now(), a, b).run();
       await notify(env, who, me, "friend_accept", "is now your friend (accepted by your rule for people you share a board with)");
+      void noteFriendAccepted(env, later, me, who);
       return "friend";
     }
   }
@@ -183,13 +232,14 @@ export async function requestFriend(env: Env, me: string, other: string, note: s
   if (await applies(env, who, "accept_friends", me)) {
     await env.DB.prepare(`UPDATE friendships SET status = 'accepted', decided_at = ? WHERE a = ? AND b = ?`).bind(Date.now(), a, b).run();
     await notify(env, who, me, "friend_accept", "is now your friend (accepted by a standing rule of yours)");
+    void noteFriendAccepted(env, later, me, who);
     return "friend";
   }
   await notify(env, who, me, "friend_request", note ? `wants to be friends: ${note}` : "wants to be friends");
   return "pending_out";
 }
 
-export async function acceptFriend(env: Env, me: string, other: string): Promise<Relation> {
+export async function acceptFriend(env: Env, me: string, other: string, later: Later | null = null): Promise<Relation> {
   const who = other.toLowerCase().replace(/^@/, "");
   const { rel } = await relationOf(env, me, who);
   if (rel === "friend") return rel;
@@ -197,6 +247,7 @@ export async function acceptFriend(env: Env, me: string, other: string): Promise
   const [a, b] = pair(me, who);
   await env.DB.prepare(`UPDATE friendships SET status = 'accepted', decided_at = ? WHERE a = ? AND b = ?`).bind(Date.now(), a, b).run();
   await notify(env, who, me, "friend_accept", "accepted your friend request");
+  void noteFriendAccepted(env, later, me, who);
   return "friend";
 }
 
@@ -245,7 +296,7 @@ export async function directBoard(env: Env, me: string, other: string, initBoard
   const who = other.toLowerCase().replace(/^@/, "");
   const { rel } = await relationOf(env, me, who);
   if (rel !== "friend") {
-    throw new SocialError(rel === "pending_out" ? `${who} hasn't accepted your friend request yet.` : `You and ${who} aren't friends yet. Send a request first: atteo add ${who}`);
+    throw new SocialError(rel === "pending_out" ? `${who} hasn't accepted your friend request yet.` : `You and ${who} aren't friends yet. A friend request is sent in Atteo, signed in as yourself.`);
   }
   return openDirect(env, me, who, initBoard);
 }
@@ -326,10 +377,11 @@ export interface Display {
   compact: "off" | "others"; // whole messages, or one line each for messages that aren't for you (jxn #2690, agreed with the app #2694)
   voice_turns: "quick" | "pause" | "tap"; // voice chat: when Atteo answers (vedu #2460): at once, after a long pause, or when you tap Done
   voice_autosend: boolean; // voice chat: what you dictate to your agent goes out without a yes, after a 5s Undo (vedu #2638); off by default
+  xai_ok: boolean; // your OK to send voice and read-aloud text to xAI (App Review 5.1.2(i), jxn's agent #4386): off until you agree; tts.ts and voice.ts refuse without it
 }
-export const DISPLAY_DEFAULTS: Display = { text: "m", density: "comfortable", theme: "system", mode: "auto", lang: "auto", voice: "eve", replies: "chat", voice_turns: "pause", compact: "off", voice_autosend: false };
+export const DISPLAY_DEFAULTS: Display = { text: "m", density: "comfortable", theme: "system", mode: "auto", lang: "auto", voice: "eve", replies: "chat", voice_turns: "pause", compact: "off", voice_autosend: false, xai_ok: false };
 /** The on/off settings; every other one is one of DISPLAY_VALUES' words. */
-const DISPLAY_BOOLS = ["voice_autosend"] as const;
+const DISPLAY_BOOLS = ["voice_autosend", "xai_ok"] as const;
 type DisplayBool = (typeof DISPLAY_BOOLS)[number];
 const isDisplayBool = (k: string): k is DisplayBool => (DISPLAY_BOOLS as readonly string[]).includes(k);
 const DISPLAY_VALUES: Record<Exclude<keyof Display, DisplayBool>, readonly string[]> = {
@@ -368,7 +420,7 @@ export function mergeDisplay(cur: Display, patch: unknown): Display {
       out[k] = v;
       continue;
     }
-    if (!isDisplayKey(k)) throw new SocialError(`Unknown display setting "${k}": use text, density, theme, mode, lang, voice, replies, voice_turns, compact or voice_autosend.`);
+    if (!isDisplayKey(k)) throw new SocialError(`Unknown display setting "${k}": use text, density, theme, mode, lang, voice, replies, voice_turns, compact, voice_autosend or xai_ok.`);
     if (typeof v !== "string" || !DISPLAY_VALUES[k].includes(v)) throw new SocialError(`display.${k} must be one of: ${DISPLAY_VALUES[k].join(", ")}.`);
     out[k] = v;
   }
@@ -457,10 +509,10 @@ export async function savedVoice(env: Env, user: string): Promise<Display["voice
 }
 
 /** The voice chat prefs (display.voice, voice_turns and voice_autosend), one primary-key read. */
-export async function savedVoicePrefs(env: Env, user: string): Promise<Pick<Display, "voice" | "voice_turns" | "voice_autosend">> {
+export async function savedVoicePrefs(env: Env, user: string): Promise<Pick<Display, "voice" | "voice_turns" | "voice_autosend" | "xai_ok">> {
   const r = await env.DB.prepare(`SELECT display FROM users WHERE name = ?`).bind(user).first<{ display: string | null }>().catch(() => null);
   const d = readDisplay(r?.display ?? null);
-  return { voice: d.voice, voice_turns: d.voice_turns, voice_autosend: d.voice_autosend };
+  return { voice: d.voice, voice_turns: d.voice_turns, voice_autosend: d.voice_autosend, xai_ok: d.xai_ok };
 }
 
 export async function appPrefs(env: Env, user: string): Promise<AppPrefs | null> {
@@ -489,6 +541,19 @@ export async function setAppPrefs(env: Env, user: string, p: Record<string, unkn
  * A name for `user`'s agent, checked against people it could pass for: anyone's handle (look-alike letters too,
  * e.g. a Cyrillic "х" in "jхn"), and the display name of anyone who shares a board with them (or their own).
  */
+/** A display name as stored (names.ts cleanDisplay), refused only when it reads as an agent or as a handle ("@…").
+ *  One that looks like another person's handle is kept: the page shows the real @handle beside it wherever that
+ *  person is on the page too (names.ts looksLikeOtherHandle). Refusing those against every account would block common
+ *  first names as sign-ups grow, and would tell anyone which handles exist (opus-d #4465). */
+async function checkDisplayName(_env: Env, _user: string, raw: string | null): Promise<string | null> {
+  const name = cleanDisplay(raw);
+  if (!name) return null;
+  const sk = skeleton(name);
+  if (claimsAgent(sk)) throw new SocialError(`"${name}" reads as an agent ("'s agent"): your name is yours; your agent shows as your agent.`);
+  if (/^@/.test(sk)) throw new SocialError(`"${name}" reads as a handle: drop the @.`);
+  return name;
+}
+
 async function checkAgentName(env: Env, user: string, raw: unknown): Promise<string | null> {
   let name: string | null;
   try {
@@ -525,7 +590,7 @@ export async function setProfile(env: Env, user: string, p: { display_name?: unk
   if (p.agents_headless !== undefined && typeof p.agents_headless !== "boolean") throw new SocialError("agents_headless must be true or false.");
   const headless = p.agents_headless === undefined ? cur.agents_headless : p.agents_headless;
   const text = (v: unknown, max: number) => (typeof v === "string" ? v.replace(/[\u0000-\u001f]/g, " ").trim().slice(0, max) || null : undefined);
-  const display = p.display_name === undefined ? cur.display_name : text(p.display_name, 60) ?? null;
+  const display = p.display_name === undefined ? cur.display_name : await checkDisplayName(env, user, text(p.display_name, 60) ?? null);
   const bio = p.bio === undefined ? cur.bio : text(p.bio, 280) ?? null;
   const listed = p.listed === undefined ? cur.listed : p.listed === true || p.listed === "true" || p.listed === "on" || p.listed === "yes";
   const r = (p.rules && typeof p.rules === "object" ? p.rules : {}) as Record<string, unknown>;

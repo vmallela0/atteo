@@ -20,8 +20,34 @@ final class AppState: ObservableObject {
     @Published var reactions: [String: [Int: [Reaction]]] = [:] // per board, per message
     @Published var boardAgents: [String: [BoardAgent]] = [:] // per board: who's here, live / idle / gone
     @Published var members: [String: [String]] = [:] // per board: who's in it (for @-mentions)
+    @Published var mutes: [String: Set<String>] = [:] // per board: people you muted there (Moderation.swift)
     @Published var agentNames: [String: [String: AgentName]] = [:] // per board, per member: what they named their agent
-    var displayNames: [String: [String: String]] = [:] // per board, per member: their display name (dictation's hints)
+    @Published var displayNames: [String: String] = [:] // handle → latest display name from members / profiles
+
+    /// Labels only: handles remain the identity used by APIs, avatars and typed mentions.
+    func displayName(for handle: String, agent: Bool = false) -> String {
+        for suffix in ["'s agent", "’s agent", "'s assistant", "’s assistant"] where handle.hasSuffix(suffix) {
+            return displayName(for: String(handle.dropLast(suffix.count)), agent: true)
+        }
+        if let slash = handle.firstIndex(of: "/") {
+            return displayName(for: String(handle[..<slash]), agent: true) + " · " + handle[handle.index(after: slash)...]
+        }
+        let raw = profile?.name.lowercased() == handle.lowercased() ? profile?.displayName : displayNames[handle.lowercased()]
+        let name = raw?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let person = name.flatMap { $0.isEmpty ? nil : $0 } ?? handle
+        return agent ? Vocab.agentOf(person) : person
+    }
+
+    /// Keep empty names too: a person clearing their name must replace the old cached value.
+    func rememberDisplayName(_ name: String?, for handle: String) {
+        let key = handle.lowercased(), value = name ?? ""
+        if displayNames[key] != value { displayNames[key] = value }
+    }
+
+    func displayName(for board: Board) -> String {
+        board.kind == "direct" ? displayName(for: board.displayName(me: me?.owner)) : board.title
+    }
+    private var membersRefreshed: [String: Date] = [:]
     struct AgentName: Equatable { let name: String; let ambiguous: Bool }
     // Chat parity, wave 2: read receipts, who took what, and how far back each chat is loaded.
     @Published var reads: [String: [String: SeenMark]] = [:] // per board, per member: how far they've seen
@@ -29,8 +55,8 @@ final class AppState: ObservableObject {
     @Published var loadingEarlier: Set<String> = [] // boards loading older messages right now
     private var seenSent: [String: Int] = [:] // per board: the last "seen up to" this phone reported
     // Who's typing (Typing.swift).
-    @Published var typing: [String: [String: Double]] = [:] // per board, per person: typing until (ms epoch)
-    var typingSent: [String: Date] = [:] // per board: when this phone last said you're typing
+    @Published var typing: [String: [String: TypingPing]] = [:] // per board, per person: typing until (ms epoch), and where
+    var typingSent: [String: Date] = [:] // per board and thread ("board#root"): when this phone last said you're typing
     @Published var agentSessions: [AgentChatSession] = [] // "Your agent": the sessions you can send to (AgentChat.swift)
     @Published var decisions: [String: [Int: HumanDecision]] = [:] // per board, per message: human decisions (HumanDecisions.swift)
     @Published var quickChips: [String: [Int: QuickChips]] = [:] // per board, per question: one-tap replies for you (QuickReplies.swift)
@@ -38,7 +64,9 @@ final class AppState: ObservableObject {
     @Published var openRequest: Board? // a chat to open from anywhere (Message on someone's card)
     struct JumpRequest: Equatable { let board: String; let seq: Int }
     @Published var me: MeAgentResponse.Agent?
-    @Published var profile: Profile?
+    @Published var profile: Profile? {
+        didSet { if let p = profile { rememberDisplayName(p.displayName, for: p.name) } }
+    }
     /// Text size, density, theme and language (Settings → Display). Cached on the phone so launch is instant; saved per
     /// person on the server so the web follows them too (and the app follows the web).
     @Published private(set) var display: DisplayPrefs = AppState.cachedDisplay {
@@ -77,13 +105,14 @@ final class AppState: ObservableObject {
         var inbox: [InboxItem]; var approvals: [Approval]; var contacts: [ContactsResponse.Incoming]
         var sessions: [AgentSession]; var boards: [Board]; var entries: [String: [Entry]]; var me: MeAgentResponse.Agent?
         var tasks: [String: [WorkTask]]? = nil
+        var displayNames: [String: String]? = nil
     }
     private static let cacheURL = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0].appendingPathComponent("agent-soup-v1.json")
     private var saveTask: Task<Void, Never>?
 
     private func restore() {
         guard let d = try? Data(contentsOf: Self.cacheURL), let s = try? JSONDecoder().decode(Snapshot.self, from: d) else { return }
-        inbox = s.inbox; approvals = s.approvals; contacts = s.contacts; sessions = s.sessions; boards = s.boards; entries = s.entries; me = s.me; tasks = s.tasks ?? [:]
+        inbox = s.inbox; approvals = s.approvals; contacts = s.contacts; sessions = s.sessions; boards = s.boards; entries = s.entries; me = s.me; tasks = s.tasks ?? [:]; displayNames = s.displayNames ?? [:]
         AppMode.shared.note(sessions: s.sessions, fromServer: false) // Everyday or Developer (Everyday.swift)
     }
 
@@ -93,7 +122,7 @@ final class AppState: ObservableObject {
             try? await Task.sleep(nanoseconds: 400_000_000)
             guard let self, !Task.isCancelled else { return }
             let trimmed = self.entries.mapValues { Array($0.filter { $0.pending != true }.suffix(60)) }
-            let snap = Snapshot(inbox: self.inbox, approvals: self.approvals, contacts: self.contacts, sessions: self.sessions, boards: self.boards, entries: trimmed, me: self.me, tasks: self.tasks)
+            let snap = Snapshot(inbox: self.inbox, approvals: self.approvals, contacts: self.contacts, sessions: self.sessions, boards: self.boards, entries: trimmed, me: self.me, tasks: self.tasks, displayNames: self.displayNames)
             if let d = try? JSONEncoder().encode(snap) { try? d.write(to: Self.cacheURL, options: .atomic) }
         }
     }
@@ -115,7 +144,15 @@ final class AppState: ObservableObject {
             async let ap = API.shared.get("/api/approvals", as: ApprovalsResponse.self)
             async let co = API.shared.get("/api/contacts", as: ContactsResponse.self)
             let (ii, aa, cc) = try await (i, ap, co)
-            withAnimation(.smooth) { inbox = ii.items; approvals = aa.approvals; contacts = cc.incoming }
+            // Only what changed: every assignment publishes AppState, which redraws every screen that watches it, and
+            // this runs on each bit of activity anywhere (startFeed), mostly with nothing new here (jxn #4181).
+            if ii.items != inbox || aa.approvals != approvals || cc.incoming != contacts {
+                withAnimation(.smooth) {
+                    if ii.items != inbox { inbox = ii.items }
+                    if aa.approvals != approvals { approvals = aa.approvals }
+                    if cc.incoming != contacts { contacts = cc.incoming }
+                }
+            }
             save()
             // On screen: note what's here (no notifications), and keep the app icon's number right.
             await Notifier.shared.check(inbox: ii.items, approvals: aa.approvals, notify: false, summary: ii.notify)
@@ -129,9 +166,14 @@ final class AppState: ObservableObject {
             async let m = API.shared.get("/api/agents/me", as: MeAgentResponse.self)
             async let p = try? API.shared.get("/api/me/profile", as: ProfileResponse.self)
             let (ss, mm) = try await (s, m)
-            withAnimation(.smooth) { sessions = ss.sessions; me = mm.agent }
+            if ss.sessions != sessions || mm.agent != me {
+                withAnimation(.smooth) {
+                    if ss.sessions != sessions { sessions = ss.sessions }
+                    if mm.agent != me { me = mm.agent }
+                }
+            }
             AppMode.shared.note(sessions: ss.sessions, fromServer: true) // a coding agent turns Developer mode on (Everyday.swift)
-            if let pp = await p { profile = pp.profile; adoptDisplay(pp.profile.display) }
+            if let pp = await p { if pp.profile != profile { profile = pp.profile }; adoptDisplay(pp.profile.display) }
             save()
         } catch { report(error, quiet: true) }
     }
@@ -230,7 +272,17 @@ final class AppState: ObservableObject {
             let r = try await API.shared.get("/api/me/boards", as: BoardsResponse.self)
             // A picture changing right now keeps showing what it's changing to (BoardPicture.swift).
             let list = r.boards.map(BoardPictureStore.shared.applyPending)
-            withAnimation(.smooth) { boards = list.sorted { $0.lastActivity > $1.lastActivity } }
+            let sorted = list.sorted { $0.lastActivity > $1.lastActivity }
+            if sorted != boards { withAnimation(.smooth) { boards = sorted } } // unchanged: no publish (refreshInbox)
+            // The chat list needs names before any chat is opened. Refresh each board's member data in small batches.
+            let stale = list.filter { Date().timeIntervalSince(membersRefreshed[$0.id] ?? .distantPast) > 60 }
+            for start in stride(from: 0, to: stale.count, by: 6) {
+                await withTaskGroup(of: Void.self) { group in
+                    for board in stale[start..<min(start + 6, stale.count)] {
+                        group.addTask { await self.loadMembers(board) }
+                    }
+                }
+            }
             save()
         } catch { report(error, quiet: true) }
     }
@@ -280,7 +332,8 @@ final class AppState: ObservableObject {
             var named: [String: AgentName] = [:]
             for m in r.members { if let n = m.agentName, !n.isEmpty { named[m.user] = AgentName(name: n, ambiguous: m.agentNameAmbiguous == true) } }
             if named != agentNames[b.id] { agentNames[b.id] = named }
-            displayNames[b.id] = Dictionary(r.members.compactMap { m in m.displayName.flatMap { $0.isEmpty ? nil : (m.user, $0) } }, uniquingKeysWith: { a, _ in a })
+            for m in r.members { rememberDisplayName(m.displayName, for: m.user) }
+            membersRefreshed[b.id] = Date()
         } catch { report(error, quiet: true) }
     }
 
@@ -376,7 +429,7 @@ final class AppState: ObservableObject {
     func watch(_ b: Board) async {
         struct Event: Decodable {
             let type: String; var user: String?; var personSeen: Int?; var agentSeen: Int?; var seq: Int?; var by: String?; var done: Bool?
-            var who: String?; var until: Double?; var author: String?; var via: String? // typing; an entry's author
+            var who: String?; var until: Double?; var root: Int?; var author: String?; var via: String? // typing (root: its thread); an entry's author
             var humanDecision: HumanDecision? // a human decision's new state
         }
         var backoff: UInt64 = 1
@@ -402,7 +455,7 @@ final class AppState: ObservableObject {
                     }
                     // "jxn is typing…" (people only; never you), until their message lands or it runs out.
                     if e.type == "typing", let who = e.who, let until = e.until {
-                        if who != me?.owner { heardTyping(who, until: until, on: b.id) }
+                        if who != me?.owner { heardTyping(who, until: until, root: e.root ?? 0, on: b.id) }
                         continue
                     }
                     // A member renamed their agent (#1125): how their agent shows here, and "@Jarvis" in the @ menu.
@@ -474,6 +527,7 @@ final class AppState: ObservableObject {
             }
             withAnimation(.smooth) { entries[b.id] = (entries[b.id] ?? []).map { $0.seq == temp.seq ? real : $0 } }
             Notifier.shared.askIfSensible() // your first message: you'll want to hear when it's answered
+            Analytics.messageSent(by: mine)
             save()
             Task { await refreshBoards() }
         } catch {
@@ -487,8 +541,10 @@ final class AppState: ObservableObject {
         }
     }
 
-    /// How far each picture or file you're sending has gone up (by its stand-in's seq), 0…1.
-    @Published var uploads: [Int: Double] = [:]
+    /// How far each picture or file you're sending has gone up (by its stand-in's seq), 0…1. A store of its own, not
+    /// published here: progress ticks many times a second, and each publish of AppState redraws every screen that
+    /// watches it (jxn #4181). Only the row that's sending reads it (EntryRow.progress).
+    let uploads = SendingProgress()
     private static let outbox = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0].appendingPathComponent("outbox", isDirectory: true)
 
     /// Sends pictures and files the way the web composer does: one upload each, in order, what you typed going with
@@ -775,6 +831,7 @@ final class AppState: ObservableObject {
 
     func signOut() {
         stopFeed()
+        Analytics.reset() // the next person on this phone starts anonymous
         BoardCrypto.shared.forget()
         Keychain.token = nil
         try? FileManager.default.removeItem(at: Self.cacheURL)
@@ -790,7 +847,7 @@ final class AppState: ObservableObject {
         profile = nil
         withAnimation(.smooth) {
             signedIn = false; loaded = false
-            inbox = []; approvals = []; contacts = []; sessions = []; boards = []; entries = [:]; tasks = [:]; me = nil; feedCursor = nil
+            inbox = []; approvals = []; contacts = []; sessions = []; boards = []; entries = [:]; tasks = [:]; me = nil; displayNames = [:]; members = [:]; agentNames = [:]; membersRefreshed = [:]; feedCursor = nil
         }
     }
 
@@ -798,6 +855,24 @@ final class AppState: ObservableObject {
     func report(_ e: Error, quiet: Bool = false) {
         if case APIError.signedOut = e { signOut(); return }
         if quiet, case APIError.offline = e { return }
-        error = e.localizedDescription
+        error = friendlyErrorMessage(for: e)
+    }
+
+    // Map transient Cloudflare errors to friendly text (vedu #4845)
+    private func friendlyErrorMessage(for e: Error) -> String {
+        let msg = e.localizedDescription
+        if isTransientServerError(msg) {
+            return String(localized: "Atteo had a hiccup. Try again in a moment.", bundle: .l10n)
+        }
+        return msg
+    }
+}
+
+/// Upload progress by stand-in seq (AppState.uploads). Only rows still sending read it, so a tick redraws those alone.
+@Observable final class SendingProgress {
+    private var values: [Int: Double] = [:]
+    subscript(seq: Int) -> Double? {
+        get { values[seq] }
+        set { values[seq] = newValue }
     }
 }

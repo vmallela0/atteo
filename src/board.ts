@@ -3,12 +3,14 @@
 
 import { track } from "./usage";
 import { imageSize, sniffImage } from "./imageSize";
-import { fence, flagOf, screenText } from "./screen";
+import { fence, flagNote, flagOf, screenText } from "./screen";
 import { FOR_LABEL, pingExcerpt, triagePreview, webhookForWhom } from "./ping";
 import { DurableObject } from "cloudflare:workers";
-import { computeSummary, formatSummary, summaryWithNames, tasksFor, withinReadBudget, withNames, DEFAULT_SUMMARY_CHARS, type Summary } from "./state";
+import { computeSummary, formatSummary, summaryWithNames, summaryWithinBudget, tasksFor, withinReadBudget, withNames, DEFAULT_SUMMARY_CHARS, type Summary } from "./state";
+import { noteClaimReview, noteContextPack, noteContextPackMs, noteEgressBlock, noteFirstAgentPost, notePaste, noteStaleNotice } from "./observe";
 import { blockedMessage, scanFields, scanText, type SecretHit } from "./secrets";
 import { recordOutcome } from "./agents";
+import { workingAgents, type BoardAgentPresence } from "./boardStates";
 import { ALL_AGENTS, ALL_HUMANS, ALL_MEMBERS, forAgent, forPerson, hasGroupMention, keep, MAX_GROUP_MENTIONS, MAX_MENTIONS, mentionsOwnAgent, parseMentions, SESSION_NAME_RE, type Mention } from "./mentions";
 import { ENTRY_TYPES, type ApprovalRef, type Attachment, type BoardInfo, type Entry, type Env, type Media, type Member, type NewEntry, type Viewer } from "./types";
 import { cleanTitle, EMOJI_RE, ftsQuery, normalizeForScreen, USER_RE } from "./util";
@@ -20,6 +22,7 @@ import type { RecapCore, RecapOwner, RecapTask } from "./recap";
 import type { ForYouCore } from "./forYou";
 import { cleanMatch, cleanTrigger, eventLine, lastOccurrence, matches, MAX_FIRES_PER_HOUR, MAX_TRIGGERS, minuteOf, SCHEDULE_GRACE_MS, type Trigger, type TriggerEvent, type TriggerMatch } from "./triggers";
 import { offBoardSeq } from "./util";
+import { CARD_LIMIT, CARD_MAX_LIMIT, cardsAnswer, cardsThatFit, entryCard, fileCard } from "./searchCards";
 import { compileGrep, grepFtsQuery, scanGrepText, newBudget, isBoardGrepCursor, compactHitLine, cursorKey, decodeCursor, encodeCursor, trimLine, GREP_CANDIDATES, GREP_DEFAULT_MAX, GREP_HARD_MAX, GREP_RECENT, type BoardGrepOpts, type BoardGrepResult } from "./grep";
 import { audienceOk, audienceWord, canSee, ownByDefault, OWN_DEFAULT_MS, OWN_MAIL_HINT, PEOPLE_ONLY_TYPES, type Audience } from "./audience";
 import { cleanSchedule, MAX_SCHEDULES, nextDue, lastDue, scheduleLabel, SCHEDULE_FIRES_PER_HOUR, taskText, tickAction, type Day, type Schedule } from "./schedules";
@@ -32,11 +35,47 @@ import { decodeValue, encodeValue, type DumpTables } from "./backupcore";
 import { parseAgentCharter, type AgentCharter } from "./charter";
 import { mutersOf } from "./moderation";
 import { memberRole } from "./registry";
-import { scrubQuote } from "./forwards";
+import { dropForward, forwardsFor, PURGED_QUOTE, RETAINED_QUOTE, scrubQuote, type ForwardRow } from "./forwards";
 import { shareLiveOn } from "./standingRules";
 
 export const MAX_TEXT = 32_000;
 export const MAX_ARTIFACT = 256_000;
+/** D1 (and this SQLite) allow at most 100 bound parameters per statement. */
+export const D1_BIND_LIMIT = 100;
+/**
+ * `seq IN (...)` after two fixed binds (value + board id) stays at 92.
+ * `(last_activity, last_author) IN ((?, ?), ...)` is two binds per row plus those same two fixed
+ * binds, so a 90-row chunk would send 182 parameters and fail on D1.
+ */
+export const D1_SEQ_CHUNK = 90;
+export const D1_LAST_EXCERPT_CHUNK = 45;
+
+/** Directory copies that retention blanks before the local commit. last_excerpt is chunked tighter than seq lists. */
+export function retentionDirectoryUpdates<T>(
+  db: { prepare(sql: string): { bind(...args: unknown[]): T } },
+  blank: string,
+  boardId: string,
+  rows: { seq: number; ts: number; author: string }[],
+): T[] {
+  const stmts: T[] = [];
+  for (let i = 0; i < rows.length; i += D1_SEQ_CHUNK) {
+    const chunk = rows.slice(i, i + D1_SEQ_CHUNK);
+    const q = chunk.map(() => "?").join(",");
+    stmts.push(
+      db.prepare(`UPDATE notifications SET excerpt = ? WHERE board_id = ? AND seq IN (${q})`).bind(blank, boardId, ...chunk.map((r) => r.seq)),
+      db.prepare(`UPDATE notifications SET data = json_set(data, '$.event.line', ?) WHERE board_id = ? AND kind = 'trigger' AND json_valid(data) AND json_extract(data, '$.event.seq') IN (${q})`).bind(blank, boardId, ...chunk.map((r) => r.seq)),
+      db.prepare(`UPDATE tape SET excerpt = ? WHERE board_id = ? AND seq IN (${q})`).bind(blank, boardId, ...chunk.map((r) => r.seq)),
+    );
+    for (let j = 0; j < chunk.length; j += D1_LAST_EXCERPT_CHUNK) {
+      const pairs = chunk.slice(j, j + D1_LAST_EXCERPT_CHUNK);
+      stmts.push(
+        db.prepare(`UPDATE boards SET last_excerpt = ? WHERE id = ? AND (last_activity, last_author) IN (${pairs.map(() => "(?, ?)").join(",")})`).bind(blank, boardId, ...pairs.flatMap((r) => [r.ts, r.author])),
+      );
+    }
+  }
+  return stmts;
+}
+
 /** #3829 live card: last N finished-task lines, then the card freezes after this long. */
 const LIVE_CARD_MAX_LINES = 20;
 export const LIVE_CARD_MS = 8 * 3600 * 1000;
@@ -101,7 +140,8 @@ export const POSTS_PER_MINUTE = 60;
 export const ALL_PER_HOUR = 10; // @all posts per person per board per hour
 export const REVIEW_VERDICTS = ["approve", "request_changes", "comment"] as const;
 export type ReviewVerdict = (typeof REVIEW_VERDICTS)[number];
-export const TASK_STATUSES = ["todo", "doing", "blocked", "done", "stopped"] as const;
+// frozen (vedu #4791): parked for the far future. Not open work: no counts, nudges, recaps or claims until it goes back to todo.
+export const TASK_STATUSES = ["todo", "doing", "blocked", "done", "stopped", "frozen"] as const;
 export type TaskStatus = (typeof TASK_STATUSES)[number];
 export const TASK_PRIORITIES = ["high", "medium", "low"] as const;
 export type TaskPriority = (typeof TASK_PRIORITIES)[number];
@@ -161,6 +201,8 @@ const iso = (ts: number) => new Date(ts).toISOString().slice(0, 16).replace("T",
 
 export interface DocMeta {
   mime?: string | null; // set for images
+  /** Public, still-sent message that posted this version, if any. */
+  seq?: number | null;
   name: string;
   version: number;
   updated_by: string;
@@ -179,6 +221,8 @@ export interface Doc {
   updated_at: number;
   via: string | null;
   client: string | null;
+  /** The message that posted this version (Show in chat, jxn #4359); null if none everyone can see (an edit, private, unsent). */
+  seq?: number | null;
 }
 export interface DocVersion {
   version: number;
@@ -213,12 +257,9 @@ export interface PinnedDoc {
   updated_at: number;
 }
 
-/** The summary names the pinned doc right under its members line. */
-export function withPinned(summary: string, p: PinnedDoc | null): string {
-  if (!p) return summary;
-  const lines = summary.split("\n");
-  lines.splice(Math.min(2, lines.length), 0, `Pinned doc (source of truth): ${p.name} v${p.version} (doc read ${p.name})`);
-  return lines.join("\n");
+/** The one line the summary uses for the board's pinned doc. It counts against a caller-set summary budget. */
+export function pinnedSummaryLine(p: PinnedDoc): string {
+  return `Pinned doc (source of truth): ${p.name} v${p.version} (doc read ${p.name})`;
 }
 
 export const DOC_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9 ._\-/]{0,79}$/;
@@ -504,6 +545,13 @@ export class Board extends DurableObject<Env> {
         lines TEXT NOT NULL DEFAULT '[]',
         PRIMARY KEY (user, session)
       );
+      -- Keep completion deduplication after a task's line rolls off the card.
+      CREATE TABLE IF NOT EXISTS live_card_tasks (
+        user TEXT NOT NULL,
+        session TEXT NOT NULL,
+        task_seq INTEGER NOT NULL,
+        PRIMARY KEY (user, session, task_seq)
+      );
       -- Which version of the board's rules (the doc PROTOCOL.md) each reader has been handed: once per version.
       -- session is '' for a member with no agent session.
       CREATE TABLE IF NOT EXISTS rules_seen (
@@ -585,9 +633,12 @@ export class Board extends DurableObject<Env> {
         v INTEGER NOT NULL,
         PRIMARY KEY (user, session)
       );
+      -- Source messages whose forwarded quotes retention has already blanked (or that had none). A seq stays out of
+      -- this table when a destination board could not be reached, so the next prune tries that quote again.
+      CREATE TABLE IF NOT EXISTS retention_forward_scrubbed (seq INTEGER PRIMARY KEY);
     `);
     this.migrate();
-    this.decisions = new HumanDecisions(this.sql, env, () => this.meta("id"));
+    this.decisions = new HumanDecisions(this.sql, env, () => this.meta("id"), ctx);
     // Keep-alive pings from open board tabs are answered without waking this object (no duration billed).
     ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair("ping", "pong"));
   }
@@ -747,6 +798,11 @@ export class Board extends DurableObject<Env> {
     // Optional JSON object attached at post time (entryData.ts). Null when the post had none.
     if (!cols.has("data")) this.sql.exec("ALTER TABLE entries ADD COLUMN data TEXT");
     if (!cols.has("edited_at")) this.sql.exec("ALTER TABLE entries ADD COLUMN edited_at INTEGER");
+    // Retention compacts an entry once. Unlike a sequence watermark this remains correct if clocks move backwards or an
+    // older restored entry appears after a newer one.
+    if (!cols.has("retained_at")) this.sql.exec("ALTER TABLE entries ADD COLUMN retained_at INTEGER");
+    this.sql.exec("CREATE INDEX IF NOT EXISTS entries_retained ON entries (seq) WHERE retained_at IS NOT NULL");
+    this.sql.exec("CREATE INDEX IF NOT EXISTS memory_source ON memory (source_seq) WHERE source_seq IS NOT NULL");
     // Purged (#3853): who removed it, JSON {by, via}, so a page can show a placeholder; backfilled from the purged table.
     if (!cols.has("purged")) {
       this.sql.exec("ALTER TABLE entries ADD COLUMN purged TEXT");
@@ -843,10 +899,16 @@ export class Board extends DurableObject<Env> {
     this.metaCache.set(key, value);
   }
 
+  /** Count a secret-filter refusal, then the message to show. The matched value is never stored or returned. */
+  private secretBlock(hit: SecretHit): string {
+    noteEgressBlock(this.env, this.ctx, hit.rule);
+    return blockedMessage(hit);
+  }
+
   /** Idempotent: sets id/title/creator the first time only. */
   async init(id: string, title: string, createdBy: string, opts: { encrypted?: boolean } = {}): Promise<BoardInfo> {
     const hit = scanText(title, "board title");
-    if (hit) throw new BoardError(blockedMessage(hit));
+    if (hit) throw new BoardError(this.secretBlock(hit));
     if (!this.meta("id")) {
       this.setMeta("id", id);
       this.setMeta("title", title);
@@ -1001,6 +1063,12 @@ export class Board extends DurableObject<Env> {
       seq, user, session, label, Date.now(),
     );
     this.broadcast({ type: "handling", seq, by: label, done: true }, seq);
+  }
+
+  /** Board frame counts: read local handling only; presence and membership came from the caller's single D1 query. */
+  workingAgentCount(sessions: BoardAgentPresence[], now: number): number {
+    const handling = this.sql.exec("SELECT DISTINCT user, session FROM handling WHERE done = 0").toArray() as { user: string; session: string | null }[];
+    return workingAgents(sessions, handling, now);
   }
 
   /** Who is on what, and who finished what (for pages, and to label entries agents read). */
@@ -1214,7 +1282,7 @@ export class Board extends DurableObject<Env> {
       throw new BoardError(e instanceof Error ? e.message : String(e));
     }
     const hit = scanFields({ text, title, artifact_name: input.artifact_name, artifact_content: internal.docVersion != null ? null : input.artifact_content, data: dataJson });
-    if (hit) throw new BoardError(blockedMessage(hit));
+    if (hit) throw new BoardError(this.secretBlock(hit));
 
     // One cap for every transport (REST used to cut resolves at 50 silently, MCP not at all): over it is refused.
     if (new Set(input.resolves ?? []).size > MAX_RESOLVES) throw new BoardError(`resolves names at most ${MAX_RESOLVES} entries; resolve the rest in another post.`);
@@ -1280,7 +1348,7 @@ export class Board extends DurableObject<Env> {
         throw new BoardError(e instanceof Error ? e.message : String(e));
       }
       const hit = scanFields({ card: cardText(card), diff: cardDiff });
-      if (hit) throw new BoardError(blockedMessage(hit));
+      if (hit) throw new BoardError(this.secretBlock(hit));
     }
 
     // A gate handoff (#2173 item 3, #2358): a new one says what's ready to land; a handoff reply to an open one closes it.
@@ -1301,7 +1369,7 @@ export class Board extends DurableObject<Env> {
       }
       if (!isResult(handoff)) {
         const hit = scanFields({ handoff: handoffText(handoff) });
-        if (hit) throw new BoardError(blockedMessage(hit));
+        if (hit) throw new BoardError(this.secretBlock(hit));
       }
     }
 
@@ -1363,6 +1431,11 @@ export class Board extends DurableObject<Env> {
     const entry = toEntry(row);
     if (internal.attachments) this.indexEntry(entry.seq, entry.text, internal.attachments.list.map((a) => a.name).join(" "), null, internal.attachments.text || null);
     else this.indexEntry(entry.seq, handoff && !isResult(handoff) ? `${entry.text}\n${handoffText(handoff)}` : entry.text, entry.artifact_name, entry.card ?? null, artifactContent);
+    // A write that landed. System lines and board notices aren't pastes; test accounts stay out of the ops counters.
+    if (!user.startsWith("e2e-") && !internal.system && !internal.notice) {
+      notePaste(this.env, this.ctx, input.via);
+      if (input.via !== "person") noteFirstAgentPost(this.env, this.ctx, user);
+    }
     // A handoff's own fields are screened like its text: instructions in checks are flagged the same way.
     const handoffFlag = handoff && !isResult(handoff) ? screenText(handoffText(handoff)) : null;
     if (handoffFlag && !handoffFlag.quoted) {
@@ -1377,7 +1450,11 @@ export class Board extends DurableObject<Env> {
         entry.seq, entry.to, title, body, user, input.via ?? null, entry.ts,
       );
     }
-    if (entry.retracts != null) this.stopDependents(user, entry.retracts);
+    if (entry.retracts != null) {
+      const deps = this.dependents(entry.retracts);
+      noteStaleNotice(this.env, this.ctx, deps.length, user);
+      this.stopDependents(user, entry.retracts);
+    }
     // Resolving an open task finishes it (jxn #2172, opus-a #2175): a change card or a note saying "resolves #N" is the
     // record that it's done, so the task list stops showing it as doing. Only from someone who could close it anyway;
     // anyone else's leaves a hint on the task (#2221). A private message (People only, Just mine) leaves it alone.
@@ -1551,7 +1628,7 @@ export class Board extends DurableObject<Env> {
 
   private computeSummaryNow(): Summary {
     // A task is closed by its status (marking it done posts nothing), or, as before, by an entry that resolves it.
-    const done = new Set(this.sql.exec("SELECT seq FROM tasks WHERE status = 'done'").toArray().map((r) => r.seq as number));
+    const done = new Set(this.sql.exec("SELECT seq FROM tasks WHERE status IN ('done','frozen')").toArray().map((r) => r.seq as number)); // frozen isn't open work (vedu #4791)
     const closed = new Set(this.sql.exec("SELECT seq FROM answered_marks").toArray().map((r) => r.seq as number));
     const s = computeSummary(this.allEntries(), done, closed);
     const titles = new Map(this.sql.exec("SELECT seq, title FROM tasks WHERE title IS NOT NULL").toArray().map((r) => [r.seq as number, r.title as string]));
@@ -1564,7 +1641,8 @@ export class Board extends DurableObject<Env> {
    * past what was returned. The board's summary comes with a member's first read of the board, then only when asked
    * for (`summary: true`); `summary: false` never.
    */
-  async read(user: string, opts: { limit?: number; since?: number; summary?: boolean; names?: Record<string, string>; maxChars?: number } = {}, session?: string | null) {
+  async read(user: string, opts: { limit?: number; since?: number; summary?: boolean; names?: Record<string, string>; maxChars?: number; summaryChars?: number } = {}, session?: string | null) {
+    const started = Date.now();
     const info = this.info();
     this.renewLeases(user, session);
     const rules = this.rulesFor(user, session);
@@ -1589,6 +1667,7 @@ export class Board extends DurableObject<Env> {
     if (withSummary && !given) this.sql.exec("UPDATE members SET summarized = 1 WHERE name = ?", user);
     const c = this.cached();
     const pinned = this.pinnedNow();
+    const live = withSummary ? await this.liveSummaryLines() : [];
     return {
       info,
       members,
@@ -1596,10 +1675,19 @@ export class Board extends DurableObject<Env> {
       pin: this.pinLine(user, session, pinned), // "📌 SPEC.md updated to v4": once per version per reader, else null
       summaryText: withSummary
         ? (() => {
-            const text = withPinned(formatSummary(info, members, summaryWithNames(c.summary, opts.names), user, DEFAULT_SUMMARY_CHARS, this.decisions.tags(c.tags), c.reviewers, opts.names, this.liveSummaryLines()), pinned);
-            return info.encrypted
+            // summaryChars: a caller-set summary budget, already in characters (summary_budget tokens × ~4).
+            // Omit it and the summary stays at ~4k tokens. The pinned-doc line counts; the encryption notice does not.
+            const text = summaryWithinBudget(
+              (maxChars) => formatSummary(info, members, summaryWithNames(c.summary, opts.names), user, maxChars, this.decisions.tags(c.tags), c.reviewers, opts.names, live),
+              opts.summaryChars ?? DEFAULT_SUMMARY_CHARS,
+              pinned ? pinnedSummaryLine(pinned) : null,
+            );
+            const pack = info.encrypted
               ? `This board is END-TO-END ENCRYPTED: messages are ciphertext here. Read and write it with the atteo CLI (atteo read / post / ask), which decrypts and encrypts on this machine.\n\n${text}`
               : text;
+            noteContextPack(this.env, this.ctx, pack, user);
+            noteContextPackMs(this.env, this.ctx, Date.now() - started, user);
+            return pack;
           })()
         : null,
       tasksForYou: tasksFor(c.summary, user, c.tags).length,
@@ -2064,7 +2152,7 @@ export class Board extends DurableObject<Env> {
       const moved = t.updated_at > sinceTs;
       if (t.status === "done" && (moved || t.seq > from)) own(lite(t, t.assignee ?? t.updated_by, t.assignee ? t.assignee_agent : t.updated_via === "agent"), "done");
       else if (t.status === "blocked" && (moved || t.seq > from)) own(lite(t, t.assignee ?? t.lease_holder, t.assignee ? t.assignee_agent : t.lease_agent), "blocked");
-      else if (t.seq > from && t.status !== "done") own(lite(t, t.assignee ?? t.lease_holder, t.assignee ? t.assignee_agent : t.lease_agent), "new");
+      else if (t.seq > from && t.status !== "done" && t.status !== "frozen") own(lite(t, t.assignee ?? t.lease_holder, t.assignee ? t.assignee_agent : t.lease_agent), "new");
     }
     // Whoever owes the most first; the unassigned last.
     tasks.by_owner = [...owners.values()].sort((a, b) => (a.owner == null ? 1 : 0) - (b.owner == null ? 1 : 0) || b.blocked.length + b.new.length - (a.blocked.length + a.new.length) || a.label.localeCompare(b.label));
@@ -2316,7 +2404,7 @@ export class Board extends DurableObject<Env> {
     if (!text) throw new BoardError(from != null ? `#${from} has no text to remember; give text.` : "text is required: one short fact (≤280 characters).");
     if (text.length > MEMORY_TEXT_MAX) throw new BoardError(`Memory items are short: at most ${MEMORY_TEXT_MAX} characters (this is ${text.length}). Keep one fact per item.`);
     const hit = scanText(text, "memory");
-    if (hit) throw new BoardError(blockedMessage(hit));
+    if (hit) throw new BoardError(this.secretBlock(hit));
     const norm = memoryNorm(text);
     const same = this.sql.exec("SELECT * FROM memory WHERE struck_ts IS NULL AND norm = ?", norm).toArray()[0];
     const count = () => this.sql.exec("SELECT COUNT(*) AS n FROM memory WHERE struck_ts IS NULL").one().n as number;
@@ -2480,6 +2568,75 @@ export class Board extends DurableObject<Env> {
     }
   }
 
+  /**
+   * A member deleted their account (Apple 5.1.1(v), jxn #4329): they leave the board, and everything they wrote here
+   * stays, attributed to `tomb` (shown as "Deleted user"). Mentions of them point at the tombstone too, so an old
+   * @handle chip never resolves to someone who registers later. Their own read positions and notices go.
+   */
+  async forgetUser(user: string, tomb: string, opts: { title?: string | null } = {}): Promise<{ entries: number }> {
+    await this.removeMember(user);
+    if (opts.title) this.setMeta("title", opts.title); // a conversation of two takes the tombstone in its name
+    const entries = (this.sql.exec("SELECT COUNT(*) AS n FROM entries WHERE author = ?", user).one().n as number) ?? 0;
+    const rename: [string, string][] = [
+      ["entries", "author"], ["entries", "to_user"], ["entries", "for_user"], ["purged", "by_user"], ["reviews", "reviewer"],
+      ["tasks", "assignee"], ["tasks", "lease_holder"], ["tasks", "updated_by"], ["claim_state", "verified_by"], ["claim_state", "disputed_by"],
+      ["task_versions", "author"], ["docs", "updated_by"], ["docs", "created_by"], ["doc_versions", "author"], ["handling", "user"],
+      ["answered_marks", "user"], ["memory", "by_user"], ["memory", "struck_by"], ["approval_entries", "user"], ["schedules", "created_by"],
+      ["entries", "sealed_to"], ["tasks", "lapsed_holder"],
+    ];
+    for (const [t, c] of rename) {
+      try {
+        this.sql.exec(`UPDATE ${t} SET ${c} = ? WHERE ${c} = ?`, tomb, user);
+        // A session form, "maya/alt-b", keeps its session name.
+        this.sql.exec(`UPDATE ${t} SET ${c} = ? || substr(${c}, ?) WHERE substr(${c}, 1, ?) = ?`, tomb, user.length + 1, user.length + 1, `${user}/`);
+      } catch {} // a column an older board never grew
+    }
+    this.sql.exec("INSERT OR IGNORE INTO reactions (seq, user, emoji, ts) SELECT seq, ?, emoji, ts FROM reactions WHERE user = ?", tomb, user);
+    this.sql.exec("DELETE FROM reactions WHERE user = ?", user);
+    for (const t of ["edit_notices", "rules_seen", "pin_seen", "memory_seen"]) {
+      try {
+        this.sql.exec(`DELETE FROM ${t} WHERE user = ?`, user);
+      } catch {}
+    }
+    this.sql.exec("UPDATE meta SET value = ? WHERE value = ? AND key LIKE '%by%'", tomb, user);
+    // JSON columns that name people: mentions [{user,…}] and to_people ["name",…].
+    const like = `%"${user}"%`;
+    for (const r of this.sql.exec("SELECT seq, mentions, to_people FROM entries WHERE mentions LIKE ? OR to_people LIKE ?", like, like).toArray()) {
+      const sub = (v: unknown) => (v === user ? tomb : v);
+      let mentions = r.mentions as string | null, to = r.to_people as string | null;
+      try {
+        if (mentions) mentions = JSON.stringify((JSON.parse(mentions) as { user: string; name?: string }[]).map((m) => (m.user === user ? { ...m, user: tomb, name: undefined } : m)));
+      } catch {}
+      try {
+        if (to) to = JSON.stringify((JSON.parse(to) as unknown[]).map(sub));
+      } catch {}
+      this.sql.exec("UPDATE entries SET mentions = ?, to_people = ? WHERE seq = ?", mentions, to, r.seq as number);
+    }
+    // Other JSON that can name a person ({by} of a purge, an approval's or a handoff's people, entry data): every string
+    // that is exactly them, or one of their sessions ("maya/alt-b"), moves to the tombstone.
+    const deep = (v: unknown): unknown =>
+      typeof v === "string" ? (v === user ? tomb : v.startsWith(`${user}/`) ? tomb + v.slice(user.length) : v)
+        : Array.isArray(v) ? v.map(deep)
+        : v && typeof v === "object" ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, deep(x)]))
+        : v;
+    for (const c of ["purged", "approval", "handoff", "data", "card"]) {
+      let rows: Record<string, unknown>[] = [];
+      try {
+        rows = this.sql.exec(`SELECT seq, ${c} AS v FROM entries WHERE ${c} LIKE ? OR ${c} LIKE ?`, like, `%"${user}/%`).toArray();
+      } catch {
+        continue;
+      }
+      for (const r of rows) {
+        try {
+          const next = JSON.stringify(deep(JSON.parse(r.v as string)));
+          if (next !== r.v) this.sql.exec(`UPDATE entries SET ${c} = ? WHERE seq = ?`, next, r.seq as number);
+        } catch {}
+      }
+    }
+    this.broadcast({ type: "reload" });
+    return { entries };
+  }
+
   edit(user: string, via: string | null, seq: number, text: string): Entry {
     const info = this.info();
     if (info.encrypted) throw new BoardError("Messages on an encrypted board cannot be edited.");
@@ -2495,7 +2652,7 @@ export class Board extends DurableObject<Env> {
     text = text.trim();
     if (!text || text.length > MAX_TEXT) throw new BoardError(`Message text must be 1–${MAX_TEXT} characters.`);
     const hit = scanFields({ text });
-    if (hit) throw new BoardError(blockedMessage(hit));
+    if (hit) throw new BoardError(this.secretBlock(hit));
     const now = Date.now();
     const version = (this.sql.exec("SELECT MAX(version) AS v FROM entry_versions WHERE seq = ?", seq).one().v as number | null ?? 0) + 1;
     this.sql.exec("INSERT INTO entry_versions (seq, version, text, ts) VALUES (?, ?, ?, ?)", seq, version, old.text, old.edited_at ?? old.ts);
@@ -2526,12 +2683,12 @@ export class Board extends DurableObject<Env> {
    * tape, the board list's last line), the search index and edit history follow, and readers hear "#seq edited".
    * False when there was nothing to blank.
    */
-  async scrubForwardQuote(seq: number, srcSeq: number): Promise<boolean> {
+  async scrubForwardQuote(seq: number, srcSeq: number, replacement = PURGED_QUOTE): Promise<boolean> {
     const info = this.info();
     const row = this.sql.exec(`SELECT ${ENTRY_COLS} FROM entries WHERE seq = ?`, seq).toArray()[0];
     if (!row) return false;
     const e = toEntry(row);
-    const { text, changed } = scrubQuote(e.text, srcSeq);
+    const { text, changed } = scrubQuote(e.text, srcSeq, replacement);
     if (!changed) return false;
     const excerpt = text.replace(/\s+/g, " ").trim().slice(0, 160);
     await this.env.DB.batch([
@@ -2541,6 +2698,7 @@ export class Board extends DurableObject<Env> {
     ]);
     this.sql.exec("UPDATE entries SET text = ? WHERE seq = ?", text, seq);
     this.sql.exec("DELETE FROM entry_versions WHERE seq = ?", seq);
+    this.sql.exec("UPDATE live_cards SET frozen = 1, lines = '[]' WHERE seq = ?", seq);
     this.sql.exec("DELETE FROM search_idx WHERE kind = 'entry' AND ref = ?", String(seq));
     this.indexEntry(seq, text, null, null, null);
     if (e.audience !== "people") {
@@ -2589,6 +2747,7 @@ export class Board extends DurableObject<Env> {
     this.sql.exec("UPDATE entries SET text = ?, title = NULL, artifact_content = NULL, card = NULL, card_diff = NULL, data = NULL, handoff = NULL, sealed = NULL, purged = ? WHERE seq = ?", removed, JSON.stringify({ by: user, via: opts.via }), seq);
     this.sql.exec("INSERT OR IGNORE INTO purged (seq, by_user, via, ts) VALUES (?, ?, ?, ?)", seq, user, opts.via, now);
     this.sql.exec("DELETE FROM entry_versions WHERE seq = ?", seq);
+    this.sql.exec("UPDATE live_cards SET frozen = 1, lines = '[]' WHERE seq = ?", seq);
     this.sql.exec("DELETE FROM search_idx WHERE kind IN ('entry', 'task') AND ref = ?", String(seq));
     if (this.sql.exec("SELECT 1 AS x FROM tasks WHERE seq = ?", seq).toArray().length) {
       this.sql.exec("UPDATE tasks SET title = ?, body = NULL WHERE seq = ?", removed, seq);
@@ -2674,13 +2833,13 @@ export class Board extends DurableObject<Env> {
    */
   async rankedSearch(
     query: string,
-    opts: { author?: string; type?: string; limit?: number; more?: string } = {},
+    opts: { author?: string; type?: string; since?: number; limit?: number; more?: string } = {},
     viewer?: Viewer | null, // absent: an agent's search (no people-only entries)
-  ): Promise<{ entries: { entry: Entry; snippet: string }[]; files: { name: string; version: number; snippet: string; author?: string; ts?: number }[]; more: string | null; compact: string }> {
+  ): Promise<{ entries: { entry: Entry; snippet: string; score?: number }[]; files: { name: string; version: number; snippet: string; author?: string; ts?: number }[]; more: string | null; compact: string }> {
     const info = this.info();
     const match = ftsQuery(query);
     const limit = clamp(opts.limit ?? 20, 1, 100);
-    const key = cursorKey(["search", info.id, query, opts.author ?? null, opts.type ?? null, viewer ?? null]);
+    const key = cursorKey(["search", info.id, query, opts.author ?? null, opts.type ?? null, ...(opts.since ? [opts.since] : []), viewer ?? null]);
     type Position = { score: number; row: number } | { before: number };
     let position: Position | null = null;
     if (opts.more) {
@@ -2688,7 +2847,7 @@ export class Board extends DurableObject<Env> {
       if (!position || typeof position !== "object" || (!("before" in position) && !("score" in position))) throw new BoardError("Invalid more cursor.");
       if ("before" in position ? !Number.isSafeInteger(position.before) || position.before <= 0 : !Number.isFinite(position.score) || !Number.isSafeInteger(position.row) || position.row <= 0) throw new BoardError("Invalid more cursor.");
     }
-    const entries: { entry: Entry; snippet: string }[] = [];
+    const entries: { entry: Entry; snippet: string; score?: number }[] = [];
     const files: { name: string; version: number; snippet: string; author?: string; ts?: number }[] = [];
     let more: string | null = null;
     const result = () => {
@@ -2701,7 +2860,7 @@ export class Board extends DurableObject<Env> {
     if (!match) return result();
     const fallback = async () => {
       const found = await this.search(query, { ...opts, limit, before: position && "before" in position ? position.before : undefined }, viewer);
-      for (const entry of found) entries.push({ entry, snippet: "" });
+      for (const entry of found) if (!opts.since || entry.ts >= opts.since) entries.push({ entry, snippet: "" });
       if (entries.length >= limit) more = encodeCursor(key, { before: entries[entries.length - 1].entry.seq });
       return result();
     };
@@ -2719,7 +2878,7 @@ export class Board extends DurableObject<Env> {
     let last: Position | null = null;
     let scanned = 0;
     let full = false;
-    const filtered = !!(opts.author || opts.type);
+    const filtered = !!(opts.author || opts.type || opts.since);
     const flush = () => {
       const candidates = batch;
       batch = [];
@@ -2736,7 +2895,7 @@ export class Board extends DurableObject<Env> {
         last = { score: r.score as number, row: r.pos as number };
         if (r.kind === "entry" || r.kind === "task") {
           const e = bySeq.get(Number(r.ref));
-          if (!e || (opts.author && e.author !== opts.author) || (opts.type && e.type !== opts.type)) continue;
+          if (!e || (opts.author && e.author !== opts.author) || (opts.type && e.type !== opts.type) || (opts.since && e.ts < opts.since)) continue;
           // An edited task is indexed twice: its first text (kind "entry") and its live title/body (kind "task").
           // One hit per entry, and the live text's snippet wins whichever ranks first.
           if (seen.has(e.seq)) {
@@ -2744,7 +2903,7 @@ export class Board extends DurableObject<Env> {
             continue;
           }
           seen.add(e.seq);
-          entries.push({ entry: e, snippet: r.snip as string });
+          entries.push({ entry: e, snippet: r.snip as string, score: -(r.score as number) });
         } else if (!filtered && files.length < 10) {
           const d = this.sql.exec("SELECT version, updated_by, updated_at FROM docs WHERE name = ?", r.ref).toArray()[0];
           if (d) files.push({ name: r.ref as string, version: d.version as number, snippet: r.snip as string, author: d.updated_by as string, ts: d.updated_at as number });
@@ -2770,6 +2929,21 @@ export class Board extends DurableObject<Env> {
   async searchLines(query: string, opts: { author?: string; type?: string; limit?: number; more?: string } = {}, viewer?: Viewer | null): Promise<{ text: string; count: number; more: string | null }> {
     const r = await this.rankedSearch(query, opts, viewer);
     return { text: r.compact, count: r.entries.length + r.files.length, more: r.more };
+  }
+
+  /** Agents' default search answer: one small card per hit under a hard cap (src/searchCards.ts). If the cap cuts the
+   *  page short, the more cursor resumes right after the last card shown, so paging never skips a hit. */
+  async searchCards(query: string, opts: { author?: string; type?: string; since?: number; limit?: number; more?: string } = {}, viewer?: Viewer | null): Promise<{ text: string; count: number; more: string | null }> {
+    const limit = clamp(opts.limit ?? CARD_LIMIT, 1, CARD_MAX_LIMIT);
+    const r = await this.rankedSearch(query, { ...opts, limit }, viewer);
+    const cards = r.entries.map(({ entry, snippet, score }) => {
+      const f = flagOf(screenedText(entry), entry.ai_flag);
+      return entryCard(entry, snippet, score, f ? flagNote(f) : null);
+    });
+    const shown = cards.length ? cardsThatFit(cards, 180) : 0; // 180: the header, more cursor and get line
+    const more = shown < cards.length ? (await this.rankedSearch(query, { ...opts, limit: shown }, viewer)).more : r.more;
+    const text = cardsAnswer(cards.slice(0, shown), r.files.map(fileCard), more);
+    return { text, count: shown + r.files.length, more };
   }
 
   /** Lines in files (latest versions) containing `pattern` (case-insensitive text, or a simple regex), like grep -n. */
@@ -3218,10 +3392,11 @@ export class Board extends DurableObject<Env> {
       .map((r) => ({ seq: r.seq as number, who: r.user as string }));
   }
 
-  /** A person is typing: everyone on the board hears it for a few seconds. Nothing is stored. */
-  typing(user: string) {
+  /** A person is typing: everyone on the board hears it for a few seconds, with the thread it's in (root; 0 is the
+   *  chat itself, vedu #4746). Nothing is stored. */
+  typing(user: string, root = 0) {
     this.info();
-    this.broadcast({ type: "typing", who: user, until: Date.now() + 6000 });
+    this.broadcast({ type: "typing", who: user, until: Date.now() + 6000, root });
   }
 
   /**
@@ -3441,11 +3616,11 @@ export class Board extends DurableObject<Env> {
         lease_agent: r.lease_agent === 1,
         lease_session_name: (r.lease_until as number | null) && (r.lease_until as number) > now && r.lease_agent === 1 ? ((r.lease_session_name as string | null) ?? null) : null,
         lease_until: (r.lease_until as number | null) && (r.lease_until as number) > now ? (r.lease_until as number) : null,
-        lapsed_holder: r.status === "done" || r.status === "stopped" ? null : ((r.lapsed_holder as string | null) ?? null),
-        lapsed_at: r.status === "done" || r.status === "stopped" ? null : ((r.lapsed_at as number | null) ?? null),
+        lapsed_holder: r.status === "done" || r.status === "stopped" || r.status === "frozen" ? null : ((r.lapsed_holder as string | null) ?? null),
+        lapsed_at: r.status === "done" || r.status === "stopped" || r.status === "frozen" ? null : ((r.lapsed_at as number | null) ?? null),
         stop_reason: (r.stop_reason as string | null) ?? null,
         done_note: r.status === "done" ? ((r.done_note as string | null) ?? null) : null,
-        resolved_by: r.status === "done" || r.status === "stopped" ? null : ((r.resolved_by as number | null) ?? null),
+        resolved_by: r.status === "done" || r.status === "stopped" || r.status === "frozen" ? null : ((r.resolved_by as number | null) ?? null),
         priority: (r.priority as TaskPriority | null) ?? null,
         title: (r.title as string | null) ?? splitTask(r.text as string).title,
         body: (r.body as string | null) ?? "",
@@ -3629,7 +3804,7 @@ export class Board extends DurableObject<Env> {
       const commit = act.commit?.trim() || undefined;
       if (commit && !/^[0-9a-f]{7,40}$/i.test(commit)) throw new BoardError("commit must be a git commit hash (7–40 hex characters).");
       const hit = scanFields({ command });
-      if (hit) throw new BoardError(blockedMessage(hit));
+      if (hit) throw new BoardError(this.secretBlock(hit));
       this.sql.exec("UPDATE claim_state SET check_json = ?, updated_at = ? WHERE seq = ?", JSON.stringify({ command, ...(commit ? { commit: commit.toLowerCase() } : {}) }), Date.now(), seq);
       this.broadcast({ type: "claim", seq });
       return `Check attached to #${seq}. Other members can run it in a sandbox with: atteo verify ${seq}`;
@@ -3647,7 +3822,7 @@ export class Board extends DurableObject<Env> {
       if (act.note) ev.note = act.note.slice(0, 300);
       if (!ev.seq && !ev.url) throw new BoardError("Point at the evidence: evidence_seq (an entry, e.g. a log you posted) or url.");
       const hit = scanFields({ url: ev.url ?? null, note: ev.note ?? null });
-      if (hit) throw new BoardError(blockedMessage(hit));
+      if (hit) throw new BoardError(this.secretBlock(hit));
       const cur = JSON.parse((this.sql.exec("SELECT evidence FROM claim_state WHERE seq = ?", seq).one().evidence as string) || "[]");
       cur.push(ev);
       this.sql.exec("UPDATE claim_state SET evidence = ?, status = CASE WHEN status = 'asserted' THEN 'evidenced' ELSE status END, updated_at = ? WHERE seq = ?", JSON.stringify(cur.slice(-20)), Date.now(), seq);
@@ -3658,6 +3833,7 @@ export class Board extends DurableObject<Env> {
       if (claim.author === user) throw new BoardError("You can't verify your own claim (or your agent's); someone else has to check it.");
       this.sql.exec("UPDATE claim_state SET status = 'verified', verified_by = ?, verified_via = ?, disputed_by = NULL, disputed_via = NULL, dispute_reason = NULL, updated_at = ? WHERE seq = ?", user, opts.via ?? null, Date.now(), seq);
       this.trackRecord(seq, "claim", claim, "verified");
+      void noteClaimReview(this.env, this.ctx, "verified", user);
       await this.post(user, { type: "note", reply_to: seq, to: claim.author, text: `✓ Verified #${seq}${act.note ? `: ${act.note}` : "."}`, via: opts.via, client: opts.client, session: opts.session });
       return `#${seq} is verified by ${who}.`;
     }
@@ -3667,6 +3843,8 @@ export class Board extends DurableObject<Env> {
       this.sql.exec("UPDATE claim_state SET status = 'disputed', disputed_by = ?, disputed_via = ?, dispute_reason = ?, updated_at = ? WHERE seq = ?", user, opts.via ?? null, reason, Date.now(), seq);
       this.trackRecord(seq, "claim", claim, "disputed");
       const deps = this.dependents(seq);
+      void noteClaimReview(this.env, this.ctx, "disputed", user);
+      noteStaleNotice(this.env, this.ctx, deps.length, user);
       await this.post(user, {
         type: "note",
         reply_to: seq,
@@ -3801,6 +3979,7 @@ export class Board extends DurableObject<Env> {
     const info = this.info();
     const t = this.task(seq);
     if (t.status === "done") throw new BoardError(`#${seq} is already done.`);
+    if (t.status === "frozen") throw new BoardError(`#${seq} is frozen (parked for later). Unfreeze it first: set its status back to todo.`);
     if (t.lease_holder && t.lease_holder !== user) {
       throw new BoardError(`#${seq} is claimed by ${holderLabel(t)} until ${iso(t.lease_until!)}. Pick another task, or ask them on the board.`);
     }
@@ -3859,7 +4038,7 @@ export class Board extends DurableObject<Env> {
     if (change.status && change.status !== t.status) {
       if (!TASK_STATUSES.includes(change.status)) throw new BoardError(`status must be one of: ${TASK_STATUSES.join(", ")}`);
       this.sql.exec("UPDATE tasks SET status = ?, stop_reason = CASE WHEN ? = 'stopped' THEN stop_reason ELSE NULL END, done_note = NULL, resolved_by = NULL, lapsed_holder = NULL, lapsed_at = NULL WHERE seq = ?", change.status, change.status, seq);
-      if (change.status === "done") this.sql.exec("UPDATE tasks SET lease_holder = NULL, lease_until = NULL WHERE seq = ?", seq);
+      if (change.status === "done" || change.status === "frozen") this.sql.exec("UPDATE tasks SET lease_holder = NULL, lease_until = NULL WHERE seq = ?", seq); // a frozen task is nobody's for now
       parts.push(`status → ${change.status}`);
     }
     if (change.assignee !== undefined) {
@@ -3940,7 +4119,7 @@ export class Board extends DurableObject<Env> {
       const t = this.sql
         .exec("SELECT t.status, t.lease_holder, t.lease_until, t.assignee, e.author FROM tasks t JOIN entries e ON e.seq = t.seq WHERE t.seq = ?", r)
         .toArray()[0];
-      if (!t || t.status === "done" || t.status === "stopped") continue;
+      if (!t || t.status === "done" || t.status === "stopped" || t.status === "frozen") continue;
       const holder = (t.lease_until as number | null) && (t.lease_until as number) > Date.now() ? (t.lease_holder as string | null) : null;
       if (![holder, t.assignee, t.author, creator].includes(user)) {
         this.sql.exec("UPDATE tasks SET resolved_by = ?, updated_at = ? WHERE seq = ?", entry.seq, Date.now(), r);
@@ -4101,7 +4280,7 @@ export class Board extends DurableObject<Env> {
     if (body.length > MAX_TEXT) throw new BoardError(`A task's body is limited to ${MAX_TEXT} characters; put long material in a file.`);
     if (title === t.title && body === t.body) throw new BoardError("Nothing changed.");
     const hit = scanFields({ title, body, summary: edit.summary ?? null });
-    if (hit) throw new BoardError(blockedMessage(hit));
+    if (hit) throw new BoardError(this.secretBlock(hit));
     if (!internal.auto) this.rateLimit(user); // automatic ticks don't spend the person's own posting budget
     const now = Date.now();
     const version = t.version + 1;
@@ -4134,7 +4313,7 @@ export class Board extends DurableObject<Env> {
   /** A retracted premise stops every open task built on it (reply_to). */
   private stopDependents(user: string, retracted: number) {
     const deps = this.sql
-      .exec("SELECT t.seq, t.lease_holder, t.assignee FROM tasks t JOIN entries e ON e.seq = t.seq WHERE e.reply_to = ? AND t.status NOT IN ('done','stopped')", retracted)
+      .exec("SELECT t.seq, t.lease_holder, t.assignee FROM tasks t JOIN entries e ON e.seq = t.seq WHERE e.reply_to = ? AND t.status NOT IN ('done','stopped','frozen')", retracted)
       .toArray();
     for (const d of deps) {
       this.sql.exec("UPDATE tasks SET status = 'stopped', stop_reason = ?, lease_holder = NULL, lease_until = NULL, updated_at = ? WHERE seq = ?", `premise #${retracted} was retracted`, Date.now(), d.seq);
@@ -4182,7 +4361,7 @@ export class Board extends DurableObject<Env> {
       }
       // Binary: no type of ours is trusted to render, so it's always served as a download.
       const hit = scanText(byteString(bytes), "file");
-      if (hit) throw new BoardError(blockedMessage(hit));
+      if (hit) throw new BoardError(this.secretBlock(hit));
     }
     const name = binaryName(f.name, image);
     const media = mediaFor(image, bytes.byteLength, f.width, f.height, bytes);
@@ -4248,7 +4427,7 @@ export class Board extends DurableObject<Env> {
       scanFields({ text }) ??
       scanFields(Object.fromEntries(files.map((x, i) => [`file ${i + 1} name`, x.name]))) ??
       files.reduce<SecretHit | null>((h, x) => h ?? (x.raw ? (x.scan ? scanText(x.scan, x.name) : null) : scanText(x.content, x.name)), null);
-    if (hit) throw new BoardError(blockedMessage(hit));
+    if (hit) throw new BoardError(this.secretBlock(hit));
     const caption = text || `Shared ${filesLabel(files.map((x) => ({ mime: x.media?.mime ?? "text/plain" })))}`;
     const opts: DocEditOpts = { via: f.via, client: f.client, summary: caption };
     const list: Attachment[] = files.map((x) => {
@@ -4293,7 +4472,7 @@ export class Board extends DurableObject<Env> {
 
   async docs(): Promise<DocMeta[]> {
     this.info();
-    return this.docList();
+    return this.docList().map(d => ({ ...d, seq: this.postedIn(d.name, d.version) }));
   }
 
   async docRead(name: string, version?: number): Promise<Doc> {
@@ -4303,9 +4482,19 @@ export class Board extends DurableObject<Env> {
     if (version != null && version !== cur.version) {
       const v = this.sql.exec("SELECT name, version, content, author AS updated_by, ts AS updated_at, via, client FROM doc_versions WHERE name = ? AND version = ?", name, version).toArray()[0];
       if (!v) throw new BoardError(`"${name}" has no version ${version} (current is v${cur.version}; older versions may have been pruned).`);
-      return { ...(v as unknown as Doc), latest: cur.version as number, media: this.mediaOf(name, version) };
+      return { ...(v as unknown as Doc), latest: cur.version as number, media: this.mediaOf(name, version), seq: this.postedIn(name, version) };
     }
-    return { ...(cur as unknown as Doc), latest: cur.version as number, media: this.mediaOf(name, cur.version as number) };
+    return { ...(cur as unknown as Doc), latest: cur.version as number, media: this.mediaOf(name, cur.version as number), seq: this.postedIn(name, cur.version as number) };
+  }
+
+  /** The message everyone can see that posted version `v` of file `name`, as its first file or one of several. */
+  private postedIn(name: string, v: number): number | null {
+    const r = this.sql.exec(
+      `SELECT seq FROM entries e WHERE retracts IS NULL AND audience IS NULL AND artifact_name IS NOT NULL
+         AND ((artifact_name = ?1 AND artifact_version = ?2) OR (attachments IS NOT NULL AND EXISTS (SELECT 1 FROM json_each(e.attachments) j WHERE json_extract(j.value, '$.name') = ?1 AND json_extract(j.value, '$.version') = ?2)))
+         AND NOT EXISTS (SELECT 1 FROM entries x WHERE x.retracts = e.seq) ORDER BY seq LIMIT 1`,
+      name, v).toArray()[0];
+    return r ? (r.seq as number) : null;
   }
 
   async docHistory(name: string): Promise<DocVersion[]> {
@@ -4326,7 +4515,7 @@ export class Board extends DurableObject<Env> {
     validateDocName(name);
     if (content.length > MAX_ARTIFACT) throw new BoardError(`That document is too large (max ${MAX_ARTIFACT} characters).`);
     const hit = scanFields({ [name]: content, summary: opts.summary ?? null });
-    if (hit) throw new BoardError(blockedMessage(hit));
+    if (hit) throw new BoardError(this.secretBlock(hit));
     const cur = this.sql.exec("SELECT version, content FROM docs WHERE name = ?", name).toArray()[0];
     const curVersion = (cur?.version as number) ?? 0;
     if (baseVersion !== curVersion) return { conflict: true, current: curVersion, content: (cur?.content as string) ?? "" };
@@ -4347,7 +4536,7 @@ export class Board extends DurableObject<Env> {
     const next = content.slice(0, first) + newStr + content.slice(first + oldStr.length);
     if (next.length > MAX_ARTIFACT) throw new BoardError(`That would make the document too large (max ${MAX_ARTIFACT} characters).`);
     const hit = scanFields({ [name]: newStr, summary: opts.summary ?? null });
-    if (hit) throw new BoardError(blockedMessage(hit));
+    if (hit) throw new BoardError(this.secretBlock(hit));
     return this.saveDoc(user, name, next, cur.version as number, opts);
   }
 
@@ -4410,7 +4599,7 @@ export class Board extends DurableObject<Env> {
     const t = title.trim().slice(0, 120);
     if (!t) throw new BoardError("Give the board a name.");
     const hit = scanText(t, "board title");
-    if (hit) throw new BoardError(blockedMessage(hit));
+    if (hit) throw new BoardError(this.secretBlock(hit));
     this.setMeta("title", t);
     this.broadcast({ type: "renamed", title: t });
     return this.info();
@@ -4593,7 +4782,7 @@ export class Board extends DurableObject<Env> {
     for (const x of [{ text: slice.summary }, ...items]) if (x.text.length > MAX_TEXT) throw new BoardError(`Each item is limited to ${MAX_TEXT} characters.`);
     for (const f of files) if (f.content.length > MAX_ARTIFACT) throw new BoardError(`${f.name} is too large (max ${MAX_ARTIFACT} characters).`);
     const hit = scanFields(Object.fromEntries([["summary", slice.summary], ...items.map((x, i) => [`item ${i + 1}`, x.text]), ...files.map((f) => [f.name, f.content])]));
-    if (hit) throw new BoardError(blockedMessage(hit));
+    if (hit) throw new BoardError(this.secretBlock(hit));
     this.rateLimit(user); // one slice counts as one post
     const head = await this.post(user, { type: "note", title: slice.title ?? "Session summary", text: slice.summary, reply_to: 0, own: false, via: opts.via, client: opts.client, session: opts.session }, { seeding: true });
     const posted: { seq: number; type: string }[] = [];
@@ -4603,11 +4792,15 @@ export class Board extends DurableObject<Env> {
   }
 
   /** Latest live-card line per unfrozen, unexpired session — what other agents see in the summary (#3829). */
-  private liveSummaryLines(now = Date.now()): { who: string; line: string }[] {
+  private async liveSummaryLines(now = Date.now()): Promise<{ who: string; line: string }[]> {
     const out: { who: string; line: string }[] = [];
-    for (const r of this.sql.exec("SELECT who, started_at, frozen, lines FROM live_cards").toArray()) {
+    for (const r of this.sql.exec("SELECT user, session, seq, who, started_at, frozen, lines FROM live_cards").toArray()) {
       if (r.frozen) continue;
-      if ((r.started_at as number) + LIVE_CARD_MS <= now) continue;
+      if (!this.liveCardAvailable(r.seq as number)) continue;
+      if ((r.started_at as number) + LIVE_CARD_MS <= now || !(await shareLiveOn(this.env, r.user as string, this.info().id, now))) {
+        await this.freezeLiveCards(r.user as string, r.session as string);
+        continue;
+      }
       const lines = JSON.parse((r.lines as string) || "[]") as LiveLine[];
       const last = lines[lines.length - 1];
       if (last?.line) out.push({ who: r.who as string, line: last.line });
@@ -4619,7 +4812,15 @@ export class Board extends DurableObject<Env> {
    * One secret-filtered line per finished task on this session's live card (share_live standing rule). Named agent
    * sessions only; token-only clients skip. Members see the full card; it updates in place.
    */
-  private async appendLiveTask(user: string, opts: TaskActOpts, task: TaskView) {
+  private liveTaskWrites: Promise<void> = Promise.resolve();
+  private appendLiveTask(user: string, opts: TaskActOpts, task: TaskView): Promise<void> {
+    // Posting the first card awaits D1. Concurrent completions must wait for that card to exist.
+    const next = this.liveTaskWrites.then(() => this.writeLiveTask(user, opts, task));
+    this.liveTaskWrites = next.catch(() => {});
+    return next;
+  }
+
+  private async writeLiveTask(user: string, opts: TaskActOpts, task: TaskView) {
     const session = opts.session;
     if (!session || opts.via !== "agent") return;
     const info = this.info();
@@ -4635,6 +4836,10 @@ export class Board extends DurableObject<Env> {
       if (!row.frozen) await this.freezeLiveCards(user, session);
       return;
     }
+    // Scan before shortening: truncation must not disguise a credential at the boundary.
+    if (scanFields({ title: task.title })) return;
+    if (row && !this.liveCardAvailable(row.seq as number)) return;
+    if (this.sql.exec("SELECT 1 FROM live_card_tasks WHERE user = ? AND session = ? AND task_seq = ?", user, session, task.seq).toArray().length) return;
     const line = liveTaskLine(task);
     if (scanFields({ line })) return;
     const who = liveWho(user, opts.session_name);
@@ -4646,10 +4851,14 @@ export class Board extends DurableObject<Env> {
         { seeding: true },
       );
       this.sql.exec("INSERT INTO live_cards (user, session, seq, who, started_at, frozen, lines) VALUES (?, ?, ?, ?, ?, 0, ?)", user, session, entry.seq, who, now, JSON.stringify(lines));
+      this.sql.exec("INSERT OR IGNORE INTO live_card_tasks (user, session, task_seq) VALUES (?, ?, ?)", user, session, task.seq);
       return;
     }
     const lines = JSON.parse((row.lines as string) || "[]") as LiveLine[];
+    // Backfill cards created before completion deduplication was stored separately.
+    for (const x of lines) this.sql.exec("INSERT OR IGNORE INTO live_card_tasks (user, session, task_seq) VALUES (?, ?, ?)", user, session, x.seq);
     if (lines.some((x) => x.seq === task.seq)) return;
+    this.sql.exec("INSERT OR IGNORE INTO live_card_tasks (user, session, task_seq) VALUES (?, ?, ?)", user, session, task.seq);
     lines.push({ seq: task.seq, line });
     const kept = lines.slice(-LIVE_CARD_MAX_LINES);
     this.sql.exec("UPDATE live_cards SET lines = ?, who = ? WHERE user = ? AND session = ?", JSON.stringify(kept), who, user, session);
@@ -4672,8 +4881,17 @@ export class Board extends DurableObject<Env> {
     return { frozen: n };
   }
 
+  /** Removed cards stay removed, including during Stop and later completions. */
+  private liveCardAvailable(seq: number): boolean {
+    const r = this.sql.exec("SELECT purged, retained_at FROM entries WHERE seq = ?", seq).toArray()[0];
+    if (r && r.purged == null && r.retained_at == null) return true;
+    this.sql.exec("UPDATE live_cards SET frozen = 1, lines = '[]' WHERE seq = ?", seq);
+    return false;
+  }
+
   /** In-place rewrite of a live card (no 15-minute person edit window; no "#N edited" notices to agents). */
   private rewriteLiveCard(seq: number, title: string, text: string) {
+    if (!this.liveCardAvailable(seq)) return;
     const info = this.info();
     const row = this.sql.exec(`SELECT ${ENTRY_COLS} FROM entries WHERE seq = ?`, seq).toArray()[0];
     if (!row) return;
@@ -4754,35 +4972,285 @@ export class Board extends DurableObject<Env> {
   }
 
   /**
-   * Retention: blank everything posted before `cutoff`. Entry numbers, authors and threads stay (so references still
-   * resolve); text, files, cards, sealed envelopes and their search entries go. Returns how many entries were blanked.
+   * Retention: compact everything posted before `cutoff`. Entry numbers, authors, routing and threads stay (so
+   * references and access control still work); message payloads, old edits, superseded file versions, search rows and
+   * directory excerpts go. The same pass blanks memory taken from those messages and task titles, bodies, completion
+   * notes and version history, and blanks quotes of them already forwarded to other boards. Task status, assignment
+   * and leases stay.
+   * A fact or task body written after the message was compacted stays: it is new board state, not a copy of the
+   * removed message. Purged entries keep their stronger, attributed placeholder. Returns how many entries were
+   * compacted.
    */
   async prune(cutoff: number): Promise<number> {
     const BLANK = "(removed: older than this board keeps messages)";
-    // Walk forward from where the last prune stopped (entries are in time order), so each run reads only what it blanks.
-    const rows: number[] = [];
-    let from = Number(this.meta("pruned_through") ?? 0);
+    const info = this.info();
+    let count = 0;
     for (;;) {
-      const page = this.sql.exec("SELECT seq, ts FROM entries WHERE seq > ? ORDER BY seq LIMIT 500", from).toArray();
-      const old = page.filter((r) => (r.ts as number) < cutoff).map((r) => r.seq as number);
-      rows.push(...old);
-      if (old.length < page.length || !page.length) break;
-      from = old[old.length - 1];
+      // Select by timestamp rather than assuming sequence order is also time order. retained_at makes this bounded and
+      // lets a retry finish safely if the directory update succeeded but the object restarted before its local commit.
+      const rows = this.sql
+        .exec("SELECT seq, ts, author FROM entries WHERE ts < ? AND retained_at IS NULL AND purged IS NULL ORDER BY seq LIMIT 500", cutoff)
+        .toArray()
+        .map((r) => ({ seq: r.seq as number, ts: r.ts as number, author: r.author as string }));
+      if (!rows.length) break;
+
+      // Inbox/mailbox, trigger mail and the cross-board tape contain copies of message text outside this object. Blank
+      // those first: if D1 fails, the entry remains eligible for a later retry instead of claiming it was compacted.
+      // last_excerpt is included here too; pair matches are chunked at 45 so each statement stays under D1's 100 binds.
+      for (let i = 0; i < rows.length; i += D1_SEQ_CHUNK) {
+        await this.env.DB.batch(retentionDirectoryUpdates(this.env.DB, BLANK, info.id, rows.slice(i, i + D1_SEQ_CHUNK)));
+      }
+
+      const now = Date.now();
+      this.ctx.storage.transactionSync(() => {
+        for (let i = 0; i < rows.length; i += D1_SEQ_CHUNK) {
+          const chunk = rows.slice(i, i + D1_SEQ_CHUNK);
+          const q = chunk.map(() => "?").join(",");
+          this.sql.exec(
+            `UPDATE entries
+                SET text = ?, title = NULL, artifact_name = NULL, artifact_size = NULL, artifact_version = NULL,
+                    artifact_content = NULL, card = NULL, card_diff = NULL, media = NULL, attachments = NULL,
+                    approval = NULL, data = NULL, handoff = NULL, sealed = NULL, sealed_to = NULL, ai_flag = NULL,
+                    retained_at = ?
+              WHERE seq IN (${q})`,
+            BLANK,
+            now,
+            ...chunk.map((r) => r.seq),
+          );
+          this.sql.exec(`DELETE FROM entry_versions WHERE seq IN (${q})`, ...chunk.map((r) => r.seq));
+          this.sql.exec(`UPDATE live_cards SET frozen = 1, lines = '[]' WHERE seq IN (${q})`, ...chunk.map((r) => r.seq));
+          this.sql.exec(`DELETE FROM search_idx WHERE kind = 'entry' AND ref IN (${q})`, ...chunk.map((r) => String(r.seq)));
+        }
+        // PR 79: no crash or task action may separate compaction from its derived cleanup.
+        this.retainDerived(rows.map((r) => r.seq), BLANK, now);
+      });
+      count += rows.length;
     }
-    if (!rows.length) return 0;
-    this.setMeta("pruned_through", String(rows[rows.length - 1]));
-    this.sql.exec("UPDATE entries SET text = ?, artifact_content = NULL, card = NULL, card_diff = NULL, sealed = NULL WHERE seq BETWEEN ? AND ?", BLANK, rows[0], rows[rows.length - 1]);
-    for (let i = 0; i < rows.length; i += 90) {
-      const chunk = rows.slice(i, i + 90);
-      this.sql.exec(`DELETE FROM search_idx WHERE kind = 'entry' AND ref IN (${chunk.map(() => "?").join(",")})`, ...chunk.map(String));
-    }
-    // Old versions of files go too (the current version of each stays).
-    this.sql.exec("DELETE FROM doc_versions WHERE ts < ? AND version < (SELECT version FROM docs d WHERE d.name = doc_versions.name)", cutoff);
+
+    // Derived rows for messages already compacted (including ones just marked, and ones compacted before this pass
+    // knew how to follow them). Runs even when nothing new was old enough, so a later cron finishes leftovers.
+    const swept = this.sweepDerived(BLANK);
+    // Quotes on other boards, after the source is actually compacted. A destination that can't be reached keeps its
+    // forward row and is tried again next time; live messages are not in this set.
+    await this.sweepForwardLeftovers(info.id);
+
+    // Old versions of files go too (the current board document stays). Delete binary and text copies together.
+    // This runs even when no entry was newly compacted, so a restart after the entry transaction cannot strand bytes.
+    this.ctx.storage.transactionSync(() => {
+      this.sql.exec(
+        "DELETE FROM blobs WHERE EXISTS (SELECT 1 FROM doc_versions v JOIN docs d ON d.name = v.name WHERE v.name = blobs.name AND v.version = blobs.version AND v.ts < ? AND v.version < d.version)",
+        cutoff,
+      );
+      this.sql.exec("DELETE FROM doc_versions WHERE ts < ? AND version < (SELECT version FROM docs d WHERE d.name = doc_versions.name)", cutoff);
+    });
+    if (!count && !swept) return 0;
     this.entryMemo = [];
     this.entryMemoTo = 0;
     this.changes++;
     this.broadcast({ type: "pruned", before: cutoff });
-    return rows.length;
+    return count;
+  }
+
+  /**
+   * Memory taken from a compacted message, and the task title/body/history that still hold its words.
+   * A memory item or task edit dated after `retained_at` was written later, on purpose, and stays.
+   * Status, assignee, lease, priority, due and parent stay either way: they are who is doing the work, not the words.
+   */
+  private sweepDerived(blank: string): boolean {
+    // PR 79: a later purge owns its stronger placeholder.
+    let changed = false;
+    const now = Date.now();
+    for (let n = 0; n < 10; n++) {
+      const seqs = (this.sql
+        .exec(
+          `SELECT seq FROM (
+             SELECT m.source_seq AS seq FROM memory m
+             JOIN entries e ON e.seq = m.source_seq
+             WHERE e.retained_at IS NOT NULL AND e.purged IS NULL AND m.ts <= e.retained_at AND (m.text != ? OR m.struck_ts IS NULL)
+             UNION
+             SELECT t.seq AS seq FROM tasks t
+             JOIN entries e ON e.seq = t.seq
+             WHERE e.retained_at IS NOT NULL AND e.purged IS NULL
+               AND ((COALESCE((SELECT MAX(ts) FROM task_versions WHERE seq = t.seq), e.ts) <= e.retained_at
+                     AND (t.body IS NOT NULL OR IFNULL(t.title, '') != ?))
+                    OR (t.updated_at <= e.retained_at AND t.done_note IS NOT NULL))
+             UNION
+             SELECT v.seq AS seq FROM task_versions v
+             JOIN entries e ON e.seq = v.seq
+             WHERE e.retained_at IS NOT NULL AND e.purged IS NULL AND v.ts <= e.retained_at
+           ) LIMIT 200`,
+          blank,
+          blank,
+        )
+        .toArray() as { seq: number }[]).map((r) => r.seq);
+      if (!seqs.length) break;
+      let batch = false;
+      this.ctx.storage.transactionSync(() => {
+        batch = this.retainDerived(seqs, blank, now);
+      });
+      if (!batch) break;
+      changed = true;
+    }
+    return changed;
+  }
+
+  /** Blank derived memory and task words for these already-compacted messages. True when a row changed. */
+  private retainDerived(seqs: number[], blank: string, now: number): boolean {
+    let changed = false;
+    const strike: number[] = [];
+    for (let i = 0; i < seqs.length; i += D1_SEQ_CHUNK) {
+      const chunk = seqs.slice(i, i + D1_SEQ_CHUNK);
+      const q = chunk.map(() => "?").join(",");
+      const tasks = this.sql
+        .exec(
+          `SELECT t.seq AS seq FROM tasks t
+           JOIN entries e ON e.seq = t.seq
+           WHERE t.seq IN (${q}) AND e.retained_at IS NOT NULL AND e.purged IS NULL
+             AND COALESCE((SELECT MAX(ts) FROM task_versions WHERE seq = t.seq), e.ts) <= e.retained_at
+             AND (t.body IS NOT NULL OR IFNULL(t.title, '') != ?)`,
+          ...chunk,
+          blank,
+        )
+        .toArray() as { seq: number }[];
+      if (tasks.length) {
+        changed = true;
+        const tseqs = tasks.map((t) => t.seq);
+        const tq = tseqs.map(() => "?").join(",");
+        // PR 79: stale full-body edits must not restore the compacted words.
+        this.sql.exec(`UPDATE tasks SET title = ?, body = NULL, version = version + 1 WHERE seq IN (${tq})`, blank, ...tseqs);
+        this.sql.exec(`DELETE FROM task_versions WHERE seq IN (${tq})`, ...tseqs);
+        this.sql.exec(`DELETE FROM search_idx WHERE kind = 'task' AND ref IN (${tq})`, ...tseqs.map(String));
+      }
+      // PR 79: claims and lease expiry change updated_at without rewriting title/body.
+      // Completion notes use their own eligibility so a new note survives old text cleanup.
+      const notes = this.sql.exec(
+        `SELECT t.seq FROM tasks t JOIN entries e ON e.seq = t.seq
+         WHERE t.seq IN (${q}) AND e.retained_at IS NOT NULL AND e.purged IS NULL
+           AND t.updated_at <= e.retained_at AND t.done_note IS NOT NULL`,
+        ...chunk,
+      ).toArray() as { seq: number }[];
+      if (notes.length) {
+        changed = true;
+        this.sql.exec(`UPDATE tasks SET done_note = NULL WHERE seq IN (${notes.map(() => "?").join(",")})`, ...notes.map((r) => r.seq));
+      }
+      const oldVersions = this.sql
+        .exec(
+          `SELECT v.seq AS seq FROM task_versions v
+           JOIN entries e ON e.seq = v.seq
+           WHERE v.seq IN (${q}) AND e.retained_at IS NOT NULL AND e.purged IS NULL AND v.ts <= e.retained_at`,
+          ...chunk,
+        )
+        .toArray() as { seq: number }[];
+      if (oldVersions.length) {
+        changed = true;
+        this.sql.exec(
+          `DELETE FROM task_versions WHERE seq IN (${q}) AND ts <= (SELECT retained_at FROM entries e WHERE e.seq = task_versions.seq)`,
+          ...chunk,
+        );
+      }
+      const mem = this.sql
+        .exec(
+          `SELECT m.id AS id, m.struck_ts AS struck_ts FROM memory m
+           JOIN entries e ON e.seq = m.source_seq
+           WHERE m.source_seq IN (${q}) AND e.retained_at IS NOT NULL AND e.purged IS NULL AND m.ts <= e.retained_at
+             AND (m.text != ? OR m.struck_ts IS NULL)`,
+          ...chunk,
+          blank,
+        )
+        .toArray() as { id: number; struck_ts: number | null }[];
+      if (mem.length) {
+        changed = true;
+        this.sql.exec(
+          `UPDATE memory SET text = ?, norm = 'retained ' || source_seq
+           WHERE source_seq IN (${q}) AND ts <= (SELECT retained_at FROM entries e WHERE e.seq = memory.source_seq)
+             AND text != ?`,
+          blank,
+          ...chunk,
+          blank,
+        );
+        for (const m of mem) if (m.struck_ts == null) strike.push(m.id);
+      }
+    }
+    if (strike.length) {
+      const v = this.bumpMemV();
+      for (let i = 0; i < strike.length; i += D1_SEQ_CHUNK) {
+        const ids = strike.slice(i, i + D1_SEQ_CHUNK);
+        const iq = ids.map(() => "?").join(",");
+        this.sql.exec(
+          `UPDATE memory SET struck_by = COALESCE(struck_by, 'retention'), struck_ts = COALESCE(struck_ts, ?), struck_v = COALESCE(struck_v, ?)
+           WHERE id IN (${iq}) AND struck_ts IS NULL`,
+          now,
+          v,
+          ...ids,
+        );
+      }
+    }
+    return changed;
+  }
+
+  /**
+   * Blank quotes of compacted messages on other boards, a bounded page at a time. Messages that were never forwarded
+   * are marked done too, so the next prune does not ask D1 about them again. A failed destination is left unmarked.
+   */
+  private async sweepForwardLeftovers(boardId: string): Promise<void> {
+    if (!this.env.DB || !this.env.BOARD) return;
+    let after = Number(this.meta("retention_forward_after") ?? 0); // PR 79: failed pages must not starve later ones.
+    for (let n = 0; n < 10; n++) {
+      const pending = (this.sql
+        .exec(
+          `SELECT e.seq AS seq FROM entries e
+           WHERE e.retained_at IS NOT NULL AND e.seq > ?
+             AND NOT EXISTS (SELECT 1 FROM retention_forward_scrubbed s WHERE s.seq = e.seq)
+           ORDER BY e.seq LIMIT 200`,
+          after,
+        )
+        .toArray() as { seq: number }[]).map((r) => r.seq);
+      if (!pending.length) {
+        this.setMeta("retention_forward_after", "0");
+        return;
+      }
+      after = pending[pending.length - 1];
+      let clean: Set<number>;
+      try {
+        clean = await this.scrubForwarded(boardId, pending);
+      } catch (e) {
+        console.error("retention forward scrub failed", e);
+        return;
+      }
+      this.ctx.storage.transactionSync(() => this.markForwardScrubbed([...clean]));
+      this.setMeta("retention_forward_after", String(after));
+    }
+  }
+
+  /** Blank each forward of these source messages. Returns the seqs whose copies are all gone (including seqs with none). */
+  private async scrubForwarded(boardId: string, seqs: number[]): Promise<Set<number>> {
+    const clean = new Set<number>();
+    const rows = await forwardsFor(this.env, boardId, seqs);
+    const bySeq = new Map<number, ForwardRow[]>();
+    for (const seq of seqs) bySeq.set(seq, []);
+    for (const row of rows) bySeq.get(row.src_seq)?.push(row);
+    for (const [seq, list] of bySeq) {
+      let ok = true;
+      // PR 79: a purge after compaction keeps the stronger quote placeholder too.
+      const purged = this.sql.exec("SELECT purged FROM entries WHERE seq = ?", seq).toArray()[0]?.purged;
+      const replacement = purged ? PURGED_QUOTE : RETAINED_QUOTE;
+      for (const row of list) {
+        try {
+          if (row.dst_board === boardId) await this.scrubForwardQuote(row.dst_seq, row.src_seq, replacement);
+          else await this.env.BOARD.get(this.env.BOARD.idFromName(row.dst_board)).scrubForwardQuote(row.dst_seq, row.src_seq, replacement);
+          await dropForward(this.env, boardId, row);
+        } catch (e) {
+          ok = false;
+          console.error("retention forward scrub failed", e);
+        }
+      }
+      if (ok) clean.add(seq);
+    }
+    return clean;
+  }
+
+  private markForwardScrubbed(seqs: number[]) {
+    for (const seq of seqs) this.sql.exec("INSERT OR IGNORE INTO retention_forward_scrubbed (seq) VALUES (?)", seq);
   }
 
   /** Operators only (load tests): many plain notes at once, past the post rate limit. */

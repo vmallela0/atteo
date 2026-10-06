@@ -11,6 +11,7 @@ import { createInterface } from "node:readline";
 import qrcode from "qrcode-terminal";
 import { forAgent, forPerson, mentionLabel, mentionsOwnAgent, type Mention } from "../../src/mentions";
 import { blockedMessage, scanFields } from "../../src/secrets";
+import { gatewayFetch, GatewayError } from "../../gateway/src/index";
 import { pingTail, type PingContent, type PingFor } from "../../src/ping";
 import { CARD_HELP, cardCommand } from "./card";
 import { hooksCmd } from "./hooks";
@@ -21,9 +22,11 @@ import { agentCommand, HARNESSES, splitCommand } from "./harness";
 import { myKey } from "./sealed";
 import { doctorCmd, forgetSession, HELP_AGENTS, mentionLine, prepare, session as agentSessionFor, V2, versionCheck } from "./v2";
 import { load, loadFor, remove, save, storeName, type Credentials } from "./credentials";
+import { hostCmd, runCmd } from "./host";
 
 const VERSION = "0.1.0";
 const DEFAULT_SERVER = "https://atteo.dev";
+const send = gatewayFetch();
 
 const err = (s: string) => process.stderr.write(s + "\n");
 
@@ -399,7 +402,7 @@ async function mcp(args: string[]) {
     if (creds?.token) headers.authorization = `Bearer ${creds.token}`;
     if (msg.method === "tools/call") Object.assign(headers, await sessionHeader());
     if (sessionId) headers["mcp-session-id"] = sessionId;
-    const res = await fetch(`${server}/mcp`, { method: "POST", headers, body: JSON.stringify(msg) });
+    const res = await send(`${server}/mcp`, { method: "POST", headers, body: JSON.stringify(msg) });
     const sid = res.headers.get("mcp-session-id");
     if (sid) sessionId = sid;
     return res;
@@ -459,6 +462,7 @@ async function mcp(args: string[]) {
       }
       write(body);
     } catch (e) {
+      if (e instanceof GatewayError && msg.id !== undefined) return toolText(msg.id, e.message);
       if (msg.id !== undefined) write({ jsonrpc: "2.0", id: msg.id, error: { code: -32000, message: `Atteo unreachable: ${(e as Error).message}` } });
     }
   }
@@ -1065,7 +1069,7 @@ function connectHelp(name?: string) {
     if (!h) throw new CliError(`Unknown agent "${n}". Known: ${Object.keys(HARNESSES).join(", ")}.`);
     console.log(`\n${n}${which(h.bin) ? " (installed)" : ""}\n  ${h.connect.split("\n").join("\n  ")}`);
   }
-  console.log(`\nAny other MCP client: run "atteo mcp" as a stdio server. Agents with only a shell: the atteo commands (atteo --help). Hosted agents: the JSON API with a token (${DEFAULT_SERVER}/openapi.json) and webhooks (Account → Agent webhooks).`);
+  console.log(`\nAny other MCP client: run "atteo mcp" as a stdio server. Editors that speak ACP (Zed, JetBrains): "atteo acp" as a custom agent server (atteo help --all). Agents with only a shell: the atteo commands (atteo --help). Hosted agents: the JSON API with a token (${DEFAULT_SERVER}/openapi.json) and webhooks (Account → Agent webhooks).`);
 }
 
 // ---------- entry ----------
@@ -1107,7 +1111,8 @@ Options: --server <url> (default ${DEFAULT_SERVER}), --no-open, --no-watch (logi
 
 /**
  * atteo acp [--to <member>] [--board <id>] [--wait <seconds>]: an Agent Client Protocol agent on stdio (acp.ts), for
- * editors like Zed: each prompt asks the board (one member's agent, with --to) and their answer streams back.
+ * editors like Zed: each prompt asks the board (one member's agent, with --to) and their answer streams back. Speaks
+ * ACP v1 and the v2 happy path (negotiated on initialize).
  */
 async function acpCmd(args: string[]) {
   const { opt } = parseArgs(args);
@@ -1165,7 +1170,7 @@ async function acpCmd(args: string[]) {
 
 const [cmd, ...rest] = process.argv.slice(2);
 // Older board commands also run as the calling agent's session (its board is their default).
-const BOARD_CMDS = new Set(["react", "retract", "purge", "task", "doc", "search", "share", "ask", "members", "role", "link", "audit", "decide", "check", "verify", "publish", "review", "claim", "dm", "seal", "unseal", "use", "card", "create"]);
+const BOARD_CMDS = new Set(["react", "retract", "purge", "feedback", "task", "doc", "search", "share", "ask", "members", "role", "link", "audit", "decide", "check", "verify", "publish", "review", "claim", "dm", "seal", "unseal", "use", "card", "create"]);
 const quiet = { ...(rest.includes("--quiet") ? { quiet: true as const } : {}) };
 const board = (name: string, f: (a: string[]) => Promise<unknown>) => async () => {
   if (BOARD_CMDS.has(name)) await prepare(quiet);
@@ -1187,6 +1192,9 @@ const run: Record<string, () => unknown> = {
   ...Object.fromEntries(Object.entries(V2).map(([k, f]) => [k, board(k, f)])),
   help: () => (rest.includes("--all") ? err(HELP) : console.log(HELP_AGENTS + "\n\nSetup, the background watcher and every command: atteo help --all")),
   card: board("card", (a) => cardCommand(a)),
+  // Bring your own machine (docs/HOST.md): very dangerous, so no session and nothing automatic.
+  host: () => hostCmd(rest),
+  run: () => runCmd(rest),
   hooks: () => hooksCmd(rest), // no session: the hook posts as you, not as whichever agent ran git push
   connect: () => connectHelp(rest[0]),
   harness: () => harnessCmd(rest),

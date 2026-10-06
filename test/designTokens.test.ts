@@ -12,14 +12,15 @@ const SOURCES: [string, string][] = [
   ["src/ui.ts", "CSS"],
   ["src/talk.ts", "TALK_CSS"],
   ["src/forYou.ts", "FY_CSS"],
-  ["src/guide.ts", "GUIDE_CSS"],
-  ["src/ask.ts", "ASK_CSS"],
+  ["src/pageCss.ts", "GUIDE_CSS"],
+  ["src/pageCss.ts", "ASK_CSS"],
+  ["src/pageCss.ts", "DOC_CSS"],
   ["src/status.ts", "STATUS_CSS"],
   ["src/mermaid.ts", "MERMAID_CSS"],
   ["src/codecolor.ts", "CODE_COLOR_CSS"],
 ];
 /** Files whose HTML templates may carry inline style="…" attributes. */
-const INLINE = ["src/ui.ts", "src/html.ts", "src/forYou.ts", "src/guide.ts", "src/ask.ts", "src/status.ts", "src/talk.ts"];
+const INLINE = ["src/ui.ts", "src/html.ts", "src/forYou.ts", "src/guide.ts", "src/ask.ts", "src/status.ts", "src/talk.ts", "src/inbox.ts", "src/index.ts", "src/muse.ts", "src/oauthPage.ts", "src/soulmemory.ts", "src/welcome.ts"];
 
 const LITERAL = /#[0-9a-f]{3,8}\b|\b(?:rgba?|hsla?|hwb|lab|lch|oklab|oklch)\(/i;
 /** Allowed literals outside the token blocks: black shadows and scrims, mask gradients (only alpha matters there), and
@@ -101,11 +102,12 @@ describe("one design language: colours and fonts come from tokens (jxn #2706)", 
     expect(bad, bad.join("\n")).toEqual([]);
   });
 
-  it("the semantic layer exists and points at the palette (oxblood is the one primary action; you, mentions and links are ink)", () => {
+  it("the semantic layer exists and points at the palette (ink is the primary action, you, mentions and links; oxblood only intervenes)", () => {
     const css = cssOf("src/ui.ts", "CSS");
     for (const t of ["--you", "--you-soft", "--mention-fg", "--mention-bg", "--mention-you-bg", "--rail-mark", "--rail-you", "--unread", "--badge-bg", "--badge-fg", "--voice", "--font-ui", "--font-head", "--font-mono"])
       expect(css, t).toMatch(new RegExp(`${t}:`));
-    expect(css).toMatch(/--cta:var\(--oxblood\)/);
+    expect(css).toMatch(/--cta:var\(--ink\)/); // oxblood is intervention only (jxn #4682)
+    expect(css).toMatch(/--intervene:var\(--oxblood\)/);
     expect(css).toMatch(/\.btn\.primary\{background:var\(--cta\)/);
     expect(css).toMatch(/--you:var\(--ink\)/);
     // the cone colour is the logo's alone (jxn #2858, #2944): no component paints with it
@@ -120,7 +122,8 @@ describe("the app too (jxn #2706): colours and fonts come from ios/AgentSoup/Sou
   it("no colour or font literal in the app's sources outside Theme.swift", () => {
     const dir = "ios/AgentSoup/Sources";
     // SyntaxHighlight's palette is the app's mirror of codecolor.ts's --sx-* token block, values passed as pair(0x…).
-    const banned = /Color\(red:|UIColor\(red:|Color\(hex|UIColor\(hex|"#[0-9A-Fa-f]{6}"|\.custom\(|Font\.custom|UIFont\(name:|rgb\(0x/;
+    // .custom(identifier:) is a sheet detent (LinkGate), not a font.
+    const banned = /Color\(red:|UIColor\(red:|Color\(hex|UIColor\(hex|"#[0-9A-Fa-f]{6}"|\.custom\((?!identifier:)|Font\.custom|UIFont\(name:|rgb\(0x/;
     const bad: string[] = [];
     const files = readdirSync(dir).filter((f) => f.endsWith(".swift") && f !== "Theme.swift");
     expect(files.length).toBeGreaterThan(20);

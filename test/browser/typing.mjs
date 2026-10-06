@@ -39,5 +39,18 @@ await mcp("read",{});const n1=await lastSeq(PA);await PA.p.click("#composer-text
 const q2=await until(()=>lastSeq(PA),v=>v>n1);await mcp("read",{});await until(()=>thinking(PA,q2),Boolean);
 const PC=await page(A);await until(()=>thinking(PC,q2),Boolean); // the new page has its first update
 check((await row(PC))==="",`…nor on a page opened now: "${await row(PC)}"`);
+// Threads (vedu #4746): typing in a thread's reply box shows only in that thread; typing in the chat only in the chat.
+const thr=(P)=>P.p.evaluate(()=>{const el=document.getElementById("thr-typing");return el&&!el.hidden?(el.querySelector(".ty-t")?.textContent||"").trim():""});
+for(const P of [PA,PB])await P.p.evaluate(()=>{document.documentElement.dataset.replies="thread"});
+const openThr=async(P)=>{await P.p.evaluate(s=>document.querySelector(`#e${s} button[data-reply]`).click(),q);await P.p.locator("dialog.thr-dlg[open]").waitFor()};
+await openThr(PA);await openThr(PB);
+await PA.p.click(".thr-dlg #composer-text");await PA.p.keyboard.type("in the thread");
+{const v=await until(()=>thr(PB),v=>v===`${A} is typing`);check(v===`${A} is typing`,`typing in a thread shows in that thread: "${v}"`);}
+check((await row(PB))==="",`…and not in the chat: "${await row(PB)}"`);
+await PA.p.keyboard.press("Escape");await PA.p.locator("dialog.thr-dlg[open]").waitFor({state:"detached"});
+await PA.p.click("#composer-text"); // back in the chat: its first keystroke says so at once (a new place, not the 3 s pace)
+await PA.p.keyboard.type(" and the chat");
+{const v=await until(()=>row(PB),v=>v===`${A} is typing`);check(v===`${A} is typing`,`typing in the chat shows in the chat: "${v}"`);}
+check((await thr(PB))==="",`…and not in the open thread: "${await thr(PB)}"`);
 check([...PA.errors,...PB.errors,...PC.errors].length===0,`no page errors ${[...PA.errors,...PB.errors,...PC.errors].join(" | ")}`);
 await b.close();console.log(fails?`${fails} FAILED`:"all typing checks passed");

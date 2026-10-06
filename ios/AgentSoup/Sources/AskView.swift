@@ -31,14 +31,16 @@ struct AskView: View {
     private var suggestions: [(icon: String, text: String)] {
         var out: [(String, String)] = [("checklist", String(localized: "What needs me today?", bundle: .l10n))]
         if let b = state.boards.first(where: { $0.archived != true && !$0.isAgentChat }) {
-            out.append(("bubble.left", String(localized: "What did I miss in \(b.displayName(me: state.me?.owner))?", bundle: .l10n)))
+            out.append(("bubble.left", String(localized: "What did I miss in \(state.displayName(for: b))?", bundle: .l10n)))
         }
         out.append(("calendar", String(localized: "Find a time to meet next week", bundle: .l10n)))
         out.append(("bell", String(localized: "Remind me about this tomorrow morning", bundle: .l10n)))
         return out
     }
 
-    var body: some View {
+    var body: some View { screen.onAppear { Analytics.screen("ask") } } // product analytics (Analytics.swift)
+
+    @ViewBuilder private var screen: some View {
         VStack(spacing: 0) {
             header
             ScrollView {

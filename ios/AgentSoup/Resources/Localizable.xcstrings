@@ -1,6 +1,932 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "Inbox": {
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الوارد"
+          }
+        },
+        "bn": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ইনবক্স"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Posteingang"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inbox"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bandeja de entrada"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Boîte de réception"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "इनबॉक्स"
+          }
+        },
+        "id": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kotak masuk"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "受信箱"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "받은편지함"
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Caixa de entrada"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Входящие"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gelen Kutusu"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "收件箱"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "收件匣"
+          }
+        }
+      }
+    },
+    "Approvals": {
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الموافقات"
+          }
+        },
+        "bn": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "অনুমোদন"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Genehmigungen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Approvals"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aprobaciones"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Approbations"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "मंज़ूरियाँ"
+          }
+        },
+        "id": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Persetujuan"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "承認"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "승인"
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aprovações"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Одобрения"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Onaylar"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "审批"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "核准"
+          }
+        }
+      }
+    },
+    "Guide": {
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الدليل"
+          }
+        },
+        "bn": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "গাইড"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Leitfaden"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Guide"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Guía"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Guide"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "गाइड"
+          }
+        },
+        "id": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Panduan"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ガイド"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "가이드"
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Guia"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Руководство"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kılavuz"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "指南"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "指南"
+          }
+        }
+      }
+    },
+    "Ops": {
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "العمليات"
+          }
+        },
+        "bn": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "অপারেশন"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Betrieb"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ops"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Operaciones"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opérations"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "संचालन"
+          }
+        },
+        "id": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Operasi"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "運用"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "운영"
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Operações"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Операции"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Operasyonlar"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "运维"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "維運"
+          }
+        }
+      }
+    },
+    "Your boards": {
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لوحاتك"
+          }
+        },
+        "bn": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "আপনার বোর্ড"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deine Boards"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your boards"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tus tableros"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vos tableaux"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "आपके बोर्ड"
+          }
+        },
+        "id": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Papan Anda"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "あなたのボード"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "내 보드"
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seus quadros"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ваши доски"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Panolarınız"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你的看板"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你的看板"
+          }
+        }
+      }
+    },
+    "Search or jump to...": {
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ابحث أو انتقل إلى…"
+          }
+        },
+        "bn": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "খুঁজুন বা যান…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Suchen oder springen zu …"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Search or jump to..."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Buscar o saltar a…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rechercher ou aller à…"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "खोजें या जाएँ…"
+          }
+        },
+        "id": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cari atau lompat ke…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "検索または移動…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "검색 또는 이동…"
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pesquisar ou ir para…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Найти или перейти…"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ara veya şuraya git…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "搜索或跳转…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "搜尋或跳轉…"
+          }
+        }
+      }
+    },
+    "%lld approvals": {
+      "localizations": {
+        "ar": {
+          "variations": {
+            "plural": {
+              "zero": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld موافقات"
+                }
+              },
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld موافقة"
+                }
+              },
+              "two": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld موافقتان"
+                }
+              },
+              "few": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld موافقات"
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld موافقة"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld موافقة"
+                }
+              }
+            }
+          }
+        },
+        "bn": {
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lldটি অনুমোদন"
+                }
+              }
+            }
+          }
+        },
+        "de": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld Genehmigung"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld Genehmigungen"
+                }
+              }
+            }
+          }
+        },
+        "en": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld approval"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld approvals"
+                }
+              }
+            }
+          }
+        },
+        "es": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld aprobación"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld aprobaciones"
+                }
+              }
+            }
+          }
+        },
+        "fr": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld approbation"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld approbations"
+                }
+              }
+            }
+          }
+        },
+        "hi": {
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld स्वीकृतियाँ"
+                }
+              },
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld स्वीकृति"
+                }
+              }
+            }
+          }
+        },
+        "id": {
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld persetujuan"
+                }
+              }
+            }
+          }
+        },
+        "ja": {
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld 件の承認"
+                }
+              }
+            }
+          }
+        },
+        "ko": {
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "승인 %lld개"
+                }
+              }
+            }
+          }
+        },
+        "pt": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld aprovação"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld aprovações"
+                }
+              }
+            }
+          }
+        },
+        "ru": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld одобрение"
+                }
+              },
+              "few": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld одобрения"
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld одобрений"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld одобрения"
+                }
+              }
+            }
+          }
+        },
+        "tr": {
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld onay"
+                }
+              }
+            }
+          }
+        },
+        "zh-Hans": {
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld 项审批"
+                }
+              }
+            }
+          }
+        },
+        "zh-Hant": {
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld 項核准"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "Atteo had a hiccup. Try again in a moment.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Atteo had a hiccup. Try again in a moment."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "حدث عطل بسيط في Atteo. حاول مرة أخرى بعد قليل."
+          }
+        },
+        "bn": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Atteo-তে একটি ছোট সমস্যা হয়েছে। কিছুক্ষণ পর আবার চেষ্টা করুন।"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Atteo hatte einen kleinen Husten. Versuch es gleich nochmal."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Atteo tuvo un pequeño contratiempo. Inténtalo de nuevo en un momento."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Atteo a eu un petit hoquet. Réessayez dans un instant."
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Atteo में एक छोटी समस्या हुई। कुछ देर बाद फिर से प्रयास करें।"
+          }
+        },
+        "id": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Atteo mengalami gangguan kecil. Coba lagi sebentar."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Atteoで小さな問題が発生しました。しばらくしてからもう一度お試しください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Atteo에 일시적인 문제가 발생했습니다. 잠시 후 다시 시도하세요."
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O Atteo teve um pequeno problema. Tente novamente em um momento."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "В Atteo произошла небольшая заминка. Попробуйте снова через мгновение."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Atteo da küçük bir sorun oluştu. Birazdan tekrar deneyin."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Atteo遇到了小问题。请稍后再试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Atteo遇到了小問題。請稍後再試。"
+          }
+        }
+      }
+    },
     "Pin": {
       "localizations": {
         "zh-Hans": {
@@ -1864,7 +2790,100 @@
         }
       }
     },
-    "%@ · %@": {},
+    "%@ · %@": {
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ · %@"
+          }
+        },
+        "bn": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ · %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ · %@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ · %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ · %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ · %@"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ · %@"
+          }
+        },
+        "id": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ · %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ · %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ · %@"
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ · %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ · %@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ · %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ · %@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ · %@"
+          }
+        }
+      }
+    },
     "%@ · agent": {
       "localizations": {
         "es": {
@@ -5189,6 +6208,54 @@
     },
     "%lld working": {
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld يعملون"
+          }
+        },
+        "bn": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld কাজ করছে"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld arbeiten"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld working"
+          }
+        },
+        "id": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld bekerja"
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld trabalhando"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld работают"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld çalışıyor"
+          }
+        },
         "es": {
           "variations": {
             "plural": {
@@ -9324,6 +10391,54 @@
     },
     "Boards": {
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اللوحات"
+          }
+        },
+        "bn": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "বোর্ড"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Boards"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Boards"
+          }
+        },
+        "id": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Papan"
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quadros"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Доски"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Panolar"
+          }
+        },
         "es": {
           "stringUnit": {
             "state": "translated",
@@ -13204,6 +14319,54 @@
     },
     "DMs": {
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "رسائل مباشرة"
+          }
+        },
+        "bn": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "সরাসরি বার্তা"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Direktnachrichten"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DMs"
+          }
+        },
+        "id": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DM"
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mensagens diretas"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Личные"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Direkt mesajlar"
+          }
+        },
         "es": {
           "stringUnit": {
             "state": "translated",
@@ -16517,6 +17680,54 @@
     },
     "For you": {
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لك"
+          }
+        },
+        "bn": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "আপনার জন্য"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Für dich"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "For you"
+          }
+        },
+        "id": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Untuk Anda"
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Para você"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Для вас"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sizin için"
+          }
+        },
         "es": {
           "stringUnit": {
             "state": "translated",
@@ -16883,48 +18094,48 @@
         }
       }
     },
-    "Friends by name; anyone else by email. A link lets anyone with an account join (can post, for 7 days).": {
+    "Friends by name; anyone else by email. A link lets anyone with an account join (view only, access for 30 days).": {
       "localizations": {
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Amigos por nombre; cualquier otra persona por correo. Un enlace permite unirse a cualquiera con una cuenta (puede publicar, durante 7 días)."
+            "value": "Amigos por nombre; cualquier otra persona por correo. Un enlace permite unirse a cualquiera con una cuenta (solo lectura, acceso 30 días)."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Les amis par leur nom ; les autres par e-mail. Un lien permet à toute personne ayant un compte de rejoindre (peut publier, pendant 7 jours)."
+            "value": "Les amis par leur nom ; les autres par e-mail. Un lien permet à toute personne ayant un compte de rejoindre (lecture seule, accès 30 jours)."
           }
         },
         "hi": {
           "stringUnit": {
             "state": "translated",
-            "value": "दोस्तों को नाम से; बाकी सबको ईमेल से। लिंक से खाते वाला कोई भी जुड़ सकता है (पोस्ट कर सकते हैं, 7 दिन तक)।"
+            "value": "दोस्तों को नाम से; बाकी सबको ईमेल से। लिंक से खाते वाला कोई भी जुड़ सकता है (केवल देखने के लिए, 30 दिन तक)।"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "友達は名前で、それ以外の人はメールで。リンクを使うと、アカウントを持つ人なら誰でも参加できます（投稿可、7 日間）。"
+            "value": "友達は名前で、それ以外の人はメールで。リンクを使うと、アカウントを持つ人なら誰でも参加できます（閲覧のみ、30 日間）。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "친구는 이름으로, 그 외에는 이메일로. 링크가 있으면 계정이 있는 누구나 참여할 수 있습니다(게시 가능, 7일간)."
+            "value": "친구는 이름으로, 그 외에는 이메일로. 링크가 있으면 계정이 있는 누구나 참여할 수 있습니다(보기 전용, 30일 접근)."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "好友输入名字，其他人输入邮箱。有账户的人都能通过链接加入（可发言，7 天内有效）。"
+            "value": "好友输入名字，其他人输入邮箱。有账户的人都能通过链接加入（仅查看，访问 30 天）。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "好友輸入名字，其他人輸入電子郵件。有帳戶的人都能透過連結加入（可發言，7 天內有效）。"
+            "value": "好友輸入名字，其他人輸入電子郵件。有帳戶的人都能透過連結加入（僅檢視，存取 30 天）。"
           }
         }
       }
@@ -19317,6 +20528,52 @@
           "stringUnit": {
             "state": "translated",
             "value": "僅自己"
+          }
+        }
+      }
+    },
+    "Just mine: replies here stay with you and your agents.": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Solo mío: las respuestas aquí quedan entre tú y tus agentes."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Juste moi : les réponses ici restent entre vous et vos agents."
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "सिर्फ़ मेरा: यहाँ के जवाब सिर्फ़ आपके और आपके एजेंटों तक रहते हैं।"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自分だけ：ここでの返信はあなたとあなたのエージェントだけに届きます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "나만: 여기의 답장은 나와 내 에이전트에게만 보입니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "仅自己：这里的回复只给你和你的代理看。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "僅自己：這裡的回覆只給你和你的代理看。"
           }
         }
       }
@@ -22037,6 +23294,54 @@
     },
     "New board": {
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لوحة جديدة"
+          }
+        },
+        "bn": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "নতুন বোর্ড"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Neues Board"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New board"
+          }
+        },
+        "id": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Papan baru"
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Novo quadro"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Новая доска"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yeni pano"
+          }
+        },
         "es": {
           "stringUnit": {
             "state": "translated",
@@ -26093,6 +27398,54 @@
     },
     "People": {
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الأشخاص"
+          }
+        },
+        "bn": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "মানুষ"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Personen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "People"
+          }
+        },
+        "id": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Orang"
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pessoas"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Люди"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kişiler"
+          }
+        },
         "es": {
           "stringUnit": {
             "state": "translated",
@@ -26317,6 +27670,52 @@
           "stringUnit": {
             "state": "translated",
             "value": "僅限真人"
+          }
+        }
+      }
+    },
+    "People only: replies here stay with the same people. Agents can't see them.": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Solo personas: las respuestas aquí quedan entre las mismas personas. Los agentes no pueden verlas."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Personnes uniquement : les réponses ici restent entre les mêmes personnes. Les agents ne peuvent pas les voir."
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "सिर्फ़ लोग: यहाँ के जवाब उन्हीं लोगों तक रहते हैं। एजेंट उन्हें नहीं देख सकते।"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "人だけ：ここでの返信は同じ人たちだけに届きます。エージェントには見えません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사람만: 여기의 답장은 같은 사람들에게만 보입니다. 에이전트는 볼 수 없습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "仅限真人：这里的回复只给同样的人看。代理看不到。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "僅限真人：這裡的回覆只給同樣的人看。代理看不到。"
           }
         }
       }
@@ -30325,6 +31724,54 @@
     },
     "Settings": {
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الإعدادات"
+          }
+        },
+        "bn": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "সেটিংস"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Einstellungen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Settings"
+          }
+        },
+        "id": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pengaturan"
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Configurações"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Настройки"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ayarlar"
+          }
+        },
         "es": {
           "stringUnit": {
             "state": "translated",
@@ -30457,6 +31904,100 @@
           "stringUnit": {
             "state": "translated",
             "value": "分享連結"
+          }
+        }
+      }
+    },
+    "Show in chat": {
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الإظهار في الدردشة"
+          }
+        },
+        "bn": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "চ্যাটে দেখান"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Im Chat anzeigen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show in chat"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar en el chat"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afficher dans le chat"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "चैट में दिखाएँ"
+          }
+        },
+        "id": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tampilkan di obrolan"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "チャットで表示"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "채팅에서 보기"
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar no chat"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показать в чате"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sohbette göster"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在聊天中显示"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在聊天中顯示"
           }
         }
       }
@@ -32517,6 +34058,53 @@
           "stringUnit": {
             "state": "translated",
             "value": "已停止"
+          }
+        }
+      }
+    },
+    "Frozen": {
+      "comment": "A task status (vedu #4791): parked for the far future, not open work",
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Congelada"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gelée"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "रोकी गई"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "凍結"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "보류됨"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已冻结"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已凍結"
           }
         }
       }
@@ -36937,48 +38525,48 @@
         }
       }
     },
-    "When a message for you lands in the chat you have open, a short blip; tap the bar to hear it. Hold the mic in the message box to talk; end with “send it” to send. Speech is turned into text on this phone.": {
+    "When a message for you lands in the chat you have open, it's read out. Hold the mic in the message box to talk; end with “send it” to send. Speech is turned into text on this phone.": {
       "localizations": {
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cuando llega un mensaje para ti al chat que tienes abierto, suena un breve aviso; toca la barra para escucharlo. Mantén pulsado el micrófono del cuadro de mensaje para hablar; termina con “send it” para enviar. La voz se convierte en texto en este teléfono."
+            "value": "Cuando llega un mensaje para ti al chat que tienes abierto, se lee en voz alta. Mantén pulsado el micrófono del cuadro de mensaje para hablar; termina con “send it” para enviar. La voz se convierte en texto en este teléfono."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Quand un message pour vous arrive dans le chat ouvert, un bref bip retentit ; touchez la barre pour l’écouter. Maintenez le micro de la zone de message pour parler ; terminez par « send it » pour envoyer. La parole est convertie en texte sur ce téléphone."
+            "value": "Quand un message pour vous arrive dans le chat ouvert, il est lu à voix haute. Maintenez le micro de la zone de message pour parler ; terminez par « send it » pour envoyer. La parole est convertie en texte sur ce téléphone."
           }
         },
         "hi": {
           "stringUnit": {
             "state": "translated",
-            "value": "जब आपकी खुली चैट में आपके लिए कोई संदेश आता है, तो एक छोटी-सी आवाज़ होती है; सुनने के लिए बार पर टैप करें। बोलने के लिए संदेश बॉक्स में माइक दबाकर रखें; भेजने के लिए अंत में “send it” कहें। बोली इसी फ़ोन पर टेक्स्ट में बदली जाती है।"
+            "value": "जब आपकी खुली चैट में आपके लिए कोई संदेश आता है, तो उसे पढ़कर सुनाया जाता है। बोलने के लिए संदेश बॉक्स में माइक दबाकर रखें; भेजने के लिए अंत में “send it” कहें। बोली इसी फ़ोन पर टेक्स्ट में बदली जाती है।"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "開いているチャットにあなた宛てのメッセージが届くと、短い音が鳴ります。バーをタップすると聞けます。メッセージ欄のマイクを押したまま話し、最後に「send it」と言うと送信します。音声はこのiPhone上で文字に変換されます。"
+            "value": "開いているチャットにあなた宛てのメッセージが届くと、読み上げられます。メッセージ欄のマイクを押したまま話し、最後に「send it」と言うと送信します。音声はこのiPhone上で文字に変換されます。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "보고 있는 채팅에 나에게 온 메시지가 오면 짧은 알림음이 납니다. 막대를 누르면 들을 수 있습니다. 말하려면 메시지 입력창의 마이크를 길게 누르고, 끝에 “send it”이라고 말하면 보냅니다. 음성은 이 휴대폰에서 텍스트로 변환됩니다."
+            "value": "열어 둔 채팅에 나에게 보내는 메시지가 도착하면 소리 내어 읽어 줍니다. 말하려면 메시지 입력창의 마이크를 길게 누르고, 끝에 “send it”이라고 말하면 보냅니다. 음성은 이 휴대폰에서 텍스트로 변환됩니다."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "当你打开的聊天中有给你的消息时，会有一声短促提示音；点按提示条即可收听。按住消息框里的麦克风说话，以“send it”结尾即可发送。语音会在这台手机上转成文字。"
+            "value": "当你打开的聊天中有给你的消息时，会朗读出来。按住消息框里的麦克风说话，以“send it”结尾即可发送。语音会在这台手机上转成文字。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "當你開啟的聊天中有給你的訊息時，會有一聲短促提示音；點按提示條即可收聽。按住訊息框裡的麥克風說話，以“send it”結尾即可傳送。語音會在這台手機上轉成文字。"
+            "value": "當你開啟的聊天中有給你的訊息時，會朗讀出來。按住訊息框裡的麥克風說話，以“send it”結尾即可傳送。語音會在這台手機上轉成文字。"
           }
         }
       }
@@ -37629,6 +39217,54 @@
     },
     "You": {
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أنت"
+          }
+        },
+        "bn": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "আপনি"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Du"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "You"
+          }
+        },
+        "id": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anda"
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Você"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вы"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Siz"
+          }
+        },
         "es": {
           "stringUnit": {
             "state": "translated",
@@ -38043,6 +39679,54 @@
     },
     "Your agent": {
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "وكيلك"
+          }
+        },
+        "bn": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "আপনার এজেন্ট"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dein Agent"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your agent"
+          }
+        },
+        "id": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agen Anda"
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seu agente"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ваш агент"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajanınız"
+          }
+        },
         "es": {
           "stringUnit": {
             "state": "translated",
@@ -43710,6 +45394,54 @@
     },
     "Report a bug": {
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الإبلاغ عن خطأ"
+          }
+        },
+        "bn": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "বাগ রিপোর্ট করুন"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fehler melden"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Report a bug"
+          }
+        },
+        "id": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Laporkan bug"
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Informar um erro"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сообщить об ошибке"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hata bildir"
+          }
+        },
         "es": {
           "stringUnit": {
             "state": "translated",
@@ -46215,6 +47947,2124 @@
           "stringUnit": {
             "state": "translated",
             "value": "一行會收合沒有提到你的訊息；點一下即可展開。文字大小在 iPhone 本身設定的基礎上調整。儲存在你的帳號中，網頁版也會同步。"
+          }
+        }
+      }
+    },
+    "Send feedback": {
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إرسال ملاحظات"
+          }
+        },
+        "bn": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "মতামত পাঠান"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Feedback senden"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Send feedback"
+          }
+        },
+        "id": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kirim masukan"
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enviar feedback"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Отправить отзыв"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Geri bildirim gönder"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enviar comentarios"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Envoyer un avis"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "फ़ीडबैक भेजें"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フィードバックを送る"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "피드백 보내기"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "发送反馈"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "傳送意見回饋"
+          }
+        }
+      }
+    },
+    "An idea, a complaint, something you like: it goes to the Atteo team.": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Una idea, una queja, algo que te gusta: llega al equipo de Atteo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Une idée, une plainte, quelque chose que vous aimez : cela va à l’équipe Atteo."
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "कोई आइडिया, शिकायत, या कुछ जो आपको पसंद है: यह Atteo टीम तक जाता है।"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アイデア、不満、気に入っている点など：Atteo チームに届きます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "아이디어, 불만, 마음에 드는 점 등: Atteo 팀에 전달됩니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "想法、抱怨或你喜欢的地方：会发送给 Atteo 团队。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "想法、抱怨或你喜歡的地方：會送給 Atteo 團隊。"
+          }
+        }
+      }
+    },
+    "Your feedback": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tus comentarios"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Votre avis"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "आपका फ़ीडबैक"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "あなたのフィードバック"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "내 피드백"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你的反馈"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你的意見回饋"
+          }
+        }
+      }
+    },
+    "Sent. Thanks, the Atteo team will read it.": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enviado. Gracias, el equipo de Atteo lo leerá."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Envoyé. Merci, l’équipe Atteo le lira."
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "भेज दिया गया। धन्यवाद, Atteo टीम इसे पढ़ेगी।"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "送信しました。ありがとうございます。Atteo チームが読みます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "보냈습니다. 감사합니다. Atteo 팀이 읽어 볼게요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已发送。谢谢，Atteo 团队会阅读。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已傳送。謝謝，Atteo 團隊會閱讀。"
+          }
+        }
+      }
+    },
+    "Feedback isn't set up on this server yet.": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los comentarios aún no están configurados en este servidor."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les avis ne sont pas encore configurés sur ce serveur."
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "इस सर्वर पर फ़ीडबैक अभी सेट नहीं है।"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このサーバーではまだフィードバックが設定されていません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 서버에는 아직 피드백이 설정되지 않았습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此服务器尚未设置反馈。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此伺服器尚未設定意見回饋。"
+          }
+        }
+      }
+    },
+    "Couldn't send it. Try again.": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo enviar. Inténtalo de nuevo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Envoi impossible. Réessayez."
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "भेजा नहीं जा सका। फिर से कोशिश करें।"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "送信できませんでした。もう一度お試しください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "보내지 못했습니다. 다시 시도하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法发送，请重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法傳送，請再試一次。"
+          }
+        }
+      }
+    },
+    "Privacy Policy": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Política de privacidad"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Politique de confidentialité"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "गोपनीयता नीति"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プライバシーポリシー"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "개인정보 처리방침"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "隐私政策"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "隱私權政策"
+          }
+        }
+      }
+    },
+    "Terms of Service": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Términos del servicio"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conditions d'utilisation"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "सेवा की शर्तें"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "利用規約"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "서비스 약관"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "服务条款"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "服務條款"
+          }
+        }
+      }
+    },
+    "Add a picture": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Añadir una imagen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajouter une image"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "तस्वीर जोड़ें"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "画像を追加"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사진 추가"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "添加图片"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "加入圖片"
+          }
+        }
+      }
+    },
+    "Add a screenshot with the paper clip or Paste. It goes to the developers' board, so leave out private chats. We add the app version, your phone model, iOS and which chat you had open.": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Añade una captura con el clip o pegándola. Va al tablero de los desarrolladores, así que no incluyas chats privados. Añadimos la versión de la app, el modelo de tu teléfono, iOS y el chat que tenías abierto."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajoutez une capture avec le trombone ou en la collant. Elle va sur le tableau des développeurs : évitez les discussions privées. Nous ajoutons la version de l'app, le modèle de votre téléphone, iOS et la discussion ouverte."
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "पेपर क्लिप या पेस्ट से स्क्रीनशॉट जोड़ें। यह डेवलपर्स के बोर्ड पर जाता है, इसलिए निजी चैट न डालें। हम ऐप का वर्शन, आपके फ़ोन का मॉडल, iOS और खुली चैट जोड़ते हैं।"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クリップか貼り付けでスクリーンショットを追加できます。開発者のボードに届くので、非公開のチャットは含めないでください。アプリのバージョン、端末の機種、iOS、開いていたチャットを添えます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "클립 버튼이나 붙여넣기로 스크린샷을 추가하세요. 개발자 보드로 가니 비공개 채팅은 빼 주세요. 앱 버전, 휴대폰 모델, iOS, 열려 있던 채팅을 함께 보냅니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用回形针或粘贴添加截图。它会发到开发者的看板，请不要包含私密聊天。我们会附上应用版本、手机型号、iOS 版本和你打开的聊天。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用迴紋針或貼上加入截圖。它會發到開發者的看板，請不要包含私密聊天。我們會附上 App 版本、手機型號、iOS 版本和你開著的聊天。"
+          }
+        }
+      }
+    },
+    "Voice chat needs your OK first.": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El chat de voz necesita tu permiso primero."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le chat vocal a d'abord besoin de ton accord."
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "वॉइस चैट के लिए पहले आपकी अनुमति चाहिए।"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "音声チャットには先に同意が必要です。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "음성 채팅을 쓰려면 먼저 동의가 필요해요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "语音聊天需要你先同意。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "語音聊天需要你先同意。"
+          }
+        }
+      }
+    },
+    "Voice uses xAI": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La voz usa xAI"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La voix utilise xAI"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "आवाज़ xAI का उपयोग करती है"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "音声は xAI を使います"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "음성은 xAI를 사용해요"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "语音使用 xAI"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "語音使用 xAI"
+          }
+        }
+      }
+    },
+    "Voice chat and read-aloud are powered by xAI's Grok voice service. When you use them, your voice and the messages being read or discussed are sent to xAI so it can listen and answer.": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El chat de voz y la lectura en voz alta funcionan con el servicio de voz Grok de xAI. Cuando los usas, tu voz y los mensajes que se leen o comentan se envían a xAI para que pueda escuchar y responder."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le chat vocal et la lecture à voix haute utilisent le service vocal Grok de xAI. Quand tu les utilises, ta voix et les messages lus ou discutés sont envoyés à xAI pour qu'il puisse écouter et répondre."
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "वॉइस चैट और पढ़कर सुनाना xAI की Grok वॉइस सेवा से चलते हैं। इन्हें इस्तेमाल करने पर आपकी आवाज़ और पढ़े या चर्चा किए जा रहे संदेश xAI को भेजे जाते हैं, ताकि वह सुन सके और जवाब दे सके।"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "音声チャットと読み上げは xAI の Grok 音声サービスで動いています。使うと、あなたの声と読み上げ・話題にしているメッセージが xAI に送られ、聞き取りと応答に使われます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "음성 채팅과 읽어 주기는 xAI의 Grok 음성 서비스로 작동해요. 사용하면 내 목소리와 읽거나 이야기하는 메시지가 xAI로 보내져 듣고 답하는 데 쓰여요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "语音聊天和朗读由 xAI 的 Grok 语音服务提供。使用时，你的声音以及正在朗读或讨论的消息会发送给 xAI，以便它聆听和回答。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "語音聊天和朗讀由 xAI 的 Grok 語音服務提供。使用時，你的聲音以及正在朗讀或討論的訊息會傳送給 xAI，以便它聆聽和回答。"
+          }
+        }
+      }
+    },
+    "xAI processes them to run the conversation. Atteo doesn't keep your voice recordings.": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "xAI los procesa para mantener la conversación. Atteo no guarda tus grabaciones de voz."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "xAI les traite pour faire fonctionner la conversation. Atteo ne garde pas tes enregistrements vocaux."
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "xAI बातचीत चलाने के लिए इन्हें प्रोसेस करता है। Atteo आपकी आवाज़ की रिकॉर्डिंग नहीं रखता।"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "xAI は会話のためにこれらを処理します。Atteo はあなたの音声の録音を保存しません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "xAI는 대화를 위해 이를 처리해요. Atteo는 음성 녹음을 보관하지 않아요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "xAI 处理这些内容以进行对话。Atteo 不保存你的语音录音。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "xAI 處理這些內容以進行對話。Atteo 不保存你的語音錄音。"
+          }
+        }
+      }
+    },
+    "You can turn this off any time in Settings → Safety and privacy.": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Puedes desactivarlo cuando quieras en Ajustes → Seguridad y privacidad."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tu peux le désactiver à tout moment dans Réglages → Sécurité et confidentialité."
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "आप इसे कभी भी सेटिंग्स → सुरक्षा और गोपनीयता में बंद कर सकते हैं।"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "設定 → 安全とプライバシー でいつでもオフにできます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "설정 → 안전 및 개인정보에서 언제든 끌 수 있어요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你可以随时在 设置 → 安全与隐私 中关闭。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你可以隨時在 設定 → 安全與隱私 中關閉。"
+          }
+        }
+      }
+    },
+    "Agree and continue": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aceptar y continuar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Accepter et continuer"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "सहमत हैं, जारी रखें"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "同意して続ける"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "동의하고 계속"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "同意并继续"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "同意並繼續"
+          }
+        }
+      }
+    },
+    "Message from %@": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mensaje de %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Message de %@"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ का संदेश"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ のメッセージ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@의 메시지"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "来自 %@ 的消息"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "來自 %@ 的訊息"
+          }
+        }
+      }
+    },
+    "Why are you reporting it?": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "¿Por qué lo denuncias?"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pourquoi le signales-tu ?"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "आप इसकी रिपोर्ट क्यों कर रहे हैं?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "報告する理由は？"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "신고하는 이유는 무엇인가요?"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你为什么举报它？"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你為什麼檢舉它？"
+          }
+        }
+      }
+    },
+    "Reported. The board's owners will look at it.": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denunciado. Los propietarios del tablero lo revisarán."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Signalé. Les propriétaires du tableau vont l'examiner."
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "रिपोर्ट हो गई। बोर्ड के मालिक इसे देखेंगे।"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "報告しました。ボードのオーナーが確認します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "신고했어요. 보드 소유자가 확인할 거예요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已举报。看板的所有者会查看。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已檢舉。看板的擁有者會查看。"
+          }
+        }
+      }
+    },
+    "The board's owners see the message and your reason. The person who wrote it isn't told. To stop seeing someone, mute or block them from their profile.": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los propietarios del tablero ven el mensaje y tu motivo. No se avisa a quien lo escribió. Para dejar de ver a alguien, silénciale o bloquéale desde su perfil."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les propriétaires du tableau voient le message et ta raison. La personne qui l'a écrit n'est pas prévenue. Pour ne plus voir quelqu'un, mets-le en sourdine ou bloque-le depuis son profil."
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "बोर्ड के मालिक संदेश और आपका कारण देखते हैं। लिखने वाले को नहीं बताया जाता। किसी को देखना बंद करने के लिए उनकी प्रोफ़ाइल से उन्हें म्यूट या ब्लॉक करें।"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ボードのオーナーにはメッセージと理由が表示されます。書いた人には通知されません。誰かを見たくない場合は、プロフィールからミュートまたはブロックしてください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "보드 소유자는 메시지와 사유를 봐요. 작성자에게는 알리지 않아요. 누군가를 보지 않으려면 프로필에서 음소거하거나 차단하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "看板的所有者会看到这条消息和你的理由。不会通知写的人。要不再看到某人，可在其个人资料中将其静音或屏蔽。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "看板的擁有者會看到這則訊息和你的理由。不會通知寫的人。要不再看到某人，可在其個人資料中將其靜音或封鎖。"
+          }
+        }
+      }
+    },
+    "Report message": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denunciar mensaje"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Signaler le message"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "संदेश की रिपोर्ट करें"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "メッセージを報告"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "메시지 신고"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "举报消息"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "檢舉訊息"
+          }
+        }
+      }
+    },
+    "Report": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denunciar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Signaler"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "रिपोर्ट करें"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "報告"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "신고"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "举报"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "檢舉"
+          }
+        }
+      }
+    },
+    "Muted: %@": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Silenciado: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En sourdine : %@"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "म्यूट: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ミュート中: %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "음소거됨: %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已静音：%@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已靜音：%@"
+          }
+        }
+      }
+    },
+    "Safety and privacy": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seguridad y privacidad"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sécurité et confidentialité"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "सुरक्षा और गोपनीयता"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "安全とプライバシー"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "안전 및 개인정보"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "安全与隐私"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "安全與隱私"
+          }
+        }
+      }
+    },
+    "Hide offensive words": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ocultar palabras ofensivas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Masquer les mots offensants"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "आपत्तिजनक शब्द छिपाएँ"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不快な言葉を隠す"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "불쾌한 단어 숨기기"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "隐藏冒犯性词语"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "隱藏冒犯性字詞"
+          }
+        }
+      }
+    },
+    "Use xAI for voice": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usar xAI para la voz"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utiliser xAI pour la voix"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "आवाज़ के लिए xAI का उपयोग करें"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "音声に xAI を使う"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "음성에 xAI 사용"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "语音使用 xAI"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "語音使用 xAI"
+          }
+        }
+      }
+    },
+    "Offensive words in other people's messages show as dots. Voice chat and the natural reading voice send your voice and the messages being read to xAI; off, you're asked first. To report a message, long-press it; to mute or block someone, open their profile.": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Las palabras ofensivas en los mensajes de otros se muestran como puntos. El chat de voz y la voz de lectura natural envían tu voz y los mensajes leídos a xAI; desactivado, se te pregunta primero. Para denunciar un mensaje, mantenlo pulsado; para silenciar o bloquear a alguien, abre su perfil."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les mots offensants dans les messages des autres s'affichent en points. Le chat vocal et la voix de lecture naturelle envoient ta voix et les messages lus à xAI ; désactivé, on te demande d'abord. Pour signaler un message, appuie longuement dessus ; pour mettre en sourdine ou bloquer quelqu'un, ouvre son profil."
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "दूसरों के संदेशों में आपत्तिजनक शब्द बिंदुओं के रूप में दिखते हैं। वॉइस चैट और प्राकृतिक पढ़ने वाली आवाज़ आपकी आवाज़ और पढ़े जा रहे संदेश xAI को भेजती हैं; बंद होने पर पहले पूछा जाता है। किसी संदेश की रिपोर्ट करने के लिए उसे दबाकर रखें; किसी को म्यूट या ब्लॉक करने के लिए उनकी प्रोफ़ाइल खोलें।"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "他の人のメッセージ内の不快な言葉は点で表示されます。音声チャットと自然な読み上げ音声は、あなたの声と読み上げるメッセージを xAI に送ります。オフの場合は先に確認します。メッセージを報告するには長押し、ミュートやブロックはその人のプロフィールから。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다른 사람 메시지의 불쾌한 단어는 점으로 표시돼요. 음성 채팅과 자연스러운 읽기 음성은 내 목소리와 읽는 메시지를 xAI로 보내요. 끄면 먼저 물어봐요. 메시지를 신고하려면 길게 누르고, 음소거나 차단은 프로필에서 하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "他人消息中的冒犯性词语会显示为圆点。语音聊天和自然朗读声音会把你的声音和正在朗读的消息发送给 xAI；关闭时会先询问你。要举报消息，请长按它；要静音或屏蔽某人，请打开其个人资料。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "他人訊息中的冒犯性字詞會顯示為圓點。語音聊天和自然朗讀聲音會把你的聲音和正在朗讀的訊息傳送給 xAI；關閉時會先詢問你。要檢舉訊息，請長按它；要靜音或封鎖某人，請開啟其個人資料。"
+          }
+        }
+      }
+    },
+    "Mute on this board": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Silenciar en este tablero"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mettre en sourdine sur ce tableau"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "इस बोर्ड पर म्यूट करें"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このボードでミュート"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 보드에서 음소거"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在此看板静音"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在此看板靜音"
+          }
+        }
+      }
+    },
+    "Unmute on this board": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dejar de silenciar en este tablero"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Réactiver sur ce tableau"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "इस बोर्ड पर अनम्यूट करें"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このボードでミュート解除"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 보드에서 음소거 해제"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在此看板取消静音"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在此看板取消靜音"
+          }
+        }
+      }
+    },
+    "Couldn't save that. Check your connection and try again.": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo guardar. Comprueba tu conexión e inténtalo de nuevo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible d'enregistrer. Vérifie ta connexion et réessaie."
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "सहेजा नहीं जा सका। अपना कनेक्शन जाँचें और फिर कोशिश करें।"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保存できませんでした。接続を確認してもう一度お試しください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "저장하지 못했어요. 연결을 확인하고 다시 시도하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法保存。请检查网络连接后重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法儲存。請檢查網路連線後再試一次。"
+          }
+        }
+      }
+    },
+    "Turn on Use xAI for voice in Settings → Safety and privacy first.": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Activa primero «Usar xAI para la voz» en Ajustes → Seguridad y privacidad."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Active d'abord « Utiliser xAI pour la voix » dans Réglages → Sécurité et confidentialité."
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "पहले सेटिंग्स → सुरक्षा और गोपनीयता में «आवाज़ के लिए xAI का उपयोग करें» चालू करें।"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "先に 設定 → 安全とプライバシー で「音声に xAI を使う」をオンにしてください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "먼저 설정 → 안전 및 개인정보에서 ‘음성에 xAI 사용’을 켜세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请先在 设置 → 安全与隐私 中开启“语音使用 xAI”。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "請先在 設定 → 安全與隱私 中開啟「語音使用 xAI」。"
+          }
+        }
+      }
+    },
+    "Delete account": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eliminar cuenta"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Supprimer le compte"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "खाता हटाएँ"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アカウントを削除"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "계정 삭제"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "删除账号"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "刪除帳號"
+          }
+        }
+      }
+    },
+    "Delete my account": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eliminar mi cuenta"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Supprimer mon compte"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "मेरा खाता हटाएँ"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アカウントを削除する"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "내 계정 삭제"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "删除我的账号"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "刪除我的帳號"
+          }
+        }
+      }
+    },
+    "Type your handle to confirm": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Escribe tu nombre de usuario para confirmar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Saisissez votre identifiant pour confirmer"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "पुष्टि के लिए अपना हैंडल लिखें"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "確認のためハンドルを入力"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "확인하려면 핸들을 입력하세요"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "输入你的账号名以确认"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "輸入你的帳號名稱以確認"
+          }
+        }
+      }
+    },
+    "Could not delete your account": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo eliminar tu cuenta"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible de supprimer votre compte"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "आपका खाता हटाया नहीं जा सका"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アカウントを削除できませんでした"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "계정을 삭제하지 못했습니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法删除你的账号"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法刪除你的帳號"
+          }
+        }
+      }
+    },
+    "Deleted user": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usuario eliminado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utilisateur supprimé"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "हटाया गया उपयोगकर्ता"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "削除されたユーザー"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "삭제된 사용자"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已删除的用户"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已刪除的使用者"
+          }
+        }
+      }
+    },
+    "Your profile, agents, sign-ins and private boards are deleted for good. What you wrote on boards you share stays there, shown as “Deleted user”. Your handle can't be used again.": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tu perfil, tus agentes, tus inicios de sesión y tus tableros privados se eliminan para siempre. Lo que escribiste en tableros compartidos se queda allí, como «Usuario eliminado». Tu nombre de usuario no se podrá volver a usar."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Votre profil, vos agents, vos connexions et vos tableaux privés sont supprimés définitivement. Ce que vous avez écrit sur les tableaux partagés y reste, signé « Utilisateur supprimé ». Votre identifiant ne pourra plus être utilisé."
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "आपकी प्रोफ़ाइल, एजेंट, साइन-इन और निजी बोर्ड हमेशा के लिए हट जाएँगे। साझा बोर्डों पर आपका लिखा वहीं रहेगा, “हटाया गया उपयोगकर्ता” के नाम से। आपका हैंडल दोबारा इस्तेमाल नहीं हो सकेगा।"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プロフィール、エージェント、サインイン、非公開ボードは完全に削除されます。共有ボードに書いた内容は「削除されたユーザー」として残ります。ハンドルは再び使えません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "프로필, 에이전트, 로그인 기록, 비공개 보드가 영구히 삭제됩니다. 공유 보드에 쓴 글은 '삭제된 사용자'로 남습니다. 핸들은 다시 사용할 수 없습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你的个人资料、代理、登录记录和私人看板会被永久删除。你在共享看板上写的内容会保留，显示为“已删除的用户”。你的账号名不能再被使用。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你的個人檔案、代理、登入紀錄與私人看板會永久刪除。你在共用看板上寫的內容會保留，顯示為「已刪除的使用者」。你的帳號名稱不能再被使用。"
+          }
+        }
+      }
+    },
+    "Email me a code": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Envíame un código"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "M'envoyer un code"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "मुझे कोड ईमेल करें"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コードをメールで送る"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이메일로 코드 받기"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "给我发送验证码"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "寄給我驗證碼"
+          }
+        }
+      }
+    },
+    "Code from your email": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Código de tu correo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Code reçu par e-mail"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "आपके ईमेल का कोड"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "メールのコード"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이메일로 받은 코드"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "邮件中的验证码"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "郵件中的驗證碼"
+          }
+        }
+      }
+    },
+    "We sent a code to %@ to make sure it's you.": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enviamos un código a %@ para confirmar que eres tú."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nous avons envoyé un code à %@ pour vérifier que c'est bien vous."
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "यह पक्का करने के लिए कि यह आप ही हैं, हमने %@ पर एक कोड भेजा है।"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ご本人確認のため、%@ にコードを送りました。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "본인 확인을 위해 %@(으)로 코드를 보냈습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "我们已向 %@ 发送验证码，以确认是你本人。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "我們已寄送驗證碼到 %@，以確認是你本人。"
+          }
+        }
+      }
+    },
+    "Share usage analytics": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compartir datos de uso"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Partager les statistiques d'utilisation"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "उपयोग के आँकड़े साझा करें"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "利用状況の分析を共有"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사용 분석 공유"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "共享使用情况分析"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "分享使用情況分析"
+          }
+        }
+      }
+    },
+    "Usage analytics tell us which features get used, never what you write. They go to PostHog.": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los datos de uso nos dicen qué funciones se usan, nunca lo que escribes. Se envían a PostHog."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les statistiques d'utilisation nous indiquent quelles fonctions sont utilisées, jamais ce que vous écrivez. Elles sont envoyées à PostHog."
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "उपयोग के आँकड़े हमें बताते हैं कि कौन-सी सुविधाएँ इस्तेमाल होती हैं, आप क्या लिखते हैं यह कभी नहीं। ये PostHog को भेजे जाते हैं।"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "利用状況の分析でわかるのは、どの機能が使われているかだけで、あなたが書いた内容は含まれません。データは PostHog に送られます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사용 분석은 어떤 기능이 쓰이는지만 알려 주며, 작성한 내용은 절대 포함하지 않습니다. 데이터는 PostHog로 전송됩니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用情况分析只告诉我们哪些功能被使用，绝不包含你写的内容。数据发送至 PostHog。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用情況分析只告訴我們哪些功能被使用，絕不包含你寫的內容。資料傳送至 PostHog。"
+          }
+        }
+      }
+    },
+    "Machine attached": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Máquina conectada"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Machine connectée"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "मशीन जुड़ी है"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "マシンが接続されています"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "기기가 연결됨"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已连接机器"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已連接機器"
+          }
+        }
+      }
+    },
+    "%@: agents here can ask to run commands on it. Its owner approves each one.": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@: los agentes de aquí pueden pedir ejecutar comandos en ella. Su dueño aprueba cada uno."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ : les agents ici peuvent demander à y exécuter des commandes. Son propriétaire approuve chacune."
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@: यहाँ के एजेंट इस पर कमांड चलाने को कह सकते हैं। इसका मालिक हर एक को मंज़ूरी देता है।"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@：ここのエージェントはこのマシンでコマンドの実行を頼めます。所有者が一つずつ承認します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@: 이곳의 에이전트가 이 기기에서 명령 실행을 요청할 수 있습니다. 소유자가 하나씩 승인합니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@：这里的智能体可以请求在上面运行命令，由它的主人逐条批准。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@：這裡的代理可以請求在上面執行命令，由它的主人逐條核准。"
+          }
+        }
+      }
+    },
+    "Stop %@": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Detener %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arrêter %@"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ रोकें"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ を停止"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 중지"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "停止 %@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "停止 %@"
           }
         }
       }

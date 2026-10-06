@@ -10,11 +10,11 @@ import { chromium } from "playwright-core";
 const BASE = process.env.BASE || "http://localhost:8787";
 const ops = async (p, b) => (await fetch(`${BASE}/api/ops/${p}`, { method: "POST", headers: { "x-admin-key": process.env.ADMIN_KEY || "ci-admin-key", "content-type": "application/json" }, body: JSON.stringify(b) })).json();
 const run = Date.now().toString(36).slice(-4), V = `tv${run}`;
-const mkUser = (u) => ops("users", { name: u, email: `${u}@example.com`, verified: "true", display: { mode: "developer", voice_turns: "quick" } }); // the service finds the turns here (voice-turns.mjs covers pause and tap)
+const mkUser = (u, xai_ok = true) => ops("users", { name: u, email: `${u}@example.com`, verified: "true", display: { mode: "developer", voice_turns: "quick", xai_ok } }); // xai_ok: the OK to use xAI (#4386) // the service finds the turns here (voice-turns.mjs covers pause and tap)
 await mkUser(V); const ckV = (await ops("sessions", { user: V })).cookie;
 // A person with a board of their own that V is on.
-async function person(tag) {
-  const me = `t${tag}${run}`; await mkUser(me);
+async function person(tag, xai = true) {
+  const me = `t${tag}${run}`; await mkUser(me, xai);
   const board = (await ops("boards", { user: me, title: `Talk ${tag} ${run}` })).board.id; await ops("members", { board, user: V });
   return { me, board, ck: (await ops("sessions", { user: me })).cookie };
 }
@@ -35,11 +35,12 @@ const b = await chromium.launch({ executablePath: process.env.PW_CHROME || undef
 async function page(path, { session, blockMic, ck } = {}) {
   const ctx = await b.newContext({ viewport: { width: 1280, height: 860 }, permissions: ["microphone"] }); const [k, ...v] = ck.split(";")[0].split("="); await ctx.addCookies([{ name: k, value: v.join("="), url: BASE }]);
   const p = await ctx.newPage(); p.errors = []; p.on("pageerror", (e) => p.errors.push(e.message)); p.ends = [];
-  await p.addInitScript(FAKE_WS);
+  await p.addInitScript(FAKE_WS); p.sessions = 0;
   if (blockMic) await p.addInitScript(() => { navigator.mediaDevices.getUserMedia = () => Promise.reject(Object.assign(new Error("denied"), { name: "NotAllowedError" })); });
   await p.route("**/api/app/voice/**", async (route) => {
     const req = route.request(), headers = { ...req.headers(), "x-dev-fake-voice": "1" };
     if (req.url().endsWith("/session/end")) p.ends.push(JSON.parse(req.postData() || "{}"));
+    if (req.url().endsWith("/voice/session")) p.sessions++;
     if (req.url().endsWith("/voice/session") && session) return session(route, headers);
     return route.continue({ headers });
   });
@@ -246,6 +247,23 @@ part(async (check) => { const { ck } = await person("q");
   await btn.click(); await listening(p);
   const s = await sent(p);
   check(s[0]?.type === "session.update" && !/has the board/.test(s[0].session.instructions) && /Listening/.test(await st(p)), "it connects there, not about any board");
+  await p.locator("#talk-end").click(); await until(p, () => !window.atteoTalk.busy(), null, 3000);
+  check(!p.errors.length, `no page errors ${p.errors.join(" | ")}`); await ctx.close(); });
+
+// The xAI OK first (App Review 5.1.2(i), talk.ts consent): no session until the person agrees; Not now sends nothing.
+part(async (check) => { const { board, ck } = await person("o", false);
+  const { ctx, p } = await page(`/b/${board}`, { ck });
+  const btn = p.locator(".bp-head [data-talk]");
+  await btn.click();
+  const dlg = p.locator("#ai-consent");
+  check(await dlg.isVisible().catch(() => false) && /xAI/.test(await dlg.innerText()), "the first Talk asks for the xAI OK, naming xAI");
+  check(p.sessions === 0, "no voice session before the OK");
+  await dlg.locator("[data-no]").click();
+  check(!(await dlg.isVisible()) && p.sessions === 0 && !(await p.evaluate(() => window.atteoTalk.busy())), "Not now: the sheet closes and nothing is sent");
+  await btn.click(); await dlg.locator("[data-yes]").click(); await listening(p);
+  check(p.sessions === 1 && /Listening/.test(await st(p)), "Agree: the call connects");
+  const prefs = await p.evaluate(() => fetch("/api/app/prefs").then((r) => r.json()));
+  check(prefs.prefs?.display?.xai_ok === true, "and it's saved for the person (display.xai_ok), so every device follows it");
   await p.locator("#talk-end").click(); await until(p, () => !window.atteoTalk.busy(), null, 3000);
   check(!p.errors.length, `no page errors ${p.errors.join(" | ")}`); await ctx.close(); });
 for (const lines of await Promise.all(parts)) for (const l of lines) console.log(l);

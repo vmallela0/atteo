@@ -19,13 +19,15 @@ struct EverydaySettings: View {
         return AppMode.clientName(c)
     }
 
-    var body: some View {
+    var body: some View { screen.onAppear { Analytics.screen("settings") } } // product analytics (Analytics.swift)
+
+    @ViewBuilder private var screen: some View {
         List {
             Section {
                 HStack(spacing: Space.m) {
                     Avatar(name: state.me?.owner ?? "", size: 52)
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(state.profile?.displayName?.nonEmpty ?? state.me?.owner.capitalizedFirst ?? "").font(Typo.ui(.title3).weight(.semibold)).foregroundStyle(Theme.text)
+                        Text(state.displayName(for: state.me?.owner ?? "")).font(Typo.ui(.title3).weight(.semibold)).foregroundStyle(Theme.text)
                         Text("\(chats) chats").font(Typo.secondary).foregroundStyle(Theme.muted)
                     }
                 }
@@ -56,6 +58,10 @@ struct EverydaySettings: View {
             .listRowBackground(Theme.card)
 
             ReportBugRow() // Report a bug (ReportBug.swift), where it's easy to find
+            FeedbackRow() // Send feedback to the Atteo team (Feedback.swift, vedu #4125)
+            LegalRow() // Privacy Policy + Terms (LegalRow.swift, App Review 5.1.1(i))
+            SafetySection() // hide offensive words, the xAI voice consent (Moderation.swift, App Review 1.2 / 5.1.2(i))
+            DeleteAccountRow() // Delete account (DeleteAccount.swift, App Review 5.1.1(v))
 
             NotificationsSection()
 
@@ -281,7 +287,7 @@ struct AssistantRemembers: View {
                 if list.isEmpty { Text("Nothing yet.").foregroundStyle(Theme.muted) }
                 ForEach(list) { b in
                     NavigationLink { ChatMemory(board: b) } label: {
-                        HStack(spacing: Space.m) { BoardPicture(board: b, size: 28); Text(b.displayName(me: state.me?.owner)) }
+                        HStack(spacing: Space.m) { BoardPicture(board: b, size: 28); Text(state.displayName(for: b)) }
                     }
                 }
             } footer: { Text("What assistants keep in mind in each chat. Everyone in the chat can see it.") }
@@ -303,7 +309,7 @@ private struct ChatMemory: View {
             .listSectionSpacing(.compact)
             .scrollContentBackground(.hidden)
             .background(Theme.bg)
-            .navigationTitle(board.displayName(me: state.me?.owner))
+            .navigationTitle(state.displayName(for: board))
             .navigationBarTitleDisplayMode(.inline)
             .task { await model.load(board.id, state) }
             .sheet(isPresented: $model.editing) {

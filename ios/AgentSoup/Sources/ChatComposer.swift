@@ -10,11 +10,19 @@ import SwiftUI
 struct ChatComposer: View {
     @EnvironmentObject var state: AppState
     let board: Board
-    @Binding var draft: String
+    /// The box's words (MessageDrafts.swift). The object, not a binding to its text: a parent comparing a binding reads
+    /// the words, and then redraws the whole chat on every key (jxn #4181); this way only this box reads them.
+    let box: ComposerDraft
+    private var draft: String {
+        get { box.text }
+        nonmutating set { box.set(newValue) }
+    }
     @Binding var focused: Bool
     var placeholder: String
     /// The thread's box: what its messages answer (nil: the chat's box).
     var replyTo: Int? = nil
+    /// The thread this box writes in (its first message), or nil for the chat: "… is typing" is per place (vedu #4746).
+    var threadRoot: Int? = nil
     /// "Your agent": one of your sessions (only the agent chat's box picks one).
     var toSession: Binding<String?>? = nil
     var identifier = "composer"
@@ -48,6 +56,10 @@ struct ChatComposer: View {
     /// "Your agent" (private already), nor an encrypted board (its sealed posts can't carry an audience).
     private var lockable: Bool { replyTo == nil && !board.isAgentChat && board.kind != "direct" && board.encrypted != true }
     private var locked: Bool { lockable && privacy != .everyone }
+    /// A reply in a thread whose message is people-only or just mine has that audience too (the server keeps it, asked
+    /// or not), so the box says so (vedu #4777) and, like any private message, takes no pictures or files.
+    private var inherited: String? { replyTo.flatMap { r in list.first { $0.seq == r }?.audience } }
+    private var privateBox: Bool { locked || inherited != nil }
 
     private var me: String? { state.me?.owner }
     private var list: [Entry] { state.entries[board.id] ?? [] }
@@ -93,7 +105,7 @@ struct ChatComposer: View {
         guard let me else { return nil }
         return SpokenMentions(me: me, members: people,
                               agentNames: (state.agentNames[board.id] ?? [:]).filter { !$0.value.ambiguous }.mapValues(\.name),
-                              displayNames: Array((state.displayNames[board.id] ?? [:]).values))
+                              displayNames: people.map { state.displayName(for: $0) })
     }
 
     /// The "@word" being typed at the end of the message, if any.
@@ -121,13 +133,31 @@ struct ChatComposer: View {
         draft = String(draft[..<at]) + "@\(m.handle) "
     }
 
+    /// The thread's lock, read-only: a reply here keeps its message's audience (vedu #4777).
+    private func inheritedNote(_ audience: String) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: Space.xs) {
+            Image(systemName: "lock.fill").font(.system(size: 11, weight: .semibold)).foregroundStyle(Theme.muted)
+                .accessibilityHidden(true)
+            Text(verbatim: audience == "own"
+                 ? String(localized: "Just mine: replies here stay with you and your agents.", bundle: .l10n)
+                 : String(localized: "People only: replies here stay with the same people. Agents can't see them.", bundle: .l10n))
+                .font(Typo.micro).foregroundStyle(Theme.muted)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, Space.l)
+        .padding(.bottom, Space.xs)
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("thread-lock")
+    }
+
     // MARK: - The box
 
     /// One soft field on the page (no bar, no outline), + at its leading edge and send inside its trailing edge.
     /// Above it, when they apply: who's typing, what "/" makes it, and who "@" can name.
     var body: some View {
         VStack(spacing: 0) {
-            TypingRow(board: board.id)
+            TypingRow(board: board.id, root: threadRoot ?? 0)
             if let toSession { AgentToPicker(to: toSession) }
             // "/": what a message can be besides a note (a task, a decision, a question).
             if attachments.isEmpty {
@@ -136,6 +166,7 @@ struct ChatComposer: View {
                 else if let (c, _) = SlashCommand.parse(draft, on: board, locked: locked) { SlashChips(commands: [c], active: c) { _ in } }
             }
             if locked { lockChoices.transition(.move(edge: .bottom).combined(with: .opacity)) }
+            if let inherited { inheritedNote(inherited) }
             if let replying { replyingRow(replying).transition(.move(edge: .bottom).combined(with: .opacity)) }
             if !suggestions.isEmpty {
                 // Up to five rows show; more (someone's several sessions) scroll inside the list.
@@ -160,16 +191,17 @@ struct ChatComposer: View {
                     attachButton
                     if lockable { lockButton }
                     // A text view of its own, so Paste takes pictures too (ComposerField.swift).
-                    ComposerField(text: $draft, focused: $focused,
+                    ComposerField(text: box.binding, focused: $focused,
                                   placeholder: !attachments.isEmpty ? String(localized: "Add a note", bundle: .l10n) : locked ? lockedPlaceholder : placeholder,
                                   pasteImages: pasted,
                                   members: Set(mentionables.compactMap { $0.user?.lowercased() }), me: me,
                                   agentNames: state.agentNameMap(board.id),
+                                  displayName: { state.displayName(for: $0) }, nameRevision: state.displayNames,
                                   identifier: identifier)
                         .padding(.horizontal, Composer.gap)
                     if showsMic {
                         // Hold to talk (Voice.swift): words go in the box; "send it" at the end sends.
-                        MicButton(draft: $draft, send: send, identifier: identifier == "composer" ? "mic" : "\(identifier)-mic", spoken: spoken)
+                        MicButton(draft: box.binding, send: send, identifier: identifier == "composer" ? "mic" : "\(identifier)-mic", spoken: spoken)
                             .padding(.trailing, showsSend ? Composer.gap : 0)
                             .transition(.scale(scale: 0.6).combined(with: .opacity))
                     }
@@ -201,7 +233,7 @@ struct ChatComposer: View {
         .animation(.smooth(duration: 0.25), value: state.typing[board.id])
         .animation(.spring(duration: 0.28, bounce: 0.1), value: draft.hasPrefix("/"))
         .animation(.spring(duration: 0.28, bounce: 0.1), value: privacy)
-        .onChange(of: draft) { _, d in state.typed(d, in: board); refreshSessions() } // "maya is typing…" for everyone else here
+        .onChange(of: draft) { _, d in state.typed(d, in: board, root: threadRoot ?? 0); refreshSessions() } // "maya is typing…" for everyone else here
         .photosPicker(isPresented: $showPhotos, selection: $picked, maxSelectionCount: max(1, maxAttachments - attachments.count - preparing), selectionBehavior: .ordered, matching: .images)
         .onChange(of: picked) { _, items in
             guard !items.isEmpty else { return }
@@ -246,8 +278,8 @@ struct ChatComposer: View {
             } label: { label.foregroundStyle(Theme.muted) }
                 .menuOrder(.fixed)
                 .menuStyle(.button).buttonStyle(.plain) // the bare circle, no system padding (it lines up with send)
-                .disabled(attachments.count + preparing >= maxAttachments || locked) // a picture or file can't be private
-                .opacity(locked ? 0.55 : 1)
+                .disabled(attachments.count + preparing >= maxAttachments || privateBox) // a picture or file can't be private
+                .opacity(privateBox ? 0.55 : 1)
                 .accessibilityIdentifier(attachIdentifier)
                 .accessibilityLabel("Attach")
         }
@@ -257,7 +289,7 @@ struct ChatComposer: View {
     /// can't take attachments yet: the + says why).
     private func pasted(_ images: [UIImage]) {
         guard board.encrypted != true else { Haptics.play(.warning); showEncryptedNote = true; return }
-        guard !locked else { Haptics.play(.warning); return } // a picture or file can't be private
+        guard !privateBox else { Haptics.play(.warning); return } // a picture or file can't be private
         for img in images.prefix(max(0, maxAttachments - attachments.count - preparing)) { add { try await Attachments.photo(img) } }
     }
 
@@ -286,6 +318,7 @@ struct ChatComposer: View {
             return
         }
         draft = ""
+        box.save() // sent: the saved draft goes now, so it can't come back if the app is closed within the pause
         withAnimation(.spring(duration: 0.3, bounce: 0.15)) { attachments = [] }
         Haptics.play(.sent)
         let session = board.isAgentChat ? toSession?.wrappedValue : nil

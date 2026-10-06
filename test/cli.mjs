@@ -70,6 +70,18 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 // (CI machines are slow too.)
 const SETTLE = /localhost|127\.0\.0\.1/.test(BASE) && !process.env.CI ? 800 : 3000;
 
+// Contact decisions, including starting a friend request, are the person's alone: agents' tokens get 403.
+async function personAccept(who, of) {
+  const cookie = (await ops("sessions", { user: who, verified: "true" })).cookie;
+  const r = await fetch(`${BASE}/api/friends/${of}/accept`, { method: "POST", headers: { cookie, "content-type": "application/json" } });
+  if (r.status !== 200) throw new Error(`${who} accepting ${of} as a person: ${r.status} ${await r.text()}`);
+}
+async function personFriendRequest(who, of, note) {
+  const cookie = (await ops("sessions", { user: who, verified: "true" })).cookie;
+  const r = await fetch(`${BASE}/api/friends/request`, { method: "POST", headers: { cookie, "content-type": "application/json" }, body: JSON.stringify({ user: of, ...(note ? { note } : {}) }) });
+  if (r.status !== 200) throw new Error(`${who} requesting ${of} as a person: ${r.status} ${await r.text()}`);
+  return r.json();
+}
 async function ops(path, body) {
   const r = await fetch(`${BASE}/api/ops/${path}`, { method: "POST", headers: { "x-admin-key": ADMIN_KEY, "content-type": "application/json" }, body: JSON.stringify(body) });
   if (!r.ok) throw new Error(`ops ${path}: HTTP ${r.status}`);
@@ -262,6 +274,33 @@ await step("hooks install --approvals: Claude Code's permission prompts become a
   assert(r.code === 0 && r.out.startsWith("On:") && st.model === "x" && st.hooks.Stop.length === 1, r.out + r.err + JSON.stringify(st));
   const ours = st.hooks.PermissionRequest.filter((g) => g.hooks.some((h) => h.command.includes("hooks approve")));
   assert(ours.length === 1 && ours[0].matcher === "*" && ours[0].hooks[0].timeout === 600, JSON.stringify(st.hooks.PermissionRequest));
+  assert(st.hooks.PreToolUse.length === 1 && st.hooks.PreToolUse[0].hooks[0].command.includes("hooks policy"), JSON.stringify(st.hooks.PreToolUse));
+  // PR 77: the policy also runs before tools already permitted by the harness.
+  const policyInput = JSON.stringify({ tool_name: "Bash", tool_input: { command: "npm test" } });
+  for (const [policy, expected] of [["{}", "deny"], ['{"allow":[{"kind":"shell","command":"npm test"}]}', "ask"], ["{", "deny"]]) {
+    const result = await cli(["hooks", "policy"], { input: policyInput, env: { ATTEO_ACTION_POLICY: policy } });
+    assert(result.code === 0 && JSON.parse(result.out).hookSpecificOutput.permissionDecision === expected, result.out + result.err);
+  }
+  const charterPolicy = JSON.stringify({ charter: { board: "b_7qh6ar3styu7", scope_paths: ["/workspace/repo"] } });
+  const insideCharter = await cli(["hooks", "policy"], {
+    input: JSON.stringify({ tool_name: "Edit", tool_input: { file_path: "src/a.ts" }, cwd: "/workspace/repo" }),
+    env: { ATTEO_ACTION_POLICY: charterPolicy },
+  });
+  assert(insideCharter.code === 0 && JSON.parse(insideCharter.out).hookSpecificOutput.permissionDecision === "ask", insideCharter.out + insideCharter.err);
+  const outsideCharter = await cli(["hooks", "policy"], {
+    input: JSON.stringify({ tool_name: "Edit", tool_input: { file_path: "/etc/passwd" }, cwd: "/workspace/repo" }),
+    env: { ATTEO_ACTION_POLICY: charterPolicy },
+  });
+  assert(outsideCharter.code === 0 && JSON.parse(outsideCharter.out).hookSpecificOutput.permissionDecision === "deny" && /charter scope/.test(JSON.parse(outsideCharter.out).hookSpecificOutput.permissionDecisionReason) && !outsideCharter.out.includes("/etc/passwd"), outsideCharter.out + outsideCharter.err);
+  const badCharter = await cli(["hooks", "policy"], {
+    input: JSON.stringify({ tool_name: "Edit", tool_input: { file_path: "/workspace/repo/a.ts" } }),
+    env: { ATTEO_ACTION_POLICY: JSON.stringify({ allow: [{ kind: "file_write" }], charter: { scope_paths: ["relative"] } }) },
+  });
+  assert(badCharter.code === 0 && JSON.parse(badCharter.out).hookSpecificOutput.permissionDecision === "deny", badCharter.out + badCharter.err);
+  for (const input of ["null", "{", '{"tool_name":"Write","tool_input":[]}']) {
+    const result = await cli(["hooks", "policy"], { input, env: { ATTEO_ACTION_POLICY: "{}" } });
+    assert(result.code === 0 && JSON.parse(result.out).hookSpecificOutput.permissionDecision === "deny", result.out + result.err);
+  }
   // The hook itself: asks on Atteo, waits; A decides in the browser.
   const ck = (await ops("sessions", { user: A })).cookie;
   const decideNext = async (verdict) => {
@@ -279,15 +318,16 @@ await step("hooks install --approvals: Claude Code's permission prompts become a
   };
   const ask = { tool_name: "Bash", tool_input: { command: "rm -rf build", description: "clean" }, cwd: "/tmp/proj" };
   const decision = (out) => JSON.parse(out.trim().split("\n").pop()).hookSpecificOutput.decision;
-  let [h] = await Promise.all([cli(["hooks", "approve"], { input: JSON.stringify(ask) }), decideNext("approve")]);
+  const noPolicy = { ATTEO_ACTION_POLICY: "" };
+  let [h] = await Promise.all([cli(["hooks", "approve"], { input: JSON.stringify(ask), env: noPolicy }), decideNext("approve")]);
   assert(h.code === 0 && decision(h.out).behavior === "allow", h.out + h.err);
-  [h] = await Promise.all([cli(["hooks", "approve"], { input: JSON.stringify(ask) }), decideNext("reject")]);
+  [h] = await Promise.all([cli(["hooks", "approve"], { input: JSON.stringify(ask), env: noPolicy }), decideNext("reject")]);
   assert(h.code === 0 && decision(h.out).behavior === "deny" && /Denied on Atteo/.test(decision(h.out).message), h.out + h.err);
-  h = await cli(["hooks", "approve"], { input: JSON.stringify(ask), env: { ATTEO_APPROVAL_WAIT_S: "2" } });
+  h = await cli(["hooks", "approve"], { input: JSON.stringify(ask), env: { ATTEO_APPROVAL_WAIT_S: "2", ...noPolicy } });
   assert(h.code === 0 && decision(h.out).behavior === "deny" && /in time/.test(decision(h.out).message), `no decision denies: ${h.out}${h.err}`);
   r = await cli(["hooks", "install", "--approvals", "--off"], { env });
   st = JSON.parse(readFileSync(join(cfg, "settings.json"), "utf8"));
-  assert(r.out.startsWith("Off:") && !st.hooks.PermissionRequest && st.hooks.Stop.length === 1 && st.model === "x", JSON.stringify(st));
+  assert(r.out.startsWith("Off:") && !st.hooks.PermissionRequest && !st.hooks.PreToolUse && st.hooks.Stop.length === 1 && st.model === "x", JSON.stringify(st));
 });
 
 await step("mcp: an expired login hands the agent a sign-in link instead of failing silently", async () => {
@@ -466,6 +506,12 @@ await step("board commands: use, post, read, ask (waits for the answer), search,
   const t = (await cli(["post", "--type", "task", `write docs ${run}`], { cwd: proj })).out.match(/#(\d+)/)[1];
   r = await cli(["task", "claim", t], { cwd: proj });
   assert(r.out.includes(`#${t} [doing]`), r.out + r.err);
+  // Freeze parks it for later (vedu #4791); unfreeze brings it back to to-do.
+  r = await cli(["task", "freeze", t], { cwd: proj });
+  assert(r.code === 0 && r.out.includes(`#${t} [frozen]`), "freeze: " + r.out + r.err);
+  r = await cli(["task", "unfreeze", t], { cwd: proj });
+  assert(r.code === 0 && r.out.includes(`#${t} [todo]`), "unfreeze: " + r.out + r.err);
+  await cli(["task", "claim", t], { cwd: proj });
   r = await cli(["task", "done", t, "shipped"], { cwd: proj });
   assert(r.out.includes(`#${t} [done]`) && r.out.includes("done: shipped"), "done keeps its note on the task: " + r.out + r.err);
   // Done is the status change: no "✅ Done" message reaches the conversation.
@@ -661,19 +707,50 @@ await step("hooks: use installs a pre-push hook that chains the old one; a push 
   assert(r.code === 0 && readFileSync(hook, "utf8") === oldHook, r.out + r.err);
 });
 
+await step("org: lists org-mates when the directory is on; empty when off or no org", async () => {
+  const home = mkdtempSync(join(tmpdir(), "atteo-org-"));
+  let r = await cli(["org"], { cwd: home });
+  assert(r.code === 0 && r.out.includes("aren't in an organization directory"), r.out + r.err);
+  assert(!r.out.includes("@example.com"), r.out);
+  const dom = `e2e-cliorg-${run}.test`;
+  const setPol = (b) => fetch(`${BASE}/api/ops/policies`, { method: "POST", headers: { "x-admin-key": ADMIN_KEY, "content-type": "application/json" }, body: JSON.stringify(b) });
+  const C = `e2e-cli-c-${run}`;
+  await ops("users", { name: C, email: `${C}@${dom}`, verified: "true" });
+  const credC = join(dir, "c.json");
+  const tokC = (await ops("tokens", { user: C })).token;
+  writeFileSync(credC, JSON.stringify({ server: BASE, user: C, token: tokC, expires_at: Date.now() + 86400e3 }), { mode: 0o600 });
+  assert((await setPol({ domain: dom })).status === 200, "policy without directory");
+  r = await cli(["org"], { cwd: home, cred: credC });
+  assert(r.code === 0 && r.out.includes("aren't in an organization directory"), r.out + r.err);
+  assert((await setPol({ domain: dom, directory: true })).status === 200, "directory on");
+  const D = `e2e-cli-d-${run}`;
+  await ops("users", { name: D, email: `${D}@${dom}`, verified: "true" });
+  r = await cli(["org"], { cwd: home, cred: credC });
+  assert(r.code === 0 && r.out.includes(dom) && r.out.includes(C) && r.out.includes(D), r.out + r.err);
+  assert(!r.out.includes(`${C}@`) && !r.out.includes(`${D}@`), "atteo org has no emails: " + r.out);
+  r = await cli(["org", D], { cwd: home, cred: credC });
+  assert(r.code === 0 && r.out.includes(D) && !r.out.includes(C), r.out + r.err);
+  r = await cli(["org", "--json"], { cwd: home, cred: credC });
+  const j = JSON.parse(r.out);
+  assert(j.domain === dom && j.people.some((p) => p.name === D) && !j.people.some((p) => "email" in p), r.out);
+  await setPol({ domain: dom, delete: true });
+});
+
 await step("people: find, add, accept, friends with presence, ask a friend's agent on your direct board", async () => {
   const home = mkdtempSync(join(tmpdir(), "atteo-social-")); // no folder board here, so ask goes direct
   let r = await cli(["people", B], { cwd: home });
-  assert(r.code === 0 && r.out.includes(B) && r.out.includes(`atteo add ${B}`), r.out + r.err);
+  assert(r.code === 0 && r.out.includes(B) && r.out.includes("your person adds them in Atteo"), r.out + r.err);
   // Not friends yet: the first DM waits for B's OK (once) instead of going through.
   r = await cli(["ask", B, "hello?", "--wait", "0", "--dm"], { cwd: home });
   assert(r.code === 0 && r.out.includes("OK it first"), r.out + r.err);
   r = await cli(["add", B, "it's", "me"], { cwd: home });
-  assert(r.code === 0 && r.out.includes("Friend request sent"), r.out + r.err);
+  assert(r.code !== 0 && /Only you can decide who you and your agents may contact/.test(r.out + r.err), r.out + r.err);
+  await personFriendRequest(A, B, "it's me");
   r = await cli(["friends"], { cwd: home, cred: credB });
-  assert(/<<untrusted [0-9a-f]+:[^\n]*>>\n/.test(r.out) && r.out.includes(`${A} — "it's me"`) && r.out.includes("atteo accept <name>"), r.out); // the note is someone's words: fenced (#2181)
-  r = await cli(["accept", A], { cwd: home, cred: credB });
-  assert(r.out.includes("friends now"), r.out + r.err);
+  assert(/<<untrusted [0-9a-f]+:[^\n]*>>\n/.test(r.out) && r.out.includes(`${A} — "it's me"`) && r.out.includes("Your person accepts or declines these in Atteo"), r.out); // the note is someone's words: fenced (#2181)
+  r = await cli(["accept", A], { cwd: home, cred: credB }); // an agent can't make the contact decision (#57)
+  assert(r.code !== 0 && /Only you can decide who you and your agents may contact/.test(r.out + r.err), r.out + r.err);
+  await personAccept(B, A);
   // A asks B's agent; B's agent answers on the direct board.
   const asking = cli(["ask", B, `what's your timezone ${run}?`, "--wait", "40", "--dm"], { cwd: home }); // --dm: this session is also on a board with B
   let dmBoard = "";
@@ -1185,9 +1262,8 @@ await step("harness: the agent you choose answers your DMs (a person's message s
   if (!dm) {
     // A direct board needs A and B to be friends: the people step makes them so, but this step mustn't lean on it
     // having run first (alone with ONLY=…, or in another shard).
-    const home = mkdtempSync(join(tmpdir(), "atteo-harness-"));
-    await cli(["add", B], { cwd: home });
-    await cli(["accept", A], { cwd: home, cred: credB });
+    await personFriendRequest(A, B);
+    await personAccept(B, A);
     dm = await direct();
   }
   assert(dm, "direct board");
@@ -1453,8 +1529,8 @@ await step("mailbox: another person's DM and @mention of your agent show up in f
   const credM = join(dir, "m.json");
   writeFileSync(credM, JSON.stringify({ server: BASE, user: M, token: tokM, expires_at: Date.now() + 86400e3 }), { mode: 0o600 });
   const call = async (tok, method, path, body) => (await fetch(`${BASE}${path}`, { method, headers: { authorization: `Bearer ${tok}`, "content-type": "application/json" }, body: body ? JSON.stringify(body) : undefined })).json();
-  await call(tokN, "POST", "/api/friends/request", { user: M });
-  await call(tokM, "POST", `/api/friends/${N}/accept`);
+  await personFriendRequest(N, M);
+  await personAccept(M, N);
   const dm = (await call(tokN, "POST", `/api/direct/${M}`)).board;
   const shared = (await ops("boards", { user: N, title: `e2e cli mail ${run}` })).board.id;
   await ops("members", { board: shared, user: M });
@@ -1528,8 +1604,8 @@ await step("dispatch: one fork per message, each its own session with the messag
   const credD = join(dir, "d.json");
   writeFileSync(credD, JSON.stringify({ server: BASE, user: D, token: tokD, expires_at: Date.now() + 86400e3 }), { mode: 0o600 });
   const call = async (tok, method, path, body) => (await fetch(`${BASE}${path}`, { method, headers: { authorization: `Bearer ${tok}`, "content-type": "application/json" }, body: body ? JSON.stringify(body) : undefined })).json();
-  await call(tokE, "POST", "/api/friends/request", { user: D });
-  await call(tokD, "POST", `/api/friends/${E}/accept`);
+  await personFriendRequest(E, D);
+  await personAccept(D, E);
   const dm = (await call(tokE, "POST", `/api/direct/${D}`)).board;
   const shared = (await ops("boards", { user: E, title: `e2e cli dispatch ${run}` })).board.id;
   await ops("members", { board: shared, user: D });
@@ -1912,6 +1988,14 @@ await step("purge (alt-c #3573): atteo purge N removes your agent's leaked secre
   assert(r.code === 0 && j.ok && j.seq === m && j.board === pb && Array.isArray(j.files), r.out + r.err);
 });
 
+await step("feedback (vedu #4125): atteo feedback sends the person's words to the Atteo team; usage without text", async () => {
+  let r = await cli(["feedback"]);
+  assert(r.code === 1 && r.err.includes('Usage: atteo feedback'), r.out + r.err);
+  r = await cli(["feedback", `the CLI feedback path works ${run}`]);
+  // 501-style message while this server has no developers' board (FEEDBACK_BOARD / BUGS_BOARD unset); sent otherwise
+  assert((r.code === 0 && r.out.includes("Sent to the Atteo team")) || (r.code === 1 && r.err.includes("isn't set up")), r.out + r.err);
+});
+
 await step("acp (alt-c #3646): an editor speaks Agent Client Protocol to atteo acp; the answer streams back fenced; cancel withdraws", async () => {
   // Standalone (#3007): its own board.
   const ab = (await ops("boards", { user: A, title: `e2e cli acp ${run}` })).board.id;
@@ -1967,6 +2051,46 @@ await step("acp (alt-c #3646): an editor speaks Agent Client Protocol to atteo a
   } finally {
     p.stdin.end();
     p.kill();
+  }
+
+  const p2 = spawn("node", [CLI, "acp", "--to", B, "--board", ab, "--wait", "60"], { cwd: dir, env: { ...process.env, ATTEO_CREDENTIALS_FILE: credA, ATTEO_SERVER: BASE, XDG_CONFIG_HOME: join(dir, "cfg-acp") } });
+  const got2 = [];
+  let buf2 = "";
+  let stderr2 = "";
+  p2.stderr.on("data", (d) => (stderr2 += d));
+  p2.stdout.on("data", (d) => {
+    buf2 += d;
+    for (let i; (i = buf2.indexOf("\n")) >= 0; buf2 = buf2.slice(i + 1)) got2.push(JSON.parse(buf2.slice(0, i)));
+  });
+  const send2 = (m) => p2.stdin.write(JSON.stringify({ jsonrpc: "2.0", ...m }) + "\n");
+  const wait2 = async (pred, what) => {
+    for (let i = 0; i < 300; i++) {
+      const m = got2.find(pred);
+      if (m) return m;
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    throw new Error(`no ${what}: ${JSON.stringify(got2).slice(0, 600)} ${stderr2}`);
+  };
+  try {
+    send2({ id: 0, method: "initialize", params: { protocolVersion: 2, info: { name: "e2e", version: "1" }, capabilities: {} } });
+    assert((await wait2((m) => m.id === 0, "v2 initialize")).result.protocolVersion === 2, "v2");
+    send2({ id: 1, method: "session/new", params: { cwd: dir } });
+    const sid2 = (await wait2((m) => m.id === 1, "v2 session")).result?.sessionId;
+    send2({ id: 2, method: "session/prompt", params: { sessionId: sid2, prompt: [{ type: "text", text: `v2 which port ${run}?` }] } });
+    const accepted = await wait2((m) => m.id === 2, "v2 prompt accepted");
+    assert(typeof accepted.result?.messageId === "string" && accepted.result.messageId.startsWith("msg-q-"), JSON.stringify(accepted));
+    const callV2 = await wait2((m) => m.params?.update?.sessionUpdate === "tool_call_update" && m.params.update.status === "in_progress", "v2 tool_call");
+    const qv = Number(callV2.params.update.toolCallId.replace("ask-", ""));
+    await tool(tokB, ab, "read", {});
+    await tool(tokB, ab, "post", { type: "note", reply_to: qv, text: `9443 ${run}` });
+    const idle = await wait2((m) => m.params?.update?.sessionUpdate === "state_update" && m.params.update.state === "idle", "v2 idle");
+    assert(idle.params.update.stopReason === "end_turn", JSON.stringify(idle));
+    send2({ id: 3, method: "session/list", params: {} });
+    const listed = (await wait2((m) => m.id === 3, "v2 list")).result.sessions;
+    assert(listed.some((s) => s.sessionId === sid2 && s.cwd === dir), JSON.stringify(listed));
+  } finally {
+    p2.stdin.end();
+    p2.kill();
   }
 });
 
@@ -2627,6 +2751,101 @@ await step("handoff --sweep (glm-b #3299): a handoff whose sha reached origin/ma
   assert(r.code === 0 && r.out.includes("No open handoffs"), `queue empty after the sweep: ${r.out}${r.err}`);
   // The repo is where the test left it: B's branch at B's commit (its last), nothing checked out or moved by the sweep.
   assert(g("rev-parse", "HEAD") === head2 && g("rev-parse", "--abbrev-ref", "HEAD") === `fix/other-${run}` && g("status", "--porcelain") === "", "the sweep never touches the repo");
+});
+
+await step("atteo host / atteo run: typed consent, root refusal, approvals, allowlist, symlink jail, timeout, no secrets in env, kill switch", async () => {
+  const PHRASE = "I understand what I'm doing";
+  const hostDir = mkdtempSync(join(tmpdir(), "atteo-host-"));
+  const share = join(hostDir, "share");
+  const outside = join(hostDir, "outside");
+  mkdirSync(join(share, "sub"), { recursive: true });
+  mkdirSync(outside);
+  writeFileSync(join(outside, "secret.txt"), "not yours");
+  symlinkSync(outside, join(share, "sub", "escape"));
+  const shareReal = realpathSync(share);
+  const name = `box-${run}`;
+  // Consent is the person's, in their browser, and typed back into a real terminal: a pipe (an agent's shell) can't start
+  // a host, there's no flag to skip it, root never hosts, and / is never shared.
+  let r = await cli(["host", "--board", board, "--share", share]);
+  assert(r.code !== 0 && r.err.includes("interactive terminal"), `no TTY: refused: ${r.out}${r.err}`);
+  r = await cli(["host", "--board", board, "--share", share, "--confirm", PHRASE]);
+  assert(r.code !== 0 && r.err.includes("doesn't take --confirm"), `no --confirm: ${r.err}`);
+  r = await cli(["host", "--board", board, "--share", share], { env: { ATTEO_HOST_ASSUME_ROOT: "1" } });
+  assert(r.code !== 0 && r.err.includes("refuses to run as root"), r.err);
+  r = await cli(["host", "--board", board, "--share", "/"]);
+  assert(r.code !== 0 && r.err.includes("isn't allowed"), r.err);
+  // A attaches a machine in a real terminal (python's pty), with two allowlisted commands: the link names this start's
+  // machine; A, signed in as a person, mints the code for it; the code goes into the prompt.
+  const pty = "import pty,sys; pty.spawn(sys.argv[1:])";
+  const daemon = spawn("python3", ["-c", pty, "node", CLI, "host", "--board", board, "--share", share, "--name", name, "--allow", "echo allowed", "--allow", "sleep 5", "--allow", "env"], {
+    cwd: share,
+    env: { ...process.env, ATTEO_CREDENTIALS_FILE: credA, ATTEO_SERVER: BASE, XDG_CONFIG_HOME: join(dir, "cfg-cmds"), MY_API_TOKEN: "zz-should-not-leak" },
+  });
+  let dout = "";
+  daemon.stdout.on("data", (d) => (dout += d));
+  daemon.stderr.on("data", (d) => (dout += d));
+  const exited = new Promise((res) => daemon.on("close", (code) => res(code)));
+  try {
+    for (let i = 0; i < 100 && !/machine=m_[A-Za-z0-9_-]+/.test(dout); i++) await sleep(100);
+    const machine = dout.match(/machine=(m_[A-Za-z0-9_-]+)/)?.[1];
+    assert(dout.includes("VERY DANGEROUS") && dout.includes(`/host/consent?board=${board}&machine=`) && machine, `the link: ${dout}`);
+    const cookieA0 = (await ops("sessions", { user: A, verified: "true" })).cookie;
+    const minted = await fetch(`${BASE}/api/boards/${board}/hosts/confirm`, { method: "POST", headers: { cookie: cookieA0, "content-type": "application/json" }, body: JSON.stringify({ phrase: PHRASE, machine }) });
+    assert(minted.status === 200, `A mints the code as a person: ${minted.status}`);
+    daemon.stdin.write((await minted.json()).code + "\n");
+    for (let i = 0; i < 100 && !dout.includes("Attached"); i++) await sleep(100);
+    assert(dout.includes("Attached"), `daemon: ${dout}`);
+    r = await cli(["host", "list", "--board", board], { cred: credB });
+    assert(r.code === 0 && r.out.includes(name) && r.out.includes("online"), r.out + r.err);
+    // Allowlisted: runs without asking.
+    r = await cli(["run", name, "echo allowed", "--board", board], { cred: credB });
+    assert(r.code === 0 && r.out.includes("allowed") && r.out.includes("exit 0"), r.out + r.err);
+    // The environment drops secret-looking variables (and the CLI's own login).
+    r = await cli(["run", name, "env", "--board", board], { cred: credB });
+    assert(r.code === 0 && !r.out.includes("zz-should-not-leak") && !r.out.includes("ATTEO_CREDENTIALS_FILE"), r.out);
+    // The timeout kills it.
+    r = await cli(["run", name, "sleep 5", "--timeout", "1", "--board", board], { cred: credB });
+    assert(r.code !== 0 && r.err.includes("timeout"), r.out + r.err);
+    // Anything else waits for A to approve, as a person.
+    const cookieA = (await ops("sessions", { user: A, verified: "true" })).cookie;
+    const approveNext = async (needle, how = "approve") => {
+      for (let i = 0; i < 100; i++) {
+        const list = (await (await fetch(`${BASE}/api/approvals`, { headers: { cookie: cookieA } })).json()).approvals;
+        const a = list.find((x) => x.command?.includes(needle));
+        if (a) {
+          const res = await fetch(`${BASE}/api/approvals/${a.id}/${how}`, { method: "POST", headers: { cookie: cookieA, "content-type": "application/json" }, body: "{}" });
+          assert(res.status === 200, `${how}: ${res.status}`);
+          return a;
+        }
+        await sleep(100);
+      }
+      throw new Error(`no approval for ${needle}`);
+    };
+    let pending = cli(["run", name, `echo hi-${run} > made.txt && cat made.txt`, "--board", board], { cred: credB });
+    await approveNext(`hi-${run}`);
+    r = await pending;
+    assert(r.code === 0 && r.out.includes(`hi-${run}`), r.out + r.err);
+    assert(readFileSync(join(shareReal, "made.txt"), "utf8").includes(`hi-${run}`), "ran in the shared folder");
+    // A symlink inside the share can't lead out: the server's lexical check passes, the host's realpath check refuses.
+    pending = cli(["run", name, `cat secret.txt # ${run}`, "--cwd", join(shareReal, "sub", "escape"), "--board", board], { cred: credB });
+    await approveNext(`secret.txt # ${run}`);
+    r = await pending;
+    assert(r.code !== 0 && r.err.includes("outside the shared folders") && !r.out.includes("not yours"), r.out + r.err);
+    // Denied: nothing runs.
+    pending = cli(["run", name, `touch denied-${run}`, "--board", board], { cred: credB });
+    await approveNext(`denied-${run}`, "reject");
+    r = await pending;
+    assert(r.code !== 0 && r.err.includes("Denied") && !existsSync(join(shareReal, `denied-${run}`)), r.out + r.err);
+    // The kill switch: the daemon is told to stop and exits.
+    r = await cli(["host", "stop", name, "--board", board]);
+    assert(r.code === 0 && r.out.includes(`Stopped ${name}`), r.out + r.err);
+    const code = await Promise.race([exited, sleep(30_000).then(() => "timeout")]);
+    assert(code === 0 && dout.includes("Stopped: stopped by"), `daemon after stop: ${code} ${dout.slice(-200)}`);
+    r = await cli(["run", name, "echo late", "--board", board], { cred: credB });
+    assert(r.code !== 0, "a stopped host takes nothing");
+  } finally {
+    daemon.kill("SIGKILL");
+  }
 });
 
 if (ONLY && !matched) { failed++; console.log(`  ✗ no steps match ONLY=${JSON.stringify(process.env.ONLY)}`); }

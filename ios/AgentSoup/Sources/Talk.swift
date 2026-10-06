@@ -44,6 +44,7 @@ enum TalkAPI {
 
     /// The same, answering the bytes and the response (audio from /api/app/tts).
     static func raw(_ method: String, _ path: String, body: [String: Any]? = nil) async throws -> (Int, Data, HTTPURLResponse?) {
+        try AIConsent.check(path) // nothing reaches xAI before the person's OK (AIConsent.swift)
         guard let token = API.shared.token else { throw APIError.signedOut }
         var r = URLRequest(url: URL(string: path, relativeTo: API.shared.base)!)
         r.httpMethod = method
@@ -80,6 +81,7 @@ final class TalkStatus: ObservableObject {
         guard let (code, j) = try? await TalkAPI.call("GET", "/api/app/voice/status"), code == 200 else { return }
         enabled = j["enabled"] as? Bool ?? false
         autosend = j["voice_autosend"] as? Bool
+        AIConsent.sync(j["consent"]) // the OK to use xAI, as the server has it (another device may have changed it)
         update(used: j["minutes_used"], budget: j["minutes_budget"])
     }
 
@@ -319,6 +321,7 @@ final class TalkSession: ObservableObject {
     // MARK: Start and end
 
     func start() async {
+        Analytics.capture("voice_used")
         ReadAloud.shared.hush()
         VoiceInput.shared.stop()
         remote.on { [weak self] c in self?.remoteCommand(c) }
@@ -346,6 +349,8 @@ final class TalkSession: ObservableObject {
             failed(error.localizedDescription, resuming: resuming); return
         }
         guard code == 200, let sid = j["session_id"] as? String, var session = j["session"] as? [String: Any] else {
+            // The OK was withdrawn elsewhere: this phone forgets it and the sheet asks again (TalkSheet watches it).
+            if AIConsent.isRefusal(code, j) { AIConsent.xai = false; failed(j["error"] as? String ?? "", resuming: resuming); return }
             if code == 503 { TalkStatus.shared.objectWillChange.send(); await TalkStatus.shared.load(force: true) }
             failed(j["error"] as? String ?? String(localized: "Couldn't start talking (\(code)).", bundle: .l10n), resuming: resuming)
             return
@@ -427,7 +432,7 @@ final class TalkSession: ObservableObject {
     }
 
     private var subtitle: String {
-        board.map { $0.displayName(me: AppState.shared.me?.owner) } ?? String(localized: "Voice chat", bundle: .l10n)
+        board.map { AppState.shared.displayName(for: $0) } ?? String(localized: "Voice chat", bundle: .l10n)
     }
 
     private func tick() {
@@ -633,7 +638,7 @@ final class TalkSession: ObservableObject {
         seenSeq = top
         let mine = Set(list.filter { $0.author.lowercased() == me.lowercased() && $0.via != "agent" }.map(\.seq))
         for e in fresh where TalkStandby.worthReading(e, me: me, agentChat: b.isAgentChat, parentIsMine: { mine.contains($0) }) {
-            let who = e.byAgent ? agentLabel(e.author, e.agentName ?? AppState.shared.agentNames[b.id]?[e.author]?.name) : e.author
+            let who = e.byAgent ? agentLabel(AppState.shared.displayName(for: e.author), e.agentName ?? AppState.shared.agentNames[b.id]?[e.author]?.name) : AppState.shared.displayName(for: e.author)
             toRead.append(Heard(board: b.id, seq: e.seq, who: who, text: e.text, encrypted: b.encrypted == true, isPrivate: e.audience != nil))
         }
         readNext()
@@ -647,7 +652,7 @@ final class TalkSession: ObservableObject {
         let me = (AppState.shared.me?.owner ?? "").lowercased()
         for i in fresh where i.seq > 0 && !(i.actor.lowercased() == me && i.actorVia != "agent") {
             let encrypted = AppState.shared.boards.first { $0.id == i.boardId }?.encrypted == true
-            toRead.append(Heard(board: i.boardId, seq: i.seq, who: i.actorVia == "agent" ? Vocab.agentOf(i.actor) : i.actor, text: i.excerpt, encrypted: encrypted, isPrivate: true)) // For you doesn't say if it was private: never recapped
+            toRead.append(Heard(board: i.boardId, seq: i.seq, who: AppState.shared.displayName(for: i.actor, agent: i.actorVia == "agent"), text: i.excerpt, encrypted: encrypted, isPrivate: true)) // For you doesn't say if it was private: never recapped
         }
         readNext()
     }

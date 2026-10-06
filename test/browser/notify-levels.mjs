@@ -39,6 +39,17 @@ check(await p.locator("#ns-level-off").isChecked(), "after a reload, Off is stil
 await p.locator('label[for="ns-level-everything"]').click();
 await p.waitForTimeout(400);
 check((await api(`/api/boards/${board}/notify`)).level === "everything", "Everything saves");
+// A choice made before the saved level arrives stays (the late answer used to tick the old level again).
+let late;
+const slow = new Promise((r) => (late = r));
+await p.route(`**/api/boards/${board}/notify`, async (route) => { if (route.request().method() !== "GET") return route.continue(); const r = await route.fetch(); await new Promise((t) => setTimeout(t, 600)); await route.fulfill({ response: r }); late(); });
+await p.reload();
+await p.waitForSelector("#ns-side", { state: "attached" });
+if (!(await p.locator("#ns-side").isVisible())) await p.locator("#info-btn").click();
+await p.locator('label[for="ns-level-off"]').click();
+await slow; await p.waitForTimeout(200);
+await p.unroute(`**/api/boards/${board}/notify`);
+check(await p.locator("#ns-level-off").isChecked() && /Inbox/.test(await p.locator("#ns-side-hint").textContent()), "picked before the saved level loads: Off stays chosen, with its hint");
 
 // Account → Notifications: quiet hours, in this browser's time zone
 await p.goto(`${BASE}/me`);

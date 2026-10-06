@@ -14,14 +14,16 @@ extension WorkTask {
         case "blocked": return String(localized: "task-status.blocked", defaultValue: "Blocked", bundle: .l10n, comment: "A task status: it cannot move on")
         case "done": return String(localized: "Done", bundle: .l10n)
         case "stopped": return String(localized: "Stopped", bundle: .l10n)
+        case "frozen": return String(localized: "Frozen", bundle: .l10n)
         default: return status
         }
     }
     /// How far along its checklist is, in words: "2 of 4".
     var progress: String? { checklist.map { String(localized: "\($0.done) of \($0.total)", bundle: .l10n) } }
     /// One line under a task's title: where it stands (always first), who's on it, how far along.
-    var caption: String {
-        [statusLabel, who, progress].compactMap { $0 }.joined(separator: " · ")
+    var caption: String { caption(displayName: { $0 }) }
+    func caption(displayName: (String) -> String) -> String {
+        [statusLabel, who.map(displayName), progress].compactMap { $0 }.joined(separator: " · ")
     }
     /// Whether a checklist line is about this task ("#12 …" or its title).
     func covers(_ line: String) -> Bool {
@@ -73,13 +75,14 @@ struct CheckLine: View {
 
 /// A sub-task under its parent: its own ring, title and who's on it.
 struct SubTaskLine: View {
+    @EnvironmentObject var state: AppState
     let task: WorkTask
     var body: some View {
         HStack(spacing: Space.s) {
             ProgressRing(task: task).frame(width: 12, height: 12)
             Text(task.title).font(Typo.meta).foregroundStyle(task.status == "done" ? Theme.faint : Theme.text).strikethrough(task.status == "done", color: Theme.faint).lineLimit(1)
             Spacer(minLength: 6)
-            if task.status != "done", let w = task.who { Text(w).font(Typo.micro).foregroundStyle(Theme.faint).lineLimit(1) }
+            if task.status != "done", let w = task.who { Text(state.displayName(for: w)).font(Typo.micro).foregroundStyle(Theme.faint).lineLimit(1) }
         }
     }
 }
@@ -146,7 +149,7 @@ enum TaskFilter: String, CaseIterable, Identifiable {
 
 /// Where a task stands, as the list groups it: active statuses, then Done.
 enum TaskGroup: String, CaseIterable, Identifiable {
-    case doing, open, blocked, stopped, done
+    case doing, open, blocked, stopped, done, frozen // frozen (vedu #4791): parked for the far future, last and folded
     var id: String { rawValue }
     var title: String {
         switch self {
@@ -158,21 +161,23 @@ enum TaskGroup: String, CaseIterable, Identifiable {
                                      comment: "A group in the task list: tasks waiting on something")
         case .stopped: return String(localized: "Stopped", bundle: .l10n)
         case .done: return String(localized: "Done", bundle: .l10n)
+        case .frozen: return String(localized: "Frozen", bundle: .l10n)
         }
     }
     func holds(_ t: WorkTask) -> Bool {
         switch self {
         case .doing: return t.status == "doing"
-        case .open: return !["doing", "blocked", "stopped", "done"].contains(t.status) // to do, and any status this app doesn't know yet
+        case .open: return !["doing", "blocked", "stopped", "done", "frozen"].contains(t.status) // to do, and any status this app doesn't know yet
         case .blocked: return t.status == "blocked"
         case .stopped: return t.status == "stopped"
         case .done: return t.status == "done"
+        case .frozen: return t.status == "frozen"
         }
     }
     /// Active groups: priority then oldest first. In progress and Done: latest first.
     func sort(_ a: WorkTask, _ b: WorkTask) -> Bool {
         switch self {
-        case .open, .blocked, .stopped: return (a.priorityRank, a.seq) < (b.priorityRank, b.seq)
+        case .open, .blocked, .stopped, .frozen: return (a.priorityRank, a.seq) < (b.priorityRank, b.seq)
         default: return a.updatedAt > b.updatedAt
         }
     }
@@ -187,7 +192,7 @@ struct TasksPane: View {
     let open: (Int) -> Void
     let add: () -> Void
     @State private var filter: TaskFilter = .all
-    @State private var collapsed: Set<TaskGroup> = [.stopped, .done]
+    @State private var collapsed: Set<TaskGroup> = [.stopped, .done, .frozen]
 
     private var all: [WorkTask] { state.tasks[board] ?? [] }
 
@@ -256,7 +261,7 @@ struct TasksPane: View {
         .listRowSeparatorTint(Theme.line)
         .alignmentGuide(.listRowSeparatorLeading) { _ in depth == 0 ? 28 : 54 }
         .accessibilityIdentifier("task-row-\(t.title)")
-        .accessibilityValue(t.caption)
+        .accessibilityValue(t.caption { state.displayName(for: $0) })
         .modifier(TaskSwipes(task: t, board: board))
         .contextMenu { TaskMenu(task: t, board: board, open: { open(t.seq) }) }
     }
@@ -399,6 +404,9 @@ struct StatusGlyph: View {
                     Circle().fill(Theme.warn.opacity(0.18))
                     Circle().stroke(Theme.warn, lineWidth: 1.5)
                     Image(systemName: "minus").font(.system(size: s * 0.5, weight: .heavy)).foregroundStyle(Theme.warn)
+                case "frozen":
+                    Circle().stroke(Theme.faint, lineWidth: 1.5)
+                    Image(systemName: "snowflake").font(.system(size: s * 0.5, weight: .semibold)).foregroundStyle(Theme.faint)
                 default:
                     Circle().stroke(Theme.faint, style: StrokeStyle(lineWidth: 1.5, dash: [2.2, 1.6]))
                 }
@@ -451,16 +459,17 @@ struct ChecklistMeter: View {
 
 /// Whose a task is: their avatar (an agent's is a rounded square), or a dashed ring when it's nobody's.
 struct OwnerAvatar: View {
+    @EnvironmentObject var state: AppState
     let task: WorkTask
     var size: CGFloat = 20
     /// "theo's agent is on it", "theo", …
     private func ownerLabel(_ o: (name: String, agent: Bool)) -> String {
         let live = task.holder != nil && !task.isDone
         switch (o.agent, live) {
-        case (true, true): return String(localized: "\(o.name)'s agent is on it", bundle: .l10n)
-        case (true, false): return String(localized: "\(o.name)'s agent", bundle: .l10n)
-        case (false, true): return String(localized: "\(o.name) is on it", bundle: .l10n)
-        case (false, false): return o.name
+        case (true, true): return String(localized: "\(state.displayName(for: o.name))'s agent is on it", bundle: .l10n)
+        case (true, false): return String(localized: "\(state.displayName(for: o.name))'s agent", bundle: .l10n)
+        case (false, true): return String(localized: "\(state.displayName(for: o.name)) is on it", bundle: .l10n)
+        case (false, false): return state.displayName(for: o.name)
         }
     }
     var body: some View {
@@ -647,7 +656,7 @@ struct TaskDetail: View {
                     }
                     checklist(task)
                     if !subs.isEmpty { subTasks(subs) }
-                    Text([task.author.map { String(localized: "Added by \($0)", bundle: .l10n) }, Date().timeIntervalSince1970 - task.updatedAt / 1000 < 60 ? String(localized: "updated just now", bundle: .l10n) : String(localized: "updated \(task.updatedAt.ago) ago", bundle: .l10n)].compactMap { $0 }.joined(separator: " · ").capitalizedFirst)
+                    Text([task.author.map { String(localized: "Added by \(state.displayName(for: $0))", bundle: .l10n) }, Date().timeIntervalSince1970 - task.updatedAt / 1000 < 60 ? String(localized: "updated just now", bundle: .l10n) : String(localized: "updated \(task.updatedAt.ago) ago", bundle: .l10n)].compactMap { $0 }.joined(separator: " · ").capitalizedFirst)
                         .font(Typo.micro).foregroundStyle(Theme.faint)
                         .padding(.top, Space.xl)
                 }
@@ -777,7 +786,7 @@ struct TaskActionBar: View {
     @EnvironmentObject var state: AppState
     let task: WorkTask
     let board: String
-    static var statuses: [(key: String, label: String, icon: String)] { [("todo", "circle"), ("doing", "circle.lefthalf.filled"), ("blocked", "exclamationmark.circle"), ("done", "checkmark.circle")].map { ($0.0, WorkTask.statusName($0.0), $0.1) } }
+    static var statuses: [(key: String, label: String, icon: String)] { [("todo", "circle"), ("doing", "circle.lefthalf.filled"), ("blocked", "exclamationmark.circle"), ("done", "checkmark.circle"), ("frozen", "snowflake")].map { ($0.0, WorkTask.statusName($0.0), $0.1) } }
 
     private var color: Color { task.status == "doing" ? Theme.accent : task.isDone ? Theme.ok : task.isBlocked ? Theme.warn : Theme.muted }
 
@@ -806,9 +815,9 @@ struct TaskActionBar: View {
             HStack(spacing: 6) {
                 OwnerAvatar(task: task, size: 18)
                 if task.holder != nil, !task.isDone {
-                    (Text(verbatim: task.who ?? "") + Text(" is on it").foregroundStyle(Theme.muted)).font(Typo.meta.weight(.medium)).foregroundStyle(Theme.text).lineLimit(1)
+                    (Text(verbatim: task.owner.map { state.displayName(for: $0.name, agent: $0.agent) } ?? "") + Text(" is on it").foregroundStyle(Theme.muted)).font(Typo.meta.weight(.medium)).foregroundStyle(Theme.text).lineLimit(1)
                 } else {
-                    (task.who.map { Text(verbatim: $0) } ?? Text("Unassigned")).font(Typo.meta.weight(.medium)).foregroundStyle(task.who == nil ? Theme.faint : Theme.text).lineLimit(1)
+                    (task.owner.map { Text(verbatim: state.displayName(for: $0.name, agent: $0.agent)) } ?? Text("Unassigned")).font(Typo.meta.weight(.medium)).foregroundStyle(task.who == nil ? Theme.faint : Theme.text).lineLimit(1)
                 }
             }
             .padding(.leading, 6).padding(.trailing, 10).frame(height: 30)

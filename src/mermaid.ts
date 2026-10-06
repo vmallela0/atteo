@@ -1,15 +1,31 @@
 // Diagrams in messages (vedu #1246, #1247): a fenced ```mermaid block is sent as the code block it always was, marked
-// .mmd, and the page draws it once it's on screen. The library loads only then (pinned, from jsDelivr, with an SRI hash),
-// runs with securityLevel "strict" (labels sanitised, no click handlers), and its SVG is scrubbed again before it goes
-// on the page, because board text is untrusted. Anything that goes wrong (bad syntax, offline, a blocked script) leaves
-// the code block as it is. The network keeps the plain text; agents reading the board see the source.
-// The page CSP allows this pinned URL; SRI still checks its bytes.
+// .mmd, and the page draws it once it's on screen. The library loads only then (this Worker's /mermaid.min.js, pinned,
+// with an SRI hash), runs with securityLevel "strict" (labels sanitised, no click handlers), and its SVG is scrubbed
+// again before it goes on the page, because board text is untrusted. Anything that goes wrong (bad syntax, offline, a
+// blocked script) leaves the code block as it is. The network keeps the plain text; agents reading the board see the
+// source. SRI still checks the bytes; the CSP does not allow any other script origin.
 
 import { esc } from "./util";
 
 export const MERMAID_VERSION = "12.1.0";
-export const MERMAID_SRC = `https://cdn.jsdelivr.net/npm/mermaid@${MERMAID_VERSION}/dist/mermaid.min.js`;
+export const MERMAID_PATH = "/mermaid.min.js";
+export const MERMAID_SRC = `${MERMAID_PATH}?v=${MERMAID_VERSION}`;
 export const MERMAID_SRI = "sha384-EbBpjO7rlR6eqZEcG7GaPpyk9H9WrMyPWX4d3KvPYltgt8Z8l0z6R56B1qP40pR4";
+
+/** GET /mermaid.min.js: the pinned UMD build from Worker assets, cached for good when ?v= matches. */
+export async function mermaidResponse(env: { ASSETS?: Fetcher }, url: URL): Promise<Response> {
+  const asset = env.ASSETS ? await env.ASSETS.fetch(new URL(MERMAID_PATH, url.origin)) : null;
+  if (!asset?.ok) return new Response("not found", { status: 404 });
+  const pinned = url.searchParams.get("v") === MERMAID_VERSION;
+  return new Response(asset.body, {
+    headers: {
+      "content-type": "text/javascript; charset=utf-8",
+      "cache-control": pinned ? "public, max-age=31536000, immutable" : "public, max-age=300",
+      "x-content-type-options": "nosniff",
+      "access-control-allow-origin": "*", // SRI + crossorigin="anonymous" on the page
+    },
+  });
+}
 
 /** A ```mermaid block as HTML: the code block (with its header and Copy), marked for the page to draw. */
 export function mermaidHtml(src: string): string {
@@ -26,11 +42,18 @@ export const MERMAID_CSS = `.mmd{margin:6px 0;max-width:100%}.mmd>.code-b{margin
 // Config keys a diagram's own %%{init}%% can't change: mermaid's defaults plus the theme (so the board's tokens and no
 // injected CSS apply), the sanitiser config and HTML labels.
 const SECURE = ["secure", "securityLevel", "startOnLoad", "maxTextSize", "suppressErrorRendering", "maxEdges", "theme", "themeVariables", "themeCSS", "darkMode", "fontFamily", "altFontFamily", "dompurifyConfig", "htmlLabels"];
+// CSP's nonceability check requires a nonce content attribute; .nonce alone only sets the internal slot.
+// Stamp styles during async measurement and again after parsing/importing the returned SVG.
 export const MERMAID_JS = `
-(()=>{const SRC=${JSON.stringify(MERMAID_SRC)},SRI=${JSON.stringify(MERMAID_SRI)},SECURE=${JSON.stringify(SECURE)};
+(()=>{const SRC=${JSON.stringify(MERMAID_SRC)},SRI=${JSON.stringify(MERMAID_SRI)},SECURE=${JSON.stringify(SECURE)},NONCE=document.currentScript?.nonce||'';
 let lib=null,io=null,seq=0,q=Promise.resolve(),sig='',watching=false;const seen=new WeakSet();
+const withStyleNonce=async fn=>{const p=Document.prototype,orig=p.createElement,ns=p.createElementNS;
+  const stamp=el=>{if(el.localName==='style')el.setAttribute('nonce',NONCE);return el};
+  p.createElement=function(...args){return stamp(orig.apply(this,args))};
+  p.createElementNS=function(...args){return stamp(ns.apply(this,args))};
+  try{return await fn()}finally{p.createElement=orig;p.createElementNS=ns}};
 const load=()=>lib||(lib=new Promise((ok,no)=>{const s=document.createElement('script');s.src=SRC;s.integrity=SRI;s.crossOrigin='anonymous';s.referrerPolicy='no-referrer';
-  s.onload=()=>window.mermaid?ok(window.mermaid):no(new Error('mermaid missing'));s.onerror=()=>no(new Error('mermaid did not load'));document.head.appendChild(s)}));
+  s.nonce=NONCE;s.onload=()=>window.mermaid?ok(window.mermaid):no(new Error('mermaid missing'));s.onerror=()=>no(new Error('mermaid did not load'));document.head.appendChild(s)}));
 const tok=n=>getComputedStyle(document.documentElement).getPropertyValue('--'+n).trim();
 // The board's tokens as mermaid's base theme (it needs real colours, so they're read from the page, light or dark).
 function cfg(){const v={bg:tok('bg'),sub:tok('bg-subtle'),hov:tok('bg-hover'),line:tok('line'),strong:tok('line-strong'),text:tok('text'),muted:tok('muted'),faint:tok('faint'),ink:tok('ink')},
@@ -54,12 +77,13 @@ function scrub(html){const t=document.createElement('template');t.innerHTML=html
   s.querySelectorAll('style').forEach(st=>{st.textContent=st.textContent.replace(/@import[^;]*;?/gi,'').replace(/url\\(\\s*(?!['"]?#)[^)]*\\)/gi,'none')});
   // Fits the message, but never below 3/4 of its natural size (text stays readable): past that it scrolls sideways.
   const vb=(s.getAttribute('viewBox')||'').split(/[\\s,]+/).map(Number);s.removeAttribute('height');s.setAttribute('width','100%');
-  if(vb.length===4&&vb[2]>0&&vb[3]>0){s.style.maxWidth=Math.ceil(vb[2])+'px';s.style.minWidth=Math.ceil(vb[2]*0.75)+'px';s.style.aspectRatio=vb[2]+' / '+vb[3]}return document.importNode(s,true)}
+  if(vb.length===4&&vb[2]>0&&vb[3]>0){s.style.maxWidth=Math.ceil(vb[2])+'px';s.style.minWidth=Math.ceil(vb[2]*0.75)+'px';s.style.aspectRatio=vb[2]+' / '+vb[3]}
+  const svg=document.importNode(s,true);svg.querySelectorAll('style').forEach(st=>st.setAttribute('nonce',NONCE));return svg}
 // Image shapes (A@{img: "https://…"}) would fetch from anywhere while mermaid measures them: those stay as code.
 const OFFSITE=/@\\{[^}]*\\bimg\\s*:/i;
 function draw(el){q=q.then(async()=>{const code=el.querySelector('.code-b code');if(!code)return;if(OFFSITE.test(code.textContent))throw new Error('image shape');const m=await load();const c=cfg(),k=JSON.stringify(c.themeVariables);
-  if(k!==sig){m.initialize(c);sig=k}const id='mmd-'+(++seq);
-  try{const r=await m.render(id,code.textContent);const svg=scrub(r&&r.svg);if(!svg)throw new Error('no svg');
+  if(k!==sig){await withStyleNonce(()=>m.initialize(c));sig=k}const id='mmd-'+(++seq);
+  try{const r=await withStyleNonce(()=>m.render(id,code.textContent));const svg=scrub(r&&r.svg);if(!svg)throw new Error('no svg');
     let d=el.querySelector(':scope>.mmd-d');if(!d){d=document.createElement('div');d.className='mmd-d';d.setAttribute('role','img');d.setAttribute('aria-label','Diagram');el.prepend(d)}
     d.replaceChildren(svg);
     if(!el.querySelector(':scope>.mmd-src')){const det=document.createElement('details');det.className='mmd-src';det.innerHTML='<summary>Code</summary>';det.append(el.querySelector(':scope>.code-b'));el.append(det)}

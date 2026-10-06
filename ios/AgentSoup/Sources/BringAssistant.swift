@@ -30,6 +30,18 @@ enum AssistantProvider: String, Identifiable, CaseIterable {
         case .coding: return "Claude Code, Codex"
         }
     }
+    /// Its logo in the asset catalog (a one-colour template, tinted like text), only to say which tool it is (jxn #4124).
+    /// Muse is Meta's, so it wears Meta's mark; a coding agent is any of several, so it keeps "</>". Sources: ChatGPT,
+    /// Claude and Grok from @lobehub/icons (MIT), Meta from Simple Icons (CC0), flattened to one-colour 24pt SVGs.
+    var logo: String? {
+        switch self {
+        case .grok: return "ProviderGrok"
+        case .muse: return "ProviderMuse"
+        case .chatgpt: return "ProviderChatGPT"
+        case .claude: return "ProviderClaude"
+        case .coding: return nil
+        }
+    }
     var letter: String {
         switch self {
         case .grok: return "G"
@@ -45,8 +57,9 @@ enum AssistantProvider: String, Identifiable, CaseIterable {
         // grok.com's universal links cover every path ("/*"), so its app opens on its connectors page.
         case .grok: return (.init(app: "https://grok.com/connectors", web: "https://grok.com/connectors"), String(localized: "Grok: New Connector → Custom", bundle: .l10n))
         // ChatGPT's app links don't reach a custom-connector page (only "#settings/Connectors?connector=<an existing
-        // one's id>"), and making one is on the web: the web it is.
-        case .chatgpt: return (.init(app: nil, web: "https://chatgpt.com/#settings/Connectors"), String(localized: "ChatGPT: Connectors → Create", bundle: .l10n))
+        // one's id>"), so the app opens on its settings ("/#settings" is in chatgpt.com's app links), Connectors from
+        // there (vedu #4065). No app: the web's Connectors page.
+        case .chatgpt: return (.init(app: "https://chatgpt.com/#settings", web: "https://chatgpt.com/#settings/Connectors"), String(localized: "ChatGPT: Connectors → Create", bundle: .l10n))
         // Claude's app opens "Add custom connector" itself (claude.ai lists that path for its app); the web page as before.
         case .claude: return (.init(app: "https://claude.ai/customize/connectors?modal=add-custom-connector", web: "https://claude.ai/settings/connectors"), String(localized: "Claude: Add custom connector", bundle: .l10n))
         default: return nil
@@ -69,7 +82,9 @@ enum AssistantProvider: String, Identifiable, CaseIterable {
     /// #2422): it opens in the browser, where the person's web session signs in, makes the key and copies one message to
     /// paste into a Muse chat. Always atteo.dev (publicBase), never the workers.dev host the app talks to.
     static var museConnectPage: URL? { API.shared.publicBase.appendingPathComponent("connect/muse") }
-    static let tiles: [AssistantProvider] = [.grok, .muse, .chatgpt, .claude]
+    /// A–Z by name (jxn #4124); a coding agent, the catch-all, always goes after these.
+    static let tiles: [AssistantProvider] = [AssistantProvider.grok, .muse, .chatgpt, .claude]
+        .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
 }
 
 /// A provider page: `app` is an https universal link that opens the provider's installed app (nil: its app has none
@@ -100,13 +115,20 @@ enum AppOpener {
     }
 }
 
-/// A provider's tile mark: its letter (or "</>") in a small rounded square.
+/// A provider's tile mark: its logo (or, with none, its letter or "</>") in a small rounded square.
 struct ProviderMark: View {
     let provider: AssistantProvider
     var body: some View {
-        Text(provider.letter).font(.system(size: 17, weight: .semibold)).foregroundStyle(Theme.text)
-            .frame(width: 40, height: 40).background(Theme.card, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(Theme.line))
+        Group {
+            if let logo = provider.logo {
+                Image(logo).resizable().renderingMode(.template).scaledToFit().frame(width: 22, height: 22)
+            } else {
+                Text(provider.letter).font(.system(size: 17, weight: .semibold))
+            }
+        }
+        .foregroundStyle(Theme.text)
+        .frame(width: 40, height: 40).background(Theme.card, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(Theme.line))
     }
 }
 

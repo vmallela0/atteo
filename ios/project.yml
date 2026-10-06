@@ -7,6 +7,11 @@ options:
     iOS: "18.0"
   createIntermediateGroups: true
   developmentLanguage: en
+# Product analytics (Analytics.swift, vedu #4416): PostHog's iOS SDK.
+packages:
+  PostHog:
+    url: https://github.com/PostHog/posthog-ios
+    exactVersion: 3.90.1 # pinned: Atteo.xcodeproj (and its Package.resolved) is generated, not committed
 settings:
   base:
     SWIFT_VERSION: "5.0"
@@ -16,6 +21,10 @@ settings:
     # Interface languages (vedu #1645): Localizable.xcstrings and InfoPlist.xcstrings in AgentSoup/Resources.
     SWIFT_EMIT_LOC_STRINGS: YES
     LOCALIZATION_PREFERS_STRING_CATALOGS: YES
+    # The app's bundle id; the share extension is "<it>.share". Override THIS (not PRODUCT_BUNDLE_IDENTIFIER, which
+    # would give the extension the app's own id) to build for another id, e.g. the phones' free-team build:
+    #   xcodebuild … ATTEO_BUNDLE_ID=com.agentsoup.app DEVELOPMENT_TEAM=T3627N2VC4 -allowProvisioningUpdates
+    ATTEO_BUNDLE_ID: com.atteo.app
 targets:
   Atteo:
     type: application
@@ -23,14 +32,44 @@ targets:
     sources:
       - AgentSoup/Sources
       - AgentSoup/Resources
+      - Shared
+    dependencies:
+      - target: AtteoShare
+      - package: PostHog
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.atteo.app
+        PRODUCT_BUNDLE_IDENTIFIER: $(ATTEO_BUNDLE_ID)
         PRODUCT_NAME: Atteo
         INFOPLIST_FILE: AgentSoup/Info.plist
+        CODE_SIGN_ENTITLEMENTS: AgentSoup/Atteo.entitlements
         TARGETED_DEVICE_FAMILY: "1"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         CODE_SIGN_STYLE: Automatic
+  AtteoShare:
+    # Atteo in the share sheet (vedu #4110): ShareExtension/ + Shared/ShareCore.swift. It reads the app's sign-in from
+    # the Keychain group both entitlements name (the app's own application identifier).
+    type: app-extension
+    platform: iOS
+    sources:
+      - ShareExtension
+      - Shared
+      - path: AgentSoup/Resources/Fonts/Onest-Regular.ttf
+        buildPhase: resources
+      - path: AgentSoup/Resources/Fonts/Onest-Medium.ttf
+        buildPhase: resources
+      - path: AgentSoup/Resources/Fonts/Onest-SemiBold.ttf
+        buildPhase: resources
+      - path: AgentSoup/Resources/Fonts/Enriqueta-SemiBold.ttf
+        buildPhase: resources
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(ATTEO_BUNDLE_ID).share
+        PRODUCT_NAME: AtteoShare
+        INFOPLIST_FILE: ShareExtension/Info.plist
+        CODE_SIGN_ENTITLEMENTS: ShareExtension/AtteoShare.entitlements
+        TARGETED_DEVICE_FAMILY: "1"
+        CODE_SIGN_STYLE: Automatic
+        APPLICATION_EXTENSION_API_ONLY: YES
   AtteoTests:
     # Unit tests (no server): the code-block tokenizer (SyntaxHighlight.swift).
     type: bundle.unit-test

@@ -19,6 +19,13 @@ const ctx=await b.newContext({viewport:{width:1280,height:800}});const [k,...v]=
 const p=await ctx.newPage();const errors=[];p.on("pageerror",e=>errors.push(e.message));
 await p.goto(`${BASE}/b/${board}`);await p.waitForTimeout(900);
 check((await p.locator(`#e${q} .hdl`).innerText().catch(()=>""))===`${B}/scout is on it`,"the message shows which agent is on it");
+await p.evaluate(() => { document.documentElement.dataset.compact = "others"; });
+check(await p.locator(`#e${q}`).evaluate(e=>e.classList.contains("ol"))&&!await p.locator(`#e${q} .hdl`).isVisible(),"collapsed rows hide the handling chip");
+await p.locator(`#e${q} .body`).click();
+check(await p.locator(`#e${q} .hdl`).isVisible()&&await p.locator(`#e${q} .type`).isVisible(),"opening restores handling and type chips");
+await p.locator(`#e${q} .when`).click();
+check(!await p.locator(`#e${q} .hdl`).isVisible(),"folding hides the handling chip again");
+await p.evaluate(() => { document.documentElement.dataset.compact = "off"; });
 await p.locator("#composer-text").click();await p.keyboard.type("@"+B.slice(0,3));await p.waitForTimeout(250);
 const menu=await p.locator("#mention-menu").innerText();
 check(await p.locator("#mention-menu li.sub").count()===3,"the person's agents are indented under them (their agent + 2 sessions)");
@@ -45,3 +52,4 @@ await chip.locator('[data-hdl="release"]').click();await pB.waitForTimeout(900);
 check(await pB.locator(`#e${q} .hdl`).count()===0,"× clears it");
 check(errors.length===0,`no page errors ${errors.join(" | ")}`);
 await b.close();console.log(fails?`${fails} FAILED`:"all handling checks passed");
+process.exit(fails?1:0);

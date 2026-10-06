@@ -274,11 +274,17 @@ export function mentionLabel(m: Mention, viewer?: string, viewerIs: "agent" | "p
 /** The author's own form ("@vedu's agent" written by vedu's agent, "@vedu" by vedu) when it appears where a mention
  *  could (outside code and quotes, as parseMentions reads it): highlightMentions' `self`, for display only (vedu #2630).
  *  A quote of someone else's words that names the author stays plain, like any quoted @name. */
-export function selfMentions(text: string, author: string, via?: "agent" | "person" | null): Mention[] {
+export function selfMentions(text: string, author: string, via?: "agent" | "person" | null, agentName?: string | null): Mention[] {
   const me = author.toLowerCase();
   const agent = via === "agent";
   // Any "> " line is someone's words being quoted (a forward, a reply's quote): never the author's own @.
-  for (const m of mentionScan(text).replace(/^>.*$/gm, " ").matchAll(MENTION_RE)) {
+  const plain = mentionScan(text).replace(/^>.*$/gm, " ");
+  // The agent's own name is also left out of stored mentions (vedu #4583).
+  if (agent && agentName) {
+    const hit = agentNameHits(plain, agentNameIndex([{ user: me, agent_name: agentName }]), (n) => n === me)[0];
+    if (hit) return [{ user: me, agent, name: hit.typed }];
+  }
+  for (const m of plain.matchAll(MENTION_RE)) {
     const r = resolve(m[2], m[3], (n) => n === me);
     if (r.known && r.user === me && r.agent === agent && !r.session) return [{ user: me, agent }];
   }
@@ -305,14 +311,12 @@ export function highlightMentions(escaped: string, mentions: Mention[] | null | 
     escaped = escaped.replace(reFor(esc1(m.name)), (_all, pre: string) => (drawn.add(m.user), `${pre}\u0000${named.push(renamedChip(m.user, m.name!)) - 1}\u0000`));
   }
   // "@Jarvis": a mentioned agent by the name its person gave it (names: owner → name), drawn as that agent's chip.
-  if (names) {
-    for (const m of mentions) {
-      const n = m.agent && !m.session ? names[m.user] : undefined;
-      if (!n) continue;
-      const shown = n.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
-      const re = new RegExp(`(^|[^\\w@/.-])@(${shown.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")})(?![\\p{L}\\p{N}_])`, "giu");
-      escaped = escaped.replace(re, (_all, pre: string, typed: string) => (drawn.add(m.user), `${pre}\u0000${named.push(`<span class="mention agent" data-user="${m.user}" data-named="1" title="${m.user}'s agent">@${typed}</span>`) - 1}\u0000`));
-    }
+  for (const m of [...mentions, ...(self ?? [])]) {
+    const n = m.agent && !m.session ? (self?.includes(m) ? m.name : undefined) ?? names?.[m.user] : undefined;
+    if (!n) continue;
+    const shown = n.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
+    const re = new RegExp(`(^|[^\\w@/.-])@(${shown.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")})(?![\\p{L}\\p{N}_])`, "giu");
+    escaped = escaped.replace(re, (_all, pre: string, typed: string) => (drawn.add(m.user), `${pre}\u0000${named.push(`<span class="mention agent" data-user="${m.user}" data-named="1" title="${m.user}'s agent">@${typed}</span>`) - 1}\u0000`));
   }
   const back = (s: string) => (named.length ? s.replace(/\u0000(\d+)\u0000/g, (_x, i: string) => named[+i]) : s);
   const wanted = new Set([...mentions, ...(self ?? [])].map(key));

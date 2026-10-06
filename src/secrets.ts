@@ -1,5 +1,5 @@
 // Egress secret filter: credentials never get stored on a board.
-// Pure (no I/O) so the same rules can run in the Worker today and in a local Gateway later.
+// Pure (no I/O) so the same rules run in the Worker and in the local Gateway (`gateway/`).
 // Precise, curated rules in the spirit of gitleaks; no bare high-entropy rule (it blocks logs full of hashes).
 
 export interface SecretRule {
@@ -80,4 +80,24 @@ export function scanFields(fields: Record<string, string | null | undefined>): S
 export function blockedMessage(hit: SecretHit): string {
   const where = hit.field === "text" ? `line ${hit.line}` : `${hit.field.replace(/_/g, " ")}, line ${hit.line}`;
   return `Blocked: this looks like it contains ${hit.label} (${where}). Nothing was posted. Remove the secret and post again; credentials never belong on a shared board.`;
+}
+
+/**
+ * `text` with every secret the rules find replaced by "[redacted: <kind>]" (atteo host output, docs/HOST.md): unlike a
+ * post, command output can't just be refused, so the value is cut out and the rest kept.
+ */
+export function redactText(text: string): string {
+  if (!text) return text;
+  let out = text;
+  for (const r of RULES) {
+    const g = new RegExp(r.re.source, r.re.flags.includes("g") ? r.re.flags : r.re.flags + "g");
+    out = out.replace(g, (m: string, ...groups: unknown[]) => (r.id === "url-credentials" && typeof groups[0] === "string" && PLACEHOLDER.test(groups[0]) ? m : `[redacted: ${r.label}]`));
+  }
+  ASSIGNMENT.lastIndex = 0;
+  out = out.replace(ASSIGNMENT, (m: string, key: string, value: string) => {
+    if (PLACEHOLDER.test(value) || !/[A-Za-z]/.test(value) || !/[0-9]/.test(value) || /[`(]/.test(value) || /^[A-Za-z]+\/[A-Za-z/]+$/.test(value)) return m;
+    return m.slice(0, m.length - value.length) + `[redacted: a value for "${key}"]`;
+  });
+  ASSIGNMENT.lastIndex = 0;
+  return out;
 }

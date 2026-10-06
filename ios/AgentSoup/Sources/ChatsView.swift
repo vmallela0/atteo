@@ -65,7 +65,7 @@ struct ChatsView: View {
             all = all.filter(lastByPerson) + all.filter { !lastByPerson($0) }
         }
         guard !query.isEmpty else { return all }
-        return all.filter { $0.title.localizedCaseInsensitiveContains(query) || ($0.last?.text.localizedCaseInsensitiveContains(query) ?? false) || ($0.last?.by.localizedCaseInsensitiveContains(query) ?? false) }
+        return all.filter { state.displayName(for: $0).localizedCaseInsensitiveContains(query) || $0.title.localizedCaseInsensitiveContains(query) || ($0.last?.text.localizedCaseInsensitiveContains(query) ?? false) || ($0.last?.by.localizedCaseInsensitiveContains(query) ?? false) }
     }
 
     /// Archived chats (not "Your agent"): restored from their own list.
@@ -94,7 +94,9 @@ struct ChatsView: View {
     /// when Display → Density is Compact).
     private var rowInsets: EdgeInsets { EdgeInsets(top: Space.row(density), leading: Space.l, bottom: Space.row(density), trailing: Space.l) }
 
-    var body: some View {
+    var body: some View { screen.onAppear { Analytics.screen("chats") } } // product analytics (Analytics.swift)
+
+    @ViewBuilder private var screen: some View {
         NavigationStack(path: $path) {
             List {
                 // (Everyday asks these on For you instead.)
@@ -377,6 +379,7 @@ struct ChatsSwitch: View {
 }
 
 struct ChatRow: View {
+    @EnvironmentObject var state: AppState
     let b: Board
     let unread: Int
     var me: String? = nil
@@ -397,7 +400,7 @@ struct ChatRow: View {
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: Space.xxs) {
                 HStack(alignment: .firstTextBaseline, spacing: Space.xs) {
-                    Text(other ?? b.title).font(unread > 0 ? Typo.rowTitle : Typo.rowTitleRead).foregroundStyle(Theme.text).lineLimit(1)
+                    Text(other.map { state.displayName(for: $0) } ?? b.title).font(unread > 0 ? Typo.rowTitle : Typo.rowTitleRead).foregroundStyle(Theme.text).lineLimit(1)
                     if b.encrypted == true { Image(systemName: "lock.fill").font(.system(size: 10)).foregroundStyle(Theme.faint) }
                     Spacer(minLength: Space.s)
                     if working > 0 {
@@ -413,7 +416,7 @@ struct ChatRow: View {
                             Text(String(localized: "Draft: \(String(drafts.text(for: b).prefix(40)))", bundle: .l10n))
                                 .foregroundStyle(Theme.accent)
                         } else if let l = b.last {
-                            Text(Vocab.shown(l.by) + ": ").foregroundStyle(Theme.muted) + Text(l.text.md).foregroundStyle(unread > 0 ? Theme.muted : Theme.faint)
+                            Text(state.displayName(for: l.by) + ": ").foregroundStyle(Theme.muted) + Text(l.text.mdPreview).foregroundStyle(unread > 0 ? Theme.muted : Theme.faint)
                         } else {
                             Text("\(b.entryCount) messages").foregroundStyle(Theme.faint)
                         }
@@ -511,7 +514,7 @@ struct ContactRow: View {
         HStack(spacing: Space.m) {
             Avatar(name: c.from, agent: true, size: 44).accessibilityHidden(true)
             VStack(alignment: .leading, spacing: Space.xxs) {
-                Text("\(Vocab.agentOf(c.from)) wants to talk").font(Typo.rowTitle).foregroundStyle(Theme.text).lineLimit(1)
+                Text("\(state.displayName(for: c.from, agent: true)) wants to talk").font(Typo.rowTitle).foregroundStyle(Theme.text).lineLimit(1)
                 (c.text.map { Text(verbatim: $0) } ?? Text("first contact · \(c.createdAt.ago)")).font(Typo.secondary).foregroundStyle(Theme.muted).lineLimit(1)
             }
             Spacer(minLength: 0)
@@ -552,7 +555,7 @@ struct ArchivedChats: View {
                     HStack(spacing: Space.m) {
                         BoardPicture(board: b, size: 36)
                         VStack(alignment: .leading, spacing: Space.xxs) {
-                            Text(b.displayName(me: state.me?.owner)).font(Typo.rowTitleRead).foregroundStyle(Theme.text).lineLimit(1)
+                            Text(state.displayName(for: b)).font(Typo.rowTitleRead).foregroundStyle(Theme.text).lineLimit(1)
                             Text("Archived · read-only").font(Typo.micro).foregroundStyle(Theme.faint)
                         }
                         Spacer(minLength: Space.s)

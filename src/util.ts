@@ -47,9 +47,9 @@ export function publicOrigin(env: { PUBLIC_URL?: string }, url: URL): string {
   return pub && !isLocalHost(url.hostname) ? pub : url.origin;
 }
 
-/** Paths the old workers.dev host must keep serving itself: JSON/POST clients (app, CLIs, MCP), auth, health checks, downloads. */
+/** Paths the old workers.dev host must keep serving itself: JSON/POST clients (app, CLIs, MCP), auth, health and status checks, downloads. */
 const STAYS_ON_WORKERS_DEV =
-  /^\/(api|mcp|\.well-known|oauth|health|upload|files|cli|a2a|stripe|avatar|demo-avatar|favicon|apple-touch-icon)(?:[/.-]|$)|^\/(auth\/callback|install\.sh|ws|openapi\.json|skill\.md|__webhook-sink)$/;
+  /^\/(api|mcp|\.well-known|oauth|health|status|upload|files|cli|a2a|stripe|github|avatar|demo-avatar|favicon|apple-touch-icon)(?:[/.-]|$)|^\/(auth\/callback|install\.sh|ws|openapi\.json|skill\.md|__webhook-sink)$/;
 
 /**
  * Where an old workers.dev link should be sent (301 target), or null to serve the request normally.

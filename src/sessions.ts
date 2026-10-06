@@ -50,17 +50,33 @@ export const LIVE_SESSIONS_SQL = `SELECT boards FROM agent_sessions WHERE ended_
 export const USER_SESSIONS_SQL = `SELECT * FROM agent_sessions WHERE user = ? AND ended_at IS NULL ORDER BY last_seen DESC LIMIT 100`;
 export const SESSIONS_ON_BOARD_SQL = `SELECT user, name, client, model, last_seen, status FROM agent_sessions WHERE ended_at IS NULL AND kind = 'main' AND last_seen > ? AND boards LIKE ? ORDER BY last_seen DESC LIMIT 50`;
 
-/** How many sessions are live on each board right now (one small query over recently seen sessions). */
-export async function liveByBoard(env: Env): Promise<Map<string, number>> {
-  const rows = (await env.DB.prepare(LIVE_SESSIONS_SQL).bind(Date.now() - LIVE_MS).all<{ boards: string | null }>()).results;
-  const out = new Map<string, number>();
-  for (const r of rows) {
-    let ids: string[] = [];
-    try { ids = JSON.parse(r.boards ?? "[]"); } catch {}
-    for (const b of ids) out.set(b, (out.get(b) ?? 0) + 1);
-  }
-  return out;
+// Every board list asks this, and it reads every live session account-wide (~145 rows a call in prod, 18k calls in three
+// days: the second-largest D1 reader, #4340). A live count a few seconds old is fine, so each isolate keeps it briefly.
+export const LIVE_CACHE_MS = 20_000;
+let liveCache: { at: number; map: Promise<Map<string, number>> } | null = null;
+
+/** How many sessions are live on each board right now (one small query over recently seen sessions, cached briefly). */
+export function liveByBoard(env: Env, now = Date.now()): Promise<Map<string, number>> {
+  // A local dev/test server (PUBLIC_URL on localhost) reads fresh every time: suites check counts right after a change.
+  const local = /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:|\/|$)/.test(String(env.PUBLIC_URL ?? ""));
+  if (!local && liveCache && now - liveCache.at < LIVE_CACHE_MS) return liveCache.map;
+  const map = (async () => {
+    const rows = (await env.DB.prepare(LIVE_SESSIONS_SQL).bind(now - LIVE_MS).all<{ boards: string | null }>()).results;
+    const out = new Map<string, number>();
+    for (const r of rows) {
+      let ids: string[] = [];
+      try { ids = JSON.parse(r.boards ?? "[]"); } catch {}
+      for (const b of ids) out.set(b, (out.get(b) ?? 0) + 1);
+    }
+    return out;
+  })();
+  liveCache = { at: now, map };
+  map.catch(() => { if (liveCache?.map === map) liveCache = null; }); // a failed read isn't cached
+  return map;
 }
+
+/** Tests: forget the cached live counts. */
+export const resetLiveCache = () => { liveCache = null; };
 
 type Row = Omit<AgentSession, "boards"> & { boards: string };
 const toSession = (r: Row): AgentSession => ({ ...r, boards: JSON.parse(r.boards || "[]") as string[] });

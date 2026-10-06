@@ -32,6 +32,7 @@ OUT=${VERIFY_DIR:-${TMPDIR:-/tmp}/atteo-verify}; OUT=${OUT%/}
 LAST_SHIP_FILE="$(git rev-parse --git-common-dir)/atteo-last-ship"
 asked=${SUITES:-}
 SUITES=" ${SUITES:-vitest e2e cli browser} "
+SUITES=${SUITES//,/ } # Accept comma-separated suite names too.
 want() { [[ "$SUITES" == *" $1 "* ]]; }
 start=$(date +%s)
 mkdir -p "$OUT"
@@ -91,7 +92,8 @@ server() {
   CI=1 npx wrangler d1 migrations apply agent-board --local --persist-to "$dir" >"$OUT/$name.migrate.log" 2>&1 \
     || { echo "migrations failed for $name (log: $OUT/$name.migrate.log)" >&2; exit 1; }
   # Its own inspector port too: servers started together otherwise race for wrangler's default one and lose (bind()).
-  exec npx wrangler dev --port "$port" --inspector-port $((port + 1000)) --persist-to "$dir" ${envf:+--env-file "$envf"} >"$OUT/$name.server.log" 2>&1
+  # DEV_FAKE_ADMIN: the localhost-only /_ops test session (PR 60) works in every suite without each lander editing .dev.vars.
+  exec npx wrangler dev --port "$port" --inspector-port $((port + 1000)) --persist-to "$dir" ${envf:+--env-file "$envf"} --var DEV_FAKE_ADMIN:1 >"$OUT/$name.server.log" 2>&1
 }
 # up <port> <name> [path]: wait for it to answer; give up at once if the server (or its migration) already died.
 up() {
@@ -108,7 +110,7 @@ up() {
 want e2e && serve e2e "$E2E_PORT"
 want cli && serve cli "$CLI_PORT"
 if want browser; then
-  printf 'WORKOS_API_KEY=sk_test_ci_placeholder\nADMIN_KEY=ci-admin-key\nPOSTS_PER_MINUTE=100000\nALLOW_LOCAL_WEBHOOKS=1\nDEV_FAKE_CLOCK=1\nDEV_FAKE_VOICE=1\nDEV_FAKE_NEAR_QUOTA=1\nPUBLIC_URL=http://localhost:%s\n' "$BR_PORT" > "$OUT/browser.env"
+  printf 'WORKOS_API_KEY=sk_test_ci_placeholder\nADMIN_KEY=ci-admin-key\nPOSTS_PER_MINUTE=100000\nALLOW_LOCAL_WEBHOOKS=1\nDEV_FAKE_CLOCK=1\nDEV_FAKE_VOICE=1\nDEV_FAKE_NEAR_QUOTA=1\nDEV_FAKE_ADMIN=1\nDEV_FAKE_MAGIC=1\nPUBLIC_URL=http://localhost:%s\n' "$BR_PORT" > "$OUT/browser.env"
   serve browser "$BR_PORT" "$OUT/browser.env"
 fi
 if want landing; then

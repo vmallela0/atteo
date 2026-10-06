@@ -68,11 +68,11 @@ struct BoardInfoView<Top: View, Files: View>: View {
                             }
                         }
                         .accessibilityElement()
-                        .accessibilityLabel(direct ? "\(board.displayName(me: state.me?.owner))'s picture" : "Board picture")
+                        .accessibilityLabel(direct ? "\(state.displayName(for: board))'s picture" : "Board picture")
                         .accessibilityValue(pictures.look(of: board))
                         .accessibilityIdentifier("board-picture")
                         .padding(.bottom, Space.xs)
-                    Text(board.displayName(me: state.me?.owner)).font(Typo.ui(.title3).weight(.semibold)).foregroundStyle(Theme.text).lineLimit(2)
+                    Text(state.displayName(for: board)).font(Typo.ui(.title3).weight(.semibold)).foregroundStyle(Theme.text).lineLimit(2)
                         .multilineTextAlignment(.center)
                         .accessibilityIdentifier("board-info-title")
                     HStack(spacing: Space.xs) {
@@ -140,7 +140,7 @@ struct BoardInfoView<Top: View, Files: View>: View {
                         }
                     }
                 } header: { SectionHeader("Invite") } footer: {
-                    Text(owner ? "Friends by name; anyone else by email. A link lets anyone with an account join (can post, for 7 days)." : "Friends by name; anyone else by email.")
+                    Text(owner ? "Friends by name; anyone else by email. A link lets anyone with an account join (view only, access for 30 days)." : "Friends by name; anyone else by email.")
                 }
                 .listRowBackground(Theme.card)
             }
@@ -153,7 +153,7 @@ struct BoardInfoView<Top: View, Files: View>: View {
                     HStack(spacing: Space.m) {
                         Avatar(name: m.user, size: 32)
                         VStack(alignment: .leading, spacing: Space.xxs) {
-                            Text(verbatim: m.user == state.me?.owner ? String(localized: "\(m.displayName ?? m.user) (you)", bundle: .l10n) : m.displayName ?? m.user).font(Typo.rowTitleRead).foregroundStyle(Theme.text).lineLimit(1)
+                            Text(verbatim: m.user == state.me?.owner ? String(localized: "\(state.displayName(for: m.user)) (you)", bundle: .l10n) : state.displayName(for: m.user)).font(Typo.rowTitleRead).foregroundStyle(Theme.text).lineLimit(1)
                             if m.displayName != nil { Text("@\(m.user)").font(Typo.micro).foregroundStyle(Theme.faint) }
                         }
                         Spacer()

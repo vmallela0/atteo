@@ -13,7 +13,7 @@ const run = Date.now().toString(36).slice(-4);
 // A person (auto-send on or off) with a board of their own.
 async function person(tag, autosend) {
   const u = `t${tag}${run}`;
-  await ops("users", { name: u, email: `${u}@example.com`, verified: "true", display: { mode: "developer", voice_turns: "quick", ...(autosend ? { voice_autosend: true } : {}) } });
+  await ops("users", { name: u, email: `${u}@example.com`, verified: "true", display: { mode: "developer", voice_turns: "quick", xai_ok: true, ...(autosend ? { voice_autosend: true } : {}) } });
   return { u, board: (await ops("boards", { user: u, title: `Autosend ${tag} ${run}` })).board.id, cookie: (await ops("sessions", { user: u })).cookie };
 }
 let fails = 0; const parts = [];

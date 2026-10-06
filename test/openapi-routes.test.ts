@@ -119,6 +119,16 @@ const MATCH_ROUTES: Record<string, Route[]> = {
     { method: "POST", path: "/api/boards/{id}/doc" },
   ],
   "\\/api\\/boards\\/(b_[a-z0-9]+)\\/approvals$": [{ method: "GET", path: "/api/boards/{id}/approvals" }],
+  "\\/api\\/boards\\/(b_[a-z0-9]+)\\/hosts(?:\\/(confirm|h_[A-Za-z0-9_-]+|all)(?:\\/(stop|next|runs)(?:\\/(hr_[A-Za-z0-9_-]+)(?:\\/(result))?)?)?)?$": [
+    { method: "GET", path: "/api/boards/{id}/hosts" },
+    { method: "POST", path: "/api/boards/{id}/hosts" },
+    { method: "POST", path: "/api/boards/{id}/hosts/confirm" },
+    { method: "POST", path: "/api/boards/{id}/hosts/{host}/stop" },
+    { method: "GET", path: "/api/boards/{id}/hosts/{host}/next" },
+    { method: "POST", path: "/api/boards/{id}/hosts/{host}/runs" },
+    { method: "GET", path: "/api/boards/{id}/hosts/{host}/runs/{run}" },
+    { method: "POST", path: "/api/boards/{id}/hosts/{host}/runs/{run}/result" },
+  ],
   "\\/api\\/boards\\/(b_[a-z0-9]+)\\/triggers(?:\\/(tr_[a-z0-9]+))?$": [
     { method: "GET", path: "/api/boards/{id}/triggers" },
     { method: "POST", path: "/api/boards/{id}/triggers" },
@@ -132,6 +142,7 @@ const MATCH_ROUTES: Record<string, Route[]> = {
     { method: "DELETE", path: "/api/boards/{id}/schedules/{sid}" },
   ],
   "\\/api\\/boards\\/(b_[a-z0-9]+)\\/recap$": [{ method: "GET", path: "/api/boards/{id}/recap" }],
+  "\\/api\\/boards\\/(b_[a-z0-9]+)\\/ls$": [{ method: "GET", path: "/api/boards/{id}/ls" }],
   "\\/api\\/boards\\/(b_[a-z0-9]+)\\/pin$": [
     { method: "GET", path: "/api/boards/{id}/pin" },
     { method: "POST", path: "/api/boards/{id}/pin" },
@@ -205,9 +216,12 @@ function shouldDocument(path: string): boolean {
     path.startsWith("/api/") ||
     path === "/mcp" ||
     path.startsWith("/health") ||
+    path === "/status" ||
+    path === "/status.json" ||
     path.startsWith("/oauth/") ||
     path.startsWith("/.well-known/") ||
     path === "/a2a" ||
+    path === "/github/webhook" ||
     path === "/openapi.json"
   );
 }

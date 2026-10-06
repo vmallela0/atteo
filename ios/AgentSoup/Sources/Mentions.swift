@@ -36,16 +36,37 @@ func agentNameMentions(in text: String, names: [String: String], members: Set<St
 /// The author's own form ("@vedu's agent" written by vedu's agent, "@vedu" by vedu) where a mention could be: outside
 /// code, "> " quote lines and double quotes, like src/mentions.ts selfMentions. It's left out of the stored mentions
 /// (it reaches no one), so it's passed to `mentioned(author:)` to be boxed anyway (vedu #2630).
-func selfMention(in text: String, author: String, agent: Bool) -> EntryMention? {
+func selfMention(in text: String, author: String, agent: Bool, agentName: String? = nil) -> EntryMention? {
     guard text.contains("@") else { return nil }
     var t = text
     for p in ["```[\\s\\S]*?```", "`[^`\\n]+`", "(?m)^>.*$", "\"[^\"\\n]*\"", "“[^”\\n]*”"] {
         t = t.replacingOccurrences(of: p, with: " ", options: .regularExpression)
     }
+    // The agent's own name is also left out of stored mentions (vedu #4583).
+    if agent, let agentName, !agentName.isEmpty,
+       !agentNameMentions(in: t, names: [agentName.lowercased(): author.lowercased()], members: [author.lowercased()]).isEmpty {
+        return EntryMention(user: author.lowercased(), agent: true)
+    }
     let me = NSRegularExpression.escapedPattern(for: author.lowercased())
     let form = agent ? "@\(me)(?:'|’)s\\s+(?:agent|assistant)\\b" : "@\(me)(?![A-Za-z0-9_]|(?:'|’)s\\s+(?:agent|assistant)\\b|/)"
     guard let re = try? NSRegularExpression(pattern: "(?:^|[^A-Za-z0-9_.@/-])\(form)", options: [.caseInsensitive]) else { return nil }
     return re.firstMatch(in: t, range: NSRange(t.startIndex..., in: t)) == nil ? nil : EntryMention(user: author.lowercased(), agent: agent)
+}
+
+/// Does this message @mention `me` the person, by name (jxn #4120)? The server stored a person mention of `me` AND the
+/// text says "@me" itself, outside code, quotes and "> " lines: not "@me's agent", not a session ("@me/scout"), and not
+/// only a group (@humans, @all expand to every person but don't name you). Like the web's markMe (a person chip whose
+/// user is you). Drives the row's tint only; "for you" in notifications and read-aloud keep their own rules.
+func mentionsPersonDirectly(text: String, mentions: [EntryMention]?, me: String?) -> Bool {
+    guard let me = me?.lowercased(), !me.isEmpty, (mentions ?? []).contains(where: { !$0.agent && $0.user.lowercased() == me }) else { return false }
+    var t = text
+    for p in ["```[\\s\\S]*?```", "`[^`\\n]+`", "(?m)^>.*$", "\"[^\"\\n]*\"", "“[^”\\n]*”"] {
+        t = t.replacingOccurrences(of: p, with: " ", options: .regularExpression)
+    }
+    let h = NSRegularExpression.escapedPattern(for: me)
+    let pattern = "(?:^|[^A-Za-z0-9_.@/-])@\(h)(?![A-Za-z0-9_]|(?:'|’)s\\s+(?:agent|assistant)\\b|/)"
+    guard let re = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else { return false }
+    return re.firstMatch(in: t, range: NSRange(t.startIndex..., in: t)) != nil
 }
 
 /// Marks a mention's run in a message's Text, so MentionBoxes can draw its box.
@@ -87,7 +108,7 @@ extension String {
     /// that were (for VoiceOver and the QA).
     /// `author`: the writer's own form ("@vedu's agent" in vedu's agent's message), boxed though the server leaves it out
     /// of the stored mentions (it reaches no one, vedu #2630). Display only, like the web's highlightMentions `self`.
-    func mentioned(_ mentions: [EntryMention]?, members: [String], me: String?, agentNames: [String: String] = [:], author: EntryMention? = nil, refTitle: (Int) -> String? = { _ in nil }) -> (text: Text, handles: [String]) {
+    func mentioned(_ mentions: [EntryMention]?, members: [String], me: String?, agentNames: [String: String] = [:], author: EntryMention? = nil, displayName: (String) -> String = { $0 }, refTitle: (Int) -> String? = { _ in nil }) -> (text: Text, handles: [String]) {
         var out = mdLinked(refTitle) // ("#123": that message's title, opening it)
         guard contains("@") else { return (Text(out), []) }
         // What counts: the stored mentions, or (still sending) anyone on the board and their agent.
@@ -152,7 +173,15 @@ extension String {
         var cursor = out.startIndex
         for (r, mine) in boxes.sorted(by: { $0.0.lowerBound < $1.0.lowerBound }) where r.lowerBound >= cursor {
             if cursor < r.lowerBound { text = text + Text(AttributedString(out[cursor..<r.lowerBound])) }
-            text = text + Text(AttributedString(out[r])).customAttribute(MentionBox(mine: mine))
+            var chip = AttributedString(out[r])
+            if let url = chip.link, let target = personLink(url) {
+                let raw = String(chip.characters).dropFirst()
+                let address = raw.contains("/") ? String(raw) : target.name + (target.agent ? "'s agent" : "")
+                var label = AttributedString(displayName(address))
+                if let attributes = chip.runs.first?.attributes { label.setAttributes(attributes) }
+                chip = label
+            }
+            text = text + Text(chip).customAttribute(MentionBox(mine: mine))
             cursor = r.upperBound
         }
         if cursor < out.endIndex { text = text + Text(AttributedString(out[cursor...])) }

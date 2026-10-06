@@ -30,7 +30,9 @@ struct FullSettings: View {
     @State private var confirmSignOut = false
     @State private var bring = false
 
-    var body: some View {
+    var body: some View { screen.onAppear { Analytics.screen("settings") } } // product analytics (Analytics.swift)
+
+    @ViewBuilder private var screen: some View {
         ScrollViewReader { scroller in
         List {
             Section { pictures }
@@ -41,6 +43,10 @@ struct FullSettings: View {
                 Section { connectAgent }
                     .listRowBackground(Theme.card)
                 ReportBugRow() // Report a bug (ReportBug.swift), where it's easy to find
+                FeedbackRow() // Send feedback to the Atteo team (Feedback.swift, vedu #4125)
+                LegalRow() // Privacy Policy + Terms (LegalRow.swift, App Review 5.1.1(i))
+                SafetySection() // hide offensive words, the xAI voice consent (Moderation.swift, App Review 1.2 / 5.1.2(i))
+                DeleteAccountRow() // Delete account (DeleteAccount.swift, App Review 5.1.1(v))
             }
 
             if let d = Binding($draft) {

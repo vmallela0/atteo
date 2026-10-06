@@ -1,4 +1,4 @@
-// Named agents on the web (vedu #1125/#1161): "Jarvis" with "vedu's agent" next to it on its posts, @Jarvis drawn as that
+// Named agents on the web (vedu #1125/#1161): "Jarvis" on its posts with "vedu's agent" on hover (jxn #4522), @Jarvis drawn as that
 // agent's chip, offered by name in the @ menu, the hover card says whose it is, set in Account, renamed live.
 import { SHOTS_DIR } from "./lib/shots.mjs";
 import { chromium } from "playwright-core";
@@ -23,8 +23,14 @@ const b=await chromium.launch({executablePath: process.env.PW_CHROME || undefine
 for(const [w,scheme] of [[1280,"light"],[390,"dark"]]){
   const ctx=await b.newContext({viewport:{width:w,height:860},colorScheme:scheme,isMobile:w<500,hasTouch:w<500});const [k,...v]=ckP.split(";")[0].split("=");await ctx.addCookies([{name:k,value:v.join("="),url:BASE}]);
   const p=await ctx.newPage();const errors=[];p.on("pageerror",e=>errors.push(e.message));await p.goto(`${BASE}/b/${board}`);await p.locator(`#e${ms} .mention.agent[data-user="${V}"]`).waitFor({timeout:8000}).catch(()=>{});
-  const meta=await p.locator(`#e${a1}>.grow>.meta`).innerText();
-  check(new RegExp(`^${NAME}`).test(meta.trim())&&new RegExp(`${V}'s agent`).test(meta),`${w}px: the agent's post reads "${NAME}" with "${V}'s agent" next to it (${meta.replace(/\s+/g," ").slice(0,80)})`);
+  const meta=await p.locator(`#e${a1}>.grow>.meta`).innerText(),own=await p.locator(`#e${a1}>.grow>.meta>.who`).getAttribute("title");
+  // The header is the name and the time (jxn #4522); whose agent it is is on the name's hover.
+  check(new RegExp(`^${NAME}`).test(meta.trim())&&!new RegExp(`${V}'s agent`).test(meta)&&own===`${V}'s agent`,`${w}px: the agent's post reads "${NAME}", "${V}'s agent" on hover (${meta.replace(/\s+/g," ").slice(0,60)} | ${own})`);
+  await p.evaluate(()=>{document.documentElement.dataset.compact="others"});
+  check(!await p.locator(`#e${a1} .agent-info`).isVisible(),`${w}px: owner details are hidden in collapsed rows`);
+  await p.locator(`#e${a1} .body`).click();
+  await p.locator(`#e${a1} .agent-info`).waitFor({state:"visible",timeout:5000}).catch(()=>{}); // under load the row opens a beat after the click
+  check(await p.locator(`#e${a1} .agent-info`).isVisible()&&await p.locator(`#e${a1} .agent-info`).innerText()===`${V}'s agent`&&await p.locator(`#e${a1} .who`).innerText()===NAME,`${w}px: opening keeps the agent name and shows its owner`);
   const chip=p.locator(`#e${ms} .mention.agent[data-user="${V}"]`);
   check(await chip.count()===1&&(await chip.innerText())===`@${NAME}`,`${w}px: "@${NAME}" in a message is that agent's chip`);
   if(w>500){await chip.hover();await p.locator(".hcard",{hasText:NAME}).waitFor({timeout:5000}).catch(()=>{});const hc=await p.locator(".hcard").innerText().catch(()=>"");
@@ -36,6 +42,7 @@ for(const [w,scheme] of [[1280,"light"],[390,"dark"]]){
     // Live rename
     await prof(ckV,{agent_name:`Ada${run}`});await metaIs(p,`Ada${run}`);
     check(new RegExp(`^Ada${run}`).test((await p.locator(`#e${a1}>.grow>.meta`).innerText()).trim()),"renaming it updates its posts without a reload");
+    check(await p.locator(`#e${a1} .agent-info`).innerText()===`${V}'s agent`,"live rename keeps expanded owner details");
     await prof(ckV,{agent_name:NAME});await metaIs(p,NAME)}
   await p.screenshot({path:`${SHOTS_DIR}/agentnames-${w}.png`});
   check(!errors.length,`${w}px: no page errors ${errors.join(" | ")}`);await ctx.close()}

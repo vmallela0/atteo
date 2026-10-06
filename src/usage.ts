@@ -1,6 +1,7 @@
 // Operations: the PRD's usage metrics as daily counters, and server errors grouped by route and message.
 // Writes are fire-and-forget (waitUntil) and throttled per isolate, so they never slow a request down.
 
+import { observability, SUCCESS_ONCE_DAY, successMetrics, type Observability, type SuccessMetrics } from "./observe";
 import type { Env } from "./types";
 
 const day = (ts = Date.now()) => new Date(ts).toISOString().slice(0, 10);
@@ -8,8 +9,8 @@ const once = new Map<string, number>();
 
 const USAGE_RETENTION_DAYS = 90;
 
-/** Cron sweep: delete usage_daily rows older than 90 days (shared with test/queryPlans.test.ts). */
-export const PRUNE_USAGE_DAILY_SQL = `DELETE FROM usage_daily WHERE day < ?`;
+/** Cron sweep: delete usage_daily rows older than 90 days (shared with test/queryPlans.test.ts). Lifetime uniqueness rows (day = SUCCESS_ONCE_DAY) stay. */
+export const PRUNE_USAGE_DAILY_SQL = `DELETE FROM usage_daily WHERE day < ? AND day != '${SUCCESS_ONCE_DAY}'`;
 
 /** Deletes usage_daily rows past the retention window; recent days stay. */
 export async function pruneUsageDaily(env: Env, now = Date.now(), days = USAGE_RETENTION_DAYS): Promise<number> {
@@ -90,6 +91,8 @@ export interface Metrics {
   clients: { client: string; agents: number }[];
   errors: { route: string; message: string; count: number; last_at: number }[];
   csp: { key: string; count: number; last_day: string }[]; // CSP report-only hits, last 7 days ("directive blocked")
+  observe: Observability; // trust/context counters, derived rates, latency p95, and request wall time (src/observe.ts)
+  success: SuccessMetrics; // product activation: boards created, first agent post, invite redeemed, friend accepted
 }
 
 export async function metrics(env: Env, n = 14): Promise<Metrics> {
@@ -97,7 +100,7 @@ export async function metrics(env: Env, n = 14): Promise<Metrics> {
   const sinceMs = Date.parse(since + "T00:00:00Z");
   const now = Date.now(),
     D = 86_400_000;
-  const [u, nu, nb, cl, er, ku, kb, ka, ke] = await Promise.all([
+  const [u, nu, nb, cl, er, ku, kb, ka, ke, observe, success] = await Promise.all([
     env.DB.prepare(`SELECT day, metric, key, SUM(count) AS c, COUNT(*) AS k FROM usage_daily WHERE day >= ? GROUP BY day, metric, CASE WHEN metric = 'posts' THEN key ELSE '' END`).bind(since).all<{ day: string; metric: string; key: string; c: number; k: number }>(),
     env.DB.prepare(`SELECT strftime('%Y-%m-%d', first_seen / 1000, 'unixepoch') AS day, COUNT(*) AS c FROM users WHERE first_seen >= ? AND name NOT LIKE 'e2e-%' GROUP BY day`).bind(sinceMs).all<{ day: string; c: number }>(),
     env.DB.prepare(`SELECT strftime('%Y-%m-%d', created_at / 1000, 'unixepoch') AS day, COUNT(*) AS c FROM boards WHERE created_at >= ? AND title NOT LIKE 'e2e %' AND created_by NOT LIKE 'e2e-%' GROUP BY day`).bind(sinceMs).all<{ day: string; c: number }>(),
@@ -118,6 +121,8 @@ export async function metrics(env: Env, n = 14): Promise<Metrics> {
     env.DB.prepare(`SELECT COUNT(*) AS boards, SUM(last_activity >= ?) AS active FROM boards WHERE title NOT LIKE 'e2e %' AND created_by NOT LIKE 'e2e-%'`).bind(now - 7 * D).first<{ boards: number; active: number | null }>(),
     env.DB.prepare(`SELECT COUNT(DISTINCT user) AS n FROM tokens WHERE last_used >= ? AND revoked_at IS NULL AND user NOT LIKE 'e2e-%'`).bind(now - 7 * D).first<{ n: number }>(),
     env.DB.prepare(`SELECT COUNT(*) AS kinds, COALESCE(SUM(count), 0) AS n FROM errors WHERE last_at >= ?`).bind(now - D).first<{ kinds: number; n: number }>(),
+    observability(env, n),
+    successMetrics(env, n),
   ]);
   const days = Array.from({ length: n }, (_, i) => ({ day: day(Date.now() - (n - 1 - i) * 86_400_000), people: 0, agents: 0, posts_person: 0, posts_agent: 0, new_users: 0, new_boards: 0 }));
   const at = (d: string) => days.find((x) => x.day === d);
@@ -151,5 +156,5 @@ export async function metrics(env: Env, n = 14): Promise<Metrics> {
   const csp = await env.DB.prepare(`SELECT key, SUM(count) AS count, MAX(day) AS last_day FROM usage_daily WHERE metric = 'csp' AND day >= ? GROUP BY key ORDER BY count DESC LIMIT 20`)
     .bind(day(now - 6 * D))
     .all<{ key: string; count: number; last_day: string }>();
-  return { kpis, days, clients: cl.results, errors: er.results, csp: csp.results };
+  return { kpis, days, clients: cl.results, errors: er.results, csp: csp.results, observe, success };
 }

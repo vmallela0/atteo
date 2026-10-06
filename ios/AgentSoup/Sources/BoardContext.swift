@@ -91,7 +91,8 @@ extension AppState {
             return true
         } catch APIError.server(let m) {
             Haptics.play(.failed)
-            error = m.localizedCaseInsensitiveContains("full") ? String(localized: "Memory is full: strike something first.", bundle: .l10n) : m
+            let isTransient = isTransientServerError(m)
+            error = m.localizedCaseInsensitiveContains("full") ? String(localized: "Memory is full: strike something first.", bundle: .l10n) : (isTransient ? String(localized: "Atteo had a hiccup. Try again in a moment.", bundle: .l10n) : m)
             return false
         } catch { report(error); return false }
     }
@@ -177,7 +178,7 @@ struct SoulMemorySections: View {
                             .lineLimit(expanded ? nil : 5)
                             .onTapGesture { withAnimation(.snappy) { expanded.toggle() } }
                             .accessibilityIdentifier("soul-text")
-                        Text(verbatim: ["v\(soul.version)", soul.updatedBy.map { String(localized: "edited by \($0)", bundle: .l10n) }, soul.updatedAt.map(\.agoPhrase)].compactMap { $0 }.joined(separator: " · "))
+                        Text(verbatim: ["v\(soul.version)", soul.updatedBy.map { String(localized: "edited by \(state.displayName(for: $0))", bundle: .l10n) }, soul.updatedAt.map(\.agoPhrase)].compactMap { $0 }.joined(separator: " · "))
                             .font(Typo.micro).foregroundStyle(Theme.faint)
                     }
                     if canEdit {
@@ -196,7 +197,7 @@ struct SoulMemorySections: View {
                         HStack(alignment: .firstTextBaseline, spacing: Space.s) {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(it.text).font(Typo.secondary).foregroundStyle(Theme.text)
-                                Text(verbatim: [it.who, it.from.map { "#\($0)" }, it.ts.agoPhrase].compactMap { $0 }.joined(separator: " · "))
+                                Text(verbatim: [state.displayName(for: it.by, agent: it.via == "agent") + (it.session.map { " · " + $0 } ?? ""), it.from.map { "#\($0)" }, it.ts.agoPhrase].compactMap { $0 }.joined(separator: " · "))
                                     .font(Typo.micro).foregroundStyle(Theme.faint)
                             }
                             Spacer(minLength: Space.s)
@@ -387,7 +388,7 @@ struct AgentNameField: View {
             if let problem {
                 Text(problem).font(Typo.meta).foregroundStyle(Theme.danger).accessibilityIdentifier("agent-name-error")
             } else if let n = state.profile?.agentName, !n.isEmpty, let me = state.me?.owner {
-                Text("Shows as “\(agentLabel(me, n))”").font(Typo.micro).foregroundStyle(Theme.faint)
+                Text("Shows as “\(agentLabel(state.displayName(for: me), n))”").font(Typo.micro).foregroundStyle(Theme.faint)
             }
         }
         .onChange(of: focused) { _, f in if !f { save() } }

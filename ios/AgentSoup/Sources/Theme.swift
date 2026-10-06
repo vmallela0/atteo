@@ -156,6 +156,9 @@ enum Radius {
 /// Prime for the agent layer (ids, payloads, logs). Each scales with Dynamic Type from its text style; a script these
 /// fonts don't cover (Chinese, Japanese, Korean, Arabic, Hindi, Bengali) falls back to the system font glyph by glyph.
 enum Typo {
+    static var composer: UIFont { .preferredFont(forTextStyle: .callout) }
+    static func composerMention(_ font: UIFont) -> UIFont { .systemFont(ofSize: font.pointSize, weight: .semibold) }
+
     static let rowTitle = onest(15, .semibold, .subheadline) // a chat, a task, an agent
     static let rowTitleRead = onest(15, .medium, .subheadline)
     static let body = onest(17, .regular, .body) // messages
@@ -565,5 +568,12 @@ extension String {
     /// Inline Markdown (`code`, **bold**, links) as styled text; falls back to the plain string.
     var md: AttributedString {
         (try? AttributedString(markdown: self, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))) ?? AttributedString(self)
+    }
+    /// The same, with no tappable links: for a one-line preview inside a row you tap as a whole (a link there took
+    /// the row's tap and left the app, jxn #4173).
+    var mdPreview: AttributedString {
+        var a = md
+        for r in a.runs.filter({ $0.link != nil }).map(\.range) { a[r].link = nil }
+        return a
     }
 }

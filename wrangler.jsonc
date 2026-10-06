@@ -9,15 +9,26 @@
   "workers_dev": true,
   "preview_urls": false,
   "triggers": { "crons": ["*/5 * * * *"] },
-  // The agent skill (skills/atteo/SKILL.md) is bundled as text and served at /skill.md; vendor/*.js (html2canvas,
-  // the bug-report screenshot) is bundled as text and served at /vendor/<file>.
-  "rules": [{ "type": "Text", "globs": ["**/*.md", "**/atteo.mjs", "**/vendor/html2canvas.min.js"], "fallthrough": true }, { "type": "Data", "globs": ["**/*.woff2"], "fallthrough": true }],
+  // The agent skill (skills/atteo/SKILL.md) is bundled as text and served at /skill.md.
+  "rules": [{ "type": "Text", "globs": ["**/*.md", "**/atteo.mjs"], "fallthrough": true }, { "type": "Data", "globs": ["**/*.woff2"], "fallthrough": true }],
+  // Mermaid's UMD build (public/mermaid.min.js): served at /mermaid.min.js so the CSP does not allow a CDN.
+  // run_worker_first keeps every other route on the Worker; mermaid.ts fetches this binding and sets cache/SRI CORS.
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS",
+    "html_handling": "none",
+    "not_found_handling": "none",
+    "run_worker_first": true
+  },
   // The CLI is bundled into one file and served at /cli/atteo.mjs (curl …/install.sh | sh installs it).
   "build": { "command": "npm run -s build:cli" },
   "durable_objects": {
     "bindings": [{ "name": "BOARD", "class_name": "Board" }]
   },
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Board"] }],
+  // Per-IP cap on signed-out endpoints that write a row or wake a board each call (limits.ts publicAllowed, vedu #4598):
+  // 20 a minute per address per endpoint. The Rate Limiting binding counts in memory at each location: no D1 per request.
+  "ratelimits": [{ "name": "PUBLIC_WRITES", "namespace_id": "4598", "simple": { "limit": 20, "period": 60 } }],
   "d1_databases": [
     {
       "binding": "DB",
@@ -28,6 +39,9 @@
   ],
   "vars": {
     "WORKOS_CLIENT_ID": "client_01M3XKJWX8TW7YAMPZVJZFJYHT",
+    // Not a secret: with the CF_ANALYTICS_TOKEN secret it turns on the cost guard (costGuard.ts, docs/COSTS.md) and the
+    // load shedder's D1 reading (limits.ts). Without it both stay off (vedu #4598).
+    "CF_ACCOUNT_ID": "5c5abf88c9f41e72eb1ac2691fb03a6e",
     "ADMIN_EMAIL": "vedu.mallela@gmail.com,jxn@blxmail.com",
     // The public address (proxied to this workers.dev Worker from another account): sign-in callback, emails, OAuth/A2A
     // metadata, install.sh and webhook links all point here. Requests to localhost keep their own origin (src/util.ts publicOrigin).
@@ -36,11 +50,15 @@
     "OPERATORS": "vedu,jxn",
     // The developers' bug board: /api/bugs posts web + app bug reports there (jxn #3336). Set to the board's id
     // once it exists; while empty, the endpoint answers that bug reports aren't set up.
-    "BUGS_BOARD": "",
+    "BUGS_BOARD": "b_tds5v873d8a7",
+    // Product analytics (vedu #4416, #4577): PostHog project 647810 "Atteo" (US). The project key is public by design (it can
+    // only record events); src/analytics.ts sends event names and route tokens only, never text, emails or handles.
+    "POSTHOG_KEY": "phc_wmSGccJEcjikTZXeXaReyTKJXxFKDXVifqBE8QpQdQy2",
+    "POSTHOG_HOST": "us",
     "VOICE_MONTHLY_MINUTES": "60",
     "VOICE_GLOBAL_MONTHLY_MINUTES": "600",
     "TTS_MONTHLY_CHARS": "150000",
     "TTS_GLOBAL_MONTHLY_CHARS": "2000000"
   }
-  // Secrets (wrangler secret put): WORKOS_API_KEY, ADMIN_KEY, SENTRY_DSN, XAI_API_KEY (read aloud and voice; without it /api/app/tts and /api/app/voice/session answer 503). Locally they come from .dev.vars.
+  // Secrets (wrangler secret put): WORKOS_API_KEY, ADMIN_KEY, SENTRY_DSN, XAI_API_KEY (read aloud and voice; without it /api/app/tts and /api/app/voice/session answer 503). Optional GitHub App: GITHUB_WEBHOOK_SECRET (POST /github/webhook); GITHUB_APP_ID, GITHUB_APP_PRIVATE_KEY, optional GITHUB_APP_INSTALLATION_ID for outbound Checks (docs/github-app.md). Never put App credentials in vars — hosted production leaves them unset. Optional product analytics (docs/ANALYTICS.md): POSTHOG_KEY (public project API key, phc_…) and POSTHOG_HOST ("eu" or "us"; default eu). Unset: the web loader does nothing. Locally they come from .dev.vars.
 }

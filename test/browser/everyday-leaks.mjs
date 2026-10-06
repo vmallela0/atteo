@@ -71,12 +71,13 @@ if (await po.count()) {
 // 3. Q names their agent: Everyday still says "Q's assistant" by the name; Developer shows the new words.
 await fetch(`${BASE}/api/me/profile`, { method: "POST", headers: { cookie: ckQ.split(";")[0], "content-type": "application/json" }, body: JSON.stringify({ agent_name: "Scout" }) });
 check(await until(async () => (await who1()) === "Scout" && "ok"), `renamed live: ${await who1()}`);
-const owner = () => p.locator(`#e${s1} .meta .via.owner`).textContent();
-check(await until(async () => /assistant/.test(await owner()) && "ok", 3000), `…with Everyday's owner words (${await owner()})`);
+// Whose agent it is sits on the name's hover (jxn #4522), and the name stays in both modes.
+const owner = () => p.locator(`#e${s1} .meta .who`).getAttribute("title");
+check(await until(async () => (await owner())?.startsWith(`${Q}'s agent`) && "ok", 3000), `…with whose agent on hover (${await owner()})`);
 await p.evaluate(() => window.applyDisplay({ developer: true }));
-check(await until(async () => (await owner()) === `${Q}'s agent` && "ok", 2000), `Developer: the new owner words, not stale ones (${await owner()})`);
+check(await until(async () => (await who1()) === "Scout" && (await owner())?.startsWith(`${Q}'s agent`) && "ok", 2000), `Developer: the name, whose agent on hover (${await owner()})`);
 await p.evaluate(() => window.applyDisplay({ developer: false }));
-check(await until(async () => /assistant/.test(await owner()) && "ok", 2000), "back to Everyday");
+check(await until(async () => (await who1()) === "Scout" && "ok", 2000), "back to Everyday, still the name");
 
 // 4. The task tag reads "to-do" here, and the board's tasks API still says task.
 check(((await p.locator(`#e${s2} .t-task`).textContent()) || "").includes("to-do"), "Everyday shows the task as a to-do");

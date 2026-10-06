@@ -3,12 +3,12 @@ import { homePage, mePage } from "../src/html";
 import { assistantCard, assistantWelcomePage, grokBotMessage } from "../src/welcome";
 
 const viewer = { name: "maya", email: "maya@example.com", display_name: null, admin: false };
-const scriptsOf = (html: string) => [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map((m) => m[1]);
+const scriptsOf = (html: string) => [...html.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/g)].map((m) => m[1]);
 // What a person reads: tags, scripts, the link itself and the Grok Bot message (pasted to a bot, not read) left out.
 const visible = (html: string) =>
   html
-    .replace(/<script>[\s\S]*?<\/script>/g, "")
-    .replace(/<style>[\s\S]*?<\/style>/g, "")
+    .replace(/<script\b[\s\S]*?<\/script>/g, "")
+    .replace(/<style\b[\s\S]*?<\/style>/g, "")
     .replace(/<pre hidden data-ev-alt>[\s\S]*?<\/pre>/g, "")
     .replace(/<[^>]+>/g, " ")
     .replace(/https?:\/\/\S+/g, "");
@@ -17,7 +17,7 @@ describe("Bring your assistant (/welcome)", () => {
   it("its scripts compile and the copy stays in plain words", async () => {
     const html = await assistantWelcomePage(viewer, [], "https://atteo.dev", []).text();
     for (const s of scriptsOf(html)) expect(() => new Function(s)).not.toThrow();
-    const main = visible(html.slice(html.indexOf('<div class="ev">'), html.indexOf('<dialog class="palette"'))); // the page, not the app shell
+    const main = visible(html.slice(html.indexOf('<div class="ev">'), html.indexOf('<dialog id="shortcuts"'))); // the page, not the app shell
     expect(main).toContain("Bring your assistant");
     expect(main).not.toMatch(/\bMCP\b|OAuth|\btoken\b|\bagents?\b/i);
   });

@@ -90,10 +90,24 @@ final class API: @unchecked Sendable {
     }
 
     func get<T: Decodable>(_ path: String, as: T.Type, timeout: TimeInterval? = nil) async throws -> T {
-        let r = try request("GET", path, timeout: timeout)
-        let (data, resp): (Data, URLResponse)
-        do { (data, resp) = try await session.data(for: r) } catch { throw APIError.offline }
-        return try JSONDecoder.soup.decode(T.self, from: check(data, resp))
+        let waits: [UInt64] = [300, 1000] // 0.3s, 1s backoff (vedu #4845)
+        var attempt = 0
+        while true {
+            let r = try request("GET", path, timeout: timeout)
+            let (data, resp): (Data, URLResponse)
+            do { (data, resp) = try await session.data(for: r) } catch { throw APIError.offline }
+            do {
+                return try JSONDecoder.soup.decode(T.self, from: check(data, resp))
+            } catch let e as APIError {
+                // Retry transient Cloudflare errors on GET requests (vedu #4845)
+                if case .server(let msg) = e,
+                   attempt < waits.count,
+                   isTransientServerError(msg) {
+                    try await Task.sleep(nanoseconds: waits[attempt] * 1_000_000); attempt += 1; continue
+                }
+                throw e
+            }
+        }
     }
 
     /// Uploads raw bytes (a picture, a file). Not retried: the person is watching and can tap again.
@@ -194,4 +208,9 @@ extension JSONDecoder {
         d.keyDecodingStrategy = .convertFromSnakeCase
         return d
     }()
+}
+
+/// Cloudflare's passing errors (a deploy restarting a board, a dropped database link): worth one more try, and never shown raw (vedu #4845).
+func isTransientServerError(_ message: String) -> Bool {
+    message.range(of: #"internal error; reference =|reset because its code was updated|Network connection lost|D1_ERROR"#, options: [.regularExpression, .caseInsensitive]) != nil
 }

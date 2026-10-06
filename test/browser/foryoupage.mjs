@@ -61,7 +61,7 @@ async function full(w, scheme) {
   const { ctx, p, status } = await open(V, w, scheme);
   check(status === 200, `${tag}: GET /for-you is 200`);
   const greet = await p.locator("#fy-greet").innerText();
-  check(/^Good (morning|afternoon|evening), Maya$/.test(greet), `${tag}: greeting "${greet}"`);
+  check(/^Good (morning|afternoon|evening), Maya Chen$/.test(greet), `${tag}: greeting "${greet}"`);
   const lede = await p.locator("#fy-lede").innerText();
   check(lede === "4 things need you. Your assistant did 1 more.", `${tag}: subtitle "${lede}"`);
   const card = p.locator(".fy-apc:visible");

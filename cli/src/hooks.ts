@@ -9,6 +9,7 @@ import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, realpathSync
 import { env } from "./env";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { homedir } from "node:os";
+import { policyFromJson, reviewHarnessHook, type ActionPolicy } from "../../gateway/src/index";
 import { buildCard, EMPTY_TREE, runner } from "./card";
 import { cardLine } from "../../src/card";
 import { api, CliError, folderBoard, isEncrypted, optStr, parseArgs, say, tool } from "./commands";
@@ -187,8 +188,41 @@ async function prePush(args: string[]) {
 // the person decides on the web or phone. Only that person can decide (an agent's token never can, the server makes
 // sure); no decision in time is a deny. It changes this machine's Claude Code settings, so it's opt-in: only when run.
 const APPROVE_CMD = "hooks approve";
+const POLICY_CMD = "hooks policy";
 const APPROVALS_OFF = "atteo hooks install --approvals --off";
 const claudeSettings = () => join(process.env.CLAUDE_CONFIG_DIR || join(homedir(), ".claude"), "settings.json");
+const actionPolicyFile = () => join(process.env.XDG_CONFIG_HOME || join(homedir(), ".config"), "agent-board", "action-policy.json");
+
+// A configured policy denies shell, file writes, and other tool calls that are not allowlisted, before
+// request_approval. `charter.scope_paths` in that JSON, when present, are file_write allows and a ceiling
+// (a write outside them is denied). The hosted board charter is not fetched. No file and no
+// ATTEO_ACTION_POLICY: this hook stays as it was (the person decides).
+function loadHarnessPolicy(): { policy: ActionPolicy } | { error: string } | null {
+  const fromEnv = env("ACTION_POLICY");
+  if (fromEnv == null || fromEnv.trim() === "") {
+    const file = actionPolicyFile();
+    if (!existsSync(file)) return null;
+    try {
+      return finishPolicy(readFileSync(file, "utf8"));
+    } catch {
+      return { error: "Blocked by action policy: the policy file could not be read. Nothing was run." };
+    }
+  }
+  const text = fromEnv.trim();
+  if (text.startsWith("{")) return finishPolicy(text);
+  if (!existsSync(text)) return { error: "Blocked by action policy: the policy file could not be read. Nothing was run." };
+  try {
+    return finishPolicy(readFileSync(text, "utf8"));
+  } catch {
+    return { error: "Blocked by action policy: the policy file could not be read. Nothing was run." };
+  }
+}
+
+function finishPolicy(text: string): { policy: ActionPolicy } | { error: string } {
+  const parsed = policyFromJson(text);
+  if (!parsed.ok) return { error: parsed.reason };
+  return { policy: parsed.policy };
+}
 type HookGroup = { matcher?: string; hooks?: { type?: string; command?: string; timeout?: number }[] };
 
 function installApprovals(off: boolean): string {
@@ -204,12 +238,17 @@ function installApprovals(off: boolean): string {
   const ours = (g: HookGroup) => (g.hooks ?? []).some((h) => String(h.command ?? "").includes(APPROVE_CMD));
   const kept = (s.hooks?.PermissionRequest ?? []).filter((g) => !ours(g));
   const hooks = { ...(s.hooks ?? {}) };
+  const pre = (hooks.PreToolUse ?? []).filter((g) => !(g.hooks ?? []).some((h) => String(h.command ?? "").includes(POLICY_CMD)));
   if (off) {
     if (kept.length) hooks.PermissionRequest = kept;
     else delete hooks.PermissionRequest;
+    if (pre.length) hooks.PreToolUse = pre;
+    else delete hooks.PreToolUse;
   } else {
     const cli = process.argv[1] ? realpathSync(process.argv[1]) : "atteo";
     hooks.PermissionRequest = [...kept, { matcher: "*", hooks: [{ type: "command", command: `${q(process.execPath)} ${q(cli)} ${APPROVE_CMD}`, timeout: 600 }] }];
+    // PR 77: PermissionRequest alone misses tools the harness already permits.
+    hooks.PreToolUse = [...pre, { matcher: "*", hooks: [{ type: "command", command: `${q(process.execPath)} ${q(cli)} ${POLICY_CMD}` }] }];
   }
   s.hooks = hooks;
   if (!Object.keys(hooks).length) delete s.hooks;
@@ -220,20 +259,43 @@ function installApprovals(off: boolean): string {
     : `On: Claude Code's permission prompts on this machine go to Atteo as approvals, for your person to decide on the web or phone; no decision in 9 minutes denies (${f}). Turn it off: ${APPROVALS_OFF}`;
 }
 
-/** The hook Claude Code runs (PermissionRequest): ask on Atteo, wait for the person, answer allow or deny. */
-async function approveHook(): Promise<void> {
+/** Claude's policy check (PreToolUse), or approval request (PermissionRequest). */
+async function approveHook(preToolUse = false): Promise<void> {
   const chunks: Buffer[] = [];
   for await (const c of process.stdin) chunks.push(c as Buffer);
-  let req: { tool_name?: string; tool_input?: Record<string, unknown>; cwd?: string } = {};
+  const answer = (behavior: "allow" | "deny", message?: string) => {
+    const output = preToolUse
+      ? { hookEventName: "PreToolUse", permissionDecision: behavior === "allow" ? "ask" : "deny", ...(message ? { permissionDecisionReason: message } : {}) }
+      : { hookEventName: "PermissionRequest", decision: { behavior, ...(message ? { message } : {}) } };
+    process.stdout.write(JSON.stringify({ hookSpecificOutput: output }) + "\n");
+  };
+  let req: { tool_name?: string; tool_input?: Record<string, unknown>; cwd?: string };
   try {
     req = JSON.parse(Buffer.concat(chunks).toString("utf8"));
-  } catch {}
-  const name = String(req.tool_name ?? "a tool"), input = req.tool_input ?? {};
+    if (!req || typeof req.tool_name !== "string" || !req.tool_name.trim()
+      || (req.tool_input != null && (typeof req.tool_input !== "object" || Array.isArray(req.tool_input)))) throw new Error();
+  } catch {
+    return answer("deny", "Blocked by action policy: invalid hook input. Nothing was run.");
+  }
+  // Local action policy, when one is configured. A deny is a normal hook answer (exit 0): throwing would
+  // make Claude Code fail open and ask in the terminal. An allow rule only lets the ask below happen.
+  try {
+    const loaded = loadHarnessPolicy();
+    if (loaded && "error" in loaded) return answer("deny", loaded.error);
+    if (loaded && "policy" in loaded) {
+      const review = await reviewHarnessHook(loaded.policy, { tool_name: req.tool_name, tool_input: req.tool_input, cwd: req.cwd });
+      if (review.effect === "deny") return answer("deny", review.reason ?? "Blocked by action policy. Nothing was run.");
+      if (preToolUse && review.effect === "ask") return answer("allow");
+    }
+  } catch {
+    // PR 77: a policy error must not fall through to the harness's normal permissions.
+    return answer("deny", "Blocked by action policy: the policy could not be evaluated. Nothing was run.");
+  }
+  if (preToolUse) return;
+  const name = req.tool_name!, input = req.tool_input ?? {};
   const what = typeof input.command === "string" ? input.command : typeof input.file_path === "string" ? input.file_path : JSON.stringify(input);
   const title = `${name}: ${what.split("\n")[0].slice(0, 100)}`;
   const details = `Claude Code wants to use ${name}${req.cwd ? ` in ${req.cwd}` : ""}:\n\n${JSON.stringify(input, null, 2).slice(0, 4000)}`;
-  const answer = (behavior: "allow" | "deny", message?: string) =>
-    process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: "PermissionRequest", decision: { behavior, ...(message ? { message } : {}) } } }) + "\n");
   const waitS = Number(env("APPROVAL_WAIT_S")) || 540;
   const until = Date.now() + waitS * 1000;
   // Any error (not signed in, offline) exits non-zero: Claude Code then asks in its terminal as usual. So does a
@@ -255,6 +317,7 @@ export async function hooksCmd(args: string[]) {
   const verb = pos[0] ?? "status";
   if (verb === "pre-push") return prePush(args.slice(1));
   if (verb === "approve") return approveHook();
+  if (verb === "policy") return approveHook(true);
   if ((verb === "install" || verb === "uninstall" || verb === "remove") && opt.approvals) return say(installApprovals(opt.off === true || verb !== "install"));
   if (verb === "install" || verb === "uninstall" || verb === "remove") {
     if (opt.off || verb !== "install") return say(removeHook(process.cwd()));

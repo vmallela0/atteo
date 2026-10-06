@@ -23,8 +23,8 @@ async function page(width = 1280) {
 
 // 1. The Muse tile goes to the key page.
 { const { ctx, p } = await page();
-  await p.goto(BASE + "/"); await p.waitForTimeout(500);
-  const tile = p.locator('.add-agent [data-cn-muse]').first();
+  await p.goto(BASE + "/"); await p.locator(".add-agent").click(); // Add your agent opens the Connect dialog (jxn #4151)
+  const tile = p.locator('#connect [data-cn-muse]');
   check(await tile.count() === 1 && (await tile.getAttribute("href")) === "/connect/muse" && /Get a key/.test(await tile.innerText()), "the Muse tile is a link to /connect/muse");
   await ctx.close(); }
 

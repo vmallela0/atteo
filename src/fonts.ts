@@ -12,6 +12,8 @@ import onest_latin_ext from "./fonts/onest-latin-ext.woff2";
 import onest_latin from "./fonts/onest-latin.woff2";
 import onest_vietnamese from "./fonts/onest-vietnamese.woff2";
 import schoolbell_latin from "./fonts/schoolbell-latin.woff2";
+import stix_two_text_latin from "./fonts/stix-two-text-latin.woff2";
+import stix_two_text_latin_ext from "./fonts/stix-two-text-latin-ext.woff2";
 import { FONT_V } from "./fontfaces";
 
 const FILES: Record<string, ArrayBuffer> = {
@@ -27,6 +29,8 @@ const FILES: Record<string, ArrayBuffer> = {
   "onest-latin.woff2": onest_latin,
   "onest-vietnamese.woff2": onest_vietnamese,
   "schoolbell-latin.woff2": schoolbell_latin,
+  "stix-two-text-latin.woff2": stix_two_text_latin,
+  "stix-two-text-latin-ext.woff2": stix_two_text_latin_ext,
 };
 
 /** GET /fonts/<file>: the font, cached for good when the URL carries the current version; null for anything else. */

@@ -6,14 +6,17 @@ import SwiftUI
 struct BoardView: View {
     @EnvironmentObject var state: AppState
     let board: Board
-    @State private var draft = ""
+    /// The box's words, outside this view's state: only the box redraws as you type (jxn #4181, MessageDrafts.swift).
+    @State private var draft: ComposerDraft
     @State private var tab: BoardTab // Chat · Tasks · Files under the title (BoardTabs.swift, vedu #2549)
     @State private var taskDetail: Int? // a task opened from the Tasks tab
     @State private var newTask = false
     @State private var showThreads = false // every thread here, from the ⋯ menu
     @State private var searching = false // the board's search, from the magnifying glass
     @Environment(\.layoutDirection) private var direction
-    @State private var showAgents = false
+    @State private var showAgents = false // the board's Info, from the header
+    @State private var showRail = false // the board's details as a bottom sheet, from the rail button (BoardFrame.swift)
+    @State private var showMenu = false // the app's Menu sheet, from the button before the header (MenuSheet.swift)
     @State private var invitingAgent = false // "Invite an agent", from the empty chat (InviteAgent.swift)
     @State private var invitePage: [InviteAgentSheet.Page] = [] // its page, kept here (InviteAgentSheet.path)
     @State private var talking = false // the voice chat sheet, from the phone at the top right (vedu #1783)
@@ -23,12 +26,13 @@ struct BoardView: View {
     private var presence: String {
         var users: [String] = []
         for a in live where !users.contains(a.user) { users.append(a.user) }
+        let names = users.map { state.displayName(for: $0) }
         switch users.count {
         case 0:
             if board.encrypted == true { return String(localized: "End-to-end encrypted", bundle: .l10n) }
             return Vocab.pick(String(localized: "No agents working now", bundle: .l10n), String(localized: "No assistants working now", bundle: .l10n))
-        case 1: return Vocab.pick(String(localized: "\(users[0])'s agent working", bundle: .l10n), String(localized: "\(users[0].capitalizedFirst)'s assistant working", bundle: .l10n))
-        case 2: return Vocab.pick(String(localized: "\(users[0]) and \(users[1])'s agents working", bundle: .l10n), String(localized: "\(users[0].capitalizedFirst) and \(users[1].capitalizedFirst)'s assistants working", bundle: .l10n))
+        case 1: return Vocab.pick(String(localized: "\(names[0])'s agent working", bundle: .l10n), String(localized: "\(names[0].capitalizedFirst)'s assistant working", bundle: .l10n))
+        case 2: return Vocab.pick(String(localized: "\(names[0]) and \(names[1])'s agents working", bundle: .l10n), String(localized: "\(names[0].capitalizedFirst) and \(names[1].capitalizedFirst)'s assistants working", bundle: .l10n))
         default: return Vocab.pick(String(localized: "\(users.count) agents working", bundle: .l10n), String(localized: "\(users.count) assistants working", bundle: .l10n))
         }
     }
@@ -43,19 +47,65 @@ struct BoardView: View {
         default: return Vocab.pick(String(localized: "\(n) agents working", bundle: .l10n), String(localized: "\(n) assistants working", bundle: .l10n))
         }
     }
-    /// The title block's widest. It's centered between the back button and the buttons on the right, so it gets twice
-    /// the smaller of the two gaps; the right holds search and ⋯, and the phone when voice is on.
+    /// The header's widest: the room between the back button and Menu and the buttons on the right (search and the
+    /// rail, and the phone when voice is on). It sits left-aligned after the back button, so it gets all of that room, not twice the smaller
+    /// gap as when it was centred (vedu #4355: "Atte…" with room to spare).
     private var titleMaxWidth: CGFloat {
         let screen = (UIApplication.shared.connectedScenes.first as? UIWindowScene)?.screen.bounds.width ?? 390
         let buttons = 2 + (talkStatus.enabled == true ? 1 : 0)
-        let trailing = 16 + CGFloat(buttons) * 46 + 12 // margin, buttons, the group's padding
-        let leading: CGFloat = 16 + 48 + 8 // margin, back, gap
-        return max(80, screen - 2 * max(leading, trailing) - 8)
+        // Measured on iOS 26: the bar's margins are 16 points (20 on the Max and Plus phones), the header starts a margin
+        // plus 60 in (back button and gap), the glass group is about 51 points a button, and the bar keeps some 24 points
+        // between the two. Any wider and it drops the phone instead.
+        let margin: CGFloat = screen >= 428 ? 20 : 16
+        // The Menu button before the header takes about 44 more.
+        return max(100, screen - (margin + 60 + 44) - (margin + CGFloat(buttons) * 51) - 24)
+    }
+    private var header: some View {
+        ChatHeader(board: board, title: state.displayName(for: board), presence: presence, presenceShort: presenceShort,
+                   live: !live.isEmpty, maxWidth: titleMaxWidth) { showAgents = true }
     }
     @State private var focused = false // the message box has the keyboard
 
+    /// The rail's ⋯ (what the top bar's ⋯ used to be): every thread here (a dot when one has answers you haven't seen),
+    /// Hide agents, Open all / Fold all, and Talk to Atteo. Each closes the rail first, then does its thing.
+    @ViewBuilder private var boardActions: some View {
+        Button { closeRail { showThreads = true } } label: {
+            Label(anyUnreadThread ? String(localized: "All threads · new replies", bundle: .l10n) : String(localized: "All threads", bundle: .l10n), systemImage: "bubble.left.and.text.bubble.right")
+        }
+        .accessibilityIdentifier("threads")
+        if !board.isAgentChat {
+            Divider()
+            // Only messages people wrote (the web's Hide agents): for you, on this board.
+            Toggle(isOn: Binding(get: { peopleOnly }, set: { on in Haptics.play(.touch); showRail = false; setPeopleOnly(on) })) {
+                Label(Vocab.pick(String(localized: "Hide agents", bundle: .l10n), String(localized: "Hide assistants", bundle: .l10n)), systemImage: "person")
+            }
+            .accessibilityIdentifier("people-filter")
+        }
+        // One line (jxn #2690): open or fold every message that isn't for you; the chat's, so on the Chat tab.
+        if state.display.foldOthers, tab == .chat, !board.isAgentChat, board.kind != "direct" {
+            Divider()
+            Button("Open all", systemImage: "chevron.down.2") { closeRail { setAllOpen(true) } }
+                .accessibilityIdentifier("open-all")
+            Button("Fold all", systemImage: "chevron.up.2") { closeRail { setAllOpen(false) } }
+                .accessibilityIdentifier("fold-all")
+        }
+        if talkStatus.enabled == true {
+            Divider()
+            Button { closeRail { talking = true } } label: { Label(String(localized: "Talk to Atteo", bundle: .l10n), systemImage: "phone") }
+                .accessibilityIdentifier("rail-talk")
+        }
+    }
+    /// Closes the rail, then (once it's down) opens what was picked from it.
+    private func closeRail(_ then: @escaping () -> Void) {
+        showRail = false
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { then() }
+    }
+
     private var list: [Entry] { state.entries[board.id] ?? [] }
-    @State private var atBottom = true
+    // At the latest (within 80 points of the end): only the buttons over the chat draw from it (LatestButtons), so the
+    // chat itself isn't made again each time a scroll crosses that line (jxn #4077).
+    @State private var scroll = ChatScroll()
+    private var atBottom: Bool { scroll.atBottom }
     @State private var stick = true // pinned to the latest until you scroll up yourself (like any messenger)
     @State private var position = ScrollPosition(edge: .bottom) // like any messenger: you start at the latest
 
@@ -76,6 +126,8 @@ struct BoardView: View {
     @State private var group: GroupTarget? // "@agents" / "@humans" tapped: who that reaches
     @State private var reactingTo: SeqRef? // the message the full emoji picker is for
     @State private var unsending: Entry? // asking "Unsend?" first
+    @State private var reporting: Entry? // Report: the reason sheet (Moderation.swift)
+    @State private var shownMuted: Set<Int> = [] // a muted person's messages you chose to see
     @State private var openReceipts: Set<Int> = [] // your older messages you tapped to see who's seen them
     @State private var holdBottom = false // older messages going in above: keep what you're reading where it is
     @State private var decisionPrompt: DecisionPrompt? // objecting (why?) or closing a human decision
@@ -93,7 +145,7 @@ struct BoardView: View {
 
     init(board: Board) {
         self.board = board
-        _draft = State(initialValue: MessageDrafts.shared.text(for: board))
+        _draft = State(initialValue: ComposerDraft(board: board))
         _peopleOnly = State(initialValue: !board.isAgentChat && UserDefaults.standard.bool(forKey: Self.filterKey(board.id)))
         _tab = State(initialValue: BoardTab.remembered[board.id] ?? .chat)
     }
@@ -109,7 +161,7 @@ struct BoardView: View {
 
     private func page(_ by: Int) { if let t = tab.step(by) { select(t) } }
 
-    private var openTasks: Int { (state.tasks[board.id] ?? []).filter { $0.status != "done" && $0.status != "stopped" && $0.parent == nil }.count }
+    private var openTasks: Int { (state.tasks[board.id] ?? []).filter { $0.status != "done" && $0.status != "stopped" && $0.status != "frozen" && $0.parent == nil }.count }
 
     /// Tasks or Files, over the chat (which stays where it was underneath, so coming back is instant).
     @ViewBuilder private var workTab: some View {
@@ -117,7 +169,7 @@ struct BoardView: View {
             Group {
                 switch tab {
                 case .tasks: TasksPane(board: board.id, open: { taskDetail = $0 }, add: { newTask = true })
-                case .files: FilesPane(board: board.id)
+                case .files: FilesPane(board: board.id) { jump(to: $0, after: 0.35) }
                 case .chat: EmptyView()
                 }
             }
@@ -181,7 +233,7 @@ struct BoardView: View {
     private var anyUnreadThread: Bool { ThreadIndex.threads(list).contains { threadSeen.unread(board.id, $0, me: me) } }
 
     // ("#123" in messages, checklists and the task sheets reads as that message's title.)
-    var body: some View { threads(chat).refTitles(list, tasks: state.tasks[board.id] ?? []) }
+    var body: some View { threads(chat).refTitles(list, tasks: state.tasks[board.id] ?? []).onAppear { Analytics.screen("board") } }
 
     /// Threads: over the chat as a sheet (a reply, "N replies", a reply's quote bar), and the list of them in the top bar.
     private func threads(_ v: some View) -> some View {
@@ -205,10 +257,10 @@ struct BoardView: View {
                 }
             }
         }
-        .onChange(of: draft) { _, text in MessageDrafts.shared.save(text, for: board) }
+        .onDisappear { draft.save() } // what was typed last, without waiting for the pause
         // iMessage-style: the thread slides up over the chat, with the same message box as the chat (jxn #1040, #1094).
         .sheet(item: $thread) { t in
-            NavigationStack { ThreadView(board: board, root: t.root, prefill: t.prefill, focus: t.focus, replyTo: t.replyTo, overChat: true, closes: true, carry: t.carries ? $draft : nil) }
+            NavigationStack { ThreadView(board: board, root: t.root, prefill: t.prefill, focus: t.focus, replyTo: t.replyTo, overChat: true, closes: true, carry: t.carries ? draft : nil) }
                 .environment(\.chatDensity, density)
                 .presentationDetents([.large]).presentationDragIndicator(.visible)
                 .presentationBackground(Theme.bg)
@@ -220,41 +272,12 @@ struct BoardView: View {
                     .accessibilityIdentifier("board-search")
                     .accessibilityLabel("Search this board")
             }
-            // ⋯: every thread here (a dot when one has answers you haven't seen) and the People filter. Tasks and Files
-            // are tabs under the title now (vedu #2549), so the top bar has no Threads button of its own.
+            // The rail (#4860): the board's agents, open tasks, decisions, soul and memory, members and notifications as a
+            // bottom sheet; its ⋯ has what this bar's ⋯ used to (threads, Hide agents, Open all / Fold all, Talk).
             ToolbarItem(placement: .topBarTrailing) {
-                Menu {
-                    Button { showThreads = true } label: {
-                        Label(anyUnreadThread ? String(localized: "All threads · new replies", bundle: .l10n) : String(localized: "All threads", bundle: .l10n), systemImage: "bubble.left.and.text.bubble.right")
-                    }
-                    .accessibilityIdentifier("threads")
-                    if !board.isAgentChat {
-                        Divider()
-                        // Only messages people wrote (the web's Hide agents): for you, on this board.
-                        Toggle(isOn: Binding(get: { peopleOnly }, set: { on in Haptics.play(.touch); setPeopleOnly(on) })) {
-                            Label(Vocab.pick(String(localized: "Hide agents", bundle: .l10n), String(localized: "Hide assistants", bundle: .l10n)), systemImage: "person")
-                        }
-                        .accessibilityIdentifier("people-filter")
-                    }
-                    // One line (jxn #2690): open or fold every message that isn't for you; the chat's, so on the Chat tab.
-                    if state.display.foldOthers, tab == .chat, !board.isAgentChat, board.kind != "direct" {
-                        Divider()
-                        Button("Open all", systemImage: "chevron.down.2") { setAllOpen(true) }
-                            .accessibilityIdentifier("open-all")
-                        Button("Fold all", systemImage: "chevron.up.2") { setAllOpen(false) }
-                            .accessibilityIdentifier("fold-all")
-                    }
-                    Divider()
-                    NotifyLevelMenu(boardId: board.id) // how much this chat may interrupt you (vedu #2490)
-                } label: {
-                    ToolbarIcon("ellipsis")
-                        .overlay(alignment: .topTrailing) {
-                            if anyUnreadThread { Circle().fill(Theme.accent).frame(width: 7, height: 7).offset(x: 3, y: -2) }
-                        }
-                }
-                .accessibilityIdentifier("board-menu")
-                .accessibilityLabel("More")
-                .accessibilityValue(anyUnreadThread ? Text("new replies") : Text(verbatim: ""))
+                Button { focused = false; Haptics.play(.touch); showRail = true } label: { ToolbarIcon("sidebar.right") }
+                    .accessibilityIdentifier("board-rail")
+                    .accessibilityLabel(Text("Board details", bundle: .l10n))
             }
             // Voice chat with Atteo, like a call, at the top right (vedu #1783): the message box keeps the mic for dictation.
             if talkStatus.enabled == true {
@@ -267,6 +290,13 @@ struct BoardView: View {
             }
         }
         .navigationDestination(isPresented: $showThreads) { ThreadsList(board: board) }
+        .sheet(isPresented: $showRail) {
+            BoardRailSheet(board: board, openTasks: openTasks,
+                           showTasks: { closeRail { select(.tasks) } },
+                           showInfo: { closeRail { showAgents = true } }) { boardActions }
+                .presentationDetents([.medium, .large]).presentationBackground(Theme.bg)
+        }
+        .menuSheet(isPresented: $showMenu)
         .navigationDestination(item: $taskDetail) { seq in TaskDetail(seq: seq, board: board.id) }
         .sheet(isPresented: $newTask) { NewTaskSheet(board: board.id).presentationDetents([.medium, .large]).presentationBackground(Theme.bg) }
         .task { await talkStatus.load() }
@@ -276,7 +306,11 @@ struct BoardView: View {
         .environment(\.openURL, OpenURLAction { url in
             if let p = personLink(url) { profile = p; return .handled }
             if let g = groupLink(url) { group = g; return .handled }
-            guard let n = entryLink(url) else { return .systemAction }
+            guard let n = entryLink(url) else {
+                // Leaving Atteo: ask first, with the whole address (jxn #4173).
+                if LinkGate.needsConfirm(url) { LinkGate.ask(url); return .handled }
+                return .systemAction
+            }
             jump(to: n)
             return .handled
         })
@@ -288,9 +322,9 @@ struct BoardView: View {
                 PersonCard(name: p.name, open: { b in profile = nil; state.openRequest = b }, agentFirst: p.agent, ask: {
                     profile = nil
                     let handle = "@\(p.name)'s agent "
-                    if !draft.localizedCaseInsensitiveContains(handle.trimmingCharacters(in: .whitespaces)) { draft = handle + draft }
+                    if !draft.text.localizedCaseInsensitiveContains(handle.trimmingCharacters(in: .whitespaces)) { draft.set(handle + draft.text) }
                     focused = true
-                })
+                }, board: board.isAgentChat || board.kind == "direct" ? nil : board.id)
             }
             .presentationDetents([.fraction(0.8), .large]).presentationBackground(Theme.bg)
         }
@@ -307,7 +341,6 @@ struct BoardView: View {
     @ViewBuilder private var chat: some View {
         let r = rows()
         let unseen = unseenCount(r)
-        let pillShown = !stick && !atBottom && unseen > 0
         ScrollViewReader { proxy in
         ScrollView {
                 // Placeholders and messages are separate containers: sharing one list would give them colliding ids
@@ -383,7 +416,10 @@ struct BoardView: View {
                 // unread was near the end, and the app froze on opening. It's applied once that's done.
                 quiet.bottom = bottom
                 guard !quiet.on else { return }
-                if bottom != atBottom { atBottom = bottom }
+                if bottom != scroll.atBottom { scroll.atBottom = bottom }
+                // Your own drag takes it away from the latest: unpinned. (A drag that stays there changes nothing, so
+                // the chat isn't made again twice a swipe at the bottom, jxn #4077.)
+                if !bottom, quiet.dragging, stick { stick = false }
                 // Back at the latest: nothing's unseen.
                 if bottom, unseenAfter != nil { unseenAfter = nil }
             }
@@ -402,58 +438,24 @@ struct BoardView: View {
             }
             // Only your own scrolling unpins it; coming back to the latest re-pins.
             .onScrollPhaseChange { old, phase in
-                if phase == .interacting { stick = false; userScrolled = true }
-                else if phase == .idle && (old == .interacting || old == .decelerating) { stick = atBottom } // after a swipe, not our own scrolls
+                if phase == .interacting {
+                    quiet.dragging = true
+                    if !userScrolled { userScrolled = true }
+                    if !scroll.atBottom, stick { stick = false }
+                } else if phase == .idle && (old == .interacting || old == .decelerating) { // after a swipe, not our own scrolls
+                    quiet.dragging = false
+                    if stick != scroll.atBottom { stick = scroll.atBottom }
+                } else if phase == .idle { quiet.dragging = false }
             }
             .onChange(of: list.last?.id) { _, _ in
                 // A new message: yours always scrolls into view (and re-pins); others' do if you're at the latest.
                 if list.last.map({ $0.author == state.me?.owner && $0.via != "agent" }) == true { stick = true }
-                if stick { withAnimation(.smooth(duration: 0.3)) { position.scrollTo(edge: .bottom) } }
+                if stick, !quiet.dragging { withAnimation(.smooth(duration: 0.3)) { position.scrollTo(edge: .bottom) } }
             }
-            // Scrolled up and something arrived: "3 new messages ↓" (the web's pill), which takes you down to them.
-            .overlay(alignment: .bottom) {
-                ZStack {
-                    if pillShown {
-                        let words = String(localized: "\(unseen) new messages", bundle: .l10n)
-                        Button { toLatest() } label: {
-                            HStack(spacing: Space.xs) {
-                                Text(words).font(Typo.micro.weight(.semibold)).contentTransition(.numericText())
-                                Image(systemName: "arrow.down").font(.system(size: 11, weight: .bold))
-                            }
-                            .foregroundStyle(Theme.text)
-                            .padding(.horizontal, Space.m).frame(height: 32)
-                            .background(Theme.raised, in: Capsule())
-                            .shadow(color: .black.opacity(0.35), radius: 8, y: 2)
-                            .frame(minHeight: 44).contentShape(Capsule())
-                        }
-                        .buttonStyle(PressStyle())
-                        .padding(.bottom, Space.xs)
-                        .transition(.scale(scale: 0.8).combined(with: .opacity))
-                        .accessibilityLabel(words)
-                        .accessibilityHint(String(localized: "Jump to latest", bundle: .l10n))
-                        .accessibilityIdentifier("new-messages-pill")
-                    }
-                }
-                .animation(.snappy, value: pillShown)
-                .animation(.snappy, value: unseen)
-            }
-            .overlay(alignment: .bottomTrailing) {
-                ZStack {
-                    if !atBottom && !list.isEmpty && !pillShown {
-                        Button { toLatest() } label: {
-                            Image(systemName: "chevron.down").font(.system(size: 14, weight: .semibold)).foregroundStyle(Theme.text)
-                                .frame(width: 36, height: 36).background(Theme.raised, in: Circle())
-                                .shadow(color: .black.opacity(0.4), radius: 8, y: 2)
-                                .frame(width: 44, height: 44).contentShape(Circle())
-                        }
-                        .buttonStyle(PressStyle())
-                        .padding(.trailing, Space.s).padding(.bottom, Space.xs)
-                        .transition(.scale(scale: 0.6).combined(with: .opacity))
-                        .accessibilityLabel("Jump to latest")
-                    }
-                }
-                .animation(.snappy, value: atBottom) // (animated here, not with withAnimation from the scroll geometry)
-            }
+            // Scrolled up and something arrived: "3 new messages ↓" (the web's pill), which takes you down to them; scrolled up
+            // otherwise, the ⌄ button. They read "at the latest" themselves (LatestButtons).
+            .overlay(alignment: .bottom) { LatestButtons(scroll: scroll, stick: stick, unseen: unseen, empty: list.isEmpty, pill: true) { toLatest() } }
+            .overlay(alignment: .bottomTrailing) { LatestButtons(scroll: scroll, stick: stick, unseen: unseen, empty: list.isEmpty, pill: false) { toLatest() } }
             // Swipe right to left in the chat: on to Tasks (the other way on a message is Reply; from the edge, Back).
             .gesture(TabSwipe(forward: tab == .chat, back: false, rtl: direction == .rightToLeft) { page($0) })
             .accessibilityHidden(tab != .chat)
@@ -461,6 +463,10 @@ struct BoardView: View {
         }
         .safeAreaInset(edge: .top, spacing: 0) {
             VStack(spacing: 0) {
+                // A member's machine attached here (atteo host): red, named, with Stop (HostBanner.swift, vedu #4815).
+                HostBanner(board: board)
+                // Every board and DM as a tab carrying its state, swipe for more (BoardFrame.swift, #4860).
+                BoardStateTabs(current: board)
                 // Chat · Tasks · Files (Everyday: To-dos), always the same height (BoardTabs.swift, vedu #2549).
                 BoardTabStrip(tab: $tab, board: board.id, openTasks: openTasks, pick: { select($0) }, newTask: { newTask = true },
                               filesChanged: list.last(where: { ($0.type == "artifact" || $0.retracts != nil) && $0.pending != true })?.seq)
@@ -474,32 +480,23 @@ struct BoardView: View {
         }
         // The message box is the chat's: Tasks and Files have the whole height.
         .safeAreaInset(edge: .bottom, spacing: 0) { if tab == .chat { composer } }
-        .navigationTitle(board.displayName(me: state.me?.owner))
+        .navigationTitle(state.displayName(for: board))
         .toolbar {
-            // The title, and under it who's working here right now (tap for everyone, live / idle / gone).
-            ToolbarItem(placement: .principal) {
-                Button { showAgents = true } label: {
-                    VStack(spacing: 1) {
-                        HStack(spacing: 6) { BoardPicture(board: board, size: 20).accessibilityHidden(true); Text(board.displayName(me: state.me?.owner)).font(Typo.ui(.headline)).foregroundStyle(Theme.text.fixed(scheme)).lineLimit(1) }
-                        HStack(spacing: Space.xs) {
-                            if board.encrypted == true { Image(systemName: "lock.fill").font(.system(size: 9)).foregroundStyle(Theme.faint.fixed(scheme)) }
-                            if !live.isEmpty { LiveDot(size: 6) }
-                            // The whole line if it fits, else the short one ("2 agents working"), else cut with "…".
-                            ViewThatFits(in: .horizontal) {
-                                Text(presence).fixedSize()
-                                Text(presenceShort).lineLimit(1)
-                            }
-                            .font(Typo.micro.weight(.medium)).foregroundStyle((live.isEmpty ? Theme.faint : Theme.ok).fixed(scheme))
-                        }
-                    }
-                    .padding(.horizontal, Space.s)
-                    // Never under the buttons on either side (vedu #2650): at most the room between them.
-                    .frame(maxWidth: titleMaxWidth)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityIdentifier("presence")
+            // The board's picture, name and who's working here right now, left-aligned after the back button (vedu #4355;
+            // tap for everyone, live / idle / gone). ChatHeader.swift.
+            // The app's Menu (For you, Inbox, Approvals, boards…) as a sheet, before the header (#4860; MenuSheet.swift).
+            ToolbarItem(placement: .topBarLeading) {
+                Button { focused = false; Haptics.play(.touch); showMenu = true } label: { ToolbarIcon("line.3.horizontal") }
+                    .accessibilityIdentifier("nav-menu")
+                    .accessibilityLabel(Text("Menu", bundle: .l10n))
             }
+            if #available(iOS 26.0, *) {
+                ToolbarItem(placement: .topBarLeading) { header }.sharedBackgroundVisibility(.hidden)
+            } else {
+                ToolbarItem(placement: .topBarLeading) { header }
+            }
+            // The header already names the board: nothing in the middle (the title stays for the back button and VoiceOver).
+            ToolbarItem(placement: .principal) { Color.clear.frame(width: 1, height: 1).accessibilityHidden(true) }
         }
         // The title opens the board's info: what's open, who's here, files, search.
         .sheet(isPresented: $showAgents) {
@@ -520,6 +517,8 @@ struct BoardView: View {
         .confirmationDialog("Unsend this message?", isPresented: Binding(get: { unsending != nil }, set: { if !$0 { unsending = nil } }), titleVisibility: .visible, presenting: unsending) { e in
             Button("Unsend", role: .destructive) { Task { await state.retract(e.seq, in: board) } }
         } message: { _ in Text("Everyone here will see it as unsent.") }
+        .sheet(item: $reporting) { e in ReportMessageSheet(board: board.id, e: e).presentationDetents([.medium, .large]).presentationBackground(Theme.bg) }
+        .task(id: board.id) { if !board.isAgentChat { await state.loadMutes(board.id) } } // who you muted here (Moderation.swift)
         .decisionPrompts($decisionPrompt, note: $decisionNote, board: board, state: state)
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(Theme.bg, for: .navigationBar)
@@ -565,10 +564,15 @@ struct BoardView: View {
             if e.seq == newAt { NewDivider() }
             // A hairline between separate messages from others (bubbles are separate already).
             else if !newDay, !(mine && e.type != "task") && !prevMine { Rectangle().fill(Theme.line.opacity(grouped ? 0.45 : 0.8)).frame(height: 0.5).padding(.leading, 38).padding(.top, grouped ? (density == .compact ? Space.xxs : Space.xs) : Space.gap(density)) }
+            // Someone you muted here: one line with nothing of what it says, until you tap Show (Moderation.swift).
+            if !mine, e.retracts == nil, !shownMuted.contains(e.seq), state.isMuted(e.author, on: board.id) {
+                MutedRow(who: oneLineWho(e)) { withAnimation(.snappy) { _ = shownMuted.insert(e.seq) } }
+                    .padding(.top, grouped ? 0 : Space.xxs)
+            }
             // One line (jxn #2690): not for you, so one line until you open it; opened, a Fold under it folds it again.
-            if oneLineFoldable(e, r) {
+            else if oneLineFoldable(e, r) {
                 if oneLineOpen(e) {
-                    entryRow(e, grouped: grouped, mine: mine, r)
+                    entryRow(e, grouped: grouped, mine: mine, r).equatable()
                     Button { withAnimation(.snappy) { setOpen(e.seq, false) } } label: {
                         Label("Fold", systemImage: "chevron.up").font(Typo.micro.weight(.medium)).foregroundStyle(Theme.faint)
                     }
@@ -580,7 +584,7 @@ struct BoardView: View {
                         .padding(.top, grouped ? 0 : Space.xxs)
                 }
             } else {
-                entryRow(e, grouped: grouped, mine: mine, r)
+                entryRow(e, grouped: grouped, mine: mine, r).equatable()
             }
         }
     }
@@ -607,7 +611,7 @@ struct BoardView: View {
         Task { try? await Task.sleep(nanoseconds: 350_000_000); toLatest() }
     }
     private func oneLineWho(_ e: Entry) -> String {
-        e.byAgent ? agentLabel(e.author, state.agentNames[board.id]?[e.author]?.name ?? e.agentName) : e.author
+        e.byAgent ? agentLabel(state.displayName(for: e.author), state.agentNames[board.id]?[e.author]?.name ?? e.agentName) : state.displayName(for: e.author)
     }
 
     private func entryRow(_ e: Entry, grouped: Bool, mine: Bool, _ r: Rows) -> EntryRow {
@@ -616,8 +620,10 @@ struct BoardView: View {
         let showReceipt = mine && live && (e.seq == r.latestMine || openReceipts.contains(e.seq))
         let hd = e.type == "decision" && !unsent ? state.decisions[board.id]?[e.seq] ?? e.humanDecision : nil
         let chips = live && r.openQuestions.contains(e.seq) ? state.quickChips[board.id]?[e.seq] : nil
-        return EntryRow(e: e, grouped: grouped, mine: mine, board: board.id, tasks: state.tasks[board.id] ?? [], reactions: state.reactions[board.id]?[e.seq] ?? [],
-                        parent: e.replyTo.flatMap { r.bySeq[$0] }, me: me, members: state.members[board.id] ?? [], progress: state.uploads[e.seq],
+        let parent = e.replyTo.flatMap { r.bySeq[$0] }
+        // Only a task row shows the tasks (as they are now): the others don't redraw when one is ticked.
+        return EntryRow(e: e, grouped: grouped, mine: mine, board: board.id, tasks: e.type == "task" ? state.tasks[board.id] ?? [] : [], reactions: state.reactions[board.id]?[e.seq] ?? [],
+                        parent: parent, me: me, members: state.members[board.id] ?? [],
                         reply: live ? { startReply(to: e) } : nil,
                         unsent: unsent, replies: r.replies[e.seq] ?? [], threadUnread: threadUnread(e.seq, r), handling: state.handling[board.id]?[e.seq], lit: flash == e.seq,
                         receipt: showReceipt ? receipt(for: e) : nil,
@@ -625,7 +631,8 @@ struct BoardView: View {
                         actions: actions(for: e, mine: mine, live: live, r),
                         decision: hd, decisionActions: DecisionActions.make(hd, seq: e.seq, board: board, state: state) { p in decisionNote = ""; decisionPrompt = p },
                         agentName: state.agentNames[board.id]?[e.author]?.name, quick: state.favouriteReactions, agentNames: state.agentNameMap(board.id),
-                        replyChips: chips, pickChip: { text in Task { await state.send(text, to: board, replyTo: e.seq) } }) {
+                        replyChips: chips, refTitle: RefTitles.cached(list, state.tasks[board.id] ?? []).only(e.text, parent?.text),
+                        pickChip: { text in Task { await state.send(text, to: board, replyTo: e.seq) } }) {
             Task { if e.local != nil || e.isMultiFile { await state.retryUpload(e, in: board) } else { await state.send(e.text, to: board, retrying: e) } }
         }
     }
@@ -636,17 +643,17 @@ struct BoardView: View {
         if live {
             a.react = { emoji in Task { await state.react(emoji, to: e.seq, in: board) } }
             a.moreReactions = { reactingTo = SeqRef(id: e.seq) }
-            let root = rootOf(e, in: r.bySeq)
-            a.openThread = { focused = false; thread = ThreadTarget(root: root, focus: e.replyTo != nil ? e.seq : nil) }
+            a.openThread = { focused = false; thread = ThreadTarget(root: rootOf(e, in: rows().bySeq), focus: e.replyTo != nil ? e.seq : nil) }
             if mine {
                 a.unsend = { unsending = e }
                 a.toggleReceipt = { withAnimation(.snappy) { if openReceipts.contains(e.seq) { openReceipts.remove(e.seq) } else { openReceipts.insert(e.seq) } } }
             }
             if forMe(e) { a.takeOn = { Task { await state.takeOn(e.seq, in: board) } } }
             if !board.isAgentChat { a.remember = { Task { await state.remember(e.seq, in: board.id) } } }
+            if !mine, !board.isAgentChat { a.report = { reporting = e } }
         }
         // A reply's quote bar: its thread, over the chat, on this reply (jxn #1040).
-        if e.replyTo != nil, e.seq > 0 { let root = rootOf(e, in: r.bySeq); a.jumpToParent = { focused = false; thread = ThreadTarget(root: root, focus: e.seq) } }
+        if e.replyTo != nil, e.seq > 0 { a.jumpToParent = { focused = false; thread = ThreadTarget(root: rootOf(e, in: rows().bySeq), focus: e.seq) } }
         return a
     }
 
@@ -672,8 +679,8 @@ struct BoardView: View {
         guard let seen = newestSeen else { newestSeen = top; return }
         newestSeen = max(seen, top)
         let arrived = list.filter { $0.seq > seen && $0.pending != true && $0.retracts == nil }
-        // Read replies aloud (Voice.swift): a message for you blips and waits in the bar.
-        for e in arrived where forMeToHear(e) { ReadAloud.shared.heard(e, from: e.byAgent ? agentLabel(e.author, e.agentName ?? state.agentNames[board.id]?[e.author]?.name) : e.author, in: board) }
+        // Read replies aloud (Voice.swift): read a message for you automatically (vedu #4564).
+        for e in arrived where forMeToHear(e) { ReadAloud.shared.heard(e, from: e.byAgent ? agentLabel(state.displayName(for: e.author), e.agentName ?? state.agentNames[board.id]?[e.author]?.name) : state.displayName(for: e.author), in: board) }
         guard arrived.contains(where: { $0.type == "change" && $0.text.localizedCaseInsensitiveContains("shipped") }) else { return }
         Haptics.play(.shipped)
         confetti += 1
@@ -755,7 +762,7 @@ struct BoardView: View {
                 }
             }
             quiet.on = false
-            atBottom = quiet.bottom
+            scroll.atBottom = quiet.bottom
             // Everything unread fits, or you're typing: stay with the latest. (A tap into the box and back out meanwhile
             // leaves it at the first unread, not pinned.)
             stick = atBottom || focused
@@ -838,7 +845,7 @@ struct BoardView: View {
         let seen = who.filter(\.seen)
         if seen.isEmpty { return Receipt(text: String(localized: "Delivered", bundle: .l10n), level: 0, readers: who) }
         if seen.count == who.count { return Receipt(text: String(localized: "Seen by everyone", bundle: .l10n), level: 2, readers: who) }
-        let names = seen.map(\.label).joined(separator: ", ")
+        let names = seen.map { $0.mine ? Vocab.yourAgent.lowercased() : state.displayName(for: $0.user, agent: $0.agent) }.joined(separator: ", ")
         return Receipt(text: String(localized: "Seen by \(names)", bundle: .l10n), level: 1, readers: who)
     }
 
@@ -847,12 +854,10 @@ struct BoardView: View {
     /// The message box (ChatComposer.swift, the same one threads use).
     var composer: some View {
         VStack(spacing: 0) {
-            ReadAloudBar(board: board.id) // a message for you, waiting to be read aloud (Voice.swift)
-            ChatComposer(board: board, draft: $draft, focused: $focused, placeholder: placeholder,
+            ChatComposer(board: board, box: draft, focused: $focused, placeholder: placeholder,
                          toSession: board.isAgentChat ? $toSession : nil)
         }
         .background(Theme.bg)
-        .animation(.snappy, value: ReadAloud.shared.queue.count)
         .onAppear { BugContext.board = board.id } // a bug report says which chat was open (ReportBug.swift)
         .onDisappear {
             ReadAloud.shared.leave(board.id)
@@ -863,7 +868,7 @@ struct BoardView: View {
     /// "Message theo", "Message Checkout bug", "Message your agent…" / "Message builder…".
     private var placeholder: String {
         if board.isAgentChat { return toSession.map { String(localized: "Message \($0)…", bundle: .l10n) } ?? String(localized: "Message your agent…", bundle: .l10n) }
-        let name = board.kind == "direct" ? board.displayName(me: state.me?.owner) : board.title
+        let name = board.kind == "direct" ? state.displayName(for: board) : board.title
         return String(localized: "Message \(name)", bundle: .l10n)
     }
 }
@@ -906,8 +911,16 @@ struct Mentionable: Hashable {
 
 /// What "@" suggests, just above the message box: a compact list, one tap to insert.
 struct MentionList: View {
+    @EnvironmentObject var state: AppState
     let items: [Mentionable]
     let pick: (Mentionable) -> Void
+
+    private func label(_ mention: Mentionable) -> String {
+        guard let user = mention.user else { return "@" + mention.handle }
+        if mention.handle.contains("/") { return state.displayName(for: mention.handle) }
+        return state.displayName(for: user, agent: mention.agent)
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             ForEach(items, id: \.handle) { m in
@@ -917,9 +930,9 @@ struct MentionList: View {
                             Image(systemName: m.agent ? "sparkles" : m.handle == "all" ? "person.3.fill" : "person.2.fill").font(.system(size: 11, weight: .semibold)).foregroundStyle(Theme.muted)
                                 .frame(width: 24, height: 24).background(Theme.raised, in: Circle())
                         }
-                        Text("@" + m.handle).font(Typo.secondary.weight(.medium)).foregroundStyle(Theme.text)
+                        Text(label(m)).font(Typo.secondary.weight(.medium)).foregroundStyle(Theme.text)
                         Spacer(minLength: Space.s)
-                        (m.note.map { Text(verbatim: $0) } ?? (m.user == nil ? (m.agent ? Text("every agent here") : Text("everyone here")) : (m.agent ? Text("agent") : Text("person")))).font(Typo.micro).foregroundStyle(Theme.faint).lineLimit(1)
+                        (m.note.map { note in Text(verbatim: note == m.user.map({ "\($0)'s agent" }) ? state.displayName(for: note) : note) } ?? (m.user == nil ? (m.agent ? Text("every agent here") : Text("everyone here")) : (m.agent ? Text("agent") : Text("person")))).font(Typo.micro).foregroundStyle(Theme.faint).lineLimit(1)
                     }
                     .padding(.horizontal, Space.m).frame(minHeight: 40)
                     .contentShape(Rectangle())
@@ -967,6 +980,9 @@ struct SwipeToReply: UIGestureRecognizerRepresentable {
 
 /// What you can do to a message (nil: not here, not now).
 struct EntryActions {
+    /// Which actions there are (a row compares these, not the closures).
+    var shape: [Bool] { [react != nil, moreReactions != nil, unsend != nil, openThread != nil, jumpToParent != nil, toggleReceipt != nil, takeOn != nil, openProfile != nil, remember != nil, report != nil] }
+    var report: (() -> Void)? = nil // someone else's: report it to the board's owners (Moderation.swift)
     var react: ((String) -> Void)? = nil // toggle your reaction
     var moreReactions: (() -> Void)? = nil // the full emoji picker
     var unsend: (() -> Void)? = nil // yours: take it back
@@ -978,7 +994,26 @@ struct EntryActions {
     var remember: (() -> Void)? = nil // add it to the board's MEMORY (people)
 }
 
+/// A row in the chat is only made again when something it shows changed (jxn #4077). Its closures can't be compared,
+/// and SwiftUI re-ran every row's body each time the chat's own state changed: at the latest, every swipe flips
+/// "pinned" and "at the latest" (each flip a pass over the chat), and the newest 80 to 99 rows are all made up front
+/// (the freeze fix, tailStart), so each flip re-ran ~80 message bodies (markdown, code, chips) mid-scroll and the
+/// bottom stuttered while higher up, where nothing flips, it was smooth. The closures only use what's compared here
+/// (the message, whether it's live or mine) or look things up when they're called, and which ones exist is compared.
+extension EntryRow: Equatable {
+    static func == (a: EntryRow, b: EntryRow) -> Bool {
+        a.e == b.e && a.grouped == b.grouped && a.mine == b.mine && a.board == b.board && a.tasks == b.tasks
+            && a.reactions == b.reactions && a.parent == b.parent && a.me == b.me && a.members == b.members
+            && (a.reply == nil) == (b.reply == nil) && a.unsent == b.unsent
+            && a.replies == b.replies && a.threadUnread == b.threadUnread && a.handling == b.handling && a.lit == b.lit
+            && a.receipt == b.receipt && (a.openReceipt == nil) == (b.openReceipt == nil) && a.actions.shape == b.actions.shape
+            && a.decision == b.decision && a.decisionActions.shape == b.decisionActions.shape && a.agentName == b.agentName
+            && a.quick == b.quick && a.agentNames == b.agentNames && a.replyChips == b.replyChips && a.refTitle == b.refTitle
+    }
+}
+
 struct EntryRow: View {
+    @EnvironmentObject var state: AppState
     let e: Entry
     var grouped = false
     var mine = false
@@ -988,7 +1023,9 @@ struct EntryRow: View {
     var parent: Entry? = nil // what this one answers
     var me: String? = nil
     var members: [String] = [] // who's on the board (for @-mentions while a message is still sending)
-    var progress: Double? = nil // a picture or file going up: how far
+    /// A picture or file going up: how far. Read here, by the row that's sending, not passed in by the chat: the
+    /// ticks then redraw this row alone (jxn #4181).
+    private var progress: Double? { e.pending == true ? AppState.shared.uploads[e.seq] : nil }
     var reply: (() -> Void)? = nil // answer this message (nil: it can't be answered yet)
     var unsent = false // its author took it back
     var replies: [Entry] = [] // answers to it (its thread)
@@ -1004,11 +1041,13 @@ struct EntryRow: View {
     var quick: [String] = defaultReactions // your favourite reactions, the row on top of the long-press menu (#1163)
     var agentNames: [String: String] = [:] // named agents here, lowercased name → owner ("@Jarvis" in a message)
     var replyChips: QuickChips? = nil // an agent's open question to you: one-tap replies (QuickReplies.swift)
+    /// What the "#123"s in it (and in what it answers) are called: only its own (RefTitles.only), not the chat's whole
+    /// map from the environment, which changes with every message and made every row again (jxn #4181).
+    var refTitle = RefTitles()
     var pickChip: (String) -> Void = { _ in }
     var retry: () -> Void = {}
     @State var drag: CGFloat = 0 // swipe right to reply
     @Environment(\.chatDensity) private var density
-    @Environment(\.refTitle) private var refTitle
     /// Room above a message: tight under the one before when grouped, a little more otherwise (less when compact).
     private func gapAbove(_ comfortable: CGFloat) -> CGFloat {
         density == .compact ? (grouped ? Space.xxs : Space.gap(density)) : (grouped ? Space.xs : comfortable)
@@ -1017,20 +1056,22 @@ struct EntryRow: View {
     /// Like the web's author line (jxn #2589): a named agent reads "Jarvis · vedu's agent"; a named session
     /// "vedu/scout"; any other agent post "vedu's agent"; people their name.
     private var who: String {
-        guard e.byAgent else { return e.author }
-        if let n = agentName ?? e.agentName, !n.isEmpty { return agentLabel(e.author, n) }
-        if let s = e.sessionName { return "\(e.author)/\(s)" }
-        return agentLabel(e.author, nil)
+        if isDeletedAuthor(e.author) { return String(localized: "Deleted user", bundle: .l10n) } // DeleteAccount.swift
+        guard e.byAgent else { return state.displayName(for: e.author) }
+        if let n = agentName ?? e.agentName, !n.isEmpty { return agentLabel(state.displayName(for: e.author), n) }
+        if let s = e.sessionName { return "\(state.displayName(for: e.author, agent: true)) · \(s)" }
+        return agentLabel(state.displayName(for: e.author), nil)
     }
     /// What VoiceOver says for the sender: "vedu's agent, scout" for a session.
     private var whoSpoken: String {
-        guard e.byAgent, let s = e.sessionName else { return who }
-        return "\(agentLabel(e.author, agentName ?? e.agentName)), \(s)"
+        guard !isDeletedAuthor(e.author), e.byAgent, let s = e.sessionName else { return who }
+        return "\(agentLabel(state.displayName(for: e.author), agentName ?? e.agentName)), \(s)"
     }
-    /// Someone else's message that @mentions you (the person, not your agent): tinted, like the web's.
+    /// Someone else's message that @mentions you by name (the person, not your agent, a session or a group): tinted,
+    /// like the web's (jxn #4120).
     private var forYou: Bool {
         guard !mine, !unsent, let me = me?.lowercased(), e.author.lowercased() != me || e.byAgent else { return false }
-        return (e.mentions ?? []).contains { !$0.agent && $0.user.lowercased() == me }
+        return mentionsPersonDirectly(text: e.text, mentions: e.mentions, me: me)
     }
     /// UI tests read the highlight's frame (it must stay inside its own message, jxn #2595); nobody else sees it.
     private static let markLit: Bool = {
@@ -1113,6 +1154,7 @@ struct EntryRow: View {
                 if e.seq > 0, !board.isEmpty { Button("Copy link", systemImage: "link") { UIPasteboard.general.string = Self.link(board: board, seq: e.seq); Haptics.play(.copied) } }
                 if e.failed == true { Button("Retry", systemImage: "arrow.clockwise", action: retry) }
                 if let unsend = actions.unsend { Button("Unsend", systemImage: "arrow.uturn.backward", role: .destructive, action: unsend) }
+                if let report = actions.report { Button("Report", systemImage: "flag", role: .destructive, action: report) }
             }
             .gesture(SwipeToReply(changed: { dx in
                 guard reply != nil else { return }
@@ -1129,7 +1171,7 @@ struct EntryRow: View {
     /// Tap: the thread, on this reply (in a thread: scrolls to what it answers). Numbers read as titles (#675).
     @ViewBuilder private var quote: some View {
         if e.replyTo != nil {
-            let name = parent.map { $0.byAgent ? Vocab.agentOf($0.author) : ($0.author == me && $0.via != "agent" ? String(localized: "You", bundle: .l10n) : $0.author) }
+            let name = parent.map { $0.byAgent ? state.displayName(for: $0.author, agent: true) : ($0.author == me && $0.via != "agent" ? String(localized: "You", bundle: .l10n) : state.displayName(for: $0.author)) }
             let line = parent.map { ThreadPreview.line($0).plainRefs(refTitle.callAsFunction) } ?? ""
             Button { actions.jumpToParent?() } label: {
                 HStack(spacing: 0) {
@@ -1164,7 +1206,7 @@ struct EntryRow: View {
                 .accessibilityIdentifier("own-badge")
         } else if e.audience == "people" {
             let others = (e.toPeople ?? []).filter { $0 != me }
-            Text(verbatim: "🔒 " + String(localized: "People only", bundle: .l10n) + (others.isEmpty ? "" : " · " + others.joined(separator: ", ")))
+            Text(verbatim: "🔒 " + String(localized: "People only", bundle: .l10n) + (others.isEmpty ? "" : " · " + others.map { state.displayName(for: $0) }.joined(separator: ", ")))
                 .font(Typo.micro.weight(.medium)).foregroundStyle(Theme.warn).lineLimit(1)
                 .accessibilityIdentifier("people-badge")
         }
@@ -1187,7 +1229,7 @@ struct EntryRow: View {
     private var caption: String? {
         if let a = e.artifactName, e.text == "Shared \(a)" || e.text.isEmpty { return nil }
         if e.isMultiFile, e.text.range(of: "^Shared \\d+ (images|files)$", options: .regularExpression) != nil { return nil }
-        return e.text
+        return mine ? e.text : OffensiveFilter.apply(e.text) // Hide offensive words (Moderation.swift), others' only
     }
 
     /// A picture inline, or a file as a chip.
@@ -1226,7 +1268,13 @@ struct EntryRow: View {
 
     /// Words of this message as Text: inline Markdown, "#123" chips, its mentions boxed (MessageBody draws the blocks).
     private func words(_ t: String) -> (text: Text, handles: [String]) {
-        t.mentioned(e.mentions, members: members, me: me, agentNames: agentNames, author: selfMention(in: e.text, author: e.author, agent: e.via == "agent"), refTitle: refTitle.callAsFunction)
+        var agentNames = self.agentNames
+        if e.byAgent, let name = e.agentName, !name.isEmpty { agentNames[name.lowercased()] = e.author.lowercased() } // the entry's own agent name (vedu #4583)
+        let rendered = t.mentioned(e.mentions, members: members, me: me, agentNames: agentNames, author: selfMention(in: e.text, author: e.author, agent: e.via == "agent", agentName: e.agentName), displayName: { state.displayName(for: $0) }, refTitle: refTitle.callAsFunction)
+        return (rendered.text, rendered.handles.map { handle in
+            let address = String(handle.dropFirst())
+            return state.displayName(for: agentNames[address.lowercased()].map { "\($0)'s agent" } ?? address)
+        })
     }
 
     /// Yours: a right-aligned bubble, like any messenger. Tap it to see who's seen it.
@@ -1290,7 +1338,7 @@ struct EntryRow: View {
                             .accessibilityLabel(whoSpoken)
                             .accessibilityIdentifier("sender-\(who)")
                         if let k = kind { Text(k).font(Typo.micro.weight(.medium)).foregroundStyle(e.type == "question" ? Theme.warn : Theme.faint) }
-                        if let to = e.to { Text("to \(to)").font(Typo.micro).foregroundStyle(Theme.faint).lineLimit(1) }
+                        if let to = e.to { Text("to \(state.displayName(for: to))").font(Typo.micro).foregroundStyle(Theme.faint).lineLimit(1) }
                         Spacer(minLength: Space.xs)
                         Text(e.ts.ago).font(Typo.micro).foregroundStyle(Theme.faint).monospacedDigit()
                     }
@@ -1347,7 +1395,67 @@ struct PeopleFilterStrip: View {
 
 /// Whether the chat is at the latest while it's being put at the first unread (`on`): a reference, so noting it doesn't
 /// draw the chat again.
-final class QuietBox { var on = false; var bottom = true }
+final class QuietBox { var on = false; var bottom = true; var dragging = false }
+
+/// The chat's "at the latest", observed only by the buttons over it.
+@Observable final class ChatScroll { var atBottom = true }
+
+/// Over the chat: the "N new messages ↓" pill (scrolled up and something arrived) or the ⌄ button (scrolled up). Its own
+/// view, so "at the latest" changing as you scroll redraws these, not the chat under them (jxn #4077).
+struct LatestButtons: View {
+    let scroll: ChatScroll
+    let stick: Bool
+    let unseen: Int
+    let empty: Bool
+    let pill: Bool // the pill (bottom centre), else the ⌄ button (bottom trailing)
+    let action: () -> Void
+
+    var body: some View {
+        let pillShown = !stick && !scroll.atBottom && unseen > 0
+        if pill {
+            ZStack {
+                if pillShown {
+                    let words = String(localized: "\(unseen) new messages", bundle: .l10n)
+                    Button(action: action) {
+                        HStack(spacing: Space.xs) {
+                            Text(words).font(Typo.micro.weight(.semibold)).contentTransition(.numericText())
+                            Image(systemName: "arrow.down").font(.system(size: 11, weight: .bold))
+                        }
+                        .foregroundStyle(Theme.text)
+                        .padding(.horizontal, Space.m).frame(height: 32)
+                        .background(Theme.raised, in: Capsule())
+                        .shadow(color: .black.opacity(0.35), radius: 8, y: 2)
+                        .frame(minHeight: 44).contentShape(Capsule())
+                    }
+                    .buttonStyle(PressStyle())
+                    .padding(.bottom, Space.xs)
+                    .transition(.scale(scale: 0.8).combined(with: .opacity))
+                    .accessibilityLabel(words)
+                    .accessibilityHint(String(localized: "Jump to latest", bundle: .l10n))
+                    .accessibilityIdentifier("new-messages-pill")
+                }
+            }
+            .animation(.snappy, value: pillShown)
+            .animation(.snappy, value: unseen)
+        } else {
+            ZStack {
+                if !scroll.atBottom && !empty && !pillShown {
+                    Button(action: action) {
+                        Image(systemName: "chevron.down").font(.system(size: 14, weight: .semibold)).foregroundStyle(Theme.text)
+                            .frame(width: 36, height: 36).background(Theme.raised, in: Circle())
+                            .shadow(color: .black.opacity(0.4), radius: 8, y: 2)
+                            .frame(width: 44, height: 44).contentShape(Circle())
+                    }
+                    .buttonStyle(PressStyle())
+                    .padding(.trailing, Space.s).padding(.bottom, Space.xs)
+                    .transition(.scale(scale: 0.6).combined(with: .opacity))
+                    .accessibilityLabel("Jump to latest")
+                }
+            }
+            .animation(.snappy, value: scroll.atBottom) // (animated here, not with withAnimation from the scroll geometry)
+        }
+    }
+}
 
 /// Where your unread messages start (jxn #1011): "NEW" and a thin line, in the web's red.
 struct NewDivider: View {
@@ -1396,6 +1504,7 @@ struct PlaceholderMessage: View {
 /// A task in the chat as it is now, not as it was posted: live title, who's on it, its checklist ticking off
 /// as the work gets done, and its sub-tasks. Tap for the whole task.
 struct TaskCard: View {
+    @EnvironmentObject var state: AppState
     let seq: Int
     let board: String
     let text: String
@@ -1419,7 +1528,7 @@ struct TaskCard: View {
                     VStack(alignment: .leading, spacing: Space.xxs) {
                         Text((t?.title ?? String(text.split(separator: "\n").first ?? Substring(text))).md)
                             .font(Typo.secondary.weight(.semibold)).foregroundStyle(t?.status == "done" ? Theme.muted : Theme.text).lineLimit(2)
-                        (t.map { Text(verbatim: $0.caption) } ?? Text("Task")).font(Typo.micro).foregroundStyle(Theme.faint).lineLimit(1)
+                        (t.map { Text(verbatim: $0.caption { state.displayName(for: $0) }) } ?? Text("Task")).font(Typo.micro).foregroundStyle(Theme.faint).lineLimit(1)
                     }
                     Spacer(minLength: 0)
                 }
@@ -1439,7 +1548,7 @@ struct TaskCard: View {
         }
         .buttonStyle(PressStyle())
         .accessibilityIdentifier("task-card-\(seq)")
-        .accessibilityValue(t?.caption ?? "")
+        .accessibilityValue(t?.caption { state.displayName(for: $0) } ?? "")
         .sheet(isPresented: $open) {
             NavigationStack {
                 TaskDetail(seq: seq, board: board)
@@ -1452,6 +1561,7 @@ struct TaskCard: View {
 
 /// One agent here: its state, whose it is, which tool, and what it says it's doing.
 struct AgentHereRow: View {
+    @EnvironmentObject var state: AppState
     let a: BoardAgent
     var body: some View {
         HStack(spacing: Space.m) {
@@ -1459,7 +1569,7 @@ struct AgentHereRow: View {
                 .overlay(alignment: .bottomTrailing) { StateDot(state: a.state).padding(2).background(Theme.card, in: Circle()).offset(x: 4, y: 4) }
             VStack(alignment: .leading, spacing: Space.xxs) {
                 HStack(alignment: .firstTextBaseline, spacing: 6) {
-                    Text(a.label).font(Typo.rowTitle).foregroundStyle(Theme.text).lineLimit(1)
+                    Text(agentLabel(state.displayName(for: a.user), a.agentName)).font(Typo.rowTitle).foregroundStyle(Theme.text).lineLimit(1)
                     if let d = a.detail, !Vocab.everyday { Text(d).font(Typo.micro).foregroundStyle(Theme.faint).lineLimit(1) } // the tool and session: Developer mode
                 }
                 Text(a.status ?? stateLine(a.state, a.lastSeen)).font(Typo.secondary).foregroundStyle(a.state == "live" ? Theme.ok : Theme.muted).lineLimit(2)
@@ -1497,6 +1607,7 @@ func stateLine(_ state: String?, _ lastSeen: Double) -> String {
 /// Reactions under a message. Agents' 👀 (read it, working) and ✅ (done) read like a messenger's receipts:
 /// "👀 theo's agent". Others are compact: "👍 2".
 struct ReactionLine: View {
+    @EnvironmentObject var state: AppState
     let reactions: [Reaction]
     let trailing: Bool
     var body: some View {
@@ -1517,7 +1628,7 @@ struct ReactionLine: View {
     }
     private func names(_ users: [String]) -> String {
         // Everyday: "Theo's assistant" for the server's "theo's agent" (display only).
-        let shown = users.map(Vocab.shown)
+        let shown = users.map { state.displayName(for: $0) }
         return shown.count <= 2 ? shown.joined(separator: ", ") : String(localized: "\(shown[0]) and \(shown.count - 1) more", bundle: .l10n)
     }
 }

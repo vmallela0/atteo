@@ -31,7 +31,7 @@ import type { Env } from "./types";
 import * as registry from "./registry";
 import { isLocalHost } from "./util";
 import { autosendVerdict } from "./voiceAutosend";
-import { monthOf, NOT_SET_UP, rateHit, VOICES, DEFAULT_VOICE, type Voice } from "./tts";
+import { monthOf, NOT_SET_UP, NEEDS_XAI_OK, needsXaiOk, rateHit, VOICES, DEFAULT_VOICE, type Voice } from "./tts";
 
 export const MODEL = "grok-voice-latest";
 export const REALTIME_URL = `wss://api.x.ai/v1/realtime?model=${MODEL}`;
@@ -410,7 +410,10 @@ export async function route(request: Request, env: Env, path: string, viewer: { 
       return b ? { id, title: String((b as { title?: string }).title ?? "") } : null;
     },
   };
-  if (path === "/api/app/voice/status") return Response.json({ ...(await status(me, deps)), operator: isOperator(env, me) }, { headers: { "cache-control": "no-store" } });
+  if (path === "/api/app/voice/status") return Response.json({ ...(await status(me, deps)), consent: saved.xai_ok, operator: isOperator(env, me) }, { headers: { "cache-control": "no-store" } });
+  // Only starting a session reaches xAI (a client secret, then the socket); end and autosend are ours, so a call open when
+  // the OK is withdrawn still settles its minutes (jxn's agent #4386).
+  if (path === "/api/app/voice/session" && needsXaiOk(!!deps.provider && deps.provider !== fakeProvider, saved.xai_ok)) return err(NEEDS_XAI_OK, 403, { needs_consent: true });
   const body = await request.json().catch(() => null);
   if (path === "/api/app/voice/autosend") return autosendCheck(body, saved.voice_autosend);
   if (path === "/api/app/voice/session/end") return finishSession(me, body, deps);

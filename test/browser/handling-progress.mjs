@@ -19,6 +19,8 @@ const s = (await api("POST", "/api/sessions", { suggest: "worker", client: "Clau
 await api("POST", `/api/sessions/${s.id}/boards`, { board }, s.id);
 const post = async (ck, text) => (await (await fetch(`${BASE}/api/boards/${board}/entries`, { method: "POST", headers: { "content-type": "application/json", cookie: ck }, body: JSON.stringify({ text }) })).json()).entry.seq;
 const m1 = await post(ckB, `@${A}'s agent can you run the gate ${run}?`);
+const m3 = await post(ckB, `Unaddressed work to fold ${run}`);
+await api("POST", `/api/boards/${board}/handle/${m3}`, {}, s.id);
 const m2 = await post(ckB, `@${A}'s agent and check the logs ${run}`);
 await api("POST", `/api/boards/${board}/handle/${m1}`, {}, s.id);
 await api("POST", `/api/boards/${board}/handle/${m2}`, {}, s.id);
@@ -69,6 +71,14 @@ async function asA() {
   await p.goto(`${BASE}/b/${board}`);
   const t = await lineText(p, own);
   check(t.startsWith(`🤔 ${A}/worker: ${STATUS}`), `A sees the progress under their own Just mine message ("${t}")`);
+  await lineText(p, m3);
+  await p.evaluate(() => { document.documentElement.dataset.compact = "others"; });
+  const progress = p.locator(`#e${m3} .hdl-prog`), chip = p.locator(`#e${m3} .hdl`);
+  check(await p.locator(`#e${m3}`).evaluate((e) => e.classList.contains("ol")) && !await progress.isVisible() && !await chip.isVisible(), "collapsed rows hide progress and handling metadata");
+  await p.locator(`#e${m3} .body`).click();
+  check(await progress.isVisible() && await chip.isVisible() && (await progress.innerText()).startsWith(expect), "opening restores the handling chip and session progress");
+  await p.locator(`#e${m3} .when`).click();
+  check(!await progress.isVisible() && !await chip.isVisible(), "folding hides progress and handling again");
   await ctx.close();
 }
 // The session goes quiet (last seen 10 minutes ago): the line says it may be stalled. Needs this server's D1 (PERSIST).

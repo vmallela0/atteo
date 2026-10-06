@@ -1,36 +1,43 @@
 // "jxn is typing…" (#608, people only: agents working on your message say so with 🤔 under it). While you type, this
 // phone tells the board every few seconds (POST /typing, nothing stored); others' composers hear it on the board's
 // socket ({type:"typing", who, until}) and show a row above the message box (their pictures, stacked, and three
-// breathing dots) until their message lands or `until` passes. The server's ping carries no thread, so a thread's
-// reply box shows the same row as its chat.
+// breathing dots) until their message lands or `until` passes. Each ping says where (vedu #4746): `root` is the thread
+// whose reply box it is, 0 the chat itself; a chat's row shows the chat's typers and a thread's row only that thread's.
 
 import SwiftUI
 
+/// One person typing: until when (ms epoch), and in which thread (0: the chat).
+struct TypingPing: Equatable { var until: Double; var root: Int }
+
 extension AppState {
-    /// You typed in a board's message box: say so, at most every 3 s, and only with words in the box.
-    func typed(_ draft: String, in b: Board) {
+    /// You typed in a board's message box (`root`: the thread it replies in, 0 for the chat): say so, at most every
+    /// 3 s per place (moving to another thread says so at once), and only with words in the box.
+    func typed(_ draft: String, in b: Board, root: Int = 0) {
         guard !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               b.archived != true, b.kind != "agent" else { return } // "Your agent": nobody else is there to see it
-        let now = Date()
-        if let last = typingSent[b.id], now.timeIntervalSince(last) < 3 { return }
-        typingSent[b.id] = now
-        Task { try? await API.shared.send("/api/boards/\(b.id)/typing", body: [String: Any](), retries: false) }
+        let now = Date(), key = "\(b.id)#\(root)"
+        if let last = typingSent[key], now.timeIntervalSince(last) < 3 { return }
+        typingSent[key] = now
+        let q = root > 0 ? "?root=\(root)" : ""
+        Task { try? await API.shared.send("/api/boards/\(b.id)/typing\(q)", body: [String: Any](), retries: false) }
     }
 
-    /// Someone's typing (from the socket): shown until `until`, then dropped (unless a newer ping came in).
-    func heardTyping(_ who: String, until: Double, on board: String) {
-        withAnimation(.smooth(duration: 0.25)) { typing[board, default: [:]][who] = until }
+    /// Someone's typing (from the socket): shown until `until`, then dropped (unless a newer ping came in). An older
+    /// server or page sends no root: the chat.
+    func heardTyping(_ who: String, until: Double, root: Int = 0, on board: String) {
+        withAnimation(.smooth(duration: 0.25)) { typing[board, default: [:]][who] = TypingPing(until: until, root: root) }
         let wait = max(0, until - Date().timeIntervalSince1970 * 1000) + 250
         Task { [weak self] in
             try? await Task.sleep(nanoseconds: UInt64(wait * 1_000_000))
-            guard let self, self.typing[board]?[who] == until else { return }
+            guard let self, self.typing[board]?[who]?.until == until else { return }
             withAnimation(.smooth(duration: 0.25)) { self.typing[board]?[who] = nil }
         }
     }
 
-    /// Who's typing on a board right now (oldest first), at `now` (ms epoch).
-    func typers(_ board: String, at now: Double) -> [String] {
-        (typing[board] ?? [:]).filter { $0.value > now }.sorted { $0.value < $1.value }.map(\.key)
+    /// Who's typing in one place on a board (`root` 0: the chat; N: thread N) right now (oldest first), at `now` (ms epoch).
+    func typers(_ board: String, root: Int = 0, at now: Double) -> [String] {
+        (typing[board] ?? [:]).filter { $0.value.until > now && $0.value.root == root }
+            .sorted { $0.value.until < $1.value.until }.map(\.key)
     }
 }
 
@@ -39,13 +46,15 @@ extension AppState {
 struct TypingRow: View {
     @EnvironmentObject var state: AppState
     let board: String
+    /// Whose box this row sits over: 0 the chat's, N thread N's (vedu #4746).
+    var root = 0
 
     var body: some View {
-        // Ticks only while someone's typing, so a ping that runs out (they stopped, or left) clears on its own; with
-        // nobody typing there's nothing here at all (no timer redrawing the chat).
-        if !(state.typing[board] ?? [:]).isEmpty {
+        // Ticks only while someone's typing here, so a ping that runs out (they stopped, or left) clears on its own;
+        // with nobody typing there's nothing here at all (no timer redrawing the chat).
+        if (state.typing[board] ?? [:]).values.contains(where: { $0.root == root }) {
         TimelineView(.periodic(from: .now, by: 1)) { ctx in
-            let who = state.typers(board, at: ctx.date.timeIntervalSince1970 * 1000)
+            let who = state.typers(board, root: root, at: ctx.date.timeIntervalSince1970 * 1000)
             if !who.isEmpty {
                 HStack(spacing: Space.s) {
                     HStack(spacing: -6) {
@@ -53,7 +62,7 @@ struct TypingRow: View {
                             Avatar(name: u, size: 18).padding(1.5).background(Theme.bg, in: Circle()).zIndex(Double(3 - i))
                         }
                     }
-                    Text(Self.line(who)).font(Typo.micro).foregroundStyle(Theme.muted).lineLimit(1)
+                    Text(Self.line(who.map { state.displayName(for: $0) })).font(Typo.micro).foregroundStyle(Theme.muted).lineLimit(1)
                     TypingDots()
                     Spacer(minLength: 0)
                 }
@@ -62,7 +71,7 @@ struct TypingRow: View {
                 .padding(.bottom, Space.xs)
                 .transition(.opacity.combined(with: .move(edge: .bottom)))
                 .accessibilityElement(children: .ignore)
-                .accessibilityLabel(Self.line(who))
+                .accessibilityLabel(Self.line(who.map { state.displayName(for: $0) }))
                 .accessibilityIdentifier("typing")
             }
         }

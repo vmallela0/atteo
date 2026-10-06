@@ -19,8 +19,16 @@ export interface Summary {
   changes: Entry[];
 }
 
+/** ~4 characters per token. Callers set a summary budget in tokens; the summary is cut in characters. */
+export const SUMMARY_CHARS_PER_TOKEN = 4;
+/** PRD default: about 4k tokens. Omit `summary_budget` and the summary stays this size. */
+export const DEFAULT_SUMMARY_TOKENS = 4_000;
+/** The most a caller can ask for. Past this, every section is already at its cap. */
+export const MAX_SUMMARY_TOKENS = 32_000;
 /** Rough budget for the summary text: ~4 chars per token, PRD default of 4k tokens. */
-export const DEFAULT_SUMMARY_CHARS = 16_000;
+export const DEFAULT_SUMMARY_CHARS = DEFAULT_SUMMARY_TOKENS * SUMMARY_CHARS_PER_TOKEN;
+/** Appended when a summary is cut to fit. Counted inside the budget when it fits. */
+export const SUMMARY_TRUNCATION_MARK = "\n… [summary truncated]";
 
 const MAX_CLAIMS = 15;
 
@@ -101,6 +109,7 @@ export function fmtTime(ts: number): string {
 /** "jxn's agent" for agent posts ("Jarvis (jxn's agent)" when jxn named it), "jxn (person)" for posts the member
  * wrote themselves, plain name for older entries. `names`: agent names by owner, for entries not yet labelled. */
 export function authorLabel(e: Entry, names?: Record<string, string>): string {
+  if (/^deleted-[0-9a-f]{10}$/.test(e.author)) return "Deleted user"; // a deleted account's tombstone (accountDelete.ts)
   if (e.via !== "agent") return e.via === "person" ? `${e.author} (person)` : e.author;
   const name = e.agent_name ?? names?.[e.author];
   return name ? `${name} (${e.author}'s agent)` : `${e.author}'s agent`;
@@ -171,6 +180,49 @@ export function tasksFor(s: Summary, you: string, tags?: TaskTags): Entry[] {
 export const DEFAULT_READ_ENTRY_CHARS = 4000;
 /** Most entry text one read will hand back when max_chars is set (a read's 200 entries, each at the longest an entry can be). */
 export const MAX_READ_BUDGET = 200 * 32_000;
+
+/**
+ * `summary_budget` from MCP read or GET /api/sessions/:sid/read: tokens for the board summary.
+ * Missing or not a non-negative integer: undefined, and the read uses the usual ~4k tokens. A number is
+ * truncated; above the most a summary will grow to, it is that most. The result is a character budget
+ * (~4 characters per token) for formatSummary.
+ */
+export function parseSummaryBudget(raw: unknown): number | undefined {
+  if (raw == null || raw === "") return undefined;
+  const n = typeof raw === "number" ? raw : typeof raw === "string" && /^-?\d+$/.test(raw.trim()) ? Number(raw.trim()) : Number.NaN;
+  if (!Number.isFinite(n)) return undefined;
+  const t = Math.trunc(n);
+  if (t < 0) return undefined;
+  return Math.min(t, MAX_SUMMARY_TOKENS) * SUMMARY_CHARS_PER_TOKEN;
+}
+
+/** Cut `text` so it is no longer than `maxChars`. The truncation mark is included when it fits. */
+export function fitSummary(text: string, maxChars: number): string {
+  const max = Number.isFinite(maxChars) ? Math.max(0, Math.trunc(maxChars)) : 0;
+  if (text.length <= max) return text;
+  const mark = SUMMARY_TRUNCATION_MARK;
+  if (max <= mark.length) return text.slice(0, max);
+  return text.slice(0, max - mark.length) + mark;
+}
+
+/** The pinned-doc line sits under the members line. `null` leaves the summary as it is. */
+export function insertSummaryLine(summary: string, line: string | null): string {
+  if (!line) return summary;
+  const lines = summary.split("\n");
+  const members = lines.findIndex((l) => l.startsWith("Members:"));
+  lines.splice(members >= 0 ? members + 1 : Math.min(2, lines.length), 0, line);
+  return lines.join("\n");
+}
+
+/**
+ * Board summary within a character budget. `format` is called with the room left after `pinLine` (inserted under
+ * the members line, and counted). The result is never longer than `budgetChars`.
+ */
+export function summaryWithinBudget(format: (maxChars: number) => string, budgetChars: number, pinLine: string | null): string {
+  const budget = Number.isFinite(budgetChars) ? Math.max(0, Math.trunc(budgetChars)) : 0;
+  const room = pinLine ? Math.max(0, budget - pinLine.length - 1) : budget;
+  return fitSummary(insertSummaryLine(format(room), pinLine), budget);
+}
 
 /**
  * `max_chars` from MCP read or GET /api/sessions/:sid/read. Missing or not a non-negative integer: no budget
@@ -282,7 +334,7 @@ function oneLine(e: Entry, max = SUMMARY_LINE_CHARS, tags?: TaskTags): string {
   return `#${e.seq} (${who})${extra} ${tag}${flag}${t.length > max + 2 ? t.slice(0, max) + "…" : t}`;
 }
 
-/** Text summary for agents, trimmed to `maxChars` by dropping the oldest claims, then oldest decisions. */
+/** Text summary for agents, trimmed to `maxChars` by dropping the oldest claims, then oldest decisions. Never longer than `maxChars`. */
 export function formatSummary(
   board: BoardInfo,
   members: Member[],
@@ -345,7 +397,7 @@ export function formatSummary(
       out = render();
     }
   }
-  return out.length > maxChars ? out.slice(0, maxChars) + "\n… [summary truncated]" : out;
+  return fitSummary(out, maxChars);
 }
 
 /** What `handle` did, in words (the REST route and the MCP tool). */

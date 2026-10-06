@@ -53,6 +53,13 @@ check(names.includes("blob.bin")&&names.includes("big.log.gz"),`drop: both files
 await p.click("#composer-text");await p.keyboard.press("Enter");
 await p.waitForFunction(()=>document.querySelector('#thread a[download="blob.bin"]'),null,{timeout:15000}); // pictures and text files have download links too (#2685)
 check(await p.locator('#thread a[download="blob.bin"]').count()===1,"binary file offers a Download");
+// 4) a file dropped on an open thread attaches to its reply box (vedu #4507)
+await p.evaluate(()=>{document.documentElement.dataset.replies='thread';[...document.querySelectorAll('#thread>.entry:not(.pending)')].pop().querySelector('button[data-reply]').click()});await p.locator("dialog.thr-dlg[open]").waitFor();
+await p.evaluate(()=>{const dt=new DataTransfer();dt.items.add(new File(["hi"],"note.txt",{type:"text/plain"}));const t=document.querySelector('.thr-dlg .thr-list');
+  t.dispatchEvent(new DragEvent('dragover',{dataTransfer:dt,bubbles:true,cancelable:true}));t.dispatchEvent(new DragEvent('drop',{dataTransfer:dt,bubbles:true,cancelable:true}))});
+await p.waitForFunction(()=>document.querySelectorAll('.thr-dlg #attachments .att').length===1,null,{timeout:15000}).catch(()=>{});
+check(await p.locator('.thr-dlg #attachments .att-name').allTextContents().then(n=>n.includes("note.txt")),"drop on a thread: the file waits in its reply box");
+await p.locator('.thr-dlg .att-x').click();await p.keyboard.press("Escape");await p.locator("dialog.thr-dlg[open]").waitFor({state:"detached"}).catch(()=>{});
 // served files: inert, downloads for non-images
 const head=async(name)=>{const r=await fetch(`${BASE}/api/boards/${board}/image?name=${name}`,{headers:{cookie}});return [r.status,r.headers.get("content-type"),r.headers.get("content-disposition"),r.headers.get("content-security-policy")]};
 const hi=await head("diagram.png"), hb=await head("blob.bin");

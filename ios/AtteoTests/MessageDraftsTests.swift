@@ -1,4 +1,5 @@
 import XCTest
+import UIKit
 @testable import Atteo
 
 final class MessageDraftsTests: XCTestCase {
@@ -49,5 +50,86 @@ final class MessageDraftsTests: XCTestCase {
         XCTAssertEqual(store.text(for: b, root: 7), "private reply")
         XCTAssertFalse(defaults.dictionaryRepresentation().keys.contains { $0.hasPrefix("message-draft.") })
         XCTAssertEqual(MessageDrafts(defaults: defaults).text(for: b), "")
+    }
+
+    // jxn #4181: saving on every key redrew every row of Chats (they show drafts) and wrote UserDefaults each time.
+    func testSavingTheSameTextChangesNothing() {
+        let suite = UUID().uuidString
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let b = board("one")
+        let store = MessageDrafts(defaults: defaults)
+        store.save("words", for: b)
+        let after = store.revision
+        store.save("words", for: b)
+        XCTAssertEqual(store.revision, after, "no change, no redraw")
+        store.save("words!", for: b)
+        XCTAssertEqual(store.revision, after + 1)
+    }
+
+    @MainActor
+    func testBoxSavesOncePausedAndAtOnceWhenAsked() async throws {
+        let b = board("box-\(UUID().uuidString)")
+        defer { MessageDrafts.shared.clear(for: b) }
+        let box = ComposerDraft(board: b)
+        var seen: [String] = []
+        box.onChange = { seen.append($0) }
+        box.set("h"); box.set("he"); box.set("hey")
+        XCTAssertEqual(box.text, "hey")
+        XCTAssertEqual(seen, ["h", "he", "hey"])
+        XCTAssertEqual(MessageDrafts.shared.text(for: b), "", "not saved while typing")
+        try await Task.sleep(for: .milliseconds(1400))
+        XCTAssertEqual(MessageDrafts.shared.text(for: b), "hey", "saved once typing paused")
+        box.set("hey there")
+        box.save() // leaving the chat
+        XCTAssertEqual(MessageDrafts.shared.text(for: b), "hey there")
+        XCTAssertEqual(ComposerDraft(board: b).text, "hey there", "a new box restores it")
+    }
+
+    // jxn's agent #4417: with saving after a pause, nothing typed may be lost to leaving at once.
+    @MainActor
+    func testTypedThenLeftAtOnceSurvives() {
+        let b = board("box-\(UUID().uuidString)")
+        defer { MessageDrafts.shared.clear(for: b) }
+        let box = ComposerDraft(board: b)
+        box.set("typed and left at once")
+        box.save() // the chat's onDisappear
+        XCTAssertEqual(MessageDrafts.shared.text(for: b), "typed and left at once", "no wait for the pause")
+        XCTAssertEqual(ComposerDraft(board: b).text, "typed and left at once", "reopening the chat brings it back")
+    }
+
+    @MainActor
+    func testLeavingTheAppSavesAtOnce() {
+        let b = board("box-\(UUID().uuidString)")
+        defer { MessageDrafts.shared.clear(for: b) }
+        for name in [UIApplication.willResignActiveNotification, UIApplication.didEnterBackgroundNotification] {
+            let box = ComposerDraft(board: b)
+            box.set("before \(name.rawValue)")
+            NotificationCenter.default.post(name: name, object: nil)
+            XCTAssertEqual(MessageDrafts.shared.text(for: b), "before \(name.rawValue)", "\(name.rawValue) flushes it")
+        }
+    }
+
+    @MainActor
+    func testSendingClearsTheSavedDraftAtOnce() {
+        let b = board("box-\(UUID().uuidString)")
+        defer { MessageDrafts.shared.clear(for: b) }
+        let box = ComposerDraft(board: b)
+        box.set("about to send"); box.save()
+        box.set("") // what send does, then box.save() (ChatComposer.send)
+        box.save()
+        XCTAssertEqual(MessageDrafts.shared.text(for: b), "", "a sent message doesn't come back as a draft")
+    }
+
+    @MainActor
+    func testThreadBoxAttachesLater() {
+        let b = board("box-\(UUID().uuidString)")
+        defer { MessageDrafts.shared.clear(for: b, root: 9) }
+        MessageDrafts.shared.save("a reply", for: b, root: 9)
+        let box = ComposerDraft()
+        box.set("typed before it knew where") // no board yet: nothing saved
+        box.save()
+        box.attach(b, root: 9)
+        XCTAssertEqual(box.text, "a reply")
     }
 }

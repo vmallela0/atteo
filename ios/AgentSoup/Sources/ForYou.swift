@@ -28,7 +28,9 @@ struct ForYouView: View {
     }
     private var needCount: Int { state.approvals.count + state.contacts.count + asks.count }
 
-    var body: some View {
+    var body: some View { screen.onAppear { Analytics.screen("for_you") } } // product analytics (Analytics.swift)
+
+    @ViewBuilder private var screen: some View {
         NavigationStack(path: $path) {
             ScrollView {
                 VStack(alignment: .leading, spacing: Space.l) {
@@ -82,7 +84,7 @@ struct ForYouView: View {
 
     private var greeting: some View {
         let h = Calendar.current.component(.hour, from: Date())
-        let raw = state.profile?.displayName?.trimmingCharacters(in: .whitespaces).nonEmpty ?? state.me?.owner ?? ""
+        let raw = state.displayName(for: state.me?.owner ?? "")
         let name = raw.split(separator: " ").first.map { String($0).capitalizedFirst } ?? ""
         let did = done.count
         let line = needCount == 0
@@ -133,7 +135,7 @@ struct ForYouView: View {
     /// A decision to make, or someone asking you: answer it here (Agree / Not this) or Reply in its chat.
     private func askRow(_ i: InboxItem) -> some View {
         let decision = i.kind == "decision"
-        let who = i.actorVia == "agent" ? Vocab.agentOf(i.actor) : i.actor.capitalizedFirst
+        let who = state.displayName(for: i.actor, agent: i.actorVia == "agent")
         return NeedRow(edge: decision ? Color.purple : Color.blue, title: i.excerpt, sub: "\(who) · \(i.boardTitle ?? String(localized: "a chat", bundle: .l10n))") {
             if decision {
                 small("Agree", id: "decide-agree") { Task { await vote(i, agree: true) } }
@@ -146,7 +148,7 @@ struct ForYouView: View {
     }
 
     private func contactRow(_ c: ContactsResponse.Incoming) -> some View {
-        NeedRow(edge: Theme.accent, title: String(localized: "\(Vocab.agentOf(c.from)) wants to talk to yours", bundle: .l10n), sub: c.text ?? String(localized: "First time", bundle: .l10n)) {
+        NeedRow(edge: Theme.accent, title: String(localized: "\(state.displayName(for: c.from, agent: true)) wants to talk to yours", bundle: .l10n), sub: c.text ?? String(localized: "First time", bundle: .l10n)) {
             small("Not now", id: "contact-no") { Haptics.play(.denied); Task { await state.answer(c, accept: false) } }
             small("Allow", id: "contact-yes") { Haptics.play(.approved); Task { await state.answer(c, accept: true) } }
         }
@@ -164,7 +166,7 @@ struct ForYouView: View {
         .accessibilityIdentifier(id)
     }
 
-    private func title(of board: String?) -> String? { board.flatMap { id in state.boards.first { $0.id == id }?.displayName(me: state.me?.owner) } }
+    private func title(of board: String?) -> String? { board.flatMap { id in state.boards.first { $0.id == id }.map { state.displayName(for: $0) } } }
 
     private func reply(_ i: InboxItem) {
         guard let b = state.boards.first(where: { $0.id == i.boardId }) else { return }
@@ -209,7 +211,7 @@ struct ForYouView: View {
                                     .frame(width: 22, height: 22).background(Theme.ok, in: Circle()).onFirstLine(7)
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text(d.title).font(Typo.body).foregroundStyle(Theme.text).lineLimit(2).multilineTextAlignment(.leading)
-                                    Text("\(d.board.displayName(me: state.me?.owner)) · \(Date(timeIntervalSince1970: d.at / 1000).formatted(date: .omitted, time: .shortened))")
+                                    Text("\(state.displayName(for: d.board)) · \(Date(timeIntervalSince1970: d.at / 1000).formatted(date: .omitted, time: .shortened))")
                                         .font(Typo.meta).foregroundStyle(Theme.faint)
                                 }
                                 Spacer(minLength: 0)
@@ -294,7 +296,7 @@ private struct OKCard: View {
                 .accessibilityIdentifier("ok-title")
             HStack(spacing: Space.s) {
                 AtteoMark(size: 20)
-                ((a.requestedBy.map { Text(verbatim: Vocab.agentOf($0)) } ?? Text("Your assistant")).foregroundStyle(Theme.text) + (boardTitle.map { Text(" asked in \($0)") } ?? Text(" asked")).foregroundStyle(Theme.muted))
+                ((a.requestedBy.map { Text(verbatim: state.displayName(for: $0, agent: true)) } ?? Text("Your assistant")).foregroundStyle(Theme.text) + (boardTitle.map { Text(" asked in \($0)") } ?? Text(" asked")).foregroundStyle(Theme.muted))
                     .font(Typo.secondary).lineLimit(1)
             }
             // One plain sentence (Developer mode's approval shows the exact command, risk and where it came from).

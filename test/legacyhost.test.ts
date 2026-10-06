@@ -40,8 +40,8 @@ describe("legacyHostRedirect", () => {
   it("leaves API, MCP, OAuth, health, install and file routes on workers.dev", () => {
     for (const p of [
       "/api/inbox", "/api/boards/b_x/ws", "/api/boards/b_x/upload", "/api/boards/b_x/files", "/mcp", "/mcp/", "/.well-known/oauth-protected-resource",
-      "/oauth/authorize", "/oauth/token", "/auth/callback", "/health", "/health/deep", "/install.sh", "/ws", "/upload", "/upload/x", "/files/a.png",
-      "/apple-touch-icon.png", "/favicon.ico", "/favicon.svg", "/cli/atteo.mjs", "/a2a", "/stripe/webhook", "/avatar/bob", "/openapi.json", "/skill.md",
+      "/oauth/authorize", "/oauth/token", "/auth/callback", "/health", "/health/deep", "/status", "/status.json", "/install.sh", "/ws", "/upload", "/upload/x", "/files/a.png",
+      "/apple-touch-icon.png", "/favicon.ico", "/favicon.svg", "/cli/atteo.mjs", "/a2a", "/stripe/webhook", "/github/webhook", "/avatar/bob", "/openapi.json", "/skill.md",
     ]) {
       expect(go(`${WD}${p}?z=1`, nav), p).toBeNull();
     }

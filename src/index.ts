@@ -1,14 +1,18 @@
+import { PALETTE_JS, PALETTE_CSS } from "./palette";
 // Worker entry: MCP endpoint, sign-in, web pages, JSON API, and the operator console (/_ops).
 
-import { pickLang } from "./i18n";
+import { localize, pickLang } from "./i18n";
+import { displayMap, displayNames, forgetDisplayName } from "./names";
 import * as a2a from "./a2a";
 import { runGrep } from "./grep";
 import * as usage from "./usage";
 import * as csp from "./csp";
 import * as limits from "./limits";
+import * as costGuard from "./costGuard";
 import * as oauth from "./oauth";
 import { consentPage } from "./oauthPage";
 import * as approvals from "./approvals";
+import { boardStates } from "./boardStates";
 import { approvalsPage } from "./approvalsPage";
 import { askPage } from "./ask";
 import * as access from "./access";
@@ -16,6 +20,7 @@ import { accessAll } from "./accessAll";
 import { AUDIT_EXPORT_LIMIT, auditExportDocument, auditExportHeaders, forAgents, parseAuditAfter } from "./auditExport";
 import * as social from "./social";
 import * as standing from "./standingRules";
+import { isPublicMailDomain, orgPolicy } from "./policy";
 import * as webhooks from "./webhooks";
 import * as avatars from "./avatars";
 import * as boardPictures from "./boardPictures";
@@ -26,12 +31,12 @@ import { badMessageId, isRetriable, messageId, retryingReads, withRetry } from "
 import CLI_BUNDLE from "../cli/dist/atteo.mjs";
 import { installScript } from "./install";
 import SKILL_MD from "../skills/atteo/SKILL.md";
-import HTML2CANVAS_JS from "./vendor/html2canvas.min.js"; // the bug-report screenshot, loaded only when the dialog opens
 import { agentsMd, guidePage } from "./guide";
 import { docsPage } from "./docs";
 import { openapi } from "./openapi";
 import * as billing from "./billing";
-import { blockedMessage, scanFields } from "./secrets";
+import * as githubApp from "./githubApp";
+import { egressRefusal, isHeldRequest, noteBoardCreated, noteRequestWallMs, noteWakeDelivery, type Later } from "./observe";
 import * as inbox from "./inbox";
 import * as notify from "./notify";
 import * as forYou from "./forYou";
@@ -39,6 +44,9 @@ import * as auth from "./auth";
 import * as appSignin from "./appSignin";
 import * as moderation from "./moderation";
 import * as bugs from "./bugs";
+import { ensureBugBoard, isReservedUser } from "./bugBoard";
+import { checkDeleteCode, deleteAccount, isDeletedHandle, noteDeleteCodeSent, type BoardForget } from "./accountDelete";
+import * as feedback from "./feedback";
 import { handleMcp } from "./mcp";
 import * as device from "./device";
 import { EMAIL_RE, sendInvite } from "./invite";
@@ -52,6 +60,11 @@ import * as pins from "./pins";
 import * as boardkeys from "./boardkeys";
 import * as mailbox from "./mailbox";
 import * as recap from "./recap";
+import * as hosts from "./hosts";
+import { HOST_PAGE_JS } from "./hostUi";
+import { MACHINE_RE } from "./hostCore";
+import { listMount, LsError } from "./ls";
+import * as testAccounts from "./testAccounts";
 import { musePage } from "./muse";
 import * as triggers from "./triggers";
 import * as tts from "./tts";
@@ -86,24 +99,27 @@ import {
   PREVIEW_FRAME_HTML,
 } from "./html";
 import { ENTRY_TYPES, type Entry, type Env, type NewEntry, type Viewer as Seer } from "./types";
-import { APP_CSS, APP_JS, BOARD_PREFETCH_PATH, BOARD_PREFETCH_RULES, BUG_PAGE_JS, FAVICON_SVG, page, renderText, SHELL_PAGE_JS } from "./ui";
+import { APP_CSS, APP_JS, PAGE_CSS, directPeer, BOARD_PREFETCH_PATH, BOARD_PREFETCH_RULES, BUG_DIALOG, BUG_PAGE_JS, FAVICON_SVG, FEEDBACK_DIALOG, FEEDBACK_PAGE_JS, page, renderText, SHELL_PAGE_JS } from "./ui";
 import { APPLE_TOUCH_PNG_B64 } from "./appleIcon";
 import { assistantWelcomePage } from "./welcome";
 import { agentCharter, applyCharter, charterAuditDetail, charterScanFields, charterView, parseCharterPatch, storedFromRow } from "./charter";
 import { atteoHeader, BOARD_RE, connectCommand, esc, newBoardId, legacyHostRedirect, normalizeUser, parseBoardMeta, publicOrigin, requestNow } from "./util";
+import { deepChecks, handlePublicStatus } from "./uptime";
 import { isLocalHost } from "./util";
 
 import * as Sentry from "@sentry/cloudflare";
 import { scrubForSentry } from "./sentry";
+import { analyticsConfig, trackCookieHeader, withAnalytics } from "./analytics";
 export { Board } from "./board";
 import { forwardDestOk, forwardExcerptInEntry, keptOwnNotice } from "./audience";
 import { audienceNotice, MAX_FILES_PER_MESSAGE, MAX_IMAGE, MAX_MESSAGE_BYTES, MAX_WAIT_MS, WAIT_CAP } from "./board";
 import * as sessions from "./sessions";
-import { compactLine, formatEntry, formatMemory, handleMessage, parseReadBudget, presentReadEntries, readHeader, readParts, withNames } from "./state";
+import { compactLine, formatEntry, formatMemory, handleMessage, parseReadBudget, parseSummaryBudget, presentReadEntries, readHeader, readParts, withNames } from "./state";
 import { fence, flagged } from "./screen";
 import { CODE_COLOR_PATH, CODE_COLOR_SCRIPT } from "./codecolor";
 import { quickReplies } from "./quickReplies";
 import { fontResponse } from "./fonts";
+import { MERMAID_PATH, mermaidResponse } from "./mermaid";
 
 const OPS_PATH = "/_ops";
 
@@ -174,7 +190,7 @@ async function loadViewer(env: Env, session: auth.Session | null, request?: Requ
     name: u.name,
     email: u.email ?? session.email,
     display_name: u.display_name,
-    admin: !!session.email_verified && auth.isAdminEmail(env, session.email),
+    admin: auth.isAdminViewer(env, session, request ? new URL(request.url).hostname : null),
     lang: pickLang(typeof pref === "string" ? pref : null, request ? new URL(request.url).searchParams.get("lang") : null, request?.headers.get("accept-language") ?? null),
   };
 }
@@ -195,6 +211,15 @@ async function sideBoards(env: Env, user: string): Promise<SideBoard[]> {
   return pins.sortPinned(boards, pinned)
     .filter((b) => !b.archived_at)
     .map((b) => ({ id: b.id, title: b.title, kind: (b as { kind?: string | null }).kind ?? null, live: live.get(b.id) ?? 0, picture: boardPictures.pictureUrl(b.id, b.picture_v), pinned: pinned.includes(b.id) }));
+}
+
+/** The sidebar's boards, with each direct chat's other person by the name they chose (jxn #4369; cached, names.ts). */
+async function sideBoardsNamed(env: Env, user: string): Promise<SideBoard[]> {
+  const side = await sideBoards(env, user);
+  const peers = side.filter((b) => b.kind === "direct").map((b) => directPeer(b, user));
+  if (!peers.length) return side;
+  const dn = await displayNames(env, peers).catch(() => ({}) as Record<string, string>);
+  return side.map((b) => (b.kind === "direct" ? { ...b, peer_name: dn[directPeer(b, user)] ?? null } : b));
 }
 
 /** Members (and operators) can see a board; everyone else gets a 404 so board ids don't leak. */
@@ -229,12 +254,13 @@ async function grepResponse(env: Env, user: string, url: URL, boardId: string | 
 }
 
 /** Plan limits apply to people (origin given); the ops API creates boards without them. */
-async function createBoard(env: Env, title: string, user: string, origin?: string, opts: { encrypted?: boolean } = {}) {
+async function createBoard(env: Env, title: string, user: string, origin?: string, opts: { encrypted?: boolean } = {}, later: Later | null = null) {
   if (origin) await billing.checkCanCreateBoard(env, user, origin);
   const id = newBoardId();
   const info = await boardStub(env, id).init(id, title, user, opts);
   await registry.recordBoard(env, info);
   await registry.addMember(env, id, user, { role: "owner" });
+  void noteBoardCreated(env, later, user);
   if (opts.encrypted) await env.DB.prepare(`UPDATE boards SET encrypted = 1 WHERE id = ?`).bind(id).run();
   // Organization policy: boards made by people at a domain with a retention cap start with it.
   const u = await registry.userByName(env, user);
@@ -251,11 +277,16 @@ function suggestName(email: string, display: string | null): string {
   return normalizeUser(base.slice(0, 32)) ?? "me";
 }
 
+/** A handle no one may take: reserved, a deleted account's (forever, accountDelete.ts), or simply someone's. */
+async function handleTaken(env: Env, name: string): Promise<boolean> {
+  return isReservedUser(name) || !!(await registry.userByName(env, name)) || (await isDeletedHandle(env, name));
+}
+
 async function freeName(env: Env, base: string): Promise<string> {
-  if (!(await registry.userByName(env, base))) return base;
+  if (!(await handleTaken(env, base))) return base;
   for (let i = 2; i < 100; i++) {
     const n = `${base.slice(0, 29)}${i}`;
-    if (!(await registry.userByName(env, n))) return n;
+    if (!(await handleTaken(env, n))) return n;
   }
   return `${base.slice(0, 24)}${crypto.randomUUID().slice(0, 6)}`;
 }
@@ -287,18 +318,6 @@ async function authLogin(c: Ctx): Promise<Response> {
  */
 const PEOPLE_ONLY_SETTING = "Who can find you and what's accepted without asking (your directory listing and the auto-accept rules) are your person's call: they change them on the web (Account) or in the app (Settings).";
 const PEOPLE_ONLY_AGENT_LISTING = "Listing your agent in the public directory is your person's call: they change it in the app (Settings). Your agent can still set its summary and capabilities.";
-
-export interface OrgPolicy {
-  domain: string;
-  require_sso: number;
-  max_retention_days: number | null;
-  allow_outside_members: number;
-}
-
-async function orgPolicy(env: Env, email: string): Promise<OrgPolicy | null> {
-  const domain = email.split("@")[1]?.toLowerCase();
-  return domain ? env.DB.prepare(`SELECT domain, require_sso, max_retention_days, allow_outside_members FROM org_policies WHERE domain = ?`).bind(domain).first<OrgPolicy>() : null;
-}
 
 /** "Sign in with SSO": find the organization for a work email's domain and send the person to its identity provider. */
 async function authSso(c: Ctx): Promise<Response> {
@@ -385,7 +404,10 @@ async function authCallback(c: Ctx): Promise<Response> {
   headers.append("Set-Cookie", auth.cookieHeader(c.url, auth.SESSION_COOKIE, session, 30 * 24 * 3600));
   headers.append("Set-Cookie", auth.cookieHeader(c.url, auth.OAUTH_COOKIE, "", 0));
 
-  if (user) await accountlog.record(c.env, user.name, "signin.web", c.request);
+  if (user) {
+    await accountlog.record(c.env, user.name, "signin.web", c.request);
+    if (analyticsConfig(c.env)) headers.append("Set-Cookie", trackCookieHeader(c.url, "sign_in"));
+  }
   if (!user) {
     headers.set("Location", `/welcome?return=${encodeURIComponent(safeReturn(ret))}`);
     return new Response(null, { status: 303, headers });
@@ -401,7 +423,7 @@ async function welcome(c: Ctx): Promise<Response> {
   // Signed in: the Everyday first-run screen, "Bring your assistant" (board #1272). Before a name is picked, choose one.
   if (s.user) {
     if (c.request.method !== "GET" || !c.viewer) return redirect("/");
-    const [side, mine] = await Promise.all([sideBoards(c.env, c.viewer.name), sessions.list(c.env, c.viewer.name)]);
+    const [side, mine] = await Promise.all([sideBoardsNamed(c.env, c.viewer.name), sessions.list(c.env, c.viewer.name)]);
     return assistantWelcomePage(c.viewer, side, c.origin, mine.filter(sessions.listed).map((x) => x.client || x.name));
   }
   const suggestion = await freeName(c.env, suggestName(s.email, s.display_name));
@@ -410,12 +432,12 @@ async function welcome(c: Ctx): Promise<Response> {
 
   const name = normalizeUser(String((await c.request.formData()).get("name") ?? ""));
   if (!name) return welcomePage(s.email, suggestion, "Use 1–32 lowercase letters, numbers, dot, dash or underscore, starting with a letter or number.");
-  if (await registry.userByName(c.env, name)) return welcomePage(s.email, name, `"${name}" is taken. Try another.`);
+  if ((await handleTaken(c.env, name))) return welcomePage(s.email, name, `"${name}" is taken. Try another.`);
   if (await registry.userByWorkosId(c.env, s.workos_id)) return redirect("/");
   await registry.createUser(c.env, { name, email: s.email, email_verified: !!s.email_verified, workos_id: s.workos_id, display_name: s.display_name });
   await auth.setSessionUser(c.env, s.id_hash, name);
   await accountlog.record(c.env, name, "signin.web", c.request); // their first, finished on /welcome
-  return redirect(safeReturn(c.url.searchParams.get("return")));
+  return redirect(safeReturn(c.url.searchParams.get("return")), analyticsConfig(c.env) ? { "Set-Cookie": trackCookieHeader(c.url, "sign_up") } : {});
 }
 
 // ---------- the app's own sign-in: email → 6-digit code → (new people) a name; returns an app token ----------
@@ -497,7 +519,7 @@ async function appSigninName(c: Ctx): Promise<Response> {
   }
   const name = normalizeUser(String(b.name ?? "").trim().replace(/^@/, ""));
   if (!name) return json({ error: NAME_RULES }, 400);
-  if (await registry.userByName(c.env, name)) return json({ error: `"${name}" is taken. Try another.`, suggestion: await freeName(c.env, name) }, 409);
+  if ((await handleTaken(c.env, name))) return json({ error: `"${name}" is taken. Try another.`, suggestion: await freeName(c.env, name) }, 409);
   try {
     await registry.createUser(c.env, { name, email: s.email, email_verified: !!s.email_verified, workos_id: s.workos_id, display_name: s.display_name });
   } catch {
@@ -542,7 +564,15 @@ async function opsData(env: Env): Promise<AdminData> {
       a.last_token_use = t.last;
     }
   }
-  return { boards, users, invites, recent, totalEntries: boards.reduce((n, b) => n + b.entry_count, 0), access: [...access.values()], metrics: await usage.metrics(env).catch(() => undefined) };
+  return {
+    boards, users, invites, recent, totalEntries: boards.reduce((n, b) => n + b.entry_count, 0), access: [...access.values()], metrics: await usage.metrics(env).catch(() => undefined),
+    cost: {
+      capped: await costGuard.capped(env).catch(() => null),
+      watching: !!(env.CF_ACCOUNT_ID && costGuard.analyticsToken(env)),
+      thresholds: costGuard.thresholds(env),
+      ...(await costGuard.status(env)),
+    },
+  };
 }
 
 // ---------- router ----------
@@ -553,9 +583,22 @@ async function runScheduled(env: Env, ctx: ExecutionContext, now = Date.now()): 
   // Load shedding (src/limits.ts): today's usage sets the level every request then sees (0 normal, 1 stretch waits and
   // pause background work, 2 also refuse non-essential agent writes).
   const shed = await limits.updateShedLevel(env).catch(() => ({ level: limits.shedLevelNow(), requests: 0, rows_read: null }));
+  // The cost guard (src/costGuard.ts, vedu #4340): today's D1 and Durable Object usage against the soft and hard caps.
+  // Alerts go to the developers' board (BUGS_BOARD) as the bug bot; no board configured, the cap still trips.
+  ctx.waitUntil(
+    costGuard
+      .check(env, async (text) => {
+        const board = (env.BUGS_BOARD ?? "").trim();
+        if (!board) return console.log(text);
+        const stub = boardStub(env, board);
+        await ensureBugBoard(env, board, stub);
+        await stub.post(bugs.BUG_BOT, { type: "note", text, via: "person", client: "cost-guard" });
+      }, now)
+      .catch((e) => console.error("cost guard failed", e)),
+  );
   // Boards with a retention period: blank what's older.
   const keep = (await env.DB.prepare(`SELECT id, retention_days FROM boards WHERE retention_days IS NOT NULL`).all<{ id: string; retention_days: number }>()).results;
-  for (const b of keep) ctx.waitUntil(boardStub(env, b.id).prune(Date.now() - b.retention_days * 86_400_000).catch(() => 0));
+  for (const b of keep) ctx.waitUntil(boardStub(env, b.id).prune(now - b.retention_days * 86_400_000).catch(() => 0));
   // Housekeeping sweeps wait while shedding load (they catch up on a quieter run).
   const housekeeping = shed.level < 1;
   if (housekeeping) {
@@ -603,13 +646,21 @@ async function runScheduled(env: Env, ctx: ExecutionContext, now = Date.now()): 
   return { schedules: fired.reduce((a, b) => a + b, 0), scheduled_tasks: posted.reduce((a, b) => a + b, 0), housekeeping, shed, ...(nightly ? { backup: nightly } : {}) };
 }
 
+/** 429 for the signed-out endpoints limits.publicAllowed caps (one minute windows). */
+function tooManyPublic(headers: Record<string, string> = {}): Response {
+  return json({ error: "Too many requests from this address. Try again in a minute." }, 429, { ...headers, "retry-after": "60" });
+}
+
 const handler = {
   /** Every 5 minutes (wrangler.jsonc triggers.crons). */
-  async scheduled(_event: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
-    await runScheduled(env, ctx);
+  async scheduled(_event: ScheduledController, rawEnv: Env, ctx: ExecutionContext): Promise<void> {
+    // Cron reads retry through dropped D1 connections too (SOUP-5/6 came after fetch got retryingReads, vedu #4844).
+    await runScheduled({ ...rawEnv, DB: retryingReads(rawEnv.DB) }, ctx);
   },
 
   async fetch(request: Request, rawEnv: Env, ctx: ExecutionContext): Promise<Response> {
+    // Local runs (wrangler dev, every test suite) never load analytics: the key in wrangler.jsonc is production's.
+    return withAnalytics(isLocalHost(new URL(request.url).hostname) ? {} : rawEnv, async () => {
     // Database reads retry through dropped connections (a transient D1 error must never fail someone's post).
     const env: Env = { ...rawEnv, DB: retryingReads(rawEnv.DB) };
     const url = new URL(request.url);
@@ -619,33 +670,30 @@ const handler = {
     const path = url.pathname.replace(/\/+$/, "") || "/";
     const method = request.method;
     limits.countServed(env, ctx); // every request, for the cron's shed level (in memory, flushed in batches)
+    const started = Date.now(); // wall time; Cloudflare does not expose CPU-ms cheaply on ctx
 
     // Old workers.dev page links move to the public site (legacyHostRedirect: what stays put, and the cf-worker loop guard).
     const moved = legacyHostRedirect(env, request, url);
-    if (moved) return new Response(null, { status: 301, headers: { location: moved, "cache-control": "public, max-age=300" } });
+    if (moved) {
+      noteRequestWallMs(env, ctx, Date.now() - started);
+      return new Response(null, { status: 301, headers: { location: moved, "cache-control": "public, max-age=300" } });
+    }
 
     try {
       if (path === "/mcp") return await handleMcp(request, env, ctx);
       if (path === "/health") return json({ ok: true, version: env.CF_VERSION_METADATA?.id ?? null });
+      // Public uptime page (docs/SELF_HOST.md). Coarse ok/degraded/down; not the board composer's /status card.
+      if (path === "/status" || path === "/status.json") {
+        if (!(await limits.publicAllowed(env, "status", request))) return tooManyPublic();
+        return await handlePublicStatus(request, env, path);
+      }
       // Browsers post what the report-only CSP would have blocked (jxn's agent #2636): no sign-in, always 204.
       if (path === "/api/csp-report" && method === "POST") return await csp.handleReport(request, env);
       if (path === "/health/deep") {
-        // Touches storage the way real requests do: a board (Durable Object) and the database.
-        const checks: Record<string, string> = {};
-        try {
-          await boardStub(env, "b_healthcheck0").info();
-          checks.boards = "ok";
-        } catch (e) {
-          const m = e instanceof Error ? e.message : String(e);
-          checks.boards = /Board not found/.test(m) ? "ok" : m.slice(0, 200);
-        }
-        try {
-          await env.DB.prepare("SELECT 1 AS x").first();
-          checks.database = "ok";
-        } catch (e) {
-          checks.database = (e instanceof Error ? e.message : String(e)).slice(0, 200);
-        }
-        const ok = Object.values(checks).every((v) => v === "ok");
+        if (!(await limits.publicAllowed(env, "health", request))) return tooManyPublic();
+        // Same probes as /status (a board Durable Object and D1). Detail strings stay here; /status does not return them.
+        const checks = await deepChecks(env);
+        const ok = checks.boards === "ok" && checks.database === "ok";
         return json({ ok, version: env.CF_VERSION_METADATA?.id ?? null, checks }, ok ? 200 : 503, { "cache-control": "no-store" });
       }
       // ---- A2A: an Agent Card and a JSON-RPC endpoint for agents that don't speak MCP ----
@@ -677,8 +725,8 @@ const handler = {
             const board = mine.find((b) => b.id === want) ?? mine.find((b) => b.title.toLowerCase() === want.toLowerCase()) ?? mine.find((b) => b.title.toLowerCase().includes(want.toLowerCase()));
             if (!board) return rpcErr(rpc.id, -32602, `You're not on a board called "${want}".`);
             if ((await registry.memberRole(env, board.id, who)) === "viewer") return rpcErr(rpc.id, -32602, "Your role on that board is viewer.");
-            const hit = scanFields({ text });
-            if (hit) return rpcErr(rpc.id, -32602, blockedMessage(hit));
+            const blocked = egressRefusal(env, ctx, { text });
+            if (blocked) return rpcErr(rpc.id, -32602, blocked);
             const e = await boardStub(env, board.id).post(who, { type: "question", to, text, via: "agent", client: "A2A agent" });
             ctx.waitUntil(registry.bumpBoard(env, board.id, e.seq).catch(() => {}));
             return ok(a2a.task(a2a.taskId(board.id, e.seq), "working", undefined, { metadata: { board: board.id, seq: e.seq, url: `${origin}/b/${board.id}#e${e.seq}` } }));
@@ -710,8 +758,6 @@ const handler = {
       if (path === "/terms" || path === "/privacy") return legalPage(path.slice(1) as "terms" | "privacy");
       if (path === "/openapi.json") return json(openapi(origin), 200, { "access-control-allow-origin": "*", "cache-control": "public, max-age=300" });
       if (path === "/skill.md") return new Response(SKILL_MD, { headers: { "content-type": "text/markdown; charset=utf-8", "cache-control": "public, max-age=300" } });
-      if (path === "/vendor/html2canvas.min.js" && method === "GET")
-        return new Response(HTML2CANVAS_JS, { headers: { "content-type": "application/javascript; charset=utf-8", "cache-control": "public, max-age=86400" } });
       if (path === "/docs") return docsPage(origin, SKILL_MD);
       if (path === "/agents.md") return new Response(agentsMd(origin), { headers: { "content-type": "text/markdown; charset=utf-8", "cache-control": "public, max-age=300", "access-control-allow-origin": "*" } });
       if (path === "/apple-touch-icon.png" || path === "/apple-touch-icon-precomposed.png") {
@@ -745,6 +791,7 @@ const handler = {
           wait: limits.isWaitRequest(method, path, url),
           write: method !== "GET" && method !== "HEAD" && method !== "OPTIONS",
           essential: limits.isEssentialRest(path),
+          heavy: costGuard.isHeavyRest(method, path),
         });
         if (denied) return denied;
       }
@@ -803,6 +850,7 @@ const handler = {
       if (path === "/.well-known/oauth-protected-resource" || path === "/.well-known/oauth-protected-resource/mcp") return json(oauth.protectedResource(origin), 200, cors);
       if (path === "/.well-known/oauth-authorization-server" || path === "/.well-known/openid-configuration") return json(oauth.authorizationServer(origin), 200, cors);
       if (path === "/oauth/register" && method === "POST") {
+        if (!(await limits.publicAllowed(env, "oauth-register", request))) return tooManyPublic(cors);
         try {
           return json(await oauth.register(env, (await request.json().catch(() => ({}))) as Record<string, unknown>), 201, cors);
         } catch (e) {
@@ -857,12 +905,38 @@ const handler = {
         // the reporter is named in the text.
         const stub = boardStub(env, bugsBoard);
         try {
-          const entry = report.screenshot
+          await ensureBugBoard(env, bugsBoard, stub); // the bot member, set up on first use (jxn #4139)
+          const pics = report.screenshots ?? (report.screenshot ? [report.screenshot] : []);
+          const entry = pics.length > 1
+            ? await stub.postFiles(bugs.BUG_BOT, { files: pics.map((p) => ({ name: p.name, bytes: p.bytes })), text: bugs.bugReportText(report, viewer?.name ?? "someone (signed out)"), via: "person", client: "bug-report" })
+            : report.screenshot
             ? await stub.postFile(bugs.BUG_BOT, { name: report.screenshot.name, bytes: report.screenshot.bytes, text: bugs.bugReportText(report, viewer?.name ?? "someone (signed out)"), via: "person", client: "bug-report" })
             : await stub.post(bugs.BUG_BOT, { type: "note", text: bugs.bugReportText(report, viewer?.name ?? "someone (signed out)"), via: "person", client: "bug-report" });
           if (viewer) ctx.waitUntil(registry.touch(env, viewer.name, bugsBoard).catch(() => {}));
           return json({ ok: true, board: bugsBoard, seq: entry.seq }, 201);
         } catch (e) {
+          return json({ error: e instanceof Error ? e.message : String(e) }, 400);
+        }
+      }
+
+      if (path === "/bug-form" && method === "GET") {
+        if (!viewer) return json({ error: "Sign in to report a bug." }, 401);
+        return new Response(localize(viewer.lang, BUG_DIALOG), { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "private, no-store" } });
+      }
+
+      // ---- feedback about Atteo itself (vedu #4125): people from the web and the app, agents on behalf of their person ----
+      if (path === "/feedback-form" && method === "GET") {
+        if (!viewer) return json({ error: "Sign in to send feedback." }, 401);
+        return new Response(localize(viewer.lang, FEEDBACK_DIALOG), { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "private, no-store" } });
+      }
+      if (path === "/api/feedback" && method === "POST") {
+        if (!viewer) return json({ error: "Sign in to send feedback." }, 401);
+        try {
+          const body = await request.json().catch(() => null);
+          const r = await feedback.sendFeedback(env, { hit: appSignin.hit, stub: boardStub, ensure: (e, b) => ensureBugBoard(e, b, boardStub(e, b)) }, { person: viewer.name, via: viewer.via === "agent" ? "agent" : "person", body });
+          return json({ ok: true, ...r }, 201);
+        } catch (e) {
+          if (e instanceof feedback.FeedbackError) return json({ error: e.message }, e.status);
           return json({ error: e instanceof Error ? e.message : String(e) }, 400);
         }
       }
@@ -882,6 +956,7 @@ const handler = {
 
       // ---- CLI login (device flow) ----
       if (path === "/api/device/start" && method === "POST") {
+        if (!(await limits.publicAllowed(env, "device-start", request))) return tooManyPublic();
         const body = (await request.json().catch(() => ({}))) as { client?: string };
         return json(await device.startDeviceLogin(env, origin, String(body.client ?? "Atteo CLI")));
       }
@@ -895,7 +970,7 @@ const handler = {
         if (!viewer) return needLogin();
         const code = device.normalizeUserCode(url.searchParams.get("code"));
         const d = code ? await device.deviceByUserCode(env, code) : null;
-        const side = await sideBoards(env, viewer.name);
+        const side = await sideBoardsNamed(env, viewer.name);
         return devicePage(viewer, side, code, d);
       }
       if (path === "/api/device/decide" && method === "POST") {
@@ -917,7 +992,7 @@ const handler = {
         if (!viewer) return landingPage();
         const me = await registry.userByName(env, viewer.name);
         const [side, boards, invitations, status, had] = await Promise.all([
-          sideBoards(env, viewer.name),
+          sideBoardsNamed(env, viewer.name),
           registry.boardsOverview(env, viewer.name, viewer.via !== "agent"),
           me ? registry.invitationsFor(env, me) : [],
           registry.agentStatus(env, viewer.name),
@@ -944,8 +1019,8 @@ const handler = {
           ctx.waitUntil(registry.audit(env, old.id, viewer.name, "archived", null, "to make room on the Free plan").catch(() => {}));
         }
         try {
-          const info = await createBoard(env, title, viewer.name, origin, { encrypted });
-          return redirect(`/b/${info.id}`);
+          const info = await createBoard(env, title, viewer.name, origin, { encrypted }, ctx);
+          return redirect(`/b/${info.id}`, analyticsConfig(env) ? { "Set-Cookie": trackCookieHeader(url, "board_created") } : {});
         } catch (e) {
           const plan = e instanceof billing.BillingError;
           if (plan) {
@@ -969,7 +1044,7 @@ const handler = {
           boardStub(env, m[2]).snapshot(0, { latest: 80 }, seer()), // fewer messages on the page keeps scrolling smooth (jxn #1365); older ones load as you go back
           registry.boardMembers(env, m[2]),
           registry.pendingInvites(env, m[2]),
-          sideBoards(env, viewer.name),
+          sideBoardsNamed(env, viewer.name),
           registry.agentsOnBoard(env, m[2]),
           registry.agentStatus(env, viewer.name),
           registry.getBoard(env, m[2]),
@@ -999,23 +1074,25 @@ const handler = {
       // ---- inbox: mentions of you, posts for your agent, replies to you ----
       if (path === "/inbox" && method === "GET") {
         if (!viewer) return needLogin();
-        const [side, items, aps] = await Promise.all([sideBoards(env, viewer.name), inbox.listInbox(env, viewer.name, 100, viewer.via !== "agent"), approvals.listApprovals(env, viewer.name, "all")]);
+        const [side, items, aps] = await Promise.all([sideBoardsNamed(env, viewer.name), inbox.listInbox(env, viewer.name, 100, viewer.via !== "agent"), approvals.listApprovals(env, viewer.name, "all")]);
         // Looking at the inbox is reading it: the badge clears (items still show as new on this view). Off-board items
         // (friend and contact requests, approvals) have no board to open, so this is where they get read.
         const unreadIds = items.filter((i) => !i.read_at).map((i) => i.id).slice(0, 90); // D1: at most 100 bound parameters
         if (unreadIds.length) ctx.waitUntil(inbox.markRead(env, viewer.name, { ids: unreadIds }).catch(() => 0));
-        return inbox.inboxPage(viewer, side, items, aps);
+        const dmPeers = items.flatMap((i) => (i.board_title?.includes(" ↔ ") ? i.board_title.split(" ↔ ") : []));
+        const people = await displayNames(env, [...items.filter((i) => i.actor_via !== "agent").map((i) => i.actor), ...dmPeers]).catch(() => ({}));
+        return inbox.inboxPage(viewer, side, items, aps, people);
       }
       // ---- The guide (vedu #2402): what people can do, by task. Public; signed in, it has the sidebar ----
       if (path === "/guide" && method === "GET") {
         const lang = viewer?.lang ?? pickLang(null, url.searchParams.get("lang"), request.headers.get("accept-language"));
-        return guidePage(lang, viewer ?? null, viewer ? await sideBoards(env, viewer.name) : [], origin);
+        return guidePage(lang, viewer ?? null, viewer ? await sideBoardsNamed(env, viewer.name) : [], origin);
       }
       // ---- For you (Everyday's home): what needs your OK, decisions and questions for you, what your assistant did today ----
       if (path === "/for-you" && method === "GET") {
         if (!viewer) return needLogin();
         const now = Date.now();
-        const [side, aps, items] = await Promise.all([sideBoards(env, viewer.name), approvals.listApprovals(env, viewer.name, "pending"), inbox.listInbox(env, viewer.name, 60)]);
+        const [side, aps, items] = await Promise.all([sideBoardsNamed(env, viewer.name), approvals.listApprovals(env, viewer.name, "pending"), inbox.listInbox(env, viewer.name, 60)]);
         // Unread mail for you (the person) from the last week: mentions and replies open in their chat; their boards are
         // looked at too, so a decision or question waiting there shows even on a quiet board.
         const mail = items.filter((i) => !i.read_at && i.board_id && (i.kind === "mention" || i.kind === "reply" || i.kind === "decision") && now - i.created_at < 7 * 86_400_000);
@@ -1106,8 +1183,8 @@ const handler = {
         // One open wait per agent session: a newer one ends this one (limits.beginWait).
         const w = wait && sid ? limits.beginWait(`s:${sid}`) : null;
         if (w?.refused) return waitRefused(w.refused);
-        const editMail = sid ? (await Promise.all((await registry.boardsForUser(env, viewer.name)).map(async b =>
-          (await boardStub(env, b.id).editNotices(viewer.name, sid, peek)).map((line, i) => ({ id: -Date.now() - i, kind: "edited" as const, board: b.id, board_title: b.title, seq: Number(line.match(/#(\d+)/)?.[1] ?? 0), from: "", from_via: "person", type: "edit", text: line, preview: line, for: "for your agent", ts: Date.now() }))))) .flat() : [];
+        const editMail = sid && mailbox.editSweepDue(sid, wait > 0) ? (await Promise.all((await registry.boardsForUser(env, viewer.name)).map(async b =>
+          (await withRetry(() => boardStub(env, b.id).editNotices(viewer.name, sid, peek)).catch((): string[] => [])).map((line, i) => ({ id: -Date.now() - i, kind: "edited" as const, board: b.id, board_title: b.title, seq: Number(line.match(/#(\d+)/)?.[1] ?? 0), from: "", from_via: "person", type: "edit", text: line, preview: line, for: "for your agent", ts: Date.now() }))))) .flat() : [];
         let r0: Awaited<ReturnType<typeof mailbox.collect>>;
         try {
           r0 = await mailbox.collect(env, viewer.name, { limit, wait: editMail.length ? 0 : wait, peek, held: !!lease, session: sid, pollMs: level >= 1 ? 6000 : 3000, signal: w?.signal }, async (b, seq) => { const e = (await boardStub(env, b).get(seq, { user: viewer.name, person: false })).entry; return { text: e.text, title: e.title }; }); // as the agent: its own lane too
@@ -1136,7 +1213,10 @@ const handler = {
         const now = requestNow(env, request);
         const sum = notify.summary(prefs, now);
         const due = await inbox.digestDue(env, viewer.name, levels, prefs, sum.digest_at);
-        const latest = cnt.latest ? inbox.withInterrupts([cnt.latest], levels, prefs, now)[0] : null;
+        const latest0 = cnt.latest ? inbox.withInterrupts([cnt.latest], levels, prefs, now)[0] : null;
+        // The notification names a person as they chose (jxn #4369; cached in names.ts, so polling costs no extra reads).
+        const actorName = latest0 && latest0.actor_via !== "agent" && latest0.actor ? (await displayNames(env, [latest0.actor]).catch(() => ({}) as Record<string, string>))[latest0.actor] : undefined;
+        const latest = latest0 && actorName ? { ...latest0, actor_name: actorName } : latest0;
         return json({ ...cnt, latest, notify: { ...sum, digest_count: due?.n ?? 0, digest_boards: due?.boards ?? [] } }, 200, { "cache-control": "no-store" });
       }
       m = path.match(/^\/api\/inbox\/([^/]+)\/remind$/);
@@ -1168,6 +1248,18 @@ const handler = {
         const ids = Array.isArray(body.ids) ? body.ids.map(Number) : undefined;
         const n = await inbox.markRead(env, viewer.name, { all: body.all === true || body.all === "1", board: typeof body.board === "string" ? body.board : undefined, ids }, viewer.via !== "agent");
         return json({ ok: true, read: n });
+      }
+
+      // ---- GitHub App (signed inbound webhooks; outbound Checks only when App secrets are set) ----
+      if (path === "/github/webhook" && method === "POST") {
+        const raw = await request.text();
+        const result = await githubApp.handleWebhook(env, raw, {
+          event: request.headers.get("x-github-event"),
+          signature: request.headers.get("x-hub-signature-256"),
+          delivery: request.headers.get("x-github-delivery"),
+        });
+        if (result.status !== 200) return json({ error: result.error }, result.status);
+        return json({ ok: true, applied: result.applied, ...(result.note ? { note: result.note } : {}) });
       }
 
       // ---- billing: Stripe Checkout and portal (hosted), webhook keeps plans in sync ----
@@ -1302,8 +1394,8 @@ const handler = {
           if (method === "POST" && !km[2]) {
             const b = (await request.json().catch(() => ({}))) as { to?: string; note?: string; payload?: string; type?: string; reply_to?: number };
             const note = String(b.note ?? "");
-            const hit = scanFields({ note });
-            if (hit) return json({ error: blockedMessage(hit) }, 400);
+            const blocked = egressRefusal(env, ctx, { note });
+            if (blocked) return json({ error: blocked }, 400);
             if ((await registry.memberRole(env, km[1], viewer.name)) === "viewer") return json({ error: "Your role on this board is viewer." }, 403);
             // v2 messages use the board's current key; while a removal's rotation is pending, nothing new goes out
             // under the old one (the person removed still has it).
@@ -1329,12 +1421,12 @@ const handler = {
       // Ask (Everyday): a voice-first page that asks your assistant in its chat and reads the answer aloud.
       if (path === "/ask" && method === "GET") {
         if (!viewer) return needLogin();
-        const [side, me] = await Promise.all([sideBoards(env, viewer.name), social.profile(env, viewer.name).catch(() => null)]);
+        const [side, me] = await Promise.all([sideBoardsNamed(env, viewer.name), social.profile(env, viewer.name).catch(() => null)]);
         return askPage(viewer, side, { assistant: me?.agent_name ?? null, agentChat: side.find((b) => b.kind === "agent")?.id ?? null });
       }
       if (path === "/approvals" && method === "GET") {
         if (!viewer) return needLogin();
-        const [side, list] = await Promise.all([sideBoards(env, viewer.name), approvals.listApprovals(env, viewer.name, "all")]);
+        const [side, list] = await Promise.all([sideBoardsNamed(env, viewer.name), approvals.listApprovals(env, viewer.name, "all")]);
         const titles = Object.fromEntries(side.map((b) => [b.id, b.title]));
         ctx.waitUntil(env.DB.prepare(`UPDATE notifications SET read_at = ? WHERE user = ? AND kind = 'approval' AND read_at IS NULL`).bind(Date.now(), viewer.name).run().catch(() => {}));
         return approvalsPage(viewer, side, list, titles);
@@ -1356,7 +1448,7 @@ const handler = {
             if (viewer.via === "agent") return json({ error: `Approve or reject in the browser: ${origin}/approvals#${am[1]}` }, 403);
             if (!(await approvals.getApproval(env, viewer.name, am[1]))) return json({ error: "not found" }, 404);
             const b = (await request.json().catch(() => ({}))) as { note?: string };
-            const decided = await approvals.decide(env, viewer.name, am[1], am[2] === "approve", String(b.note ?? ""));
+            const decided = await approvals.decide(env, viewer.name, am[1], am[2] === "approve", String(b.note ?? ""), ctx);
             // On its board: the card's status changes live ({type: "approval", id, status}).
             if (decided.board_id) await boardStub(env, decided.board_id).approvalDecided(approvals.refOf(decided)).catch((e) => console.error("approval event failed", e));
             return json({ ok: true, approval: decided });
@@ -1380,16 +1472,67 @@ const handler = {
       // ---- social: people, friends, presence, direct boards ----
       if (path === "/people" && method === "GET") {
         if (!viewer) return needLogin();
-        const [side, friends] = await Promise.all([sideBoards(env, viewer.name), social.friendsOf(env, viewer.name)]);
-        return peoplePage(viewer, side, friends);
+        const [side, friends, org] = await Promise.all([sideBoardsNamed(env, viewer.name), social.friendsOf(env, viewer.name), social.orgPeople(env, viewer.name)]);
+        return peoplePage(viewer, side, friends, org);
       }
       let um = path.match(/^\/u\/([a-z0-9][a-z0-9_.-]{0,31})$/);
       if (um && method === "GET") {
         if (!viewer) return needLogin();
-        const [side, p] = await Promise.all([sideBoards(env, viewer.name), social.person(env, viewer.name, um[1])]);
+        const [side, p] = await Promise.all([sideBoardsNamed(env, viewer.name), social.person(env, viewer.name, um[1])]);
         if (!p) return notFound(viewer);
         const [shared, ag] = await Promise.all([p.relation === "self" || p.relation === "blocked" ? [] : social.sharedBoards(env, viewer.name, p.name).catch(() => []), agents.agent(env, viewer.name, p.name, viewer.via !== "agent").catch(() => null)]);
         return profilePage(viewer, side, p, social.presenceLabel(p.presence), { shared, agent: ag });
+      }
+      // Delete my account (Apple 5.1.1(v); jxn #4329): people only, never an agent's token, and only with the handle
+      // typed back. Messages on shared boards stay as "Deleted user"; the rest goes (accountDelete.ts).
+      // Delete my account (Apple 5.1.1(v); jxn #4329): people only, never an agent's token, from Atteo's own pages or the
+      // app, with the handle typed back and the code emailed to the account's own address (jxn's agent #4414: a stolen
+      // session or token alone isn't enough). Messages on shared boards stay as "Deleted user"; the rest goes.
+      if ((path === "/api/me/delete-code" && method === "POST") || (path === "/api/me" && method === "DELETE")) {
+        if (!viewer) return needLogin();
+        if (viewer.via === "agent") return json({ error: "Only you can delete your account, from the app or the web. An agent can't." }, 403);
+        const site = request.headers.get("sec-fetch-site");
+        if (site && site !== "same-origin" && site !== "none") return json({ error: "Delete your account from Atteo's own pages." }, 403);
+        const email = appSignin.normalizeEmail(viewer.email);
+        if (!email) return json({ error: "Your account has no email to send a code to. Write to support to delete it." }, 400);
+        const ip = appSignin.clientIp(request);
+        const lim = appSignin.limits(env);
+        const fake = appSignin.fakeAllowed(env, url, email);
+        if (method === "POST") {
+          if (!(await appSignin.hit(env, `delcode:ip:${ip}`, lim.startPerIp)) || !(await appSignin.hit(env, await appSignin.emailKey("delcode", email), lim.startPerEmail))) return tooMany();
+          if (!fake) {
+            if (!appSignin.workosConfigured(env)) return json({ error: "Codes aren't set up on this server." }, 503);
+            const sent = await appSignin.sendCode(env, email, ip, request.headers.get("user-agent"));
+            if (!sent.ok) {
+              console.error(`delete account: WorkOS didn't send a code: ${sent.error}`);
+              return json({ error: "Couldn't send the code. Try again in a minute." }, 502);
+            }
+          }
+          await noteDeleteCodeSent(env, viewer.name);
+          return json({ ok: true, sent_to: email }, 200, { "cache-control": "no-store" });
+        }
+        const body = (await request.json().catch(() => ({}))) as { confirm?: string; code?: string };
+        if (String(body.confirm ?? "").trim().replace(/^@/, "").toLowerCase() !== viewer.name.toLowerCase()) return json({ error: `Type your handle, ${viewer.name}, to confirm.` }, 400);
+        if (!(await appSignin.hit(env, `delverify:ip:${ip}`, lim.verifyPerIp)) || !(await appSignin.hit(env, await appSignin.emailKey("delverify", email), lim.verifyPerEmail))) return tooMany();
+        const code = String(body.code ?? "").replace(/\s+/g, "");
+        const verdict = await checkDeleteCode(env, viewer.name, email, code, async (e, c) => {
+          if (fake) {
+            if (c !== appSignin.FAKE_CODE) throw new Error("bad code");
+            return { email: e };
+          }
+          return await appSignin.authenticateMagic(env, e, c, ip, request.headers.get("user-agent"));
+        });
+        if (verdict !== "ok")
+          return json(verdict === "bad" ? { error: appSignin.BAD_CODE, need_code: true } : { error: "Send yourself a new code first: codes work once, for 10 minutes.", need_code: true, need_new_code: true }, 400);
+        let r: Awaited<ReturnType<typeof deleteAccount>>;
+        try {
+          r = await deleteAccount(env, viewer.name, (id) => boardStub(env, id) as unknown as BoardForget);
+        } catch (e) {
+          console.error("account delete stopped part way (a retry finishes it)", e instanceof Error ? e.message : String(e));
+          return json({ error: "Your account wasn't fully deleted. Send a new code and try again." }, 503);
+        }
+        if (r.stripe_followup) console.warn("account deleted with an active Pro plan: cancel its Stripe subscription by hand (ids in deleted_handles)", r.tombstone);
+        return json({ ok: true, boards_kept: r.boards_kept, boards_removed: r.boards_removed }, 200, { "Set-Cookie": auth.cookieHeader(url, auth.SESSION_COOKIE, "", 0), "cache-control": "no-store" });
       }
       // Who this is (the app checks its token here after signing in).
       if (path === "/api/me" && method === "GET") {
@@ -1448,15 +1591,18 @@ const handler = {
           return json({ profile: p && { ...p, developer: await developerFor(env, viewer.name, p.display?.mode) } });
         }
         const b = (await request.json().catch(() => ({}))) as Record<string, unknown>;
-        if (viewer.via === "agent" && (b.listed !== undefined || b.rules !== undefined)) return json({ error: PEOPLE_ONLY_SETTING }, 403);
-        const hit = scanFields({ bio: typeof b.bio === "string" ? b.bio : null, display_name: typeof b.display_name === "string" ? b.display_name : null, agent_name: typeof b.agent_name === "string" ? b.agent_name : null });
-        if (hit) return json({ error: blockedMessage(hit) }, 400);
+        // Consent to send voice to xAI is the person's alone (jxn's agent #4444): an agent token can't give it.
+        if (viewer.via === "agent" && (b.listed !== undefined || b.rules !== undefined || (b.display as { xai_ok?: unknown } | undefined)?.xai_ok !== undefined)) return json({ error: PEOPLE_ONLY_SETTING }, 403);
+        const blocked = egressRefusal(env, ctx, { bio: typeof b.bio === "string" ? b.bio : null, display_name: typeof b.display_name === "string" ? b.display_name : null, agent_name: typeof b.agent_name === "string" ? b.agent_name : null });
+        if (blocked) return json({ error: blocked }, 400);
         try {
           const who = viewer.name;
           // A renamed agent: every board they're on tells its open tabs, {type: "profile", user, agent_name}.
           const renamed = (name: string | null) =>
             ctx.waitUntil(registry.boardsForUser(env, who).then((bs) => Promise.all(bs.map((x) => boardStub(env, x.id).profileChanged(who, name).catch(() => {})))).catch(() => {}));
-          return json({ ok: true, profile: await social.setProfile(env, who, b, renamed) });
+          const saved = await social.setProfile(env, who, b, renamed);
+          if (b.display_name !== undefined) forgetDisplayName(who); // this isolate shows the new name at once (jxn #4369)
+          return json({ ok: true, profile: saved });
         } catch (e) {
           return json({ error: e instanceof Error ? e.message : String(e) }, 400);
         }
@@ -1509,8 +1655,8 @@ const handler = {
             const text = String(b.text ?? "").trim();
             if (!text) return json({ error: "Say something: text is required." }, 400);
             if (text.length > 20_000) return json({ error: "Too long for a DM (20,000 characters); post a file on a board instead." }, 400);
-            const hit = scanFields({ text });
-            if (hit) return json({ error: blockedMessage(hit) }, 400);
+            const blocked = egressRefusal(env, ctx, { text });
+            if (blocked) return json({ error: blocked }, 400);
             const to = dmm[1];
             const r = await dm.reach(env, me, to);
             if (r.ok) {
@@ -1528,6 +1674,8 @@ const handler = {
           if (path === "/api/contacts" && method === "GET") return json(await dm.pending(env, me));
           const cm = path.match(/^\/api\/contacts\/([a-z0-9][a-z0-9_.-]{0,31})\/(accept|decline)$/);
           if (cm && method === "POST") {
+            const denied = social.contactDecisionError(viewer.via);
+            if (denied) return json({ error: denied }, 403);
             const res = await dm.decide(env, me, cm[1], cm[2] === "accept");
             if (res?.text) await deliver(res.requester, me, res.text, "agent");
             return json({ ok: true, accepted: cm[2] === "accept" });
@@ -1595,11 +1743,12 @@ const handler = {
         }
       }
 
-      if (path.startsWith("/api/people") || path.startsWith("/api/friends") || path.startsWith("/api/direct/")) {
+      if (path.startsWith("/api/people") || path.startsWith("/api/friends") || path.startsWith("/api/direct/") || path === "/api/org") {
         if (!viewer) return needLogin();
         const me = viewer.name;
         const err = (e: unknown) => json({ error: e instanceof Error ? e.message : String(e) }, e instanceof social.SocialError ? 400 : 500);
         try {
+          if (path === "/api/org" && method === "GET") return json(await social.orgPeople(env, me, url.searchParams.get("q") ?? ""));
           if (path === "/api/people" && method === "GET") return json({ people: await social.findPeople(env, me, url.searchParams.get("q") ?? "") });
           let pm = path.match(/^\/api\/people\/([a-z0-9][a-z0-9_.-]{0,31})$/);
           if (pm && method === "GET") {
@@ -1608,15 +1757,26 @@ const handler = {
           }
           if (path === "/api/friends" && method === "GET") return json(await social.friendsOf(env, me));
           if (path === "/api/friends/request" && method === "POST") {
+            // Starting a friend request is the person's call, same as accept, decline, and block.
+            // Agent tokens (MCP, the CLI, and the API) are refused before a row or an inbox item is written.
+            const denied = social.contactDecisionError(viewer.via);
+            if (denied) return json({ error: denied }, 403);
             const b = (await request.json().catch(() => ({}))) as { user?: string; note?: string };
             const note = String(b.note ?? "").trim();
-            const hit = scanFields({ note });
-            if (hit) return json({ error: blockedMessage(hit) }, 400);
-            return json({ ok: true, relation: await social.requestFriend(env, me, String(b.user ?? ""), note) });
+            const blocked = egressRefusal(env, ctx, { note });
+            if (blocked) return json({ error: blocked }, 400);
+            try {
+              return json({ ok: true, relation: await social.requestFriend(env, me, String(b.user ?? ""), note, ctx, viewer.via === "agent") });
+            } catch (e) {
+              if (e instanceof social.SocialError && e.message.includes(social.PERSON_ONLY_CONTACT_DECISION)) return json({ error: e.message }, 403);
+              throw e;
+            }
           }
           pm = path.match(/^\/api\/friends\/([a-z0-9][a-z0-9_.-]{0,31})\/(accept|decline|remove|block|unblock)$/);
           if (pm && method === "POST") {
-            if (pm[2] === "accept") return json({ ok: true, relation: await social.acceptFriend(env, me, pm[1]) });
+            const denied = social.contactDecisionError(viewer.via);
+            if (denied) return json({ error: denied }, 403);
+            if (pm[2] === "accept") return json({ ok: true, relation: await social.acceptFriend(env, me, pm[1], ctx) });
             if (pm[2] === "block") await social.blockPerson(env, me, pm[1]);
             else await social.removeFriend(env, me, pm[1]);
             return json({ ok: true });
@@ -1647,6 +1807,9 @@ const handler = {
       if (path === BOARD_PREFETCH_PATH && method === "GET") return new Response(BOARD_PREFETCH_RULES, { headers: { "content-type": "application/speculationrules+json", "cache-control": "public, max-age=3600", "x-content-type-options": "nosniff" } });
       if (path === "/shell.js" && method === "GET") return new Response(SHELL_PAGE_JS, { headers: { "content-type": "text/javascript; charset=utf-8", "cache-control": url.searchParams.get("v") ? "public, max-age=31536000, immutable" : "public, max-age=300", "x-content-type-options": "nosniff" } });
       if (path === "/bug.js" && method === "GET") return new Response(BUG_PAGE_JS, { headers: { "content-type": "text/javascript; charset=utf-8", "cache-control": url.searchParams.get("v") ? "public, max-age=31536000, immutable" : "public, max-age=300", "x-content-type-options": "nosniff" } });
+      if ((path === "/palette.js" || path === "/palette.css") && method === "GET") return new Response(path.endsWith(".js") ? PALETTE_JS : PALETTE_CSS, { headers: { "content-type": path.endsWith(".js") ? "text/javascript; charset=utf-8" : "text/css; charset=utf-8", "cache-control": url.searchParams.get("v") ? "public, max-age=31536000, immutable" : "public, max-age=300", "x-content-type-options": "nosniff" } });
+      if (path === "/feedback.js" && method === "GET") return new Response(FEEDBACK_PAGE_JS, { headers: { "content-type": "text/javascript; charset=utf-8", "cache-control": url.searchParams.get("v") ? "public, max-age=31536000, immutable" : "public, max-age=300", "x-content-type-options": "nosniff" } });
+      if (path === "/host.js" && method === "GET") return new Response(HOST_PAGE_JS, { headers: { "content-type": "text/javascript; charset=utf-8", "cache-control": url.searchParams.get("v") ? "public, max-age=31536000, immutable" : "public, max-age=300", "x-content-type-options": "nosniff" } });
       if (path === BOARD_TAIL_PATH && method === "GET") {
         const t = boardTail(url.searchParams.get("f") ?? "");
         if (!t) return new Response("not found", { status: 404 });
@@ -1657,8 +1820,13 @@ const handler = {
         const css = path === "/app.css";
         return new Response(css ? APP_CSS : APP_JS, { headers: { "content-type": css ? "text/css; charset=utf-8" : "text/javascript; charset=utf-8", "cache-control": url.searchParams.get("v") ? "public, max-age=31536000, immutable" : "public, max-age=300", "x-content-type-options": "nosniff" } });
       }
+      if (method === "GET" && path in PAGE_CSS) {
+        return new Response(PAGE_CSS[path], { headers: { "content-type": "text/css; charset=utf-8", "cache-control": url.searchParams.get("v") ? "public, max-age=31536000, immutable" : "public, max-age=300", "x-content-type-options": "nosniff" } });
+      }
       // Syntax colours for code blocks (codecolor.ts): pages load it only once a code block is on screen; the URL is versioned.
       if (path === CODE_COLOR_PATH && method === "GET") return new Response(CODE_COLOR_SCRIPT, { headers: { "content-type": "text/javascript; charset=utf-8", "cache-control": url.searchParams.get("v") ? "public, max-age=31536000, immutable" : "public, max-age=300", "x-content-type-options": "nosniff" } });
+      // Mermaid (mermaid.ts): pages load the pinned UMD build only once a diagram is on screen; SRI checks its bytes.
+      if (path === MERMAID_PATH && method === "GET") return mermaidResponse(env, url);
 
       // ---- read aloud (an app/web client feature, all in tts.ts): /api/app/tts, /api/app/tts/status ----
       if (path.startsWith("/api/app/tts")) return tts.route(request, env, ctx, path, viewer);
@@ -1706,12 +1874,12 @@ const handler = {
       if (path === "/connect/muse" && method === "GET") {
         if (!viewer) return needLogin();
         if (viewer.via === "agent") return json({ error: "This page is for people, signed in on the web." }, 403);
-        return musePage(viewer, await sideBoards(env, viewer.name), origin);
+        return musePage(viewer, await sideBoardsNamed(env, viewer.name), origin);
       }
       if (path === "/me" && method === "GET") {
         if (!viewer) return needLogin();
         const [side, tokens, plan, hooks, prof, mine, log, access, rules] = await Promise.all([
-          sideBoards(env, viewer.name),
+          sideBoardsNamed(env, viewer.name),
           auth.listTokens(env, viewer.name),
           billing.planOf(env, viewer.name),
           webhooks.listWebhooks(env, viewer.name),
@@ -1726,7 +1894,7 @@ const handler = {
 
       if (path === OPS_PATH && method === "GET") {
         if (!viewer?.admin) return notFound(viewer); // indistinguishable from a missing page unless you're an operator
-        const [side, data] = await Promise.all([sideBoards(env, viewer.name), opsData(env)]);
+        const [side, data] = await Promise.all([sideBoardsNamed(env, viewer.name), opsData(env)]);
         return adminPage(viewer, side, data);
       }
 
@@ -1901,7 +2069,7 @@ const handler = {
       if (m && method === "GET") {
         if (!viewer) return needLogin();
         try {
-          return redirect(`/b/${await access.redeemLink(env, m[1], viewer.name, origin)}`);
+          return redirect(`/b/${await access.redeemLink(env, m[1], viewer.name, origin, ctx)}`);
         } catch (e) {
           return messagePage("Invite link", e instanceof Error ? e.message.replace(/: https?:\S+$/, ".") : String(e), { viewer, status: 410, action: { href: "/", label: "Your boards" } });
         }
@@ -1947,15 +2115,20 @@ const handler = {
         const body = (await request.json().catch(() => ({}))) as { title?: unknown; encrypted?: unknown };
         const title = String(body.title ?? "").trim().slice(0, 120);
         if (!title) return json({ error: "Give the board a title." }, 400);
-        const hit = scanFields({ title });
-        if (hit) return json({ error: blockedMessage(hit) }, 400);
+        const blocked = egressRefusal(env, ctx, { title });
+        if (blocked) return json({ error: blocked }, 400);
         try {
-          const info = await createBoard(env, title, viewer.name, url.origin, { encrypted: body.encrypted !== false });
+          const info = await createBoard(env, title, viewer.name, url.origin, { encrypted: body.encrypted !== false }, ctx);
           return json({ board: { ...info, encrypted: body.encrypted !== false, picture: null } }, 201);
         } catch (e) {
           const msg = e instanceof Error ? e.message.replace(/: https?:\S+$/, ".") : String(e);
           return json({ error: msg }, e instanceof billing.BillingError ? 402 : 400);
         }
+      }
+
+      if (path === "/api/me/board-states" && method === "GET") {
+        if (!viewer) return json({ error: "sign in required" }, 401);
+        return json({ boards: await boardStates(env, viewer.name) }, 200, { "cache-control": "private, no-store" });
       }
 
       // ---- the signed-in person's boards (CLI uses its bearer token) ----
@@ -2049,8 +2222,8 @@ const handler = {
         const text = selectedText
           ? [...(note ? [note] : []), `↪ Forwarded from **${src.title}** · excerpt`, [...selectedText.slice(0, 2000).split("\n").slice(0, 40).map((l) => `> ${l}`), `> — ${who(picked[0])}, #${picked[0].seq}`].join("\n")].join("\n\n").slice(0, 20000)
           : [...(note ? [note] : []), `↪ Forwarded from **${src.title}** · ${picked.length} message${picked.length === 1 ? "" : "s"}`, ...picked.map(quote)].join("\n\n").slice(0, 20000);
-        const hit = scanFields({ text });
-        if (hit) return json({ error: blockedMessage(hit) }, 400);
+        const blocked = egressRefusal(env, ctx, { text });
+        if (blocked) return json({ error: blocked }, 400);
         // Only the note can mention anyone: quoted @names don't ping people on the new board.
         const { mentions } = note && mayMention(note) ? parseMentions(note, await registry.boardMembers(env, to), viewer.name, "person") : { mentions: [] as Mention[] };
         const entry = await boardStub(env, to).post(viewer.name, {
@@ -2118,13 +2291,13 @@ const handler = {
               }
               if (b.name != null) next = await sessions.rename(env, next, String(b.name));
               if (b.model !== undefined) {
-                const hit = scanFields({ model: typeof b.model === "string" ? b.model : null });
-                if (hit) return json({ error: blockedMessage(hit) }, 400);
+                const blocked = egressRefusal(env, ctx, { model: typeof b.model === "string" ? b.model : null });
+                if (blocked) return json({ error: blocked }, 400);
                 next = await sessions.setModel(env, next, b.model);
               }
               if (b.status !== undefined) {
-                const hit = scanFields({ status: typeof b.status === "string" ? b.status : null });
-                if (hit) return json({ error: blockedMessage(hit) }, 400);
+                const blocked = egressRefusal(env, ctx, { status: typeof b.status === "string" ? b.status : null });
+                if (blocked) return json({ error: blocked }, 400);
                 next = await sessions.setStatus(env, next, b.status);
               }
               return json({ session: await view(next) });
@@ -2156,7 +2329,7 @@ const handler = {
               if (!hits.length) return json({ error: `No board of yours or invitation matches "${want}". List them: atteo get boards` }, 404);
               if (hits.length > 1) return json({ error: `"${want}" matches more than one board; use its id.`, matches: hits.map((h) => ({ id: h.id, title: h.title, status: h.invite ? "invited" : "member" })) }, 409);
               const target = hits[0];
-              if (target.invite && !(me && (await registry.acceptInvitation(env, me, target.id, origin)))) return json({ error: `Couldn't accept the invitation to ${target.id}.` }, 400);
+              if (target.invite && !(me && (await registry.acceptInvitation(env, me, target.id, origin, ctx)))) return json({ error: `Couldn't accept the invitation to ${target.id}.` }, 400);
               await boardStub(env, target.id).joinSession(viewer.name, s.id);
               const cur = await live();
               const next = await sessions.setBoards(env, cur, [...cur.boards.filter((b) => b !== target.id), target.id]);
@@ -2203,6 +2376,7 @@ const handler = {
           if (method === "GET" && sub === "read") {
             const limit = Number(url.searchParams.get("limit")) || undefined;
             const maxChars = parseReadBudget(url.searchParams.get("max_chars"));
+            const summaryChars = parseSummaryBudget(url.searchParams.get("summary_budget"));
             // ?summary=all: every board's summary; none: no summary. Otherwise (older CLIs send a comma list of boards)
             // a board's summary comes with the member's first read of it, then only on request.
             const sumParam = url.searchParams.get("summary");
@@ -2210,7 +2384,7 @@ const handler = {
             const headless = await social.agentsHeadless(env, viewer.name);
             const out = await Promise.all(
               ids.map(async (id) => {
-                const r = await boardStub(env, id).read(viewer.name, { limit, summary: summary(id), names: await social.boardAgentNames(env, id), maxChars }, cur.id);
+                const r = await boardStub(env, id).read(viewer.name, { limit, summary: summary(id), names: await social.boardAgentNames(env, id), maxChars, summaryChars }, cur.id);
                 const b = { id, title: r.info.title, encrypted: r.info.encrypted };
                 const p = readParts(r);
                 p.lines.push(...await boardStub(env, id).editNotices(viewer.name, cur.id));
@@ -2249,7 +2423,9 @@ const handler = {
             const named = async (got: Awaited<ReturnType<typeof take>>) => Promise.all(got.map(async (x) => ({ ...x, r: { ...x.r!, entries: withNames(x.r!.entries, await social.boardAgentNames(env, x.id)) } })));
             let got = await take(true);
             let wasSuperseded = false;
+            let waited = false;
             if (!got.length) {
+              waited = true;
               // One open wait per session: a newer one ends this one (limits.beginWait).
               const w = limits.beginWait(`s:${cur.id}`);
               if (w.refused) return waitRefused(w.refused);
@@ -2284,6 +2460,7 @@ const handler = {
                 }, () => got.reduce((k, x) => k + x.r!.entries.length, 0) >= WAIT_CAP);
             }
             if (got.length) got = await named(got); // "Jarvis (vedu's agent)"
+            if (waited) noteWakeDelivery(env, ctx, got.flatMap((x) => x.r!.entries), viewer.name);
             const entries = got.flatMap((x) => x.r!.entries.map((e) => ({ board: { id: x.id, title: x.r!.info.title }, entry: e })));
             // What's for you in full; the rest one line each with for=me or when there's a lot.
             const brief = forMe || entries.length > 10;
@@ -2385,7 +2562,7 @@ const handler = {
             ctx.waitUntil(Promise.all([registry.touch(env, viewer.name, id), registry.bumpBoard(env, id, entry.seq)]).catch(() => {}));
             // Like a text post, the rendered entry comes back so the page can swap its "sending" copy for it.
             const root = replyTo ? ((await stub.rootsFor([entry.seq]))[entry.seq] ?? entry.seq) : entry.seq;
-            return json({ ok: true, entry, update: { seq: entry.seq, root, retracts: entry.retracts, html: entryHtml(withAgentNames(entry, agentNames(fileMembers)), id, true, { canRetract: true, canEdit: true, lang: viewer?.lang, members: fileMembers.map((m) => m.user), person: !!viewer && viewer.via !== "agent" }), row: logRow(entry, undefined, undefined, viewer?.lang), reactions: [] } }, 201);
+            return json({ ok: true, entry, update: { seq: entry.seq, root, retracts: entry.retracts, html: entryHtml(withAgentNames(entry, agentNames(fileMembers)), id, true, { canRetract: true, canEdit: true, lang: viewer?.lang, people: displayMap(fileMembers), members: fileMembers.map((m) => m.user), person: !!viewer && viewer.via !== "agent" }), row: logRow(entry, undefined, undefined, viewer?.lang), reactions: [] } }, 201);
           } catch (e) {
             return json({ error: e instanceof Error ? e.message : String(e) }, 400);
           }
@@ -2433,6 +2610,89 @@ const handler = {
           }
         } catch (e) {
           return json({ error: e instanceof Error ? e.message : String(e) }, 400);
+        }
+        return json({ error: "not found" }, 404);
+      }
+
+      // atteo host's link: the board, with the consent dialog for that machine open (the person types the phrase there).
+      if (path === "/host/consent" && method === "GET") {
+        if (!viewer) return needLogin();
+        const bid = url.searchParams.get("board") ?? "", machine = url.searchParams.get("machine") ?? "";
+        if (!/^b_[a-z0-9]+$/.test(bid) || !MACHINE_RE.test(machine) || !(await registry.isMember(env, bid, viewer.name))) return json({ error: "This link isn't for a board you're on, or it's incomplete. Copy it again from atteo host." }, 404);
+        return redirect(`/b/${bid}?host_consent=${encodeURIComponent(machine)}`);
+      }
+      // ---- atteo host (docs/HOST.md): a member's own machine on the board; every command needs its owner's OK ----
+      m = path.match(/^\/api\/boards\/(b_[a-z0-9]+)\/hosts(?:\/(confirm|h_[A-Za-z0-9_-]+|all)(?:\/(stop|next|runs)(?:\/(hr_[A-Za-z0-9_-]+)(?:\/(result))?)?)?)?$/);
+      if (m) {
+        if (!viewer) return needLogin();
+        const [, bid, target, act, runId, result] = m;
+        if (!(await registry.isMember(env, bid, viewer.name))) return json({ error: "board not found" }, 404);
+        const audit = (user: string, text: string) =>
+          boardStub(env, bid)
+            .notice(user, "Host", text, { via: "agent", client: "atteo host", session: null })
+            .catch((e: unknown) => console.error("host audit failed", e));
+        try {
+          if (!target && method === "GET") return json({ hosts: (await hosts.listHosts(env, bid)).map((h) => hosts.hostView(h)) }, 200, { "cache-control": "no-store" });
+          if (target === "confirm" && !act && method === "POST") {
+            // The consent is the person's alone, like approvals: an agent (or the CLI an agent could run) can't mint it.
+            if (viewer.via === "agent") return json({ error: `Only you can allow a machine, signed in on the web or the app: open ${origin}/host/consent?board=${bid}&machine=… from atteo host's link.` }, 403);
+            const b = (await request.json().catch(() => ({}))) as { phrase?: unknown; machine?: unknown };
+            return json(await hosts.confirm(env, bid, viewer.name, b.phrase, b.machine));
+          }
+          if (!target && method === "POST") {
+            const b = (await request.json().catch(() => ({}))) as Record<string, unknown>;
+            const h = await hosts.register(env, bid, viewer.name, b);
+            await audit(viewer.name, hosts.attachText(h));
+            return json({ host: hosts.hostView(h) });
+          }
+          if (target && act === "stop" && method === "POST") {
+            const board = await registry.getBoard(env, bid);
+            const owner = (await registry.memberRole(env, bid, viewer.name)) === "owner" || board?.created_by === viewer.name ? viewer.name : null;
+            const stopped = await hosts.stop(env, bid, target, viewer.name, owner);
+            for (const h of stopped) await audit(viewer.name, hosts.stopText(h, viewer.name));
+            return json({ stopped: stopped.map((h) => hosts.hostView(h)) });
+          }
+          if (target && target !== "all" && target !== "confirm") {
+            const host = await hosts.getHost(env, bid, target);
+            if (!host) return json({ error: "No such host." }, 404);
+            const ownerOnly = () => {
+              if (host.owner !== viewer.name) throw new hosts.HostError("Only the machine's owner (its atteo host) can do that.", 403);
+            };
+            if (act === "next" && method === "GET") {
+              ownerOnly();
+              const wait = Math.min(25, Math.max(0, parseInt(url.searchParams.get("wait") ?? "0", 10) || 0));
+              const got = await hosts.next(env, bid, host, wait * 1000);
+              for (const r of got.settled) await audit(host.owner, hosts.auditText(host, r));
+              if (got.stop) return json({ stop: got.stop }, 200, { "cache-control": "no-store" });
+              return json({ run: got.run ? hosts.runView(got.run) : null }, 200, { "cache-control": "no-store" });
+            }
+            if (act === "runs" && !runId && method === "POST") {
+              const b = (await request.json().catch(() => ({}))) as Record<string, unknown>;
+              const made = await hosts.request(env, bid, host.id, viewer.name, b);
+              if (made.approval) {
+                // The owner's card on the board: Approve or Deny, like any approval (only the person decides).
+                await boardStub(env, bid).approvalRequested(approvals.refOf(made.approval), { via: "agent", client: "atteo host" }).catch((e: unknown) => console.error("host approval entry failed", e));
+              }
+              return json({ run: hosts.runView(made.run) });
+            }
+            if (act === "runs" && runId && !result && method === "GET") {
+              const wait = Math.min(25, Math.max(0, parseInt(url.searchParams.get("wait") ?? "0", 10) || 0));
+              const got = await hosts.runNow(env, bid, host, runId, wait * 1000);
+              if (!got) return json({ error: "No such run." }, 404);
+              if (got.closed) await audit(host.owner, hosts.auditText(host, got.closed));
+              return json({ run: hosts.runView(got.run) }, 200, { "cache-control": "no-store" });
+            }
+            if (act === "runs" && runId && result && method === "POST") {
+              ownerOnly();
+              const b = (await request.json().catch(() => ({}))) as Record<string, unknown>;
+              const r = await hosts.finish(env, bid, host, runId, b);
+              await audit(host.owner, hosts.auditText(host, r));
+              return json({ run: hosts.runView(r) });
+            }
+          }
+        } catch (e) {
+          if (e instanceof hosts.HostError) return json({ error: e.message }, e.status);
+          throw e;
         }
         return json({ error: "not found" }, 404);
       }
@@ -2511,6 +2771,24 @@ const handler = {
           return json(await recap.buildRecap(env, boardStub(env, m[1]), viewer.name, { since, session: await asid(), as: viewer.via === "agent" ? "agent" : "person" }), 200, { "cache-control": "no-store" });
         } catch (e) {
           return json({ error: e instanceof Error ? e.message : String(e) }, 400);
+        }
+      }
+
+      // ---- ls: the board as a read-only tree (state.md, files/, log/); nothing is marked read ----
+      m = path.match(/^\/api\/boards\/(b_[a-z0-9]+)\/ls$/);
+      if (m && method === "GET") {
+        if (!viewer) return needLogin();
+        if (!(await registry.isMember(env, m[1], viewer.name))) return json({ error: "board not found" }, 404);
+        try {
+          const r = await listMount(
+            boardStub(env, m[1]),
+            { path: url.searchParams.get("path") ?? undefined, long: url.searchParams.get("long"), since: url.searchParams.get("since"), limit: url.searchParams.get("limit") },
+            seer(),
+          );
+          const { untrusted: _untrusted, ...body } = r;
+          return json(body, 200, { "cache-control": "no-store" });
+        } catch (e) {
+          return json({ error: e instanceof Error ? e.message : String(e) }, e instanceof LsError ? 400 : 400);
         }
       }
 
@@ -2658,8 +2936,8 @@ const handler = {
         } catch (e) {
           return json({ error: e instanceof Error ? e.message : String(e) }, 400);
         }
-        const hit = scanFields(charterScanFields(next, patch));
-        if (hit) return json({ error: blockedMessage(hit) }, 400);
+        const blocked = egressRefusal(env, ctx, charterScanFields(next, patch));
+        if (blocked) return json({ error: blocked }, 400);
         if (patch.retention_days !== undefined) {
           const creator = await registry.userByName(env, board.created_by);
           const pol = creator?.email ? await orgPolicy(env, creator.email) : null;
@@ -2681,6 +2959,7 @@ const handler = {
         if (!viewer) return needLogin();
         const board = await registry.getBoard(env, m[1]);
         if (!board || ((await registry.memberRole(env, m[1], viewer.name)) !== "owner" && board.created_by !== viewer.name)) return json({ error: "Only the board's owners can set how long it keeps messages." }, 403);
+        if (board.archived_at) return json({ error: "This board is archived. Restore it to change retention." }, 403);
         const b = (await request.json().catch(() => ({}))) as { days?: number | string | null };
         const days = b.days == null || b.days === "" || Number(b.days) === 0 ? null : Math.floor(Number(b.days));
         if (days != null && (!Number.isFinite(days) || days < 1 || days > 3650)) return json({ error: "days must be 1–3650, or empty to keep everything." }, 400);
@@ -2699,8 +2978,8 @@ const handler = {
         if (!(await registry.isMember(env, m[1], viewer.name))) return json({ error: "board not found" }, 404);
         try {
           const meta = parseBoardMeta(await request.json().catch(() => ({})));
-          const hit = scanFields({ description: meta.description, tags: meta.tags.join(" "), links: meta.links.map((l) => `${l.label} ${l.url}`).join("\n") });
-          if (hit) return json({ error: blockedMessage(hit) }, 400);
+          const blocked = egressRefusal(env, ctx, { description: meta.description, tags: meta.tags.join(" "), links: meta.links.map((l) => `${l.label} ${l.url}`).join("\n") });
+          if (blocked) return json({ error: blocked }, 400);
           await registry.setBoardMeta(env, m[1], meta);
           return json({ ok: true, meta });
         } catch (e) {
@@ -2841,7 +3120,7 @@ const handler = {
                 viewer.name,
                 seq,
                 {
-                  status: s("status") as "todo" | "doing" | "blocked" | "done" | undefined,
+                  status: s("status") as "todo" | "doing" | "blocked" | "done" | "frozen" | undefined,
                   assignee: b.assignee === undefined ? undefined : s("assignee") || null,
                   assignee_agent: b.assignee_is_person === true ? false : true,
                   due: due === undefined ? undefined : due === "" ? null : Date.parse(due + "T23:59:00Z") || undefined,
@@ -2929,7 +3208,14 @@ const handler = {
           const entry = await boardStub(env, m[1]).get(seq, { user: viewer.name, person: true }).then((g) => g.entry).catch(() => null);
           if (!entry) return json({ error: `Entry #${seq} does not exist on this board.` }, 404);
           if (!(await appSignin.hit(env, `reports:u:${viewer.name}`, moderation.REPORTS_PER_WINDOW))) return json({ error: "That's a lot of reports: try again in ten minutes." }, 429);
-          return json({ ok: true, ...(await moderation.report(env, m[1], seq, viewer.name, entry, reason)) }, 201);
+          const done = await moderation.report(env, m[1], seq, viewer.name, entry, reason);
+          // A copy for us on the developers' board (the terms: we look within 24 hours), reason and link only.
+          const bugsBoard = (env.BUGS_BOARD ?? "").trim();
+          if (bugsBoard) {
+            const text = bugs.messageReportText({ reason, reporter: viewer.name, board: m[1], seq, link: `${publicOrigin(env, url)}/b/${m[1]}#e${seq}` });
+            ctx.waitUntil((async () => { const s = boardStub(env, bugsBoard); await ensureBugBoard(env, bugsBoard, s); await s.post(bugs.BUG_BOT, { type: "note", text, via: "person", client: "report" }); })().catch((e) => console.error("report copy", e)));
+          }
+          return json({ ok: true, ...done }, 201);
         } catch (e) {
           if (e instanceof moderation.ModerationError) return json({ error: e.message }, e.status);
           throw e;
@@ -3007,7 +3293,7 @@ const handler = {
           const roots = await stub.rootsFor(fresh.map((e) => e.seq));
           const canRetract = (e: Entry) => !!viewer && (e.author === viewer.name || snap.info.created_by === viewer.name);
           const names = Object.fromEntries(members0.filter((x) => x.agent_name).map((x) => [x.user, x.agent_name!]));
-          const memberSet = new Set(members0.map((x) => x.user));
+          const memberSet = new Set(members0.map((x) => x.user)), people = displayMap(members0);
           return json({
             entries: fresh.map((e) => ({
               seq: e.seq,
@@ -3015,7 +3301,7 @@ const handler = {
               ...(e.via === "agent" && names[e.author] ? { agent_name: names[e.author] } : {}), // "Jarvis · vedu's agent"
               root: roots[e.seq] ?? e.seq,
               retracts: e.retracts,
-              html: entryHtml(withAgentNames(e, names), id, true, { canRetract: canRetract(e), canEdit: !!viewer && !snap.info.encrypted && e.author === viewer.name, lang: viewer?.lang, members: memberSet, person: !!viewer && viewer.via !== "agent" }),
+              html: entryHtml(withAgentNames(e, names), id, true, { canRetract: canRetract(e), canEdit: !!viewer && !snap.info.encrypted && e.author === viewer.name, lang: viewer?.lang, members: memberSet, people, person: !!viewer && viewer.via !== "agent" }),
               row: logRow(e, undefined, undefined, viewer?.lang),
               reactions: snap.reactions[e.seq] ?? [],
               ...(e.type === "change" ? { reviews: snap.reviews[e.seq] ?? [] } : {}),
@@ -3071,13 +3357,13 @@ const handler = {
             registry.boardMembers(env, id), // "@Jarvis" chips, as on the page (jxn #1659); who's on it (quick replies)
             stub.info(),
           ]);
-          const pageMembers = new Set(names.map((m) => m.user)), pageNames = agentNames(names);
+          const pageMembers = new Set(names.map((m) => m.user)), pageNames = agentNames(names), pagePeople = displayMap(names);
           return json({
             first: page.length ? page[0].seq : 0,
             entries: page.map((e) => ({
               seq: e.seq,
               root: roots[e.seq] ?? e.seq,
-              html: entryHtml(withAgentNames(e, pageNames), id, true, { canRetract: !!viewer && (e.author === viewer.name || isOwner), canEdit: !!viewer && !pageInfo.encrypted && e.author === viewer.name, lang: viewer?.lang, members: pageMembers, person: !!viewer && viewer.via !== "agent" }),
+              html: entryHtml(withAgentNames(e, pageNames), id, true, { canRetract: !!viewer && (e.author === viewer.name || isOwner), canEdit: !!viewer && !pageInfo.encrypted && e.author === viewer.name, lang: viewer?.lang, members: pageMembers, people: pagePeople, person: !!viewer && viewer.via !== "agent" }),
               row: logRow(e, undefined, undefined, viewer?.lang),
               reactions: reactions[e.seq] ?? [],
               ...(e.human_decision ? { human_decision: e.human_decision } : {}),
@@ -3197,7 +3483,7 @@ const handler = {
             // An agent's top-level post the board kept in Just mine (board.ts ownByDefault) says so instead.
             const said = entry.audience === "own" && entry.reply_to == null && !own && !notOwn && viewer.via === "agent" ? keptOwnNotice(viewer.name) : audienceNotice(entry, viewer.name);
             const notice = said ? { notice: said } : {};
-            return json({ ok: true, entry, ...notice, ...(missed?.length ? { missed } : {}), update: { seq: entry.seq, root, retracts: entry.retracts, html: entryHtml(withAgentNames(entry, agentNames(boardMembers)), id, true, { canRetract: true, canEdit: true, lang: viewer?.lang, members: boardMembers.map((m) => m.user), person: !!viewer && viewer.via !== "agent" }), row: logRow(entry, undefined, undefined, viewer?.lang), reactions: [] }, ...(ambiguous.length ? { ambiguous } : {}) }, 201);
+            return json({ ok: true, entry, ...notice, ...(missed?.length ? { missed } : {}), update: { seq: entry.seq, root, retracts: entry.retracts, html: entryHtml(withAgentNames(entry, agentNames(boardMembers)), id, true, { canRetract: true, canEdit: true, lang: viewer?.lang, members: boardMembers.map((m) => m.user), person: !!viewer && viewer.via !== "agent", people: displayMap(boardMembers) }), row: logRow(entry, undefined, undefined, viewer?.lang), reactions: [] }, ...(ambiguous.length ? { ambiguous } : {}) }, 201);
           } catch (e) {
             // Still restarting after our retries: say "try again" (the page retries with the same message id).
             if (isRetriable(e)) {
@@ -3227,10 +3513,12 @@ const handler = {
         // grep for agents: exact matching lines, one per hit (grep.ts). Members only (canSee above).
         if (what === "grep" && method === "GET") return grepResponse(env, viewer?.name ?? "", url, id, seer());
         // Read receipts: the board page reports the newest entry its person has had on screen.
-        // "jxn is typing…": a person's composer says so every few seconds while they type; nothing is stored.
+        // "jxn is typing…": a person's composer says so every few seconds while they type; nothing is stored. ?root=N
+        // says it's in thread N's reply box (vedu #4746: a thread's typing shows only in that thread); none means the chat.
         if (what === "typing" && method === "POST") {
           if (!viewer || viewer.via === "agent" || !(await registry.isMember(env, id, viewer.name))) return json({ error: "Only members can do that." }, 403);
-          await stub.typing(viewer.name);
+          const r = Number(url.searchParams.get("root"));
+          await stub.typing(viewer.name, Number.isSafeInteger(r) && r > 0 ? r : 0);
           return new Response(null, { status: 204 });
         }
         if (what === "handle" && method === "POST" && seqStr) {
@@ -3278,19 +3566,19 @@ const handler = {
             const title = ((await registry.getBoard(env, id)) as { title?: string | null } | null)?.title;
             return title ? m.split(`board ${id}`).join(`"${title}"`) : m;
           };
-          const role = body.role === "viewer" ? "viewer" : "contributor"; // owners are promoted after they join
-          const expiresDays = Number(body.expires_days) > 0 ? Math.min(365, Math.floor(Number(body.expires_days))) : null;
+          const role = access.inviteRole(body.role); // owners are promoted after they join
+          const expiresDays = access.grantExpiresDays(body.expires_days);
           // A name instead of an email invites a friend; their email stays private (the reply names them, never the address).
           if (viewer && to && !to.includes("@")) {
             const name = normalizeUser(to.replace(/^@/, ""));
             const friend = name && (await social.friendsOf(env, viewer.name)).friends.find((f) => f.name === name);
             const u = friend ? await registry.userByName(env, friend.name) : null;
             if (!u?.email) return json({ error: `You can invite friends by name; for anyone else, use their email.` }, 400);
-            const r = await sendInvite(env, origin, { boardId: id, email: u.email, invitedBy: viewer.name, role, expiresDays });
+            const r = await sendInvite(env, origin, { boardId: id, email: u.email, invitedBy: viewer.name, role, expiresDays }, ctx);
             return json({ ok: r.ok, added: r.added, message: await forPerson(r.message.split(` (${u.email.toLowerCase()})`).join("").split(u.email.toLowerCase()).join(u.name)) });
           }
           if (!EMAIL_RE.test(to)) return json({ error: "Enter a valid email address." }, 400);
-          const r = await sendInvite(env, origin, { boardId: id, email: to, invitedBy: viewer?.name ?? "ops", role, expiresDays });
+          const r = await sendInvite(env, origin, { boardId: id, email: to, invitedBy: viewer?.name ?? "ops", role, expiresDays }, ctx);
           return json({ ...r, message: await forPerson(r.message) });
         }
         return json({ error: "not found" }, 404);
@@ -3304,7 +3592,7 @@ const handler = {
         if (!me) return needLogin();
         let ok: boolean;
         try {
-          ok = m[2] === "accept" ? await registry.acceptInvitation(env, me, m[1], origin) : await registry.declineInvitation(env, me, m[1]);
+          ok = m[2] === "accept" ? await registry.acceptInvitation(env, me, m[1], origin, ctx) : await registry.declineInvitation(env, me, m[1]);
         } catch (e) {
           return json({ error: e instanceof Error ? e.message : String(e) }, 402);
         }
@@ -3367,6 +3655,29 @@ const handler = {
         if (!isOps(c)) return json({ error: "not found" }, 404);
         const body = method === "POST" ? ((await request.json().catch(() => ({}))) as Record<string, string>) : {};
         if (path === "/api/ops/overview" && method === "GET") return json(await opsData(env));
+        // Leftover e2e/test accounts: GET lists; POST dry-runs unless confirm is exactly DELETE TEST ACCOUNTS.
+        if (path === "/api/ops/test-accounts" && method === "GET") return json({ ...(await testAccounts.preview(env)), dry_run: true });
+        if (path === "/api/ops/test-accounts" && method === "POST") {
+          const b = body as testAccounts.ApplyOpts;
+          const result = await testAccounts.apply(env, b);
+          if (result.status === 200 && result.body && "dry_run" in result.body && result.body.dry_run === false) {
+            for (const id of result.body.deleted_boards ?? []) ctx.waitUntil(boardStub(env, id).destroy().catch(() => {}));
+          }
+          return json(result.body, result.status);
+        }
+        // The cost guard (src/costGuard.ts): its state and its last check (vedu #4665); {clear: true} lifts the hard cap.
+        if (path === "/api/ops/cost-guard") {
+          if (method === "POST" && (body as Record<string, unknown>).clear === true) await costGuard.clearCap(env, viewer?.name ?? "admin-key");
+          const st = await costGuard.status(env);
+          return json({
+            capped: await costGuard.capped(env),
+            thresholds: costGuard.thresholds(env),
+            watching: !!(env.CF_ACCOUNT_ID && costGuard.analyticsToken(env)),
+            last_ok: st.last_ok ? { at: st.last_ok.at } : null,
+            last_error: st.last_error,
+            usage: st.last_ok?.totals ?? null,
+          });
+        }
         // Proves error reporting end to end (D1 errors + Sentry): throws on purpose.
         if (path === "/api/ops/test-error" && method === "POST") throw new Error("Test error from /api/ops/test-error");
         if (path === "/api/ops/metrics" && method === "GET") return json(await usage.metrics(env, Number(url.searchParams.get("days")) || 14));
@@ -3388,7 +3699,7 @@ const handler = {
         if (path === "/api/ops/users" && method === "POST") {
           const name = normalizeUser(body.name);
           if (!name) return json({ error: "valid name required" }, 400);
-          if (await registry.userByName(env, name)) return json({ error: "name taken" }, 409);
+          if ((await handleTaken(env, name))) return json({ error: "name taken" }, 409);
           await registry.createUser(env, {
             name,
             email: body.email ? body.email.toLowerCase() : null,
@@ -3413,11 +3724,15 @@ const handler = {
           const u = normalizeUser(body.user);
           const row = u ? await registry.userByName(env, u) : null;
           if (!row) return json({ error: "user not found" }, 404);
+          // Local tests only: a browser session that can open /_ops without ADMIN_EMAIL (csp-enforced.mjs). Needs
+          // DEV_FAKE_ADMIN=1 in .dev.vars (never wrangler.jsonc) and localhost; production still requires ADMIN_EMAIL.
+          const admin = ["true", "1"].includes(String(body.admin ?? "")); // JSON true stringifies to "true"
+          if (admin && (env.DEV_FAKE_ADMIN !== "1" || !isLocalHost(url.hostname))) return json({ error: "admin test sessions require DEV_FAKE_ADMIN=1 on localhost" }, 400);
           const secret = await auth.createSession(env, {
             user: row.name,
-            workos_id: row.workos_id ?? "ops-issued",
+            workos_id: admin ? auth.OPS_ADMIN_WORKOS_ID : (row.workos_id ?? "ops-issued"),
             email: row.email ?? "",
-            email_verified: String(body.verified) === "true",
+            email_verified: admin || String(body.verified) === "true",
             display_name: row.display_name,
           });
           await accountlog.record(env, row.name, "signin.web", request, { client: "operator" });
@@ -3427,16 +3742,18 @@ const handler = {
         if (path === "/api/ops/policies" && method === "POST") {
           const domain = String(body.domain ?? "").trim().toLowerCase();
           if (!/^[a-z0-9.-]+\.[a-z]{2,}$/.test(domain)) return json({ error: "domain required (e.g. acme.com)" }, 400);
+          // Free and public mail (gmail.com, outlook.com…) is not an organization: no policy, and so never a directory.
+          if (!body.delete && isPublicMailDomain(domain)) return json({ error: `${domain} is a public mail provider, not an organization` }, 400);
           if (body.delete) {
             await env.DB.prepare(`DELETE FROM org_policies WHERE domain = ?`).bind(domain).run();
             return json({ ok: true });
           }
           const ret = body.max_retention_days == null || body.max_retention_days === "" ? null : Math.max(1, Math.floor(Number(body.max_retention_days)));
           await env.DB.prepare(
-            `INSERT INTO org_policies (domain, require_sso, max_retention_days, allow_outside_members, updated_at) VALUES (?, ?, ?, ?, ?)
-             ON CONFLICT(domain) DO UPDATE SET require_sso = excluded.require_sso, max_retention_days = excluded.max_retention_days, allow_outside_members = excluded.allow_outside_members, updated_at = excluded.updated_at`,
+            `INSERT INTO org_policies (domain, require_sso, max_retention_days, allow_outside_members, directory, updated_at) VALUES (?, ?, ?, ?, ?, ?)
+             ON CONFLICT(domain) DO UPDATE SET require_sso = excluded.require_sso, max_retention_days = excluded.max_retention_days, allow_outside_members = excluded.allow_outside_members, directory = excluded.directory, updated_at = excluded.updated_at`,
           )
-            .bind(domain, ["true", "1"].includes(String(body.require_sso)) ? 1 : 0, ret, String(body.allow_outside_members) === "false" ? 0 : 1, Date.now())
+            .bind(domain, ["true", "1"].includes(String(body.require_sso)) ? 1 : 0, ret, String(body.allow_outside_members) === "false" ? 0 : 1, ["true", "1"].includes(String(body.directory)) ? 1 : 0, Date.now())
             .run();
           return json({ ok: true });
         }
@@ -3514,7 +3831,7 @@ const handler = {
           const u = normalizeUser(body.user);
           if (!u || !(await registry.userByName(env, u)) || !body.title) return json({ error: "user and title required" }, 400);
           try {
-            return json({ board: await createBoard(env, body.title.slice(0, 120), u, undefined, { encrypted: (body as { encrypted?: unknown }).encrypted === true }) }, 201);
+            return json({ board: await createBoard(env, body.title.slice(0, 120), u, undefined, { encrypted: (body as { encrypted?: unknown }).encrypted === true }, ctx) }, 201);
           } catch (e) {
             return json({ error: e instanceof Error ? e.message : String(e) }, 400);
           }
@@ -3535,7 +3852,11 @@ const handler = {
         return json({ error: back }, 503, { "retry-after": "3600" });
       }
       return json({ error: msg }, 500);
+    } finally {
+      const wall = Date.now() - started;
+      noteRequestWallMs(env, ctx, wall, { wait: isHeldRequest(url, path, wall) });
     }
+    });
   },
 } satisfies ExportedHandler<Env>;
 

@@ -5,12 +5,13 @@
 import { describe, expect, it } from "vitest";
 import { AGENTS_ON_BOARD_SQL, BOARDS_FOR_USER_SQL, TAPE_PRUNE_SQL, TAPE_READ_SQL, TAPE_TOP_SQL } from "../src/registry";
 import { LIVE_SESSIONS_SQL, SESSIONS_ON_BOARD_SQL, USER_SESSIONS_SQL } from "../src/sessions";
-import { PRUNE_READ_SQL, unreadCountSql } from "../src/inbox";
+import { PRUNE_READ_SQL, listInboxSql, unreadCountSql } from "../src/inbox";
 import { PRUNE_USAGE_DAILY_SQL } from "../src/usage";
-import { LEASE_GET_SQL, PRUNE_MAIL_SQL, UNDELIVERED_SQL } from "../src/mailbox";
+import { LEASE_GET_SQL, NEWER_MAIL_SQL, PRUNE_MAIL_SQL, UNDELIVERED_SQL } from "../src/mailbox";
 import { TOKEN_SQL } from "../src/auth";
 import { ACCOUNT_LOG_SQL, PRUNE_ACCOUNT_LOG_SQL } from "../src/accountlog";
 import { BUMP_SQL, REQUESTS_TODAY_SQL, SHED_GET_SQL, SHED_SET_SQL } from "../src/limits";
+import { ALERT_ONCE_SQL, CAP_CLEAR_SQL, CAP_GET_SQL, CAP_SET_SQL } from "../src/costGuard";
 
 const { DatabaseSync } = (await import("node:" + "sqlite")) as { DatabaseSync: new (p: string) => any };
 const { readFileSync, readdirSync } = (await import("node:" + "fs")) as { readFileSync: (u: URL, enc: string) => string; readdirSync: (u: URL) => string[] };
@@ -34,6 +35,13 @@ const HOT: Record<string, string> = {
   "usage_daily prune": PRUNE_USAGE_DAILY_SQL,
   "mailbox: undelivered mail": UNDELIVERED_SQL,
   "mailbox: drain lease": LEASE_GET_SQL,
+  "mailbox: newer mail (peek/held waits)": NEWER_MAIL_SQL,
+  "inbox list (person)": listInboxSql(true),
+  "inbox list (agent)": listInboxSql(false),
+  "cost guard: cap read": CAP_GET_SQL,
+  "cost guard: cap set": CAP_SET_SQL,
+  "cost guard: cap clear": CAP_CLEAR_SQL,
+  "cost guard: alert once": ALERT_ONCE_SQL,
   "tape read": TAPE_READ_SQL,
   "tape newest": TAPE_TOP_SQL,
   "tape prune": TAPE_PRUNE_SQL,
@@ -55,6 +63,19 @@ describe("hot queries use an index", () => {
       expect(scans, `${name}:\n${steps.join("\n")}`).toEqual([]);
     });
   }
+
+  it("the inbox list walks notifications newest first instead of sorting all of a person's (#4340)", () => {
+    for (const person of [true, false]) {
+      const steps = plan(listInboxSql(person));
+      expect(steps.some((d) => /TEMP B-TREE FOR ORDER BY/.test(d)), steps.join("\n")).toBe(false);
+      expect(steps.some((d) => /notifications_user_created/.test(d)), steps.join("\n")).toBe(true);
+    }
+  });
+
+  it("pending invitations by address use the lower(email) index (#4340)", () => {
+    const steps = plan(`SELECT id FROM invites WHERE lower(email) = lower(?) AND accepted_at IS NULL`);
+    expect(steps.some((d) => /invites_email_lower/.test(d)), steps.join("\n")).toBe(true);
+  });
 
   it("catches a scan when there's no index (the check itself works)", () => {
     expect(plan(`SELECT * FROM notifications WHERE excerpt = ?`).some((d) => /^SCAN\b/.test(d))).toBe(true);
