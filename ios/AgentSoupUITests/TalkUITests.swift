@@ -180,6 +180,8 @@ final class TalkUITests: AtteoUITestCase {
         XCTAssertEqual(a.staticTexts["talk-standby-hint"].label, "Tap or press play on your AirPods to talk")
         XCTAssertFalse(a.buttons["talk-orb"].exists, "no orb while standing by")
         XCTAssertTrue(a.staticTexts["talk-timer"].label.hasPrefix("Standing by"), a.staticTexts["talk-timer"].label)
+        // Never silently (vedu #5329): it says why it stood by.
+        XCTAssertTrue(a.staticTexts["talk-standby-note"].label.hasPrefix("Stood by after a quiet moment"), a.staticTexts["talk-standby-note"].label)
         var used = 99.0
         for _ in 0..<10 {
             used = minutesUsed() - before
@@ -633,6 +635,20 @@ final class TalkUITests: AtteoUITestCase {
         XCTAssertTrue(hold.waitForExistence(timeout: 5))
         hold.tap()
         XCTAssertTrue(eventually(state, "label == 'Listening…'", timeout: 5), "hands-free again (\(state.label))")
+
+        // Diagnostics (vedu #5329): a line under the call with what the mic did and why the last session stopped.
+        a.buttons["talk-menu"].tap()
+        let diag = a.buttons["talk-diagnostics-toggle"]
+        XCTAssertTrue(diag.waitForExistence(timeout: 5), "Diagnostics in the menu")
+        diag.tap()
+        let line = a.staticTexts["talk-diagnostics"]
+        XCTAssertTrue(line.waitForExistence(timeout: 5))
+        XCTAssertTrue(line.label.hasPrefix("mic: "), line.label)
+        shot("talk-diagnostics")
+        a.buttons["talk-menu"].tap()
+        XCTAssertTrue(diag.waitForExistence(timeout: 5))
+        diag.tap() // off again (it's remembered on the device)
+        XCTAssertTrue(eventually(line, "exists == false", timeout: 5))
         endAndSettle(a, before: before)
     }
 

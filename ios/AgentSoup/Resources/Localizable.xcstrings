@@ -51588,6 +51588,282 @@
           }
         }
       }
+    },
+    "Stood by after a quiet moment, so the call doesn't use minutes. Tap or press play to keep talking.": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En espera tras un momento de silencio, para no gastar minutos. Toca o pulsa reproducir para seguir hablando."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En attente après un moment de silence, pour ne pas utiliser de minutes. Touchez ou appuyez sur lecture pour continuer."
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "थोड़ी देर चुप रहने पर रुका, ताकि मिनट खर्च न हों। बात जारी रखने के लिए टैप करें या प्ले दबाएँ।"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "しばらく静かだったので、通話時間を使わないよう待機しました。続けるにはタップするか再生を押してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "잠시 조용해서 시간을 쓰지 않도록 대기 중입니다. 계속하려면 탭하거나 재생을 누르세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "安静了一会儿，为节省分钟数已待机。轻点或按播放继续说话。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "安靜了一會兒，為節省分鐘數已待機。輕點或按播放繼續說話。"
+          }
+        }
+      }
+    },
+    "Didn't hear anything: no sound came from the microphone. Check that no other app or call is using it, then tap Resume.": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se oyó nada: el micrófono no envió ningún sonido. Comprueba que ninguna otra app o llamada lo esté usando y toca Reanudar."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rien entendu : aucun son n’est venu du micro. Vérifiez qu’aucune autre app ni aucun appel ne l’utilise, puis touchez Reprendre."
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "कुछ सुनाई नहीं दिया: माइक्रोफ़ोन से कोई आवाज़ नहीं आई। देखें कि कोई दूसरा ऐप या कॉल उसे इस्तेमाल तो नहीं कर रहा, फिर “फिर शुरू करें” पर टैप करें।"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "何も聞こえませんでした：マイクから音が届いていません。ほかのアプリや通話が使っていないか確認して、「再開」をタップしてください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "아무것도 들리지 않았습니다. 마이크에서 소리가 오지 않았습니다. 다른 앱이나 통화가 사용 중인지 확인한 뒤 다시 시작을 탭하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "什么也没听到：麦克风没有传来声音。请确认没有其他应用或通话在使用它，然后轻点“继续”。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "什麼也沒聽到：麥克風沒有傳來聲音。請確認沒有其他 App 或通話在使用它，然後輕點「繼續」。"
+          }
+        }
+      }
+    },
+    "Didn't hear you: the microphone only picked up very quiet sound. Speak a little closer, then tap Resume.": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se te oyó: el micrófono solo captó un sonido muy bajo. Habla un poco más cerca y toca Reanudar."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vous n’avez pas été entendu : le micro n’a capté qu’un son très faible. Parlez un peu plus près, puis touchez Reprendre."
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "आपकी आवाज़ नहीं सुनी: माइक्रोफ़ोन ने बहुत धीमी आवाज़ ही पकड़ी। थोड़ा पास से बोलें, फिर “फिर शुरू करें” पर टैप करें।"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "声が聞き取れませんでした：マイクがとても小さな音しか拾っていません。もう少し近くで話してから「再開」をタップしてください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "목소리가 들리지 않았습니다. 마이크에 아주 작은 소리만 들어왔습니다. 조금 더 가까이에서 말한 뒤 다시 시작을 탭하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "没听到你说话：麦克风只收到很小的声音。请靠近一点说，然后轻点“继续”。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "沒聽到你說話：麥克風只收到很小的聲音。請靠近一點說，然後輕點「繼續」。"
+          }
+        }
+      }
+    },
+    "Paused from AirPods, headphones or Control Center. Tap or press play to keep talking.": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En pausa desde los AirPods, los auriculares o el Centro de control. Toca o pulsa reproducir para seguir hablando."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mis en pause depuis les AirPods, le casque ou le Centre de contrôle. Touchez ou appuyez sur lecture pour continuer."
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AirPods, हेडफ़ोन या कंट्रोल सेंटर से रोका गया। बात जारी रखने के लिए टैप करें या प्ले दबाएँ।"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AirPods、ヘッドフォン、またはコントロールセンターから一時停止しました。続けるにはタップするか再生を押してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AirPods, 헤드폰 또는 제어 센터에서 일시 정지했습니다. 계속하려면 탭하거나 재생을 누르세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已通过 AirPods、耳机或控制中心暂停。轻点或按播放继续说话。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已透過 AirPods、耳機或控制中心暫停。輕點或按播放繼續說話。"
+          }
+        }
+      }
+    },
+    "The voice connection closed (code %lld).": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La conexión de voz se cerró (código %lld)."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La connexion vocale s’est fermée (code %lld)."
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "वॉइस कनेक्शन बंद हो गया (कोड %lld)।"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "音声接続が切れました（コード %lld）。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "음성 연결이 끊어졌습니다(코드 %lld)."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "语音连接已关闭（代码 %lld）。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "語音連線已關閉（代碼 %lld）。"
+          }
+        }
+      }
+    },
+    "Diagnostics": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diagnóstico"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diagnostic"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "डायग्नोस्टिक्स"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "診断"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "진단"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "诊断"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "診斷"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

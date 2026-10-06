@@ -88,6 +88,8 @@ struct TalkCallSheet: View {
     @State private var pressing = false
     /// All, Atteo only or Off (#1796): read once, saved on change (not @AppStorage, so a launch argument can't pin it).
     @State private var captionMode = TalkSession.CaptionMode.saved
+    /// The ⋯ menu's Diagnostics line under the call, remembered on this device (vedu #5329).
+    @AppStorage("talk-diagnostics") private var showDiagnostics = false
 
     init(board: Board?) { _talk = StateObject(wrappedValue: TalkSession(board: board)) }
 
@@ -108,6 +110,12 @@ struct TalkCallSheet: View {
                 Text(p).font(Typo.meta).foregroundStyle(Theme.warn).multilineTextAlignment(.center)
                     .padding(.horizontal, Space.l).padding(.top, Space.s)
                     .accessibilityIdentifier("talk-problem")
+            }
+            if showDiagnostics {
+                Text(verbatim: talk.diag.text).font(.system(size: 11, design: .monospaced)).foregroundStyle(Theme.muted)
+                    .multilineTextAlignment(.leading).frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, Space.l).padding(.top, Space.s)
+                    .accessibilityIdentifier("talk-diagnostics")
             }
             controls
         }
@@ -136,11 +144,11 @@ struct TalkCallSheet: View {
             Spacer()
             // Its own Equatable view: the sheet redraws a few times a second (the clock), and an open menu redrawn with it
             // never settles.
-            TalkMenu(handsFree: talk.handsFree, captions: captionMode, toggle: { [talk] in talk.setHandsFree(!talk.handsFree) }, setCaptions: { m in
+            TalkMenu(handsFree: talk.handsFree, captions: captionMode, diagnostics: showDiagnostics, toggle: { [talk] in talk.setHandsFree(!talk.handsFree) }, setCaptions: { m in
                 captionMode = m
                 UserDefaults.standard.set(m.rawValue, forKey: TalkSession.CaptionMode.key)
                 Haptics.play(.touch)
-            }).equatable()
+            }, toggleDiagnostics: { showDiagnostics.toggle() }).equatable()
         }
         .padding(.horizontal, Space.l).padding(.top, Space.s)
     }
@@ -521,10 +529,12 @@ struct VoiceTurnsPicker: View {
 struct TalkMenu: View, Equatable {
     let handsFree: Bool
     let captions: TalkSession.CaptionMode
+    let diagnostics: Bool
     let toggle: () -> Void
     let setCaptions: (TalkSession.CaptionMode) -> Void
+    let toggleDiagnostics: () -> Void
 
-    static func == (a: TalkMenu, b: TalkMenu) -> Bool { a.handsFree == b.handsFree && a.captions == b.captions }
+    static func == (a: TalkMenu, b: TalkMenu) -> Bool { a.handsFree == b.handsFree && a.captions == b.captions && a.diagnostics == b.diagnostics }
 
     var body: some View {
         Menu {
@@ -541,6 +551,13 @@ struct TalkMenu: View, Equatable {
                     }
                     .accessibilityIdentifier("talk-captions-\(m.rawValue)")
                 }
+            }
+            // What the mic heard and why the call last stopped, on the sheet (vedu #5329): a screenshot tells us.
+            Section {
+                Button(action: toggleDiagnostics) {
+                    Label("Diagnostics", systemImage: diagnostics ? "checkmark" : "stethoscope")
+                }
+                .accessibilityIdentifier("talk-diagnostics-toggle")
             }
         } label: {
             Image(systemName: "ellipsis.circle").font(.system(size: 19, weight: .semibold)).foregroundStyle(Theme.muted)

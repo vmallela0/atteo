@@ -106,6 +106,12 @@ protocol RealtimeLink: AnyObject {
     var events: AsyncStream<[String: Any]> { get }
     func send(_ event: [String: Any])
     func close()
+    /// Why the socket closed, if the other side closed it: the close code (0: none) and a line for diagnostics.
+    var closed: (code: Int, detail: String)? { get }
+}
+
+extension RealtimeLink {
+    var closed: (code: Int, detail: String)? { nil }
 }
 
 /// xAI's realtime socket. The client secret rides as the subprotocol (what voice.ts hands out) and as a Bearer header
@@ -115,6 +121,7 @@ final class WebSocketLink: RealtimeLink {
     let events: AsyncStream<[String: Any]>
     private let out: AsyncStream<[String: Any]>.Continuation
     private let task: URLSessionWebSocketTask
+    private(set) var closed: (code: Int, detail: String)?
 
     init(url: URL, protocols: [String], secret: String) {
         var r = URLRequest(url: url)
@@ -140,7 +147,11 @@ final class WebSocketLink: RealtimeLink {
                     }
                     if let data, let j = try? JSONSerialization.jsonObject(with: data) as? [String: Any] { self.out.yield(j) }
                     self.receive()
-                case .failure:
+                case .failure(let error):
+                    let code = self.task.closeCode.rawValue
+                    let reason = self.task.closeReason.flatMap { String(data: $0, encoding: .utf8) } ?? ""
+                    let e = error as NSError
+                    self.closed = (code, "socket closed \(code)\(reason.isEmpty ? "" : " \(reason.prefix(80))") · \(e.domain) \(e.code)")
                     self.out.finish()
                 }
             }
@@ -211,7 +222,9 @@ final class TalkSession: ObservableObject {
     @Published var problem: String?
     @Published private(set) var endNote: String?
     @Published private(set) var reading = false // standing by: a new message is being read aloud
-    @Published private(set) var standbyNote: String? // standing by: why it couldn't resume, or read-aloud is used up
+    @Published private(set) var standbyNote: String? // standing by: why (quiet, a pause, the cap), why it couldn't resume, or read-aloud is used up
+    /// What the call saw: the ⋯ menu's diagnostics (TalkDiagnostics.swift).
+    @Published private(set) var diag = TalkDiagnostics()
     /// When Atteo answers (VoiceTurns.swift): what this call runs (the server's say, from the person's choice).
     @Published private(set) var turns: VoiceTurns = .quick
     @Published private(set) var turnHeard = false // pause / tap: you've said something this turn (Done can send it)
@@ -391,6 +404,7 @@ final class TalkSession: ObservableObject {
             guard let self else { return }
             let on = self.handsFree ? !self.micMuted : self.holding
             self.level = on ? l : 0
+            if on { self.diag.level(l); self.diag.startAbove = self.tracker.startAbove }
             // As listen(): without echo cancelling the mic doesn't count while Atteo talks (that would be its own voice).
             if on, self.clientTurns, self.audio.echoCancelling || !self.speaking { self.heard(level: l) }
         }
@@ -400,7 +414,11 @@ final class TalkSession: ObservableObject {
             await audio.start() // retried; if it never starts, audioEvent says why
             guard !ended, self.link === link else { return } // ended while the audio was starting
             if resuming { audio.resumed() }
+            diag.echoCancelling = audio.echoCancelling
+            diag.audio = audio.status
         }
+        diag.newSession()
+        diag.lowPower = ProcessInfo.processInfo.isLowPowerModeEnabled
 
         // The first session's instructions, kept; a resumed one is told what was just said (a few short lines).
         if let i = session["instructions"] as? String {
@@ -420,7 +438,12 @@ final class TalkSession: ObservableObject {
             for await e in link.events { self?.handle(e) }
             // Closed by us (standing by, or the end) isn't news; the service dropping it is.
             guard !Task.isCancelled, let self, self.link === link else { return }
-            self.finish(problem: self.ended ? nil : String(localized: "The voice connection closed.", bundle: .l10n))
+            let closed = link.closed
+            self.diag.lastStop = closed?.detail ?? "socket ended after \(Int(self.elapsed)) s"
+            let why = if let c = closed?.code, c > 0 {
+                String(localized: "The voice connection closed (code \(c)).", bundle: .l10n)
+            } else { String(localized: "The voice connection closed.", bundle: .l10n) }
+            self.finish(problem: self.ended ? nil : why)
         }
     }
 
@@ -441,12 +464,14 @@ final class TalkSession: ObservableObject {
         guard !ended, phase == .ready, let openedAt else { return }
         let now = Date()
         elapsed = now.timeIntervalSince(openedAt)
+        if audio.useMic, diag.audio != audio.status { diag.audio = audio.status } // restarts, rebuilds, running
         let s = now < audioUntil
         if s != speaking { speaking = s }
         // The VAD heard something that never became a turn (a cough, a door): don't sit on "Thinking…".
         if thinking, activeResponse == nil, toolsRunning == 0, let t = stoppedAt, now.timeIntervalSince(t) > 8 { thinking = false; stoppedAt = nil }
         if elapsed >= Double(maxSeconds) {
             // A session's cap: hands-free stands by (play keeps talking, in a new session); hold to talk ends.
+            diag.lastStop = "the session's \(maxSeconds) s cap"
             if handsFree { standBy(note: String(localized: "That session reached its time limit. Tap or press play to keep talking.", bundle: .l10n)) }
             else { finish(problem: String(localized: "That's this session's time. Start another to keep talking.", bundle: .l10n)) }
             return
@@ -457,7 +482,12 @@ final class TalkSession: ObservableObject {
         } else if pauseProgress != nil { pauseProgress = nil }
         let a = activity
         if a.busy { lastActive = now }
-        if TalkStandby.shouldStandBy(now: now, lastActive: lastActive, a) { standBy() }
+        // Until you've said something this session it waits longer (you may only be about to speak), then says why.
+        let idle = diag.heardSpeech ? TalkStandby.idle : TalkStandby.firstWords
+        if TalkStandby.shouldStandBy(now: now, lastActive: lastActive, a, idle: idle) {
+            diag.lastStop = "quiet \(Int(idle)) s, heard you: \(diag.heardSpeech ? "yes" : "no")"
+            standBy(note: diag.quietNote(mic: audio.useMic))
+        }
     }
 
     private var activity: TalkStandby.Activity {
@@ -570,7 +600,10 @@ final class TalkSession: ObservableObject {
         // One AirPods press can arrive twice during a live call (the mute gesture and a play/pause): act on the first.
         guard Date().timeIntervalSince(lastRemote) > 1 else { return }
         switch TalkStandby.action(c, state, handsFree: handsFree, endsTurn: clientTurns && turns == .tap && tracker.heard) {
-        case .standBy: lastRemote = Date(); standBy()
+        case .standBy:
+            lastRemote = Date()
+            diag.lastStop = "pause from AirPods, headphones, Control Center or the mic mute (\(c))"
+            standBy(note: String(localized: "Paused from AirPods, headphones or Control Center. Tap or press play to keep talking.", bundle: .l10n))
         case .resume: lastRemote = Date(); resume()
         case .endTurn: lastRemote = Date(); endTurn()
         case .none: break
@@ -1183,6 +1216,7 @@ final class TalkSession: ObservableObject {
 
     /// This turn's speech began now: how long after Atteo's voice stopped (negative while it's still playing).
     private func youStarted() {
+        diag.heardSpeech = true
         youStartedSeen = true
         youStartedAfter = atteoEnd.map { Date().timeIntervalSince($0) * 1000 }
     }
@@ -1368,6 +1402,7 @@ final class TalkSession: ObservableObject {
         case .resumed:
             if problem == Self.pausedNote { problem = nil }
         case .failed(let why):
+            diag.audio = audio.status
             audioProblem = why
             problem = why
         case .recovered:

@@ -9,6 +9,13 @@ import XCTest
 final class TalkAudioStartTests: XCTestCase {
     private let what = NSError(domain: "com.apple.coreaudio.avfaudio", code: 2003329396)
 
+    /// vedu #5338: a configuration change restarts the same engine; it never builds a new one (whose voice processing
+    /// moves the route and changes the configuration again).
+    func testAConfigurationChangeRestartsTheSameEngine() {
+        XCTAssertEqual(TalkAudioStart.onConfigChange(running: false), .restart)
+        XCTAssertEqual(TalkAudioStart.onConfigChange(running: true), .nothing)
+    }
+
     func testThreeTriesWithAShortWaitBetween() {
         XCTAssertEqual(TalkAudioStart.delay(beforeAttempt: 0), 0)
         XCTAssertEqual(TalkAudioStart.delay(beforeAttempt: 1), 0.3)
