@@ -1,0 +1,78 @@
+// E2E Phase 1a on the web: pictures and files on an encrypted board are encrypted in the browser (a key per file, carried
+// in the message's encrypted extras), the server stores only ciphertext, and the CLI decrypts them (and the other way
+// round). Your own message can be edited for 15 minutes: the browser encrypts the new text and keeps the files.
+import { chromium } from "playwright-core";
+import { spawn } from "node:child_process";
+import { mkdtempSync, writeFileSync, readFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+const BASE=process.env.BASE||"http://localhost:8787", WT=new URL("../../", import.meta.url).pathname, CLI=WT+"cli/dist/agent-soup.mjs";
+const ops = async (p, b) => (await fetch(`${BASE}/api/ops/${p}`, { method: "POST", headers: { "x-admin-key": "ci-admin-key", "content-type": "application/json" }, body: JSON.stringify(b) })).json();
+const run=Date.now().toString(36).slice(-4), A=`anf${run}`, B=`bof${run}`;
+const dir=mkdtempSync(join(tmpdir(),"e2e-files-"));
+const tok={},cred={};
+for (const u of [A,B]) { await ops("users",{name:u,email:`${u}@example.com`,verified:"true"}); tok[u]=(await ops("tokens",{user:u})).token;
+  cred[u]=join(dir,`${u}.json`); writeFileSync(cred[u],JSON.stringify({server:BASE,user:u,token:tok[u],expires_at:Date.now()+86400e3}),{mode:0o600}); }
+const cli=(u,args)=>new Promise(res=>{const p=spawn("node",[CLI,...args],{cwd:dir,env:{...process.env,AGENT_BOARD_CREDENTIALS_FILE:cred[u],AGENT_BOARD_SERVER:BASE,XDG_CONFIG_HOME:join(dir,`cfg-${u}`)}});
+  let out="",err="";p.stdout.on("data",d=>out+=d);p.stderr.on("data",d=>err+=d);p.stdin.end();p.on("close",code=>res({code,out,err}))});
+const board=(await ops("boards",{user:A,title:`Sealed files ${run}`,encrypted:true})).board.id;
+await ops("members",{board,user:B});
+let fails=0;const check=(ok,m)=>{console.log(`${ok?"✓":"✗"} ${m}`);if(!ok)fails++};
+const until=async(get,ok,ms=10000)=>{const t=Date.now();let v;for(;;){v=await get();if(ok(v)||Date.now()-t>ms)return v;await new Promise(r=>setTimeout(r,60))}};
+const sealed=async()=>(await fetch(`${BASE}/api/boards/${board}/sealed?after=0`,{headers:{authorization:`Bearer ${tok[A]}`}}).then(r=>r.json())).entries;
+const blob=async id=>Buffer.from(await (await fetch(`${BASE}/api/boards/${board}/sealed-files/${id}`,{headers:{authorization:`Bearer ${tok[B]}`}})).arrayBuffer());
+const b=await chromium.launch({executablePath: process.env.PW_CHROME || undefined});
+const ck=(await ops("sessions",{user:A})).cookie;const ctx=await b.newContext({viewport:{width:1280,height:900},acceptDownloads:true});
+{ const [k,...v]=ck.split(";")[0].split("=");await ctx.addCookies([{name:k,value:v.join("="),url:BASE}]); }
+const errors=[];const pa=await ctx.newPage();pa.on("pageerror",e=>errors.push(e.message));
+await cli(B,["keys"]);await cli(B,["use",board]);
+await pa.goto(`${BASE}/b/${board}`);await pa.waitForFunction(()=>!document.querySelector("form.composer").hidden,null,{timeout:10000}).catch(()=>{});
+check(await pa.locator("#attach-btn").count()===1,"the attach button is there on an encrypted board");
+// A picture (a real PNG: the composer reads its size) and a text file, posted with a line of text.
+const png=Buffer.from(await pa.evaluate(()=>{const c=document.createElement("canvas");c.width=c.height=2;const g=c.getContext("2d");g.fillStyle="#c33";g.fillRect(0,0,2,2);return c.toDataURL("image/png").split(",")[1]}),"base64");
+const notes=`secret notes ${run}\n`.repeat(5000); // ~90 KB: two chunks
+await pa.locator("#attach-input").setInputFiles([{name:"dot.png",mimeType:"image/png",buffer:png},{name:"notes.txt",mimeType:"text/plain",buffer:Buffer.from(notes)}]);
+await until(()=>pa.locator("#attachments .att").count(),n=>n===2);
+await pa.locator("#composer-text").fill(`files from the web ${run}`);await pa.locator("form.composer button.primary").click();
+await pa.locator("#thread .entry .e2e-text",{hasText:`files from the web ${run}`}).waitFor({timeout:10000}).catch(()=>{});
+const last=(await sealed()).at(-1),env=JSON.parse(last.payload);
+check(env.v===2&&env.x&&typeof env.x.ct==="string"&&last.files?.length===2,`stored as one envelope with encrypted extras and 2 files (${last.files?.length})`);
+const raw=(await Promise.all(last.files.map(blob))).sort((x,y)=>y.length-x.length)[0];
+check(!raw.includes(Buffer.from("secret notes"))&&raw.length===notes.length+2*16,`the server has only ciphertext (${raw.length} bytes for ${notes.length}: two chunks, a tag each)`);
+check(await pa.locator("#attachments .att").count()===0,"…and the composer's attachments are cleared");
+const img=pa.locator(`#e${last.seq} .mg-tile img`);
+const w=await until(()=>img.evaluate(i=>i.complete?i.naturalWidth:0).catch(()=>0),n=>n>0);
+check(w===2&&/^blob:/.test(await img.getAttribute("src")),`the picture shows, decrypted in the page (naturalWidth ${w})`);
+await pa.locator(`#e${last.seq} .mg-tile`).click();
+check(await until(()=>pa.locator("#lightbox[open]").count(),n=>n===1)===1&&/^blob:/.test(await pa.locator("#lightbox-img").getAttribute("src")),"…and opens in the lightbox");
+await pa.keyboard.press("Escape");
+const [dl]=await Promise.all([pa.waitForEvent("download"),pa.locator(`#e${last.seq} [data-sf-dl]`).click()]);
+const got=[];for await (const c of await dl.createReadStream())got.push(c);
+check(dl.suggestedFilename()==="notes.txt"&&Buffer.concat(got).toString()===notes,`Download decrypts the file in the browser (${dl.suggestedFilename()})`);
+// The CLI reads what the web wrote, files and all.
+let r=await until(()=>cli(B,["read","--all"]),x=>x.out.includes("notes.txt"));
+check(r.out.includes(`files from the web ${run}`)&&r.out.includes("📎 dot.png")&&r.out.includes("📎 notes.txt"),"the CLI lists the web's files");
+r=await cli(B,["download",String(last.seq)]);
+check(r.code===0&&readFileSync(join(dir,"notes.txt"),"utf8")===notes&&readFileSync(join(dir,"dot.png")).equals(png),`…and atteo download decrypts them byte for byte (${r.code})`);
+// And the other way: a file the CLI shares shows up as a chip the browser decrypts.
+writeFileSync(join(dir,"plan.md"),`# plan ${run}\n`);
+r=await cli(B,["share",join(dir,"plan.md"),"--note",`the plan ${run}`]);
+const chip=pa.locator("#thread .entry [data-sf-dl]").last();
+await until(()=>pa.locator("#thread .entry .e2e-text",{hasText:`the plan ${run}`}).count(),n=>n===1);
+const [dl2]=await Promise.all([pa.waitForEvent("download"),chip.click()]);
+const got2=[];for await (const c of await dl2.createReadStream())got2.push(c);
+check(r.code===0&&Buffer.concat(got2).toString()===`# plan ${run}\n`,"a file the CLI shared opens in the browser");
+// Edit: own message, new text encrypted again, the files kept.
+await pa.locator(`#e${last.seq} [data-edit]`).click();
+await pa.locator(`#e${last.seq} [data-edit-box]`).fill(`files from the web, edited ${run}`);
+await Promise.all([pa.waitForNavigation(),pa.locator(`#e${last.seq} [data-edit-box] ~ button`).first().click()]);
+await pa.locator("#thread .entry .e2e-text",{hasText:`edited ${run}`}).waitFor({timeout:10000}).catch(()=>{});
+check(await pa.locator(`#e${last.seq} .e2e-text`,{hasText:`edited ${run}`}).count()===1&&await pa.locator(`#e${last.seq} [data-sf-dl]`).count()===1,"Edit re-encrypts the message in the browser and keeps its files");
+const after=(await sealed()).find(e=>e.seq===last.seq);
+check(after.edited_at>0&&!after.payload.includes("edited")&&after.files.length===2,"…the server has the new envelope only (edited_at set, still 2 files)");
+r=await until(()=>cli(B,["read","--all"]),x=>x.out.includes(`edited ${run}`));
+check(r.out.includes(`files from the web, edited ${run}`)&&r.out.includes("edited"),"the CLI reads the edit");
+check(await pa.locator(`#e${(await sealed()).at(-1).seq} [data-edit]`).count()===0,"…and there's no Edit on someone else's message");
+check(errors.length===0,`no page errors ${errors.join(" | ")}`);
+await b.close();console.log(fails?`${fails} FAILED`:"all encrypted file and edit checks passed");
+if (fails) process.exitCode = 1;
