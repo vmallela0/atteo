@@ -128,7 +128,7 @@ export const CSS = `
    rules (Chrome ignores them once scrollbar-width is set, so that's Firefox-only); darker while the pane is hovered. */
 :root{--sb:color-mix(in srgb,var(--muted) 35%,transparent);--sb-hover:color-mix(in srgb,var(--muted) 70%,transparent)}
 /* How far a message highlight reaches past the entry: left, past the avatar; right, only up to the scroll rail (jxn #2003). */
-:root{--hl-l:12px;--hl-r:4px}@media(max-width:640px){:root{--hl-l:8px}#thread>.entry>span.gut{display:none}}
+:root{--hl-l:12px;--hl-r:4px}@media(max-width:640px){:root{--hl-l:8px}}
 ::-webkit-scrollbar{width:6px;height:6px}
 ::-webkit-scrollbar-track,::-webkit-scrollbar-corner{background:transparent}
 ::-webkit-scrollbar-thumb{background:var(--sb);border-radius:6px}
@@ -363,7 +363,7 @@ dialog[open]{animation:pop .16s ease-out}dialog:focus{outline:none}@media (prefe
 .replying .rp-text{color:var(--faint)}.replying .rp-text:empty{display:none}.replying .rp-text::before{content:": "}
 .replying .x{flex:none;height:22px;width:22px;padding:0;justify-content:center}
 @keyframes flashin{from{background:color-mix(in srgb,var(--accent) 9%,transparent)}to{background:transparent}}
-.entry:target{background:color-mix(in srgb,var(--accent) 6%,transparent)}
+.entry:target{background:color-mix(in srgb,var(--accent) 6%,transparent);border-radius:8px}
 .replies{margin:10px 0 0;padding-inline-start:14px;border-inline-start:2px solid var(--line)}
 .replies:empty{display:none}
 .replies .entry{border-top:0;padding:10px 0 0}
@@ -523,7 +523,7 @@ a.ev-acct:hover{background:var(--bg-subtle)}
 /* threads: replies fold into "N replies" under their message; the thread opens in a side panel (an overlay on phones) */
 #thread>.entry>.grow>.replies{display:none}#thread>.entry.thr-open>.grow>.replies{display:block}
 /* Replies post in the conversation (jxn #1040): a bar quoting what they answer; the thread opens as an overlay */
-.rq{display:flex;flex-direction:column;align-items:flex-start;gap:1px;max-width:100%;margin:4px 0 2px;padding:4px 10px;border:0;border-inline-start:1px solid var(--line-strong);background:none;color:var(--muted);font:inherit;font-size:12.5px;text-align:left;cursor:pointer}
+.rq{display:flex;flex-direction:column;align-items:flex-start;gap:1px;max-width:100%;margin:4px 0 2px;padding:4px 10px;border:0;border-inline-start:3px solid var(--line-strong);border-radius:0 8px 8px 0;background:var(--bg-subtle);color:var(--muted);font:inherit;font-size:12.5px;text-align:left;cursor:pointer}
 .rq:hover{background:var(--bg-hover);border-inline-start-color:var(--muted)}.rq-who{font-weight:600;color:var(--text)}.rq-t{display:block;max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .thr-dlg{width:min(620px,calc(100vw - 24px));height:min(760px,calc(100vh - 48px));padding:0;display:none}.thr-dlg[open]{display:flex;flex-direction:column}
 .thr-hd{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:12px 16px;border-bottom:1px solid var(--line)}.thr-hd b{color:var(--ink)}.thr-hd .grow{flex:1}
@@ -762,7 +762,7 @@ input.switch::after{content:"";position:absolute;top:3px;left:3px;width:18px;hei
    and on the right only as far as the rail, never under it (jxn #2003). The thread's scroller makes room for the left bleed so it isn't clipped. */
 /* The linked message (:target, which stays after a reload) and the keyboard's j/k pick (.sel) bleed the same way, so no tinted card
    sits 12px in from the rest (jxn #4680). */
-#thread>.entry:is(.for-you,.flash-in,.hit,.sel,:target),.thr-list>.entry:is(.for-you,.hit,:target){margin-left:calc(-1*var(--hl-l));margin-right:calc(-1*var(--hl-r));padding-left:var(--hl-l);padding-right:var(--hl-r)}
+#thread>.entry:is(.for-you,.flash-in,.hit,.sel,:target),.thr-list>.entry:is(.for-you,.hit,:target){margin-left:calc(-1*var(--hl-l));margin-right:calc(-1*var(--hl-r));padding-left:var(--hl-l);padding-right:var(--hl-r);border-radius:8px}
 /* …and a seen-by ring on such a message stays where it was, clear of the rail (jxn #1751). */
 #thread>.entry:is(.for-you,.flash-in,.hit,.sel,:target)>.rd,.thr-list>.entry:is(.for-you,.hit,:target)>.rd{right:var(--hl-r)}
 @media (pointer:coarse){#thread>.entry:is(.for-you,.flash-in,.hit,.sel,:target)>.rd,.thr-list>.entry:is(.for-you,.hit,:target)>.rd{right:calc(var(--hl-r) - 2px)}}
@@ -845,7 +845,7 @@ ${AGENT_LOGO_CSS}
 /* Takes real space (border, not an outline ring), so it never overlaps the text or the mention next to it. */
 .mention.me{color:var(--mention-fg);background:var(--mention-you-bg);border:1px solid var(--mention-you-line);padding:0 3px;margin:0 1px}
 /* The highlight extends beyond the entry on both sides (content stays put), so it never starts at the avatar. */
-.entry.for-you{margin-left:calc(-1*var(--hl-l));margin-right:calc(-1*var(--hl-r));padding-left:var(--hl-l);padding-right:var(--hl-r);background:var(--you-soft);animation:foryou 1.6s ease-out 1}
+.entry.for-you{margin-left:calc(-1*var(--hl-l));margin-right:calc(-1*var(--hl-r));padding-left:var(--hl-l);padding-right:var(--hl-r);background:var(--you-soft);border-radius:8px;animation:foryou 1.6s ease-out 1}
 .entry.for-you .rd{right:var(--hl-r)}
 @keyframes foryou{from{background:var(--you-flash)}}
 .hc-gap{height:12px}
@@ -1295,9 +1295,6 @@ a.ref:hover{color:var(--ink);background:color-mix(in srgb,var(--accent) 12%,var(
 :root[data-compact="others"] #thread>.entry.ol:is(.ol-open,[data-ol-all] .ol)>.grow>.meta>.agent-info{display:inline}
 :root[data-compact="others"] #thread>.entry.ol:is(.ol-open,[data-ol-all] .ol)>.grow>.meta>.who{order:-2}:root[data-compact="others"] #thread>.entry.ol:is(.ol-open,[data-ol-all] .ol)>.grow>.meta>.when{order:-1} /* name, time, then the details: the time stays clear of the first row's action bar */
 :root[data-compact="others"] #thread>.entry.ol:is(.ol-open,[data-ol-all] .ol)>.grow>.meta>:is(.seq,.t-change){display:inline-flex!important}
-.gut{display:none}#thread>.entry>.gut{display:grid;align-content:start;align-self:stretch;contain:size;overflow:hidden;flex:0 0 44px;margin-right:12px;font:11px/22px var(--font-mono);color:var(--faint)}
-:root[data-mode="everyday"] .gut-n,#thread .meta>.seq,#thread>*>.agent>img{display:none}
-#thread>.entry>.av.agent{background:radial-gradient(var(--text) 4.5px,#0000 5px);color:#0000}
 :root:not([data-compact="others"]) .ol-all{display:none}
 .mu-line{display:none}
 .entry.mu:not(.mu-open)>:not(.mu-line){display:none!important} /* a muted member's post: one line until opened (#3602) */
