@@ -236,7 +236,9 @@ export async function sendApproved(env: Env, user: string, issuer: string, appro
   try {
     reply = await sendMessage(o.interface, () => signPaJwt(env, { iss: issuer, sub, aud: p.audience }), o.text, prev?.context_id ?? null, `atteo-${a.id}`);
   } catch (e) {
-    await env.DB.prepare(`UPDATE pact_sends SET status = 0 WHERE approval_id = ?`).bind(a.id).run();
+    // Not delivered (or we can't tell): free the approval to try again. The messageId is the same, so a retry of one
+    // that did arrive is safe (PACT §4.3: the provider returns the stored reply).
+    await env.DB.prepare(`DELETE FROM pact_sends WHERE approval_id = ?`).bind(a.id).run();
     throw e;
   }
   await env.DB.prepare(`UPDATE pact_sends SET status = 1 WHERE approval_id = ?`).bind(a.id).run();

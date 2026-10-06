@@ -154,6 +154,20 @@ describe("PACT sending", () => {
     await expect(pact.sendApproved(env, "bob", "https://atteo.dev", mine.id)).rejects.toThrow(/No such/);
   });
 
+  it("a send that failed can be retried with the same approval and the same messageId", async () => {
+    const { env } = await fakeEnv();
+    const f = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(json(card()));
+    const a = await ask(env);
+    await approvals.decide(env, "ada", a.id, true, "");
+    f.mockResolvedValueOnce(new Response(null, { status: 429, headers: { "retry-after": "3" } }));
+    await expect(pact.sendApproved(env, "ada", "https://atteo.dev", a.id)).rejects.toThrow(/3s/);
+    f.mockResolvedValueOnce(json({ message: { role: "ROLE_AGENT", contextId: "ctx-9", parts: [{ text: "ok" }] } }));
+    expect((await pact.sendApproved(env, "ada", "https://atteo.dev", a.id)).reply.text).toBe("ok");
+    const id = (n: number) => JSON.parse(String((f.mock.calls[n] as [string, RequestInit])[1].body)).message.messageId;
+    expect(id(2)).toBe(id(1));
+    await expect(pact.sendApproved(env, "ada", "https://atteo.dev", a.id)).rejects.toThrow(/sends once/);
+  });
+
   it("won't prepare for an unregistered provider or a secret", async () => {
     const { env, db } = await fakeEnv();
     const f = vi.spyOn(globalThis, "fetch").mockImplementation(async () => json(card()));

@@ -33,5 +33,5 @@ CREATE TABLE IF NOT EXISTS pact_sends (
   user TEXT NOT NULL,
   interface_url TEXT NOT NULL,
   sent_at INTEGER NOT NULL,
-  status INTEGER
+  status INTEGER             -- 1 once the reply came back; a failed send deletes the row so the approval can retry
 );
