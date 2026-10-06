@@ -37,6 +37,10 @@
       "migrations_dir": "migrations"
     }
   ],
+  // Nightly encrypted backups (src/backup.ts, docs/BACKUPS.md; vedu #5342: on Cloudflare, R2 in this account). The bucket
+  // expires objects after 30 days. Local wrangler dev gets a local bucket under --persist-to, never this one. Backups stay
+  // off until the BACKUP_PUBLIC_KEY secret is set (a secret, not a var, so local and test servers don't back up).
+  "r2_buckets": [{ "binding": "BACKUP_R2", "bucket_name": "atteo-backups" }],
   "vars": {
     "WORKOS_CLIENT_ID": "client_01M3XKJWX8TW7YAMPZVJZFJYHT",
     // Not a secret: with the CF_ANALYTICS_TOKEN secret it turns on the cost guard (costGuard.ts, docs/COSTS.md) and the

@@ -1,10 +1,13 @@
-// The backup drill as a test (#1550, docs/BACKUPS.md): a local Worker with backups pointed at a fake S3 in this
-// process, then the whole night — write, list, decrypt, and both halves of the restore (D1 through scripts/backup.mjs
-// d1-sql + sqlite3, the board through /api/ops/restore-board), asserting the data comes back.
-//   BASE=http://localhost:8614 BK_S3_PORT=8615 BK_KEY_FILE=backup-key.json ADMIN_KEY=… node test/backup.mjs
-// (verify.sh runs it as the "backup" suite: server on :PORT+4 with --var BACKUP_* at the fake S3 on :PORT+5.)
+// The backup drill as a test (#1550, docs/BACKUPS.md): a local Worker with backups on, then the whole night — write,
+// list, decrypt, and both halves of the restore (D1 through scripts/backup.mjs d1-sql + sqlite3, the board through
+// /api/ops/restore-board), asserting the data comes back. Two modes, one Worker each:
+//   BK_MODE=s3 (default): backups go to a fake S3 in this process (an S3-compatible bucket outside Cloudflare).
+//     BASE=http://localhost:8614 BK_S3_PORT=8615 BK_KEY_FILE=backup-key.json ADMIN_KEY=… node test/backup.mjs
+//   BK_MODE=r2: backups go to the Worker's BACKUP_R2 binding, a local bucket under its --persist-to dir (BK_R2_LOCAL),
+//     read back the way the operator reads production's (scripts/backup.mjs --r2 … --r2-local …; vedu #5342).
+// (verify.sh runs both as the "backup" suite: the S3 Worker on :PORT+4 with the fake S3 on :PORT+5, the R2 one on :PORT+6.)
 
-import { execFile, spawnSync } from "node:child_process";
+import { execFile, execFileSync, spawnSync } from "node:child_process";
 import { promisify } from "node:util";
 import { webcrypto as crypto } from "node:crypto";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -16,10 +19,17 @@ const BASE = (process.env.BASE ?? "http://localhost:8787").replace(/\/$/, "");
 const ADMIN_KEY = process.env.ADMIN_KEY ?? readFileSync(new URL("../.dev.vars", import.meta.url), "utf8").match(/^ADMIN_KEY=(.*)$/m)?.[1];
 const S3PORT = Number(process.env.BK_S3_PORT ?? 8615);
 const KEY_FILE = process.env.BK_KEY_FILE ?? "backup-key.json";
+const MODE = process.env.BK_MODE === "r2" ? "r2" : "s3";
+const R2_BUCKET = "atteo-backups";
+const R2_LOCAL = process.env.BK_R2_LOCAL; // the R2 Worker's --persist-to dir
+if (MODE === "r2" && !R2_LOCAL) throw new Error("BK_MODE=r2 needs BK_R2_LOCAL (the Worker's --persist-to dir)");
 const FILES = ["a.png", "b.png", "c.png"];
 // A valid 10×10 PNG with the file's name appended after IEND, so each file's bytes differ.
 const png = (name) => Buffer.concat([Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAoAAAAKCAYAAACNMs+9AAAAFUlEQVR42mP8z8BQz0AEYBxVSF+FABJADveWkH6oAAAAAElFTkSuQmCC", "base64"), Buffer.from(name)]);
 const s3env = () => ({ ...process.env, BACKUP_S3_ENDPOINT: `http://127.0.0.1:${S3PORT}`, BACKUP_S3_BUCKET: "atteo-test", BACKUP_S3_KEY_ID: "test", BACKUP_S3_SECRET: "test", BACKUP_S3_PREFIX: "" });
+// How scripts/backup.mjs finds this mode's bucket: the fake S3's settings, or the local R2 (and no S3 settings at all).
+const scriptEnv = () => (MODE === "r2" ? { ...process.env, BACKUP_S3_PREFIX: "" } : s3env());
+const scriptArgs = () => (MODE === "r2" ? ["--r2", R2_BUCKET, "--r2-local", R2_LOCAL] : []);
 
 let passed = 0;
 let failed = 0;
@@ -64,7 +74,22 @@ const fake = (await import("node:http")).createServer((req, res) => {
     }
   } else res.writeHead(405).end();
 });
-await new Promise((r) => fake.listen(S3PORT, "127.0.0.1", r));
+if (MODE === "s3") await new Promise((r) => fake.listen(S3PORT, "127.0.0.1", r));
+
+/** One object's bytes, or undefined: the fake S3's map, or the local R2 bucket through wrangler. */
+const getObj = (key) => {
+  if (MODE === "s3") return objects.get(key);
+  try {
+    const dir = mkdtempSync(join(tmpdir(), "atteo-bk-r2-"));
+    const file = join(dir, "obj");
+    execFileSync("npx", ["wrangler", "r2", "object", "get", `${R2_BUCKET}/${key}`, "--file", file, "--local", "--persist-to", R2_LOCAL], { stdio: "ignore", env: { ...process.env, CI: "1" } });
+    const b = readFileSync(file);
+    rmSync(dir, { recursive: true, force: true });
+    return b;
+  } catch {
+    return undefined;
+  }
+};
 
 const ops = async (path, body) => {
   const r = await fetch(`${BASE}/api/ops/${path}`, {
@@ -79,33 +104,39 @@ const day0 = new Date();
 const day = new Date(day0.getTime() + 4 * 3600_000).toISOString().slice(0, 10); // 04:00 UTC today
 const at = (h, m = 0) => new Date(`${day}T${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:00Z`).getTime();
 const priv = await crypto.subtle.importKey("pkcs8", Buffer.from(JSON.parse(readFileSync(KEY_FILE, "utf8")).private_key_b64, "base64"), { name: "X25519" }, false, ["deriveBits"]);
-const unseal = async (key) => JSON.parse(Buffer.from(await bc.gunzip(await bc.open(priv, objects.get(key)))).toString());
+const unseal = async (key) => {
+  const b = getObj(key);
+  assert(b, `no object ${key}`);
+  return JSON.parse(Buffer.from(await bc.gunzip(await bc.open(priv, b))).toString());
+};
 
 const steps = [
   ["a night before BACKUP_HOUR writes nothing", async () => {
     const r = await ops("backup", { now: at(1) });
     assert(r.status === 200 && r.body.configured === true && r.body.waiting === true, JSON.stringify(r.body));
-    assert(objects.size === 0, "nothing uploaded before the hour");
+    assert(MODE === "s3" ? objects.size === 0 : !getObj(`${day}/d1.json.gz.enc`), "nothing uploaded before the hour");
   }],
   ["the night: d1, the boards, then the manifest", async () => {
     const r = await ops("backup", { now: at(4) });
     const b = r.body;
     assert(r.status === 200 && b.d1 === true && b.boards >= 1 && b.manifest === true, JSON.stringify(b));
-    assert([...objects.keys()].every((k) => k.startsWith(`${day}/`)), "objects under the day");
+    if (MODE === "s3") assert([...objects.keys()].every((k) => k.startsWith(`${day}/`)), "objects under the day");
     for (const part of ["d1", "manifest"]) {
-      assert(objects.has(`${day}/${part}.json.gz.enc`), `${part} uploaded`);
-      assert(objects.get(`${day}/${part}.json.gz.enc`).toString("utf8").startsWith("atteo-backup-v1\n"), `${part} sealed`);
+      const b = getObj(`${day}/${part}.json.gz.enc`);
+      assert(b, `${part} uploaded`);
+      assert(b.toString("utf8").startsWith("atteo-backup-v1\n"), `${part} sealed`);
     }
   }],
   ["a second run the same night adds nothing (finished: one read)", async () => {
     const before = objects.size;
     const r = await ops("backup", { now: at(4, 5) });
     assert(r.body.finished === true && r.body.d1 === undefined, JSON.stringify(r.body));
-    assert(objects.size === before, "no new objects");
+    if (MODE === "s3") assert(objects.size === before, "no new objects");
   }],
   ["GET /api/ops/backups: the night complete, key id, no failures", async () => {
     const r = await ops("backups");
     assert(r.body.configured === true && r.body.last_complete === day, JSON.stringify(r.body).slice(0, 300));
+    assert(r.body.target === MODE, `writing to ${MODE}: ${r.body.target}`);
     assert(r.body.failures.length === 0, "no failed parts");
     assert(/^[0-9a-f]{16}$/.test(r.body.key_id), "short key id");
   }],
@@ -143,9 +174,8 @@ const steps = [
   ["d1-sql (scripts/backup.mjs) turns the night into SQL sqlite3 accepts", async () => {
     const dir = mkdtempSync(join(tmpdir(), "atteo-bk-"));
     const sqlFile = join(dir, "d1.sql");
-    const env = s3env();
     // Async: the fake S3 the script calls is served by this process's event loop.
-    await promisify(execFile)(process.execPath, ["scripts/backup.mjs", "d1-sql", day, "--key", KEY_FILE, "--out", sqlFile], { env }).catch((e) => {
+    await promisify(execFile)(process.execPath, ["scripts/backup.mjs", "d1-sql", day, "--key", KEY_FILE, "--out", sqlFile, ...scriptArgs()], { env: scriptEnv() }).catch((e) => {
       throw new Error(`d1-sql failed: ${e.stderr || e.message}`);
     });
     const db = join(dir, "d1.sqlite");
@@ -157,7 +187,7 @@ const steps = [
   }],
   ["restore-board (scripts/backup.mjs): the board back as of the night, files included (a later entry gone)", async () => {
     await ops("seed", { user: "bk-user", board: globalThis.__boardId, count: 3, prefix: "bk-after" }); // 3 more entries, after the backup
-    const { stdout } = await promisify(execFile)(process.execPath, ["scripts/backup.mjs", "restore-board", day, globalThis.__boardId, "--key", KEY_FILE, "--base", BASE, "--admin-key", ADMIN_KEY], { env: s3env() }).catch((e) => {
+    const { stdout } = await promisify(execFile)(process.execPath, ["scripts/backup.mjs", "restore-board", day, globalThis.__boardId, "--key", KEY_FILE, "--base", BASE, "--admin-key", ADMIN_KEY, ...scriptArgs()], { env: scriptEnv() }).catch((e) => {
       throw new Error(`restore-board failed: ${e.stderr || e.message}`);
     });
     assert(/restored from .*"skipped":\[\].*, 3 files from 3 file parts/.test(stdout), `the script's report: ${stdout}`);
@@ -174,6 +204,7 @@ const steps = [
     assert(r.status === 200 && r.body.alert === undefined, `a complete night isn't reported: ${JSON.stringify(r.body)}`);
   }],
   ["a bucket that's down: each part tried 3 times, then the night is reported once", async () => {
+    if (MODE === "r2") return; // the same retry code as S3; a local R2 can't be made to refuse writes
     refusePuts = true;
     const next = (h) => at(h) + 86_400_000;
     const runs = [];
@@ -229,7 +260,7 @@ try {
     }
   }
 } finally {
-  fake.close();
+  if (MODE === "s3") fake.close();
 }
-console.log(`\n${passed} passed, ${failed} failed`);
+console.log(`\n${MODE}: ${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

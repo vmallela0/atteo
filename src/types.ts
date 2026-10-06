@@ -212,10 +212,12 @@ export interface Env {
   COST_HARD_ROWS_WRITTEN?: string; // var: … for the cap (default 25,000,000)
   COST_SOFT_DO_REQUESTS?: string; // var: Durable Object requests today for an alert (default 2,000,000)
   COST_HARD_DO_REQUESTS?: string; // var: … for the cap (default 10,000,000)
-  // Nightly backups outside Cloudflare (src/backup.ts, docs/BACKUPS.md): off until the public key and all BACKUP_S3_* but the optional ones are set.
+  // Nightly encrypted backups (src/backup.ts, docs/BACKUPS.md): to R2 through BACKUP_R2, or to an S3-compatible bucket when
+  // every BACKUP_S3_* below but the optional ones is set (that wins). Off until BACKUP_PUBLIC_KEY is set as well.
+  BACKUP_R2?: R2Bucket; // binding: the atteo-backups bucket (local wrangler dev gets a local one)
   A2A_SIGNING_KEY?: string; // secret: the Agent Card's ES256 private key (JWK, from scripts/a2a-key.mjs); unset: the card is served unsigned. Never kept in D1
-  BACKUP_PUBLIC_KEY?: string; // var: X25519 public key (base64, from scripts/backup.mjs keygen); the private key stays offline
-  BACKUP_S3_ENDPOINT?: string; // var: S3-compatible endpoint outside Cloudflare, e.g. https://s3.us-west-004.backblazeb2.com
+  BACKUP_PUBLIC_KEY?: string; // secret in production (so local servers stay off): X25519 public key from scripts/backup.mjs keygen; the private key stays offline
+  BACKUP_S3_ENDPOINT?: string; // var: S3-compatible endpoint, e.g. https://s3.us-west-004.backblazeb2.com
   BACKUP_S3_BUCKET?: string; // var
   BACKUP_S3_REGION?: string; // var (default us-east-1)
   BACKUP_S3_PREFIX?: string; // var (default "atteo/")

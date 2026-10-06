@@ -678,7 +678,7 @@ async function runScheduled(env: Env, ctx: ExecutionContext, now = Date.now()): 
       })
       .catch((e) => console.error("north star failed", e)),
   );
-  // Tonight's backup outside Cloudflare (src/backup.ts): a batch of parts per run; it waits only at the worst shed level.
+  // Tonight's encrypted backup (src/backup.ts, R2 or an S3 bucket): a batch of parts per run; it waits only at the worst shed level.
   const nightly =
     shed.level < 2
       ? await backup.backupTick(env, now, (id, day) => boardStub(env, id).backup(day)).catch((e) => (console.error("backup run failed", e), undefined))
