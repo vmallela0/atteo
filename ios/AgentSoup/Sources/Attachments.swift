@@ -558,8 +558,16 @@ struct ZoomableImage: UIViewRepresentable {
     var dragged: (CGFloat) -> Void = { _ in }
     var released: (CGFloat) -> Void = { _ in }
 
+    /// Fits the picture whenever the scroll view gets (or changes) its size, so it never opens at its pixel size,
+    /// zoomed in, when SwiftUI's first update came before the sheet had a size (vedu #4851).
+    final class FitScrollView: UIScrollView {
+        var onLayout: ((UIScrollView) -> Void)?
+        override func layoutSubviews() { super.layoutSubviews(); onLayout?(self) }
+    }
+
     func makeUIView(context: Context) -> UIScrollView {
-        let s = UIScrollView()
+        let s = FitScrollView()
+        s.onLayout = { [weak coordinator = context.coordinator] s in coordinator?.layout(s) }
         s.delegate = context.coordinator
         s.maximumZoomScale = 5
         s.showsVerticalScrollIndicator = false
@@ -567,6 +575,7 @@ struct ZoomableImage: UIViewRepresentable {
         s.contentInsetAdjustmentBehavior = .never
         s.backgroundColor = .clear
         let v = UIImageView(image: image)
+        v.frame = .zero // sized by layout once the view has bounds, never at the image's pixel size
         v.contentMode = .scaleAspectFit
         v.isUserInteractionEnabled = true
         s.addSubview(v)
