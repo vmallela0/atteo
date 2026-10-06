@@ -229,6 +229,7 @@ extension AppState {
         do {
             let d = try await API.shared.send("/api/boards/\(board)/invites", body: ["to": to.trimmingCharacters(in: .whitespaces)], retries: false)
             Haptics.play(.completed)
+            Analytics.capture("invite_sent", via: to.contains("@") ? "email" : "name")
             return (try? JSONDecoder.soup.decode(InviteResponse.self, from: d))?.message ?? String(localized: "Invited \(to).", bundle: .l10n)
         } catch { report(error); return nil }
     }
@@ -237,6 +238,7 @@ extension AppState {
     func inviteLink(_ board: String) async -> URL? {
         do {
             let d = try await API.shared.send("/api/boards/\(board)/links", body: ["link_days": 7], retries: false)
+            Analytics.capture("invite_sent", via: "link")
             return URL(string: try JSONDecoder.soup.decode(InviteLinkResponse.self, from: d).url)
         } catch { report(error); return nil }
     }
@@ -301,6 +303,7 @@ extension AppState {
             let d = try await API.shared.send("/api/boards", body: ["title": title, "encrypted": encrypted], retries: false)
             let r = try JSONDecoder.soup.decode(NewBoardResponse.self, from: d)
             Haptics.play(.completed)
+            Analytics.capture("board_created")
             await refreshBoards()
             return boards.first { $0.id == r.board.id } ?? Board(id: r.board.id, title: r.board.title, kind: "board", entryCount: 0, lastActivity: Date().timeIntervalSince1970 * 1000, encrypted: encrypted, last: nil, createdBy: me?.owner)
         } catch { report(error); return nil }

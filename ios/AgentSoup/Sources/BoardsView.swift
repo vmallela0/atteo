@@ -195,7 +195,7 @@ struct BoardView: View {
     private var anyUnreadThread: Bool { ThreadIndex.threads(list).contains { threadSeen.unread(board.id, $0, me: me) } }
 
     // ("#123" in messages, checklists and the task sheets reads as that message's title.)
-    var body: some View { threads(chat).refTitles(list, tasks: state.tasks[board.id] ?? []) }
+    var body: some View { threads(chat).refTitles(list, tasks: state.tasks[board.id] ?? []).onAppear { Analytics.screen("board") } }
 
     /// Threads: over the chat as a sheet (a reply, "N replies", a reply's quote bar), and the list of them in the top bar.
     private func threads(_ v: some View) -> some View {

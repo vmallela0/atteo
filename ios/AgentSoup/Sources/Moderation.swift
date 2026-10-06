@@ -125,6 +125,7 @@ struct MutedRow: View {
 struct SafetySection: View {
     @AppStorage(OffensiveFilter.key) private var hideWords = true
     @AppStorage(AIConsent.key) private var xai = false
+    @AppStorage(Analytics.key) private var analytics = true
 
     var body: some View {
         Section {
@@ -137,9 +138,16 @@ struct SafetySection: View {
                 Task { if !(await AIConsent.save(on)), on { xai = false } } // couldn't save the OK: it stays off
             })).tint(Theme.accent)
                 .accessibilityIdentifier("ai-consent-toggle")
+            // Product analytics (Analytics.swift, vedu #4416): on by default, this phone only; off stops it at once.
+            Toggle("Share usage analytics", isOn: Binding(get: { analytics }, set: { Analytics.setEnabled($0); analytics = $0 }))
+                .tint(Theme.accent)
+                .accessibilityIdentifier("analytics-toggle")
         } header: { SectionHeader("Safety and privacy") } footer: {
             // (the toggle's state is refreshed from the server whenever voice status loads: TalkStatus.load → AIConsent.sync)
-            Text("Offensive words in other people's messages show as dots. Voice chat and the natural reading voice send your voice and the messages being read to xAI; off, you're asked first. To report a message, long-press it; to mute or block someone, open their profile.")
+            VStack(alignment: .leading, spacing: Space.xs) {
+                Text("Offensive words in other people's messages show as dots. Voice chat and the natural reading voice send your voice and the messages being read to xAI; off, you're asked first. To report a message, long-press it; to mute or block someone, open their profile.")
+                Text("Usage analytics tell us which features get used, never what you write. They go to PostHog.")
+            }
         }
         .listRowBackground(Theme.card)
     }

@@ -33,13 +33,17 @@ fixed on this branch.
 
 1. **Privacy label** (App Privacy), from what the app actually collects, all *linked to you*, *not used for tracking*:
    - Contact info: name, email address (app functionality).
-   - Identifiers: user ID (app functionality).
+   - Identifiers: user ID (app functionality, analytics: the handle identifies the person in PostHog).
+   - Usage data: product interaction (analytics). PostHog records which features are used (sign in, board created,
+     invite sent, first message, agent connected, voice used, screen names), never message text or emails
+     (Analytics.swift, vedu #4416). Settings → Safety and privacy → Share usage analytics turns it off.
    - User content: other user content (messages, files), photos or videos (pictures you send), customer support (bug
      reports and feedback).
    - Audio: answer *yes* only if you count Talk's realtime voice as collected. It's streamed to xAI for the
      conversation and not kept by Atteo. Apple counts data sent off the device to a third party, so declaring audio
      data (app functionality) is the safer answer.
    - Not collected: location, contacts, health, browsing or search history, purchases, diagnostics, advertising data.
+     PostHog's crash and session-replay features are off.
 2. **Age rating**: user-generated content and unrestricted messaging between people (yes); no mature content
    produced by the app itself. Expect 16+ under the current questionnaire. Confirm when filling it in.
 3. **Export compliance**: answer "uses only exempt encryption" (matches the Info.plist key). File the annual

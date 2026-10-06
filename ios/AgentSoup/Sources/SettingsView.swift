@@ -30,7 +30,9 @@ struct FullSettings: View {
     @State private var confirmSignOut = false
     @State private var bring = false
 
-    var body: some View {
+    var body: some View { screen.onAppear { Analytics.screen("settings") } } // product analytics (Analytics.swift)
+
+    @ViewBuilder private var screen: some View {
         ScrollViewReader { scroller in
         List {
             Section { pictures }
