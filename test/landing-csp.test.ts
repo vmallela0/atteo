@@ -52,8 +52,9 @@ describe("landing Worker CSP (docs/security/csp.md #8)", () => {
         expect(scripts).toEqual([]);
         expect(csp).toContain("script-src 'none'");
       } else {
-        expect(scripts.length).toBe(1);
-        expect(csp).toContain(await cspHash(scripts[0]!));
+        // The home page also has its Copy buttons' script (jxn #4732); every inline script is allowed by its hash.
+        expect(scripts.length).toBe(path === "/faq" ? 1 : 2);
+        for (const s of scripts) expect(csp).toContain(await cspHash(s));
         expect(JSON.parse(scripts[0]!)).toHaveProperty("@graph");
       }
     }
@@ -89,7 +90,7 @@ describe("landing Worker CSP (docs/security/csp.md #8)", () => {
     expect(html).toContain("invite-only boards for people and their agents");
     expect(html).toContain("How to get help");
     const home = await (await page("/")).text();
-    expect(home).toContain('href="https://atteo.dev/support">Support</a>');
+    expect(home).toContain('href="https://atteo.dev/support">support</a>'); // the home page's small links are lowercase (jxn #4732)
     const faq = await (await page("/faq")).text();
     expect(faq).toContain('href="https://atteo.dev/support">Support</a>');
     const sitemap = await (await page("/sitemap.xml")).text();
@@ -115,25 +116,20 @@ describe("landing public connect and directory links", () => {
     'href="https://atteo.dev/mcp"',
   ];
 
-  it("puts directory links in the footer of /, /guide and /faq", async () => {
-    for (const path of ["/", "/guide", "/faq"]) {
+  it("puts directory links in the footer of /guide and /faq; the home page keeps only guide, faq, docs and the legal links (jxn #4732)", async () => {
+    for (const path of ["/guide", "/faq"]) {
       const html = await (await page(path)).text();
       for (const href of links) expect(html, path).toContain(href);
     }
+    const home = await (await page("/")).text();
+    for (const href of ['href="https://atteo.dev/docs"', 'href="https://atteo.dev/guide"', 'href="https://atteo.dev/faq"', 'href="https://atteo.dev/llms.txt"', 'href="https://atteo.dev/privacy"', 'href="https://atteo.dev/terms"', 'href="https://atteo.dev/support"']) expect(home).toContain(href);
   });
 
-  it("makes the home page show MCP, CLI and Claude / Cursor / ChatGPT steps", async () => {
+  it("makes the home page's Connect your agent list Claude Code, Cursor, ChatGPT and Codex with the app's own lines (jxn #4732)", async () => {
     const html = await (await page("/")).text();
-    expect(html).toContain('id="connect"');
-    expect(html).toContain("https://atteo.dev/mcp");
-    expect(html).toContain("curl -fsSL https://atteo.dev/install.sh | sh");
-    expect(html).toContain("atteo connect claude");
-    expect(html).toContain("Add custom connector");
-    expect(html).toContain("one-click install");
-    expect(html).toContain("Custom connectors are not on every ChatGPT plan");
-    expect(html).toContain("For directories");
-    expect(html).toContain("mcp: https://atteo.dev/mcp");
-    expect(html).toContain("stdio: atteo mcp");
+    expect(html).toContain("Connect your agent");
+    for (const line of ["claude mcp add --transport http --scope user atteo https://atteo.dev/mcp", "codex mcp add atteo --url https://atteo.dev/mcp &amp;&amp; codex mcp login atteo", "Settings → Connectors → Create"]) expect(html).toContain(line);
+    for (const name of ["Claude Code", "Cursor", "ChatGPT", "Codex"]) expect(html).toContain(`<b>${name}</b>`);
     expect(html).not.toMatch(/listed on (Smithery|mcp\.so|Glama)/i);
     expect(html).not.toMatch(/App Store/i);
   });
