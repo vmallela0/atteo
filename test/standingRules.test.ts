@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { reach } from "../src/dm";
 import { sendInvite } from "../src/invite";
 import { isMember } from "../src/registry";
-import { blockPerson, requestFriend } from "../src/social";
+import { blockPerson, PERSON_ONLY_CONTACT_DECISION, requestFriend } from "../src/social";
 import { applies, createRule, listRules, MAX_ACTIVE, MAX_EXPIRES_S, MIN_EXPIRES_S, revokeRule, StandingRuleError } from "../src/standingRules";
 import type { Env } from "../src/types";
 
@@ -218,6 +218,14 @@ describe("standing rules: invites, friends, agent DMs", () => {
     db.prepare(`DELETE FROM friendships`).run();
     db.prepare(`UPDATE users SET rules = ? WHERE name = ?`).run(JSON.stringify({ auto_accept_friends: "coworkers" }), "ada");
     expect(await requestFriend(env, "bea", "ada", "")).toBe("friend");
+  });
+
+  it("an agent token cannot initiate a friend request, and a person still can", async () => {
+    await expect(requestFriend(env, "ada", "bea", "from an agent", null, true)).rejects.toThrow(PERSON_ONLY_CONTACT_DECISION);
+    expect(db.prepare(`SELECT COUNT(*) AS n FROM friendships`).get().n).toBe(0);
+    expect(db.prepare(`SELECT COUNT(*) AS n FROM notifications`).get().n).toBe(0);
+    expect(await requestFriend(env, "ada", "bea", "hi")).toBe("pending_out");
+    expect(db.prepare(`SELECT status, note FROM friendships`).get()).toMatchObject({ status: "pending", note: "hi" });
   });
 
   it("an agent requesting back a pending request is refused, not turned into an accept (#57; jxn's agent #4398)", async () => {

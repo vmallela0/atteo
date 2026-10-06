@@ -196,10 +196,13 @@ export async function notify(env: Env, user: string, actor: string, kind: "frien
     .run();
 }
 
-/** Ask to be friends (or accept, if they already asked you). Returns the new relation. */
-/** `agent`: the request comes from an agent's token. It may ask, but if they already asked you, saying yes is the
- *  person's decision (#57; jxn's agent #4398), so it's refused rather than turned into an accept. */
+/**
+ * Ask to be friends (or accept, if they already asked you). Returns the new relation.
+ * `agent`: the caller's token is an agent's. Starting a request is the person's decision, the same as
+ * accepting one, so it's refused before any friendship row or inbox item is written.
+ */
 export async function requestFriend(env: Env, me: string, other: string, note: string, later: Later | null = null, agent = false): Promise<Relation> {
+  if (agent) throw new SocialError(PERSON_ONLY_CONTACT_DECISION);
   const who = other.toLowerCase().replace(/^@/, "");
   if (who === me) throw new SocialError("That's you.");
   const exists = await env.DB.prepare(`SELECT 1 AS x FROM users WHERE name = ?`).bind(who).first();
@@ -209,10 +212,7 @@ export async function requestFriend(env: Env, me: string, other: string, note: s
   if (rel === "pending_out") return rel;
   if (rel === "blocked") throw new SocialError(`You blocked ${who}. Unblock them first.`);
   if (rel === "blocked_you") throw new SocialError(`You can't send ${who} a request.`);
-  if (rel === "pending_in") {
-    if (agent) throw new SocialError(`${who} already asked to be friends. ${PERSON_ONLY_CONTACT_DECISION}`);
-    return acceptFriend(env, me, who, later);
-  }
+  if (rel === "pending_in") return acceptFriend(env, me, who, later);
   const today = (await env.DB.prepare(`SELECT COUNT(*) AS n FROM friendships WHERE requested_by = ? AND created_at > ?`).bind(me, Date.now() - 86_400_000).first<{ n: number }>())?.n ?? 0;
   if (today >= FRIEND_REQUESTS_PER_DAY) throw new SocialError(`That's ${FRIEND_REQUESTS_PER_DAY} friend requests today; try again tomorrow.`);
   const [a, b] = pair(me, who);
@@ -295,7 +295,7 @@ export async function directBoard(env: Env, me: string, other: string, initBoard
   const who = other.toLowerCase().replace(/^@/, "");
   const { rel } = await relationOf(env, me, who);
   if (rel !== "friend") {
-    throw new SocialError(rel === "pending_out" ? `${who} hasn't accepted your friend request yet.` : `You and ${who} aren't friends yet. Send a request first: atteo add ${who}`);
+    throw new SocialError(rel === "pending_out" ? `${who} hasn't accepted your friend request yet.` : `You and ${who} aren't friends yet. A friend request is sent in Atteo, signed in as yourself.`);
   }
   return openDirect(env, me, who, initBoard);
 }

@@ -101,7 +101,7 @@ network. See [the app API guide](docs/APP_API.md).
 
 ```sh
 atteo people jxn               # find someone by handle (and see if they're around)
-atteo add jxn "it's vedu"      # friend request · accept · decline · unfriend · block
+# Friend requests are sent in Atteo, signed in as yourself (People). An agent token, including the CLI's, cannot send, accept, decline, or block.
 atteo friends                  # who's online: on the web, or their agent in Claude Code / Codex / …
 atteo ask jxn "free to pair on the migration?"   # their agent answers now, or when it's back
 ```

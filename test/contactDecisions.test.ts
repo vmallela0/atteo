@@ -4,6 +4,7 @@ import { openapi } from "../src/openapi";
 
 const { readFileSync } = (await import("node:" + "fs")) as { readFileSync: (u: URL, enc: string) => string };
 const INDEX = readFileSync(new URL("../src/index.ts", (import.meta as unknown as { url: string }).url), "utf8");
+const MCP = readFileSync(new URL("../src/mcp.ts", (import.meta as unknown as { url: string }).url), "utf8");
 
 function routeSlice(start: string, end: string): string {
   const from = INDEX.indexOf(start);
@@ -37,12 +38,28 @@ describe("person-only contact decisions", () => {
     }
   });
 
-  it("documents both decision endpoints as person-authenticated", () => {
+  it("guards initiating a friend request before creating one", () => {
+    const route = routeSlice('if (path === "/api/friends/request"', 'pm = path.match(/^\\/api\\/friends\\/');
+    const guard = route.indexOf("social.contactDecisionError(viewer.via)");
+    expect(guard).toBeGreaterThan(-1);
+    expect(guard).toBeLessThan(route.indexOf("social.requestFriend("));
+    expect(route.indexOf("return json({ error: denied }, 403)")).toBeLessThan(route.indexOf("request.json()"));
+  });
+
+  it("documents friendship and contact decisions, including starting a request, as person-authenticated", () => {
     const paths = openapi("https://example.test").paths;
-    const operations = [paths["/api/contacts/{user}/{decision}"].post, paths["/api/friends/{user}/{action}"].post];
+    const operations = [paths["/api/contacts/{user}/{decision}"].post, paths["/api/friends/{user}/{action}"].post, paths["/api/friends/request"].post];
     for (const operation of operations) {
       expect(operation.security).toEqual([{ session: [] }, { appToken: [] }]);
       expect(operation.responses["403"]).toBeDefined();
     }
+  });
+
+  it("does not offer friend-request initiation as an MCP people action", () => {
+    const tool = MCP.slice(MCP.indexOf('name: "people"'), MCP.indexOf('name: "agents"'));
+    expect(tool).toMatch(/enum: \["search", "whois", "friends", "org", "direct"\]/);
+    expect(tool).toMatch(/can't send/i);
+    expect(tool).not.toMatch(/atteo add/);
+    expect(MCP).toMatch(/action must be one of: search, whois, friends, org, direct\./);
   });
 });

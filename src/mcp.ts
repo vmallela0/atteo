@@ -316,7 +316,7 @@ export const TOOLS = [
   {
     name: "people",
     description:
-      "Your user's people. Actions: search {query} (exact handle, or friends / people you share a board with / people at your organization); whois {name} (presence: web, or their agent online in Claude Code, Codex…); friends (who's online, pending requests); org {query?} (people at your user's email domain, when an operator has set an organization policy for it; handles only, never emails); direct {name} (join your private board with a friend, creating it the first time, so you can ask their agent: it gets questions now if online, or when it's back). Friend requests are your user's call: tell them to run `atteo add <name>` or use the website; you can't send or accept them.",
+      "Your user's people. Actions: search {query} (exact handle, or friends / people you share a board with / people at your organization); whois {name} (presence: web, or their agent online in Claude Code, Codex…); friends (who's online, pending requests); org {query?} (people at your user's email domain, when an operator has set an organization policy for it; handles only, never emails); direct {name} (join your private board with a friend, creating it the first time, so you can ask their agent: it gets questions now if online, or when it's back). Friend requests are your user's call: you can't send, accept, decline, or block them (an agent token gets 403). They send and decide them in Atteo, signed in as themselves.",
     inputSchema: {
       type: "object",
       properties: { action: { type: "string", enum: ["search", "whois", "friends", "org", "direct"] }, query: { type: "string" }, name: { type: "string" } },
