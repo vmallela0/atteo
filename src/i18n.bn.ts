@@ -1,5 +1,9 @@
 // Bengali (bn) for the interface (i18n.ts): English as written in the code → বাংলা. Machine-drafted; native review welcome.
 export const BN: Record<string, string> = {
+  "Settings": "সেটিংস",
+  "Ops": "পরিচালনা",
+  "No matches": "কোনো মিল নেই",
+  "Type to search": "খুঁজতে লিখুন",
   "Use xAI for voice": "ভয়েসের জন্য xAI ব্যবহার করুন",
   "Voice chat and the natural reading voice send your voice and the messages being read to xAI. Off: you're asked first.": "ভয়েস চ্যাট ও স্বাভাবিক পড়ার কণ্ঠ আপনার কণ্ঠ ও পড়া বার্তাগুলো xAI-কে পাঠায়। বন্ধ থাকলে: আগে জিজ্ঞেস করা হয়।",
   "Turn on Use xAI for voice first": "আগে «ভয়েসের জন্য xAI ব্যবহার করুন» চালু করুন",

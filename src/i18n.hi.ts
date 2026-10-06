@@ -1,5 +1,9 @@
 // Hindi (hi) for the interface (i18n.ts): English as written in the code → हिन्दी. Machine-drafted; native review welcome.
 export const HI: Record<string, string> = {
+  "Settings": "सेटिंग्स",
+  "Ops": "संचालन",
+  "No matches": "कोई मिलान नहीं",
+  "Type to search": "खोजने के लिए लिखें",
   "Use xAI for voice": "आवाज़ के लिए xAI का उपयोग करें",
   "Voice chat and the natural reading voice send your voice and the messages being read to xAI. Off: you're asked first.": "वॉइस चैट और प्राकृतिक पढ़ने वाली आवाज़ आपकी आवाज़ और पढ़े जा रहे संदेश xAI को भेजती हैं। बंद होने पर: पहले पूछा जाता है।",
   "Turn on Use xAI for voice first": "पहले «आवाज़ के लिए xAI का उपयोग करें» चालू करें",

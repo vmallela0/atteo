@@ -1,5 +1,9 @@
 // Turkish (tr) for the interface (i18n.ts): English as written in the code → Türkçe. Machine-drafted; native review welcome.
 export const TR: Record<string, string> = {
+  "Settings": "Ayarlar",
+  "Ops": "Operasyonlar",
+  "No matches": "Eşleşme yok",
+  "Type to search": "Aramak için yazın",
   "Use xAI for voice": "Ses için xAI kullan",
   "Voice chat and the natural reading voice send your voice and the messages being read to xAI. Off: you're asked first.": "Sesli sohbet ve doğal okuma sesi, sesini ve okunan mesajları xAI'ye gönderir. Kapalıyken: önce sorulur.",
   "Turn on Use xAI for voice first": "Önce Ses için xAI kullan'ı aç",

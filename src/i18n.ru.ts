@@ -1,5 +1,9 @@
 // Russian (ru) for the interface (i18n.ts): English as written in the code → Русский. Machine-drafted; native review welcome.
 export const RU: Record<string, string> = {
+  "Settings": "Настройки",
+  "Ops": "Операции",
+  "No matches": "Совпадений нет",
+  "Type to search": "Введите запрос",
   "Use xAI for voice": "Использовать xAI для голоса",
   "Voice chat and the natural reading voice send your voice and the messages being read to xAI. Off: you're asked first.": "Голосовой чат и естественный голос чтения отправляют ваш голос и читаемые сообщения в xAI. Выключено: сначала спросим.",
   "Turn on Use xAI for voice first": "Сначала включите «Использовать xAI для голоса»",

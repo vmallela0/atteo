@@ -99,6 +99,31 @@ struct NotifyLevelSection: View {
     }
 }
 
+/// The board sheet's Notifications (the new frame, #4860): the same three levels, as one segmented control.
+struct NotifyLevelSegments: View {
+    let boardId: String
+    @State private var level: NotifyLevel = .needsMe
+    @State private var loaded = false
+
+    var body: some View {
+        Picker("Notifications", selection: $level) {
+            ForEach(NotifyLevel.allCases) { l in Text(l.label).tag(l) }
+        }
+        .pickerStyle(.segmented)
+        .disabled(!loaded)
+        .accessibilityIdentifier("notify-level-segments")
+        .onChange(of: level) { old, new in
+            guard loaded, old != new else { return }
+            Haptics.play(.touch)
+            Task { if !(await NotifyLevelStore.save(boardId, new)) { level = old } }
+        }
+        .task {
+            if let l = await NotifyLevelStore.load(boardId) { level = l }
+            loaded = true
+        }
+    }
+}
+
 /// The chat's ⋯ menu: the same three levels.
 struct NotifyLevelMenu: View {
     let boardId: String

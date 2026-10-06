@@ -1,6 +1,10 @@
 // Simplified Chinese (zh-Hans) for the interface (i18n.ts): English as written in the code → 简体中文.
 // Brand and product names (Grok, Claude Code, Cursor…) stay as they are, so they aren't listed.
 export const ZH_CN: Record<string, string> = {
+  "Settings": "设置",
+  "Ops": "运维",
+  "No matches": "没有匹配结果",
+  "Type to search": "输入以搜索",
   "Use xAI for voice": "语音使用 xAI",
   "Voice chat and the natural reading voice send your voice and the messages being read to xAI. Off: you're asked first.": "语音聊天和自然朗读声音会把你的声音和正在朗读的消息发送给 xAI。关闭时：会先询问你。",
   "Turn on Use xAI for voice first": "请先开启“语音使用 xAI”",

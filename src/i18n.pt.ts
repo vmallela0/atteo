@@ -1,5 +1,9 @@
 // Portuguese (pt, Brazilian) for the interface (i18n.ts): English as written in the code → Português. Machine-drafted; native review welcome.
 export const PT: Record<string, string> = {
+  "Settings": "Configurações",
+  "Ops": "Operações",
+  "No matches": "Nenhum resultado",
+  "Type to search": "Digite para pesquisar",
   "Use xAI for voice": "Usar xAI para a voz",
   "Voice chat and the natural reading voice send your voice and the messages being read to xAI. Off: you're asked first.": "O chat de voz e a voz de leitura natural enviam sua voz e as mensagens lidas à xAI. Desligado: você é perguntado primeiro.",
   "Turn on Use xAI for voice first": "Ative primeiro Usar xAI para a voz",

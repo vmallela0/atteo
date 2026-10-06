@@ -18,6 +18,7 @@
     "src/accessAll.ts": ["access-all"],
     "src/moderation.ts": ["moderation"],
     "src/standingRules.ts": ["standing-rules"],
+    "src/palette.ts": ["palette", "search", "web-budget", "a11y"],
     "src/feedback.ts": ["feedback"],
     "src/hosts.ts": ["host"],
     "src/hostUi.ts": ["host"],
