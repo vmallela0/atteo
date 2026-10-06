@@ -11,6 +11,7 @@ import * as costGuard from "./costGuard";
 import * as oauth from "./oauth";
 import { consentPage } from "./oauthPage";
 import * as approvals from "./approvals";
+import { boardStates } from "./boardStates";
 import { approvalsPage } from "./approvalsPage";
 import { askPage } from "./ask";
 import * as access from "./access";
@@ -2120,6 +2121,11 @@ const handler = {
           const msg = e instanceof Error ? e.message.replace(/: https?:\S+$/, ".") : String(e);
           return json({ error: msg }, e instanceof billing.BillingError ? 402 : 400);
         }
+      }
+
+      if (path === "/api/me/board-states" && method === "GET") {
+        if (!viewer) return json({ error: "sign in required" }, 401);
+        return json({ boards: await boardStates(env, viewer.name) }, 200, { "cache-control": "private, no-store" });
       }
 
       // ---- the signed-in person's boards (CLI uses its bearer token) ----

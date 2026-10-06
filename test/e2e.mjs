@@ -3158,6 +3158,42 @@ await step("access: roles (viewers read but can't change), invite links with lim
   assert(page.after_id === exp.audit[0].id && page.audit.every((a) => a.id > exp.audit[0].id) && !page.audit.some((a) => a.id === exp.audit[0].id), "cursor");
 });
 
+await step("board states: own approvals, working sessions, quiet boards and DMs, membership and authentication", async () => {
+  const P = `e2e-state-${run}`;
+  const Q = `e2e-stateq-${run}`;
+  await Promise.all([makeUser(P), makeUser(Q)]);
+  const create = async (title) => (await ops("boards", { user: P, title: `e2e state ${title} ${run}` })).body.board.id;
+  const [approvalBoard, workingBoard, quietBoard] = await Promise.all([create("approval"), create("working"), create("quiet")]);
+  await ops("members", { board: approvalBoard, user: Q });
+  const sa = await session(P, approvalBoard);
+  await sok(sa, "request_approval", { title: "State approval", details: "Review the proposed change", wait_seconds: 0 });
+  const api = async (path, body) => {
+    const r = await fetch(`${BASE}${path}`, { method: "POST", headers: { ...auth(P), "content-type": "application/json" }, body: JSON.stringify(body) });
+    assert(r.ok, `state setup ${path}: ${r.status} ${await r.clone().text()}`);
+    return r.json();
+  };
+  const { session: active } = await api("/api/sessions", { name: "state-worker", client: "e2e" });
+  await api(`/api/sessions/${active.id}/boards`, { board: workingBoard });
+  const chat = (await (await web("/api/me/agent-chat", P, { method: "POST" })).json()).board;
+  const path = "/api/me/board-states";
+  assert((await web(path)).status === 401, "board states require authentication");
+  const response = await web(path, P);
+  assert(response.ok, `board states: ${response.status}`);
+  const result = await response.json();
+  const states = new Map(result.boards.map((b) => [b.id, b]));
+  assert(states.get(approvalBoard)?.state === "approval" && states.get(approvalBoard).pending_approvals === 1, JSON.stringify(result));
+  assert(states.get(workingBoard)?.state === "working" && states.get(workingBoard).working_agents === 1 && states.get(workingBoard).pending_approvals === 0, JSON.stringify(result));
+  assert(states.get(quietBoard)?.state === "quiet" && states.get(quietBoard).working_agents === 0 && states.get(quietBoard).pending_approvals === 0, JSON.stringify(result));
+  assert(states.get(chat)?.kind === "dm" && states.get(chat).state === "quiet", JSON.stringify(result));
+  assert(states.get(quietBoard).kind === "board" && states.get(quietBoard).title === `e2e state quiet ${run}`, "board identity");
+  const tokenResult = await (await fetch(`${BASE}${path}`, { headers: auth(P) })).json();
+  assert(JSON.stringify(tokenResult) === JSON.stringify(result), "bearer authentication shares the user's cached result");
+  const other = (await (await web(path, Q)).json()).boards;
+  assert(other.length === 1 && other[0].id === approvalBoard && other[0].pending_approvals === 0 && other[0].state === "working", JSON.stringify(other));
+  const outsider = (await (await web(path, OUT)).json()).boards;
+  assert(!outsider.some((b) => states.has(b.id)), "nonmembers cannot see these boards or DMs");
+});
+
 await step("approvals: an agent asks before side effects; only the person decides, in a browser; the agent sees the answer", async () => {
   const sa = await session(A, fb);
   await ok(B, fb, "read");
