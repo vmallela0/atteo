@@ -19,6 +19,7 @@ for (let i = 1; i <= N; i++) {
   else if (i === 102) S.kid1 = await post(ckV, `First answer: three ${run}`, S.root);
   else if (i === 300) S.kid2 = await post(ckV, `Late answer: five ${run}`, S.root);
   else if (i === 20) S.target = await post(ckV, `Ref target ${run}: the old decision`);
+  else if (i >= 34 && i <= 39) await post(ckV, "```mermaid\nflowchart TD\n A[Start " + i + "] --> B[Plan] --> C[Build] --> D[Ship]\n```"); // grow when drawn (#4648)
   else if (i === 390) S.ref = await post(ckV, `See #${S.target} for the old decision`);
   else await post(ckV, `message ${i}: ${line(i)}${i % 9 === 0 ? "\n\n" + line(i + 3) + "\n" + line(i + 5) : ""}`);
 }
@@ -96,6 +97,17 @@ async function jumps() { const { ctx, p } = await open();
   await jumpTo(p, S.ref);
   await p.locator(`#e${S.ref} a.ref`).first().click(); await landed(p, S.target, 140);
   check((await p.locator(`#e${S.target}.entry`).count()) === 1 && (await centred(p, S.target)) < 140, `a #ref chip jumps to #${S.target}, brought back from a placeholder`);
+  // A message that stays on the page (it's for you) while its neighbours became placeholders: the jump lands on it and it
+  // stays in the middle as they come back around it, though the diagrams above it draw (and grow) a moment after they do
+  // (it used to be carried off as they filled in, jxn #4648).
+  await jumpTo(p, S.ref);
+  await until(() => p.evaluate((s) => !!document.getElementById("e" + s) && !!document.getElementById("g" + (s - 1)) && !!document.getElementById("g" + (s + 1)), S.forYou), 8000);
+  const ghostsNear = await p.evaluate((s) => !!document.getElementById("g" + (s - 1)) && !!document.getElementById("g" + (s + 1)), S.forYou);
+  await p.evaluate((s) => window.BOARD_CTX.jump(s), S.forYou);
+  const settled = () => p.evaluate(() => { const sc = document.getElementById("thread-scroll"), q = sc.getBoundingClientRect(); return [...document.querySelectorAll("#thread>.ghost")].filter((g) => { const r = g.getBoundingClientRect(); return r.bottom > q.top && r.top < q.bottom }).length; });
+  await until(async () => (await settled()) === 0, 8000); await stable(() => centred(p, S.forYou), 3000, 300);
+  const off = Math.round(await centred(p, S.forYou));
+  check(ghostsNear && off < 120, `a jump to #${S.forYou} among placeholders lands and stays in the middle as they come back (${off}px off)`);
   // The thread's root and late reply: "2 replies" counts a reply that's a placeholder, and the overlay brings both back.
   await jumpTo(p, S.root);
   const sum = await p.locator(`#e${S.root} .thr-sum`).innerText().catch(() => "");
