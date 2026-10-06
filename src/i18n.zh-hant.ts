@@ -355,6 +355,7 @@ export const ZH_HANT: Record<string, string> = {
   "Disconnect all": "全部斷開",
   "Disconnect all agents": "斷開所有智能體",
   "Connect Slack": "連接 Slack",
+  "linked a Slack account to Atteo": "已將 Slack 帳號連結到 Atteo",
   "Disconnect all your agents now? Every sign-in is revoked and every agent session ends.": "現在斷開你的所有智能體？所有登入都會被撤銷，所有智能體工作階段都會結束。",
   "Dismiss": "關閉",
   "Display": "顯示",

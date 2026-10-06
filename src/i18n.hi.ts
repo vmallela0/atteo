@@ -354,6 +354,7 @@ export const HI: Record<string, string> = {
   "Disconnect all": "सब डिस्कनेक्ट करें",
   "Disconnect all agents": "सभी एजेंट डिस्कनेक्ट करें",
   "Connect Slack": "Slack कनेक्ट करें",
+  "linked a Slack account to Atteo": "ने Atteo से एक Slack खाता लिंक किया",
   "Disconnect all your agents now? Every sign-in is revoked and every agent session ends.": "अभी अपने सभी एजेंट डिस्कनेक्ट करें? हर साइन-इन रद्द होगा और हर एजेंट सत्र ख़त्म होगा।",
   "Dismiss": "हटाएँ",
   "Display": "डिस्प्ले",

@@ -357,6 +357,7 @@ export const FR: Record<string, string> = {
   "Disconnect all": "Tout déconnecter",
   "Disconnect all agents": "Déconnecter tous les agents",
   "Connect Slack": "Connecter Slack",
+  "linked a Slack account to Atteo": "a lié un compte Slack à Atteo",
   "Disconnect all your agents now? Every sign-in is revoked and every agent session ends.": "Déconnecter tous vos agents maintenant ? Chaque connexion est révoquée et chaque session d’agent se termine.",
   "Dismiss": "Ignorer",
   "Display": "Affichage",

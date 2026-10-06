@@ -315,6 +315,7 @@ function toEntry(r: Row): Entry {
     retracts: (r.retracts as number | null) ?? null,
     via: ((r.via as string | null) ?? null) as Entry["via"],
     client: (r.client as string | null) ?? null,
+    ...(r.origin === "slack" || r.origin === "pact" ? { origin: r.origin as Entry["origin"] } : {}),
     artifact_name: (r.artifact_name as string | null) ?? null,
     artifact_size: (r.artifact_size as number | null) ?? null,
     artifact_version: (r.artifact_version as number | null) ?? null,
@@ -341,7 +342,7 @@ const opts0 = (input: NewEntry): TaskActOpts => ({ via: input.via ?? null, clien
 /** For a session's reads: skip posts addressed to another session of the same person (binds: user, session). */
 const FOR_SESSION_OK = "(for_session IS NULL OR for_user != ? OR for_session = ?)";
 
-const ENTRY_COLS = "seq, ts, author, type, text, edited_at, purged, title, to_user, mentions, reply_to, resolves, supersedes, retracts, via, client, artifact_name, artifact_size, artifact_version, card, media, ai_flag, attachments, approval, audience, to_people, handoff, data";
+const ENTRY_COLS = "seq, ts, author, type, text, edited_at, purged, title, to_user, mentions, reply_to, resolves, supersedes, retracts, via, client, origin, artifact_name, artifact_size, artifact_version, card, media, ai_flag, attachments, approval, audience, to_people, handoff, data";
 
 // ---- private entries (audience.ts): people-only (vedu #1264), only the people it names, never any agent; and just
 // mine (#1748), only one person and their own agents. Every read of entries filters through these, so a path that
@@ -765,6 +766,9 @@ export class Board extends DurableObject<Env> {
     // Optional JSON object attached at post time (entryData.ts). Null when the post had none.
     if (!cols.has("data")) this.sql.exec("ALTER TABLE entries ADD COLUMN data TEXT");
     if (!cols.has("edited_at")) this.sql.exec("ALTER TABLE entries ADD COLUMN edited_at INTEGER");
+    // Where the server made it from (#5439): "slack" (the Slack bridge) or "pact" (an outside agent's reply). Only the
+    // server's own paths set it (post's internal options); an agent's client name never does.
+    if (!cols.has("origin")) this.sql.exec("ALTER TABLE entries ADD COLUMN origin TEXT");
     // Retention compacts an entry once. Unlike a sequence watermark this remains correct if clocks move backwards or an
     // older restored entry appears after a newer one.
     if (!cols.has("retained_at")) this.sql.exec("ALTER TABLE entries ADD COLUMN retained_at INTEGER");
@@ -1215,7 +1219,7 @@ export class Board extends DurableObject<Env> {
     return aud;
   }
 
-  async post(user: string, input: NewEntry, internal: { docVersion?: number; media?: Media; attachments?: { list: Attachment[]; text: string }; seeding?: boolean; sealed?: boolean; notice?: boolean; system?: boolean; approval?: ApprovalRef; taskCreate?: boolean; scheduled?: boolean; slackFrom?: string | null } = {}): Promise<Entry> {
+  async post(user: string, input: NewEntry, internal: { docVersion?: number; media?: Media; attachments?: { list: Attachment[]; text: string }; seeding?: boolean; sealed?: boolean; notice?: boolean; system?: boolean; approval?: ApprovalRef; taskCreate?: boolean; scheduled?: boolean; slackFrom?: string | null; origin?: "slack" | "pact" } = {}): Promise<Entry> {
     this.renewLeases(user, input.session);
     // D1 lookups first, so nothing below waits between the duplicate check and the insert.
     const boardKind = await this.kindOf(this.meta("id") ?? "");
@@ -1381,8 +1385,8 @@ export class Board extends DurableObject<Env> {
 
     const row = this.sql
       .exec(
-        `INSERT INTO entries (ts, author, type, text, to_user, mentions, self_agent, reply_to, resolves, supersedes, retracts, via, client, artifact_name, artifact_size, artifact_version, artifact_content, card, card_diff, media, title, session, idem, for_user, for_session, attachments, approval, audience, to_people, handoff, data)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING ${ENTRY_COLS}`,
+        `INSERT INTO entries (ts, author, type, text, to_user, mentions, self_agent, reply_to, resolves, supersedes, retracts, via, client, origin, artifact_name, artifact_size, artifact_version, artifact_content, card, card_diff, media, title, session, idem, for_user, for_session, attachments, approval, audience, to_people, handoff, data)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING ${ENTRY_COLS}`,
         Date.now(),
         user,
         input.type,
@@ -1396,6 +1400,7 @@ export class Board extends DurableObject<Env> {
         input.retracts ?? null,
         input.via ?? null,
         input.via === "agent" ? (input.client ?? "agent").slice(0, 40) : null,
+        internal.origin ?? null,
         artifactName,
         internal.media ? internal.media.size : artifactContent == null ? null : new TextEncoder().encode(artifactContent).length,
         artifactVersion,
@@ -4870,8 +4875,8 @@ export class Board extends DurableObject<Env> {
    * too, as plain text: it's metadata the server already knows, like the board's name. Nobody is notified, and the
    * board lists keep showing the last real message.
    */
-  async notice(user: string, title: string, text: string, opts: TaskActOpts): Promise<Entry> {
-    return this.post(user, { type: "note", title, text, via: opts.via, client: opts.client, session: opts.session }, { notice: true });
+  async notice(user: string, title: string, text: string, opts: TaskActOpts, origin?: "slack"): Promise<Entry> {
+    return this.post(user, { type: "note", title, text, via: opts.via, client: opts.client, session: opts.session }, { notice: true, origin });
   }
 
   async sealedAfter(after: number, limit = 200): Promise<{ seq: number; ts: number; author: string; via: string | null; type: string; to: string | null; reply_to: number | null; payload: string }[]> {

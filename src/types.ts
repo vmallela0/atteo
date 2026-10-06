@@ -26,7 +26,7 @@ export interface Attachment {
 }
 
 /** Inbox kinds for the person only: agent tokens never see these rows (src/inbox.ts) or count them (src/registry.ts). */
-export const PERSON_ONLY_KINDS = ["people_only", "manual_unread", "reminder", "report"] as const;
+export const PERSON_ONLY_KINDS = ["people_only", "manual_unread", "reminder", "report", "slack_link"] as const;
 
 export const ENTRY_TYPES = ["claim", "question", "decision", "task", "artifact", "note", "change", "handoff"] as const;
 // "approval" is posted by the server only (an agent's request_approval on a board), never by a client.
@@ -69,7 +69,8 @@ export interface Entry {
   via?: "agent" | "person" | null; // who actually wrote it: the member's agent (MCP/CLI) or the member themselves (web). Null on older entries.
   agent_name?: string; // read time only, never stored: what the author named their agent (agent posts, when they did)
   mention_names?: Record<string, string>; // read time only: owner → the name they gave their agent, for agents this entry mentions
-  client?: string | null; // for agent posts: which agent, e.g. "Claude Code"
+  client?: string | null; // for agent posts: which agent, e.g. "Claude Code" (the agent names it: never trust it for labels)
+  origin?: "slack" | "pact"; // server-set only (#5439): made by the Slack bridge, or an outside agent's PACT reply
   artifact_name: string | null;
   artifact_size: number | null; // bytes of artifact content (content itself is fetched with `get`)
   artifact_version?: number | null;

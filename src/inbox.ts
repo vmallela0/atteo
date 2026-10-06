@@ -16,7 +16,7 @@ export interface InboxItem {
   board_id: string;
   board_title: string | null;
   seq: number;
-  kind: "mention" | "agent" | "reply" | "friend_request" | "friend_accept" | "approval" | "contact_request" | "contact_accept" | "decision" | "people_only" | "manual_unread" | "reminder" | "report";
+  kind: "mention" | "agent" | "reply" | "friend_request" | "friend_accept" | "approval" | "contact_request" | "contact_accept" | "decision" | "people_only" | "manual_unread" | "reminder" | "report" | "slack_link";
   actor: string;
   actor_via: string | null;
   entry_type: string;
@@ -172,6 +172,7 @@ const VERB: Record<InboxItem["kind"], string> = {
   manual_unread: "marked this board unread",
   reminder: "is ready for you",
   report: "reported a post to you, as an owner",
+  slack_link: "linked a Slack account to Atteo",
 };
 
 /** Pairs an approval notification with its approval: by id when the row carries one, else by the moment it was asked. */
@@ -189,10 +190,10 @@ export function inboxPage(viewer: Viewer, side: SideBoard[], items: InboxItem[],
   const dmTitle = (t: string) => (t.includes(" ↔ ") ? t.split(" ↔ ").map((h) => (h === viewer.name ? shownName(h, viewer.display_name) : shownName(h, people[h]))).join(" ↔ ") : t);
   const rows = items
     .map((i) => {
-      const who = i.kind === "manual_unread" ? T("You") : i.kind === "approval" ? (i.push?.by ? T("{name}'s agent", { name: i.push.by }) : T("Your agent")) : i.actor_via === "agent" ? T("{name}'s agent", { name: i.actor }) : i.actor;
+      const who = i.kind === "manual_unread" || i.kind === "slack_link" ? T("You") : i.kind === "approval" ? (i.push?.by ? T("{name}'s agent", { name: i.push.by }) : T("Your agent")) : i.actor_via === "agent" ? T("{name}'s agent", { name: i.actor }) : i.actor;
       // A person by the name they chose (jxn #4369), their @handle on hover.
-      const whoHtml = i.kind !== "manual_unread" && i.kind !== "approval" && i.actor_via !== "agent" ? personHtml(i.actor, people[i.actor], known) : esc(who);
-      const href = i.board_id ? `/b/${esc(i.board_id)}${i.kind === "manual_unread" ? "" : `#e${i.seq}`}` : i.kind === "approval" ? "/approvals" : "/people";
+      const whoHtml = i.kind !== "manual_unread" && i.kind !== "slack_link" && i.kind !== "approval" && i.actor_via !== "agent" ? personHtml(i.actor, people[i.actor], known) : esc(who);
+      const href = i.board_id ? `/b/${esc(i.board_id)}${i.kind === "manual_unread" ? "" : `#e${i.seq}`}` : i.kind === "approval" ? "/approvals" : i.kind === "slack_link" ? "/slack/accounts" : "/people";
       return `<li class="inbox-item${i.read_at ? "" : " unread"}"><a href="${href}" data-inbox-id="${i.id}">
 ${avatar(i.actor, "sm", i.actor_via === "agent")}
 <div class="grow" style="min-width:0"><div class="small">${i.kind === "people_only" ? `<span class="po-lock" title="${esc(T("Only people can see it. Agents can't."))}" aria-label="${esc(T("People only"))}">🔒</span> ` : ""}<b>${whoHtml}</b> ${esc(T(VERB[i.kind]))}${i.board_id ? ` <span class="faint">${esc(T("in"))}</span> ${esc(dmTitle(i.board_title ?? i.board_id))} <span class="faint">· #${i.seq}` : ` <span class="faint">`} · ${esc(relTime(i.created_at, Date.now(), L))}</span></div>

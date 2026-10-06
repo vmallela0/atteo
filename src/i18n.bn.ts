@@ -354,6 +354,7 @@ export const BN: Record<string, string> = {
   "Disconnect all": "সব সংযোগ বিচ্ছিন্ন করুন",
   "Disconnect all agents": "সব এজেন্টের সংযোগ বিচ্ছিন্ন করুন",
   "Connect Slack": "Slack সংযুক্ত করুন",
+  "linked a Slack account to Atteo": "Atteo-তে একটি Slack অ্যাকাউন্ট লিঙ্ক করেছেন",
   "Disconnect all your agents now? Every sign-in is revoked and every agent session ends.": "এখনই আপনার সব এজেন্টের সংযোগ বিচ্ছিন্ন করবেন? প্রতিটি সাইন-ইন বাতিল হবে এবং প্রতিটি এজেন্ট সেশন শেষ হবে।",
   "Dismiss": "বন্ধ করুন",
   "Display": "ডিসপ্লে",

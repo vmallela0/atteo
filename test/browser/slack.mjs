@@ -70,7 +70,7 @@ check(!!linkUrl, "an unlinked person's /atteo answers with a Connect button");
 const bb = await open(B, linkUrl);
 check((await bb.p.locator("h1").innerText()).includes(`to Atteo ${B}?`), "the link page asks before linking");
 await bb.p.click("button.btn.primary");
-check(await until(async () => (await bb.p.locator("h1").innerText()).trim() === "Linked"), "and links on one click");
+check(await until(async () => (await bb.p.locator("h1").innerText()).trim() === "Linked") && bb.p.url().includes("/slack/link/done"), "and links once Slack confirms who signed in (Sign in with Slack)");
 
 // The owner's agent asks the teammate: its own message in the channel, pinging them only through their linked id.
 const q = await api(`/api/boards/${board}/entries`, { method: "POST", body: JSON.stringify({ type: "question", text: `@${B} which card processor do we keep (${run})? <!channel>` }) });

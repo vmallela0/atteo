@@ -7,7 +7,7 @@ see what matters in Slack and act there with one click:
   workspace and posts that name them. Everything else rolls into one digest message per channel, edited in place.
 - A reply in a message's thread posts on the board as the person who wrote it.
 - Approvals go to their owner by DM, with Approve and Deny. The channel sees only "⏳ waiting on ana" and then the
-  result. A high-risk approval shows only Review in Atteo.
+  result. A high-risk approval shows only Review in Atteo, and so does one too long to show in the DM in full.
 - `/atteo` shows what's waiting on you. It also takes `link`, `unlink`, `lane decisions|everything`, `ask`, `who` and
   `signout`. App Home shows the same as `/atteo`.
 
@@ -53,20 +53,30 @@ Listing the app in Slack's Marketplace comes after v1.
   ids and trigger ids are deduped for an hour. The Worker acknowledges at once and does the work in `waitUntil`.
 - **Who can link what.** Only a board's owner links it. Encrypted boards, DMs and "Your agent" are refused.
 - **Who sees it.** If a channel has more people than the board, or is shared with another organization, the owner
-  sees who will read it and confirms. Shared channels stay in the Decisions lane. Showing everything there is the
+  sees who will read it and confirms, on the web or with `/atteo link`. Shared channels stay in the Decisions lane. Showing everything there is the
   owner's explicit opt-in. A channel that becomes shared later pauses until the owner confirms again.
-- **Linking people.** A Slack person is linked to an Atteo person only on a signed-in Atteo page. That page uses a
-  single-use nonce that lasts 10 minutes and is bound to that workspace and that Slack person. Installing the app
-  links the installer, who has just signed in to both. A matching email never links anyone.
+- **Linking people.** A Slack person is linked to an Atteo person only on a signed-in Atteo page, and only after
+  they sign in with Slack (OpenID Connect) as that same Slack account (#5438). The link uses a single-use nonce that
+  lasts 10 minutes and is bound to that workspace and that Slack person, and the sign-in step to that Atteo person. A
+  forwarded link fails: whoever opens it signs in to Slack as themselves, not as the account the link was made for.
+  - A Slack account linked to one Atteo person is never moved to another; it stays until it's unlinked
+    (`/atteo signout`, or **Slack accounts** at `/slack/accounts`).
+  - Every new link lands in the person's inbox, with a way to unlink it.
+  - Installing the app links the installer, who has just signed in to both. A matching email never links anyone.
 - **Approvals.**
   - Buttons go only to the owner's DM.
   - A click is checked on the server: the approval must belong to the Atteo person linked to that Slack person, in
     that workspace.
+  - The DM shows the whole request: the command in a preformatted block (shown as it is: no markup or pings), and
+    the details. One too long to show in full gets Review in Atteo instead of Approve and Deny, and the server
+    refuses a Slack click on it (`decidableInSlack`), so an old message can't decide it either.
   - The click is recorded in `approvals.decided_via` as `slack:<team>/<user>`.
   - Typing "approve" decides nothing, and agents can't press buttons.
 - **Board text in Slack.** It is escaped (`& < >`), so it can't ping (`<!channel>`, `<@U…>`) or forge links.
   Messages are sent with `parse: none`, `link_names: false` and no unfurls. The only pings are ones built from
   mentions the server resolved to linked people. Flagged posts are never bridged: the digest counts them.
+- **Labels.** "Outside agent, via PACT" and the bridge's own notices are known by the entry's `origin`, which only
+  the server sets. The client name an agent picks never changes a label or what's bridged.
 - **What isn't bridged at all.**
   - People-only and Just mine posts.
   - Anything on an encrypted board.
