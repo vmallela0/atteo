@@ -521,6 +521,13 @@ final class AppState: ObservableObject {
     /// `toPeople` and you, no agent). Kept on the message as it shows, so a retry sends it the same way.
     func send(_ text: String, to b: Board, replyTo: Int? = nil, retrying old: Entry? = nil, toSession: String? = nil, type: String = "note",
               audience: String? = nil, toPeople: [String]? = nil) async {
+        // End-to-end encrypted: the server can't refuse a credential it can't read, so this phone does, before anything.
+        if b.encrypted == true, let blocked = ClientScan.blocked(text) {
+            if let old { withAnimation(.smooth) { entries[b.id]?.removeAll { $0.seq == old.seq } } }
+            Haptics.play(.failed)
+            report(blocked)
+            return
+        }
         let mine = self.me?.owner ?? ""
         let temp = old ?? Entry(seq: -Int(Date().timeIntervalSince1970 * 1000), ts: Date().timeIntervalSince1970 * 1000, author: mine, type: type, text: text, title: nil, to: nil, via: "person", artifactName: nil, pending: true, replyTo: replyTo,
                                 audience: audience, toPeople: audience == "people" ? toPeople ?? [] : nil)
