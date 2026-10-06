@@ -5,12 +5,11 @@ import XCTest
 /// properties go out, and the one-time events fire once.
 final class AnalyticsTests: XCTestCase {
     final class Recorder: AnalyticsSink {
-        var events: [(String, [String: Any])] = [], screens: [String] = [], ids: [String] = []
+        var events: [(String, [String: Any])] = [], screens: [String] = []
         var optIns = 0, optOuts = 0, resets = 0
         func start(key: String, host: String, optedOut: Bool) {}
         func capture(_ event: String, properties: [String: Any]) { events.append((event, properties)) }
         func screen(_ name: String) { screens.append(name) }
-        func identify(_ id: String) { ids.append(id) }
         func reset() { resets += 1 }
         func optIn() { optIns += 1 }
         func optOut() { optOuts += 1 }
@@ -65,11 +64,10 @@ final class AnalyticsTests: XCTestCase {
         XCTAssertEqual(rec.events.map(\.0), ["first_message", "agent_connected"])
     }
 
-    func testIdentifyByHandleAndResetOnSignOut() {
-        Analytics.identify(nil)
-        Analytics.identify("ann")
+    func testAnonymousOnlyAndResetOnSignOut() {
+        Analytics.messageSent(by: "ann")
+        XCTAssertFalse(rec.events.contains { e in e.1.values.contains { "\($0)".contains("ann") } }, "no handle in any event")
         Analytics.reset()
-        XCTAssertEqual(rec.ids, ["ann"])
         XCTAssertEqual(rec.resets, 1)
     }
 }

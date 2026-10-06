@@ -31,12 +31,13 @@ fixed on this branch.
 
 ## What vedu does in App Store Connect
 
-1. **Privacy label** (App Privacy), from what the app actually collects, all *linked to you*, *not used for tracking*:
+1. **Privacy label** (App Privacy), from what the app actually collects, *not used for tracking*, all *linked to you* except usage data:
    - Contact info: name, email address (app functionality).
-   - Identifiers: user ID (app functionality, analytics: the handle identifies the person in PostHog).
-   - Usage data: product interaction (analytics). PostHog records which features are used (sign in, board created,
-     invite sent, first message, agent connected, voice used, screen names), never message text or emails
-     (Analytics.swift, vedu #4416). Settings → Safety and privacy → Share usage analytics turns it off.
+   - Identifiers: user ID (app functionality).
+   - Usage data: product interaction (analytics), *not linked to you*. PostHog records which features are used (sign
+     in, board created, invite sent, first message, agent connected, voice used, screen names) under a random id made
+     once per install, never the handle or any account id, and never message text or emails (Analytics.swift, vedu
+     #4416), matching the web and /privacy. Settings → Safety and privacy → Share usage analytics turns it off.
    - User content: other user content (messages, files), photos or videos (pictures you send), customer support (bug
      reports and feedback).
    - Audio: answer *yes* only if you count Talk's realtime voice as collected. It's streamed to xAI for the
