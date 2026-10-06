@@ -1053,6 +1053,41 @@ await step("atteo mcp on an encrypted board (E2E 1c): a local MCP agent reads, g
   m.stop();
 });
 
+await step("encrypted by default (E2E_DEFAULT): DMs, Your agent and a local agent's create_board are encrypted; a hosted connector's and an explicit false aren't", async () => {
+  // Needs a server started with --var E2E_DEFAULT:1 (E2E_ON=1 says so); with the default off, it checks nothing changed.
+  const on = process.env.E2E_ON === "1";
+  const U = `e2e-cli-u-${run}`, V = `e2e-cli-v-${run}`;
+  for (const u of [U, V]) await ops("users", { name: u, email: `${u}@example.com`, verified: "true" });
+  const ck = async (u) => (await ops("sessions", { user: u })).cookie;
+  const [cu, cv] = [await ck(U), await ck(V)];
+  const post = (cookie, path, body = {}) => fetch(`${BASE}${path}`, { method: "POST", headers: { cookie, "content-type": "application/json", origin: BASE }, body: JSON.stringify(body) }).then((x) => x.json());
+  await post(cu, "/api/friends/request", { user: V });
+  await post(cv, `/api/friends/${U}/accept`);
+  const dm = await post(cu, `/api/direct/${V}`);
+  assert(dm.ok && dm.board, JSON.stringify(dm));
+  const chat = await post(cu, "/api/me/agent-chat");
+  assert(chat.ok && chat.board, JSON.stringify(chat));
+  const tokU = (await ops("tokens", { user: U })).token;
+  const mine = (await fetch(`${BASE}/api/me/boards`, { headers: { authorization: `Bearer ${tokU}` } }).then((x) => x.json())).boards;
+  const enc = (id) => !!mine.find((b) => b.id === id)?.encrypted;
+  assert(enc(dm.board) === on && enc(chat.board) === on, `DM and Your agent encrypted iff E2E_DEFAULT: ${JSON.stringify(mine.map((b) => [b.id, b.encrypted]))}`);
+  // create_board: through atteo mcp (encrypts locally) vs a hosted connector straight to /mcp.
+  const credU = join(dir, "u.json");
+  writeFileSync(credU, JSON.stringify({ server: BASE, user: U, token: tokU, expires_at: Date.now() + 86400e3 }), { mode: 0o600 });
+  const m = startMcp(credU, { XDG_CONFIG_HOME: join(dir, "cfg-e2edef") });
+  await m.call("initialize", { protocolVersion: "2025-06-18", capabilities: {} });
+  const local = (await m.call("tools/call", { name: "create_board", arguments: { title: `local ${run}` } })).result.content[0].text;
+  const plain = (await m.call("tools/call", { name: "create_board", arguments: { title: `plain ${run}`, encrypted: false } })).result.content[0].text;
+  m.stop();
+  const hosted = await tool(tokU, "", "create_board", { title: `hosted ${run}` });
+  const idOf = (t) => t.match(/\((b_[a-z0-9]+)\)/)[1];
+  const after = (await fetch(`${BASE}/api/me/boards`, { headers: { authorization: `Bearer ${tokU}` } }).then((x) => x.json())).boards;
+  const enc2 = (id) => !!after.find((b) => b.id === id)?.encrypted;
+  assert(enc2(idOf(local)) === on && local.includes("end-to-end encrypted") === on, local);
+  assert(enc2(idOf(plain)) === false, "encrypted: false is Readable by Atteo's servers: " + plain);
+  assert(enc2(idOf(hosted)) === false && !hosted.includes("It's end-to-end encrypted"), "a hosted connector's board stays readable until it can be a visible reader: " + hosted);
+});
+
 await step("encrypted board past 200 (alt-c #3398): read --all shows everything; a plain read takes a page and says more are waiting", async () => {
   // Standalone (#3007): its own encrypted board. The sealed route gives 200 a call, so 205 filler envelopes push a real
   // message past the first page. The filler is a v2 envelope at the board's epoch that won't decrypt; it only adds entries.

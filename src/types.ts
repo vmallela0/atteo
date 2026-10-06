@@ -171,6 +171,7 @@ export interface Env {
   SENTRY_DSN?: string; // secret (so dev/CI never report): Sentry project DSN; absent in dev/CI, then Sentry is off
   POSTHOG_KEY?: string; // var: PostHog project API key (phc_…, public). Unset: the web analytics loader does nothing (src/analytics.ts, docs/ANALYTICS.md)
   POSTHOG_HOST?: string; // var: "eu" (default) or "us". Anything else leaves analytics off
+  E2E_DEFAULT?: string; // var: "1" makes new boards, DMs and "Your agent" end-to-end encrypted by default on every surface (src/e2edefault.ts, E2E design §7). Unset: today's defaults
   CF_REALTIME_APP_ID?: string; // var: the Cloudflare Realtime (SFU) app for board calls (src/calls.ts); with CF_REALTIME_APP_TOKEN. Unset: no calls anywhere (routes, page and button 404/hidden)
   DEV_FAKE_REALTIME?: string; // LOCAL .dev.vars ONLY, never wrangler.jsonc: "1" + localhost → board calls use a stub room with no audio (src/calls.ts; the browser checks)
   CF_REALTIME_APP_TOKEN?: string; // secret: that app's token; only the Worker uses it (it proxies the SFU's HTTP API). Never in wrangler.jsonc

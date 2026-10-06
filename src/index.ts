@@ -1561,7 +1561,7 @@ const handler = {
       // ---- "Your agent": your private chat with your own agents (any session, or one you pick), made on first open ----
       if ((path === "/api/me/agent-chat" && method === "POST") || (path === "/agent" && method === "GET")) {
         if (!viewer) return needLogin();
-        const d = await social.openAgentChat(env, viewer.name, (bid, title, creator) => boardStub(env, bid).init(bid, title, creator));
+        const d = await social.openAgentChat(env, viewer.name, (bid, title, creator, opts) => boardStub(env, bid).init(bid, title, creator, opts));
         if (path === "/agent") return redirect(`/b/${d.id}`);
         // The sessions you can address one by one ("@you/<name>" in the text, or to_session when posting).
         const mine = (await sessions.list(env, viewer.name)).filter(sessions.listed).map((x) => ({ id: x.id, name: x.name, client: x.client, state: x.state, status: x.status ?? null }));
@@ -1884,7 +1884,7 @@ const handler = {
           }
           pm = path.match(/^\/api\/direct\/([a-z0-9][a-z0-9_.-]{0,31})$/);
           if (pm && method === "POST") {
-            const d = await social.directBoard(env, me, pm[1], (bid, title, creator) => boardStub(env, bid).init(bid, title, creator));
+            const d = await social.directBoard(env, me, pm[1], (bid, title, creator, opts) => boardStub(env, bid).init(bid, title, creator, opts));
             const p = await social.person(env, me, pm[1]);
             return json({ ok: true, board: d.id, title: d.title, created: d.created, presence: p ? social.presenceLabel(p.presence) : "offline", online: p ? social.isOnline(p.presence) : false });
           }
