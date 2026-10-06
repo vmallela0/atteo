@@ -699,7 +699,7 @@ const handler = {
         if (!(await limits.publicAllowed(env, "status", request))) return tooManyPublic();
         return await handlePublicStatus(request, env, path);
       }
-      // Browsers post what the report-only CSP would have blocked (jxn's agent #2636): no sign-in, always 204.
+      // Browsers post what the CSP blocked (jxn's agent #2636; enforced since vedu #5192): no sign-in, always 204.
       if (path === "/api/csp-report" && method === "POST") return await csp.handleReport(request, env);
       if (path === "/health/deep") {
         if (!(await limits.publicAllowed(env, "health", request))) return tooManyPublic();

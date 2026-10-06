@@ -19,8 +19,8 @@ import { personHtml, shownName } from "./names";
 import { clientTable, dirOf, tr, type Lang } from "./i18n";
 import { analyticsScriptTag, currentAnalytics } from "./analytics";
 
-/** Report-only for now (jxn's agent #2636): violations go to /api/csp-report and the ops console. Set this to true to
- *  enforce once a day of reports is clean; nothing else changes (every inline script already carries the nonce). */
+/** Enforced since 2026-10-06 (vedu #5192) after a week report-only (jxn's agent #2636). Violations still go to
+ *  /api/csp-report and the ops console. Rollback: set false and deploy (docs/security/csp.md). */
 export const CSP_ENFORCE = true;
 export const CSP_REPORT_PATH = "/api/csp-report";
 
@@ -60,8 +60,8 @@ export function formActionSource(raw: string): string | null {
 // a new mermaid build, or a new light --bg (jxn #5142), changes the hash and the csp browser checks name the new one.
 // Cloudflare Web Analytics: Cloudflare's edge injects its beacon script (no nonce) and the beacon posts to cloudflareinsights.com.
 // It was the only report in a week of report-only (vedu #5192), so it's allowed by name rather than blocked once enforced.
-const CF_BEACON_SRC = "https://static.cloudflareinsights.com";
-const CF_BEACON_POST = "https://cloudflareinsights.com";
+export const CF_BEACON_SRC = "https://static.cloudflareinsights.com";
+export const CF_BEACON_POST = "https://cloudflareinsights.com";
 const MERMAID_STYLE_HASH = "'sha256-vuoYVUMGk/VxhCdzgU8CZI+1pTZh7IqNO0ULnfSkFEE='";
 export function pageSecurity(opts: { formAction?: string[] } = {}) {
   const nonce = Array.from(crypto.getRandomValues(new Uint8Array(16)), (b) => b.toString(16).padStart(2, "0")).join("");

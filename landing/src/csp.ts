@@ -1,5 +1,5 @@
-// Content-Security-Policy for the landing Worker (docs/security/csp.md #8). Separate from the app's report-only
-// policy and from CSP_ENFORCE: these pages are static marketing HTML, publicly cached, so each inline script
+// Content-Security-Policy for the landing Worker (docs/security/csp.md #8). Separate from the app's
+// nonce-based policy and from CSP_ENFORCE: these pages are static marketing HTML, publicly cached, so each inline script
 // (JSON-LD today) is allowed by its SHA-256 hash rather than a per-response nonce (a nonce would pin one value
 // in a shared cache). Pages with no script (the guide) get script-src 'none'. Style stays 'unsafe-inline' for
 // the page CSS and a few style attributes, the same reason the app has not removed it yet.

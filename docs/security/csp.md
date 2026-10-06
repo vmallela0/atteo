@@ -1,6 +1,6 @@
 # Content Security Policy
 
-The application CSP is **report-only**. `CSP_ENFORCE` in `src/ui.ts` must remain `false` until an explicit rollout change is reviewed. This document records what is ready and what still needs operational verification before that later flip.
+The application CSP is **enforced** (`CSP_ENFORCE = true` in `src/ui.ts`, 2026-10-06, vedu #5192), with reporting still on. It ran report-only first; this document records the prerequisites and what the report-only week showed.
 
 ## Enforcement prerequisites
 
@@ -35,6 +35,8 @@ These are intentional or operational gaps, not reasons to weaken script protecti
 9. Done: the enforced browser simulation covers `/_ops` through a localhost-only operator session (`POST /api/ops/sessions { admin: true }` with `DEV_FAKE_ADMIN=1` in local `.dev.vars`, `test/browser/lib/admin.mjs`). CI still sets no `ADMIN_EMAIL`; production still requires it. The test marker (`workos_id` `ops-admin`) is ignored without the flag or off localhost. `csp-enforced.mjs` and `csp.mjs` walk Overview, Access and Events; server-rendered scripts pass the shared nonce unit checks.
 10. Product analytics, when `POSTHOG_KEY` is set, adds that region's PostHog ingest origin (`https://eu.i.posthog.com` or `https://us.i.posthog.com`) to `connect-src` only. The loader is a first-party inline script, so `script-src` does not gain a third-party host. With the key unset, `connect-src` is unchanged. The landing Worker's signed-out home page may also load Cloudflare Web Analytics when `CF_WEB_ANALYTICS_TOKEN` is set; that page's enforced policy then allows `https://static.cloudflareinsights.com` on `script-src` and `https://cloudflareinsights.com` on `connect-src`. Unset, the landing policy is unchanged.
 
-## Later rollout
+## Rollout (2026-10-06)
 
-The enforcement change should be a small, separate pull request that changes only `CSP_ENFORCE` to `true` (plus any rollout notes). Keep reporting enabled during and after the flip, run `test/browser/csp.mjs` and `test/browser/csp-enforced.mjs`, and have a rollback ready. This prerequisites change does **not** enable enforcement.
+A week of production report-only reports (2026-09-30 to 2026-10-06) showed one blocked source and nothing from our own pages: `script-src-elem https://static.cloudflareinsights.com`, Cloudflare Web Analytics' beacon, which Cloudflare's edge injects into app pages without our nonce. The app policy now allows it by name, as the landing already does (gap 10): `https://static.cloudflareinsights.com` on `script-src` and `https://cloudflareinsights.com` on `connect-src`. Nothing else was loosened.
+
+The flip changed `CSP_ENFORCE` to `true` and the tests that pinned report-only. Reporting stays on (`report-uri` and `report-to`), so `/_ops` keeps showing what the policy blocks. Rollback is setting `CSP_ENFORCE` back to `false` and deploying.
