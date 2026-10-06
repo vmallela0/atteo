@@ -13,19 +13,16 @@ const post = async (ck, text, reply_to) => { const r = await fetch(`${BASE}/api/
 const N = 400, words = "the quick brown fox jumps over a lazy dog while agents talk about the retry limit and the release plan".split(" ");
 const line = (i) => Array.from({ length: 6 + (i * 7) % 40 }, (_, k) => words[(i + k) % words.length]).join(" ");
 const S = {}; // named seqs
-// The messages are independent except for the replies and #ref. Create independent runs concurrently, bounded so the
-// local Worker isn't flooded; returned seqs keep every named assertion exact even if requests finish out of order.
-const seeds = Array.from({ length: N - 3 }, (_, x) => x + 1).map((i) => {
-  if (i === 40) return ["forYou", `@${P} this one is for you ${run}`];
-  if (i === 100) return ["root", `Thread root ${run}: what should the retry limit be?`];
-  if (i === 20) return ["target", `Ref target ${run}: the old decision`];
-  if (i >= 34 && i <= 39) return [null, "```mermaid\nflowchart TD\n A[Start " + i + "] --> B[Plan] --> C[Build] --> D[Ship]\n```"]; // grow when drawn (#4648)
-  return [null, `message ${i}: ${line(i)}${i % 9 === 0 ? "\n\n" + line(i + 3) + "\n" + line(i + 5) : ""}`];
-});
-for (let i = 0; i < seeds.length; i += 20) await Promise.all(seeds.slice(i, i + 20).map(async ([key, text]) => { const seq = await post(ckV, text); if (key) S[key] = seq; }));
-[S.kid1, S.kid2, S.ref] = await Promise.all([
-  post(ckV, `First answer: three ${run}`, S.root), post(ckV, `Late answer: five ${run}`, S.root), post(ckV, `See #${S.target} for the old decision`),
-]);
+for (let i = 1; i <= N; i++) {
+  if (i === 40) S.forYou = await post(ckV, `@${P} this one is for you ${run}`);
+  else if (i === 100) S.root = await post(ckV, `Thread root ${run}: what should the retry limit be?`);
+  else if (i === 102) S.kid1 = await post(ckV, `First answer: three ${run}`, S.root);
+  else if (i === 300) S.kid2 = await post(ckV, `Late answer: five ${run}`, S.root);
+  else if (i === 20) S.target = await post(ckV, `Ref target ${run}: the old decision`);
+  else if (i >= 34 && i <= 39) await post(ckV, "```mermaid\nflowchart TD\n A[Start " + i + "] --> B[Plan] --> C[Build] --> D[Ship]\n```"); // grow when drawn (#4648)
+  else if (i === 390) S.ref = await post(ckV, `See #${S.target} for the old decision`);
+  else await post(ckV, `message ${i}: ${line(i)}${i % 9 === 0 ? "\n\n" + line(i + 3) + "\n" + line(i + 5) : ""}`);
+}
 let fails = 0; const check = (ok, t) => { console.log(`${ok ? "✓" : "✗"} ${t}`); if (!ok) fails++; };
 const b = await chromium.launch({ executablePath: process.env.PW_CHROME || undefined });
 async function open(path = "", opts = {}) {
