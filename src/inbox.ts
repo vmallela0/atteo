@@ -7,6 +7,7 @@ import { appPage, avatar, relTime, type SideBoard, type Viewer } from "./ui";
 import { tr } from "./i18n";
 import { esc } from "./util";
 import { personHtml, shownName } from "./names";
+import { maskForReader } from "./offensive";
 import { approvalCardHtml, approvalJs, type ApprovalCardData } from "./approvalCard";
 import { PERSON_ONLY_KINDS, type Env } from "./types";
 import { classify, DEFAULT_LEVEL, lastDigestAt, type Interrupt, type Level, type NotifyPrefs } from "./notify";
@@ -180,7 +181,7 @@ function approvalFor(i: InboxItem & { approval_id?: string | null }, list: (Appr
   return list.find((a) => (i.approval_id ? a.id === i.approval_id : a.created_at === i.created_at));
 }
 
-export function inboxPage(viewer: Viewer, side: SideBoard[], items: InboxItem[], approvals: (ApprovalCardData & { created_at?: number })[] = [], people: Record<string, string> = {}): Response {
+export function inboxPage(viewer: Viewer, side: SideBoard[], items: InboxItem[], approvals: (ApprovalCardData & { created_at?: number })[] = [], people: Record<string, string> = {}, hideOffensive = false): Response {
   const L = viewer.lang,
     T = (x: string, v?: Record<string, string | number>) => tr(L, x, v);
   const unread = items.filter((i) => !i.read_at).length;
@@ -196,7 +197,7 @@ export function inboxPage(viewer: Viewer, side: SideBoard[], items: InboxItem[],
       return `<li class="inbox-item${i.read_at ? "" : " unread"}"><a href="${href}" data-inbox-id="${i.id}">
 ${avatar(i.actor, "sm", i.actor_via === "agent")}
 <div class="grow" style="min-width:0"><div class="small">${i.kind === "people_only" ? `<span class="po-lock" title="${esc(T("Only people can see it. Agents can't."))}" aria-label="${esc(T("People only"))}">🔒</span> ` : ""}<b>${whoHtml}</b> ${esc(T(VERB[i.kind]))}${i.board_id ? ` <span class="faint">${esc(T("in"))}</span> ${esc(dmTitle(i.board_title ?? i.board_id))} <span class="faint">· #${i.seq}` : ` <span class="faint">`} · ${esc(relTime(i.created_at, Date.now(), L))}</span></div>
-<div class="small muted truncate">${esc(i.excerpt)}</div></div>${i.read_at ? "" : `<span class="dot" aria-label="${esc(T("unread"))}"></span>`}</a><details class="remind-menu"><summary>${esc(T("Remind me"))}</summary><div><button type="button" data-remind="hour" data-id="${i.id}">${esc(T("In 1 hour"))}</button><button type="button" data-remind="tonight" data-id="${i.id}">${esc(T("Tonight (20:00)"))}</button><button type="button" data-remind="tomorrow" data-id="${i.id}">${esc(T("Tomorrow (09:00)"))}</button></div></details>${
+<div class="small muted truncate">${esc(hideOffensive ? maskForReader(i.excerpt, { author: i.actor, via: i.actor_via }, viewer.name, true) : i.excerpt)}</div></div>${i.read_at ? "" : `<span class="dot" aria-label="${esc(T("unread"))}"></span>`}</a><details class="remind-menu"><summary>${esc(T("Remind me"))}</summary><div><button type="button" data-remind="hour" data-id="${i.id}">${esc(T("In 1 hour"))}</button><button type="button" data-remind="tonight" data-id="${i.id}">${esc(T("Tonight (20:00)"))}</button><button type="button" data-remind="tomorrow" data-id="${i.id}">${esc(T("Tomorrow (09:00)"))}</button></div></details>${
         approvalFor(i, approvals)
           ? approvalCardHtml(approvalFor(i, approvals)!, true, L)
           : i.kind === "contact_request" && !i.read_at

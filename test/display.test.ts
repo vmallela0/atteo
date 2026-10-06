@@ -35,6 +35,17 @@ describe("display.compact", () => {
   });
 });
 
+describe("display.hide_offensive", () => {
+  it("is on by default, and a partial save keeps whatever the person chose", () => {
+    expect(DISPLAY_DEFAULTS.hide_offensive).toBe(true);
+    expect(mergeDisplay(DISPLAY_DEFAULTS, { hide_offensive: false }).hide_offensive).toBe(false);
+    expect(mergeDisplay({ ...DISPLAY_DEFAULTS, hide_offensive: false }, { text: "l" }).hide_offensive).toBe(false);
+    expect(mergeDisplay({ ...DISPLAY_DEFAULTS, hide_offensive: false }, { hide_offensive: true }).hide_offensive).toBe(true);
+    expect(mergeDisplay(DISPLAY_DEFAULTS, { hide_offensive: false }).xai_ok).toBe(false);
+    for (const bad of ["true", "on", 1, null]) expect(() => mergeDisplay(DISPLAY_DEFAULTS, { hide_offensive: bad })).toThrow(/true or false/);
+  });
+});
+
 describe("display.voice_autosend", () => {
   it("is off by default, an on/off switch, and nothing else (vedu #2638)", () => {
     expect(DISPLAY_DEFAULTS.voice_autosend).toBe(false);

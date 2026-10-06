@@ -1041,8 +1041,11 @@ const handler = {
           registry.everHadAgent(env, viewer.name),
         ]);
         // Everyday (#1272): home is "For you" once you have an assistant; the chat list lives at /chats. Developer mode keeps today's home.
-        if (path === "/" && had && !invitations.length && viewer.via !== "agent" && !url.search && !(await developerFor(env, viewer.name, (await social.appPrefs(env, viewer.name))?.display.mode))) return redirect("/for-you");
-        return homePage(viewer, side, boards, invitations, { connected: status.connected, onThisBoard: false }, undefined, !had);
+        const person = viewer.via !== "agent";
+        const prefs = person && path === "/" && had && !invitations.length && !url.search ? await social.appPrefs(env, viewer.name) : null;
+        if (prefs && !(await developerFor(env, viewer.name, prefs.display.mode))) return redirect("/for-you");
+        const hideOffensive = person ? (prefs ? prefs.display.hide_offensive !== false : await social.hideOffensiveOn(env, viewer.name)) : false;
+        return homePage(viewer, side, boards, invitations, { connected: status.connected, onThisBoard: false }, undefined, !had, hideOffensive);
       }
 
       if (path === "/boards" && method === "POST") {
@@ -1083,7 +1086,7 @@ const handler = {
         if (m[1] === "join") return redirect(`/b/${m[2]}`);
         if (!viewer) return needLogin();
         if (!(await canSee(c, m[2]))) return notFound(viewer);
-        const [snap, members, invites, side, live, status, row, muted] = await Promise.all([
+        const [snap, members, invites, side, live, status, row, muted, hideOffensive] = await Promise.all([
           boardStub(env, m[2]).snapshot(0, { latest: 80 }, seer()), // fewer messages on the page keeps scrolling smooth (jxn #1365); older ones load as you go back
           registry.boardMembers(env, m[2]),
           registry.pendingInvites(env, m[2]),
@@ -1092,6 +1095,7 @@ const handler = {
           registry.agentStatus(env, viewer.name),
           registry.getBoard(env, m[2]),
           viewer.via === "agent" ? [] : moderation.mutedOn(env, viewer.name, m[2]).catch(() => []), // whom you muted here (#3602)
+          viewer.via === "agent" ? false : social.hideOffensiveOn(env, viewer.name),
         ]);
         // Agents here: named sessions, plus members' agents connected without one (e.g. an MCP URL connection).
         const memberSet = new Set(members.map((x) => x.user));
@@ -1115,20 +1119,20 @@ const handler = {
         // (STRIP_JS): a hovered link fetches the page ahead (#3717), and that isn't opening it.
         const here = side.find((b) => b.id === m![2]);
         if (here) here.opened = Date.now();
-        return boardPage(viewer, side, snap.info, withAgents, snap.entries.map((e) => withAgentNames(e, agentNamed)), shown, { connected: status.connected, onThisBoard: !!live[viewer.name] }, snap.summary, agentsHere, { picture: boardPictures.pictureUrl(m[2], row?.picture_v), kind, charter, sessions: mine, seen: snap.reads?.[viewer.name]?.person_seen ?? 0, last_seen: snap.reads?.[viewer.name]?.person_seen ?? 0, muted });
+        return boardPage(viewer, side, snap.info, withAgents, snap.entries.map((e) => withAgentNames(e, agentNamed)), shown, { connected: status.connected, onThisBoard: !!live[viewer.name] }, snap.summary, agentsHere, { picture: boardPictures.pictureUrl(m[2], row?.picture_v), kind, charter, sessions: mine, seen: snap.reads?.[viewer.name]?.person_seen ?? 0, last_seen: snap.reads?.[viewer.name]?.person_seen ?? 0, muted, hideOffensive });
       }
 
       // ---- inbox: mentions of you, posts for your agent, replies to you ----
       if (path === "/inbox" && method === "GET") {
         if (!viewer) return needLogin();
-        const [side, items, aps] = await Promise.all([sideBoardsNamed(env, viewer.name), inbox.listInbox(env, viewer.name, 100, viewer.via !== "agent"), approvals.listApprovals(env, viewer.name, "all")]);
+        const [side, items, aps, hideOffensive] = await Promise.all([sideBoardsNamed(env, viewer.name), inbox.listInbox(env, viewer.name, 100, viewer.via !== "agent"), approvals.listApprovals(env, viewer.name, "all"), viewer.via === "agent" ? false : social.hideOffensiveOn(env, viewer.name)]);
         // Looking at the inbox is reading it: the badge clears (items still show as new on this view). Off-board items
         // (friend and contact requests, approvals) have no board to open, so this is where they get read.
         const unreadIds = items.filter((i) => !i.read_at).map((i) => i.id).slice(0, 90); // D1: at most 100 bound parameters
         if (unreadIds.length) ctx.waitUntil(inbox.markRead(env, viewer.name, { ids: unreadIds }).catch(() => 0));
         const dmPeers = items.flatMap((i) => (i.board_title?.includes(" ↔ ") ? i.board_title.split(" ↔ ") : []));
         const people = await displayNames(env, [...items.filter((i) => i.actor_via !== "agent").map((i) => i.actor), ...dmPeers]).catch(() => ({}));
-        return inbox.inboxPage(viewer, side, items, aps, people);
+        return inbox.inboxPage(viewer, side, items, aps, people, hideOffensive);
       }
       // ---- The guide (vedu #2402): what people can do, by task. Public; signed in, its top bar goes back to the app ----
       if (path === "/guide" && method === "GET") {
@@ -1139,7 +1143,7 @@ const handler = {
       if (path === "/for-you" && method === "GET") {
         if (!viewer) return needLogin();
         const now = Date.now();
-        const [side, aps, items] = await Promise.all([sideBoardsNamed(env, viewer.name), approvals.listApprovals(env, viewer.name, "pending"), inbox.listInbox(env, viewer.name, 60)]);
+        const [side, aps, items, hideOffensive] = await Promise.all([sideBoardsNamed(env, viewer.name), approvals.listApprovals(env, viewer.name, "pending"), inbox.listInbox(env, viewer.name, 60), viewer.via === "agent" ? false : social.hideOffensiveOn(env, viewer.name)]);
         // Unread mail for you (the person) from the last week: mentions and replies open in their chat; their boards are
         // looked at too, so a decision or question waiting there shows even on a quiet board.
         const mail = items.filter((i) => !i.read_at && i.board_id && (i.kind === "mention" || i.kind === "reply" || i.kind === "decision") && now - i.created_at < 7 * 86_400_000);
@@ -1150,7 +1154,7 @@ const handler = {
         const snoozed = new Set(snoozedRows.map((r) => `${r.board_id}:${r.seq}`));
         const snoozedApprovals = new Set(snoozedRows.flatMap((r) => { try { const id = JSON.parse(r.data ?? "null")?.push?.approval; return id ? [id as string] : []; } catch { return []; } }));
         const visible = boards.map((b) => ({ ...b, decisions: b.decisions.filter((x) => !snoozed.has(`${b.board.id}:${x.seq}`)), questions: b.questions.filter((x) => !snoozed.has(`${b.board.id}:${x.seq}`)) }));
-        return forYou.forYouPage(viewer, side, { approvals: aps.filter((a) => !snoozedApprovals.has(a.id)), boards: visible, mentions, now });
+        return forYou.forYouPage(viewer, side, { approvals: aps.filter((a) => !snoozedApprovals.has(a.id)), boards: visible, mentions, now }, hideOffensive);
       }
       if (path === "/api/inbox" && method === "GET") {
         if (!viewer) return needLogin();
@@ -1639,7 +1643,8 @@ const handler = {
         }
         const b = (await request.json().catch(() => ({}))) as Record<string, unknown>;
         // Consent to send voice to xAI is the person's alone (jxn's agent #4444): an agent token can't give it.
-        if (viewer.via === "agent" && (b.listed !== undefined || b.rules !== undefined || (b.display as { xai_ok?: unknown } | undefined)?.xai_ok !== undefined)) return json({ error: PEOPLE_ONLY_SETTING }, 403);
+        const disp = b.display as { xai_ok?: unknown; hide_offensive?: unknown } | undefined;
+        if (viewer.via === "agent" && (b.listed !== undefined || b.rules !== undefined || disp?.xai_ok !== undefined || disp?.hide_offensive !== undefined)) return json({ error: PEOPLE_ONLY_SETTING }, 403);
         const blocked = egressRefusal(env, ctx, { bio: typeof b.bio === "string" ? b.bio : null, display_name: typeof b.display_name === "string" ? b.display_name : null, agent_name: typeof b.agent_name === "string" ? b.agent_name : null });
         if (blocked) return json({ error: blocked }, 400);
         try {
@@ -3353,7 +3358,7 @@ const handler = {
           const refused = await longPoll(after);
           if (refused) return refused;
           // Only entries after `after` (up to 1000 per call; the client advances and asks again), roots resolved in the DO.
-          const [snap, members0, live] = await Promise.all([stub.snapshot(after, {}, seer()), registry.boardMembers(env, id), registry.agentsOnBoard(env, id)]);
+          const [snap, members0, live, hideOffensive] = await Promise.all([stub.snapshot(after, {}, seer()), registry.boardMembers(env, id), registry.agentsOnBoard(env, id), viewer && viewer.via !== "agent" ? social.hideOffensiveOn(env, viewer.name) : false]);
           const members = members0.map((x) => ({ ...x, agent_seen: live[x.user] ?? null }));
           const fresh = snap.entries;
           const roots = await stub.rootsFor(fresh.map((e) => e.seq));
@@ -3367,8 +3372,8 @@ const handler = {
               ...(e.via === "agent" && names[e.author] ? { agent_name: names[e.author] } : {}), // "Jarvis · vedu's agent"
               root: roots[e.seq] ?? e.seq,
               retracts: e.retracts,
-              html: entryHtml(withAgentNames(e, names), id, true, { canRetract: canRetract(e), canEdit: !!viewer && !snap.info.encrypted && e.author === viewer.name, lang: viewer?.lang, members: memberSet, people, person: !!viewer && viewer.via !== "agent" }),
-              row: logRow(e, undefined, undefined, viewer?.lang),
+              html: entryHtml(withAgentNames(e, names), id, true, { canRetract: canRetract(e), canEdit: !!viewer && !snap.info.encrypted && e.author === viewer.name, lang: viewer?.lang, members: memberSet, people, person: !!viewer && viewer.via !== "agent", viewer: viewer?.name, hideOffensive }),
+              row: logRow(e, undefined, undefined, viewer?.lang, hideOffensive && viewer ? viewer.name : undefined),
               reactions: snap.reactions[e.seq] ?? [],
               ...(e.type === "change" ? { reviews: snap.reviews[e.seq] ?? [] } : {}),
               ...(snap.claims[e.seq] ? { claim: snap.claims[e.seq] } : {}),
@@ -3382,7 +3387,7 @@ const handler = {
             handling: snap.handling, // which agent took which message ("vedu/scout")
             reads: snap.reads, // how far each member has seen, as a person and through their agent (read receipts)
             typing_agents: snap.typing_agents, // agents working on a person's message right now ("… is typing")
-            summary: summaryHtml([], viewer?.name ?? "", members, snap.summary, { boardId: id, creator: snap.info.created_by }, viewer?.lang),
+            summary: summaryHtml([], viewer?.name ?? "", members, snap.summary, { boardId: id, creator: snap.info.created_by }, viewer?.lang, hideOffensive),
             pinned: snap.pinned, // the board's pinned doc {name, version, …} or null
             count: snap.info.entry_count,
             last: snap.last, // past any people-only entries this viewer doesn't get, so the tab doesn't ask again
@@ -3416,12 +3421,13 @@ const handler = {
           const before = parseInt(url.searchParams.get("before") ?? "0", 10) || null;
           const page = await stub.page(before, parseInt(url.searchParams.get("limit") ?? "100", 10) || 100, seer());
           const seqs = page.map((e) => e.seq);
-          const [isOwner, roots, reactions, names, pageInfo] = await Promise.all([
+          const [isOwner, roots, reactions, names, pageInfo, hideOffensive] = await Promise.all([
             viewer ? registry.memberRole(env, id, viewer.name).then((r) => r === "owner") : false,
             stub.rootsFor(seqs),
             stub.reactionsFor(seqs, seer()),
             registry.boardMembers(env, id), // "@Jarvis" chips, as on the page (jxn #1659); who's on it (quick replies)
             stub.info(),
+            viewer && viewer.via !== "agent" ? social.hideOffensiveOn(env, viewer.name) : false,
           ]);
           const pageMembers = new Set(names.map((m) => m.user)), pageNames = agentNames(names), pagePeople = displayMap(names);
           return json({
@@ -3429,8 +3435,8 @@ const handler = {
             entries: page.map((e) => ({
               seq: e.seq,
               root: roots[e.seq] ?? e.seq,
-              html: entryHtml(withAgentNames(e, pageNames), id, true, { canRetract: !!viewer && (e.author === viewer.name || isOwner), canEdit: !!viewer && !pageInfo.encrypted && e.author === viewer.name, lang: viewer?.lang, members: pageMembers, people: pagePeople, person: !!viewer && viewer.via !== "agent" }),
-              row: logRow(e, undefined, undefined, viewer?.lang),
+              html: entryHtml(withAgentNames(e, pageNames), id, true, { canRetract: !!viewer && (e.author === viewer.name || isOwner), canEdit: !!viewer && !pageInfo.encrypted && e.author === viewer.name, lang: viewer?.lang, members: pageMembers, people: pagePeople, person: !!viewer && viewer.via !== "agent", viewer: viewer?.name, hideOffensive }),
+              row: logRow(e, undefined, undefined, viewer?.lang, hideOffensive && viewer ? viewer.name : undefined),
               reactions: reactions[e.seq] ?? [],
               ...(e.human_decision ? { human_decision: e.human_decision } : {}),
             })),

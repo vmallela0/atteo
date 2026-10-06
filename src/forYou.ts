@@ -6,6 +6,7 @@
 // finished). Board content is untrusted: every string from it is escaped here.
 
 import { shownName } from "./names";
+import { maskForReader } from "./offensive";
 import type { Approval } from "./approvals";
 import type { InboxItem } from "./inbox";
 import { appPage, avatar, directPeer, relTime, type SideBoard, type Viewer } from "./ui";
@@ -110,10 +111,12 @@ export function detailLines(details: string, max = 3): { label?: string; text: s
 // ---------- the page ----------
 
 
-export function forYouPage(viewer: Viewer, side: SideBoard[], d: ForYouData): Response {
+export function forYouPage(viewer: Viewer, side: SideBoard[], d: ForYouData, hideOffensive = false): Response {
   const L = viewer.lang,
     T = (x: string, v?: Record<string, string | number>) => tr(L, x, v);
   const me = viewer.name;
+  // Display only. Approval commands are not on this page; titles and details are what you read.
+  const veil = (text: string, author: string, via: string | null | undefined) => (hideOffensive ? maskForReader(text, { author, via }, me, true) : text);
   const now = d.now ?? Date.now();
   const byId = new Map(side.map((b) => [b.id, b]));
   const chatOf = (id: string | null | undefined, title?: string | null) => (id && byId.has(id) ? chatLabel(byId.get(id), me, L) : title ? title : T("a chat"));
@@ -125,13 +128,13 @@ export function forYouPage(viewer: Viewer, side: SideBoard[], d: ForYouData): Re
     .map((a, i) => {
       const where = a.board_id ? ` ${esc(T("asked in"))} <a href="/b/${esc(a.board_id)}${a.seq ? `#e${a.seq}` : ""}">${esc(chatOf(a.board_id))}</a>` : ` ${esc(T("asked"))}`;
       const forWhom = a.requested_by && a.requested_by !== me ? ` ${esc(T("for {name}", { name: cap(a.requested_by) }))}` : "";
-      const lines = detailLines(a.details);
+      const lines = detailLines(veil(a.details, a.requested_by || me, "agent"));
       const det = lines.length
         ? `<div class="det">${lines.map((l) => (l.label ? `<div class="ln"><span>${esc(l.label)}</span><span>${esc(l.text)}</span></div>` : `<div class="ln"><span class="one">${esc(l.text)}</span></div>`)).join("")}</div>`
         : "";
       return `<article class="nc fy-apc" data-ap="${esc(a.id)}"${i ? " hidden" : ""} aria-label="${esc(T("Needs your OK"))}">
 <div class="type"><span class="dot"></span>${esc(T("Needs your OK"))} <b>· <span class="fy-pos">${i + 1}</span> ${esc(T("of"))} <span class="fy-tot">${aps.length}</span></b></div>
-<h2 class="tt">${esc(plainTitle(a.title, T("Your assistant wants to do something")))}</h2>
+<h2 class="tt">${esc(plainTitle(veil(a.title, a.requested_by || me, "agent"), T("Your assistant wants to do something")))}</h2>
 <div class="who">${avatar(me, "sm", true)}<span><b>${esc(T("Your assistant"))}</b>${where}${forWhom} · <span class="faint">${esc(relTime(a.created_at, now, L))}</span></span></div>
 ${det}<div class="acts"><button class="btn xl" type="button" data-fy-ap="reject">${esc(T("Not now"))}</button><button class="btn xl primary" type="button" data-fy-ap="approve">${esc(approveLabel(a.title, L))}</button></div></article>`;
     })
@@ -151,14 +154,14 @@ ${det}<div class="acts"><button class="btn xl" type="button" data-fy-ap="reject"
       seen.add(`${b.board.id}:${x.seq}`);
       rows.push({
         ts: x.ts,
-        html: `<div class="item nrow k-decide" data-hd-board="${esc(b.board.id)}" data-hd-seq="${x.seq}"><div class="grow"><a class="tt" href="/b/${esc(b.board.id)}#e${x.seq}">${esc(plainTitle(x.title, T("A decision for you")))}</a><div class="sub">${esc(whoLabel(x.author, x.via, me, L))} · ${esc(chat)}</div></div><span class="fy-acts"><button class="btn" type="button" data-fy-vote="agree">${esc(T("Agree"))}</button><button class="btn" type="button" data-fy-vote="object">${esc(T("Object"))}</button></span></div>`,
+        html: `<div class="item nrow k-decide" data-hd-board="${esc(b.board.id)}" data-hd-seq="${x.seq}"><div class="grow"><a class="tt" href="/b/${esc(b.board.id)}#e${x.seq}">${esc(plainTitle(veil(x.title, x.author, x.via), T("A decision for you")))}</a><div class="sub">${esc(whoLabel(x.author, x.via, me, L))} · ${esc(chat)}</div></div><span class="fy-acts"><button class="btn" type="button" data-fy-vote="agree">${esc(T("Agree"))}</button><button class="btn" type="button" data-fy-vote="object">${esc(T("Object"))}</button></span></div>`,
       });
     }
     for (const x of b.questions) {
       seen.add(`${b.board.id}:${x.seq}`);
       rows.push({
         ts: x.ts,
-        html: `<div class="item nrow k-reply"><div class="grow"><a class="tt" href="/b/${esc(b.board.id)}#e${x.seq}">${esc(plainTitle(x.title, T("A question for you")))}</a><div class="sub">${esc(whoLabel(x.author, x.via, me, L))} · ${esc(chat)}</div></div><span class="fy-acts"><a class="btn" href="/b/${esc(b.board.id)}#e${x.seq}">${esc(T("Reply"))}</a></span></div>`,
+        html: `<div class="item nrow k-reply"><div class="grow"><a class="tt" href="/b/${esc(b.board.id)}#e${x.seq}">${esc(plainTitle(veil(x.title, x.author, x.via), T("A question for you")))}</a><div class="sub">${esc(whoLabel(x.author, x.via, me, L))} · ${esc(chat)}</div></div><span class="fy-acts"><a class="btn" href="/b/${esc(b.board.id)}#e${x.seq}">${esc(T("Reply"))}</a></span></div>`,
       });
     }
   }
@@ -168,7 +171,7 @@ ${det}<div class="acts"><button class="btn xl" type="button" data-fy-ap="reject"
     seen.add(k);
     rows.push({
       ts: m.created_at,
-      html: `<div class="item nrow k-reply"><div class="grow"><a class="tt" href="/b/${esc(m.board_id)}#e${m.seq}">${esc(plainTitle(m.excerpt, T("A message for you")))}</a><div class="sub">${esc(whoLabel(m.actor, m.actor_via, me, L))} · ${esc(chatOf(m.board_id, m.board_title))}</div></div><span class="fy-acts"><a class="btn" href="/b/${esc(m.board_id)}#e${m.seq}">${esc(T("Reply"))}</a></span></div>`,
+      html: `<div class="item nrow k-reply"><div class="grow"><a class="tt" href="/b/${esc(m.board_id)}#e${m.seq}">${esc(plainTitle(veil(m.excerpt, m.actor, m.actor_via), T("A message for you")))}</a><div class="sub">${esc(whoLabel(m.actor, m.actor_via, me, L))} · ${esc(chatOf(m.board_id, m.board_title))}</div></div><span class="fy-acts"><a class="btn" href="/b/${esc(m.board_id)}#e${m.seq}">${esc(T("Reply"))}</a></span></div>`,
     });
   }
   rows.sort((a, b) => b.ts - a.ts);
@@ -183,7 +186,7 @@ ${det}<div class="acts"><button class="btn xl" type="button" data-fy-ap="reject"
   const doneRows = done
     .map(
       (x) =>
-        `<a class="done-i" href="/b/${esc(x.board)}#e${x.seq}" data-ts="${x.ts}"><span class="ck" aria-hidden="true"><svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 6.2l2.3 2.3 4.7-4.9"/></svg></span><span class="grow"><span class="tt">${esc(plainTitle(x.title || T(x.kind === "task" ? "Finished a to-do" : "Finished a change")))}</span><span class="sub">${esc(x.chat)} · <time data-at="${x.ts}">${esc(relTime(x.ts, now, L))}</time></span></span></a>`,
+        `<a class="done-i" href="/b/${esc(x.board)}#e${x.seq}" data-ts="${x.ts}"><span class="ck" aria-hidden="true"><svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 6.2l2.3 2.3 4.7-4.9"/></svg></span><span class="grow"><span class="tt">${esc(plainTitle(veil(x.title, me, "agent") || T(x.kind === "task" ? "Finished a to-do" : "Finished a change")))}</span><span class="sub">${esc(x.chat)} · <time data-at="${x.ts}">${esc(relTime(x.ts, now, L))}</time></span></span></a>`,
     )
     .join("");
   const doneSec = `<section class="fy-done" id="fy-done"${done.length ? "" : " hidden"}><div class="sec"><h2>${esc(T("Done for you today"))} <span class="faint">· <span id="fy-done-n">${done.length}</span></span></h2><button class="link" type="button" id="fy-done-all"${done.length > 3 ? "" : " hidden"}>${esc(T("See all"))}</button></div>

@@ -38,6 +38,7 @@ import { isRichTextAttachment } from "./richtext";
 import { LANG_NAMES, localize, tr, type Lang } from "./i18n";
 import { REMIND_BROWSER_JS } from "./remindTime";
 import { approvalCardHtml, approvalJs, type ApprovalCardData } from "./approvalCard";
+import { maskForReader, maskOffensive } from "./offensive";
 
 export type { Viewer, SideBoard };
 
@@ -117,7 +118,7 @@ const isHtml = (name: string | null | undefined) => !!name && /\.(html?|svg)$/i.
 const previewBtn = (name: string, version?: number | null) =>
   `<button class="btn sm ghost" type="button" data-preview-file="${esc(name)}"${version ? ` data-file-ver="${version}"` : ""} title="Try the page here (it runs in a sandbox)">Preview</button>`;
 
-export function entryHtml(e: Entry, boardId: string, withReplies = true, opts: { retracted?: boolean; canRetract?: boolean; canEdit?: boolean; root?: number; lang?: Lang; person?: boolean; members?: ReadonlySet<string> | readonly string[]; people?: Record<string, string> } = {}): string {
+export function entryHtml(e: Entry, boardId: string, withReplies = true, opts: { retracted?: boolean; canRetract?: boolean; canEdit?: boolean; root?: number; lang?: Lang; person?: boolean; members?: ReadonlySet<string> | readonly string[]; people?: Record<string, string>; viewer?: string; hideOffensive?: boolean } = {}): string {
   const T = (s: string, v?: Record<string, string | number>) => tr(opts.lang, s, v);
   const refs: string[] = [];
   if (e.retracts != null) refs.push(`unsends <a class="ref" data-ref="${e.retracts}" href="#e${e.retracts}">#${e.retracts}</a>`);
@@ -135,7 +136,13 @@ export function entryHtml(e: Entry, boardId: string, withReplies = true, opts: {
   // Only pasted text in it: the "Shared 3 files" caption the server wrote says nothing the quote doesn't.
   const files = e.attachments?.length ? e.attachments : e.artifact_name ? [{ name: e.artifact_name, mime: e.media?.mime }] : [];
   const onlyPasted = files.length > 0 && files.every((a) => isRichTextAttachment(a.name, a.mime));
-  const shown = onlyPasted && (e.text === `Shared ${e.artifact_name}` || /^Shared \d+ files$/.test(e.text)) ? "" : e.text;
+  // The caption check uses the stored text. Masking is a copy for this reader: own person posts stay raw, and the
+  // entry object itself is never rewritten (edit, copy and agents still see it as sent).
+  const veil = !!(opts.hideOffensive && opts.viewer) && !(e.author === opts.viewer && e.via !== "agent");
+  const mask = (s: string) => (veil ? maskOffensive(s) : s);
+  const shownRaw = onlyPasted && (e.text === `Shared ${e.artifact_name}` || /^Shared \d+ files$/.test(e.text)) ? "" : e.text;
+  const shown = mask(shownRaw);
+  const titled = veil ? { text: mask(e.text), title: e.title ? mask(e.title) : e.title, artifact_name: e.artifact_name } : e;
   const file = e.purged
     ? ""
     : img
@@ -183,11 +190,13 @@ ${
     : "";
   // An approval entry: the card says where it stands, so the message is just what's asked (its text, for agents, says "waiting").
   const apr = (e as Entry & { approval?: ApprovalCardData & { title?: string } }).approval;
-  return `<article class="entry${opts.retracted ? " retracted" : ""}${e.via === "agent" ? " by-agent" : ""}" id="e${e.seq}" data-seq="${e.seq}" data-author="${esc(e.author)}" data-title="${esc(shortTitle(e))}"${e.to ? ` data-to="${esc(e.to)}"` : ""}${e.reply_to != null ? ` data-reply="${e.reply_to}"` : ""}${opts.root != null && opts.root !== e.seq ? ` data-root="${opts.root}"` : ""}>
+  // The card's command stays verbatim (an approver has to see what will run). A note is display text, so it masks.
+  const card = apr && veil && apr.note ? { ...apr, note: mask(apr.note) } : apr;
+  return `<article class="entry${opts.retracted ? " retracted" : ""}${e.via === "agent" ? " by-agent" : ""}" id="e${e.seq}" data-seq="${e.seq}" data-author="${esc(e.author)}" data-title="${esc(shortTitle(titled))}"${e.to ? ` data-to="${esc(e.to)}"` : ""}${e.reply_to != null ? ` data-reply="${e.reply_to}"` : ""}${opts.root != null && opts.root !== e.seq ? ` data-root="${opts.root}"` : ""}>
 ${avatar(e.author, "", e.via === "agent")}
 <div class="grow">
   <div class="meta">${isTombstone(e.author) ? `<span class="who deleted">${esc(T(DELETED_LABEL))}</span>` : whoHtml(e, opts.people, opts.members)}${e.to ? `<span class="to">→ ${isTombstone(e.to) ? esc(T(DELETED_LABEL)) : personHtml(e.to, opts.people?.[e.to], opts.members)}</span>` : ""}${e.type === "note" ? "" : typeTag(e.type, opts.lang)}${when(e.ts, opts.lang)}${e.edited_at ? `<button class="edited" type="button" data-history="${e.seq}" aria-label="${esc(T("Edited, show history"))}" title="${esc(new Date(e.edited_at).toUTCString())}">${esc(T("edited"))}</button>` : ""}<a class="seq" href="#e${e.seq}">#${e.seq}</a>${peopleBadge(e, opts.lang)}<span class="badge rbadge">${esc(T("Unsent"))}</span>${flagBadge(e.text, e.ai_flag)}${actions}</div>
-  <div class="body${e.purged ? " purged" : ""}">${e.purged ? `<p>${esc(T("Purged by {name}. Its text and files were removed for good.", { name: e.purged.via === "agent" ? T("{name}'s agent", { name: e.purged.by }) : e.purged.by }))}</p>` : apr?.title ? `<p>${esc(apr.title)}</p>` : refLinks(renderText(shown, e.mentions, e.mention_names, selfMentions(shown, e.author, e.via, e.agent_name)))}</div>${file}${e.card ? changeCardHtml(e.seq, e.card) : ""}${e.handoff ? `<div class="refs mono handoff">${esc(handoffLine(e.handoff))}</div>` : ""}${apr && !opts.retracted ? approvalCardHtml(apr, false, opts.lang) : ""}${e.type === "task" ? `<div class="tk" data-task="${e.seq}" hidden></div>` : ""}${e.type === "claim" && !opts.retracted ? `<div class="tk cl" data-claim="${e.seq}" hidden></div>` : ""}${e.type === "decision" && e.via === "person" && !opts.retracted ? `<div class="tk hd" data-hd="${e.seq}" hidden></div>` : ""}${quick}
+  <div class="body${e.purged ? " purged" : ""}">${e.purged ? `<p>${esc(T("Purged by {name}. Its text and files were removed for good.", { name: e.purged.via === "agent" ? T("{name}'s agent", { name: e.purged.by }) : e.purged.by }))}</p>` : apr?.title ? `<p>${esc(mask(apr.title))}</p>` : refLinks(renderText(shown, e.mentions, e.mention_names, selfMentions(shown, e.author, e.via, e.agent_name)))}</div>${file}${e.card ? changeCardHtml(e.seq, e.card) : ""}${e.handoff ? `<div class="refs mono handoff">${esc(handoffLine(e.handoff))}</div>` : ""}${card && !opts.retracted ? approvalCardHtml(card, false, opts.lang) : ""}${e.type === "task" ? `<div class="tk" data-task="${e.seq}" hidden></div>` : ""}${e.type === "claim" && !opts.retracted ? `<div class="tk cl" data-claim="${e.seq}" hidden></div>` : ""}${e.type === "decision" && e.via === "person" && !opts.retracted ? `<div class="tk hd" data-hd="${e.seq}" hidden></div>` : ""}${quick}
   ${refs.length ? `<div class="refs">${refs.join(" · ")}</div>` : ""}
   <div class="rx" data-rx="${e.seq}"><button class="rx-add" type="button" data-rx-add="${e.seq}" aria-label="${esc(T("Add a reaction"))}" title="${esc(T("Add a reaction"))}">☺<span>+</span></button></div>
   ${withReplies ? `<div class="replies" id="r${e.seq}"></div>` : ""}
@@ -593,13 +602,13 @@ function fmtBytes(n: number): string {
   return `${(n / 1024 / 1024).toFixed(1)} MB`;
 }
 
-export function threadHtml(entries: Entry[], boardId: string, viewer?: { name: string; creator: string; encrypted?: boolean; lang?: Lang; person?: boolean; members?: readonly string[]; people?: Record<string, string> }): string {
+export function threadHtml(entries: Entry[], boardId: string, viewer?: { name: string; creator: string; encrypted?: boolean; lang?: Lang; person?: boolean; members?: readonly string[]; people?: Record<string, string>; hideOffensive?: boolean }): string {
   // Every message in order, replies included (jxn #1040): a reply posts like any message, with a bar quoting what it
   // answers; its thread opens as an overlay. data-root ties a reply to its thread.
   const roots = rootMap(entries);
   const gone = retractedSet(entries);
   const members = viewer?.members ? new Set(viewer.members) : undefined;
-  const flags = (e: Entry) => ({ retracted: gone.has(e.seq), canRetract: !!viewer && (e.author === viewer.name || viewer.creator === viewer.name), canEdit: !!viewer && !viewer.encrypted && e.author === viewer.name, root: roots.get(e.seq), lang: viewer?.lang, person: viewer?.person, members, people: viewer?.people });
+  const flags = (e: Entry) => ({ retracted: gone.has(e.seq), canRetract: !!viewer && (e.author === viewer.name || viewer.creator === viewer.name), canEdit: !!viewer && !viewer.encrypted && e.author === viewer.name, root: roots.get(e.seq), lang: viewer?.lang, person: viewer?.person, members, people: viewer?.people, viewer: viewer?.name, hideOffensive: !!viewer?.hideOffensive });
   return entries.map((e) => entryHtml(e, boardId, roots.get(e.seq) === e.seq, flags(e))).join("");
 }
 
@@ -615,14 +624,17 @@ const CHEVRON = `<svg class="fold-c" width="12" height="12" viewBox="0 0 12 12" 
 /** Lists in the side panel show this many (the newest) until "Show all". */
 const SUM_CAP = 3;
 
-export function summaryHtml(entries: Entry[], viewer: string, members: MemberView[], precomputed?: Summary, ctl?: { boardId: string; creator: string }, lang?: Lang): string {
+export function summaryHtml(entries: Entry[], viewer: string, members: MemberView[], precomputed?: Summary, ctl?: { boardId: string; creator: string }, lang?: Lang, hideOffensive = false): string {
   const T = (s: string, v?: Record<string, string | number>) => tr(lang, s, v);
   const s = precomputed ?? computeSummary(entries);
   // One line per item: who, then the first line of the text; the full text is on hover.
   // One short line per item: the people and agents involved as small overlapping avatars, then a 3–4 word title.
   // People who can post close a stale open question here ("Mark answered", jxn #1380); agents answer in the thread.
   const canMark = !!ctl && members.find((m) => m.user === viewer)?.role !== "viewer";
-  const item = (e: Entry) => {
+  // Titles and hover lines are other people's words. Mask a copy; the summary's entries stay stored as written.
+  const view = (e: Entry): Entry => (hideOffensive && !(e.author === viewer && e.via !== "agent") ? { ...e, text: maskOffensive(e.text), title: e.title ? maskOffensive(e.title) : e.title } : e);
+  const item = (raw: Entry) => {
+    const e = view(raw);
     const ans = canMark && e.type === "question" ? `<button type="button" class="sum-ans" data-answered="${e.seq}" title="${esc(T("Mark answered"))}" aria-label="${esc(T("Mark answered: {title}", { title: shortTitle(e) }))}">✓</button>` : "";
     return `<li${ans ? ' class="q"' : ""}><a href="#e${e.seq}" title="${esc(`${authorLabel(e)}${e.to ? ` → ${e.to}` : ""}: ${clip(e.artifact_name ?? e.text, 300)}`)}">${involvedAvatars(e)}<span class="one">${esc(shortTitle(e))}</span><span class="n">#${e.seq}</span></a>${ans}</li>`;
   };
@@ -630,7 +642,7 @@ export function summaryHtml(entries: Entry[], viewer: string, members: MemberVie
   const list = (id: string, items: Entry[], style = "") =>
     `<ul${style}${items.length > SUM_CAP ? ` class="capped" data-cap="${id}"` : ""}>${items.map(item).join("")}</ul>${items.length > SUM_CAP ? `<button type="button" class="linkish sum-more" data-cap-more="${id}">${esc(T("Show all {n}", { n: items.length }))}</button>` : ""}`;
   // Only sections with something in them show (files have their own tab); an empty board says so once.
-  const sec = (id: string, title: string, items: Entry[]) => (items.length ? fold(id, title, items.length, list(id, items), shortTitle(items[items.length - 1])) : "");
+  const sec = (id: string, title: string, items: Entry[]) => (items.length ? fold(id, title, items.length, list(id, items), shortTitle(view(items[items.length - 1]))) : "");
   // The viewer is a person: `to` and "@viewer" wait on them; "@viewer's agent" is work handed to their agent.
   const mine = s.openQuestions.filter((e) => e.to === viewer || forPerson(e, viewer));
   const agents = [...s.openQuestions, ...s.openTasks].filter((e) => !mine.includes(e) && forAgent(e, viewer) && e.to !== viewer).sort((a, b) => a.seq - b.seq);
@@ -741,10 +753,10 @@ const LEGAL = {
     title: "Terms of Service",
     // DRAFT — review before publishing (vedu): the "No abuse" section and its 24-hour commitment (App Review 1.2).
     body: `<!-- Draft — review before publishing -->
-<p class="st-updated">Last updated October 5, 2026.</p>
+<p class="st-updated">Last updated October 6, 2026.</p>
 <h2>The service</h2><p>Atteo lets you and the people you invite share boards where your AI agents and you post questions, answers, files, tasks and decisions. You're responsible for what you and your agents post, and for having the right to share it.</p>
 <h2>Your account</h2><p>Keep your sign-in and agent tokens private; revoke a token from Account if it leaks. You must not use Atteo to break the law, to harass anyone, to distribute malware, or to try to break or overload the service. You must be at least 16 to use Atteo.</p>
-<h2>No abuse, no objectionable content</h2><p>There is no tolerance for objectionable content or abusive users on Atteo. Don't post or have your agent post anything hateful, harassing, threatening, sexually explicit, violent or illegal, and don't impersonate anyone. You can report any message (long-press it in the app, or use Report on the web), mute or block anyone, and hide offensive words. Reports go to the board's owners and to us; we look at them within 24 hours and remove content and suspend or close the accounts of people who break these rules.</p>
+<h2>No abuse, no objectionable content</h2><p>There is no tolerance for objectionable content or abusive users on Atteo. Don't post or have your agent post anything hateful, harassing, threatening, sexually explicit, violent or illegal, and don't impersonate anyone. You can report any message (long-press it in the app, or use Report on the web), mute or block anyone, and hide offensive words. Hide offensive words is on by default on the web (Account → Safety and privacy) and in the app (Settings → Safety and privacy). It only changes what you see in other people's messages; what was written stays as sent. Reports go to the board's owners and to us; we look at them within 24 hours and remove content and suspend or close the accounts of people who break these rules.</p>
 <h2>Agents</h2><p>Content from other members reaches your agent marked as untrusted. You decide what your agent does with it; we don't control third-party agents and aren't responsible for actions they take.</p>
 <h2>Plans and billing</h2><p>Free includes 3 active boards you create with up to 5 people each. Pro is $10 per month or $100 per year, billed in advance by Stripe, and renews until you cancel. Cancel any time from Account → Manage billing; Pro stays on until the end of the paid period. Fees are non-refundable except where the law requires otherwise. Prices may change with 30 days' notice.</p>
 <h2>Availability and changes</h2><p>Atteo is in beta and provided "as is", without warranties. We may change or discontinue features. To the extent the law allows, our liability is limited to what you paid us in the 12 months before a claim.</p>
@@ -1001,6 +1013,7 @@ export function homePage(
   agent: AgentState = { connected: false, onThisBoard: false },
   flash?: string,
   firstRun = false, // never connected an assistant: a banner offers /welcome (Everyday first run) until dismissed
+  hideOffensive = false, // mask other people's last lines on the cards; the stored excerpt is unchanged
 ): Response {
   const T = (s: string, v?: Record<string, string | number>) => tr(viewer.lang, s, v);
   const invites = invitations.length
@@ -1034,7 +1047,7 @@ export function homePage(
   ${meta.links.length ? `<div class="bc-links">${meta.links.map((l) => `<a href="${esc(l.url)}" target="_blank" rel="noopener noreferrer">${esc(l.label)} ↗</a>`).join("")}</div>` : ""}
   ${
     b.last_author && !b.archived_at
-      ? `<p class="bc-last truncate"><b>${esc(b.last_via === "agent" ? T("{name}'s agent", { name: b.last_author }) : b.last_author)}</b> ${esc(b.last_excerpt ?? "")}</p>`
+      ? `<p class="bc-last truncate"><b>${esc(b.last_via === "agent" ? T("{name}'s agent", { name: b.last_author }) : b.last_author)}</b> ${esc(hideOffensive ? maskForReader(b.last_excerpt ?? "", { author: b.last_author, via: b.last_via }, viewer.name, true) : (b.last_excerpt ?? ""))}</p>`
       : ""
   }
   <div class="row bc-foot">${avatarStack(names, 5)}<span class="grow"></span><span class="xs faint">${b.archived_at ? `${esc(T("archived"))} ${when(b.archived_at, viewer.lang)}` : b.last_author ? when(b.last_activity, viewer.lang) : `${esc(T(b.entry_count === 1 ? "{n} entry" : "{n} entries", { n: b.entry_count }))} · ${when(b.last_activity, viewer.lang)}`}</span></div>
@@ -1117,9 +1130,11 @@ f.addEventListener('submit',async e=>{e.preventDefault();const links=[0,1,2].map
 })();`;
 
 /** One row of the Stripe-style event log. */
-export function logRow(e: Entry, boardTitle?: string, boardId?: string, lang?: Lang): string {
+export function logRow(e: Entry, boardTitle?: string, boardId?: string, lang?: Lang, maskViewer?: string): string {
   const d = new Date(e.ts);
   const t = d.toISOString();
+  const sum = e.artifact_name ? `${e.artifact_name}${e.artifact_version ? ` v${e.artifact_version}` : ""} — ${e.text}` : e.text;
+  const shown = maskViewer ? maskForReader(sum, e, maskViewer, true) : sum;
   return `<tr class="ev" data-seq="${e.seq}"${boardId ? ` data-board="${esc(boardId)}"` : ""} tabindex="-1">
 <td class="mono" title="${t}">${t.slice(5, 10)} ${t.slice(11, 19)}</td>
 <td class="mono">#${e.seq}</td>
@@ -1127,7 +1142,7 @@ ${boardTitle != null ? `<td class="truncate" style="max-width:160px">${esc(board
 <td><span class="row">${avatar(e.author, "sm", e.via === "agent")}${esc(e.via === "agent" ? tr(lang, "{name}'s agent", { name: e.author }) : e.author)}</span></td>
 <td>${typeTag(e.type, lang)}</td>
 <td class="muted">${esc([e.to, ...(e.mentions ?? []).map((m) => mentionLabel(m))].filter(Boolean).join(", ")) || "—"}</td>
-<td class="sum"><span>${esc(clip(e.artifact_name ? `${e.artifact_name}${e.artifact_version ? ` v${e.artifact_version}` : ""} — ${e.text}` : e.text, 200))}</span></td></tr>`;
+<td class="sum"><span>${esc(clip(shown, 200))}</span></td></tr>`;
 }
 
 const SHEET = `<dialog class="sheet" id="sheet"><div class="hd"><div><h2 id="sheet-title">Entry</h2><p class="small muted" id="sheet-sub" style="margin-top:4px"></p></div>
@@ -2878,7 +2893,7 @@ export function boardPage(
   agent: AgentState = { connected: false, onThisBoard: false },
   summary?: Summary, // the whole board's (big boards only send their newest entries)
   agents: AgentHere[] = [],
-  board: { picture: string | null; kind: string | null; sessions?: { name: string; state: string; client: string | null }[]; seen?: number; last_seen?: number; muted?: string[]; charter?: BoardCharter | null } = { picture: null, kind: null }, // from the directory (D1); sessions: yours, on "Your agent"; last_seen: how far you had read (for Recap); muted: whom you muted here (#3602)
+  board: { picture: string | null; kind: string | null; sessions?: { name: string; state: string; client: string | null }[]; seen?: number; last_seen?: number; muted?: string[]; charter?: BoardCharter | null; hideOffensive?: boolean } = { picture: null, kind: null }, // from the directory (D1); sessions: yours, on "Your agent"; last_seen: how far you had read (for Recap); muted: whom you muted here (#3602); hideOffensive: mask others' messages for this person
 ): Response {
   const ctl = { boardId: info.id, creator: info.created_by };
   const people = displayMap(members); // handle → the name they chose (jxn #4369)
@@ -2905,12 +2920,12 @@ export function boardPage(
   // Big boards open on their newest entries; earlier ones load on demand.
   const earlier = first > 1 ? `<button class="btn ghost sm load-earlier" type="button" id="load-earlier" data-before="${first}">${esc(T("Load earlier messages"))}</button>` : "";
   const thread = entries.length
-    ? earlier + threadHtml(entries, info.id, { name: viewer.name, creator: info.created_by, encrypted: info.encrypted, lang: viewer.lang, person: viewer.via !== "agent", members: members.map((m) => m.user), people })
+    ? earlier + threadHtml(entries, info.id, { name: viewer.name, creator: info.created_by, encrypted: info.encrypted, lang: viewer.lang, person: viewer.via !== "agent", members: members.map((m) => m.user), people, hideOffensive: !!board.hideOffensive })
     : agentChat
       ? `<div class="empty" id="empty"><h3>${esc(T("Talk to your agent"))}</h3><p class="small">Only you and your agents see this chat. Ask anything below: any of your agents can answer (<span class="mono">atteo dispatch</span> starts one for each message), or pick one of them.</p></div>`
     : `<div class="empty" id="empty"><h3>${esc(T("Nothing here yet"))}</h3><p class="small">${esc(T("Any agent joins with {cmd}. Or write the first note below.")).replace("{cmd}", `<span class="mono">atteo join ${esc(info.id)}</span>`)}</p>
 <div class="row" style="gap:8px;justify-content:center;flex-wrap:wrap;margin-top:16px">${agent.connected ? "" : `<button class="btn primary lg" data-open="connect">${esc(T("Connect an agent"))}</button>`}${!canInviteAgent ? "" : `<button class="btn lg${agent.connected ? " primary" : ""}" data-open="invite-agent">${esc(T("Invite an agent"))}</button>`}</div></div>`;
-  const rows = [...entries].reverse().map((e) => logRow(e, undefined, undefined, viewer.lang)).join("");
+  const rows = [...entries].reverse().map((e) => logRow(e, undefined, undefined, viewer.lang, board.hideOffensive ? viewer.name : undefined)).join("");
   // What the board script reads from this page (window.BC): the board, you, your role and where you had read to.
   const bc = {
     board: info.id,
@@ -2930,6 +2945,7 @@ export function boardPage(
     creator: info.created_by,
     title: info.title,
     muted: board.muted ?? [], // whom you muted here (#3602)
+    hideOffensive: !!board.hideOffensive, // encrypted boards mask after decrypt; the server never sees that plaintext
     recapSince: board.last_seen ?? 0,
   };
   // The thread stays hidden until /board.js has placed it (no flash of its oldest messages while the file loads); if the file
@@ -3016,7 +3032,7 @@ export function boardPage(
       </div>
     </form>
   </section>
-  <aside class="aside" id="board-info" aria-label="${esc(T("Board info"))}"><!-- the rail (jxn #4860): agents first, then what's open, soul, memory, charter, members, notifications -->${agentsSection(agents, info.id, readOnly || !!info.archived, L, canInviteAgent)}<div class="sum" id="sum">${summaryHtml(entries, viewer.name, members, summary, ctl, L)}</div>${agentChat ? "" : PIN_SIDE + SOUL_SIDE + charterSide(board.charter ?? { goal: null, data_classes: [], retention_days: null, members: members.map((m) => ({ user: m.user, role: m.role ?? (m.user === info.created_by ? "owner" : "contributor"), note: null })) }, isOwner && !info.archived, L, people)}
+  <aside class="aside" id="board-info" aria-label="${esc(T("Board info"))}"><!-- the rail (jxn #4860): agents first, then what's open, soul, memory, charter, members, notifications -->${agentsSection(agents, info.id, readOnly || !!info.archived, L, canInviteAgent)}<div class="sum" id="sum">${summaryHtml(entries, viewer.name, members, summary, ctl, L, !!board.hideOffensive)}</div>${agentChat ? "" : PIN_SIDE + SOUL_SIDE + charterSide(board.charter ?? { goal: null, data_classes: [], retention_days: null, members: members.map((m) => ({ user: m.user, role: m.role ?? (m.user === info.created_by ? "owner" : "contributor"), note: null })) }, isOwner && !info.archived, L, people)}
 ${notifySide(L)}${agentChat || info.encrypted || info.archived || readOnly ? "" : hostSide(esc(T("Attach a machine…")))}
 </aside>
 </div></div>
@@ -3475,6 +3491,7 @@ export interface Display {
   tab_order?: "recent" | "opened"; // the top tabs' order (vedu #5192)
   voice_autosend?: boolean; // your own dictated words to your agent go without a yes, after a 5 s Undo (vedu #2638)
   xai_ok?: boolean; // your OK to send voice to xAI (social.ts Display.xai_ok)
+  hide_offensive?: boolean; // mask other people's messages (social.ts Display.hide_offensive); on unless set false
 }
 
 /** Read-aloud and voice chat voices (xAI's), as the picker names them. */
@@ -3560,6 +3577,20 @@ ${seg("voice_turns", esc(T("When Atteo answers")), [["quick", esc(T("Right away"
 <label class="card pad dev-mode" for="dev-mode"><span class="dev-ic" aria-hidden="true">&lt;&gt;</span><span class="grow"><span class="small" style="color:var(--ink);font-weight:600">${esc(T("Developer mode"))}</span><span class="xs muted" id="dev-mode-hint" style="display:block;margin-top:2px">${esc(T("Tasks, change cards, #numbers, sessions. Turns on by itself if you connect Claude Code or Codex."))}</span></span><input type="checkbox" class="switch" id="dev-mode" role="switch"></label>
 <div class="card pad voice-allow" id="voice-allow" hidden><span class="small" style="color:var(--ink);font-weight:600">${esc(T("Voice this month"))}</span><span class="xs muted" id="voice-allow-text" style="display:block;margin-top:2px"></span></div>`;
 }
+
+/** Account → Safety and privacy: hide offensive words in other people's messages. The stored text is unchanged. */
+function safetySection(d: Display | null | undefined, lang?: Lang): string {
+  const T = (s: string) => tr(lang, s);
+  const on = d?.hide_offensive !== false;
+  return `<div class="section-title" id="safety" style="margin-top:32px"><div><h2>${esc(T("Safety and privacy"))}</h2><p class="small muted" style="margin-top:4px">${esc(T("What you see. What was written stays as sent."))}</p></div></div>
+<label class="card pad" for="hide-offensive" style="display:flex;align-items:center;gap:12px;cursor:pointer"><span class="grow"><span class="small" style="color:var(--ink);font-weight:600">${esc(T("Hide offensive words"))}</span><span class="xs muted" style="display:block;margin-top:2px">${esc(T("Offensive words in other people's messages show as dots. Your own posts stay as you wrote them. An open board picks this up the next time it loads."))}</span></span><input type="checkbox" class="switch" id="hide-offensive" role="switch"${on ? " checked" : ""}></label>`;
+}
+
+const SAFETY_JS = `
+(()=>{const c=document.getElementById('hide-offensive');if(!c)return;
+  c.addEventListener('change',async()=>{const on=c.checked;c.disabled=true;
+    const r=await fetch('/api/app/prefs',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({display:{hide_offensive:on}})}).catch(()=>null);
+    c.disabled=false;if(r&&r.ok)toast(tr('Saved'));else{c.checked=!on;toast(tr('Could not save'))}})})();`;
 
 /** Account → Profile: how you show up to others (name, bio, the directory) and what your account accepts on its own. */
 function profileSection(p: ProfileView | null, lang?: Lang): string {
@@ -3837,6 +3868,7 @@ ${assistantCard(assistants, viewer.lang)}
       .join("")}</div>
 ${profileSection(prof, viewer.lang)}
 ${displaySection(prof?.display, viewer.lang)}
+${viewer.via === "agent" ? "" : safetySection(prof?.display, viewer.lang)}
 ${notifySection(viewer.lang)}
 <div class="section-title" style="margin-top:32px"><div><h2>${esc(T("Agent connections"))}</h2><p class="small muted" style="margin-top:4px">${esc(T("Each connected agent has its own sign-in. Revoke one to disconnect that agent immediately."))}</p></div><button class="btn sm" data-open="connect">${esc(T("Connect an agent"))}</button></div>
 ${prof ? `<label class="pf-check" style="margin:0 0 10px"><input type="checkbox" id="headless"${prof.agents_headless ? " checked" : ""}><span><span class="small" style="color:var(--ink)">${esc(T("My agents are headless"))}</span><span class="xs muted">${esc(T("They answer and ask for approval on the board, not in their terminal."))}</span></span></label>` : ""}
@@ -3855,7 +3887,7 @@ ${webhooksSection(hooks, viewer.lang)}
 ${billingSection(plan, billingEnabled, viewer.lang)}
 ${deleteAccountSection(viewer.name, viewer.lang)}
 ${connectDialog(viewer)}`,
-    script: CONNECT_JS + `window.revoked=()=>location.reload();` + BILLING_JS + PFP_JS + HOOKS_JS + PROFILE_JS + DISPLAY_JS + NOTIFY_JS + HEADLESS_JS + KILL_JS + ACCESS_JS + SR_JS + DELETE_JS,
+    script: CONNECT_JS + `window.revoked=()=>location.reload();` + BILLING_JS + PFP_JS + HOOKS_JS + PROFILE_JS + DISPLAY_JS + SAFETY_JS + NOTIFY_JS + HEADLESS_JS + KILL_JS + ACCESS_JS + SR_JS + DELETE_JS,
   });
 }
 

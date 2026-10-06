@@ -379,10 +379,11 @@ export interface Display {
   tab_order: "recent" | "opened"; // the top tabs: most recent message first, or the board you opened last first (vedu #5192)
   voice_autosend: boolean; // voice chat: what you dictate to your agent goes out without a yes, after a 5s Undo (vedu #2638); off by default
   xai_ok: boolean; // your OK to send voice and read-aloud text to xAI (App Review 5.1.2(i), jxn's agent #4386): off until you agree; tts.ts and voice.ts refuse without it
+  hide_offensive: boolean; // mask slurs and strong profanity in other people's messages as you read them (App Review 1.2). On by default. Display only; the iOS app keeps its own device switch and does not sync this yet
 }
-export const DISPLAY_DEFAULTS: Display = { text: "m", density: "comfortable", theme: "system", mode: "auto", lang: "auto", voice: "eve", replies: "chat", voice_turns: "pause", compact: "off", tab_order: "recent", voice_autosend: false, xai_ok: false };
+export const DISPLAY_DEFAULTS: Display = { text: "m", density: "comfortable", theme: "system", mode: "auto", lang: "auto", voice: "eve", replies: "chat", voice_turns: "pause", compact: "off", tab_order: "recent", voice_autosend: false, xai_ok: false, hide_offensive: true };
 /** The on/off settings; every other one is one of DISPLAY_VALUES' words. */
-const DISPLAY_BOOLS = ["voice_autosend", "xai_ok"] as const;
+const DISPLAY_BOOLS = ["voice_autosend", "xai_ok", "hide_offensive"] as const;
 type DisplayBool = (typeof DISPLAY_BOOLS)[number];
 const isDisplayBool = (k: string): k is DisplayBool => (DISPLAY_BOOLS as readonly string[]).includes(k);
 const DISPLAY_VALUES: Record<Exclude<keyof Display, DisplayBool>, readonly string[]> = {
@@ -422,7 +423,7 @@ export function mergeDisplay(cur: Display, patch: unknown): Display {
       out[k] = v;
       continue;
     }
-    if (!isDisplayKey(k)) throw new SocialError(`Unknown display setting "${k}": use text, density, theme, mode, lang, voice, replies, voice_turns, compact, tab_order, voice_autosend or xai_ok.`);
+    if (!isDisplayKey(k)) throw new SocialError(`Unknown display setting "${k}": use text, density, theme, mode, lang, voice, replies, voice_turns, compact, tab_order, voice_autosend, xai_ok or hide_offensive.`);
     if (typeof v !== "string" || !DISPLAY_VALUES[k].includes(v)) throw new SocialError(`display.${k} must be one of: ${DISPLAY_VALUES[k].join(", ")}.`);
     out[k] = v;
   }
@@ -536,7 +537,26 @@ export async function setAppPrefs(env: Env, user: string, p: Record<string, unkn
   await env.DB.prepare(`UPDATE users SET display = COALESCE(?, display), reactions = CASE WHEN ? THEN ? ELSE reactions END WHERE name = ?`)
     .bind(display ? JSON.stringify(display) : null, favs === undefined ? 0 : 1, favs ? JSON.stringify(favs) : null, user)
     .run();
+  if (display) clearHideOffensiveCache(user);
   return { ...cur, display: display ?? cur.display, reactions: favs === undefined ? cur.reactions : favs ?? [...DEFAULT_REACTIONS] };
+}
+
+/** Whether this person wants other people's messages masked (display.hide_offensive). Default on, including when the
+ *  row can't be read. Cached per isolate for 30s; a save clears it. Agents never call this for their own HTML. */
+const hideOffensiveCache = new Map<string, { v: boolean; at: number }>();
+export function clearHideOffensiveCache(user?: string) {
+  if (user) hideOffensiveCache.delete(user);
+  else hideOffensiveCache.clear();
+}
+export async function hideOffensiveOn(env: Env, user: string): Promise<boolean> {
+  const hit = hideOffensiveCache.get(user);
+  if (hit && Date.now() - hit.at < 30_000) return hit.v;
+  const r = await env.DB.prepare(`SELECT display FROM users WHERE name = ?`).bind(user).first<{ display: string | null }>().catch(() => null);
+  if (!r) return true;
+  const v = readDisplay(r.display).hide_offensive;
+  if (hideOffensiveCache.size > 5000) hideOffensiveCache.clear();
+  hideOffensiveCache.set(user, { v, at: Date.now() });
+  return v;
 }
 
 /**
@@ -605,6 +625,7 @@ export async function setProfile(env: Env, user: string, p: { display_name?: unk
     .bind(display, agentName, bio, listed ? 1 : 0, JSON.stringify(rules), p.display === undefined ? null : JSON.stringify(prefs), favs ? JSON.stringify(favs) : null, headless ? 1 : 0, user)
     .run();
   if (favs === null) await env.DB.prepare(`UPDATE users SET reactions = NULL WHERE name = ?`).bind(user).run();
+  if (p.display !== undefined) clearHideOffensiveCache(user);
   headlessCache.set(user, { v: headless, at: Date.now() });
   if (agentName !== cur.agent_name) {
     boardNamesCache.clear(); // this isolate shows the new name right away; others within 30s

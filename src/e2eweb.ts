@@ -11,6 +11,8 @@
 // The HKDF labels (V2, V1) and the IndexedDB name (agent-soup-e2e) are from before the rename to Atteo. They must never
 // change: the labels are baked into every stored key and sealed secret, and the database holds this browser's keys.
 
+import { offensiveMaskSource } from "./offensive";
+
 export const E2E_JS = `
 (()=>{
 const S=crypto.subtle,te=new TextEncoder(),td=new TextDecoder(),V2='agent-soup board key v2',V1='agent-soup seal v1';
@@ -130,9 +132,13 @@ function opened(t){const out=[];let plain=[],q=[];
 function short(t){const l=String(t).replace(/\`\`\`[\\s\\S]*?\`\`\`/g,'\\n').split('\\n').map(x=>x.trim()).find(Boolean)||'';
   const w=l.replace(/@[A-Za-z0-9][A-Za-z0-9_.-]*(?:['’]s\\s+(?:agent|assistant))?/gi,' ').replace(/^[\\s,:;.\\-–—>]+/,'').split(/\\s+/).filter(Boolean);
   return w.length?w.slice(0,4).join(' ').replace(/[,:;.\\-–—]+$/,'')+(w.length>4?'…':''):''}
+${offensiveMaskSource()}
+const HIDE=!!(window.BC&&window.BC.hideOffensive);
+function veil(text,el){if(!HIDE)return text;const en=el.closest('.entry');if(en&&en.dataset.author===ME&&!en.classList.contains('by-agent'))return text;return maskOffensive(text)}
 function show(seq,r){const el=document.querySelector('#e'+seq+'>.grow>.body');if(!el)return false;
-  el.innerHTML=r.text!=null?opened(r.text):'<span class="e2e-none">🔒 '+esc(r.why)+'</span>';el.closest('.entry').classList.toggle('e2e-open',r.text!=null);
-  if(r.text!=null){const t=short(r.text),en=el.closest('.entry');if(t){en.dataset.title=t;document.querySelectorAll('a.ref[data-ref="'+seq+'"][data-done]').forEach(a=>{a.textContent='↗ '+t})}if(window.refChips)refChips(el)}
+  const raw=r.text!=null?veil(r.text,el):null;
+  el.innerHTML=raw!=null?opened(raw):'<span class="e2e-none">🔒 '+esc(r.why)+'</span>';el.closest('.entry').classList.toggle('e2e-open',raw!=null);
+  if(raw!=null){const t=short(raw),en=el.closest('.entry');if(t){en.dataset.title=t;document.querySelectorAll('a.ref[data-ref="'+seq+'"][data-done]').forEach(a=>{a.textContent='↗ '+t})}if(window.refChips)refChips(el)}
   const top=el.closest('.replies')?.closest('#thread>.entry');if(top)thrSum(+top.dataset.seq);return r.text!=null}
 let busy=null,queued=false,qFrom=null;
 /** Messages that came back on the page (a bounded conversation, #1365) arrive sealed again: open them on the next sync. */
