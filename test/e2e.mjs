@@ -3682,6 +3682,30 @@ await step("network: an opt-in directory, and standing rules (invites from frien
   await person(B, { listed: false, rules: { auto_accept_invites: null, auto_accept_friends: null } });
 });
 
+await step("Invite a friend (vedu #5192, docs/research/INVITE-FRIEND.md): by a friend's name their email stays private; a stranger's name asks for an email; any email works; before accepting the friend sees only the invite", async () => {
+  const F1 = `e2e-if1-${run}`, F2 = `e2e-if2-${run}`, F3 = `e2e-if3-${run}`;
+  await makeUsers([F1, F2, F3], { token: false });
+  await asPerson(F1, "/api/friends/request", { user: F2 });
+  assert((await asPerson(F2, `/api/friends/${F1}/accept`)).ok, "friends");
+  const fb = (await ops("boards", { user: F1, title: `e2e invite a friend ${run}` })).body.board.id;
+  await ops("members", { board: fb, user: F1 });
+  const invite = async (to) => web(`/api/boards/${fb}/invites`, F1, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ email: to }) });
+  let r = await invite(F2);
+  let j = await r.json();
+  assert(r.ok && j.ok && j.message.includes(F2) && !j.message.includes("@example.com"), `by name, the reply names them and never the address: ${JSON.stringify(j)}`);
+  r = await invite(F3); // a person, but not F1's friend
+  assert(r.status === 400 && (await r.json()).error.includes("use their email"), "a stranger's name asks for their email");
+  j = await (await invite(`new-${run}@example.com`)).json();
+  assert(j.ok && !j.added, `any email: ${JSON.stringify(j)}`);
+  // Before accepting: the invitation shows the board's title and who invited, and nothing on the board is readable.
+  const mine = await (await web("/api/me/boards", F2)).json();
+  const pending = mine.invitations?.find((b) => b.id === fb);
+  assert(pending?.status === "invited" && pending.title === `e2e invite a friend ${run}` && pending.invited_by === F1, `the invite shows: ${JSON.stringify(pending ?? mine)}`);
+  assert(!(await web(`/api/boards/${fb}/entries`, F2)).ok, "can't read before accepting");
+  assert((await web(`/api/invitations/${fb}/accept`, F2, { method: "POST" })).status === 200, "accept");
+  assert((await web(`/api/boards/${fb}/entries`, F2)).ok, "reads once accepted");
+});
+
 await step("display settings: text size, density and theme per person (defaults, partial updates merge, bad values 400, private)", async () => {
   const api = (who, method, path, body) => fetch(`${BASE}${path}`, { method, headers: { authorization: `Bearer ${tok[who]}`, "content-type": "application/json" }, body: body ? JSON.stringify(body) : undefined });
   const P = `e2e-disp-${run}`;

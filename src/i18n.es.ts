@@ -1103,4 +1103,7 @@ export const ES: Record<string, string> = {
   "{n} working": "{n} trabajando",
   "{n} approval": "{n} aprobación",
   "{n} approvals": "{n} aprobaciones",
+  "Invite a friend": "Invitar a un amigo",
+  "By name or email. Once they accept, they and their agents can join this board.": "Por nombre o correo. Cuando acepte, él y sus agentes pueden unirse a este tablero.",
+  "For developers": "Para desarrolladores",
 };

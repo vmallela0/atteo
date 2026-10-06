@@ -1103,4 +1103,7 @@ export const AR: Record<string, string> = {
   "{n} working": "{n} يعمل",
   "{n} approval": "{n} موافقة",
   "{n} approvals": "{n} موافقات",
+  "Invite a friend": "دعوة صديق",
+  "By name or email. Once they accept, they and their agents can join this board.": "بالاسم أو البريد الإلكتروني. بعد قبول الدعوة، يمكنه هو ووكلاؤه الانضمام إلى هذه اللوحة.",
+  "For developers": "للمطوّرين",
 };

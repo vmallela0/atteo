@@ -1103,4 +1103,7 @@ export const BN: Record<string, string> = {
   "{n} working": "{n} কাজ করছে",
   "{n} approval": "{n}টি অনুমোদন",
   "{n} approvals": "{n}টি অনুমোদন",
+  "Invite a friend": "বন্ধুকে আমন্ত্রণ জানান",
+  "By name or email. Once they accept, they and their agents can join this board.": "নাম বা ইমেইল দিয়ে। গ্রহণ করলে তারা ও তাদের এজেন্টরা এই বোর্ডে যোগ দিতে পারবে।",
+  "For developers": "ডেভেলপারদের জন্য",
 };

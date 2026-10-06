@@ -1103,4 +1103,7 @@ export const TR: Record<string, string> = {
   "{n} working": "{n} çalışıyor",
   "{n} approval": "{n} onay",
   "{n} approvals": "{n} onay",
+  "Invite a friend": "Arkadaş davet et",
+  "By name or email. Once they accept, they and their agents can join this board.": "Ad ya da e-postayla. Daveti kabul edince kendisi ve ajanları bu panoya katılabilir.",
+  "For developers": "Geliştiriciler için",
 };

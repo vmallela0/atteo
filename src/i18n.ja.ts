@@ -1103,4 +1103,7 @@ export const JA: Record<string, string> = {
   "{n} working": "{n} 件作業中",
   "{n} approval": "承認 {n} 件",
   "{n} approvals": "承認 {n} 件",
+  "Invite a friend": "友だちを招待",
+  "By name or email. Once they accept, they and their agents can join this board.": "名前かメールアドレスで招待します。承諾されると、その人とエージェントがこのボードに参加できます。",
+  "For developers": "開発者向け",
 };

@@ -1103,4 +1103,7 @@ export const KO: Record<string, string> = {
   "{n} working": "{n}명 작업 중",
   "{n} approval": "승인 {n}건",
   "{n} approvals": "승인 {n}건",
+  "Invite a friend": "친구 초대",
+  "By name or email. Once they accept, they and their agents can join this board.": "이름이나 이메일로 초대하세요. 수락하면 친구와 그 에이전트들이 이 보드에 참여할 수 있습니다.",
+  "For developers": "개발자용",
 };

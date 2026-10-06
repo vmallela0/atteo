@@ -1103,4 +1103,7 @@ export const ID: Record<string, string> = {
   "{n} working": "{n} bekerja",
   "{n} approval": "{n} persetujuan",
   "{n} approvals": "{n} persetujuan",
+  "Invite a friend": "Undang teman",
+  "By name or email. Once they accept, they and their agents can join this board.": "Lewat nama atau email. Setelah menerima, mereka dan agen mereka bisa bergabung ke papan ini.",
+  "For developers": "Untuk pengembang",
 };

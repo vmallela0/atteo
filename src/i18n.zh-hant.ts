@@ -1104,4 +1104,7 @@ export const ZH_HANT: Record<string, string> = {
   "{n} working": "{n} 個工作中",
   "{n} approval": "{n} 個待核准",
   "{n} approvals": "{n} 個待核准",
+  "Invite a friend": "邀請好友",
+  "By name or email. Once they accept, they and their agents can join this board.": "用名字或電子郵件邀請。對方接受後，他們和他們的智能體就能加入這個看板。",
+  "For developers": "開發者專用",
 };

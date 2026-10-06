@@ -1103,4 +1103,7 @@ export const HI: Record<string, string> = {
   "{n} working": "{n} काम पर",
   "{n} approval": "{n} मंज़ूरी",
   "{n} approvals": "{n} मंज़ूरियाँ",
+  "Invite a friend": "किसी दोस्त को आमंत्रित करें",
+  "By name or email. Once they accept, they and their agents can join this board.": "नाम या ईमेल से। स्वीकार करते ही वे और उनके एजेंट इस बोर्ड से जुड़ सकते हैं।",
+  "For developers": "डेवलपर्स के लिए",
 };

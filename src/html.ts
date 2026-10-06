@@ -1160,22 +1160,34 @@ export function agentsSection(agents: AgentHere[], boardId: string, readOnly = f
   return `<div class="ag" id="agents">${fold("agents", esc(T("Agents")), agents.length || "", body, peek)}</div>`;
 }
 
-/** "Invite an agent" (vedu #1812; the app's shape is #1813): your own assistant gets the board's join message to paste
- *  (and the Connect dialog if it isn't connected yet), or a friend's agent comes with the friend: invite them by name,
- *  and their agents join once they accept. The join message is for an agent, so it stays in English. */
+/** "Invite an agent" (vedu #1812; the app's shape is #1813), for everyday people and developers alike (vedu #5192;
+ *  docs/research/INVITE-FRIEND.md). Invite a friend comes first: a name or any email, one button, through the same board
+ *  invite as Members & access, and the friend's agents join once they accept. Then your own assistant (Meet my agent):
+ *  the board's join message to paste (and the Connect dialog if it isn't connected yet), with the exact CLI command, MCP
+ *  call, MCP URL and Claude Code line one tap away under For developers. The join message is for an agent, so it stays
+ *  in English. */
 function inviteAgentDialog(T: (s: string) => string, info: { id: string; title: string }): string {
   // Only the board id goes in: the title is set by whoever made the board, and this text is pasted to an agent as the
   // person's own instruction, so a title could smuggle instructions in (opus-d's review, #1920). The agent reads the
   // title as board data once it has joined.
   const msg = `Join the Atteo board ${info.id}: run atteo join ${info.id}, or call join_board with "${info.id}" if you use the Atteo connector. Then read it.`;
+  // The server's own address is filled in by the page (CONNECT_JS: data-fill-origin), as in the Connect dialog.
+  const dev = (id: string, label: string, text: string, fill = false) =>
+    `<label class="lbl" for="${id}">${label}</label><div class="copy"><pre class="mono" id="${id}"${fill ? " data-fill-origin" : ""}>${esc(text)}</pre><button type="button" class="btn sm" data-copy="${id}">${esc(T("Copy"))}</button></div>`;
   return `<dialog id="invite-agent" class="ia-dlg" aria-label="${esc(T("Invite an agent"))}"><div class="hd"><div><h2>${esc(T("Invite an agent"))}</h2><p class="muted small" style="margin-top:4px">${esc(info.title)}</p></div><button class="btn ghost sm" data-close aria-label="${esc(T("Close"))}">✕</button></div>
 <div class="bd stack">
+  <section class="ia-opt" id="ia-friend"><h3>${esc(T("Invite a friend"))}</h3><p class="small muted">${esc(T("By name or email. Once they accept, they and their agents can join this board."))}</p>
+    <form method="post" action="/api/boards/${esc(info.id)}/invites" data-api data-reset data-track="invite_sent" class="acc-row"><input class="input grow" name="email" required autocomplete="off" placeholder="${esc(T("A friend's name, or anyone's email"))}" aria-label="${esc(T("Friend's name or email"))}"><button class="btn primary">${esc(T("Invite"))}</button>
+    <p data-result hidden style="margin-top:8px;flex-basis:100%"></p></form></section>
   <section class="ia-opt" id="ia-own"><h3>${esc(T("Your own assistant"))}</h3><p class="small muted">${esc(T("Paste this to your assistant. It joins this board and reads it."))}</p>
     <div class="copy"><pre class="mono" id="ia-join">${esc(msg)}</pre><button type="button" class="btn sm" data-copy="ia-join">${esc(T("Copy"))}</button></div>
-    <p class="xs muted">${esc(T("Not connected yet?"))} <button type="button" class="linkish" data-open="connect">${esc(T("Connect your assistant"))}</button></p></section>
-  <section class="ia-opt" id="ia-friend"><h3>${esc(T("A friend's agent"))}</h3><p class="small muted">${esc(T("Invite the friend to this board. Their agents join once they accept."))}</p>
-    <form method="post" action="/api/boards/${esc(info.id)}/invites" data-api data-reset data-track="invite_sent" class="acc-row"><input class="input grow" name="email" required autocomplete="off" placeholder="${esc(T("A friend's name"))}" aria-label="${esc(T("A friend's name"))}"><button class="btn primary">${esc(T("Invite"))}</button>
-    <p data-result hidden style="margin-top:8px;flex-basis:100%"></p></form></section>
+    <p class="xs muted">${esc(T("Not connected yet?"))} <button type="button" class="linkish" data-open="connect">${esc(T("Connect your assistant"))}</button></p>
+    <details class="small ia-dev"><summary class="muted">${esc(T("For developers"))}</summary><div class="stack">
+      ${dev("ia-cli", esc(T("CLI")), `atteo join ${info.id}`)}
+      ${dev("ia-mcp-call", `<span class="mono">join_board</span> · MCP`, `join_board("${info.id}")`)}
+      ${dev("ia-mcp-url", esc(T("MCP URL")), "https://atteo.example/mcp", true)}
+      ${dev("ia-mcp-cc", esc(T("Claude Code")), "claude mcp add --transport http --scope user atteo https://atteo.example/mcp", true)}
+    </div></details></section>
 </div></dialog>`;
 }
 

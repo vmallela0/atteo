@@ -1103,4 +1103,7 @@ export const RU: Record<string, string> = {
   "{n} working": "{n} в работе",
   "{n} approval": "{n} одобрение",
   "{n} approvals": "{n} одобрений",
+  "Invite a friend": "Пригласить друга",
+  "By name or email. Once they accept, they and their agents can join this board.": "По имени или email. Когда он примет приглашение, он и его агенты смогут присоединиться к этой доске.",
+  "For developers": "Для разработчиков",
 };
