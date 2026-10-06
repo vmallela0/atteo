@@ -838,18 +838,19 @@ await step("web: several files in one message (multipart upload): one entry, att
   assert(!(await (await web(`/api/boards/${eb}/files`, E)).json()).docs.some((d) => d.name === "a.png" || d.name === "b.png"), "nothing stored on the encrypted board");
 });
 
-await step("brand: the cone-and-cans mark (jxn #2944) is the favicon, apple-touch icon and header mark", async () => {
+await step("brand: the graph mark (jxn's atteo_design.pdf) is the favicon, apple-touch icon and header mark", async () => {
   const f = await fetch(`${BASE}/favicon.svg`);
   assert((f.headers.get("content-type") ?? "").includes("image/svg+xml"), "favicon not svg");
   const svg = await f.text();
   has(svg, "<svg");
-  has(svg, "#6A1B24"); // oxblood: the cone that is you (jxn #2944)
+  has(svg, 'rx="22.5"'); has(svg, "M21 -8C21.5"); // the graph on its rounded tile
+  assert(!svg.includes("#6A1B24"), "the old cone-and-cans mark still in favicon");
   assert(!svg.includes("#A8121E"), "old cherry mark still in favicon");
   assert(!svg.includes("#f59e0b"), "old soup-bowl steam still in favicon");
   const t = await fetch(`${BASE}/apple-touch-icon.png`);
   assert((t.headers.get("content-type") ?? "") === "image/png" && (await t.arrayBuffer()).byteLength > 1000, "apple-touch icon not a png");
   const html = await (await web("/chats", A)).text(); // "/" is For you in Everyday (#1272); the list is /chats
-  has(html, 'class="pebble"');
+  has(html, 'class="pebble"'); has(html, 'clip-path="url(#mkc'); // the header mark in the text colour, its own clip id
   // The icons' addresses carry the drawing's hash, so a new logo isn't stuck in browsers' favicon caches (jxn #4247).
   assert(/<link rel="icon" href="\/favicon\.svg\?v=[a-z0-9]+"/.test(html) && /<link rel="apple-touch-icon" href="\/apple-touch-icon\.png\?v=[a-z0-9]+"/.test(html), "the page links versioned icons");
   // The tokens live in the shared, cached /app.css since web-app-assets (opus-a #3423); the page links it.
@@ -1435,6 +1436,15 @@ await step("live updates over WebSocket: members get a signal on each post; outs
   // Triage-able (#2177): the entry's kind, title and first ~200 characters ride along, for an agent's ping.
   const sig = JSON.parse(m.msgs.find((x) => x.includes(`"seq":${posted}`)));
   assert(sig.kind === "note" && sig.entry_title === "WS ping" && sig.excerpt.startsWith(`ws ping ${run} padding`) && sig.excerpt.endsWith("…") && sig.excerpt.length <= 200 && !sig.flagged, JSON.stringify(sig));
+  // "… is typing" says where (vedu #4746): ?root=N is thread N's box, none (or junk) the chat's.
+  const typing = async (q) => {
+    const n = m.msgs.length;
+    assert((await web(`/api/boards/${board}/typing${q}`, A, { method: "POST" })).status === 204, `typing ${q} should be accepted`);
+    await until(() => m.msgs.slice(n).some((x) => x.includes('"type":"typing"')));
+    return JSON.parse(m.msgs.slice(n).find((x) => x.includes('"type":"typing"')));
+  };
+  const t7 = await typing(`?root=${posted}`), tc = await typing(""), tj = await typing("?root=-3");
+  assert(t7.who === A && t7.root === posted && tc.root === 0 && tj.root === 0, `typing roots: ${JSON.stringify([t7, tc, tj])}`);
   m.ws.send("ping");
   await until(() => m.msgs.includes("pong"));
   assert(m.msgs.includes("pong"), "keep-alive ping should be answered");

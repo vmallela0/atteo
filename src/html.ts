@@ -309,7 +309,7 @@ const evJs = (agentChat: boolean) => `
     const c=el.querySelector(':scope>.grow>.chg');if(c&&ev&&!el.querySelector(':scope>.grow>.ev-res')){const r=document.createElement('div');r.className='ev-res';r.innerHTML='<span class="ev-ok" aria-hidden="true">✓</span><b></b>';r.querySelector('b').textContent=el.dataset.title||tr('Done');c.before(r)}}
   function evPage(){const ev=EV();document.querySelectorAll('#thread>.entry').forEach(el=>evEntry(el,ev));
     const tabs=document.querySelectorAll('#board-tabs [role=tab]');if(tabs[0])sayNode(first(tabs[0]),ev,tr('Chat'));if(tabs[3])sayNode(first(tabs[3]),ev,tr('To-dos '));
-    const inv=document.querySelector('.bp-actions [data-open="invite"]:not([data-goto]), [data-open="invite"]:not([data-goto])');if(inv)sayNode(first(inv),ev,tr('Add'));say(document.querySelector('#pf-btn>span'),ev,tr('Hide assistants'));document.getElementById('pf-btn')?.setAttribute('aria-label',ev?tr('Hide assistants'):tr('Hide agents'));
+    const inv=document.querySelector('.bp-actions [data-open="invite"]:not([data-goto]), [data-open="invite"]:not([data-goto])');if(inv)sayNode(first(inv),ev,tr('Add'));window.pfLabel&&window.pfLabel();document.getElementById('pf-btn')?.setAttribute('aria-label',ev?tr('Hide assistants'):tr('Hide agents'));
     const ta=document.getElementById('composer-text');if(ta){if(ta.dataset.dev===undefined)ta.dataset.dev=ta.placeholder;ta.placeholder=ev?(${agentChat}?tr('Ask your assistant…'):tr('Message the group…')):ta.dataset.dev}
     document.querySelectorAll('.fold[data-fold="memory"] .fold-t').forEach(x=>say(x,ev,tr('What assistants remember')))}
   evPage();document.addEventListener('atteo-mode',evPage);
@@ -1395,7 +1395,11 @@ function pfEmpty(){if(pfNone)pfNone.hidden=!pfOn()||!!document.querySelector('#t
 /** save: remember it; told: say why agents' posts came back (a jump to one of them). */
 function pfSet(on,save,told){document.documentElement.toggleAttribute('data-pf',on);if(pfBtn)pfBtn.setAttribute('aria-pressed',String(on));
   if(save)try{on?localStorage.setItem('atteo.pf.'+ME0,'1'):localStorage.removeItem('atteo.pf.'+ME0)}catch(e){}
-  if(told)toast(tr("Showing agents' posts"));pfEmpty();railBuild();if(pinned)toBottom();ghostSoon();window.thrPf&&window.thrPf()}
+  if(told)toast(tr("Showing agents' posts"));pfEmpty();railBuild();if(pinned)toBottom();ghostSoon();window.thrPf&&window.thrPf();pfLabel()}
+// The button says what pressing it does next: Hide agents, then Show agents (vedu #4775); 'assistants' in everyday mode.
+function pfLabel(){if(!pfBtn)return;const on=pfOn(),ev=document.documentElement.dataset.mode==='everyday',t=on?(ev?tr('Show assistants'):tr('Show agents')):(ev?tr('Hide assistants'):tr('Hide agents'));
+  const s=pfBtn.querySelector('span');if(s)s.textContent=t;pfBtn.setAttribute('aria-label',t)}
+window.pfLabel=pfLabel;document.addEventListener('atteo-mode',pfLabel);pfLabel();
 pfBtn?.addEventListener('click',()=>{const on=!pfOn();pfSet(on,true);toast(on?tr("Agents' posts are hidden, for you only"):tr("Showing agents' posts"))});
 if(pfBtn)pfBtn.setAttribute('aria-pressed',String(pfOn()));pfEmpty();
 new MutationObserver(()=>{if(pfOn())pfEmpty()}).observe(document.getElementById('thread'),{childList:true});
@@ -1463,7 +1467,7 @@ function addEntry(e){if(document.getElementById('e'+e.seq)){last=Math.max(last,e
     if(el.querySelector('[data-task]'))refreshTask(e.seq);
     if(reply){thrSum(e.root);if(thrOpen===e.root)thrRender();setTimeout(()=>window.reportSeen&&reportSeen(),0)}
     if(!document.querySelector('#log-body tr[data-seq="'+e.seq+'"]')){const lt=document.createElement('tbody');lt.innerHTML=e.row;document.getElementById('log-body').prepend(lt.firstElementChild);document.getElementById('log-empty')?.remove()}
-    if(e.retracts){const t=document.getElementById('e'+e.retracts);if(t){t.classList.add('retracted');t.querySelector('[data-retract]')?.remove()}else{const g=document.getElementById('g'+e.retracts);if(g)g.dataset.gone='1'}}
+    if(e.retracts){const t=document.getElementById('e'+e.retracts);if(t){t.classList.add('retracted');t.querySelector('[data-retract]')?.remove();if(thrOpen&&(t.dataset.root===String(thrOpen)||t.dataset.seq===String(thrOpen)))thrRender()}else{const g=document.getElementById('g'+e.retracts);if(g)g.dataset.gone='1'}} // an open thread shows the unsend at once
     last=Math.max(last,e.seq);return true}
 // Live updates: a WebSocket that only says "something changed"; fall back to long-polling if it can't stay up.
 let ws,retry=0,polling=false,pollAfter=0;
@@ -1494,7 +1498,7 @@ function connect(){
     if(d.type==='pruned'){location.reload();return} // retention changed existing rows; fetch their compacted placeholders
     if(d.type==='answered'){sumNext=true;tick(false);return} // someone marked a question answered: refresh the open questions
     if(d.type==='approval'){window.apcApply&&apcApply(d.approval);return}
-    if(d.type==='typing'){if(d.who!==ME){TYPERS.set(d.who,d.until);typingSync()}return}
+    if(d.type==='typing'){if(d.who!==ME){TYPERS.set(d.who,{until:d.until,root:+d.root||0});typingSync()}return} // no root (older pages): the chat
     if(d.type==='typing-agents')return; // agents don't show as typing (jxn #777): their 🤔 under the message says it
     if(d.type==='decision'){HDS[d.seq]=d.human_decision;renderHD(d.seq);return}
     if(d.type==='read'){READS[d.user]={person_seen:d.person_seen,agent_seen:d.agent_seen};renderReads();return}
@@ -1647,16 +1651,22 @@ ta?.addEventListener('keydown',e=>{if(!slashMenu||slashMenu.hidden)return;const 
   else if(e.key==='Enter'||e.key==='Tab'){e.preventDefault();slashPick(items[slashI].dataset.cmd)}else if(e.key==='Escape'){slashMenu.hidden=true}},true);
 // ---- "… is typing": people while they type (a ping every few seconds, heard over the socket). Agents don't show here
 // (jxn #777): an agent working on your message says so with 🤔 under it. ----
-const TYPERS=new Map();let typedAt=0,typingTimer=null;
-function typingSync(){const el=document.getElementById('typing');if(!el)return;const now=Date.now();
-  for(const [u,t] of TYPERS)if(t<now)TYPERS.delete(u);
-  const who=[...TYPERS.keys()].map(u=>({u,agent:false,label:dname(u)}));
-  if(!who.length){el.hidden=true;el.innerHTML='';return}
-  const names=who.map(w=>w.label),text=names.length===1?names[0]+' is typing':names.length===2?names[0]+' and '+names[1]+' are typing':names[0]+' and '+(names.length-1)+' others are typing';
-  el.innerHTML='<span class="ty-avs">'+who.slice(0,3).map(w=>avatar16(w.u,w.agent)).join('')+'</span><span class="ty-t">'+esc(text)+'</span><span class="ty-dots" aria-hidden="true"><i></i><i></i><i></i></span>';
-  el.hidden=false;clearTimeout(typingTimer);if(TYPERS.size)typingTimer=setTimeout(typingSync,1000)}
-ta.addEventListener('input',()=>{const now=Date.now();if(READONLY||!ta.value.trim()||now-typedAt<3000)return;typedAt=now;
-  fetch('/api/boards/'+BOARD+'/typing',{method:'POST',keepalive:true}).catch(()=>{})});
+// Each ping says where (vedu #4746): root 0 is the chat, N is thread N's reply box. The chat's row shows the chat's typers
+// (and, with replies shown in the chat, everyone's); an open thread's row shows only that thread's.
+const TYPERS=new Map();let typedAt=0,typedIn=0,typingTimer=null; // who → {until, root}; typedIn: the root last pinged
+function typingDraw(el,us){if(!el)return;if(!us.length){el.hidden=true;el.innerHTML='';return}
+  const names=us.map(dname),text=names.length===1?names[0]+' is typing':names.length===2?names[0]+' and '+names[1]+' are typing':names[0]+' and '+(names.length-1)+' others are typing';
+  el.innerHTML='<span class="ty-avs">'+us.slice(0,3).map(u=>avatar16(u,false)).join('')+'</span><span class="ty-t">'+esc(text)+'</span><span class="ty-dots" aria-hidden="true"><i></i><i></i><i></i></span>';
+  el.hidden=false}
+function typingSync(){const now=Date.now();for(const [u,t] of TYPERS)if(t.until<now)TYPERS.delete(u);
+  const all=[...TYPERS],open=typeof thrOpen==='number'?thrOpen:0;
+  typingDraw(document.getElementById('typing'),all.filter(([,t])=>!t.root||!rpOn()).map(([u])=>u));
+  typingDraw(document.getElementById('thr-typing'),open?all.filter(([,t])=>t.root===open).map(([u])=>u):[]);
+  clearTimeout(typingTimer);if(TYPERS.size)typingTimer=setTimeout(typingSync,1000)}
+/** The thread this box is writing in: the root of what it replies to, or 0 for the chat. */
+function typingRoot(){const t=+rpTo.value;if(!t)return 0;const el=document.getElementById('e'+t);return el?+(el.dataset.root||t):t}
+ta.addEventListener('input',()=>{const now=Date.now(),r=typingRoot();if(READONLY||!ta.value.trim()||(now-typedAt<3000&&r===typedIn))return;typedAt=now;typedIn=r; // moving to another thread says so at once
+  fetch('/api/boards/'+BOARD+'/typing'+(r?'?root='+r:''),{method:'POST',keepalive:true}).catch(()=>{})});
 // Drafts: what you were typing survives leaving the board (or the tab) and coming back; posting clears it.
 const draftKey=k=>'soup.draft.'+BOARD+(k?'.'+k:'');
 function draftSave(k,v){if(BC.encrypted)return; // encrypted boards: no plaintext kept in the browser
@@ -2370,7 +2380,7 @@ function thrSum(root){const top=document.getElementById('e'+root);if(!top)return
   b.innerHTML='<span class="thr-head"><span class="avs">'+who.slice(0,3).map(w=>avatar16(w.split('/')[0],w.endsWith('/a'))).join('')+'</span><b>'+kids.length+' repl'+(kids.length===1?'y':'ies')+'</b><span class="faint">'+(lastT?'last '+lastT.textContent:'')+'</span></span>';
   b.setAttribute('aria-label',tr('Open the thread: ')+kids.length+' repl'+(kids.length===1?'y':'ies'))}
 var thrOpen=0,thrTo=0;const thrDlg=document.createElement('dialog');thrDlg.className='thr-dlg';thrDlg.setAttribute('aria-label',tr('Thread'));
-thrDlg.innerHTML='<div class="thr-hd"><b>'+tr('Thread')+'</b><span class="grow"></span><button type="button" class="btn ghost sm thr-pf" id="thr-pf" aria-pressed="false" title="'+tr('Just this thread: the board keeps them hidden.')+'" hidden></button><button type="button" class="btn ghost sm" data-thr-close aria-label="'+tr('Close the thread')+'">✕</button></div><div class="thr-list" id="thr-list"></div>';
+thrDlg.innerHTML='<div class="thr-hd"><b>'+tr('Thread')+'</b><span class="grow"></span><button type="button" class="btn ghost sm thr-pf" id="thr-pf" aria-pressed="false" title="'+tr('Just this thread: the board keeps them hidden.')+'" hidden></button><button type="button" class="btn ghost sm" data-thr-close aria-label="'+tr('Close the thread')+'">✕</button></div><div class="thr-list" id="thr-list"></div><div class="typing" id="thr-typing" aria-live="polite" hidden></div>';
 // Hide agents and a thread (jxn #2191, vedu's agent #2192): the thread follows the board's setting, but has its own Show
 // agents. It shows that thread's agent replies only, for you, on this page; the board keeps hiding them.
 const thrShow=new Set();
@@ -2389,7 +2399,9 @@ window.thrRearm=()=>{if(!cmpHome||!thrOpen)return false;rpTo.value=String(thrTo|
 document.body.appendChild(thrDlg);if(cmpForm&&!READONLY)dropZone(thrDlg);
 function thrRender(focus){const list=document.getElementById('thr-list'),top=document.getElementById('e'+thrOpen);if(!top)return;list.innerHTML='';
   for(const src of [top,...kidsOf(thrOpen)]){const c=src.cloneNode(true);c.removeAttribute('id');c.classList.remove('flash-in','tap','sel','hit');c.dataset.src=src.dataset.seq;
+    const un=src.querySelector('[data-retract]'); // your own message's Unsend works in the thread too (vedu #4761); the other actions stay in the main chat
     c.querySelectorAll('[id]').forEach(x=>x.removeAttribute('id'));c.querySelectorAll('.thr-sum,.acts,.more-acts,.rd').forEach(x=>x.remove());
+    if(un){const m=c.querySelector(':scope>.grow>.meta'),b=un.cloneNode(true);b.classList.add('thr-un');if(m)m.appendChild(b)}
     const q=c.querySelector(':scope>.grow>.rq');if(q&&q.dataset.thread===String(thrOpen)&&src.dataset.reply===String(thrOpen))q.remove();
     list.appendChild(c)}
   thrPf();
@@ -2398,9 +2410,9 @@ function openThread(root,o={}){const top=document.getElementById('e'+root);if(!t
   if(o.focus&&pfOn()&&document.getElementById('e'+o.focus)?.classList.contains('by-agent'))thrShow.add(root); // opened at an agent's reply: show it
   thrRender(o.focus);if(!thrDlg.open)thrDlg.showModal();
   // Opened at one message (its quote bar, a link to it): the box answers that message, not the thread's first (jxn #1351).
-  thrTo=o.focus&&o.focus!==root&&document.getElementById('e'+o.focus)?o.focus:0;cmpIn(root,thrTo);if(cmpHome&&!o.focus&&matchMedia('(hover:hover)').matches){ta.focus();ta.setSelectionRange(ta.value.length,ta.value.length)}}
+  thrTo=o.focus&&o.focus!==root&&document.getElementById('e'+o.focus)?o.focus:0;cmpIn(root,thrTo);typingSync();if(cmpHome&&!o.focus&&matchMedia('(hover:hover)').matches){ta.focus();ta.setSelectionRange(ta.value.length,ta.value.length)}}
 function closeThread(){if(thrDlg.open)thrDlg.close();else{thrOpen=0;cmpBack()}}
-thrDlg.addEventListener('close',()=>{thrOpen=0;cmpBack()});
+thrDlg.addEventListener('close',()=>{thrOpen=0;cmpBack();typingSync()});
 thrDlg.addEventListener('click',e=>{if(e.target===thrDlg||e.target.closest('[data-thr-close]'))closeThread();const s=e.target.closest('.thr-list [data-src]');
   if(s&&e.target.closest('a.seq,.rq')){e.preventDefault();const n=s.dataset.src;closeThread();const el=document.getElementById('e'+n);if(el){pinned=false;el.scrollIntoView({block:'center'});focusOn(el);el.classList.add('hit');setTimeout(()=>el.classList.remove('hit'),4000)}}});
 document.addEventListener('click',e=>{const s=e.target.closest('#thread [data-thread]');if(!s)return;const sel=getSelection();if(sel&&!sel.isCollapsed&&sel.rangeCount&&sel.getRangeAt(0).intersectsNode(s))return; // ending a selection isn't a click

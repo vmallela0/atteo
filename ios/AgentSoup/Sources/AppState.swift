@@ -55,8 +55,8 @@ final class AppState: ObservableObject {
     @Published var loadingEarlier: Set<String> = [] // boards loading older messages right now
     private var seenSent: [String: Int] = [:] // per board: the last "seen up to" this phone reported
     // Who's typing (Typing.swift).
-    @Published var typing: [String: [String: Double]] = [:] // per board, per person: typing until (ms epoch)
-    var typingSent: [String: Date] = [:] // per board: when this phone last said you're typing
+    @Published var typing: [String: [String: TypingPing]] = [:] // per board, per person: typing until (ms epoch), and where
+    var typingSent: [String: Date] = [:] // per board and thread ("board#root"): when this phone last said you're typing
     @Published var agentSessions: [AgentChatSession] = [] // "Your agent": the sessions you can send to (AgentChat.swift)
     @Published var decisions: [String: [Int: HumanDecision]] = [:] // per board, per message: human decisions (HumanDecisions.swift)
     @Published var quickChips: [String: [Int: QuickChips]] = [:] // per board, per question: one-tap replies for you (QuickReplies.swift)
@@ -429,7 +429,7 @@ final class AppState: ObservableObject {
     func watch(_ b: Board) async {
         struct Event: Decodable {
             let type: String; var user: String?; var personSeen: Int?; var agentSeen: Int?; var seq: Int?; var by: String?; var done: Bool?
-            var who: String?; var until: Double?; var author: String?; var via: String? // typing; an entry's author
+            var who: String?; var until: Double?; var root: Int?; var author: String?; var via: String? // typing (root: its thread); an entry's author
             var humanDecision: HumanDecision? // a human decision's new state
         }
         var backoff: UInt64 = 1
@@ -455,7 +455,7 @@ final class AppState: ObservableObject {
                     }
                     // "jxn is typing…" (people only; never you), until their message lands or it runs out.
                     if e.type == "typing", let who = e.who, let until = e.until {
-                        if who != me?.owner { heardTyping(who, until: until, on: b.id) }
+                        if who != me?.owner { heardTyping(who, until: until, root: e.root ?? 0, on: b.id) }
                         continue
                     }
                     // A member renamed their agent (#1125): how their agent shows here, and "@Jarvis" in the @ menu.
