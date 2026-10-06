@@ -664,7 +664,7 @@ await step("public origin: a request for the workers.dev host links to PUBLIC_UR
 
 await step("privacy covers every kind of processor, staff access, retention, children and a contact; terms say no abuse (App Review 1.2, 5.1.1(i))", async () => {
   const privacy = await (await web("/privacy")).text(), terms = await (await web("/terms")).text();
-  for (const w of ["Hosting", "prompt injection", "Sign-in and email", "third-party AI voice provider", "Error reports", "Product analytics", "message text", "Do Not Track", "Payments", "Apple", "Backups", "list of these providers on request", "Atteo staff don't look at", "How long we keep it", "under 16", "privacy@atteo.dev", "deleted user"])
+  for (const w of ["Hosting", "prompt injection", "Sign-in and email", "third-party AI voice provider", "Error reports", "Product analytics", "message text", "Do Not Track", "Payments", "Apple", "Backups", "list of these providers on request", "Atteo staff don't look at", "How long we keep it", "under 16", "privacy@atteo.dev", "deleted user", "one tap shows who can read it", "we still see who is on it", "compromised device"]) // E2E Phase 0 (vedu #5452)
     assert(privacy.includes(w), `privacy policy covers ${w}`);
   for (const v of ["Cloudflare", "WorkOS", "Resend", "xAI", "Sentry", "PostHog", "Stripe", "Backblaze"]) // vendors by category only (vedu #5410)
     assert(!privacy.includes(v), `privacy policy doesn't name ${v}`);

@@ -227,6 +227,8 @@ label.lbl{display:block;font-size:13px;font-weight:500;color:var(--ink);margin:0
 .badge{display:inline-flex;align-items:center;gap:6px;height:22px;padding:0 8px;border-radius:999px;border:1px solid var(--line);
   font-size:12px;color:var(--muted);background:var(--bg)}
 .dot{width:7px;height:7px;border-radius:50%;background:currentColor;display:inline-block;flex:none}
+.privacy-note{display:flex;justify-content:center;margin:12px 0 4px}.e2e-badge{cursor:pointer;flex:none;font:inherit;font-size:12px;height:auto;min-height:24px;white-space:normal;text-align:center}.e2e-badge:hover{color:var(--ink);border-color:var(--muted)}
+.privacy-readers{margin:6px 0 0;padding-left:18px;display:grid;gap:4px}
 .live .dot{color:var(--ok);box-shadow:0 0 0 0 color-mix(in srgb,var(--ok) 50%,transparent);animation:pulse 2.4s infinite}
 @keyframes pulse{0%{box-shadow:0 0 0 0 color-mix(in srgb,var(--ok) 45%,transparent)}70%{box-shadow:0 0 0 7px transparent}100%{box-shadow:0 0 0 0 transparent}}
 .type{display:inline-flex;align-items:center;gap:5px;font-size:12px;color:var(--muted)}

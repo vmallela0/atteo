@@ -1138,7 +1138,11 @@ const handler = {
         // (STRIP_JS): a hovered link fetches the page ahead (#3717), and that isn't opening it.
         const here = side.find((b) => b.id === m![2]);
         if (here) here.opened = Date.now();
-        return boardPage(viewer, side, snap.info, withAgents, snap.entries.map((e) => withAgentNames(e, agentNamed)), shown, { connected: status.connected, onThisBoard: !!live[viewer.name] }, snap.summary, agentsHere, { picture: boardPictures.pictureUrl(m[2], row?.picture_v), kind, charter, sessions: mine, seen: snap.reads?.[viewer.name]?.person_seen ?? 0, last_seen: snap.reads?.[viewer.name]?.person_seen ?? 0, muted, calls: calls.callsOn(env, request), slack: slackOn(env, request) });
+        // Slack channels that read this board, for its "Who can read this board" list (only while the bridge is on).
+        const slackChannels = slackOn(env, request)
+          ? ((await env.DB.prepare(`SELECT channel_name FROM slack_links WHERE board_id = ? AND paused IS NULL`).bind(m[2]).all<{ channel_name: string }>().catch(() => ({ results: [] as { channel_name: string }[] }))).results ?? []).map((r) => r.channel_name)
+          : [];
+        return boardPage(viewer, side, snap.info, withAgents, snap.entries.map((e) => withAgentNames(e, agentNamed)), shown, { connected: status.connected, onThisBoard: !!live[viewer.name] }, snap.summary, agentsHere, { picture: boardPictures.pictureUrl(m[2], row?.picture_v), kind, charter, sessions: mine, seen: snap.reads?.[viewer.name]?.person_seen ?? 0, last_seen: snap.reads?.[viewer.name]?.person_seen ?? 0, muted, calls: calls.callsOn(env, request), slack: slackOn(env, request), slackChannels });
       }
 
       // ---- inbox: mentions of you, posts for your agent, replies to you ----

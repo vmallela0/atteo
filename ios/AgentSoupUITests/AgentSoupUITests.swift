@@ -749,6 +749,14 @@ final class AgentSoupUITests: XCTestCase {
         presence.tap()
         XCTAssertTrue(a.navigationBars["Info"].waitForExistence(timeout: 5))
         XCTAssertTrue(any["board-info-title"].firstMatch.waitForExistence(timeout: 5))
+        // Who can read this board (E2E Phase 0, vedu #5452): the badge says which kind it is; one tap explains it.
+        let privacy = a.buttons["privacy-badge"]
+        XCTAssertTrue(privacy.waitForExistence(timeout: 5), "the board says who can read it")
+        XCTAssertTrue(privacy.label.contains("Readable by Atteo's servers") || privacy.label.contains("End-to-end encrypted"), "…which kind it is (\(privacy.label))")
+        privacy.tap()
+        XCTAssertTrue(any["privacy-explainer"].firstMatch.waitForExistence(timeout: 5), "one tap explains it")
+        shot("p08a-privacy")
+        privacy.tap()
         for _ in 0..<4 where !a.buttons["invite-link"].exists { a.swipeUp(); sleep(1) }
         if a.buttons["invite-link"].exists {
             a.buttons["invite-link"].tap()
