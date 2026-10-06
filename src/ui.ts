@@ -21,7 +21,7 @@ import { analyticsScriptTag, currentAnalytics } from "./analytics";
 
 /** Report-only for now (jxn's agent #2636): violations go to /api/csp-report and the ops console. Set this to true to
  *  enforce once a day of reports is clean; nothing else changes (every inline script already carries the nonce). */
-export const CSP_ENFORCE = false;
+export const CSP_ENFORCE = true;
 export const CSP_REPORT_PATH = "/api/csp-report";
 
 /** The one outside host the web may open a socket to: the voice provider (voice.ts REALTIME_URL; a test keeps them in
@@ -58,14 +58,18 @@ export function formActionSource(raw: string): string | null {
 // audio is WebAudio on connect-src, not a media element. No data: font or media, and no media host besides 'self'.
 // The pinned mermaid.min.js inserts one fixed <style> block of its own (a nonce can't reach it), so it's allowed by its hash;
 // a new mermaid build, or a new light --bg (jxn #5142), changes the hash and the csp browser checks name the new one.
+// Cloudflare Web Analytics: Cloudflare's edge injects its beacon script (no nonce) and the beacon posts to cloudflareinsights.com.
+// It was the only report in a week of report-only (vedu #5192), so it's allowed by name rather than blocked once enforced.
+const CF_BEACON_SRC = "https://static.cloudflareinsights.com";
+const CF_BEACON_POST = "https://cloudflareinsights.com";
 const MERMAID_STYLE_HASH = "'sha256-vuoYVUMGk/VxhCdzgU8CZI+1pTZh7IqNO0ULnfSkFEE='";
 export function pageSecurity(opts: { formAction?: string[] } = {}) {
   const nonce = Array.from(crypto.getRandomValues(new Uint8Array(16)), (b) => b.toString(16).padStart(2, "0")).join("");
   const formAction = ["'self'", ...(opts.formAction ?? []).map(formActionSource).filter((x): x is string => !!x)].join(" ");
   // PostHog's ingest host is added only while a project key is configured (src/analytics.ts). script-src stays first-party.
   const ph = currentAnalytics();
-  const connect = ph ? `'self' ${VOICE_SOCKET_ORIGIN} ${ph.host}` : `'self' ${VOICE_SOCKET_ORIGIN}`;
-  const policy = `default-src 'self'; script-src 'self' 'nonce-${nonce}'; script-src-attr 'none'; style-src 'self' 'nonce-${nonce}' ${MERMAID_STYLE_HASH}; style-src-attr 'unsafe-inline'; img-src 'self' blob:; font-src 'self'; media-src 'self' blob:; connect-src ${connect}; frame-src 'self' about:; frame-ancestors 'none'; base-uri 'none'; form-action ${formAction}; object-src 'none'; report-uri ${CSP_REPORT_PATH}; report-to csp`;
+  const connect = ph ? `'self' ${VOICE_SOCKET_ORIGIN} ${CF_BEACON_POST} ${ph.host}` : `'self' ${VOICE_SOCKET_ORIGIN} ${CF_BEACON_POST}`;
+  const policy = `default-src 'self'; script-src 'self' 'nonce-${nonce}' ${CF_BEACON_SRC}; script-src-attr 'none'; style-src 'self' 'nonce-${nonce}' ${MERMAID_STYLE_HASH}; style-src-attr 'unsafe-inline'; img-src 'self' blob:; font-src 'self'; media-src 'self' blob:; connect-src ${connect}; frame-src 'self' about:; frame-ancestors 'none'; base-uri 'none'; form-action ${formAction}; object-src 'none'; report-uri ${CSP_REPORT_PATH}; report-to csp`;
   const headers: Record<string, string> = {
     [CSP_ENFORCE ? "content-security-policy" : "content-security-policy-report-only"]: policy,
     "reporting-endpoints": `csp="${CSP_REPORT_PATH}"`,
