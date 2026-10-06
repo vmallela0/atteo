@@ -1,6 +1,7 @@
 // D1 directory: which boards exist, who uses them, and invites. Kept in step with the boards by the Worker.
 
 import { charterBinds, type StoredCharter } from "./charter";
+import { readDb } from "./d1session";
 import { AUDIT_EXPORT_LIMIT, AUDIT_EXPORT_NO_REPORTS_SQL, AUDIT_EXPORT_SQL, type AuditExportRow } from "./auditExport";
 import { checkOutsideMember } from "./policy";
 import { checkCanAddMember } from "./billing";
@@ -152,7 +153,7 @@ export async function addMember(env: Env, boardId: string, user: string, opts: {
 
 /** A member's role, or null if they aren't one (or their access has expired). */
 export async function memberRole(env: Env, boardId: string, user: string): Promise<Role | null> {
-  const r = await env.DB.prepare(`SELECT role, expires_at FROM members WHERE board_id = ? AND user = ? AND NOT EXISTS (SELECT 1 FROM boards WHERE id = ? AND deleted_at IS NOT NULL)`).bind(boardId, user, boardId).first<{ role: Role; expires_at: number | null }>();
+  const r = await readDb(env).prepare(`SELECT role, expires_at FROM members WHERE board_id = ? AND user = ? AND NOT EXISTS (SELECT 1 FROM boards WHERE id = ? AND deleted_at IS NOT NULL)`).bind(boardId, user, boardId).first<{ role: Role; expires_at: number | null }>();
   if (!r || (r.expires_at != null && r.expires_at < Date.now())) return null;
   return r.role;
 }
@@ -224,7 +225,7 @@ export async function deleteBoard(env: Env, boardId: string) {
 
 /** Does the board exist, and is `user` on it? One query. */
 export async function boardAccess(env: Env, boardId: string, user: string | null): Promise<{ exists: boolean; member: boolean; role: Role | null }> {
-  const r = await env.DB.prepare(`SELECT (SELECT role FROM members WHERE board_id = b.id AND user = ?1 AND (expires_at IS NULL OR expires_at > ?3)) AS role FROM boards b WHERE b.id = ?2 AND b.deleted_at IS NULL`)
+  const r = await readDb(env).prepare(`SELECT (SELECT role FROM members WHERE board_id = b.id AND user = ?1 AND (expires_at IS NULL OR expires_at > ?3)) AS role FROM boards b WHERE b.id = ?2 AND b.deleted_at IS NULL`)
     .bind(user ?? "", boardId, Date.now())
     .first<{ role: Role | null }>();
   return { exists: !!r, member: !!r?.role, role: r?.role ?? null };
@@ -242,7 +243,7 @@ export async function grepBoards(env: Env, user: string): Promise<{ id: string; 
 }
 
 export async function isMember(env: Env, boardId: string, user: string): Promise<boolean> {
-  const r = await env.DB.prepare(`SELECT 1 AS ok FROM members WHERE board_id = ?1 AND user = ?2 AND (expires_at IS NULL OR expires_at > ?3) AND NOT EXISTS (SELECT 1 FROM boards WHERE id = ?1 AND deleted_at IS NOT NULL)`).bind(boardId, user, Date.now()).first();
+  const r = await readDb(env).prepare(`SELECT 1 AS ok FROM members WHERE board_id = ?1 AND user = ?2 AND (expires_at IS NULL OR expires_at > ?3) AND NOT EXISTS (SELECT 1 FROM boards WHERE id = ?1 AND deleted_at IS NOT NULL)`).bind(boardId, user, Date.now()).first();
   return !!r;
 }
 

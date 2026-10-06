@@ -1,6 +1,7 @@
 // Sign-in with WorkOS AuthKit, web sessions, and personal MCP tokens.
 // Session cookies and tokens are random secrets; only their SHA-256 hashes are stored.
 
+import { readDb } from "./d1session";
 import type { Env } from "./types";
 import { isLocalHost } from "./util";
 
@@ -151,7 +152,7 @@ export async function createSession(
 export async function getSession(request: Request, env: Env): Promise<Session | null> {
   const secret = readCookie(request, SESSION_COOKIE);
   if (!secret) return null;
-  const row = await env.DB.prepare(
+  const row = await readDb(env).prepare(
     `SELECT s.id_hash, s.user, s.workos_id, s.email, s.email_verified, s.display_name, s.expires_at, u.name AS u_name, u.email AS u_email, u.display_name AS u_display_name, u.display AS u_display
      FROM sessions s LEFT JOIN users u ON u.name = s.user WHERE s.id_hash = ?`,
   )
@@ -211,7 +212,7 @@ async function lookupToken(env: Env, token: string, ctx?: ExecutionContext, fres
   const now = Date.now();
   let row = tokenCache.get(hash);
   if (!row || fresh || now - row.at > TOKEN_CACHE_MS) {
-    const r = await env.DB.prepare(TOKEN_SQL).bind(hash).first<{ id: string; user: string; expires_at: number | null; kind: string | null }>();
+    const r = await readDb(env).prepare(TOKEN_SQL).bind(hash).first<{ id: string; user: string; expires_at: number | null; kind: string | null }>();
     if (!r) {
       tokenCache.delete(hash);
       return null;
@@ -220,7 +221,7 @@ async function lookupToken(env: Env, token: string, ctx?: ExecutionContext, fres
     if (tokenCache.size > 5000) tokenCache.clear();
     tokenCache.set(hash, row);
   }
-  // "Last used" is good to a minute; don't write it on every call.
+  // "Last used" is a write, so it stays on the primary. The SELECT above is the read session.
   if (now - row.touched > 60_000) {
     row.touched = now;
     const touch = env.DB.prepare(`UPDATE tokens SET last_used = ? WHERE id = ?`).bind(now, row.id).run();

@@ -28,6 +28,7 @@ import * as boardPictures from "./boardPictures";
 import * as agents from "./agents";
 import * as dm from "./dm";
 import { settle, waitForBoard } from "./waits";
+import { attachReadSession } from "./d1session";
 import { badMessageId, isRetriable, messageId, retryingReads, withRetry } from "./retry";
 import CLI_BUNDLE from "../cli/dist/atteo.mjs";
 import { installScript } from "./install";
@@ -702,7 +703,9 @@ const handler = {
     // Local runs (wrangler dev, every test suite) never load analytics: the key in wrangler.jsonc is production's.
     return withAnalytics(isLocalHost(new URL(request.url).hostname) ? {} : rawEnv, async () => {
     // Database reads retry through dropped connections (a transient D1 error must never fail someone's post).
+    // One D1 read session for this request (src/d1session.ts). Writes stay on env.DB. No bookmark is shared.
     const env: Env = { ...rawEnv, DB: retryingReads(rawEnv.DB) };
+    attachReadSession(env);
     const url = new URL(request.url);
     // Links back to the product (sign-in callback, emails, OAuth/A2A/OpenAPI metadata, install.sh) use the public
     // address: atteo.dev proxies to this workers.dev host, so url.origin is workers.dev even for atteo.dev visitors.

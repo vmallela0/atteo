@@ -245,6 +245,20 @@ deployment URL. `SHIP_FULL=1` runs every suite and every browser check, `SKIP_BR
 `SHIP_DRY=1` stops before the push, and `LOCAL_PORT` (four ports from it) and `REUSE_DEV=1` only change the local
 preflight server choice.
 
+## D1 read replicas
+
+Leave read replication off until people far from your database's region feel the latency. The Worker already sends
+the web-session, bearer-token, membership, and agent-session lookups through D1's Sessions API (`src/d1session.ts`).
+Those reads use the primary when replication is off, and when the local runtime has no `withSession` (miniflare,
+the unit tests). Writes stay on the primary.
+
+Each request keeps its own session and starts at the primary (`first-primary`). A bookmark is a database version,
+not a person: it is not stored on the isolate or sent on a response, and it is never applied to someone else's
+request. Details and the dashboard steps are in [CLOUDFLARE_HARDENING.md](CLOUDFLARE_HARDENING.md).
+
+To turn replicas on later: D1 → your database → **Settings** → **Enable Read Replication**. That is an account
+setting. It is not a `wrangler.jsonc` var, and this repo does not enable it.
+
 ## What lives where
 
 | Data | Where |

@@ -33,7 +33,9 @@ abuse from costing money.
    launch.
 3. **D1 hot reads.** The worst readers were indexed or cached on Oct 5 (COSTS.md). D1 is single-region, so people
    far from WNAM pay ~150 ms per query round trip. **D1 read replication** (with the Sessions API) is the fix when
-   usage outside North America grows. It needs code changes (`env.DB.withSession`), not just a switch.
+   usage outside North America grows. It needs code changes (`env.DB.withSession`), not just a switch. The first
+   slice is in `src/d1session.ts` (web session, bearer token, membership, agent-session directory). Replicas stay
+   off; see [D1 read replicas](#d1-read-replicas-not-enabled) below.
 4. **Abuse of signed-out endpoints.** Fixed on this branch (below): the three signed-out endpoints that wrote a D1 row
    or woke a board on every call had no limit.
 5. **Per-token rate limits are per isolate.** `limits.ts` counts requests per token in each isolate's memory, so a
@@ -68,7 +70,7 @@ abuse from costing money.
 | Serve built CSS/JS from static assets | `src/ui.ts` → `public/` at build | asset requests are free and use no Worker CPU; today every `/app.css`, `/board.js`, font etc. runs the Worker (cached by browsers via versioned URLs, so once per visitor) |
 | Short-lived cache for read-only board views | `src/index.ts` board GETs | protects one hot board (see 1 above) |
 | `limits.cpu_ms` | `wrangler.jsonc` | a ceiling on runaway CPU per request. Only after measuring exports and backups, which legitimately take longer |
-| D1 read replication + Sessions API | `env.DB` call sites | when non-US traffic grows (see 3 above) |
+| D1 read replication for the remaining SELECTs | other `env.DB` reads | session, token, and membership lookups already use `withSession` (`src/d1session.ts`). Enable replicas only when non-US traffic shows up (see below) |
 
 ## Dashboard settings for vedu (and jxn for the atteo.dev zone)
 
@@ -121,3 +123,32 @@ so retention keeps the row instead.
 
 Counts: remaining total and `oauth_clients_pruned` (last 14 days, from `usage_daily`) on `/_ops`; each cron run
 returns `oauth_clients_pruned` on `POST /api/ops/cron`. Tests: `test/oauth.test.ts`.
+
+## D1 read replicas (not enabled)
+
+Replication is a database setting, not a Worker deploy, and this repo does not turn it on. The code is already safe
+while it is off.
+
+`fetch` calls `attachReadSession` (`src/d1session.ts`) on that request's `env`. The hot read-only lookups then use
+`readDb`: the web session (`auth.getSession`), the bearer token SELECT (`auth` token lookup; the `last_used` UPDATE
+stays on `env.DB`), membership (`memberRole`, `isMember`, `boardAccess`), and the agent-session directory
+(`sessions.get`, `onBoard`, `liveByBoard`). Every other statement, including every write, stays on `env.DB`.
+
+Bookmark strategy, so one person's session is never answered from another person's bookmark:
+
+- **Per request.** The session starts at `first-primary`. There is no bookmark yet, so the first read hits the
+  primary. That is also the only copy while replicas are off. Later reads in the same request share that session:
+  once replicas exist, a replica may serve them only after it has caught up to the primary read.
+- **Not per isolate.** Nothing stores a bookmark on the isolate, in a cookie, or on a response. A bookmark produced
+  while serving person A is not a constraint for person B. `continueRead` sends a bookmark only when it is the one
+  this request's own session just observed (`sessionBookmark`). Any other string starts a new `first-primary` session.
+- **No Sessions API.** Unit tests and miniflare often have no `withSession`. If it is missing or throws, those reads
+  use `env.DB` exactly as before.
+
+To turn replicas on later (do this when people far from WNAM are paying the round trip; leave it off until then):
+
+1. Cloudflare dashboard → **D1** → the `agent-board` database → **Settings** → **Enable Read Replication**.
+2. Deploy nothing for this slice: the Worker already calls `withSession`. With replication disabled, those calls
+   still run on the primary.
+3. Don't share bookmarks across people, and don't put one in a cache key. A later slice can round-trip a bookmark
+   only on that person's own request.

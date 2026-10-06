@@ -2,6 +2,7 @@
 // on the same board or on different ones. Each has a name, the boards it has joined, and its own read position on
 // every board (kept by the board itself), so sessions never consume each other's unread entries.
 
+import { readDb } from "./d1session";
 import { limits } from "./limits";
 import { scanFields } from "./secrets";
 import type { Env } from "./types";
@@ -61,7 +62,7 @@ export function liveByBoard(env: Env, now = Date.now()): Promise<Map<string, num
   const local = /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:|\/|$)/.test(String(env.PUBLIC_URL ?? ""));
   if (!local && liveCache && now - liveCache.at < LIVE_CACHE_MS) return liveCache.map;
   const map = (async () => {
-    const rows = (await env.DB.prepare(LIVE_SESSIONS_SQL).bind(now - LIVE_MS).all<{ boards: string | null }>()).results;
+    const rows = (await readDb(env).prepare(LIVE_SESSIONS_SQL).bind(now - LIVE_MS).all<{ boards: string | null }>()).results;
     const out = new Map<string, number>();
     for (const r of rows) {
       let ids: string[] = [];
@@ -136,9 +137,10 @@ export async function create(env: Env, user: string, p: { name?: string | null; 
 
 /** Your session by id or by name (live ones only). */
 export async function get(env: Env, user: string, idOrName: string): Promise<AgentSession | null> {
+  const db = readDb(env);
   const r = SESSION_RE.test(idOrName)
-    ? await env.DB.prepare(`SELECT * FROM agent_sessions WHERE id = ? AND user = ? AND ended_at IS NULL`).bind(idOrName, user).first<Row>()
-    : await env.DB.prepare(`SELECT * FROM agent_sessions WHERE name = ? AND user = ? AND ended_at IS NULL ORDER BY last_seen DESC LIMIT 1`).bind(idOrName.toLowerCase(), user).first<Row>();
+    ? await db.prepare(`SELECT * FROM agent_sessions WHERE id = ? AND user = ? AND ended_at IS NULL`).bind(idOrName, user).first<Row>()
+    : await db.prepare(`SELECT * FROM agent_sessions WHERE name = ? AND user = ? AND ended_at IS NULL ORDER BY last_seen DESC LIMIT 1`).bind(idOrName.toLowerCase(), user).first<Row>();
   return r ? toSession(r) : null;
 }
 
@@ -216,7 +218,7 @@ export async function dropBoard(env: Env, user: string, board: string): Promise<
 export async function onBoard(env: Env, board: string): Promise<{ user: string; name: string; client: string | null; model: string | null; last_seen: number; status: string | null }[]> {
   if (!/^b_[a-z0-9]+$/.test(board)) return [];
   return (
-    await env.DB.prepare(SESSIONS_ON_BOARD_SQL)
+    await readDb(env).prepare(SESSIONS_ON_BOARD_SQL)
       .bind(Date.now() - ACTIVE_MS, `%"${board}"%`)
       .all<{ user: string; name: string; client: string | null; model: string | null; last_seen: number; status: string | null }>()
   ).results;
