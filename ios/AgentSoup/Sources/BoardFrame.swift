@@ -38,6 +38,7 @@ struct BoardStateTabs: View {
             }
             .padding(.horizontal, Space.l)
             .padding(.top, Space.xs)
+            .padding(.bottom, 2) // a hair between the tabs' underlines and the Chat / Tasks / Files row (vedu #5088)
         }
         .fixedSize(horizontal: false, vertical: true)
         .frame(maxWidth: .infinity)
