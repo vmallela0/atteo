@@ -909,7 +909,9 @@ async function exportCmd(args: string[]) {
       for (;;) {
         const page = await encEntries(opt, board, after);
         if (!page.length) break;
-        for (const { payload: _ciphertext, ...e } of page) line({ ...e, encrypted: true }); // the text, decrypted here; not the ciphertext
+        // The text, decrypted here; not the ciphertext, and of its files only what they are (their keys stay out of a file you might pass on).
+        for (const { payload: _ciphertext, extras, files: _ids, ...e } of page)
+          line({ ...e, ...(extras.title ? { title: extras.title } : {}), ...(extras.files?.length ? { files: extras.files.map((f) => ({ name: f.name, mime: f.mime, size: f.size })) } : {}), encrypted: true });
         after = page[page.length - 1].seq;
       }
     } else {

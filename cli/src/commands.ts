@@ -10,7 +10,7 @@ import { env } from "./env";
 import SKILL_MD from "../../skills/atteo/SKILL.md";
 import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { hostname, tmpdir } from "node:os";
-import { decryptV2, encryptV2, myKey, newEpochKey, seal, unseal, unwrapKey, wrapKey, type WrappedKey } from "./sealed";
+import { decryptFile, decryptV2, encryptFile, encryptV2, FILE_CHUNK, myKey, newEpochKey, seal, unseal, unwrapKey, wrapKey, type WrappedKey } from "./sealed";
 import { homedir } from "node:os";
 import { basename, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { blockedMessage, scanFields } from "../../src/secrets";
@@ -418,11 +418,22 @@ async function boardKeys(opt: Record<string, string | true>, board: string, trie
   return { current, keys };
 }
 
-async function encPost(opt: Record<string, string | true>, board: string, p: { type: string; text: string; to?: string; reply_to?: number }, tries = 0): Promise<{ seq: number }> {
+/** A message's structured parts, encrypted beside its text as the envelope's `x` (docs/SPEC.md §16): older clients read the text alone. */
+export type SealedExtras = { xv?: 1; title?: string; files?: SealedFileRef[] };
+export type SealedFileRef = { id: string; name: string; mime: string; size: number; key: string; chunk: number; w?: number; h?: number };
+
+/** The envelope for a message: its text, and its extras (if any) as a second ciphertext under the same key. */
+function envelope(key: Buffer, epoch: number, text: string, extras?: SealedExtras): string {
+  const p: Record<string, unknown> = { v: 2, epoch, ...encryptV2(key, Buffer.from(text)) };
+  if (extras && Object.keys(extras).length) p.x = encryptV2(key, Buffer.from(JSON.stringify({ xv: 1, ...extras })));
+  return JSON.stringify(p);
+}
+
+async function encPost(opt: Record<string, string | true>, board: string, p: { type: string; text: string; to?: string; reply_to?: number; extras?: SealedExtras; files?: string[] }, tries = 0): Promise<{ seq: number }> {
   const { current, keys } = await boardKeys(opt, board);
-  const payload = JSON.stringify({ v: 2, epoch: current, ...encryptV2(keys.get(current)!, Buffer.from(p.text)) });
+  const payload = envelope(keys.get(current)!, current, p.text, p.extras);
   try {
-    const j = await api(opt, "POST", `/api/boards/${board}/sealed`, { payload, type: p.type, to: p.to, reply_to: p.reply_to });
+    const j = await api(opt, "POST", `/api/boards/${board}/sealed`, { payload, type: p.type, to: p.to, reply_to: p.reply_to, files: p.files?.length ? p.files : undefined });
     return j.entry;
   } catch (e) {
     // A removal or a newer epoch since we looked: refetch the keys and encrypt again.
@@ -447,18 +458,23 @@ export async function encEntries(opt: Record<string, string | true>, board: stri
   const kid = await ensureKey(opt);
   const { keys } = await boardKeys(opt, board);
   const j = await api(opt, "GET", `/api/boards/${board}/sealed?after=${after}`);
-  return (j.entries as { seq: number; ts: number; author: string; via: string | null; type: string; to: string | null; reply_to: number | null; payload: string }[]).map((e) => {
+  return (j.entries as { seq: number; ts: number; author: string; via: string | null; type: string; to: string | null; reply_to: number | null; payload: string; edited_at?: number | null; files?: string[] }[]).map((e) => {
     let text: string;
+    let extras: SealedExtras = {};
     try {
       const p = JSON.parse(e.payload);
       if (p.v === 2) {
         const k = keys.get(p.epoch);
         text = k ? decryptV2(k, p.iv, p.ct).toString("utf8") : `(no key for this part of the board on this machine yet: a member's device hands it over when they're next here)`;
+        if (k && p.x)
+          try {
+            extras = JSON.parse(decryptV2(k, p.x.iv, p.x.ct).toString("utf8"));
+          } catch {}
       } else text = unseal(p, kid).toString("utf8");
     } catch {
       text = "(can't decrypt on this machine: it was sent before this machine's key existed)";
     }
-    return { ...e, text };
+    return { ...e, text, extras };
   });
 }
 
@@ -467,8 +483,12 @@ export async function decryptEntry(opt: Record<string, string | true>, board: st
   return (await encEntries(opt, board, seq - 1)).find((e) => e.seq === seq)?.text ?? null;
 }
 
-const encLine = (e: { seq: number; ts: number; author: string; via: string | null; type: string; to: string | null; reply_to: number | null; text: string }) =>
-  `#${e.seq} ${e.type} · ${e.via === "agent" ? `${e.author}'s agent` : e.author}${e.to ? ` → ${e.to}` : ""}${e.reply_to ? ` · re #${e.reply_to}` : ""} · ${new Date(e.ts).toISOString().slice(0, 16).replace("T", " ")}Z\n    ${proseForAgent(e.text).replace(/\n/g, "\n    ")}`;
+const fmtSize = (n: number) => (n >= 1e6 ? `${(n / 1e6).toFixed(1)} MB` : n >= 1e3 ? `${Math.round(n / 1e3)} KB` : `${n} B`);
+const encLine = (e: { seq: number; ts: number; author: string; via: string | null; type: string; to: string | null; reply_to: number | null; text: string; edited_at?: number | null; extras?: SealedExtras }) => {
+  const files = (e.extras?.files ?? []).map((f) => `\n    📎 ${proseForAgent(f.name)} (${fmtSize(f.size)})`).join("");
+  const title = e.extras?.title ? `${proseForAgent(e.extras.title)}: ` : "";
+  return `#${e.seq} ${e.type} · ${e.via === "agent" ? `${e.author}'s agent` : e.author}${e.to ? ` → ${e.to}` : ""}${e.reply_to ? ` · re #${e.reply_to}` : ""} · ${new Date(e.ts).toISOString().slice(0, 16).replace("T", " ")}Z${e.edited_at ? " · edited" : ""}\n    ${title}${proseForAgent(e.text).replace(/\n/g, "\n    ")}${files}${files ? `\n    (atteo download ${e.seq} saves ${e.extras!.files!.length === 1 ? "it" : "them"}, decrypted on this machine)` : ""}`;
+};
 
 async function read(args: string[]) {
   const { opt } = parseArgs(args, ["all", "summary", "brief"]);
@@ -873,10 +893,59 @@ async function share(args: string[]) {
   const path = pos[0];
   if (!path) throw new CliError('Usage: atteo share <file> [--name name] [--note "what it is"]');
   if (!existsSync(path)) throw new CliError(`No such file: ${path}`);
+  if (await isEncrypted(opt, currentBoard(opt))) return say(await shareSealed(opt, currentBoard(opt), path));
   const content = readFileSync(path, "utf8");
   if (content.includes("\u0000")) throw new CliError("That looks like a binary file; only text files can be shared for now.");
   const name = optStr(opt, "name") ?? basename(path);
   say(await tool(opt, "post", { type: "artifact", artifact_name: name, artifact_content: content, text: optStr(opt, "note") ?? `Shared ${name}`, to: optStr(opt, "to") }));
+}
+
+const MIME: Record<string, string> = { png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif", webp: "image/webp", heic: "image/heic", pdf: "application/pdf", txt: "text/plain", md: "text/markdown", json: "application/json", csv: "text/csv", html: "text/html", zip: "application/zip" };
+const mimeOf = (name: string) => MIME[name.toLowerCase().split(".").pop() ?? ""] ?? "application/octet-stream";
+const MAX_SEALED_PLAIN = 1_500_000; // the server's per-file limit (Board.putSealedFile)
+
+/** An end-to-end encrypted board: the file is encrypted here, the server stores ciphertext, the key goes in the message. */
+async function shareSealed(opt: Record<string, string | true>, board: string, path: string): Promise<string> {
+  const plain = readFileSync(path);
+  if (plain.length > MAX_SEALED_PLAIN) throw new CliError(`That file is too large (max ${MAX_SEALED_PLAIN / 1e6} MB per file on an encrypted board).`);
+  const scan = plain.includes(0) ? null : scanFields({ text: plain.toString("utf8") });
+  if (scan) throw new CliError(blockedMessage(scan));
+  const name = optStr(opt, "name") ?? basename(path);
+  const { key, blob } = encryptFile(plain);
+  const c = creds();
+  const res = await hosted(`${server(c, opt)}/api/boards/${board}/sealed-files`, { method: "POST", headers: { authorization: `Bearer ${c.token}`, "content-type": "application/octet-stream", "user-agent": "atteo-cli/2", ...sessionHeader() }, body: blob });
+  const up = (await res.json().catch(() => ({}))) as { id?: string; error?: string };
+  if (!res.ok || !up.id) throw new CliError(up.error ?? `The server answered ${res.status}.`);
+  const ref: SealedFileRef = { id: up.id, name, mime: mimeOf(name), size: plain.length, key: key.toString("base64"), chunk: FILE_CHUNK };
+  const e = await encPost(opt, board, { type: "note", text: optStr(opt, "note") ?? `📎 ${name}`, to: optStr(opt, "to"), extras: { files: [ref] }, files: [up.id] });
+  return `Posted #${e.seq} with ${name} (encrypted on this machine).`;
+}
+
+/** Saves the files of an encrypted message here, decrypted on this machine; never over an existing file. */
+async function download(args: string[]) {
+  const { pos, opt } = parseArgs(args);
+  const seq = int(pos[0]?.replace(/^#/, ""), "The message");
+  const board = currentBoard(opt);
+  if (!(await isEncrypted(opt, board))) throw new CliError(`On a plain board, files are at: atteo cat files/<name>`);
+  const e = (await encEntries(opt, board, seq - 1)).find((x) => x.seq === seq);
+  const files = e?.extras.files ?? [];
+  if (!files.length) throw new CliError(`#${seq} has no files (or this machine can't read it yet).`);
+  const dir = resolve(optStr(opt, "out") ?? ".");
+  mkdirSync(dir, { recursive: true });
+  const c = creds();
+  const saved: string[] = [];
+  for (const f of files) {
+    const res = await hosted(`${server(c, opt)}/api/boards/${board}/sealed-files/${encodeURIComponent(f.id)}`, { headers: { authorization: `Bearer ${c.token}`, "user-agent": "atteo-cli/2", ...sessionHeader() } });
+    if (!res.ok) throw new CliError(((await res.json().catch(() => ({}))) as { error?: string }).error ?? `The server answered ${res.status}.`);
+    const plain = decryptFile(Buffer.from(f.key, "base64"), Buffer.from(await res.arrayBuffer()), f.size);
+    // The name is the sender's: only its last part, and a new name rather than overwriting anything.
+    const base = basename(f.name.replace(/\\/g, "/")).replace(/^\.+/, "") || `file-${seq}`;
+    let out = join(dir, base);
+    for (let i = 2; existsSync(out); i++) out = join(dir, base.replace(/(\.[^.]*)?$/, `-${i}$1`));
+    writeFileSync(out, plain, { mode: 0o600 });
+    saved.push(out);
+  }
+  say(`Saved ${saved.map((s) => relative(process.cwd(), s) || s).join(", ")} (decrypted on this machine).`);
 }
 
 async function task(args: string[]) {
@@ -1410,6 +1479,7 @@ export const COMMANDS: Record<string, (args: string[]) => Promise<void>> = {
   get,
   search,
   share,
+  download,
   task,
   doc,
   decide: (a) => post(a, "decision"),
@@ -1448,7 +1518,8 @@ Board commands (on the board chosen with \`use\`, per folder):
   atteo post "<text>" [--title "2–5 words"] [--type t] [--to name] [--reply N] [--resolves N,M] [--own|--public]   ("-" reads stdin; --own: only you and your agents; --public: not kept in Just mine)
   atteo wait [--timeout s]         Wait for the next post
   atteo get N · search "<words>"   One entry with replies · ranked search
-  atteo share <file> [--note …]    Post a file (its next version if the name exists)
+  atteo share <file> [--note …]    Post a file (its next version if the name exists; encrypted boards: encrypted here)
+  atteo download N [--out dir]     Save an encrypted message's files, decrypted on this machine (never overwrites)
   atteo decide "<text>"            Record a decision
   atteo publish "<summary>" [--claim …]… [--decision …]… [--task …]… [--file <path>]… [--title …] [--yes]
                                         The end-of-session slice: a preview until --yes (your person OKs it first).

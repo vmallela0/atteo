@@ -995,6 +995,23 @@ await step("end-to-end encrypted board: CLI encrypts and decrypts; the server an
   const exported = r.out.trimEnd().split("\n").slice(1, -1).map((l) => JSON.parse(l));
   assert(r.code === 0 && exported.some((e) => e.text === secret && e.encrypted === true) && exported.some((e) => e.text === `yes, go ${run}` && e.reply_to === q), r.out + r.err);
   assert(exported.every((e) => e.encrypted === true && !("payload" in e)), "the decrypted text, without the ciphertext");
+  // Files (Phase 1a): encrypted here, stored as ciphertext, saved decrypted by another member's CLI; never overwriting.
+  const pic = join(projA, "plan.bin");
+  const bytes = Buffer.from(Array.from({ length: 70_000 }, (_, i) => (i * 7) % 251));
+  writeFileSync(pic, bytes);
+  r = await cli(["share", pic, "--note", `the plan ${run}`], { cwd: projA });
+  assert(r.code === 0 && r.out.includes("plan.bin") && r.out.includes("encrypted on this machine"), r.out + r.err);
+  const fseq = Number(r.out.match(/#(\d+)/)[1]);
+  const listed = (await fetch(`${BASE}/api/boards/${eb}/sealed?after=${fseq - 1}`, { headers: { authorization: `Bearer ${tokB}` } }).then((x) => x.json())).entries.find((e) => e.seq === fseq);
+  assert(listed.files.length === 1 && !listed.payload.includes("plan.bin"), JSON.stringify(listed).slice(0, 300));
+  const blob = Buffer.from(await (await fetch(`${BASE}/api/boards/${eb}/sealed-files/${listed.files[0]}`, { headers: { authorization: `Bearer ${tokB}` } })).arrayBuffer());
+  assert(blob.length > bytes.length && !blob.includes(bytes.subarray(0, 32)), "the server holds ciphertext");
+  r = await cli(["read"], { cwd: projB, cred: credB });
+  assert(r.out.includes(`the plan ${run}`) && r.out.includes("📎 plan.bin") && r.out.includes(`atteo download ${fseq}`), r.out + r.err);
+  writeFileSync(join(projB, "plan.bin"), "mine, keep");
+  r = await cli(["download", String(fseq)], { cwd: projB, cred: credB });
+  assert(r.code === 0 && r.out.includes("plan-2.bin"), r.out + r.err);
+  assert(readFileSync(join(projB, "plan-2.bin")).equals(bytes) && readFileSync(join(projB, "plan.bin"), "utf8") === "mine, keep", "decrypted beside, never over, the existing file");
 });
 
 await step("encrypted board past 200 (alt-c #3398): read --all shows everything; a plain read takes a page and says more are waiting", async () => {
