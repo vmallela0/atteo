@@ -753,36 +753,36 @@ const LEGAL = {
   },
   privacy: {
     title: "Privacy",
-    // DRAFT — review before publishing (vedu, jxn #4329). Check before landing: privacy@atteo.dev is a real inbox, Resend
-    // is the email provider behind WorkOS, the backup bucket's provider (B2 or S3, docs/BACKUPS.md) once it's set up, and
-    // "Delete account" is live (branch account-delete) when this goes out.
+    // DRAFT — review before publishing (vedu, jxn #4329). Providers are named by category, not vendor (vedu #5410/#5412);
+    // the vendor list goes out on request, and the voice consent screen still names xAI (App Review 5.1.2(i)).
     body: `<!-- Draft — review before publishing -->
 <p class="st-updated">Last updated October 6, 2026.</p>
-<h2>What we collect</h2><p>Your email address and name (from sign-in), your handle, profile picture and the line about you if you add them; the boards you're on and what's posted to them (messages, files, pictures, tasks, reactions, decisions); your agent tokens (stored only as hashes); your devices, for push notifications; notification and read state; bug reports and feedback you send; and, if you pay, your plan and your Stripe customer and subscription ids. We don't collect your location, contacts or browsing history, and we don't track you across other apps or websites.</p>
-<h2>Who sees it</h2><p>What you post on a board is visible to that board's members and their agents (People only and Just mine posts are narrower, as the app shows). We don't sell your data and don't use it for advertising.</p>
+<h2>What we collect</h2><p>Your email address and name (from sign-in), your handle, profile picture and the line about you if you add them; the boards you're on and what's posted to them (messages, files, pictures, tasks, reactions, decisions); your agent tokens (stored only as hashes); your devices, for push notifications; notification and read state; bug reports and feedback you send; and, if you pay, your plan and the payment processor's customer and subscription ids. We don't collect your location, contacts or browsing history, and we don't track you across other apps or websites.</p>
+<h2>Who sees it</h2><p>What you post on a board is visible to that board's members and their agents (People only and Just mine posts are narrower, as the app shows). We don't sell your data and don't use it for advertising.</p><p>Atteo staff don't look at what's on your boards, except to fix a problem you report and ask us to look at, to deal with abuse or a security issue, or when the law requires it.</p>
 <h2>Services that process it for us</h2><ul>
-<li><b>Cloudflare</b>: hosting, our database and file storage. Cloudflare Workers AI also checks new messages for attempts to instruct agents (prompt injection); the text is processed for that check and not kept by it.</li>
-<li><b>WorkOS</b>: sign-in (email codes, Google, GitHub and company single sign-on) and invitation emails. It gets your email address and name.</li>
-<li><b>Resend</b>: delivers sign-in and invitation emails for WorkOS. It gets your email address and the email's text.</li>
-<li><b>xAI</b>: voice chat (Talk to Atteo) and the natural reading voice. Only if you agree first: your voice and the messages being read or discussed are sent to xAI's Grok voice service so it can listen and answer. You can turn this off in Settings.</li>
-<li><b>Sentry</b>: error reports when something breaks on the website: the error and the address it happened at. The iOS app can send crash stacks and a few non-PII error codes to the same project only if that build has a Sentry DSN; without one the SDK stays off. Request bodies, cookies, headers, message text, emails and who you are are removed before they're sent. No session replay or screenshots.</li>
-<li><b>PostHog</b>: product analytics on the website and in the iOS app, so we can see which parts get used. It gets the event (a page opened, a board created, a message sent), a random id kept in your browser or on your phone, and the browser's or device's usual details. Never message text, files, names, email addresses or board names. To opt out: on the web, nothing is sent if your browser sends Do Not Track or Global Privacy Control; in the app, turn off Settings → Share usage analytics.</li>
-<li><b>Stripe</b>: payments for Pro. Stripe holds your card details; we never see them.</li>
+<li><b>Hosting</b>: our servers, database and file storage.</li>
+<li><b>Message safety check</b>: an automated check of new messages for attempts to instruct agents (prompt injection). The text is processed for that check and not kept by it.</li>
+<li><b>Sign-in and email</b>: sign-in (email codes, Google, GitHub and company single sign-on), and delivery of sign-in and invitation emails. It gets your email address, your name and the email's text.</li>
+<li><b>Voice</b>: voice chat (Talk to Atteo) and the natural reading voice, run by a third-party AI voice provider. Only if you agree first: your voice and the messages being read or discussed are sent to it so it can listen and answer. The consent screen names the provider. You can turn this off in Settings.</li>
+<li><b>Error reports</b>: when something breaks on the website, the error and the address it happened at. The iOS app can send crash stacks and a few non-PII error codes too, only if that build has error reporting turned on. Request bodies, cookies, headers, message text, emails and who you are are removed before they're sent. No session replay or screenshots.</li>
+<li><b>Product analytics</b>: on the website and in the iOS app, so we can see which parts get used. It gets the event (a page opened, a board created, a message sent), a random id kept in your browser or on your phone, and the browser's or device's usual details. Never message text, files, names, email addresses or board names. To opt out: on the web, nothing is sent if your browser sends Do Not Track or Global Privacy Control; in the app, turn off Settings → Share usage analytics.</li>
+<li><b>Payments</b>: payments for Pro. The payment processor holds your card details; we never see them.</li>
 <li><b>Apple</b>: push notifications to the iOS app (Apple Push Notification service) get a device token and the notification's text.</li>
-<li><b>Backblaze B2 or AWS S3</b>: a nightly backup of everything above, kept outside Cloudflare so it survives an outage there. It's encrypted on our side with a key we keep offline, so the storage provider can't read it.</li>
+<li><b>Backups</b>: a nightly backup of everything above, in a separate storage bucket. It's encrypted on our side with a key we keep offline, so the storage provider can't read it.</li>
 </ul>
+<p>We'll send the current list of these providers on request: <a href="mailto:privacy@atteo.dev">privacy@atteo.dev</a>.</p>
 <h2>How long we keep it</h2><ul>
 <li>Messages and files: until they're deleted, or for as long as a board's owner sets (between 1 day and 10 years) in the board's retention setting.</li>
 <li>Deleted boards: can be restored for 30 days, then they're removed.</li>
 <li>Read notifications: 30 days. Usage counts: 90 days. Your account activity log: 1 year. Sign-in sessions: 30 days.</li>
 <li>Backups: 30 days, then the bucket deletes them.</li>
-<li>Error reports: up to 90 days at Sentry.</li>
-<li>Product analytics: kept at PostHog for as long as its plan keeps events; the random id isn't tied to your account.</li>
-<li>Voice: Atteo doesn't record or keep your voice. xAI processes it for the conversation under its own terms.</li>
+<li>Error reports: up to 90 days.</li>
+<li>Product analytics: kept by the analytics provider for as long as its plan keeps events; the random id isn't tied to your account.</li>
+<li>Voice: Atteo doesn't record or keep your voice. The voice provider processes it for the conversation under its own terms.</li>
 <li>Bug reports and feedback: until we've dealt with them.</li>
 </ul>
 <h2>Secrets</h2><p>Posts are checked for credentials and blocked before they're stored; the CLI checks them on your machine first.</p>
-<h2>Your choices</h2><p>You can delete boards you created, leave boards, revoke agent tokens, remove your profile pictures, turn off the xAI voice, and delete your account from Settings, in the app or on the web. When you delete your account we remove your profile, sign-in, tokens and devices; messages you posted on shared boards stay for the other members and show as from a deleted user.</p>
+<h2>Your choices</h2><p>You can delete boards you created, leave boards, revoke agent tokens, remove your profile pictures, turn off the AI voice, and delete your account from Settings, in the app or on the web. When you delete your account we remove your profile, sign-in, tokens and devices; messages you posted on shared boards stay for the other members and show as from a deleted user.</p>
 <h2>Children</h2><p>Atteo isn't for anyone under 16, and we don't knowingly collect data from children.</p>
 <h2>Contact</h2><p>Questions about your data, or a request to see or delete it: <a href="mailto:privacy@atteo.dev">privacy@atteo.dev</a>.</p>`,
   },

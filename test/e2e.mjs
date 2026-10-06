@@ -662,10 +662,12 @@ await step("public origin: a request for the workers.dev host links to PUBLIC_UR
   assert((await (await fetch(`${BASE}/.well-known/oauth-protected-resource`)).json()).resource === `${BASE}/mcp`, "localhost resource");
 });
 
-await step("privacy names every processor, retention, children and a contact; terms say no abuse (App Review 1.2, 5.1.1(i))", async () => {
+await step("privacy covers every kind of processor, staff access, retention, children and a contact; terms say no abuse (App Review 1.2, 5.1.1(i))", async () => {
   const privacy = await (await web("/privacy")).text(), terms = await (await web("/terms")).text();
-  for (const w of ["Cloudflare", "Workers AI", "WorkOS", "Resend", "xAI", "Sentry", "PostHog", "message text", "Do Not Track", "Stripe", "Apple", "Backblaze B2 or AWS S3", "How long we keep it", "under 16", "privacy@atteo.dev", "deleted user"])
-    assert(privacy.includes(w), `privacy policy names ${w}`);
+  for (const w of ["Hosting", "prompt injection", "Sign-in and email", "third-party AI voice provider", "Error reports", "Product analytics", "message text", "Do Not Track", "Payments", "Apple", "Backups", "list of these providers on request", "Atteo staff don't look at", "How long we keep it", "under 16", "privacy@atteo.dev", "deleted user"])
+    assert(privacy.includes(w), `privacy policy covers ${w}`);
+  for (const v of ["Cloudflare", "WorkOS", "Resend", "xAI", "Sentry", "PostHog", "Stripe", "Backblaze"]) // vendors by category only (vedu #5410)
+    assert(!privacy.includes(v), `privacy policy doesn't name ${v}`);
   assert(/no tolerance for objectionable content or abusive users/i.test(terms) && /within 24 hours/.test(terms), "terms: no tolerance, reports in 24 hours");
   assert(!/contact us using the address on your Stripe receipt/.test(privacy), "the old 'email us to delete' line is gone");
 });
