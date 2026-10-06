@@ -621,6 +621,11 @@ src/mcp.ts:776). On an encrypted board the server stores ciphertext and can't re
 - **Edits.** `PUT /api/boards/{id}/sealed/{seq} {payload}` replaces the envelope of your own note or question within
   15 minutes, at the current epoch (409 otherwise), people only; the server keeps no earlier version. Unsend clears the
   envelope.
+- **Approval requests.** MCP `request_approval` takes `sealed`, a v2 envelope at the current epoch whose text is the
+  details (and `$ command`) and whose extras' `title` is what's asked (`atteo approvals ask` does this on an encrypted
+  board). The approvals table keeps a placeholder title and no details or command; the board gets a sealed `approval`
+  entry whose card carries only the state (pending, approved, denied), so deciding works as before. Tasks and questions
+  are sealed posts of their type. Handoffs are still refused on encrypted boards (the gate reads the branch and checks).
 - **What the server sees:** per entry, seq, time, author, via, type, `to` and `reply_to`; the board's title; key
   notices and board notices such as a picture change (src/board.ts:4503-4521). It refuses plaintext posts, edits,
   `data`, handoffs, schedules, memory and uploads on encrypted boards (src/board.ts:1141, 1161, 1233, 1785, 2243, 2425,
