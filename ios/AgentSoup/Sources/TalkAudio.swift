@@ -44,6 +44,8 @@ final class TalkAudio {
     private var started = false
     private var configObserver: NSObjectProtocol?
     private var bringing: Task<Void, Never>?
+    /// How it last started, for the call's diagnostics: the try, or the error's domain and code; the route's ports.
+    private(set) var status = ""
     private var failing = false
     private var tapped = false
 
@@ -207,7 +209,9 @@ final class TalkAudio {
         let t = Task { [weak self] in
             if settle > 0 { try? await Task.sleep(nanoseconds: UInt64(settle * 1e9)) }
             guard let self, !Task.isCancelled, self.started else { return }
+            var tries = 0
             let error = await TalkAudioStart.run(attempt: { [weak self] n in
+                tries = n + 1
                 try self?.attempt(n, mic: TalkAudioStart.mic(attempt: n))
             }, sleep: { [weak self] d in
                 try? await Task.sleep(nanoseconds: UInt64(d * 1e9))
@@ -217,6 +221,13 @@ final class TalkAudio {
             let why = error.map(TalkAudioStart.reason)
             if let e = error, case TalkAudioStart.Failure.noMic = e {
                 try? self.attempt(0, mic: .none) // no usable mic on any try: Atteo's voice still plays, and it says why
+            }
+            let route = AVAudioSession.sharedInstance().currentRoute
+            let ports = (route.inputs + route.outputs).map(\.portType.rawValue).joined(separator: ",")
+            if let e = error as NSError? {
+                self.status = "failed after \(tries) tries: \(e.domain) \(e.code) · \(ports)"
+            } else {
+                self.status = "started on try \(tries)\(self.micAllowed ? "" : ", no mic permission") · \(ports)"
             }
             if let why {
                 self.failing = true

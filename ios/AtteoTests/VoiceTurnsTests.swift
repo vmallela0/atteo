@@ -77,4 +77,32 @@ final class VoiceTurnsTests: XCTestCase {
         XCTAssertEqual(VoiceTurns(server: nil), .quick, "an older server runs its VAD")
         XCTAssertEqual(VoiceTurns(server: "pause"), .pause)
     }
+
+    /// vedu #5329: on the loudspeaker at arm's length speech stayed under the old fixed 0.45, nothing was heard and the
+    /// call stood by. In a quiet room, softer speech (0.3, about -38 dBFS) counts.
+    func testSoftSpeechInAQuietRoomCounts() {
+        var t = TalkTurns(pause: 1.5)
+        for i in 0..<30 { _ = t.feed(0.02, atteoTalking: false, now: at(Double(i) * 0.1)) }
+        XCTAssertLessThan(t.startAbove, 0.3)
+        XCTAssertGreaterThanOrEqual(t.startAbove, TalkTurns.minLoud, "never below -40 dBFS: breathing isn't you")
+        _ = t.feed(0.32, atteoTalking: false, now: at(3.1))
+        XCTAssertEqual(t.feed(0.33, atteoTalking: false, now: at(3.2)), .started)
+        XCTAssertEqual(t.feed(0.05, atteoTalking: false, now: at(3.6)), .quiet)
+    }
+
+    func testANoisyRoomKeepsTheOldBar() {
+        var t = TalkTurns(pause: 1.5)
+        for i in 0..<100 { _ = t.feed(0.38, atteoTalking: false, now: at(Double(i) * 0.1)) }
+        XCTAssertEqual(t.startAbove, TalkTurns.loudAbove, "a hum at 0.38 doesn't lower it, nor raise it past 0.45")
+        XCTAssertFalse(t.heard, "the room's hum isn't you")
+        _ = t.feed(0.6, atteoTalking: false, now: at(10.1))
+        XCTAssertEqual(t.feed(0.6, atteoTalking: false, now: at(10.2)), .started)
+    }
+
+    func testAtteosVoiceDoesNotMoveTheRoomLevel() {
+        var t = TalkTurns(pause: 1.5)
+        let before = t.floor
+        for i in 0..<50 { _ = t.feed(0.2, atteoTalking: true, now: at(Double(i) * 0.1)) }
+        XCTAssertEqual(t.floor, before)
+    }
 }

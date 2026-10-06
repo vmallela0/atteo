@@ -36,10 +36,16 @@ enum VoiceTurns: String, CaseIterable, Identifiable {
 
 /// Where a turn starts and ends, from the mic level (0…1, TalkAudio: -50…-10 dBFS, a value every ~100 ms).
 /// Speech: two loud values in a row (louder while Atteo talks, so what's left of its voice after echo cancelling isn't
-/// you). Quiet: below `quietBelow`, with a gap between the two so a word's tail doesn't flicker.
+/// you). Quiet: below `quietUnder`, with a gap between the two so a word's tail doesn't flicker.
+/// "Loud" follows the room (vedu #5329: a phone on the loudspeaker at arm's length never reached a fixed 0.45, about
+/// -32 dBFS, so nothing was ever heard and the call stood by): a little above the room's own quiet level (`floor`,
+/// followed while nobody talks), never below `minLoud` (-40 dBFS) nor above the old `loudAbove`. The floor follows the
+/// quietest moments: down at once, up slowly (speech has gaps between syllables, a hum doesn't), and the bar only drops
+/// below `loudAbove` after a second of listening, so a steady hum is learnt before it could count as you.
 struct TalkTurns: Equatable {
     var pause: TimeInterval = 1.5
     static let loudAbove: Float = 0.45
+    static let minLoud: Float = 0.25
     static let loudOverAtteo: Float = 0.6
     static let quietBelow: Float = 0.3
 
@@ -47,13 +53,22 @@ struct TalkTurns: Equatable {
     private(set) var hearing = false // and it's being said now
     private(set) var quietSince: Date?
     private var loud = 0
+    /// The room's quiet level (0…1): down at once to a quieter value, up 0.02 a value (never on Atteo's voice).
+    private(set) var floor: Float = 0.1
+    private var readings = 0
+
+    /// The level that counts as you talking, and the one under which you've stopped.
+    var startAbove: Float { readings < 10 ? Self.loudAbove : min(Self.loudAbove, max(Self.minLoud, floor + 0.15)) }
+    var quietUnder: Float { min(Self.quietBelow, max(0.12, floor + 0.08)) }
 
     enum Event: Equatable { case none, started, quiet, again }
 
     /// One level value. `.started`: the turn's first speech (barge in if Atteo talks); `.again`: talking again after a
     /// quiet moment (the pause starts over); `.quiet`: it just went quiet.
     mutating func feed(_ level: Float, atteoTalking: Bool, now: Date = Date()) -> Event {
-        if level > (atteoTalking ? Self.loudOverAtteo : Self.loudAbove) {
+        if readings < 10 { readings += 1 }
+        if level < floor { floor = level } else if !atteoTalking { floor += min(level - floor, 0.02) }
+        if level > (atteoTalking ? Self.loudOverAtteo : startAbove) {
             loud += 1
             guard loud >= 2 else { return .none }
             quietSince = nil
@@ -62,8 +77,8 @@ struct TalkTurns: Equatable {
             hearing = true
             return !was.0 ? .started : !was.1 ? .again : .none
         }
-        if level < Self.quietBelow { loud = 0 }
-        guard heard, hearing, level < Self.quietBelow else { return .none }
+        if level < quietUnder { loud = 0 }
+        guard heard, hearing, level < quietUnder else { return .none }
         hearing = false
         quietSince = now
         return .quiet
