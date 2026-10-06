@@ -365,6 +365,14 @@ export function savePins(p: Record<string, string[]>) {
   mkdirSync(join(pinFile(), ".."), { recursive: true, mode: 0o700 });
   writeFileSync(pinFile(), JSON.stringify(p, null, 2), { mode: 0o600 });
 }
+/** The server shows this machine with a signing key that isn't this machine's: someone could sign devices as you. */
+function signMismatch(k: { sign_pub?: string | null } | undefined) {
+  if (k?.sign_pub && k.sign_pub !== mySignKey().pub)
+    warnOnce(
+      "sign_pub",
+      "⚠ The server shows this machine with a signing key that isn't this machine's. Devices \"signed\" with it aren't from you: don't trust them, and tell the board's members.",
+    );
+}
 const warned = new Set<string>();
 const warnOnce = (k: string, line: string) => {
   if (!warned.has(k)) process.stderr.write(line + "\n");
@@ -388,7 +396,10 @@ async function boardKeys(opt: Record<string, string | true>, board: string, trie
   const before = JSON.stringify(pin);
   const seen = new Map([...st.keys, ...st.missing].map((k) => [k.kid, k.public_key]));
   for (const [u, list] of Object.entries(pin)) pin[u] = list.map((e) => (e.includes("|") || !seen.has(e) ? e : pinId(e, seen.get(e)!))); // older pins were ids alone
-  if (!pinned(pin[me], kid, myKey().pub)) (pin[me] ??= []).push(pinId(kid, myKey().pub, mySignKey().pub));
+  // This machine: pinned with its own signing key, never the one the server shows, which it checks.
+  const own = pinned(pin[me], kid, myKey().pub);
+  if (own !== pinId(kid, myKey().pub, mySignKey().pub)) pin[me] = [...(pin[me] ?? []).filter((e) => e !== own), pinId(kid, myKey().pub, mySignKey().pub)];
+  signMismatch(st.keys.find((k) => k.kid === kid));
   for (const k of st.keys) if (k.user !== me && !pin[k.user]) (pin[k.user] ??= []).push(pinId(k.kid, k.public_key, k.sign_pub)); // first sight: trust on first use
   for (const m of st.missing) if (m.user !== me && m.first_device && !pin[m.user]?.length) (pin[m.user] ??= []).push(pinId(m.kid, m.public_key, m.sign_pub));
   crossSigned(pin, [...st.keys, ...st.missing]);
@@ -1135,6 +1146,7 @@ async function keys(args: string[]) {
   const { pos, opt } = parseArgs(args);
   const mine = await ensureKey(opt);
   const j = await api(opt, "GET", "/api/me/keys");
+  signMismatch((j.keys as { id: string; sign_pub: string | null }[]).find((k) => k.id === mine));
   if (pos[0] === "approve") {
     // Your own new device (another machine, the web, the phone): this machine hands it the keys of your encrypted boards.
     const kid = pos[1];

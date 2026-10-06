@@ -2,6 +2,7 @@
 // makes a one-time invite key and wraps the epoch keys to it; whoever opens the link reads at once, with nobody else
 // online, and everyone sees a 🔑 line saying how that device got the key. The server never sees the "#" part.
 import { chromium } from "playwright-core";
+import { d1Execute } from "./lib/d1.mjs";
 const BASE = process.env.BASE || "http://localhost:8787", ADMIN = process.env.ADMIN_KEY || "ci-admin-key";
 const ops = async (p, b) => (await fetch(`${BASE}/api/ops/${p}`, { method: "POST", headers: { "x-admin-key": ADMIN, "content-type": "application/json" }, body: JSON.stringify(b) })).json();
 const run = Date.now().toString(36).slice(-4), D = `dee${run}`, E = `eve${run}`;
@@ -74,6 +75,11 @@ await pd2.locator("#thread .entry", { hasText: `${E} added a device` }).first().
 check(await pd2.locator("#thread .entry", { hasText: `${E} added a device` }).count() === 1, "everyone sees the device change on the board");
 await bodyOf(pe2, secret).waitFor({ timeout: 10000 }).catch(() => {});
 check(await bodyOf(pe2, secret).count() === 1, "Eve's second browser reads");
+// A server that shows Eve's browser with a signing key of its own: the browser says so.
+await d1Execute(`--command ${JSON.stringify(`UPDATE agent_keys SET sign_pub = '${Buffer.alloc(32, 9).toString("base64")}' WHERE id = '${k1[0].id}'`)}`, { cwd: new URL("../../", import.meta.url).pathname });
+await pe.reload();
+await pe.locator("#e2e-msg", { hasText: "signing key that isn't this browser's" }).waitFor({ timeout: 8000 }).catch(() => {});
+check(await pe.locator("#e2e-msg", { hasText: "signing key that isn't this browser's" }).count() === 1, "a browser shown with a signing key that isn't its own warns");
 // Revoking the link drops the wrapped copies it carried.
 const links = await pd2.evaluate(async (bd) => (await (await fetch(`/api/boards/${bd}/links`)).json()).links, board);
 await pd2.evaluate(async ([bd, id]) => fetch(`/api/boards/${bd}/links/${id}`, { method: "DELETE" }), [board, links[0].id]);

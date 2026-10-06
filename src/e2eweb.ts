@@ -43,7 +43,7 @@ function idb(){return new Promise((res,rej)=>{const r=indexedDB.open('agent-soup
 async function idbDo(mode,f){const db=await idb();return new Promise((res,rej)=>{const t=db.transaction('keys',mode),q=f(t.objectStore('keys'));t.oncomplete=()=>res(q.result);t.onerror=t.onabort=()=>rej(t.error)})}
 function label(){const u=navigator.userAgent;const b=u.includes('Edg/')?'Edge':u.includes('Firefox/')?'Firefox':u.includes('Chrome/')?'Chrome':u.includes('Safari/')?'Safari':'A browser';
   const o=u.includes('iPhone')||u.includes('iPad')?'iPhone':u.includes('Android')?'Android':u.includes('Mac OS X')?'Mac':u.includes('Windows')?'Windows':u.includes('Linux')?'Linux':'';return b+(o?' on '+o:'')+' (web)'}
-let DEV=null;
+let DEV=null,SIGN_BAD=false;
 async function device(){if(DEV)return DEV;const id='device:'+ME;let d=await idbDo('readonly',s=>s.get(id));
   // Keep it, unless another tab made one first (then use that one).
   const keep=async v=>{try{await idbDo('readwrite',s=>s.add(v,id));return v}catch(e){const other=await idbDo('readonly',s=>s.get(id)).catch(()=>null);if(other)return other;throw e}};
@@ -60,6 +60,8 @@ async function device(){if(DEV)return DEV;const id='device:'+ME;let d=await idbD
   const stored=x=>x.jwk?{jwk:x.jwk,pub:x.pub,created:x.created,kid:x.kid,sjwk:x.sjwk,spub:x.spub}:x;
   // Registered once. A key that's no longer on the account was removed there (a lost device): never register it again, make a new one.
   if(d.kid){const live=(await api('GET','/api/me/keys')).keys||[];if(!live.some(k=>k.id===d.kid&&k.public_key===d.pub)){await idbDo('readwrite',s=>s.delete(id));return device()}
+    // The server showing this browser with someone else's signing key could sign devices as you: say so, loudly.
+    const shown=live.find(k=>k.id===d.kid).sign_pub;if(shown&&d.spub&&shown!==d.spub)SIGN_BAD=true;
     if(fresh){await api('POST','/api/me/keys',{public_key:d.pub,label:label(),sign_pub:d.spub});await idbDo('readwrite',s=>s.put(stored(d),id))}}
   else{const j=await api('POST','/api/me/keys',{public_key:d.pub,label:label(),sign_pub:d.spub});d={...d,kid:j.id};await idbDo('readwrite',s=>s.put(stored(d),id))}
   DEV={priv:d.priv,pub:d.pub,kid:d.kid,spriv:d.spriv,spub:d.spub};return DEV}
@@ -77,7 +79,8 @@ const pinOf=(pin,u,kid,pub)=>(pin[u]||[]).find(e=>e===pinId(kid,pub)||e.startsWi
 /** The CLI's pinning: older bare-id pins get bound to the key the server shows; you, and each person's first device seen. */
 function pinUpdate(pin,me,dev,st){const seen=new Map([...st.keys,...st.missing].map(k=>[k.kid,k.public_key]));
   for(const u of Object.keys(pin))pin[u]=pin[u].map(e=>e.includes('|')||!seen.has(e)?e:pinId(e,seen.get(e))); // older pins were ids alone
-  if(!pinOf(pin,me,dev.kid,dev.pub))(pin[me]=pin[me]||[]).push(pinId(dev.kid,dev.pub,dev.spub));
+  // This browser: pinned with its own signing key, never the one the server shows (checked in device()).
+  const own=pinOf(pin,me,dev.kid,dev.pub);if(own!==pinId(dev.kid,dev.pub,dev.spub))pin[me]=[...(pin[me]||[]).filter(e=>e!==own),pinId(dev.kid,dev.pub,dev.spub)];
   for(const k of st.keys)if(k.user!==me&&!pin[k.user])(pin[k.user]=pin[k.user]||[]).push(pinId(k.kid,k.public_key,k.sign_pub)); // first sight: trust on first use
   for(const m of st.missing)if(m.user!==me&&m.first_device&&!(pin[m.user]||[]).length)(pin[m.user]=pin[m.user]||[]).push(pinId(m.kid,m.public_key,m.sign_pub));
   return pin}
@@ -118,6 +121,7 @@ function renderBar(){if(!ST)return;const {dev,keys,current}=ST,kid='<span class=
   say(ready?'🔒 <b>End-to-end encrypted.</b> This browser decrypts and encrypts here; the server only sees ciphertext. This browser\\'s key: '+kid+'.'
     :current===0?'🔒 <b>End-to-end encrypted.</b> No messages yet. This browser\\'s key: '+kid+'.'
     :'🔒 <b>End-to-end encrypted.</b> This browser (key '+kid+') is waiting for the board\\'s key: a member\\'s device hands it over when they\\'re next here. If you already read this board on another device of yours, approve this one there (<span class="mono">atteo keys approve '+esc(dev.kid)+'</span>).');
+  if(SIGN_BAD)say('⚠ <b>The server shows this browser with a signing key that isn\\'t this browser\\'s.</b> Devices "signed" with it aren\\'t from you: don\\'t trust them, and tell the board\\'s members.');
   if(composer)composer.hidden=!ready||READONLY;
   if(asks)asks.innerHTML=ST.untrusted.map(m=>m.user===ME
     ?(READONLY?'':'<div class="e2e-ask"><span class="grow">A new device of yours wants this board\\'s key: <b>'+esc(m.label||'unnamed')+'</b> (key <span class="mono">'+esc(m.kid)+'</span>). Approve it only if it\\'s yours.</span><button class="btn sm primary" type="button" data-e2e-approve="'+esc(m.kid)+'">Approve</button></div>')
