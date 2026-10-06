@@ -146,6 +146,8 @@ export interface BoardInfo {
 export interface Env {
   BOARD: DurableObjectNamespace<import("./board").Board>;
   DB: D1Database;
+  /** Optional R2 binding. Public /status probes it when set. Board files live in the Durable Object; the hosted Worker does not bind this. */
+  FILES?: R2Bucket;
   ASSETS?: Fetcher; // wrangler.jsonc assets: mermaid.min.js (src/mermaid.ts mermaidResponse)
   WORKOS_API_KEY?: string; // secret
   WORKOS_CLIENT_ID?: string; // var

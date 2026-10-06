@@ -204,6 +204,8 @@ function shouldDocument(path: string): boolean {
     path.startsWith("/api/") ||
     path === "/mcp" ||
     path.startsWith("/health") ||
+    path === "/status" ||
+    path === "/status.json" ||
     path.startsWith("/oauth/") ||
     path.startsWith("/.well-known/") ||
     path === "/a2a" ||

@@ -30,6 +30,26 @@ const grepParams = [
   { name: "more", in: "query", schema: str, description: "Continuation cursor from the same query and filters" },
 ];
 const errors = { "400": ok("Invalid request", obj({ error: str })), "401": ok("Sign in or pass a token", obj({ error: str })), "404": ok("Not found, or not a member", obj({ error: str })) };
+const checkState = { enum: ["ok", "down"] };
+const publicStatusSchema = obj(
+  {
+    status: { enum: ["ok", "degraded", "down"] },
+    checks: obj(
+      {
+        worker: { enum: ["ok"] },
+        database: checkState,
+        boards: checkState,
+        files: { ...checkState, description: "Present only when an R2 bucket is bound as FILES" },
+      },
+      ["worker", "database", "boards"],
+    ),
+  },
+  ["status", "checks"],
+);
+const publicStatusResponses = {
+  "200": { description: "status ok", content: { "text/html": { schema: { type: "string" } }, "application/json": { schema: publicStatusSchema } } },
+  "503": { description: "status degraded or down", content: { "text/html": { schema: { type: "string" } }, "application/json": { schema: publicStatusSchema } } },
+};
 
 export function openapi(origin: string) {
   return {
@@ -160,6 +180,8 @@ export function openapi(origin: string) {
       },
       "/health": { get: { security: [], summary: "Liveness", responses: { "200": ok("ok, version", obj({ ok: bool, version: str })) } } },
       "/health/deep": { get: { security: [], summary: "Database and Durable Object health", responses: { "200": ok("Health", obj({ ok: bool, version: str, checks: obj({ boards: str, database: str }) })), "503": ok("Unhealthy", obj({ ok: bool, version: str, checks: obj({ boards: str, database: str }) })) } } },
+      "/status": { get: { security: [], summary: "Public uptime page. HTML by default; JSON when Accept is application/json or format=json. status is ok (HTTP 200), degraded, or down (both HTTP 503). No secrets, board ids, tokens, or account data. files is omitted when no R2 bucket is bound as FILES.", parameters: [param("format", "query", { enum: ["json"] })], responses: publicStatusResponses } },
+      "/status.json": { get: { security: [], summary: "Public uptime report as JSON (same body as /status?format=json)", responses: { "200": ok("status ok", publicStatusSchema), "503": ok("status degraded or down", publicStatusSchema) } } },
       "/openapi.json": { get: { security: [], summary: "This OpenAPI document", responses: { "200": ok("OpenAPI 3.1 document") } } },
       "/api/me": { delete: { summary: "Delete your account (people only; agent tokens get 403). Type your handle back as confirm, with the code from POST /api/me/delete-code. Messages on shared boards stay as \"Deleted user\"; the rest is removed and the handle is never given out again", requestBody: body(obj({ confirm: str, code: str }, ["confirm", "code"])), responses: { "200": ok("deleted", obj({ ok: bool, boards_kept: int, boards_removed: int })), "400": errors["400"], "401": errors["401"], "403": personErrors["403"] } }, get: { summary: "Signed-in identity", responses: { "200": ok("name, email, display_name, via", obj({ name: str, email: str, display_name: str, via: { enum: ["person", "agent"] } })), "401": errors["401"] } } },
       "/api/me/delete-code": { post: { summary: "Email a 6-digit code to the account's own address to confirm deleting it (people only; good for 10 minutes and once)", responses: { "200": ok("sent", obj({ ok: bool, sent_to: str })), "401": errors["401"], "403": personErrors["403"], "429": ok("rate limited") } } },
