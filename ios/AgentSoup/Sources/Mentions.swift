@@ -36,11 +36,16 @@ func agentNameMentions(in text: String, names: [String: String], members: Set<St
 /// The author's own form ("@vedu's agent" written by vedu's agent, "@vedu" by vedu) where a mention could be: outside
 /// code, "> " quote lines and double quotes, like src/mentions.ts selfMentions. It's left out of the stored mentions
 /// (it reaches no one), so it's passed to `mentioned(author:)` to be boxed anyway (vedu #2630).
-func selfMention(in text: String, author: String, agent: Bool) -> EntryMention? {
+func selfMention(in text: String, author: String, agent: Bool, agentName: String? = nil) -> EntryMention? {
     guard text.contains("@") else { return nil }
     var t = text
     for p in ["```[\\s\\S]*?```", "`[^`\\n]+`", "(?m)^>.*$", "\"[^\"\\n]*\"", "“[^”\\n]*”"] {
         t = t.replacingOccurrences(of: p, with: " ", options: .regularExpression)
+    }
+    // The agent's own name is also left out of stored mentions (vedu #4583).
+    if agent, let agentName, !agentName.isEmpty,
+       !agentNameMentions(in: t, names: [agentName.lowercased(): author.lowercased()], members: [author.lowercased()]).isEmpty {
+        return EntryMention(user: author.lowercased(), agent: true)
     }
     let me = NSRegularExpression.escapedPattern(for: author.lowercased())
     let form = agent ? "@\(me)(?:'|’)s\\s+(?:agent|assistant)\\b" : "@\(me)(?![A-Za-z0-9_]|(?:'|’)s\\s+(?:agent|assistant)\\b|/)"

@@ -133,6 +133,30 @@ describe("parseMentions", () => {
     expect(selfMentions("@vedu/scout will take it", "vedu", "agent")).toEqual([]); // a session: a real mention, stored
   });
 
+  it("an agent's own name is highlighted alongside its handle forms (vedu #4583)", () => {
+    const members = [{ user: "vedu", agent_name: "moby" }];
+    for (const name of ["moby", "MOBY"]) {
+      const text = `@${name} the posthog is ready; @vedu's agent tells @vedu`;
+      const stored = parseMentions(text, members, "vedu", "agent").mentions;
+      expect(stored).toEqual([person("vedu")]); // the self-mentions still route to no one
+      const self = selfMentions(text, "vedu", "agent", "moby");
+      expect(self).toEqual([{ ...agent("vedu"), name }]);
+      const html = renderText(text, stored, null, self); // no stored agent mention or mention_names
+      expect(html).toContain(`class="mention agent" data-user="vedu" data-named="1" title="vedu's agent">@${name}</span>`);
+      expect(html).toContain('class="mention agent" data-user="vedu">@vedu&#39;s agent</span>');
+      expect(html).toContain('class="mention" data-user="vedu">@vedu</span>');
+    }
+    for (const text of ["@moby is on it", "thanks @MOBY!"]) {
+      expect(renderText(text, [], null, selfMentions(text, "vedu", "agent", "moby"))).toContain('class="mention agent"');
+    }
+    for (const text of ["@mobyx", "@moby_", "x@moby", "https://host/@moby", "`@moby`", "```\n@moby\n```", '"@moby"', "'@moby'", "> @moby"]) {
+      expect(selfMentions(text, "vedu", "agent", "moby")).toEqual([]);
+    }
+    expect(selfMentions("@moby", "vedu", "person", "moby")).toEqual([]);
+    expect(selfMentions("@moby", "vedu", "agent")).toEqual([]);
+    expect(renderText("@moby @agents", [], null, selfMentions("@moby @agents", "vedu", "agent", "moby"))).toContain('</span> @agents');
+  });
+
   it("@humans mentions every person on the board (not their agents, not the person posting)", () => {
     const got = parse("@humans standup in 5", "vedu", "person").mentions;
     expect(got.every((m) => !m.agent) && got.length === members.length - 1 && !got.some((m) => m.user === "vedu")).toBe(true);

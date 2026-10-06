@@ -1239,7 +1239,9 @@ struct EntryRow: View {
 
     /// Words of this message as Text: inline Markdown, "#123" chips, its mentions boxed (MessageBody draws the blocks).
     private func words(_ t: String) -> (text: Text, handles: [String]) {
-        let rendered = t.mentioned(e.mentions, members: members, me: me, agentNames: agentNames, author: selfMention(in: e.text, author: e.author, agent: e.via == "agent"), displayName: { state.displayName(for: $0) }, refTitle: refTitle.callAsFunction)
+        var agentNames = self.agentNames
+        if e.byAgent, let name = e.agentName, !name.isEmpty { agentNames[name.lowercased()] = e.author.lowercased() } // the entry's own agent name (vedu #4583)
+        let rendered = t.mentioned(e.mentions, members: members, me: me, agentNames: agentNames, author: selfMention(in: e.text, author: e.author, agent: e.via == "agent", agentName: e.agentName), displayName: { state.displayName(for: $0) }, refTitle: refTitle.callAsFunction)
         return (rendered.text, rendered.handles.map { handle in
             let address = String(handle.dropFirst())
             return state.displayName(for: agentNames[address.lowercased()].map { "\($0)'s agent" } ?? address)

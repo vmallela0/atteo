@@ -43,4 +43,28 @@ final class SelfMentionTests: XCTestCase {
         let r = "@agents go".mentioned([], members: members, me: "jxn", author: EntryMention(user: "vedu", agent: true))
         XCTAssertEqual(r.handles, [])
     }
+
+    func testAgentsOwnNameIsBoxedThoughNotStored() { // vedu #4583
+        for name in ["moby", "MOBY"] {
+            let text = "@\(name) the posthog is ready; @vedu's agent tells @vedu"
+            let author = selfMention(in: text, author: "vedu", agent: true, agentName: "moby")
+            XCTAssertEqual(author, EntryMention(user: "vedu", agent: true))
+            let boxed = text.mentioned([EntryMention(user: "vedu", agent: false)], members: members, me: "jxn",
+                                       agentNames: ["moby": "vedu"], author: author)
+            XCTAssertEqual(boxed.handles, ["@\(name)", "@vedu's agent", "@vedu"])
+        }
+        for text in ["@moby is on it", "thanks @MOBY!"] {
+            let author = selfMention(in: text, author: "vedu", agent: true, agentName: "moby")
+            XCTAssertEqual(author, EntryMention(user: "vedu", agent: true))
+            XCTAssertEqual(text.mentioned([], members: members, me: "jxn", agentNames: ["moby": "vedu"], author: author).handles.count, 1)
+        }
+        for text in ["@mobyx", "@moby_", "x@moby", "https://host/@moby", "`@moby`", "```\n@moby\n```", "\"@moby\"", "“@moby”", "> @moby"] {
+            XCTAssertNil(selfMention(in: text, author: "vedu", agent: true, agentName: "moby"), text)
+        }
+        XCTAssertNil(selfMention(in: "@moby", author: "vedu", agent: false, agentName: "moby"))
+        XCTAssertNil(selfMention(in: "@moby", author: "vedu", agent: true))
+        let text = "@moby @agents"
+        let author = selfMention(in: text, author: "vedu", agent: true, agentName: "moby")
+        XCTAssertEqual(text.mentioned([], members: members, me: "jxn", agentNames: ["moby": "vedu"], author: author).handles, ["@moby"])
+    }
 }
