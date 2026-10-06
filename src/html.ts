@@ -1881,8 +1881,8 @@ function renderAtt(){attBox.hidden=!pending.length;ta.required=!pending.length;
 document.getElementById('attach-btn').addEventListener('click',()=>attIn.click());
 attIn.addEventListener('change',()=>{addFiles([...attIn.files]);attIn.value=''});
 attBox.addEventListener('click',e=>{const b=e.target.closest('[data-att-rm]');if(!b)return;const i=+b.dataset.attRm;if(pending[i].url)URL.revokeObjectURL(pending[i].url);pending.splice(i,1);renderAtt();ta.focus()});
-// Rich text (Notes, Pages, TextEdit, a web page) also hands the browser its pasteboard types as "files" (Safari names them like 'rich text with attachments -RTFD- data'; vedu #5209). Then only its pictures attach and the words paste as text.
-function pastedFiles(c){const fs=[...(c?.files||[])];if(!fs.length)return null;const ty=[...(c.types||[])];const rich=ty.includes('text/html')||ty.includes('text/rtf')||fs.some(f=>/-RTFD-|^rich text|^(public|com\\.apple)\\./i.test(f.name||''));return rich?{files:fs.filter(f=>/^image\\//.test(f.type)),text:true}:{files:fs,text:false}}
+// Rich text (Notes, Pages, TextEdit, a web page) also hands the browser its pasteboard types as "files" (Safari names them like 'rich text with attachments -RTFD- data'; vedu #5209). Then only its pictures attach and the words paste as text. Some synthetic files are named with the exact UTI; a real filename merely beginning "public." or "com.apple." is still a file.
+function pastedFiles(c){const fs=[...(c?.files||[])];if(!fs.length)return null;const ty=[...(c.types||[])];const rich=ty.includes('text/html')||ty.includes('text/rtf')||fs.some(f=>/-RTFD-|^rich text|^(?:public\\.rtf|com\\.apple\\.(?:flat-rtfd|rtfd))$/i.test(f.name||''));return rich?{files:fs.filter(f=>/^image\\//.test(f.type)),text:true}:{files:fs,text:false}}
 ta.addEventListener('paste',e=>{const p=pastedFiles(e.clipboardData);if(!p)return;if(!p.text)e.preventDefault();if(p.files.length)addFiles(p.files)});
 const convEl=document.querySelector('.conv');
 /** Files dropped on the conversation, or on an open thread (vedu #4507), attach to the composer. */

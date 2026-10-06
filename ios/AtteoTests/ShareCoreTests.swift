@@ -112,6 +112,18 @@ final class ShareCoreTests: XCTestCase {
         XCTAssertNil(ShareCore.plainText(rich: Data("not".utf8), type: "com.apple.flat-rtfd"))
     }
 
+    func testRichTextTypesArePasteboardTypesNotFileNames() {
+        let rich = ["public.utf8-plain-text", "com.apple.flat-rtfd"]
+        XCTAssertEqual(ShareCore.richTextType(matching: rich.contains), "com.apple.flat-rtfd")
+
+        let pb = UIPasteboard.withUniqueName()
+        defer { UIPasteboard.remove(withName: pb.name) }
+        for name in ["public.key.txt", "com.apple.notes.txt"] {
+            pb.items = [["public.file-url": URL(fileURLWithPath: "/tmp/\(name)")]]
+            XCTAssertNil(ComposerField.plainPaste(pb), name)
+        }
+    }
+
     func testSharedMessagesPostAsOneNoteOneMessagePerLine() throws {
         let msgs = ["Maya: are we still on?", "Priya: yes, 6pm", "Maya: 👍", "Priya: bring the deck"]
         let payloads: [SharedPayload] = try msgs.map { .text(ShareCore.plainText(rich: try rich($0, as: .rtfd), type: "com.apple.flat-rtfd")!) }

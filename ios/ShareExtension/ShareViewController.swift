@@ -152,7 +152,7 @@ final class ShareModel: ObservableObject {
         }
         // Text from Messages (or Notes, a page) with its formatting: its words, one message per line, never the bytes as a file.
         if !p.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier),
-           let type = ShareCore.richTextTypes.first(where: { p.hasItemConformingToTypeIdentifier($0) }) {
+           let type = ShareCore.richTextType(matching: p.hasItemConformingToTypeIdentifier) {
             let data = try await richData(p, type: type)
             guard let s = ShareCore.plainText(rich: data, type: type) else { return nil }
             return (.text(s), nil)
