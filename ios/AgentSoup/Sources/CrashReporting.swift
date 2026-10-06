@@ -89,7 +89,11 @@ enum CrashReporting {
             req.fragment = nil
             if let headers = req.headers {
                 var keep: [String: String] = [:]
-                for (k, v) in headers where !dropHeader(k) { keep[k] = redact(v) }
+                for (k, v) in headers {
+                    let name = k as? String ?? "\(k)"
+                    guard !dropHeader(name) else { continue }
+                    keep[name] = redact((v as? String) ?? "\(v)")
+                }
                 req.headers = keep
             }
         }
@@ -118,16 +122,15 @@ enum CrashReporting {
             if m.count > 80 { crumb.message = nil } else { crumb.message = redact(m) }
         }
         if let data = crumb.data {
-            var keep: [String: Any] = [:]
-            for (k, v) in data where !dropHeader(k) && !dropField(k) {
+            for (k, v) in data {
+                let name = k as? String ?? "\(k)"
+                if dropHeader(name) || dropField(name) { crumb.setData(value: nil, key: name); continue }
                 if let s = v as? String {
-                    if s.count > 80 { continue }
-                    keep[k] = redact(s)
-                } else if v is NSNumber {
-                    keep[k] = v
+                    crumb.setData(value: s.count > 80 ? nil : redact(s), key: name)
+                } else if !(v is NSNumber) {
+                    crumb.setData(value: nil, key: name)
                 }
             }
-            crumb.data = keep
         }
         return crumb
     }
