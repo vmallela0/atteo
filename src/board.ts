@@ -609,6 +609,10 @@ export class Board extends DurableObject<Env> {
       -- Source messages whose forwarded quotes retention has already blanked (or that had none). A seq stays out of
       -- this table when a destination board could not be reached, so the next prune tries that quote again.
       CREATE TABLE IF NOT EXISTS retention_forward_scrubbed (seq INTEGER PRIMARY KEY);
+      -- End-to-end encrypted boards' files and pictures: ciphertext only, encrypted on the device with a key the server
+      -- never sees (it travels inside the message's envelope). seq is NULL until the message naming it is posted.
+      CREATE TABLE IF NOT EXISTS sealed_files (id TEXT PRIMARY KEY, seq INTEGER, uploader TEXT NOT NULL, size INTEGER NOT NULL, ts INTEGER NOT NULL, bytes BLOB NOT NULL);
+      CREATE INDEX IF NOT EXISTS sealed_files_seq ON sealed_files (seq);
     `);
     this.migrate();
     this.decisions = new HumanDecisions(this.sql, env, () => this.meta("id"), ctx);
@@ -1327,7 +1331,8 @@ export class Board extends DurableObject<Env> {
     if (text.length > MAX_TEXT) throw new BoardError(`text is too long (max ${MAX_TEXT} characters); post the long part as an artifact.`);
     // A task posted as an entry (post type task, the composer's Task) is deduped like task create (opus-b #2355):
     // the same title as an open top-level task isn't posted again. A schedule's tick repeats its task on purpose.
-    if (input.type === "task" && !internal.taskCreate && !internal.seeding && !internal.scheduled) {
+    // An encrypted task's title is ciphertext the server can't compare, so it's never a duplicate here.
+    if (input.type === "task" && !internal.taskCreate && !internal.seeding && !internal.scheduled && !internal.sealed) {
       const dup = this.openTaskByTitle(splitTask(text).title, null);
       if (dup) throw new BoardError(`Already open as #${dup.seq}: not posted. Claim or edit that task instead.`);
     }
@@ -1514,6 +1519,11 @@ export class Board extends DurableObject<Env> {
       );
     }
     if (entry.retracts != null) {
+      // Unsent on an end-to-end encrypted board: its ciphertext and encrypted files go (docs/SPEC.md §16).
+      if (info.encrypted) {
+        this.sql.exec("UPDATE entries SET sealed = NULL WHERE seq = ? AND sealed_to = '*'", entry.retracts);
+        this.sql.exec("DELETE FROM sealed_files WHERE seq = ?", entry.retracts);
+      }
       const deps = this.dependents(entry.retracts);
       noteStaleNotice(this.env, this.ctx, deps.length, user);
       this.stopDependents(user, entry.retracts);
@@ -2858,6 +2868,7 @@ export class Board extends DurableObject<Env> {
     this.sql.exec("UPDATE entries SET text = ?, title = NULL, artifact_content = NULL, card = NULL, card_diff = NULL, data = NULL, handoff = NULL, sealed = NULL, purged = ? WHERE seq = ?", removed, JSON.stringify({ by: user, via: opts.via }), seq);
     this.sql.exec("INSERT OR IGNORE INTO purged (seq, by_user, via, ts) VALUES (?, ?, ?, ?)", seq, user, opts.via, now);
     this.sql.exec("DELETE FROM entry_versions WHERE seq = ?", seq);
+    this.sql.exec("DELETE FROM sealed_files WHERE seq = ?", seq);
     this.sql.exec("DELETE FROM search_idx WHERE kind IN ('entry', 'task') AND ref = ?", String(seq));
     if (this.sql.exec("SELECT 1 AS x FROM tasks WHERE seq = ?", seq).toArray().length) {
       this.sql.exec("UPDATE tasks SET title = ?, body = NULL WHERE seq = ?", removed, seq);
@@ -4903,23 +4914,20 @@ export class Board extends DurableObject<Env> {
    * A sealed secret: ciphertext only the recipient's agents can open (their CLI holds the private keys). The server
    * stores and serves the envelope and never sees the plaintext; the visible note says who it's for.
    */
-  async postSealed(user: string, s: { to: string | null; note?: string; payload: string; type?: string; reply_to?: number | null }, opts: TaskActOpts): Promise<Entry> {
+  async postSealed(user: string, s: { to: string | null; note?: string; payload: string; type?: string; reply_to?: number | null; files?: string[] }, opts: TaskActOpts): Promise<Entry> {
     const info = this.info();
     const to = s.to ? s.to.toLowerCase() : null;
     if (!to && !info.encrypted) throw new BoardError("Say who it's for (to).");
     if (to && !this.sql.exec("SELECT 1 AS x FROM members WHERE name = ?", to).toArray().length) throw new BoardError(`${to} isn't on this board.`);
-    if (s.payload.length > 100_000) throw new BoardError("Sealed secrets are limited to about 64 KB.");
-    let env: { v?: number; recipients?: unknown[]; ct?: string; iv?: string; epoch?: number };
-    try {
-      env = JSON.parse(s.payload);
-    } catch {
-      throw new BoardError("Not a sealed envelope.");
+    sealedEnvelope(s.payload, !!info.encrypted);
+    // Its files were uploaded first (encrypted on the device, POST …/sealed-files): this uploader's, not yet in a message.
+    const files = [...new Set(s.files ?? [])];
+    if (files.length && !info.encrypted) throw new BoardError("Encrypted files go only on an end-to-end encrypted board.");
+    if (files.length > MAX_FILES_PER_MESSAGE) throw new BoardError(`At most ${MAX_FILES_PER_MESSAGE} files in one message.`);
+    for (const id of files) {
+      const f = this.sql.exec("SELECT uploader, seq FROM sealed_files WHERE id = ?", String(id)).toArray()[0];
+      if (!f || f.uploader !== user || f.seq != null) throw new BoardError(`File ${String(id).slice(0, 40)} isn't one of your uploads waiting for a message.`);
     }
-    // v1: a fresh key per message, wrapped to each recipient. v2 (encrypted boards): the board's epoch key, no
-    // per-recipient part (the Worker has checked the epoch is the board's current one). `to` only addresses it.
-    const v1 = env.v === 1 && Array.isArray(env.recipients) && env.recipients.length > 0;
-    const v2 = env.v === 2 && info.encrypted && Number.isInteger(env.epoch) && (env.epoch ?? 0) >= 1;
-    if ((!v1 && !v2) || typeof env.ct !== "string" || typeof env.iv !== "string") throw new BoardError("Not a sealed envelope.");
     const note = (s.note ?? "").replace(/\s+/g, " ").trim().slice(0, 200);
     // On an encrypted board every message is an envelope for all members; elsewhere it's a secret for one member.
     const type = (["note", "question", "claim", "decision", "task"] as const).find((t) => t === s.type) ?? "note";
@@ -4928,10 +4936,68 @@ export class Board extends DurableObject<Env> {
       : await this.post(user, { type: "note", to, title: "Sealed secret", text: `🔒 A sealed secret for ${to}'s agent${note ? `: ${note}` : "."} Only ${to}'s agent can open it: atteo unseal <this entry's number>.`, via: opts.via, client: opts.client, session: opts.session });
     // On an encrypted board every envelope is for all members ("*"); `to` is just who it's addressed to.
     this.sql.exec("UPDATE entries SET sealed = ?, sealed_to = ? WHERE seq = ?", s.payload, info.encrypted ? "*" : to, e.seq);
+    for (const id of files) this.sql.exec("UPDATE sealed_files SET seq = ? WHERE id = ?", e.seq, id);
     return e;
   }
 
-  /** Encrypted board: every envelope after `after` (members only; the Worker checks membership). */
+  /**
+   * Stores one encrypted file (ciphertext the device made; the key is inside the message that will name it) and returns
+   * its id. Uploads never named by a message within an hour are dropped. Sizes are the plain limits plus GCM's overhead.
+   */
+  putSealedFile(user: string, bytes: ArrayBuffer): { id: string; size: number } {
+    const info = this.info();
+    if (!info.encrypted) throw new BoardError("Encrypted files go only on an end-to-end encrypted board.");
+    if (info.archived) throw new BoardError(archivedError(info.id));
+    if (!bytes.byteLength) throw new BoardError("The file is empty.");
+    if (bytes.byteLength > MAX_SEALED_FILE) throw new BoardError(`That file is too large (max ${MAX_IMAGE / 1e6} MB per file).`);
+    this.rateLimit(user, true);
+    const now = Date.now();
+    this.sql.exec("DELETE FROM sealed_files WHERE seq IS NULL AND ts < ?", now - 3_600_000);
+    const waiting = this.sql.exec("SELECT COUNT(*) AS n, COALESCE(SUM(size), 0) AS b FROM sealed_files WHERE seq IS NULL AND uploader = ?", user).one();
+    if ((waiting.n as number) >= 2 * MAX_FILES_PER_MESSAGE || (waiting.b as number) + bytes.byteLength > 2 * MAX_MESSAGE_BYTES) throw new BoardError("Too many uploads waiting for a message: send it first.");
+    const id = `sf_${crypto.randomUUID().replace(/-/g, "").slice(0, 20)}`;
+    this.sql.exec("INSERT INTO sealed_files (id, seq, uploader, size, ts, bytes) VALUES (?, NULL, ?, ?, ?, ?)", id, user, bytes.byteLength, now, bytes);
+    return { id, size: bytes.byteLength };
+  }
+
+  /** One encrypted file's ciphertext, for a member (the Worker checks membership): only once its message is posted. */
+  sealedFile(id: string): ArrayBuffer {
+    this.info();
+    const r = this.sql.exec("SELECT bytes FROM sealed_files WHERE id = ? AND seq IS NOT NULL", id).toArray()[0];
+    if (!r) throw new BoardError("No such file on this board.");
+    return r.bytes as ArrayBuffer;
+  }
+
+  /** The encrypted files a message names, in the order uploaded (ids only: names and keys are in its envelope). */
+  private sealedFilesOf(seq: number): string[] {
+    return this.sql.exec("SELECT id FROM sealed_files WHERE seq = ? ORDER BY ts, id", seq).toArray().map((r) => r.id as string);
+  }
+
+  /**
+   * An edit on an end-to-end encrypted board: the author's new envelope replaces the old one (the Worker has checked
+   * it's under the board's current key). Same rules as a plain edit: people only, their own notes and questions,
+   * within 15 minutes, not unsent. The server can't keep a readable history, so only the newest envelope is stored;
+   * readers fetch it again on the "edit" event (docs/SPEC.md §16).
+   */
+  editSealed(user: string, via: string | null, seq: number, payload: string): Entry {
+    const info = this.info();
+    if (!info.encrypted) throw new BoardError("Only messages on an end-to-end encrypted board are edited this way.");
+    if (via !== "person") throw new BoardError("Only people can edit their messages.");
+    const r = this.sql.exec("SELECT author, via, type, ts, sealed, sealed_to FROM entries WHERE seq = ?", seq).toArray()[0];
+    if (!r) throw new BoardError(`Entry #${seq} does not exist on this board.`);
+    if (!r.sealed || r.sealed_to !== "*") throw new BoardError("That message isn't an encrypted message.");
+    if (r.author !== user || r.via !== "person") throw new BoardError("You can only edit your own messages.");
+    if (r.type !== "note" && r.type !== "question") throw new BoardError("Only notes and questions can be edited.");
+    if (!withinEditWindow(r.ts as number, Date.now())) throw new BoardError("The 15-minute edit window has passed.");
+    if (this.sql.exec("SELECT 1 FROM entries WHERE retracts = ?", seq).toArray().length) throw new BoardError("An unsent message cannot be edited.");
+    sealedEnvelope(payload, true);
+    const now = Date.now();
+    this.sql.exec("UPDATE entries SET sealed = ?, edited_at = ? WHERE seq = ?", payload, now, seq);
+    this.entryMemo = this.entryMemo.map((e) => (e.seq === seq ? { ...e, edited_at: now } : e));
+    this.broadcast({ type: "edit", seq, board: info.id }, seq);
+    return toEntry(this.sql.exec(`SELECT ${ENTRY_COLS} FROM entries WHERE seq = ?`, seq).one());
+  }
+
   /** A plain line on an encrypted board about its keys (who can read it), so a new device never goes unnoticed. */
   async keyNotice(user: string, text: string, opts: TaskActOpts): Promise<Entry> {
     return this.post(user, { type: "note", title: "Board key", text, via: opts.via, client: opts.client, session: opts.session }, { sealed: true });
@@ -4946,12 +5012,12 @@ export class Board extends DurableObject<Env> {
     return this.post(user, { type: "note", title, text, via: opts.via, client: opts.client, session: opts.session }, { notice: true, origin });
   }
 
-  async sealedAfter(after: number, limit = 200): Promise<{ seq: number; ts: number; author: string; via: string | null; type: string; to: string | null; reply_to: number | null; payload: string }[]> {
+  async sealedAfter(after: number, limit = 200): Promise<{ seq: number; ts: number; author: string; via: string | null; type: string; to: string | null; reply_to: number | null; payload: string; edited_at: number | null; files: string[] }[]> {
     this.info();
     return this.sql
-      .exec("SELECT seq, ts, author, via, type, to_user, reply_to, sealed FROM entries WHERE seq > ? AND sealed IS NOT NULL AND sealed_to = '*' ORDER BY seq LIMIT ?", after, clamp(limit, 1, 500))
+      .exec("SELECT seq, ts, author, via, type, to_user, reply_to, sealed, edited_at FROM entries WHERE seq > ? AND sealed IS NOT NULL AND sealed_to = '*' ORDER BY seq LIMIT ?", after, clamp(limit, 1, 500))
       .toArray()
-      .map((r) => ({ seq: r.seq as number, ts: r.ts as number, author: r.author as string, via: (r.via as string | null) ?? null, type: r.type as string, to: (r.to_user as string | null) ?? null, reply_to: (r.reply_to as number | null) ?? null, payload: r.sealed as string }));
+      .map((r) => ({ seq: r.seq as number, ts: r.ts as number, author: r.author as string, via: (r.via as string | null) ?? null, type: r.type as string, to: (r.to_user as string | null) ?? null, reply_to: (r.reply_to as number | null) ?? null, payload: r.sealed as string, edited_at: (r.edited_at as number | null) ?? null, files: this.sealedFilesOf(r.seq as number) }));
   }
 
   /** The envelope, for its recipient only. */
@@ -5010,6 +5076,7 @@ export class Board extends DurableObject<Env> {
             ...chunk.map((r) => r.seq),
           );
           this.sql.exec(`DELETE FROM entry_versions WHERE seq IN (${q})`, ...chunk.map((r) => r.seq));
+          this.sql.exec(`DELETE FROM sealed_files WHERE seq IN (${q})`, ...chunk.map((r) => r.seq));
           this.sql.exec(`DELETE FROM search_idx WHERE kind = 'entry' AND ref IN (${q})`, ...chunk.map((r) => String(r.seq)));
         }
         // PR 79: no crash or task action may separate compaction from its derived cleanup.
@@ -5325,9 +5392,31 @@ export class Board extends DurableObject<Env> {
 export const MAX_IMAGE = 1_500_000; // any stored file (images and other binaries)
 export const MAX_FILES_PER_MESSAGE = 10; // files in one message (POST /upload, multipart)
 export const MAX_MESSAGE_BYTES = MAX_FILES_PER_MESSAGE * MAX_IMAGE; // all of one message's files together (15 MB)
+// An encrypted file (sealed_files): the plain limit plus AES-GCM's 16-byte tag per 64 KB chunk, with room to spare.
+export const MAX_SEALED_FILE = MAX_IMAGE + 4096;
 
 // Errors reach agents outside the <<untrusted>> fence, so they name a board by its id, never by its title: anyone can
 // create a board and title it "…ignore previous instructions…".
+
+/**
+ * Checks a sealed envelope's shape (the server can't read it). v1: a fresh key per message, wrapped to each recipient.
+ * v2 (encrypted boards): the board's epoch key, no per-recipient part (the Worker has checked the epoch is the board's
+ * current one); its optional `x` is a second ciphertext under the same key holding the message's structured parts
+ * (title, files…), which older clients ignore (docs/SPEC.md §16).
+ */
+export function sealedEnvelope(payload: string, encryptedBoard: boolean): void {
+  if (payload.length > 100_000) throw new BoardError("Sealed secrets are limited to about 64 KB.");
+  let env: { v?: number; recipients?: unknown[]; ct?: string; iv?: string; epoch?: number; x?: { iv?: unknown; ct?: unknown } };
+  try {
+    env = JSON.parse(payload);
+  } catch {
+    throw new BoardError("Not a sealed envelope.");
+  }
+  const v1 = env.v === 1 && Array.isArray(env.recipients) && env.recipients.length > 0;
+  const v2 = env.v === 2 && encryptedBoard && Number.isInteger(env.epoch) && (env.epoch ?? 0) >= 1;
+  if ((!v1 && !v2) || typeof env.ct !== "string" || typeof env.iv !== "string") throw new BoardError("Not a sealed envelope.");
+  if (env.x != null && (!v2 || typeof env.x !== "object" || typeof env.x.iv !== "string" || typeof env.x.ct !== "string")) throw new BoardError("Not a sealed envelope.");
+}
 
 /** Why the server refuses a plaintext post on an end-to-end encrypted board. */
 export function encryptedOnly(id: string): string {
