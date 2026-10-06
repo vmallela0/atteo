@@ -42,8 +42,8 @@ for (const [w, theme] of [[1440, "light"], [1440, "dark"], [768, "light"], [390,
       bg: getComputedStyle(document.body).backgroundColor, cherryRgb, uses,
       h1: cs("h1").fontFamily, body: getComputedStyle(document.body).fontFamily, pre: cs(".dev pre").fontFamily, wm: cs(".brand .wm").fontFamily, wmFilter: cs(".brand .wm").filter,
       rule: cs(".top").borderBottomWidth + " " + cs(".top").borderBottomStyle, boxBorder: cs(".box").borderTopWidth, radius,
-      mark: !!document.querySelector(".brand svg.mk .mk-c") && !!document.querySelector("#wm-marker"),
-      fonts: ["Onest", "Enriqueta", "Schoolbell", '"Courier Prime"'].filter((f) => !document.fonts.check(`600 20px ${f}`) && !document.fonts.check(`20px ${f}`)),
+      mark: !!document.querySelector(".brand svg.mk path[stroke=currentColor]") && !!document.querySelector(".brand .tagl"),
+      fonts: ["Onest", "Enriqueta", '"STIX Two Text"', '"Courier Prime"'].filter((f) => !document.fonts.check(`600 20px ${f}`) && !document.fonts.check(`20px ${f}`)),
       sideways: document.documentElement.scrollWidth > innerWidth,
       title: document.title, h1label: document.querySelector("h1").getAttribute("aria-label"), cta: document.querySelector(".box button").textContent,
       elsewhere: (() => { const b = document.body.cloneNode(true); b.querySelector("h1").remove(); return (b.textContent.replace(/\s+/g, " ").match(/talk(ing)? to each other/gi) || []).length; })(), headSays: /talking to each other/i.test(document.head.innerHTML),
@@ -51,9 +51,9 @@ for (const [w, theme] of [[1440, "light"], [1440, "dark"], [768, "light"], [390,
   });
   check(r.bg === BG[theme], `${tag}: the ground is ${theme === "light" ? "paper" : "ink"} (${r.bg})`);
   check(r.cherryRgb === ACCENT[theme] && r.uses.length === 1 && /^button/.test(r.uses[0]), `${tag}: one accent, oxblood, on Start a chat only (${JSON.stringify(r.uses)})`);
-  check(/Enriqueta/.test(r.h1) && /Onest/.test(r.body) && /Courier Prime/.test(r.pre) && /Schoolbell/.test(r.wm), `${tag}: Enriqueta headline, Onest text, Courier Prime commands, Schoolbell wordmark`);
+  check(/Enriqueta/.test(r.h1) && /Onest/.test(r.body) && /Courier Prime/.test(r.pre), `${tag}: Enriqueta headline, Onest text, Courier Prime commands`); // the wordmark is STIX now (jxn #4713), checked below
   check(!r.fonts.length, `${tag}: all four fonts loaded${r.fonts.length ? ` (missing ${r.fonts.join(", ")})` : ""}`);
-  check(/wm-marker/.test(r.wmFilter) && r.mark, `${tag}: the tin-can mark and the wordmark with its marker filter`);
+  check(/STIX Two Text/.test(r.wm) && r.mark, `${tag}: the graph mark, the STIX wordmark and its tagline (${r.wm})`);
   const want = { ".box": "14px", ".box button": "10px", ".or a": "8px", ".entry .via": "999px", ".mention": "4px", ".av": "50%" };
   check(r.boxBorder === "1px" && r.rule !== "2px solid" && r.radius.every(([k, v]) => v === want[k]), `${tag}: shapes as before: rounded corners, 1px borders, round avatars (${JSON.stringify(r.radius)})`);
   check(!r.sideways, `${tag}: nothing scrolls sideways`);

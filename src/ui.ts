@@ -4,6 +4,7 @@
 
 import { APPLE_TOUCH_PNG_B64 } from "./appleIcon";
 import { APP_FONT_CSS, FONT_V } from "./fontfaces";
+import { markFile, markInline } from "./mark";
 import { chartHtml } from "./chart";
 import { STATUS_CSS, statusHtml } from "./status";
 import { highlightMentions, type Mention } from "./mentions";
@@ -164,7 +165,7 @@ p{margin:0}
 .nav{position:sticky;top:0;z-index:20;background:color-mix(in srgb,var(--bg) 82%,transparent);backdrop-filter:saturate(180%) blur(12px);
   -webkit-backdrop-filter:saturate(180%) blur(12px);border-bottom:1px solid var(--line)}
 .nav .in{max-width:1180px;margin:0 auto;height:56px;padding:0 20px;display:flex;align-items:center;gap:16px}
-.brand{display:flex;align-items:center;gap:5px;font-weight:600;letter-spacing:-.01em;color:var(--ink)}
+.brand{display:flex;align-items:center;gap:8px;font-weight:600;letter-spacing:-.01em;color:var(--ink)}
 .brand svg{display:block}
 .wm{font-family:var(--font-head);font-weight:400;font-size:22px;line-height:1;letter-spacing:-.01em}.wm.lg{font-size:40px} /* the wordmark: lowercase "atteo" in STIX Two Text 400 (jxn #4682) */
 .nav .links{display:flex;gap:4px;margin-left:8px}
@@ -875,7 +876,7 @@ ${AGENT_LOGO_CSS}
 /* app shell (Linear-style): sidebar + top bar + content */
 .app{display:grid;grid-template-columns:232px minmax(0,1fr);min-height:100vh}
 .sidebar{position:sticky;top:0;height:100vh;display:flex;flex-direction:column;gap:2px;padding:10px 8px;border-right:1px solid var(--line);background:var(--bg-subtle);overflow:auto}
-.sidebar .ws{display:flex;align-items:center;gap:5px;padding:6px 8px 10px;font-weight:600;color:var(--ink)}
+.sidebar .ws{display:flex;align-items:center;gap:8px;padding:6px 8px 10px;font-weight:600;color:var(--ink)}
 .sidebar .search{display:flex;align-items:center;gap:8px;height:30px;margin:0 0 8px;padding:0 9px;border:1px solid var(--line);border-radius:7px;background:var(--bg);color:var(--faint);cursor:pointer;font:inherit;font-size:13px;text-align:left}
 .sidebar .search:hover{border-color:var(--line-strong);color:var(--muted)}
 .sidebar .search kbd{margin-left:auto}
@@ -1310,23 +1311,24 @@ dialog.recap-dlg{width:min(560px,calc(100vw - 32px));max-height:min(80vh,720px)}
 @media(max-width:640px){dialog.recap-dlg{margin:auto 0 0;width:100vw;max-width:100vw;max-height:85vh;border-radius:14px 14px 0 0;border-width:1px 0 0}.recap-dlg .bd{max-height:calc(85vh - 80px)}}
 `;
 
-// The mark (jxn #2944/#2980, vedu #2968): hand-drawn tin-can phones, an oxblood cone (you) wired to two ink cans
-// (agents). Its hand wobble is the SVG filter; never recoloured beyond its two tokens, which follow the theme (ink and
-// cone, so on dark it's paper and the brighter oxblood). At least 20px tall. Same drawing as ios/design/logo-cans.
-const LOGO = `<svg class="pebble" width="24" height="24" viewBox="112 112 800 800" aria-hidden="true"><defs><filter id="atm" x="-10%" y="-10%" width="120%" height="120%"><feTurbulence type="fractalNoise" baseFrequency="0.018" numOctaves="2" seed="7"/><feDisplacementMap in="SourceGraphic" scale="16"/></filter></defs><g transform="translate(512 512) translate(-519.9 -507.7)"><g filter="url(#atm)" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M400.0 512.0Q512.1 403.2 650.0 330.0M400.0 512.0Q517.1 623.8 660.0 700.0" stroke="var(--ink)" stroke-width="22"/><g stroke-width="36"><g transform="translate(400.0 512.0) rotate(-90.0)" stroke="var(--cone)"><path d="M-95 -200L-19 0H19L95 -200"/><ellipse cx="0" cy="-200" rx="95" ry="32.3"/></g><g transform="translate(650.0 330.0) rotate(53.9)" stroke="var(--ink)"><path d="M-70 -200V-6Q0 30.8 70 -6V-200"/><ellipse cx="0" cy="-200" rx="70" ry="23.8"/></g><g transform="translate(660.0 700.0) rotate(125.9)" stroke="var(--ink)"><path d="M-70 -200V-6Q0 30.8 70 -6V-200"/><ellipse cx="0" cy="-200" rx="70" ry="23.8"/></g></g></g></g></svg>`;
+// The mark (jxn's atteo_design.pdf; src/mark.ts): the graph, no tile, in the text colour.
+// The lockup (PDF page 1): the mark as tall as the wordmark's cap height plus descender (≈20px beside 22px STIX), 0.35em apart.
+const LOGO = markInline(20, "pebble");
 
 /** The mark at another height (the first-run screen and Account's "Your assistant" card). */
 export function pebble(px: number): string {
-  return LOGO.replace('width="24" height="24"', `width="${px}" height="${px}"`);
+  return markInline(px, "pebble");
 }
 
 /** The wordmark is plain STIX Two Text now (jxn #4682), with no filter: kept so pages that place it still build. */
 export const WORDMARK_DEFS = "";
 
 // The app icon (atteo-icon-light / -dark): the mark on its paper (or ink) tile.
-export const ICON_LIGHT_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024"><defs><clipPath id="bsq"><rect width="1024" height="1024" rx="230"/></clipPath><filter id="brough" x="-10%" y="-10%" width="120%" height="120%"><feTurbulence type="fractalNoise" baseFrequency="0.018" numOctaves="2" seed="7"/><feDisplacementMap in="SourceGraphic" scale="16"/></filter></defs><g clip-path="url(#bsq)"><rect width="1024" height="1024" fill="#FAFAF7"/><g transform="translate(512 512) translate(-519.9 -507.7)"><g filter="url(#brough)" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M400.0 512.0Q512.1 403.2 650.0 330.0M400.0 512.0Q517.1 623.8 660.0 700.0" stroke="#0E0E0E" stroke-width="22"/><g stroke-width="36"><g transform="translate(400.0 512.0) rotate(-90.0)" stroke="#6A1B24"><path d="M-95 -200L-19 0H19L95 -200"/><ellipse cx="0" cy="-200" rx="95" ry="32.3"/></g><g transform="translate(650.0 330.0) rotate(53.9)" stroke="#0E0E0E"><path d="M-70 -200V-6Q0 30.8 70 -6V-200"/><ellipse cx="0" cy="-200" rx="70" ry="23.8"/></g><g transform="translate(660.0 700.0) rotate(125.9)" stroke="#0E0E0E"><path d="M-70 -200V-6Q0 30.8 70 -6V-200"/><ellipse cx="0" cy="-200" rx="70" ry="23.8"/></g></g></g></g></g></svg>`;
-export const ICON_DARK_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024"><defs><clipPath id="bsq"><rect width="1024" height="1024" rx="230"/></clipPath><filter id="brough" x="-10%" y="-10%" width="120%" height="120%"><feTurbulence type="fractalNoise" baseFrequency="0.018" numOctaves="2" seed="7"/><feDisplacementMap in="SourceGraphic" scale="16"/></filter></defs><g clip-path="url(#bsq)"><rect width="1024" height="1024" fill="#0E0E0E"/><g transform="translate(512 512) translate(-519.9 -507.7)"><g filter="url(#brough)" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M400.0 512.0Q512.1 403.2 650.0 330.0M400.0 512.0Q517.1 623.8 660.0 700.0" stroke="#FAFAF7" stroke-width="22"/><g stroke-width="36"><g transform="translate(400.0 512.0) rotate(-90.0)" stroke="#C2414D"><path d="M-95 -200L-19 0H19L95 -200"/><ellipse cx="0" cy="-200" rx="95" ry="32.3"/></g><g transform="translate(650.0 330.0) rotate(53.9)" stroke="#FAFAF7"><path d="M-70 -200V-6Q0 30.8 70 -6V-200"/><ellipse cx="0" cy="-200" rx="70" ry="23.8"/></g><g transform="translate(660.0 700.0) rotate(125.9)" stroke="#FAFAF7"><path d="M-70 -200V-6Q0 30.8 70 -6V-200"/><ellipse cx="0" cy="-200" rx="70" ry="23.8"/></g></g></g></g></g></svg>`;
-export const FAVICON_SVG = ICON_LIGHT_SVG; // the paper tile reads on light and dark tab bars alike
+export const ICON_LIGHT_SVG = markFile("#FAFAF7", "#0E0E0E"); // the PDF's light mark, verbatim
+export const ICON_DARK_SVG = markFile("#0E0E0E", "#FAFAF7", "#3A3935"); // swapped, with a hair of edge so the tile shows on a dark page
+// The tab icon is the small-size cut (thicker lines, bigger nodes): at 16px the drawing's own lines blur away. The paper
+// tile reads on light and dark tab bars alike.
+export const FAVICON_SVG = markFile("#FAFAF7", "#0E0E0E", null, true);
 // The icons' addresses carry a hash of the drawing (jxn #4247): browsers keep a favicon for days, so a new logo only
 // shows once its address changes.
 export const FAVICON_SRC = `/favicon.svg?v=${fnv(FAVICON_SVG)}`;
