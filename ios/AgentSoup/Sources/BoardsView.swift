@@ -577,6 +577,7 @@ struct BoardView: View {
             }
         }
         .task(id: board.id) { await state.watch(board) } // live: ticks and new messages as they happen
+        .task(id: board.id) { await state.markOpened(board) } // leads the tabs in "Last opened" order (vedu #5192)
         .task(id: board.id) { if board.isAgentChat { _ = await state.openAgentChat() } } // its sessions, fresh
         .refreshable { await state.loadEntries(board) }
     }

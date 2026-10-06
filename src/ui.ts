@@ -1075,7 +1075,7 @@ mark{background:var(--mark);color:inherit;border-radius:2px;padding:0 1px}
    waits, grey quiet), new, search, messages, alerts, you. Phones keep the top bar's menu button instead. */
 .strip{display:flex;align-items:center;gap:6px;height:44px;padding:0 12px;border-bottom:1px solid var(--line);background:var(--bg-subtle)}
 .strip .ws{display:flex;align-items:center;gap:8px;padding:0 6px;color:var(--ink)}.strip .ws .wm{font-size:19px}
-.btabs{display:flex;flex:1;min-width:0;align-self:stretch;overflow-x:auto;overflow-y:hidden;overscroll-behavior:contain;touch-action:pan-x;scrollbar-width:none}
+.btabs{display:flex;flex:1;min-width:0;align-self:stretch;overflow-x:auto;overflow-y:hidden;overscroll-behavior:contain;touch-action:pan-x pinch-zoom;scrollbar-width:none}
 .btab{display:flex;align-items:center;gap:7px;flex:none;max-width:240px;margin-top:6px;padding:0 14px;border:1px solid transparent;border-bottom:3px solid var(--line-strong);border-radius:8px 8px 0 0;color:var(--muted);font-size:13px;white-space:nowrap}
 .btab>b{font-weight:500;overflow:hidden;text-overflow:ellipsis}.btab[aria-current]{color:var(--ink);background:var(--bg);border-color:var(--line) var(--line) var(--line-strong)}.btab.st-work{border-bottom-color:var(--ok)}.btab.st-ap{border-bottom-color:var(--warn)}
 .btab-w{position:relative;display:flex;flex:none}.btab-w[hidden]{display:none}.btab-w .btab{padding-right:26px}
@@ -1790,7 +1790,7 @@ orderTabs();
 const settled=new Promise(r=>{const go=()=>setTimeout(r,2000);if(document.readyState==="complete")go();else addEventListener("load",go,{once:true})});
 async function live(){let at=null;for(;;){if(at!==null)await settled;
   if(document.hidden||!nav.offsetParent){await nap(3000);continue}
-  try{const r=await fetch(at===null?'/api/tape?limit=1':'/api/tape?after='+at+'&wait=25&limit=100',{cache:'no-store'});if(r.status===401||r.status===403)return;if(!r.ok){await nap(5000);continue}
+  try{const r=await fetch(at===null?'/api/tape?limit=1':'/api/tape?after='+at+'&wait=25&every=5&limit=100',{cache:'no-store'});if(r.status===401||r.status===403)return;if(!r.ok){await nap(5000);continue}
     const j=await r.json();at=j.cursor;if(!j.lines||!j.lines.length)continue;
     for(const x of j.lines){const w=nav.querySelector('[data-tabw="'+CSS.escape(x.board_id)+'"]');if(w&&x.ts>(+w.dataset.last||0))w.dataset.last=x.ts}
     orderTabs();pull()}catch(e){await nap(5000)}}}
