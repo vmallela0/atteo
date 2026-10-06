@@ -32,6 +32,7 @@ OUT=${VERIFY_DIR:-${TMPDIR:-/tmp}/atteo-verify}; OUT=${OUT%/}
 LAST_SHIP_FILE="$(git rev-parse --git-common-dir)/atteo-last-ship"
 asked=${SUITES:-}
 SUITES=" ${SUITES:-vitest e2e cli browser} "
+SUITES=${SUITES//,/ } # Accept comma-separated suite names too.
 want() { [[ "$SUITES" == *" $1 "* ]]; }
 start=$(date +%s)
 mkdir -p "$OUT"

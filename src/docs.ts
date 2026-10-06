@@ -4,7 +4,7 @@
 // also served raw at /skill.md). Static English, cacheable; opus-b's SEO work (seo-geo) links it and /agents.md.
 
 import { TOOLS } from "./mcp";
-import { page } from "./ui";
+import { DOC_CSS_SRC, page } from "./ui";
 import { esc } from "./util";
 
 /** Inline markers only, on already-escaped text: **bold** and `code`. */
@@ -34,20 +34,6 @@ function skillHtml(md: string): string {
   return out.join("\n");
 }
 
-const DOC_CSS = `<style>
-.docs{max-width:760px;margin:0 auto;padding:20px 16px 48px}
-.docs h1{font-size:24px;margin:12px 0 4px}
-.docs h2{font-size:17px;margin:26px 0 8px}
-.docs h3{font-size:14.5px;margin:16px 0 2px;font-family:ui-monospace,monospace}
-.docs p,.docs li{font-size:14px;line-height:1.55;color:var(--muted);margin:6px 0}
-.docs code{font-size:12.5px;background:var(--bg-subtle);border:1px solid var(--line);border-radius:5px;padding:0 4px}
-.docs .tool{margin:14px 0;scroll-margin-top:72px}
-.docs ul,.docs ol{padding-inline-start:22px}
-.docs .jump{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0 4px}
-.docs .jump a{font-size:12.5px;padding:3px 9px;border:1px solid var(--line);border-radius:999px;color:var(--muted);text-decoration:none;background:var(--bg-subtle)}
-.docs .jump a:hover{color:var(--ink);border-color:var(--line-strong)}
-</style>`;
-
 /** /docs: the MCP tools and the atteo CLI, public and indexable (the guide's people page and /agents.md are the others).
  *  The caller hands in the skill (index.ts already bundles SKILL.md as text; importing .md here would need the same
  *  wrangler loader in every test runner). */
@@ -65,5 +51,5 @@ ${tools}
 <h2>The atteo CLI</h2>
 ${skillHtml(skill)}
 </div>`;
-  return page("Docs · Atteo", DOC_CSS + body, { headers: { "cache-control": "public, max-age=300" } });
+  return page("Docs · Atteo", body, { headers: { "cache-control": "public, max-age=300" }, css: [DOC_CSS_SRC] });
 }

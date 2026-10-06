@@ -11,6 +11,7 @@ import { MERMAID_CSS, MERMAID_JS, mermaidHtml } from "./mermaid";
 import { CODE_COLOR_CSS, CODE_COLOR_JS, fnv } from "./codecolor";
 import { TALK_CSS } from "./talk";
 import { AGENT_LOGO_CSS } from "./agent-logos";
+import { ASK_CSS, DOC_CSS, GUIDE_CSS } from "./pageCss";
 import { esc } from "./util";
 import { personHtml, shownName } from "./names";
 import { clientTable, dirOf, tr, type Lang } from "./i18n";
@@ -41,9 +42,10 @@ export function formActionSource(raw: string): string | null {
   return /^[a-z][a-z0-9+.-]*:$/i.test(u.protocol) && !/^(javascript|data|blob|file|filesystem|about):$/i.test(u.protocol) ? u.protocol : null;
 }
 
-// Each HTML response owns its nonce. Inline CSS and style attributes are used throughout the UI. Inline event handlers
-// are forbidden explicitly; page code uses listeners. Mermaid is this origin's pinned /mermaid.min.js and loads with an
-// SRI hash (mermaid.ts), so a substituted file fails the integrity check.
+// Each HTML response owns its nonce. Stylesheets come from 'self' (/app.css and page-only sheets); leftover <style>
+// blocks carry the nonce. Style attributes still need 'unsafe-inline' (composer height, pickers, mermaid viewBox
+// sizing). Inline event handlers are forbidden explicitly; page code uses listeners. Mermaid is this origin's pinned
+// /mermaid.min.js and loads with an SRI hash (mermaid.ts), so a substituted file fails the integrity check.
 // The pages are private, revalidated each time (no shared cache may keep one person's page, or pin one nonce for many
 // responses); no-store would also keep them out of the back/forward cache.
 // img-src blob: is upload thumbnails and bug-report pictures (URL.createObjectURL). Avatars, board pictures and posted
@@ -53,7 +55,7 @@ export function formActionSource(raw: string): string | null {
 export function pageSecurity(opts: { formAction?: string[] } = {}) {
   const nonce = Array.from(crypto.getRandomValues(new Uint8Array(16)), (b) => b.toString(16).padStart(2, "0")).join("");
   const formAction = ["'self'", ...(opts.formAction ?? []).map(formActionSource).filter((x): x is string => !!x)].join(" ");
-  const policy = `default-src 'self'; script-src 'self' 'nonce-${nonce}'; script-src-attr 'none'; style-src 'self' 'unsafe-inline'; img-src 'self' blob:; font-src 'self'; media-src 'self' blob:; connect-src 'self' ${VOICE_SOCKET_ORIGIN}; frame-src 'self' about:; frame-ancestors 'none'; base-uri 'none'; form-action ${formAction}; object-src 'none'; report-uri ${CSP_REPORT_PATH}; report-to csp`;
+  const policy = `default-src 'self'; script-src 'self' 'nonce-${nonce}'; script-src-attr 'none'; style-src 'self' 'nonce-${nonce}'; style-src-attr 'unsafe-inline'; img-src 'self' blob:; font-src 'self'; media-src 'self' blob:; connect-src 'self' ${VOICE_SOCKET_ORIGIN}; frame-src 'self' about:; frame-ancestors 'none'; base-uri 'none'; form-action ${formAction}; object-src 'none'; report-uri ${CSP_REPORT_PATH}; report-to csp`;
   const headers: Record<string, string> = {
     [CSP_ENFORCE ? "content-security-policy" : "content-security-policy-report-only"]: policy,
     "reporting-endpoints": `csp="${CSP_REPORT_PATH}"`,
@@ -62,6 +64,11 @@ export function pageSecurity(opts: { formAction?: string[] } = {}) {
     "cache-control": "private, no-cache",
   };
   return { nonce, headers };
+}
+
+/** Put the page nonce on every <style> that doesn't already have one (noscript, leftover page blocks). */
+export function styleNonce(html: string, nonce: string): string {
+  return html.replace(/<style\b(?![^>]*\bnonce=)/gi, `<style nonce="${nonce}"`);
 }
 
 // Dark tokens: the system setting picks them unless Display says light; Display can also force them.
@@ -1310,14 +1317,18 @@ export interface Viewer {
   lang?: Lang; // the interface language for pages (i18n.ts); English when unset
 }
 
+function extraCss(hrefs?: string[]): string {
+  return (hrefs ?? []).map((href) => `<link rel="stylesheet" href="${esc(href)}">`).join("");
+}
+
 export function page(
   title: string,
   body: string,
-  opts: { viewer?: Viewer | null; nav?: "boards" | "admin" | "me" | null; narrow?: boolean; script?: string; status?: number; headers?: HeadersInit; lang?: Lang; formAction?: string[] } = {},
+  opts: { viewer?: Viewer | null; nav?: "boards" | "admin" | "me" | null; narrow?: boolean; script?: string; status?: number; headers?: HeadersInit; lang?: Lang; formAction?: string[]; css?: string[] } = {},
 ): Response {
   const v = opts.viewer;
   const security = pageSecurity({ formAction: opts.formAction });
-  const link = (href: string, label: string, key: string) => `<a href="${href}"${opts.nav === key ? ' aria-current="page"' : ""}>${label}</a>`;
+  const link = (href: string, label: string, key: string) => `<a href="${esc(href)}"${opts.nav === key ? ' aria-current="page"' : ""}>${label}</a>`;
   const nav = `<header class="nav"><div class="in">
 <a class="brand" href="/">${LOGO}<span class="wm">atteo</span></a>
 ${v ? `<nav class="links">${link("/", esc(tr(opts.lang, "Boards")), "boards")}</nav>` : ""}
@@ -1326,14 +1337,14 @@ ${v ? `<nav class="links">${link("/", esc(tr(opts.lang, "Boards")), "boards")}</
       ? `<a href="/me" class="row" title="${esc(tr(opts.lang, "Account"))}">${avatar(v.name)}<span class="small hide-sm">${esc(v.name)}</span></a>`
       : `<a class="btn sm primary" href="/auth/login">${esc(tr(opts.lang, "Sign in"))}</a>`
   }</div></div></header>`;
-  const html = `<!doctype html><html lang="${opts.lang ?? "en"}"${dirOf(opts.lang) === "rtl" ? ' dir="rtl"' : ""}><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  const html = styleNonce(`<!doctype html><html lang="${opts.lang ?? "en"}"${dirOf(opts.lang) === "rtl" ? ' dir="rtl"' : ""}><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${esc(title)}</title>
 ${FONT_PRELOAD}
 <link rel="icon" href="${FAVICON_SRC}" type="image/svg+xml"><link rel="apple-touch-icon" href="${APPLE_TOUCH_SRC}">
-<link rel="stylesheet" href="${APP_CSS_SRC}">${DISPLAY_HEAD.replace("<script>", `<script nonce="${security.nonce}">`)}</head><body>${WORDMARK_DEFS}${nav}
+<link rel="stylesheet" href="${APP_CSS_SRC}">${extraCss(opts.css)}${DISPLAY_HEAD.replace("<script>", `<script nonce="${security.nonce}">`)}</head><body>${WORDMARK_DEFS}${nav}
 <main${opts.narrow ? ' class="narrow"' : ""}>${body}</main>
 <div id="toast" role="status" aria-live="polite"></div>
-<script src="${APP_JS_SRC}" nonce="${security.nonce}"></script>${opts.script ? `<script nonce="${security.nonce}">${opts.script}</script>` : ""}</body></html>`;
+<script src="${APP_JS_SRC}" nonce="${security.nonce}"></script>${opts.script ? `<script nonce="${security.nonce}">${opts.script}</script>` : ""}</body></html>`, security.nonce);
   const headers = new Headers(opts.headers);
   headers.set("content-type", "text/html; charset=utf-8");
   for (const [name, value] of Object.entries(security.headers)) headers.set(name, value);
@@ -1647,6 +1658,11 @@ export const APP_CSS = `${FONT_CSS}\n${CSS}`;
 export const APP_CSS_SRC = `/app.css?v=${fnv(APP_CSS)}`;
 export const APP_JS = CLIENT_JS;
 export const APP_JS_SRC = `/app.js?v=${fnv(APP_JS)}`;
+/** Page-only stylesheets (Guide / Ask / Docs). Kept off /app.css so board and inbox stay in the CSS budget. */
+export const PAGE_CSS: Record<string, string> = { "/guide.css": GUIDE_CSS, "/ask.css": ASK_CSS, "/docs.css": DOC_CSS };
+export const GUIDE_CSS_SRC = `/guide.css?v=${fnv(GUIDE_CSS)}`;
+export const ASK_CSS_SRC = `/ask.css?v=${fnv(ASK_CSS)}`;
+export const DOC_CSS_SRC = `/docs.css?v=${fnv(DOC_CSS)}`;
 
 // ---------- app shell (signed-in pages) ----------
 
@@ -1717,6 +1733,7 @@ export function appPage(
     narrow?: boolean;
     full?: boolean; // fills the viewport below the top bar; the page lays out its own scrolling areas
     status?: number;
+    css?: string[];
   },
 ): Response {
   const v = opts.viewer;
@@ -1802,7 +1819,7 @@ export function appPage(
 <dt><kbd>G</kbd> ${esc(T("then"))} <kbd>I</kbd> <kbd>A</kbd> <kbd>B</kbd> <kbd>P</kbd> <kbd>M</kbd></dt><dd>${esc(T("Go to Inbox / Approvals / Boards / People / Account"))}</dd>
 <dt><kbd>?</kbd></dt><dd>${esc(T("This list"))}</dd></dl></div></dialog>
 <script>window.PALETTE=${JSON.stringify(paletteItems).replace(/</g, "\\u003c")};${v.admin ? "window.OPS=1;" : ""}</script>`;
-  return rawPage(title, body, (opts.script ?? "") + scriptSrc(SHELL_JS_SRC), opts.status, v.lang ?? "en");
+  return rawPage(title, body, (opts.script ?? "") + scriptSrc(SHELL_JS_SRC), opts.status, v.lang ?? "en", opts.css);
 }
 
 const PINS_JS = `
@@ -1909,15 +1926,15 @@ $('bug-form')?.addEventListener('submit',async e=>{e.preventDefault();
 export const BOARD_PREFETCH_RULES = JSON.stringify({ prefetch: [{ source: "document", where: { href_matches: "/b/*" }, eagerness: "moderate" }] });
 export const BOARD_PREFETCH_PATH = "/speculation-rules.json";
 // Report a bug (jxn #3336, glm-b #3343): the sidebar button captures the page as a PNG in the browser (the DOM is
-function rawPage(title: string, body: string, script: string, status = 200, lang: Lang = "en"): Response {
+function rawPage(title: string, body: string, script: string, status = 200, lang: Lang = "en", css?: string[]): Response {
   const security = pageSecurity();
-  const html = `<!doctype html><html lang="${lang}"${dirOf(lang as Lang) === "rtl" ? ' dir="rtl"' : ""}><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  const html = styleNonce(`<!doctype html><html lang="${lang}"${dirOf(lang as Lang) === "rtl" ? ' dir="rtl"' : ""}><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${esc(title)}</title>
 ${FONT_PRELOAD}${scriptPreloads(script)}
 <link rel="icon" href="${FAVICON_SRC}" type="image/svg+xml"><link rel="apple-touch-icon" href="${APPLE_TOUCH_SRC}">
-<link rel="stylesheet" href="${APP_CSS_SRC}">${DISPLAY_HEAD.replace("<script>", `<script nonce="${security.nonce}">`)}</head><body>${WORDMARK_DEFS}${body.replace("<script>window.PALETTE=", `<script nonce="${security.nonce}">window.PALETTE=`)}
+<link rel="stylesheet" href="${APP_CSS_SRC}">${extraCss(css)}${DISPLAY_HEAD.replace("<script>", `<script nonce="${security.nonce}">`)}</head><body>${WORDMARK_DEFS}${body.replace("<script>window.PALETTE=", `<script nonce="${security.nonce}">window.PALETTE=`)}
 <div id="toast" role="status" aria-live="polite"></div>
-${lang === "en" ? "" : `<script nonce="${security.nonce}">window.I18N=${clientTable(lang)}</script>`}<script src="${APP_JS_SRC}" nonce="${security.nonce}"></script>${pageScripts(script, security.nonce)}</body></html>`;
+${lang === "en" ? "" : `<script nonce="${security.nonce}">window.I18N=${clientTable(lang)}</script>`}<script src="${APP_JS_SRC}" nonce="${security.nonce}"></script>${pageScripts(script, security.nonce)}</body></html>`, security.nonce);
   return new Response(html, { status, headers: { "content-type": "text/html; charset=utf-8", "content-language": lang, vary: "Accept-Language, Cookie", "speculation-rules": `"${BOARD_PREFETCH_PATH}"`, ...security.headers } });
 }
 

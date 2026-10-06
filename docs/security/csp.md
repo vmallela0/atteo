@@ -4,7 +4,7 @@ The application CSP is **report-only**. `CSP_ENFORCE` in `src/ui.ts` must remain
 
 ## Enforcement prerequisites
 
-- Every HTML response created by `page` or `rawPage` gets a fresh 128-bit nonce, and every server-rendered script element carries it.
+- Every HTML response created by `page` or `rawPage` gets a fresh 128-bit nonce, and every server-rendered script and leftover `<style>` element carries it. Shared CSS is `/app.css`; Guide, Ask, and Docs load their own stylesheets on those pages only (`style-src 'self'`). For you keeps its sheet inline with the page nonce.
 - Scripts loaded later (Mermaid, syntax highlighting, bug reporting, and html2canvas) inherit that nonce. The Mermaid file is this origin's pinned `/mermaid.min.js` and protected by its SHA-384 SRI hash.
 - Inline event-handler attributes and `javascript:` URLs are not used. `script-src-attr 'none'` makes that restriction explicit.
 - OAuth consent adds only the validated redirect origin or custom scheme to `form-action`.
@@ -19,7 +19,7 @@ These are intentional or operational gaps, not reasons to weaken script protecti
 
 1. Observe at least one representative clean day in the CSP report dashboard, including OAuth, voice, Mermaid, previews, and bug reporting. Investigate every application-page violation before rollout.
 2. Run the full browser suite in an environment with Chromium and the local Worker. Pull-request CI runs unit/e2e tests but does not run browser checks; nightly/manual CI does. Done on 2026-10-05 against a local Worker with `CSP_ENFORCE = true`: 151 of 156 checks passed and no app page logged a violation (the only refusals were the preview frame's own policy blocking its files, as intended). The other five were the checks, not the app: `csp.mjs` and `csp-enforced.mjs` assumed the report-only header (they now follow `CSP_ENFORCE`), `one-line` and `vote-contrast` injected axe as an inline `<script>` without the nonce (they now evaluate it), and a `notify-levels` timing flake that passes on its own. With those changes the four pass enforced and report-only.
-3. `style-src` still needs `'unsafe-inline'` because the UI uses inline style attributes and generated style blocks. Removing it is separate hardening work and is not required to enforce the current script policy.
+3. `style-src` no longer needs `'unsafe-inline'`: shared styles live in `/app.css`, page-only sheets (`/guide.css`, `/ask.css`, `/docs.css`) load only on those pages, For you’s sheet and leftover `<style>` blocks carry the page nonce (keeping For you within the existing CSS budget), and Mermaid stamps that nonce on the `<style>` tags it inserts. `style-src-attr 'unsafe-inline'` remains for dynamic layout attributes (composer height, the unread rail, task bars, pickers). Dropping attribute inline styles is further hardening and is not required to enforce the current script policy.
 4. Done: the app policy is `img-src 'self' blob:`, `font-src 'self'`, and `media-src 'self' blob:`. Flow check (unit coverage in `test/csp.test.ts`; Chromium confirms `data:` on a CSS image, mask, font, or media element is blocked, and `blob:` image/audio is not):
    - Avatars, board pictures, and posted images are this origin (`/avatar/…`, `/api/boards/…/picture`, `/api/boards/…/image`). They do not use `data:` or `blob:`.
    - Composer upload thumbnails and bug-report pictures are `blob:` object URLs (`URL.createObjectURL`). `img-src` keeps `blob:`.
