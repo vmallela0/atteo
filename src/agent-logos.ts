@@ -1,7 +1,8 @@
 // One-colour marks for the "Add your agent" tiles (jxn #4124), the same marks the iOS app shows (8c1036d). Each is a
-// 24-unit path drawn as a CSS mask over currentColor, so it follows the text colour in light and dark, lives in the
-// cached app.css (no bytes in each page, no requests) and is never a remote image (the CSP blocks those). Rounded to one
-// decimal: they draw at 20px. Sources, as published:
+// 24-unit path drawn as a CSS clip-path over currentColor, so it follows the text colour in light and dark, lives in the
+// cached app.css (no bytes in each page, no requests) and is never a remote image or a data: URL (img-src allows neither
+// an outside host nor data:). clip-path coordinates are the 24-unit box, scaled onto the 20px tile. Rounded to one
+// decimal. The generic </> is a stroke, which clip-path cannot draw, so that one tile is an inline SVG. Sources, as published:
 //   @lobehub/icons-static-svg 1.95.1 (MIT), icons/<name>.svg: openai (ChatGPT), claude, claudecode, codex, cursor,
 //     gemini, grok (Grok, Grok CLI, Grok Bot)
 //   simple-icons (CC0): 16.34.0 icons/meta.svg (Muse wears Meta's mark, as in the app); 12.0.0
@@ -21,17 +22,19 @@ const PATHS: Record<string, string> = {
 };
 /** Lobe Icons draw even-odd (Codex's prompt and ChatGPT's knot are cut-outs); Simple Icons draw non-zero. */
 const EVENODD = new Set(["chatgpt", "claude", "claudecode", "codex", "cursor", "gemini", "grok"]);
-const CODE = `<path d="M8 7l-5 5 5 5M16 7l5 5-5 5M13.5 4.5l-3 15" fill="none" stroke="black" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>`;
-const uri = (body: string) =>
-  `url("data:image/svg+xml,${`<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'>${body.replace(/"/g, "'")}</svg>`.replace(/[<>#%]/g, encodeURIComponent)}")`;
+const clip = (d: string, evenodd: boolean) => (evenodd ? `path(evenodd,"${d}")` : `path("${d}")`);
 
-/** In app.css: .cn-logo draws the mark data-lg names, else </>. */
+/** In app.css: i.cn-logo draws the mark data-lg names. The generic </> is agentLogo's inline SVG. */
 export const AGENT_LOGO_CSS =
-  `.cn-logo{display:block;width:20px;height:20px;background:currentColor;-webkit-mask:var(--lg) center/contain no-repeat;mask:var(--lg) center/contain no-repeat;--lg:${uri(CODE)}}` +
-  `@media (forced-colors:active){.cn-logo{background:CanvasText;forced-color-adjust:none}}` +
+  `i.cn-logo{display:block;width:20px;height:20px;overflow:hidden}` +
+  `i.cn-logo[data-lg]::before{content:"";display:block;width:24px;height:24px;background:currentColor;clip-path:var(--lg);transform:scale(calc(20 / 24));transform-origin:0 0}` +
+  `@media (forced-colors:active){i.cn-logo[data-lg]::before{background:CanvasText;forced-color-adjust:none}}` +
+  `svg.cn-logo{display:block;width:20px;height:20px}` +
+  `@media (forced-colors:active){svg.cn-logo{stroke:CanvasText;forced-color-adjust:none}}` +
   Object.entries(PATHS)
-    .map(([k, d]) => `.cn-logo[data-lg=${k}]{--lg:${uri(`<path${EVENODD.has(k) ? ` fill-rule="evenodd"` : ""} d="${d}"/>`)}}`)
+    .map(([k, d]) => `i.cn-logo[data-lg=${k}]{--lg:${clip(d, EVENODD.has(k))}}`)
     .join("");
 
-/** A tile's logo; decorative, the name is beside it. */
-export const agentLogo = (key: string) => `<i class="cn-logo"${key ? ` data-lg="${key}"` : ""} aria-hidden="true"></i>`;
+/** A tile's logo; decorative, the name is beside it. An unknown key gets the same </> as no key. */
+const CODE_SVG = `<svg class="cn-logo" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 7l-5 5 5 5M16 7l5 5-5 5M13.5 4.5l-3 15"/></svg>`;
+export const agentLogo = (key: string) => (PATHS[key] ? `<i class="cn-logo" data-lg="${key}" aria-hidden="true"></i>` : CODE_SVG);
