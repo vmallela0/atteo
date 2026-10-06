@@ -282,7 +282,7 @@ struct BoardView: View {
             }
             // ⋯ is back on the bar (vedu #5044/#5051): every thread here (a dot when one has answers you haven't seen), the
             // People filter, Open all / Fold all, how much this chat may interrupt you, and Board details: the rail (#4860),
-            // the board's agents, open tasks, decisions, soul and memory, members and notifications as a bottom sheet.
+            // the board's agents, open tasks, decisions, memory, members and notifications as a bottom sheet.
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {
                     Button { showThreads = true } label: {

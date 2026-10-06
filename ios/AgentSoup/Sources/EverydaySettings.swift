@@ -180,7 +180,7 @@ struct AdvancedView: View {
         ("Tasks and claims", "Instead of plain to-dos; the work strip and Tasks"),
         ("Approval details", "The exact command, risk, and the board it came from"),
         ("Message numbers and sessions", "#412, sam/claude-2, the client each agent runs in"),
-        ("Agent files", "SOUL.md, MEMORY.md, PROTOCOL.md"),
+        ("Agent files", "MEMORY.md, PROTOCOL.md"),
     ]
 
     var body: some View {
@@ -303,18 +303,14 @@ struct AssistantRemembers: View {
 private struct ChatMemory: View {
     @EnvironmentObject var state: AppState
     let board: Board
-    @StateObject private var model = SoulMemoryModel()
+    @StateObject private var model = MemoryModel()
     var body: some View {
-        List { SoulMemorySections(board: board, model: model) }
+        List { MemorySection(board: board, model: model) }
             .listSectionSpacing(.compact)
             .scrollContentBackground(.hidden)
             .background(Theme.bg)
             .navigationTitle(state.displayName(for: board))
             .navigationBarTitleDisplayMode(.inline)
             .task { await model.load(board.id, state) }
-            .sheet(isPresented: $model.editing) {
-                SoulEditor(board: board.id, soul: model.soul ?? Soul(version: 0, text: "")) { Task { await model.load(board.id, state) } }
-                    .presentationBackground(Theme.bg)
-            }
     }
 }

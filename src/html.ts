@@ -12,7 +12,7 @@ import type { StandingAction, StandingRule } from "./standingRules";
 import { authorLabel, computeSummary, retractedSet, type Summary } from "./state";
 import { quickReplies } from "./quickReplies";
 import { PIN_BAR, PIN_SIDE, RECAP_BTN, RECAP_DLG, pinRecapJs } from "./pinrecap";
-import { SOUL_DLG, SOUL_SIDE, rememberBtn, soulMemoryJs } from "./soulmemory";
+import { MEM_SIDE, memoryJs, rememberBtn } from "./memorypanel";
 import { HOST_LOADER_JS, hostSide } from "./hostUi";
 import { charterJs, charterSide } from "./charterUi";
 import type { BoardCharter } from "./charter";
@@ -1526,7 +1526,6 @@ function connect(){
     if(d.type==='archived'){location.reload();return}
     if(d.type==='doc'){window.onDocChanged&&onDocChanged(d);if(window.pinRefresh&&PIN&&PIN.name===d.name)pinRefresh()}
     if(d.type==='pin'){window.pinRefresh&&pinRefresh();return}
-    if(d.type==='soul'){window.onSoulEvent&&onSoulEvent();return}
     if(d.type==='memory'){window.onMemoryEvent&&onMemoryEvent();return}
     // Someone renamed their agent (vedu #1125): its posts here read the new name, always with whose agent it is.
     if(d.type==='profile'&&d.user){delete pcache[d.user];document.querySelectorAll('#thread .entry.by-agent[data-author="'+CSS.escape(d.user)+'"]>.grow>.meta').forEach(m=>{const w=m.querySelector('.who');if(!w)return;
@@ -2854,7 +2853,7 @@ export const BOARD_JS_SRC = `${BOARD_JS_PATH}?v=${fnv(BOARD_JS)}`;
 // you had read to (Recap's starting point) comes from window.BC like the rest.
 export const BOARD_TAIL_PATH = "/board-tail.js";
 const boardTailJs = (canPic: boolean, encrypted: boolean, agentChat: boolean, canEdit: boolean) =>
-  (canPic ? BOARD_PIC_JS : "") + (encrypted ? E2E_JS : "") + STATUS_JS + voiceJs(agentChat) + TALK_JS + (encrypted || agentChat ? "" : CALL_LOADER_JS) + PREVIEW_JS + evJs(agentChat) + (agentChat ? "" : PO_JS) + (agentChat ? "" : pinRecapJs(null, canEdit) + soulMemoryJs(canEdit) + EXPORT_JS + charterJs()); // charter: Board info's section (#3685)
+  (canPic ? BOARD_PIC_JS : "") + (encrypted ? E2E_JS : "") + STATUS_JS + voiceJs(agentChat) + TALK_JS + (encrypted || agentChat ? "" : CALL_LOADER_JS) + PREVIEW_JS + evJs(agentChat) + (agentChat ? "" : PO_JS) + (agentChat ? "" : pinRecapJs(null, canEdit) + memoryJs(canEdit) + EXPORT_JS + charterJs()); // charter: Board info's section (#3685)
 const TAILS = new Map<string, { js: string; src: string }>();
 /** The tail for flags "0101" (canPic, encrypted, agentChat, canEdit), or null for anything else. */
 export function boardTail(flags: string): { js: string; src: string } | null {
@@ -3017,7 +3016,7 @@ export function boardPage(
       </div>
     </form>
   </section>
-  <aside class="aside" id="board-info" aria-label="${esc(T("Board info"))}"><!-- the rail (jxn #4860): agents first, then what's open, soul, memory, charter, members, notifications -->${agentsSection(agents, info.id, readOnly || !!info.archived, L, canInviteAgent)}<div class="sum" id="sum">${summaryHtml(entries, viewer.name, members, summary, ctl, L)}</div>${agentChat ? "" : PIN_SIDE + SOUL_SIDE + charterSide(board.charter ?? { goal: null, data_classes: [], retention_days: null, members: members.map((m) => ({ user: m.user, role: m.role ?? (m.user === info.created_by ? "owner" : "contributor"), note: null })) }, isOwner && !info.archived, L, people)}
+  <aside class="aside" id="board-info" aria-label="${esc(T("Board info"))}"><!-- the rail (jxn #4860): agents first, then what's open, memory, charter, members, notifications -->${agentsSection(agents, info.id, readOnly || !!info.archived, L, canInviteAgent)}<div class="sum" id="sum">${summaryHtml(entries, viewer.name, members, summary, ctl, L)}</div>${agentChat ? "" : PIN_SIDE + MEM_SIDE + charterSide(board.charter ?? { goal: null, data_classes: [], retention_days: null, members: members.map((m) => ({ user: m.user, role: m.role ?? (m.user === info.created_by ? "owner" : "contributor"), note: null })) }, isOwner && !info.archived, L, people)}
 ${notifySide(L)}${agentChat || info.encrypted || info.archived || readOnly ? "" : hostSide(esc(T("Attach a machine…")))}
 </aside>
 </div></div>
@@ -3052,7 +3051,7 @@ ${notifySide(L)}${agentChat || info.encrypted || info.archived || readOnly ? "" 
       <p class="flash err" id="td-err" hidden></p>
       <div class="row" style="justify-content:space-between;margin-top:12px"><div class="row" style="gap:6px"><button class="btn sm ghost" type="button" id="td-open">${esc(T("Open in conversation"))}</button><button class="btn sm ghost" type="button" id="td-remove" hidden>${esc(T("Remove"))}</button></div><button class="btn primary sm">${esc(T("Save"))}</button></div>
     </div></form></dialog>
-${localize(L, SHEET)}${agentChat ? "" : localize(L, RECAP_DLG + SOUL_DLG)}
+${localize(L, SHEET)}${agentChat ? "" : localize(L, RECAP_DLG)}
 <dialog class="lightbox" id="lightbox" aria-label="${esc(T("Image"))}"><img id="lightbox-img" alt=""><button class="lb-nav lb-prev" type="button" aria-label="${esc(T("Previous picture"))}" hidden>‹</button><button class="lb-nav lb-next" type="button" aria-label="${esc(T("Next picture"))}" hidden>›</button><span class="lb-count xs" hidden></span><a class="btn sm lb-save" id="lightbox-save" href="" download data-save>${esc(T("Save"))}</a></dialog>
 
 ${connectDialog(viewer, { id: info.id, title: info.title })}

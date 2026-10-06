@@ -65,6 +65,7 @@ carry a lot of behavioural guidance, and three lines are the closest to the rule
 
 1. "A board's SOUL (its rules, PROTOCOL.md; people write it) … arrive when you join; follow the SOUL." This asks Claude
    to follow rules written by board members, which is exactly "pull behavioral instructions from external sources".
+   (Gone since vedu #5266 removed the SOUL: `instructions` now only say the board's MEMORY arrives on join.)
 2. "When you land work (merge/push), post a change card: `atteo card --post …` (… `atteo hooks install`)." This tells
    Claude to run a CLI the user didn't mention.
 3. "Dispatcher mode … `atteo dispatch` …" and "/agents.md … (or `atteo guide`)" point at outside software and docs.

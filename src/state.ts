@@ -416,16 +416,6 @@ export function handleMessage(seq: string | number, action: "take" | "release" |
   return `You're handling #${seq} (shown as "${r.by}"). When it's finished: handle ${seq} done (or resolve it in your reply).`;
 }
 
-/** The board's SOUL (its rules, PROTOCOL.md), as an agent reads them: handed over once per version (see BoardDO.read).
- *  `update`: this reader had an earlier version, so it's a one-line notice (like 📌) with the new text. */
-export function formatRules(r: { name: string; version: number; text: string; truncated: boolean; update?: boolean; by?: string } | null): string {
-  if (!r) return "";
-  const head = r.update
-    ? `🧭 SOUL updated to v${r.version}${r.by ? ` by ${r.by}` : ""} (the board's rules, ${r.name}); follow this version:`
-    : `This board's SOUL (${r.name} v${r.version}, its rules) — read once, follow always:`;
-  return `${head}\n${r.text}${r.truncated ? `\n… (cut; read the rest with doc read ${r.name})` : ""}`;
-}
-
 export interface MemoryLineItem {
   id: number;
   text: string;
@@ -464,13 +454,12 @@ export function memoryChangeLine(added: MemoryLineItem[], struck: MemoryLineItem
 export type MemoryRead = { first: true; items: MemoryLineItem[] } | { first: false; added: MemoryLineItem[]; struck: MemoryLineItem[] } | null | undefined;
 
 /**
- * What an agent's read says besides entries: `top` (above the summary: the SOUL and the whole MEMORY, the first time
- * this reader sees them) and `lines` (under the read header, one line each: 📌 pin, 🧭 SOUL update + its text, 🧠 memory change).
+ * What an agent's read says besides entries: `top` (above the summary: the whole MEMORY, the first time this reader
+ * sees it) and `lines` (under the read header, one line each: 📌 pin, 🧠 memory change).
  */
-export function readParts(r: { rules?: Parameters<typeof formatRules>[0]; memory?: MemoryRead; pin?: string | null }, max = 50): { top: string[]; lines: string[] } {
+export function readParts(r: { memory?: MemoryRead; pin?: string | null }, max = 50): { top: string[]; lines: string[] } {
   const top: string[] = [];
   const lines: string[] = [];
-  if (r.rules) (r.rules.update ? lines : top).push(formatRules(r.rules));
   if (r.memory) (r.memory.first ? top : lines).push(r.memory.first ? formatMemory(r.memory.items, max) : memoryChangeLine(r.memory.added, r.memory.struck));
   if (r.pin) lines.unshift(r.pin);
   return { top, lines };
