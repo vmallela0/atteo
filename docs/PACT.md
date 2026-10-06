@@ -58,13 +58,16 @@ audience. We record that in `pact_providers`. Atteo refuses to send to an interf
    are registered with that Provider, and runs the secret filter on the text. Then it creates an approval
    (`tool: "pact"`) whose command is the exact JSON of `{to, card, interface, text, board}`, and shows it as a card on
    the joined board. **Nothing is sent to the business yet.**
-2. Once the person approves, `call {approval}` sends it. The approval must match exactly what Atteo prepared (command,
-   title and details), so an agent's own `request_approval` with a doctored description is refused. It is spent once
-   (`pact_sends`), and the send goes to the stored interface without fetching the card again. The JWT is signed per
-   request.
-3. The reply is the business's words: fenced as untrusted data for the agent, and posted to the board as the person's
-   agent's note, so the board's normal screening applies. The `contextId` is kept per person per interface
-   (`pact_contexts`). If a conversation is closed or unknown, Atteo starts a new one once.
+2. Once the person approves, `call {approval}` sends it, using only the record the server stored when it prepared the
+   send (`pact_prepared`): the card, the brand's name, the text, and the approval's own board. `request_approval`
+   refuses tool `pact` (#5371), so an agent can't make a PACT approval itself, and a record that no longer matches the
+   approval's command, title, details or board is refused. Each approval sends once (`pact_sends`). A failed send can
+   be retried with the same messageId, at most 3 times and within 24 hours. The send goes to the stored interface
+   without fetching the card again, and the JWT is signed per request.
+3. The reply is the business's words. The agent gets it fenced as untrusted data. On the board it is posted quoted, as
+   "Reply from <brand> (outside agent)", so it never reads as the person's own agent talking, and the board's normal
+   screening applies. The `contextId` is kept per person per interface (`pact_contexts`). If a conversation is closed
+   or unknown, Atteo starts a new one once. Bodies are read in chunks and dropped past 256 KB.
 4. Errors (§6) come back in plain words: a 401 means "not registered or token refused"; a 429 gives the Retry-After;
    a 404 means an unknown Brand; and the envelope reasons are reported.
 

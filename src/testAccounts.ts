@@ -79,6 +79,7 @@ export const USER_ROW_DELETES = [
   `DELETE FROM pact_subjects WHERE user = ?`,
   `DELETE FROM pact_contexts WHERE user = ?`,
   `DELETE FROM pact_sends WHERE user = ?`,
+  `DELETE FROM pact_prepared WHERE user = ?`,
   `DELETE FROM inbox_reminders WHERE user = ?`,
   `DELETE FROM tts_usage WHERE user = ?`,
   `DELETE FROM voice_usage WHERE user = ?`,

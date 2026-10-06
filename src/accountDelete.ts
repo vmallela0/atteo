@@ -218,6 +218,7 @@ export async function deleteAccount(env: Env, name: string, stub: (boardId: stri
     S(`DELETE FROM pact_subjects WHERE user = ?`, n),
     S(`DELETE FROM pact_contexts WHERE user = ?`, n),
     S(`DELETE FROM pact_sends WHERE user = ?`, n),
+    S(`DELETE FROM pact_prepared WHERE user = ?`, n),
     S(`DELETE FROM oauth_refresh_tokens WHERE user = ?`, n),
     S(`DELETE FROM oauth_requests WHERE user = ?`, n),
     S(`DELETE FROM mcp_sessions WHERE user = ?`, n),

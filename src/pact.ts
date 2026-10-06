@@ -70,6 +70,37 @@ export function publicUrl(raw: string, what = "URL"): URL {
   return u;
 }
 
+/** The body as text, read a chunk at a time and dropped past MAX_BODY (#5372): a missing or false content-length
+ *  can't make us hold more than that. */
+export async function capped(r: Response, url: string): Promise<string> {
+  const big = () => new PactError(`${new URL(url).host} sent more than ${MAX_BODY / 1024} KB.`);
+  if (Number(r.headers.get("content-length") ?? 0) > MAX_BODY) {
+    await r.body?.cancel().catch(() => {});
+    throw big();
+  }
+  if (!r.body) return "";
+  const reader = r.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let n = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    n += value.byteLength;
+    if (n > MAX_BODY) {
+      await reader.cancel().catch(() => {});
+      throw big();
+    }
+    chunks.push(value);
+  }
+  const all = new Uint8Array(n);
+  let at = 0;
+  for (const c of chunks) {
+    all.set(c, at);
+    at += c.byteLength;
+  }
+  return new TextDecoder().decode(all);
+}
+
 /** GET or POST to an outside agent: no redirects (they could point anywhere), a timeout, a size cap. */
 async function outbound(url: string, init: RequestInit = {}): Promise<{ status: number; headers: Headers; body: unknown; text: string }> {
   let r: Response;
@@ -79,9 +110,7 @@ async function outbound(url: string, init: RequestInit = {}): Promise<{ status: 
     throw new PactError(`Couldn't reach ${new URL(url).host}: ${e instanceof Error ? e.message : String(e)}`);
   }
   if (r.status >= 300 && r.status < 400) throw new PactError(`${new URL(url).host} answered with a redirect; PACT agents don't redirect, so nothing was followed.`);
-  if (Number(r.headers.get("content-length") ?? 0) > MAX_BODY) throw new PactError(`${new URL(url).host} sent more than ${MAX_BODY / 1024} KB.`);
-  const text = await r.text();
-  if (text.length > MAX_BODY) throw new PactError(`${new URL(url).host} sent more than ${MAX_BODY / 1024} KB.`);
+  const text = await capped(r, url);
   let body: unknown = null;
   try {
     body = text ? JSON.parse(text) : null;
@@ -210,35 +239,64 @@ export async function prepare(env: Env, later: Later | null, r: { card: string; 
   return { pact: 1, to, card, interface: iface, text, board: r.board };
 }
 
-/** Step 2: send exactly what the person approved, once. */
+/**
+ * Step 1b: ask the person, and keep what was prepared (#5371). The approval is made here and only here (request_approval
+ * refuses tool "pact"), and the send later uses this stored record, never the approval's text.
+ */
+export async function ask(env: Env, user: string, o: Outbound, who: { client: string; session: string | null }, later: Later | null): Promise<approvals.Approval> {
+  const a = await approvals.requestApproval(env, user, { ...who, board_id: o.board, ...approvalFields(o) }, later, true);
+  await env.DB.prepare(`INSERT INTO pact_prepared (approval_id, user, to_label, card, interface_url, text, board_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
+    .bind(a.id, user, o.to, o.card, o.interface, o.text, o.board, Date.now())
+    .run();
+  return a;
+}
+
+export const MAX_ATTEMPTS = 3;
+export const RETRY_WINDOW_MS = 24 * 3600_000;
+
+/** Claims this approval's one send (or a retry of a failed one: at most MAX_ATTEMPTS, within RETRY_WINDOW_MS). */
+async function claimSend(env: Env, user: string, id: string, iface: string): Promise<void> {
+  const now = Date.now();
+  const first = await env.DB.prepare(`INSERT OR IGNORE INTO pact_sends (approval_id, user, interface_url, sent_at, attempts) VALUES (?, ?, ?, ?, 1)`).bind(id, user, iface, now).run();
+  if (first.meta?.changes) return;
+  const retry = await env.DB.prepare(`UPDATE pact_sends SET status = NULL, attempts = attempts + 1 WHERE approval_id = ? AND status = 0 AND attempts < ? AND sent_at > ?`).bind(id, MAX_ATTEMPTS, now - RETRY_WINDOW_MS).run();
+  if (retry.meta?.changes) return;
+  const s = await env.DB.prepare(`SELECT status, attempts FROM pact_sends WHERE approval_id = ?`).bind(id).first<{ status: number | null; attempts: number }>();
+  if (s?.status === 0) throw new PactError(`Gave up on ${id} after ${s.attempts} tries${s.attempts < MAX_ATTEMPTS ? " (over a day)" : ""}; ask again with agents {action: "call"}.`);
+  throw new PactError(`Already sent with ${id}; each approval sends once.`);
+}
+
+/** The board entry for a business's reply (#5372): quoted and labelled as the outside agent's words, never as if the
+ *  person's own agent had said them. */
+export function replyEntry(o: Pick<Outbound, "to">, text: string): { title: string; text: string; client: string } {
+  const quoted = (text || "(no text)").split("\n").map((l) => `> ${l}`).join("\n");
+  return { title: `Reply from ${o.to.slice(0, 50)} (outside agent)`, text: `Reply from ${o.to}'s agent (an outside agent, reached over PACT). Their words, quoted:\n\n${quoted}`, client: "outside agent · PACT" };
+}
+
+/** Step 2: send exactly what the person approved, from what the server prepared, once. */
 export async function sendApproved(env: Env, user: string, issuer: string, approvalId: string): Promise<{ o: Outbound; reply: Reply }> {
   const a = await approvals.getApproval(env, user, approvalId);
-  if (!a || a.tool !== "pact" || !a.command) throw new PactError("No such PACT approval.");
-  let o: Outbound;
-  try {
-    o = JSON.parse(a.command) as Outbound;
-  } catch {
-    throw new PactError("That approval isn't a PACT send.");
-  }
-  const f = o?.pact === 1 && typeof o.interface === "string" && typeof o.text === "string" ? approvalFields(o) : null;
-  // The approval must be exactly one this module made: the command, title and details the person saw all match.
-  if (!f || f.command !== a.command || f.title !== a.title || f.details !== a.details) throw new PactError("That approval isn't a PACT send Atteo prepared; ask again with agents {action: \"call\"}.");
+  const rec = a ? await env.DB.prepare(`SELECT * FROM pact_prepared WHERE approval_id = ? AND user = ?`).bind(a.id, user).first<{ to_label: string; card: string; interface_url: string; text: string; board_id: string | null }>() : null;
+  if (!a || a.tool !== "pact" || !rec) throw new PactError("No such PACT approval: only one made by agents {action: \"call\"} can send.");
+  const o: Outbound = { pact: 1, to: rec.to_label, card: rec.card, interface: rec.interface_url, text: rec.text, board: rec.board_id };
+  // The record must be what the person saw: the same command, title and details, on the same board.
+  const f = approvalFields(o);
+  if (f.command !== a.command || f.title !== a.title || f.details !== a.details || (a.board_id ?? null) !== o.board) throw new PactError("That approval doesn't match what Atteo prepared; ask again with agents {action: \"call\"}.");
   const d = approvals.decision(a);
   if (d.decision !== "approved") throw new PactError(d.decision === "pending" ? `Not approved yet: wait with approval {id: "${a.id}", action: "wait"}.` : `Denied (${d.reason}). Don't send it.`);
   publicUrl(o.interface, "interface URL");
   const p = await providerFor(env, o.interface);
   if (!p) throw new PactError(`Atteo isn't registered with ${new URL(o.interface).host} any more.`);
-  const spent = await env.DB.prepare(`INSERT OR IGNORE INTO pact_sends (approval_id, user, interface_url, sent_at) VALUES (?, ?, ?, ?)`).bind(a.id, user, o.interface, Date.now()).run();
-  if (!spent.meta?.changes) throw new PactError(`Already sent with ${a.id}; each approval sends once.`);
+  await claimSend(env, user, a.id, o.interface);
   const sub = await subjectFor(env, user, p.origin);
   const prev = await env.DB.prepare(`SELECT context_id FROM pact_contexts WHERE user = ? AND interface_url = ?`).bind(user, o.interface).first<{ context_id: string }>();
   let reply: Reply;
   try {
     reply = await sendMessage(o.interface, () => signPaJwt(env, { iss: issuer, sub, aud: p.audience }), o.text, prev?.context_id ?? null, `atteo-${a.id}`);
   } catch (e) {
-    // Not delivered (or we can't tell): free the approval to try again. The messageId is the same, so a retry of one
-    // that did arrive is safe (PACT §4.3: the provider returns the stored reply).
-    await env.DB.prepare(`DELETE FROM pact_sends WHERE approval_id = ?`).bind(a.id).run();
+    // Not delivered (or we can't tell): the approval may try again, a few times. The messageId is the same, so a retry
+    // of one that did arrive is safe (PACT §4.3: the provider returns the stored reply).
+    await env.DB.prepare(`UPDATE pact_sends SET status = 0 WHERE approval_id = ?`).bind(a.id).run();
     throw e;
   }
   await env.DB.prepare(`UPDATE pact_sends SET status = 1 WHERE approval_id = ?`).bind(a.id).run();

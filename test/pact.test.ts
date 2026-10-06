@@ -46,10 +46,10 @@ async function verifyJwt(env: Env, jwt: string): Promise<boolean> {
   return crypto.subtle.verify({ name: "ECDSA", hash: "SHA-256" }, pub, unb64url(s), new TextEncoder().encode(`${h}.${b}`));
 }
 
-/** prepare → requestApproval → (decide) — what agents {action: "call"} does. */
-async function ask(env: Env, text = "Where is my order?") {
-  const o = await pact.prepare(env, null, { card: "brand.example", text, board: null });
-  return approvals.requestApproval(env, "ada", { client: "test", ...pact.approvalFields(o) });
+/** prepare → ask — what agents {action: "call"} does. */
+async function ask(env: Env, text = "Where is my order?", board: string | null = null) {
+  const o = await pact.prepare(env, null, { card: "brand.example", text, board });
+  return pact.ask(env, "ada", o, { client: "test", session: null }, null);
 }
 
 afterEach(() => vi.restoreAllMocks());
@@ -136,22 +136,89 @@ describe("PACT sending", () => {
     expect(claims((next[1].headers as Record<string, string>).authorization.slice(7)).sub).toBe(claims(jwt).sub);
   });
 
-  it("refuses an approval it didn't prepare, a rejected one, and another person's", async () => {
+  it("request_approval can't make a PACT approval (#5371), whatever the case or spacing", async () => {
     const { env } = await fakeEnv();
-    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(json(card()));
-    const o = await pact.prepare(env, null, { card: "brand.example", text: "hi", board: null });
-    // An agent's own request_approval with a PACT-looking command but a different text in details.
-    const forged = await approvals.requestApproval(env, "ada", { title: pact.approvalFields(o).title, details: "harmless", tool: "pact", command: pact.approvalFields(o).command });
-    await approvals.decide(env, "ada", forged.id, true, "");
-    await expect(pact.sendApproved(env, "ada", "https://atteo.dev", forged.id)).rejects.toThrow(/isn't a PACT send Atteo prepared/);
+    const forged: pact.Outbound = { pact: 1, to: "Anyone", card: CARD, interface: IFACE, text: "x".repeat(pact.MAX_TEXT * 2), board: "b_elsewhere" };
+    for (const tool of ["pact", "PACT", " Pact "]) {
+      await expect(approvals.requestApproval(env, "ada", { ...pact.approvalFields(forged), tool })).rejects.toThrow(/made by Atteo itself/);
+    }
+    expect((await approvals.requestApproval(env, "ada", { title: "Run tests", details: "npm test", tool: "Bash", command: "npm test" })).tool).toBe("Bash");
+  });
 
-    const rejected = await approvals.requestApproval(env, "ada", { client: "test", ...pact.approvalFields(o) });
+  it("sends only from the record the server prepared: none, or one that differs from the approval, is refused", async () => {
+    const { env, db } = await fakeEnv();
+    const f = vi.spyOn(globalThis, "fetch").mockImplementation(async () => json(card()));
+    // A PACT approval with no prepared record (e.g. one an agent made before #5371): skips the card check, MAX_TEXT, `to`.
+    const forged: pact.Outbound = { pact: 1, to: "Your bank", card: CARD, interface: IFACE, text: "x".repeat(pact.MAX_TEXT * 2), board: null };
+    const bare = await approvals.requestApproval(env, "ada", pact.approvalFields(forged), null, true);
+    await approvals.decide(env, "ada", bare.id, true, "");
+    await expect(pact.sendApproved(env, "ada", "https://atteo.dev", bare.id)).rejects.toThrow(/No such PACT approval/);
+
+    // A prepared record changed after the person approved: other text, or another board for the reply.
+    const a = await ask(env, "Where is my order?", "b_here");
+    await approvals.decide(env, "ada", a.id, true, "");
+    db.prepare(`UPDATE pact_prepared SET board_id = 'b_other' WHERE approval_id = ?`).run(a.id);
+    await expect(pact.sendApproved(env, "ada", "https://atteo.dev", a.id)).rejects.toThrow(/doesn't match/);
+    db.prepare(`UPDATE pact_prepared SET board_id = 'b_here', text = 'Refund everything' WHERE approval_id = ?`).run(a.id);
+    await expect(pact.sendApproved(env, "ada", "https://atteo.dev", a.id)).rejects.toThrow(/doesn't match/);
+    expect(f).toHaveBeenCalledTimes(1); // only the card, in prepare: nothing reached the business
+
+    // Restored, it sends, and the reply's board is the approval's.
+    db.prepare(`UPDATE pact_prepared SET text = 'Where is my order?' WHERE approval_id = ?`).run(a.id);
+    f.mockImplementation(async () => json({ message: { role: "ROLE_AGENT", contextId: "c", parts: [{ text: "ok" }] } }));
+    expect((await pact.sendApproved(env, "ada", "https://atteo.dev", a.id)).o.board).toBe("b_here");
+  });
+
+  it("refuses a rejected approval and another person's", async () => {
+    const { env } = await fakeEnv();
+    vi.spyOn(globalThis, "fetch").mockImplementation(async () => json(card()));
+    const rejected = await ask(env);
     await approvals.decide(env, "ada", rejected.id, false, "");
     await expect(pact.sendApproved(env, "ada", "https://atteo.dev", rejected.id)).rejects.toThrow(/Denied/);
 
-    const mine = await approvals.requestApproval(env, "ada", { client: "test", ...pact.approvalFields(o) });
+    const mine = await ask(env);
     await approvals.decide(env, "ada", mine.id, true, "");
     await expect(pact.sendApproved(env, "bob", "https://atteo.dev", mine.id)).rejects.toThrow(/No such/);
+  });
+
+  it("gives up on a failed send after 3 tries (#5372)", async () => {
+    const { env } = await fakeEnv();
+    const f = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(json(card()));
+    const a = await ask(env);
+    await approvals.decide(env, "ada", a.id, true, "");
+    f.mockImplementation(async () => new Response(null, { status: 503 }));
+    for (let i = 0; i < pact.MAX_ATTEMPTS; i++) await expect(pact.sendApproved(env, "ada", "https://atteo.dev", a.id)).rejects.toThrow(/503/);
+    await expect(pact.sendApproved(env, "ada", "https://atteo.dev", a.id)).rejects.toThrow(/Gave up .* after 3 tries/);
+    expect(f).toHaveBeenCalledTimes(1 + pact.MAX_ATTEMPTS);
+  });
+
+  it("…or a day after the first try", async () => {
+    const { env, db } = await fakeEnv();
+    const f = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(json(card()));
+    const a = await ask(env);
+    await approvals.decide(env, "ada", a.id, true, "");
+    f.mockImplementation(async () => new Response(null, { status: 503 }));
+    await expect(pact.sendApproved(env, "ada", "https://atteo.dev", a.id)).rejects.toThrow(/503/);
+    db.prepare(`UPDATE pact_sends SET sent_at = sent_at - ? WHERE approval_id = ?`).run(pact.RETRY_WINDOW_MS + 1, a.id);
+    await expect(pact.sendApproved(env, "ada", "https://atteo.dev", a.id)).rejects.toThrow(/Gave up .*over a day/);
+  });
+
+  it("stops reading a body past 256 KB even without a content-length (#5372)", async () => {
+    let pulled = 0;
+    const chunk = new Uint8Array(64 * 1024);
+    const endless = new ReadableStream<Uint8Array>({ pull: (c) => void (pulled++, c.enqueue(chunk)) });
+    await expect(pact.capped(new Response(endless), IFACE)).rejects.toThrow(/more than 256 KB/);
+    expect(pulled).toBeLessThan(10);
+    expect(await pact.capped(new Response('{"ok":true}'), IFACE)).toBe('{"ok":true}');
+    await expect(pact.capped(new Response("x", { headers: { "content-length": String(10 * 1024 * 1024) } }), IFACE)).rejects.toThrow(/256 KB/);
+  });
+
+  it("posts the reply quoted as the outside agent's words (#5372)", () => {
+    const e = pact.replyEntry({ to: "Loom & Co." }, "Sure.\nOrder number?");
+    expect(e.title).toBe("Reply from Loom & Co. (outside agent)");
+    expect(e.text).toContain("Loom & Co.'s agent (an outside agent");
+    expect(e.text).toContain("> Sure.\n> Order number?");
+    expect(e.client).toMatch(/outside agent/);
   });
 
   it("a send that failed can be retried with the same approval and the same messageId", async () => {

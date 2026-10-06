@@ -12,6 +12,8 @@ export const DEFAULT_EXPIRES_S = 24 * 3600; // people answer approvals in their 
 export const MAX_EXPIRES_S = 24 * 3600;
 export const MAX_PENDING = 50;
 export const MAX_COMMAND = 20_000;
+/** Tools whose approvals only the server makes (#5371): an agent's own request_approval can't name them. */
+export const RESERVED_TOOLS = new Set(["pact"]);
 
 export interface Approval {
   id: string;
@@ -57,11 +59,13 @@ export async function requestApproval(
   user: string,
   r: { client?: string | null; session?: string | null; board_id?: string | null; seq?: number | null; requested_by?: string | null; title: string; details: string; risk?: string; tool?: string | null; command?: string | null; expires_in?: number | null },
   later: Later | null = null,
+  serverPrepared = false,
 ): Promise<Approval> {
   // The command is kept exactly as sent (never trimmed or cut): it's what the person approves.
   const command = typeof r.command === "string" && r.command.trim() ? r.command : null;
   if (command && command.length > MAX_COMMAND) throw new ApprovalError(`command is over ${MAX_COMMAND} characters; it's stored verbatim, so it isn't cut. Ask in the terminal instead.`);
   const tool = r.tool?.replace(/\s+/g, " ").trim().slice(0, 60) || null;
+  if (tool && RESERVED_TOOLS.has(tool.toLowerCase()) && !serverPrepared) throw new ApprovalError(`"${tool}" approvals are made by Atteo itself (for PACT: agents {action: "call"}), not by request_approval.`);
   // Cut to 160, and visibly so: the full command is on the card, never only in the title (#4926).
   const full = ((r.title ?? "").trim() || (command ? `${tool ?? "Run"}: ${command}` : "")).replace(/\s+/g, " ").trim();
   const title = full.length > 160 ? full.slice(0, 159) + "…" : full;
