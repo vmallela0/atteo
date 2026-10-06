@@ -20,6 +20,7 @@ import { deliver } from "./webhooks";
 import { HumanDecisions, isHumanDecisionPost, type HumanDecision } from "./decisions";
 import type { RecapCore, RecapOwner, RecapTask } from "./recap";
 import type { ForYouCore } from "./forYou";
+import type { VoiceBoardBrief } from "./voice";
 import { cleanMatch, cleanTrigger, eventLine, lastOccurrence, matches, MAX_FIRES_PER_HOUR, MAX_TRIGGERS, minuteOf, SCHEDULE_GRACE_MS, type Trigger, type TriggerEvent, type TriggerMatch } from "./triggers";
 import { offBoardSeq } from "./util";
 import { isRichTextAttachment, richTextOf } from "./richtext";
@@ -2222,6 +2223,36 @@ export class Board extends DurableObject<Env> {
     for (const r of changes) done.push({ seq: r.seq as number, title: line({ title: r.title as string | null, text: r.text as string }), kind: "change", ts: r.ts as number });
     done.sort((a, b) => b.ts - a.ts);
     return { board: { id: info.id, title: info.title, encrypted: sealed }, decisions, questions, done: done.slice(0, 20) };
+  }
+
+  /**
+   * A voice call's briefing from this board (vedu #5381, voice.ts briefingFor): the open decisions and questions waiting
+   * on `user` (For you's), their own open tasks, and with `recent` the last few messages everyone here can see (never
+   * People only or Just mine: the voice model is an agent), each with the screen's verdict. Nothing from a sealed board.
+   */
+  async voiceBrief(user: string, recent: number): Promise<VoiceBoardBrief> {
+    const core = await this.forYou(user, Date.now());
+    if (core.board.encrypted) return { ...core, tasks: [], recent: [] };
+    const line = (s: string) => (s.split("\n").find((l) => l.trim()) ?? "").trim().slice(0, 200);
+    const tasks = this.taskRows()
+      .filter((t) => t.assignee === user && !t.assignee_agent && (t.status === "todo" || t.status === "doing" || t.status === "blocked"))
+      .slice(-5)
+      .reverse()
+      .map((t) => ({ seq: t.seq, title: line(t.title || t.text), status: t.status, flag: flagOf(t.title || t.text) }));
+    const n = Math.max(0, Math.min(12, Math.floor(recent)));
+    const rows = n
+      ? this.sql
+          .exec(
+            `SELECT ${ENTRY_COLS} FROM entries e WHERE e.audience IS NULL AND e.retracts IS NULL AND e.purged IS NULL
+             AND NOT EXISTS (SELECT 1 FROM entries x WHERE x.retracts = e.seq) ORDER BY e.seq DESC LIMIT ?`,
+            n,
+          )
+          .toArray()
+          .map(toEntry)
+          .reverse()
+      : [];
+    const shown = rows.map((e) => ({ seq: e.seq, author: e.author, via: e.via ?? null, type: e.type, text: (e.title ? `${e.title}: ` : "") + e.text.slice(0, 400), flag: flagOf(e.text, e.ai_flag) }));
+    return { ...core, tasks, recent: shown };
   }
 
   // ---- the pinned doc: one document a board pins as its source of truth ----

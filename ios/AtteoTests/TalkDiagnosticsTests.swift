@@ -46,9 +46,11 @@ final class TalkDiagnosticsTests: XCTestCase {
         d.audio = "started on try 2 · MicrophoneBuiltIn,Speaker"
         d.lastStop = "socket closed 1006"
         d.lowPower = true
+        d.answerMs = 840
         XCTAssertEqual(d.text, """
         mic: 2 readings · loudest 31% · now 4% · talking above 25%
         echo cancelling on · heard you: no
+        first answer: 840 ms after your turn
         audio: started on try 2 · MicrophoneBuiltIn,Speaker
         last stop: socket closed 1006
         Low Power Mode on

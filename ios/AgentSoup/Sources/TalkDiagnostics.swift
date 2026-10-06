@@ -15,6 +15,7 @@ struct TalkDiagnostics: Equatable {
     var audio = "" // how the audio last started (TalkAudio.status)
     var lastStop = "" // why the last session closed
     var lowPower = false
+    var answerMs: Int? // the last answer's first word or sound, after your turn ended (vedu #5381)
 
     /// A new session: what the mic does is counted afresh.
     mutating func newSession() { micReadings = 0; micPeak = 0; micNow = 0; heardSpeech = false }
@@ -43,6 +44,7 @@ struct TalkDiagnostics: Equatable {
             "mic: \(micReadings) readings · loudest \(pct(micPeak)) · now \(pct(micNow)) · talking above \(pct(startAbove))",
             "echo cancelling \(echoCancelling ? "on" : "off") · heard you: \(heardSpeech ? "yes" : "no")",
         ]
+        if let answerMs { lines.append("first answer: \(answerMs) ms after your turn") }
         if !audio.isEmpty { lines.append("audio: \(audio)") }
         if !lastStop.isEmpty { lines.append("last stop: \(lastStop)") }
         if lowPower { lines.append("Low Power Mode on") }
