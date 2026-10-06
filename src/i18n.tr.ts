@@ -1098,6 +1098,8 @@ export const TR: Record<string, string> = {
   "Code from your email": "E-postanızdaki kod",
   "We sent a code to your email to make sure it's you.": "Siz olduğunuzdan emin olmak için e-postanıza bir kod gönderdik.",
   "Boards and chats": "Panolar ve sohbetler",
+  "Close tab": "Sekmeyi kapat",
+  "Close tab {name}": "{name} sekmesini kapat",
   "{n} working": "{n} çalışıyor",
   "{n} approval": "{n} onay",
   "{n} approvals": "{n} onay",
