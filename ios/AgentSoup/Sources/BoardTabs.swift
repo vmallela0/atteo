@@ -59,7 +59,7 @@ struct BoardTabStrip: View {
             }
         }
         .padding(.horizontal, Space.l)
-        .frame(height: height, alignment: .bottom)
+        .frame(height: height, alignment: .center)
         .frame(maxWidth: .infinity)
         .background(alignment: .bottom) { Rectangle().fill(Theme.line).frame(height: 0.5) }
         .background(Theme.bg)
@@ -73,7 +73,7 @@ struct BoardTabStrip: View {
     }
 
     private var tabs: some View {
-        HStack(spacing: Space.xl) { ForEach(BoardTab.allCases) { t in item(t) } }
+        HStack(spacing: Space.xs) { ForEach(BoardTab.allCases) { t in item(t) } }
     }
 
     private func count(_ t: BoardTab) -> Int? {
@@ -88,16 +88,17 @@ struct BoardTabStrip: View {
         let on = tab == t
         let n = count(t) ?? 0
         return Button { pick(t) } label: {
-            VStack(spacing: 6) {
-                HStack(spacing: 6) {
-                    Text(verbatim: t.label).font(on ? Typo.secondary.weight(.semibold) : Typo.secondary)
-                        .foregroundStyle(on ? Theme.text : Theme.muted)
-                    if n > 0 { Text("\(n)").font(Typo.meta).foregroundStyle(Theme.faint).monospacedDigit() }
-                }
-                Capsule().fill(on ? Theme.text : .clear).frame(height: 2)
+            // Pills (#4860): the open one filled in ink, the rest plain; the board's state is on the tabs above.
+            HStack(spacing: 6) {
+                Text(verbatim: t.label).font(on ? Typo.secondary.weight(.semibold) : Typo.secondary)
+                    .foregroundStyle(on ? Theme.bg : Theme.muted)
+                if n > 0 { Text("\(n)").font(Typo.meta).foregroundStyle(on ? Theme.bg.opacity(0.75) : Theme.faint).monospacedDigit() }
             }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+            .background(Capsule().fill(on ? Theme.text : .clear))
             .fixedSize()
-            .frame(minHeight: 36, alignment: .bottom)
+            .frame(minHeight: 36)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

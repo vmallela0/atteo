@@ -176,7 +176,7 @@ final class TabsUITests: AtteoUITestCase {
         XCTAssertTrue(title.waitForExistence(timeout: 5), "\(step): the title")
         sleep(1) // the bar settles after a tab change
         let t = title.frame
-        for id in ["board-search", "board-menu", "new-task", "talk", "BackButton"] {
+        for id in ["nav-menu", "board-search", "board-rail", "new-task", "talk", "BackButton"] {
             let b = a.navigationBars.buttons[id].firstMatch.exists ? a.navigationBars.buttons[id].firstMatch : a.buttons[id].firstMatch
             guard b.exists, b.frame.width > 0 else { continue }
             XCTAssertFalse(t.intersects(b.frame), "\(step): the title block \(t) runs under \(id) \(b.frame)")
