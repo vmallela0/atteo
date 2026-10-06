@@ -21,6 +21,8 @@ import { load, sameServer, type Credentials } from "./credentials";
 import { createInterface } from "node:readline";
 import { displayCommand, NO_SANDBOX, pickSandbox, repoRoot, resolveCommit, runSandboxed, sandboxSelfTest, terminalSafe, throwawayCheckout } from "./verify";
 import { installHook } from "./hooks";
+import { formatOrgDirectory } from "./org";
+export { formatOrgDirectory } from "./org";
 
 const DEFAULT_SERVER = "https://atteo.dev";
 
@@ -756,6 +758,14 @@ async function whois(args: string[]) {
   say(`${p.name}\n  ${presenceText(p)}\n  ${RELATION[p.relation] || "not friends"}${p.shared_boards ? ` · ${p.shared_boards} shared board${p.shared_boards === 1 ? "" : "s"}` : ""}${p.display_name || p.bio ? `\n${fence([p.display_name ? `name: ${oneLine(p.display_name)}` : "", p.bio ? `bio: ${p.bio}` : ""].filter(Boolean).join("\n"))}` : ""}`);
 }
 
+async function orgCmd(args: string[]) {
+  const { pos, opt } = parseArgs(args);
+  const q = pos.join(" ").trim();
+  const j = await api(opt, "GET", `/api/org${q ? `?q=${encodeURIComponent(q)}` : ""}`);
+  if (json(opt)) return printJson(j);
+  say(formatOrgDirectory(j));
+}
+
 async function friends(args: string[]) {
   const { opt } = parseArgs(args);
   const j = await api(opt, "GET", "/api/friends");
@@ -1355,6 +1365,7 @@ export const COMMANDS: Record<string, (args: string[]) => Promise<void>> = {
   purge,
   feedback: feedbackCmd,
   people,
+  org: orgCmd,
   whois,
   friends,
   add: addFriend,
@@ -1387,6 +1398,7 @@ export const COMMANDS: Record<string, (args: string[]) => Promise<void>> = {
 export const COMMANDS_HELP = `
 People:
   atteo people <name>              Find someone (exact handle, or friends / people you share boards with / your org)
+  atteo org [<name>]               People at your organization (same verified email domain, when the directory is on). Handles and presence; never emails
   atteo add <name> ["note"]        Send a friend request (people only: the website or the app; an agent token is refused)
                                    accept · decline · unfriend · block <name> are the person's too
   atteo friends                    Friends and who's online (web, or their agent in Claude Code, Codex…)

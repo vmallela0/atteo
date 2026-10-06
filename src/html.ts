@@ -3197,13 +3197,15 @@ if(new URLSearchParams(location.search).get('billing')==='done'){try{if(sessionS
 
 /** Friends: requests, who's online, add by handle. (jxn's agent polishes this; the API is /api/friends, /api/people.) */
 type FriendsData = Awaited<ReturnType<typeof import("./social").friendsOf>>;
+/** Same shape as GET /api/org: domain is null when the caller isn't in a directory (no org, or directory off). */
+export type OrgDirectory = { domain: string | null; people: import("./social").Person[] };
 function presenceDot(p: { presence: { web: number | null; agent: { client: string } | null; watcher: { respond: boolean } | null } }): string {
   const on = p.presence.agent || p.presence.web || p.presence.watcher?.respond;
   const label = presenceLabel(p.presence);
   return `<span class="pres${on ? " on" : ""}"></span><span class="xs faint">${esc(label)}</span>`;
 }
-/** People: your friends (and whether they or their agents are around), requests, finding someone, and who you've blocked. */
-export function peoplePage(viewer: Viewer, side: SideBoard[], f: FriendsData): Response {
+/** People: your friends (and whether they or their agents are around), requests, finding someone, who you've blocked, and org-mates. */
+export function peoplePage(viewer: Viewer, side: SideBoard[], f: FriendsData, org: OrgDirectory = { domain: null, people: [] }): Response {
   const T = (x: string, v?: Record<string, string | number>) => tr(viewer.lang, x, v);
   const who = (p: { name: string; display_name?: string | null }) =>
     `<a class="grow" href="/u/${esc(p.name)}" style="min-width:0"><span class="truncate" style="display:block;color:var(--ink);font-weight:500">${esc(p.display_name || p.name)}</span><span class="xs faint">@${esc(p.name)}</span></a>`;
@@ -3224,10 +3226,21 @@ export function peoplePage(viewer: Viewer, side: SideBoard[], f: FriendsData): R
   const blocked = f.blocked.length
     ? `<details class="ppl-blocked"><summary class="small muted">Blocked (${f.blocked.length})</summary><div class="list">${f.blocked.map((n) => row({ name: String(n) }, `<button class="btn sm ghost" data-friend="unblock" data-name="${esc(String(n))}">${esc(T("Unblock"))}</button>`)).join("")}</div></details>`
     : "";
+  const orgHint = org.domain
+    ? T("People at {domain}. Handles and presence only — never emails.", { domain: org.domain })
+    : T("People who share your verified work-email domain, when an operator has turned the directory on. Handles and presence only — never emails.");
+  const orgEmpty = org.domain
+    ? T("Nobody at {domain} is on Atteo yet.", { domain: org.domain })
+    : T("You're not in an organization directory. An operator turns this on for a verified work-email domain.");
+  const orgList = org.people.length
+    ? `<div class="list" id="org-list">${org.people.map((p) => row(p, `<span class="row ppl-pres">${presenceDot(p)}</span>`)).join("")}</div>`
+    : `<div class="card empty small" id="org-empty">${esc(orgEmpty)}</div>`;
+  const orgSection = `${section(esc(T("Organization")), org.people.length, `<p class="xs muted ppl-org-hint">${esc(orgHint)}</p>${orgList}`)}`;
   const body = `<div class="section-title"><div><h1>${esc(T("People"))}</h1><p class="muted" style="margin-top:4px">${esc(T("Friends see when you and your agent are around, and can ask your agent on a direct board. Being friends doesn't share any board."))}</p></div></div>
 <div class="ppl-find"><input class="input" id="ppl-q" placeholder="${esc(T("Find someone by handle, e.g. theo"))}" autocomplete="off" aria-label="${esc(T("Find people"))}"><ul class="ppl-res list" id="ppl-res" hidden></ul></div>
 ${requests}${friends}${sent}${blocked}
-<p class="xs faint ppl-note">${esc(T("From a terminal:"))} <span class="mono">atteo friends</span> · <span class="mono">atteo ask &lt;name&gt; "…"</span></p>`;
+<div id="org">${orgSection}</div>
+<p class="xs faint ppl-note">${esc(T("From a terminal:"))} <span class="mono">atteo friends</span> · <span class="mono">atteo org</span> · <span class="mono">atteo ask &lt;name&gt; "…"</span></p>`;
   const script =
     FRIENDS_JS +
     `

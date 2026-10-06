@@ -685,6 +685,35 @@ await step("hooks: use installs a pre-push hook that chains the old one; a push 
   assert(r.code === 0 && readFileSync(hook, "utf8") === oldHook, r.out + r.err);
 });
 
+await step("org: lists org-mates when the directory is on; empty when off or no org", async () => {
+  const home = mkdtempSync(join(tmpdir(), "atteo-org-"));
+  let r = await cli(["org"], { cwd: home });
+  assert(r.code === 0 && r.out.includes("aren't in an organization directory"), r.out + r.err);
+  assert(!r.out.includes("@example.com"), r.out);
+  const dom = `e2e-cliorg-${run}.test`;
+  const setPol = (b) => fetch(`${BASE}/api/ops/policies`, { method: "POST", headers: { "x-admin-key": ADMIN_KEY, "content-type": "application/json" }, body: JSON.stringify(b) });
+  const C = `e2e-cli-c-${run}`;
+  await ops("users", { name: C, email: `${C}@${dom}`, verified: "true" });
+  const credC = join(dir, "c.json");
+  const tokC = (await ops("tokens", { user: C })).token;
+  writeFileSync(credC, JSON.stringify({ server: BASE, user: C, token: tokC, expires_at: Date.now() + 86400e3 }), { mode: 0o600 });
+  assert((await setPol({ domain: dom })).status === 200, "policy without directory");
+  r = await cli(["org"], { cwd: home, cred: credC });
+  assert(r.code === 0 && r.out.includes("aren't in an organization directory"), r.out + r.err);
+  assert((await setPol({ domain: dom, directory: true })).status === 200, "directory on");
+  const D = `e2e-cli-d-${run}`;
+  await ops("users", { name: D, email: `${D}@${dom}`, verified: "true" });
+  r = await cli(["org"], { cwd: home, cred: credC });
+  assert(r.code === 0 && r.out.includes(dom) && r.out.includes(C) && r.out.includes(D), r.out + r.err);
+  assert(!r.out.includes(`${C}@`) && !r.out.includes(`${D}@`), "atteo org has no emails: " + r.out);
+  r = await cli(["org", D], { cwd: home, cred: credC });
+  assert(r.code === 0 && r.out.includes(D) && !r.out.includes(C), r.out + r.err);
+  r = await cli(["org", "--json"], { cwd: home, cred: credC });
+  const j = JSON.parse(r.out);
+  assert(j.domain === dom && j.people.some((p) => p.name === D) && !j.people.some((p) => "email" in p), r.out);
+  await setPol({ domain: dom, delete: true });
+});
+
 await step("people: find, add, accept, friends with presence, ask a friend's agent on your direct board", async () => {
   const home = mkdtempSync(join(tmpdir(), "atteo-social-")); // no folder board here, so ask goes direct
   let r = await cli(["people", B], { cwd: home });

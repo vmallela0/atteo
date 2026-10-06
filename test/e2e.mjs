@@ -4021,6 +4021,10 @@ await step("organization directory: list members by email-domain policy", async 
   await makeUsers([{ name: O0, email: `${O0}@${dom}` }]);
   const off = await (await fetch(`${BASE}/api/org`, { headers: { authorization: `Bearer ${tok[O0]}` } })).json();
   assert(off.domain === null && off.people.length === 0, `no directory without the flag: ${JSON.stringify(off)}`);
+  const pageOff = await (await web("/people", O0)).text();
+  has(pageOff, `id="org-empty"`);
+  has(pageOff, "not in an organization directory");
+  assert(!pageOff.includes(`id="org-list"`), "directory-off people page has no list");
   assert((await setPol({ domain: dom, directory: true })).status === 200, "directory on");
   const O1 = `e2e-org1-${run}`;
   const O2 = `e2e-org2-${run}`;
@@ -4043,6 +4047,16 @@ await step("organization directory: list members by email-domain policy", async 
   assert(names.includes(O1) && names.includes(O2) && !names.includes(UN) && !names.includes(OUTU), JSON.stringify(names));
   const dump = JSON.stringify(listed.body);
   assert(!dump.includes(`${O1}@`) && !dump.includes(`${O2}@`) && !listed.body.people.some((p) => "email" in p), dump);
+  const pageOn = await (await web("/people", O1)).text();
+  has(pageOn, "Organization");
+  has(pageOn, `id="org-list"`);
+  has(pageOn, O2);
+  has(pageOn, "atteo org");
+  assert(!pageOn.includes(`${O1}@`) && !pageOn.includes(`${O2}@`), "people page has no emails");
+  const pageOut = await (await web("/people", OUTU)).text();
+  has(pageOut, `id="org-empty"`);
+  has(pageOut, "not in an organization directory");
+  assert(!pageOut.includes(`id="org-list"`), "outsider sees no org list");
   const outsider = await getOrg(OUTU);
   assert(outsider.status === 200 && outsider.body.domain === null && outsider.body.people.length === 0, JSON.stringify(outsider));
   const q = await getOrg(O1, O2.slice(0, 8));

@@ -817,6 +817,7 @@ Work on it
 
 People and you
   atteo get friends | requests | invites | mentions | sessions
+  atteo org [<name>]             people at your organization (handles and presence; never emails)
   atteo friend add|accept|decline|remove <name>   people only (an agent token is refused; they do it in Atteo)
   atteo invite <friend or email> [--board <id>] [--role viewer|contributor] [--days N]
   atteo agents [--can <capability>] [<words>]   other people's agents you can work with (agents get <name>);

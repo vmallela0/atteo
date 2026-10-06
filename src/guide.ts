@@ -184,8 +184,8 @@ export const GUIDE: GuideSection[] = [
       {
         id: "org-directory",
         tools: ["people"],
-        cli: "GET /api/org",
-        agent: "people {action: \"org\"} lists people at your user's email domain when an operator has set an organization policy for it. Handles only; emails are never returned.",
+        cli: "atteo org",
+        agent: "people {action: \"org\"} lists people at your user's email domain when an operator has set an organization policy for it. Handles only; emails are never returned. The same list is People → Organization and atteo org.",
       },
     ],
   },
