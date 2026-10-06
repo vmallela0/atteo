@@ -1088,4 +1088,8 @@ export const BN: Record<string, string> = {
   "Email me a code": "আমাকে একটি কোড ইমেল করুন",
   "Code from your email": "আপনার ইমেলের কোড",
   "We sent a code to your email to make sure it's you.": "এটা আপনিই কিনা নিশ্চিত করতে আমরা আপনার ইমেলে একটি কোড পাঠিয়েছি।",
+  "Boards and chats": "বোর্ড ও চ্যাট",
+  "{n} working": "{n} কাজ করছে",
+  "{n} approval": "{n}টি অনুমোদন",
+  "{n} approvals": "{n}টি অনুমোদন",
 };

@@ -876,12 +876,14 @@ ${AGENT_LOGO_CSS}
 
 
 /* app shell (Linear-style): sidebar + top bar + content */
-.app{display:grid;grid-template-columns:232px minmax(0,1fr);min-height:100vh}
-.sidebar{position:sticky;top:0;height:100vh;display:flex;flex-direction:column;gap:2px;padding:10px 8px;border-right:1px solid var(--line);background:var(--bg-subtle);overflow:auto}
+/* The frame (jxn #4860, 4e "tabs carry state"): no standing sidebar. Boards and chats are tabs in the strip on top; the
+   rest of the old sidebar is the Menu, a drawer from the left at every width (and phones' only way in, as before). */
+.app{min-height:100vh}
+.sidebar{position:fixed;inset:0 auto 0 0;width:260px;z-index:40;transform:translateX(-100%);transition:transform .2s,box-shadow .2s;height:100vh;display:flex;flex-direction:column;gap:2px;padding:10px 8px;border-right:1px solid var(--line);background:var(--bg-subtle);overflow:auto}
 .sidebar .ws{display:flex;align-items:center;gap:8px;padding:6px 8px 10px;font-weight:600;color:var(--ink)}
-.sidebar .search{display:flex;align-items:center;gap:8px;height:30px;margin:0 0 8px;padding:0 9px;border:1px solid var(--line);border-radius:7px;background:var(--bg);color:var(--faint);cursor:pointer;font:inherit;font-size:13px;text-align:left}
-.sidebar .search:hover{border-color:var(--line-strong);color:var(--muted)}
-.sidebar .search kbd{margin-left:auto}
+.sidebar .search,.strip .search{display:flex;align-items:center;gap:8px;height:30px;margin:0 0 8px;padding:0 9px;border:1px solid var(--line);border-radius:7px;background:var(--bg);color:var(--faint);cursor:pointer;font:inherit;font-size:13px;text-align:left}
+.sidebar .search:hover,.strip .search:hover{border-color:var(--line-strong);color:var(--muted)}
+.sidebar .search kbd,.strip .search kbd{margin-left:auto}.strip .search{width:240px;margin:0 4px}
 .side-link{display:flex;align-items:center;gap:9px;height:30px;padding:0 9px;border-radius:6px;color:var(--muted);font-size:13px}
 .side-link:hover{background:var(--bg-hover);color:var(--ink)}
 .side-link[aria-current]{background:var(--bg-hover);color:var(--ink);font-weight:500}
@@ -1048,13 +1050,24 @@ mark{background:var(--mark);color:inherit;border-radius:2px;padding:0 1px}
 @media(max-width:480px){.topbar .crumbs>:not(.cur){display:none}.topbar .crumbs .cur{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}}
 .content{max-width:1120px;margin:0 auto;padding:28px 24px 96px}
 .content.narrow{max-width:760px}
-.menu-btn{display:none}
-.nav-x,.nav-scrim{display:none}
-@media(max-width:860px){.app{grid-template-columns:1fr}.sidebar{position:fixed;inset:0 auto 0 0;width:260px;z-index:40;transform:translateX(-100%);transition:transform .2s,box-shadow .2s}
-  .app.nav-open .sidebar{transform:none;box-shadow:var(--shadow-lg)}.menu-btn{display:inline-flex}.content{padding:20px 16px 80px}.topbar{padding:0 12px}
-  /* The open drawer closes with its ✕, a tap on the dimmed page beside it, a swipe back to the left, or Esc (jxn #2223). */
-  .nav-x{display:inline-flex;position:absolute;top:8px;right:8px;width:32px;padding:0;justify-content:center;z-index:1}
-  .app.nav-open .nav-scrim{display:block;position:fixed;inset:0;z-index:39;background:rgba(0,0,0,.32)}}
+.app.nav-open .sidebar{transform:none;box-shadow:var(--shadow-lg)}
+/* The open drawer closes with its ✕, a tap on the dimmed page beside it, a swipe back to the left, or Esc (jxn #2223). */
+.nav-x{display:inline-flex;position:absolute;top:8px;right:8px;width:32px;padding:0;justify-content:center;z-index:1}
+.nav-scrim{display:none}.app.nav-open .nav-scrim{display:block;position:fixed;inset:0;z-index:39;background:rgba(0,0,0,.32)}
+@media(max-width:860px){.content{padding:20px 16px 80px}.topbar{padding:0 12px}}
+/* The strip: wordmark, Menu, a tab per board and chat (its underline is its state: green working, amber an approval
+   waits, grey quiet), new, search, messages, alerts, you. Phones keep the top bar's menu button instead. */
+.strip{display:flex;align-items:center;gap:6px;height:44px;padding:0 12px;border-bottom:1px solid var(--line);background:var(--bg-subtle)}
+.strip .ws{display:flex;align-items:center;gap:8px;padding:0 6px;color:var(--ink)}.strip .ws .wm{font-size:19px}
+.btabs{display:flex;flex:1;min-width:0;align-self:stretch;overflow-x:auto;scrollbar-width:none}
+.btab{display:flex;align-items:center;gap:7px;flex:none;max-width:240px;margin-top:6px;padding:0 14px;border:1px solid transparent;border-bottom:3px solid var(--line-strong);border-radius:8px 8px 0 0;color:var(--muted);font-size:13px;white-space:nowrap}
+.btab>b{font-weight:500;overflow:hidden;text-overflow:ellipsis}.btab[aria-current]{color:var(--ink);background:var(--bg);border-color:var(--line) var(--line) var(--line-strong)}.btab.st-work{border-bottom-color:var(--ok)}.btab.st-ap{border-bottom-color:var(--warn)}
+.btab .wk{font-size:11.5px;color:var(--faint)}.btab .apn{font-size:11px;padding:1px 6px;border-radius:999px;background:color-mix(in srgb,var(--warn) 16%,transparent);color:var(--ink)}
+.strip .count{margin-left:4px}
+.topbar .menu-btn{display:none}
+@media(min-width:641px){.tb-full{display:none}.content.full{--top:44px}.bp-head>.actions{display:flex;gap:8px;align-items:center;align-self:center;margin-left:auto}}
+.bp-crumb{color:var(--muted);font-size:15px}
+@media(max-width:640px){.strip{display:none}.topbar .menu-btn{display:inline-flex}.content.full{--top:48px}.bp-crumb{display:none}}
 /* Connect an agent, always in the phone menu (vedu #2241): the board's header button goes once an agent is connected. */
 .side-connect{display:none}@media(max-width:860px){.side-connect{display:flex}}
 .side-connect .ev-l,:root[data-mode="everyday"] .side-connect .dev-l{display:none}:root[data-mode="everyday"] .side-connect .ev-l{display:inline}
@@ -1110,7 +1123,7 @@ pre.json{background:var(--bg-subtle);border:1px solid var(--line);border-radius:
 @media (pointer:coarse){.doc-item{padding:10px 8px}}
 .doc-body{font-size:14px}.doc-body p+p{margin-top:10px}
 /* board page: the header and tabs stay put; the thread, sidebar, log and docs each scroll on their own */
-.content.full{max-width:1160px;height:calc(100vh - 48px);height:calc(100dvh - 48px);padding:6px 20px 0;display:flex;flex-direction:column;overflow:hidden}
+.content.full{max-width:none;height:calc(100vh - var(--top,92px));height:calc(100dvh - var(--top,92px));padding:6px 20px 0;display:flex;flex-direction:column;overflow:hidden}
 .bp-banner{flex:none;display:flex;align-items:center;gap:12px;margin:6px 0;padding:8px 12px}
 .e2e-bar{flex-wrap:wrap}.e2e-asks{flex-basis:100%;display:flex;flex-direction:column;gap:6px}.e2e-asks:empty{display:none}
 .e2e-ask{display:flex;align-items:center;gap:10px;padding-top:6px;border-top:1px solid var(--line)}.e2e-ask.xs{display:block}
@@ -1130,7 +1143,7 @@ pre.json{background:var(--bg-subtle);border:1px solid var(--line);border-radius:
 /* Right-to-left (Arabic, #2335): the grid and flex layout mirror on their own with dir=rtl; these are the pieces placed
    by left/right. People's words keep their own direction, paragraph by paragraph (an English message on an Arabic page). */
 [dir=rtl] .bp-panel .info-btn{right:auto;left:0}[dir=rtl] .info-btn .count{right:auto;left:-4px}
-@media(max-width:860px){[dir=rtl] .sidebar{inset:0 0 0 auto;transform:translateX(100%)}[dir=rtl] .app.nav-open .sidebar{transform:none}[dir=rtl] .nav-x{right:auto;left:8px}}
+[dir=rtl] .sidebar{inset:0 0 0 auto;transform:translateX(100%)}[dir=rtl] .app.nav-open .sidebar{transform:none}[dir=rtl] .nav-x{right:auto;left:8px}
 [dir=rtl] .composer textarea,[dir=rtl] .cmp-mirror{unicode-bidi:plaintext}[dir=rtl] pre,[dir=rtl] code,[dir=rtl] kbd,[dir=rtl] .mono{direction:ltr;unicode-bidi:isolate}
 .entry .body,.entry .body :is(p,li,h1,h2,h3,h4,h5,h6,blockquote,td,th,dd,dt),.rq-t,.fwd-q{unicode-bidi:plaintext;text-align:start}
 .info-btn:hover,.info-btn[aria-expanded=true]{color:var(--ink)}
@@ -1140,6 +1153,7 @@ pre.json{background:var(--bg-subtle);border:1px solid var(--line);border-radius:
 .bp-panel>.layout{flex:1;min-height:0;grid-template-rows:minmax(0,1fr);position:relative;gap:20px}
 @media(min-width:960px){.bp-panel>.layout{grid-template-columns:minmax(0,1fr) 280px}.bp-panel>.layout.info-collapsed{grid-template-columns:minmax(0,1fr)}.layout.info-collapsed>.aside{display:none}
   .layout.info-collapsed>.conv{width:100%;max-width:820px;margin:0 auto} /* a readable measure even with the sidebar hidden */}
+:where(#board-info){display:flex;flex-direction:column}#sum{display:contents}#sum>[data-fold=members]{order:1}#ns-side,#host-side{order:2}
 .bp-panel .aside{position:static;align-self:stretch;max-height:none;min-height:0;overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain;margin:40px 0 0 -8px;padding:4px 8px 16px 8px}
 /* Board info scrolls below the panel toggle (nothing slides under it), with a thin, faint scrollbar. */
 .aside::-webkit-scrollbar{width:4px}
@@ -1664,7 +1678,8 @@ ${CODE_COLOR_JS}`;
 // Every page's stylesheet and shell script, served by the Worker as /app.css and /app.js (index.ts), versioned by a hash of
 // their text and cached for good: a page no longer carries ~135KB of CSS and ~40KB of JS inline on every navigation, and
 // the script gets V8's code cache. A page's own script stays inline (it carries that page's data) and runs after it.
-export const APP_CSS = `${APP_FONT_CSS}\n${CSS}`;
+// Served without its /* comments */ (about 16 KB of them): they're for whoever reads this file, not for every page load.
+export const APP_CSS = `${APP_FONT_CSS}\n${CSS}`.replace(/\/\*[\s\S]*?\*\//g, "");
 export const APP_CSS_SRC = `/app.css?v=${fnv(APP_CSS)}`;
 export const APP_JS = CLIENT_JS;
 export const APP_JS_SRC = `/app.js?v=${fnv(APP_JS)}`;
@@ -1776,10 +1791,28 @@ export function appPage(
     { label: T("Keyboard shortcuts"), hint: "?", href: "#shortcuts" },
     ...(v.admin ? [{ label: T("Ops"), hint: "G O", href: "/_ops" }] : []),
   ];
+  // The strip's tabs (jxn #4860): your boards and chats, most recently active first (pins ahead), each with its working
+  // count; its underline shows the state (st-work: agents working; st-ap, set by the inbox poll: an approval waits).
+  const tabName = (b: SideBoard) => (b.kind === "direct" ? shownName(directPeer(b, v.name), b.peer_name) : b.kind === "agent" ? T("Your agent") : b.title);
+  const tabs = opts.boards
+    .slice(0, 24)
+    .map((b) => `<a class="btab${b.live ? " st-work" : ""}" href="/b/${esc(b.id)}" data-tab="${esc(b.id)}"${cur(b.id)}>${b.kind === "direct" ? avatar(directPeer(b, v.name), "xs") : b.kind === "agent" ? avatar(v.name, "xs", true) : boardPic(b, "xs")}<b>${esc(tabName(b))}</b>${b.live ? `<span class="wk">${esc(T("{n} working", { n: b.live }))}</span>` : ""}<span class="apn" hidden></span></a>`)
+    .join("");
+  // The strip's mark draws the Menu's own (<use>), so the page carries the drawing once.
+  const strip = `<header class="strip"><a class="ws" href="/"><svg class="pebble" width="20" height="20" viewBox="0 0 100 100" aria-hidden="true"><use href="#mkg"/></svg><span class="wm">atteo</span></a>
+  <button class="btn ghost sm" type="button" data-nav-s aria-controls="sidebar" aria-expanded="false">${ICON.menu}<span>${esc(T("Menu"))}</span><span class="count" data-inbox-count hidden></span></button>
+  <nav class="btabs" aria-label="${esc(T("Boards and chats"))}">${tabs}</nav>
+  <a class="btn ghost sm" href="/?new=1" aria-label="${esc(T("New board"))}">${ICON.plus}</a>
+  <button class="search" type="button" data-palette>${ICON.search}<span>${esc(T("Search or jump to…"))}</span><kbd>⌘K</kbd></button>
+  <button class="btn ghost sm" type="button" data-feedback aria-label="${esc(T("Send feedback"))}">${ICON.feedback}</button><button class="btn ghost sm" type="button" data-bug data-bug-src="${BUG_JS_SRC}" aria-label="${esc(T("Report a bug"))}">${ICON.warn}</button>
+  <a href="/me" aria-label="${esc(T("Account"))}">${avatar(v.name, "sm")}</a></header>`;
+  // What the inbox poll (INBOX_JS) hands the strip: its count, and the boards where one of your agent's approvals waits,
+  // whose tabs turn amber and say so (jxn #4860).
+  const stripJs = `window.onInbox=j=>{const b=document.querySelector('[data-inbox-count]'),c=j.unread;if(b){b.hidden=!c;b.textContent=c>99?'99+':c}const ab=j.approval_boards||{};document.querySelectorAll('.btab').forEach(t=>{const n=ab[t.dataset.tab]||0,a=t.lastChild;t.classList.toggle('st-ap',n>0);a.hidden=!n;a.textContent=n?tr(n>1?'{n} approvals':'{n} approval',{n}):''})}`;
   const body = `<div class="app" id="app">
 <aside class="sidebar" id="sidebar" aria-label="${esc(T("Navigation"))}">
   <button class="btn ghost sm nav-x" type="button" data-nav-close aria-label="${esc(T("Close menu"))}" title="${esc(T("Close menu"))}">✕</button>
-  <a class="ws" href="/">${LOGO}<span class="wm">atteo</span></a>
+  <a class="ws" href="/">${LOGO.replace("<g clip-path=", '<g id="mkg" clip-path=')}<span class="wm">atteo</span></a>
   <button class="search" type="button" data-palette>${ICON.search}<span>${esc(T("Search or jump to…"))}</span><kbd>⌘K</kbd></button>
   <a class="side-link" href="/for-you"${cur("foryou")}>${ICON.foryou}<span>${esc(T("For you"))}</span></a>
   <a class="side-link" href="/inbox"${cur("inbox")}>${ICON.inbox}<span>${esc(T("Inbox"))}</span><span class="count" id="inbox-count" hidden></span></a>
@@ -1795,8 +1828,8 @@ export function appPage(
   <div class="me"><a class="side-link" href="/me">${avatar(v.name, "sm")}<span class="truncate">${personHtml(v.name, v.display_name, opts.boards.filter((b) => b.kind === "direct").map((b) => directPeer(b, v.name)))}</span></a><button class="btn ghost sm bug-btn" type="button" data-feedback aria-label="${esc(T("Send feedback"))}">${ICON.feedback}</button><button class="btn ghost sm bug-btn" type="button" data-bug data-bug-src="${BUG_JS_SRC}" aria-label="${esc(T("Report a bug"))}" title="${esc(T("Report a bug"))}">${ICON.warn}</button></div>
 </aside>
 <div class="nav-scrim" data-nav-close aria-hidden="true"></div>
-<div class="grow" style="min-width:0">
-  <header class="topbar"><button class="btn ghost sm menu-btn" type="button" data-nav aria-label="${esc(T("Menu"))}" aria-controls="sidebar" aria-expanded="false">${ICON.menu}</button>
+<div class="grow" style="min-width:0">${strip}
+  <header class="topbar${opts.full ? " tb-full" : ""}"><button class="btn ghost sm menu-btn" type="button" data-nav aria-label="${esc(T("Menu"))}" aria-controls="sidebar" aria-expanded="false">${ICON.menu}</button>
     <nav class="crumbs" aria-label="Breadcrumb">${opts.crumbs}</nav><div class="actions">${opts.actions ?? ""}</div></header>
   <div class="content${opts.narrow ? " narrow" : ""}${opts.full ? " full" : ""}">${opts.body}</div>
 </div></div>
@@ -1815,7 +1848,7 @@ export function appPage(
 <dt><kbd>↵</kbd> · <kbd>⌫</kbd></dt><dd>${esc(T("Approve · deny the selected or focused approval (asks first when it's high risk)"))}</dd>
 <dt><kbd>G</kbd> ${esc(T("then"))} <kbd>I</kbd> <kbd>A</kbd> <kbd>B</kbd> <kbd>P</kbd> <kbd>M</kbd></dt><dd>${esc(T("Go to Inbox / Approvals / Boards / People / Account"))}</dd>
 <dt><kbd>?</kbd></dt><dd>${esc(T("This list"))}</dd></dl></div></dialog>
-<script>window.PALETTE=${JSON.stringify(paletteItems).replace(/</g, "\\u003c")};${v.admin ? "window.OPS=1;" : ""}</script>`;
+<script>window.PALETTE=${JSON.stringify(paletteItems).replace(/</g, "\\u003c")};${v.admin ? "window.OPS=1;" : ""}${stripJs}</script>`;
   return rawPage(title, body, (opts.script ?? "") + scriptSrc(SHELL_JS_SRC), opts.status, v.lang ?? "en", opts.css);
 }
 
@@ -1835,6 +1868,7 @@ let seen=0;try{seen=+localStorage.getItem('inbox-seen')||0}catch{}
 const tz=encodeURIComponent(Intl.DateTimeFormat().resolvedOptions().timeZone||'UTC');let dgAt=0;try{dgAt=+localStorage.getItem('inbox-dg-at')||0}catch{}
 window.inboxRefresh=async()=>{try{const r=await fetch('/api/inbox/count?tz='+tz);if(!r.ok)return;const j=await r.json();
   el.hidden=!j.unread;el.textContent=j.unread>99?'99+':String(j.unread);document.title=(j.unread?'('+j.unread+') ':'')+base;
+  window.onInbox&&onInbox(j);
   const ap=document.getElementById('approvals-count');if(ap){ap.hidden=!j.approvals;ap.textContent=String(j.approvals||'')}
   const can='Notification' in window&&Notification.permission==='granted',l=j.latest,ns=j.notify||{},due=ns.digest_at,dn=ns.digest_count;
   // The digest: the server counts what waited for the slot at digest_at; it shows once, when that slot is new here.
@@ -1996,11 +2030,11 @@ window.openPalette=(preset)=>{if(!paletteLoad)paletteLoad=new Promise((resolve,r
 });return paletteLoad.then(()=>window.openPalette(preset)).catch(()=>toast(tr('Could not load')))};
 // The phone menu (a drawer): opens from the menu button; closes with its ✕, the dimmed page beside it, a swipe back to
 // the left or Esc, and focus goes back to the button (jxn #2223). It's never kept open across a reload or a Back.
-let navFrom=null;const navNarrow=matchMedia('(max-width:860px)');
-function navSet(on){const app=$('#app');if(!app)return;const changed=app.classList.contains('nav-open')!==on;app.classList.toggle('nav-open',on);const mb=$('[data-nav]');mb?.setAttribute('aria-expanded',String(on));
-  const sb=$('#sidebar');if(sb)sb.inert=navNarrow.matches&&!on;if(!changed)return;
+let navFrom=null;
+function navSet(on){const app=$('#app');if(!app)return;const changed=app.classList.contains('nav-open')!==on;app.classList.toggle('nav-open',on);const bs=[...document.querySelectorAll('[data-nav],[data-nav-s]')],mb=bs.find(b=>b.offsetParent)||bs[0];bs.forEach(b=>b.setAttribute('aria-expanded',String(on)));
+  const sb=$('#sidebar');if(sb)sb.inert=!on;if(!changed)return;
   if(on){navFrom=document.activeElement;$('.nav-x')?.focus({preventScroll:true})}else{const f=navFrom&&document.contains(navFrom)?navFrom:mb;navFrom=null;if(app.contains(document.activeElement)||document.activeElement===document.body)f?.focus?.({preventScroll:true})}}
-document.addEventListener('click',e=>{if(e.target.closest('[data-palette]'))openPalette();if(e.target.closest('[data-nav]'))navSet(!$('#app')?.classList.contains('nav-open'));else if(e.target.closest('[data-nav-close]'))navSet(false)});
+document.addEventListener('click',e=>{if(e.target.closest('[data-palette]'))openPalette();if(e.target.closest('[data-nav],[data-nav-s]'))navSet(!$('#app')?.classList.contains('nav-open'));else if(e.target.closest('[data-nav-close]'))navSet(false)});
 document.addEventListener('keydown',e=>{if(e.key==='Escape'&&$('#app')?.classList.contains('nav-open')&&!$('dialog[open]')){e.preventDefault();navSet(false)}});
 // Connect an agent (the menu's link, vedu #2241): this page's Connect dialog when it has one, else Account's, opened by
 // its #connect.
@@ -2009,7 +2043,7 @@ if(location.hash==='#connect'){const d=$('dialog#connect');if(d&&!d.open)d.showM
 {let sx=0,sy=0,on=false;const sb=$('#sidebar');
   sb?.addEventListener('touchstart',e=>{const t=e.touches[0];sx=t.clientX;sy=t.clientY;on=$('#app')?.classList.contains('nav-open')},{passive:true});
   sb?.addEventListener('touchend',e=>{const t=e.changedTouches[0],dx=t.clientX-sx,dy=t.clientY-sy;if(on&&(document.dir==='rtl'?dx>50:dx<-50)&&Math.abs(dx)>Math.abs(dy)*1.5)navSet(false)},{passive:true})}
-navNarrow.addEventListener('change',()=>navSet(false));navSet(false);addEventListener('pageshow',()=>navSet(false));
+navSet(false);addEventListener('pageshow',()=>navSet(false));
 let g=false,gt;
 document.addEventListener('keydown',e=>{
   if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==='k'){e.preventDefault();$('#palette')?.open?$('#palette').close():openPalette();return}

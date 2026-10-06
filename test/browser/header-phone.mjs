@@ -17,20 +17,21 @@ for (const [w, scheme] of [[320, "dark"], [360, "light"], [390, "dark"], [390, "
   await ctx.addCookies([{ name: k, value: v.join("="), url: BASE }]);
   const p = await ctx.newPage(); const errors = []; p.on("pageerror", (e) => errors.push(e.message));
   await p.goto(`${BASE}/b/${board}`); await p.waitForTimeout(600);
-  const m = await p.evaluate(() => {
-    const cur = document.querySelector(".topbar .crumbs .cur"), r = cur.getBoundingClientRect(), con = document.querySelector('.topbar [data-open="connect"]');
-    const parent = document.querySelector(".topbar .crumbs a");
+  // Desktop boards have one header row (jxn #4860): "Boards /" and the name lead the board's own header; phones keep the top bar.
+  const m = await p.evaluate((phone) => {
+    const cur = document.querySelector(phone ? ".topbar .crumbs .cur" : "#board-title"), r = cur.getBoundingClientRect(), con = document.querySelector('.actions [data-open="connect"]');
+    const parent = document.querySelector(phone ? ".topbar .crumbs a" : "a.bp-crumb");
     return { curW: Math.round(r.width), curText: cur.textContent, parentShown: !!(parent && parent.getBoundingClientRect().width), connect: con ? con.innerText.trim() : null, connectName: con?.getAttribute("aria-label"), doc: document.documentElement.scrollWidth, W: innerWidth };
-  });
+  }, phone);
   console.log(`-- ${w}px ${scheme}: ${JSON.stringify(m)}`);
   check(m.connect === (w <= 640 ? "Connect" : "Connect an agent"), `the connect button reads "${m.connect}"`);
   check(m.connectName === "Connect an agent", "…and is still named \"Connect an agent\" for screen readers");
   check(m.parentShown === !phone, `the "Boards /" crumb ${phone ? "is hidden" : "shows"}`);
   check(m.curW >= (w >= 360 ? 60 : 40), `the board name has room (${m.curW}px)`);
   check(m.doc <= m.W, `page no wider than the screen (${m.doc} ≤ ${m.W})`);
-  await p.locator(".topbar").screenshot({ path: `${OUT}header-${w}-${scheme}.png` });
+  await p.locator(phone ? ".topbar" : ".bp-head").screenshot({ path: `${OUT}header-${w}-${scheme}.png` });
   // the button still opens the connect dialog
-  await p.click('.topbar [data-open="connect"]'); await p.waitForTimeout(300);
+  await p.click('.actions [data-open="connect"]'); await p.waitForTimeout(300);
   check(await p.evaluate(() => !!document.querySelector("dialog[open]")), "Connect opens its dialog");
   check(errors.length === 0, `no page errors ${errors.join(" | ")}`);
   await ctx.close();

@@ -1088,4 +1088,8 @@ export const AR: Record<string, string> = {
   "Email me a code": "أرسل لي رمزًا بالبريد",
   "Code from your email": "الرمز من بريدك",
   "We sent a code to your email to make sure it's you.": "أرسلنا رمزًا إلى بريدك للتأكد من أنك أنت.",
+  "Boards and chats": "اللوحات والمحادثات",
+  "{n} working": "{n} يعمل",
+  "{n} approval": "{n} موافقة",
+  "{n} approvals": "{n} موافقات",
 };

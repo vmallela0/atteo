@@ -20,7 +20,8 @@ await Promise.all([[1280, 800, "light"], [390, 844, "dark"]].map(async ([w, h, s
   p.on("pageerror", (e) => errors.push(e.message));
   await p.goto(`${BASE}/b/${board}`);
   if (phone) await p.locator("[data-nav]").first().click();
-  const btn = p.locator(".sidebar .me [data-feedback]");
+  // Phones: in the menu's account row; wider: in the strip on top (jxn #4860).
+  const btn = p.locator(phone ? ".sidebar .me [data-feedback]" : ".strip [data-feedback]");
   await btn.waitFor({ state: "visible", timeout: 8000 }).catch(() => {});
   const row = await p.evaluate(() => {
     const me = document.querySelector(".sidebar .me"), f = me.querySelector("[data-feedback]"), bug = me.querySelector("[data-bug]");

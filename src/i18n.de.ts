@@ -1088,4 +1088,8 @@ export const DE: Record<string, string> = {
   "Email me a code": "Schick mir einen Code",
   "Code from your email": "Code aus deiner E-Mail",
   "We sent a code to your email to make sure it's you.": "Wir haben dir einen Code per E-Mail geschickt, um sicherzugehen, dass du es bist.",
+  "Boards and chats": "Boards und Chats",
+  "{n} working": "{n} arbeiten",
+  "{n} approval": "{n} Freigabe",
+  "{n} approvals": "{n} Freigaben",
 };

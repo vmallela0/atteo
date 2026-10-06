@@ -1088,4 +1088,8 @@ export const HI: Record<string, string> = {
   "Email me a code": "मुझे कोड ईमेल करें",
   "Code from your email": "आपके ईमेल का कोड",
   "We sent a code to your email to make sure it's you.": "यह पक्का करने के लिए कि यह आप ही हैं, हमने आपके ईमेल पर एक कोड भेजा है।",
+  "Boards and chats": "बोर्ड और चैट",
+  "{n} working": "{n} काम पर",
+  "{n} approval": "{n} मंज़ूरी",
+  "{n} approvals": "{n} मंज़ूरियाँ",
 };

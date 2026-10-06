@@ -108,7 +108,7 @@ export const unreadCountSql = (person: boolean) =>
   `SELECT COUNT(*) AS n FROM notifications WHERE user = ? AND read_at IS NULL AND kind != 'trigger' AND NOT EXISTS (SELECT 1 FROM inbox_reminders r WHERE r.notification_id = notifications.id AND r.user = notifications.user)${NOT_PEOPLE(person)} AND (board_id = '' OR board_id IN (SELECT board_id FROM members WHERE user = ?))`;
 
 /** Unread count plus the newest unread item (for a browser notification when the count goes up). */
-export async function inboxCount(env: Env, user: string, person = false): Promise<{ unread: number; latest: InboxItem | null; approvals: number }> {
+export async function inboxCount(env: Env, user: string, person = false): Promise<{ unread: number; latest: InboxItem | null; approvals: number; approval_boards: Record<string, number> }> {
   const [c, latest, ap] = await Promise.all([
     env.DB.prepare(unreadCountSql(person))
       .bind(user, user)
@@ -119,9 +119,12 @@ export async function inboxCount(env: Env, user: string, person = false): Promis
     )
       .bind(user)
       .first<InboxRow>(),
-    env.DB.prepare(`SELECT COUNT(*) AS n FROM approvals WHERE user = ? AND status = 'pending' AND expires_at > ?`).bind(user, Date.now()).first<{ n: number }>(),
+    // Per board in the same one read: the web's tabs turn amber where one waits (jxn #4860).
+    env.DB.prepare(`SELECT board_id, COUNT(*) AS n FROM approvals WHERE user = ? AND status = 'pending' AND expires_at > ? GROUP BY board_id`).bind(user, Date.now()).all<{ board_id: string | null; n: number }>(),
   ]);
-  return { unread: c?.n ?? 0, latest: latest ? withPush(latest) : null, approvals: ap?.n ?? 0 };
+  const rows = ap?.results ?? [];
+  const approval_boards = Object.fromEntries(rows.filter((r) => r.board_id).map((r) => [r.board_id!, r.n]));
+  return { unread: c?.n ?? 0, latest: latest ? withPush(latest) : null, approvals: rows.reduce((t, r) => t + r.n, 0), approval_boards };
 }
 
 const READ_RETENTION_DAYS = 30;
