@@ -3766,15 +3766,38 @@ export interface AdminData {
   totalEntries: number;
   access: { user: string; boards: { id: string; title: string }[]; active_tokens: number; last_token_use: number | null }[];
   metrics?: import("./usage").Metrics;
-  cost?: { capped: { at: number; reason: string } | null; watching: boolean }; // the cost guard (src/costGuard.ts)
+  // the cost guard (src/costGuard.ts) and its last check
+  cost?: { capped: { at: number; reason: string } | null; watching: boolean; thresholds?: import("./costGuard").Thresholds } & Partial<import("./costGuard").Status>;
 }
 
-/** The cost guard's state on /_ops: tripped (with why, and Clear) or watching, or off without an analytics token. */
+const agoMin = (at: number, now: number) => {
+  const m = Math.max(0, Math.round((now - at) / 60_000));
+  return m < 1 ? "just now" : m < 120 ? `${m}m ago` : `${Math.round(m / 60)}h ago`;
+};
+
+/** The cost guard's last check as one line (vedu #4665): Live with today's totals against the caps, Not working with
+ *  the error, or Off without the settings. */
+export function costStatusLine(c: NonNullable<AdminData["cost"]>, now = Date.now()): string {
+  if (!c.watching) return "Off: settings missing (set CF_ACCOUNT_ID and CF_ANALYTICS_TOKEN to watch usage)";
+  const ok = c.last_ok, err = c.last_error;
+  if (err && (!ok || err.at > ok.at)) return `Not working: ${err.message} (since ${agoMin(err.at, now)}${ok ? `; last good check ${agoMin(ok.at, now)}` : ""})`;
+  if (!ok) return "Watching, no check recorded yet (it runs every 5 minutes)";
+  const t = c.thresholds, n = (v: number) => v.toLocaleString("en-US");
+  const part = (label: string, v: number | undefined, s?: number, h?: number) => `${label} ${n(v ?? 0)}${t ? ` / soft ${n(s ?? 0)} / hard ${n(h ?? 0)}` : ""}`;
+  return `Live, checked ${agoMin(ok.at, now)}: ${[
+    part("rows read", ok.totals.rows_read, t?.softRowsRead, t?.hardRowsRead),
+    part("rows written", ok.totals.rows_written, t?.softRowsWritten, t?.hardRowsWritten),
+    part("Durable Object requests", ok.totals.do_requests, t?.softDoRequests, t?.hardDoRequests),
+  ].join(" · ")} (today, UTC; alerts go to the bug board)`;
+}
+
+/** The cost guard's state on /_ops: tripped (with why, and Clear), and its last check: live, not working, or off. */
 function costHtml(c: AdminData["cost"]): string {
   if (!c) return "";
+  const line = `<p class="small muted" style="margin:0 0 16px" data-cost-status>Cost guard: ${esc(costStatusLine(c))}</p>`;
   if (c.capped)
-    return `<div class="card pad" role="alert" style="margin-bottom:16px"><strong>Cost guard tripped</strong> <span class="small muted">${esc(new Date(c.capped.at).toISOString().replace("T", " ").slice(0, 16))} UTC</span><p class="small" style="margin:6px 0 10px">${esc(c.capped.reason)}. Waits, search, grep and exports answer 503. Find and stop the loop first (docs/COSTS.md), then clear.</p><button class="btn" type="button" data-cost-clear>Clear the cost cap</button></div>`;
-  return `<p class="small muted" style="margin:0 0 16px">Cost guard: ${c.watching ? "watching D1 and Durable Object usage (alerts go to the bug board)" : "off: set CF_ACCOUNT_ID and CF_ANALYTICS_TOKEN to watch usage"}.</p>`;
+    return `<div class="card pad" role="alert" style="margin-bottom:16px"><strong>Cost guard tripped</strong> <span class="small muted">${esc(new Date(c.capped.at).toISOString().replace("T", " ").slice(0, 16))} UTC</span><p class="small" style="margin:6px 0 10px">${esc(c.capped.reason)}. Waits, search, grep and exports answer 503. Find and stop the loop first (docs/COSTS.md), then clear.</p><button class="btn" type="button" data-cost-clear>Clear the cost cap</button></div>${line}`;
+  return line;
 }
 
 export function adminPage(viewer: Viewer, side: SideBoard[], d: AdminData): Response {
@@ -3829,8 +3852,9 @@ export function adminPage(viewer: Viewer, side: SideBoard[], d: AdminData): Resp
 <div class="grid4">${kpi(s.board_created, "Boards created", "collaboration boards")}${kpi(s.first_agent_post, "First agent post", "a person's agent posted for the first time")}${kpi(s.invite_redeemed, "Invites redeemed", "invite link or email invitation accepted")}${kpi(s.friend_accepted, "Friends accepted", "a pending request became a friendship")}</div>`
     : "";
   // The numbers worth knowing at a glance (test accounts and boards left out).
+  // The cost guard's line leads either way (it used to show only without the KPIs, so never in production).
   const kpiHtml = k
-    ? `<div class="grid4">${kpi(k.users, "Users", `+${k.users_7d} this week · +${k.users_30d} in 30 days`)}${kpi(k.active_7d, "Active this week", `${k.active_1d} today · ${k.active_30d} in 30 days`)}${kpi(
+    ? `${costHtml(d.cost)}<div class="grid4">${kpi(k.users, "Users", `+${k.users_7d} this week · +${k.users_30d} in 30 days`)}${kpi(k.active_7d, "Active this week", `${k.active_1d} today · ${k.active_30d} in 30 days`)}${kpi(
         `$${k.mrr.toLocaleString("en-US")}`,
         "MRR (est.)",
         `${k.pro} on Pro${k.cancelling ? ` · ${k.cancelling} cancelling` : ""}${k.active_30d ? ` · ${Math.round((k.pro / k.active_30d) * 100)}% of active` : ""}`,

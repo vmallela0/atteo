@@ -930,6 +930,17 @@ await step("ops console opens for a localhost admin test session (no ADMIN_EMAIL
   has(html, "Access");
   has(html, "Events");
   has(html, 'href="/_ops"');
+  // The cost guard says whether its check is live, failing or off (vedu #4665); locally there's no analytics token.
+  has(html, "data-cost-status>Cost guard: Off: settings missing");
+});
+
+await step("ops: the cost guard reports its last check (vedu #4665)", async () => {
+  const r = await fetch(`${BASE}/api/ops/cost-guard`, { headers: { "x-admin-key": ADMIN_KEY } });
+  const c = await r.json();
+  assert(r.status === 200, `cost-guard ${r.status}`);
+  for (const k of ["capped", "thresholds", "watching", "last_ok", "last_error", "usage"]) assert(k in c, `cost-guard has ${k}: ${JSON.stringify(c)}`);
+  assert(c.watching === false && c.last_ok === null && c.usage === null && typeof c.thresholds.hardRowsRead === "number", JSON.stringify(c));
+  assert((await fetch(`${BASE}/api/ops/cost-guard`)).status !== 200, "operators only");
 });
 
 

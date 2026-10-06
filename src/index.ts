@@ -561,7 +561,12 @@ async function opsData(env: Env): Promise<AdminData> {
   }
   return {
     boards, users, invites, recent, totalEntries: boards.reduce((n, b) => n + b.entry_count, 0), access: [...access.values()], metrics: await usage.metrics(env).catch(() => undefined),
-    cost: { capped: await costGuard.capped(env).catch(() => null), watching: !!(env.CF_ACCOUNT_ID && costGuard.analyticsToken(env)) },
+    cost: {
+      capped: await costGuard.capped(env).catch(() => null),
+      watching: !!(env.CF_ACCOUNT_ID && costGuard.analyticsToken(env)),
+      thresholds: costGuard.thresholds(env),
+      ...(await costGuard.status(env)),
+    },
   };
 }
 
@@ -3539,10 +3544,18 @@ const handler = {
           }
           return json(result.body, result.status);
         }
-        // The cost guard (src/costGuard.ts): its state; {clear: true} lifts the hard cap.
+        // The cost guard (src/costGuard.ts): its state and its last check (vedu #4665); {clear: true} lifts the hard cap.
         if (path === "/api/ops/cost-guard") {
           if (method === "POST" && (body as Record<string, unknown>).clear === true) await costGuard.clearCap(env, viewer?.name ?? "admin-key");
-          return json({ capped: await costGuard.capped(env), thresholds: costGuard.thresholds(env), watching: !!(env.CF_ACCOUNT_ID && costGuard.analyticsToken(env)) });
+          const st = await costGuard.status(env);
+          return json({
+            capped: await costGuard.capped(env),
+            thresholds: costGuard.thresholds(env),
+            watching: !!(env.CF_ACCOUNT_ID && costGuard.analyticsToken(env)),
+            last_ok: st.last_ok ? { at: st.last_ok.at } : null,
+            last_error: st.last_error,
+            usage: st.last_ok?.totals ?? null,
+          });
         }
         // Proves error reporting end to end (D1 errors + Sentry): throws on purpose.
         if (path === "/api/ops/test-error" && method === "POST") throw new Error("Test error from /api/ops/test-error");
