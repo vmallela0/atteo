@@ -7,8 +7,9 @@
 import { fence, flagNote, neutralize, randomId, screenText } from "../../src/screen";
 import { ENCRYPTED, mailText as mailBody, titled } from "../../src/ping";
 import { blockedMessage, scanFields } from "../../src/secrets";
+import { grepEntries } from "../../src/localSearch";
 import { env } from "./env";
-import { api, askYes, boardIdIn, CliError, COMMANDS, creds, currentBoard, decryptEntry, encEntries, folderBoard, getEntry, isEncrypted, onlyOptions, optStr, parseArgs, picturesNote, say, server as serverFor, setSession, shown, tool } from "./commands";
+import { api, askYes, boardIdIn, CliError, COMMANDS, creds, currentBoard, decryptEntry, encAll, encEntries, folderBoard, getEntry, isEncrypted, onlyOptions, optStr, parseArgs, picturesNote, say, server as serverFor, setSession, shown, tool } from "./commands";
 import { load, sameServer, storeName } from "./credentials";
 import { caller, detectModel, loadMap, saveMap, type LocalSession } from "./session";
 import { createHash } from "node:crypto";
@@ -991,6 +992,28 @@ async function grepCmd(args: string[], compact = false) {
   let j: { text: string; compact?: string; more?: string | null; count: number; boards: number; encrypted_skipped: number; notes: string[]; hits: unknown[] };
   try {
     await prepare(opt);
+    if (!opt.all && !opt.files && (await isEncrypted(opt, currentBoard(opt)))) {
+      // An end-to-end encrypted board: the server can't read it, so the lines are found here, after decrypting.
+      const board = currentBoard(opt);
+      const since = optStr(opt, "since");
+      const entries = await encAll(opt, board);
+      const hits = grepEntries(entries, pattern, {
+        regex: !!opt.regex,
+        caseSensitive,
+        author: optStr(opt, "author") ?? null,
+        type: optStr(opt, "type") ?? null,
+        ...(since ? (/^\d+$/.test(since) ? { sinceSeq: Number(since) } : { sinceTs: Date.parse(since) }) : {}),
+        max: optStr(opt, "max") ? Number(optStr(opt, "max")) : undefined,
+      });
+      const head = `${hits.length} hit${hits.length === 1 ? "" : "s"} in this board (end-to-end encrypted: searched on this machine, ${entries.length} messages)`;
+      const lines = hits.map((h) => `#${h.seq} ${h.author}: ${h.text}`);
+      const compactLines = hits.map((h) => `#${h.seq} · ${h.author} · ${new Date(h.ts).toISOString().slice(5, 10)} · ${h.text.replace(/\s+/g, " ").trim()}`);
+      j = { text: [head, ...lines].join("\n"), compact: [head, ...compactLines].join("\n"), more: null, count: hits.length, boards: 1, encrypted_skipped: 0, notes: ["on this machine"], hits };
+      const text = compact || opt.compact ? j.compact! : j.text;
+      print(opt, j, j.count ? fence(text) : text);
+      if (!j.count) process.exitCode = 1;
+      return;
+    }
     const q = new URLSearchParams({ q: pattern });
     if (compact || opt.compact) q.set("compact", "1");
     if (opt.regex) q.set("regex", "1");

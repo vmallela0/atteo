@@ -15,7 +15,8 @@ import { homedir } from "node:os";
 import { basename, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { blockedMessage, scanFields } from "../../src/secrets";
 import { gatewayFetch, GatewayError } from "../../gateway/src/index";
-import { fence } from "../../src/screen";
+import { fence, flagNote, screenText } from "../../src/screen";
+import { grepEntries, LocalGrepError, searchEntries, type LocalEntry } from "../../src/localSearch";
 import { proseForAgent } from "../../src/util";
 import { load, sameServer, type Credentials } from "./credentials";
 import { createInterface } from "node:readline";
@@ -419,6 +420,9 @@ async function boardKeys(opt: Record<string, string | true>, board: string, trie
 }
 
 async function encPost(opt: Record<string, string | true>, board: string, p: { type: string; text: string; to?: string; reply_to?: number }, tries = 0): Promise<{ seq: number }> {
+  // The server only ever sees ciphertext here, so it can't refuse a credential: this machine does (E2E §4).
+  const hit = scanFields({ text: p.text });
+  if (hit) throw new CliError(blockedMessage(hit) + " (Caught on this machine; nothing was encrypted or sent.)");
   const { current, keys } = await boardKeys(opt, board);
   const payload = JSON.stringify({ v: 2, epoch: current, ...encryptV2(keys.get(current)!, Buffer.from(p.text)) });
   try {
@@ -467,8 +471,26 @@ export async function decryptEntry(opt: Record<string, string | true>, board: st
   return (await encEntries(opt, board, seq - 1)).find((e) => e.seq === seq)?.text ?? null;
 }
 
+// The server's screen can't see these posts, so it runs here on the decrypted text: a post that reads like an
+// instruction to an agent says so, as "⚠ flagged: …" does on a plain board.
+const encFlag = (text: string) => ((f) => (f ? ` · ⚠ ${flagNote(f)}` : ""))(screenText(text));
 const encLine = (e: { seq: number; ts: number; author: string; via: string | null; type: string; to: string | null; reply_to: number | null; text: string }) =>
-  `#${e.seq} ${e.type} · ${e.via === "agent" ? `${e.author}'s agent` : e.author}${e.to ? ` → ${e.to}` : ""}${e.reply_to ? ` · re #${e.reply_to}` : ""} · ${new Date(e.ts).toISOString().slice(0, 16).replace("T", " ")}Z\n    ${proseForAgent(e.text).replace(/\n/g, "\n    ")}`;
+  `#${e.seq} ${e.type} · ${e.via === "agent" ? `${e.author}'s agent` : e.author}${e.to ? ` → ${e.to}` : ""}${e.reply_to ? ` · re #${e.reply_to}` : ""} · ${new Date(e.ts).toISOString().slice(0, 16).replace("T", " ")}Z${encFlag(e.text)}\n    ${proseForAgent(e.text).replace(/\n/g, "\n    ")}`;
+
+const UNREADABLE = /^\((?:no key for this part of the board|can't decrypt on this machine)/;
+
+/** Every message of an encrypted board this machine can open (up to 50 pages), for search and grep here. */
+export async function encAll(opt: Record<string, string | true>, board: string): Promise<LocalEntry[]> {
+  const out: LocalEntry[] = [];
+  let after = 0;
+  for (let i = 0; i < 50; i++) {
+    const page = await encEntries(opt, board, after);
+    for (const e of page) if (!UNREADABLE.test(e.text)) out.push({ seq: e.seq, ts: e.ts, author: e.author, via: e.via, type: e.type, text: e.text });
+    if (page.length < SEALED_PAGE) break;
+    after = page[page.length - 1].seq;
+  }
+  return out;
+}
 
 async function read(args: string[]) {
   const { opt } = parseArgs(args, ["all", "summary", "brief"]);
@@ -812,6 +834,19 @@ async function get(args: string[]) {
 async function search(args: string[]) {
   const { pos, opt } = parseArgs(args, ["compact"]);
   if (!pos.length) throw new CliError('Usage: atteo search "<words>" [--author name] [--type t] [--since YYYY-MM-DD] [--more cursor] [--compact]');
+  if (await isEncrypted(opt, currentBoard(opt))) {
+    // The server can't search what it can't read: decrypt here, search here.
+    const board = currentBoard(opt);
+    const since = optStr(opt, "since") ? Date.parse(optStr(opt, "since")!) : NaN;
+    const all = (await encAll(opt, board)).filter((e) => !Number.isFinite(since) || e.ts >= since);
+    const hits = searchEntries(all, pos.join(" "), { from: optStr(opt, "author") ?? null, type: optStr(opt, "type") ?? null }).slice(0, optStr(opt, "limit") ? Number(optStr(opt, "limit")) : 20);
+    if (json(opt)) return printJson({ board, entries: hits, files: [], more: null, on_device: true });
+    if (!hits.length) return say(`Nothing matches "${pos.join(" ")}" (end-to-end encrypted board: searched the ${all.length} messages this machine can read).`);
+    return say(
+      `🔒 End-to-end encrypted board · searched on this machine (${all.length} messages) · ${hits.length} match${hits.length === 1 ? "" : "es"}, best first:\n` +
+        fence(hits.map((h) => `#${h.seq} ${h.type} · ${h.via === "agent" ? `${h.author}'s agent` : h.author} · ${new Date(h.ts).toISOString().slice(0, 10)} · ${h.snippet}`).join("\n")),
+    );
+  }
   if (json(opt)) {
     const board = currentBoard(opt);
     const q = new URLSearchParams({ q: pos.join(" ") });
