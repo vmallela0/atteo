@@ -2749,6 +2749,101 @@ await step("handoff --sweep (glm-b #3299): a handoff whose sha reached origin/ma
   assert(g("rev-parse", "HEAD") === head2 && g("rev-parse", "--abbrev-ref", "HEAD") === `fix/other-${run}` && g("status", "--porcelain") === "", "the sweep never touches the repo");
 });
 
+await step("atteo host / atteo run: typed consent, root refusal, approvals, allowlist, symlink jail, timeout, no secrets in env, kill switch", async () => {
+  const PHRASE = "I understand what I'm doing";
+  const hostDir = mkdtempSync(join(tmpdir(), "atteo-host-"));
+  const share = join(hostDir, "share");
+  const outside = join(hostDir, "outside");
+  mkdirSync(join(share, "sub"), { recursive: true });
+  mkdirSync(outside);
+  writeFileSync(join(outside, "secret.txt"), "not yours");
+  symlinkSync(outside, join(share, "sub", "escape"));
+  const shareReal = realpathSync(share);
+  const name = `box-${run}`;
+  // Consent is the person's, in their browser, and typed back into a real terminal: a pipe (an agent's shell) can't start
+  // a host, there's no flag to skip it, root never hosts, and / is never shared.
+  let r = await cli(["host", "--board", board, "--share", share]);
+  assert(r.code !== 0 && r.err.includes("interactive terminal"), `no TTY: refused: ${r.out}${r.err}`);
+  r = await cli(["host", "--board", board, "--share", share, "--confirm", PHRASE]);
+  assert(r.code !== 0 && r.err.includes("doesn't take --confirm"), `no --confirm: ${r.err}`);
+  r = await cli(["host", "--board", board, "--share", share], { env: { ATTEO_HOST_ASSUME_ROOT: "1" } });
+  assert(r.code !== 0 && r.err.includes("refuses to run as root"), r.err);
+  r = await cli(["host", "--board", board, "--share", "/"]);
+  assert(r.code !== 0 && r.err.includes("isn't allowed"), r.err);
+  // A attaches a machine in a real terminal (python's pty), with two allowlisted commands: the link names this start's
+  // machine; A, signed in as a person, mints the code for it; the code goes into the prompt.
+  const pty = "import pty,sys; pty.spawn(sys.argv[1:])";
+  const daemon = spawn("python3", ["-c", pty, "node", CLI, "host", "--board", board, "--share", share, "--name", name, "--allow", "echo allowed", "--allow", "sleep 5", "--allow", "env"], {
+    cwd: share,
+    env: { ...process.env, ATTEO_CREDENTIALS_FILE: credA, ATTEO_SERVER: BASE, XDG_CONFIG_HOME: join(dir, "cfg-cmds"), MY_API_TOKEN: "zz-should-not-leak" },
+  });
+  let dout = "";
+  daemon.stdout.on("data", (d) => (dout += d));
+  daemon.stderr.on("data", (d) => (dout += d));
+  const exited = new Promise((res) => daemon.on("close", (code) => res(code)));
+  try {
+    for (let i = 0; i < 100 && !/machine=m_[A-Za-z0-9_-]+/.test(dout); i++) await sleep(100);
+    const machine = dout.match(/machine=(m_[A-Za-z0-9_-]+)/)?.[1];
+    assert(dout.includes("VERY DANGEROUS") && dout.includes(`/host/consent?board=${board}&machine=`) && machine, `the link: ${dout}`);
+    const cookieA0 = (await ops("sessions", { user: A, verified: "true" })).cookie;
+    const minted = await fetch(`${BASE}/api/boards/${board}/hosts/confirm`, { method: "POST", headers: { cookie: cookieA0, "content-type": "application/json" }, body: JSON.stringify({ phrase: PHRASE, machine }) });
+    assert(minted.status === 200, `A mints the code as a person: ${minted.status}`);
+    daemon.stdin.write((await minted.json()).code + "\n");
+    for (let i = 0; i < 100 && !dout.includes("Attached"); i++) await sleep(100);
+    assert(dout.includes("Attached"), `daemon: ${dout}`);
+    r = await cli(["host", "list", "--board", board], { cred: credB });
+    assert(r.code === 0 && r.out.includes(name) && r.out.includes("online"), r.out + r.err);
+    // Allowlisted: runs without asking.
+    r = await cli(["run", name, "echo allowed", "--board", board], { cred: credB });
+    assert(r.code === 0 && r.out.includes("allowed") && r.out.includes("exit 0"), r.out + r.err);
+    // The environment drops secret-looking variables (and the CLI's own login).
+    r = await cli(["run", name, "env", "--board", board], { cred: credB });
+    assert(r.code === 0 && !r.out.includes("zz-should-not-leak") && !r.out.includes("ATTEO_CREDENTIALS_FILE"), r.out);
+    // The timeout kills it.
+    r = await cli(["run", name, "sleep 5", "--timeout", "1", "--board", board], { cred: credB });
+    assert(r.code !== 0 && r.err.includes("timeout"), r.out + r.err);
+    // Anything else waits for A to approve, as a person.
+    const cookieA = (await ops("sessions", { user: A, verified: "true" })).cookie;
+    const approveNext = async (needle, how = "approve") => {
+      for (let i = 0; i < 100; i++) {
+        const list = (await (await fetch(`${BASE}/api/approvals`, { headers: { cookie: cookieA } })).json()).approvals;
+        const a = list.find((x) => x.command?.includes(needle));
+        if (a) {
+          const res = await fetch(`${BASE}/api/approvals/${a.id}/${how}`, { method: "POST", headers: { cookie: cookieA, "content-type": "application/json" }, body: "{}" });
+          assert(res.status === 200, `${how}: ${res.status}`);
+          return a;
+        }
+        await sleep(100);
+      }
+      throw new Error(`no approval for ${needle}`);
+    };
+    let pending = cli(["run", name, `echo hi-${run} > made.txt && cat made.txt`, "--board", board], { cred: credB });
+    await approveNext(`hi-${run}`);
+    r = await pending;
+    assert(r.code === 0 && r.out.includes(`hi-${run}`), r.out + r.err);
+    assert(readFileSync(join(shareReal, "made.txt"), "utf8").includes(`hi-${run}`), "ran in the shared folder");
+    // A symlink inside the share can't lead out: the server's lexical check passes, the host's realpath check refuses.
+    pending = cli(["run", name, `cat secret.txt # ${run}`, "--cwd", join(shareReal, "sub", "escape"), "--board", board], { cred: credB });
+    await approveNext(`secret.txt # ${run}`);
+    r = await pending;
+    assert(r.code !== 0 && r.err.includes("outside the shared folders") && !r.out.includes("not yours"), r.out + r.err);
+    // Denied: nothing runs.
+    pending = cli(["run", name, `touch denied-${run}`, "--board", board], { cred: credB });
+    await approveNext(`denied-${run}`, "reject");
+    r = await pending;
+    assert(r.code !== 0 && r.err.includes("Denied") && !existsSync(join(shareReal, `denied-${run}`)), r.out + r.err);
+    // The kill switch: the daemon is told to stop and exits.
+    r = await cli(["host", "stop", name, "--board", board]);
+    assert(r.code === 0 && r.out.includes(`Stopped ${name}`), r.out + r.err);
+    const code = await Promise.race([exited, sleep(30_000).then(() => "timeout")]);
+    assert(code === 0 && dout.includes("Stopped: stopped by"), `daemon after stop: ${code} ${dout.slice(-200)}`);
+    r = await cli(["run", name, "echo late", "--board", board], { cred: credB });
+    assert(r.code !== 0, "a stopped host takes nothing");
+  } finally {
+    daemon.kill("SIGKILL");
+  }
+});
+
 if (ONLY && !matched) { failed++; console.log(`  ✗ no steps match ONLY=${JSON.stringify(process.env.ONLY)}`); }
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

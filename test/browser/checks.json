@@ -168,5 +168,6 @@
  "link-confirm": 3,
  "delete-account": 4,
  "upd-bar": 2,
- "task-frozen": 4
+ "task-frozen": 4,
+ "host": 3
 }
