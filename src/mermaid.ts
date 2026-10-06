@@ -42,13 +42,16 @@ export const MERMAID_CSS = `.mmd{margin:6px 0;max-width:100%}.mmd>.code-b{margin
 // Config keys a diagram's own %%{init}%% can't change: mermaid's defaults plus the theme (so the board's tokens and no
 // injected CSS apply), the sanitiser config and HTML labels.
 const SECURE = ["secure", "securityLevel", "startOnLoad", "maxTextSize", "suppressErrorRendering", "maxEdges", "theme", "themeVariables", "themeCSS", "darkMode", "fontFamily", "altFontFamily", "dompurifyConfig", "htmlLabels"];
+// CSP's nonceability check requires a nonce content attribute; .nonce alone only sets the internal slot.
+// Stamp styles during async measurement and again after parsing/importing the returned SVG.
 export const MERMAID_JS = `
 (()=>{const SRC=${JSON.stringify(MERMAID_SRC)},SRI=${JSON.stringify(MERMAID_SRI)},SECURE=${JSON.stringify(SECURE)},NONCE=document.currentScript?.nonce||'';
 let lib=null,io=null,seq=0,q=Promise.resolve(),sig='',watching=false;const seen=new WeakSet();
-// Mermaid creates its measuring stylesheet after an await; keep the nonce hook until rendering settles.
-const withStyleNonce=async fn=>{const p=Document.prototype,orig=p.createElement;
-  p.createElement=function(name,opts){const el=orig.call(this,name,opts);if(String(name).toLowerCase()==='style')el.nonce=NONCE;return el};
-  try{return await fn()}finally{p.createElement=orig}};
+const withStyleNonce=async fn=>{const p=Document.prototype,orig=p.createElement,ns=p.createElementNS;
+  const stamp=el=>{if(el.localName==='style')el.setAttribute('nonce',NONCE);return el};
+  p.createElement=function(...args){return stamp(orig.apply(this,args))};
+  p.createElementNS=function(...args){return stamp(ns.apply(this,args))};
+  try{return await fn()}finally{p.createElement=orig;p.createElementNS=ns}};
 const load=()=>lib||(lib=new Promise((ok,no)=>{const s=document.createElement('script');s.src=SRC;s.integrity=SRI;s.crossOrigin='anonymous';s.referrerPolicy='no-referrer';
   s.nonce=NONCE;s.onload=()=>window.mermaid?ok(window.mermaid):no(new Error('mermaid missing'));s.onerror=()=>no(new Error('mermaid did not load'));document.head.appendChild(s)}));
 const tok=n=>getComputedStyle(document.documentElement).getPropertyValue('--'+n).trim();
@@ -71,10 +74,11 @@ function scrub(html){const t=document.createElement('template');t.innerHTML=html
   s.querySelectorAll(BAD).forEach(n=>n.remove());s.querySelectorAll('style').forEach(n=>{if(n.parentNode!==s)n.remove()}); // a <style> in a label would style the whole page
   for(const n of [s,...s.querySelectorAll('*')])for(const a of [...n.attributes]){const k=a.name.toLowerCase(),val=a.value.replace(/\\s+/g,'');
     if(k.startsWith('on')||((k==='href'||k.endsWith(':href')||k==='src'||k==='action'||k==='formaction')&&!val.startsWith('#'))||(k==='style'&&/url\\((?!['"]?#)|expression|@import/i.test(val)))n.removeAttribute(a.name)}
-  s.querySelectorAll('style').forEach(st=>{st.nonce=NONCE;st.textContent=st.textContent.replace(/@import[^;]*;?/gi,'').replace(/url\\(\\s*(?!['"]?#)[^)]*\\)/gi,'none')});
+  s.querySelectorAll('style').forEach(st=>{st.textContent=st.textContent.replace(/@import[^;]*;?/gi,'').replace(/url\\(\\s*(?!['"]?#)[^)]*\\)/gi,'none')});
   // Fits the message, but never below 3/4 of its natural size (text stays readable): past that it scrolls sideways.
   const vb=(s.getAttribute('viewBox')||'').split(/[\\s,]+/).map(Number);s.removeAttribute('height');s.setAttribute('width','100%');
-  if(vb.length===4&&vb[2]>0&&vb[3]>0){s.style.maxWidth=Math.ceil(vb[2])+'px';s.style.minWidth=Math.ceil(vb[2]*0.75)+'px';s.style.aspectRatio=vb[2]+' / '+vb[3]}return document.importNode(s,true)}
+  if(vb.length===4&&vb[2]>0&&vb[3]>0){s.style.maxWidth=Math.ceil(vb[2])+'px';s.style.minWidth=Math.ceil(vb[2]*0.75)+'px';s.style.aspectRatio=vb[2]+' / '+vb[3]}
+  const svg=document.importNode(s,true);svg.querySelectorAll('style').forEach(st=>st.setAttribute('nonce',NONCE));return svg}
 // Image shapes (A@{img: "https://…"}) would fetch from anywhere while mermaid measures them: those stay as code.
 const OFFSITE=/@\\{[^}]*\\bimg\\s*:/i;
 function draw(el){q=q.then(async()=>{const code=el.querySelector('.code-b code');if(!code)return;if(OFFSITE.test(code.textContent))throw new Error('image shape');const m=await load();const c=cfg(),k=JSON.stringify(c.themeVariables);

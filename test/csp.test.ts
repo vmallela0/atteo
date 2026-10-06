@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { page, appPage, formActionSource, CSP_ENFORCE, CSP_REPORT_PATH, VOICE_SOCKET_ORIGIN, BUG_PAGE_JS, SHELL_PAGE_JS, APP_CSS, ASK_CSS_SRC, DOC_CSS_SRC, GUIDE_CSS_SRC, PAGE_CSS, styleNonce } from "../src/ui";
+import { page, appPage, formActionSource, CSP_ENFORCE, CSP_REPORT_PATH, VOICE_SOCKET_ORIGIN, BUG_DIALOG, BUG_PAGE_JS, SHELL_PAGE_JS, APP_JS, APP_CSS, ASK_CSS_SRC, DOC_CSS_SRC, GUIDE_CSS_SRC, PAGE_CSS, styleNonce } from "../src/ui";
+import { inboxPage } from "../src/inbox";
+import { localize, tr } from "../src/i18n";
+import budget from "./browser/web-budget.json";
 import { FONT_CSS } from "../src/fontfaces";
 import { AGENT_LOGO_CSS, agentLogo } from "../src/agent-logos";
 import { TALK_JS } from "../src/talk";
@@ -88,7 +91,7 @@ describe("CSP follow-ups (opus-b #2678, jxn's agent #2681)", () => {
     expect(MERMAID_JS).toContain("s.nonce=NONCE");
     expect(MERMAID_JS).toContain("s.crossOrigin='anonymous'");
     expect(MERMAID_JS).toContain("withStyleNonce");
-    expect(MERMAID_JS).toContain("st.nonce=NONCE");
+    expect(MERMAID_JS).toContain("st.setAttribute('nonce',NONCE)");
     expect((MERMAID_JS.match(/createElement\('script'\)/g) ?? []).length).toBe(1); // the only place it loads
     const { readFileSync } = (await import("node:" + "fs")) as { readFileSync: (p: string) => Uint8Array };
     const { createHash } = (await import("node:" + "crypto")) as { createHash: (a: string) => { update: (b: Uint8Array) => { digest: (e: string) => string } } };
@@ -99,21 +102,32 @@ describe("CSP follow-ups (opus-b #2678, jxn's agent #2681)", () => {
   });
 
   it("keeps Mermaid's stylesheet nonce hook through asynchronous rendering and restores it on failure", async () => {
-    // Execute the shipped helper with the same delayed createElement call used by Mermaid's renderer.
+    // .nonce only sets the internal slot; CSP also requires the content attribute to exist.
+    // The old property-only stub missed this and passed while the browser rejected the stylesheet.
     const helper = MERMAID_JS.slice(MERMAID_JS.indexOf("const withStyleNonce="), MERMAID_JS.indexOf("const load="));
-    const Document = class { createElement(name: string) { return { name, nonce: "" }; } };
+    const element = (localName: string) => ({ localName, nonce: "", attributes: new Map<string, string>(),
+      setAttribute(name: string, value: string) { this.attributes.set(name, value); } });
+    const Document = class {
+      createElement(name: string) { return element(name.toLowerCase()); }
+      createElementNS(_ns: string, name: string) { return element(name); }
+    };
     const original = Document.prototype.createElement;
+    const originalNS = Document.prototype.createElementNS;
     const withNonce = new Function("Document", "NONCE", `${helper};return withStyleNonce`)(Document, "page-nonce");
     for (const fail of [false, true]) {
       const rendering = withNonce(async () => {
         await Promise.resolve();
-        expect(new Document().createElement("style").nonce).toBe("page-nonce");
-        expect(new Document().createElement("div").nonce).toBe("");
+        const doc = new Document();
+        expect(doc.createElement("style").attributes.get("nonce")).toBe("page-nonce");
+        expect(doc.createElement("STYLE").attributes.get("nonce")).toBe("page-nonce");
+        expect(doc.createElementNS("http://www.w3.org/2000/svg", "style").attributes.get("nonce")).toBe("page-nonce");
+        for (const tag of ["div", "script", "iframe"]) expect(doc.createElement(tag).attributes.has("nonce")).toBe(false);
         if (fail) throw new Error("render failed");
       });
       if (fail) await expect(rendering).rejects.toThrow("render failed");
       else await rendering;
       expect(Document.prototype.createElement).toBe(original);
+      expect(Document.prototype.createElementNS).toBe(originalNS);
     }
   });
 
@@ -170,6 +184,29 @@ describe("CSP follow-ups (opus-b #2678, jxn's agent #2681)", () => {
     expect(CODE_COLOR_JS).toContain("s.nonce=NONCE");
     expect(SHELL_PAGE_JS).toContain("s.nonce=NONCE");
     expect(BUG_PAGE_JS).not.toContain("createElement('script')"); // the bug report loads nothing more (no capture library since #4116)
+  });
+
+  it("keeps the inbox within the existing byte budgets by loading the bug form on demand", async () => {
+    const html = await inboxPage(viewer, [{ id: board.id, title: board.title }, { id: "b_own", title: "Your agent", kind: "agent" }], [{
+      id: 1, board_id: board.id, board_title: board.title, seq: 1, kind: "mention", actor: "other",
+      actor_via: "person", entry_type: "question", excerpt: "@csp can you check the staging port before the deploy?",
+      created_at: Date.now(), read_at: null,
+    }]).text();
+    const sum = (re: RegExp) => [...html.matchAll(re)].reduce((n, m) => n + Buffer.byteLength(m[1]), 0);
+    const inline_js = sum(/<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/g);
+    const inline_css = sum(/<style[^>]*>([\s\S]*?)<\/style>/g);
+    const measured = { html: Buffer.byteLength(html) - inline_js - inline_css, inline_js, inline_css,
+      js: Buffer.byteLength(APP_JS + SHELL_PAGE_JS), css: Buffer.byteLength(APP_CSS) };
+    for (const key of Object.keys(measured) as (keyof typeof measured)[]) {
+      const base = budget.pages.inbox[key];
+      expect(measured[key], key).toBeLessThanOrEqual(Math.max(Math.round(base * 1.1), base + 2048));
+    }
+    expect(html).not.toContain('<dialog id="bug"');
+    expect(BUG_PAGE_JS).toContain("fetch('/bug-form')");
+    expect(BUG_DIALOG).not.toMatch(/<script|<style|\sstyle=|\son[a-z]+=/i);
+    const zh = localize("zh-Hans", BUG_DIALOG);
+    for (const label of ["Report a bug", "What happened? What did you expect?", "Attach files", "Send report"])
+      expect(zh).toContain(tr("zh-Hans", label));
   });
 
   it("page styles live in /app.css and page-only sheets; leftover <style> tags take the page nonce (csp.md #3)", async () => {

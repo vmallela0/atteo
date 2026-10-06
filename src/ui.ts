@@ -43,8 +43,9 @@ export function formActionSource(raw: string): string | null {
 }
 
 // Each HTML response owns its nonce. Stylesheets come from 'self' (/app.css and page-only sheets); leftover <style>
-// blocks carry the nonce. Style attributes still need 'unsafe-inline' (composer height, pickers, mermaid viewBox
-// sizing). Inline event handlers are forbidden explicitly; page code uses listeners. Mermaid is this origin's pinned
+// blocks carry the nonce. style-src-attr separately allows server/client HTML style attributes; CSSOM property
+// assignments (composer height, pickers, diagram sizing) don't require it. Inline handlers are forbidden; page code
+// uses listeners. Mermaid is this origin's pinned
 // /mermaid.min.js and loads with an SRI hash (mermaid.ts), so a substituted file fails the integrity check.
 // The pages are private, revalidated each time (no shared cache may keep one person's page, or pin one nonce for many
 // responses); no-store would also keep them out of the back/forward cache.
@@ -999,6 +1000,7 @@ mark{background:var(--mark);color:inherit;border-radius:2px;padding:0 1px}
 /* Report a bug: a quiet word at the very bottom of the sidebar, under the account row (jxn #4011). */
 /* Report a bug (jxn #4051): a real button at the end of the account row, a warning triangle. */
 .sidebar .me{display:flex;align-items:center;gap:6px}.sidebar .me>.side-link{flex:1;min-width:0}
+.bug-help{margin-top:4px}
 .bug-btn{flex:none;width:30px;height:30px;padding:0;display:inline-grid;place-items:center;border:1px solid var(--line-strong);color:var(--muted);background:var(--bg)}
 .bug-btn:hover{color:var(--ink);border-color:var(--ink);background:var(--bg)}
 /* Send feedback (vedu #4125): the speech bubble is an inline SVG in the button (img-src does not allow data:). */
@@ -1794,15 +1796,6 @@ export function appPage(
 <div class="pal-in"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><circle cx="7" cy="7" r="4.5"/><path d="m10.5 10.5 3 3"/></svg><span class="pal-chips" id="pal-chips"></span><input class="input" id="palette-q" placeholder="${esc(T("Search messages, files, boards and actions…"))}" autocomplete="off" aria-label="Search" aria-controls="palette-list"></div>
 <div class="pal-filters" id="pal-filters" aria-label="${esc(T("Filters"))}"></div>
 <ul id="palette-list" role="listbox"></ul><div class="foot"><span><kbd>↑</kbd> <kbd>↓</kbd> ${esc(T("move"))}</span><span><kbd>↵</kbd> ${esc(T("open"))}</span><span><kbd>⌫</kbd> ${esc(T("remove filter"))}</span><span><kbd>esc</kbd> ${esc(T("close"))}</span></div></dialog>
-<dialog id="bug" aria-labelledby="bug-title"><form id="bug-form">
-<div class="hd"><div><h2 id="bug-title">${esc(T("Report a bug"))}</h2><p class="muted small" style="margin-top:4px">${esc(T("It goes to the developers. Add pictures if they help: paste them, drop them here or use the paper clip."))}</p></div><button type="button" class="btn ghost sm" data-close aria-label="${esc(T("Close"))}">✕</button></div>
-<div class="bd">
-  <textarea class="input" id="bug-text" rows="4" required minlength="8" maxlength="2000" aria-label="${esc(T("What happened? What did you expect?"))}" placeholder="${esc(T("What happened? What did you expect?"))}"></textarea>
-  <div class="bug-pics" id="bug-pics" hidden></div>
-  <input type="file" id="bug-files" accept="image/*" multiple hidden>
-</div>
-<div class="ft"><button type="button" class="btn ghost sm bug-attach" id="bug-attach" aria-label="${esc(T("Attach files"))}" title="${esc(T("Attach files or images (or paste or drop them)"))}">${ICON.clip}</button><span class="grow"></span><button type="button" class="btn" data-close>${esc(T("Cancel"))}</button><button class="btn primary" type="submit" id="bug-send">${esc(T("Send report"))}</button></div>
-</form></dialog>
 <dialog id="shortcuts"><div class="hd"><h2>${esc(T("Keyboard shortcuts"))}</h2><button class="btn ghost sm" data-close aria-label="${esc(T("Close"))}">✕</button></div>
 <div class="bd"><dl class="kv">
 <dt><kbd>⌘K</kbd> <kbd>/</kbd></dt><dd>${esc(T("Search or jump to a board"))}</dd>
@@ -1872,12 +1865,26 @@ const pageScripts = (script: string, nonce: string): string =>
     .split("\u0000")
     .map((part, i) => (i % 2 ? `<script src="${esc(part)}" nonce="${nonce}"></script>` : part ? `<script nonce="${nonce}">${part}</script>` : ""))
     .join("");
+/** Loaded and localized on the first bug-report click, like the feedback form. */
+export const BUG_DIALOG = `<dialog id="bug" aria-labelledby="bug-title"><form id="bug-form">
+<div class="hd"><div><h2 id="bug-title">Report a bug</h2><p class="muted small bug-help">It goes to the developers. Add pictures if they help: paste them, drop them here or use the paper clip.</p></div><button type="button" class="btn ghost sm" data-close aria-label="Close">✕</button></div>
+<div class="bd">
+  <textarea class="input" id="bug-text" rows="4" required minlength="8" maxlength="2000" aria-label="What happened? What did you expect?" placeholder="What happened? What did you expect?"></textarea>
+  <div class="bug-pics" id="bug-pics" hidden></div>
+  <input type="file" id="bug-files" accept="image/*" multiple hidden>
+</div>
+<div class="ft"><button type="button" class="btn ghost sm bug-attach" id="bug-attach" aria-label="Attach files" title="Attach files or images (or paste or drop them)">${ICON.clip}</button><span class="grow"></span><button type="button" class="btn" data-close>Cancel</button><button class="btn primary" type="submit" id="bug-send">Send report</button></div>
+</form></dialog>`;
+
 // Report a bug (jxn #3336, #4116): the account row's button opens a form: what happened, and pictures if they help,
 // added like the composer's (the paper clip, a paste or a drop), shown as thumbnails you can remove. Nothing is captured
 // on its own. Pictures are scaled to 1600 px and sent as JPEG (PNG kept when it's already small), at most 4 and 1.9 MB
 // together (the endpoint's cap), as multipart to POST /api/bugs (501 while the bug board isn't set up).
 const BUG_JS = `
-(()=>{const MAXN=4,MAX=1900000;let pics=[];
+(async()=>{
+try{const r=await fetch('/bug-form');if(!r.ok)throw Error();document.body.insertAdjacentHTML('beforeend',await r.text())}
+catch{document.getElementById('bug-js')?.remove();toast(tr("Couldn't open it"));return}
+const MAXN=4,MAX=1900000;let pics=[];
 const $=id=>document.getElementById(id);
 const total=()=>pics.reduce((n,p)=>n+p.blob.size,0);
 // One picture, made small enough: kept as it is when it's a small PNG/JPEG, else drawn at 1600 px or less as JPEG.
@@ -1902,6 +1909,7 @@ document.addEventListener('click',e=>{const x=e.target.closest('[data-bug-rm]');
 $('bug-files')?.addEventListener('change',e=>{add([...e.target.files]);e.target.value=''});
 $('bug-text')?.addEventListener('paste',e=>{const fs=[...(e.clipboardData?.files||[])];if(fs.length){e.preventDefault();add(fs)}});
 const dlg=$('bug');
+dlg.addEventListener('click',e=>{if(e.target===dlg)dlg.close()});
 dlg?.addEventListener('dragover',e=>{if([...(e.dataTransfer?.types||[])].includes('Files')){e.preventDefault();dlg.classList.add('drop')}});
 dlg?.addEventListener('dragleave',e=>{if(!dlg.contains(e.relatedTarget))dlg.classList.remove('drop')});
 dlg?.addEventListener('drop',e=>{dlg.classList.remove('drop');const fs=[...(e.dataTransfer?.files||[])];if(fs.length){e.preventDefault();add(fs)}});

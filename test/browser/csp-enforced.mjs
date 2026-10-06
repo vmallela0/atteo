@@ -30,8 +30,8 @@ const mcp = async (name, args) => (await fetch(`${BASE}/mcp?board=${board}`, { m
 await mcp("read", {});
 await mcp("post", { type: "note", text: "code:\n```js\nconst a = 1; // hi\n```\n```mermaid\nflowchart LR\n A --> B\n```" });
 const files = {
-  onclick: `<!doctype html><button id="b" onclick="document.getElementById('o').textContent='clicked'">go</button><pre id="o">idle</pre>`,
-  script: `<!doctype html><pre id="o">idle</pre><script>document.getElementById('o').textContent='ran';fetch('${OUT}/preview').catch(()=>{});new Image().src='${OUT}/preview-img'</script>`,
+  onclick: `<!doctype html><style>#o{color:rgb(12,34,56)}</style><button id="b" onclick="document.getElementById('o').textContent='clicked'">go</button><pre id="o" style="padding:7px">idle</pre>`,
+  script: `<!doctype html><style>#o{color:rgb(12,34,56)}</style><pre id="o" style="padding:7px">idle</pre><script>document.getElementById('o').textContent='ran';fetch('${OUT}/preview').catch(()=>{});new Image().src='${OUT}/preview-img'</script>`,
 };
 for (const [k, html] of Object.entries(files)) await mcp("post", { type: "artifact", text: `case ${k}`, artifact_name: `ce-${k}-${run}.html`, artifact_content: html });
 // An OAuth client whose redirect_uri is the listener above.
@@ -88,9 +88,12 @@ const preview = async (k) => {
   await f.locator("#o", { hasText: want }).waitFor({ timeout: 10000 }).catch(() => {});
   await p.waitForTimeout(300); // a violation report, if any, comes just after
   const o = await f.locator("#o").innerText().catch(() => "?");
+  const styled = await f.locator("#o").evaluate(el => {
+    const s = getComputedStyle(el); return s.color === "rgb(12, 34, 56)" && s.paddingTop === "7px";
+  }).catch(() => false);
   // The preview's own policy blocking its fetch and image is expected; only the page's policy (the nonce one) counts here.
   const page = viol.filter((v) => /'nonce-|form-action 'self'/.test(v));
-  check(o === want && !page.length, `preview ${k}: works with the page's policy enforced (${o}) ${page.join(" | ")}`);
+  check(o === want && styled && !page.length, `preview ${k}: script/handler and styles work with the page's policy enforced (${o}, styled=${styled}) ${page.join(" | ")}`);
   await p.close();
 };
 const bugReport = async () => {
