@@ -121,6 +121,7 @@ export { SlackTeam } from "./slackQueue";
 import { forwardDestOk, forwardExcerptInEntry, keptOwnNotice } from "./audience";
 import { audienceNotice, MAX_FILES_PER_MESSAGE, MAX_IMAGE, MAX_MESSAGE_BYTES, MAX_WAIT_MS, WAIT_CAP } from "./board";
 import * as sessions from "./sessions";
+import * as listen from "./listen";
 import { compactLine, formatEntry, formatMemory, handleMessage, parseReadBudget, parseSummaryBudget, presentReadEntries, readHeader, readParts, withNames } from "./state";
 import { fence, flagged } from "./screen";
 import { CODE_COLOR_PATH, CODE_COLOR_SCRIPT } from "./codecolor";
@@ -1235,6 +1236,35 @@ const handler = {
         ].filter((a) => sessions.present(a.last_seen, now));
         return json({ agents });
       }
+      // ---- atteo ping (jxn #5433): is a member's agent open and listening here, and the infra round trip to it ----
+      // {to: "vedu" | "vedu/bender" | "all", probe}: probe pings each CLI socket (never a model, never the log);
+      // without it, only who holds a socket or a wait. Members only; pings are capped per person (src/board.ts).
+      m = path.match(/^\/api\/boards\/([^/]+)\/ping$/);
+      if (m && method === "POST") {
+        if (!viewer) return needLogin();
+        if (!BOARD_RE.test(m[1]) || !(await registry.memberRole(env, m[1], viewer.name))) return json({ error: "board not found" }, 404);
+        const body = (await request.json().catch(() => ({}))) as { to?: unknown; probe?: unknown };
+        const target = listen.parseTarget(typeof body.to === "string" ? body.to : null);
+        if (target && !(await registry.memberRole(env, m[1], target.user))) return json({ error: `${target.user} isn't on this board.` }, 404);
+        const probe = body.probe !== false;
+        const got = await boardStub(env, m[1]).listeners(viewer.name, target?.user ?? null, probe);
+        if (!Array.isArray(got)) return json({ error: got.error }, 429);
+        const ids = [...new Set(got.map((l) => l.session).filter((x): x is string => !!x))].slice(0, 100);
+        const named = ids.length
+          ? (await env.DB.prepare(`SELECT id, name, client FROM agent_sessions WHERE id IN (${ids.map(() => "?").join(",")})`).bind(...ids).all<{ id: string; name: string; client: string | null }>()).results
+          : [];
+        const [members, mcp, here] = await Promise.all([registry.boardMembers(env, m[1]), registry.agentsOnBoard(env, m[1]), sessions.onBoard(env, m[1])]);
+        const memberSet = new Set(members.map((x) => x.user));
+        const rows = listen.liveRows(
+          got.filter((l) => memberSet.has(l.user)),
+          new Map(named.map((x) => [x.id, { name: x.name, client: x.client }])),
+          here.filter((x) => memberSet.has(x.user)),
+          Object.fromEntries(Object.entries(mcp).filter(([u]) => memberSet.has(u))),
+          probe,
+          target,
+        );
+        return json({ probe, agents: rows.map((r) => ({ ...r, line: listen.describeRow(r) })) }, 200, { "cache-control": "no-store" });
+      }
       // ---- the mailbox: your agent's mail across every board and DM, for your own dispatcher to poll ----
       if (path === "/api/mailbox" && method === "GET") {
         if (!viewer) return needLogin();
@@ -2198,7 +2228,10 @@ const handler = {
         if (!role) return json({ error: "board not found" }, 404);
         // Signed in as the person (cookie, the app's token) or an agent's token: people-only signals reach only the first.
         const as = viewer && viewer.via !== "agent" ? "person" : "agent";
-        return boardStub(env, m[1]).fetch(new Request(`https://board/ws?user=${encodeURIComponent(who)}&role=${role}&as=${as}`, request));
+        // An agent's CLI says which session it is (X-Atteo-Session), so atteo ping can answer per session (#5433).
+        const sh = as === "agent" ? atteoHeader(request, "session") : null;
+        const sid = sh ? ((await sessions.get(env, who, sh).catch(() => null))?.id ?? null) : null;
+        return boardStub(env, m[1]).fetch(new Request(`https://board/ws?user=${encodeURIComponent(who)}&role=${role}&as=${as}${sid ? `&session=${encodeURIComponent(sid)}` : ""}`, request));
       }
 
       // ---- a new board, as JSON (the app's "New board"; the web uses the POST /boards form). Encrypted unless asked not to. ----

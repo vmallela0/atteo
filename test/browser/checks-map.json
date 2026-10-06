@@ -32,6 +32,7 @@
     "src/hostUi.ts": ["host"],
     "src/hostCore.ts": ["host"],
     "src/accountDelete.ts": ["delete-account"],
+    "src/listen.ts": ["ping"],
     "src/openapi.ts": [],
     "src/githubApp.ts": [],
     "cli/**": ["e2e-web"],

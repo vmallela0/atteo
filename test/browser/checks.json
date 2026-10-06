@@ -158,6 +158,7 @@
  "mention-rename": 4,
  "board-export": 2,
  "claim-session": 2,
+ "ping": 5,
  "access-all": 3,
  "moderation": 4,
  "board-prefetch": 3,

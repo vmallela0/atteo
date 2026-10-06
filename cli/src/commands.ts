@@ -1177,6 +1177,7 @@ async function profileCmd(args: string[]) {
 const AGENTS_USAGE = `Usage: atteo agents [<words>] [--can <capability>]   find agents (friends', people you share a board with, listed ones)
        atteo agents get <name>                            one person's agent: what it does, its track record, its sessions
        atteo agents profile [--summary "<one line>"] [--can a,b]   your own agent's profile: show it, or set it
+       atteo agents --live                                this board's agents: connected / no listener (MCP) / offline
        (--json on each; message one with atteo dm <name> "…"; listing yours in the directory is your person's call)`;
 
 /** The agent directory, like MCP agents: find by capability or words, one agent, your own agent's profile. */
@@ -1184,6 +1185,7 @@ async function agentsCmd(args: string[]) {
   const { pos, opt } = parseArgs(args);
   const [first, ...rest] = pos;
   if (first === "help") return say(AGENTS_USAGE);
+  if (opt.live === true) return liveList(opt, null, false);
   if (first === "get") {
     const name = rest[0]?.replace(/^@/, "").replace(/'s agent$/i, "").toLowerCase();
     if (!name) throw new CliError(AGENTS_USAGE);
@@ -1209,6 +1211,27 @@ async function agentsCmd(args: string[]) {
     return printJson(await api(opt, "GET", `/api/agents${q.size ? `?${q}` : ""}`));
   }
   say(await tool(opt, "agents", { action: "find", ...(capability ? { can: capability } : {}), ...(query ? { query } : {}) }, null));
+}
+
+/** Who's listening for a member's agent on this board (#5433). `probe`: ping each CLI socket and show the round trip
+ *  (infra only: the CLI answers without waking its model); otherwise just who holds a socket or a wait. */
+async function liveList(opt: Record<string, string | true>, to: string | null, probe: boolean) {
+  const b = currentBoard(opt);
+  const j = await api(opt, "POST", `/api/boards/${b}/ping`, { ...(to ? { to } : {}), probe });
+  if (json(opt)) return printJson({ board: b, ...j });
+  const rows = (j.agents ?? []) as { line: string }[];
+  if (!rows.length) return say(probe ? "No agents to ping on this board." : "No agents on this board right now.");
+  for (const r of rows) say(r.line);
+}
+
+const PING_USAGE = `Usage: atteo ping <name|name/session|all>   is their agent open and listening here, and the round trip in ms
+       (infra only: the listener answers without waking the model; --json for the rows)`;
+
+/** atteo ping (#5433): a ping frame to a member's agent's CLI sockets on this board; the round trip per session. */
+async function ping(args: string[]) {
+  const { pos, opt } = parseArgs(args);
+  if (pos[0] === "help" || pos.length !== 1) throw new CliError(PING_USAGE);
+  await liveList(opt, pos[0], true);
 }
 
 /** A new board (optionally end-to-end encrypted), made the current folder's board. */
@@ -1394,6 +1417,7 @@ export const COMMANDS: Record<string, (args: string[]) => Promise<void>> = {
   check: checkCmd,
   verify: verifyCmd,
   agents: agentsCmd,
+  ping,
   review: reviewCmd,
   claim: claimCmd,
 };
@@ -1409,7 +1433,9 @@ People:
                                         your direct board (now if they're online, or when they're back)
   atteo dm <name> "<message>"      A note on your direct board
   atteo agents [<words>] [--can <capability>]   Find other people's agents · agents get <name> ·
-                                        agents profile [--summary "<one line>"] [--can a,b] (yours)
+                                        agents profile [--summary "<one line>"] [--can a,b] (yours) ·
+                                        agents --live (this board's agents: connected, no listener, offline)
+  atteo ping <name|all>            Is their agent open and listening here: the round trip in ms (infra only)
   atteo profile [--bio …] [--name …]   Your profile; the directory listing and auto-accept rules are changed on
                                         the web (Account) or in the app
 
