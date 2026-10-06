@@ -16,8 +16,10 @@ let hosts=[];
 function paint(){const live=hosts.filter(x=>!x.stopped_at),on=live.filter(x=>x.online);
   let ban=document.getElementById('host-ban');
   if(on.length){if(!ban){ban=document.createElement('div');ban.id='host-ban';ban.setAttribute('role','alert');
-      ban.style.cssText='display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:8px 12px;padding:10px 12px;border-radius:var(--r);background:var(--intervene);color:var(--on-intervene);font-size:13px';
-      const at=document.getElementById('thread-scroll');(at&&at.parentNode?at.parentNode:document.body).insertBefore(ban,at&&at.parentNode?at:null)}
+      ban.style.cssText='flex:none;display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:8px 12px;padding:10px 12px;border-radius:var(--r);background:var(--intervene);color:var(--on-intervene);font-size:13px';
+      // Above the thread, not beside it: .thread-wrap is a row (the thread and its rail), so a banner in there took the
+      // full height and squeezed the thread to nothing (jxn #4899).
+      const wrap=document.getElementById('thread-scroll')?.closest('.thread-wrap');(wrap&&wrap.parentNode?wrap.parentNode:document.body).insertBefore(ban,wrap&&wrap.parentNode?wrap:null)}
     ban.innerHTML='<b>⚠️ '+h(t('Machine attached'))+'</b><span style="flex:1;min-width:200px">'+on.map(x=>h(x.owner)+"'s "+h(x.name)).join(', ')+' · '+h(t('agents here can ask to run commands on it; its owner approves each one.'))+'</span>'+
       on.filter(canStop).map(x=>'<button type="button" class="btn sm" data-host-stop="'+h(x.id)+'">'+h(t('Stop'))+' '+h(x.name)+'</button>').join('')}
   else if(ban)ban.remove();

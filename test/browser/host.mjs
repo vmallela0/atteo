@@ -33,6 +33,10 @@ check(text.includes(`${Q}'s qbox${run}`) && /Machine attached/.test(text), `a re
 const red = await p.evaluate(() => { const s = getComputedStyle(document.getElementById("host-ban")); return s.backgroundColor; });
 const inter = await p.evaluate(() => { const d = document.createElement("div"); d.style.background = "var(--intervene)"; document.body.appendChild(d); const c = getComputedStyle(d).backgroundColor; d.remove(); return c; });
 check(red === inter, `the banner is the intervention colour (${red} vs ${inter})`);
+// It sits above the thread, not beside it (jxn #4899: inside .thread-wrap's row it took the full height and squeezed
+// the thread to nothing): a short strip, and the thread keeps its width and most of the height.
+const box = await p.evaluate(() => { const b = document.getElementById("host-ban").getBoundingClientRect(), t = document.getElementById("thread-scroll").getBoundingClientRect(); return { bh: Math.round(b.height), bb: Math.round(b.bottom), tt: Math.round(t.top), tw: Math.round(t.width), th: Math.round(t.height) }; });
+check(box.bh < 120 && box.bb <= box.tt + 1 && box.tw > 500 && box.th > 300, `the banner is a strip above the thread, which keeps its size (${JSON.stringify(box)})`);
 const side = await p.evaluate(() => document.querySelector("#host-side .host-list")?.innerText || "");
 check(side.includes(`qbox${run}`) && side.includes("/home/q/proj") && side.includes("Stop"), `the side panel lists it with Stop for the board's owner ("${side.replace(/\s+/g, " ").slice(0, 120)}")`);
 // Attach a machine, from the side panel: how to start atteo host there (no phrase here: that comes from its link).
