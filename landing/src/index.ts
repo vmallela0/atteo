@@ -8,6 +8,7 @@ import OG_PNG from "../og.png"; // 1200×630 share image, rendered from ../og.ht
 // The app's own fonts (opus-d, look-2): the same files at /fonts/<file>?v=N, which this Worker forwards to the app, so
 // the landing and the app share one copy and no page asks Google for anything.
 import { FONT_CSS, FONT_V } from "../../src/fontfaces";
+import { markInline } from "../../src/mark";
 import { beaconSnippet, landingCsp } from "./csp";
 
 /**
@@ -29,8 +30,8 @@ const SESSION_COOKIE = "ab_session"; // the app's sign-in cookie (SESSION_COOKIE
 // shapes, borders and layout are as before. One accent (jxn #2858): oxblood, only on the main action (Start a chat);
 // everything else is on the neutral secondaries (ink/graphite/stone/bone), and the page is white whatever the system
 // theme (?theme=dark still previews the dark pair). The mark's cone is its own colour (--cone). Avatars are round initials (agents inverted), not drawings (jxn #2525).
-const mark = (size: number, id: string) =>
-  `<svg class="mk" width="${size}" height="${size}" viewBox="112 112 800 800" aria-hidden="true"><defs><filter id="${id}" x="-10%" y="-10%" width="120%" height="120%"><feTurbulence type="fractalNoise" baseFrequency="0.018" numOctaves="2" seed="7"/><feDisplacementMap in="SourceGraphic" scale="16"/></filter></defs><g transform="translate(512 512) translate(-519.9 -507.7)"><g filter="url(#${id})" fill="none" stroke-linecap="round" stroke-linejoin="round"><path class="mk-i" d="M400.0 512.0Q512.1 403.2 650.0 330.0M400.0 512.0Q517.1 623.8 660.0 700.0" stroke-width="22"/><g stroke-width="36"><g class="mk-c" transform="translate(400.0 512.0) rotate(-90.0)"><path d="M-95 -200L-19 0H19L95 -200"/><ellipse cx="0" cy="-200" rx="95" ry="32.3"/></g><g class="mk-i" transform="translate(650.0 330.0) rotate(53.9)"><path d="M-70 -200V-6Q0 30.8 70 -6V-200"/><ellipse cx="0" cy="-200" rx="70" ry="23.8"/></g><g class="mk-i" transform="translate(660.0 700.0) rotate(125.9)"><path d="M-70 -200V-6Q0 30.8 70 -6V-200"/><ellipse cx="0" cy="-200" rx="70" ry="23.8"/></g></g></g></g></svg>`;
+// The mark is the app's (src/mark.ts): the graph from jxn's atteo_design.pdf on its tile, in the page's colours.
+const mark = (size: number, _id: string) => markInline(size, "mk");
 /** The wordmark's marker filter (design language v1), defined once per page and used by .wm. */
 const WM_FILTER = `<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false"><defs><filter id="wm-marker" x="-5%" y="-15%" width="110%" height="130%"><feTurbulence type="fractalNoise" baseFrequency="0.035" numOctaves="2" seed="7" result="n"/><feDisplacementMap in="SourceGraphic" in2="n" scale="5" xChannelSelector="R" yChannelSelector="G" result="d"/><feGaussianBlur in="d" stdDeviation="0.8" result="b"/><feComponentTransfer in="b"><feFuncA type="table" tableValues="0 0 0 0.5 1"/></feComponentTransfer></filter></defs></svg>`;
 /** An avatar: the initial on bone for a person, inverted (paper on ink) for an agent. */
@@ -52,14 +53,15 @@ a{color:inherit;text-decoration:none}
 code,pre{font-family:"Courier Prime",ui-monospace,Menlo,monospace}
 p{margin:0}
 a:focus-visible,button:focus-visible,input:focus-visible{outline:2px solid var(--ink);outline-offset:3px}
-.mk .mk-i{stroke:var(--ink)}.mk .mk-c{stroke:var(--cone)}
+.mk{color:var(--ink)}
 .mk{display:block;flex:none}
 /* Schoolbell's line is thin and the marker filter eats into it, so the letters get a little stroke first. */
-.wm{font-family:"Schoolbell",cursive;font-weight:400;filter:url(#wm-marker);letter-spacing:.02em;line-height:1;-webkit-text-stroke:.05em currentColor;paint-order:stroke fill}
+.wm{font-family:"STIX Two Text",Georgia,serif;font-weight:400;letter-spacing:-.01em;line-height:1} /* the wordmark (atteo_design.pdf p.1): lowercase, STIX Two Text Regular, ink */
+.wmb{display:flex;flex-direction:column;gap:3px}.tagl{font-family:"STIX Two Text",Georgia,serif;font-size:13px;line-height:1;color:var(--graphite,var(--muted))}
 .wrap{max-width:1180px;margin:0 auto;padding:0 48px}
 .top{display:flex;align-items:center;height:72px}
 .brand{display:flex;align-items:center;gap:6px;color:var(--ink)}
-.brand{gap:8px}.brand .wm{font-size:38px;margin-top:-4px}
+.brand{gap:10px}.brand .wm{font-size:30px}
 .top .in{margin-left:auto;font-size:14px;color:var(--muted)}
 .top .in:hover{color:var(--ink)}
 
@@ -129,7 +131,7 @@ footer a:hover{color:var(--ink)}
 @media (max-width:760px){
   .wrap{padding:0 20px}
   .top{height:56px}
-  .brand .wm{font-size:32px}
+  .brand .wm{font-size:26px}
   .msg{grid-template-columns:36px minmax(0,1fr);column-gap:12px;margin-top:8vh}
   .msg>.mk{margin-top:0}
   .msg .who{font-size:15px}
@@ -190,7 +192,7 @@ function head(theme: string | null, title = TITLE, desc = DESCRIPTION, path = "/
 <title>${title}</title>
 <meta name="description" content="${desc}"><meta name="robots" content="index,follow,max-image-preview:large">
 <meta name="theme-color" content="#FFFFFF">
-<link rel="canonical" href="${SITE_URL}${path}"><link rel="icon" href="/favicon.svg?v=cone" type="image/svg+xml"><link rel="apple-touch-icon" href="/apple-touch-icon.png?v=cone"><link rel="alternate" type="text/plain" href="${SITE_URL}/llms.txt" title="Atteo for language models">
+<link rel="canonical" href="${SITE_URL}${path}"><link rel="icon" href="/favicon.svg?v=graph" type="image/svg+xml"><link rel="apple-touch-icon" href="/apple-touch-icon.png?v=graph"><link rel="alternate" type="text/plain" href="${SITE_URL}/llms.txt" title="Atteo for language models">
 <meta property="og:type" content="website"><meta property="og:locale" content="en_US"><meta property="og:site_name" content="Atteo"><meta property="og:url" content="${SITE_URL}${path}">
 <meta property="og:title" content="${title}"><meta property="og:description" content="${desc}">
 <meta property="og:image" content="${SITE_URL}/og.png"><meta property="og:image:width" content="1200"><meta property="og:image:height" content="630"><meta property="og:image:alt" content="Atteo">
@@ -221,7 +223,7 @@ openapi: ${APP_URL}/openapi.json`;
 /** Header, one main column and the footer shared by the guide, FAQ and support pages (the landing keeps its own body). */
 function page(theme: string | null, inner: string, title: string, desc: string, path: string): string {
   return `${head(theme, title, desc, path)}<body>${WM_FILTER}<div class="wrap">
-<header class="top"><a class="brand" href="/" aria-label="Atteo home">${mark(34, "mk-brand")}<span class="wm">atteo</span></a><a class="in" href="${APP_URL}/auth/login">Sign in</a></header>
+<header class="top"><a class="brand" href="/" aria-label="Atteo home">${mark(27, "mk-brand")}<span class="wmb"><span class="wm">atteo</span><span class="tagl">communication for agents</span></span></a><a class="in" href="${APP_URL}/auth/login">Sign in</a></header>
 <main class="doc">${inner}</main>
 ${FOOTER}
 </div></body></html>`;
@@ -324,7 +326,7 @@ function supportPage(theme: string | null): string {
 
 function home(theme: string | null, beacon = ""): string {
   return `${head(theme)}<body>${WM_FILTER}<div class="wrap">
-<header class="top"><a class="brand" href="/" aria-label="Atteo home">${mark(34, "mk-brand")}<span class="wm">atteo</span></a><a class="in" href="${APP_URL}/auth/login">Sign in</a></header>
+<header class="top"><a class="brand" href="/" aria-label="Atteo home">${mark(27, "mk-brand")}<span class="wmb"><span class="wm">atteo</span><span class="tagl">communication for agents</span></span></a><a class="in" href="${APP_URL}/auth/login">Sign in</a></header>
 <main>
 <article class="msg">
   ${mark(42, "mk-hero")}
