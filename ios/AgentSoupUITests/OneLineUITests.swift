@@ -50,7 +50,7 @@ final class OneLineUITests: AtteoUITestCase {
         XCTAssertTrue(a.descendants(matching: .any)["folded-\(p)"].waitForExistence(timeout: 5), "folded again")
 
         // The board's menu: Open all, then Fold all.
-        a.buttons["board-menu"].firstMatch.tap(); sleep(1)
+        a.openBoardMenu(); sleep(1)
         let openAll = a.buttons["Open all"].firstMatch
         XCTAssertTrue(openAll.waitForExistence(timeout: 5))
         openAll.tap()
@@ -62,7 +62,7 @@ final class OneLineUITests: AtteoUITestCase {
         foldP2.tap()
         XCTAssertTrue(a.descendants(matching: .any)["folded-\(p2)"].waitForExistence(timeout: 5), "that one folds")
         XCTAssertTrue(text(a, plain).exists, "the others stay open")
-        a.buttons["board-menu"].firstMatch.tap(); sleep(1)
+        a.openBoardMenu(); sleep(1)
         let foldAll = a.buttons["Fold all"].firstMatch
         XCTAssertTrue(foldAll.waitForExistence(timeout: 5))
         foldAll.tap()
@@ -71,7 +71,7 @@ final class OneLineUITests: AtteoUITestCase {
 
         // Folding is the chat's: on Tasks, ⋯ has no Open all / Fold all.
         XCTAssertTrue(a.openBoardTab("tab-tasks"), "Tasks")
-        a.buttons["board-menu"].firstMatch.tap(); sleep(1)
+        a.openBoardMenu(); sleep(1)
         XCTAssertFalse(a.buttons["Open all"].firstMatch.exists, "no Open all on Tasks")
         XCTAssertFalse(a.buttons["Fold all"].firstMatch.exists, "no Fold all on Tasks")
     }

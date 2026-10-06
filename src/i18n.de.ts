@@ -1,5 +1,9 @@
 // German (de) for the interface (i18n.ts): English as written in the code → Deutsch. Machine-drafted; native review welcome.
 export const DE: Record<string, string> = {
+  "Settings": "Einstellungen",
+  "Ops": "Betrieb",
+  "No matches": "Keine Treffer",
+  "Type to search": "Zum Suchen eingeben",
   "Use xAI for voice": "xAI für Sprache nutzen",
   "Voice chat and the natural reading voice send your voice and the messages being read to xAI. Off: you're asked first.": "Sprachchat und die natürliche Vorlesestimme senden deine Stimme und die vorgelesenen Nachrichten an xAI. Aus: Du wirst zuerst gefragt.",
   "Turn on Use xAI for voice first": "Schalte zuerst „xAI für Sprache nutzen“ ein",
