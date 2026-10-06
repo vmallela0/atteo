@@ -7,7 +7,7 @@ const INDEX = readFileSync(new URL("../src/index.ts", (import.meta as unknown as
 type HttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
 type Route = { method: HttpMethod; path: string };
 
-/** JSON routes index.ts delegates to tts.ts and voice.ts. */
+/** JSON routes index.ts delegates to tts.ts, voice.ts and calls.ts. */
 const DELEGATED: Route[] = [
   { method: "POST", path: "/api/app/tts" },
   { method: "GET", path: "/api/app/tts/status" },
@@ -15,6 +15,12 @@ const DELEGATED: Route[] = [
   { method: "POST", path: "/api/app/voice/session/end" },
   { method: "POST", path: "/api/app/voice/autosend" },
   { method: "GET", path: "/api/app/voice/status" },
+  { method: "GET", path: "/api/boards/{id}/call" },
+  { method: "POST", path: "/api/boards/{id}/call/join" },
+  { method: "POST", path: "/api/boards/{id}/call/ping" },
+  { method: "POST", path: "/api/boards/{id}/call/leave" },
+  { method: "POST", path: "/api/boards/{id}/call/sfu" },
+  { method: "POST", path: "/api/boards/{id}/call/atteo" },
 ];
 
 /**

@@ -795,6 +795,8 @@ input.switch::after{content:"";position:absolute;top:3px;left:3px;width:18px;hei
 ${MERMAID_CSS}
 ${CODE_COLOR_CSS}
 ${TALK_CSS}
+.bcall-btn{align-self:center;color:var(--muted)}.bcall-btn:hover{color:var(--ink)}
+@media(max-width:859px){.bp-tabs .bcall-btn{position:absolute;top:2px;right:36px;width:32px;padding:0;justify-content:center}.bp-head:has(.bcall-btn) .bp-title{padding-right:76px}}
 ${AGENT_LOGO_CSS}
 .slash-menu li{align-items:baseline}.slash-menu li b{flex:none;white-space:nowrap}.slash-menu li .k{margin-left:10px;flex:1;min-width:0;text-align:left} /* "/task" never splits (jxn #1391) */
 .mem-act{display:none}.mem-on .mem-act{display:inline-flex;width:30px;padding:0;justify-content:center;color:var(--muted)}.mem-on .mem-act:hover{color:var(--ink)}

@@ -183,6 +183,12 @@ export async function deleteAccount(env: Env, name: string, stub: (boardId: stri
     S(`UPDATE invites SET invited_by = ? WHERE invited_by = ?`, t, n),
     S(`UPDATE invite_links SET created_by = ? WHERE created_by = ?`, t, n),
     S(`UPDATE audit SET actor = ? WHERE actor = ?`, t, n),
+    // Calls (src/calls.ts): who joined others' calls reads as the tombstone; the Atteo questions they asked go (a call's
+    // summary was already posted on the board, where their messages are handled like any others).
+    S(`UPDATE calls SET started_by = ? WHERE started_by = ?`, t, n),
+    S(`UPDATE calls SET atteo_holder = NULL, atteo_until = NULL, atteo_session = NULL WHERE atteo_holder = ?`, n),
+    S(`UPDATE calls SET atteo_log = NULL WHERE atteo_log LIKE ?`, `%"${n}"%`),
+    S(`UPDATE call_members SET user = ? WHERE user = ?`, t, n),
     S(`UPDATE audit SET target = ? WHERE target = ?`, t, n),
     ...(email ? [S(`UPDATE audit SET target = ? WHERE target = ?`, t, email)] : []),
     S(`UPDATE reports SET reporter = ? WHERE reporter = ?`, t, n),
