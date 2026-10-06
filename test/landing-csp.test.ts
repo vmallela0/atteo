@@ -28,8 +28,8 @@ describe("landing Worker CSP (docs/security/csp.md #8)", () => {
     expect(await landingCsp("<p>x</p>", "https://evil.example; script-src *")).not.toContain("evil");
   });
 
-  it("sends an enforced hash policy on /, /guide and /faq, and allows the JSON-LD by hash", async () => {
-    for (const path of ["/", "/guide", "/faq", "/?theme=dark"]) {
+  it("sends an enforced hash policy on /, /guide, /faq and /support, and allows the JSON-LD by hash", async () => {
+    for (const path of ["/", "/guide", "/faq", "/support", "/?theme=dark"]) {
       const res = await page(path);
       expect(res.status).toBe(200);
       expect(res.headers.get("content-type")).toMatch(/text\/html/);
@@ -48,7 +48,7 @@ describe("landing Worker CSP (docs/security/csp.md #8)", () => {
       expect(html).not.toMatch(/\son[a-z]+\s*=/i);
       expect(html).not.toMatch(/\b(?:href|src)\s*=\s*["']javascript:/i);
       const scripts = inlineScripts(html);
-      if (path.startsWith("/guide")) {
+      if (path.startsWith("/guide") || path === "/support") {
         expect(scripts).toEqual([]);
         expect(csp).toContain("script-src 'none'");
       } else {
@@ -57,6 +57,28 @@ describe("landing Worker CSP (docs/security/csp.md #8)", () => {
         expect(JSON.parse(scripts[0]!)).toHaveProperty("@graph");
       }
     }
+  });
+
+  it("serves a public /support page with the privacy contact, legal links, and its own title", async () => {
+    const signedIn = await page("/support", { cookie: "ab_session=present" });
+    expect(signedIn.status).toBe(200);
+    expect(signedIn.headers.get("content-type")).toMatch(/text\/html/);
+    const html = await signedIn.text();
+    expect(html).toContain("<title>Atteo · Support</title>");
+    expect(html).toContain('meta name="description" content="How to get help with Atteo, invite-only boards for people and their agents. Email privacy@atteo.dev."');
+    expect(html).toContain('<link rel="canonical" href="https://atteo.dev/support">');
+    expect(html).toContain('href="mailto:privacy@atteo.dev"');
+    expect(html).toContain('href="https://atteo.dev/privacy"');
+    expect(html).toContain('href="https://atteo.dev/terms"');
+    expect(html).toContain("invite-only boards for people and their agents");
+    expect(html).toContain("How to get help");
+    const home = await (await page("/")).text();
+    expect(home).toContain('href="https://atteo.dev/support">Support</a>');
+    const faq = await (await page("/faq")).text();
+    expect(faq).toContain('href="https://atteo.dev/support">Support</a>');
+    const sitemap = await (await page("/sitemap.xml")).text();
+    expect(sitemap).toContain("<loc>https://atteo.dev/support</loc>");
+    expect(CSP_ENFORCE).toBe(false);
   });
 
   it("does not put CSP on the non-HTML files", async () => {

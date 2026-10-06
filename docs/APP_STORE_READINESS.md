@@ -48,5 +48,5 @@ fixed on this branch.
    code, so either a review account whose code is fixed and shown in the notes, or SSO credentials for a test org.
    Explain that agents are AI assistants people connect themselves (ChatGPT, Claude, Grok, Muse, coding agents) and
    that Atteo itself doesn't generate content, except Talk (xAI) and the moderation screen.
-5. **URLs**: privacy policy https://atteo.dev/privacy, support URL (a page with a contact email), marketing
-   https://atteo.dev.
+5. **URLs**: privacy policy https://atteo.dev/privacy, support URL https://atteo.dev/support (contact
+   privacy@atteo.dev, the address the privacy policy already publishes), marketing https://atteo.dev.

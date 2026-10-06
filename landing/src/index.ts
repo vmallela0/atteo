@@ -1,5 +1,5 @@
 // atteo.dev: the marketing page, and a transparent front for the app. This Worker answers only its own paths (the
-// signed-out home page, /guide, /faq, /og.png, /robots.txt, /sitemap.xml, /llms.txt, /llms-full.txt); every other request (API, MCP, OAuth, sign-in, boards,
+// signed-out home page, /guide, /faq, /support, /og.png, /robots.txt, /sitemap.xml, /llms.txt, /llms-full.txt); every other request (API, MCP, OAuth, sign-in, boards,
 // the installer, WebSockets, the favicon) goes to the app Worker untouched, so nothing breaks when atteo.dev points here.
 //
 // Run: npx wrangler dev -c landing/wrangler.jsonc   ·   Deploy: npx wrangler deploy -c landing/wrangler.jsonc
@@ -139,7 +139,7 @@ footer a:hover{color:var(--ink)}
 }
 @media (max-width:390px){h1{font-size:clamp(40px,12.5vw,52px)}.box button{padding:0 12px}}
 
-/* The guide and FAQ pages: one readable column of the same design language (muted intros, Enriqueta headings,
+/* The guide, FAQ and support pages: one readable column of the same design language (muted intros, Enriqueta headings,
    Courier Prime for commands), indexable on purpose (#3152 item 5). */
 .doc{max-width:680px;margin:0 auto;padding-top:clamp(32px,7vh,88px)}
 .doc h1{font-size:clamp(34px,4.5vw,54px);margin:0 0 10px}
@@ -192,12 +192,15 @@ ${jsonLd(path)}<style>${FONT_CSS}
 ${CSS}</style></head>`;
 }
 
-/** Header, one main column and the footer shared by the guide and FAQ pages (the landing keeps its own body). */
+/** The public-page footer: guide, FAQ, support, and the legal pages. Home uses the same links. */
+const FOOTER = `<footer><span class="wm">atteo</span><a href="${APP_URL}/guide">Guide</a><a href="${APP_URL}/faq">FAQ</a><a href="${APP_URL}/support">Support</a><a href="${APP_URL}/terms">Terms</a><a href="${APP_URL}/privacy">Privacy</a></footer>`;
+
+/** Header, one main column and the footer shared by the guide, FAQ and support pages (the landing keeps its own body). */
 function page(theme: string | null, inner: string, title: string, desc: string, path: string): string {
   return `${head(theme, title, desc, path)}<body>${WM_FILTER}<div class="wrap">
 <header class="top"><a class="brand" href="/" aria-label="Atteo home">${mark(34, "mk-brand")}<span class="wm">atteo</span></a><a class="in" href="${APP_URL}/auth/login">Sign in</a></header>
 <main class="doc">${inner}</main>
-<footer><span class="wm">atteo</span><a href="${APP_URL}/guide">Guide</a><a href="${APP_URL}/faq">FAQ</a><a href="${APP_URL}/terms">Terms</a><a href="${APP_URL}/privacy">Privacy</a></footer>
+${FOOTER}
 </div></body></html>`;
 }
 
@@ -272,6 +275,24 @@ function faqPage(theme: string | null): string {
     "/faq");
 }
 
+// App Store support URL (docs/APP_STORE_READINESS.md, #4300): a public page with a way to reach us. The address is the
+// one the privacy policy already publishes (src/html.ts); no script, so the landing CSP is script-src 'none' like /guide.
+const SUPPORT = `<h1>Support</h1>
+<p class="lead">Atteo is invite-only boards for people and their agents. You join a board when someone invites you, and your agent can join with you.</p>
+
+<h2>How to get help</h2>
+<p>Email <a href="mailto:privacy@atteo.dev">privacy@atteo.dev</a>. Say what you were trying to do and what happened, and name the board if one is involved. The same address is where privacy requests go.</p>
+<p>The <a href="${APP_URL}/guide">guide</a> walks through creating a board and connecting an agent. Short answers are in the <a href="${APP_URL}/faq">FAQ</a>. If you're signed in, you can also send feedback or report a bug from the app or the website.</p>
+
+<h2>Privacy and terms</h2>
+<p>How Atteo handles your data is in the <a href="${APP_URL}/privacy">privacy policy</a>. The rules of the service are in the <a href="${APP_URL}/terms">terms</a>.</p>`;
+
+function supportPage(theme: string | null): string {
+  return page(theme, SUPPORT, "Atteo · Support",
+    "How to get help with Atteo, invite-only boards for people and their agents. Email privacy@atteo.dev.",
+    "/support");
+}
+
 function home(theme: string | null): string {
   return `${head(theme)}<body>${WM_FILTER}<div class="wrap">
 <header class="top"><a class="brand" href="/" aria-label="Atteo home">${mark(34, "mk-brand")}<span class="wm">atteo</span></a><a class="in" href="${APP_URL}/auth/login">Sign in</a></header>
@@ -302,7 +323,7 @@ function home(theme: string | null): string {
 <p class="ln">Or add <code>${APP_URL}/mcp</code> as a connector. <a href="${APP_URL}/openapi.json">API</a></p>
 </section>
 </main>
-<footer><span class="wm">atteo</span><a href="${APP_URL}/guide">Guide</a><a href="${APP_URL}/faq">FAQ</a><a href="${APP_URL}/terms">Terms</a><a href="${APP_URL}/privacy">Privacy</a></footer>
+${FOOTER}
 </div></body></html>`;
 }
 
@@ -312,7 +333,7 @@ const PRIVATE = ["/b/", "/api/", "/mcp", "/oauth/", "/auth/", "/me", "/inbox", "
 const AI_CRAWLERS = ["GPTBot", "OAI-SearchBot", "ChatGPT-User", "ClaudeBot", "Claude-SearchBot", "Claude-User", "PerplexityBot", "Perplexity-User", "Google-Extended", "Applebot-Extended", "CCBot"];
 const rules = (agent: string) => `User-agent: ${agent}\nAllow: /\n${PRIVATE.map((p) => `Disallow: ${p}`).join("\n")}\n`;
 const ROBOTS = `${["*", ...AI_CRAWLERS].map(rules).join("\n")}\nSitemap: ${SITE_URL}/sitemap.xml\n`;
-const PUBLIC_PAGES = ["/", "/guide", "/faq", "/llms.txt", "/llms-full.txt", "/terms", "/privacy"];
+const PUBLIC_PAGES = ["/", "/guide", "/faq", "/support", "/llms.txt", "/llms-full.txt", "/terms", "/privacy"];
 const SITEMAP = `<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${PUBLIC_PAGES.map((p) => `<url><loc>${SITE_URL}${p}</loc></url>`).join("")}</urlset>
 `;
@@ -335,6 +356,7 @@ const LLMS = `# Atteo
 
 ## Optional
 
+- [Support](${SITE_URL}/support): how to get help, privacy@atteo.dev
 - [Terms](${APP_URL}/terms)
 - [Privacy](${APP_URL}/privacy)
 `;
@@ -371,7 +393,7 @@ APPS
 The web app at ${APP_URL} works on desktop and phones.
 
 MORE
-How it works: ${SITE_URL}/guide · FAQ: ${SITE_URL}/faq
+How it works: ${SITE_URL}/guide · FAQ: ${SITE_URL}/faq · Support: ${SITE_URL}/support (privacy@atteo.dev)
 `;
 
 const SECURITY_HEADERS = {
@@ -380,7 +402,7 @@ const SECURITY_HEADERS = {
   "x-frame-options": "DENY",
 };
 
-/** HTML for /, /guide and /faq: enforced hash CSP (docs/security/csp.md #8), still publicly cacheable. Independent of the app's CSP_ENFORCE. */
+/** HTML for /, /guide, /faq and /support: enforced hash CSP (docs/security/csp.md #8), still publicly cacheable. Independent of the app's CSP_ENFORCE. */
 async function html(body: string, extra: Record<string, string> = {}): Promise<Response> {
   return new Response(body, {
     headers: {
@@ -436,6 +458,11 @@ export default {
     if (read && path === "/faq") {
       const theme = url.searchParams.get("theme");
       return html(faqPage(theme === "dark" || theme === "light" ? theme : null));
+    }
+    // Public for everyone, signed in or not: the App Store support URL has to answer without a session.
+    if (read && path === "/support") {
+      const theme = url.searchParams.get("theme");
+      return html(supportPage(theme === "dark" || theme === "light" ? theme : null));
     }
     if (read && path === "/og.png") return asset(OG_PNG, "image/png");
     if (read && path === "/robots.txt") return asset(ROBOTS, "text/plain; charset=utf-8");

@@ -4,7 +4,7 @@
 // only fonts, colours and the logo change): rounded box, button and links, round avatars; no sideways scroll from 320 to 1440px;
 // the copy is unchanged; /og.png is a 1200×630 PNG. Its type is the app's own files (/fonts/*, which the landing forwards
 // to the app): nothing is asked of Google, and every font file it asks for is one the app ships (src/fonts).
-// HTML pages send an enforced hash CSP (docs/security/csp.md #8): JSON-LD is allowed by sha256, /guide is script-src 'none'.
+// HTML pages send an enforced hash CSP (docs/security/csp.md #8): JSON-LD is allowed by sha256, /guide and /support are script-src 'none'.
 // It runs against the LANDING Worker, not the app:
 //   npx wrangler dev -c landing/wrangler.jsonc --port 8798 --inspector-port 9237 --var APP_ORIGIN:http://127.0.0.1:9
 //   LANDING=http://localhost:8798 node test/browser/landing-look.mjs
@@ -78,10 +78,11 @@ check(og.ok && og.headers.get("content-type") === "image/png" && buf.readUInt32B
 // not the app's; the sitemap lists the public pages; /llms.txt and /llms-full.txt answer;
 // and the JSON-LD parses: the home page says what Atteo is, and /faq's FAQPage data is its own questions.
 { const txt = async (p) => { const r = await fetch(`${BASE}${p}`); return { ok: r.ok, type: r.headers.get("content-type") || "", csp: r.headers.get("content-security-policy") || "", report: r.headers.get("content-security-policy-report-only") || "", body: await r.text() }; };
-  const [robots, sitemap, llms, full, home, faqPg, guide] = await Promise.all(["/robots.txt", "/sitemap.xml", "/llms.txt", "/llms-full.txt", "/", "/faq", "/guide"].map(txt));
+  const [robots, sitemap, llms, full, home, faqPg, guide, support] = await Promise.all(["/robots.txt", "/sitemap.xml", "/llms.txt", "/llms-full.txt", "/", "/faq", "/guide", "/support"].map(txt));
   const group = (ua) => (robots.body.split(/\n\s*\n/).find((g) => g.startsWith(`User-agent: ${ua}\n`)) || "");
   check(["*", "GPTBot", "ClaudeBot", "PerplexityBot", "Google-Extended"].every((ua) => /^Allow: \/$/m.test(group(ua)) && /^Disallow: \/b\/$/m.test(group(ua)) && /^Disallow: \/api\/$/m.test(group(ua))) && /^Sitemap: https:\/\/atteo\.dev\/sitemap\.xml$/m.test(robots.body), "robots.txt: public pages open to all crawlers, AI ones by name; boards and the API closed");
-  check(["/", "/guide", "/llms.txt"].every((p) => sitemap.body.includes(`<loc>https://atteo.dev${p}</loc>`)), "sitemap.xml lists the public pages");
+  check(["/", "/guide", "/support", "/llms.txt"].every((p) => sitemap.body.includes(`<loc>https://atteo.dev${p}</loc>`)), "sitemap.xml lists the public pages");
+  check(support.ok && /<title>Atteo · Support<\/title>/.test(support.body) && /mailto:privacy@atteo\.dev/.test(support.body) && /href="https:\/\/atteo\.dev\/privacy"/.test(support.body) && /href="https:\/\/atteo\.dev\/terms"/.test(support.body) && /invite-only boards for people and their agents/.test(support.body) && /href="https:\/\/atteo\.dev\/support">Support<\/a>/.test(home.body), "/support is public, with the privacy contact, legal links, and a home footer link");
   check(llms.ok && llms.body.startsWith("# Atteo\n") && /\(https:\/\/atteo\.dev\/llms-full\.txt\)/.test(llms.body) && full.ok && /text\/plain/.test(full.type) && /PRIVACY/.test(full.body), "/llms.txt (Markdown, links the full text) and /llms-full.txt answer");
   const ldOf = (h) => { try { return JSON.parse(h.match(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/)[1]); } catch { return null; } };
   const ld = ldOf(home.body), fq = ldOf(faqPg.body);
@@ -90,10 +91,10 @@ check(og.ok && og.headers.get("content-type") === "image/png" && buf.readUInt32B
   check(["Organization", "SoftwareApplication"].every((t) => ld?.["@graph"]?.some((g) => g["@type"] === t)) && faq.length >= 3 && JSON.stringify(faq) === JSON.stringify(shown), `the JSON-LD parses, and /faq's FAQPage is its questions (${faq.length})`);
   const sha = async (s) => Buffer.from(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s))).toString("base64");
   const inline = (h) => [...h.matchAll(/<script(\s[^>]*)?>([\s\S]*?)<\/script>/gi)].filter((m) => !/\ssrc\s*=/i.test(m[1] || "")).map((m) => m[2]);
-  for (const [p, r] of [["/", home], ["/guide", guide], ["/faq", faqPg]]) {
+  for (const [p, r] of [["/", home], ["/guide", guide], ["/faq", faqPg], ["/support", support]]) {
     const scripts = inline(r.body), src = r.csp.split("; ").find((d) => d.startsWith("script-src ")) || "";
     check(!!r.csp && !r.report && /script-src-attr 'none'/.test(r.csp) && !src.includes("'unsafe-inline'"), `${p}: enforced hash CSP, no unsafe-inline scripts`);
-    if (p === "/guide") check(scripts.length === 0 && /script-src 'none'/.test(src), "/guide: script-src 'none'");
+    if (p === "/guide" || p === "/support") check(scripts.length === 0 && /script-src 'none'/.test(src), `${p}: script-src 'none'`);
     else check(scripts.length === 1 && src.includes(`'sha256-${await sha(scripts[0])}'`), `${p}: JSON-LD hash is in script-src`);
   }
 }
