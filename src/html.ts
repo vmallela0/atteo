@@ -795,7 +795,7 @@ const CONNECT_TILES: Tile[] = [
   ["Cursor", "cursor", "Install", 'data-cn-link="cursor" href="#"', "a"],
   ["VS Code", "vscode", "Install", 'data-cn-link="vscode" href="#"', "a"],
   ["Grok", "grok", "Copy URL & open", 'data-cn-open="https://grok.com/connectors" data-cn-where="Grok: New Connector → Custom"'],
-  ["Claude", "claude", "Copy URL & open", 'data-cn-open="https://claude.ai/settings/connectors" data-cn-where="Claude: Add custom connector"'],
+  ["Claude", "claude", "Copy URL & open", 'data-cn-open="https://claude.ai/new#customize/connectors" data-cn-where="Claude: Add custom connector"'],
   ["ChatGPT", "chatgpt", "Copy URL & open", 'data-cn-open="https://chatgpt.com/#settings/Connectors" data-cn-app="https://chatgpt.com/#settings" data-cn-where="ChatGPT: Connectors → Create"'],
   ["Claude Code", "claudecode", "Copy command", 'data-cn-cmd="claude"'],
   ["Codex", "codex", "Copy command", 'data-cn-cmd="codex"'],
