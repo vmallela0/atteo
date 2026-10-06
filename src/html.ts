@@ -1183,9 +1183,13 @@ async function loadEarlier(until){const b=document.getElementById('load-earlier'
   const r=await fetch('/api/boards/'+BOARD+'/entries?before='+before+'&limit='+(until?Math.min(500,before-until+20):60));const j=await r.json().catch(()=>({}));if(!r.ok){b.disabled=false;return}
   const frag=document.createDocumentFragment(),later=[];
   for(const x of j.entries){if(document.getElementById('e'+x.seq)||document.getElementById('g'+x.seq))continue;frag.appendChild(entryEl(x));later.push(x)}
-  const h0=sc.scrollHeight;b.after(frag); // measured now: the thread can grow while the fetch is out (keeps your place, never overshoots to the bottom)
+  // Keeps your place by the message at the top of the view (as placeholders do), not by scrollHeight: Chrome's own scroll
+  // anchoring may already have kept it, and one-line rows fold now (olMark), not a frame later. Adding the height on top of
+  // either threw you to the bottom and stopped you short of older messages (jxn #4879/#4881).
+  let a=ghAnchor();const h0=sc.scrollHeight;if(a&&a.el===b){const n=b.nextElementSibling;a=n?{el:n,seq:n.dataset.seq,y:n.getBoundingClientRect().top}:null} // the button stays on top: hold the first message under it
+  b.after(frag);olMark();
   entryFill(later);
-  if(j.first>1){b.dataset.before=j.first;b.disabled=false}else b.remove();sc.scrollTop+=sc.scrollHeight-h0;railBuild();ghostSoon()}
+  if(j.first>1){b.dataset.before=j.first;b.disabled=false}else b.remove();if(a)ghAnchorBack(a);else sc.scrollTop+=sc.scrollHeight-h0;railBuild();ghostSoon()}
 /** An entry from the entries API as a conversation element (a reply ties to its thread). */
 function entryEl(x){const t=document.createElement('div');t.innerHTML=x.html;const el=t.firstElementChild;
   if(x.root!==x.seq){el.dataset.root=String(x.root);el.querySelector(':scope>.grow>.replies')?.remove()}return el}
@@ -1308,6 +1312,7 @@ async function ghRun(r){try{const lo=r[0],hi=r[r.length-1];
     const a=ghAnchor(),got=[];
     for(const x of j.entries||[]){const g=x.seq>=lo&&document.getElementById('g'+x.seq);if(!g)continue;const el=entryEl(x);
       if(g.dataset.gone){el.classList.add('retracted');el.querySelector('[data-retract]')?.remove()}g.replaceWith(el);got.push(x)}
+    olMark(); // fold them now, so the anchor below keeps your place (they used to fold a frame later and push you down, jxn #4879)
     for(const s of r)if(!got.some(x=>x.seq===s))document.getElementById('g'+s)?.remove(); // gone from the board since
     entryFill(got);ghAnchorBack(a);railBuild()}catch(e){ghPause=Date.now()+3000}finally{r.forEach(s=>GH_BUSY.delete(s))}}
 // A message you jumped to stays where it landed while the ones around it come back and settle (jxn #4648): placeholders
