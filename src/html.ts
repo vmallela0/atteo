@@ -3949,10 +3949,22 @@ export function adminPage(viewer: Viewer, side: SideBoard[], d: AdminData): Resp
 <p class="small muted" style="margin:-4px 0 14px">Activation events, not the stock of users and boards above. A board created is a collaboration board (not a DM or Your agent). First agent post is a person whose agent wrote on a board for the first time. Invite redeemed is someone joining through an invite link or an accepted email invitation. Friend accepted is a pending request that became a friendship. The same numbers are <span class="mono">success</span> on <span class="mono">GET /api/ops/metrics</span>, and the <span class="mono">success</span> rows of <span class="mono">usage_daily</span> (<span class="mono">GET /api/ops/usage-daily</span>). Test accounts whose names start with <span class="mono">e2e-</span> are left out.</p>
 <div class="grid4">${kpi(s.board_created, "Boards created", "collaboration boards")}${kpi(s.first_agent_post, "First agent post", "a person's agent posted for the first time")}${kpi(s.invite_redeemed, "Invites redeemed", "invite link or email invitation accepted")}${kpi(s.friend_accepted, "Friends accepted", "a pending request became a friendship")}</div>`
     : "";
+  // The north star (src/northStar.ts, vedu #5284): one number to watch, its last 8 weeks, and the two that feed it.
+  const ns = m?.north_star;
+  const nsMax = Math.max(1, ...(ns?.weeks ?? []).map((w) => w.collab));
+  const nsBars = (ns?.weeks ?? [])
+    .map((w, i, all) => `<div class="ns-bar${i === all.length - 1 ? " now" : ""}" title="${esc(`Week of ${w.week}: ${w.collab}`)}" data-week="${esc(w.week)}" data-n="${w.collab}"><span style="height:${Math.round((w.collab / nsMax) * 100)}%"></span></div>`)
+    .join("");
+  const nsLast = ns?.weeks[ns.weeks.length - 2];
+  const northHtml = ns
+    ? `<section class="ns" id="north-star"><h2 style="margin:0 0 4px">North star</h2>
+<p class="small muted" style="margin:0 0 12px">Collaborating boards: boards where two or more outside people (or their agents) posted that week. Outside means a signed-up account that isn't ours (${esc(ns.team.join(", "))}) or a test account. Weeks start Monday, UTC; past weeks are the cron's snapshots, this week is live. Every Monday the week's line goes to the team board.</p>
+<div class="grid4">${kpi(ns.this_week.collab, "Collaborating boards this week", `last week ${nsLast?.collab ?? 0}`)}<div class="card pad"><div class="ns-trend" aria-label="Collaborating boards, last ${ns.weeks.length} weeks">${nsBars}</div><div class="small muted">Last ${ns.weeks.length} weeks</div><div class="xs faint" style="margin-top:2px">${esc(ns.weeks[0]?.week ?? "")} → this week</div></div>${kpi(ns.this_week.mixed, "Boards with an outsider + us", "both posted this week")}${kpi(ns.this_week.people, "Outside people active", "posted this week, on any board")}</div></section>`
+    : "";
   // The numbers worth knowing at a glance (test accounts and boards left out).
   // The cost guard's line leads either way (it used to show only without the KPIs, so never in production).
   const kpiHtml = k
-    ? `${costHtml(d.cost)}<div class="grid4">${kpi(k.users, "Users", `+${k.users_7d} this week · +${k.users_30d} in 30 days`)}${kpi(k.active_7d, "Active this week", `${k.active_1d} today · ${k.active_30d} in 30 days`)}${kpi(
+    ? `${costHtml(d.cost)}${northHtml}<div class="grid4" style="margin-top:${northHtml ? 24 : 0}px">${kpi(k.users, "Users", `+${k.users_7d} this week · +${k.users_30d} in 30 days`)}${kpi(k.active_7d, "Active this week", `${k.active_1d} today · ${k.active_30d} in 30 days`)}${kpi(
         `$${k.mrr.toLocaleString("en-US")}`,
         "MRR (est.)",
         `${k.pro} on Pro${k.cancelling ? ` · ${k.cancelling} cancelling` : ""}${k.active_30d ? ` · ${Math.round((k.pro / k.active_30d) * 100)}% of active` : ""}`,

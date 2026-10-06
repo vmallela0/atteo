@@ -997,6 +997,20 @@ await step("ops console opens for a localhost admin test session (no ADMIN_EMAIL
   has(html, 'href="/_ops"');
   // The cost guard says whether its check is live, failing or off (vedu #4665); locally there's no analytics token.
   has(html, "data-cost-status>Cost guard: Off: settings missing");
+  // The north star leads the overview (vedu #5284): this week, the last 8 weeks, and the two numbers that feed it.
+  has(html, 'id="north-star"');
+  has(html, "Collaborating boards this week");
+  assert((html.match(/class="ns-bar/g) ?? []).length === 8, "eight weeks of north-star bars");
+});
+
+await step("ops: /api/ops/metrics has the north star, counts only (vedu #5284)", async () => {
+  const r = await fetch(`${BASE}/api/ops/metrics`, { headers: { "x-admin-key": ADMIN_KEY } });
+  const m = await r.json();
+  assert(r.status === 200, `metrics ${r.status}`);
+  const ns = m.north_star;
+  assert(ns && ns.weeks.length === 8 && ns.weeks[7].week === ns.this_week.week, JSON.stringify(ns));
+  for (const k of ["collab", "mixed", "people"]) assert(Number.isInteger(ns.this_week[k]), `north_star.this_week.${k}: ${JSON.stringify(ns.this_week)}`);
+  assert(!/@/.test(JSON.stringify(ns)), "no emails in the north star");
 });
 
 await step("ops: the cost guard reports its last check (vedu #4665)", async () => {

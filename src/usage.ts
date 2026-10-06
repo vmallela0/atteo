@@ -2,6 +2,7 @@
 // Writes are fire-and-forget (waitUntil) and throttled per isolate, so they never slow a request down.
 
 import { observability, SUCCESS_ONCE_DAY, successMetrics, type Observability, type SuccessMetrics } from "./observe";
+import { northStar, type NorthStar } from "./northStar";
 import type { Env } from "./types";
 
 const day = (ts = Date.now()) => new Date(ts).toISOString().slice(0, 10);
@@ -93,6 +94,7 @@ export interface Metrics {
   csp: { key: string; count: number; last_day: string }[]; // CSP reports (blocked, or would-be-blocked while report-only), last 7 days ("directive blocked")
   observe: Observability; // trust/context counters, derived rates, latency p95, and request wall time (src/observe.ts)
   success: SuccessMetrics; // product activation: boards created, first agent post, invite redeemed, friend accepted
+  north_star?: NorthStar; // boards where 2+ outside people were active, per week (src/northStar.ts)
 }
 
 export async function metrics(env: Env, n = 14): Promise<Metrics> {
@@ -156,5 +158,6 @@ export async function metrics(env: Env, n = 14): Promise<Metrics> {
   const csp = await env.DB.prepare(`SELECT key, SUM(count) AS count, MAX(day) AS last_day FROM usage_daily WHERE metric = 'csp' AND day >= ? GROUP BY key ORDER BY count DESC LIMIT 20`)
     .bind(day(now - 6 * D))
     .all<{ key: string; count: number; last_day: string }>();
-  return { kpis, days, clients: cl.results, errors: er.results, csp: csp.results, observe, success };
+  const north_star = await northStar(env, now);
+  return { kpis, days, clients: cl.results, errors: er.results, csp: csp.results, observe, success, north_star };
 }

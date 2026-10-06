@@ -9,6 +9,7 @@ import * as usage from "./usage";
 import * as csp from "./csp";
 import * as limits from "./limits";
 import * as costGuard from "./costGuard";
+import * as northStar from "./northStar";
 import * as oauth from "./oauth";
 import { consentPage } from "./oauthPage";
 import * as approvals from "./approvals";
@@ -651,6 +652,17 @@ async function runScheduled(env: Env, ctx: ExecutionContext, now = Date.now()): 
       .catch(() => ({ results: [] as { board_id: string }[] }))
   ).results;
   const posted = await Promise.all(dueBoards.map((b) => boardStub(env, b.board_id).runBoardSchedules(now).catch((e) => (console.error("board schedules failed", b.board_id, e), 0))));
+  // The north star (src/northStar.ts): snapshot the running week; Monday from 16:00 UTC, last week's line to the team's
+  // board, posted by the bug bot (the same one-bot-member setup as the cost guard's alerts).
+  ctx.waitUntil(
+    northStar
+      .tick(env, now, async (board, text) => {
+        const stub = boardStub(env, board);
+        await ensureBugBoard(env, board, stub);
+        await stub.post(bugs.BUG_BOT, { type: "note", text, via: "person", client: "north-star" });
+      })
+      .catch((e) => console.error("north star failed", e)),
+  );
   // Tonight's backup outside Cloudflare (src/backup.ts): a batch of parts per run; it waits only at the worst shed level.
   const nightly =
     shed.level < 2
