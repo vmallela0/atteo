@@ -175,6 +175,7 @@ async function connect(resume){const o=tk.o;
   if(r.status===403&&j.needs_consent){xai=false;const o=tk&&tk.o;hangUp(true);if(dlg.open)dlg.close();return consent(o)}
   if(!r.ok||!j.session_id||!j.session){return fail(s,j.error||T('Couldn’t start talking ({code}).',{code:r.status}))} // the allowance, the rate limit, not set up: the server's words
   s.sid=j.session_id;s.max=+j.max_seconds||600;if(j.end&&j.end.path)s.end=j.end.path;s.routes=j.tool_routes||{};s.session=j.session;
+  if(!resume)try{window.atteoTrack&&atteoTrack('voice_used',{surface:'talk'})}catch(e){}
   s.turns=j.voice_turns==='pause'||j.voice_turns==='tap'?j.voice_turns:'quick';s.pauseMs=Math.max(400,Math.min(5000,+j.pause_ms||1500));
   s.autosend=j.voice_autosend===true; // your own dictated words to your agent go without a yes (autoCheck, hold)
   if(s.ended)return settle(s);
