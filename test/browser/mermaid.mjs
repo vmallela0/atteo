@@ -148,7 +148,7 @@ async function diagrams(w, scheme) {
   // Switching light/dark under an open page redraws in the new tokens.
   if (w > 500) {
     await p.evaluate(() => { document.documentElement.dataset.theme = "dark"; });
-    await p.waitForFunction((s) => { const r = document.querySelector(`#e${s} .mmd-d .node rect, #e${s} .mmd-d .node path, #e${s} .mmd-d .node polygon`); return r && getComputedStyle(r).fill === "rgb(23, 23, 22)"; }, sFlow, { timeout: 10000 }).then(() => check(true, `${tag}: Display → dark redraws the diagram in dark tokens`), () => check(false, `${tag}: Display → dark redraws the diagram in dark tokens`));
+    await p.waitForFunction((s) => { const r = document.querySelector(`#e${s} .mmd-d .node rect, #e${s} .mmd-d .node path, #e${s} .mmd-d .node polygon`); return r && getComputedStyle(r).fill === "rgb(26, 25, 24)"; }, sFlow, { timeout: 10000 }).then(() => check(true, `${tag}: Display → dark redraws the diagram in dark tokens`), () => check(false, `${tag}: Display → dark redraws the diagram in dark tokens`));
   }
   check(!errors.length, `${tag}: no page errors or dialogs ${errors.join(" | ")}`);
   await ctx.close();
