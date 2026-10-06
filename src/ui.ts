@@ -461,6 +461,7 @@ a.ev-acct:hover{background:var(--bg-subtle)}
 @media (max-width:640px){.boards-bar{flex-wrap:wrap}.boards-bar .bsearch{flex-basis:100%}}
 .tk.cl:not(:has(.cl-f:not([hidden]))){flex-wrap:nowrap}.tk.cl>.tk-who,.tk.cl>.cl-cmd{flex:0 1 auto;min-width:0}.tk.cl>.tk-st,.tk.cl>.btn{flex:none}
 .cl-cmd{display:inline-flex;align-items:center;gap:4px;max-width:260px;min-width:0;height:22px;padding:0 8px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--text);font-size:11.5px;cursor:pointer}.cl-cmd:hover:not([disabled]){border-color:var(--line-strong);color:var(--ink)}.cl-cmd[disabled]{cursor:default;color:var(--muted)}.cl-cmd>span:first-child{color:var(--faint)}
+.cl-chip{display:flex;align-items:center;gap:6px;margin-top:6px;max-width:100%}.cl-chip:empty{display:none}.cl-chip .cl-cmd{border-radius:999px;max-width:min(260px,100%)}
 /* Board info → Agents */
 .ag h3{margin-top:0}.ag-list{list-style:none;margin:0 0 6px;padding:0}.ag-row{display:flex;align-items:center;gap:8px;padding:4px 0;font-size:13px;min-width:0}
 .ag-name{color:var(--ink);font-weight:500}.ag-main{display:flex;flex-direction:column;min-width:0}.ag-status{font-size:12px;color:var(--muted)}.ag-row time{font-size:11.5px;color:var(--faint);flex:none}.ag-hint{margin:8px 0 4px}.ag .copy pre{font-size:11.5px}

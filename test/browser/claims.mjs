@@ -22,15 +22,19 @@ let fails=0;const check=(ok,m)=>{console.log(`${ok?"✓":"✗"} ${m}`);if(!ok)fa
 const b = await chromium.launch({ executablePath: process.env.PW_CHROME || undefined });
 const ctx=await b.newContext({viewport:{width:1280,height:820}});const [k,...v]=ck.split(";")[0].split("=");await ctx.addCookies([{name:k,value:v.join("="),url:BASE}]);
 const p=await ctx.newPage();const errors=[];p.on("pageerror",e=>errors.push(e.message));
-await p.goto(`${BASE}/b/${board}`);await p.waitForTimeout(900);
+await p.goto(`${BASE}/b/${board}`);await p.waitForSelector(`#e${c1} .cl-chip .cl-cmd`,{timeout:8000});
 const s1=p.locator(`[data-claim="${c1}"]`);
-check((await s1.locator(".cl-cmd").innerText()).includes("npm test -- checkout/empty-cart"),"the claim's check shows as a command");
-await ctx.grantPermissions(["clipboard-read","clipboard-write"]);await s1.locator(".cl-cmd").click();await p.waitForTimeout(300);
-check((await p.evaluate(()=>navigator.clipboard.readText()))===`atteo verify ${c1}`,"clicking it copies the sandboxed verify command");
-check(await s1.isVisible()&&!(await s1.innerText()).includes("Unverified")&&!(await s1.locator(".tk-st").count()),"a new claim shows no status pill, just its actions");
-check(await s1.locator('[data-cl="verify"]').isVisible(),"someone else's claim offers Verify");
-await s1.locator('[data-cl="evidence"]').click();await s1.locator(".cl-f input").fill("https://ci.example.com/run/42");await s1.locator(".cl-f .primary").click();await p.waitForTimeout(900);
+const chip1=p.locator(`#e${c1} .cl-chip .cl-cmd`);
+check(await chip1.isVisible()&&(await chip1.innerText()).includes("npm test -- checkout/empty-cart"),"a claim with a check shows a quiet command chip");
+check(!(await s1.isVisible()),"a check alone does not open the claim strip");
+await ctx.grantPermissions(["clipboard-read","clipboard-write"]);await chip1.click();await p.waitForTimeout(300);
+check((await p.evaluate(()=>navigator.clipboard.readText()))===`atteo verify ${c1}`,"clicking the chip copies the sandboxed verify command");
+await p.locator(`#e${c1}`).hover();
+const a1=p.locator(`#e${c1} .acts`);
+check(await a1.locator('[data-cl="verify"]').isVisible(),"someone else's claim offers Verify");
+await a1.locator('[data-cl="evidence"]').click();await s1.locator(".cl-f input").fill("https://ci.example.com/run/42");await s1.locator(".cl-f .primary").click();await p.waitForTimeout(900);
 check((await s1.innerText()).includes("Has evidence"),"adding a link as evidence → Has evidence");
+check(await s1.locator(".cl-cmd").isVisible()&&!(await p.locator(`#e${c1} .cl-chip`).count()),"once the strip is open the command lives in it, not a second chip");
 await s1.locator('[data-cl="dispute"]').click();await s1.locator(".cl-f input").fill("The trace shows a null cart, not undefined");await s1.locator(".cl-f .primary").click();await p.waitForTimeout(1200);
 check((await s1.innerText()).includes(`Disputed by ${B}`)&&(await s1.innerText()).includes("null cart"),"disputing shows who and why");
 check(await p.locator(`#e${c2} .badge.stale`).isVisible()&&await p.locator(`#e${d1} .badge.stale`).isVisible(),"everything resting on it is flagged Stale (directly and through another claim)");
@@ -40,8 +44,15 @@ const s3=p.locator(`[data-claim="${c3}"]`),a3=p.locator(`#e${c3} .acts`);
 check(!(await s3.isVisible())&&await a3.locator('[data-cl="verify"]').count()===1&&await a3.locator('[data-cl="dispute"]').count()===1&&await a3.locator('[data-cl="evidence"]').count()===1,
   "an unreviewed claim draws no strip; Verify, Dispute and Evidence sit in its action row");
 const a4=p.locator(`#e${c4} .acts`);
-check(!(await p.locator(`[data-claim="${c4}"]`).isVisible())&&await a4.locator('[data-cl="evidence"]').count()===1&&!(await a4.locator('[data-cl="verify"],[data-cl="dispute"]').count()),
-  "your own agent's unreviewed claim: no strip, and only Evidence in its action row");
+check(!(await p.locator(`[data-claim="${c4}"]`).isVisible())&&await a4.locator('[data-cl="evidence"]').count()===1&&await a4.locator('[data-cl="check"]').count()===1&&!(await a4.locator('[data-cl="verify"],[data-cl="dispute"]').count()),
+  "your own agent's unreviewed claim: no strip, Evidence and Check in its action row");
+await p.locator(`#e${c4}`).hover();await a4.locator('[data-cl="check"]').click();
+const s4=p.locator(`[data-claim="${c4}"]`);
+check(await s4.locator(".cl-f").isVisible(),"Check from the action row opens the form under the claim");
+await s4.locator(".cl-f input").fill("npm test -- logs");await s4.locator(".cl-f .primary").click();
+const tCheck=Date.now();while(Date.now()-tCheck<5000&&!(await p.locator(`#e${c4} .cl-chip .cl-cmd`).count()))await p.waitForTimeout(100);
+check(await p.locator(`#e${c4} .cl-chip .cl-cmd`).isVisible()&&(await p.locator(`#e${c4} .cl-chip .cl-cmd`).innerText()).includes("npm test -- logs")&&!(await s4.isVisible()),
+  "attaching a check posts action=check, then the quiet chip shows and the strip closes");
 await p.locator(`#e${c3}`).hover();await a3.locator('[data-cl="evidence"]').click();
 check(await s3.locator(".cl-f").isVisible(),"Evidence from the action row opens the form under the claim");
 await s3.locator(".cl-f input").fill(`#${c1}`);await s3.locator(".cl-f .primary").click();

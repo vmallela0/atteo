@@ -169,7 +169,7 @@ ${
   // Purge (#3853): a leaked secret leaves the board for good. Rendered hidden; the page shows it where the server allows
   // it (your own posts, or any post when you own the board), as Report hides on your own.
   const purge = opts.person && !e.purged && e.retracts == null ? `<button class="btn ghost sm" type="button" data-purge="${e.seq}" hidden>${esc(T("Purge"))}</button>` : "";
-  // A claim nobody has reviewed yet draws no strip under it (jxn #2998/#3002): its Verify / Dispute / Evidence sit here, filled by renderClaims.
+  // A claim nobody has reviewed yet draws no strip under it (jxn #2998/#3002): its Verify / Dispute / Evidence / Check sit here, filled by renderClaims. A check command is a quiet chip under the note, not a strip.
   const claimActs = e.type === "claim" && !opts.retracted && e.retracts == null ? `<span class="cl-acts" data-claim-acts="${e.seq}"></span>` : "";
   const actions = react || reply || retract || edit || purge ? `${more}<span class="acts">${react}${reply}${claimActs}${remember}${select}${edit}${retract}${remind}${report}${purge}</span>` : "";
   // One-tap replies under an agent's question to a person (vedu #2490): hidden here (this HTML is the same for every
@@ -2276,6 +2276,14 @@ document.addEventListener('click',async e=>{const x=e.target.closest('[data-hdl]
 // ---- claims in the conversation: unverified → evidence → verified by someone else, or disputed; posts resting on a bad premise show "Stale" ----
 // Status comes with every update (d.claims: seq → {status, by, reason, stale_from, stale_why}).
 const CLST={evidenced:tr('Has evidence'),verified:tr('Verified'),disputed:tr('Disputed')};let CLAIMS={};
+function clCmdBtn(seq,command,own){if(!command)return '';
+  const run=own?' disabled title="Others run this in a sandbox: atteo verify '+seq+'"':' data-cl-run="'+seq+'" title="Copy atteo verify '+seq+' (runs it sandboxed on your machine)"';
+  return '<button class="cl-cmd mono" type="button"'+run+' aria-label="'+esc(command)+'"><span aria-hidden="true">$</span> <span class="truncate">'+esc(command)+'</span></button>'}
+function clChipHost(el,html){const g=el.closest('.entry')?.querySelector(':scope>.grow');if(!g)return;
+  let host=g.querySelector(':scope>.cl-chip');
+  if(!html){host?.remove();return}
+  if(!host){host=document.createElement('div');host.className='cl-chip';const b=g.querySelector(':scope>.body');if(b)b.after(host);else g.insertBefore(host,el)}
+  host.innerHTML=html}
 function renderClaims(map){CLAIMS=map||{};
   document.querySelectorAll('.badge.stale').forEach(b=>b.remove());
   for(const [seq,c] of Object.entries(CLAIMS)){
@@ -2283,30 +2291,34 @@ function renderClaims(map){CLAIMS=map||{};
       b.title=tr('Rests on #')+c.stale_from+', which was '+c.stale_why;b.textContent=tr('Stale');m.insertBefore(b,m.querySelector('.acts'))}}
     const el=document.querySelector('[data-claim="'+seq+'"]');if(!el||!c.status||el.querySelector('.cl-f:not([hidden])'))continue;
     const own=el.closest('.entry').dataset.author===ME,acts=document.querySelector('[data-claim-acts="'+seq+'"]');
+    const cmd=c.check&&c.status!=='verified'?clCmdBtn(seq,c.check,own):'';
     const btns=READONLY?'':(own||c.status==='verified'?'':'<button class="btn ghost sm" type="button" data-cl="verify">'+tr('Verify')+'</button>')+
         (own||c.status==='disputed'?'':'<button class="btn ghost sm" type="button" data-cl="dispute">'+tr('Dispute')+'</button>')+
-        '<button class="btn ghost sm" type="button" data-cl="evidence">'+tr('Evidence')+'</button>';
+        '<button class="btn ghost sm" type="button" data-cl="evidence">'+tr('Evidence')+'</button>'+
+        (own&&!c.check?'<button class="btn ghost sm" type="button" data-cl="check">'+tr('Check')+'</button>':'');
     const form='<form class="cl-f" hidden><input class="input" name="v" maxlength="300" required><button class="btn sm primary"></button><button class="btn sm ghost" type="button" data-cl-cancel>'+tr('Cancel')+'</button></form>';
-    // A claim nobody has looked at yet (no review, reason, check or stale premise) draws no strip (jxn #2998/#3002): its actions sit
-    // in the message's own action row, and the strip only opens to hold the evidence or dispute form.
-    if(c.status==='asserted'&&!c.reason&&!c.check&&!c.stale_from){el.innerHTML=form;el.hidden=true;if(acts)acts.innerHTML=btns;continue}
+    // A claim nobody has looked at yet (no review, reason or stale premise) draws no strip (jxn #2998/#3002): its actions sit
+    // in the message's own action row. An attached check is a quiet chip under the note, not a reason to open the strip.
+    if(c.status==='asserted'&&!c.reason&&!c.stale_from){el.innerHTML=form;el.hidden=true;if(acts)acts.innerHTML=btns;clChipHost(el,cmd);continue}
     if(acts)acts.innerHTML='';
+    clChipHost(el,'');
     el.innerHTML=(c.status==='asserted'?'':'<span class="tk-st cl-'+c.status+'"><span class="dot"></span>'+CLST[c.status]+(c.by?' by '+esc(c.by):'')+'</span>')+
       (c.reason?'<span class="tk-who truncate" title="'+esc(c.reason)+'">'+esc(c.reason)+'</span>':'')+
       // The claim's check: the command that shows it holds. Others click it to copy the sandboxed run for their terminal.
-      (c.check&&c.status!=='verified'?'<button class="cl-cmd mono" type="button"'+(own?' disabled title="Others run this in a sandbox: atteo verify '+seq+'"':' data-cl-run="'+seq+'" title="Copy atteo verify '+seq+' (runs it sandboxed on your machine)"')+'><span aria-hidden="true">$</span> <span class="truncate">'+esc(c.check)+'</span></button>':'')+'<span class="grow"></span>'+
+      cmd+'<span class="grow"></span>'+
 btns+form;
     el.hidden=false}}
 async function claimAct(seq,body){const r=await fetch('/api/boards/'+BOARD+'/claims/'+seq,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)});
   const j=await r.json().catch(()=>({}));toast(r.ok?j.message:(j.error||tr('Could not save')));tick(false);return r.ok}
 document.addEventListener('click',async e=>{const b=e.target.closest('[data-cl]');if(!b)return;const host=b.closest('[data-claim],[data-claim-acts]'),seq=+(host.dataset.claim||host.dataset.claimActs),a=b.dataset.cl;
   if(a==='verify'){b.disabled=true;await claimAct(seq,{action:'verify'});return}
-  const strip=document.querySelector('[data-claim="'+seq+'"]');if(!strip)return;strip.hidden=false;const f=strip.querySelector('.cl-f');f.dataset.mode=a;f.v.value='';f.v.placeholder=a==='dispute'?"What's wrong with it?":tr('A link, or #entry (a log or file posted here)');
-  f.querySelector('.primary').textContent=a==='dispute'?tr('Dispute'):tr('Add evidence');f.hidden=false;f.v.focus()});
+  const strip=document.querySelector('[data-claim="'+seq+'"]');if(!strip)return;strip.hidden=false;const f=strip.querySelector('.cl-f');f.dataset.mode=a;f.v.value='';f.v.maxLength=a==='check'?500:300;
+  f.v.placeholder=a==='check'?'npm test -- auth':a==='dispute'?"What's wrong with it?":tr('A link, or #entry (a log or file posted here)');
+  f.querySelector('.primary').textContent=a==='check'?tr('Attach check'):a==='dispute'?tr('Dispute'):tr('Add evidence');f.hidden=false;f.v.focus()});
 document.addEventListener('click',e=>{const r=e.target.closest('[data-cl-run]');if(r)navigator.clipboard.writeText('atteo verify '+r.dataset.clRun).then(()=>toast(tr('Copied: atteo verify ')+r.dataset.clRun+'. Run it in your terminal'))});
 document.addEventListener('click',e=>{const c=e.target.closest('[data-cl-cancel]');if(c){c.closest('.cl-f').hidden=true;renderClaims(CLAIMS)}});
 document.addEventListener('submit',async e=>{const f=e.target.closest('.cl-f');if(!f)return;e.preventDefault();const seq=+f.closest('[data-claim]').dataset.claim,v=f.v.value.trim();
-  let body;if(f.dataset.mode==='dispute')body={action:'dispute',reason:v};else{const n=v.match(/^#?([0-9]+)$/);body=n?{action:'evidence',evidence_seq:+n[1]}:{action:'evidence',url:v}}
+  let body;if(f.dataset.mode==='check')body={action:'check',command:v};else if(f.dataset.mode==='dispute')body={action:'dispute',reason:v};else{const n=v.match(/^#?([0-9]+)$/);body=n?{action:'evidence',evidence_seq:+n[1]}:{action:'evidence',url:v}}
   if(await claimAct(seq,body)){f.hidden=true;renderClaims(CLAIMS)}});
 // ---- human decisions: a decision a person posts is the people's to make. Everyone else on the board agrees or objects (an
 // optional note on Object); it's decided when they all agree, or when its author closes it (decided or dropped). Agents only
