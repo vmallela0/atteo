@@ -1,7 +1,6 @@
 // Social: find people, become friends, see who's around (on the web, or with an agent online), and talk directly
 // on a private board for two friends. Being friends never grants access to other boards (consent doesn't cascade).
 
-import { e2eDefault } from "./e2edefault";
 import { addMember, recordBoard } from "./registry";
 import { orgDomainOf } from "./policy";
 import { applies } from "./standingRules";
@@ -293,7 +292,7 @@ export async function friendsOf(env: Env, me: string): Promise<{ friends: Person
  * The private board for two friends (created the first time). Doesn't count toward plan limits. Returns its id.
  * The board is the "inbox" between your agents: post now, and their agent gets it now or when it's next online.
  */
-export async function directBoard(env: Env, me: string, other: string, initBoard: (id: string, title: string, creator: string, opts?: { encrypted?: boolean }) => Promise<{ id: string; title: string; created_by: string; created_at: number }>): Promise<{ id: string; title: string; created: boolean }> {
+export async function directBoard(env: Env, me: string, other: string, initBoard: (id: string, title: string, creator: string) => Promise<{ id: string; title: string; created_by: string; created_at: number }>): Promise<{ id: string; title: string; created: boolean }> {
   const who = other.toLowerCase().replace(/^@/, "");
   const { rel } = await relationOf(env, me, who);
   if (rel !== "friend") {
@@ -303,35 +302,33 @@ export async function directBoard(env: Env, me: string, other: string, initBoard
 }
 
 /** The private 2-person board of a pair, created the first time (callers check they may talk: friends or agent contacts). */
-export async function openDirect(env: Env, me: string, who: string, initBoard: (id: string, title: string, creator: string, opts?: { encrypted?: boolean }) => Promise<{ id: string; title: string; created_by: string; created_at: number }>): Promise<{ id: string; title: string; created: boolean }> {
+export async function openDirect(env: Env, me: string, who: string, initBoard: (id: string, title: string, creator: string) => Promise<{ id: string; title: string; created_by: string; created_at: number }>): Promise<{ id: string; title: string; created: boolean }> {
   const [a, b] = pair(me, who);
   const key = `${a}|${b}`;
   const existing = await env.DB.prepare(`SELECT id, title FROM boards WHERE direct_key = ?`).bind(key).first<{ id: string; title: string }>();
   if (existing) return { ...existing, created: false };
   const id = newBoardId();
-  const encrypted = e2eDefault(env); // E2E design §7: DMs are end-to-end encrypted by default once it's on
-  const info = await initBoard(id, `${a} ↔ ${b}`, me, { encrypted });
+  const info = await initBoard(id, `${a} ↔ ${b}`, me);
   await recordBoard(env, info);
-  await env.DB.prepare(`UPDATE boards SET kind = 'direct', direct_key = ?, encrypted = ? WHERE id = ?`).bind(key, encrypted ? 1 : 0, id).run();
+  await env.DB.prepare(`UPDATE boards SET kind = 'direct', direct_key = ? WHERE id = ?`).bind(key, id).run();
   await addMember(env, id, a);
   await addMember(env, id, b);
   return { id, title: info.title, created: true };
 }
 
 /** "Your agent": a person's private board with their own agent (any of their sessions), made the first time it's
- *  opened. Its only member is the person; everything they write there is mail for their agent (src/mailbox.ts). End-to-
- *  end encrypted only when E2E_DEFAULT is on (src/e2edefault.ts): then an agent reads it through atteo mcp or the CLI,
- *  which decrypt on the person's machine. Doesn't count toward plan limits. */
-export async function openAgentChat(env: Env, me: string, initBoard: (id: string, title: string, creator: string, opts?: { encrypted?: boolean }) => Promise<{ id: string; title: string; created_by: string; created_at: number }>): Promise<{ id: string; title: string; created: boolean }> {
+ *  opened. Its only member is the person; everything they write there is mail for their agent (src/mailbox.ts). Not
+ *  end-to-end encrypted, like DMs: an encrypted board takes no plaintext, so agents without the CLI's keys (an MCP
+ *  connection) couldn't read or answer it. Doesn't count toward plan limits. */
+export async function openAgentChat(env: Env, me: string, initBoard: (id: string, title: string, creator: string) => Promise<{ id: string; title: string; created_by: string; created_at: number }>): Promise<{ id: string; title: string; created: boolean }> {
   const key = agentChatKey(me); // ":" is outside handles, so it never collides with a pair's "a|b"
   const existing = await env.DB.prepare(`SELECT id, title FROM boards WHERE direct_key = ?`).bind(key).first<{ id: string; title: string }>();
   if (existing) return { ...existing, created: false };
   const id = newBoardId();
-  const encrypted = e2eDefault(env); // with E2E on, encrypted too: atteo mcp and the CLI decrypt it on the person's machine
-  const info = await initBoard(id, AGENT_CHAT_TITLE, me, { encrypted });
+  const info = await initBoard(id, AGENT_CHAT_TITLE, me);
   await recordBoard(env, info);
   // Two first opens at once: the unique direct_key keeps one; the other board row goes and its id isn't used.
-  const won = await env.DB.prepare(`UPDATE boards SET kind = 'agent', direct_key = ?, encrypted = ? WHERE id = ? AND NOT EXISTS (SELECT 1 FROM boards WHERE direct_key = ?)`).bind(key, encrypted ? 1 : 0, id, key).run().catch(() => null);
+  const won = await env.DB.prepare(`UPDATE boards SET kind = 'agent', direct_key = ? WHERE id = ? AND NOT EXISTS (SELECT 1 FROM boards WHERE direct_key = ?)`).bind(key, id, key).run().catch(() => null);
   if (!won?.meta.changes) {
     await env.DB.prepare(`DELETE FROM boards WHERE id = ?`).bind(id).run();
     const r = await env.DB.prepare(`SELECT id, title FROM boards WHERE direct_key = ?`).bind(key).first<{ id: string; title: string }>();

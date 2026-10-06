@@ -10,8 +10,7 @@ import { env } from "./env";
 import SKILL_MD from "../../skills/atteo/SKILL.md";
 import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { hostname, tmpdir } from "node:os";
-import { decryptV2, deviceSigned, encryptV2, inviteKey, myKey, mySignKey, newEpochKey, seal, signDevice, unseal, unwrapInvite, unwrapKey, wrapKey, type WrappedKey } from "./sealed";
-import { crossSigned, pinId, pinned } from "./crosssign";
+import { decryptV2, encryptV2, myKey, newEpochKey, seal, unseal, unwrapKey, wrapKey, type WrappedKey } from "./sealed";
 import { homedir } from "node:os";
 import { basename, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { blockedMessage, scanFields } from "../../src/secrets";
@@ -344,7 +343,7 @@ export async function isEncrypted(opt: Record<string, string | true>, board: str
 // Encryption v2: one key per board epoch, wrapped once per member device; the server only stores wrapped copies.
 // Devices are trusted on first sight of a person (pinned on this machine); a person's later devices get the key only
 // from their own devices, so a device the server slips in is never handed a key from here.
-type DeviceKey = { kid: string; user: string; public_key: string; label: string | null; sign_pub?: string | null; signed_by?: string | null; sig?: string | null };
+type DeviceKey = { kid: string; user: string; public_key: string; label: string | null };
 type EpochState = {
   current: number;
   rotate_needed: boolean;
@@ -365,14 +364,7 @@ export function savePins(p: Record<string, string[]>) {
   mkdirSync(join(pinFile(), ".."), { recursive: true, mode: 0o700 });
   writeFileSync(pinFile(), JSON.stringify(p, null, 2), { mode: 0o600 });
 }
-/** The server shows this machine with a signing key that isn't this machine's: someone could sign devices as you. */
-function signMismatch(k: { sign_pub?: string | null } | undefined) {
-  if (k?.sign_pub && k.sign_pub !== mySignKey().pub)
-    warnOnce(
-      "sign_pub",
-      "⚠ The server shows this machine with a signing key that isn't this machine's. Devices \"signed\" with it aren't from you: don't trust them, and tell the board's members.",
-    );
-}
+const pinId = (kid: string, publicKey: string) => `${kid}|${publicKey}`;
 const warned = new Set<string>();
 const warnOnce = (k: string, line: string) => {
   if (!warned.has(k)) process.stderr.write(line + "\n");
@@ -396,15 +388,11 @@ async function boardKeys(opt: Record<string, string | true>, board: string, trie
   const before = JSON.stringify(pin);
   const seen = new Map([...st.keys, ...st.missing].map((k) => [k.kid, k.public_key]));
   for (const [u, list] of Object.entries(pin)) pin[u] = list.map((e) => (e.includes("|") || !seen.has(e) ? e : pinId(e, seen.get(e)!))); // older pins were ids alone
-  // This machine: pinned with its own signing key, never the one the server shows, which it checks.
-  const own = pinned(pin[me], kid, myKey().pub);
-  if (own !== pinId(kid, myKey().pub, mySignKey().pub)) pin[me] = [...(pin[me] ?? []).filter((e) => e !== own), pinId(kid, myKey().pub, mySignKey().pub)];
-  signMismatch(st.keys.find((k) => k.kid === kid));
-  for (const k of st.keys) if (k.user !== me && !pin[k.user]) (pin[k.user] ??= []).push(pinId(k.kid, k.public_key, k.sign_pub)); // first sight: trust on first use
-  for (const m of st.missing) if (m.user !== me && m.first_device && !pin[m.user]?.length) (pin[m.user] ??= []).push(pinId(m.kid, m.public_key, m.sign_pub));
-  crossSigned(pin, [...st.keys, ...st.missing]);
+  if (!pin[me]?.includes(pinId(kid, myKey().pub))) (pin[me] ??= []).push(pinId(kid, myKey().pub));
+  for (const k of st.keys) if (k.user !== me && !pin[k.user]) (pin[k.user] ??= []).push(pinId(k.kid, k.public_key)); // first sight: trust on first use
+  for (const m of st.missing) if (m.user !== me && m.first_device && !pin[m.user]?.length) (pin[m.user] ??= []).push(pinId(m.kid, m.public_key));
   if (JSON.stringify(pin) !== before) savePins(pin);
-  const trusted = (k: { kid: string; user: string; public_key: string }) => !!pinned(pin[k.user], k.kid, k.public_key);
+  const trusted = (k: { kid: string; user: string; public_key: string }) => !!pin[k.user]?.includes(pinId(k.kid, k.public_key));
   const skip = (k: DeviceKey) =>
     k.user === me
       ? warnOnce(k.kid, `🔑 A new device of yours (${k.label ?? "unnamed"}, ${k.kid.slice(0, 8)}) is waiting for this board's key. If it's yours: atteo keys approve ${k.kid}`)
@@ -430,7 +418,7 @@ async function boardKeys(opt: Record<string, string | true>, board: string, trie
   return { current, keys };
 }
 
-export async function encPost(opt: Record<string, string | true>, board: string, p: { type: string; text: string; to?: string; reply_to?: number }, tries = 0): Promise<{ seq: number }> {
+async function encPost(opt: Record<string, string | true>, board: string, p: { type: string; text: string; to?: string; reply_to?: number }, tries = 0): Promise<{ seq: number }> {
   const { current, keys } = await boardKeys(opt, board);
   const payload = JSON.stringify({ v: 2, epoch: current, ...encryptV2(keys.get(current)!, Buffer.from(p.text)) });
   try {
@@ -444,7 +432,7 @@ export async function encPost(opt: Record<string, string | true>, board: string,
 }
 
 const cursorFile = () => join(configDir(), "e2e-cursors.json");
-export function cursors(): Record<string, number> {
+function cursors(): Record<string, number> {
   try {
     return JSON.parse(readFileSync(cursorFile(), "utf8"));
   } catch {
@@ -452,16 +440,8 @@ export function cursors(): Record<string, number> {
   }
 }
 
-/** Where this machine has read an encrypted board up to (shared by atteo read and atteo mcp). */
-export function saveCursor(board: string, seq: number) {
-  const cur = cursors();
-  if ((cur[board] ?? 0) >= seq) return;
-  mkdirSync(configDir(), { recursive: true, mode: 0o700 });
-  writeFileSync(cursorFile(), JSON.stringify({ ...cur, [board]: seq }), { mode: 0o600 });
-}
-
 /** The most entries GET /sealed returns in one call (Board.sealedAfter's default). */
-export const SEALED_PAGE = 200;
+const SEALED_PAGE = 200;
 
 export async function encEntries(opt: Record<string, string | true>, board: string, after: number) {
   const kid = await ensureKey(opt);
@@ -487,7 +467,7 @@ export async function decryptEntry(opt: Record<string, string | true>, board: st
   return (await encEntries(opt, board, seq - 1)).find((e) => e.seq === seq)?.text ?? null;
 }
 
-export const encLine = (e: { seq: number; ts: number; author: string; via: string | null; type: string; to: string | null; reply_to: number | null; text: string }) =>
+const encLine = (e: { seq: number; ts: number; author: string; via: string | null; type: string; to: string | null; reply_to: number | null; text: string }) =>
   `#${e.seq} ${e.type} · ${e.via === "agent" ? `${e.author}'s agent` : e.author}${e.to ? ` → ${e.to}` : ""}${e.reply_to ? ` · re #${e.reply_to}` : ""} · ${new Date(e.ts).toISOString().slice(0, 16).replace("T", " ")}Z\n    ${proseForAgent(e.text).replace(/\n/g, "\n    ")}`;
 
 async function read(args: string[]) {
@@ -1086,34 +1066,9 @@ async function link(args: string[]) {
     await api(opt, "DELETE", `/api/boards/${b}/links/${pos[1]}`);
     return say("Revoked.");
   }
-  // An encrypted board's link carries the board key after its "#" (E2E design §3.3), so whoever opens it reads at once.
-  const held = (await isEncrypted(opt, b)) ? (await boardKeys(opt, b)).keys : null;
-  const ik = held?.size ? inviteKey(held) : null;
-  const j = await api(opt, "POST", `/api/boards/${b}/links`, {
-    role: optStr(opt, "role"),
-    link_days: optStr(opt, "days"),
-    member_days: optStr(opt, "access-days"),
-    max_uses: optStr(opt, "uses"),
-    invite_key: ik ? { public_key: ik.public_key, grants: ik.grants } : undefined,
-  });
-  say(j.url + (ik?.fragment ?? ""));
+  const j = await api(opt, "POST", `/api/boards/${b}/links`, { role: optStr(opt, "role"), link_days: optStr(opt, "days"), member_days: optStr(opt, "access-days"), max_uses: optStr(opt, "uses") });
+  say(j.url);
   process.stderr.write(`Anyone with this link who signs in joins as ${j.link.role}${j.link.member_days ? ` for ${j.link.member_days} days` : ""}. It works until ${j.link.expires_at ? day(j.link.expires_at) : "revoked"}${j.link.max_uses ? `, ${j.link.max_uses} times` : ""}. Revoke: atteo link revoke ${j.link.id}\n`);
-  if (ik) process.stderr.write(`🔑 It carries the board key (after the "#", which the server never sees): whoever opens it can read the board. Share it only with the person it's for.\n`);
-}
-
-/** Joins with an invite link (`atteo join <link>`); when it carries an encrypted board's key, this machine takes it at once. */
-export async function joinLink(opt: Record<string, string | true>, link: string): Promise<string> {
-  const m = link.match(/\/i\/(il_[A-Za-z0-9_-]+)(?:\?[^#]*)?(?:#k=([A-Za-z0-9_-]{43}))?$/);
-  if (!m) throw new CliError("That isn't an invite link.");
-  const { board } = await api(opt, "POST", "/api/links/redeem", { secret: m[1] });
-  if (!m[2]) return board;
-  const kid = await ensureKey(opt);
-  const st: EpochState = await api(opt, "GET", `/api/boards/${board}/epochs`);
-  if (st.mine.length) return board; // one of your devices reads it already and hands this one the key
-  const k = await api(opt, "POST", "/api/invite-keys", { secret: m[1] });
-  const grants = (k.grants as ({ epoch: number } & WrappedKey)[]).map((g) => ({ epoch: g.epoch, kid, ...wrapKey(unwrapInvite(g, m[2], k.public_key), myKey().pub) }));
-  await api(opt, "POST", `/api/boards/${board}/grants/invite`, { secret: m[1], grants });
-  return board;
 }
 
 async function auditCmd(args: string[]) {
@@ -1138,7 +1093,7 @@ async function auditCmd(args: string[]) {
 /** Registers this machine's public key (once; repeat calls are no-ops). Returns its id. */
 async function ensureKey(opt: Record<string, string | true>): Promise<string> {
   const { pub } = myKey();
-  const j = await api(opt, "POST", "/api/me/keys", { public_key: pub, label: hostname(), sign_pub: mySignKey().pub });
+  const j = await api(opt, "POST", "/api/me/keys", { public_key: pub, label: hostname() });
   return j.id as string;
 }
 
@@ -1146,33 +1101,20 @@ async function keys(args: string[]) {
   const { pos, opt } = parseArgs(args);
   const mine = await ensureKey(opt);
   const j = await api(opt, "GET", "/api/me/keys");
-  signMismatch((j.keys as { id: string; sign_pub: string | null }[]).find((k) => k.id === mine));
   if (pos[0] === "approve") {
     // Your own new device (another machine, the web, the phone): this machine hands it the keys of your encrypted boards.
     const kid = pos[1];
-    const k = (j.keys as { id: string; label: string | null; public_key: string; sign_pub: string | null; sig: string | null }[]).find((x) => x.id === kid || (kid && kid.length >= 6 && x.id.startsWith(kid)));
+    const k = (j.keys as { id: string; label: string | null; public_key: string }[]).find((x) => x.id === kid || (kid && kid.length >= 6 && x.id.startsWith(kid)));
     if (!k) throw new CliError(`Usage: atteo keys approve <device id>   (one of yours: ${(j.keys as { id: string }[]).map((x) => x.id.slice(0, 8)).join(", ")})`);
-    if (k.id === mine) throw new CliError("That's this machine.");
     const p = pins();
     const me = creds().user;
-    if (!pinned(p[me], k.id, k.public_key)) (p[me] ??= []).push(pinId(k.id, k.public_key, k.sign_pub));
+    if (!p[me]?.includes(pinId(k.id, k.public_key))) (p[me] ??= []).push(pinId(k.id, k.public_key));
     savePins(p);
-    // Signed into your device list (E2E design §2.2): other members' devices can then hand it board keys too, and your
-    // encrypted boards show the change.
-    let signedNote = "";
-    if (!k.sig)
-      try {
-        await api(opt, "POST", `/api/me/keys/${k.id}/sign`, { by: mine, sig: signDevice(deviceSigned(me, k.id, k.public_key, k.sign_pub)) });
-        signedNote = " This machine signed it into your device list; your encrypted boards show the change.";
-      } catch (e) {
-        signedNote = ` (Not signed: ${(e as Error).message})`;
-      }
-    return say(`Approved ${k.label ?? "that device"} (${k.id.slice(0, 8)}). It gets the keys of your encrypted boards the next time this machine reads or posts on them.${signedNote}`);
+    return say(`Approved ${k.label ?? "that device"} (${k.id.slice(0, 8)}). It gets the keys of your encrypted boards the next time this machine reads or posts on them.`);
   }
-  const mp = pins()[creds().user];
-  const ok = (k: { id: string; public_key: string }) => !!pinned(mp, k.id, k.public_key);
-  if (json(opt)) return printJson({ keys: (j.keys as { id: string; public_key: string }[]).map((k) => ({ ...k, this_machine: k.id === mine, approved_here: ok(k) })) });
-  for (const k of j.keys) say(`${k.id}  ${k.label ?? ""}${k.id === mine ? "  (this machine)" : ok(k) ? "  (approved here)" : ""}${k.sig ? "  signed" : ""}  ${new Date(k.created_at).toISOString().slice(0, 10)}`);
+  const ok = new Set(pins()[creds().user] ?? []);
+  if (json(opt)) return printJson({ keys: (j.keys as { id: string; public_key: string }[]).map((k) => ({ ...k, this_machine: k.id === mine, approved_here: ok.has(pinId(k.id, k.public_key)) })) });
+  for (const k of j.keys) say(`${k.id}  ${k.label ?? ""}${k.id === mine ? "  (this machine)" : ok.has(pinId(k.id, k.public_key)) ? "  (approved here)" : ""}  ${new Date(k.created_at).toISOString().slice(0, 10)}`);
 }
 
 async function sealCmd(args: string[]) {

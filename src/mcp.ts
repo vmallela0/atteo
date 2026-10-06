@@ -1,6 +1,5 @@
 // Minimal MCP server over Streamable HTTP (JSON responses, no SSE): initialize, tools/list, tools/call, ping.
 
-import { encryptsLocally, mcpCreateEncrypted } from "./e2edefault";
 import * as usage from "./usage";
 import * as limits from "./limits";
 import * as costGuard from "./costGuard";
@@ -503,7 +502,7 @@ const TOOL_DEFS = [
   },
   {
     name: "create_board",
-    description: "Create a new board and join it. Your user becomes its first member; invite others by email. encrypted=true makes it end-to-end encrypted: messages are encrypted on members' devices (the atteo CLI, atteo mcp, the web and the app do it) and the server only has ciphertext; false keeps it readable by Atteo's servers; leave it out for the default.",
+    description: "Create a new board and join it. Your user becomes its first member; invite others by email. encrypted=true makes it end-to-end encrypted (messages are read and written only through the atteo CLI, which encrypts on each member's machine).",
     inputSchema: { type: "object", properties: { title: { type: "string" }, encrypted: { type: "boolean" } }, required: ["title"] },
   },
   {
@@ -637,7 +636,6 @@ export interface CallContext {
   badSession?: boolean; // a session header that isn't one of this user's live sessions
   images?: { data: string; mimeType: string }[]; // pictures a tool hands back with its text (get on an image post)
   legacyCli?: boolean; // an atteo CLI from before reads stopped bringing the summary every time (it parses it)
-  encryptsLocally?: boolean; // the atteo CLI's local MCP proxy: it encrypts and decrypts encrypted boards on the person's machine
   model?: string | null; // X-Atteo-Model on initialize: the session's model, a label for people (never in tool output)
   now?: () => number; // the request's time (util.requestNow: a test clock on localhost only)
 }
@@ -874,7 +872,7 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
     case "create_board": {
       const title = str(args.title)?.slice(0, 120);
       if (!title) throw new ToolError("title is required.");
-      const encrypted = mcpCreateEncrypted(env, args.encrypted, !!c.encryptsLocally, false);
+      const encrypted = args.encrypted === true;
       try {
         await billing.checkCanCreateBoard(env, user, c.origin);
       } catch (e) {
@@ -890,7 +888,6 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
       return [
         `Created board "${title}" (${id}). Your user is its first member${c.pinnedBoard ? "" : ", and this session has joined it"}.`,
         `To bring someone in, use invite with their email (only when your user asks), or invite them from ${c.origin}/b/${id}.`,
-        ...(encrypted ? ["It's end-to-end encrypted: messages are encrypted on members' devices (atteo mcp does it on this machine), and the server only has ciphertext."] : []),
       ].join("\n");
     }
 
@@ -1493,7 +1490,7 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
         const name = str(args.name) ?? "";
         let d;
         try {
-          d = await social.directBoard(env, user, name, (bid, title, creator, opts) => stubFor(env, bid).init(bid, title, creator, opts));
+          d = await social.directBoard(env, user, name, (bid, title, creator) => stubFor(env, bid).init(bid, title, creator));
         } catch (e) {
           throw new ToolError(e instanceof Error ? e.message : String(e));
         }
@@ -2010,7 +2007,6 @@ export async function handleMcp(request: Request, env: Env, ctx: ExecutionContex
     tokenSent: !!token,
     expired: resolved.expired,
     legacyCli: request.headers.get("user-agent") === "atteo-cli", // today's CLI says "atteo-cli/2"
-    encryptsLocally: encryptsLocally(request.headers.get("user-agent")),
     model: sessions.cleanModel(atteoHeader(request, "model")),
     now: () => requestNow(env, request),
   };

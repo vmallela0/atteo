@@ -997,209 +997,14 @@ await step("end-to-end encrypted board: CLI encrypts and decrypts; the server an
   assert(exported.every((e) => e.encrypted === true && !("payload" in e)), "the decrypted text, without the ciphertext");
 });
 
-await step("atteo mcp on an encrypted board (E2E 1c): a local MCP agent reads, gets, posts and waits, decrypted on its machine; the server never gets plaintext", async () => {
-  // Its own owner, so A's free-plan board count is left to the other steps.
-  const O = `e2e-cli-o-${run}`;
-  await ops("users", { name: O, email: `${O}@example.com`, verified: "true" });
-  const tokO = (await ops("tokens", { user: O })).token;
-  const credO = join(dir, "o.json");
-  writeFileSync(credO, JSON.stringify({ server: BASE, user: O, token: tokO, expires_at: Date.now() + 86400e3 }), { mode: 0o600 });
-  const projA = mkdtempSync(join(tmpdir(), "atteo-e2emcp-a-"));
-  const cliO = (args) => cli(args, { cwd: projA, cred: credO });
-  let r = await cliO(["create", `e2e mcp enc ${run}`, "--encrypted"]);
-  assert(r.code === 0, r.out + r.err);
-  const eb = r.out.match(/\((b_[a-z0-9]+)\)/)[1];
-  await ops("members", { board: eb, user: B });
-  await cli(["keys"], { cwd: projA, cred: credB }); // B's machine has its device key before the first post
-  const secret = `mcp sees this only locally ${run}`;
-  r = await cliO(["post", secret]);
-  assert(r.code === 0, r.out + r.err);
-  const m = startMcp(credB, { XDG_CONFIG_HOME: join(dir, "cfg-e2emcp") });
-  await m.call("initialize", { protocolVersion: "2025-06-18", capabilities: {} });
-  // Before joining, a post can't know its board: refused here, nothing sent.
-  let x = await m.call("tools/call", { name: "post", arguments: { type: "note", text: "where does this go" } });
-  assert(x.result.isError && x.result.content[0].text.includes("join_board"), x.result.content[0].text);
-  x = await m.call("tools/call", { name: "join_board", arguments: { board: eb } });
-  assert(!x.result.isError, x.result.content[0].text);
-  x = await m.call("tools/call", { name: "read", arguments: {} });
-  let t = x.result.content[0].text;
-  assert(t.includes(secret) && t.includes("END-TO-END ENCRYPTED, decrypted on this machine") && /<<untrusted /.test(t), t);
-  x = await m.call("tools/call", { name: "read", arguments: {} });
-  assert(x.result.content[0].text.includes("(nothing new)"), x.result.content[0].text);
-  const seq = Number(t.match(/#(\d+) note/)[1]);
-  const reply = `agent reply via mcp ${run}`;
-  x = await m.call("tools/call", { name: "post", arguments: { type: "note", text: reply, reply_to: seq } });
-  t = x.result.content[0].text;
-  assert(!x.result.isError && /Posted #\d+ \(note, encrypted on this machine\)/.test(t) && t.includes(`In reply to #${seq}`), t);
-  // Stored as a v2 envelope: no plaintext anywhere the server keeps.
-  const list = await fetch(`${BASE}/api/boards/${eb}/sealed?after=0`, { headers: { authorization: `Bearer ${tokO}` } }).then((y) => y.json());
-  assert(list.entries.length === 2 && list.entries.every((e) => !e.payload.includes("mcp") && JSON.parse(e.payload).v === 2), JSON.stringify(list).slice(0, 300));
-  assert(!(await tool(tokO, eb, "read", {})).includes(reply), "the server's own read shows no plaintext");
-  r = await cliO(["read"]);
-  assert(r.out.includes(reply), "A's CLI decrypts what the MCP agent posted: " + r.out + r.err);
-  x = await m.call("tools/call", { name: "get", arguments: { seq } });
-  t = x.result.content[0].text;
-  assert(t.includes(secret) && t.includes("Replies (1)") && t.includes(reply), t);
-  // Plain-text-only fields are refused here, before anything is sent.
-  x = await m.call("tools/call", { name: "post", arguments: { type: "note", text: "x", data: { k: 1 } } });
-  assert(x.result.isError && x.result.content[0].text.includes("plain text"), x.result.content[0].text);
-  // wait: the server blocks; what arrives comes back decrypted.
-  const waiting = m.call("tools/call", { name: "wait", arguments: { timeout_seconds: 20 } });
-  await sleep(1500);
-  r = await cliO(["post", `arrives during wait ${run}`]);
-  x = await waiting;
-  t = x.result.content[0].text;
-  assert(t.includes(`arrives during wait ${run}`) && t.includes("decrypted on this machine"), t);
-  m.stop();
-});
-
-await step("encrypted by default (E2E_DEFAULT): DMs, Your agent and a local agent's create_board are encrypted; a hosted connector's and an explicit false aren't", async () => {
-  // Needs a server started with --var E2E_DEFAULT:1 (E2E_ON=1 says so); with the default off, it checks nothing changed.
-  const on = process.env.E2E_ON === "1";
-  const U = `e2e-cli-du-${run}`, V = `e2e-cli-dv-${run}`;
-  for (const u of [U, V]) await ops("users", { name: u, email: `${u}@example.com`, verified: "true" });
-  const ck = async (u) => (await ops("sessions", { user: u })).cookie;
-  const [cu, cv] = [await ck(U), await ck(V)];
-  const post = (cookie, path, body = {}) => fetch(`${BASE}${path}`, { method: "POST", headers: { cookie, "content-type": "application/json", origin: BASE }, body: JSON.stringify(body) }).then((x) => x.json());
-  await post(cu, "/api/friends/request", { user: V });
-  await post(cv, `/api/friends/${U}/accept`);
-  const dm = await post(cu, `/api/direct/${V}`);
-  assert(dm.ok && dm.board, JSON.stringify(dm));
-  const chat = await post(cu, "/api/me/agent-chat");
-  assert(chat.ok && chat.board, JSON.stringify(chat));
-  const tokU = (await ops("tokens", { user: U })).token;
-  const mine = (await fetch(`${BASE}/api/me/boards`, { headers: { authorization: `Bearer ${tokU}` } }).then((x) => x.json())).boards;
-  const enc = (id) => !!mine.find((b) => b.id === id)?.encrypted;
-  assert(enc(dm.board) === on && enc(chat.board) === on, `DM and Your agent encrypted iff E2E_DEFAULT: ${JSON.stringify(mine.map((b) => [b.id, b.encrypted]))}`);
-  // create_board: through atteo mcp (encrypts locally) vs a hosted connector straight to /mcp.
-  const credU = join(dir, "u.json");
-  writeFileSync(credU, JSON.stringify({ server: BASE, user: U, token: tokU, expires_at: Date.now() + 86400e3 }), { mode: 0o600 });
-  const m = startMcp(credU, { XDG_CONFIG_HOME: join(dir, "cfg-e2edef") });
-  await m.call("initialize", { protocolVersion: "2025-06-18", capabilities: {} });
-  const local = (await m.call("tools/call", { name: "create_board", arguments: { title: `local ${run}` } })).result.content[0].text;
-  const plain = (await m.call("tools/call", { name: "create_board", arguments: { title: `plain ${run}`, encrypted: false } })).result.content[0].text;
-  m.stop();
-  const hosted = await tool(tokU, "", "create_board", { title: `hosted ${run}` });
-  const idOf = (t) => t.match(/\((b_[a-z0-9]+)\)/)[1];
-  const after = (await fetch(`${BASE}/api/me/boards`, { headers: { authorization: `Bearer ${tokU}` } }).then((x) => x.json())).boards;
-  const enc2 = (id) => !!after.find((b) => b.id === id)?.encrypted;
-  assert(enc2(idOf(local)) === on && local.includes("end-to-end encrypted") === on, local);
-  assert(enc2(idOf(plain)) === false, "encrypted: false is Readable by Atteo's servers: " + plain);
-  assert(enc2(idOf(hosted)) === false && !hosted.includes("It's end-to-end encrypted"), "a hosted connector's board stays readable until it can be a visible reader: " + hosted);
-});
-
-await step("invite links carry an encrypted board's key after the # (E2E 1c): atteo join <link> reads at once, and everyone sees how it got the key", async () => {
-  const P = `e2e-cli-p-${run}`, Q = `e2e-cli-q-${run}`;
-  const cred = {};
-  for (const u of [P, Q]) {
-    await ops("users", { name: u, email: `${u}@example.com`, verified: "true" });
-    cred[u] = join(dir, `${u}.json`);
-    writeFileSync(cred[u], JSON.stringify({ server: BASE, user: u, token: (await ops("tokens", { user: u })).token, expires_at: Date.now() + 86400e3 }), { mode: 0o600 });
-  }
-  const proj = { [P]: mkdtempSync(join(tmpdir(), "atteo-invkey-p-")), [Q]: mkdtempSync(join(tmpdir(), "atteo-invkey-q-")) };
-  const as = (u, args) => cli(args, { cwd: proj[u], cred: cred[u], env: { XDG_CONFIG_HOME: join(dir, `cfg-${u}`) } });
-  let r = await as(P, ["create", `invite key ${run}`, "--encrypted"]);
-  assert(r.code === 0, r.out + r.err);
-  const eb = r.out.match(/\((b_[a-z0-9]+)\)/)[1];
-  const secret = `only for the invited ${run}`;
-  r = await as(P, ["post", secret, "--board", eb]);
-  assert(r.code === 0, r.out + r.err);
-  r = await as(P, ["link", "--board", eb]);
-  assert(r.code === 0 && /\/i\/il_[A-Za-z0-9_-]+#k=[A-Za-z0-9_-]{43}$/m.test(r.out) && r.err.includes("carries the board key"), r.out + r.err);
-  const url = r.out.trim().split("\n").pop();
-  // The server keeps only the invite key's public half and wrapped copies; the "#" part is nowhere it can see.
-  const linkSecret = url.match(/\/i\/(il_[A-Za-z0-9_-]+)#/)[1];
-  const fragment = url.split("#k=")[1];
-  const qTok = JSON.parse(readFileSync(cred[Q], "utf8")).token;
-  const before = await fetch(`${BASE}/api/invite-keys`, { method: "POST", headers: { authorization: `Bearer ${qTok}`, "content-type": "application/json" }, body: JSON.stringify({ secret: linkSecret }) }).then((x) => x.json());
-  assert(before.error?.includes("Join the board"), "the wrapped copies go only to members: " + JSON.stringify(before));
-  r = await as(Q, ["join", url]);
-  assert(r.code === 0 && r.out.includes(`Joined ${eb}`), r.out + r.err);
-  r = await as(Q, ["read"]);
-  assert(r.code === 0 && r.out.includes(secret), "Q reads with no one else online: " + r.out + r.err);
-  const k = await fetch(`${BASE}/api/invite-keys`, { method: "POST", headers: { authorization: `Bearer ${qTok}`, "content-type": "application/json" }, body: JSON.stringify({ secret: linkSecret }) }).then((x) => x.json());
-  assert(k.public_key && k.grants.length === 1 && !JSON.stringify(k).includes(fragment), JSON.stringify(k).slice(0, 200));
-  // Only once, only while none of Q's devices reads the board.
-  const again = await fetch(`${BASE}/api/boards/${eb}/grants/invite`, { method: "POST", headers: { authorization: `Bearer ${qTok}`, "content-type": "application/json" }, body: JSON.stringify({ secret: linkSecret, grants: [{ epoch: 1, kid: "x", epk: k.grants[0].epk, iv: k.grants[0].iv, wrapped: k.grants[0].wrapped }] }) }).then((x) => x.json());
-  assert(again.error?.includes("already reads this board"), JSON.stringify(again));
-  const pCookie = (await ops("sessions", { user: P })).cookie;
-  const boardHtml = await fetch(`${BASE}/b/${eb}`, { headers: { cookie: pCookie } }).then((x) => x.text());
-  assert(boardHtml.includes(`🔑 ${Q} joined with an invite link that carries this board&#39;s key`) || boardHtml.includes(`🔑 ${Q} joined with an invite link that carries this board's key`), "the visible key line on the board");
-  // The link's default role is viewer: a viewer reads with the link's key, though viewers can't hand keys on.
-  r = await as(Q, ["post", `the invited answers ${run}`]);
-  assert(r.code !== 0 && (r.out + r.err).includes("viewer"), r.out + r.err);
-  // A plain board's link has no key, and the /i/ page goes straight to sign-in; a keyed one first moves the key out of the address bar.
-  const page = await fetch(`${BASE}/i/${linkSecret}`, { redirect: "manual" });
-  const html = await page.text();
-  assert(page.status === 200 && html.includes("atteo.invite.") && html.includes("?go=1"), page.status + html.slice(0, 200));
-  r = await as(P, ["create", `invite plain ${run}`]);
-  const pb = r.out.match(/\((b_[a-z0-9]+)\)/)[1];
-  r = await as(P, ["link", "--board", pb]);
-  assert(r.code === 0 && !r.out.includes("#k=") && !r.err.includes("carries the board key"), r.out + r.err);
-  const plainLink = r.out.trim().split("\n").pop().match(/\/i\/(il_[A-Za-z0-9_-]+)/)[1];
-  const straight = await fetch(`${BASE}/i/${plainLink}`, { redirect: "manual" });
-  assert(straight.status >= 300 && straight.status < 400 && straight.headers.get("location").includes("/auth/login"), "a key-less link goes straight to sign-in: " + straight.status);
-});
-
-await step("cross-signed devices (E2E 1c): approving your new machine signs it; another member's CLI then hands it the key, and the board says so", async () => {
-  const R = `e2e-cli-r-${run}`, S = `e2e-cli-s-${run}`;
-  const cred = {};
-  for (const [who, u] of [["r1", R], ["r2", R], ["s", S]]) {
-    if (who !== "r2") await ops("users", { name: u, email: `${u}@example.com`, verified: "true" });
-    cred[who] = join(dir, `xs-${who}.json`);
-    writeFileSync(cred[who], JSON.stringify({ server: BASE, user: u, token: (await ops("tokens", { user: u })).token, expires_at: Date.now() + 86400e3 }), { mode: 0o600 });
-  }
-  const as = (who, args) => cli(args, { cwd: mkdtempSync(join(tmpdir(), `atteo-xs-${who}-`)), cred: cred[who], env: { XDG_CONFIG_HOME: join(dir, `cfg-xs-${who}`) } });
-  let r = await as("r1", ["create", `cross signed ${run}`, "--encrypted"]);
-  assert(r.code === 0, r.out + r.err);
-  const eb = r.out.match(/\((b_[a-z0-9]+)\)/)[1];
-  await ops("members", { board: eb, user: S });
-  await as("s", ["keys"]);
-  const secret = `signed devices read this ${run}`;
-  r = await as("r1", ["post", secret, "--board", eb]);
-  assert(r.code === 0, r.out + r.err);
-  r = await as("s", ["read", "--board", eb]);
-  assert(r.out.includes(secret), "S reads: " + r.out + r.err);
-  // R's second machine: unsigned, so S's CLI leaves it to R's own devices.
-  r = await as("r2", ["keys", "--json"]);
-  const r2 = JSON.parse(r.out).keys.find((k) => k.this_machine);
-  assert(r2 && r2.sign_pub && !r2.sig, "a new machine registers its signing key, unsigned: " + r.out);
-  await as("s", ["read", "--board", eb]); // the server doesn't even offer it to S: an unsigned later device is R's own business
-  r = await as("r2", ["read", "--all", "--board", eb]);
-  assert(!r.out.includes(secret), "not yet: " + r.out);
-  // R approves it on the first machine: signed into R's device list. R1 isn't used again.
-  r = await as("r1", ["keys", "approve", r2.id]);
-  assert(r.code === 0 && r.out.includes("signed it into your device list"), r.out + r.err);
-  r = await as("r1", ["keys", "approve", r2.id]);
-  assert(!r.out.includes("Not signed"), "approving again doesn't re-sign: " + r.out);
-  r = await as("s", ["read", "--board", eb]); // S's CLI checks the signature against R1's pinned signing key, and grants
-  r = await as("r2", ["read", "--all", "--board", eb]);
-  assert(r.out.includes(secret), "R's second machine reads, handed the key by S's CLI: " + r.out + r.err);
-  const html = await fetch(`${BASE}/b/${eb}`, { headers: { cookie: (await ops("sessions", { user: S })).cookie } }).then((x) => x.text());
-  assert(html.includes(`🔑 ${R} added a device`) && html.includes(`gave ${R}`), "the device change and the grant are visible on the board");
-  // The server checks signatures too: a made-up one is refused.
-  const tokR = JSON.parse(readFileSync(cred.r1, "utf8")).token;
-  r = await as("r2", ["keys", "--json"]);
-  const r1id = JSON.parse(r.out).keys.find((k) => !k.this_machine).id;
-  const bad = await fetch(`${BASE}/api/me/keys/${r1id}/sign`, { method: "POST", headers: { authorization: `Bearer ${tokR}`, "content-type": "application/json" }, body: JSON.stringify({ by: r2.id, sig: Buffer.alloc(64, 7).toString("base64") }) }).then((x) => x.json());
-  assert(/doesn't match/.test(bad.error ?? ""), JSON.stringify(bad));
-});
-
 await step("encrypted board past 200 (alt-c #3398): read --all shows everything; a plain read takes a page and says more are waiting", async () => {
   // Standalone (#3007): its own encrypted board. The sealed route gives 200 a call, so 205 filler envelopes push a real
   // message past the first page. The filler is a v2 envelope at the board's epoch that won't decrypt; it only adds entries.
   const proj = mkdtempSync(join(tmpdir(), "atteo-e2ee-200-"));
-  // Its own user too, so the Free plan's 3 boards of A's don't depend on which steps share its shard.
-  const U = `e2e-cli-200-${run}`;
-  await ops("users", { name: U, email: `${U}@example.com`, verified: "true" });
-  const tokA = (await ops("tokens", { user: U })).token;
-  const credU = join(proj, "u.json");
-  writeFileSync(credU, JSON.stringify({ server: BASE, user: U, token: tokA, expires_at: Date.now() + 86400e3 }), { mode: 0o600 });
-  const cliU = (args, o) => cli(args, { ...o, cred: credU });
-  let r = await cliU(["create", `e2e cli enc200 ${run}`, "--encrypted"], { cwd: proj });
+  let r = await cli(["create", `e2e cli enc200 ${run}`, "--encrypted"], { cwd: proj });
   assert(r.code === 0, r.out + r.err);
   const eb = r.out.match(/\((b_[a-z0-9]+)\)/)[1];
-  r = await cliU(["post", `first ${run}`], { cwd: proj });
+  r = await cli(["post", `first ${run}`], { cwd: proj });
   assert(r.code === 0, r.out + r.err);
   const sealed = (after) => fetch(`${BASE}/api/boards/${eb}/sealed?after=${after}`, { headers: { authorization: `Bearer ${tokA}` } }).then((x) => x.json());
   const epoch = JSON.parse((await sealed(0)).entries[0].payload).epoch;
@@ -1208,15 +1013,15 @@ await step("encrypted board past 200 (alt-c #3398): read --all shows everything;
     await Promise.all(Array.from({ length: 41 }, () => fetch(`${BASE}/api/boards/${eb}/sealed`, { method: "POST", headers: { authorization: `Bearer ${tokA}`, "content-type": "application/json" }, body: JSON.stringify({ payload: filler, type: "note" }) }).then((x) => assert(x.status === 201, `filler ${x.status}`))));
   }
   const last = `past the first page ${run}`;
-  r = await cliU(["post", last], { cwd: proj });
+  r = await cli(["post", last], { cwd: proj });
   assert(r.code === 0, r.out + r.err);
   // A plain read from the start: one page with the note, then the rest.
-  r = await cliU(["read"], { cwd: proj });
+  r = await cli(["read"], { cwd: proj });
   assert(r.code === 0 && r.out.includes("200 messages") && r.out.includes("(200 shown; more are waiting: atteo read again)") && !r.out.includes(last), r.out.slice(-300) + r.err);
-  r = await cliU(["read"], { cwd: proj });
+  r = await cli(["read"], { cwd: proj });
   assert(r.code === 0 && r.out.includes("7 messages") && r.out.includes(last) && !r.out.includes("more are waiting"), r.out.slice(-300) + r.err);
   // --all: everything in one go.
-  r = await cliU(["read", "--all"], { cwd: proj });
+  r = await cli(["read", "--all"], { cwd: proj });
   assert(r.code === 0 && r.out.includes("207 messages") && r.out.includes(`first ${run}`) && r.out.includes(last) && !r.out.includes("more are waiting"), r.out.slice(0, 200) + r.out.slice(-300) + r.err);
 });
 
@@ -1808,7 +1613,7 @@ await step("dispatch: without a harness it says how to set one and exits non-zer
 
 await step("dispatch: one fork per message, each its own session with the message and how to answer it in the thread; acked; a second run does nothing; an agent's plain note gets no fork", async () => {
   // Fresh people, so earlier steps' mail doesn't get in the way.
-  const D = `e2e-cli-dp-${run}`, E = `e2e-cli-e-${run}`;
+  const D = `e2e-cli-d-${run}`, E = `e2e-cli-e-${run}`;
   for (const u of [D, E]) await ops("users", { name: u, email: `${u}@example.com`, verified: "true" });
   const tokD = (await ops("tokens", { user: D })).token;
   const tokE = (await ops("tokens", { user: E })).token;

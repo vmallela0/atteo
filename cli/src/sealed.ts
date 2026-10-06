@@ -2,7 +2,7 @@
 // you can read); the server knows only public keys. Sealing encrypts a random content key to every key the recipient
 // (and you) have: X25519 → HKDF-SHA256 → AES-256-GCM. The server stores the envelope and never sees the plaintext.
 
-import { createPrivateKey, createPublicKey, diffieHellman, generateKeyPairSync, hkdfSync, randomBytes, createCipheriv, createDecipheriv, sign as edSign, verify as edVerify, type KeyObject } from "node:crypto";
+import { createPrivateKey, createPublicKey, diffieHellman, generateKeyPairSync, hkdfSync, randomBytes, createCipheriv, createDecipheriv, type KeyObject } from "node:crypto";
 import { env } from "./env";
 import { execFileSync } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -50,7 +50,7 @@ function loadJwk(): { d: string; x: string } | null {
   }
 }
 
-function saveJwk(jwk: { d: string; x: string; sd?: string; sx?: string }) {
+function saveJwk(jwk: { d: string; x: string }) {
   const json = JSON.stringify(jwk);
   const f = keyFile();
   if (f) {
@@ -74,34 +74,6 @@ export function myKey(): { priv: KeyObject; pub: string } {
 }
 
 const pubKey = (b64: string) => createPublicKey({ key: { kty: "OKP", crv: "X25519", x: b642b64u(b64) }, format: "jwk" });
-
-// ---- this machine's Ed25519 signing key (cross-signed device lists, E2E design §2.2), kept with its X25519 key ----
-
-/** This machine's signing key (created the first time, next to the X25519 key). The public half as base64. */
-export function mySignKey(): { priv: KeyObject; pub: string } {
-  myKey();
-  let jwk = loadJwk() as { d: string; x: string; sd?: string; sx?: string };
-  if (!jwk.sd || !jwk.sx) {
-    const j = generateKeyPairSync("ed25519").privateKey.export({ format: "jwk" }) as { d: string; x: string };
-    jwk = { ...jwk, sd: j.d, sx: j.x };
-    saveJwk(jwk);
-  }
-  return { priv: createPrivateKey({ key: { kty: "OKP", crv: "Ed25519", d: jwk.sd, x: jwk.sx! }, format: "jwk" }), pub: b64u2b64(jwk.sx!) };
-}
-
-/** What a device signature covers (src/boardkeys.ts deviceSigned; never change it). */
-export const deviceSigned = (user: string, kid: string, publicKey: string, signPub: string | null) => `atteo device v1\n${user}\n${kid}\n${publicKey}\n${signPub ?? ""}`;
-
-export const signDevice = (data: string) => edSign(null, Buffer.from(data), mySignKey().priv).toString("base64");
-
-/** Whether `sig` is `signPub`'s signature of `data`; false on anything malformed. */
-export function verifyDevice(signPub: string, data: string, sig: string): boolean {
-  try {
-    return edVerify(null, Buffer.from(data), createPublicKey({ key: { kty: "OKP", crv: "Ed25519", x: b642b64u(signPub) }, format: "jwk" }), Buffer.from(sig, "base64"));
-  } catch {
-    return false;
-  }
-}
 
 // The HKDF info labels ("agent-soup seal v1", "agent-soup board key v2") are historical: they are part of every
 // sealed secret and wrapped board key already stored, so they must never change (the product is Atteo now).
@@ -173,20 +145,6 @@ export function wrapKey(key: Buffer, devicePub: string): WrappedKey {
 /** This machine's copy of an epoch key. */
 export function unwrapKey(g: WrappedKey): Buffer {
   const { priv, pub } = myKey();
-  return ungcm(kek(diffieHellman({ privateKey: priv, publicKey: pubKey(g.epk) }), g.epk, pub, V2_INFO), g.iv, g.wrapped);
-}
-
-/** A one-time invite key for a link (E2E design §3.3): each epoch key wrapped to it, and its private half for the link's "#". */
-export function inviteKey(keys: Map<number, Buffer>): { public_key: string; grants: ({ epoch: number } & WrappedKey)[]; fragment: string } {
-  const k = generateKeyPairSync("x25519");
-  const jwk = k.privateKey.export({ format: "jwk" }) as { x: string; d: string };
-  const pub = b64u2b64(jwk.x);
-  return { public_key: pub, grants: [...keys].map(([epoch, key]) => ({ epoch, ...wrapKey(key, pub) })), fragment: `#k=${jwk.d}` };
-}
-
-/** An epoch key wrapped to an invite key, opened with the private half from the link's "#". */
-export function unwrapInvite(g: WrappedKey, d: string, pub: string): Buffer {
-  const priv = createPrivateKey({ key: { kty: "OKP", crv: "X25519", d, x: b642b64u(pub) }, format: "jwk" });
   return ungcm(kek(diffieHellman({ privateKey: priv, publicKey: pubKey(g.epk) }), g.epk, pub, V2_INFO), g.iv, g.wrapped);
 }
 

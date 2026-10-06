@@ -1424,20 +1424,16 @@ const handler = {
       // ---- sealed secrets: public keys per CLI login; envelopes only their recipient can fetch ----
       if (path === "/api/me/keys" && (method === "GET" || method === "POST")) {
         if (!viewer) return needLogin();
-        if (method === "GET") return json({ keys: (await env.DB.prepare(`SELECT id, public_key, label, created_at, sign_pub, signed_by, sig FROM agent_keys WHERE user = ? AND revoked_at IS NULL ORDER BY created_at`).bind(viewer.name).all()).results });
-        const b = (await request.json().catch(() => ({}))) as { public_key?: string; label?: string; sign_pub?: string };
+        if (method === "GET") return json({ keys: (await env.DB.prepare(`SELECT id, public_key, label, created_at FROM agent_keys WHERE user = ? AND revoked_at IS NULL ORDER BY created_at`).bind(viewer.name).all()).results });
+        const b = (await request.json().catch(() => ({}))) as { public_key?: string; label?: string };
         const pk = String(b.public_key ?? "");
         if (!/^[A-Za-z0-9+/]{43}=$/.test(pk)) return json({ error: "public_key must be a base64 X25519 key (32 bytes)." }, 400);
-        // The device's Ed25519 signing key (cross-signed device lists, E2E design §2.2): set once, never replaced.
-        const spk = b.sign_pub == null ? null : String(b.sign_pub);
-        if (spk !== null && !/^[A-Za-z0-9+/]{43}=$/.test(spk)) return json({ error: "sign_pub must be a base64 Ed25519 key (32 bytes)." }, 400);
         const existing = await env.DB.prepare(`SELECT id FROM agent_keys WHERE user = ? AND public_key = ? AND revoked_at IS NULL`).bind(viewer.name, pk).first<{ id: string }>();
-        if (existing && spk) await env.DB.prepare(`UPDATE agent_keys SET sign_pub = ? WHERE id = ? AND sign_pub IS NULL`).bind(spk, existing.id).run();
         if (existing) return json({ ok: true, id: existing.id });
         const n = (await env.DB.prepare(`SELECT COUNT(*) AS n FROM agent_keys WHERE user = ? AND revoked_at IS NULL`).bind(viewer.name).first<{ n: number }>())?.n ?? 0;
         if (n >= 10) return json({ error: "At most 10 machines; remove one first." }, 400);
         const kid = crypto.randomUUID().slice(0, 8);
-        await env.DB.prepare(`INSERT INTO agent_keys (id, user, public_key, label, created_at, sign_pub) VALUES (?, ?, ?, ?, ?, ?)`).bind(kid, viewer.name, pk, String(b.label ?? "").slice(0, 60) || null, Date.now(), spk).run();
+        await env.DB.prepare(`INSERT INTO agent_keys (id, user, public_key, label, created_at) VALUES (?, ?, ?, ?, ?)`).bind(kid, viewer.name, pk, String(b.label ?? "").slice(0, 60) || null, Date.now()).run();
         return json({ ok: true, id: kid }, 201);
       }
       let km = path.match(/^\/api\/keys\/([a-z0-9][a-z0-9_.-]{0,31})$/);
@@ -1456,19 +1452,6 @@ const handler = {
         const members = (await registry.boardMembers(env, km[1])).map((x) => x.user);
         return json({ keys: rows, without_keys: members.filter((u) => !rows.some((r) => r.user === u)) });
       }
-      // One of your devices signs another of yours when it approves it; your encrypted boards show the change.
-      km = path.match(/^\/api\/me\/keys\/([a-z0-9-]{1,40})\/sign$/);
-      if (km && method === "POST") {
-        if (!viewer) return needLogin();
-        try {
-          const r = await boardkeys.signDevice(env, viewer.name, km[1], (await request.json().catch(() => ({}))) as Record<string, unknown>);
-          const opts = { via: pv(), client: viewer.via === "agent" ? "atteo CLI" : null, session: await asid() };
-          for (const id of r.boards) await boardStub(env, id).keyNotice(viewer.name, boardkeys.deviceNotice(viewer.name, r.target, r.signer), opts);
-          return json({ ok: true, boards: r.boards.length });
-        } catch (e) {
-          return json({ error: e instanceof Error ? e.message : String(e) }, e instanceof boardkeys.KeyError ? 400 : 500);
-        }
-      }
       // A device key you no longer trust (a lost laptop): its copies of board keys go, and those boards rotate.
       km = path.match(/^\/api\/me\/keys\/([a-z0-9-]{1,40})$/);
       if (km && method === "DELETE") {
@@ -1479,44 +1462,6 @@ const handler = {
           return json({ ok: true });
         } catch (e) {
           return json({ error: e instanceof Error ? e.message : String(e) }, e instanceof boardkeys.KeyError ? 400 : 500);
-        }
-      }
-      // ---- invite links that carry the board key (E2E design §3.3): the joiner's device fetches the link's wrapped
-      // copies, unwraps them with the private half from the link's "#", and hands the key to itself ----
-      if (path === "/api/invite-keys" && method === "POST") {
-        if (!viewer) return needLogin();
-        const b = (await request.json().catch(() => ({}))) as { secret?: unknown };
-        try {
-          return json(await access.inviteKeyFor(env, String(b.secret ?? ""), viewer.name));
-        } catch (e) {
-          return json({ error: e instanceof Error ? e.message : String(e) }, e instanceof access.AccessError ? 400 : 500);
-        }
-      }
-      // The CLI's `atteo join <invite link>`: the /i/ page's join, as JSON.
-      if (path === "/api/links/redeem" && method === "POST") {
-        if (!viewer) return needLogin();
-        const b = (await request.json().catch(() => ({}))) as { secret?: unknown };
-        try {
-          return json({ board: await access.redeemLink(env, String(b.secret ?? ""), viewer.name, origin, ctx) });
-        } catch (e) {
-          return json({ error: e instanceof Error ? e.message : String(e) }, e instanceof access.AccessError ? 400 : 500);
-        }
-      }
-      km = path.match(/^\/api\/boards\/(b_[a-z0-9]+)\/grants\/invite$/);
-      if (km && method === "POST") {
-        if (!viewer) return needLogin();
-        if (!(await registry.isMember(env, km[1], viewer.name))) return json({ error: "board not found" }, 404);
-        const b = (await request.json().catch(() => ({}))) as { secret?: unknown; grants?: unknown };
-        try {
-          const k = await access.inviteKeyFor(env, String(b.secret ?? ""), viewer.name);
-          if (k.board !== km[1]) return json({ error: "That link is for another board." }, 400);
-          const r = await boardkeys.addInviteGrants(env, km[1], viewer.name, new Set(k.grants.map((g) => g.epoch)), b);
-          const opts = { via: pv(), client: viewer.via === "agent" ? "atteo CLI" : null, session: await asid() };
-          const stub = boardStub(env, km[1]);
-          for (const a of r.added) await stub.keyNotice(viewer.name, boardkeys.inviteNotice(a), opts);
-          return json({ ok: true, ...r });
-        } catch (e) {
-          return json({ error: e instanceof Error ? e.message : String(e) }, e instanceof boardkeys.KeyError || e instanceof access.AccessError ? 400 : 500);
         }
       }
       // ---- encryption v2: the board's epoch keys, wrapped per member device (see boardkeys.ts for the rules) ----
@@ -1622,7 +1567,7 @@ const handler = {
       // ---- "Your agent": your private chat with your own agents (any session, or one you pick), made on first open ----
       if ((path === "/api/me/agent-chat" && method === "POST") || (path === "/agent" && method === "GET")) {
         if (!viewer) return needLogin();
-        const d = await social.openAgentChat(env, viewer.name, (bid, title, creator, opts) => boardStub(env, bid).init(bid, title, creator, opts));
+        const d = await social.openAgentChat(env, viewer.name, (bid, title, creator) => boardStub(env, bid).init(bid, title, creator));
         if (path === "/agent") return redirect(`/b/${d.id}`);
         // The sessions you can address one by one ("@you/<name>" in the text, or to_session when posting).
         const mine = (await sessions.list(env, viewer.name)).filter(sessions.listed).map((x) => ({ id: x.id, name: x.name, client: x.client, state: x.state, status: x.status ?? null }));
@@ -1945,7 +1890,7 @@ const handler = {
           }
           pm = path.match(/^\/api\/direct\/([a-z0-9][a-z0-9_.-]{0,31})$/);
           if (pm && method === "POST") {
-            const d = await social.directBoard(env, me, pm[1], (bid, title, creator, opts) => boardStub(env, bid).init(bid, title, creator, opts));
+            const d = await social.directBoard(env, me, pm[1], (bid, title, creator) => boardStub(env, bid).init(bid, title, creator));
             const p = await social.person(env, me, pm[1]);
             return json({ ok: true, board: d.id, title: d.title, created: d.created, presence: p ? social.presenceLabel(p.presence) : "offline", online: p ? social.isOnline(p.presence) : false });
           }
@@ -2250,15 +2195,6 @@ const handler = {
       }
       m = path.match(/^\/i\/(il_[A-Za-z0-9_-]+)$/);
       if (m && method === "GET") {
-        // A link that carries an encrypted board's key: first move the key from the "#" (which the server never sees)
-        // into this browser for a day and out of the address bar, so it survives signing in. The board page uses it.
-        if (url.searchParams.get("go") !== "1" && (await access.linkHasKey(env, m[1])))
-          return page("Invite link · Atteo", `<div class="card pad" style="max-width:480px;margin:48px auto 0;text-align:center"><p class="muted">Opening the invite…</p><noscript><a class="btn primary" href="/i/${m[1]}?go=1">Continue</a></noscript></div>`, {
-            viewer,
-            narrow: true,
-            headers: { "cache-control": "no-store" },
-            script: `(()=>{const s=${JSON.stringify(m[1])},h=new URLSearchParams(location.hash.slice(1)).get('k');try{if(h&&/^[A-Za-z0-9_-]{43}$/.test(h))localStorage.setItem('atteo.invite.'+s,JSON.stringify({k:h,at:Date.now()}))}catch(e){}location.replace('/i/'+s+'?go=1')})()`,
-          });
         if (!viewer) return needLogin();
         try {
           return redirect(`/b/${await access.redeemLink(env, m[1], viewer.name, origin, ctx)}`);
