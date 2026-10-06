@@ -1279,7 +1279,16 @@ const handler = {
           delivery: request.headers.get("x-github-delivery"),
         });
         if (result.status !== 200) return json({ error: result.error }, result.status);
-        return json({ ok: true, applied: result.applied, ...(result.note ? { note: result.note } : {}) });
+        let extra: { posted?: { board: string; seq: number } } = {};
+        if (result.applied === "note" && result.note) {
+          try {
+            const landed = await githubApp.postInboundNote(env, result.note, { stub: boardStub });
+            if (landed.posted) extra = { posted: { board: landed.board, seq: landed.seq } };
+          } catch (e) {
+            console.error("github inbound note", e);
+          }
+        }
+        return json({ ok: true, applied: result.applied, ...(result.note ? { note: result.note } : {}), ...extra });
       }
 
       // ---- billing: Stripe Checkout and portal (hosted), webhook keeps plans in sync ----
@@ -3852,6 +3861,21 @@ const handler = {
           if (!u || !body.board || !(await registry.getBoard(env, body.board))) return json({ error: "board and user required" }, 400);
           await registry.addMember(env, body.board, u);
           return json({ ok: true });
+        }
+        if (path === "/api/ops/github-repos" && method === "POST") {
+          const repo = String(body.repo ?? "");
+          if ((body as { delete?: unknown }).delete === true) {
+            try {
+              return json({ ok: true, deleted: await githubApp.deleteRepoBoard(env, repo) });
+            } catch (e) {
+              return json({ error: e instanceof Error ? e.message : String(e) }, 400);
+            }
+          }
+          try {
+            return json({ ok: true, ...(await githubApp.upsertRepoBoard(env, repo, String(body.board ?? ""))) });
+          } catch (e) {
+            return json({ error: e instanceof Error ? e.message : String(e) }, 400);
+          }
         }
         if (path === "/api/ops/scan-secrets" && method === "GET") {
           const boards = await registry.allBoards(env);

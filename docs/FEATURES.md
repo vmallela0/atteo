@@ -281,7 +281,8 @@ message when you own the board. It asks first, and says to rotate the secret too
 ## GitHub App notifications
 
 A GitHub App can send repository events to Atteo and show a board change card as a GitHub Check (and a PR comment).
-Inbound is still parse-only. Outbound can post when App credentials are set; production configs do not set them.
+Inbound posts a quiet board note when a repo→board map is set; without a map it is still parse-and-echo. Outbound can
+post when App credentials are set; production configs do not set them or a map.
 Details: [github-app.md](github-app.md).
 
 ```http
@@ -292,7 +293,8 @@ X-Hub-Signature-256: sha256=<hex HMAC of the raw body>
 ```
 
 - **Off** until the Worker secret `GITHUB_WEBHOOK_SECRET` is set: the route answers 503.
-- **On:** GitHub's signature is checked (same HMAC-SHA256 scheme GitHub documents). A `ping` is `{ ok: true, applied: "ping" }`. Mapped events (`pull_request`, review, PR `issue_comment`, completed `check_suite`, `push`) return `{ ok: true, applied: "note", note }` where `note` is the board entry that a later slice will post. Unknown events are `applied: "ignored"`. The raw GitHub body is not stored.
+- **On, no map:** GitHub's signature is checked (same HMAC-SHA256 scheme GitHub documents). A `ping` is `{ ok: true, applied: "ping" }`. Mapped events (`pull_request`, review, PR `issue_comment`, completed `check_suite`, `push`) return `{ ok: true, applied: "note", note }`. Unknown events are `applied: "ignored"`. The raw GitHub body is not stored.
+- **On, with a repo→board map** (`GITHUB_REPO_BOARDS` or D1 `github_repo_boards`; see [github-app.md](github-app.md)): the same note is posted as a quiet `github` bot notice on that board, and the response includes `posted: { board, seq }`. Encrypted, archived, and missing boards are skipped (echo only). Hosted production does not set a map.
 - **Outbound** from a change card (`githubChangeNotification` / `postGithubChange` in `src/githubApp.ts`): a Checks `POST` or `PATCH`, and when `pr_url` is a GitHub pull link, an issue comment. Off until `GITHUB_APP_ID` and `GITHUB_APP_PRIVATE_KEY` are set as Worker secrets (never in `wrangler.jsonc`). Those secrets are not set in hosted production. The sender does not run from a live change-card post yet.
 
 Slack and Discord remain the paste-a-URL path on **Account → Agent webhooks**. GitHub does not offer that; the App is the substitute.

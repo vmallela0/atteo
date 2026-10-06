@@ -1,16 +1,23 @@
 // GitHub App notifications (GAPS P1): inbound GitHub webhooks become a board-note shape, and Atteo change cards
 // become GitHub Checks / PR comments. Off until GITHUB_WEBHOOK_SECRET is set (inbound) and GITHUB_APP_ID +
-// GITHUB_APP_PRIVATE_KEY (outbound). Inbound still only verifies and parses (no board write). Outbound posts a Check
-// run (and a PR comment when the card has a pull link) when those App secrets exist; without them it never fetches.
+// GITHUB_APP_PRIVATE_KEY (outbound). Inbound verifies and parses; it posts a quiet bot notice only when a repo→board
+// map is configured (GITHUB_REPO_BOARDS or github_repo_boards). Without a map, it still only echoes. Outbound posts a
+// Check run (and a PR comment when the card has a pull link) when those App secrets exist; without them it never fetches.
 
+import { GITHUB_BOT } from "./bugBoard";
 import { cardLine, type ChangeCard } from "./card";
 import { pingExcerpt } from "./ping";
+import * as registry from "./registry";
 import { scanText } from "./secrets";
 import type { Env } from "./types";
+import { BOARD_RE } from "./util";
 
 export const NOT_SET_UP = "GitHub app notifications aren't set up.";
 export const MAX_WEBHOOK_BYTES = 1_000_000;
 export const GITHUB_API = "https://api.github.com";
+export { GITHUB_BOT };
+
+const REPO = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
 
 const enc = new TextEncoder();
 const hex = (b: ArrayBuffer) => [...new Uint8Array(b)].map((x) => x.toString(16).padStart(2, "0")).join("");
@@ -213,7 +220,7 @@ function eventName(headers: GithubHeaders): string | null {
   return e && /^[a-z][a-z0-9_]{0,63}$/.test(e) ? e : null;
 }
 
-/** Verifies and parses an inbound GitHub App webhook. Never writes to a board. */
+/** Verifies and parses an inbound GitHub App webhook. Does not write to a board (see `postInboundNote`). */
 export async function handleWebhook(env: Pick<Env, "GITHUB_WEBHOOK_SECRET">, raw: string, headers: GithubHeaders): Promise<WebhookResult> {
   const secret = env.GITHUB_WEBHOOK_SECRET?.trim() ?? "";
   if (!secret) return { status: 503, error: NOT_SET_UP };
@@ -237,6 +244,154 @@ export async function handleWebhook(env: Pick<Env, "GITHUB_WEBHOOK_SECRET">, raw
   return { status: 200, ok: true, applied: "note", note: mapped };
 }
 
+/** `owner/name` lowercased, or null if it isn't a GitHub repo slug. */
+export function normalizeRepo(raw: string | null | undefined): string | null {
+  const repo = raw?.trim() ?? "";
+  return REPO.test(repo) ? repo.toLowerCase() : null;
+}
+
+/**
+ * Env map: JSON `{"owner/name":"b_…"}` or `owner/name=b_…` / `owner/name:b_…` pairs (comma or newline).
+ * Invalid entries are dropped. Unset or empty → no mappings from env.
+ */
+export function parseRepoBoardMap(raw: string | null | undefined): Map<string, string> {
+  const out = new Map<string, string>();
+  const text = raw?.trim() ?? "";
+  if (!text) return out;
+  const add = (repo: string, board: string) => {
+    const r = normalizeRepo(repo);
+    const b = board.trim();
+    if (r && BOARD_RE.test(b)) out.set(r, b);
+  };
+  if (text.startsWith("{")) {
+    try {
+      const json = JSON.parse(text) as unknown;
+      if (json && typeof json === "object" && !Array.isArray(json)) {
+        for (const [k, v] of Object.entries(json as Record<string, unknown>)) if (typeof v === "string") add(k, v);
+      }
+    } catch {
+      return out;
+    }
+    return out;
+  }
+  for (const part of text.split(/[,\n]/)) {
+    const piece = part.trim();
+    if (!piece || piece.startsWith("#")) continue;
+    const m = piece.match(/^([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+)\s*[=:]\s*(b_[a-z0-9]{8,32})$/);
+    if (m) add(m[1], m[2]);
+  }
+  return out;
+}
+
+export type GithubRepoMapEnv = Pick<Env, "GITHUB_REPO_BOARDS"> & { DB?: D1Database };
+
+/** Env wins for that repo; otherwise the D1 row. No map → null (inbound stays echo-only). */
+export async function boardIdForRepo(env: GithubRepoMapEnv, repo: string | null | undefined): Promise<string | null> {
+  const key = normalizeRepo(repo);
+  if (!key) return null;
+  const fromEnv = parseRepoBoardMap(env.GITHUB_REPO_BOARDS).get(key);
+  if (fromEnv) return fromEnv;
+  if (!env.DB) return null;
+  const row = await env.DB.prepare("SELECT board_id FROM github_repo_boards WHERE repo = ?").bind(key).first<{ board_id: string }>();
+  const id = row?.board_id?.trim() ?? "";
+  return BOARD_RE.test(id) ? id : null;
+}
+
+/** Operator/test helper: record a mapping. Refuses a missing board. Does not store GitHub payloads. */
+export async function upsertRepoBoard(env: Env, repo: string, boardId: string): Promise<{ repo: string; board: string }> {
+  const key = normalizeRepo(repo);
+  if (!key) throw new Error("repo is owner/name (e.g. vmallela0/atteo).");
+  const board = boardId.trim();
+  if (!BOARD_RE.test(board)) throw new Error("board is a board id (b_…).");
+  const row = await registry.getBoard(env, board);
+  if (!row || row.deleted_at) throw new Error("board not found.");
+  await env.DB.prepare(
+    `INSERT INTO github_repo_boards (repo, board_id, created_at) VALUES (?, ?, ?)
+     ON CONFLICT(repo) DO UPDATE SET board_id = excluded.board_id`,
+  )
+    .bind(key, board, Date.now())
+    .run();
+  return { repo: key, board };
+}
+
+export async function deleteRepoBoard(env: Env, repo: string): Promise<boolean> {
+  const key = normalizeRepo(repo);
+  if (!key) throw new Error("repo is owner/name (e.g. vmallela0/atteo).");
+  const r = await env.DB.prepare("DELETE FROM github_repo_boards WHERE repo = ?").bind(key).run();
+  return (r.meta?.changes ?? 0) > 0;
+}
+
+export interface GithubNoticeStub {
+  join: (user: string) => Promise<unknown>;
+  notice: (
+    user: string,
+    title: string,
+    text: string,
+    opts: { via?: "agent" | "person" | null; client?: string | null; session?: string | null; data?: unknown; idem?: string | null },
+  ) => Promise<{ seq: number }>;
+}
+
+const githubReady = new Set<string>();
+
+/** Test hook: forget which boards already have the GitHub bot. */
+export function resetGithubBoardCache() {
+  githubReady.clear();
+}
+
+/**
+ * Puts the sign-in-less `github` member on an existing board. Never creates a board. Throws if a person already
+ * holds the bot's name.
+ */
+export async function ensureGithubBot(env: Env, boardId: string, stub: GithubNoticeStub): Promise<void> {
+  if (githubReady.has(boardId)) return;
+  const bot = await registry.userByName(env, GITHUB_BOT);
+  if (!bot) {
+    await registry.createUser(env, { name: GITHUB_BOT, email: null, workos_id: null, display_name: "GitHub" }).catch(async (e) => {
+      if (!(await registry.userByName(env, GITHUB_BOT))) throw e;
+    });
+  } else if (bot.email || bot.workos_id) {
+    throw new Error(`The GitHub bot's name "${GITHUB_BOT}" belongs to a person; inbound notes are off until ops renames it.`);
+  }
+  await registry.addMember(env, boardId, GITHUB_BOT, { role: "contributor", added_by: "system" });
+  await stub.join(GITHUB_BOT);
+  githubReady.add(boardId);
+}
+
+export type InboundPostResult = { posted: false; reason: string } | { posted: true; board: string; seq: number };
+
+type BoardFlags = { kind?: string | null; encrypted?: number | null };
+
+/**
+ * Posts a verified `applied: "note"` as a quiet board notice from the GitHub bot. No map, missing/encrypted/archived
+ * board, or a person holding the bot name: `{ posted: false }` and no write. Never stores the raw GitHub body.
+ */
+export async function postInboundNote(
+  env: Env,
+  note: BoardGithubNote,
+  deps: { stub: (env: Env, id: string) => GithubNoticeStub; ensure?: (env: Env, board: string, stub: GithubNoticeStub) => Promise<void> },
+): Promise<InboundPostResult> {
+  const repo = typeof note.data.github.repo === "string" ? note.data.github.repo : null;
+  const boardId = await boardIdForRepo(env, repo);
+  if (!boardId) return { posted: false, reason: "no repo map" };
+  const row = (await registry.getBoard(env, boardId)) as (Awaited<ReturnType<typeof registry.getBoard>> & BoardFlags) | null;
+  if (!row || row.deleted_at) return { posted: false, reason: "board not found" };
+  if (row.archived_at) return { posted: false, reason: "board is archived" };
+  if (row.encrypted) return { posted: false, reason: "board is encrypted" };
+  if (row.kind === "direct" || row.kind === "agent") return { posted: false, reason: "not a collaboration board" };
+  const stub = deps.stub(env, boardId);
+  await (deps.ensure ?? ensureGithubBot)(env, boardId, stub);
+  const delivery = note.data.github.delivery;
+  const idem = typeof delivery === "string" && delivery ? `github:${delivery}` : null;
+  const entry = await stub.notice(GITHUB_BOT, note.title, note.text, {
+    via: "person",
+    client: "github",
+    session: null,
+    data: note.data,
+    idem,
+  });
+  return { posted: true, board: boardId, seq: entry.seq };
+}
+
 export type GithubOutboundKind = "check_run" | "issue_comment";
 export type GithubHttp = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
 
@@ -253,7 +408,6 @@ export interface GithubOutbound {
 }
 
 const SHA40 = /^[0-9a-f]{40}$/i;
-const REPO = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
 
 export function prNumberFromUrl(url: string | null | undefined): number | null {
   const m = url?.trim().match(/github\.com\/[^/]+\/[^/]+\/pull\/(\d+)/i);

@@ -1,21 +1,31 @@
-import { beforeAll, describe, expect, it } from "vitest";
+import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { parseCard } from "../src/card";
 import {
   GITHUB_API,
+  GITHUB_BOT,
   MAX_WEBHOOK_BYTES,
   NOT_SET_UP,
+  boardIdForRepo,
   boardNoteFromGithub,
+  deleteRepoBoard,
+  ensureGithubBot,
   githubChangeNotification,
   handleWebhook,
   inboundEnabled,
   outboundEnabled,
+  parseRepoBoardMap,
   pemToPkcs8,
   postGithubChange,
+  postInboundNote,
   prNumberFromUrl,
+  resetGithubBoardCache,
   signAppJwt,
+  upsertRepoBoard,
   verifySignature,
   type GithubHttp,
+  type GithubNoticeStub,
 } from "../src/githubApp";
+import type { Env } from "../src/types";
 
 const secret = "ci-github-webhook-secret";
 
@@ -178,6 +188,142 @@ describe("handleWebhook stub", () => {
     const env = { GITHUB_WEBHOOK_SECRET: secret };
     const raw = "x".repeat(MAX_WEBHOOK_BYTES + 1);
     expect(await handleWebhook(env, raw, headers("ping", await sign(raw)))).toEqual({ status: 413, error: "payload too large" });
+  });
+});
+
+const { DatabaseSync } = (await import("node:" + "sqlite")) as { DatabaseSync: new (p: string) => any };
+const { readFileSync, readdirSync } = (await import("node:" + "fs")) as { readFileSync: (u: URL, enc: string) => string; readdirSync: (u: URL) => string[] };
+const migrations = new URL("../migrations/", (import.meta as unknown as { url: string }).url);
+
+function fakeEnv(extra: Record<string, string> = {}) {
+  const db = new DatabaseSync(":memory:");
+  for (const f of readdirSync(migrations).filter((n) => n.endsWith(".sql")).sort()) db.exec(readFileSync(new URL(f, migrations), "utf8"));
+  const stmt = (sql: string, args: unknown[] = []): any => ({
+    bind: (...a: unknown[]) => stmt(sql, a),
+    first: async () => db.prepare(sql).get(...args) ?? null,
+    all: async () => ({ results: db.prepare(sql).all(...args) }),
+    run: async () => ({ results: [], meta: { changes: db.prepare(sql).run(...args).changes } }),
+  });
+  return { env: { DB: { prepare: (sql: string) => stmt(sql) }, ...extra } as unknown as Env, db };
+}
+
+function fakeNoticeStub() {
+  const calls: { user: string; title: string; text: string; opts: Record<string, unknown> }[] = [];
+  const joined: string[] = [];
+  const stub: GithubNoticeStub = {
+    join: async (user) => {
+      joined.push(user);
+      return {};
+    },
+    notice: async (user, title, text, opts) => {
+      calls.push({ user, title, text, opts: { ...opts } });
+      return { seq: calls.length };
+    },
+  };
+  return { stub, calls, joined };
+}
+
+const BOARD = "b_githubnote01";
+const noteOf = (repo = "vmallela0/atteo") =>
+  boardNoteFromGithub("pull_request", { ...prOpened, repository: { ...prOpened.repository, full_name: repo } }, headers("pull_request", null, "deliv-post"))!;
+
+describe("repo → board map", () => {
+  it("parses JSON, pairs, and ignores junk; empty is no map", () => {
+    expect([...parseRepoBoardMap("")]).toEqual([]);
+    expect([...parseRepoBoardMap("  ")]).toEqual([]);
+    expect(parseRepoBoardMap(`{"vmallela0/Atteo":"${BOARD}"}`).get("vmallela0/atteo")).toBe(BOARD);
+    expect(parseRepoBoardMap(`vmallela0/atteo=${BOARD},acme/app:b_abcdefgh12`).get("acme/app")).toBe("b_abcdefgh12");
+    expect(parseRepoBoardMap("not-a-repo=b_abcdefgh12").size).toBe(0);
+    expect(parseRepoBoardMap("vmallela0/atteo=not-a-board").size).toBe(0);
+  });
+
+  it("env wins over D1; neither set is null (echo-only)", async () => {
+    const { env, db } = fakeEnv();
+    db.prepare("INSERT INTO boards (id, title, created_by, created_at, entry_count, last_activity) VALUES (?, 'Atteo', 'vedu', 1, 0, 1)").run(BOARD);
+    expect(await boardIdForRepo(env, "vmallela0/atteo")).toBeNull();
+    await upsertRepoBoard(env, "vmallela0/Atteo", BOARD);
+    expect(await boardIdForRepo(env, "vmallela0/atteo")).toBe(BOARD);
+    const other = "b_otherboard01";
+    db.prepare("INSERT INTO boards (id, title, created_by, created_at, entry_count, last_activity) VALUES (?, 'Other', 'vedu', 1, 0, 1)").run(other);
+    const withEnv = { ...env, GITHUB_REPO_BOARDS: `vmallela0/atteo=${other}` };
+    expect(await boardIdForRepo(withEnv, "vmallela0/atteo")).toBe(other);
+    expect(await deleteRepoBoard(env, "vmallela0/atteo")).toBe(true);
+    expect(await boardIdForRepo(env, "vmallela0/atteo")).toBeNull();
+  });
+});
+
+describe("inbound board posting", () => {
+  beforeEach(() => resetGithubBoardCache());
+
+  it("does not post without a map, and handleWebhook still only parses", async () => {
+    const { env } = fakeEnv();
+    const { stub, calls } = fakeNoticeStub();
+    const note = noteOf();
+    expect(await postInboundNote(env, note, { stub: () => stub })).toEqual({ posted: false, reason: "no repo map" });
+    expect(calls).toHaveLength(0);
+    const echoed = await handleWebhook({ GITHUB_WEBHOOK_SECRET: secret }, JSON.stringify(prOpened), headers("pull_request", await sign(JSON.stringify(prOpened))));
+    expect(echoed.status === 200 && echoed.applied === "note" && "posted" in echoed === false).toBe(true);
+  });
+
+  it("posts a quiet github bot notice with compact data, never the raw body", async () => {
+    const { env, db } = fakeEnv();
+    db.prepare("INSERT INTO boards (id, title, created_by, created_at, entry_count, last_activity) VALUES (?, 'Atteo', 'vedu', 1, 0, 1)").run(BOARD);
+    await upsertRepoBoard(env, "vmallela0/agent-soup", BOARD);
+    const { stub, calls, joined } = fakeNoticeStub();
+    const note = noteOf("vmallela0/agent-soup");
+    const rawHint = JSON.stringify(prOpened);
+    const r = await postInboundNote(env, note, { stub: () => stub });
+    expect(r).toEqual({ posted: true, board: BOARD, seq: 1 });
+    expect(joined).toEqual([GITHUB_BOT]);
+    expect(calls[0].user).toBe("github");
+    expect(calls[0].title).toBe("PR opened");
+    expect(calls[0].text).toContain("alice opened #44");
+    expect(calls[0].opts.via).toBe("person");
+    expect(calls[0].opts.client).toBe("github");
+    expect(calls[0].opts.idem).toBe("github:deliv-post");
+    expect((calls[0].opts.data as { github: { repo: string; delivery: string; event: string } }).github).toMatchObject({
+      event: "pull_request",
+      repo: "vmallela0/agent-soup",
+      delivery: "deliv-post",
+    });
+    expect(JSON.stringify(calls)).not.toContain('"html_url":"https://github.com/vmallela0/agent-soup"');
+    expect(JSON.stringify(calls)).not.toContain(rawHint);
+    expect(db.prepare("SELECT email, workos_id FROM users WHERE name = ?").get(GITHUB_BOT)).toEqual({ email: null, workos_id: null });
+  });
+
+  it("skips encrypted, archived, missing, and non-collaboration boards", async () => {
+    const { env, db } = fakeEnv({ GITHUB_REPO_BOARDS: `vmallela0/agent-soup=${BOARD}` });
+    const { stub, calls } = fakeNoticeStub();
+    const note = noteOf("vmallela0/agent-soup");
+    expect(await postInboundNote(env, note, { stub: () => stub })).toEqual({ posted: false, reason: "board not found" });
+    db.prepare("INSERT INTO boards (id, title, created_by, created_at, entry_count, last_activity, encrypted) VALUES (?, 'Atteo', 'vedu', 1, 0, 1, 1)").run(BOARD);
+    expect(await postInboundNote(env, note, { stub: () => stub })).toEqual({ posted: false, reason: "board is encrypted" });
+    db.prepare("UPDATE boards SET encrypted = 0, archived_at = 1 WHERE id = ?").run(BOARD);
+    expect(await postInboundNote(env, note, { stub: () => stub })).toEqual({ posted: false, reason: "board is archived" });
+    db.prepare("UPDATE boards SET archived_at = NULL, kind = 'direct' WHERE id = ?").run(BOARD);
+    expect(await postInboundNote(env, note, { stub: () => stub })).toEqual({ posted: false, reason: "not a collaboration board" });
+    expect(calls).toHaveLength(0);
+  });
+
+  it("does not join or post if a person already holds the github name", async () => {
+    const { env, db } = fakeEnv();
+    db.prepare("INSERT INTO boards (id, title, created_by, created_at, entry_count, last_activity) VALUES (?, 'Atteo', 'vedu', 1, 0, 1)").run(BOARD);
+    db.prepare("INSERT INTO users (name, email, email_verified, workos_id, display_name, first_seen, last_seen) VALUES (?, 'x@example.com', 1, 'wos_1', null, 1, 1)").run(GITHUB_BOT);
+    await upsertRepoBoard(env, "vmallela0/agent-soup", BOARD);
+    const { stub, calls, joined } = fakeNoticeStub();
+    await expect(postInboundNote(env, noteOf("vmallela0/agent-soup"), { stub: () => stub })).rejects.toThrow(/belongs to a person/);
+    expect(joined).toHaveLength(0);
+    expect(calls).toHaveLength(0);
+    await expect(ensureGithubBot(env, BOARD, stub)).rejects.toThrow(/belongs to a person/);
+  });
+
+  it("upsertRepoBoard refuses a bad repo or missing board", async () => {
+    const { env, db } = fakeEnv();
+    await expect(upsertRepoBoard(env, "not a repo", BOARD)).rejects.toThrow(/owner\/name/);
+    await expect(upsertRepoBoard(env, "vmallela0/atteo", "nope")).rejects.toThrow(/board id/);
+    await expect(upsertRepoBoard(env, "vmallela0/atteo", BOARD)).rejects.toThrow(/not found/);
+    db.prepare("INSERT INTO boards (id, title, created_by, created_at, entry_count, last_activity) VALUES (?, 'Atteo', 'vedu', 1, 0, 1)").run(BOARD);
+    expect(await upsertRepoBoard(env, "vmallela0/Atteo", BOARD)).toEqual({ repo: "vmallela0/atteo", board: BOARD });
   });
 });
 

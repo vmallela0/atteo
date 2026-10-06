@@ -4818,8 +4818,8 @@ export class Board extends DurableObject<Env> {
    * too, as plain text: it's metadata the server already knows, like the board's name. Nobody is notified, and the
    * board lists keep showing the last real message.
    */
-  async notice(user: string, title: string, text: string, opts: TaskActOpts): Promise<Entry> {
-    return this.post(user, { type: "note", title, text, via: opts.via, client: opts.client, session: opts.session }, { notice: true });
+  async notice(user: string, title: string, text: string, opts: TaskActOpts & { data?: unknown; idem?: string | null }): Promise<Entry> {
+    return this.post(user, { type: "note", title, text, via: opts.via, client: opts.client, session: opts.session, data: opts.data, idem: opts.idem ?? null }, { notice: true });
   }
 
   async sealedAfter(after: number, limit = 200): Promise<{ seq: number; ts: number; author: string; via: string | null; type: string; to: string | null; reply_to: number | null; payload: string }[]> {

@@ -75,8 +75,9 @@ describe("the bug board's bot member (jxn #4139)", () => {
     expect(calls.join).toHaveLength(0);
   });
 
-  it("people can't take the bot's name", () => {
+  it("people can't take the bot's names", () => {
     expect(isReservedUser("bugs")).toBe(true);
+    expect(isReservedUser("github")).toBe(true);
     expect(isReservedUser("vedu")).toBe(false);
   });
 });

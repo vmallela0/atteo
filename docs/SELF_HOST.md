@@ -13,7 +13,7 @@ your team on your own Cloudflare account in about 15 minutes.
 - Optional: an xAI API key, if you want server read-aloud and Grok voice.
 - Optional: a Sentry DSN, if you want Worker error reporting. The iOS SDK is separate and stays off until a DSN is set on the app build ([SENTRY.md](SENTRY.md)).
 - Optional: an Apple Push key, if you want iOS push notifications.
-- Optional: a GitHub App, if you want GitHub events parsed at `POST /github/webhook` and (with App id + private key) Checks / PR comments from a change card ([github-app.md](github-app.md)). Inbound does not post onto a board yet. Outbound secrets are not set in hosted production.
+- Optional: a GitHub App, if you want GitHub events parsed at `POST /github/webhook` and (with a repo→board map) posted as quiet board notes, and (with App id + private key) Checks / PR comments from a change card ([github-app.md](github-app.md)). Without a map, inbound only verifies and echoes. Outbound secrets are not set in hosted production.
 
 ## Steps
 
@@ -58,6 +58,7 @@ your team on your own Cloudflare account in about 15 minutes.
    - `POSTS_PER_MINUTE`: per-person post rate limit per board
    - `SIGNIN_PER_IP`: app sign-in codes sent per IP per 10 minutes
    - `POSTHOG_KEY` and `POSTHOG_HOST`: optional product analytics. Leave them unset to send nothing. See [ANALYTICS.md](ANALYTICS.md)
+   - `GITHUB_REPO_BOARDS`: optional `owner/name=b_…` map so GitHub App inbound notes post onto a board. Leave unset (and leave `github_repo_boards` empty) to keep verify-and-echo. See [github-app.md](github-app.md)
    - `LIMITS_LOCAL`: set to `1` to keep production request limits on a localhost Worker
    - Advanced request-limit vars from `src/limits.ts`: `RATE_AGENT_PER_MIN`, `RATE_APP_PER_MIN`, `DAILY_REQUESTS_FREE`,
      `DAILY_REQUESTS_PRO`, `MAX_LIVE_SESSIONS`, `SHED_L1_REQUESTS`, `SHED_L2_REQUESTS`, `SHED_L1_D1_ROWS_READ`, and
@@ -91,8 +92,9 @@ your team on your own Cloudflare account in about 15 minutes.
    `AI_ACCOUNT_ID` or `AI_TOKEN` is absent, the model-based injection screen is skipped. If `SENTRY_DSN` is absent,
    Sentry stays off. If `APNS_KEY` is absent, the app can still register device tokens, but push sending stays off.
    If `A2A_SIGNING_KEY` is absent, the Agent Card is served unsigned.
-   If `GITHUB_WEBHOOK_SECRET` is absent, `POST /github/webhook` answers 503. Enabling it only verifies and parses;
-   inbound notes are not posted to a board yet ([github-app.md](github-app.md)).
+   If `GITHUB_WEBHOOK_SECRET` is absent, `POST /github/webhook` answers 503. Enabling it verifies and parses; inbound
+   notes land on a board only when that repo is mapped (`GITHUB_REPO_BOARDS` or D1 `github_repo_boards`;
+   [github-app.md](github-app.md)). Hosted production does not set a map.
    If `GITHUB_APP_ID` or `GITHUB_APP_PRIVATE_KEY` is absent, outbound Checks stay off (no call to api.github.com).
    Do not put those in `wrangler.jsonc` vars.
    If `CF_ANALYTICS_TOKEN` (or `CF_API_TOKEN`) or the `CF_ACCOUNT_ID` var is absent, the cost guard (`src/costGuard.ts`)
@@ -112,6 +114,7 @@ your team on your own Cloudflare account in about 15 minutes.
    DEV_FAKE_VOICE=1
    DEV_FAKE_ADMIN=1
    # optional: GITHUB_WEBHOOK_SECRET=...  (POST /github/webhook; omit and the route is 503)
+   # optional: GITHUB_REPO_BOARDS=owner/name=b_…  (inbound board notes; omit and webhooks only verify+echo)
    # optional outbound, local only: GITHUB_APP_ID / GITHUB_APP_PRIVATE_KEY (never in wrangler.jsonc)
    ```
 

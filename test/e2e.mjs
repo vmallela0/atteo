@@ -2834,7 +2834,7 @@ await step("plans: Free caps boards you create; a signed Stripe webhook upgrades
   assert((r.status === 200 && j.url.startsWith("https://checkout.stripe.com/")) || /isn't set up/.test(j.error ?? ""), JSON.stringify(j).slice(0, 200));
 });
 
-await step("GitHub App webhook: signed ping and pull_request parse; 503 when the secret is unset; nothing is posted", async () => {
+await step("GitHub App webhook: signed ping and pull_request parse; 503 when the secret is unset; posts a quiet note only when mapped", async () => {
   const ghsec = process.env.GITHUB_WEBHOOK_SECRET ?? (() => { try { return readFileSync(new URL("../.dev.vars", import.meta.url), "utf8").match(/^GITHUB_WEBHOOK_SECRET=(.*)$/m)?.[1]; } catch { return undefined; } })();
   const send = async (event, body, secret) => {
     const { createHmac } = await import("node:crypto");
@@ -2862,8 +2862,36 @@ await step("GitHub App webhook: signed ping and pull_request parse; 503 when the
   const pr = await send("pull_request", prBody, ghsec);
   const prj = await pr.json();
   assert(pr.status === 200 && prj.applied === "note" && prj.note?.title === "PR opened" && prj.note?.text.includes("alice opened #44"), JSON.stringify(prj));
+  assert(!prj.posted, `unmapped repo must not post: ${JSON.stringify(prj)}`);
   const spec = await (await fetch(`${BASE}/openapi.json`)).json();
   assert(spec.paths["/github/webhook"]?.post, "openapi lists POST /github/webhook");
+  assert(spec.paths["/api/ops/github-repos"]?.post, "openapi lists POST /api/ops/github-repos");
+
+  const mapped = (await ops("boards", { user: A, title: `e2e github ${run}` })).body.board.id;
+  const map = await ops("github-repos", { repo: "e2e/inbound", board: mapped });
+  assert(map.status === 200 && map.body.ok === true && map.body.repo === "e2e/inbound", JSON.stringify(map.body));
+  const mappedBody = JSON.stringify({
+    action: "opened",
+    number: 99,
+    pull_request: { number: 99, title: `e2e mapped ${run}`, html_url: "https://github.com/e2e/inbound/pull/99", merged: false },
+    repository: { full_name: "e2e/inbound" },
+    sender: { login: "alice" },
+  });
+  const landed = await send("pull_request", mappedBody, ghsec);
+  const lj = await landed.json();
+  assert(landed.status === 200 && lj.applied === "note" && lj.posted?.board === mapped && lj.posted?.seq > 0, JSON.stringify(lj));
+  const entry = (await (await web(`/api/boards/${mapped}/entries/${lj.posted.seq}`, A)).json()).entry;
+  assert(entry?.author === "github" && entry.title === "PR opened" && entry.text.includes("alice opened #99") && entry.text.includes(`e2e mapped ${run}`), JSON.stringify(entry)?.slice(0, 400));
+  assert(entry?.data?.github?.repo === "e2e/inbound" && entry.data.github.event === "pull_request", JSON.stringify(entry?.data));
+  const retry = await send("pull_request", mappedBody, ghsec);
+  const rj = await retry.json();
+  assert(rj.posted?.seq === lj.posted.seq, `delivery idempotency: ${JSON.stringify(rj)}`);
+  assert((await ops("users", { name: "github", email: `github-${run}@example.com` })).status === 409, "the github bot's name is reserved");
+  const gone = await ops("github-repos", { repo: "e2e/inbound", delete: true });
+  assert(gone.status === 200 && gone.body.deleted === true, JSON.stringify(gone.body));
+  const after = await send("pull_request", JSON.stringify({ ...JSON.parse(mappedBody), number: 100, pull_request: { number: 100, title: `unmapped ${run}`, html_url: "https://github.com/e2e/inbound/pull/100", merged: false } }), ghsec);
+  const aj = await after.json();
+  assert(aj.applied === "note" && !aj.posted, `unmap returns to echo: ${JSON.stringify(aj)}`);
 });
 
 await step("REST API with a personal token acts as your agent; OpenAPI spec and agent skill are published", async () => {

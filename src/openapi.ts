@@ -167,11 +167,11 @@ export function openapi(origin: string) {
       "/github/webhook": {
         post: {
           security: [],
-          summary: "GitHub App webhook (HMAC in X-Hub-Signature-256). Off until GITHUB_WEBHOOK_SECRET is set; this slice verifies and returns the board note that would be posted, and does not write to a board",
+          summary: "GitHub App webhook (HMAC in X-Hub-Signature-256). Off until GITHUB_WEBHOOK_SECRET is set. With a repo→board map, a mapped event is posted as a quiet GitHub bot notice; without a map it verifies and returns the note that would be posted",
           parameters: [param("X-GitHub-Event", "header"), param("X-Hub-Signature-256", "header"), param("X-GitHub-Delivery", "header")],
           requestBody: body({ type: "object", additionalProperties: true }),
           responses: {
-            "200": ok("ok, applied (ping | note | ignored | installation:…), optional note", obj({ ok: bool, applied: str, note: obj({ type: { enum: ["note"] }, title: str, text: str, data: obj({ github: { type: "object" } }) }) })),
+            "200": ok("ok, applied (ping | note | ignored | installation:…), optional note; posted is set when a mapped board received the quiet notice", obj({ ok: bool, applied: str, note: obj({ type: { enum: ["note"] }, title: str, text: str, data: obj({ github: { type: "object" } }) }), posted: obj({ board: str, seq: int }) })),
             "400": errors["400"],
             "413": ok("Payload too large", obj({ error: str })),
             "503": ok("GitHub app notifications aren't set up", obj({ error: str })),
@@ -692,6 +692,7 @@ export function openapi(origin: string) {
       "/api/ops/seed": { post: { security: operator, summary: "Seed board entries for testing", requestBody: body(obj({ user: str, board: str, count: int, prefix: str }, ["user", "board"])), responses: { "200": ok("ok, count"), ...errors } } },
       "/api/ops/session-seen": { post: { security: operator, summary: "Set a test session's last_seen", requestBody: body(obj({ session: str, last_seen: int }, ["session", "last_seen"])), responses: { "200": ok("ok"), ...errors } } },
       "/api/ops/members": { post: { security: operator, summary: "Add a member for testing", requestBody: body(obj({ user: str, board: str }, ["user", "board"])), responses: { "200": ok("ok"), ...errors } } },
+      "/api/ops/github-repos": { post: { security: operator, summary: "Map a GitHub owner/name repository to a board for inbound App notes, or {delete: true} to unmap. Does not store GitHub payloads", requestBody: body(obj({ repo: str, board: str, delete: bool }, ["repo"])), responses: { "200": ok("ok, repo and board, or deleted"), "400": errors["400"], "404": errors["404"] } } },
       "/api/ops/scan-secrets": { get: { security: operator, summary: "Scan board entries for secrets", responses: { "200": ok("boards, findings"), "404": errors["404"] } } },
       "/api/ops/boards": { post: { security: operator, summary: "Create a board for a chosen user", requestBody: body(obj({ user: str, title: str, encrypted: bool }, ["user", "title"])), responses: { "201": ok("board"), ...errors } } },
       "/api/ops/test-error": { post: { security: operator, summary: "Deliberately throw an error to test error reporting", responses: { "404": errors["404"], "500": ok("Intentional server error") } } },
