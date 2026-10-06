@@ -4,6 +4,7 @@
 // = the week's Monday) once an hour; the last snapshot before Monday 00:00 UTC is that week's number. Counts only: no
 // names or emails leave this file.
 
+import { flagOn } from "./flags";
 import type { Env } from "./types";
 
 export const METRIC = "north_star";
@@ -120,6 +121,9 @@ export async function tick(env: Env, now: number, post: (board: string, text: st
   if (!have || d.getUTCMinutes() < 5 || (d.getUTCDay() === 0 && d.getUTCHours() === 23)) out.snapshot = await snapshot(env, now);
   const board = (env.NORTH_STAR_BOARD ?? "").trim();
   if (board && postDue(now)) {
+    // Kill switch (src/flags.ts). Checked before the weekly claim, so lifting it later this week still posts.
+    // Unknown (no key, PostHog down) leaves the post on. FLAG_DISABLE_NORTH_STAR=1 skips it without a deploy of new code.
+    if (await flagOn("disable_north_star", env)) return out;
     const claimed = await env.DB.prepare(`INSERT OR IGNORE INTO usage_daily (day, metric, key, count) VALUES (?, ?, ?, 1)`).bind(week, POSTED, board.slice(0, 80)).run();
     if ((claimed.meta.changes ?? 0) > 0) {
       const ns = await northStar(env, now);

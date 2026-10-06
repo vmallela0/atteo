@@ -62,3 +62,38 @@ The marketing home (signed-out `atteo.dev/`) can load Cloudflare Web Analytics, 
 - Link the PostHog activation dashboard from `/_ops`.
 
 iOS (the PostHog SDK, the same events, and an opt-out in Settings) is a separate change.
+
+## Feature flags and kill switches
+
+Server-side flags live in `src/flags.ts` (INFRA.md item 9). They use the **same** `POSTHOG_KEY` and `POSTHOG_HOST` as the loader. There is no second key. A personal API key (`phx_…`) is refused: PostHog local evaluation needs one, and this Worker does not do local evaluation. The lookup is `POST https://us.i.posthog.com/flags?v=2` (or the EU ingest host when `POSTHOG_HOST` is `eu`) with the project key and the distinct id `atteo-server`. The body has those two fields only: no email, handle, board id, or group. The browser loader does not read flags.
+
+Atteo's flags belong in **PostHog Cloud US, project 647810**. `POSTHOG_HOST` in `wrangler.jsonc` is already `us`. An EU host would ask the EU project, which does not have these flags, and every flag would use its unknown default.
+
+### What each flag does when nobody has said
+
+| Flag | Env var (always wins) | When the key is missing, the host is refused, the lookup fails, or PostHog omits the flag | Wired |
+| --- | --- | --- | --- |
+| `disable_voice` | `FLAG_DISABLE_VOICE` | **open** — stays off, so Talk is not killed by an outage | No. Talk transport is unchanged |
+| `disable_host_runs` | `FLAG_DISABLE_HOST_RUNS` | **open** — stays off | No. Defined for a later slice |
+| `disable_github_outbound` | `FLAG_DISABLE_GITHUB_OUTBOUND` | **open** — stays off | No. Defined for a later slice |
+| `disable_north_star` | `FLAG_DISABLE_NORTH_STAR` | **open** — stays off, so the Monday post still runs | Yes. `src/northStar.ts` skips that post and does not take the weekly claim. The hourly snapshot still runs |
+
+**Open** means the flag's value is false when it is unknown. For these `disable_*` flags, that leaves the feature available: a PostHog outage does not kill it. **Closed** (none of these four) means the value is true when it is unknown, so a `disable_*` flag stays pulled until PostHog returns an explicit false. An explicit boolean from PostHog wins over that default. The env var wins over both, and the Worker skips the lookup when the var is set.
+
+Recognized env tokens, compared after trimming and lowercasing: `1`, `true`, `on`, `yes` force the flag on; `0`, `false`, `off`, `no` force it off. Any other value is ignored and the lookup runs as if the var were unset.
+
+A lookup that fails (network, timeout at 1.5s, non-200, JSON that is not an evaluation, or `errorsWhileComputingFlags: true`) is cached in that isolate for 60 seconds, then retried. The cache holds the public project key only long enough to know which project it belongs to. Nothing is written to the repo to turn a flag on. Do not commit `FLAG_DISABLE_*=1` in `wrangler.jsonc`.
+
+Set an override in the Cloudflare dashboard (Workers → `agent-board` → Settings → Variables) or with a var on the next deploy. That is the switch to use when PostHog itself is down. Example: `FLAG_DISABLE_NORTH_STAR=1` stops Monday posts until you set it to `0` or delete it.
+
+### Create the flags (vedu, project 647810)
+
+1. Open [Feature flags for project 647810](https://us.posthog.com/project/647810/feature_flags). The project is "Atteo" on PostHog Cloud US. The org is Atteo.
+2. New feature flag. The key must match the table exactly (`disable_north_star`, and the other three when you want them). PostHog keys are case-sensitive.
+3. Type: boolean release toggle, not a multivariate experiment. The Worker reads `enabled` and ignores variant names.
+4. No property filters and no groups. Every evaluation is the distinct id `atteo-server`, so a filter on person properties would never match and the flag would stay at its unknown default.
+5. Save it **inactive**, or active with a 0% rollout, until you mean to pull the switch. Inactive and 0% both evaluate as `enabled: false` (the feature keeps working).
+6. To pull a kill switch without a code change: set the flag active and the rollout to 100%. To put the feature back: disable the flag or set the rollout to 0%. The Worker picks that up within a minute (the 60s isolate cache) on the next read.
+7. Create `disable_north_star` first. It is the only flag this slice reads. The other three are in the registry so the keys exist before something calls them; creating them in PostHog early is fine and changes nothing until a later slice wires them.
+
+`disable_north_star` at 100% skips the Monday line on `NORTH_STAR_BOARD`. It does not stop the weekly count snapshot. Clearing the flag (or setting `FLAG_DISABLE_NORTH_STAR=0`) lets a later cron that week post, because the skipped run does not take the once-per-week claim.

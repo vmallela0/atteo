@@ -136,6 +136,20 @@ describe("north star: collaborating boards", () => {
     expect((await tick(quiet.env, nextMon + 16 * 3600_000, post)).posted).toBeUndefined();
   });
 
+  it("FLAG_DISABLE_NORTH_STAR skips the Monday post and leaves the weekly claim", async () => {
+    const posts: string[] = [];
+    const { env, db } = fakeEnv({ NORTH_STAR_BOARD: "b_team", FLAG_DISABLE_NORTH_STAR: "1" } as Partial<Env>);
+    seed(db);
+    const at = MON + 7 * DAY + 16 * 3600_000;
+    expect((await tick(env, at, async (_b, t) => void posts.push(t))).posted).toBeUndefined();
+    expect(posts).toHaveLength(0);
+    expect(db.prepare(`SELECT key FROM usage_daily WHERE metric = 'north_star_post'`).get()).toBeUndefined();
+    env.FLAG_DISABLE_NORTH_STAR = "0";
+    const r = await tick(env, at, async (_b, t) => void posts.push(t));
+    expect(r.posted).toContain("collaborating boards");
+    expect(posts).toHaveLength(1);
+  });
+
   it("a failed post gives its claim back, so the next run tries again", async () => {
     const { env, db } = fakeEnv({ NORTH_STAR_BOARD: "b_team" } as Partial<Env>);
     seed(db);

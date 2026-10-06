@@ -168,8 +168,12 @@ export interface Env {
   GITHUB_APP_PRIVATE_KEY?: string; // secret: GitHub App private key (PEM). Unset: outbound does not fetch. Never kept in D1 or wrangler.jsonc
   GITHUB_APP_INSTALLATION_ID?: string; // secret: optional install id so outbound can skip GET /repos/{repo}/installation. Never in wrangler.jsonc
   SENTRY_DSN?: string; // secret (so dev/CI never report): Sentry project DSN; absent in dev/CI, then Sentry is off
-  POSTHOG_KEY?: string; // var: PostHog project API key (phc_…, public). Unset: the web analytics loader does nothing (src/analytics.ts, docs/ANALYTICS.md)
-  POSTHOG_HOST?: string; // var: "eu" (default) or "us". Anything else leaves analytics off
+  POSTHOG_KEY?: string; // var: PostHog project API key (phc_…, public). Unset: the web analytics loader does nothing (src/analytics.ts, docs/ANALYTICS.md). The same key evaluates feature flags (src/flags.ts); no personal API key
+  POSTHOG_HOST?: string; // var: "eu" (default) or "us". Anything else leaves analytics and flag lookups off
+  FLAG_DISABLE_VOICE?: string; // var: "1"/"true"/"on"/"yes" forces disable_voice on; "0"/"false"/"off"/"no" forces it off. Wins over PostHog. Not wired (Talk is unchanged). See docs/ANALYTICS.md
+  FLAG_DISABLE_HOST_RUNS?: string; // var: same tokens for disable_host_runs. Not wired in this slice
+  FLAG_DISABLE_GITHUB_OUTBOUND?: string; // var: same tokens for disable_github_outbound. Not wired in this slice
+  FLAG_DISABLE_NORTH_STAR?: string; // var: same tokens for disable_north_star. "1" skips the Monday north-star post (src/northStar.ts). Unset, and a PostHog miss, both leave the post on
   XAI_API_KEY?: string; // secret: xAI text-to-speech (POST /api/app/tts, src/tts.ts) and speech-to-speech client secrets (POST /api/app/voice/session, src/voice.ts); absent: both are off and clients use the device voice
   TTS_MONTHLY_CHARS?: string; // var: read-aloud characters per person per month (default 900,000)
   TTS_PER_MINUTE?: string; // var: read-aloud requests per person per minute (default 30)
