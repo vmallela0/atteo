@@ -79,7 +79,7 @@ For now this is done by hand, after the Provider's onboarding gives us an audien
 
 ```sh
 npx wrangler d1 execute <db> --remote --command \
-  "INSERT INTO pact_providers (origin, audience, name, added_at) VALUES ('https://<provider interface origin>', '<audience they gave us>', 'Decagon', unixepoch()*1000)"
+  "INSERT INTO pact_providers (origin, audience, label, added_at) VALUES ('https://<provider interface origin>', '<audience they gave us>', 'Decagon', unixepoch()*1000)"
 ```
 
 The reference provider has a self-service registration endpoint, which is good for a local end-to-end try.

@@ -45,12 +45,12 @@ export async function subjectFor(env: Env, user: string, provider: string): Prom
 export interface Provider {
   origin: string;
   audience: string;
-  name: string | null;
+  label: string | null;
 }
 
 /** The provider an interface URL belongs to, if we've registered with it (docs/PACT.md: added by hand). */
 export async function providerFor(env: Env, interfaceUrl: string): Promise<Provider | null> {
-  return (await env.DB.prepare(`SELECT origin, audience, name FROM pact_providers WHERE origin = ?`).bind(new URL(interfaceUrl).origin).first<Provider>()) ?? null;
+  return (await env.DB.prepare(`SELECT origin, audience, label FROM pact_providers WHERE origin = ?`).bind(new URL(interfaceUrl).origin).first<Provider>()) ?? null;
 }
 
 // ---------- the brand's card ----------

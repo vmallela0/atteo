@@ -23,7 +23,7 @@ async function fakeEnv() {
   const DB = { prepare: (sql: string) => stmt(sql), batch: async (s: any[]) => Promise.all(s.map((x) => x.run())) };
   const key = await generateSigningKey();
   const env = { DB, A2A_SIGNING_KEY: JSON.stringify(key) } as unknown as Env;
-  db.prepare(`INSERT INTO pact_providers (origin, audience, name, added_at) VALUES (?, ?, ?, ?)`).run("https://provider.example.com", "https://provider.example.com/a2a", "Example", 0);
+  db.prepare(`INSERT INTO pact_providers (origin, audience, label, added_at) VALUES (?, ?, ?, ?)`).run("https://provider.example.com", "https://provider.example.com/a2a", "Example", 0);
   return { env, db };
 }
 

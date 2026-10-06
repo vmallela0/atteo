@@ -4,7 +4,7 @@
 CREATE TABLE IF NOT EXISTS pact_providers (
   origin TEXT PRIMARY KEY,   -- https://provider.example.com: where its interface URLs live
   audience TEXT NOT NULL,    -- the JWT aud it told us to use
-  name TEXT,
+  label TEXT,                -- the provider's name, e.g. Decagon (not "name": it isn't a person)
   added_at INTEGER NOT NULL
 );
 
