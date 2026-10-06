@@ -10,6 +10,7 @@ import { computeSummary, formatSummary, summaryWithNames, summaryWithinBudget, t
 import { noteClaimReview, noteContextPack, noteContextPackMs, noteEgressBlock, noteFirstAgentPost, notePaste, noteStaleNotice } from "./observe";
 import { blockedMessage, scanFields, scanText, type SecretHit } from "./secrets";
 import { recordOutcome } from "./agents";
+import { workingAgents, type BoardAgentPresence } from "./boardStates";
 import { ALL_AGENTS, ALL_HUMANS, ALL_MEMBERS, forAgent, forPerson, hasGroupMention, keep, MAX_GROUP_MENTIONS, MAX_MENTIONS, mentionsOwnAgent, parseMentions, SESSION_NAME_RE, type Mention } from "./mentions";
 import { ENTRY_TYPES, type ApprovalRef, type Attachment, type BoardInfo, type Entry, type Env, type Media, type Member, type NewEntry, type Viewer } from "./types";
 import { cleanTitle, EMOJI_RE, ftsQuery, normalizeForScreen, USER_RE } from "./util";
@@ -1026,6 +1027,12 @@ export class Board extends DurableObject<Env> {
       seq, user, session, label, Date.now(),
     );
     this.broadcast({ type: "handling", seq, by: label, done: true }, seq);
+  }
+
+  /** Board frame counts: read local handling only; presence and membership came from the caller's single D1 query. */
+  workingAgentCount(sessions: BoardAgentPresence[], now: number): number {
+    const handling = this.sql.exec("SELECT DISTINCT user, session FROM handling WHERE done = 0").toArray() as { user: string; session: string | null }[];
+    return workingAgents(sessions, handling, now);
   }
 
   /** Who is on what, and who finished what (for pages, and to label entries agents read). */
