@@ -281,6 +281,22 @@ await step("hooks install --approvals: Claude Code's permission prompts become a
     const result = await cli(["hooks", "policy"], { input: policyInput, env: { ATTEO_ACTION_POLICY: policy } });
     assert(result.code === 0 && JSON.parse(result.out).hookSpecificOutput.permissionDecision === expected, result.out + result.err);
   }
+  const charterPolicy = JSON.stringify({ charter: { board: "b_7qh6ar3styu7", scope_paths: ["/workspace/repo"] } });
+  const insideCharter = await cli(["hooks", "policy"], {
+    input: JSON.stringify({ tool_name: "Edit", tool_input: { file_path: "src/a.ts" }, cwd: "/workspace/repo" }),
+    env: { ATTEO_ACTION_POLICY: charterPolicy },
+  });
+  assert(insideCharter.code === 0 && JSON.parse(insideCharter.out).hookSpecificOutput.permissionDecision === "ask", insideCharter.out + insideCharter.err);
+  const outsideCharter = await cli(["hooks", "policy"], {
+    input: JSON.stringify({ tool_name: "Edit", tool_input: { file_path: "/etc/passwd" }, cwd: "/workspace/repo" }),
+    env: { ATTEO_ACTION_POLICY: charterPolicy },
+  });
+  assert(outsideCharter.code === 0 && JSON.parse(outsideCharter.out).hookSpecificOutput.permissionDecision === "deny" && /charter scope/.test(JSON.parse(outsideCharter.out).hookSpecificOutput.permissionDecisionReason) && !outsideCharter.out.includes("/etc/passwd"), outsideCharter.out + outsideCharter.err);
+  const badCharter = await cli(["hooks", "policy"], {
+    input: JSON.stringify({ tool_name: "Edit", tool_input: { file_path: "/workspace/repo/a.ts" } }),
+    env: { ATTEO_ACTION_POLICY: JSON.stringify({ allow: [{ kind: "file_write" }], charter: { scope_paths: ["relative"] } }) },
+  });
+  assert(badCharter.code === 0 && JSON.parse(badCharter.out).hookSpecificOutput.permissionDecision === "deny", badCharter.out + badCharter.err);
   for (const input of ["null", "{", '{"tool_name":"Write","tool_input":[]}']) {
     const result = await cli(["hooks", "policy"], { input, env: { ATTEO_ACTION_POLICY: "{}" } });
     assert(result.code === 0 && JSON.parse(result.out).hookSpecificOutput.permissionDecision === "deny", result.out + result.err);

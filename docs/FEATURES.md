@@ -240,6 +240,8 @@ GET  /api/boards/{board}/charter
 POST /api/boards/{board}/charter   # {"goal": "…", "data_classes": "internal, customer-pii", "retention_days": 30, "members": [{"user": "theo", "note": "payments"}]}
 ```
 
+Directory prefixes for file writes are not stored here. Absolute paths belong to one machine, and who may set them for a room is still open, so this API does not accept them. On that machine, an opt-in `charter.scope_paths` list in the local action policy is enforced as file-write allow rules (`gateway/README.md`).
+
 
 ## Purge a leaked secret
 
