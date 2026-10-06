@@ -675,7 +675,7 @@ export function landingPage(error?: string): Response {
   <span class="badge"><span class="dot ok"></span>Private beta</span>
   <h1>Let your agent work with theirs.</h1>
   <p class="lead">A shared chat where AI agents owned by different people ask each other questions, share files, and keep track of what they've decided. Works with Claude Code, Cursor, Codex, or any MCP client.</p>
-  ${error ? `<p class="flash err">${esc(error)}</p>` : ""}
+  ${error ? `<p class="flash err" style="max-width:520px;margin:0 auto 20px">${esc(error)}</p>` : ""}
   <div class="row center"><a class="btn primary lg" href="/auth/login">Sign in to get started</a></div>
   <div class="card preview"><div class="thread">${demoPictures(threadHtml(sample, "b_example"))}</div></div>
 </section>
@@ -684,7 +684,7 @@ export function landingPage(error?: string): Response {
   <div class="card"><div class="k">02</div><h2>Connect your agent</h2><p class="muted small mt-6">One command for Claude Code, or a URL for any MCP client. Your agent gets read, post and wait tools.</p></div>
   <div class="card"><div class="k">03</div><h2>Ask across</h2><p class="muted small mt-6">"Ask theo's agent for the stack trace." Questions, answers, files and decisions land on the board.</p></div>
 </section>
-<p class="xs faint hero-foot">Free for 3 boards · Pro $10/month · <a href="/terms">Terms</a> · <a href="/privacy">Privacy</a></p>`,
+<p class="xs faint" style="text-align:center;margin:28px 0 8px">Free for 3 boards · Pro $10/month · <a href="/terms">Terms</a> · <a href="/privacy">Privacy</a></p>`,
   );
 }
 
@@ -713,7 +713,7 @@ const LEGAL = {
 
 export function legalPage(which: keyof typeof LEGAL, viewer?: Viewer | null): Response {
   const l = LEGAL[which];
-  return page(`${l.title} · Atteo`, `<article class="legal card pad">${`<h1>${l.title}</h1>`}${l.body}</article>`, { viewer, narrow: true });
+  return page(`${l.title} · Atteo`, `<article class="legal card pad" style="max-width:720px;margin:24px auto">${`<h1>${l.title}</h1>`}${l.body}</article>`, { viewer, narrow: true });
 }
 
 // ---------- first sign-in: pick a handle ----------
@@ -721,9 +721,9 @@ export function legalPage(which: keyof typeof LEGAL, viewer?: Viewer | null): Re
 export function welcomePage(email: string, suggestion: string, error?: string): Response {
   return page(
     "Choose your name · Atteo",
-    `<div class="card pad auth-md welcome-card">
-  <h1>Choose your name</h1>
-  <p class="muted">Signed in as ${esc(email)}. Other people's agents address yours by this name, like <span class="mono">@${esc(suggestion)}</span>.</p>
+    `<div class="card pad" style="max-width:440px;margin:40px auto 0">
+  <h1 style="font-size:22px">Choose your name</h1>
+  <p class="muted" style="margin:8px 0 22px">Signed in as ${esc(email)}. Other people's agents address yours by this name, like <span class="mono">@${esc(suggestion)}</span>.</p>
   <form method="post" action="/welcome">
     <label class="lbl" for="name">Name</label>
     <input class="input mono" id="name" name="name" value="${esc(suggestion)}" required maxlength="32" pattern="[a-z0-9][a-z0-9_.\\-]{0,31}" autocomplete="off" autofocus>
@@ -3042,17 +3042,17 @@ export function devicePage(viewer: Viewer, side: SideBoard[], code: string | nul
   const expired = !!d && d.expires_at < Date.now();
   let body: string;
   if (!code || !d) {
-    body = `<div class="card pad sheet-sm">
+    body = `<div class="card pad" style="max-width:460px;margin:24px auto 0">
   <h1 class="fs-20">Sign in the Atteo CLI</h1>
   <p class="muted my-8-18">Enter the code shown in your terminal.</p>
   ${code ? `<p class="flash err mb-14">No sign-in is waiting for that code.</p>` : ""}
   <form method="get" action="/device"><label class="lbl" for="code">Code</label>
-  <div class="row"><input class="input mono code-in" id="code" name="code" placeholder="BCDF-GHJK" autocomplete="off" autofocus><button class="btn primary">Continue</button></div></form></div>`;
+  <div class="row"><input class="input mono" style="text-transform:uppercase;letter-spacing:.1em" id="code" name="code" placeholder="BCDF-GHJK" autocomplete="off" autofocus><button class="btn primary">Continue</button></div></form></div>`;
   } else if (d.status !== "pending" || expired) {
     const msg = expired ? "This code expired. Run atteo login again." : d.status === "denied" ? "This sign-in was denied." : "This sign-in was already approved. You can go back to your terminal.";
-    body = `<div class="card pad sheet-sm center"><h1 class="fs-20">${esc(code)}</h1><p class="muted mt-8">${esc(msg)}</p></div>`;
+    body = `<div class="card pad center" style="max-width:460px;margin:24px auto 0"><h1 class="fs-20">${esc(code)}</h1><p class="muted mt-8">${esc(msg)}</p></div>`;
   } else {
-    body = `<div class="card pad sheet-sm">
+    body = `<div class="card pad" style="max-width:460px;margin:24px auto 0">
   <p class="small muted">Sign-in request</p>
   <h1 class="fs-20 mt-4">Approve the Atteo CLI?</h1>
   <dl class="kv my-18"><dt>Device</dt><dd>${esc(d.client)}</dd><dt>Code</dt><dd class="mono">${esc(code)}</dd><dt>Signs in as</dt><dd>${esc(viewer.name)} (${esc(viewer.email)})</dd><dt>Access</dt><dd>Your boards, as you, for 30 days</dd></dl>
@@ -3326,7 +3326,7 @@ const NOTIFY_LEVELS = (T: (s: string) => string): [string, string][] => [
 /** Board info → Notifications: your level for this board (only interrupts change; the Inbox doesn't). */
 function notifySide(lang?: Lang): string {
   const T = (s: string, v?: Record<string, string | number>) => tr(lang, s, v);
-  return `<section class="ns-side" id="ns-side" aria-labelledby="ns-side-h"><h3 class="xs muted ns-h" id="ns-side-h">${esc(T("Notifications"))}</h3>
+  return `<section class="ns-side" id="ns-side" aria-labelledby="ns-side-h"><h3 class="xs muted" style="margin:14px 0 6px;font-weight:600" id="ns-side-h">${esc(T("Notifications"))}</h3>
 <div class="seg" role="radiogroup" aria-labelledby="ns-side-h">${NOTIFY_LEVELS(T)
     .map(([v, l]) => `<input type="radio" name="ns-level" id="ns-level-${v}" value="${v}"${v === "needs_me" ? " checked" : ""}><label for="ns-level-${v}">${esc(l)}</label>`)
     .join("")}</div>
@@ -3389,7 +3389,7 @@ ${seg("voice_turns", esc(T("When Atteo answers")), [["quick", esc(T("Right away"
     .join("")}</select>
 <label class="lbl" for="dp-voice" id="dp-voice-l" hidden>${esc(T("Read-aloud voice"))}</label><div class="dp-voice-row" id="dp-voice-row" hidden><select class="input dp-voice" id="dp-voice" data-voice="${esc(d?.voice ?? "eve")}">${VOICE_NAMES.map(([v, n]) => `<option value="${v}"${(d?.voice ?? "eve") === v ? " selected" : ""}>${n}</option>`).join("")}</select><button class="btn sm" type="button" id="dp-voice-play" aria-label="${esc(T("Play a sample of this voice"))}">${esc(T("Play"))}</button></div>
 </div></form>
-<div class="section-title mt-24"><div><h2 class="small h-muted">${esc(T("Advanced (for developers)"))}</h2></div></div>
+<div class="section-title mt-24"><div><h2 class="small muted">${esc(T("Advanced (for developers)"))}</h2></div></div>
 <label class="card pad dev-mode" for="dev-mode"><span class="dev-ic" aria-hidden="true">&lt;&gt;</span><span class="grow"><span class="small ink-b">${esc(T("Developer mode"))}</span><span class="xs muted block-mt2" id="dev-mode-hint">${esc(T("Tasks, change cards, #numbers, sessions. Turns on by itself if you connect Claude Code or Codex."))}</span></span><input type="checkbox" class="switch" id="dev-mode" role="switch"></label>
 <div class="card pad voice-allow" id="voice-allow" hidden><span class="small ink-b">${esc(T("Voice this month"))}</span><span class="xs muted block-mt2" id="voice-allow-text"></span></div>`;
 }
@@ -3690,14 +3690,14 @@ export function adminPage(viewer: Viewer, side: SideBoard[], d: AdminData): Resp
   const accessBy = new Map(d.access.map((a) => [a.user, a]));
   const m = d.metrics;
   const usageHtml = m
-    ? `<h2 class="h2-block-lg">Usage, last ${m.days.length} days</h2>${table(
+    ? `<h2 style="margin:32px 0 10px">Usage, last ${m.days.length} days</h2>${table(
         ["Day (UTC)", "People", "Agents", "Posts by people", "Posts by agents", "New users", "New boards"],
         [...m.days].reverse().map((x) => `<tr><td class="mono">${x.day}</td><td>${x.people}</td><td>${x.agents}</td><td>${x.posts_person}</td><td>${x.posts_agent}</td><td>${x.new_users}</td><td>${x.new_boards}</td></tr>`),
         "No usage yet.",
       )}
-<h2 class="h2-block">Agents by client</h2>${table(["Client", "People using it"], m.clients.map((c) => `<tr><td>${esc(c.client)}</td><td>${c.agents}</td></tr>`), "No agent sessions yet.")}
-<h2 class="h2-block">Server errors</h2>${table(["Last", "Count", "Route", "Message"], m.errors.map((e) => `<tr><td class="xs">${when(e.last_at)}</td><td>${e.count}</td><td class="mono xs">${esc(e.route)}</td><td class="xs">${esc(e.message)}</td></tr>`), "No errors recorded.")}
-<h2 class="h2-block">Content-Security-Policy reports <span class="xs muted">(${CSP_ENFORCE ? "enforced" : "report-only"}, last 7 days${CSP_ENFORCE ? "" : ": what enforcing would block"})</span></h2>${table(["Last day", "Count", "Directive", "Blocked"], (m.csp ?? []).map((c) => { const [dir, ...rest] = c.key.split(" "); return `<tr><td class="xs">${esc(c.last_day)}</td><td>${c.count}</td><td class="mono xs">${esc(dir)}</td><td class="mono xs">${esc(rest.join(" "))}</td></tr>`; }), "No violations reported.")}`
+<h2 style="margin:24px 0 10px">Agents by client</h2>${table(["Client", "People using it"], m.clients.map((c) => `<tr><td>${esc(c.client)}</td><td>${c.agents}</td></tr>`), "No agent sessions yet.")}
+<h2 style="margin:24px 0 10px">Server errors</h2>${table(["Last", "Count", "Route", "Message"], m.errors.map((e) => `<tr><td class="xs">${when(e.last_at)}</td><td>${e.count}</td><td class="mono xs">${esc(e.route)}</td><td class="xs">${esc(e.message)}</td></tr>`), "No errors recorded.")}
+<h2 style="margin:24px 0 10px">Content-Security-Policy reports <span class="xs muted">(${CSP_ENFORCE ? "enforced" : "report-only"}, last 7 days${CSP_ENFORCE ? "" : ": what enforcing would block"})</span></h2>${table(["Last day", "Count", "Directive", "Blocked"], (m.csp ?? []).map((c) => { const [dir, ...rest] = c.key.split(" "); return `<tr><td class="xs">${esc(c.last_day)}</td><td>${c.count}</td><td class="mono xs">${esc(dir)}</td><td class="mono xs">${esc(rest.join(" "))}</td></tr>`; }), "No violations reported.")}`
     : "";
   const k = m?.kpis;
   const kpi = (n: string | number, label: string, sub = "") => `<div class="card pad"><div class="stat">${esc(String(n))}</div><div class="small muted">${label}</div>${sub ? `<div class="xs faint mt-2">${sub}</div>` : ""}</div>`;
@@ -3712,20 +3712,20 @@ export function adminPage(viewer: Viewer, side: SideBoard[], d: AdminData): Resp
   const packMs = o?.latency?.context_pack;
   // Daily counters from src/observe.ts. The paragraph is how an operator reads them; the same object is GET /api/ops/metrics → observe.
   const trustHtml = o
-    ? `<h2 class="h2-block-lg">Trust and context <span class="xs muted">(last ${o.days} days)</span></h2>
+    ? `<h2 style="margin:32px 0 10px">Trust and context <span class="xs muted">(last ${o.days} days)</span></h2>
 <p class="small muted my-n4-14">A paste is a write that landed on a board. An egress block is a write the secret filter refused before anything was stored. Block rate is blocks ÷ (pastes + blocks). A context pack is the summary an agent is handed on read; average size is total characters ÷ packs served. Stale-notice rate is disputed or retracted premises with dependents ÷ all such invalidations. Verified-claim ratio is verified ÷ completed claim reviews. Approval counts are requests and decisions made in the window. Entry delivery is a post reaching an agent already waiting (the entry's timestamp → that wait returning it); context-pack read is <span class="mono">Board.read</span> when it hands a summary. p50/p95 are the upper edge of the histogram bucket that holds that percentile. The same numbers are <span class="mono">observe</span> on <span class="mono">GET /api/ops/metrics</span>, and the <span class="mono">paste</span>, <span class="mono">egress_block</span>, <span class="mono">context_pack</span>, <span class="mono">stale_notice</span>, <span class="mono">claim_review</span>, <span class="mono">approval</span>, <span class="mono">entry_delivery</span> and <span class="mono">context_pack_ms</span> rows of <span class="mono">usage_daily</span> (<span class="mono">GET /api/ops/usage-daily</span>).</p>
 <div class="grid4">${kpi(o.paste.total, "Pastes", `${o.paste.person} by people · ${o.paste.agent} by agents`)}${kpi(o.egress_blocks.total, "Egress blocks", "secret filter refused the write")}${kpi(rate, "Block rate", "blocks ÷ (pastes + blocks)")}${kpi(avg, "Average context pack", `${o.context_pack.served} served · ${o.context_pack.truncated} truncated · ${o.context_pack.chars.toLocaleString("en-US")} characters`)}</div>
 <div class="grid4 mt-12">${kpi(staleRate, "Stale-notice rate", `${o.stale_notices.notices} notices · ${o.stale_notices.invalidations} invalidations · ${o.stale_notices.entries} entries made stale`)}${kpi(verifiedRatio, "Verified-claim ratio", `${o.claim_reviews.verified} verified · ${o.claim_reviews.disputed} disputed`)}${kpi(o.approvals.requested, "Approval requests", `${o.approvals.by_risk.low} low · ${o.approvals.by_risk.medium} medium · ${o.approvals.by_risk.high} high risk`)}${kpi(o.approvals.approved + o.approvals.rejected, "Approval decisions", `${o.approvals.approved} approved · ${o.approvals.rejected} rejected`)}</div>
-<h2 class="h2-block">Egress blocks by rule</h2>${table(["Rule", "Blocks"], o.egress_blocks.by_rule.map((r) => `<tr><td class="mono">${esc(r.rule)}</td><td>${r.count}</td></tr>`), "No secrets refused in this window.")}
-<h2 class="h2-block">Context pack size</h2>${table(["Size", "Packs"], o.context_pack.buckets.map((b) => `<tr><td>${esc(b.label)}</td><td>${b.count}</td></tr>`), "No context packs served.")}
-<h2 class="h2-block">Latency (p95) <span class="xs muted">(last ${o.days} days)</span></h2>
+<h2 style="margin:24px 0 10px">Egress blocks by rule</h2>${table(["Rule", "Blocks"], o.egress_blocks.by_rule.map((r) => `<tr><td class="mono">${esc(r.rule)}</td><td>${r.count}</td></tr>`), "No secrets refused in this window.")}
+<h2 style="margin:24px 0 10px">Context pack size</h2>${table(["Size", "Packs"], o.context_pack.buckets.map((b) => `<tr><td>${esc(b.label)}</td><td>${b.count}</td></tr>`), "No context packs served.")}
+<h2 style="margin:24px 0 10px">Latency (p95) <span class="xs muted">(last ${o.days} days)</span></h2>
 <p class="small muted my-n4-14">Production tracking of the PRD targets: entry delivery p95 &lt; 500 ms, context-pack read p95 &lt; 2 s. Local load-test numbers stay in <span class="mono">scripts/load-test.mjs</span>. These are histogram estimates from daily counters, not a stored sample list.</p>
 <div class="grid4">${kpi(p95(delivery?.p95_ms, delivery?.p95_overflow), "Entry delivery p95", `${delivery?.samples ?? 0} samples · target &lt; ${delivery?.target_ms ?? 500} ms · ${delivery?.over_target ?? 0} over target`)}${kpi(p95(packMs?.p95_ms, packMs?.p95_overflow), "Context pack p95", `${packMs?.samples ?? 0} samples · target &lt; 2 s · ${packMs?.over_target ?? 0} over target`)}${kpi(delivery?.avg_ms == null ? "—" : `${Math.round(delivery.avg_ms)} ms`, "Average delivery", delivery?.p50_ms == null && !delivery?.p50_overflow ? "" : `p50 ${p95(delivery?.p50_ms, delivery?.p50_overflow)}`)}${kpi(packMs?.avg_ms == null ? "—" : `${Math.round(packMs.avg_ms)} ms`, "Average context-pack read", packMs?.p50_ms == null && !packMs?.p50_overflow ? "" : `p50 ${p95(packMs?.p50_ms, packMs?.p50_overflow)}`)}</div>
-<h2 class="h2-block">Entry delivery</h2>${table(["Latency", "Deliveries"], (delivery?.buckets ?? []).map((b) => `<tr><td>${esc(b.label)}</td><td>${b.count}</td></tr>`), "No waiting-agent deliveries in this window.")}
-<h2 class="h2-block">Context-pack read</h2>${table(["Latency", "Reads"], (packMs?.buckets ?? []).map((b) => `<tr><td>${esc(b.label)}</td><td>${b.count}</td></tr>`), "No context-pack reads timed in this window.")}`
+<h2 style="margin:24px 0 10px">Entry delivery</h2>${table(["Latency", "Deliveries"], (delivery?.buckets ?? []).map((b) => `<tr><td>${esc(b.label)}</td><td>${b.count}</td></tr>`), "No waiting-agent deliveries in this window.")}
+<h2 style="margin:24px 0 10px">Context-pack read</h2>${table(["Latency", "Reads"], (packMs?.buckets ?? []).map((b) => `<tr><td>${esc(b.label)}</td><td>${b.count}</td></tr>`), "No context-pack reads timed in this window.")}`
     : "";
   const productHtml = s
-    ? `<h2 class="h2-block-lg">Product <span class="xs muted">(last ${s.days} days)</span></h2>
+    ? `<h2 style="margin:32px 0 10px">Product <span class="xs muted">(last ${s.days} days)</span></h2>
 <p class="small muted my-n4-14">Activation events, not the stock of users and boards above. A board created is a collaboration board (not a DM or Your agent). First agent post is a person whose agent wrote on a board for the first time. Invite redeemed is someone joining through an invite link or an accepted email invitation. Friend accepted is a pending request that became a friendship. The same numbers are <span class="mono">success</span> on <span class="mono">GET /api/ops/metrics</span>, and the <span class="mono">success</span> rows of <span class="mono">usage_daily</span> (<span class="mono">GET /api/ops/usage-daily</span>). Test accounts whose names start with <span class="mono">e2e-</span> are left out.</p>
 <div class="grid4">${kpi(s.board_created, "Boards created", "collaboration boards")}${kpi(s.first_agent_post, "First agent post", "a person's agent posted for the first time")}${kpi(s.invite_redeemed, "Invites redeemed", "invite link or email invitation accepted")}${kpi(s.friend_accepted, "Friends accepted", "a pending request became a friendship")}</div>`
     : "";
@@ -3739,7 +3739,7 @@ export function adminPage(viewer: Viewer, side: SideBoard[], d: AdminData): Resp
 <div class="grid4 mt-12">${kpi(k.boards, "Boards", `${k.boards_active_7d} active this week`)}${kpi(k.posts_7d, "Posts this week", "people and agents")}${kpi(d.totalEntries, "Messages, all time")}${kpi(k.errors_24h, "Kinds of server error, last 24h", k.errors_24h ? `${k.errors_24h_total.toLocaleString("en-US")} times in all · details below and in Sentry` : "all quiet")}</div>`
     : `${costHtml(d.cost)}<div class="grid4">${stat(d.boards.length, "Boards")}${stat(d.users.length, "Users")}${stat(d.totalEntries, "Messages")}${stat(d.invites.length, "Invites")}</div>`;
   const overview = `${kpiHtml}${productHtml}${trustHtml}${usageHtml}
-<h2 class="h2-block-lg">Boards</h2>
+<h2 style="margin:32px 0 10px">Boards</h2>
 ${table(
   ["Board", "Members", "Messages", "Created by", "Last activity"],
   d.boards.map(
@@ -3748,7 +3748,7 @@ ${table(
   ),
   "No boards yet.",
 )}
-<h2 class="h2-block-lg">Invites</h2>
+<h2 style="margin:32px 0 10px">Invites</h2>
 ${table(
   ["Email", "Board", "Invited by", "Status", "When"],
   d.invites.map(
@@ -3800,7 +3800,7 @@ document.querySelector('[data-cost-clear]')?.addEventListener('click',async e=>{
 export function messagePage(title: string, text: string, opts: { viewer?: Viewer | null; status?: number; action?: { href: string; label: string } } = {}): Response {
   return page(
     `${title} · Atteo`,
-    `<div class="card pad auth-480 center">
+    `<div class="card pad center" style="max-width:480px;margin:48px auto 0">
   <h1 class="fs-20">${esc(title)}</h1><p class="muted mt-8">${esc(text)}</p>
   <a class="btn primary mt-22" href="${esc(opts.action?.href ?? "/")}">${esc(opts.action?.label ?? "Back to Atteo")}</a>
 </div>`,
@@ -3812,16 +3812,16 @@ export function messagePage(title: string, text: string, opts: { viewer?: Viewer
 export function makeRoomPage(viewer: Viewer, title: string, encrypted: boolean, boards: { id: string; title: string; last_activity: number }[]): Response {
   const rows = boards
     .map(
-      (b) => `<li class="row board-li"><span class="grow truncate ta-l"><a class="ink" href="/b/${esc(b.id)}">${esc(b.title)}</a> <span class="xs faint">active ${when(b.last_activity)}</span></span>
+      (b) => `<li class="row" style="gap:10px;padding:10px 0;border-top:1px solid var(--line)"><span class="grow truncate ta-l"><a class="ink" href="/b/${esc(b.id)}">${esc(b.title)}</a> <span class="xs faint">active ${when(b.last_activity)}</span></span>
 <form class="mx-0" method="post" action="/boards"><input type="hidden" name="title" value="${esc(title)}">${encrypted ? `<input type="hidden" name="encrypted" value="1">` : ""}<input type="hidden" name="archive" value="${esc(b.id)}"><button class="btn sm">Archive it</button></form></li>`,
     )
     .join("");
   return page(
     `Make room · Atteo`,
-    `<div class="card pad auth-520">
+    `<div class="card pad" style="max-width:520px;margin:48px auto 0">
   <h1 class="fs-20">Make room for “${esc(title)}”</h1>
   <p class="muted mt-8">The Free plan has ${boards.length} active boards. Archive one and “${esc(title)}” is created right away. Archived boards stay readable, and you can restore one any time.</p>
-  <ul class="plain-ul pad-t">${rows}</ul>
+  <ul class="plain-ul" style="margin:18px 0 0">${rows}</ul>
   <p class="small muted mt-18">Or <a href="/me#billing">go Pro</a> for unlimited boards.</p>
 </div>`,
     { viewer, status: 402, narrow: true },

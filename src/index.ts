@@ -312,7 +312,7 @@ async function authSso(c: Ctx): Promise<Response> {
   if (!email) {
     return page(
       "Sign in with SSO · Atteo",
-      `<div class="card pad auth-sm"><h1>Sign in with SSO</h1><p class="small muted">Use your work email; we'll send you to your company's sign-in.</p>
+      `<div class="card pad" style="max-width:420px;margin:48px auto 0"><h1>Sign in with SSO</h1><p class="small muted">Use your work email; we'll send you to your company's sign-in.</p>
 <form method="get" action="/auth/sso" class="stack mt-12"><input class="input" type="email" name="email" required placeholder="you@company.com" autofocus><button class="btn primary">Continue</button></form>
 <p class="xs faint mt-12"><a href="/auth/login">Other ways to sign in</a></p></div>`,
       { narrow: true },

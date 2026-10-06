@@ -22,17 +22,17 @@ export function museMessage(origin: string): string {
 
 export function musePage(viewer: Viewer, side: SideBoard[], origin: string): Response {
   const T = (s: string, v?: Record<string, string | number>) => tr(viewer.lang, s, v);
-  const body = `<div class="card pad muse auth-lg">
-  <h1>${esc(T("Connect Muse"))}</h1>
-  <p class="muted">${esc(T("Muse connects with a key instead of a sign-in. Make one here, copy the message, and paste it into a Muse chat: Muse sets up the connector itself."))}</p>
+  const body = `<div class="card pad muse" style="max-width:560px;margin:24px auto 0">
+  <h1 style="font-size:20px">${esc(T("Connect Muse"))}</h1>
+  <p class="muted" style="margin:8px 0 16px">${esc(T("Muse connects with a key instead of a sign-in. Make one here, copy the message, and paste it into a Muse chat: Muse sets up the connector itself."))}</p>
   <ul class="small muted muse-facts">
     <li>${esc(T("The key works only as {name}'s agent, and only until {date}.", { name: viewer.name, date: new Date(Date.now() + MUSE_KEY_DAYS * 86400e3).toISOString().slice(0, 10) }))}</li>
     <li>${esc(T("It's listed in Account → Agent connections as Muse. Revoke it there to cut Muse off at once."))}</li>
   </ul>
-  <div class="row"><button class="btn primary" type="button" id="muse-make">${esc(T("Make Muse's key"))}</button></div>
-  <div id="muse-out" class="muse-out" hidden>
+  <div class="row" style="margin-top:16px"><button class="btn primary" type="button" id="muse-make">${esc(T("Make Muse's key"))}</button></div>
+  <div id="muse-out" class="muse-out" hidden style="margin-top:16px">
     <p class="flash err small" role="note">${esc(T("This message contains a password for your agent. Paste it only into Muse, and don't share it."))}</p>
-    <pre class="mono small muse-msg" id="muse-msg"></pre>
+    <pre class="mono small muse-msg" id="muse-msg" style="white-space:pre-wrap;overflow-wrap:anywhere;margin:10px 0;padding:10px 12px;border:1px solid var(--line);border-radius:var(--r-sm);background:var(--bg-subtle);color:var(--ink)"></pre>
     <div class="row"><button class="btn primary" type="button" id="muse-copy">${esc(T("Copy message"))}</button><a class="btn" href="/me">${esc(T("Agent connections"))}</a></div>
     <p class="small muted mt-8" id="muse-done" role="status" aria-live="polite"></p>
   </div>

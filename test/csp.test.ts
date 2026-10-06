@@ -137,6 +137,9 @@ describe("CSP follow-ups (opus-b #2678, jxn's agent #2681)", () => {
     expect(html).not.toContain("/fy.css");
     const fy = await appPage("For you", { viewer, boards: [], active: "for-you", crumbs: "", body: "", css: [FY_CSS_SRC] }).text();
     expect(fy).toContain(`href="${FY_CSS_SRC}"`);
+    // Board/inbox load only /app.css. Folding page CSS into it blew the 10% web-budget (~19% over).
+    const base = 139558;
+    expect(Buffer.byteLength(APP_CSS)).toBeLessThanOrEqual(Math.floor(base * 1.1) + 2048);
   });
 });
 

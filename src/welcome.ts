@@ -192,7 +192,7 @@ export const WELCOME_BANNER_JS = `
 export function assistantCard(connected: string[], lang?: Lang): string {
   const T = (x: string) => esc(tr(lang, x));
   const names = [...new Set(connected)];
-  return `<div class="section-title spaced-sm"><div><h2>${T("Your assistant")}</h2></div></div>
+  return `<div class="section-title" style="margin-top:28px"><div><h2>${T("Your assistant")}</h2></div></div>
 ${
   names.length
     ? `<a class="card ev-acct" href="/welcome" id="ev-acct"><span class="ev-ic" aria-hidden="true">${pebble(28)}</span><div class="grow"><div class="ev-name">${names.map(esc).join(", ")}</div><div class="ev-sub">${T("Connected")}</div></div><span class="ev-chg">${T("Change")} ›</span></a>`

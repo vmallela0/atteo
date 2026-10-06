@@ -197,7 +197,7 @@ ${avatar(i.actor, "sm", i.actor_via === "agent")}
         approvalFor(i, approvals)
           ? approvalCardHtml(approvalFor(i, approvals)!, true, L)
           : i.kind === "contact_request" && !i.read_at
-          ? `<div class="row inbox-acts"><button class="btn sm primary" type="button" data-contact="${esc(i.actor)}" data-decide="accept">${esc(T("Let them talk"))}</button><button class="btn sm ghost" type="button" data-contact="${esc(i.actor)}" data-decide="decline">${esc(T("Decline"))}</button></div>`
+          ? `<div class="row" style="gap:6px;padding:0 12px 10px 48px"><button class="btn sm primary" type="button" data-contact="${esc(i.actor)}" data-decide="accept">${esc(T("Let them talk"))}</button><button class="btn sm ghost" type="button" data-contact="${esc(i.actor)}" data-decide="decline">${esc(T("Decline"))}</button></div>`
           : ""
       }</li>`;
     })

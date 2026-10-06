@@ -149,40 +149,27 @@ p{margin:0}
 .mt-2{margin-top:2px}.mt-4{margin-top:4px}.mt-6{margin-top:6px}.mt-8{margin-top:8px}.mt-10{margin-top:10px}.mt-12{margin-top:12px}
 .mt-14{margin-top:14px}.mt-16{margin-top:16px}.mt-18{margin-top:18px}.mt-20{margin-top:20px}.mt-22{margin-top:22px}.mt-24{margin-top:24px}.mt-32{margin-top:32px}
 .mb-6{margin-bottom:6px}.mb-8{margin-bottom:8px}.mb-10{margin-bottom:10px}.mb-12{margin-bottom:12px}.mb-14{margin-bottom:14px}.mb-16{margin-bottom:16px}.mb-18{margin-bottom:18px}.mb-28{margin-bottom:28px}
-.my-8{margin:8px 0}.my-n4-8{margin:-4px 0 8px}.mx-0{margin:0}.pt-0{padding-top:0}.px-side{padding:2px 9px}.py-5{padding:5px 0}
-.row.between{justify-content:space-between}.fs-20{font-size:20px}.fs-12{font-size:12.5px}.w-auto{width:auto}
+.my-8{margin:8px 0}.my-n4-8{margin:-4px 0 8px}.my-6-10{margin:6px 0 10px}.my-8-18{margin:8px 0 18px}.my-18{margin:18px 0}.my-22-8{margin:22px 0 8px}.my-n4-14{margin:-4px 0 14px}
+.mx-0{margin:0}.py-5{padding:5px 0}.row.between{justify-content:space-between}.fs-12{font-size:12.5px}.fs-20{font-size:20px}.w-auto{width:auto}.max-w-240{max-width:240px}.flex-none{flex:none}.ws-normal{white-space:normal}
 .block-mt2{display:block;margin-top:2px}.danger{color:var(--danger)}.ok{color:var(--ok)}.warn{color:var(--warn)}
 .waiting .wt{font-weight:600;color:var(--ink);margin-bottom:4px}
 .waiting ul,.plain-ul{list-style:none;margin:0;padding:0}
 .waiting li .row{padding:5px 0}
-.ml-4{margin-left:4px}.w-120{width:120px}.max-w-160{max-width:160px}.max-w-240{max-width:240px}
-.basis-full{flex-basis:100%}.flex-none{flex:none}.ws-normal{white-space:normal}
-.btn.danger-fill,.btn.danger-fill:hover{background:var(--danger);border-color:var(--danger);color:var(--on-fill)}
-.code-in{text-transform:uppercase;letter-spacing:.1em}
 .grid-list{list-style:none;margin:0;display:grid;gap:12px}.grid-list.tight{gap:8px}
+.ml-4{margin-left:4px}.w-120{width:120px}.max-w-160{max-width:160px}
+.basis-full{flex-basis:100%}
+.btn.danger-fill,.btn.danger-fill:hover{background:var(--danger);border-color:var(--danger);color:var(--on-fill)}
 .chip{margin:2px 4px 2px 0}
-.my-0-8{margin:8px 0 0}.my-6-10{margin:6px 0 10px}.my-8-18{margin:8px 0 18px}.my-18{margin:18px 0}.my-22-8{margin:22px 0 8px}.my-n4-14{margin:-4px 0 14px}
-.h-muted{font-size:13px;color:var(--muted)}
-.ns-h{margin:14px 0 6px;font-weight:600}
-.board-li{gap:10px;padding:10px 0;border-top:1px solid var(--line)}
-.plain-ul.pad-t{margin:18px 0 0;padding:0}
+.my-0-8{margin:8px 0 0}
 .ta-c{text-align:center}.ta-r{text-align:right}.ta-l{text-align:left}.ml-6{margin-left:6px}.ml-auto{margin-left:auto}
 .ink{color:var(--ink)}.ink-b{color:var(--ink);font-weight:600}.ink-m{color:var(--ink);font-weight:500}
 .w-full{width:100%}.min-w-0{min-width:0}.pointer{cursor:pointer}
 .dot.ok{color:var(--ok)}.dot.warn{color:var(--warn)}.dot.danger{color:var(--danger)}
-.section-title p.muted,.section-title p.small{margin-top:4px}.section-title.spaced{margin-top:32px}.section-title.spaced-sm{margin-top:28px}
-.card.auth-sm h1{font-size:18px}
-.form-foot{justify-content:flex-end;gap:8px;margin-top:12px}
+.section-title p.muted,.section-title p.small{margin-top:4px}
 dialog .hd p.muted,dialog .hd p.small{margin-top:4px}
 details.small>summary.muted,summary.muted.pointer{cursor:pointer}
 details.small>p.muted,details.small>p.xs{margin:8px 0}
-.card.auth{max-width:460px;margin:48px auto 0}.card.auth-sm{max-width:420px;margin:48px auto 0}
-.card.auth-md{max-width:440px;margin:40px auto 0}.card.auth-lg{max-width:560px;margin:24px auto 0}
-.card.auth-480{max-width:480px;margin:48px auto 0}.card.auth-520{max-width:520px;margin:48px auto 0}
-.card.sheet-sm{max-width:460px;margin:24px auto 0}.card.center{text-align:center}
-article.legal{max-width:720px;margin:24px auto}
-.h2-block{margin:24px 0 10px}.h2-block-lg{margin:32px 0 10px}
-.form-actions{justify-content:flex-end;gap:8px;margin-top:16px}
+.card.auth{max-width:460px;margin:48px auto 0}.card.center{text-align:center}
 .truncate{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 
 /* header */
@@ -1239,15 +1226,6 @@ dialog.palette{margin-top:12vh;width:min(600px,calc(100vw - 24px));border-radius
 .hero{text-align:center;padding:64px 0 40px}
 .hero h1{font-size:clamp(34px,6vw,56px);letter-spacing:-.045em;line-height:1.05;margin:18px auto 16px;max-width:760px}
 .hero p.lead{font-size:17px;color:var(--muted);max-width:560px;margin:0 auto 28px}
-.hero .flash{max-width:520px;margin:0 auto 20px}.hero>.row{justify-content:center}
-.hero-foot{text-align:center;margin:28px 0 8px}
-.steps .card p.muted{margin-top:6px}
-.welcome-card h1{font-size:22px}.welcome-card>.muted{margin:8px 0 22px}.welcome-card .btn.primary{width:100%;margin-top:20px}
-.muse h1{font-size:20px}.muse>.muted{margin:8px 0 16px}.muse-out,.muse>.row{margin-top:16px}
-.muse-msg{white-space:pre-wrap;overflow-wrap:anywhere;margin:10px 0;padding:10px 12px;border:1px solid var(--line);border-radius:var(--r-sm);background:var(--bg-subtle);color:var(--ink)}
-.oauth-who{gap:10px;margin-bottom:14px}
-.inbox-acts{gap:6px;padding:0 12px 10px 48px}
-#connect .tabs{margin-bottom:14px}
 .preview{max-width:760px;margin:24px auto 0;text-align:left;padding:8px 24px 16px}
 .steps{display:grid;gap:16px;margin-top:32px}
 @media(min-width:760px){.steps{grid-template-columns:repeat(3,1fr)}}
@@ -1831,7 +1809,7 @@ export function appPage(
   <a class="side-link side-connect" href="/me#connect" data-connect>${ICON.plug}<span class="dev-l">${esc(T("Connect an agent"))}</span><span class="ev-l">${esc(T("Connect your assistant"))}</span></a>
   ${v.admin ? `<a class="side-link" href="/_ops"${cur("admin")}>${ICON.admin}<span>Ops</span></a>` : ""}
   <div class="side-label"><span>${esc(T("Your boards"))}</span><a href="/?new=1" title="${esc(T("New board (C)"))}" aria-label="${esc(T("New board"))}">${ICON.plus}</a></div>
-  ${sideBoards || `<p class="xs faint px-side">${esc(T("No boards yet"))}</p>`}
+  ${sideBoards || `<p class="xs faint" style="padding:2px 9px">${esc(T("No boards yet"))}</p>`}
   <div class="side-label"><span>${esc(T("DMs"))}</span></div>${sideOwn}${sideDirect}
   <div class="me"><a class="side-link" href="/me">${avatar(v.name, "sm")}<span class="truncate">${personHtml(v.name, v.display_name, opts.boards.filter((b) => b.kind === "direct").map((b) => directPeer(b, v.name)))}</span></a><button class="btn ghost sm bug-btn" type="button" data-feedback aria-label="${esc(T("Send feedback"))}"></button><button class="btn ghost sm bug-btn" type="button" data-bug data-bug-src="${BUG_JS_SRC}" aria-label="${esc(T("Report a bug"))}" title="${esc(T("Report a bug"))}">${ICON.warn}</button></div>
 </aside>
