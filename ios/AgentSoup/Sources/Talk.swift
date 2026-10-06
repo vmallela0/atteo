@@ -245,7 +245,9 @@ final class TalkSession: ObservableObject {
     private var lastActive = Date() // the last moment something was going on in the live call
     private var liveSeconds: TimeInterval = 0 // every session of this call, live, so far
     private var settling: Task<Void, Never>? // the last session's /session/end, awaited before the next one starts
-    private var instructions: String? // the first session's, which a resumed one gets again with the recap
+    private var recap = "" // what a resumed session was told was just said, kept when its briefing is refreshed
+    private var briefedAt = Date() // when this session's briefing was made: a long call gets a fresh one (refreshBriefing)
+    private var briefing: Task<Void, Never>?
     private let remote = TalkRemote()
     private var watching: [AnyCancellable] = []
     private var seenSeq = 0 // the board's newest message when it stood by: only later ones are read
@@ -420,11 +422,13 @@ final class TalkSession: ObservableObject {
         diag.newSession()
         diag.lowPower = ProcessInfo.processInfo.isLowPowerModeEnabled
 
-        // The first session's instructions, kept; a resumed one is told what was just said (a few short lines).
+        // Each session's own instructions (they carry a fresh briefing of what's waiting, vedu #5381); a resumed one is
+        // also told what was just said (a few short lines).
         if let i = session["instructions"] as? String {
-            if instructions == nil { instructions = i }
-            if resuming { session["instructions"] = (instructions ?? i) + TalkStandby.recap(recapTurns) }
+            recap = resuming ? TalkStandby.recap(recapTurns) : ""
+            session["instructions"] = i + recap
         }
+        briefedAt = Date()
         self.session = session
         link.send(["type": "session.update", "session": session])
         openedAt = Date()
@@ -469,6 +473,7 @@ final class TalkSession: ObservableObject {
         if s != speaking { speaking = s }
         // The VAD heard something that never became a turn (a cough, a door): don't sit on "Thinking…".
         if thinking, activeResponse == nil, toolsRunning == 0, let t = stoppedAt, now.timeIntervalSince(t) > 8 { thinking = false; stoppedAt = nil }
+        if now.timeIntervalSince(briefedAt) >= Self.briefingEvery, activeResponse == nil, !speaking, toolsRunning == 0 { refreshBriefing() }
         if elapsed >= Double(maxSeconds) {
             // A session's cap: hands-free stands by (play keeps talking, in a new session); hold to talk ends.
             diag.lastStop = "the session's \(maxSeconds) s cap"
@@ -487,6 +492,37 @@ final class TalkSession: ObservableObject {
         if TalkStandby.shouldStandBy(now: now, lastActive: lastActive, a, idle: idle) {
             diag.lastStop = "quiet \(Int(idle)) s, heard you: \(diag.heardSpeech ? "yes" : "no")"
             standBy(note: diag.quietNote(mic: audio.useMic))
+        }
+    }
+
+    /// When your last turn ended (the pause ran out, Done, the press let go, the server's VAD): Atteo's first word or
+    /// sound after it is the call's time to first answer, in the diagnostics (vedu #5381: tools up front cut it).
+    private var turnEnded: Date?
+
+    private func answered() {
+        guard let t = turnEnded else { return }
+        turnEnded = nil
+        diag.answerMs = Int(Date().timeIntervalSince(t) * 1000)
+    }
+
+    /// How often a long call's briefing (what's waiting, the open board's latest messages) is made again.
+    static let briefingEvery: TimeInterval = 240
+
+    /// A long call (vedu #5381): fresh instructions from GET /api/app/voice/briefing (the same cheat-sheet, a new
+    /// briefing), plus the recap a resumed session had, as session.update between answers. A reconnect gets a fresh
+    /// one anyway: each new session's instructions carry it.
+    private func refreshBriefing() {
+        briefedAt = Date()
+        guard briefing == nil, let link else { return }
+        let path = "/api/app/voice/briefing" + ((board?.encrypted == true ? nil : board?.id).map { "?board=\($0)" } ?? "")
+        briefing = Task { [weak self] in
+            defer { self?.briefing = nil }
+            guard let (code, j) = try? await TalkAPI.call("GET", path), code == 200, let i = j["instructions"] as? String,
+                  let self, !self.ended, self.phase == .ready, self.link === link else { return }
+            var s = self.session
+            s["instructions"] = i + self.recap
+            self.session = s
+            link.send(["type": "session.update", "session": s])
         }
     }
 
@@ -839,6 +875,7 @@ final class TalkSession: ObservableObject {
         bufferSince = Date()
         lastActive = Date()
         link?.send(["type": "input_audio_buffer.commit"])
+        turnEnded = Date()
         if youCaption == nil { let id = "you-\(UUID().uuidString)"; youCaption = id; captions.append(Caption(id: id, who: .you, text: "…")) }
         thinking = true
         stoppedAt = Date()
@@ -916,6 +953,7 @@ final class TalkSession: ObservableObject {
             return
         }
         link?.send(["type": "input_audio_buffer.commit"])
+        turnEnded = Date()
         let id = "you-\(UUID().uuidString)"
         youCaption = id
         captions.append(Caption(id: id, who: .you, text: "…"))
@@ -1011,6 +1049,7 @@ final class TalkSession: ObservableObject {
             if lastYou != nil, lastYou?.response == nil { lastYou?.response = activeResponse } // Atteo's answer to it
         case "response.output_audio.delta", "response.audio.delta":
             guard let b64 = e["delta"] as? String, let pcm = Data(base64Encoded: b64) else { return }
+            answered()
             let d = audio.play(pcm)
             audioUntil = max(audioUntil, Date()) + d
             atteoEnd = audioUntil
@@ -1027,11 +1066,13 @@ final class TalkSession: ObservableObject {
             if speaking || activeResponse != nil { interrupt() }
             if youCaption == nil { let id = "you-\(UUID().uuidString)"; youCaption = id; captions.append(Caption(id: id, who: .you, text: "…")) }
         case "input_audio_buffer.speech_stopped":
+            turnEnded = Date()
             hearing = false
             thinking = true // the server answers by itself
             stoppedAt = Date()
         case "response.output_audio_transcript.delta", "response.audio_transcript.delta", "response.output_text.delta", "response.text.delta":
             guard let d = e["delta"] as? String else { return }
+            answered()
             grokSays(rid, append: d)
         case "response.output_audio_transcript.done", "response.audio_transcript.done", "response.output_text.done", "response.text.done":
             if let t = (e["transcript"] as? String) ?? (e["text"] as? String), !t.isEmpty { grokSays(rid, replace: t) }

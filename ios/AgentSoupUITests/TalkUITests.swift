@@ -294,6 +294,43 @@ final class TalkUITests: AtteoUITestCase {
         return a
     }
 
+    // MARK: Time to first answer (vedu #5381)
+
+    /// "What's waiting for me?" timed from the end of the turn to Atteo's first word (the diagnostics line), with the
+    /// fake as a model that calls mailbox_summary (before) and as one that answers from the session's briefing (after).
+    /// The fake's own answer is instant: the difference is the tool's round trip through the app to the local server
+    /// (a real model also spends a second turn on it, which this can't measure).
+    func testTimeToFirstAnswerWithTheBriefing() {
+        func timed(_ script: String) -> Int {
+            let a = scripted(script)
+            if !a.staticTexts["talk-diagnostics"].exists {
+                a.buttons["talk-menu"].tap()
+                let diag = a.buttons["talk-diagnostics-toggle"]
+                XCTAssertTrue(diag.waitForExistence(timeout: 5))
+                diag.tap()
+            }
+            let line = a.staticTexts["talk-diagnostics"]
+            XCTAssertTrue(line.waitForExistence(timeout: 5))
+            a.buttons["talk-orb"].tap()
+            XCTAssertTrue(text(a, "Atteo: Here's what's waiting for you").waitForExistence(timeout: 15), "the answer (\(script))")
+            XCTAssertTrue(eventually(line, "label CONTAINS 'first answer:'", timeout: 5), line.label)
+            let ms = line.label.components(separatedBy: "first answer: ").dropFirst().first.flatMap { Int($0.prefix { $0.isNumber }) } ?? -1
+            if script == "briefed" { XCTAssertTrue(text(a, "Atteo: Here's what's waiting for you, from your briefing").exists, "answered from the briefing") }
+            a.buttons["talk-end"].tap()
+            XCTAssertTrue(a.buttons["talk"].waitForExistence(timeout: 8))
+            a.terminate()
+            return ms
+        }
+        var tool: [Int] = [], briefed: [Int] = []
+        for _ in 0..<3 { tool.append(timed("")); briefed.append(timed("briefed")) }
+        let median = { (v: [Int]) in v.sorted()[v.count / 2] }
+        let report = "time to first answer, \"what's waiting for me?\": with the tool \(tool) ms (median \(median(tool))), from the briefing \(briefed) ms (median \(median(briefed)))"
+        print("TALK-LATENCY " + report)
+        XCTContext.runActivity(named: report) { _ in }
+        XCTAssertTrue(tool.allSatisfy { $0 >= 0 } && briefed.allSatisfy { $0 >= 0 }, report)
+        XCTAssertLessThan(median(briefed), median(tool), report)
+    }
+
     /// The texts of the newest entries on a board (as maya).
     private func texts(_ board: String) -> [String] {
         let count = ((call("GET", "/api/me/boards")["boards"] as? [[String: Any]] ?? []).first { $0["id"] as? String == board }?["entry_count"] as? Int) ?? 0

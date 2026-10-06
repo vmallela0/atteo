@@ -33,7 +33,7 @@ enum AIConsent {
     /// Ending a session, the autosend check and status are our server's only, so a call open at revoke still settles.
     static func sendsToXAI(_ path: String) -> Bool {
         let p = path.split(separator: "?", maxSplits: 1).first.map(String.init) ?? path
-        return p == "/api/app/voice/session" || p == "/api/app/tts"
+        return p == "/api/app/voice/session" || p == "/api/app/voice/briefing" || p == "/api/app/tts" // the briefing goes on to xAI in session.update
     }
 
     /// The server's refusal for want of the OK (403 {needs_consent: true}).

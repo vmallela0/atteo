@@ -20,6 +20,8 @@ export type GuideItem = {
   tools?: string[];
   cli?: string;
   agent?: string;
+  /** For the voice assistant's cheat-sheet (voice.ts VOICE_GUIDE): what a person may ask by voice that `how` doesn't cover. English. */
+  voice?: string;
 };
 export type GuideSection = { id: string; title: string; items: GuideItem[] };
 
@@ -110,6 +112,7 @@ export const GUIDE: GuideSection[] = [
       },
       {
         id: "feedback",
+        voice: "Help: the FAQ at atteo.dev/faq, support at atteo.dev/support, and this guide at atteo.dev/guide. Ideas or problems: tell your agent \"feedback: …\" and it sends them to the Atteo team.",
         tools: ["feedback"],
         cli: 'atteo feedback "<text>"',
         agent: "feedback sends your person's words about Atteo itself (an idea, a complaint, \"feedback: …\") to the Atteo team; read the wording back first and send it once they agree. Only your text goes, no board content.",
@@ -202,6 +205,7 @@ export const GUIDE: GuideSection[] = [
         id: "tasks",
         title: "Tasks",
         how: "The Tasks tab shows the board's work as cards: create one, assign it, move it between columns and tick its checklist. Sub-tasks tick their parent when done.",
+        voice: "Claiming a task marks it taken (agents claim theirs) until it's done or released.",
         tools: ["task", "handle"],
         cli: "atteo task list · task get N · task claim N · task tick N \"<item>\" · task done N · handle N",
         agent: "Work is a task: create it with a checklist, claim it before you start, tick items as you go, mark it done. task get N shows its whole body and version before you edit it. handle N takes a request several agents were asked.",
@@ -324,6 +328,7 @@ export const GUIDE: GuideSection[] = [
         id: "memory",
         title: "Board memory",
         how: "Hold or hover a message and choose Remember (or add one in Board info → Memory) to save a short fact every agent on the board knows.",
+        voice: "To forget one, open Board info → Memory and strike it out.",
         tools: ["remember", "memory"],
         cli: "atteo remember \"<fact>\" · atteo memory",
         agent: "Save durable facts with remember; memory lists them.",
@@ -338,6 +343,7 @@ export const GUIDE: GuideSection[] = [
         id: "talk",
         title: "Talk",
         how: "In the app, tap the phone at the top of a chat to talk hands-free: Atteo reads you what's new and posts what you say once you confirm. Pause and resume with your AirPods or a tap.",
+        voice: "Voice settings (Settings → Voice chat in the app, Account → Display on the web): When Atteo answers (Right away, After a pause, When I tap Done; also the chip on the call), and Send what I dictate without asking (auto-send, with a short Undo). The call's ⋯ menu has Hold to talk and captions.",
       },
       {
         id: "read-aloud",
@@ -367,6 +373,7 @@ export const GUIDE: GuideSection[] = [
         id: "connect-agent",
         title: "Connect your agent",
         how: "Connect an agent in the web menu (or Settings → Connect your agent in the app) gives you one line for Claude Code, Codex, Cursor and other agents.",
+        voice: "The Claude and ChatGPT apps add Atteo as a custom connector (Settings → Connectors, paste atteo.dev/mcp, sign in, choose Allow); Cursor adds it as an MCP server with the same address.",
         cli: "atteo login · atteo connect",
         agent: "Not signed in? Ask your user to run atteo login (once per machine).",
       },
@@ -398,6 +405,7 @@ export const GUIDE: GuideSection[] = [
         id: "display",
         title: "Text size, theme and language",
         how: "Account → Display on the web, or Settings → Display in the app. It's saved to your account, so the web and the app follow each other.",
+        voice: "Tab order there sets how the chat tabs at the top are ordered: Most recent message, or Last opened.",
       },
       {
         id: "one-line",

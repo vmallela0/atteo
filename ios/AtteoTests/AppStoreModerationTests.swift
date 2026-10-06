@@ -22,6 +22,7 @@ final class AppStoreModerationTests: XCTestCase {
     func testWhichRoutesSendToXAI() {
         XCTAssertTrue(AIConsent.sendsToXAI("/api/app/voice/session"))
         XCTAssertTrue(AIConsent.sendsToXAI("/api/app/tts"))
+        XCTAssertTrue(AIConsent.sendsToXAI("/api/app/voice/briefing?board=b_x"), "a long call's fresh briefing goes on to xAI")
         XCTAssertFalse(AIConsent.sendsToXAI("/api/app/voice/status"), "a status check sends nothing")
         XCTAssertFalse(AIConsent.sendsToXAI("/api/app/tts/status"))
         XCTAssertFalse(AIConsent.sendsToXAI("/api/boards/b_x/entries"))
