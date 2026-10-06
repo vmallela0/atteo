@@ -1,96 +1,284 @@
 {
   "sourceLanguage": "en",
   "strings": {
-    "Turning this off also stops crash reports. When configured, Sentry receives only the error, screen name, app version and OS.": {
+    "network on": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Turning this off also stops crash reports. When configured, Sentry receives only the error, screen name, app version and OS."
-          }
-        },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يؤدي إيقاف هذا الخيار أيضًا إلى إيقاف تقارير الأعطال. عند تهيئة Sentry، لا يتلقى سوى الخطأ واسم الشاشة وإصدار التطبيق ونظام التشغيل."
+            "value": "الشبكة مفعّلة"
           }
         },
         "bn": {
           "stringUnit": {
             "state": "translated",
-            "value": "এটি বন্ধ করলে ক্র্যাশ রিপোর্টও বন্ধ হয়। কনফিগার করা থাকলে, Sentry শুধু ত্রুটি, স্ক্রিনের নাম, অ্যাপের সংস্করণ এবং অপারেটিং সিস্টেম পায়।"
+            "value": "নেটওয়ার্ক চালু"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Wenn du dies deaktivierst, werden auch keine Absturzberichte mehr gesendet. Wenn Sentry eingerichtet ist, erhält es nur den Fehler, den Bildschirmnamen, die App-Version und das Betriebssystem."
+            "value": "Netzwerk an"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "network on"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Al desactivar esta opción, también se dejan de enviar informes de fallos. Cuando está configurado, Sentry solo recibe el error, el nombre de la pantalla, la versión de la app y el sistema operativo."
+            "value": "red activada"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Désactiver cette option arrête aussi les rapports de plantage. Lorsque Sentry est configuré, il reçoit uniquement l’erreur, le nom de l’écran, la version de l’app et le système d’exploitation."
+            "value": "réseau activé"
           }
         },
         "hi": {
           "stringUnit": {
             "state": "translated",
-            "value": "इसे बंद करने से क्रैश रिपोर्ट भी बंद हो जाती हैं। कॉन्फ़िगर होने पर, Sentry को केवल त्रुटि, स्क्रीन का नाम, ऐप का संस्करण और ऑपरेटिंग सिस्टम मिलता है।"
+            "value": "नेटवर्क चालू"
           }
         },
         "id": {
           "stringUnit": {
             "state": "translated",
-            "value": "Menonaktifkan ini juga menghentikan laporan crash. Jika dikonfigurasi, Sentry hanya menerima kesalahan, nama layar, versi aplikasi, dan sistem operasi."
+            "value": "jaringan aktif"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "これをオフにすると、クラッシュレポートも停止します。Sentry が設定されている場合、送信されるのはエラー、画面名、アプリのバージョン、OS のみです。"
+            "value": "ネットワークあり"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "이 설정을 끄면 충돌 보고서 전송도 중지됩니다. Sentry가 구성된 경우 오류, 화면 이름, 앱 버전 및 운영 체제만 전송됩니다."
+            "value": "네트워크 켜짐"
           }
         },
         "pt": {
           "stringUnit": {
             "state": "translated",
-            "value": "Desativar esta opção também interrompe os relatórios de falhas. Quando configurado, o Sentry recebe apenas o erro, o nome da tela, a versão do app e o sistema operacional."
+            "value": "rede ligada"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Отключение этой настройки также прекращает отправку отчётов о сбоях. Если Sentry настроен, он получает только ошибку, название экрана, версию приложения и ОС."
+            "value": "сеть включена"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bu ayarı kapatmak kilitlenme raporlarını da durdurur. Yapılandırıldığında Sentry yalnızca hatayı, ekran adını, uygulama sürümünü ve işletim sistemini alır."
+            "value": "ağ açık"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "关闭此选项也会停止发送崩溃报告。配置 Sentry 后，它仅接收错误、屏幕名称、应用版本和操作系统信息。"
+            "value": "已开启网络"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "關閉此選項也會停止傳送當機報告。設定 Sentry 後，它僅接收錯誤、畫面名稱、App 版本和作業系統資訊。"
+            "value": "已開啟網路"
+          }
+        }
+      }
+    },
+    "Review": {
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مراجعة"
+          }
+        },
+        "bn": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "পর্যালোচনা"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prüfen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Review"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Revisar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Examiner"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "समीक्षा"
+          }
+        },
+        "id": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tinjau"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "確認する"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "검토"
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rever"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Проверить"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "İncele"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "查看"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "檢視"
+          }
+        }
+      }
+    },
+    "It has characters that aren't plain ASCII: check they're what you expect.": {
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يحتوي على أحرف ليست ASCII عادية: تأكد أنها ما تتوقعه."
+          }
+        },
+        "bn": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "এতে সাধারণ ASCII নয় এমন অক্ষর আছে: যাচাই করুন সেগুলো আপনার প্রত্যাশামতো কি না।"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Es enthält Zeichen, die kein einfaches ASCII sind: Prüfe, ob sie das sind, was du erwartest."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "It has characters that aren't plain ASCII: check they're what you expect."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tiene caracteres que no son ASCII simple: comprueba que son los que esperas."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il contient des caractères qui ne sont pas de l’ASCII simple : vérifiez qu’ils sont bien ceux attendus."
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "इसमें ऐसे अक्षर हैं जो सादे ASCII नहीं हैं: जाँचें कि वे वही हैं जिनकी आप उम्मीद करते हैं।"
+          }
+        },
+        "id": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Berisi karakter yang bukan ASCII biasa: periksa apakah itu yang Anda harapkan."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通常の ASCII ではない文字が含まれています。想定どおりの文字か確認してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "일반 ASCII가 아닌 문자가 있습니다. 예상한 문자인지 확인하세요."
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tem caracteres que não são ASCII simples: confirme que são os que espera."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "В нём есть символы не из обычного ASCII: проверьте, что это то, что вы ожидаете."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Düz ASCII olmayan karakterler içeriyor: beklediğiniz karakterler olduğunu kontrol edin."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "其中有非普通 ASCII 的字符：请确认它们是你预期的。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "其中有非一般 ASCII 的字元：請確認它們是你預期的。"
           }
         }
       }
@@ -50255,6 +50443,100 @@
           "stringUnit": {
             "state": "translated",
             "value": "停止 %@"
+          }
+        }
+      }
+    },
+    "Turning this off also stops crash reports. When configured, Sentry receives only the error, screen name, app version and OS.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Turning this off also stops crash reports. When configured, Sentry receives only the error, screen name, app version and OS."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يؤدي إيقاف هذا الخيار أيضًا إلى إيقاف تقارير الأعطال. عند تهيئة Sentry، لا يتلقى سوى الخطأ واسم الشاشة وإصدار التطبيق ونظام التشغيل."
+          }
+        },
+        "bn": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "এটি বন্ধ করলে ক্র্যাশ রিপোর্টও বন্ধ হয়। কনফিগার করা থাকলে, Sentry শুধু ত্রুটি, স্ক্রিনের নাম, অ্যাপের সংস্করণ এবং অপারেটিং সিস্টেম পায়।"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wenn du dies deaktivierst, werden auch keine Absturzberichte mehr gesendet. Wenn Sentry eingerichtet ist, erhält es nur den Fehler, den Bildschirmnamen, die App-Version und das Betriebssystem."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Al desactivar esta opción, también se dejan de enviar informes de fallos. Cuando está configurado, Sentry solo recibe el error, el nombre de la pantalla, la versión de la app y el sistema operativo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Désactiver cette option arrête aussi les rapports de plantage. Lorsque Sentry est configuré, il reçoit uniquement l’erreur, le nom de l’écran, la version de l’app et le système d’exploitation."
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "इसे बंद करने से क्रैश रिपोर्ट भी बंद हो जाती हैं। कॉन्फ़िगर होने पर, Sentry को केवल त्रुटि, स्क्रीन का नाम, ऐप का संस्करण और ऑपरेटिंग सिस्टम मिलता है।"
+          }
+        },
+        "id": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Menonaktifkan ini juga menghentikan laporan crash. Jika dikonfigurasi, Sentry hanya menerima kesalahan, nama layar, versi aplikasi, dan sistem operasi."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "これをオフにすると、クラッシュレポートも停止します。Sentry が設定されている場合、送信されるのはエラー、画面名、アプリのバージョン、OS のみです。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 설정을 끄면 충돌 보고서 전송도 중지됩니다. Sentry가 구성된 경우 오류, 화면 이름, 앱 버전 및 운영 체제만 전송됩니다."
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desativar esta opção também interrompe os relatórios de falhas. Quando configurado, o Sentry recebe apenas o erro, o nome da tela, a versão do app e o sistema operacional."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Отключение этой настройки также прекращает отправку отчётов о сбоях. Если Sentry настроен, он получает только ошибку, название экрана, версию приложения и ОС."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu ayarı kapatmak kilitlenme raporlarını da durdurur. Yapılandırıldığında Sentry yalnızca hatayı, ekran adını, uygulama sürümünü ve işletim sistemini alır."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "关闭此选项也会停止发送崩溃报告。配置 Sentry 后，它仅接收错误、屏幕名称、应用版本和操作系统信息。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "關閉此選項也會停止傳送當機報告。設定 Sentry 後，它僅接收錯誤、畫面名稱、App 版本和作業系統資訊。"
           }
         }
       }

@@ -10,7 +10,19 @@ const BASE = process.env.BASE || "http://localhost:8787";
 // fetch on it fails with "other side closed". Retry that one error once; anything else fails as before.
 const fetch = async (...a) => { try { return await globalThis.fetch(...a); } catch (e) { if (!/other side closed/i.test(String(e?.cause?.message ?? ""))) throw e; return globalThis.fetch(...a); } };
 const ops = async (p, b) => (await fetch(`${BASE}/api/ops/${p}`, { method: "POST", headers: { "x-admin-key": process.env.ADMIN_KEY || "ci-admin-key", "content-type": "application/json" }, body: JSON.stringify(b) })).json();
-const sql = (q) => d1Execute(`--command ${JSON.stringify(q)}`, { cwd: new URL("../../", import.meta.url).pathname });
+// Retry SQLITE_BUSY with backoff (3 tries: 200/500/1000 ms) for parallel test runs hitting the local D1.
+const sql = async (q) => {
+  const delays = [200, 500, 1000];
+  for (let i = 0; i < delays.length; i++) {
+    try {
+      return await d1Execute(`--command ${JSON.stringify(q)}`, { cwd: new URL("../../", import.meta.url).pathname });
+    } catch (e) {
+      const isBusy = /SQLITE_BUSY/.test(String(e?.message ?? e)) || /SQLITE_BUSY/.test(String(e?.stderr ?? "")) || /SQLITE_BUSY/.test(String(e?.stdout ?? ""));
+      if (!isBusy || i === delays.length - 1) throw e;
+      await new Promise(r => setTimeout(r, delays[i]));
+    }
+  }
+};
 const run = Date.now().toString(36).slice(-4), O = `ao${run}`, M = `am${run}`, V = `av${run}`, R = `ar${run}`;
 for (const u of [O, M, V, R]) await ops("users", { name: u, email: `${u}@example.com`, verified: "true" });
 const TITLE = `Mine ${run} <b>bold</b>`;

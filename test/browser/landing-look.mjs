@@ -1,11 +1,13 @@
-// atteo.dev's landing page (jxn #4711/#4712, #4732, #4740): only the mark across the whole screen, faint and unclipped,
-// with dots moving along its curves (still with reduced motion), and in front "atteo" (STIX), "agent communication.",
-// Connect your agent (Claude Code, Cursor, ChatGPT, Codex, each line with Copy), sign in and the small links; nothing
-// else, no oxblood; white whatever the system theme (?theme=dark previews the dark pair); no sideways scroll from 320
-// to 1440px; /og.png is a 1200×630 PNG. Its type is the app's own files (/fonts/*, which the landing forwards to the app):
-// nothing is asked of Google, and every font file it asks for is one the app ships (src/fonts).
+// atteo.dev's landing page, v2 (jxn's design #5102, #5108): the mark across the whole screen, faint and unclipped, with
+// dots moving along its curves (still with reduced motion); in front "atteo" (STIX), "> agent communication.", Connect
+// (CLI, MCP, Claude, Claude Code, Cursor, ChatGPT, Codex, Muse, Grok Bot: picking one shows its command, with Copy) and sign in;
+// then what agents do on atteo (six, each with a snippet of the app); the small links and "built by asubn", which on a
+// phone sits on its own line, centred and inside the screen (#5104). No oxblood; white whatever the system theme
+// (?theme=dark previews the dark pair); no sideways scroll from 320 to 1440px; /og.png is a 1200×630 PNG. Its type is
+// the app's own files (/fonts/*, which the landing forwards to the app): nothing is asked of Google, and every font
+// file it asks for is one the app ships (src/fonts).
 // HTML pages send an enforced hash CSP (docs/security/csp.md #8): JSON-LD and the Copy script are allowed by sha256,
-// /guide and /support are script-src 'none'.
+// /support is script-src 'none'. /guide is the app's now (its new frame, board #5110): the landing forwards it.
 // It runs against the LANDING Worker, not the app:
 //   npx wrangler dev -c landing/wrangler.jsonc --port 8798 --inspector-port 9237 --var APP_ORIGIN:http://127.0.0.1:9
 //   LANDING=http://localhost:8798 node test/browser/landing-look.mjs
@@ -32,10 +34,8 @@ for (const [w, theme] of [[1440, "light"], [1440, "dark"], [768, "light"], [390,
   await p.goto(`${BASE}/?theme=${theme}`);
   await p.waitForTimeout(1500);
   await p.evaluate(() => document.fonts.ready);
-  // The page is only this (jxn #4732, #4740): the mark behind everything, then "atteo", one line, Connect your agent,
-  // sign in and the small links. Open the panel first, so its commands (Courier Prime) are on the page too.
-  await p.locator(".hm-go>summary").click();
-  await p.evaluate(() => document.fonts.ready);
+  // The page (jxn's design v2, #5102): the mark behind everything; "atteo", one line, Connect (a name per agent, its
+  // command or URL, Copy) and sign in; what agents do on atteo; the links and "built by asubn".
   const r = await p.evaluate(() => {
     const cs = (sel) => { const e = document.querySelector(sel); return e ? getComputedStyle(e) : null; };
     const cherry = getComputedStyle(document.documentElement).getPropertyValue("--oxblood").trim();
@@ -47,10 +47,12 @@ for (const [w, theme] of [[1440, "light"], [1440, "dark"], [768, "light"], [390,
     return {
       bg: getComputedStyle(document.body).backgroundColor, cherryRgb, uses,
       wm: cs(".hm-wm").fontFamily, wmText: document.querySelector(".hm-wm")?.textContent, tag: document.querySelector(".hm-tag")?.textContent, tagFont: cs(".hm-tag").fontFamily,
-      body: getComputedStyle(document.body).fontFamily, code: cs(".hm-cmd code")?.fontFamily,
-      back: bg && { cover: br.left <= 0 && br.top <= 0 && br.right >= innerWidth && br.bottom >= innerHeight, fixed: bs.position === "fixed", hidden: bg.getAttribute("aria-hidden") === "true", events: bs.pointerEvents, opacity: +bs.opacity, slice: bg.getAttribute("preserveAspectRatio"), moving: bg.querySelectorAll(".pulse animateMotion").length, clip: !!bg.querySelector("clipPath"), behind: +bs.zIndex < +getComputedStyle(document.querySelector(".hm")).zIndex },
-      agents: [...document.querySelectorAll(".hm-list li")].map((li) => [li.querySelector("b").textContent, li.querySelector("code").textContent, !!li.querySelector("button[data-copy]")]),
-      foot: [...document.querySelectorAll(".hm-ft a")].map((a) => a.textContent), signin: document.querySelector(".hm-in")?.getAttribute("href"),
+      body: getComputedStyle(document.body).fontFamily, code: cs(".h2-cmd code")?.fontFamily,
+      back: bg && { cover: br.left <= 0 && br.top <= 0 && br.right >= innerWidth && br.bottom >= innerHeight, fixed: bs.position === "fixed", hidden: bg.getAttribute("aria-hidden") === "true", events: bs.pointerEvents, opacity: +bs.opacity, slice: bg.getAttribute("preserveAspectRatio"), moving: bg.querySelectorAll(".pulse animateMotion").length, clip: !!bg.querySelector("clipPath"), behind: +bs.zIndex < +getComputedStyle(document.querySelector(".h2-hero")).zIndex },
+      agents: [...document.querySelectorAll(".h2-tabs [data-i]")].map((b) => b.textContent), cmd: document.querySelector(".h2-cmd code")?.textContent, copy: !!document.querySelector(".h2-cmd [data-copy]"),
+      feats: [...document.querySelectorAll(".h2-f h3")].map((h) => h.textContent),
+      foot: [...document.querySelectorAll(".hm-ft > a")].map((a) => a.textContent), signin: document.querySelector(".h2-in")?.getAttribute("href"),
+      built: (() => { const e = document.querySelector(".h2-built"), r = e?.getBoundingClientRect(), last = [...document.querySelectorAll(".hm-ft > a")].pop()?.getBoundingClientRect(); return e && { text: `${e.firstElementChild?.textContent.trim()} ${e.querySelector("a.h2-asubn[href='https://asubn.com']")?.getAttribute("aria-label")}`, inside: r.left >= 0 && r.right <= innerWidth, below: r.top >= last.bottom - 1, centred: Math.abs((r.left + r.right) / 2 - innerWidth / 2) < 24 }; })(),
       words,
       fonts: ['"STIX Two Text"', "Onest", '"Courier Prime"'].filter((f) => !document.fonts.check(`20px ${f}`)),
       sideways: document.documentElement.scrollWidth > innerWidth,
@@ -59,18 +61,23 @@ for (const [w, theme] of [[1440, "light"], [1440, "dark"], [768, "light"], [390,
   });
   check(r.bg === BG[theme], `${tag}: the ground is ${theme === "light" ? "paper" : "ink"} (${r.bg})`);
   check(!r.uses.length, `${tag}: no oxblood on the page: it's kept for intervening (${JSON.stringify(r.uses)})`);
-  check(/STIX Two Text/.test(r.wm) && r.wmText === "atteo" && r.tag === "agent communication." && /STIX Two Text/.test(r.tagFont) && /Onest/.test(r.body) && /Courier Prime/.test(r.code), `${tag}: "atteo" and its line in STIX, Onest text, Courier Prime commands`);
+  check(/STIX Two Text/.test(r.wm) && r.wmText === "atteo" && r.tag === "> agent communication." && /Courier Prime/.test(r.tagFont) && /Onest/.test(r.body) && /Courier Prime/.test(r.code), `${tag}: "atteo" in STIX, its line and the commands in Courier Prime, Onest text`);
   check(!r.fonts.length, `${tag}: all three fonts loaded${r.fonts.length ? ` (missing ${r.fonts.join(", ")})` : ""}`);
   const b = r.back;
   check(b && b.cover && b.fixed && b.hidden && b.events === "none" && b.opacity >= 0.05 && b.opacity <= 0.2 && b.slice === "xMidYMid slice" && !b.clip && b.behind && b.moving === 6, `${tag}: the mark covers the screen behind everything, faint, unclipped, out of the way, with dots moving on its curves (${JSON.stringify(b)})`);
-  const want = [["Claude Code", "claude mcp add --transport http --scope user atteo https://atteo.dev/mcp"], ["Cursor", "https://atteo.dev/mcp"], ["ChatGPT", "https://atteo.dev/mcp"], ["Codex", "codex mcp add atteo --url https://atteo.dev/mcp && codex mcp login atteo"]];
-  check(JSON.stringify(r.agents) === JSON.stringify(want.map(([a, c]) => [a, c, true])), `${tag}: Connect your agent lists Claude Code, Cursor, ChatGPT and Codex, each with its line and Copy (${JSON.stringify(r.agents.map((x) => x[0]))})`);
+  check(JSON.stringify(r.agents) === JSON.stringify(["CLI", "MCP", "Claude", "Claude Code", "Cursor", "ChatGPT", "Codex", "Muse", "Grok Bot"]) && r.cmd === "curl -fsSL https://atteo.dev/install.sh | sh" && r.copy, `${tag}: Connect offers CLI, MCP, Claude Code, Cursor, ChatGPT, Codex, Muse and Grok Bot, the CLI line first, with Copy (${r.agents.join(", ")})`);
+  await p.locator('.h2-tabs :text-is("Claude Code")').click();
+  const cc = await p.locator(".h2-cmd code").textContent();
+  await p.locator('.h2-tabs :text-is("Codex")').click();
+  const cx = await p.locator(".h2-cmd code").textContent();
+  const tips = []; for (const n of ["CLI", "Claude Code", "Cursor"]) { await p.locator(`.h2-tabs button:text-is("${n}")`).click(); tips.push(await p.locator(".h2-how").isVisible()); }
+  check(JSON.stringify(tips) === "[false,false,true]", `${tag}: only the connector agents show a tip under the command (jxn #5159)`);
+  check(cc === "claude mcp add --transport http --scope user atteo https://atteo.dev/mcp" && cx === "codex mcp add atteo --url https://atteo.dev/mcp && codex mcp login atteo", `${tag}: picking an agent shows its command (Claude Code, Codex)`);
+  check(JSON.stringify(r.feats) === JSON.stringify(["Ask", "Share", "Tasks", "Decisions", "Private", "Any agent"]), `${tag}: what agents do on atteo: ${r.feats.join(", ")}`);
+  check(r.built && r.built.text === "built by asubn" && r.built.inside && (!phone || (r.built.below && r.built.centred)), `${tag}: "built by asubn" in the footer${phone ? ", on its own line, centred, inside the screen (jxn #5104)" : ""} (${JSON.stringify(r.built)})`);
   check(JSON.stringify(r.foot) === JSON.stringify(["guide", "faq", "docs", "privacy", "terms", "support"]) && r.signin === "https://atteo.dev/auth/login", `${tag}: sign in, and the small links: ${r.foot.join(" · ")}`);
-  const allowed = new Set(["atteo", "agent communication.", "Connect your agent", "sign in", ...r.foot, ...r.agents.flatMap(([a, c]) => [a, c, "Copy"])]);
-  const extra = r.words.filter((w) => !allowed.has(w) && !/^(Run in your terminal:|Settings → )/.test(w));
-  check(!extra.length, `${tag}: nothing else on the page${extra.length ? ` (${extra.slice(0, 4).join(" | ")})` : ""}`);
   check(!r.sideways, `${tag}: nothing scrolls sideways`);
-  check(r.title === "Atteo · A shared chat for you, your people and your agents", `${tag}: the title (for search and sharing) is unchanged`);
+  check(r.title === "atteo · agent communication.", `${tag}: the title (tab, search and link previews) is "atteo · agent communication." (jxn #5162)`);
   check(!off.length && asked.length >= 3 && asked.every((f) => existsSync(new URL(f, FONTS))), `${tag}: fonts come from /fonts/ (${[...new Set(asked)].join(", ")}), nothing off-site${off.length ? ` (${[...new Set(off)].join(", ")})` : ""}`);
   check(!errors.length, `${tag}: no page errors${errors.length ? ` (${errors[0]})` : ""}`);
   const cspHits = await p.evaluate(() => window.__cspHits || []);
@@ -100,20 +107,20 @@ check(og.ok && og.headers.get("content-type") === "image/png" && buf.readUInt32B
   check(["*", "GPTBot", "ClaudeBot", "PerplexityBot", "Google-Extended"].every((ua) => /^Allow: \/$/m.test(group(ua)) && /^Disallow: \/b\/$/m.test(group(ua)) && /^Disallow: \/api\/$/m.test(group(ua))) && /^Sitemap: https:\/\/atteo\.dev\/sitemap\.xml$/m.test(robots.body), "robots.txt: public pages open to all crawlers, AI ones by name; boards and the API closed");
   check(["/", "/guide", "/support", "/llms.txt"].every((p) => sitemap.body.includes(`<loc>https://atteo.dev${p}</loc>`)), "sitemap.xml lists the public pages");
   check(support.ok && /<title>Atteo · Support<\/title>/.test(support.body) && /mailto:privacy@atteo\.dev/.test(support.body) && /href="https:\/\/atteo\.dev\/privacy"/.test(support.body) && /href="https:\/\/atteo\.dev\/terms"/.test(support.body) && /invite-only boards for people and their agents/.test(support.body) && /href="https:\/\/atteo\.dev\/support">support<\/a>/i.test(home.body), "/support is public, with the privacy contact, legal links, and a home footer link");
-  check(["/docs", "/llms.txt", "/guide", "/faq"].every((p) => home.body.includes(`href="https://atteo.dev${p}"`)) && ["/docs", "/llms.txt", "/guide", "/faq", "/openapi.json", "/mcp"].every((p) => faqPg.body.includes(`href="https://atteo.dev${p}"`)), "footer has docs, llms.txt, guide, faq, OpenAPI and the MCP URL");
+  check(["/docs", "/llms.txt", "/guide", "/faq"].every((p) => home.body.includes(`href="https://atteo.dev${p}"`)) && ["/docs", "/guide", "/faq", "/support", "/llms.txt"].every((p) => faqPg.body.includes(`href="https://atteo.dev${p}"`)), "home and /faq link docs, guide, faq and llms.txt (/faq in its top bar, #5110)");
   check(/claude mcp add --transport http --scope user atteo https:\/\/atteo\.dev\/mcp/.test(home.body) && /MCP server \(streamable HTTP, OAuth sign-in\): https:\/\/atteo\.dev\/mcp/.test(llms.body) && !/listed on Smithery/i.test(home.body), "home has the connect lines; directories read the MCP endpoint from /llms.txt; no fake listings");
   check(llms.ok && llms.body.startsWith("# Atteo\n") && /\(https:\/\/atteo\.dev\/llms-full\.txt\)/.test(llms.body) && full.ok && /text\/plain/.test(full.type) && /PRIVACY/.test(full.body), "/llms.txt (Markdown, links the full text) and /llms-full.txt answer");
   const ldOf = (h) => { try { return JSON.parse(h.match(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/)[1]); } catch { return null; } };
   const ld = ldOf(home.body), fq = ldOf(faqPg.body);
   const faq = fq?.["@graph"]?.find((g) => g["@type"] === "FAQPage")?.mainEntity?.map((q) => q.name) || [];
-  const shown = [...faqPg.body.matchAll(/<h2>([\s\S]*?)<\/h2>/g)].map((m) => m[1].replace(/<[^>]+>/g, "").replace(/&amp;/g, "&").trim());
-  check(["Organization", "SoftwareApplication"].every((t) => ld?.["@graph"]?.some((g) => g["@type"] === t)) && faq.length >= 3 && JSON.stringify(faq) === JSON.stringify(shown), `the JSON-LD parses, and /faq's FAQPage is its questions (${faq.length})`);
+  const shown = [...faqPg.body.matchAll(/<summary><span>([\s\S]*?)<\/span>/g)].map((m) => m[1].replace(/<[^>]+>/g, "").replace(/&amp;/g, "&").trim());
+  check(["Organization", "SoftwareApplication"].every((t) => ld?.["@graph"]?.some((g) => g["@type"] === t)) && faq.length >= 3 && JSON.stringify([...faq].sort()) === JSON.stringify([...shown].sort()), `the JSON-LD parses, and /faq's FAQPage is its questions (${faq.length}; the page groups them, #5110)`);
   const sha = async (s) => Buffer.from(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s))).toString("base64");
   const inline = (h) => [...h.matchAll(/<script(\s[^>]*)?>([\s\S]*?)<\/script>/gi)].filter((m) => !/\ssrc\s*=/i.test(m[1] || "")).map((m) => m[2]);
-  for (const [p, r] of [["/", home], ["/guide", guide], ["/faq", faqPg], ["/support", support]]) {
+  for (const [p, r] of [["/", home], ["/faq", faqPg], ["/support", support]]) {
     const scripts = inline(r.body), src = r.csp.split("; ").find((d) => d.startsWith("script-src ")) || "";
     check(!!r.csp && !r.report && /script-src-attr 'none'/.test(r.csp) && !src.includes("'unsafe-inline'"), `${p}: enforced hash CSP, no unsafe-inline scripts`);
-    if (p === "/guide" || p === "/support") check(scripts.length === 0 && /script-src 'none'/.test(src), `${p}: script-src 'none'`);
+    if (p === "/support") check(scripts.length === 0 && /script-src 'none'/.test(src), `${p}: script-src 'none'`);
     else { const want = p === "/" ? 2 : 1; const hashed = (await Promise.all(scripts.map(sha))).every((h) => src.includes(`'sha256-${h}'`));
       check(scripts.length === want && hashed, `${p}: ${want === 2 ? "JSON-LD and the Copy script" : "JSON-LD"} hashed in script-src (${scripts.length})`); }
   }

@@ -12,14 +12,15 @@ const p = await ctx.newPage(); const errors=[]; p.on("pageerror",e=>errors.push(
 await p.goto(`${BASE}/b/${board}`); await p.waitForTimeout(600);
 const top=()=>p.evaluate(()=>document.getElementById("thread-scroll").scrollTop);
 const t0=await top(); const thr=await p.locator("#thread-scroll").boundingBox();
-await p.mouse.move(thr.x-80, thr.y+300); await p.mouse.wheel(0,-600); await p.waitForTimeout(300);
+// The board fills the width now (jxn #4860): the empty margin is its edge beside the chat.
+await p.mouse.move(Math.max(2, thr.x-10), thr.y+300); await p.mouse.wheel(0,-600); await p.waitForTimeout(300);
 const t1=await top(); check(t1<t0-300, `wheel over the empty left margin scrolls the chat (${t0} → ${t1})`);
 const hd=await p.locator(".bp-head").boundingBox(); await p.mouse.move(hd.x+300, hd.y+15); await p.mouse.wheel(0,-300); await p.waitForTimeout(300);
 const t2=await top(); check(t2<t1-150, `wheel over the board header too (${t1} → ${t2})`);
 const side=await p.locator("#board-info").boundingBox(); await p.mouse.move(side.x+100, side.y+300); await p.mouse.wheel(0,-300); await p.waitForTimeout(300);
 check(await top()===t2, "wheel over the sidebar leaves the chat alone");
-const nav=await p.locator(".sidebar").boundingBox(); await p.mouse.move(nav.x+100, nav.y+400); await p.mouse.wheel(0,-300); await p.waitForTimeout(300);
-check(await top()===t2, "wheel over the left nav leaves the chat alone");
+const nav=await p.locator(".strip").boundingBox(); await p.mouse.move(nav.x+300, nav.y+20); await p.mouse.wheel(0,-300); await p.waitForTimeout(300);
+check(await top()===t2, "wheel over the tab strip leaves the chat alone");
 // the agent card's close button
 const card=p.locator("#board-info [data-agent-card]");
 if (await card.count()) {

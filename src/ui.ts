@@ -13,7 +13,7 @@ import { MERMAID_CSS, MERMAID_JS, mermaidHtml } from "./mermaid";
 import { CODE_COLOR_CSS, CODE_COLOR_JS, fnv } from "./codecolor";
 import { TALK_CSS } from "./talk";
 import { AGENT_LOGO_CSS } from "./agent-logos";
-import { ASK_CSS, DOC_CSS, GUIDE_CSS } from "./pageCss";
+import { ASK_CSS, DOC_CSS, GUIDE_CSS, SITE_CSS } from "./pageCss";
 import { esc } from "./util";
 import { personHtml, shownName } from "./names";
 import { clientTable, dirOf, tr, type Lang } from "./i18n";
@@ -57,8 +57,8 @@ export function formActionSource(raw: string): string | null {
 // /fonts/*.woff2. media-src blob: is read-aloud, the Display voice sample, and Talk's silent media-key wav; live Talk
 // audio is WebAudio on connect-src, not a media element. No data: font or media, and no media host besides 'self'.
 // The pinned mermaid.min.js inserts one fixed <style> block of its own (a nonce can't reach it), so it's allowed by its hash;
-// a new mermaid build changes the hash and the csp browser checks name the new one.
-const MERMAID_STYLE_HASH = "'sha256-lCZPv+siQGbLyHufN87S4tT1GlG+V8T7J184kcDeWZ4='";
+// a new mermaid build, or a new light --bg (jxn #5142), changes the hash and the csp browser checks name the new one.
+const MERMAID_STYLE_HASH = "'sha256-vuoYVUMGk/VxhCdzgU8CZI+1pTZh7IqNO0ULnfSkFEE='";
 export function pageSecurity(opts: { formAction?: string[] } = {}) {
   const nonce = Array.from(crypto.getRandomValues(new Uint8Array(16)), (b) => b.toString(16).padStart(2, "0")).join("");
   const formAction = ["'self'", ...(opts.formAction ?? []).map(formActionSource).filter((x): x is string => !!x)].join(" ");
@@ -99,7 +99,7 @@ export const CSS = `
   /* The design language (v1, jxn #4682): neutral throughout. Ink on paper, bone and stone around it, line for dividers,
      graphite for secondary text. Oxblood has one job, human intervention: Stop and halted states, nowhere else (on ink
      it's oxblood-lifted); --cone is the current logo's alone until the new mark lands. Primary actions, you, mentions, unread, links and focus are ink. */
-  --bg:#FAFAF7;--bg-subtle:#F2EFE8;--bg-hover:#ECE8DF;--line:#E4E1D9;--line-strong:#D9D6CE;
+  --bg:#FFFFFF;--bg-subtle:#F2EFE8;--bg-hover:#ECE8DF;--line:#E4E1D9;--line-strong:#D9D6CE;
   --ink:#0E0E0E;--text:#161614;--muted:#5A5853;--faint:#6B6964;--on-ink:#FAFAF7;--cone:#6A1B24;--oxblood:#6E1F22;--bg-raised:#FAFAF7;
   --on-fill:#FFFFFF;--preview-bg:#FFFFFF; /* text on a saturated fill (avatars, status marks, scrims); an HTML preview's page */
   --accent:#0E0E0E;--ok:#16a34a;--warn:#c2410c;--danger:#dc2626;
@@ -564,6 +564,7 @@ a.ev-acct:hover{background:var(--bg-subtle)}
 .qr{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}.qr[hidden]{display:none}.qr-b{gap:6px;max-width:100%;border-radius:999px}.qr-t{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .qr-k{font:inherit;font-size:10.5px;min-width:16px;height:16px;line-height:16px;padding:0 3px;border-radius:4px;border:1px solid var(--line);color:var(--muted);background:var(--bg)}@media(hover:none){.qr-k{display:none}}
 .apc{margin-top:8px;max-width:640px}.apc>.tk{margin-top:0}.apc-cmd{margin:0 0 6px;max-height:220px;overflow:auto;padding:8px 10px;border-radius:8px;background:var(--bg-subtle);border:1px solid var(--line);font-size:12px;line-height:1.5;white-space:pre-wrap;word-break:break-word}
+.apc.st-pending .apc-cmd{max-height:none;overflow:visible}.apc-u{background:color-mix(in srgb,var(--intervene) 22%,transparent);color:inherit;border-radius:3px;outline:1px solid var(--intervene)}.apc-u-note{margin:0 0 6px;color:var(--intervene)}.apc-who{font-weight:600}
 .apc .tk-st .dot{background:var(--warn)}.apc.st-approved .tk-st .dot{background:var(--ok)}.apc.st-rejected .tk-st .dot{background:var(--danger)}.apc.st-expired .tk-st .dot{background:var(--muted)}
 .apc.st-approved .tk-st{color:var(--ok)}.apc.st-rejected .tk-st,.apc.st-expired .tk-st{color:var(--muted)}
 .apc[tabindex]:focus-visible,.apc.kbd-sel,.approval:focus-visible,.approval.sel{outline:2px solid var(--accent);outline-offset:3px;border-radius:8px}
@@ -738,7 +739,7 @@ input.switch{appearance:none;-webkit-appearance:none;flex:none;width:42px;height
 input.switch::after{content:"";position:absolute;top:3px;left:3px;width:18px;height:18px;border-radius:50%;background:var(--bg);box-shadow:0 1px 2px rgba(0,0,0,.25);transition:left .15s}input.switch:checked{background:var(--ink)}input.switch:checked::after{left:21px}
 /* Everyday (#1272): the same entries in plainer clothes; Developer mode is today's page unchanged. */
 :root[data-mode="everyday"] .entry .seq,:root[data-mode="everyday"] .meta .via:not(.owner):not(.sess),:root[data-mode="everyday"] [aria-controls="panel-log"],
-:root[data-mode="everyday"] .entry .chg,:root[data-mode="everyday"] .apc-cmd,:root[data-mode="everyday"] .apc-risk,:root[data-mode="everyday"] .ag-hint,
+:root[data-mode="everyday"] .entry .chg,:root[data-mode="everyday"] .apc:not(.st-pending) .apc-cmd,:root[data-mode="everyday"] .apc:not(.st-pending) .apc-risk,:root[data-mode="everyday"] .apc:not(.st-pending) .apc-u-note,:root[data-mode="everyday"] .ag-hint,
 :root[data-mode="everyday"] .ag-hint+.copy,:root[data-mode="everyday"] #soul-side,:root[data-mode="everyday"] .meta .t-change,:root[data-mode="everyday"] .side-link .count.dev{display:none!important}
 :root:not([data-mode="everyday"]) .ev-res{display:none}
 :root[data-mode="everyday"] #board-tabs [aria-controls="panel-tasks"]{order:1}:root[data-mode="everyday"] #board-tabs [aria-controls="panel-docs"]{order:2}:root[data-mode="everyday"] #board-tabs>*:not([role=tab]){order:3}
@@ -876,12 +877,14 @@ ${AGENT_LOGO_CSS}
 
 
 /* app shell (Linear-style): sidebar + top bar + content */
-.app{display:grid;grid-template-columns:232px minmax(0,1fr);min-height:100vh}
-.sidebar{position:sticky;top:0;height:100vh;display:flex;flex-direction:column;gap:2px;padding:10px 8px;border-right:1px solid var(--line);background:var(--bg-subtle);overflow:auto}
+/* The frame (jxn #4860, 4e "tabs carry state"): no standing sidebar. Boards and chats are tabs in the strip on top; the
+   rest of the old sidebar is the Menu, a drawer from the left at every width (and phones' only way in, as before). */
+.app{min-height:100vh}
+.sidebar{position:fixed;inset:0 auto 0 0;width:260px;z-index:40;transform:translateX(-100%);transition:transform .2s,box-shadow .2s;height:100vh;display:flex;flex-direction:column;gap:2px;padding:10px 8px;border-right:1px solid var(--line);background:var(--bg-subtle);overflow:auto}
 .sidebar .ws{display:flex;align-items:center;gap:8px;padding:6px 8px 10px;font-weight:600;color:var(--ink)}
-.sidebar .search{display:flex;align-items:center;gap:8px;height:30px;margin:0 0 8px;padding:0 9px;border:1px solid var(--line);border-radius:7px;background:var(--bg);color:var(--faint);cursor:pointer;font:inherit;font-size:13px;text-align:left}
-.sidebar .search:hover{border-color:var(--line-strong);color:var(--muted)}
-.sidebar .search kbd{margin-left:auto}
+.sidebar .search,.strip .search{display:flex;align-items:center;gap:8px;height:30px;margin:0 0 8px;padding:0 9px;border:1px solid var(--line);border-radius:7px;background:var(--bg);color:var(--faint);cursor:pointer;font:inherit;font-size:13px;text-align:left}
+.sidebar .search:hover,.strip .search:hover{border-color:var(--line-strong);color:var(--muted)}
+.sidebar .search kbd,.strip .search kbd{margin-left:auto}.strip .search{width:240px;margin:0 4px}
 .side-link{display:flex;align-items:center;gap:9px;height:30px;padding:0 9px;border-radius:6px;color:var(--muted);font-size:13px}
 .side-link:hover{background:var(--bg-hover);color:var(--ink)}
 .side-link[aria-current]{background:var(--bg-hover);color:var(--ink);font-weight:500}
@@ -922,6 +925,7 @@ ${AGENT_LOGO_CSS}
 .ap-hd{display:flex;gap:12px;align-items:flex-start}.ap-title{font-size:15px;font-weight:600;line-height:1.35;margin:0 0 3px}
 .approval.risk-medium .ap-risk{color:var(--warn);border-color:color-mix(in srgb,var(--warn) 40%,var(--line))}.approval.risk-high .ap-risk{color:var(--danger);border-color:color-mix(in srgb,var(--danger) 40%,var(--line))}
 .ap-details{max-height:280px;overflow:auto;margin:12px 0 0;padding:10px 12px;border-radius:8px;background:var(--bg-subtle);border:1px solid var(--line);font-size:12px;line-height:1.5;white-space:pre-wrap;word-break:break-word}
+.card.approval .ap-cmd{max-height:none;overflow:visible} /* a waiting command is shown whole (#4927) */
 .ap-form{display:flex;gap:6px;margin-top:12px}
 .ap-sub{font-size:13px;font-weight:600;margin:28px 0 8px}
 .ap-done{padding:0;list-style:none;margin:0}.ap-done>li+li{border-top:1px solid var(--line)}
@@ -1048,13 +1052,28 @@ mark{background:var(--mark);color:inherit;border-radius:2px;padding:0 1px}
 @media(max-width:480px){.topbar .crumbs>:not(.cur){display:none}.topbar .crumbs .cur{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}}
 .content{max-width:1120px;margin:0 auto;padding:28px 24px 96px}
 .content.narrow{max-width:760px}
-.menu-btn{display:none}
-.nav-x,.nav-scrim{display:none}
-@media(max-width:860px){.app{grid-template-columns:1fr}.sidebar{position:fixed;inset:0 auto 0 0;width:260px;z-index:40;transform:translateX(-100%);transition:transform .2s,box-shadow .2s}
-  .app.nav-open .sidebar{transform:none;box-shadow:var(--shadow-lg)}.menu-btn{display:inline-flex}.content{padding:20px 16px 80px}.topbar{padding:0 12px}
-  /* The open drawer closes with its ✕, a tap on the dimmed page beside it, a swipe back to the left, or Esc (jxn #2223). */
-  .nav-x{display:inline-flex;position:absolute;top:8px;right:8px;width:32px;padding:0;justify-content:center;z-index:1}
-  .app.nav-open .nav-scrim{display:block;position:fixed;inset:0;z-index:39;background:rgba(0,0,0,.32)}}
+.app.nav-open .sidebar{transform:none;box-shadow:var(--shadow-lg)}
+/* The open drawer closes with its ✕, a tap on the dimmed page beside it, a swipe back to the left, or Esc (jxn #2223). */
+.nav-x{display:inline-flex;position:absolute;top:8px;right:8px;width:32px;padding:0;justify-content:center;z-index:1}
+.nav-scrim{display:none}.app.nav-open .nav-scrim{display:block;position:fixed;inset:0;z-index:39;background:rgba(0,0,0,.32)}
+@media(max-width:860px){.content{padding:20px 16px 80px}.topbar{padding:0 12px}}
+/* The strip: wordmark, Menu, a tab per board and chat (its underline is its state: green working, amber an approval
+   waits, grey quiet), new, search, messages, alerts, you. Phones keep the top bar's menu button instead. */
+.strip{display:flex;align-items:center;gap:6px;height:44px;padding:0 12px;border-bottom:1px solid var(--line);background:var(--bg-subtle)}
+.strip .ws{display:flex;align-items:center;gap:8px;padding:0 6px;color:var(--ink)}.strip .ws .wm{font-size:19px}
+.btabs{display:flex;flex:1;min-width:0;align-self:stretch;overflow-x:auto;scrollbar-width:none}
+.btab{display:flex;align-items:center;gap:7px;flex:none;max-width:240px;margin-top:6px;padding:0 14px;border:1px solid transparent;border-bottom:3px solid var(--line-strong);border-radius:8px 8px 0 0;color:var(--muted);font-size:13px;white-space:nowrap}
+.btab>b{font-weight:500;overflow:hidden;text-overflow:ellipsis}.btab[aria-current]{color:var(--ink);background:var(--bg);border-color:var(--line) var(--line) var(--line-strong)}.btab.st-work{border-bottom-color:var(--ok)}.btab.st-ap{border-bottom-color:var(--warn)}
+.btab-w{position:relative;display:flex;flex:none}.btab-w[hidden]{display:none}.btab-w .btab{padding-right:26px}
+.btab-x{position:absolute;right:5px;top:calc(50% + 3px);transform:translateY(-50%);width:18px;height:18px;display:grid;place-items:center;padding:0;border:0;border-radius:4px;background:none;color:var(--faint);font-size:14px;line-height:1;cursor:pointer;opacity:0}
+.btab-w:hover .btab-x,.btab-x:focus-visible,.btab-w:focus-within .btab-x{opacity:1}.btab-x:hover{background:var(--hover,rgba(0,0,0,.06));color:var(--ink)}
+@media (hover:none){.btab-x{opacity:1}}
+.btab .wk{font-size:11.5px;color:var(--faint)}.btab .apn{font-size:11px;padding:1px 6px;border-radius:999px;background:color-mix(in srgb,var(--warn) 16%,transparent);color:var(--ink)}
+.strip .count{margin-left:4px}
+.topbar .menu-btn{display:none}
+@media(min-width:641px){.tb-full{display:none}.content.full{--top:44px}.bp-head>.actions{display:flex;gap:8px;align-items:center;align-self:center;margin-left:auto}}
+.bp-crumb{color:var(--muted);font-size:15px}
+@media(max-width:640px){.strip{display:none}.topbar .menu-btn{display:inline-flex}.content.full{--top:48px}.bp-crumb{display:none}}
 /* Connect an agent, always in the phone menu (vedu #2241): the board's header button goes once an agent is connected. */
 .side-connect{display:none}@media(max-width:860px){.side-connect{display:flex}}
 .side-connect .ev-l,:root[data-mode="everyday"] .side-connect .dev-l{display:none}:root[data-mode="everyday"] .side-connect .ev-l{display:inline}
@@ -1110,7 +1129,7 @@ pre.json{background:var(--bg-subtle);border:1px solid var(--line);border-radius:
 @media (pointer:coarse){.doc-item{padding:10px 8px}}
 .doc-body{font-size:14px}.doc-body p+p{margin-top:10px}
 /* board page: the header and tabs stay put; the thread, sidebar, log and docs each scroll on their own */
-.content.full{max-width:1160px;height:calc(100vh - 48px);height:calc(100dvh - 48px);padding:6px 20px 0;display:flex;flex-direction:column;overflow:hidden}
+.content.full{max-width:none;height:calc(100vh - var(--top,92px));height:calc(100dvh - var(--top,92px));padding:6px 20px 0;display:flex;flex-direction:column;overflow:hidden}
 .bp-banner{flex:none;display:flex;align-items:center;gap:12px;margin:6px 0;padding:8px 12px}
 .e2e-bar{flex-wrap:wrap}.e2e-asks{flex-basis:100%;display:flex;flex-direction:column;gap:6px}.e2e-asks:empty{display:none}
 .e2e-ask{display:flex;align-items:center;gap:10px;padding-top:6px;border-top:1px solid var(--line)}.e2e-ask.xs{display:block}
@@ -1130,7 +1149,7 @@ pre.json{background:var(--bg-subtle);border:1px solid var(--line);border-radius:
 /* Right-to-left (Arabic, #2335): the grid and flex layout mirror on their own with dir=rtl; these are the pieces placed
    by left/right. People's words keep their own direction, paragraph by paragraph (an English message on an Arabic page). */
 [dir=rtl] .bp-panel .info-btn{right:auto;left:0}[dir=rtl] .info-btn .count{right:auto;left:-4px}
-@media(max-width:860px){[dir=rtl] .sidebar{inset:0 0 0 auto;transform:translateX(100%)}[dir=rtl] .app.nav-open .sidebar{transform:none}[dir=rtl] .nav-x{right:auto;left:8px}}
+[dir=rtl] .sidebar{inset:0 0 0 auto;transform:translateX(100%)}[dir=rtl] .app.nav-open .sidebar{transform:none}[dir=rtl] .nav-x{right:auto;left:8px}
 [dir=rtl] .composer textarea,[dir=rtl] .cmp-mirror{unicode-bidi:plaintext}[dir=rtl] pre,[dir=rtl] code,[dir=rtl] kbd,[dir=rtl] .mono{direction:ltr;unicode-bidi:isolate}
 .entry .body,.entry .body :is(p,li,h1,h2,h3,h4,h5,h6,blockquote,td,th,dd,dt),.rq-t,.fwd-q{unicode-bidi:plaintext;text-align:start}
 .info-btn:hover,.info-btn[aria-expanded=true]{color:var(--ink)}
@@ -1139,7 +1158,18 @@ pre.json{background:var(--bg-subtle);border:1px solid var(--line);border-radius:
 .bp-panel{flex:1;min-height:0;display:flex;flex-direction:column}
 .bp-panel>.layout{flex:1;min-height:0;grid-template-rows:minmax(0,1fr);position:relative;gap:20px}
 @media(min-width:960px){.bp-panel>.layout{grid-template-columns:minmax(0,1fr) 280px}.bp-panel>.layout.info-collapsed{grid-template-columns:minmax(0,1fr)}.layout.info-collapsed>.aside{display:none}
-  .layout.info-collapsed>.conv{width:100%;max-width:820px;margin:0 auto} /* a readable measure even with the sidebar hidden */}
+}
+/* A readable measure, centred in its space, whether the info rail is open or not: with no sidebar since the frame, a
+   full-width thread ran from the screen's edge to the rail (jxn #5082). Phones keep the full width. */
+@media(min-width:641px){.bp-panel>.layout>.conv{width:100%;max-width:820px;margin:0 auto}}
+/* The board's rail sits on the left, the narrow conversation centred to its right (jxn #5094). */
+@media(min-width:960px){.bp-panel>.layout{grid-template-columns:280px minmax(0,1fr)}.bp-panel>.layout>.aside{grid-column:1;grid-row:1}.bp-panel>.layout>.conv{grid-column:2;grid-row:1}
+  /* Rail hidden: one column, the conversation centred in it (opus-d #5119: grid-column:2 had made an implicit column). */
+  .bp-panel>.layout.info-collapsed>.conv{grid-column:auto}
+  /* The rail's toggle sits on its side, the left, and the pinned bar clears it there. */
+  .bp-panel .info-btn{right:auto;left:0}.layout.info-collapsed .pin-bar{margin-right:0;margin-left:38px}
+  [dir=rtl] .bp-panel .info-btn{left:auto;right:0}[dir=rtl] .layout.info-collapsed .pin-bar{margin-left:0;margin-right:38px}}
+:where(#board-info){display:flex;flex-direction:column}#sum{display:contents}#sum>[data-fold=members]{order:1}#ns-side,#host-side{order:2}
 .bp-panel .aside{position:static;align-self:stretch;max-height:none;min-height:0;overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain;margin:40px 0 0 -8px;padding:4px 8px 16px 8px}
 /* Board info scrolls below the panel toggle (nothing slides under it), with a thin, faint scrollbar. */
 .aside::-webkit-scrollbar{width:4px}
@@ -1359,6 +1389,60 @@ ${analyticsScriptTag(security.nonce)}<script src="${APP_JS_SRC}" nonce="${securi
   headers.set("content-type", "text/html; charset=utf-8");
   for (const [name, value] of Object.entries(security.headers)) headers.set(name, value);
   return new Response(html, { status: opts.status ?? 200, headers });
+}
+
+/** The public pages' places (board #5110). FAQ and Support are the landing Worker's (landing/src/index.ts), on atteo.dev. */
+export type SitePlace = "guide" | "docs" | "faq" | "support" | "privacy" | "terms";
+const SITE_HOST = "https://atteo.dev";
+const MENU_ICON = `<svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" aria-hidden="true"><path d="M2.5 4.5h11M2.5 8h11M2.5 11.5h11"/></svg>`;
+
+/**
+ * A public page (board #5110): /guide, /docs, /privacy and /terms. The wordmark and Guide · Docs · FAQ · Support with
+ * Sign in on top (signed in, Open Atteo goes back to the app), © and Privacy · Terms · Support at the foot. No sidebar:
+ * the page's own nav is in `body`. `t` translates the frame's words (the guide's language); English otherwise.
+ */
+export function sitePage(
+  title: string,
+  body: string,
+  opts: { current: SitePlace; signedIn: boolean; lang?: Lang; t?: (s: string) => string; script?: string; headers?: HeadersInit; css?: string[] },
+): Response {
+  const t = opts.t ?? ((s: string) => s);
+  const security = pageSecurity();
+  const href: Record<SitePlace, string> = { guide: "/guide", docs: "/docs", faq: `${SITE_HOST}/faq`, support: `${SITE_HOST}/support`, privacy: "/privacy", terms: "/terms" };
+  const word: Record<SitePlace, string> = { guide: "Guide", docs: "Docs", faq: "FAQ", support: "Support", privacy: "Privacy", terms: "Terms" };
+  const link = (k: SitePlace) => `<a href="${href[k]}"${opts.current === k ? ' aria-current="page"' : ""}>${esc(t(word[k]))}</a>`;
+  const top = (["guide", "docs", "faq", "support"] as const).map(link).join("");
+  const pill = opts.signedIn ? `<a class="st-pill" href="/">${esc(t("Open Atteo"))}</a>` : `<a class="st-pill" href="/auth/login">${esc(t("Sign in"))}</a>`;
+  const lang = opts.lang ?? "en";
+  const html = styleNonce(`<!doctype html><html lang="${lang}"${dirOf(lang) === "rtl" ? ' dir="rtl"' : ""}><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>${esc(title)}</title>
+${FONT_PRELOAD}
+<link rel="icon" href="${FAVICON_SRC}" type="image/svg+xml"><link rel="apple-touch-icon" href="${APPLE_TOUCH_SRC}">
+<link rel="stylesheet" href="${APP_CSS_SRC}"><link rel="stylesheet" href="${SITE_CSS_SRC}">${extraCss(opts.css)}${DISPLAY_HEAD.replace("<script>", `<script nonce="${security.nonce}">`)}</head><body class="site">
+<header class="st-bar"><div class="st-in"><a class="st-wm" href="/">atteo</a><nav class="st-links" aria-label="Atteo">${top}</nav>${pill}<details class="st-menu"><summary>${MENU_ICON}<span class="st-sr">${esc(t("Menu"))}</span></summary><nav aria-label="Atteo">${top}</nav></details></div></header>
+<main class="st-main">${body}</main>
+<footer class="st-foot"><div class="st-in"><span>© 2026 Atteo</span><nav aria-label="${esc(t("Support"))}">${(["privacy", "terms", "support"] as const).map(link).join("")}</nav></div></footer>
+<div id="toast" role="status" aria-live="polite"></div>
+${analyticsScriptTag(security.nonce)}<script src="${APP_JS_SRC}" nonce="${security.nonce}"></script>${opts.script ? `<script nonce="${security.nonce}">${opts.script}</script>` : ""}</body></html>`, security.nonce);
+  const headers = new Headers(opts.headers);
+  headers.set("content-type", "text/html; charset=utf-8");
+  // The page's own cache-control (Docs is public for a few minutes) wins over the private default.
+  for (const [name, value] of Object.entries(security.headers)) if (name !== "cache-control" || !headers.has(name)) headers.set(name, value);
+  return new Response(html, { headers });
+}
+
+/** A page's side nav: groups of links, drawn twice, beside the content and as a Contents dropdown above it on a phone
+ *  (CSS shows one). `extra` classes the nav (Terms numbers its list). */
+export function siteNav(label: string, groups: { title?: string; links: { href: string; text: string; current?: boolean }[]; ordered?: boolean }[], extra = ""): { side: string; toc: string } {
+  const inner = groups
+    .map((g) => {
+      const tag = g.ordered ? "ol" : "ul";
+      const items = g.links.map((l) => `<li><a href="${esc(l.href)}"${l.current ? ' aria-current="true"' : ""}>${esc(l.text)}</a></li>`).join("");
+      return `${g.title ? `<span class="st-group">${esc(g.title)}</span>` : ""}<${tag}>${items}</${tag}>`;
+    })
+    .join("");
+  const nav = `<nav class="st-nav${extra ? ` ${extra}` : ""}" aria-label="${esc(label)}">${inner}</nav>`;
+  return { side: `<aside class="st-side">${nav}</aside>`, toc: `<details class="st-toc"><summary>${esc(label)}</summary>${nav}</details>` };
 }
 
 // ---------- components ----------
@@ -1664,12 +1748,33 @@ ${CODE_COLOR_JS}`;
 // Every page's stylesheet and shell script, served by the Worker as /app.css and /app.js (index.ts), versioned by a hash of
 // their text and cached for good: a page no longer carries ~135KB of CSS and ~40KB of JS inline on every navigation, and
 // the script gets V8's code cache. A page's own script stays inline (it carries that page's data) and runs after it.
-export const APP_CSS = `${APP_FONT_CSS}\n${CSS}`;
+// Served without its /* comments */ (about 16 KB of them): they're for whoever reads this file, not for every page load.
+export const APP_CSS = `${APP_FONT_CSS}\n${CSS}`.replace(/\/\*[\s\S]*?\*\//g, "");
 export const APP_CSS_SRC = `/app.css?v=${fnv(APP_CSS)}`;
-export const APP_JS = CLIENT_JS;
+// The frame's strip (jxn #4860): tabs keep their state live (board-states + the inbox poll) and can be closed (#5055).
+// In app.js rather than inline, so it's cached once instead of riding on every page (web-budget).
+const STRIP_JS = `(()=>{const ST={},AP={};
+function paint(){document.querySelectorAll('.btab').forEach(t=>{const id=t.dataset.tab,s=ST[id],ap=Math.max(AP[id]||0,s?s.pending_approvals:0),wk=s?s.working_agents:+t.dataset.work||0,w=t.querySelector('.wk'),a=t.querySelector('.apn');
+  t.classList.toggle('st-ap',ap>0);t.classList.toggle('st-work',!ap&&wk>0);
+  if(w){w.hidden=!wk;w.textContent=wk?tr('{n} working',{n:wk}):''}if(a){a.hidden=!ap;a.textContent=ap?tr(ap>1?'{n} approvals':'{n} approval',{n:ap}):''}})}
+window.onInbox=j=>{const b=document.querySelector('[data-inbox-count]'),c=j.unread;if(b){b.hidden=!c;b.textContent=c>99?'99+':c}const ab=j.approval_boards||{};for(const k in AP)delete AP[k];Object.assign(AP,ab);paint()};
+let busy=false;async function pull(){if(busy||document.hidden||!document.querySelector('.btab'))return;busy=true;
+  try{const r=await fetch('/api/me/board-states',{cache:'no-store'});if(r.ok){const j=await r.json();for(const k in ST)delete ST[k];for(const x of j.boards||[])ST[x.id]=x;paint()}}catch(e){}finally{busy=false}}
+setInterval(pull,20000);document.addEventListener('visibilitychange',()=>{if(!document.hidden)pull()});pull();
+const KEY='atteo-tabs-closed',here=(location.pathname.match(/^\\/b\\/([^/]+)/)||[])[1];
+const closed=()=>{try{return new Set(JSON.parse(localStorage.getItem(KEY)||'[]'))}catch(e){return new Set()}},keep=s=>{try{localStorage.setItem(KEY,JSON.stringify([...s].slice(-200)))}catch(e){}};
+{const c=closed();if(here&&c.delete(here))keep(c);document.querySelectorAll('[data-tabw]').forEach(w=>{if(c.has(w.dataset.tabw))w.hidden=true})}
+function closeTab(id){const w=document.querySelector('[data-tabw="'+CSS.escape(id)+'"]');if(!w)return;const c=closed();c.add(id);keep(c);
+  if(id===here){const vis=[...document.querySelectorAll('[data-tabw]:not([hidden])')],i=vis.indexOf(w),n=vis[i+1]||vis[i-1];location.href=n&&n!==w?n.querySelector('.btab').href:'/';return}
+  const nx=w.nextElementSibling||w.previousElementSibling;w.hidden=true;nx?.querySelector?.('.btab')?.focus()}
+document.addEventListener('click',e=>{const x=e.target.closest('[data-tab-close]');if(!x)return;e.preventDefault();e.stopPropagation();closeTab(x.dataset.tabClose)});
+document.addEventListener('keydown',e=>{if(e.key!=='Delete')return;const t=e.target.closest&&e.target.closest('.btab');if(!t)return;e.preventDefault();closeTab(t.dataset.tab)});
+document.addEventListener('auxclick',e=>{if(e.button!==1)return;const t=e.target.closest('.btab');if(!t)return;e.preventDefault();closeTab(t.dataset.tab)})})();`;
+export const APP_JS = CLIENT_JS + STRIP_JS;
 export const APP_JS_SRC = `/app.js?v=${fnv(APP_JS)}`;
 /** Page-only stylesheets (Guide / Ask / Docs). Kept off /app.css so board and inbox stay in the CSS budget. */
-export const PAGE_CSS: Record<string, string> = { "/guide.css": GUIDE_CSS, "/ask.css": ASK_CSS, "/docs.css": DOC_CSS };
+export const PAGE_CSS: Record<string, string> = { "/site.css": SITE_CSS, "/guide.css": GUIDE_CSS, "/ask.css": ASK_CSS, "/docs.css": DOC_CSS };
+export const SITE_CSS_SRC = `/site.css?v=${fnv(SITE_CSS)}`;
 export const GUIDE_CSS_SRC = `/guide.css?v=${fnv(GUIDE_CSS)}`;
 export const ASK_CSS_SRC = `/ask.css?v=${fnv(ASK_CSS)}`;
 export const DOC_CSS_SRC = `/docs.css?v=${fnv(DOC_CSS)}`;
@@ -1700,6 +1805,7 @@ export interface SideBoard {
   kind?: string | null; // "direct": a private board between two friends (title "a ↔ b"); "agent": "Your agent", you and your own agents
   live?: number; // agent sessions working on it right now
   pinned?: boolean;
+  last?: number; // last activity (ms), for the frame strip's order
   picture?: string | null; // the board picture's URL (members only, versioned), or null
   peer_name?: string | null; // a direct board: the other person's display name (jxn #4369)
 }
@@ -1776,10 +1882,31 @@ export function appPage(
     { label: T("Keyboard shortcuts"), hint: "?", href: "#shortcuts" },
     ...(v.admin ? [{ label: T("Ops"), hint: "G O", href: "/_ops" }] : []),
   ];
+  // The strip's tabs (jxn #4860): your boards and chats, most recently active first (vedu #5043: no pins ahead), each with its working
+  // count; its underline shows the state (st-work: agents working; st-ap, set by the inbox poll: an approval waits).
+  const tabName = (b: SideBoard) => (b.kind === "direct" ? shownName(directPeer(b, v.name), b.peer_name) : b.kind === "agent" ? T("Your agent") : b.title);
+  const tabs = [...opts.boards]
+    .sort((a, b) => (b.last ?? 0) - (a.last ?? 0))
+    .slice(0, 24)
+    .map((b) => `<span class="btab-w" data-tabw="${esc(b.id)}"><a class="btab${b.live ? " st-work" : ""}" href="/b/${esc(b.id)}" data-tab="${esc(b.id)}" data-work="${b.live || 0}"${cur(b.id)}>${b.kind === "direct" ? avatar(directPeer(b, v.name), "xs") : b.kind === "agent" ? avatar(v.name, "xs", true) : boardPic(b, "xs")}<b>${esc(tabName(b))}</b><span class="wk"${b.live ? "" : " hidden"}>${b.live ? esc(T("{n} working", { n: b.live })) : ""}</span><span class="apn" hidden></span></a><button class="btab-x" type="button" data-tab-close="${esc(b.id)}" aria-label="${esc(T("Close tab {name}", { name: tabName(b) }))}" title="${esc(T("Close tab"))}">×</button></span>`)
+    .join("");
+  // The strip's mark draws the Menu's own (<use>), so the page carries the drawing once.
+  const strip = `<header class="strip"><a class="ws" href="/"><svg class="pebble" width="20" height="20" viewBox="0 0 100 100" aria-hidden="true"><use href="#mkg"/></svg><span class="wm">atteo</span></a>
+  <button class="btn ghost sm" type="button" data-nav-s aria-controls="sidebar" aria-expanded="false">${ICON.menu}<span>${esc(T("Menu"))}</span><span class="count" data-inbox-count hidden></span></button>
+  <nav class="btabs" aria-label="${esc(T("Boards and chats"))}">${tabs}</nav>
+  <a class="btn ghost sm" href="/?new=1" aria-label="${esc(T("New board"))}">${ICON.plus}</a>
+  <button class="search" type="button" data-palette>${ICON.search}<span>${esc(T("Search or jump to…"))}</span><kbd>⌘K</kbd></button>
+  <button class="btn ghost sm" type="button" data-feedback aria-label="${esc(T("Send feedback"))}">${ICON.feedback}</button><button class="btn ghost sm" type="button" data-bug data-bug-src="${BUG_JS_SRC}" aria-label="${esc(T("Report a bug"))}">${ICON.warn}</button>
+  <a href="/me" aria-label="${esc(T("Account"))}">${avatar(v.name, "sm")}</a></header>`;
+  // What the inbox poll (INBOX_JS) hands the strip: its count, and the boards where one of your agent's approvals waits,
+  // whose tabs turn amber and say so (jxn #4860).
+  // The tabs keep their state live (jxn #4860): GET /api/me/board-states every 20s while the page shows (and on coming
+  // back to it) gives each board's working agents and approvals; the inbox poll's approval boards count too, so the two
+  // never fight. Approval wins (amber + count), then working (green + "N working"), else quiet (grey).
   const body = `<div class="app" id="app">
 <aside class="sidebar" id="sidebar" aria-label="${esc(T("Navigation"))}">
   <button class="btn ghost sm nav-x" type="button" data-nav-close aria-label="${esc(T("Close menu"))}" title="${esc(T("Close menu"))}">✕</button>
-  <a class="ws" href="/">${LOGO}<span class="wm">atteo</span></a>
+  <a class="ws" href="/">${LOGO.replace("<g clip-path=", '<g id="mkg" clip-path=')}<span class="wm">atteo</span></a>
   <button class="search" type="button" data-palette>${ICON.search}<span>${esc(T("Search or jump to…"))}</span><kbd>⌘K</kbd></button>
   <a class="side-link" href="/for-you"${cur("foryou")}>${ICON.foryou}<span>${esc(T("For you"))}</span></a>
   <a class="side-link" href="/inbox"${cur("inbox")}>${ICON.inbox}<span>${esc(T("Inbox"))}</span><span class="count" id="inbox-count" hidden></span></a>
@@ -1795,8 +1922,8 @@ export function appPage(
   <div class="me"><a class="side-link" href="/me">${avatar(v.name, "sm")}<span class="truncate">${personHtml(v.name, v.display_name, opts.boards.filter((b) => b.kind === "direct").map((b) => directPeer(b, v.name)))}</span></a><button class="btn ghost sm bug-btn" type="button" data-feedback aria-label="${esc(T("Send feedback"))}">${ICON.feedback}</button><button class="btn ghost sm bug-btn" type="button" data-bug data-bug-src="${BUG_JS_SRC}" aria-label="${esc(T("Report a bug"))}" title="${esc(T("Report a bug"))}">${ICON.warn}</button></div>
 </aside>
 <div class="nav-scrim" data-nav-close aria-hidden="true"></div>
-<div class="grow" style="min-width:0">
-  <header class="topbar"><button class="btn ghost sm menu-btn" type="button" data-nav aria-label="${esc(T("Menu"))}" aria-controls="sidebar" aria-expanded="false">${ICON.menu}</button>
+<div class="grow" style="min-width:0">${strip}
+  <header class="topbar${opts.full ? " tb-full" : ""}"><button class="btn ghost sm menu-btn" type="button" data-nav aria-label="${esc(T("Menu"))}" aria-controls="sidebar" aria-expanded="false">${ICON.menu}</button>
     <nav class="crumbs" aria-label="Breadcrumb">${opts.crumbs}</nav><div class="actions">${opts.actions ?? ""}</div></header>
   <div class="content${opts.narrow ? " narrow" : ""}${opts.full ? " full" : ""}">${opts.body}</div>
 </div></div>
@@ -1835,13 +1962,14 @@ let seen=0;try{seen=+localStorage.getItem('inbox-seen')||0}catch{}
 const tz=encodeURIComponent(Intl.DateTimeFormat().resolvedOptions().timeZone||'UTC');let dgAt=0;try{dgAt=+localStorage.getItem('inbox-dg-at')||0}catch{}
 window.inboxRefresh=async()=>{try{const r=await fetch('/api/inbox/count?tz='+tz);if(!r.ok)return;const j=await r.json();
   el.hidden=!j.unread;el.textContent=j.unread>99?'99+':String(j.unread);document.title=(j.unread?'('+j.unread+') ':'')+base;
+  window.onInbox&&onInbox(j);
   const ap=document.getElementById('approvals-count');if(ap){ap.hidden=!j.approvals;ap.textContent=String(j.approvals||'')}
   const can='Notification' in window&&Notification.permission==='granted',l=j.latest,ns=j.notify||{},due=ns.digest_at,dn=ns.digest_count;
   // The digest: the server counts what waited for the slot at digest_at; it shows once, when that slot is new here.
   if(due>dgAt){if(dgAt&&dn&&can)new Notification(tr(dn===1?'{n} update since the last digest':'{n} updates since the last digest',{n:dn}),{body:(ns.digest_boards||[]).join(', '),tag:'inbox-digest'}).onclick=()=>{focus();location.href='/inbox'};
     dgAt=due;try{localStorage.setItem('inbox-dg-at',String(due))}catch{}}
   if(l&&l.created_at>seen){if(l.kind!=='manual_unread'&&seen&&(!l.interrupt||l.interrupt==='now')&&can&&!(document.visibilityState==='visible'&&location.pathname==='/b/'+l.board_id)){
-    const ap=l.kind==='approval',who=ap?'Your agent':l.actor_via==='agent'?l.actor+"'s agent":(l.actor_name||l.actor);
+    const ap=l.kind==='approval',who=ap?(l.push&&l.push.by?l.push.by+"'s agent":'Your agent'):l.actor_via==='agent'?l.actor+"'s agent":(l.actor_name||l.actor);
     const n=new Notification(who+(ap?' is asking for your approval':l.kind==='mention'?' mentioned you':l.kind==='decision'?' asks for a decision':l.kind==='reply'?' replied to you':l.kind==='friend_request'?' wants to be friends':l.kind==='friend_accept'?' accepted your request':l.kind==='report'?' reported a post to you, as an owner':' wrote to your agent'),{body:l.excerpt,tag:'inbox-'+l.id});
     n.onclick=()=>{window.focus();location.href=ap?'/approvals':l.board_id?'/b/'+l.board_id+'#e'+l.seq:'/people'}}
   seen=l.created_at;try{localStorage.setItem('inbox-seen',String(seen))}catch{}}}catch{}};
@@ -1996,11 +2124,11 @@ window.openPalette=(preset)=>{if(!paletteLoad)paletteLoad=new Promise((resolve,r
 });return paletteLoad.then(()=>window.openPalette(preset)).catch(()=>toast(tr('Could not load')))};
 // The phone menu (a drawer): opens from the menu button; closes with its ✕, the dimmed page beside it, a swipe back to
 // the left or Esc, and focus goes back to the button (jxn #2223). It's never kept open across a reload or a Back.
-let navFrom=null;const navNarrow=matchMedia('(max-width:860px)');
-function navSet(on){const app=$('#app');if(!app)return;const changed=app.classList.contains('nav-open')!==on;app.classList.toggle('nav-open',on);const mb=$('[data-nav]');mb?.setAttribute('aria-expanded',String(on));
-  const sb=$('#sidebar');if(sb)sb.inert=navNarrow.matches&&!on;if(!changed)return;
+let navFrom=null;
+function navSet(on){const app=$('#app');if(!app)return;const changed=app.classList.contains('nav-open')!==on;app.classList.toggle('nav-open',on);const bs=[...document.querySelectorAll('[data-nav],[data-nav-s]')],mb=bs.find(b=>b.offsetParent)||bs[0];bs.forEach(b=>b.setAttribute('aria-expanded',String(on)));
+  const sb=$('#sidebar');if(sb)sb.inert=!on;if(!changed)return;
   if(on){navFrom=document.activeElement;$('.nav-x')?.focus({preventScroll:true})}else{const f=navFrom&&document.contains(navFrom)?navFrom:mb;navFrom=null;if(app.contains(document.activeElement)||document.activeElement===document.body)f?.focus?.({preventScroll:true})}}
-document.addEventListener('click',e=>{if(e.target.closest('[data-palette]'))openPalette();if(e.target.closest('[data-nav]'))navSet(!$('#app')?.classList.contains('nav-open'));else if(e.target.closest('[data-nav-close]'))navSet(false)});
+document.addEventListener('click',e=>{if(e.target.closest('[data-palette]'))openPalette();if(e.target.closest('[data-nav],[data-nav-s]'))navSet(!$('#app')?.classList.contains('nav-open'));else if(e.target.closest('[data-nav-close]'))navSet(false)});
 document.addEventListener('keydown',e=>{if(e.key==='Escape'&&$('#app')?.classList.contains('nav-open')&&!$('dialog[open]')){e.preventDefault();navSet(false)}});
 // Connect an agent (the menu's link, vedu #2241): this page's Connect dialog when it has one, else Account's, opened by
 // its #connect.
@@ -2009,7 +2137,7 @@ if(location.hash==='#connect'){const d=$('dialog#connect');if(d&&!d.open)d.showM
 {let sx=0,sy=0,on=false;const sb=$('#sidebar');
   sb?.addEventListener('touchstart',e=>{const t=e.touches[0];sx=t.clientX;sy=t.clientY;on=$('#app')?.classList.contains('nav-open')},{passive:true});
   sb?.addEventListener('touchend',e=>{const t=e.changedTouches[0],dx=t.clientX-sx,dy=t.clientY-sy;if(on&&(document.dir==='rtl'?dx>50:dx<-50)&&Math.abs(dx)>Math.abs(dy)*1.5)navSet(false)},{passive:true})}
-navNarrow.addEventListener('change',()=>navSet(false));navSet(false);addEventListener('pageshow',()=>navSet(false));
+navSet(false);addEventListener('pageshow',()=>navSet(false));
 let g=false,gt;
 document.addEventListener('keydown',e=>{
   if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==='k'){e.preventDefault();$('#palette')?.open?$('#palette').close():openPalette();return}

@@ -20,14 +20,15 @@ await page.locator(`.bcard[data-id="${one}"] [data-pin-board]`).click();
 await page.locator(`.bcard[data-id="${one}"] .pin-mark`).waitFor();
 check(await page.locator(`.bcard[data-id="${one}"] .pin-mark`).count() === 1, "pin icon appears on board card");
 check(await page.locator(`.side-board-row:has(a[href="/b/${one}"]) .pin-mark`).count() === 1, "pin icon appears in sidebar");
+await page.locator("[data-nav-s]").click(); // the board list is in the Menu (jxn #4860)
 await page.locator(`.side-board-row:has(a[href="/b/${two}"]) .board-row-menu summary`).click();
 await page.locator(`.side-board-row:has(a[href="/b/${two}"]) [data-pin-board]`).click();
 await page.locator(`.side-board-row:has(a[href="/b/${two}"]) .pin-mark`).waitFor();
 const order = await page.locator(".bcard").evaluateAll(rows => rows.map(row => row.dataset.id));
 check(order[0] === one && order[1] === two, "cards keep pin order");
 await page.goto(`${BASE}/b/${one}`);
-await page.locator('.topbar .board-head-menu summary').click();
-await page.locator('.topbar .board-head-menu [data-goto="acc-board"]').click();
+await page.locator('.actions .board-head-menu summary').click();
+await page.locator('.actions .board-head-menu [data-goto="acc-board"]').click();
 await page.locator(`#acc-board [data-pin-board="${one}"]`).click();
 await page.locator(`.side-board-row:has(a[href="/b/${one}"]) .pin-mark`).waitFor({ state: "detached" });
 check(await page.locator(`.side-board-row:has(a[href="/b/${one}"]) .pin-mark`).count() === 0, "board menu unpins");

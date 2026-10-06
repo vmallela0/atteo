@@ -28,8 +28,8 @@ describe("landing Worker CSP (docs/security/csp.md #8)", () => {
     expect(await landingCsp("<p>x</p>", "https://evil.example; script-src *")).not.toContain("evil");
   });
 
-  it("sends an enforced hash policy on /, /guide, /faq and /support, and allows the JSON-LD by hash", async () => {
-    for (const path of ["/", "/guide", "/faq", "/support", "/?theme=dark", "/landing"]) {
+  it("sends an enforced hash policy on /, /faq and /support, and allows the JSON-LD by hash (/guide is the app's now, #5110)", async () => {
+    for (const path of ["/", "/faq", "/support", "/?theme=dark", "/landing"]) {
       const res = await page(path);
       expect(res.status).toBe(200);
       expect(res.headers.get("content-type")).toMatch(/text\/html/);
@@ -48,7 +48,7 @@ describe("landing Worker CSP (docs/security/csp.md #8)", () => {
       expect(html).not.toMatch(/\son[a-z]+\s*=/i);
       expect(html).not.toMatch(/\b(?:href|src)\s*=\s*["']javascript:/i);
       const scripts = inlineScripts(html);
-      if (path.startsWith("/guide") || path === "/support") {
+      if (path === "/support") {
         expect(scripts).toEqual([]);
         expect(csp).toContain("script-src 'none'");
       } else {
@@ -83,9 +83,9 @@ describe("landing Worker CSP (docs/security/csp.md #8)", () => {
     expect(csp).toContain("script-src ");
     expect(csp).toContain("https://static.cloudflareinsights.com");
     expect(csp).toContain("connect-src https://cloudflareinsights.com");
-    const guide = await worker.fetch(new Request("http://localhost/guide"), tokenEnv);
-    expect(await guide.text()).not.toContain("cloudflareinsights");
-    expect(guide.headers.get("content-security-policy")).toContain("connect-src 'none'");
+    const faq = await worker.fetch(new Request("http://localhost/faq"), tokenEnv);
+    expect(await faq.text()).not.toContain("cloudflareinsights");
+    expect(faq.headers.get("content-security-policy")).toContain("connect-src 'none'");
   });
 
   it("serves a public /support page with the privacy contact, legal links, and its own title", async () => {
@@ -123,13 +123,12 @@ describe("landing public connect and directory links", () => {
     'href="https://atteo.dev/docs"',
     'href="https://atteo.dev/guide"',
     'href="https://atteo.dev/faq"',
-    'href="https://atteo.dev/llms.txt"',
-    'href="https://atteo.dev/openapi.json"',
-    'href="https://atteo.dev/mcp"',
+    'href="https://atteo.dev/support"',
+    'href="https://atteo.dev/llms.txt"', // the page head's alternate link; OpenAPI and the MCP URL are in /llms.txt
   ];
 
-  it("puts directory links in the footer of /guide and /faq; the home page keeps only guide, faq, docs and the legal links (jxn #4732)", async () => {
-    for (const path of ["/guide", "/faq"]) {
+  it("puts the site links on /faq (its top bar and footer, #5110); the home page keeps only guide, faq, docs and the legal links (jxn #4732)", async () => {
+    for (const path of ["/faq"]) {
       const html = await (await page(path)).text();
       for (const href of links) expect(html, path).toContain(href);
     }
@@ -137,11 +136,13 @@ describe("landing public connect and directory links", () => {
     for (const href of ['href="https://atteo.dev/docs"', 'href="https://atteo.dev/guide"', 'href="https://atteo.dev/faq"', 'href="https://atteo.dev/llms.txt"', 'href="https://atteo.dev/privacy"', 'href="https://atteo.dev/terms"', 'href="https://atteo.dev/support"']) expect(home).toContain(href);
   });
 
-  it("makes the home page's Connect your agent list Claude Code, Cursor, ChatGPT and Codex with the app's own lines (jxn #4732)", async () => {
+  it("makes the home page's Connect row name every way in, with the app's own lines (jxn #4732, design #5102)", async () => {
     const html = await (await page("/")).text();
-    expect(html).toContain("Connect your agent");
-    for (const line of ["claude mcp add --transport http --scope user atteo https://atteo.dev/mcp", "codex mcp add atteo --url https://atteo.dev/mcp &amp;&amp; codex mcp login atteo", "Settings → Connectors → Create"]) expect(html).toContain(line);
-    for (const name of ["Claude Code", "Cursor", "ChatGPT", "Codex"]) expect(html).toContain(`<b>${name}</b>`);
+    expect(html).toContain('role="tablist" aria-label="Connect"');
+    for (const name of ["CLI", "MCP", "Claude Code", "Cursor", "ChatGPT", "Codex", "Muse", "Grok Bot"]) expect(html).toContain(`>${name}</button>`);
+    // The CLI line shows without script; the others ride in the hashed script that switches them.
+    expect(html).toContain("<code>curl -fsSL https://atteo.dev/install.sh | sh</code>");
+    for (const line of ["claude mcp add --transport http --scope user atteo https://atteo.dev/mcp", "codex mcp add atteo --url https://atteo.dev/mcp && codex mcp login atteo", "Settings → Connectors → Create"]) expect(html).toContain(line);
     expect(html).not.toMatch(/listed on (Smithery|mcp\.so|Glama)/i);
     expect(html).not.toMatch(/App Store/i);
   });

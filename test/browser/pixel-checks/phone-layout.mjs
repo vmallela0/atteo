@@ -44,7 +44,7 @@ async function width(w, scheme) {
     check(vis, `${tag}: the MCP URL tab can be chosen and is in view`);
     await p.close(); }
   if (run("members")) { const p = await page(`/b/${f.board}`);
-    await p.click('.topbar [data-open="invite"]:not([data-goto])'); await p.waitForSelector("#acc-members .acc-row"); await settle(p, "#acc-members");
+    await p.click('.actions [data-open="invite"]:not([data-goto])'); await p.waitForSelector("#acc-members .acc-row"); await settle(p, "#acc-members");
     const rows = await p.evaluate(`(()=>{const R=${R};return[...document.querySelectorAll("#acc-members .acc-row")].map(r=>{const s=r.querySelectorAll("select");return{row:R(r),name:R(r.querySelector(".grow")),s1:R(s[0]),s2:R(s[1])}})})()`);
     check(rows.length === 3, `${tag}: three members listed`);
     check(rows.every((x) => x.s1.t === x.s2.t && x.s1.t >= x.name.b - 1), `${tag}: role and end date sit side by side under the name`);

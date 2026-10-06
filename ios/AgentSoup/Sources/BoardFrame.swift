@@ -12,28 +12,41 @@ import SwiftUI
 struct BoardStateTabs: View {
     @EnvironmentObject private var state: AppState
     let current: Board
-    /// Fixed while the chat scrolls (only a text size change moves it): chrome that changes size near the end of the
-    /// chat is what froze it (vedu #2449).
-    @ScaledMetric(relativeTo: .subheadline) private var height: CGFloat = 40
 
     private var boards: [Board] {
-        let rest = state.boards.filter { $0.archived != true && $0.id != current.id }.sorted { $0.lastActivity > $1.lastActivity }
-        return [current] + rest
+        // Most recently active first, the open board included (vedu #5043), so the strip doesn't reshuffle as you switch.
+        // Each board once: a repeated id makes ForEach draw nothing it can rely on.
+        var seen: Set<String> = [current.id]
+        let rest = state.boards.filter { $0.archived != true && seen.insert($0.id).inserted }
+        return ([current] + rest).sorted { $0.lastActivity > $1.lastActivity }
     }
 
+    /// The tabs' own height, no more (vedu #5046: an empty band showed there on his phone). The strip sizes to its tabs
+    /// with a little padding, stays out of the navigation bar's scroll-edge blur (it's a scroll view right under the bar,
+    /// which iOS 26+ fades), and isn't there at all when there are no tabs to show.
     var body: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
+        let tabs = boards
+        if !tabs.isEmpty {
+            strip(tabs)
+        }
+    }
+
+    @ViewBuilder private func strip(_ tabs: [Board]) -> some View {
+        let row = ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: Space.l) {
-                ForEach(boards) { b in tab(b) }
+                ForEach(tabs) { b in tab(b) }
             }
             .padding(.horizontal, Space.l)
+            .padding(.top, Space.xs)
+            .padding(.bottom, 2) // a hair between the tabs' underlines and the Chat / Tasks / Files row (vedu #5088)
         }
-        .frame(height: height)
+        .fixedSize(horizontal: false, vertical: true)
         .frame(maxWidth: .infinity)
         .background(alignment: .bottom) { Rectangle().fill(Theme.line).frame(height: 0.5) }
         .background(Theme.bg)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("board-state-tabs")
+        if #available(iOS 26.0, *) { row.scrollEdgeEffectHidden(true, for: .all) } else { row }
     }
 
     private func tab(_ b: Board) -> some View {
@@ -46,7 +59,6 @@ struct BoardStateTabs: View {
             state.openRequest = b
         } label: {
             VStack(spacing: 6) {
-                Spacer(minLength: 0)
                 HStack(spacing: 6) {
                     BoardPicture(board: b, size: 18).accessibilityHidden(true)
                     Text(verbatim: name)
@@ -120,7 +132,7 @@ struct BoardRailSheet<Actions: View>: View {
                     Menu { actions } label: {
                         ToolbarIcon("ellipsis").frame(width: 36, height: 36).contentShape(Rectangle())
                     }
-                    .accessibilityIdentifier("board-menu")
+                    .accessibilityIdentifier("rail-menu")
                     .accessibilityLabel("More")
                 }
                 .padding(.bottom, Space.s)

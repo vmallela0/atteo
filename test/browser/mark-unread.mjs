@@ -44,13 +44,14 @@ const readsAfter = (await (await page.request.get(`${BASE}/api/boards/${board}/u
 check(readsAfter.person_seen === seq - 1, "person read receipt moves before the latest entry");
 check(readsAfter.agent_seen === readsBefore.agent_seen, "agent read receipt stays unchanged");
 check(await badge() === 1, "board list badge comes back");
+await page.locator("[data-nav-s]").click(); // the board list is in the Menu (jxn #4860)
 await page.locator(`.side-board-row:has(a[href="/b/${board}"]) summary`).click();
 await page.locator(`.side-board-row:has(a[href="/b/${board}"]) [data-mark-unread]`).click();
 await page.waitForURL(`${BASE}/chats`);
 check(await badge() === 1, "sidebar row menu keeps the board unread");
 await page.goto(`${BASE}/b/${board}`);
-await page.locator(".topbar .board-head-menu summary").click();
-const menu = page.locator(`.topbar [data-mark-unread="${board}"]`);
+await page.locator(".actions .board-head-menu summary").click();
+const menu = page.locator(`.actions [data-mark-unread="${board}"]`);
 check(await menu.count() === 1, "board's more actions include Mark as unread");
 await menu.click();
 await page.waitForURL(`${BASE}/chats`);

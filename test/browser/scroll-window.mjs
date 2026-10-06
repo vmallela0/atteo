@@ -34,9 +34,8 @@ async function open(path = "", opts = {}) {
 }
 const stats = (p) => p.evaluate(() => ({ live: document.querySelectorAll("#thread>.entry").length, ghosts: document.querySelectorAll("#thread>.ghost").length, more: !!document.getElementById("load-earlier"), first: +document.querySelector("#thread>[data-seq]")?.dataset.seq }));
 const centred = (p, seq) => p.evaluate((s) => { const el = document.getElementById("e" + s), sc = document.getElementById("thread-scroll"); if (!el) return 1e9; const r = el.getBoundingClientRect(), q = sc.getBoundingClientRect(); return Math.abs((r.top + r.bottom) / 2 - (q.top + q.bottom) / 2) }, seq);
-const settle = (p, ms = 900) => p.waitForTimeout(ms);
 // A jump has landed once its message is a real one near the middle of the view (or after 6 s, and the check says how far off).
-const landed = (p, seq, off = 100) => p.waitForFunction(({ s, off }) => { const el = document.getElementById("e" + s), sc = document.getElementById("thread-scroll"); if (!el || !el.classList.contains("entry")) return false; const r = el.getBoundingClientRect(), q = sc.getBoundingClientRect(); return Math.abs((r.top + r.bottom) / 2 - (q.top + q.bottom) / 2) < off; }, { s: seq, off }, { timeout: 6000, polling: 100 }).then(() => settle(p, 300), () => {});
+const landed = (p, seq, off = 100) => p.waitForFunction(({ s, off }) => { const el = document.getElementById("e" + s), sc = document.getElementById("thread-scroll"); if (!el || !el.classList.contains("entry")) return false; const r = el.getBoundingClientRect(), q = sc.getBoundingClientRect(); return Math.abs((r.top + r.bottom) / 2 - (q.top + q.bottom) / 2) < off; }, { s: seq, off }, { timeout: 6000, polling: 100 }).then(() => stable(() => centred(p, seq), 3000, 300), () => {});
 const jumpTo = async (p, seq) => { await p.evaluate((s) => window.BOARD_CTX.jump(s), seq); await landed(p, seq); };
 
 // 1. Opening and going all the way back: older messages load as you scroll up, the page never holds more than a window.
@@ -44,6 +43,7 @@ const jumpTo = async (p, seq) => { await p.evaluate((s) => window.BOARD_CTX.jump
 // pass; 4's pill count comes last, alone.
 const t1 = Date.now();
 { const { ctx, p } = await open();
+  await until(async () => { const s = await stats(p); return s.live <= 90 && s.ghosts > 0; });
   let s = await stats(p); check(s.live <= 90 && s.ghosts > 0, `opening: ${s.live} messages on the page, ${s.ghosts} placeholders`);
   await p.locator("#thread-scroll").hover({ position: { x: 300, y: 300 } });
   let maxLive = 0, frames = [];
@@ -92,6 +92,8 @@ async function jumps() { const { ctx, p } = await open();
   await jumpTo(p, S.ref);
   await jumpTo(p, 200);
   check((await centred(p, 200)) < 120, `a jump to #200 lands centred (${Math.round(await centred(p, 200))}px off)`);
+  // Centering can finish before ghostSoon's deferred eviction; wait for the cap and the specific placeholders.
+  await until(async () => (await stats(p)).live <= 130 && (await p.locator("#g8").count()) === 1 && (await p.locator(`#g${S.target}`).count()) === 1);
   let s = await stats(p); check(s.live <= 130, `after jumping around, ${s.live} messages on the page`);
   check((await p.locator(`#g8`).count()) === 1 && (await p.locator(`#g${S.target}`).count()) === 1, `messages left behind became placeholders (#8, #${S.target})`);
   await jumpTo(p, S.ref);
@@ -110,6 +112,7 @@ async function jumps() { const { ctx, p } = await open();
   check(ghostsNear && off < 120, `a jump to #${S.forYou} among placeholders lands and stays in the middle as they come back (${off}px off)`);
   // The thread's root and late reply: "2 replies" counts a reply that's a placeholder, and the overlay brings both back.
   await jumpTo(p, S.root);
+  await until(async () => /2 replies/.test(await p.locator(`#e${S.root} .thr-sum`).innerText()) && (await p.locator(`#g${S.kid2}`).count()) === 1);
   const sum = await p.locator(`#e${S.root} .thr-sum`).innerText().catch(() => "");
   check(/2 replies/.test(sum) && (await p.locator(`#g${S.kid2}`).count()) === 1, `"2 replies" counts the late reply while it's a placeholder ("${sum.replace(/\s+/g, " ").trim()}")`);
   await p.locator(`#e${S.root} .thr-sum`).click(); await p.locator("dialog.thr-dlg", { hasText: "Late answer" }).waitFor({ timeout: 6000 }).catch(() => {});
@@ -132,6 +135,7 @@ async function deepLink() { const { ctx, p } = await open(`#e12`); await landed(
 // 3b. On a phone: the same window, and a jump still lands.
 async function phone() { const { ctx, p } = await open("", { viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
   await jumpTo(p, 150);
+  await until(async () => { const s = await stats(p); return (await centred(p, 150)) < 140 && s.live <= 130 && s.ghosts > 100; });
   const s = await stats(p);
   check((await centred(p, 150)) < 140 && s.live <= 130 && s.ghosts > 100, `phone: a jump to #150 lands (${Math.round(await centred(p, 150))}px off), ${s.live} messages on the page`);
   check(!p.errors.length, `phone: no page errors ${p.errors.join(" | ")}`); await ctx.close(); }
@@ -144,7 +148,10 @@ async function newMessages(motion) {
   // The next pass opens right after this one: mark this message read, so that one opens at the newest rather than at a
   // "New" line above it.
   if (motion === "reduce") { check(!/entryin/.test(anim), `reduced motion: the new message doesn't move (${anim})`); await fetch(`${BASE}/api/boards/${board}/seen`, { method: "POST", headers: { "content-type": "application/json", cookie: ckP }, body: JSON.stringify({ seq: seqA }) }); }
-  else check(/entryin/.test(anim) && (await p.evaluate(() => { const sc = document.getElementById("thread-scroll"); return sc.scrollHeight - sc.scrollTop - sc.clientHeight < 30 })), `at the bottom, a new message eases in and the view follows it (${anim})`);
+  else {
+    await until(() => p.evaluate(() => { const sc = document.getElementById("thread-scroll"); return sc.scrollHeight - sc.scrollTop - sc.clientHeight < 30 }));
+    check(/entryin/.test(anim) && (await p.evaluate(() => { const sc = document.getElementById("thread-scroll"); return sc.scrollHeight - sc.scrollTop - sc.clientHeight < 30 })), `at the bottom, a new message eases in and the view follows it (${anim})`);
+  }
   if (motion === "no-preference") {
     await p.locator("#thread-scroll").hover({ position: { x: 300, y: 300 } }); for (let i = 0; i < 4; i++) { await p.mouse.wheel(0, -700); await p.waitForTimeout(120) } await stable(() => p.evaluate(() => [document.getElementById("thread-scroll").scrollTop, document.getElementById("new-pill").innerText, document.querySelectorAll("#thread>.entry").length]), 5000, 150);
     const pin0 = await p.locator("#new-pill").innerText();

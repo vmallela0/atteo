@@ -27,7 +27,7 @@ p.on("pageerror", (e) => errors.push(e.message));
 p.on("request", (r) => { if (new URL(r.url()).pathname === `/b/${two}` && /prefetch/.test(r.headers()["sec-purpose"] || "")) ahead.push(r.url()); });
 const res = await p.goto(`${BASE}/b/${one}`);
 check((await p.evaluate(() => HTMLScriptElement.supports?.("speculationrules"))) && /speculation-rules\.json/.test(res.headers()["speculation-rules"] || ""), `the page names its speculation rules in a header (${res.headers()["speculation-rules"]}) this browser supports`);
-const link = p.locator(`.sidebar a[href="/b/${two}"]`).first();
+const link = p.locator(`.btab[href="/b/${two}"]`).first(); // its tab in the strip (jxn #4860)
 await link.hover();
 await until(() => ahead.length > 0, 5000);
 check(ahead.length > 0, `holding the pointer on the board's link fetches its page ahead (${ahead.length})`);

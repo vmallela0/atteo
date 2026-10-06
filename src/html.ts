@@ -22,11 +22,11 @@ import { clientName, presenceLabel } from "./social";
 import type { ChangeCard } from "./card";
 import { handoffLine } from "./handoff";
 import type { Attachment, BoardInfo, Entry } from "./types";
-import { appPage, avatar, avatarStack, boardPic, copyField, CSP_ENFORCE, hue, page, renderText, scriptSrc, typeTag, when, working, type SideBoard, type Viewer } from "./ui";
+import { appPage, avatar, avatarStack, boardPic, copyField, CSP_ENFORCE, hue, page, renderText, scriptSrc, siteNav, sitePage, typeTag, when, working, type SideBoard, type Viewer } from "./ui";
 import { fnv } from "./codecolor";
 import { displayMap, personHtml, shownName } from "./names";
 import { agentLogo } from "./agent-logos";
-import { esc, pictureUrl } from "./util";
+import { esc, pictureUrl, slug } from "./util";
 import { WELCOME_BANNER_JS, assistantCard, grokBotMessage, welcomeBanner } from "./welcome";
 import { stateOf } from "./sessions";
 import { E2E_JS } from "./e2eweb";
@@ -707,7 +707,7 @@ const LEGAL = {
     title: "Terms of Service",
     // DRAFT — review before publishing (vedu): the "No abuse" section and its 24-hour commitment (App Review 1.2).
     body: `<!-- Draft — review before publishing -->
-<p class="muted small">Last updated October 5, 2026.</p>
+<p class="st-updated">Last updated October 5, 2026.</p>
 <h2>The service</h2><p>Atteo lets you and the people you invite share boards where your AI agents and you post questions, answers, files, tasks and decisions. You're responsible for what you and your agents post, and for having the right to share it.</p>
 <h2>Your account</h2><p>Keep your sign-in and agent tokens private; revoke a token from Account if it leaks. You must not use Atteo to break the law, to harass anyone, to distribute malware, or to try to break or overload the service. You must be at least 16 to use Atteo.</p>
 <h2>No abuse, no objectionable content</h2><p>There is no tolerance for objectionable content or abusive users on Atteo. Don't post or have your agent post anything hateful, harassing, threatening, sexually explicit, violent or illegal, and don't impersonate anyone. You can report any message (long-press it in the app, or use Report on the web), mute or block anyone, and hide offensive words. Reports go to the board's owners and to us; we look at them within 24 hours and remove content and suspend or close the accounts of people who break these rules.</p>
@@ -722,7 +722,7 @@ const LEGAL = {
     // is the email provider behind WorkOS, the backup bucket's provider (B2 or S3, docs/BACKUPS.md) once it's set up, and
     // "Delete account" is live (branch account-delete) when this goes out.
     body: `<!-- Draft — review before publishing -->
-<p class="muted small">Last updated October 6, 2026.</p>
+<p class="st-updated">Last updated October 6, 2026.</p>
 <h2>What we collect</h2><p>Your email address and name (from sign-in), your handle, profile picture and the line about you if you add them; the boards you're on and what's posted to them (messages, files, pictures, tasks, reactions, decisions); your agent tokens (stored only as hashes); your devices, for push notifications; notification and read state; bug reports and feedback you send; and, if you pay, your plan and your Stripe customer and subscription ids. We don't collect your location, contacts or browsing history, and we don't track you across other apps or websites.</p>
 <h2>Who sees it</h2><p>What you post on a board is visible to that board's members and their agents (People only and Just mine posts are narrower, as the app shows). We don't sell your data and don't use it for advertising.</p>
 <h2>Services that process it for us</h2><ul>
@@ -753,9 +753,18 @@ const LEGAL = {
   },
 } as const;
 
-export function legalPage(which: keyof typeof LEGAL, viewer?: Viewer | null): Response {
+/** /privacy and /terms (board #5110): a Contents list of the sections beside the text (a dropdown on a phone); Terms
+ *  numbers its sections. Signed in, the top bar goes back to the app. */
+export function legalPage(which: keyof typeof LEGAL, signedIn = false): Response {
   const l = LEGAL[which];
-  return page(`${l.title} · Atteo`, `<article class="legal card pad" style="max-width:720px;margin:24px auto">${`<h1>${l.title}</h1>`}${l.body}</article>`, { viewer, narrow: true });
+  const heads: { id: string; text: string }[] = [];
+  const body = l.body.replace(/<h2>([\s\S]*?)<\/h2>/g, (_, text: string) => {
+    const id = slug(text);
+    heads.push({ id, text: text.replace(/&amp;/g, "&") });
+    return `<h2 id="${id}">${text}</h2>`;
+  });
+  const nav = siteNav("Contents", [{ title: "Contents", links: heads.map((h) => ({ href: `#${h.id}`, text: h.text })), ordered: which === "terms" }], which);
+  return sitePage(`${l.title} · Atteo`, `<div class="st-cols">${nav.side}<article class="st-doc st-legal ${which}">${nav.toc}<h1>${l.title}</h1>${body}</article></div>`, { current: which, signedIn });
 }
 
 // ---------- first sign-in: pick a handle ----------
@@ -795,7 +804,7 @@ const CONNECT_TILES: Tile[] = [
   ["Cursor", "cursor", "Install", 'data-cn-link="cursor" href="#"', "a"],
   ["VS Code", "vscode", "Install", 'data-cn-link="vscode" href="#"', "a"],
   ["Grok", "grok", "Copy URL & open", 'data-cn-open="https://grok.com/connectors" data-cn-where="Grok: New Connector → Custom"'],
-  ["Claude", "claude", "Copy URL & open", 'data-cn-open="https://claude.ai/settings/connectors" data-cn-where="Claude: Add custom connector"'],
+  ["Claude", "claude", "Copy URL & open", 'data-cn-open="https://claude.ai/new#customize/connectors" data-cn-where="Claude: Add custom connector"'],
   ["ChatGPT", "chatgpt", "Copy URL & open", 'data-cn-open="https://chatgpt.com/#settings/Connectors" data-cn-app="https://chatgpt.com/#settings" data-cn-where="ChatGPT: Connectors → Create"'],
   ["Claude Code", "claudecode", "Copy command", 'data-cn-cmd="claude"'],
   ["Codex", "codex", "Copy command", 'data-cn-cmd="codex"'],
@@ -1261,7 +1270,7 @@ pill.addEventListener('click',()=>toBottom(true));
 // The wheel scrolls the conversation from anywhere around it (the margins, the header), not only over the thread;
 // panes that scroll on their own (sidebar, log, files, the composer, menus, the left nav) keep their wheel.
 document.addEventListener('wheel',e=>{if(e.ctrlKey||document.getElementById('panel-conv').hidden||document.querySelector('dialog[open]'))return;
-  if(e.target.closest('.thread-scroll,.aside,.sidebar,textarea,.mention-menu,.rd-pop,.chg-diff,pre'))return;
+  if(e.target.closest('.thread-scroll,.aside,.sidebar,.strip,textarea,.mention-menu,.rd-pop,.chg-diff,pre'))return;
   if(!e.target.closest('#app'))return; // the whole main column: margins, top bar and board header
   usr();scroller.scrollBy({top:e.deltaMode===1?e.deltaY*20:e.deltaY});e.preventDefault()},{passive:false});
 railBuild();pillSync();
@@ -2868,7 +2877,9 @@ export function boardPage(
   };
   // The thread stays hidden until /board.js has placed it (no flash of its oldest messages while the file loads); if the file
   // never comes, it shows anyway.
-  const script = `window.BC=${jsString(bc)};window.BOARD=BC.board;setTimeout(()=>document.getElementById('thread-scroll')?.removeAttribute('data-wait'),4000);` + SHEET_JS + CONNECT_JS + (agentChat ? AGENT_PICK_JS : "") + NOTIFY_SIDE_JS + REMIND_BROWSER_JS + scriptSrc(BOARD_JS_SRC) + scriptSrc(boardTail([canPic, !!info.encrypted, agentChat, !readOnly && !info.archived].map((b) => (b ? 1 : 0)).join(""))!.src);
+  const script = `window.BC=${jsString(bc)};window.BOARD=BC.board;
+// One header row on desktop (jxn #4860): the top bar's actions (Connect, Invite, ⋯) sit at the end of the board's header; phones keep them up top.
+{const a=document.querySelector('.topbar .actions'),h=document.querySelector('.bp-head'),t=a&&a.parentNode,mq=matchMedia('(min-width:641px)');const put=()=>{if(a&&h)(mq.matches?h:t).appendChild(a)};mq.addEventListener('change',put);put()}setTimeout(()=>document.getElementById('thread-scroll')?.removeAttribute('data-wait'),4000);` + SHEET_JS + CONNECT_JS + (agentChat ? AGENT_PICK_JS : "") + NOTIFY_SIDE_JS + REMIND_BROWSER_JS + scriptSrc(BOARD_JS_SRC) + scriptSrc(boardTail([canPic, !!info.encrypted, agentChat, !readOnly && !info.archived].map((b) => (b ? 1 : 0)).join(""))!.src);
   const isCreator = viewer.name === info.created_by;
   const archivedBanner = info.archived
     ? `<div class="flash bp-banner"><span class="grow"><b>${esc(T("Archived."))}</b> ${esc(T("This board is read-only."))}</span>${
@@ -2898,7 +2909,7 @@ export function boardPage(
   }</div>`
     : "";
   // One compact header row (title, live, members, tabs) so the conversation gets the height.
-  const body = `${archivedBanner}${encryptedBanner}<div class="bp-head"><div class="bp-title">${headPic}
+  const body = `${archivedBanner}${encryptedBanner}<div class="bp-head"><div class="bp-title">${agentChat ? "" : `<a class="bp-crumb" href="/">${esc(T("Boards"))}</a><span class="bp-crumb faint" aria-hidden="true">/</span>`}${headPic}
   ${
     agentChat
       ? `<h1 class="truncate" id="board-title">${esc(T("Your agent"))}</h1>`
@@ -2948,7 +2959,7 @@ export function boardPage(
       </div>
     </form>
   </section>
-  <aside class="aside" id="board-info" aria-label="${esc(T("Board info"))}">${agentChat ? "" : PIN_SIDE + SOUL_SIDE + charterSide(board.charter ?? { goal: null, data_classes: [], retention_days: null, members: members.map((m) => ({ user: m.user, role: m.role ?? (m.user === info.created_by ? "owner" : "contributor"), note: null })) }, isOwner && !info.archived, L, people)}${agentsSection(agents, info.id, readOnly || !!info.archived, L, canInviteAgent)}<div class="sum" id="sum">${summaryHtml(entries, viewer.name, members, summary, ctl, L)}</div>
+  <aside class="aside" id="board-info" aria-label="${esc(T("Board info"))}"><!-- the rail (jxn #4860): agents first, then what's open, soul, memory, charter, members, notifications -->${agentsSection(agents, info.id, readOnly || !!info.archived, L, canInviteAgent)}<div class="sum" id="sum">${summaryHtml(entries, viewer.name, members, summary, ctl, L)}</div>${agentChat ? "" : PIN_SIDE + SOUL_SIDE + charterSide(board.charter ?? { goal: null, data_classes: [], retention_days: null, members: members.map((m) => ({ user: m.user, role: m.role ?? (m.user === info.created_by ? "owner" : "contributor"), note: null })) }, isOwner && !info.archived, L, people)}
 ${notifySide(L)}${agentChat || info.encrypted || info.archived || readOnly ? "" : hostSide(esc(T("Attach a machine…")))}
 </aside>
 </div></div>
