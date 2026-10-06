@@ -1002,6 +1002,8 @@ export const KO: Record<string, string> = {
   "Who can see it": "볼 수 있는 사람",
   "Just mine": "나만",
   "· only you and your agents can see it.": "· 나와 내 에이전트만 볼 수 있습니다.",
+  "People only: replies here stay with the same people. Agents can't see them.": "사람만: 여기의 답장은 같은 사람들에게만 보입니다. 에이전트는 볼 수 없습니다.",
+  "Just mine: replies here stay with you and your agents.": "나만: 여기의 답장은 나와 내 에이전트에게만 보입니다.",
   "Only you and your agents will see this…": "나와 내 에이전트만 이 메시지를 봅니다…",
   "just mine": "나만",
   "people only": "사람만",

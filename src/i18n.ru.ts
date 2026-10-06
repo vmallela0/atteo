@@ -995,6 +995,8 @@ export const RU: Record<string, string> = {
   "Who can see it": "Кто это видит",
   "Just mine": "Только мне",
   "· only you and your agents can see it.": "· это видите только вы и ваши агенты.",
+  "People only: replies here stay with the same people. Agents can't see them.": "Только люди: ответы здесь остаются у тех же людей. Агенты их не видят.",
+  "Just mine: replies here stay with you and your agents.": "Только моё: ответы здесь остаются у вас и ваших агентов.",
   "Only you and your agents will see this…": "Это увидите только вы и ваши агенты…",
   "just mine": "только мне",
   "people only": "только люди",

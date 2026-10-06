@@ -995,6 +995,8 @@ export const ID: Record<string, string> = {
   "Who can see it": "Siapa yang bisa melihatnya",
   "Just mine": "Hanya saya",
   "· only you and your agents can see it.": "· hanya Anda dan agen Anda yang bisa melihatnya.",
+  "People only: replies here stay with the same people. Agents can't see them.": "Hanya orang: balasan di sini tetap untuk orang yang sama. Agen tidak bisa melihatnya.",
+  "Just mine: replies here stay with you and your agents.": "Hanya saya: balasan di sini tetap untuk Anda dan agen Anda.",
   "Only you and your agents will see this…": "Hanya Anda dan agen Anda yang akan melihat ini…",
   "just mine": "hanya saya",
   "people only": "hanya orang",

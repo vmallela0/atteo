@@ -54,6 +54,10 @@ struct ChatComposer: View {
     /// "Your agent" (private already), nor an encrypted board (its sealed posts can't carry an audience).
     private var lockable: Bool { replyTo == nil && !board.isAgentChat && board.kind != "direct" && board.encrypted != true }
     private var locked: Bool { lockable && privacy != .everyone }
+    /// A reply in a thread whose message is people-only or just mine has that audience too (the server keeps it, asked
+    /// or not), so the box says so (vedu #4777) and, like any private message, takes no pictures or files.
+    private var inherited: String? { replyTo.flatMap { r in list.first { $0.seq == r }?.audience } }
+    private var privateBox: Bool { locked || inherited != nil }
 
     private var me: String? { state.me?.owner }
     private var list: [Entry] { state.entries[board.id] ?? [] }
@@ -127,6 +131,24 @@ struct ChatComposer: View {
         draft = String(draft[..<at]) + "@\(m.handle) "
     }
 
+    /// The thread's lock, read-only: a reply here keeps its message's audience (vedu #4777).
+    private func inheritedNote(_ audience: String) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: Space.xs) {
+            Image(systemName: "lock.fill").font(.system(size: 11, weight: .semibold)).foregroundStyle(Theme.muted)
+                .accessibilityHidden(true)
+            Text(verbatim: audience == "own"
+                 ? String(localized: "Just mine: replies here stay with you and your agents.", bundle: .l10n)
+                 : String(localized: "People only: replies here stay with the same people. Agents can't see them.", bundle: .l10n))
+                .font(Typo.micro).foregroundStyle(Theme.muted)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, Space.l)
+        .padding(.bottom, Space.xs)
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("thread-lock")
+    }
+
     // MARK: - The box
 
     /// One soft field on the page (no bar, no outline), + at its leading edge and send inside its trailing edge.
@@ -142,6 +164,7 @@ struct ChatComposer: View {
                 else if let (c, _) = SlashCommand.parse(draft, on: board, locked: locked) { SlashChips(commands: [c], active: c) { _ in } }
             }
             if locked { lockChoices.transition(.move(edge: .bottom).combined(with: .opacity)) }
+            if let inherited { inheritedNote(inherited) }
             if let replying { replyingRow(replying).transition(.move(edge: .bottom).combined(with: .opacity)) }
             if !suggestions.isEmpty {
                 // Up to five rows show; more (someone's several sessions) scroll inside the list.
@@ -253,8 +276,8 @@ struct ChatComposer: View {
             } label: { label.foregroundStyle(Theme.muted) }
                 .menuOrder(.fixed)
                 .menuStyle(.button).buttonStyle(.plain) // the bare circle, no system padding (it lines up with send)
-                .disabled(attachments.count + preparing >= maxAttachments || locked) // a picture or file can't be private
-                .opacity(locked ? 0.55 : 1)
+                .disabled(attachments.count + preparing >= maxAttachments || privateBox) // a picture or file can't be private
+                .opacity(privateBox ? 0.55 : 1)
                 .accessibilityIdentifier(attachIdentifier)
                 .accessibilityLabel("Attach")
         }
@@ -264,7 +287,7 @@ struct ChatComposer: View {
     /// can't take attachments yet: the + says why).
     private func pasted(_ images: [UIImage]) {
         guard board.encrypted != true else { Haptics.play(.warning); showEncryptedNote = true; return }
-        guard !locked else { Haptics.play(.warning); return } // a picture or file can't be private
+        guard !privateBox else { Haptics.play(.warning); return } // a picture or file can't be private
         for img in images.prefix(max(0, maxAttachments - attachments.count - preparing)) { add { try await Attachments.photo(img) } }
     }
 

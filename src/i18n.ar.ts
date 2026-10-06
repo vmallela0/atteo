@@ -1002,6 +1002,8 @@ export const AR: Record<string, string> = {
   "Who can see it": "من يمكنه رؤيته",
   "Just mine": "لي وحدي",
   "· only you and your agents can see it.": "· أنت ووكلاؤك فقط يمكنكم رؤيته.",
+  "People only: replies here stay with the same people. Agents can't see them.": "للأشخاص فقط: الردود هنا تبقى بين الأشخاص أنفسهم. لا يمكن للوكلاء رؤيتها.",
+  "Just mine: replies here stay with you and your agents.": "لي وحدي: الردود هنا تبقى لك ولوكلائك.",
   "Only you and your agents will see this…": "أنت ووكلاؤك فقط سترون هذا…",
   "just mine": "لي وحدي",
   "people only": "للأشخاص فقط",

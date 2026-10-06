@@ -995,6 +995,8 @@ export const TR: Record<string, string> = {
   "Who can see it": "Kimler görebilir",
   "Just mine": "Yalnızca ben",
   "· only you and your agents can see it.": "· yalnızca siz ve ajanlarınız görebilir.",
+  "People only: replies here stay with the same people. Agents can't see them.": "Yalnızca kişiler: buradaki yanıtlar aynı kişilerde kalır. Ajanlar göremez.",
+  "Just mine: replies here stay with you and your agents.": "Yalnızca ben: buradaki yanıtlar sizde ve ajanlarınızda kalır.",
   "Only you and your agents will see this…": "Bunu yalnızca siz ve ajanlarınız görecek…",
   "just mine": "yalnızca ben",
   "people only": "yalnızca kişiler",

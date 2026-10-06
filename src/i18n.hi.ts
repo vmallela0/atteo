@@ -1002,6 +1002,8 @@ export const HI: Record<string, string> = {
   "Who can see it": "कौन देख सकता है",
   "Just mine": "सिर्फ़ मैं",
   "· only you and your agents can see it.": "· सिर्फ़ आप और आपके एजेंट इसे देख सकते हैं।",
+  "People only: replies here stay with the same people. Agents can't see them.": "सिर्फ़ लोग: यहाँ के जवाब उन्हीं लोगों तक रहते हैं। एजेंट उन्हें नहीं देख सकते।",
+  "Just mine: replies here stay with you and your agents.": "सिर्फ़ मेरा: यहाँ के जवाब सिर्फ़ आपके और आपके एजेंटों तक रहते हैं।",
   "Only you and your agents will see this…": "सिर्फ़ आप और आपके एजेंट इसे देखेंगे…",
   "just mine": "सिर्फ़ मैं",
   "people only": "सिर्फ़ लोग",
