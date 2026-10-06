@@ -1546,69 +1546,34 @@ await step("shared documents: create, read, edit, stale-write conflict, merge, h
   await err(A, board, "doc", { action: "write", name: "../etc/passwd", content: "x", base_version: 0 }, "Document names");
 });
 
-await step("SOUL: the board's PROTOCOL.md, handed to each agent on join and once per new version; only people edit it", async () => {
+await step("no SOUL (vedu #5266): /soul is 410 pointing at memory; PROTOCOL.md is a people-only doc that reads don't hand out", async () => {
   const rb = (await ops("boards", { user: A, title: `e2e rules ${run}` })).body.board.id;
-  const nb = (await ops("boards", { user: A, title: `e2e norules ${run}` })).body.board.id;
-  const hdr = (v) => `This board's SOUL (PROTOCOL.md v${v}, its rules) — read once, follow always:`;
-  const upd = (v) => `🧭 SOUL updated to v${v} by ${A}`;
-  const SOUL = /This board's SOUL|SOUL updated/;
-  const put = (text, base, who = A) => web(`/api/boards/${rb}/soul`, who, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ text, ...(base != null ? { base_version: base } : {}) }) });
-  // No PROTOCOL.md: nothing, on join or read; GET says version 0.
-  const s0 = await session(A);
-  assert(!SOUL.test(await sok(s0, "join_board", { board: nb })), "no rules doc, no rules");
-  assert(!SOUL.test(await sok(s0, "read")), "no rules doc on read");
-  assert((await (await web(`/api/boards/${nb}/soul`, A)).json()).soul.version === 0, "no soul: v0");
-  // Agents can't write it, by any path: the doc tool, a file post, or PUT /soul with a token.
+  const SOUL = /SOUL|keep posts short/;
+  // The old endpoints, for a person and an agent alike: 410, saying where lasting facts live now.
+  for (const [method, who] of [["GET", "person"], ["PUT", "person"], ["GET", "agent"], ["PUT", "agent"]]) {
+    const r = await fetch(`${BASE}/api/boards/${rb}/soul`, { method, headers: { ...(who === "agent" ? auth(A) : { cookie: cookie[A] }), "content-type": "application/json" }, ...(method === "PUT" ? { body: JSON.stringify({ text: "x" }) } : {}) });
+    const j = await r.json();
+    assert(r.status === 410 && j.error.includes("atteo remember") && j.error.includes("PROTOCOL.md"), `${who} ${method} /soul: ${r.status} ${JSON.stringify(j)}`);
+  }
+  // Agents still can't write PROTOCOL.md, by any path; a person can, in the doc editor.
   await err(A, rb, "doc", { action: "write", name: "PROTOCOL.md", content: "# agent rules", base_version: 0 }, "only people edit it");
   await err(A, rb, "post", { type: "artifact", text: "rules", artifact_name: "PROTOCOL.md", artifact_content: "# agent rules" }, "only people edit it");
-  const agentPut = await fetch(`${BASE}/api/boards/${rb}/soul`, { method: "PUT", headers: { ...auth(A), "content-type": "application/json" }, body: JSON.stringify({ text: "x" }) });
-  assert(agentPut.status === 403, `agent PUT /soul: ${agentPut.status}`);
-  // A person writes it (PUT /soul, or the doc editor: PROTOCOL.md is the same doc). Tabs hear {type: "soul"}.
-  const tab = await new Promise((resolve) => {
-    const ws = new WebSocket(BASE.replace(/^http/, "ws") + `/api/boards/${rb}/ws`, { headers: { cookie: cookie[A] } });
-    const msgs = [];
-    ws.onmessage = (m) => msgs.push(String(m.data));
-    ws.onopen = () => resolve({ ws, msgs });
-    ws.onerror = () => resolve({ ws, msgs });
-  });
-  const p1 = await put("# Rules\n- answer in thread\n- keep posts short", 0);
-  assert(p1.status === 200, `PUT /soul: ${p1.status} ${await p1.clone().text()}`);
-  assert((await p1.json()).soul.version === 1, "v1");
-  for (let i = 0; i < 40 && !tab.msgs.some((x) => x.includes('"type":"soul"')); i++) await new Promise((r) => setTimeout(r, 100));
-  assert(tab.msgs.some((x) => x.includes('"type":"soul"') && x.includes('"version":1')), `socket: ${tab.msgs.join(" | ")}`);
-  tab.ws.close();
-  const got = (await (await fetch(`${BASE}/api/boards/${rb}/soul`, { headers: auth(A) })).json()).soul;
-  assert(got.version === 1 && got.text.includes("keep posts short") && got.name === "PROTOCOL.md", JSON.stringify(got));
-  assert((await (await web(`/api/boards/${rb}/doc?name=PROTOCOL.md`, A)).json()).version === 1, "PROTOCOL.md is the same doc");
-  // The first read (join) brings it, wrapped like all board content; the second doesn't.
+  const w = await web(`/api/boards/${rb}/doc`, A, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "write", name: "PROTOCOL.md", content: "# Rules\n- answer in thread\n- keep posts short", base_version: 0 }) });
+  assert(w.status === 200, `a person writes PROTOCOL.md: ${w.status} ${await w.clone().text()}`);
+  // A join and reads carry no rules (no header, no update line, no text): the board's memory is what's handed over.
+  const m = await web(`/api/boards/${rb}/memory`, A, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text: `Use pnpm ${run}` }) });
+  assert(m.ok, "remember: " + m.status);
   const s1 = await session(A);
   const j = await sok(s1, "join_board", { board: rb });
-  has(j, hdr(1));
-  has(j, "- keep posts short");
-  assert(j.indexOf("<<untrusted ") < j.indexOf(hdr(1)) && j.indexOf(hdr(1)) < j.indexOf("<<end untrusted "), "the SOUL is fenced");
-  assert(!SOUL.test(await sok(s1, "read")), "second read repeats the rules");
-  // Another session of the same member gets them once too.
-  const s2 = await session(A);
-  await sok(s2, "join_board", { board: rb });
-  assert(!SOUL.test(await sok(s2, "read")), "s2 saw them at join");
-  // A new version: the next read carries a one-line notice (under the read header, like 📌) and the new text, once.
-  assert((await put("# Rules\n- answer in thread\n- keep posts under 5 lines", 1)).status === 200, "v2");
-  assert((await put("stale edit", 1)).status === 409, "a stale base_version conflicts");
-  const r2 = await sok(s1, "read");
-  has(r2, upd(2));
-  has(r2, "under 5 lines");
-  assert(!r2.includes(hdr(2)) && r2.indexOf("==") < r2.indexOf(upd(2)), "the update is a line under the header");
-  assert(!SOUL.test(await sok(s1, "read")), "v2 repeated");
-  has(await sok(s2, "read"), upd(2));
-  // Sessionless callers are tracked per member (never read here before: the whole SOUL, not an update).
-  has(await ok(A, rb, "read"), hdr(2));
-  assert(!SOUL.test(await ok(A, rb, "read")), "sessionless repeat");
-  // Long rules are cut, with a pointer to the rest.
-  assert((await put("# Rules\n" + "x".repeat(6000) + "TAILMARK")).status === 200, "v3 without base_version");
-  const long = await sok(s1, "read");
-  has(long, upd(3));
-  has(long, "doc read PROTOCOL.md");
-  assert(!long.includes("TAILMARK"), "long rules not capped");
+  assert(!SOUL.test(j), "join hands out no rules: " + j.slice(0, 400));
+  has(j, `Use pnpm ${run}`);
+  const w2 = await web(`/api/boards/${rb}/doc`, A, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "write", name: "PROTOCOL.md", content: "# Rules\n- keep posts short, really", base_version: 1 }) });
+  assert(w2.status === 200, "v2: " + w2.status);
+  assert(!SOUL.test(await sok(s1, "read")), "no '🧭 SOUL updated' line");
+  assert(!SOUL.test(await ok(A, rb, "read")), "sessionless reads too");
+  // The tool list and instructions don't mention it either.
+  const init = (await rpcRaw(auth(A), null, "initialize", { protocolVersion: "2025-06-18", capabilities: {} })).instructions;
+  assert(!/SOUL/.test(init), "instructions say nothing of a SOUL");
 });
 
 await step("read max_chars: the read stops at the budget and the rest stays unread for the next read (no blanks)", async () => {

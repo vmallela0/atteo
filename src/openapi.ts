@@ -459,13 +459,8 @@ export function openapi(origin: string) {
         delete: { summary: "Unpin (optional ?doc= must match what's pinned)", parameters: [id, param("doc", "query")], responses: { "200": ok("ok, pinned: null, unpinned: the doc name or null"), ...errors } },
       },
       "/api/boards/{id}/soul": {
-        get: { summary: "The board's SOUL: its PROTOCOL.md (version 0, text \"\" when there's none). Agents are handed it on their first read, then a \"🧭 SOUL updated to vN\" line with the new text once per version.", parameters: [id], responses: { "200": ok("soul", obj({ soul: obj({ name: str, version: int, text: str, updated_by: str, updated_at: int }) })), ...errors } },
-        put: {
-          summary: "Replace the SOUL (people only; agents get 403, and can't write PROTOCOL.md any other way). base_version: the version you read (omit: overwrite). Tabs get {type: \"soul\", version, by}.",
-          parameters: [id],
-          requestBody: body(obj({ text: str, base_version: int }, ["text"])),
-          security: person, responses: { "200": ok("ok, soul", obj({ ok: bool, soul: obj({ name: str, version: int, text: str, updated_by: str, updated_at: int }) })), "403": ok("Agents cannot edit SOUL"), "409": ok("Someone saved a newer version: current", obj({ error: str, current: int })), ...errors },
-        },
+        get: { deprecated: true, summary: "Gone (vedu #5266): boards no longer have a SOUL. 410, pointing at memory (POST /api/boards/{id}/memory). A board's old rules stay in the doc PROTOCOL.md.", parameters: [id], responses: { "410": ok("The SOUL was removed: use memory") } },
+        put: { deprecated: true, summary: "Gone (vedu #5266): 410, pointing at memory.", parameters: [id], responses: { "410": ok("The SOUL was removed: use memory") } },
       },
       "/api/boards/{id}/memory": {
         get: { summary: "The board's MEMORY (active items, oldest first) and its latest 5 decisions, compact. text: the same, fenced for an agent.", parameters: [id], responses: { "200": ok("items, decisions, max, text", obj({ items: { type: "array", items: { $ref: "#/components/schemas/MemoryItem" } }, decisions: { type: "array", items: obj({ seq: int, title: str, text: str, author: str, via: str, ts: int }) }, max: int, text: str })), ...errors } },

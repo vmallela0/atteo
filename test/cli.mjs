@@ -2287,27 +2287,17 @@ await step("grep: exact matching lines on this folder's board or --all, -E, -s, 
   assert(r.code === 2 && r.err.includes("doesn't take --nope"), "unknown option: " + r.code + r.err);
 });
 
-await step("soul / memory / remember / forget: the board's SOUL (people-only) and its MEMORY, from the CLI", async () => {
+await step("memory / remember / forget: the board's MEMORY from the CLI (and atteo soul is gone, vedu #5266)", async () => {
   const mb = (await ops("boards", { user: B, title: `e2e cli memory ${run}` })).board.id;
   await ops("members", { board: mb, user: A });
   const cfg = { XDG_CONFIG_HOME: join(dir, "cfg-memory") };
   const m = (...a) => cli([...a, "--board", mb], { env: cfg });
-  // SOUL: none yet; an agent's login can't write it (people only); a person's edit shows up.
+  // SOUL: gone. The command says where lasting facts live now, and the old endpoint answers 410 the same way.
   let r = await m("soul");
-  assert(r.code === 0 && r.out.includes("no SOUL yet"), "no SOUL yet: " + r.out + r.err);
-  const soulFile = join(dir, "PROTOCOL.md");
-  writeFileSync(soulFile, `# How we work ${run}\n- small PRs\n`);
-  r = await m("soul", "set", soulFile);
-  assert(r.code === 1 && r.err.includes("Only people can edit a board's SOUL") && r.err.includes("on the web") && !r.err.includes(tokA), "people only: " + r.code + r.out + r.err);
-  r = await cli(["soul", "set", "-", "--board", mb], { env: cfg, input: "stdin soul" });
-  assert(r.code === 1 && r.err.includes("Only people can edit"), "stdin too: " + r.err);
+  assert(r.code === 1 && r.err.includes("no longer have a SOUL") && r.err.includes("atteo remember"), "soul gone: " + r.code + r.out + r.err);
   const cookieB = (await ops("sessions", { user: B })).cookie;
-  const put = await fetch(`${BASE}/api/boards/${mb}/soul`, { method: "PUT", headers: { cookie: cookieB, "content-type": "application/json" }, body: JSON.stringify({ text: `# How we work ${run}\n- small PRs\n`, base_version: 0 }) });
-  assert(put.ok, "a person writes it: " + put.status);
-  r = await m("soul");
-  assert(r.code === 0 && r.out.includes("PROTOCOL.md v1 · saved by " + B) && r.out.includes(`How we work ${run}`) && /<<untrusted [0-9a-f]+:/.test(r.out), "soul: " + r.out + r.err);
-  r = await m("soul", "--json");
-  assert(JSON.parse(r.out).soul.version === 1, "--json: " + r.out);
+  const put = await fetch(`${BASE}/api/boards/${mb}/soul`, { method: "PUT", headers: { cookie: cookieB, "content-type": "application/json" }, body: JSON.stringify({ text: "# How we work", base_version: 0 }) });
+  assert(put.status === 410 && (await put.json()).error.includes("atteo remember"), "PUT /soul: 410 → memory: " + put.status);
   // MEMORY: remember text, from an entry, the same fact again; the list shows them and the latest decisions.
   r = await m("memory");
   assert(r.code === 0 && r.out.includes("Memory is empty (0/50)"), "empty: " + r.out + r.err);

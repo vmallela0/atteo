@@ -764,7 +764,7 @@ input.switch::after{content:"";position:absolute;top:3px;left:3px;width:18px;hei
 /* Everyday (#1272): the same entries in plainer clothes; Developer mode is today's page unchanged. */
 :root[data-mode="everyday"] .entry .seq,:root[data-mode="everyday"] .meta .via:not(.owner):not(.sess),:root[data-mode="everyday"] [aria-controls="panel-log"],
 :root[data-mode="everyday"] .entry .chg,:root[data-mode="everyday"] .apc:not(.st-pending) .apc-cmd,:root[data-mode="everyday"] .apc:not(.st-pending) .apc-risk,:root[data-mode="everyday"] .apc:not(.st-pending) .apc-u-note,:root[data-mode="everyday"] .ag-hint,
-:root[data-mode="everyday"] .ag-hint+.copy,:root[data-mode="everyday"] #soul-side,:root[data-mode="everyday"] .meta .t-change,:root[data-mode="everyday"] .side-link .count.dev{display:none!important}
+:root[data-mode="everyday"] .ag-hint+.copy,:root[data-mode="everyday"] .meta .t-change,:root[data-mode="everyday"] .side-link .count.dev{display:none!important}
 :root:not([data-mode="everyday"]) .ev-res{display:none}
 :root[data-mode="everyday"] #board-tabs [aria-controls="panel-tasks"]{order:1}:root[data-mode="everyday"] #board-tabs [aria-controls="panel-docs"]{order:2}:root[data-mode="everyday"] #board-tabs>*:not([role=tab]){order:3}
 .ev-res{display:flex;align-items:center;gap:10px;margin-top:8px;padding:12px 14px;border:1px solid var(--line);border-radius:12px;background:var(--bg)}.ev-res b{font-size:16px;color:var(--ink);font-weight:600;line-height:1.35}
@@ -798,12 +798,9 @@ ${TALK_CSS}
 ${AGENT_LOGO_CSS}
 .slash-menu li{align-items:baseline}.slash-menu li b{flex:none;white-space:nowrap}.slash-menu li .k{margin-left:10px;flex:1;min-width:0;text-align:left} /* "/task" never splits (jxn #1391) */
 .mem-act{display:none}.mem-on .mem-act{display:inline-flex;width:30px;padding:0;justify-content:center;color:var(--muted)}.mem-on .mem-act:hover{color:var(--ink)}
-.soul-prev{white-space:pre-wrap;font-size:12.5px;line-height:1.5;color:var(--text);max-height:7.5em;overflow:hidden;-webkit-mask-image:linear-gradient(#000 70%,transparent);mask-image:linear-gradient(#000 70%,transparent)}
-.soul-meta{margin:4px 0 6px}.soul-edit{margin-top:2px}
 .mem-list{list-style:none;margin:0;padding:0}.mem-it{display:grid;grid-template-columns:1fr auto;gap:0 6px;padding:5px 0;border-top:1px solid var(--line)}.mem-it:first-child{border-top:0}
 .mem-t{font-size:12.5px;color:var(--ink);overflow-wrap:anywhere}.mem-m{grid-column:1}.mem-m a{color:inherit}.mem-x{grid-row:1/3;grid-column:2;align-self:center;width:26px;padding:0;justify-content:center;color:var(--faint)}.mem-x:hover{color:var(--danger)}
 .mem-add{display:flex;gap:6px;margin-top:8px}.mem-add .input{flex:1;min-width:0;height:30px;font-size:12.5px}
-.soul-dlg{width:min(640px,calc(100vw - 24px))}.soul-dlg form{padding:18px}.soul-dlg .hd{display:flex;justify-content:space-between;gap:12px;margin-bottom:12px}.soul-dlg textarea{width:100%;min-height:260px;font-size:13px;line-height:1.5;resize:vertical}
 .chg{margin-top:8px;border:1px solid var(--line);border-radius:10px;overflow:hidden;background:var(--bg)}
 .chg-h{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:8px 12px;background:var(--bg-subtle);color:var(--muted);font-size:13px}
 .chg-br{color:var(--ink);font-size:12px;padding:1px 6px;border-radius:5px;background:var(--bg-hover);max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}

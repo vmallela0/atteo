@@ -1,5 +1,5 @@
 // Languages step 3 (#1724): the board's dialogs and bars in 简体中文 (Developer mode, so every control shows): Members &
-// access, the task card, entry details, the soul editor, Recap, a new file, the emoji picker, the read-aloud bar,
+// access, the task card, entry details, Recap, a new file, the emoji picker, the read-aloud bar,
 // keyboard shortcuts and search. Fails if English is left outside names, messages, code and brands. Pages send
 // Vary: Accept-Language. No page errors.
 // Usage: BASE=http://localhost:8787 node i18n-zh-3.mjs
@@ -66,9 +66,6 @@ await p.keyboard.press("j");
 await p.keyboard.press("Enter");
 await p.waitForTimeout(500);
 if (await p.locator("#sheet[open]").count()) { await audit("entry details", "#sheet"); await p.keyboard.press("Escape"); } else check(false, "entry details open");
-// Soul editor
-const soulBtn = p.locator("[data-soul-edit]");
-if (await soulBtn.count()) { await soulBtn.first().click(); await p.waitForTimeout(300); await audit("the soul editor", "#soul-dlg"); await p.keyboard.press("Escape"); }
 // Recap
 const recap = p.locator("#recap-btn");
 if (await recap.isVisible()) { await recap.click(); await p.waitForTimeout(800); await audit("Recap", "#recap-dlg"); await p.keyboard.press("Escape"); }
