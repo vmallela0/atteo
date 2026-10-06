@@ -27,9 +27,12 @@ for(const [w,scheme] of [[1280,"light"],[390,"dark"]]){
   // The header is the name and the time (jxn #4522); whose agent it is is on the name's hover.
   check(new RegExp(`^${NAME}`).test(meta.trim())&&!new RegExp(`${V}'s agent`).test(meta)&&own===`${V}'s agent`,`${w}px: the agent's post reads "${NAME}", "${V}'s agent" on hover (${meta.replace(/\s+/g," ").slice(0,60)} | ${own})`);
   await p.evaluate(()=>{document.documentElement.dataset.compact="others"});
+  // olMark runs on a timer/frame; the capture-phase opener only handles rows already marked .ol.
+  await p.locator(`#e${a1}.ol`).waitFor({state:"attached",timeout:5000});
   check(!await p.locator(`#e${a1} .agent-info`).isVisible(),`${w}px: owner details are hidden in collapsed rows`);
   await p.locator(`#e${a1} .body`).click();
-  await p.locator(`#e${a1} .agent-info`).waitFor({state:"visible",timeout:5000}).catch(()=>{}); // under load the row opens a beat after the click
+  await p.locator(`#e${a1}.ol-open`).waitFor({state:"attached",timeout:5000});
+  await p.locator(`#e${a1} .agent-info`).waitFor({state:"visible",timeout:5000}).catch(()=>{});
   check(await p.locator(`#e${a1} .agent-info`).isVisible()&&await p.locator(`#e${a1} .agent-info`).innerText()===`${V}'s agent`&&await p.locator(`#e${a1} .who`).innerText()===NAME,`${w}px: opening keeps the agent name and shows its owner`);
   const chip=p.locator(`#e${ms} .mention.agent[data-user="${V}"]`);
   check(await chip.count()===1&&(await chip.innerText())===`@${NAME}`,`${w}px: "@${NAME}" in a message is that agent's chip`);
