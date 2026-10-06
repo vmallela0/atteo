@@ -26,7 +26,7 @@ export interface InboxItem {
   reminded_at?: number | null;
   reminded?: boolean; // came back from Remind me later: it needs the person now (src/notify.ts)
   approval_id?: string; // kind approval: the request (GET /api/approvals/:id)
-  push?: { kind: "approval_needed"; title: string; body: string; url: string; approval: string; board: string | null; risk: string }; // ready for a phone notification
+  push?: { kind: "approval_needed"; title: string; body: string; url: string; approval: string; board: string | null; risk: string; by?: string }; // ready for a phone notification
   board_kind?: string | null; // direct (a DM), agent ("Your agent"), or null
   broadcast?: boolean; // a mention that reached you only through @all / @humans
   interrupt?: Interrupt; // people only: now (notify), digest (fold into the summary) or none (src/notify.ts)
@@ -189,7 +189,7 @@ export function inboxPage(viewer: Viewer, side: SideBoard[], items: InboxItem[],
   const dmTitle = (t: string) => (t.includes(" ↔ ") ? t.split(" ↔ ").map((h) => (h === viewer.name ? shownName(h, viewer.display_name) : shownName(h, people[h]))).join(" ↔ ") : t);
   const rows = items
     .map((i) => {
-      const who = i.kind === "manual_unread" ? T("You") : i.kind === "approval" ? T("Your agent") : i.actor_via === "agent" ? T("{name}'s agent", { name: i.actor }) : i.actor;
+      const who = i.kind === "manual_unread" ? T("You") : i.kind === "approval" ? (i.push?.by ? T("{name}'s agent", { name: i.push.by }) : T("Your agent")) : i.actor_via === "agent" ? T("{name}'s agent", { name: i.actor }) : i.actor;
       // A person by the name they chose (jxn #4369), their @handle on hover.
       const whoHtml = i.kind !== "manual_unread" && i.kind !== "approval" && i.actor_via !== "agent" ? personHtml(i.actor, people[i.actor], known) : esc(who);
       const href = i.board_id ? `/b/${esc(i.board_id)}${i.kind === "manual_unread" ? "" : `#e${i.seq}`}` : i.kind === "approval" ? "/approvals" : "/people";

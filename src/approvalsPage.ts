@@ -4,6 +4,7 @@
 import type { Approval } from "./approvals";
 import { appPage, relTime, type SideBoard, type Viewer } from "./ui";
 import { esc } from "./util";
+import { commandHtml, nonAsciiNote } from "./approvalCard";
 import { tr, type Lang } from "./i18n";
 
 type Tr = (s: string, v?: Record<string, string | number>) => string;
@@ -12,19 +13,23 @@ const RISK: Record<string, string> = { low: "Low risk", medium: "Medium risk", h
 const STATUS: Record<string, string> = { approved: "Approved", rejected: "Denied", expired: "Denied (timed out)" };
 
 // From a permission hook: the tool and its exact command or file, verbatim (escaped, monospace).
-const cmd = (a: Approval): string => (a.command ? `<pre class="mono ap-details ap-cmd">${a.tool ? `<span class="faint">${esc(a.tool)}</span>\n` : ""}${esc(a.command)}</pre>` : "");
+// The command in full (never clipped), with any non-ASCII character flagged so a look-alike can't pass for plain text (#4929).
+const cmd = (a: Approval): string => (a.command ? `<pre class="mono ap-details ap-cmd">${a.tool ? `<span class="faint">${esc(a.tool)}</span>\n` : ""}${commandHtml(a.command)}</pre>${nonAsciiNote(a.command)}` : "");
 const det = (a: Approval): string => (a.details ? `<pre class="mono ap-details">${esc(a.details)}</pre>` : "");
+// Whose agent asked: someone else's is named, never "Your agent" (#4930).
+const asker = (a: Approval, T: Tr): string => (a.requested_by && a.requested_by !== a.user ? T("{name}'s agent", { name: a.requested_by }) : a.client ?? T("Your agent"));
 
 function origin(a: Approval, titles: Record<string, string>, T: Tr): string {
+  const where = esc(titles[a.board_id ?? ""] ?? a.board_id ?? "");
   return a.board_id
-    ? `${esc(T("asked by"))} <b>${esc(a.requested_by ?? T("someone"))}</b> ${esc(T("in"))} <a href="/b/${esc(a.board_id)}#e${a.seq}">${esc(titles[a.board_id] ?? a.board_id)} #${a.seq}</a>`
+    ? `${esc(T("asked by"))} <b>${esc(a.requested_by ?? T("someone"))}</b> ${esc(T("in"))} ${a.seq != null ? `<a href="/b/${esc(a.board_id)}#e${a.seq}">${where} #${a.seq}</a>` : `<a href="/b/${esc(a.board_id)}">${where}</a>`}`
     : esc(T("on its own"));
 }
 
 // A waiting request: what, who asked and where, exactly what will happen, then a note and the two buttons.
 function pendingCard(a: Approval, titles: Record<string, string>, T: Tr, L?: Lang): string {
   return `<article class="card approval risk-${esc(a.risk)}" id="${esc(a.id)}" tabindex="0" aria-keyshortcuts="Enter Backspace" aria-label="${esc(`${a.title}. ${T("Enter approves, Backspace denies")}`)}">
-<div class="ap-hd"><div class="grow"><h2 class="ap-title">${esc(a.title)}</h2><p class="xs muted">${esc(a.client ?? T("Your agent"))} · ${origin(a, titles, T)} · ${esc(relTime(a.created_at, Date.now(), L))}</p></div>
+<div class="ap-hd"><div class="grow"><h2 class="ap-title">${esc(a.title)}</h2><p class="xs muted">${esc(asker(a, T))} · ${origin(a, titles, T)} · ${esc(relTime(a.created_at, Date.now(), L))}</p></div>
 <span class="badge ap-risk">${RISK[a.risk] ? esc(T(RISK[a.risk])) : esc(a.risk)}</span></div>
 ${cmd(a)}${det(a)}
 <form class="ap-form" data-approval="${esc(a.id)}"><input class="input grow" name="note" placeholder="${esc(T("Note for your agent (optional)"))}" aria-label="${esc(T("Note for your agent"))}"><button class="btn" type="submit" data-decision="reject">${esc(T("Reject"))}</button><button class="btn primary" type="submit" data-decision="approve">${esc(T("Approve"))}</button></form>
@@ -34,7 +39,7 @@ ${cmd(a)}${det(a)}
 // A decided one: one line, with the details a click away.
 function decidedRow(a: Approval, titles: Record<string, string>, T: Tr, L?: Lang): string {
   return `<li><details class="ap-row"><summary><span class="ap-st st-${esc(a.status)}">${STATUS[a.status] ? esc(T(STATUS[a.status])) : esc(a.status)}</span><span class="grow truncate">${esc(a.title)}</span><span class="xs faint">${esc(relTime(a.decided_at ?? a.created_at, Date.now(), L))}</span></summary>
-<p class="xs muted">${esc(a.client ?? T("Your agent"))} · ${origin(a, titles, T)}${a.note ? ` · ${esc(T("your note:"))} "${esc(a.note)}"` : ""}</p>${cmd(a)}${det(a)}</details></li>`;
+<p class="xs muted">${esc(asker(a, T))} · ${origin(a, titles, T)}${a.note ? ` · ${esc(T("your note:"))} "${esc(a.note)}"` : ""}</p>${cmd(a)}${det(a)}</details></li>`;
 }
 
 export function approvalsPage(viewer: Viewer, side: SideBoard[], list: Approval[], titles: Record<string, string>): Response {

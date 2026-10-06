@@ -42,8 +42,14 @@ const live = (a: Approval): Approval => {
 };
 
 /** The person's push / inbox fields for an approval: "Approval needed" (the app maps kind to its notification category). */
-export function pushFor(a: Pick<Approval, "id" | "title" | "client" | "session" | "board_id" | "risk">): { kind: "approval_needed"; title: string; body: string; url: string; approval: string; board: string | null; risk: string } {
-  return { kind: "approval_needed", title: "Approval needed", body: `${a.session ?? a.client ?? "Your agent"} asks: ${a.title}`.slice(0, 160), url: `/approvals#${a.id}`, approval: a.id, board: a.board_id, risk: a.risk };
+export function pushFor(a: Pick<Approval, "id" | "title" | "client" | "session" | "board_id" | "risk"> & Partial<Pick<Approval, "user" | "requested_by">>): { kind: "approval_needed"; title: string; body: string; url: string; approval: string; board: string | null; risk: string; by?: string } {
+  const by = a.requested_by && a.user && a.requested_by !== a.user ? a.requested_by : undefined; // another member's agent asks (#5000)
+  return { kind: "approval_needed", title: "Approval needed", body: `${askerOf(a)} asks: ${a.title}`.slice(0, 160), url: `/approvals#${a.id}`, approval: a.id, board: a.board_id, risk: a.risk, ...(by ? { by } : {}) };
+}
+
+/** Who's asking, in words: another member's agent by name (never "Your agent" for someone else's, #4930). */
+export function askerOf(a: Partial<Pick<Approval, "user" | "requested_by" | "session" | "client">>): string {
+  return a.requested_by && a.user && a.requested_by !== a.user ? `${a.requested_by}'s agent` : a.session ?? a.client ?? "Your agent";
 }
 
 export async function requestApproval(
@@ -56,7 +62,9 @@ export async function requestApproval(
   const command = typeof r.command === "string" && r.command.trim() ? r.command : null;
   if (command && command.length > MAX_COMMAND) throw new ApprovalError(`command is over ${MAX_COMMAND} characters; it's stored verbatim, so it isn't cut. Ask in the terminal instead.`);
   const tool = r.tool?.replace(/\s+/g, " ").trim().slice(0, 60) || null;
-  const title = ((r.title ?? "").trim() || (command ? `${tool ?? "Run"}: ${command}` : "")).replace(/\s+/g, " ").trim().slice(0, 160);
+  // Cut to 160, and visibly so: the full command is on the card, never only in the title (#4926).
+  const full = ((r.title ?? "").trim() || (command ? `${tool ?? "Run"}: ${command}` : "")).replace(/\s+/g, " ").trim();
+  const title = full.length > 160 ? full.slice(0, 159) + "…" : full;
   const details = (r.details ?? "").trim().slice(0, 20_000);
   if (!title) throw new ApprovalError("Say what you want to do (title).");
   if (!details && !command) throw new ApprovalError("Show exactly what will happen (details, or command): the command, the diff, or the steps.");
@@ -95,7 +103,7 @@ export async function requestApproval(
       user,
       offBoardSeq(),
       user,
-      `${a.client ?? "Your agent"} asks: ${title}`.slice(0, 160),
+      `${askerOf(a)} asks: ${title}`.slice(0, 160),
       a.created_at,
       JSON.stringify({ push: pushFor(a) }),
     ),
@@ -174,5 +182,5 @@ export async function waitForDecision(env: Env, user: string, id: string, ms: nu
 
 /** What a board's approval entry (and its live event) carries: everything but the details. */
 export function refOf(a: Approval): ApprovalRef {
-  return { id: a.id, user: a.user, status: a.state, title: a.title, tool: a.tool, command: a.command, risk: a.risk, expires_at: a.expires_at, note: a.note, session: a.session, about: a.seq, created_at: a.created_at, decided_at: a.decided_at };
+  return { id: a.id, user: a.user, status: a.state, title: a.title, tool: a.tool, command: a.command, risk: a.risk, expires_at: a.expires_at, note: a.note, session: a.session, about: a.seq, created_at: a.created_at, decided_at: a.decided_at, requested_by: a.requested_by ?? null };
 }

@@ -1244,6 +1244,7 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
       try {
         let run: hosts.RunRow;
         if (action === "run") {
+          await requireWriter(env, id, user); // a viewer can't ask for runs, as over REST (#4941)
           const made = await hosts.request(env, id, host.id, user, { command: args.command, cwd: args.cwd, timeout_s: args.timeout_seconds });
           if (made.approval) await stubFor(env, id).approvalRequested(approvals.refOf(made.approval), { via: "agent", client: "atteo host" }).catch((e: unknown) => console.error("host approval entry failed", e));
           run = made.run;

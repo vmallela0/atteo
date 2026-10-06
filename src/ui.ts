@@ -564,6 +564,7 @@ a.ev-acct:hover{background:var(--bg-subtle)}
 .qr{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}.qr[hidden]{display:none}.qr-b{gap:6px;max-width:100%;border-radius:999px}.qr-t{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .qr-k{font:inherit;font-size:10.5px;min-width:16px;height:16px;line-height:16px;padding:0 3px;border-radius:4px;border:1px solid var(--line);color:var(--muted);background:var(--bg)}@media(hover:none){.qr-k{display:none}}
 .apc{margin-top:8px;max-width:640px}.apc>.tk{margin-top:0}.apc-cmd{margin:0 0 6px;max-height:220px;overflow:auto;padding:8px 10px;border-radius:8px;background:var(--bg-subtle);border:1px solid var(--line);font-size:12px;line-height:1.5;white-space:pre-wrap;word-break:break-word}
+.apc.st-pending .apc-cmd{max-height:none;overflow:visible}.apc-u{background:color-mix(in srgb,var(--intervene) 22%,transparent);color:inherit;border-radius:3px;outline:1px solid var(--intervene)}.apc-u-note{margin:0 0 6px;color:var(--intervene)}.apc-who{font-weight:600}
 .apc .tk-st .dot{background:var(--warn)}.apc.st-approved .tk-st .dot{background:var(--ok)}.apc.st-rejected .tk-st .dot{background:var(--danger)}.apc.st-expired .tk-st .dot{background:var(--muted)}
 .apc.st-approved .tk-st{color:var(--ok)}.apc.st-rejected .tk-st,.apc.st-expired .tk-st{color:var(--muted)}
 .apc[tabindex]:focus-visible,.apc.kbd-sel,.approval:focus-visible,.approval.sel{outline:2px solid var(--accent);outline-offset:3px;border-radius:8px}
@@ -738,7 +739,7 @@ input.switch{appearance:none;-webkit-appearance:none;flex:none;width:42px;height
 input.switch::after{content:"";position:absolute;top:3px;left:3px;width:18px;height:18px;border-radius:50%;background:var(--bg);box-shadow:0 1px 2px rgba(0,0,0,.25);transition:left .15s}input.switch:checked{background:var(--ink)}input.switch:checked::after{left:21px}
 /* Everyday (#1272): the same entries in plainer clothes; Developer mode is today's page unchanged. */
 :root[data-mode="everyday"] .entry .seq,:root[data-mode="everyday"] .meta .via:not(.owner):not(.sess),:root[data-mode="everyday"] [aria-controls="panel-log"],
-:root[data-mode="everyday"] .entry .chg,:root[data-mode="everyday"] .apc-cmd,:root[data-mode="everyday"] .apc-risk,:root[data-mode="everyday"] .ag-hint,
+:root[data-mode="everyday"] .entry .chg,:root[data-mode="everyday"] .apc:not(.st-pending) .apc-cmd,:root[data-mode="everyday"] .apc:not(.st-pending) .apc-risk,:root[data-mode="everyday"] .apc:not(.st-pending) .apc-u-note,:root[data-mode="everyday"] .ag-hint,
 :root[data-mode="everyday"] .ag-hint+.copy,:root[data-mode="everyday"] #soul-side,:root[data-mode="everyday"] .meta .t-change,:root[data-mode="everyday"] .side-link .count.dev{display:none!important}
 :root:not([data-mode="everyday"]) .ev-res{display:none}
 :root[data-mode="everyday"] #board-tabs [aria-controls="panel-tasks"]{order:1}:root[data-mode="everyday"] #board-tabs [aria-controls="panel-docs"]{order:2}:root[data-mode="everyday"] #board-tabs>*:not([role=tab]){order:3}
@@ -924,6 +925,7 @@ ${AGENT_LOGO_CSS}
 .ap-hd{display:flex;gap:12px;align-items:flex-start}.ap-title{font-size:15px;font-weight:600;line-height:1.35;margin:0 0 3px}
 .approval.risk-medium .ap-risk{color:var(--warn);border-color:color-mix(in srgb,var(--warn) 40%,var(--line))}.approval.risk-high .ap-risk{color:var(--danger);border-color:color-mix(in srgb,var(--danger) 40%,var(--line))}
 .ap-details{max-height:280px;overflow:auto;margin:12px 0 0;padding:10px 12px;border-radius:8px;background:var(--bg-subtle);border:1px solid var(--line);font-size:12px;line-height:1.5;white-space:pre-wrap;word-break:break-word}
+.card.approval .ap-cmd{max-height:none;overflow:visible} /* a waiting command is shown whole (#4927) */
 .ap-form{display:flex;gap:6px;margin-top:12px}
 .ap-sub{font-size:13px;font-weight:600;margin:28px 0 8px}
 .ap-done{padding:0;list-style:none;margin:0}.ap-done>li+li{border-top:1px solid var(--line)}
@@ -1875,7 +1877,7 @@ window.inboxRefresh=async()=>{try{const r=await fetch('/api/inbox/count?tz='+tz)
   if(due>dgAt){if(dgAt&&dn&&can)new Notification(tr(dn===1?'{n} update since the last digest':'{n} updates since the last digest',{n:dn}),{body:(ns.digest_boards||[]).join(', '),tag:'inbox-digest'}).onclick=()=>{focus();location.href='/inbox'};
     dgAt=due;try{localStorage.setItem('inbox-dg-at',String(due))}catch{}}
   if(l&&l.created_at>seen){if(l.kind!=='manual_unread'&&seen&&(!l.interrupt||l.interrupt==='now')&&can&&!(document.visibilityState==='visible'&&location.pathname==='/b/'+l.board_id)){
-    const ap=l.kind==='approval',who=ap?'Your agent':l.actor_via==='agent'?l.actor+"'s agent":(l.actor_name||l.actor);
+    const ap=l.kind==='approval',who=ap?(l.push&&l.push.by?l.push.by+"'s agent":'Your agent'):l.actor_via==='agent'?l.actor+"'s agent":(l.actor_name||l.actor);
     const n=new Notification(who+(ap?' is asking for your approval':l.kind==='mention'?' mentioned you':l.kind==='decision'?' asks for a decision':l.kind==='reply'?' replied to you':l.kind==='friend_request'?' wants to be friends':l.kind==='friend_accept'?' accepted your request':l.kind==='report'?' reported a post to you, as an owner':' wrote to your agent'),{body:l.excerpt,tag:'inbox-'+l.id});
     n.onclick=()=>{window.focus();location.href=ap?'/approvals':l.board_id?'/b/'+l.board_id+'#e'+l.seq:'/people'}}
   seen=l.created_at;try{localStorage.setItem('inbox-seen',String(seen))}catch{}}}catch{}};
