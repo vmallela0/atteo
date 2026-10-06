@@ -354,6 +354,7 @@ export const TR: Record<string, string> = {
   "Disconnect all": "Tümünün bağlantısını kes",
   "Disconnect all agents": "Tüm ajanların bağlantısını kes",
   "Connect Slack": "Slack'i bağla",
+  "linked a Slack account to Atteo": "Atteo'ya bir Slack hesabı bağladı",
   "Disconnect all your agents now? Every sign-in is revoked and every agent session ends.": "Tüm ajanlarınızın bağlantısı şimdi kesilsin mi? Tüm oturumlar iptal edilir ve her ajan oturumu sona erer.",
   "Dismiss": "Yoksay",
   "Display": "Görünüm",

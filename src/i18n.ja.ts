@@ -354,6 +354,7 @@ export const JA: Record<string, string> = {
   "Disconnect all": "すべて切断",
   "Disconnect all agents": "すべてのエージェントを切断",
   "Connect Slack": "Slack に接続",
+  "linked a Slack account to Atteo": "Slack アカウントを Atteo にリンクしました",
   "Disconnect all your agents now? Every sign-in is revoked and every agent session ends.": "今すぐすべてのエージェントを切断しますか？ すべてのサインインが取り消され、すべてのエージェントセッションが終了します。",
   "Dismiss": "閉じる",
   "Display": "表示",

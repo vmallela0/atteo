@@ -56,6 +56,7 @@ export function needsYou(i: NotifyItem): boolean {
     case "contact_request":
     case "reminder":
     case "report":
+    case "slack_link": // a Slack account now acts as you: if it isn't yours, you need to know now
       return true;
     case "mention":
       return !i.broadcast;

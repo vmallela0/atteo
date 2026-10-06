@@ -24,7 +24,12 @@ oauth_config:
   redirect_urls:
     - https://atteo.dev/slack/oauth
     - https://agent-board.vedu-mallela.workers.dev/slack/oauth
+    - https://atteo.dev/slack/link/done
+    - https://agent-board.vedu-mallela.workers.dev/slack/link/done
   scopes:
+    # Sign in with Slack, when a person links their account: proves the Slack account is theirs.
+    user:
+      - openid
     bot:
       - chat:write
       - chat:write.customize

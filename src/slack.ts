@@ -25,7 +25,7 @@ import * as registry from "./registry";
 import * as sessions from "./sessions";
 import type { ApprovalRef, Entry, Env } from "./types";
 import { page, type Viewer } from "./ui";
-import { esc as html } from "./util";
+import { esc as html, offBoardSeq } from "./util";
 import * as core from "./slackCore";
 import { FAKE_TEAM, revoke, teamStub, type Job, type LinkRow, type SlackResp } from "./slackQueue";
 
@@ -51,6 +51,14 @@ export interface OAuthAnswer {
   authed_user?: { id: string };
 }
 
+/** Sign in with Slack (OpenID Connect): who the person proved they are on Slack. */
+export interface SlackIdentity {
+  ok: boolean;
+  error?: string;
+  team?: string;
+  user?: string;
+}
+
 export interface Bridge {
   db: D1Database;
   env: core.SlackEnv;
@@ -63,6 +71,8 @@ export interface Bridge {
   /** An answer through a response_url. */
   respond(team: string, url: string, body: Record<string, unknown>): Promise<void>;
   oauth(code: string, redirectUri: string): Promise<OAuthAnswer>;
+  /** Sign in with Slack's code → the Slack account that signed in. */
+  openid(code: string, redirectUri: string): Promise<SlackIdentity>;
   board: BoardOps;
 }
 
@@ -86,16 +96,36 @@ export function bridgeFor(env: Env, origin?: string): Bridge {
       const res = await fetch(core.SLACK_API + "oauth.v2.access", { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" }, body: form, signal: AbortSignal.timeout(10_000) });
       return ((await res.json().catch(() => null)) as OAuthAnswer | null) ?? { ok: false, error: `http_${res.status}` };
     },
+    async openid(code, redirectUri) {
+      // The stub: "fake:<team>/<user>" is whoever the local test says signed in.
+      if (fake && code.startsWith("fake:")) {
+        const [team, user] = code.slice(5).split("/");
+        return team && user ? { ok: true, team, user } : { ok: false, error: "invalid_code" };
+      }
+      const form = new URLSearchParams({ client_id: env.SLACK_CLIENT_ID ?? "", client_secret: env.SLACK_CLIENT_SECRET ?? "", code, redirect_uri: redirectUri });
+      const res = await fetch(core.SLACK_API + "openid.connect.token", { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" }, body: form, signal: AbortSignal.timeout(10_000) });
+      const r = (await res.json().catch(() => null)) as { ok?: boolean; error?: string; id_token?: string } | null;
+      if (!r?.ok || !r.id_token) return { ok: false, error: r?.error ?? `http_${res.status}` };
+      // The ID token came straight from Slack's token endpoint over TLS, for our client secret: its claims can be read
+      // without checking its signature (OpenID Connect Core §3.1.3.7).
+      try {
+        const claims = JSON.parse(atob(r.id_token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/"))) as Record<string, unknown>;
+        const team = claims["https://slack.com/team_id"], user = claims["https://slack.com/user_id"];
+        return typeof team === "string" && typeof user === "string" ? { ok: true, team, user } : { ok: false, error: "no_identity" };
+      } catch {
+        return { ok: false, error: "bad_id_token" };
+      }
+    },
     board: {
       async post(board, user, input, from) {
-        const e = await stubOf(env, board).post(user, { type: input.type, text: input.text, reply_to: input.reply_to ?? null, via: "person", client: "Slack" }, { slackFrom: from });
+        const e = await stubOf(env, board).post(user, { type: input.type, text: input.text, reply_to: input.reply_to ?? null, via: "person", client: "Slack" }, { slackFrom: from, origin: "slack" });
         await registry.bumpBoard(env, board, e.seq).catch(() => {});
         return e.seq;
       },
       setSlack: (board, on) => stubOf(env, board).setSlack(on),
       approvalDecided: async (board, ref) => void (await stubOf(env, board).approvalDecided(ref)),
       forYou: (board, user, since) => stubOf(env, board).forYou(user, since).catch(() => null),
-      notice: async (board, user, text) => void (await stubOf(env, board).notice(user, "Slack", text, { via: "agent", client: "Slack", session: null })),
+      notice: async (board, user, text) => void (await stubOf(env, board).notice(user, "Slack", text, { via: "agent", client: "Slack", session: null }, "slack")),
       agents: async (board) => {
         const now = Date.now();
         return (await sessions.onBoard(env, board)).filter((s) => sessions.present(s.last_seen, now)).map((s) => ({ user: s.user, name: s.name, client: s.client }));
@@ -489,6 +519,26 @@ async function onThreadReply(b: Bridge, team: string, ev: any): Promise<void> {
 
 const plain = (text: string): core.SlackMessage => ({ text: core.esc(text), blocks: [{ type: "section", text: { type: "mrkdwn", verbatim: true, text: core.esc(text) } }] });
 
+/**
+ * Links a Slack account to an Atteo person, and tells the person in their inbox (with where to unlink it). Never
+ * replaces a link: a Slack account already linked to someone else stays theirs until they unlink it (#5438).
+ */
+async function linkPerson(b: Bridge, o: { team: string; slackUser: string; enterprise: string | null; user: string; slackName: string | null }): Promise<"linked" | "same" | "taken"> {
+  const r = await b.db
+    .prepare(`INSERT INTO slack_people (team_id, slack_user, enterprise_id, user, created_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT(team_id, slack_user) DO NOTHING`)
+    .bind(o.team, o.slackUser, o.enterprise, o.user, b.now())
+    .run();
+  if (!(r.meta?.changes ?? 0)) return (await personOf(b, o.team, o.slackUser)) === o.user ? "same" : "taken";
+  const inst = await installOf(b, o.team);
+  const who = `${o.slackName ? `@${o.slackName}` : o.slackUser}${inst ? ` (${inst.team_name})` : ""}`;
+  await b.db
+    .prepare(`INSERT INTO notifications (user, board_id, seq, kind, actor, actor_via, entry_type, excerpt, created_at, read_at) VALUES (?, '', ?, 'slack_link', ?, 'person', 'slack_link', ?, ?, NULL)`)
+    .bind(o.user, offBoardSeq(), o.user, `Slack ${who} now acts as you on Atteo. Not you? Unlink it in Slack accounts.`.slice(0, 180), b.now())
+    .run()
+    .catch(logged("slack link notice"));
+  return "linked";
+}
+
 /** "Connect your Atteo account": a single-use link to a signed-in page that makes the link. */
 async function connectMessage(b: Bridge, team: string, slackUser: string, slackName: string | null, enterprise: string | null, why = "Link your Slack account to Atteo once, so replies and buttons here act as you."): Promise<core.SlackMessage> {
   let name = slackName;
@@ -633,21 +683,8 @@ async function waitingItems(b: Bridge, team: string, me: string) {
 
 function waitingBlocks(b: Bridge, w: Awaited<ReturnType<typeof waitingItems>>): unknown[] {
   const blocks: unknown[] = [];
-  for (const a of w.aps.slice(0, 8)) {
-    const url = `${b.origin}/approvals#${a.id}`;
-    blocks.push({ type: "section", text: { type: "mrkdwn", verbatim: true, text: `🔐 *${core.esc(approvals.askerOf(a))}* asks: ${core.esc(a.title)}${a.risk === "high" ? " · 🔴 high risk" : ""}` } });
-    blocks.push({
-      type: "actions",
-      elements:
-        a.risk === "high"
-          ? [{ type: "button", text: { type: "plain_text", text: "Review in Atteo" }, url, action_id: "open" }]
-          : [
-              { type: "button", text: { type: "plain_text", text: "Approve" }, action_id: "approve", value: a.id, style: "primary" },
-              { type: "button", text: { type: "plain_text", text: "Deny" }, action_id: "deny", value: a.id, style: "danger" },
-              { type: "button", text: { type: "plain_text", text: "Open" }, url, action_id: "open" },
-            ],
-    });
-  }
+  // Each approval as its DM shows it: the whole request, and Approve / Deny only when all of it fits (#5438).
+  for (const a of w.aps.slice(0, 8)) blocks.push(...core.approvalDm(a, { boardTitle: null, url: `${b.origin}/approvals#${a.id}`, asker: approvals.askerOf(a) }).blocks);
   for (const q of w.asks.slice(0, 10)) {
     blocks.push({
       type: "section",
@@ -712,7 +749,8 @@ export async function onAction(b: Bridge, payload: any): Promise<void> {
     case "answer":
       return openAnswer(b, team, slackUser, String(act.value ?? ""), payload);
     case "link_board":
-      return linkFromButton(b, team, slackUser, String(act.value ?? ""), payload);
+    case "link_board_confirm":
+      return linkFromButton(b, team, slackUser, String(act.value ?? ""), payload, act.action_id === "link_board_confirm");
   }
 }
 
@@ -728,7 +766,11 @@ export async function decideFromSlack(b: Bridge, team: string, slackUser: string
   if (!a) return tellClicker(b, team, payload, plain("No such approval."));
   if (a.user !== me) return tellClicker(b, team, payload, plain(`Not yours: only ${a.user} can decide this.`));
   const url = `${b.origin}/approvals#${a.id}`;
-  if (a.risk === "high") return tellClicker(b, team, payload, { text: "High risk: decide in Atteo", blocks: [{ type: "section", text: { type: "mrkdwn", verbatim: true, text: "High-risk approvals are decided in Atteo, where the whole command or diff is." }, accessory: { type: "button", text: { type: "plain_text", text: "Review in Atteo" }, url, action_id: "open" } }] });
+  // High risk, or too long to have shown whole in Slack: decided in Atteo only, whatever an old message offered.
+  if (!core.decidableInSlack(a)) {
+    const why = a.risk === "high" ? "High-risk approvals are decided in Atteo, where the whole command or diff is." : "This one is too long to show in Slack in full, so it's decided in Atteo, where all of it is.";
+    return tellClicker(b, team, payload, { text: "Decide in Atteo", blocks: [{ type: "section", text: { type: "mrkdwn", verbatim: true, text: why }, accessory: { type: "button", text: { type: "plain_text", text: "Review in Atteo" }, url, action_id: "open" } }] });
+  }
   let decided: approvals.Approval;
   try {
     decided = await approvals.decide({ DB: b.db } as Env, me, a.id, approve, "", null, `slack:${team}/${slackUser}`);
@@ -787,14 +829,32 @@ export async function onSubmit(b: Bridge, payload: any): Promise<Response> {
   return empty();
 }
 
-async function linkFromButton(b: Bridge, team: string, slackUser: string, board: string, payload: any): Promise<void> {
+/**
+ * /atteo link's Link button. Like the web picker, a channel with more people than the board, or shared with other
+ * organizations, asks once more who will read it (#5439) before anything is posted there.
+ */
+async function linkFromButton(b: Bridge, team: string, slackUser: string, board: string, payload: any, confirmed = false): Promise<void> {
   const me = await personOf(b, team, slackUser);
   if (!me) return;
   const row = await linkable(b, board, me);
   if (typeof row === "string") return tellClicker(b, team, payload, plain(row));
   const info = await b.call(team, "conversations.info", { channel: payload.channel?.id, include_num_members: true });
   if (!info.ok) return tellClicker(b, team, payload, plain(`Slack couldn't find this channel (${info.error ?? "error"}). Invite Atteo to it first.`));
-  const why = await linkChannel(b, { team, channel: info.channel as ChannelInfo, board: row, user: me, lane: "decisions" });
+  const ch = info.channel as ChannelInfo;
+  const members = (await b.db.prepare(`SELECT COUNT(*) AS n FROM members WHERE board_id = ?`).bind(row.id).first<{ n: number }>())?.n ?? 0;
+  if (!confirmed && (ch.is_ext_shared || (ch.num_members ?? 0) > members)) {
+    const who = `#${ch.name} has ${ch.num_members ?? "several"} people${ch.is_ext_shared ? " and is shared with other organizations" : ""}; ${row.title} has ${members} ${members === 1 ? "member" : "members"}.`;
+    const ask: core.SlackMessage = {
+      text: "Who will read it?",
+      blocks: [
+        { type: "section", text: { type: "mrkdwn", verbatim: true, text: core.esc(`*Who will read it?* ${who} Everyone in the channel will see the board's questions, approval statuses and handoffs, and a digest of the rest. Only the board's members can answer or decide.`) } },
+        { type: "actions", elements: [{ type: "button", text: { type: "plain_text", text: `Connect #${core.plainName(ch.name, 60)}` }, action_id: "link_board_confirm", value: row.id, style: "primary" }] },
+      ],
+    };
+    if (payload.response_url) return b.respond(team, payload.response_url, { replace_original: true, ...core.postFields(ask) });
+    return tellClicker(b, team, payload, ask);
+  }
+  const why = await linkChannel(b, { team, channel: ch, board: row, user: me, lane: "decisions" });
   const m = plain(why ?? `Linked: this channel now follows ${row.title}.`);
   if (payload.response_url) await b.respond(team, payload.response_url, { replace_original: true, ...core.postFields(m) });
 }
@@ -879,7 +939,8 @@ export async function oauthDone(b: Bridge, viewer: Viewer, url: URL): Promise<Re
     .bind(team, r.enterprise?.id ?? null, String(r.team.name ?? team).slice(0, 120), r.bot_user_id, await core.sealToken(b.env, r.access_token), viewer.name, b.now())
     .run();
   // The installer signed in to both: that's the person link, made here.
-  if (r.authed_user?.id) await b.db.prepare(`INSERT OR REPLACE INTO slack_people (team_id, slack_user, enterprise_id, user, created_at) VALUES (?, ?, ?, ?, ?)`).bind(team, r.authed_user.id, r.enterprise?.id ?? null, viewer.name, b.now()).run();
+  // (Slack's own consent screen proved who they are; a Slack account already linked to someone else stays theirs.)
+  if (r.authed_user?.id) await linkPerson(b, { team, slackUser: r.authed_user.id, enterprise: r.enterprise?.id ?? null, user: viewer.name, slackName: null });
   await b.db.prepare(`UPDATE slack_links SET paused = NULL WHERE team_id = ? AND paused = 'disconnected'`).bind(team).run();
   return pickerPage(b, viewer, n.board_id, team);
 }
@@ -938,22 +999,70 @@ export async function pickChannel(b: Bridge, viewer: Viewer, form: Record<string
   return msgPage(viewer, "Connected", `#${ch.name} now follows ${row.title}. Replies in its threads post here as their linked person.`, 200, `<div class="row" style="justify-content:flex-end;gap:8px;margin-top:16px"><a class="btn" href="/slack/board/${html(row.id)}">Slack settings</a><a class="btn primary" href="/b/${html(row.id)}">Back to the board</a></div>`);
 }
 
-/** "Connect your Atteo account": shown signed in, linked on one click. */
-export async function personLinkPage(b: Bridge, viewer: Viewer, nonce: string, method: string): Promise<Response> {
+/**
+ * "Connect your Atteo account", signed in on Atteo. The link alone proves nothing (anyone can forward theirs), so the
+ * person also signs in with Slack, and the Slack account they prove must be the one the link was made for (#5438).
+ */
+export async function personLinkPage(b: Bridge, viewer: Viewer, nonce: string, method: string, request?: Request): Promise<Response> {
   const n = method === "POST" ? await takeNonce(b, nonce, "person") : await peekNonce(b, nonce, "person");
   if (!n || !n.team_id || !n.slack_user) return msgPage(viewer, "This link expired", "Type /atteo in Slack for a new one.", 400);
   const inst = await installOf(b, n.team_id);
   const where = `${n.slack_name ? `@${n.slack_name}` : "your Slack account"}${inst ? ` (${inst.team_name})` : ""}`;
   if (method === "POST") {
-    await b.db.prepare(`INSERT OR REPLACE INTO slack_people (team_id, slack_user, enterprise_id, user, created_at) VALUES (?, ?, ?, ?, ?)`).bind(n.team_id, n.slack_user, n.enterprise_id, viewer.name, b.now()).run();
-    await publishHome(b, n.team_id, n.slack_user).catch(() => {});
-    return msgPage(viewer, "Linked", `Slack ${where} now acts as ${viewer.name} on Atteo: replies in bridged threads post as you, and your approval buttons work. Go back to Slack.`);
+    const state = await newNonce(b, { kind: "person_sso", user: viewer.name, team_id: n.team_id, slack_user: n.slack_user, slack_name: n.slack_name, enterprise_id: n.enterprise_id });
+    if (core.fakeSlack(b.env, request)) return redirect(`/slack/link/done?code=${encodeURIComponent(`fake:${n.team_id}/${n.slack_user}`)}&state=${state}`, 303);
+    const q = new URLSearchParams({ response_type: "code", scope: "openid", client_id: b.env.SLACK_CLIENT_ID ?? "", redirect_uri: `${b.origin}/slack/link/done`, state, nonce: state, team: n.team_id });
+    return redirect(`https://slack.com/openid/connect/authorize?${q}`, 303);
   }
   return page(
     "Link Slack · Atteo",
     `<div class="card pad" style="max-width:520px;margin:24px auto 0"><p class="small muted">Connect your Atteo account</p><h1 style="font-size:20px;margin-top:4px">Link Slack ${html(where)} to Atteo ${html(viewer.name)}?</h1>
-<p class="muted" style="margin-top:8px">Replies you write in Slack threads will post on Atteo as you, and Approve / Deny in your Slack DMs will decide as you. Only link an account that's yours.</p>
-<form method="post" action="/slack/link/${html(nonce)}" style="margin-top:16px"><div class="row" style="justify-content:flex-end;gap:8px"><a class="btn" href="/">Cancel</a><button class="btn primary">Link</button></div></form></div>`,
+<p class="muted" style="margin-top:8px">Replies you write in Slack threads will post on Atteo as you, and Approve / Deny in your Slack DMs will decide as you. Slack asks you to sign in next, to prove the account is yours.</p>
+<form method="post" action="/slack/link/${html(nonce)}" style="margin-top:16px"><div class="row" style="justify-content:flex-end;gap:8px"><a class="btn" href="/">Cancel</a><button class="btn primary">Continue with Slack</button></div></form></div>`,
+    { viewer, narrow: true },
+  );
+}
+
+/** Back from Sign in with Slack: link only when the Slack account that signed in is the one the link was made for. */
+export async function personLinkDone(b: Bridge, viewer: Viewer, url: URL): Promise<Response> {
+  const n = await takeNonce(b, url.searchParams.get("state") ?? "", "person_sso");
+  if (url.searchParams.get("error")) return msgPage(viewer, "Nothing was linked", url.searchParams.get("error") === "access_denied" ? "You cancelled on Slack's side." : `Slack said: ${url.searchParams.get("error")}.`);
+  if (!n || n.user !== viewer.name || !n.team_id || !n.slack_user) return msgPage(viewer, "This link expired", "Type /atteo in Slack for a new one.", 400);
+  const id = await b.openid(url.searchParams.get("code") ?? "", `${b.origin}/slack/link/done`);
+  if (!id.ok) return msgPage(viewer, "Nothing was linked", `Slack couldn't confirm who you are (${id.error ?? "error"}). Type /atteo in Slack for a new link.`, 502);
+  if (id.team !== n.team_id || id.user !== n.slack_user)
+    return msgPage(viewer, "Nothing was linked", "This link was made for a different Slack account than the one you signed in with. Only link your own: type /atteo in Slack yourself for your link.", 403);
+  const inst = await installOf(b, n.team_id);
+  const where = `${n.slack_name ? `@${n.slack_name}` : "your Slack account"}${inst ? ` (${inst.team_name})` : ""}`;
+  const r = await linkPerson(b, { team: n.team_id, slackUser: n.slack_user, enterprise: n.enterprise_id, user: viewer.name, slackName: n.slack_name });
+  if (r === "taken") return msgPage(viewer, "Nothing was linked", `Slack ${where} is linked to another Atteo account. It stays theirs until it's unlinked there (/atteo signout in Slack).`, 409);
+  await publishHome(b, n.team_id, n.slack_user).catch(() => {});
+  return msgPage(viewer, "Linked", `Slack ${where} now acts as ${viewer.name} on Atteo: replies in bridged threads post as you, and your approval buttons work. Go back to Slack.`, 200, `<div class="row" style="justify-content:flex-end;margin-top:16px"><a class="btn" href="/slack/accounts">Slack accounts</a></div>`);
+}
+
+/** The Slack accounts that act as this person on Atteo, each with Unlink. */
+export async function accountsPage(b: Bridge, viewer: Viewer, method: string, form: Record<string, string>): Promise<Response> {
+  if (method === "POST" && form.op === "unlink") {
+    const gone = await b.db.prepare(`DELETE FROM slack_people WHERE team_id = ? AND slack_user = ? AND user = ?`).bind(form.team ?? "", form.slack_user ?? "", viewer.name).run();
+    if (gone.meta?.changes) await publishHome(b, form.team ?? "", form.slack_user ?? "").catch(() => {});
+    return redirect("/slack/accounts", 303);
+  }
+  const rows = (
+    await b.db
+      .prepare(`SELECT p.team_id, p.slack_user, p.created_at, i.team_name FROM slack_people p LEFT JOIN slack_installs i ON i.team_id = p.team_id WHERE p.user = ? ORDER BY p.created_at DESC LIMIT 50`)
+      .bind(viewer.name)
+      .all<{ team_id: string; slack_user: string; created_at: number; team_name: string | null }>()
+  ).results;
+  const list = rows
+    .map(
+      (r) =>
+        `<li class="row" style="justify-content:space-between;padding:10px 0;border-top:1px solid var(--line)"><div><b>${html(r.team_name ?? r.team_id)}</b> <span class="muted small">${html(r.slack_user)} · linked ${html(new Date(r.created_at).toISOString().slice(0, 10))}</span></div><form method="post" style="margin:0"><input type="hidden" name="op" value="unlink"><input type="hidden" name="team" value="${html(r.team_id)}"><input type="hidden" name="slack_user" value="${html(r.slack_user)}"><button class="btn sm danger">Unlink</button></form></li>`,
+    )
+    .join("");
+  return page(
+    "Slack accounts · Atteo",
+    `<div class="card pad" style="max-width:560px;margin:24px auto 0"><h1 style="font-size:20px">Slack accounts</h1><p class="muted" style="margin-top:6px">These Slack accounts act as you on Atteo: their thread replies post as you and their approval buttons decide as you. Unlink any you don't recognize.</p>
+${rows.length ? `<ul style="list-style:none;padding:0;margin:14px 0 0">${list}</ul>` : `<p class="muted" style="margin-top:12px">No Slack account is linked.</p>`}</div>`,
     { viewer, narrow: true },
   );
 }
@@ -1030,8 +1139,10 @@ export async function route(request: Request, env: Env, ctx: Later, path: string
   if (path === "/slack/connect" && method === "GET") return connectPage(b, viewer, url, request);
   if (path === "/slack/oauth" && method === "GET") return oauthDone(b, viewer, url);
   if (path === "/slack/pick" && method === "POST") return pickChannel(b, viewer, form);
+  if (path === "/slack/link/done" && method === "GET") return personLinkDone(b, viewer, url);
+  if (path === "/slack/accounts" && (method === "GET" || method === "POST")) return accountsPage(b, viewer, method, form);
   let m = path.match(/^\/slack\/link\/([0-9a-f]{36})$/);
-  if (m && (method === "GET" || method === "POST")) return personLinkPage(b, viewer, m[1], method);
+  if (m && (method === "GET" || method === "POST")) return personLinkPage(b, viewer, m[1], method, request);
   m = path.match(/^\/slack\/board\/(b_[a-z0-9]{8,32})$/);
   if (m && (method === "GET" || method === "POST")) return boardSettings(b, viewer, m[1], method, form);
   return notFound();

@@ -159,9 +159,12 @@ export function fromSlack(text: string, people: Map<string, string>): string {
 export type Lane = "decisions" | "everything";
 export type Route = "own" | "thread" | "digest" | "skip";
 
-/** Who wrote it, in words, for the context line and the username. PACT replies are an outside agent's. */
-export function authorLabel(e: Pick<Entry, "author" | "via" | "client">): { username: string; context: string } {
-  const outside = /\bPACT\b/.test(e.client ?? "");
+/**
+ * Who wrote it, in words, for the context line and the username. PACT replies are an outside agent's: known by the
+ * server-set origin, never by the client name, which an agent chooses (#5439).
+ */
+export function authorLabel(e: Pick<Entry, "author" | "via" | "client" | "origin">): { username: string; context: string } {
+  const outside = e.origin === "pact";
   if (e.via === "agent") {
     const client = e.client ? plainName(e.client, 30) : "";
     return { username: plainName(outside ? `${e.author}'s outside agent` : `${e.author}'s agent${client ? ` (${client})` : ""}`), context: outside ? "🤖 Outside agent, via PACT" : "🤖 Agent on Atteo" };
@@ -183,7 +186,7 @@ export function actionable(e: Entry, linked: Set<string>): boolean {
  * counted in the digest. `root` is the top of its reply chain (null when it's a root itself).
  */
 export function routeOf(e: Entry, root: Entry | null, lane: Lane, linked: Set<string>): Route {
-  if (e.via === "agent" && e.client === "Slack") return "skip";
+  if (e.via === "agent" && e.origin === "slack") return "skip"; // the bridge's own notices (server-set, #5439)
   if (flagOf(e)) return "digest";
   if (root) {
     if (flagOf(root)) return "digest";
@@ -277,22 +280,44 @@ export interface ApprovalDetail {
   note?: string | null;
 }
 
-/** The owner's DM: everything to decide on, with Approve / Deny, except high risk, which only opens Atteo. */
+// What an approval DM shows uncut. Longer, and Slack can't decide it: nobody approves what they couldn't see (#5438).
+export const DM_COMMAND_MAX = 2500; // the command, in a preformatted block of its own
+export const DM_DETAILS_MAX = 2000; // the details, escaped, under the heading (the section's 3000 less room for the rest)
+const DM_TITLE_MAX = 300;
+const DM_TOOL_MAX = 100;
+
+/**
+ * Whether Approve / Deny can be offered in Slack: not high risk, and the title, tool, command and details all show in
+ * full. decideFromSlack checks the same, so an old DM (or a forged click) can't decide one that wouldn't fit.
+ */
+export function decidableInSlack(a: Pick<ApprovalDetail, "risk" | "title" | "details" | "tool" | "command">): boolean {
+  return a.risk !== "high" && (a.command ?? "").length <= DM_COMMAND_MAX && esc(a.details ?? "").length <= DM_DETAILS_MAX && esc(a.title ?? "").length <= DM_TITLE_MAX && esc(a.tool ?? "").length <= DM_TOOL_MAX;
+}
+
+/**
+ * The owner's DM: everything to decide on, with Approve / Deny; high risk, or too long to show whole, only opens Atteo.
+ * The command is a preformatted rich-text block: its characters are shown as they are (``` can't close it, and
+ * nothing in it is a ping or a link).
+ */
 export function approvalDm(a: ApprovalDetail, o: { boardTitle: string | null; url: string; asker: string; via?: string | null }): SlackMessage {
   const open = a.status === "pending";
+  const whole = decidableInSlack(a);
   const risk = a.risk === "high" ? "🔴 High risk" : a.risk === "low" ? "🟢 Low risk" : "🟠 Medium risk";
-  const what = a.command ? `\n\`\`\`${esc(a.command.slice(0, 1500))}\`\`\`` : "";
-  const details = a.details ? `\n${esc(a.details.slice(0, 1200))}` : "";
-  const head = `🔐 *${esc(o.asker)}* asks: *${esc(a.title)}*\n${risk}${a.tool ? ` · ${esc(a.tool)}` : ""}${o.boardTitle ? ` · ${esc(o.boardTitle)}` : ""}`;
+  const details = a.details ? `\n${esc(whole ? a.details : a.details.slice(0, DM_DETAILS_MAX - 100))}${whole ? "" : "…"}` : "";
+  const head = `🔐 *${esc(o.asker)}* asks: *${esc(a.title.slice(0, DM_TITLE_MAX))}*\n${risk}${a.tool ? ` · ${esc(a.tool.slice(0, DM_TOOL_MAX))}` : ""}${o.boardTitle ? ` · ${esc(excerpt(o.boardTitle, 120))}` : ""}`;
   const done = open ? "" : `\n${a.status === "approved" ? "✅ Approved" : a.status === "rejected" ? "❌ Denied" : "⌛ Timed out (denied)"}${o.via?.startsWith("slack:") ? " in Slack" : ""}`;
-  const blocks: unknown[] = [{ type: "section", text: mrkdwn(cut(head + what + details + done, MAX_TEXT, o.url)) }];
+  const blocks: unknown[] = [{ type: "section", text: mrkdwn(cut(head + details + done, MAX_TEXT, o.url)) }];
+  if (a.command) {
+    const shown = a.command.length > DM_COMMAND_MAX ? a.command.slice(0, DM_COMMAND_MAX) + "\n…" : a.command;
+    blocks.push({ type: "rich_text", elements: [{ type: "rich_text_preformatted", elements: [{ type: "text", text: shown }] }] });
+  }
+  if (open && !whole && a.risk !== "high") blocks.push({ type: "context", elements: [mrkdwn("Too long to show here in full: review and decide it in Atteo.")] });
   if (open)
     blocks.push({
       type: "actions",
-      elements:
-        a.risk === "high"
-          ? [button("Review in Atteo", { url: o.url, action: "open", style: "primary" })]
-          : [button("Approve", { action: "approve", value: a.id, style: "primary" }), button("Deny", { action: "deny", value: a.id, style: "danger" }), button("Open in Atteo", { url: o.url, action: "open" })],
+      elements: whole
+        ? [button("Approve", { action: "approve", value: a.id, style: "primary" }), button("Deny", { action: "deny", value: a.id, style: "danger" }), button("Open in Atteo", { url: o.url, action: "open" })]
+        : [button("Review in Atteo", { url: o.url, action: "open", style: "primary" })],
     });
   return { text: `${esc(o.asker)} asks: ${esc(a.title)}`, blocks };
 }
