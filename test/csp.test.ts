@@ -211,12 +211,14 @@ describe("CSP follow-ups (opus-b #2678, jxn's agent #2681)", () => {
 
   it("page styles live in /app.css and page-only sheets; leftover <style> tags take the page nonce (csp.md #3)", async () => {
     expect(APP_CSS).not.toContain(".fy-askwrap{");
-    expect(APP_CSS).not.toContain(".gd-list{");
+    expect(APP_CSS).not.toContain(".gd-pager{");
+    expect(APP_CSS).not.toContain(".st-bar{");
     expect(APP_CSS).not.toContain(".ask-mic{");
-    expect(APP_CSS).not.toContain(".docs .tool{");
-    expect(PAGE_CSS["/guide.css"]).toContain(".gd-list{");
+    expect(APP_CSS).not.toContain(".dx .tool{");
+    expect(PAGE_CSS["/guide.css"]).toContain(".gd-pager{");
+    expect(PAGE_CSS["/site.css"]).toContain(".st-bar{");
     expect(PAGE_CSS["/ask.css"]).toContain(".ask-mic{");
-    expect(PAGE_CSS["/docs.css"]).toContain(".docs .tool{");
+    expect(PAGE_CSS["/docs.css"]).toContain(".dx .tool{");
     expect(GUIDE_CSS_SRC).toMatch(/^\/guide\.css\?v=/);
     expect(ASK_CSS_SRC).toMatch(/^\/ask\.css\?v=/);
     expect(DOC_CSS_SRC).toMatch(/^\/docs\.css\?v=/);

@@ -13,7 +13,7 @@ import { MERMAID_CSS, MERMAID_JS, mermaidHtml } from "./mermaid";
 import { CODE_COLOR_CSS, CODE_COLOR_JS, fnv } from "./codecolor";
 import { TALK_CSS } from "./talk";
 import { AGENT_LOGO_CSS } from "./agent-logos";
-import { ASK_CSS, DOC_CSS, GUIDE_CSS } from "./pageCss";
+import { ASK_CSS, DOC_CSS, GUIDE_CSS, SITE_CSS } from "./pageCss";
 import { esc } from "./util";
 import { personHtml, shownName } from "./names";
 import { clientTable, dirOf, tr, type Lang } from "./i18n";
@@ -1381,6 +1381,60 @@ ${analyticsScriptTag(security.nonce)}<script src="${APP_JS_SRC}" nonce="${securi
   return new Response(html, { status: opts.status ?? 200, headers });
 }
 
+/** The public pages' places (board #5110). FAQ and Support are the landing Worker's (landing/src/index.ts), on atteo.dev. */
+export type SitePlace = "guide" | "docs" | "faq" | "support" | "privacy" | "terms";
+const SITE_HOST = "https://atteo.dev";
+const MENU_ICON = `<svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" aria-hidden="true"><path d="M2.5 4.5h11M2.5 8h11M2.5 11.5h11"/></svg>`;
+
+/**
+ * A public page (board #5110): /guide, /docs, /privacy and /terms. The wordmark and Guide · Docs · FAQ · Support with
+ * Sign in on top (signed in, Open Atteo goes back to the app), © and Privacy · Terms · Support at the foot. No sidebar:
+ * the page's own nav is in `body`. `t` translates the frame's words (the guide's language); English otherwise.
+ */
+export function sitePage(
+  title: string,
+  body: string,
+  opts: { current: SitePlace; signedIn: boolean; lang?: Lang; t?: (s: string) => string; script?: string; headers?: HeadersInit; css?: string[] },
+): Response {
+  const t = opts.t ?? ((s: string) => s);
+  const security = pageSecurity();
+  const href: Record<SitePlace, string> = { guide: "/guide", docs: "/docs", faq: `${SITE_HOST}/faq`, support: `${SITE_HOST}/support`, privacy: "/privacy", terms: "/terms" };
+  const word: Record<SitePlace, string> = { guide: "Guide", docs: "Docs", faq: "FAQ", support: "Support", privacy: "Privacy", terms: "Terms" };
+  const link = (k: SitePlace) => `<a href="${href[k]}"${opts.current === k ? ' aria-current="page"' : ""}>${esc(t(word[k]))}</a>`;
+  const top = (["guide", "docs", "faq", "support"] as const).map(link).join("");
+  const pill = opts.signedIn ? `<a class="st-pill" href="/">${esc(t("Open Atteo"))}</a>` : `<a class="st-pill" href="/auth/login">${esc(t("Sign in"))}</a>`;
+  const lang = opts.lang ?? "en";
+  const html = styleNonce(`<!doctype html><html lang="${lang}"${dirOf(lang) === "rtl" ? ' dir="rtl"' : ""}><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>${esc(title)}</title>
+${FONT_PRELOAD}
+<link rel="icon" href="${FAVICON_SRC}" type="image/svg+xml"><link rel="apple-touch-icon" href="${APPLE_TOUCH_SRC}">
+<link rel="stylesheet" href="${APP_CSS_SRC}"><link rel="stylesheet" href="${SITE_CSS_SRC}">${extraCss(opts.css)}${DISPLAY_HEAD.replace("<script>", `<script nonce="${security.nonce}">`)}</head><body class="site">
+<header class="st-bar"><div class="st-in"><a class="st-wm" href="/">atteo</a><nav class="st-links" aria-label="Atteo">${top}</nav>${pill}<details class="st-menu"><summary>${MENU_ICON}<span class="st-sr">${esc(t("Menu"))}</span></summary><nav aria-label="Atteo">${top}</nav></details></div></header>
+<main class="st-main">${body}</main>
+<footer class="st-foot"><div class="st-in"><span>© 2026 Atteo</span><nav aria-label="${esc(t("Support"))}">${(["privacy", "terms", "support"] as const).map(link).join("")}</nav></div></footer>
+<div id="toast" role="status" aria-live="polite"></div>
+${analyticsScriptTag(security.nonce)}<script src="${APP_JS_SRC}" nonce="${security.nonce}"></script>${opts.script ? `<script nonce="${security.nonce}">${opts.script}</script>` : ""}</body></html>`, security.nonce);
+  const headers = new Headers(opts.headers);
+  headers.set("content-type", "text/html; charset=utf-8");
+  // The page's own cache-control (Docs is public for a few minutes) wins over the private default.
+  for (const [name, value] of Object.entries(security.headers)) if (name !== "cache-control" || !headers.has(name)) headers.set(name, value);
+  return new Response(html, { headers });
+}
+
+/** A page's side nav: groups of links, drawn twice, beside the content and as a Contents dropdown above it on a phone
+ *  (CSS shows one). `extra` classes the nav (Terms numbers its list). */
+export function siteNav(label: string, groups: { title?: string; links: { href: string; text: string; current?: boolean }[]; ordered?: boolean }[], extra = ""): { side: string; toc: string } {
+  const inner = groups
+    .map((g) => {
+      const tag = g.ordered ? "ol" : "ul";
+      const items = g.links.map((l) => `<li><a href="${esc(l.href)}"${l.current ? ' aria-current="true"' : ""}>${esc(l.text)}</a></li>`).join("");
+      return `${g.title ? `<span class="st-group">${esc(g.title)}</span>` : ""}<${tag}>${items}</${tag}>`;
+    })
+    .join("");
+  const nav = `<nav class="st-nav${extra ? ` ${extra}` : ""}" aria-label="${esc(label)}">${inner}</nav>`;
+  return { side: `<aside class="st-side">${nav}</aside>`, toc: `<details class="st-toc"><summary>${esc(label)}</summary>${nav}</details>` };
+}
+
 // ---------- components ----------
 
 export function hue(name: string): number {
@@ -1709,7 +1763,8 @@ document.addEventListener('auxclick',e=>{if(e.button!==1)return;const t=e.target
 export const APP_JS = CLIENT_JS + STRIP_JS;
 export const APP_JS_SRC = `/app.js?v=${fnv(APP_JS)}`;
 /** Page-only stylesheets (Guide / Ask / Docs). Kept off /app.css so board and inbox stay in the CSS budget. */
-export const PAGE_CSS: Record<string, string> = { "/guide.css": GUIDE_CSS, "/ask.css": ASK_CSS, "/docs.css": DOC_CSS };
+export const PAGE_CSS: Record<string, string> = { "/site.css": SITE_CSS, "/guide.css": GUIDE_CSS, "/ask.css": ASK_CSS, "/docs.css": DOC_CSS };
+export const SITE_CSS_SRC = `/site.css?v=${fnv(SITE_CSS)}`;
 export const GUIDE_CSS_SRC = `/guide.css?v=${fnv(GUIDE_CSS)}`;
 export const ASK_CSS_SRC = `/ask.css?v=${fnv(ASK_CSS)}`;
 export const DOC_CSS_SRC = `/docs.css?v=${fnv(DOC_CSS)}`;

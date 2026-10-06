@@ -123,6 +123,13 @@ const KEYS = [
   "The Frozen column parks tasks for the far future. Frozen tasks don't count as open work and can't be claimed. Use atteo task freeze N and atteo task unfreeze N, or move the card in the Tasks tab.",
   "Typing indicators",
   "The \"is typing\" indicator shows only where the typing is happening — in the main chat or in that specific thread — so you know which conversation someone is writing in.",
+  "Contents",
+  "Previous",
+  "Next",
+  "Docs",
+  "FAQ",
+  "Support",
+  "Open Atteo",
 ];
 
 const ZH_HANS = [
@@ -246,6 +253,13 @@ const ZH_HANS = [
   "“冻结”列用于将任务搁置到遥远的未来。冻结的任务不计入待办工作，也无法被认领。使用 atteo task freeze N 和 atteo task unfreeze N，或在“任务”标签页中移动卡片。",
   "输入指示器",
   "“正在输入”指示器只显示输入发生的位置——在主聊天区或特定话题中——让你知道对方正在哪个对话中写字。",
+  "目录",
+  "上一页",
+  "下一页",
+  "文档",
+  "常见问题",
+  "支持",
+  "打开 Atteo",
 ];
 
 const ZH_HANT = [
@@ -369,6 +383,13 @@ const ZH_HANT = [
   "「凍結」欄用於將任務擱置到遙遠的未來。凍結的任務不計入待辦工作，也無法被認領。使用 atteo task freeze N 和 atteo task unfreeze N，或在「任務」標籤頁中移動卡片。",
   "輸入指示器",
   "「正在輸入」指示器只顯示輸入發生的位置——在主聊天區或特定討論串中——讓你知道對方正在哪個對話中打字。",
+  "目錄",
+  "上一頁",
+  "下一頁",
+  "文件",
+  "常見問題",
+  "支援",
+  "開啟 Atteo",
 ];
 
 const ES = [
@@ -492,6 +513,13 @@ const ES = [
   "La columna Congelado archiva tareas para el futuro lejano. Las tareas congeladas no cuentan como trabajo abierto y no se pueden reclamar. Usa atteo task freeze N y atteo task unfreeze N, o mueve la tarjeta en la pestaña Tareas.",
   "Indicadores de escritura",
   "El indicador \"está escribiendo\" solo muestra dónde ocurre la escritura — en el chat principal o en ese hilo específico — para que sepas en qué conversación está escribiendo alguien.",
+  "Contenido",
+  "Anterior",
+  "Siguiente",
+  "Documentación",
+  "Preguntas frecuentes",
+  "Soporte",
+  "Abrir Atteo",
 ];
 
 const FR = [
@@ -615,6 +643,13 @@ const FR = [
   "La colonne Gelé archive les tâches pour le futur lointain. Les tâches gelées ne comptent pas comme travail ouvert et ne peuvent pas être réclamées. Utilisez atteo task freeze N et atteo task unfreeze N, ou déplacez la carte dans l'onglet Tâches.",
   "Indicateurs de saisie",
   "L'indicateur \"est en train d'écrire\" montre seulement où la saisie se produit — dans le chat principal ou dans ce fil spécifique — pour que vous sachiez dans quelle conversation quelqu'un écrit.",
+  "Sommaire",
+  "Précédent",
+  "Suivant",
+  "Documentation",
+  "FAQ",
+  "Assistance",
+  "Ouvrir Atteo",
 ];
 
 const JA = [
@@ -738,6 +773,13 @@ const JA = [
   "「凍結」列はタスクを遠い未来に先送りします。凍結されたタスクは未対応作業としてカウントされず、クレームもできません。atteo task freeze N および atteo task unfreeze N を使用するか、「タスク」タブでカードを移動してください。",
   "入力インジケーター",
   "「入力中」インジケーターは入力が発生している場所——メインチャットまたは特定のスレッド——のみを表示し、相手がどの会話で入力しているかがわかります。",
+  "目次",
+  "前へ",
+  "次へ",
+  "ドキュメント",
+  "よくある質問",
+  "サポート",
+  "Atteo を開く",
 ];
 
 const KO = [
@@ -861,6 +903,13 @@ const KO = [
   "동결 열은 먼 미래의 작업을 보관합니다. 동결된 작업은 열린 작업으로 세지 않으며 맡을 수 없습니다. atteo task freeze N과 atteo task unfreeze N을 쓰거나 작업 탭에서 카드를 옮기세요.",
   "입력 중 표시",
   "\"입력 중\" 표시는 입력이 일어나는 곳, 즉 메인 채팅이나 그 스레드에만 나타나서 누가 어느 대화에 쓰고 있는지 알 수 있습니다.",
+  "목차",
+  "이전",
+  "다음",
+  "문서",
+  "자주 묻는 질문",
+  "지원",
+  "Atteo 열기",
 ];
 
 const HI = [
@@ -984,6 +1033,13 @@ const HI = [
   "जमा हुआ कॉलम कामों को दूर के भविष्य के लिए रख देता है। जमे हुए काम खुले काम में नहीं गिने जाते और उन्हें लिया नहीं जा सकता। atteo task freeze N और atteo task unfreeze N चलाएँ, या काम टैब में कार्ड खिसकाएँ।",
   "टाइपिंग संकेत",
   "\"लिख रहे हैं\" संकेत सिर्फ़ वहीं दिखता है जहाँ लिखा जा रहा है — मुख्य चैट में या उसी थ्रेड में — ताकि आपको पता रहे कि कोई किस बातचीत में लिख रहा है।",
+  "विषय-सूची",
+  "पिछला",
+  "अगला",
+  "दस्तावेज़",
+  "अक्सर पूछे जाने वाले प्रश्न",
+  "सहायता",
+  "Atteo खोलें",
 ];
 
 const PT = [
@@ -1107,6 +1163,13 @@ const PT = [
   "A coluna Congeladas guarda tarefas para um futuro distante. Tarefas congeladas não contam como trabalho aberto e não podem ser assumidas. Use atteo task freeze N e atteo task unfreeze N, ou mova o cartão na aba Tarefas.",
   "Indicador de digitação",
   "O aviso \"está digitando\" aparece só onde a digitação acontece — no chat principal ou naquela conversa — para você saber em qual conversa alguém está escrevendo.",
+  "Conteúdo",
+  "Anterior",
+  "Próximo",
+  "Documentação",
+  "Perguntas frequentes",
+  "Suporte",
+  "Abrir o Atteo",
 ];
 
 const DE = [
@@ -1230,6 +1293,13 @@ const DE = [
   "Die Spalte Eingefroren parkt Aufgaben für die ferne Zukunft. Eingefrorene Aufgaben zählen nicht als offene Arbeit und können nicht übernommen werden. Nutze atteo task freeze N und atteo task unfreeze N oder verschiebe die Karte im Tab Aufgaben.",
   "Tippanzeige",
   "Die Anzeige „schreibt gerade“ erscheint nur dort, wo getippt wird — im Hauptchat oder in genau diesem Thread —, damit du weißt, in welchem Gespräch jemand schreibt.",
+  "Inhalt",
+  "Zurück",
+  "Weiter",
+  "Dokumentation",
+  "FAQ",
+  "Support",
+  "Atteo öffnen",
 ];
 
 const RU = [
@@ -1353,6 +1423,13 @@ const RU = [
   "Колонка «Заморожено» откладывает задачи на далёкое будущее. Замороженные задачи не считаются открытой работой, и их нельзя взять. Используйте atteo task freeze N и atteo task unfreeze N или перетащите карточку на вкладке «Задачи».",
   "Индикатор набора",
   "Индикатор «печатает» показывается только там, где идёт набор — в основном чате или в конкретной ветке, — чтобы было видно, в каком разговоре кто-то пишет.",
+  "Содержание",
+  "Назад",
+  "Далее",
+  "Документация",
+  "Вопросы и ответы",
+  "Поддержка",
+  "Открыть Atteo",
 ];
 
 const ID = [
@@ -1476,6 +1553,13 @@ const ID = [
   "Kolom Dibekukan menyimpan tugas untuk masa depan yang jauh. Tugas yang dibekukan tidak dihitung sebagai pekerjaan terbuka dan tidak bisa diambil. Gunakan atteo task freeze N dan atteo task unfreeze N, atau pindahkan kartu di tab Tugas.",
   "Indikator mengetik",
   "Indikator \"sedang mengetik\" hanya muncul di tempat orang mengetik — di obrolan utama atau di utas itu — sehingga Anda tahu di percakapan mana seseorang sedang menulis.",
+  "Daftar isi",
+  "Sebelumnya",
+  "Berikutnya",
+  "Dokumentasi",
+  "Tanya jawab",
+  "Dukungan",
+  "Buka Atteo",
 ];
 
 const TR = [
@@ -1599,6 +1683,13 @@ const TR = [
   "Dondurulanlar sütunu görevleri uzak bir geleceğe park eder. Dondurulmuş görevler açık iş sayılmaz ve üstlenilemez. atteo task freeze N ve atteo task unfreeze N komutlarını kullanın ya da kartı Görevler sekmesinde taşıyın.",
   "Yazıyor göstergesi",
   "\"Yazıyor\" göstergesi yalnızca yazmanın olduğu yerde görünür — ana sohbette ya da o başlıkta — böylece birinin hangi konuşmada yazdığını bilirsiniz.",
+  "İçindekiler",
+  "Önceki",
+  "Sonraki",
+  "Belgeler",
+  "SSS",
+  "Destek",
+  "Atteo'yu aç",
 ];
 
 const BN = [
@@ -1722,6 +1813,13 @@ const BN = [
   "জমানো কলাম কাজগুলোকে দূর ভবিষ্যতের জন্য সরিয়ে রাখে। জমিয়ে রাখা কাজ খোলা কাজ হিসেবে গোনা হয় না এবং কেউ নিতে পারে না। atteo task freeze N আর atteo task unfreeze N ব্যবহার করুন, বা কাজ ট্যাবে কার্ডটি সরান।",
   "টাইপ করার সংকেত",
   "\"লিখছেন\" সংকেত শুধু সেখানেই দেখায় যেখানে লেখা হচ্ছে — মূল চ্যাটে বা সেই থ্রেডে — যাতে বোঝা যায় কেউ কোন কথোপকথনে লিখছেন।",
+  "সূচিপত্র",
+  "আগের",
+  "পরের",
+  "ডকুমেন্টেশন",
+  "সাধারণ প্রশ্ন",
+  "সহায়তা",
+  "Atteo খুলুন",
 ];
 
 const AR = [
@@ -1845,6 +1943,13 @@ const AR = [
   "يركن عمود «مجمّدة» المهام للمستقبل البعيد. لا تُحسب المهام المجمّدة عملًا مفتوحًا ولا يمكن تولّيها. استخدم atteo task freeze N وatteo task unfreeze N، أو انقل البطاقة في تبويب المهام.",
   "مؤشر الكتابة",
   "يظهر مؤشر «يكتب الآن» فقط حيث تجري الكتابة — في الدردشة الرئيسية أو في تلك السلسلة — لتعرف في أي محادثة يكتب أحدهم.",
+  "المحتويات",
+  "السابق",
+  "التالي",
+  "المستندات",
+  "الأسئلة الشائعة",
+  "الدعم",
+  "افتح Atteo",
 ];
 
 const table = (vals: string[]) => Object.fromEntries(KEYS.map((k, i) => [k, vals[i]]));

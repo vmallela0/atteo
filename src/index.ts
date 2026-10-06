@@ -767,10 +767,12 @@ const handler = {
         }
       }
 
-      if (path === "/terms" || path === "/privacy") return legalPage(path.slice(1) as "terms" | "privacy");
+      // The public pages' top bar offers Open Atteo instead of Sign in to someone with a session cookie (no lookup needed).
+      const signedIn = !!auth.readCookie(request, auth.SESSION_COOKIE);
+      if (path === "/terms" || path === "/privacy") return legalPage(path.slice(1) as "terms" | "privacy", signedIn);
       if (path === "/openapi.json") return json(openapi(origin), 200, { "access-control-allow-origin": "*", "cache-control": "public, max-age=300" });
       if (path === "/skill.md") return new Response(SKILL_MD, { headers: { "content-type": "text/markdown; charset=utf-8", "cache-control": "public, max-age=300" } });
-      if (path === "/docs") return docsPage(origin, SKILL_MD);
+      if (path === "/docs") return docsPage(origin, SKILL_MD, signedIn);
       if (path === "/agents.md") return new Response(agentsMd(origin), { headers: { "content-type": "text/markdown; charset=utf-8", "cache-control": "public, max-age=300", "access-control-allow-origin": "*" } });
       if (path === "/apple-touch-icon.png" || path === "/apple-touch-icon-precomposed.png") {
         return new Response(Uint8Array.from(atob(APPLE_TOUCH_PNG_B64), (c) => c.charCodeAt(0)), { headers: { "content-type": "image/png", "cache-control": "public, max-age=86400" } });
@@ -1096,10 +1098,10 @@ const handler = {
         const people = await displayNames(env, [...items.filter((i) => i.actor_via !== "agent").map((i) => i.actor), ...dmPeers]).catch(() => ({}));
         return inbox.inboxPage(viewer, side, items, aps, people);
       }
-      // ---- The guide (vedu #2402): what people can do, by task. Public; signed in, it has the sidebar ----
+      // ---- The guide (vedu #2402): what people can do, by task. Public; signed in, its top bar goes back to the app ----
       if (path === "/guide" && method === "GET") {
         const lang = viewer?.lang ?? pickLang(null, url.searchParams.get("lang"), request.headers.get("accept-language"));
-        return guidePage(lang, viewer ?? null, viewer ? await sideBoardsNamed(env, viewer.name) : [], origin);
+        return guidePage(lang, !!viewer, origin);
       }
       // ---- For you (Everyday's home): what needs your OK, decisions and questions for you, what your assistant did today ----
       if (path === "/for-you" && method === "GET") {
