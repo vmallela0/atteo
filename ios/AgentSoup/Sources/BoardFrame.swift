@@ -21,29 +21,34 @@ struct BoardStateTabs: View {
         return ([current] + rest).sorted { $0.lastActivity > $1.lastActivity }
     }
 
-    /// The tabs' own height, no more (vedu #5046: an empty band showed there on his phone). The strip sizes to its tabs
-    /// with a little padding, stays out of the navigation bar's scroll-edge blur (it's a scroll view right under the bar,
-    /// which iOS 26+ fades), and isn't there at all when there are no tabs to show.
+    /// The tabs' height: fixed at a text size (taller with larger text), like the Chat · Tasks · Files row, and never
+    /// derived from the scroll view's own sizing. vedu saw the strip go blank (#5046) and then vanish (#5106) on his phone
+    /// while it never failed in the simulator, so nothing here depends on how a horizontal scroll view sizes or offsets its
+    /// content: an explicit height on the row and on the scroll view, no vertical safe area or margins inside it (the
+    /// keyboard's and the bar's insets can push its content out of view), no vertical bounce, no animation from the
+    /// board list's refreshes (they reorder the tabs with withAnimation on every feed line), and each board once with a
+    /// stable id. It also stays out of the navigation bar's scroll-edge blur (iOS 26+).
+    @ScaledMetric(relativeTo: .subheadline) private var rowHeight: CGFloat = 34
+
     var body: some View {
         let tabs = boards
-        if !tabs.isEmpty {
-            strip(tabs)
-        }
-    }
-
-    @ViewBuilder private func strip(_ tabs: [Board]) -> some View {
         let row = ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: Space.l) {
-                ForEach(tabs) { b in tab(b) }
+                ForEach(tabs, id: \.id) { b in tab(b).frame(height: rowHeight) }
             }
+            .frame(height: rowHeight)
             .padding(.horizontal, Space.l)
-            .padding(.top, Space.xs)
-            .padding(.bottom, 2) // a hair between the tabs' underlines and the Chat / Tasks / Files row (vedu #5088)
         }
-        .fixedSize(horizontal: false, vertical: true)
+        .contentMargins(.vertical, 0, for: .scrollContent)
+        .scrollBounceBehavior(.basedOnSize, axes: .vertical)
+        .ignoresSafeArea(.all, edges: .vertical)
+        .frame(height: rowHeight)
+        .padding(.top, Space.xs)
+        .padding(.bottom, 2) // a hair between the tabs' underlines and the Chat / Tasks / Files row (vedu #5088)
         .frame(maxWidth: .infinity)
         .background(alignment: .bottom) { Rectangle().fill(Theme.line).frame(height: 0.5) }
         .background(Theme.bg)
+        .transaction { $0.animation = nil }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("board-state-tabs")
         if #available(iOS 26.0, *) { row.scrollEdgeEffectHidden(true, for: .all) } else { row }
@@ -59,6 +64,7 @@ struct BoardStateTabs: View {
             state.openRequest = b
         } label: {
             VStack(spacing: 6) {
+                Spacer(minLength: 0)
                 HStack(spacing: 6) {
                     BoardPicture(board: b, size: 18).accessibilityHidden(true)
                     Text(verbatim: name)
