@@ -36,9 +36,11 @@ abuse from costing money.
    usage outside North America grows. It needs code changes (`env.DB.withSession`), not just a switch.
 4. **Abuse of signed-out endpoints.** Fixed on this branch (below): the three signed-out endpoints that wrote a D1 row
    or woke a board on every call had no limit.
-5. **Per-token rate limits are per isolate.** `limits.ts` counts requests per token in each isolate's memory, so a
-   client spread over many isolates or locations gets several times its limit. Fine against mistakes, weak against
-   a determined client. Follow-up: move the per-token check onto the Rate Limiting binding this branch adds.
+5. **Per-token rate limits were per isolate.** `limits.ts` still counts in each isolate's memory (local/tests, ops
+   overrides, MCP batch `n`). Production **also** asks the `AGENT_TOKENS` / `APP_TOKENS` Rate Limiting bindings so the
+   same token is capped across isolates at one location (600 agent / 1200 app per minute, matching the env defaults).
+   Binding errors fail open like `publicAllowed`. A client spread over **locations** can still get several times the
+   cap (the binding is per-colo, same as the signed-out IP limiter). Daily Free/Pro budgets are unchanged.
 
 ## Code changes on this branch (`cf-hardening`)
 
@@ -58,11 +60,19 @@ abuse from costing money.
   the next deploy. The shedder now uses the same token (`limits.ts` falls back to `analyticsToken`). If the token
   lacks *Account Analytics: Read*, /_ops shows the guard's error and nothing else changes.
 
+**Follow-up (per-token Rate Limiting binding):** `admit` dual-runs `rateCheck` (in-memory sliding window) with
+`AGENT_TOKENS` / `APP_TOKENS` in `wrangler.jsonc` (`limits.ts` `rateAllowed`). Off on a local server and when the
+binding is missing; limiter errors fail open. `RATE_AGENT_PER_MIN` / `RATE_APP_PER_MIN` still size the in-memory
+window (0 = off, skips the binding). They do **not** change the binding's 600/1200 ceiling — raise that in
+`wrangler.jsonc`. The binding is a 60s fixed window per location (`Retry-After: 60` when it refuses), not the
+in-memory slide. An MCP batch that the binding refuses may have already spent some of that window (in-memory does
+not spend on a refusal). **Free/Pro daily request budgets are the same** (`DAILY_REQUESTS_FREE` / `_PRO`,
+`usage_daily`). Tests: `test/limits.test.ts`.
+
 ## More code changes worth making (not on this branch)
 
 | Change | Where | Why |
 |---|---|---|
-| Per-token rate limit on the Rate Limiting binding | `src/limits.ts` `rateCheck` | consistent across isolates (see 5 above) |
 | Clean up unused OAuth clients after 30 days | cron in `src/index.ts` `runScheduled` | `oauth_clients` only grows (67 rows today) |
 | Index `device_logins(expires_at)` | new migration | `startDeviceLogin` deletes expired rows with a full scan each call (240 rows today, so not urgent) |
 | Serve built CSS/JS from static assets | `src/ui.ts` → `public/` at build | asset requests are free and use no Worker CPU; today every `/app.css`, `/board.js`, font etc. runs the Worker (cached by browsers via versioned URLs, so once per visitor) |

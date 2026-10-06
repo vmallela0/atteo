@@ -3,7 +3,9 @@
 // costGuard.ts, docs/COSTS.md has the math): a per-token rate
 // limit, a per-person daily budget, one open wait per agent session, and load-shedding levels the cron sets.
 //
-// None of it reads or writes D1 per request. Rate limits are per-isolate memory. Daily counts accumulate per isolate
+// None of it reads or writes D1 per request. Per-token rate limits are an in-memory sliding window in this isolate,
+// and in production also the AGENT_TOKENS / APP_TOKENS Rate Limiting bindings (shared across isolates at one location).
+// Daily counts accumulate per isolate
 // and are flushed into usage_daily (day, 'requests', user) in batches (every FLUSH_EVERY requests or FLUSH_MS, one
 // upsert that returns the global total). The plan is looked up only once someone is over the Free budget (cached).
 // The shed level lives in usage_daily (day, 'shed', 'level'), read at most once a minute per isolate.
@@ -123,12 +125,14 @@ export const day = (now = Date.now()) => new Date(now).toISOString().slice(0, 10
 /** Seconds until 00:00 UTC, when daily budgets (and Cloudflare's daily caps) reset. */
 export const secondsToMidnight = (now = Date.now()) => Math.max(1, Math.ceil((Date.parse(day(now) + "T00:00:00Z") + 86_400_000 - now) / 1000));
 
-// ---------- per-token rate limit: a sliding window over two fixed minutes, in this isolate's memory ----------
+// ---------- per-token rate limit: in-memory sliding window, plus the Rate Limiting binding in production ----------
 
 const WINDOW_MS = 60_000;
 const windows = new Map<string, { start: number; cur: number; prev: number }>();
+/** The binding's `simple.period` is 60s; it does not return a remaining-window hint. */
+const BINDING_RETRY_AFTER = 60;
 
-/** Counts one request (or `n`: an MCP batch's calls) for `key`; ok, or how many seconds until it would be. */
+/** Counts one request (or `n`: an MCP batch's calls) for `key`; ok, or how many seconds until it would be. Per isolate. */
 export function rateCheck(key: string, perMin: number, now = Date.now(), n = 1): { ok: true } | { ok: false; retryAfter: number } {
   if (!perMin) return { ok: true };
   const start = now - (now % WINDOW_MS);
@@ -145,6 +149,36 @@ export function rateCheck(key: string, perMin: number, now = Date.now(), n = 1):
   if (windows.size > 10_000) windows.clear();
   windows.set(key, w);
   return { ok: true };
+}
+
+/**
+ * In-memory `rateCheck` always (local, tests, ops overrides, MCP batch `n`). When AGENT_TOKENS / APP_TOKENS is bound
+ * and this isn't a local server, also ask the Workers Rate Limiting binding so the same token is capped across isolates
+ * at one location (wrangler.jsonc: 600 agent / 1200 app per minute). Binding errors fail open like `publicAllowed`
+ * (the in-memory check still applies). `perMin` 0 stays unlimited and does not call the binding. Daily Free/Pro budgets
+ * are a separate gate in `admit`.
+ */
+export async function rateAllowed(
+  env: Env,
+  kind: "agent" | "person",
+  key: string,
+  perMin: number,
+  now = Date.now(),
+  n = 1,
+): Promise<{ ok: true } | { ok: false; retryAfter: number }> {
+  const mem = rateCheck(key, perMin, now, n);
+  if (!mem.ok || !perMin || isLocalServer(env)) return mem;
+  const binding = kind === "agent" ? env.AGENT_TOKENS : env.APP_TOKENS;
+  if (!binding) return mem;
+  try {
+    const count = Math.max(1, n);
+    for (let i = 0; i < count; i++) {
+      if (!(await binding.limit({ key })).success) return { ok: false, retryAfter: BINDING_RETRY_AFTER };
+    }
+    return mem;
+  } catch {
+    return mem;
+  }
 }
 
 // ---------- daily counts: batched into usage_daily, never one write per request ----------
@@ -360,7 +394,7 @@ export async function admit(env: Env, ctx: ExecutionContext | null, a: Admit, no
   const lim = limits(env);
   if (a.tokenKey) {
     const per = a.kind === "agent" ? lim.agentPerMin : lim.appPerMin;
-    const r = rateCheck(a.tokenKey, per, now, Math.max(1, a.calls ?? 1));
+    const r = await rateAllowed(env, a.kind, a.tokenKey, per, now, Math.max(1, a.calls ?? 1));
     if (!r.ok) return err(429, `Rate limit: at most ${per} requests a minute per ${a.kind === "agent" ? "agent" : "app"} token. Slow down and retry after ${r.retryAfter}s.`, r.retryAfter, { limit: per, scope: "token" });
   }
   const n = Math.max(0, a.counted ?? (a.wait ? 0 : 1));

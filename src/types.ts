@@ -153,6 +153,8 @@ export interface Env {
   FILES?: R2Bucket;
   ASSETS?: Fetcher; // wrangler.jsonc assets: mermaid.min.js (src/mermaid.ts mermaidResponse)
   PUBLIC_WRITES?: RateLimit; // wrangler.jsonc ratelimits: per-IP cap on signed-out endpoints that write or fan out (limits.ts publicAllowed)
+  AGENT_TOKENS?: RateLimit; // wrangler.jsonc ratelimits: 600/min per agent token across isolates at one location (limits.ts rateAllowed)
+  APP_TOKENS?: RateLimit; // wrangler.jsonc ratelimits: 1200/min per app/person token, same (limits.ts rateAllowed)
   WORKOS_API_KEY?: string; // secret
   WORKOS_CLIENT_ID?: string; // var
   ADMIN_EMAIL?: string; // var: comma-separated admin emails
@@ -192,8 +194,8 @@ export interface Env {
   DEV_FAKE_ADMIN?: string; // LOCAL .dev.vars ONLY, never wrangler.jsonc: "1" + localhost lets POST /api/ops/sessions { admin: true } mint an operator browser session for /_ops checks (src/auth.ts)
   CF_VERSION_METADATA?: { id: string; tag?: string; timestamp?: string }; // which deploy is serving (ship.sh waits for it)
   // Free-plan guardrails (src/limits.ts; INFRA-ASSESSMENT §4i). All optional vars; the defaults are in limits().
-  RATE_AGENT_PER_MIN?: string; // var: requests per minute per agent token (default 600; per isolate)
-  RATE_APP_PER_MIN?: string; // var: requests per minute per app/person token (default 1200)
+  RATE_AGENT_PER_MIN?: string; // var: requests per minute per agent token (default 600; per-isolate in-memory; production also uses AGENT_TOKENS)
+  RATE_APP_PER_MIN?: string; // var: requests per minute per app/person token (default 1200; per-isolate in-memory; production also uses APP_TOKENS)
   DAILY_REQUESTS_FREE?: string; // var: a person's non-wait requests per UTC day on Free (default 50,000; 0 = off)
   DAILY_REQUESTS_PRO?: string; // var: same on Pro (default 0 = unlimited)
   MAX_LIVE_SESSIONS?: string; // var: live agent sessions per person (default 25; 0 = no cap)

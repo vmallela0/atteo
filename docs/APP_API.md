@@ -145,8 +145,8 @@ Every API, MCP and A2A call made with a token passes `src/limits.ts` first. Refu
 
 | Variable | Default | Meaning |
 | --- | ---: | --- |
-| `RATE_AGENT_PER_MIN` | 600 | requests per minute per agent token (per Worker isolate) |
-| `RATE_APP_PER_MIN` | 1,200 | requests per minute per app/person token |
+| `RATE_AGENT_PER_MIN` | 600 | requests per minute per agent token (per-isolate in-memory window). Production also caps the same token at 600/min across isolates at one location (`AGENT_TOKENS` in wrangler.jsonc). `0` turns the per-token cap off (skips the binding too). |
+| `RATE_APP_PER_MIN` | 1,200 | same for an app/person token (`APP_TOKENS` is 1200/min). Daily Free/Pro budgets (`DAILY_REQUESTS_*`) are a separate gate and unchanged. |
 | `DAILY_REQUESTS_FREE` | 50,000 | a person's non-wait requests per UTC day on Free (0 = off) |
 | `DAILY_REQUESTS_PRO` | 0 | the same on Pro (0 = unlimited) |
 | `MAX_LIVE_SESSIONS` | 25 | live agent sessions per person (0 = no cap) |

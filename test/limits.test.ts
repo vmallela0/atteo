@@ -12,6 +12,7 @@ import {
   nearQuotaAllowed,
   publicAllowed,
   pollAfterMs,
+  rateAllowed,
   rateCheck,
   secondsToMidnight,
   setNearQuota,
@@ -86,6 +87,94 @@ describe("per-token rate limit", () => {
     expect(rateCheck("k", 10, T0 + 60_000 + 1000).ok).toBe(true);
     expect(rateCheck("k", 10, T0 + 60_000 + 1001).ok).toBe(false);
     expect(rateCheck("k", 10, T0 + 60_000 + 30_000).ok).toBe(true); // half of it has slid out
+  });
+
+  it("without a Rate Limiting binding, admit still uses the in-memory window (local/tests)", async () => {
+    const { env } = fakeEnv({ PUBLIC_URL: "https://atteo.dev", RATE_AGENT_PER_MIN: "2" });
+    expect(env.AGENT_TOKENS).toBeUndefined();
+    expect(await admit(env, ctx, agent(), T0)).toBeNull();
+    expect(await admit(env, ctx, agent(), T0 + 1)).toBeNull();
+    expect((await admit(env, ctx, agent(), T0 + 2))?.status).toBe(429);
+  });
+});
+
+describe("per-token Rate Limiting binding (AGENT_TOKENS / APP_TOKENS)", () => {
+  const tokenBinding = (success: boolean | Error | (boolean | Error)[]) => {
+    const keys: string[] = [];
+    const results = Array.isArray(success) ? success : [success];
+    let i = 0;
+    return {
+      keys,
+      limit: async ({ key }: { key: string }) => {
+        keys.push(key);
+        const r = results[Math.min(i, results.length - 1)];
+        i++;
+        if (r instanceof Error) throw r;
+        return { success: r };
+      },
+    };
+  };
+  const prod = { PUBLIC_URL: "https://atteo.dev" as const };
+
+  it("refuses when the binding says the token is over, even if the in-memory window would allow", async () => {
+    const b = tokenBinding(false);
+    const { env } = fakeEnv({ ...prod, RATE_AGENT_PER_MIN: "100", AGENT_TOKENS: b as never });
+    const r = await admit(env, ctx, agent(), T0);
+    expect(r?.status).toBe(429);
+    expect(r?.headers.get("retry-after")).toBe("60");
+    const body = (await r!.json()) as { scope: string };
+    expect(body.scope).toBe("token");
+    expect(b.keys).toEqual(["tok-a"]);
+  });
+
+  it("asks AGENT_TOKENS for an agent token and APP_TOKENS for an app token", async () => {
+    const agentB = tokenBinding(true);
+    const appB = tokenBinding(true);
+    const { env } = fakeEnv({ ...prod, AGENT_TOKENS: agentB as never, APP_TOKENS: appB as never });
+    expect(await admit(env, ctx, agent(), T0)).toBeNull();
+    expect(await admit(env, ctx, agent({ kind: "person", tokenKey: "tok-app" }), T0 + 1)).toBeNull();
+    expect(agentB.keys).toEqual(["tok-a"]);
+    expect(appB.keys).toEqual(["tok-app"]);
+  });
+
+  it("counts an MCP batch as its calls on the binding", async () => {
+    const b = tokenBinding([true, true, false]);
+    const { env } = fakeEnv({ ...prod, RATE_AGENT_PER_MIN: "100", AGENT_TOKENS: b as never });
+    expect((await admit(env, ctx, agent({ calls: 3, counted: 3 }), T0))?.status).toBe(429);
+    expect(b.keys).toEqual(["tok-a", "tok-a", "tok-a"]);
+  });
+
+  it("fails open when the limiter throws: in-memory still applies, the request is not 5xx", async () => {
+    const b = tokenBinding(new Error("down"));
+    const { env } = fakeEnv({ ...prod, RATE_AGENT_PER_MIN: "2", AGENT_TOKENS: b as never });
+    expect(await admit(env, ctx, agent(), T0)).toBeNull();
+    expect(await admit(env, ctx, agent(), T0 + 1)).toBeNull();
+    expect((await admit(env, ctx, agent(), T0 + 2))?.status).toBe(429);
+    expect(b.keys.length).toBe(2); // the third never reached the binding (in-memory refused)
+  });
+
+  it("does not ask the binding on a local server, even when it is present", async () => {
+    const b = tokenBinding(false);
+    const { env } = fakeEnv({ PUBLIC_URL: "http://localhost:8787", RATE_AGENT_PER_MIN: "100", AGENT_TOKENS: b as never });
+    expect(await admit(env, ctx, agent(), T0)).toBeNull();
+    expect(b.keys).toEqual([]);
+  });
+
+  it("skips the binding when perMin is 0 (unlimited), like the in-memory window", async () => {
+    const b = tokenBinding(false);
+    const { env } = fakeEnv({ ...prod, RATE_AGENT_PER_MIN: "0", AGENT_TOKENS: b as never });
+    expect(await admit(env, ctx, agent(), T0)).toBeNull();
+    expect(b.keys).toEqual([]);
+    expect((await rateAllowed(env, "agent", "tok-a", 0, T0)).ok).toBe(true);
+  });
+
+  it("in-memory refusal does not call the binding", async () => {
+    const b = tokenBinding(true);
+    const { env } = fakeEnv({ ...prod, RATE_AGENT_PER_MIN: "2", AGENT_TOKENS: b as never });
+    expect(await admit(env, ctx, agent(), T0)).toBeNull();
+    expect(await admit(env, ctx, agent(), T0 + 1)).toBeNull();
+    expect((await admit(env, ctx, agent(), T0 + 2))?.status).toBe(429);
+    expect(b.keys).toEqual(["tok-a", "tok-a"]);
   });
 });
 

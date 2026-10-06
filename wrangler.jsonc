@@ -26,9 +26,17 @@
     "bindings": [{ "name": "BOARD", "class_name": "Board" }]
   },
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Board"] }],
-  // Per-IP cap on signed-out endpoints that write a row or wake a board each call (limits.ts publicAllowed, vedu #4598):
-  // 20 a minute per address per endpoint. The Rate Limiting binding counts in memory at each location: no D1 per request.
-  "ratelimits": [{ "name": "PUBLIC_WRITES", "namespace_id": "4598", "simple": { "limit": 20, "period": 60 } }],
+  // Rate Limiting bindings count in memory at each Cloudflare location (no D1 per request). Off on local/test when
+  // unused; limits.ts skips them on a localhost server and fails open if a limiter errors (vedu #4598).
+  "ratelimits": [
+    // Per-IP cap on signed-out endpoints that write a row or wake a board each call (limits.ts publicAllowed): 20/min.
+    { "name": "PUBLIC_WRITES", "namespace_id": "4598", "simple": { "limit": 20, "period": 60 } },
+    // Per-token caps across isolates (limits.ts rateAllowed). Defaults match RATE_AGENT_PER_MIN / RATE_APP_PER_MIN.
+    // Changing production's cross-isolate ceiling means changing these numbers, not those env vars (those still
+    // tighten the per-isolate in-memory window). Daily Free/Pro budgets are unrelated.
+    { "name": "AGENT_TOKENS", "namespace_id": "45981", "simple": { "limit": 600, "period": 60 } },
+    { "name": "APP_TOKENS", "namespace_id": "45982", "simple": { "limit": 1200, "period": 60 } }
+  ],
   "d1_databases": [
     {
       "binding": "DB",
