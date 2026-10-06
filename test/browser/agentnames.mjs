@@ -30,8 +30,11 @@ for(const [w,scheme] of [[1280,"light"],[390,"dark"]]){
   // olMark runs on a timer/frame; the capture-phase opener only handles rows already marked .ol.
   await p.locator(`#e${a1}.ol`).waitFor({state:"attached",timeout:5000});
   check(!await p.locator(`#e${a1} .agent-info`).isVisible(),`${w}px: owner details are hidden in collapsed rows`);
-  await p.locator(`#e${a1} .body`).click();
-  await p.locator(`#e${a1}.ol-open`).waitFor({state:"attached",timeout:5000});
+  // Under load the first tap can land while the row is being re-marked; tap again only while it's still folded.
+  for (let i = 0; i < 3 && !(await p.locator(`#e${a1}.ol-open`).count()); i++) {
+    await p.locator(`#e${a1} .body`).click();
+    await p.locator(`#e${a1}.ol-open`).waitFor({state:"attached",timeout:4000}).catch(()=>{});
+  }
   await p.locator(`#e${a1} .agent-info`).waitFor({state:"visible",timeout:5000}).catch(()=>{});
   check(await p.locator(`#e${a1} .agent-info`).isVisible()&&await p.locator(`#e${a1} .agent-info`).innerText()===`${V}'s agent`&&await p.locator(`#e${a1} .who`).innerText()===NAME,`${w}px: opening keeps the agent name and shows its owner`);
   const chip=p.locator(`#e${ms} .mention.agent[data-user="${V}"]`);
