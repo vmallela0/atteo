@@ -207,16 +207,13 @@ final class TalkAudio {
         let t = Task { [weak self] in
             if settle > 0 { try? await Task.sleep(nanoseconds: UInt64(settle * 1e9)) }
             guard let self, !Task.isCancelled, self.started else { return }
-            var mic = TalkAudioStart.Mic.echoCancelled
             let error = await TalkAudioStart.run(attempt: { [weak self] n in
-                mic = TalkAudioStart.mic(attempt: n)
-                try self?.attempt(n, mic: mic)
+                try self?.attempt(n, mic: TalkAudioStart.mic(attempt: n))
             }, sleep: { [weak self] d in
                 try? await Task.sleep(nanoseconds: UInt64(d * 1e9))
                 return !Task.isCancelled && self?.started == true
             })
             guard !Task.isCancelled, self.started else { return }
-            if let e = error { print("TalkAudio: didn't start (mic \(mic)): \(e)") }
             let why = error.map(TalkAudioStart.reason)
             if let e = error, case TalkAudioStart.Failure.noMic = e {
                 try? self.attempt(0, mic: .none) // no usable mic on any try: Atteo's voice still plays, and it says why
@@ -241,7 +238,11 @@ final class TalkAudio {
         let s = AVAudioSession.sharedInstance()
         if n > 0 { try? s.setActive(false) }
         let plan = AudioRoutePlan.plan(.talk, loudspeaker: AudioOut.shared.loudspeaker)
-        try s.setCategory(plan.category, mode: plan.mode, options: plan.options)
+        // Only when it differs: setting it again can drop the loudspeaker override, and the override's own route change
+        // would rebuild again, for ever.
+        if s.category != plan.category || s.mode != plan.mode || s.categoryOptions != plan.options {
+            try s.setCategory(plan.category, mode: plan.mode, options: plan.options)
+        }
         try s.setActive(true, options: .notifyOthersOnDeactivation)
         do { try build(mic: micAllowed ? mic : .none) } catch { teardown(); throw error }
     }
