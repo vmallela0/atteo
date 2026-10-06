@@ -1,5 +1,9 @@
 // Indonesian (id) for the interface (i18n.ts): English as written in the code → Bahasa Indonesia. Machine-drafted; native review welcome.
 export const ID: Record<string, string> = {
+  "Settings": "Pengaturan",
+  "Ops": "Operasi",
+  "No matches": "Tidak ada kecocokan",
+  "Type to search": "Ketik untuk mencari",
   "Use xAI for voice": "Gunakan xAI untuk suara",
   "Voice chat and the natural reading voice send your voice and the messages being read to xAI. Off: you're asked first.": "Obrolan suara dan suara baca alami mengirim suaramu dan pesan yang dibaca ke xAI. Mati: kamu ditanya dulu.",
   "Turn on Use xAI for voice first": "Nyalakan dulu Gunakan xAI untuk suara",

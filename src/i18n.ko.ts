@@ -1,5 +1,9 @@
 // Korean (ko) for the interface (i18n.ts): English as written in the code → 한국어. Machine-drafted; native review welcome.
 export const KO: Record<string, string> = {
+  "Settings": "설정",
+  "Ops": "운영",
+  "No matches": "일치하는 결과 없음",
+  "Type to search": "입력하여 검색",
   "Use xAI for voice": "음성에 xAI 사용",
   "Voice chat and the natural reading voice send your voice and the messages being read to xAI. Off: you're asked first.": "음성 채팅과 자연스러운 읽기 음성은 내 목소리와 읽는 메시지를 xAI로 보내요. 끄면: 먼저 물어봐요.",
   "Turn on Use xAI for voice first": "먼저 ‘음성에 xAI 사용’을 켜세요",
