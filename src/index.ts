@@ -1648,7 +1648,10 @@ const handler = {
         }
         let lines = await read(from);
         const until = Date.now() + waitSec * 1000;
-        const every = limits.shedLevelNow() >= 1 ? 5000 : 1500; // shedding load: check D1 less often
+        // How often a waiting call re-reads D1: 1.5s, or 5s while shedding load. ?every=<s> (up to 10) asks for slower
+        // checks, never faster: the web's board tabs wait with every=5 (jxn's agent #5248), a third of the reads per open tab.
+        const slower = Math.min(10, Math.max(0, parseInt(url.searchParams.get("every") ?? "", 10) || 0)) * 1000;
+        const every = Math.max(limits.shedLevelNow() >= 1 ? 5000 : 1500, slower);
         while (!lines.length && Date.now() < until) {
           await new Promise((r) => setTimeout(r, every));
           lines = await read(from);
