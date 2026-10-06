@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { adminPage } from "../src/html";
-import { okRedirect, pruneUnusedClients } from "../src/oauth";
+import { okRedirect, pruneUnusedClients, startAuthorize } from "../src/oauth";
 import type { Env } from "../src/types";
 
 const { DatabaseSync } = (await import("node:" + "sqlite")) as { DatabaseSync: new (p: string) => any };
@@ -88,22 +88,23 @@ describe("okRedirect", () => {
 });
 
 describe("unused OAuth client prune", () => {
-  it("deletes a never-used client older than 30 days; keeps a younger unused one", async () => {
+  it("deletes never-used DCR only after refresh-TTL + 30 days; keeps a younger unused registration", async () => {
     const { env, db } = fakeEnv();
-    insertClient(db, "oc_old", T0 - 31 * day);
+    insertClient(db, "oc_old", T0 - 121 * day);
     insertClient(db, "oc_new", T0 - 5 * day);
-    insertClient(db, "oc_edge", T0 - 30 * day);
+    insertClient(db, "oc_edge", T0 - 120 * day);
+    insertClient(db, "oc_mid", T0 - 31 * day); // cached by a connector that never finished OAuth
     expect(await pruneUnusedClients(env, T0)).toBe(1);
-    expect(remaining(db)).toEqual(["oc_edge", "oc_new"]);
+    expect(remaining(db)).toEqual(["oc_edge", "oc_mid", "oc_new"]);
     const usage = db.prepare(`SELECT day, metric, key, count FROM usage_daily WHERE metric = 'oauth_clients_pruned'`).all();
     expect(usage).toEqual([{ day: "2026-10-06", metric: "oauth_clients_pruned", key: "cron", count: 1 }]);
   });
 
-  it("keeps a client with a recent authorize request or code, even if those rows have already expired", async () => {
+  it("keeps a client with a recent authorize request or code even when the DCR row is older than 120 days", async () => {
     const { env, db } = fakeEnv();
-    insertClient(db, "oc_req", T0 - 40 * day);
-    insertClient(db, "oc_code", T0 - 40 * day);
-    insertRequest(db, "oc_req", T0 - 10 * day); // expired minutes after creation, but still inside the 30-day window
+    insertClient(db, "oc_req", T0 - 200 * day);
+    insertClient(db, "oc_code", T0 - 200 * day);
+    insertRequest(db, "oc_req", T0 - 10 * day);
     insertCode(db, "oc_code", T0 - 10 * day, 1);
     expect(await pruneUnusedClients(env, T0)).toBe(0);
     expect(remaining(db)).toEqual(["oc_code", "oc_req"]);
@@ -111,47 +112,65 @@ describe("unused OAuth client prune", () => {
 
   it("keeps a client with an unexpired refresh token (used or unused)", async () => {
     const { env, db } = fakeEnv();
-    insertClient(db, "oc_live", T0 - 40 * day);
-    insertClient(db, "oc_used", T0 - 40 * day);
+    insertClient(db, "oc_live", T0 - 200 * day);
+    insertClient(db, "oc_used", T0 - 200 * day);
     insertToken(db, "oc_live", { refreshExp: T0 + day, tokenExp: T0 - day, lastUsed: T0 - 40 * day, revokedAt: T0 - 20 * day });
     insertToken(db, "oc_used", { refreshExp: T0 + day, usedAt: T0 - day, tokenExp: T0 - day, lastUsed: T0 - 40 * day, revokedAt: T0 - day });
     expect(await pruneUnusedClients(env, T0)).toBe(0);
     expect(remaining(db)).toEqual(["oc_live", "oc_used"]);
   });
 
+  it("keeps a client whose refresh token expired recently (and any client that ever got a token)", async () => {
+    const { env, db } = fakeEnv();
+    insertClient(db, "oc_grace", T0 - 200 * day);
+    insertClient(db, "oc_edge", T0 - 200 * day);
+    insertToken(db, "oc_grace", { refreshExp: T0 - 29 * day, tokenExp: T0 - 60 * day, lastUsed: T0 - 60 * day, revokedAt: T0 - 60 * day });
+    insertToken(db, "oc_edge", { refreshExp: T0 - 30 * day, tokenExp: T0 - 60 * day, lastUsed: T0 - 60 * day, revokedAt: T0 - 60 * day });
+    expect(await pruneUnusedClients(env, T0)).toBe(0);
+    expect(remaining(db)).toEqual(["oc_edge", "oc_grace"]);
+  });
+
   it("keeps a client whose access token has no expiry or is still live, even without a live refresh", async () => {
     const { env, db } = fakeEnv();
-    insertClient(db, "oc_forever", T0 - 40 * day);
-    insertClient(db, "oc_access", T0 - 40 * day);
-    insertToken(db, "oc_forever", { refreshExp: T0 - day, tokenExp: null, lastUsed: T0 - 40 * day });
-    insertToken(db, "oc_access", { refreshExp: T0 - day, tokenExp: T0 + day, lastUsed: T0 - 40 * day });
+    insertClient(db, "oc_forever", T0 - 200 * day);
+    insertClient(db, "oc_access", T0 - 200 * day);
+    insertToken(db, "oc_forever", { refreshExp: T0 - 40 * day, tokenExp: null, lastUsed: T0 - 40 * day });
+    insertToken(db, "oc_access", { refreshExp: T0 - 40 * day, tokenExp: T0 + day, lastUsed: T0 - 40 * day });
     expect(await pruneUnusedClients(env, T0)).toBe(0);
     expect(remaining(db)).toEqual(["oc_access", "oc_forever"]);
   });
 
   it("keeps a client used in the last 30 days even if every token looks expired", async () => {
     const { env, db } = fakeEnv();
-    insertClient(db, "oc_recent", T0 - 40 * day);
-    insertToken(db, "oc_recent", { refreshExp: T0 - day, tokenExp: T0 - day, lastUsed: T0 - 5 * day, revokedAt: T0 - day });
+    insertClient(db, "oc_recent", T0 - 200 * day);
+    insertToken(db, "oc_recent", { refreshExp: T0 - 40 * day, tokenExp: T0 - 40 * day, lastUsed: T0 - 5 * day, revokedAt: T0 - 40 * day });
     expect(await pruneUnusedClients(env, T0)).toBe(0);
     expect(remaining(db)).toEqual(["oc_recent"]);
   });
 
-  it("keeps a client that ever got a token, even long expired: connectors cache its id (#5290)", async () => {
+  it("keeps a client that ever got a token, even long after the refresh expired (#5290)", async () => {
     const { env, db } = fakeEnv();
-    insertClient(db, "oc_expired", T0 - 100 * day);
-    insertClient(db, "oc_never", T0 - 100 * day);
-    insertToken(db, "oc_expired", { refreshExp: T0 - day, tokenExp: T0 - 60 * day, lastUsed: T0 - 60 * day, revokedAt: T0 - 60 * day, usedAt: T0 - 70 * day });
+    insertClient(db, "oc_expired", T0 - 200 * day);
+    insertClient(db, "oc_never", T0 - 200 * day);
+    insertToken(db, "oc_expired", { refreshExp: T0 - 40 * day, tokenExp: T0 - 60 * day, lastUsed: T0 - 60 * day, revokedAt: T0 - 60 * day, usedAt: T0 - 70 * day });
     expect(await pruneUnusedClients(env, T0)).toBe(1);
     expect(remaining(db)).toEqual(["oc_expired"]);
   });
 
   it("leaves nothing to delete when every old client is still in use", async () => {
     const { env, db } = fakeEnv();
-    insertClient(db, "oc_ok", T0 - 40 * day);
+    insertClient(db, "oc_ok", T0 - 200 * day);
     insertToken(db, "oc_ok", { refreshExp: T0 + 50 * day, tokenExp: T0 + 20 * day, lastUsed: T0 });
     expect(await pruneUnusedClients(env, T0)).toBe(0);
     expect(db.prepare(`SELECT COUNT(*) AS n FROM usage_daily`).get().n).toBe(0);
+  });
+
+  it("unknown client_id is invalid_client; /authorize cannot make connectors re-register", async () => {
+    const { env } = fakeEnv();
+    await expect(startAuthorize(env, "ada", new URLSearchParams({ client_id: "oc_gone" }))).rejects.toMatchObject({
+      code: "invalid_client",
+      message: "Unknown app. Remove Atteo from the connector and add it again.",
+    });
   });
 
   it("shows registered and pruned counts on /_ops", async () => {
@@ -163,6 +182,6 @@ describe("unused OAuth client prune", () => {
     expect(html).toContain("data-oauth-clients");
     expect(html).toContain("OAuth clients: 67 registered");
     expect(html).toContain("12 unused pruned in 14 days");
-    expect(html).toContain("sign-in never finished");
+    expect(html).toContain("ever got a token is kept");
   });
 });
