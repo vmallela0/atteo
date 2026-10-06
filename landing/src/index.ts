@@ -80,7 +80,7 @@ body.home{min-height:100vh;overflow-x:hidden;background:var(--bg)}
 .h2-task{display:flex;align-items:center;gap:10px}.h2-task i{width:16px;height:16px;border:1.5px solid var(--ink);border-radius:4px;flex:none}.h2-task span{flex:1}.h2-task code{font:11.5px "Courier Prime",ui-monospace,monospace;color:var(--muted)}
 .h2-by{display:flex;align-items:center;gap:6px;padding-left:26px;font-size:12px;color:var(--muted)}
 .h2-chips{display:flex;flex-wrap:wrap;gap:6px}
-.hm-ft{position:relative;z-index:1;background:var(--bg);border-top:1px solid var(--line);display:flex;flex-wrap:wrap;align-items:center;gap:6px 18px;padding:28px clamp(20px,7.5vw,96px) 32px;font-size:15px}
+.hm-ft{margin:0;position:relative;z-index:1;background:var(--bg);border-top:1px solid var(--line);display:flex;flex-wrap:wrap;align-items:center;gap:6px 18px;padding:28px clamp(20px,7.5vw,96px) 32px;font-size:15px}
 .hm-ft a{color:var(--muted);text-decoration:none}.hm-ft a:hover{color:var(--ink)}
 .h2-built{margin-left:auto;display:flex;align-items:center;gap:14px}.h2-built>span:first-child{font-size:14px;color:var(--muted)}
 .h2-asubn{display:flex;align-items:center;gap:10px;color:var(--ink)}.h2-asubn .an{font:600 30px/1 "STIX Two Text",Georgia,serif;white-space:nowrap}.h2-asubn .an i:last-child{font-size:.5em;vertical-align:-.25em}.h2-asubn .nm{font:400 30px/1 "STIX Two Text",Georgia,serif}
