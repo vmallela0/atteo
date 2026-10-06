@@ -26,6 +26,9 @@
     "bindings": [{ "name": "BOARD", "class_name": "Board" }]
   },
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Board"] }],
+  // Per-IP cap on signed-out endpoints that write a row or wake a board each call (limits.ts publicAllowed, vedu #4598):
+  // 20 a minute per address per endpoint. The Rate Limiting binding counts in memory at each location: no D1 per request.
+  "ratelimits": [{ "name": "PUBLIC_WRITES", "namespace_id": "4598", "simple": { "limit": 20, "period": 60 } }],
   "d1_databases": [
     {
       "binding": "DB",
@@ -36,6 +39,9 @@
   ],
   "vars": {
     "WORKOS_CLIENT_ID": "client_01M3XKJWX8TW7YAMPZVJZFJYHT",
+    // Not a secret: with the CF_ANALYTICS_TOKEN secret it turns on the cost guard (costGuard.ts, docs/COSTS.md) and the
+    // load shedder's D1 reading (limits.ts). Without it both stay off (vedu #4598).
+    "CF_ACCOUNT_ID": "5c5abf88c9f41e72eb1ac2691fb03a6e",
     "ADMIN_EMAIL": "vedu.mallela@gmail.com,jxn@blxmail.com",
     // The public address (proxied to this workers.dev Worker from another account): sign-in callback, emails, OAuth/A2A
     // metadata, install.sh and webhook links all point here. Requests to localhost keep their own origin (src/util.ts publicOrigin).
