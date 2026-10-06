@@ -169,7 +169,7 @@ describe("dashboard and privacy (vedu #4602)", () => {
   it("links Atteo's US project from ops and names PostHog on /privacy without the key", async () => {
     expect(posthogDashboardUrl({ key: KEY, host: "https://us.i.posthog.com", region: "us" })).toBe("https://us.posthog.com/project/647810");
     const html = await legalPage("privacy").text();
-    for (const w of ["<b>PostHog</b>", "product analytics", "message text", "email addresses", "Do Not Track", "Global Privacy Control", "iOS app", "Share usage analytics", "Last updated October 6, 2026."]) expect(html).toContain(w);
+    for (const w of ["<b>PostHog</b>", "product analytics", "message text", "email addresses", "Do Not Track", "Global Privacy Control", "iOS app", "Share usage analytics", "Last updated October 6, 2026.", "<b>Sentry</b>", "SDK stays off"]) expect(html).toContain(w);
     expect(html).not.toContain("phc_");
     expect(await legalPage("terms").text()).not.toContain("PostHog");
   });
