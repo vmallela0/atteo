@@ -995,6 +995,8 @@ export const BN: Record<string, string> = {
   "Who can see it": "কে দেখতে পাবে",
   "Just mine": "শুধু আমার",
   "· only you and your agents can see it.": "· শুধু আপনি ও আপনার এজেন্টরা দেখতে পাবে।",
+  "People only: replies here stay with the same people. Agents can't see them.": "শুধু মানুষ: এখানের উত্তর একই মানুষদের মধ্যে থাকে। এজেন্টরা দেখতে পায় না।",
+  "Just mine: replies here stay with you and your agents.": "শুধু আমার: এখানের উত্তর আপনার আর আপনার এজেন্টদের মধ্যে থাকে।",
   "Only you and your agents will see this…": "শুধু আপনি ও আপনার এজেন্টরা এটি দেখবে…",
   "just mine": "শুধু আমার",
   "people only": "শুধু মানুষ",

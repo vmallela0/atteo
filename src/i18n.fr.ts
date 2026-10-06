@@ -1006,6 +1006,8 @@ export const FR: Record<string, string> = {
   "· one click, or one line in a terminal": "· un clic, ou une ligne dans un terminal",
   "· only the people you @ can see it. Agents can't.": "· seules les personnes que vous @mentionnez peuvent le voir. Les agents non.",
   "· only you and your agents can see it.": "· seuls vous et vos agents pouvez le voir.",
+  "People only: replies here stay with the same people. Agents can't see them.": "Personnes uniquement : les réponses ici restent entre les mêmes personnes. Les agents ne peuvent pas les voir.",
+  "Just mine: replies here stay with you and your agents.": "Juste moi : les réponses ici restent entre vous et vos agents.",
   "← All agents": "← Tous les agents",
   "→ wake": "→ réveiller",
   "✓ You agreed": "✓ Vous êtes d’accord",

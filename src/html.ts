@@ -332,14 +332,21 @@ const PO_JS = `
     if(why)why.textContent=mode==='own'?tr('· only you and your agents can see it.'):tr("· only the people you @ can see it. Agents can't.");
     ta.placeholder=on?(mode==='own'?tr('Only you and your agents will see this…'):tr('Only the people you @ will see this…')):(ta.dataset.dev&&document.documentElement.dataset.mode!=='everyday'?ta.dataset.dev:ph0)};
   window.poOn=()=>inp.value==='true'||own.value==='true';
-  b.addEventListener('click',()=>{poSet(b.getAttribute('aria-pressed')!=='true');ta.focus()});
-  note.addEventListener('click',e=>{const x=e.target.closest('[data-po]');if(!x)return;poSet(true,x.dataset.po);ta.focus()});
+  // A reply to a people-only or just-mine message keeps that audience whatever the box says (board.ts audienceFor), so
+  // while the box answers one it shows that lock, fixed, and says so (vedu #4777). a: 'people', 'own' or null.
+  let inh=null;
+  window.poInherit=a=>{a=a||null;if(a===inh)return;inh=a;b.disabled=!!inh;note.classList.toggle('inh',!!inh);
+    if(!inh){poSet(false);return}
+    poSet(true,inh);if(why)why.textContent=inh==='own'?tr('Just mine: replies here stay with you and your agents.'):tr("People only: replies here stay with the same people. Agents can't see them.")};
+  window.poInh=()=>!!inh;
+  b.addEventListener('click',()=>{if(inh)return;poSet(b.getAttribute('aria-pressed')!=='true');ta.focus()});
+  note.addEventListener('click',e=>{const x=e.target.closest('[data-po]');if(!x||inh)return;poSet(true,x.dataset.po);ta.focus()});
   // Arrow keys move between the two choices, as in any radio group.
-  note.addEventListener('keydown',e=>{const x=e.target.closest('[data-po]');if(!x||!/^Arrow(Left|Right|Up|Down)$/.test(e.key))return;e.preventDefault();const m=mode==='own'?'people':'own';poSet(true,m);note.querySelector('[data-po="'+m+'"]').focus()});
+  note.addEventListener('keydown',e=>{const x=e.target.closest('[data-po]');if(!x||inh||!/^Arrow(Left|Right|Up|Down)$/.test(e.key))return;e.preventDefault();const m=mode==='own'?'people':'own';poSet(true,m);note.querySelector('[data-po="'+m+'"]').focus()});
   // People only needs someone to send it to: a person @mentioned in the text, read the way the server reads mentions
   // (not in code or quotes: mentions.ts MENTION_SCAN_JS). Just mine needs nobody.
   const scan=${MENTION_SCAN_JS};
-  document.addEventListener('submit',e=>{if(e.target!==f||inp.value!=='true')return;if(!/(^|\\s)@[a-z0-9][a-z0-9_.-]*(?![a-z0-9_.-]|['’]s\\s+(?:agent|assistant)\\b|\\/)/i.test(scan(ta.value))){e.preventDefault();e.stopImmediatePropagation();toast('@ the people who should see it: agents never will')}},true);
+  document.addEventListener('submit',e=>{if(e.target!==f||inp.value!=='true'||inh)return;if(!/(^|\\s)@[a-z0-9][a-z0-9_.-]*(?![a-z0-9_.-]|['’]s\\s+(?:agent|assistant)\\b|\\/)/i.test(scan(ta.value))){e.preventDefault();e.stopImmediatePropagation();toast('@ the people who should see it: agents never will')}},true);
 })();
 `;
 // HTML preview (jxn #1309). Board files are written by other people, so the page runs in an iframe with sandbox="allow-scripts"
@@ -1508,7 +1515,7 @@ let agentsAt=0,agSeen=null;window.agentsRefresh=async()=>{if(document.hidden)ret
   if(!pk&&peek){pk=document.createElement('span');pk.className='fold-peek truncate';box.querySelector('.fold-h').appendChild(pk)}if(pk)pk.textContent=peek;refreshTimes()};
 setInterval(agentsRefresh,30000);document.addEventListener('visibilitychange',()=>{if(!document.hidden)agentsRefresh()});
 // Your post shows up the moment you send it (a "sending" copy), then the real one from the post's own response.
-window.posted=(j)=>{const first=!document.querySelector('#thread>.entry:not(.pending)');if(first)try{window.atteoTrack&&atteoTrack('first_message')}catch(e){}if(j&&j.notice)toast(tr(j.notice));if(window.poSet&&window.poOn&&poOn())setTimeout(()=>poSet(false),0);sendLook(false);const typed=SENT_TEXT!=null?ta.value:'';SENT_TEXT=null; // what you started typing while it sent survives the form's reset
+window.posted=(j)=>{const first=!document.querySelector('#thread>.entry:not(.pending)');if(first)try{window.atteoTrack&&atteoTrack('first_message')}catch(e){}if(j&&j.notice)toast(tr(j.notice));if(window.poSet&&window.poOn&&poOn())setTimeout(()=>{if(!(window.poInh&&poInh()))poSet(false)},0);sendLook(false);const typed=SENT_TEXT!=null?ta.value:'';SENT_TEXT=null; // what you started typing while it sent survives the form's reset
 const was=+rpTo.value;draftSave(sentKey,'');replyClear(true);document.querySelectorAll('#thread .entry.pending').forEach(x=>x.remove());
   if(j&&j.update&&addEntry(j.update)){if(!was){railBuild();toBottom()}}else stickNext=!was;
   tick(false);setTimeout(()=>{if(was&&!(window.thrRearm&&thrRearm())){replyShown(was);ta.value=draftLoad('')}if(typed&&!ta.value)ta.value=typed;ta.style.height='';ta.style.height=ta.value?ta.scrollHeight+2+'px':'';msync()},0)}; // after the form's reset
@@ -1677,10 +1684,13 @@ function replyTo(seq,focus=true,restore=false){const el=document.getElementById(
   // Deeper in a thread, the person who started it hears about it too (jxn #1195).
   const top=el.dataset.root&&+el.dataset.root!==seq&&document.getElementById('e'+el.dataset.root);
   if(top){const tw=top.classList.contains('by-agent')?top.dataset.author+"'s agent":top.dataset.author;if(tw!==ME&&tw!==who)rpAt+='@'+tw+' '}const rpM=rpAt.trim();if(rpAt&&!(ta.value.startsWith(rpM)&&/^\\s*$/.test(ta.value.slice(rpM.length,rpM.length+1))))ta.value=rpAt+ta.value;
+  window.poInherit&&poInherit(audOf(seq));
   taFit();if(focus){ta.focus();ta.setSelectionRange(ta.value.length,ta.value.length)}}
+/** A message's audience from its 🔒 badge: 'people', 'own', or null for everyone (replies inherit it, vedu #4777). */
+function audOf(seq){const b=document.querySelector('#e'+seq+'>.grow>.meta .badge.po');return b?(b.dataset.own?'own':'people'):null}
 /** Leaves reply mode. A reply that took the box's text gives it back (without the @mention it added); otherwise the
  *  reply's draft is kept (unless it's only that @mention) and your other draft comes back. */
-function replyClear(sent){if(!rpTo.value)return;if(window.micStop)micStop();const mine=rpCarry===+rpTo.value,carry=mine&&!sent;if(mine)rpCarry=0;
+function replyClear(sent){window.poInherit&&poInherit(null);if(!rpTo.value)return;if(window.micStop)micStop();const mine=rpCarry===+rpTo.value,carry=mine&&!sent;if(mine)rpCarry=0;
   if(carry){const m=rpAt.trim();if(m&&ta.value.startsWith(m))ta.value=ta.value.slice(m.length).replace(/^ /,'');draftSave(draftNow(),'')}
   else if(!sent)draftSave(draftNow(),ta.value.trim()===rpAt.trim()?'':ta.value);
   rpTo.value='';rpAt='';rpBox.hidden=true;try{localStorage.removeItem(draftKey('to'));if(!rpCarry)localStorage.removeItem(draftKey('carry'))}catch(e){}
@@ -2370,7 +2380,7 @@ const cmpForm=document.querySelector('form.composer');var cmpHome=null;
 function cmpIn(root,to){if(!cmpForm||READONLY||cmpForm.hidden)return;if(!cmpHome){cmpHome={p:cmpForm.parentNode,n:cmpForm.nextSibling};thrDlg.appendChild(cmpForm);cmpForm.classList.add('in-thr')}replyTo(to||root,false)}
 function cmpBack(){if(!cmpHome)return;const h=cmpHome;cmpHome=null;h.p.insertBefore(cmpForm,h.n);cmpForm.classList.remove('in-thr');replyClear(false)}
 /** After a reply is sent from the thread, the box stays pointed at it. */
-window.thrRearm=()=>{if(!cmpHome||!thrOpen)return false;rpTo.value=String(thrTo||thrOpen);rpAt='';return true};
+window.thrRearm=()=>{if(!cmpHome||!thrOpen)return false;rpTo.value=String(thrTo||thrOpen);rpAt='';window.poInherit&&poInherit(audOf(thrTo||thrOpen));return true};
 document.body.appendChild(thrDlg);if(cmpForm&&!READONLY)dropZone(thrDlg);
 function thrRender(focus){const list=document.getElementById('thr-list'),top=document.getElementById('e'+thrOpen);if(!top)return;list.innerHTML='';
   for(const src of [top,...kidsOf(thrOpen)]){const c=src.cloneNode(true);c.removeAttribute('id');c.classList.remove('flash-in','tap','sel','hit');c.dataset.src=src.dataset.seq;

@@ -749,7 +749,7 @@ input.switch::after{content:"";position:absolute;top:3px;left:3px;width:18px;hei
 .composer .po-btn.on{width:auto;padding:0 9px 0 7px;gap:4px}.po-lbl{font-size:12px;font-weight:600;white-space:nowrap}.po-lbl:empty{display:none}
 .composer .po-btn.on.own{background:var(--accent);border-color:var(--accent);color:var(--bg)}
 @media(max-width:640px){.composer .po-btn.on{padding:0 8px 0 6px}.po-lbl{font-size:11.5px}}
-.po-note{margin:0 0 8px;padding:6px 10px;border-radius:8px;background:var(--private-soft);font-size:12.5px;color:var(--text)}.po-note[hidden]{display:none}
+.po-note{margin:0 0 8px;padding:6px 10px;border-radius:8px;background:var(--private-soft);font-size:12.5px;color:var(--text)}.po-note[hidden]{display:none}.po-note.inh .po-seg{display:none}.po-btn:disabled{opacity:1;cursor:default}
 .po-seg{display:inline-flex;vertical-align:baseline;border:1px solid var(--line);border-radius:999px;padding:1px;background:var(--bg);margin-right:2px}
 .po-seg button{border:0;background:none;font:inherit;font-size:12px;line-height:1.5;padding:1px 9px;border-radius:999px;color:var(--muted);cursor:pointer}
 .po-seg button:hover{color:var(--ink)}.po-seg button[aria-checked="true"]{background:var(--ink);color:var(--on-ink);font-weight:600}

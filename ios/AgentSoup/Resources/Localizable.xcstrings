@@ -19321,6 +19321,52 @@
         }
       }
     },
+    "Just mine: replies here stay with you and your agents.": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Solo mío: las respuestas aquí quedan entre tú y tus agentes."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Juste moi : les réponses ici restent entre vous et vos agents."
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "सिर्फ़ मेरा: यहाँ के जवाब सिर्फ़ आपके और आपके एजेंटों तक रहते हैं।"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自分だけ：ここでの返信はあなたとあなたのエージェントだけに届きます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "나만: 여기의 답장은 나와 내 에이전트에게만 보입니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "仅自己：这里的回复只给你和你的代理看。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "僅自己：這裡的回覆只給你和你的代理看。"
+          }
+        }
+      }
+    },
     "Just mine · only you and your agents": {
       "localizations": {
         "es": {
@@ -26317,6 +26363,52 @@
           "stringUnit": {
             "state": "translated",
             "value": "僅限真人"
+          }
+        }
+      }
+    },
+    "People only: replies here stay with the same people. Agents can't see them.": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Solo personas: las respuestas aquí quedan entre las mismas personas. Los agentes no pueden verlas."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Personnes uniquement : les réponses ici restent entre les mêmes personnes. Les agents ne peuvent pas les voir."
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "सिर्फ़ लोग: यहाँ के जवाब उन्हीं लोगों तक रहते हैं। एजेंट उन्हें नहीं देख सकते।"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "人だけ：ここでの返信は同じ人たちだけに届きます。エージェントには見えません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사람만: 여기의 답장은 같은 사람들에게만 보입니다. 에이전트는 볼 수 없습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "仅限真人：这里的回复只给同样的人看。代理看不到。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "僅限真人：這裡的回覆只給同樣的人看。代理看不到。"
           }
         }
       }

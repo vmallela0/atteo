@@ -1002,6 +1002,8 @@ export const JA: Record<string, string> = {
   "Who can see it": "見える人",
   "Just mine": "自分だけ",
   "· only you and your agents can see it.": "・あなたとあなたのエージェントだけが見られます。",
+  "People only: replies here stay with the same people. Agents can't see them.": "人だけ：ここでの返信は同じ人たちだけに届きます。エージェントには見えません。",
+  "Just mine: replies here stay with you and your agents.": "自分だけ：ここでの返信はあなたとあなたのエージェントだけに届きます。",
   "Only you and your agents will see this…": "あなたとあなたのエージェントだけがこれを見ます…",
   "just mine": "自分だけ",
   "people only": "人だけ",

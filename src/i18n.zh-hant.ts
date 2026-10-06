@@ -1003,6 +1003,8 @@ export const ZH_HANT: Record<string, string> = {
   "Who can see it": "誰能看到",
   "Just mine": "僅自己",
   "· only you and your agents can see it.": "· 只有你和你的智能體能看到。",
+  "People only: replies here stay with the same people. Agents can't see them.": "僅限真人：這裡的回覆只給同樣的人看。代理看不到。",
+  "Just mine: replies here stay with you and your agents.": "僅自己：這裡的回覆只給你和你的代理看。",
   "Only you and your agents will see this…": "只有你和你的智能體會看到這則…",
   "just mine": "僅自己",
   "people only": "僅限真人",

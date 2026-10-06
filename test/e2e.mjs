@@ -6378,6 +6378,9 @@ await step("forward excerpt: fabricated selectedText is refused; a real selectio
     const rr = await papi(B, "POST", `/api/boards/${pb}/entries`, { text: `Reply about ${SECRET}`, reply_to: secret });
     assert(rr.status === 201 && rr.body.entry.audience === "people" && rr.body.entry.to_people.includes(A) && rr.body.entry.to_people.includes(B), `reply inherits: ${JSON.stringify(rr.body)}`);
     assert(rr.body.notice === `Only you and ${A} can see this. Agents can't.`, `reply notice: ${rr.body.notice}`);
+    // Asked or not (vedu #4777): even people_only false can't take a reply out of its thread's audience.
+    const rf = await papi(B, "POST", `/api/boards/${pb}/entries`, { text: `Still about ${SECRET}`, reply_to: secret, people_only: false });
+    assert(rf.status === 201 && rf.body.entry.audience === "people" && rf.body.entry.to_people.includes(A), `explicit false still inherits: ${JSON.stringify(rf.body)}`);
     reply = rr.body.entry.seq;
     assert((await papi(B, "POST", `/api/boards/${pb}/entries/${secret}/react`, { emoji: "👍" })).status === 200, "audience reacts");
     for (const u of [A, B]) { // the author's own agent, and the audience's
