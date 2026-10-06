@@ -137,7 +137,10 @@ await pa.screenshot({path:`${SHOTS_DIR}/e2e-board-light.png`});
 // Pins hold the device id and its public key.
 const pinsA=await pa.evaluate(me=>JSON.parse(localStorage.getItem("soup.e2e.pins."+me)||"{}"),A);
 const bobCli=(await (await fetch(`${BASE}/api/keys/${B}`,{headers:{authorization:`Bearer ${tok[A]}`}})).json()).keys.find(k=>!/web/.test(k.label||""));
-check(Object.values(pinsA).flat().every(e=>/^[a-z0-9-]+\|[A-Za-z0-9+/]{43}=$/.test(e))&&pinsA[B]?.[0]===`${bobCli.id}|${bobCli.public_key}`,`pins are id|public key (Bob: ${pinsA[B]?.[0]?.slice(0,20)}…)`);
+check(Object.values(pinsA).flat().every(e=>/^[a-z0-9-]+\|[A-Za-z0-9+/]{43}=(\|[A-Za-z0-9+/]{43}=)?$/.test(e))&&pinsA[B]?.[0]?.startsWith(`${bobCli.id}|${bobCli.public_key}`),`pins are id|public key[|signing key] (Bob: ${pinsA[B]?.[0]?.slice(0,20)}…)`);
+// A server that shows Bob's machine with a signing key of its own: Bob's CLI notices and says so (E2E 1c cross-signing).
+await sql(`UPDATE agent_keys SET sign_pub = '${Buffer.alloc(32, 9).toString("base64")}' WHERE id = '${bobCli.id}'`);
+const bobKeys=await cli(B,["keys"]);check(/signing key that isn't this machine's/.test(bobKeys.err),"a CLI shown with a signing key that isn't its own warns");
 // A server that swaps the public key under Bob's pinned id: the next epoch isn't wrapped to it.
 const { generateKeyPairSync } = await import("node:crypto");const evil=Buffer.from(generateKeyPairSync("x25519").publicKey.export({format:"jwk"}).x,"base64url").toString("base64");
 await sql(`UPDATE agent_keys SET public_key = '${evil}' WHERE id = '${bobCli.id}'`);
