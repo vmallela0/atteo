@@ -53,27 +53,45 @@ async function device(){if(DEV)return DEV;const id='device:'+ME;let d=await idbD
       const k2=await S.generateKey({name:'X25519'},true,['deriveBits']);
       try{d=await keep({jwk:await S.exportKey('jwk',k2.privateKey),pub:b64(await S.exportKey('raw',k2.publicKey)),created:Date.now()})}
       catch(e2){throw new Error("This browser can't keep a key (private browsing, or site data blocked), so it can't read encrypted boards. Open it in a normal window.")}}}
+  // Its Ed25519 signing key, for cross-signed device lists (E2E design §2.2); a browser without Ed25519 stays unsigned.
+  let fresh=false;if(!d.spub){const s=await newSignKey(!!d.jwk);if(s){d={...d,...s};fresh=true}}
   if(d.jwk&&!d.priv)d={...d,priv:await S.importKey('jwk',d.jwk,{name:'X25519'},false,['deriveBits'])};
-  const stored=x=>x.jwk?{jwk:x.jwk,pub:x.pub,created:x.created,kid:x.kid}:x;
+  if(d.sjwk&&!d.spriv)d={...d,spriv:await S.importKey('jwk',d.sjwk,{name:'Ed25519'},false,['sign'])};
+  const stored=x=>x.jwk?{jwk:x.jwk,pub:x.pub,created:x.created,kid:x.kid,sjwk:x.sjwk,spub:x.spub}:x;
   // Registered once. A key that's no longer on the account was removed there (a lost device): never register it again, make a new one.
-  if(d.kid){const live=(await api('GET','/api/me/keys')).keys||[];if(!live.some(k=>k.id===d.kid&&k.public_key===d.pub)){await idbDo('readwrite',s=>s.delete(id));return device()}}
-  else{const j=await api('POST','/api/me/keys',{public_key:d.pub,label:label()});d={...d,kid:j.id};await idbDo('readwrite',s=>s.put(stored(d),id))}
-  DEV={priv:d.priv,pub:d.pub,kid:d.kid};return DEV}
+  if(d.kid){const live=(await api('GET','/api/me/keys')).keys||[];if(!live.some(k=>k.id===d.kid&&k.public_key===d.pub)){await idbDo('readwrite',s=>s.delete(id));return device()}
+    if(fresh){await api('POST','/api/me/keys',{public_key:d.pub,label:label(),sign_pub:d.spub});await idbDo('readwrite',s=>s.put(stored(d),id))}}
+  else{const j=await api('POST','/api/me/keys',{public_key:d.pub,label:label(),sign_pub:d.spub});d={...d,kid:j.id};await idbDo('readwrite',s=>s.put(stored(d),id))}
+  DEV={priv:d.priv,pub:d.pub,kid:d.kid,spriv:d.spriv,spub:d.spub};return DEV}
+async function newSignKey(asJwk){try{const k=await S.generateKey({name:'Ed25519'},!!asJwk,['sign','verify']);const spub=b64(await S.exportKey('raw',k.publicKey));
+  return asJwk?{sjwk:await S.exportKey('jwk',k.privateKey),spub}:{spriv:k.privateKey,spub}}catch(e){return null}}
 
 // ---- pins: devices this browser trusts, per person (first device seen; your own only when you approve) ----
 const PIN_KEY='soup.e2e.pins.'+ME;
 function pins(){try{return JSON.parse(localStorage.getItem(PIN_KEY)||'{}')}catch(e){return {}}}
 function savePins(p){try{localStorage.setItem(PIN_KEY,JSON.stringify(p))}catch(e){}}
 // A pin is a device id AND its public key, so the server can't keep a trusted id and swap in a key of its own.
-const pinId=(kid,pub)=>kid+'|'+pub;
+// With a signing key once seen (cross-signed device lists, E2E design §2.2): kid|public key|signing key.
+const pinId=(kid,pub,spub)=>kid+'|'+pub+(spub?'|'+spub:'');
+const pinOf=(pin,u,kid,pub)=>(pin[u]||[]).find(e=>e===pinId(kid,pub)||e.startsWith(pinId(kid,pub)+'|'));
 /** The CLI's pinning: older bare-id pins get bound to the key the server shows; you, and each person's first device seen. */
 function pinUpdate(pin,me,dev,st){const seen=new Map([...st.keys,...st.missing].map(k=>[k.kid,k.public_key]));
   for(const u of Object.keys(pin))pin[u]=pin[u].map(e=>e.includes('|')||!seen.has(e)?e:pinId(e,seen.get(e))); // older pins were ids alone
-  if(!(pin[me]||[]).includes(pinId(dev.kid,dev.pub)))(pin[me]=pin[me]||[]).push(pinId(dev.kid,dev.pub));
-  for(const k of st.keys)if(k.user!==me&&!pin[k.user])(pin[k.user]=pin[k.user]||[]).push(pinId(k.kid,k.public_key)); // first sight: trust on first use
-  for(const m of st.missing)if(m.user!==me&&m.first_device&&!(pin[m.user]||[]).length)(pin[m.user]=pin[m.user]||[]).push(pinId(m.kid,m.public_key));
+  if(!pinOf(pin,me,dev.kid,dev.pub))(pin[me]=pin[me]||[]).push(pinId(dev.kid,dev.pub,dev.spub));
+  for(const k of st.keys)if(k.user!==me&&!pin[k.user])(pin[k.user]=pin[k.user]||[]).push(pinId(k.kid,k.public_key,k.sign_pub)); // first sight: trust on first use
+  for(const m of st.missing)if(m.user!==me&&m.first_device&&!(pin[m.user]||[]).length)(pin[m.user]=pin[m.user]||[]).push(pinId(m.kid,m.public_key,m.sign_pub));
   return pin}
-const isPinned=(pin,k)=>(pin[k.user]||[]).includes(pinId(k.kid,k.public_key));
+const isPinned=(pin,k)=>!!pinOf(pin,k.user,k.kid,k.public_key);
+/** What a device signature covers (src/boardkeys.ts deviceSigned; never change it). */
+const signedBytes=(u,kid,pub,spub)=>te.encode('atteo device v1\\n'+u+'\\n'+kid+'\\n'+pub+'\\n'+(spub||''));
+async function edOk(spub,data,sig){try{return await S.verify({name:'Ed25519'},await S.importKey('raw',unb64(spub),{name:'Ed25519'},false,['verify']),unb64(sig),data)}catch(e){return false}}
+/** The CLI's crossSigned (cli/src/crosssign.ts): a device signed by one pinned here, checked against the signing key
+ *  pinned with the signer (never the one the server shows now), is pinned too. A pinned device's signing key, first seen. */
+async function crossSigned(pin,devs){for(const d of devs){const e=pinOf(pin,d.user,d.kid,d.public_key);if(e&&e.split('|').length===2&&d.sign_pub)pin[d.user]=pin[d.user].map(x=>x===e?pinId(d.kid,d.public_key,d.sign_pub):x)}
+  for(let more=true;more;){more=false;for(const d of devs){if(pinOf(pin,d.user,d.kid,d.public_key)||!d.signed_by||!d.sig)continue;
+    const s=(pin[d.user]||[]).map(x=>x.split('|')).find(p=>p[0]===d.signed_by&&p[2]);
+    if(s&&await edOk(s[2],signedBytes(d.user,d.kid,d.public_key,d.sign_pub),d.sig)){(pin[d.user]=pin[d.user]||[]).push(pinId(d.kid,d.public_key,d.sign_pub));more=true}}}
+  return pin}
 // ---- end pins ----
 
 // ---- the board's epoch keys, the CLI's loop: open the next epoch when there's none or after a removal, hand keys to
@@ -83,7 +101,7 @@ let ST=null;
 async function epochKeys(tries){tries=tries||0;const dev=await device();const st=await api('GET','/api/boards/'+BOARD+'/epochs');const keys=new Map();
   if(!st.mine.length&&await inviteTake(dev))return epochKeys(tries);
   for(const g of st.mine)if(g.kid===dev.kid){const c=g.epoch+':'+g.wrapped;if(!KEYS.has(c))try{const raw=await unwrapMine(g,dev);KEYS.set(c,{raw,aes:await aesKey(raw)})}catch(e){continue}keys.set(g.epoch,KEYS.get(c))}
-  const before=JSON.stringify(pins()),pin=pinUpdate(pins(),ME,dev,st);
+  const before=JSON.stringify(pins()),pin=await crossSigned(pinUpdate(pins(),ME,dev,st),[...st.keys,...st.missing]);
   if(JSON.stringify(pin)!==before)savePins(pin);
   const trusted=k=>isPinned(pin,k);
   let current=st.current;
@@ -107,7 +125,10 @@ function renderBar(){if(!ST)return;const {dev,keys,current}=ST,kid='<span class=
 
 // Your own new device: only you, here, by clicking Approve. It's pinned, then handed the epochs this browser holds.
 document.addEventListener('click',async e=>{const b=e.target.closest('[data-e2e-approve]');if(!b||!ST)return;const kid=b.dataset.e2eApprove,m=ST.untrusted.find(x=>x.kid===kid&&x.user===ME);if(!m)return;
-  b.disabled=true;const p=pins(),id=pinId(m.kid,m.public_key);if(!(p[ME]||[]).includes(id))(p[ME]=p[ME]||[]).push(id);savePins(p);
+  b.disabled=true;const p=pins();if(!pinOf(p,ME,m.kid,m.public_key))(p[ME]=p[ME]||[]).push(pinId(m.kid,m.public_key,m.sign_pub));savePins(p);
+  // …and signed into your device list (E2E design §2.2), so other members' devices hand it keys too; your boards show it.
+  if(!m.sig&&ST.dev.spriv)try{const sig=b64(await S.sign({name:'Ed25519'},ST.dev.spriv,signedBytes(ME,m.kid,m.public_key,m.sign_pub)));
+    await api('POST','/api/me/keys/'+encodeURIComponent(m.kid)+'/sign',{by:ST.dev.kid,sig})}catch(err){console.warn('[e2e] sign',err)}
   try{await epochKeys();toast('Approved: that device can read this board now')}catch(err){toast(err.message)}finally{b.disabled=false}});
 
 // ---- reading: every envelope on the page is opened here; what can't be opened says why ----

@@ -624,6 +624,14 @@ board the server stores ciphertext and can't read messages. High level:
 - **Local MCP agents.** `atteo mcp` decrypts and encrypts on the agent's machine: on an encrypted board its `read`,
   `get`, `post` and `wait` go through the sealed routes, never through the server's plaintext tools
   (cli/src/e2emcp.ts). A post whose board isn't known yet is refused there rather than sent (E2E design §5 (L)).
+- **Cross-signed devices.** Each CLI machine and browser also registers an Ed25519 signing key (`sign_pub`, migration
+  0078; set once). Approving your new device (`atteo keys approve`, the web's Approve) signs it:
+  `POST /api/me/keys/{kid}/sign` over `atteo device v1\n<user>\n<kid>\n<public key>\n<signing key>`. The server checks
+  the signature and posts a `🔑 … added a device …` line on your encrypted boards. A signed later device is offered to
+  every member, and each client hands it keys only if the signature checks against the signer's signing key pinned
+  there (pins become `kid|public_key|sign_pub`). Unsigned devices, including the iPhone app's for now, keep the
+  own-devices-only rule (src/boardkeys.ts `signDevice`; cli/src/crosssign.ts; src/e2eweb.ts `crossSigned`). A pin made
+  before signing existed takes the signing key on first sight.
 - **Invite links carry the key.** On an encrypted board, a link made on the web or with `atteo link` comes with a one-time
   X25519 invite key: each epoch key the maker holds is wrapped to its public half (stored with the link,
   `invite_key_grants`, migration 0077) and the private half goes after the link's `#k=`, which the server never sees.

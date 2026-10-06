@@ -1141,14 +1141,65 @@ await step("invite links carry an encrypted board's key after the # (E2E 1c): at
   assert(straight.status >= 300 && straight.status < 400 && straight.headers.get("location").includes("/auth/login"), "a key-less link goes straight to sign-in: " + straight.status);
 });
 
+await step("cross-signed devices (E2E 1c): approving your new machine signs it; another member's CLI then hands it the key, and the board says so", async () => {
+  const R = `e2e-cli-r-${run}`, S = `e2e-cli-s-${run}`;
+  const cred = {};
+  for (const [who, u] of [["r1", R], ["r2", R], ["s", S]]) {
+    if (who !== "r2") await ops("users", { name: u, email: `${u}@example.com`, verified: "true" });
+    cred[who] = join(dir, `xs-${who}.json`);
+    writeFileSync(cred[who], JSON.stringify({ server: BASE, user: u, token: (await ops("tokens", { user: u })).token, expires_at: Date.now() + 86400e3 }), { mode: 0o600 });
+  }
+  const as = (who, args) => cli(args, { cwd: mkdtempSync(join(tmpdir(), `atteo-xs-${who}-`)), cred: cred[who], env: { XDG_CONFIG_HOME: join(dir, `cfg-xs-${who}`) } });
+  let r = await as("r1", ["create", `cross signed ${run}`, "--encrypted"]);
+  assert(r.code === 0, r.out + r.err);
+  const eb = r.out.match(/\((b_[a-z0-9]+)\)/)[1];
+  await ops("members", { board: eb, user: S });
+  await as("s", ["keys"]);
+  const secret = `signed devices read this ${run}`;
+  r = await as("r1", ["post", secret, "--board", eb]);
+  assert(r.code === 0, r.out + r.err);
+  r = await as("s", ["read", "--board", eb]);
+  assert(r.out.includes(secret), "S reads: " + r.out + r.err);
+  // R's second machine: unsigned, so S's CLI leaves it to R's own devices.
+  r = await as("r2", ["keys", "--json"]);
+  const r2 = JSON.parse(r.out).keys.find((k) => k.this_machine);
+  assert(r2 && r2.sign_pub && !r2.sig, "a new machine registers its signing key, unsigned: " + r.out);
+  await as("s", ["read", "--board", eb]); // the server doesn't even offer it to S: an unsigned later device is R's own business
+  r = await as("r2", ["read", "--all", "--board", eb]);
+  assert(!r.out.includes(secret), "not yet: " + r.out);
+  // R approves it on the first machine: signed into R's device list. R1 isn't used again.
+  r = await as("r1", ["keys", "approve", r2.id]);
+  assert(r.code === 0 && r.out.includes("signed it into your device list"), r.out + r.err);
+  r = await as("r1", ["keys", "approve", r2.id]);
+  assert(!r.out.includes("Not signed"), "approving again doesn't re-sign: " + r.out);
+  r = await as("s", ["read", "--board", eb]); // S's CLI checks the signature against R1's pinned signing key, and grants
+  r = await as("r2", ["read", "--all", "--board", eb]);
+  assert(r.out.includes(secret), "R's second machine reads, handed the key by S's CLI: " + r.out + r.err);
+  const html = await fetch(`${BASE}/b/${eb}`, { headers: { cookie: (await ops("sessions", { user: S })).cookie } }).then((x) => x.text());
+  assert(html.includes(`🔑 ${R} added a device`) && html.includes(`gave ${R}`), "the device change and the grant are visible on the board");
+  // The server checks signatures too: a made-up one is refused.
+  const tokR = JSON.parse(readFileSync(cred.r1, "utf8")).token;
+  r = await as("r2", ["keys", "--json"]);
+  const r1id = JSON.parse(r.out).keys.find((k) => !k.this_machine).id;
+  const bad = await fetch(`${BASE}/api/me/keys/${r1id}/sign`, { method: "POST", headers: { authorization: `Bearer ${tokR}`, "content-type": "application/json" }, body: JSON.stringify({ by: r2.id, sig: Buffer.alloc(64, 7).toString("base64") }) }).then((x) => x.json());
+  assert(/doesn't match/.test(bad.error ?? ""), JSON.stringify(bad));
+});
+
 await step("encrypted board past 200 (alt-c #3398): read --all shows everything; a plain read takes a page and says more are waiting", async () => {
   // Standalone (#3007): its own encrypted board. The sealed route gives 200 a call, so 205 filler envelopes push a real
   // message past the first page. The filler is a v2 envelope at the board's epoch that won't decrypt; it only adds entries.
   const proj = mkdtempSync(join(tmpdir(), "atteo-e2ee-200-"));
-  let r = await cli(["create", `e2e cli enc200 ${run}`, "--encrypted"], { cwd: proj });
+  // Its own user too, so the Free plan's 3 boards of A's don't depend on which steps share its shard.
+  const U = `e2e-cli-200-${run}`;
+  await ops("users", { name: U, email: `${U}@example.com`, verified: "true" });
+  const tokA = (await ops("tokens", { user: U })).token;
+  const credU = join(proj, "u.json");
+  writeFileSync(credU, JSON.stringify({ server: BASE, user: U, token: tokA, expires_at: Date.now() + 86400e3 }), { mode: 0o600 });
+  const cliU = (args, o) => cli(args, { ...o, cred: credU });
+  let r = await cliU(["create", `e2e cli enc200 ${run}`, "--encrypted"], { cwd: proj });
   assert(r.code === 0, r.out + r.err);
   const eb = r.out.match(/\((b_[a-z0-9]+)\)/)[1];
-  r = await cli(["post", `first ${run}`], { cwd: proj });
+  r = await cliU(["post", `first ${run}`], { cwd: proj });
   assert(r.code === 0, r.out + r.err);
   const sealed = (after) => fetch(`${BASE}/api/boards/${eb}/sealed?after=${after}`, { headers: { authorization: `Bearer ${tokA}` } }).then((x) => x.json());
   const epoch = JSON.parse((await sealed(0)).entries[0].payload).epoch;
@@ -1157,15 +1208,15 @@ await step("encrypted board past 200 (alt-c #3398): read --all shows everything;
     await Promise.all(Array.from({ length: 41 }, () => fetch(`${BASE}/api/boards/${eb}/sealed`, { method: "POST", headers: { authorization: `Bearer ${tokA}`, "content-type": "application/json" }, body: JSON.stringify({ payload: filler, type: "note" }) }).then((x) => assert(x.status === 201, `filler ${x.status}`))));
   }
   const last = `past the first page ${run}`;
-  r = await cli(["post", last], { cwd: proj });
+  r = await cliU(["post", last], { cwd: proj });
   assert(r.code === 0, r.out + r.err);
   // A plain read from the start: one page with the note, then the rest.
-  r = await cli(["read"], { cwd: proj });
+  r = await cliU(["read"], { cwd: proj });
   assert(r.code === 0 && r.out.includes("200 messages") && r.out.includes("(200 shown; more are waiting: atteo read again)") && !r.out.includes(last), r.out.slice(-300) + r.err);
-  r = await cli(["read"], { cwd: proj });
+  r = await cliU(["read"], { cwd: proj });
   assert(r.code === 0 && r.out.includes("7 messages") && r.out.includes(last) && !r.out.includes("more are waiting"), r.out.slice(-300) + r.err);
   // --all: everything in one go.
-  r = await cli(["read", "--all"], { cwd: proj });
+  r = await cliU(["read", "--all"], { cwd: proj });
   assert(r.code === 0 && r.out.includes("207 messages") && r.out.includes(`first ${run}`) && r.out.includes(last) && !r.out.includes("more are waiting"), r.out.slice(0, 200) + r.out.slice(-300) + r.err);
 });
 
@@ -1757,7 +1808,7 @@ await step("dispatch: without a harness it says how to set one and exits non-zer
 
 await step("dispatch: one fork per message, each its own session with the message and how to answer it in the thread; acked; a second run does nothing; an agent's plain note gets no fork", async () => {
   // Fresh people, so earlier steps' mail doesn't get in the way.
-  const D = `e2e-cli-d-${run}`, E = `e2e-cli-e-${run}`;
+  const D = `e2e-cli-dp-${run}`, E = `e2e-cli-e-${run}`;
   for (const u of [D, E]) await ops("users", { name: u, email: `${u}@example.com`, verified: "true" });
   const tokD = (await ops("tokens", { user: D })).token;
   const tokE = (await ops("tokens", { user: E })).token;

@@ -1418,16 +1418,20 @@ const handler = {
       // ---- sealed secrets: public keys per CLI login; envelopes only their recipient can fetch ----
       if (path === "/api/me/keys" && (method === "GET" || method === "POST")) {
         if (!viewer) return needLogin();
-        if (method === "GET") return json({ keys: (await env.DB.prepare(`SELECT id, public_key, label, created_at FROM agent_keys WHERE user = ? AND revoked_at IS NULL ORDER BY created_at`).bind(viewer.name).all()).results });
-        const b = (await request.json().catch(() => ({}))) as { public_key?: string; label?: string };
+        if (method === "GET") return json({ keys: (await env.DB.prepare(`SELECT id, public_key, label, created_at, sign_pub, signed_by, sig FROM agent_keys WHERE user = ? AND revoked_at IS NULL ORDER BY created_at`).bind(viewer.name).all()).results });
+        const b = (await request.json().catch(() => ({}))) as { public_key?: string; label?: string; sign_pub?: string };
         const pk = String(b.public_key ?? "");
         if (!/^[A-Za-z0-9+/]{43}=$/.test(pk)) return json({ error: "public_key must be a base64 X25519 key (32 bytes)." }, 400);
+        // The device's Ed25519 signing key (cross-signed device lists, E2E design §2.2): set once, never replaced.
+        const spk = b.sign_pub == null ? null : String(b.sign_pub);
+        if (spk !== null && !/^[A-Za-z0-9+/]{43}=$/.test(spk)) return json({ error: "sign_pub must be a base64 Ed25519 key (32 bytes)." }, 400);
         const existing = await env.DB.prepare(`SELECT id FROM agent_keys WHERE user = ? AND public_key = ? AND revoked_at IS NULL`).bind(viewer.name, pk).first<{ id: string }>();
+        if (existing && spk) await env.DB.prepare(`UPDATE agent_keys SET sign_pub = ? WHERE id = ? AND sign_pub IS NULL`).bind(spk, existing.id).run();
         if (existing) return json({ ok: true, id: existing.id });
         const n = (await env.DB.prepare(`SELECT COUNT(*) AS n FROM agent_keys WHERE user = ? AND revoked_at IS NULL`).bind(viewer.name).first<{ n: number }>())?.n ?? 0;
         if (n >= 10) return json({ error: "At most 10 machines; remove one first." }, 400);
         const kid = crypto.randomUUID().slice(0, 8);
-        await env.DB.prepare(`INSERT INTO agent_keys (id, user, public_key, label, created_at) VALUES (?, ?, ?, ?, ?)`).bind(kid, viewer.name, pk, String(b.label ?? "").slice(0, 60) || null, Date.now()).run();
+        await env.DB.prepare(`INSERT INTO agent_keys (id, user, public_key, label, created_at, sign_pub) VALUES (?, ?, ?, ?, ?, ?)`).bind(kid, viewer.name, pk, String(b.label ?? "").slice(0, 60) || null, Date.now(), spk).run();
         return json({ ok: true, id: kid }, 201);
       }
       let km = path.match(/^\/api\/keys\/([a-z0-9][a-z0-9_.-]{0,31})$/);
@@ -1445,6 +1449,19 @@ const handler = {
         const rows = (await env.DB.prepare(`SELECT k.id, k.user, k.public_key FROM agent_keys k JOIN members m ON m.user = k.user WHERE m.board_id = ? AND k.revoked_at IS NULL`).bind(km[1]).all<{ id: string; user: string; public_key: string }>()).results;
         const members = (await registry.boardMembers(env, km[1])).map((x) => x.user);
         return json({ keys: rows, without_keys: members.filter((u) => !rows.some((r) => r.user === u)) });
+      }
+      // One of your devices signs another of yours when it approves it; your encrypted boards show the change.
+      km = path.match(/^\/api\/me\/keys\/([a-z0-9-]{1,40})\/sign$/);
+      if (km && method === "POST") {
+        if (!viewer) return needLogin();
+        try {
+          const r = await boardkeys.signDevice(env, viewer.name, km[1], (await request.json().catch(() => ({}))) as Record<string, unknown>);
+          const opts = { via: pv(), client: viewer.via === "agent" ? "atteo CLI" : null, session: await asid() };
+          for (const id of r.boards) await boardStub(env, id).keyNotice(viewer.name, boardkeys.deviceNotice(viewer.name, r.target, r.signer), opts);
+          return json({ ok: true, boards: r.boards.length });
+        } catch (e) {
+          return json({ error: e instanceof Error ? e.message : String(e) }, e instanceof boardkeys.KeyError ? 400 : 500);
+        }
       }
       // A device key you no longer trust (a lost laptop): its copies of board keys go, and those boards rotate.
       km = path.match(/^\/api\/me\/keys\/([a-z0-9-]{1,40})$/);

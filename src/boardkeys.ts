@@ -40,10 +40,66 @@ export function checkGrant(g: Partial<Grant>, noKid = false): Grant {
 /** Members' live device keys on a board. */
 async function memberKeys(env: Env, board: string) {
   return (
-    await env.DB.prepare(`SELECT k.id, k.user, k.public_key, k.label FROM agent_keys k JOIN members m ON m.user = k.user WHERE m.board_id = ? AND k.revoked_at IS NULL ORDER BY k.created_at`)
+    await env.DB.prepare(
+      `SELECT k.id, k.user, k.public_key, k.label, k.sign_pub, k.signed_by, k.sig FROM agent_keys k JOIN members m ON m.user = k.user WHERE m.board_id = ? AND k.revoked_at IS NULL ORDER BY k.created_at`,
+    )
       .bind(board)
-      .all<{ id: string; user: string; public_key: string; label: string | null }>()
+      .all<{ id: string; user: string; public_key: string; label: string | null; sign_pub: string | null; signed_by: string | null; sig: string | null }>()
   ).results;
+}
+
+/** A device as clients see it, with its signing key and who signed it (null on devices from before signing). */
+const signed = (k: { id: string; user: string; public_key: string; label: string | null; sign_pub: string | null; signed_by: string | null; sig: string | null }) => ({
+  kid: k.id,
+  user: k.user,
+  public_key: k.public_key,
+  label: k.label,
+  sign_pub: k.sign_pub,
+  signed_by: k.signed_by,
+  sig: k.sig,
+});
+
+// ---- cross-signed device lists (E2E design §2.2): a person's later device is signed by one of their existing devices ----
+
+/** What a device signature covers: the person, the device id, its X25519 key and its own signing key. Never change it. */
+export const deviceSigned = (user: string, kid: string, publicKey: string, signPub: string | null) => `atteo device v1\n${user}\n${kid}\n${publicKey}\n${signPub ?? ""}`;
+
+const SIG = B64(64);
+const unb64 = (s: string) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
+
+/**
+ * One of your devices (`by`) signs another of yours (`kid`), when it approves it. The server checks the signature too,
+ * for hygiene; the check that matters is each client's, against the signer's key it pinned. Returns both devices and
+ * your encrypted boards, where everyone then sees the change.
+ */
+export async function signDevice(env: Env, user: string, kid: string, body: { by?: unknown; sig?: unknown }) {
+  const by = String(body.by ?? "");
+  const sig = String(body.sig ?? "");
+  if (!SIG.test(sig)) throw new KeyError("sig must be a base64 Ed25519 signature (64 bytes).");
+  const rows = (
+    await env.DB.prepare(`SELECT id, user, public_key, label, sign_pub, signed_by, sig FROM agent_keys WHERE user = ? AND revoked_at IS NULL AND id IN (?, ?)`)
+      .bind(user, kid, by)
+      .all<{ id: string; user: string; public_key: string; label: string | null; sign_pub: string | null; signed_by: string | null; sig: string | null }>()
+  ).results;
+  const target = rows.find((r) => r.id === kid);
+  const signer = rows.find((r) => r.id === by);
+  if (!target) throw new KeyError("No such device key of yours.");
+  if (!signer || by === kid) throw new KeyError("Sign with another of your live devices.");
+  if (!signer.sign_pub) throw new KeyError("That device has no signing key yet.");
+  if (target.sig) throw new KeyError("That device is already signed.");
+  const key = await crypto.subtle.importKey("raw", unb64(signer.sign_pub), { name: "Ed25519" }, false, ["verify"]);
+  const ok = await crypto.subtle.verify({ name: "Ed25519" }, key, unb64(sig), new TextEncoder().encode(deviceSigned(user, kid, target.public_key, target.sign_pub)));
+  if (!ok) throw new KeyError("The signature doesn't match that device.");
+  const r = await env.DB.prepare(`UPDATE agent_keys SET signed_by = ?, sig = ? WHERE id = ? AND user = ? AND sig IS NULL`).bind(by, sig, kid, user).run();
+  if (!r.meta.changes) throw new KeyError("That device is already signed.");
+  const boards = (await env.DB.prepare(`SELECT b.id FROM boards b JOIN members m ON m.board_id = b.id WHERE m.user = ? AND b.encrypted = 1`).bind(user).all<{ id: string }>()).results.map((x) => x.id);
+  return { target, signer, boards };
+}
+
+/** The visible line on each of the person's encrypted boards when their device list changes. */
+export function deviceNotice(user: string, t: { id: string; label: string | null }, s: { id: string; label: string | null }): string {
+  const name = (k: { id: string; label: string | null }) => `${k.label ? `“${k.label}”` : "device"} (key ${k.id.slice(0, 6)})`;
+  return `🔑 ${user} added a device, ${name(t)}, signed by their ${name(s)}. Members' devices can hand it this board's key.`;
 }
 
 /**
@@ -65,10 +121,11 @@ export async function state(env: Env, board: string, viewer: string) {
   const missing = keys
     .map((k) => {
       const first = !usersWithKey.has(k.user);
-      // Later devices are for their owner's own devices to approve; first devices, for anyone holding the key.
-      if (!first && k.user !== viewer) return null;
+      // Later devices are for their owner's own devices to approve, or anyone's once one of those signed it (clients
+      // check the signature against the signer they pinned); first devices, for anyone holding the key.
+      if (!first && k.user !== viewer && !k.signed_by) return null;
       const need = all.filter((e) => iHold.has(e) && !has.has(`${e}:${k.id}`));
-      return need.length ? { kid: k.id, user: k.user, public_key: k.public_key, label: k.label, first_device: first, epochs: need } : null;
+      return need.length ? { ...signed(k), first_device: first, epochs: need } : null;
     })
     .filter((x) => x !== null);
   return {
@@ -77,7 +134,7 @@ export async function state(env: Env, board: string, viewer: string) {
     mine: mine.map(({ epoch, kid, epk, iv, wrapped }) => ({ epoch, kid, epk, iv, wrapped })),
     missing,
     // Every member device the next epoch must be wrapped to (opening one wraps to all of these).
-    keys: keys.map((k) => ({ kid: k.id, user: k.user, public_key: k.public_key, label: k.label })),
+    keys: keys.map(signed),
   };
 }
 
@@ -132,7 +189,8 @@ export async function addGrants(env: Env, board: string, viewer: string, body: {
     if (!k) throw new KeyError(`Device ${g.kid} isn't a live key of a member of this board.`);
     if (!iHold.has(g.epoch)) throw new KeyError(`You don't hold epoch ${g.epoch}'s key, so you can't hand it on.`);
     const first = !usersWithKey.has(k.user);
-    if (!first && k.user !== viewer) throw new KeyError(`${k.user} already reads this board; only one of ${k.user}'s own devices can add another of theirs.`);
+    if (!first && k.user !== viewer && !k.signed_by)
+      throw new KeyError(`${k.user} already reads this board; only one of ${k.user}'s own devices can add another of theirs (or anyone, once one of them signed it).`);
     if (has.has(`${g.epoch}:${g.kid}`)) continue;
     has.add(`${g.epoch}:${g.kid}`);
     stmts.push(
