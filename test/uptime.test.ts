@@ -54,8 +54,8 @@ const secretEnv = (): StatusEnv & { SENTRY_DSN: string; ADMIN_KEY: string } => (
 });
 
 describe("public /status", () => {
-  it("keeps CSP_ENFORCE off", () => {
-    expect(CSP_ENFORCE).toBe(false);
+  it("runs with CSP_ENFORCE on (vedu #5192)", () => {
+    expect(CSP_ENFORCE).toBe(true);
   });
 
   it("reports ok when D1 and the Durable Object answer and no R2 binding is set", async () => {
@@ -126,8 +126,8 @@ describe("public /status", () => {
     const html = await handlePublicStatus(new Request("https://atteo.dev/status", { headers: { accept: "text/html,application/xhtml+xml" } }), env, "/status");
     expect(html.status).toBe(200);
     expect(html.headers.get("content-type")).toMatch(/text\/html/);
-    expect(html.headers.get("content-security-policy")).toBeNull();
-    expect(html.headers.get("content-security-policy-report-only")).toContain("script-src");
+    expect(html.headers.get("content-security-policy-report-only")).toBeNull();
+    expect(html.headers.get("content-security-policy")).toContain("script-src");
     expect(html.headers.get("cache-control")).toBe("no-store");
     const page = await html.text();
     expect(page).toContain('id="atteo-status" data-status="ok"');

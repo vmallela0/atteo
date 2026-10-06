@@ -91,13 +91,14 @@ struct Board: Codable, Identifiable, Hashable {
     let title: String
     let kind: String?
     let entryCount: Int
-    let lastActivity: Double
+    var lastActivity: Double // moved by the live feed as lines arrive (AppState.bump)
     let encrypted: Bool?
     let last: Last?
     var liveAgents: Int? = nil // agent sessions working on it right now
     var createdBy: String? = nil // its creator (renames, archives, removes anyone's task)
     var archived: Bool? = nil
     var picture: String? = nil // "/board-picture/<id>?v=<n>" (members only, versioned), or nil: its initial (a DM shows the other person)
+    var openedAt: Double? = nil // when you last opened it, here or on the web: the tabs' "Last opened" order (vedu #5192)
 }
 
 extension Board {

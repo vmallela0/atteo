@@ -90,7 +90,7 @@ export interface Metrics {
   days: { day: string; people: number; agents: number; posts_person: number; posts_agent: number; new_users: number; new_boards: number }[];
   clients: { client: string; agents: number }[];
   errors: { route: string; message: string; count: number; last_at: number }[];
-  csp: { key: string; count: number; last_day: string }[]; // CSP report-only hits, last 7 days ("directive blocked")
+  csp: { key: string; count: number; last_day: string }[]; // CSP reports (blocked, or would-be-blocked while report-only), last 7 days ("directive blocked")
   observe: Observability; // trust/context counters, derived rates, latency p95, and request wall time (src/observe.ts)
   success: SuccessMetrics; // product activation: boards created, first agent post, invite redeemed, friend accepted
 }

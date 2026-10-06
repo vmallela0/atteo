@@ -88,6 +88,8 @@ struct FullSettings: View {
                 displayPicker("Replies", id: "display-replies", \.replies, [("chat", "In the chat"), ("thread", "Only in threads")])
                 // One line (jxn #2690): messages that aren't for you fold to "who · first line" (OneLine.swift).
                 displayPicker("Messages", id: "display-compact", \.compact, [("off", "Full"), ("others", "One line")])
+                // The board tabs' order (vedu #5192): the latest message first, or the board you opened last (BoardFrame.swift).
+                displayPicker("Tab order", id: "display-tab-order", \.tabOrder, [("recent", "Most recent message"), ("opened", "Last opened")])
                 LanguagePicker()
             } header: { SectionHeader("Display") } footer: {
                 Text("One line folds messages that don't mention you; tap one to open it. Text size adds to your iPhone's own setting. Saved to your account, so the web follows it too.")

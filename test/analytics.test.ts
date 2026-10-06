@@ -100,19 +100,20 @@ describe("web loader", () => {
     const offHtml = await off.text();
     expect(offHtml).not.toContain("posthog");
     expect(offHtml).not.toContain("atteoTrack");
-    const offCsp = off.headers.get("content-security-policy-report-only") ?? "";
+    const offCsp = off.headers.get("content-security-policy") ?? "";
     expect(offCsp).not.toContain("posthog");
-    expect(offCsp).toContain("connect-src 'self' wss://api.x.ai");
+    expect(offCsp).toContain("connect-src 'self' wss://api.x.ai https://cloudflareinsights.com;");
 
     const on = await withAnalytics({ POSTHOG_KEY: KEY, POSTHOG_HOST: "us" }, async () => {
       const res = page("Hi", "<p>x</p>");
-      return { html: await res.text(), csp: res.headers.get("content-security-policy-report-only") ?? "" };
+      return { html: await res.text(), csp: res.headers.get("content-security-policy") ?? "" };
     });
     expect(on.html).toContain('HOST="https://us.i.posthog.com"');
     expect(on.html).toContain('HOST+"/capture/"');
     expect(on.html).toContain(KEY);
-    expect(on.csp).toContain("connect-src 'self' wss://api.x.ai https://us.i.posthog.com");
-    expect(on.csp.split("; ").find((d) => d.startsWith("script-src "))).not.toMatch(/https?:/);
+    expect(on.csp).toContain("connect-src 'self' wss://api.x.ai https://cloudflareinsights.com https://us.i.posthog.com");
+    // PostHog's script is never loaded from its host; the only named script host is Cloudflare's injected beacon (vedu #5192).
+    expect(on.csp.split("; ").find((d) => d.startsWith("script-src "))?.split(" ").filter((x) => /^https?:/.test(x))).toEqual(["https://static.cloudflareinsights.com/beacon.min.js/"]);
   });
 
   it("notes the privacy page and the ops link while the key is missing", async () => {

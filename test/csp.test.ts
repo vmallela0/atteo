@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { page, appPage, formActionSource, CSP_ENFORCE, CSP_REPORT_PATH, VOICE_SOCKET_ORIGIN, BUG_DIALOG, BUG_PAGE_JS, SHELL_PAGE_JS, APP_JS, APP_CSS, ASK_CSS_SRC, DOC_CSS_SRC, GUIDE_CSS_SRC, PAGE_CSS, styleNonce } from "../src/ui";
+import { page, appPage, formActionSource, CSP_ENFORCE, CF_BEACON_SRC, CF_BEACON_POST, CSP_REPORT_PATH, VOICE_SOCKET_ORIGIN, BUG_DIALOG, BUG_PAGE_JS, SHELL_PAGE_JS, APP_JS, APP_CSS, ASK_CSS_SRC, DOC_CSS_SRC, GUIDE_CSS_SRC, PAGE_CSS, styleNonce } from "../src/ui";
 import { inboxPage } from "../src/inbox";
 import { localize, tr } from "../src/i18n";
 import budget from "./browser/web-budget.json";
@@ -21,11 +21,11 @@ const board = { id: "b_csp", title: "CSP", created_by: "csp", created_at: 0, ent
 const HEADER = CSP_ENFORCE ? "content-security-policy" : "content-security-policy-report-only";
 
 describe("HTML page CSP", () => {
-  it("is report-only for now (jxn's agent #2636), reporting to /api/csp-report", () => {
-    expect(CSP_ENFORCE).toBe(false);
+  it("is enforced (vedu #5192, after a week of report-only, jxn's agent #2636), still reporting to /api/csp-report", () => {
+    expect(CSP_ENFORCE).toBe(true);
     const res = landingPage();
-    expect(res.headers.get("content-security-policy")).toBeNull();
-    const csp = res.headers.get("content-security-policy-report-only") ?? "";
+    expect(res.headers.get("content-security-policy-report-only")).toBeNull();
+    const csp = res.headers.get("content-security-policy") ?? "";
     expect(csp).toContain(`report-uri ${CSP_REPORT_PATH}`);
     expect(csp).toContain("report-to csp");
     expect(res.headers.get("reporting-endpoints")).toBe(`csp="${CSP_REPORT_PATH}"`);
@@ -56,7 +56,8 @@ describe("HTML page CSP", () => {
       expect(csp.split("; ").find((x) => x.startsWith("script-src "))).not.toContain("'unsafe-inline'");
       expect(csp).toContain("script-src-attr 'none'");
       const styleSrc = csp.split("; ").find((x) => x.startsWith("style-src ")) ?? "";
-      expect(styleSrc).toBe(`style-src 'self' 'nonce-${nonce}' 'sha256-vuoYVUMGk/VxhCdzgU8CZI+1pTZh7IqNO0ULnfSkFEE='`); // + pinned mermaid's own <style>
+      // + pinned mermaid's own <style> blocks: every diagram, then a sequence diagram's in light and dark (jxn's agent #5201)
+      expect(styleSrc).toBe(`style-src 'self' 'nonce-${nonce}' 'sha256-vuoYVUMGk/VxhCdzgU8CZI+1pTZh7IqNO0ULnfSkFEE=' 'sha256-WF914ipvPGaHv9RY+aJIHeo7JES4ZDusen+ygHbePwc=' 'sha256-ZM/fKL32eTT92dYKEdOclnHO3HDdmO/uLQmDzNcYQGI=' 'sha256-B0VWRq0QR6EJ1g0ixhqTbiYbVEJuQiCFhI44BsXN92k='`);
       expect(styleSrc).not.toContain("'unsafe-inline'");
       expect(csp.split("; ").find((x) => x.startsWith("style-src-attr"))).toBe("style-src-attr 'unsafe-inline'");
       const styles = [...html.matchAll(/<style\b([^>]*)>/g)];
@@ -73,17 +74,18 @@ describe("CSP follow-ups (opus-b #2678, jxn's agent #2681)", () => {
   const policyOf = (res: Response) => res.headers.get(HEADER) ?? "";
   const directive = (csp: string, name: string) => csp.split("; ").find((x) => x.startsWith(name + " ")) ?? "";
 
-  it("sockets: only this host and the voice provider, never any wss host", () => {
+  it("sockets: only this host and the voice provider, never any wss host (plus Cloudflare's analytics beacon post)", () => {
     const connect = directive(policyOf(landingPage()), "connect-src");
-    expect(connect).toBe(`connect-src 'self' ${VOICE_SOCKET_ORIGIN}`);
+    expect(connect).toBe(`connect-src 'self' ${VOICE_SOCKET_ORIGIN} ${CF_BEACON_POST}`);
     expect(connect).not.toMatch(/(^| )wss?:( |$)/);
     expect(new URL(REALTIME_URL).origin).toBe(VOICE_SOCKET_ORIGIN);
   });
 
   it("mermaid: this origin's pinned file, loaded with SRI and crossorigin, no CDN", async () => {
     const script = directive(policyOf(landingPage()), "script-src");
-    expect(script).toMatch(/^script-src 'self' 'nonce-[a-f0-9]{32}'$/);
-    expect(script).not.toMatch(/https?:\/\//);
+    // The one named host is Cloudflare's edge-injected analytics beacon (vedu #5192): no CDN for our own scripts.
+    expect(script).toMatch(/^script-src 'self' 'nonce-[a-f0-9]{32}' \S+$/);
+    expect(script.split(" ").filter((x) => /^https?:/.test(x))).toEqual([CF_BEACON_SRC]);
     expect(script).not.toMatch(/jsdelivr/i);
     expect(MERMAID_SRC).toMatch(/^\/mermaid\.min\.js\?v=\d+\.\d+\.\d+$/);
     expect(MERMAID_SRI).toMatch(/^sha384-[A-Za-z0-9+/]{64}$/);

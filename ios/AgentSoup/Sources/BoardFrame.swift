@@ -14,11 +14,16 @@ struct BoardStateTabs: View {
     let current: Board
 
     private var boards: [Board] {
-        // Most recently active first, the open board included (vedu #5043), so the strip doesn't reshuffle as you switch.
+        // Most recently active first, the open board included (vedu #5043), so the strip doesn't reshuffle as you switch;
+        // or, with Display → Tab order "Last opened" (vedu #5192), the board you opened last first: this one.
+        // The open board's live copy from the list, not the one it was opened with: its last activity moves too (#5194).
         // Each board once: a repeated id makes ForEach draw nothing it can rely on.
         var seen: Set<String> = [current.id]
-        let rest = state.boards.filter { $0.archived != true && seen.insert($0.id).inserted }
-        return ([current] + rest).sorted { $0.lastActivity > $1.lastActivity }
+        let here = state.boards.first { $0.id == current.id } ?? current
+        let all = [here] + state.boards.filter { $0.archived != true && seen.insert($0.id).inserted }
+        guard state.display.tabsByOpened else { return all.sorted { $0.lastActivity > $1.lastActivity } }
+        let opened = { (b: Board) in b.id == current.id ? Double.infinity : b.openedAt ?? 0 }
+        return all.sorted { (opened($0), $0.lastActivity) > (opened($1), $1.lastActivity) }
     }
 
     /// The tabs' height: fixed at a text size (taller with larger text), like the Chat · Tasks · Files row, and never
@@ -38,10 +43,16 @@ struct BoardStateTabs: View {
             }
             .frame(height: rowHeight)
             .padding(.horizontal, Space.l)
+            .background(VerticalLock())
         }
         .contentMargins(.vertical, 0, for: .scrollContent)
         .scrollBounceBehavior(.basedOnSize, axes: .vertical)
         .ignoresSafeArea(.all, edges: .vertical)
+        #if DEBUG
+        .onScrollGeometryChange(for: [CGFloat].self) { g in [g.contentOffset.y + g.contentInsets.top, g.contentSize.height - g.containerSize.height, g.contentInsets.top + g.contentInsets.bottom] } action: { _, v in
+            drift = [max(drift[0], abs(v[0])), max(drift[1], v[1]), max(drift[2], v[2])]
+        }
+        #endif
         .frame(height: rowHeight)
         .padding(.top, Space.xs)
         .padding(.bottom, 2) // a hair between the tabs' underlines and the Chat / Tasks / Files row (vedu #5088)
@@ -51,8 +62,20 @@ struct BoardStateTabs: View {
         .transaction { $0.animation = nil }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("board-state-tabs")
+        #if DEBUG
+        .overlay(alignment: .topLeading) {
+            Color.clear.frame(width: 1, height: 1).accessibilityElement()
+                .accessibilityIdentifier("board-state-tabs-drift")
+                .accessibilityValue(Text(verbatim: drift.map { String(format: "%.2f", $0) }.joined(separator: " ")))
+        }
+        #endif
         if #available(iOS 26.0, *) { row.scrollEdgeEffectHidden(true, for: .all) } else { row }
     }
+    #if DEBUG
+    /// For the UI tests (StripStaysUITests): the most the tabs ever moved up or down, how much taller than the strip
+    /// their content ever was, and the vertical insets it ever had. All three stay 0.
+    @State private var drift: [CGFloat] = [0, 0, 0]
+    #endif
 
     private func tab(_ b: Board) -> some View {
         let s = MenuBoardStatus(board: b, agents: state.boardAgents[b.id], approvals: state.approvals)
@@ -91,6 +114,44 @@ struct BoardStateTabs: View {
         .accessibilityValue(Text(verbatim: s.label))
         .accessibilityAddTraits(on ? [.isButton, .isSelected] : .isButton)
         .accessibilityIdentifier("state-tab-\(b.id)")
+    }
+}
+
+/// Holds the tabs' scroll view still vertically (vedu #5194, #5228: the strip still moved up and down on his phone): no
+/// insets from the safe area or the keyboard, no vertical bounce, and any vertical offset put straight back. SwiftUI's
+/// modifiers ask for the same, but a horizontal scroll view can still take a vertical inset or offset from its
+/// surroundings, so this pins the UIScrollView itself. Sideways scrolling is untouched.
+private struct VerticalLock: UIViewRepresentable {
+    func makeUIView(context: Context) -> Pin { Pin() }
+    func updateUIView(_ v: Pin, context: Context) { v.attach() }
+
+    final class Pin: UIView {
+        private weak var scroll: UIScrollView?
+        private var watch: [NSKeyValueObservation] = []
+
+        override init(frame: CGRect) { super.init(frame: frame); isUserInteractionEnabled = false; isAccessibilityElement = false }
+        required init?(coder: NSCoder) { fatalError() }
+        override func didMoveToWindow() { super.didMoveToWindow(); attach() }
+
+        func attach() {
+            var v = superview
+            while let s = v, !(s is UIScrollView) { v = s.superview }
+            guard let s = v as? UIScrollView, s !== scroll else { return }
+            scroll = s
+            s.contentInsetAdjustmentBehavior = .never
+            s.alwaysBounceVertical = false
+            s.isDirectionalLockEnabled = true
+            pin(s)
+            watch = [
+                s.observe(\.contentOffset) { [weak self] s, _ in MainActor.assumeIsolated { self?.pin(s) } },
+                s.observe(\.contentInset) { [weak self] s, _ in MainActor.assumeIsolated { self?.pin(s) } },
+            ]
+        }
+
+        private func pin(_ s: UIScrollView) {
+            if s.contentInset.top != 0 || s.contentInset.bottom != 0 { s.contentInset.top = 0; s.contentInset.bottom = 0 }
+            if s.contentOffset.y != 0 { s.contentOffset.y = 0 }
+        }
     }
 }
 

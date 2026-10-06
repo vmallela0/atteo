@@ -1,3 +1,4 @@
+import UIKit
 import XCTest
 @testable import Atteo
 
@@ -89,5 +90,46 @@ final class ShareCoreTests: XCTestCase {
     func testFileNamesAreCleanedLikeTheServer() {
         XCTAssertEqual(ShareCore.cleanName("Screenshot 2026-10-05 at 1.09.3…"), "Screenshot 2026-10-05 at 1.09.3-")
         XCTAssertEqual(ShareCore.cleanName("   "), "file")
+    }
+
+    // vedu #5209/#5212: iMessages copied or shared into Atteo came as rich text (RTF/RTFD) and posted as files named
+    // "rich text with attachments -RTFD- data". They're words: one message per line, sender label kept.
+    private func rich(_ text: String, picture: Bool = false, as doc: NSAttributedString.DocumentType) throws -> Data {
+        let a = NSMutableAttributedString(string: text, attributes: [.font: UIFont.boldSystemFont(ofSize: 15)])
+        if picture {
+            let att = NSTextAttachment()
+            att.image = UIGraphicsImageRenderer(size: CGSize(width: 4, height: 4)).image { $0.fill(CGRect(x: 0, y: 0, width: 4, height: 4)) }
+            a.append(NSAttributedString(attachment: att))
+        }
+        return try a.data(from: NSRange(location: 0, length: a.length), documentAttributes: [.documentType: doc])
+    }
+
+    func testRichTextIsItsPlainWordsWithLineBreaks() throws {
+        let words = "Maya: are we still on for 6?\nsee you there"
+        XCTAssertEqual(ShareCore.plainText(rich: try rich(words, as: .rtf), type: "public.rtf"), words)
+        XCTAssertEqual(ShareCore.plainText(rich: try rich(words, picture: true, as: .rtfd), type: "com.apple.flat-rtfd"), words,
+                       "a picture's placeholder isn't text")
+        XCTAssertNil(ShareCore.plainText(rich: Data("not".utf8), type: "com.apple.flat-rtfd"))
+    }
+
+    func testSharedMessagesPostAsOneNoteOneMessagePerLine() throws {
+        let msgs = ["Maya: are we still on?", "Priya: yes, 6pm", "Maya: 👍", "Priya: bring the deck"]
+        let payloads: [SharedPayload] = try msgs.map { .text(ShareCore.plainText(rich: try rich($0, as: .rtfd), type: "com.apple.flat-rtfd")!) }
+        let r = try ShareCore.request(board: "b_1", payloads: payloads, note: "", base: base, token: "tok")
+        XCTAssertEqual(r.url?.path, "/api/boards/b_1/entries", "words, not uploads")
+        let json = try JSONSerialization.jsonObject(with: r.httpBody!) as! [String: String]
+        XCTAssertEqual(json["text"], msgs.joined(separator: "\n"))
+    }
+
+    func testComposerPastesCopiedMessagesAsPlainWords() throws {
+        let pb = UIPasteboard.withUniqueName()
+        defer { UIPasteboard.remove(withName: pb.name) }
+        let words = "Maya: are we still on?\nPriya: yes, 6pm"
+        pb.items = [["com.apple.flat-rtfd": try rich(words, picture: true, as: .rtfd), "public.utf8-plain-text": words]]
+        XCTAssertEqual(ComposerField.plainPaste(pb), words, "the plain text beside the rich")
+        pb.items = [["com.apple.flat-rtfd": try rich(words, picture: true, as: .rtfd)]]
+        XCTAssertEqual(ComposerField.plainPaste(pb), words, "rich alone: its words")
+        pb.items = [["public.utf8-plain-text": words]]
+        XCTAssertNil(ComposerField.plainPaste(pb), "plain words: the usual paste")
     }
 }

@@ -11,8 +11,11 @@ async function page(path: string, extra: HeadersInit = {}) {
 }
 
 describe("landing Worker CSP (docs/security/csp.md #8)", () => {
-  it("does not flip the app's CSP_ENFORCE", () => {
-    expect(CSP_ENFORCE).toBe(false);
+  it("keeps its own enforced policy, whatever the app's CSP_ENFORCE is", async () => {
+    expect(CSP_ENFORCE).toBe(true); // the app enforces too now (vedu #5192)
+    const res = await page("/");
+    expect(res.headers.get("content-security-policy")).toContain("default-src 'none'");
+    expect(res.headers.get("content-security-policy-report-only")).toBeNull();
   });
 
   it("hashes inline scripts and uses 'none' when there are none", async () => {
@@ -107,7 +110,6 @@ describe("landing Worker CSP (docs/security/csp.md #8)", () => {
     expect(faq).toContain('href="https://atteo.dev/support">Support</a>');
     const sitemap = await (await page("/sitemap.xml")).text();
     expect(sitemap).toContain("<loc>https://atteo.dev/support</loc>");
-    expect(CSP_ENFORCE).toBe(false);
   });
 
   it("does not put CSP on the non-HTML files", async () => {
