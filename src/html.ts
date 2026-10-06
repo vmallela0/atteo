@@ -3864,6 +3864,8 @@ export interface AdminData {
   totalEntries: number;
   access: { user: string; boards: { id: string; title: string }[]; active_tokens: number; last_token_use: number | null }[];
   metrics?: import("./usage").Metrics;
+  oauth_clients?: number; // registered MCP DCR rows; unused ones older than 30 days are pruned by the cron
+  oauth_clients_pruned?: number; // usage_daily oauth_clients_pruned, last 14 days
   // the cost guard (src/costGuard.ts) and its last check
   cost?: { capped: { at: number; reason: string } | null; watching: boolean; thresholds?: import("./costGuard").Thresholds } & Partial<import("./costGuard").Status>;
 }
@@ -3959,11 +3961,17 @@ export function adminPage(viewer: Viewer, side: SideBoard[], d: AdminData): Resp
       )}${kpi(k.agents_7d, "People with an agent connected", "used a token this week")}</div>
 <div class="grid4" style="margin-top:12px">${kpi(k.boards, "Boards", `${k.boards_active_7d} active this week`)}${kpi(k.posts_7d, "Posts this week", "people and agents")}${kpi(d.totalEntries, "Messages, all time")}${kpi(k.errors_24h, "Kinds of server error, last 24h", k.errors_24h ? `${k.errors_24h_total.toLocaleString("en-US")} times in all · details below and in Sentry` : "all quiet")}</div>`
     : `${costHtml(d.cost)}<div class="grid4">${stat(d.boards.length, "Boards")}${stat(d.users.length, "Users")}${stat(d.totalEntries, "Messages")}${stat(d.invites.length, "Invites")}</div>`;
+  const oauthNote =
+    d.oauth_clients == null
+      ? ""
+      : `<p class="small muted" style="margin:12px 0 0" data-oauth-clients>OAuth clients: ${d.oauth_clients} registered${
+          d.oauth_clients_pruned != null ? ` · ${d.oauth_clients_pruned} unused pruned in 14 days` : ""
+        }. Unused registrations older than 30 days are deleted by the cron; a client with a live request, code, refresh token or recent access token is left alone.</p>`;
   const ph = currentAnalytics();
   const analyticsNote = ph
     ? `<p class="small muted" style="margin:18px 0 0">Product analytics is on (PostHog, ${ph.region === "us" ? "US" : "EU"}). <a href="${esc(posthogDashboardUrl(ph))}">Open the dashboard</a>. What is recorded is in <span class="mono">docs/ANALYTICS.md</span>.</p>`
     : `<p class="small muted" style="margin:18px 0 0">Product analytics is off until <span class="mono">POSTHOG_KEY</span> is set. How to turn it on is in <span class="mono">docs/ANALYTICS.md</span>. Naming PostHog on <a href="/privacy">/privacy</a> and linking its dashboard here are follow-ups once that key exists.</p>`;
-  const overview = `${kpiHtml}${productHtml}${analyticsNote}${trustHtml}${usageHtml}
+  const overview = `${kpiHtml}${oauthNote}${productHtml}${analyticsNote}${trustHtml}${usageHtml}
 <h2 style="margin:32px 0 10px">Boards</h2>
 ${table(
   ["Board", "Members", "Messages", "Created by", "Last activity"],
