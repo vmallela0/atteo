@@ -875,8 +875,10 @@ ${AGENT_LOGO_CSS}
 
 
 /* app shell (Linear-style): sidebar + top bar + content */
-.app{display:grid;grid-template-columns:232px minmax(0,1fr);min-height:100vh}
-.sidebar{position:sticky;top:0;height:100vh;display:flex;flex-direction:column;gap:2px;padding:10px 8px;border-right:1px solid var(--line);background:var(--bg-subtle);overflow:auto}
+/* The frame (jxn #4860, 4e "tabs carry state"): no standing sidebar. Boards and chats are tabs in the strip on top; the
+   rest of the old sidebar is the Menu, a drawer from the left at every width (and phones' only way in, as before). */
+.app{min-height:100vh}
+.sidebar{position:fixed;inset:0 auto 0 0;width:260px;z-index:40;transform:translateX(-100%);transition:transform .2s,box-shadow .2s;height:100vh;display:flex;flex-direction:column;gap:2px;padding:10px 8px;border-right:1px solid var(--line);background:var(--bg-subtle);overflow:auto}
 .sidebar .ws{display:flex;align-items:center;gap:8px;padding:6px 8px 10px;font-weight:600;color:var(--ink)}
 .sidebar .search{display:flex;align-items:center;gap:8px;height:30px;margin:0 0 8px;padding:0 9px;border:1px solid var(--line);border-radius:7px;background:var(--bg);color:var(--faint);cursor:pointer;font:inherit;font-size:13px;text-align:left}
 .sidebar .search:hover{border-color:var(--line-strong);color:var(--muted)}
@@ -1047,13 +1049,22 @@ mark{background:var(--mark);color:inherit;border-radius:2px;padding:0 1px}
 @media(max-width:480px){.topbar .crumbs>:not(.cur){display:none}.topbar .crumbs .cur{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}}
 .content{max-width:1120px;margin:0 auto;padding:28px 24px 96px}
 .content.narrow{max-width:760px}
-.menu-btn{display:none}
-.nav-x,.nav-scrim{display:none}
-@media(max-width:860px){.app{grid-template-columns:1fr}.sidebar{position:fixed;inset:0 auto 0 0;width:260px;z-index:40;transform:translateX(-100%);transition:transform .2s,box-shadow .2s}
-  .app.nav-open .sidebar{transform:none;box-shadow:var(--shadow-lg)}.menu-btn{display:inline-flex}.content{padding:20px 16px 80px}.topbar{padding:0 12px}
-  /* The open drawer closes with its ✕, a tap on the dimmed page beside it, a swipe back to the left, or Esc (jxn #2223). */
-  .nav-x{display:inline-flex;position:absolute;top:8px;right:8px;width:32px;padding:0;justify-content:center;z-index:1}
-  .app.nav-open .nav-scrim{display:block;position:fixed;inset:0;z-index:39;background:rgba(0,0,0,.32)}}
+.app.nav-open .sidebar{transform:none;box-shadow:var(--shadow-lg)}
+/* The open drawer closes with its ✕, a tap on the dimmed page beside it, a swipe back to the left, or Esc (jxn #2223). */
+.nav-x{display:inline-flex;position:absolute;top:8px;right:8px;width:32px;padding:0;justify-content:center;z-index:1}
+.nav-scrim{display:none}.app.nav-open .nav-scrim{display:block;position:fixed;inset:0;z-index:39;background:rgba(0,0,0,.32)}
+@media(max-width:860px){.content{padding:20px 16px 80px}.topbar{padding:0 12px}}
+/* The strip: wordmark, Menu, a tab per board and chat (its underline is its state: green working, amber an approval
+   waits, grey quiet), new, search, messages, alerts, you. Phones keep the top bar's menu button instead. */
+.strip{display:flex;align-items:center;gap:6px;height:44px;padding:0 12px;border-bottom:1px solid var(--line);background:var(--bg-subtle)}
+.strip .ws{display:flex;align-items:center;gap:8px;padding:0 6px;color:var(--ink)}.strip .ws .wm{font-size:19px}
+.btabs{display:flex;flex:1;min-width:0;align-self:stretch;overflow-x:auto;scrollbar-width:none}
+.btab{display:flex;align-items:center;gap:6px;flex:none;max-width:220px;padding:0 12px;border-bottom:3px solid var(--line-strong);color:var(--muted);font-size:13px;white-space:nowrap}
+.btab>b{font-weight:500;overflow:hidden;text-overflow:ellipsis}.btab[aria-current]{color:var(--ink);background:var(--bg)}.btab.st-work{border-bottom-color:var(--ok)}.btab.st-ap{border-bottom-color:var(--warn)}
+.btab .wk,.btab .apn{font-size:11.5px;color:var(--faint)}.btab .apn{color:var(--warn)}
+.strip .count{margin-left:-6px}
+.topbar .menu-btn{display:none}
+@media(max-width:640px){.strip{display:none}.topbar .menu-btn{display:inline-flex}.content.full{--top:48px}}
 /* Connect an agent, always in the phone menu (vedu #2241): the board's header button goes once an agent is connected. */
 .side-connect{display:none}@media(max-width:860px){.side-connect{display:flex}}
 .side-connect .ev-l,:root[data-mode="everyday"] .side-connect .dev-l{display:none}:root[data-mode="everyday"] .side-connect .ev-l{display:inline}
@@ -1128,7 +1139,7 @@ dialog.palette{margin-top:12vh;width:min(600px,calc(100vw - 24px));border-radius
 @media (pointer:coarse){.doc-item{padding:10px 8px}}
 .doc-body{font-size:14px}.doc-body p+p{margin-top:10px}
 /* board page: the header and tabs stay put; the thread, sidebar, log and docs each scroll on their own */
-.content.full{max-width:1160px;height:calc(100vh - 48px);height:calc(100dvh - 48px);padding:6px 20px 0;display:flex;flex-direction:column;overflow:hidden}
+.content.full{max-width:1160px;height:calc(100vh - var(--top,92px));height:calc(100dvh - var(--top,92px));padding:6px 20px 0;display:flex;flex-direction:column;overflow:hidden}
 .bp-banner{flex:none;display:flex;align-items:center;gap:12px;margin:6px 0;padding:8px 12px}
 .e2e-bar{flex-wrap:wrap}.e2e-asks{flex-basis:100%;display:flex;flex-direction:column;gap:6px}.e2e-asks:empty{display:none}
 .e2e-ask{display:flex;align-items:center;gap:10px;padding-top:6px;border-top:1px solid var(--line)}.e2e-ask.xs{display:block}
@@ -1148,7 +1159,7 @@ dialog.palette{margin-top:12vh;width:min(600px,calc(100vw - 24px));border-radius
 /* Right-to-left (Arabic, #2335): the grid and flex layout mirror on their own with dir=rtl; these are the pieces placed
    by left/right. People's words keep their own direction, paragraph by paragraph (an English message on an Arabic page). */
 [dir=rtl] .bp-panel .info-btn{right:auto;left:0}[dir=rtl] .info-btn .count{right:auto;left:-4px}
-@media(max-width:860px){[dir=rtl] .sidebar{inset:0 0 0 auto;transform:translateX(100%)}[dir=rtl] .app.nav-open .sidebar{transform:none}[dir=rtl] .nav-x{right:auto;left:8px}}
+[dir=rtl] .sidebar{inset:0 0 0 auto;transform:translateX(100%)}[dir=rtl] .app.nav-open .sidebar{transform:none}[dir=rtl] .nav-x{right:auto;left:8px}
 [dir=rtl] .composer textarea,[dir=rtl] .cmp-mirror{unicode-bidi:plaintext}[dir=rtl] pre,[dir=rtl] code,[dir=rtl] kbd,[dir=rtl] .mono{direction:ltr;unicode-bidi:isolate}
 .entry .body,.entry .body :is(p,li,h1,h2,h3,h4,h5,h6,blockquote,td,th,dd,dt),.rq-t,.fwd-q{unicode-bidi:plaintext;text-align:start}
 .info-btn:hover,.info-btn[aria-expanded=true]{color:var(--ink)}
@@ -1158,6 +1169,7 @@ dialog.palette{margin-top:12vh;width:min(600px,calc(100vw - 24px));border-radius
 .bp-panel>.layout{flex:1;min-height:0;grid-template-rows:minmax(0,1fr);position:relative;gap:20px}
 @media(min-width:960px){.bp-panel>.layout{grid-template-columns:minmax(0,1fr) 280px}.bp-panel>.layout.info-collapsed{grid-template-columns:minmax(0,1fr)}.layout.info-collapsed>.aside{display:none}
   .layout.info-collapsed>.conv{width:100%;max-width:820px;margin:0 auto} /* a readable measure even with the sidebar hidden */}
+#board-info{display:flex;flex-direction:column}#sum{display:contents}#sum>[data-fold=members]{order:1}#ns-side,#host-side{order:2}
 .bp-panel .aside{position:static;align-self:stretch;max-height:none;min-height:0;overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain;margin:40px 0 0 -8px;padding:4px 8px 16px 8px}
 /* Board info scrolls below the panel toggle (nothing slides under it), with a thin, faint scrollbar. */
 .aside::-webkit-scrollbar{width:4px}
@@ -1797,6 +1809,21 @@ export function appPage(
     { label: T("Keyboard shortcuts"), hint: "?", href: "#shortcuts" },
     ...(v.admin ? [{ label: "Ops console", hint: "Operators", href: "/_ops" }] : []),
   ];
+  // The strip's tabs (jxn #4860): your boards and chats, most recently active first (pins ahead), each with its working
+  // count; its underline shows the state (st-work: agents working; st-ap, set by the inbox poll: an approval waits).
+  const tabName = (b: SideBoard) => (b.kind === "direct" ? shownName(directPeer(b, v.name), b.peer_name) : b.kind === "agent" ? T("Your agent") : b.title);
+  const tabs = opts.boards
+    .slice(0, 24)
+    .map((b) => `<a class="btab${b.live ? " st-work" : ""}" href="/b/${esc(b.id)}" data-tab="${esc(b.id)}"${cur(b.id)}><b>${esc(tabName(b))}</b>${b.live ? `<span class="wk">${esc(T("{n} working", { n: b.live }))}</span>` : ""}<span class="apn" hidden></span></a>`)
+    .join("");
+  const strip = `<header class="strip"><a class="ws" href="/">${LOGO}<span class="wm">atteo</span></a>
+  <button class="btn ghost sm" type="button" data-nav aria-controls="sidebar" aria-expanded="false">${ICON.menu}<span>${esc(T("Menu"))}</span></button>
+  <nav class="btabs" aria-label="${esc(T("Boards and chats"))}">${tabs}</nav>
+  <a class="btn ghost sm" href="/?new=1" aria-label="${esc(T("New board"))}" title="${esc(T("New board (C)"))}">${ICON.plus}</a>
+  <button class="btn ghost sm" type="button" data-palette aria-label="${esc(T("Search or jump to…"))}" title="⌘K">${ICON.search}</button>
+  <a class="btn ghost sm" href="/chats" aria-label="${esc(T("Chats"))}" title="${esc(T("Chats"))}">${ICON.feedback}</a>
+  <a class="btn ghost sm" href="/inbox" aria-label="${esc(T("Inbox"))}" title="${esc(T("Inbox"))}">${ICON.inbox}<span class="count" data-inbox-count hidden></span></a>
+  <a href="/me" aria-label="${esc(T("Account"))}" title="${esc(shownName(v.name, v.display_name))}">${avatar(v.name, "sm")}</a></header>`;
   const body = `<div class="app" id="app">
 <aside class="sidebar" id="sidebar" aria-label="${esc(T("Navigation"))}">
   <button class="btn ghost sm nav-x" type="button" data-nav-close aria-label="${esc(T("Close menu"))}" title="${esc(T("Close menu"))}">✕</button>
@@ -1816,7 +1843,7 @@ export function appPage(
   <div class="me"><a class="side-link" href="/me">${avatar(v.name, "sm")}<span class="truncate">${personHtml(v.name, v.display_name, opts.boards.filter((b) => b.kind === "direct").map((b) => directPeer(b, v.name)))}</span></a><button class="btn ghost sm bug-btn" type="button" data-feedback aria-label="${esc(T("Send feedback"))}">${ICON.feedback}</button><button class="btn ghost sm bug-btn" type="button" data-bug data-bug-src="${BUG_JS_SRC}" aria-label="${esc(T("Report a bug"))}" title="${esc(T("Report a bug"))}">${ICON.warn}</button></div>
 </aside>
 <div class="nav-scrim" data-nav-close aria-hidden="true"></div>
-<div class="grow" style="min-width:0">
+<div class="grow" style="min-width:0">${strip}
   <header class="topbar"><button class="btn ghost sm menu-btn" type="button" data-nav aria-label="${esc(T("Menu"))}" aria-controls="sidebar" aria-expanded="false">${ICON.menu}</button>
     <nav class="crumbs" aria-label="Breadcrumb">${opts.crumbs}</nav><div class="actions">${opts.actions ?? ""}</div></header>
   <div class="content${opts.narrow ? " narrow" : ""}${opts.full ? " full" : ""}">${opts.body}</div>
@@ -1860,6 +1887,9 @@ let seen=0;try{seen=+localStorage.getItem('inbox-seen')||0}catch{}
 const tz=encodeURIComponent(Intl.DateTimeFormat().resolvedOptions().timeZone||'UTC');let dgAt=0;try{dgAt=+localStorage.getItem('inbox-dg-at')||0}catch{}
 window.inboxRefresh=async()=>{try{const r=await fetch('/api/inbox/count?tz='+tz);if(!r.ok)return;const j=await r.json();
   el.hidden=!j.unread;el.textContent=j.unread>99?'99+':String(j.unread);document.title=(j.unread?'('+j.unread+') ':'')+base;
+  document.querySelectorAll('[data-inbox-count]').forEach(c=>{c.hidden=el.hidden;c.textContent=el.textContent});
+  // A board where one of your agent's approvals waits: its tab turns amber and says so (jxn #4860).
+  const ab=j.approval_boards||{};document.querySelectorAll('.btab[data-tab]').forEach(t=>{const n=ab[t.dataset.tab]||0,a=t.querySelector('.apn');t.classList.toggle('st-ap',n>0);if(a){a.hidden=!n;a.textContent=n?tr(n===1?'{n} approval':'{n} approvals',{n}):''}});
   const ap=document.getElementById('approvals-count');if(ap){ap.hidden=!j.approvals;ap.textContent=String(j.approvals||'')}
   const can='Notification' in window&&Notification.permission==='granted',l=j.latest,ns=j.notify||{},due=ns.digest_at,dn=ns.digest_count;
   // The digest: the server counts what waited for the slot at digest_at; it shows once, when that slot is new here.

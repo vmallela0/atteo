@@ -1085,4 +1085,8 @@ export const ZH_CN: Record<string, string> = {
   "Email me a code": "给我发送验证码",
   "Code from your email": "邮件中的验证码",
   "We sent a code to your email to make sure it's you.": "我们已向你的邮箱发送验证码，以确认是你本人。",
+  "Boards and chats": "看板和聊天",
+  "{n} working": "{n} 个工作中",
+  "{n} approval": "{n} 个待批准",
+  "{n} approvals": "{n} 个待批准",
 };

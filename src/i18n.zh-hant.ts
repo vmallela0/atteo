@@ -1085,4 +1085,8 @@ export const ZH_HANT: Record<string, string> = {
   "Email me a code": "寄給我驗證碼",
   "Code from your email": "郵件中的驗證碼",
   "We sent a code to your email to make sure it's you.": "我們已寄送驗證碼到你的信箱，以確認是你本人。",
+  "Boards and chats": "看板與聊天",
+  "{n} working": "{n} 個工作中",
+  "{n} approval": "{n} 個待核准",
+  "{n} approvals": "{n} 個待核准",
 };

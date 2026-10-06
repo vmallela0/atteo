@@ -1084,4 +1084,8 @@ export const KO: Record<string, string> = {
   "Email me a code": "이메일로 코드 받기",
   "Code from your email": "이메일로 받은 코드",
   "We sent a code to your email to make sure it's you.": "본인 확인을 위해 이메일로 코드를 보냈습니다.",
+  "Boards and chats": "보드와 채팅",
+  "{n} working": "{n}명 작업 중",
+  "{n} approval": "승인 {n}건",
+  "{n} approvals": "승인 {n}건",
 };
