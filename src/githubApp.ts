@@ -1,7 +1,8 @@
 // GitHub App notifications (GAPS P1): inbound GitHub webhooks become a board-note shape, and Atteo change cards
 // become GitHub Checks / PR comments. Off until GITHUB_WEBHOOK_SECRET is set (inbound) and GITHUB_APP_ID +
-// GITHUB_APP_PRIVATE_KEY (outbound). Inbound still only verifies and parses (no board write). Outbound posts a Check
-// run (and a PR comment when the card has a pull link) when those App secrets exist; without them it never fetches.
+// GITHUB_APP_PRIVATE_KEY (outbound). Inbound still only verifies and parses (no board write). A public change-card
+// post calls `postGithubChange`: when those App secrets exist it posts a Check run (and a PR comment when the card
+// has a pull link); without them it never fetches. Production configs do not set the secrets.
 
 import { cardLine, type ChangeCard } from "./card";
 import { pingExcerpt } from "./ping";
@@ -253,7 +254,9 @@ export interface GithubOutbound {
 }
 
 const SHA40 = /^[0-9a-f]{40}$/i;
+const SHORT_SHA = /^[0-9a-f]{7,39}$/i;
 const REPO = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
+const FALLBACK_PUBLIC = "https://agent-board.vedu-mallela.workers.dev";
 
 export function prNumberFromUrl(url: string | null | undefined): number | null {
   const m = url?.trim().match(/github\.com\/[^/]+\/[^/]+\/pull\/(\d+)/i);
@@ -267,6 +270,27 @@ export interface ChangeNotifyCtx {
   boardUrl: string;
   /** Full 40-character head SHA when known; change cards often only store 12. */
   headSha?: string | null;
+}
+
+/** Board URL + seq/author for a live change-card post. Only this URL is sent outbound, never other board text. */
+export function githubChangeCtx(opts: { seq: number; author: string; boardId: string; publicUrl?: string | null }): ChangeNotifyCtx {
+  const base = (opts.publicUrl?.trim() || FALLBACK_PUBLIC).replace(/\/$/, "");
+  return {
+    seq: opts.seq,
+    author: opts.author,
+    boardId: opts.boardId,
+    boardUrl: `${base}/b/${opts.boardId}#e${opts.seq}`,
+  };
+}
+
+/** Live change-card hook: format + send. Unset credentials still return posted:false with no fetch. */
+export function notifyGithubChangeCard(
+  env: GithubAppEnv & Pick<Env, "PUBLIC_URL">,
+  card: ChangeCard,
+  posted: { seq: number; author: string; boardId: string },
+  opts?: GithubPostOpts,
+): Promise<GithubPostResult> {
+  return postGithubChange(env, card, githubChangeCtx({ ...posted, publicUrl: env.PUBLIC_URL }), opts);
 }
 
 function shaOf(card: ChangeCard, ctx: ChangeNotifyCtx): string | null {
@@ -325,7 +349,6 @@ export function githubChangeNotification(card: ChangeCard, ctx: ChangeNotifyCtx)
     });
   }
   return out.map((p) => {
-    if (!p.ready) return p;
     const secret = scanPayload(p);
     return secret ? { ...p, ready: false, reason: secret } : p;
   });
@@ -501,6 +524,19 @@ async function installationToken(jwt: string, installation: number, fetchImpl: G
   return r.status < 300 && token ? token : null;
 }
 
+function expandableSha(card: ChangeCard, ctx: ChangeNotifyCtx): string | null {
+  if (!REPO.test(card.repo?.trim() ?? "")) return null;
+  const sha = shaOf(card, ctx);
+  if (!sha || SHA40.test(sha)) return null;
+  return SHORT_SHA.test(sha) ? sha.toLowerCase() : null;
+}
+
+async function expandHeadSha(token: string, repo: string, short: string, fetchImpl: GithubHttp): Promise<string | null> {
+  const r = await ghFetch(fetchImpl, `${GITHUB_API}/repos/${repo}/commits/${encodeURIComponent(short)}`, token, "GET");
+  const sha = asStr(jsonObj(r.json)?.sha, 40);
+  return r.status < 300 && sha && SHA40.test(sha) ? sha.toLowerCase() : null;
+}
+
 async function existingCheckRun(token: string, repo: string, sha: string, externalId: string, fetchImpl: GithubHttp): Promise<number | null> {
   const r = await ghFetch(fetchImpl, `${GITHUB_API}/repos/${repo}/commits/${sha}/check-runs?check_name=Atteo`, token, "GET");
   const runs = jsonObj(r.json)?.check_runs;
@@ -515,12 +551,18 @@ async function existingCheckRun(token: string, repo: string, sha: string, extern
   return null;
 }
 
+function withSecretScan(payloads: GithubOutbound[]): GithubOutbound[] {
+  return payloads.map((p) => {
+    const secret = scanPayload(p);
+    return secret ? { ...p, ready: false, reason: secret } : p;
+  });
+}
+
 /**
  * When App credentials are set, mints an installation token and POSTs (or PATCHes) a Check run, plus a PR comment
  * when the card has a GitHub pull link. Missing credentials: returns immediately and never fetches. Outbound text is
- * only the change-card line, seq, author, and board URL — never diffs, tokens, or other board text. A later slice
- * will call this from a change-card post; this slice does not hook that path, and production configs do not set the
- * secrets.
+ * only the change-card line, seq, author, and board URL — never diffs, tokens, or other board text. A public
+ * change-card post on the board calls this; production configs do not set the secrets.
  */
 export async function postGithubChange(
   env: GithubAppEnv,
@@ -528,19 +570,20 @@ export async function postGithubChange(
   ctx: ChangeNotifyCtx,
   opts: GithubPostOpts = {},
 ): Promise<GithubPostResult> {
-  const payloads = githubChangeNotification(card, ctx);
+  let payloads = githubChangeNotification(card, ctx);
   if (!outboundEnabled(env)) return { posted: false, reason: "GitHub App credentials aren't set", payloads };
 
-  const toSend = payloads
-    .filter((p) => p.ready && (opts.comment !== false || p.kind !== "issue_comment"))
-    .map((p) => {
-      const secret = scanPayload(p);
-      return secret ? { ...p, ready: false, reason: secret } : p;
-    });
-  const ready = toSend.filter((p) => p.ready);
-  if (!ready.length) {
-    const reason = toSend.find((p) => p.reason)?.reason ?? payloads.find((p) => p.reason)?.reason ?? "nothing ready to post";
-    return { posted: false, reason, payloads: toSend.length ? toSend : payloads };
+  payloads = withSecretScan(payloads);
+  if (payloads.some((p) => p.reason === "outbound text looked like a secret")) {
+    return { posted: false, reason: "outbound text looked like a secret", payloads };
+  }
+
+  const wanted = (list: GithubOutbound[]) => list.filter((p) => p.ready && (opts.comment !== false || p.kind !== "issue_comment"));
+  let ready = wanted(payloads);
+  const short = expandableSha(card, ctx);
+  if (!ready.length && !short) {
+    const reason = payloads.find((p) => p.reason)?.reason ?? "nothing ready to post";
+    return { posted: false, reason, payloads };
   }
 
   const appId = env.GITHUB_APP_ID!.trim();
@@ -548,7 +591,7 @@ export async function postGithubChange(
   if (!jwt) return { posted: false, reason: "GitHub App private key isn't usable", payloads };
 
   const fetchImpl = opts.fetch ?? fetch;
-  const repo = ready[0].repo;
+  const repo = (ready[0] ?? payloads[0]).repo;
   let installation: number | null;
   try {
     installation = await installationIdFor(env, jwt, repo, fetchImpl);
@@ -564,6 +607,25 @@ export async function postGithubChange(
     return { posted: false, reason: "GitHub installation token failed", payloads };
   }
   if (!token) return { posted: false, reason: "GitHub installation token failed", payloads };
+
+  if (short) {
+    try {
+      const full = await expandHeadSha(token, repo, short, fetchImpl);
+      if (full) {
+        payloads = withSecretScan(githubChangeNotification(card, { ...ctx, headSha: full }));
+        if (payloads.some((p) => p.reason === "outbound text looked like a secret")) {
+          return { posted: false, reason: "outbound text looked like a secret", payloads };
+        }
+        ready = wanted(payloads);
+      }
+    } catch {
+      /* keep the short-sha payloads; the Check stays unready */
+    }
+  }
+  if (!ready.length) {
+    const reason = payloads.find((p) => p.reason)?.reason ?? "nothing ready to post";
+    return { posted: false, reason, payloads, calls: [] };
+  }
 
   const calls: GithubCallResult[] = [];
   const sent: GithubOutbound[] = [];
@@ -600,7 +662,7 @@ export async function postGithubChange(
   return {
     posted,
     reason: posted ? undefined : (failed?.reason ?? "GitHub request failed"),
-    payloads: [...sent, ...toSend.filter((p) => !p.ready)],
+    payloads: [...sent, ...payloads.filter((p) => !ready.includes(p))],
     calls,
   };
 }

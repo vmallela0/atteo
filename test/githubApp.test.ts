@@ -5,9 +5,11 @@ import {
   MAX_WEBHOOK_BYTES,
   NOT_SET_UP,
   boardNoteFromGithub,
+  githubChangeCtx,
   githubChangeNotification,
   handleWebhook,
   inboundEnabled,
+  notifyGithubChangeCard,
   outboundEnabled,
   pemToPkcs8,
   postGithubChange,
@@ -416,5 +418,68 @@ describe("outbound posting", () => {
     expect(calls).toHaveLength(0);
     expect(JSON.stringify(formatted)).not.toContain("private board");
     expect(formatted.some((p) => JSON.stringify(p.body).includes("diff"))).toBe(false);
+  });
+
+  it("expands a 12-character sha through mocked GitHub HTTP, then POSTs the Check", async () => {
+    const shortCard = parseCard({
+      repo: "vmallela0/agent-soup",
+      branch: "cursor/github-app",
+      base: "main",
+      pr_url: "https://github.com/vmallela0/agent-soup/pull/44",
+      ci: "passing",
+      commits: [{ sha: "aaaaaaaaaaaa", title: "short sha" }],
+    }).card;
+    expect(shortCard.commits[0].sha).toHaveLength(12);
+    const calls: GhCall[] = [];
+    const fetchImpl = mockGithub((url, method) => {
+      if (method === "GET" && url.pathname.endsWith("/installation")) return { status: 200, json: { id: 99 } };
+      if (method === "POST" && url.pathname.endsWith("/access_tokens")) return { status: 201, json: { token: "ghs_test_installation_token" } };
+      if (method === "GET" && url.pathname.endsWith("/commits/aaaaaaaaaaaa")) {
+        return { status: 200, json: { sha: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" } };
+      }
+      if (method === "GET" && url.pathname.includes("/check-runs")) return { status: 200, json: { check_runs: [] } };
+      if (method === "POST" && url.pathname.endsWith("/check-runs")) return { status: 201, json: { id: 501 } };
+      if (method === "POST" && url.pathname.endsWith("/comments")) return { status: 201, json: { id: 77 } };
+      return { status: 404, json: { message: "unexpected " + method + " " + url.pathname } };
+    }, calls);
+
+    const r = await postGithubChange({ GITHUB_APP_ID: "4242", GITHUB_APP_PRIVATE_KEY: keys.pkcs8 }, shortCard, { seq: ctx.seq, author: ctx.author, boardId: ctx.boardId, boardUrl: ctx.boardUrl }, { fetch: fetchImpl });
+    expect(r.posted).toBe(true);
+    expect(calls.some((c) => c.method === "GET" && c.url.endsWith("/commits/aaaaaaaaaaaa"))).toBe(true);
+    const check = calls.find((c) => c.method === "POST" && c.url.endsWith("/check-runs"))?.body as { head_sha: string; output: { summary: string } };
+    expect(check.head_sha).toBe("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+    expect(check.output.summary).toContain("Change card #12 by vedu");
+    expect(check.output.summary).toContain(ctx.boardUrl);
+    expect(JSON.stringify(calls.map((c) => c.body))).not.toMatch(/diff --git|BEGIN |ghs_test/);
+  });
+});
+
+describe("live change-card hook", () => {
+  it("builds only seq, author, and board URL", () => {
+    expect(githubChangeCtx({ seq: 12, author: "vedu", boardId: "b_skyvcqtm7fei", publicUrl: "https://atteo.dev/" })).toEqual({
+      seq: 12,
+      author: "vedu",
+      boardId: "b_skyvcqtm7fei",
+      boardUrl: "https://atteo.dev/b/b_skyvcqtm7fei#e12",
+    });
+  });
+
+  it("returns posted:false with no fetch when App credentials are unset", async () => {
+    const { card } = parseCard({
+      repo: "vmallela0/agent-soup",
+      branch: "cursor/github-app",
+      pr_url: "https://github.com/vmallela0/agent-soup/pull/44",
+      ci: "passing",
+      commits: [{ sha: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", title: "hook" }],
+    });
+    const calls: GhCall[] = [];
+    const fetchImpl = mockGithub(() => {
+      throw new Error("fetch must not run");
+    }, calls);
+    const r = await notifyGithubChangeCard({}, card, { seq: 12, author: "vedu", boardId: "b_skyvcqtm7fei" }, { fetch: fetchImpl });
+    expect(r.posted).toBe(false);
+    expect(r.reason).toContain("aren't set");
+    expect(calls).toHaveLength(0);
+    expect(r.payloads[0].body).toMatchObject({ details_url: "https://agent-board.vedu-mallela.workers.dev/b/b_skyvcqtm7fei#e12" });
   });
 });

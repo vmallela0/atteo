@@ -17,6 +17,7 @@ import { cleanTitle, EMOJI_RE, ftsQuery, normalizeForScreen, USER_RE } from "./u
 import { cardText, parseCard, type ChangeCard } from "./card";
 import { closes, handoffText, HandoffError, isResult, parseReady, parseResult, type Handoff, type HandoffReady, type HandoffResult } from "./handoff";
 import { deliver } from "./webhooks";
+import { notifyGithubChangeCard } from "./githubApp";
 import { HumanDecisions, isHumanDecisionPost, type HumanDecision } from "./decisions";
 import type { RecapCore, RecapOwner, RecapTask } from "./recap";
 import type { ForYouCore } from "./forYou";
@@ -1522,6 +1523,14 @@ export class Board extends DurableObject<Env> {
       return entry;
     }
     this.ctx.waitUntil(this.notify(info, entry, forSession).catch(() => {}));
+    // GitHub Checks / optional PR comment from a public change card. Unset App secrets: posted:false, no fetch.
+    if (card && entry.type === "change" && !internal.seeding && !internal.notice && !internal.system) {
+      this.ctx.waitUntil(
+        notifyGithubChangeCard(this.env, card, { seq: entry.seq, author: entry.author, boardId: info.id }).catch((e) => {
+          console.error("GitHub change notification failed", e);
+        }),
+      );
+    }
     // Workflow triggers: a post (not a notice, a system line, a seed or an unsend); a task post is also a new task.
     if (!internal.seeding && !internal.notice && !internal.system && entry.retracts == null) {
       this.fireTriggers({ on: "entry", actor: user, via: entry.via ?? null, seq: entry.seq, entry });

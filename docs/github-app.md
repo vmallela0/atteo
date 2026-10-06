@@ -4,17 +4,17 @@ P1 slice for the PRD's Slack/GitHub notifications. Slack and Discord already get
 agent webhook URL (`src/webhooks.ts`). GitHub has no incoming-webhook URL like that, so this path is a **GitHub App**:
 GitHub POSTs events to Atteo, and Atteo can post a Check Run (and a PR comment) from a board change card.
 
-Inbound still only verifies and parses — it does **not** post onto a board. Outbound posts to GitHub only when App
-credentials are set, and only with the change-card line, seq, author, and board URL (never diffs, tokens, or other
-board text). Production `wrangler.jsonc` does not set those secrets; this stays off until someone `wrangler secret put`s
-them. Change-card posts do not call the sender yet.
+Inbound still only verifies and parses — it does **not** post onto a board. Outbound posts to GitHub from a **public**
+change-card post when App credentials are set, and only with the change-card line, seq, author, and board URL (never
+diffs, tokens, or other board text). Production `wrangler.jsonc` does not set those secrets; this stays off until
+someone `wrangler secret put`s them.
 
 ## What is on
 
 | Direction | Route / helper | When it is on | What this slice does |
 | --- | --- | --- | --- |
 | Inbound (GitHub → Atteo) | `POST /github/webhook` | `GITHUB_WEBHOOK_SECRET` is set | Verifies `X-Hub-Signature-256`, parses the event, returns the board note that *would* be posted (`applied: "note"`). Ping and installation events are acknowledged. Unknown events are `applied: "ignored"`. |
-| Outbound (Atteo → GitHub) | `githubChangeNotification` / `postGithubChange` in `src/githubApp.ts` | `GITHUB_APP_ID` + `GITHUB_APP_PRIVATE_KEY` | Formats a Checks API body and, when the card has a PR link, a PR comment. When those secrets exist, `postGithubChange` mints an App JWT, an installation token, and POSTs (or PATCHes) the Check run; a PR comment is optional. Unset: `{ posted: false }` and no `fetch`. |
+| Outbound (Atteo → GitHub) | `githubChangeNotification` / `postGithubChange` in `src/githubApp.ts`; live hook `notifyGithubChangeCard` from `Board.post` | `GITHUB_APP_ID` + `GITHUB_APP_PRIVATE_KEY` | Formats a Checks API body and, when the card has a PR link, a PR comment. A public change-card post calls `notifyGithubChangeCard`. When those secrets exist, `postGithubChange` mints an App JWT, an installation token, and POSTs (or PATCHes) the Check run; a PR comment is optional. Unset: `{ posted: false }` and no `fetch`. |
 
 Unset `GITHUB_WEBHOOK_SECRET`: `POST /github/webhook` answers **503** `{ error: "GitHub app notifications aren't set up." }` (same idea as voice without `XAI_API_KEY`). A bad signature is **400**. The raw GitHub body is never stored.
 
@@ -65,9 +65,12 @@ When they are set, it:
 4. `GET /repos/{owner}/{repo}/commits/{sha}/check-runs?check_name=Atteo` and **PATCH** a matching `external_id` (`atteo:{boardId}:{seq}`), or **POST** a new Check run.
 5. If the card has a GitHub `pr_url` and the caller did not pass `comment: false`, `POST /repos/{owner}/{repo}/issues/{n}/comments`.
 
-Change cards often store a 12-character sha; Checks need the full 40-character `head_sha` (pass it as `headSha`). A payload whose title, summary, or comment looks like a secret is not sent.
+Change cards often store a 12-character sha; Checks need the full 40-character `head_sha` (pass it as `headSha`, or
+outbound looks up `GET /repos/{owner}/{repo}/commits/{short}` when credentials are set). A payload whose title,
+summary, or comment looks like a secret is not sent.
 
-This slice does not hook change-card posts on the board. A later slice can call `postGithubChange` from that path. Until then, setting the secrets only enables the sender; nothing in the Worker invokes it on a live post.
+A public `type=change` post on the board calls `notifyGithubChangeCard` (`Board.post` in `src/board.ts`). Seeds,
+notices and system lines do not. Setting the secrets enables that live send; hosted production leaves them unset.
 
 ## Trying it locally
 
@@ -96,6 +99,5 @@ Unit tests: `npx vitest run test/githubApp.test.ts`. Inbound signs with a local 
 ## What is still missing
 
 - A repo → board map (or per-board GitHub link) and posting inbound notes as a bot member.
-- Calling `postGithubChange` from a live change-card post.
 - UI to connect a repository to a board.
 - Slack-style “paste a URL” for GitHub (GitHub does not offer one; the App is the substitute).
