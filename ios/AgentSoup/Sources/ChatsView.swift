@@ -469,11 +469,14 @@ private struct NeedTile: View {
     }
 }
 
-/// An agent asking before a side effect: approve or reject in one tap (or swipe).
+/// An agent asking before a side effect: approve or reject in one tap (or swipe). A high-risk one (a command on
+/// someone's machine) is never approved from the row: Review opens the full command first (jxn's agent #4928).
 struct ApprovalRow: View {
     @EnvironmentObject var state: AppState
     let a: Approval
     var open: (Approval) -> Void = { _ in } // tap the row for everything it asks (and a note back)
+    /// High risk, or a command to run: approved only from ApprovalDetail, where the whole command is on screen.
+    static func reviewFirst(_ a: Approval) -> Bool { a.risk == "high" || a.command != nil }
     var riskLabel: String {
         switch a.risk {
         case "high": return String(localized: "High risk", bundle: .l10n)
@@ -498,9 +501,18 @@ struct ApprovalRow: View {
             .accessibilityAddTraits(.isButton)
             .accessibilityIdentifier("approval-row")
             .accessibilityHint("Shows everything it asks")
-            AnswerButtons(yes: { Task { await state.decide(a, approve: true) } }, no: { Task { await state.decide(a, approve: false) } })
+            if Self.reviewFirst(a) {
+                Button { open(a) } label: { Text("Review") }
+                    .buttonStyle(.bordered)
+                    .accessibilityIdentifier("approval-review")
+                    .accessibilityHint("Shows the whole command before you can approve it")
+            } else {
+                AnswerButtons(yes: { Task { await state.decide(a, approve: true) } }, no: { Task { await state.decide(a, approve: false) } })
+            }
         }
-        .swipeActions(edge: .leading) { Button { Task { await state.decide(a, approve: true) } } label: { Label("Approve", systemImage: "checkmark") }.tint(Theme.ok) }
+        .swipeActions(edge: .leading) {
+            if !Self.reviewFirst(a) { Button { Task { await state.decide(a, approve: true) } } label: { Label("Approve", systemImage: "checkmark") }.tint(Theme.ok) }
+        }
         .swipeActions(edge: .trailing) { Button(role: .destructive) { Task { await state.decide(a, approve: false) } } label: { Label("Reject", systemImage: "xmark") } }
     }
 }

@@ -564,6 +564,7 @@ a.ev-acct:hover{background:var(--bg-subtle)}
 .qr{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}.qr[hidden]{display:none}.qr-b{gap:6px;max-width:100%;border-radius:999px}.qr-t{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .qr-k{font:inherit;font-size:10.5px;min-width:16px;height:16px;line-height:16px;padding:0 3px;border-radius:4px;border:1px solid var(--line);color:var(--muted);background:var(--bg)}@media(hover:none){.qr-k{display:none}}
 .apc{margin-top:8px;max-width:640px}.apc>.tk{margin-top:0}.apc-cmd{margin:0 0 6px;max-height:220px;overflow:auto;padding:8px 10px;border-radius:8px;background:var(--bg-subtle);border:1px solid var(--line);font-size:12px;line-height:1.5;white-space:pre-wrap;word-break:break-word}
+.apc.st-pending .apc-cmd{max-height:none;overflow:visible}.apc-u{background:color-mix(in srgb,var(--intervene) 22%,transparent);color:inherit;border-radius:3px;outline:1px solid var(--intervene)}.apc-u-note{margin:0 0 6px;color:var(--intervene)}.apc-who{font-weight:600}
 .apc .tk-st .dot{background:var(--warn)}.apc.st-approved .tk-st .dot{background:var(--ok)}.apc.st-rejected .tk-st .dot{background:var(--danger)}.apc.st-expired .tk-st .dot{background:var(--muted)}
 .apc.st-approved .tk-st{color:var(--ok)}.apc.st-rejected .tk-st,.apc.st-expired .tk-st{color:var(--muted)}
 .apc[tabindex]:focus-visible,.apc.kbd-sel,.approval:focus-visible,.approval.sel{outline:2px solid var(--accent);outline-offset:3px;border-radius:8px}
@@ -738,7 +739,7 @@ input.switch{appearance:none;-webkit-appearance:none;flex:none;width:42px;height
 input.switch::after{content:"";position:absolute;top:3px;left:3px;width:18px;height:18px;border-radius:50%;background:var(--bg);box-shadow:0 1px 2px rgba(0,0,0,.25);transition:left .15s}input.switch:checked{background:var(--ink)}input.switch:checked::after{left:21px}
 /* Everyday (#1272): the same entries in plainer clothes; Developer mode is today's page unchanged. */
 :root[data-mode="everyday"] .entry .seq,:root[data-mode="everyday"] .meta .via:not(.owner):not(.sess),:root[data-mode="everyday"] [aria-controls="panel-log"],
-:root[data-mode="everyday"] .entry .chg,:root[data-mode="everyday"] .apc-cmd,:root[data-mode="everyday"] .apc-risk,:root[data-mode="everyday"] .ag-hint,
+:root[data-mode="everyday"] .entry .chg,:root[data-mode="everyday"] .apc:not(.st-pending) .apc-cmd,:root[data-mode="everyday"] .apc:not(.st-pending) .apc-risk,:root[data-mode="everyday"] .apc:not(.st-pending) .apc-u-note,:root[data-mode="everyday"] .ag-hint,
 :root[data-mode="everyday"] .ag-hint+.copy,:root[data-mode="everyday"] #soul-side,:root[data-mode="everyday"] .meta .t-change,:root[data-mode="everyday"] .side-link .count.dev{display:none!important}
 :root:not([data-mode="everyday"]) .ev-res{display:none}
 :root[data-mode="everyday"] #board-tabs [aria-controls="panel-tasks"]{order:1}:root[data-mode="everyday"] #board-tabs [aria-controls="panel-docs"]{order:2}:root[data-mode="everyday"] #board-tabs>*:not([role=tab]){order:3}
@@ -924,6 +925,7 @@ ${AGENT_LOGO_CSS}
 .ap-hd{display:flex;gap:12px;align-items:flex-start}.ap-title{font-size:15px;font-weight:600;line-height:1.35;margin:0 0 3px}
 .approval.risk-medium .ap-risk{color:var(--warn);border-color:color-mix(in srgb,var(--warn) 40%,var(--line))}.approval.risk-high .ap-risk{color:var(--danger);border-color:color-mix(in srgb,var(--danger) 40%,var(--line))}
 .ap-details{max-height:280px;overflow:auto;margin:12px 0 0;padding:10px 12px;border-radius:8px;background:var(--bg-subtle);border:1px solid var(--line);font-size:12px;line-height:1.5;white-space:pre-wrap;word-break:break-word}
+.card.approval .ap-cmd{max-height:none;overflow:visible} /* a waiting command is shown whole (#4927) */
 .ap-form{display:flex;gap:6px;margin-top:12px}
 .ap-sub{font-size:13px;font-weight:600;margin:28px 0 8px}
 .ap-done{padding:0;list-style:none;margin:0}.ap-done>li+li{border-top:1px solid var(--line)}
@@ -1063,7 +1065,7 @@ mark{background:var(--mark);color:inherit;border-radius:2px;padding:0 1px}
 .btab{display:flex;align-items:center;gap:7px;flex:none;max-width:240px;margin-top:6px;padding:0 14px;border:1px solid transparent;border-bottom:3px solid var(--line-strong);border-radius:8px 8px 0 0;color:var(--muted);font-size:13px;white-space:nowrap}
 .btab>b{font-weight:500;overflow:hidden;text-overflow:ellipsis}.btab[aria-current]{color:var(--ink);background:var(--bg);border-color:var(--line) var(--line) var(--line-strong)}.btab.st-work{border-bottom-color:var(--ok)}.btab.st-ap{border-bottom-color:var(--warn)}
 .btab .wk{font-size:11.5px;color:var(--faint)}.btab .apn{font-size:11px;padding:1px 6px;border-radius:999px;background:color-mix(in srgb,var(--warn) 16%,transparent);color:var(--ink)}
-.strip .count{margin-left:-6px}
+.strip .count{margin-left:4px}
 .topbar .menu-btn{display:none}
 @media(min-width:641px){.tb-full{display:none}.content.full{--top:44px}.bp-head>.actions{display:flex;gap:8px;align-items:center;align-self:center;margin-left:auto}}
 .bp-crumb{color:var(--muted);font-size:15px}
@@ -1153,7 +1155,7 @@ pre.json{background:var(--bg-subtle);border:1px solid var(--line);border-radius:
 .bp-panel>.layout{flex:1;min-height:0;grid-template-rows:minmax(0,1fr);position:relative;gap:20px}
 @media(min-width:960px){.bp-panel>.layout{grid-template-columns:minmax(0,1fr) 280px}.bp-panel>.layout.info-collapsed{grid-template-columns:minmax(0,1fr)}.layout.info-collapsed>.aside{display:none}
   .layout.info-collapsed>.conv{width:100%;max-width:820px;margin:0 auto} /* a readable measure even with the sidebar hidden */}
-#board-info{display:flex;flex-direction:column}#sum{display:contents}#sum>[data-fold=members]{order:1}#ns-side,#host-side{order:2}
+:where(#board-info){display:flex;flex-direction:column}#sum{display:contents}#sum>[data-fold=members]{order:1}#ns-side,#host-side{order:2}
 .bp-panel .aside{position:static;align-self:stretch;max-height:none;min-height:0;overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain;margin:40px 0 0 -8px;padding:4px 8px 16px 8px}
 /* Board info scrolls below the panel toggle (nothing slides under it), with a thin, faint scrollbar. */
 .aside::-webkit-scrollbar{width:4px}
@@ -1715,6 +1717,7 @@ export interface SideBoard {
   kind?: string | null; // "direct": a private board between two friends (title "a ↔ b"); "agent": "Your agent", you and your own agents
   live?: number; // agent sessions working on it right now
   pinned?: boolean;
+  last?: number; // last activity (ms), for the frame strip's order
   picture?: string | null; // the board picture's URL (members only, versioned), or null
   peer_name?: string | null; // a direct board: the other person's display name (jxn #4369)
 }
@@ -1791,21 +1794,21 @@ export function appPage(
     { label: T("Keyboard shortcuts"), hint: "?", href: "#shortcuts" },
     ...(v.admin ? [{ label: T("Ops"), hint: "G O", href: "/_ops" }] : []),
   ];
-  // The strip's tabs (jxn #4860): your boards and chats, most recently active first (pins ahead), each with its working
+  // The strip's tabs (jxn #4860): your boards and chats, most recently active first (vedu #5043: no pins ahead), each with its working
   // count; its underline shows the state (st-work: agents working; st-ap, set by the inbox poll: an approval waits).
   const tabName = (b: SideBoard) => (b.kind === "direct" ? shownName(directPeer(b, v.name), b.peer_name) : b.kind === "agent" ? T("Your agent") : b.title);
-  const tabs = opts.boards
+  const tabs = [...opts.boards]
+    .sort((a, b) => (b.last ?? 0) - (a.last ?? 0))
     .slice(0, 24)
     .map((b) => `<a class="btab${b.live ? " st-work" : ""}" href="/b/${esc(b.id)}" data-tab="${esc(b.id)}" data-work="${b.live || 0}"${cur(b.id)}>${b.kind === "direct" ? avatar(directPeer(b, v.name), "xs") : b.kind === "agent" ? avatar(v.name, "xs", true) : boardPic(b, "xs")}<b>${esc(tabName(b))}</b><span class="wk"${b.live ? "" : " hidden"}>${b.live ? esc(T("{n} working", { n: b.live })) : ""}</span><span class="apn" hidden></span></a>`)
     .join("");
   // The strip's mark draws the Menu's own (<use>), so the page carries the drawing once.
   const strip = `<header class="strip"><a class="ws" href="/"><svg class="pebble" width="20" height="20" viewBox="0 0 100 100" aria-hidden="true"><use href="#mkg"/></svg><span class="wm">atteo</span></a>
-  <button class="btn ghost sm" type="button" data-nav aria-controls="sidebar" aria-expanded="false">${ICON.menu}<span>${esc(T("Menu"))}</span></button>
+  <button class="btn ghost sm" type="button" data-nav-s aria-controls="sidebar" aria-expanded="false">${ICON.menu}<span>${esc(T("Menu"))}</span><span class="count" data-inbox-count hidden></span></button>
   <nav class="btabs" aria-label="${esc(T("Boards and chats"))}">${tabs}</nav>
   <a class="btn ghost sm" href="/?new=1" aria-label="${esc(T("New board"))}">${ICON.plus}</a>
   <button class="search" type="button" data-palette>${ICON.search}<span>${esc(T("Search or jump to…"))}</span><kbd>⌘K</kbd></button>
-  <a class="btn ghost sm" href="/chats" aria-label="${esc(T("Chats"))}">${ICON.feedback}</a>
-  <a class="btn ghost sm" href="/inbox" aria-label="${esc(T("Inbox"))}">${ICON.inbox}<span class="count" data-inbox-count hidden></span></a>
+  <button class="btn ghost sm" type="button" data-feedback aria-label="${esc(T("Send feedback"))}">${ICON.feedback}</button><button class="btn ghost sm" type="button" data-bug data-bug-src="${BUG_JS_SRC}" aria-label="${esc(T("Report a bug"))}">${ICON.warn}</button>
   <a href="/me" aria-label="${esc(T("Account"))}">${avatar(v.name, "sm")}</a></header>`;
   // What the inbox poll (INBOX_JS) hands the strip: its count, and the boards where one of your agent's approvals waits,
   // whose tabs turn amber and say so (jxn #4860).
@@ -1886,7 +1889,7 @@ window.inboxRefresh=async()=>{try{const r=await fetch('/api/inbox/count?tz='+tz)
   if(due>dgAt){if(dgAt&&dn&&can)new Notification(tr(dn===1?'{n} update since the last digest':'{n} updates since the last digest',{n:dn}),{body:(ns.digest_boards||[]).join(', '),tag:'inbox-digest'}).onclick=()=>{focus();location.href='/inbox'};
     dgAt=due;try{localStorage.setItem('inbox-dg-at',String(due))}catch{}}
   if(l&&l.created_at>seen){if(l.kind!=='manual_unread'&&seen&&(!l.interrupt||l.interrupt==='now')&&can&&!(document.visibilityState==='visible'&&location.pathname==='/b/'+l.board_id)){
-    const ap=l.kind==='approval',who=ap?'Your agent':l.actor_via==='agent'?l.actor+"'s agent":(l.actor_name||l.actor);
+    const ap=l.kind==='approval',who=ap?(l.push&&l.push.by?l.push.by+"'s agent":'Your agent'):l.actor_via==='agent'?l.actor+"'s agent":(l.actor_name||l.actor);
     const n=new Notification(who+(ap?' is asking for your approval':l.kind==='mention'?' mentioned you':l.kind==='decision'?' asks for a decision':l.kind==='reply'?' replied to you':l.kind==='friend_request'?' wants to be friends':l.kind==='friend_accept'?' accepted your request':l.kind==='report'?' reported a post to you, as an owner':' wrote to your agent'),{body:l.excerpt,tag:'inbox-'+l.id});
     n.onclick=()=>{window.focus();location.href=ap?'/approvals':l.board_id?'/b/'+l.board_id+'#e'+l.seq:'/people'}}
   seen=l.created_at;try{localStorage.setItem('inbox-seen',String(seen))}catch{}}}catch{}};
@@ -2041,11 +2044,11 @@ window.openPalette=(preset)=>{if(!paletteLoad)paletteLoad=new Promise((resolve,r
 });return paletteLoad.then(()=>window.openPalette(preset)).catch(()=>toast(tr('Could not load')))};
 // The phone menu (a drawer): opens from the menu button; closes with its ✕, the dimmed page beside it, a swipe back to
 // the left or Esc, and focus goes back to the button (jxn #2223). It's never kept open across a reload or a Back.
-let navFrom=null;const navNarrow=matchMedia('(max-width:860px)');
-function navSet(on){const app=$('#app');if(!app)return;const changed=app.classList.contains('nav-open')!==on;app.classList.toggle('nav-open',on);const mb=$('[data-nav]');mb?.setAttribute('aria-expanded',String(on));
-  const sb=$('#sidebar');if(sb)sb.inert=navNarrow.matches&&!on;if(!changed)return;
+let navFrom=null;
+function navSet(on){const app=$('#app');if(!app)return;const changed=app.classList.contains('nav-open')!==on;app.classList.toggle('nav-open',on);const bs=[...document.querySelectorAll('[data-nav],[data-nav-s]')],mb=bs.find(b=>b.offsetParent)||bs[0];bs.forEach(b=>b.setAttribute('aria-expanded',String(on)));
+  const sb=$('#sidebar');if(sb)sb.inert=!on;if(!changed)return;
   if(on){navFrom=document.activeElement;$('.nav-x')?.focus({preventScroll:true})}else{const f=navFrom&&document.contains(navFrom)?navFrom:mb;navFrom=null;if(app.contains(document.activeElement)||document.activeElement===document.body)f?.focus?.({preventScroll:true})}}
-document.addEventListener('click',e=>{if(e.target.closest('[data-palette]'))openPalette();if(e.target.closest('[data-nav]'))navSet(!$('#app')?.classList.contains('nav-open'));else if(e.target.closest('[data-nav-close]'))navSet(false)});
+document.addEventListener('click',e=>{if(e.target.closest('[data-palette]'))openPalette();if(e.target.closest('[data-nav],[data-nav-s]'))navSet(!$('#app')?.classList.contains('nav-open'));else if(e.target.closest('[data-nav-close]'))navSet(false)});
 document.addEventListener('keydown',e=>{if(e.key==='Escape'&&$('#app')?.classList.contains('nav-open')&&!$('dialog[open]')){e.preventDefault();navSet(false)}});
 // Connect an agent (the menu's link, vedu #2241): this page's Connect dialog when it has one, else Account's, opened by
 // its #connect.
@@ -2054,7 +2057,7 @@ if(location.hash==='#connect'){const d=$('dialog#connect');if(d&&!d.open)d.showM
 {let sx=0,sy=0,on=false;const sb=$('#sidebar');
   sb?.addEventListener('touchstart',e=>{const t=e.touches[0];sx=t.clientX;sy=t.clientY;on=$('#app')?.classList.contains('nav-open')},{passive:true});
   sb?.addEventListener('touchend',e=>{const t=e.changedTouches[0],dx=t.clientX-sx,dy=t.clientY-sy;if(on&&(document.dir==='rtl'?dx>50:dx<-50)&&Math.abs(dx)>Math.abs(dy)*1.5)navSet(false)},{passive:true})}
-navNarrow.addEventListener('change',()=>navSet(false));navSet(false);addEventListener('pageshow',()=>navSet(false));
+navSet(false);addEventListener('pageshow',()=>navSet(false));
 let g=false,gt;
 document.addEventListener('keydown',e=>{
   if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==='k'){e.preventDefault();$('#palette')?.open?$('#palette').close():openPalette();return}

@@ -14,6 +14,20 @@ export interface ApprovalCardData {
   risk?: string | null;
   note?: string | null;
   expires_at?: number | null;
+  requested_by?: string | null; // whose agent asked (another member's, for a machine run)
+}
+
+/**
+ * The command, escaped and in full, with every character outside printable ASCII flagged and named (U+XXXX): a
+ * Cyrillic "а" can't pass for an "a", and nothing shown differs from what runs (#4929; the server also refuses bidi and
+ * invisible characters outright).
+ */
+export function commandHtml(cmd: string): string {
+  return esc(cmd).replace(/[^\x20-\x7e\n\t]+/g, (run) => `<mark class="apc-u" title="${[...run].map((c) => "U+" + c.codePointAt(0)!.toString(16).toUpperCase().padStart(4, "0")).join(" ")}">${run}</mark>`);
+}
+/** A line under a command that has non-ASCII characters in it. */
+export function nonAsciiNote(cmd: string, lang?: Lang): string {
+  return /[^\x20-\x7e\n\t]/.test(cmd) ? `<p class="xs apc-u-note">${esc(tr(lang, "Highlighted: characters that aren't plain ASCII. Check they're what you expect."))}</p>` : "";
 }
 
 const isPending = (a: ApprovalCardData) => a.status === "pending" && !(a.expires_at && a.expires_at < Date.now());
@@ -36,8 +50,11 @@ export function approvalCardHtml(a: ApprovalCardData, mine = false, lang?: Lang)
   const st = pending ? "pending" : a.status === "approved" ? "approved" : a.status === "rejected" ? "rejected" : "expired";
   const risk = a.risk === "high" ? `<span class="apc-risk">${T("High risk")}</span>` : "";
   // The tool and the risk head the command; the command itself is verbatim.
-  const head = [a.tool ? `<span class="faint">${esc(a.tool)}</span>` : "", risk].filter(Boolean).join(`<span class="faint"> · </span>`);
-  const cmd = a.command ? `<pre class="mono apc-cmd">${head ? `${head}\n` : ""}${esc(a.command)}</pre>` : "";
+  // Someone else's agent is named on the card itself (#4930).
+  const who = a.requested_by && a.requested_by !== a.user ? `<span class="apc-who">${esc(tr(lang, "asked by {name}'s agent", { name: a.requested_by }))}</span>` : "";
+  const head = [a.tool ? `<span class="faint">${esc(a.tool)}</span>` : "", risk, who].filter(Boolean).join(`<span class="faint"> · </span>`);
+  // A pending command is shown whole in every mode (no cut, no scroll box: #4926/#4927).
+  const cmd = a.command ? `<pre class="mono apc-cmd">${head ? `${head}\n` : ""}${commandHtml(a.command)}</pre>${nonAsciiNote(a.command, lang)}` : "";
   const acts = pending
     ? `<span class="apc-acts"${mine ? "" : " hidden"}><span class="apc-kbd xs faint" aria-hidden="true"><kbd>↵</kbd> ${T("approve")} · <kbd>⌫</kbd> ${T("deny")}</span><button class="btn ghost sm" type="button" data-apc-do="reject">${T("Deny")}</button><button class="btn sm primary" type="button" data-apc-do="approve">${T("Approve")}</button></span>`
     : "";

@@ -27,9 +27,12 @@ for(const [w,scheme] of [[1280,"light"],[390,"dark"]]){
   // The header is the name and the time (jxn #4522); whose agent it is is on the name's hover.
   check(new RegExp(`^${NAME}`).test(meta.trim())&&!new RegExp(`${V}'s agent`).test(meta)&&own===`${V}'s agent`,`${w}px: the agent's post reads "${NAME}", "${V}'s agent" on hover (${meta.replace(/\s+/g," ").slice(0,60)} | ${own})`);
   await p.evaluate(()=>{document.documentElement.dataset.compact="others"});
+  // olMark runs on a timer/frame; the capture-phase opener only handles rows already marked .ol.
+  await p.locator(`#e${a1}.ol`).waitFor({state:"attached",timeout:5000});
   check(!await p.locator(`#e${a1} .agent-info`).isVisible(),`${w}px: owner details are hidden in collapsed rows`);
   await p.locator(`#e${a1} .body`).click();
-  await p.locator(`#e${a1} .agent-info`).waitFor({state:"visible",timeout:5000}).catch(()=>{}); // under load the row opens a beat after the click
+  await p.locator(`#e${a1}.ol-open`).waitFor({state:"attached",timeout:5000});
+  await p.locator(`#e${a1} .agent-info`).waitFor({state:"visible",timeout:5000}).catch(()=>{});
   check(await p.locator(`#e${a1} .agent-info`).isVisible()&&await p.locator(`#e${a1} .agent-info`).innerText()===`${V}'s agent`&&await p.locator(`#e${a1} .who`).innerText()===NAME,`${w}px: opening keeps the agent name and shows its owner`);
   const chip=p.locator(`#e${ms} .mention.agent[data-user="${V}"]`);
   check(await chip.count()===1&&(await chip.innerText())===`@${NAME}`,`${w}px: "@${NAME}" in a message is that agent's chip`);
@@ -37,7 +40,7 @@ for(const [w,scheme] of [[1280,"light"],[390,"dark"]]){
     check(new RegExp(NAME).test(hc)&&new RegExp(`${V}.?s agent`).test(hc),`the hover card names it and says whose it is (${hc.replace(/\s+/g," ").slice(0,90)})`);
     await p.locator("#composer-text").click();await p.keyboard.type(`@${NAME.slice(0,3)}`);await p.locator("#mention-menu",{hasText:NAME}).waitFor({timeout:5000}).catch(()=>{});
     const menu=await p.locator("#mention-menu").innerText();check(new RegExp(`${NAME}`).test(menu)&&new RegExp(`${V}'s agent`).test(menu),`the @ menu offers it by name, with whose it is (${menu.replace(/\s+/g," ").slice(0,90)})`);
-    await p.keyboard.press("Enter");await p.waitForTimeout(200);check((await p.inputValue("#composer-text")).startsWith(`@${NAME}`),"picking it inserts @"+NAME);
+    await p.keyboard.press("Enter");await p.waitForFunction(()=>document.getElementById("composer-text")?.value?.startsWith("@"),null,{timeout:5000}).catch(()=>{});check((await p.inputValue("#composer-text")).startsWith(`@${NAME}`),"picking it inserts @"+NAME);
     await p.fill("#composer-text","");
     // Live rename
     await prof(ckV,{agent_name:`Ada${run}`});await metaIs(p,`Ada${run}`);

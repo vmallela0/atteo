@@ -17,8 +17,9 @@ struct BoardStateTabs: View {
     @ScaledMetric(relativeTo: .subheadline) private var height: CGFloat = 40
 
     private var boards: [Board] {
-        let rest = state.boards.filter { $0.archived != true && $0.id != current.id }.sorted { $0.lastActivity > $1.lastActivity }
-        return [current] + rest
+        // Most recently active first, the open board included (vedu #5043), so the strip doesn't reshuffle as you switch.
+        let rest = state.boards.filter { $0.archived != true && $0.id != current.id }
+        return ([current] + rest).sorted { $0.lastActivity > $1.lastActivity }
     }
 
     var body: some View {

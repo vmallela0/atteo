@@ -64,9 +64,9 @@ check((await p.locator("#doc-pin").innerText()).trim()==="Pin","another file sti
 await p.click('#board-tabs button[aria-controls="panel-conv"]');await shows(p,"#pin-bar");await shows(p,"#pin-side");
 check(await vis(p,"#pin-bar")&&(await p.locator("#pin-name").innerText())==="STATUS.md"&&(await p.locator("#pin-peek").innerText())==="Release 1.4 status",`the bar shows the pinned file and its first line ("${await p.locator("#pin-bar").innerText()}")`);
 const side=await p.locator("#pin-side").innerText().catch(()=>"");
-check(await vis(p,"#pin-side")&&/Pinned/.test(side)&&/Checkout fix: shipped/.test(side),`the side panel's first section previews it (${JSON.stringify(side.slice(0,90))})`);
-const order=await p.evaluate(()=>[...document.getElementById('board-info').children].map(x=>x.id||x.className).slice(0,2));
-check(order[0]==="pin-side",`…as the first section (${order})`);
+check(await vis(p,"#pin-side")&&/Pinned/.test(side)&&/Checkout fix: shipped/.test(side),`the side panel previews it (${JSON.stringify(side.slice(0,90))})`);
+const order=await p.evaluate(()=>[...document.getElementById('board-info').children].map(x=>x.id||x.className).slice(0,3));
+check(order.join()==="agents,sum,pin-side",`…right after the agents and what's open, the rail's order since jxn #4860 (${order})`);
 await p.screenshot({path:`${SHOTS_DIR}/pin-board-dark.png`});
 await p.click("#pin-open");await viewing(p,"STATUS.md");
 check(!(await p.locator("#panel-docs").evaluate(x=>x.hidden))&&(await p.locator("#doc-view b.mono").first().innerText())==="STATUS.md","clicking the bar opens the file");

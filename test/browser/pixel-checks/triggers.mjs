@@ -26,7 +26,7 @@ async function size(w, scheme, i) {
   const mineNow = async () => ((await api(ckA)).triggers || []).filter((t) => t.created_by === A);
   p.on("dialog", (d) => d.accept());
   await p.goto(`${BASE}/b/${board}`); await p.waitForTimeout(500);
-  await p.click('.topbar [data-open="invite"]:not([data-goto])'); await p.waitForTimeout(500);
+  await p.click('.actions [data-open="invite"]:not([data-goto])'); await p.waitForTimeout(500);
   await p.locator("#acc-triggers").scrollIntoViewIfNeeded();
   check(await p.locator(`#trg-list [data-trg="${other.id}"]`).isVisible(), `${tag}: someone else's trigger is listed`);
   check(!(await p.locator(`#trg-list [data-trg="${other.id}"] [data-trg-do]`).count()), `${tag}: …without Pause / Delete`);
@@ -57,6 +57,6 @@ async function size(w, scheme, i) {
 // Without the API (a 404), there's no Triggers section.
 { const ctx = await ctxFor(b, ckA, 390, "light"); const p = await ctx.newPage();
   await p.route(/\/triggers$/, (r) => r.fulfill({ status: 404, json: { error: "not found" } }));
-  await p.goto(`${BASE}/b/${board}`); await p.waitForTimeout(400); await p.click('.topbar [data-open="invite"]:not([data-goto])'); await p.waitForTimeout(400);
+  await p.goto(`${BASE}/b/${board}`); await p.waitForTimeout(400); await p.click('.actions [data-open="invite"]:not([data-goto])'); await p.waitForTimeout(400);
   check(!(await p.locator("#acc-triggers").isVisible()) && await p.locator("#acc-members").isVisible(), "no API yet (404): no Triggers section at all"); await ctx.close(); }
 await b.close(); console.log(fails ? `${fails} FAILED` : "all trigger checks passed"); process.exit(fails ? 1 : 0);
