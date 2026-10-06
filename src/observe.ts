@@ -6,7 +6,7 @@
 //   /_ops → Trust and context, Latency (p95) · Product
 //   GET /api/ops/metrics → observe · success
 //   GET /api/ops/usage-daily → rows whose metric is paste, egress_block, context_pack, stale_notice,
-//                              claim_review, approval, entry_delivery, context_pack_ms or success
+//                              claim_review, approval, entry_delivery, context_pack_ms, request_ms or success
 //
 // paste            a write that landed on a board. key: person | agent
 // egress_block     the secret filter refused a write before it was stored. key: the rule id (never the secret)
@@ -21,6 +21,10 @@
 //                  key lt_50 | 50_100 | 100_250 | 250_500 | 500_1000 | 1s_2s | 2s_plus: latency bucket
 //                  p95 is the upper edge of the bucket that holds the 95th sample (PRD: < 500 ms)
 // context_pack_ms  Board.read that handed a summary. same keys as entry_delivery (PRD: p95 < 2 s)
+// request_ms       Worker fetch wall time (Date.now() around the handler). Includes I/O; not Cloudflare CPU-ms
+//                  (that 3.8→9.2 ms number lives on the dashboard / tail logs — the runtime does not expose CPU
+//                  cheaply in-request). Same histogram keys as entry_delivery. Long-polls (?wait=) and held MCP
+//                  waits (≥2 s on /mcp) are left out so they don't pin p95 at ≥2 s. Flushed in batches.
 // stale_notice     a disputed or retracted premise was checked for dependents.
 //                  key invalidations: disputed/retracted premises
 //                  key notices: invalidations that made at least one dependent stale
@@ -46,6 +50,12 @@ const local = new Map<string, number>(); // `${metric}\n${key}` → total since 
 const inflight = new Set<Promise<void>>();
 const firstAgent = new Set<string>(); // people whose first agent post this isolate already recorded
 
+/** In-isolate request wall-time histogram, flushed in batches so we don't write D1 on every fetch. */
+const REQUEST_FLUSH_EVERY = 50;
+const REQUEST_FLUSH_MS = 60_000;
+type RequestPending = { day: string; samples: number; ms: number; buckets: Partial<Record<string, number>>; lastFlush: number };
+let requestPending: RequestPending | null = null;
+
 /** Lifetime uniqueness for first_agent_post. Not a UTC day, so the 90-day sweep must leave these rows. */
 export const SUCCESS_ONCE_DAY = "once";
 export const SUCCESS_ONCE_METRIC = "success_once";
@@ -62,6 +72,7 @@ export function counter(metric: string, key: string): number {
 export function resetCounters(): void {
   local.clear();
   firstAgent.clear();
+  requestPending = null;
 }
 
 /** Waits for the D1 writes this isolate has started. */
@@ -69,18 +80,11 @@ export async function settleCounts(): Promise<void> {
   while (inflight.size) await Promise.all([...inflight]);
 }
 
-/** Add `n` to a daily counter. The in-process total moves immediately; the D1 write is fire-and-forget via `later`. */
-export function count(env: Env | null | undefined, later: Later | null | undefined, metric: string, key: string, n = 1): Promise<void> {
-  if (!Number.isFinite(n) || n <= 0) return Promise.resolve();
-  const add = Math.floor(n);
-  const k = key.slice(0, 80);
-  const id = `${metric}\n${k}`;
-  local.set(id, (local.get(id) ?? 0) + add);
-  const db = env?.DB;
-  if (!db) return Promise.resolve();
-  const p = db
+/** D1 upsert for a daily counter. Does not touch the in-process map. */
+function d1Count(env: Env, later: Later | null | undefined, metric: string, key: string, n: number): Promise<void> {
+  const p = env.DB
     .prepare(`INSERT INTO usage_daily (day, metric, key, count) VALUES (?, ?, ?, ?) ON CONFLICT(day, metric, key) DO UPDATE SET count = count + excluded.count`)
-    .bind(day(), metric, k, add)
+    .bind(day(), metric, key.slice(0, 80), n)
     .run()
     .then(() => {})
     .catch(() => {});
@@ -88,6 +92,21 @@ export function count(env: Env | null | undefined, later: Later | null | undefin
   void p.finally(() => inflight.delete(p));
   later?.waitUntil(p);
   return p;
+}
+
+function localAdd(metric: string, key: string, n: number): void {
+  const id = `${metric}\n${key}`;
+  local.set(id, (local.get(id) ?? 0) + n);
+}
+
+/** Add `n` to a daily counter. The in-process total moves immediately; the D1 write is fire-and-forget via `later`. */
+export function count(env: Env | null | undefined, later: Later | null | undefined, metric: string, key: string, n = 1): Promise<void> {
+  if (!Number.isFinite(n) || n <= 0) return Promise.resolve();
+  const add = Math.floor(n);
+  const k = key.slice(0, 80);
+  localAdd(metric, k, add);
+  if (!env?.DB) return Promise.resolve();
+  return d1Count(env, later, metric, k, add);
 }
 
 const skip = (user: string | null | undefined) => !!user && user.startsWith("e2e-");
@@ -257,6 +276,65 @@ export function noteContextPackMs(env: Env | null | undefined, later: Later | nu
   noteLatency(env, later, "context_pack_ms", ms, user);
 }
 
+export const REQUEST_MS_METRIC = "request_ms";
+/** Wall-time "slow" marker for a non-wait Worker fetch. Not a PRD target. */
+export const REQUEST_WALL_TARGET_MS = 1000;
+/** Held MCP waits (default 25–45 s) would pin p95 at ≥2 s; skip those, keep fast /mcp calls. */
+const MCP_HELD_MS = 2000;
+
+/**
+ * True when this fetch is a long-poll we should not put in the request-duration histogram:
+ * HTTP `?wait=` (board tabs, agent entry polls) or a held MCP wait on `/mcp`.
+ */
+export function isHeldRequest(url: URL, path: string, wallMs: number): boolean {
+  const w = Number.parseInt(url.searchParams.get("wait") ?? "0", 10);
+  if (Number.isFinite(w) && w > 0) return true;
+  return path === "/mcp" && wallMs >= MCP_HELD_MS;
+}
+
+function emptyRequestPending(now: number): RequestPending {
+  return { day: day(now), samples: 0, ms: 0, buckets: {}, lastFlush: now };
+}
+
+function flushRequestPending(env: Env, later: Later | null | undefined, p: RequestPending): Promise<void> {
+  if (!p.samples) return Promise.resolve();
+  const writes = [d1Count(env, later, REQUEST_MS_METRIC, "samples", p.samples)];
+  if (p.ms > 0) writes.push(d1Count(env, later, REQUEST_MS_METRIC, "ms", p.ms));
+  for (const [key, n] of Object.entries(p.buckets)) if (n) writes.push(d1Count(env, later, REQUEST_MS_METRIC, key, n));
+  p.samples = 0;
+  p.ms = 0;
+  p.buckets = {};
+  p.lastFlush = Date.now();
+  return Promise.all(writes).then(() => {});
+}
+
+/**
+ * Record one Worker fetch's wall time into the daily histogram. Increments in-process immediately;
+ * D1 writes are batched (every 50 samples or 60 s) unless `later` is missing (tests flush now).
+ * `wait: true` is ignored. No request body is stored.
+ */
+export function noteRequestWallMs(env: Env | null | undefined, later: Later | null | undefined, ms: number, opts?: { wait?: boolean }): void {
+  if (opts?.wait || !Number.isFinite(ms) || ms < 0) return;
+  const n = Math.max(0, Math.round(ms));
+  const now = Date.now();
+  const b = latencyBucket(n);
+  localAdd(REQUEST_MS_METRIC, "samples", 1);
+  if (n > 0) localAdd(REQUEST_MS_METRIC, "ms", n);
+  localAdd(REQUEST_MS_METRIC, b, 1);
+  if (!env?.DB) return;
+  if (!requestPending || requestPending.day !== day(now)) {
+    if (requestPending?.samples) void flushRequestPending(env, later, requestPending);
+    requestPending = emptyRequestPending(now);
+  }
+  requestPending.samples += 1;
+  requestPending.ms += n;
+  requestPending.buckets[b] = (requestPending.buckets[b] ?? 0) + 1;
+  if (!later || requestPending.samples >= REQUEST_FLUSH_EVERY || now - requestPending.lastFlush >= REQUEST_FLUSH_MS) {
+    void flushRequestPending(env, later, requestPending);
+    requestPending = emptyRequestPending(now);
+  }
+}
+
 /** A premise was disputed or retracted; count whether that produced stale notices and how many entries they cover. */
 export function noteStaleNotice(env: Env | null | undefined, later: Later | null | undefined, entries: number, user?: string | null): void {
   if (skip(user)) return;
@@ -348,8 +426,13 @@ export interface Observability {
   stale_notices: { invalidations: number; notices: number; entries: number; rate: number | null };
   claim_reviews: { verified: number; disputed: number; total: number; verified_ratio: number | null };
   approvals: { requested: number; approved: number; rejected: number; by_risk: { low: number; medium: number; high: number } };
-  /** Production p95 for the PRD's two latency targets. Histogram buckets in usage_daily. */
-  latency: { entry_delivery: LatencyStats; context_pack: LatencyStats };
+  /** Production p95 for the PRD's two latency targets, plus Worker request wall time. Histogram buckets in usage_daily. */
+  latency: {
+    entry_delivery: LatencyStats;
+    context_pack: LatencyStats;
+    /** Wall-clock Worker fetch duration. `kind: "wall"` — CPU-ms is not available in-request. */
+    request: LatencyStats & { kind: "wall"; cpu_available: false };
+  };
 }
 
 export interface SuccessMetrics {
@@ -383,7 +466,7 @@ export async function observability(env: Env, n = 14): Promise<Observability> {
   const since = day(Date.now() - (n - 1) * 86_400_000);
   const rows = (
     await env.DB.prepare(
-      `SELECT metric, key, SUM(count) AS c FROM usage_daily WHERE day >= ? AND metric IN ('paste', 'egress_block', 'context_pack', 'stale_notice', 'claim_review', 'approval', 'entry_delivery', 'context_pack_ms') GROUP BY metric, key`,
+      `SELECT metric, key, SUM(count) AS c FROM usage_daily WHERE day >= ? AND metric IN ('paste', 'egress_block', 'context_pack', 'stale_notice', 'claim_review', 'approval', 'entry_delivery', 'context_pack_ms', 'request_ms') GROUP BY metric, key`,
     )
       .bind(since)
       .all<{ metric: string; key: string; c: number }>()
@@ -442,6 +525,7 @@ export async function observability(env: Env, n = 14): Promise<Observability> {
     latency: {
       entry_delivery: latencyStats(sum, "entry_delivery", 500),
       context_pack: latencyStats(sum, "context_pack_ms", 2000),
+      request: { ...latencyStats(sum, REQUEST_MS_METRIC, REQUEST_WALL_TARGET_MS), kind: "wall", cpu_available: false },
     },
   };
 }

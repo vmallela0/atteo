@@ -91,7 +91,7 @@ export interface Metrics {
   clients: { client: string; agents: number }[];
   errors: { route: string; message: string; count: number; last_at: number }[];
   csp: { key: string; count: number; last_day: string }[]; // CSP report-only hits, last 7 days ("directive blocked")
-  observe: Observability; // trust/context counters, derived rates, and latency p95 (src/observe.ts)
+  observe: Observability; // trust/context counters, derived rates, latency p95, and request wall time (src/observe.ts)
   success: SuccessMetrics; // product activation: boards created, first agent post, invite redeemed, friend accepted
 }
 
