@@ -6,10 +6,11 @@ import {
   captureBody,
   PROP_KEYS,
   sanitizeProps,
+  posthogDashboardUrl,
   trackCookieHeader,
   withAnalytics,
 } from "../src/analytics";
-import { adminPage, boardPage } from "../src/html";
+import { adminPage, boardPage, legalPage } from "../src/html";
 import { page } from "../src/ui";
 import { beaconSnippet } from "../landing/src/csp";
 
@@ -105,16 +106,37 @@ describe("web loader", () => {
     expect(on.csp.split("; ").find((d) => d.startsWith("script-src "))).not.toMatch(/https?:/);
   });
 
-  it("notes the privacy page and the ops link while the key is missing", async () => {
+  it("links the dashboard from ops only when the key is set", async () => {
     const data = { boards: [], users: [], invites: [], recent: [], totalEntries: 0, access: [] };
     const off = await adminPage(viewer, [], data).text();
     expect(off).toContain("docs/ANALYTICS.md");
-    expect(off).toContain("/privacy");
+    expect(off).toContain("POSTHOG_KEY");
     expect(off).not.toContain("posthog.com");
 
-    const on = await withAnalytics({ POSTHOG_KEY: KEY }, async () => adminPage(viewer, [], data).text());
-    expect(on).not.toContain("docs/ANALYTICS.md");
-    expect(on).toContain("eu.i.posthog.com");
+    const eu = await withAnalytics({ POSTHOG_KEY: KEY }, async () => adminPage(viewer, [], data).text());
+    expect(eu).toContain('href="https://eu.posthog.com"');
+    expect(eu).toContain("eu.i.posthog.com");
+
+    const us = await withAnalytics({ POSTHOG_KEY: KEY, POSTHOG_HOST: "us" }, async () => adminPage(viewer, [], data).text());
+    expect(us).toContain('href="https://us.posthog.com/project/647810"');
+    expect(posthogDashboardUrl({ key: KEY, host: "https://us.i.posthog.com", region: "us" })).toBe("https://us.posthog.com/project/647810");
+  });
+});
+
+describe("privacy", () => {
+  it("names PostHog as product analytics that stays off without a key", async () => {
+    const html = await legalPage("privacy").text();
+    expect(html).toContain("<b>PostHog</b>");
+    expect(html).toContain("product analytics");
+    expect(html).toContain("message text");
+    expect(html).toContain("email addresses");
+    expect(html).toContain("Do Not Track");
+    expect(html).toContain("Global Privacy Control");
+    expect(html).toContain("With no key set, nothing is sent.");
+    expect(html).toContain("Last updated October 6, 2026.");
+    expect(html).not.toContain("phc_");
+    const terms = await legalPage("terms").text();
+    expect(terms).not.toContain("PostHog");
   });
 });
 

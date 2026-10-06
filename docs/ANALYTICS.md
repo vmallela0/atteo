@@ -6,7 +6,7 @@ The project API key (`phc_…`) is public: it can only record events. It is safe
 
 ## Turn it on
 
-1. In the PostHog project (org Atteo, Cloud EU unless you choose US), copy the **project API key**.
+1. In the PostHog project, copy the **project API key**. Atteo's project is **647810** ("Atteo") on **US** Cloud. Set `POSTHOG_HOST` to `us` for that project. Omitting the host sends events to EU Cloud, which is a different place.
 2. Set it on the app Worker. Either a var in `wrangler.jsonc` or a secret is fine:
 
    ```sh
@@ -51,11 +51,17 @@ The browser sends nothing when Do Not Track is `1` or `yes`, or when Global Priv
 
 The marketing home (signed-out `atteo.dev/`) can load Cloudflare Web Analytics, which does not use cookies. Set `CF_WEB_ANALYTICS_TOKEN` on the **landing** Worker (`landing/wrangler.jsonc`). Guide, FAQ, and the app are unchanged. Unset, the landing page has no beacon and its content security policy stays as it is.
 
-## Follow-ups while the key is missing
+## Dashboard
 
-`/_ops` says product analytics is off and points here. Two things wait until `POSTHOG_KEY` is set:
+`/_ops` links the dashboard only while `POSTHOG_KEY` is set:
 
-- Name PostHog on [/privacy](https://atteo.dev/privacy) (and the App Store privacy label: usage data, not linked to identity, since the web does not identify people). The privacy page is not changed in this scaffold.
-- Link the PostHog activation dashboard from `/_ops`.
+- **US** (`POSTHOG_HOST=us`): [Atteo's project](https://us.posthog.com/project/647810). Sign in to the Atteo org. That address is the app, not the ingest host (`https://us.i.posthog.com`).
+- **EU** (the default when `POSTHOG_HOST` is omitted): [https://eu.posthog.com](https://eu.posthog.com). There is no EU project id in this repo, so the link is the EU app home.
 
-iOS (the PostHog SDK, the same events, and an opt-out in Settings) is a separate change.
+A self-hosted copy with its own key still gets the US link above when the host is `us`, and that link is Atteo's project. Open your own project from the same PostHog home.
+
+[/privacy](https://atteo.dev/privacy) names PostHog with the other processors. Terms do not list processors.
+
+## Follow-ups
+
+iOS (the PostHog SDK, the same events, and an opt-out in Settings) is a separate change. The App Store privacy label should say usage data, not linked to identity, since the web does not identify people.

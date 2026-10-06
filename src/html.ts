@@ -29,7 +29,7 @@ import { esc, pictureUrl } from "./util";
 import { WELCOME_BANNER_JS, assistantCard, grokBotMessage, welcomeBanner } from "./welcome";
 import { stateOf } from "./sessions";
 import { E2E_JS } from "./e2eweb";
-import { currentAnalytics } from "./analytics";
+import { currentAnalytics, posthogDashboardUrl } from "./analytics";
 import { EXPORT_JS, exportRow } from "./boardExport";
 import { STATUS_JS } from "./status";
 import { EMOJI } from "./emoji";
@@ -712,7 +712,7 @@ const LEGAL = {
     // is the email provider behind WorkOS, the backup bucket's provider (B2 or S3, docs/BACKUPS.md) once it's set up, and
     // "Delete account" is live (branch account-delete) when this goes out.
     body: `<!-- Draft — review before publishing -->
-<p class="muted small">Last updated October 5, 2026.</p>
+<p class="muted small">Last updated October 6, 2026.</p>
 <h2>What we collect</h2><p>Your email address and name (from sign-in), your handle, profile picture and the line about you if you add them; the boards you're on and what's posted to them (messages, files, pictures, tasks, reactions, decisions); your agent tokens (stored only as hashes); your devices, for push notifications; notification and read state; bug reports and feedback you send; and, if you pay, your plan and your Stripe customer and subscription ids. We don't collect your location, contacts or browsing history, and we don't track you across other apps or websites.</p>
 <h2>Who sees it</h2><p>What you post on a board is visible to that board's members and their agents (People only and Just mine posts are narrower, as the app shows). We don't sell your data and don't use it for advertising.</p>
 <h2>Services that process it for us</h2><ul>
@@ -721,6 +721,7 @@ const LEGAL = {
 <li><b>Resend</b>: delivers sign-in and invitation emails for WorkOS. It gets your email address and the email's text.</li>
 <li><b>xAI</b>: voice chat (Talk to Atteo) and the natural reading voice. Only if you agree first: your voice and the messages being read or discussed are sent to xAI's Grok voice service so it can listen and answer. You can turn this off in Settings.</li>
 <li><b>Sentry</b>: error reports when something breaks: the error and the address it happened at. Request bodies, cookies, headers and who you are are removed before they're sent.</li>
+<li><b>PostHog</b>: product analytics on the web, and only when a project key is set. It records a few events, such as signing up, creating a board or sending an invite. Those events do not include message text or email addresses. The browser sends nothing when Do Not Track or Global Privacy Control is on. With no key set, nothing is sent.</li>
 <li><b>Stripe</b>: payments for Pro. Stripe holds your card details; we never see them.</li>
 <li><b>Apple</b>: push notifications to the iOS app (Apple Push Notification service) get a device token and the notification's text.</li>
 <li><b>Backblaze B2 or AWS S3</b>: a nightly backup of everything above, kept outside Cloudflare so it survives an outage there. It's encrypted on our side with a key we keep offline, so the storage provider can't read it.</li>
@@ -3804,9 +3805,10 @@ export function adminPage(viewer: Viewer, side: SideBoard[], d: AdminData): Resp
       )}${kpi(k.agents_7d, "People with an agent connected", "used a token this week")}</div>
 <div class="grid4" style="margin-top:12px">${kpi(k.boards, "Boards", `${k.boards_active_7d} active this week`)}${kpi(k.posts_7d, "Posts this week", "people and agents")}${kpi(d.totalEntries, "Messages, all time")}${kpi(k.errors_24h, "Kinds of server error, last 24h", k.errors_24h ? `${k.errors_24h_total.toLocaleString("en-US")} times in all · details below and in Sentry` : "all quiet")}</div>`
     : `${costHtml(d.cost)}<div class="grid4">${stat(d.boards.length, "Boards")}${stat(d.users.length, "Users")}${stat(d.totalEntries, "Messages")}${stat(d.invites.length, "Invites")}</div>`;
-  const analyticsNote = currentAnalytics()
-    ? ""
-    : `<p class="small muted" style="margin:18px 0 0">Product analytics is off until <span class="mono">POSTHOG_KEY</span> is set. How to turn it on is in <span class="mono">docs/ANALYTICS.md</span>. Naming PostHog on <a href="/privacy">/privacy</a> and linking its dashboard here are follow-ups once that key exists.</p>`;
+  const ph = currentAnalytics();
+  const analyticsNote = ph
+    ? `<p class="small muted" style="margin:18px 0 0">Product analytics is on (PostHog, ${ph.region === "us" ? "US" : "EU"}). <a href="${esc(posthogDashboardUrl(ph))}">Open the dashboard</a>. What is recorded is in <span class="mono">docs/ANALYTICS.md</span>.</p>`
+    : `<p class="small muted" style="margin:18px 0 0">Product analytics is off until <span class="mono">POSTHOG_KEY</span> is set. How to turn it on, and where the dashboard is, is in <span class="mono">docs/ANALYTICS.md</span>.</p>`;
   const overview = `${kpiHtml}${productHtml}${analyticsNote}${trustHtml}${usageHtml}
 <h2 style="margin:32px 0 10px">Boards</h2>
 ${table(
