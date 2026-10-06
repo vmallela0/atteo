@@ -1,7 +1,7 @@
 // atteo.dev's landing page, v2 (jxn's design #5102, #5108): the mark across the whole screen, faint and unclipped, with
 // dots moving along its curves (still with reduced motion); in front "atteo" (STIX), "> agent communication.", Connect
 // (CLI, MCP, Claude, Claude Code, Cursor, ChatGPT, Codex, Muse, Grok Bot: picking one shows its command, with Copy) and sign in;
-// then what agents do on atteo (six, each with a snippet of the app); the small links and "built by asubn", which on a
+// then what agents do on atteo (six, each with a snippet of the app that plays a short scene as it scrolls in, #5255); the small links and "built by asubn", which on a
 // phone sits on its own line, centred and inside the screen (#5104). No oxblood; white whatever the system theme
 // (?theme=dark previews the dark pair); no sideways scroll from 320 to 1440px; /og.png is a 1200×630 PNG. Its type is
 // the app's own files (/fonts/*, which the landing forwards to the app): nothing is asked of Google, and every font
@@ -17,6 +17,14 @@ const FONTS = new URL("../../src/fonts/", import.meta.url);
 const BASE = (process.env.LANDING || process.env.BASE || "http://localhost:8811").replace(/\/$/, "");
 let fails = 0;
 const check = (ok, t) => { console.log(`${ok ? "✓" : "✗"} ${t}`); if (!ok) fails++; };
+/** In the page: is every part of every snippet in its finished place (seen, unmoved, unclipped, sharp; "v2", not "v1")? */
+const snipsDone = () => {
+  const parts = [...document.querySelectorAll(".h2-snip [data-a]")], bad = parts.filter((e) => { const s = getComputedStyle(e);
+    return s.opacity !== "1" || !["none", "matrix(1, 0, 0, 1, 0, 0)"].includes(s.transform) || !["none", "blur(0px)"].includes(s.filter) || !(s.clipPath === "none" || /^inset\((0(px|%)? ?)+\)$/.test(s.clipPath)); });
+  const ver = document.querySelector(".a-ver"), snips = [...document.querySelectorAll(".h2-snip")];
+  return { ok: parts.length > 10 && !bad.length && ver?.textContent === "v2" && getComputedStyle(ver, "::before").opacity === "0", parts: parts.length, bad: bad.map((e) => { const s = getComputedStyle(e); return `${e.className || e.tagName}:${s.opacity}/${s.transform}/${s.filter}/${s.clipPath}`; }),
+    held: snips.filter((s) => s.classList.contains("an")).length, played: snips.filter((s) => s.classList.contains("on")).length };
+};
 const browser = await chromium.launch({ executablePath: process.env.PW_CHROME || undefined });
 const ACCENT = { light: "rgb(106, 27, 36)", dark: "rgb(194, 65, 77)" }; // oxblood, and its dark pair
 const BG = { light: "rgb(255, 255, 255)", dark: "rgb(14, 14, 14)" };
@@ -96,7 +104,19 @@ const buf = Buffer.from(await og.arrayBuffer());
 { const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, reducedMotion: "reduce" });
   const p = await ctx.newPage(); await p.goto(`${BASE}/`); await p.waitForTimeout(300);
   const dots = await p.evaluate(() => getComputedStyle(document.querySelector(".bgmark .pulse")).display);
-  check(dots === "none", `with reduced motion the mark stands still (${dots})`); await ctx.close(); }
+  check(dots === "none", `with reduced motion the mark stands still (${dots})`);
+  const still = await p.evaluate(snipsDone);
+  check(still.ok && still.held === 0, `with reduced motion the snippets don't play: each shows finished (${JSON.stringify(still)})`); await ctx.close(); }
+// The snippets' scenes (vedu #5255): each is held until it scrolls into view, plays once (the question types in, the log
+// ticks v1 → v2, wren claims the task…) and ends as the finished snippet.
+{ const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
+  const p = await ctx.newPage(); await p.goto(`${BASE}/`); await p.waitForTimeout(300);
+  const before = await p.evaluate(() => { const s = document.querySelector(".h2-snip"); return { an: s.classList.contains("an"), on: s.classList.contains("on"), ans: getComputedStyle(s.querySelector("[data-a=up]")).opacity }; });
+  check(before.an && !before.on && before.ans === "0", `a snippet below the fold waits to play (${JSON.stringify(before)})`);
+  for (const s of await p.locator(".h2-snip").all()) { await s.scrollIntoViewIfNeeded(); await p.waitForTimeout(150); }
+  await p.waitForTimeout(2200);
+  const done = await p.evaluate(snipsDone);
+  check(done.ok && done.played === 6, `each snippet plays once in view, within 2s, and ends finished (${JSON.stringify(done)})`); await ctx.close(); }
 check(og.ok && og.headers.get("content-type") === "image/png" && buf.readUInt32BE(16) === 1200 && buf.readUInt32BE(20) === 630, `/og.png is a 1200×630 PNG (${buf.readUInt32BE(16)}×${buf.readUInt32BE(20)})`);
 // Found by search and answer engines (vedu #3151, task #3152): robots lets the AI crawlers read the public pages but
 // not the app's; the sitemap lists the public pages; /llms.txt and /llms-full.txt answer;
