@@ -1261,7 +1261,7 @@ pill.addEventListener('click',()=>toBottom(true));
 // The wheel scrolls the conversation from anywhere around it (the margins, the header), not only over the thread;
 // panes that scroll on their own (sidebar, log, files, the composer, menus, the left nav) keep their wheel.
 document.addEventListener('wheel',e=>{if(e.ctrlKey||document.getElementById('panel-conv').hidden||document.querySelector('dialog[open]'))return;
-  if(e.target.closest('.thread-scroll,.aside,.sidebar,textarea,.mention-menu,.rd-pop,.chg-diff,pre'))return;
+  if(e.target.closest('.thread-scroll,.aside,.sidebar,.strip,textarea,.mention-menu,.rd-pop,.chg-diff,pre'))return;
   if(!e.target.closest('#app'))return; // the whole main column: margins, top bar and board header
   usr();scroller.scrollBy({top:e.deltaMode===1?e.deltaY*20:e.deltaY});e.preventDefault()},{passive:false});
 railBuild();pillSync();

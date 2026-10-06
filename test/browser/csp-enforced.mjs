@@ -101,7 +101,7 @@ const bugReport = async () => {
   const response = await p.goto(`${BASE}/for-you`);
   const nonce = (await response.allHeaders())["content-security-policy"]?.match(/'nonce-([^']+)'/)?.[1] ?? "";
   const bugJs = p.waitForResponse((r) => new URL(r.url()).pathname === "/bug.js");
-  await p.locator("[data-bug]").click();
+  await p.locator(".strip [data-bug]").click(); // the strip's on a wide page (jxn #4860)
   await bugJs;
   await p.locator("#bug[open]").waitFor();
   await p.locator("#bug-send:not([disabled])").waitFor({ timeout: 20000 });

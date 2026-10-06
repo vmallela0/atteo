@@ -60,8 +60,9 @@ const listening = (p) => until(p, () => window.__talk.ws?.readyState === 1 && wi
 part(async (check) => { const { board, ck } = await person("k");
   const { ctx, p } = await page(`/b/${board}`, { ck });
   const btn = p.locator(".bp-head [data-talk]");
-  const geo = await p.evaluate(() => { const h = document.querySelector(".bp-head").getBoundingClientRect(), b = document.querySelector(".bp-head [data-talk]").getBoundingClientRect(); return { right: Math.round(h.right - b.right), top: Math.round(b.top - h.top) } });
-  check(await btn.isVisible() && /Talk to Atteo/.test(await btn.innerText()) && geo.right < 8, `a call button, "Talk to Atteo", at the top right of the board's header (${JSON.stringify(geo)})`);
+  // The header row ends with Talk to Atteo, then the page's actions (Invite, ⋯) since the one-row header (jxn #4860).
+  const geo = await p.evaluate(() => { const h = document.querySelector(".bp-head").getBoundingClientRect(), b = document.querySelector(".bp-head [data-talk]").getBoundingClientRect(), a = document.querySelector(".bp-head > .actions")?.getBoundingClientRect(); return { right: Math.round((a ? a.left : h.right) - b.right), top: Math.round(b.top - h.top) } });
+  check(await btn.isVisible() && /Talk to Atteo/.test(await btn.innerText()) && geo.right >= 0 && geo.right < 40, `a call button, "Talk to Atteo", at the right of the board's header, before its actions (${JSON.stringify(geo)})`);
   check(await p.locator(".composer [data-talk]").count() === 0, "the composer no longer has it");
   if (await p.locator("#mic-btn").isVisible()) {
     await p.locator("#composer-text").fill("hello"); await p.locator("#mic-btn").waitFor({ state: "hidden", timeout: 3000 }).catch(() => {}); const hid = !(await p.locator("#mic-btn").isVisible());

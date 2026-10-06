@@ -1800,12 +1800,11 @@ export function appPage(
     .join("");
   // The strip's mark draws the Menu's own (<use>), so the page carries the drawing once.
   const strip = `<header class="strip"><a class="ws" href="/"><svg class="pebble" width="20" height="20" viewBox="0 0 100 100" aria-hidden="true"><use href="#mkg"/></svg><span class="wm">atteo</span></a>
-  <button class="btn ghost sm" type="button" data-nav aria-controls="sidebar" aria-expanded="false">${ICON.menu}<span>${esc(T("Menu"))}</span></button>
+  <button class="btn ghost sm" type="button" data-nav-s aria-controls="sidebar" aria-expanded="false">${ICON.menu}<span>${esc(T("Menu"))}</span><span class="count" data-inbox-count hidden></span></button>
   <nav class="btabs" aria-label="${esc(T("Boards and chats"))}">${tabs}</nav>
   <a class="btn ghost sm" href="/?new=1" aria-label="${esc(T("New board"))}">${ICON.plus}</a>
   <button class="search" type="button" data-palette>${ICON.search}<span>${esc(T("Search or jump to…"))}</span><kbd>⌘K</kbd></button>
-  <a class="btn ghost sm" href="/chats" aria-label="${esc(T("Chats"))}">${ICON.feedback}</a>
-  <a class="btn ghost sm" href="/inbox" aria-label="${esc(T("Inbox"))}">${ICON.inbox}<span class="count" data-inbox-count hidden></span></a>
+  <button class="btn ghost sm" type="button" data-feedback aria-label="${esc(T("Send feedback"))}">${ICON.feedback}</button><button class="btn ghost sm" type="button" data-bug data-bug-src="${BUG_JS_SRC}" aria-label="${esc(T("Report a bug"))}">${ICON.warn}</button>
   <a href="/me" aria-label="${esc(T("Account"))}">${avatar(v.name, "sm")}</a></header>`;
   // What the inbox poll (INBOX_JS) hands the strip: its count, and the boards where one of your agent's approvals waits,
   // whose tabs turn amber and say so (jxn #4860).
@@ -2031,11 +2030,11 @@ window.openPalette=(preset)=>{if(!paletteLoad)paletteLoad=new Promise((resolve,r
 });return paletteLoad.then(()=>window.openPalette(preset)).catch(()=>toast(tr('Could not load')))};
 // The phone menu (a drawer): opens from the menu button; closes with its ✕, the dimmed page beside it, a swipe back to
 // the left or Esc, and focus goes back to the button (jxn #2223). It's never kept open across a reload or a Back.
-let navFrom=null;const navNarrow=matchMedia('(max-width:860px)');
-function navSet(on){const app=$('#app');if(!app)return;const changed=app.classList.contains('nav-open')!==on;app.classList.toggle('nav-open',on);const mb=$('[data-nav]');mb?.setAttribute('aria-expanded',String(on));
-  const sb=$('#sidebar');if(sb)sb.inert=navNarrow.matches&&!on;if(!changed)return;
+let navFrom=null;
+function navSet(on){const app=$('#app');if(!app)return;const changed=app.classList.contains('nav-open')!==on;app.classList.toggle('nav-open',on);const bs=[...document.querySelectorAll('[data-nav],[data-nav-s]')],mb=bs.find(b=>b.offsetParent)||bs[0];bs.forEach(b=>b.setAttribute('aria-expanded',String(on)));
+  const sb=$('#sidebar');if(sb)sb.inert=!on;if(!changed)return;
   if(on){navFrom=document.activeElement;$('.nav-x')?.focus({preventScroll:true})}else{const f=navFrom&&document.contains(navFrom)?navFrom:mb;navFrom=null;if(app.contains(document.activeElement)||document.activeElement===document.body)f?.focus?.({preventScroll:true})}}
-document.addEventListener('click',e=>{if(e.target.closest('[data-palette]'))openPalette();if(e.target.closest('[data-nav]'))navSet(!$('#app')?.classList.contains('nav-open'));else if(e.target.closest('[data-nav-close]'))navSet(false)});
+document.addEventListener('click',e=>{if(e.target.closest('[data-palette]'))openPalette();if(e.target.closest('[data-nav],[data-nav-s]'))navSet(!$('#app')?.classList.contains('nav-open'));else if(e.target.closest('[data-nav-close]'))navSet(false)});
 document.addEventListener('keydown',e=>{if(e.key==='Escape'&&$('#app')?.classList.contains('nav-open')&&!$('dialog[open]')){e.preventDefault();navSet(false)}});
 // Connect an agent (the menu's link, vedu #2241): this page's Connect dialog when it has one, else Account's, opened by
 // its #connect.
@@ -2044,7 +2043,7 @@ if(location.hash==='#connect'){const d=$('dialog#connect');if(d&&!d.open)d.showM
 {let sx=0,sy=0,on=false;const sb=$('#sidebar');
   sb?.addEventListener('touchstart',e=>{const t=e.touches[0];sx=t.clientX;sy=t.clientY;on=$('#app')?.classList.contains('nav-open')},{passive:true});
   sb?.addEventListener('touchend',e=>{const t=e.changedTouches[0],dx=t.clientX-sx,dy=t.clientY-sy;if(on&&(document.dir==='rtl'?dx>50:dx<-50)&&Math.abs(dx)>Math.abs(dy)*1.5)navSet(false)},{passive:true})}
-navNarrow.addEventListener('change',()=>navSet(false));navSet(false);addEventListener('pageshow',()=>navSet(false));
+navSet(false);addEventListener('pageshow',()=>navSet(false));
 let g=false,gt;
 document.addEventListener('keydown',e=>{
   if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==='k'){e.preventDefault();$('#palette')?.open?$('#palette').close():openPalette();return}

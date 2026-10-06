@@ -25,7 +25,7 @@ async function open(user, path, width = 390) {
   await p.goto(`${BASE}${path}`); await p.waitForTimeout(700);
   return { ctx, p, tap: (sel) => (phone ? p.locator(sel).tap() : p.locator(sel).click()) };
 }
-const headerBtn = (p) => p.locator('.topbar .actions [data-open="connect"]').isVisible();
+const headerBtn = (p) => p.locator('.actions [data-open="connect"]').isVisible();
 const dlgOpen = (p) => p.evaluate(() => !!document.querySelector("dialog#connect")?.open);
 
 for (const [who, connected] of [[FRESH, false], [CONN, true]]) {

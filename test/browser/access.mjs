@@ -44,7 +44,7 @@ const q=await page(V);
 await q.goto(`${BASE}/b/${board}`);await q.waitForTimeout(600);
 check(!(await q.locator(".composer").isVisible()),"a viewer has no composer");
 check((await q.locator(".topbar, header").first().innerText()).includes("View only")||(await q.locator("body").innerText()).includes("View only"),"…and sees View only");
-check(!(await q.locator('.actions [data-open="invite"], .topbar [data-open="invite"]').first().isVisible().catch(()=>false)),"…and no Invite button");
+check(!(await q.locator('.actions [data-open="invite"], .actions [data-open="invite"]').first().isVisible().catch(()=>false)),"…and no Invite button");
 const w=await api(V,`/api/boards/${board}/entries`,{type:"note",text:"hi"});check(w.status===403,`a viewer's write is refused (${w.status})`);
 await q.screenshot({path:`${SHOTS_DIR}/viewer.png`});
 check(q.errors.length===0,`no viewer page errors ${q.errors.join(" | ")}`);

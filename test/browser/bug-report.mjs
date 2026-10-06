@@ -22,7 +22,8 @@ const out = await Promise.all([[1280, 800, "light"], [390, 844, "dark"]].map(asy
   await p.route("**/api/bugs", async (route) => { const r = route.request(); sent.push({ type: r.headers()["content-type"] || "", body: r.postDataBuffer()?.toString("latin1") || "" }); await route.fulfill({ status: 201, json: { ok: true, seq: 1 } }); });
   await p.goto(`${BASE}/b/${board}`);
   if (phone) await p.locator("[data-nav]").first().click();
-  const btn = p.locator(".sidebar .me [data-bug]");
+  // Phones: in the menu's account row; wider: in the strip on top (jxn #4860).
+  const btn = p.locator(phone ? ".sidebar .me [data-bug]" : ".strip [data-bug]");
   await btn.waitFor({ state: "visible", timeout: 8000 }).catch(() => {});
   const row = await p.evaluate(() => { const me = document.querySelector(".sidebar .me"), a = me.querySelector(".side-link").getBoundingClientRect(), b = me.querySelector("[data-bug]").getBoundingClientRect();
     return { same: Math.abs((a.top + a.bottom) / 2 - (b.top + b.bottom) / 2) < 4 && b.left > a.left, right: Math.round(me.getBoundingClientRect().right - b.right), w: Math.round(b.width), svg: !!me.querySelector("[data-bug] svg path"), label: me.querySelector("[data-bug]").getAttribute("aria-label"), text: me.querySelector("[data-bug]").textContent.trim() }; });
