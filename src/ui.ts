@@ -522,7 +522,7 @@ a.ev-acct:hover{background:var(--bg-subtle)}
 /* threads: replies fold into "N replies" under their message; the thread opens in a side panel (an overlay on phones) */
 #thread>.entry>.grow>.replies{display:none}#thread>.entry.thr-open>.grow>.replies{display:block}
 /* Replies post in the conversation (jxn #1040): a bar quoting what they answer; the thread opens as an overlay */
-.rq{display:flex;flex-direction:column;align-items:flex-start;gap:1px;max-width:100%;margin:4px 0 2px;padding:4px 10px;border:0;border-inline-start:3px solid var(--line-strong);border-radius:0 8px 8px 0;background:var(--bg-subtle);color:var(--muted);font:inherit;font-size:12.5px;text-align:left;cursor:pointer}
+.rq{display:flex;flex-direction:column;align-items:flex-start;gap:1px;max-width:100%;margin:4px 0 2px;padding:4px 10px;border:0;border-inline-start:1px solid var(--line-strong);background:none;color:var(--muted);font:inherit;font-size:12.5px;text-align:left;cursor:pointer}
 .rq:hover{background:var(--bg-hover);border-inline-start-color:var(--muted)}.rq-who{font-weight:600;color:var(--text)}.rq-t{display:block;max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .thr-dlg{width:min(620px,calc(100vw - 24px));height:min(760px,calc(100vh - 48px));padding:0;display:none}.thr-dlg[open]{display:flex;flex-direction:column}
 .thr-hd{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:12px 16px;border-bottom:1px solid var(--line)}.thr-hd b{color:var(--ink)}.thr-hd .grow{flex:1}
@@ -760,7 +760,7 @@ input.switch::after{content:"";position:absolute;top:3px;left:3px;width:18px;hei
    and on the right only as far as the rail, never under it (jxn #2003). The thread's scroller makes room for the left bleed so it isn't clipped. */
 /* The linked message (:target, which stays after a reload) and the keyboard's j/k pick (.sel) bleed the same way, so no tinted card
    sits 12px in from the rest (jxn #4680). */
-#thread>.entry:is(.for-you,.flash-in,.hit,.sel,:target),.thr-list>.entry:is(.for-you,.hit,:target){margin-left:calc(-1*var(--hl-l));margin-right:calc(-1*var(--hl-r));padding-left:var(--hl-l);padding-right:var(--hl-r);border-radius:8px}
+#thread>.entry:is(.for-you,.flash-in,.hit,.sel,:target),.thr-list>.entry:is(.for-you,.hit,:target){margin-left:calc(-1*var(--hl-l));margin-right:calc(-1*var(--hl-r));padding-left:var(--hl-l);padding-right:var(--hl-r)}
 /* …and a seen-by ring on such a message stays where it was, clear of the rail (jxn #1751). */
 #thread>.entry:is(.for-you,.flash-in,.hit,.sel,:target)>.rd,.thr-list>.entry:is(.for-you,.hit,:target)>.rd{right:var(--hl-r)}
 @media (pointer:coarse){#thread>.entry:is(.for-you,.flash-in,.hit,.sel,:target)>.rd,.thr-list>.entry:is(.for-you,.hit,:target)>.rd{right:calc(var(--hl-r) - 2px)}}
@@ -843,7 +843,7 @@ ${AGENT_LOGO_CSS}
 /* Takes real space (border, not an outline ring), so it never overlaps the text or the mention next to it. */
 .mention.me{color:var(--mention-fg);background:var(--mention-you-bg);border:1px solid var(--mention-you-line);padding:0 3px;margin:0 1px}
 /* The highlight extends beyond the entry on both sides (content stays put), so it never starts at the avatar. */
-.entry.for-you{margin-left:calc(-1*var(--hl-l));margin-right:calc(-1*var(--hl-r));padding-left:var(--hl-l);padding-right:var(--hl-r);background:var(--you-soft);border-radius:8px;animation:foryou 1.6s ease-out 1}
+.entry.for-you{margin-left:calc(-1*var(--hl-l));margin-right:calc(-1*var(--hl-r));padding-left:var(--hl-l);padding-right:var(--hl-r);background:var(--you-soft);animation:foryou 1.6s ease-out 1}
 .entry.for-you .rd{right:var(--hl-r)}
 @keyframes foryou{from{background:var(--you-flash)}}
 .hc-gap{height:12px}
@@ -1278,6 +1278,14 @@ a.ref:hover{color:var(--ink);background:color-mix(in srgb,var(--accent) 12%,var(
 :root[data-compact="others"] #thread>.entry.ol:is(.ol-open,[data-ol-all] .ol)>.grow>.meta>.agent-info{display:inline}
 :root[data-compact="others"] #thread>.entry.ol:is(.ol-open,[data-ol-all] .ol)>.grow>.meta>.who{order:-2}:root[data-compact="others"] #thread>.entry.ol:is(.ol-open,[data-ol-all] .ol)>.grow>.meta>.when{order:-1} /* name, time, then the details: the time stays clear of the first row's action bar */
 :root[data-compact="others"] #thread>.entry.ol:is(.ol-open,[data-ol-all] .ol)>.grow>.meta>:is(.seq,.t-change){display:inline-flex!important}
+.gut{display:none}#thread>.entry>.gut{display:flex;flex-direction:column;flex:none;width:44px;margin-right:12px;padding-top:3px;font:11px/14px var(--font-mono);color:var(--faint);white-space:nowrap;overflow:hidden}
+:root[data-mode="everyday"] .gut-n,#thread>.entry>.grow>.meta>.seq{display:none}
+#thread>.entry>.av.agent{background:none;font-size:0}#thread>.entry>.av.agent>.av-img{display:none}
+#thread>.entry>.av.agent::before{content:"";width:10px;height:10px;border-radius:50%;background:var(--text)}
+#thread>.entry>.av.agent:hover::before{display:none}#thread>.entry>.av.agent:hover{font-size:10px;color:var(--muted)}
+.thread-scroll{position:relative}.graph{position:absolute;pointer-events:none;fill:none;stroke:var(--line-strong)}
+:root[data-compact="others"]:not([data-ol-all]) #thread>.entry.ol:not(.ol-open)>.gut{padding:0;height:14px}
+@media (max-width:640px){#thread>.entry>.gut,.graph{display:none}#thread>.entry[data-reply]{padding-left:14px}#thread>.entry[data-reply]::after{content:"";position:absolute;left:4px;top:8px;bottom:8px;border-left:1px solid var(--line-strong)}}
 :root:not([data-compact="others"]) .ol-all{display:none}
 .mu-line{display:none}
 .entry.mu:not(.mu-open)>:not(.mu-line){display:none!important} /* a muted member's post: one line until opened (#3602) */
