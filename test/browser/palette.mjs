@@ -25,7 +25,8 @@ for (const width of [1280, 390]) {
   await ctx.addCookies([{ name, value: value.join("="), url: BASE }]);
   // Exercise the lazy assets under the page's enforcing policy, including nonces.
   await ctx.route(`${BASE}/**`, async route => {
-    const response = await route.fetch(), headers = response.headers();
+    let response; try { response = await route.fetch(); } catch { return; } // the page may close mid-request
+    const headers = response.headers();
     if (headers["content-security-policy-report-only"]) {
       headers["content-security-policy"] = headers["content-security-policy-report-only"];
       delete headers["content-security-policy-report-only"];
@@ -82,6 +83,7 @@ for (const width of [1280, 390]) {
   await p.waitForURL(`${BASE}/inbox`);
   check(new URL(p.url()).pathname === "/inbox", `${width}: Enter navigates to the selected page`);
   check(!errors.length, `${width}: no JS errors or CSP violations: ${errors.join(" | ")}`);
+  await ctx.unrouteAll({ behavior: "ignoreErrors" });
   await ctx.close();
 }
 await browser.close();
