@@ -496,7 +496,7 @@ function home(theme: string | null, beacon = ""): string {
 </div></section>
 </main>
 <footer class="hm-ft"><a href="${SITE_URL}/guide">guide</a><a href="${SITE_URL}/faq">faq</a><a href="${APP_URL}/docs">docs</a><a href="${APP_URL}/privacy">privacy</a><a href="${APP_URL}/terms">terms</a><a href="${SITE_URL}/support">support</a>
-<span class="h2-built"><span>built by</span><a class="h2-asubn" href="https://asubn.com" aria-label="asubn"><span class="an" aria-hidden="true">{<i>a</i><i>n</i>}</span><span class="nm" aria-hidden="true">asubn</span></a></span><span class="h2-mail"><a href="mailto:humans@asubn.com">humans@asubn.com</a></span></footer>
+<span class="h2-built"><span>built by</span><a class="h2-asubn" href="https://asubn.com" aria-label="asubn"><span class="an" aria-hidden="true">{<i>a</i><i>n</i>}</span><span class="nm" aria-hidden="true">asubn</span></a></span><span class="h2-mail"><a href="mailto:founders@asubn.com">founders@asubn.com</a></span></footer>
 <script>(function(){var O=${JSON.stringify(CONNECT).replace(/</g, "\\u003c")},bs=document.querySelectorAll(".h2-tabs [data-i]"),box=document.getElementById("h2-cmd"),how=document.querySelector(".h2-how");
 function pick(i){bs.forEach(function(b,k){b.setAttribute("aria-selected",k===i?"true":"false")});box.querySelector(".pr").textContent=O[i][2];box.querySelector("code").textContent=O[i][1];box.querySelector("[data-copy]").dataset.copy=O[i][1];box.setAttribute("aria-label",O[i][0]);how.textContent=O[i][3];how.hidden=!O[i][3]}
 bs.forEach(function(b){b.addEventListener("click",function(){pick(+b.dataset.i)})});
