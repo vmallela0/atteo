@@ -1,4 +1,3 @@
-import { PALETTE_JS, PALETTE_CSS } from "./palette";
 // Worker entry: MCP endpoint, sign-in, web pages, JSON API, and the operator console (/_ops).
 
 import { localize, pickLang } from "./i18n";
@@ -61,7 +60,6 @@ import * as boardkeys from "./boardkeys";
 import * as mailbox from "./mailbox";
 import * as recap from "./recap";
 import * as hosts from "./hosts";
-import { HOST_PAGE_JS } from "./hostUi";
 import { MACHINE_RE } from "./hostCore";
 import { listMount, LsError } from "./ls";
 import * as testAccounts from "./testAccounts";
@@ -72,8 +70,6 @@ import * as voice from "./voice";
 import { MAX_SCHEDULES } from "./schedules";
 import {
   adminPage,
-  BOARD_JS,
-  BOARD_JS_PATH,
   BOARD_TAIL_PATH,
   boardTail,
   boardPage,
@@ -99,7 +95,7 @@ import {
   PREVIEW_FRAME_HTML,
 } from "./html";
 import { ENTRY_TYPES, type Entry, type Env, type NewEntry, type Viewer as Seer } from "./types";
-import { APP_CSS, APP_JS, PAGE_CSS, directPeer, BOARD_PREFETCH_PATH, BOARD_PREFETCH_RULES, BUG_DIALOG, BUG_PAGE_JS, FAVICON_SVG, FEEDBACK_DIALOG, FEEDBACK_PAGE_JS, page, renderText, SHELL_PAGE_JS } from "./ui";
+import { directPeer, BUG_DIALOG, FAVICON_SVG, FEEDBACK_DIALOG, page, renderText } from "./ui";
 import { APPLE_TOUCH_PNG_B64 } from "./appleIcon";
 import { assistantWelcomePage } from "./welcome";
 import { agentCharter, applyCharter, charterAuditDetail, charterScanFields, charterView, parseCharterPatch, storedFromRow } from "./charter";
@@ -117,10 +113,9 @@ import { audienceNotice, MAX_FILES_PER_MESSAGE, MAX_IMAGE, MAX_MESSAGE_BYTES, MA
 import * as sessions from "./sessions";
 import { compactLine, formatEntry, formatMemory, handleMessage, parseReadBudget, parseSummaryBudget, presentReadEntries, readHeader, readParts, withNames } from "./state";
 import { fence, flagged } from "./screen";
-import { CODE_COLOR_PATH, CODE_COLOR_SCRIPT } from "./codecolor";
 import { quickReplies } from "./quickReplies";
-import { fontResponse } from "./fonts";
 import { MERMAID_PATH, mermaidResponse } from "./mermaid";
+import { serveBuiltAsset } from "./webAssets";
 
 const OPS_PATH = "/_ops";
 
@@ -693,6 +688,10 @@ const handler = {
     }
 
     try {
+      // CSS/JS/fonts: static assets (dist/web). Direct HTTP never reaches here; this is the Worker-to-Worker fallback
+      // (landing fetch) which invokes the script and skips the assets pipeline.
+      const built = await serveBuiltAsset(env, request, path);
+      if (built) return built;
       if (path === "/mcp") return await handleMcp(request, env, ctx);
       if (path === "/health") return json({ ok: true, version: env.CF_VERSION_METADATA?.id ?? null });
       // Public uptime page (docs/SELF_HOST.md). Coarse ok/degraded/down; not the board composer's /status card.
@@ -1819,32 +1818,13 @@ const handler = {
       // /cli/agent-soup.mjs is the path from before the rename: older CLIs update themselves from it.
       if ((path === "/cli/atteo.mjs" || path === "/cli/agent-soup.mjs") && method === "GET") return new Response(CLI_BUNDLE, { headers: { "content-type": "text/javascript; charset=utf-8", "cache-control": "public, max-age=300", "x-content-type-options": "nosniff" } });
 
-      // The web's fonts (fonts.ts): served here, so no page asks Google for anything (#2515).
-      if (path.startsWith("/fonts/") && method === "GET") return fontResponse(path, url) ?? new Response("not found", { status: 404 });
-
-      // Every page's stylesheet and shell script (ui.ts): the pages ask for them with a version hash, so they're cached for good.
-      if (path === BOARD_PREFETCH_PATH && method === "GET") return new Response(BOARD_PREFETCH_RULES, { headers: { "content-type": "application/speculationrules+json", "cache-control": "public, max-age=3600", "x-content-type-options": "nosniff" } });
-      if (path === "/shell.js" && method === "GET") return new Response(SHELL_PAGE_JS, { headers: { "content-type": "text/javascript; charset=utf-8", "cache-control": url.searchParams.get("v") ? "public, max-age=31536000, immutable" : "public, max-age=300", "x-content-type-options": "nosniff" } });
-      if (path === "/bug.js" && method === "GET") return new Response(BUG_PAGE_JS, { headers: { "content-type": "text/javascript; charset=utf-8", "cache-control": url.searchParams.get("v") ? "public, max-age=31536000, immutable" : "public, max-age=300", "x-content-type-options": "nosniff" } });
-      if ((path === "/palette.js" || path === "/palette.css") && method === "GET") return new Response(path.endsWith(".js") ? PALETTE_JS : PALETTE_CSS, { headers: { "content-type": path.endsWith(".js") ? "text/javascript; charset=utf-8" : "text/css; charset=utf-8", "cache-control": url.searchParams.get("v") ? "public, max-age=31536000, immutable" : "public, max-age=300", "x-content-type-options": "nosniff" } });
-      if (path === "/feedback.js" && method === "GET") return new Response(FEEDBACK_PAGE_JS, { headers: { "content-type": "text/javascript; charset=utf-8", "cache-control": url.searchParams.get("v") ? "public, max-age=31536000, immutable" : "public, max-age=300", "x-content-type-options": "nosniff" } });
-      if (path === "/host.js" && method === "GET") return new Response(HOST_PAGE_JS, { headers: { "content-type": "text/javascript; charset=utf-8", "cache-control": url.searchParams.get("v") ? "public, max-age=31536000, immutable" : "public, max-age=300", "x-content-type-options": "nosniff" } });
+      // /board-tail.js?f=0101 is still rendered here: sixteen flag combinations, not one static file.
       if (path === BOARD_TAIL_PATH && method === "GET") {
         const t = boardTail(url.searchParams.get("f") ?? "");
         if (!t) return new Response("not found", { status: 404 });
         return new Response(t.js, { headers: { "content-type": "text/javascript; charset=utf-8", "cache-control": url.searchParams.get("v") ? "public, max-age=31536000, immutable" : "public, max-age=300", "x-content-type-options": "nosniff" } });
       }
-      if (path === BOARD_JS_PATH && method === "GET") return new Response(BOARD_JS, { headers: { "content-type": "text/javascript; charset=utf-8", "cache-control": url.searchParams.get("v") ? "public, max-age=31536000, immutable" : "public, max-age=300", "x-content-type-options": "nosniff" } });
-      if ((path === "/app.css" || path === "/app.js") && method === "GET") {
-        const css = path === "/app.css";
-        return new Response(css ? APP_CSS : APP_JS, { headers: { "content-type": css ? "text/css; charset=utf-8" : "text/javascript; charset=utf-8", "cache-control": url.searchParams.get("v") ? "public, max-age=31536000, immutable" : "public, max-age=300", "x-content-type-options": "nosniff" } });
-      }
-      if (method === "GET" && path in PAGE_CSS) {
-        return new Response(PAGE_CSS[path], { headers: { "content-type": "text/css; charset=utf-8", "cache-control": url.searchParams.get("v") ? "public, max-age=31536000, immutable" : "public, max-age=300", "x-content-type-options": "nosniff" } });
-      }
-      // Syntax colours for code blocks (codecolor.ts): pages load it only once a code block is on screen; the URL is versioned.
-      if (path === CODE_COLOR_PATH && method === "GET") return new Response(CODE_COLOR_SCRIPT, { headers: { "content-type": "text/javascript; charset=utf-8", "cache-control": url.searchParams.get("v") ? "public, max-age=31536000, immutable" : "public, max-age=300", "x-content-type-options": "nosniff" } });
-      // Mermaid (mermaid.ts): pages load the pinned UMD build only once a diagram is on screen; SRI checks its bytes.
+      // Mermaid (mermaid.ts): run_worker_first so this sets SRI CORS and ?v= cache headers; SRI checks its bytes.
       if (path === MERMAID_PATH && method === "GET") return mermaidResponse(env, url);
 
       // ---- read aloud (an app/web client feature, all in tts.ts): /api/app/tts, /api/app/tts/status ----

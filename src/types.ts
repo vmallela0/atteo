@@ -151,7 +151,7 @@ export interface Env {
   DB: D1Database;
   /** Optional R2 binding. Public /status probes it when set. Board files live in the Durable Object; the hosted Worker does not bind this. */
   FILES?: R2Bucket;
-  ASSETS?: Fetcher; // wrangler.jsonc assets: mermaid.min.js (src/mermaid.ts mermaidResponse)
+  ASSETS?: Fetcher; // wrangler.jsonc assets: dist/web (CSS/JS/fonts + mermaid.min.js). mermaid.ts still fetches this; other files are assets-first.
   PUBLIC_WRITES?: RateLimit; // wrangler.jsonc ratelimits: per-IP cap on signed-out endpoints that write or fan out (limits.ts publicAllowed)
   WORKOS_API_KEY?: string; // secret
   WORKOS_CLIENT_ID?: string; // var

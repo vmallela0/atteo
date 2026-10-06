@@ -1771,10 +1771,11 @@ document.addEventListener('submit',async e=>{
 ${MERMAID_JS}
 ${CODE_COLOR_JS}`;
 
-// Every page's stylesheet and shell script, served by the Worker as /app.css and /app.js (index.ts), versioned by a hash of
-// their text and cached for good: a page no longer carries ~135KB of CSS and ~40KB of JS inline on every navigation, and
-// the script gets V8's code cache. A page's own script stays inline (it carries that page's data) and runs after it.
-// Served without its /* comments */ (about 16 KB of them): they're for whoever reads this file, not for every page load.
+// Every page's stylesheet and shell script, written to dist/web at build and served as static assets (/app.css, /app.js),
+// versioned by a hash of their text and cached for good: a page no longer carries ~135KB of CSS and ~40KB of JS inline
+// on every navigation, and the script gets V8's code cache. A page's own script stays inline (it carries that page's
+// data) and runs after it. Served without its /* comments */ (about 16 KB of them): they're for whoever reads this
+// file, not for every page load.
 export const APP_CSS = `${APP_FONT_CSS}\n${CSS}`.replace(/\/\*[\s\S]*?\*\//g, "");
 export const APP_CSS_SRC = `/app.css?v=${fnv(APP_CSS)}`;
 // The frame's strip (jxn #4860): tabs keep their state live (board-states + the inbox poll) and can be closed (#5055).
@@ -2109,8 +2110,8 @@ $('bug-form')?.addEventListener('submit',async e=>{e.preventDefault();
 
 // Board switches feel instant (#3717): a board link held under the pointer for a moment (Chrome's "moderate") has its
 // page fetched ahead, so the click only renders. Opening a board changes nothing on the server (nothing is marked read);
-// browsers without speculation rules ignore it. App pages name the rules in a Speculation-Rules header (index.ts serves
-// the file), so there's no inline JSON script for the CSP or the script checks to deal with.
+// browsers without speculation rules ignore it. App pages name the rules in a Speculation-Rules header (the file is a
+// static asset), so there's no inline JSON script for the CSP or the script checks to deal with.
 export const BOARD_PREFETCH_RULES = JSON.stringify({ prefetch: [{ source: "document", where: { href_matches: "/b/*" }, eagerness: "moderate" }] });
 export const BOARD_PREFETCH_PATH = "/speculation-rules.json";
 // Report a bug (jxn #3336, glm-b #3343): the sidebar button captures the page as a PNG in the browser (the DOM is
@@ -2225,7 +2226,7 @@ document.addEventListener('click',async e=>{const b=e.target.closest('[data-mark
 `;
 
 // The app pages' shell script (sidebar, inbox badge, live counts, mark unread, pins), the same on every page: served as
-// /shell.js (index.ts), hashed and cached for good, and run right after the page's own script, as when it was inline.
+// /shell.js (static asset), hashed and cached for good, and run right after the page's own script, as when it was inline.
 // Report-a-bug's capture+send lives in its own file (/bug.js), not in every page's shell.js (web-budget: it only
 // runs when the button is clicked). The shell's click injects it once; BUG_JS self-runs for that first click.
 export const BUG_PAGE_JS = BUG_JS;

@@ -10,18 +10,19 @@
   "preview_urls": false,
   "triggers": { "crons": ["*/5 * * * *"] },
   // The agent skill (skills/atteo/SKILL.md) is bundled as text and served at /skill.md.
-  "rules": [{ "type": "Text", "globs": ["**/*.md", "**/atteo.mjs"], "fallthrough": true }, { "type": "Data", "globs": ["**/*.woff2"], "fallthrough": true }],
-  // Mermaid's UMD build (public/mermaid.min.js): served at /mermaid.min.js so the CSP does not allow a CDN.
-  // run_worker_first keeps every other route on the Worker; mermaid.ts fetches this binding and sets cache/SRI CORS.
+  "rules": [{ "type": "Text", "globs": ["**/*.md", "**/atteo.mjs"], "fallthrough": true }],
+  // Built CSS/JS/fonts live in dist/web (scripts/build-web-assets.mjs). Matching requests are served as static assets
+  // with no Worker CPU. mermaid.min.js still goes through the Worker (SRI CORS + ?v= cache headers in mermaid.ts).
+  // Pages keep versioned URLs (/app.css?v=<hash>). html_handling none so /docs is the Worker page, not a file.
   "assets": {
-    "directory": "./public",
+    "directory": "./dist/web",
     "binding": "ASSETS",
     "html_handling": "none",
     "not_found_handling": "none",
-    "run_worker_first": true
+    "run_worker_first": ["/mermaid.min.js"]
   },
   // The CLI is bundled into one file and served at /cli/atteo.mjs (curl …/install.sh | sh installs it).
-  "build": { "command": "npm run -s build:cli" },
+  "build": { "command": "npm run -s build:cli && npm run -s build:assets" },
   "durable_objects": {
     "bindings": [{ "name": "BOARD", "class_name": "Board" }]
   },

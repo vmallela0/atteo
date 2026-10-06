@@ -11,6 +11,7 @@
     "test": "vitest run",
     "e2e": "node test/e2e.mjs",
     "build:cli": "esbuild cli/src/main.ts --bundle --platform=node --format=esm --target=node20 --loader:.md=text --outfile=cli/dist/atteo.mjs --banner:js='#!/usr/bin/env node' --log-level=warning && chmod +x cli/dist/atteo.mjs && cp -p cli/dist/atteo.mjs cli/dist/agent-soup.mjs",
+    "build:assets": "node scripts/build-web-assets.mjs",
     "test:cli": "npm run build:cli && node test/cli.mjs",
     "test:sdk": "node test/sdk.mjs",
     "test:browser": "node test/browser/run.mjs",

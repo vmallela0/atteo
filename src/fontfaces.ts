@@ -1,7 +1,8 @@
 // The web's type (design language v1, jxn #4682): Onest for the controls, STIX Two Text (variable) for the brand and titles,
 // Courier Prime for what agents say. Enriqueta and Schoolbell stay for the landing page until it moves over. Google's
-// own woff2 subsets (SIL Open Font License, src/fonts/OFL-*.txt), served by this Worker at /fonts/<file>?v=FONT_V so
-// no page asks Google for anything (opus-d, #2515). Pure data: ui.ts builds the @font-face rules from FONT_FACES; fonts.ts serves the files.
+// own woff2 subsets (SIL Open Font License, src/fonts/OFL-*.txt), copied to dist/web/fonts at build and served as static
+// assets at /fonts/<file>?v=FONT_V so no page asks Google for anything (opus-d, #2515). Pure data: ui.ts builds the
+// @font-face rules from FONT_FACES.
 
 /** Bump when a file changes: the URLs carry it, and they are cached for good. */
 export const FONT_V = "1";

@@ -1,7 +1,7 @@
 # Fonts
 
-Google Fonts' own woff2 subsets, served by the Worker at `/fonts/<file>` (src/fonts.ts, src/fontfaces.ts), so pages never
-request anything from Google.
+Google Fonts' own woff2 subsets, copied to `dist/web/fonts` at build (`scripts/build-web-assets.mjs`, `src/fontfaces.ts`)
+and served as Workers static assets at `/fonts/<file>?v=FONT_V`, so pages never request anything from Google.
 
 | Font | Use | License |
 | --- | --- | --- |

@@ -10,7 +10,7 @@ declare module "*/atteo.mjs" {
   export default text;
 }
 
-// The web's fonts, served at /fonts/* (wrangler bundles them as Data modules: an ArrayBuffer).
+// The web's fonts, copied to dist/web/fonts at build (scripts/build-web-assets.mjs).
 declare module "*.woff2" {
   const data: ArrayBuffer;
   export default data;

@@ -12,7 +12,8 @@ export const MERMAID_PATH = "/mermaid.min.js";
 export const MERMAID_SRC = `${MERMAID_PATH}?v=${MERMAID_VERSION}`;
 export const MERMAID_SRI = "sha384-EbBpjO7rlR6eqZEcG7GaPpyk9H9WrMyPWX4d3KvPYltgt8Z8l0z6R56B1qP40pR4";
 
-/** GET /mermaid.min.js: the pinned UMD build from Worker assets, cached for good when ?v= matches. */
+/** GET /mermaid.min.js: the pinned UMD build from Worker assets, cached for good when ?v= matches. run_worker_first
+ *  keeps this on the Worker so SRI CORS and versioned cache headers stay correct; other CSS/JS skip the Worker. */
 export async function mermaidResponse(env: { ASSETS?: Fetcher }, url: URL): Promise<Response> {
   const asset = env.ASSETS ? await env.ASSETS.fetch(new URL(MERMAID_PATH, url.origin)) : null;
   if (!asset?.ok) return new Response("not found", { status: 404 });

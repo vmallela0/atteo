@@ -58,6 +58,15 @@ abuse from costing money.
   the next deploy. The shedder now uses the same token (`limits.ts` falls back to `analyticsToken`). If the token
   lacks *Account Analytics: Read*, /_ops shows the guard's error and nothing else changes.
 
+## Built CSS/JS from static assets
+
+`npm run build:assets` (wrangler `build.command`, also runs before `wrangler dev`) writes `/app.css`, `/board.js`,
+`/shell.js`, page sheets, fonts, etc. into `dist/web`. Those requests are served from Workers static assets with no
+Worker CPU (`run_worker_first` is only `/mermaid.min.js`, which still needs the Worker for SRI CORS and `?v=` cache
+headers). Pages keep versioned URLs (`/app.css?v=<hash>`). Worker-to-Worker fetches (the landing Worker) fall back to
+`env.ASSETS` in `src/webAssets.ts`. `/board-tail.js?f=` stays on the Worker. `CSP_ENFORCE` is unchanged. Tests:
+`test/webAssets.test.ts`.
+
 ## More code changes worth making (not on this branch)
 
 | Change | Where | Why |
@@ -65,7 +74,7 @@ abuse from costing money.
 | Per-token rate limit on the Rate Limiting binding | `src/limits.ts` `rateCheck` | consistent across isolates (see 5 above) |
 | Clean up unused OAuth clients after 30 days | cron in `src/index.ts` `runScheduled` | `oauth_clients` only grows (67 rows today) |
 | Index `device_logins(expires_at)` | new migration | `startDeviceLogin` deletes expired rows with a full scan each call (240 rows today, so not urgent) |
-| Serve built CSS/JS from static assets | `src/ui.ts` → `public/` at build | asset requests are free and use no Worker CPU; today every `/app.css`, `/board.js`, font etc. runs the Worker (cached by browsers via versioned URLs, so once per visitor) |
+| `/board-tail.js?f=` still on the Worker | `src/html.ts` `boardTail` | sixteen flag combinations; not one static file |
 | Short-lived cache for read-only board views | `src/index.ts` board GETs | protects one hot board (see 1 above) |
 | `limits.cpu_ms` | `wrangler.jsonc` | a ceiling on runaway CPU per request. Only after measuring exports and backups, which legitimately take longer |
 | D1 read replication + Sessions API | `env.DB` call sites | when non-US traffic grows (see 3 above) |

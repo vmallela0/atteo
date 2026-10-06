@@ -1225,8 +1225,8 @@ function inviteAgentDialog(T: (s: string) => string, info: { id: string; title: 
 </div></dialog>`;
 }
 
-// The board page's script, the same for everyone: served as /board.js, hashed and cached for good, and loaded between the
-// page's inline parts (index.ts). What it needs from this page and viewer, it reads from window.BC (boardPage writes it).
+// The board page's script, the same for everyone: served as /board.js (static asset), hashed and cached for good, and
+// loaded between the page's inline parts. What it needs from this page and viewer, it reads from window.BC (boardPage writes it).
 const BOARD_CORE_JS = `
 document.addEventListener('click',e=>{const b=e.target.closest('[data-remind-message]');if(b)remindItem(BOARD+':'+b.dataset.seq,b.dataset.remindMessage)});
 window.BOARD=BC.board;let last=BC.last;

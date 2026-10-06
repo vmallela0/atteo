@@ -16,6 +16,8 @@ describe("run.mjs --changed", () => {
     expect(pick(["test/browser/voice.mjs"])).toEqual(["voice"]);
     expect(pick(["src/mermaid.ts"])).toEqual(["csp", "mermaid"]);
     expect(pick(["public/mermaid.min.js"])).toEqual(["csp", "mermaid"]);
+    expect(pick(["src/webAssets.ts"])).toEqual(["csp", "fonts", "web-budget"]);
+    expect(pick(["scripts/build-web-assets.mjs"])).toEqual(["fonts", "web-budget"]);
   });
   it("runs everything for a file no rule narrows, or the runner's shared code", () => {
     expect(pick(["src/html.ts"])).toBe("*");

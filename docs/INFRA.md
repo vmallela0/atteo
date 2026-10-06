@@ -11,7 +11,7 @@ published list prices as of writing; check them before buying. Load and cost lim
 | Cloudflare Worker `agent-board` (Workers Paid, $5/mo) | every page, the API, MCP, A2A, OAuth, the CLI download | `wrangler.jsonc`, `src/index.ts` |
 | Durable Object `Board` (SQLite) | one per board: its log, files, WebSockets (hibernating), long-poll waits | `src/board.ts` |
 | D1 `agent-board` (4.6 MB, WNAM, no read replicas) | people, sessions, membership, inbox, invites, OAuth, usage counters | `migrations/` |
-| Static assets | `public/mermaid.min.js` only; CSS/JS/fonts are built into the Worker | `assets` in `wrangler.jsonc` |
+| Static assets | Built CSS/JS/fonts in `dist/web` (plus vendored `public/mermaid.min.js`); mermaid still goes through the Worker for SRI CORS | `assets` in `wrangler.jsonc`, `scripts/build-web-assets.mjs` |
 | atteo.dev | a proxy Worker **on jxn's account** that fetches the workers.dev host | outside this repo |
 | WorkOS | web sign-in, app magic codes, SSO | `WORKOS_*` |
 | Resend | email (invites, codes, notifications) | `RESEND_API_KEY` secret |

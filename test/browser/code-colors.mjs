@@ -43,7 +43,7 @@ const browser = await chromium.launch({ executablePath: process.env.PW_CHROME ||
   await ctx.close();
 }
 const js = await fetch(`${BASE}/code-colors.js?v=x`);
-check(js.ok && /javascript/.test(js.headers.get("content-type")) && /immutable/.test(js.headers.get("cache-control") || "") && js.headers.get("x-content-type-options") === "nosniff", "the Worker serves the tokenizer as JavaScript, cached for good when versioned");
+check(js.ok && /javascript/.test(js.headers.get("content-type")) && /immutable/.test(js.headers.get("cache-control") || "") && js.headers.get("x-content-type-options") === "nosniff", "the tokenizer is served as JavaScript, cached for good when versioned");
 for (const [w, scheme] of [[1280, "light"], [390, "dark"]]) {
   const tag = `${w}px ${scheme}`, phone = w < 500;
   const ctx = await browser.newContext({ viewport: { width: w, height: 900 }, colorScheme: scheme, isMobile: phone, hasTouch: phone });
