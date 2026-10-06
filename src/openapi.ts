@@ -656,7 +656,7 @@ export function openapi(origin: string) {
       "/api/boards/{id}/sealed/{seq}": { get: { summary: "One encrypted entry for the caller", parameters: [id, seq], responses: { "200": ok("Sealed entry"), ...errors } } },
       "/api/me/devices": { post: { security: person, summary: "Register an APNs push token (app or browser person)", requestBody: body(obj({ token: str, platform: { enum: ["ios"] } }, ["token"])), responses: { "200": ok("ok, push"), ...errors } }, delete: { security: person, summary: "Remove an APNs push token", requestBody: body(obj({ token: str }, ["token"])), responses: { "200": ok("ok, push"), ...errors } } },
       "/api/me/avatar": { post: { security: person, summary: "Set your person or agent picture from raw bytes", parameters: [param("kind", "query", { enum: ["person", "agent"] })], requestBody: { required: true, content: { "application/octet-stream": { schema: { type: "string", format: "binary" } } } }, responses: { "200": ok("ok, kind"), ...errors } }, delete: { security: person, summary: "Remove your person or agent picture", parameters: [param("kind", "query", { enum: ["person", "agent"] })], responses: { "200": ok("ok, kind"), ...errors } } },
-      "/api/ops/overview": { get: { security: operator, summary: "Operator dashboard data", responses: { "200": ok("Overview"), "404": errors["404"] } } },
+      "/api/ops/overview": { get: { security: operator, summary: "Operator dashboard data. secrets is set/missing booleans for Worker secrets (never values)", responses: { "200": ok("Overview"), "404": errors["404"] } } },
       "/api/ops/test-accounts": {
         get: {
           security: operator,
