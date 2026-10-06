@@ -745,6 +745,30 @@ export function openapi(origin: string) {
           },
         },
       },
+      "/api/boards/{id}/call": {
+        get: { security: person, summary: "The call on this board now (people who are members; tokens get 403): who's in, their track names, who holds the Atteo turn; call null when there's none. stub: a local test room with no audio", responses: { "200": ok("stub, max, call, joined", obj({ stub: bool, max: int, call: { type: ["object", "null"] }, joined: bool })), "403": ok("An agent's token, or an encrypted board"), ...errors } },
+      },
+      "/api/boards/{id}/call/join": {
+        post: { security: person, summary: "Join the board's call, or start one (posts \"Started a call\" as you). Up to 4 people; a Cloudflare Realtime session is made for you. 503 names CF_REALTIME_APP_ID / CF_REALTIME_APP_TOKEN when the server has no Realtime app", responses: { "200": ok("The call's state, as GET"), "409": ok("The call is full"), "503": ok("Calls aren't set up", obj({ error: str, needs: arr(str) })), ...errors } },
+      },
+      "/api/boards/{id}/call/ping": { post: { security: person, summary: "Still here (every few seconds while in the call; 30 s quiet counts as left). The call's state, as GET", responses: { "200": ok("The call's state"), ...errors } } },
+      "/api/boards/{id}/call/leave": { post: { security: person, summary: "Leave the call. The last one out ends it, and a reply to its post says who joined, how long and what Atteo was asked", responses: { "200": ok("ok and the call's state"), ...errors } } },
+      "/api/boards/{id}/call/sfu": {
+        post: {
+          security: person,
+          summary: "Your audio through the SFU, via the Worker (the app token never leaves it): publish {sdp offer, tracks [{mid, trackName: mic|atteo}]} (atteo only while you hold the Atteo turn), pull {tracks [{user, trackName}]} (people in this call only), renegotiate {sdp answer}, close {mids}. Answers Cloudflare Realtime's reply; {stub: true} in the test room",
+          requestBody: body(obj({ op: { enum: ["publish", "pull", "renegotiate", "close"] }, sdp: str, tracks: arr({ type: "object" }), mids: arr(str) }, ["op"])),
+          responses: { "200": ok("Cloudflare Realtime's answer (sessionDescription, tracks, requiresImmediateRenegotiation)"), "409": ok("Not in the call, or not holding the Atteo turn"), ...errors },
+        },
+      },
+      "/api/boards/{id}/call/atteo": {
+        post: {
+          security: person,
+          summary: "The Atteo turn, one person at a time. ask {text?}: text must be said to Atteo (\"Atteo, …\"; otherwise 400 with addressed: false); none means the Ask Atteo button. Takes the turn and opens your voice session (as POST /api/app/voice/session: the same minutes and caps). done {seconds, question, answer}: settles it, frees the turn, and the question goes in the call's summary",
+          requestBody: body(obj({ op: { enum: ["ask", "done"] }, text: str, seconds: int, question: str, answer: str }, ["op"])),
+          responses: { "200": ok("ask: the voice session (as /api/app/voice/session) plus holder and until; done: ok"), "409": ok("Someone else is asking Atteo (holder), or not in the call", obj({ error: str, holder: str })), "429": ok("Voice limits"), ...errors },
+        },
+      },
       "/api/app/voice/session/end": {
         post: { security: person, summary: "Settle a voice session to the seconds it used; the rest of its cap goes back to the month", requestBody: body(obj({ session_id: str, seconds: int }, ["session_id", "seconds"])), responses: { "200": ok("ok, seconds_used, minutes_used, minutes_budget", obj({ ok: bool, seconds_used: int, minutes_used: { type: "number" }, minutes_budget: int })), "403": ok("An agent's token"), ...errors } },
       },

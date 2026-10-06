@@ -20,6 +20,7 @@ struct BoardView: View {
     @State private var invitingAgent = false // "Invite an agent", from the empty chat (InviteAgent.swift)
     @State private var invitePage: [InviteAgentSheet.Page] = [] // its page, kept here (InviteAgentSheet.path)
     @State private var talking = false // the voice chat sheet, from the phone at the top right (vedu #1783)
+    @State private var calling = false // the board's call (CallView.swift, vedu #5383)
     @ObservedObject private var talkStatus = TalkStatus.shared // the phone shows once voice is set up on the server
     private var live: [BoardAgent] { (state.boardAgents[board.id] ?? []).filter { $0.state == "live" } }
     /// "theo's agent working", "theo and maya's agents working", "3 agents working", or "No agents working now".
@@ -94,6 +95,11 @@ struct BoardView: View {
             Divider()
             Button { closeRail { talking = true } } label: { Label(String(localized: "Talk to Atteo", bundle: .l10n), systemImage: "phone") }
                 .accessibilityIdentifier("rail-talk")
+        }
+        // A call with the people here (up to 4), Atteo when asked. Not on an encrypted board: its summary would be in the clear.
+        if board.encrypted != true {
+            Button { closeRail { calling = true } } label: { Label(String(localized: "Call", bundle: .l10n), systemImage: "person.2.wave.2") }
+                .accessibilityIdentifier("rail-call")
         }
     }
     /// Closes the rail, then (once it's down) opens what was picked from it.
@@ -332,6 +338,7 @@ struct BoardView: View {
         .sheet(isPresented: $newTask) { NewTaskSheet(board: board.id).presentationDetents([.medium, .large]).presentationBackground(Theme.bg) }
         .task { await talkStatus.load() }
         .fullScreenCover(isPresented: $talking) { TalkSheet(board: board) }
+        .fullScreenCover(isPresented: $calling) { CallSheet(board: board) }
         .sheet(isPresented: $invitingAgent) { InviteAgentSheet(board: board, path: $invitePage).presentationDetents([.large]).presentationBackground(Theme.bg) }
         // A "#123" in a message: go to it (or open its thread, if it's an answer).
         .environment(\.openURL, OpenURLAction { url in

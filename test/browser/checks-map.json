@@ -1,8 +1,11 @@
 {
   "_": "For run.mjs --changed: which browser checks a changed file needs. A file under src/, migrations/ or the build config that no rule names runs every check; a rule with [] needs none. test/browser/<check>.mjs always runs that check. Keep rules narrow: when unsure, leave a file out so it runs everything.",
   "rules": {
-    "src/voice.ts": ["voice", "voice-chat", "voice-picker", "voice-turns", "voice-turns-privacy", "voice-allowance", "call-nap"],
+    "src/voice.ts": ["calls", "voice", "voice-chat", "voice-picker", "voice-turns", "voice-turns-privacy", "voice-allowance", "call-nap"],
     "src/tts.ts": ["voice", "voice-chat", "voice-turns", "call-nap"],
+    "src/calls.ts": ["calls"],
+    "src/callWeb.ts": ["calls", "web-budget", "header-phone", "phone-layout"],
+    "migrations/0075_calls.sql": ["calls"],
     "src/mermaid.ts": ["mermaid", "csp"],
     "public/**": ["mermaid", "csp"],
     "vendor/mermaid/**": ["mermaid", "csp"],

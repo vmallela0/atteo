@@ -70,6 +70,8 @@ import { musePage } from "./muse";
 import * as triggers from "./triggers";
 import * as tts from "./tts";
 import * as voice from "./voice";
+import * as calls from "./calls";
+import { CALL_CSS, CALL_CSS_PATH, CALL_CSS_SRC, CALL_JS, CALL_JS_PATH, callPageBody } from "./callWeb";
 import { MAX_SCHEDULES } from "./schedules";
 import {
   adminPage,
@@ -621,6 +623,8 @@ async function runScheduled(env: Env, ctx: ExecutionContext, now = Date.now()): 
       }, now)
       .catch((e) => console.error("cost guard failed", e)),
   );
+  // Calls whose last page closed without leaving: end them and post the summary (src/calls.ts).
+  ctx.waitUntil(calls.reapAll(calls.depsFor(env, null, null)).catch((e) => console.error("call reap failed", e)));
   // Boards with a retention period: blank what's older.
   const keep = (await env.DB.prepare(`SELECT id, retention_days FROM boards WHERE retention_days IS NOT NULL`).all<{ id: string; retention_days: number }>()).results;
   for (const b of keep) ctx.waitUntil(boardStub(env, b.id).prune(now - b.retention_days * 86_400_000).catch(() => 0));
@@ -1076,6 +1080,16 @@ const handler = {
             action: plan ? { href: "/me#billing", label: "See plans" } : { href: "/?new=1", label: "Try again" },
           });
         }
+      }
+
+      // A board's call on a page of its own (src/callWeb.ts; the app opens it in a web view). People who are members only.
+      const cm = path.match(/^\/b\/([^/]+)\/call$/);
+      if (cm && method === "GET") {
+        if (!viewer) return needLogin();
+        if (viewer.via === "agent" || !(await registry.isMember(env, cm[1], viewer.name))) return notFound(viewer);
+        const b = await registry.getBoard(env, cm[1]);
+        if (!b || b.deleted_at) return notFound(viewer);
+        return page(`Call · ${b.title}`, callPageBody(cm[1], b.title), { viewer, narrow: true, script: CALL_JS, css: [CALL_CSS_SRC] });
       }
 
       let m = path.match(/^\/(b|join)\/([^/]+)$/);
@@ -1864,6 +1878,10 @@ const handler = {
         if (!t) return new Response("not found", { status: 404 });
         return new Response(t.js, { headers: { "content-type": "text/javascript; charset=utf-8", "cache-control": url.searchParams.get("v") ? "public, max-age=31536000, immutable" : "public, max-age=300", "x-content-type-options": "nosniff" } });
       }
+      if ((path === CALL_JS_PATH || path === CALL_CSS_PATH) && method === "GET") {
+        const css = path === CALL_CSS_PATH;
+        return new Response(css ? CALL_CSS : CALL_JS, { headers: { "content-type": css ? "text/css; charset=utf-8" : "text/javascript; charset=utf-8", "cache-control": url.searchParams.get("v") ? "public, max-age=31536000, immutable" : "public, max-age=300", "x-content-type-options": "nosniff" } });
+      }
       if (path === BOARD_JS_PATH && method === "GET") return new Response(BOARD_JS, { headers: { "content-type": "text/javascript; charset=utf-8", "cache-control": url.searchParams.get("v") ? "public, max-age=31536000, immutable" : "public, max-age=300", "x-content-type-options": "nosniff" } });
       if ((path === "/app.css" || path === "/app.js") && method === "GET") {
         const css = path === "/app.css";
@@ -1879,6 +1897,8 @@ const handler = {
 
       // ---- read aloud (an app/web client feature, all in tts.ts): /api/app/tts, /api/app/tts/status ----
       if (path.startsWith("/api/app/tts")) return tts.route(request, env, ctx, path, viewer);
+      // ---- board calls (Cloudflare Realtime + the gated Atteo turn; all in calls.ts): /api/boards/:id/call… ----
+      if (path.startsWith("/api/boards/") && calls.CALL_RE.test(path)) return (await calls.route(request, env, path, viewer))!;
       // ---- talk to Atteo (speech-to-speech; all in voice.ts): /api/app/voice/session, /session/end, /status ----
       if (path.startsWith("/api/app/voice/")) return voice.route(request, env, path, viewer);
 
