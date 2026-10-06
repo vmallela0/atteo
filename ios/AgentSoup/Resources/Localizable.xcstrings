@@ -1,6 +1,100 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "Atteo had a hiccup. Try again in a moment.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Atteo had a hiccup. Try again in a moment."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "حدث عطل بسيط في Atteo. حاول مرة أخرى بعد قليل."
+          }
+        },
+        "bn": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Atteo-তে একটি ছোট সমস্যা হয়েছে। কিছুক্ষণ পর আবার চেষ্টা করুন।"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Atteo hatte einen kleinen Husten. Versuch es gleich nochmal."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Atteo tuvo un pequeño contratiempo. Inténtalo de nuevo en un momento."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Atteo a eu un petit hoquet. Réessayez dans un instant."
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Atteo में एक छोटी समस्या हुई। कुछ देर बाद फिर से प्रयास करें।"
+          }
+        },
+        "id": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Atteo mengalami gangguan kecil. Coba lagi sebentar."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Atteoで小さな問題が発生しました。しばらくしてからもう一度お試しください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Atteo에 일시적인 문제가 발생했습니다. 잠시 후 다시 시도하세요."
+          }
+        },
+        "pt": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O Atteo teve um pequeno problema. Tente novamente em um momento."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "В Atteo произошла небольшая заминка. Попробуйте снова через мгновение."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Atteo da küçük bir sorun oluştu. Birazdan tekrar deneyin."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Atteo遇到了小问题。请稍后再试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Atteo遇到了小問題。請稍後再試。"
+          }
+        }
+      }
+    },
     "Pin": {
       "localizations": {
         "zh-Hans": {
@@ -48384,96 +48478,140 @@
         }
       }
     },
-    "Atteo had a hiccup. Try again in a moment.": {
+    "Machine attached": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Atteo had a hiccup. Try again in a moment."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "حدث عطل بسيط في Atteo. حاول مرة أخرى بعد قليل."
-          }
-        },
-        "bn": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Atteo-তে একটি ছোট সমস্যা হয়েছে। কিছুক্ষণ পর আবার চেষ্টা করুন।"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Atteo hatte einen kleinen Husten. Versuch es gleich nochmal."
-          }
-        },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Atteo tuvo un pequeño contratiempo. Inténtalo de nuevo en un momento."
+            "value": "Máquina conectada"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Atteo a eu un petit hoquet. Réessayez dans un instant."
+            "value": "Machine connectée"
           }
         },
         "hi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Atteo में एक छोटी समस्या हुई। कुछ देर बाद फिर से प्रयास करें।"
-          }
-        },
-        "id": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Atteo mengalami gangguan kecil. Coba lagi sebentar."
+            "value": "मशीन जुड़ी है"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Atteoで小さな問題が発生しました。しばらくしてからもう一度お試しください。"
+            "value": "マシンが接続されています"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Atteo에 일시적인 문제가 발생했습니다. 잠시 후 다시 시도하세요."
-          }
-        },
-        "pt": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "O Atteo teve um pequeno problema. Tente novamente em um momento."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "В Atteo произошла небольшая заминка. Попробуйте снова через мгновение."
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Atteo da küçük bir sorun oluştu. Birazdan tekrar deneyin."
+            "value": "기기가 연결됨"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Atteo遇到了小问题。请稍后再试。"
+            "value": "已连接机器"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Atteo遇到了小問題。請稍後再試。"
+            "value": "已連接機器"
+          }
+        }
+      }
+    },
+    "%@: agents here can ask to run commands on it. Its owner approves each one.": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@: los agentes de aquí pueden pedir ejecutar comandos en ella. Su dueño aprueba cada uno."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ : les agents ici peuvent demander à y exécuter des commandes. Son propriétaire approuve chacune."
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@: यहाँ के एजेंट इस पर कमांड चलाने को कह सकते हैं। इसका मालिक हर एक को मंज़ूरी देता है।"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@：ここのエージェントはこのマシンでコマンドの実行を頼めます。所有者が一つずつ承認します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@: 이곳의 에이전트가 이 기기에서 명령 실행을 요청할 수 있습니다. 소유자가 하나씩 승인합니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@：这里的智能体可以请求在上面运行命令，由它的主人逐条批准。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@：這裡的代理可以請求在上面執行命令，由它的主人逐條核准。"
+          }
+        }
+      }
+    },
+    "Stop %@": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Detener %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arrêter %@"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ रोकें"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ を停止"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 중지"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "停止 %@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "停止 %@"
           }
         }
       }

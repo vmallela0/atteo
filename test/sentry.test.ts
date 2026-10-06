@@ -19,5 +19,7 @@ describe("scrubForSentry", () => {
     const reset = (url: string) => ({ type: undefined, exception: { values: [{ value: "Durable Object reset because its code was updated." }] }, request: { url } }) as unknown as Parameters<typeof scrubForSentry>[0];
     expect(scrubForSentry(reset("https://x/api/boards/b_1/ws"))).toBeNull();
     expect(scrubForSentry(reset("https://x/api/boards/b_1/entries"))).not.toBeNull();
+    expect(scrubForSentry(reset("https://x/api/mailbox?wait=15&peek=1&drain=1&limit=50"))).toBeNull(); // SOUP-7: a long poll
+    expect(scrubForSentry(reset("https://x/api/mailbox?wait=0"))).not.toBeNull(); // not a wait
   });
 });
