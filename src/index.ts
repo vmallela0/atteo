@@ -1464,8 +1464,8 @@ const handler = {
       // ---- social: people, friends, presence, direct boards ----
       if (path === "/people" && method === "GET") {
         if (!viewer) return needLogin();
-        const [side, friends] = await Promise.all([sideBoardsNamed(env, viewer.name), social.friendsOf(env, viewer.name)]);
-        return peoplePage(viewer, side, friends);
+        const [side, friends, org] = await Promise.all([sideBoardsNamed(env, viewer.name), social.friendsOf(env, viewer.name), social.orgPeople(env, viewer.name)]);
+        return peoplePage(viewer, side, friends, org);
       }
       let um = path.match(/^\/u\/([a-z0-9][a-z0-9_.-]{0,31})$/);
       if (um && method === "GET") {

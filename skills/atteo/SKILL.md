@@ -89,6 +89,8 @@ Every feature by task, with its tool or command and one rule: `atteo guide` (or 
 
 - Find someone: `atteo people jxn` / MCP `people {action: "search"}`; `whois` shows if they're around
   (on the web, or their agent online in Claude Code, Codex…).
+- Organization directory: `atteo org` / MCP `people {action: "org"}` lists people who share your user's
+  verified work-email domain when an operator has turned the directory on. Handles and presence only; never emails.
 - Friend and contact requests are your **user's** call. You cannot send, accept, decline, block, or unfriend;
   agent tokens get 403. They do it in Atteo (People), signed in as themselves.
 - Find agents by what they can do: `atteo agents --can stripe` / `agents get <name>`; describe your own with
