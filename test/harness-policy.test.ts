@@ -59,7 +59,14 @@ describe("harnessPolicy", () => {
     const windows = harnessPolicy({ allow: [{ kind: "file_write", pathPrefix: String.raw`C:\repo` }] });
     expect((await windows.allow({ kind: "file_write", path: "C:/repo/src/a.ts" })).allow).toBe(true);
     expect((await windows.allow({ kind: "file_write", path: "C:/repo-evil/a.ts" })).allow).toBe(false);
-    for (const path of ["/workspace/repo-evil/a.ts", "/etc/passwd", "/workspace/repo/../../etc/passwd", "../other/a.ts"]) {
+    expect((await windows.allow({ kind: "file_write", path: String.raw`\outside\a.ts`, cwd: "C:/repo" })).allow).toBe(false);
+    expect((await windows.allow({ kind: "file_write", path: "C:outside/a.ts", cwd: "C:/repo" })).allow).toBe(false);
+    expect((await windows.allow({ kind: "file_write", path: "C:/repo/.. /outside/a.ts" })).allow).toBe(false);
+    const windowsDeny = harnessPolicy({ allow: [{ kind: "file_write", pathPrefix: "C:/repo" }], deny: [{ kind: "file_write", pathPrefix: "C:/repo/private" }] });
+    expect((await windowsDeny.allow({ kind: "file_write", path: "C:/REPO/PRIVATE/a.ts" })).allow).toBe(false);
+    const broadWindows = harnessPolicy({ allow: [{ kind: "file_write" }], deny: [{ kind: "file_write", pathPrefix: "C:/repo/private" }] });
+    expect((await broadWindows.allow({ kind: "file_write", path: "C:/repo/private./a.ts" })).allow).toBe(false);
+    for (const path of [String.raw`/workspace/repo\sibling.ts`, "/workspace/repo-evil/a.ts", "/etc/passwd", "/workspace/repo/../../etc/passwd", "../other/a.ts"]) {
       const cwd = path.startsWith("/") ? undefined : "/workspace/repo";
       const decision = await policy.allow({ kind: "file_write", tool: "Write", path, cwd });
       expect(decision.allow, path).toBe(false);
@@ -119,6 +126,7 @@ describe("harnessPolicy", () => {
   });
 
   it("rejects a policy that would not mean what it says", () => {
+    expect(policyFromJson('{"allow":[{"kind":"shell"}],"denny":[]}').ok).toBe(false);
     expect(() => harnessPolicy({ allow: [{ kind: "file_write", pathPrefix: "repo" }] })).toThrow(ActionPolicyError);
     expect(() => harnessPolicy({ allow: [{ kind: "file_write", pathPrefix: "/" }] })).toThrow(ActionPolicyError);
     expect(() => harnessPolicy({ allow: [{ kind: "shell", pathPrefix: "/tmp" }] })).toThrow(ActionPolicyError);
@@ -171,6 +179,17 @@ describe("reviewHarnessHook", () => {
     expect(hidden.reason).not.toContain(key);
     expect(actionFromHarness({ tool_name: "WebSearch", tool_input: { query: "x" } })?.kind).toBe("mcp_tool");
     expect((await reviewHarnessHook(policy, { tool_name: "WebSearch", tool_input: { query: "x" } })).effect).toBe("deny");
+  });
+
+  it("does not let unknown tools or multi-file patches borrow shell or path allowances (PR 77)", async () => {
+    for (const input of [
+      { tool_name: "mcp__remote__execute", tool_input: { command: "npm test" } },
+      { tool_name: "mcp__remote__upload", tool_input: { path: "/workspace/repo/a.ts" } },
+      { tool_name: "apply_patch", tool_input: { path: "/workspace/repo/a.ts", patch: "*** Delete File: /outside/b.ts" } },
+    ]) {
+      expect(actionFromHarness(input)?.kind).toBe("mcp_tool");
+      expect((await reviewHarnessHook(policy, input)).effect).toBe("deny");
+    }
   });
 });
 
