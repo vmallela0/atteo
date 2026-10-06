@@ -46,10 +46,14 @@ export function formActionSource(raw: string): string | null {
 // SRI hash (mermaid.ts), so a substituted file fails the integrity check.
 // The pages are private, revalidated each time (no shared cache may keep one person's page, or pin one nonce for many
 // responses); no-store would also keep them out of the back/forward cache.
+// img-src blob: is upload thumbnails and bug-report pictures (URL.createObjectURL). Avatars, board pictures and posted
+// images are this origin. Icons are inline SVG or clip-path, so data: is not an image source. font-src is only
+// /fonts/*.woff2. media-src blob: is read-aloud, the Display voice sample, and Talk's silent media-key wav; live Talk
+// audio is WebAudio on connect-src, not a media element. No data: font or media, and no media host besides 'self'.
 export function pageSecurity(opts: { formAction?: string[] } = {}) {
   const nonce = Array.from(crypto.getRandomValues(new Uint8Array(16)), (b) => b.toString(16).padStart(2, "0")).join("");
   const formAction = ["'self'", ...(opts.formAction ?? []).map(formActionSource).filter((x): x is string => !!x)].join(" ");
-  const policy = `default-src 'self'; script-src 'self' 'nonce-${nonce}'; script-src-attr 'none'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; media-src 'self' blob: data:; connect-src 'self' ${VOICE_SOCKET_ORIGIN}; frame-src 'self' about:; frame-ancestors 'none'; base-uri 'none'; form-action ${formAction}; object-src 'none'; report-uri ${CSP_REPORT_PATH}; report-to csp`;
+  const policy = `default-src 'self'; script-src 'self' 'nonce-${nonce}'; script-src-attr 'none'; style-src 'self' 'unsafe-inline'; img-src 'self' blob:; font-src 'self'; media-src 'self' blob:; connect-src 'self' ${VOICE_SOCKET_ORIGIN}; frame-src 'self' about:; frame-ancestors 'none'; base-uri 'none'; form-action ${formAction}; object-src 'none'; report-uri ${CSP_REPORT_PATH}; report-to csp`;
   const headers: Record<string, string> = {
     [CSP_ENFORCE ? "content-security-policy" : "content-security-policy-report-only"]: policy,
     "reporting-endpoints": `csp="${CSP_REPORT_PATH}"`,
@@ -173,8 +177,8 @@ main.narrow{max-width:720px}
   transition:border-color .15s,box-shadow .15s}
 .input:focus{outline:none;border-color:var(--faint);box-shadow:0 0 0 3px color-mix(in srgb,var(--faint) 22%,transparent)}
 textarea.input{height:auto;min-height:84px;padding:10px 12px;resize:vertical;line-height:1.5}
-select.input{appearance:none;padding-right:30px;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%23888' fill='none' stroke-width='1.4'/%3E%3C/svg%3E");
-  background-repeat:no-repeat;background-position:right 11px center}
+select.input{appearance:none;padding-right:30px;background-image:linear-gradient(135deg,transparent 45%,var(--faint) 45%,var(--faint) 55%,transparent 55%),linear-gradient(45deg,transparent 45%,var(--faint) 45%,var(--faint) 55%,transparent 55%);
+  background-repeat:no-repeat;background-position:right 15px center,right 10px center;background-size:6px 6px,6px 6px}
 label.lbl{display:block;font-size:13px;font-weight:500;color:var(--ink);margin:0 0 6px}
 .hint{font-size:12.5px;color:var(--muted);margin-top:6px}
 .field+.field{margin-top:16px}
@@ -990,8 +994,7 @@ mark{background:var(--mark);color:inherit;border-radius:2px;padding:0 1px}
 .sidebar .me{display:flex;align-items:center;gap:6px}.sidebar .me>.side-link{flex:1;min-width:0}
 .bug-btn{flex:none;width:30px;height:30px;padding:0;display:inline-grid;place-items:center;border:1px solid var(--line-strong);color:var(--muted);background:var(--bg)}
 .bug-btn:hover{color:var(--ink);border-color:var(--ink);background:var(--bg)}
-/* Send feedback (vedu #4125): a speech bubble before the triangle, drawn here (cached) rather than in every page's HTML. */
-[data-feedback]::before{content:"";width:16px;height:16px;background:currentColor;-webkit-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%23000' stroke-width='1.5' stroke-linejoin='round'%3E%3Cpath d='M2.5 3.5h11v7.5H7l-3 2.5V11H2.5Z'/%3E%3C/svg%3E") center/16px no-repeat;mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%23000' stroke-width='1.5' stroke-linejoin='round'%3E%3Cpath d='M2.5 3.5h11v7.5H7l-3 2.5V11H2.5Z'/%3E%3C/svg%3E") center/16px no-repeat}
+/* Send feedback (vedu #4125): the speech bubble is an inline SVG in the button (img-src does not allow data:). */
 /* Leaving Atteo (jxn #4173): the address in full, wrapped, before you go. */
 #leave .leave-url{margin:0;padding:10px 12px;border:1px solid var(--line);border-radius:var(--r-sm);background:var(--bg-subtle);font-size:13px;overflow-wrap:anywhere;color:var(--ink)}
 #leave .ft,#feedback .ft{display:flex;justify-content:flex-end;gap:8px;padding:0 22px 20px}
@@ -1648,6 +1651,7 @@ export const APP_JS_SRC = `/app.js?v=${fnv(APP_JS)}`;
 const ICON = {
   clip: `<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" aria-hidden="true"><path d="M13.5 7.6 8.3 12.8a3.2 3.2 0 0 1-4.5-4.5l5.6-5.6a2.1 2.1 0 0 1 3 3L6.8 11.3a1 1 0 0 1-1.5-1.5l4.9-4.9"/></svg>`, // the composer's paper clip, for the bug report
   warn: `<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true"><path d="M8 2.3 14.4 13.4H1.6Z"/><path d="M8 6.4v3.4" stroke-linecap="round"/><circle cx="8" cy="11.5" r=".8" fill="currentColor" stroke="none"/></svg>`, // a warning triangle: Report a bug (jxn #4051)
+  feedback: `<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 3.5h11v7.5H7l-3 2.5V11H2.5Z"/></svg>`, // speech bubble: Send feedback (vedu #4125)
   plug: `<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" aria-hidden="true"><path d="M6 2v3M10 2v3M4.5 5h7v2.5a3.5 3.5 0 0 1-7 0zM8 11v3"/></svg>`,
   boards: `<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><rect x="2" y="2" width="5" height="5" rx="1.2"/><rect x="9" y="2" width="5" height="5" rx="1.2"/><rect x="2" y="9" width="5" height="5" rx="1.2"/><rect x="9" y="9" width="5" height="5" rx="1.2"/></svg>`,
   admin: `<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M8 1.8l5 2v4c0 3-2.2 5.2-5 6.4C5.2 13 3 10.8 3 7.8v-4z"/></svg>`,
@@ -1759,7 +1763,7 @@ export function appPage(
   <div class="side-label"><span>${esc(T("Your boards"))}</span><a href="/?new=1" title="${esc(T("New board (C)"))}" aria-label="${esc(T("New board"))}">${ICON.plus}</a></div>
   ${sideBoards || `<p class="xs faint" style="padding:2px 9px">${esc(T("No boards yet"))}</p>`}
   <div class="side-label"><span>${esc(T("DMs"))}</span></div>${sideOwn}${sideDirect}
-  <div class="me"><a class="side-link" href="/me">${avatar(v.name, "sm")}<span class="truncate">${personHtml(v.name, v.display_name, opts.boards.filter((b) => b.kind === "direct").map((b) => directPeer(b, v.name)))}</span></a><button class="btn ghost sm bug-btn" type="button" data-feedback aria-label="${esc(T("Send feedback"))}"></button><button class="btn ghost sm bug-btn" type="button" data-bug data-bug-src="${BUG_JS_SRC}" aria-label="${esc(T("Report a bug"))}" title="${esc(T("Report a bug"))}">${ICON.warn}</button></div>
+  <div class="me"><a class="side-link" href="/me">${avatar(v.name, "sm")}<span class="truncate">${personHtml(v.name, v.display_name, opts.boards.filter((b) => b.kind === "direct").map((b) => directPeer(b, v.name)))}</span></a><button class="btn ghost sm bug-btn" type="button" data-feedback aria-label="${esc(T("Send feedback"))}">${ICON.feedback}</button><button class="btn ghost sm bug-btn" type="button" data-bug data-bug-src="${BUG_JS_SRC}" aria-label="${esc(T("Report a bug"))}" title="${esc(T("Report a bug"))}">${ICON.warn}</button></div>
 </aside>
 <div class="nav-scrim" data-nav-close aria-hidden="true"></div>
 <div class="grow" style="min-width:0">

@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { page, appPage, formActionSource, CSP_ENFORCE, CSP_REPORT_PATH, VOICE_SOCKET_ORIGIN, BUG_PAGE_JS, SHELL_PAGE_JS } from "../src/ui";
+import { page, appPage, formActionSource, CSP_ENFORCE, CSP_REPORT_PATH, VOICE_SOCKET_ORIGIN, BUG_PAGE_JS, SHELL_PAGE_JS, APP_CSS } from "../src/ui";
+import { FONT_CSS } from "../src/fontfaces";
+import { AGENT_LOGO_CSS, agentLogo } from "../src/agent-logos";
+import { TALK_JS } from "../src/talk";
 import { consentPage } from "../src/oauthPage";
 import { trackCapped } from "../src/usage";
 import type { Env } from "../src/types";
@@ -98,6 +101,40 @@ describe("CSP follow-ups (opus-b #2678, jxn's agent #2681)", () => {
     for (const d of ["sandbox allow-scripts", "default-src 'none'", "connect-src 'none'", "form-action 'none'", "base-uri 'none'", "frame-ancestors 'self'"]) expect(PREVIEW_FRAME_CSP).toContain(d);
     expect(PREVIEW_FRAME_CSP).not.toContain("allow-same-origin");
     expect(PREVIEW_FRAME_CSP).not.toMatch(/'nonce-/);
+  });
+
+  it("img, font, and media sources are only what avatars, uploads, captures, and playback use", async () => {
+    const csp = policyOf(landingPage());
+    expect(directive(csp, "img-src")).toBe("img-src 'self' blob:");
+    expect(directive(csp, "font-src")).toBe("font-src 'self'");
+    expect(directive(csp, "media-src")).toBe("media-src 'self' blob:");
+    expect(csp).not.toMatch(/(?:img-src|font-src|media-src)[^;]*\bdata:/);
+    // Icons are clip-path or inline SVG. A data: image in the stylesheet would need img-src data: again.
+    expect(APP_CSS).not.toMatch(/url\(\s*['"]?data:/i);
+    expect(AGENT_LOGO_CSS).toContain('i.cn-logo[data-lg=chatgpt]{--lg:path(evenodd,"');
+    expect(AGENT_LOGO_CSS).not.toMatch(/data:/);
+    expect(agentLogo("claude")).toContain('data-lg="claude"');
+    expect(agentLogo("")).toContain("<svg");
+    expect(agentLogo("nope")).toBe(agentLogo(""));
+    // Fonts are this origin's woff2 files, not data: fonts.
+    expect(FONT_CSS).toContain('url(/fonts/onest-latin.woff2?v=1)');
+    expect(FONT_CSS).not.toMatch(/data:/);
+    // Thumbnails and playback are blob: object URLs. Live Talk audio is WebAudio, not a media URL.
+    expect(BUG_PAGE_JS).toContain("URL.createObjectURL");
+    expect(TALK_JS).toContain("new Audio(URL.createObjectURL(b))");
+    expect(TALK_JS).toContain("new Audio(silentWav())");
+    expect(TALK_JS).not.toMatch(/data:(?:audio|video|font)/);
+    const { readFileSync } = (await import("node:" + "fs")) as { readFileSync: (p: string, e: string) => string };
+    const ask = readFileSync("src/ask.ts", "utf8");
+    const html = readFileSync("src/html.ts", "utf8");
+    expect(ask).toContain("new Audio(URL.createObjectURL(await r.blob()))");
+    expect(html).toContain("URL.createObjectURL(x.blob)");
+    expect(html).toContain("cache[v]=URL.createObjectURL(await r.blob())");
+    expect(ask + html + TALK_JS + BUG_PAGE_JS).not.toMatch(/new Audio\(\s*['"]data:/);
+    // The sandboxed preview (gap 5) still needs data: and blob: for an SVG preview and whatever the file embeds.
+    expect(PREVIEW_FRAME_CSP).toContain("img-src data: blob:");
+    expect(PREVIEW_FRAME_CSP).toContain("font-src data:");
+    expect(PREVIEW_FRAME_CSP).toContain("media-src data: blob:");
   });
 
   it("lazy-loaded scripts inherit the document nonce", () => {
