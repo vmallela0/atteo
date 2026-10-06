@@ -37,7 +37,7 @@ for(const [w,scheme] of [[1280,"light"],[390,"dark"]]){
     check(new RegExp(NAME).test(hc)&&new RegExp(`${V}.?s agent`).test(hc),`the hover card names it and says whose it is (${hc.replace(/\s+/g," ").slice(0,90)})`);
     await p.locator("#composer-text").click();await p.keyboard.type(`@${NAME.slice(0,3)}`);await p.locator("#mention-menu",{hasText:NAME}).waitFor({timeout:5000}).catch(()=>{});
     const menu=await p.locator("#mention-menu").innerText();check(new RegExp(`${NAME}`).test(menu)&&new RegExp(`${V}'s agent`).test(menu),`the @ menu offers it by name, with whose it is (${menu.replace(/\s+/g," ").slice(0,90)})`);
-    await p.keyboard.press("Enter");await p.waitForTimeout(200);check((await p.inputValue("#composer-text")).startsWith(`@${NAME}`),"picking it inserts @"+NAME);
+    await p.keyboard.press("Enter");await p.waitForFunction(()=>document.getElementById("composer-text")?.value?.startsWith("@"),null,{timeout:5000}).catch(()=>{});check((await p.inputValue("#composer-text")).startsWith(`@${NAME}`),"picking it inserts @"+NAME);
     await p.fill("#composer-text","");
     // Live rename
     await prof(ckV,{agent_name:`Ada${run}`});await metaIs(p,`Ada${run}`);
