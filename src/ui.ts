@@ -757,10 +757,12 @@ input.switch::after{content:"";position:absolute;top:3px;left:3px;width:18px;hei
 @media(max-width:640px){.pv-dlg{width:100vw;max-width:100vw;height:100dvh;max-height:none;margin:0;border-radius:0}.pv-w{display:none}}
 /* Highlights (mention tint, new-message flash, jump tint) bleed past the avatar whatever the density, so it never sits on the edge (jxn #1311),
    and on the right only as far as the rail, never under it (jxn #2003). The thread's scroller makes room for the left bleed so it isn't clipped. */
-#thread>.entry.for-you,#thread>.entry.flash-in,#thread>.entry.hit,.thr-list>.entry.for-you,.thr-list>.entry.hit{margin-left:calc(-1*var(--hl-l));margin-right:calc(-1*var(--hl-r));padding-left:var(--hl-l);padding-right:var(--hl-r);border-radius:8px}
+/* The linked message (:target, which stays after a reload) and the keyboard's j/k pick (.sel) bleed the same way, so no tinted card
+   sits 12px in from the rest (jxn #4680). */
+#thread>.entry:is(.for-you,.flash-in,.hit,.sel,:target),.thr-list>.entry:is(.for-you,.hit,:target){margin-left:calc(-1*var(--hl-l));margin-right:calc(-1*var(--hl-r));padding-left:var(--hl-l);padding-right:var(--hl-r);border-radius:8px}
 /* …and a seen-by ring on such a message stays where it was, clear of the rail (jxn #1751). */
-#thread>.entry.for-you>.rd,#thread>.entry.flash-in>.rd,#thread>.entry.hit>.rd,.thr-list>.entry.for-you>.rd,.thr-list>.entry.hit>.rd{right:var(--hl-r)}
-@media (pointer:coarse){#thread>.entry.for-you>.rd,#thread>.entry.flash-in>.rd,#thread>.entry.hit>.rd,.thr-list>.entry.for-you>.rd,.thr-list>.entry.hit>.rd{right:calc(var(--hl-r) - 2px)}}
+#thread>.entry:is(.for-you,.flash-in,.hit,.sel,:target)>.rd,.thr-list>.entry:is(.for-you,.hit,:target)>.rd{right:var(--hl-r)}
+@media (pointer:coarse){#thread>.entry:is(.for-you,.flash-in,.hit,.sel,:target)>.rd,.thr-list>.entry:is(.for-you,.hit,:target)>.rd{right:calc(var(--hl-r) - 2px)}}
 ${MERMAID_CSS}
 ${CODE_COLOR_CSS}
 ${TALK_CSS}
@@ -1101,7 +1103,7 @@ dialog.palette{margin-top:12vh;width:min(600px,calc(100vw - 24px));border-radius
 .palette .foot{display:flex;gap:14px;padding:8px 14px;border-top:1px solid var(--line);font-size:12px;color:var(--faint)}
 @media (pointer:coarse){.palette .foot{display:none}}
 @media (max-width:640px){.palette li:not(.pal-g){flex-wrap:wrap;row-gap:1px}.palette li .pal-l{flex:1 1 100%}.palette li .k{margin-left:0;font-size:11.5px}}
-.entry.sel{background:var(--bg-subtle);box-shadow:-12px 0 0 var(--bg-subtle),12px 0 0 var(--bg-subtle)}
+.entry.sel{background:var(--bg-subtle);border-radius:8px}
 
 /* inline board title rename */
 .title-edit{display:flex;align-items:center;gap:6px;min-width:0}
