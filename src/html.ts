@@ -508,9 +508,11 @@ function whoHtml(e: Entry, people?: Record<string, string>, known?: Iterable<str
     // session, else "<name>'s agent".
     const [session, client] = e.client && e.client.includes(" · ") ? e.client.split(" · ", 2) : [null, e.client];
     const tool = client && client !== "agent" ? client : null;
-    if (e.agent_name) return `<span class="who" data-named="1" title="${esc([`${e.author}'s agent`, session, tool].filter(Boolean).join(" · "))}">${esc(e.agent_name)}</span>`;
+    const info = esc([`${e.author}'s agent`, session, tool].filter(Boolean).join(" · "));
+    const details = `<span class="agent-info">${info}</span>`;
+    if (e.agent_name) return `<span class="who" data-named="1" title="${info}">${esc(e.agent_name)}</span>${details}`;
     const name = session ? `${e.author}/${session}` : `${e.author}'s agent`;
-    return `<span class="who" title="${esc([session ? `${e.author}'s agent` : null, tool].filter(Boolean).join(" · ") || name)}">${esc(name)}</span>`;
+    return `<span class="who" title="${esc([session ? `${e.author}'s agent` : null, tool].filter(Boolean).join(" · ") || name)}">${esc(name)}</span>${details}`;
   }
   // A person by the name they chose (jxn #4369), their @handle on hover; the handle when they chose none.
   const d = people?.[e.author];

@@ -31,6 +31,7 @@ await Promise.all([[1280, "developer"], [390, "everyday"]].map(async ([w, mode])
   const myAgents = await post({ authorization: `Bearer ${tokA}` }, { text: `My agent's update ${run}` }); // first: an agent posts only once it has read what's new
   const long = await post({ cookie: ckB }, { text: `A long update ${run} that goes on.\n\nSecond paragraph with more detail about the deploy and what changed in it.\n\n- item one\n- item two` });
   const agent = await post({ authorization: `Bearer ${tokB}` }, { text: `Agent status: tests are running ${run}` });
+  const change = await post({ cookie: ckB }, { type: "change", text: `Shipped the release ${run}`, card: { branch: "main", commits: [{ sha: "abc1234", title: "Release" }] } });
   const mention = await post({ cookie: ckB }, { text: `@${A} can you look at this ${run}?` });
   const toMyAgent = await post({ authorization: `Bearer ${tokB}` }, { type: "question", to: A, text: `Question for your agent ${run}` });
   const mine = await post({ cookie: ckA }, { text: `My own note ${run}` });
@@ -59,10 +60,21 @@ await Promise.all([[1280, "developer"], [390, "everyday"]].map(async ([w, mode])
   check(!(await folded(replyToMe)) && !(await folded(decision)) && !(await folded(allAgents)), `${tag}: a reply to you, a decision and an @agents message stay whole`);
   check(!(await folded(peopleOnly)), `${tag}: a People only message to you and someone else stays whole`);
   check((await folded(replyToOther)) && (await folded(replyToMyAgent)), `${tag}: replies fold like any other, a reply to your agent's message too (jxn #4454)`);
-  // A mention's dot gets its own space in a folded row, after the name, not over its last letter (jxn #4481).
-  const dot = await p.evaluate((s) => { const m = document.querySelector(`#e${s} .body .mention`); if (!m) return null; const t = [...m.childNodes].filter((n) => n.nodeType === 3).pop(), r = document.createRange(); r.setStart(t, t.length - 1); r.setEnd(t, t.length); return { pos: getComputedStyle(m, "::after").position, gap: m.getBoundingClientRect().right - r.getBoundingClientRect().right }; }, otherMention);
-  check((await folded(otherMention)) && dot && dot.pos !== "absolute" && dot.gap >= 6, `${tag}: a mention's dot sits clear of its name in a folded row (${JSON.stringify(dot)})`);
+  // Mentions remain text/chips, but their receipt dots wait until the row is opened (#4635).
+  const dot = () => p.locator(`#e${otherMention} .body .mention`).evaluate((m) => getComputedStyle(m, "::after").display);
+  check((await folded(otherMention)) && await dot() === "none" && await p.locator(`#e${otherMention} .mention`).isVisible(), `${tag}: folded mentions stay visible without their receipt dots`);
+  await p.locator(`#e${otherMention} .body`).click();
+  check(await dot() !== "none", `${tag}: opening a row restores mention dots`);
+  await p.locator(`#e${otherMention} .when`).click();
+  check(await dot() === "none", `${tag}: folding again hides mention dots`);
+  const extras = p.locator(`#e${replyToOther} .meta > :not(.who):not(.when)`);
+  check(await extras.count() > 0 && await extras.evaluateAll((els) => els.every((e) => !e.getClientRects().length)), `${tag}: collapsed headers hide all metadata, including recipient and sequence`);
+  check(await p.locator(`#e${plain} > .av`).isVisible() && await p.locator(`#e${plain} .who`).isVisible() && await p.locator(`#e${plain} .when`).isVisible(), `${tag}: avatar, name and time remain visible`);
   check(!(await folded(askMyAgent)), `${tag}: a question in your agent's thread stays whole`);
+  check(await folded(change) && !await p.locator(`#e${change} .type`).isVisible(), `${tag}: change type is hidden while folded`);
+  await p.locator(`#e${change} .body`).click();
+  check(await p.locator(`#e${change} .type`).isVisible() && await p.locator(`#e${change} .seq`).isVisible(), `${tag}: opening restores type and sequence in both display modes`);
+  await p.locator(`#e${change} .when`).click();
   // The keyboard: a folded row takes focus; Enter opens it, Space folds it again.
   await p.focus(`#e${plain}`);
   check((await p.evaluate(() => document.activeElement?.id)) === `e${plain}`, `${tag}: a folded row takes focus`);
@@ -95,11 +107,13 @@ await Promise.all([[1280, "developer"], [390, "everyday"]].map(async ([w, mode])
   await all.click();
   await until(async () => !(await folded(agent)) && !(await folded(plain)), 3000);
   check(!(await folded(agent)) && !(await folded(plain)) && !(await folded(replyToOther)), `${tag}: Open all messages opens every one, replies too`);
+  check(await p.locator(`#e${agent} .agent-info`).isVisible() && await p.locator(`#e${change} .type`).isVisible() && await p.locator(`#e${plain} .seq`).isVisible() && await dot() !== "none", `${tag}: Open all restores agent details, types, sequences and receipt dots`);
   await p.locator(".board-head-menu > summary").first().click();
   check((await all.innerText()).trim() === "Fold messages again", `${tag}: …and offers "Fold messages again"`);
   await all.click();
   await until(async () => (await folded(agent)) && (await folded(plain)), 3000);
   check((await folded(agent)) && (await folded(plain)), `${tag}: folding them again`);
+  check(!await p.locator(`#e${agent} .agent-info`).isVisible(), `${tag}: folding all hides agent details again`);
   // A link to a folded message opens it.
   await p.evaluate((s) => { location.hash = "#e" + s; }, agent);
   await until(async () => !(await folded(agent)), 3000);

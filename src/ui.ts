@@ -1258,8 +1258,13 @@ a.ref:hover{color:var(--ink);background:color-mix(in srgb,var(--accent) 12%,var(
 :root[data-compact="others"]:not([data-ol-all]) #thread>.entry.ol:not(.ol-open)>.grow>.body{flex:1;min-width:0;margin:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--muted)}
 :root[data-compact="others"]:not([data-ol-all]) #thread>.entry.ol:not(.ol-open)>.grow>.body *{display:inline;margin:0;padding:0;border:0;background:none;font-size:inherit;font-weight:inherit;white-space:nowrap}
 :root[data-compact="others"]:not([data-ol-all]) #thread>.entry.ol:not(.ol-open)>.grow>.body br,:root[data-compact="others"]:not([data-ol-all]) #thread>.entry.ol:not(.ol-open)>.grow>.body img,:root[data-compact="others"]:not([data-ol-all]) #thread>.entry.ol:not(.ol-open)>.grow>:not(.meta):not(.body),:root[data-compact="others"]:not([data-ol-all]) #thread>.entry.ol:not(.ol-open) .acts,:root[data-compact="others"]:not([data-ol-all]) #thread>.entry.ol:not(.ol-open) .more-acts,:root[data-compact="others"]:not([data-ol-all]) #thread>.entry.ol:not(.ol-open)>.rd{display:none}
-/* a mention's dot sits on its top-right corner over the padding; folded rows drop the padding, so it gets its own space (jxn #4481) */
-:root[data-compact="others"]:not([data-ol-all]) #thread>.entry.ol:not(.ol-open)>.grow>.body .mention::after{position:static;display:inline-block;margin-left:2px;vertical-align:.5em}
+/* Folded rows keep only avatar, name, time and text (jxn #4635); metadata returns when opened. */
+:root[data-compact="others"]:not([data-ol-all]) #thread>.entry.ol:not(.ol-open)>.grow>.meta>:not(.who):not(.when),
+:root[data-compact="others"]:not([data-ol-all]) #thread>.entry.ol:not(.ol-open)>.grow>.body .mention::after{display:none}
+.agent-info{display:none;color:var(--muted)}
+:root[data-compact="others"] #thread>.entry.ol:is(.ol-open,[data-ol-all] .ol)>.grow>.meta>.agent-info{display:inline}
+:root[data-compact="others"] #thread>.entry.ol:is(.ol-open,[data-ol-all] .ol)>.grow>.meta>.who{order:-2}:root[data-compact="others"] #thread>.entry.ol:is(.ol-open,[data-ol-all] .ol)>.grow>.meta>.when{order:-1} /* name, time, then the details: the time stays clear of the first row's action bar */
+:root[data-compact="others"] #thread>.entry.ol:is(.ol-open,[data-ol-all] .ol)>.grow>.meta>:is(.seq,.t-change){display:inline-flex!important}
 :root:not([data-compact="others"]) .ol-all{display:none}
 .mu-line{display:none}
 .entry.mu:not(.mu-open)>:not(.mu-line){display:none!important} /* a muted member's post: one line until opened (#3602) */

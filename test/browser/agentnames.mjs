@@ -26,6 +26,10 @@ for(const [w,scheme] of [[1280,"light"],[390,"dark"]]){
   const meta=await p.locator(`#e${a1}>.grow>.meta`).innerText(),own=await p.locator(`#e${a1}>.grow>.meta>.who`).getAttribute("title");
   // The header is the name and the time (jxn #4522); whose agent it is is on the name's hover.
   check(new RegExp(`^${NAME}`).test(meta.trim())&&!new RegExp(`${V}'s agent`).test(meta)&&own===`${V}'s agent`,`${w}px: the agent's post reads "${NAME}", "${V}'s agent" on hover (${meta.replace(/\s+/g," ").slice(0,60)} | ${own})`);
+  await p.evaluate(()=>{document.documentElement.dataset.compact="others"});
+  check(!await p.locator(`#e${a1} .agent-info`).isVisible(),`${w}px: owner details are hidden in collapsed rows`);
+  await p.locator(`#e${a1} .body`).click();
+  check(await p.locator(`#e${a1} .agent-info`).isVisible()&&await p.locator(`#e${a1} .agent-info`).innerText()===`${V}'s agent`&&await p.locator(`#e${a1} .who`).innerText()===NAME,`${w}px: opening keeps the agent name and shows its owner`);
   const chip=p.locator(`#e${ms} .mention.agent[data-user="${V}"]`);
   check(await chip.count()===1&&(await chip.innerText())===`@${NAME}`,`${w}px: "@${NAME}" in a message is that agent's chip`);
   if(w>500){await chip.hover();await p.locator(".hcard",{hasText:NAME}).waitFor({timeout:5000}).catch(()=>{});const hc=await p.locator(".hcard").innerText().catch(()=>"");
@@ -37,6 +41,7 @@ for(const [w,scheme] of [[1280,"light"],[390,"dark"]]){
     // Live rename
     await prof(ckV,{agent_name:`Ada${run}`});await metaIs(p,`Ada${run}`);
     check(new RegExp(`^Ada${run}`).test((await p.locator(`#e${a1}>.grow>.meta`).innerText()).trim()),"renaming it updates its posts without a reload");
+    check(await p.locator(`#e${a1} .agent-info`).innerText()===`${V}'s agent`,"live rename keeps expanded owner details");
     await prof(ckV,{agent_name:NAME});await metaIs(p,NAME)}
   await p.screenshot({path:`${SHOTS_DIR}/agentnames-${w}.png`});
   check(!errors.length,`${w}px: no page errors ${errors.join(" | ")}`);await ctx.close()}

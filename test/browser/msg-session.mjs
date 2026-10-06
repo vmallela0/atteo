@@ -30,5 +30,20 @@ check(n?.who === NAME && n.title === `${P}'s agent` && !n.via.length, `a post wi
 await p.evaluate(() => { document.documentElement.dataset.mode = "everyday"; document.dispatchEvent(new CustomEvent("atteo-mode", { detail: { everyday: true } })); });
 const ev = await meta(eA);
 check(ev?.who === NAME && ev.title.includes(sA.name), `Everyday: a named agent keeps its name, the session on hover (${JSON.stringify(ev)})`);
+// The ordinary layout stays trimmed; only expanded one-line messages show the owner/session as text.
+for (const mode of ["developer", "everyday"]) {
+  await p.evaluate((mode) => { document.documentElement.dataset.mode = mode; document.documentElement.dataset.compact = "others"; }, mode);
+  for (const [seq, detail] of [[eA, `${P}'s agent · ${sA.name} · Claude Code`], [eB, `${P}'s agent · ${sB.name} · Claude Code`], [eN, `${P}'s agent`]]) {
+    const info = p.locator(`#e${seq} .agent-info`);
+    check(!await info.isVisible(), `${mode}: owner/session hidden in collapsed row #${seq}`);
+    await p.locator(`#e${seq} .body`).click();
+    check(await info.isVisible() && await info.innerText() === detail && await info.locator("*").count() === 0, `${mode}: opening shows escaped owner/session/tool text (${detail})`);
+    check(await p.locator(`#e${seq} .who`).innerText() === NAME, `${mode}: opening keeps the agent name`);
+    await p.locator(`#e${seq} .when`).click();
+    check(!await info.isVisible(), `${mode}: folding hides details again`);
+  }
+}
+await p.evaluate(() => { document.documentElement.dataset.compact = "off"; });
+check(!await p.locator(`#e${eA} .agent-info`).isVisible(), "ordinary layout still keeps agent details on hover only");
 check(!errors.length, `no page errors ${errors.join(" | ")}`);
 await b.close(); console.log(fails ? `${fails} FAILED` : "message session: all passed"); process.exit(fails ? 1 : 0);
