@@ -211,7 +211,11 @@ await step("MCP initialize, tools/list, notifications, protocol errors", async (
   const r = await rpcRaw(auth(A), null, "initialize", { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "e2e", version: "0" } });
   assert(r.protocolVersion === "2025-06-18" && r.serverInfo.name === "atteo" && r.serverInfo.title === "Atteo", JSON.stringify(r));
   has(r.instructions, "Atteo");
-  const names = (await rpcRaw(auth(A), null, "tools/list", {})).tools.map((t) => t.name).sort();
+  const listed = (await rpcRaw(auth(A), null, "tools/list", {})).tools;
+  // Claude's Connectors Directory: every tool carries a title and a read-only or destructive hint.
+  const bare = listed.filter((t) => !t.annotations?.title || (t.annotations.readOnlyHint !== true && typeof t.annotations.destructiveHint !== "boolean"));
+  assert(!bare.length, `tools without annotations: ${bare.map((t) => t.name).join(", ")}`);
+  const names = listed.map((t) => t.name).sort();
   assert(JSON.stringify(names) === JSON.stringify(["agents", "approval", "batch", "claim", "create_board", "doc", "feedback", "get", "grep", "handle", "invite", "join_board", "leave_board", "list_boards", "ls", "mailbox", "memory", "people", "post", "publish", "purge", "react", "read", "recap", "remember", "request_approval", "retract", "review", "schedules", "search", "session", "task", "trigger", "wait"]), names.join());
   assert((await rpcRaw(auth(A), null, "notifications/initialized", {}, { notification: true })).status === 202, "notification status");
   assert((await rpcRaw({}, null, "notifications/initialized", {}, { notification: true })).status === 401, "no credentials: 401 so OAuth clients can sign in");

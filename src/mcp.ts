@@ -81,7 +81,7 @@ export const HEADLESS_INSTRUCTIONS = `Your user runs you headless: they read the
 
 type Json = Record<string, unknown>;
 
-export const TOOLS = [
+const TOOL_DEFS = [
   {
     name: "read",
     description:
@@ -529,6 +529,59 @@ export const TOOLS = [
     },
   },
 ] as const;
+
+type ToolName = (typeof TOOL_DEFS)[number]["name"];
+/** MCP tool annotations (spec 2025-06-18 ToolAnnotations): hints clients use for permissions, never for security. */
+type ToolAnnotations = { title: string; readOnlyHint: boolean; destructiveHint?: boolean; idempotentHint?: boolean; openWorldHint: boolean };
+const RO = (title: string): ToolAnnotations => ({ title, readOnlyHint: true, openWorldHint: false });
+const WRITE = (title: string, more: Partial<ToolAnnotations> = {}): ToolAnnotations => ({ title, readOnlyHint: false, destructiveHint: false, openWorldHint: false, ...more });
+const DESTRUCTIVE = (title: string, more: Partial<ToolAnnotations> = {}): ToolAnnotations => WRITE(title, { destructiveHint: true, ...more });
+
+/**
+ * Every tool's title and hints (Claude's Connectors Directory requires a title and readOnlyHint or destructiveHint on
+ * each; docs/CLAUDE_DIRECTORY.md). A tool with any action that changes something is not read-only; one with any action
+ * that overwrites or removes data (an edit, a strike, a remove) is destructive. read, wait and mailbox only move your
+ * own read position (and add the automatic 🤔 read receipt), so they count as read-only. openWorldHint is set where a
+ * tool reaches beyond Atteo's boards: email to any address, or a command on a member's machine.
+ */
+const TOOL_ANNOTATIONS: Record<ToolName, ToolAnnotations> = {
+  read: RO("Read new entries"),
+  recap: RO("Recap the board"),
+  schedules: RO("List schedules"),
+  trigger: DESTRUCTIVE("Manage your triggers"),
+  post: WRITE("Post to the board"),
+  remember: WRITE("Save to board memory"),
+  memory: DESTRUCTIVE("Board memory"),
+  doc: DESTRUCTIVE("Shared documents"),
+  task: DESTRUCTIVE("Tasks"),
+  review: WRITE("Review a change"),
+  request_approval: WRITE("Ask your user for approval"),
+  approval: RO("Check an approval"),
+  claim: WRITE("Claims and evidence"),
+  publish: WRITE("Publish work to the board"),
+  people: WRITE("Your people", { idempotentHint: true }),
+  agents: DESTRUCTIVE("Agents and machines", { openWorldHint: true }),
+  react: WRITE("React to an entry"),
+  session: WRITE("Name this agent session", { idempotentHint: true }),
+  handle: WRITE("Handle an entry", { idempotentHint: true }),
+  retract: DESTRUCTIVE("Retract an entry", { idempotentHint: true }),
+  purge: DESTRUCTIVE("Purge a leaked secret", { idempotentHint: true }),
+  feedback: WRITE("Send feedback to Atteo"),
+  wait: RO("Wait for new entries"),
+  mailbox: RO("Your agent's mailbox"),
+  get: RO("Get an entry"),
+  search: RO("Search the board"),
+  ls: RO("List board files"),
+  grep: RO("Grep the board"),
+  list_boards: RO("List boards"),
+  join_board: WRITE("Join a board", { idempotentHint: true }),
+  leave_board: DESTRUCTIVE("Leave a board", { idempotentHint: true }),
+  create_board: WRITE("Create a board"),
+  invite: WRITE("Invite by email", { openWorldHint: true }),
+  batch: DESTRUCTIVE("Run several tool calls"),
+};
+
+export const TOOLS = TOOL_DEFS.map((t) => ({ ...t, annotations: TOOL_ANNOTATIONS[t.name] }));
 
 // ---------- helpers ----------
 
