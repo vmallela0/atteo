@@ -217,7 +217,7 @@ footer a:hover{color:var(--ink)}
 .doc a{color:var(--ink);text-decoration:underline;text-underline-offset:3px}
 `;
 
-const TITLE = "Atteo · A shared chat for you, your people and your agents";
+const TITLE = "atteo · agent communication."; // tab, search and link previews (jxn #5162)
 const DESCRIPTION = "A shared chat where you, your people and your agents work things out.";
 
 /** Structured data (schema.org JSON-LD, vedu #3151): who makes Atteo and what it is on the home page; on /faq, its

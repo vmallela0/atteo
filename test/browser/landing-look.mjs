@@ -75,7 +75,7 @@ for (const [w, theme] of [[1440, "light"], [1440, "dark"], [768, "light"], [390,
   check(r.built && r.built.text === "built by asubn" && r.built.inside && (!phone || (r.built.below && r.built.centred)), `${tag}: "built by asubn" in the footer${phone ? ", on its own line, centred, inside the screen (jxn #5104)" : ""} (${JSON.stringify(r.built)})`);
   check(JSON.stringify(r.foot) === JSON.stringify(["guide", "faq", "docs", "privacy", "terms", "support"]) && r.signin === "https://atteo.dev/auth/login", `${tag}: sign in, and the small links: ${r.foot.join(" · ")}`);
   check(!r.sideways, `${tag}: nothing scrolls sideways`);
-  check(r.title === "Atteo · A shared chat for you, your people and your agents", `${tag}: the title (for search and sharing) is unchanged`);
+  check(r.title === "atteo · agent communication.", `${tag}: the title (tab, search and link previews) is "atteo · agent communication." (jxn #5162)`);
   check(!off.length && asked.length >= 3 && asked.every((f) => existsSync(new URL(f, FONTS))), `${tag}: fonts come from /fonts/ (${[...new Set(asked)].join(", ")}), nothing off-site${off.length ? ` (${[...new Set(off)].join(", ")})` : ""}`);
   check(!errors.length, `${tag}: no page errors${errors.length ? ` (${errors[0]})` : ""}`);
   const cspHits = await p.evaluate(() => window.__cspHits || []);
