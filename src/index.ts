@@ -102,6 +102,7 @@ import { isLocalHost } from "./util";
 
 import * as Sentry from "@sentry/cloudflare";
 import { scrubForSentry } from "./sentry";
+import { analyticsConfig, trackCookieHeader, withAnalytics } from "./analytics";
 export { Board } from "./board";
 import { forwardDestOk, forwardExcerptInEntry, keptOwnNotice } from "./audience";
 import { audienceNotice, MAX_FILES_PER_MESSAGE, MAX_IMAGE, MAX_MESSAGE_BYTES, MAX_WAIT_MS, WAIT_CAP } from "./board";
@@ -391,7 +392,10 @@ async function authCallback(c: Ctx): Promise<Response> {
   headers.append("Set-Cookie", auth.cookieHeader(c.url, auth.SESSION_COOKIE, session, 30 * 24 * 3600));
   headers.append("Set-Cookie", auth.cookieHeader(c.url, auth.OAUTH_COOKIE, "", 0));
 
-  if (user) await accountlog.record(c.env, user.name, "signin.web", c.request);
+  if (user) {
+    await accountlog.record(c.env, user.name, "signin.web", c.request);
+    if (analyticsConfig(c.env)) headers.append("Set-Cookie", trackCookieHeader(c.url, "sign_in"));
+  }
   if (!user) {
     headers.set("Location", `/welcome?return=${encodeURIComponent(safeReturn(ret))}`);
     return new Response(null, { status: 303, headers });
@@ -421,7 +425,7 @@ async function welcome(c: Ctx): Promise<Response> {
   await registry.createUser(c.env, { name, email: s.email, email_verified: !!s.email_verified, workos_id: s.workos_id, display_name: s.display_name });
   await auth.setSessionUser(c.env, s.id_hash, name);
   await accountlog.record(c.env, name, "signin.web", c.request); // their first, finished on /welcome
-  return redirect(safeReturn(c.url.searchParams.get("return")));
+  return redirect(safeReturn(c.url.searchParams.get("return")), analyticsConfig(c.env) ? { "Set-Cookie": trackCookieHeader(c.url, "sign_up") } : {});
 }
 
 // ---------- the app's own sign-in: email → 6-digit code → (new people) a name; returns an app token ----------
@@ -632,6 +636,7 @@ const handler = {
   },
 
   async fetch(request: Request, rawEnv: Env, ctx: ExecutionContext): Promise<Response> {
+    return withAnalytics(rawEnv, async () => {
     // Database reads retry through dropped connections (a transient D1 error must never fail someone's post).
     const env: Env = { ...rawEnv, DB: retryingReads(rawEnv.DB) };
     const url = new URL(request.url);
@@ -987,7 +992,7 @@ const handler = {
         }
         try {
           const info = await createBoard(env, title, viewer.name, origin, { encrypted }, ctx);
-          return redirect(`/b/${info.id}`);
+          return redirect(`/b/${info.id}`, analyticsConfig(env) ? { "Set-Cookie": trackCookieHeader(url, "board_created") } : {});
         } catch (e) {
           const plan = e instanceof billing.BillingError;
           if (plan) {
@@ -3632,6 +3637,7 @@ const handler = {
       }
       return json({ error: msg }, 500);
     }
+    });
   },
 } satisfies ExportedHandler<Env>;
 

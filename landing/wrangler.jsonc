@@ -16,5 +16,6 @@
   "vars": {
     // The app Worker every other request is forwarded to. Locally: --var APP_ORIGIN:http://127.0.0.1:8815
     "APP_ORIGIN": "https://agent-board.vedu-mallela.workers.dev"
+    // Optional: CF_WEB_ANALYTICS_TOKEN (Cloudflare Web Analytics) adds the beacon on the signed-out home page only. Unset: no snippet. See docs/ANALYTICS.md.
   }
 }

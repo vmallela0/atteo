@@ -28,6 +28,7 @@ import { esc, pictureUrl } from "./util";
 import { WELCOME_BANNER_JS, assistantCard, grokBotMessage, welcomeBanner } from "./welcome";
 import { stateOf } from "./sessions";
 import { E2E_JS } from "./e2eweb";
+import { currentAnalytics } from "./analytics";
 import { EXPORT_JS, exportRow } from "./boardExport";
 import { STATUS_JS } from "./status";
 import { EMOJI } from "./emoji";
@@ -453,7 +454,7 @@ const voiceJs = (agentChat: boolean) => `
       if(send){micStop();if(ta.value.trim())ta.form.requestSubmit()}};
     r.onerror=ev=>{const e=ev.error;if(e==='not-allowed'||e==='service-not-allowed')toast(tr('The microphone is blocked: allow it for this site to talk'));else if(e==='audio-capture'||e==='no-speech')toast(tr("No sound from the microphone: pick the right one for this site in your browser's settings"));else if(e==='network')toast(tr("Speech recognition can't reach its service: check your connection and try again"))};
     r.onend=()=>{if(rec!==r)return;rec=null;mic.setAttribute('aria-pressed','false');mic.classList.remove('on')};
-    try{r.start()}catch(e){rec=null}}
+    try{r.start()}catch(e){rec=null}if(rec)try{window.atteoTrack&&atteoTrack('voice_used',{surface:'dictate'})}catch(e){}}
   if(SR&&mic){mic.hidden=false;
     mic.addEventListener('pointerdown',e=>{if(e.button)return;e.preventDefault();try{mic.setPointerCapture(e.pointerId)}catch(x){}press={t:Date.now(),started:!rec};micGo()});
     const up=()=>{const p=press;press=null;if(p&&p.started&&Date.now()-p.t>=HOLD_MS&&rec)try{rec.stop()}catch(x){}};
@@ -990,7 +991,7 @@ ${connectDialog(viewer)}
 ${[0, 1, 2].map((i) => `<div class="row" style="gap:6px;margin-bottom:6px"><input class="input" id="eb-l${i}" placeholder="${esc(T("Label"))}" style="width:120px"><input class="input grow" id="eb-u${i}" placeholder="https://github.com/…"></div>`).join("")}
 <p class="flash err" id="eb-err" hidden></p>
 <div class="row" style="justify-content:flex-end;margin-top:14px"><button type="button" class="btn" data-close>${esc(T("Cancel"))}</button><button class="btn primary">${esc(T("Save"))}</button></div></form></dialog>`,
-    script: CONNECT_JS + `window.answered=(j)=>{location.href=j.message==='Joined'?'/b/'+j.board:'/'};` + BOARDS_JS + (firstRun ? WELCOME_BANNER_JS : ""),
+    script: CONNECT_JS + `window.answered=(j)=>{if(j&&j.message==='Joined')try{window.atteoTrack&&atteoTrack('invite_accepted')}catch(e){}location.href=j.message==='Joined'?'/b/'+j.board:'/'};` + BOARDS_JS + (firstRun ? WELCOME_BANNER_JS : ""),
   });
 }
 
@@ -1123,7 +1124,7 @@ function inviteAgentDialog(T: (s: string) => string, info: { id: string; title: 
     <div class="copy"><pre class="mono" id="ia-join">${esc(msg)}</pre><button type="button" class="btn sm" data-copy="ia-join">${esc(T("Copy"))}</button></div>
     <p class="xs muted">${esc(T("Not connected yet?"))} <button type="button" class="linkish" data-open="connect">${esc(T("Connect your assistant"))}</button></p></section>
   <section class="ia-opt" id="ia-friend"><h3>${esc(T("A friend's agent"))}</h3><p class="small muted">${esc(T("Invite the friend to this board. Their agents join once they accept."))}</p>
-    <form method="post" action="/api/boards/${esc(info.id)}/invites" data-api data-reset class="acc-row"><input class="input grow" name="email" required autocomplete="off" placeholder="${esc(T("A friend's name"))}" aria-label="${esc(T("A friend's name"))}"><button class="btn primary">${esc(T("Invite"))}</button>
+    <form method="post" action="/api/boards/${esc(info.id)}/invites" data-api data-reset data-track="invite_sent" class="acc-row"><input class="input grow" name="email" required autocomplete="off" placeholder="${esc(T("A friend's name"))}" aria-label="${esc(T("A friend's name"))}"><button class="btn primary">${esc(T("Invite"))}</button>
     <p data-result hidden style="margin-top:8px;flex-basis:100%"></p></form></section>
 </div></dialog>`;
 }
@@ -1387,6 +1388,7 @@ function addEntry(e){if(document.getElementById('e'+e.seq)){last=Math.max(last,e
     const tmp=document.createElement('div');tmp.innerHTML=e.html;const el=tmp.firstElementChild;el.classList.add('flash-in');
     if(reply){el.dataset.root=String(e.root);el.querySelector(':scope>.grow>.replies')?.remove()}
     document.getElementById('empty')?.remove();document.getElementById('thread').appendChild(el);quotify(el);
+    if(el.classList.contains('by-agent'))try{window.atteoTrack&&atteoTrack('agent_posted')}catch(e){}
     const rx=RXP[e.seq]||e.reactions;if(rx)renderRx(e.seq,rx);
     if(e.human_decision){HDS[e.seq]=e.human_decision;renderHD(e.seq)}
     refChips(el);window.apcMark&&apcMark(el);
@@ -1445,8 +1447,9 @@ function agRow(a){const nm=a.name?a.user+'/'+a.name:a.user+"'s agent",st=AG_LABE
   const tool=[a.client,a.model].filter(Boolean).join(', ');
   const tip=a.name?a.user+"'s agent session \\""+a.name+'"'+(tool?' ('+tool+')':'')+'. Mention it as @'+a.user+'/'+a.name:a.user+"'s agent";
   return '<li class="ag-row" data-k="'+esc(a.user+'/'+(a.name||''))+'" data-state="'+st+'" title="'+esc(tip)+'">'+avatar16(a.user,true)+'<span class="grow ag-main"><span class="truncate"><span class="ag-dot '+st+'" role="img" aria-label="'+AG_LABEL[st]+'" title="'+AG_LABEL[st]+'"></span><span class="ag-name">'+esc(nm)+'</span>'+(a.client?' <span class="xs faint">'+esc(a.client)+'</span>':'')+'</span>'+(a.model||a.status?'<span class="ag-status truncate">'+(a.model?'<span class="faint ag-model">'+esc(a.model)+'</span>'+(a.status?' · ':''):'')+esc(a.status||'')+'</span>':'')+'</span><time class="when" datetime="'+new Date(a.last_seen).toISOString()+'" data-ts="'+a.last_seen+'" title="'+new Date(a.last_seen).toUTCString()+'"></time></li>'}
-let agentsAt=0;window.agentsRefresh=async()=>{if(document.hidden)return;const box=document.getElementById('agents');if(!box)return;
+let agentsAt=0,agSeen=null;window.agentsRefresh=async()=>{if(document.hidden)return;const box=document.getElementById('agents');if(!box)return;
   const r=await fetch('/api/boards/'+BOARD+'/agents').catch(()=>null);if(!r||!r.ok)return;const ag=(await r.json()).agents||[];agentsAt=Date.now();window.AGENTS=ag;window.hdlProgress&&hdlProgress();
+  const agKeys=ag.map(a=>(a.user||'')+'/'+(a.name||''));if(agSeen){for(const k of agKeys)if(!agSeen.has(k))try{window.atteoTrack&&atteoTrack('agent_connected')}catch(e){}}agSeen=new Set(agKeys);
   // The @ menu's sessions follow too, so a renamed or new session is mentionable without a reload (jxn #986).
   for(let i=MOPTS.length-1;i>=0;i--)if(MOPTS[i].ins.includes('/'))MOPTS.splice(i,1);
   for(const a of ag){if(!a.name)continue;const at=MOPTS.findIndex(o=>o.ins===a.user+"'s agent");if(at<0)continue;
@@ -1458,7 +1461,7 @@ let agentsAt=0;window.agentsRefresh=async()=>{if(document.hidden)return;const bo
   if(!pk&&peek){pk=document.createElement('span');pk.className='fold-peek truncate';box.querySelector('.fold-h').appendChild(pk)}if(pk)pk.textContent=peek;refreshTimes()};
 setInterval(agentsRefresh,30000);document.addEventListener('visibilitychange',()=>{if(!document.hidden)agentsRefresh()});
 // Your post shows up the moment you send it (a "sending" copy), then the real one from the post's own response.
-window.posted=(j)=>{if(j&&j.notice)toast(tr(j.notice));if(window.poSet&&window.poOn&&poOn())setTimeout(()=>poSet(false),0);sendLook(false);const typed=SENT_TEXT!=null?ta.value:'';SENT_TEXT=null; // what you started typing while it sent survives the form's reset
+window.posted=(j)=>{const first=!document.querySelector('#thread>.entry:not(.pending)');if(first)try{window.atteoTrack&&atteoTrack('first_message')}catch(e){}if(j&&j.notice)toast(tr(j.notice));if(window.poSet&&window.poOn&&poOn())setTimeout(()=>poSet(false),0);sendLook(false);const typed=SENT_TEXT!=null?ta.value:'';SENT_TEXT=null; // what you started typing while it sent survives the form's reset
 const was=+rpTo.value;draftSave(sentKey,'');replyClear(true);document.querySelectorAll('#thread .entry.pending').forEach(x=>x.remove());
   if(j&&j.update&&addEntry(j.update)){if(!was){railBuild();toBottom()}}else stickNext=!was;
   tick(false);setTimeout(()=>{if(was&&!(window.thrRearm&&thrRearm())){replyShown(was);ta.value=draftLoad('')}if(typed&&!ta.value)ta.value=typed;ta.style.height='';ta.style.height=ta.value?ta.scrollHeight+2+'px':'';msync()},0)}; // after the form's reset
@@ -2946,7 +2949,7 @@ ${canInviteAgent ? inviteAgentDialog(T, info) : ""}
     readOnly
       ? ""
       : `<section class="acc-sec"><h3>${esc(T("Invite"))}</h3>
-  <form method="post" action="/api/boards/${esc(info.id)}/invites" data-api data-reset class="acc-inv">
+  <form method="post" action="/api/boards/${esc(info.id)}/invites" data-api data-reset data-track="invite_sent" class="acc-inv">
     <div class="acc-row"><div class="acc-to grow"><input class="input" id="inv-email" name="email" required autocomplete="off" placeholder="${esc(T("A friend's name, or anyone's email"))}" aria-label="${esc(T("Friend's name or email"))}" aria-autocomplete="list" aria-controls="inv-sug">
       <ul class="acc-sug" id="inv-sug" role="listbox" hidden></ul></div>
     <select class="input acc-sel" name="role" aria-label="${esc(T("Role"))}"><option value="viewer" selected>${esc(T("View only"))}</option><option value="contributor">${esc(T("Can post"))}</option></select>
@@ -3157,7 +3160,7 @@ const BILLING_JS = `
 document.addEventListener('click',async e=>{const b=e.target.closest('[data-checkout],[data-portal]');if(!b)return;b.disabled=true;
   const r=await fetch(b.dataset.checkout?'/api/billing/checkout':'/api/billing/portal',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({interval:b.dataset.checkout})});
   const j=await r.json().catch(()=>({}));if(j.url){location.href=j.url;return}b.disabled=false;toast(j.error||'Could not open billing')});
-if(new URLSearchParams(location.search).get('billing')==='done')toast('Thanks! Your plan updates in a few seconds.');`;
+if(new URLSearchParams(location.search).get('billing')==='done'){try{if(sessionStorage.getItem('atteo.ph.pro')!=='1'){window.atteoTrack&&atteoTrack('pro_started');sessionStorage.setItem('atteo.ph.pro','1')}}catch(e){}toast('Thanks! Your plan updates in a few seconds.');}`;
 
 /** Friends: requests, who's online, add by handle. (jxn's agent polishes this; the API is /api/friends, /api/people.) */
 type FriendsData = Awaited<ReturnType<typeof import("./social").friendsOf>>;
@@ -3738,7 +3741,10 @@ export function adminPage(viewer: Viewer, side: SideBoard[], d: AdminData): Resp
       )}${kpi(k.agents_7d, "People with an agent connected", "used a token this week")}</div>
 <div class="grid4" style="margin-top:12px">${kpi(k.boards, "Boards", `${k.boards_active_7d} active this week`)}${kpi(k.posts_7d, "Posts this week", "people and agents")}${kpi(d.totalEntries, "Messages, all time")}${kpi(k.errors_24h, "Kinds of server error, last 24h", k.errors_24h ? `${k.errors_24h_total.toLocaleString("en-US")} times in all · details below and in Sentry` : "all quiet")}</div>`
     : `${costHtml(d.cost)}<div class="grid4">${stat(d.boards.length, "Boards")}${stat(d.users.length, "Users")}${stat(d.totalEntries, "Messages")}${stat(d.invites.length, "Invites")}</div>`;
-  const overview = `${kpiHtml}${productHtml}${trustHtml}${usageHtml}
+  const analyticsNote = currentAnalytics()
+    ? ""
+    : `<p class="small muted" style="margin:18px 0 0">Product analytics is off until <span class="mono">POSTHOG_KEY</span> is set. How to turn it on is in <span class="mono">docs/ANALYTICS.md</span>. Naming PostHog on <a href="/privacy">/privacy</a> and linking its dashboard here are follow-ups once that key exists.</p>`;
+  const overview = `${kpiHtml}${productHtml}${analyticsNote}${trustHtml}${usageHtml}
 <h2 style="margin:32px 0 10px">Boards</h2>
 ${table(
   ["Board", "Members", "Messages", "Created by", "Last activity"],

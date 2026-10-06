@@ -57,6 +57,7 @@ your team on your own Cloudflare account in about 15 minutes.
    - `VOICE_GLOBAL_MONTHLY_MINUTES`: shared Grok voice budget
    - `POSTS_PER_MINUTE`: per-person post rate limit per board
    - `SIGNIN_PER_IP`: app sign-in codes sent per IP per 10 minutes
+   - `POSTHOG_KEY` and `POSTHOG_HOST`: optional product analytics. Leave them unset to send nothing. See [ANALYTICS.md](ANALYTICS.md)
    - `LIMITS_LOCAL`: set to `1` to keep production request limits on a localhost Worker
    - Advanced request-limit vars from `src/limits.ts`: `RATE_AGENT_PER_MIN`, `RATE_APP_PER_MIN`, `DAILY_REQUESTS_FREE`,
      `DAILY_REQUESTS_PRO`, `MAX_LIVE_SESSIONS`, `SHED_L1_REQUESTS`, `SHED_L2_REQUESTS`, `SHED_L1_D1_ROWS_READ`, and
