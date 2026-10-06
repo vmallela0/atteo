@@ -221,7 +221,7 @@ export const TOOLS = [
         summary: { type: "string", description: "edit: one line on what changed" },
         seq: { type: "integer", description: "The task's entry number" },
         minutes: { type: "integer", description: "claim: lease length (5–240, default 30). Claiming a to-do task marks it in progress." },
-        status: { type: "string", enum: ["todo", "doing", "blocked", "done"] },
+        status: { type: "string", enum: ["todo", "doing", "blocked", "done", "frozen"], description: "frozen: parked for the far future (not open work, can't be claimed); todo unfreezes it. list: filter by status (default: everything but done and frozen)" },
         mine: { type: "boolean", description: "list: only tasks assigned to or held by your user" },
         parent: { type: "integer", description: "create/update: the task this is a sub-task of (update: 0 = top level)" },
         assignee: { type: "string", description: "update: member name (empty to unassign)" },
@@ -1085,7 +1085,7 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
       if (action === "list") {
         let list = await stub.tasks({ status: str(args.status) });
         if (args.mine === true) list = list.filter((t) => t.assignee === user || t.lease_holder === user);
-        if (args.status === undefined) list = list.filter((t) => t.status !== "done");
+        if (args.status === undefined) list = list.filter((t) => t.status !== "done" && t.status !== "frozen"); // frozen: only when asked for (vedu #4791)
         // Sub-tasks sit indented under their parent when both are listed.
         const shown = new Set(list.map((t) => t.seq));
         const tree = (t: (typeof list)[number], depth: number): string[] =>
@@ -1122,7 +1122,7 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
       else if (action === "stop") t = await stub.taskStop(user, seq, str(args.reason) ?? "", opts);
       else if (action === "update") {
         const due = dueOf();
-        const status = str(args.status) as "todo" | "doing" | "blocked" | "done" | undefined;
+        const status = str(args.status) as "todo" | "doing" | "blocked" | "done" | "frozen" | undefined;
         t = await stub.taskUpdate(
           user,
           seq,

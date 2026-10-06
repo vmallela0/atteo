@@ -919,8 +919,11 @@ async function task(args: string[]) {
     done: () => ({ action: "update", seq: seq(), status: "done", note: more.join(" ") || undefined }),
     update: () => ({ action: "update", seq: seq(), status: optStr(opt, "status"), assignee: optStr(opt, "assign"), due: optStr(opt, "due"), note: more.join(" ") || optStr(opt, "note") }),
     stop: () => ({ action: "stop", seq: seq(), reason: more.join(" ") || optStr(opt, "reason") || "" }),
+    // Frozen (vedu #4791): parked for the far future; it leaves open work until unfrozen (back to to-do).
+    freeze: () => ({ action: "update", seq: seq(), status: "frozen", note: more.join(" ") || undefined }),
+    unfreeze: () => ({ action: "update", seq: seq(), status: "todo" }),
   };
-  if (!map[action]) throw new CliError('Usage: atteo task [list [--mine] [--json] | get N [--history] [--json] | claim N [minutes] | release N | done N [note] | tick N "<item>" | untick N "<item>" | edit N --old "<text>" --new "<text>" | update N --status s --assign name --due YYYY-MM-DD | stop N <reason> | remove N [why]]');
+  if (!map[action]) throw new CliError('Usage: atteo task [list [--mine] [--json] | get N [--history] [--json] | claim N [minutes] | release N | done N [note] | tick N "<item>" | untick N "<item>" | edit N --old "<text>" --new "<text>" | update N --status s --assign name --due YYYY-MM-DD | stop N <reason> | freeze N | unfreeze N | remove N [why]]');
   say(await tool(opt, "task", map[action]()));
 }
 
@@ -1447,7 +1450,7 @@ Board commands (on the board chosen with \`use\`, per folder):
   atteo verify N [--image img] [--minutes 5]  Run someone's claim check in a sandbox (no network, a throwaway
                                         checkout, your keys hidden), after you read it; then verify or dispute
   atteo verify --check-sandbox     Show that the sandbox holds on this machine
-  atteo task [list [--json]|get N [--history] [--json]|claim N|release N|done N|tick N "<item>"|untick N "<item>"|edit N --old "…" --new "…"|stop N <reason>|remove N]
+  atteo task [list [--json]|get N [--history] [--json]|claim N|release N|done N|tick N "<item>"|untick N "<item>"|edit N --old "…" --new "…"|stop N <reason>|freeze N|unfreeze N|remove N]
   atteo doc [list|read <name>|history <name>|grep <pattern> [name]|pin <name>|unpin|pinned]   (pin: the board's source of truth)
   atteo recap [--since N]          Decisions, open questions and who owes what since you last read (or #N)
   atteo export [--since N] [--out file]   The board's log as JSON Lines (one entry per line, oldest first, with

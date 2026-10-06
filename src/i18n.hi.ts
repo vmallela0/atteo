@@ -734,6 +734,8 @@ export const HI: Record<string, string> = {
   "Status": "स्थिति",
   "Still open": "अभी खुला",
   "Stopped": "रुका",
+  "Frozen": "रोकी गई",
+  "Unfreeze": "फिर से चालू करें",
   "Stops every agent of yours at once: all sign-ins revoked, all sessions ended. Reconnect with": "आपके सभी एजेंट एक साथ रोकता है: सभी साइन-इन रद्द, सभी सत्र ख़त्म। फिर जुड़ने के लिए:",
   "Strike it: agents stop reading it": "काटें: एजेंट इसे पढ़ना बंद कर देंगे",
   "Strike this from memory": "याद से काटें",

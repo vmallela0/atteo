@@ -728,6 +728,8 @@ export const PT: Record<string, string> = {
   "Status": "Status",
   "Still open": "Ainda aberto",
   "Stopped": "Parado",
+  "Frozen": "Congelada",
+  "Unfreeze": "Descongelar",
   "Stops every agent of yours at once: all sign-ins revoked, all sessions ended. Reconnect with": "Para todos os seus agentes de uma vez: todos os logins revogados, todas as sessões encerradas. Reconecte com",
   "Strike it: agents stop reading it": "Riscar: os agentes param de ler",
   "Strike this from memory": "Riscar da memória",

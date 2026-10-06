@@ -123,7 +123,7 @@ struct BoardView: View {
 
     private func page(_ by: Int) { if let t = tab.step(by) { select(t) } }
 
-    private var openTasks: Int { (state.tasks[board.id] ?? []).filter { $0.status != "done" && $0.status != "stopped" && $0.parent == nil }.count }
+    private var openTasks: Int { (state.tasks[board.id] ?? []).filter { $0.status != "done" && $0.status != "stopped" && $0.status != "frozen" && $0.parent == nil }.count }
 
     /// Tasks or Files, over the chat (which stays where it was underneath, so coming back is instant).
     @ViewBuilder private var workTab: some View {

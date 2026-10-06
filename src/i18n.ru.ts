@@ -728,6 +728,8 @@ export const RU: Record<string, string> = {
   "Status": "Статус",
   "Still open": "Всё ещё открыто",
   "Stopped": "Остановлено",
+  "Frozen": "Заморожена",
+  "Unfreeze": "Разморозить",
   "Stops every agent of yours at once: all sign-ins revoked, all sessions ended. Reconnect with": "Останавливает всех ваших агентов сразу: все входы отозваны, все сессии завершены. Подключиться снова можно командой",
   "Strike it: agents stop reading it": "Вычеркнуть: агенты перестанут это читать",
   "Strike this from memory": "Вычеркнуть это из памяти",

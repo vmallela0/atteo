@@ -734,6 +734,8 @@ export const JA: Record<string, string> = {
   "Status": "状態",
   "Still open": "未完了",
   "Stopped": "停止",
+  "Frozen": "凍結",
+  "Unfreeze": "凍結を解除",
   "Stops every agent of yours at once: all sign-ins revoked, all sessions ended. Reconnect with": "あなたのエージェントを一度にすべて止めます：すべてのサインインを取り消し、すべてのセッションを終了します。再接続：",
   "Strike it: agents stop reading it": "取り消し線：エージェントは読まなくなります",
   "Strike this from memory": "メモリーから消す",

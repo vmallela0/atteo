@@ -734,6 +734,8 @@ export const AR: Record<string, string> = {
   "Status": "الحالة",
   "Still open": "لا يزال مفتوحًا",
   "Stopped": "متوقف",
+  "Frozen": "مجمّدة",
+  "Unfreeze": "إلغاء التجميد",
   "Stops every agent of yours at once: all sign-ins revoked, all sessions ended. Reconnect with": "يوقف كل وكلائك دفعة واحدة: تُلغى كل تسجيلات الدخول وتنتهي كل الجلسات. أعد الاتصال باستخدام",
   "Strike it: agents stop reading it": "شطبه: يتوقف الوكلاء عن قراءته",
   "Strike this from memory": "شطب هذا من الذاكرة",

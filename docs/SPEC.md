@@ -234,8 +234,12 @@ src/board.ts:3565-3592).
 
 A task is an entry of type `task` plus a row in the board's `tasks` table (src/board.ts:363-380, 730-738).
 
-- **Status**: `todo`, `doing`, `blocked`, `done` or `stopped` (`TASK_STATUSES`, src/board.ts:81). **Priority**: `high`,
+- **Status**: `todo`, `doing`, `blocked`, `done`, `stopped` or `frozen` (`TASK_STATUSES`, src/board.ts:81). **Priority**: `high`,
   `medium`, `low`, or none (src/board.ts:83).
+- **Frozen** (vedu #4791): parked for the far future. Setting it drops any claim; a frozen task can't be claimed, isn't
+  in the summary's open tasks or the default task list (`list` with `status: "frozen"` shows them), and isn't counted
+  in recaps. Setting it back to `todo` unfreezes it (CLI: `atteo task freeze N` / `unfreeze N`). The web Tasks tab and
+  the app show it in a last, folded "Frozen" group.
 - **Create** by posting a `task` entry, or `POST /api/boards/{id}/tasks {title, body, priority, parent}` / MCP `task
   create`. The title is the entry's first line, at most 100 chars (src/board.ts:1316, 4724-4732). An open task with the same title under the same parent is returned instead,
   with `duplicate: true` (REST: 200 rather than 201) (src/board.ts:3899-3926; src/index.ts:2678-2687). The entry's `to`

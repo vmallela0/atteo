@@ -2113,6 +2113,23 @@ await step("mailbox retention: cron deletes mail acked over 30 days ago once the
   assert((await call(B, "GET", "/api/mailbox?peek=1&limit=100")).mail.some((m) => m.board === mb && m.seq === unreadSeq), "unacked still in mailbox");
 });
 
+await step("tasks: frozen is parked work: out of the open list, summary and claims until unfrozen (vedu #4791)", async () => {
+  await ok(A, fb, "read");
+  const t = seqOf(await ok(A, fb, "post", { type: "task", text: `Rewrite the docs site someday ${run}` }));
+  await ok(A, fb, "task", { action: "claim", seq: t });
+  has(await ok(A, fb, "task", { action: "update", seq: t, status: "frozen" }), `#${t} [frozen]`);
+  const got = await (await web(`/api/boards/${fb}/tasks/${t}`, A)).json();
+  assert(got.task.status === "frozen" && !got.task.lease_holder, `freezing drops the claim (${JSON.stringify([got.task.status, got.task.lease_holder])})`);
+  assert(!(await ok(B, fb, "task", { action: "list" })).includes(`#${t} `), "frozen tasks leave the default list");
+  has(await ok(B, fb, "task", { action: "list", status: "frozen" }), `#${t} [frozen]`);
+  const openSections = (await ok(B, fb, "read", { summary: true })).split("\n\n").filter((s) => /^(Open tasks|Tasks for YOU):/m.test(s)).join("\n");
+  assert(!openSections.includes(`Rewrite the docs site someday ${run}`), `frozen tasks aren't in the summary's open tasks: ${openSections.slice(0, 300)}`);
+  await err(B, fb, "task", { action: "claim", seq: t }, "is frozen");
+  has(await ok(B, fb, "task", { action: "update", seq: t, status: "todo" }), `#${t} [todo]`);
+  has(await ok(B, fb, "task", { action: "claim", seq: t }), `held by ${B}'s agent`);
+  await ok(B, fb, "task", { action: "release", seq: t });
+});
+
 await step("tasks: claim leases, conflicts, release, assign, done closes it, stop signal, retracted premise stops it", async () => {
   await ok(A, fb, "read");
   const t1 = seqOf(await ok(A, fb, "post", { type: "task", text: `Write the release notes ${run}` }));

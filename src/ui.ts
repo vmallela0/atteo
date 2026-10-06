@@ -540,7 +540,7 @@ a.ev-acct:hover{background:var(--bg-subtle)}
 .tk{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:8px;padding:6px 6px 6px 10px;border:1px solid var(--line);border-radius:8px;background:var(--bg-subtle);font-size:12.5px}
 .tk[hidden]{display:none}
 .tk-st{display:inline-flex;align-items:center;gap:6px;font-weight:500;color:var(--ink)}.tk-st .dot{width:8px;height:8px;border-radius:50%;background:var(--muted)}
-.st-doing .dot{background:var(--accent)}.st-blocked .dot,.st-stopped .dot{background:var(--warn)}.st-done .dot{background:var(--ok)}
+.st-doing .dot{background:var(--accent)}.st-blocked .dot,.st-stopped .dot{background:var(--warn)}.st-done .dot{background:var(--ok)}.st-frozen .dot{background:var(--faint)}
 .cl-asserted{color:var(--muted);font-weight:400}.cl-evidenced .dot{background:var(--task)}.cl-verified{color:var(--ok)}.cl-verified .dot{background:var(--ok)}.cl-disputed{color:var(--danger)}.cl-disputed .dot{background:var(--danger)}
 .cl-ev a{color:var(--muted);text-decoration:underline;text-decoration-color:var(--line-strong);text-underline-offset:2px}.cl-ev a:hover{color:var(--ink)}
 .cl-acts{display:contents}.cl-f{display:flex;gap:6px;flex-basis:100%}.cl-f[hidden]{display:none}.cl-f .input{flex:1;height:28px;font-size:12.5px}
@@ -970,10 +970,11 @@ mark{background:var(--mark);color:inherit;border-radius:2px;padding:0 1px}
 .td-hist{margin:6px 0 0;padding-left:16px}
 .kanban-head{gap:10px;padding:12px 0;align-items:center;flex:none}
 .kb-new{gap:6px;margin:0}.kb-new .input{width:240px}.kb-new .btn{height:32px} /* as tall as the box beside it */
-.kanban{display:grid;grid-template-columns:repeat(4,minmax(220px,1fr));gap:12px;overflow-x:auto;align-items:start;padding-bottom:6px}
+.kanban{display:grid;grid-template-columns:repeat(4,minmax(220px,1fr)) auto;gap:12px;overflow-x:auto;align-items:start;padding-bottom:6px}
 .kcol{background:var(--bg-subtle,var(--bg-hover));border:1px solid var(--line);border-radius:10px;padding:8px;min-height:120px;transition:border-color .1s,background .1s}
 .kcol.over{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 6%,var(--bg))}
 .kcol h3{font-size:12.5px;font-weight:600;color:var(--ink);margin:2px 4px 8px}
+.kfrozen{opacity:.7;min-width:120px}.kfrozen.open{min-width:220px}.kfz{all:unset;cursor:pointer;display:inline-flex;gap:4px}.kfz:focus-visible{outline:2px solid var(--accent);outline-offset:2px} /* frozen: parked, folded until opened (vedu #4791) */
 .kcards{display:flex;flex-direction:column;gap:6px}
 .kcard{background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:8px 10px;cursor:grab;display:flex;flex-direction:column;gap:4px}
 .kcard:focus-visible,#kanban:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
