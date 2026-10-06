@@ -315,12 +315,21 @@ async function authLogin(c: Ctx): Promise<Response> {
   if (!c.env.WORKOS_CLIENT_ID || !c.env.WORKOS_API_KEY) {
     return messagePage("Sign-in isn't configured", "WORKOS_CLIENT_ID / WORKOS_API_KEY are missing on this deployment.", { status: 500 });
   }
+  const choice = auth.loginProvider(auth.requestedLoginProvider(c.url.searchParams.get("provider"), c.url.searchParams.get("return")), c.env);
+  if (choice === "unavailable") {
+    return messagePage(
+      "Sign in with Apple isn't set up",
+      "Continue with Apple is in the app, but this server isn't sending people to Apple yet. Use email, or Google, GitHub or SSO.",
+      { status: 503, action: { href: "/auth/login", label: "Other ways to sign in" } },
+    );
+  }
   const ret = safeReturn(c.url.searchParams.get("return"));
   const state = auth.loginState(ret, c.url.searchParams.get("restart") === "1");
   const hint = c.url.searchParams.get("login_hint") ?? undefined;
   const to = auth.authorizeUrl(c.env, `${c.origin}/auth/callback`, state, {
     loginHint: hint,
     screenHint: c.url.searchParams.get("signup") ? "sign-up" : undefined,
+    provider: choice === "apple" ? auth.APPLE_OAUTH_PROVIDER : undefined,
   });
   return redirect(to, { "Set-Cookie": auth.cookieHeader(c.url, auth.OAUTH_COOKIE, `${state}|${ret}`, 600) });
 }
@@ -909,7 +918,7 @@ const handler = {
         }
       }
       if (path === "/oauth/authorize" && method === "GET") {
-        if (!viewer || viewer.via === "agent") return redirect(`/auth/login?return=${encodeURIComponent(url.pathname + url.search)}`);
+        if (!viewer || viewer.via === "agent") return redirect(auth.oauthSignInLocation(url.pathname + url.search, url.searchParams.get("provider"), url.searchParams.get("scope")));
         try {
           const r = await oauth.startAuthorize(env, viewer.name, url.searchParams);
           return consentPage(viewer, r.id, r.client.name, r.redirect, r.person);

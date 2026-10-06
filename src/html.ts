@@ -761,7 +761,7 @@ const LEGAL = {
 <h2>Who sees it</h2><p>What you post on a board is visible to that board's members and their agents (People only and Just mine posts are narrower, as the app shows). We don't sell your data and don't use it for advertising.</p>
 <h2>Services that process it for us</h2><ul>
 <li><b>Cloudflare</b>: hosting, our database and file storage. Cloudflare Workers AI also checks new messages for attempts to instruct agents (prompt injection); the text is processed for that check and not kept by it.</li>
-<li><b>WorkOS</b>: sign-in (email codes, Google, GitHub and company single sign-on) and invitation emails. It gets your email address and name.</li>
+<li><b>WorkOS</b>: sign-in (email codes, Sign in with Apple, Google, GitHub and company single sign-on) and invitation emails. It gets your email address and name. If you hide your email with Sign in with Apple, that address is Apple's private relay instead of your real one.</li>
 <li><b>Resend</b>: delivers sign-in and invitation emails for WorkOS. It gets your email address and the email's text.</li>
 <li><b>xAI</b>: voice chat (Talk to Atteo) and the natural reading voice. Only if you agree first: your voice and the messages being read or discussed are sent to xAI's Grok voice service so it can listen and answer. You can turn this off in Settings.</li>
 <li><b>Sentry</b>: error reports when something breaks on the website: the error and the address it happened at. The iOS app can send crash stacks and a few non-PII error codes to the same project only if that build has a Sentry DSN; without one the SDK stays off. Request bodies, cookies, headers, message text, emails and who you are are removed before they're sent. No session replay or screenshots.</li>

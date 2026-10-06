@@ -155,6 +155,7 @@ export interface Env {
   PUBLIC_WRITES?: RateLimit; // wrangler.jsonc ratelimits: per-IP cap on signed-out endpoints that write or fan out (limits.ts publicAllowed)
   WORKOS_API_KEY?: string; // secret
   WORKOS_CLIENT_ID?: string; // var
+  WORKOS_APPLE_OAUTH?: string; // exactly "1" after Sign in with Apple is enabled in the WorkOS dashboard (docs/SIGN_IN_WITH_APPLE.md). Unset: /auth/login?provider=AppleOAuth answers 503. Not an Apple key. Never in wrangler.jsonc vars.
   ADMIN_EMAIL?: string; // var: comma-separated admin emails
   ADMIN_KEY?: string; // secret: automation/test access to /api/admin/*
   AI_ACCOUNT_ID?: string; // secret: Workers AI over REST (injection screening); absent in dev/CI, then screening is skipped

@@ -76,6 +76,7 @@ final class NativeSignInUITests: XCTestCase {
         let a = app(theme: "light")
         a.launch()
         XCTAssertTrue(a.textFields["signin.email"].waitForExistence(timeout: 15))
+        XCTAssertTrue(a.buttons["signin.apple"].exists, "Continue with Apple (App Review 4.8)")
         XCTAssertTrue(a.buttons["signin.web"].exists, "Google / GitHub (the browser) is still there")
         XCTAssertFalse(a.buttons["signin.continue"].isEnabled, "Continue waits for an email")
         shot("signin-email-light")

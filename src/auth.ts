@@ -60,18 +60,70 @@ export interface WorkosUser {
   email_verified: boolean;
   first_name: string | null;
   last_name: string | null;
-  authentication_method?: string | null; // e.g. "SSO", "Password", "GoogleOAuth"
+  authentication_method?: string | null; // e.g. "SSO", "Password", "GoogleOAuth", "AppleOAuth"
   organization_id?: string | null;
 }
 
-export function authorizeUrl(env: Env, redirectUri: string, state: string, opts: { screenHint?: "sign-in" | "sign-up"; loginHint?: string; organizationId?: string } = {}): string {
+/** WorkOS `provider` for Sign in with Apple (`GET /user_management/authorize`). */
+export const APPLE_OAUTH_PROVIDER = "AppleOAuth";
+
+/** What `/auth/login?provider=` should do. Anything other than Apple stays on AuthKit (Google, GitHub, SSO). */
+export type LoginProvider = "authkit" | "apple" | "unavailable";
+
+/**
+ * Apple is a direct provider only when `WORKOS_APPLE_OAUTH` is exactly `"1"` (set after the WorkOS dashboard has the
+ * Apple key — docs/SIGN_IN_WITH_APPLE.md). Until then the route answers 503 instead of sending people to a broken Apple
+ * screen. Google and GitHub stay on AuthKit; this does not switch them to `GoogleOAuth` / `GitHubOAuth`.
+ */
+export function loginProvider(raw: string | null, env: Pick<Env, "WORKOS_APPLE_OAUTH">): LoginProvider {
+  if (raw !== APPLE_OAUTH_PROVIDER) return "authkit";
+  return env.WORKOS_APPLE_OAUTH === "1" ? "apple" : "unavailable";
+}
+
+/** `scope=person` is the Atteo app's own sign-in. Other clients never get to choose Apple for the person. */
+function asksForPerson(scope: string | null): boolean {
+  return (scope ?? "").split(/\s+/).includes("person");
+}
+
+/**
+ * Which provider `/auth/login` was asked for. An explicit `provider` query is used as given (`loginProvider` honors
+ * only AppleOAuth). With none, Apple buried in the `return` path counts when that path is the app's `scope=person`
+ * request: a restarted sign-in keeps Apple, and an agent connector that copied the query does not.
+ */
+export function requestedLoginProvider(explicit: string | null, ret: string | null): string | null {
+  if (explicit) return explicit;
+  if (!ret || !ret.startsWith("/") || ret.startsWith("//")) return null;
+  const q = ret.indexOf("?");
+  if (q < 0) return null;
+  const params = new URLSearchParams(ret.slice(q + 1));
+  if (asksForPerson(params.get("scope")) && params.get("provider") === APPLE_OAUTH_PROVIDER) return APPLE_OAUTH_PROVIDER;
+  return null;
+}
+
+/**
+ * A signed-out `/oauth/authorize` (the iOS browser sheet) continues at `/auth/login`. Apple is copied through when
+ * that was the app's button (`scope=person`); every other provider, and Apple on an agent connector, is dropped.
+ */
+export function oauthSignInLocation(pathAndQuery: string, provider: string | null, scope: string | null = null): string {
+  const ret = pathAndQuery.startsWith("/") && !pathAndQuery.startsWith("//") ? pathAndQuery : "/";
+  const apple = provider === APPLE_OAUTH_PROVIDER && asksForPerson(scope) ? `&provider=${APPLE_OAUTH_PROVIDER}` : "";
+  return `/auth/login?return=${encodeURIComponent(ret)}${apple}`;
+}
+
+export function authorizeUrl(
+  env: Env,
+  redirectUri: string,
+  state: string,
+  opts: { screenHint?: "sign-in" | "sign-up"; loginHint?: string; organizationId?: string; provider?: typeof APPLE_OAUTH_PROVIDER } = {},
+): string {
   const u = new URL(`${WORKOS_API}/user_management/authorize`);
   u.searchParams.set("response_type", "code");
   u.searchParams.set("client_id", env.WORKOS_CLIENT_ID ?? "");
   u.searchParams.set("redirect_uri", redirectUri);
-  // An organization sends people to its own identity provider (SSO); otherwise AuthKit's sign-in page.
+  // An organization sends people to its own identity provider (SSO). That wins over Apple.
+  // Otherwise AuthKit's page, or Sign in with Apple when the button asked for it.
   if (opts.organizationId) u.searchParams.set("organization_id", opts.organizationId);
-  else u.searchParams.set("provider", "authkit");
+  else u.searchParams.set("provider", opts.provider === APPLE_OAUTH_PROVIDER ? APPLE_OAUTH_PROVIDER : "authkit");
   u.searchParams.set("state", state);
   if (opts.screenHint) u.searchParams.set("screen_hint", opts.screenHint);
   if (opts.loginHint) u.searchParams.set("login_hint", opts.loginHint);

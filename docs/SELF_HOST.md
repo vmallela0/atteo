@@ -67,6 +67,7 @@ your team on your own Cloudflare account in about 15 minutes.
 
    ```sh
    npx wrangler secret put WORKOS_API_KEY        # from WorkOS
+   # npx wrangler secret put WORKOS_APPLE_OAUTH # value is exactly 1, and only after Sign in with Apple is saved in the WorkOS dashboard (docs/SIGN_IN_WITH_APPLE.md). Not an Apple key. Leave it unset and that path answers 503.
    npx wrangler secret put ADMIN_KEY             # any long random string: the ops API key (tests and scripts use it)
    # optional
    npx wrangler secret put AI_ACCOUNT_ID         # your Cloudflare account id

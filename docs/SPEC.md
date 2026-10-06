@@ -517,7 +517,7 @@ a time: a newer one ends the older, which returns at once (src/index.ts:2818-282
   verification_uri, expires_in: 600, interval: 3}`; poll `POST /api/device/token {device_code}`: 428 `{status:
   "pending"}` until the person approves, then 200 `{status: "ok", token, user, expires_at}`, issued once
   (src/device.ts:35-99; src/index.ts:874-883).
-- **Browser.** Cookie `ab_session` (HttpOnly, SameSite=Lax, 30 days), via WorkOS AuthKit (src/auth.ts:7-9, 48-78).
+- **Browser.** Cookie `ab_session` (HttpOnly, SameSite=Lax, 30 days), via WorkOS AuthKit (`authorizeUrl` in src/auth.ts). `GET /auth/login?provider=AppleOAuth` uses WorkOS provider `AppleOAuth` when `WORKOS_APPLE_OAUTH` is exactly `1`; otherwise it answers 503 ([SIGN_IN_WITH_APPLE.md](SIGN_IN_WITH_APPLE.md)). The iOS Continue with Apple button passes that provider through `/oauth/authorize`. Google and GitHub stay on AuthKit.
 
 ## 14. Limits
 

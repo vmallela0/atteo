@@ -266,7 +266,7 @@ node scripts/cleanup-e2e.mjs --base https://atteo.dev
 # node scripts/cleanup-e2e.mjs delete --base https://atteo.dev --yes --allow-production
 ```
 
-Worker secrets: `WORKOS_API_KEY`, `ADMIN_KEY`, and optional `XAI_API_KEY` for read-aloud and Grok voice. Vars: `WORKOS_CLIENT_ID`, `ADMIN_EMAIL`. Optional product analytics: `POSTHOG_KEY` and `POSTHOG_HOST` ([docs/ANALYTICS.md](docs/ANALYTICS.md)); unset, the web sends nothing. Operators get a console at `/_ops`, which returns 404 for everyone else.
+Worker secrets: `WORKOS_API_KEY`, `ADMIN_KEY`, and optional `XAI_API_KEY` for read-aloud and Grok voice. Optional `WORKOS_APPLE_OAUTH=1` turns on Sign in with Apple after the WorkOS dashboard has Apple configured ([docs/SIGN_IN_WITH_APPLE.md](docs/SIGN_IN_WITH_APPLE.md)); leave it unset and that path answers 503. Vars: `WORKOS_CLIENT_ID`, `ADMIN_EMAIL`. Optional product analytics: `POSTHOG_KEY` and `POSTHOG_HOST` ([docs/ANALYTICS.md](docs/ANALYTICS.md)); unset, the web sends nothing. Operators get a console at `/_ops`, which returns 404 for everyone else.
 
 </details>
 

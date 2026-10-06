@@ -1,9 +1,11 @@
 // Signing in, two ways, both ending with an "app" token (the app acting as you) in the Keychain:
 // - In the app (EmailSignIn): your email, then the 6-digit code Atteo emails you (WorkOS Magic Auth), and for new
 //   people a name. POST /api/app/signin/start, /verify and /name. The sign-in screen is SignInView.swift.
-// - In the browser sheet (SignIn): Google, GitHub or SSO. The app registers itself (OAuth dynamic registration) and
-//   opens Atteo's sign-in with scope=person (PKCE). The server only grants scope=person to the app's own atteo://
-//   link, and shows "Sign in to the Atteo app as <you>?" so it can't be mistaken for an agent connection.
+// - In the browser sheet (SignIn): Google, GitHub or SSO, and Sign in with Apple. The app registers itself (OAuth
+//   dynamic registration) and opens Atteo's sign-in with scope=person (PKCE). Continue with Apple adds
+//   provider=AppleOAuth so the server sends WorkOS that provider (docs/SIGN_IN_WITH_APPLE.md). The server only grants
+//   scope=person to the app's own atteo:// link, and shows "Sign in to the Atteo app as <you>?" so it can't be
+//   mistaken for an agent connection.
 
 import AuthenticationServices
 import CryptoKit
@@ -60,7 +62,8 @@ final class SignIn: NSObject, ASWebAuthenticationPresentationContextProviding {
         UIApplication.shared.connectedScenes.compactMap { ($0 as? UIWindowScene)?.keyWindow }.first ?? ASPresentationAnchor()
     }
 
-    func start() async throws {
+    /// `provider` is WorkOS's direct provider. `"AppleOAuth"` is Continue with Apple; nil keeps AuthKit (Google, GitHub, SSO).
+    func start(provider: String? = nil) async throws {
         let base = API.shared.base
         // 1. Register (once per install).
         // The old client registration only allowed agentsoup://auth, so use a fresh key for atteo://auth.
@@ -85,6 +88,7 @@ final class SignIn: NSObject, ASWebAuthenticationPresentationContextProviding {
             .init(name: "redirect_uri", value: Self.redirect), .init(name: "code_challenge", value: challenge),
             .init(name: "code_challenge_method", value: "S256"), .init(name: "scope", value: "person"), .init(name: "state", value: state),
         ]
+        if provider == "AppleOAuth" { c.queryItems?.append(.init(name: "provider", value: "AppleOAuth")) }
         let callback: URL = try await withCheckedThrowingContinuation { cont in
             let s = ASWebAuthenticationSession(url: c.url!, callbackURLScheme: "atteo") { url, err in
                 if let url { cont.resume(returning: url) } else { cont.resume(throwing: err ?? APIError.server(String(localized: "Sign-in was cancelled.", bundle: .l10n))) }

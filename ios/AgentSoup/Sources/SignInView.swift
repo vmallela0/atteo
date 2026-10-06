@@ -1,6 +1,6 @@
 // The sign-in screen, all in the app: your email → the 6-digit code we email you (iOS offers it from Mail above the
-// keyboard) → for new people, a name. "Continue with Google, GitHub or SSO" below is the browser sheet (SignIn in
-// Auth.swift), for people who'd rather not wait for an email or whose company signs them in.
+// keyboard) → for new people, a name. Below that, Continue with Apple (WorkOS AppleOAuth, App Review 4.8) and
+// "Continue with Google, GitHub or SSO", both the browser sheet (SignIn in Auth.swift).
 
 import SwiftUI
 
@@ -18,6 +18,7 @@ struct SignInView: View {
     @State private var name = ""
     @State private var ticket = ""
     @State private var busy = false
+    @State private var appleBusy = false
     @State private var webBusy = false
     @State private var error: String?
     @State private var shakes = 0
@@ -216,6 +217,8 @@ struct SignInView: View {
 
     // MARK: - Other ways in
 
+    private var browserBusy: Bool { appleBusy || webBusy }
+
     private var others: some View {
         VStack(spacing: Space.m) {
             HStack(spacing: Space.m) {
@@ -223,23 +226,30 @@ struct SignInView: View {
                 Text("or").font(Typo.meta).foregroundStyle(Theme.faint)
                 Rectangle().fill(Theme.line).frame(height: 1)
             }
-            Button(action: browserSignIn) {
-                HStack(spacing: Space.s) {
-                    if webBusy { ProgressView().controlSize(.small).tint(Theme.text) } else { Image(systemName: "globe").font(Typo.ui(.subheadline).weight(.medium)) }
-                    Text("Continue with Google, GitHub or SSO").fontWeight(.semibold)
-                }
-                .font(Typo.ui(.callout))
-                .frame(maxWidth: .infinity).frame(height: 50)
-                .foregroundStyle(Theme.text)
-                .background(Theme.card, in: RoundedRectangle(cornerRadius: Radius.control, style: .continuous))
-                .overlay(RoundedRectangle(cornerRadius: Radius.control, style: .continuous).strokeBorder(Theme.line))
-            }
-            .buttonStyle(PressStyle())
-            .disabled(webBusy || busy)
-            .accessibilityIdentifier("signin.web")
+            // Apple sits above the other third-party button (App Review 4.8). Same sheet as Google/GitHub; the server
+            // adds WorkOS provider=AppleOAuth. Until WORKOS_APPLE_OAUTH=1 that page says it isn't set up (503).
+            outlineSignIn("Continue with Apple", symbol: "apple.logo", busy: appleBusy, id: "signin.apple") { browserSignIn(apple: true) }
+            outlineSignIn("Continue with Google, GitHub or SSO", symbol: "globe", busy: webBusy, id: "signin.web") { browserSignIn(apple: false) }
         }
         .frame(maxWidth: 420)
         .padding(.top, Space.xl)
+    }
+
+    private func outlineSignIn(_ title: LocalizedStringKey, symbol: String, busy: Bool, id: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: Space.s) {
+                if busy { ProgressView().controlSize(.small).tint(Theme.text) } else { Image(systemName: symbol).font(Typo.ui(.subheadline).weight(.medium)) }
+                Text(title).fontWeight(.semibold)
+            }
+            .font(Typo.ui(.callout))
+            .frame(maxWidth: .infinity).frame(height: 50)
+            .foregroundStyle(Theme.text)
+            .background(Theme.card, in: RoundedRectangle(cornerRadius: Radius.control, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: Radius.control, style: .continuous).strokeBorder(Theme.line))
+        }
+        .buttonStyle(PressStyle())
+        .disabled(browserBusy || self.busy)
+        .accessibilityIdentifier(id)
     }
 
     // MARK: - Pieces
@@ -337,11 +347,11 @@ struct SignInView: View {
         }
     }
 
-    private func browserSignIn() {
-        webBusy = true
+    private func browserSignIn(apple: Bool) {
+        if apple { appleBusy = true } else { webBusy = true }
         Task {
-            defer { webBusy = false }
-            do { try await SignIn().start(); finish() } catch { state.report(error) }
+            defer { appleBusy = false; webBusy = false }
+            do { try await SignIn().start(provider: apple ? "AppleOAuth" : nil); finish() } catch { state.report(error) }
         }
     }
 

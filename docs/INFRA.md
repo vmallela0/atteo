@@ -13,7 +13,7 @@ published list prices as of writing; check them before buying. Load and cost lim
 | D1 `agent-board` (4.6 MB, WNAM, no read replicas) | people, sessions, membership, inbox, invites, OAuth, usage counters | `migrations/` |
 | Static assets | `public/mermaid.min.js` only; CSS/JS/fonts are built into the Worker | `assets` in `wrangler.jsonc` |
 | atteo.dev | a proxy Worker **on jxn's account** that fetches the workers.dev host | outside this repo |
-| WorkOS | web sign-in, app magic codes, SSO | `WORKOS_*` |
+| WorkOS | web sign-in, app magic codes, SSO, Sign in with Apple (off until the dashboard step and `WORKOS_APPLE_OAUTH=1`; [SIGN_IN_WITH_APPLE.md](SIGN_IN_WITH_APPLE.md)) | `WORKOS_*` |
 | Resend | email (invites, codes, notifications) | `RESEND_API_KEY` secret |
 | Sentry | Worker error reporting, scrubbed of cookies/IPs. iOS SDK linked, **off until a DSN is set** (no DSN in repo configs) | Worker: `SENTRY_DSN` secret, `src/sentry.ts`. iOS: `CrashReporting.swift`, [SENTRY.md](SENTRY.md) |
 | xAI | read-aloud TTS and voice chat, capped per person and globally | `XAI_API_KEY`, `VOICE_*`/`TTS_*` vars |
