@@ -107,3 +107,60 @@ describe("pins (which devices this browser wraps keys to)", () => {
     expect(pinsJs.isPinned(after, { kid: "gone9", user: "bob", public_key: K("Q") })).toBe(false); // a bare id never matches a key
   });
 });
+
+describe("search on an encrypted board happens on the device", async () => {
+  const { searchEntries, grepEntries } = await import("../src/localSearch");
+  // The browser's search (e2eweb.ts), lifted out of the page script, given an index directly.
+  const webSearch = (entries) => {
+    const window = {};
+    new Function("window", "ME", "BOARD", `${pick("// ---- on-device search", "// ---- writing")}\nIDX_FULL=Promise.resolve(new Map(arguments[3].map(e=>[e.seq,e])));`)(window, "ann", "b_x", entries);
+    return window.e2eSearch;
+  };
+  const E = (seq, text, o = {}) => ({ seq, ts: 1_700_000_000_000 + seq, author: o.author ?? "ann", via: o.via ?? null, type: o.type ?? "note", text });
+  const entries = [
+    E(1, "Deploy the checkout service on Friday"),
+    E(2, "The CHECKOUT bug: refunds double-count", { author: "bob", via: "agent" }),
+    E(3, "prechecking isn't a match for checkout"),
+    E(4, "Café opening hours are posted", { type: "decision" }),
+    E(5, "x".repeat(120) + " checkout " + "y".repeat(200)),
+    E(6, "checkout checkout refunds", { author: "bob" }),
+  ];
+  it("every word starts a word (any case); best match first, then newest; snippets mark the words like the server's", async () => {
+    const hits = searchEntries(entries, "checkout");
+    expect(hits.map((h) => h.seq)).toEqual([6, 5, 3, 2, 1]);
+    expect(hits[0].snippet).toBe("«checkout» «checkout» refunds");
+    expect(hits.find((h) => h.seq === 2).snippet).toContain("«CHECKOUT»");
+    expect(hits.find((h) => h.seq === 5).snippet).toMatch(/^… x+ «checkout» y+ …$/);
+    expect(searchEntries(entries, "checkout refunds").map((h) => h.seq)).toEqual([6, 2]);
+    expect(searchEntries(entries, "heck")).toEqual([]); // inside a word: no
+    expect(searchEntries(entries, "café").map((h) => h.seq)).toEqual([4]);
+  });
+  it("filters by who, agent or person, and type; no words lists the newest", () => {
+    expect(searchEntries(entries, "checkout", { from: "bob" }).map((h) => h.seq)).toEqual([6, 2]);
+    expect(searchEntries(entries, "checkout", { from: "bob", agent: true }).map((h) => h.seq)).toEqual([2]);
+    expect(searchEntries(entries, "", { type: "decision" }).map((h) => h.seq)).toEqual([4]);
+  });
+  it("the browser's search answers exactly as the CLI's", async () => {
+    const web = webSearch(entries);
+    for (const [q, o] of [["checkout", {}], ["checkout refunds", {}], ["CAFÉ", {}], ["", { from: "bob" }], ["checkout", { from: "bob", agent: false }], ["nothing", {}]])
+      expect((await web(q, o)).entries, q).toEqual(searchEntries(entries, q, o));
+  });
+  it("grep: literal or regex lines, newest message first, each line once", () => {
+    const g = grepEntries([E(1, "a: one\nb: two\na: one"), E(2, "a.b literal\nab")], "a.b");
+    expect(g.map((h) => [h.seq, h.line, h.text])).toEqual([[2, 1, "a.b literal"]]);
+    expect(grepEntries([E(1, "a: one\nb: two\na: one")], "^a:", { regex: true }).map((h) => h.line)).toEqual([1]);
+    expect(grepEntries([E(1, "Hello")], "hello", { caseSensitive: true })).toEqual([]);
+    expect(() => grepEntries([], "(", { regex: true })).toThrow(/valid regular expression/);
+  });
+});
+
+describe("the client screen on an encrypted board page", () => {
+  it("blocks a credential before encrypting, and badges instruction-like text it opens", () => {
+    expect(E2E_JS).toContain("const hit=window.atteoScan&&atteoScan.scanText(text);if(hit){toast(atteoScan.blockedMessage(hit)");
+    expect(E2E_JS).toContain("flagShow(en,r.text)");
+  });
+  it("is on encrypted board pages only", () => {
+    expect(boardTail("0100").js).toContain("g.atteoScan=");
+    expect(boardTail("0000").js).not.toContain("g.atteoScan=");
+  });
+});

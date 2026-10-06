@@ -8,6 +8,9 @@
 // your explicit Approve. The 🔑 lines on the board say which devices can read it.
 //
 // Runs inside the board page's script (it uses BOARD, ME, READONLY, esc, toast, tick, thrSum and the composer's reply state).
+// The server can't read these posts, so this page does what it does on plain boards (clientScan.ts, atteoScan): a
+// credential is refused here before anything is encrypted, and opened text that reads like an instruction to agents
+// gets the same ⚠ badge as on a plain board.
 // The HKDF labels (V2, V1) and the IndexedDB name (agent-soup-e2e) are from before the rename to Atteo. They must never
 // change: the labels are baked into every stored key and sealed secret, and the database holds this browser's keys.
 
@@ -130,9 +133,15 @@ function opened(t){const out=[];let plain=[],q=[];
 function short(t){const l=String(t).replace(/\`\`\`[\\s\\S]*?\`\`\`/g,'\\n').split('\\n').map(x=>x.trim()).find(Boolean)||'';
   const w=l.replace(/@[A-Za-z0-9][A-Za-z0-9_.-]*(?:['’]s\\s+(?:agent|assistant))?/gi,' ').replace(/^[\\s,:;.\\-–—>]+/,'').split(/\\s+/).filter(Boolean);
   return w.length?w.slice(0,4).join(' ').replace(/[,:;.\\-–—]+$/,'')+(w.length>4?'…':''):''}
+// The plain board's ⚠ badge (html.ts flagBadge), from this browser's screen of the opened text.
+function flagShow(en,text){const meta=en&&en.querySelector(':scope>.grow>.meta');if(!meta||meta.querySelector('.fbadge')||!window.atteoScan)return;const f=atteoScan.screenText(text);if(!f)return;
+  const b=document.createElement('span');b.className='badge fbadge'+(f.quoted?' quoted':'');
+  if(f.quoted){b.title='It quotes text that reads like instructions to an agent (in code or quotation marks): agents are told to treat it as data.';b.textContent='⚠ Quoted instruction-like text'}
+  else{b.title='Looks like it '+f.reason.replace(/^tries to |^asks an agent to |^tells an agent to /,'')+': agents are told not to act on it.';b.textContent='⚠ Flagged: '+f.reason}
+  meta.insertBefore(b,meta.querySelector(':scope>.more-acts,:scope>.acts'))}
 function show(seq,r){const el=document.querySelector('#e'+seq+'>.grow>.body');if(!el)return false;
   el.innerHTML=r.text!=null?opened(r.text):'<span class="e2e-none">🔒 '+esc(r.why)+'</span>';el.closest('.entry').classList.toggle('e2e-open',r.text!=null);
-  if(r.text!=null){const t=short(r.text),en=el.closest('.entry');if(t){en.dataset.title=t;document.querySelectorAll('a.ref[data-ref="'+seq+'"][data-done]').forEach(a=>{a.textContent='↗ '+t})}if(window.refChips)refChips(el)}
+  if(r.text!=null){const t=short(r.text),en=el.closest('.entry');flagShow(en,r.text);if(t){en.dataset.title=t;document.querySelectorAll('a.ref[data-ref="'+seq+'"][data-done]').forEach(a=>{a.textContent='↗ '+t})}if(window.refChips)refChips(el)}
   const top=el.closest('.replies')?.closest('#thread>.entry');if(top)thrSum(+top.dataset.seq);return r.text!=null}
 let busy=null,queued=false,qFrom=null;
 /** Messages that came back on the page (a bounded conversation, #1365) arrive sealed again: open them on the next sync. */
@@ -148,6 +157,41 @@ window.e2eSync=from=>{if(busy){queued=true;if(from!=null)qFrom=qFrom==null?from:
   catch(e){if(!ST)say('🔒 <b>End-to-end encrypted.</b> '+esc(e.message||String(e)))}
   finally{busy=null;if(queued){const f=qFrom;queued=false;qFrom=null;e2eSync(f)}}})();return busy};
 
+// ---- on-device search (E2E §4): the server can't search what it can't read, so this browser does. What it opens is
+// kept as an index (seq, when, who, type, text) in IndexedDB, encrypted with an AES key made here that can't be
+// exported; the first search on a page reads the board again, so unsends and edits drop out. The palette (⌘K, ⌘F)
+// asks window.e2eSearch instead of the server on this board. ----
+let IDX=null,IDX_FULL=null;
+const idxId='index:'+ME+':'+BOARD,idxKeyId='index-key:'+ME;
+async function idxKey(){const had=await idbDo('readonly',s=>s.get(idxKeyId)).catch(()=>null);if(had)return had;
+  const k=await S.generateKey({name:'AES-GCM',length:256},false,['encrypt','decrypt']);
+  try{await idbDo('readwrite',s=>s.put(k,idxKeyId));return k}catch(e){return null}} // a browser that can't keep a key: the index lives in memory only
+async function idxLoad(){if(IDX)return IDX;const m=new Map();
+  try{const k=await idxKey(),rec=await idbDo('readonly',s=>s.get(idxId));if(k&&rec&&rec.iv)for(const e of JSON.parse(td.decode(await ungcm(k,rec.iv,rec.ct))))m.set(e.seq,e)}catch(e){}
+  return IDX=IDX||m}
+async function idxSave(){try{const k=await idxKey();if(!k||!IDX)return;const list=[...IDX.values()].sort((a,b)=>a.seq-b.seq).slice(-5000);
+  const c=await gcm(k,te.encode(JSON.stringify(list)));await idbDo('readwrite',s=>s.put({iv:c.iv,ct:c.ct},idxId))}catch(e){}}
+/** The whole board (its newest 10,000 messages), opened here: what this browser can read goes in the index. */
+function idxRefresh(){if(IDX_FULL)return IDX_FULL;IDX_FULL=(async()=>{await idxLoad();if(!ST)await epochKeys();const fresh=new Map();let after=0;
+    for(let i=0;i<50;i++){const es=(await api('GET','/api/boards/'+BOARD+'/sealed?after='+after)).entries||[];
+      for(const e of es){const r=await openOne(e.seq,e.payload);if(r.text!=null)fresh.set(e.seq,{seq:e.seq,ts:e.ts,author:e.author,via:e.via||null,type:e.type,text:r.text})}
+      if(es.length<200)break;after=es[es.length-1].seq}
+    IDX=fresh;idxSave();return IDX})().catch(e=>{IDX_FULL=null;throw e});return IDX_FULL}
+const wordChar=c=>!!c&&/[\\p{L}\\p{N}_]/u.test(c);
+/** Where each word starts a word in the (lowercased) text: [start, end] pairs, or null when a word isn't there. */
+function spans(low,words){const out=[];for(const w of words){let n=0;for(let p=low.indexOf(w);p>=0;p=low.indexOf(w,p+1))if(!wordChar(low[p-1])){out.push([p,p+w.length]);n++}if(!n)return null}return out.sort((a,b)=>a[0]-b[0])}
+/** The words around the first match, matches between « and » (the server's snippet marks). */
+function snippetOf(text,sp){const at=sp.length?sp[0][0]:0,from=Math.max(0,at-60),to=Math.min(text.length,at+140);let s='',i=from;
+  for(const [a,b] of sp){if(b<=i||a>=to)continue;s+=text.slice(i,Math.max(i,a))+'«'+text.slice(Math.max(i,a),Math.min(b,to))+'»';i=Math.min(b,to)}
+  s+=text.slice(i,to);return (from>0?'… ':'')+s.replace(/\\s+/g,' ').trim()+(to<text.length?' …':'')}
+/** Searches this board on this device: every word must start a word (any case); best match first, then newest. */
+window.e2eSearch=async(q,o)=>{o=o||{};let idx=IDX_FULL?await IDX_FULL:await idxLoad();if(!IDX_FULL){const r=idxRefresh();if(!idx.size)idx=await r}
+  const words=String(q||'').toLowerCase().split(/\\s+/).filter(Boolean),hits=[];
+  for(const e of idx.values()){if(o.from&&e.author!==o.from)continue;if(o.agent!=null&&(e.via==='agent')!==!!o.agent)continue;if(o.type&&e.type!==o.type)continue;
+    const lower=e.text.toLowerCase(),low=lower.length===e.text.length?lower:e.text,sp=words.length?spans(low,words):[];if(!sp)continue;hits.push({e,sp})}
+  hits.sort((a,b)=>b.sp.length-a.sp.length||b.e.seq-a.e.seq);
+  return {entries:hits.slice(0,50).map(h=>({seq:h.e.seq,ts:h.e.ts,author:h.e.author,via:h.e.via,type:h.e.type,title:null,snippet:snippetOf(h.e.text,h.sp)})),on_device:true}};
+
 // ---- writing: the composer (new messages and replies) encrypts here and posts the envelope (refetching keys on 409) ----
 async function encPost(text,type,reply_to,tries){tries=tries||0;const st=await epochKeys();const k=st.keys.get(st.current);
   if(!k)throw new Error("This browser doesn't hold the board's key yet.");
@@ -156,6 +200,7 @@ async function encPost(text,type,reply_to,tries){tries=tries||0;const st=await e
   catch(e){if(tries<2&&e.status===409)return encPost(text,type,reply_to,tries+1);throw e}} // a removal or a newer epoch since we looked
 window.addEventListener('submit',async e=>{const f=e.target;if(!f.matches||!f.matches('form.composer'))return;e.preventDefault();e.stopImmediatePropagation();if(window.micStop)micStop(); // it stops the submit, so the mic's own listener never hears it (#1711)
   const text=ta.value.trim();if(!text)return;const type=f.querySelector('input[name=type]:checked')?.value||'note',was=+rpTo.value||null;
+  const hit=window.atteoScan&&atteoScan.scanText(text);if(hit){toast(atteoScan.blockedMessage(hit)+' (Caught in this browser: nothing was encrypted or sent.)');return}
   const btn=f.querySelector('button:not([type=button])');if(btn)btn.disabled=true;
   // A reply goes to the composer's reply target and lands in that message's thread, as on a plain board.
   const first=!was&&!document.querySelector('#thread>.entry');
