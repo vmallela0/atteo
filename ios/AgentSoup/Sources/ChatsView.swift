@@ -94,7 +94,9 @@ struct ChatsView: View {
     /// when Display → Density is Compact).
     private var rowInsets: EdgeInsets { EdgeInsets(top: Space.row(density), leading: Space.l, bottom: Space.row(density), trailing: Space.l) }
 
-    var body: some View {
+    var body: some View { screen.onAppear { Analytics.screen("chats") } } // product analytics (Analytics.swift)
+
+    @ViewBuilder private var screen: some View {
         NavigationStack(path: $path) {
             List {
                 // (Everyday asks these on For you instead.)

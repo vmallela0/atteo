@@ -321,6 +321,7 @@ final class TalkSession: ObservableObject {
     // MARK: Start and end
 
     func start() async {
+        Analytics.capture("voice_used")
         ReadAloud.shared.hush()
         VoiceInput.shared.stop()
         remote.on { [weak self] c in self?.remoteCommand(c) }

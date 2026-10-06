@@ -7,6 +7,11 @@ options:
     iOS: "18.0"
   createIntermediateGroups: true
   developmentLanguage: en
+# Product analytics (Analytics.swift, vedu #4416): PostHog's iOS SDK.
+packages:
+  PostHog:
+    url: https://github.com/PostHog/posthog-ios
+    exactVersion: 3.90.1 # pinned: Atteo.xcodeproj (and its Package.resolved) is generated, not committed
 settings:
   base:
     SWIFT_VERSION: "5.0"
@@ -30,6 +35,7 @@ targets:
       - Shared
     dependencies:
       - target: AtteoShare
+      - package: PostHog
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: $(ATTEO_BUNDLE_ID)

@@ -48152,6 +48152,98 @@
           }
         }
       }
+    },
+    "Share usage analytics": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compartir datos de uso"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Partager les statistiques d'utilisation"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "उपयोग के आँकड़े साझा करें"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "利用状況の分析を共有"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사용 분석 공유"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "共享使用情况分析"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "分享使用情況分析"
+          }
+        }
+      }
+    },
+    "Usage analytics tell us which features get used, never what you write. They go to PostHog.": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los datos de uso nos dicen qué funciones se usan, nunca lo que escribes. Se envían a PostHog."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les statistiques d'utilisation nous indiquent quelles fonctions sont utilisées, jamais ce que vous écrivez. Elles sont envoyées à PostHog."
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "उपयोग के आँकड़े हमें बताते हैं कि कौन-सी सुविधाएँ इस्तेमाल होती हैं, आप क्या लिखते हैं यह कभी नहीं। ये PostHog को भेजे जाते हैं।"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "利用状況の分析でわかるのは、どの機能が使われているかだけで、あなたが書いた内容は含まれません。データは PostHog に送られます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사용 분석은 어떤 기능이 쓰이는지만 알려 주며, 작성한 내용은 절대 포함하지 않습니다. 데이터는 PostHog로 전송됩니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用情况分析只告诉我们哪些功能被使用，绝不包含你写的内容。数据发送至 PostHog。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用情況分析只告訴我們哪些功能被使用，絕不包含你寫的內容。資料傳送至 PostHog。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

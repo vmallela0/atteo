@@ -91,7 +91,9 @@ struct TalkCallSheet: View {
 
     init(board: Board?) { _talk = StateObject(wrappedValue: TalkSession(board: board)) }
 
-    var body: some View {
+    var body: some View { screen.onAppear { Analytics.screen("talk") } } // product analytics (Analytics.swift)
+
+    @ViewBuilder private var screen: some View {
         VStack(spacing: 0) {
             header
             captions

@@ -332,7 +332,7 @@ struct SignInView: View {
             defer { busy = false }
             do {
                 try await EmailSignIn.pickName(ticket: ticket, name: name)
-                finish()
+                finish(new: true)
             } catch { fail(error) }
         }
     }
@@ -345,7 +345,8 @@ struct SignInView: View {
         }
     }
 
-    private func finish() {
+    private func finish(new: Bool = false) {
+        Analytics.capture(new ? "sign_up" : "sign_in")
         focus = nil
         Haptics.play(.completed)
         state.signedIn = true

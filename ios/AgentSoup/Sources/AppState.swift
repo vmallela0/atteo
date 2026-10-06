@@ -527,6 +527,7 @@ final class AppState: ObservableObject {
             }
             withAnimation(.smooth) { entries[b.id] = (entries[b.id] ?? []).map { $0.seq == temp.seq ? real : $0 } }
             Notifier.shared.askIfSensible() // your first message: you'll want to hear when it's answered
+            Analytics.messageSent(by: mine)
             save()
             Task { await refreshBoards() }
         } catch {
@@ -830,6 +831,7 @@ final class AppState: ObservableObject {
 
     func signOut() {
         stopFeed()
+        Analytics.reset() // the next person on this phone starts anonymous
         BoardCrypto.shared.forget()
         Keychain.token = nil
         try? FileManager.default.removeItem(at: Self.cacheURL)

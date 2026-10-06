@@ -28,7 +28,9 @@ struct ForYouView: View {
     }
     private var needCount: Int { state.approvals.count + state.contacts.count + asks.count }
 
-    var body: some View {
+    var body: some View { screen.onAppear { Analytics.screen("for_you") } } // product analytics (Analytics.swift)
+
+    @ViewBuilder private var screen: some View {
         NavigationStack(path: $path) {
             ScrollView {
                 VStack(alignment: .leading, spacing: Space.l) {

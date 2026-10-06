@@ -19,7 +19,9 @@ struct EverydaySettings: View {
         return AppMode.clientName(c)
     }
 
-    var body: some View {
+    var body: some View { screen.onAppear { Analytics.screen("settings") } } // product analytics (Analytics.swift)
+
+    @ViewBuilder private var screen: some View {
         List {
             Section {
                 HStack(spacing: Space.m) {

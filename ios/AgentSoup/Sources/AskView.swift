@@ -38,7 +38,9 @@ struct AskView: View {
         return out
     }
 
-    var body: some View {
+    var body: some View { screen.onAppear { Analytics.screen("ask") } } // product analytics (Analytics.swift)
+
+    @ViewBuilder private var screen: some View {
         VStack(spacing: 0) {
             header
             ScrollView {
