@@ -53,10 +53,13 @@ export function formActionSource(raw: string): string | null {
 // images are this origin. Icons are inline SVG or clip-path, so data: is not an image source. font-src is only
 // /fonts/*.woff2. media-src blob: is read-aloud, the Display voice sample, and Talk's silent media-key wav; live Talk
 // audio is WebAudio on connect-src, not a media element. No data: font or media, and no media host besides 'self'.
+// The pinned mermaid.min.js inserts one fixed <style> block of its own (a nonce can't reach it), so it's allowed by its hash;
+// a new mermaid build changes the hash and the csp browser checks name the new one.
+const MERMAID_STYLE_HASH = "'sha256-lCZPv+siQGbLyHufN87S4tT1GlG+V8T7J184kcDeWZ4='";
 export function pageSecurity(opts: { formAction?: string[] } = {}) {
   const nonce = Array.from(crypto.getRandomValues(new Uint8Array(16)), (b) => b.toString(16).padStart(2, "0")).join("");
   const formAction = ["'self'", ...(opts.formAction ?? []).map(formActionSource).filter((x): x is string => !!x)].join(" ");
-  const policy = `default-src 'self'; script-src 'self' 'nonce-${nonce}'; script-src-attr 'none'; style-src 'self' 'nonce-${nonce}'; style-src-attr 'unsafe-inline'; img-src 'self' blob:; font-src 'self'; media-src 'self' blob:; connect-src 'self' ${VOICE_SOCKET_ORIGIN}; frame-src 'self' about:; frame-ancestors 'none'; base-uri 'none'; form-action ${formAction}; object-src 'none'; report-uri ${CSP_REPORT_PATH}; report-to csp`;
+  const policy = `default-src 'self'; script-src 'self' 'nonce-${nonce}'; script-src-attr 'none'; style-src 'self' 'nonce-${nonce}' ${MERMAID_STYLE_HASH}; style-src-attr 'unsafe-inline'; img-src 'self' blob:; font-src 'self'; media-src 'self' blob:; connect-src 'self' ${VOICE_SOCKET_ORIGIN}; frame-src 'self' about:; frame-ancestors 'none'; base-uri 'none'; form-action ${formAction}; object-src 'none'; report-uri ${CSP_REPORT_PATH}; report-to csp`;
   const headers: Record<string, string> = {
     [CSP_ENFORCE ? "content-security-policy" : "content-security-policy-report-only"]: policy,
     "reporting-endpoints": `csp="${CSP_REPORT_PATH}"`,
