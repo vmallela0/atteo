@@ -9,6 +9,10 @@ struct AtteoApp: App {
         TalkCallButton.plugIn() // voice chat on Everyday's Ask screen (TalkCallButton.swift)
         Typo.applyUIKitAppearance() // the design language's fonts in UIKit's bars (Theme.swift)
         UITestSpeed.apply() // UI tests only (debug builds): animations off (UITestSpeed.swift)
+        #if DEBUG
+        // The share extension (ShareExtension/) can't see this run's ATTEO_SERVER: it reads the server from here instead.
+        Keychain.setData(Data(API.shared.base.absoluteString.utf8), for: "share-server")
+        #endif
     }
 
     var body: some Scene {

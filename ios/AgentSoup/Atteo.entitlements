@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Its own application identifier, named as a Keychain group so the share extension (AtteoShare.entitlements) can
+	     read the sign-in too. Items keep the group they always had, so nothing moves and nobody is signed out. -->
+	<key>keychain-access-groups</key>
+	<array>
+		<string>$(AppIdentifierPrefix)$(ATTEO_BUNDLE_ID)</string>
+	</array>
+</dict>
+</plist>
