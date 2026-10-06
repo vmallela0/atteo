@@ -274,6 +274,17 @@ await step("hooks install --approvals: Claude Code's permission prompts become a
   assert(r.code === 0 && r.out.startsWith("On:") && st.model === "x" && st.hooks.Stop.length === 1, r.out + r.err + JSON.stringify(st));
   const ours = st.hooks.PermissionRequest.filter((g) => g.hooks.some((h) => h.command.includes("hooks approve")));
   assert(ours.length === 1 && ours[0].matcher === "*" && ours[0].hooks[0].timeout === 600, JSON.stringify(st.hooks.PermissionRequest));
+  assert(st.hooks.PreToolUse.length === 1 && st.hooks.PreToolUse[0].hooks[0].command.includes("hooks policy"), JSON.stringify(st.hooks.PreToolUse));
+  // PR 77: the policy also runs before tools already permitted by the harness.
+  const policyInput = JSON.stringify({ tool_name: "Bash", tool_input: { command: "npm test" } });
+  for (const [policy, expected] of [["{}", "deny"], ['{"allow":[{"kind":"shell","command":"npm test"}]}', "ask"], ["{", "deny"]]) {
+    const result = await cli(["hooks", "policy"], { input: policyInput, env: { ATTEO_ACTION_POLICY: policy } });
+    assert(result.code === 0 && JSON.parse(result.out).hookSpecificOutput.permissionDecision === expected, result.out + result.err);
+  }
+  for (const input of ["null", "{", '{"tool_name":"Write","tool_input":[]}']) {
+    const result = await cli(["hooks", "policy"], { input, env: { ATTEO_ACTION_POLICY: "{}" } });
+    assert(result.code === 0 && JSON.parse(result.out).hookSpecificOutput.permissionDecision === "deny", result.out + result.err);
+  }
   // The hook itself: asks on Atteo, waits; A decides in the browser.
   const ck = (await ops("sessions", { user: A })).cookie;
   const decideNext = async (verdict) => {
@@ -291,15 +302,16 @@ await step("hooks install --approvals: Claude Code's permission prompts become a
   };
   const ask = { tool_name: "Bash", tool_input: { command: "rm -rf build", description: "clean" }, cwd: "/tmp/proj" };
   const decision = (out) => JSON.parse(out.trim().split("\n").pop()).hookSpecificOutput.decision;
-  let [h] = await Promise.all([cli(["hooks", "approve"], { input: JSON.stringify(ask) }), decideNext("approve")]);
+  const noPolicy = { ATTEO_ACTION_POLICY: "" };
+  let [h] = await Promise.all([cli(["hooks", "approve"], { input: JSON.stringify(ask), env: noPolicy }), decideNext("approve")]);
   assert(h.code === 0 && decision(h.out).behavior === "allow", h.out + h.err);
-  [h] = await Promise.all([cli(["hooks", "approve"], { input: JSON.stringify(ask) }), decideNext("reject")]);
+  [h] = await Promise.all([cli(["hooks", "approve"], { input: JSON.stringify(ask), env: noPolicy }), decideNext("reject")]);
   assert(h.code === 0 && decision(h.out).behavior === "deny" && /Denied on Atteo/.test(decision(h.out).message), h.out + h.err);
-  h = await cli(["hooks", "approve"], { input: JSON.stringify(ask), env: { ATTEO_APPROVAL_WAIT_S: "2" } });
+  h = await cli(["hooks", "approve"], { input: JSON.stringify(ask), env: { ATTEO_APPROVAL_WAIT_S: "2", ...noPolicy } });
   assert(h.code === 0 && decision(h.out).behavior === "deny" && /in time/.test(decision(h.out).message), `no decision denies: ${h.out}${h.err}`);
   r = await cli(["hooks", "install", "--approvals", "--off"], { env });
   st = JSON.parse(readFileSync(join(cfg, "settings.json"), "utf8"));
-  assert(r.out.startsWith("Off:") && !st.hooks.PermissionRequest && st.hooks.Stop.length === 1 && st.model === "x", JSON.stringify(st));
+  assert(r.out.startsWith("Off:") && !st.hooks.PermissionRequest && !st.hooks.PreToolUse && st.hooks.Stop.length === 1 && st.model === "x", JSON.stringify(st));
 });
 
 await step("mcp: an expired login hands the agent a sign-in link instead of failing silently", async () => {

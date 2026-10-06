@@ -1,8 +1,9 @@
-// fetch() that refuses a write containing a credential (and, later, a denied action)
-// before the request is sent. Reads pass through.
+// fetch() that refuses a write containing a credential, or a write the action policy denies,
+// before the request is sent. Reads pass through. Shell, file, and MCP tool actions are not
+// HTTP writes: a harness decides those with reviewHarnessHook (policy.ts) before it runs them.
 
 import { inspectWrite, isWriteMethod, blockedLocally } from "./filter";
-import { allowAll, type ActionPolicy } from "./policy";
+import { allowAll, type ActionPolicy, type ActionRequest } from "./policy";
 import type { SecretHit } from "../../src/secrets";
 
 export class GatewayError extends Error {
@@ -47,4 +48,13 @@ export function createGateway(opts: GatewayOptions = {}): Gateway {
 
 export function gatewayFetch(opts: GatewayOptions = {}): typeof fetch {
   return createGateway(opts).fetch;
+}
+
+/** Refuse a harness action the policy denies. The error does not include the command, path, or secret. */
+export async function enforceAction(policy: ActionPolicy, action: ActionRequest): Promise<void> {
+  const decision = await policy.allow(action);
+  if (!decision.allow) {
+    const fallback = action.kind === "http_write" ? "Blocked by action policy. Nothing was sent." : "Blocked by action policy. Nothing was run.";
+    throw new GatewayError(decision.reason ?? fallback);
+  }
 }
