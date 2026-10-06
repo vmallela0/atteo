@@ -1,6 +1,7 @@
-// Board info → Charter: the room's goal, data classes, retention, and a note for each member.
+// Board info → Charter: the room's goal, data classes, retention, write directories, and a note for each member.
 // The page renders it (so it shows with the board). The client refreshes it from GET /api/boards/:id/charter
 // and, for an owner, saves with POST. Without the API the server-rendered charter stays.
+// Hosted write directories are advisory (per machine; not a remote sandbox). Local Gateway does not fetch them.
 
 import type { Lang } from "./i18n";
 import { tr } from "./i18n";
@@ -16,11 +17,17 @@ function peek(c: BoardCharter, lang?: Lang): string {
   if (c.goal) return c.goal.split("\n")[0];
   if (c.data_classes.length) return c.data_classes.join(", ");
   if (c.retention_days) return tr(lang, "Keep messages {n} days", { n: c.retention_days });
+  if (c.scope_paths.length) return c.scope_paths[0];
   return "";
 }
 
 function keepLine(days: number | null, lang?: Lang): string {
   return days ? tr(lang, "Keep messages {n} days", { n: days }) : tr(lang, "Keep everything");
+}
+
+function scopeHtml(paths: string[], lang?: Lang): string {
+  if (!paths.length) return `<span class="faint">${esc(tr(lang, "None"))}</span>`;
+  return paths.map((p) => `<code class="ch-path">${esc(p)}</code>`).join("");
 }
 
 /** The side-panel section. `canEdit`: an owner looking at a board that isn't archived. */
@@ -46,6 +53,9 @@ export function charterSide(c: BoardCharter, canEdit: boolean, lang?: Lang, name
 <input class="input" id="ch-classes-in" maxlength="400" placeholder="${T("internal, customer")}" aria-label="${T("Data classes")}">
 <label class="lbl" for="ch-days-in">${T("Retention (days)")}</label>
 <input class="input" id="ch-days-in" inputmode="numeric" placeholder="${T("empty keeps everything")}" aria-label="${T("Retention (days)")}">
+<label class="lbl" for="ch-scope-in">${T("Write directories")}</label>
+<textarea class="input" id="ch-scope-in" rows="3" placeholder="${T("/home/me/checkout")}" aria-label="${T("Write directories")}"></textarea>
+<p class="xs muted">${T("one path per line")}. ${T("Absolute directories for this room's file writes. They belong to one machine and do not enforce a remote sandbox.")}</p>
 <div class="lbl">${T("Members")}</div>
 <div class="ch-notes" id="ch-notes"></div>
 <p class="xs ch-err" id="ch-err" role="alert"></p>
@@ -57,26 +67,33 @@ export function charterSide(c: BoardCharter, canEdit: boolean, lang?: Lang, name
 <dl class="ch-dl"><dt>${T("Goal")}</dt><dd id="ch-goal"${c.goal ? "" : ' data-empty="1"'}>${c.goal ? esc(c.goal) : T("No goal yet.")}</dd>
 <dt>${T("Data classes")}</dt><dd class="ch-classes" id="ch-classes" data-classes="${esc(c.data_classes.join(","))}">${classes}</dd>
 <dt>${T("Retention")}</dt><dd id="ch-keep" data-days="${c.retention_days ?? ""}">${esc(keepLine(c.retention_days, lang))}</dd>
+<dt>${T("Write directories")}</dt><dd class="ch-scope" id="ch-scope" data-paths="${esc(c.scope_paths.join("\n"))}">${scopeHtml(c.scope_paths, lang)}</dd>
 <dt>${T("Members")}</dt><dd><ul class="ch-members" id="ch-members">${people || `<li class="faint">${T("No members")}</li>`}</ul></dd></dl>
+<p class="xs muted ch-scope-note">${T("Absolute directories for this room's file writes. They belong to one machine and do not enforce a remote sandbox.")}</p>
 ${form}</div></section></div>`;
 }
 
 /** Refreshes the section from the API and saves an owner's edits. No-op when the section isn't on the page. */
 export function charterJs(): string {
   return `
-// ---- Charter: goal, data classes, retention, member notes (Board info). Owners edit; everyone else reads. ----
+// ---- Charter: goal, data classes, retention, write directories, member notes (Board info). Owners edit; everyone else reads. ----
 (function(){
 const side=document.getElementById('charter-side');if(!side)return;
 const roleName={owner:tr('Owner'),contributor:tr('Can post'),viewer:tr('View only')};
 function fromDom(){const g=document.getElementById('ch-goal');if(!g)return null;
-  const box=document.getElementById('ch-classes'),k=document.getElementById('ch-keep'),ul=document.getElementById('ch-members');
+  const box=document.getElementById('ch-classes'),k=document.getElementById('ch-keep'),ul=document.getElementById('ch-members'),sc=document.getElementById('ch-scope');
   const members=ul?[...ul.querySelectorAll('[data-user]')].map(li=>({user:li.dataset.user,role:li.dataset.role||'contributor',note:li.dataset.note||null})):[];
   const classes=box&&box.dataset.classes?box.dataset.classes.split(',').filter(Boolean):[];
   const days=k&&k.dataset.days?Number(k.dataset.days):null;
-  return {goal:g.hasAttribute('data-empty')?null:g.textContent,data_classes:classes,retention_days:days||null,members}}
+  const scope_paths=sc&&sc.dataset.paths?sc.dataset.paths.split('\\n').filter(Boolean):[];
+  return {goal:g.hasAttribute('data-empty')?null:g.textContent,data_classes:classes,retention_days:days||null,scope_paths,members}}
 let CH=fromDom(),chEditing=false;
 function keepLine(n){return n?tr('Keep messages {n} days',{n:n}):tr('Keep everything')}
-function peek(c){if(c.goal)return String(c.goal).split('\\n')[0];if(c.data_classes&&c.data_classes.length)return c.data_classes.join(', ');if(c.retention_days)return keepLine(c.retention_days);return ''}
+function peek(c){if(c.goal)return String(c.goal).split('\\n')[0];if(c.data_classes&&c.data_classes.length)return c.data_classes.join(', ');if(c.retention_days)return keepLine(c.retention_days);if(c.scope_paths&&c.scope_paths.length)return c.scope_paths[0];return ''}
+function paintScope(paths){const box=document.getElementById('ch-scope');if(!box)return;
+  box.dataset.paths=(paths||[]).join('\\n');box.replaceChildren();
+  if(!(paths||[]).length){const s=document.createElement('span');s.className='faint';s.textContent=tr('None');box.appendChild(s)}
+  else for(const p of paths){const c=document.createElement('code');c.className='ch-path';c.textContent=p;box.appendChild(c)}}
 function paint(c){
   CH=c;
   const g=document.getElementById('ch-goal');if(g){if(c.goal){g.removeAttribute('data-empty');g.textContent=c.goal}else{g.dataset.empty='1';g.textContent=tr('No goal yet.')}}
@@ -85,6 +102,7 @@ function paint(c){
     if(!(c.data_classes||[]).length){const s=document.createElement('span');s.className='faint';s.textContent=tr('None');box.appendChild(s)}
     else for(const x of c.data_classes){const s=document.createElement('span');s.className='badge';s.textContent=x;box.appendChild(s)}}
   const k=document.getElementById('ch-keep');if(k){k.dataset.days=c.retention_days||'';k.textContent=keepLine(c.retention_days)}
+  paintScope(c.scope_paths||[]);
   const pk=document.getElementById('ch-peek');if(pk)pk.textContent=peek(c);
   const ul=document.getElementById('ch-members');
   if(ul){ul.replaceChildren();const ms=c.members||[];
@@ -105,6 +123,7 @@ function openEdit(){if(!CH)return;chEditing=true;const f=document.getElementById
   document.getElementById('ch-goal-in').value=CH.goal||'';
   document.getElementById('ch-classes-in').value=(CH.data_classes||[]).join(', ');
   document.getElementById('ch-days-in').value=CH.retention_days||'';
+  const sc=document.getElementById('ch-scope-in');if(sc)sc.value=(CH.scope_paths||[]).join('\\n');
   noteFields(CH.members||[]);
   const err=document.getElementById('ch-err');if(err)err.textContent='';
   f.hidden=false;document.getElementById('ch-edit')?.setAttribute('aria-expanded','true');document.getElementById('ch-goal-in').focus()}
@@ -117,7 +136,8 @@ document.getElementById('ch-form')?.addEventListener('submit',async e=>{e.preven
   const btn=e.target.querySelector('[type=submit]');btn.disabled=true;
   const days=document.getElementById('ch-days-in').value.trim();
   const members=[...document.querySelectorAll('#ch-notes [data-ch-user]')].map(i=>({user:i.dataset.chUser,note:i.value}));
-  const body={goal:document.getElementById('ch-goal-in').value,data_classes:document.getElementById('ch-classes-in').value,retention_days:days===''?null:Number(days),members};
+  const scope=document.getElementById('ch-scope-in');
+  const body={goal:document.getElementById('ch-goal-in').value,data_classes:document.getElementById('ch-classes-in').value,retention_days:days===''?null:Number(days),scope_paths:scope?scope.value:'',members};
   const r=await fetch('/api/boards/'+BOARD+'/charter',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)}).catch(()=>null);
   const j=r?await r.json().catch(()=>({})):{};btn.disabled=false;
   if(!r||!r.ok){if(err)err.textContent=j.error||tr('Could not save the charter');return}

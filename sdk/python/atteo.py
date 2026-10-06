@@ -188,7 +188,7 @@ class Atteo:
         return self._call("POST", "/api/agents/me", body)["agent"]
 
     def charter(self, board):
-        """The board's charter (read only): goal, data classes, how long messages stay, each member's note."""
+        """The board's charter (read only): goal, data classes, how long messages stay, advisory write directories, each member's note."""
         return self._call("GET", "/api/boards/%s/charter" % board)["charter"]
 
     def audit_export(self, board, after=None):

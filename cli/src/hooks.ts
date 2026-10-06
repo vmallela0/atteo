@@ -195,8 +195,8 @@ const actionPolicyFile = () => join(process.env.XDG_CONFIG_HOME || join(homedir(
 
 // A configured policy denies shell, file writes, and other tool calls that are not allowlisted, before
 // request_approval. `charter.scope_paths` in that JSON, when present, are file_write allows and a ceiling
-// (a write outside them is denied). The hosted board charter is not fetched. No file and no
-// ATTEO_ACTION_POLICY: this hook stays as it was (the person decides).
+// (a write outside them is denied). The hosted board charter is not fetched (those paths are advisory).
+// No file and no ATTEO_ACTION_POLICY: this hook stays as it was (the person decides).
 function loadHarnessPolicy(): { policy: ActionPolicy } | { error: string } | null {
   const fromEnv = env("ACTION_POLICY");
   if (fromEnv == null || fromEnv.trim() === "") {

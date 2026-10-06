@@ -5,9 +5,10 @@
 //
 // This does not tunnel MCP, and it does not fetch a hosted board charter. A room's write
 // scope is opt-in on this machine: `charter.scope_paths` in the policy file. Each absolute
-// directory becomes a file_write allow, and a write outside them is denied. Who may publish
-// those paths on the shared charter is open — absolute paths differ per machine, and applying
-// a remote list would widen this allowlist — so nothing here reads one.
+// directory becomes a file_write allow, and a write outside them is denied. The hosted
+// charter may store the same paths as advisory; who may set them is still open — absolute
+// paths differ per machine, and applying a remote list would widen this allowlist — so
+// nothing here reads one.
 // Shell rules match the whole command, exactly: a prefix would allow `npm test && …`.
 
 import { blockedMessage, scanFields, type SecretHit } from "../../src/secrets";
@@ -62,9 +63,9 @@ export interface ActionRule {
 }
 
 /**
- * Local export of a room's write scope. Not the hosted charter (goal, data classes,
- * retention, member notes). `board` records which room the paths were copied for; it is
- * not looked up. Each `scope_paths` entry becomes a file_write allow rule.
+ * Local export of a room's write scope. The hosted charter may list the same
+ * paths as advisory `scope_paths`; `board` records which room they were copied
+ * for and is not looked up. Each `scope_paths` entry becomes a file_write allow rule.
  */
 export interface CharterScope {
   board?: string;

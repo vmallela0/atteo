@@ -30,6 +30,7 @@ export interface BoardRow {
   goal?: string | null; // charter: what this board is for
   data_classes?: string | null; // charter: JSON array of short labels
   member_notes?: string | null; // charter: JSON object { user: note }
+  scope_paths?: string | null; // charter: JSON array of absolute write directories (advisory)
 }
 
 export interface BoardMeta {
@@ -63,11 +64,11 @@ export async function boardsOverview(env: Env, user: string, person = false): Pr
   return r.results;
 }
 
-/** Writes the charter columns (goal, data classes, retention, member notes). */
+/** Writes the charter columns (goal, data classes, retention, member notes, write directories). */
 export async function saveBoardCharter(env: Env, boardId: string, stored: StoredCharter): Promise<void> {
   const b = charterBinds(stored);
-  await env.DB.prepare(`UPDATE boards SET goal = ?, data_classes = ?, retention_days = ?, member_notes = ? WHERE id = ?`)
-    .bind(b.goal, b.data_classes, b.retention_days, b.member_notes, boardId)
+  await env.DB.prepare(`UPDATE boards SET goal = ?, data_classes = ?, retention_days = ?, member_notes = ?, scope_paths = ? WHERE id = ?`)
+    .bind(b.goal, b.data_classes, b.retention_days, b.member_notes, b.scope_paths, boardId)
     .run();
 }
 

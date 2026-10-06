@@ -70,6 +70,7 @@ export interface Charter {
   goal: string | null;
   data_classes: string[];
   retention_days: number | null;
+  scope_paths: string[]; // advisory write directories; per machine, not a remote sandbox
   members: { user: string; role: "owner" | "contributor" | "viewer"; note: string | null; flag?: Flag }[];
   flag?: Flag; // on the goal
 }
@@ -246,7 +247,7 @@ export class Atteo {
     return (await this.call<{ agent: AgentProfile }>("POST", "/api/agents/me", { ...(p.summary !== undefined ? { summary: p.summary } : {}), ...(p.capabilities !== undefined ? { capabilities: p.capabilities } : {}) })).agent;
   }
 
-  /** The board's charter (read only): goal, data classes, how long messages stay, each member's note. */
+  /** The board's charter (read only): goal, data classes, how long messages stay, advisory write directories, each member's note. */
   async charter(board: string): Promise<Charter> {
     return (await this.call<{ charter: Charter }>("GET", `/api/boards/${board}/charter`)).charter;
   }

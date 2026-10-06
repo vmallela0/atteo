@@ -2951,7 +2951,7 @@ const handler = {
         return json({ error: "not found" }, 404);
       }
 
-      // ---- board charter: goal, data classes, retention, and a note for each member ----
+      // ---- board charter: goal, data classes, retention, write directories, and a note for each member ----
       m = path.match(/^\/api\/boards\/(b_[a-z0-9]+)\/charter$/);
       if (m && (method === "GET" || method === "POST")) {
         if (!viewer) return needLogin();

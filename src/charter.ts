@@ -1,13 +1,17 @@
-// A board's charter: its goal, the data classes it may hold, how long messages stay, and a note for each member
-// (what they do here). Membership itself stays in the members table; the note is the charter's metadata for them.
+// A board's charter: its goal, the data classes it may hold, how long messages stay, a note for each member
+// (what they do here), and optional write directories (`scope_paths`). Membership itself stays in the members
+// table; the note is the charter's metadata for them. Hosted `scope_paths` are advisory and per-machine: they
+// do not enforce a remote sandbox. Local Gateway compiles the same list only when that machine opts in.
 
 import { type Flag, flagNote, screenText } from "./screen";
+import { parseScopePaths, readScopePaths } from "./scopePaths";
 
 export const GOAL_MAX = 500;
 export const DATA_CLASSES_MAX = 12;
 export const DATA_CLASS_LEN = 32;
 export const MEMBER_NOTE_MAX = 120;
 export const RETENTION_MAX_DAYS = 3650;
+export { SCOPE_PATHS_MAX, SCOPE_PATH_MAX } from "./scopePaths";
 
 export type CharterRole = "owner" | "contributor" | "viewer";
 
@@ -22,6 +26,7 @@ export interface BoardCharter {
   goal: string | null;
   data_classes: string[];
   retention_days: number | null;
+  scope_paths: string[];
   members: CharterMember[];
 }
 
@@ -30,6 +35,7 @@ export interface StoredCharter {
   goal: string | null;
   data_classes: string[];
   retention_days: number | null;
+  scope_paths: string[];
   notes: Record<string, string>;
 }
 
@@ -38,13 +44,14 @@ export interface CharterPatch {
   goal?: string | null;
   data_classes?: string[];
   retention_days?: number | null;
+  scope_paths?: string[];
   notes?: Record<string, string | null>;
 }
 
 const USER_RE = /^[a-z0-9][a-z0-9_.-]{0,31}$/;
 
 export function emptyStored(): StoredCharter {
-  return { goal: null, data_classes: [], retention_days: null, notes: {} };
+  return { goal: null, data_classes: [], retention_days: null, scope_paths: [], notes: {} };
 }
 
 function jsonArray(s: string | null | undefined): string[] {
@@ -68,9 +75,26 @@ function jsonNotes(s: string | null | undefined): Record<string, string> {
   }
 }
 
+function jsonScopePaths(s: string | null | undefined): string[] {
+  try {
+    return readScopePaths(s ? JSON.parse(s) : []);
+  } catch {
+    return [];
+  }
+}
+
 /** Reads the charter columns off a board row. Missing columns are an empty charter. */
 export function storedFromRow(
-  row: { goal?: string | null; data_classes?: string | null; retention_days?: number | null; member_notes?: string | null } | null | undefined,
+  row:
+    | {
+        goal?: string | null;
+        data_classes?: string | null;
+        retention_days?: number | null;
+        member_notes?: string | null;
+        scope_paths?: string | null;
+      }
+    | null
+    | undefined,
 ): StoredCharter {
   if (!row) return emptyStored();
   const days = row.retention_days;
@@ -78,18 +102,26 @@ export function storedFromRow(
     goal: row.goal?.trim() ? row.goal : null,
     data_classes: jsonArray(row.data_classes),
     retention_days: typeof days === "number" && days > 0 ? days : null,
+    scope_paths: jsonScopePaths(row.scope_paths),
     notes: jsonNotes(row.member_notes),
   };
 }
 
-/** Columns for `UPDATE boards SET goal, data_classes, retention_days, member_notes`. Empty lists are stored as NULL. */
-export function charterBinds(s: StoredCharter): { goal: string | null; data_classes: string | null; retention_days: number | null; member_notes: string | null } {
+/** Columns for `UPDATE boards SET goal, data_classes, retention_days, member_notes, scope_paths`. Empty lists are stored as NULL. */
+export function charterBinds(s: StoredCharter): {
+  goal: string | null;
+  data_classes: string | null;
+  retention_days: number | null;
+  member_notes: string | null;
+  scope_paths: string | null;
+} {
   const notes = Object.fromEntries(Object.entries(s.notes).filter(([, n]) => n).sort(([a], [b]) => a.localeCompare(b)));
   return {
     goal: s.goal,
     data_classes: s.data_classes.length ? JSON.stringify(s.data_classes) : null,
     retention_days: s.retention_days,
     member_notes: Object.keys(notes).length ? JSON.stringify(notes) : null,
+    scope_paths: s.scope_paths.length ? JSON.stringify(s.scope_paths) : null,
   };
 }
 
@@ -99,6 +131,7 @@ export function charterView(stored: StoredCharter, members: { user: string; role
     goal: stored.goal,
     data_classes: stored.data_classes,
     retention_days: stored.retention_days,
+    scope_paths: [...stored.scope_paths],
     members: members.map((m) => ({ user: m.user, role: m.role, note: notes[m.user] ?? null })),
   };
 }
@@ -106,11 +139,13 @@ export function charterView(stored: StoredCharter, members: { user: string; role
 /** One line for the audit log. */
 export function charterAuditDetail(s: StoredCharter): string {
   const n = Object.keys(s.notes).length;
+  const dirs = s.scope_paths.length;
   return [
     s.goal ? "goal set" : "no goal",
     s.data_classes.length ? s.data_classes.join(",") : "no data classes",
     s.retention_days ? `keep ${s.retention_days} days` : "keep everything",
     n ? `${n} member note${n === 1 ? "" : "s"}` : "no member notes",
+    dirs ? `${dirs} write director${dirs === 1 ? "y" : "ies"}` : "no write directories",
   ]
     .join(" · ")
     .slice(0, 240);
@@ -206,6 +241,7 @@ export function parseCharterPatch(raw: unknown): CharterPatch {
   if ("goal" in r) patch.goal = parseGoal(r.goal);
   if ("data_classes" in r) patch.data_classes = parseDataClasses(r.data_classes);
   if ("retention_days" in r) patch.retention_days = parseRetentionDays(r.retention_days);
+  if ("scope_paths" in r) patch.scope_paths = parseScopePaths(r.scope_paths);
   if ("members" in r) patch.notes = parseMemberNotes(r.members);
   return patch;
 }
@@ -220,6 +256,7 @@ export function applyCharter(current: StoredCharter, patch: CharterPatch, member
     goal: patch.goal !== undefined ? patch.goal : current.goal,
     data_classes: patch.data_classes !== undefined ? [...patch.data_classes] : [...current.data_classes],
     retention_days: patch.retention_days !== undefined ? patch.retention_days : current.retention_days,
+    scope_paths: patch.scope_paths !== undefined ? [...patch.scope_paths] : [...current.scope_paths],
     notes: { ...current.notes },
   };
   if (patch.notes) {
@@ -233,29 +270,42 @@ export function applyCharter(current: StoredCharter, patch: CharterPatch, member
   return next;
 }
 
-/** Text a secret scan should see: the goal, the labels, and the notes. */
+/** Text a secret scan should see: the goal, the labels, the notes, and write directories. */
 export function charterScanFields(s: StoredCharter, patch: CharterPatch): Record<string, string | null> {
   const fields: Record<string, string | null> = {};
   if (patch.goal !== undefined) fields.goal = s.goal;
   if (patch.data_classes !== undefined) fields.data_classes = s.data_classes.join(" ");
   if (patch.notes) fields.notes = Object.values(s.notes).join("\n");
+  if (patch.scope_paths !== undefined) fields.scope_paths = s.scope_paths.join("\n");
   return fields;
 }
 
-/** What agents are told (#3685): the goal, the data classes and how long messages stay; member notes stay on the web.
- *  Mirrored into the board's Durable Object, so every read (MCP, REST, the CLI) can say it without a D1 query. */
+/** What agents are told (#3685): the goal, the data classes, how long messages stay, and advisory write directories;
+ *  member notes stay on the web. Mirrored into the board's Durable Object, so every read (MCP, REST, the CLI) can say
+ *  it without a D1 query. `scope_paths` are per-machine and do not enforce a remote sandbox. */
 export interface AgentCharter {
   goal: string | null;
   data_classes: string[];
   retention_days: number | null;
+  scope_paths?: string[];
   flag?: Flag; // the goal is owner-written prose agents are told to act on: screened when it's saved, like PROTOCOL.md (#3778)
+}
+
+function hasCharter(s: { goal: string | null; data_classes: string[]; retention_days: number | null; scope_paths?: string[] }): boolean {
+  return !!(s.goal || s.data_classes.length || s.retention_days || s.scope_paths?.length);
 }
 
 /** The agents' copy of a stored charter, or null when it says nothing. */
 export function agentCharter(s: StoredCharter): AgentCharter | null {
-  if (!s.goal && !s.data_classes.length && !s.retention_days) return null;
+  if (!hasCharter(s)) return null;
   const flag = s.goal ? screenText(s.goal) : null;
-  return { goal: s.goal, data_classes: [...s.data_classes], retention_days: s.retention_days, ...(flag ? { flag } : {}) };
+  return {
+    goal: s.goal,
+    data_classes: [...s.data_classes],
+    retention_days: s.retention_days,
+    ...(s.scope_paths.length ? { scope_paths: [...s.scope_paths] } : {}),
+    ...(flag ? { flag } : {}),
+  };
 }
 
 /** Reads the mirrored copy back (the Durable Object's meta); anything unreadable is no charter. */
@@ -263,14 +313,16 @@ export function parseAgentCharter(raw: string | null | undefined): AgentCharter 
   if (!raw) return null;
   try {
     const v = JSON.parse(raw) as Partial<AgentCharter>;
+    const scope_paths = readScopePaths(v.scope_paths);
     const c: AgentCharter = {
       goal: typeof v.goal === "string" && v.goal.trim() ? v.goal : null,
       data_classes: Array.isArray(v.data_classes) ? v.data_classes.filter((x): x is string => typeof x === "string" && !!x) : [],
       retention_days: typeof v.retention_days === "number" && v.retention_days > 0 ? v.retention_days : null,
+      ...(scope_paths.length ? { scope_paths } : {}),
     };
     const f = v.flag;
     if (c.goal && f && typeof f.rule === "string" && typeof f.reason === "string") c.flag = { rule: f.rule, reason: f.reason, ...(f.quoted ? { quoted: true as const } : {}) };
-    return c.goal || c.data_classes.length || c.retention_days ? c : null;
+    return hasCharter(c) ? c : null;
   } catch {
     return null;
   }
@@ -283,5 +335,6 @@ export function charterLine(c: AgentCharter | null | undefined): string | null {
   if (c.goal) bits.push(`goal: ${c.goal.replace(/\s+/g, " ")}${c.flag ? ` (⚠ ${flagNote(c.flag)})` : ""}`);
   if (c.data_classes.length) bits.push(`data classes: ${c.data_classes.join(", ")} (post nothing outside them)`);
   if (c.retention_days) bits.push(`messages are kept ${c.retention_days} days`);
+  if (c.scope_paths?.length) bits.push(`write directories (advisory, per machine): ${c.scope_paths.join(", ")}`);
   return bits.length ? `Charter: ${bits.join(" · ")}` : null;
 }

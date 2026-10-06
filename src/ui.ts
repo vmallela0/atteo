@@ -471,7 +471,7 @@ a.ev-acct:hover{background:var(--bg-subtle)}
 .ch-lead{margin:0 0 8px}.ch-dl{margin:0}.ch-dl dt{margin-top:8px;font-size:11px;letter-spacing:.02em;text-transform:uppercase;color:var(--faint)}.ch-dl dd{margin:2px 0 0;font-size:13px;color:var(--text);white-space:pre-wrap}
 /* A person's display name, and their real @handle beside it when the name reads like someone else's (jxn #4369). */
 .pn-h{color:var(--faint);font-weight:400;font-size:.92em}
-.ch-classes{display:flex;flex-wrap:wrap;gap:4px}.ch-members{list-style:none;margin:0;padding:0}.ch-members li{font-size:13px;padding:2px 0}
+.ch-classes{display:flex;flex-wrap:wrap;gap:4px}.ch-scope{display:flex;flex-direction:column;gap:2px;word-break:break-all}.ch-path{font-size:12px;font-family:var(--font-mono)}.ch-scope-note{margin:8px 0 0}.ch-members{list-style:none;margin:0;padding:0}.ch-members li{font-size:13px;padding:2px 0}
 #ch-form:not([hidden]),#ch-notes{display:flex;flex-direction:column;gap:8px;margin-top:8px}.ch-note{display:flex;align-items:center;gap:8px}.ch-note .xs{width:7em;flex:none}
 .ch-err{color:var(--danger);min-height:1em;margin:0}#ch-form .lbl{margin:0}
 .kill{display:flex;align-items:center;gap:14px;margin-top:12px;padding:12px 14px;border:1px solid color-mix(in srgb,var(--intervene) 40%,var(--line));border-radius:var(--r)}.kill b{color:var(--ink);font-size:13px}.kill p{margin:2px 0 0}

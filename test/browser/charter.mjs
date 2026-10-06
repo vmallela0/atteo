@@ -35,12 +35,13 @@ const GOAL = `Ship <b>checkout</b> ${run}`;
 await side.locator("#ch-goal-in").fill(GOAL);
 await side.locator("#ch-classes-in").fill("internal, Customer PII, 内部");
 await side.locator("#ch-days-in").fill("30");
+await side.locator("#ch-scope-in").fill("/home/me/checkout");
 await side.locator(`#ch-notes [data-ch-user="${M}"]`).fill("payments");
 await side.locator("#ch-form [type=submit]").click();
 await D.p.locator("#toast.show", { hasText: "Charter saved" }).waitFor();
 check((await side.locator("#ch-goal").innerText()) === GOAL && (await side.locator("#ch-goal b").count()) === 0, "saved: the goal shows as text");
 check((await side.locator("#ch-classes .badge").allInnerTexts()).join() === "internal,customer-pii,内部", "data classes: normalized, any script kept");
-check((await side.locator("#ch-keep").innerText()) === "Keep messages 30 days" && (await side.locator(`#ch-members [data-user="${M}"]`).innerText()).includes("payments"), "retention and the member's note");
+check((await side.locator("#ch-keep").innerText()) === "Keep messages 30 days" && (await side.locator("#ch-scope").innerText()).includes("/home/me/checkout") && (await side.locator(`#ch-members [data-user="${M}"]`).innerText()).includes("payments"), "retention, write directories and the member's note");
 check(!(await side.locator("#ch-form").isVisible()), "the form closes");
 
 // From the keyboard (#3830): Edit says it's open; Escape, Cancel and Save each close the form and hand focus back to Edit.
@@ -60,7 +61,7 @@ const R = await open(M, { width: 1280, height: 900 });
 check((await R.p.locator("#ch-goal").innerText()) === GOAL && (await R.p.locator("#ch-edit").count()) === 0, "a member reads it, with no Edit");
 const mcp = await (await fetch(`${BASE}/mcp?board=${board}`, { method: "POST", headers: { authorization: `Bearer ${tok}`, "content-type": "application/json", accept: "application/json, text/event-stream" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "read", arguments: { summary: true } } }) })).json();
 const text = mcp.result?.content?.[0]?.text ?? "";
-check(text.includes(`Charter: goal: ${GOAL} · data classes: internal, customer-pii, 内部 (post nothing outside them) · messages are kept 30 days`), `their agent gets it in the summary (${text.split("\n").find((l) => l.startsWith("Charter")) ?? "no Charter line"})`);
+check(text.includes(`Charter: goal: ${GOAL} · data classes: internal, customer-pii, 内部 (post nothing outside them) · messages are kept 30 days · write directories (advisory, per machine): /home/me/checkout`), `their agent gets it in the summary (${text.split("\n").find((l) => l.startsWith("Charter")) ?? "no Charter line"})`);
 
 const P = await open(O, { width: 390, height: 844 }, true);
 check(await P.p.locator("#charter-side").isVisible() && (await P.p.evaluate(() => document.documentElement.scrollWidth <= innerWidth)), "phone: the charter shows, no sideways scroll");

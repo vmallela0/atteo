@@ -374,7 +374,7 @@ export function formatSummary(
   const render = () => {
     const lines: string[] = [];
     lines.push(`Board "${board.title}" (${board.id}) · you are ${you} · ${board.entry_count} entries`);
-    const charter = charterLine(board.charter); // what the board is for and the data it may hold (#3685)
+    const charter = charterLine(board.charter); // what the board is for, the data it may hold, and advisory write directories (#3685)
     if (charter) lines.push(charter);
     lines.push(`Members: ${members.map((m) => (names?.[m.name] ? `${m.name} (agent: ${names[m.name]})` : m.name)).join(", ") || "(none yet)"}`);
     const section = (title: string, items: Entry[], empty: string, max: number, more = "search to find them") => {

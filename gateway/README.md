@@ -18,7 +18,7 @@ The CLI's hosted calls (`rpc`, `api`, `atteo mcp`) go through this wrapper. The 
 ## What this slice is not
 
 - Not a tunneled Gateway (no local MCP listener that other machines connect to).
-- Not a reader of the hosted board charter. File-write scope is opt-in in the local policy file (`charter.scope_paths`). The hosted charter (goal, data classes, retention, member notes) does not store directories.
+- Not a reader of the hosted board charter. File-write scope is opt-in in the local policy file (`charter.scope_paths`). The hosted charter may store the same directories as advisory `scope_paths`; this gateway does not fetch them.
 - Not an approval. An allow rule makes a side effect eligible; `atteo hooks approve` still asks the person. A deny is local and is not sent.
 
 ## Use
@@ -78,9 +78,9 @@ await enforceAction(policy, { kind: "shell", command: "npm test" });
 
 ### Charter scope (opt-in)
 
-Absolute directories for a room's file writes live in this file, not on the hosted charter. Add `charter` only when this machine should enforce them. Each entry of `scope_paths` is compiled to an allow rule `{ "kind": "file_write", "pathPrefix": "<normalized absolute directory>" }` (duplicates collapse; `..` is lexical). While `charter` is present, a file write outside every one of those directories is denied, including when a broader `file_write` allow would have matched. Deny rules still win inside the scope. Shell commands and other tools are unchanged: a charter path does not allow them. An empty `scope_paths` list allows no file write. A charter block that is not a list of absolute directories below the filesystem root (at most 32, each at most 4096 characters) makes the whole document invalid, so nothing in it is enforced as an allow. `board`, when set, is a board id (`b_` plus 8–32 letters or digits) naming which room the paths were copied for. It is not fetched.
+Enforcement lives in this file. The hosted charter may list the same paths as advisory `scope_paths` (owners can save them with `POST /api/boards/:id/charter`); they do not enforce a remote sandbox. Add `charter` here only when this machine should enforce them. Each entry of `scope_paths` is compiled to an allow rule `{ "kind": "file_write", "pathPrefix": "<normalized absolute directory>" }` (duplicates collapse; `..` is lexical). While `charter` is present, a file write outside every one of those directories is denied, including when a broader `file_write` allow would have matched. Deny rules still win inside the scope. Shell commands and other tools are unchanged: a charter path does not allow them. An empty `scope_paths` list allows no file write. A charter block that is not a list of absolute directories below the filesystem root (at most 32, each at most 4096 characters) makes the whole document invalid, so nothing in it is enforced as an allow. `board`, when set, is a board id (`b_` plus 8–32 letters or digits) naming which room the paths were copied for. It is not fetched.
 
-Who may set these paths on the shared charter is open. They are not accepted by `POST /api/boards/:id/charter`. Absolute paths differ per machine, and copying a remote list onto this allowlist would widen it, so the gateway does not pull one. The person who can write this file sets the paths.
+Who may set these paths on the shared charter is still open. Owners can save them today, same as the rest of the charter, but absolute paths differ per machine, and copying a remote list onto this allowlist would widen it, so the gateway does not pull one. Copy `scope_paths` from `GET /api/boards/:id/charter` into this file only when this machine should enforce them. The person who can write this file sets the paths.
 
 ```json
 {
