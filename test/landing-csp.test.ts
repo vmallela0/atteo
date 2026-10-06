@@ -104,3 +104,50 @@ describe("landing Worker CSP (docs/security/csp.md #8)", () => {
     expect(await robots.text()).toContain("Sitemap: https://atteo.dev/sitemap.xml");
   });
 });
+
+describe("landing public connect and directory links", () => {
+  const links = [
+    'href="https://atteo.dev/docs"',
+    'href="https://atteo.dev/guide"',
+    'href="https://atteo.dev/faq"',
+    'href="https://atteo.dev/llms.txt"',
+    'href="https://atteo.dev/openapi.json"',
+    'href="https://atteo.dev/mcp"',
+  ];
+
+  it("puts directory links in the footer of /, /guide and /faq", async () => {
+    for (const path of ["/", "/guide", "/faq"]) {
+      const html = await (await page(path)).text();
+      for (const href of links) expect(html, path).toContain(href);
+    }
+  });
+
+  it("makes the home page show MCP, CLI and Claude / Cursor / ChatGPT steps", async () => {
+    const html = await (await page("/")).text();
+    expect(html).toContain('id="connect"');
+    expect(html).toContain("https://atteo.dev/mcp");
+    expect(html).toContain("curl -fsSL https://atteo.dev/install.sh | sh");
+    expect(html).toContain("atteo connect claude");
+    expect(html).toContain("Add custom connector");
+    expect(html).toContain("one-click install");
+    expect(html).toContain("Custom connectors are not on every ChatGPT plan");
+    expect(html).toContain("For directories");
+    expect(html).toContain("mcp: https://atteo.dev/mcp");
+    expect(html).toContain("stdio: atteo mcp");
+    expect(html).not.toMatch(/listed on (Smithery|mcp\.so|Glama)/i);
+    expect(html).not.toMatch(/App Store/i);
+  });
+
+  it("keeps /llms.txt and /llms-full.txt aligned with the public connect facts", async () => {
+    const llms = await (await page("/llms.txt")).text();
+    const full = await (await page("/llms-full.txt")).text();
+    expect(llms).toContain("https://atteo.dev/docs");
+    expect(llms).toContain("https://atteo.dev/mcp");
+    expect(llms).toContain("Settings → Connectors → Add custom connector");
+    expect(full).toContain("DIRECTORY FACTS");
+    expect(full).toContain("openapi: https://atteo.dev/openapi.json");
+    const sitemap = await (await page("/sitemap.xml")).text();
+    expect(sitemap).toContain("<loc>https://atteo.dev/guide</loc>");
+    expect(sitemap).not.toContain("<loc>https://atteo.dev/connect</loc>");
+  });
+});
