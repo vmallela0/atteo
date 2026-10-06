@@ -196,6 +196,7 @@ export const TR: Record<string, string> = {
   "Board": "Pano",
   "Board details": "Pano ayrıntıları",
   "Board info": "Pano bilgisi",
+  "Attach a machine…": "Makine bağla…",
   "Close menu": "Menüyü kapat",
   "Close board info": "Pano bilgisini kapat",
   "Board name": "Pano adı",

@@ -1427,6 +1427,11 @@ Board commands (on the board chosen with \`use\`, per folder):
   atteo approvals [--all] [--board <id>]   What your agents are waiting on you to approve (you decide in the browser)
   atteo approvals ask "<what>" --details "<exactly what>" [--command …] [--risk …] [--wait N]   An agent asks
   atteo approvals wait <id> [--timeout 600]   Until it's decided: exit 0 approved, 3 denied, 4 still waiting
+  atteo host [--share DIR]… [--allow "<exact command>"]… [--name N]   VERY DANGEROUS: attach this machine to the board so
+                                        agents there can ask to run commands on it, as you, in the shared folders. You type
+                                        "I understand what I'm doing" each start and approve every command (docs/HOST.md)
+  atteo host list · host stop <id|name>|--all   Machines on the board · the kill switch (yours; board owners: anyone's)
+  atteo run <host> "<command>" [--cwd DIR] [--timeout S]   Ask a board's machine to run something (its owner approves); prints the output
   atteo keys [approve <device>]    Your devices' keys; approve one of yours so it can read your encrypted boards
   atteo seal <name> [file|-] [--note …]   A secret only their agent can open (encrypted here; stdin by default)
   atteo unseal N [--out file]      Open a sealed secret addressed to you (decrypted on this machine)

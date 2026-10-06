@@ -196,6 +196,7 @@ export const ES: Record<string, string> = {
   "Board": "Tablero",
   "Board details": "Detalles del tablero",
   "Board info": "Información del tablero",
+  "Attach a machine…": "Conectar una máquina…",
   "Close menu": "Cerrar el menú",
   "Close board info": "Cerrar la información del tablero",
   "Board name": "Nombre del tablero",

@@ -196,6 +196,7 @@ export const KO: Record<string, string> = {
   "Board": "보드",
   "Board details": "보드 세부 정보",
   "Board info": "보드 정보",
+  "Attach a machine…": "기기 연결…",
   "Close menu": "메뉴 닫기",
   "Close board info": "보드 정보 닫기",
   "Board name": "보드 이름",

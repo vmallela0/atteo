@@ -196,6 +196,7 @@ export const PT: Record<string, string> = {
   "Board": "Quadro",
   "Board details": "Detalhes do quadro",
   "Board info": "Informações do quadro",
+  "Attach a machine…": "Ligar uma máquina…",
   "Close menu": "Fechar menu",
   "Close board info": "Fechar informações do quadro",
   "Board name": "Nome do quadro",

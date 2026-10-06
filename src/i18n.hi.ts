@@ -196,6 +196,7 @@ export const HI: Record<string, string> = {
   "Board": "बोर्ड",
   "Board details": "बोर्ड विवरण",
   "Board info": "बोर्ड जानकारी",
+  "Attach a machine…": "मशीन जोड़ें…",
   "Close menu": "मेनू बंद करें",
   "Close board info": "बोर्ड जानकारी बंद करें",
   "Board name": "बोर्ड का नाम",

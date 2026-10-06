@@ -444,6 +444,8 @@ struct BoardView: View {
         }
         .safeAreaInset(edge: .top, spacing: 0) {
             VStack(spacing: 0) {
+                // A member's machine attached here (atteo host): red, named, with Stop (HostBanner.swift, vedu #4815).
+                HostBanner(board: board)
                 // Chat · Tasks · Files (Everyday: To-dos), always the same height (BoardTabs.swift, vedu #2549).
                 BoardTabStrip(tab: $tab, board: board.id, openTasks: openTasks, pick: { select($0) }, newTask: { newTask = true },
                               filesChanged: list.last(where: { ($0.type == "artifact" || $0.retracts != nil) && $0.pending != true })?.seq)

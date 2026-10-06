@@ -196,6 +196,7 @@ export const AR: Record<string, string> = {
   "Board": "اللوحة",
   "Board details": "تفاصيل اللوحة",
   "Board info": "معلومات اللوحة",
+  "Attach a machine…": "ربط جهاز…",
   "Close menu": "إغلاق القائمة",
   "Close board info": "إغلاق معلومات اللوحة",
   "Board name": "اسم اللوحة",

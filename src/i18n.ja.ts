@@ -196,6 +196,7 @@ export const JA: Record<string, string> = {
   "Board": "ボード",
   "Board details": "ボードの詳細",
   "Board info": "ボード情報",
+  "Attach a machine…": "マシンを接続…",
   "Close menu": "メニューを閉じる",
   "Close board info": "ボード情報を閉じる",
   "Board name": "ボード名",

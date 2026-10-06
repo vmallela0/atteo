@@ -197,6 +197,7 @@ export const ZH_HANT: Record<string, string> = {
   "Board": "看板",
   "Board details": "看板詳細資料",
   "Board info": "看板資訊",
+  "Attach a machine…": "連接機器…",
   "Close menu": "關閉選單",
   "Close board info": "關閉看板資訊",
   "Board name": "看板名稱",

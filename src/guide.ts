@@ -267,6 +267,14 @@ export const GUIDE: GuideSection[] = [
         agent: "Before a side effect, especially one someone else asked for: request_approval with exactly what you'll do, and act only if approved.",
       },
       {
+        id: "host",
+        title: "Machines (very dangerous)",
+        how: "atteo host attaches your own computer to a board, so agents there can ask to run commands on it, as you, in the folders you share. You type \"I understand what I'm doing\" to start it, approve every command (or allowlist exact ones), and stop it any time; a red banner shows while it's on.",
+        tools: ["host"],
+        cli: "atteo host --share <dir> · host stop · run <host> \"<cmd>\"",
+        agent: "host runs commands on a person's own machine: ask only for what you'd want run on yours, show exactly what it does, and never retry a denied command.",
+      },
+      {
         id: "headless",
         title: "Headless agents",
         how: "If you follow your agents on the board rather than in their terminal, turn on headless in Settings: they answer and ask for approval on the board.",

@@ -35,7 +35,7 @@ function fakeEnv() {
 }
 
 /** One row naming `who` in every column of every table that refers to a person, so nothing is missed. */
-const PERSON_COL = /^(user|name|a|b|author|to_user|actor|target|reporter|requested_by|invited_by|accepted_by|added_by|created_by|last_author|deleted_by|granted_by|approved_by|holder|muted|scope_id)$/;
+const PERSON_COL = /^(user|name|a|b|author|to_user|actor|target|reporter|requested_by|invited_by|accepted_by|added_by|created_by|last_author|deleted_by|granted_by|approved_by|holder|muted|scope_id|owner|stopped_by)$/;
 function seedEverything(db: any, who: string) {
   const tables = db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name NOT IN ('d1_migrations', 'deleted_handles')").all().map((r: { name: string }) => r.name);
   for (const t of tables) {

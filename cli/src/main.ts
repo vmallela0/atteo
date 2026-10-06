@@ -22,6 +22,7 @@ import { agentCommand, HARNESSES, splitCommand } from "./harness";
 import { myKey } from "./sealed";
 import { doctorCmd, forgetSession, HELP_AGENTS, mentionLine, prepare, session as agentSessionFor, V2, versionCheck } from "./v2";
 import { load, loadFor, remove, save, storeName, type Credentials } from "./credentials";
+import { hostCmd, runCmd } from "./host";
 
 const VERSION = "0.1.0";
 const DEFAULT_SERVER = "https://atteo.dev";
@@ -1191,6 +1192,9 @@ const run: Record<string, () => unknown> = {
   ...Object.fromEntries(Object.entries(V2).map(([k, f]) => [k, board(k, f)])),
   help: () => (rest.includes("--all") ? err(HELP) : console.log(HELP_AGENTS + "\n\nSetup, the background watcher and every command: atteo help --all")),
   card: board("card", (a) => cardCommand(a)),
+  // Bring your own machine (docs/HOST.md): very dangerous, so no session and nothing automatic.
+  host: () => hostCmd(rest),
+  run: () => runCmd(rest),
   hooks: () => hooksCmd(rest), // no session: the hook posts as you, not as whichever agent ran git push
   connect: () => connectHelp(rest[0]),
   harness: () => harnessCmd(rest),

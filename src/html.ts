@@ -12,6 +12,7 @@ import { authorLabel, computeSummary, retractedSet, type Summary } from "./state
 import { quickReplies } from "./quickReplies";
 import { PIN_BAR, PIN_SIDE, RECAP_BTN, RECAP_DLG, pinRecapJs } from "./pinrecap";
 import { SOUL_DLG, SOUL_SIDE, rememberBtn, soulMemoryJs } from "./soulmemory";
+import { HOST_LOADER_JS, hostSide } from "./hostUi";
 import { charterJs, charterSide } from "./charterUi";
 import type { BoardCharter } from "./charter";
 import { MENTION_SCAN_JS, forAgent, forPerson, mentionLabel, selfMentions } from "./mentions";
@@ -2761,7 +2762,7 @@ window.boardKeys=(e,k)=>{
 document.getElementById('thread-scroll')?.removeAttribute('data-wait');
 `;
 export const BOARD_JS_PATH = "/board.js";
-export const BOARD_JS = BOARD_CORE_JS;
+export const BOARD_JS = BOARD_CORE_JS + HOST_LOADER_JS;
 export const BOARD_JS_SRC = `${BOARD_JS_PATH}?v=${fnv(BOARD_JS)}`;
 // The scripts that run after it: the same for every board with the same four flags (can change its picture, encrypted,
 // your agent chat, can post), so each combination is its own cached file, /board-tail.js?f=<flags> (index.ts). Where
@@ -2930,7 +2931,7 @@ export function boardPage(
     </form>
   </section>
   <aside class="aside" id="board-info" aria-label="${esc(T("Board info"))}">${agentChat ? "" : PIN_SIDE + SOUL_SIDE + charterSide(board.charter ?? { goal: null, data_classes: [], retention_days: null, members: members.map((m) => ({ user: m.user, role: m.role ?? (m.user === info.created_by ? "owner" : "contributor"), note: null })) }, isOwner && !info.archived, L, people)}${agentsSection(agents, info.id, readOnly || !!info.archived, L, canInviteAgent)}<div class="sum" id="sum">${summaryHtml(entries, viewer.name, members, summary, ctl, L)}</div>
-${notifySide(L)}
+${notifySide(L)}${agentChat || info.encrypted || info.archived || readOnly ? "" : hostSide(esc(T("Attach a machine…")))}
 </aside>
 </div></div>
 <div role="tabpanel" id="panel-log" aria-labelledby="tab-log" class="bp-panel" data-board-panel hidden><div class="list scroll-x"><table class="log"><thead><tr><th>${esc(T("Time (UTC)"))}</th><th>#</th><th>${esc(T("Author"))}</th><th>${esc(T("Type"))}</th><th>${esc(T("To"))}</th><th>${esc(T("Summary"))}</th></tr></thead>

@@ -58,6 +58,8 @@ import * as pins from "./pins";
 import * as boardkeys from "./boardkeys";
 import * as mailbox from "./mailbox";
 import * as recap from "./recap";
+import * as hosts from "./hosts";
+import { HOST_PAGE_JS } from "./hostUi";
 import { listMount, LsError } from "./ls";
 import * as testAccounts from "./testAccounts";
 import { musePage } from "./muse";
@@ -1801,6 +1803,7 @@ const handler = {
       if (path === "/shell.js" && method === "GET") return new Response(SHELL_PAGE_JS, { headers: { "content-type": "text/javascript; charset=utf-8", "cache-control": url.searchParams.get("v") ? "public, max-age=31536000, immutable" : "public, max-age=300", "x-content-type-options": "nosniff" } });
       if (path === "/bug.js" && method === "GET") return new Response(BUG_PAGE_JS, { headers: { "content-type": "text/javascript; charset=utf-8", "cache-control": url.searchParams.get("v") ? "public, max-age=31536000, immutable" : "public, max-age=300", "x-content-type-options": "nosniff" } });
       if (path === "/feedback.js" && method === "GET") return new Response(FEEDBACK_PAGE_JS, { headers: { "content-type": "text/javascript; charset=utf-8", "cache-control": url.searchParams.get("v") ? "public, max-age=31536000, immutable" : "public, max-age=300", "x-content-type-options": "nosniff" } });
+      if (path === "/host.js" && method === "GET") return new Response(HOST_PAGE_JS, { headers: { "content-type": "text/javascript; charset=utf-8", "cache-control": url.searchParams.get("v") ? "public, max-age=31536000, immutable" : "public, max-age=300", "x-content-type-options": "nosniff" } });
       if (path === BOARD_TAIL_PATH && method === "GET") {
         const t = boardTail(url.searchParams.get("f") ?? "");
         if (!t) return new Response("not found", { status: 404 });
@@ -2586,6 +2589,80 @@ const handler = {
           }
         } catch (e) {
           return json({ error: e instanceof Error ? e.message : String(e) }, 400);
+        }
+        return json({ error: "not found" }, 404);
+      }
+
+      // ---- atteo host (docs/HOST.md): a member's own machine on the board; every command needs its owner's OK ----
+      m = path.match(/^\/api\/boards\/(b_[a-z0-9]+)\/hosts(?:\/(confirm|h_[A-Za-z0-9_-]+|all)(?:\/(stop|next|runs)(?:\/(hr_[A-Za-z0-9_-]+)(?:\/(result))?)?)?)?$/);
+      if (m) {
+        if (!viewer) return needLogin();
+        const [, bid, target, act, runId, result] = m;
+        if (!(await registry.isMember(env, bid, viewer.name))) return json({ error: "board not found" }, 404);
+        const audit = (user: string, text: string) =>
+          boardStub(env, bid)
+            .notice(user, "Host", text, { via: "agent", client: "atteo host", session: null })
+            .catch((e: unknown) => console.error("host audit failed", e));
+        try {
+          if (!target && method === "GET") return json({ hosts: (await hosts.listHosts(env, bid)).map((h) => hosts.hostView(h)) }, 200, { "cache-control": "no-store" });
+          if (target === "confirm" && !act && method === "POST") {
+            const b = (await request.json().catch(() => ({}))) as { phrase?: unknown };
+            return json(await hosts.confirm(env, bid, viewer.name, b.phrase));
+          }
+          if (!target && method === "POST") {
+            const b = (await request.json().catch(() => ({}))) as Record<string, unknown>;
+            const h = await hosts.register(env, bid, viewer.name, b);
+            await audit(viewer.name, hosts.attachText(h));
+            return json({ host: hosts.hostView(h) });
+          }
+          if (target && act === "stop" && method === "POST") {
+            const board = await registry.getBoard(env, bid);
+            const owner = (await registry.memberRole(env, bid, viewer.name)) === "owner" || board?.created_by === viewer.name ? viewer.name : null;
+            const stopped = await hosts.stop(env, bid, target, viewer.name, owner);
+            for (const h of stopped) await audit(viewer.name, hosts.stopText(h, viewer.name));
+            return json({ stopped: stopped.map((h) => hosts.hostView(h)) });
+          }
+          if (target && target !== "all" && target !== "confirm") {
+            const host = await hosts.getHost(env, bid, target);
+            if (!host) return json({ error: "No such host." }, 404);
+            const ownerOnly = () => {
+              if (host.owner !== viewer.name) throw new hosts.HostError("Only the machine's owner (its atteo host) can do that.", 403);
+            };
+            if (act === "next" && method === "GET") {
+              ownerOnly();
+              const wait = Math.min(25, Math.max(0, parseInt(url.searchParams.get("wait") ?? "0", 10) || 0));
+              const got = await hosts.next(env, bid, host, wait * 1000);
+              for (const r of got.settled) await audit(host.owner, hosts.auditText(host, r));
+              if (got.stop) return json({ stop: got.stop }, 200, { "cache-control": "no-store" });
+              return json({ run: got.run ? hosts.runView(got.run) : null }, 200, { "cache-control": "no-store" });
+            }
+            if (act === "runs" && !runId && method === "POST") {
+              const b = (await request.json().catch(() => ({}))) as Record<string, unknown>;
+              const made = await hosts.request(env, bid, host.id, viewer.name, b);
+              if (made.approval) {
+                // The owner's card on the board: Approve or Deny, like any approval (only the person decides).
+                await boardStub(env, bid).approvalRequested(approvals.refOf(made.approval), { via: "agent", client: "atteo host" }).catch((e: unknown) => console.error("host approval entry failed", e));
+              }
+              return json({ run: hosts.runView(made.run) });
+            }
+            if (act === "runs" && runId && !result && method === "GET") {
+              const wait = Math.min(25, Math.max(0, parseInt(url.searchParams.get("wait") ?? "0", 10) || 0));
+              const got = await hosts.runNow(env, bid, host, runId, wait * 1000);
+              if (!got) return json({ error: "No such run." }, 404);
+              if (got.closed) await audit(host.owner, hosts.auditText(host, got.closed));
+              return json({ run: hosts.runView(got.run) }, 200, { "cache-control": "no-store" });
+            }
+            if (act === "runs" && runId && result && method === "POST") {
+              ownerOnly();
+              const b = (await request.json().catch(() => ({}))) as Record<string, unknown>;
+              const r = await hosts.finish(env, bid, host, runId, b);
+              await audit(host.owner, hosts.auditText(host, r));
+              return json({ run: hosts.runView(r) });
+            }
+          }
+        } catch (e) {
+          if (e instanceof hosts.HostError) return json({ error: e.message }, e.status);
+          throw e;
         }
         return json({ error: "not found" }, 404);
       }

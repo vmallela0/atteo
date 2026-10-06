@@ -196,6 +196,7 @@ export const BN: Record<string, string> = {
   "Board": "বোর্ড",
   "Board details": "বোর্ডের বিবরণ",
   "Board info": "বোর্ডের তথ্য",
+  "Attach a machine…": "একটি মেশিন যুক্ত করুন…",
   "Close menu": "মেনু বন্ধ করুন",
   "Close board info": "বোর্ডের তথ্য বন্ধ করুন",
   "Board name": "বোর্ডের নাম",

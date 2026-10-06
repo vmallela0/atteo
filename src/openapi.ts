@@ -481,6 +481,39 @@ export function openapi(origin: string) {
           responses: { "200": ok("approvals", obj({ approvals: { type: "array", items: { $ref: "#/components/schemas/Approval" } } })), ...errors },
         },
       },
+      // atteo host (docs/HOST.md): a member's own machine on the board. Very dangerous; every command needs its owner's OK.
+      "/api/boards/{id}/hosts": {
+        get: { summary: "Machines attached to this board (members): id, name, owner, shares, allow, online, stopped_at/by", parameters: [id], responses: { "200": ok("hosts"), ...errors } },
+        post: {
+          summary: "Attach your machine (atteo host): needs an unused token from hosts/confirm (one per machine). shares: absolute folders (never /); allow: exact commands that skip approval",
+          parameters: [id],
+          requestBody: body(obj({ token: str, name: str, shares: { type: "array", items: str }, allow: { type: "array", items: str } }, ["token", "shares"])),
+          responses: { "200": ok("host"), "403": ok("no valid confirmation token"), ...errors },
+        },
+      },
+      "/api/boards/{id}/hosts/confirm": {
+        post: { summary: `The typed consent: phrase must be exactly "I understand what I'm doing". Returns a one-time token (10 minutes) that registering a host spends`, parameters: [id], requestBody: body(obj({ phrase: str }, ["phrase"])), responses: { "200": ok("token, expires_at"), ...errors } },
+      },
+      "/api/boards/{id}/hosts/{host}/stop": {
+        post: { summary: "The kill switch: the machine's owner or the board's owner (host = all: every machine you may stop). Waiting runs are dropped; the host exits at its next poll", parameters: [id, { name: "host", in: "path", required: true, schema: str }], responses: { "200": ok("stopped"), ...errors } },
+      },
+      "/api/boards/{id}/hosts/{host}/next": {
+        get: { summary: "The host's poll (its owner's login only): hands over the oldest approved run, or {stop}. ?wait=N (≤25s) holds", parameters: [id, { name: "host", in: "path", required: true, schema: str }, { name: "wait", in: "query", schema: int }], responses: { "200": ok("run or stop"), ...errors } },
+      },
+      "/api/boards/{id}/hosts/{host}/runs": {
+        post: {
+          summary: "Ask the machine to run a command: an approval for its owner (unless the exact command is allowlisted). cwd must be inside a shared folder; commands with credentials are refused",
+          parameters: [id, { name: "host", in: "path", required: true, schema: str }],
+          requestBody: body(obj({ command: str, cwd: str, timeout_s: int }, ["command"])),
+          responses: { "200": ok("run"), ...errors },
+        },
+      },
+      "/api/boards/{id}/hosts/{host}/runs/{run}": {
+        get: { summary: "A run as it stands (pending, approved, running, done, failed, rejected, expired, stopped) with its redacted, capped output. ?wait=N (≤25s) holds until it ends", parameters: [id, { name: "host", in: "path", required: true, schema: str }, { name: "run", in: "path", required: true, schema: str }, { name: "wait", in: "query", schema: int }], responses: { "200": ok("run"), ...errors } },
+      },
+      "/api/boards/{id}/hosts/{host}/runs/{run}/result": {
+        post: { summary: "The host reports a run it was handed (owner only): exit_code, output (redacted and capped again), timed_out, error", parameters: [id, { name: "host", in: "path", required: true, schema: str }, { name: "run", in: "path", required: true, schema: str }], requestBody: body(obj({ exit_code: int, output: str, timed_out: bool, error: str })), responses: { "200": ok("run"), ...errors } },
+      },
       "/api/approvals/{aid}/{decision}": {
         post: {
           security: person,

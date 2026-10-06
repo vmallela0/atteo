@@ -196,6 +196,7 @@ export const RU: Record<string, string> = {
   "Board": "Доска",
   "Board details": "Сведения о доске",
   "Board info": "Информация о доске",
+  "Attach a machine…": "Подключить машину…",
   "Close menu": "Закрыть меню",
   "Close board info": "Закрыть информацию о доске",
   "Board name": "Название доски",

@@ -212,7 +212,7 @@ await step("MCP initialize, tools/list, notifications, protocol errors", async (
   assert(r.protocolVersion === "2025-06-18" && r.serverInfo.name === "atteo" && r.serverInfo.title === "Atteo", JSON.stringify(r));
   has(r.instructions, "Atteo");
   const names = (await rpcRaw(auth(A), null, "tools/list", {})).tools.map((t) => t.name).sort();
-  assert(JSON.stringify(names) === JSON.stringify(["agents", "approval", "batch", "claim", "create_board", "doc", "feedback", "get", "grep", "handle", "invite", "join_board", "leave_board", "list_boards", "ls", "mailbox", "memory", "people", "post", "publish", "purge", "react", "read", "recap", "remember", "request_approval", "retract", "review", "schedules", "search", "session", "task", "trigger", "wait"]), names.join());
+  assert(JSON.stringify(names) === JSON.stringify(["agents", "approval", "batch", "claim", "create_board", "doc", "feedback", "get", "grep", "handle", "host", "invite", "join_board", "leave_board", "list_boards", "ls", "mailbox", "memory", "people", "post", "publish", "purge", "react", "read", "recap", "remember", "request_approval", "retract", "review", "schedules", "search", "session", "task", "trigger", "wait"]), names.join());
   assert((await rpcRaw(auth(A), null, "notifications/initialized", {}, { notification: true })).status === 202, "notification status");
   assert((await rpcRaw({}, null, "notifications/initialized", {}, { notification: true })).status === 401, "no credentials: 401 so OAuth clients can sign in");
   assert((await fetch(`${BASE}/mcp`)).status === 405, "GET /mcp should be 405");
@@ -7331,6 +7331,85 @@ await step("delete account (Apple 5.1.1(v), jxn #4329): messages stay as 'Delete
   // The handle stays taken, forever.
   const again = await ops("users", { name: X, email: `${X}@example.com`, verified: "true" });
   assert(again.status === 409, `the handle can't be registered again: ${again.status}`);
+});
+
+await step("atteo host: typed consent, owner approves each command, allowlist, folder jail, secrets, output cap, kill switch (vedu #4807/#4815)", async () => {
+  const HO = `e2e-hostown-${run}`, HR = `e2e-hostask-${run}`, HX = `e2e-hostout-${run}`;
+  await makeUsers([HO, HR, HX]);
+  const hb = (await ops("boards", { user: HO, title: `host ${run}` })).body.board.id;
+  await ops("members", { board: hb, user: HR });
+  const api = (who, path, init = {}) => fetch(`${BASE}/api/boards/${hb}/hosts${path}`, { ...init, headers: { ...auth(who), "content-type": "application/json", ...(init.headers ?? {}) } });
+  const post = (who, path, body) => api(who, path, { method: "POST", body: JSON.stringify(body ?? {}) });
+  // Consent: the exact phrase buys a one-time token; registering needs an unused one (the server enforces it, not just the UI).
+  assert((await post(HO, "/confirm", { phrase: "yes" })).status === 400, "a wrong phrase is refused");
+  assert((await post(HO, "", { name: "box", shares: ["/srv/proj"] })).status === 403, "no token: no host");
+  const { token } = await (await post(HO, "/confirm", { phrase: "I understand what I’m doing" })).json();
+  assert(token?.startsWith("hc_"), "a token for the exact phrase (curly apostrophe ok)");
+  assert((await post(HO, "", { token, name: "box", shares: ["/"] })).status === 400, "sharing / is refused (and spends nothing)");
+  const reg = await post(HO, "", { token, name: "box", shares: ["/srv/proj", "/srv/other"], allow: ["git status"] });
+  assert(reg.status === 200, `register: ${reg.status} ${await reg.clone().text()}`);
+  const host = (await reg.json()).host;
+  assert((await post(HO, "", { token, name: "box2", shares: ["/srv/proj"] })).status === 403, "a token works once: a new machine asks again");
+  assert((await api(HX, "")).status === 404, "non-members don't see hosts");
+  const listed = (await (await api(HR, "")).json()).hosts;
+  assert(listed.some((h) => h.id === host.id && h.online && h.owner === HO), `members see it online: ${JSON.stringify(listed)}`);
+  // Only the owner's login polls it.
+  assert((await api(HR, `/${host.id}/next?wait=0`)).status === 403, "someone else can't take its work");
+  // A request needs the owner's approval: the host gets nothing until then.
+  const ask = await post(HR, `/${host.id}/runs`, { command: `echo hello ${run}`, cwd: "/srv/proj/app" });
+  assert(ask.status === 200, `request: ${ask.status} ${await ask.clone().text()}`);
+  const r1 = (await ask.json()).run;
+  assert(r1.status === "pending" && r1.approval, "pending the owner's approval");
+  assert(!(await (await api(HO, `/${host.id}/next?wait=0`)).json()).run, "nothing to run before approval");
+  const ap = (await (await web(`/api/approvals`, HO)).json()).approvals.find((a) => a.id === r1.approval);
+  assert(ap && ap.board_id === hb && ap.risk === "high" && ap.command === `echo hello ${run}` && ap.requested_by === HR, `the owner's approval: ${JSON.stringify(ap)}`);
+  assert((await fetch(`${BASE}/api/approvals/${r1.approval}/approve`, { method: "POST", headers: auth(HO) })).status === 403, "the owner's agent can't approve it");
+  assert((await web(`/api/approvals/${r1.approval}/approve`, HO, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" })).status === 200, "the owner approves, as a person");
+  const got = await (await api(HO, `/${host.id}/next?wait=0`)).json();
+  assert(got.run?.id === r1.id && got.run.cwd === "/srv/proj/app", `the host gets it once approved: ${JSON.stringify(got)}`);
+  // The host reports: secrets are redacted and output capped server-side too.
+  const secret = ["AKIA", "ABCDEFGHIJKLMNOP"].join("");
+  const fin = await post(HO, `/${host.id}/runs/${r1.id}/result`, { exit_code: 0, output: `hello ${run}\nkey ${secret}\n` + "x".repeat(70_000) });
+  assert(fin.status === 200, `result: ${fin.status}`);
+  const done = (await (await api(HR, `/${host.id}/runs/${r1.id}`)).json()).run;
+  assert(done.status === "done" && done.exit_code === 0 && done.output.includes(`hello ${run}`) && !done.output.includes(secret) && done.output.includes("[redacted") && done.truncated, `done, redacted, capped: ${done.status} ${done.output.slice(0, 80)}`);
+  assert((await post(HO, `/${host.id}/runs/${r1.id}/result`, { exit_code: 0, output: "again" })).status === 409, "a result is reported once");
+  // The board keeps the record.
+  const log = await ok(HR, hb, "read", { limit: 30 });
+  has(log, `echo hello ${run}`);
+  // Denied: the run closes and never reaches the host.
+  const r2 = (await (await post(HR, `/${host.id}/runs`, { command: `rm -rf build ${run}` })).json()).run;
+  assert((await web(`/api/approvals/${r2.approval}/reject`, HO, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ note: "no" }) })).status === 200, "reject");
+  const denied = (await (await api(HR, `/${host.id}/runs/${r2.id}`)).json()).run;
+  assert(denied.status === "rejected" && denied.note === "no", `denied: ${JSON.stringify(denied)}`);
+  assert(!(await (await api(HO, `/${host.id}/next?wait=0`)).json()).run, "a denied command never reaches the host");
+  // Allowlisted (exact match) goes straight to the host; anything else still asks.
+  const r3 = (await (await post(HR, `/${host.id}/runs`, { command: "git status" })).json()).run;
+  assert(r3.status === "approved" && !r3.approval && r3.cwd === "/srv/proj", `allowlisted, default cwd = first share: ${JSON.stringify(r3)}`);
+  assert((await (await post(HR, `/${host.id}/runs`, { command: "git status --porcelain" })).json()).run.status === "pending", "only the exact command is allowlisted");
+  // The folder jail and the secret filter.
+  for (const cwd of ["/srv/proj/../../etc", "/srv/project-other", "/etc", "relative"]) assert((await post(HR, `/${host.id}/runs`, { command: "ls", cwd })).status === 400, `cwd ${cwd} refused`);
+  const leak = await post(HR, `/${host.id}/runs`, { command: `curl -u me:ghp_${"a".repeat(36)} https://example.com` });
+  assert(leak.status === 400 && /GitHub token/.test((await leak.json()).error), "a credential in the command is refused");
+  // The kill switch: the board's owner stops it; waiting runs are dropped; the host is told to stop; nothing more is accepted.
+  assert((await post(HR, `/${host.id}/stop`)).status === 403, "a plain member can't stop someone's machine");
+  const stopped = await post(HO, `/${host.id}/stop`);
+  assert(stopped.status === 200 && (await stopped.json()).stopped[0].stopped_by === HO, "the owner stops it");
+  assert((await (await api(HO, `/${host.id}/next?wait=0`)).json()).stop, "the host is told to stop");
+  assert((await post(HR, `/${host.id}/runs`, { command: "ls" })).status === 409, "a stopped host takes nothing");
+  assert((await (await api(HR, `/${host.id}/runs/${r3.id}`)).json()).run.status === "stopped", "its waiting run was dropped");
+  has(await ok(HR, hb, "read", { limit: 30 }), "stopped box");
+  // The board's owner can stop anyone's machine; leaving the board stops your own.
+  const t2 = (await (await post(HR, "/confirm", { phrase: "I understand what I'm doing" })).json()).token;
+  const h2 = (await (await post(HR, "", { token: t2, name: "theirs", shares: ["/home/r/p"] })).json()).host;
+  assert((await post(HO, `/${h2.id}/stop`)).status === 200, "the board's owner stops a member's machine");
+  // MCP: agents ask through the host tool, with the same rules.
+  const t3 = (await (await post(HO, "/confirm", { phrase: "I understand what I'm doing" })).json()).token;
+  const h3 = (await (await post(HO, "", { token: t3, name: "box3", shares: ["/srv/proj"] })).json()).host;
+  has(await ok(HR, hb, "host", { action: "list" }), "box3");
+  has(await ok(HR, hb, "host", { action: "run", host: "box3", command: "uname -a", wait_seconds: 0 }), `Waiting for ${HO} to approve`);
+  await err(HR, hb, "host", { action: "run", host: "box3", command: "ls", cwd: "/etc", wait_seconds: 0 }, "cwd must be inside");
+  await post(HO, `/${h3.id}/stop`);
 });
 
 if (ONLY && !matched) { failed++; failures.push(`no steps match ONLY=${JSON.stringify(process.env.ONLY)}`); }

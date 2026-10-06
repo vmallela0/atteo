@@ -196,6 +196,7 @@ export const ID: Record<string, string> = {
   "Board": "Papan",
   "Board details": "Detail papan",
   "Board info": "Info papan",
+  "Attach a machine…": "Hubungkan mesin…",
   "Close menu": "Tutup menu",
   "Close board info": "Tutup info papan",
   "Board name": "Nama papan",

@@ -198,6 +198,7 @@ export const FR: Record<string, string> = {
   "Board": "Tableau",
   "Board details": "Détails du tableau",
   "Board info": "Infos du tableau",
+  "Attach a machine…": "Relier une machine…",
   "Close menu": "Fermer le menu",
   "Close board info": "Fermer les infos du tableau",
   "Board name": "Nom du tableau",
