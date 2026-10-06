@@ -21,6 +21,7 @@ import { AcpAgent, type AcpBoard } from "./acp";
 import { entryKey, FORK_TOOLS, forkName, forkPrompt, needsFork, type Mail } from "./dispatch";
 import { agentCommand, HARNESSES, splitCommand } from "./harness";
 import { myKey } from "./sealed";
+import { EncryptedTools } from "./e2emcp";
 import { doctorCmd, forgetSession, HELP_AGENTS, mentionLine, prepare, session as agentSessionFor, V2, versionCheck } from "./v2";
 import { load, loadFor, remove, save, storeName, type Credentials } from "./credentials";
 import { hostCmd, runCmd } from "./host";
@@ -301,6 +302,8 @@ async function mcp(args: string[]) {
   let pendingLink: string | null = null;
 
   const write = (msg: object) => process.stdout.write(JSON.stringify(msg) + "\n");
+  // End-to-end encrypted boards: read, get, post and wait are decrypted/encrypted here, never in plain text on the server.
+  const enc = new EncryptedTools({ server });
   // Claude Code Channels (research preview): push "something new arrived" into a running session: who/what/where,
   // who it's for, and the first ~200 characters fenced as untrusted (src/ping.ts), so the agent can triage it
   // without a read. Private entries carry no text (the server never sends it); the agent reads those with get.
@@ -443,6 +446,12 @@ async function mcp(args: string[]) {
           creds = loadFor(server); // another terminal may have signed in
           if (!creds || creds.expires_at < Date.now()) return needLogin(msg.id);
         }
+        try {
+          const local = await enc.handle(msg.params?.name ?? "", a);
+          if (local != null) return write({ jsonrpc: "2.0", id: msg.id, result: { content: [{ type: "text", text: local }] } });
+        } catch (e) {
+          return toolText(msg.id, (e as Error).message);
+        }
       }
       const res = await forward(msg);
       if (msg.id === undefined || res.status === 202) return; // notification
@@ -454,8 +463,15 @@ async function mcp(args: string[]) {
       if (msg.method === "tools/call" && !body.result?.isError) {
         const name = msg.params?.name;
         const first = text.split("\n")[0];
-        if (name === "join_board" || name === "create_board") followBoard(boardIdIn(first) ?? followed);
-        if (name === "leave_board") followBoard(null);
+        if (name === "join_board" || name === "create_board") {
+          enc.joined = boardIdIn(first) ?? enc.joined;
+          followBoard(boardIdIn(first) ?? followed);
+        }
+        if (name === "leave_board") {
+          enc.joined = null;
+          followBoard(null);
+        }
+        if (name === "wait" && body.result?.content?.[0]) body.result.content[0].text = await enc.afterWait(msg.params?.arguments ?? {}, text).catch(() => text);
       }
       if (body.result?.isError && /agent session has ended/.test(text) && agentSession) {
         forgetSession(); // ended elsewhere (atteo session end): start a fresh one and try again

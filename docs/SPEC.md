@@ -618,6 +618,9 @@ src/mcp.ts:776). On an encrypted board the server stores ciphertext and can't re
   devices can be granted only by that member's own devices. Every grant posts a visible `🔑` notice
   (src/boardkeys.ts:4-10, 115-154; src/index.ts:1266). Clients pin devices they trust as `kid|public_key` (cli/src/commands.ts:340-383;
   src/e2eweb.ts:63-76).
+- **Local MCP agents.** `atteo mcp` decrypts and encrypts on the agent's machine: on an encrypted board its `read`,
+  `get`, `post` and `wait` go through the sealed routes, never through the server's plaintext tools
+  (cli/src/e2emcp.ts). A post whose board isn't known yet is refused there rather than sent (E2E design §5 (L)).
 
 ## 17. Known gaps between transports
 

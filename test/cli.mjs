@@ -997,6 +997,62 @@ await step("end-to-end encrypted board: CLI encrypts and decrypts; the server an
   assert(exported.every((e) => e.encrypted === true && !("payload" in e)), "the decrypted text, without the ciphertext");
 });
 
+await step("atteo mcp on an encrypted board (E2E 1c): a local MCP agent reads, gets, posts and waits, decrypted on its machine; the server never gets plaintext", async () => {
+  // Its own owner, so A's free-plan board count is left to the other steps.
+  const O = `e2e-cli-o-${run}`;
+  await ops("users", { name: O, email: `${O}@example.com`, verified: "true" });
+  const tokO = (await ops("tokens", { user: O })).token;
+  const credO = join(dir, "o.json");
+  writeFileSync(credO, JSON.stringify({ server: BASE, user: O, token: tokO, expires_at: Date.now() + 86400e3 }), { mode: 0o600 });
+  const projA = mkdtempSync(join(tmpdir(), "atteo-e2emcp-a-"));
+  const cliO = (args) => cli(args, { cwd: projA, cred: credO });
+  let r = await cliO(["create", `e2e mcp enc ${run}`, "--encrypted"]);
+  assert(r.code === 0, r.out + r.err);
+  const eb = r.out.match(/\((b_[a-z0-9]+)\)/)[1];
+  await ops("members", { board: eb, user: B });
+  await cli(["keys"], { cwd: projA, cred: credB }); // B's machine has its device key before the first post
+  const secret = `mcp sees this only locally ${run}`;
+  r = await cliO(["post", secret]);
+  assert(r.code === 0, r.out + r.err);
+  const m = startMcp(credB, { XDG_CONFIG_HOME: join(dir, "cfg-e2emcp") });
+  await m.call("initialize", { protocolVersion: "2025-06-18", capabilities: {} });
+  // Before joining, a post can't know its board: refused here, nothing sent.
+  let x = await m.call("tools/call", { name: "post", arguments: { type: "note", text: "where does this go" } });
+  assert(x.result.isError && x.result.content[0].text.includes("join_board"), x.result.content[0].text);
+  x = await m.call("tools/call", { name: "join_board", arguments: { board: eb } });
+  assert(!x.result.isError, x.result.content[0].text);
+  x = await m.call("tools/call", { name: "read", arguments: {} });
+  let t = x.result.content[0].text;
+  assert(t.includes(secret) && t.includes("END-TO-END ENCRYPTED, decrypted on this machine") && /<<untrusted /.test(t), t);
+  x = await m.call("tools/call", { name: "read", arguments: {} });
+  assert(x.result.content[0].text.includes("(nothing new)"), x.result.content[0].text);
+  const seq = Number(t.match(/#(\d+) note/)[1]);
+  const reply = `agent reply via mcp ${run}`;
+  x = await m.call("tools/call", { name: "post", arguments: { type: "note", text: reply, reply_to: seq } });
+  t = x.result.content[0].text;
+  assert(!x.result.isError && /Posted #\d+ \(note, encrypted on this machine\)/.test(t) && t.includes(`In reply to #${seq}`), t);
+  // Stored as a v2 envelope: no plaintext anywhere the server keeps.
+  const list = await fetch(`${BASE}/api/boards/${eb}/sealed?after=0`, { headers: { authorization: `Bearer ${tokO}` } }).then((y) => y.json());
+  assert(list.entries.length === 2 && list.entries.every((e) => !e.payload.includes("mcp") && JSON.parse(e.payload).v === 2), JSON.stringify(list).slice(0, 300));
+  assert(!(await tool(tokO, eb, "read", {})).includes(reply), "the server's own read shows no plaintext");
+  r = await cliO(["read"]);
+  assert(r.out.includes(reply), "A's CLI decrypts what the MCP agent posted: " + r.out + r.err);
+  x = await m.call("tools/call", { name: "get", arguments: { seq } });
+  t = x.result.content[0].text;
+  assert(t.includes(secret) && t.includes("Replies (1)") && t.includes(reply), t);
+  // Plain-text-only fields are refused here, before anything is sent.
+  x = await m.call("tools/call", { name: "post", arguments: { type: "note", text: "x", data: { k: 1 } } });
+  assert(x.result.isError && x.result.content[0].text.includes("plain text"), x.result.content[0].text);
+  // wait: the server blocks; what arrives comes back decrypted.
+  const waiting = m.call("tools/call", { name: "wait", arguments: { timeout_seconds: 20 } });
+  await sleep(1500);
+  r = await cliO(["post", `arrives during wait ${run}`]);
+  x = await waiting;
+  t = x.result.content[0].text;
+  assert(t.includes(`arrives during wait ${run}`) && t.includes("decrypted on this machine"), t);
+  m.stop();
+});
+
 await step("encrypted board past 200 (alt-c #3398): read --all shows everything; a plain read takes a page and says more are waiting", async () => {
   // Standalone (#3007): its own encrypted board. The sealed route gives 200 a call, so 205 filler envelopes push a real
   // message past the first page. The filler is a v2 envelope at the board's epoch that won't decrypt; it only adds entries.

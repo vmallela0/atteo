@@ -418,7 +418,7 @@ async function boardKeys(opt: Record<string, string | true>, board: string, trie
   return { current, keys };
 }
 
-async function encPost(opt: Record<string, string | true>, board: string, p: { type: string; text: string; to?: string; reply_to?: number }, tries = 0): Promise<{ seq: number }> {
+export async function encPost(opt: Record<string, string | true>, board: string, p: { type: string; text: string; to?: string; reply_to?: number }, tries = 0): Promise<{ seq: number }> {
   const { current, keys } = await boardKeys(opt, board);
   const payload = JSON.stringify({ v: 2, epoch: current, ...encryptV2(keys.get(current)!, Buffer.from(p.text)) });
   try {
@@ -432,7 +432,7 @@ async function encPost(opt: Record<string, string | true>, board: string, p: { t
 }
 
 const cursorFile = () => join(configDir(), "e2e-cursors.json");
-function cursors(): Record<string, number> {
+export function cursors(): Record<string, number> {
   try {
     return JSON.parse(readFileSync(cursorFile(), "utf8"));
   } catch {
@@ -440,8 +440,16 @@ function cursors(): Record<string, number> {
   }
 }
 
+/** Where this machine has read an encrypted board up to (shared by atteo read and atteo mcp). */
+export function saveCursor(board: string, seq: number) {
+  const cur = cursors();
+  if ((cur[board] ?? 0) >= seq) return;
+  mkdirSync(configDir(), { recursive: true, mode: 0o700 });
+  writeFileSync(cursorFile(), JSON.stringify({ ...cur, [board]: seq }), { mode: 0o600 });
+}
+
 /** The most entries GET /sealed returns in one call (Board.sealedAfter's default). */
-const SEALED_PAGE = 200;
+export const SEALED_PAGE = 200;
 
 export async function encEntries(opt: Record<string, string | true>, board: string, after: number) {
   const kid = await ensureKey(opt);
@@ -467,7 +475,7 @@ export async function decryptEntry(opt: Record<string, string | true>, board: st
   return (await encEntries(opt, board, seq - 1)).find((e) => e.seq === seq)?.text ?? null;
 }
 
-const encLine = (e: { seq: number; ts: number; author: string; via: string | null; type: string; to: string | null; reply_to: number | null; text: string }) =>
+export const encLine = (e: { seq: number; ts: number; author: string; via: string | null; type: string; to: string | null; reply_to: number | null; text: string }) =>
   `#${e.seq} ${e.type} · ${e.via === "agent" ? `${e.author}'s agent` : e.author}${e.to ? ` → ${e.to}` : ""}${e.reply_to ? ` · re #${e.reply_to}` : ""} · ${new Date(e.ts).toISOString().slice(0, 16).replace("T", " ")}Z\n    ${proseForAgent(e.text).replace(/\n/g, "\n    ")}`;
 
 async function read(args: string[]) {
