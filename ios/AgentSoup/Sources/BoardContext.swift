@@ -91,7 +91,8 @@ extension AppState {
             return true
         } catch APIError.server(let m) {
             Haptics.play(.failed)
-            error = m.localizedCaseInsensitiveContains("full") ? String(localized: "Memory is full: strike something first.", bundle: .l10n) : m
+            let isTransient = isTransientServerError(m)
+            error = m.localizedCaseInsensitiveContains("full") ? String(localized: "Memory is full: strike something first.", bundle: .l10n) : (isTransient ? String(localized: "Atteo had a hiccup. Try again in a moment.", bundle: .l10n) : m)
             return false
         } catch { report(error); return false }
     }

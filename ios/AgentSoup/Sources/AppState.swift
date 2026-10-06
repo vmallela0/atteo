@@ -855,7 +855,16 @@ final class AppState: ObservableObject {
     func report(_ e: Error, quiet: Bool = false) {
         if case APIError.signedOut = e { signOut(); return }
         if quiet, case APIError.offline = e { return }
-        error = e.localizedDescription
+        error = friendlyErrorMessage(for: e)
+    }
+
+    // Map transient Cloudflare errors to friendly text (vedu #4845)
+    private func friendlyErrorMessage(for e: Error) -> String {
+        let msg = e.localizedDescription
+        if isTransientServerError(msg) {
+            return String(localized: "Atteo had a hiccup. Try again in a moment.", bundle: .l10n)
+        }
+        return msg
     }
 }
 
