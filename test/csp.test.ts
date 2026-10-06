@@ -56,7 +56,7 @@ describe("HTML page CSP", () => {
       expect(csp.split("; ").find((x) => x.startsWith("script-src "))).not.toContain("'unsafe-inline'");
       expect(csp).toContain("script-src-attr 'none'");
       const styleSrc = csp.split("; ").find((x) => x.startsWith("style-src ")) ?? "";
-      expect(styleSrc).toBe(`style-src 'self' 'nonce-${nonce}'`);
+      expect(styleSrc).toBe(`style-src 'self' 'nonce-${nonce}' 'sha256-lCZPv+siQGbLyHufN87S4tT1GlG+V8T7J184kcDeWZ4='`); // + pinned mermaid's own <style>
       expect(styleSrc).not.toContain("'unsafe-inline'");
       expect(csp.split("; ").find((x) => x.startsWith("style-src-attr"))).toBe("style-src-attr 'unsafe-inline'");
       const styles = [...html.matchAll(/<style\b([^>]*)>/g)];

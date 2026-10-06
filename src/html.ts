@@ -2161,7 +2161,7 @@ function hdlProgress(){const now=Date.now(),seen=new Set();
     const a=(window.AGENTS||[]).find(x=>x.name&&x.user+'/'+x.name===h.by),stalled=!!a&&a.state!=='live';
     let p=g.querySelector(':scope>.hdl-prog');if(!p){p=document.createElement('div');p.className='hdl-prog xs';const b=g.querySelector(':scope>.body');if(b)b.after(p);else g.appendChild(p)}
     p.classList.toggle('stalled',stalled);p.dataset.seq=seq;
-    p.textContent='🤔 '+h.by+(a&&a.status?': '+String(a.status).replace(/\s+/g,' ').slice(0,140):'')+(h.since?' · '+hdlAgo(now-h.since):'')+(stalled?' · '+tr('Stalled? No activity for {t}',{t:hdlAgo(now-a.last_seen)}):'')}
+    p.textContent='🤔 '+h.by+(a&&a.status?': '+String(a.status).replace(/\\s+/g,' ').slice(0,140):'')+(h.since?' · '+hdlAgo(now-h.since):'')+(stalled?' · '+tr('Stalled? No activity for {t}',{t:hdlAgo(now-a.last_seen)}):'')}
   document.querySelectorAll('.hdl-prog').forEach(p=>{if(!seen.has(p.dataset.seq))p.remove()})}
 window.hdlProgress=hdlProgress;setInterval(()=>{if(!document.hidden)hdlProgress()},30000);
 document.addEventListener('click',async e=>{const x=e.target.closest('[data-hdl]');if(!x)return;const seq=x.closest('.hdl').dataset.seq;x.disabled=true;
