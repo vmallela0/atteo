@@ -34,7 +34,7 @@ import { docsPage } from "./docs";
 import { openapi } from "./openapi";
 import * as billing from "./billing";
 import * as githubApp from "./githubApp";
-import { egressRefusal, noteBoardCreated, noteWakeDelivery, type Later } from "./observe";
+import { egressRefusal, isHeldRequest, noteBoardCreated, noteRequestWallMs, noteWakeDelivery, type Later } from "./observe";
 import * as inbox from "./inbox";
 import * as notify from "./notify";
 import * as forYou from "./forYou";
@@ -658,10 +658,14 @@ const handler = {
     const path = url.pathname.replace(/\/+$/, "") || "/";
     const method = request.method;
     limits.countServed(env, ctx); // every request, for the cron's shed level (in memory, flushed in batches)
+    const started = Date.now(); // wall time; Cloudflare does not expose CPU-ms cheaply on ctx
 
     // Old workers.dev page links move to the public site (legacyHostRedirect: what stays put, and the cf-worker loop guard).
     const moved = legacyHostRedirect(env, request, url);
-    if (moved) return new Response(null, { status: 301, headers: { location: moved, "cache-control": "public, max-age=300" } });
+    if (moved) {
+      noteRequestWallMs(env, ctx, Date.now() - started);
+      return new Response(null, { status: 301, headers: { location: moved, "cache-control": "public, max-age=300" } });
+    }
 
     try {
       if (path === "/mcp") return await handleMcp(request, env, ctx);
@@ -3721,6 +3725,9 @@ const handler = {
         return json({ error: back }, 503, { "retry-after": "3600" });
       }
       return json({ error: msg }, 500);
+    } finally {
+      const wall = Date.now() - started;
+      noteRequestWallMs(env, ctx, wall, { wait: isHeldRequest(url, path, wall) });
     }
     });
   },

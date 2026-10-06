@@ -5,6 +5,7 @@ import {
   egressRefusal,
   egressRefusalText,
   histogramPercentile,
+  isHeldRequest,
   latencyBucket,
   noteApprovalDecision,
   noteApprovalRequested,
@@ -18,6 +19,7 @@ import {
   noteFriendAccepted,
   noteInviteRedeemed,
   notePaste,
+  noteRequestWallMs,
   noteStaleNotice,
   noteWakeDelivery,
   observability,
@@ -214,6 +216,9 @@ describe("paste, secret-filter blocks and context-pack size", () => {
     expect(o.approvals).toEqual({ requested: 2, approved: 1, rejected: 1, by_risk: { low: 0, medium: 1, high: 1 } });
     expect(o.latency.entry_delivery.samples).toBe(0);
     expect(o.latency.context_pack.samples).toBe(0);
+    expect(o.latency.request.samples).toBe(0);
+    expect(o.latency.request.kind).toBe("wall");
+    expect(o.latency.request.cpu_available).toBe(false);
     expect(src("src/usage.ts")).toContain("observability(env, n)");
     expect(src("src/usage.ts")).toContain("observe");
   });
@@ -230,6 +235,7 @@ describe("paste, secret-filter blocks and context-pack size", () => {
     noteLatency(env, null, "entry_delivery", 40, "vedu");
     noteLatency(env, null, "entry_delivery", 80, "vedu");
     noteContextPackMs(env, null, 12, "vedu");
+    noteRequestWallMs(env, null, 18);
     await settleCounts();
     const observe = await observability(env);
     const res = adminPage(
@@ -272,6 +278,9 @@ describe("paste, secret-filter blocks and context-pack size", () => {
     expect(html).toContain("Context pack p95");
     expect(html).toContain("entry_delivery");
     expect(html).toContain("context_pack_ms");
+    expect(html).toContain("request_ms");
+    expect(html).toContain("Request wall p95");
+    expect(html).toContain("wall time, not CPU");
     expect(html).not.toContain("ghp_");
   });
 });
@@ -340,6 +349,52 @@ describe("latency histograms (entry delivery and context-pack reads)", () => {
     expect(src("src/index.ts")).toContain("noteWakeDelivery(env, ctx,");
     expect(src("src/mcp.ts")).toContain("let waited = false");
     expect(src("src/index.ts")).toContain("let waited = false");
+    expect(src("src/index.ts")).toContain("noteRequestWallMs(env, ctx, wall, { wait: isHeldRequest(url, path, wall) })");
+  });
+});
+
+describe("request wall-time histogram", () => {
+  it("treats HTTP waits and held MCP calls as long-polls", () => {
+    expect(isHeldRequest(new URL("https://atteo.dev/api/boards/b_x/entries?wait=25"), "/api/boards/b_x/entries", 80)).toBe(true);
+    expect(isHeldRequest(new URL("https://atteo.dev/api/boards/b_x/entries"), "/api/boards/b_x/entries", 80)).toBe(false);
+    expect(isHeldRequest(new URL("https://atteo.dev/mcp"), "/mcp", 1999)).toBe(false);
+    expect(isHeldRequest(new URL("https://atteo.dev/mcp"), "/mcp", 2000)).toBe(true);
+    expect(isHeldRequest(new URL("https://atteo.dev/health"), "/health", 5000)).toBe(false);
+  });
+
+  it("records wall-time samples, skips waits, and flushes to usage_daily", async () => {
+    const { env, db } = fakeEnv();
+    noteRequestWallMs(env, null, 12);
+    noteRequestWallMs(env, null, 80);
+    noteRequestWallMs(env, null, 1200);
+    noteRequestWallMs(env, null, 40, { wait: true });
+    noteRequestWallMs(env, null, -1);
+    expect(counter("request_ms", "samples")).toBe(3);
+    expect(counter("request_ms", "lt_50")).toBe(1);
+    expect(counter("request_ms", "50_100")).toBe(1);
+    expect(counter("request_ms", "1s_2s")).toBe(1);
+    await settleCounts();
+    const o = await observability(env, 14);
+    expect(o.latency.request.samples).toBe(3);
+    expect(o.latency.request.kind).toBe("wall");
+    expect(o.latency.request.cpu_available).toBe(false);
+    expect(o.latency.request.p50_ms).toBe(100);
+    expect(o.latency.request.p95_ms).toBe(2000);
+    expect(o.latency.request.over_target).toBe(1);
+    expect(o.latency.request.target_ms).toBe(1000);
+    expect(o.latency.request.avg_ms).toBeGreaterThan(0);
+    expect(db.prepare(`SELECT key, count FROM usage_daily WHERE metric = 'request_ms' AND key = 'samples'`).all()).toEqual([{ key: "samples", count: 3 }]);
+  });
+
+  it("batches D1 writes when a later is supplied", async () => {
+    const { env, db } = fakeEnv();
+    const later = { waitUntil() {} };
+    for (let i = 0; i < 49; i++) noteRequestWallMs(env, later, 10);
+    expect(counter("request_ms", "samples")).toBe(49);
+    expect(db.prepare(`SELECT count FROM usage_daily WHERE metric = 'request_ms' AND key = 'samples'`).all()).toEqual([]);
+    noteRequestWallMs(env, later, 10);
+    await settleCounts();
+    expect(db.prepare(`SELECT count FROM usage_daily WHERE metric = 'request_ms' AND key = 'samples'`).all()).toEqual([{ count: 50 }]);
   });
 });
 

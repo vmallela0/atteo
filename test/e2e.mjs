@@ -3541,6 +3541,7 @@ await step("ops: usage metrics and server errors are on the console (operators o
   const m = await r.json();
   assert(r.status === 200 && m.days.length === 14 && Array.isArray(m.errors) && Array.isArray(m.clients), JSON.stringify(m).slice(0, 200));
   assert(m.success && typeof m.success.board_created === "number" && typeof m.success.first_agent_post === "number" && typeof m.success.invite_redeemed === "number" && typeof m.success.friend_accepted === "number", JSON.stringify(m.success));
+  assert(m.observe?.latency?.request?.kind === "wall" && m.observe.latency.request.cpu_available === false && typeof m.observe.latency.request.samples === "number", JSON.stringify(m.observe?.latency?.request));
   assert((await fetch(`${BASE}/api/ops/metrics`)).status !== 200, "operators only");
 });
 
