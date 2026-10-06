@@ -1255,7 +1255,7 @@ pre.json{background:var(--bg-subtle);border:1px solid var(--line);border-radius:
   [dir=rtl] .bp-panel .aside{inset:0 auto 0 0;transform:translateX(-100%)}
   .layout.info-open>.aside{transform:none;visibility:visible}.layout.info-open>.conv{visibility:visible}
   .layout.info-open::before{content:"";position:fixed;inset:0;z-index:60;background:rgba(0,0,0,.32)}
-  .bp-panel .info-btn{position:fixed;top:8px;right:8px;z-index:62}.nav-open .bp-panel .info-btn{visibility:hidden}.info-btn[aria-expanded="true"]::after{display:grid;place-items:center}.app:has(#info-btn) .topbar .actions{padding-inline-end:30px;gap:4px}[dir=rtl] .bp-panel .info-btn{right:auto;left:8px}
+  .bp-panel .info-btn{position:fixed;top:8px;right:8px;z-index:62}.nav-open .bp-panel .info-btn{visibility:hidden}.info-btn[aria-expanded="true"]::after{display:grid;place-items:center}#fold-members li+li{margin-top:6px} /* Remove buttons a full tap apart */.app:has(#info-btn) .topbar .actions{padding-inline-end:30px;gap:4px}[dir=rtl] .bp-panel .info-btn{right:auto;left:8px}
   .bp-tabs .tabs{gap:4px}.bp-tabs .tabs button{padding:5px 12px;border:0;border-radius:999px;margin:0}.bp-tabs .tabs button[aria-selected=true]{background:var(--ink);color:var(--bg)}
   .app>.grow{display:flex;flex-direction:column}.topbar{order:-1}.app>.grow>.content{width:100%}.content.full{--top:88px}.bp-title{display:none}
   .strip{display:flex;height:40px;padding:0 4px;background:none}.strip>:not(.btabs){display:none}.btab{padding:0 10px}

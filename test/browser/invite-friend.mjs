@@ -15,7 +15,9 @@ for (const [w,h] of [[1280,820],[390,800]]) {
   const ctx=await b.newContext({viewport:{width:w,height:h}});const [k,...v]=ck.split(";")[0].split("=");await ctx.addCookies([{name:k,value:v.join("="),url:BASE}]);
   const p=await ctx.newPage();const errors=[];p.on("pageerror",e=>errors.push(e.message));
   await p.goto(`${BASE}/b/${board}`);
-  await p.locator(".av-add").first().click();
+  // A phone's header has no member stack (jxn #4860): the rail's "Invite an agent" opens the same dialog.
+  if (w <= 640) { await p.locator("#info-btn").click(); await p.locator('#board-info [data-open="invite-agent"]').click(); }
+  else await p.locator(".av-add").first().click();
   const d=p.locator("#invite-agent");await d.waitFor();
   const order=await d.locator(".ia-opt h3").allInnerTexts();
   check(order[0]==="Invite a friend"&&order[1]==="Your own assistant",`${w}px: a friend first, then your own assistant (${order.join(" · ")})`);
