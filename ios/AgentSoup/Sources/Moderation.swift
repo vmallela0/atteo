@@ -139,14 +139,15 @@ struct SafetySection: View {
             })).tint(Theme.accent)
                 .accessibilityIdentifier("ai-consent-toggle")
             // Product analytics (Analytics.swift, vedu #4416): on by default, this phone only; off stops it at once.
-            Toggle("Share usage analytics", isOn: Binding(get: { analytics }, set: { Analytics.setEnabled($0); analytics = $0 }))
+            Toggle(String(localized: "Share usage analytics", bundle: .l10n), isOn: Binding(get: { analytics }, set: { Analytics.setEnabled($0); analytics = $0 }))
                 .tint(Theme.accent)
                 .accessibilityIdentifier("analytics-toggle")
         } header: { SectionHeader("Safety and privacy") } footer: {
             // (the toggle's state is refreshed from the server whenever voice status loads: TalkStatus.load → AIConsent.sync)
             VStack(alignment: .leading, spacing: Space.xs) {
                 Text("Offensive words in other people's messages show as dots. Voice chat and the natural reading voice send your voice and the messages being read to xAI; off, you're asked first. To report a message, long-press it; to mute or block someone, open their profile.")
-                Text("Usage analytics tell us which features get used, never what you write. They go to PostHog.")
+                Text(String(localized: "Usage analytics tell us which features get used, never what you write. They go to PostHog.", bundle: .l10n))
+                Text(String(localized: "Turning this off also stops crash reports. When configured, Sentry receives only the error, screen name, app version and OS.", bundle: .l10n))
             }
         }
         .listRowBackground(Theme.card)

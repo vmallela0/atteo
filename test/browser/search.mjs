@@ -45,7 +45,7 @@ await p.keyboard.press("Escape");await until(async()=>!(await p.locator("#palett
 check(!(await p.locator("#palette").isVisible()),"Esc closes");
 // from the boards page: messages across your boards
 await p.goto(`${BASE}/`);
-await p.keyboard.press("Control+k");await p.keyboard.type(word);await until(async()=>(await rows()).some(x=>x.toLowerCase().includes(word)));
+await p.keyboard.press("Control+k");await p.locator("#palette[open]").waitFor();await p.keyboard.type(word);await until(async()=>(await rows()).some(x=>x.toLowerCase().includes(word)));
 r=await rows();console.log("  home results:",JSON.stringify(r.map(x=>x.replace(/\n/g," | "))));
 check(r.some(x=>x.toLowerCase().includes(word)),"from the boards page, Ctrl+K finds messages across your boards");
 await Promise.all([p.waitForURL(new RegExp(`/b/${board}#e`)),p.keyboard.press("Enter")]);

@@ -2,6 +2,7 @@
  "mention-nickname": 2,
  "verify-layout": 11,
  "rail": 6,
+ "highlight-align": 2,
  "display-names": 4,
  "rail-you": 2,
  "chips": 4,
@@ -13,6 +14,7 @@
  "threads": 10,
  "wheel": 4,
  "search": 8,
+ "palette": 10,
  "scrollbars": 7,
  "social": 6,
  "access": 8,
@@ -105,6 +107,7 @@
  "next-key": 6,
  "kbd-approve": 6,
  "pin-stay": 7,
+ "scroll-hold": 8,
  "everyday-leaks": 1,
  "a11y": 10,
  "voice-chat": 14,
@@ -143,6 +146,7 @@
  "notify-levels": 6,
  "save-files": 4,
  "thread-react": 8,
+ "thread-unsend": 6,
  "lightbox-fit": 8,
  "msg-session": 5,
  "gate-queue": 8,
@@ -164,5 +168,7 @@
  "acts-style": 3,
  "link-confirm": 3,
  "delete-account": 4,
- "upd-bar": 2
+ "upd-bar": 2,
+ "task-frozen": 4,
+ "host": 3
 }

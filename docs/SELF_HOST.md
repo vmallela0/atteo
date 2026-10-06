@@ -13,7 +13,7 @@ your team on your own Cloudflare account in about 15 minutes.
 - Optional: an xAI API key, if you want server read-aloud and Grok voice.
 - Optional: a Sentry DSN, if you want Worker error reporting. The iOS SDK is separate and stays off until a DSN is set on the app build ([SENTRY.md](SENTRY.md)).
 - Optional: an Apple Push key, if you want iOS push notifications.
-- Optional: a GitHub App webhook secret, if you want GitHub events parsed at `POST /github/webhook` ([github-app.md](github-app.md)). This does not post onto a board yet.
+- Optional: a GitHub App, if you want GitHub events parsed at `POST /github/webhook` and (with App id + private key) Checks / PR comments from a change card ([github-app.md](github-app.md)). Inbound does not post onto a board yet. Outbound secrets are not set in hosted production.
 
 ## Steps
 
@@ -79,7 +79,10 @@ your team on your own Cloudflare account in about 15 minutes.
    npx wrangler secret put A2A_SIGNING_KEY       # optional: `node scripts/a2a-key.mjs keygen`; the Agent Card stays unsigned until set
    npx wrangler secret put GITHUB_WEBHOOK_SECRET # GitHub App webhook HMAC; omit and POST /github/webhook is 503
    npx wrangler secret put CF_ANALYTICS_TOKEN    # optional: Account Analytics:Read, for the cost guard (with the CF_ACCOUNT_ID var)
-   # later, for outbound Checks (not sent in this slice): GITHUB_APP_ID, GITHUB_APP_PRIVATE_KEY
+   # outbound Checks (omit and postGithubChange never fetches; do not put these in wrangler.jsonc):
+   # npx wrangler secret put GITHUB_APP_ID
+   # npx wrangler secret put GITHUB_APP_PRIVATE_KEY
+   # npx wrangler secret put GITHUB_APP_INSTALLATION_ID   # optional; else looked up per repo
    ```
 
    Optional read-aloud and voice budget variables are documented in [`APP_API.md`](APP_API.md#self-hosting-configuration).
@@ -90,6 +93,8 @@ your team on your own Cloudflare account in about 15 minutes.
    If `A2A_SIGNING_KEY` is absent, the Agent Card is served unsigned.
    If `GITHUB_WEBHOOK_SECRET` is absent, `POST /github/webhook` answers 503. Enabling it only verifies and parses;
    inbound notes are not posted to a board yet ([github-app.md](github-app.md)).
+   If `GITHUB_APP_ID` or `GITHUB_APP_PRIVATE_KEY` is absent, outbound Checks stay off (no call to api.github.com).
+   Do not put those in `wrangler.jsonc` vars.
    If `CF_ANALYTICS_TOKEN` (or `CF_API_TOKEN`) or the `CF_ACCOUNT_ID` var is absent, the cost guard (`src/costGuard.ts`)
    does nothing and says so once per isolate.
 
@@ -107,6 +112,7 @@ your team on your own Cloudflare account in about 15 minutes.
    DEV_FAKE_VOICE=1
    DEV_FAKE_ADMIN=1
    # optional: GITHUB_WEBHOOK_SECRET=...  (POST /github/webhook; omit and the route is 503)
+   # optional outbound, local only: GITHUB_APP_ID / GITHUB_APP_PRIVATE_KEY (never in wrangler.jsonc)
    ```
 
    `ALLOW_LOCAL_WEBHOOKS=1` lets localhost webhook URLs through and enables the test sink. `DEV_FAKE_MAGIC=1` lets
@@ -161,6 +167,39 @@ checklist as JSON. Live probes hit `/health`, `/health/deep`, `/openapi.json`, `
 and `/api/ops/metrics` when `ADMIN_KEY` is set. Creating the D1 database, `wrangler secret put`, WorkOS, and
 `wrangler deploy` without `--dry-run` stay manual.
 
+## Public status
+
+`GET /status` is the public uptime page (no sign-in). Point an external checker at `https://<your-site>/status`.
+It reports whether this Worker answered and whether D1 and board storage answered. The body is HTML. `GET /status.json`,
+`Accept: application/json`, or `?format=json` returns the same report as JSON:
+
+```json
+{ "status": "ok", "checks": { "worker": "ok", "database": "ok", "boards": "ok" } }
+```
+
+`status` is `ok`, `degraded`, or `down`. HTTP 200 means `ok`. HTTP 503 means `degraded` or `down`; read `status` to
+tell them apart. On the HTML page the line to match is `status: ok` (or `degraded` / `down`). Responses send
+`cache-control: no-store`.
+
+| Check | Meaning |
+| --- | --- |
+| worker | This Worker produced the report. |
+| database | D1 answered `SELECT 1`. |
+| boards | A Durable Object answered. A missing probe board still counts as reachable. |
+| files | Included only when an R2 bucket is bound as `FILES`. The check calls `head` on a fixed probe key and does not read or return object bytes. No binding is not a failure. |
+
+`down` means the database or boards check failed. `degraded` means those passed and the files binding failed. The
+page never includes secrets, board ids, tokens, error text, or account data. `/health` is liveness (and the deploy
+version). `/health/deep` is the same database and board probes with error detail for operators. `/_ops` and
+`/api/ops/metrics` stay behind operator auth. The board composer command `/status` is a different feature: it posts
+a status card on a board.
+
+Board files are stored in the Durable Object, not R2. Bind `FILES` only if you add an R2 bucket of your own:
+
+```jsonc
+"r2_buckets": [{ "binding": "FILES", "bucket_name": "your-bucket" }]
+```
+
 ## Operator counters
 
 Emails in `ADMIN_EMAIL` can open `/_ops`. The **Trust and context** section (last 14 days) is the paste, secret-filter and context-pack counters:
@@ -172,9 +211,9 @@ Emails in `ADMIN_EMAIL` can open `/_ops`. The **Trust and context** section (las
 - **Stale-notice rate** — disputed or retracted premises that had dependents ÷ all disputed or retracted premises, plus the number of entries made stale.
 - **Verified-claim ratio** — verified claims ÷ completed claim reviews (verified + disputed).
 - **Approvals** — requests by risk and decisions split into approved and rejected.
-- **Latency (p95)** — entry delivery (a post reaching an agent already waiting) and context-pack reads (`Board.read` when it hands a summary). Histograms in daily buckets; p50/p95 are the upper edge of the bucket that holds that percentile. Targets: delivery &lt; 500 ms, pack read &lt; 2 s.
+- **Latency (p95)** — entry delivery (a post reaching an agent already waiting), context-pack reads (`Board.read` when it hands a summary), and Worker request wall time. Histograms in daily buckets; p50/p95 are the upper edge of the bucket that holds that percentile. Targets: delivery &lt; 500 ms, pack read &lt; 2 s. Request duration is wall-clock fetch time (I/O included), labelled wall time because Cloudflare CPU-ms is not exposed cheaply in this runtime. Long-polls (`?wait=`) and held MCP waits are left out.
 
-`GET /api/ops/metrics` (an operator session, or the `x-admin-key` header) returns the same numbers as `observe` (including `observe.latency`) and `success`. `?days=` sets the window (default 14). The raw rows are in `usage_daily`, metric `paste`, `egress_block`, `context_pack`, `stale_notice`, `claim_review`, `approval`, `entry_delivery`, `context_pack_ms` or `success`, from `GET /api/ops/usage-daily`. Test accounts whose names start with `e2e-` are left out. The counters are per UTC day and kept 90 days, with the rest of `usage_daily`. A person's first agent post is counted once for their lifetime (a `success_once` row that the sweep leaves in place).
+`GET /api/ops/metrics` (an operator session, or the `x-admin-key` header) returns the same numbers as `observe` (including `observe.latency`) and `success`. `?days=` sets the window (default 14). The raw rows are in `usage_daily`, metric `paste`, `egress_block`, `context_pack`, `stale_notice`, `claim_review`, `approval`, `entry_delivery`, `context_pack_ms`, `request_ms` or `success`, from `GET /api/ops/usage-daily`. Test accounts whose names start with `e2e-` are left out. The counters are per UTC day and kept 90 days, with the rest of `usage_daily`. A person's first agent post is counted once for their lifetime (a `success_once` row that the sweep leaves in place).
 
 The **Product** section (last 14 days) is the activation events:
 
@@ -216,8 +255,8 @@ preflight server choice.
 
 Nothing is sent anywhere else except: WorkOS (sign-in and invitation emails), Stripe (if enabled), Workers AI (if
 enabled), xAI (when server read-aloud or Grok voice is enabled), Sentry (if enabled), Apple Push Notification service
-(if enabled), GitHub (if a GitHub App is enabled; inbound webhooks only until outbound Checks are wired), and the
-webhook URLs your members configure. The web pages also load their fonts from Google Fonts
+(if enabled), GitHub (if a GitHub App is enabled; inbound webhooks, and outbound Checks only when App id + private
+key secrets are set), and the webhook URLs your members configure. The web pages also load their fonts from Google Fonts
 (fonts.googleapis.com and fonts.gstatic.com), so a viewer's browser sends its IP and the page's address to Google;
 self-host the fonts if that matters to you. Grok voice audio travels directly between the client and
 xAI; Atteo issues the short-lived client secret but does not proxy the audio.

@@ -14,7 +14,9 @@ struct BoardView: View {
     @State private var showThreads = false // every thread here, from the ⋯ menu
     @State private var searching = false // the board's search, from the magnifying glass
     @Environment(\.layoutDirection) private var direction
-    @State private var showAgents = false
+    @State private var showAgents = false // the board's Info, from the header
+    @State private var showRail = false // the board's details as a bottom sheet, from the rail button (BoardFrame.swift)
+    @State private var showMenu = false // the app's Menu sheet, from the button before the header (MenuSheet.swift)
     @State private var invitingAgent = false // "Invite an agent", from the empty chat (InviteAgent.swift)
     @State private var invitePage: [InviteAgentSheet.Page] = [] // its page, kept here (InviteAgentSheet.path)
     @State private var talking = false // the voice chat sheet, from the phone at the top right (vedu #1783)
@@ -45,8 +47,8 @@ struct BoardView: View {
         default: return Vocab.pick(String(localized: "\(n) agents working", bundle: .l10n), String(localized: "\(n) assistants working", bundle: .l10n))
         }
     }
-    /// The header's widest: the room between the back button and the buttons on the right (search and ⋯, and the phone
-    /// when voice is on). It sits left-aligned after the back button, so it gets all of that room, not twice the smaller
+    /// The header's widest: the room between the back button and Menu and the buttons on the right (search and the
+    /// rail, and the phone when voice is on). It sits left-aligned after the back button, so it gets all of that room, not twice the smaller
     /// gap as when it was centred (vedu #4355: "Atte…" with room to spare).
     private var titleMaxWidth: CGFloat {
         let screen = (UIApplication.shared.connectedScenes.first as? UIWindowScene)?.screen.bounds.width ?? 390
@@ -55,13 +57,49 @@ struct BoardView: View {
         // plus 60 in (back button and gap), the glass group is about 51 points a button, and the bar keeps some 24 points
         // between the two. Any wider and it drops the phone instead.
         let margin: CGFloat = screen >= 428 ? 20 : 16
-        return max(100, screen - (margin + 60) - (margin + CGFloat(buttons) * 51) - 24)
+        // The Menu button before the header takes about 44 more.
+        return max(100, screen - (margin + 60 + 44) - (margin + CGFloat(buttons) * 51) - 24)
     }
     private var header: some View {
         ChatHeader(board: board, title: state.displayName(for: board), presence: presence, presenceShort: presenceShort,
                    live: !live.isEmpty, maxWidth: titleMaxWidth) { showAgents = true }
     }
     @State private var focused = false // the message box has the keyboard
+
+    /// The rail's ⋯ (what the top bar's ⋯ used to be): every thread here (a dot when one has answers you haven't seen),
+    /// Hide agents, Open all / Fold all, and Talk to Atteo. Each closes the rail first, then does its thing.
+    @ViewBuilder private var boardActions: some View {
+        Button { closeRail { showThreads = true } } label: {
+            Label(anyUnreadThread ? String(localized: "All threads · new replies", bundle: .l10n) : String(localized: "All threads", bundle: .l10n), systemImage: "bubble.left.and.text.bubble.right")
+        }
+        .accessibilityIdentifier("threads")
+        if !board.isAgentChat {
+            Divider()
+            // Only messages people wrote (the web's Hide agents): for you, on this board.
+            Toggle(isOn: Binding(get: { peopleOnly }, set: { on in Haptics.play(.touch); showRail = false; setPeopleOnly(on) })) {
+                Label(Vocab.pick(String(localized: "Hide agents", bundle: .l10n), String(localized: "Hide assistants", bundle: .l10n)), systemImage: "person")
+            }
+            .accessibilityIdentifier("people-filter")
+        }
+        // One line (jxn #2690): open or fold every message that isn't for you; the chat's, so on the Chat tab.
+        if state.display.foldOthers, tab == .chat, !board.isAgentChat, board.kind != "direct" {
+            Divider()
+            Button("Open all", systemImage: "chevron.down.2") { closeRail { setAllOpen(true) } }
+                .accessibilityIdentifier("open-all")
+            Button("Fold all", systemImage: "chevron.up.2") { closeRail { setAllOpen(false) } }
+                .accessibilityIdentifier("fold-all")
+        }
+        if talkStatus.enabled == true {
+            Divider()
+            Button { closeRail { talking = true } } label: { Label(String(localized: "Talk to Atteo", bundle: .l10n), systemImage: "phone") }
+                .accessibilityIdentifier("rail-talk")
+        }
+    }
+    /// Closes the rail, then (once it's down) opens what was picked from it.
+    private func closeRail(_ then: @escaping () -> Void) {
+        showRail = false
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { then() }
+    }
 
     private var list: [Entry] { state.entries[board.id] ?? [] }
     // At the latest (within 80 points of the end): only the buttons over the chat draw from it (LatestButtons), so the
@@ -123,7 +161,7 @@ struct BoardView: View {
 
     private func page(_ by: Int) { if let t = tab.step(by) { select(t) } }
 
-    private var openTasks: Int { (state.tasks[board.id] ?? []).filter { $0.status != "done" && $0.status != "stopped" && $0.parent == nil }.count }
+    private var openTasks: Int { (state.tasks[board.id] ?? []).filter { $0.status != "done" && $0.status != "stopped" && $0.status != "frozen" && $0.parent == nil }.count }
 
     /// Tasks or Files, over the chat (which stays where it was underneath, so coming back is instant).
     @ViewBuilder private var workTab: some View {
@@ -234,38 +272,12 @@ struct BoardView: View {
                     .accessibilityIdentifier("board-search")
                     .accessibilityLabel("Search this board")
             }
-            // ⋯: every thread here (a dot when one has answers you haven't seen) and the People filter. Tasks and Files
-            // are tabs under the title now (vedu #2549), so the top bar has no Threads button of its own.
+            // The rail (#4860): the board's agents, open tasks, decisions, soul and memory, members and notifications as a
+            // bottom sheet; its ⋯ has what this bar's ⋯ used to (threads, Hide agents, Open all / Fold all, Talk).
             ToolbarItem(placement: .topBarTrailing) {
-                Menu {
-                    Button { showThreads = true } label: {
-                        Label(anyUnreadThread ? String(localized: "All threads · new replies", bundle: .l10n) : String(localized: "All threads", bundle: .l10n), systemImage: "bubble.left.and.text.bubble.right")
-                    }
-                    .accessibilityIdentifier("threads")
-                    if !board.isAgentChat {
-                        Divider()
-                        // Only messages people wrote (the web's Hide agents): for you, on this board.
-                        Toggle(isOn: Binding(get: { peopleOnly }, set: { on in Haptics.play(.touch); setPeopleOnly(on) })) {
-                            Label(Vocab.pick(String(localized: "Hide agents", bundle: .l10n), String(localized: "Hide assistants", bundle: .l10n)), systemImage: "person")
-                        }
-                        .accessibilityIdentifier("people-filter")
-                    }
-                    // One line (jxn #2690): open or fold every message that isn't for you; the chat's, so on the Chat tab.
-                    if state.display.foldOthers, tab == .chat, !board.isAgentChat, board.kind != "direct" {
-                        Divider()
-                        Button("Open all", systemImage: "chevron.down.2") { setAllOpen(true) }
-                            .accessibilityIdentifier("open-all")
-                        Button("Fold all", systemImage: "chevron.up.2") { setAllOpen(false) }
-                            .accessibilityIdentifier("fold-all")
-                    }
-                    Divider()
-                    NotifyLevelMenu(boardId: board.id) // how much this chat may interrupt you (vedu #2490)
-                } label: {
-                    // Just the three dots, nothing on top (vedu #4107): new thread replies show in the menu's Threads row.
-                    ToolbarIcon("ellipsis")
-                }
-                .accessibilityIdentifier("board-menu")
-                .accessibilityLabel("More")
+                Button { focused = false; Haptics.play(.touch); showRail = true } label: { ToolbarIcon("sidebar.right") }
+                    .accessibilityIdentifier("board-rail")
+                    .accessibilityLabel(Text("Board details", bundle: .l10n))
             }
             // Voice chat with Atteo, like a call, at the top right (vedu #1783): the message box keeps the mic for dictation.
             if talkStatus.enabled == true {
@@ -278,6 +290,13 @@ struct BoardView: View {
             }
         }
         .navigationDestination(isPresented: $showThreads) { ThreadsList(board: board) }
+        .sheet(isPresented: $showRail) {
+            BoardRailSheet(board: board, openTasks: openTasks,
+                           showTasks: { closeRail { select(.tasks) } },
+                           showInfo: { closeRail { showAgents = true } }) { boardActions }
+                .presentationDetents([.medium, .large]).presentationBackground(Theme.bg)
+        }
+        .menuSheet(isPresented: $showMenu)
         .navigationDestination(item: $taskDetail) { seq in TaskDetail(seq: seq, board: board.id) }
         .sheet(isPresented: $newTask) { NewTaskSheet(board: board.id).presentationDetents([.medium, .large]).presentationBackground(Theme.bg) }
         .task { await talkStatus.load() }
@@ -444,6 +463,10 @@ struct BoardView: View {
         }
         .safeAreaInset(edge: .top, spacing: 0) {
             VStack(spacing: 0) {
+                // A member's machine attached here (atteo host): red, named, with Stop (HostBanner.swift, vedu #4815).
+                HostBanner(board: board)
+                // Every board and DM as a tab carrying its state, swipe for more (BoardFrame.swift, #4860).
+                BoardStateTabs(current: board)
                 // Chat · Tasks · Files (Everyday: To-dos), always the same height (BoardTabs.swift, vedu #2549).
                 BoardTabStrip(tab: $tab, board: board.id, openTasks: openTasks, pick: { select($0) }, newTask: { newTask = true },
                               filesChanged: list.last(where: { ($0.type == "artifact" || $0.retracts != nil) && $0.pending != true })?.seq)
@@ -461,6 +484,12 @@ struct BoardView: View {
         .toolbar {
             // The board's picture, name and who's working here right now, left-aligned after the back button (vedu #4355;
             // tap for everyone, live / idle / gone). ChatHeader.swift.
+            // The app's Menu (For you, Inbox, Approvals, boards…) as a sheet, before the header (#4860; MenuSheet.swift).
+            ToolbarItem(placement: .topBarLeading) {
+                Button { focused = false; Haptics.play(.touch); showMenu = true } label: { ToolbarIcon("line.3.horizontal") }
+                    .accessibilityIdentifier("nav-menu")
+                    .accessibilityLabel(Text("Menu", bundle: .l10n))
+            }
             if #available(iOS 26.0, *) {
                 ToolbarItem(placement: .topBarLeading) { header }.sharedBackgroundVisibility(.hidden)
             } else {

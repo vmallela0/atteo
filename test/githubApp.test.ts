@@ -1,6 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 import { parseCard } from "../src/card";
 import {
+  GITHUB_API,
   MAX_WEBHOOK_BYTES,
   NOT_SET_UP,
   boardNoteFromGithub,
@@ -8,9 +9,12 @@ import {
   handleWebhook,
   inboundEnabled,
   outboundEnabled,
+  pemToPkcs8,
   postGithubChange,
   prNumberFromUrl,
+  signAppJwt,
   verifySignature,
+  type GithubHttp,
 } from "../src/githubApp";
 
 const secret = "ci-github-webhook-secret";
@@ -185,7 +189,7 @@ describe("outbound change-card payloads", () => {
     boardUrl: "https://atteo.dev/b/b_skyvcqtm7fei#e12",
   };
 
-  it("builds a check-run and a PR comment, and stays a stub even with credentials", () => {
+  it("builds a check-run and a PR comment", () => {
     const { card } = parseCard({
       repo: "vmallela0/agent-soup",
       branch: "cursor/github-app",
@@ -207,15 +211,6 @@ describe("outbound change-card payloads", () => {
     expect(payloads[1].kind).toBe("issue_comment");
     expect(payloads[1].ready).toBe(true);
     expect(String((payloads[1].body as { body: string }).body)).toContain("change card #12");
-
-    expect(outboundEnabled({})).toBe(false);
-    const skipped = postGithubChange({}, card, ctx);
-    expect(skipped.posted).toBe(false);
-    expect(skipped.reason).toContain("aren't set");
-    const still = postGithubChange({ GITHUB_APP_ID: "123", GITHUB_APP_PRIVATE_KEY: "not-a-real-key" }, card, { ...ctx, headSha: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" });
-    expect(still.posted).toBe(false);
-    expect(still.reason).toContain("isn't wired");
-    expect(still.payloads[0].ready).toBe(true);
   });
 
   it("marks a short sha not ready, and needs owner/name", () => {
@@ -231,5 +226,195 @@ describe("outbound change-card payloads", () => {
     expect(full[0].ready).toBe(true);
     expect(full[0].body.head_sha).toBe("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
     expect(githubChangeNotification(parseCard({ branch: "x" }).card, ctx)[0].ready).toBe(false);
+  });
+});
+
+function derPem(label: string, der: Uint8Array): string {
+  let bin = "";
+  for (let i = 0; i < der.length; i += 0x8000) bin += String.fromCharCode(...der.subarray(i, i + 0x8000));
+  const b64 = btoa(bin).match(/.{1,64}/g)!.join("\n");
+  return `-----BEGIN ${label}-----\n${b64}\n-----END ${label}-----`;
+}
+
+function readLen(buf: Uint8Array, i: number): { n: number; i: number } {
+  const first = buf[i++];
+  if (first < 128) return { n: first, i };
+  const bytes = first & 127;
+  let n = 0;
+  for (let k = 0; k < bytes; k++) n = (n << 8) | buf[i++];
+  return { n, i };
+}
+
+/** Inner RSAPrivateKey OCTET STRING from a PKCS#8 RSA key (for PKCS#1 PEM tests). */
+function pkcs1FromPkcs8(pkcs8: Uint8Array): Uint8Array {
+  let i = 0;
+  if (pkcs8[i++] !== 0x30) throw new Error("pkcs8");
+  ({ i } = readLen(pkcs8, i));
+  if (pkcs8[i++] !== 0x02) throw new Error("pkcs8 version");
+  ({ i } = readLen(pkcs8, i));
+  i += 1;
+  if (pkcs8[i++] !== 0x30) throw new Error("pkcs8 alg");
+  const alg = readLen(pkcs8, i);
+  i = alg.i + alg.n;
+  if (pkcs8[i++] !== 0x04) throw new Error("pkcs8 octet");
+  const oct = readLen(pkcs8, i);
+  return pkcs8.subarray(oct.i, oct.i + oct.n);
+}
+
+async function testAppKeys() {
+  const pair = (await crypto.subtle.generateKey({ name: "RSASSA-PKCS1-v1_5", modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: "SHA-256" }, true, ["sign"])) as CryptoKeyPair;
+  const pkcs8 = new Uint8Array((await crypto.subtle.exportKey("pkcs8", pair.privateKey)) as ArrayBuffer);
+  return { pkcs8: derPem("PRIVATE KEY", pkcs8), pkcs1: derPem("RSA PRIVATE KEY", pkcs1FromPkcs8(pkcs8)) };
+}
+
+type GhCall = { method: string; url: string; body: unknown; authorization: string };
+
+function mockGithub(script: (url: URL, method: string, body: unknown) => { status: number; json?: unknown }, calls: GhCall[]): GithubHttp {
+  return async (input, init) => {
+    const url = new URL(typeof input === "string" ? input : input instanceof URL ? input.href : input.url);
+    expect(url.origin).toBe(GITHUB_API);
+    const method = (init?.method ?? "GET").toUpperCase();
+    const body = init?.body ? JSON.parse(String(init.body)) : null;
+    const authorization = String((init?.headers as Record<string, string> | undefined)?.authorization ?? "");
+    calls.push({ method, url: url.pathname + url.search, body, authorization });
+    const r = script(url, method, body);
+    return new Response(r.json === undefined ? null : JSON.stringify(r.json), {
+      status: r.status,
+      headers: { "content-type": "application/json" },
+    });
+  };
+}
+
+describe("outbound posting", () => {
+  const ctx = {
+    seq: 12,
+    author: "vedu",
+    boardId: "b_skyvcqtm7fei",
+    boardUrl: "https://atteo.dev/b/b_skyvcqtm7fei#e12",
+    headSha: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  };
+  const { card } = parseCard({
+    repo: "vmallela0/agent-soup",
+    branch: "cursor/github-app",
+    base: "main",
+    pr_url: "https://github.com/vmallela0/agent-soup/pull/44",
+    ci: "passing",
+    commits: [{ sha: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", title: "GitHub app outbound" }],
+    files: [{ path: "src/githubApp.ts", added: 10, removed: 0 }],
+  });
+  let keys: { pkcs8: string; pkcs1: string };
+  beforeAll(async () => {
+    keys = await testAppKeys();
+  });
+
+  it("never fetches when App credentials are missing, and a bad PEM does not either", async () => {
+    const calls: GhCall[] = [];
+    const fetchImpl = mockGithub(() => {
+      throw new Error("fetch must not run");
+    }, calls);
+    expect(outboundEnabled({})).toBe(false);
+    const skipped = await postGithubChange({}, card, ctx, { fetch: fetchImpl });
+    expect(skipped.posted).toBe(false);
+    expect(skipped.reason).toContain("aren't set");
+    expect(calls).toHaveLength(0);
+
+    const bad = await postGithubChange({ GITHUB_APP_ID: "123", GITHUB_APP_PRIVATE_KEY: "not-a-real-key" }, card, ctx, { fetch: fetchImpl });
+    expect(bad.posted).toBe(false);
+    expect(bad.reason).toMatch(/private key isn't usable/);
+    expect(calls).toHaveLength(0);
+  });
+
+  it("imports GitHub's PKCS#1 PEM and mints an RS256 App JWT", async () => {
+    expect(pemToPkcs8(keys.pkcs1)).not.toBeNull();
+    expect(pemToPkcs8(keys.pkcs8.replace(/\n/g, "\\n"))).not.toBeNull();
+    const jwt = await signAppJwt("4242", keys.pkcs1);
+    expect(jwt).toMatch(/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/);
+    const [h, p] = jwt!.split(".");
+    const header = JSON.parse(Buffer.from(h, "base64url").toString());
+    const payload = JSON.parse(Buffer.from(p, "base64url").toString());
+    expect(header.alg).toBe("RS256");
+    expect(payload.iss).toBe(4242);
+    expect(payload.exp - payload.iat).toBe(9 * 60);
+  });
+
+  it("creates a Check run and a PR comment through mocked GitHub HTTP", async () => {
+    const calls: GhCall[] = [];
+    const fetchImpl = mockGithub((url, method) => {
+      if (method === "GET" && url.pathname.endsWith("/installation")) return { status: 200, json: { id: 99 } };
+      if (method === "POST" && url.pathname.endsWith("/access_tokens")) return { status: 201, json: { token: "ghs_test_installation_token" } };
+      if (method === "GET" && url.pathname.includes("/check-runs")) return { status: 200, json: { check_runs: [] } };
+      if (method === "POST" && url.pathname.endsWith("/check-runs")) return { status: 201, json: { id: 501 } };
+      if (method === "POST" && url.pathname.endsWith("/comments")) return { status: 201, json: { id: 77 } };
+      return { status: 404, json: { message: "unexpected" } };
+    }, calls);
+
+    const r = await postGithubChange({ GITHUB_APP_ID: "4242", GITHUB_APP_PRIVATE_KEY: keys.pkcs8 }, card, ctx, { fetch: fetchImpl });
+    expect(r.posted).toBe(true);
+    expect(r.calls?.map((c) => `${c.method} ${c.path}`)).toEqual(["POST /repos/vmallela0/agent-soup/check-runs", "POST /repos/vmallela0/agent-soup/issues/44/comments"]);
+    expect(r.calls?.[0].id).toBe(501);
+    expect(r.calls?.[1].id).toBe(77);
+
+    expect(calls.map((c) => `${c.method} ${c.url}`)).toEqual([
+      "GET /repos/vmallela0/agent-soup/installation",
+      "POST /app/installations/99/access_tokens",
+      "GET /repos/vmallela0/agent-soup/commits/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/check-runs?check_name=Atteo",
+      "POST /repos/vmallela0/agent-soup/check-runs",
+      "POST /repos/vmallela0/agent-soup/issues/44/comments",
+    ]);
+    expect(calls[0].authorization.startsWith("Bearer eyJ")).toBe(true);
+    expect(calls[3].authorization).toBe("Bearer ghs_test_installation_token");
+    const check = calls[3].body as { name: string; head_sha: string; output: { summary: string }; details_url: string };
+    expect(check.name).toBe("Atteo");
+    expect(check.head_sha).toBe(ctx.headSha);
+    expect(check.details_url).toBe(ctx.boardUrl);
+    expect(check.output.summary).not.toMatch(/ghs_|ghp_|BEGIN /);
+    expect(JSON.stringify(calls.map((c) => c.body))).not.toContain("ghs_test_installation_token");
+    expect(JSON.stringify(r)).not.toContain(keys.pkcs8.slice(0, 40));
+  });
+
+  it("PATCHes an existing Check run and can skip the PR comment", async () => {
+    const calls: GhCall[] = [];
+    const fetchImpl = mockGithub((url, method) => {
+      if (method === "GET" && url.pathname.endsWith("/installation")) return { status: 200, json: { id: 99 } };
+      if (method === "POST" && url.pathname.endsWith("/access_tokens")) return { status: 201, json: { token: "ghs_test_installation_token" } };
+      if (method === "GET" && url.pathname.includes("/check-runs")) {
+        return { status: 200, json: { check_runs: [{ id: 501, external_id: "atteo:b_skyvcqtm7fei:12" }] } };
+      }
+      if (method === "PATCH" && url.pathname.endsWith("/check-runs/501")) return { status: 200, json: { id: 501 } };
+      return { status: 404, json: { message: "unexpected" } };
+    }, calls);
+
+    const r = await postGithubChange({ GITHUB_APP_ID: "4242", GITHUB_APP_PRIVATE_KEY: keys.pkcs8, GITHUB_APP_INSTALLATION_ID: "99" }, card, ctx, {
+      fetch: fetchImpl,
+      comment: false,
+    });
+    expect(r.posted).toBe(true);
+    expect(calls.some((c) => c.url.includes("/installation") && c.method === "GET")).toBe(false);
+    expect(calls.some((c) => c.method === "POST" && c.url.endsWith("/comments"))).toBe(false);
+    expect(calls.some((c) => c.method === "PATCH" && c.url.endsWith("/check-runs/501"))).toBe(true);
+    expect((calls.find((c) => c.method === "PATCH")?.body as { head_sha?: string }).head_sha).toBeUndefined();
+  });
+
+  it("does not post board secrets or private text, and does not fetch when the payload looks like a secret", async () => {
+    const calls: GhCall[] = [];
+    const fetchImpl = mockGithub(() => {
+      throw new Error("fetch must not run");
+    }, calls);
+    const leak = `ghp_${Array.from({ length: 36 }, (_, i) => "aB3dE5gH7jK9mN1pQ2"[i % 18]).join("")}`;
+    const dirty = parseCard({
+      repo: "vmallela0/agent-soup",
+      branch: `leak-${leak}`,
+      pr_url: "https://github.com/vmallela0/agent-soup/pull/44",
+      ci: "passing",
+    }).card;
+    const formatted = githubChangeNotification(dirty, ctx);
+    expect(formatted.every((p) => !p.ready)).toBe(true);
+    expect(formatted[0].reason).toMatch(/secret/);
+    const r = await postGithubChange({ GITHUB_APP_ID: "4242", GITHUB_APP_PRIVATE_KEY: keys.pkcs8 }, dirty, ctx, { fetch: fetchImpl });
+    expect(r.posted).toBe(false);
+    expect(r.reason).toMatch(/secret/);
+    expect(calls).toHaveLength(0);
+    expect(JSON.stringify(formatted)).not.toContain("private board");
+    expect(formatted.some((p) => JSON.stringify(p.body).includes("diff"))).toBe(false);
   });
 });

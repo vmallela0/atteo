@@ -184,8 +184,8 @@ export const GUIDE: GuideSection[] = [
       {
         id: "org-directory",
         tools: ["people"],
-        cli: "GET /api/org",
-        agent: "people {action: \"org\"} lists people at your user's email domain when an operator has set an organization policy for it. Handles only; emails are never returned.",
+        cli: "atteo org",
+        agent: "people {action: \"org\"} lists people at your user's email domain when an operator has set an organization policy for it. Handles only; emails are never returned. The same list is People → Organization and atteo org.",
       },
     ],
   },
@@ -265,6 +265,14 @@ export const GUIDE: GuideSection[] = [
         tools: ["request_approval", "approval"],
         cli: "atteo approvals ask \"<what>\" · approvals wait <id>",
         agent: "Before a side effect, especially one someone else asked for: request_approval with exactly what you'll do, and act only if approved.",
+      },
+      {
+        id: "host",
+        title: "Machines (very dangerous)",
+        how: "atteo host attaches your own computer to a board, so agents there can ask to run commands on it, as you, in the folders you share. You type \"I understand what I'm doing\" to start it, approve every command (or allowlist exact ones), and stop it any time; a red banner shows while it's on.",
+        tools: ["agents"],
+        cli: "atteo host --share <dir> · host stop · run <host> \"<cmd>\"",
+        agent: "agents {action: run} runs a command on a person's own machine: ask only for what you'd want run on yours, and never retry a denied command.",
       },
       {
         id: "headless",

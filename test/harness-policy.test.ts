@@ -3,6 +3,7 @@ import {
   ActionPolicyError,
   actionFromHarness,
   allowAll,
+  charterScopeRules,
   createGateway,
   enforceAction,
   GatewayError,
@@ -190,6 +191,116 @@ describe("reviewHarnessHook", () => {
       expect(actionFromHarness(input)?.kind).toBe("mcp_tool");
       expect((await reviewHarnessHook(policy, input)).effect).toBe("deny");
     }
+  });
+});
+
+describe("charter scope", () => {
+  it("turns each absolute directory into one file_write allow rule", () => {
+    const parsed = charterScopeRules({
+      board: "b_7qh6ar3styu7",
+      scope_paths: ["/workspace/repo/", "/workspace/repo", "/var/work"],
+    });
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    expect(parsed.scope).toEqual({ board: "b_7qh6ar3styu7", scope_paths: ["/workspace/repo", "/var/work"] });
+    expect(parsed.allow).toEqual([
+      { kind: "file_write", pathPrefix: "/workspace/repo" },
+      { kind: "file_write", pathPrefix: "/var/work" },
+    ]);
+  });
+
+  it("allows a write inside a charter path and denies one outside, even when a broader allow matches", async () => {
+    const policy = harnessPolicy({
+      allow: [{ kind: "file_write" }, { kind: "shell", command: "npm test" }],
+      charter: { scope_paths: ["/workspace/repo"] },
+    });
+    expect((await policy.allow({ kind: "file_write", tool: "Edit", path: "/workspace/repo/src/a.ts" })).allow).toBe(true);
+    expect((await policy.allow({ kind: "file_write", path: "src/a.ts", cwd: "/workspace/repo" })).allow).toBe(true);
+    expect((await policy.allow({ kind: "file_write", path: "../repo/src/a.ts", cwd: "/workspace/repo" })).allow).toBe(true);
+    for (const path of ["/workspace/repo-evil/a.ts", "/etc/passwd", "/workspace/repo/../../etc/passwd", "../other/a.ts"]) {
+      const decision = await policy.allow({ kind: "file_write", tool: "Write", path, cwd: "/workspace/repo" });
+      expect(decision.allow, path).toBe(false);
+      expect(decision.reason).toContain("charter scope");
+      expect(decision.reason).not.toContain(path);
+    }
+    expect((await policy.allow({ kind: "shell", command: "npm test" })).allow).toBe(true);
+    expect((await policy.allow({ kind: "shell", command: "rm -rf /" })).allow).toBe(false);
+    expect((await policy.allow({ kind: "mcp_tool", tool: "WebFetch" })).allow).toBe(false);
+    const key = github();
+    const leaked = await policy.allow({ kind: "file_write", path: "/workspace/repo/a.ts", content: key });
+    expect(leaked.allow).toBe(false);
+    expect(leaked.reason).not.toContain(key);
+  });
+
+  it("lets a deny rule win inside the charter scope", async () => {
+    const policy = harnessPolicy({
+      charter: { scope_paths: ["/workspace/repo"] },
+      deny: [{ kind: "file_write", pathPrefix: "/workspace/repo/secrets" }],
+    });
+    expect((await policy.allow({ kind: "file_write", path: "/workspace/repo/src/a.ts" })).allow).toBe(true);
+    const denied = await policy.allow({ kind: "file_write", path: "/workspace/repo/secrets/key.pem" });
+    expect(denied.allow).toBe(false);
+    expect(denied.reason).toContain("deny rule");
+    expect(denied.reason).not.toContain("secrets");
+  });
+
+  it("fails closed when the charter export is not a list of absolute directories", () => {
+    const beside = { allow: [{ kind: "shell", command: "npm test" }] };
+    for (const charter of [
+      { scope_paths: ["repo"] },
+      { scope_paths: ["/"] },
+      { scope_paths: ["C:/"] },
+      { scope_paths: "/workspace/repo" },
+      { paths: ["/workspace/repo"] },
+      {},
+      { board: "not-a-board", scope_paths: ["/workspace/repo"] },
+      { board: null, scope_paths: ["/workspace/repo"] },
+      { scope_paths: ["/workspace/repo"], extra: true },
+      { scope_paths: [""] },
+    ]) {
+      const parsed = policyFromJson(JSON.stringify({ ...beside, charter }));
+      expect(parsed.ok, JSON.stringify(charter)).toBe(false);
+      if (!parsed.ok) expect(parsed.reason).not.toMatch(/npm test|\/workspace\/repo/);
+    }
+    expect(policyFromJson(JSON.stringify({ charterScope: { scope_paths: ["/workspace/repo"] } })).ok).toBe(false);
+    expect(() => harnessPolicy({ charter: { scope_paths: ["relative"] } })).toThrow(ActionPolicyError);
+  });
+
+  it("an empty scope list confines every file write and leaves shell rules", async () => {
+    const policy = harnessPolicy({
+      allow: [{ kind: "file_write" }, { kind: "shell", command: "npm test" }],
+      charter: { scope_paths: [] },
+    });
+    expect((await policy.allow({ kind: "file_write", path: "/workspace/repo/a.ts" })).allow).toBe(false);
+    expect((await policy.allow({ kind: "file_write", path: undefined })).allow).toBe(false);
+    expect((await policy.allow({ kind: "shell", command: "npm test" })).allow).toBe(true);
+  });
+
+  it("does nothing to a policy that does not opt in", async () => {
+    const policy = harnessPolicy({ allow: [{ kind: "file_write" }] });
+    expect((await policy.allow({ kind: "file_write", path: "/etc/passwd" })).allow).toBe(true);
+  });
+
+  it("asks only for a write inside the charter path", async () => {
+    const policy = harnessPolicy({ charter: { board: "b_7qh6ar3styu7", scope_paths: ["/workspace/repo"] } });
+    expect((await reviewHarnessHook(policy, {
+      tool_name: "Edit",
+      tool_input: { file_path: "src/a.ts", new_string: "x" },
+      cwd: "/workspace/repo",
+    })).effect).toBe("ask");
+    const outside = await reviewHarnessHook(policy, {
+      tool_name: "Edit",
+      tool_input: { file_path: "/etc/passwd", new_string: "x" },
+      cwd: "/workspace/repo",
+    });
+    expect(outside.effect).toBe("deny");
+    expect(outside.reason).toContain("charter scope");
+    expect(outside.reason).not.toContain("/etc/passwd");
+    expect((await reviewHarnessHook(policy, { tool_name: "Bash", tool_input: { command: "npm test" } })).effect).toBe("deny");
+    expect((await reviewHarnessHook(policy, {
+      tool_name: "mcp__remote__upload",
+      tool_input: { path: "/workspace/repo/a.ts" },
+    })).effect).toBe("deny");
   });
 });
 

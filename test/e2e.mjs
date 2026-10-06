@@ -838,18 +838,19 @@ await step("web: several files in one message (multipart upload): one entry, att
   assert(!(await (await web(`/api/boards/${eb}/files`, E)).json()).docs.some((d) => d.name === "a.png" || d.name === "b.png"), "nothing stored on the encrypted board");
 });
 
-await step("brand: the cone-and-cans mark (jxn #2944) is the favicon, apple-touch icon and header mark", async () => {
+await step("brand: the graph mark (jxn's atteo_design.pdf) is the favicon, apple-touch icon and header mark", async () => {
   const f = await fetch(`${BASE}/favicon.svg`);
   assert((f.headers.get("content-type") ?? "").includes("image/svg+xml"), "favicon not svg");
   const svg = await f.text();
   has(svg, "<svg");
-  has(svg, "#6A1B24"); // oxblood: the cone that is you (jxn #2944)
+  has(svg, 'rx="22.5"'); has(svg, "M21 -8C21.5"); // the graph on its rounded tile
+  assert(!svg.includes("#6A1B24"), "the old cone-and-cans mark still in favicon");
   assert(!svg.includes("#A8121E"), "old cherry mark still in favicon");
   assert(!svg.includes("#f59e0b"), "old soup-bowl steam still in favicon");
   const t = await fetch(`${BASE}/apple-touch-icon.png`);
   assert((t.headers.get("content-type") ?? "") === "image/png" && (await t.arrayBuffer()).byteLength > 1000, "apple-touch icon not a png");
   const html = await (await web("/chats", A)).text(); // "/" is For you in Everyday (#1272); the list is /chats
-  has(html, 'class="pebble"');
+  has(html, 'class="pebble"'); has(html, 'clip-path="url(#mkc'); // the header mark in the text colour, its own clip id
   // The icons' addresses carry the drawing's hash, so a new logo isn't stuck in browsers' favicon caches (jxn #4247).
   assert(/<link rel="icon" href="\/favicon\.svg\?v=[a-z0-9]+"/.test(html) && /<link rel="apple-touch-icon" href="\/apple-touch-icon\.png\?v=[a-z0-9]+"/.test(html), "the page links versioned icons");
   // The tokens live in the shared, cached /app.css since web-app-assets (opus-a #3423); the page links it.
@@ -930,6 +931,17 @@ await step("ops console opens for a localhost admin test session (no ADMIN_EMAIL
   has(html, "Access");
   has(html, "Events");
   has(html, 'href="/_ops"');
+  // The cost guard says whether its check is live, failing or off (vedu #4665); locally there's no analytics token.
+  has(html, "data-cost-status>Cost guard: Off: settings missing");
+});
+
+await step("ops: the cost guard reports its last check (vedu #4665)", async () => {
+  const r = await fetch(`${BASE}/api/ops/cost-guard`, { headers: { "x-admin-key": ADMIN_KEY } });
+  const c = await r.json();
+  assert(r.status === 200, `cost-guard ${r.status}`);
+  for (const k of ["capped", "thresholds", "watching", "last_ok", "last_error", "usage"]) assert(k in c, `cost-guard has ${k}: ${JSON.stringify(c)}`);
+  assert(c.watching === false && c.last_ok === null && c.usage === null && typeof c.thresholds.hardRowsRead === "number", JSON.stringify(c));
+  assert((await fetch(`${BASE}/api/ops/cost-guard`)).status !== 200, "operators only");
 });
 
 
@@ -1424,6 +1436,15 @@ await step("live updates over WebSocket: members get a signal on each post; outs
   // Triage-able (#2177): the entry's kind, title and first ~200 characters ride along, for an agent's ping.
   const sig = JSON.parse(m.msgs.find((x) => x.includes(`"seq":${posted}`)));
   assert(sig.kind === "note" && sig.entry_title === "WS ping" && sig.excerpt.startsWith(`ws ping ${run} padding`) && sig.excerpt.endsWith("…") && sig.excerpt.length <= 200 && !sig.flagged, JSON.stringify(sig));
+  // "… is typing" says where (vedu #4746): ?root=N is thread N's box, none (or junk) the chat's.
+  const typing = async (q) => {
+    const n = m.msgs.length;
+    assert((await web(`/api/boards/${board}/typing${q}`, A, { method: "POST" })).status === 204, `typing ${q} should be accepted`);
+    await until(() => m.msgs.slice(n).some((x) => x.includes('"type":"typing"')));
+    return JSON.parse(m.msgs.slice(n).find((x) => x.includes('"type":"typing"')));
+  };
+  const t7 = await typing(`?root=${posted}`), tc = await typing(""), tj = await typing("?root=-3");
+  assert(t7.who === A && t7.root === posted && tc.root === 0 && tj.root === 0, `typing roots: ${JSON.stringify([t7, tc, tj])}`);
   m.ws.send("ping");
   await until(() => m.msgs.includes("pong"));
   assert(m.msgs.includes("pong"), "keep-alive ping should be answered");
@@ -2090,6 +2111,23 @@ await step("mailbox retention: cron deletes mail acked over 30 days ago once the
   assert(final.some((i) => i.seq === recentSeq && i.board_id === mb), "recent acked kept");
   assert(final.some((i) => i.seq === unreadSeq && i.board_id === mb), "unacked kept");
   assert((await call(B, "GET", "/api/mailbox?peek=1&limit=100")).mail.some((m) => m.board === mb && m.seq === unreadSeq), "unacked still in mailbox");
+});
+
+await step("tasks: frozen is parked work: out of the open list, summary and claims until unfrozen (vedu #4791)", async () => {
+  await ok(A, fb, "read");
+  const t = seqOf(await ok(A, fb, "post", { type: "task", text: `Rewrite the docs site someday ${run}` }));
+  await ok(A, fb, "task", { action: "claim", seq: t });
+  has(await ok(A, fb, "task", { action: "update", seq: t, status: "frozen" }), `#${t} [frozen]`);
+  const got = await (await web(`/api/boards/${fb}/tasks/${t}`, A)).json();
+  assert(got.task.status === "frozen" && !got.task.lease_holder, `freezing drops the claim (${JSON.stringify([got.task.status, got.task.lease_holder])})`);
+  assert(!(await ok(B, fb, "task", { action: "list" })).includes(`#${t} `), "frozen tasks leave the default list");
+  has(await ok(B, fb, "task", { action: "list", status: "frozen" }), `#${t} [frozen]`);
+  const openSections = (await ok(B, fb, "read", { summary: true })).split("\n\n").filter((s) => /^(Open tasks|Tasks for YOU):/m.test(s)).join("\n");
+  assert(!openSections.includes(`Rewrite the docs site someday ${run}`), `frozen tasks aren't in the summary's open tasks: ${openSections.slice(0, 300)}`);
+  await err(B, fb, "task", { action: "claim", seq: t }, "is frozen");
+  has(await ok(B, fb, "task", { action: "update", seq: t, status: "todo" }), `#${t} [todo]`);
+  has(await ok(B, fb, "task", { action: "claim", seq: t }), `held by ${B}'s agent`);
+  await ok(B, fb, "task", { action: "release", seq: t });
 });
 
 await step("tasks: claim leases, conflicts, release, assign, done closes it, stop signal, retracted premise stops it", async () => {
@@ -3120,6 +3158,42 @@ await step("access: roles (viewers read but can't change), invite links with lim
   assert(page.after_id === exp.audit[0].id && page.audit.every((a) => a.id > exp.audit[0].id) && !page.audit.some((a) => a.id === exp.audit[0].id), "cursor");
 });
 
+await step("board states: own approvals, working sessions, quiet boards and DMs, membership and authentication", async () => {
+  const P = `e2e-state-${run}`;
+  const Q = `e2e-stateq-${run}`;
+  await Promise.all([makeUser(P), makeUser(Q)]);
+  const create = async (title) => (await ops("boards", { user: P, title: `e2e state ${title} ${run}` })).body.board.id;
+  const [approvalBoard, workingBoard, quietBoard] = await Promise.all([create("approval"), create("working"), create("quiet")]);
+  await ops("members", { board: approvalBoard, user: Q });
+  const sa = await session(P, approvalBoard);
+  await sok(sa, "request_approval", { title: "State approval", details: "Review the proposed change", wait_seconds: 0 });
+  const api = async (path, body) => {
+    const r = await fetch(`${BASE}${path}`, { method: "POST", headers: { ...auth(P), "content-type": "application/json" }, body: JSON.stringify(body) });
+    assert(r.ok, `state setup ${path}: ${r.status} ${await r.clone().text()}`);
+    return r.json();
+  };
+  const { session: active } = await api("/api/sessions", { name: "state-worker", client: "e2e" });
+  await api(`/api/sessions/${active.id}/boards`, { board: workingBoard });
+  const chat = (await (await web("/api/me/agent-chat", P, { method: "POST" })).json()).board;
+  const path = "/api/me/board-states";
+  assert((await web(path)).status === 401, "board states require authentication");
+  const response = await web(path, P);
+  assert(response.ok, `board states: ${response.status}`);
+  const result = await response.json();
+  const states = new Map(result.boards.map((b) => [b.id, b]));
+  assert(states.get(approvalBoard)?.state === "approval" && states.get(approvalBoard).pending_approvals === 1, JSON.stringify(result));
+  assert(states.get(workingBoard)?.state === "working" && states.get(workingBoard).working_agents === 1 && states.get(workingBoard).pending_approvals === 0, JSON.stringify(result));
+  assert(states.get(quietBoard)?.state === "quiet" && states.get(quietBoard).working_agents === 0 && states.get(quietBoard).pending_approvals === 0, JSON.stringify(result));
+  assert(states.get(chat)?.kind === "dm" && states.get(chat).state === "quiet", JSON.stringify(result));
+  assert(states.get(quietBoard).kind === "board" && states.get(quietBoard).title === `e2e state quiet ${run}`, "board identity");
+  const tokenResult = await (await fetch(`${BASE}${path}`, { headers: auth(P) })).json();
+  assert(JSON.stringify(tokenResult) === JSON.stringify(result), "bearer authentication shares the user's cached result");
+  const other = (await (await web(path, Q)).json()).boards;
+  assert(other.length === 1 && other[0].id === approvalBoard && other[0].pending_approvals === 0 && other[0].state === "working", JSON.stringify(other));
+  const outsider = (await (await web(path, OUT)).json()).boards;
+  assert(!outsider.some((b) => states.has(b.id)), "nonmembers cannot see these boards or DMs");
+});
+
 await step("approvals: an agent asks before side effects; only the person decides, in a browser; the agent sees the answer", async () => {
   const sa = await session(A, fb);
   await ok(B, fb, "read");
@@ -3541,6 +3615,7 @@ await step("ops: usage metrics and server errors are on the console (operators o
   const m = await r.json();
   assert(r.status === 200 && m.days.length === 14 && Array.isArray(m.errors) && Array.isArray(m.clients), JSON.stringify(m).slice(0, 200));
   assert(m.success && typeof m.success.board_created === "number" && typeof m.success.first_agent_post === "number" && typeof m.success.invite_redeemed === "number" && typeof m.success.friend_accepted === "number", JSON.stringify(m.success));
+  assert(m.observe?.latency?.request?.kind === "wall" && m.observe.latency.request.cpu_available === false && typeof m.observe.latency.request.samples === "number", JSON.stringify(m.observe?.latency?.request));
   assert((await fetch(`${BASE}/api/ops/metrics`)).status !== 200, "operators only");
 });
 
@@ -4020,6 +4095,10 @@ await step("organization directory: list members by email-domain policy", async 
   await makeUsers([{ name: O0, email: `${O0}@${dom}` }]);
   const off = await (await fetch(`${BASE}/api/org`, { headers: { authorization: `Bearer ${tok[O0]}` } })).json();
   assert(off.domain === null && off.people.length === 0, `no directory without the flag: ${JSON.stringify(off)}`);
+  const pageOff = await (await web("/people", O0)).text();
+  has(pageOff, `id="org-empty"`);
+  has(pageOff, "not in an organization directory");
+  assert(!pageOff.includes(`id="org-list"`), "directory-off people page has no list");
   assert((await setPol({ domain: dom, directory: true })).status === 200, "directory on");
   const O1 = `e2e-org1-${run}`;
   const O2 = `e2e-org2-${run}`;
@@ -4042,6 +4121,16 @@ await step("organization directory: list members by email-domain policy", async 
   assert(names.includes(O1) && names.includes(O2) && !names.includes(UN) && !names.includes(OUTU), JSON.stringify(names));
   const dump = JSON.stringify(listed.body);
   assert(!dump.includes(`${O1}@`) && !dump.includes(`${O2}@`) && !listed.body.people.some((p) => "email" in p), dump);
+  const pageOn = await (await web("/people", O1)).text();
+  has(pageOn, "Organization");
+  has(pageOn, `id="org-list"`);
+  has(pageOn, O2);
+  has(pageOn, "atteo org");
+  assert(!pageOn.includes(`${O1}@`) && !pageOn.includes(`${O2}@`), "people page has no emails");
+  const pageOut = await (await web("/people", OUTU)).text();
+  has(pageOut, `id="org-empty"`);
+  has(pageOut, "not in an organization directory");
+  assert(!pageOut.includes(`id="org-list"`), "outsider sees no org list");
   const outsider = await getOrg(OUTU);
   assert(outsider.status === 200 && outsider.body.domain === null && outsider.body.people.length === 0, JSON.stringify(outsider));
   const q = await getOrg(O1, O2.slice(0, 8));
@@ -6342,6 +6431,9 @@ await step("forward excerpt: fabricated selectedText is refused; a real selectio
     const rr = await papi(B, "POST", `/api/boards/${pb}/entries`, { text: `Reply about ${SECRET}`, reply_to: secret });
     assert(rr.status === 201 && rr.body.entry.audience === "people" && rr.body.entry.to_people.includes(A) && rr.body.entry.to_people.includes(B), `reply inherits: ${JSON.stringify(rr.body)}`);
     assert(rr.body.notice === `Only you and ${A} can see this. Agents can't.`, `reply notice: ${rr.body.notice}`);
+    // Asked or not (vedu #4777): even people_only false can't take a reply out of its thread's audience.
+    const rf = await papi(B, "POST", `/api/boards/${pb}/entries`, { text: `Still about ${SECRET}`, reply_to: secret, people_only: false });
+    assert(rf.status === 201 && rf.body.entry.audience === "people" && rf.body.entry.to_people.includes(A), `explicit false still inherits: ${JSON.stringify(rf.body)}`);
     reply = rr.body.entry.seq;
     assert((await papi(B, "POST", `/api/boards/${pb}/entries/${secret}/react`, { emoji: "👍" })).status === 200, "audience reacts");
     for (const u of [A, B]) { // the author's own agent, and the audience's
@@ -7295,6 +7387,100 @@ await step("delete account (Apple 5.1.1(v), jxn #4329): messages stay as 'Delete
   // The handle stays taken, forever.
   const again = await ops("users", { name: X, email: `${X}@example.com`, verified: "true" });
   assert(again.status === 409, `the handle can't be registered again: ${again.status}`);
+});
+
+await step("atteo host: typed consent, owner approves each command, allowlist, folder jail, secrets, output cap, kill switch (vedu #4807/#4815)", async () => {
+  const HO = `e2e-hostown-${run}`, HR = `e2e-hostask-${run}`, HX = `e2e-hostout-${run}`;
+  await makeUsers([HO, HR, HX]);
+  const hb = (await ops("boards", { user: HO, title: `host ${run}` })).body.board.id;
+  await ops("members", { board: hb, user: HR });
+  const api = (who, path, init = {}) => fetch(`${BASE}/api/boards/${hb}/hosts${path}`, { ...init, headers: { ...auth(who), "content-type": "application/json", ...(init.headers ?? {}) } });
+  const post = (who, path, body) => api(who, path, { method: "POST", body: JSON.stringify(body ?? {}) });
+  // Consent is the person's alone: an agent's token (or the CLI's) can't mint a code; a person signed in can, for one
+  // machine; the code works once, only for that machine and that person (vedu #4815: no self-consent by an agent).
+  const M1 = `m_e2emachine1${run}`, M2 = `m_e2emachine2${run}`;
+  const PH = "I understand what I'm doing";
+  const asPersonPost = (who, path, body) => web(`/api/boards/${hb}/hosts${path}`, who, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+  assert((await post(HO, "/confirm", { phrase: PH, machine: M1 })).status === 403, "an agent token can't mint a consent code");
+  assert((await asPersonPost(HO, "/confirm", { phrase: "yes", machine: M1 })).status === 400, "a wrong phrase is refused");
+  assert((await asPersonPost(HO, "/confirm", { phrase: PH, machine: "nope" })).status === 400, "a code is always for a machine");
+  assert((await post(HO, "", { name: "box", shares: ["/srv/proj"], machine: M1 })).status === 403, "no code: no host");
+  const mint = await asPersonPost(HO, "/confirm", { phrase: "I understand what I\u2019m doing", machine: M1 });
+  assert(mint.status === 200, `a person mints it (curly apostrophe ok): ${mint.status}`);
+  const { code } = await mint.json();
+  assert(/^[A-Z2-9]{5}-[A-Z2-9]{5}$/.test(code), `a short code: ${code}`);
+  assert((await post(HO, "", { code, machine: M2, name: "box", shares: ["/srv/proj"] })).status === 403, "the code is bound to its machine");
+  assert((await post(HR, "", { code, machine: M1, name: "box", shares: ["/srv/proj"] })).status === 403, "…and to the person who minted it");
+  assert((await post(HO, "", { code, machine: M1, name: "box", shares: ["/"] })).status === 400, "sharing / is refused (and spends nothing)");
+  const reg = await post(HO, "", { code: code.toLowerCase().replace("-", ""), machine: M1, name: "box", shares: ["/srv/proj", "/srv/other"], allow: ["git status"] });
+  assert(reg.status === 200, `register (case and dash don't matter): ${reg.status} ${await reg.clone().text()}`);
+  const host = (await reg.json()).host;
+  assert((await post(HO, "", { code, machine: M1, name: "box2", shares: ["/srv/proj"] })).status === 403, "a code works once: every start asks again");
+  const consent = await web(`/host/consent?board=${hb}&machine=${M1}`, HO);
+  assert(consent.status === 303 && consent.headers.get("location") === `/b/${hb}?host_consent=${M1}`, `the CLI's link opens the board's consent dialog: ${consent.status} ${consent.headers.get("location")}`);
+  assert((await web(`/host/consent?board=${hb}&machine=${M1}`, HX)).status === 404, "…only for members");
+  assert((await api(HX, "")).status === 404, "non-members don't see hosts");
+  const listed = (await (await api(HR, "")).json()).hosts;
+  assert(listed.some((h) => h.id === host.id && h.online && h.owner === HO), `members see it online: ${JSON.stringify(listed)}`);
+  // Only the owner's login polls it.
+  assert((await api(HR, `/${host.id}/next?wait=0`)).status === 403, "someone else can't take its work");
+  // A request needs the owner's approval: the host gets nothing until then.
+  const ask = await post(HR, `/${host.id}/runs`, { command: `echo hello ${run}`, cwd: "/srv/proj/app" });
+  assert(ask.status === 200, `request: ${ask.status} ${await ask.clone().text()}`);
+  const r1 = (await ask.json()).run;
+  assert(r1.status === "pending" && r1.approval, "pending the owner's approval");
+  assert(!(await (await api(HO, `/${host.id}/next?wait=0`)).json()).run, "nothing to run before approval");
+  const ap = (await (await web(`/api/approvals`, HO)).json()).approvals.find((a) => a.id === r1.approval);
+  assert(ap && ap.board_id === hb && ap.risk === "high" && ap.command === `echo hello ${run}` && ap.requested_by === HR, `the owner's approval: ${JSON.stringify(ap)}`);
+  assert((await fetch(`${BASE}/api/approvals/${r1.approval}/approve`, { method: "POST", headers: auth(HO) })).status === 403, "the owner's agent can't approve it");
+  assert((await web(`/api/approvals/${r1.approval}/approve`, HO, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" })).status === 200, "the owner approves, as a person");
+  const got = await (await api(HO, `/${host.id}/next?wait=0`)).json();
+  assert(got.run?.id === r1.id && got.run.cwd === "/srv/proj/app", `the host gets it once approved: ${JSON.stringify(got)}`);
+  // The host reports: secrets are redacted and output capped server-side too.
+  const secret = ["AKIA", "ABCDEFGHIJKLMNOP"].join("");
+  const fin = await post(HO, `/${host.id}/runs/${r1.id}/result`, { exit_code: 0, output: `hello ${run}\nkey ${secret}\n` + "x".repeat(70_000) });
+  assert(fin.status === 200, `result: ${fin.status}`);
+  const done = (await (await api(HR, `/${host.id}/runs/${r1.id}`)).json()).run;
+  assert(done.status === "done" && done.exit_code === 0 && done.output.includes(`hello ${run}`) && !done.output.includes(secret) && done.output.includes("[redacted") && done.truncated, `done, redacted, capped: ${done.status} ${done.output.slice(0, 80)}`);
+  assert((await post(HO, `/${host.id}/runs/${r1.id}/result`, { exit_code: 0, output: "again" })).status === 409, "a result is reported once");
+  // The board keeps the record.
+  const log = await ok(HR, hb, "read", { limit: 30 });
+  has(log, `echo hello ${run}`);
+  // Denied: the run closes and never reaches the host.
+  const r2 = (await (await post(HR, `/${host.id}/runs`, { command: `rm -rf build ${run}` })).json()).run;
+  assert((await web(`/api/approvals/${r2.approval}/reject`, HO, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ note: "no" }) })).status === 200, "reject");
+  const denied = (await (await api(HR, `/${host.id}/runs/${r2.id}`)).json()).run;
+  assert(denied.status === "rejected" && denied.note === "no", `denied: ${JSON.stringify(denied)}`);
+  assert(!(await (await api(HO, `/${host.id}/next?wait=0`)).json()).run, "a denied command never reaches the host");
+  // Allowlisted (exact match) goes straight to the host; anything else still asks.
+  const r3 = (await (await post(HR, `/${host.id}/runs`, { command: "git status" })).json()).run;
+  assert(r3.status === "approved" && !r3.approval && r3.cwd === "/srv/proj", `allowlisted, default cwd = first share: ${JSON.stringify(r3)}`);
+  assert((await (await post(HR, `/${host.id}/runs`, { command: "git status --porcelain" })).json()).run.status === "pending", "only the exact command is allowlisted");
+  // The folder jail and the secret filter.
+  for (const cwd of ["/srv/proj/../../etc", "/srv/project-other", "/etc", "relative"]) assert((await post(HR, `/${host.id}/runs`, { command: "ls", cwd })).status === 400, `cwd ${cwd} refused`);
+  const leak = await post(HR, `/${host.id}/runs`, { command: `curl -u me:ghp_${"a".repeat(36)} https://example.com` });
+  assert(leak.status === 400 && /GitHub token/.test((await leak.json()).error), "a credential in the command is refused");
+  // The kill switch: the board's owner stops it; waiting runs are dropped; the host is told to stop; nothing more is accepted.
+  assert((await post(HR, `/${host.id}/stop`)).status === 403, "a plain member can't stop someone's machine");
+  const stopped = await post(HO, `/${host.id}/stop`);
+  assert(stopped.status === 200 && (await stopped.json()).stopped[0].stopped_by === HO, "the owner stops it");
+  assert((await (await api(HO, `/${host.id}/next?wait=0`)).json()).stop, "the host is told to stop");
+  assert((await post(HR, `/${host.id}/runs`, { command: "ls" })).status === 409, "a stopped host takes nothing");
+  assert((await (await api(HR, `/${host.id}/runs/${r3.id}`)).json()).run.status === "stopped", "its waiting run was dropped");
+  has(await ok(HR, hb, "read", { limit: 30 }), "stopped box");
+  // The board's owner can stop anyone's machine; leaving the board stops your own.
+  const t2 = (await (await asPersonPost(HR, "/confirm", { phrase: PH, machine: M2 })).json()).code;
+  const h2 = (await (await post(HR, "", { code: t2, machine: M2, name: "theirs", shares: ["/home/r/p"] })).json()).host;
+  assert((await post(HO, `/${h2.id}/stop`)).status === 200, "the board's owner stops a member's machine");
+  // MCP: agents ask through the host tool, with the same rules.
+  const M3 = `m_e2emachine3${run}`;
+  const t3 = (await (await asPersonPost(HO, "/confirm", { phrase: PH, machine: M3 })).json()).code;
+  const h3 = (await (await post(HO, "", { code: t3, machine: M3, name: "box3", shares: ["/srv/proj"] })).json()).host;
+  // MCP: on the agents tool, so no tool is added to every agent's list (jxn #783).
+  has(await ok(HR, hb, "agents", { action: "machines" }), "box3");
+  has(await ok(HR, hb, "agents", { action: "run", host: "box3", command: "uname -a", wait_seconds: 0 }), `Waiting for ${HO} to approve`);
+  await err(HR, hb, "agents", { action: "run", host: "box3", command: "ls", cwd: "/etc", wait_seconds: 0 }, "cwd must be inside");
+  await post(HO, `/${h3.id}/stop`);
 });
 
 if (ONLY && !matched) { failed++; failures.push(`no steps match ONLY=${JSON.stringify(process.env.ONLY)}`); }

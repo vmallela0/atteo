@@ -1,7 +1,8 @@
 // The cost guard (vedu #4340): thresholds, the once-a-day alerts, the hard cap's switch, the 503 on heavy paths, and
 // the no-op without an analytics token. Cloudflare's GraphQL is faked; D1 is node:sqlite with every migration.
 import { beforeEach, describe, expect, it } from "vitest";
-import { capped, check, clearCap, isHeavyRest, judge, resetCapCache, thresholds, totals, type Usage } from "../src/costGuard";
+import { capped, check, clearCap, isHeavyRest, judge, resetCapCache, status, thresholds, totals, type Usage } from "../src/costGuard";
+import { costStatusLine } from "../src/html";
 import { admit, setOverrides, type Admit } from "../src/limits";
 import type { Env } from "../src/types";
 
@@ -141,6 +142,61 @@ describe("the cron", () => {
     const tick = await check(env, async () => {}, T0, broken);
     expect(tick.usage).toBeNull();
     expect(tick.capped).toBe(false);
+  });
+});
+
+describe("the last check, for /_ops (vedu #4665)", () => {
+  const answer = (status: number, body: unknown) => (async () => Response.json(body, { status })) as unknown as typeof fetch;
+
+  it("a good read is recorded with today's totals, and /_ops says Live", async () => {
+    const { env } = fakeEnv(TOKEN);
+    await check(env, async () => {}, T0, graphql(quiet).fetcher);
+    const st = await status(env);
+    expect(st.last_ok).toEqual({ at: T0, totals: totals(quiet) });
+    expect(st.last_error).toBeNull();
+    const line = costStatusLine({ capped: null, watching: true, thresholds: thresholds(env), ...st }, T0 + 4 * 60_000);
+    expect(line).toBe("Live, checked 4m ago: rows read 67,000,000 / soft 500,000,000 / hard 3,000,000,000 · rows written 200,000 / soft 5,000,000 / hard 25,000,000 · Durable Object requests 160,000 / soft 2,000,000 / hard 10,000,000 (today, UTC; alerts go to the bug board)");
+  });
+
+  it("a GraphQL error is recorded with Cloudflare's message, never the token, and /_ops says Not working", async () => {
+    const { env } = fakeEnv(TOKEN);
+    const tick = await check(env, async () => {}, T0, answer(200, { data: null, errors: [{ message: "not authorized for this account" }] }));
+    expect(tick.error).toBe("Cloudflare analytics error: not authorized for this account");
+    const st = await status(env);
+    expect(st.last_error).toEqual({ at: T0, message: "Cloudflare analytics error: not authorized for this account" });
+    expect(JSON.stringify(st)).not.toContain("tok");
+    expect(costStatusLine({ capped: null, watching: true, ...st }, T0 + 60_000)).toBe("Not working: Cloudflare analytics error: not authorized for this account (since 1m ago)");
+  });
+
+  it("an HTTP 403 is recorded with its status; a later good read wins on /_ops", async () => {
+    const { env } = fakeEnv(TOKEN);
+    await check(env, async () => {}, T0, answer(403, { errors: [{ message: "Authentication error" }] }));
+    expect((await status(env)).last_error?.message).toBe("Cloudflare answered HTTP 403: Authentication error");
+    await check(env, async () => {}, T0 + 300_000, graphql(quiet).fetcher);
+    const st = await status(env);
+    expect(st.last_ok?.at).toBe(T0 + 300_000);
+    expect(costStatusLine({ capped: null, watching: true, ...st }, T0 + 300_000)).toMatch(/^Live, checked just now: /);
+    // And an error after that good read shows again, with when the last good one was.
+    await check(env, async () => {}, T0 + 600_000, answer(200, { data: { viewer: { accounts: [] } } }));
+    expect(costStatusLine({ capped: null, watching: true, ...(await status(env)) }, T0 + 600_000)).toBe(
+      "Not working: Cloudflare returned no data for this account (check CF_ACCOUNT_ID and the token's Account Analytics: Read) (since just now; last good check 5m ago)",
+    );
+  });
+
+  it("missing settings: nothing recorded, /_ops says Off", async () => {
+    const { env } = fakeEnv();
+    await check(env, async () => {}, T0, graphql(quiet).fetcher);
+    const st = await status(env);
+    expect(st).toEqual({ last_ok: null, last_error: null });
+    expect(costStatusLine({ capped: null, watching: false, ...st }, T0)).toBe("Off: settings missing (set CF_ACCOUNT_ID and CF_ANALYTICS_TOKEN to watch usage)");
+    expect(costStatusLine({ capped: null, watching: true, ...st }, T0)).toBe("Watching, no check recorded yet (it runs every 5 minutes)");
+  });
+
+  it("a timeout or network failure is recorded too", async () => {
+    const { env } = fakeEnv(TOKEN);
+    const timeout = (async () => { throw Object.assign(new Error("The operation timed out"), { name: "TimeoutError" }); }) as unknown as typeof fetch;
+    await check(env, async () => {}, T0, timeout);
+    expect((await status(env)).last_error?.message).toBe("Cloudflare analytics timed out");
   });
 });
 

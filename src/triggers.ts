@@ -42,7 +42,7 @@ export interface Trigger {
 export class TriggerError extends Error {}
 
 const SESSION_NAME = /^[a-z0-9][a-z0-9._-]{0,31}$/;
-const TASK_STATUSES = ["todo", "doing", "blocked", "done", "stopped"];
+const TASK_STATUSES = ["todo", "doing", "blocked", "done", "stopped", "frozen"];
 
 /** Checks and normalizes a trigger's event, match and prompt (the board checks ownership and limits). */
 export function cleanTrigger(raw: { on?: unknown; match?: unknown; prompt?: unknown }): { on: TriggerOn; match: TriggerMatch; prompt: string } {

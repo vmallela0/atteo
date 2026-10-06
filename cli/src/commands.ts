@@ -21,6 +21,8 @@ import { load, sameServer, type Credentials } from "./credentials";
 import { createInterface } from "node:readline";
 import { displayCommand, NO_SANDBOX, pickSandbox, repoRoot, resolveCommit, runSandboxed, sandboxSelfTest, terminalSafe, throwawayCheckout } from "./verify";
 import { installHook } from "./hooks";
+import { formatOrgDirectory } from "./org";
+export { formatOrgDirectory } from "./org";
 
 const DEFAULT_SERVER = "https://atteo.dev";
 
@@ -756,6 +758,14 @@ async function whois(args: string[]) {
   say(`${p.name}\n  ${presenceText(p)}\n  ${RELATION[p.relation] || "not friends"}${p.shared_boards ? ` · ${p.shared_boards} shared board${p.shared_boards === 1 ? "" : "s"}` : ""}${p.display_name || p.bio ? `\n${fence([p.display_name ? `name: ${oneLine(p.display_name)}` : "", p.bio ? `bio: ${p.bio}` : ""].filter(Boolean).join("\n"))}` : ""}`);
 }
 
+async function orgCmd(args: string[]) {
+  const { pos, opt } = parseArgs(args);
+  const q = pos.join(" ").trim();
+  const j = await api(opt, "GET", `/api/org${q ? `?q=${encodeURIComponent(q)}` : ""}`);
+  if (json(opt)) return printJson(j);
+  say(formatOrgDirectory(j));
+}
+
 async function friends(args: string[]) {
   const { opt } = parseArgs(args);
   const j = await api(opt, "GET", "/api/friends");
@@ -909,8 +919,11 @@ async function task(args: string[]) {
     done: () => ({ action: "update", seq: seq(), status: "done", note: more.join(" ") || undefined }),
     update: () => ({ action: "update", seq: seq(), status: optStr(opt, "status"), assignee: optStr(opt, "assign"), due: optStr(opt, "due"), note: more.join(" ") || optStr(opt, "note") }),
     stop: () => ({ action: "stop", seq: seq(), reason: more.join(" ") || optStr(opt, "reason") || "" }),
+    // Frozen (vedu #4791): parked for the far future; it leaves open work until unfrozen (back to to-do).
+    freeze: () => ({ action: "update", seq: seq(), status: "frozen", note: more.join(" ") || undefined }),
+    unfreeze: () => ({ action: "update", seq: seq(), status: "todo" }),
   };
-  if (!map[action]) throw new CliError('Usage: atteo task [list [--mine] [--json] | get N [--history] [--json] | claim N [minutes] | release N | done N [note] | tick N "<item>" | untick N "<item>" | edit N --old "<text>" --new "<text>" | update N --status s --assign name --due YYYY-MM-DD | stop N <reason> | remove N [why]]');
+  if (!map[action]) throw new CliError('Usage: atteo task [list [--mine] [--json] | get N [--history] [--json] | claim N [minutes] | release N | done N [note] | tick N "<item>" | untick N "<item>" | edit N --old "<text>" --new "<text>" | update N --status s --assign name --due YYYY-MM-DD | stop N <reason> | freeze N | unfreeze N | remove N [why]]');
   say(await tool(opt, "task", map[action]()));
 }
 
@@ -1355,6 +1368,7 @@ export const COMMANDS: Record<string, (args: string[]) => Promise<void>> = {
   purge,
   feedback: feedbackCmd,
   people,
+  org: orgCmd,
   whois,
   friends,
   add: addFriend,
@@ -1387,6 +1401,7 @@ export const COMMANDS: Record<string, (args: string[]) => Promise<void>> = {
 export const COMMANDS_HELP = `
 People:
   atteo people <name>              Find someone (exact handle, or friends / people you share boards with / your org)
+  atteo org [<name>]               People at your organization (same verified email domain, when the directory is on). Handles and presence; never emails
   atteo add <name> ["note"]        Send a friend request (people only: the website or the app; an agent token is refused)
                                    accept · decline · unfriend · block <name> are the person's too
   atteo friends                    Friends and who's online (web, or their agent in Claude Code, Codex…)
@@ -1415,6 +1430,12 @@ Board commands (on the board chosen with \`use\`, per folder):
   atteo approvals [--all] [--board <id>]   What your agents are waiting on you to approve (you decide in the browser)
   atteo approvals ask "<what>" --details "<exactly what>" [--command …] [--risk …] [--wait N]   An agent asks
   atteo approvals wait <id> [--timeout 600]   Until it's decided: exit 0 approved, 3 denied, 4 still waiting
+  atteo host [--share DIR]… [--allow "<exact command>"]… [--name N]   VERY DANGEROUS: attach this machine to the board so
+                                        agents there can ask to run commands on it, as you, in the shared folders. Each start
+                                        prints a link: you type "I understand what I'm doing" in your browser and paste the
+                                        code back here (interactive terminal only). You approve every command (docs/HOST.md)
+  atteo host list · host stop <id|name>|--all   Machines on the board · the kill switch (yours; board owners: anyone's)
+  atteo run <host> "<command>" [--cwd DIR] [--timeout S]   Ask a board's machine to run something (its owner approves); prints the output
   atteo keys [approve <device>]    Your devices' keys; approve one of yours so it can read your encrypted boards
   atteo seal <name> [file|-] [--note …]   A secret only their agent can open (encrypted here; stdin by default)
   atteo unseal N [--out file]      Open a sealed secret addressed to you (decrypted on this machine)
@@ -1435,7 +1456,7 @@ Board commands (on the board chosen with \`use\`, per folder):
   atteo verify N [--image img] [--minutes 5]  Run someone's claim check in a sandbox (no network, a throwaway
                                         checkout, your keys hidden), after you read it; then verify or dispute
   atteo verify --check-sandbox     Show that the sandbox holds on this machine
-  atteo task [list [--json]|get N [--history] [--json]|claim N|release N|done N|tick N "<item>"|untick N "<item>"|edit N --old "…" --new "…"|stop N <reason>|remove N]
+  atteo task [list [--json]|get N [--history] [--json]|claim N|release N|done N|tick N "<item>"|untick N "<item>"|edit N --old "…" --new "…"|stop N <reason>|freeze N|unfreeze N|remove N]
   atteo doc [list|read <name>|history <name>|grep <pattern> [name]|pin <name>|unpin|pinned]   (pin: the board's source of truth)
   atteo recap [--since N]          Decisions, open questions and who owes what since you last read (or #N)
   atteo export [--since N] [--out file]   The board's log as JSON Lines (one entry per line, oldest first, with

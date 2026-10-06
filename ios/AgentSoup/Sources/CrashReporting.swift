@@ -1,169 +1,232 @@
-// Crash reporting (vedu #4640, INFRA.md item 5): Sentry Cocoa, the same project as the Worker (src/sentry.ts).
-// Off until a DSN is set — empty Info.plist / build setting, and no ATTEO_SENTRY_DSN. Never commit a real DSN
-// (docs/SENTRY.md). What may go out: a crash stack, or a short kind ("json_decode", "http_5xx") with token tags.
-// Never message text, emails, tokens, board contents, or Authorization headers. No user / handle. No session
-// replay, no screenshots, no view hierarchy. Debug builds, unit tests and UI tests never start it unless
-// ATTEO_SENTRY=1 (or ATTEO_SENTRY_DSN is set), so test runs never reach Sentry.
+// Optional crash reporting (vedu #4640). No DSN or analytics opt-out means no SDK startup.
+// Only fixed error kinds / native stack addresses, a fixed screen name, app version and OS may leave the phone.
+// See docs/SENTRY.md. Never pass an Error's description, an API payload, or arbitrary tags to this interface.
 
 import Foundation
 import Sentry
 
-/// Where crash reports go: Sentry in the app, a recorder in the unit tests.
 protocol CrashSink: AnyObject {
     func start(dsn: String)
-    func capture(kind: String, tags: [String: String])
+    func stop()
+    func screen(_ name: String)
+    func capture(kind: String)
 }
 
 enum CrashReporting {
-    /// The kinds the app may send by hand. Crashes are captured by the SDK itself once started.
     static let kinds: Set<String> = ["json_decode", "http_5xx"]
+    static let screens: Set<String> = ["for_you", "chats", "board", "ask", "talk", "settings"]
 
-    /// Set once started; nil means reporting is off for this run and every call is a no-op.
-    static var sink: CrashSink?
+    // API callbacks and Settings can run on different executors. All sink access, including lifecycle calls,
+    // is serialized by this lock. beforeSend only reads UserDefaults and the event, never this locked state.
+    private final class State: @unchecked Sendable {
+        let lock = NSRecursiveLock()
+        var sink: CrashSink?
+    }
+    private static let state = State()
+    static var sink: CrashSink? {
+        get { state.lock.withLock { state.sink } }
+        set { state.lock.withLock { state.sink = newValue } }
+    }
+    static var enabled: Bool { UserDefaults.standard.object(forKey: Analytics.key) as? Bool ?? true }
 
-    /// A DSN from the scheme (`ATTEO_SENTRY_DSN`) or Info.plist (`AtteoSentryDSN` ← `SENTRY_DSN` build setting).
     static func dsn(env: String? = API.environment("SENTRY_DSN"), plist: String? = Bundle.main.object(forInfoDictionaryKey: "AtteoSentryDSN") as? String) -> String? {
         let raw = [env, plist].compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }.first { !$0.isEmpty }
-        guard let raw, raw.hasPrefix("https://"), raw.contains("@"), !raw.contains("YOUR_"), !raw.hasPrefix("$(") else { return nil }
+        guard let raw, !raw.contains("YOUR_"), !raw.contains("$("),
+              let url = URLComponents(string: raw), url.scheme == "https",
+              let host = url.host, !host.isEmpty, let key = url.user, !key.isEmpty,
+              url.password == nil, url.query == nil, url.fragment == nil,
+              url.path.split(separator: "/").last?.allSatisfy({ $0.isASCII && $0.isNumber }) == true else { return nil }
         return raw
     }
 
-    /// Starts Sentry once, at launch, only when a DSN is present. Release builds only, unless ATTEO_SENTRY=1.
+    /// Release only, unless explicitly enabled in a debug scheme. Consent is checked before SDK startup,
+    /// because startup can immediately send a crash saved on the previous launch.
     static func start(with s: CrashSink = SentrySink()) {
-        guard sink == nil else { return }
-        #if DEBUG
-        guard API.environment("SENTRY") == "1" || API.environment("SENTRY_DSN") != nil else { return }
-        #else
-        guard ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil else { return }
-        #endif
-        guard let dsn else { return }
-        s.start(dsn: dsn)
-        sink = s
-    }
-
-    /// A non-PII error: a known kind and short token tags only (status=500). Unknown kinds and messy values are dropped.
-    static func capture(_ kind: String, tags: [String: String] = [:]) {
-        guard let sink, kinds.contains(kind) else { return }
-        var clean: [String: String] = ["surface": "ios"]
-        for (k, v) in tags {
-            if let k = token(k), let v = token(v) { clean[k] = v }
+        state.lock.withLock {
+            guard enabled else { stop(); return }
+            guard state.sink == nil else { return }
+            #if DEBUG
+            guard API.environment("SENTRY") == "1" || API.environment("SENTRY_DSN") != nil else { return }
+            #else
+            guard ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil else { return }
+            #endif
+            guard let configuredDSN = dsn() else { return }
+            s.start(dsn: configuredDSN)
+            state.sink = s
         }
-        sink.capture(kind: kind, tags: clean)
     }
 
-    /// A short token the way Analytics.via is: `[a-z0-9_]{1,32}`. Status codes and kinds fit; emails and paths do not.
-    static func token(_ s: String) -> String? {
-        s.range(of: "^[a-z0-9_]{1,32}$", options: .regularExpression) != nil ? s : nil
+    static func stop() {
+        state.lock.withLock {
+            state.sink?.stop()
+            state.sink = nil
+            SentrySink.discardCachedReports()
+        }
     }
 
-    static func dropHeader(_ name: String) -> Bool {
-        let n = name.lowercased()
-        return n == "authorization" || n == "cookie" || n == "set-cookie" || n == "x-api-key"
-            || n == "proxy-authorization" || n.contains("token") || n.contains("secret")
+    static func consentChanged() {
+        if enabled { start() } else { stop() }
     }
 
-    /// Extra / breadcrumb keys that are likely board contents, a person, or a credential.
-    static func dropField(_ name: String) -> Bool {
-        let n = name.lowercased()
-        return n == "email" || n == "message" || n == "text" || n == "body" || n == "content"
-            || n == "handle" || n == "username" || n == "user" || n == "authorization"
-            || n == "cookie" || n == "token" || n.contains("password")
+    static func capture(_ kind: String) {
+        state.lock.withLock {
+            guard enabled, kinds.contains(kind) else { return }
+            state.sink?.capture(kind: kind)
+        }
     }
 
-    /// Strip emails, bearer tokens and JWT-shaped strings from a value the SDK already built (a crash reason, a crumb).
-    static func redact(_ s: String) -> String {
-        var out = s
-        out = out.replacingOccurrences(of: #"[A-Z0-9._%+\-]+@[A-Z0-9.\-]+\.[A-Z]{2,}"#, with: "[redacted]", options: [.regularExpression, .caseInsensitive])
-        out = out.replacingOccurrences(of: #"(?i)\b(authorization|bearer|token)\b["'=\s:]+[^\s"'&]+"#, with: "$1 [redacted]", options: .regularExpression)
-        out = out.replacingOccurrences(of: #"eyJ[A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]+"#, with: "[redacted]", options: .regularExpression)
-        return out
+    static func screen(_ name: String) {
+        state.lock.withLock {
+            guard enabled, screens.contains(name) else { return }
+            state.sink?.screen(name)
+        }
     }
 
-    /// Last chance before an event leaves the phone: no user, no request bodies/cookies/auth headers, no long crumbs.
+    private static func matching(_ value: String?, _ pattern: String) -> String? {
+        guard let value, value.range(of: pattern, options: .regularExpression) != nil else { return nil }
+        return value
+    }
+
+    private static func address(_ value: String?) -> String? { matching(value, "^0x[0-9a-fA-F]{1,16}$") }
+    private static func version(_ value: String?) -> String? { matching(value, "^[0-9]+(?:\\.[0-9]+){0,3}$") }
+
+    static var releaseName: String {
+        let appVersion = version(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String) ?? "0"
+        let build = self.version(Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String) ?? "0"
+        return "Atteo@\(appVersion)+\(build)"
+    }
+
+    /// Rebuild the event from an allowlist. Regex redaction of free text cannot reliably remove names,
+    /// handles, messages or nested PII. Stack addresses and binary UUIDs retain server-side symbolication;
+    /// source paths, symbols, local variables, registers and exception descriptions are deliberately omitted.
     static func scrub(_ event: Event) -> Event? {
-        event.user = nil
-        event.serverName = nil
-        if let req = event.request {
-            req.cookies = nil
-            req.queryString = nil
-            req.fragment = nil
-            if let headers = req.headers {
-                var keep: [String: String] = [:]
-                for (k, v) in headers {
-                    let name = k as? String ?? "\(k)"
-                    guard !dropHeader(name) else { continue }
-                    keep[name] = redact((v as? String) ?? "\(v)")
-                }
-                req.headers = keep
+        guard enabled, event.type == nil || event.type == "error" || event.type == "default" else { return nil }
+        let clean = Event(level: event.level)
+        clean.eventId = event.eventId
+        clean.timestamp = event.timestamp
+        clean.platform = "cocoa"
+        clean.releaseName = matching(event.releaseName, "^Atteo@[0-9.]+\\+[0-9.]+$") ?? releaseName
+        // Cocoa otherwise asks the server to infer the connection IP even with sendDefaultPii=false.
+        clean.sdk = ["name": "sentry.cocoa", "settings": ["infer_ip": "never"]]
+        if let screen = event.tags?["screen"], screens.contains(screen) { clean.tags = ["screen": screen] }
+        let os = ProcessInfo.processInfo.operatingSystemVersion
+        let osVersion = version(event.context?["os"]?["version"] as? String) ?? "\(os.majorVersion).\(os.minorVersion).\(os.patchVersion)"
+        clean.context = ["os": ["name": "iOS", "version": osVersion]]
+        if let kind = event.message?.formatted, kinds.contains(kind) {
+            clean.exceptions = [Exception(value: nil, type: kind)]
+            clean.fingerprint = [kind]
+        } else if let exceptions = event.exceptions, !exceptions.isEmpty {
+            let nativeTypes: Set<String> = ["EXC_BAD_ACCESS", "EXC_BAD_INSTRUCTION", "EXC_ARITHMETIC", "EXC_BREAKPOINT",
+                                           "EXC_CRASH", "SIGABRT", "SIGBUS", "SIGFPE", "SIGILL", "SIGSEGV", "SIGTRAP",
+                                           "NSInvalidArgumentException", "NSRangeException", "NSInternalInconsistencyException"]
+            clean.exceptions = exceptions.map { exception in
+                let type = exception.type.flatMap { nativeTypes.contains($0) ? $0 : nil } ?? "native_crash"
+                let result = Exception(value: nil, type: type)
+                let mechanism = Mechanism(type: "generic")
+                mechanism.handled = NSNumber(value: exception.mechanism?.handled?.boolValue ?? (event.level != .fatal))
+                result.mechanism = mechanism
+                result.stacktrace = exception.stacktrace.map(scrubStack)
+                return result
             }
-        }
-        if let extras = event.extra {
-            var keep: [String: Any] = [:]
-            for (k, v) in extras where !dropField(k) {
-                if let s = v as? String { keep[k] = redact(s) }
-                else if v is NSNumber { keep[k] = v }
+            clean.stacktrace = event.stacktrace.map(scrubStack)
+            clean.debugMeta = event.debugMeta?.compactMap { image in
+                guard let id = image.debugID, let uuid = UUID(uuidString: id),
+                      let imageAddress = address(image.imageAddress) else { return nil }
+                let result = DebugMeta()
+                result.type = "macho"
+                result.debugID = uuid.uuidString
+                result.imageAddress = imageAddress
+                result.imageVmAddress = self.address(image.imageVmAddress)
+                result.imageSize = image.imageSize
+                return result
             }
-            event.extra = keep
+        } else {
+            return nil // no arbitrary messages, feedback, or unknown SDK event types
         }
-        if var ctx = event.context {
-            ctx.removeValue(forKey: "user")
-            event.context = ctx
-        }
-        if let formatted = event.message?.formatted {
-            event.message = SentryMessage(formatted: redact(formatted))
-        }
-        event.exceptions?.forEach { if let v = $0.value { $0.value = redact(v) } }
-        if let crumbs = event.breadcrumbs { event.breadcrumbs = crumbs.compactMap(scrub) }
-        return event
+        return clean
     }
 
-    static func scrub(_ crumb: Breadcrumb) -> Breadcrumb? {
-        if let m = crumb.message {
-            if m.count > 80 { crumb.message = nil } else { crumb.message = redact(m) }
+    private static func scrubStack(_ stack: SentryStacktrace) -> SentryStacktrace {
+        let frames: [Frame] = stack.frames.compactMap { frame in
+            guard let instruction = address(frame.instructionAddress) else { return nil }
+            let result = Frame()
+            result.instructionAddress = instruction
+            result.imageAddress = address(frame.imageAddress)
+            result.symbolAddress = address(frame.symbolAddress)
+            result.inApp = frame.inApp
+            return result
         }
-        if let data = crumb.data {
-            for (k, v) in data {
-                let name = k as? String ?? "\(k)"
-                if dropHeader(name) || dropField(name) { crumb.setData(value: nil, key: name); continue }
-                if let s = v as? String {
-                    crumb.setData(value: s.count > 80 ? nil : redact(s), key: name)
-                } else if !(v is NSNumber) {
-                    crumb.setData(value: nil, key: name)
-                }
-            }
-        }
-        return crumb
+        return SentryStacktrace(frames: frames, registers: [:])
     }
 }
 
-/// Sentry's iOS SDK, set up for crashes and a few token errors only.
 final class SentrySink: CrashSink {
+    private var options: Options?
+    private var session: URLSession?
+    private static let cacheKey = "crash-report-cache-generation"
+    private static var cacheRoot: URL {
+        FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0].appendingPathComponent("AtteoCrashReports", isDirectory: true)
+    }
+    static func discardCachedReports() {
+        // A new directory prevents late writes from an old SDK transport from being replayed after opt-in.
+        UserDefaults.standard.set(UUID().uuidString, forKey: cacheKey)
+        try? FileManager.default.removeItem(at: cacheRoot)
+    }
+
     func start(dsn: String) {
-        SentrySDK.start { options in
-            options.dsn = dsn
-            options.sendDefaultPii = false
-            options.attachScreenshot = false
-            options.attachViewHierarchy = false
-            options.enableCaptureFailedRequests = false
-            options.enableAutoPerformanceTracing = false
-            options.enableNetworkTracking = false
-            options.enableNetworkBreadcrumbs = false
-            options.tracesSampleRate = 0
-            options.sessionReplay.sessionSampleRate = 0
-            options.sessionReplay.onErrorSampleRate = 0
-            options.beforeCaptureScreenshot = { _ in false }
-            options.beforeCaptureViewHierarchy = { _ in false }
-            options.beforeSend = { CrashReporting.scrub($0) }
-            options.beforeBreadcrumb = { CrashReporting.scrub($0) }
-        }
+        let options = Options()
+        options.dsn = dsn
+        options.releaseName = CrashReporting.releaseName
+        options.sendDefaultPii = false
+        options.enableMemoryIntrospection = false
+        options.attachScreenshot = false
+        options.attachViewHierarchy = false
+        options.maxAttachmentSize = 0
+        options.enableCaptureFailedRequests = false
+        options.enableAutoPerformanceTracing = false
+        options.enableNetworkTracking = false
+        options.enableNetworkBreadcrumbs = false
+        options.enableAutoBreadcrumbTracking = false
+        options.enableSwizzling = false
+        options.enableAutoSessionTracking = false
+        options.enableAppHangTracking = false
+        options.enableWatchdogTerminationTracking = false
+        options.enableMetricKit = false
+        options.sendClientReports = false
+        options.maxBreadcrumbs = 0
+        options.tracesSampleRate = 0
+        options.sessionReplay.sessionSampleRate = 0
+        options.sessionReplay.onErrorSampleRate = 0
+        options.beforeSendLog = { _ in nil }
+        options.beforeSend = { CrashReporting.scrub($0) }
+        options.beforeBreadcrumb = { _ in nil }
+        options.shutdownTimeInterval = 0
+        let generation = UserDefaults.standard.string(forKey: Self.cacheKey) ?? "initial"
+        options.cacheDirectoryPath = Self.cacheRoot.appendingPathComponent(generation, isDirectory: true).path
+        let config = URLSessionConfiguration.ephemeral
+        config.httpShouldSetCookies = false
+        config.httpCookieStorage = nil
+        let session = URLSession(configuration: config)
+        options.urlSession = session
+        self.session = session
+        self.options = options
+        SentrySDK.start(options: options)
         SentrySDK.setUser(nil)
     }
 
-    func capture(kind: String, tags: [String: String]) {
+    func stop() {
+        options?.enabled = false
+        session?.invalidateAndCancel() // cancel queued uploads before close (which normally flushes)
+        SentrySDK.close()
+        options = nil
+        session = nil
+    }
+
+    func screen(_ name: String) { SentrySDK.configureScope { $0.setTag(value: name, key: "screen") } }
+
+    func capture(kind: String) {
         let event = Event(level: .error)
-        event.message = SentryMessage(formatted: kind)
-        event.tags = tags
-        event.fingerprint = [kind]
+        event.message = SentryMessage(formatted: kind) // replaced by a fixed exception type in beforeSend
         SentrySDK.capture(event: event)
     }
 }

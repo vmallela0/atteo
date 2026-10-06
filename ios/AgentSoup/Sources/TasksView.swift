@@ -14,6 +14,7 @@ extension WorkTask {
         case "blocked": return String(localized: "task-status.blocked", defaultValue: "Blocked", bundle: .l10n, comment: "A task status: it cannot move on")
         case "done": return String(localized: "Done", bundle: .l10n)
         case "stopped": return String(localized: "Stopped", bundle: .l10n)
+        case "frozen": return String(localized: "Frozen", bundle: .l10n)
         default: return status
         }
     }
@@ -148,7 +149,7 @@ enum TaskFilter: String, CaseIterable, Identifiable {
 
 /// Where a task stands, as the list groups it: active statuses, then Done.
 enum TaskGroup: String, CaseIterable, Identifiable {
-    case doing, open, blocked, stopped, done
+    case doing, open, blocked, stopped, done, frozen // frozen (vedu #4791): parked for the far future, last and folded
     var id: String { rawValue }
     var title: String {
         switch self {
@@ -160,21 +161,23 @@ enum TaskGroup: String, CaseIterable, Identifiable {
                                      comment: "A group in the task list: tasks waiting on something")
         case .stopped: return String(localized: "Stopped", bundle: .l10n)
         case .done: return String(localized: "Done", bundle: .l10n)
+        case .frozen: return String(localized: "Frozen", bundle: .l10n)
         }
     }
     func holds(_ t: WorkTask) -> Bool {
         switch self {
         case .doing: return t.status == "doing"
-        case .open: return !["doing", "blocked", "stopped", "done"].contains(t.status) // to do, and any status this app doesn't know yet
+        case .open: return !["doing", "blocked", "stopped", "done", "frozen"].contains(t.status) // to do, and any status this app doesn't know yet
         case .blocked: return t.status == "blocked"
         case .stopped: return t.status == "stopped"
         case .done: return t.status == "done"
+        case .frozen: return t.status == "frozen"
         }
     }
     /// Active groups: priority then oldest first. In progress and Done: latest first.
     func sort(_ a: WorkTask, _ b: WorkTask) -> Bool {
         switch self {
-        case .open, .blocked, .stopped: return (a.priorityRank, a.seq) < (b.priorityRank, b.seq)
+        case .open, .blocked, .stopped, .frozen: return (a.priorityRank, a.seq) < (b.priorityRank, b.seq)
         default: return a.updatedAt > b.updatedAt
         }
     }
@@ -189,7 +192,7 @@ struct TasksPane: View {
     let open: (Int) -> Void
     let add: () -> Void
     @State private var filter: TaskFilter = .all
-    @State private var collapsed: Set<TaskGroup> = [.stopped, .done]
+    @State private var collapsed: Set<TaskGroup> = [.stopped, .done, .frozen]
 
     private var all: [WorkTask] { state.tasks[board] ?? [] }
 
@@ -401,6 +404,9 @@ struct StatusGlyph: View {
                     Circle().fill(Theme.warn.opacity(0.18))
                     Circle().stroke(Theme.warn, lineWidth: 1.5)
                     Image(systemName: "minus").font(.system(size: s * 0.5, weight: .heavy)).foregroundStyle(Theme.warn)
+                case "frozen":
+                    Circle().stroke(Theme.faint, lineWidth: 1.5)
+                    Image(systemName: "snowflake").font(.system(size: s * 0.5, weight: .semibold)).foregroundStyle(Theme.faint)
                 default:
                     Circle().stroke(Theme.faint, style: StrokeStyle(lineWidth: 1.5, dash: [2.2, 1.6]))
                 }
@@ -780,7 +786,7 @@ struct TaskActionBar: View {
     @EnvironmentObject var state: AppState
     let task: WorkTask
     let board: String
-    static var statuses: [(key: String, label: String, icon: String)] { [("todo", "circle"), ("doing", "circle.lefthalf.filled"), ("blocked", "exclamationmark.circle"), ("done", "checkmark.circle")].map { ($0.0, WorkTask.statusName($0.0), $0.1) } }
+    static var statuses: [(key: String, label: String, icon: String)] { [("todo", "circle"), ("doing", "circle.lefthalf.filled"), ("blocked", "exclamationmark.circle"), ("done", "checkmark.circle"), ("frozen", "snowflake")].map { ($0.0, WorkTask.statusName($0.0), $0.1) } }
 
     private var color: Color { task.status == "doing" ? Theme.accent : task.isDone ? Theme.ok : task.isBlocked ? Theme.warn : Theme.muted }
 

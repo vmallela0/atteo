@@ -3,7 +3,11 @@
 // Hosted HTTP writes stay allowed unless a deny rule says otherwise, so the secret filter
 // on gatewayFetch is unchanged when no rule targets them.
 //
-// This does not tunnel MCP, and it does not read path prefixes from a room charter.
+// This does not tunnel MCP, and it does not fetch a hosted board charter. A room's write
+// scope is opt-in on this machine: `charter.scope_paths` in the policy file. Each absolute
+// directory becomes a file_write allow, and a write outside them is denied. Who may publish
+// those paths on the shared charter is open — absolute paths differ per machine, and applying
+// a remote list would widen this allowlist — so nothing here reads one.
 // Shell rules match the whole command, exactly: a prefix would allow `npm test && …`.
 
 import { blockedMessage, scanFields, type SecretHit } from "../../src/secrets";
@@ -57,10 +61,26 @@ export interface ActionRule {
   urlPrefix?: string;
 }
 
+/**
+ * Local export of a room's write scope. Not the hosted charter (goal, data classes,
+ * retention, member notes). `board` records which room the paths were copied for; it is
+ * not looked up. Each `scope_paths` entry becomes a file_write allow rule.
+ */
+export interface CharterScope {
+  board?: string;
+  scope_paths: string[];
+}
+
 export interface HarnessPolicySpec {
   allow?: ActionRule[];
   deny?: ActionRule[];
+  /** Present only when the file opts in. Absence leaves file-write allows as they were. */
+  charter?: CharterScope;
 }
+
+const SCOPE_PATHS_MAX = 32;
+const SCOPE_PATH_MAX = 4096;
+const BOARD_RE = /^b_[a-z0-9]{8,32}$/;
 
 const RULE_FIELDS: Record<ActionKind, readonly (keyof ActionRule)[]> = {
   shell: ["tool", "command"],
@@ -186,7 +206,10 @@ function blockedAction(hit: SecretHit): string {
 }
 
 function compile(spec: HarnessPolicySpec): ActionPolicy {
-  const allow = spec.allow ?? [];
+  // Opt-in ceiling: null means the file did not set charter. An empty list confines every file write.
+  const scope = spec.charter ? spec.charter.scope_paths : null;
+  const charterAllows: ActionRule[] = (scope ?? []).map((pathPrefix) => ({ kind: "file_write", pathPrefix }));
+  const allow = [...(spec.allow ?? []), ...charterAllows];
   const deny = spec.deny ?? [];
   const windowsPaths = [...allow, ...deny].some((rule) => /^[A-Z]:\//.test(rule.pathPrefix ?? ""));
   return {
@@ -203,6 +226,10 @@ function compile(spec: HarnessPolicySpec): ActionPolicy {
       if (action.kind === "file_write" && action.path && (windowsPaths || /^[A-Za-z]:/.test(action.path) || /^[A-Za-z]:/.test(action.cwd ?? ""))
         && ambiguousWindowsPath(action.path, action.cwd)) return refusal(action, "has an ambiguous Windows path.");
       if (deny.some((rule) => matches(rule, action))) return refusal(action, "matches a deny rule.");
+      if (scope && action.kind === "file_write") {
+        const inside = action.path != null && scope.some((prefix) => insidePrefix(prefix, action.path!, action.cwd));
+        if (!inside) return refusal(action, "is outside the charter scope.");
+      }
       if (SIDE_EFFECTS.has(action.kind)) {
         if (allow.some((rule) => matches(rule, action))) return { allow: true };
         return refusal(action, "is not on the allowlist.");
@@ -254,18 +281,57 @@ function parseRuleList(value: unknown, label: string): ActionRule[] | { ok: fals
   return rules;
 }
 
+/**
+ * A charter scope export becomes file_write allow rules, one per absolute directory.
+ * Anything that is not that export fails closed: the caller must not treat it as an allow.
+ * Paths are lexical (the same rules as `pathPrefix`); this does not read the hosted charter.
+ */
+export function charterScopeRules(input: unknown): { ok: true; scope: CharterScope; allow: ActionRule[] } | { ok: false; reason: string } {
+  if (!input || typeof input !== "object" || Array.isArray(input)) return invalid("charter must be a JSON object.");
+  const raw = input as Record<string, unknown>;
+  for (const key of Object.keys(raw)) {
+    if (key !== "scope_paths" && key !== "board") return invalid(`unknown charter field "${key}".`);
+  }
+  if (!("scope_paths" in raw)) return invalid("charter needs scope_paths (a list of absolute directories).");
+  if (!Array.isArray(raw.scope_paths)) return invalid("charter scope_paths must be a list of absolute directories.");
+  if (raw.scope_paths.length > SCOPE_PATHS_MAX) return invalid(`charter scope_paths lists more than ${SCOPE_PATHS_MAX} directories.`);
+  let board: string | undefined;
+  if ("board" in raw) {
+    if (typeof raw.board !== "string" || !BOARD_RE.test(raw.board)) return invalid("charter board must be a board id (b_…).");
+    board = raw.board;
+  }
+  const scope_paths: string[] = [];
+  const allow: ActionRule[] = [];
+  for (let i = 0; i < raw.scope_paths.length; i++) {
+    const value = raw.scope_paths[i];
+    if (typeof value !== "string" || value.length > SCOPE_PATH_MAX) {
+      return invalid(`charter scope_paths ${i + 1} must be an absolute path.`);
+    }
+    const rule = parseRule({ kind: "file_write", pathPrefix: value }, `charter scope_paths ${i + 1}`);
+    if ("ok" in rule) return rule;
+    if (!rule.pathPrefix) return invalid(`charter scope_paths ${i + 1} must be an absolute path.`);
+    if (scope_paths.includes(rule.pathPrefix)) continue;
+    scope_paths.push(rule.pathPrefix);
+    allow.push({ kind: "file_write", pathPrefix: rule.pathPrefix });
+  }
+  return { ok: true, scope: board ? { board, scope_paths } : { scope_paths }, allow };
+}
+
 /** Validate a policy document. A bad document fails closed: nothing in it is enforced as an allow. */
 export function parseHarnessPolicy(input: unknown): { ok: true; spec: HarnessPolicySpec } | { ok: false; reason: string } {
   if (!input || typeof input !== "object" || Array.isArray(input)) return invalid("the policy must be a JSON object.");
   const raw = input as Record<string, unknown>;
   for (const key of Object.keys(raw)) {
-    if (key !== "allow" && key !== "deny") return invalid(`unknown policy field "${key}".`);
+    if (key !== "allow" && key !== "deny" && key !== "charter") return invalid(`unknown policy field "${key}".`);
   }
   const allow = parseRuleList(raw.allow, "allow");
   if (!Array.isArray(allow)) return allow;
   const deny = parseRuleList(raw.deny, "deny");
   if (!Array.isArray(deny)) return deny;
-  return { ok: true, spec: { allow, deny } };
+  if (!("charter" in raw)) return { ok: true, spec: { allow, deny } };
+  const charter = charterScopeRules(raw.charter);
+  if (!charter.ok) return charter;
+  return { ok: true, spec: { allow, deny, charter: charter.scope } };
 }
 
 export function policyFromJson(text: string): { ok: true; policy: ActionPolicy } | { ok: false; reason: string } {

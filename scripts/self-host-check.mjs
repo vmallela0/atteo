@@ -29,6 +29,9 @@ export const OPTIONAL_SECRETS = [
   "APNS_KEY",
   "XAI_API_KEY",
   "A2A_SIGNING_KEY",
+  "GITHUB_APP_ID",
+  "GITHUB_APP_PRIVATE_KEY",
+  "GITHUB_APP_INSTALLATION_ID",
 ];
 export const FORBIDDEN_VARS = [
   "DEV_FAKE_MAGIC",
@@ -46,7 +49,7 @@ const RECIPE_SCRIPTS = [
   "scripts/backup.mjs",
 ];
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const BINDINGS = new Set(["BOARD", "DB", "CF_VERSION_METADATA"]);
+const BINDINGS = new Set(["BOARD", "DB", "FILES", "CF_VERSION_METADATA"]);
 
 /** Strip line (`//`) and block comments that aren't inside strings, then JSON.parse. */
 export function parseJsonc(text) {

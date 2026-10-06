@@ -1,3 +1,4 @@
+import { PALETTE_JS, PALETTE_CSS } from "./palette";
 // Worker entry: MCP endpoint, sign-in, web pages, JSON API, and the operator console (/_ops).
 
 import { localize, pickLang } from "./i18n";
@@ -11,6 +12,7 @@ import * as costGuard from "./costGuard";
 import * as oauth from "./oauth";
 import { consentPage } from "./oauthPage";
 import * as approvals from "./approvals";
+import { boardStates } from "./boardStates";
 import { approvalsPage } from "./approvalsPage";
 import { askPage } from "./ask";
 import * as access from "./access";
@@ -34,7 +36,7 @@ import { docsPage } from "./docs";
 import { openapi } from "./openapi";
 import * as billing from "./billing";
 import * as githubApp from "./githubApp";
-import { egressRefusal, noteBoardCreated, noteWakeDelivery, type Later } from "./observe";
+import { egressRefusal, isHeldRequest, noteBoardCreated, noteRequestWallMs, noteWakeDelivery, type Later } from "./observe";
 import * as inbox from "./inbox";
 import * as notify from "./notify";
 import * as forYou from "./forYou";
@@ -58,6 +60,9 @@ import * as pins from "./pins";
 import * as boardkeys from "./boardkeys";
 import * as mailbox from "./mailbox";
 import * as recap from "./recap";
+import * as hosts from "./hosts";
+import { HOST_PAGE_JS } from "./hostUi";
+import { MACHINE_RE } from "./hostCore";
 import { listMount, LsError } from "./ls";
 import * as testAccounts from "./testAccounts";
 import { musePage } from "./muse";
@@ -99,6 +104,7 @@ import { APPLE_TOUCH_PNG_B64 } from "./appleIcon";
 import { assistantWelcomePage } from "./welcome";
 import { agentCharter, applyCharter, charterAuditDetail, charterScanFields, charterView, parseCharterPatch, storedFromRow } from "./charter";
 import { atteoHeader, BOARD_RE, connectCommand, esc, newBoardId, legacyHostRedirect, normalizeUser, parseBoardMeta, publicOrigin, requestNow } from "./util";
+import { deepChecks, handlePublicStatus } from "./uptime";
 import { isLocalHost } from "./util";
 
 import * as Sentry from "@sentry/cloudflare";
@@ -560,7 +566,12 @@ async function opsData(env: Env): Promise<AdminData> {
   }
   return {
     boards, users, invites, recent, totalEntries: boards.reduce((n, b) => n + b.entry_count, 0), access: [...access.values()], metrics: await usage.metrics(env).catch(() => undefined),
-    cost: { capped: await costGuard.capped(env).catch(() => null), watching: !!(env.CF_ACCOUNT_ID && costGuard.analyticsToken(env)) },
+    cost: {
+      capped: await costGuard.capped(env).catch(() => null),
+      watching: !!(env.CF_ACCOUNT_ID && costGuard.analyticsToken(env)),
+      thresholds: costGuard.thresholds(env),
+      ...(await costGuard.status(env)),
+    },
   };
 }
 
@@ -642,8 +653,9 @@ function tooManyPublic(headers: Record<string, string> = {}): Response {
 
 const handler = {
   /** Every 5 minutes (wrangler.jsonc triggers.crons). */
-  async scheduled(_event: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
-    await runScheduled(env, ctx);
+  async scheduled(_event: ScheduledController, rawEnv: Env, ctx: ExecutionContext): Promise<void> {
+    // Cron reads retry through dropped D1 connections too (SOUP-5/6 came after fetch got retryingReads, vedu #4844).
+    await runScheduled({ ...rawEnv, DB: retryingReads(rawEnv.DB) }, ctx);
   },
 
   async fetch(request: Request, rawEnv: Env, ctx: ExecutionContext): Promise<Response> {
@@ -658,34 +670,30 @@ const handler = {
     const path = url.pathname.replace(/\/+$/, "") || "/";
     const method = request.method;
     limits.countServed(env, ctx); // every request, for the cron's shed level (in memory, flushed in batches)
+    const started = Date.now(); // wall time; Cloudflare does not expose CPU-ms cheaply on ctx
 
     // Old workers.dev page links move to the public site (legacyHostRedirect: what stays put, and the cf-worker loop guard).
     const moved = legacyHostRedirect(env, request, url);
-    if (moved) return new Response(null, { status: 301, headers: { location: moved, "cache-control": "public, max-age=300" } });
+    if (moved) {
+      noteRequestWallMs(env, ctx, Date.now() - started);
+      return new Response(null, { status: 301, headers: { location: moved, "cache-control": "public, max-age=300" } });
+    }
 
     try {
       if (path === "/mcp") return await handleMcp(request, env, ctx);
       if (path === "/health") return json({ ok: true, version: env.CF_VERSION_METADATA?.id ?? null });
+      // Public uptime page (docs/SELF_HOST.md). Coarse ok/degraded/down; not the board composer's /status card.
+      if (path === "/status" || path === "/status.json") {
+        if (!(await limits.publicAllowed(env, "status", request))) return tooManyPublic();
+        return await handlePublicStatus(request, env, path);
+      }
       // Browsers post what the report-only CSP would have blocked (jxn's agent #2636): no sign-in, always 204.
       if (path === "/api/csp-report" && method === "POST") return await csp.handleReport(request, env);
       if (path === "/health/deep") {
         if (!(await limits.publicAllowed(env, "health", request))) return tooManyPublic();
-        // Touches storage the way real requests do: a board (Durable Object) and the database.
-        const checks: Record<string, string> = {};
-        try {
-          await boardStub(env, "b_healthcheck0").info();
-          checks.boards = "ok";
-        } catch (e) {
-          const m = e instanceof Error ? e.message : String(e);
-          checks.boards = /Board not found/.test(m) ? "ok" : m.slice(0, 200);
-        }
-        try {
-          await env.DB.prepare("SELECT 1 AS x").first();
-          checks.database = "ok";
-        } catch (e) {
-          checks.database = (e instanceof Error ? e.message : String(e)).slice(0, 200);
-        }
-        const ok = Object.values(checks).every((v) => v === "ok");
+        // Same probes as /status (a board Durable Object and D1). Detail strings stay here; /status does not return them.
+        const checks = await deepChecks(env);
+        const ok = checks.boards === "ok" && checks.database === "ok";
         return json({ ok, version: env.CF_VERSION_METADATA?.id ?? null, checks }, ok ? 200 : 503, { "cache-control": "no-store" });
       }
       // ---- A2A: an Agent Card and a JSON-RPC endpoint for agents that don't speak MCP ----
@@ -1176,7 +1184,7 @@ const handler = {
         const w = wait && sid ? limits.beginWait(`s:${sid}`) : null;
         if (w?.refused) return waitRefused(w.refused);
         const editMail = sid && mailbox.editSweepDue(sid, wait > 0) ? (await Promise.all((await registry.boardsForUser(env, viewer.name)).map(async b =>
-          (await boardStub(env, b.id).editNotices(viewer.name, sid, peek)).map((line, i) => ({ id: -Date.now() - i, kind: "edited" as const, board: b.id, board_title: b.title, seq: Number(line.match(/#(\d+)/)?.[1] ?? 0), from: "", from_via: "person", type: "edit", text: line, preview: line, for: "for your agent", ts: Date.now() }))))) .flat() : [];
+          (await withRetry(() => boardStub(env, b.id).editNotices(viewer.name, sid, peek)).catch((): string[] => [])).map((line, i) => ({ id: -Date.now() - i, kind: "edited" as const, board: b.id, board_title: b.title, seq: Number(line.match(/#(\d+)/)?.[1] ?? 0), from: "", from_via: "person", type: "edit", text: line, preview: line, for: "for your agent", ts: Date.now() }))))) .flat() : [];
         let r0: Awaited<ReturnType<typeof mailbox.collect>>;
         try {
           r0 = await mailbox.collect(env, viewer.name, { limit, wait: editMail.length ? 0 : wait, peek, held: !!lease, session: sid, pollMs: level >= 1 ? 6000 : 3000, signal: w?.signal }, async (b, seq) => { const e = (await boardStub(env, b).get(seq, { user: viewer.name, person: false })).entry; return { text: e.text, title: e.title }; }); // as the agent: its own lane too
@@ -1242,7 +1250,7 @@ const handler = {
         return json({ ok: true, read: n });
       }
 
-      // ---- GitHub App (signed inbound webhooks; outbound check-run payloads are formatted, not sent) ----
+      // ---- GitHub App (signed inbound webhooks; outbound Checks only when App secrets are set) ----
       if (path === "/github/webhook" && method === "POST") {
         const raw = await request.text();
         const result = await githubApp.handleWebhook(env, raw, {
@@ -1464,8 +1472,8 @@ const handler = {
       // ---- social: people, friends, presence, direct boards ----
       if (path === "/people" && method === "GET") {
         if (!viewer) return needLogin();
-        const [side, friends] = await Promise.all([sideBoardsNamed(env, viewer.name), social.friendsOf(env, viewer.name)]);
-        return peoplePage(viewer, side, friends);
+        const [side, friends, org] = await Promise.all([sideBoardsNamed(env, viewer.name), social.friendsOf(env, viewer.name), social.orgPeople(env, viewer.name)]);
+        return peoplePage(viewer, side, friends, org);
       }
       let um = path.match(/^\/u\/([a-z0-9][a-z0-9_.-]{0,31})$/);
       if (um && method === "GET") {
@@ -1798,7 +1806,9 @@ const handler = {
       if (path === BOARD_PREFETCH_PATH && method === "GET") return new Response(BOARD_PREFETCH_RULES, { headers: { "content-type": "application/speculationrules+json", "cache-control": "public, max-age=3600", "x-content-type-options": "nosniff" } });
       if (path === "/shell.js" && method === "GET") return new Response(SHELL_PAGE_JS, { headers: { "content-type": "text/javascript; charset=utf-8", "cache-control": url.searchParams.get("v") ? "public, max-age=31536000, immutable" : "public, max-age=300", "x-content-type-options": "nosniff" } });
       if (path === "/bug.js" && method === "GET") return new Response(BUG_PAGE_JS, { headers: { "content-type": "text/javascript; charset=utf-8", "cache-control": url.searchParams.get("v") ? "public, max-age=31536000, immutable" : "public, max-age=300", "x-content-type-options": "nosniff" } });
+      if ((path === "/palette.js" || path === "/palette.css") && method === "GET") return new Response(path.endsWith(".js") ? PALETTE_JS : PALETTE_CSS, { headers: { "content-type": path.endsWith(".js") ? "text/javascript; charset=utf-8" : "text/css; charset=utf-8", "cache-control": url.searchParams.get("v") ? "public, max-age=31536000, immutable" : "public, max-age=300", "x-content-type-options": "nosniff" } });
       if (path === "/feedback.js" && method === "GET") return new Response(FEEDBACK_PAGE_JS, { headers: { "content-type": "text/javascript; charset=utf-8", "cache-control": url.searchParams.get("v") ? "public, max-age=31536000, immutable" : "public, max-age=300", "x-content-type-options": "nosniff" } });
+      if (path === "/host.js" && method === "GET") return new Response(HOST_PAGE_JS, { headers: { "content-type": "text/javascript; charset=utf-8", "cache-control": url.searchParams.get("v") ? "public, max-age=31536000, immutable" : "public, max-age=300", "x-content-type-options": "nosniff" } });
       if (path === BOARD_TAIL_PATH && method === "GET") {
         const t = boardTail(url.searchParams.get("f") ?? "");
         if (!t) return new Response("not found", { status: 404 });
@@ -2113,6 +2123,11 @@ const handler = {
           const msg = e instanceof Error ? e.message.replace(/: https?:\S+$/, ".") : String(e);
           return json({ error: msg }, e instanceof billing.BillingError ? 402 : 400);
         }
+      }
+
+      if (path === "/api/me/board-states" && method === "GET") {
+        if (!viewer) return json({ error: "sign in required" }, 401);
+        return json({ boards: await boardStates(env, viewer.name) }, 200, { "cache-control": "private, no-store" });
       }
 
       // ---- the signed-in person's boards (CLI uses its bearer token) ----
@@ -2588,6 +2603,89 @@ const handler = {
         return json({ error: "not found" }, 404);
       }
 
+      // atteo host's link: the board, with the consent dialog for that machine open (the person types the phrase there).
+      if (path === "/host/consent" && method === "GET") {
+        if (!viewer) return needLogin();
+        const bid = url.searchParams.get("board") ?? "", machine = url.searchParams.get("machine") ?? "";
+        if (!/^b_[a-z0-9]+$/.test(bid) || !MACHINE_RE.test(machine) || !(await registry.isMember(env, bid, viewer.name))) return json({ error: "This link isn't for a board you're on, or it's incomplete. Copy it again from atteo host." }, 404);
+        return redirect(`/b/${bid}?host_consent=${encodeURIComponent(machine)}`);
+      }
+      // ---- atteo host (docs/HOST.md): a member's own machine on the board; every command needs its owner's OK ----
+      m = path.match(/^\/api\/boards\/(b_[a-z0-9]+)\/hosts(?:\/(confirm|h_[A-Za-z0-9_-]+|all)(?:\/(stop|next|runs)(?:\/(hr_[A-Za-z0-9_-]+)(?:\/(result))?)?)?)?$/);
+      if (m) {
+        if (!viewer) return needLogin();
+        const [, bid, target, act, runId, result] = m;
+        if (!(await registry.isMember(env, bid, viewer.name))) return json({ error: "board not found" }, 404);
+        const audit = (user: string, text: string) =>
+          boardStub(env, bid)
+            .notice(user, "Host", text, { via: "agent", client: "atteo host", session: null })
+            .catch((e: unknown) => console.error("host audit failed", e));
+        try {
+          if (!target && method === "GET") return json({ hosts: (await hosts.listHosts(env, bid)).map((h) => hosts.hostView(h)) }, 200, { "cache-control": "no-store" });
+          if (target === "confirm" && !act && method === "POST") {
+            // The consent is the person's alone, like approvals: an agent (or the CLI an agent could run) can't mint it.
+            if (viewer.via === "agent") return json({ error: `Only you can allow a machine, signed in on the web or the app: open ${origin}/host/consent?board=${bid}&machine=… from atteo host's link.` }, 403);
+            const b = (await request.json().catch(() => ({}))) as { phrase?: unknown; machine?: unknown };
+            return json(await hosts.confirm(env, bid, viewer.name, b.phrase, b.machine));
+          }
+          if (!target && method === "POST") {
+            const b = (await request.json().catch(() => ({}))) as Record<string, unknown>;
+            const h = await hosts.register(env, bid, viewer.name, b);
+            await audit(viewer.name, hosts.attachText(h));
+            return json({ host: hosts.hostView(h) });
+          }
+          if (target && act === "stop" && method === "POST") {
+            const board = await registry.getBoard(env, bid);
+            const owner = (await registry.memberRole(env, bid, viewer.name)) === "owner" || board?.created_by === viewer.name ? viewer.name : null;
+            const stopped = await hosts.stop(env, bid, target, viewer.name, owner);
+            for (const h of stopped) await audit(viewer.name, hosts.stopText(h, viewer.name));
+            return json({ stopped: stopped.map((h) => hosts.hostView(h)) });
+          }
+          if (target && target !== "all" && target !== "confirm") {
+            const host = await hosts.getHost(env, bid, target);
+            if (!host) return json({ error: "No such host." }, 404);
+            const ownerOnly = () => {
+              if (host.owner !== viewer.name) throw new hosts.HostError("Only the machine's owner (its atteo host) can do that.", 403);
+            };
+            if (act === "next" && method === "GET") {
+              ownerOnly();
+              const wait = Math.min(25, Math.max(0, parseInt(url.searchParams.get("wait") ?? "0", 10) || 0));
+              const got = await hosts.next(env, bid, host, wait * 1000);
+              for (const r of got.settled) await audit(host.owner, hosts.auditText(host, r));
+              if (got.stop) return json({ stop: got.stop }, 200, { "cache-control": "no-store" });
+              return json({ run: got.run ? hosts.runView(got.run) : null }, 200, { "cache-control": "no-store" });
+            }
+            if (act === "runs" && !runId && method === "POST") {
+              const b = (await request.json().catch(() => ({}))) as Record<string, unknown>;
+              const made = await hosts.request(env, bid, host.id, viewer.name, b);
+              if (made.approval) {
+                // The owner's card on the board: Approve or Deny, like any approval (only the person decides).
+                await boardStub(env, bid).approvalRequested(approvals.refOf(made.approval), { via: "agent", client: "atteo host" }).catch((e: unknown) => console.error("host approval entry failed", e));
+              }
+              return json({ run: hosts.runView(made.run) });
+            }
+            if (act === "runs" && runId && !result && method === "GET") {
+              const wait = Math.min(25, Math.max(0, parseInt(url.searchParams.get("wait") ?? "0", 10) || 0));
+              const got = await hosts.runNow(env, bid, host, runId, wait * 1000);
+              if (!got) return json({ error: "No such run." }, 404);
+              if (got.closed) await audit(host.owner, hosts.auditText(host, got.closed));
+              return json({ run: hosts.runView(got.run) }, 200, { "cache-control": "no-store" });
+            }
+            if (act === "runs" && runId && result && method === "POST") {
+              ownerOnly();
+              const b = (await request.json().catch(() => ({}))) as Record<string, unknown>;
+              const r = await hosts.finish(env, bid, host, runId, b);
+              await audit(host.owner, hosts.auditText(host, r));
+              return json({ run: hosts.runView(r) });
+            }
+          }
+        } catch (e) {
+          if (e instanceof hosts.HostError) return json({ error: e.message }, e.status);
+          throw e;
+        }
+        return json({ error: "not found" }, 404);
+      }
+
       // ---- approval cards: your own approvals on this board (only you decide them), pending by default ----
       m = path.match(/^\/api\/boards\/(b_[a-z0-9]+)\/approvals$/);
       if (m && method === "GET") {
@@ -3001,7 +3099,7 @@ const handler = {
                 viewer.name,
                 seq,
                 {
-                  status: s("status") as "todo" | "doing" | "blocked" | "done" | undefined,
+                  status: s("status") as "todo" | "doing" | "blocked" | "done" | "frozen" | undefined,
                   assignee: b.assignee === undefined ? undefined : s("assignee") || null,
                   assignee_agent: b.assignee_is_person === true ? false : true,
                   due: due === undefined ? undefined : due === "" ? null : Date.parse(due + "T23:59:00Z") || undefined,
@@ -3394,10 +3492,12 @@ const handler = {
         // grep for agents: exact matching lines, one per hit (grep.ts). Members only (canSee above).
         if (what === "grep" && method === "GET") return grepResponse(env, viewer?.name ?? "", url, id, seer());
         // Read receipts: the board page reports the newest entry its person has had on screen.
-        // "jxn is typing…": a person's composer says so every few seconds while they type; nothing is stored.
+        // "jxn is typing…": a person's composer says so every few seconds while they type; nothing is stored. ?root=N
+        // says it's in thread N's reply box (vedu #4746: a thread's typing shows only in that thread); none means the chat.
         if (what === "typing" && method === "POST") {
           if (!viewer || viewer.via === "agent" || !(await registry.isMember(env, id, viewer.name))) return json({ error: "Only members can do that." }, 403);
-          await stub.typing(viewer.name);
+          const r = Number(url.searchParams.get("root"));
+          await stub.typing(viewer.name, Number.isSafeInteger(r) && r > 0 ? r : 0);
           return new Response(null, { status: 204 });
         }
         if (what === "handle" && method === "POST" && seqStr) {
@@ -3542,10 +3642,18 @@ const handler = {
           }
           return json(result.body, result.status);
         }
-        // The cost guard (src/costGuard.ts): its state; {clear: true} lifts the hard cap.
+        // The cost guard (src/costGuard.ts): its state and its last check (vedu #4665); {clear: true} lifts the hard cap.
         if (path === "/api/ops/cost-guard") {
           if (method === "POST" && (body as Record<string, unknown>).clear === true) await costGuard.clearCap(env, viewer?.name ?? "admin-key");
-          return json({ capped: await costGuard.capped(env), thresholds: costGuard.thresholds(env), watching: !!(env.CF_ACCOUNT_ID && costGuard.analyticsToken(env)) });
+          const st = await costGuard.status(env);
+          return json({
+            capped: await costGuard.capped(env),
+            thresholds: costGuard.thresholds(env),
+            watching: !!(env.CF_ACCOUNT_ID && costGuard.analyticsToken(env)),
+            last_ok: st.last_ok ? { at: st.last_ok.at } : null,
+            last_error: st.last_error,
+            usage: st.last_ok?.totals ?? null,
+          });
         }
         // Proves error reporting end to end (D1 errors + Sentry): throws on purpose.
         if (path === "/api/ops/test-error" && method === "POST") throw new Error("Test error from /api/ops/test-error");
@@ -3721,6 +3829,9 @@ const handler = {
         return json({ error: back }, 503, { "retry-after": "3600" });
       }
       return json({ error: msg }, 500);
+    } finally {
+      const wall = Date.now() - started;
+      noteRequestWallMs(env, ctx, wall, { wait: isHeldRequest(url, path, wall) });
     }
     });
   },

@@ -28,8 +28,8 @@ describe("landing Worker CSP (docs/security/csp.md #8)", () => {
     expect(await landingCsp("<p>x</p>", "https://evil.example; script-src *")).not.toContain("evil");
   });
 
-  it("sends an enforced hash policy on /, /guide and /faq, and allows the JSON-LD by hash", async () => {
-    for (const path of ["/", "/guide", "/faq", "/?theme=dark"]) {
+  it("sends an enforced hash policy on /, /guide, /faq and /support, and allows the JSON-LD by hash", async () => {
+    for (const path of ["/", "/guide", "/faq", "/support", "/?theme=dark", "/landing"]) {
       const res = await page(path);
       expect(res.status).toBe(200);
       expect(res.headers.get("content-type")).toMatch(/text\/html/);
@@ -48,15 +48,28 @@ describe("landing Worker CSP (docs/security/csp.md #8)", () => {
       expect(html).not.toMatch(/\son[a-z]+\s*=/i);
       expect(html).not.toMatch(/\b(?:href|src)\s*=\s*["']javascript:/i);
       const scripts = inlineScripts(html);
-      if (path.startsWith("/guide")) {
+      if (path.startsWith("/guide") || path === "/support") {
         expect(scripts).toEqual([]);
         expect(csp).toContain("script-src 'none'");
       } else {
-        expect(scripts.length).toBe(1);
-        expect(csp).toContain(await cspHash(scripts[0]!));
+        // The home page also has its Copy buttons' script (jxn #4732); every inline script is allowed by its hash.
+        expect(scripts.length).toBe(path === "/faq" ? 1 : 2);
+        for (const s of scripts) expect(csp).toContain(await cspHash(s));
         expect(JSON.parse(scripts[0]!)).toHaveProperty("@graph");
       }
     }
+  });
+
+  it("serves the home page at /landing too, signed in or not, with the home's canonical (jxn #4772, #4773)", async () => {
+    const home = await (await page("/")).text();
+    for (const cookie of ["", "ab_session=abc"]) {
+      const res = await page("/landing", cookie ? { cookie } : {});
+      expect(res.status).toBe(200);
+      const html = await res.text();
+      expect(html).toBe(home);
+      expect(html).toContain('<link rel="canonical" href="https://atteo.dev/">');
+    }
+    expect(await (await page("/sitemap.xml")).text()).not.toContain("/landing");
   });
 
   it("loads Cloudflare Web Analytics on the home page only when a token is set", async () => {
@@ -75,10 +88,74 @@ describe("landing Worker CSP (docs/security/csp.md #8)", () => {
     expect(guide.headers.get("content-security-policy")).toContain("connect-src 'none'");
   });
 
+  it("serves a public /support page with the privacy contact, legal links, and its own title", async () => {
+    const signedIn = await page("/support", { cookie: "ab_session=present" });
+    expect(signedIn.status).toBe(200);
+    expect(signedIn.headers.get("content-type")).toMatch(/text\/html/);
+    const html = await signedIn.text();
+    expect(html).toContain("<title>Atteo · Support</title>");
+    expect(html).toContain('meta name="description" content="How to get help with Atteo, invite-only boards for people and their agents. Email privacy@atteo.dev."');
+    expect(html).toContain('<link rel="canonical" href="https://atteo.dev/support">');
+    expect(html).toContain('href="mailto:privacy@atteo.dev"');
+    expect(html).toContain('href="https://atteo.dev/privacy"');
+    expect(html).toContain('href="https://atteo.dev/terms"');
+    expect(html).toContain("invite-only boards for people and their agents");
+    expect(html).toContain("How to get help");
+    const home = await (await page("/")).text();
+    expect(home).toContain('href="https://atteo.dev/support">support</a>'); // the home page's small links are lowercase (jxn #4732)
+    const faq = await (await page("/faq")).text();
+    expect(faq).toContain('href="https://atteo.dev/support">Support</a>');
+    const sitemap = await (await page("/sitemap.xml")).text();
+    expect(sitemap).toContain("<loc>https://atteo.dev/support</loc>");
+    expect(CSP_ENFORCE).toBe(false);
+  });
+
   it("does not put CSP on the non-HTML files", async () => {
     const robots = await page("/robots.txt");
     expect(robots.headers.get("content-security-policy")).toBeNull();
     expect(robots.headers.get("content-security-policy-report-only")).toBeNull();
     expect(await robots.text()).toContain("Sitemap: https://atteo.dev/sitemap.xml");
+  });
+});
+
+describe("landing public connect and directory links", () => {
+  const links = [
+    'href="https://atteo.dev/docs"',
+    'href="https://atteo.dev/guide"',
+    'href="https://atteo.dev/faq"',
+    'href="https://atteo.dev/llms.txt"',
+    'href="https://atteo.dev/openapi.json"',
+    'href="https://atteo.dev/mcp"',
+  ];
+
+  it("puts directory links in the footer of /guide and /faq; the home page keeps only guide, faq, docs and the legal links (jxn #4732)", async () => {
+    for (const path of ["/guide", "/faq"]) {
+      const html = await (await page(path)).text();
+      for (const href of links) expect(html, path).toContain(href);
+    }
+    const home = await (await page("/")).text();
+    for (const href of ['href="https://atteo.dev/docs"', 'href="https://atteo.dev/guide"', 'href="https://atteo.dev/faq"', 'href="https://atteo.dev/llms.txt"', 'href="https://atteo.dev/privacy"', 'href="https://atteo.dev/terms"', 'href="https://atteo.dev/support"']) expect(home).toContain(href);
+  });
+
+  it("makes the home page's Connect your agent list Claude Code, Cursor, ChatGPT and Codex with the app's own lines (jxn #4732)", async () => {
+    const html = await (await page("/")).text();
+    expect(html).toContain("Connect your agent");
+    for (const line of ["claude mcp add --transport http --scope user atteo https://atteo.dev/mcp", "codex mcp add atteo --url https://atteo.dev/mcp &amp;&amp; codex mcp login atteo", "Settings → Connectors → Create"]) expect(html).toContain(line);
+    for (const name of ["Claude Code", "Cursor", "ChatGPT", "Codex"]) expect(html).toContain(`<b>${name}</b>`);
+    expect(html).not.toMatch(/listed on (Smithery|mcp\.so|Glama)/i);
+    expect(html).not.toMatch(/App Store/i);
+  });
+
+  it("keeps /llms.txt and /llms-full.txt aligned with the public connect facts", async () => {
+    const llms = await (await page("/llms.txt")).text();
+    const full = await (await page("/llms-full.txt")).text();
+    expect(llms).toContain("https://atteo.dev/docs");
+    expect(llms).toContain("https://atteo.dev/mcp");
+    expect(llms).toContain("Settings → Connectors → Add custom connector");
+    expect(full).toContain("DIRECTORY FACTS");
+    expect(full).toContain("openapi: https://atteo.dev/openapi.json");
+    const sitemap = await (await page("/sitemap.xml")).text();
+    expect(sitemap).toContain("<loc>https://atteo.dev/guide</loc>");
+    expect(sitemap).not.toContain("<loc>https://atteo.dev/connect</loc>");
   });
 });

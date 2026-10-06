@@ -1,9 +1,11 @@
 // Design system: tokens, base styles, components and the shared client script.
 // Minimal and quiet (in the spirit of Vercel Geist / Linear): neutral grays, one ink color for primary actions,
-// hairline borders, light + dark, works down to phone width. Type: Onest / Enriqueta / Courier Prime (fontfaces.ts).
+// hairline borders, light + dark, works down to phone width. Type: Onest / STIX Two Text / Courier Prime (fontfaces.ts).
 
+import { PALETTE_JS_SRC, PALETTE_CSS_SRC } from "./palette";
 import { APPLE_TOUCH_PNG_B64 } from "./appleIcon";
-import { FONT_CSS, FONT_V } from "./fontfaces";
+import { APP_FONT_CSS, FONT_V } from "./fontfaces";
+import { markFile, markInline } from "./mark";
 import { chartHtml } from "./chart";
 import { STATUS_CSS, statusHtml } from "./status";
 import { highlightMentions, type Mention } from "./mentions";
@@ -80,8 +82,8 @@ export function styleNonce(html: string, nonce: string): string {
 }
 
 // Dark tokens: the system setting picks them unless Display says light; Display can also force them.
-const DARK = `  --bg:#0E0E0E;--bg-subtle:#171716;--bg-hover:#1F1E1C;--line:#2A2926;--line-strong:#3A3935;
-  --ink:#FAFAF7;--text:#EDEBE5;--muted:#AFADA6;--faint:#8E8C85;--on-ink:#0E0E0E;--cone:#C2414D;--oxblood:#9D333C;--bg-raised:#141414;
+const DARK = `  --bg:#0E0E0E;--bg-subtle:#1A1918;--bg-hover:#1F1E1C;--line:#2A2926;--line-strong:#3A3935;
+  --ink:#FAFAF7;--text:#EDEBE5;--muted:#A9A69F;--faint:#8E8C85;--on-ink:#0E0E0E;--cone:#C2414D;--oxblood:#B5484A;--bg-raised:#141414;
   --accent:#FAFAF7;--ok:#3ecf75;--warn:#fb923c;--danger:#f87171;
   --q:#fbbf24;--claim:#4ade80;--decision:#a78bfa;--task:#38bdf8;--artifact:#a3a3a3;--note:#737373;
   --shadow:0 1px 2px rgba(0,0,0,.4);--shadow-lg:0 12px 48px rgba(0,0,0,.6);
@@ -94,11 +96,11 @@ const FONT_PRELOAD = `<link rel="preload" href="/fonts/onest-latin.woff2?v=${FON
 export const CSS = `
 #thread-scroll[data-wait]>#thread{visibility:hidden} /* until the board script has placed it (html.ts) */
 :root{
-  /* The design language (#2508), neutral (jxn #2858): ink on paper, bone and stone around it, graphite for secondary
-     text. The one accent is oxblood, only on a view's single primary action (Post, the main call to action); --cone is
-     the logo's cone alone (jxn #2944). You, mentions, unread, links and focus are ink. */
+  /* The design language (v1, jxn #4682): neutral throughout. Ink on paper, bone and stone around it, line for dividers,
+     graphite for secondary text. Oxblood has one job, human intervention: Stop and halted states, nowhere else (on ink
+     it's oxblood-lifted); --cone is the current logo's alone until the new mark lands. Primary actions, you, mentions, unread, links and focus are ink. */
   --bg:#FAFAF7;--bg-subtle:#F2EFE8;--bg-hover:#ECE8DF;--line:#E4E1D9;--line-strong:#D9D6CE;
-  --ink:#0E0E0E;--text:#161614;--muted:#5A5853;--faint:#6B6964;--on-ink:#FAFAF7;--cone:#6A1B24;--oxblood:#6A1B24;--bg-raised:#FAFAF7;
+  --ink:#0E0E0E;--text:#161614;--muted:#5A5853;--faint:#6B6964;--on-ink:#FAFAF7;--cone:#6A1B24;--oxblood:#6E1F22;--bg-raised:#FAFAF7;
   --on-fill:#FFFFFF;--preview-bg:#FFFFFF; /* text on a saturated fill (avatars, status marks, scrims); an HTML preview's page */
   --accent:#0E0E0E;--ok:#16a34a;--warn:#c2410c;--danger:#dc2626;
   --q:#d97706;--claim:#16a34a;--decision:#7c3aed;--task:#0284c7;--artifact:#737373;--note:#a3a3a3;
@@ -110,9 +112,9 @@ export const CSS = `
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){${DARK}}}
 :root[data-theme="dark"]{${DARK}}
 /* Semantic tokens (jxn #2706): components use these, never the palette or a literal, so a change of look is one place.
-   cta = oxblood, the one primary action; you, mentions, unread and links are ink (jxn #2858); status colours stay their own. */
+   cta = ink, the one primary action; intervene = oxblood, Stop and halted only (jxn #4682); status colours stay their own. */
 :root{
-  --cta:var(--oxblood);--on-cta:#FFFFFF; /* white on oxblood: 11.7:1 light, 7.1:1 dark */
+  --cta:var(--ink);--on-cta:var(--on-ink);--intervene:var(--oxblood);--on-intervene:#FAFAF7; /* paper on oxblood: 10.7:1; on oxblood-lifted 5.0:1 */
   --you:var(--ink);--you-soft:color-mix(in srgb,var(--ink) 5%,transparent);--you-flash:color-mix(in srgb,var(--ink) 12%,transparent);
   --mention-fg:var(--ink);--mention-bg:color-mix(in srgb,var(--ink) 7%,transparent);--mention-line:color-mix(in srgb,var(--ink) 40%,transparent);
   --mention-you-bg:color-mix(in srgb,var(--ink) 15%,transparent);--mention-you-line:color-mix(in srgb,var(--ink) 65%,transparent);
@@ -134,18 +136,19 @@ export const CSS = `
 :hover::-webkit-scrollbar-thumb{background:var(--sb-hover)}
 @supports not selector(::-webkit-scrollbar){*{scrollbar-width:thin;scrollbar-color:var(--sb) transparent}*:hover{scrollbar-color:var(--sb-hover) transparent}}
 html{-webkit-text-size-adjust:100%}
-/* Type (design language v1, #2508): Onest for the interface, Enriqueta for headlines, Courier Prime for ids and payloads,
+/* Type (design language v1, jxn #4682): three layers. STIX Two Text for the brand and titles, Courier Prime for ids,
+   payloads and code, Onest for message text and the controls around it (jxn #4726: message text isn't mono),
    all served by this Worker (fontfaces.ts). Onest covers Latin, Cyrillic and Vietnamese; other scripts fall through to
    the system's own font for that script, per page language. */
 :root{--font-ui:"Onest",ui-sans-serif,system-ui,-apple-system,"Segoe UI","PingFang SC","Hiragino Sans GB","Noto Sans SC","Microsoft YaHei",sans-serif;
-  --font-head:"Enriqueta","Onest",Georgia,"Times New Roman",serif;--font-mono:"Courier Prime",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;--font-mark:Schoolbell,"Comic Sans MS",cursive}
+  --font-head:"STIX Two Text","Onest",Georgia,"Times New Roman",serif;--font-mono:"Courier Prime",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
 html:lang(zh-Hant){--font-ui:"Onest",ui-sans-serif,system-ui,-apple-system,"Segoe UI","PingFang TC","Noto Sans TC","Microsoft JhengHei",sans-serif}
 html:lang(ja){--font-ui:"Onest",ui-sans-serif,system-ui,-apple-system,"Segoe UI","Hiragino Sans","Hiragino Kaku Gothic ProN","Noto Sans JP","Yu Gothic UI",Meiryo,sans-serif}
 html:lang(ko){--font-ui:"Onest",ui-sans-serif,system-ui,-apple-system,"Segoe UI","Apple SD Gothic Neo","Noto Sans KR","Malgun Gothic",sans-serif}
 html:lang(hi){--font-ui:"Onest",ui-sans-serif,system-ui,-apple-system,"Segoe UI","Kohinoor Devanagari","Noto Sans Devanagari","Nirmala UI",sans-serif}
 html:lang(bn){--font-ui:"Onest",ui-sans-serif,system-ui,-apple-system,"Segoe UI","Kohinoor Bangla","Noto Sans Bengali","Nirmala UI",sans-serif}
 html:lang(ar){--font-ui:"Onest",ui-sans-serif,system-ui,-apple-system,"Segoe UI","Geeza Pro","Noto Sans Arabic","Noto Naskh Arabic",Tahoma,sans-serif}
-html:lang(zh-Hant),html:lang(ja),html:lang(ko),html:lang(hi),html:lang(bn),html:lang(ar),html:lang(zh-Hans),html:lang(zh){--font-head:var(--font-ui)} /* Enriqueta is Latin only: a headline in these scripts uses the interface stack */
+html:lang(zh-Hant),html:lang(ja),html:lang(ko),html:lang(hi),html:lang(bn),html:lang(ar),html:lang(zh-Hans),html:lang(zh){--font-head:var(--font-ui)} /* STIX Two covers Latin, Greek and Cyrillic only: a headline in these scripts uses the interface stack */
 body{margin:0;background:var(--bg);color:var(--text);font:13.5px/1.5 var(--font-ui);
   -webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
 a{color:inherit;text-decoration:none}
@@ -163,9 +166,9 @@ p{margin:0}
 .nav{position:sticky;top:0;z-index:20;background:color-mix(in srgb,var(--bg) 82%,transparent);backdrop-filter:saturate(180%) blur(12px);
   -webkit-backdrop-filter:saturate(180%) blur(12px);border-bottom:1px solid var(--line)}
 .nav .in{max-width:1180px;margin:0 auto;height:56px;padding:0 20px;display:flex;align-items:center;gap:16px}
-.brand{display:flex;align-items:center;gap:5px;font-weight:600;letter-spacing:-.01em;color:var(--ink)}
+.brand{display:flex;align-items:center;gap:8px;font-weight:600;letter-spacing:-.01em;color:var(--ink)}
 .brand svg{display:block}
-.wm{font-family:var(--font-mark);font-weight:400;font-size:22px;line-height:1;letter-spacing:0;filter:url(#wm-marker-sm)}.wm.lg{font-size:40px;filter:url(#wm-marker)} /* the wordmark: lowercase, Schoolbell, the marker filter (#2508) */
+.wm{font-family:var(--font-head);font-weight:400;font-size:22px;line-height:1;letter-spacing:-.01em}.wm.lg{font-size:40px} /* the wordmark: lowercase "atteo" in STIX Two Text 400 (jxn #4682) */
 .nav .links{display:flex;gap:4px;margin-left:8px}
 .nav .links a{color:var(--muted);padding:6px 10px;border-radius:6px}
 .nav .links a:hover,.nav .links a[aria-current]{color:var(--ink);background:var(--bg-hover)}
@@ -181,7 +184,7 @@ main.narrow{max-width:720px}
 .btn.primary{background:var(--cta);border-color:var(--cta);color:var(--on-cta)}
 .btn.primary:hover{opacity:.88}
 .btn.ghost{border-color:transparent;background:transparent;color:var(--muted)}.btn.ghost:hover{color:var(--ink);background:var(--bg-hover)}
-.btn.danger{color:var(--danger)}
+.btn.danger{color:var(--danger)}.btn.intervene{background:var(--intervene);border-color:var(--intervene);color:var(--on-intervene)}
 .btn.sm{height:26px;padding:0 9px;font-size:12.5px}.btn.lg{height:40px;padding:0 18px;font-size:14.5px}
 .btn[disabled]{opacity:.5;cursor:default}
 /* touch: small buttons keep their look but take a 40px-tall tap (an invisible margin above and below); the composer bar and message actions keep theirs, so a tap meant for the message lands on it */
@@ -457,7 +460,7 @@ a.ev-acct:hover{background:var(--bg-subtle)}
 .ch-classes{display:flex;flex-wrap:wrap;gap:4px}.ch-members{list-style:none;margin:0;padding:0}.ch-members li{font-size:13px;padding:2px 0}
 #ch-form:not([hidden]),#ch-notes{display:flex;flex-direction:column;gap:8px;margin-top:8px}.ch-note{display:flex;align-items:center;gap:8px}.ch-note .xs{width:7em;flex:none}
 .ch-err{color:var(--danger);min-height:1em;margin:0}#ch-form .lbl{margin:0}
-.kill{display:flex;align-items:center;gap:14px;margin-top:12px;padding:12px 14px;border:1px solid color-mix(in srgb,var(--danger) 30%,var(--line));border-radius:var(--r)}.kill b{color:var(--ink);font-size:13px}.kill p{margin:2px 0 0}
+.kill{display:flex;align-items:center;gap:14px;margin-top:12px;padding:12px 14px;border:1px solid color-mix(in srgb,var(--intervene) 40%,var(--line));border-radius:var(--r)}.kill b{color:var(--ink);font-size:13px}.kill p{margin:2px 0 0}
 .at-btn{width:30px;padding:0;justify-content:center;font-weight:600;font-size:14px;color:var(--muted)}.at-btn:hover{color:var(--ink)}
 /* quotes (forwarded messages) */
 .body blockquote.md-q{margin:6px 0;padding:6px 10px;border-inline-start:3px solid var(--line-strong);background:var(--bg-subtle);border-radius:0 6px 6px 0;color:var(--text)}
@@ -479,7 +482,7 @@ a.ev-acct:hover{background:var(--bg-subtle)}
 .fwd-prev{max-height:160px;overflow:auto;display:flex;flex-direction:column;gap:6px}.fwd-q{padding:6px 10px;border-inline-start:3px solid var(--line-strong);background:var(--bg-subtle);border-radius:0 6px 6px 0;font-size:12.5px;min-width:0}
 .badge.hdl{position:relative;z-index:4;height:18px;font-size:11px;color:var(--accent);border-color:color-mix(in srgb,var(--accent) 35%,var(--line))}
 .badge.hdl.done{color:var(--ok);border-color:color-mix(in srgb,var(--ok) 35%,var(--line))}
-.hdl-prog{margin-top:4px;color:var(--muted);overflow-wrap:anywhere}.hdl-prog.stalled{color:var(--warn)} /* the agent's progress under a message it's on (#2498) */
+.hdl-prog{margin-top:4px;color:var(--muted);overflow-wrap:anywhere}.hdl-prog.stalled{color:var(--intervene)} /* the agent's progress under a message it's on (#2498) */
 .badge.hdl button{all:unset;cursor:pointer;margin-left:5px;padding:0 3px;border-radius:4px;color:var(--faint);font-size:11px;line-height:14px}
 .badge.hdl button:hover{background:var(--bg-hover);color:var(--ink)}
 .badge.hdl button:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
@@ -526,7 +529,7 @@ a.ev-acct:hover{background:var(--bg-subtle)}
 .thr-dlg{width:min(620px,calc(100vw - 24px));height:min(760px,calc(100vh - 48px));padding:0;display:none}.thr-dlg[open]{display:flex;flex-direction:column}
 .thr-hd{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:12px 16px;border-bottom:1px solid var(--line)}.thr-hd b{color:var(--ink)}.thr-hd .grow{flex:1}
 .thr-list{flex:1;overflow:auto;padding:4px 16px 12px}.thr-list>.entry:first-child{border-top:0}.thr-list>.entry.hit{background:color-mix(in srgb,var(--accent) 7%,transparent)}
-.thr-dlg>.composer.in-thr{margin:0 12px 12px;flex:none}.composer.in-thr .replying{display:none}.composer.in-thr .input{max-height:30vh}
+.thr-dlg>.composer.in-thr{margin:0 12px 12px;flex:none}.thr-dlg>.typing{margin:0 12px 6px 16px;flex:none}.composer.in-thr .replying{display:none}.composer.in-thr .input{max-height:30vh}
 @media (max-width:640px){.thr-dlg{width:100vw;max-width:100vw;height:calc(100dvh - 40px);max-height:none;margin:auto 0 0;border-radius:16px 16px 0 0}}
 .thr-sum{display:flex;flex-direction:column;align-items:stretch;gap:2px;width:fit-content;max-width:100%;margin-top:6px;padding:3px 10px 4px 4px;text-align:left;border:1px solid transparent;border-radius:8px;background:none;font:inherit;font-size:12.5px;color:var(--accent);cursor:pointer}
 .thr-sum:hover{border-color:var(--line);background:var(--bg-subtle)}.thr-sum .faint{color:var(--faint)}
@@ -538,7 +541,7 @@ a.ev-acct:hover{background:var(--bg-subtle)}
 .tk{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:8px;padding:6px 6px 6px 10px;border:1px solid var(--line);border-radius:8px;background:var(--bg-subtle);font-size:12.5px}
 .tk[hidden]{display:none}
 .tk-st{display:inline-flex;align-items:center;gap:6px;font-weight:500;color:var(--ink)}.tk-st .dot{width:8px;height:8px;border-radius:50%;background:var(--muted)}
-.st-doing .dot{background:var(--accent)}.st-blocked .dot,.st-stopped .dot{background:var(--warn)}.st-done .dot{background:var(--ok)}
+.st-doing .dot{background:var(--accent)}.st-blocked .dot,.st-stopped .dot{background:var(--warn)}.st-done .dot{background:var(--ok)}.st-frozen .dot{background:var(--faint)}
 .cl-asserted{color:var(--muted);font-weight:400}.cl-evidenced .dot{background:var(--task)}.cl-verified{color:var(--ok)}.cl-verified .dot{background:var(--ok)}.cl-disputed{color:var(--danger)}.cl-disputed .dot{background:var(--danger)}
 .cl-ev a{color:var(--muted);text-decoration:underline;text-decoration-color:var(--line-strong);text-underline-offset:2px}.cl-ev a:hover{color:var(--ink)}
 .cl-acts{display:contents}.cl-f{display:flex;gap:6px;flex-basis:100%}.cl-f[hidden]{display:none}.cl-f .input{flex:1;height:28px;font-size:12.5px}
@@ -583,6 +586,7 @@ a.ev-acct:hover{background:var(--bg-subtle)}
 .rx-add{display:none;align-items:center;height:24px;padding:0 7px;border-radius:999px;border:1px dashed var(--line-strong);background:none;color:var(--muted);font:inherit;font-size:13px;cursor:pointer}
 .rx-add span{font-size:11px;margin-left:1px}.rx-add:hover{color:var(--ink);border-style:solid}
 .rx.has .rx-add{display:inline-flex}
+.thr-list .thr-un{margin-left:auto;opacity:0}.thr-list>.entry:is(:hover,:focus-within) .thr-un,.thr-list .thr-un[data-armed="1"]{opacity:1}@media (hover:none){.thr-list .thr-un{opacity:1}} /* your Unsend in a thread (vedu #4761) */
 .thr-list .rx .rx-add{display:inline-flex} /* a thread has no hover action bar, so its replies keep the add-reaction button */ /* with no reactions yet, "☺+" lives in the message's hover actions */
 /* agents' 🤔 / ✅ on a person's message: a quiet receipt line under it, like the app */
 .rx.has-rcpt{margin-top:4px}.rx.has.has-rcpt{margin-top:6px}
@@ -620,8 +624,8 @@ a.ev-acct:hover{background:var(--bg-subtle)}
 .rx-tip[hidden]{display:none}.rx-tip .big{font-size:24px;line-height:1}.rx-tip .faint{color:color-mix(in srgb,var(--on-ink) 65%,transparent)}
 .entry .acts .rx-q{width:28px;padding:0;justify-content:center;font-size:14px}
 /* images: inline in the conversation (real proportions, capped), full size in a lightbox; attachments in the composer */
-.img{margin:8px 0 0}.img-open{display:block;padding:0;border:0;background:none;cursor:zoom-in;max-width:100%}
-.img img{display:block;max-width:min(100%,440px);max-height:340px;width:auto;height:auto;border-radius:8px;border:1px solid var(--line);background:var(--bg-subtle)}
+.img{margin:8px 0 0}.img-open{display:block;padding:0;border:0;background:none;cursor:zoom-in;max-width:100%;touch-action:manipulation;-webkit-touch-callout:none;-webkit-user-select:none;user-select:none}
+.img img{display:block;max-width:min(100%,440px);max-height:340px;width:auto;height:auto;border-radius:8px;border:1px solid var(--line);background:var(--bg-subtle);pointer-events:none;-webkit-user-drag:none}
 .img figcaption{margin-top:4px}
 /* a message with several files: pictures in a grid (1, 2, 1+2, 2×2; "+N" on the last), other files as chips below */
 .mfiles{margin-top:8px;width:min(100%,440px)}
@@ -630,9 +634,9 @@ a.ev-acct:hover{background:var(--bg-subtle)}
 .mgrid.g3{grid-template-columns:2fr 1fr;grid-template-rows:1fr 1fr;aspect-ratio:3/2}
 .mgrid.g3 .mg-tile:first-child{grid-row:span 2}
 .mgrid.g4{grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr;aspect-ratio:4/3}
-.mg-tile{position:relative;display:block;padding:0;border:0;background:var(--bg-subtle);cursor:zoom-in;min-width:0;min-height:0;overflow:hidden}
+.mg-tile{position:relative;display:block;padding:0;border:0;background:var(--bg-subtle);cursor:zoom-in;min-width:0;min-height:0;overflow:hidden;touch-action:manipulation;-webkit-touch-callout:none;-webkit-user-select:none;user-select:none}
 .mg-tile[hidden]{display:none}
-.mg-tile img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+.mg-tile img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;pointer-events:none;-webkit-user-drag:none}
 .mgrid.g1{display:block;border:0;background:none;border-radius:0}
 .mgrid.g1 .mg-tile{background:none;max-width:100%}
 .mgrid.g1 .mg-tile img{position:static;display:block;max-width:100%;max-height:340px;width:auto;height:auto;object-fit:contain;border-radius:8px;border:1px solid var(--line);background:var(--bg-subtle)}
@@ -650,6 +654,15 @@ dialog.lightbox img{display:block;max-width:min(96vw,1600px);max-height:92vh;wid
 dialog.lightbox.zoomable img{cursor:zoom-in}
 :root dialog.lightbox.zoomed{display:grid;width:100vw;height:100dvh;max-width:none;max-height:none;margin:0;overflow:auto;overscroll-behavior:contain;cursor:grab}
 dialog.lightbox.zoomed img{max-width:none;max-height:none;margin:auto;border-radius:0;cursor:zoom-out}
+/* Phones (vedu #4650): a tap opens a full-bleed viewer. fit-content + 96vw/92vh lets WebKit size the dialog to the
+   picture's intrinsic pixels, so a wide screenshot is cropped and the page (mention chips, message chrome) shows
+   through the transparent frame. Thumbnails aren't selectable, so the tap doesn't put handles on nearby @mentions. */
+@media (max-width:640px),(hover:none){
+  :root dialog.lightbox[open]{display:grid;place-items:center;inset:0;width:100vw;height:100dvh;max-width:none;max-height:none;margin:0;overflow:hidden;border-radius:0;background:rgba(0,0,0,1)}
+  dialog.lightbox::backdrop{background:rgba(0,0,0,1)}
+  dialog.lightbox img{max-width:100vw;max-height:100dvh;border-radius:0;-webkit-touch-callout:none}
+  :root dialog.lightbox.zoomed{overflow:auto;place-items:initial}
+}
 .lb-nav{position:fixed;top:50%;transform:translateY(-50%);width:44px;height:44px;border-radius:50%;border:0;background:rgba(0,0,0,.55);color:var(--on-fill);font-size:28px;line-height:1;cursor:pointer;display:grid;place-items:center;padding:0 0 3px}
 .lb-nav:hover{background:rgba(0,0,0,.75)}.lb-nav[hidden],.lb-count[hidden]{display:none}
 .lb-prev{left:max(8px,env(safe-area-inset-left))}.lb-next{right:max(8px,env(safe-area-inset-right))}
@@ -737,7 +750,7 @@ input.switch::after{content:"";position:absolute;top:3px;left:3px;width:18px;hei
 .composer .po-btn.on{width:auto;padding:0 9px 0 7px;gap:4px}.po-lbl{font-size:12px;font-weight:600;white-space:nowrap}.po-lbl:empty{display:none}
 .composer .po-btn.on.own{background:var(--accent);border-color:var(--accent);color:var(--bg)}
 @media(max-width:640px){.composer .po-btn.on{padding:0 8px 0 6px}.po-lbl{font-size:11.5px}}
-.po-note{margin:0 0 8px;padding:6px 10px;border-radius:8px;background:var(--private-soft);font-size:12.5px;color:var(--text)}.po-note[hidden]{display:none}
+.po-note{margin:0 0 8px;padding:6px 10px;border-radius:8px;background:var(--private-soft);font-size:12.5px;color:var(--text)}.po-note[hidden]{display:none}.po-note.inh .po-seg{display:none}.po-btn:disabled{opacity:1;cursor:default}
 .po-seg{display:inline-flex;vertical-align:baseline;border:1px solid var(--line);border-radius:999px;padding:1px;background:var(--bg);margin-right:2px}
 .po-seg button{border:0;background:none;font:inherit;font-size:12px;line-height:1.5;padding:1px 9px;border-radius:999px;color:var(--muted);cursor:pointer}
 .po-seg button:hover{color:var(--ink)}.po-seg button[aria-checked="true"]{background:var(--ink);color:var(--on-ink);font-weight:600}
@@ -748,10 +761,12 @@ input.switch::after{content:"";position:absolute;top:3px;left:3px;width:18px;hei
 @media(max-width:640px){.pv-dlg{width:100vw;max-width:100vw;height:100dvh;max-height:none;margin:0;border-radius:0}.pv-w{display:none}}
 /* Highlights (mention tint, new-message flash, jump tint) bleed past the avatar whatever the density, so it never sits on the edge (jxn #1311),
    and on the right only as far as the rail, never under it (jxn #2003). The thread's scroller makes room for the left bleed so it isn't clipped. */
-#thread>.entry.for-you,#thread>.entry.flash-in,#thread>.entry.hit,.thr-list>.entry.for-you,.thr-list>.entry.hit{margin-left:calc(-1*var(--hl-l));margin-right:calc(-1*var(--hl-r));padding-left:var(--hl-l);padding-right:var(--hl-r);border-radius:8px}
+/* The linked message (:target, which stays after a reload) and the keyboard's j/k pick (.sel) bleed the same way, so no tinted card
+   sits 12px in from the rest (jxn #4680). */
+#thread>.entry:is(.for-you,.flash-in,.hit,.sel,:target),.thr-list>.entry:is(.for-you,.hit,:target){margin-left:calc(-1*var(--hl-l));margin-right:calc(-1*var(--hl-r));padding-left:var(--hl-l);padding-right:var(--hl-r);border-radius:8px}
 /* …and a seen-by ring on such a message stays where it was, clear of the rail (jxn #1751). */
-#thread>.entry.for-you>.rd,#thread>.entry.flash-in>.rd,#thread>.entry.hit>.rd,.thr-list>.entry.for-you>.rd,.thr-list>.entry.hit>.rd{right:var(--hl-r)}
-@media (pointer:coarse){#thread>.entry.for-you>.rd,#thread>.entry.flash-in>.rd,#thread>.entry.hit>.rd,.thr-list>.entry.for-you>.rd,.thr-list>.entry.hit>.rd{right:calc(var(--hl-r) - 2px)}}
+#thread>.entry:is(.for-you,.flash-in,.hit,.sel,:target)>.rd,.thr-list>.entry:is(.for-you,.hit,:target)>.rd{right:var(--hl-r)}
+@media (pointer:coarse){#thread>.entry:is(.for-you,.flash-in,.hit,.sel,:target)>.rd,.thr-list>.entry:is(.for-you,.hit,:target)>.rd{right:calc(var(--hl-r) - 2px)}}
 ${MERMAID_CSS}
 ${CODE_COLOR_CSS}
 ${TALK_CSS}
@@ -863,7 +878,7 @@ ${AGENT_LOGO_CSS}
 /* app shell (Linear-style): sidebar + top bar + content */
 .app{display:grid;grid-template-columns:232px minmax(0,1fr);min-height:100vh}
 .sidebar{position:sticky;top:0;height:100vh;display:flex;flex-direction:column;gap:2px;padding:10px 8px;border-right:1px solid var(--line);background:var(--bg-subtle);overflow:auto}
-.sidebar .ws{display:flex;align-items:center;gap:5px;padding:6px 8px 10px;font-weight:600;color:var(--ink)}
+.sidebar .ws{display:flex;align-items:center;gap:8px;padding:6px 8px 10px;font-weight:600;color:var(--ink)}
 .sidebar .search{display:flex;align-items:center;gap:8px;height:30px;margin:0 0 8px;padding:0 9px;border:1px solid var(--line);border-radius:7px;background:var(--bg);color:var(--faint);cursor:pointer;font:inherit;font-size:13px;text-align:left}
 .sidebar .search:hover{border-color:var(--line-strong);color:var(--muted)}
 .sidebar .search kbd{margin-left:auto}
@@ -879,6 +894,7 @@ ${AGENT_LOGO_CSS}
 .pres{width:8px;height:8px;border-radius:50%;background:var(--line-strong,var(--line));display:inline-block}.pres.on{background:var(--ok)}
 /* People and profiles */
 .ppl-h{font-size:13px;font-weight:600;color:var(--ink);margin:28px 0 8px}.ppl-h .faint{font-weight:400}
+.ppl-org-hint{margin:0 0 10px}
 .ppl-find{position:relative;margin-top:16px}.ppl-res{position:absolute;left:0;right:0;top:38px;z-index:5;box-shadow:var(--shadow-lg);margin:0;padding:0;list-style:none}.ppl-res[hidden]{display:none}
 .ppl-pres{gap:6px}.ppl-note{margin-top:10px}.ppl-blocked{margin-top:20px}.ppl-blocked summary{cursor:pointer}.ppl-blocked .list{margin-top:8px}
 .prof{display:flex;gap:18px;align-items:flex-start;flex-wrap:wrap}
@@ -955,10 +971,11 @@ mark{background:var(--mark);color:inherit;border-radius:2px;padding:0 1px}
 .td-hist{margin:6px 0 0;padding-left:16px}
 .kanban-head{gap:10px;padding:12px 0;align-items:center;flex:none}
 .kb-new{gap:6px;margin:0}.kb-new .input{width:240px}.kb-new .btn{height:32px} /* as tall as the box beside it */
-.kanban{display:grid;grid-template-columns:repeat(4,minmax(220px,1fr));gap:12px;overflow-x:auto;align-items:start;padding-bottom:6px}
+.kanban{display:grid;grid-template-columns:repeat(4,minmax(220px,1fr)) auto;gap:12px;overflow-x:auto;align-items:start;padding-bottom:6px}
 .kcol{background:var(--bg-subtle,var(--bg-hover));border:1px solid var(--line);border-radius:10px;padding:8px;min-height:120px;transition:border-color .1s,background .1s}
 .kcol.over{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 6%,var(--bg))}
 .kcol h3{font-size:12.5px;font-weight:600;color:var(--ink);margin:2px 4px 8px}
+.kfrozen{opacity:.7;min-width:120px}.kfrozen.open{min-width:220px}.kfz{all:unset;cursor:pointer;display:inline-flex;gap:4px}.kfz:focus-visible{outline:2px solid var(--accent);outline-offset:2px} /* frozen: parked, folded until opened (vedu #4791) */
 .kcards{display:flex;flex-direction:column;gap:6px}
 .kcard{background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:8px 10px;cursor:grab;display:flex;flex-direction:column;gap:4px}
 .kcard:focus-visible,#kanban:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
@@ -1071,27 +1088,8 @@ dialog.sheet[open]{animation:slide .18s ease-out}
 pre.json{background:var(--bg-subtle);border:1px solid var(--line);border-radius:8px;padding:12px;margin:0;overflow:auto;font-size:12px;line-height:1.55;max-height:50vh}
 .json .k{color:var(--accent)}.json .s{color:var(--claim)}.json .n{color:var(--decision)}
 
-/* command palette */
-dialog.palette{margin-top:12vh;width:min(600px,calc(100vw - 24px));border-radius:12px}
-.palette input{border:0;border-radius:0;height:48px;padding:0 4px;font-size:15px;background:transparent;box-shadow:none!important}
-.palette ul{list-style:none;margin:0;padding:6px;max-height:50vh;overflow:auto}
-.pal-in{display:flex;align-items:center;gap:8px;padding:0 12px;border-bottom:1px solid var(--line);color:var(--muted)}
-.pal-in input{flex:1;min-width:120px;box-shadow:none!important}
-.pal-chips{display:inline-flex;gap:6px;flex-wrap:wrap}
-.pal-chip{display:inline-flex;align-items:center;gap:4px;height:24px;padding:0 4px 0 8px;border-radius:6px;font-size:12.5px;font-weight:500;color:var(--accent);background:color-mix(in srgb,var(--accent) 10%,transparent);white-space:nowrap}
-.pal-chip button{border:0;background:none;color:inherit;opacity:.6;cursor:pointer;font-size:10px;padding:2px 3px}.pal-chip button:hover{opacity:1}
-.pal-filters{display:flex;gap:6px;flex-wrap:wrap;padding:8px 12px;border-bottom:1px solid var(--line)}.pal-filters[hidden]{display:none}
-.pal-opt{height:24px;padding:0 9px;border-radius:999px;border:1px solid var(--line);background:var(--bg-subtle);color:var(--muted);font:inherit;font-size:12px;cursor:pointer}
-.pal-opt:hover{color:var(--ink);border-color:var(--line-strong)}
-.palette li.pal-g{padding:8px 10px 2px;font-size:11.5px;color:var(--faint);cursor:default;text-transform:uppercase;letter-spacing:.04em}
-.palette .pal-l{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.palette .pal-l mark{background:var(--mark);color:inherit;border-radius:3px;padding:0 1px}
-.palette li{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:7px;cursor:pointer;font-size:13.5px;color:var(--text)}
-.palette li[aria-selected=true]{background:var(--bg-hover);color:var(--ink)}
-.palette li .k{flex:none;white-space:nowrap;margin-left:auto;color:var(--faint);font-size:12px}
-.palette .foot{display:flex;gap:14px;padding:8px 14px;border-top:1px solid var(--line);font-size:12px;color:var(--faint)}
-@media (pointer:coarse){.palette .foot{display:none}}
-@media (max-width:640px){.palette li:not(.pal-g){flex-wrap:wrap;row-gap:1px}.palette li .pal-l{flex:1 1 100%}.palette li .k{margin-left:0;font-size:11.5px}}
-.entry.sel{background:var(--bg-subtle);box-shadow:-12px 0 0 var(--bg-subtle),12px 0 0 var(--bg-subtle)}
+
+.entry.sel{background:var(--bg-subtle);border-radius:8px}
 
 /* inline board title rename */
 .title-edit{display:flex;align-items:center;gap:6px;min-width:0}
@@ -1297,25 +1295,24 @@ dialog.recap-dlg{width:min(560px,calc(100vw - 32px));max-height:min(80vh,720px)}
 @media(max-width:640px){dialog.recap-dlg{margin:auto 0 0;width:100vw;max-width:100vw;max-height:85vh;border-radius:14px 14px 0 0;border-width:1px 0 0}.recap-dlg .bd{max-height:calc(85vh - 80px)}}
 `;
 
-// The mark (jxn #2944/#2980, vedu #2968): hand-drawn tin-can phones, an oxblood cone (you) wired to two ink cans
-// (agents). Its hand wobble is the SVG filter; never recoloured beyond its two tokens, which follow the theme (ink and
-// cone, so on dark it's paper and the brighter oxblood). At least 20px tall. Same drawing as ios/design/logo-cans.
-const LOGO = `<svg class="pebble" width="24" height="24" viewBox="112 112 800 800" aria-hidden="true"><defs><filter id="atm" x="-10%" y="-10%" width="120%" height="120%"><feTurbulence type="fractalNoise" baseFrequency="0.018" numOctaves="2" seed="7"/><feDisplacementMap in="SourceGraphic" scale="16"/></filter></defs><g transform="translate(512 512) translate(-519.9 -507.7)"><g filter="url(#atm)" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M400.0 512.0Q512.1 403.2 650.0 330.0M400.0 512.0Q517.1 623.8 660.0 700.0" stroke="var(--ink)" stroke-width="22"/><g stroke-width="36"><g transform="translate(400.0 512.0) rotate(-90.0)" stroke="var(--cone)"><path d="M-95 -200L-19 0H19L95 -200"/><ellipse cx="0" cy="-200" rx="95" ry="32.3"/></g><g transform="translate(650.0 330.0) rotate(53.9)" stroke="var(--ink)"><path d="M-70 -200V-6Q0 30.8 70 -6V-200"/><ellipse cx="0" cy="-200" rx="70" ry="23.8"/></g><g transform="translate(660.0 700.0) rotate(125.9)" stroke="var(--ink)"><path d="M-70 -200V-6Q0 30.8 70 -6V-200"/><ellipse cx="0" cy="-200" rx="70" ry="23.8"/></g></g></g></g></svg>`;
+// The mark (jxn's atteo_design.pdf; src/mark.ts): the graph, no tile, in the text colour.
+// The lockup (PDF page 1): the mark as tall as the wordmark's cap height plus descender (≈20px beside 22px STIX), 0.35em apart.
+const LOGO = markInline(20, "pebble");
 
 /** The mark at another height (the first-run screen and Account's "Your assistant" card). */
 export function pebble(px: number): string {
-  return LOGO.replace('width="24" height="24"', `width="${px}" height="${px}"`);
+  return markInline(px, "pebble");
 }
 
-/** The wordmark's marker filter (lowercase "atteo" in Schoolbell, never without it): once per page. wm-marker is the
- *  design's, for big sizes (.wm.lg); at interface sizes it eats the strokes, so .wm uses wm-marker-sm: the same hand
- *  wobble scaled down. */
-export const WORDMARK_DEFS = `<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs><filter id="wm-marker" x="-5%" y="-15%" width="110%" height="130%"><feTurbulence type="fractalNoise" baseFrequency="0.035" numOctaves="2" seed="7" result="n"/><feDisplacementMap in="SourceGraphic" in2="n" scale="5" xChannelSelector="R" yChannelSelector="G" result="d"/><feGaussianBlur in="d" stdDeviation="0.8" result="b"/><feComponentTransfer in="b"><feFuncA type="table" tableValues="0 0 0 0.5 1"/></feComponentTransfer></filter><filter id="wm-marker-sm" x="-5%" y="-15%" width="110%" height="130%"><feTurbulence type="fractalNoise" baseFrequency="0.07" numOctaves="2" seed="7" result="n"/><feDisplacementMap in="SourceGraphic" in2="n" scale="2" xChannelSelector="R" yChannelSelector="G" result="d"/><feGaussianBlur in="d" stdDeviation="0.35" result="b"/><feComponentTransfer in="b"><feFuncA type="table" tableValues="0 0.4 1 1"/></feComponentTransfer></filter></defs></svg>`;
+/** The wordmark is plain STIX Two Text now (jxn #4682), with no filter: kept so pages that place it still build. */
+export const WORDMARK_DEFS = "";
 
 // The app icon (atteo-icon-light / -dark): the mark on its paper (or ink) tile.
-export const ICON_LIGHT_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024"><defs><clipPath id="bsq"><rect width="1024" height="1024" rx="230"/></clipPath><filter id="brough" x="-10%" y="-10%" width="120%" height="120%"><feTurbulence type="fractalNoise" baseFrequency="0.018" numOctaves="2" seed="7"/><feDisplacementMap in="SourceGraphic" scale="16"/></filter></defs><g clip-path="url(#bsq)"><rect width="1024" height="1024" fill="#FAFAF7"/><g transform="translate(512 512) translate(-519.9 -507.7)"><g filter="url(#brough)" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M400.0 512.0Q512.1 403.2 650.0 330.0M400.0 512.0Q517.1 623.8 660.0 700.0" stroke="#0E0E0E" stroke-width="22"/><g stroke-width="36"><g transform="translate(400.0 512.0) rotate(-90.0)" stroke="#6A1B24"><path d="M-95 -200L-19 0H19L95 -200"/><ellipse cx="0" cy="-200" rx="95" ry="32.3"/></g><g transform="translate(650.0 330.0) rotate(53.9)" stroke="#0E0E0E"><path d="M-70 -200V-6Q0 30.8 70 -6V-200"/><ellipse cx="0" cy="-200" rx="70" ry="23.8"/></g><g transform="translate(660.0 700.0) rotate(125.9)" stroke="#0E0E0E"><path d="M-70 -200V-6Q0 30.8 70 -6V-200"/><ellipse cx="0" cy="-200" rx="70" ry="23.8"/></g></g></g></g></g></svg>`;
-export const ICON_DARK_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024"><defs><clipPath id="bsq"><rect width="1024" height="1024" rx="230"/></clipPath><filter id="brough" x="-10%" y="-10%" width="120%" height="120%"><feTurbulence type="fractalNoise" baseFrequency="0.018" numOctaves="2" seed="7"/><feDisplacementMap in="SourceGraphic" scale="16"/></filter></defs><g clip-path="url(#bsq)"><rect width="1024" height="1024" fill="#0E0E0E"/><g transform="translate(512 512) translate(-519.9 -507.7)"><g filter="url(#brough)" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M400.0 512.0Q512.1 403.2 650.0 330.0M400.0 512.0Q517.1 623.8 660.0 700.0" stroke="#FAFAF7" stroke-width="22"/><g stroke-width="36"><g transform="translate(400.0 512.0) rotate(-90.0)" stroke="#C2414D"><path d="M-95 -200L-19 0H19L95 -200"/><ellipse cx="0" cy="-200" rx="95" ry="32.3"/></g><g transform="translate(650.0 330.0) rotate(53.9)" stroke="#FAFAF7"><path d="M-70 -200V-6Q0 30.8 70 -6V-200"/><ellipse cx="0" cy="-200" rx="70" ry="23.8"/></g><g transform="translate(660.0 700.0) rotate(125.9)" stroke="#FAFAF7"><path d="M-70 -200V-6Q0 30.8 70 -6V-200"/><ellipse cx="0" cy="-200" rx="70" ry="23.8"/></g></g></g></g></g></svg>`;
-export const FAVICON_SVG = ICON_LIGHT_SVG; // the paper tile reads on light and dark tab bars alike
+export const ICON_LIGHT_SVG = markFile("#FAFAF7", "#0E0E0E"); // the PDF's light mark, verbatim
+export const ICON_DARK_SVG = markFile("#0E0E0E", "#FAFAF7", "#3A3935"); // swapped, with a hair of edge so the tile shows on a dark page
+// The tab icon is the small-size cut (thicker lines, bigger nodes): at 16px the drawing's own lines blur away. The paper
+// tile reads on light and dark tab bars alike.
+export const FAVICON_SVG = markFile("#FAFAF7", "#0E0E0E", null, true);
 // The icons' addresses carry a hash of the drawing (jxn #4247): browsers keep a favicon for days, so a new logo only
 // shows once its address changes.
 export const FAVICON_SRC = `/favicon.svg?v=${fnv(FAVICON_SVG)}`;
@@ -1667,7 +1664,7 @@ ${CODE_COLOR_JS}`;
 // Every page's stylesheet and shell script, served by the Worker as /app.css and /app.js (index.ts), versioned by a hash of
 // their text and cached for good: a page no longer carries ~135KB of CSS and ~40KB of JS inline on every navigation, and
 // the script gets V8's code cache. A page's own script stays inline (it carries that page's data) and runs after it.
-export const APP_CSS = `${FONT_CSS}\n${CSS}`;
+export const APP_CSS = `${APP_FONT_CSS}\n${CSS}`;
 export const APP_CSS_SRC = `/app.css?v=${fnv(APP_CSS)}`;
 export const APP_JS = CLIENT_JS;
 export const APP_JS_SRC = `/app.js?v=${fnv(APP_JS)}`;
@@ -1767,17 +1764,17 @@ export function appPage(
   const sideOwn = `<a class="side-link side-board" href="${own ? `/b/${esc(own.id)}` : "/agent"}"${own ? cur(own.id) : ""} data-agent-chat>${avatar(v.name, "xs", true)}<span class="truncate">${esc(T("Your agent"))}</span>${own ? working(own.live ?? 0, own.id) : ""}</a>`;
   const paletteItems = [
     { label: T("Your agent"), hint: T("Chat"), href: own ? `/b/${own.id}` : "/agent" },
-    ...opts.boards.filter((b) => b.kind !== "agent").map((b) => ({ label: b.kind === "direct" ? T("{name} (direct)", { name: shownName(directPeer(b, v.name), b.peer_name) }) : b.title, hint: T("Board"), href: `/b/${b.id}` })),
+    ...opts.boards.filter((b) => b.kind !== "agent").map((b) => ({ label: b.kind === "direct" ? T("{name} (direct)", { name: shownName(directPeer(b, v.name), b.peer_name) }) : b.title, hint: T(b.kind === "direct" ? "DMs" : "Board"), kind: "board", href: `/b/${b.id}` })),
     { label: T("For you"), hint: T("Home"), href: "/for-you" },
     { label: T("Inbox"), hint: "G I", href: "/inbox" },
     { label: T("Approvals"), hint: "G A", href: "/approvals" },
-    { label: T("People and friends"), hint: "G P", href: "/people" },
+    { label: T("People"), hint: "G P", href: "/people" },
     { label: T("New board"), hint: "C", href: "/?new=1" },
-    { label: T("All boards"), hint: "G B", href: "/" },
-    { label: T("Account and agent connections"), hint: "G M", href: "/me" },
+    { label: T("Boards"), hint: "G B", href: "/" },
+    { label: T("Settings"), hint: "G M", href: "/me" },
     { label: T("Guide"), hint: T("What Atteo can do"), href: "/guide" },
     { label: T("Keyboard shortcuts"), hint: "?", href: "#shortcuts" },
-    ...(v.admin ? [{ label: "Ops console", hint: "Operators", href: "/_ops" }] : []),
+    ...(v.admin ? [{ label: T("Ops"), hint: "G O", href: "/_ops" }] : []),
   ];
   const body = `<div class="app" id="app">
 <aside class="sidebar" id="sidebar" aria-label="${esc(T("Navigation"))}">
@@ -1803,10 +1800,6 @@ export function appPage(
     <nav class="crumbs" aria-label="Breadcrumb">${opts.crumbs}</nav><div class="actions">${opts.actions ?? ""}</div></header>
   <div class="content${opts.narrow ? " narrow" : ""}${opts.full ? " full" : ""}">${opts.body}</div>
 </div></div>
-<dialog class="palette" id="palette" aria-label="${esc(T("Search"))}">
-<div class="pal-in"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><circle cx="7" cy="7" r="4.5"/><path d="m10.5 10.5 3 3"/></svg><span class="pal-chips" id="pal-chips"></span><input class="input" id="palette-q" placeholder="${esc(T("Search messages, files, boards and actions…"))}" autocomplete="off" aria-label="Search" aria-controls="palette-list"></div>
-<div class="pal-filters" id="pal-filters" aria-label="${esc(T("Filters"))}"></div>
-<ul id="palette-list" role="listbox"></ul><div class="foot"><span><kbd>↑</kbd> <kbd>↓</kbd> ${esc(T("move"))}</span><span><kbd>↵</kbd> ${esc(T("open"))}</span><span><kbd>⌫</kbd> ${esc(T("remove filter"))}</span><span><kbd>esc</kbd> ${esc(T("close"))}</span></div></dialog>
 <dialog id="shortcuts"><div class="hd"><h2>${esc(T("Keyboard shortcuts"))}</h2><button class="btn ghost sm" data-close aria-label="${esc(T("Close"))}">✕</button></div>
 <div class="bd"><dl class="kv">
 <dt><kbd>⌘K</kbd> <kbd>/</kbd></dt><dd>${esc(T("Search or jump to a board"))}</dd>
@@ -1993,55 +1986,14 @@ document.addEventListener('click',e=>{const b=e.target.closest('[data-bug]');if(
 // form for that click itself; later clicks are its own listener.
 document.addEventListener('click',e=>{if(!e.target.closest('[data-feedback]')||document.getElementById('fb-js'))return;
   const s=document.createElement('script');s.id='fb-js';s.src='${FEEDBACK_JS_SRC}';s.nonce=NONCE;document.head.appendChild(s)});
-// Search (⌘K everywhere; ⌘F on a board starts with "This board · Messages"): filters show up front like VS Code or Lark,
-// and become chips; results mix boards and actions with ranked messages and files (this board, or all your boards).
-const pal=$('#palette'),q=$('#palette-q'),list=$('#palette-list'),pChips=$('#pal-chips'),pFilt=$('#pal-filters');
-let sel=0,items=[],chips=[],mode=null,run=0,timer=null;
-const B=()=>window.BOARD_CTX||null; // on a board page: {id, me, members, jump(seq), openFile(name, version)}
-const KINDS=[['messages',tr('Messages')],['files',tr('Files')],['boards',tr('Boards')],['actions',tr('Actions')]],TYPES=['question','task','decision','claim','note','change','artifact'];
-const h=x=>String(x==null?'':x).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
-const has=(k,v)=>chips.some(c=>c.k===k&&(v==null||c.v===v)),chip=k=>chips.find(c=>c.k===k);
-const who=(u,agent)=>{const me=B()&&B().me;return u===me?(agent?'your agent':'you'):(agent?u+"'s agent":u)};
-const label=c=>c.k==='board'?tr('This board'):c.k==='kind'?KINDS.find(k=>k[0]===c.v)[1]:c.k==='type'?tr('type:')+' '+tr(c.v):tr('from')+' '+who(c.v,c.agent);
-function paintChips(){pChips.innerHTML=chips.map((c,i)=>'<span class="pal-chip">'+h(label(c))+'<button type="button" data-pchip="'+i+'" aria-label="Remove '+h(label(c))+'">✕</button></span>').join('');
-  const o=[];if(B()&&!has('board'))o.push(['board','',tr('This board')]);if(!has('kind'))KINDS.forEach(([v,l])=>o.push(['kind',v,l]));
-  if(B()&&!has('from'))o.push(['from','',tr('From…')]);if(!has('type'))o.push(['type','',tr('Type…')]);
-  pFilt.innerHTML=o.map(x=>'<button type="button" class="pal-opt" data-popt="'+x[0]+'" data-v="'+x[1]+'">'+h(x[2])+'</button>').join('');pFilt.hidden=!o.length}
-function paint(rows){items=rows;sel=Math.min(sel,Math.max(0,rows.length-1));let g='';
-  list.innerHTML=rows.map((r,n)=>(r.g!==g?'<li class="pal-g" aria-hidden="true">'+(g=r.g)+'</li>':'')+'<li role="option" data-n="'+n+'" id="po-'+n+'" aria-selected="'+(n===sel)+'"><span class="pal-l">'+r.label+'</span><span class="k">'+h(r.hint||'')+'</span></li>').join('')||'<li class="faint pal-none">'+(q.value.trim()?'No matches':'Type to search')+'</li>';
-  q.setAttribute('aria-activedescendant',rows.length?'po-'+sel:'')}
-function pickList(){const t=q.value.trim().replace(/^@/,'').toLowerCase();
-  const rows=mode==='from'?(B()?B().members:[]).flatMap(u=>[{u,agent:false},{u,agent:true}]).filter(x=>x.u.startsWith(t)).map(x=>({g:tr('From'),label:h(who(x.u,x.agent)),pick:{k:'from',v:x.u,agent:x.agent}}))
-    :TYPES.filter(x=>x.startsWith(t)).map(x=>({g:tr('Type'),label:h(tr(x)),pick:{k:'type',v:x}}));paint(rows)}
-const snip=x=>h(x||'').split('«').join('<mark>').split('»').join('</mark>');
-function render(){const my=++run;if(mode){pickList();return}const t=q.value.trim(),kind=chip('kind')&&chip('kind').v,b=B(),scoped=b&&(has('board')||has('from')||has('type'));
-  const rows=[];
-  if((!kind||kind==='boards'||kind==='actions')&&!scoped&&!has('from')&&!has('type'))
-    PALETTE.filter(i=>!t||i.label.toLowerCase().includes(t.toLowerCase())).filter(i=>!kind||(kind==='boards')===(i.hint==='Board')).slice(0,t?8:6)
-      .forEach(i=>rows.push({g:i.hint===tr('Board')?tr('Boards'):tr('Actions'),label:h(i.label),hint:i.hint==='Board'?'':i.hint,href:i.href}));
-  paint(rows);
-  if(kind==='boards'||kind==='actions'||(!t&&!has('from')&&!has('type')))return;
-  clearTimeout(timer);timer=setTimeout(async()=>{const more=[];
-    try{if(scoped){const p=new URLSearchParams({q:t});const f=chip('from');if(f){p.set('from',f.v);p.set('agent',f.agent?'1':'0')}if(chip('type'))p.set('type',chip('type').v);if(kind==='messages')p.set('in','chat');
-        const j=await (await fetch('/api/boards/'+b.id+'/search?'+p)).json();
-        if(kind!=='files')(j.entries||[]).forEach(x=>more.push({g:tr('Messages'),label:(x.title?'<b>'+h(x.title)+'</b> ':'')+snip(x.snippet),hint:who(x.author,x.via==='agent')+' · #'+x.seq,act:()=>b.jump(x.seq)}));
-        if(kind!=='messages')(j.files||[]).forEach(x=>more.push({g:tr('Files'),label:'<span class="mono">'+h(x.name)+'</span> '+snip(x.snippet),hint:'v'+x.version,act:()=>b.openFile(x.name,x.version)}))}
-      else if(t){const j=await (await fetch('/api/boards/search?q='+encodeURIComponent(t))).json();
-        (j.hits||[]).filter(x=>kind==='files'?x.kind==='file':kind==='messages'?x.kind==='entry':true).forEach(x=>{const here=b&&x.board===b.id;
-          more.push({g:x.kind==='file'?'Files':'Messages',label:(x.kind==='file'?'<span class="mono">'+h(x.name)+'</span> ':'')+snip(x.snippet),hint:x.title+(x.seq?' · #'+x.seq:''),
-            act:here?(x.kind==='file'?()=>b.openFile(x.name,x.version):()=>b.jump(x.seq)):null,href:'/b/'+x.board+(x.kind==='file'?'#files':'#e'+x.seq)})})}}catch(e){}
-    if(my===run)paint(rows.concat(more))},150)}
-function go(i){if(!i)return;if(i.pick){chips=chips.filter(c=>c.k!==i.pick.k);chips.push(i.pick);mode=null;q.value='';paintChips();sel=0;render();q.focus();return}
-  pal.close();if(i.href==='#shortcuts'){$('#shortcuts').showModal();return}if(i.act){i.act();return}location.href=i.href}
-window.openPalette=(preset)=>{chips=(preset||[]).slice();mode=null;q.value='';sel=0;paintChips();render();if(!pal.open)pal.showModal();q.focus()};
-q.addEventListener('input',()=>{sel=0;if(!mode&&q.value.startsWith('@')&&B())mode='from';if(mode&&!q.value&&mode==='from')mode=null;render()});
-q.addEventListener('keydown',e=>{if(e.key==='ArrowDown'){sel=Math.min(sel+1,items.length-1);paint(items);e.preventDefault()}
-  else if(e.key==='ArrowUp'){sel=Math.max(sel-1,0);paint(items);e.preventDefault()}else if(e.key==='Enter'){go(items[sel]);e.preventDefault()}
-  else if(e.key==='Backspace'&&!q.value&&(mode||chips.length)){if(mode)mode=null;else chips.pop();paintChips();render();e.preventDefault()}});
-list.addEventListener('mousedown',e=>{const li=e.target.closest('[data-n]');if(li){e.preventDefault();go(items[+li.dataset.n])}});
-pChips.addEventListener('click',e=>{const b=e.target.closest('[data-pchip]');if(!b)return;chips.splice(+b.dataset.pchip,1);paintChips();render();q.focus()});
-pFilt.addEventListener('click',e=>{const b=e.target.closest('[data-popt]');if(!b)return;const k=b.dataset.popt;
-  if(k==='from'||k==='type'){mode=k;q.value='';sel=0;render();q.focus();return}chips.push({k,v:b.dataset.v||null});paintChips();render();q.focus()});
+// The existing palette (including board search) is fetched only when opened.
+let paletteLoad;
+window.openPalette=(preset)=>{if(!paletteLoad)paletteLoad=new Promise((resolve,reject)=>{
+  const css=document.createElement('link');css.rel='stylesheet';css.href='${PALETTE_CSS_SRC}';
+  const script=document.createElement('script');script.src='${PALETTE_JS_SRC}';script.nonce=NONCE;
+  const fail=()=>{css.remove();script.remove();paletteLoad=null;reject(Error('palette'))};
+  css.onerror=script.onerror=fail;script.onload=resolve;css.onload=()=>document.head.appendChild(script);document.head.appendChild(css);
+});return paletteLoad.then(()=>window.openPalette(preset)).catch(()=>toast(tr('Could not load')))};
 // The phone menu (a drawer): opens from the menu button; closes with its ✕, the dimmed page beside it, a swipe back to
 // the left or Esc, and focus goes back to the button (jxn #2223). It's never kept open across a reload or a Back.
 let navFrom=null;const navNarrow=matchMedia('(max-width:860px)');
@@ -2060,7 +2012,7 @@ if(location.hash==='#connect'){const d=$('dialog#connect');if(d&&!d.open)d.showM
 navNarrow.addEventListener('change',()=>navSet(false));navSet(false);addEventListener('pageshow',()=>navSet(false));
 let g=false,gt;
 document.addEventListener('keydown',e=>{
-  if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==='k'){e.preventDefault();pal.open?pal.close():openPalette();return}
+  if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==='k'){e.preventDefault();$('#palette')?.open?$('#palette').close():openPalette();return}
   const t=e.target;if(e.metaKey||e.ctrlKey||e.altKey||t.closest('input,textarea,select,[contenteditable]')||$('dialog[open]'))return;
   const k=e.key.toLowerCase();
   if(g){g=false;clearTimeout(gt);const to={b:'/',i:'/inbox',a:'/approvals',m:'/me',p:'/people',o:window.OPS?'/_ops':null}[k];if(to){location.href=to;e.preventDefault()}return}
