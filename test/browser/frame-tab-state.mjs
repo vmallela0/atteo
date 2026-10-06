@@ -30,8 +30,9 @@ await fetch(`${BASE}/api/sessions/${sid}/boards`, { method: "POST", headers: { .
 await fetch(`${BASE}/api/boards/${busy}/entries`, { method: "POST", headers: { ...H, "x-agent-soup-session": sid }, body: JSON.stringify({ text: `working on it ${run}` }) });
 const mcp = await fetch(`${BASE}/mcp?board=${asks}`, { method: "POST", headers: { ...H, accept: "application/json, text/event-stream" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "request_approval", arguments: { title: `Deploy ${run}`, details: "npm run deploy", risk: "low", wait_seconds: 0 } } }) });
 check(mcp.ok, `the agent asked for an approval (${mcp.status})`);
-// Within one poll (20s) plus the server's 10s cache, without reloading.
-await p.waitForFunction(([b1, b2]) => document.querySelector(`.btab[data-tab="${b1}"]`)?.classList.contains("st-work") && document.querySelector(`.btab[data-tab="${b2}"]`)?.classList.contains("st-ap"), [busy, asks], { timeout: 45000, polling: 500 }).catch(() => {});
+// Coming back to a visible tab uses the same refresh as the 20s poll; trigger it instead of paying for the interval.
+await p.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
+await p.waitForFunction(([b1, b2]) => document.querySelector(`.btab[data-tab="${b1}"]`)?.classList.contains("st-work") && document.querySelector(`.btab[data-tab="${b2}"]`)?.classList.contains("st-ap"), [busy, asks], { timeout: 15000, polling: 100 }).catch(() => {});
 const s1 = await state(busy), s2 = await state(asks), s3 = await state(quiet);
 check(s1.work && !s1.ap && /1/.test(s1.wk || ""), `the busy board's tab turns green with its working count, live (${JSON.stringify(s1)})`);
 check(s2.ap && !s2.work && /1/.test(s2.apn || ""), `the board with a waiting approval turns amber with its count, live (${JSON.stringify(s2)})`);
