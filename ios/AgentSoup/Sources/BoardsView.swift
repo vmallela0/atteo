@@ -640,7 +640,7 @@ struct BoardView: View {
         guard let seen = newestSeen else { newestSeen = top; return }
         newestSeen = max(seen, top)
         let arrived = list.filter { $0.seq > seen && $0.pending != true && $0.retracts == nil }
-        // Read replies aloud (Voice.swift): a message for you blips and waits in the bar.
+        // Read replies aloud (Voice.swift): read a message for you automatically (vedu #4564).
         for e in arrived where forMeToHear(e) { ReadAloud.shared.heard(e, from: e.byAgent ? agentLabel(state.displayName(for: e.author), e.agentName ?? state.agentNames[board.id]?[e.author]?.name) : state.displayName(for: e.author), in: board) }
         guard arrived.contains(where: { $0.type == "change" && $0.text.localizedCaseInsensitiveContains("shipped") }) else { return }
         Haptics.play(.shipped)
@@ -815,12 +815,10 @@ struct BoardView: View {
     /// The message box (ChatComposer.swift, the same one threads use).
     var composer: some View {
         VStack(spacing: 0) {
-            ReadAloudBar(board: board.id) // a message for you, waiting to be read aloud (Voice.swift)
             ChatComposer(board: board, box: draft, focused: $focused, placeholder: placeholder,
                          toSession: board.isAgentChat ? $toSession : nil)
         }
         .background(Theme.bg)
-        .animation(.snappy, value: ReadAloud.shared.queue.count)
         .onAppear { BugContext.board = board.id } // a bug report says which chat was open (ReportBug.swift)
         .onDisappear {
             ReadAloud.shared.leave(board.id)

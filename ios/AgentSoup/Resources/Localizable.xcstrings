@@ -37031,48 +37031,48 @@
         }
       }
     },
-    "When a message for you lands in the chat you have open, a short blip; tap the bar to hear it. Hold the mic in the message box to talk; end with “send it” to send. Speech is turned into text on this phone.": {
+    "When a message for you lands in the chat you have open, it's read out. Hold the mic in the message box to talk; end with “send it” to send. Speech is turned into text on this phone.": {
       "localizations": {
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cuando llega un mensaje para ti al chat que tienes abierto, suena un breve aviso; toca la barra para escucharlo. Mantén pulsado el micrófono del cuadro de mensaje para hablar; termina con “send it” para enviar. La voz se convierte en texto en este teléfono."
+            "value": "Cuando llega un mensaje para ti al chat que tienes abierto, se lee en voz alta. Mantén pulsado el micrófono del cuadro de mensaje para hablar; termina con “send it” para enviar. La voz se convierte en texto en este teléfono."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Quand un message pour vous arrive dans le chat ouvert, un bref bip retentit ; touchez la barre pour l’écouter. Maintenez le micro de la zone de message pour parler ; terminez par « send it » pour envoyer. La parole est convertie en texte sur ce téléphone."
+            "value": "Quand un message pour vous arrive dans le chat ouvert, il est lu à voix haute. Maintenez le micro de la zone de message pour parler ; terminez par « send it » pour envoyer. La parole est convertie en texte sur ce téléphone."
           }
         },
         "hi": {
           "stringUnit": {
             "state": "translated",
-            "value": "जब आपकी खुली चैट में आपके लिए कोई संदेश आता है, तो एक छोटी-सी आवाज़ होती है; सुनने के लिए बार पर टैप करें। बोलने के लिए संदेश बॉक्स में माइक दबाकर रखें; भेजने के लिए अंत में “send it” कहें। बोली इसी फ़ोन पर टेक्स्ट में बदली जाती है।"
+            "value": "जब आपकी खुली चैट में आपके लिए कोई संदेश आता है, तो उसे पढ़कर सुनाया जाता है। बोलने के लिए संदेश बॉक्स में माइक दबाकर रखें; भेजने के लिए अंत में “send it” कहें। बोली इसी फ़ोन पर टेक्स्ट में बदली जाती है।"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "開いているチャットにあなた宛てのメッセージが届くと、短い音が鳴ります。バーをタップすると聞けます。メッセージ欄のマイクを押したまま話し、最後に「send it」と言うと送信します。音声はこのiPhone上で文字に変換されます。"
+            "value": "開いているチャットにあなた宛てのメッセージが届くと、読み上げられます。メッセージ欄のマイクを押したまま話し、最後に「send it」と言うと送信します。音声はこのiPhone上で文字に変換されます。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "보고 있는 채팅에 나에게 온 메시지가 오면 짧은 알림음이 납니다. 막대를 누르면 들을 수 있습니다. 말하려면 메시지 입력창의 마이크를 길게 누르고, 끝에 “send it”이라고 말하면 보냅니다. 음성은 이 휴대폰에서 텍스트로 변환됩니다."
+            "value": "열어 둔 채팅에 나에게 보내는 메시지가 도착하면 소리 내어 읽어 줍니다. 말하려면 메시지 입력창의 마이크를 길게 누르고, 끝에 “send it”이라고 말하면 보냅니다. 음성은 이 휴대폰에서 텍스트로 변환됩니다."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "当你打开的聊天中有给你的消息时，会有一声短促提示音；点按提示条即可收听。按住消息框里的麦克风说话，以“send it”结尾即可发送。语音会在这台手机上转成文字。"
+            "value": "当你打开的聊天中有给你的消息时，会朗读出来。按住消息框里的麦克风说话，以“send it”结尾即可发送。语音会在这台手机上转成文字。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "當你開啟的聊天中有給你的訊息時，會有一聲短促提示音；點按提示條即可收聽。按住訊息框裡的麥克風說話，以“send it”結尾即可傳送。語音會在這台手機上轉成文字。"
+            "value": "當你開啟的聊天中有給你的訊息時，會朗讀出來。按住訊息框裡的麥克風說話，以“send it”結尾即可傳送。語音會在這台手機上轉成文字。"
           }
         }
       }

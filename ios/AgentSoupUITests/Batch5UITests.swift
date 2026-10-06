@@ -1,6 +1,6 @@
 // Batch 5 (one focused test each): Settings' Haptics & effects, Voice, Notifications and your agent's name; a named
 // agent in the chat with @Jarvis / @all in the @ menu, your favourite reactions and the emoji search, Remember this;
-// the board's SOUL and MEMORY in its info; Read replies aloud's bar; and the picture editor.
+// the board's SOUL and MEMORY in its info; Read replies aloud without a bar (vedu #4564); and the picture editor.
 
 import XCTest
 
@@ -170,20 +170,20 @@ final class Batch5UITests: AtteoUITestCase {
         shot("b5-08-soul-edited")
     }
 
-    func testReadRepliesAloudBar() throws {
+    func testReadRepliesAloudWithoutBar() throws {
         guard !otherApp.isEmpty, let b = boardId(titled: "Checkout bug") else { throw XCTSkip("needs theo's phone token") }
         let a = app()
         a.launchArguments += ["-read-aloud", "YES"] // the per-device switch, for this run only
         a.launch()
         openChat(a, "Checkout bug")
         sleep(2)
-        call("POST", "/api/boards/\(b)/entries", json: ["type": "note", "text": "@maya can you look at the retry budget?"], token: otherApp)
-        let bar = a.buttons["read-aloud-bar"]
-        XCTAssertTrue(bar.waitForExistence(timeout: 15), "a message for you waits in the bar")
-        XCTAssertTrue(bar.label.contains("For you from theo"), bar.label)
+        let text = "can you look at the retry budget? \(UUID().uuidString)"
+        call("POST", "/api/boards/\(b)/entries", json: ["type": "note", "text": "@maya \(text)"], token: otherApp)
+        let msg = a.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", text)).firstMatch
+        XCTAssertTrue(msg.waitForExistence(timeout: 15), "a new message for you arrives")
+        XCTAssertFalse(a.descendants(matching: .any)["read-aloud-bar"].exists, "reading needs no bar (vedu #4564)")
+        XCTAssertTrue(composer(a).isHittable, "the message box stays available")
         shot("b5-09-read-aloud")
-        a.buttons["Dismiss"].tap()
-        XCTAssertTrue(eventually(bar, "exists == false"), "dismissed")
     }
 
     func testPictureEditor() throws {

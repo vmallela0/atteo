@@ -1,8 +1,8 @@
 // Voice v0 (ios/qa/design/voice/RESEARCH.md, jxn #1069; like the web's prototype in src/html.ts voiceJs): hold the
 // mic in the message box and talk; what you say goes into the box, transcribed on this phone only (nothing is sent
 // anywhere to transcribe it). Let go and send it, or end with "send it" to send it right away. And "Read replies
-// aloud" (Settings): when a message for you lands in the chat you have open, a short blip and a bar; tap the bar to
-// hear it, in the server's voice when it has one (POST /api/app/tts), else the phone's.
+// aloud" (Settings): a message for you in the chat you have open is read automatically (vedu #4564), in the
+// server's voice when it has one (POST /api/app/tts), else the phone's.
 
 import AVFoundation
 import Speech
@@ -304,10 +304,10 @@ final class ReadAloud: NSObject, ObservableObject, AVSpeechSynthesizerDelegate, 
     struct Item: Equatable { let board: Board; let entry: Entry; let from: String }
     @Published private(set) var queue: [Item] = []
     @Published private(set) var speaking = false
+    private var reading: Item? // the current message has left the queue; leaving its chat still stops it (vedu #4564)
     private var serverVoice: Bool? // GET /api/app/tts/status, once a launch
     private let synth = AVSpeechSynthesizer()
     private var player: AVAudioPlayer?
-    private var blipPlayer: AVAudioPlayer?
 
     override init() {
         super.init()
@@ -317,41 +317,44 @@ final class ReadAloud: NSObject, ObservableObject, AVSpeechSynthesizerDelegate, 
         }
     }
 
-    /// A message for you landed in the chat you have open: a blip, and it waits in the bar.
+    /// A message for you landed in the chat you have open: read it automatically (vedu #4564).
     func heard(_ e: Entry, from: String, in board: Board) {
         guard Self.enabled, !queue.contains(where: { $0.entry.seq == e.seq && $0.board.id == board.id }) else { return }
-        withAnimation(.snappy) { queue.append(Item(board: board, entry: e, from: from)) }
-        blip()
+        queue.append(Item(board: board, entry: e, from: from))
+        if !speaking { next() }
     }
-
-    /// Plays what's waiting, in order (or stops, if it's reading).
-    func tap() { if speaking { hush() } else { next() } }
 
     /// Stops reading and forgets what was waiting.
     func hush() {
+        reading = nil
         synth.stopSpeaking(at: .immediate)
         player?.stop(); player = nil
         withAnimation(.snappy) { queue = []; speaking = false }
     }
 
-    /// Leaving a chat: what was waiting there goes.
+    /// Leaving a chat stops its reading and forgets what was waiting.
     func leave(_ board: String) {
-        guard queue.contains(where: { $0.board.id == board }) else { return }
+        guard reading?.board.id == board || queue.contains(where: { $0.board.id == board }) else { return }
         hush()
     }
 
     private func next() {
+        reading = nil
         guard !queue.isEmpty else { withAnimation(.snappy) { speaking = false }; return }
         let it = queue.removeFirst()
+        reading = it
         withAnimation(.snappy) { speaking = true }
         Task { await speak(it) }
     }
 
     private func speak(_ it: Item) async {
+        guard reading == it else { return }
         AudioRoutePlan.plan(.readAloud, loudspeaker: AudioOut.shared.loudspeaker).apply() // the speaker button (#2384)
         if it.board.encrypted != true, await serverHasVoice() {
+            guard reading == it else { return } // leaving while the server answers must not restart speech (vedu #4564)
             do {
                 let data = try await API.shared.send("/api/app/tts", body: ["board": it.board.id, "seq": it.entry.seq], retries: false)
+                guard reading == it else { return }
                 let p = try AVAudioPlayer(data: data)
                 p.delegate = self
                 p.volume = 1
@@ -359,6 +362,7 @@ final class ReadAloud: NSObject, ObservableObject, AVSpeechSynthesizerDelegate, 
                 if p.play() { return }
             } catch {} // over the allowance, the service down, an encrypted board: the phone's voice instead
         }
+        guard reading == it else { return }
         let u = AVSpeechUtterance(string: Self.spoken(it))
         u.voice = Self.bestVoice()
         u.volume = 1
@@ -390,76 +394,8 @@ final class ReadAloud: NSObject, ObservableObject, AVSpeechSynthesizerDelegate, 
         return all.first { $0.quality == .premium } ?? all.first { $0.quality == .enhanced } ?? AVSpeechSynthesisVoice(language: lang)
     }
 
-    /// A soft two-note blip (660 Hz, then 880 Hz), like the web's.
-    private func blip() {
-        Haptics.play(.touch)
-        if blipPlayer == nil { blipPlayer = try? AVAudioPlayer(data: Self.blipWAV) }
-        try? AVAudioSession.sharedInstance().setCategory(.ambient, options: [.mixWithOthers])
-        blipPlayer?.currentTime = 0
-        blipPlayer?.play()
-    }
-
-    private static let blipWAV: Data = {
-        let rate = 22_050
-        var samples: [Int16] = []
-        for (f, start) in [(660.0, 0.0), (880.0, 0.09)] {
-            let first = Int(start * Double(rate)), n = Int(0.17 * Double(rate))
-            if samples.count < first + n { samples += Array(repeating: 0, count: first + n - samples.count) }
-            for i in 0..<n {
-                let t = Double(i) / Double(rate)
-                let env = t < 0.015 ? t / 0.015 : exp(-(t - 0.015) * 28)
-                let v = sin(2 * .pi * f * t) * env * 0.25
-                samples[first + i] = Int16(clamping: Int(samples[first + i]) + Int(v * 32767))
-            }
-        }
-        var d = Data()
-        func u32(_ v: UInt32) { withUnsafeBytes(of: v.littleEndian) { d.append(contentsOf: $0) } }
-        func u16(_ v: UInt16) { withUnsafeBytes(of: v.littleEndian) { d.append(contentsOf: $0) } }
-        let bytes = UInt32(samples.count * 2)
-        d.append(contentsOf: Array("RIFF".utf8)); u32(36 + bytes); d.append(contentsOf: Array("WAVE".utf8))
-        d.append(contentsOf: Array("fmt ".utf8)); u32(16); u16(1); u16(1); u32(UInt32(rate)); u32(UInt32(rate * 2)); u16(2); u16(16)
-        d.append(contentsOf: Array("data".utf8)); u32(bytes)
-        for s in samples { u16(UInt16(bitPattern: s)) }
-        return d
-    }()
-
     nonisolated func speechSynthesizer(_ s: AVSpeechSynthesizer, didFinish u: AVSpeechUtterance) { Task { @MainActor in self.next() } }
-    nonisolated func audioPlayerDidFinishPlaying(_ p: AVAudioPlayer, successfully: Bool) { Task { @MainActor in if p !== self.blipPlayer { self.next() } } }
-}
-
-/// Over the message box while something for you is waiting (or being read): tap to hear it, tap again to stop.
-struct ReadAloudBar: View {
-    @ObservedObject private var aloud = ReadAloud.shared
-    let board: String
-
-    var body: some View {
-        let waiting = aloud.queue.filter { $0.board.id == board }
-        if aloud.speaking || !waiting.isEmpty {
-            HStack(spacing: Space.s) {
-                Button { aloud.tap() } label: {
-                    HStack(spacing: Space.s) {
-                        Image(systemName: aloud.speaking ? "speaker.wave.2.fill" : "speaker.wave.1.fill").foregroundStyle(Theme.accent)
-                        (aloud.speaking
-                             ? (waiting.isEmpty ? Text("Reading · tap to stop") : Text("Reading · \(waiting.count) more · tap to stop"))
-                             : (waiting.count > 1 ? Text("\(waiting.count) for you, first from \(waiting[0].from) · tap to hear") : Text("For you from \(waiting[0].from) · tap to hear")))
-                            .font(Typo.meta.weight(.medium)).foregroundStyle(Theme.text).lineLimit(1)
-                        Spacer(minLength: 0)
-                    }
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityIdentifier("read-aloud-bar")
-                AudioOutputButton(style: .icon)
-                Button { aloud.hush() } label: { Image(systemName: "xmark").font(.system(size: 11, weight: .bold)).foregroundStyle(Theme.muted).frame(width: 28, height: 28) }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Dismiss")
-            }
-            .padding(.horizontal, Space.m).padding(.vertical, Space.xs)
-            .background(Theme.card, in: Capsule())
-            .padding(.horizontal, Space.m).padding(.top, Space.s)
-            .transition(.move(edge: .bottom).combined(with: .opacity))
-        }
-    }
+    nonisolated func audioPlayerDidFinishPlaying(_ p: AVAudioPlayer, successfully: Bool) { Task { @MainActor in if p === self.player { self.next() } } }
 }
 
 /// Settings → Voice: read replies aloud (per device).
@@ -471,7 +407,7 @@ struct VoiceSection: View {
                 .onChange(of: aloud) { _, on in if !on { ReadAloud.shared.hush() } }
                 .accessibilityIdentifier("read-aloud-toggle")
         } header: { SectionHeader("Voice") } footer: {
-            Text("When a message for you lands in the chat you have open, a short blip; tap the bar to hear it. Hold the mic in the message box to talk; end with “send it” to send. Speech is turned into text on this phone.")
+            Text("When a message for you lands in the chat you have open, it's read out. Hold the mic in the message box to talk; end with “send it” to send. Speech is turned into text on this phone.")
         }
         .listRowBackground(Theme.card)
     }
