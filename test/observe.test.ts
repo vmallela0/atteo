@@ -389,12 +389,12 @@ describe("request wall-time histogram", () => {
   it("batches D1 writes when a later is supplied", async () => {
     const { env, db } = fakeEnv();
     const later = { waitUntil() {} };
-    for (let i = 0; i < 49; i++) noteRequestWallMs(env, later, 10);
-    expect(counter("request_ms", "samples")).toBe(49);
+    for (let i = 0; i < 499; i++) noteRequestWallMs(env, later, 10);
+    expect(counter("request_ms", "samples")).toBe(499);
     expect(db.prepare(`SELECT count FROM usage_daily WHERE metric = 'request_ms' AND key = 'samples'`).all()).toEqual([]);
     noteRequestWallMs(env, later, 10);
     await settleCounts();
-    expect(db.prepare(`SELECT count FROM usage_daily WHERE metric = 'request_ms' AND key = 'samples'`).all()).toEqual([{ count: 50 }]);
+    expect(db.prepare(`SELECT count FROM usage_daily WHERE metric = 'request_ms' AND key = 'samples'`).all()).toEqual([{ count: 500 }]);
   });
 });
 

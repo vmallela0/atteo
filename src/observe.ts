@@ -51,7 +51,7 @@ const inflight = new Set<Promise<void>>();
 const firstAgent = new Set<string>(); // people whose first agent post this isolate already recorded
 
 /** In-isolate request wall-time histogram, flushed in batches so we don't write D1 on every fetch. */
-const REQUEST_FLUSH_EVERY = 50;
+const REQUEST_FLUSH_EVERY = 500; // at most ~12 D1 upserts per 500 requests or per minute, per isolate (load, vedu #4598)
 const REQUEST_FLUSH_MS = 60_000;
 type RequestPending = { day: string; samples: number; ms: number; buckets: Partial<Record<string, number>>; lastFlush: number };
 let requestPending: RequestPending | null = null;
