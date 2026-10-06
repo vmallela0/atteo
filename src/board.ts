@@ -37,6 +37,7 @@ import { decodeValue, encodeValue, type DumpTables } from "./backupcore";
 import { parseAgentCharter, type AgentCharter } from "./charter";
 import { mutersOf } from "./moderation";
 import { onApprovalDecided as slackOnApproval, onEntry as slackOnEntry } from "./slack";
+import type { Listener } from "./listen";
 import { memberRole } from "./registry";
 import { dropForward, forwardsFor, PURGED_QUOTE, RETAINED_QUOTE, scrubQuote, type ForwardRow } from "./forwards";
 
@@ -279,7 +280,11 @@ interface WaitAtt {
 interface TabAtt {
   user: string;
   person: boolean;
+  session?: string; // the agent session a CLI socket belongs to (X-Atteo-Session), for atteo ping
 }
+
+export const PING_TIMEOUT_MS = 3000;
+export const PINGS_PER_MIN = 10;
 
 /** Entry columns that route a post to one agent session ("@vedu/claude-2"): its person and the session's id. */
 type ForSession = { user: string; session: string } | null;
@@ -622,7 +627,8 @@ export class Board extends DurableObject<Env> {
     const [client, server] = Object.values(pair);
     this.ctx.acceptWebSocket(server, [user]);
     // A person signed in as themselves (web, the app) or an agent (the CLI's token): people-only signals go to the first only.
-    server.serializeAttachment({ user, person: url.searchParams.get("as") === "person" } satisfies TabAtt);
+    const session = url.searchParams.get("session");
+    server.serializeAttachment({ user, person: url.searchParams.get("as") === "person", ...(session ? { session } : {}) } satisfies TabAtt);
     server.send(JSON.stringify({ type: "hello", last: this.info().last_seq }));
     return new Response(null, { status: 101, webSocket: client });
   }
@@ -672,8 +678,69 @@ export class Board extends DurableObject<Env> {
     }
   }
 
-  async webSocketMessage(): Promise<void> {
-    // Tabs only listen ("ping" is answered automatically); nothing they send changes the board.
+  async webSocketMessage(ws: WebSocket, msg: string | ArrayBuffer): Promise<void> {
+    // Tabs only listen ("ping" is answered automatically); nothing they send changes the board. A CLI answers atteo
+    // ping's frame with {type: "pong", id}: only the socket it was sent to can settle it.
+    if (typeof msg !== "string" || !this.pings.size || msg.length > 200 || !msg.includes('"pong"')) return;
+    let f: { type?: unknown; id?: unknown };
+    try {
+      f = JSON.parse(msg);
+    } catch {
+      return;
+    }
+    const p = f?.type === "pong" && typeof f.id === "string" ? this.pings.get(f.id) : undefined;
+    if (p && p.ws === ws) p.done(Date.now() - p.t0);
+  }
+
+  // atteo ping (#5433): outstanding pings by id, and each pinger's recent pings (in memory: a diagnostic, not a quota).
+  private pings = new Map<string, { ws: WebSocket; t0: number; done: (ms: number) => void }>();
+  private pingTimes = new Map<string, number[]>();
+
+  /**
+   * Who is listening for a member's agent here: their agents' CLI sockets and held waits (never people's tabs). With
+   * `probe`, each socket gets a {type: "ping", id} frame and its round trip is timed; nothing is posted, logged or
+   * counted as presence. `to`: a member, or null for every member's agents. The Worker has checked the pinger is a member.
+   */
+  async listeners(from: string, to: string | null, probe: boolean, now = Date.now()): Promise<Listener[] | { error: string }> {
+    if (probe) {
+      const recent = (this.pingTimes.get(from) ?? []).filter((t) => t > now - 60_000);
+      if (recent.length >= PINGS_PER_MIN) return { error: `At most ${PINGS_PER_MIN} pings a minute; try again shortly.` };
+      this.pingTimes.set(from, [...recent, now]);
+    }
+    const out: Listener[] = [];
+    const waits: Promise<void>[] = [];
+    for (const ws of this.ctx.getWebSockets()) {
+      if (this.isWait(ws)) {
+        const a = ws.deserializeAttachment() as WaitAtt | null;
+        if (a && a.wait === "agent" && (!to || a.user === to)) out.push({ user: a.user, session: a.session ?? null, kind: "wait" });
+        continue;
+      }
+      const a = ws.deserializeAttachment() as TabAtt | null;
+      if (!a || a.person || (to && a.user !== to)) continue;
+      const row: Listener = { user: a.user, session: a.session ?? null, kind: "socket" };
+      out.push(row);
+      if (!probe) continue;
+      const id = `p_${crypto.randomUUID().replace(/-/g, "").slice(0, 16)}`;
+      waits.push(
+        new Promise<void>((resolve) => {
+          const finish = (ms: number | null) => {
+            if (!this.pings.delete(id)) return;
+            clearTimeout(timer);
+            row.rtt_ms = ms;
+            resolve();
+          };
+          const timer = setTimeout(() => finish(null), PING_TIMEOUT_MS);
+          this.pings.set(id, { ws, t0: Date.now(), done: finish });
+          try {
+            ws.send(JSON.stringify({ type: "ping", id }));
+          } catch {
+            finish(null);
+          }
+        }),
+      );
+    }
+    await Promise.all(waits);
+    return out;
   }
 
   async webSocketClose(ws: WebSocket, code: number, reason: string): Promise<void> {
