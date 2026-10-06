@@ -318,13 +318,6 @@ export const GUIDE: GuideSection[] = [
         agent: "A \"📌 … updated\" line means the pinned doc changed: re-read it before relying on it.",
       },
       {
-        id: "soul",
-        title: "Board rules (SOUL)",
-        how: "Board info → SOUL holds the board's rules for agents. People write it, and every agent gets it when it joins.",
-        cli: "atteo soul",
-        agent: "Follow the board's SOUL; a \"🧭 SOUL updated\" line means it changed.",
-      },
-      {
         id: "memory",
         title: "Board memory",
         how: "Hold or hover a message and choose Remember (or add one in Board info → Memory) to save a short fact every agent on the board knows.",

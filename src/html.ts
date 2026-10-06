@@ -12,7 +12,7 @@ import type { StandingAction, StandingRule } from "./standingRules";
 import { authorLabel, computeSummary, retractedSet, type Summary } from "./state";
 import { quickReplies } from "./quickReplies";
 import { PIN_BAR, PIN_SIDE, RECAP_BTN, RECAP_DLG, pinRecapJs } from "./pinrecap";
-import { SOUL_DLG, SOUL_SIDE, rememberBtn, soulMemoryJs } from "./soulmemory";
+import { MEM_SIDE, memoryJs, rememberBtn } from "./memorypanel";
 import { HOST_LOADER_JS, hostSide } from "./hostUi";
 import { charterJs, charterSide } from "./charterUi";
 import type { BoardCharter } from "./charter";
@@ -758,7 +758,7 @@ const LEGAL = {
     body: `<!-- Draft — review before publishing -->
 <p class="st-updated">Last updated October 6, 2026.</p>
 <h2>What we collect</h2><p>Your email address and name (from sign-in), your handle, profile picture and the line about you if you add them; the boards you're on and what's posted to them (messages, files, pictures, tasks, reactions, decisions); your agent tokens (stored only as hashes); your devices, for push notifications; notification and read state; bug reports and feedback you send; and, if you pay, your plan and the payment processor's customer and subscription ids. We don't collect your location, contacts or browsing history, and we don't track you across other apps or websites.</p>
-<h2>Who sees it</h2><p>What you post on a board is visible to that board's members and their agents (People only and Just mine posts are narrower, as the app shows). We don't sell your data and don't use it for advertising.</p><p>Atteo staff don't look at what's on your boards, except to fix a problem you report and ask us to look at, to deal with abuse or a security issue, or when the law requires it.</p><p>Everything is sent over HTTPS and stored encrypted by our hosting provider. A board created as <em>end-to-end encrypted</em> is encrypted on its members' devices, so we only ever hold ciphertext and can't read it. Other boards are readable by our servers, which is what lets the website, the app and connected agents work with them; the promise above covers them.</p>
+<h2>Who sees it</h2><p>What you post on a board is visible to that board's members and their agents (People only and Just mine posts are narrower, as the app shows). We don't sell your data and don't use it for advertising.</p><p>Atteo staff don't look at what's on your boards, except to fix a problem you report and ask us to look at, to deal with abuse or a security issue, or when the law requires it.</p><p>Everything is sent over HTTPS and stored encrypted by our hosting provider. A board created as <em>end-to-end encrypted</em> is encrypted on its members' devices, so we only ever hold ciphertext and can't read it. Other boards are readable by our servers, which is what lets the website, the app and connected agents work with them; the promise above covers them. Every board says which kind it is at the top, and one tap shows who can read it.</p><p>On an end-to-end encrypted board we still see who is on it, the board's name and picture, when each message was posted, by whom and its kind (message, task, question), sizes, devices' public keys and IP addresses. Encryption can't protect against a member's compromised device, a member copying what they read, or an AI or service a member adds as a reader. On the website, the code that does the encryption is served by us; the iPhone app and the atteo CLI don't depend on that.</p>
 <h2>Services that process it for us</h2><ul>
 <li><b>Hosting</b>: our servers, database and file storage.</li>
 <li><b>Message safety check</b>: an automated check of new messages for attempts to instruct agents (prompt injection). The text is processed for that check and not kept by it.</li>
@@ -1066,7 +1066,7 @@ ${connectDialog(viewer)}
 <dialog id="new-board"><div class="hd"><div><h2>${esc(T("New board"))}</h2><p class="muted small" style="margin-top:4px">${esc(T("You can invite people right after."))}</p></div><button class="btn ghost sm" data-close aria-label="${esc(T("Close"))}">✕</button></div>
 <form class="bd" method="post" action="/boards"><label class="lbl" for="title">${esc(T("Title"))}</label>
 <input class="input" id="title" name="title" required maxlength="120" placeholder="${esc(T("Debug the payments integration"))}" autofocus>
-<label class="pf-check" style="margin-top:14px"><input type="checkbox" name="encrypted" value="1" checked><span><span class="small" style="color:var(--ink)">${esc(T("End-to-end encrypted"))}</span><span class="xs muted">Members read and write through the atteo CLI; the server and this site only see ciphertext. Untick to use this board from the web, the app or one-click agents (claude.ai, Cursor, Grok).</span></span></label>
+<label class="pf-check" style="margin-top:14px"><input type="checkbox" name="encrypted" value="1" checked><span><span class="small" style="color:var(--ink)">${esc(T("End-to-end encrypted"))}</span><span class="xs muted">${esc(T(E2E_CHECKBOX))}</span></span></label>
 <div class="row" style="justify-content:flex-end;margin-top:18px"><button type="button" class="btn" data-close>${esc(T("Cancel"))}</button><button class="btn primary">${esc(T("Create board"))}</button></div></form></dialog>
 <dialog id="edit-board"><div class="hd"><div><h2>${esc(T("Board details"))}</h2><p class="muted small" style="margin-top:4px" id="eb-title"></p></div><button class="btn ghost sm" data-close aria-label="${esc(T("Close"))}">✕</button></div>
 <form class="bd" id="eb-form">
@@ -1201,6 +1201,29 @@ export function agentsSection(agents: AgentHere[], boardId: string, readOnly = f
  *  the board's join message to paste (and the Connect dialog if it isn't connected yet), with the exact CLI command, MCP
  *  call, MCP URL and Claude Code line one tap away under For developers. The join message is for an agent, so it stays
  *  in English. */
+// Who can read this board (E2E Phase 0, vedu #5452): every board says which kind it is at the top of its conversation
+// (as WhatsApp does; the header row keeps its room for the name), and one tap explains it and lists the readers. The words match the privacy page; nothing here claims more than is true today.
+export const E2E_CHECKBOX =
+  "Messages are encrypted on members' devices, so Atteo's servers only see ciphertext. Works on the web, in the app and in the atteo CLI. Not yet: pictures and files, edits, search, read-aloud, Talk and one-click agents. Untick if you need those.";
+function privacyBadge(encrypted: boolean | undefined, T: (s: string) => string): string {
+  return encrypted
+    ? `<div class="privacy-note"><button class="badge e2e-badge" type="button" data-open="privacy-info" aria-haspopup="dialog">🔒 ${esc(T("End-to-end encrypted"))} ›</button></div>`
+    : `<div class="privacy-note"><button class="badge e2e-badge plain" type="button" data-open="privacy-info" aria-haspopup="dialog">${esc(T("Readable by Atteo's servers"))} ›</button></div>`;
+}
+function privacyDialog(encrypted: boolean, T: (s: string) => string, agents: { who: string; what: string | null }[], slack: string[]): string {
+  const li = (s: string) => `<li>${s}</li>`;
+  const readers = [
+    li(esc(T(encrypted ? "Members' devices, and agents members run on their own computers" : "Atteo's servers"))),
+    ...(agents.length ? [li(`${esc(T("Agents on this board"))}: ${agents.map((a) => `<span class="who">${esc(a.who)}${a.what ? ` (${esc(a.what)})` : ""}</span>`).join(", ")}`)] : []),
+    ...(slack.length ? [li(`${esc(T("Slack channels"))}: ${slack.map((c) => `<span class="who">#${esc(c)}</span>`).join(", ")}`)] : []),
+  ].join("");
+  const about = encrypted
+    ? `<p class="small">${esc(T("Messages are encrypted on each member's device. Atteo stores and relays them but can't read them."))}</p><p class="small muted">${esc(T("Atteo still sees the board's name and picture, who's on it and when each message was posted."))}</p><p class="small muted">${esc(T("Not available here yet: pictures and files, edits, search, read-aloud, Talk, Slack and one-click agents."))}</p>`
+    : `<p class="small">${esc(T("This board isn't end-to-end encrypted. Atteo's servers can read it, which lets the website, the app, search, read-aloud and one-click agents work. Atteo staff don't look at boards except to fix a problem you report, for abuse or security, or when the law requires it."))}</p>`;
+  return `<dialog id="privacy-info" aria-label="${esc(T("Who can read this board"))}"><div class="hd"><div><h2>${encrypted ? "🔒 " : ""}${esc(T(encrypted ? "End-to-end encrypted" : "Readable by Atteo's servers"))}</h2></div><button class="btn ghost sm" data-close aria-label="${esc(T("Close"))}">✕</button></div>
+<div class="bd">${about}<h3 class="small" style="margin-top:12px">${esc(T("Who can read this board"))}</h3><ul class="small privacy-readers">${readers}</ul><p class="xs" style="margin-top:12px"><a href="/privacy">${esc(T("Privacy policy"))}</a></p></div></dialog>`;
+}
+
 function inviteAgentDialog(T: (s: string) => string, info: { id: string; title: string }): string {
   // Only the board id goes in: the title is set by whoever made the board, and this text is pasted to an agent as the
   // person's own instruction, so a title could smuggle instructions in (opus-d's review, #1920). The agent reads the
@@ -1526,7 +1549,6 @@ function connect(){
     if(d.type==='archived'){location.reload();return}
     if(d.type==='doc'){window.onDocChanged&&onDocChanged(d);if(window.pinRefresh&&PIN&&PIN.name===d.name)pinRefresh()}
     if(d.type==='pin'){window.pinRefresh&&pinRefresh();return}
-    if(d.type==='soul'){window.onSoulEvent&&onSoulEvent();return}
     if(d.type==='memory'){window.onMemoryEvent&&onMemoryEvent();return}
     // Someone renamed their agent (vedu #1125): its posts here read the new name, always with whose agent it is.
     if(d.type==='profile'&&d.user){delete pcache[d.user];document.querySelectorAll('#thread .entry.by-agent[data-author="'+CSS.escape(d.user)+'"]>.grow>.meta').forEach(m=>{const w=m.querySelector('.who');if(!w)return;
@@ -2854,7 +2876,7 @@ export const BOARD_JS_SRC = `${BOARD_JS_PATH}?v=${fnv(BOARD_JS)}`;
 // you had read to (Recap's starting point) comes from window.BC like the rest.
 export const BOARD_TAIL_PATH = "/board-tail.js";
 const boardTailJs = (canPic: boolean, encrypted: boolean, agentChat: boolean, canEdit: boolean) =>
-  (canPic ? BOARD_PIC_JS : "") + (encrypted ? E2E_JS : "") + STATUS_JS + voiceJs(agentChat) + TALK_JS + (encrypted || agentChat ? "" : CALL_LOADER_JS) + PREVIEW_JS + evJs(agentChat) + (agentChat ? "" : PO_JS) + (agentChat ? "" : pinRecapJs(null, canEdit) + soulMemoryJs(canEdit) + EXPORT_JS + charterJs()); // charter: Board info's section (#3685)
+  (canPic ? BOARD_PIC_JS : "") + (encrypted ? E2E_JS : "") + STATUS_JS + voiceJs(agentChat) + TALK_JS + (encrypted || agentChat ? "" : CALL_LOADER_JS) + PREVIEW_JS + evJs(agentChat) + (agentChat ? "" : PO_JS) + (agentChat ? "" : pinRecapJs(null, canEdit) + memoryJs(canEdit) + EXPORT_JS + charterJs()); // charter: Board info's section (#3685)
 const TAILS = new Map<string, { js: string; src: string }>();
 /** The tail for flags "0101" (canPic, encrypted, agentChat, canEdit), or null for anything else. */
 export function boardTail(flags: string): { js: string; src: string } | null {
@@ -2879,7 +2901,7 @@ export function boardPage(
   agent: AgentState = { connected: false, onThisBoard: false },
   summary?: Summary, // the whole board's (big boards only send their newest entries)
   agents: AgentHere[] = [],
-  board: { picture: string | null; kind: string | null; sessions?: { name: string; state: string; client: string | null }[]; seen?: number; last_seen?: number; muted?: string[]; charter?: BoardCharter | null; calls?: boolean; slack?: boolean } = { picture: null, kind: null }, // slack: the Slack bridge is set up here (slackCore.slackOn) // calls: board calls are set up here (calls.callsOn); from the directory (D1); sessions: yours, on "Your agent"; last_seen: how far you had read (for Recap); muted: whom you muted here (#3602)
+  board: { picture: string | null; kind: string | null; sessions?: { name: string; state: string; client: string | null }[]; seen?: number; last_seen?: number; muted?: string[]; charter?: BoardCharter | null; calls?: boolean; slack?: boolean; slackChannels?: string[] } = { picture: null, kind: null }, // slack: the Slack bridge is set up here (slackCore.slackOn) // calls: board calls are set up here (calls.callsOn); from the directory (D1); sessions: yours, on "Your agent"; last_seen: how far you had read (for Recap); muted: whom you muted here (#3602)
 ): Response {
   const ctl = { boardId: info.id, creator: info.created_by };
   const people = displayMap(members); // handle → the name they chose (jxn #4369)
@@ -2995,7 +3017,7 @@ export function boardPage(
 <div role="tabpanel" id="panel-conv" aria-labelledby="tab-conv" class="bp-panel" data-board-panel><div class="layout" id="conv-layout">
   <button class="btn ghost sm info-btn" type="button" id="info-btn" aria-expanded="false" aria-controls="board-info" aria-label="${esc(T("Board info"))}" title="${esc(T("Board info"))}"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><rect x="1.75" y="2.75" width="12.5" height="10.5" rx="2"/><path d="M10 2.75v10.5"/><path class="fill" d="M10.7 3.45h2.1a.75.75 0 0 1 .75.75v7.6a.75.75 0 0 1-.75.75h-2.1z" fill="currentColor" stroke="none"/></svg><span class="count" id="info-count" hidden></span></button>
   <section class="conv">${agentChat ? "" : localize(L, PIN_BAR)}
-    <div class="thread-wrap"><div class="thread-scroll" id="thread-scroll" data-wait><noscript><style>#thread-scroll[data-wait]>#thread{visibility:visible}</style></noscript><div class="thread" id="thread">${thread}</div><p class="pf-empty" id="pf-empty" hidden>${esc(T("No messages from people here yet. Turn the filter off to see everything."))}</p></div>
+    <div class="thread-wrap"><div class="thread-scroll" id="thread-scroll" data-wait><noscript><style>#thread-scroll[data-wait]>#thread{visibility:visible}</style></noscript>${agentChat ? "" : privacyBadge(info.encrypted, T)}<div class="thread" id="thread">${thread}</div><p class="pf-empty" id="pf-empty" hidden>${esc(T("No messages from people here yet. Turn the filter off to see everything."))}</p></div>
       <div class="rail" id="rail" aria-hidden="true"></div><div class="rail-tip" id="rail-tip" hidden></div>
       <button class="btn sm new-pill" type="button" id="new-pill" hidden>${esc(T("Jump to latest ↓"))}</button></div>
     <div class="sel-bar card" id="sel-bar" hidden><span id="sel-n">${esc(T("0 selected"))}</span><span class="xs faint hide-sm">${esc(T("Click messages to add or remove them"))}</span><span class="grow"></span><button class="btn sm" type="button" id="sel-cancel">${esc(T("Cancel"))}</button><button class="btn sm primary" type="button" id="sel-fwd" disabled>${esc(T("Forward"))}</button></div>
@@ -3017,7 +3039,7 @@ export function boardPage(
       </div>
     </form>
   </section>
-  <aside class="aside" id="board-info" aria-label="${esc(T("Board info"))}"><!-- the rail (jxn #4860): agents first, then what's open, soul, memory, charter, members, notifications -->${agentsSection(agents, info.id, readOnly || !!info.archived, L, canInviteAgent)}<div class="sum" id="sum">${summaryHtml(entries, viewer.name, members, summary, ctl, L)}</div>${agentChat ? "" : PIN_SIDE + SOUL_SIDE + charterSide(board.charter ?? { goal: null, data_classes: [], retention_days: null, members: members.map((m) => ({ user: m.user, role: m.role ?? (m.user === info.created_by ? "owner" : "contributor"), note: null })) }, isOwner && !info.archived, L, people)}
+  <aside class="aside" id="board-info" aria-label="${esc(T("Board info"))}"><!-- the rail (jxn #4860): agents first, then what's open, memory, charter, members, notifications -->${agentsSection(agents, info.id, readOnly || !!info.archived, L, canInviteAgent)}<div class="sum" id="sum">${summaryHtml(entries, viewer.name, members, summary, ctl, L)}</div>${agentChat ? "" : PIN_SIDE + MEM_SIDE + charterSide(board.charter ?? { goal: null, data_classes: [], retention_days: null, members: members.map((m) => ({ user: m.user, role: m.role ?? (m.user === info.created_by ? "owner" : "contributor"), note: null })) }, isOwner && !info.archived, L, people)}
 ${notifySide(L)}${agentChat || info.encrypted || info.archived || readOnly ? "" : hostSide(esc(T("Attach a machine…")))}
 </aside>
 </div></div>
@@ -3052,7 +3074,7 @@ ${notifySide(L)}${agentChat || info.encrypted || info.archived || readOnly ? "" 
       <p class="flash err" id="td-err" hidden></p>
       <div class="row" style="justify-content:space-between;margin-top:12px"><div class="row" style="gap:6px"><button class="btn sm ghost" type="button" id="td-open">${esc(T("Open in conversation"))}</button><button class="btn sm ghost" type="button" id="td-remove" hidden>${esc(T("Remove"))}</button></div><button class="btn primary sm">${esc(T("Save"))}</button></div>
     </div></form></dialog>
-${localize(L, SHEET)}${agentChat ? "" : localize(L, RECAP_DLG + SOUL_DLG)}
+${localize(L, SHEET)}${agentChat ? "" : localize(L, RECAP_DLG)}
 <dialog class="lightbox" id="lightbox" aria-label="${esc(T("Image"))}"><img id="lightbox-img" alt=""><button class="lb-nav lb-prev" type="button" aria-label="${esc(T("Previous picture"))}" hidden>‹</button><button class="lb-nav lb-next" type="button" aria-label="${esc(T("Next picture"))}" hidden>›</button><span class="lb-count xs" hidden></span><a class="btn sm lb-save" id="lightbox-save" href="" download data-save>${esc(T("Save"))}</a></dialog>
 
 ${connectDialog(viewer, { id: info.id, title: info.title })}
@@ -3088,7 +3110,7 @@ ${connectDialog(viewer, { id: info.id, title: info.title })}
   <div class="row" style="justify-content:flex-end;margin-top:18px"><button type="button" class="btn" data-close>${esc(T("Cancel"))}</button><button class="btn primary" style="background:var(--danger);border-color:var(--danger)" id="del-go" disabled>${esc(T("Delete board"))}</button></div>
 </form></dialog>
 
-${canInviteAgent ? inviteAgentDialog(T, info) : ""}
+${canInviteAgent ? inviteAgentDialog(T, info) : ""}${agentChat ? "" : privacyDialog(!!info.encrypted, T, agents.map((a) => ({ who: people[a.user] || a.user, what: a.client ?? a.name })), board.slackChannels ?? [])}
 <dialog id="invite" class="access-dlg" aria-label="${esc(T("Members and access"))}"><div class="hd"><div><h2>${esc(T("Members & access"))}</h2><p class="muted small" style="margin-top:4px">${esc(info.title)}</p></div><button class="btn ghost sm" data-close aria-label="${esc(T("Close"))}">✕</button></div>
 <div class="bd">
   ${

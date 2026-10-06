@@ -1,4 +1,5 @@
-// The web's newer pieces in the app: a board's SOUL and MEMORY at the top of its info (vedu #1090, #1091/#1092),
+// The web's newer pieces in the app: a board's MEMORY at the top of its info (vedu #1091/#1092; the SOUL beside it
+// went in vedu #5266),
 // "Remember this" on a message, your agent's name (#1125), your favourite reaction emoji and a searchable picker for
 // every other one (#1163), and a short "it worked" line at the top of the screen.
 
@@ -52,24 +53,7 @@ extension AppState {
         } catch { report(error); return error.localizedDescription }
     }
 
-    // MARK: SOUL and MEMORY
-
-    func soul(_ board: String) async -> Soul? {
-        try? await API.shared.get("/api/boards/\(board)/soul", as: SoulResponse.self).soul
-    }
-
-    /// Saves the whole SOUL from the version you read. Returns what went wrong (someone saved first: 409), or nil.
-    func saveSoul(_ board: String, text: String, base: Int) async -> String? {
-        do {
-            try await API.shared.send("/api/boards/\(board)/soul", method: "PUT", body: ["text": text, "base_version": base], retries: false)
-            Haptics.play(.completed)
-            say(String(localized: "Soul saved: agents get the new version", bundle: .l10n))
-            return nil
-        } catch {
-            Haptics.play(.failed)
-            return error.localizedDescription
-        }
-    }
+    // MARK: MEMORY
 
     func memory(_ board: String) async -> MemoryResponse? {
         try? await API.shared.get("/api/boards/\(board)/memory", as: MemoryResponse.self)
@@ -139,55 +123,30 @@ struct ToastOverlay: ViewModifier {
     }
 }
 
-// MARK: - SOUL and MEMORY in the board's info
+// MARK: - MEMORY in the board's info
 
-/// The board's SOUL (who it is and how it works; people edit it) and MEMORY (facts agents keep; people strike any),
-/// at the top of its info. Hidden where the server has neither.
-/// What the info sheet loaded of a board's SOUL and MEMORY (nil: the server has none; the section stays hidden).
+/// What the info sheet loaded of a board's MEMORY (facts agents keep; people strike any). nil: the server has none, and
+/// the section stays hidden.
 @MainActor
-final class SoulMemoryModel: ObservableObject {
-    @Published var soul: Soul?
+final class MemoryModel: ObservableObject {
     @Published var memory: MemoryResponse?
-    @Published var editing = false // the SOUL editor is open (presented by the sheet: a List section can't present)
     func load(_ board: String, _ state: AppState) async {
-        async let s = state.soul(board)
-        async let m = state.memory(board)
-        let (ss, mm) = await (s, m)
-        withAnimation(.smooth) { soul = ss; memory = mm }
+        let m = await state.memory(board)
+        withAnimation(.smooth) { memory = m }
     }
 }
 
-struct SoulMemorySections: View {
+struct MemorySection: View {
     @EnvironmentObject var state: AppState
     let board: Board
-    @ObservedObject var model: SoulMemoryModel // loaded by the sheet (a List section can't load itself while it's empty)
-    private var soul: Soul? { model.soul }
+    @ObservedObject var model: MemoryModel // loaded by the sheet (a List section can't load itself while it's empty)
     private var memory: MemoryResponse? { model.memory }
-    @State private var expanded = false
     @State private var adding = ""
     @State private var striking: Set<Int> = []
     private var canEdit: Bool { board.archived != true }
 
     var body: some View {
         Group {
-            if let soul {
-                Section {
-                    // (Empty: just the one row to write it, so what's below stays in view.)
-                    if !soul.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                        Text(soul.text).font(Typo.secondary).foregroundStyle(Theme.text)
-                            .lineLimit(expanded ? nil : 5)
-                            .onTapGesture { withAnimation(.snappy) { expanded.toggle() } }
-                            .accessibilityIdentifier("soul-text")
-                        Text(verbatim: ["v\(soul.version)", soul.updatedBy.map { String(localized: "edited by \(state.displayName(for: $0))", bundle: .l10n) }, soul.updatedAt.map(\.agoPhrase)].compactMap { $0 }.joined(separator: " · "))
-                            .font(Typo.micro).foregroundStyle(Theme.faint)
-                    }
-                    if canEdit {
-                        Button { model.editing = true } label: { InfoLabel(soul.text.isEmpty ? "Write who this board is and how you work" : "Edit", "pencil") }
-                            .accessibilityIdentifier("soul-edit")
-                    }
-                } header: { SectionHeader("Soul") }
-                .listRowBackground(Theme.card)
-            }
             if let memory {
                 Section {
                     if memory.items.isEmpty && !canEdit {
@@ -244,57 +203,6 @@ struct SoulMemorySections: View {
         Task {
             if await state.strike(it, in: board.id) { withAnimation(.smooth) { model.memory = memory.map { MemoryResponse(items: $0.items.filter { $0.id != it.id }, max: $0.max) } } }
             striking.remove(it.id)
-        }
-    }
-}
-
-/// Writing the board's SOUL: the whole text, saved from the version you opened (someone saving first says so).
-struct SoulEditor: View {
-    @EnvironmentObject var state: AppState
-    @Environment(\.dismiss) private var dismiss
-    let board: String
-    let soul: Soul
-    let saved: () -> Void
-    @State private var text = ""
-    @State private var busy = false
-    @State private var problem: String?
-
-    var body: some View {
-        NavigationStack {
-            VStack(alignment: .leading, spacing: Space.s) {
-                Text("Who this board is and how you work. Every agent reads it when it joins, and again when it changes. Only people can edit it.")
-                    .font(Typo.meta).foregroundStyle(Theme.muted)
-                TextEditor(text: $text)
-                    .font(Typo.mono(.callout))
-                    .scrollContentBackground(.hidden)
-                    .padding(Space.s)
-                    .background(Theme.card, in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
-                    .accessibilityIdentifier("soul-editor")
-                if let problem { Text(problem).font(Typo.meta).foregroundStyle(Theme.danger).accessibilityIdentifier("soul-error") }
-            }
-            .padding(Space.l)
-            .background(Theme.bg)
-            .navigationTitle("Soul")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) { Button("Cancel") { dismiss() }.toolbarText() }
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button { save() } label: { if busy { ProgressView() } else { Text("Save") } }
-                        .toolbarText(primary: true).disabled(busy || text == soul.text)
-                        .accessibilityIdentifier("soul-save")
-                }
-            }
-            .onAppear { text = soul.text }
-        }
-    }
-
-    private func save() {
-        busy = true
-        problem = nil
-        Task {
-            let failed = await state.saveSoul(board, text: text, base: soul.version)
-            busy = false
-            if let failed { problem = failed } else { saved(); dismiss() }
         }
     }
 }

@@ -89,8 +89,7 @@ export interface ClaimCheck {
   commit?: string;
 }
 
-export const RULES_DOC = "PROTOCOL.md"; // a board's house rules, its SOUL: every agent is handed the current version once
-const RULES_MAX_CHARS = 4000;
+export const RULES_DOC = "PROTOCOL.md"; // a board's house rules: an ordinary doc only people edit (it was the SOUL until vedu #5266)
 export const MEMORY_MAX = 50; // active items per board
 export const MEMORY_TEXT_MAX = 280;
 export interface MemoryItem {
@@ -113,6 +112,14 @@ export interface MemoryDecision {
   ts: number;
   human_decision?: { state: string; waiting_on: string[] }; // a person's decision: people decide it
 }
+/** The memory item for a board's old SOUL: where the rules are, and their first line (≤ MEMORY_TEXT_MAX). */
+export function soulMemoryText(content: string, version: number): string {
+  const head = `This board's rules are in PROTOCOL.md (v${version}; doc read PROTOCOL.md). They begin: `;
+  const first = content.split("\n").map((l) => l.replace(/^\s*(?:#+|[-*>]|\d+\.)\s*/, "").trim()).find((l) => l) ?? "";
+  const room = MEMORY_TEXT_MAX - head.length - 2;
+  return `${head}"${first.length > room ? first.slice(0, room - 1).trimEnd() + "…" : first}"`;
+}
+
 /** Same fact, same item: case, spacing and trailing punctuation don't count. */
 export function memoryNorm(text: string): string {
   return text.toLowerCase().replace(/\s+/g, " ").trim().replace(/[\s.!?;:,]+$/, "");
@@ -525,7 +532,8 @@ export class Board extends DurableObject<Env> {
         user TEXT NOT NULL,
         cursor INTEGER NOT NULL DEFAULT 0
       );
-      -- Which version of the board's rules (the doc PROTOCOL.md) each reader has been handed: once per version.
+      -- Which version of the board's rules (the doc PROTOCOL.md) each reader was handed, while the SOUL existed
+      -- (until vedu #5266). Unused now; kept, like every table.
       -- session is '' for a member with no agent session.
       CREATE TABLE IF NOT EXISTS rules_seen (
         user TEXT NOT NULL,
@@ -922,6 +930,28 @@ export class Board extends DurableObject<Env> {
       );
       this.setMeta("tasks_backfilled", "1");
     }
+    // The SOUL is gone (vedu #5266): memory is the board's one standing context. A board whose agents were handed rules
+    // (PROTOCOL.md) gets one memory item saying where they are and how they begin, once; the doc itself stays.
+    if (this.meta("id") && this.meta("soul_to_memory") !== "1") {
+      this.soulToMemory();
+      this.setMeta("soul_to_memory", "1");
+    }
+  }
+
+  /** The memory item a board's old SOUL leaves behind (none for no rules, an encrypted board, or one already there). */
+  private soulToMemory(): void {
+    if (this.meta("encrypted") === "1") return; // an encrypted board has no memory; PROTOCOL.md stays a doc
+    const d = this.sql.exec("SELECT version, content, updated_by FROM docs WHERE name = ?", RULES_DOC).toArray()[0];
+    const content = String(d?.content ?? "").trim();
+    if (!d || !content) return;
+    const text = soulMemoryText(content, d.version as number);
+    const norm = memoryNorm(text);
+    if (this.sql.exec("SELECT 1 FROM memory WHERE struck_ts IS NULL AND norm = ?", norm).toArray().length) return;
+    // Past MEMORY_MAX if need be: it stands for everything agents were handed, and a person strikes it like any item.
+    this.sql.exec(
+      "INSERT INTO memory (text, norm, by_user, via, session_name, source_seq, ts, add_v) VALUES (?, ?, ?, 'person', NULL, NULL, ?, ?)",
+      text, norm, (d.updated_by as string) || (this.meta("created_by") ?? "atteo"), Date.now(), this.bumpMemV(),
+    );
   }
 
   // ---- metadata ----
@@ -957,6 +987,7 @@ export class Board extends DurableObject<Env> {
       this.setMeta("created_by", createdBy);
       this.setMeta("created_at", String(Date.now()));
       if (opts.encrypted) this.setMeta("encrypted", "1");
+      this.setMeta("soul_to_memory", "1"); // a new board never had a SOUL
       this.touch(createdBy);
     }
     return this.info();
@@ -1494,7 +1525,6 @@ export class Board extends DurableObject<Env> {
       )
       .one();
     if (artifactVersion != null) this.broadcast({ type: "doc", name: artifactName, version: artifactVersion, by: user });
-    if (artifactVersion != null && artifactName === RULES_DOC) this.broadcast({ type: "soul", version: artifactVersion, by: user });
     for (const a of internal.attachments?.list.slice(1) ?? []) this.broadcast({ type: "doc", name: a.name, version: a.version, by: user });
     const entry = toEntry(row);
     if (internal.attachments) this.indexEntry(entry.seq, entry.text, internal.attachments.list.map((a) => a.name).join(" "), null, internal.attachments.text || null);
@@ -1721,7 +1751,6 @@ export class Board extends DurableObject<Env> {
     const started = Date.now();
     const info = this.info();
     this.renewLeases(user, session);
-    const rules = this.rulesFor(user, session);
     const memory = this.memoryFor(user, session);
     const cursor = this.readCursor(user, session);
     const from = opts.since != null ? Math.max(0, opts.since) : cursor;
@@ -1768,7 +1797,6 @@ export class Board extends DurableObject<Env> {
       tasksForYou: tasksFor(c.summary, user, c.tags).length,
       entries: withNames(this.decisions.attach(this.withRichText(this.withHandling(fresh))), opts.names), // "Jarvis (vedu's agent)": names from the Worker
       remaining,
-      rules,
       memory, // the whole list on this reader's first read, then what changed (null: nothing to say)
     };
   }
@@ -2441,40 +2469,7 @@ export class Board extends DurableObject<Env> {
     return { unpinned: cur };
   }
 
-  /**
-   * The board's house rules (its doc PROTOCOL.md), if this reader hasn't been given the current version: returned
-   * once per version per member+session, then null. Capped so a long doc stays cheap; the rest is a doc read away.
-   */
-  private rulesFor(user: string, session?: string | null): { name: string; version: number; text: string; truncated: boolean; update: boolean; by: string } | null {
-    const d = this.sql.exec("SELECT version, content, updated_by FROM docs WHERE name = ?", RULES_DOC).toArray()[0];
-    if (!d) return null;
-    const version = d.version as number;
-    const seen = this.sql.exec("SELECT version FROM rules_seen WHERE user = ? AND session = ?", user, session ?? "").toArray()[0];
-    if (seen && seen.version === version) return null;
-    this.sql.exec("INSERT OR REPLACE INTO rules_seen (user, session, version) VALUES (?, ?, ?)", user, session ?? "", version);
-    const content = d.content as string;
-    const truncated = content.length > RULES_MAX_CHARS;
-    // update: this reader was handed an earlier version, so it's told as a "SOUL updated" line with the new text.
-    return { name: RULES_DOC, version, text: truncated ? content.slice(0, RULES_MAX_CHARS) : content, truncated, update: !!seen, by: d.updated_by as string };
-  }
-
-  // ---- SOUL (the board's PROTOCOL.md: people write it, every agent is handed it) and MEMORY (short durable facts) ----
-
-  /** The board's SOUL: its PROTOCOL.md (version 0 and no text when there isn't one). */
-  async soul(): Promise<{ name: string; version: number; text: string; updated_by: string | null; updated_at: number | null }> {
-    this.info();
-    const d = this.sql.exec("SELECT version, content, updated_by, updated_at FROM docs WHERE name = ?", RULES_DOC).toArray()[0];
-    return d
-      ? { name: RULES_DOC, version: d.version as number, text: d.content as string, updated_by: d.updated_by as string, updated_at: d.updated_at as number }
-      : { name: RULES_DOC, version: 0, text: "", updated_by: null, updated_at: null };
-  }
-
-  /** A person replaces the SOUL. `base` (the version they read) guards against overwriting someone else's edit. */
-  async setSoul(user: string, text: string, base: number | null, opts: DocEditOpts): Promise<DocResult> {
-    if (opts.via !== "person") throw new BoardError(soulPeopleOnly());
-    const cur = (this.sql.exec("SELECT version FROM docs WHERE name = ?", RULES_DOC).toArray()[0]?.version as number | undefined) ?? 0;
-    return this.docWrite(user, RULES_DOC, text, base ?? cur, opts);
-  }
+  // ---- MEMORY: short durable facts every agent here reads (the board's one standing context; vedu #5266 removed the SOUL) ----
 
   private memV(): number {
     return Number(this.meta("mem_v") ?? 0) || 0;
@@ -4676,7 +4671,7 @@ export class Board extends DurableObject<Env> {
 
   /** Store the next version of a document (no log entry). Returns the new version number. */
   private storeVersion(user: string, name: string, content: string, opts: DocEditOpts, now = Date.now(), guard = true): number {
-    if (guard && name === RULES_DOC && opts.via === "agent") throw new BoardError(soulPeopleOnly()); // every write path ends here
+    if (guard && name === RULES_DOC && opts.via === "agent") throw new BoardError(rulesPeopleOnly()); // every write path ends here
     const prev = (this.sql.exec("SELECT version FROM docs WHERE name = ?", name).toArray()[0]?.version as number | undefined) ?? 0;
     const version = prev + 1;
     const client = opts.via === "agent" ? (opts.client ?? "agent").slice(0, 40) : null;
@@ -5525,7 +5520,7 @@ function clamp(n: number, lo: number, hi: number): number {
   return Math.min(hi, Math.max(lo, Math.floor(Number.isFinite(n) ? n : lo)));
 }
 
-/** The SOUL (PROTOCOL.md) is the people's: an agent can propose a change, not make it. */
-function soulPeopleOnly(): string {
-  return `${RULES_DOC} is this board's SOUL, and only people edit it (on the web, or PUT /api/boards/<id>/soul). Post your proposed change for your user to make.`;
+/** PROTOCOL.md (the board's people-written rules) is the people's: an agent can propose a change, not make it. */
+function rulesPeopleOnly(): string {
+  return `${RULES_DOC} holds this board's rules, and only people edit it (in the doc editor on the web). Post your proposed change for your user to make.`;
 }

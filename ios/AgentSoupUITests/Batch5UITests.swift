@@ -1,6 +1,6 @@
 // Batch 5 (one focused test each): Settings' Haptics & effects, Voice, Notifications and your agent's name; a named
 // agent in the chat with @Jarvis / @all in the @ menu, your favourite reactions and the emoji search, Remember this;
-// the board's SOUL and MEMORY in its info; Read replies aloud without a bar (vedu #4564); and the picture editor.
+// the board's MEMORY in its info (and no SOUL: vedu #5266); Read replies aloud without a bar (vedu #4564); and the picture editor.
 
 import XCTest
 
@@ -134,10 +134,8 @@ final class Batch5UITests: AtteoUITestCase {
         XCTAssertTrue(a.buttons["reaction-🚀"].waitForExistence(timeout: 5), "🚀 on the message")
     }
 
-    func testSoulAndMemoryInInfo() throws {
+    func testMemoryInInfo() throws {
         guard let b = boardId(titled: "Checkout bug") else { throw XCTSkip("needs the seed") }
-        let v = (call("GET", "/api/boards/\(b)/soul")["soul"] as? [String: Any])?["version"] as? Int ?? 0
-        call("PUT", "/api/boards/\(b)/soul", json: ["text": "We ship small and often.", "base_version": v])
         let added = call("POST", "/api/boards/\(b)/memory", json: ["text": "Staging uses port 8443"])
         guard let id = (added["item"] as? [String: Any])?["id"] as? Int else { return XCTFail("memory: \(added)") }
 
@@ -146,28 +144,16 @@ final class Batch5UITests: AtteoUITestCase {
         openChat(a, "Checkout bug")
         a.buttons["presence"].tap()
         XCTAssertTrue(a.navigationBars["Info"].waitForExistence(timeout: 5))
-        let soul = a.staticTexts["soul-text"]
-        XCTAssertTrue(soul.waitForExistence(timeout: 8), "the SOUL")
-        XCTAssertTrue(soul.label.contains("We ship small"), soul.label)
         let item = a.descendants(matching: .any)["memory-item-\(id)"]
-        XCTAssertTrue(item.waitForExistence(timeout: 5), "the memory item")
-        shot("b5-07-soul-memory")
+        XCTAssertTrue(item.waitForExistence(timeout: 8), "the memory item")
+        XCTAssertFalse(a.staticTexts["Soul"].exists, "no Soul section (vedu #5266)")
+        shot("b5-07-memory")
 
         // Strike it: gone here and on the server.
         a.buttons["memory-strike-\(id)"].tap()
         XCTAssertTrue(eventually(item, "exists == false"), "struck")
         let left = call("GET", "/api/boards/\(b)/memory")["items"] as? [[String: Any]] ?? []
         XCTAssertFalse(left.contains { $0["id"] as? Int == id }, "the server struck it")
-
-        // Edit the SOUL.
-        a.buttons["soul-edit"].tap()
-        let editor = a.textViews["soul-editor"]
-        XCTAssertTrue(editor.waitForExistence(timeout: 5))
-        editor.tap()
-        editor.typeText(" Tests first.")
-        a.buttons["soul-save"].tap()
-        XCTAssertTrue(eventually(soul, "label CONTAINS 'Tests first.'", timeout: 10), "the new SOUL shows")
-        shot("b5-08-soul-edited")
     }
 
     func testReadRepliesAloudWithoutBar() throws {

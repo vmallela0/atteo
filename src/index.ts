@@ -333,9 +333,11 @@ async function authLogin(c: Ctx): Promise<Response> {
 
 /**
  * Who can find you and what's accepted without asking are the person's own consent (#3502): the directory listing (yours
- * and your agent's) and the auto-accept rules. An agent token, even the person's own CLI login, can't change them, like
- * the SOUL; the web and the app (person sessions and app tokens) can.
+ * and your agent's) and the auto-accept rules. An agent token, even the person's own CLI login, can't change them;
+ * the web and the app (person sessions and app tokens) can.
  */
+/** What the old SOUL endpoints say now: memory is where a board's standing context lives. */
+const SOUL_GONE = "Boards no longer have a SOUL: memory is where lasting facts live. Save one with atteo remember \"<fact>\" (or POST /api/boards/<id>/memory); atteo memory lists them. A board's old rules stay in the doc PROTOCOL.md.";
 const PEOPLE_ONLY_SETTING = "Who can find you and what's accepted without asking (your directory listing and the auto-accept rules) are your person's call: they change them on the web (Account) or in the app (Settings).";
 const PEOPLE_ONLY_AGENT_LISTING = "Listing your agent in the public directory is your person's call: they change it in the app (Settings). Your agent can still set its summary and capabilities.";
 
@@ -1138,7 +1140,11 @@ const handler = {
         // (STRIP_JS): a hovered link fetches the page ahead (#3717), and that isn't opening it.
         const here = side.find((b) => b.id === m![2]);
         if (here) here.opened = Date.now();
-        return boardPage(viewer, side, snap.info, withAgents, snap.entries.map((e) => withAgentNames(e, agentNamed)), shown, { connected: status.connected, onThisBoard: !!live[viewer.name] }, snap.summary, agentsHere, { picture: boardPictures.pictureUrl(m[2], row?.picture_v), kind, charter, sessions: mine, seen: snap.reads?.[viewer.name]?.person_seen ?? 0, last_seen: snap.reads?.[viewer.name]?.person_seen ?? 0, muted, calls: calls.callsOn(env, request), slack: slackOn(env, request) });
+        // Slack channels that read this board, for its "Who can read this board" list (only while the bridge is on).
+        const slackChannels = slackOn(env, request)
+          ? ((await env.DB.prepare(`SELECT channel_name FROM slack_links WHERE board_id = ? AND paused IS NULL`).bind(m[2]).all<{ channel_name: string }>().catch(() => ({ results: [] as { channel_name: string }[] }))).results ?? []).map((r) => r.channel_name)
+          : [];
+        return boardPage(viewer, side, snap.info, withAgents, snap.entries.map((e) => withAgentNames(e, agentNamed)), shown, { connected: status.connected, onThisBoard: !!live[viewer.name] }, snap.summary, agentsHere, { picture: boardPictures.pictureUrl(m[2], row?.picture_v), kind, charter, sessions: mine, seen: snap.reads?.[viewer.name]?.person_seen ?? 0, last_seen: snap.reads?.[viewer.name]?.person_seen ?? 0, muted, calls: calls.callsOn(env, request), slack: slackOn(env, request), slackChannels });
       }
 
       // ---- inbox: mentions of you, posts for your agent, replies to you ----
@@ -2508,7 +2514,7 @@ const handler = {
             fence(
               [
                 tasksForYou == null ? `== ${b.title} (${b.id}) · new (${entries.length}) ==` : readHeader(b, entries.length, tasksForYou, null, headless),
-                ...lines, // 📌 pin, 🧭 SOUL update, 🧠 memory change
+                ...lines, // 📌 pin, 🧠 memory change
                 ...(entries.length ? [] : ["(nothing new)"]),
                 ...entryLines,
               ].join("\n"),
@@ -2546,7 +2552,6 @@ const handler = {
                 return {
                   board: { id, title: r.info.title },
                   summary: r.summaryText,
-                  rules: r.rules, // the SOUL (PROTOCOL.md), when due: {name, version, text, truncated, update, by}
                   memory: r.memory, // {first: true, items} on the first read, {first: false, added, struck} after a change, else null
                   entries: shown.entries,
                   remaining: r.remaining,
@@ -2992,30 +2997,9 @@ const handler = {
         return json({ error: "method not allowed" }, 405);
       }
 
-      // ---- the board's SOUL: its PROTOCOL.md (every agent is handed it). Members read it; only people change it ----
+      // ---- the board's SOUL is gone (vedu #5266): older CLIs and apps get a 410 that points at memory ----
       m = path.match(/^\/api\/boards\/(b_[a-z0-9]+)\/soul$/);
-      if (m) {
-        if (!viewer) return needLogin();
-        if (!(await registry.isMember(env, m[1], viewer.name))) return json({ error: "board not found" }, 404);
-        const stub = boardStub(env, m[1]);
-        try {
-          if (method === "GET") return json({ soul: await stub.soul() }, 200, { "cache-control": "no-store" });
-          if (method === "PUT") {
-            if (viewer.via === "agent") return json({ error: "Only people edit a board's SOUL. Post your proposed change for your person to make." }, 403);
-            const b = (await request.json().catch(() => ({}))) as { text?: unknown; base_version?: unknown };
-            if (typeof b.text !== "string") return json({ error: "Send {text, base_version?}: the whole SOUL (Markdown)." }, 400);
-            const base = b.base_version == null ? null : Number(b.base_version);
-            if (base != null && !Number.isInteger(base)) return json({ error: "base_version is the version you read (0 to create)." }, 400);
-            const r = await stub.setSoul(viewer.name, b.text, base, { via: "person", summary: "SOUL", session: null });
-            if (r.conflict) return json({ error: `Someone saved v${r.current} while you were editing. Reload, then apply your change again.`, current: r.current }, 409);
-            ctx.waitUntil(registry.bumpBoard(env, m[1], r.note).catch(() => {}));
-            return json({ ok: true, soul: await stub.soul() });
-          }
-        } catch (e) {
-          return json({ error: e instanceof Error ? e.message : String(e) }, 400);
-        }
-        return json({ error: "method not allowed" }, 405);
-      }
+      if (m) return json({ error: SOUL_GONE }, 410);
 
       // ---- the board's MEMORY: short durable facts for every agent's context (people and agents add; people strike
       // any, an agent only its own person's) ----

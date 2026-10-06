@@ -21,7 +21,7 @@ const SOURCES: [string, string][] = [
   ["src/codecolor.ts", "CODE_COLOR_CSS"],
 ];
 /** Files whose HTML templates may carry inline style="…" attributes. */
-const INLINE = ["src/ui.ts", "src/html.ts", "src/forYou.ts", "src/guide.ts", "src/ask.ts", "src/status.ts", "src/talk.ts", "src/inbox.ts", "src/index.ts", "src/muse.ts", "src/oauthPage.ts", "src/soulmemory.ts", "src/welcome.ts"];
+const INLINE = ["src/ui.ts", "src/html.ts", "src/forYou.ts", "src/guide.ts", "src/ask.ts", "src/status.ts", "src/talk.ts", "src/inbox.ts", "src/index.ts", "src/muse.ts", "src/oauthPage.ts", "src/memorypanel.ts", "src/welcome.ts"];
 
 const LITERAL = /#[0-9a-f]{3,8}\b|\b(?:rgba?|hsla?|hwb|lab|lch|oklab|oklch)\(/i;
 /** Allowed literals outside the token blocks: black shadows and scrims, mask gradients (only alpha matters there), and

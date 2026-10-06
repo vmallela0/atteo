@@ -31,6 +31,7 @@ struct BoardInfoView<Top: View, Files: View>: View {
     @State private var confirmRemovePicture = false
     @State private var cropping: CropRequest?
     @State private var pictureSaving = false
+    @State private var privacyOpen = false // "Who can read this board", under the badge
     @State private var invitingAgent = false // "Invite an agent" (InviteAgent.swift)
     @State private var invitePage: [InviteAgentSheet.Page] = [] // its page, kept here (InviteAgentSheet.path)
     @ObservedObject private var pictures = BoardPictureStore.shared
@@ -48,6 +49,47 @@ struct BoardInfoView<Top: View, Files: View>: View {
     private var canChangePicture: Bool { !direct && !agentChat && board.archived != true && members != nil && members?.you != "viewer" }
     /// "Invite an agent": a board (not a DM, "Your agent" or archived), once your role is known and isn't viewer.
     private var canInviteAgent: Bool { board.invitesAgents && members != nil && members?.you != "viewer" }
+    /// Who can read this board (E2E Phase 0, vedu #5452): which kind it is, and one tap says what that means. The same
+    /// words as the web's badge and the privacy page; nothing here claims more than is true today.
+    private var privacyBadge: some View {
+        let sealed = board.encrypted == true
+        let say = { (s: String.LocalizationValue) in Text(verbatim: String(localized: s, bundle: .l10n)) }
+        return VStack(spacing: Space.xs) {
+            Button { withAnimation(.snappy) { privacyOpen.toggle() } } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: sealed ? "lock.fill" : "server.rack").font(.system(size: 10))
+                    sealed ? say("End-to-end encrypted") : say("Readable by Atteo's servers")
+                    Image(systemName: privacyOpen ? "chevron.up" : "chevron.down").font(.system(size: 9, weight: .semibold))
+                }
+                .font(Typo.meta)
+                .padding(.horizontal, Space.s).padding(.vertical, 5)
+                .overlay(Capsule().strokeBorder(Theme.muted.opacity(0.35)))
+                .contentShape(Capsule())
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(Theme.muted)
+            .accessibilityIdentifier("privacy-badge")
+            .accessibilityHint(say("Who can read this board"))
+            if privacyOpen {
+                VStack(alignment: .leading, spacing: Space.xs) {
+                    if sealed {
+                        say("Messages are encrypted on each member's device. Atteo stores and relays them but can't read them.").foregroundStyle(Theme.text)
+                        say("Atteo still sees the board's name and picture, who's on it and when each message was posted.")
+                        say("Not available here yet: pictures and files, edits, search, read-aloud, Talk, Slack and one-click agents.")
+                    } else {
+                        say("This board isn't end-to-end encrypted. Atteo's servers can read it, which lets the website, the app, search, read-aloud and one-click agents work. Atteo staff don't look at boards except to fix a problem you report, for abuse or security, or when the law requires it.").foregroundStyle(Theme.text)
+                    }
+                    Link(destination: URL(string: "https://atteo.dev/privacy")!) { say("Privacy policy") }.foregroundStyle(Theme.accent)
+                }
+                .font(Typo.meta).foregroundStyle(Theme.muted)
+                .multilineTextAlignment(.leading)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .accessibilityIdentifier("privacy-explainer")
+                .transition(.opacity)
+            }
+        }
+        .padding(.top, 2)
+    }
     private var suggestions: [Person] {
         let here = Set((members?.members ?? []).map(\.user))
         let q = to.trimmingCharacters(in: .whitespaces).lowercased().replacingOccurrences(of: "@", with: "")
@@ -80,6 +122,7 @@ struct BoardInfoView<Top: View, Files: View>: View {
                         Text(verbatim: agentChat ? String(localized: "Just you and your agents", bundle: .l10n) : [board.encrypted == true ? String(localized: "End-to-end encrypted", bundle: .l10n) : nil, members.map { String(localized: "\($0.members.count) members", bundle: .l10n) }].compactMap { $0 }.joined(separator: " · "))
                     }
                     .font(Typo.meta).foregroundStyle(Theme.muted)
+                    if !agentChat { privacyBadge }
                     if canChangePicture { pictureControls }
                 }
                 .frame(maxWidth: .infinity)
