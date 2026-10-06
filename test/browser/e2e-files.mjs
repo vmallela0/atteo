@@ -62,6 +62,14 @@ await until(()=>pa.locator("#thread .entry .e2e-text",{hasText:`the plan ${run}`
 const [dl2]=await Promise.all([pa.waitForEvent("download"),chip.click()]);
 const got2=[];for await (const c of await dl2.createReadStream())got2.push(c);
 check(r.code===0&&Buffer.concat(got2).toString()===`# plan ${run}\n`,"a file the CLI shared opens in the browser");
+// An approval request from an encrypted board: Bob's CLI encrypts what's asked; the card keeps only its state, and
+// Ann's browser reads the request.
+r=await cli(B,["approvals","ask",`ship the plan ${run}`,"--details",`deploy plan ${run} to staging`]);
+check(r.code===0&&/ap_/.test(r.out),`Bob's agent asks for approval on the encrypted board (${r.code})`);
+const apText=pa.locator("#thread .entry .e2e-text",{hasText:`deploy plan ${run} to staging`});
+await until(()=>apText.count(),n=>n===1);
+const apRow=pa.locator("#thread .entry",{has:pa.locator(".e2e-text",{hasText:`deploy plan ${run} to staging`})});
+check(await apText.count()===1&&/ship the plan/.test(await apRow.locator(".e2e-title").innerText().catch(()=>"")),"…Ann's browser decrypts what's asked (title and details) on the approval entry");
 // Edit: own message, new text encrypted again, the files kept.
 await pa.locator(`#e${last.seq} [data-edit]`).click();
 await pa.locator(`#e${last.seq} [data-edit-box]`).fill(`files from the web, edited ${run}`);

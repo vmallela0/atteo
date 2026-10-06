@@ -2133,8 +2133,22 @@ export class Board extends DurableObject<Env> {
    * (not its details), and {type: "approval"} to open tabs. On an end-to-end encrypted board no entry is posted (the
    * title and command would be plaintext): only its person's own tabs hear about it.
    */
-  async approvalRequested(ref: ApprovalRef, opts: TaskActOpts): Promise<number | null> {
+  async approvalRequested(ref: ApprovalRef, opts: TaskActOpts, sealed?: string): Promise<number | null> {
     const info = this.info();
+    // Encrypted by the asking agent's client (docs/SPEC.md §16): the entry carries the envelope (its text: the details;
+    // its extras' title: what's asked), the card only the state, so every member's device can read what's asked.
+    if (info.encrypted && sealed && !info.archived) {
+      sealedEnvelope(sealed, true);
+      const e = await this.post(
+        ref.user,
+        { type: "approval", title: "Approval request", text: "🔒 Encrypted approval request (read it with atteo read)", reply_to: 0, via: "agent", client: opts.client, session: opts.session },
+        { approval: ref, notice: true, sealed: true },
+      );
+      this.sql.exec("UPDATE entries SET sealed = ?, sealed_to = '*' WHERE seq = ?", sealed, e.seq);
+      this.sql.exec("INSERT OR REPLACE INTO approval_entries (id, seq, user) VALUES (?, ?, ?)", ref.id, e.seq, ref.user);
+      this.broadcast({ type: "approval", id: ref.id, status: ref.status, seq: e.seq, approval: ref });
+      return e.seq;
+    }
     if (info.encrypted || info.archived) {
       this.toUserTabs(ref.user, { type: "approval", id: ref.id, status: ref.status, seq: null, approval: ref });
       return null;

@@ -429,6 +429,12 @@ function envelope(key: Buffer, epoch: number, text: string, extras?: SealedExtra
   return JSON.stringify(p);
 }
 
+/** An envelope under the board's current key (opening the next epoch if it's due), for routes other than /sealed. */
+export async function sealForBoard(opt: Record<string, string | true>, board: string, text: string, extras?: SealedExtras): Promise<string> {
+  const { current, keys } = await boardKeys(opt, board);
+  return envelope(keys.get(current)!, current, text, extras);
+}
+
 async function encPost(opt: Record<string, string | true>, board: string, p: { type: string; text: string; to?: string; reply_to?: number; extras?: SealedExtras; files?: string[] }, tries = 0): Promise<{ seq: number }> {
   const { current, keys } = await boardKeys(opt, board);
   const payload = envelope(keys.get(current)!, current, p.text, p.extras);

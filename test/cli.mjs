@@ -1012,6 +1012,18 @@ await step("end-to-end encrypted board: CLI encrypts and decrypts; the server an
   r = await cli(["download", String(fseq)], { cwd: projB, cred: credB });
   assert(r.code === 0 && r.out.includes("plan-2.bin"), r.out + r.err);
   assert(readFileSync(join(projB, "plan-2.bin")).equals(bytes) && readFileSync(join(projB, "plan.bin"), "utf8") === "mine, keep", "decrypted beside, never over, the existing file");
+  // An approval request: what's asked is encrypted on this machine; the server keeps a placeholder and the state.
+  r = await cli(["approvals", "ask", `deploy the plan ${run}`, "--details", `push plan ${run} to staging`, "--command", "make deploy"], { cwd: projA });
+  const apId = r.out.match(/\bap_[A-Za-z0-9_-]+/)?.[0];
+  assert(r.code === 0 && apId, r.out + r.err);
+  const ap = await (await fetch(`${BASE}/api/approvals/${apId}`, { headers: { authorization: `Bearer ${tokA}` } })).json();
+  assert(!/deploy the plan|staging|make deploy/.test(JSON.stringify(ap)) && /Encrypted approval/.test(ap.approval.title), JSON.stringify(ap).slice(0, 300));
+  const apEntry = (await fetch(`${BASE}/api/boards/${eb}/sealed?after=${fseq}`, { headers: { authorization: `Bearer ${tokB}` } }).then((x) => x.json())).entries.at(-1);
+  assert(apEntry && !/deploy|staging/.test(apEntry.payload), JSON.stringify(apEntry).slice(0, 300));
+  const plainAp = await (await fetch(`${BASE}/api/boards/${eb}/entries/${apEntry.seq}`, { headers: { authorization: `Bearer ${tokB}` } })).text();
+  assert(!/deploy the plan|staging|make deploy/.test(plainAp) && plainAp.includes("pending"), plainAp.slice(0, 400));
+  r = await cli(["read"], { cwd: projB, cred: credB });
+  assert(r.out.includes(`deploy the plan ${run}`) && r.out.includes(`push plan ${run} to staging`) && r.out.includes("$ make deploy"), r.out + r.err);
 });
 
 await step("encrypted board past 200 (alt-c #3398): read --all shows everything; a plain read takes a page and says more are waiting", async () => {
