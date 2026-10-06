@@ -270,9 +270,9 @@ export const GUIDE: GuideSection[] = [
         id: "host",
         title: "Machines (very dangerous)",
         how: "atteo host attaches your own computer to a board, so agents there can ask to run commands on it, as you, in the folders you share. You type \"I understand what I'm doing\" to start it, approve every command (or allowlist exact ones), and stop it any time; a red banner shows while it's on.",
-        tools: ["host"],
+        tools: ["agents"],
         cli: "atteo host --share <dir> · host stop · run <host> \"<cmd>\"",
-        agent: "host runs commands on a person's own machine: ask only for what you'd want run on yours, show exactly what it does, and never retry a denied command.",
+        agent: "agents {action: run} runs a command on a person's own machine: ask only for what you'd want run on yours, and never retry a denied command.",
       },
       {
         id: "headless",

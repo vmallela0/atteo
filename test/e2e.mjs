@@ -212,7 +212,7 @@ await step("MCP initialize, tools/list, notifications, protocol errors", async (
   assert(r.protocolVersion === "2025-06-18" && r.serverInfo.name === "atteo" && r.serverInfo.title === "Atteo", JSON.stringify(r));
   has(r.instructions, "Atteo");
   const names = (await rpcRaw(auth(A), null, "tools/list", {})).tools.map((t) => t.name).sort();
-  assert(JSON.stringify(names) === JSON.stringify(["agents", "approval", "batch", "claim", "create_board", "doc", "feedback", "get", "grep", "handle", "host", "invite", "join_board", "leave_board", "list_boards", "ls", "mailbox", "memory", "people", "post", "publish", "purge", "react", "read", "recap", "remember", "request_approval", "retract", "review", "schedules", "search", "session", "task", "trigger", "wait"]), names.join());
+  assert(JSON.stringify(names) === JSON.stringify(["agents", "approval", "batch", "claim", "create_board", "doc", "feedback", "get", "grep", "handle", "invite", "join_board", "leave_board", "list_boards", "ls", "mailbox", "memory", "people", "post", "publish", "purge", "react", "read", "recap", "remember", "request_approval", "retract", "review", "schedules", "search", "session", "task", "trigger", "wait"]), names.join());
   assert((await rpcRaw(auth(A), null, "notifications/initialized", {}, { notification: true })).status === 202, "notification status");
   assert((await rpcRaw({}, null, "notifications/initialized", {}, { notification: true })).status === 401, "no credentials: 401 so OAuth clients can sign in");
   assert((await fetch(`${BASE}/mcp`)).status === 405, "GET /mcp should be 405");
@@ -7340,16 +7340,29 @@ await step("atteo host: typed consent, owner approves each command, allowlist, f
   await ops("members", { board: hb, user: HR });
   const api = (who, path, init = {}) => fetch(`${BASE}/api/boards/${hb}/hosts${path}`, { ...init, headers: { ...auth(who), "content-type": "application/json", ...(init.headers ?? {}) } });
   const post = (who, path, body) => api(who, path, { method: "POST", body: JSON.stringify(body ?? {}) });
-  // Consent: the exact phrase buys a one-time token; registering needs an unused one (the server enforces it, not just the UI).
-  assert((await post(HO, "/confirm", { phrase: "yes" })).status === 400, "a wrong phrase is refused");
-  assert((await post(HO, "", { name: "box", shares: ["/srv/proj"] })).status === 403, "no token: no host");
-  const { token } = await (await post(HO, "/confirm", { phrase: "I understand what I’m doing" })).json();
-  assert(token?.startsWith("hc_"), "a token for the exact phrase (curly apostrophe ok)");
-  assert((await post(HO, "", { token, name: "box", shares: ["/"] })).status === 400, "sharing / is refused (and spends nothing)");
-  const reg = await post(HO, "", { token, name: "box", shares: ["/srv/proj", "/srv/other"], allow: ["git status"] });
-  assert(reg.status === 200, `register: ${reg.status} ${await reg.clone().text()}`);
+  // Consent is the person's alone: an agent's token (or the CLI's) can't mint a code; a person signed in can, for one
+  // machine; the code works once, only for that machine and that person (vedu #4815: no self-consent by an agent).
+  const M1 = `m_e2emachine1${run}`, M2 = `m_e2emachine2${run}`;
+  const PH = "I understand what I'm doing";
+  const asPersonPost = (who, path, body) => web(`/api/boards/${hb}/hosts${path}`, who, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+  assert((await post(HO, "/confirm", { phrase: PH, machine: M1 })).status === 403, "an agent token can't mint a consent code");
+  assert((await asPersonPost(HO, "/confirm", { phrase: "yes", machine: M1 })).status === 400, "a wrong phrase is refused");
+  assert((await asPersonPost(HO, "/confirm", { phrase: PH, machine: "nope" })).status === 400, "a code is always for a machine");
+  assert((await post(HO, "", { name: "box", shares: ["/srv/proj"], machine: M1 })).status === 403, "no code: no host");
+  const mint = await asPersonPost(HO, "/confirm", { phrase: "I understand what I\u2019m doing", machine: M1 });
+  assert(mint.status === 200, `a person mints it (curly apostrophe ok): ${mint.status}`);
+  const { code } = await mint.json();
+  assert(/^[A-Z2-9]{5}-[A-Z2-9]{5}$/.test(code), `a short code: ${code}`);
+  assert((await post(HO, "", { code, machine: M2, name: "box", shares: ["/srv/proj"] })).status === 403, "the code is bound to its machine");
+  assert((await post(HR, "", { code, machine: M1, name: "box", shares: ["/srv/proj"] })).status === 403, "…and to the person who minted it");
+  assert((await post(HO, "", { code, machine: M1, name: "box", shares: ["/"] })).status === 400, "sharing / is refused (and spends nothing)");
+  const reg = await post(HO, "", { code: code.toLowerCase().replace("-", ""), machine: M1, name: "box", shares: ["/srv/proj", "/srv/other"], allow: ["git status"] });
+  assert(reg.status === 200, `register (case and dash don't matter): ${reg.status} ${await reg.clone().text()}`);
   const host = (await reg.json()).host;
-  assert((await post(HO, "", { token, name: "box2", shares: ["/srv/proj"] })).status === 403, "a token works once: a new machine asks again");
+  assert((await post(HO, "", { code, machine: M1, name: "box2", shares: ["/srv/proj"] })).status === 403, "a code works once: every start asks again");
+  const consent = await web(`/host/consent?board=${hb}&machine=${M1}`, HO);
+  assert(consent.status === 303 && consent.headers.get("location") === `/b/${hb}?host_consent=${M1}`, `the CLI's link opens the board's consent dialog: ${consent.status} ${consent.headers.get("location")}`);
+  assert((await web(`/host/consent?board=${hb}&machine=${M1}`, HX)).status === 404, "…only for members");
   assert((await api(HX, "")).status === 404, "non-members don't see hosts");
   const listed = (await (await api(HR, "")).json()).hosts;
   assert(listed.some((h) => h.id === host.id && h.online && h.owner === HO), `members see it online: ${JSON.stringify(listed)}`);
@@ -7400,15 +7413,17 @@ await step("atteo host: typed consent, owner approves each command, allowlist, f
   assert((await (await api(HR, `/${host.id}/runs/${r3.id}`)).json()).run.status === "stopped", "its waiting run was dropped");
   has(await ok(HR, hb, "read", { limit: 30 }), "stopped box");
   // The board's owner can stop anyone's machine; leaving the board stops your own.
-  const t2 = (await (await post(HR, "/confirm", { phrase: "I understand what I'm doing" })).json()).token;
-  const h2 = (await (await post(HR, "", { token: t2, name: "theirs", shares: ["/home/r/p"] })).json()).host;
+  const t2 = (await (await asPersonPost(HR, "/confirm", { phrase: PH, machine: M2 })).json()).code;
+  const h2 = (await (await post(HR, "", { code: t2, machine: M2, name: "theirs", shares: ["/home/r/p"] })).json()).host;
   assert((await post(HO, `/${h2.id}/stop`)).status === 200, "the board's owner stops a member's machine");
   // MCP: agents ask through the host tool, with the same rules.
-  const t3 = (await (await post(HO, "/confirm", { phrase: "I understand what I'm doing" })).json()).token;
-  const h3 = (await (await post(HO, "", { token: t3, name: "box3", shares: ["/srv/proj"] })).json()).host;
-  has(await ok(HR, hb, "host", { action: "list" }), "box3");
-  has(await ok(HR, hb, "host", { action: "run", host: "box3", command: "uname -a", wait_seconds: 0 }), `Waiting for ${HO} to approve`);
-  await err(HR, hb, "host", { action: "run", host: "box3", command: "ls", cwd: "/etc", wait_seconds: 0 }, "cwd must be inside");
+  const M3 = `m_e2emachine3${run}`;
+  const t3 = (await (await asPersonPost(HO, "/confirm", { phrase: PH, machine: M3 })).json()).code;
+  const h3 = (await (await post(HO, "", { code: t3, machine: M3, name: "box3", shares: ["/srv/proj"] })).json()).host;
+  // MCP: on the agents tool, so no tool is added to every agent's list (jxn #783).
+  has(await ok(HR, hb, "agents", { action: "machines" }), "box3");
+  has(await ok(HR, hb, "agents", { action: "run", host: "box3", command: "uname -a", wait_seconds: 0 }), `Waiting for ${HO} to approve`);
+  await err(HR, hb, "agents", { action: "run", host: "box3", command: "ls", cwd: "/etc", wait_seconds: 0 }, "cwd must be inside");
   await post(HO, `/${h3.id}/stop`);
 });
 

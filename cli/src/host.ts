@@ -4,12 +4,13 @@
 // TTY, a timeout, and an environment without secret-looking variables; output is redacted before it leaves.
 
 import { spawn } from "node:child_process";
+import { randomBytes } from "node:crypto";
 import { realpathSync, statSync } from "node:fs";
 import { homedir, hostname } from "node:os";
 import { resolve } from "node:path";
 import { createInterface } from "node:readline";
-import { cleanOutput, clampTimeout, HOST_PHRASE, insideShares, MAX_OUTPUT, phraseOk, SECRET_ENV } from "../../src/hostCore";
-import { api, CliError, currentBoard, optStr, say } from "./commands";
+import { cleanOutput, clampTimeout, HOST_PHRASE, insideShares, MAX_OUTPUT, SECRET_ENV } from "../../src/hostCore";
+import { api, CliError, creds, currentBoard, optStr, say, server } from "./commands";
 
 type Opt = Record<string, string | true>;
 
@@ -122,22 +123,21 @@ function jailed(cwd: string, shares: string[]): string {
 async function start(args: string[]) {
   refuseRoot();
   const { opt, shares: asked, allow } = hostArgs(args);
+  const bad = Object.keys(opt).filter((k) => !["board", "name", "server", "quiet"].includes(k));
+  if (bad.length) throw new CliError(`atteo host doesn't take ${bad.map((k) => "--" + k).join(", ")}. Options: --share DIR (repeat) --allow "<exact command>" (repeat) --name N --board B. Consent is always typed in your browser.`);
   const board = currentBoard(opt);
   const shares = sharesFrom(asked);
+  // Consent is the person's, every start, and never from an agent: it happens in their browser (only a person's login
+  // can mint the code there), and the code is typed into this terminal. No flag skips it; a pipe can't feed it.
+  if (!process.stdin.isTTY) throw new CliError("atteo host only starts in an interactive terminal: you confirm it in your browser and type the code here.");
   say(WARNING(board, shares));
-  // Consent, every time a host starts (a token from the web's Attach dialog counts: it was typed there).
-  let token = optStr(opt, "token");
-  if (!token) {
-    let phrase = optStr(opt, "confirm");
-    if (phrase === undefined) {
-      if (!process.stdin.isTTY) throw new CliError(`atteo host needs you to type the confirmation. In a terminal it asks; otherwise pass --confirm "${HOST_PHRASE}".`);
-      phrase = await ask(`  Type exactly "${HOST_PHRASE}" to attach this machine: `);
-    }
-    if (!phraseOk(phrase)) throw new CliError(`Not attached: that isn't "${HOST_PHRASE}".`);
-    token = (await api(opt, "POST", `/api/boards/${board}/hosts/confirm`, { phrase })).token as string;
-  }
+  const machine = "m_" + randomBytes(12).toString("base64url");
+  const c = creds();
+  say(`  To allow it, open this link (signed in as ${c.user}), type "${HOST_PHRASE}" there, and copy the code:\n\n    ${server(c, opt)}/host/consent?board=${board}&machine=${machine}\n`);
+  const code = (await ask("  Code: ")).trim();
+  if (!code) throw new CliError("Not attached: no code.");
   const name = optStr(opt, "name") ?? hostname().replace(/\.local$/, "");
-  const { host } = await api(opt, "POST", `/api/boards/${board}/hosts`, { token, name, shares, allow });
+  const { host } = await api(opt, "POST", `/api/boards/${board}/hosts`, { code, machine, name, shares, allow });
   say(`Attached ${host.name} (${host.id}) to ${board}. Waiting for approved commands… (Ctrl-C to stop)`);
   let stopping = false;
   const stopNow = async () => {

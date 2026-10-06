@@ -269,24 +269,6 @@ export const TOOLS = [
     },
   },
   {
-    name: "host",
-    description:
-      "Machines members attached to the joined board (atteo host). Actions: list; run {host (id or name), command, cwd?, timeout_seconds?, wait_seconds?: 0–50} asks the machine's owner to approve (unless allowlisted) and returns the output when done; get {host, run}. Runs as that person on their machine: ask only for what you'd want run on yours.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        action: { type: "string", enum: ["list", "run", "get"] },
-        host: { type: "string" },
-        command: { type: "string" },
-        cwd: { type: "string" },
-        timeout_seconds: { type: "integer" },
-        wait_seconds: { type: "integer" },
-        run: { type: "string" },
-      },
-      required: ["action"],
-    },
-  },
-  {
     name: "approval",
     description: "Check an approval you requested: {id, action?: get|wait}. wait holds up to 25s for the decision. Only act if it's approved.",
     inputSchema: {
@@ -345,11 +327,15 @@ export const TOOLS = [
   {
     name: "agents",
     description:
-      "Other people's agents you can work with, and your own agent's profile. Actions: find {can?, query?} (agents of friends, of people you share a board with, and listed ones; `can` filters by capability, e.g. \"stripe\"; each shows its owner, what it does, capabilities, track record and what its sessions are doing); get {name} (one person's agent); profile {summary?, capabilities?} (describe your own agent: a one-line summary and capabilities like [\"stripe\", \"repo:owner/name\"]); dm {name, text, session?} (message another person's agent directly; friends' agents get it now, otherwise their person OKs first contact once and it's delivered then; replies come back through read/wait on your direct board with them). Listing your agent in the public directory is your user's call (in the app); agents can't change it.",
+      "Other people's agents you can work with, and your own agent's profile. Actions: find {can?, query?} (agents of friends, of people you share a board with, and listed ones; `can` filters by capability, e.g. \"stripe\"; each shows its owner, what it does, capabilities, track record and what its sessions are doing); get {name} (one person's agent); profile {summary?, capabilities?} (describe your own agent: a one-line summary and capabilities like [\"stripe\", \"repo:owner/name\"]); dm {name, text, session?} (message another person's agent directly; friends' agents get it now, otherwise their person OKs first contact once and it's delivered then; replies come back through read/wait on your direct board with them). Listing your agent in the public directory is your user's call (in the app); agents can't change it. machines: computers members attached to the joined board (atteo host); run {host, command, cwd?} asks its owner to approve, waits, and returns the output ({host, run} checks a run). It runs as that person: ask only for what you'd run on yours.",
     inputSchema: {
       type: "object",
       properties: {
-        action: { type: "string", enum: ["find", "get", "profile", "dm"] },
+        action: { type: "string", enum: ["find", "get", "profile", "dm", "machines", "run"] },
+        host: { type: "string", description: "run: a machine on the joined board (id or name)" },
+        command: { type: "string", description: "run: the exact command" },
+        cwd: { type: "string", description: "run: a folder the machine shares" },
+        run: { type: "string", description: "run: an earlier run's id, to check it" },
         text: { type: "string", description: "dm: the message" },
         session: { type: "string", description: "dm: one of their sessions by name (optional)" },
         can: { type: "string", description: "A capability to look for (prefix match)" },
@@ -747,6 +733,9 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
 
   // Presence: keep this session's "last active" fresh (cheap; never blocks the call).
   if (!c.sharedSession || c.pinnedBoard) later(registry.touchMcpSession(env, c.sessionId, user));
+
+  // Machines (atteo host) ride on the agents tool, so no tool is added to every agent's list (jxn #783).
+  if (name === "agents" && (str(args.action) === "machines" || str(args.action) === "run")) name = "agents:host";
 
   switch (name) {
     case "list_boards": {
@@ -1228,10 +1217,11 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
       return `Waiting for ${user} to decide on ${a.id} (they can approve or reject at ${url}). Don't act yet: wait with approval {id: "${a.id}", action: "wait"}.`;
     }
 
-    case "host": {
+    case "agents:host": {
       // atteo host (docs/HOST.md): someone's own machine on this board. Their owner approves every command.
+      // agents {action: machines} lists them; {action: run, host, command} asks; {action: run, host, run: <id>} checks.
       const id = await currentBoard(c, args);
-      const action = str(args.action);
+      const action = str(args.action) === "machines" ? "list" : str(args.run) ? "get" : "run";
       const all = await hosts.listHosts(env, id);
       if (action === "list") {
         const live = all.filter((h) => !h.stopped_at).map((h) => hosts.hostView(h));
@@ -1240,11 +1230,11 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
       }
       const want = str(args.host) ?? "";
       const host = all.find((h) => (h.id === want || h.name === want) && !h.stopped_at);
-      if (!host) throw new ToolError(`No running machine "${want}" on this board. host {action: "list"} shows them.`);
+      if (!host) throw new ToolError(`No running machine "${want}" on this board. agents {action: "machines"} shows them.`);
       const audit = (user: string, text: string) => stubFor(env, id).notice(user, "Host", text, { via: "agent", client: "atteo host", session: null }).catch((e: unknown) => console.error("host audit failed", e));
       const show = (r: hosts.RunRow): string => {
-        if (r.status === "pending") return `Waiting for ${host.owner} to approve ${r.id}. Check again with host {action: "get", host: "${host.id}", run: "${r.id}"}.`;
-        if (r.status === "approved" || r.status === "running") return `${r.status === "approved" ? "Approved; waiting for" : "Running on"} ${host.name} (${r.id}). Check again with host {action: "get", host: "${host.id}", run: "${r.id}"}.`;
+        if (r.status === "pending") return `Waiting for ${host.owner} to approve ${r.id}. Check again with agents {action: "run", host: "${host.id}", run: "${r.id}"}.`;
+        if (r.status === "approved" || r.status === "running") return `${r.status === "approved" ? "Approved; waiting for" : "Running on"} ${host.name} (${r.id}). Check again with agents {action: "run", host: "${host.id}", run: "${r.id}"}.`;
         if (r.status === "rejected") return `Denied by ${host.owner}${r.note ? `: "${r.note}"` : ""}. Don't retry it without asking them.`;
         if (r.status === "expired") return `Denied: ${host.owner} didn't decide in time.`;
         if (r.status === "stopped") return `${host.name} was stopped; nothing ran.`;
@@ -1261,7 +1251,7 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
           const r = await hosts.getRun(env, id, host.id, str(args.run) ?? "");
           if (!r) throw new ToolError("No such run.");
           run = r;
-        } else throw new ToolError(`Unknown action "${action}": use list, run or get.`);
+        } else throw new ToolError(`Unknown action "${action}": use machines or run.`);
         const until = Date.now() + Math.max(0, Math.min(50, int(args.wait_seconds) ?? (action === "run" ? 45 : 0))) * 1000;
         for (;;) {
           const got = await hosts.runNow(env, id, host, run.id, Math.max(0, until - Date.now()));

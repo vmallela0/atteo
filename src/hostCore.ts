@@ -6,6 +6,16 @@ import { blockedMessage, redactText, scanText } from "./secrets";
 export const HOST_PHRASE = "I understand what I'm doing";
 export const phraseOk = (s: unknown): boolean => typeof s === "string" && s.replace(/[‘’]/g, "'") === HOST_PHRASE;
 
+/** The id `atteo host` makes for one start of one machine; a consent code is bound to it. */
+export const MACHINE_RE = /^m_[A-Za-z0-9_-]{12,40}$/;
+/** Consent codes: 10 characters without look-alikes (0/O, 1/I/L), shown as XXXXX-XXXXX; case and dashes don't matter. */
+const CODE_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
+export function newConsentCode(rand: Uint8Array): string {
+  const c = Array.from(rand.slice(0, 10), (b) => CODE_ALPHABET[b % CODE_ALPHABET.length]).join("");
+  return `${c.slice(0, 5)}-${c.slice(5)}`;
+}
+export const normCode = (s: unknown): string => (typeof s === "string" ? s.toUpperCase().replace(/[^A-Z0-9]/g, "") : "");
+
 export const MAX_COMMAND = 4000;
 export const MAX_OUTPUT = 64_000; // stored per run
 export const BOARD_OUTPUT = 4_000; // shown in the board's audit entry

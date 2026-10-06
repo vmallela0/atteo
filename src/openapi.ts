@@ -485,14 +485,14 @@ export function openapi(origin: string) {
       "/api/boards/{id}/hosts": {
         get: { summary: "Machines attached to this board (members): id, name, owner, shares, allow, online, stopped_at/by", parameters: [id], responses: { "200": ok("hosts"), ...errors } },
         post: {
-          summary: "Attach your machine (atteo host): needs an unused token from hosts/confirm (one per machine). shares: absolute folders (never /); allow: exact commands that skip approval",
+          summary: "Attach your machine (atteo host): needs the unused code a person minted at hosts/confirm for this machine. shares: absolute folders (never /); allow: exact commands that skip approval",
           parameters: [id],
-          requestBody: body(obj({ token: str, name: str, shares: { type: "array", items: str }, allow: { type: "array", items: str } }, ["token", "shares"])),
-          responses: { "200": ok("host"), "403": ok("no valid confirmation token"), ...errors },
+          requestBody: body(obj({ code: str, machine: str, name: str, shares: { type: "array", items: str }, allow: { type: "array", items: str } }, ["code", "machine", "shares"])),
+          responses: { "200": ok("host"), "403": ok("no valid code for this machine"), ...errors },
         },
       },
       "/api/boards/{id}/hosts/confirm": {
-        post: { summary: `The typed consent: phrase must be exactly "I understand what I'm doing". Returns a one-time token (10 minutes) that registering a host spends`, parameters: [id], requestBody: body(obj({ phrase: str }, ["phrase"])), responses: { "200": ok("token, expires_at"), ...errors } },
+        post: { security: person, summary: `The typed consent, a person's only (agent and CLI tokens: 403): phrase must be exactly "I understand what I'm doing"; machine is the id atteo host printed. Returns a one-time code (10 minutes) for that machine`, parameters: [id], requestBody: body(obj({ phrase: str, machine: str }, ["phrase", "machine"])), responses: { "200": ok("code, expires_at"), "403": personErrors["403"], ...errors } },
       },
       "/api/boards/{id}/hosts/{host}/stop": {
         post: { summary: "The kill switch: the machine's owner or the board's owner (host = all: every machine you may stop). Waiting runs are dropped; the host exits at its next poll", parameters: [id, { name: "host", in: "path", required: true, schema: str }], responses: { "200": ok("stopped"), ...errors } },

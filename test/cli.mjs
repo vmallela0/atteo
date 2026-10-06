@@ -2754,17 +2754,20 @@ await step("atteo host / atteo run: typed consent, root refusal, approvals, allo
   symlinkSync(outside, join(share, "sub", "escape"));
   const shareReal = realpathSync(share);
   const name = `box-${run}`;
-  // Consent is typed: without a terminal it must be passed exactly; a wrong phrase attaches nothing; root never hosts.
+  // Consent is the person's, in their browser, and typed back into a real terminal: a pipe (an agent's shell) can't start
+  // a host, there's no flag to skip it, root never hosts, and / is never shared.
   let r = await cli(["host", "--board", board, "--share", share]);
-  assert(r.code !== 0 && r.err.includes("--confirm"), `no TTY, no --confirm: ${r.out}${r.err}`);
-  r = await cli(["host", "--board", board, "--share", share, "--confirm", "yes"]);
-  assert(r.code !== 0 && r.err.includes("Not attached"), r.err);
-  r = await cli(["host", "--board", board, "--share", share, "--confirm", PHRASE], { env: { ATTEO_HOST_ASSUME_ROOT: "1" } });
+  assert(r.code !== 0 && r.err.includes("interactive terminal"), `no TTY: refused: ${r.out}${r.err}`);
+  r = await cli(["host", "--board", board, "--share", share, "--confirm", PHRASE]);
+  assert(r.code !== 0 && r.err.includes("doesn't take --confirm"), `no --confirm: ${r.err}`);
+  r = await cli(["host", "--board", board, "--share", share], { env: { ATTEO_HOST_ASSUME_ROOT: "1" } });
   assert(r.code !== 0 && r.err.includes("refuses to run as root"), r.err);
-  r = await cli(["host", "--board", board, "--share", "/", "--confirm", PHRASE]);
+  r = await cli(["host", "--board", board, "--share", "/"]);
   assert(r.code !== 0 && r.err.includes("isn't allowed"), r.err);
-  // A attaches a machine (the daemon keeps running) with two allowlisted commands.
-  const daemon = spawn("node", [CLI, "host", "--board", board, "--share", share, "--name", name, "--confirm", PHRASE, "--allow", "echo allowed", "--allow", "sleep 5", "--allow", "env"], {
+  // A attaches a machine in a real terminal (python's pty), with two allowlisted commands: the link names this start's
+  // machine; A, signed in as a person, mints the code for it; the code goes into the prompt.
+  const pty = "import pty,sys; pty.spawn(sys.argv[1:])";
+  const daemon = spawn("python3", ["-c", pty, "node", CLI, "host", "--board", board, "--share", share, "--name", name, "--allow", "echo allowed", "--allow", "sleep 5", "--allow", "env"], {
     cwd: share,
     env: { ...process.env, ATTEO_CREDENTIALS_FILE: credA, ATTEO_SERVER: BASE, XDG_CONFIG_HOME: join(dir, "cfg-cmds"), MY_API_TOKEN: "zz-should-not-leak" },
   });
@@ -2773,8 +2776,15 @@ await step("atteo host / atteo run: typed consent, root refusal, approvals, allo
   daemon.stderr.on("data", (d) => (dout += d));
   const exited = new Promise((res) => daemon.on("close", (code) => res(code)));
   try {
+    for (let i = 0; i < 100 && !/machine=m_[A-Za-z0-9_-]+/.test(dout); i++) await sleep(100);
+    const machine = dout.match(/machine=(m_[A-Za-z0-9_-]+)/)?.[1];
+    assert(dout.includes("VERY DANGEROUS") && dout.includes(`/host/consent?board=${board}&machine=`) && machine, `the link: ${dout}`);
+    const cookieA0 = (await ops("sessions", { user: A, verified: "true" })).cookie;
+    const minted = await fetch(`${BASE}/api/boards/${board}/hosts/confirm`, { method: "POST", headers: { cookie: cookieA0, "content-type": "application/json" }, body: JSON.stringify({ phrase: PHRASE, machine }) });
+    assert(minted.status === 200, `A mints the code as a person: ${minted.status}`);
+    daemon.stdin.write((await minted.json()).code + "\n");
     for (let i = 0; i < 100 && !dout.includes("Attached"); i++) await sleep(100);
-    assert(dout.includes("VERY DANGEROUS") && dout.includes("Attached"), `daemon: ${dout}`);
+    assert(dout.includes("Attached"), `daemon: ${dout}`);
     r = await cli(["host", "list", "--board", board], { cred: credB });
     assert(r.code === 0 && r.out.includes(name) && r.out.includes("online"), r.out + r.err);
     // Allowlisted: runs without asking.

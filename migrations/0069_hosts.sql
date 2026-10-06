@@ -1,11 +1,14 @@
 -- atteo host (docs/HOST.md; vedu #4805/#4807/#4815): a member's own machine attached to a board, where agents on the
 -- board can ask to run commands that the machine's owner approves. Very dangerous by design, so everything is recorded.
 
--- One-time consent tokens: issued only after the owner typed "I understand what I'm doing"; registering a host uses one.
+-- One-time consent codes: minted only for a person signed in on the web or the app (never an agent's token), after they
+-- typed "I understand what I'm doing" for one machine (the random id `atteo host` made for this start); registering
+-- that machine spends it.
 CREATE TABLE IF NOT EXISTS host_confirms (
   token_hash TEXT PRIMARY KEY,
   board_id TEXT NOT NULL,
   owner TEXT NOT NULL,
+  machine TEXT NOT NULL,
   created_at INTEGER NOT NULL,
   expires_at INTEGER NOT NULL,
   used_at INTEGER

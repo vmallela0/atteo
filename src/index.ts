@@ -60,6 +60,7 @@ import * as mailbox from "./mailbox";
 import * as recap from "./recap";
 import * as hosts from "./hosts";
 import { HOST_PAGE_JS } from "./hostUi";
+import { MACHINE_RE } from "./hostCore";
 import { listMount, LsError } from "./ls";
 import * as testAccounts from "./testAccounts";
 import { musePage } from "./muse";
@@ -2593,6 +2594,13 @@ const handler = {
         return json({ error: "not found" }, 404);
       }
 
+      // atteo host's link: the board, with the consent dialog for that machine open (the person types the phrase there).
+      if (path === "/host/consent" && method === "GET") {
+        if (!viewer) return needLogin();
+        const bid = url.searchParams.get("board") ?? "", machine = url.searchParams.get("machine") ?? "";
+        if (!/^b_[a-z0-9]+$/.test(bid) || !MACHINE_RE.test(machine) || !(await registry.isMember(env, bid, viewer.name))) return json({ error: "This link isn't for a board you're on, or it's incomplete. Copy it again from atteo host." }, 404);
+        return redirect(`/b/${bid}?host_consent=${encodeURIComponent(machine)}`);
+      }
       // ---- atteo host (docs/HOST.md): a member's own machine on the board; every command needs its owner's OK ----
       m = path.match(/^\/api\/boards\/(b_[a-z0-9]+)\/hosts(?:\/(confirm|h_[A-Za-z0-9_-]+|all)(?:\/(stop|next|runs)(?:\/(hr_[A-Za-z0-9_-]+)(?:\/(result))?)?)?)?$/);
       if (m) {
@@ -2606,8 +2614,10 @@ const handler = {
         try {
           if (!target && method === "GET") return json({ hosts: (await hosts.listHosts(env, bid)).map((h) => hosts.hostView(h)) }, 200, { "cache-control": "no-store" });
           if (target === "confirm" && !act && method === "POST") {
-            const b = (await request.json().catch(() => ({}))) as { phrase?: unknown };
-            return json(await hosts.confirm(env, bid, viewer.name, b.phrase));
+            // The consent is the person's alone, like approvals: an agent (or the CLI an agent could run) can't mint it.
+            if (viewer.via === "agent") return json({ error: `Only you can allow a machine, signed in on the web or the app: open ${origin}/host/consent?board=${bid}&machine=… from atteo host's link.` }, 403);
+            const b = (await request.json().catch(() => ({}))) as { phrase?: unknown; machine?: unknown };
+            return json(await hosts.confirm(env, bid, viewer.name, b.phrase, b.machine));
           }
           if (!target && method === "POST") {
             const b = (await request.json().catch(() => ({}))) as Record<string, unknown>;

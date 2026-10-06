@@ -4,7 +4,7 @@
 
 import * as approvals from "./approvals";
 import { randomSecret, sha256hex } from "./auth";
-import { BOARD_OUTPUT, clampTimeout, cleanOutput, commandProblem, CONFIRM_TTL_MS, insideShares, MAX_ALLOW, MAX_SHARES, MAX_WAITING, normPath, ONLINE_MS, phraseOk, HOST_PHRASE } from "./hostCore";
+import { BOARD_OUTPUT, clampTimeout, cleanOutput, commandProblem, CONFIRM_TTL_MS, insideShares, MACHINE_RE, MAX_ALLOW, MAX_SHARES, MAX_WAITING, newConsentCode, normCode, normPath, ONLINE_MS, phraseOk, HOST_PHRASE } from "./hostCore";
 import type { Env } from "./types";
 
 export class HostError extends Error {
@@ -101,23 +101,32 @@ async function boardOk(env: Env, board: string): Promise<void> {
   if (b.archived_at) throw new HostError("This board is archived.", 409);
 }
 
-/** Step 1 of attaching: the exact phrase buys a one-time token (10 minutes) that registering a host spends. */
-export async function confirm(env: Env, board: string, owner: string, phrase: unknown): Promise<{ token: string; expires_at: number }> {
+const codeHash = async (board: string, machine: string, code: string) => sha256hex(`${board}|${machine}|${normCode(code)}`);
+
+/**
+ * Step 1 of attaching, for the PERSON only (the route refuses agent and CLI tokens, as approvals do): typing the exact
+ * phrase for one machine (the id `atteo host` printed in its link) mints a one-time code (10 minutes) for that machine.
+ */
+export async function confirm(env: Env, board: string, owner: string, phrase: unknown, machine: unknown): Promise<{ code: string; expires_at: number }> {
   if (!phraseOk(phrase)) throw new HostError(`To attach a machine, type exactly: ${HOST_PHRASE}`, 400);
+  if (typeof machine !== "string" || !MACHINE_RE.test(machine)) throw new HostError("Open the link atteo host printed on that machine: it names the machine this code is for.", 400);
   await boardOk(env, board);
-  const token = randomSecret("hc_", 18);
+  const code = newConsentCode(crypto.getRandomValues(new Uint8Array(10)));
   const now = Date.now();
-  await env.DB.prepare(`INSERT INTO host_confirms (token_hash, board_id, owner, created_at, expires_at) VALUES (?, ?, ?, ?, ?)`).bind(await sha256hex(token), board, owner, now, now + CONFIRM_TTL_MS).run();
-  return { token, expires_at: now + CONFIRM_TTL_MS };
+  await env.DB.prepare(`INSERT INTO host_confirms (token_hash, board_id, owner, machine, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?)`)
+    .bind(await codeHash(board, machine, code), board, owner, machine, now, now + CONFIRM_TTL_MS)
+    .run();
+  return { code, expires_at: now + CONFIRM_TTL_MS };
 }
 
-/** Step 2: register the machine with an unused token from step 1 (one token, one machine). */
-export async function register(env: Env, board: string, owner: string, b: { token?: unknown; name?: unknown; shares?: unknown; allow?: unknown }): Promise<HostRow> {
+/** Step 2 (atteo host, with the owner's login): register that machine with the code from step 1. One code, one machine, once. */
+export async function register(env: Env, board: string, owner: string, b: { code?: unknown; machine?: unknown; name?: unknown; shares?: unknown; allow?: unknown }): Promise<HostRow> {
   await boardOk(env, board);
   const now = Date.now();
-  const hash = typeof b.token === "string" ? await sha256hex(b.token) : "";
-  const live = await env.DB.prepare(`SELECT 1 AS ok FROM host_confirms WHERE token_hash = ? AND board_id = ? AND owner = ? AND used_at IS NULL AND expires_at > ?`).bind(hash, board, owner, now).first();
-  const noToken = () => new HostError(`Attaching a machine needs a fresh confirmation: type exactly "${HOST_PHRASE}" (atteo host asks; on the web, Attach a machine).`, 403);
+  const machine = typeof b.machine === "string" && MACHINE_RE.test(b.machine) ? b.machine : "";
+  const hash = machine && normCode(b.code) ? await codeHash(board, machine, String(b.code)) : "";
+  const live = await env.DB.prepare(`SELECT 1 AS ok FROM host_confirms WHERE token_hash = ? AND board_id = ? AND owner = ? AND machine = ? AND used_at IS NULL AND expires_at > ?`).bind(hash, board, owner, machine, now).first();
+  const noToken = () => new HostError(`That code isn't valid for this machine (codes work once, for 10 minutes, on the machine whose link minted them). Run atteo host again and confirm in your browser.`, 403);
   if (!live) throw noToken();
   const shares = (Array.isArray(b.shares) ? b.shares : []).map((s) => normPath(s)).filter((s): s is string => !!s);
   if (!shares.length) throw new HostError("Share at least one folder (absolute path).");
@@ -131,7 +140,7 @@ export async function register(env: Env, board: string, owner: string, b: { toke
   }
   const name = (typeof b.name === "string" ? b.name : "").replace(/[^\w .@-]/g, "").trim().slice(0, 40) || "machine";
   // Spent only now, once the request is good: one token, one machine (a second use, or a race, gets 403).
-  const used = await env.DB.prepare(`UPDATE host_confirms SET used_at = ? WHERE token_hash = ? AND board_id = ? AND owner = ? AND used_at IS NULL AND expires_at > ?`).bind(now, hash, board, owner, now).run();
+  const used = await env.DB.prepare(`UPDATE host_confirms SET used_at = ? WHERE token_hash = ? AND board_id = ? AND owner = ? AND machine = ? AND used_at IS NULL AND expires_at > ?`).bind(now, hash, board, owner, machine, now).run();
   if (!used.meta.changes) throw noToken();
   const h: HostRow = { id: randomSecret("h_", 9), board_id: board, owner, name, shares: JSON.stringify(shares), allow: JSON.stringify(allow), created_at: now, last_seen: now, stopped_at: null, stopped_by: null };
   await env.DB.prepare(`INSERT INTO hosts (id, board_id, owner, name, shares, allow, created_at, last_seen) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`).bind(h.id, board, owner, name, h.shares, h.allow, now, now).run();
