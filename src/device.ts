@@ -32,10 +32,13 @@ export interface DeviceLogin {
   approved_by: string | null;
 }
 
+/** Housekeeping in startDeviceLogin: forget logins that ended more than a day ago (shared with test/queryPlans.test.ts). */
+export const PRUNE_DEVICE_LOGINS_SQL = `DELETE FROM device_logins WHERE expires_at < ?`;
+
 export async function startDeviceLogin(env: Env, origin: string, client: string) {
   const now = Date.now();
   // Housekeeping: forget logins that ended more than a day ago.
-  await env.DB.prepare(`DELETE FROM device_logins WHERE expires_at < ?`).bind(now - 24 * 3600 * 1000).run();
+  await env.DB.prepare(PRUNE_DEVICE_LOGINS_SQL).bind(now - 24 * 3600 * 1000).run();
   const deviceCode = randomSecret("dc_", 32);
   let userCode = newUserCode();
   for (let i = 0; i < 5; i++) {
