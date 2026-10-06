@@ -170,5 +170,6 @@
  "delete-account": 4,
  "upd-bar": 2,
  "task-frozen": 4,
- "host": 3
+ "host": 3,
+ "frame-tab-state": 25
 }

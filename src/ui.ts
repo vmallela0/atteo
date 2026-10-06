@@ -1796,7 +1796,7 @@ export function appPage(
   const tabName = (b: SideBoard) => (b.kind === "direct" ? shownName(directPeer(b, v.name), b.peer_name) : b.kind === "agent" ? T("Your agent") : b.title);
   const tabs = opts.boards
     .slice(0, 24)
-    .map((b) => `<a class="btab${b.live ? " st-work" : ""}" href="/b/${esc(b.id)}" data-tab="${esc(b.id)}"${cur(b.id)}>${b.kind === "direct" ? avatar(directPeer(b, v.name), "xs") : b.kind === "agent" ? avatar(v.name, "xs", true) : boardPic(b, "xs")}<b>${esc(tabName(b))}</b>${b.live ? `<span class="wk">${esc(T("{n} working", { n: b.live }))}</span>` : ""}<span class="apn" hidden></span></a>`)
+    .map((b) => `<a class="btab${b.live ? " st-work" : ""}" href="/b/${esc(b.id)}" data-tab="${esc(b.id)}" data-work="${b.live || 0}"${cur(b.id)}>${b.kind === "direct" ? avatar(directPeer(b, v.name), "xs") : b.kind === "agent" ? avatar(v.name, "xs", true) : boardPic(b, "xs")}<b>${esc(tabName(b))}</b><span class="wk"${b.live ? "" : " hidden"}>${b.live ? esc(T("{n} working", { n: b.live })) : ""}</span><span class="apn" hidden></span></a>`)
     .join("");
   // The strip's mark draws the Menu's own (<use>), so the page carries the drawing once.
   const strip = `<header class="strip"><a class="ws" href="/"><svg class="pebble" width="20" height="20" viewBox="0 0 100 100" aria-hidden="true"><use href="#mkg"/></svg><span class="wm">atteo</span></a>
@@ -1809,7 +1809,17 @@ export function appPage(
   <a href="/me" aria-label="${esc(T("Account"))}">${avatar(v.name, "sm")}</a></header>`;
   // What the inbox poll (INBOX_JS) hands the strip: its count, and the boards where one of your agent's approvals waits,
   // whose tabs turn amber and say so (jxn #4860).
-  const stripJs = `window.onInbox=j=>{const b=document.querySelector('[data-inbox-count]'),c=j.unread;if(b){b.hidden=!c;b.textContent=c>99?'99+':c}const ab=j.approval_boards||{};document.querySelectorAll('.btab').forEach(t=>{const n=ab[t.dataset.tab]||0,a=t.lastChild;t.classList.toggle('st-ap',n>0);a.hidden=!n;a.textContent=n?tr(n>1?'{n} approvals':'{n} approval',{n}):''})}`;
+  // The tabs keep their state live (jxn #4860): GET /api/me/board-states every 20s while the page shows (and on coming
+  // back to it) gives each board's working agents and approvals; the inbox poll's approval boards count too, so the two
+  // never fight. Approval wins (amber + count), then working (green + "N working"), else quiet (grey).
+  const stripJs = `(()=>{const ST={},AP={};
+function paint(){document.querySelectorAll('.btab').forEach(t=>{const id=t.dataset.tab,s=ST[id],ap=Math.max(AP[id]||0,s?s.pending_approvals:0),wk=s?s.working_agents:+t.dataset.work||0,w=t.querySelector('.wk'),a=t.querySelector('.apn');
+  t.classList.toggle('st-ap',ap>0);t.classList.toggle('st-work',!ap&&wk>0);
+  if(w){w.hidden=!wk;w.textContent=wk?tr('{n} working',{n:wk}):''}if(a){a.hidden=!ap;a.textContent=ap?tr(ap>1?'{n} approvals':'{n} approval',{n:ap}):''}})}
+window.onInbox=j=>{const b=document.querySelector('[data-inbox-count]'),c=j.unread;if(b){b.hidden=!c;b.textContent=c>99?'99+':c}const ab=j.approval_boards||{};for(const k in AP)delete AP[k];Object.assign(AP,ab);paint()};
+let busy=false;async function pull(){if(busy||document.hidden||!document.querySelector('.btab'))return;busy=true;
+  try{const r=await fetch('/api/me/board-states',{cache:'no-store'});if(r.ok){const j=await r.json();for(const k in ST)delete ST[k];for(const x of j.boards||[])ST[x.id]=x;paint()}}catch(e){}finally{busy=false}}
+setInterval(pull,20000);document.addEventListener('visibilitychange',()=>{if(!document.hidden)pull()});pull()})();`;
   const body = `<div class="app" id="app">
 <aside class="sidebar" id="sidebar" aria-label="${esc(T("Navigation"))}">
   <button class="btn ghost sm nav-x" type="button" data-nav-close aria-label="${esc(T("Close menu"))}" title="${esc(T("Close menu"))}">✕</button>
