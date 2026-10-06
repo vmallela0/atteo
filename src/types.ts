@@ -73,6 +73,7 @@ export interface Entry {
   artifact_size: number | null; // bytes of artifact content (content itself is fetched with `get`)
   artifact_version?: number | null;
   attachments?: Attachment[]; // file entries only: every file of the message, in order (1 for a single file, ≤10)
+  rich_text?: { name: string; text: string }[]; // read/get/wait only: the words of its pasted RTF/RTFD files (vedu #5225, #5258)
   media?: Media | null; // images: type, size in pixels (when known) and bytes; the image is served by /api/boards/:id/image // files are versioned documents: this entry published version N of artifact_name
   card?: import("./card").ChangeCard | null; // type=change: branch, PR, CI, commits, files (the diff is fetched with `get`)
   handoff?: import("./handoff").Handoff | null; // type=handoff: ready to gate (branch, sha, base, checks, state), or the lander's landed/failed reply

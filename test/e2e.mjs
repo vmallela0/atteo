@@ -842,6 +842,42 @@ await step("web: several files in one message (multipart upload): one entry, att
   assert(!(await (await web(`/api/boards/${eb}/files`, E)).json()).docs.some((d) => d.name === "a.png" || d.name === "b.png"), "nothing stored on the encrypted board");
 });
 
+await step("pasted rich text: agents read an RTF/RTFD file's words in read, get and the entry API, marked as file content, bidi controls gone (#5258)", async () => {
+  await ok(A, board, "read", {}); // caught up, so the next read shows the new message in full
+  // A Cocoa RTF with an emoji and a right-to-left override (U+202E) spelled as \uN, and a flat RTFD around one.
+  const rtf = "{\\rtf1\\ansi\\ansicpg1252{\\fonttbl\\f0\\fnil HelveticaNeue;}\\f0 Ship the caf\\'e9 fix \\uc0\\u55357 \\u56960 \\\nnow \\u8238 evil\\u8236  done}";
+  const flat = Buffer.concat([Buffer.from("rtfd\0\0\0\0\x03\0\x7d\x7bTXT.rtf\x01\0"), Buffer.from(`{\\rtf1\\ansi deploy is green \\uc0\\u9989 }`), Buffer.from("\x01\0\x7d\0")]);
+  const n = `rich text with attachments -RTFD- data`;
+  const fd = new FormData();
+  fd.append("file", new Blob([rtf], { type: "application/octet-stream" }), n);
+  fd.append("file", new Blob([flat], { type: "application/octet-stream" }), `${n}-2`);
+  fd.append("file", new Blob([Buffer.from([0x9a, 0x11, 0x7b, 0, 0x5c])], { type: "application/octet-stream" }), `${n}-3`);
+  const r = await web(`/api/boards/${board}/upload`, B, { method: "POST", body: fd });
+  const j = await r.json();
+  assert(r.status === 201 && j.entry?.attachments?.length === 3, `upload ${r.status} ${JSON.stringify(j).slice(0, 300)}`);
+  const seq = j.entry.seq;
+  const words = "Ship the café fix 🚀\nnow evil done";
+  // get (MCP, which the CLI's get prints): each file's words as file content, after the message.
+  const g = await ok(A, board, "get", { seq });
+  has(g, `----- file content: ${n} (pasted rich text, as plain text) -----`);
+  has(g, "    Ship the café fix 🚀\n    now evil done"); // indented like the message; the override is gone
+  has(g, `----- file content: ${n}-2 (pasted rich text, as plain text) -----`);
+  has(g, "deploy is green ✅");
+  assert(!g.includes(`file content: ${n}-3`), "bytes with no RTF have no text");
+  assert(!/[‪-‮⁦-⁩]/.test(g), "no bidi controls reach the agent");
+  // read: the same, in the new message.
+  const rd = await ok(A, board, "read", {});
+  has(rd, `#${seq}`);
+  has(rd, "    Ship the café fix 🚀\n    now evil done");
+  has(rd, "deploy is green ✅");
+  // The entry API's JSON carries it too.
+  const api = (await (await web(`/api/boards/${board}/entries/${seq}`, A)).json()).entry;
+  assert(JSON.stringify(api.rich_text) === JSON.stringify([{ name: n, text: words }, { name: `${n}-2`, text: "deploy is green ✅" }]), `entry API rich_text: ${JSON.stringify(api.rich_text)}`);
+  // An ordinary file has none.
+  const plain = (await (await web(`/api/boards/${board}/entries/${j.entry.seq - 1}`, A)).json()).entry;
+  assert(plain?.rich_text === undefined, `no rich_text on other entries: ${JSON.stringify(plain?.rich_text)}`);
+});
+
 await step("brand: the graph mark (jxn's atteo_design.pdf) is the favicon, apple-touch icon and header mark", async () => {
   const f = await fetch(`${BASE}/favicon.svg`);
   assert((f.headers.get("content-type") ?? "").includes("image/svg+xml"), "favicon not svg");

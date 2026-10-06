@@ -280,7 +280,19 @@ export function formatEntry(e: Entry, maxText = DEFAULT_READ_ENTRY_CHARS, viewer
   const text = e.text.length > maxText ? e.text.slice(0, maxText) + `\n… [truncated; use get with seq ${e.seq}]` : e.text;
   // The object is its own line, after the message, so a long text cut doesn't change it.
   const extra = e.data ? `\n${indent(entryDataLine(e.data))}` : "";
-  return `${entryHeader(e, viewer)}\n${indent(text)}${extra}`;
+  return `${entryHeader(e, viewer)}\n${indent(text)}${extra}${richTextBlock(e, maxText)}`;
+}
+
+/** Pasted rich text (#5258): each RTF/RTFD file's words, marked as that file's content (plain text taken from its RTF,
+ *  not something its author wrote to you), cut at `maxText` like the message. */
+function richTextBlock(e: Entry, maxText: number): string {
+  if (!e.rich_text?.length) return "";
+  return e.rich_text
+    .map((r) => {
+      const t = r.text.length > maxText ? r.text.slice(0, maxText) + `\n… [truncated; use get with seq ${e.seq}]` : r.text;
+      return `\n${indent(`----- file content: ${r.name} (pasted rich text, as plain text) -----\n${t}\n----- end of ${r.name} -----`)}`;
+    })
+    .join("");
 }
 
 /**

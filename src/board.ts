@@ -22,6 +22,7 @@ import type { RecapCore, RecapOwner, RecapTask } from "./recap";
 import type { ForYouCore } from "./forYou";
 import { cleanMatch, cleanTrigger, eventLine, lastOccurrence, matches, MAX_FIRES_PER_HOUR, MAX_TRIGGERS, minuteOf, SCHEDULE_GRACE_MS, type Trigger, type TriggerEvent, type TriggerMatch } from "./triggers";
 import { offBoardSeq } from "./util";
+import { isRichTextAttachment, richTextOf } from "./richtext";
 import { CARD_LIMIT, CARD_MAX_LIMIT, cardsAnswer, cardsThatFit, entryCard, fileCard } from "./searchCards";
 import { compileGrep, grepFtsQuery, scanGrepText, newBudget, isBoardGrepCursor, compactHitLine, cursorKey, decodeCursor, encodeCursor, trimLine, GREP_CANDIDATES, GREP_DEFAULT_MAX, GREP_HARD_MAX, GREP_RECENT, type BoardGrepOpts, type BoardGrepResult } from "./grep";
 import { audienceOk, audienceWord, canSee, ownByDefault, OWN_DEFAULT_MS, OWN_MAIL_HINT, PEOPLE_ONLY_TYPES, type Audience } from "./audience";
@@ -1049,6 +1050,30 @@ export class Board extends DurableObject<Env> {
     return Object.fromEntries(rows.map((r) => [r.seq as number, { by: r.label as string, user: r.user as string, done: !!r.done, ...(r.done ? {} : { since: r.ts as number }) }]));
   }
 
+  /**
+   * Pasted rich text for agents (#5258): an entry's RTF/RTFD files (isRichTextAttachment) carry their words as plain
+   * text, bounded like the web's (rtfToText's cap), so read/get/wait show what people see. Only those files are read.
+   */
+  private withRichText(entries: Entry[]): Entry[] {
+    return entries.map((e) => {
+      if (e.purged) return e;
+      const files = e.attachments?.length ? e.attachments : e.artifact_name ? [{ name: e.artifact_name, mime: e.media?.mime ?? "text/plain", version: e.artifact_version ?? null }] : [];
+      const rich: { name: string; text: string }[] = [];
+      for (const a of files) {
+        if (!isRichTextAttachment(a.name, a.mime) || a.version == null) continue;
+        const b = this.sql.exec("SELECT bytes FROM blobs WHERE name = ? AND version = ?", a.name, a.version).toArray()[0];
+        const t = b
+          ? richTextOf(new Uint8Array(b.bytes as ArrayBuffer))
+          : (() => {
+              const d = this.sql.exec("SELECT content FROM doc_versions WHERE name = ? AND version = ?", a.name, a.version).toArray()[0];
+              return d ? richTextOf(new TextEncoder().encode(d.content as string)) : null;
+            })();
+        if (t) rich.push({ name: a.name, text: t });
+      }
+      return rich.length ? { ...e, rich_text: rich } : e;
+    });
+  }
+
   private withHandling(entries: Entry[]): Entry[] {
     const m = this.handlingMap(entries.map((e) => e.seq));
     return entries.map((e) => (m[e.seq] ? { ...e, ...(m[e.seq].done ? { done_by: m[e.seq].by } : { handled_by: m[e.seq].by }) } : e));
@@ -1654,7 +1679,7 @@ export class Board extends DurableObject<Env> {
           })()
         : null,
       tasksForYou: tasksFor(c.summary, user, c.tags).length,
-      entries: withNames(this.decisions.attach(this.withHandling(fresh)), opts.names), // "Jarvis (vedu's agent)": names from the Worker
+      entries: withNames(this.decisions.attach(this.withRichText(this.withHandling(fresh))), opts.names), // "Jarvis (vedu's agent)": names from the Worker
       remaining,
       rules,
       memory, // the whole list on this reader's first read, then what changed (null: nothing to say)
@@ -2451,7 +2476,7 @@ export class Board extends DurableObject<Env> {
     if (last) this.markSeen(user, "agent", last);
     this.touch(user);
     await this.decisions.refresh();
-    return { info: this.info(), entries: this.decisions.attach(this.withHandling(fresh)), timedOut: fresh.length === 0, remaining, mine: fresh.filter((e) => mine.has(e.seq)).map((e) => e.seq), gone: false };
+    return { info: this.info(), entries: this.decisions.attach(this.withRichText(this.withHandling(fresh))), timedOut: fresh.length === 0, remaining, mine: fresh.filter((e) => mine.has(e.seq)).map((e) => e.seq), gone: false };
   }
 
   /**
@@ -2766,7 +2791,7 @@ export class Board extends DurableObject<Env> {
       .map(toEntry)
       .filter((e) => canSee(e, viewer) && (e.reply_to === seq || e.supersedes === seq || e.retracts === seq || e.resolves.includes(seq)));
     await this.decisions.refresh(this.decisions.isHuman(seq)); // one decision asked for: who's on the board now, not 30s ago
-    const [entry] = this.decisions.attach([toEntry(rows[0])]);
+    const [entry] = this.decisions.attach(this.withRichText([toEntry(rows[0])]));
     let content = (rows[0].artifact_content as string | null) ?? null;
     if (content == null && entry.artifact_name && entry.artifact_version != null) {
       const v = this.sql.exec("SELECT content FROM doc_versions WHERE name = ? AND version = ?", entry.artifact_name, entry.artifact_version).toArray()[0];

@@ -3,6 +3,8 @@
 // render as a quoted "Pasted text" block instead of a file card. This turns the RTF inside them into plain text: never
 // HTML, no styles, no pictures, just the words with their paragraph breaks.
 
+import { stripBidiControls } from "./util";
+
 /** A file that's pasted rich text, by its pasteboard-type name, an .rtf/.rtfd name, or an RTF type. */
 export function isRichTextAttachment(name: string | null | undefined, mime?: string | null): boolean {
   const n = (name ?? "").trim();
@@ -124,10 +126,12 @@ export function rtfToText(rtf: string, maxChars = 64 * 1024): string {
   return tidy(out).slice(0, maxChars);
 }
 
-/** Lines without trailing blanks, at most one empty line between paragraphs, no object placeholders. */
+/** Lines without trailing blanks, at most one empty line between paragraphs, no object placeholders, and none of the
+ *  hidden formatting esc() strips (bidi embeddings/overrides/isolates, zero-width space, word joiner, BOM) nor other
+ *  control characters: an RTF's \uN can spell any of them, and they could reorder or hide what an agent or person reads. */
 function tidy(s: string): string {
-  return s
-    .replace(/[￼​]/g, "")
+  return stripBidiControls(s)
+    .replace(/[\uFFFC\u0000-\u0008\u000B-\u001F\u007F-\u009F]/g, "")
     .replace(/[ \t]+\n/g, "\n")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
