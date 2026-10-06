@@ -14,8 +14,10 @@ for (const [w,h] of [[1280,820],[390,800]]) {
   await p.goto(`${BASE}/b/${board}`);await p.waitForTimeout(500);
   await p.locator('[data-open="connect"]').first().click();await p.waitForTimeout(300);
   check(await p.locator("[data-ctab]").count()===4&&(await p.locator('[data-ctab][aria-selected="true"]').innerText())==="One click",`${w}px: four tabs, opening on One click`);
-  // jxn #4124/#4151: the tiles A–Z with Any other agent last, each with its logo drawn (a mask, in the text colour).
-  const tiles=await p.locator("#connect .cn-tile").evaluateAll(ts=>ts.map(t=>{const l=t.querySelector(".cn-logo"),cs=l&&getComputedStyle(l);return[t.querySelector("b").textContent,!!cs&&cs.maskImage.startsWith("url(")&&l.offsetWidth===20]}));
+  // jxn #4124/#4151: A–Z, Any other agent last; clip paths and the generic SVG draw in the text colour.
+  // SVG has no offsetWidth. Measure both kinds through Element's bounding box.
+  const tiles=await p.locator("#connect .cn-tile").evaluateAll(ts=>ts.map(t=>{const l=t.querySelector(".cn-logo");if(!l||l.getBoundingClientRect().width!==20||l.getBoundingClientRect().height!==20)return[t.querySelector("b").textContent,false];
+    const svg=l.namespaceURI==="http://www.w3.org/2000/svg",clip=(getComputedStyle(l,"::before").clipPath||"");return[t.querySelector("b").textContent,svg||clip.startsWith("path(")]}));
   const names=tiles.map(t=>t[0]),az=names.slice(0,-1).toSorted((a,c)=>a.localeCompare(c,"en",{sensitivity:"base"}));
   check(names.length===12&&names.at(-1)==="Any other agent"&&names.slice(0,-1).join()===az.join()&&tiles.every(t=>t[1]),`One click: A–Z, Any other agent last, a logo on each (${names.join(", ")})`);
   await p.locator('[data-ctab="cli"]').click();

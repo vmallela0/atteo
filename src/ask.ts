@@ -4,7 +4,7 @@
 // speech recognition. Suggestions come from your own chats and friends. Nothing new on the server: the page uses the
 // agent chat, posting, entries?after=&wait= and read aloud (/api/app/tts, else the device's voice).
 
-import { appPage, pebble, type SideBoard, type Viewer } from "./ui";
+import { appPage, ASK_CSS_SRC, pebble, type SideBoard, type Viewer } from "./ui";
 import { esc } from "./util";
 import { TALK_JS, talkBtn } from "./talk";
 
@@ -38,40 +38,10 @@ const icon = (k: string, size = 16) => `<svg width="${size}" height="${size}" vi
 const MIC = '<svg width="40" height="40" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" aria-hidden="true"><rect x="5.5" y="1.8" width="5" height="8.2" rx="2.5"/><path d="M3.2 7.6a4.8 4.8 0 0 0 9.6 0M8 12.4v2"/></svg>';
 const KBD = '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" aria-hidden="true"><rect x="1.5" y="4" width="13" height="8" rx="1.5"/><path d="M4 6.5h.01M6.5 6.5h.01M9 6.5h.01M11.5 6.5h.01M5 9.5h6"/></svg>';
 
-const ASK_CSS = `<style>
-.ask{display:flex;flex-direction:column;align-items:center;text-align:center;max-width:520px;margin:0 auto;padding:8px 0 24px}
-.ask-who{display:flex;align-items:center;gap:7px;font-size:14px;color:var(--muted)}
-.ask-mic{position:relative;width:200px;height:200px;margin:22px 0 8px;border:0;background:none;cursor:pointer;border-radius:50%;color:var(--on-fill)}
-.ask-mic::before,.ask-mic::after{content:"";position:absolute;inset:0;border-radius:50%;background:var(--cta);opacity:.08;transition:transform .3s}
-.ask-mic::after{inset:18px;opacity:.14}
-.ask-mic .core{position:absolute;inset:44px;border-radius:50%;background:var(--cta);display:flex;align-items:center;justify-content:center;box-shadow:0 8px 28px color-mix(in srgb,var(--cta) 35%,transparent);transition:transform .15s}
-.ask-mic:hover .core{transform:scale(1.03)}.ask-mic:focus-visible{outline:2px solid var(--accent);outline-offset:4px}
-.ask.listening .ask-mic::before{animation:askPulse 1.6s ease-in-out infinite}.ask.listening .ask-mic::after{animation:askPulse 1.6s ease-in-out .3s infinite}
-@keyframes askPulse{50%{transform:scale(1.08)}}
-.ask-wave{display:flex;gap:4px;align-items:center;height:22px;visibility:hidden}.ask.listening .ask-wave{visibility:visible}
-.ask-wave i{width:4px;border-radius:2px;background:var(--cta);height:6px;animation:askWave 1s ease-in-out infinite}
-.ask-wave i:nth-child(2n){animation-delay:.15s}.ask-wave i:nth-child(3n){animation-delay:.3s}.ask-wave i:nth-child(5n){animation-delay:.45s}
-@keyframes askWave{50%{height:20px}}
-@media (prefers-reduced-motion:reduce){.ask-mic::before,.ask-mic::after,.ask-wave i{animation:none!important}}
-.ask-said{font-size:26px;line-height:1.25;font-weight:600;color:var(--ink);margin:14px 0 0;min-height:1.25em;overflow-wrap:anywhere;letter-spacing:-.01em}
-.ask-said .mid{color:var(--faint)}
-.ask-status{font-size:14px;color:var(--muted);margin-top:10px;min-height:1.4em}
-.ask-answer{width:100%;text-align:left;margin-top:18px}.ask-answer .card{padding:14px 16px}
-.ask-answer .hd{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--muted);margin-bottom:6px}.ask-answer .hd .grow{flex:1}
-.ask-answer .tx{font-size:15.5px;line-height:1.5;color:var(--text);white-space:pre-wrap;overflow-wrap:anywhere}
-.ask-type{display:flex;gap:8px;width:100%;margin-top:18px}.ask-type .input{flex:1;height:44px;font-size:16px}
-.ask-try{width:100%;text-align:left;margin-top:26px}.ask-try h2{font-size:13.5px;font-weight:500;color:var(--muted);margin:0 2px 8px}
-.ask-s{display:flex;align-items:center;gap:12px;width:100%;min-height:48px;padding:10px 14px;margin-bottom:8px;border:1px solid var(--line);border-radius:12px;background:var(--bg);color:var(--ink);font:inherit;font-size:15px;text-align:left;cursor:pointer}
-.ask-s:hover{background:var(--bg-hover)}.ask-s svg{flex:none;color:var(--muted)}
-.ask-foot{margin-top:18px;display:flex;gap:10px;justify-content:center;flex-wrap:wrap}
-.ask.typing .ask-mic,.ask.typing .ask-wave{display:none}
-@media (max-width:600px){.ask-mic{width:170px;height:170px;margin-top:10px}.ask-mic .core{inset:38px}.ask-said{font-size:23px}}
-</style>`;
-
 export function askPage(viewer: Viewer, side: SideBoard[], opts: { assistant: string | null; agentChat: string | null }): Response {
   const name = opts.assistant ? `${opts.assistant} · your assistant` : "Your assistant";
   const sugg = askSuggestions(viewer.name, side);
-  const body = `${ASK_CSS}<div class="ask" id="ask">
+  const body = `<div class="ask" id="ask">
   <div class="ask-who">${pebble(20)}<span>${esc(name)}</span></div>
   <button type="button" class="ask-mic" id="ask-mic" aria-label="Talk to your assistant" aria-pressed="false"><span class="core">${MIC}</span></button>
   <div class="ask-wave" aria-hidden="true">${"<i></i>".repeat(13)}</div>
@@ -90,6 +60,7 @@ export function askPage(viewer: Viewer, side: SideBoard[], opts: { assistant: st
     narrow: true,
     body,
     script: TALK_JS + ASK_JS.replace("__CHAT__", JSON.stringify(opts.agentChat).replace(/</g, "\\u003c")).replace("__ME__", JSON.stringify(viewer.name).replace(/</g, "\\u003c")),
+    css: [ASK_CSS_SRC],
   });
 }
 

@@ -11,6 +11,7 @@ import { MERMAID_CSS, MERMAID_JS, mermaidHtml } from "./mermaid";
 import { CODE_COLOR_CSS, CODE_COLOR_JS, fnv } from "./codecolor";
 import { TALK_CSS } from "./talk";
 import { AGENT_LOGO_CSS } from "./agent-logos";
+import { ASK_CSS, DOC_CSS, GUIDE_CSS } from "./pageCss";
 import { esc } from "./util";
 import { personHtml, shownName } from "./names";
 import { clientTable, dirOf, tr, type Lang } from "./i18n";
@@ -41,15 +42,24 @@ export function formActionSource(raw: string): string | null {
   return /^[a-z][a-z0-9+.-]*:$/i.test(u.protocol) && !/^(javascript|data|blob|file|filesystem|about):$/i.test(u.protocol) ? u.protocol : null;
 }
 
-// Each HTML response owns its nonce. Inline CSS and style attributes are used throughout the UI. Inline event handlers
-// are forbidden explicitly; page code uses listeners. Mermaid is this origin's pinned /mermaid.min.js and loads with an
-// SRI hash (mermaid.ts), so a substituted file fails the integrity check.
+// Each HTML response owns its nonce. Stylesheets come from 'self' (/app.css and page-only sheets); leftover <style>
+// blocks carry the nonce. style-src-attr separately allows server/client HTML style attributes; CSSOM property
+// assignments (composer height, pickers, diagram sizing) don't require it. Inline handlers are forbidden; page code
+// uses listeners. Mermaid is this origin's pinned
+// /mermaid.min.js and loads with an SRI hash (mermaid.ts), so a substituted file fails the integrity check.
 // The pages are private, revalidated each time (no shared cache may keep one person's page, or pin one nonce for many
 // responses); no-store would also keep them out of the back/forward cache.
+// img-src blob: is upload thumbnails and bug-report pictures (URL.createObjectURL). Avatars, board pictures and posted
+// images are this origin. Icons are inline SVG or clip-path, so data: is not an image source. font-src is only
+// /fonts/*.woff2. media-src blob: is read-aloud, the Display voice sample, and Talk's silent media-key wav; live Talk
+// audio is WebAudio on connect-src, not a media element. No data: font or media, and no media host besides 'self'.
+// The pinned mermaid.min.js inserts one fixed <style> block of its own (a nonce can't reach it), so it's allowed by its hash;
+// a new mermaid build changes the hash and the csp browser checks name the new one.
+const MERMAID_STYLE_HASH = "'sha256-lCZPv+siQGbLyHufN87S4tT1GlG+V8T7J184kcDeWZ4='";
 export function pageSecurity(opts: { formAction?: string[] } = {}) {
   const nonce = Array.from(crypto.getRandomValues(new Uint8Array(16)), (b) => b.toString(16).padStart(2, "0")).join("");
   const formAction = ["'self'", ...(opts.formAction ?? []).map(formActionSource).filter((x): x is string => !!x)].join(" ");
-  const policy = `default-src 'self'; script-src 'self' 'nonce-${nonce}'; script-src-attr 'none'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; media-src 'self' blob: data:; connect-src 'self' ${VOICE_SOCKET_ORIGIN}; frame-src 'self' about:; frame-ancestors 'none'; base-uri 'none'; form-action ${formAction}; object-src 'none'; report-uri ${CSP_REPORT_PATH}; report-to csp`;
+  const policy = `default-src 'self'; script-src 'self' 'nonce-${nonce}'; script-src-attr 'none'; style-src 'self' 'nonce-${nonce}' ${MERMAID_STYLE_HASH}; style-src-attr 'unsafe-inline'; img-src 'self' blob:; font-src 'self'; media-src 'self' blob:; connect-src 'self' ${VOICE_SOCKET_ORIGIN}; frame-src 'self' about:; frame-ancestors 'none'; base-uri 'none'; form-action ${formAction}; object-src 'none'; report-uri ${CSP_REPORT_PATH}; report-to csp`;
   const headers: Record<string, string> = {
     [CSP_ENFORCE ? "content-security-policy" : "content-security-policy-report-only"]: policy,
     "reporting-endpoints": `csp="${CSP_REPORT_PATH}"`,
@@ -58,6 +68,11 @@ export function pageSecurity(opts: { formAction?: string[] } = {}) {
     "cache-control": "private, no-cache",
   };
   return { nonce, headers };
+}
+
+/** Put the page nonce on every <style> that doesn't already have one (noscript, leftover page blocks). */
+export function styleNonce(html: string, nonce: string): string {
+  return html.replace(/<style\b(?![^>]*\bnonce=)/gi, `<style nonce="${nonce}"`);
 }
 
 // Dark tokens: the system setting picks them unless Display says light; Display can also force them.
@@ -173,8 +188,8 @@ main.narrow{max-width:720px}
   transition:border-color .15s,box-shadow .15s}
 .input:focus{outline:none;border-color:var(--faint);box-shadow:0 0 0 3px color-mix(in srgb,var(--faint) 22%,transparent)}
 textarea.input{height:auto;min-height:84px;padding:10px 12px;resize:vertical;line-height:1.5}
-select.input{appearance:none;padding-right:30px;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%23888' fill='none' stroke-width='1.4'/%3E%3C/svg%3E");
-  background-repeat:no-repeat;background-position:right 11px center}
+select.input{appearance:none;padding-right:30px;background-image:linear-gradient(135deg,transparent 45%,var(--faint) 45%,var(--faint) 55%,transparent 55%),linear-gradient(45deg,transparent 45%,var(--faint) 45%,var(--faint) 55%,transparent 55%);
+  background-repeat:no-repeat;background-position:right 15px center,right 10px center;background-size:6px 6px,6px 6px}
 label.lbl{display:block;font-size:13px;font-weight:500;color:var(--ink);margin:0 0 6px}
 .hint{font-size:12.5px;color:var(--muted);margin-top:6px}
 .field+.field{margin-top:16px}
@@ -988,10 +1003,10 @@ mark{background:var(--mark);color:inherit;border-radius:2px;padding:0 1px}
 /* Report a bug: a quiet word at the very bottom of the sidebar, under the account row (jxn #4011). */
 /* Report a bug (jxn #4051): a real button at the end of the account row, a warning triangle. */
 .sidebar .me{display:flex;align-items:center;gap:6px}.sidebar .me>.side-link{flex:1;min-width:0}
+.bug-help{margin-top:4px}
 .bug-btn{flex:none;width:30px;height:30px;padding:0;display:inline-grid;place-items:center;border:1px solid var(--line-strong);color:var(--muted);background:var(--bg)}
 .bug-btn:hover{color:var(--ink);border-color:var(--ink);background:var(--bg)}
-/* Send feedback (vedu #4125): a speech bubble before the triangle, drawn here (cached) rather than in every page's HTML. */
-[data-feedback]::before{content:"";width:16px;height:16px;background:currentColor;-webkit-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%23000' stroke-width='1.5' stroke-linejoin='round'%3E%3Cpath d='M2.5 3.5h11v7.5H7l-3 2.5V11H2.5Z'/%3E%3C/svg%3E") center/16px no-repeat;mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%23000' stroke-width='1.5' stroke-linejoin='round'%3E%3Cpath d='M2.5 3.5h11v7.5H7l-3 2.5V11H2.5Z'/%3E%3C/svg%3E") center/16px no-repeat}
+/* Send feedback (vedu #4125): the speech bubble is an inline SVG in the button (img-src does not allow data:). */
 /* Leaving Atteo (jxn #4173): the address in full, wrapped, before you go. */
 #leave .leave-url{margin:0;padding:10px 12px;border:1px solid var(--line);border-radius:var(--r-sm);background:var(--bg-subtle);font-size:13px;overflow-wrap:anywhere;color:var(--ink)}
 #leave .ft,#feedback .ft{display:flex;justify-content:flex-end;gap:8px;padding:0 22px 20px}
@@ -1307,14 +1322,18 @@ export interface Viewer {
   lang?: Lang; // the interface language for pages (i18n.ts); English when unset
 }
 
+function extraCss(hrefs?: string[]): string {
+  return (hrefs ?? []).map((href) => `<link rel="stylesheet" href="${esc(href)}">`).join("");
+}
+
 export function page(
   title: string,
   body: string,
-  opts: { viewer?: Viewer | null; nav?: "boards" | "admin" | "me" | null; narrow?: boolean; script?: string; status?: number; headers?: HeadersInit; lang?: Lang; formAction?: string[] } = {},
+  opts: { viewer?: Viewer | null; nav?: "boards" | "admin" | "me" | null; narrow?: boolean; script?: string; status?: number; headers?: HeadersInit; lang?: Lang; formAction?: string[]; css?: string[] } = {},
 ): Response {
   const v = opts.viewer;
   const security = pageSecurity({ formAction: opts.formAction });
-  const link = (href: string, label: string, key: string) => `<a href="${href}"${opts.nav === key ? ' aria-current="page"' : ""}>${label}</a>`;
+  const link = (href: string, label: string, key: string) => `<a href="${esc(href)}"${opts.nav === key ? ' aria-current="page"' : ""}>${label}</a>`;
   const nav = `<header class="nav"><div class="in">
 <a class="brand" href="/">${LOGO}<span class="wm">atteo</span></a>
 ${v ? `<nav class="links">${link("/", esc(tr(opts.lang, "Boards")), "boards")}</nav>` : ""}
@@ -1323,14 +1342,14 @@ ${v ? `<nav class="links">${link("/", esc(tr(opts.lang, "Boards")), "boards")}</
       ? `<a href="/me" class="row" title="${esc(tr(opts.lang, "Account"))}">${avatar(v.name)}<span class="small hide-sm">${esc(v.name)}</span></a>`
       : `<a class="btn sm primary" href="/auth/login">${esc(tr(opts.lang, "Sign in"))}</a>`
   }</div></div></header>`;
-  const html = `<!doctype html><html lang="${opts.lang ?? "en"}"${dirOf(opts.lang) === "rtl" ? ' dir="rtl"' : ""}><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  const html = styleNonce(`<!doctype html><html lang="${opts.lang ?? "en"}"${dirOf(opts.lang) === "rtl" ? ' dir="rtl"' : ""}><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${esc(title)}</title>
 ${FONT_PRELOAD}
 <link rel="icon" href="${FAVICON_SRC}" type="image/svg+xml"><link rel="apple-touch-icon" href="${APPLE_TOUCH_SRC}">
-<link rel="stylesheet" href="${APP_CSS_SRC}">${DISPLAY_HEAD.replace("<script>", `<script nonce="${security.nonce}">`)}</head><body>${WORDMARK_DEFS}${nav}
+<link rel="stylesheet" href="${APP_CSS_SRC}">${extraCss(opts.css)}${DISPLAY_HEAD.replace("<script>", `<script nonce="${security.nonce}">`)}</head><body>${WORDMARK_DEFS}${nav}
 <main${opts.narrow ? ' class="narrow"' : ""}>${body}</main>
 <div id="toast" role="status" aria-live="polite"></div>
-<script src="${APP_JS_SRC}" nonce="${security.nonce}"></script>${opts.script ? `<script nonce="${security.nonce}">${opts.script}</script>` : ""}</body></html>`;
+<script src="${APP_JS_SRC}" nonce="${security.nonce}"></script>${opts.script ? `<script nonce="${security.nonce}">${opts.script}</script>` : ""}</body></html>`, security.nonce);
   const headers = new Headers(opts.headers);
   headers.set("content-type", "text/html; charset=utf-8");
   for (const [name, value] of Object.entries(security.headers)) headers.set(name, value);
@@ -1644,12 +1663,18 @@ export const APP_CSS = `${FONT_CSS}\n${CSS}`;
 export const APP_CSS_SRC = `/app.css?v=${fnv(APP_CSS)}`;
 export const APP_JS = CLIENT_JS;
 export const APP_JS_SRC = `/app.js?v=${fnv(APP_JS)}`;
+/** Page-only stylesheets (Guide / Ask / Docs). Kept off /app.css so board and inbox stay in the CSS budget. */
+export const PAGE_CSS: Record<string, string> = { "/guide.css": GUIDE_CSS, "/ask.css": ASK_CSS, "/docs.css": DOC_CSS };
+export const GUIDE_CSS_SRC = `/guide.css?v=${fnv(GUIDE_CSS)}`;
+export const ASK_CSS_SRC = `/ask.css?v=${fnv(ASK_CSS)}`;
+export const DOC_CSS_SRC = `/docs.css?v=${fnv(DOC_CSS)}`;
 
 // ---------- app shell (signed-in pages) ----------
 
 const ICON = {
   clip: `<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" aria-hidden="true"><path d="M13.5 7.6 8.3 12.8a3.2 3.2 0 0 1-4.5-4.5l5.6-5.6a2.1 2.1 0 0 1 3 3L6.8 11.3a1 1 0 0 1-1.5-1.5l4.9-4.9"/></svg>`, // the composer's paper clip, for the bug report
   warn: `<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true"><path d="M8 2.3 14.4 13.4H1.6Z"/><path d="M8 6.4v3.4" stroke-linecap="round"/><circle cx="8" cy="11.5" r=".8" fill="currentColor" stroke="none"/></svg>`, // a warning triangle: Report a bug (jxn #4051)
+  feedback: `<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 3.5h11v7.5H7l-3 2.5V11H2.5Z"/></svg>`, // speech bubble: Send feedback (vedu #4125)
   plug: `<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" aria-hidden="true"><path d="M6 2v3M10 2v3M4.5 5h7v2.5a3.5 3.5 0 0 1-7 0zM8 11v3"/></svg>`,
   boards: `<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><rect x="2" y="2" width="5" height="5" rx="1.2"/><rect x="9" y="2" width="5" height="5" rx="1.2"/><rect x="2" y="9" width="5" height="5" rx="1.2"/><rect x="9" y="9" width="5" height="5" rx="1.2"/></svg>`,
   admin: `<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M8 1.8l5 2v4c0 3-2.2 5.2-5 6.4C5.2 13 3 10.8 3 7.8v-4z"/></svg>`,
@@ -1713,6 +1738,7 @@ export function appPage(
     narrow?: boolean;
     full?: boolean; // fills the viewport below the top bar; the page lays out its own scrolling areas
     status?: number;
+    css?: string[];
   },
 ): Response {
   const v = opts.viewer;
@@ -1761,7 +1787,7 @@ export function appPage(
   <div class="side-label"><span>${esc(T("Your boards"))}</span><a href="/?new=1" title="${esc(T("New board (C)"))}" aria-label="${esc(T("New board"))}">${ICON.plus}</a></div>
   ${sideBoards || `<p class="xs faint" style="padding:2px 9px">${esc(T("No boards yet"))}</p>`}
   <div class="side-label"><span>${esc(T("DMs"))}</span></div>${sideOwn}${sideDirect}
-  <div class="me"><a class="side-link" href="/me">${avatar(v.name, "sm")}<span class="truncate">${personHtml(v.name, v.display_name, opts.boards.filter((b) => b.kind === "direct").map((b) => directPeer(b, v.name)))}</span></a><button class="btn ghost sm bug-btn" type="button" data-feedback aria-label="${esc(T("Send feedback"))}"></button><button class="btn ghost sm bug-btn" type="button" data-bug data-bug-src="${BUG_JS_SRC}" aria-label="${esc(T("Report a bug"))}" title="${esc(T("Report a bug"))}">${ICON.warn}</button></div>
+  <div class="me"><a class="side-link" href="/me">${avatar(v.name, "sm")}<span class="truncate">${personHtml(v.name, v.display_name, opts.boards.filter((b) => b.kind === "direct").map((b) => directPeer(b, v.name)))}</span></a><button class="btn ghost sm bug-btn" type="button" data-feedback aria-label="${esc(T("Send feedback"))}">${ICON.feedback}</button><button class="btn ghost sm bug-btn" type="button" data-bug data-bug-src="${BUG_JS_SRC}" aria-label="${esc(T("Report a bug"))}" title="${esc(T("Report a bug"))}">${ICON.warn}</button></div>
 </aside>
 <div class="nav-scrim" data-nav-close aria-hidden="true"></div>
 <div class="grow" style="min-width:0">
@@ -1773,15 +1799,6 @@ export function appPage(
 <div class="pal-in"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><circle cx="7" cy="7" r="4.5"/><path d="m10.5 10.5 3 3"/></svg><span class="pal-chips" id="pal-chips"></span><input class="input" id="palette-q" placeholder="${esc(T("Search messages, files, boards and actions…"))}" autocomplete="off" aria-label="Search" aria-controls="palette-list"></div>
 <div class="pal-filters" id="pal-filters" aria-label="${esc(T("Filters"))}"></div>
 <ul id="palette-list" role="listbox"></ul><div class="foot"><span><kbd>↑</kbd> <kbd>↓</kbd> ${esc(T("move"))}</span><span><kbd>↵</kbd> ${esc(T("open"))}</span><span><kbd>⌫</kbd> ${esc(T("remove filter"))}</span><span><kbd>esc</kbd> ${esc(T("close"))}</span></div></dialog>
-<dialog id="bug" aria-labelledby="bug-title"><form id="bug-form">
-<div class="hd"><div><h2 id="bug-title">${esc(T("Report a bug"))}</h2><p class="muted small" style="margin-top:4px">${esc(T("It goes to the developers. Add pictures if they help: paste them, drop them here or use the paper clip."))}</p></div><button type="button" class="btn ghost sm" data-close aria-label="${esc(T("Close"))}">✕</button></div>
-<div class="bd">
-  <textarea class="input" id="bug-text" rows="4" required minlength="8" maxlength="2000" aria-label="${esc(T("What happened? What did you expect?"))}" placeholder="${esc(T("What happened? What did you expect?"))}"></textarea>
-  <div class="bug-pics" id="bug-pics" hidden></div>
-  <input type="file" id="bug-files" accept="image/*" multiple hidden>
-</div>
-<div class="ft"><button type="button" class="btn ghost sm bug-attach" id="bug-attach" aria-label="${esc(T("Attach files"))}" title="${esc(T("Attach files or images (or paste or drop them)"))}">${ICON.clip}</button><span class="grow"></span><button type="button" class="btn" data-close>${esc(T("Cancel"))}</button><button class="btn primary" type="submit" id="bug-send">${esc(T("Send report"))}</button></div>
-</form></dialog>
 <dialog id="shortcuts"><div class="hd"><h2>${esc(T("Keyboard shortcuts"))}</h2><button class="btn ghost sm" data-close aria-label="${esc(T("Close"))}">✕</button></div>
 <div class="bd"><dl class="kv">
 <dt><kbd>⌘K</kbd> <kbd>/</kbd></dt><dd>${esc(T("Search or jump to a board"))}</dd>
@@ -1798,7 +1815,7 @@ export function appPage(
 <dt><kbd>G</kbd> ${esc(T("then"))} <kbd>I</kbd> <kbd>A</kbd> <kbd>B</kbd> <kbd>P</kbd> <kbd>M</kbd></dt><dd>${esc(T("Go to Inbox / Approvals / Boards / People / Account"))}</dd>
 <dt><kbd>?</kbd></dt><dd>${esc(T("This list"))}</dd></dl></div></dialog>
 <script>window.PALETTE=${JSON.stringify(paletteItems).replace(/</g, "\\u003c")};${v.admin ? "window.OPS=1;" : ""}</script>`;
-  return rawPage(title, body, (opts.script ?? "") + scriptSrc(SHELL_JS_SRC), opts.status, v.lang ?? "en");
+  return rawPage(title, body, (opts.script ?? "") + scriptSrc(SHELL_JS_SRC), opts.status, v.lang ?? "en", opts.css);
 }
 
 const PINS_JS = `
@@ -1851,12 +1868,26 @@ const pageScripts = (script: string, nonce: string): string =>
     .split("\u0000")
     .map((part, i) => (i % 2 ? `<script src="${esc(part)}" nonce="${nonce}"></script>` : part ? `<script nonce="${nonce}">${part}</script>` : ""))
     .join("");
+/** Loaded and localized on the first bug-report click, like the feedback form. */
+export const BUG_DIALOG = `<dialog id="bug" aria-labelledby="bug-title"><form id="bug-form">
+<div class="hd"><div><h2 id="bug-title">Report a bug</h2><p class="muted small bug-help">It goes to the developers. Add pictures if they help: paste them, drop them here or use the paper clip.</p></div><button type="button" class="btn ghost sm" data-close aria-label="Close">✕</button></div>
+<div class="bd">
+  <textarea class="input" id="bug-text" rows="4" required minlength="8" maxlength="2000" aria-label="What happened? What did you expect?" placeholder="What happened? What did you expect?"></textarea>
+  <div class="bug-pics" id="bug-pics" hidden></div>
+  <input type="file" id="bug-files" accept="image/*" multiple hidden>
+</div>
+<div class="ft"><button type="button" class="btn ghost sm bug-attach" id="bug-attach" aria-label="Attach files" title="Attach files or images (or paste or drop them)">${ICON.clip}</button><span class="grow"></span><button type="button" class="btn" data-close>Cancel</button><button class="btn primary" type="submit" id="bug-send">Send report</button></div>
+</form></dialog>`;
+
 // Report a bug (jxn #3336, #4116): the account row's button opens a form: what happened, and pictures if they help,
 // added like the composer's (the paper clip, a paste or a drop), shown as thumbnails you can remove. Nothing is captured
 // on its own. Pictures are scaled to 1600 px and sent as JPEG (PNG kept when it's already small), at most 4 and 1.9 MB
 // together (the endpoint's cap), as multipart to POST /api/bugs (501 while the bug board isn't set up).
 const BUG_JS = `
-(()=>{const MAXN=4,MAX=1900000;let pics=[];
+(async()=>{
+try{const r=await fetch('/bug-form');if(!r.ok)throw Error();document.body.insertAdjacentHTML('beforeend',await r.text())}
+catch{document.getElementById('bug-js')?.remove();toast(tr("Couldn't open it"));return}
+const MAXN=4,MAX=1900000;let pics=[];
 const $=id=>document.getElementById(id);
 const total=()=>pics.reduce((n,p)=>n+p.blob.size,0);
 // One picture, made small enough: kept as it is when it's a small PNG/JPEG, else drawn at 1600 px or less as JPEG.
@@ -1881,6 +1912,7 @@ document.addEventListener('click',e=>{const x=e.target.closest('[data-bug-rm]');
 $('bug-files')?.addEventListener('change',e=>{add([...e.target.files]);e.target.value=''});
 $('bug-text')?.addEventListener('paste',e=>{const fs=[...(e.clipboardData?.files||[])];if(fs.length){e.preventDefault();add(fs)}});
 const dlg=$('bug');
+dlg.addEventListener('click',e=>{if(e.target===dlg)dlg.close()});
 dlg?.addEventListener('dragover',e=>{if([...(e.dataTransfer?.types||[])].includes('Files')){e.preventDefault();dlg.classList.add('drop')}});
 dlg?.addEventListener('dragleave',e=>{if(!dlg.contains(e.relatedTarget))dlg.classList.remove('drop')});
 dlg?.addEventListener('drop',e=>{dlg.classList.remove('drop');const fs=[...(e.dataTransfer?.files||[])];if(fs.length){e.preventDefault();add(fs)}});
@@ -1905,15 +1937,15 @@ $('bug-form')?.addEventListener('submit',async e=>{e.preventDefault();
 export const BOARD_PREFETCH_RULES = JSON.stringify({ prefetch: [{ source: "document", where: { href_matches: "/b/*" }, eagerness: "moderate" }] });
 export const BOARD_PREFETCH_PATH = "/speculation-rules.json";
 // Report a bug (jxn #3336, glm-b #3343): the sidebar button captures the page as a PNG in the browser (the DOM is
-function rawPage(title: string, body: string, script: string, status = 200, lang: Lang = "en"): Response {
+function rawPage(title: string, body: string, script: string, status = 200, lang: Lang = "en", css?: string[]): Response {
   const security = pageSecurity();
-  const html = `<!doctype html><html lang="${lang}"${dirOf(lang as Lang) === "rtl" ? ' dir="rtl"' : ""}><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  const html = styleNonce(`<!doctype html><html lang="${lang}"${dirOf(lang as Lang) === "rtl" ? ' dir="rtl"' : ""}><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${esc(title)}</title>
 ${FONT_PRELOAD}${scriptPreloads(script)}
 <link rel="icon" href="${FAVICON_SRC}" type="image/svg+xml"><link rel="apple-touch-icon" href="${APPLE_TOUCH_SRC}">
-<link rel="stylesheet" href="${APP_CSS_SRC}">${DISPLAY_HEAD.replace("<script>", `<script nonce="${security.nonce}">`)}</head><body>${WORDMARK_DEFS}${body.replace("<script>window.PALETTE=", `<script nonce="${security.nonce}">window.PALETTE=`)}
+<link rel="stylesheet" href="${APP_CSS_SRC}">${extraCss(css)}${DISPLAY_HEAD.replace("<script>", `<script nonce="${security.nonce}">`)}</head><body>${WORDMARK_DEFS}${body.replace("<script>window.PALETTE=", `<script nonce="${security.nonce}">window.PALETTE=`)}
 <div id="toast" role="status" aria-live="polite"></div>
-${lang === "en" ? "" : `<script nonce="${security.nonce}">window.I18N=${clientTable(lang)}</script>`}<script src="${APP_JS_SRC}" nonce="${security.nonce}"></script>${pageScripts(script, security.nonce)}</body></html>`;
+${lang === "en" ? "" : `<script nonce="${security.nonce}">window.I18N=${clientTable(lang)}</script>`}<script src="${APP_JS_SRC}" nonce="${security.nonce}"></script>${pageScripts(script, security.nonce)}</body></html>`, security.nonce);
   return new Response(html, { status, headers: { "content-type": "text/html; charset=utf-8", "content-language": lang, vary: "Accept-Language, Cookie", "speculation-rules": `"${BOARD_PREFETCH_PATH}"`, ...security.headers } });
 }
 
