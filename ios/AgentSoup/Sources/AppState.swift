@@ -225,17 +225,19 @@ final class AppState: ObservableObject {
         let d = display
         do {
             // A server from before replies could stay in their threads (vedu #2360), before When Atteo answers (#2460),
-            // or before One line (jxn #2690) refuses that key: the rest saves, and that one stays on this phone.
+            // before One line (jxn #2690), or before Tab order (vedu #5192) refuses that key: the rest saves, and that one
+            // stays on this phone.
             var tries = 0
             while true {
                 do {
-                    try await API.shared.send("/api/app/prefs", body: ["display": d.body(replies: !repliesRefused, turns: !turnsRefused, compact: !compactRefused)])
+                    try await API.shared.send("/api/app/prefs", body: ["display": d.body(replies: !repliesRefused, turns: !turnsRefused, compact: !compactRefused, tabs: !tabsRefused)])
                     break
-                } catch APIError.server(let m) where tries < 3 && ((!repliesRefused && m.contains("\"replies\"")) || (!turnsRefused && m.contains("\"voice_turns\"")) || (!compactRefused && m.contains("\"compact\""))) {
+                } catch APIError.server(let m) where tries < 3 && ((!repliesRefused && m.contains("\"replies\"")) || (!turnsRefused && m.contains("\"voice_turns\"")) || (!compactRefused && m.contains("\"compact\"")) || (!tabsRefused && m.contains("\"tab_order\""))) {
                     tries += 1
                     if !repliesRefused && m.contains("\"replies\"") { repliesRefused = true }
                     else if !turnsRefused && m.contains("\"voice_turns\"") { turnsRefused = true }
-                    else { compactRefused = true }
+                    else if !compactRefused && m.contains("\"compact\"") { compactRefused = true }
+                    else { tabsRefused = true }
                 }
             }
             profile?.display = d
@@ -248,6 +250,8 @@ final class AppState: ObservableObject {
     private var turnsRefused = false
     /// The same for `compact` (One line, jxn #2690).
     private var compactRefused = false
+    /// The same for `tab_order` (vedu #5192).
+    private var tabsRefused = false
 
     /// What the server has (set here or on the web). A change made on this phone that hasn't reached the server yet
     /// wins and is sent again instead.
@@ -256,6 +260,7 @@ final class AppState: ObservableObject {
         if server.repliesKnown { repliesRefused = false } else { server.replies = display.replies } // not kept there yet: the phone's choice stands
         if server.voiceTurnsKnown { turnsRefused = false } else { server.voiceTurns = display.voiceTurns; turnsRefused = true }
         if server.compactKnown { compactRefused = false } else { server.compact = display.compact } // the phone's choice stands
+        if server.tabOrderKnown { tabsRefused = false } else { server.tabOrder = display.tabOrder }
         if UserDefaults.standard.bool(forKey: Self.displayDirtyKey) {
             if server == display { cacheDisplay(display, unsaved: false) } else {
                 displaySave?.cancel()
@@ -358,6 +363,7 @@ final class AppState: ObservableObject {
                     let r = try await API.shared.get(path, as: TapeResponse.self, timeout: 35)
                     self.feedCursor = r.cursor
                     if !first, let last = r.lines.last {
+                        self.bump(r.lines)
                         self.pulse = Pulse(board: last.boardId, at: Date())
                         async let b: Void = self.refreshBoards()
                         async let i: Void = self.refreshInbox()
@@ -372,6 +378,22 @@ final class AppState: ObservableObject {
     }
 
     func stopFeed() { feedTask?.cancel(); feedTask = nil }
+
+    /// Something was posted on these boards just now: their last activity moves at once, so the board tabs and lists
+    /// reorder the moment the line arrives (vedu #5194), not after the board list comes back from the server.
+    func bump(_ lines: [TapeLine]) {
+        var next = boards
+        for l in lines { if let i = next.firstIndex(where: { $0.id == l.boardId }), l.ts > next[i].lastActivity { next[i].lastActivity = l.ts } }
+        next.sort { $0.lastActivity > $1.lastActivity }
+        if next != boards { boards = next }
+    }
+
+    /// You opened this board (vedu #5192): it leads the tabs in "Last opened" order, here at once and on the web too.
+    func markOpened(_ b: Board) async {
+        let now = Date().timeIntervalSince1970 * 1000
+        if let i = boards.firstIndex(where: { $0.id == b.id }) { boards[i].openedAt = now }
+        do { try await API.shared.send("/api/boards/\(b.id)/opened") } catch { report(error, quiet: true) }
+    }
 
     // MARK: - Settings
 
@@ -391,7 +413,7 @@ final class AppState: ObservableObject {
         let rules: [String: Any] = ["auto_accept_invites": p.rules.autoAcceptInvites ?? NSNull(), "auto_accept_friends": p.rules.autoAcceptFriends ?? NSNull(), "auto_accept_agents": p.rules.autoAcceptAgents ?? NSNull()]
         var body: [String: Any] = ["display_name": p.displayName ?? "", "bio": p.bio ?? "", "listed": p.listed, "rules": rules]
         // Always the phone's current display settings (replies too, once the server has shown it keeps them).
-        if !displayPinned { body["display"] = display.body(replies: old?.display?.repliesKnown == true && !repliesRefused, turns: old?.display?.voiceTurnsKnown == true && !turnsRefused, compact: old?.display?.compactKnown == true && !compactRefused) }
+        if !displayPinned { body["display"] = display.body(replies: old?.display?.repliesKnown == true && !repliesRefused, turns: old?.display?.voiceTurnsKnown == true && !turnsRefused, compact: old?.display?.compactKnown == true && !compactRefused, tabs: old?.display?.tabOrderKnown == true && !tabsRefused) }
         do {
             let d = try await API.shared.send("/api/me/profile", body: body)
             if let r = try? JSONDecoder.soup.decode(ProfileResponse.self, from: d) { profile = r.profile }
