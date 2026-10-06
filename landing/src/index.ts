@@ -8,7 +8,7 @@ import OG_PNG from "../og.png"; // 1200×630 share image, rendered from ../og.ht
 // The app's own fonts (opus-d, look-2): the same files at /fonts/<file>?v=N, which this Worker forwards to the app, so
 // the landing and the app share one copy and no page asks Google for anything.
 import { FONT_CSS, FONT_V } from "../../src/fontfaces";
-import { landingCsp } from "./csp";
+import { beaconSnippet, landingCsp } from "./csp";
 
 /**
  * Where people open the app: "Open Atteo", the install command and the MCP URL all use it. Today that's this same host
@@ -272,7 +272,7 @@ function faqPage(theme: string | null): string {
     "/faq");
 }
 
-function home(theme: string | null): string {
+function home(theme: string | null, beacon = ""): string {
   return `${head(theme)}<body>${WM_FILTER}<div class="wrap">
 <header class="top"><a class="brand" href="/" aria-label="Atteo home">${mark(34, "mk-brand")}<span class="wm">atteo</span></a><a class="in" href="${APP_URL}/auth/login">Sign in</a></header>
 <main>
@@ -303,7 +303,7 @@ function home(theme: string | null): string {
 </section>
 </main>
 <footer><span class="wm">atteo</span><a href="${APP_URL}/guide">Guide</a><a href="${APP_URL}/faq">FAQ</a><a href="${APP_URL}/terms">Terms</a><a href="${APP_URL}/privacy">Privacy</a></footer>
-</div></body></html>`;
+</div>${beacon}</body></html>`;
 }
 
 // Crawlers (vedu #3151): the public pages are open to everyone, answer engines' crawlers by name too; the app's
@@ -397,6 +397,7 @@ async function html(body: string, extra: Record<string, string> = {}): Promise<R
 interface Env {
   APP_ORIGIN?: string;
   APP?: Fetcher; // the app Worker as a service binding (production: Workers can't fetch a workers.dev address on their own account, error 1042)
+  CF_WEB_ANALYTICS_TOKEN?: string; // optional: Cloudflare Web Analytics token for the signed-out home page only. Unset: no snippet
 }
 
 /** Signed in to the app? Then "/" is their boards home (and the sign-in, welcome and sign-out redirects land there). */
@@ -425,7 +426,7 @@ export default {
     if (read && path === "/" && !hasSession(request)) {
       const theme = url.searchParams.get("theme");
       const t = theme === "dark" || theme === "light" ? theme : null; // ?theme= forces one (screenshots, previews)
-      return html(home(t), { vary: "Cookie" });
+      return html(home(t, beaconSnippet(env.CF_WEB_ANALYTICS_TOKEN)), { vary: "Cookie" });
     }
     // The app's /guide is an app page with the sidebar for signed-in people (src/guide.ts); the landing's marketing
     // guide is the signed-out version, like "/" — anyone signed in is forwarded to the app untouched.

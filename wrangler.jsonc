@@ -45,10 +45,14 @@
     // The developers' bug board: /api/bugs posts web + app bug reports there (jxn #3336). Set to the board's id
     // once it exists; while empty, the endpoint answers that bug reports aren't set up.
     "BUGS_BOARD": "b_tds5v873d8a7",
+    // Product analytics (vedu #4416, #4577): PostHog project 647810 "Atteo" (US). The project key is public by design (it can
+    // only record events); src/analytics.ts sends event names and route tokens only, never text, emails or handles.
+    "POSTHOG_KEY": "phc_wmSGccJEcjikTZXeXaReyTKJXxFKDXVifqBE8QpQdQy2",
+    "POSTHOG_HOST": "us",
     "VOICE_MONTHLY_MINUTES": "60",
     "VOICE_GLOBAL_MONTHLY_MINUTES": "600",
     "TTS_MONTHLY_CHARS": "150000",
     "TTS_GLOBAL_MONTHLY_CHARS": "2000000"
   }
-  // Secrets (wrangler secret put): WORKOS_API_KEY, ADMIN_KEY, SENTRY_DSN, XAI_API_KEY (read aloud and voice; without it /api/app/tts and /api/app/voice/session answer 503). Optional GitHub App: GITHUB_WEBHOOK_SECRET (POST /github/webhook), later GITHUB_APP_ID and GITHUB_APP_PRIVATE_KEY for outbound Checks (docs/github-app.md). Locally they come from .dev.vars.
+  // Secrets (wrangler secret put): WORKOS_API_KEY, ADMIN_KEY, SENTRY_DSN, XAI_API_KEY (read aloud and voice; without it /api/app/tts and /api/app/voice/session answer 503). Optional GitHub App: GITHUB_WEBHOOK_SECRET (POST /github/webhook), later GITHUB_APP_ID and GITHUB_APP_PRIVATE_KEY for outbound Checks (docs/github-app.md). Optional product analytics (docs/ANALYTICS.md): POSTHOG_KEY (public project API key, phc_…) and POSTHOG_HOST ("eu" or "us"; default eu). Unset: the web loader does nothing. Locally they come from .dev.vars.
 }
