@@ -44,7 +44,8 @@ final class EverydayUITests: AtteoUITestCase {
         a.launch()
         XCTAssertTrue(a.staticTexts["bring-title"].waitForExistence(timeout: 20), "Bring your assistant")
         for p in ["grok", "muse", "chatgpt", "claude"] { XCTAssertTrue(a.buttons["connect-\(p)"].exists, "\(p) tile") }
-        XCTAssertTrue(a.buttons["atteo-assistant"].exists, "Use Atteo's assistant")
+        XCTAssertTrue(a.descendants(matching: .any)["atteo-assistant"].exists, "Use Atteo's assistant (coming soon)")
+        XCTAssertFalse(a.buttons["atteo-assistant"].exists, "not tappable until it is built")
         shot("everyday-01-first-run")
 
         // Muse has no one-tap path: its message to paste.

@@ -18192,48 +18192,94 @@
         }
       }
     },
-    "Free, ready now. Switch any time.": {
+    "For anyone who doesn't have one. We're still building it.": {
       "localizations": {
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Gratis y listo ya. Cambia cuando quieras."
+            "value": "Para quien no tiene uno. Aún lo estamos construyendo."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Gratuit, prêt tout de suite. Changez à tout moment."
+            "value": "Pour ceux qui n’en ont pas. Nous sommes encore en train de le construire."
           }
         },
         "hi": {
           "stringUnit": {
             "state": "translated",
-            "value": "मुफ़्त, अभी तैयार। कभी भी बदलें।"
+            "value": "उनके लिए जिनके पास कोई सहायक नहीं है। हम अभी इसे बना रहे हैं।"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "無料ですぐに使えます。いつでも切り替え可能。"
+            "value": "アシスタントを持っていない人向け。現在開発中です。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "무료이며 지금 바로 쓸 수 있습니다. 언제든 바꿀 수 있습니다."
+            "value": "어시스턴트가 없는 사람을 위한 것입니다. 아직 만드는 중입니다."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "免费，现在就能用。随时可以更换。"
+            "value": "给还没有助手的人。我们仍在开发中。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "免費，現在就能用。隨時可以更換。"
+            "value": "給還沒有助手的人。我們仍在開發中。"
+          }
+        }
+      }
+    },
+    "Coming soon": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Próximamente"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bientôt disponible"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "जल्द आ रहा है"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "近日公開"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "곧 제공"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "即将推出"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "即將推出"
           }
         }
       }
