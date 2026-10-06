@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { CSP_ENFORCE } from "../src/ui";
-import { cspHash, inlineScripts, landingCsp } from "../landing/src/csp";
+import { beaconSnippet, cspHash, inlineScripts, landingCsp } from "../landing/src/csp";
 import worker from "../landing/src/index";
 
 const env = { APP_ORIGIN: "http://127.0.0.1:9" };
@@ -57,6 +57,22 @@ describe("landing Worker CSP (docs/security/csp.md #8)", () => {
         expect(JSON.parse(scripts[0]!)).toHaveProperty("@graph");
       }
     }
+  });
+
+  it("loads Cloudflare Web Analytics on the home page only when a token is set", async () => {
+    expect(beaconSnippet(undefined)).toBe("");
+    const tokenEnv = { ...env, CF_WEB_ANALYTICS_TOKEN: "abcdef0123456789" };
+    const home = await worker.fetch(new Request("http://localhost/"), tokenEnv);
+    const html = await home.text();
+    const csp = home.headers.get("content-security-policy") ?? "";
+    expect(html).toContain("https://static.cloudflareinsights.com/beacon.min.js");
+    expect(csp).toBe(await landingCsp(html, FORM));
+    expect(csp).toContain("script-src ");
+    expect(csp).toContain("https://static.cloudflareinsights.com");
+    expect(csp).toContain("connect-src https://cloudflareinsights.com");
+    const guide = await worker.fetch(new Request("http://localhost/guide"), tokenEnv);
+    expect(await guide.text()).not.toContain("cloudflareinsights");
+    expect(guide.headers.get("content-security-policy")).toContain("connect-src 'none'");
   });
 
   it("does not put CSP on the non-HTML files", async () => {

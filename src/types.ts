@@ -162,6 +162,8 @@ export interface Env {
   GITHUB_APP_ID?: string; // secret or var: GitHub App id for outbound Checks/comments; unused until outbound posting is wired
   GITHUB_APP_PRIVATE_KEY?: string; // secret: GitHub App private key (PEM). Unset: outbound stays a stub. Never kept in D1
   SENTRY_DSN?: string; // secret (so dev/CI never report): Sentry project DSN; absent in dev/CI, then Sentry is off
+  POSTHOG_KEY?: string; // var: PostHog project API key (phc_…, public). Unset: the web analytics loader does nothing (src/analytics.ts, docs/ANALYTICS.md)
+  POSTHOG_HOST?: string; // var: "eu" (default) or "us". Anything else leaves analytics off
   XAI_API_KEY?: string; // secret: xAI text-to-speech (POST /api/app/tts, src/tts.ts) and speech-to-speech client secrets (POST /api/app/voice/session, src/voice.ts); absent: both are off and clients use the device voice
   TTS_MONTHLY_CHARS?: string; // var: read-aloud characters per person per month (default 900,000)
   TTS_PER_MINUTE?: string; // var: read-aloud requests per person per minute (default 30)
