@@ -6,7 +6,9 @@ import { until } from "./lib/wait.mjs";
 const BASE=process.env.BASE||"http://localhost:8787";
 const ops=async(p,b)=>(await fetch(`${BASE}/api/ops/${p}`,{method:"POST",headers:{"x-admin-key":"ci-admin-key","content-type":"application/json"},body:JSON.stringify(b)})).json();
 const run=Date.now().toString(36).slice(-4),P=`jn${run}`,V=`vn${run}`,NAME=`Jarv${run}`;
-for(const u of [P,V])await ops("users",{name:u,email:`${u}@example.com`,verified:"true"});
+// P reads with one line per message (Display → Messages), set on the account the way a person sets it: the page applies
+// it from /api/me/profile once per tab, so poking data-compact by hand raced that fetch and lost under load.
+for(const u of [P,V])await ops("users",{name:u,email:`${u}@example.com`,verified:"true",...(u===P?{display:{compact:"others"}}:{})});
 const board=(await ops("boards",{user:P,title:`Names ${run}`})).board.id;await ops("members",{board,user:V});
 const ckP=(await ops("sessions",{user:P})).cookie,ckV=(await ops("sessions",{user:V})).cookie,tokV=(await ops("tokens",{user:V})).token;
 const prof=(ck,b)=>fetch(`${BASE}/api/me/profile`,{method:"POST",headers:{"content-type":"application/json",cookie:ck},body:JSON.stringify(b)});
@@ -27,7 +29,7 @@ for(const [w,scheme] of [[1280,"light"],[390,"dark"]]){
   const meta=await p.locator(`#e${a1}>.grow>.meta`).innerText(),own=await p.locator(`#e${a1}>.grow>.meta>.who`).getAttribute("title");
   // The header is the name and the time (jxn #4522); whose agent it is is on the name's hover.
   check(new RegExp(`^${NAME}`).test(meta.trim())&&!new RegExp(`${V}'s agent`).test(meta)&&own===`${V}'s agent`,`${w}px: the agent's post reads "${NAME}", "${V}'s agent" on hover (${meta.replace(/\s+/g," ").slice(0,60)} | ${own})`);
-  await p.evaluate(()=>{document.documentElement.dataset.compact="others"});
+  await p.waitForFunction(()=>document.documentElement.dataset.compact==="others",null,{timeout:8000}).catch(()=>{});
   // olMark runs on a timer/frame; the capture-phase opener only handles rows already marked .ol.
   await p.locator(`#e${a1}.ol`).waitFor({state:"attached",timeout:5000});
   check(!await p.locator(`#e${a1} .agent-info`).isVisible(),`${w}px: owner details are hidden in collapsed rows`);
