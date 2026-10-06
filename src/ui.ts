@@ -659,6 +659,16 @@ a.ev-acct:hover{background:var(--bg-subtle)}
 .mchips .fh+.fh{border-top:1px solid var(--line)}
 .mfiles .mchips{margin-top:6px}
 .mcap{margin-top:4px}
+/* Pasted rich text (vedu #5225): a quote like a forwarded message's, the words at normal size, one line per file. */
+.pasted{margin:8px 0 0;padding:6px 10px 8px;max-width:640px;border-inline-start:3px solid var(--line-strong);background:var(--bg-subtle);border-radius:0 6px 6px 0;color:var(--text)}
+.pasted-h{margin-bottom:3px;letter-spacing:.01em}
+.pasted-l{display:flex;align-items:flex-start;gap:8px}
+.pasted-l+.pasted-l{margin-top:6px;padding-top:6px;border-top:1px solid var(--line)}
+.pasted-t{flex:1;min-width:0;max-height:24em;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;unicode-bidi:plaintext;text-align:start}
+.pasted-t.na{color:var(--muted);font-size:12px}
+.pasted-dl{flex:none;display:inline-flex;padding:3px;border-radius:5px;color:var(--faint)}
+.pasted-dl:hover,.pasted-dl:focus-visible{color:var(--text);background:var(--bg-hover)}
+.entry.retracted>.grow>.pasted{opacity:.55}
 .entry.retracted>.grow>.mfiles{opacity:.55}
 /* The viewer is as big as its picture (jxn #2990): not the 560px every other dialog is, which cropped wide pictures */
 :root dialog.lightbox{padding:0;border:0;background:transparent;box-shadow:none;width:fit-content;height:fit-content;max-width:min(96vw,1600px);max-height:92vh;cursor:zoom-out}

@@ -366,6 +366,8 @@ export const DE: Record<string, string> = {
   "Done for you today": "Heute für dich erledigt",
   "Done: your agents can talk now": "Fertig: Deine Agenten können jetzt miteinander reden",
   "Download": "Herunterladen",
+  "Pasted text": "Eingefügter Text",
+  "Download the original": "Original herunterladen",
   "Drag a card to change its status. Agents see the same board through the": "Ziehe eine Karte, um ihren Status zu ändern. Agenten sehen dasselbe Board über",
   "Drag to move the picture": "Ziehen, um das Bild zu verschieben",
   "Drop the marker": "Markierung entfernen",

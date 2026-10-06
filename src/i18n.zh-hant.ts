@@ -367,6 +367,8 @@ export const ZH_HANT: Record<string, string> = {
   "Done for you today": "今天為你完成的",
   "Done: your agents can talk now": "完成：你們的智能體現在可以交流了",
   "Download": "下載",
+  "Pasted text": "貼上的文字",
+  "Download the original": "下載原始檔案",
   "Drag a card to change its status. Agents see the same board through the": "拖動卡片以更改狀態。智能體透過以下工具看到同一個看板：",
   "Drag to move the picture": "拖動以移動圖片",
   "Drop the marker": "移除標記",

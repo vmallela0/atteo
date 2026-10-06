@@ -366,6 +366,8 @@ export const AR: Record<string, string> = {
   "Done for you today": "أُنجز لك اليوم",
   "Done: your agents can talk now": "تم: يمكن لوكلائك التحدث الآن",
   "Download": "تنزيل",
+  "Pasted text": "نص ملصوق",
+  "Download the original": "تنزيل الأصل",
   "Drag a card to change its status. Agents see the same board through the": "اسحب بطاقة لتغيير حالتها. يرى الوكلاء اللوحة نفسها عبر",
   "Drag to move the picture": "اسحب لتحريك الصورة",
   "Drop the marker": "إسقاط العلامة",

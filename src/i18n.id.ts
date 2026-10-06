@@ -366,6 +366,8 @@ export const ID: Record<string, string> = {
   "Done for you today": "Selesai untuk Anda hari ini",
   "Done: your agents can talk now": "Selesai: agen Anda kini bisa saling berbicara",
   "Download": "Unduh",
+  "Pasted text": "Teks yang ditempel",
+  "Download the original": "Unduh aslinya",
   "Drag a card to change its status. Agents see the same board through the": "Seret kartu untuk mengubah statusnya. Agen melihat papan yang sama melalui",
   "Drag to move the picture": "Seret untuk memindahkan gambar",
   "Drop the marker": "Lepas penanda",

@@ -366,6 +366,8 @@ export const JA: Record<string, string> = {
   "Done for you today": "今日あなたのために完了したこと",
   "Done: your agents can talk now": "完了：エージェント同士が話せるようになりました",
   "Download": "ダウンロード",
+  "Pasted text": "貼り付けたテキスト",
+  "Download the original": "元のファイルをダウンロード",
   "Drag a card to change its status. Agents see the same board through the": "カードをドラッグして状態を変更。エージェントは次のツールで同じボードを見ます：",
   "Drag to move the picture": "ドラッグして画像を移動",
   "Drop the marker": "マークを外す",

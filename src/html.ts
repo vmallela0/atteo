@@ -34,6 +34,7 @@ import { currentAnalytics, posthogDashboardUrl } from "./analytics";
 import { EXPORT_JS, exportRow } from "./boardExport";
 import { STATUS_JS } from "./status";
 import { EMOJI } from "./emoji";
+import { isRichTextAttachment } from "./richtext";
 import { LANG_NAMES, localize, tr, type Lang } from "./i18n";
 import { REMIND_BROWSER_JS } from "./remindTime";
 import { approvalCardHtml, approvalJs, type ApprovalCardData } from "./approvalCard";
@@ -123,7 +124,18 @@ export function entryHtml(e: Entry, boardId: string, withReplies = true, opts: {
   if (e.reply_to != null) refs.push(`reply to <a class="ref" data-ref="${e.reply_to}" href="#e${e.reply_to}">#${e.reply_to}</a>`);
   if (e.resolves.length) refs.push(`resolves ${e.resolves.map((n) => `<a class="ref" data-ref="${n}" href="#e${n}">#${n}</a>`).join(", ")}`);
   if (e.supersedes != null) refs.push(`supersedes <a class="ref" data-ref="${e.supersedes}" href="#e${e.supersedes}">#${e.supersedes}</a>`);
-  const img = (e.attachments?.length ?? 0) > 1 ? filesHtml(boardId, e.attachments!) : e.artifact_name && e.media?.mime.startsWith("image/") ? imageHtml(boardId, e, T) : "";
+  const img =
+    (e.attachments?.length ?? 0) > 1
+      ? filesHtml(boardId, e.attachments!, T)
+      : e.artifact_name && isRichTextAttachment(e.artifact_name, e.media?.mime)
+      ? pastedHtml(boardId, [{ name: e.artifact_name, version: e.artifact_version ?? null }], T)
+      : e.artifact_name && e.media?.mime.startsWith("image/")
+      ? imageHtml(boardId, e, T)
+      : "";
+  // Only pasted text in it: the "Shared 3 files" caption the server wrote says nothing the quote doesn't.
+  const files = e.attachments?.length ? e.attachments : e.artifact_name ? [{ name: e.artifact_name, mime: e.media?.mime }] : [];
+  const onlyPasted = files.length > 0 && files.every((a) => isRichTextAttachment(a.name, a.mime));
+  const shown = onlyPasted && (e.text === `Shared ${e.artifact_name}` || /^Shared \d+ files$/.test(e.text)) ? "" : e.text;
   const file = e.purged
     ? ""
     : img
@@ -175,7 +187,7 @@ ${
 ${avatar(e.author, "", e.via === "agent")}
 <div class="grow">
   <div class="meta">${isTombstone(e.author) ? `<span class="who deleted">${esc(T(DELETED_LABEL))}</span>` : whoHtml(e, opts.people, opts.members)}${e.to ? `<span class="to">→ ${isTombstone(e.to) ? esc(T(DELETED_LABEL)) : personHtml(e.to, opts.people?.[e.to], opts.members)}</span>` : ""}${e.type === "note" ? "" : typeTag(e.type, opts.lang)}${when(e.ts, opts.lang)}${e.edited_at ? `<button class="edited" type="button" data-history="${e.seq}" aria-label="${esc(T("Edited, show history"))}" title="${esc(new Date(e.edited_at).toUTCString())}">${esc(T("edited"))}</button>` : ""}<a class="seq" href="#e${e.seq}">#${e.seq}</a>${peopleBadge(e, opts.lang)}<span class="badge rbadge">${esc(T("Unsent"))}</span>${flagBadge(e.text, e.ai_flag)}${actions}</div>
-  <div class="body${e.purged ? " purged" : ""}">${e.purged ? `<p>${esc(T("Purged by {name}. Its text and files were removed for good.", { name: e.purged.via === "agent" ? T("{name}'s agent", { name: e.purged.by }) : e.purged.by }))}</p>` : apr?.title ? `<p>${esc(apr.title)}</p>` : refLinks(renderText(e.text, e.mentions, e.mention_names, selfMentions(e.text, e.author, e.via, e.agent_name)))}</div>${file}${e.card ? changeCardHtml(e.seq, e.card) : ""}${e.handoff ? `<div class="refs mono handoff">${esc(handoffLine(e.handoff))}</div>` : ""}${apr && !opts.retracted ? approvalCardHtml(apr, false, opts.lang) : ""}${e.type === "task" ? `<div class="tk" data-task="${e.seq}" hidden></div>` : ""}${e.type === "claim" && !opts.retracted ? `<div class="tk cl" data-claim="${e.seq}" hidden></div>` : ""}${e.type === "decision" && e.via === "person" && !opts.retracted ? `<div class="tk hd" data-hd="${e.seq}" hidden></div>` : ""}${quick}
+  <div class="body${e.purged ? " purged" : ""}">${e.purged ? `<p>${esc(T("Purged by {name}. Its text and files were removed for good.", { name: e.purged.via === "agent" ? T("{name}'s agent", { name: e.purged.by }) : e.purged.by }))}</p>` : apr?.title ? `<p>${esc(apr.title)}</p>` : refLinks(renderText(shown, e.mentions, e.mention_names, selfMentions(shown, e.author, e.via, e.agent_name)))}</div>${file}${e.card ? changeCardHtml(e.seq, e.card) : ""}${e.handoff ? `<div class="refs mono handoff">${esc(handoffLine(e.handoff))}</div>` : ""}${apr && !opts.retracted ? approvalCardHtml(apr, false, opts.lang) : ""}${e.type === "task" ? `<div class="tk" data-task="${e.seq}" hidden></div>` : ""}${e.type === "claim" && !opts.retracted ? `<div class="tk cl" data-claim="${e.seq}" hidden></div>` : ""}${e.type === "decision" && e.via === "person" && !opts.retracted ? `<div class="tk hd" data-hd="${e.seq}" hidden></div>` : ""}${quick}
   ${refs.length ? `<div class="refs">${refs.join(" · ")}</div>` : ""}
   <div class="rx" data-rx="${e.seq}"><button class="rx-add" type="button" data-rx-add="${e.seq}" aria-label="${esc(T("Add a reaction"))}" title="${esc(T("Add a reaction"))}">☺<span>+</span></button></div>
   ${withReplies ? `<div class="replies" id="r${e.seq}"></div>` : ""}
@@ -250,7 +262,11 @@ const FILE_ICON = `<svg width="15" height="15" viewBox="0 0 16 16" fill="none" s
  * 5+ a 2×2 whose last tile says "+N"; the rest stay in the page, hidden, so the lightbox steps through all of them),
  * then its other files as chips. Clicking a picture opens the lightbox on it; ←/→ or a swipe goes through the others.
  */
-function filesHtml(boardId: string, list: Attachment[]): string {
+function filesHtml(boardId: string, all: Attachment[], T: (s: string) => string = (x) => x): string {
+  const rich = all.filter((a) => isRichTextAttachment(a.name, a.mime));
+  const pasted = rich.length ? pastedHtml(boardId, rich, T) : "";
+  const list = all.filter((a) => !rich.includes(a));
+  if (!list.length) return pasted;
   const imgs = list.filter((a) => a.mime.startsWith("image/"));
   const others = list.filter((a) => !a.mime.startsWith("image/"));
   const shown = Math.min(imgs.length, 4);
@@ -271,7 +287,25 @@ function filesHtml(boardId: string, list: Attachment[]): string {
     })
     .join("");
   const total = list.reduce((n, a) => n + a.size, 0);
-  return `<div class="mfiles">${grid}${chips ? `<div class="file mchips">${chips}</div>` : ""}<div class="xs faint mcap">${list.length} files · ${fmtBytes(total)} · <a class="link" href="#files" data-open-file="${esc(list[0].name)}"${list[0].version ? ` data-file-ver="${list[0].version}"` : ""}>Open in Files</a></div></div>`;
+  return `${pasted}<div class="mfiles">${grid}${chips ? `<div class="file mchips">${chips}</div>` : ""}<div class="xs faint mcap">${list.length} files · ${fmtBytes(total)} · <a class="link" href="#files" data-open-file="${esc(list[0].name)}"${list[0].version ? ` data-file-ver="${list[0].version}"` : ""}>Open in Files</a></div></div>`;
+}
+
+const DL_ICON = `<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 2.5v8M4.5 7 8 10.5 11.5 7M3 13.5h10"/></svg>`;
+
+/**
+ * Pasted rich text (vedu #5225): files a Mac pasted as RTF/RTFD ("rich text with attachments -RTFD- data") shown as one
+ * quoted "Pasted text" block, a line per file. The words come from ?format=text and RTF_JS sets them with textContent,
+ * so nothing in the file is ever HTML; each line keeps a link to download its original.
+ */
+function pastedHtml(boardId: string, list: { name: string; version: number | null | undefined }[], T: (s: string) => string): string {
+  const dl = T("Download the original");
+  const lines = list
+    .map((a) => {
+      const src = fileSrc(boardId, a.name, a.version);
+      return `<div class="pasted-l"><div class="pasted-t" data-rtf-src="${esc(src)}" data-rtf-name="${esc(a.name)}"><span class="faint">…</span></div><a class="pasted-dl" href="${esc(src)}" download="${esc(a.name)}" data-save title="${esc(dl)}" aria-label="${esc(`${dl}: ${a.name}`)}">${DL_ICON}</a></div>`;
+    })
+    .join("");
+  return `<blockquote class="pasted" data-pasted><div class="pasted-h xs faint">${esc(T("Pasted text"))}</div>${lines}</blockquote>`;
 }
 
 function imageHtml(boardId: string, e: Entry, T: (s: string) => string = (x) => x): string {
@@ -1575,6 +1609,12 @@ ${approvalJs(null)}
 function markMe(root){root.querySelectorAll('.mention:not(.agent)').forEach(m=>{if(m.dataset.user===ME){m.classList.add('me');m.closest('.entry')?.classList.add('for-you')}})}
 markMe(document.getElementById('thread'));
 new MutationObserver(ms=>ms.forEach(m=>m.addedNodes.forEach(n=>{if(n.nodeType===1)markMe(n)}))).observe(document.getElementById('thread'),{childList:true,subtree:true});
+// Pasted rich text (vedu #5225): each "Pasted text" line gets its file's words, as text only (textContent). A file with
+// no readable text (an encrypted board's, a picture-only RTFD) shows its name; the download link stays either way.
+function rtfFill(){document.querySelectorAll('[data-rtf-src]:not([data-rtf-done])').forEach(el=>{el.dataset.rtfDone='1';
+  fetch(el.dataset.rtfSrc+'&format=text').then(r=>r.ok?r.json():Promise.reject(r.status)).then(j=>{const t=String(j&&j.text||'');if(!t.trim())throw 0;el.textContent=t;el.classList.add('ok')})
+  .catch(()=>{el.textContent=el.dataset.rtfName||'';el.classList.add('mono','na')})})}
+rtfFill();let rtfQ=false;new MutationObserver(()=>{if(rtfQ)return;rtfQ=true;requestAnimationFrame(()=>{rtfQ=false;rtfFill()})}).observe(document.body,{childList:true,subtree:true});
 // Looking at a board reads its inbox items (now, and as new ones arrive while you're here).
 let inboxT=0;function readInbox(){clearTimeout(inboxT);inboxT=setTimeout(()=>{if(document.visibilityState!=='visible')return;
   fetch('/api/inbox/read',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({board:BOARD})}).then(()=>window.inboxRefresh&&inboxRefresh()).catch(()=>{})},800)}
