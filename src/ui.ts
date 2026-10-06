@@ -60,9 +60,19 @@ export function formActionSource(raw: string): string | null {
 // a new mermaid build, or a new light --bg (jxn #5142), changes the hash and the csp browser checks name the new one.
 // Cloudflare Web Analytics: Cloudflare's edge injects its beacon script (no nonce) and the beacon posts to cloudflareinsights.com.
 // It was the only report in a week of report-only (vedu #5192), so it's allowed by name rather than blocked once enforced.
-export const CF_BEACON_SRC = "https://static.cloudflareinsights.com";
+// Pinned to its path (jxn's agent #5201): the edge injects .../beacon.min.js/v<version>, and a source ending in "/"
+// matches everything under that path, not the rest of the host.
+export const CF_BEACON_SRC = "https://static.cloudflareinsights.com/beacon.min.js/";
 export const CF_BEACON_POST = "https://cloudflareinsights.com";
-const MERMAID_STYLE_HASH = "'sha256-vuoYVUMGk/VxhCdzgU8CZI+1pTZh7IqNO0ULnfSkFEE='";
+// It isn't one block for every diagram (jxn's agent #5201): a sequence diagram adds one in light and two in dark,
+// built from the page's colour tokens, so each theme has its own fixed text. csp-enforced draws a flowchart and a
+// sequence diagram in light and dark and names any new hash it sees.
+const MERMAID_STYLE_HASH = [
+  "'sha256-vuoYVUMGk/VxhCdzgU8CZI+1pTZh7IqNO0ULnfSkFEE='", // every diagram
+  "'sha256-WF914ipvPGaHv9RY+aJIHeo7JES4ZDusen+ygHbePwc='", // sequence diagram, light
+  "'sha256-ZM/fKL32eTT92dYKEdOclnHO3HDdmO/uLQmDzNcYQGI='", // sequence diagram, dark
+  "'sha256-B0VWRq0QR6EJ1g0ixhqTbiYbVEJuQiCFhI44BsXN92k='", // sequence diagram, dark
+].join(" ");
 export function pageSecurity(opts: { formAction?: string[] } = {}) {
   const nonce = Array.from(crypto.getRandomValues(new Uint8Array(16)), (b) => b.toString(16).padStart(2, "0")).join("");
   const formAction = ["'self'", ...(opts.formAction ?? []).map(formActionSource).filter((x): x is string => !!x)].join(" ");

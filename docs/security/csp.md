@@ -37,6 +37,8 @@ These are intentional or operational gaps, not reasons to weaken script protecti
 
 ## Rollout (2026-10-06)
 
-A week of production report-only reports (2026-09-30 to 2026-10-06) showed one blocked source and nothing from our own pages: `script-src-elem https://static.cloudflareinsights.com`, Cloudflare Web Analytics' beacon, which Cloudflare's edge injects into app pages without our nonce. The app policy now allows it by name, as the landing already does (gap 10): `https://static.cloudflareinsights.com` on `script-src` and `https://cloudflareinsights.com` on `connect-src`. Nothing else was loosened.
+A week of production report-only reports (2026-09-30 to 2026-10-06) showed one blocked source and nothing from our own pages: `script-src-elem https://static.cloudflareinsights.com`, Cloudflare Web Analytics' beacon, which Cloudflare's edge injects into app pages without our nonce. The app policy now allows it by name, as the landing already does (gap 10): `https://static.cloudflareinsights.com/beacon.min.js/` on `script-src` (its path only; the edge injects `beacon.min.js/v<version>`, jxn's agent #5201) and `https://cloudflareinsights.com` on `connect-src`. Nothing else was loosened.
+
+Mermaid's own `<style>` blocks are allowed by hash: one for every diagram, plus a sequence diagram's (one in light, two in dark), since they're built from the page's colour tokens. `csp-enforced.mjs` draws a flowchart and a sequence diagram in light and dark and names any new hash it sees.
 
 The flip changed `CSP_ENFORCE` to `true` and the tests that pinned report-only. Reporting stays on (`report-uri` and `report-to`), so `/_ops` keeps showing what the policy blocks. Rollback is setting `CSP_ENFORCE` back to `false` and deploying.

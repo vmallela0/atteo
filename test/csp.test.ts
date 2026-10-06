@@ -56,7 +56,8 @@ describe("HTML page CSP", () => {
       expect(csp.split("; ").find((x) => x.startsWith("script-src "))).not.toContain("'unsafe-inline'");
       expect(csp).toContain("script-src-attr 'none'");
       const styleSrc = csp.split("; ").find((x) => x.startsWith("style-src ")) ?? "";
-      expect(styleSrc).toBe(`style-src 'self' 'nonce-${nonce}' 'sha256-vuoYVUMGk/VxhCdzgU8CZI+1pTZh7IqNO0ULnfSkFEE='`); // + pinned mermaid's own <style>
+      // + pinned mermaid's own <style> blocks: every diagram, then a sequence diagram's in light and dark (jxn's agent #5201)
+      expect(styleSrc).toBe(`style-src 'self' 'nonce-${nonce}' 'sha256-vuoYVUMGk/VxhCdzgU8CZI+1pTZh7IqNO0ULnfSkFEE=' 'sha256-WF914ipvPGaHv9RY+aJIHeo7JES4ZDusen+ygHbePwc=' 'sha256-ZM/fKL32eTT92dYKEdOclnHO3HDdmO/uLQmDzNcYQGI=' 'sha256-B0VWRq0QR6EJ1g0ixhqTbiYbVEJuQiCFhI44BsXN92k='`);
       expect(styleSrc).not.toContain("'unsafe-inline'");
       expect(csp.split("; ").find((x) => x.startsWith("style-src-attr"))).toBe("style-src-attr 'unsafe-inline'");
       const styles = [...html.matchAll(/<style\b([^>]*)>/g)];

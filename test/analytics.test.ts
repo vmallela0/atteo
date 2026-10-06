@@ -113,7 +113,7 @@ describe("web loader", () => {
     expect(on.html).toContain(KEY);
     expect(on.csp).toContain("connect-src 'self' wss://api.x.ai https://cloudflareinsights.com https://us.i.posthog.com");
     // PostHog's script is never loaded from its host; the only named script host is Cloudflare's injected beacon (vedu #5192).
-    expect(on.csp.split("; ").find((d) => d.startsWith("script-src "))?.split(" ").filter((x) => /^https?:/.test(x))).toEqual(["https://static.cloudflareinsights.com"]);
+    expect(on.csp.split("; ").find((d) => d.startsWith("script-src "))?.split(" ").filter((x) => /^https?:/.test(x))).toEqual(["https://static.cloudflareinsights.com/beacon.min.js/"]);
   });
 
   it("notes the privacy page and the ops link while the key is missing", async () => {
