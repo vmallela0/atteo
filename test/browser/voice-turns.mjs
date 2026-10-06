@@ -10,7 +10,7 @@ const run = Date.now().toString(36).slice(-4);
 // Each part is its own person with their own board, and the parts run side by side; each part's lines print when it's
 // done, in order.
 async function person(tag) {
-  const P = `vt${tag}${run}`; await ops("users", { name: P, email: `${P}@example.com`, verified: "true", display: { mode: "developer" } });
+  const P = `vt${tag}${run}`; await ops("users", { name: P, email: `${P}@example.com`, verified: "true", display: { mode: "developer", xai_ok: true } });
   return { board: (await ops("boards", { user: P, title: `Turns ${tag} ${run}` })).board.id, ck: (await ops("sessions", { user: P })).cookie };
 }
 // until: wait for a condition in the page instead of a fixed sleep; false when it never came (the check then says so).

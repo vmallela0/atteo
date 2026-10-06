@@ -18,7 +18,7 @@ const ops = async (path, body) => {
   if (!res.ok) throw new Error(`ops ${path}: ${res.status}`);
   return res.json();
 };
-await ops("users", { name: user, email: `${user}@example.com`, verified: "true", display: { mode: "developer" } });
+await ops("users", { name: user, email: `${user}@example.com`, verified: "true", display: { mode: "developer", xai_ok: true } });
 const cookie = (await ops("sessions", { user })).cookie;
 const token = (await ops("tokens", { user })).token;
 const board = (await ops("boards", { user, title: `CSP ${run}` })).board.id;

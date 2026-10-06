@@ -5,7 +5,7 @@
 // {board, seq, from: true} reads "<author>: <text>" ("theo's agent: …" for an agent's post): the app's voice call reads
 // new messages aloud while it stands by (jxn #2071), and who said it is part of what's heard.
 
-import { savedVoice } from "./social";
+import { savedVoicePrefs } from "./social";
 import type { Env } from "./types";
 import * as registry from "./registry";
 import { isLocalHost } from "./util";
@@ -253,6 +253,11 @@ export interface TtsDeps {
   now?: () => number;
 }
 
+/** The 403 a voice route answers without the OK to send to xAI (display.xai_ok); clients show their consent sheet on it. */
+export const NEEDS_XAI_OK = "Voice needs your OK first: it sends your voice and the messages being read to xAI. Turn on Use xAI for voice in Settings.";
+/** Whether this call would reach xAI without the person's OK: a real provider and no display.xai_ok (a fake never leaves
+ *  the machine). Each module passes `real` as provider !== its own fakeProvider. */
+export function needsXaiOk(real: boolean, ok: boolean): boolean { return real && !ok; }
 const err = (error: string, status: number, extra: Record<string, unknown> = {}, headers: HeadersInit = {}) => Response.json({ error, ...extra }, { status, headers });
 
 /** POST /api/app/tts {text, voice?} or {board, seq, voice?, from?} → audio/mpeg. from: true reads "<author>: <text>". */
@@ -335,8 +340,12 @@ export async function route(request: Request, env: Env, ctx: ExecutionContext, p
   if (viewer.via === "agent") return err("Read aloud is for people, in the web or the app.", 403);
   const me = viewer.name;
   const provider = providerFor(env, request);
+  const saved = await savedVoicePrefs(env, me);
+  // Nothing goes to xAI without the person's OK (App Review 5.1.2(i), jxn's agent #4386), whatever the client: an old app
+  // build, a stale web tab or a direct call. The local fake never leaves the machine, so it needs none.
+  if (path === "/api/app/tts" && needsXaiOk(!!provider && provider !== fakeProvider, saved.xai_ok)) return err(NEEDS_XAI_OK, 403, { needs_consent: true });
   const deps: TtsDeps = {
-    defaultVoice: await savedVoice(env, me),
+    defaultVoice: saved.voice,
     db: env.DB,
     provider,
     cache: typeof caches !== "undefined" && provider !== fakeProvider ? caches.default : null, // the fake's silence is never cached
@@ -354,6 +363,6 @@ export async function route(request: Request, env: Env, ctx: ExecutionContext, p
       return { text: g.entry.text, author: g.entry.author, via: g.entry.via };
     },
   };
-  if (path === "/api/app/tts/status") return Response.json({ ...(await status(me, deps)), operator: isOperator(env, me) }, { headers: { "cache-control": "no-store" } });
+  if (path === "/api/app/tts/status") return Response.json({ ...(await status(me, deps)), consent: saved.xai_ok, operator: isOperator(env, me) }, { headers: { "cache-control": "no-store" } });
   return speak(me, await request.json().catch(() => null), deps);
 }

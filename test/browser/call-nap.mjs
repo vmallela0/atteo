@@ -15,7 +15,7 @@ import { chromium } from "playwright-core";
 const BASE = process.env.BASE || "http://localhost:8787";
 const ops = async (p, b) => (await fetch(`${BASE}/api/ops/${p}`, { method: "POST", headers: { "x-admin-key": process.env.ADMIN_KEY || "ci-admin-key", "content-type": "application/json" }, body: JSON.stringify(b) })).json();
 const run = Date.now().toString(36).slice(-4), V = `cv${run}`;
-const mkUser = (u) => ops("users", { name: u, email: `${u}@example.com`, verified: "true", display: { mode: "developer", voice_turns: "quick" } }); // the service finds the turns here (voice-turns.mjs covers pause and tap)
+const mkUser = (u) => ops("users", { name: u, email: `${u}@example.com`, verified: "true", display: { mode: "developer", voice_turns: "quick", xai_ok: true } }); // the service finds the turns here (voice-turns.mjs covers pause and tap)
 await mkUser(V); const ckV = (await ops("sessions", { user: V })).cookie;
 // A caller with a board of their own that V is on (sessions are rate-limited per person, and messages stay apart).
 async function caller(tag) {

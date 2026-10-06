@@ -88,6 +88,8 @@ struct BoardView: View {
     @State private var group: GroupTarget? // "@agents" / "@humans" tapped: who that reaches
     @State private var reactingTo: SeqRef? // the message the full emoji picker is for
     @State private var unsending: Entry? // asking "Unsend?" first
+    @State private var reporting: Entry? // Report: the reason sheet (Moderation.swift)
+    @State private var shownMuted: Set<Int> = [] // a muted person's messages you chose to see
     @State private var openReceipts: Set<Int> = [] // your older messages you tapped to see who's seen them
     @State private var holdBottom = false // older messages going in above: keep what you're reading where it is
     @State private var decisionPrompt: DecisionPrompt? // objecting (why?) or closing a human decision
@@ -303,7 +305,7 @@ struct BoardView: View {
                     let handle = "@\(p.name)'s agent "
                     if !draft.text.localizedCaseInsensitiveContains(handle.trimmingCharacters(in: .whitespaces)) { draft.set(handle + draft.text) }
                     focused = true
-                })
+                }, board: board.isAgentChat || board.kind == "direct" ? nil : board.id)
             }
             .presentationDetents([.fraction(0.8), .large]).presentationBackground(Theme.bg)
         }
@@ -486,6 +488,8 @@ struct BoardView: View {
         .confirmationDialog("Unsend this message?", isPresented: Binding(get: { unsending != nil }, set: { if !$0 { unsending = nil } }), titleVisibility: .visible, presenting: unsending) { e in
             Button("Unsend", role: .destructive) { Task { await state.retract(e.seq, in: board) } }
         } message: { _ in Text("Everyone here will see it as unsent.") }
+        .sheet(item: $reporting) { e in ReportMessageSheet(board: board.id, e: e).presentationDetents([.medium, .large]).presentationBackground(Theme.bg) }
+        .task(id: board.id) { if !board.isAgentChat { await state.loadMutes(board.id) } } // who you muted here (Moderation.swift)
         .decisionPrompts($decisionPrompt, note: $decisionNote, board: board, state: state)
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(Theme.bg, for: .navigationBar)
@@ -531,8 +535,13 @@ struct BoardView: View {
             if e.seq == newAt { NewDivider() }
             // A hairline between separate messages from others (bubbles are separate already).
             else if !newDay, !(mine && e.type != "task") && !prevMine { Rectangle().fill(Theme.line.opacity(grouped ? 0.45 : 0.8)).frame(height: 0.5).padding(.leading, 38).padding(.top, grouped ? (density == .compact ? Space.xxs : Space.xs) : Space.gap(density)) }
+            // Someone you muted here: one line with nothing of what it says, until you tap Show (Moderation.swift).
+            if !mine, e.retracts == nil, !shownMuted.contains(e.seq), state.isMuted(e.author, on: board.id) {
+                MutedRow(who: oneLineWho(e)) { withAnimation(.snappy) { _ = shownMuted.insert(e.seq) } }
+                    .padding(.top, grouped ? 0 : Space.xxs)
+            }
             // One line (jxn #2690): not for you, so one line until you open it; opened, a Fold under it folds it again.
-            if oneLineFoldable(e, r) {
+            else if oneLineFoldable(e, r) {
                 if oneLineOpen(e) {
                     entryRow(e, grouped: grouped, mine: mine, r).equatable()
                     Button { withAnimation(.snappy) { setOpen(e.seq, false) } } label: {
@@ -612,6 +621,7 @@ struct BoardView: View {
             }
             if forMe(e) { a.takeOn = { Task { await state.takeOn(e.seq, in: board) } } }
             if !board.isAgentChat { a.remember = { Task { await state.remember(e.seq, in: board.id) } } }
+            if !mine, !board.isAgentChat { a.report = { reporting = e } }
         }
         // A reply's quote bar: its thread, over the chat, on this reply (jxn #1040).
         if e.replyTo != nil, e.seq > 0 { a.jumpToParent = { focused = false; thread = ThreadTarget(root: rootOf(e, in: rows().bySeq), focus: e.seq) } }
@@ -942,7 +952,8 @@ struct SwipeToReply: UIGestureRecognizerRepresentable {
 /// What you can do to a message (nil: not here, not now).
 struct EntryActions {
     /// Which actions there are (a row compares these, not the closures).
-    var shape: [Bool] { [react != nil, moreReactions != nil, unsend != nil, openThread != nil, jumpToParent != nil, toggleReceipt != nil, takeOn != nil, openProfile != nil, remember != nil] }
+    var shape: [Bool] { [react != nil, moreReactions != nil, unsend != nil, openThread != nil, jumpToParent != nil, toggleReceipt != nil, takeOn != nil, openProfile != nil, remember != nil, report != nil] }
+    var report: (() -> Void)? = nil // someone else's: report it to the board's owners (Moderation.swift)
     var react: ((String) -> Void)? = nil // toggle your reaction
     var moreReactions: (() -> Void)? = nil // the full emoji picker
     var unsend: (() -> Void)? = nil // yours: take it back
@@ -1113,6 +1124,7 @@ struct EntryRow: View {
                 if e.seq > 0, !board.isEmpty { Button("Copy link", systemImage: "link") { UIPasteboard.general.string = Self.link(board: board, seq: e.seq); Haptics.play(.copied) } }
                 if e.failed == true { Button("Retry", systemImage: "arrow.clockwise", action: retry) }
                 if let unsend = actions.unsend { Button("Unsend", systemImage: "arrow.uturn.backward", role: .destructive, action: unsend) }
+                if let report = actions.report { Button("Report", systemImage: "flag", role: .destructive, action: report) }
             }
             .gesture(SwipeToReply(changed: { dx in
                 guard reply != nil else { return }
@@ -1187,7 +1199,7 @@ struct EntryRow: View {
     private var caption: String? {
         if let a = e.artifactName, e.text == "Shared \(a)" || e.text.isEmpty { return nil }
         if e.isMultiFile, e.text.range(of: "^Shared \\d+ (images|files)$", options: .regularExpression) != nil { return nil }
-        return e.text
+        return mine ? e.text : OffensiveFilter.apply(e.text) // Hide offensive words (Moderation.swift), others' only
     }
 
     /// A picture inline, or a file as a chip.

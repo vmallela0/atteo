@@ -46772,6 +46772,972 @@
           }
         }
       }
+    },
+    "Voice chat needs your OK first.": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El chat de voz necesita tu permiso primero."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le chat vocal a d'abord besoin de ton accord."
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "वॉइस चैट के लिए पहले आपकी अनुमति चाहिए।"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "音声チャットには先に同意が必要です。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "음성 채팅을 쓰려면 먼저 동의가 필요해요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "语音聊天需要你先同意。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "語音聊天需要你先同意。"
+          }
+        }
+      }
+    },
+    "Voice uses xAI": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La voz usa xAI"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La voix utilise xAI"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "आवाज़ xAI का उपयोग करती है"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "音声は xAI を使います"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "음성은 xAI를 사용해요"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "语音使用 xAI"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "語音使用 xAI"
+          }
+        }
+      }
+    },
+    "Voice chat and read-aloud are powered by xAI's Grok voice service. When you use them, your voice and the messages being read or discussed are sent to xAI so it can listen and answer.": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El chat de voz y la lectura en voz alta funcionan con el servicio de voz Grok de xAI. Cuando los usas, tu voz y los mensajes que se leen o comentan se envían a xAI para que pueda escuchar y responder."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le chat vocal et la lecture à voix haute utilisent le service vocal Grok de xAI. Quand tu les utilises, ta voix et les messages lus ou discutés sont envoyés à xAI pour qu'il puisse écouter et répondre."
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "वॉइस चैट और पढ़कर सुनाना xAI की Grok वॉइस सेवा से चलते हैं। इन्हें इस्तेमाल करने पर आपकी आवाज़ और पढ़े या चर्चा किए जा रहे संदेश xAI को भेजे जाते हैं, ताकि वह सुन सके और जवाब दे सके।"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "音声チャットと読み上げは xAI の Grok 音声サービスで動いています。使うと、あなたの声と読み上げ・話題にしているメッセージが xAI に送られ、聞き取りと応答に使われます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "음성 채팅과 읽어 주기는 xAI의 Grok 음성 서비스로 작동해요. 사용하면 내 목소리와 읽거나 이야기하는 메시지가 xAI로 보내져 듣고 답하는 데 쓰여요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "语音聊天和朗读由 xAI 的 Grok 语音服务提供。使用时，你的声音以及正在朗读或讨论的消息会发送给 xAI，以便它聆听和回答。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "語音聊天和朗讀由 xAI 的 Grok 語音服務提供。使用時，你的聲音以及正在朗讀或討論的訊息會傳送給 xAI，以便它聆聽和回答。"
+          }
+        }
+      }
+    },
+    "xAI processes them to run the conversation. Atteo doesn't keep your voice recordings.": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "xAI los procesa para mantener la conversación. Atteo no guarda tus grabaciones de voz."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "xAI les traite pour faire fonctionner la conversation. Atteo ne garde pas tes enregistrements vocaux."
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "xAI बातचीत चलाने के लिए इन्हें प्रोसेस करता है। Atteo आपकी आवाज़ की रिकॉर्डिंग नहीं रखता।"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "xAI は会話のためにこれらを処理します。Atteo はあなたの音声の録音を保存しません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "xAI는 대화를 위해 이를 처리해요. Atteo는 음성 녹음을 보관하지 않아요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "xAI 处理这些内容以进行对话。Atteo 不保存你的语音录音。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "xAI 處理這些內容以進行對話。Atteo 不保存你的語音錄音。"
+          }
+        }
+      }
+    },
+    "You can turn this off any time in Settings → Safety and privacy.": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Puedes desactivarlo cuando quieras en Ajustes → Seguridad y privacidad."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tu peux le désactiver à tout moment dans Réglages → Sécurité et confidentialité."
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "आप इसे कभी भी सेटिंग्स → सुरक्षा और गोपनीयता में बंद कर सकते हैं।"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "設定 → 安全とプライバシー でいつでもオフにできます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "설정 → 안전 및 개인정보에서 언제든 끌 수 있어요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你可以随时在 设置 → 安全与隐私 中关闭。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你可以隨時在 設定 → 安全與隱私 中關閉。"
+          }
+        }
+      }
+    },
+    "Agree and continue": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aceptar y continuar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Accepter et continuer"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "सहमत हैं, जारी रखें"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "同意して続ける"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "동의하고 계속"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "同意并继续"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "同意並繼續"
+          }
+        }
+      }
+    },
+    "Message from %@": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mensaje de %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Message de %@"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ का संदेश"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ のメッセージ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@의 메시지"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "来自 %@ 的消息"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "來自 %@ 的訊息"
+          }
+        }
+      }
+    },
+    "Why are you reporting it?": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "¿Por qué lo denuncias?"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pourquoi le signales-tu ?"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "आप इसकी रिपोर्ट क्यों कर रहे हैं?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "報告する理由は？"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "신고하는 이유는 무엇인가요?"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你为什么举报它？"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你為什麼檢舉它？"
+          }
+        }
+      }
+    },
+    "Reported. The board's owners will look at it.": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denunciado. Los propietarios del tablero lo revisarán."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Signalé. Les propriétaires du tableau vont l'examiner."
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "रिपोर्ट हो गई। बोर्ड के मालिक इसे देखेंगे।"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "報告しました。ボードのオーナーが確認します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "신고했어요. 보드 소유자가 확인할 거예요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已举报。看板的所有者会查看。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已檢舉。看板的擁有者會查看。"
+          }
+        }
+      }
+    },
+    "The board's owners see the message and your reason. The person who wrote it isn't told. To stop seeing someone, mute or block them from their profile.": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los propietarios del tablero ven el mensaje y tu motivo. No se avisa a quien lo escribió. Para dejar de ver a alguien, silénciale o bloquéale desde su perfil."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les propriétaires du tableau voient le message et ta raison. La personne qui l'a écrit n'est pas prévenue. Pour ne plus voir quelqu'un, mets-le en sourdine ou bloque-le depuis son profil."
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "बोर्ड के मालिक संदेश और आपका कारण देखते हैं। लिखने वाले को नहीं बताया जाता। किसी को देखना बंद करने के लिए उनकी प्रोफ़ाइल से उन्हें म्यूट या ब्लॉक करें।"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ボードのオーナーにはメッセージと理由が表示されます。書いた人には通知されません。誰かを見たくない場合は、プロフィールからミュートまたはブロックしてください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "보드 소유자는 메시지와 사유를 봐요. 작성자에게는 알리지 않아요. 누군가를 보지 않으려면 프로필에서 음소거하거나 차단하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "看板的所有者会看到这条消息和你的理由。不会通知写的人。要不再看到某人，可在其个人资料中将其静音或屏蔽。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "看板的擁有者會看到這則訊息和你的理由。不會通知寫的人。要不再看到某人，可在其個人資料中將其靜音或封鎖。"
+          }
+        }
+      }
+    },
+    "Report message": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denunciar mensaje"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Signaler le message"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "संदेश की रिपोर्ट करें"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "メッセージを報告"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "메시지 신고"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "举报消息"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "檢舉訊息"
+          }
+        }
+      }
+    },
+    "Report": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denunciar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Signaler"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "रिपोर्ट करें"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "報告"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "신고"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "举报"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "檢舉"
+          }
+        }
+      }
+    },
+    "Muted: %@": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Silenciado: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En sourdine : %@"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "म्यूट: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ミュート中: %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "음소거됨: %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已静音：%@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已靜音：%@"
+          }
+        }
+      }
+    },
+    "Safety and privacy": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seguridad y privacidad"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sécurité et confidentialité"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "सुरक्षा और गोपनीयता"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "安全とプライバシー"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "안전 및 개인정보"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "安全与隐私"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "安全與隱私"
+          }
+        }
+      }
+    },
+    "Hide offensive words": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ocultar palabras ofensivas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Masquer les mots offensants"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "आपत्तिजनक शब्द छिपाएँ"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不快な言葉を隠す"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "불쾌한 단어 숨기기"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "隐藏冒犯性词语"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "隱藏冒犯性字詞"
+          }
+        }
+      }
+    },
+    "Use xAI for voice": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usar xAI para la voz"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utiliser xAI pour la voix"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "आवाज़ के लिए xAI का उपयोग करें"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "音声に xAI を使う"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "음성에 xAI 사용"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "语音使用 xAI"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "語音使用 xAI"
+          }
+        }
+      }
+    },
+    "Offensive words in other people's messages show as dots. Voice chat and the natural reading voice send your voice and the messages being read to xAI; off, you're asked first. To report a message, long-press it; to mute or block someone, open their profile.": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Las palabras ofensivas en los mensajes de otros se muestran como puntos. El chat de voz y la voz de lectura natural envían tu voz y los mensajes leídos a xAI; desactivado, se te pregunta primero. Para denunciar un mensaje, mantenlo pulsado; para silenciar o bloquear a alguien, abre su perfil."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les mots offensants dans les messages des autres s'affichent en points. Le chat vocal et la voix de lecture naturelle envoient ta voix et les messages lus à xAI ; désactivé, on te demande d'abord. Pour signaler un message, appuie longuement dessus ; pour mettre en sourdine ou bloquer quelqu'un, ouvre son profil."
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "दूसरों के संदेशों में आपत्तिजनक शब्द बिंदुओं के रूप में दिखते हैं। वॉइस चैट और प्राकृतिक पढ़ने वाली आवाज़ आपकी आवाज़ और पढ़े जा रहे संदेश xAI को भेजती हैं; बंद होने पर पहले पूछा जाता है। किसी संदेश की रिपोर्ट करने के लिए उसे दबाकर रखें; किसी को म्यूट या ब्लॉक करने के लिए उनकी प्रोफ़ाइल खोलें।"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "他の人のメッセージ内の不快な言葉は点で表示されます。音声チャットと自然な読み上げ音声は、あなたの声と読み上げるメッセージを xAI に送ります。オフの場合は先に確認します。メッセージを報告するには長押し、ミュートやブロックはその人のプロフィールから。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다른 사람 메시지의 불쾌한 단어는 점으로 표시돼요. 음성 채팅과 자연스러운 읽기 음성은 내 목소리와 읽는 메시지를 xAI로 보내요. 끄면 먼저 물어봐요. 메시지를 신고하려면 길게 누르고, 음소거나 차단은 프로필에서 하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "他人消息中的冒犯性词语会显示为圆点。语音聊天和自然朗读声音会把你的声音和正在朗读的消息发送给 xAI；关闭时会先询问你。要举报消息，请长按它；要静音或屏蔽某人，请打开其个人资料。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "他人訊息中的冒犯性字詞會顯示為圓點。語音聊天和自然朗讀聲音會把你的聲音和正在朗讀的訊息傳送給 xAI；關閉時會先詢問你。要檢舉訊息，請長按它；要靜音或封鎖某人，請開啟其個人資料。"
+          }
+        }
+      }
+    },
+    "Mute on this board": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Silenciar en este tablero"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mettre en sourdine sur ce tableau"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "इस बोर्ड पर म्यूट करें"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このボードでミュート"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 보드에서 음소거"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在此看板静音"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在此看板靜音"
+          }
+        }
+      }
+    },
+    "Unmute on this board": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dejar de silenciar en este tablero"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Réactiver sur ce tableau"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "इस बोर्ड पर अनम्यूट करें"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このボードでミュート解除"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 보드에서 음소거 해제"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在此看板取消静音"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在此看板取消靜音"
+          }
+        }
+      }
+    },
+    "Couldn't save that. Check your connection and try again.": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo guardar. Comprueba tu conexión e inténtalo de nuevo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible d'enregistrer. Vérifie ta connexion et réessaie."
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "सहेजा नहीं जा सका। अपना कनेक्शन जाँचें और फिर कोशिश करें।"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保存できませんでした。接続を確認してもう一度お試しください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "저장하지 못했어요. 연결을 확인하고 다시 시도하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法保存。请检查网络连接后重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法儲存。請檢查網路連線後再試一次。"
+          }
+        }
+      }
+    },
+    "Turn on Use xAI for voice in Settings → Safety and privacy first.": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Activa primero «Usar xAI para la voz» en Ajustes → Seguridad y privacidad."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Active d'abord « Utiliser xAI pour la voix » dans Réglages → Sécurité et confidentialité."
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "पहले सेटिंग्स → सुरक्षा और गोपनीयता में «आवाज़ के लिए xAI का उपयोग करें» चालू करें।"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "先に 設定 → 安全とプライバシー で「音声に xAI を使う」をオンにしてください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "먼저 설정 → 안전 및 개인정보에서 ‘음성에 xAI 사용’을 켜세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请先在 设置 → 安全与隐私 中开启“语音使用 xAI”。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "請先在 設定 → 安全與隱私 中開啟「語音使用 xAI」。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

@@ -53,7 +53,35 @@ struct TalkButton: View {
     }
 }
 
+/// Voice chat, behind the one-time xAI consent (AIConsent.swift, App Review 5.1.2(i)): until the person agrees, the
+/// sheet shows what goes to xAI instead of connecting; Not now closes it with nothing sent.
 struct TalkSheet: View {
+    let board: Board?
+    @Environment(\.dismiss) private var dismiss
+    // This phone's copy of the OK (AIConsent): withdrawn in Settings or refused by the server, the live call ends
+    // (TalkCallSheet goes, and its onDisappear settles the minutes) and the sheet asks again.
+    @AppStorage(AIConsent.key) private var agreed = false
+    @State private var saving = false
+    @State private var problem: String?
+
+    var body: some View {
+        if agreed || TalkAPI.fake {
+            TalkCallSheet(board: board)
+        } else {
+            AIConsentView(onAgree: {
+                guard !saving else { return }
+                saving = true
+                Task {
+                    if await AIConsent.save(true) { withAnimation(.snappy) { agreed = true } }
+                    else { problem = String(localized: "Couldn't save that. Check your connection and try again.", bundle: .l10n) }
+                    saving = false
+                }
+            }, onDecline: { dismiss() }, problem: problem)
+        }
+    }
+}
+
+struct TalkCallSheet: View {
     @StateObject private var talk: TalkSession
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
@@ -705,6 +733,8 @@ final class VoicePreview: NSObject, ObservableObject, AVAudioPlayerDelegate {
         if playing == voice { stop(); return }
         stop()
         problem = nil
+        // The sample is read by xAI too, so it waits for the OK (AIConsent, jxn's agent #4386).
+        guard AIConsent.xai else { problem = String(localized: "Turn on Use xAI for voice in Settings → Safety and privacy first.", bundle: .l10n); return }
         let text = String(localized: "Hi, this is how I’ll read your messages to you.", bundle: .l10n)
         let key = voice + "\n" + text
         Task {

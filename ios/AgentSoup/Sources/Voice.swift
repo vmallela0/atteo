@@ -350,7 +350,7 @@ final class ReadAloud: NSObject, ObservableObject, AVSpeechSynthesizerDelegate, 
     private func speak(_ it: Item) async {
         guard reading == it else { return }
         AudioRoutePlan.plan(.readAloud, loudspeaker: AudioOut.shared.loudspeaker).apply() // the speaker button (#2384)
-        if it.board.encrypted != true, await serverHasVoice() {
+        if it.board.encrypted != true, AIConsent.xai, await serverHasVoice() { // xAI's voice only after the OK, else the phone's
             guard reading == it else { return } // leaving while the server answers must not restart speech (vedu #4564)
             do {
                 let data = try await API.shared.send("/api/app/tts", body: ["board": it.board.id, "seq": it.entry.seq], retries: false)
@@ -372,8 +372,10 @@ final class ReadAloud: NSObject, ObservableObject, AVSpeechSynthesizerDelegate, 
 
     private func serverHasVoice() async -> Bool {
         if let v = serverVoice { return v }
-        struct S: Decodable { let enabled: Bool }
-        let v = (try? await API.shared.get("/api/app/tts/status", as: S.self))?.enabled ?? false
+        struct S: Decodable { let enabled: Bool; let consent: Bool? }
+        let s = try? await API.shared.get("/api/app/tts/status", as: S.self)
+        AIConsent.sync(s?.consent) // the OK as the server has it
+        let v = s?.enabled ?? false
         serverVoice = v
         return v
     }

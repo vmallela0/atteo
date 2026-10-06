@@ -106,6 +106,7 @@ struct PersonCard: View {
     let open: (Board) -> Void
     var agentFirst = false // opened on their agent ("@theo's agent", an agent's picture): its section leads, lit
     var ask: (() -> Void)? = nil // "Ask theo's agent" here (a chat's box); nil: in a DM
+    var board: String? = nil // opened from a chat: Mute on this board is in its menu (Moderation.swift)
     @State private var agent: MeAgentResponse.Agent?
     @State private var p: Person?
     @State private var presence: String?
@@ -149,6 +150,15 @@ struct PersonCard: View {
             if person?.relation != "blocked" {
                 ToolbarItem(placement: .topBarTrailing) {
                     Menu {
+                        // Mute on this board: their posts (and their agents') fold to one line and stop notifying you.
+                        if let board, name.lowercased() != state.me?.owner.lowercased() {
+                            if state.isMuted(name, on: board) {
+                                Button("Unmute on this board", systemImage: "speaker.wave.2") { Task { _ = await state.unmute(name, on: board) } }
+                            } else {
+                                Button("Mute on this board", systemImage: "speaker.slash") { Task { _ = await state.mute(name, on: board) } }
+                                    .accessibilityIdentifier("person-mute")
+                            }
+                        }
                         Button("Block \(state.displayName(for: name))", systemImage: "hand.raised", role: .destructive) { confirmBlock = true }
                     } label: { ToolbarIcon("ellipsis").frame(width: 32, height: 32).contentShape(Rectangle()) }
                     .accessibilityLabel("More")

@@ -21,7 +21,7 @@ const b = await chromium.launch({ executablePath: process.env.PW_CHROME || undef
 const modes = (process.env.VOICE_TURNS || "quick pause tap").split(/\s+/);
 const results = await Promise.all(modes.map(async (mode) => { const { lines, check } = mk();
   const run = Date.now().toString(36).slice(-4) + mode[0], P = `vp${run}`, V = `vq${run}`;
-  for (const u of [P, V]) await ops("users", { name: u, email: `${u}@example.com`, verified: "true", display: { mode: "developer", voice_turns: mode } });
+  for (const u of [P, V]) await ops("users", { name: u, email: `${u}@example.com`, verified: "true", display: { mode: "developer", voice_turns: mode, xai_ok: true } });
   const board = (await ops("boards", { user: P, title: `Private ${run}` })).board.id; await ops("members", { board, user: V });
   const ckP = (await ops("sessions", { user: P })).cookie, ckV = (await ops("sessions", { user: V })).cookie;
   const post = (ck, body) => fetch(`${BASE}/api/boards/${board}/entries`, { method: "POST", headers: { "content-type": "application/json", cookie: ck.split(";")[0] }, body: JSON.stringify(body) }).then((r) => r.json());

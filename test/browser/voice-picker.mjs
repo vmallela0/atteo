@@ -8,7 +8,7 @@ const BASE = (process.env.BASE || "http://localhost:8787").replace(/\/$/, "");
 const KEY = process.env.ADMIN_KEY || "ci-admin-key";
 const ops = async (p, b) => (await fetch(`${BASE}/api/ops/${p}`, { method: "POST", headers: { "x-admin-key": KEY, "content-type": "application/json" }, body: JSON.stringify(b) })).json();
 const run = Date.now().toString(36).slice(-5), P = `vp${run}`;
-await ops("users", { name: P, email: `${P}@example.com`, verified: "true" });
+await ops("users", { name: P, email: `${P}@example.com`, verified: "true", display: { xai_ok: true } }); // Play needs the OK to use xAI (#4386)
 const cookie = (await ops("sessions", { user: P })).cookie.split(";")[0];
 const prefs = async () => (await (await fetch(`${BASE}/api/app/prefs`, { headers: { cookie } })).json()).prefs;
 let fails = 0;

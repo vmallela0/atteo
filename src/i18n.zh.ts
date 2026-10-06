@@ -1,6 +1,14 @@
 // Simplified Chinese (zh-Hans) for the interface (i18n.ts): English as written in the code → 简体中文.
 // Brand and product names (Grok, Claude Code, Cursor…) stay as they are, so they aren't listed.
 export const ZH_CN: Record<string, string> = {
+  "Use xAI for voice": "语音使用 xAI",
+  "Voice chat and the natural reading voice send your voice and the messages being read to xAI. Off: you're asked first.": "语音聊天和自然朗读声音会把你的声音和正在朗读的消息发送给 xAI。关闭时：会先询问你。",
+  "Turn on Use xAI for voice first": "请先开启“语音使用 xAI”",
+  "Voice can use xAI": "语音可以使用 xAI",
+  "Voice won’t use xAI": "语音不会使用 xAI",
+  "Voice uses xAI": "语音使用 xAI",
+  "Voice chat and read-aloud are powered by xAI's Grok voice service. When you use them, your voice and the messages being read or discussed are sent to xAI so it can listen and answer. Atteo doesn't keep your voice recordings.": "语音聊天和朗读由 xAI 的 Grok 语音服务提供。使用时，你的声音以及正在朗读或讨论的消息会发送给 xAI，以便它聆听和回答。Atteo 不保存你的语音录音。",
+  "Agree and continue": "同意并继续",
   "Send feedback": "发送反馈",
   "Thanks, the Atteo team will read it.": "谢谢，Atteo 团队会阅读。",
   "Couldn't send it. Try again.": "无法发送，请重试。",

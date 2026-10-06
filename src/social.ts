@@ -377,10 +377,11 @@ export interface Display {
   compact: "off" | "others"; // whole messages, or one line each for messages that aren't for you (jxn #2690, agreed with the app #2694)
   voice_turns: "quick" | "pause" | "tap"; // voice chat: when Atteo answers (vedu #2460): at once, after a long pause, or when you tap Done
   voice_autosend: boolean; // voice chat: what you dictate to your agent goes out without a yes, after a 5s Undo (vedu #2638); off by default
+  xai_ok: boolean; // your OK to send voice and read-aloud text to xAI (App Review 5.1.2(i), jxn's agent #4386): off until you agree; tts.ts and voice.ts refuse without it
 }
-export const DISPLAY_DEFAULTS: Display = { text: "m", density: "comfortable", theme: "system", mode: "auto", lang: "auto", voice: "eve", replies: "chat", voice_turns: "pause", compact: "off", voice_autosend: false };
+export const DISPLAY_DEFAULTS: Display = { text: "m", density: "comfortable", theme: "system", mode: "auto", lang: "auto", voice: "eve", replies: "chat", voice_turns: "pause", compact: "off", voice_autosend: false, xai_ok: false };
 /** The on/off settings; every other one is one of DISPLAY_VALUES' words. */
-const DISPLAY_BOOLS = ["voice_autosend"] as const;
+const DISPLAY_BOOLS = ["voice_autosend", "xai_ok"] as const;
 type DisplayBool = (typeof DISPLAY_BOOLS)[number];
 const isDisplayBool = (k: string): k is DisplayBool => (DISPLAY_BOOLS as readonly string[]).includes(k);
 const DISPLAY_VALUES: Record<Exclude<keyof Display, DisplayBool>, readonly string[]> = {
@@ -419,7 +420,7 @@ export function mergeDisplay(cur: Display, patch: unknown): Display {
       out[k] = v;
       continue;
     }
-    if (!isDisplayKey(k)) throw new SocialError(`Unknown display setting "${k}": use text, density, theme, mode, lang, voice, replies, voice_turns, compact or voice_autosend.`);
+    if (!isDisplayKey(k)) throw new SocialError(`Unknown display setting "${k}": use text, density, theme, mode, lang, voice, replies, voice_turns, compact, voice_autosend or xai_ok.`);
     if (typeof v !== "string" || !DISPLAY_VALUES[k].includes(v)) throw new SocialError(`display.${k} must be one of: ${DISPLAY_VALUES[k].join(", ")}.`);
     out[k] = v;
   }
@@ -508,10 +509,10 @@ export async function savedVoice(env: Env, user: string): Promise<Display["voice
 }
 
 /** The voice chat prefs (display.voice, voice_turns and voice_autosend), one primary-key read. */
-export async function savedVoicePrefs(env: Env, user: string): Promise<Pick<Display, "voice" | "voice_turns" | "voice_autosend">> {
+export async function savedVoicePrefs(env: Env, user: string): Promise<Pick<Display, "voice" | "voice_turns" | "voice_autosend" | "xai_ok">> {
   const r = await env.DB.prepare(`SELECT display FROM users WHERE name = ?`).bind(user).first<{ display: string | null }>().catch(() => null);
   const d = readDisplay(r?.display ?? null);
-  return { voice: d.voice, voice_turns: d.voice_turns, voice_autosend: d.voice_autosend };
+  return { voice: d.voice, voice_turns: d.voice_turns, voice_autosend: d.voice_autosend, xai_ok: d.xai_ok };
 }
 
 export async function appPrefs(env: Env, user: string): Promise<AppPrefs | null> {
