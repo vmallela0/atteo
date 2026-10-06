@@ -682,7 +682,7 @@ struct TableBlock: View {
         let body = header ? Array(shown.dropFirst()) : shown
         let numeric = (0..<width).map { c in
             let cells = body.compactMap { c < $0.count ? $0[c] : nil }.filter { !$0.isEmpty }
-            return !cells.isEmpty && cells.allSatisfy { Double($0.replacingOccurrences(of: ",", with: "")) != nil }
+            return !cells.isEmpty && cells.allSatisfy(MarkdownTable.isNumeric)
         }
         ScrollView(.horizontal, showsIndicators: false) {
             Grid(alignment: .leading, horizontalSpacing: 18, verticalSpacing: 0) {

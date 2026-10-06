@@ -80,6 +80,36 @@ final class Batch6UITests: AtteoUITestCase {
         shot("b6-03-diagram-status")
     }
 
+    /// Pipe rows with no "|---|" line under the header are a table too (vedu #5446, jxn's agent's #5443).
+    /// TEST_RUNNER_CODE_SHOTS=<dir> also writes the screenshot there.
+    func testTableWithoutSeparator() throws {
+        let title = "Checkout bug"
+        guard !mayaAgent.isEmpty, let b = boardId(titled: title) else { throw XCTSkip("needs the seed (MAYA_AGENT)") }
+        let n = Int(Date().timeIntervalSince1970) % 100000
+        let text = """
+        Prod sample \(n), timed from the start of A's post until B has it, in ms:
+        | path | min | p50 | p90 | p99 (n) |
+        | ws (channel push's socket) | 441 | 485 | 601 | 842 (n=100) |
+        | long-poll (atteo/MCP wait) | 591 | 655 | 939 | 1621 (n=100) |
+        | post round trip (A's ack) | 450 | 568 | 724 | 1123 (n=200) |
+        The ws push usually reaches B before A's own post call returns.
+        """
+        let posted = call("POST", "/api/boards/\(b)/entries", json: ["type": "note", "text": text], token: mayaAgent)
+        XCTAssertTrue((200..<300).contains(posted["_status"] as? Int ?? 0), "posted: \(posted)")
+
+        let a = app()
+        a.launch()
+        openChat(a, title)
+        XCTAssertTrue(a.staticTexts["The ws push usually reaches B before A's own post call returns."].waitForExistence(timeout: 10), "the words after it")
+        XCTAssertTrue(a.descendants(matching: .any)["md-table"].firstMatch.exists, "the table")
+        XCTAssertTrue(a.staticTexts["842 (n=100)"].exists, "a cell on its own")
+        XCTAssertFalse(a.staticTexts.containing(NSPredicate(format: "label CONTAINS '| 441 |'")).firstMatch.exists, "no raw pipes")
+        shot("b6-loose-table")
+        if let dir = env["CODE_SHOTS"], !dir.isEmpty {
+            try? XCUIScreen.main.screenshot().pngRepresentation.write(to: URL(fileURLWithPath: dir).appendingPathComponent("ios-loose-table.png"))
+        }
+    }
+
     /// Syntax colours (jxn #2015): TypeScript, Python, Swift and SQL blocks, each coloured, in light and dark.
     /// TEST_RUNNER_CODE_SHOTS=<dir> also writes the screenshots there.
     func testCodeColours() throws {
