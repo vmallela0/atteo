@@ -36,6 +36,7 @@ import { backupConfig, blobPartKey, objectKey, uploadPart, type PartResult } fro
 import { decodeValue, encodeValue, type DumpTables } from "./backupcore";
 import { parseAgentCharter, type AgentCharter } from "./charter";
 import { mutersOf } from "./moderation";
+import { onApprovalDecided as slackOnApproval, onEntry as slackOnEntry } from "./slack";
 import { memberRole } from "./registry";
 import { dropForward, forwardsFor, PURGED_QUOTE, RETAINED_QUOTE, scrubQuote, type ForwardRow } from "./forwards";
 
@@ -1214,7 +1215,7 @@ export class Board extends DurableObject<Env> {
     return aud;
   }
 
-  async post(user: string, input: NewEntry, internal: { docVersion?: number; media?: Media; attachments?: { list: Attachment[]; text: string }; seeding?: boolean; sealed?: boolean; notice?: boolean; system?: boolean; approval?: ApprovalRef; taskCreate?: boolean; scheduled?: boolean } = {}): Promise<Entry> {
+  async post(user: string, input: NewEntry, internal: { docVersion?: number; media?: Media; attachments?: { list: Attachment[]; text: string }; seeding?: boolean; sealed?: boolean; notice?: boolean; system?: boolean; approval?: ApprovalRef; taskCreate?: boolean; scheduled?: boolean; slackFrom?: string | null } = {}): Promise<Entry> {
     this.renewLeases(user, input.session);
     // D1 lookups first, so nothing below waits between the duplicate check and the insert.
     const boardKind = await this.kindOf(this.meta("id") ?? "");
@@ -1523,6 +1524,9 @@ export class Board extends DurableObject<Env> {
       return entry;
     }
     this.ctx.waitUntil(this.notify(info, entry, forSession).catch(() => {}));
+    // The Slack bridge (src/slack.ts): boards with a linked channel only; never a seed, never an encrypted board.
+    // slackFrom: the channel a Slack reply came from, so it isn't echoed back there.
+    if (this.meta("slack") === "1" && !info.encrypted && !internal.seeding) this.ctx.waitUntil(this.toSlack(info, entry, internal.slackFrom ?? null).catch((e) => console.error("slack bridge failed", e)));
     // Workflow triggers: a post (not a notice, a system line, a seed or an unsend); a task post is also a new task.
     if (!internal.seeding && !internal.notice && !internal.system && entry.retracts == null) {
       this.fireTriggers({ on: "entry", actor: user, via: entry.via ?? null, seq: entry.seq, entry });
@@ -2077,7 +2081,24 @@ export class Board extends DurableObject<Env> {
     this.entryMemo = this.entryMemo.map((e) => (e.seq === seq ? { ...e, approval: ref } : e));
     this.broadcast({ type: "approval", id: ref.id, status: ref.status, seq, approval: ref });
     this.fireTriggers({ on: "approval", actor: ref.user, via: "person", seq, approval: ref });
+    if (this.meta("slack") === "1") {
+      const info = this.info();
+      this.ctx.waitUntil(slackOnApproval(this.env, { id: info.id, title: info.title }, seq, ref).catch((e) => console.error("slack approval failed", e)));
+    }
     return seq;
+  }
+
+  /** The Slack bridge's switch (src/slack.ts): on when a channel is linked, off when the last one goes. */
+  async setSlack(on: boolean): Promise<void> {
+    this.info();
+    this.setMeta("slack", on ? "1" : "0");
+  }
+
+  /** A public post, to the board's Slack channels: with its thread's root, so a reply can go in that thread. */
+  private async toSlack(info: BoardInfo, e: Entry, from: string | null) {
+    const top = e.reply_to != null ? (await this.rootsFor([e.seq]))[e.seq] : null;
+    const root = top != null && top !== e.seq ? (this.sql.exec(`SELECT ${ENTRY_COLS} FROM entries WHERE seq = ?`, top).toArray().map(toEntry)[0] ?? null) : null;
+    await slackOnEntry(this.env, { id: info.id, title: info.title }, e, root, from);
   }
 
   /** One member's open tabs only (what isn't for everyone on the board). */

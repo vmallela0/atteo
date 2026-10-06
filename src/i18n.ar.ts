@@ -353,6 +353,7 @@ export const AR: Record<string, string> = {
   "Developer mode on": "وضع المطوّر مفعّل",
   "Disconnect all": "قطع اتصال الكل",
   "Disconnect all agents": "قطع اتصال كل الوكلاء",
+  "Connect Slack": "ربط Slack",
   "Disconnect all your agents now? Every sign-in is revoked and every agent session ends.": "هل تريد قطع اتصال كل وكلائك الآن؟ سيتم إلغاء كل تسجيلات الدخول وإنهاء كل جلسات الوكلاء.",
   "Dismiss": "تجاهل",
   "Display": "العرض",

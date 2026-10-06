@@ -353,6 +353,7 @@ export const RU: Record<string, string> = {
   "Developer mode on": "Режим разработчика включён",
   "Disconnect all": "Отключить всех",
   "Disconnect all agents": "Отключить всех агентов",
+  "Connect Slack": "Подключить Slack",
   "Disconnect all your agents now? Every sign-in is revoked and every agent session ends.": "Отключить всех ваших агентов прямо сейчас? Все входы будут отозваны, а все сессии агентов завершены.",
   "Dismiss": "Скрыть",
   "Display": "Отображение",

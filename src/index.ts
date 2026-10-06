@@ -71,6 +71,8 @@ import * as triggers from "./triggers";
 import * as tts from "./tts";
 import * as voice from "./voice";
 import * as calls from "./calls";
+import * as slack from "./slack";
+import { slackOn } from "./slackCore";
 import { CALL_CSS, CALL_CSS_PATH, CALL_CSS_SRC, CALL_JS, CALL_JS_PATH, callPageBody } from "./callWeb";
 import { MAX_SCHEDULES } from "./schedules";
 import {
@@ -115,6 +117,7 @@ import * as Sentry from "@sentry/cloudflare";
 import { scrubForSentry } from "./sentry";
 import { analyticsConfig, trackCookieHeader, withAnalytics } from "./analytics";
 export { Board } from "./board";
+export { SlackTeam } from "./slackQueue";
 import { forwardDestOk, forwardExcerptInEntry, keptOwnNotice } from "./audience";
 import { audienceNotice, MAX_FILES_PER_MESSAGE, MAX_IMAGE, MAX_MESSAGE_BYTES, MAX_WAIT_MS, WAIT_CAP } from "./board";
 import * as sessions from "./sessions";
@@ -625,6 +628,8 @@ async function runScheduled(env: Env, ctx: ExecutionContext, now = Date.now()): 
   );
   // Calls whose last page closed without leaving: end them and post the summary (src/calls.ts).
   ctx.waitUntil(calls.reapAll(calls.depsFor(env, null, null)).catch((e) => console.error("call reap failed", e)));
+  // Slack: digests that waited their 15 minutes, the daily who-can-read check, and cleanup (src/slack.ts).
+  ctx.waitUntil(slack.cron(env, now).catch((e) => console.error("slack sweep failed", e)));
   // Boards with a retention period: blank what's older.
   const keep = (await env.DB.prepare(`SELECT id, retention_days FROM boards WHERE retention_days IS NOT NULL`).all<{ id: string; retention_days: number }>()).results;
   for (const b of keep) ctx.waitUntil(boardStub(env, b.id).prune(now - b.retention_days * 86_400_000).catch(() => 0));
@@ -841,6 +846,8 @@ const handler = {
         });
         if (denied) return denied;
       }
+      // ---- the Slack bridge (src/slack.ts): Slack's own requests (signed, no session) and the people's pages ----
+      if (path.startsWith("/slack/")) return await slack.route(request, env, ctx, path, viewer, origin);
       const pv = (): "agent" | "person" => viewer?.via ?? "person"; // who wrote it: a person on the web, or an agent via token
       // Who's looking, for what a board shows: people-only messages (vedu #1264) reach only their own people, signed
       // in as themselves (web, the app). An agent's token, or no viewer (ops), sees none of them.
@@ -1130,7 +1137,7 @@ const handler = {
         // (STRIP_JS): a hovered link fetches the page ahead (#3717), and that isn't opening it.
         const here = side.find((b) => b.id === m![2]);
         if (here) here.opened = Date.now();
-        return boardPage(viewer, side, snap.info, withAgents, snap.entries.map((e) => withAgentNames(e, agentNamed)), shown, { connected: status.connected, onThisBoard: !!live[viewer.name] }, snap.summary, agentsHere, { picture: boardPictures.pictureUrl(m[2], row?.picture_v), kind, charter, sessions: mine, seen: snap.reads?.[viewer.name]?.person_seen ?? 0, last_seen: snap.reads?.[viewer.name]?.person_seen ?? 0, muted, calls: calls.callsOn(env, request) });
+        return boardPage(viewer, side, snap.info, withAgents, snap.entries.map((e) => withAgentNames(e, agentNamed)), shown, { connected: status.connected, onThisBoard: !!live[viewer.name] }, snap.summary, agentsHere, { picture: boardPictures.pictureUrl(m[2], row?.picture_v), kind, charter, sessions: mine, seen: snap.reads?.[viewer.name]?.person_seen ?? 0, last_seen: snap.reads?.[viewer.name]?.person_seen ?? 0, muted, calls: calls.callsOn(env, request), slack: slackOn(env, request) });
       }
 
       // ---- inbox: mentions of you, posts for your agent, replies to you ----

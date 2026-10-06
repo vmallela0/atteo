@@ -189,6 +189,8 @@ export async function deleteAccount(env: Env, name: string, stub: (boardId: stri
     S(`UPDATE calls SET atteo_holder = NULL, atteo_until = NULL, atteo_session = NULL WHERE atteo_holder = ?`, n),
     S(`UPDATE calls SET atteo_log = NULL WHERE atteo_log LIKE ?`, `%"${n}"%`),
     S(`UPDATE call_members SET user = ? WHERE user = ?`, t, n),
+    // Slack (src/slack.ts): a workspace they installed the app in stays installed for the others, under the tombstone.
+    S(`UPDATE slack_installs SET created_by = ? WHERE created_by = ?`, t, n),
     S(`UPDATE audit SET target = ? WHERE target = ?`, t, n),
     ...(email ? [S(`UPDATE audit SET target = ? WHERE target = ?`, t, email)] : []),
     S(`UPDATE reports SET reporter = ? WHERE reporter = ?`, t, n),
@@ -236,6 +238,10 @@ export async function deleteAccount(env: Env, name: string, stub: (boardId: stri
     S(`DELETE FROM tts_usage WHERE user = ?`, n),
     S(`DELETE FROM reaction_usage WHERE user = ?`, n),
     S(`DELETE FROM webhooks WHERE user = ?`, n),
+    // Slack: their Slack identity links, open link nonces, and the channel bridges they made (a bridge ends with its maker).
+    S(`DELETE FROM slack_people WHERE user = ?`, n),
+    S(`DELETE FROM slack_nonces WHERE user = ?`, n),
+    S(`DELETE FROM slack_links WHERE created_by = ?`, n),
     S(`DELETE FROM account_audit WHERE user = ?`, n),
     S(`DELETE FROM approvals WHERE user = ?`, n),
     // Their machines (atteo host) go with them, and what ran on them: a host can't outlive its owner.

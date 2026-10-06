@@ -356,6 +356,7 @@ export const FR: Record<string, string> = {
   "Developer mode on": "Mode développeur activé",
   "Disconnect all": "Tout déconnecter",
   "Disconnect all agents": "Déconnecter tous les agents",
+  "Connect Slack": "Connecter Slack",
   "Disconnect all your agents now? Every sign-in is revoked and every agent session ends.": "Déconnecter tous vos agents maintenant ? Chaque connexion est révoquée et chaque session d’agent se termine.",
   "Dismiss": "Ignorer",
   "Display": "Affichage",

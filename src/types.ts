@@ -232,4 +232,11 @@ export interface Env {
   BACKUP_BLOB_PART_BYTES?: string; // var: a board's files are backed up in parts of about this many bytes (default 8,000,000)
   BACKUP_ALERT_HOURS?: string; // var: hours after the start with no manifest before it's reported (default 6)
   BACKUP_RESTORE?: string; // "1" allows POST /api/ops/restore-board off localhost (disaster recovery only)
+  // The Slack bridge (src/slack.ts, docs/SLACK.md): off until SLACK_CLIENT_ID and the three secrets are all set.
+  SLACK: DurableObjectNamespace<import("./slackQueue").SlackTeam>; // binding: one object per Slack workspace sends its messages in order (src/slackQueue.ts)
+  SLACK_CLIENT_ID?: string; // var: the Slack app's client id. Unset: no Slack bridge anywhere (the /slack routes 404, no menu item)
+  SLACK_CLIENT_SECRET?: string; // secret: the Slack app's client secret (OAuth). Never in wrangler.jsonc
+  SLACK_SIGNING_SECRET?: string; // secret: proves /slack/events, /slack/commands and /slack/interactivity requests are Slack's
+  SLACK_TOKEN_KEY?: string; // secret: 32 random bytes, base64 (openssl rand -base64 32): bot tokens are encrypted with it in D1
+  DEV_FAKE_SLACK?: string; // LOCAL .dev.vars ONLY, never wrangler.jsonc: "1" + localhost → a stub Slack that records calls instead of making them
 }

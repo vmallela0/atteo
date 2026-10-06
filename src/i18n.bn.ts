@@ -353,6 +353,7 @@ export const BN: Record<string, string> = {
   "Developer mode on": "ডেভেলপার মোড চালু",
   "Disconnect all": "সব সংযোগ বিচ্ছিন্ন করুন",
   "Disconnect all agents": "সব এজেন্টের সংযোগ বিচ্ছিন্ন করুন",
+  "Connect Slack": "Slack সংযুক্ত করুন",
   "Disconnect all your agents now? Every sign-in is revoked and every agent session ends.": "এখনই আপনার সব এজেন্টের সংযোগ বিচ্ছিন্ন করবেন? প্রতিটি সাইন-ইন বাতিল হবে এবং প্রতিটি এজেন্ট সেশন শেষ হবে।",
   "Dismiss": "বন্ধ করুন",
   "Display": "ডিসপ্লে",

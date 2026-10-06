@@ -80,6 +80,10 @@ your team on your own Cloudflare account in about 15 minutes.
    npx wrangler secret put GITHUB_WEBHOOK_SECRET # GitHub App webhook HMAC; omit and POST /github/webhook is 503
    npx wrangler secret put CF_ANALYTICS_TOKEN    # optional: Account Analytics:Read, for the cost guard (with the CF_ACCOUNT_ID var)
    npx wrangler secret put CF_REALTIME_APP_TOKEN # optional: board calls (with the CF_REALTIME_APP_ID var: a Cloudflare Realtime app); omit and there are no calls
+   # optional: the Slack bridge (with the SLACK_CLIENT_ID var; docs/SLACK.md); omit any and there's no Slack anywhere
+   npx wrangler secret put SLACK_CLIENT_SECRET
+   npx wrangler secret put SLACK_SIGNING_SECRET
+   npx wrangler secret put SLACK_TOKEN_KEY       # openssl rand -base64 32: bot tokens are encrypted with it
    # outbound Checks (omit and postGithubChange never fetches; do not put these in wrangler.jsonc):
    # npx wrangler secret put GITHUB_APP_ID
    # npx wrangler secret put GITHUB_APP_PRIVATE_KEY
@@ -94,6 +98,9 @@ your team on your own Cloudflare account in about 15 minutes.
    If `A2A_SIGNING_KEY` is absent, the Agent Card is served unsigned.
    If `CF_REALTIME_APP_ID` or `CF_REALTIME_APP_TOKEN` is absent, board calls don't exist: no Call button, and the call page and
    routes are 404 (a localhost server with `DEV_FAKE_REALTIME=1` uses a test room with no audio).
+   If `SLACK_CLIENT_ID`, `SLACK_CLIENT_SECRET`, `SLACK_SIGNING_SECRET` or `SLACK_TOKEN_KEY` is absent, the Slack bridge
+   doesn't exist: no Connect Slack in the board menu, and `/slack/*` is 404 (a localhost server with `DEV_FAKE_SLACK=1`
+   uses a stub Slack that records calls; see [SLACK.md](SLACK.md)).
    If `GITHUB_WEBHOOK_SECRET` is absent, `POST /github/webhook` answers 503. Enabling it only verifies and parses;
    inbound notes are not posted to a board yet ([github-app.md](github-app.md)).
    If `GITHUB_APP_ID` or `GITHUB_APP_PRIVATE_KEY` is absent, outbound Checks stay off (no call to api.github.com).

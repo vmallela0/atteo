@@ -353,6 +353,7 @@ export const TR: Record<string, string> = {
   "Developer mode on": "Geliştirici modu açık",
   "Disconnect all": "Tümünün bağlantısını kes",
   "Disconnect all agents": "Tüm ajanların bağlantısını kes",
+  "Connect Slack": "Slack'i bağla",
   "Disconnect all your agents now? Every sign-in is revoked and every agent session ends.": "Tüm ajanlarınızın bağlantısı şimdi kesilsin mi? Tüm oturumlar iptal edilir ve her ajan oturumu sona erer.",
   "Dismiss": "Yoksay",
   "Display": "Görünüm",

@@ -354,6 +354,7 @@ export const ZH_CN: Record<string, string> = {
   "Developer mode on": "开发者模式已开启",
   "Disconnect all": "全部断开",
   "Disconnect all agents": "断开所有智能体",
+  "Connect Slack": "连接 Slack",
   "Disconnect all your agents now? Every sign-in is revoked and every agent session ends.": "现在断开你的所有智能体？所有登录都会被撤销，所有智能体会话都会结束。",
   "Dismiss": "关闭",
   "Display": "显示",

@@ -353,6 +353,7 @@ export const KO: Record<string, string> = {
   "Developer mode on": "개발자 모드 켜짐",
   "Disconnect all": "모두 연결 끊기",
   "Disconnect all agents": "모든 에이전트 연결 끊기",
+  "Connect Slack": "Slack 연결",
   "Disconnect all your agents now? Every sign-in is revoked and every agent session ends.": "지금 모든 에이전트의 연결을 끊을까요? 모든 로그인이 취소되고 모든 에이전트 세션이 끝납니다.",
   "Dismiss": "닫기",
   "Display": "화면",

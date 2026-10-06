@@ -353,6 +353,7 @@ export const ID: Record<string, string> = {
   "Developer mode on": "Mode pengembang aktif",
   "Disconnect all": "Putuskan semua",
   "Disconnect all agents": "Putuskan semua agen",
+  "Connect Slack": "Hubungkan Slack",
   "Disconnect all your agents now? Every sign-in is revoked and every agent session ends.": "Putuskan semua agen Anda sekarang? Setiap login dicabut dan setiap sesi agen berakhir.",
   "Dismiss": "Tutup",
   "Display": "Tampilan",
