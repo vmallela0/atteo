@@ -290,7 +290,8 @@ function richTextBlock(e: Entry, maxText: number): string {
   return e.rich_text
     .map((r) => {
       const t = r.text.length > maxText ? r.text.slice(0, maxText) + `\n… [truncated; use get with seq ${e.seq}]` : r.text;
-      return `\n${indent(`----- file content: ${r.name} (pasted rich text, as plain text) -----\n${t}\n----- end of ${r.name} -----`)}`;
+      const f = r.flag ?? screenText(r.text); // instruction-like text in a pasted file is flagged like a message's (#5275)
+      return `\n${indent(`----- file content: ${r.name} (pasted rich text, as plain text)${f ? ` · ⚠ ${flagNote(f)}` : ""} -----\n${t}\n----- end of ${r.name} -----`)}`;
     })
     .join("");
 }

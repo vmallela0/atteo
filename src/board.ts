@@ -3,7 +3,7 @@
 
 import { track } from "./usage";
 import { imageSize, sniffImage } from "./imageSize";
-import { fence, flagNote, flagOf, screenText } from "./screen";
+import { fence, flagged, flagNote, flagOf, screenText } from "./screen";
 import { FOR_LABEL, pingExcerpt, triagePreview, webhookForWhom } from "./ping";
 import { DurableObject } from "cloudflare:workers";
 import { computeSummary, formatSummary, summaryWithNames, summaryWithinBudget, tasksFor, withinReadBudget, withNames, DEFAULT_SUMMARY_CHARS, type Summary } from "./state";
@@ -1068,7 +1068,7 @@ export class Board extends DurableObject<Env> {
               const d = this.sql.exec("SELECT content FROM doc_versions WHERE name = ? AND version = ?", a.name, a.version).toArray()[0];
               return d ? richTextOf(new TextEncoder().encode(d.content as string)) : null;
             })();
-        if (t) rich.push({ name: a.name, text: t });
+        if (t) rich.push(flagged({ name: a.name, text: t }, t)); // screened like a message (#5275)
       }
       return rich.length ? { ...e, rich_text: rich } : e;
     });
