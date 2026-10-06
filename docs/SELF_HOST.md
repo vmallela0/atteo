@@ -13,7 +13,7 @@ your team on your own Cloudflare account in about 15 minutes.
 - Optional: an xAI API key, if you want server read-aloud and Grok voice.
 - Optional: a Sentry DSN, if you want error reporting.
 - Optional: an Apple Push key, if you want iOS push notifications.
-- Optional: a GitHub App webhook secret, if you want GitHub events parsed at `POST /github/webhook` ([github-app.md](github-app.md)). This does not post onto a board yet.
+- Optional: a GitHub App, if you want GitHub events parsed at `POST /github/webhook` and (with App id + private key) Checks / PR comments from a change card ([github-app.md](github-app.md)). Inbound does not post onto a board yet. Outbound secrets are not set in hosted production.
 
 ## Steps
 
@@ -79,7 +79,10 @@ your team on your own Cloudflare account in about 15 minutes.
    npx wrangler secret put A2A_SIGNING_KEY       # optional: `node scripts/a2a-key.mjs keygen`; the Agent Card stays unsigned until set
    npx wrangler secret put GITHUB_WEBHOOK_SECRET # GitHub App webhook HMAC; omit and POST /github/webhook is 503
    npx wrangler secret put CF_ANALYTICS_TOKEN    # optional: Account Analytics:Read, for the cost guard (with the CF_ACCOUNT_ID var)
-   # later, for outbound Checks (not sent in this slice): GITHUB_APP_ID, GITHUB_APP_PRIVATE_KEY
+   # outbound Checks (omit and postGithubChange never fetches; do not put these in wrangler.jsonc):
+   # npx wrangler secret put GITHUB_APP_ID
+   # npx wrangler secret put GITHUB_APP_PRIVATE_KEY
+   # npx wrangler secret put GITHUB_APP_INSTALLATION_ID   # optional; else looked up per repo
    ```
 
    Optional read-aloud and voice budget variables are documented in [`APP_API.md`](APP_API.md#self-hosting-configuration).
@@ -90,6 +93,8 @@ your team on your own Cloudflare account in about 15 minutes.
    If `A2A_SIGNING_KEY` is absent, the Agent Card is served unsigned.
    If `GITHUB_WEBHOOK_SECRET` is absent, `POST /github/webhook` answers 503. Enabling it only verifies and parses;
    inbound notes are not posted to a board yet ([github-app.md](github-app.md)).
+   If `GITHUB_APP_ID` or `GITHUB_APP_PRIVATE_KEY` is absent, outbound Checks stay off (no call to api.github.com).
+   Do not put those in `wrangler.jsonc` vars.
    If `CF_ANALYTICS_TOKEN` (or `CF_API_TOKEN`) or the `CF_ACCOUNT_ID` var is absent, the cost guard (`src/costGuard.ts`)
    does nothing and says so once per isolate.
 
@@ -107,6 +112,7 @@ your team on your own Cloudflare account in about 15 minutes.
    DEV_FAKE_VOICE=1
    DEV_FAKE_ADMIN=1
    # optional: GITHUB_WEBHOOK_SECRET=...  (POST /github/webhook; omit and the route is 503)
+   # optional outbound, local only: GITHUB_APP_ID / GITHUB_APP_PRIVATE_KEY (never in wrangler.jsonc)
    ```
 
    `ALLOW_LOCAL_WEBHOOKS=1` lets localhost webhook URLs through and enables the test sink. `DEV_FAKE_MAGIC=1` lets
@@ -216,8 +222,8 @@ preflight server choice.
 
 Nothing is sent anywhere else except: WorkOS (sign-in and invitation emails), Stripe (if enabled), Workers AI (if
 enabled), xAI (when server read-aloud or Grok voice is enabled), Sentry (if enabled), Apple Push Notification service
-(if enabled), GitHub (if a GitHub App is enabled; inbound webhooks only until outbound Checks are wired), and the
-webhook URLs your members configure. The web pages also load their fonts from Google Fonts
+(if enabled), GitHub (if a GitHub App is enabled; inbound webhooks, and outbound Checks only when App id + private
+key secrets are set), and the webhook URLs your members configure. The web pages also load their fonts from Google Fonts
 (fonts.googleapis.com and fonts.gstatic.com), so a viewer's browser sends its IP and the page's address to Google;
 self-host the fonts if that matters to you. Grok voice audio travels directly between the client and
 xAI; Atteo issues the short-lived client secret but does not proxy the audio.
