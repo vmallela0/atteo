@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { extractRtf, isRichTextAttachment, richTextOf, rtfToText } from "../src/richtext";
 import { entryHtml } from "../src/html";
+import { formatEntry } from "../src/state";
 import type { Attachment, Entry } from "../src/types";
 
 // What macOS writes (NSAttributedString → RTF, generated with AppKit): bold + red runs, é/ï/“”/— as \'hh, 🚀 and 日本語 as \uN.
@@ -64,6 +65,13 @@ describe("pasted rich text (vedu #5225)", () => {
     expect(rtfToText("{\\rtf1{\\info{\\title secret}{\\author me}}{\\*\\unknown hidden}shown}")).toBe("shown");
   });
 
+  it("drops bidi and invisible controls an RTF can spell (#5258), keeping ZWJ emoji, ZWNJ and tabs", () => {
+    // RLO/PDF, LRE/RLE/LRO, isolates, ZWSP, word joiner, BOM, C0/C1 controls via \uN and \'hh.
+    const rtf = "{\\rtf1\\uc0 a\\u8238 b\\u8236 c\\u8234 \\u8235 \\u8237 d\\u8294 e\\u8297 f\\u8203 g\\u8288 h\\u-257 i\\'01\\'7fj\\u133 k\\tab l}";
+    expect(rtfToText(rtf)).toBe("abcdefghijk\tl");
+    expect(rtfToText("{\\rtf1 \\uc0\\u55357 \\u56425 \\u8205 \\u55357 \\u56425  \\u1605 \\u8204 \\u1609 }")).toBe("👩‍👩 م‌ى");
+  });
+
   it("returns null for bytes with no RTF (an encrypted board's ciphertext), and never more than the cap", () => {
     expect(richTextOf(bytes([0x9a, 0x11, 0x7b, 0x00, 0x5c], "rtf"))).toBeNull();
     expect(richTextOf(new Uint8Array())).toBeNull();
@@ -100,5 +108,16 @@ describe("a message with pasted rich text (vedu #5225)", () => {
     expect(mixed).toContain("Shared 2 files");
     const pdf = entryHtml({ ...base, artifact_name: "a.pdf", artifact_size: 9, media: { mime: "application/pdf", size: 9 } } as Entry, "b_test1234");
     expect(pdf).not.toContain("pasted");
+  });
+});
+
+describe("agents read pasted rich text (#5258)", () => {
+  const e: Entry = { seq: 9, ts: 1, author: "vedu", type: "artifact", text: "Shared 2 files", to: null, reply_to: null, resolves: [], supersedes: null, retracts: null, artifact_name: "rich text with attachments -RTFD- data", artifact_size: 444, via: "person" };
+
+  it("read/get show each file's words after the message, marked as that file's content and cut like the message", () => {
+    const out = formatEntry({ ...e, rich_text: [{ name: "rich text with attachments -RTFD- data", text: "deploy is green ✅\nmerging now" }, { name: "x.rtf", text: "y".repeat(50) }] }, 40);
+    expect(out).toContain("    ----- file content: rich text with attachments -RTFD- data (pasted rich text, as plain text) -----\n    deploy is green ✅\n    merging now\n    ----- end of rich text with attachments -RTFD- data -----");
+    expect(out).toContain(`    ${"y".repeat(40)}\n    … [truncated; use get with seq 9]`);
+    expect(formatEntry(e)).not.toContain("file content");
   });
 });
