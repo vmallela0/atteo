@@ -1,6 +1,6 @@
 // atteo.dev's landing page, v2 (jxn's design #5102, #5108): the mark across the whole screen, faint and unclipped, with
 // dots moving along its curves (still with reduced motion); in front "atteo" (STIX), "> agent communication.", Connect
-// (CLI, MCP, Claude Code, Cursor, ChatGPT, Codex, Muse, Grok Bot: picking one shows its command, with Copy) and sign in;
+// (CLI, MCP, Claude, Claude Code, Cursor, ChatGPT, Codex, Muse, Grok Bot: picking one shows its command, with Copy) and sign in;
 // then what agents do on atteo (six, each with a snippet of the app); the small links and "built by asubn", which on a
 // phone sits on its own line, centred and inside the screen (#5104). No oxblood; white whatever the system theme
 // (?theme=dark previews the dark pair); no sideways scroll from 320 to 1440px; /og.png is a 1200×630 PNG. Its type is
@@ -65,11 +65,13 @@ for (const [w, theme] of [[1440, "light"], [1440, "dark"], [768, "light"], [390,
   check(!r.fonts.length, `${tag}: all three fonts loaded${r.fonts.length ? ` (missing ${r.fonts.join(", ")})` : ""}`);
   const b = r.back;
   check(b && b.cover && b.fixed && b.hidden && b.events === "none" && b.opacity >= 0.05 && b.opacity <= 0.2 && b.slice === "xMidYMid slice" && !b.clip && b.behind && b.moving === 6, `${tag}: the mark covers the screen behind everything, faint, unclipped, out of the way, with dots moving on its curves (${JSON.stringify(b)})`);
-  check(JSON.stringify(r.agents) === JSON.stringify(["CLI", "MCP", "Claude Code", "Cursor", "ChatGPT", "Codex", "Muse", "Grok Bot"]) && r.cmd === "curl -fsSL https://atteo.dev/install.sh | sh" && r.copy, `${tag}: Connect offers CLI, MCP, Claude Code, Cursor, ChatGPT, Codex, Muse and Grok Bot, the CLI line first, with Copy (${r.agents.join(", ")})`);
-  await p.locator('.h2-tabs [data-i="2"]').click();
+  check(JSON.stringify(r.agents) === JSON.stringify(["CLI", "MCP", "Claude", "Claude Code", "Cursor", "ChatGPT", "Codex", "Muse", "Grok Bot"]) && r.cmd === "curl -fsSL https://atteo.dev/install.sh | sh" && r.copy, `${tag}: Connect offers CLI, MCP, Claude Code, Cursor, ChatGPT, Codex, Muse and Grok Bot, the CLI line first, with Copy (${r.agents.join(", ")})`);
+  await p.locator('.h2-tabs :text-is("Claude Code")').click();
   const cc = await p.locator(".h2-cmd code").textContent();
-  await p.locator('.h2-tabs [data-i="5"]').click();
+  await p.locator('.h2-tabs :text-is("Codex")').click();
   const cx = await p.locator(".h2-cmd code").textContent();
+  const tips = []; for (const n of ["CLI", "Claude Code", "Cursor"]) { await p.locator(`.h2-tabs button:text-is("${n}")`).click(); tips.push(await p.locator(".h2-how").isVisible()); }
+  check(JSON.stringify(tips) === "[false,false,true]", `${tag}: only the connector agents show a tip under the command (jxn #5159)`);
   check(cc === "claude mcp add --transport http --scope user atteo https://atteo.dev/mcp" && cx === "codex mcp add atteo --url https://atteo.dev/mcp && codex mcp login atteo", `${tag}: picking an agent shows its command (Claude Code, Codex)`);
   check(JSON.stringify(r.feats) === JSON.stringify(["Ask", "Share", "Tasks", "Decisions", "Private", "Any agent"]), `${tag}: what agents do on atteo: ${r.feats.join(", ")}`);
   check(r.built && r.built.text === "built by asubn" && r.built.inside && (!phone || (r.built.below && r.built.centred)), `${tag}: "built by asubn" in the footer${phone ? ", on its own line, centred, inside the screen (jxn #5104)" : ""} (${JSON.stringify(r.built)})`);
