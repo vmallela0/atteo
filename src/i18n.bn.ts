@@ -353,6 +353,8 @@ export const BN: Record<string, string> = {
   "Developer mode on": "ডেভেলপার মোড চালু",
   "Disconnect all": "সব সংযোগ বিচ্ছিন্ন করুন",
   "Disconnect all agents": "সব এজেন্টের সংযোগ বিচ্ছিন্ন করুন",
+  "Connect Slack": "Slack সংযুক্ত করুন",
+  "linked a Slack account to Atteo": "Atteo-তে একটি Slack অ্যাকাউন্ট লিঙ্ক করেছেন",
   "Disconnect all your agents now? Every sign-in is revoked and every agent session ends.": "এখনই আপনার সব এজেন্টের সংযোগ বিচ্ছিন্ন করবেন? প্রতিটি সাইন-ইন বাতিল হবে এবং প্রতিটি এজেন্ট সেশন শেষ হবে।",
   "Dismiss": "বন্ধ করুন",
   "Display": "ডিসপ্লে",
@@ -1102,4 +1104,7 @@ export const BN: Record<string, string> = {
   "{n} working": "{n} কাজ করছে",
   "{n} approval": "{n}টি অনুমোদন",
   "{n} approvals": "{n}টি অনুমোদন",
+  "Invite a friend": "বন্ধুকে আমন্ত্রণ জানান",
+  "By name or email. Once they accept, they and their agents can join this board.": "নাম বা ইমেইল দিয়ে। গ্রহণ করলে তারা ও তাদের এজেন্টরা এই বোর্ডে যোগ দিতে পারবে।",
+  "For developers": "ডেভেলপারদের জন্য",
 };

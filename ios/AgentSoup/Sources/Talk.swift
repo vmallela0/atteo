@@ -106,6 +106,12 @@ protocol RealtimeLink: AnyObject {
     var events: AsyncStream<[String: Any]> { get }
     func send(_ event: [String: Any])
     func close()
+    /// Why the socket closed, if the other side closed it: the close code (0: none) and a line for diagnostics.
+    var closed: (code: Int, detail: String)? { get }
+}
+
+extension RealtimeLink {
+    var closed: (code: Int, detail: String)? { nil }
 }
 
 /// xAI's realtime socket. The client secret rides as the subprotocol (what voice.ts hands out) and as a Bearer header
@@ -115,6 +121,7 @@ final class WebSocketLink: RealtimeLink {
     let events: AsyncStream<[String: Any]>
     private let out: AsyncStream<[String: Any]>.Continuation
     private let task: URLSessionWebSocketTask
+    private(set) var closed: (code: Int, detail: String)?
 
     init(url: URL, protocols: [String], secret: String) {
         var r = URLRequest(url: url)
@@ -140,7 +147,11 @@ final class WebSocketLink: RealtimeLink {
                     }
                     if let data, let j = try? JSONSerialization.jsonObject(with: data) as? [String: Any] { self.out.yield(j) }
                     self.receive()
-                case .failure:
+                case .failure(let error):
+                    let code = self.task.closeCode.rawValue
+                    let reason = self.task.closeReason.flatMap { String(data: $0, encoding: .utf8) } ?? ""
+                    let e = error as NSError
+                    self.closed = (code, "socket closed \(code)\(reason.isEmpty ? "" : " \(reason.prefix(80))") · \(e.domain) \(e.code)")
                     self.out.finish()
                 }
             }
@@ -211,7 +222,9 @@ final class TalkSession: ObservableObject {
     @Published var problem: String?
     @Published private(set) var endNote: String?
     @Published private(set) var reading = false // standing by: a new message is being read aloud
-    @Published private(set) var standbyNote: String? // standing by: why it couldn't resume, or read-aloud is used up
+    @Published private(set) var standbyNote: String? // standing by: why (quiet, a pause, the cap), why it couldn't resume, or read-aloud is used up
+    /// What the call saw: the ⋯ menu's diagnostics (TalkDiagnostics.swift).
+    @Published private(set) var diag = TalkDiagnostics()
     /// When Atteo answers (VoiceTurns.swift): what this call runs (the server's say, from the person's choice).
     @Published private(set) var turns: VoiceTurns = .quick
     @Published private(set) var turnHeard = false // pause / tap: you've said something this turn (Done can send it)
@@ -232,7 +245,9 @@ final class TalkSession: ObservableObject {
     private var lastActive = Date() // the last moment something was going on in the live call
     private var liveSeconds: TimeInterval = 0 // every session of this call, live, so far
     private var settling: Task<Void, Never>? // the last session's /session/end, awaited before the next one starts
-    private var instructions: String? // the first session's, which a resumed one gets again with the recap
+    private var recap = "" // what a resumed session was told was just said, kept when its briefing is refreshed
+    private var briefedAt = Date() // when this session's briefing was made: a long call gets a fresh one (refreshBriefing)
+    private var briefing: Task<Void, Never>?
     private let remote = TalkRemote()
     private var watching: [AnyCancellable] = []
     private var seenSeq = 0 // the board's newest message when it stood by: only later ones are read
@@ -391,20 +406,29 @@ final class TalkSession: ObservableObject {
             guard let self else { return }
             let on = self.handsFree ? !self.micMuted : self.holding
             self.level = on ? l : 0
+            if on { self.diag.level(l); self.diag.startAbove = self.tracker.startAbove }
             // As listen(): without echo cancelling the mic doesn't count while Atteo talks (that would be its own voice).
             if on, self.clientTurns, self.audio.echoCancelling || !self.speaking { self.heard(level: l) }
         }
         // The fake stays silent (its "voice" is only timed): a simulator under test can hang starting audio I/O.
         if audio.useMic {
-            do { try audio.start() } catch { problem = String(localized: "Audio isn't working (\(error.localizedDescription)); captions still show.", bundle: .l10n) }
+            audio.micAllowed = AVAudioApplication.shared.recordPermission == .granted
+            await audio.start() // retried; if it never starts, audioEvent says why
+            guard !ended, self.link === link else { return } // ended while the audio was starting
             if resuming { audio.resumed() }
+            diag.echoCancelling = audio.echoCancelling
+            diag.audio = audio.status
         }
+        diag.newSession()
+        diag.lowPower = ProcessInfo.processInfo.isLowPowerModeEnabled
 
-        // The first session's instructions, kept; a resumed one is told what was just said (a few short lines).
+        // Each session's own instructions (they carry a fresh briefing of what's waiting, vedu #5381); a resumed one is
+        // also told what was just said (a few short lines).
         if let i = session["instructions"] as? String {
-            if instructions == nil { instructions = i }
-            if resuming { session["instructions"] = (instructions ?? i) + TalkStandby.recap(recapTurns) }
+            recap = resuming ? TalkStandby.recap(recapTurns) : ""
+            session["instructions"] = i + recap
         }
+        briefedAt = Date()
         self.session = session
         link.send(["type": "session.update", "session": session])
         openedAt = Date()
@@ -418,7 +442,12 @@ final class TalkSession: ObservableObject {
             for await e in link.events { self?.handle(e) }
             // Closed by us (standing by, or the end) isn't news; the service dropping it is.
             guard !Task.isCancelled, let self, self.link === link else { return }
-            self.finish(problem: self.ended ? nil : String(localized: "The voice connection closed.", bundle: .l10n))
+            let closed = link.closed
+            self.diag.lastStop = closed?.detail ?? "socket ended after \(Int(self.elapsed)) s"
+            let why = if let c = closed?.code, c > 0 {
+                String(localized: "The voice connection closed (code \(c)).", bundle: .l10n)
+            } else { String(localized: "The voice connection closed.", bundle: .l10n) }
+            self.finish(problem: self.ended ? nil : why)
         }
     }
 
@@ -439,12 +468,15 @@ final class TalkSession: ObservableObject {
         guard !ended, phase == .ready, let openedAt else { return }
         let now = Date()
         elapsed = now.timeIntervalSince(openedAt)
+        if audio.useMic, diag.audio != audio.status { diag.audio = audio.status } // restarts, rebuilds, running
         let s = now < audioUntil
         if s != speaking { speaking = s }
         // The VAD heard something that never became a turn (a cough, a door): don't sit on "Thinking…".
         if thinking, activeResponse == nil, toolsRunning == 0, let t = stoppedAt, now.timeIntervalSince(t) > 8 { thinking = false; stoppedAt = nil }
+        if now.timeIntervalSince(briefedAt) >= Self.briefingEvery, activeResponse == nil, !speaking, toolsRunning == 0 { refreshBriefing() }
         if elapsed >= Double(maxSeconds) {
             // A session's cap: hands-free stands by (play keeps talking, in a new session); hold to talk ends.
+            diag.lastStop = "the session's \(maxSeconds) s cap"
             if handsFree { standBy(note: String(localized: "That session reached its time limit. Tap or press play to keep talking.", bundle: .l10n)) }
             else { finish(problem: String(localized: "That's this session's time. Start another to keep talking.", bundle: .l10n)) }
             return
@@ -455,7 +487,43 @@ final class TalkSession: ObservableObject {
         } else if pauseProgress != nil { pauseProgress = nil }
         let a = activity
         if a.busy { lastActive = now }
-        if TalkStandby.shouldStandBy(now: now, lastActive: lastActive, a) { standBy() }
+        // Until you've said something this session it waits longer (you may only be about to speak), then says why.
+        let idle = diag.heardSpeech ? TalkStandby.idle : TalkStandby.firstWords
+        if TalkStandby.shouldStandBy(now: now, lastActive: lastActive, a, idle: idle) {
+            diag.lastStop = "quiet \(Int(idle)) s, heard you: \(diag.heardSpeech ? "yes" : "no")"
+            standBy(note: diag.quietNote(mic: audio.useMic))
+        }
+    }
+
+    /// When your last turn ended (the pause ran out, Done, the press let go, the server's VAD): Atteo's first word or
+    /// sound after it is the call's time to first answer, in the diagnostics (vedu #5381: tools up front cut it).
+    private var turnEnded: Date?
+
+    private func answered() {
+        guard let t = turnEnded else { return }
+        turnEnded = nil
+        diag.answerMs = Int(Date().timeIntervalSince(t) * 1000)
+    }
+
+    /// How often a long call's briefing (what's waiting, the open board's latest messages) is made again.
+    static let briefingEvery: TimeInterval = 240
+
+    /// A long call (vedu #5381): fresh instructions from GET /api/app/voice/briefing (the same cheat-sheet, a new
+    /// briefing), plus the recap a resumed session had, as session.update between answers. A reconnect gets a fresh
+    /// one anyway: each new session's instructions carry it.
+    private func refreshBriefing() {
+        briefedAt = Date()
+        guard briefing == nil, let link else { return }
+        let path = "/api/app/voice/briefing" + ((board?.encrypted == true ? nil : board?.id).map { "?board=\($0)" } ?? "")
+        briefing = Task { [weak self] in
+            defer { self?.briefing = nil }
+            guard let (code, j) = try? await TalkAPI.call("GET", path), code == 200, let i = j["instructions"] as? String,
+                  let self, !self.ended, self.phase == .ready, self.link === link else { return }
+            var s = self.session
+            s["instructions"] = i + self.recap
+            self.session = s
+            link.send(["type": "session.update", "session": s])
+        }
     }
 
     private var activity: TalkStandby.Activity {
@@ -568,7 +636,10 @@ final class TalkSession: ObservableObject {
         // One AirPods press can arrive twice during a live call (the mute gesture and a play/pause): act on the first.
         guard Date().timeIntervalSince(lastRemote) > 1 else { return }
         switch TalkStandby.action(c, state, handsFree: handsFree, endsTurn: clientTurns && turns == .tap && tracker.heard) {
-        case .standBy: lastRemote = Date(); standBy()
+        case .standBy:
+            lastRemote = Date()
+            diag.lastStop = "pause from AirPods, headphones, Control Center or the mic mute (\(c))"
+            standBy(note: String(localized: "Paused from AirPods, headphones or Control Center. Tap or press play to keep talking.", bundle: .l10n))
         case .resume: lastRemote = Date(); resume()
         case .endTurn: lastRemote = Date(); endTurn()
         case .none: break
@@ -804,6 +875,7 @@ final class TalkSession: ObservableObject {
         bufferSince = Date()
         lastActive = Date()
         link?.send(["type": "input_audio_buffer.commit"])
+        turnEnded = Date()
         if youCaption == nil { let id = "you-\(UUID().uuidString)"; youCaption = id; captions.append(Caption(id: id, who: .you, text: "…")) }
         thinking = true
         stoppedAt = Date()
@@ -881,6 +953,7 @@ final class TalkSession: ObservableObject {
             return
         }
         link?.send(["type": "input_audio_buffer.commit"])
+        turnEnded = Date()
         let id = "you-\(UUID().uuidString)"
         youCaption = id
         captions.append(Caption(id: id, who: .you, text: "…"))
@@ -976,6 +1049,7 @@ final class TalkSession: ObservableObject {
             if lastYou != nil, lastYou?.response == nil { lastYou?.response = activeResponse } // Atteo's answer to it
         case "response.output_audio.delta", "response.audio.delta":
             guard let b64 = e["delta"] as? String, let pcm = Data(base64Encoded: b64) else { return }
+            answered()
             let d = audio.play(pcm)
             audioUntil = max(audioUntil, Date()) + d
             atteoEnd = audioUntil
@@ -992,11 +1066,13 @@ final class TalkSession: ObservableObject {
             if speaking || activeResponse != nil { interrupt() }
             if youCaption == nil { let id = "you-\(UUID().uuidString)"; youCaption = id; captions.append(Caption(id: id, who: .you, text: "…")) }
         case "input_audio_buffer.speech_stopped":
+            turnEnded = Date()
             hearing = false
             thinking = true // the server answers by itself
             stoppedAt = Date()
         case "response.output_audio_transcript.delta", "response.audio_transcript.delta", "response.output_text.delta", "response.text.delta":
             guard let d = e["delta"] as? String else { return }
+            answered()
             grokSays(rid, append: d)
         case "response.output_audio_transcript.done", "response.audio_transcript.done", "response.output_text.done", "response.text.done":
             if let t = (e["transcript"] as? String) ?? (e["text"] as? String), !t.isEmpty { grokSays(rid, replace: t) }
@@ -1181,6 +1257,7 @@ final class TalkSession: ObservableObject {
 
     /// This turn's speech began now: how long after Atteo's voice stopped (negative while it's still playing).
     private func youStarted() {
+        diag.heardSpeech = true
         youStartedSeen = true
         youStartedAfter = atteoEnd.map { Date().timeIntervalSince($0) * 1000 }
     }
@@ -1350,6 +1427,9 @@ final class TalkSession: ObservableObject {
 
     // MARK: Audio
 
+    /// What audioEvent last said went wrong, cleared from the sheet when the audio works again.
+    private var audioProblem: String?
+
     private static var pausedNote: String { String(localized: "Paused: another app or a call took the audio. Voice chat picks up when it's done.", bundle: .l10n) }
 
     private func audioEvent(_ e: TalkAudio.Event) {
@@ -1362,8 +1442,13 @@ final class TalkSession: ObservableObject {
             problem = Self.pausedNote
         case .resumed:
             if problem == Self.pausedNote { problem = nil }
-        case .failed(let m):
-            problem = String(localized: "Audio isn't working (\(m)); captions still show.", bundle: .l10n)
+        case .failed(let why):
+            diag.audio = audio.status
+            audioProblem = why
+            problem = why
+        case .recovered:
+            if problem == audioProblem { problem = nil }
+            audioProblem = nil
         }
     }
 }

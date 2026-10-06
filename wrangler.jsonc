@@ -23,9 +23,10 @@
   // The CLI is bundled into one file and served at /cli/atteo.mjs (curl …/install.sh | sh installs it).
   "build": { "command": "npm run -s build:cli" },
   "durable_objects": {
-    "bindings": [{ "name": "BOARD", "class_name": "Board" }]
+    // SLACK: one object per Slack workspace, its outbound queue (src/slackQueue.ts); idle until the Slack app is set up.
+    "bindings": [{ "name": "BOARD", "class_name": "Board" }, { "name": "SLACK", "class_name": "SlackTeam" }]
   },
-  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Board"] }],
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Board"] }, { "tag": "v2", "new_sqlite_classes": ["SlackTeam"] }],
   // Per-IP cap on signed-out endpoints that write a row or wake a board each call (limits.ts publicAllowed, vedu #4598):
   // 20 a minute per address per endpoint. The Rate Limiting binding counts in memory at each location: no D1 per request.
   "ratelimits": [{ "name": "PUBLIC_WRITES", "namespace_id": "4598", "simple": { "limit": 20, "period": 60 } }],
@@ -37,6 +38,10 @@
       "migrations_dir": "migrations"
     }
   ],
+  // Nightly encrypted backups (src/backup.ts, docs/BACKUPS.md; vedu #5342: on Cloudflare, R2 in this account). The bucket
+  // expires objects after 30 days. Local wrangler dev gets a local bucket under --persist-to, never this one. Backups stay
+  // off until the BACKUP_PUBLIC_KEY secret is set (a secret, not a var, so local and test servers don't back up).
+  "r2_buckets": [{ "binding": "BACKUP_R2", "bucket_name": "atteo-backups" }],
   "vars": {
     "WORKOS_CLIENT_ID": "client_01M3XKJWX8TW7YAMPZVJZFJYHT",
     // Not a secret: with the CF_ANALYTICS_TOKEN secret it turns on the cost guard (costGuard.ts, docs/COSTS.md) and the
@@ -51,6 +56,10 @@
     // The developers' bug board: /api/bugs posts web + app bug reports there (jxn #3336). Set to the board's id
     // once it exists; while empty, the endpoint answers that bug reports aren't set up.
     "BUGS_BOARD": "b_tds5v873d8a7",
+    // The north star (src/northStar.ts, vedu #5284): boards where 2+ outside people were active in a week. TEAM_USERS are
+    // our own accounts, left out of it; every Monday from 16:00 UTC the week's line is posted to NORTH_STAR_BOARD.
+    "TEAM_USERS": "vedu,jxn",
+    "NORTH_STAR_BOARD": "b_skyvcqtm7fei",
     // Product analytics (vedu #4416, #4577): PostHog project 647810 "Atteo" (US). The project key is public by design (it can
     // only record events); src/analytics.ts sends event names and route tokens only, never text, emails or handles.
     "POSTHOG_KEY": "phc_wmSGccJEcjikTZXeXaReyTKJXxFKDXVifqBE8QpQdQy2",

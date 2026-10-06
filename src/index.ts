@@ -9,6 +9,7 @@ import * as usage from "./usage";
 import * as csp from "./csp";
 import * as limits from "./limits";
 import * as costGuard from "./costGuard";
+import * as northStar from "./northStar";
 import * as oauth from "./oauth";
 import { consentPage } from "./oauthPage";
 import * as approvals from "./approvals";
@@ -69,6 +70,10 @@ import { musePage } from "./muse";
 import * as triggers from "./triggers";
 import * as tts from "./tts";
 import * as voice from "./voice";
+import * as calls from "./calls";
+import * as slack from "./slack";
+import { slackOn } from "./slackCore";
+import { CALL_CSS, CALL_CSS_PATH, CALL_CSS_SRC, CALL_JS, CALL_JS_PATH, callPageBody } from "./callWeb";
 import { MAX_SCHEDULES } from "./schedules";
 import {
   adminPage,
@@ -112,9 +117,11 @@ import * as Sentry from "@sentry/cloudflare";
 import { scrubForSentry } from "./sentry";
 import { analyticsConfig, trackCookieHeader, withAnalytics } from "./analytics";
 export { Board } from "./board";
+export { SlackTeam } from "./slackQueue";
 import { forwardDestOk, forwardExcerptInEntry, keptOwnNotice } from "./audience";
 import { audienceNotice, MAX_FILES_PER_MESSAGE, MAX_IMAGE, MAX_MESSAGE_BYTES, MAX_WAIT_MS, WAIT_CAP } from "./board";
 import * as sessions from "./sessions";
+import * as listen from "./listen";
 import { compactLine, formatEntry, formatMemory, handleMessage, parseReadBudget, parseSummaryBudget, presentReadEntries, readHeader, readParts, withNames } from "./state";
 import { fence, flagged } from "./screen";
 import { CODE_COLOR_PATH, CODE_COLOR_SCRIPT } from "./codecolor";
@@ -569,6 +576,15 @@ async function opsData(env: Env): Promise<AdminData> {
   const tokenRows = await env.DB.prepare(
     `SELECT user, SUM(CASE WHEN revoked_at IS NULL THEN 1 ELSE 0 END) AS active, MAX(last_used) AS last FROM tokens GROUP BY user`,
   ).all<{ user: string; active: number; last: number | null }>();
+  const since14 = new Date(Date.now() - 13 * 86_400_000).toISOString().slice(0, 10);
+  const [oauthClients, oauthPruned] = await Promise.all([
+    env.DB.prepare(`SELECT COUNT(*) AS n FROM oauth_clients`).first<{ n: number }>().catch(() => ({ n: 0 })),
+    env.DB
+      .prepare(`SELECT COALESCE(SUM(count), 0) AS n FROM usage_daily WHERE metric = 'oauth_clients_pruned' AND day >= ?`)
+      .bind(since14)
+      .first<{ n: number }>()
+      .catch(() => ({ n: 0 })),
+  ]);
   const access = new Map<string, AdminData["access"][number]>();
   for (const u of users) access.set(u.name, { user: u.name, boards: [], active_tokens: 0, last_token_use: null });
   for (const r of memberRows.results) access.get(r.user)?.boards.push({ id: r.id, title: r.title });
@@ -581,6 +597,8 @@ async function opsData(env: Env): Promise<AdminData> {
   }
   return {
     boards, users, invites, recent, totalEntries: boards.reduce((n, b) => n + b.entry_count, 0), access: [...access.values()], metrics: await usage.metrics(env).catch(() => undefined),
+    oauth_clients: oauthClients?.n ?? 0,
+    oauth_clients_pruned: oauthPruned?.n ?? 0,
     cost: {
       capped: await costGuard.capped(env).catch(() => null),
       watching: !!(env.CF_ACCOUNT_ID && costGuard.analyticsToken(env)),
@@ -592,9 +610,9 @@ async function opsData(env: Env): Promise<AdminData> {
 
 // ---------- router ----------
 
-/** Every 5 minutes (the cron; tests call it through POST /api/ops/cron): retention, sweeps, expired memberships, and
- *  workflow triggers on a daily schedule (`now` lets a test pick the time those see). */
-async function runScheduled(env: Env, ctx: ExecutionContext, now = Date.now()): Promise<{ schedules: number; scheduled_tasks: number; housekeeping: boolean; shed: Awaited<ReturnType<typeof limits.updateShedLevel>>; backup?: backup.BackupTick }> {
+/** Every 5 minutes (the cron; tests call it through POST /api/ops/cron): retention, sweeps, unused OAuth clients,
+ *  expired memberships, and workflow triggers on a daily schedule (`now` lets a test pick the time those see). */
+async function runScheduled(env: Env, ctx: ExecutionContext, now = Date.now()): Promise<{ schedules: number; scheduled_tasks: number; housekeeping: boolean; oauth_clients_pruned: number; shed: Awaited<ReturnType<typeof limits.updateShedLevel>>; backup?: backup.BackupTick }> {
   // Load shedding (src/limits.ts): today's usage sets the level every request then sees (0 normal, 1 stretch waits and
   // pause background work, 2 also refuse non-essential agent writes).
   const shed = await limits.updateShedLevel(env).catch(() => ({ level: limits.shedLevelNow(), requests: 0, rows_read: null }));
@@ -611,11 +629,16 @@ async function runScheduled(env: Env, ctx: ExecutionContext, now = Date.now()): 
       }, now)
       .catch((e) => console.error("cost guard failed", e)),
   );
+  // Calls whose last page closed without leaving: end them and post the summary (src/calls.ts).
+  ctx.waitUntil(calls.reapAll(calls.depsFor(env, null, null)).catch((e) => console.error("call reap failed", e)));
+  // Slack: digests that waited their 15 minutes, the daily who-can-read check, and cleanup (src/slack.ts).
+  ctx.waitUntil(slack.cron(env, now).catch((e) => console.error("slack sweep failed", e)));
   // Boards with a retention period: blank what's older.
   const keep = (await env.DB.prepare(`SELECT id, retention_days FROM boards WHERE retention_days IS NOT NULL`).all<{ id: string; retention_days: number }>()).results;
   for (const b of keep) ctx.waitUntil(boardStub(env, b.id).prune(now - b.retention_days * 86_400_000).catch(() => 0));
   // Housekeeping sweeps wait while shedding load (they catch up on a quieter run).
   const housekeeping = shed.level < 1;
+  let oauth_clients_pruned = 0;
   if (housekeeping) {
     ctx.waitUntil(env.DB.prepare(registry.TAPE_PRUNE_SQL).bind(Date.now() - 7 * 86_400_000).run().catch(() => {}));
     ctx.waitUntil(appSignin.sweep(env).catch(() => {}));
@@ -624,6 +647,9 @@ async function runScheduled(env: Env, ctx: ExecutionContext, now = Date.now()): 
     ctx.waitUntil(usage.pruneUsageDaily(env, now).catch(() => {}));
     ctx.waitUntil(backup.pruneBackupParts(env, now).catch(() => {}));
     ctx.waitUntil(accountlog.prune(env, now).catch(() => {}));
+    // Small table (DCR leftovers); await so POST /api/ops/cron can log the count. Fail-safe: an error leaves rows.
+    oauth_clients_pruned = await oauth.pruneUnusedClients(env, now).catch((e) => (console.error("oauth client prune failed", e), 0));
+    if (oauth_clients_pruned) console.log(`oauth clients pruned: ${oauth_clients_pruned}`);
   }
   for (const m of await registry.expiredMembers(env)) {
     ctx.waitUntil(
@@ -653,12 +679,23 @@ async function runScheduled(env: Env, ctx: ExecutionContext, now = Date.now()): 
       .catch(() => ({ results: [] as { board_id: string }[] }))
   ).results;
   const posted = await Promise.all(dueBoards.map((b) => boardStub(env, b.board_id).runBoardSchedules(now).catch((e) => (console.error("board schedules failed", b.board_id, e), 0))));
-  // Tonight's backup outside Cloudflare (src/backup.ts): a batch of parts per run; it waits only at the worst shed level.
+  // The north star (src/northStar.ts): snapshot the running week; Monday from 16:00 UTC, last week's line to the team's
+  // board, posted by the bug bot (the same one-bot-member setup as the cost guard's alerts).
+  ctx.waitUntil(
+    northStar
+      .tick(env, now, async (board, text) => {
+        const stub = boardStub(env, board);
+        await ensureBugBoard(env, board, stub);
+        await stub.post(bugs.BUG_BOT, { type: "note", text, via: "person", client: "north-star" });
+      })
+      .catch((e) => console.error("north star failed", e)),
+  );
+  // Tonight's encrypted backup (src/backup.ts, R2 or an S3 bucket): a batch of parts per run; it waits only at the worst shed level.
   const nightly =
     shed.level < 2
       ? await backup.backupTick(env, now, (id, day) => boardStub(env, id).backup(day)).catch((e) => (console.error("backup run failed", e), undefined))
       : undefined;
-  return { schedules: fired.reduce((a, b) => a + b, 0), scheduled_tasks: posted.reduce((a, b) => a + b, 0), housekeeping, shed, ...(nightly ? { backup: nightly } : {}) };
+  return { schedules: fired.reduce((a, b) => a + b, 0), scheduled_tasks: posted.reduce((a, b) => a + b, 0), housekeeping, oauth_clients_pruned, shed, ...(nightly ? { backup: nightly } : {}) };
 }
 
 /** 429 for the signed-out endpoints limits.publicAllowed caps (one minute windows). */
@@ -812,6 +849,8 @@ const handler = {
         });
         if (denied) return denied;
       }
+      // ---- the Slack bridge (src/slack.ts): Slack's own requests (signed, no session) and the people's pages ----
+      if (path.startsWith("/slack/")) return await slack.route(request, env, ctx, path, viewer, origin);
       const pv = (): "agent" | "person" => viewer?.via ?? "person"; // who wrote it: a person on the web, or an agent via token
       // Who's looking, for what a board shows: people-only messages (vedu #1264) reach only their own people, signed
       // in as themselves (web, the app). An agent's token, or no viewer (ops), sees none of them.
@@ -1053,6 +1092,17 @@ const handler = {
         }
       }
 
+      // A board's call on a page of its own (src/callWeb.ts; the app opens it in a web view). People who are members only.
+      const cm = path.match(/^\/b\/([^/]+)\/call$/);
+      if (cm && method === "GET") {
+        if (!calls.callsOn(env, request)) return notFound(viewer); // not until a Realtime app is set up
+        if (!viewer) return needLogin();
+        if (viewer.via === "agent" || !(await registry.isMember(env, cm[1], viewer.name))) return notFound(viewer);
+        const b = await registry.getBoard(env, cm[1]);
+        if (!b || b.deleted_at) return notFound(viewer);
+        return page(`Call · ${b.title}`, callPageBody(cm[1], b.title), { viewer, narrow: true, script: CALL_JS, css: [CALL_CSS_SRC] });
+      }
+
       let m = path.match(/^\/(b|join)\/([^/]+)$/);
       if (m && method === "GET") {
         if (m[1] === "join") return redirect(`/b/${m[2]}`);
@@ -1090,7 +1140,7 @@ const handler = {
         // (STRIP_JS): a hovered link fetches the page ahead (#3717), and that isn't opening it.
         const here = side.find((b) => b.id === m![2]);
         if (here) here.opened = Date.now();
-        return boardPage(viewer, side, snap.info, withAgents, snap.entries.map((e) => withAgentNames(e, agentNamed)), shown, { connected: status.connected, onThisBoard: !!live[viewer.name] }, snap.summary, agentsHere, { picture: boardPictures.pictureUrl(m[2], row?.picture_v), kind, charter, sessions: mine, seen: snap.reads?.[viewer.name]?.person_seen ?? 0, last_seen: snap.reads?.[viewer.name]?.person_seen ?? 0, muted });
+        return boardPage(viewer, side, snap.info, withAgents, snap.entries.map((e) => withAgentNames(e, agentNamed)), shown, { connected: status.connected, onThisBoard: !!live[viewer.name] }, snap.summary, agentsHere, { picture: boardPictures.pictureUrl(m[2], row?.picture_v), kind, charter, sessions: mine, seen: snap.reads?.[viewer.name]?.person_seen ?? 0, last_seen: snap.reads?.[viewer.name]?.person_seen ?? 0, muted, calls: calls.callsOn(env, request), slack: slackOn(env, request) });
       }
 
       // ---- inbox: mentions of you, posts for your agent, replies to you ----
@@ -1187,6 +1237,35 @@ const handler = {
             .map(([u, seen]) => ({ user: u, ...named.get(u), name: null, client: null, status: null, last_seen: seen as number, state: sessions.stateOf(seen as number, now) })),
         ].filter((a) => sessions.present(a.last_seen, now));
         return json({ agents });
+      }
+      // ---- atteo ping (jxn #5433): is a member's agent open and listening here, and the infra round trip to it ----
+      // {to: "vedu" | "vedu/bender" | "all", probe}: probe pings each CLI socket (never a model, never the log);
+      // without it, only who holds a socket or a wait. Members only; pings are capped per person (src/board.ts).
+      m = path.match(/^\/api\/boards\/([^/]+)\/ping$/);
+      if (m && method === "POST") {
+        if (!viewer) return needLogin();
+        if (!BOARD_RE.test(m[1]) || !(await registry.memberRole(env, m[1], viewer.name))) return json({ error: "board not found" }, 404);
+        const body = (await request.json().catch(() => ({}))) as { to?: unknown; probe?: unknown };
+        const target = listen.parseTarget(typeof body.to === "string" ? body.to : null);
+        if (target && !(await registry.memberRole(env, m[1], target.user))) return json({ error: `${target.user} isn't on this board.` }, 404);
+        const probe = body.probe !== false;
+        const got = await boardStub(env, m[1]).listeners(viewer.name, target?.user ?? null, probe);
+        if (!Array.isArray(got)) return json({ error: got.error }, 429);
+        const ids = [...new Set(got.map((l) => l.session).filter((x): x is string => !!x))].slice(0, 100);
+        const named = ids.length
+          ? (await env.DB.prepare(`SELECT id, name, client FROM agent_sessions WHERE id IN (${ids.map(() => "?").join(",")})`).bind(...ids).all<{ id: string; name: string; client: string | null }>()).results
+          : [];
+        const [members, mcp, here] = await Promise.all([registry.boardMembers(env, m[1]), registry.agentsOnBoard(env, m[1]), sessions.onBoard(env, m[1])]);
+        const memberSet = new Set(members.map((x) => x.user));
+        const rows = listen.liveRows(
+          got.filter((l) => memberSet.has(l.user)),
+          new Map(named.map((x) => [x.id, { name: x.name, client: x.client }])),
+          here.filter((x) => memberSet.has(x.user)),
+          Object.fromEntries(Object.entries(mcp).filter(([u]) => memberSet.has(u))),
+          probe,
+          target,
+        );
+        return json({ probe, agents: rows.map((r) => ({ ...r, line: listen.describeRow(r) })) }, 200, { "cache-control": "no-store" });
       }
       // ---- the mailbox: your agent's mail across every board and DM, for your own dispatcher to poll ----
       if (path === "/api/mailbox" && method === "GET") {
@@ -1650,7 +1729,10 @@ const handler = {
         }
         let lines = await read(from);
         const until = Date.now() + waitSec * 1000;
-        const every = limits.shedLevelNow() >= 1 ? 5000 : 1500; // shedding load: check D1 less often
+        // How often a waiting call re-reads D1: 1.5s, or 5s while shedding load. ?every=<s> (up to 10) asks for slower
+        // checks, never faster: the web's board tabs wait with every=5 (jxn's agent #5248), a third of the reads per open tab.
+        const slower = Math.min(10, Math.max(0, parseInt(url.searchParams.get("every") ?? "", 10) || 0)) * 1000;
+        const every = Math.max(limits.shedLevelNow() >= 1 ? 5000 : 1500, slower);
         while (!lines.length && Date.now() < until) {
           await new Promise((r) => setTimeout(r, every));
           lines = await read(from);
@@ -1836,6 +1918,10 @@ const handler = {
         if (!t) return new Response("not found", { status: 404 });
         return new Response(t.js, { headers: { "content-type": "text/javascript; charset=utf-8", "cache-control": url.searchParams.get("v") ? "public, max-age=31536000, immutable" : "public, max-age=300", "x-content-type-options": "nosniff" } });
       }
+      if ((path === CALL_JS_PATH || path === CALL_CSS_PATH) && method === "GET") {
+        const css = path === CALL_CSS_PATH;
+        return new Response(css ? CALL_CSS : CALL_JS, { headers: { "content-type": css ? "text/css; charset=utf-8" : "text/javascript; charset=utf-8", "cache-control": url.searchParams.get("v") ? "public, max-age=31536000, immutable" : "public, max-age=300", "x-content-type-options": "nosniff" } });
+      }
       if (path === BOARD_JS_PATH && method === "GET") return new Response(BOARD_JS, { headers: { "content-type": "text/javascript; charset=utf-8", "cache-control": url.searchParams.get("v") ? "public, max-age=31536000, immutable" : "public, max-age=300", "x-content-type-options": "nosniff" } });
       if ((path === "/app.css" || path === "/app.js") && method === "GET") {
         const css = path === "/app.css";
@@ -1851,6 +1937,8 @@ const handler = {
 
       // ---- read aloud (an app/web client feature, all in tts.ts): /api/app/tts, /api/app/tts/status ----
       if (path.startsWith("/api/app/tts")) return tts.route(request, env, ctx, path, viewer);
+      // ---- board calls (Cloudflare Realtime + the gated Atteo turn; all in calls.ts): /api/boards/:id/call… ----
+      if (path.startsWith("/api/boards/") && calls.CALL_RE.test(path)) return (await calls.route(request, env, path, viewer))!;
       // ---- talk to Atteo (speech-to-speech; all in voice.ts): /api/app/voice/session, /session/end, /status ----
       if (path.startsWith("/api/app/voice/")) return voice.route(request, env, path, viewer);
 
@@ -2142,7 +2230,10 @@ const handler = {
         if (!role) return json({ error: "board not found" }, 404);
         // Signed in as the person (cookie, the app's token) or an agent's token: people-only signals reach only the first.
         const as = viewer && viewer.via !== "agent" ? "person" : "agent";
-        return boardStub(env, m[1]).fetch(new Request(`https://board/ws?user=${encodeURIComponent(who)}&role=${role}&as=${as}`, request));
+        // An agent's CLI says which session it is (X-Atteo-Session), so atteo ping can answer per session (#5433).
+        const sh = as === "agent" ? atteoHeader(request, "session") : null;
+        const sid = sh ? ((await sessions.get(env, who, sh).catch(() => null))?.id ?? null) : null;
+        return boardStub(env, m[1]).fetch(new Request(`https://board/ws?user=${encodeURIComponent(who)}&role=${role}&as=${as}${sid ? `&session=${encodeURIComponent(sid)}` : ""}`, request));
       }
 
       // ---- a new board, as JSON (the app's "New board"; the web uses the POST /boards form). Encrypted unless asked not to. ----

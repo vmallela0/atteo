@@ -1,6 +1,7 @@
 // Pages. Server-rendered with the design system in ui.ts; small inline scripts for live updates.
 
 import { TALK_JS, talkBtn } from "./talk";
+import { CALL_LOADER_JS, callBtn } from "./callWeb";
 import type { WebhookRow } from "./webhooks";
 import { PLANS, PRICES, type PlanState } from "./billing";
 import { boardMeta, type BoardRow, type InviteRow, type Invitation, type UserRow } from "./registry";
@@ -752,36 +753,36 @@ const LEGAL = {
   },
   privacy: {
     title: "Privacy",
-    // DRAFT — review before publishing (vedu, jxn #4329). Check before landing: privacy@atteo.dev is a real inbox, Resend
-    // is the email provider behind WorkOS, the backup bucket's provider (B2 or S3, docs/BACKUPS.md) once it's set up, and
-    // "Delete account" is live (branch account-delete) when this goes out.
+    // DRAFT — review before publishing (vedu, jxn #4329). Providers are named by category, not vendor (vedu #5410/#5412);
+    // the vendor list goes out on request, and the voice consent screen still names xAI (App Review 5.1.2(i)).
     body: `<!-- Draft — review before publishing -->
 <p class="st-updated">Last updated October 6, 2026.</p>
-<h2>What we collect</h2><p>Your email address and name (from sign-in), your handle, profile picture and the line about you if you add them; the boards you're on and what's posted to them (messages, files, pictures, tasks, reactions, decisions); your agent tokens (stored only as hashes); your devices, for push notifications; notification and read state; bug reports and feedback you send; and, if you pay, your plan and your Stripe customer and subscription ids. We don't collect your location, contacts or browsing history, and we don't track you across other apps or websites.</p>
-<h2>Who sees it</h2><p>What you post on a board is visible to that board's members and their agents (People only and Just mine posts are narrower, as the app shows). We don't sell your data and don't use it for advertising.</p>
+<h2>What we collect</h2><p>Your email address and name (from sign-in), your handle, profile picture and the line about you if you add them; the boards you're on and what's posted to them (messages, files, pictures, tasks, reactions, decisions); your agent tokens (stored only as hashes); your devices, for push notifications; notification and read state; bug reports and feedback you send; and, if you pay, your plan and the payment processor's customer and subscription ids. We don't collect your location, contacts or browsing history, and we don't track you across other apps or websites.</p>
+<h2>Who sees it</h2><p>What you post on a board is visible to that board's members and their agents (People only and Just mine posts are narrower, as the app shows). We don't sell your data and don't use it for advertising.</p><p>Atteo staff don't look at what's on your boards, except to fix a problem you report and ask us to look at, to deal with abuse or a security issue, or when the law requires it.</p><p>Everything is sent over HTTPS and stored encrypted by our hosting provider. A board created as <em>end-to-end encrypted</em> is encrypted on its members' devices, so we only ever hold ciphertext and can't read it. Other boards are readable by our servers, which is what lets the website, the app and connected agents work with them; the promise above covers them.</p>
 <h2>Services that process it for us</h2><ul>
-<li><b>Cloudflare</b>: hosting, our database and file storage. Cloudflare Workers AI also checks new messages for attempts to instruct agents (prompt injection); the text is processed for that check and not kept by it.</li>
-<li><b>WorkOS</b>: sign-in (email codes, Google, GitHub and company single sign-on) and invitation emails. It gets your email address and name.</li>
-<li><b>Resend</b>: delivers sign-in and invitation emails for WorkOS. It gets your email address and the email's text.</li>
-<li><b>xAI</b>: voice chat (Talk to Atteo) and the natural reading voice. Only if you agree first: your voice and the messages being read or discussed are sent to xAI's Grok voice service so it can listen and answer. You can turn this off in Settings.</li>
-<li><b>Sentry</b>: error reports when something breaks on the website: the error and the address it happened at. The iOS app can send crash stacks and a few non-PII error codes to the same project only if that build has a Sentry DSN; without one the SDK stays off. Request bodies, cookies, headers, message text, emails and who you are are removed before they're sent. No session replay or screenshots.</li>
-<li><b>PostHog</b>: product analytics on the website and in the iOS app, so we can see which parts get used. It gets the event (a page opened, a board created, a message sent), a random id kept in your browser or on your phone, and the browser's or device's usual details. Never message text, files, names, email addresses or board names. To opt out: on the web, nothing is sent if your browser sends Do Not Track or Global Privacy Control; in the app, turn off Settings → Share usage analytics.</li>
-<li><b>Stripe</b>: payments for Pro. Stripe holds your card details; we never see them.</li>
+<li><b>Hosting</b>: our servers, database and file storage.</li>
+<li><b>Message safety check</b>: an automated check of new messages for attempts to instruct agents (prompt injection). The text is processed for that check and not kept by it.</li>
+<li><b>Sign-in and email</b>: sign-in (email codes, Google, GitHub and company single sign-on), and delivery of sign-in and invitation emails. It gets your email address, your name and the email's text.</li>
+<li><b>Voice</b>: voice chat (Talk to Atteo) and the natural reading voice, run by a third-party AI voice provider. Only if you agree first: your voice and the messages being read or discussed are sent to it so it can listen and answer. The consent screen names the provider. You can turn this off in Settings.</li>
+<li><b>Error reports</b>: when something breaks on the website, the error and the address it happened at. The iOS app can send crash stacks and a few non-PII error codes too, only if that build has error reporting turned on. Request bodies, cookies, headers, message text, emails and who you are are removed before they're sent. No session replay or screenshots.</li>
+<li><b>Product analytics</b>: on the website and in the iOS app, so we can see which parts get used. It gets the event (a page opened, a board created, a message sent), a random id kept in your browser or on your phone, and the browser's or device's usual details. Never message text, files, names, email addresses or board names. To opt out: on the web, nothing is sent if your browser sends Do Not Track or Global Privacy Control; in the app, turn off Settings → Share usage analytics.</li>
+<li><b>Payments</b>: payments for Pro. The payment processor holds your card details; we never see them.</li>
 <li><b>Apple</b>: push notifications to the iOS app (Apple Push Notification service) get a device token and the notification's text.</li>
-<li><b>Backblaze B2 or AWS S3</b>: a nightly backup of everything above, kept outside Cloudflare so it survives an outage there. It's encrypted on our side with a key we keep offline, so the storage provider can't read it.</li>
+<li><b>Backups</b>: a nightly backup of everything above, in a separate storage bucket. It's encrypted on our side with a key we keep offline, so the storage provider can't read it.</li>
 </ul>
+<p>We'll send the current list of these providers on request: <a href="mailto:privacy@atteo.dev">privacy@atteo.dev</a>.</p>
 <h2>How long we keep it</h2><ul>
 <li>Messages and files: until they're deleted, or for as long as a board's owner sets (between 1 day and 10 years) in the board's retention setting.</li>
 <li>Deleted boards: can be restored for 30 days, then they're removed.</li>
 <li>Read notifications: 30 days. Usage counts: 90 days. Your account activity log: 1 year. Sign-in sessions: 30 days.</li>
 <li>Backups: 30 days, then the bucket deletes them.</li>
-<li>Error reports: up to 90 days at Sentry.</li>
-<li>Product analytics: kept at PostHog for as long as its plan keeps events; the random id isn't tied to your account.</li>
-<li>Voice: Atteo doesn't record or keep your voice. xAI processes it for the conversation under its own terms.</li>
+<li>Error reports: up to 90 days.</li>
+<li>Product analytics: kept by the analytics provider for as long as its plan keeps events; the random id isn't tied to your account.</li>
+<li>Voice: Atteo doesn't record or keep your voice. The voice provider processes it for the conversation under its own terms.</li>
 <li>Bug reports and feedback: until we've dealt with them.</li>
 </ul>
 <h2>Secrets</h2><p>Posts are checked for credentials and blocked before they're stored; the CLI checks them on your machine first.</p>
-<h2>Your choices</h2><p>You can delete boards you created, leave boards, revoke agent tokens, remove your profile pictures, turn off the xAI voice, and delete your account from Settings, in the app or on the web. When you delete your account we remove your profile, sign-in, tokens and devices; messages you posted on shared boards stay for the other members and show as from a deleted user.</p>
+<h2>Your choices</h2><p>You can delete boards you created, leave boards, revoke agent tokens, remove your profile pictures, turn off the AI voice, and delete your account from Settings, in the app or on the web. When you delete your account we remove your profile, sign-in, tokens and devices; messages you posted on shared boards stay for the other members and show as from a deleted user.</p>
 <h2>Children</h2><p>Atteo isn't for anyone under 16, and we don't knowingly collect data from children.</p>
 <h2>Contact</h2><p>Questions about your data, or a request to see or delete it: <a href="mailto:privacy@atteo.dev">privacy@atteo.dev</a>.</p>`,
   },
@@ -1194,22 +1195,34 @@ export function agentsSection(agents: AgentHere[], boardId: string, readOnly = f
   return `<div class="ag" id="agents">${fold("agents", esc(T("Agents")), agents.length || "", body, peek)}</div>`;
 }
 
-/** "Invite an agent" (vedu #1812; the app's shape is #1813): your own assistant gets the board's join message to paste
- *  (and the Connect dialog if it isn't connected yet), or a friend's agent comes with the friend: invite them by name,
- *  and their agents join once they accept. The join message is for an agent, so it stays in English. */
+/** "Invite an agent" (vedu #1812; the app's shape is #1813), for everyday people and developers alike (vedu #5192;
+ *  docs/research/INVITE-FRIEND.md). Invite a friend comes first: a name or any email, one button, through the same board
+ *  invite as Members & access, and the friend's agents join once they accept. Then your own assistant (Meet my agent):
+ *  the board's join message to paste (and the Connect dialog if it isn't connected yet), with the exact CLI command, MCP
+ *  call, MCP URL and Claude Code line one tap away under For developers. The join message is for an agent, so it stays
+ *  in English. */
 function inviteAgentDialog(T: (s: string) => string, info: { id: string; title: string }): string {
   // Only the board id goes in: the title is set by whoever made the board, and this text is pasted to an agent as the
   // person's own instruction, so a title could smuggle instructions in (opus-d's review, #1920). The agent reads the
   // title as board data once it has joined.
   const msg = `Join the Atteo board ${info.id}: run atteo join ${info.id}, or call join_board with "${info.id}" if you use the Atteo connector. Then read it.`;
+  // The server's own address is filled in by the page (CONNECT_JS: data-fill-origin), as in the Connect dialog.
+  const dev = (id: string, label: string, text: string, fill = false) =>
+    `<label class="lbl" for="${id}">${label}</label><div class="copy"><pre class="mono" id="${id}"${fill ? " data-fill-origin" : ""}>${esc(text)}</pre><button type="button" class="btn sm" data-copy="${id}">${esc(T("Copy"))}</button></div>`;
   return `<dialog id="invite-agent" class="ia-dlg" aria-label="${esc(T("Invite an agent"))}"><div class="hd"><div><h2>${esc(T("Invite an agent"))}</h2><p class="muted small" style="margin-top:4px">${esc(info.title)}</p></div><button class="btn ghost sm" data-close aria-label="${esc(T("Close"))}">✕</button></div>
 <div class="bd stack">
+  <section class="ia-opt" id="ia-friend"><h3>${esc(T("Invite a friend"))}</h3><p class="small muted">${esc(T("By name or email. Once they accept, they and their agents can join this board."))}</p>
+    <form method="post" action="/api/boards/${esc(info.id)}/invites" data-api data-reset data-track="invite_sent" class="acc-row"><input class="input grow" name="email" required autocomplete="off" placeholder="${esc(T("A friend's name, or anyone's email"))}" aria-label="${esc(T("Friend's name or email"))}"><button class="btn primary">${esc(T("Invite"))}</button>
+    <p data-result hidden style="margin-top:8px;flex-basis:100%"></p></form></section>
   <section class="ia-opt" id="ia-own"><h3>${esc(T("Your own assistant"))}</h3><p class="small muted">${esc(T("Paste this to your assistant. It joins this board and reads it."))}</p>
     <div class="copy"><pre class="mono" id="ia-join">${esc(msg)}</pre><button type="button" class="btn sm" data-copy="ia-join">${esc(T("Copy"))}</button></div>
-    <p class="xs muted">${esc(T("Not connected yet?"))} <button type="button" class="linkish" data-open="connect">${esc(T("Connect your assistant"))}</button></p></section>
-  <section class="ia-opt" id="ia-friend"><h3>${esc(T("A friend's agent"))}</h3><p class="small muted">${esc(T("Invite the friend to this board. Their agents join once they accept."))}</p>
-    <form method="post" action="/api/boards/${esc(info.id)}/invites" data-api data-reset data-track="invite_sent" class="acc-row"><input class="input grow" name="email" required autocomplete="off" placeholder="${esc(T("A friend's name"))}" aria-label="${esc(T("A friend's name"))}"><button class="btn primary">${esc(T("Invite"))}</button>
-    <p data-result hidden style="margin-top:8px;flex-basis:100%"></p></form></section>
+    <p class="xs muted">${esc(T("Not connected yet?"))} <button type="button" class="linkish" data-open="connect">${esc(T("Connect your assistant"))}</button></p>
+    <details class="small ia-dev"><summary class="muted">${esc(T("For developers"))}</summary><div class="stack">
+      ${dev("ia-cli", esc(T("CLI")), `atteo join ${info.id}`)}
+      ${dev("ia-mcp-call", `<span class="mono">join_board</span> · MCP`, `join_board("${info.id}")`)}
+      ${dev("ia-mcp-url", esc(T("MCP URL")), "https://atteo.example/mcp", true)}
+      ${dev("ia-mcp-cc", esc(T("Claude Code")), "claude mcp add --transport http --scope user atteo https://atteo.example/mcp", true)}
+    </div></details></section>
 </div></dialog>`;
 }
 
@@ -1880,8 +1893,8 @@ function renderAtt(){attBox.hidden=!pending.length;ta.required=!pending.length;
 document.getElementById('attach-btn').addEventListener('click',()=>attIn.click());
 attIn.addEventListener('change',()=>{addFiles([...attIn.files]);attIn.value=''});
 attBox.addEventListener('click',e=>{const b=e.target.closest('[data-att-rm]');if(!b)return;const i=+b.dataset.attRm;if(pending[i].url)URL.revokeObjectURL(pending[i].url);pending.splice(i,1);renderAtt();ta.focus()});
-// Rich text (Notes, Pages, TextEdit, a web page) also hands the browser its pasteboard types as "files" (Safari names them like 'rich text with attachments -RTFD- data'; vedu #5209). Then only its pictures attach and the words paste as text.
-function pastedFiles(c){const fs=[...(c?.files||[])];if(!fs.length)return null;const ty=[...(c.types||[])];const rich=ty.includes('text/html')||ty.includes('text/rtf')||fs.some(f=>/-RTFD-|^rich text|^(public|com\\.apple)\\./i.test(f.name||''));return rich?{files:fs.filter(f=>/^image\\//.test(f.type)),text:true}:{files:fs,text:false}}
+// Rich text (Notes, Pages, TextEdit, a web page) also hands the browser its pasteboard types as "files" (Safari names them like 'rich text with attachments -RTFD- data'; vedu #5209). Then only its pictures attach and the words paste as text. Some synthetic files are named with the exact UTI; a real filename merely beginning "public." or "com.apple." is still a file.
+function pastedFiles(c){const fs=[...(c?.files||[])];if(!fs.length)return null;const ty=[...(c.types||[])];const rich=ty.includes('text/html')||ty.includes('text/rtf')||fs.some(f=>/-RTFD-|^rich text|^(?:public\\.rtf|com\\.apple\\.(?:flat-rtfd|rtfd))$/i.test(f.name||''));return rich?{files:fs.filter(f=>/^image\\//.test(f.type)),text:true}:{files:fs,text:false}}
 ta.addEventListener('paste',e=>{const p=pastedFiles(e.clipboardData);if(!p)return;if(!p.text)e.preventDefault();if(p.files.length)addFiles(p.files)});
 const convEl=document.querySelector('.conv');
 /** Files dropped on the conversation, or on an open thread (vedu #4507), attach to the composer. */
@@ -2720,7 +2733,10 @@ const narrow=matchMedia('(max-width:959px)');let infoHidden=false;try{infoHidden
 function infoSync(){const wide=!narrow.matches;convLayout.classList.toggle('info-collapsed',wide&&infoHidden);
   const shown=wide?!infoHidden:convLayout.classList.contains('info-open');infoBtn.setAttribute('aria-expanded',String(shown));infoBtn.title=shown?tr('Hide board info'):tr('Show board info');
   infoBtn.setAttribute('aria-label',!wide&&shown?tr('Close board info'):tr('Board info'))} // on a phone the open panel's button is its ✕ (jxn #2223)
-function infoOpen(o){convLayout.classList.toggle('info-open',o);infoSync()}
+function infoOpen(o){convLayout.classList.toggle('info-open',o);infoSync();if(o&&phone.matches)setTimeout(()=>document.getElementById('board-info').focus({preventScroll:true}),0)}
+// A phone's rail is a slide-over (jxn #4860): focus goes into it, and a tap on the dimmed page beside it closes it.
+const phone=matchMedia('(max-width:640px)');document.getElementById('board-info').tabIndex=-1;
+convLayout.addEventListener('click',e=>{if(e.target===convLayout&&phone.matches)infoClose()});
 narrow.addEventListener('change',()=>infoOpen(false));infoSync();
 function infoCount(){const n=document.querySelectorAll('#sum .waiting li').length,c=document.getElementById('info-count');c.textContent=n||'';c.hidden=!n}
 infoBtn.addEventListener('click',()=>{if(narrow.matches){infoOpen(!convLayout.classList.contains('info-open'));return}
@@ -2837,7 +2853,7 @@ export const BOARD_JS_SRC = `${BOARD_JS_PATH}?v=${fnv(BOARD_JS)}`;
 // you had read to (Recap's starting point) comes from window.BC like the rest.
 export const BOARD_TAIL_PATH = "/board-tail.js";
 const boardTailJs = (canPic: boolean, encrypted: boolean, agentChat: boolean, canEdit: boolean) =>
-  (canPic ? BOARD_PIC_JS : "") + (encrypted ? E2E_JS : "") + STATUS_JS + voiceJs(agentChat) + TALK_JS + PREVIEW_JS + evJs(agentChat) + (agentChat ? "" : PO_JS) + (agentChat ? "" : pinRecapJs(null, canEdit) + memoryJs(canEdit) + EXPORT_JS + charterJs()); // charter: Board info's section (#3685)
+  (canPic ? BOARD_PIC_JS : "") + (encrypted ? E2E_JS : "") + STATUS_JS + voiceJs(agentChat) + TALK_JS + (encrypted || agentChat ? "" : CALL_LOADER_JS) + PREVIEW_JS + evJs(agentChat) + (agentChat ? "" : PO_JS) + (agentChat ? "" : pinRecapJs(null, canEdit) + memoryJs(canEdit) + EXPORT_JS + charterJs()); // charter: Board info's section (#3685)
 const TAILS = new Map<string, { js: string; src: string }>();
 /** The tail for flags "0101" (canPic, encrypted, agentChat, canEdit), or null for anything else. */
 export function boardTail(flags: string): { js: string; src: string } | null {
@@ -2862,7 +2878,7 @@ export function boardPage(
   agent: AgentState = { connected: false, onThisBoard: false },
   summary?: Summary, // the whole board's (big boards only send their newest entries)
   agents: AgentHere[] = [],
-  board: { picture: string | null; kind: string | null; sessions?: { name: string; state: string; client: string | null }[]; seen?: number; last_seen?: number; muted?: string[]; charter?: BoardCharter | null } = { picture: null, kind: null }, // from the directory (D1); sessions: yours, on "Your agent"; last_seen: how far you had read (for Recap); muted: whom you muted here (#3602)
+  board: { picture: string | null; kind: string | null; sessions?: { name: string; state: string; client: string | null }[]; seen?: number; last_seen?: number; muted?: string[]; charter?: BoardCharter | null; calls?: boolean; slack?: boolean } = { picture: null, kind: null }, // slack: the Slack bridge is set up here (slackCore.slackOn) // calls: board calls are set up here (calls.callsOn); from the directory (D1); sessions: yours, on "Your agent"; last_seen: how far you had read (for Recap); muted: whom you muted here (#3602)
 ): Response {
   const ctl = { boardId: info.id, creator: info.created_by };
   const people = displayMap(members); // handle → the name they chose (jxn #4369)
@@ -2972,7 +2988,7 @@ export function boardPage(
     agentChat
       ? ""
       : `<button class="btn ghost sm pf-btn" type="button" id="pf-btn" aria-pressed="false" aria-label="${esc(T("Hide agents"))}" title="${esc(T("Only messages people wrote. Agents' posts are hidden for you; nothing changes for anyone else."))}"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><circle cx="8" cy="5.5" r="2.75"/><path d="M2.75 14c.6-2.9 2.7-4.5 5.25-4.5s4.65 1.6 5.25 4.5"/></svg><span>${esc(T("Hide agents"))}</span></button>${localize(L, RECAP_BTN)}`
-  }${talkBtn(info.encrypted ? null : info.id, viewer.name)}
+  }${info.encrypted || agentChat || !board.calls ? "" : callBtn(info.id)}${talkBtn(info.encrypted ? null : info.id, viewer.name)}
     </div>
 </div>
 <div role="tabpanel" id="panel-conv" aria-labelledby="tab-conv" class="bp-panel" data-board-panel><div class="layout" id="conv-layout">
@@ -3153,14 +3169,19 @@ ${canInviteAgent ? inviteAgentDialog(T, info) : ""}
       : ""
   }
 </div></dialog>`;
+  const liveHere = side.find((b) => b.id === info.id)?.live ?? 0;
   return appPage(`${info.title} · Atteo`, {
     viewer,
     boards: side,
     active: info.id,
-    crumbs: agentChat ? `<span class="cur truncate">${esc(T("Your agent"))}</span>` : `<a class="muted" href="/">${esc(T("Boards"))}</a><span class="faint">/</span><span class="cur truncate">${esc(shownTitle)}</span>`,
-    actions: `${agent.connected ? "" : `<button class="btn sm" data-open="connect" aria-label="${esc(T("Connect an agent"))}"><span class="hide-sm">${esc(T("Connect an agent"))}</span><span class="sm-only">${esc(T("Connect"))}</span></button>`}${readOnly || agentChat ? "" : `<button class="btn sm" data-open="invite">${esc(T("Invite"))}<kbd class="hide-sm">I</kbd></button>`}${
+    crumbs: `${agentChat ? `<span class="cur truncate">${esc(T("Your agent"))}</span>` : `<a class="muted" href="/">${esc(T("Boards"))}</a><span class="faint">/</span><span class="bh-pic">${boardPic({ id: info.id, title: info.title, picture: board.picture }, "xs")}</span><span class="cur truncate">${esc(shownTitle)}</span>`}${liveHere ? `<small class="bh-wk">${esc(T("{n} working", { n: liveHere }))}</small>` : ""}`,
+    // Phones (jxn #4860): the header is menu, the board and "N working", search and the rail button.
+    actions: `<button class="btn ghost sm bh-b" type="button" data-palette aria-label="${esc(T("Search or jump to…"))}"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><circle cx="7" cy="7" r="4.5"/><path d="m10.5 10.5 3 3"/></svg></button>${agent.connected ? "" : `<button class="btn sm" data-open="connect" aria-label="${esc(T("Connect an agent"))}"><span class="hide-sm">${esc(T("Connect an agent"))}</span><span class="sm-only">${esc(T("Connect"))}</span></button>`}${readOnly || agentChat ? "" : `<button class="btn sm" data-open="invite">${esc(T("Invite"))}<kbd class="hide-sm">I</kbd></button>`}${
       // Rename/archive/delete live at the bottom of Members & access; a visible way in, so they aren't hidden behind Invite.
-      `<details class="board-head-menu"><summary class="btn ghost sm" aria-label="${esc(T("More actions"))}" title="${esc(T("More actions"))}">⋯</summary><div class="board-head-menu-items"><button type="button" class="ol-all" data-ol-toggle data-open-l="${esc(T("Open all messages"))}" data-fold-l="${esc(T("Fold messages again"))}">${esc(T("Open all messages"))}</button><button type="button" data-mark-unread="${esc(info.id)}">${esc(T("Mark as unread"))}</button>${isCreator || canPic ? `<button type="button" data-open="invite" data-goto="acc-board">${esc(T("Board settings"))}</button>` : ""}</div></details>`
+      `<details class="board-head-menu"><summary class="btn ghost sm" aria-label="${esc(T("More actions"))}" title="${esc(T("More actions"))}">⋯</summary><div class="board-head-menu-items"><button type="button" class="ol-all" data-ol-toggle data-open-l="${esc(T("Open all messages"))}" data-fold-l="${esc(T("Fold messages again"))}">${esc(T("Open all messages"))}</button><button type="button" data-mark-unread="${esc(info.id)}">${esc(T("Mark as unread"))}</button>${isCreator || canPic ? `<button type="button" data-open="invite" data-goto="acc-board">${esc(T("Board settings"))}</button>` : ""}${
+        // The Slack bridge (src/slack.ts): its owner connects a channel; never an encrypted board, a DM or "Your agent".
+        board.slack && isOwner && !info.encrypted && !agentChat && board.kind !== "direct" && !info.archived ? `<form method="get" action="/slack/connect"><input type="hidden" name="board" value="${esc(info.id)}"><button type="submit" data-slack-connect>${esc(T("Connect Slack"))}</button></form>` : ""
+      }</div></details>`
     }`,
     body,
     script,
@@ -3851,6 +3872,8 @@ export interface AdminData {
   totalEntries: number;
   access: { user: string; boards: { id: string; title: string }[]; active_tokens: number; last_token_use: number | null }[];
   metrics?: import("./usage").Metrics;
+  oauth_clients?: number; // registered MCP DCR rows; unused DCR is pruned after 120 days; a client that ever got a token is kept
+  oauth_clients_pruned?: number; // usage_daily oauth_clients_pruned, last 14 days
   // the cost guard (src/costGuard.ts) and its last check
   cost?: { capped: { at: number; reason: string } | null; watching: boolean; thresholds?: import("./costGuard").Thresholds } & Partial<import("./costGuard").Status>;
 }
@@ -3936,21 +3959,39 @@ export function adminPage(viewer: Viewer, side: SideBoard[], d: AdminData): Resp
 <p class="small muted" style="margin:-4px 0 14px">Activation events, not the stock of users and boards above. A board created is a collaboration board (not a DM or Your agent). First agent post is a person whose agent wrote on a board for the first time. Invite redeemed is someone joining through an invite link or an accepted email invitation. Friend accepted is a pending request that became a friendship. The same numbers are <span class="mono">success</span> on <span class="mono">GET /api/ops/metrics</span>, and the <span class="mono">success</span> rows of <span class="mono">usage_daily</span> (<span class="mono">GET /api/ops/usage-daily</span>). Test accounts whose names start with <span class="mono">e2e-</span> are left out.</p>
 <div class="grid4">${kpi(s.board_created, "Boards created", "collaboration boards")}${kpi(s.first_agent_post, "First agent post", "a person's agent posted for the first time")}${kpi(s.invite_redeemed, "Invites redeemed", "invite link or email invitation accepted")}${kpi(s.friend_accepted, "Friends accepted", "a pending request became a friendship")}</div>`
     : "";
+  // The north star (src/northStar.ts, vedu #5284): one number to watch, its last 8 weeks, and the two that feed it.
+  const ns = m?.north_star;
+  const nsMax = Math.max(1, ...(ns?.weeks ?? []).map((w) => w.collab));
+  const nsBars = (ns?.weeks ?? [])
+    .map((w, i, all) => `<div class="ns-bar${i === all.length - 1 ? " now" : ""}" title="${esc(`Week of ${w.week}: ${w.collab}`)}" data-week="${esc(w.week)}" data-n="${w.collab}"><span style="height:${Math.round((w.collab / nsMax) * 100)}%"></span></div>`)
+    .join("");
+  const nsLast = ns?.weeks[ns.weeks.length - 2];
+  const northHtml = ns
+    ? `<section class="ns" id="north-star"><h2 style="margin:0 0 4px">North star</h2>
+<p class="small muted" style="margin:0 0 12px">Collaborating boards: boards where two or more outside people (or their agents) posted that week. Outside means a signed-up account that isn't ours (${esc(ns.team.join(", "))}) or a test account. Weeks start Monday, UTC; past weeks are the cron's snapshots, this week is live. Every Monday the week's line goes to the team board.</p>
+<div class="grid4">${kpi(ns.this_week.collab, "Collaborating boards this week", `last week ${nsLast?.collab ?? 0}`)}<div class="card pad"><div class="ns-trend" aria-label="Collaborating boards, last ${ns.weeks.length} weeks">${nsBars}</div><div class="small muted">Last ${ns.weeks.length} weeks</div><div class="xs faint" style="margin-top:2px">${esc(ns.weeks[0]?.week ?? "")} → this week</div></div>${kpi(ns.this_week.mixed, "Boards with an outsider + us", "both posted this week")}${kpi(ns.this_week.people, "Outside people active", "posted this week, on any board")}</div></section>`
+    : "";
   // The numbers worth knowing at a glance (test accounts and boards left out).
   // The cost guard's line leads either way (it used to show only without the KPIs, so never in production).
   const kpiHtml = k
-    ? `${costHtml(d.cost)}<div class="grid4">${kpi(k.users, "Users", `+${k.users_7d} this week · +${k.users_30d} in 30 days`)}${kpi(k.active_7d, "Active this week", `${k.active_1d} today · ${k.active_30d} in 30 days`)}${kpi(
+    ? `${costHtml(d.cost)}${northHtml}<div class="grid4" style="margin-top:${northHtml ? 24 : 0}px">${kpi(k.users, "Users", `+${k.users_7d} this week · +${k.users_30d} in 30 days`)}${kpi(k.active_7d, "Active this week", `${k.active_1d} today · ${k.active_30d} in 30 days`)}${kpi(
         `$${k.mrr.toLocaleString("en-US")}`,
         "MRR (est.)",
         `${k.pro} on Pro${k.cancelling ? ` · ${k.cancelling} cancelling` : ""}${k.active_30d ? ` · ${Math.round((k.pro / k.active_30d) * 100)}% of active` : ""}`,
       )}${kpi(k.agents_7d, "People with an agent connected", "used a token this week")}</div>
 <div class="grid4" style="margin-top:12px">${kpi(k.boards, "Boards", `${k.boards_active_7d} active this week`)}${kpi(k.posts_7d, "Posts this week", "people and agents")}${kpi(d.totalEntries, "Messages, all time")}${kpi(k.errors_24h, "Kinds of server error, last 24h", k.errors_24h ? `${k.errors_24h_total.toLocaleString("en-US")} times in all · details below and in Sentry` : "all quiet")}</div>`
     : `${costHtml(d.cost)}<div class="grid4">${stat(d.boards.length, "Boards")}${stat(d.users.length, "Users")}${stat(d.totalEntries, "Messages")}${stat(d.invites.length, "Invites")}</div>`;
+  const oauthNote =
+    d.oauth_clients == null
+      ? ""
+      : `<p class="small muted" style="margin:12px 0 0" data-oauth-clients>OAuth clients: ${d.oauth_clients} registered${
+          d.oauth_clients_pruned != null ? ` · ${d.oauth_clients_pruned} unused pruned in 14 days` : ""
+        }. Unused DCR older than 120 days is deleted by the cron; a client that ever got a token is kept, since connectors cache its id and do not re-register on invalid_client.</p>`;
   const ph = currentAnalytics();
   const analyticsNote = ph
     ? `<p class="small muted" style="margin:18px 0 0">Product analytics is on (PostHog, ${ph.region === "us" ? "US" : "EU"}). <a href="${esc(posthogDashboardUrl(ph))}">Open the dashboard</a>. What is recorded is in <span class="mono">docs/ANALYTICS.md</span>.</p>`
     : `<p class="small muted" style="margin:18px 0 0">Product analytics is off until <span class="mono">POSTHOG_KEY</span> is set. How to turn it on is in <span class="mono">docs/ANALYTICS.md</span>. Naming PostHog on <a href="/privacy">/privacy</a> and linking its dashboard here are follow-ups once that key exists.</p>`;
-  const overview = `${kpiHtml}${productHtml}${analyticsNote}${trustHtml}${usageHtml}
+  const overview = `${kpiHtml}${oauthNote}${productHtml}${analyticsNote}${trustHtml}${usageHtml}
 <h2 style="margin:32px 0 10px">Boards</h2>
 ${table(
   ["Board", "Members", "Messages", "Created by", "Last activity"],

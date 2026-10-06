@@ -45,6 +45,10 @@ prevented = await paste("#composer-text", { types: { "text/plain": words }, file
 await p.waitForTimeout(300);
 check(!prevented && (await atts()).length === 0, "RTFD blobs named by their pasteboard type never attach, even with only text/plain");
 
+prevented = await paste("#composer-text", { types: { "text/plain": words }, files: [blob("public.rtf"), blob("com.apple.flat-rtfd")] });
+await p.waitForTimeout(300);
+check(!prevented && (await atts()).length === 0, "exact UTI-named rich-text blobs still paste as words");
+
 // 3) Rich text with a picture in it: the picture attaches, the words still paste.
 prevented = await paste("#composer-text", { types: { "text/plain": words, "text/html": "<p>Q</p><img src=x>" }, files: [blob("rich text with attachments -RTFD- data"), { name: "diagram.png", type: "image/png", png: true }] });
 await p.waitForSelector("#attachments:not([hidden]) .att", { timeout: 8000 }).catch(() => {});
@@ -58,7 +62,18 @@ await p.waitForSelector("#attachments:not([hidden]) .att", { timeout: 8000 }).ca
 check(prevented && (await atts()).length === 1, `a plain file paste still attaches (${JSON.stringify(await atts())})`);
 await clear();
 
-// 5) The bug report box follows the same rule.
+// 5) UTI-looking prefixes in real filenames do not make them synthetic rich-text pasteboard files.
+prevented = await paste("#composer-text", { files: [
+  { name: "public.key.txt", type: "text/plain", text: "public key" },
+  { name: "com.apple.notes.txt", type: "text/plain", text: "notes" },
+] });
+await p.waitForSelector("#attachments:not([hidden]) .att", { timeout: 8000 }).catch(() => {});
+const prefixed = await atts();
+check(prevented && prefixed.length === 2 && prefixed.includes("public.key.txt") && prefixed.includes("com.apple.notes.txt"),
+  `real files with UTI-looking prefixes still attach (${JSON.stringify(prefixed)})`);
+await clear();
+
+// 6) The bug report box follows the same rule.
 await p.evaluate(() => document.querySelector("[data-bug]")?.click());
 const bug = await p.waitForSelector("#bug-text", { timeout: 8000 }).then(() => true).catch(() => false);
 if (bug) {

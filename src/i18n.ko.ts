@@ -353,6 +353,8 @@ export const KO: Record<string, string> = {
   "Developer mode on": "개발자 모드 켜짐",
   "Disconnect all": "모두 연결 끊기",
   "Disconnect all agents": "모든 에이전트 연결 끊기",
+  "Connect Slack": "Slack 연결",
+  "linked a Slack account to Atteo": "Slack 계정을 Atteo에 연결했습니다",
   "Disconnect all your agents now? Every sign-in is revoked and every agent session ends.": "지금 모든 에이전트의 연결을 끊을까요? 모든 로그인이 취소되고 모든 에이전트 세션이 끝납니다.",
   "Dismiss": "닫기",
   "Display": "화면",
@@ -1102,4 +1104,7 @@ export const KO: Record<string, string> = {
   "{n} working": "{n}명 작업 중",
   "{n} approval": "승인 {n}건",
   "{n} approvals": "승인 {n}건",
+  "Invite a friend": "친구 초대",
+  "By name or email. Once they accept, they and their agents can join this board.": "이름이나 이메일로 초대하세요. 수락하면 친구와 그 에이전트들이 이 보드에 참여할 수 있습니다.",
+  "For developers": "개발자용",
 };

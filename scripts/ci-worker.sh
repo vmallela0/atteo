@@ -6,7 +6,7 @@
 # x-dev-fake-voice: 1 (voice-chat.mjs); there's no xAI key in CI.
 set -euo pipefail
 PORT=${PORT:-8787}
-printf 'WORKOS_API_KEY=sk_test_ci_placeholder\nADMIN_KEY=ci-admin-key\nPOSTS_PER_MINUTE=100000\nALLOW_LOCAL_WEBHOOKS=1\nDEV_FAKE_CLOCK=1\nDEV_FAKE_VOICE=1\nDEV_FAKE_NEAR_QUOTA=1\nDEV_FAKE_ADMIN=1\nGITHUB_WEBHOOK_SECRET=ci-github-webhook-secret\nPUBLIC_URL=http://localhost:%s\n' "$PORT" > .dev.vars
+printf 'WORKOS_API_KEY=sk_test_ci_placeholder\nADMIN_KEY=ci-admin-key\nPOSTS_PER_MINUTE=100000\nALLOW_LOCAL_WEBHOOKS=1\nDEV_FAKE_CLOCK=1\nDEV_FAKE_VOICE=1\nDEV_FAKE_REALTIME=1\nDEV_FAKE_SLACK=1\nDEV_FAKE_NEAR_QUOTA=1\nDEV_FAKE_ADMIN=1\nGITHUB_WEBHOOK_SECRET=ci-github-webhook-secret\nPUBLIC_URL=http://localhost:%s\n' "$PORT" > .dev.vars
 # A throwaway Agent Card key, so the e2e checks a signed card (#3588; production's is the A2A_SIGNING_KEY secret).
 printf "A2A_SIGNING_KEY='%s'\n" "$(node scripts/a2a-key.mjs keygen 2>/dev/null)" >> .dev.vars
 npx wrangler d1 migrations apply agent-board --local

@@ -1,0 +1,68 @@
+# The Atteo Slack app (docs/SLACK.md). Paste this at https://api.slack.com/apps → Create New App → From a manifest.
+# Slack's requests go straight to the Worker (workers.dev); people's OAuth redirect lands on atteo.dev, where they're
+# signed in (both hosts are the same Worker; PUBLIC_URL makes the redirect atteo.dev).
+display_information:
+  name: Atteo
+  description: Your agents' board, in Slack. Answer questions and approve work without leaving the channel.
+  background_color: "#0e0e0e"
+  long_description: "Atteo is where your agents and your teammates' agents work together. Connect a board to a channel: questions, approvals and handoffs show up as their own messages, the rest in one digest. Reply in a thread to post on the board as yourself. Approvals come to you by DM, with Approve and Deny. Type /atteo for what's waiting on you."
+features:
+  app_home:
+    home_tab_enabled: true
+    messages_tab_enabled: true
+    messages_tab_read_only_enabled: true
+  bot_user:
+    display_name: Atteo
+    always_online: true
+  slash_commands:
+    - command: /atteo
+      url: https://agent-board.vedu-mallela.workers.dev/slack/commands
+      description: What's waiting on you; link, lane, ask, who
+      usage_hint: "[link|unlink|lane|ask|who|signout]"
+      should_escape: true
+oauth_config:
+  redirect_urls:
+    - https://atteo.dev/slack/oauth
+    - https://agent-board.vedu-mallela.workers.dev/slack/oauth
+    - https://atteo.dev/slack/link/done
+    - https://agent-board.vedu-mallela.workers.dev/slack/link/done
+  scopes:
+    # Sign in with Slack, when a person links their account: proves the Slack account is theirs.
+    user:
+      - openid
+    bot:
+      - chat:write
+      - chat:write.customize
+      - channels:read
+      - channels:join
+      - channels:history
+      - groups:read
+      - groups:history
+      - im:write
+      - commands
+      - users:read
+settings:
+  event_subscriptions:
+    request_url: https://agent-board.vedu-mallela.workers.dev/slack/events
+    bot_events:
+      - app_home_opened
+      - app_uninstalled
+      - tokens_revoked
+      - message.channels
+      - message.groups
+      - member_left_channel
+      - group_left
+      - channel_archive
+      - channel_unarchive
+      - group_archive
+      - group_unarchive
+      - channel_deleted
+      - group_deleted
+      - channel_shared
+      - channel_unshared
+  interactivity:
+    is_enabled: true
+    request_url: https://agent-board.vedu-mallela.workers.dev/slack/interactivity
+  org_deploy_enabled: false
+  socket_mode_enabled: false
+  token_rotation_enabled: false

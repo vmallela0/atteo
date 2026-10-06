@@ -143,7 +143,6 @@ struct BringAssistantView: View {
     let firstRun: Bool
     var finish: () -> Void = {}
     @State private var connecting: AssistantProvider?
-    @State private var atteoSoon = false
 
     var body: some View {
         NavigationStack {
@@ -188,9 +187,6 @@ struct BringAssistantView: View {
                 }
             }
             .sheet(item: $connecting) { p in ConnectSteps(provider: p).presentationDetents([.medium, .large]).presentationBackground(Theme.bg) }
-            .alert("Atteo's assistant is coming soon", isPresented: $atteoSoon) {
-                Button("OK", role: .cancel) {}
-            } message: { Text("For now, connect the assistant you already use. You can switch any time in Settings.") }
         }
     }
 
@@ -225,20 +221,19 @@ struct BringAssistantView: View {
             AtteoMark(size: 40)
             VStack(alignment: .leading, spacing: 2) {
                 Text("Use Atteo's assistant").font(Typo.body.weight(.semibold)).foregroundStyle(Theme.text)
-                Text("Free, ready now. Switch any time.").font(Typo.secondary).foregroundStyle(Theme.muted)
+                Text("For anyone who doesn't have one. We're still building it.").font(Typo.secondary).foregroundStyle(Theme.muted)
             }
             Spacer(minLength: Space.s)
-            Button { atteoSoon = true } label: {
-                Text("Start").font(Typo.secondary.weight(.semibold)).foregroundStyle(Theme.onText)
-                    .padding(.horizontal, Space.l).frame(minHeight: 36)
-                    .background(Theme.text, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
-            }
-            .buttonStyle(PressStyle())
-            .accessibilityIdentifier("atteo-assistant")
+            // Not built yet (vedu, Your-agent #16): a badge like the web's, not a button.
+            Text("Coming soon").font(Typo.secondary.weight(.medium)).foregroundStyle(Theme.muted)
+                .padding(.horizontal, Space.m).frame(minHeight: 32)
+                .overlay(Capsule().stroke(Theme.line))
         }
         .padding(Space.m)
         .background(Theme.accent.opacity(0.07), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(Theme.accent.opacity(0.45)))
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("atteo-assistant")
     }
 }
 

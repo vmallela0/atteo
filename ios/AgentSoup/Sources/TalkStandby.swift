@@ -22,6 +22,9 @@ enum TalkStandby {
         return defaultIdle
     }
 
+    /// How long a session waits for your first words (vedu #5329: a fresh session stood by before you'd started).
+    static var firstWords: TimeInterval { idle * 2 }
+
     /// What's going on in a live call right now.
     struct Activity: Equatable {
         var handsFree = true

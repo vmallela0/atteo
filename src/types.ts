@@ -1,6 +1,7 @@
 import type { AgentCharter } from "./charter";
 import type { EntryData } from "./entryData";
 import type { Mention } from "./mentions";
+import type { Flag } from "./screen";
 
 export interface Media {
   mime: string;
@@ -25,7 +26,7 @@ export interface Attachment {
 }
 
 /** Inbox kinds for the person only: agent tokens never see these rows (src/inbox.ts) or count them (src/registry.ts). */
-export const PERSON_ONLY_KINDS = ["people_only", "manual_unread", "reminder", "report"] as const;
+export const PERSON_ONLY_KINDS = ["people_only", "manual_unread", "reminder", "report", "slack_link"] as const;
 
 export const ENTRY_TYPES = ["claim", "question", "decision", "task", "artifact", "note", "change", "handoff"] as const;
 // "approval" is posted by the server only (an agent's request_approval on a board), never by a client.
@@ -68,11 +69,13 @@ export interface Entry {
   via?: "agent" | "person" | null; // who actually wrote it: the member's agent (MCP/CLI) or the member themselves (web). Null on older entries.
   agent_name?: string; // read time only, never stored: what the author named their agent (agent posts, when they did)
   mention_names?: Record<string, string>; // read time only: owner → the name they gave their agent, for agents this entry mentions
-  client?: string | null; // for agent posts: which agent, e.g. "Claude Code"
+  client?: string | null; // for agent posts: which agent, e.g. "Claude Code" (the agent names it: never trust it for labels)
+  origin?: "slack" | "pact"; // server-set only (#5439): made by the Slack bridge, or an outside agent's PACT reply
   artifact_name: string | null;
   artifact_size: number | null; // bytes of artifact content (content itself is fetched with `get`)
   artifact_version?: number | null;
   attachments?: Attachment[]; // file entries only: every file of the message, in order (1 for a single file, ≤10)
+  rich_text?: { name: string; text: string; flag?: Flag }[]; // read/get/wait only: the words of its pasted RTF/RTFD files (vedu #5225, #5258), each screened like the text (#5275)
   media?: Media | null; // images: type, size in pixels (when known) and bytes; the image is served by /api/boards/:id/image // files are versioned documents: this entry published version N of artifact_name
   card?: import("./card").ChangeCard | null; // type=change: branch, PR, CI, commits, files (the diff is fetched with `get`)
   handoff?: import("./handoff").Handoff | null; // type=handoff: ready to gate (branch, sha, base, checks, state), or the lander's landed/failed reply
@@ -168,6 +171,9 @@ export interface Env {
   SENTRY_DSN?: string; // secret (so dev/CI never report): Sentry project DSN; absent in dev/CI, then Sentry is off
   POSTHOG_KEY?: string; // var: PostHog project API key (phc_…, public). Unset: the web analytics loader does nothing (src/analytics.ts, docs/ANALYTICS.md)
   POSTHOG_HOST?: string; // var: "eu" (default) or "us". Anything else leaves analytics off
+  CF_REALTIME_APP_ID?: string; // var: the Cloudflare Realtime (SFU) app for board calls (src/calls.ts); with CF_REALTIME_APP_TOKEN. Unset: no calls anywhere (routes, page and button 404/hidden)
+  DEV_FAKE_REALTIME?: string; // LOCAL .dev.vars ONLY, never wrangler.jsonc: "1" + localhost → board calls use a stub room with no audio (src/calls.ts; the browser checks)
+  CF_REALTIME_APP_TOKEN?: string; // secret: that app's token; only the Worker uses it (it proxies the SFU's HTTP API). Never in wrangler.jsonc
   XAI_API_KEY?: string; // secret: xAI text-to-speech (POST /api/app/tts, src/tts.ts) and speech-to-speech client secrets (POST /api/app/voice/session, src/voice.ts); absent: both are off and clients use the device voice
   TTS_MONTHLY_CHARS?: string; // var: read-aloud characters per person per month (default 900,000)
   TTS_PER_MINUTE?: string; // var: read-aloud requests per person per minute (default 30)
@@ -176,6 +182,8 @@ export interface Env {
   LIMITS_LOCAL?: string; // "1": a localhost server keeps the production request limits (src/limits.ts)
   BUGS_BOARD?: string; // var: the developers' bug board id (b_…); /api/bugs posts bug reports (web 🐞 button, iOS shake) there. Unset: the endpoint says it's not set up
   FEEDBACK_BOARD?: string; // var: where feedback about Atteo lands (POST /api/feedback, MCP feedback; vedu #4125). Unset: BUGS_BOARD
+  TEAM_USERS?: string; // var: the team's own accounts, comma-separated (default "vedu,jxn"); the north star counts everyone else (src/northStar.ts)
+  NORTH_STAR_BOARD?: string; // var: where the Monday north-star line is posted (b_…). Unset or empty: no post, the number is still on /_ops
   OPERATORS?: string; // var: comma-separated usernames exempt from voice/read-aloud caps (vedu #1584)
   VOICE_MONTHLY_MINUTES?: string; // var: speech-to-speech minutes per person per month (default 180)
   VOICE_SESSION_MINUTES?: string; // var: one voice session's cap, charged up front and settled at the end (default 10)
@@ -208,10 +216,12 @@ export interface Env {
   COST_HARD_ROWS_WRITTEN?: string; // var: … for the cap (default 25,000,000)
   COST_SOFT_DO_REQUESTS?: string; // var: Durable Object requests today for an alert (default 2,000,000)
   COST_HARD_DO_REQUESTS?: string; // var: … for the cap (default 10,000,000)
-  // Nightly backups outside Cloudflare (src/backup.ts, docs/BACKUPS.md): off until the public key and all BACKUP_S3_* but the optional ones are set.
+  // Nightly encrypted backups (src/backup.ts, docs/BACKUPS.md): to R2 through BACKUP_R2, or to an S3-compatible bucket when
+  // every BACKUP_S3_* below but the optional ones is set (that wins). Off until BACKUP_PUBLIC_KEY is set as well.
+  BACKUP_R2?: R2Bucket; // binding: the atteo-backups bucket (local wrangler dev gets a local one)
   A2A_SIGNING_KEY?: string; // secret: the Agent Card's ES256 private key (JWK, from scripts/a2a-key.mjs); unset: the card is served unsigned. Never kept in D1
-  BACKUP_PUBLIC_KEY?: string; // var: X25519 public key (base64, from scripts/backup.mjs keygen); the private key stays offline
-  BACKUP_S3_ENDPOINT?: string; // var: S3-compatible endpoint outside Cloudflare, e.g. https://s3.us-west-004.backblazeb2.com
+  BACKUP_PUBLIC_KEY?: string; // secret in production (so local servers stay off): X25519 public key from scripts/backup.mjs keygen; the private key stays offline
+  BACKUP_S3_ENDPOINT?: string; // var: S3-compatible endpoint, e.g. https://s3.us-west-004.backblazeb2.com
   BACKUP_S3_BUCKET?: string; // var
   BACKUP_S3_REGION?: string; // var (default us-east-1)
   BACKUP_S3_PREFIX?: string; // var (default "atteo/")
@@ -223,4 +233,11 @@ export interface Env {
   BACKUP_BLOB_PART_BYTES?: string; // var: a board's files are backed up in parts of about this many bytes (default 8,000,000)
   BACKUP_ALERT_HOURS?: string; // var: hours after the start with no manifest before it's reported (default 6)
   BACKUP_RESTORE?: string; // "1" allows POST /api/ops/restore-board off localhost (disaster recovery only)
+  // The Slack bridge (src/slack.ts, docs/SLACK.md): off until SLACK_CLIENT_ID and the three secrets are all set.
+  SLACK: DurableObjectNamespace<import("./slackQueue").SlackTeam>; // binding: one object per Slack workspace sends its messages in order (src/slackQueue.ts)
+  SLACK_CLIENT_ID?: string; // var: the Slack app's client id. Unset: no Slack bridge anywhere (the /slack routes 404, no menu item)
+  SLACK_CLIENT_SECRET?: string; // secret: the Slack app's client secret (OAuth). Never in wrangler.jsonc
+  SLACK_SIGNING_SECRET?: string; // secret: proves /slack/events, /slack/commands and /slack/interactivity requests are Slack's
+  SLACK_TOKEN_KEY?: string; // secret: 32 random bytes, base64 (openssl rand -base64 32): bot tokens are encrypted with it in D1
+  DEV_FAKE_SLACK?: string; // LOCAL .dev.vars ONLY, never wrangler.jsonc: "1" + localhost → a stub Slack that records calls instead of making them
 }

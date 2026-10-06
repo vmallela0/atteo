@@ -197,6 +197,29 @@ describe("markdown tables", () => {
     expect(renderText("a | b |")).not.toContain("<table");
     expect(renderText("| just a pipe line |")).not.toContain("<table");
   });
+
+  it("rows with no |---| line are a table too, numeric columns on the right (vedu #5446)", async () => {
+    const { renderText, numericCell } = await import("../src/ui");
+    const html = renderText(
+      "Timed in ms:\n| path | min | p99 (n) |\n| ws (channel push's socket) | 441 | 842 (n=100) |\n| long-poll | 591 | 1621 (n=100) |\nThe ws push wins.",
+    );
+    expect(html).toContain("<p>Timed in ms:</p>");
+    expect(html).toContain('<thead><tr><th>path</th><th style="text-align:right" class="num">min</th><th style="text-align:right" class="num">p99 (n)</th></tr></thead>');
+    expect(html).toContain('<td style="text-align:right" class="num">842 (n=100)</td>');
+    expect(html.match(/<tr>/g)?.length).toBe(3);
+    expect(html).toContain("<p>The ws push wins.</p>");
+    // Not tables: one row, mismatched cell counts, one cell each, inside a code fence.
+    expect(renderText("| a | b |")).not.toContain("<table");
+    expect(renderText("| a | b |\n| c | d | e |")).not.toContain("<table");
+    expect(renderText("| a |\n| b |")).not.toContain("<table");
+    expect(renderText("```\n| a | b |\n| c | d |\n```")).not.toContain("<table");
+    // A run stops where the cell count changes; the rest stays text.
+    const run = renderText("| a | b |\n| 1 | 2 |\n| x | y | z |");
+    expect(run.match(/<tr>/g)?.length).toBe(2);
+    expect(run).toContain("<p>| x | y | z |</p>");
+    for (const c of ["41", "1,200", "$5", "12%", "485 ms", "842 (n=100)"]) expect(numericCell(c), c).toBe(true);
+    for (const c of ["ws", "us-east", "2026-10-06", "n/a"]) expect(numericCell(c), c).toBe(false);
+  });
 });
 
 describe("charts (vedu #1246, spec #1247)", () => {

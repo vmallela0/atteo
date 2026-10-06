@@ -390,7 +390,7 @@ dialog[open]{animation:pop .16s ease-out}dialog:focus{outline:none}@media (prefe
 dialog.access-dlg{width:min(640px,calc(100vw - 24px))}
 /* Invite an agent (#1855): a small + after the members' faces, and a two-choice dialog */
 .av-add{flex:none;display:inline-grid;place-items:center;width:22px;height:22px;border-radius:50%;border:1px dashed var(--line-strong);background:transparent;color:var(--muted);cursor:pointer;padding:0}.av-add:hover{color:var(--ink);border-color:var(--ink)}
-dialog.ia-dlg{width:min(560px,calc(100vw - 24px))}.ia-opt h3{margin:0 0 4px;font-size:14px}.ia-opt+.ia-opt{border-top:1px solid var(--line);padding-top:14px}.ia-opt .copy{margin:8px 0}.ia-opt form{margin-top:8px;flex-wrap:wrap}
+dialog.ia-dlg{width:min(560px,calc(100vw - 24px))}.ia-opt h3{margin:0 0 4px;font-size:14px}.ia-opt+.ia-opt{border-top:1px solid var(--line);padding-top:14px}.ia-opt .copy{margin:8px 0}.ia-opt form{margin-top:8px;flex-wrap:wrap}.ia-dev{margin-top:10px}.ia-dev summary{cursor:pointer}.ia-dev .stack{margin-top:8px}.ia-dev .copy{margin:0 0 4px}
 .acc-sec{padding:14px 0;border-top:1px solid var(--line)}.acc-sec:first-child{border-top:0;padding-top:0}
 .acc-sec h3{font-size:12.5px;font-weight:600;color:var(--ink);margin:0 0 8px}.acc-sec summary{cursor:pointer}
 .acc-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.acc-sel{width:auto;height:30px;font-size:12.5px;padding:0 8px}
@@ -743,7 +743,7 @@ dialog.lightbox.zoomed img{max-width:none;max-height:none;margin:auto;border-rad
 /* One piece (jxn #4304, #4325): Reload keeps its corners and sits the same 4px in on top, right and bottom; the bar
    takes the button's corners (its radius plus the inset and the 1px border), so the edges line up. */
 .upd-bar{position:fixed;top:12px;left:50%;transform:translateX(-50%);z-index:60;display:flex;align-items:center;gap:10px;padding:4px 4px 4px 16px;border:1px solid var(--line);border-radius:calc(var(--r-sm) + 5px);background:var(--bg);box-shadow:var(--shadow-lg);font-size:13px;color:var(--ink);white-space:nowrap}
-.md-tw{overflow-x:auto;margin:6px 0;max-width:100%}.md-t{border-collapse:collapse;font-size:13px;line-height:1.45}.md-t th,.md-t td{border:1px solid var(--line);padding:4px 9px;text-align:left;vertical-align:top}.md-t th{background:var(--bg-subtle);color:var(--ink);font-weight:600}
+.md-tw{overflow-x:auto;margin:6px 0;max-width:100%}.md-t{border-collapse:collapse;font-size:13px;line-height:1.45}.md-t th,.md-t td{border:1px solid var(--line);padding:4px 9px;text-align:left;vertical-align:top}.md-t th{background:var(--bg-subtle);color:var(--ink);font-weight:600}.md-t{font-variant-numeric:tabular-nums}.md-t .num{white-space:nowrap}
 .ch{margin:8px 0;padding:10px 12px 6px;border:1px solid var(--line);border-radius:10px;background:var(--bg);max-width:620px}.ch-t{font-size:13px;font-weight:600;color:var(--ink);margin-bottom:4px}
 .ch{container-type:inline-size}.ch-svg{display:block;width:100%;height:auto;overflow:visible}.ch-narrow{display:none}@container (max-width:420px){.ch-wide{display:none}.ch-narrow{display:block}}.ch-grid{stroke:var(--line);stroke-width:1}.ch-axis{stroke:var(--line-strong,var(--line));stroke-width:1}
 .ch-y,.ch-x{fill:var(--muted);font-size:11px;font-family:inherit}.ch-y{text-anchor:end}.ch-x{text-anchor:middle}
@@ -795,6 +795,8 @@ input.switch::after{content:"";position:absolute;top:3px;left:3px;width:18px;hei
 ${MERMAID_CSS}
 ${CODE_COLOR_CSS}
 ${TALK_CSS}
+.bcall-btn{align-self:center;color:var(--muted)}.bcall-btn:hover{color:var(--ink)}
+@media(max-width:859px){.bp-tabs .bcall-btn{position:absolute;top:2px;right:36px;width:32px;padding:0;justify-content:center}.bp-head:has(.bcall-btn) .bp-title{padding-right:76px}}
 ${AGENT_LOGO_CSS}
 .slash-menu li{align-items:baseline}.slash-menu li b{flex:none;white-space:nowrap}.slash-menu li .k{margin-left:10px;flex:1;min-width:0;text-align:left} /* "/task" never splits (jxn #1391) */
 .mem-act{display:none}.mem-on .mem-act{display:inline-flex;width:30px;padding:0;justify-content:center;color:var(--muted)}.mem-on .mem-act:hover{color:var(--ink)}
@@ -1068,7 +1070,7 @@ mark{background:var(--mark);color:inherit;border-radius:2px;padding:0 1px}
   background:color-mix(in srgb,var(--bg) 85%,transparent);backdrop-filter:saturate(180%) blur(10px);-webkit-backdrop-filter:saturate(180%) blur(10px)}
 .topbar .crumbs{margin:0;display:flex;align-items:center;gap:8px;min-width:0;font-size:13px}
 .topbar .crumbs .cur{color:var(--ink);font-weight:500}
-.topbar .actions{margin-left:auto;display:flex;gap:8px;align-items:center}
+.topbar .actions{margin-left:auto;display:flex;gap:8px;align-items:center}.bh-pic,.bh-wk,.bh-b{display:none}
 /* phones: just the current page's name (the menu button leads back to Boards/People), so a long board name still shows */
 @media(max-width:480px){.topbar .crumbs>:not(.cur){display:none}.topbar .crumbs .cur{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}}
 .content{max-width:1120px;margin:0 auto;padding:28px 24px 96px}
@@ -1082,7 +1084,7 @@ mark{background:var(--mark);color:inherit;border-radius:2px;padding:0 1px}
    waits, grey quiet), new, search, messages, alerts, you. Phones keep the top bar's menu button instead. */
 .strip{display:flex;align-items:center;gap:6px;height:44px;padding:0 12px;border-bottom:1px solid var(--line);background:var(--bg-subtle)}
 .strip .ws{display:flex;align-items:center;gap:8px;padding:0 6px;color:var(--ink)}.strip .ws .wm{font-size:19px}
-.btabs{display:flex;flex:1;min-width:0;align-self:stretch;overflow-x:auto;overflow-y:hidden;overscroll-behavior:contain;touch-action:pan-x;scrollbar-width:none}
+.btabs{display:flex;flex:1;min-width:0;align-self:stretch;overflow-x:auto;overflow-y:hidden;overscroll-behavior:contain;touch-action:pan-x pinch-zoom;scrollbar-width:none}
 .btab{display:flex;align-items:center;gap:7px;flex:none;max-width:240px;margin-top:6px;padding:0 14px;border:1px solid transparent;border-bottom:3px solid var(--line-strong);border-radius:8px 8px 0 0;color:var(--muted);font-size:13px;white-space:nowrap}
 .btab>b{font-weight:500;overflow:hidden;text-overflow:ellipsis}.btab[aria-current]{color:var(--ink);background:var(--bg);border-color:var(--line) var(--line) var(--line-strong)}.btab.st-work{border-bottom-color:var(--ok)}.btab.st-ap{border-bottom-color:var(--warn)}
 .btab-w{position:relative;display:flex;flex:none}.btab-w[hidden]{display:none}.btab-w .btab{padding-right:26px}
@@ -1246,6 +1248,25 @@ pre.json{background:var(--bg-subtle);border:1px solid var(--line);border-radius:
   .bp-panel .rail{top:44px}
   .layout.info-open>.conv{visibility:hidden} /* only the open panel's scrollbar shows */
 }
+/* mobile web frame (jxn #4860): the rail slides over from the right above a scrim that dims the page only; tabs are pills */
+@media(max-width:640px){
+  .bp-panel .aside,.layout.info-open>.aside{display:block;position:fixed;inset:0 0 0 auto;z-index:61;width:min(340px,88vw);margin:0;padding:calc(44px + env(safe-area-inset-top)) 16px 16px;background:var(--bg);box-shadow:var(--shadow-lg);transform:translateX(100%);visibility:hidden;transition:transform .2s,visibility .2s}
+  [dir=rtl] .bp-panel .aside{inset:0 auto 0 0;transform:translateX(-100%)}
+  .layout.info-open>.aside{transform:none;visibility:visible}.layout.info-open>.conv{visibility:visible}
+  .layout.info-open::before{content:"";position:fixed;inset:0;z-index:60;background:rgba(0,0,0,.32)}
+  .bp-panel .info-btn{position:fixed;top:8px;right:8px;z-index:62}.nav-open .bp-panel .info-btn{visibility:hidden}.info-btn[aria-expanded="true"]::after{display:grid;place-items:center}#fold-members li+li{margin-top:6px} /* Remove buttons a full tap apart */.app:has(#info-btn) .topbar .actions{padding-inline-end:30px;gap:4px}[dir=rtl] .bp-panel .info-btn{right:auto;left:8px}
+  .bp-tabs .tabs{gap:4px}.bp-tabs .tabs button{padding:5px 12px;border:0;border-radius:999px;margin:0}.bp-tabs .tabs button[aria-selected=true]{background:var(--ink);color:var(--bg)}
+  .app>.grow{display:flex;flex-direction:column}.topbar{order:-1}.app>.grow>.content{width:100%}.content.full{--top:88px}.bp-title{display:none}
+  .strip{display:flex;height:40px;padding:0 4px;background:none}.strip>:not(.btabs){display:none}.btab{padding:0 10px}
+  .topbar .crumbs:has(>.bh-pic){display:grid;grid-template-columns:auto minmax(0,1fr);column-gap:8px;line-height:1.2}
+  .topbar .crumbs>.bh-pic{display:flex;grid-row:span 2}.topbar .crumbs>:is(.cur,.bh-wk){grid-column:2}.topbar .crumbs>.cur{align-self:center}.topbar .crumbs>.cur:last-child{grid-row:span 2}.topbar .crumbs>.bh-wk{display:block;color:var(--muted);font-size:11.5px}.topbar .bh-b{display:inline-flex}
+  /* no agent yet: Connect takes the search's and the picture's room */
+  /* the header has no member stack: the rail's "Invite an agent" stays, in everyday mode too */
+  :root[data-mode="everyday"] .ag-hint:has(>[data-open=invite-agent]){display:block!important}
+  .topbar:has([data-open=connect]) :is(.bh-b,.crumbs>.bh-pic){display:none}.topbar:has([data-open=connect]) .crumbs{column-gap:0}
+  .sidebar{width:min(320px,86vw);flex-flow:row wrap;align-content:flex-start;padding-top:calc(10px + env(safe-area-inset-top))}.sidebar>:not(.nav-x){width:100%}
+  .sidebar>a.side-link:not(.side-board){flex:none;width:calc(25% - 8px);height:58px;margin:0 3px 6px;flex-direction:column;justify-content:center;gap:4px;padding:0 2px;background:var(--bg-hover);border-radius:10px;font-size:11px;text-align:center}
+}
 @media(max-width:859px){
   .content.full{padding:4px 12px 0}
   .bp-head{flex-direction:column;align-items:stretch;flex-wrap:nowrap} /* one column: a wrapping one sizes to its widest row and pushes the members off a 320px screen */
@@ -1265,6 +1286,7 @@ pre.json{background:var(--bg-subtle);border:1px solid var(--line);border-radius:
 .steps .card{padding:20px}.steps .k{font-size:12px;color:var(--faint);margin-bottom:10px}
 .stat{font-size:28px;font-weight:600;letter-spacing:-.03em;color:var(--ink)}
 .grid4{display:grid;gap:12px;grid-template-columns:repeat(2,1fr)}@media(min-width:760px){.grid4{grid-template-columns:repeat(4,1fr)}}
+.ns-trend{display:flex;align-items:flex-end;gap:4px;height:34px;margin-bottom:6px}.ns-bar{flex:1;height:100%;display:flex;align-items:flex-end;background:var(--bg-subtle);border-radius:3px}.ns-bar span{display:block;width:100%;min-height:2px;background:var(--ink);opacity:.35;border-radius:3px}.ns-bar.now span{opacity:1}
 .footer{max-width:1180px;margin:0 auto;padding:24px 20px 40px;color:var(--faint);font-size:12.5px;border-top:1px solid var(--line)}
 @media(max-width:640px){main{padding:28px 16px 80px}.nav .in{padding:0 16px}.nav .links{display:none}h1{font-size:24px}.list .item{padding:12px 14px}
   .hide-sm{display:none!important}.sm-only{display:inline}
@@ -1557,6 +1579,9 @@ function renderTextInner(text: string, mentions?: Mention[] | null): string {
   return out.join("");
 }
 
+/** Reads as a number ("41", "1,200", "$5", "12%", "485 ms", "842 (n=100)"), so its table column lines up on the right. */
+export const numericCell = (c: string) => /^[-+−~≈<>]?[$€£¥]?\d[\d,.]*(\s?[%a-zA-Zµ]{0,3})?(\s*\([^)]*\))?$/.test(c.trim());
+
 /** One paragraph-sized block: headings (#–###), bullet and numbered lists, or a paragraph. */
 function block(p: string, mentions?: Mention[] | null, ck = { n: 0 }): string {
   const lines = p.split("\n");
@@ -1586,19 +1611,36 @@ function block(p: string, mentions?: Mention[] | null, ck = { n: 0 }): string {
     quote = null;
   };
   // Markdown tables ("| a | b |" rows with a "|---|---|" line under the header): a real table, scrolling sideways when wide.
+  // Without the "|---|" line (agents often skip it, vedu #5446), 2+ rows with the same number of cells (2+) are a table
+  // too, its first row the header and its numeric columns on the right.
   let table: string[] | null = null;
   const cells = (r: string) => r.trim().replace(/^\|/, "").replace(/\|$/, "").split("|").map((c) => c.trim());
+  const sep = (r: string) => /^\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$/.test(r.trim());
+  const html = (head: string[], rows: string[][], align: string[], loose = false) => {
+    const td = (tag: string, c: string, i: number) => `<${tag}${align[i] ? ` style="text-align:${align[i]}"` : ""}${loose && align[i] === "right" ? ` class="num"` : ""}>${inline(c, mentions)}</${tag}>`;
+    return `<div class="md-tw"><table class="md-t"><thead><tr>${head.map((c, i) => td("th", c, i)).join("")}</tr></thead><tbody>${rows.map((r) => `<tr>${r.map((c, i) => td("td", c, i)).join("")}</tr>`).join("")}</tbody></table></div>`;
+  };
   const flushTable = () => {
     const t = table;
     table = null;
     if (!t) return;
-    if (t.length < 2 || !/^\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$/.test(t[1].trim())) {
-      para.push(...t);
+    if (t.length >= 2 && sep(t[1])) {
+      const align = cells(t[1]).map((c) => (c.startsWith(":") && c.endsWith(":") ? "center" : c.endsWith(":") ? "right" : ""));
+      out.push(html(cells(t[0]), t.slice(2).map(cells), align));
       return;
     }
-    const align = cells(t[1]).map((c) => (c.startsWith(":") && c.endsWith(":") ? "center" : c.endsWith(":") ? "right" : ""));
-    const td = (tag: string, c: string, i: number) => `<${tag}${align[i] ? ` style="text-align:${align[i]}"` : ""}>${inline(c, mentions)}</${tag}>`;
-    out.push(`<div class="md-tw"><table class="md-t"><thead><tr>${cells(t[0]).map((c, i) => td("th", c, i)).join("")}</tr></thead><tbody>${t.slice(2).map((r) => `<tr>${cells(r).map((c, i) => td("td", c, i)).join("")}</tr>`).join("")}</tbody></table></div>`);
+    // Runs of rows with the same cell count; a run of 2+ (not a stray "|---|") is a table, anything else stays text.
+    for (let i = 0; i < t.length; ) {
+      const n = cells(t[i]).length;
+      let j = i + 1;
+      while (j < t.length && !sep(t[j]) && cells(t[j]).length === n) j++;
+      if (n >= 2 && j - i >= 2 && !sep(t[i])) {
+        flushPara();
+        const head = cells(t[i]), rows = t.slice(i + 1, j).map(cells);
+        out.push(html(head, rows, head.map((_, c) => (rows.every((r) => !r[c] || numericCell(r[c])) && rows.some((r) => r[c]) ? "right" : "")), true));
+      } else para.push(...t.slice(i, j));
+      i = j;
+    }
   };
   for (const line of lines) {
     if (/^\s*\|.*\|\s*$/.test(line)) {
@@ -1797,7 +1839,7 @@ orderTabs();
 const settled=new Promise(r=>{const go=()=>setTimeout(r,2000);if(document.readyState==="complete")go();else addEventListener("load",go,{once:true})});
 async function live(){let at=null;for(;;){if(at!==null)await settled;
   if(document.hidden||!nav.offsetParent){await nap(3000);continue}
-  try{const r=await fetch(at===null?'/api/tape?limit=1':'/api/tape?after='+at+'&wait=25&limit=100',{cache:'no-store'});if(r.status===401||r.status===403)return;if(!r.ok){await nap(5000);continue}
+  try{const r=await fetch(at===null?'/api/tape?limit=1':'/api/tape?after='+at+'&wait=25&every=5&limit=100',{cache:'no-store'});if(r.status===401||r.status===403)return;if(!r.ok){await nap(5000);continue}
     const j=await r.json();at=j.cursor;if(!j.lines||!j.lines.length)continue;
     for(const x of j.lines){const w=nav.querySelector('[data-tabw="'+CSS.escape(x.board_id)+'"]');if(w&&x.ts>(+w.dataset.last||0))w.dataset.last=x.ts}
     orderTabs();pull()}catch(e){await nap(5000)}}}
@@ -2013,7 +2055,7 @@ window.inboxRefresh=async()=>{try{const r=await fetch('/api/inbox/count?tz='+tz)
     dgAt=due;try{localStorage.setItem('inbox-dg-at',String(due))}catch{}}
   if(l&&l.created_at>seen){if(l.kind!=='manual_unread'&&seen&&(!l.interrupt||l.interrupt==='now')&&can&&!(document.visibilityState==='visible'&&location.pathname==='/b/'+l.board_id)){
     const ap=l.kind==='approval',who=ap?(l.push&&l.push.by?l.push.by+"'s agent":'Your agent'):l.actor_via==='agent'?l.actor+"'s agent":(l.actor_name||l.actor);
-    const n=new Notification(who+(ap?' is asking for your approval':l.kind==='mention'?' mentioned you':l.kind==='decision'?' asks for a decision':l.kind==='reply'?' replied to you':l.kind==='friend_request'?' wants to be friends':l.kind==='friend_accept'?' accepted your request':l.kind==='report'?' reported a post to you, as an owner':' wrote to your agent'),{body:l.excerpt,tag:'inbox-'+l.id});
+    const n=new Notification(who+(ap?' is asking for your approval':l.kind==='mention'?' mentioned you':l.kind==='decision'?' asks for a decision':l.kind==='reply'?' replied to you':l.kind==='friend_request'?' wants to be friends':l.kind==='friend_accept'?' accepted your request':l.kind==='report'?' reported a post to you, as an owner':l.kind==='slack_link'?' linked a Slack account to Atteo':' wrote to your agent'),{body:l.excerpt,tag:'inbox-'+l.id});
     n.onclick=()=>{window.focus();location.href=ap?'/approvals':l.board_id?'/b/'+l.board_id+'#e'+l.seq:'/people'}}
   seen=l.created_at;try{localStorage.setItem('inbox-seen',String(seen))}catch{}}}catch{}};
 inboxRefresh();setInterval(inboxRefresh,60000);document.addEventListener('visibilitychange',()=>{if(!document.hidden)inboxRefresh()})})();`;
@@ -2082,8 +2124,8 @@ run(); // bug.js is only loaded on a bug click: that first click is this run
 document.addEventListener('click',e=>{const x=e.target.closest('[data-bug-rm]');if(x){const i=+x.dataset.bugRm;URL.revokeObjectURL(pics[i].url);pics.splice(i,1);render();return}
   if(e.target.closest('#bug-attach'))$('bug-files').click()});
 $('bug-files')?.addEventListener('change',e=>{add([...e.target.files]);e.target.value=''});
-// Rich text (Notes, Pages, TextEdit, a web page) also hands the browser its pasteboard types as "files" (Safari names them like 'rich text with attachments -RTFD- data'; vedu #5209). Then only its pictures attach and the words paste as text.
-function pastedFiles(c){const fs=[...(c?.files||[])];if(!fs.length)return null;const ty=[...(c.types||[])];const rich=ty.includes('text/html')||ty.includes('text/rtf')||fs.some(f=>/-RTFD-|^rich text|^(public|com\\.apple)\\./i.test(f.name||''));return rich?{files:fs.filter(f=>/^image\\//.test(f.type)),text:true}:{files:fs,text:false}}
+// Rich text (Notes, Pages, TextEdit, a web page) also hands the browser its pasteboard types as "files" (Safari names them like 'rich text with attachments -RTFD- data'; vedu #5209). Then only its pictures attach and the words paste as text. Some synthetic files are named with the exact UTI; a real filename merely beginning "public." or "com.apple." is still a file.
+function pastedFiles(c){const fs=[...(c?.files||[])];if(!fs.length)return null;const ty=[...(c.types||[])];const rich=ty.includes('text/html')||ty.includes('text/rtf')||fs.some(f=>/-RTFD-|^rich text|^(?:public\\.rtf|com\\.apple\\.(?:flat-rtfd|rtfd))$/i.test(f.name||''));return rich?{files:fs.filter(f=>/^image\\//.test(f.type)),text:true}:{files:fs,text:false}}
 $('bug-text')?.addEventListener('paste',e=>{const p=pastedFiles(e.clipboardData);if(!p)return;if(!p.text)e.preventDefault();if(p.files.length)add(p.files)});
 const dlg=$('bug');
 dlg.addEventListener('click',e=>{if(e.target===dlg)dlg.close()});

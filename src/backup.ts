@@ -1,5 +1,5 @@
-// Nightly encrypted backups outside Cloudflare (#1550, INFRA-ASSESSMENT rec 2). The 5-minute cron runs backupTick: from
-// BACKUP_HOUR (UTC, default 3) it writes the night's parts to the bucket, a few per run so no run is long:
+// Nightly encrypted backups (#1550, INFRA-ASSESSMENT rec 2). The 5-minute cron runs backupTick: from BACKUP_HOUR (UTC,
+// default 3) it writes the night's parts to the bucket, a few per run so no run is long:
 //   <prefix><day>/d1.json.gz.enc            every D1 table
 //   <prefix><day>/boards/<id>.json.gz.enc   every table of one board's Durable Object (the board uploads it itself),
 //   <prefix><day>/boards/<id>.files-<k>…    except its files and pictures, a few MB per part (BACKUP_BLOB_PART_BYTES)
@@ -7,7 +7,9 @@
 // A part that fails is retried on later runs (3 tries). If the manifest isn't written BACKUP_ALERT_HOURS after the start,
 // or a part gave up, the cron reports it once that day (Sentry, the ops errors list, the log). Retention (30 days) is the
 // bucket's lifecycle rule. scripts/backup.mjs makes the key pair, decrypts, and restores into local wrangler dev.
-// Off until BACKUP_PUBLIC_KEY and the BACKUP_S3_* settings are all set; docs/BACKUPS.md has the setup and the drill.
+// The bucket is R2 in our own account through the BACKUP_R2 binding (vedu #5342: keep it on Cloudflare), or, when every
+// BACKUP_S3_* setting is set, an S3-compatible bucket elsewhere (that wins: someone set it on purpose). Off until
+// BACKUP_PUBLIC_KEY is set too; docs/BACKUPS.md has the setup and the drill.
 
 import * as Sentry from "@sentry/cloudflare";
 import { encodeValue, keyId, packPart, putObject, sha256Hex, unb64, type DumpTables, type S3Config } from "./backupcore";
@@ -15,8 +17,10 @@ import type { Env } from "./types";
 import { recordError } from "./usage";
 
 export interface BackupConfig {
-  s3: S3Config;
   publicKey: string;
+  prefix: string; // "atteo/" unless BACKUP_S3_PREFIX says otherwise ("" is allowed)
+  s3?: S3Config; // set: an S3-compatible bucket, signed with BACKUP_S3_KEY_ID/SECRET
+  r2?: R2Bucket; // otherwise: R2 in this account, through the BACKUP_R2 binding
 }
 export interface PartResult {
   object_key: string;
@@ -33,26 +37,32 @@ const num = (v: string | undefined, d: number) => (v != null && v !== "" && Numb
 
 export function backupConfig(env: Env): BackupConfig | null {
   const { BACKUP_S3_ENDPOINT: endpoint, BACKUP_S3_BUCKET: bucket, BACKUP_S3_KEY_ID: keyId, BACKUP_S3_SECRET: secret, BACKUP_PUBLIC_KEY: publicKey } = env;
-  if (!endpoint || !bucket || !keyId || !secret || !publicKey) return null;
+  if (!publicKey) return null;
   try {
     if (unb64(publicKey).length !== 32) return null;
   } catch {
     return null;
   }
-  const prefix = env.BACKUP_S3_PREFIX ?? "atteo/";
-  return { s3: { endpoint, bucket, keyId, secret, region: env.BACKUP_S3_REGION || "us-east-1", prefix: prefix && !prefix.endsWith("/") ? `${prefix}/` : prefix, virtualHost: env.BACKUP_S3_VIRTUAL_HOST === "1" }, publicKey };
+  const raw = env.BACKUP_S3_PREFIX ?? "atteo/";
+  const prefix = raw && !raw.endsWith("/") ? `${raw}/` : raw;
+  if (endpoint && bucket && keyId && secret)
+    return { publicKey, prefix, s3: { endpoint, bucket, keyId, secret, region: env.BACKUP_S3_REGION || "us-east-1", prefix, virtualHost: env.BACKUP_S3_VIRTUAL_HOST === "1" } };
+  if (env.BACKUP_R2) return { publicKey, prefix, r2: env.BACKUP_R2 };
+  return null;
 }
 
 export const objectKey = (cfg: BackupConfig, day: string, part: string) =>
-  `${cfg.s3.prefix}${day}/${part.startsWith("board:") ? `boards/${part.slice(6)}` : part}.json.gz.enc`;
+  `${cfg.prefix}${day}/${part.startsWith("board:") ? `boards/${part.slice(6)}` : part}.json.gz.enc`;
 
 /** A board's files, a few MB per part: <day>/boards/<id>.files-<k>.json.gz.enc. */
-export const blobPartKey = (cfg: BackupConfig, day: string, board: string, k: number) => `${cfg.s3.prefix}${day}/boards/${board}.files-${k}.json.gz.enc`;
+export const blobPartKey = (cfg: BackupConfig, day: string, board: string, k: number) => `${cfg.prefix}${day}/boards/${board}.files-${k}.json.gz.enc`;
 
 /** Packs, seals and uploads one part. */
 export async function uploadPart(cfg: BackupConfig, key: string, value: unknown): Promise<PartResult> {
   const body = await packPart(cfg.publicKey, value);
-  await putObject(cfg.s3, key, body);
+  if (cfg.s3) await putObject(cfg.s3, key, body);
+  else if (cfg.r2) await cfg.r2.put(key, body, { httpMetadata: { contentType: "application/octet-stream" } });
+  else throw new Error("backups have no bucket");
   return { object_key: key, bytes: body.length, sha256: await sha256Hex(body) };
 }
 
@@ -170,15 +180,20 @@ export async function backupTick(env: Env, now: number, board: (id: string, day:
     out.manifest = await run(env, day, "manifest", async () => uploadPart(cfg, objectKey(cfg, day, "manifest"), { kind: "manifest", day, created_at: Date.now(), key_id: await keyId(cfg.publicKey), parts }));
   }
 
-  // Report a night that hasn't finished in time, or that gave up on a part: once a day.
-  const late = d.getUTCHours() >= Math.min(23, start + num(env.BACKUP_ALERT_HOURS, 6));
+  // Report a night that hasn't finished in time, or that gave up on a part: once a day. Not the night backups were
+  // turned on after the deadline (SOUP-A): nothing of it was there by then and no night before it ever finished.
+  const lateHour = Math.min(23, start + num(env.BACKUP_ALERT_HOURS, 6));
+  const late = d.getUTCHours() >= lateHour;
   const st = await env.DB.prepare(
     `SELECT (SELECT status FROM backup_parts WHERE day = ?1 AND part = 'manifest') AS manifest,
-            (SELECT COUNT(*) FROM backup_parts WHERE day = ?1 AND status = 'failed' AND attempts >= ?2 AND part NOT IN ('alert')) AS gave_up`,
+            (SELECT COUNT(*) FROM backup_parts WHERE day = ?1 AND status = 'failed' AND attempts >= ?2 AND part NOT IN ('alert')) AS gave_up,
+            (SELECT MIN(started_at) FROM backup_parts WHERE day = ?1 AND part NOT IN ('alert')) AS first_at,
+            EXISTS (SELECT 1 FROM backup_parts WHERE day < ?1 AND part = 'manifest' AND status = 'done') AS ever_done`,
   )
     .bind(day, MAX_ATTEMPTS)
-    .first<{ manifest: string | null; gave_up: number }>();
-  const problem = st?.gave_up ? `${st.gave_up} part${st.gave_up === 1 ? "" : "s"} failed ${MAX_ATTEMPTS} times` : late && st?.manifest !== "done" ? `no manifest by ${String(start + num(env.BACKUP_ALERT_HOURS, 6)).padStart(2, "0")}:00 UTC` : "";
+    .first<{ manifest: string | null; gave_up: number; first_at: number | null; ever_done: number }>();
+  const firstNight = !st?.ever_done && (st?.first_at ?? now) >= Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), lateHour);
+  const problem = st?.gave_up ? `${st.gave_up} part${st.gave_up === 1 ? "" : "s"} failed ${MAX_ATTEMPTS} times` : late && !firstNight && st?.manifest !== "done" ? `no manifest by ${String(start + num(env.BACKUP_ALERT_HOURS, 6)).padStart(2, "0")}:00 UTC` : "";
   if (problem && (await env.DB.prepare(`INSERT OR IGNORE INTO backup_parts (day, part, status, error, started_at) VALUES (?, 'alert', 'done', ?, ?)`).bind(day, problem, now).run()).meta.changes) {
     out.alert = `Backup ${day} incomplete: ${problem} (GET /api/ops/backups)`;
     console.error(out.alert);
@@ -204,7 +219,9 @@ export async function backupStatus(env: Env): Promise<unknown> {
     : [];
   return {
     configured: !!cfg,
-    ...(cfg ? { endpoint: cfg.s3.endpoint, bucket: cfg.s3.bucket, prefix: cfg.s3.prefix, key_id: await keyId(cfg.publicKey), hour_utc: num(env.BACKUP_HOUR, 3) } : {}),
+    ...(cfg
+      ? { target: cfg.s3 ? "s3" : "r2", ...(cfg.s3 ? { endpoint: cfg.s3.endpoint, bucket: cfg.s3.bucket } : { binding: "BACKUP_R2" }), prefix: cfg.prefix, key_id: await keyId(cfg.publicKey), hour_utc: num(env.BACKUP_HOUR, 3) }
+      : {}),
     last_complete: (days.find((d) => d.complete) as { day?: string } | undefined)?.day ?? null,
     days,
     failures,

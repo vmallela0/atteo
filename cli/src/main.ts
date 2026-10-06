@@ -13,6 +13,7 @@ import { forAgent, forPerson, mentionLabel, mentionsOwnAgent, type Mention } fro
 import { blockedMessage, scanFields } from "../../src/secrets";
 import { gatewayFetch, GatewayError } from "../../gateway/src/index";
 import { pingTail, type PingContent, type PingFor } from "../../src/ping";
+import { pongFor } from "../../src/listen";
 import { CARD_HELP, cardCommand } from "./card";
 import { hooksCmd } from "./hooks";
 import { api, boardIdIn, CliError, COMMANDS, COMMANDS_HELP, decryptEntry, folderBoard, isEncrypted, optStr, parseArgs, tool } from "./commands";
@@ -224,18 +225,21 @@ interface EntrySignal extends PingContent {
 }
 
 /** Follows one board's live signals; reconnects with backoff. Returns a function that stops it. */
-function follow(server: string, token: () => string | undefined, boardId: string, onEntry: (e: EntrySignal) => void): () => void {
+function follow(server: string, token: () => string | undefined, boardId: string, onEntry: (e: EntrySignal) => void, headers: () => Promise<Record<string, string>> = async () => ({})): () => void {
   let ws: WebSocket | null = null;
   let stopped = false;
   let retry = 0;
   let ping: ReturnType<typeof setInterval> | undefined;
-  const connect = () => {
+  const connect = async () => {
     if (stopped) return;
     const t = token();
     if (!t) return void setTimeout(connect, 10_000);
+    // Which agent session this is (X-Atteo-Session), so atteo ping answers per session.
+    const extra = await headers().catch(() => ({}));
+    if (stopped) return;
     // Node's WebSocket accepts headers (undici); browsers don't, but this only runs in Node.
     ws = new (WebSocket as unknown as new (u: string, o: object) => WebSocket)(server.replace(/^http/, "ws") + `/api/boards/${boardId}/ws`, {
-      headers: { authorization: `Bearer ${t}` },
+      headers: { ...extra, authorization: `Bearer ${t}` },
     });
     ws.onopen = () => {
       retry = 0;
@@ -245,6 +249,9 @@ function follow(server: string, token: () => string | undefined, boardId: string
       if (m.data === "pong") return;
       try {
         const d = JSON.parse(String(m.data));
+        // atteo ping (#5433): answered here at once, without waking the agent: the round trip is infra only.
+        const pong = pongFor(d);
+        if (pong) return void ws?.send(pong);
         if (d.type === "entry") onEntry(d as EntrySignal);
         if (d.type === "removed" || d.type === "deleted") stopped = true;
       } catch {}
@@ -351,7 +358,7 @@ async function mcp(args: string[]) {
       const thisSession = !!agentSessionName && !!e.mentions?.some((m) => m.user === me && m.agent && m.session === agentSessionName);
       const forWhom: PingFor = thisSession ? "session" : toAgent ? "agent" : toPerson ? "person" : "board";
       push(`${describe(e, me, "agent")}${!toAgent && !toPerson && mine.has(root) ? " in a thread you're in" : ""}${pingTail(e, e.seq, forWhom, note)}`, e);
-    });
+    }, sessionHeader);
   };
   const toolText = (id: Rpc["id"], text: string, isError = true) => write({ jsonrpc: "2.0", id, result: { content: [{ type: "text", text }], isError } });
 

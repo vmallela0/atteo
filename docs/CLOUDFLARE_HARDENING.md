@@ -42,9 +42,10 @@ abuse from costing money.
 
 ## Code changes on this branch (`cf-hardening`)
 
-- **Per-IP limit on signed-out writes:** `POST /oauth/register` (adds an `oauth_clients` row each call, never
-  cleaned), `POST /api/device/start` (adds a `device_logins` row) and `/health/deep` (wakes a Durable Object + D1 on
-  each call). They're now capped at 20 a minute per address per endpoint, using Cloudflare's Workers Rate Limiting
+- **Per-IP limit on signed-out writes:** `POST /oauth/register` (adds an `oauth_clients` row each call; unused DCR
+  is pruned after 120 days, a client that ever got a token is kept — see below), `POST /api/device/start` (adds a `device_logins` row) and
+  `/health/deep` (wakes a Durable Object + D1 on each call). They're now capped at 20 a minute per address per endpoint,
+  using Cloudflare's Workers Rate Limiting
   binding (`ratelimits` in `wrangler.jsonc`, `limits.ts` `publicAllowed`). The binding counts in memory at each
   location, so it adds no D1 read or write. It's off on local dev and test servers and fails open if the limiter
   errors. Uptime monitors at one check a minute are far below the cap. Tests: `test/limits.test.ts`.
@@ -63,7 +64,6 @@ abuse from costing money.
 | Change | Where | Why |
 |---|---|---|
 | Per-token rate limit on the Rate Limiting binding | `src/limits.ts` `rateCheck` | consistent across isolates (see 5 above) |
-| Clean up unused OAuth clients after 30 days | cron in `src/index.ts` `runScheduled` | `oauth_clients` only grows (67 rows today) |
 | Index `device_logins(expires_at)` | new migration | `startDeviceLogin` deletes expired rows with a full scan each call (240 rows today, so not urgent) |
 | Serve built CSS/JS from static assets | `src/ui.ts` → `public/` at build | asset requests are free and use no Worker CPU; today every `/app.css`, `/board.js`, font etc. runs the Worker (cached by browsers via versioned URLs, so once per visitor) |
 | Short-lived cache for read-only board views | `src/index.ts` board GETs | protects one hot board (see 1 above) |
@@ -100,3 +100,24 @@ host has no WAF, rate-limiting rules or bot settings. Rules on the atteo.dev zon
 through jxn's proxy. Putting the Worker on a Custom Domain in a zone on vedu's account (atteo.dev itself, or
 `api.atteo.dev`) gives one place for every protection above, removes the proxy's extra Worker request and latency,
 and lets us turn `workers_dev` off. INFRA.md #2.
+
+## OAuth client retention (ops)
+
+`POST /oauth/register` (MCP dynamic client registration) inserts an `oauth_clients` row on every call. Connectors
+(claude.ai, ChatGPT, Cursor) **cache that `client_id`**. A later sign-in with a deleted id is `invalid_client` on
+`/oauth/authorize`, which is an HTML error page — those clients do not re-register, so the person has to remove and
+re-add the connector. Retention prefers leaving the row:
+
+The 5-minute cron (`src/index.ts` `runScheduled`, housekeeping) deletes a row only when **all** of these are true:
+
+- `created_at` is older than **120 days** (refresh token TTL of 90 days plus a 30-day reconnect grace — unused DCR
+  that a connector cached at register, before sign-in finished)
+- no `oauth_requests` / `oauth_codes` whose `expires_at` is still within the last 30 days
+- **no `oauth_refresh_tokens` row at all** (used, unused or expired). A client that finished sign-in once is kept
+  for good: that is fail-safer than “30 days after the last refresh expires”. Refresh-token rows are never deleted.
+
+`/oauth/authorize` cannot recover an unknown `client_id` — it is an HTML error page, not a signal to re-run DCR —
+so retention keeps the row instead.
+
+Counts: remaining total and `oauth_clients_pruned` (last 14 days, from `usage_daily`) on `/_ops`; each cron run
+returns `oauth_clients_pruned` on `POST /api/ops/cron`. Tests: `test/oauth.test.ts`.

@@ -3,7 +3,7 @@
 
 import { track } from "./usage";
 import { imageSize, sniffImage } from "./imageSize";
-import { fence, flagNote, flagOf, screenText } from "./screen";
+import { fence, flagged, flagNote, flagOf, screenText } from "./screen";
 import { FOR_LABEL, pingExcerpt, triagePreview, webhookForWhom } from "./ping";
 import { DurableObject } from "cloudflare:workers";
 import { computeSummary, formatSummary, summaryWithNames, summaryWithinBudget, tasksFor, withinReadBudget, withNames, DEFAULT_SUMMARY_CHARS, type Summary } from "./state";
@@ -20,8 +20,10 @@ import { deliver } from "./webhooks";
 import { HumanDecisions, isHumanDecisionPost, type HumanDecision } from "./decisions";
 import type { RecapCore, RecapOwner, RecapTask } from "./recap";
 import type { ForYouCore } from "./forYou";
+import type { VoiceBoardBrief } from "./voice";
 import { cleanMatch, cleanTrigger, eventLine, lastOccurrence, matches, MAX_FIRES_PER_HOUR, MAX_TRIGGERS, minuteOf, SCHEDULE_GRACE_MS, type Trigger, type TriggerEvent, type TriggerMatch } from "./triggers";
 import { offBoardSeq } from "./util";
+import { isRichTextAttachment, richTextOf } from "./richtext";
 import { CARD_LIMIT, CARD_MAX_LIMIT, cardsAnswer, cardsThatFit, entryCard, fileCard } from "./searchCards";
 import { compileGrep, grepFtsQuery, scanGrepText, newBudget, isBoardGrepCursor, compactHitLine, cursorKey, decodeCursor, encodeCursor, trimLine, GREP_CANDIDATES, GREP_DEFAULT_MAX, GREP_HARD_MAX, GREP_RECENT, type BoardGrepOpts, type BoardGrepResult } from "./grep";
 import { audienceOk, audienceWord, canSee, ownByDefault, OWN_DEFAULT_MS, OWN_MAIL_HINT, PEOPLE_ONLY_TYPES, type Audience } from "./audience";
@@ -34,6 +36,8 @@ import { backupConfig, blobPartKey, objectKey, uploadPart, type PartResult } fro
 import { decodeValue, encodeValue, type DumpTables } from "./backupcore";
 import { parseAgentCharter, type AgentCharter } from "./charter";
 import { mutersOf } from "./moderation";
+import { onApprovalDecided as slackOnApproval, onEntry as slackOnEntry } from "./slack";
+import type { Listener } from "./listen";
 import { memberRole } from "./registry";
 import { dropForward, forwardsFor, PURGED_QUOTE, RETAINED_QUOTE, scrubQuote, type ForwardRow } from "./forwards";
 
@@ -283,7 +287,11 @@ interface WaitAtt {
 interface TabAtt {
   user: string;
   person: boolean;
+  session?: string; // the agent session a CLI socket belongs to (X-Atteo-Session), for atteo ping
 }
+
+export const PING_TIMEOUT_MS = 3000;
+export const PINGS_PER_MIN = 10;
 
 /** Entry columns that route a post to one agent session ("@vedu/claude-2"): its person and the session's id. */
 type ForSession = { user: string; session: string } | null;
@@ -319,6 +327,7 @@ function toEntry(r: Row): Entry {
     retracts: (r.retracts as number | null) ?? null,
     via: ((r.via as string | null) ?? null) as Entry["via"],
     client: (r.client as string | null) ?? null,
+    ...(r.origin === "slack" || r.origin === "pact" ? { origin: r.origin as Entry["origin"] } : {}),
     artifact_name: (r.artifact_name as string | null) ?? null,
     artifact_size: (r.artifact_size as number | null) ?? null,
     artifact_version: (r.artifact_version as number | null) ?? null,
@@ -345,7 +354,7 @@ const opts0 = (input: NewEntry): TaskActOpts => ({ via: input.via ?? null, clien
 /** For a session's reads: skip posts addressed to another session of the same person (binds: user, session). */
 const FOR_SESSION_OK = "(for_session IS NULL OR for_user != ? OR for_session = ?)";
 
-const ENTRY_COLS = "seq, ts, author, type, text, edited_at, purged, title, to_user, mentions, reply_to, resolves, supersedes, retracts, via, client, artifact_name, artifact_size, artifact_version, card, media, ai_flag, attachments, approval, audience, to_people, handoff, data";
+const ENTRY_COLS = "seq, ts, author, type, text, edited_at, purged, title, to_user, mentions, reply_to, resolves, supersedes, retracts, via, client, origin, artifact_name, artifact_size, artifact_version, card, media, ai_flag, attachments, approval, audience, to_people, handoff, data";
 
 // ---- private entries (audience.ts): people-only (vedu #1264), only the people it names, never any agent; and just
 // mine (#1748), only one person and their own agents. Every read of entries filters through these, so a path that
@@ -627,7 +636,8 @@ export class Board extends DurableObject<Env> {
     const [client, server] = Object.values(pair);
     this.ctx.acceptWebSocket(server, [user]);
     // A person signed in as themselves (web, the app) or an agent (the CLI's token): people-only signals go to the first only.
-    server.serializeAttachment({ user, person: url.searchParams.get("as") === "person" } satisfies TabAtt);
+    const session = url.searchParams.get("session");
+    server.serializeAttachment({ user, person: url.searchParams.get("as") === "person", ...(session ? { session } : {}) } satisfies TabAtt);
     server.send(JSON.stringify({ type: "hello", last: this.info().last_seq }));
     return new Response(null, { status: 101, webSocket: client });
   }
@@ -677,8 +687,69 @@ export class Board extends DurableObject<Env> {
     }
   }
 
-  async webSocketMessage(): Promise<void> {
-    // Tabs only listen ("ping" is answered automatically); nothing they send changes the board.
+  async webSocketMessage(ws: WebSocket, msg: string | ArrayBuffer): Promise<void> {
+    // Tabs only listen ("ping" is answered automatically); nothing they send changes the board. A CLI answers atteo
+    // ping's frame with {type: "pong", id}: only the socket it was sent to can settle it.
+    if (typeof msg !== "string" || !this.pings.size || msg.length > 200 || !msg.includes('"pong"')) return;
+    let f: { type?: unknown; id?: unknown };
+    try {
+      f = JSON.parse(msg);
+    } catch {
+      return;
+    }
+    const p = f?.type === "pong" && typeof f.id === "string" ? this.pings.get(f.id) : undefined;
+    if (p && p.ws === ws) p.done(Date.now() - p.t0);
+  }
+
+  // atteo ping (#5433): outstanding pings by id, and each pinger's recent pings (in memory: a diagnostic, not a quota).
+  private pings = new Map<string, { ws: WebSocket; t0: number; done: (ms: number) => void }>();
+  private pingTimes = new Map<string, number[]>();
+
+  /**
+   * Who is listening for a member's agent here: their agents' CLI sockets and held waits (never people's tabs). With
+   * `probe`, each socket gets a {type: "ping", id} frame and its round trip is timed; nothing is posted, logged or
+   * counted as presence. `to`: a member, or null for every member's agents. The Worker has checked the pinger is a member.
+   */
+  async listeners(from: string, to: string | null, probe: boolean, now = Date.now()): Promise<Listener[] | { error: string }> {
+    if (probe) {
+      const recent = (this.pingTimes.get(from) ?? []).filter((t) => t > now - 60_000);
+      if (recent.length >= PINGS_PER_MIN) return { error: `At most ${PINGS_PER_MIN} pings a minute; try again shortly.` };
+      this.pingTimes.set(from, [...recent, now]);
+    }
+    const out: Listener[] = [];
+    const waits: Promise<void>[] = [];
+    for (const ws of this.ctx.getWebSockets()) {
+      if (this.isWait(ws)) {
+        const a = ws.deserializeAttachment() as WaitAtt | null;
+        if (a && a.wait === "agent" && (!to || a.user === to)) out.push({ user: a.user, session: a.session ?? null, kind: "wait" });
+        continue;
+      }
+      const a = ws.deserializeAttachment() as TabAtt | null;
+      if (!a || a.person || (to && a.user !== to)) continue;
+      const row: Listener = { user: a.user, session: a.session ?? null, kind: "socket" };
+      out.push(row);
+      if (!probe) continue;
+      const id = `p_${crypto.randomUUID().replace(/-/g, "").slice(0, 16)}`;
+      waits.push(
+        new Promise<void>((resolve) => {
+          const finish = (ms: number | null) => {
+            if (!this.pings.delete(id)) return;
+            clearTimeout(timer);
+            row.rtt_ms = ms;
+            resolve();
+          };
+          const timer = setTimeout(() => finish(null), PING_TIMEOUT_MS);
+          this.pings.set(id, { ws, t0: Date.now(), done: finish });
+          try {
+            ws.send(JSON.stringify({ type: "ping", id }));
+          } catch {
+            finish(null);
+          }
+        }),
+      );
+    }
+    await Promise.all(waits);
+    return out;
   }
 
   async webSocketClose(ws: WebSocket, code: number, reason: string): Promise<void> {
@@ -770,6 +841,9 @@ export class Board extends DurableObject<Env> {
     // Optional JSON object attached at post time (entryData.ts). Null when the post had none.
     if (!cols.has("data")) this.sql.exec("ALTER TABLE entries ADD COLUMN data TEXT");
     if (!cols.has("edited_at")) this.sql.exec("ALTER TABLE entries ADD COLUMN edited_at INTEGER");
+    // Where the server made it from (#5439): "slack" (the Slack bridge) or "pact" (an outside agent's reply). Only the
+    // server's own paths set it (post's internal options); an agent's client name never does.
+    if (!cols.has("origin")) this.sql.exec("ALTER TABLE entries ADD COLUMN origin TEXT");
     // Retention compacts an entry once. Unlike a sequence watermark this remains correct if clocks move backwards or an
     // older restored entry appears after a newer one.
     if (!cols.has("retained_at")) this.sql.exec("ALTER TABLE entries ADD COLUMN retained_at INTEGER");
@@ -1080,6 +1154,30 @@ export class Board extends DurableObject<Env> {
     return Object.fromEntries(rows.map((r) => [r.seq as number, { by: r.label as string, user: r.user as string, done: !!r.done, ...(r.done ? {} : { since: r.ts as number }) }]));
   }
 
+  /**
+   * Pasted rich text for agents (#5258): an entry's RTF/RTFD files (isRichTextAttachment) carry their words as plain
+   * text, bounded like the web's (rtfToText's cap), so read/get/wait show what people see. Only those files are read.
+   */
+  private withRichText(entries: Entry[]): Entry[] {
+    return entries.map((e) => {
+      if (e.purged) return e;
+      const files = e.attachments?.length ? e.attachments : e.artifact_name ? [{ name: e.artifact_name, mime: e.media?.mime ?? "text/plain", version: e.artifact_version ?? null }] : [];
+      const rich: { name: string; text: string }[] = [];
+      for (const a of files) {
+        if (!isRichTextAttachment(a.name, a.mime) || a.version == null) continue;
+        const b = this.sql.exec("SELECT bytes FROM blobs WHERE name = ? AND version = ?", a.name, a.version).toArray()[0];
+        const t = b
+          ? richTextOf(new Uint8Array(b.bytes as ArrayBuffer))
+          : (() => {
+              const d = this.sql.exec("SELECT content FROM doc_versions WHERE name = ? AND version = ?", a.name, a.version).toArray()[0];
+              return d ? richTextOf(new TextEncoder().encode(d.content as string)) : null;
+            })();
+        if (t) rich.push(flagged({ name: a.name, text: t }, t)); // screened like a message (#5275)
+      }
+      return rich.length ? { ...e, rich_text: rich } : e;
+    });
+  }
+
   private withHandling(entries: Entry[]): Entry[] {
     const m = this.handlingMap(entries.map((e) => e.seq));
     return entries.map((e) => (m[e.seq] ? { ...e, ...(m[e.seq].done ? { done_by: m[e.seq].by } : { handled_by: m[e.seq].by }) } : e));
@@ -1219,7 +1317,7 @@ export class Board extends DurableObject<Env> {
     return aud;
   }
 
-  async post(user: string, input: NewEntry, internal: { docVersion?: number; media?: Media; attachments?: { list: Attachment[]; text: string }; seeding?: boolean; sealed?: boolean; notice?: boolean; system?: boolean; approval?: ApprovalRef; taskCreate?: boolean; scheduled?: boolean } = {}): Promise<Entry> {
+  async post(user: string, input: NewEntry, internal: { docVersion?: number; media?: Media; attachments?: { list: Attachment[]; text: string }; seeding?: boolean; sealed?: boolean; notice?: boolean; system?: boolean; approval?: ApprovalRef; taskCreate?: boolean; scheduled?: boolean; slackFrom?: string | null; origin?: "slack" | "pact" } = {}): Promise<Entry> {
     this.renewLeases(user, input.session);
     // D1 lookups first, so nothing below waits between the duplicate check and the insert.
     const boardKind = await this.kindOf(this.meta("id") ?? "");
@@ -1385,8 +1483,8 @@ export class Board extends DurableObject<Env> {
 
     const row = this.sql
       .exec(
-        `INSERT INTO entries (ts, author, type, text, to_user, mentions, self_agent, reply_to, resolves, supersedes, retracts, via, client, artifact_name, artifact_size, artifact_version, artifact_content, card, card_diff, media, title, session, idem, for_user, for_session, attachments, approval, audience, to_people, handoff, data)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING ${ENTRY_COLS}`,
+        `INSERT INTO entries (ts, author, type, text, to_user, mentions, self_agent, reply_to, resolves, supersedes, retracts, via, client, origin, artifact_name, artifact_size, artifact_version, artifact_content, card, card_diff, media, title, session, idem, for_user, for_session, attachments, approval, audience, to_people, handoff, data)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING ${ENTRY_COLS}`,
         Date.now(),
         user,
         input.type,
@@ -1400,6 +1498,7 @@ export class Board extends DurableObject<Env> {
         input.retracts ?? null,
         input.via ?? null,
         input.via === "agent" ? (input.client ?? "agent").slice(0, 40) : null,
+        internal.origin ?? null,
         artifactName,
         internal.media ? internal.media.size : artifactContent == null ? null : new TextEncoder().encode(artifactContent).length,
         artifactVersion,
@@ -1527,6 +1626,9 @@ export class Board extends DurableObject<Env> {
       return entry;
     }
     this.ctx.waitUntil(this.notify(info, entry, forSession).catch(() => {}));
+    // The Slack bridge (src/slack.ts): boards with a linked channel only; never a seed, never an encrypted board.
+    // slackFrom: the channel a Slack reply came from, so it isn't echoed back there.
+    if (this.meta("slack") === "1" && !info.encrypted && !internal.seeding) this.ctx.waitUntil(this.toSlack(info, entry, internal.slackFrom ?? null).catch((e) => console.error("slack bridge failed", e)));
     // Workflow triggers: a post (not a notice, a system line, a seed or an unsend); a task post is also a new task.
     if (!internal.seeding && !internal.notice && !internal.system && entry.retracts == null) {
       this.fireTriggers({ on: "entry", actor: user, via: entry.via ?? null, seq: entry.seq, entry });
@@ -1683,7 +1785,7 @@ export class Board extends DurableObject<Env> {
           })()
         : null,
       tasksForYou: tasksFor(c.summary, user, c.tags).length,
-      entries: withNames(this.decisions.attach(this.withHandling(fresh)), opts.names), // "Jarvis (vedu's agent)": names from the Worker
+      entries: withNames(this.decisions.attach(this.withRichText(this.withHandling(fresh))), opts.names), // "Jarvis (vedu's agent)": names from the Worker
       remaining,
       memory, // the whole list on this reader's first read, then what changed (null: nothing to say)
     };
@@ -2079,7 +2181,24 @@ export class Board extends DurableObject<Env> {
     this.entryMemo = this.entryMemo.map((e) => (e.seq === seq ? { ...e, approval: ref } : e));
     this.broadcast({ type: "approval", id: ref.id, status: ref.status, seq, approval: ref });
     this.fireTriggers({ on: "approval", actor: ref.user, via: "person", seq, approval: ref });
+    if (this.meta("slack") === "1") {
+      const info = this.info();
+      this.ctx.waitUntil(slackOnApproval(this.env, { id: info.id, title: info.title }, seq, ref).catch((e) => console.error("slack approval failed", e)));
+    }
     return seq;
+  }
+
+  /** The Slack bridge's switch (src/slack.ts): on when a channel is linked, off when the last one goes. */
+  async setSlack(on: boolean): Promise<void> {
+    this.info();
+    this.setMeta("slack", on ? "1" : "0");
+  }
+
+  /** A public post, to the board's Slack channels: with its thread's root, so a reply can go in that thread. */
+  private async toSlack(info: BoardInfo, e: Entry, from: string | null) {
+    const top = e.reply_to != null ? (await this.rootsFor([e.seq]))[e.seq] : null;
+    const root = top != null && top !== e.seq ? (this.sql.exec(`SELECT ${ENTRY_COLS} FROM entries WHERE seq = ?`, top).toArray().map(toEntry)[0] ?? null) : null;
+    await slackOnEntry(this.env, { id: info.id, title: info.title }, e, root, from);
   }
 
   /** One member's open tabs only (what isn't for everyone on the board). */
@@ -2225,6 +2344,36 @@ export class Board extends DurableObject<Env> {
     for (const r of changes) done.push({ seq: r.seq as number, title: line({ title: r.title as string | null, text: r.text as string }), kind: "change", ts: r.ts as number });
     done.sort((a, b) => b.ts - a.ts);
     return { board: { id: info.id, title: info.title, encrypted: sealed }, decisions, questions, done: done.slice(0, 20) };
+  }
+
+  /**
+   * A voice call's briefing from this board (vedu #5381, voice.ts briefingFor): the open decisions and questions waiting
+   * on `user` (For you's), their own open tasks, and with `recent` the last few messages everyone here can see (never
+   * People only or Just mine: the voice model is an agent), each with the screen's verdict. Nothing from a sealed board.
+   */
+  async voiceBrief(user: string, recent: number): Promise<VoiceBoardBrief> {
+    const core = await this.forYou(user, Date.now());
+    if (core.board.encrypted) return { ...core, tasks: [], recent: [] };
+    const line = (s: string) => (s.split("\n").find((l) => l.trim()) ?? "").trim().slice(0, 200);
+    const tasks = this.taskRows()
+      .filter((t) => t.assignee === user && !t.assignee_agent && (t.status === "todo" || t.status === "doing" || t.status === "blocked"))
+      .slice(-5)
+      .reverse()
+      .map((t) => ({ seq: t.seq, title: line(t.title || t.text), status: t.status, flag: flagOf(t.title || t.text) }));
+    const n = Math.max(0, Math.min(12, Math.floor(recent)));
+    const rows = n
+      ? this.sql
+          .exec(
+            `SELECT ${ENTRY_COLS} FROM entries e WHERE e.audience IS NULL AND e.retracts IS NULL AND e.purged IS NULL
+             AND NOT EXISTS (SELECT 1 FROM entries x WHERE x.retracts = e.seq) ORDER BY e.seq DESC LIMIT ?`,
+            n,
+          )
+          .toArray()
+          .map(toEntry)
+          .reverse()
+      : [];
+    const shown = rows.map((e) => ({ seq: e.seq, author: e.author, via: e.via ?? null, type: e.type, text: (e.title ? `${e.title}: ` : "") + e.text.slice(0, 400), flag: flagOf(e.text, e.ai_flag) }));
+    return { ...core, tasks, recent: shown };
   }
 
   // ---- the pinned doc: one document a board pins as its source of truth ----
@@ -2446,7 +2595,7 @@ export class Board extends DurableObject<Env> {
     if (last) this.markSeen(user, "agent", last);
     this.touch(user);
     await this.decisions.refresh();
-    return { info: this.info(), entries: this.decisions.attach(this.withHandling(fresh)), timedOut: fresh.length === 0, remaining, mine: fresh.filter((e) => mine.has(e.seq)).map((e) => e.seq), gone: false };
+    return { info: this.info(), entries: this.decisions.attach(this.withRichText(this.withHandling(fresh))), timedOut: fresh.length === 0, remaining, mine: fresh.filter((e) => mine.has(e.seq)).map((e) => e.seq), gone: false };
   }
 
   /**
@@ -2761,7 +2910,7 @@ export class Board extends DurableObject<Env> {
       .map(toEntry)
       .filter((e) => canSee(e, viewer) && (e.reply_to === seq || e.supersedes === seq || e.retracts === seq || e.resolves.includes(seq)));
     await this.decisions.refresh(this.decisions.isHuman(seq)); // one decision asked for: who's on the board now, not 30s ago
-    const [entry] = this.decisions.attach([toEntry(rows[0])]);
+    const [entry] = this.decisions.attach(this.withRichText([toEntry(rows[0])]));
     let content = (rows[0].artifact_content as string | null) ?? null;
     if (content == null && entry.artifact_name && entry.artifact_version != null) {
       const v = this.sql.exec("SELECT content FROM doc_versions WHERE name = ? AND version = ?", entry.artifact_name, entry.artifact_version).toArray()[0];
@@ -4788,8 +4937,8 @@ export class Board extends DurableObject<Env> {
    * too, as plain text: it's metadata the server already knows, like the board's name. Nobody is notified, and the
    * board lists keep showing the last real message.
    */
-  async notice(user: string, title: string, text: string, opts: TaskActOpts): Promise<Entry> {
-    return this.post(user, { type: "note", title, text, via: opts.via, client: opts.client, session: opts.session }, { notice: true });
+  async notice(user: string, title: string, text: string, opts: TaskActOpts, origin?: "slack"): Promise<Entry> {
+    return this.post(user, { type: "note", title, text, via: opts.via, client: opts.client, session: opts.session }, { notice: true, origin });
   }
 
   async sealedAfter(after: number, limit = 200): Promise<{ seq: number; ts: number; author: string; via: string | null; type: string; to: string | null; reply_to: number | null; payload: string }[]> {

@@ -14,9 +14,9 @@ export interface CardSignature {
   signature: string;
 }
 
-const b64url = (b: Uint8Array) => btoa(String.fromCharCode(...b)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-const unb64url = (s: string) => Uint8Array.from(atob(s.replace(/-/g, "+").replace(/_/g, "/") + "===".slice((s.length + 3) % 4)), (c) => c.charCodeAt(0));
-const utf8 = (s: string) => new TextEncoder().encode(s);
+export const b64url = (b: Uint8Array) => btoa(String.fromCharCode(...b)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+export const unb64url = (s: string) => Uint8Array.from(atob(s.replace(/-/g, "+").replace(/_/g, "/") + "===".slice((s.length + 3) % 4)), (c) => c.charCodeAt(0));
+export const utf8 = (s: string) => new TextEncoder().encode(s);
 const EC = { name: "ECDSA", namedCurve: "P-256" } as const;
 const SIG = { name: "ECDSA", hash: "SHA-256" } as const;
 

@@ -1,4 +1,6 @@
 {
+ "calls": 20,
+ "slack": 12,
  "mention-nickname": 2,
  "verify-layout": 11,
  "rail": 6,
@@ -156,6 +158,7 @@
  "mention-rename": 4,
  "board-export": 2,
  "claim-session": 2,
+ "ping": 5,
  "access-all": 3,
  "moderation": 4,
  "board-prefetch": 3,
@@ -175,5 +178,6 @@
  "host": 3,
  "frame-tab-state": 25,
  "tabs-close": 12,
+ "invite-friend": 6,
  "strip-live": 14
 }

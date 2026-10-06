@@ -2,7 +2,7 @@
  "note": "test/browser/web-budget.mjs: bytes (decoded) and request counts per page. UPDATE=1 node web-budget.mjs rewrites it.",
  "pages": {
   "board": {
-   "html": 90198,
+   "html": 99331,
    "inline_js": 11136,
    "inline_css": 53,
    "js": 341033,

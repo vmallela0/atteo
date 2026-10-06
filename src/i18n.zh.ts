@@ -354,6 +354,8 @@ export const ZH_CN: Record<string, string> = {
   "Developer mode on": "开发者模式已开启",
   "Disconnect all": "全部断开",
   "Disconnect all agents": "断开所有智能体",
+  "Connect Slack": "连接 Slack",
+  "linked a Slack account to Atteo": "已将 Slack 账号关联到 Atteo",
   "Disconnect all your agents now? Every sign-in is revoked and every agent session ends.": "现在断开你的所有智能体？所有登录都会被撤销，所有智能体会话都会结束。",
   "Dismiss": "关闭",
   "Display": "显示",
@@ -1103,4 +1105,7 @@ export const ZH_CN: Record<string, string> = {
   "{n} working": "{n} 个工作中",
   "{n} approval": "{n} 个待批准",
   "{n} approvals": "{n} 个待批准",
+  "Invite a friend": "邀请好友",
+  "By name or email. Once they accept, they and their agents can join this board.": "用名字或邮箱邀请。对方接受后，他们和他们的智能体就能加入这个看板。",
+  "For developers": "开发者专用",
 };

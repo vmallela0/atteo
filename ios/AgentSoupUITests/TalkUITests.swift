@@ -180,6 +180,8 @@ final class TalkUITests: AtteoUITestCase {
         XCTAssertEqual(a.staticTexts["talk-standby-hint"].label, "Tap or press play on your AirPods to talk")
         XCTAssertFalse(a.buttons["talk-orb"].exists, "no orb while standing by")
         XCTAssertTrue(a.staticTexts["talk-timer"].label.hasPrefix("Standing by"), a.staticTexts["talk-timer"].label)
+        // Never silently (vedu #5329): it says why it stood by.
+        XCTAssertTrue(a.staticTexts["talk-standby-note"].label.hasPrefix("Stood by after a quiet moment"), a.staticTexts["talk-standby-note"].label)
         var used = 99.0
         for _ in 0..<10 {
             used = minutesUsed() - before
@@ -290,6 +292,43 @@ final class TalkUITests: AtteoUITestCase {
         talk.tap()
         XCTAssertTrue(eventually(a.staticTexts["talk-state"], "label == 'Listening…'", timeout: 15), "listening")
         return a
+    }
+
+    // MARK: Time to first answer (vedu #5381)
+
+    /// "What's waiting for me?" timed from the end of the turn to Atteo's first word (the diagnostics line), with the
+    /// fake as a model that calls mailbox_summary (before) and as one that answers from the session's briefing (after).
+    /// The fake's own answer is instant: the difference is the tool's round trip through the app to the local server
+    /// (a real model also spends a second turn on it, which this can't measure).
+    func testTimeToFirstAnswerWithTheBriefing() {
+        func timed(_ script: String) -> Int {
+            let a = scripted(script)
+            if !a.staticTexts["talk-diagnostics"].exists {
+                a.buttons["talk-menu"].tap()
+                let diag = a.buttons["talk-diagnostics-toggle"]
+                XCTAssertTrue(diag.waitForExistence(timeout: 5))
+                diag.tap()
+            }
+            let line = a.staticTexts["talk-diagnostics"]
+            XCTAssertTrue(line.waitForExistence(timeout: 5))
+            a.buttons["talk-orb"].tap()
+            XCTAssertTrue(text(a, "Atteo: Here's what's waiting for you").waitForExistence(timeout: 15), "the answer (\(script))")
+            XCTAssertTrue(eventually(line, "label CONTAINS 'first answer:'", timeout: 5), line.label)
+            let ms = line.label.components(separatedBy: "first answer: ").dropFirst().first.flatMap { Int($0.prefix { $0.isNumber }) } ?? -1
+            if script == "briefed" { XCTAssertTrue(text(a, "Atteo: Here's what's waiting for you, from your briefing").exists, "answered from the briefing") }
+            a.buttons["talk-end"].tap()
+            XCTAssertTrue(a.buttons["talk"].waitForExistence(timeout: 8))
+            a.terminate()
+            return ms
+        }
+        var tool: [Int] = [], briefed: [Int] = []
+        for _ in 0..<3 { tool.append(timed("")); briefed.append(timed("briefed")) }
+        let median = { (v: [Int]) in v.sorted()[v.count / 2] }
+        let report = "time to first answer, \"what's waiting for me?\": with the tool \(tool) ms (median \(median(tool))), from the briefing \(briefed) ms (median \(median(briefed)))"
+        print("TALK-LATENCY " + report)
+        XCTContext.runActivity(named: report) { _ in }
+        XCTAssertTrue(tool.allSatisfy { $0 >= 0 } && briefed.allSatisfy { $0 >= 0 }, report)
+        XCTAssertLessThan(median(briefed), median(tool), report)
     }
 
     /// The texts of the newest entries on a board (as maya).
@@ -633,6 +672,20 @@ final class TalkUITests: AtteoUITestCase {
         XCTAssertTrue(hold.waitForExistence(timeout: 5))
         hold.tap()
         XCTAssertTrue(eventually(state, "label == 'Listening…'", timeout: 5), "hands-free again (\(state.label))")
+
+        // Diagnostics (vedu #5329): a line under the call with what the mic did and why the last session stopped.
+        a.buttons["talk-menu"].tap()
+        let diag = a.buttons["talk-diagnostics-toggle"]
+        XCTAssertTrue(diag.waitForExistence(timeout: 5), "Diagnostics in the menu")
+        diag.tap()
+        let line = a.staticTexts["talk-diagnostics"]
+        XCTAssertTrue(line.waitForExistence(timeout: 5))
+        XCTAssertTrue(line.label.hasPrefix("mic: "), line.label)
+        shot("talk-diagnostics")
+        a.buttons["talk-menu"].tap()
+        XCTAssertTrue(diag.waitForExistence(timeout: 5))
+        diag.tap() // off again (it's remembered on the device)
+        XCTAssertTrue(eventually(line, "exists == false", timeout: 5))
         endAndSettle(a, before: before)
     }
 

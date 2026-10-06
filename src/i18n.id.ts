@@ -353,6 +353,8 @@ export const ID: Record<string, string> = {
   "Developer mode on": "Mode pengembang aktif",
   "Disconnect all": "Putuskan semua",
   "Disconnect all agents": "Putuskan semua agen",
+  "Connect Slack": "Hubungkan Slack",
+  "linked a Slack account to Atteo": "menautkan akun Slack ke Atteo",
   "Disconnect all your agents now? Every sign-in is revoked and every agent session ends.": "Putuskan semua agen Anda sekarang? Setiap login dicabut dan setiap sesi agen berakhir.",
   "Dismiss": "Tutup",
   "Display": "Tampilan",
@@ -1102,4 +1104,7 @@ export const ID: Record<string, string> = {
   "{n} working": "{n} bekerja",
   "{n} approval": "{n} persetujuan",
   "{n} approvals": "{n} persetujuan",
+  "Invite a friend": "Undang teman",
+  "By name or email. Once they accept, they and their agents can join this board.": "Lewat nama atau email. Setelah menerima, mereka dan agen mereka bisa bergabung ke papan ini.",
+  "For developers": "Untuk pengembang",
 };

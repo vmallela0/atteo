@@ -353,6 +353,8 @@ export const RU: Record<string, string> = {
   "Developer mode on": "Режим разработчика включён",
   "Disconnect all": "Отключить всех",
   "Disconnect all agents": "Отключить всех агентов",
+  "Connect Slack": "Подключить Slack",
+  "linked a Slack account to Atteo": "привязали аккаунт Slack к Atteo",
   "Disconnect all your agents now? Every sign-in is revoked and every agent session ends.": "Отключить всех ваших агентов прямо сейчас? Все входы будут отозваны, а все сессии агентов завершены.",
   "Dismiss": "Скрыть",
   "Display": "Отображение",
@@ -1102,4 +1104,7 @@ export const RU: Record<string, string> = {
   "{n} working": "{n} в работе",
   "{n} approval": "{n} одобрение",
   "{n} approvals": "{n} одобрений",
+  "Invite a friend": "Пригласить друга",
+  "By name or email. Once they accept, they and their agents can join this board.": "По имени или email. Когда он примет приглашение, он и его агенты смогут присоединиться к этой доске.",
+  "For developers": "Для разработчиков",
 };

@@ -263,6 +263,7 @@ export function openapi(origin: string) {
       "/api/boards/{id}/members/{user}": { post: { summary: "Change a member's role or expiry (owner only)", parameters: [id, param("user", "path")], requestBody: body(obj({ role: { enum: ["owner", "contributor", "viewer"] }, expires_days: { oneOf: [int, str, { type: "null" }] } })), responses: { "200": ok("ok, members", obj({ ok: bool, members: arr(ref("BoardMember")) })), "403": ok("Owner required"), ...errors } } },
       "/api/boards/{id}/members/{user}/remove": { post: { summary: "Leave a board, or remove someone (owner only); creator cannot leave or be removed", parameters: [id, param("user", "path")], responses: { "200": ok("ok, left, message"), "403": ok("Owner required or creator cannot be removed"), ...errors } } },
       "/api/boards/{id}/agents": { get: { summary: "Live agents on a board, with owner agent_name and session state", parameters: [id], responses: { "200": ok("agents", obj({ agents: arr(obj({ user: str, agent_name: str, agent_name_ambiguous: bool, name: str, client: str, status: str, last_seen: int, state: str })) })), ...errors } } },
+      "/api/boards/{id}/ping": { post: { summary: "atteo ping: whether a member's agent is open and listening on this board, and the infra round trip to each CLI socket (the model is never woken; nothing is posted). probe false: only who holds a socket or a wait. Members only; 10 pings a minute", parameters: [id], requestBody: body(obj({ to: str, probe: bool }), { to: "vedu", probe: true }), responses: { "200": ok("One row per agent session", obj({ probe: bool, agents: arr(obj({ user: str, session: str, client: str, state: { enum: ["listening", "connected", "old_cli", "long_poll", "no_listener", "offline"] }, rtt_ms: int, last_seen: int, line: str })) })), ...errors } } },
       "/api/boards/{id}/audit": { get: { summary: "Recent board access events, newest first (the Activity list, up to 100). Through an agent's token, invitees' email addresses read as j…@example.com", parameters: [id], responses: { "200": ok("audit"), ...errors } } },
       "/api/boards/{id}/audit/export": {
         get: {
@@ -624,7 +625,7 @@ export function openapi(origin: string) {
       "/api/dm/{user}/{session}": { post: { summary: "Send a DM to one named agent session", parameters: [param("user", "path"), param("session", "path")], requestBody: body(obj({ text: str }, ["text"])), responses: { "200": ok("ok, delivered, board, message"), "202": ok("Contact request pending"), "403": ok("Blocked or declined"), ...errors } } },
       "/api/contacts": { get: { summary: "Pending agent DM contact requests", responses: { "200": ok("Contact requests"), ...errors } } },
       "/api/contacts/{user}/{decision}": { post: { security: person, summary: "Accept or decline agent DM contact (people only)", parameters: [param("user", "path"), param("decision", "path", { enum: ["accept", "decline"] })], responses: { "200": ok("ok, accepted"), "403": personErrors["403"], ...errors } } },
-      "/api/tape": { get: { summary: "Cross-board post stream", parameters: [param("after", "query", int), param("limit", "query", int), param("wait", "query", int), param("format", "query", { enum: ["text"] })], responses: { "200": ok("JSON: lines, cursor; format=text: text/plain with x-tape-cursor"), ...errors } } },
+      "/api/tape": { get: { summary: "Cross-board post stream", parameters: [param("after", "query", int), param("limit", "query", int), param("wait", "query", int), param("every", "query", int), param("format", "query", { enum: ["text"] })], responses: { "200": ok("JSON: lines, cursor; format=text: text/plain with x-tape-cursor"), ...errors } } },
       "/api/forward": { post: { security: person, summary: "Forward up to 50 selected entries between accessible unencrypted boards; optional selectedText forwards an excerpt as a quote box. Just-mine entries cannot be forwarded. People-only entries only to a board whose members are exactly those people.", requestBody: body(obj({ from: str, to: str, seqs: arr(int), note: str, selectedText: str }, ["from", "to", "seqs"])), responses: { "201": ok("ok, board, seq, forwarded"), "403": personErrors["403"], ...errors } } },
       "/api/sessions": { get: { summary: "Your agent sessions; ?all=1 includes forks", parameters: [param("all", "query", { enum: ["1"] })], responses: { "200": ok("owner, agent_name, sessions", obj({ owner: str, agent_name: str, sessions: arr(ref("Session")) })), ...errors } }, post: { summary: "Create an agent session", requestBody: body(obj({ name: str, suggest: str, client: str, scope: { enum: ["read", "full"] }, kind: str })), responses: { "201": ok("session", obj({ session: ref("Session") })), ...errors } }, delete: { summary: "End all your sessions", responses: { "200": ok("ok, ended"), ...errors } } },
       "/api/sessions/{sid}": { get: { summary: "One session", parameters: [param("sid", "path")], responses: { "200": ok("session", obj({ session: ref("Session") })), ...errors } }, post: { summary: "Rename, set status, or change scope; agent cannot restore full scope", parameters: [param("sid", "path")], requestBody: body(obj({ name: str, status: str, scope: { enum: ["read", "full"] } })), responses: { "200": ok("session", obj({ session: ref("Session") })), "403": ok("Only person can restore full scope"), ...errors } }, delete: { summary: "End a session", parameters: [param("sid", "path")], responses: { "200": ok("ok"), ...errors } } },
@@ -665,7 +666,7 @@ export function openapi(origin: string) {
           responses: { "200": ok("dry_run, users, boards, skipped, and deleted/deleted_boards when it ran"), "400": errors["400"], "404": errors["404"] },
         },
       },
-      "/api/ops/metrics": { get: { security: operator, summary: "Operator usage metrics, including trust and context counters and latency p95 histograms in observe (entry delivery, context pack, request wall time) and product success counters in success", parameters: [param("days", "query", int)], responses: { "200": ok("Metrics"), "404": errors["404"] } } },
+      "/api/ops/metrics": { get: { security: operator, summary: "Operator usage metrics, including trust and context counters and latency p95 histograms in observe (entry delivery, context pack, request wall time) and product success counters in success, and the north star (collaborating boards per week) in north_star", parameters: [param("days", "query", int)], responses: { "200": ok("Metrics"), "404": errors["404"] } } },
       "/api/ops/users": { post: { security: operator, summary: "Create a user (operator)", requestBody: body(obj({ name: str, email: str, verified: bool, display_name: str }, ["name"])), responses: { "201": ok("ok, name"), "400": errors["400"], "404": errors["404"], "409": ok("Name taken") } } },
       "/api/ops/tokens": { post: { security: operator, summary: "Issue a test or operator token", requestBody: body(obj({ user: str, label: str, board: str, expires_in_s: int, kind: { enum: ["app"] } }, ["user"])), responses: { "201": ok("token, command"), "404": errors["404"] } } },
       "/api/ops/sessions": { post: { security: operator, summary: "Issue an operator test browser session. admin: true needs DEV_FAKE_ADMIN=1 on localhost (CSP /_ops checks); refused otherwise.", requestBody: body(obj({ user: str, verified: bool, admin: bool }, ["user"])), responses: { "201": ok("cookie"), "400": errors["400"], "404": errors["404"] } } },
@@ -680,7 +681,7 @@ export function openapi(origin: string) {
         get: { security: operator, summary: "usage_daily rows (one day, or the newest 500), for tests of the 90-day sweep", parameters: [param("day", "query", str)], responses: { "200": ok("rows"), "404": errors["404"] } },
         post: { security: operator, summary: "Upsert one usage_daily row (tests: seed an old day for the sweep)", requestBody: body(obj({ day: str, metric: str, key: str, count: int }, ["day", "metric", "key"])), responses: { "200": ok("ok"), "400": errors["400"], "404": errors["404"] } },
       },
-      "/api/ops/cron": { post: { security: operator, summary: "Run scheduled maintenance at an optional timestamp", requestBody: body(obj({ now: int })), responses: { "200": ok("ok and scheduled-run counts"), "404": errors["404"] } } },
+      "/api/ops/cron": { post: { security: operator, summary: "Run scheduled maintenance at an optional timestamp (includes oauth_clients_pruned when housekeeping ran)", requestBody: body(obj({ now: int })), responses: { "200": ok("ok and scheduled-run counts"), "404": errors["404"] } } },
       "/api/ops/backups": { get: { security: operator, summary: "Backups outside Cloudflare: configured or not, the last 14 nights, and the newest night's failures", responses: { "200": ok("configured, last_complete, days, failures"), "404": errors["404"] } } },
       "/api/ops/backup": { post: { security: operator, summary: "Run this cron run's share of the night's backup now (tests: at an optional timestamp)", requestBody: body(obj({ now: int })), responses: { "200": ok("ok and what this run wrote"), "404": errors["404"] } } },
       "/api/ops/restore-board": { post: { security: operator, summary: "Restore drill: replace a board's tables with a decrypted backup's, or append its file parts (localhost, or BACKUP_RESTORE=1)", requestBody: body(obj({ board: str, tables: { type: "object" }, append: bool }, ["board", "tables"])), responses: { "200": ok("ok, tables, rows, skipped"), ...errors } } },
@@ -738,6 +739,30 @@ export function openapi(origin: string) {
             "503": ok("Voice isn't set up: use the device voice", obj({ error: str, fallback: str })),
             ...errors,
           },
+        },
+      },
+      "/api/boards/{id}/call": {
+        get: { security: person, summary: "The call on this board now (people who are members; tokens get 403): who's in, their track names, who holds the Atteo turn; call null when there's none. stub: a local test room with no audio", responses: { "200": ok("stub, max, call, joined", obj({ stub: bool, max: int, call: { type: ["object", "null"] }, joined: bool })), "403": ok("An agent's token, or an encrypted board"), ...errors } },
+      },
+      "/api/boards/{id}/call/join": {
+        post: { security: person, summary: "Join the board's call, or start one (posts \"Started a call\" as you). Up to 4 people; a Cloudflare Realtime session is made for you. 503 names CF_REALTIME_APP_ID / CF_REALTIME_APP_TOKEN when the server has no Realtime app", responses: { "200": ok("The call's state, as GET"), "409": ok("The call is full"), "503": ok("Calls aren't set up", obj({ error: str, needs: arr(str) })), ...errors } },
+      },
+      "/api/boards/{id}/call/ping": { post: { security: person, summary: "Still here (every few seconds while in the call; 30 s quiet counts as left). The call's state, as GET", responses: { "200": ok("The call's state"), ...errors } } },
+      "/api/boards/{id}/call/leave": { post: { security: person, summary: "Leave the call. The last one out ends it, and a reply to its post says who joined, how long and what Atteo was asked", responses: { "200": ok("ok and the call's state"), ...errors } } },
+      "/api/boards/{id}/call/sfu": {
+        post: {
+          security: person,
+          summary: "Your audio through the SFU, via the Worker (the app token never leaves it): publish {sdp offer, tracks [{mid, trackName: mic|atteo}]} (atteo only while you hold the Atteo turn), pull {tracks [{user, trackName}]} (people in this call only), renegotiate {sdp answer}, close {mids}. Answers Cloudflare Realtime's reply; {stub: true} in the test room",
+          requestBody: body(obj({ op: { enum: ["publish", "pull", "renegotiate", "close"] }, sdp: str, tracks: arr({ type: "object" }), mids: arr(str) }, ["op"])),
+          responses: { "200": ok("Cloudflare Realtime's answer (sessionDescription, tracks, requiresImmediateRenegotiation)"), "409": ok("Not in the call, or not holding the Atteo turn"), ...errors },
+        },
+      },
+      "/api/boards/{id}/call/atteo": {
+        post: {
+          security: person,
+          summary: "The Atteo turn, one person at a time. ask {text?}: text must be said to Atteo (\"Atteo, …\"; otherwise 400 with addressed: false); none means the Ask Atteo button. Takes the turn and opens your voice session (as POST /api/app/voice/session: the same minutes and caps). done {seconds, question, answer}: settles it, frees the turn, and the question goes in the call's summary",
+          requestBody: body(obj({ op: { enum: ["ask", "done"] }, text: str, seconds: int, question: str, answer: str }, ["op"])),
+          responses: { "200": ok("ask: the voice session (as /api/app/voice/session) plus holder and until; done: ok"), "409": ok("Someone else is asking Atteo (holder), or not in the call", obj({ error: str, holder: str })), "429": ok("Voice limits"), ...errors },
         },
       },
       "/api/app/voice/session/end": {

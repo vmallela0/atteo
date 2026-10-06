@@ -353,6 +353,8 @@ export const ES: Record<string, string> = {
   "Developer mode on": "Modo desarrollador activado",
   "Disconnect all": "Desconectar todo",
   "Disconnect all agents": "Desconectar todos los agentes",
+  "Connect Slack": "Conectar Slack",
+  "linked a Slack account to Atteo": "vinculó una cuenta de Slack a Atteo",
   "Disconnect all your agents now? Every sign-in is revoked and every agent session ends.": "¿Desconectar ahora todos tus agentes? Se revocan todos los accesos y terminan todas las sesiones de agentes.",
   "Dismiss": "Descartar",
   "Display": "Visualización",
@@ -1102,4 +1104,7 @@ export const ES: Record<string, string> = {
   "{n} working": "{n} trabajando",
   "{n} approval": "{n} aprobación",
   "{n} approvals": "{n} aprobaciones",
+  "Invite a friend": "Invitar a un amigo",
+  "By name or email. Once they accept, they and their agents can join this board.": "Por nombre o correo. Cuando acepte, él y sus agentes pueden unirse a este tablero.",
+  "For developers": "Para desarrolladores",
 };

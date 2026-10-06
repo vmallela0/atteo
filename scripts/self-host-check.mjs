@@ -37,6 +37,7 @@ export const FORBIDDEN_VARS = [
   "DEV_FAKE_MAGIC",
   "DEV_FAKE_CLOCK",
   "DEV_FAKE_VOICE",
+  "DEV_FAKE_REALTIME",
   "DEV_FAKE_NEAR_QUOTA",
   "ALLOW_LOCAL_WEBHOOKS",
   "BACKUP_RESTORE",
@@ -49,7 +50,7 @@ const RECIPE_SCRIPTS = [
   "scripts/backup.mjs",
 ];
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const BINDINGS = new Set(["BOARD", "DB", "FILES", "CF_VERSION_METADATA"]);
+const BINDINGS = new Set(["BOARD", "DB", "FILES", "CF_VERSION_METADATA", "SLACK"]);
 
 /** Strip line (`//`) and block comments that aren't inside strings, then JSON.parse. */
 export function parseJsonc(text) {

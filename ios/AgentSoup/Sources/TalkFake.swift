@@ -19,6 +19,8 @@
 //           it. Even with auto-send on, the app must ask.
 //   remark: ATTEO_FAKE_VOICE_POST said plainly (no "tell my agent") → post_to_my_agent with exactly it: with no spoken
 //           command it must still ask (opus-d #2726).
+//   briefed: "What's waiting for me?" answered straight from the session's briefing, no tool (vedu #5381), as a model
+//           with the briefing would; TalkUITests times it against the default script's mailbox_summary round trip.
 //   stale:  "Post to my agent: ATTEO_FAKE_VOICE_POST" → Atteo just answers ("Got it."); then, in a later response,
 //           post_to_my_agent with it. The transcript went stale when that first answer finished: it must ask.
 // Hands-free (session.update with turn_detection server_vad): there's no mic, so the person "says" the next line when
@@ -48,6 +50,7 @@ final class FakeGrokLink: RealtimeLink {
     private var closed = false
     private var handsFree = false
     private var resumed = false // the session's instructions carry a standby recap
+    private var briefed = 0 // what the session's briefing lists (vedu #5381): the "briefed" script answers from it
     private var loopText: String? // loopback: what Atteo read aloud and the mic heard as the person
     private(set) var truncated: [String: Int] = [:] // item → audio_end_ms the app cut it to
 
@@ -61,7 +64,10 @@ final class FakeGrokLink: RealtimeLink {
         case "session.update":
             let session = e["session"] as? [String: Any] ?? [:]
             handsFree = (session["turn_detection"] as? [String: Any])?["type"] as? String == "server_vad"
-            resumed = (session["instructions"] as? String ?? "").contains("picking up again")
+            let instructions = session["instructions"] as? String ?? ""
+            resumed = instructions.contains("picking up again")
+            // briefed: the items in the session's briefing (its "- " lines after "Briefing at"), for that script.
+            briefed = instructions.components(separatedBy: "Briefing at").dropFirst().first.map { $0.components(separatedBy: "\n- ").count - 1 } ?? 0
             emit(["type": "session.updated", "session": session])
         case "conversation.item.truncate":
             guard let item = e["item_id"] as? String else { return }
@@ -214,6 +220,9 @@ final class FakeGrokLink: RealtimeLink {
             }
         case ("hedge", 1), ("hedge", 2), ("hedge", 3): functionCall(r, "answer_approval", ["approval_id": Self.approval, "decision": "approve"])
         case ("post", _), ("inject", _), ("hedge", _), ("dictate", _), ("loopback", _), ("remark", _), ("stale", _): speak(r, "You're welcome.", seconds: 0.8, modern: true)
+        case ("briefed", 1) where briefed > 0:
+            // A model that answers from the session's briefing (vedu #5381): no tool call, no round trip.
+            speak(r, "Here's what's waiting for you, from your briefing: \(briefed) thing\(briefed == 1 ? "" : "s") across your boards.", seconds: 6, modern: true)
         case (_, 1): functionCall(r, "mailbox_summary", [:])
         case (_, 2), (_, 3): functionCall(r, "answer_approval", ["approval_id": Self.approval, "decision": "approve"])
         default: speak(r, "You're welcome.", seconds: 0.8, modern: true)
