@@ -137,14 +137,13 @@ describe("unused OAuth client prune", () => {
     expect(remaining(db)).toEqual(["oc_recent"]);
   });
 
-  it("deletes a client whose refresh and access tokens are past expiry and not recently used", async () => {
+  it("keeps a client that ever got a token, even long expired: connectors cache its id (#5290)", async () => {
     const { env, db } = fakeEnv();
-    insertClient(db, "oc_stale", T0 - 100 * day);
-    insertClient(db, "oc_keep", T0 - 100 * day);
-    insertToken(db, "oc_stale", { refreshExp: T0 - day, tokenExp: T0 - 60 * day, lastUsed: T0 - 60 * day, revokedAt: T0 - 60 * day, usedAt: T0 - 70 * day });
-    insertToken(db, "oc_keep", { refreshExp: T0 + 10 * day, tokenExp: T0 + day, lastUsed: T0 - 5 * day });
+    insertClient(db, "oc_expired", T0 - 100 * day);
+    insertClient(db, "oc_never", T0 - 100 * day);
+    insertToken(db, "oc_expired", { refreshExp: T0 - day, tokenExp: T0 - 60 * day, lastUsed: T0 - 60 * day, revokedAt: T0 - 60 * day, usedAt: T0 - 70 * day });
     expect(await pruneUnusedClients(env, T0)).toBe(1);
-    expect(remaining(db)).toEqual(["oc_keep"]);
+    expect(remaining(db)).toEqual(["oc_expired"]);
   });
 
   it("leaves nothing to delete when every old client is still in use", async () => {
@@ -164,6 +163,6 @@ describe("unused OAuth client prune", () => {
     expect(html).toContain("data-oauth-clients");
     expect(html).toContain("OAuth clients: 67 registered");
     expect(html).toContain("12 unused pruned in 14 days");
-    expect(html).toContain("left alone");
+    expect(html).toContain("sign-in never finished");
   });
 });

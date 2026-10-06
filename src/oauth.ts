@@ -174,35 +174,25 @@ export async function exchange(env: Env, f: { grant_type?: string; code?: string
 export const OAUTH_CLIENT_UNUSED_DAYS = 30;
 
 /**
- * Cron sweep: delete OAuth clients older than 30 days that were never used, or whose tokens have all expired
- * (shared with test/queryPlans.test.ts). Fail-safe: a row stays if anything still points at it.
+ * Cron sweep: delete OAuth clients older than 30 days whose sign-in never finished (shared with
+ * test/queryPlans.test.ts). A client that was ever issued a refresh token is kept for good: connectors (claude.ai,
+ * ChatGPT, Cursor) cache the client_id from DCR and many don't re-register, so deleting it would turn a later plain
+ * re-sign-in into "invalid_client" (jxn's agent, #5290). Refresh-token rows are never deleted, so "ever issued" holds.
  *
- * Binds, in order: cutoff, cutoff, cutoff, now, now, cutoff. `cutoff` is `now - 30d`.
- * Keep when any of: created in the last 30 days; an authorize request or code whose expiry is still within
- * that window (those rows live minutes, so this is "attempted recently"); a refresh token that has not yet
- * expired (used or unused — prefer leaving a row); an unrevoked access token with no expiry or one still in
- * the future; an access token used in the last 30 days.
+ * Binds, in order: cutoff, cutoff, cutoff. `cutoff` is `now - 30d`. Keep when any of: created in the last 30 days;
+ * an authorize request or code whose expiry is within that window (those rows live minutes, so this is
+ * "attempted recently"); any refresh token, used, unused or expired.
  */
 export const PRUNE_OAUTH_CLIENTS_SQL = `DELETE FROM oauth_clients
 WHERE created_at < ?
   AND NOT EXISTS (SELECT 1 FROM oauth_requests r WHERE r.client_id = oauth_clients.client_id AND r.expires_at >= ?)
   AND NOT EXISTS (SELECT 1 FROM oauth_codes k WHERE k.client_id = oauth_clients.client_id AND k.expires_at >= ?)
-  AND NOT EXISTS (SELECT 1 FROM oauth_refresh_tokens rt WHERE rt.client_id = oauth_clients.client_id AND rt.expires_at >= ?)
-  AND NOT EXISTS (
-    SELECT 1 FROM oauth_refresh_tokens rt JOIN tokens t ON t.id = rt.token_id
-    WHERE rt.client_id = oauth_clients.client_id
-      AND t.revoked_at IS NULL AND (t.expires_at IS NULL OR t.expires_at >= ?)
-  )
-  AND NOT EXISTS (
-    SELECT 1 FROM oauth_refresh_tokens rt JOIN tokens t ON t.id = rt.token_id
-    WHERE rt.client_id = oauth_clients.client_id
-      AND t.last_used IS NOT NULL AND t.last_used >= ?
-  )`;
+  AND NOT EXISTS (SELECT 1 FROM oauth_refresh_tokens rt WHERE rt.client_id = oauth_clients.client_id)`;
 
 /** Deletes unused OAuth clients past the retention window; active and recently used clients stay. */
 export async function pruneUnusedClients(env: Env, now = Date.now(), days = OAUTH_CLIENT_UNUSED_DAYS): Promise<number> {
   const cutoff = now - days * 86_400_000;
-  const r = await env.DB.prepare(PRUNE_OAUTH_CLIENTS_SQL).bind(cutoff, cutoff, cutoff, now, now, cutoff).run();
+  const r = await env.DB.prepare(PRUNE_OAUTH_CLIENTS_SQL).bind(cutoff, cutoff, cutoff).run();
   const n = r.meta.changes ?? 0;
   if (n) {
     const day = new Date(now).toISOString().slice(0, 10);

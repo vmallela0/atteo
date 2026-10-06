@@ -3966,7 +3966,7 @@ export function adminPage(viewer: Viewer, side: SideBoard[], d: AdminData): Resp
       ? ""
       : `<p class="small muted" style="margin:12px 0 0" data-oauth-clients>OAuth clients: ${d.oauth_clients} registered${
           d.oauth_clients_pruned != null ? ` · ${d.oauth_clients_pruned} unused pruned in 14 days` : ""
-        }. Unused registrations older than 30 days are deleted by the cron; a client with a live request, code, refresh token or recent access token is left alone.</p>`;
+        }. Registrations older than 30 days whose sign-in never finished are deleted by the cron; a client that ever got a token is kept, since connectors cache its id.</p>`;
   const ph = currentAnalytics();
   const analyticsNote = ph
     ? `<p class="small muted" style="margin:18px 0 0">Product analytics is on (PostHog, ${ph.region === "us" ? "US" : "EU"}). <a href="${esc(posthogDashboardUrl(ph))}">Open the dashboard</a>. What is recorded is in <span class="mono">docs/ANALYTICS.md</span>.</p>`

@@ -110,9 +110,11 @@ a row over deleting an active client:
 - `created_at` is older than 30 days
 - no `oauth_requests` / `oauth_codes` whose `expires_at` is still within that 30-day window (those rows live minutes;
   this is "someone tried to connect recently")
-- no `oauth_refresh_tokens` that have not yet expired (refresh TTL is 90 days; used or unused)
-- no linked `tokens` row that is unrevoked and unexpired (or has no expiry — fail-safe)
-- no linked `tokens.last_used` in the last 30 days
+- no `oauth_refresh_tokens` row at all, ever (used, unused or expired). A client that finished sign-in once is kept
+  for good: connectors (claude.ai, ChatGPT, Cursor) cache its `client_id` from DCR and many don't re-register, so
+  deleting it would turn a later re-sign-in into `invalid_client` (#5290). Refresh-token rows are never deleted.
+
+So only registrations whose sign-in never finished are pruned.
 
 Counts: remaining total and `oauth_clients_pruned` (last 14 days, from `usage_daily`) on `/_ops`; each cron run
 returns `oauth_clients_pruned` on `POST /api/ops/cron`. Tests: `test/oauth.test.ts`.
