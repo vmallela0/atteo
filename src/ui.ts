@@ -1819,7 +1819,8 @@ export function appPage(
     .slice(0, 24)
     .map((b) => `<a class="btab${b.live ? " st-work" : ""}" href="/b/${esc(b.id)}" data-tab="${esc(b.id)}"${cur(b.id)}>${b.kind === "direct" ? avatar(directPeer(b, v.name), "xs") : b.kind === "agent" ? avatar(v.name, "xs", true) : boardPic(b, "xs")}<b>${esc(tabName(b))}</b>${b.live ? `<span class="wk">${esc(T("{n} working", { n: b.live }))}</span>` : ""}<span class="apn" hidden></span></a>`)
     .join("");
-  const strip = `<header class="strip"><a class="ws" href="/">${LOGO}<span class="wm">atteo</span></a>
+  // The strip's mark draws the Menu's own (<use>), so the page carries the drawing once.
+  const strip = `<header class="strip"><a class="ws" href="/"><svg class="pebble" width="20" height="20" viewBox="0 0 100 100" aria-hidden="true"><use href="#mkg"/></svg><span class="wm">atteo</span></a>
   <button class="btn ghost sm" type="button" data-nav aria-controls="sidebar" aria-expanded="false">${ICON.menu}<span>${esc(T("Menu"))}</span></button>
   <nav class="btabs" aria-label="${esc(T("Boards and chats"))}">${tabs}</nav>
   <a class="btn ghost sm" href="/?new=1" aria-label="${esc(T("New board"))}">${ICON.plus}</a>
@@ -1827,10 +1828,13 @@ export function appPage(
   <a class="btn ghost sm" href="/chats" aria-label="${esc(T("Chats"))}">${ICON.feedback}</a>
   <a class="btn ghost sm" href="/inbox" aria-label="${esc(T("Inbox"))}">${ICON.inbox}<span class="count" data-inbox-count hidden></span></a>
   <a href="/me" aria-label="${esc(T("Account"))}">${avatar(v.name, "sm")}</a></header>`;
+  // What the inbox poll (INBOX_JS) hands the strip: its count, and the boards where one of your agent's approvals waits,
+  // whose tabs turn amber and say so (jxn #4860).
+  const stripJs = `window.onInbox=j=>{const b=document.querySelector('[data-inbox-count]'),c=j.unread;if(b){b.hidden=!c;b.textContent=c>99?'99+':c}const ab=j.approval_boards||{};document.querySelectorAll('.btab').forEach(t=>{const n=ab[t.dataset.tab]||0,a=t.lastChild;t.classList.toggle('st-ap',n>0);a.hidden=!n;a.textContent=n?tr(n>1?'{n} approvals':'{n} approval',{n}):''})}`;
   const body = `<div class="app" id="app">
 <aside class="sidebar" id="sidebar" aria-label="${esc(T("Navigation"))}">
   <button class="btn ghost sm nav-x" type="button" data-nav-close aria-label="${esc(T("Close menu"))}" title="${esc(T("Close menu"))}">✕</button>
-  <a class="ws" href="/">${LOGO}<span class="wm">atteo</span></a>
+  <a class="ws" href="/">${LOGO.replace("<g clip-path=", '<g id="mkg" clip-path=')}<span class="wm">atteo</span></a>
   <button class="search" type="button" data-palette>${ICON.search}<span>${esc(T("Search or jump to…"))}</span><kbd>⌘K</kbd></button>
   <a class="side-link" href="/for-you"${cur("foryou")}>${ICON.foryou}<span>${esc(T("For you"))}</span></a>
   <a class="side-link" href="/inbox"${cur("inbox")}>${ICON.inbox}<span>${esc(T("Inbox"))}</span><span class="count" id="inbox-count" hidden></span></a>
@@ -1870,7 +1874,7 @@ export function appPage(
 <dt><kbd>↵</kbd> · <kbd>⌫</kbd></dt><dd>${esc(T("Approve · deny the selected or focused approval (asks first when it's high risk)"))}</dd>
 <dt><kbd>G</kbd> ${esc(T("then"))} <kbd>I</kbd> <kbd>A</kbd> <kbd>B</kbd> <kbd>P</kbd> <kbd>M</kbd></dt><dd>${esc(T("Go to Inbox / Approvals / Boards / People / Account"))}</dd>
 <dt><kbd>?</kbd></dt><dd>${esc(T("This list"))}</dd></dl></div></dialog>
-<script>window.PALETTE=${JSON.stringify(paletteItems).replace(/</g, "\\u003c")};${v.admin ? "window.OPS=1;" : ""}</script>`;
+<script>window.PALETTE=${JSON.stringify(paletteItems).replace(/</g, "\\u003c")};${v.admin ? "window.OPS=1;" : ""}${stripJs}</script>`;
   return rawPage(title, body, (opts.script ?? "") + scriptSrc(SHELL_JS_SRC), opts.status, v.lang ?? "en", opts.css);
 }
 
@@ -1890,9 +1894,7 @@ let seen=0;try{seen=+localStorage.getItem('inbox-seen')||0}catch{}
 const tz=encodeURIComponent(Intl.DateTimeFormat().resolvedOptions().timeZone||'UTC');let dgAt=0;try{dgAt=+localStorage.getItem('inbox-dg-at')||0}catch{}
 window.inboxRefresh=async()=>{try{const r=await fetch('/api/inbox/count?tz='+tz);if(!r.ok)return;const j=await r.json();
   el.hidden=!j.unread;el.textContent=j.unread>99?'99+':String(j.unread);document.title=(j.unread?'('+j.unread+') ':'')+base;
-  document.querySelectorAll('[data-inbox-count]').forEach(c=>{c.hidden=el.hidden;c.textContent=el.textContent});
-  // A board where one of your agent's approvals waits: its tab turns amber and says so (jxn #4860).
-  const ab=j.approval_boards||{};document.querySelectorAll('.btab[data-tab]').forEach(t=>{const n=ab[t.dataset.tab]||0,a=t.querySelector('.apn');t.classList.toggle('st-ap',n>0);if(a){a.hidden=!n;a.textContent=n?tr(n===1?'{n} approval':'{n} approvals',{n}):''}});
+  window.onInbox&&onInbox(j);
   const ap=document.getElementById('approvals-count');if(ap){ap.hidden=!j.approvals;ap.textContent=String(j.approvals||'')}
   const can='Notification' in window&&Notification.permission==='granted',l=j.latest,ns=j.notify||{},due=ns.digest_at,dn=ns.digest_count;
   // The digest: the server counts what waited for the slot at digest_at; it shows once, when that slot is new here.
