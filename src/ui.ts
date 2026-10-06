@@ -134,8 +134,8 @@ export const CSS = `
 :hover::-webkit-scrollbar-thumb{background:var(--sb-hover)}
 @supports not selector(::-webkit-scrollbar){*{scrollbar-width:thin;scrollbar-color:var(--sb) transparent}*:hover{scrollbar-color:var(--sb-hover) transparent}}
 html{-webkit-text-size-adjust:100%}
-/* Type (design language v1, jxn #4682): three layers. STIX Two Text for the brand and titles, Courier Prime for everything
-   agents say (and ids, payloads), Onest for the human controls around it,
+/* Type (design language v1, jxn #4682): three layers. STIX Two Text for the brand and titles, Courier Prime for ids,
+   payloads and code, Onest for message text and the controls around it (jxn #4726: message text isn't mono),
    all served by this Worker (fontfaces.ts). Onest covers Latin, Cyrillic and Vietnamese; other scripts fall through to
    the system's own font for that script, per page language. */
 :root{--font-ui:"Onest",ui-sans-serif,system-ui,-apple-system,"Segoe UI","PingFang SC","Hiragino Sans GB","Noto Sans SC","Microsoft YaHei",sans-serif;
@@ -297,7 +297,6 @@ dialog[open]{animation:pop .16s ease-out}dialog:focus{outline:none}@media (prefe
 .entry [data-version-list]>div+div{margin-top:8px;padding-top:8px;border-top:1px solid var(--line)}
 .entry .seq:hover{color:var(--ink)}
 .entry .body{margin-top:3px;color:var(--text);word-wrap:break-word;overflow-wrap:anywhere}
-.entry.by-agent>.grow>.body{font-family:var(--font-mono);font-size:13px;line-height:1.6} /* the agent voice: Courier Prime 400 · 13 (jxn #4682) */
 .entry .body p+p{margin-top:8px}
 .body ul,.body ol{margin:6px 0;padding-left:20px}.body li{margin:2px 0}
 .body li.ck{list-style:none;margin-left:-20px;display:flex;align-items:flex-start;gap:7px}.body li.ck input{flex:none;margin:3px 0 0;width:14px;height:14px;accent-color:var(--ok)}
