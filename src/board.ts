@@ -4784,6 +4784,8 @@ export class Board extends DurableObject<Env> {
           this.sql.exec(`DELETE FROM entry_versions WHERE seq IN (${q})`, ...chunk.map((r) => r.seq));
           this.sql.exec(`DELETE FROM search_idx WHERE kind = 'entry' AND ref IN (${q})`, ...chunk.map((r) => String(r.seq)));
         }
+        // PR 79: no crash or task action may separate compaction from its derived cleanup.
+        this.retainDerived(rows.map((r) => r.seq), BLANK, now);
       });
       count += rows.length;
     }
@@ -4818,6 +4820,7 @@ export class Board extends DurableObject<Env> {
    * Status, assignee, lease, priority, due and parent stay either way: they are who is doing the work, not the words.
    */
   private sweepDerived(blank: string): boolean {
+    // PR 79: a later purge owns its stronger placeholder.
     let changed = false;
     const now = Date.now();
     for (let n = 0; n < 10; n++) {
@@ -4826,16 +4829,18 @@ export class Board extends DurableObject<Env> {
           `SELECT seq FROM (
              SELECT m.source_seq AS seq FROM memory m
              JOIN entries e ON e.seq = m.source_seq
-             WHERE e.retained_at IS NOT NULL AND m.ts <= e.retained_at AND (m.text != ? OR m.struck_ts IS NULL)
+             WHERE e.retained_at IS NOT NULL AND e.purged IS NULL AND m.ts <= e.retained_at AND (m.text != ? OR m.struck_ts IS NULL)
              UNION
              SELECT t.seq AS seq FROM tasks t
              JOIN entries e ON e.seq = t.seq
-             WHERE e.retained_at IS NOT NULL AND t.updated_at <= e.retained_at
-               AND (t.body IS NOT NULL OR t.done_note IS NOT NULL OR IFNULL(t.title, '') != ?)
+             WHERE e.retained_at IS NOT NULL AND e.purged IS NULL
+               AND ((COALESCE((SELECT MAX(ts) FROM task_versions WHERE seq = t.seq), e.ts) <= e.retained_at
+                     AND (t.body IS NOT NULL OR IFNULL(t.title, '') != ?))
+                    OR (t.updated_at <= e.retained_at AND t.done_note IS NOT NULL))
              UNION
              SELECT v.seq AS seq FROM task_versions v
              JOIN entries e ON e.seq = v.seq
-             WHERE e.retained_at IS NOT NULL AND v.ts <= e.retained_at
+             WHERE e.retained_at IS NOT NULL AND e.purged IS NULL AND v.ts <= e.retained_at
            ) LIMIT 200`,
           blank,
           blank,
@@ -4863,8 +4868,9 @@ export class Board extends DurableObject<Env> {
         .exec(
           `SELECT t.seq AS seq FROM tasks t
            JOIN entries e ON e.seq = t.seq
-           WHERE t.seq IN (${q}) AND e.retained_at IS NOT NULL AND t.updated_at <= e.retained_at
-             AND (t.body IS NOT NULL OR t.done_note IS NOT NULL OR IFNULL(t.title, '') != ?)`,
+           WHERE t.seq IN (${q}) AND e.retained_at IS NOT NULL AND e.purged IS NULL
+             AND COALESCE((SELECT MAX(ts) FROM task_versions WHERE seq = t.seq), e.ts) <= e.retained_at
+             AND (t.body IS NOT NULL OR IFNULL(t.title, '') != ?)`,
           ...chunk,
           blank,
         )
@@ -4873,15 +4879,28 @@ export class Board extends DurableObject<Env> {
         changed = true;
         const tseqs = tasks.map((t) => t.seq);
         const tq = tseqs.map(() => "?").join(",");
-        this.sql.exec(`UPDATE tasks SET title = ?, body = NULL, done_note = NULL WHERE seq IN (${tq})`, blank, ...tseqs);
+        // PR 79: stale full-body edits must not restore the compacted words.
+        this.sql.exec(`UPDATE tasks SET title = ?, body = NULL, version = version + 1 WHERE seq IN (${tq})`, blank, ...tseqs);
         this.sql.exec(`DELETE FROM task_versions WHERE seq IN (${tq})`, ...tseqs);
         this.sql.exec(`DELETE FROM search_idx WHERE kind = 'task' AND ref IN (${tq})`, ...tseqs.map(String));
+      }
+      // PR 79: claims and lease expiry change updated_at without rewriting title/body.
+      // Completion notes use their own eligibility so a new note survives old text cleanup.
+      const notes = this.sql.exec(
+        `SELECT t.seq FROM tasks t JOIN entries e ON e.seq = t.seq
+         WHERE t.seq IN (${q}) AND e.retained_at IS NOT NULL AND e.purged IS NULL
+           AND t.updated_at <= e.retained_at AND t.done_note IS NOT NULL`,
+        ...chunk,
+      ).toArray() as { seq: number }[];
+      if (notes.length) {
+        changed = true;
+        this.sql.exec(`UPDATE tasks SET done_note = NULL WHERE seq IN (${notes.map(() => "?").join(",")})`, ...notes.map((r) => r.seq));
       }
       const oldVersions = this.sql
         .exec(
           `SELECT v.seq AS seq FROM task_versions v
            JOIN entries e ON e.seq = v.seq
-           WHERE v.seq IN (${q}) AND e.retained_at IS NOT NULL AND v.ts <= e.retained_at`,
+           WHERE v.seq IN (${q}) AND e.retained_at IS NOT NULL AND e.purged IS NULL AND v.ts <= e.retained_at`,
           ...chunk,
         )
         .toArray() as { seq: number }[];
@@ -4896,7 +4915,7 @@ export class Board extends DurableObject<Env> {
         .exec(
           `SELECT m.id AS id, m.struck_ts AS struck_ts FROM memory m
            JOIN entries e ON e.seq = m.source_seq
-           WHERE m.source_seq IN (${q}) AND e.retained_at IS NOT NULL AND m.ts <= e.retained_at
+           WHERE m.source_seq IN (${q}) AND e.retained_at IS NOT NULL AND e.purged IS NULL AND m.ts <= e.retained_at
              AND (m.text != ? OR m.struck_ts IS NULL)`,
           ...chunk,
           blank,
@@ -4938,16 +4957,22 @@ export class Board extends DurableObject<Env> {
    */
   private async sweepForwardLeftovers(boardId: string): Promise<void> {
     if (!this.env.DB || !this.env.BOARD) return;
+    let after = Number(this.meta("retention_forward_after") ?? 0); // PR 79: failed pages must not starve later ones.
     for (let n = 0; n < 10; n++) {
       const pending = (this.sql
         .exec(
           `SELECT e.seq AS seq FROM entries e
-           WHERE e.retained_at IS NOT NULL
+           WHERE e.retained_at IS NOT NULL AND e.seq > ?
              AND NOT EXISTS (SELECT 1 FROM retention_forward_scrubbed s WHERE s.seq = e.seq)
            ORDER BY e.seq LIMIT 200`,
+          after,
         )
         .toArray() as { seq: number }[]).map((r) => r.seq);
-      if (!pending.length) return;
+      if (!pending.length) {
+        this.setMeta("retention_forward_after", "0");
+        return;
+      }
+      after = pending[pending.length - 1];
       let clean: Set<number>;
       try {
         clean = await this.scrubForwarded(boardId, pending);
@@ -4955,8 +4980,8 @@ export class Board extends DurableObject<Env> {
         console.error("retention forward scrub failed", e);
         return;
       }
-      if (!clean.size) return;
       this.ctx.storage.transactionSync(() => this.markForwardScrubbed([...clean]));
+      this.setMeta("retention_forward_after", String(after));
     }
   }
 
@@ -4969,10 +4994,13 @@ export class Board extends DurableObject<Env> {
     for (const row of rows) bySeq.get(row.src_seq)?.push(row);
     for (const [seq, list] of bySeq) {
       let ok = true;
+      // PR 79: a purge after compaction keeps the stronger quote placeholder too.
+      const purged = this.sql.exec("SELECT purged FROM entries WHERE seq = ?", seq).toArray()[0]?.purged;
+      const replacement = purged ? PURGED_QUOTE : RETAINED_QUOTE;
       for (const row of list) {
         try {
-          if (row.dst_board === boardId) await this.scrubForwardQuote(row.dst_seq, row.src_seq, RETAINED_QUOTE);
-          else await this.env.BOARD.get(this.env.BOARD.idFromName(row.dst_board)).scrubForwardQuote(row.dst_seq, row.src_seq, RETAINED_QUOTE);
+          if (row.dst_board === boardId) await this.scrubForwardQuote(row.dst_seq, row.src_seq, replacement);
+          else await this.env.BOARD.get(this.env.BOARD.idFromName(row.dst_board)).scrubForwardQuote(row.dst_seq, row.src_seq, replacement);
           await dropForward(this.env, boardId, row);
         } catch (e) {
           ok = false;

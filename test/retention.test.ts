@@ -15,7 +15,7 @@ vi.mock("cloudflare:workers", () => ({
 }));
 vi.stubGlobal("WebSocketRequestResponsePair", class {});
 import { Board, D1_BIND_LIMIT, D1_LAST_EXCERPT_CHUNK, D1_SEQ_CHUNK, retentionDirectoryUpdates } from "../src/board";
-import { RETAINED_QUOTE, scrubQuote } from "../src/forwards";
+import { PURGED_QUOTE, RETAINED_QUOTE, scrubQuote } from "../src/forwards";
 import type { Env } from "../src/types";
 
 const { DatabaseSync } = (await import("node:" + "sqlite")) as { DatabaseSync: new (p: string) => any };
@@ -268,7 +268,7 @@ describe("retention purge parity", () => {
     expect(t1.stop_reason).toBe("hold");
     expect(t1.priority).toBe("high");
     expect(t1.due).toBe(8_000);
-    expect(t1.version).toBe(4);
+    expect(t1.version).toBe(5);
     expect(db.prepare("SELECT COUNT(*) AS n FROM task_versions WHERE seq = 1").get()).toEqual({ n: 0 });
     expect(db.prepare("SELECT COUNT(*) AS n FROM search_idx WHERE kind = 'task' AND ref = '1'").get()).toEqual({ n: 0 });
 
@@ -280,7 +280,7 @@ describe("retention purge parity", () => {
     expect(facts[4]).toMatchObject({ text: "still true", source_seq: 4, struck: 0 });
     expect(facts[5]).toMatchObject({ text: "manual fact", source_seq: null, struck: 0 });
     expect(facts[6]).toMatchObject({ text: "(removed by ada)", source_seq: 5, struck: 0 });
-    expect(db.prepare("SELECT value FROM meta WHERE key = 'mem_v'").get()).toEqual({ value: "1" });
+    expect(db.prepare("SELECT value FROM meta WHERE key = 'mem_v'").get()).toEqual({ value: "2" });
 
     const t2 = db.prepare("SELECT title, body, done_note FROM tasks WHERE seq = 2").get();
     expect(t2).toEqual({ title: "live title", body: "live body", done_note: "live note" });
@@ -311,7 +311,7 @@ describe("retention purge parity", () => {
     const again = calls.length;
     expect(await board.prune(5_000)).toBe(0);
     expect(calls).toHaveLength(again);
-    expect(db.prepare("SELECT value FROM meta WHERE key = 'mem_v'").get()).toEqual({ value: "1" });
+    expect(db.prepare("SELECT value FROM meta WHERE key = 'mem_v'").get()).toEqual({ value: "2" });
   });
 
   it("retries a quote whose destination could not be reached, then leaves it alone", async () => {
@@ -354,5 +354,53 @@ describe("retention purge parity", () => {
     expect(calls.map((c) => c.srcSeq).sort((a, b) => a - b)).toEqual([1, n]);
     expect(directory.db.prepare("SELECT COUNT(*) AS n FROM forwards").get()).toEqual({ n: 0 });
     expect(directory.binds.every((b) => b.count <= D1_BIND_LIMIT)).toBe(true);
+  });
+
+  it("preserves a later purge and rejects task edits based on compacted text (PR 79)", async () => {
+    const { board, db } = openBoard();
+    db.prepare("INSERT INTO entries (seq, ts, author, type, text) VALUES (1, 1000, 'ada', 'task', 'old body')").run();
+    db.prepare("INSERT INTO tasks (seq, title, body, updated_at) VALUES (1, 'old title', 'old body', 1000)").run();
+    await board.prune(5000);
+    await expect(board.taskEdit("ada", 1, { body: "old body restored", base_version: 1 }, {})).rejects.toThrow(/at v2/);
+    db.prepare("UPDATE entries SET text = '(removed by ada)', purged = ? WHERE seq = 1").run(JSON.stringify({ by: "ada", via: "person" }));
+    db.prepare("UPDATE tasks SET title = '(removed by ada)' WHERE seq = 1").run();
+    db.prepare("INSERT INTO memory (text, norm, by_user, via, source_seq, ts, add_v) VALUES ('(removed by ada)', 'purged 1', 'ada', 'person', 1, 1000, 1)").run();
+    await board.prune(5000);
+    expect(db.prepare("SELECT title FROM tasks WHERE seq = 1").get()).toEqual({ title: "(removed by ada)" });
+    expect(db.prepare("SELECT text FROM memory WHERE source_seq = 1").get()).toEqual({ text: "(removed by ada)" });
+  });
+
+  it("does not mistake a later task status update for rewritten text (PR 79)", async () => {
+    const { board, db } = openBoard();
+    db.prepare("INSERT INTO entries (seq, ts, author, type, text, retained_at) VALUES (1, 1000, 'ada', 'task', ?, 5000)").run(BLANK);
+    db.prepare("INSERT INTO tasks (seq, title, body, updated_at, done_note, status) VALUES (1, 'old title', 'old body', 8000, 'new completion note', 'done')").run();
+    await board.prune(5000);
+    expect(db.prepare("SELECT title, body, done_note, status FROM tasks WHERE seq = 1").get()).toEqual({ title: BLANK, body: null, done_note: "new completion note", status: "done" });
+  });
+
+  it("keeps a later purge's quote placeholder on retry (PR 79)", async () => {
+    const { board, db, forward, quotes } = openBoard();
+    db.prepare("INSERT INTO entries (seq, ts, author, type, text, retained_at, purged) VALUES (1, 1000, 'ada', 'note', '(removed by ada)', 2000, ?)").run(JSON.stringify({ by: "ada", via: "person" }));
+    forward(1, 10, "old quote");
+    await board.prune(5000);
+    expect(quotes.get("b_other:10")).toContain(PURGED_QUOTE);
+    expect(quotes.get("b_other:10")).not.toContain(RETAINED_QUOTE);
+  });
+
+  it("continues beyond the retry budget of failed forwards (PR 79)", async () => {
+    const { board, db, forward, setFail } = openBoard();
+    for (let seq = 1; seq <= 2001; seq++) {
+      db.prepare("INSERT INTO entries (seq, ts, author, type, text, retained_at) VALUES (?, 1000, 'ada', 'note', ?, 2000)").run(seq, BLANK);
+      if (seq <= 2000) forward(seq, seq, "old quote");
+    }
+    setFail(true);
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      await board.prune(5000);
+      await board.prune(5000);
+      expect(db.prepare("SELECT seq FROM retention_forward_scrubbed").all()).toEqual([{ seq: 2001 }]);
+    } finally {
+      log.mockRestore();
+    }
   });
 });
