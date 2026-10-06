@@ -1649,7 +1649,6 @@ document.addEventListener('submit',async e=>{
     const res=f.dataset.reliable!==undefined?await sendReliably(f.action,body,()=>window[f.dataset.retrying]&&window[f.dataset.retrying](f))
       :await fetch(f.action,{method:f.dataset.method||'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)}).catch(()=>new Response(JSON.stringify({error:"Couldn't reach Atteo. Check your connection and try again."}),{status:503}));
     const j=await res.json().catch(()=>({error:'Request failed ('+res.status+')'}));
-    if(res.ok&&f.dataset.track)try{window.atteoTrack&&atteoTrack(f.dataset.track)}catch(e){}
     if(f.dataset.done&&res.ok&&window[f.dataset.done]){window[f.dataset.done](j,f)}
     else if(!res.ok&&f.dataset.failed&&window[f.dataset.failed]){window[f.dataset.failed](j,f)}
     else if(r){r.hidden=false;r.className='flash '+(res.ok?'ok':'err');r.textContent=j.message||j.error||'Done'}
