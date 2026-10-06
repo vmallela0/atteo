@@ -1435,6 +1435,15 @@ await step("live updates over WebSocket: members get a signal on each post; outs
   // Triage-able (#2177): the entry's kind, title and first ~200 characters ride along, for an agent's ping.
   const sig = JSON.parse(m.msgs.find((x) => x.includes(`"seq":${posted}`)));
   assert(sig.kind === "note" && sig.entry_title === "WS ping" && sig.excerpt.startsWith(`ws ping ${run} padding`) && sig.excerpt.endsWith("…") && sig.excerpt.length <= 200 && !sig.flagged, JSON.stringify(sig));
+  // "… is typing" says where (vedu #4746): ?root=N is thread N's box, none (or junk) the chat's.
+  const typing = async (q) => {
+    const n = m.msgs.length;
+    assert((await web(`/api/boards/${board}/typing${q}`, A, { method: "POST" })).status === 204, `typing ${q} should be accepted`);
+    await until(() => m.msgs.slice(n).some((x) => x.includes('"type":"typing"')));
+    return JSON.parse(m.msgs.slice(n).find((x) => x.includes('"type":"typing"')));
+  };
+  const t7 = await typing(`?root=${posted}`), tc = await typing(""), tj = await typing("?root=-3");
+  assert(t7.who === A && t7.root === posted && tc.root === 0 && tj.root === 0, `typing roots: ${JSON.stringify([t7, tc, tj])}`);
   m.ws.send("ping");
   await until(() => m.msgs.includes("pong"));
   assert(m.msgs.includes("pong"), "keep-alive ping should be answered");
