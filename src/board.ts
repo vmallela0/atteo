@@ -34,7 +34,7 @@ import { decodeValue, encodeValue, type DumpTables } from "./backupcore";
 import { parseAgentCharter, type AgentCharter } from "./charter";
 import { mutersOf } from "./moderation";
 import { memberRole } from "./registry";
-import { scrubQuote } from "./forwards";
+import { dropForward, forwardsFor, PURGED_QUOTE, RETAINED_QUOTE, scrubQuote, type ForwardRow } from "./forwards";
 
 export const MAX_TEXT = 32_000;
 export const MAX_ARTIFACT = 256_000;
@@ -595,6 +595,9 @@ export class Board extends DurableObject<Env> {
         v INTEGER NOT NULL,
         PRIMARY KEY (user, session)
       );
+      -- Source messages whose forwarded quotes retention has already blanked (or that had none). A seq stays out of
+      -- this table when a destination board could not be reached, so the next prune tries that quote again.
+      CREATE TABLE IF NOT EXISTS retention_forward_scrubbed (seq INTEGER PRIMARY KEY);
     `);
     this.migrate();
     this.decisions = new HumanDecisions(this.sql, env, () => this.meta("id"), ctx);
@@ -760,6 +763,8 @@ export class Board extends DurableObject<Env> {
     // Retention compacts an entry once. Unlike a sequence watermark this remains correct if clocks move backwards or an
     // older restored entry appears after a newer one.
     if (!cols.has("retained_at")) this.sql.exec("ALTER TABLE entries ADD COLUMN retained_at INTEGER");
+    this.sql.exec("CREATE INDEX IF NOT EXISTS entries_retained ON entries (seq) WHERE retained_at IS NOT NULL");
+    this.sql.exec("CREATE INDEX IF NOT EXISTS memory_source ON memory (source_seq) WHERE source_seq IS NOT NULL");
     // Purged (#3853): who removed it, JSON {by, via}, so a page can show a placeholder; backfilled from the purged table.
     if (!cols.has("purged")) {
       this.sql.exec("ALTER TABLE entries ADD COLUMN purged TEXT");
@@ -2564,12 +2569,12 @@ export class Board extends DurableObject<Env> {
    * tape, the board list's last line), the search index and edit history follow, and readers hear "#seq edited".
    * False when there was nothing to blank.
    */
-  async scrubForwardQuote(seq: number, srcSeq: number): Promise<boolean> {
+  async scrubForwardQuote(seq: number, srcSeq: number, replacement = PURGED_QUOTE): Promise<boolean> {
     const info = this.info();
     const row = this.sql.exec(`SELECT ${ENTRY_COLS} FROM entries WHERE seq = ?`, seq).toArray()[0];
     if (!row) return false;
     const e = toEntry(row);
-    const { text, changed } = scrubQuote(e.text, srcSeq);
+    const { text, changed } = scrubQuote(e.text, srcSeq, replacement);
     if (!changed) return false;
     const excerpt = text.replace(/\s+/g, " ").trim().slice(0, 160);
     await this.env.DB.batch([
@@ -4733,7 +4738,11 @@ export class Board extends DurableObject<Env> {
   /**
    * Retention: compact everything posted before `cutoff`. Entry numbers, authors, routing and threads stay (so
    * references and access control still work); message payloads, old edits, superseded file versions, search rows and
-   * directory excerpts go. Purged entries keep their stronger, attributed placeholder. Returns how many entries were
+   * directory excerpts go. The same pass blanks memory taken from those messages and task titles, bodies, completion
+   * notes and version history, and blanks quotes of them already forwarded to other boards. Task status, assignment
+   * and leases stay.
+   * A fact or task body written after the message was compacted stays: it is new board state, not a copy of the
+   * removed message. Purged entries keep their stronger, attributed placeholder. Returns how many entries were
    * compacted.
    */
   async prune(cutoff: number): Promise<number> {
@@ -4756,6 +4765,7 @@ export class Board extends DurableObject<Env> {
         await this.env.DB.batch(retentionDirectoryUpdates(this.env.DB, BLANK, info.id, rows.slice(i, i + D1_SEQ_CHUNK)));
       }
 
+      const now = Date.now();
       this.ctx.storage.transactionSync(() => {
         for (let i = 0; i < rows.length; i += D1_SEQ_CHUNK) {
           const chunk = rows.slice(i, i + D1_SEQ_CHUNK);
@@ -4768,7 +4778,7 @@ export class Board extends DurableObject<Env> {
                     retained_at = ?
               WHERE seq IN (${q})`,
             BLANK,
-            Date.now(),
+            now,
             ...chunk.map((r) => r.seq),
           );
           this.sql.exec(`DELETE FROM entry_versions WHERE seq IN (${q})`, ...chunk.map((r) => r.seq));
@@ -4777,6 +4787,13 @@ export class Board extends DurableObject<Env> {
       });
       count += rows.length;
     }
+
+    // Derived rows for messages already compacted (including ones just marked, and ones compacted before this pass
+    // knew how to follow them). Runs even when nothing new was old enough, so a later cron finishes leftovers.
+    const swept = this.sweepDerived(BLANK);
+    // Quotes on other boards, after the source is actually compacted. A destination that can't be reached keeps its
+    // forward row and is tried again next time; live messages are not in this set.
+    await this.sweepForwardLeftovers(info.id);
 
     // Old versions of files go too (the current board document stays). Delete binary and text copies together.
     // This runs even when no entry was newly compacted, so a restart after the entry transaction cannot strand bytes.
@@ -4787,12 +4804,188 @@ export class Board extends DurableObject<Env> {
       );
       this.sql.exec("DELETE FROM doc_versions WHERE ts < ? AND version < (SELECT version FROM docs d WHERE d.name = doc_versions.name)", cutoff);
     });
-    if (!count) return 0;
+    if (!count && !swept) return 0;
     this.entryMemo = [];
     this.entryMemoTo = 0;
     this.changes++;
     this.broadcast({ type: "pruned", before: cutoff });
     return count;
+  }
+
+  /**
+   * Memory taken from a compacted message, and the task title/body/history that still hold its words.
+   * A memory item or task edit dated after `retained_at` was written later, on purpose, and stays.
+   * Status, assignee, lease, priority, due and parent stay either way: they are who is doing the work, not the words.
+   */
+  private sweepDerived(blank: string): boolean {
+    let changed = false;
+    const now = Date.now();
+    for (let n = 0; n < 10; n++) {
+      const seqs = (this.sql
+        .exec(
+          `SELECT seq FROM (
+             SELECT m.source_seq AS seq FROM memory m
+             JOIN entries e ON e.seq = m.source_seq
+             WHERE e.retained_at IS NOT NULL AND m.ts <= e.retained_at AND (m.text != ? OR m.struck_ts IS NULL)
+             UNION
+             SELECT t.seq AS seq FROM tasks t
+             JOIN entries e ON e.seq = t.seq
+             WHERE e.retained_at IS NOT NULL AND t.updated_at <= e.retained_at
+               AND (t.body IS NOT NULL OR t.done_note IS NOT NULL OR IFNULL(t.title, '') != ?)
+             UNION
+             SELECT v.seq AS seq FROM task_versions v
+             JOIN entries e ON e.seq = v.seq
+             WHERE e.retained_at IS NOT NULL AND v.ts <= e.retained_at
+           ) LIMIT 200`,
+          blank,
+          blank,
+        )
+        .toArray() as { seq: number }[]).map((r) => r.seq);
+      if (!seqs.length) break;
+      let batch = false;
+      this.ctx.storage.transactionSync(() => {
+        batch = this.retainDerived(seqs, blank, now);
+      });
+      if (!batch) break;
+      changed = true;
+    }
+    return changed;
+  }
+
+  /** Blank derived memory and task words for these already-compacted messages. True when a row changed. */
+  private retainDerived(seqs: number[], blank: string, now: number): boolean {
+    let changed = false;
+    const strike: number[] = [];
+    for (let i = 0; i < seqs.length; i += D1_SEQ_CHUNK) {
+      const chunk = seqs.slice(i, i + D1_SEQ_CHUNK);
+      const q = chunk.map(() => "?").join(",");
+      const tasks = this.sql
+        .exec(
+          `SELECT t.seq AS seq FROM tasks t
+           JOIN entries e ON e.seq = t.seq
+           WHERE t.seq IN (${q}) AND e.retained_at IS NOT NULL AND t.updated_at <= e.retained_at
+             AND (t.body IS NOT NULL OR t.done_note IS NOT NULL OR IFNULL(t.title, '') != ?)`,
+          ...chunk,
+          blank,
+        )
+        .toArray() as { seq: number }[];
+      if (tasks.length) {
+        changed = true;
+        const tseqs = tasks.map((t) => t.seq);
+        const tq = tseqs.map(() => "?").join(",");
+        this.sql.exec(`UPDATE tasks SET title = ?, body = NULL, done_note = NULL WHERE seq IN (${tq})`, blank, ...tseqs);
+        this.sql.exec(`DELETE FROM task_versions WHERE seq IN (${tq})`, ...tseqs);
+        this.sql.exec(`DELETE FROM search_idx WHERE kind = 'task' AND ref IN (${tq})`, ...tseqs.map(String));
+      }
+      const oldVersions = this.sql
+        .exec(
+          `SELECT v.seq AS seq FROM task_versions v
+           JOIN entries e ON e.seq = v.seq
+           WHERE v.seq IN (${q}) AND e.retained_at IS NOT NULL AND v.ts <= e.retained_at`,
+          ...chunk,
+        )
+        .toArray() as { seq: number }[];
+      if (oldVersions.length) {
+        changed = true;
+        this.sql.exec(
+          `DELETE FROM task_versions WHERE seq IN (${q}) AND ts <= (SELECT retained_at FROM entries e WHERE e.seq = task_versions.seq)`,
+          ...chunk,
+        );
+      }
+      const mem = this.sql
+        .exec(
+          `SELECT m.id AS id, m.struck_ts AS struck_ts FROM memory m
+           JOIN entries e ON e.seq = m.source_seq
+           WHERE m.source_seq IN (${q}) AND e.retained_at IS NOT NULL AND m.ts <= e.retained_at
+             AND (m.text != ? OR m.struck_ts IS NULL)`,
+          ...chunk,
+          blank,
+        )
+        .toArray() as { id: number; struck_ts: number | null }[];
+      if (mem.length) {
+        changed = true;
+        this.sql.exec(
+          `UPDATE memory SET text = ?, norm = 'retained ' || source_seq
+           WHERE source_seq IN (${q}) AND ts <= (SELECT retained_at FROM entries e WHERE e.seq = memory.source_seq)
+             AND text != ?`,
+          blank,
+          ...chunk,
+          blank,
+        );
+        for (const m of mem) if (m.struck_ts == null) strike.push(m.id);
+      }
+    }
+    if (strike.length) {
+      const v = this.bumpMemV();
+      for (let i = 0; i < strike.length; i += D1_SEQ_CHUNK) {
+        const ids = strike.slice(i, i + D1_SEQ_CHUNK);
+        const iq = ids.map(() => "?").join(",");
+        this.sql.exec(
+          `UPDATE memory SET struck_by = COALESCE(struck_by, 'retention'), struck_ts = COALESCE(struck_ts, ?), struck_v = COALESCE(struck_v, ?)
+           WHERE id IN (${iq}) AND struck_ts IS NULL`,
+          now,
+          v,
+          ...ids,
+        );
+      }
+    }
+    return changed;
+  }
+
+  /**
+   * Blank quotes of compacted messages on other boards, a bounded page at a time. Messages that were never forwarded
+   * are marked done too, so the next prune does not ask D1 about them again. A failed destination is left unmarked.
+   */
+  private async sweepForwardLeftovers(boardId: string): Promise<void> {
+    if (!this.env.DB || !this.env.BOARD) return;
+    for (let n = 0; n < 10; n++) {
+      const pending = (this.sql
+        .exec(
+          `SELECT e.seq AS seq FROM entries e
+           WHERE e.retained_at IS NOT NULL
+             AND NOT EXISTS (SELECT 1 FROM retention_forward_scrubbed s WHERE s.seq = e.seq)
+           ORDER BY e.seq LIMIT 200`,
+        )
+        .toArray() as { seq: number }[]).map((r) => r.seq);
+      if (!pending.length) return;
+      let clean: Set<number>;
+      try {
+        clean = await this.scrubForwarded(boardId, pending);
+      } catch (e) {
+        console.error("retention forward scrub failed", e);
+        return;
+      }
+      if (!clean.size) return;
+      this.ctx.storage.transactionSync(() => this.markForwardScrubbed([...clean]));
+    }
+  }
+
+  /** Blank each forward of these source messages. Returns the seqs whose copies are all gone (including seqs with none). */
+  private async scrubForwarded(boardId: string, seqs: number[]): Promise<Set<number>> {
+    const clean = new Set<number>();
+    const rows = await forwardsFor(this.env, boardId, seqs);
+    const bySeq = new Map<number, ForwardRow[]>();
+    for (const seq of seqs) bySeq.set(seq, []);
+    for (const row of rows) bySeq.get(row.src_seq)?.push(row);
+    for (const [seq, list] of bySeq) {
+      let ok = true;
+      for (const row of list) {
+        try {
+          if (row.dst_board === boardId) await this.scrubForwardQuote(row.dst_seq, row.src_seq, RETAINED_QUOTE);
+          else await this.env.BOARD.get(this.env.BOARD.idFromName(row.dst_board)).scrubForwardQuote(row.dst_seq, row.src_seq, RETAINED_QUOTE);
+          await dropForward(this.env, boardId, row);
+        } catch (e) {
+          ok = false;
+          console.error("retention forward scrub failed", e);
+        }
+      }
+      if (ok) clean.add(seq);
+    }
+    return clean;
+  }
+
+  private markForwardScrubbed(seqs: number[]) {
+    for (const seq of seqs) this.sql.exec("INSERT OR IGNORE INTO retention_forward_scrubbed (seq) VALUES (?)", seq);
   }
 
   /** Operators only (load tests): many plain notes at once, past the post rate limit. */
