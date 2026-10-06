@@ -620,8 +620,8 @@ a.ev-acct:hover{background:var(--bg-subtle)}
 .rx-tip[hidden]{display:none}.rx-tip .big{font-size:24px;line-height:1}.rx-tip .faint{color:color-mix(in srgb,var(--on-ink) 65%,transparent)}
 .entry .acts .rx-q{width:28px;padding:0;justify-content:center;font-size:14px}
 /* images: inline in the conversation (real proportions, capped), full size in a lightbox; attachments in the composer */
-.img{margin:8px 0 0}.img-open{display:block;padding:0;border:0;background:none;cursor:zoom-in;max-width:100%}
-.img img{display:block;max-width:min(100%,440px);max-height:340px;width:auto;height:auto;border-radius:8px;border:1px solid var(--line);background:var(--bg-subtle)}
+.img{margin:8px 0 0}.img-open{display:block;padding:0;border:0;background:none;cursor:zoom-in;max-width:100%;touch-action:manipulation;-webkit-touch-callout:none;-webkit-user-select:none;user-select:none}
+.img img{display:block;max-width:min(100%,440px);max-height:340px;width:auto;height:auto;border-radius:8px;border:1px solid var(--line);background:var(--bg-subtle);pointer-events:none;-webkit-user-drag:none}
 .img figcaption{margin-top:4px}
 /* a message with several files: pictures in a grid (1, 2, 1+2, 2×2; "+N" on the last), other files as chips below */
 .mfiles{margin-top:8px;width:min(100%,440px)}
@@ -630,9 +630,9 @@ a.ev-acct:hover{background:var(--bg-subtle)}
 .mgrid.g3{grid-template-columns:2fr 1fr;grid-template-rows:1fr 1fr;aspect-ratio:3/2}
 .mgrid.g3 .mg-tile:first-child{grid-row:span 2}
 .mgrid.g4{grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr;aspect-ratio:4/3}
-.mg-tile{position:relative;display:block;padding:0;border:0;background:var(--bg-subtle);cursor:zoom-in;min-width:0;min-height:0;overflow:hidden}
+.mg-tile{position:relative;display:block;padding:0;border:0;background:var(--bg-subtle);cursor:zoom-in;min-width:0;min-height:0;overflow:hidden;touch-action:manipulation;-webkit-touch-callout:none;-webkit-user-select:none;user-select:none}
 .mg-tile[hidden]{display:none}
-.mg-tile img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+.mg-tile img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;pointer-events:none;-webkit-user-drag:none}
 .mgrid.g1{display:block;border:0;background:none;border-radius:0}
 .mgrid.g1 .mg-tile{background:none;max-width:100%}
 .mgrid.g1 .mg-tile img{position:static;display:block;max-width:100%;max-height:340px;width:auto;height:auto;object-fit:contain;border-radius:8px;border:1px solid var(--line);background:var(--bg-subtle)}
@@ -650,6 +650,14 @@ dialog.lightbox img{display:block;max-width:min(96vw,1600px);max-height:92vh;wid
 dialog.lightbox.zoomable img{cursor:zoom-in}
 :root dialog.lightbox.zoomed{display:grid;width:100vw;height:100dvh;max-width:none;max-height:none;margin:0;overflow:auto;overscroll-behavior:contain;cursor:grab}
 dialog.lightbox.zoomed img{max-width:none;max-height:none;margin:auto;border-radius:0;cursor:zoom-out}
+/* Phones (vedu #4650): a tap opens a full-bleed viewer. fit-content + 96vw/92vh lets WebKit size the dialog to the
+   picture's intrinsic pixels, so a wide screenshot is cropped and the page (mention chips, message chrome) shows
+   through the transparent frame. Thumbnails aren't selectable, so the tap doesn't put handles on nearby @mentions. */
+@media (max-width:640px),(hover:none){
+  :root dialog.lightbox{display:grid;place-items:center;inset:0;width:auto;height:auto;max-width:none;max-height:none;margin:0;overflow:hidden;border-radius:0;background:rgba(0,0,0,.92)}
+  dialog.lightbox img{max-width:100%;max-height:100%;border-radius:0;-webkit-touch-callout:none}
+  :root dialog.lightbox.zoomed{overflow:auto;place-items:initial}
+}
 .lb-nav{position:fixed;top:50%;transform:translateY(-50%);width:44px;height:44px;border-radius:50%;border:0;background:rgba(0,0,0,.55);color:var(--on-fill);font-size:28px;line-height:1;cursor:pointer;display:grid;place-items:center;padding:0 0 3px}
 .lb-nav:hover{background:rgba(0,0,0,.75)}.lb-nav[hidden],.lb-count[hidden]{display:none}
 .lb-prev{left:max(8px,env(safe-area-inset-left))}.lb-next{right:max(8px,env(safe-area-inset-right))}
