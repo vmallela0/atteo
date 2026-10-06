@@ -1,9 +1,9 @@
 // Design system: tokens, base styles, components and the shared client script.
 // Minimal and quiet (in the spirit of Vercel Geist / Linear): neutral grays, one ink color for primary actions,
-// hairline borders, light + dark, works down to phone width. Type: Onest / Enriqueta / Courier Prime (fontfaces.ts).
+// hairline borders, light + dark, works down to phone width. Type: Onest / STIX Two Text / Courier Prime (fontfaces.ts).
 
 import { APPLE_TOUCH_PNG_B64 } from "./appleIcon";
-import { FONT_CSS, FONT_V } from "./fontfaces";
+import { APP_FONT_CSS, FONT_V } from "./fontfaces";
 import { chartHtml } from "./chart";
 import { STATUS_CSS, statusHtml } from "./status";
 import { highlightMentions, type Mention } from "./mentions";
@@ -80,8 +80,8 @@ export function styleNonce(html: string, nonce: string): string {
 }
 
 // Dark tokens: the system setting picks them unless Display says light; Display can also force them.
-const DARK = `  --bg:#0E0E0E;--bg-subtle:#171716;--bg-hover:#1F1E1C;--line:#2A2926;--line-strong:#3A3935;
-  --ink:#FAFAF7;--text:#EDEBE5;--muted:#AFADA6;--faint:#8E8C85;--on-ink:#0E0E0E;--cone:#C2414D;--oxblood:#9D333C;--bg-raised:#141414;
+const DARK = `  --bg:#0E0E0E;--bg-subtle:#1A1918;--bg-hover:#1F1E1C;--line:#2A2926;--line-strong:#3A3935;
+  --ink:#FAFAF7;--text:#EDEBE5;--muted:#A9A69F;--faint:#8E8C85;--on-ink:#0E0E0E;--cone:#C2414D;--oxblood:#B5484A;--bg-raised:#141414;
   --accent:#FAFAF7;--ok:#3ecf75;--warn:#fb923c;--danger:#f87171;
   --q:#fbbf24;--claim:#4ade80;--decision:#a78bfa;--task:#38bdf8;--artifact:#a3a3a3;--note:#737373;
   --shadow:0 1px 2px rgba(0,0,0,.4);--shadow-lg:0 12px 48px rgba(0,0,0,.6);
@@ -94,11 +94,11 @@ const FONT_PRELOAD = `<link rel="preload" href="/fonts/onest-latin.woff2?v=${FON
 export const CSS = `
 #thread-scroll[data-wait]>#thread{visibility:hidden} /* until the board script has placed it (html.ts) */
 :root{
-  /* The design language (#2508), neutral (jxn #2858): ink on paper, bone and stone around it, graphite for secondary
-     text. The one accent is oxblood, only on a view's single primary action (Post, the main call to action); --cone is
-     the logo's cone alone (jxn #2944). You, mentions, unread, links and focus are ink. */
+  /* The design language (v1, jxn #4682): neutral throughout. Ink on paper, bone and stone around it, line for dividers,
+     graphite for secondary text. Oxblood has one job, human intervention: Stop and halted states, nowhere else (on ink
+     it's oxblood-lifted); --cone is the current logo's alone until the new mark lands. Primary actions, you, mentions, unread, links and focus are ink. */
   --bg:#FAFAF7;--bg-subtle:#F2EFE8;--bg-hover:#ECE8DF;--line:#E4E1D9;--line-strong:#D9D6CE;
-  --ink:#0E0E0E;--text:#161614;--muted:#5A5853;--faint:#6B6964;--on-ink:#FAFAF7;--cone:#6A1B24;--oxblood:#6A1B24;--bg-raised:#FAFAF7;
+  --ink:#0E0E0E;--text:#161614;--muted:#5A5853;--faint:#6B6964;--on-ink:#FAFAF7;--cone:#6A1B24;--oxblood:#6E1F22;--bg-raised:#FAFAF7;
   --on-fill:#FFFFFF;--preview-bg:#FFFFFF; /* text on a saturated fill (avatars, status marks, scrims); an HTML preview's page */
   --accent:#0E0E0E;--ok:#16a34a;--warn:#c2410c;--danger:#dc2626;
   --q:#d97706;--claim:#16a34a;--decision:#7c3aed;--task:#0284c7;--artifact:#737373;--note:#a3a3a3;
@@ -110,9 +110,9 @@ export const CSS = `
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){${DARK}}}
 :root[data-theme="dark"]{${DARK}}
 /* Semantic tokens (jxn #2706): components use these, never the palette or a literal, so a change of look is one place.
-   cta = oxblood, the one primary action; you, mentions, unread and links are ink (jxn #2858); status colours stay their own. */
+   cta = ink, the one primary action; intervene = oxblood, Stop and halted only (jxn #4682); status colours stay their own. */
 :root{
-  --cta:var(--oxblood);--on-cta:#FFFFFF; /* white on oxblood: 11.7:1 light, 7.1:1 dark */
+  --cta:var(--ink);--on-cta:var(--on-ink);--intervene:var(--oxblood);--on-intervene:#FAFAF7; /* paper on oxblood: 10.7:1; on oxblood-lifted 5.0:1 */
   --you:var(--ink);--you-soft:color-mix(in srgb,var(--ink) 5%,transparent);--you-flash:color-mix(in srgb,var(--ink) 12%,transparent);
   --mention-fg:var(--ink);--mention-bg:color-mix(in srgb,var(--ink) 7%,transparent);--mention-line:color-mix(in srgb,var(--ink) 40%,transparent);
   --mention-you-bg:color-mix(in srgb,var(--ink) 15%,transparent);--mention-you-line:color-mix(in srgb,var(--ink) 65%,transparent);
@@ -134,18 +134,19 @@ export const CSS = `
 :hover::-webkit-scrollbar-thumb{background:var(--sb-hover)}
 @supports not selector(::-webkit-scrollbar){*{scrollbar-width:thin;scrollbar-color:var(--sb) transparent}*:hover{scrollbar-color:var(--sb-hover) transparent}}
 html{-webkit-text-size-adjust:100%}
-/* Type (design language v1, #2508): Onest for the interface, Enriqueta for headlines, Courier Prime for ids and payloads,
+/* Type (design language v1, jxn #4682): three layers. STIX Two Text for the brand and titles, Courier Prime for everything
+   agents say (and ids, payloads), Onest for the human controls around it,
    all served by this Worker (fontfaces.ts). Onest covers Latin, Cyrillic and Vietnamese; other scripts fall through to
    the system's own font for that script, per page language. */
 :root{--font-ui:"Onest",ui-sans-serif,system-ui,-apple-system,"Segoe UI","PingFang SC","Hiragino Sans GB","Noto Sans SC","Microsoft YaHei",sans-serif;
-  --font-head:"Enriqueta","Onest",Georgia,"Times New Roman",serif;--font-mono:"Courier Prime",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;--font-mark:Schoolbell,"Comic Sans MS",cursive}
+  --font-head:"STIX Two Text","Onest",Georgia,"Times New Roman",serif;--font-mono:"Courier Prime",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
 html:lang(zh-Hant){--font-ui:"Onest",ui-sans-serif,system-ui,-apple-system,"Segoe UI","PingFang TC","Noto Sans TC","Microsoft JhengHei",sans-serif}
 html:lang(ja){--font-ui:"Onest",ui-sans-serif,system-ui,-apple-system,"Segoe UI","Hiragino Sans","Hiragino Kaku Gothic ProN","Noto Sans JP","Yu Gothic UI",Meiryo,sans-serif}
 html:lang(ko){--font-ui:"Onest",ui-sans-serif,system-ui,-apple-system,"Segoe UI","Apple SD Gothic Neo","Noto Sans KR","Malgun Gothic",sans-serif}
 html:lang(hi){--font-ui:"Onest",ui-sans-serif,system-ui,-apple-system,"Segoe UI","Kohinoor Devanagari","Noto Sans Devanagari","Nirmala UI",sans-serif}
 html:lang(bn){--font-ui:"Onest",ui-sans-serif,system-ui,-apple-system,"Segoe UI","Kohinoor Bangla","Noto Sans Bengali","Nirmala UI",sans-serif}
 html:lang(ar){--font-ui:"Onest",ui-sans-serif,system-ui,-apple-system,"Segoe UI","Geeza Pro","Noto Sans Arabic","Noto Naskh Arabic",Tahoma,sans-serif}
-html:lang(zh-Hant),html:lang(ja),html:lang(ko),html:lang(hi),html:lang(bn),html:lang(ar),html:lang(zh-Hans),html:lang(zh){--font-head:var(--font-ui)} /* Enriqueta is Latin only: a headline in these scripts uses the interface stack */
+html:lang(zh-Hant),html:lang(ja),html:lang(ko),html:lang(hi),html:lang(bn),html:lang(ar),html:lang(zh-Hans),html:lang(zh){--font-head:var(--font-ui)} /* STIX Two covers Latin, Greek and Cyrillic only: a headline in these scripts uses the interface stack */
 body{margin:0;background:var(--bg);color:var(--text);font:13.5px/1.5 var(--font-ui);
   -webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
 a{color:inherit;text-decoration:none}
@@ -165,7 +166,7 @@ p{margin:0}
 .nav .in{max-width:1180px;margin:0 auto;height:56px;padding:0 20px;display:flex;align-items:center;gap:16px}
 .brand{display:flex;align-items:center;gap:5px;font-weight:600;letter-spacing:-.01em;color:var(--ink)}
 .brand svg{display:block}
-.wm{font-family:var(--font-mark);font-weight:400;font-size:22px;line-height:1;letter-spacing:0;filter:url(#wm-marker-sm)}.wm.lg{font-size:40px;filter:url(#wm-marker)} /* the wordmark: lowercase, Schoolbell, the marker filter (#2508) */
+.wm{font-family:var(--font-head);font-weight:400;font-size:22px;line-height:1;letter-spacing:-.01em}.wm.lg{font-size:40px} /* the wordmark: lowercase "atteo" in STIX Two Text 400 (jxn #4682) */
 .nav .links{display:flex;gap:4px;margin-left:8px}
 .nav .links a{color:var(--muted);padding:6px 10px;border-radius:6px}
 .nav .links a:hover,.nav .links a[aria-current]{color:var(--ink);background:var(--bg-hover)}
@@ -181,7 +182,7 @@ main.narrow{max-width:720px}
 .btn.primary{background:var(--cta);border-color:var(--cta);color:var(--on-cta)}
 .btn.primary:hover{opacity:.88}
 .btn.ghost{border-color:transparent;background:transparent;color:var(--muted)}.btn.ghost:hover{color:var(--ink);background:var(--bg-hover)}
-.btn.danger{color:var(--danger)}
+.btn.danger{color:var(--danger)}.btn.intervene{background:var(--intervene);border-color:var(--intervene);color:var(--on-intervene)}
 .btn.sm{height:26px;padding:0 9px;font-size:12.5px}.btn.lg{height:40px;padding:0 18px;font-size:14.5px}
 .btn[disabled]{opacity:.5;cursor:default}
 /* touch: small buttons keep their look but take a 40px-tall tap (an invisible margin above and below); the composer bar and message actions keep theirs, so a tap meant for the message lands on it */
@@ -296,6 +297,7 @@ dialog[open]{animation:pop .16s ease-out}dialog:focus{outline:none}@media (prefe
 .entry [data-version-list]>div+div{margin-top:8px;padding-top:8px;border-top:1px solid var(--line)}
 .entry .seq:hover{color:var(--ink)}
 .entry .body{margin-top:3px;color:var(--text);word-wrap:break-word;overflow-wrap:anywhere}
+.entry.by-agent>.grow>.body{font-family:var(--font-mono);font-size:13px;line-height:1.6} /* the agent voice: Courier Prime 400 · 13 (jxn #4682) */
 .entry .body p+p{margin-top:8px}
 .body ul,.body ol{margin:6px 0;padding-left:20px}.body li{margin:2px 0}
 .body li.ck{list-style:none;margin-left:-20px;display:flex;align-items:flex-start;gap:7px}.body li.ck input{flex:none;margin:3px 0 0;width:14px;height:14px;accent-color:var(--ok)}
@@ -457,7 +459,7 @@ a.ev-acct:hover{background:var(--bg-subtle)}
 .ch-classes{display:flex;flex-wrap:wrap;gap:4px}.ch-members{list-style:none;margin:0;padding:0}.ch-members li{font-size:13px;padding:2px 0}
 #ch-form:not([hidden]),#ch-notes{display:flex;flex-direction:column;gap:8px;margin-top:8px}.ch-note{display:flex;align-items:center;gap:8px}.ch-note .xs{width:7em;flex:none}
 .ch-err{color:var(--danger);min-height:1em;margin:0}#ch-form .lbl{margin:0}
-.kill{display:flex;align-items:center;gap:14px;margin-top:12px;padding:12px 14px;border:1px solid color-mix(in srgb,var(--danger) 30%,var(--line));border-radius:var(--r)}.kill b{color:var(--ink);font-size:13px}.kill p{margin:2px 0 0}
+.kill{display:flex;align-items:center;gap:14px;margin-top:12px;padding:12px 14px;border:1px solid color-mix(in srgb,var(--intervene) 40%,var(--line));border-radius:var(--r)}.kill b{color:var(--intervene);font-size:13px}.kill p{margin:2px 0 0}
 .at-btn{width:30px;padding:0;justify-content:center;font-weight:600;font-size:14px;color:var(--muted)}.at-btn:hover{color:var(--ink)}
 /* quotes (forwarded messages) */
 .body blockquote.md-q{margin:6px 0;padding:6px 10px;border-inline-start:3px solid var(--line-strong);background:var(--bg-subtle);border-radius:0 6px 6px 0;color:var(--text)}
@@ -479,7 +481,7 @@ a.ev-acct:hover{background:var(--bg-subtle)}
 .fwd-prev{max-height:160px;overflow:auto;display:flex;flex-direction:column;gap:6px}.fwd-q{padding:6px 10px;border-inline-start:3px solid var(--line-strong);background:var(--bg-subtle);border-radius:0 6px 6px 0;font-size:12.5px;min-width:0}
 .badge.hdl{position:relative;z-index:4;height:18px;font-size:11px;color:var(--accent);border-color:color-mix(in srgb,var(--accent) 35%,var(--line))}
 .badge.hdl.done{color:var(--ok);border-color:color-mix(in srgb,var(--ok) 35%,var(--line))}
-.hdl-prog{margin-top:4px;color:var(--muted);overflow-wrap:anywhere}.hdl-prog.stalled{color:var(--warn)} /* the agent's progress under a message it's on (#2498) */
+.hdl-prog{margin-top:4px;color:var(--muted);overflow-wrap:anywhere}.hdl-prog.stalled{color:var(--intervene)} /* the agent's progress under a message it's on (#2498) */
 .badge.hdl button{all:unset;cursor:pointer;margin-left:5px;padding:0 3px;border-radius:4px;color:var(--faint);font-size:11px;line-height:14px}
 .badge.hdl button:hover{background:var(--bg-hover);color:var(--ink)}
 .badge.hdl button:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
@@ -1317,10 +1319,8 @@ export function pebble(px: number): string {
   return LOGO.replace('width="24" height="24"', `width="${px}" height="${px}"`);
 }
 
-/** The wordmark's marker filter (lowercase "atteo" in Schoolbell, never without it): once per page. wm-marker is the
- *  design's, for big sizes (.wm.lg); at interface sizes it eats the strokes, so .wm uses wm-marker-sm: the same hand
- *  wobble scaled down. */
-export const WORDMARK_DEFS = `<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs><filter id="wm-marker" x="-5%" y="-15%" width="110%" height="130%"><feTurbulence type="fractalNoise" baseFrequency="0.035" numOctaves="2" seed="7" result="n"/><feDisplacementMap in="SourceGraphic" in2="n" scale="5" xChannelSelector="R" yChannelSelector="G" result="d"/><feGaussianBlur in="d" stdDeviation="0.8" result="b"/><feComponentTransfer in="b"><feFuncA type="table" tableValues="0 0 0 0.5 1"/></feComponentTransfer></filter><filter id="wm-marker-sm" x="-5%" y="-15%" width="110%" height="130%"><feTurbulence type="fractalNoise" baseFrequency="0.07" numOctaves="2" seed="7" result="n"/><feDisplacementMap in="SourceGraphic" in2="n" scale="2" xChannelSelector="R" yChannelSelector="G" result="d"/><feGaussianBlur in="d" stdDeviation="0.35" result="b"/><feComponentTransfer in="b"><feFuncA type="table" tableValues="0 0.4 1 1"/></feComponentTransfer></filter></defs></svg>`;
+/** The wordmark is plain STIX Two Text now (jxn #4682), with no filter: kept so pages that place it still build. */
+export const WORDMARK_DEFS = "";
 
 // The app icon (atteo-icon-light / -dark): the mark on its paper (or ink) tile.
 export const ICON_LIGHT_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024"><defs><clipPath id="bsq"><rect width="1024" height="1024" rx="230"/></clipPath><filter id="brough" x="-10%" y="-10%" width="120%" height="120%"><feTurbulence type="fractalNoise" baseFrequency="0.018" numOctaves="2" seed="7"/><feDisplacementMap in="SourceGraphic" scale="16"/></filter></defs><g clip-path="url(#bsq)"><rect width="1024" height="1024" fill="#FAFAF7"/><g transform="translate(512 512) translate(-519.9 -507.7)"><g filter="url(#brough)" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M400.0 512.0Q512.1 403.2 650.0 330.0M400.0 512.0Q517.1 623.8 660.0 700.0" stroke="#0E0E0E" stroke-width="22"/><g stroke-width="36"><g transform="translate(400.0 512.0) rotate(-90.0)" stroke="#6A1B24"><path d="M-95 -200L-19 0H19L95 -200"/><ellipse cx="0" cy="-200" rx="95" ry="32.3"/></g><g transform="translate(650.0 330.0) rotate(53.9)" stroke="#0E0E0E"><path d="M-70 -200V-6Q0 30.8 70 -6V-200"/><ellipse cx="0" cy="-200" rx="70" ry="23.8"/></g><g transform="translate(660.0 700.0) rotate(125.9)" stroke="#0E0E0E"><path d="M-70 -200V-6Q0 30.8 70 -6V-200"/><ellipse cx="0" cy="-200" rx="70" ry="23.8"/></g></g></g></g></g></svg>`;
@@ -1677,7 +1677,7 @@ ${CODE_COLOR_JS}`;
 // Every page's stylesheet and shell script, served by the Worker as /app.css and /app.js (index.ts), versioned by a hash of
 // their text and cached for good: a page no longer carries ~135KB of CSS and ~40KB of JS inline on every navigation, and
 // the script gets V8's code cache. A page's own script stays inline (it carries that page's data) and runs after it.
-export const APP_CSS = `${FONT_CSS}\n${CSS}`;
+export const APP_CSS = `${APP_FONT_CSS}\n${CSS}`;
 export const APP_CSS_SRC = `/app.css?v=${fnv(APP_CSS)}`;
 export const APP_JS = CLIENT_JS;
 export const APP_JS_SRC = `/app.js?v=${fnv(APP_JS)}`;

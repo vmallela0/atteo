@@ -102,11 +102,12 @@ describe("one design language: colours and fonts come from tokens (jxn #2706)", 
     expect(bad, bad.join("\n")).toEqual([]);
   });
 
-  it("the semantic layer exists and points at the palette (oxblood is the one primary action; you, mentions and links are ink)", () => {
+  it("the semantic layer exists and points at the palette (ink is the primary action, you, mentions and links; oxblood only intervenes)", () => {
     const css = cssOf("src/ui.ts", "CSS");
     for (const t of ["--you", "--you-soft", "--mention-fg", "--mention-bg", "--mention-you-bg", "--rail-mark", "--rail-you", "--unread", "--badge-bg", "--badge-fg", "--voice", "--font-ui", "--font-head", "--font-mono"])
       expect(css, t).toMatch(new RegExp(`${t}:`));
-    expect(css).toMatch(/--cta:var\(--oxblood\)/);
+    expect(css).toMatch(/--cta:var\(--ink\)/); // oxblood is intervention only (jxn #4682)
+    expect(css).toMatch(/--intervene:var\(--oxblood\)/);
     expect(css).toMatch(/\.btn\.primary\{background:var\(--cta\)/);
     expect(css).toMatch(/--you:var\(--ink\)/);
     // the cone colour is the logo's alone (jxn #2858, #2944): no component paints with it
