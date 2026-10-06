@@ -1064,6 +1064,10 @@ mark{background:var(--mark);color:inherit;border-radius:2px;padding:0 1px}
 .btabs{display:flex;flex:1;min-width:0;align-self:stretch;overflow-x:auto;scrollbar-width:none}
 .btab{display:flex;align-items:center;gap:7px;flex:none;max-width:240px;margin-top:6px;padding:0 14px;border:1px solid transparent;border-bottom:3px solid var(--line-strong);border-radius:8px 8px 0 0;color:var(--muted);font-size:13px;white-space:nowrap}
 .btab>b{font-weight:500;overflow:hidden;text-overflow:ellipsis}.btab[aria-current]{color:var(--ink);background:var(--bg);border-color:var(--line) var(--line) var(--line-strong)}.btab.st-work{border-bottom-color:var(--ok)}.btab.st-ap{border-bottom-color:var(--warn)}
+.btab-w{position:relative;display:flex;flex:none}.btab-w[hidden]{display:none}.btab-w .btab{padding-right:26px}
+.btab-x{position:absolute;right:5px;top:calc(50% + 3px);transform:translateY(-50%);width:18px;height:18px;display:grid;place-items:center;padding:0;border:0;border-radius:4px;background:none;color:var(--faint);font-size:14px;line-height:1;cursor:pointer;opacity:0}
+.btab-w:hover .btab-x,.btab-x:focus-visible,.btab-w:focus-within .btab-x{opacity:1}.btab-x:hover{background:var(--hover,rgba(0,0,0,.06));color:var(--ink)}
+@media (hover:none){.btab-x{opacity:1}}
 .btab .wk{font-size:11.5px;color:var(--faint)}.btab .apn{font-size:11px;padding:1px 6px;border-radius:999px;background:color-mix(in srgb,var(--warn) 16%,transparent);color:var(--ink)}
 .strip .count{margin-left:4px}
 .topbar .menu-btn{display:none}
@@ -1683,7 +1687,26 @@ ${CODE_COLOR_JS}`;
 // Served without its /* comments */ (about 16 KB of them): they're for whoever reads this file, not for every page load.
 export const APP_CSS = `${APP_FONT_CSS}\n${CSS}`.replace(/\/\*[\s\S]*?\*\//g, "");
 export const APP_CSS_SRC = `/app.css?v=${fnv(APP_CSS)}`;
-export const APP_JS = CLIENT_JS;
+// The frame's strip (jxn #4860): tabs keep their state live (board-states + the inbox poll) and can be closed (#5055).
+// In app.js rather than inline, so it's cached once instead of riding on every page (web-budget).
+const STRIP_JS = `(()=>{const ST={},AP={};
+function paint(){document.querySelectorAll('.btab').forEach(t=>{const id=t.dataset.tab,s=ST[id],ap=Math.max(AP[id]||0,s?s.pending_approvals:0),wk=s?s.working_agents:+t.dataset.work||0,w=t.querySelector('.wk'),a=t.querySelector('.apn');
+  t.classList.toggle('st-ap',ap>0);t.classList.toggle('st-work',!ap&&wk>0);
+  if(w){w.hidden=!wk;w.textContent=wk?tr('{n} working',{n:wk}):''}if(a){a.hidden=!ap;a.textContent=ap?tr(ap>1?'{n} approvals':'{n} approval',{n:ap}):''}})}
+window.onInbox=j=>{const b=document.querySelector('[data-inbox-count]'),c=j.unread;if(b){b.hidden=!c;b.textContent=c>99?'99+':c}const ab=j.approval_boards||{};for(const k in AP)delete AP[k];Object.assign(AP,ab);paint()};
+let busy=false;async function pull(){if(busy||document.hidden||!document.querySelector('.btab'))return;busy=true;
+  try{const r=await fetch('/api/me/board-states',{cache:'no-store'});if(r.ok){const j=await r.json();for(const k in ST)delete ST[k];for(const x of j.boards||[])ST[x.id]=x;paint()}}catch(e){}finally{busy=false}}
+setInterval(pull,20000);document.addEventListener('visibilitychange',()=>{if(!document.hidden)pull()});pull();
+const KEY='atteo-tabs-closed',here=(location.pathname.match(/^\\/b\\/([^/]+)/)||[])[1];
+const closed=()=>{try{return new Set(JSON.parse(localStorage.getItem(KEY)||'[]'))}catch(e){return new Set()}},keep=s=>{try{localStorage.setItem(KEY,JSON.stringify([...s].slice(-200)))}catch(e){}};
+{const c=closed();if(here&&c.delete(here))keep(c);document.querySelectorAll('[data-tabw]').forEach(w=>{if(c.has(w.dataset.tabw))w.hidden=true})}
+function closeTab(id){const w=document.querySelector('[data-tabw="'+CSS.escape(id)+'"]');if(!w)return;const c=closed();c.add(id);keep(c);
+  if(id===here){const vis=[...document.querySelectorAll('[data-tabw]:not([hidden])')],i=vis.indexOf(w),n=vis[i+1]||vis[i-1];location.href=n&&n!==w?n.querySelector('.btab').href:'/';return}
+  const nx=w.nextElementSibling||w.previousElementSibling;w.hidden=true;nx?.querySelector?.('.btab')?.focus()}
+document.addEventListener('click',e=>{const x=e.target.closest('[data-tab-close]');if(!x)return;e.preventDefault();e.stopPropagation();closeTab(x.dataset.tabClose)});
+document.addEventListener('keydown',e=>{if(e.key!=='Delete')return;const t=e.target.closest&&e.target.closest('.btab');if(!t)return;e.preventDefault();closeTab(t.dataset.tab)});
+document.addEventListener('auxclick',e=>{if(e.button!==1)return;const t=e.target.closest('.btab');if(!t)return;e.preventDefault();closeTab(t.dataset.tab)})})();`;
+export const APP_JS = CLIENT_JS + STRIP_JS;
 export const APP_JS_SRC = `/app.js?v=${fnv(APP_JS)}`;
 /** Page-only stylesheets (Guide / Ask / Docs). Kept off /app.css so board and inbox stay in the CSS budget. */
 export const PAGE_CSS: Record<string, string> = { "/guide.css": GUIDE_CSS, "/ask.css": ASK_CSS, "/docs.css": DOC_CSS };
@@ -1800,7 +1823,7 @@ export function appPage(
   const tabs = [...opts.boards]
     .sort((a, b) => (b.last ?? 0) - (a.last ?? 0))
     .slice(0, 24)
-    .map((b) => `<a class="btab${b.live ? " st-work" : ""}" href="/b/${esc(b.id)}" data-tab="${esc(b.id)}" data-work="${b.live || 0}"${cur(b.id)}>${b.kind === "direct" ? avatar(directPeer(b, v.name), "xs") : b.kind === "agent" ? avatar(v.name, "xs", true) : boardPic(b, "xs")}<b>${esc(tabName(b))}</b><span class="wk"${b.live ? "" : " hidden"}>${b.live ? esc(T("{n} working", { n: b.live })) : ""}</span><span class="apn" hidden></span></a>`)
+    .map((b) => `<span class="btab-w" data-tabw="${esc(b.id)}"><a class="btab${b.live ? " st-work" : ""}" href="/b/${esc(b.id)}" data-tab="${esc(b.id)}" data-work="${b.live || 0}"${cur(b.id)}>${b.kind === "direct" ? avatar(directPeer(b, v.name), "xs") : b.kind === "agent" ? avatar(v.name, "xs", true) : boardPic(b, "xs")}<b>${esc(tabName(b))}</b><span class="wk"${b.live ? "" : " hidden"}>${b.live ? esc(T("{n} working", { n: b.live })) : ""}</span><span class="apn" hidden></span></a><button class="btab-x" type="button" data-tab-close="${esc(b.id)}" aria-label="${esc(T("Close tab {name}", { name: tabName(b) }))}" title="${esc(T("Close tab"))}">×</button></span>`)
     .join("");
   // The strip's mark draws the Menu's own (<use>), so the page carries the drawing once.
   const strip = `<header class="strip"><a class="ws" href="/"><svg class="pebble" width="20" height="20" viewBox="0 0 100 100" aria-hidden="true"><use href="#mkg"/></svg><span class="wm">atteo</span></a>
@@ -1815,14 +1838,6 @@ export function appPage(
   // The tabs keep their state live (jxn #4860): GET /api/me/board-states every 20s while the page shows (and on coming
   // back to it) gives each board's working agents and approvals; the inbox poll's approval boards count too, so the two
   // never fight. Approval wins (amber + count), then working (green + "N working"), else quiet (grey).
-  const stripJs = `(()=>{const ST={},AP={};
-function paint(){document.querySelectorAll('.btab').forEach(t=>{const id=t.dataset.tab,s=ST[id],ap=Math.max(AP[id]||0,s?s.pending_approvals:0),wk=s?s.working_agents:+t.dataset.work||0,w=t.querySelector('.wk'),a=t.querySelector('.apn');
-  t.classList.toggle('st-ap',ap>0);t.classList.toggle('st-work',!ap&&wk>0);
-  if(w){w.hidden=!wk;w.textContent=wk?tr('{n} working',{n:wk}):''}if(a){a.hidden=!ap;a.textContent=ap?tr(ap>1?'{n} approvals':'{n} approval',{n:ap}):''}})}
-window.onInbox=j=>{const b=document.querySelector('[data-inbox-count]'),c=j.unread;if(b){b.hidden=!c;b.textContent=c>99?'99+':c}const ab=j.approval_boards||{};for(const k in AP)delete AP[k];Object.assign(AP,ab);paint()};
-let busy=false;async function pull(){if(busy||document.hidden||!document.querySelector('.btab'))return;busy=true;
-  try{const r=await fetch('/api/me/board-states',{cache:'no-store'});if(r.ok){const j=await r.json();for(const k in ST)delete ST[k];for(const x of j.boards||[])ST[x.id]=x;paint()}}catch(e){}finally{busy=false}}
-setInterval(pull,20000);document.addEventListener('visibilitychange',()=>{if(!document.hidden)pull()});pull()})();`;
   const body = `<div class="app" id="app">
 <aside class="sidebar" id="sidebar" aria-label="${esc(T("Navigation"))}">
   <button class="btn ghost sm nav-x" type="button" data-nav-close aria-label="${esc(T("Close menu"))}" title="${esc(T("Close menu"))}">✕</button>
@@ -1862,7 +1877,7 @@ setInterval(pull,20000);document.addEventListener('visibilitychange',()=>{if(!do
 <dt><kbd>↵</kbd> · <kbd>⌫</kbd></dt><dd>${esc(T("Approve · deny the selected or focused approval (asks first when it's high risk)"))}</dd>
 <dt><kbd>G</kbd> ${esc(T("then"))} <kbd>I</kbd> <kbd>A</kbd> <kbd>B</kbd> <kbd>P</kbd> <kbd>M</kbd></dt><dd>${esc(T("Go to Inbox / Approvals / Boards / People / Account"))}</dd>
 <dt><kbd>?</kbd></dt><dd>${esc(T("This list"))}</dd></dl></div></dialog>
-<script>window.PALETTE=${JSON.stringify(paletteItems).replace(/</g, "\\u003c")};${v.admin ? "window.OPS=1;" : ""}${stripJs}</script>`;
+<script>window.PALETTE=${JSON.stringify(paletteItems).replace(/</g, "\\u003c")};${v.admin ? "window.OPS=1;" : ""}</script>`;
   return rawPage(title, body, (opts.script ?? "") + scriptSrc(SHELL_JS_SRC), opts.status, v.lang ?? "en", opts.css);
 }
 

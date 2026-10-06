@@ -171,5 +171,6 @@
  "upd-bar": 2,
  "task-frozen": 4,
  "host": 3,
- "frame-tab-state": 25
+ "frame-tab-state": 25,
+ "tabs-close": 12
 }

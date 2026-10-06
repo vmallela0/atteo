@@ -1098,6 +1098,8 @@ export const ID: Record<string, string> = {
   "Code from your email": "Kode dari email Anda",
   "We sent a code to your email to make sure it's you.": "Kami mengirim kode ke email Anda untuk memastikan ini memang Anda.",
   "Boards and chats": "Papan dan obrolan",
+  "Close tab": "Tutup tab",
+  "Close tab {name}": "Tutup tab {name}",
   "{n} working": "{n} bekerja",
   "{n} approval": "{n} persetujuan",
   "{n} approvals": "{n} persetujuan",

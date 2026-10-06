@@ -1098,6 +1098,8 @@ export const RU: Record<string, string> = {
   "Code from your email": "Код из письма",
   "We sent a code to your email to make sure it's you.": "Мы отправили код на вашу почту, чтобы убедиться, что это вы.",
   "Boards and chats": "Доски и чаты",
+  "Close tab": "Закрыть вкладку",
+  "Close tab {name}": "Закрыть вкладку {name}",
   "{n} working": "{n} в работе",
   "{n} approval": "{n} одобрение",
   "{n} approvals": "{n} одобрений",

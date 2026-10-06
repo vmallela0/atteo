@@ -1098,6 +1098,8 @@ export const AR: Record<string, string> = {
   "Code from your email": "الرمز من بريدك",
   "We sent a code to your email to make sure it's you.": "أرسلنا رمزًا إلى بريدك للتأكد من أنك أنت.",
   "Boards and chats": "اللوحات والمحادثات",
+  "Close tab": "إغلاق علامة التبويب",
+  "Close tab {name}": "إغلاق علامة التبويب {name}",
   "{n} working": "{n} يعمل",
   "{n} approval": "{n} موافقة",
   "{n} approvals": "{n} موافقات",

@@ -1098,6 +1098,8 @@ export const JA: Record<string, string> = {
   "Code from your email": "メールのコード",
   "We sent a code to your email to make sure it's you.": "ご本人確認のため、メールでコードを送りました。",
   "Boards and chats": "ボードとチャット",
+  "Close tab": "タブを閉じる",
+  "Close tab {name}": "タブ {name} を閉じる",
   "{n} working": "{n} 件作業中",
   "{n} approval": "承認 {n} 件",
   "{n} approvals": "承認 {n} 件",
