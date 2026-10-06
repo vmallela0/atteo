@@ -310,10 +310,9 @@ final class AgentSoupUITests: XCTestCase {
         chat.tap()
         let composer = a.textFields["composer"].exists ? a.textFields["composer"] : a.textViews["composer"]
         XCTAssertTrue(composer.waitForExistence(timeout: 10))
-        // Pictures and files aren't encrypted yet: the + is dimmed and says why.
+        // Pictures and files are encrypted on this phone too (docs/SPEC.md §16): the + offers them as anywhere else.
         a.buttons["attach"].tap()
-        XCTAssertTrue(a.descendants(matching: .any)["attach-unavailable"].waitForExistence(timeout: 5), "+ explains attachments aren't on encrypted boards yet")
-        XCTAssertFalse(a.buttons["Photos"].exists, "no picker here")
+        XCTAssertTrue(a.buttons["Photos"].waitForExistence(timeout: 5), "the + offers Photos on an encrypted board")
         shot("15a-encrypted-attach")
         a.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.3)).tap() // dismiss
         let msg = "hello encrypted \(Int(Date().timeIntervalSince1970) % 100000)"
@@ -326,6 +325,30 @@ final class AgentSoupUITests: XCTestCase {
         // theo's client decrypts it and answers; the answer arrives over the live socket and is decrypted here.
         XCTAssertTrue(a.staticTexts["theo read: \(msg)"].waitForExistence(timeout: 20), "theo read it, and the phone read theo's answer")
         shot("15-encrypted")
+
+        // A picture: encrypted here, only ciphertext uploaded; theo's client decrypts it, and sends one back that the
+        // phone decrypts and shows.
+        let size = CGSize(width: 64, height: 40)
+        let png = UIGraphicsImageRenderer(size: size).image { c in
+            UIColor(red: 0.85, green: 0.35, blue: 0.20, alpha: 1).setFill(); c.fill(CGRect(origin: .zero, size: size))
+        }.pngData()!
+        UIPasteboard.general.items = [[UTType.png.identifier: png]]
+        composer.tap()
+        sleep(1)
+        composer.press(forDuration: 1.0)
+        let paste = a.descendants(matching: .any).matching(NSPredicate(format: "label == 'Paste' AND (elementType == %d OR elementType == %d)",
+                                                                        XCUIElement.ElementType.menuItem.rawValue, XCUIElement.ElementType.button.rawValue)).firstMatch
+        XCTAssertTrue(paste.waitForExistence(timeout: 5), "Paste is offered with a picture on the clipboard")
+        paste.tap()
+        XCTAssertTrue(a.buttons["attachment-chip"].waitForExistence(timeout: 10), "the picture waits in the message box")
+        a.buttons["send"].tap()
+        XCTAssertTrue(a.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'theo opened ' AND label ENDSWITH '(a picture)'")).firstMatch.waitForExistence(timeout: 25),
+                      "theo's client decrypted the phone's picture")
+        let back = a.descendants(matching: .any).matching(NSPredicate(format: "identifier == 'chat-image' AND label == 'theo.png'")).firstMatch
+        XCTAssertTrue(back.waitForExistence(timeout: 20), "theo's encrypted picture arrives")
+        let shown = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value == 'on this phone'"), object: back)
+        XCTAssertEqual(XCTWaiter().wait(for: [shown], timeout: 10), .completed, "…decrypted and shown from this phone's copy")
+        shot("15b-encrypted-pictures")
     }
 
     /// GETs a JSON path on the local server as the person (to check what really landed).

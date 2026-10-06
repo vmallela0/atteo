@@ -24,6 +24,67 @@ private struct SealedResponse: Decodable {
     let entries: [Item]
 }
 
+/// A file of an encrypted message, as its extras name it (docs/SPEC.md §16): the server has only `id`'s ciphertext.
+struct SealedFile: Codable, Hashable {
+    let id: String
+    let name: String
+    let mime: String
+    let size: Int
+    let key: String // base64, 32 bytes: this file's own key
+    var chunk: Int? = 65536
+    var w: Int? = nil
+    var h: Int? = nil
+}
+
+/// What an envelope's `x` carries besides the text: a title, files. Old readers skip it and still read the text.
+struct SealedExtras: Codable, Hashable {
+    var xv: Int? = 1
+    var title: String? = nil
+    var files: [SealedFile]? = nil
+    var isEmpty: Bool { (title ?? "").isEmpty && (files ?? []).isEmpty }
+}
+
+/// An opened envelope: the text and its extras.
+struct Opened: Hashable { let text: String; let extras: SealedExtras }
+
+/// Files on encrypted boards: a fresh key per file, 64 KB chunks, each AES-256-GCM with the nonce 0⁸ ‖ chunk index
+/// (big-endian), stored as ciphertext‖tag one after the other; same as the CLI (cli/src/sealed.ts) and the web.
+enum SealedFiles {
+    static let chunk = 65536
+    private static func nonce(_ i: Int) throws -> AES.GCM.Nonce {
+        var n = Data(count: 8)
+        withUnsafeBytes(of: UInt32(i).bigEndian) { n.append(contentsOf: $0) }
+        return try AES.GCM.Nonce(data: n)
+    }
+
+    /// Encrypts with a new key: (key, blob for POST …/sealed-files).
+    static func encrypt(_ plain: Data) throws -> (key: Data, blob: Data) {
+        let key = SymmetricKey(size: .bits256)
+        var out = Data(), i = 0
+        repeat {
+            let lo = plain.startIndex + i * chunk, part = plain[lo..<min(lo + chunk, plain.endIndex)]
+            let box = try AES.GCM.seal(part, using: key, nonce: nonce(i))
+            out += box.ciphertext + box.tag
+            i += 1
+        } while i * chunk < plain.count
+        return (key.withUnsafeBytes { Data($0) }, out)
+    }
+
+    /// Decrypts a blob; throws if any chunk was changed or the size isn't what the message said.
+    static func decrypt(_ blob: Data, key raw: Data, size: Int) throws -> Data {
+        let key = SymmetricKey(data: raw)
+        var out = Data(), off = blob.startIndex, i = 0
+        while off < blob.endIndex {
+            let end = min(off + chunk + 16, blob.endIndex), c = blob[off..<end]
+            guard c.count >= 16 else { throw CryptoKitError.incorrectParameterSize }
+            out += try AES.GCM.open(AES.GCM.SealedBox(nonce: nonce(i), ciphertext: c.dropLast(16), tag: c.suffix(16)), using: key)
+            off = end; i += 1
+        }
+        guard out.count == size else { throw CryptoKitError.incorrectParameterSize }
+        return out
+    }
+}
+
 enum BoardCryptoError: LocalizedError {
     case waitingForApproval
     var errorDescription: String? {
@@ -85,23 +146,64 @@ final class BoardCrypto {
     }
 
     /// The board's encrypted messages from `after`, decrypted where this phone holds the key (seq → text).
-    func decrypt(_ board: String, after: Int) async -> [Int: String] {
+    func decrypt(_ board: String, after: Int) async -> [Int: String] { (await opened(board, after: after)).mapValues(\.text) }
+
+    /// The same, with each message's extras (title, files).
+    func opened(_ board: String, after: Int) async -> [Int: Opened] {
         do {
             if keys[board] == nil { try await sync(board) }
             let r = try await API.shared.get("/api/boards/\(board)/sealed?after=\(after)", as: SealedResponse.self)
-            var out: [Int: String] = [:]
-            for e in r.entries { if let t = open(e.payload, board: board) { out[e.seq] = t } }
+            var out: [Int: Opened] = [:]
+            for e in r.entries { if let o = open(e.payload, board: board) { out[e.seq] = o } }
             return out
         } catch { return [:] }
     }
 
-    /// Encrypts a message with the board's current key (opening one first if needed) as a v2 payload.
-    func seal(_ text: String, board: String) async throws -> String {
+    /// Encrypts a message with the board's current key (opening one first if needed) as a v2 payload; extras, when
+    /// there are any, go in `x` under the same key.
+    func seal(_ text: String, board: String, extras: SealedExtras? = nil) async throws -> String {
         let st = try await sync(board, forWriting: true)
         guard let key = keys[board]?[st.current] else { throw BoardCryptoError.waitingForApproval }
         let box = try AES.GCM.seal(Data(text.utf8), using: key)
-        let payload: [String: Any] = ["v": 2, "epoch": st.current, "iv": Data(box.nonce).base64EncodedString(), "ct": (box.ciphertext + box.tag).base64EncodedString()]
+        var payload: [String: Any] = ["v": 2, "epoch": st.current, "iv": Data(box.nonce).base64EncodedString(), "ct": (box.ciphertext + box.tag).base64EncodedString()]
+        if let extras, !extras.isEmpty {
+            let enc = JSONEncoder(); enc.outputFormatting = .sortedKeys
+            let x = try AES.GCM.seal(try enc.encode(extras), using: key)
+            payload["x"] = ["iv": Data(x.nonce).base64EncodedString(), "ct": (x.ciphertext + x.tag).base64EncodedString()]
+        }
         return String(data: try JSONSerialization.data(withJSONObject: payload), encoding: .utf8)!
+    }
+
+    /// Where an encrypted message's file lives on this phone once decrypted (named as it's called, for Quick Look).
+    static func fileURL(board: String, _ f: SealedFile) -> URL {
+        FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0].appendingPathComponent("sealed", isDirectory: true)
+            .appendingPathComponent(board, isDirectory: true).appendingPathComponent(f.id, isDirectory: true)
+            .appendingPathComponent((f.name as NSString).lastPathComponent.replacingOccurrences(of: "/", with: "_"))
+    }
+
+    /// The file decrypted on this phone: from its cache, else downloaded (ciphertext) and decrypted here.
+    func file(board: String, _ f: SealedFile) async throws -> URL {
+        let u = Self.fileURL(board: board, f)
+        if FileManager.default.fileExists(atPath: u.path) { return u }
+        guard let key = Data(base64Encoded: f.key), key.count == 32 else { throw CryptoKitError.incorrectKeySize }
+        let blob = try await API.shared.download("/api/boards/\(board)/sealed-files/\(f.id)")
+        let plain = try await Task.detached { try SealedFiles.decrypt(blob, key: key, size: f.size) }.value
+        try FileManager.default.createDirectory(at: u.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try plain.write(to: u, options: [.atomic, .completeFileProtection])
+        return u
+    }
+
+    /// Encrypts a file here and uploads only its ciphertext: its reference for the message's extras.
+    func upload(board: String, name: String, mime: String, data: Data, w: Int?, h: Int?, progress: (@Sendable (Double) -> Void)? = nil) async throws -> SealedFile {
+        struct R: Decodable { let id: String }
+        let (key, blob) = try await Task.detached { try SealedFiles.encrypt(data) }.value
+        let d = try await API.shared.upload("/api/boards/\(board)/sealed-files", data: blob, contentType: "application/octet-stream", progress: progress)
+        let f = SealedFile(id: try JSONDecoder.soup.decode(R.self, from: d).id, name: name, mime: mime, size: data.count, key: key.base64EncodedString(), chunk: SealedFiles.chunk, w: w, h: h)
+        // Already here: keep the plaintext where the message will look for it, so it doesn't download again.
+        let u = Self.fileURL(board: board, f)
+        try? FileManager.default.createDirectory(at: u.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try? data.write(to: u, options: [.atomic, .completeFileProtection])
+        return f
     }
 
     /// Whether this phone can read the board right now (false: waiting for one of your devices to add it).
@@ -109,14 +211,21 @@ final class BoardCrypto {
 
     // MARK: - The scheme
 
-    private func open(_ payload: String, board: String) -> String? {
+    private func open(_ payload: String, board: String) -> Opened? {
         guard let d = payload.data(using: .utf8),
               let j = try? JSONSerialization.jsonObject(with: d) as? [String: Any],
               j["v"] as? Int == 2, let epoch = j["epoch"] as? Int, let key = keys[board]?[epoch],
-              let iv = (j["iv"] as? String).flatMap({ Data(base64Encoded: $0) }), let ct = (j["ct"] as? String).flatMap({ Data(base64Encoded: $0) }), ct.count >= 16,
-              let box = try? AES.GCM.SealedBox(nonce: AES.GCM.Nonce(data: iv), ciphertext: ct.dropLast(16), tag: ct.suffix(16)),
-              let plain = try? AES.GCM.open(box, using: key) else { return nil }
-        return String(data: plain, encoding: .utf8)
+              let plain = Self.gcmOpen(j["iv"], j["ct"], key), let text = String(data: plain, encoding: .utf8) else { return nil }
+        // The extras are optional: a message without them, or with ones this phone can't read, still shows its text.
+        let x = j["x"] as? [String: Any]
+        let extras = Self.gcmOpen(x?["iv"], x?["ct"], key).flatMap { try? JSONDecoder().decode(SealedExtras.self, from: $0) } ?? SealedExtras()
+        return Opened(text: text, extras: extras)
+    }
+
+    private static func gcmOpen(_ iv: Any?, _ ct: Any?, _ key: SymmetricKey) -> Data? {
+        guard let iv = (iv as? String).flatMap({ Data(base64Encoded: $0) }), let ct = (ct as? String).flatMap({ Data(base64Encoded: $0) }), ct.count >= 16,
+              let box = try? AES.GCM.SealedBox(nonce: AES.GCM.Nonce(data: iv), ciphertext: ct.dropLast(16), tag: ct.suffix(16)) else { return nil }
+        return try? AES.GCM.open(box, using: key)
     }
 
     private func kek(_ shared: SharedSecret, epk: Data, devicePublic: Data) -> SymmetricKey {
