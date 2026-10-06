@@ -8,8 +8,9 @@ import {
   sanitizeProps,
   trackCookieHeader,
   withAnalytics,
+  posthogDashboardUrl,
 } from "../src/analytics";
-import { adminPage, boardPage } from "../src/html";
+import { adminPage, boardPage, legalPage } from "../src/html";
 import { page } from "../src/ui";
 import { beaconSnippet } from "../landing/src/csp";
 
@@ -122,7 +123,7 @@ describe("web loader", () => {
     expect(off).not.toContain("posthog.com");
 
     const on = await withAnalytics({ POSTHOG_KEY: KEY }, async () => adminPage(viewer, [], data).text());
-    expect(on).not.toContain("docs/ANALYTICS.md");
+    expect(on).toContain('href="https://eu.posthog.com"');
     expect(on).toContain("eu.i.posthog.com");
   });
 });
@@ -161,5 +162,15 @@ describe("Cloudflare Web Analytics beacon", () => {
     expect(tag).toContain("https://static.cloudflareinsights.com/beacon.min.js");
     expect(tag).toContain('"token":"abcdef0123456789"');
     expect(tag).not.toContain("<script>");
+  });
+});
+
+describe("dashboard and privacy (vedu #4602)", () => {
+  it("links Atteo's US project from ops and names PostHog on /privacy without the key", async () => {
+    expect(posthogDashboardUrl({ key: KEY, host: "https://us.i.posthog.com", region: "us" })).toBe("https://us.posthog.com/project/647810");
+    const html = await legalPage("privacy").text();
+    for (const w of ["<b>PostHog</b>", "product analytics", "message text", "email addresses", "Do Not Track", "Global Privacy Control", "Last updated October 6, 2026."]) expect(html).toContain(w);
+    expect(html).not.toContain("phc_");
+    expect(await legalPage("terms").text()).not.toContain("PostHog");
   });
 });

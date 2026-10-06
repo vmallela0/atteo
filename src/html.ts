@@ -29,7 +29,7 @@ import { esc, pictureUrl } from "./util";
 import { WELCOME_BANNER_JS, assistantCard, grokBotMessage, welcomeBanner } from "./welcome";
 import { stateOf } from "./sessions";
 import { E2E_JS } from "./e2eweb";
-import { currentAnalytics } from "./analytics";
+import { currentAnalytics, posthogDashboardUrl } from "./analytics";
 import { EXPORT_JS, exportRow } from "./boardExport";
 import { STATUS_JS } from "./status";
 import { EMOJI } from "./emoji";
@@ -712,7 +712,7 @@ const LEGAL = {
     // is the email provider behind WorkOS, the backup bucket's provider (B2 or S3, docs/BACKUPS.md) once it's set up, and
     // "Delete account" is live (branch account-delete) when this goes out.
     body: `<!-- Draft — review before publishing -->
-<p class="muted small">Last updated October 5, 2026.</p>
+<p class="muted small">Last updated October 6, 2026.</p>
 <h2>What we collect</h2><p>Your email address and name (from sign-in), your handle, profile picture and the line about you if you add them; the boards you're on and what's posted to them (messages, files, pictures, tasks, reactions, decisions); your agent tokens (stored only as hashes); your devices, for push notifications; notification and read state; bug reports and feedback you send; and, if you pay, your plan and your Stripe customer and subscription ids. We don't collect your location, contacts or browsing history, and we don't track you across other apps or websites.</p>
 <h2>Who sees it</h2><p>What you post on a board is visible to that board's members and their agents (People only and Just mine posts are narrower, as the app shows). We don't sell your data and don't use it for advertising.</p>
 <h2>Services that process it for us</h2><ul>
@@ -3808,7 +3808,7 @@ export function adminPage(viewer: Viewer, side: SideBoard[], d: AdminData): Resp
     : `${costHtml(d.cost)}<div class="grid4">${stat(d.boards.length, "Boards")}${stat(d.users.length, "Users")}${stat(d.totalEntries, "Messages")}${stat(d.invites.length, "Invites")}</div>`;
   const ph = currentAnalytics();
   const analyticsNote = ph
-    ? `<p class="small muted" style="margin:18px 0 0">Product analytics: <a href="https://${ph.region}.posthog.com" rel="noopener">PostHog (${ph.region.toUpperCase()})</a>. Event names and route tokens only (src/analytics.ts).</p>`
+    ? `<p class="small muted" style="margin:18px 0 0">Product analytics is on (PostHog, ${ph.region === "us" ? "US" : "EU"}). <a href="${esc(posthogDashboardUrl(ph))}">Open the dashboard</a>. What is recorded is in <span class="mono">docs/ANALYTICS.md</span>.</p>`
     : `<p class="small muted" style="margin:18px 0 0">Product analytics is off until <span class="mono">POSTHOG_KEY</span> is set. How to turn it on is in <span class="mono">docs/ANALYTICS.md</span>. Naming PostHog on <a href="/privacy">/privacy</a> and linking its dashboard here are follow-ups once that key exists.</p>`;
   const overview = `${kpiHtml}${productHtml}${analyticsNote}${trustHtml}${usageHtml}
 <h2 style="margin:32px 0 10px">Boards</h2>

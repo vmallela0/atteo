@@ -33,6 +33,21 @@ export const POSTHOG_HOSTS = {
   us: "https://us.i.posthog.com",
 } as const;
 
+/** The PostHog app (not the ingest host). */
+export const POSTHOG_APP = {
+  eu: "https://eu.posthog.com",
+  us: "https://us.posthog.com",
+} as const;
+
+/** Atteo's PostHog project on US Cloud. Not a secret; the project API key is the POSTHOG_KEY var. */
+export const ATTEO_POSTHOG_PROJECT = "647810";
+
+/** Where an operator opens PostHog. US is Atteo's project; EU has no project id in this repo, so the link is the EU app. */
+export function posthogDashboardUrl(cfg: AnalyticsPublic): string {
+  if (cfg.region === "us") return `${POSTHOG_APP.us}/project/${ATTEO_POSTHOG_PROJECT}`;
+  return POSTHOG_APP.eu;
+}
+
 const KEY_RE = /^phc_[A-Za-z0-9_]{8,200}$/;
 const PROP_VALUE = /^[a-z0-9_]{1,32}$/;
 const TRACK_COOKIE = "ab_track";
