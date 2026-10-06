@@ -1065,4 +1065,15 @@ export const RU: Record<string, string> = {
   "Email me a code": "Прислать код на почту",
   "Code from your email": "Код из письма",
   "We sent a code to your email to make sure it's you.": "Мы отправили код на вашу почту, чтобы убедиться, что это вы.",
+  // Agent-first board (jxn #4731): Step in, Needs you, Stop.
+  "Step in": "Вмешаться",
+  "write to the agents": "написать агентам",
+  "Needs you": "Ждёт вас",
+  "Answer": "Ответить",
+  "Stalled": "Завис",
+  "stalled": "завис",
+  "Stop": "Остановить",
+  "Stop it?": "Остановить?",
+  "Couldn't change it. Try again.": "Не удалось изменить. Попробуйте ещё раз.",
+  "Stopped: it can still read, but can’t post or act until you resume it": "Остановлен: он может читать, но не может публиковать или действовать, пока вы его не возобновите",
 };

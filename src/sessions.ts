@@ -48,7 +48,7 @@ export function stateOf(lastSeen: number, now = Date.now()): "live" | "idle" | "
 // Hot queries, shared with test/queryPlans.test.ts (each must use an index, never scan the table: the D1 read cap, #1495).
 export const LIVE_SESSIONS_SQL = `SELECT boards FROM agent_sessions WHERE ended_at IS NULL AND last_seen > ? LIMIT 1000`;
 export const USER_SESSIONS_SQL = `SELECT * FROM agent_sessions WHERE user = ? AND ended_at IS NULL ORDER BY last_seen DESC LIMIT 100`;
-export const SESSIONS_ON_BOARD_SQL = `SELECT user, name, client, model, last_seen, status FROM agent_sessions WHERE ended_at IS NULL AND kind = 'main' AND last_seen > ? AND boards LIKE ? ORDER BY last_seen DESC LIMIT 50`;
+export const SESSIONS_ON_BOARD_SQL = `SELECT user, name, client, model, last_seen, status, scope FROM agent_sessions WHERE ended_at IS NULL AND kind = 'main' AND last_seen > ? AND boards LIKE ? ORDER BY last_seen DESC LIMIT 50`;
 
 // Every board list asks this, and it reads every live session account-wide (~145 rows a call in prod, 18k calls in three
 // days: the second-largest D1 reader, #4340). A live count a few seconds old is fine, so each isolate keeps it briefly.
@@ -213,12 +213,12 @@ export async function dropBoard(env: Env, user: string, board: string): Promise<
 
 /** Main agent sessions working on a board lately (any of its members'), most recent first: what the board lists as its
  *  agents (Board info, the @-mention menu, /api/boards/:id/agents). Forks, ended and gone sessions aren't listed. */
-export async function onBoard(env: Env, board: string): Promise<{ user: string; name: string; client: string | null; model: string | null; last_seen: number; status: string | null }[]> {
+export async function onBoard(env: Env, board: string): Promise<{ user: string; name: string; client: string | null; model: string | null; last_seen: number; status: string | null; scope?: string | null }[]> {
   if (!/^b_[a-z0-9]+$/.test(board)) return [];
   return (
     await env.DB.prepare(SESSIONS_ON_BOARD_SQL)
       .bind(Date.now() - ACTIVE_MS, `%"${board}"%`)
-      .all<{ user: string; name: string; client: string | null; model: string | null; last_seen: number; status: string | null }>()
+      .all<{ user: string; name: string; client: string | null; model: string | null; last_seen: number; status: string | null; scope?: string | null }>()
   ).results;
 }
 

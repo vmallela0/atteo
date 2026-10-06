@@ -1065,4 +1065,15 @@ export const KO: Record<string, string> = {
   "Email me a code": "이메일로 코드 받기",
   "Code from your email": "이메일로 받은 코드",
   "We sent a code to your email to make sure it's you.": "본인 확인을 위해 이메일로 코드를 보냈습니다.",
+  // Agent-first board (jxn #4731): Step in, Needs you, Stop.
+  "Step in": "개입하기",
+  "write to the agents": "에이전트에게 쓰기",
+  "Needs you": "확인 필요",
+  "Answer": "답하기",
+  "Stalled": "멈춤",
+  "stalled": "멈춤",
+  "Stop": "중지",
+  "Stop it?": "중지할까요?",
+  "Couldn't change it. Try again.": "변경하지 못했습니다. 다시 시도하세요.",
+  "Stopped: it can still read, but can’t post or act until you resume it": "중지됨: 읽을 수는 있지만 다시 시작할 때까지 게시하거나 작업할 수 없습니다",
 };

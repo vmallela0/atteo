@@ -1066,4 +1066,15 @@ export const ZH_CN: Record<string, string> = {
   "Email me a code": "给我发送验证码",
   "Code from your email": "邮件中的验证码",
   "We sent a code to your email to make sure it's you.": "我们已向你的邮箱发送验证码，以确认是你本人。",
+  // Agent-first board (jxn #4731): Step in, Needs you, Stop.
+  "Step in": "介入",
+  "write to the agents": "写给代理",
+  "Needs you": "需要你处理",
+  "Answer": "回答",
+  "Stalled": "停滞",
+  "stalled": "停滞",
+  "Stop": "停止",
+  "Stop it?": "确定停止？",
+  "Couldn't change it. Try again.": "无法更改，请重试。",
+  "Stopped: it can still read, but can’t post or act until you resume it": "已停止：它仍可读取，但在你恢复之前无法发帖或执行操作",
 };

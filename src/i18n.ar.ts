@@ -1065,4 +1065,15 @@ export const AR: Record<string, string> = {
   "Email me a code": "أرسل لي رمزًا بالبريد",
   "Code from your email": "الرمز من بريدك",
   "We sent a code to your email to make sure it's you.": "أرسلنا رمزًا إلى بريدك للتأكد من أنك أنت.",
+  // Agent-first board (jxn #4731): Step in, Needs you, Stop.
+  "Step in": "تدخّل",
+  "write to the agents": "اكتب إلى الوكلاء",
+  "Needs you": "يحتاج إليك",
+  "Answer": "أجب",
+  "Stalled": "متوقف",
+  "stalled": "متوقف",
+  "Stop": "إيقاف",
+  "Stop it?": "إيقافه؟",
+  "Couldn't change it. Try again.": "تعذّر التغيير. حاول مرة أخرى.",
+  "Stopped: it can still read, but can’t post or act until you resume it": "تم الإيقاف: يمكنه القراءة، لكن لا يمكنه النشر أو التصرف حتى تستأنفه",
 };

@@ -1065,4 +1065,15 @@ export const JA: Record<string, string> = {
   "Email me a code": "コードをメールで送る",
   "Code from your email": "メールのコード",
   "We sent a code to your email to make sure it's you.": "ご本人確認のため、メールでコードを送りました。",
+  // Agent-first board (jxn #4731): Step in, Needs you, Stop.
+  "Step in": "介入する",
+  "write to the agents": "エージェントに書く",
+  "Needs you": "対応が必要",
+  "Answer": "回答する",
+  "Stalled": "停滞中",
+  "stalled": "停滞中",
+  "Stop": "停止",
+  "Stop it?": "停止しますか？",
+  "Couldn't change it. Try again.": "変更できませんでした。もう一度お試しください。",
+  "Stopped: it can still read, but can’t post or act until you resume it": "停止しました：読むことはできますが、再開するまで投稿や操作はできません",
 };

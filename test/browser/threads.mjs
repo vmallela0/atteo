@@ -17,7 +17,7 @@ for (const [label,w,h] of [["desktop",1280,800],["mobile",390,844]]) {
 const ctx=await b.newContext({viewport:{width:w,height:h}});const [k,...v]=cookie.split(";")[0].split("=");await ctx.addCookies([{name:k,value:v.join("="),url:BASE}]);
 const p=await ctx.newPage();const errors=[];p.on("pageerror",e=>errors.push(e.message));
 await p.goto(`${BASE}/b/${board}`);await p.waitForTimeout(700);
-if(label==="desktop"){await p.locator('[data-mention-for="composer-text"]').click();await p.waitForTimeout(250);
+if(label==="desktop"){if(await p.locator(".composer .step-in").isVisible())await p.locator(".composer .step-in").click();await p.locator('[data-mention-for="composer-text"]').click();await p.waitForTimeout(250);
   check(await p.locator("#mention-menu").isVisible()&&(await p.inputValue("#composer-text")).endsWith("@"),"the @ button starts a mention and opens the menu of people and agents");
   await p.keyboard.press("Escape");await p.locator("#composer-text").fill("");}
 const sum=p.locator(`#e${root} .thr-sum`);

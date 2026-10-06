@@ -157,6 +157,7 @@ const outs = await Promise.all(RUNS.map(async ([lang, qs, w, h, phone, scheme]) 
     // Board: privacy controls, overlays, forward selection.
     await p.goto(`${BASE}/b/${board}${qs}`);
     await p.waitForTimeout(900);
+    if(await p.locator(".composer .step-in").isVisible())await tap(".composer .step-in"); // the composer rests as Step in (jxn #4731)
     await tap("#po-btn");
     await tap('[data-po="own"]');
     await p.waitForTimeout(200);

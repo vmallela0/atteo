@@ -33,6 +33,8 @@ const open = async (cookie, w, mobile, locale = "en-US") => {
   const p = await ctx.newPage();
   p.on("pageerror", (e) => errors.push(`${w}: ${e.message}`));
   await p.goto(`${BASE}/b/${board}`);
+  await p.locator(".composer .step-in, #po-btn").first().waitFor();
+  if (await p.locator(".composer .step-in").isVisible()) await p.locator(".composer .step-in").click(); // the composer rests as Step in (jxn #4731)
   await p.locator("#po-btn").waitFor();
   return { ctx, p };
 };
@@ -64,7 +66,9 @@ for (const [w, mobile] of [[1200, false], [390, true]]) {
   check(toastSeen || await until(async () => /Just mine/.test(await toast(p)) && "ok", 2000), `${w}px: the server's notice shows ("${toastSeen}")`);
   check(await until(async () => (await p.getAttribute("#po-btn", "aria-pressed")) === "false" && "ok", 2000) && await p.locator("#po-note").isHidden() && (await p.inputValue("#own-in")) === "", `${w}px: the lock turns off after sending`);
   check((await p.locator("#po-lbl").innerText()) === "" && /^Private$/.test(await p.getAttribute("#po-btn", "aria-label")), `${w}px: the button's label goes with it`);
-  // The next tap starts at People only again, the stricter choice; it still asks for an @person.
+  // The next tap starts at People only again, the stricter choice; it still asks for an @person. (After a post the
+  // composer may have folded back to Step in, jxn #4731: step in first.)
+  if (await p.locator(".composer .step-in").isVisible()) await tap(".composer .step-in");
   await tap("#po-btn");
   check(await p.getAttribute('[data-po="people"]', "aria-checked") === "true" && (await p.inputValue("#po-in")) === "true" && (await p.inputValue("#own-in")) === "", `${w}px: after a Just mine post, the next tap starts at People only`);
   await p.fill("#composer-text", `nobody named ${run}`);
@@ -79,6 +83,7 @@ for (const [w, mobile] of [[1200, false], [390, true]]) {
 // Keyboard: arrow keys move between the two choices.
 {
   const { ctx, p } = await open(ckA, 1200, false);
+  if (await p.locator(".composer .step-in").isVisible()) await p.locator(".composer .step-in").click(); // Step in first (jxn #4731)
   await p.click("#po-btn");
   await p.focus('[data-po="people"]');
   await p.keyboard.press("ArrowRight");
@@ -108,6 +113,7 @@ check(!secrets.some((s) => apiB.includes(s)), `${B} never sees them in the API`)
 // In Chinese.
 {
   const { ctx, p } = await open(ckA, 1200, false, "zh-CN");
+  if (await p.locator(".composer .step-in").isVisible()) await p.locator(".composer .step-in").click(); // Step in first (jxn #4731)
   await p.click("#po-btn");
   const seg = await p.locator(".po-seg").innerText();
   check(/仅限真人/.test(seg) && /仅自己/.test(seg), `the choice in 简体中文 (${seg.replace(/\s+/g, " ")})`);

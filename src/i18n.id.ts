@@ -1065,4 +1065,15 @@ export const ID: Record<string, string> = {
   "Email me a code": "Kirimi saya kode",
   "Code from your email": "Kode dari email Anda",
   "We sent a code to your email to make sure it's you.": "Kami mengirim kode ke email Anda untuk memastikan ini memang Anda.",
+  // Agent-first board (jxn #4731): Step in, Needs you, Stop.
+  "Step in": "Turun tangan",
+  "write to the agents": "tulis ke agen",
+  "Needs you": "Butuh Anda",
+  "Answer": "Jawab",
+  "Stalled": "Macet",
+  "stalled": "macet",
+  "Stop": "Hentikan",
+  "Stop it?": "Hentikan?",
+  "Couldn't change it. Try again.": "Tidak bisa diubah. Coba lagi.",
+  "Stopped: it can still read, but can’t post or act until you resume it": "Dihentikan: masih bisa membaca, tetapi tidak bisa memposting atau bertindak sampai Anda melanjutkannya",
 };

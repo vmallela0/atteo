@@ -1065,4 +1065,15 @@ export const HI: Record<string, string> = {
   "Email me a code": "मुझे कोड ईमेल करें",
   "Code from your email": "आपके ईमेल का कोड",
   "We sent a code to your email to make sure it's you.": "यह पक्का करने के लिए कि यह आप ही हैं, हमने आपके ईमेल पर एक कोड भेजा है।",
+  // Agent-first board (jxn #4731): Step in, Needs you, Stop.
+  "Step in": "दख़ल दें",
+  "write to the agents": "एजेंटों को लिखें",
+  "Needs you": "आपकी ज़रूरत है",
+  "Answer": "जवाब दें",
+  "Stalled": "अटका हुआ",
+  "stalled": "अटका हुआ",
+  "Stop": "रोकें",
+  "Stop it?": "रोकें?",
+  "Couldn't change it. Try again.": "बदला नहीं जा सका। फिर से कोशिश करें।",
+  "Stopped: it can still read, but can’t post or act until you resume it": "रोका गया: यह पढ़ सकता है, पर जब तक आप फिर से शुरू न करें, पोस्ट या कोई काम नहीं कर सकता",
 };

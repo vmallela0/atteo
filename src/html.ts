@@ -1485,11 +1485,17 @@ function connect(){
 connect();
 document.addEventListener('visibilitychange',()=>{if(!document.hidden&&!polling)tick(false)});
 // Board info → Agents: working now, idle or gone, refreshed every 30s while the tab is visible (avatars are kept, so nothing flickers).
-const AG_LABEL={live:'working now',idle:'idle',gone:'gone'};
-function agRow(a){const nm=a.name?a.user+'/'+a.name:a.user+"'s agent",st=AG_LABEL[a.state]?a.state:'gone';
+const AG_LABEL={live:'working now',idle:'idle',gone:'gone',stalled:'stalled'};
+// Stalled (jxn #4731): a session that's on a message (an open "on it") but has gone quiet. Stop: your own sessions go
+// read-only (POST /api/sessions/:name {scope}), the same switch Account → Agents uses; Resume gives full access back.
+const agStalled=a=>!!a.name&&a.state!=='live'&&Object.values(window.HDL_MAP||{}).some(h=>!h.done&&h.by===a.user+'/'+a.name);
+function agStop(a){if(READONLY||a.user!==ME||!a.name)return '';const n=esc(a.name);
+  return a.scope==='read'?'<span class="xs ag-stopped">'+tr('stopped')+'</span><button type="button" class="btn ghost sm ag-stop" data-ag-resume="'+n+'">'+tr('Resume')+'</button>'
+    :'<button type="button" class="btn sm intervene ag-stop" data-ag-stop="'+n+'" aria-label="'+esc(tr('Stop')+' '+a.user+'/'+a.name)+'">'+tr('Stop')+'</button>'}
+function agRow(a){const nm=a.name?a.user+'/'+a.name:a.user+"'s agent",st=agStalled(a)?'stalled':AG_LABEL[a.state]?a.state:'gone';
   const tool=[a.client,a.model].filter(Boolean).join(', ');
   const tip=a.name?a.user+"'s agent session \\""+a.name+'"'+(tool?' ('+tool+')':'')+'. Mention it as @'+a.user+'/'+a.name:a.user+"'s agent";
-  return '<li class="ag-row" data-k="'+esc(a.user+'/'+(a.name||''))+'" data-state="'+st+'" title="'+esc(tip)+'">'+avatar16(a.user,true)+'<span class="grow ag-main"><span class="truncate"><span class="ag-dot '+st+'" role="img" aria-label="'+AG_LABEL[st]+'" title="'+AG_LABEL[st]+'"></span><span class="ag-name">'+esc(nm)+'</span>'+(a.client?' <span class="xs faint">'+esc(a.client)+'</span>':'')+'</span>'+(a.model||a.status?'<span class="ag-status truncate">'+(a.model?'<span class="faint ag-model">'+esc(a.model)+'</span>'+(a.status?' · ':''):'')+esc(a.status||'')+'</span>':'')+'</span><time class="when" datetime="'+new Date(a.last_seen).toISOString()+'" data-ts="'+a.last_seen+'" title="'+new Date(a.last_seen).toUTCString()+'"></time></li>'}
+  return '<li class="ag-row" data-k="'+esc(a.user+'/'+(a.name||''))+'" data-state="'+st+'" title="'+esc(tip)+'">'+avatar16(a.user,true)+'<span class="grow ag-main"><span class="truncate"><span class="ag-dot '+st+'" role="img" aria-label="'+AG_LABEL[st]+'" title="'+AG_LABEL[st]+'"></span><span class="ag-name">'+esc(nm)+'</span>'+(a.client?' <span class="xs faint">'+esc(a.client)+'</span>':'')+'</span>'+(a.model||a.status?'<span class="ag-status truncate">'+(a.model?'<span class="faint ag-model">'+esc(a.model)+'</span>'+(a.status?' · ':''):'')+esc(a.status||'')+'</span>':'')+'</span>'+agStop(a)+'<time class="when" datetime="'+new Date(a.last_seen).toISOString()+'" data-ts="'+a.last_seen+'" title="'+new Date(a.last_seen).toUTCString()+'"></time></li>'}
 let agentsAt=0,agSeen=null;window.agentsRefresh=async()=>{if(document.hidden)return;const box=document.getElementById('agents');if(!box)return;
   const r=await fetch('/api/boards/'+BOARD+'/agents').catch(()=>null);if(!r||!r.ok)return;const ag=(await r.json()).agents||[];agentsAt=Date.now();window.AGENTS=ag;window.hdlProgress&&hdlProgress();
   const agKeys=ag.map(a=>(a.user||'')+'/'+(a.name||''));if(agSeen){for(const k of agKeys)if(!agSeen.has(k)&&k.startsWith(ME+'/'))try{window.atteoTrack&&atteoTrack('agent_connected')}catch(e){}}agSeen=new Set(agKeys);
@@ -1503,6 +1509,7 @@ let agentsAt=0,agSeen=null;window.agentsRefresh=async()=>{if(document.hidden)ret
   box.querySelector('.fold-n').textContent=ag.length||'';const peek=ag.map(a=>a.name?a.user+'/'+a.name:a.user+"'s agent").join(', ');let pk=box.querySelector('.fold-peek');
   if(!pk&&peek){pk=document.createElement('span');pk.className='fold-peek truncate';box.querySelector('.fold-h').appendChild(pk)}if(pk)pk.textContent=peek;refreshTimes()};
 setInterval(agentsRefresh,30000);document.addEventListener('visibilitychange',()=>{if(!document.hidden)agentsRefresh()});
+setTimeout(()=>{if(!READONLY)agentsRefresh()},1200); // once after load: your sessions' Stop and the stalled states (jxn #4731)
 // Your post shows up the moment you send it (a "sending" copy), then the real one from the post's own response.
 window.posted=(j)=>{const first=!document.querySelector('#thread>.entry:not(.pending)');if(first)try{window.atteoTrack&&atteoTrack('first_message')}catch(e){}if(j&&j.notice)toast(tr(j.notice));if(window.poSet&&window.poOn&&poOn())setTimeout(()=>poSet(false),0);sendLook(false);const typed=SENT_TEXT!=null?ta.value:'';SENT_TEXT=null; // what you started typing while it sent survives the form's reset
 const was=+rpTo.value;draftSave(sentKey,'');replyClear(true);document.querySelectorAll('#thread .entry.pending').forEach(x=>x.remove());
@@ -2160,7 +2167,7 @@ fetch('/api/boards/'+BOARD+'/tasks').then(r=>r.json()).then(j=>{const ts=j.tasks
 // ---- "on it" / "done": which agent took a message, and who finished it. The person whose agent it is can mark it
 // done or clear it (✓ / ×); a cleared marker disappears on the next update (the map always has all of them). ----
 var HDL=null; // the last map, for messages that come back on the page (a bounded conversation, #1365)
-function renderHandling(map){HDL=map;const seen=new Set();
+function renderHandling(map){HDL=map;window.HDL_MAP=map;const seen=new Set();
   for(const [seq,h] of Object.entries(map)){const m=document.querySelector('#e'+seq+'>.grow>.meta');if(!m)continue;seen.add(seq);
     let b=m.querySelector('.hdl');if(!b){b=document.createElement('span');b.className='badge hdl';m.insertBefore(b,m.querySelector('.acts'))}
     const mine=h.user===ME&&!READONLY;b.classList.toggle('done',h.done);b.dataset.seq=seq;
@@ -2181,6 +2188,47 @@ function hdlProgress(){const now=Date.now(),seen=new Set();
     p.textContent='🤔 '+h.by+(a&&a.status?': '+String(a.status).replace(/\\s+/g,' ').slice(0,140):'')+(h.since?' · '+hdlAgo(now-h.since):'')+(stalled?' · '+tr('Stalled? No activity for {t}',{t:hdlAgo(now-a.last_seen)}):'')}
   document.querySelectorAll('.hdl-prog').forEach(p=>{if(!seen.has(p.dataset.seq))p.remove()})}
 window.hdlProgress=hdlProgress;setInterval(()=>{if(!document.hidden)hdlProgress()},30000);
+// ---- What needs you (jxn #4731 item 4): above the conversation, the page's only oxblood. Your pending approvals, open
+// questions asked of you (their quick replies are showing) and stalled agents; each jumps to its message. Built from
+// what the page already shows, so it follows every update without asking the server. ----
+function needsRender(){const box=document.getElementById('needs');if(!box)return;const items=[],seen=new Set();
+  const add=(k,seq,label)=>{const key=k+seq;if(!seq||seen.has(key))return;seen.add(key);items.push({k,seq,label})};
+  const title=en=>(en.querySelector(':scope>.grow>.body')?.textContent||'').trim().slice(0,90)||en.dataset.title||('#'+en.dataset.seq);
+  document.querySelectorAll('#thread .apc.st-pending').forEach(c=>{if(c.dataset.apcUser!==ME)return;const en=c.closest('#thread .entry');if(en)add('apr',+en.dataset.seq,tr('Approve')+': '+title(en))});
+  document.querySelectorAll('#thread [data-quick]:not([hidden])').forEach(q=>{const en=q.closest('#thread .entry');if(en)add('q',+en.dataset.seq,tr('Answer')+': '+title(en))});
+  for(const [seq,h] of Object.entries(window.HDL_MAP||{})){if(h.done)continue;const a=(window.AGENTS||[]).find(x=>x.name&&x.user+'/'+x.name===h.by);
+    if(a&&a.state!=='live')add('stall',+seq,tr('Stalled')+': '+h.by)}
+  box.hidden=!items.length;if(!items.length){box.textContent='';return}
+  box.innerHTML='<span class="needs-h">'+esc(tr('Needs you'))+'</span>'+items.slice(0,8).map(i=>'<button type="button" class="needs-i" data-needs="'+i.seq+'" data-needs-k="'+i.k+'" title="'+esc(i.label)+'">'+esc(i.label)+'</button>').join('')+
+    (items.length>8?'<span class="xs faint">+'+(items.length-8)+'</span>':'')}
+window.needsRender=needsRender;
+{let nt=0;const kick=()=>{clearTimeout(nt);nt=setTimeout(needsRender,300)};const th=document.getElementById('thread');
+  if(th)new MutationObserver(kick).observe(th,{childList:true,subtree:true,attributes:true,attributeFilter:['hidden','class']});kick()}
+document.addEventListener('click',e=>{const b=e.target.closest('[data-needs]');if(!b)return;e.preventDefault();const h='#e'+b.dataset.needs;
+  if(location.hash===h)goLinked();else location.hash=h});
+// Stop / Resume an agent session of yours from the agents panel: two taps to stop (the first arms it for a few seconds).
+document.addEventListener('click',async e=>{const b=e.target.closest('[data-ag-stop],[data-ag-resume]');if(!b)return;e.preventDefault();
+  const stop=b.hasAttribute('data-ag-stop'),nm=stop?b.dataset.agStop:b.dataset.agResume;
+  if(stop&&!b.dataset.armed){b.dataset.armed='1';b.textContent=tr('Stop it?');setTimeout(()=>{if(b.isConnected&&!b.disabled){delete b.dataset.armed;b.textContent=tr('Stop')}},4000);return}
+  b.disabled=true;const r=await fetch('/api/sessions/'+encodeURIComponent(nm),{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({scope:stop?'read':'full'})}).catch(()=>null);
+  if(!r||!r.ok){b.disabled=false;toast(tr("Couldn't change it. Try again."));return}
+  toast(stop?tr('Stopped: it can still read, but can’t post or act until you resume it'):tr('Resumed'));window.agentsRefresh&&agentsRefresh()});
+// ---- Step in (jxn #4731 item 3): the composer rests as one control and opens when focused (the button, a shortcut, a
+// click on it, a reply or an attachment), then folds again once it's empty and focus has left it. Thread mode keeps it
+// open. The text box stays a focusable point while folded, so everything that focuses it still opens it. ----
+(()=>{const f=document.querySelector('form.composer');if(!f||f.hidden)return;const ta=f.querySelector('#composer-text');if(!ta)return;
+  const b=document.createElement('button');b.type='button';b.className='step-in';b.setAttribute('aria-controls','composer-text');b.setAttribute('aria-expanded','false');
+  b.innerHTML='<span>'+esc(tr('Step in'))+'</span><span class="xs">'+esc(tr('write to the agents'))+'</span>';f.prepend(b);
+  const att=document.getElementById('attachments'),rp=document.getElementById('replying');
+  const busy=()=>!!ta.value.trim()||(att&&!att.hidden)||(rp&&!rp.hidden)||f.matches('.in-thr,.sending')||(f.contains(document.activeElement)&&document.activeElement!==b);
+  const set=t=>{if(f.classList.contains('tucked')===t)return;f.classList.toggle('tucked',t);b.setAttribute('aria-expanded',String(!t))};
+  const tuck=()=>{if(!busy())set(true)};
+  b.addEventListener('click',()=>{set(false);ta.focus()});
+  f.addEventListener('focusin',e=>{if(e.target!==b)set(false)});
+  f.addEventListener('focusout',e=>{if(!f.contains(e.relatedTarget))setTimeout(tuck,200)});
+  new MutationObserver(()=>{if(busy())set(false)}).observe(f,{attributes:true,subtree:true,attributeFilter:['hidden','class']});
+  ta.addEventListener('input',()=>{if(ta.value)set(false)});
+  window.composerTuck=tuck;setTimeout(tuck,0)})();
 document.addEventListener('click',async e=>{const x=e.target.closest('[data-hdl]');if(!x)return;const seq=x.closest('.hdl').dataset.seq;x.disabled=true;
   const r=await fetch('/api/boards/'+BOARD+'/handle/'+seq,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({action:x.dataset.hdl})});
   const j=await r.json().catch(()=>({}));toast(r.ok?j.message:(j.message||j.error||tr('Could not change it')));tick(false)});
@@ -2894,7 +2942,7 @@ export function boardPage(
 </div>
 <div role="tabpanel" id="panel-conv" aria-labelledby="tab-conv" class="bp-panel" data-board-panel><div class="layout" id="conv-layout">
   <button class="btn ghost sm info-btn" type="button" id="info-btn" aria-expanded="false" aria-controls="board-info" aria-label="${esc(T("Board info"))}" title="${esc(T("Board info"))}"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><rect x="1.75" y="2.75" width="12.5" height="10.5" rx="2"/><path d="M10 2.75v10.5"/><path class="fill" d="M10.7 3.45h2.1a.75.75 0 0 1 .75.75v7.6a.75.75 0 0 1-.75.75h-2.1z" fill="currentColor" stroke="none"/></svg><span class="count" id="info-count" hidden></span></button>
-  <section class="conv">${agentChat ? "" : localize(L, PIN_BAR)}
+  <section class="conv">${agentChat ? "" : localize(L, PIN_BAR)}${agentChat || readOnly || info.archived ? "" : `<div class="needs" id="needs" role="region" aria-label="${esc(T("Needs you"))}" hidden></div>`}
     <div class="thread-wrap"><div class="thread-scroll" id="thread-scroll" data-wait><noscript><style>#thread-scroll[data-wait]>#thread{visibility:visible}</style></noscript><div class="thread" id="thread">${thread}</div><p class="pf-empty" id="pf-empty" hidden>${esc(T("No messages from people here yet. Turn the filter off to see everything."))}</p></div>
       <div class="rail" id="rail" aria-hidden="true"></div><div class="rail-tip" id="rail-tip" hidden></div>
       <button class="btn sm new-pill" type="button" id="new-pill" hidden>${esc(T("Jump to latest ↓"))}</button></div>

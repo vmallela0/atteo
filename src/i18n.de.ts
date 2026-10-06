@@ -1065,4 +1065,15 @@ export const DE: Record<string, string> = {
   "Email me a code": "Schick mir einen Code",
   "Code from your email": "Code aus deiner E-Mail",
   "We sent a code to your email to make sure it's you.": "Wir haben dir einen Code per E-Mail geschickt, um sicherzugehen, dass du es bist.",
+  // Agent-first board (jxn #4731): Step in, Needs you, Stop.
+  "Step in": "Eingreifen",
+  "write to the agents": "an die Agenten schreiben",
+  "Needs you": "Braucht dich",
+  "Answer": "Antworten",
+  "Stalled": "Hängt",
+  "stalled": "hängt",
+  "Stop": "Stoppen",
+  "Stop it?": "Wirklich stoppen?",
+  "Couldn't change it. Try again.": "Konnte nicht geändert werden. Versuch es noch einmal.",
+  "Stopped: it can still read, but can’t post or act until you resume it": "Gestoppt: Er kann weiter lesen, aber nichts posten oder tun, bis du ihn fortsetzt",
 };

@@ -10,6 +10,7 @@ let fails=0;const check=(ok,t)=>{console.log(`${ok?"✓":"✗"} ${t}`);if(!ok)fa
 const b=await chromium.launch({executablePath: process.env.PW_CHROME || undefined});
 for(const [w,mobile] of [[1200,false],[390,true]]){const ctx=await b.newContext({viewport:{width:w,height:800},isMobile:mobile,hasTouch:mobile});const [k,...v]=ckA.split(";")[0].split("=");await ctx.addCookies([{name:k,value:v.join("="),url:BASE}]);
   const p=await ctx.newPage();const errors=[];p.on("pageerror",e=>errors.push(e.message));await p.goto(`${BASE}/b/${board}`);await p.waitForTimeout(900);
+  if(await p.locator(".composer .step-in").isVisible())await p.locator(".composer .step-in")[mobile?"tap":"click"](); // the composer rests as Step in (jxn #4731)
   await p.locator("#po-btn")[mobile?"tap":"click"]();check(await p.getAttribute("#po-btn","aria-pressed")==="true"&&await p.locator("#po-note").isVisible(),`${w}px: the lock turns People only on and says what it means`);
   await p.fill("#composer-text",`no recipient ${run}`);await p.locator("form.composer button.primary").click();await p.waitForTimeout(600);
   {const tt=await p.locator("#toast").innerText(),n=await p.locator(`#thread .body:has-text("no recipient ${run}")`).count();check(/@ the people/.test(tt)&&n===0,`${w}px: without an @person it doesn't send, and says why (toast "${tt}", posted ${n})`)}

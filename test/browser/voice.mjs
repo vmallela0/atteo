@@ -61,7 +61,8 @@ for(const w of [320,390])part(async(check)=>{const {ctx,p}=await open(w,true);
 // No speech support: no mic, and Post is there from the start
 part(async(check)=>{const ctx=await b.newContext({viewport:{width:900,height:700}});const [k,...v]=ckP.split(";")[0].split("=");await ctx.addCookies([{name:k,value:v.join("="),url:BASE}]);
   await ctx.addInitScript(()=>{delete window.webkitSpeechRecognition;delete window.SpeechRecognition;Object.defineProperty(window,"speechSynthesis",{value:undefined,configurable:true})});
-  const p=await ctx.newPage();p.on("pageerror",e=>errors.push(e.message));await p.goto(`${BASE}/b/${board}`);await p.locator(".composer .post-btn").waitFor({state:"visible",timeout:8000}).catch(()=>{});
+  const p=await ctx.newPage();p.on("pageerror",e=>errors.push(e.message));await p.goto(`${BASE}/b/${board}`);await p.locator(".composer .step-in").click({timeout:8000}).catch(()=>{}); // the composer rests as Step in (jxn #4731)
+  await p.locator(".composer .post-btn").waitFor({state:"visible",timeout:8000}).catch(()=>{});
   check(await p.locator("#mic-btn").isHidden()&&await p.locator(".composer .post-btn").isVisible(),"a browser without speech support shows Post, no mic");await ctx.close()});
 for(const lines of await Promise.all(parts))for(const l of lines)console.log(l);
 const check=(ok,m)=>{console.log(`${ok?"✓":"✗"} ${m}`);if(!ok)fails++};

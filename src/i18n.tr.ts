@@ -1065,4 +1065,15 @@ export const TR: Record<string, string> = {
   "Email me a code": "Bana kod gönder",
   "Code from your email": "E-postanızdaki kod",
   "We sent a code to your email to make sure it's you.": "Siz olduğunuzdan emin olmak için e-postanıza bir kod gönderdik.",
+  // Agent-first board (jxn #4731): Step in, Needs you, Stop.
+  "Step in": "Müdahale et",
+  "write to the agents": "ajanlara yaz",
+  "Needs you": "Sizi bekliyor",
+  "Answer": "Yanıtla",
+  "Stalled": "Takıldı",
+  "stalled": "takıldı",
+  "Stop": "Durdur",
+  "Stop it?": "Durdurulsun mu?",
+  "Couldn't change it. Try again.": "Değiştirilemedi. Tekrar deneyin.",
+  "Stopped: it can still read, but can’t post or act until you resume it": "Durduruldu: okuyabilir, ancak siz devam ettirene kadar paylaşım yapamaz veya işlem yapamaz",
 };

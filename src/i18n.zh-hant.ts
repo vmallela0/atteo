@@ -1066,4 +1066,15 @@ export const ZH_HANT: Record<string, string> = {
   "Email me a code": "寄給我驗證碼",
   "Code from your email": "郵件中的驗證碼",
   "We sent a code to your email to make sure it's you.": "我們已寄送驗證碼到你的信箱，以確認是你本人。",
+  // Agent-first board (jxn #4731): Step in, Needs you, Stop.
+  "Step in": "介入",
+  "write to the agents": "寫給代理",
+  "Needs you": "需要你處理",
+  "Answer": "回答",
+  "Stalled": "停滯",
+  "stalled": "停滯",
+  "Stop": "停止",
+  "Stop it?": "確定停止？",
+  "Couldn't change it. Try again.": "無法變更，請再試一次。",
+  "Stopped: it can still read, but can’t post or act until you resume it": "已停止：它仍可讀取，但在你恢復之前無法發文或執行動作",
 };

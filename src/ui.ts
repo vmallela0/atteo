@@ -56,7 +56,7 @@ export function formActionSource(raw: string): string | null {
 // audio is WebAudio on connect-src, not a media element. No data: font or media, and no media host besides 'self'.
 // The pinned mermaid.min.js inserts one fixed <style> block of its own (a nonce can't reach it), so it's allowed by its hash;
 // a new mermaid build changes the hash and the csp browser checks name the new one.
-const MERMAID_STYLE_HASH = "'sha256-lCZPv+siQGbLyHufN87S4tT1GlG+V8T7J184kcDeWZ4='";
+const MERMAID_STYLE_HASH = "'sha256-DojcoaaTikPDrB1IO5xEvlMuD+loJrbK2Qwyq3eInbo='";
 export function pageSecurity(opts: { formAction?: string[] } = {}) {
   const nonce = Array.from(crypto.getRandomValues(new Uint8Array(16)), (b) => b.toString(16).padStart(2, "0")).join("");
   const formAction = ["'self'", ...(opts.formAction ?? []).map(formActionSource).filter((x): x is string => !!x)].join(" ");
@@ -80,8 +80,8 @@ export function styleNonce(html: string, nonce: string): string {
 }
 
 // Dark tokens: the system setting picks them unless Display says light; Display can also force them.
-const DARK = `  --bg:#0E0E0E;--bg-subtle:#1A1918;--bg-hover:#1F1E1C;--line:#2A2926;--line-strong:#3A3935;
-  --ink:#FAFAF7;--text:#EDEBE5;--muted:#A9A69F;--faint:#8E8C85;--on-ink:#0E0E0E;--cone:#C2414D;--oxblood:#B5484A;--bg-raised:#141414;
+const DARK = `  --bg:#0B0B0C;--bg-subtle:#16171A;--bg-hover:#1C1D21;--line:#26282C;--line-strong:#34373C;
+  --ink:#FAFAFA;--text:#E8E9EC;--muted:#A2A6AD;--faint:#8A8E95;--on-ink:#0B0B0C;--cone:#C2414D;--oxblood:#B5484A;--bg-raised:#121315;
   --accent:#FAFAF7;--ok:#3ecf75;--warn:#fb923c;--danger:#f87171;
   --q:#fbbf24;--claim:#4ade80;--decision:#a78bfa;--task:#38bdf8;--artifact:#a3a3a3;--note:#737373;
   --shadow:0 1px 2px rgba(0,0,0,.4);--shadow-lg:0 12px 48px rgba(0,0,0,.6);
@@ -94,11 +94,11 @@ const FONT_PRELOAD = `<link rel="preload" href="/fonts/onest-latin.woff2?v=${FON
 export const CSS = `
 #thread-scroll[data-wait]>#thread{visibility:hidden} /* until the board script has placed it (html.ts) */
 :root{
-  /* The design language (v1, jxn #4682): neutral throughout. Ink on paper, bone and stone around it, line for dividers,
+  /* The design language (v1, jxn #4682): neutral throughout, cool greys (jxn #4730). Ink on paper, grey surfaces, line for dividers,
      graphite for secondary text. Oxblood has one job, human intervention: Stop and halted states, nowhere else (on ink
      it's oxblood-lifted); --cone is the current logo's alone until the new mark lands. Primary actions, you, mentions, unread, links and focus are ink. */
-  --bg:#FAFAF7;--bg-subtle:#F2EFE8;--bg-hover:#ECE8DF;--line:#E4E1D9;--line-strong:#D9D6CE;
-  --ink:#0E0E0E;--text:#161614;--muted:#5A5853;--faint:#6B6964;--on-ink:#FAFAF7;--cone:#6A1B24;--oxblood:#6E1F22;--bg-raised:#FAFAF7;
+  --bg:#FAFAFA;--bg-subtle:#F2F3F5;--bg-hover:#EBECEF;--line:#E3E5E8;--line-strong:#D4D7DC;
+  --ink:#0A0A0B;--text:#111113;--muted:#565A61;--faint:#676B73;--on-ink:#FAFAFA;--cone:#6A1B24;--oxblood:#6E1F22;--bg-raised:#FFFFFF;
   --on-fill:#FFFFFF;--preview-bg:#FFFFFF; /* text on a saturated fill (avatars, status marks, scrims); an HTML preview's page */
   --accent:#0E0E0E;--ok:#16a34a;--warn:#c2410c;--danger:#dc2626;
   --q:#d97706;--claim:#16a34a;--decision:#7c3aed;--task:#0284c7;--artifact:#737373;--note:#a3a3a3;
@@ -520,7 +520,7 @@ a.ev-acct:hover{background:var(--bg-subtle)}
 .ro .composer,.ro [data-qr],.ro [data-rx-add],.ro button[data-reply],.ro .rx-add,.ro [data-tk],.ro .kb-new,.ro #doc-new,.ro #doc-edit{display:none!important}
 .ro .rx-chip{pointer-events:none}
 /* threads: replies fold into "N replies" under their message; the thread opens in a side panel (an overlay on phones) */
-#thread>.entry>.grow>.replies{display:none}#thread>.entry.thr-open>.grow>.replies{display:block}
+#thread>.entry>.grow>.replies{display:none}
 /* Replies post in the conversation (jxn #1040): a bar quoting what they answer; the thread opens as an overlay */
 .rq{display:flex;flex-direction:column;align-items:flex-start;gap:1px;max-width:100%;margin:4px 0 2px;padding:4px 10px;border:0;border-inline-start:3px solid var(--line-strong);border-radius:0 8px 8px 0;background:var(--bg-subtle);color:var(--muted);font:inherit;font-size:12.5px;text-align:left;cursor:pointer}
 .rq:hover{background:var(--bg-hover);border-inline-start-color:var(--muted)}.rq-who{font-weight:600;color:var(--text)}.rq-t{display:block;max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -533,7 +533,7 @@ a.ev-acct:hover{background:var(--bg-subtle)}
 .thr-sum:hover{border-color:var(--line);background:var(--bg-subtle)}.thr-sum .faint{color:var(--faint)}
 .thr-sum .avs .av{width:20px;height:20px;font-size:8.5px}
 .thr-head{display:inline-flex;align-items:center;gap:8px}
-.thr-line{display:block;padding-left:4px;font-size:12.5px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.thr-line b{color:var(--text);font-weight:500}
+
 .entry.hit{background:var(--mark);border-radius:8px;transition:background .6s} /* a tint, no side bar: an inset bar bends around the rounded corners (jxn #1086) */
 /* a task in the conversation: status, priority, who it's for / who holds it, and Claim · Done · Open */
 .tk{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:8px;padding:6px 6px 6px 10px;border:1px solid var(--line);border-radius:8px;background:var(--bg-subtle);font-size:12.5px}
@@ -698,8 +698,7 @@ dialog.lightbox.zoomed img{max-width:none;max-height:none;margin:auto;border-rad
 @media (hover:hover){.rd:hover .rd-pop{visibility:visible;opacity:1}}
 .rd-hush .rd-pop{visibility:hidden!important}
 .rd.down .rd-pop{bottom:auto;top:-6px}
-/* An open thread nests its replies inside the root entry, so the root's ring would sit beside the last reply's: one ring there. */
-.entry.thr-open>.rd{display:none}.entry.thr-open.has-rd>.grow{padding-right:0}
+
 .rd-pop b{font-weight:600;margin-bottom:2px}.rd-pop>span{display:flex;align-items:center;gap:6px}.rd-pop .av.sm{width:16px;height:16px;font-size:7px}
 .rd-pop .nm{flex:1;overflow:hidden;text-overflow:ellipsis}.rd-pop i{font-style:normal;font-size:11px;opacity:.65}.rd-pop .y i{color:var(--ok);opacity:1}.rd-pop .n{opacity:.6}
 @media (pointer:coarse){.rd{width:20px;height:20px;right:-2px}.rd::before{inset:-10px}}
@@ -1005,7 +1004,7 @@ mark{background:var(--mark);color:inherit;border-radius:2px;padding:0 1px}
 .working{display:inline-flex;align-items:center;gap:5px;flex:none;font-size:11px;font-weight:500;color:var(--muted);white-space:nowrap}.working[hidden]{display:none}
 .working .dot,.ag-dot.live{background:var(--ok);animation:breathe 2.4s ease-in-out infinite}
 @keyframes breathe{0%,100%{box-shadow:0 0 0 0 color-mix(in srgb,var(--ok) 45%,transparent)}50%{box-shadow:0 0 0 3px color-mix(in srgb,var(--ok) 18%,transparent)}}
-.side-board-row{display:flex;align-items:center;position:relative}.side-board-row .side-board{flex:1;min-width:0}.pin-actions{position:relative;z-index:3}.pin-actions summary{list-style:none;cursor:pointer;color:var(--muted);padding:4px 7px;border-radius:6px}.pin-actions summary::-webkit-details-marker{display:none}.pin-actions summary:hover{background:var(--bg-hover);color:var(--ink)}.pin-actions>button{position:absolute;right:0;top:100%;white-space:nowrap;border:1px solid var(--line);border-radius:7px;background:var(--bg);color:var(--ink);padding:7px 14px;box-shadow:var(--shadow-lg);cursor:pointer}.pin-actions>button:hover{background:var(--bg-hover)}.pin-mark{font-size:12px;flex:none}.side-board .working{margin-left:auto;font-size:10.5px}.side-board .working .dot{width:6px;height:6px}
+.side-board-row{display:flex;align-items:center;position:relative}.side-board-row .side-board{flex:1;min-width:0}.pin-mark{font-size:12px;flex:none}.side-board .working{margin-left:auto;font-size:10.5px}.side-board .working .dot{width:6px;height:6px}
 @media (prefers-reduced-motion:reduce){.working .dot,.ag-dot.live{animation:none}}
 .board-head-menu{position:relative}.bc-menu{z-index:3}.board-head-menu summary{list-style:none;cursor:pointer}.board-head-menu summary::-webkit-details-marker{display:none}.board-head-menu-items{position:absolute;right:0;top:32px;z-index:30;min-width:165px;padding:4px;background:var(--bg);border:1px solid var(--line);border-radius:8px;box-shadow:var(--shadow-lg)}.board-head-menu-items button{display:block;width:100%;padding:8px;text-align:start;border:0;background:transparent;color:var(--ink);cursor:pointer}.board-head-menu-items button:hover{background:var(--bg-hover)}.side-board-row{position:relative;display:flex;align-items:center}.side-board-row>.side-board{flex:1;min-width:0;padding-right:30px}.board-row-menu{position:absolute;right:3px;top:2px;z-index:4}.board-row-menu summary{list-style:none;cursor:pointer;padding:3px 6px;color:var(--muted)}.board-row-menu summary::-webkit-details-marker{display:none}.board-row-menu .brm-items{position:absolute;right:0;top:27px;z-index:5;min-width:150px;padding:4px;border:1px solid var(--line);border-radius:7px;background:var(--bg);box-shadow:var(--shadow-lg)}.board-row-menu .brm-items button{display:block;width:100%;white-space:nowrap;padding:8px 12px;border:0;border-radius:5px;background:transparent;color:var(--ink);text-align:start;cursor:pointer}.board-row-menu .brm-items button:hover{background:var(--bg-hover)}.side-board .bdot{width:8px;height:8px;margin:0 5px;border-radius:3px;flex:none;background:hsl(var(--h) 8% 55%)}
 /* board pictures (like a group chat's photo): a rounded square, its initial underneath until the image loads */
@@ -1034,7 +1033,7 @@ mark{background:var(--mark);color:inherit;border-radius:2px;padding:0 1px}
 #bug.drop .bd{outline:2px dashed var(--line-strong);outline-offset:-6px;border-radius:var(--r)}
 #bug .ft{display:flex;align-items:center;gap:8px;padding:0 22px 20px}#bug .ft .grow{flex:1}
 .bug-attach{width:34px;height:34px;padding:0;display:inline-grid;place-items:center;color:var(--muted)}.bug-attach:hover{color:var(--ink)}
-.bug-private{display:flex;align-items:center;justify-content:center;min-height:44px;border:1px dashed var(--line-strong);border-radius:8px;color:var(--muted);font-size:13px;margin:10px 0;padding:0 10px;text-align:center}
+
 .topbar{position:sticky;top:0;z-index:10;height:48px;display:flex;align-items:center;gap:12px;padding:0 20px;border-bottom:1px solid var(--line);
   background:color-mix(in srgb,var(--bg) 85%,transparent);backdrop-filter:saturate(180%) blur(10px);-webkit-backdrop-filter:saturate(180%) blur(10px)}
 .topbar .crumbs{margin:0;display:flex;align-items:center;gap:8px;min-width:0;font-size:13px}
@@ -1176,6 +1175,10 @@ dialog.palette{margin-top:12vh;width:min(600px,calc(100vw - 24px));border-radius
 .new-pill{position:absolute;left:50%;bottom:12px;transform:translateX(-50%);z-index:4;box-shadow:var(--shadow-lg);border-radius:999px}
 .new-pill[hidden],.info-btn .count[hidden],.info-btn[hidden]{display:none}
 .conv .composer{flex:none;margin:6px 0 max(12px,env(safe-area-inset-bottom))}
+/* Agent-first (jxn #4731): the composer rests as one Step in control (+ mic), its box a focusable 2px point; the needs strip is the page's only oxblood. */
+.step-in{display:none}.composer.tucked{display:flex;align-items:center;gap:8px;padding:4px 6px}.composer.tucked>:not(.step-in,.cmp-field,.bar),.composer.tucked .bar>:not(.mic-btn){display:none!important}.composer.tucked .cmp-field{position:absolute;left:50%;top:50%;width:2px;height:2px;overflow:hidden;opacity:0}.selecting .composer.tucked,.composer.tucked[hidden]{display:none}.composer.tucked .bar{padding:0;border:0}.composer.tucked .step-in{display:flex;flex:1;align-items:center;gap:10px;min-height:38px;padding:6px 10px;border:0;background:none;color:var(--ink);font:inherit;font-weight:600;cursor:text}.step-in .xs{font-weight:400;color:var(--muted)}
+.needs{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin:0 0 8px;padding:6px 8px;border:1px solid var(--line);border-radius:var(--r);background:var(--bg-subtle)}.needs[hidden]{display:none}.needs-h{font-size:12px;font-weight:600}.needs-h:before{content:"";display:inline-block;width:7px;height:7px;margin-right:6px;border-radius:50%;background:var(--intervene)}.needs-i{font:inherit;font-size:12.5px;max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:2px 10px;border:0;border-radius:99px;background:var(--intervene);color:var(--on-intervene);cursor:pointer}
+.ag-dot.stalled{background:var(--intervene)}.ag-row[data-state=stalled] .ag-status{color:var(--intervene)}.ag-stop{flex:none}.ag-stopped{color:var(--muted)}
 .composer textarea{max-height:40vh;overflow-y:auto;overscroll-behavior:contain}
 .conv .composer textarea{min-height:48px;resize:none}
 @media(max-width:480px){.composer textarea{max-height:200px}}

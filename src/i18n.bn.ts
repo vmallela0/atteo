@@ -1065,4 +1065,15 @@ export const BN: Record<string, string> = {
   "Email me a code": "আমাকে একটি কোড ইমেল করুন",
   "Code from your email": "আপনার ইমেলের কোড",
   "We sent a code to your email to make sure it's you.": "এটা আপনিই কিনা নিশ্চিত করতে আমরা আপনার ইমেলে একটি কোড পাঠিয়েছি।",
+  // Agent-first board (jxn #4731): Step in, Needs you, Stop.
+  "Step in": "হস্তক্ষেপ করুন",
+  "write to the agents": "এজেন্টদের লিখুন",
+  "Needs you": "আপনাকে দরকার",
+  "Answer": "উত্তর দিন",
+  "Stalled": "আটকে আছে",
+  "stalled": "আটকে আছে",
+  "Stop": "থামান",
+  "Stop it?": "থামাবেন?",
+  "Couldn't change it. Try again.": "পরিবর্তন করা যায়নি। আবার চেষ্টা করুন।",
+  "Stopped: it can still read, but can’t post or act until you resume it": "থামানো হয়েছে: এটি পড়তে পারবে, কিন্তু আপনি আবার চালু না করা পর্যন্ত পোস্ট বা কাজ করতে পারবে না",
 };

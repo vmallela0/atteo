@@ -1153,7 +1153,7 @@ const handler = {
         // agent_name: what `user` (the owner) named their agent; `name` is the session's own name ("scout").
         const named = new Map(members.map((x) => [x.user, { agent_name: x.agent_name, ...(x.agent_name_ambiguous ? { agent_name_ambiguous: true } : {}) }]));
         const agents = [
-          ...here.map((x) => ({ user: x.user, ...named.get(x.user), name: x.name, client: x.client, ...sessions.modelFor(x, viewer.via !== "agent"), status: x.status, last_seen: x.last_seen, state: sessions.stateOf(x.last_seen, now) })),
+          ...here.map((x) => ({ user: x.user, ...named.get(x.user), name: x.name, client: x.client, ...sessions.modelFor(x, viewer.via !== "agent"), status: x.status, last_seen: x.last_seen, state: sessions.stateOf(x.last_seen, now), ...(x.user === viewer.name ? { scope: x.scope ?? "full" } : {}) })), // scope: your own sessions only, for the panel's Stop/Resume (jxn #4731)
           ...Object.entries(live)
             .filter(([u]) => memberSet.has(u) && !here.some((x) => x.user === u))
             .map(([u, seen]) => ({ user: u, ...named.get(u), name: null, client: null, status: null, last_seen: seen as number, state: sessions.stateOf(seen as number, now) })),
