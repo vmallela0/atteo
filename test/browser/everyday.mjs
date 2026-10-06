@@ -17,7 +17,7 @@ const open=async(w,scheme)=>{const ctx=await b.newContext({viewport:{width:w,hei
 for(const [w,scheme] of [[1200,"light"],[390,"dark"]]){const {ctx,p,errors}=await open(w,scheme);
   const g=await p.evaluate(s=>{const vis=el=>!!el&&getComputedStyle(el).display!=='none'&&el.getBoundingClientRect().width>0;const e=document.getElementById('e'+s);
     return {mode:document.documentElement.dataset.mode,tab0:document.querySelector('#board-tabs [role=tab]')?.textContent.trim(),tab3:document.querySelectorAll('#board-tabs [role=tab]')[3]?.textContent.trim().replace(/\s+/g,' '),
-      log:vis(document.querySelector('[aria-controls="panel-log"]')),who:e?.querySelector('.who')?.textContent,seq:vis(e?.querySelector('.seq')),chg:vis(e?.querySelector('.chg')),res:e?.querySelector('.ev-res')?.textContent,
+      log:vis(document.querySelector('[aria-controls="panel-log"]')),who:e?.querySelector('.who')?.textContent,seq:[...(e?.querySelectorAll('.seq,.gut-n')||[])].some(vis),chg:vis(e?.querySelector('.chg')),res:e?.querySelector('.ev-res')?.textContent,
       ph:document.getElementById('composer-text')?.placeholder,side:[...document.querySelectorAll('.side-link[href="/chats"] span')].map(x=>x.textContent)[0]}},chg);
   check(g.mode==="everyday",`${w}px: a person with no coding agent gets Everyday (${g.mode})`);
   check(g.tab0==="Chat"&&/^To-dos/.test(g.tab3)&&!g.log,`${w}px: tabs read Chat · To-dos · Files, no Log (${g.tab0} / ${g.tab3})`);
@@ -32,8 +32,8 @@ for(const [w,scheme] of [[1200,"light"],[390,"dark"]]){const {ctx,p,errors}=awai
   await p.locator("label.dev-mode").click();await p.waitForTimeout(700);
   const pr=await (await fetch(`${BASE}/api/app/prefs`,{headers:{cookie:ck}})).json();check(pr.prefs?.developer===true&&pr.prefs?.display?.mode==="developer","turning it on saves Developer mode");
   await p.goto(`${BASE}/b/${board}`);await p.waitForTimeout(1200);
-  const g=await p.evaluate(s=>({mode:document.documentElement.dataset.mode,tab0:document.querySelector('#board-tabs [role=tab]')?.textContent.trim(),chg:!!document.querySelector('#e'+s+' .chg')?.getBoundingClientRect().width,seq:!!document.querySelector('#e'+s+' .seq')?.getBoundingClientRect().width}),chg);
-  check(!g.mode&&g.tab0==="Conversation"&&g.chg&&g.seq,`Developer mode is today's page: Conversation, change card, #numbers (${JSON.stringify(g)})`);
+  const g=await p.evaluate(s=>({mode:document.documentElement.dataset.mode,tab0:document.querySelector('#board-tabs [role=tab]')?.textContent.trim(),chg:!!document.querySelector('#e'+s+' .chg')?.getBoundingClientRect().width,seq:!!document.querySelector('#e'+s+' .gut-n')?.getBoundingClientRect().width}),chg);
+  check(!g.mode&&g.tab0==="Conversation"&&g.chg&&g.seq,`Developer mode is today's page: Conversation, change card, #numbers in the gutter (${JSON.stringify(g)})`);
   check(!errors.length,`no page errors ${errors.join(" | ")}`);await ctx.close()}
 // Auto: someone who connected Claude Code is in Developer mode without choosing
 {const D=`ed${run}`;await ops("users",{name:D,email:`${D}@example.com`,verified:"true",display:{mode:"auto"}});const t=(await ops("tokens",{user:D})).token;
