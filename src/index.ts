@@ -1239,7 +1239,7 @@ const handler = {
         return json({ ok: true, read: n });
       }
 
-      // ---- GitHub App (signed inbound webhooks; outbound check-run payloads are formatted, not sent) ----
+      // ---- GitHub App (signed inbound webhooks; outbound Checks only when App secrets are set) ----
       if (path === "/github/webhook" && method === "POST") {
         const raw = await request.text();
         const result = await githubApp.handleWebhook(env, raw, {

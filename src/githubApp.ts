@@ -1,7 +1,7 @@
-// GitHub App notifications (GAPS P1 first slice): inbound GitHub webhooks become a board-note shape, and Atteo
-// change cards become GitHub Checks / PR-comment payloads. Off until GITHUB_WEBHOOK_SECRET is set (inbound) and
-// GITHUB_APP_ID + GITHUB_APP_PRIVATE_KEY (outbound). This slice verifies signatures, parses events, and formats
-// payloads. It does not post to a board or call GitHub.
+// GitHub App notifications (GAPS P1): inbound GitHub webhooks become a board-note shape, and Atteo change cards
+// become GitHub Checks / PR comments. Off until GITHUB_WEBHOOK_SECRET is set (inbound) and GITHUB_APP_ID +
+// GITHUB_APP_PRIVATE_KEY (outbound). Inbound still only verifies and parses (no board write). Outbound posts a Check
+// run (and a PR comment when the card has a pull link) when those App secrets exist; without them it never fetches.
 
 import { cardLine, type ChangeCard } from "./card";
 import { pingExcerpt } from "./ping";
@@ -38,7 +38,7 @@ export function inboundEnabled(env: Pick<Env, "GITHUB_WEBHOOK_SECRET">): boolean
   return !!env.GITHUB_WEBHOOK_SECRET?.trim();
 }
 
-/** Outbound posting needs the App id and private key. This slice never sends even when they are set. */
+/** Outbound posting needs the App id and private key. Unset: `postGithubChange` returns without fetching. */
 export function outboundEnabled(env: Pick<Env, "GITHUB_APP_ID" | "GITHUB_APP_PRIVATE_KEY">): boolean {
   return !!(env.GITHUB_APP_ID?.trim() && env.GITHUB_APP_PRIVATE_KEY?.trim());
 }
@@ -238,12 +238,13 @@ export async function handleWebhook(env: Pick<Env, "GITHUB_WEBHOOK_SECRET">, raw
 }
 
 export type GithubOutboundKind = "check_run" | "issue_comment";
+export type GithubHttp = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
 
 /** A GitHub REST call we would make; `ready` is false when a required field is missing. */
 export interface GithubOutbound {
   kind: GithubOutboundKind;
   repo: string;
-  method: "POST";
+  method: "POST" | "PATCH";
   path: string;
   url: string;
   body: Record<string, unknown>;
@@ -323,25 +324,283 @@ export function githubChangeNotification(card: ChangeCard, ctx: ChangeNotifyCtx)
       ready: true,
     });
   }
-  return out;
+  return out.map((p) => {
+    if (!p.ready) return p;
+    const secret = scanPayload(p);
+    return secret ? { ...p, ready: false, reason: secret } : p;
+  });
+}
+
+export interface GithubCallResult {
+  kind: GithubOutboundKind;
+  method: "POST" | "PATCH";
+  path: string;
+  status: number;
+  id?: number;
 }
 
 export interface GithubPostResult {
-  posted: false;
-  reason: string;
+  posted: boolean;
+  reason?: string;
   payloads: GithubOutbound[];
+  calls?: GithubCallResult[];
+}
+
+export type GithubAppEnv = Pick<Env, "GITHUB_APP_ID" | "GITHUB_APP_PRIVATE_KEY" | "GITHUB_APP_INSTALLATION_ID">;
+
+export interface GithubPostOpts {
+  /** Tests inject a mock; production uses global fetch. Never called when credentials are missing. */
+  fetch?: GithubHttp;
+  /** Skip the PR comment even when the card has a pull link. */
+  comment?: boolean;
+  /** Existing Check run id to PATCH; otherwise we look one up by `external_id`, then POST. */
+  checkRunId?: number;
+}
+
+const JWT_MAX_AGE = 9 * 60;
+const GH_HEADERS = {
+  accept: "application/vnd.github+json",
+  "x-github-api-version": "2022-11-28",
+  "user-agent": "Atteo-GitHubApp/1",
+} as const;
+
+const b64url = (b: Uint8Array) => {
+  let s = "";
+  for (let i = 0; i < b.length; i += 0x8000) s += String.fromCharCode(...b.subarray(i, i + 0x8000));
+  return btoa(s).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+};
+
+function derLen(n: number): Uint8Array {
+  if (n < 128) return Uint8Array.of(n);
+  if (n < 256) return Uint8Array.of(0x81, n);
+  return Uint8Array.of(0x82, (n >> 8) & 255, n & 255);
+}
+
+function wrapPkcs1(pkcs1: Uint8Array): Uint8Array {
+  const alg = Uint8Array.of(0x30, 0x0d, 0x06, 0x09, 0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x01, 0x01, 0x05, 0x00);
+  const ver = Uint8Array.of(0x02, 0x01, 0x00);
+  const octLen = derLen(pkcs1.length);
+  const innerLen = ver.length + alg.length + 1 + octLen.length + pkcs1.length;
+  const seqLen = derLen(innerLen);
+  const out = new Uint8Array(1 + seqLen.length + innerLen);
+  let i = 0;
+  out[i++] = 0x30;
+  out.set(seqLen, i);
+  i += seqLen.length;
+  out.set(ver, i);
+  i += ver.length;
+  out.set(alg, i);
+  i += alg.length;
+  out[i++] = 0x04;
+  out.set(octLen, i);
+  i += octLen.length;
+  out.set(pkcs1, i);
+  return out;
+}
+
+function pemBody(pem: string, label: string): Uint8Array | null {
+  const escaped = pem.includes("\\n") && !pem.includes("\n") ? pem.replace(/\\n/g, "\n") : pem;
+  const m = escaped.match(new RegExp(`-----BEGIN ${label}-----([A-Za-z0-9+/=\\s]+)-----END ${label}-----`));
+  if (!m) return null;
+  try {
+    const bin = atob(m[1].replace(/\s+/g, ""));
+    return Uint8Array.from(bin, (c) => c.charCodeAt(0));
+  } catch {
+    return null;
+  }
+}
+
+/** PKCS#8 or PKCS#1 PEM (GitHub's download) → bytes Web Crypto can import. */
+export function pemToPkcs8(pem: string): Uint8Array | null {
+  const pkcs8 = pemBody(pem, "PRIVATE KEY");
+  if (pkcs8) return pkcs8;
+  const pkcs1 = pemBody(pem, "RSA PRIVATE KEY");
+  return pkcs1 ? wrapPkcs1(pkcs1) : null;
+}
+
+async function importAppKey(pem: string): Promise<CryptoKey | null> {
+  const der = pemToPkcs8(pem);
+  if (!der) return null;
+  try {
+    return await crypto.subtle.importKey("pkcs8", der, { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" }, false, ["sign"]);
+  } catch {
+    return null;
+  }
+}
+
+/** Short-lived App JWT (RS256). `iat` is 60s in the past for clock skew; `exp` is under GitHub's 10-minute cap. */
+export async function signAppJwt(appId: string, pem: string, now = Date.now()): Promise<string | null> {
+  const key = await importAppKey(pem);
+  if (!key) return null;
+  const iat = Math.floor(now / 1000) - 60;
+  const header = b64url(enc.encode(JSON.stringify({ alg: "RS256", typ: "JWT" })));
+  const payload = b64url(enc.encode(JSON.stringify({ iat, exp: iat + JWT_MAX_AGE, iss: /^\d+$/.test(appId) ? Number(appId) : appId })));
+  const sig = new Uint8Array(await crypto.subtle.sign("RSASSA-PKCS1-v1_5", key, enc.encode(`${header}.${payload}`)));
+  return `${header}.${payload}.${b64url(sig)}`;
+}
+
+function scanPayload(p: GithubOutbound): string | null {
+  const strings: string[] = [];
+  const walk = (v: unknown) => {
+    if (typeof v === "string") strings.push(v);
+    else if (v && typeof v === "object") for (const x of Object.values(v as Record<string, unknown>)) walk(x);
+  };
+  walk(p.body);
+  for (const s of strings) if (scanText(s)) return "outbound text looked like a secret";
+  return null;
+}
+
+function jsonObj(v: unknown): Record<string, unknown> | null {
+  return asObj(v);
+}
+
+async function ghFetch(
+  fetchImpl: GithubHttp,
+  url: string,
+  token: string,
+  method: "GET" | "POST" | "PATCH",
+  body?: Record<string, unknown>,
+): Promise<{ status: number; json: unknown }> {
+  const res = await fetchImpl(url, {
+    method,
+    headers: {
+      ...GH_HEADERS,
+      authorization: `Bearer ${token}`,
+      ...(body ? { "content-type": "application/json" } : {}),
+    },
+    body: body ? JSON.stringify(body) : undefined,
+    signal: AbortSignal.timeout(8000),
+    redirect: "manual",
+  });
+  const text = await res.text();
+  let json: unknown = null;
+  try {
+    json = text ? JSON.parse(text) : null;
+  } catch {
+    json = null;
+  }
+  return { status: res.status, json };
+}
+
+async function installationIdFor(
+  env: GithubAppEnv,
+  jwt: string,
+  repo: string,
+  fetchImpl: GithubHttp,
+): Promise<number | null> {
+  const fromEnv = asNum(env.GITHUB_APP_INSTALLATION_ID?.trim());
+  if (fromEnv != null && fromEnv > 0) return fromEnv;
+  const r = await ghFetch(fetchImpl, `${GITHUB_API}/repos/${repo}/installation`, jwt, "GET");
+  const id = asNum(jsonObj(r.json)?.id);
+  return r.status < 300 && id != null ? id : null;
+}
+
+async function installationToken(jwt: string, installation: number, fetchImpl: GithubHttp): Promise<string | null> {
+  const r = await ghFetch(fetchImpl, `${GITHUB_API}/app/installations/${installation}/access_tokens`, jwt, "POST");
+  const token = asStr(jsonObj(r.json)?.token, 400);
+  return r.status < 300 && token ? token : null;
+}
+
+async function existingCheckRun(token: string, repo: string, sha: string, externalId: string, fetchImpl: GithubHttp): Promise<number | null> {
+  const r = await ghFetch(fetchImpl, `${GITHUB_API}/repos/${repo}/commits/${sha}/check-runs?check_name=Atteo`, token, "GET");
+  const runs = jsonObj(r.json)?.check_runs;
+  if (!Array.isArray(runs)) return null;
+  for (const raw of runs) {
+    const run = asObj(raw);
+    if (run && asStr(run.external_id, 200) === externalId) {
+      const id = asNum(run.id);
+      if (id != null) return id;
+    }
+  }
+  return null;
 }
 
 /**
- * Outbound stub: formats payloads but never calls GitHub. Even with App credentials set, posting waits on a later
- * slice (installation token + JWT).
+ * When App credentials are set, mints an installation token and POSTs (or PATCHes) a Check run, plus a PR comment
+ * when the card has a GitHub pull link. Missing credentials: returns immediately and never fetches. Outbound text is
+ * only the change-card line, seq, author, and board URL — never diffs, tokens, or other board text. A later slice
+ * will call this from a change-card post; this slice does not hook that path, and production configs do not set the
+ * secrets.
  */
-export function postGithubChange(
-  env: Pick<Env, "GITHUB_APP_ID" | "GITHUB_APP_PRIVATE_KEY">,
+export async function postGithubChange(
+  env: GithubAppEnv,
   card: ChangeCard,
   ctx: ChangeNotifyCtx,
-): GithubPostResult {
+  opts: GithubPostOpts = {},
+): Promise<GithubPostResult> {
   const payloads = githubChangeNotification(card, ctx);
   if (!outboundEnabled(env)) return { posted: false, reason: "GitHub App credentials aren't set", payloads };
-  return { posted: false, reason: "outbound posting isn't wired yet", payloads };
+
+  const toSend = payloads
+    .filter((p) => p.ready && (opts.comment !== false || p.kind !== "issue_comment"))
+    .map((p) => {
+      const secret = scanPayload(p);
+      return secret ? { ...p, ready: false, reason: secret } : p;
+    });
+  const ready = toSend.filter((p) => p.ready);
+  if (!ready.length) {
+    const reason = toSend.find((p) => p.reason)?.reason ?? payloads.find((p) => p.reason)?.reason ?? "nothing ready to post";
+    return { posted: false, reason, payloads: toSend.length ? toSend : payloads };
+  }
+
+  const appId = env.GITHUB_APP_ID!.trim();
+  const jwt = await signAppJwt(appId, env.GITHUB_APP_PRIVATE_KEY!);
+  if (!jwt) return { posted: false, reason: "GitHub App private key isn't usable", payloads };
+
+  const fetchImpl = opts.fetch ?? fetch;
+  const repo = ready[0].repo;
+  let installation: number | null;
+  try {
+    installation = await installationIdFor(env, jwt, repo, fetchImpl);
+  } catch {
+    return { posted: false, reason: "GitHub installation lookup failed", payloads };
+  }
+  if (installation == null) return { posted: false, reason: "GitHub App isn't installed on this repository", payloads };
+
+  let token: string | null;
+  try {
+    token = await installationToken(jwt, installation, fetchImpl);
+  } catch {
+    return { posted: false, reason: "GitHub installation token failed", payloads };
+  }
+  if (!token) return { posted: false, reason: "GitHub installation token failed", payloads };
+
+  const calls: GithubCallResult[] = [];
+  const sent: GithubOutbound[] = [];
+  for (const p of ready) {
+    try {
+      let method: "POST" | "PATCH" = "POST";
+      let path = p.path;
+      let url = p.url;
+      let body = p.body;
+      if (p.kind === "check_run") {
+        const sha = asStr(p.body.head_sha, 40);
+        const externalId = asStr(p.body.external_id, 200);
+        const known = opts.checkRunId ?? (sha && externalId ? await existingCheckRun(token, p.repo, sha, externalId, fetchImpl) : null);
+        if (known != null) {
+          method = "PATCH";
+          path = `/repos/${p.repo}/check-runs/${known}`;
+          url = `${GITHUB_API}${path}`;
+          const { head_sha: _sha, ...rest } = p.body;
+          body = rest;
+        }
+      }
+      const r = await ghFetch(fetchImpl, url, token, method, body);
+      const id = asNum(jsonObj(r.json)?.id) ?? undefined;
+      calls.push({ kind: p.kind, method, path, status: r.status, ...(id != null ? { id } : {}) });
+      sent.push({ ...p, method, path, url, body, ready: r.status < 300, reason: r.status < 300 ? undefined : `GitHub answered ${r.status}` });
+    } catch {
+      calls.push({ kind: p.kind, method: p.method, path: p.path, status: 0 });
+      sent.push({ ...p, ready: false, reason: "GitHub request failed" });
+    }
+  }
+
+  const posted = calls.some((c) => c.status >= 200 && c.status < 300);
+  const failed = sent.find((p) => !p.ready);
+  return {
+    posted,
+    reason: posted ? undefined : (failed?.reason ?? "GitHub request failed"),
+    payloads: [...sent, ...toSend.filter((p) => !p.ready)],
+    calls,
+  };
 }

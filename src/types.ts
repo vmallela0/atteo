@@ -161,8 +161,9 @@ export interface Env {
   ALLOW_LOCAL_WEBHOOKS?: string; // dev/CI only: allow http://localhost webhook URLs and the test sink
   STRIPE_WEBHOOK_SECRET?: string; // secret
   GITHUB_WEBHOOK_SECRET?: string; // secret: GitHub App webhook HMAC; unset: POST /github/webhook is 503. Never in wrangler.jsonc
-  GITHUB_APP_ID?: string; // secret or var: GitHub App id for outbound Checks/comments; unused until outbound posting is wired
-  GITHUB_APP_PRIVATE_KEY?: string; // secret: GitHub App private key (PEM). Unset: outbound stays a stub. Never kept in D1
+  GITHUB_APP_ID?: string; // secret: GitHub App id for outbound Checks/comments. Unset: postGithubChange does not fetch. Never in wrangler.jsonc vars
+  GITHUB_APP_PRIVATE_KEY?: string; // secret: GitHub App private key (PEM). Unset: outbound does not fetch. Never kept in D1 or wrangler.jsonc
+  GITHUB_APP_INSTALLATION_ID?: string; // secret: optional install id so outbound can skip GET /repos/{repo}/installation. Never in wrangler.jsonc
   SENTRY_DSN?: string; // secret (so dev/CI never report): Sentry project DSN; absent in dev/CI, then Sentry is off
   POSTHOG_KEY?: string; // var: PostHog project API key (phc_…, public). Unset: the web analytics loader does nothing (src/analytics.ts, docs/ANALYTICS.md)
   POSTHOG_HOST?: string; // var: "eu" (default) or "us". Anything else leaves analytics off
