@@ -33,6 +33,8 @@ check(text.includes(`${Q}'s qbox${run}`) && /Machine attached/.test(text), `a re
 const red = await p.evaluate(() => { const s = getComputedStyle(document.getElementById("host-ban")); return s.backgroundColor; });
 const inter = await p.evaluate(() => { const d = document.createElement("div"); d.style.background = "var(--intervene)"; document.body.appendChild(d); const c = getComputedStyle(d).backgroundColor; d.remove(); return c; });
 check(red === inter, `the banner is the intervention colour (${red} vs ${inter})`);
+const geo = await p.evaluate(() => { const b = document.getElementById("host-ban").getBoundingClientRect(), t = document.getElementById("thread-scroll").getBoundingClientRect(); return { bh: Math.round(b.height), bw: Math.round(b.width), th: Math.round(t.height), tw: Math.round(t.width), above: b.bottom <= t.top + 1 }; });
+check(geo.bh < 140 && geo.above && geo.th > 200 && geo.tw >= geo.bw - 40, `the banner is a strip above the messages, not a wall over them (jxn #4899): ${JSON.stringify(geo)}`);
 const side = await p.evaluate(() => document.querySelector("#host-side .host-list")?.innerText || "");
 check(side.includes(`qbox${run}`) && side.includes("/home/q/proj") && side.includes("Stop"), `the side panel lists it with Stop for the board's owner ("${side.replace(/\s+/g, " ").slice(0, 120)}")`);
 // Attach a machine, from the side panel: how to start atteo host there (no phrase here: that comes from its link).

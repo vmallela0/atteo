@@ -32,17 +32,15 @@ final class NotifyLevelsUITests: AtteoUITestCase {
         shot("notify-info-off")
         a.navigationBars["Info"].swipeDown(velocity: .fast)
 
-        // The chat's menu: Notifications → Everything.
-        let menu = a.buttons["board-menu"]
-        XCTAssertTrue(menu.waitForExistence(timeout: 5))
-        menu.tap()
-        let sub = a.buttons["notify-level-menu"].firstMatch.exists ? a.buttons["notify-level-menu"].firstMatch : a.buttons["Notifications"].firstMatch
-        XCTAssertTrue(sub.waitForExistence(timeout: 5), "the menu has Notifications")
-        sub.tap()
-        let every = a.buttons["Everything"].firstMatch
-        XCTAssertTrue(every.waitForExistence(timeout: 5))
-        every.tap()
-        XCTAssertTrue(waitLevel(id, "everything"), "Everything saved from the menu")
+        // The rail sheet (#4860): Notifications → Everything.
+        let rail = a.buttons["board-rail"].firstMatch
+        XCTAssertTrue(rail.waitForExistence(timeout: 5))
+        rail.tap()
+        let segs = a.segmentedControls["notify-level-segments"].firstMatch
+        XCTAssertTrue(segs.waitForExistence(timeout: 5), "the rail has Notifications")
+        XCTAssertTrue(eventually(segs.buttons["Off"], "isSelected == true"), "the rail shows the level saved in Info")
+        segs.buttons["Everything"].tap()
+        XCTAssertTrue(waitLevel(id, "everything"), "Everything saved from the rail")
         call("PUT", "/api/boards/\(id)/notify", json: ["level": "needs_me"])
     }
 

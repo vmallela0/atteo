@@ -1,3 +1,4 @@
+import { PALETTE_JS, PALETTE_CSS } from "./palette";
 // Worker entry: MCP endpoint, sign-in, web pages, JSON API, and the operator console (/_ops).
 
 import { localize, pickLang } from "./i18n";
@@ -11,6 +12,7 @@ import * as costGuard from "./costGuard";
 import * as oauth from "./oauth";
 import { consentPage } from "./oauthPage";
 import * as approvals from "./approvals";
+import { boardStates } from "./boardStates";
 import { approvalsPage } from "./approvalsPage";
 import { askPage } from "./ask";
 import * as access from "./access";
@@ -1804,6 +1806,7 @@ const handler = {
       if (path === BOARD_PREFETCH_PATH && method === "GET") return new Response(BOARD_PREFETCH_RULES, { headers: { "content-type": "application/speculationrules+json", "cache-control": "public, max-age=3600", "x-content-type-options": "nosniff" } });
       if (path === "/shell.js" && method === "GET") return new Response(SHELL_PAGE_JS, { headers: { "content-type": "text/javascript; charset=utf-8", "cache-control": url.searchParams.get("v") ? "public, max-age=31536000, immutable" : "public, max-age=300", "x-content-type-options": "nosniff" } });
       if (path === "/bug.js" && method === "GET") return new Response(BUG_PAGE_JS, { headers: { "content-type": "text/javascript; charset=utf-8", "cache-control": url.searchParams.get("v") ? "public, max-age=31536000, immutable" : "public, max-age=300", "x-content-type-options": "nosniff" } });
+      if ((path === "/palette.js" || path === "/palette.css") && method === "GET") return new Response(path.endsWith(".js") ? PALETTE_JS : PALETTE_CSS, { headers: { "content-type": path.endsWith(".js") ? "text/javascript; charset=utf-8" : "text/css; charset=utf-8", "cache-control": url.searchParams.get("v") ? "public, max-age=31536000, immutable" : "public, max-age=300", "x-content-type-options": "nosniff" } });
       if (path === "/feedback.js" && method === "GET") return new Response(FEEDBACK_PAGE_JS, { headers: { "content-type": "text/javascript; charset=utf-8", "cache-control": url.searchParams.get("v") ? "public, max-age=31536000, immutable" : "public, max-age=300", "x-content-type-options": "nosniff" } });
       if (path === "/host.js" && method === "GET") return new Response(HOST_PAGE_JS, { headers: { "content-type": "text/javascript; charset=utf-8", "cache-control": url.searchParams.get("v") ? "public, max-age=31536000, immutable" : "public, max-age=300", "x-content-type-options": "nosniff" } });
       if (path === BOARD_TAIL_PATH && method === "GET") {
@@ -2120,6 +2123,11 @@ const handler = {
           const msg = e instanceof Error ? e.message.replace(/: https?:\S+$/, ".") : String(e);
           return json({ error: msg }, e instanceof billing.BillingError ? 402 : 400);
         }
+      }
+
+      if (path === "/api/me/board-states" && method === "GET") {
+        if (!viewer) return json({ error: "sign in required" }, 401);
+        return json({ boards: await boardStates(env, viewer.name) }, 200, { "cache-control": "private, no-store" });
       }
 
       // ---- the signed-in person's boards (CLI uses its bearer token) ----

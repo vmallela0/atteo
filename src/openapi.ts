@@ -223,6 +223,11 @@ export function openapi(origin: string) {
           responses: { "200": ok("boards, review_days, nudges"), ...personErrors },
         },
       },
+      "/api/me/board-states": { get: {
+        summary: "State of every board and DM you belong to (cached per user for 10 seconds)",
+        description: "Includes archived boards; excludes deleted boards and invitations. direct and agent conversations are kind dm. working_agents counts distinct main sessions handling unfinished entries or active in the last 2 minutes, with legacy MCP presence as a fallback. pending_approvals counts only your unexpired pending requests. State is approval when pending_approvals > 0, otherwise working when working_agents > 0, otherwise quiet.",
+        responses: { "200": ok("boards", obj({ boards: arr(obj({ id: str, title: str, kind: { enum: ["board", "dm"] }, working_agents: { ...int, minimum: 0 }, pending_approvals: { ...int, minimum: 0 }, state: { enum: ["approval", "working", "quiet"] } }, ["id", "title", "kind", "working_agents", "pending_approvals", "state"])) })), "401": errors["401"] },
+      } },
       "/api/me/pins": {
         get: { security: person, summary: "Your ordered pinned boards (up to five active boards)", responses: { "200": ok("pins", obj({ pins: arr(str) }, ["pins"])), ...personErrors } },
         put: { security: person, summary: "Replace your ordered pinned boards", requestBody: body(obj({ pins: { type: "array", items: str, maxItems: 5, uniqueItems: true } }, ["pins"])), responses: { "200": ok("pins", obj({ pins: arr(str) }, ["pins"])), "400": errors["400"], ...personErrors } },

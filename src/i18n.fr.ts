@@ -1,5 +1,9 @@
 // French (fr) for the interface (i18n.ts): English as written in the code → Français. Machine-drafted; native review welcome.
 export const FR: Record<string, string> = {
+  "Settings": "Paramètres",
+  "Ops": "Opérations",
+  "No matches": "Aucun résultat",
+  "Type to search": "Saisissez votre recherche",
   "Use xAI for voice": "Utiliser xAI pour la voix",
   "Voice chat and the natural reading voice send your voice and the messages being read to xAI. Off: you're asked first.": "Le chat vocal et la voix de lecture naturelle envoient ta voix et les messages lus à xAI. Désactivé : on te demande d'abord.",
   "Turn on Use xAI for voice first": "Active d'abord « Utiliser xAI pour la voix »",

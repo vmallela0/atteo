@@ -172,7 +172,7 @@ ${
   // An approval entry: the card says where it stands, so the message is just what's asked (its text, for agents, says "waiting").
   const apr = (e as Entry & { approval?: ApprovalCardData & { title?: string } }).approval;
   return `<article class="entry${opts.retracted ? " retracted" : ""}${e.via === "agent" ? " by-agent" : ""}" id="e${e.seq}" data-seq="${e.seq}" data-author="${esc(e.author)}" data-title="${esc(shortTitle(e))}"${e.to ? ` data-to="${esc(e.to)}"` : ""}${e.reply_to != null ? ` data-reply="${e.reply_to}"` : ""}${opts.root != null && opts.root !== e.seq ? ` data-root="${opts.root}"` : ""}>
-<span class="gut" aria-hidden="true"><span class="gut-n">#${e.seq}</span><span class="gut-t" data-ts="${e.ts}"></span></span>${avatar(e.author, "", e.via === "agent")}
+${avatar(e.author, "", e.via === "agent")}
 <div class="grow">
   <div class="meta">${isTombstone(e.author) ? `<span class="who deleted">${esc(T(DELETED_LABEL))}</span>` : whoHtml(e, opts.people, opts.members)}${e.to ? `<span class="to">→ ${isTombstone(e.to) ? esc(T(DELETED_LABEL)) : personHtml(e.to, opts.people?.[e.to], opts.members)}</span>` : ""}${e.type === "note" ? "" : typeTag(e.type, opts.lang)}${when(e.ts, opts.lang)}${e.edited_at ? `<button class="edited" type="button" data-history="${e.seq}" aria-label="${esc(T("Edited, show history"))}" title="${esc(new Date(e.edited_at).toUTCString())}">${esc(T("edited"))}</button>` : ""}<a class="seq" href="#e${e.seq}">#${e.seq}</a>${peopleBadge(e, opts.lang)}<span class="badge rbadge">${esc(T("Unsent"))}</span>${flagBadge(e.text, e.ai_flag)}${actions}</div>
   <div class="body${e.purged ? " purged" : ""}">${e.purged ? `<p>${esc(T("Purged by {name}. Its text and files were removed for good.", { name: e.purged.via === "agent" ? T("{name}'s agent", { name: e.purged.by }) : e.purged.by }))}</p>` : apr?.title ? `<p>${esc(apr.title)}</p>` : refLinks(renderText(e.text, e.mentions, e.mention_names, selfMentions(e.text, e.author, e.via, e.agent_name)))}</div>${file}${e.card ? changeCardHtml(e.seq, e.card) : ""}${e.handoff ? `<div class="refs mono handoff">${esc(handoffLine(e.handoff))}</div>` : ""}${apr && !opts.retracted ? approvalCardHtml(apr, false, opts.lang) : ""}${e.type === "task" ? `<div class="tk" data-task="${e.seq}" hidden></div>` : ""}${e.type === "claim" && !opts.retracted ? `<div class="tk cl" data-claim="${e.seq}" hidden></div>` : ""}${e.type === "decision" && e.via === "person" && !opts.retracted ? `<div class="tk hd" data-hd="${e.seq}" hidden></div>` : ""}${quick}
@@ -1183,9 +1183,13 @@ async function loadEarlier(until){const b=document.getElementById('load-earlier'
   const r=await fetch('/api/boards/'+BOARD+'/entries?before='+before+'&limit='+(until?Math.min(500,before-until+20):60));const j=await r.json().catch(()=>({}));if(!r.ok){b.disabled=false;return}
   const frag=document.createDocumentFragment(),later=[];
   for(const x of j.entries){if(document.getElementById('e'+x.seq)||document.getElementById('g'+x.seq))continue;frag.appendChild(entryEl(x));later.push(x)}
-  const h0=sc.scrollHeight;b.after(frag); // measured now: the thread can grow while the fetch is out (keeps your place, never overshoots to the bottom)
+  // Keeps your place by the message at the top of the view (as placeholders do), not by scrollHeight: Chrome's own scroll
+  // anchoring may already have kept it, and one-line rows fold now (olMark), not a frame later. Adding the height on top of
+  // either threw you to the bottom and stopped you short of older messages (jxn #4879/#4881).
+  let a=ghAnchor();const h0=sc.scrollHeight;if(a&&a.el===b){const n=b.nextElementSibling;a=n?{el:n,seq:n.dataset.seq,y:n.getBoundingClientRect().top}:null} // the button stays on top: hold the first message under it
+  b.after(frag);olMark();
   entryFill(later);
-  if(j.first>1){b.dataset.before=j.first;b.disabled=false}else b.remove();sc.scrollTop+=sc.scrollHeight-h0;railBuild();ghostSoon()}
+  if(j.first>1){b.dataset.before=j.first;b.disabled=false}else b.remove();if(a)ghAnchorBack(a);else sc.scrollTop+=sc.scrollHeight-h0;railBuild();ghostSoon()}
 /** An entry from the entries API as a conversation element (a reply ties to its thread). */
 function entryEl(x){const t=document.createElement('div');t.innerHTML=x.html;const el=t.firstElementChild;
   if(x.root!==x.seq){el.dataset.root=String(x.root);el.querySelector(':scope>.grow>.replies')?.remove()}return el}
@@ -1308,6 +1312,7 @@ async function ghRun(r){try{const lo=r[0],hi=r[r.length-1];
     const a=ghAnchor(),got=[];
     for(const x of j.entries||[]){const g=x.seq>=lo&&document.getElementById('g'+x.seq);if(!g)continue;const el=entryEl(x);
       if(g.dataset.gone){el.classList.add('retracted');el.querySelector('[data-retract]')?.remove()}g.replaceWith(el);got.push(x)}
+    olMark(); // fold them now, so the anchor below keeps your place (they used to fold a frame later and push you down, jxn #4879)
     for(const s of r)if(!got.some(x=>x.seq===s))document.getElementById('g'+s)?.remove(); // gone from the board since
     entryFill(got);ghAnchorBack(a);railBuild()}catch(e){ghPause=Date.now()+3000}finally{r.forEach(s=>GH_BUSY.delete(s))}}
 // A message you jumped to stays where it landed while the ones around it come back and settle (jxn #4648): placeholders
@@ -1368,30 +1373,6 @@ document.addEventListener('click',e=>{if(!olOn())return;const el=e.target.closes
 document.addEventListener('click',e=>{const b=e.target.closest('[data-ol-toggle]');if(!b)return;const r=document.documentElement,on=!r.hasAttribute('data-ol-all');
   r.toggleAttribute('data-ol-all',on);b.textContent=on?b.dataset.foldL:b.dataset.openL;b.closest('details')?.removeAttribute('open');railBuild();if(pinned)toBottom()});
 document.addEventListener('atteo-replies',()=>{olMark();railBuild();if(pinned)toBottom()});
-// The agent log (jxn #4734): each row's gutter shows its #number and local time, and a reply is joined to the message it
-// answers by a thin rail in the gutter, like a git graph: out of the parent's node, down a lane, into the reply's node.
-// Threads that overlap take the next lane. Drawn as one SVG behind the rows, redrawn when rows come, go or change height.
-const LG_DAY=new Date().toDateString(),GRAPH=document.createElementNS('http://www.w3.org/2000/svg','svg');
-GRAPH.setAttribute('class','graph');GRAPH.style.cssText='position:absolute;pointer-events:none;overflow:visible;fill:none;stroke:var(--line-strong)';GRAPH.setAttribute('aria-hidden','true');
-function lgTime(t){const d=new Date(+t.dataset.ts);t.textContent=d.toDateString()===LG_DAY?d.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit',hour12:false}):d.toLocaleDateString([],{month:'short',day:'numeric'})}
-let graphQ=0;function graphSoon(){if(!graphQ)graphQ=requestAnimationFrame(()=>{graphQ=0;graphDraw()})}
-function graphDraw(){const th=document.getElementById('thread');if(!th)return;if(!GRAPH.isConnected){th.before(GRAPH);th.parentElement.style.position='relative'}
-  th.querySelectorAll(':scope>.entry>.gut>.gut-t:empty').forEach(lgTime);
-  const o=th.getBoundingClientRect(),at=new Map();
-  GRAPH.style.top=th.offsetTop+'px';GRAPH.style.left=th.offsetLeft+'px';GRAPH.setAttribute('width',o.width);GRAPH.setAttribute('height',th.scrollHeight);
-  for(const el of th.querySelectorAll(':scope>.entry,:scope>.ghost')){const r=el.getBoundingClientRect();if(!r.height)continue;const av=el.querySelector(':scope>.av');
-    if(!av){at.set(el.dataset.seq,{y:r.top-o.top+30,x:null,el});continue}const a=av.getBoundingClientRect(),ag=av.classList.contains('agent');
-    at.set(el.dataset.seq,{y:a.top-o.top+a.height/2,x:a.left-o.left,e:a.left-o.left+(ag?a.width/2-5:0),el})}
-  const groups=new Map();
-  for(const [s,c] of at){const p=c.el.dataset.reply;if(!p||!c.el.classList.contains('entry')||c.x==null)continue;const q=at.get(p);if(!q||q.y>=c.y)continue;
-    let g=groups.get(p);if(!g)groups.set(p,g={y0:q.y,y1:c.y,q,cs:[]});g.y1=Math.max(g.y1,c.y);g.cs.push(c)}
-  const ends=[],R=4,one=matchMedia('(max-width:640px)').matches;let d=''; // a phone has no gutter: one lane, in the margin left of the pictures
-  for(const g of [...groups.values()].sort((a,b)=>a.y0-b.y0)){let k=ends.findIndex(v=>v<=g.y0+1);if(k<0){k=ends.length;ends.push(0)}ends[k]=g.y1;
-    for(const c of g.cs){const x=c.x-7-5*(one?0:Math.min(k,5)),y0=g.q.y,y1=c.y,x0=g.q.x==null?x:g.q.e,r=Math.min(R,(y1-y0)/2);
-      d+='M'+x0.toFixed(1)+' '+y0.toFixed(1)+'H'+(x+r).toFixed(1)+'Q'+x.toFixed(1)+' '+y0.toFixed(1)+' '+x.toFixed(1)+' '+(y0+r).toFixed(1)+'V'+(y1-r).toFixed(1)+'Q'+x.toFixed(1)+' '+y1.toFixed(1)+' '+(x+r).toFixed(1)+' '+y1.toFixed(1)+'H'+c.e.toFixed(1)}}
-  let path=GRAPH.firstElementChild;if(!path){path=document.createElementNS('http://www.w3.org/2000/svg','path');GRAPH.append(path)}path.setAttribute('d',d)}
-new MutationObserver(graphSoon).observe(document.getElementById('thread'),{childList:true});new ResizeObserver(graphSoon).observe(document.getElementById('thread'));
-document.addEventListener('atteo-replies',graphSoon);addEventListener('resize',graphSoon);graphSoon();
 // Replies only in their threads (Display, vedu #2360): replies stay off the chat; a link or jump to one opens its thread.
 function rpOn(){return document.documentElement.dataset.replies==='thread'}
 function rpHid(el){return !!el&&el.hasAttribute('data-root')&&rpOn()}

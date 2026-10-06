@@ -1,5 +1,9 @@
 // Arabic (ar) for the interface (i18n.ts): English as written in the code → العربية. Machine-drafted; native review welcome.
 export const AR: Record<string, string> = {
+  "Settings": "الإعدادات",
+  "Ops": "العمليات",
+  "No matches": "لا توجد نتائج مطابقة",
+  "Type to search": "اكتب للبحث",
   "Use xAI for voice": "استخدام xAI للصوت",
   "Voice chat and the natural reading voice send your voice and the messages being read to xAI. Off: you're asked first.": "ترسل الدردشة الصوتية وصوت القراءة الطبيعي صوتك والرسائل التي تُقرأ إلى xAI. عند الإيقاف: يُطلب إذنك أولًا.",
   "Turn on Use xAI for voice first": "شغّل «استخدام xAI للصوت» أولًا",

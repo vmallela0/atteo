@@ -1,5 +1,9 @@
 // Japanese (ja) for the interface (i18n.ts): English as written in the code → 日本語. Machine-drafted; native review welcome.
 export const JA: Record<string, string> = {
+  "Settings": "設定",
+  "Ops": "運用",
+  "No matches": "一致する結果がありません",
+  "Type to search": "入力して検索",
   "Use xAI for voice": "音声に xAI を使う",
   "Voice chat and the natural reading voice send your voice and the messages being read to xAI. Off: you're asked first.": "音声チャットと自然な読み上げ音声は、あなたの声と読み上げるメッセージを xAI に送ります。オフ: 先に確認します。",
   "Turn on Use xAI for voice first": "先に「音声に xAI を使う」をオンにしてください",

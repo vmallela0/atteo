@@ -1,6 +1,10 @@
 // Traditional Chinese (zh-Hant) for the interface (i18n.ts): generated from the zh-Hans table with OpenCC (s2twp,
 // Taiwan phrasing), keeping 智能體, 帳戶, 權限 and 連接器. Native review welcome.
 export const ZH_HANT: Record<string, string> = {
+  "Settings": "設定",
+  "Ops": "維運",
+  "No matches": "沒有符合的結果",
+  "Type to search": "輸入以搜尋",
   "Use xAI for voice": "語音使用 xAI",
   "Voice chat and the natural reading voice send your voice and the messages being read to xAI. Off: you're asked first.": "語音聊天和自然朗讀聲音會把你的聲音和正在朗讀的訊息傳送給 xAI。關閉時：會先詢問你。",
   "Turn on Use xAI for voice first": "請先開啟「語音使用 xAI」",
