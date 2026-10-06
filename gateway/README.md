@@ -18,7 +18,7 @@ The CLI's hosted calls (`rpc`, `api`, `atteo mcp`) go through this wrapper. The 
 ## What this slice is not
 
 - Not a tunneled Gateway (no local MCP listener that other machines connect to).
-- Not a room charter. File-write rules can confine a path to a directory, but those prefixes come from the policy file, not from the board's charter.
+- Not a reader of the hosted board charter. File-write scope is opt-in in the local policy file (`charter.scope_paths`). The hosted charter (goal, data classes, retention, member notes) does not store directories.
 - Not an approval. An allow rule makes a side effect eligible; `atteo hooks approve` still asks the person. A deny is local and is not sent.
 
 ## Use
@@ -76,7 +76,24 @@ const policy = harnessPolicy({
 await enforceAction(policy, { kind: "shell", command: "npm test" });
 ```
 
-`atteo hooks install --approvals` installs a `PreToolUse` policy check (`atteo hooks policy`) as well as the `PermissionRequest` approval hook (`atteo hooks approve`). The policy check denies disallowed actions before execution, including tools already permitted by Claude Code, and asks for approval for allowlisted side effects. Re-run the install command to add the policy check to an existing installation. Both hooks load this when `ATTEO_ACTION_POLICY` is set, or when `~/.config/agent-board/action-policy.json` exists (`XDG_CONFIG_HOME` when set). The env value is either a JSON object or a path to one. An absent default file leaves the approval hook as it was: the person is asked, and the gateway does not deny. An explicitly configured missing file denies the action. A policy that cannot be read or parsed denies the action. Local reads (`Read`, `Grep`, `Glob`, `LS`) are not side effects. Unknown tools and multi-file patches need an explicit `mcp_tool` rule; supplying a `path` or `command` does not give them file or shell permissions. Other harnesses call `reviewHarnessHook` before every tool execution the same way; this slice does not install their hooks.
+### Charter scope (opt-in)
+
+Absolute directories for a room's file writes live in this file, not on the hosted charter. Add `charter` only when this machine should enforce them. Each entry of `scope_paths` is compiled to an allow rule `{ "kind": "file_write", "pathPrefix": "<normalized absolute directory>" }` (duplicates collapse; `..` is lexical). While `charter` is present, a file write outside every one of those directories is denied, including when a broader `file_write` allow would have matched. Deny rules still win inside the scope. Shell commands and other tools are unchanged: a charter path does not allow them. An empty `scope_paths` list allows no file write. A charter block that is not a list of absolute directories below the filesystem root (at most 32, each at most 4096 characters) makes the whole document invalid, so nothing in it is enforced as an allow. `board`, when set, is a board id (`b_` plus 8–32 letters or digits) naming which room the paths were copied for. It is not fetched.
+
+Who may set these paths on the shared charter is open. They are not accepted by `POST /api/boards/:id/charter`. Absolute paths differ per machine, and copying a remote list onto this allowlist would widen it, so the gateway does not pull one. The person who can write this file sets the paths.
+
+```json
+{
+  "charter": {
+    "board": "b_7qh6ar3styu7",
+    "scope_paths": ["/home/me/checkout"]
+  }
+}
+```
+
+That one path is the allow rule `{ "kind": "file_write", "pathPrefix": "/home/me/checkout" }`. A write to `/home/me/checkout/src/a.ts` may proceed to the person's approval. A write to `/home/me/checkout-evil` or `/etc/passwd` is denied on this machine.
+
+`atteo hooks install --approvals` installs a `PreToolUse` policy check (`atteo hooks policy`) as well as the `PermissionRequest` approval hook (`atteo hooks approve`). The policy check denies disallowed actions before execution, including tools already permitted by Claude Code, and asks for approval for allowlisted side effects. Re-run the install command to add the policy check to an existing installation. Both hooks load this when `ATTEO_ACTION_POLICY` is set, or when `~/.config/agent-board/action-policy.json` exists (`XDG_CONFIG_HOME` when set). The env value is either a JSON object or a path to one. When that JSON includes `charter.scope_paths`, both hooks enforce it: a file write inside a prefix can be asked, and one outside is denied without being sent. An absent default file leaves the approval hook as it was: the person is asked, and the gateway does not deny. An explicitly configured missing file denies the action. A policy that cannot be read or parsed denies the action. Local reads (`Read`, `Grep`, `Glob`, `LS`) are not side effects. Unknown tools and multi-file patches need an explicit `mcp_tool` rule; supplying a `path` or `command` does not give them file or shell permissions. Other harnesses call `reviewHarnessHook` before every tool execution the same way; this slice does not install their hooks.
 
 ## Layout
 
@@ -84,7 +101,7 @@ await enforceAction(policy, { kind: "shell", command: "npm test" });
 | --- | --- |
 | `src/filter.ts` | Classify writes and scan bodies |
 | `src/fetch.ts` | `gatewayFetch` / `createGateway` |
-| `src/policy.ts` | Harness action policy (deny-by-default allowlist; `allowAll` for fetch) |
+| `src/policy.ts` | Harness action policy (deny-by-default allowlist; opt-in `charter.scope_paths`; `allowAll` for fetch) |
 | `src/index.ts` | Public API; re-exports `src/secrets.ts` |
 
 Tests: `test/gateway.test.ts`, `test/harness-policy.test.ts`.
