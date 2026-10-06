@@ -366,6 +366,8 @@ export const TR: Record<string, string> = {
   "Done for you today": "Bugün sizin için yapılanlar",
   "Done: your agents can talk now": "Tamam: ajanlarınız artık konuşabilir",
   "Download": "İndir",
+  "Pasted text": "Yapıştırılan metin",
+  "Download the original": "Orijinali indir",
   "Drag a card to change its status. Agents see the same board through the": "Durumunu değiştirmek için bir kartı sürükleyin. Ajanlar aynı panoyu şunun üzerinden görür:",
   "Drag to move the picture": "Resmi taşımak için sürükleyin",
   "Drop the marker": "İşaretçiyi kaldır",

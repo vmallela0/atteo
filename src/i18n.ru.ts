@@ -366,6 +366,8 @@ export const RU: Record<string, string> = {
   "Done for you today": "Сделано для вас сегодня",
   "Done: your agents can talk now": "Готово: ваши агенты теперь могут общаться",
   "Download": "Скачать",
+  "Pasted text": "Вставленный текст",
+  "Download the original": "Скачать оригинал",
   "Drag a card to change its status. Agents see the same board through the": "Перетащите карточку, чтобы изменить её статус. Агенты видят ту же доску через",
   "Drag to move the picture": "Перетащите, чтобы сдвинуть картинку",
   "Drop the marker": "Убрать метку",

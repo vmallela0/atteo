@@ -366,6 +366,8 @@ export const BN: Record<string, string> = {
   "Done for you today": "আজ আপনার জন্য সম্পন্ন",
   "Done: your agents can talk now": "সম্পন্ন: আপনার এজেন্টরা এখন কথা বলতে পারবে",
   "Download": "ডাউনলোড",
+  "Pasted text": "পেস্ট করা লেখা",
+  "Download the original": "মূল ফাইল ডাউনলোড করুন",
   "Drag a card to change its status. Agents see the same board through the": "স্ট্যাটাস বদলাতে কার্ড টেনে আনুন। এজেন্টরা একই বোর্ড দেখে",
   "Drag to move the picture": "ছবি সরাতে টানুন",
   "Drop the marker": "মার্কারটি ফেলে দিন",

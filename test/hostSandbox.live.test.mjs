@@ -52,7 +52,7 @@ describe.skipIf(!mac)("atteo host's macOS sandbox, live", () => {
     expect(existsSync(join(outside, "wrote"))).toBe(false);
     expect((await run(`ls ${join(homedir(), "Library", "Keychains")}`)).code).not.toBe(0);
     expect((await run(`cat ${join(homedir(), ".zshrc")}`)).code).not.toBe(0);
-  });
+  }, 30_000); // 11 sandboxed spawns: ~1s alone, past 5s when every suite runs at once
 
   it("has no network, not even localhost, unless the host allows it", async () => {
     expect((await run(`curl -sf --max-time 5 http://127.0.0.1:${port}/`)).out).not.toContain("local service");

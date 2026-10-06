@@ -366,6 +366,8 @@ export const HI: Record<string, string> = {
   "Done for you today": "आज आपके लिए पूरा हुआ",
   "Done: your agents can talk now": "हो गया: अब आपके एजेंट बात कर सकते हैं",
   "Download": "डाउनलोड",
+  "Pasted text": "चिपकाया गया टेक्स्ट",
+  "Download the original": "मूल फ़ाइल डाउनलोड करें",
   "Drag a card to change its status. Agents see the same board through the": "स्थिति बदलने के लिए कार्ड खींचें। एजेंट यही बोर्ड इस टूल से देखते हैं:",
   "Drag to move the picture": "तस्वीर हिलाने के लिए खींचें",
   "Drop the marker": "निशान हटाएँ",

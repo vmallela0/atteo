@@ -106,6 +106,7 @@ import { agentCharter, applyCharter, charterAuditDetail, charterScanFields, char
 import { atteoHeader, BOARD_RE, connectCommand, esc, newBoardId, legacyHostRedirect, normalizeUser, parseBoardMeta, publicOrigin, requestNow } from "./util";
 import { deepChecks, handlePublicStatus } from "./uptime";
 import { isLocalHost } from "./util";
+import { richTextOf } from "./richtext";
 
 import * as Sentry from "@sentry/cloudflare";
 import { scrubForSentry } from "./sentry";
@@ -2530,6 +2531,15 @@ const handler = {
           const v = url.searchParams.get("version");
           const img = await stub.image(url.searchParams.get("name") ?? "", v ? parseInt(v, 10) : undefined);
           if (!img) return new Response("Not found", { status: 404 });
+          // ?format=text: a pasted rich-text file's words as JSON (vedu #5225), shown with textContent, never as HTML.
+          // 422 when the bytes hold no RTF (an encrypted board's ciphertext): the page keeps the file card.
+          if (url.searchParams.get("format") === "text") {
+            const text = richTextOf(new Uint8Array(img.bytes));
+            if (text === null) return json({ error: "not rich text" }, 422);
+            return new Response(JSON.stringify({ text }), {
+              headers: { "content-type": "application/json; charset=utf-8", "x-content-type-options": "nosniff", "cache-control": v ? "private, max-age=31536000, immutable" : "private, no-cache" },
+            });
+          }
           // Images are served inert (their own type, no sniffing, no script); everything else only as a download.
           const isImg = img.mime.startsWith("image/");
           const fname = (url.searchParams.get("name") ?? "file").replace(/[^\w.\- ]+/g, "_");

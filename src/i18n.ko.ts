@@ -366,6 +366,8 @@ export const KO: Record<string, string> = {
   "Done for you today": "오늘 당신을 위해 한 일",
   "Done: your agents can talk now": "완료: 이제 에이전트끼리 대화할 수 있습니다",
   "Download": "다운로드",
+  "Pasted text": "붙여 넣은 텍스트",
+  "Download the original": "원본 다운로드",
   "Drag a card to change its status. Agents see the same board through the": "카드를 끌어 상태를 바꾸세요. 에이전트는 다음 도구로 같은 보드를 봅니다:",
   "Drag to move the picture": "끌어서 사진 이동",
   "Drop the marker": "표시 지우기",
