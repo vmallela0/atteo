@@ -1075,7 +1075,7 @@ mark{background:var(--mark);color:inherit;border-radius:2px;padding:0 1px}
    waits, grey quiet), new, search, messages, alerts, you. Phones keep the top bar's menu button instead. */
 .strip{display:flex;align-items:center;gap:6px;height:44px;padding:0 12px;border-bottom:1px solid var(--line);background:var(--bg-subtle)}
 .strip .ws{display:flex;align-items:center;gap:8px;padding:0 6px;color:var(--ink)}.strip .ws .wm{font-size:19px}
-.btabs{display:flex;flex:1;min-width:0;align-self:stretch;overflow-x:auto;scrollbar-width:none}
+.btabs{display:flex;flex:1;min-width:0;align-self:stretch;overflow-x:auto;overflow-y:hidden;overscroll-behavior:contain;touch-action:pan-x;scrollbar-width:none}
 .btab{display:flex;align-items:center;gap:7px;flex:none;max-width:240px;margin-top:6px;padding:0 14px;border:1px solid transparent;border-bottom:3px solid var(--line-strong);border-radius:8px 8px 0 0;color:var(--muted);font-size:13px;white-space:nowrap}
 .btab>b{font-weight:500;overflow:hidden;text-overflow:ellipsis}.btab[aria-current]{color:var(--ink);background:var(--bg);border-color:var(--line) var(--line) var(--line-strong)}.btab.st-work{border-bottom-color:var(--ok)}.btab.st-ap{border-bottom-color:var(--warn)}
 .btab-w{position:relative;display:flex;flex:none}.btab-w[hidden]{display:none}.btab-w .btab{padding-right:26px}
@@ -1663,7 +1663,7 @@ function inline(s: string, mentions?: Mention[] | null): string {
 
 // Applies the saved Display settings before first paint, so the page never flashes the wrong size or theme.
 const DISPLAY_HEAD = `<script>try{const d=JSON.parse(localStorage.getItem('atteo-display')||'{}'),r=document.documentElement;
-if(d.text==='s'||d.text==='l')r.dataset.text=d.text;if(d.density==='compact')r.dataset.density='compact';if(d.theme==='light'||d.theme==='dark')r.dataset.theme=d.theme;if(d.ev===true)r.dataset.mode='everyday';if(d.replies==='thread')r.dataset.replies='thread';if(d.compact==='others')r.dataset.compact='others'}catch{}</script>`; // mode: what the account said last time (set on the first sync)
+if(d.text==='s'||d.text==='l')r.dataset.text=d.text;if(d.density==='compact')r.dataset.density='compact';if(d.theme==='light'||d.theme==='dark')r.dataset.theme=d.theme;if(d.ev===true)r.dataset.mode='everyday';if(d.replies==='thread')r.dataset.replies='thread';if(d.compact==='others')r.dataset.compact='others';if(d.tab_order==='opened')r.dataset.tabOrder='opened'}catch{}</script>`; // mode: what the account said last time (set on the first sync)
 
 const CLIENT_JS = `
 // Saving a picture or a file (jxn #2684) is an <a download data-save>. On a phone that can share files (iOS Safari,
@@ -1704,9 +1704,11 @@ window.applyDisplay=d=>{const r=document.documentElement;d=d||{};
   if(d.replies==='thread')r.dataset.replies='thread';else delete r.dataset.replies;
   // One line per message unless it mentions you (jxn #2690): the board folds the others; a tap opens one.
   if(d.compact==='others')r.dataset.compact='others';else delete r.dataset.compact;
+  // The top tabs (vedu #5192): most recent message first, or the board you opened last first.
+  if(d.tab_order==='opened')r.dataset.tabOrder='opened';else delete r.dataset.tabOrder;if(window.orderTabs)window.orderTabs();
   // Everyday (the default) or Developer (#1272): the server says which, from your choice or (auto) whether you've connected a coding agent.
   let ev=r.dataset.mode==='everyday';if(typeof d.developer==='boolean')ev=!d.developer;if(ev)r.dataset.mode='everyday';else delete r.dataset.mode;
-  try{localStorage.setItem('atteo-display',JSON.stringify({text:d.text||'m',density:d.density||'comfortable',theme:d.theme||'system',ev,replies:d.replies==='thread'?'thread':'chat',compact:d.compact==='others'?'others':'off'}))}catch{}
+  try{localStorage.setItem('atteo-display',JSON.stringify({text:d.text||'m',density:d.density||'comfortable',theme:d.theme||'system',ev,replies:d.replies==='thread'?'thread':'chat',compact:d.compact==='others'?'others':'off',tab_order:d.tab_order==='opened'?'opened':'recent'}))}catch{}
   document.dispatchEvent(new CustomEvent('atteo-mode',{detail:{everyday:ev}}));document.dispatchEvent(new CustomEvent('atteo-replies'))};
 if($('a[href="/me"]')){let fresh=false;try{fresh=!!sessionStorage.getItem('atteo-display-sync');sessionStorage.setItem('atteo-display-sync','1')}catch{}
   if(!fresh)fetch('/api/me/profile').then(r=>r.ok?r.json():null).then(j=>{const d=j&&j.profile&&j.profile.display;if(d&&typeof d==='object')applyDisplay({...d,developer:j.profile.developer})}).catch(()=>{})}
@@ -1767,7 +1769,7 @@ export const APP_CSS = `${APP_FONT_CSS}\n${CSS}`.replace(/\/\*[\s\S]*?\*\//g, ""
 export const APP_CSS_SRC = `/app.css?v=${fnv(APP_CSS)}`;
 // The frame's strip (jxn #4860): tabs keep their state live (board-states + the inbox poll) and can be closed (#5055).
 // In app.js rather than inline, so it's cached once instead of riding on every page (web-budget).
-const STRIP_JS = `(()=>{const ST={},AP={};
+const STRIP_JS = `(()=>{const ST={},AP={},here=(location.pathname.match(/^\\/b\\/([^/]+)/)||[])[1];
 function paint(){document.querySelectorAll('.btab').forEach(t=>{const id=t.dataset.tab,s=ST[id],ap=Math.max(AP[id]||0,s?s.pending_approvals:0),wk=s?s.working_agents:+t.dataset.work||0,w=t.querySelector('.wk'),a=t.querySelector('.apn');
   t.classList.toggle('st-ap',ap>0);t.classList.toggle('st-work',!ap&&wk>0);
   if(w){w.hidden=!wk;w.textContent=wk?tr('{n} working',{n:wk}):''}if(a){a.hidden=!ap;a.textContent=ap?tr(ap>1?'{n} approvals':'{n} approval',{n:ap}):''}})}
@@ -1775,7 +1777,25 @@ window.onInbox=j=>{const b=document.querySelector('[data-inbox-count]'),c=j.unre
 let busy=false;async function pull(){if(busy||document.hidden||!document.querySelector('.btab'))return;busy=true;
   try{const r=await fetch('/api/me/board-states',{cache:'no-store'});if(r.ok){const j=await r.json();for(const k in ST)delete ST[k];for(const x of j.boards||[])ST[x.id]=x;paint()}}catch(e){}finally{busy=false}}
 setInterval(pull,20000);document.addEventListener('visibilitychange',()=>{if(!document.hidden)pull()});pull();
-const KEY='atteo-tabs-closed',here=(location.pathname.match(/^\\/b\\/([^/]+)/)||[])[1];
+const nav=document.querySelector('.btabs'),nap=ms=>new Promise(r=>setTimeout(r,ms));
+function orderTabs(){if(!nav)return;const op=document.documentElement.dataset.tabOrder==='opened',l=w=>+w.dataset.last||0,o=w=>+w.dataset.opened||0;
+  const ws=[...nav.querySelectorAll('[data-tabw]')],by=[...ws].sort((a,b)=>op?(o(b)-o(a)||l(b)-l(a)):(l(b)-l(a)));
+  if(by.some((w,i)=>w!==ws[i]))by.forEach(w=>nav.appendChild(w))}
+window.orderTabs=orderTabs;
+// The board you're on was opened now: recorded when the page shows, not when it was fetched ahead (a hovered link, #3717).
+if(here&&nav){const w=nav.querySelector('[data-tabw="'+CSS.escape(here)+'"]');if(w)w.dataset.opened=Date.now();fetch('/api/boards/'+encodeURIComponent(here)+'/opened',{method:'POST'}).catch(()=>{})}
+orderTabs();
+// The cursor at once (one short request, so a post right after the page shows still counts); the long poll only after the
+// page has loaded and settled, so it never competes with the page's own requests.
+const settled=new Promise(r=>{const go=()=>setTimeout(r,2000);if(document.readyState==="complete")go();else addEventListener("load",go,{once:true})});
+async function live(){let at=null;for(;;){if(at!==null)await settled;
+  if(document.hidden||!nav.offsetParent){await nap(3000);continue}
+  try{const r=await fetch(at===null?'/api/tape?limit=1':'/api/tape?after='+at+'&wait=25&limit=100',{cache:'no-store'});if(r.status===401||r.status===403)return;if(!r.ok){await nap(5000);continue}
+    const j=await r.json();at=j.cursor;if(!j.lines||!j.lines.length)continue;
+    for(const x of j.lines){const w=nav.querySelector('[data-tabw="'+CSS.escape(x.board_id)+'"]');if(w&&x.ts>(+w.dataset.last||0))w.dataset.last=x.ts}
+    orderTabs();pull()}catch(e){await nap(5000)}}}
+if(nav)live();
+const KEY='atteo-tabs-closed';
 const closed=()=>{try{return new Set(JSON.parse(localStorage.getItem(KEY)||'[]'))}catch(e){return new Set()}},keep=s=>{try{localStorage.setItem(KEY,JSON.stringify([...s].slice(-200)))}catch(e){}};
 {const c=closed();if(here&&c.delete(here))keep(c);document.querySelectorAll('[data-tabw]').forEach(w=>{if(c.has(w.dataset.tabw))w.hidden=true})}
 function closeTab(id){const w=document.querySelector('[data-tabw="'+CSS.escape(id)+'"]');if(!w)return;const c=closed();c.add(id);keep(c);
@@ -1820,6 +1840,7 @@ export interface SideBoard {
   live?: number; // agent sessions working on it right now
   pinned?: boolean;
   last?: number; // last activity (ms), for the frame strip's order
+  opened?: number | null; // when this person last opened it (ms): the strip's "Last opened" order (vedu #5192)
   picture?: string | null; // the board picture's URL (members only, versioned), or null
   peer_name?: string | null; // a direct board: the other person's display name (jxn #4369)
 }
@@ -1897,12 +1918,13 @@ export function appPage(
     ...(v.admin ? [{ label: T("Ops"), hint: "G O", href: "/_ops" }] : []),
   ];
   // The strip's tabs (jxn #4860): your boards and chats, most recently active first (vedu #5043: no pins ahead), each with its working
-  // count; its underline shows the state (st-work: agents working; st-ap, set by the inbox poll: an approval waits).
+  // count; its underline shows the state (st-work: agents working; st-ap, set by the inbox poll: an approval waits). Display →
+  // Tab order "Last opened" (vedu #5192) reorders them on the page (STRIP_JS), and posts anywhere reorder them live (#5194).
   const tabName = (b: SideBoard) => (b.kind === "direct" ? shownName(directPeer(b, v.name), b.peer_name) : b.kind === "agent" ? T("Your agent") : b.title);
   const tabs = [...opts.boards]
     .sort((a, b) => (b.last ?? 0) - (a.last ?? 0))
     .slice(0, 24)
-    .map((b) => `<span class="btab-w" data-tabw="${esc(b.id)}"><a class="btab${b.live ? " st-work" : ""}" href="/b/${esc(b.id)}" data-tab="${esc(b.id)}" data-work="${b.live || 0}"${cur(b.id)}>${b.kind === "direct" ? avatar(directPeer(b, v.name), "xs") : b.kind === "agent" ? avatar(v.name, "xs", true) : boardPic(b, "xs")}<b>${esc(tabName(b))}</b><span class="wk"${b.live ? "" : " hidden"}>${b.live ? esc(T("{n} working", { n: b.live })) : ""}</span><span class="apn" hidden></span></a><button class="btab-x" type="button" data-tab-close="${esc(b.id)}" aria-label="${esc(T("Close tab {name}", { name: tabName(b) }))}" title="${esc(T("Close tab"))}">×</button></span>`)
+    .map((b) => `<span class="btab-w" data-tabw="${esc(b.id)}" data-last="${b.last ?? 0}" data-opened="${b.opened ?? 0}"><a class="btab${b.live ? " st-work" : ""}" href="/b/${esc(b.id)}" data-tab="${esc(b.id)}" data-work="${b.live || 0}"${cur(b.id)}>${b.kind === "direct" ? avatar(directPeer(b, v.name), "xs") : b.kind === "agent" ? avatar(v.name, "xs", true) : boardPic(b, "xs")}<b>${esc(tabName(b))}</b><span class="wk"${b.live ? "" : " hidden"}>${b.live ? esc(T("{n} working", { n: b.live })) : ""}</span><span class="apn" hidden></span></a><button class="btab-x" type="button" data-tab-close="${esc(b.id)}" aria-label="${esc(T("Close tab {name}", { name: tabName(b) }))}" title="${esc(T("Close tab"))}">×</button></span>`)
     .join("");
   // The strip's mark draws the Menu's own (<use>), so the page carries the drawing once.
   const strip = `<header class="strip"><a class="ws" href="/"><svg class="pebble" width="20" height="20" viewBox="0 0 100 100" aria-hidden="true"><use href="#mkg"/></svg><span class="wm">atteo</span></a>

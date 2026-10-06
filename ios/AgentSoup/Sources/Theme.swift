@@ -468,14 +468,20 @@ struct DisplayPrefs: Codable, Equatable {
     /// False when the server's copy had no `compact` (a server from before it): the phone's choice stands, and saves
     /// leave the key out.
     var compactKnown = true
+    /// The board tabs' order (vedu #5192): "recent" (the latest message first, the default) or "opened" (the board you
+    /// opened last first; members.opened_at, set by the web and the app).
+    var tabOrder: String = "recent"
+    /// False when the server's copy had no `tab_order` (a server from before it): the phone's choice stands, and saves
+    /// leave the key out.
+    var tabOrderKnown = true
 
     static let `default` = DisplayPrefs()
     /// xAI's voices, in the order the picker lists them (the server's tts.ts VOICES).
     static let voices = ["eve", "ara", "leo", "rex", "sal"]
 
-    private enum CodingKeys: String, CodingKey { case text, density, theme, lang, voice, replies, voiceTurns = "voice_turns", compact }
+    private enum CodingKeys: String, CodingKey { case text, density, theme, lang, voice, replies, voiceTurns = "voice_turns", compact, tabOrder = "tab_order" }
 
-    init(text: String = "m", density: String = "comfortable", theme: String = "system", lang: String = "auto", voice: String = "eve", replies: String = "chat", voiceTurns: String = "pause", compact: String = "off") {
+    init(text: String = "m", density: String = "comfortable", theme: String = "system", lang: String = "auto", voice: String = "eve", replies: String = "chat", voiceTurns: String = "pause", compact: String = "off", tabOrder: String = "recent") {
         self.text = ["s", "m", "l"].contains(text) ? text : "m"
         self.density = ["comfortable", "compact"].contains(density) ? density : "comfortable"
         self.theme = ["system", "light", "dark"].contains(theme) ? theme : "system"
@@ -484,12 +490,14 @@ struct DisplayPrefs: Codable, Equatable {
         self.replies = ["chat", "thread"].contains(replies) ? replies : "chat"
         self.voiceTurns = VoiceTurns(rawValue: voiceTurns) != nil ? voiceTurns : "pause"
         self.compact = ["off", "others"].contains(compact) ? compact : "off"
+        self.tabOrder = ["recent", "opened"].contains(tabOrder) ? tabOrder : "recent"
     }
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         let replies = try? c.decode(String.self, forKey: .replies)
         let turns = try? c.decode(String.self, forKey: .voiceTurns)
         let compact = try? c.decode(String.self, forKey: .compact)
+        let tabOrder = try? c.decode(String.self, forKey: .tabOrder)
         self.init(text: (try? c.decode(String.self, forKey: .text)) ?? "m",
                   density: (try? c.decode(String.self, forKey: .density)) ?? "comfortable",
                   theme: (try? c.decode(String.self, forKey: .theme)) ?? "system",
@@ -497,13 +505,15 @@ struct DisplayPrefs: Codable, Equatable {
                   voice: (try? c.decode(String.self, forKey: .voice)) ?? "eve",
                   replies: replies ?? "chat",
                   voiceTurns: turns ?? "pause",
-                  compact: compact ?? "off")
+                  compact: compact ?? "off",
+                  tabOrder: tabOrder ?? "recent")
         repliesKnown = replies != nil
         voiceTurnsKnown = turns != nil
         compactKnown = compact != nil
+        tabOrderKnown = tabOrder != nil
     }
     static func == (a: DisplayPrefs, b: DisplayPrefs) -> Bool {
-        a.text == b.text && a.density == b.density && a.theme == b.theme && a.lang == b.lang && a.voice == b.voice && a.replies == b.replies && a.voiceTurns == b.voiceTurns && a.compact == b.compact
+        a.text == b.text && a.density == b.density && a.theme == b.theme && a.lang == b.lang && a.voice == b.voice && a.replies == b.replies && a.voiceTurns == b.voiceTurns && a.compact == b.compact && a.tabOrder == b.tabOrder
     }
     /// "l,compact,dark", "l,compact,dark,zh-Hans", "l,compact,dark,zh-Hans,leo", "l,compact,dark,zh-Hans,leo,thread" or
     /// "…,thread,others" (messages that aren't for you fold to one line)
@@ -523,12 +533,15 @@ struct DisplayPrefs: Codable, Equatable {
     var repliesInThread: Bool { replies == "thread" }
     /// Messages that aren't for you fold to one line (OneLine.swift).
     var foldOthers: Bool { compact == "others" }
+    /// The board tabs put the board you opened last first, not the one with the latest message.
+    var tabsByOpened: Bool { tabOrder == "opened" }
     /// What's saved: everything, or without `replies` / `voice_turns` for a server that doesn't take them yet.
-    func body(replies withReplies: Bool = true, turns withTurns: Bool = true, compact withCompact: Bool = true) -> [String: String] {
+    func body(replies withReplies: Bool = true, turns withTurns: Bool = true, compact withCompact: Bool = true, tabs withTabs: Bool = true) -> [String: String] {
         var b = ["text": text, "density": density, "theme": theme, "lang": lang, "voice": voice]
         if withReplies { b["replies"] = replies }
         if withTurns { b["voice_turns"] = voiceTurns }
         if withCompact { b["compact"] = compact }
+        if withTabs { b["tab_order"] = tabOrder }
         return b
     }
 }

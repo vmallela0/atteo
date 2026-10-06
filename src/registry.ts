@@ -127,6 +127,11 @@ export async function touch(env: Env, user: string, boardId: string | null) {
   await env.DB.batch(stmts);
 }
 
+/** The person opened the board (its web page, or the app showed it): the tabs' "Last opened" order (vedu #5192). Members only. */
+export async function markOpened(env: Env, user: string, boardId: string, at = Date.now()) {
+  await env.DB.prepare(`UPDATE members SET opened_at = ? WHERE board_id = ? AND user = ?`).bind(at, boardId, user).run();
+}
+
 /** The only way into a board: creating it, an accepted invite, or an existing member adding someone. */
 export type Role = "owner" | "contributor" | "viewer";
 export const ROLES: Role[] = ["owner", "contributor", "viewer"];
@@ -414,7 +419,7 @@ export const AGENT_LIVE_MS = 10 * 60 * 1000;
 
 // Hot queries, shared with test/queryPlans.test.ts (each must use an index, never scan the table: the D1 read cap, #1495).
 export const AGENTS_ON_BOARD_SQL = `SELECT user, MAX(last_seen) AS seen FROM mcp_sessions WHERE board_id = ? AND last_seen > ? GROUP BY user`;
-export const BOARDS_FOR_USER_SQL = `SELECT b.*, m.joined_at FROM members m JOIN boards b ON b.id = m.board_id WHERE m.user = ? AND b.deleted_at IS NULL ORDER BY b.last_activity DESC`;
+export const BOARDS_FOR_USER_SQL = `SELECT b.*, m.joined_at, m.opened_at FROM members m JOIN boards b ON b.id = m.board_id WHERE m.user = ? AND b.deleted_at IS NULL ORDER BY b.last_activity DESC`;
 // The tape (GET /api/tape): your boards' latest lines after a cursor; the cron prunes lines older than a week.
 export const TAPE_READ_SQL = `SELECT t.id, t.board_id, b.title AS board, b.kind, t.seq, t.ts, t.author, t.via, t.type, t.to_user, t.excerpt FROM tape t JOIN boards b ON b.id = t.board_id
                WHERE t.id > ? AND t.board_id IN (SELECT board_id FROM members WHERE user = ?) ORDER BY t.id LIMIT ?`;
@@ -500,10 +505,10 @@ export async function bumpBoard(env: Env, boardId: string, entryCount: number) {
   await env.DB.prepare(`UPDATE boards SET entry_count = MAX(entry_count, ?), last_activity = ? WHERE id = ?`).bind(entryCount, Date.now(), boardId).run();
 }
 
-export async function boardsForUser(env: Env, user: string): Promise<(BoardRow & { joined_at: number })[]> {
+export async function boardsForUser(env: Env, user: string): Promise<(BoardRow & { joined_at: number; opened_at?: number | null })[]> {
   const r = await env.DB.prepare(BOARDS_FOR_USER_SQL)
     .bind(user)
-    .all<BoardRow & { joined_at: number }>();
+    .all<BoardRow & { joined_at: number; opened_at?: number | null }>();
   return r.results;
 }
 

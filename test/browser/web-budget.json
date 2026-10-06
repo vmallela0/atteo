@@ -10,7 +10,7 @@
    "img": 0,
    "data": 6596,
    "fonts": 94264,
-   "requests": 33
+   "requests": 35
   },
   "for-you": {
    "html": 11841,
@@ -21,7 +21,7 @@
    "img": 0,
    "data": 1980,
    "fonts": 94264,
-   "requests": 15
+   "requests": 16
   },
   "inbox": {
    "html": 11328,
@@ -32,7 +32,7 @@
    "img": 0,
    "data": 1980,
    "fonts": 94264,
-   "requests": 16
+   "requests": 17
   }
  }
 }

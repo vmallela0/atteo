@@ -376,10 +376,11 @@ export interface Display {
   replies: "chat" | "thread"; // replies in the chat (each with a quote bar), or only in their threads (vedu #2360)
   compact: "off" | "others"; // whole messages, or one line each for messages that aren't for you (jxn #2690, agreed with the app #2694)
   voice_turns: "quick" | "pause" | "tap"; // voice chat: when Atteo answers (vedu #2460): at once, after a long pause, or when you tap Done
+  tab_order: "recent" | "opened"; // the top tabs: most recent message first, or the board you opened last first (vedu #5192)
   voice_autosend: boolean; // voice chat: what you dictate to your agent goes out without a yes, after a 5s Undo (vedu #2638); off by default
   xai_ok: boolean; // your OK to send voice and read-aloud text to xAI (App Review 5.1.2(i), jxn's agent #4386): off until you agree; tts.ts and voice.ts refuse without it
 }
-export const DISPLAY_DEFAULTS: Display = { text: "m", density: "comfortable", theme: "system", mode: "auto", lang: "auto", voice: "eve", replies: "chat", voice_turns: "pause", compact: "off", voice_autosend: false, xai_ok: false };
+export const DISPLAY_DEFAULTS: Display = { text: "m", density: "comfortable", theme: "system", mode: "auto", lang: "auto", voice: "eve", replies: "chat", voice_turns: "pause", compact: "off", tab_order: "recent", voice_autosend: false, xai_ok: false };
 /** The on/off settings; every other one is one of DISPLAY_VALUES' words. */
 const DISPLAY_BOOLS = ["voice_autosend", "xai_ok"] as const;
 type DisplayBool = (typeof DISPLAY_BOOLS)[number];
@@ -394,6 +395,7 @@ const DISPLAY_VALUES: Record<Exclude<keyof Display, DisplayBool>, readonly strin
   replies: ["chat", "thread"],
   compact: ["off", "others"],
   voice_turns: ["quick", "pause", "tap"],
+  tab_order: ["recent", "opened"],
 };
 const isDisplayKey = (k: string): k is Exclude<keyof Display, DisplayBool> => Object.prototype.hasOwnProperty.call(DISPLAY_VALUES, k);
 
@@ -420,7 +422,7 @@ export function mergeDisplay(cur: Display, patch: unknown): Display {
       out[k] = v;
       continue;
     }
-    if (!isDisplayKey(k)) throw new SocialError(`Unknown display setting "${k}": use text, density, theme, mode, lang, voice, replies, voice_turns, compact, voice_autosend or xai_ok.`);
+    if (!isDisplayKey(k)) throw new SocialError(`Unknown display setting "${k}": use text, density, theme, mode, lang, voice, replies, voice_turns, compact, tab_order, voice_autosend or xai_ok.`);
     if (typeof v !== "string" || !DISPLAY_VALUES[k].includes(v)) throw new SocialError(`display.${k} must be one of: ${DISPLAY_VALUES[k].join(", ")}.`);
     out[k] = v;
   }

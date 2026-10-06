@@ -173,5 +173,6 @@
  "task-frozen": 4,
  "host": 3,
  "frame-tab-state": 25,
- "tabs-close": 12
+ "tabs-close": 12,
+ "strip-live": 14
 }
