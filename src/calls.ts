@@ -13,8 +13,9 @@
 //
 // Routes (people only, board members only): GET /api/boards/:id/call (the call on now, or null), POST …/call/join,
 // …/call/ping (every few seconds while in it), …/call/leave, …/call/sfu (publish, pull, renegotiate, close),
-// …/call/atteo (ask, done). Without CF_REALTIME_APP_ID + CF_REALTIME_APP_TOKEN a localhost server uses a stub room:
-// who's in, the Atteo turn and the posts all work, no audio. Anywhere else it's 503 naming what's missing.
+// …/call/atteo (ask, done). Calls exist only with CF_REALTIME_APP_ID + CF_REALTIME_APP_TOKEN (callsOn): until both are
+// set the routes, the page and the button are not there (404), so production shows nothing before real audio is tested.
+// A localhost server with DEV_FAKE_REALTIME=1 gets a stub room instead: who's in, the Atteo turn and the posts, no audio.
 
 import { isLocalHost } from "./util";
 import * as registry from "./registry";
@@ -86,10 +87,18 @@ export const stubSfu: Sfu = {
   call: async () => ({ status: 200, json: { stub: true } }),
 };
 
-/** The configured SFU; the stub on a localhost server without one; otherwise null (503, saying what's missing). */
-export function sfuFor(env: Pick<Env, "CF_REALTIME_APP_ID" | "CF_REALTIME_APP_TOKEN">, request: Request): Sfu | null {
+type CallEnv = Pick<Env, "CF_REALTIME_APP_ID" | "CF_REALTIME_APP_TOKEN" | "DEV_FAKE_REALTIME">;
+const fakeRealtime = (env: CallEnv, request: Request | null) => env.DEV_FAKE_REALTIME === "1" && !!request && isLocalHost(new URL(request.url).hostname);
+
+/** Whether calls exist here at all: both Realtime settings, or the local stub (DEV_FAKE_REALTIME=1 on localhost). */
+export function callsOn(env: CallEnv, request: Request | null): boolean {
+  return !!(env.CF_REALTIME_APP_ID && env.CF_REALTIME_APP_TOKEN) || fakeRealtime(env, request);
+}
+
+/** The configured SFU; the stub on a localhost server with DEV_FAKE_REALTIME=1; otherwise null. */
+export function sfuFor(env: CallEnv, request: Request): Sfu | null {
   if (env.CF_REALTIME_APP_ID && env.CF_REALTIME_APP_TOKEN) return cloudflareSfu(env.CF_REALTIME_APP_ID, env.CF_REALTIME_APP_TOKEN);
-  return isLocalHost(new URL(request.url).hostname) ? stubSfu : null;
+  return fakeRealtime(env, request) ? stubSfu : null;
 }
 
 // ---- the calls ----
@@ -435,6 +444,7 @@ export function depsFor(env: Env, request: Request | null, viewer: { name: strin
 export async function route(request: Request, env: Env, path: string, viewer: { name: string; display_name?: string | null; via?: "agent" | "person" } | null): Promise<Response | null> {
   const m = path.match(CALL_RE);
   if (!m) return null;
+  if (!callsOn(env, request)) return err("not found", 404); // not until a Realtime app is set up
   if (!viewer) return err("sign in required", 401);
   if (viewer.via === "agent") return err("Calls are for people, in the web or the app.", 403);
   const board = m[1];

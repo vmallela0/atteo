@@ -1085,6 +1085,7 @@ const handler = {
       // A board's call on a page of its own (src/callWeb.ts; the app opens it in a web view). People who are members only.
       const cm = path.match(/^\/b\/([^/]+)\/call$/);
       if (cm && method === "GET") {
+        if (!calls.callsOn(env, request)) return notFound(viewer); // not until a Realtime app is set up
         if (!viewer) return needLogin();
         if (viewer.via === "agent" || !(await registry.isMember(env, cm[1], viewer.name))) return notFound(viewer);
         const b = await registry.getBoard(env, cm[1]);
@@ -1129,7 +1130,7 @@ const handler = {
         // (STRIP_JS): a hovered link fetches the page ahead (#3717), and that isn't opening it.
         const here = side.find((b) => b.id === m![2]);
         if (here) here.opened = Date.now();
-        return boardPage(viewer, side, snap.info, withAgents, snap.entries.map((e) => withAgentNames(e, agentNamed)), shown, { connected: status.connected, onThisBoard: !!live[viewer.name] }, snap.summary, agentsHere, { picture: boardPictures.pictureUrl(m[2], row?.picture_v), kind, charter, sessions: mine, seen: snap.reads?.[viewer.name]?.person_seen ?? 0, last_seen: snap.reads?.[viewer.name]?.person_seen ?? 0, muted });
+        return boardPage(viewer, side, snap.info, withAgents, snap.entries.map((e) => withAgentNames(e, agentNamed)), shown, { connected: status.connected, onThisBoard: !!live[viewer.name] }, snap.summary, agentsHere, { picture: boardPictures.pictureUrl(m[2], row?.picture_v), kind, charter, sessions: mine, seen: snap.reads?.[viewer.name]?.person_seen ?? 0, last_seen: snap.reads?.[viewer.name]?.person_seen ?? 0, muted, calls: calls.callsOn(env, request) });
       }
 
       // ---- inbox: mentions of you, posts for your agent, replies to you ----

@@ -6,7 +6,7 @@ vi.mock("../src/registry", () => ({
   getBoard: async (_env: unknown, id: string) => (id === "b_xboard001" ? { id, title: "X", encrypted: 0 } : id === "b_encboard1" ? { id, title: "E", encrypted: 1 } : null),
 }));
 
-import { addressesAtteo, cloudflareSfu, handle, lengthText, reapAll, route, sfuFor, STALE_MS, stubSfu, summaryText, type CallDeps, type Sfu } from "../src/calls";
+import { addressesAtteo, callsOn, cloudflareSfu, handle, lengthText, reapAll, route, sfuFor, STALE_MS, stubSfu, summaryText, type CallDeps, type Sfu } from "../src/calls";
 import { CALL_GATE_JS } from "../src/callWeb";
 import { createSession, fakeProvider, finishSession, usedSeconds, type VoiceDeps } from "../src/voice";
 
@@ -248,19 +248,39 @@ describe("the SFU go-between", () => {
     expect((await s.call("ann", "sfu", { op: "publish", sdp: "v=0", tracks: [{ mid: "2", trackName: "screen" }] })).status).toBe(400);
   });
 
-  it("the stub room answers {stub: true}; sfuFor picks the stub only on localhost", async () => {
+  it("the stub room answers {stub: true}; sfuFor picks the stub only on localhost with DEV_FAKE_REALTIME=1", async () => {
     const s = setup();
     await s.call("ann", "join");
     expect((await s.call("ann", "sfu", { op: "publish", sdp: "v=0", tracks: [{ mid: "0", trackName: "mic" }] })).j).toEqual({ stub: true });
-    expect(sfuFor({}, new Request("http://localhost:8787/x"))).toBe(stubSfu);
-    expect(sfuFor({}, new Request("https://atteo.dev/x"))).toBeNull();
+    expect(sfuFor({ DEV_FAKE_REALTIME: "1" }, new Request("http://localhost:8787/x"))).toBe(stubSfu);
+    expect(sfuFor({}, new Request("http://localhost:8787/x"))).toBeNull();
+    expect(sfuFor({ DEV_FAKE_REALTIME: "1" }, new Request("https://atteo.dev/x"))).toBeNull();
     expect(sfuFor({ CF_REALTIME_APP_ID: "a", CF_REALTIME_APP_TOKEN: "t" }, new Request("https://atteo.dev/x"))?.stub).toBe(false);
     expect(sfuFor({ CF_REALTIME_APP_ID: "a" }, new Request("https://atteo.dev/x"))).toBeNull();
   });
 });
 
+describe("calls exist only once a Realtime app is set up (callsOn)", () => {
+  const prod = new Request("https://atteo.dev/x"),
+    local = new Request("http://localhost:8787/x");
+  it("both settings, or the local stub; nothing else", () => {
+    expect(callsOn({}, prod)).toBe(false);
+    expect(callsOn({ CF_REALTIME_APP_ID: "a" }, prod)).toBe(false);
+    expect(callsOn({ CF_REALTIME_APP_TOKEN: "t" }, prod)).toBe(false);
+    expect(callsOn({ DEV_FAKE_REALTIME: "1" }, prod)).toBe(false);
+    expect(callsOn({}, local)).toBe(false);
+    expect(callsOn({ CF_REALTIME_APP_ID: "a", CF_REALTIME_APP_TOKEN: "t" }, prod)).toBe(true);
+    expect(callsOn({ DEV_FAKE_REALTIME: "1" }, local)).toBe(true);
+  });
+  it("without them every call route is 404, even for a member", async () => {
+    const env = { DB: fakeD1() } as any;
+    for (const [path, method] of [["/api/boards/b_xboard001/call", "GET"], ["/api/boards/b_xboard001/call/join", "POST"], ["/api/boards/b_xboard001/call/atteo", "POST"]])
+      expect((await route(new Request(`https://atteo.dev${path}`, { method, ...(method === "POST" ? { body: "{}" } : {}) }), env, path, { name: "ann", via: "person" }))!.status).toBe(404);
+  });
+});
+
 describe("route: people who are members only", () => {
-  const env = { DB: fakeD1() } as any;
+  const env = { DB: fakeD1(), DEV_FAKE_REALTIME: "1" } as any;
   const req = (path: string, method = "GET") => new Request(`http://localhost${path}`, method === "POST" ? { method, body: "{}" } : { method });
   it("not a call path: null", async () => expect(await route(req("/api/boards/b_xboard001/calls"), env, "/api/boards/b_xboard001/calls", { name: "ann" })).toBeNull());
   it("signed out 401, an agent's token 403, not a member 404, an encrypted board 403", async () => {
