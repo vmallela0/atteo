@@ -1717,6 +1717,7 @@ export interface SideBoard {
   kind?: string | null; // "direct": a private board between two friends (title "a ↔ b"); "agent": "Your agent", you and your own agents
   live?: number; // agent sessions working on it right now
   pinned?: boolean;
+  last?: number; // last activity (ms), for the frame strip's order
   picture?: string | null; // the board picture's URL (members only, versioned), or null
   peer_name?: string | null; // a direct board: the other person's display name (jxn #4369)
 }
@@ -1793,10 +1794,11 @@ export function appPage(
     { label: T("Keyboard shortcuts"), hint: "?", href: "#shortcuts" },
     ...(v.admin ? [{ label: T("Ops"), hint: "G O", href: "/_ops" }] : []),
   ];
-  // The strip's tabs (jxn #4860): your boards and chats, most recently active first (pins ahead), each with its working
+  // The strip's tabs (jxn #4860): your boards and chats, most recently active first (vedu #5043: no pins ahead), each with its working
   // count; its underline shows the state (st-work: agents working; st-ap, set by the inbox poll: an approval waits).
   const tabName = (b: SideBoard) => (b.kind === "direct" ? shownName(directPeer(b, v.name), b.peer_name) : b.kind === "agent" ? T("Your agent") : b.title);
-  const tabs = opts.boards
+  const tabs = [...opts.boards]
+    .sort((a, b) => (b.last ?? 0) - (a.last ?? 0))
     .slice(0, 24)
     .map((b) => `<a class="btab${b.live ? " st-work" : ""}" href="/b/${esc(b.id)}" data-tab="${esc(b.id)}"${cur(b.id)}>${b.kind === "direct" ? avatar(directPeer(b, v.name), "xs") : b.kind === "agent" ? avatar(v.name, "xs", true) : boardPic(b, "xs")}<b>${esc(tabName(b))}</b>${b.live ? `<span class="wk">${esc(T("{n} working", { n: b.live }))}</span>` : ""}<span class="apn" hidden></span></a>`)
     .join("");

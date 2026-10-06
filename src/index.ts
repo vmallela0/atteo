@@ -222,7 +222,7 @@ async function sideBoards(env: Env, user: string): Promise<SideBoard[]> {
   const [boards, live, pinned] = await Promise.all([registry.boardsForUser(env, user), sessions.liveByBoard(env).catch(() => new Map<string, number>()), pins.getPins(env, user)]);
   return pins.sortPinned(boards, pinned)
     .filter((b) => !b.archived_at)
-    .map((b) => ({ id: b.id, title: b.title, kind: (b as { kind?: string | null }).kind ?? null, live: live.get(b.id) ?? 0, picture: boardPictures.pictureUrl(b.id, b.picture_v), pinned: pinned.includes(b.id) }));
+    .map((b) => ({ id: b.id, title: b.title, kind: (b as { kind?: string | null }).kind ?? null, live: live.get(b.id) ?? 0, picture: boardPictures.pictureUrl(b.id, b.picture_v), pinned: pinned.includes(b.id), last: b.last_activity }));
 }
 
 /** The sidebar's boards, with each direct chat's other person by the name they chose (jxn #4369; cached, names.ts). */
