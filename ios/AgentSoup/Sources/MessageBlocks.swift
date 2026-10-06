@@ -68,6 +68,23 @@ enum MessageBlocks {
                     continue
                 }
             }
+            // No "|---|" line (agents often skip it, vedu #5446): 2+ "| … |" lines with the same number of cells (2+) are
+            // a table too, its first line the header.
+            if MarkdownTable.isRow(t), !MarkdownTable.isSeparator(t) {
+                let n = MarkdownTable.cells(t).count
+                var j = i + 1
+                while j < lines.count {
+                    let u = lines[j].trimmingCharacters(in: .whitespaces)
+                    guard MarkdownTable.isRow(u), !MarkdownTable.isSeparator(u), MarkdownTable.cells(u).count == n else { break }
+                    j += 1
+                }
+                if n >= 2, j - i >= 2 {
+                    flush()
+                    out.append(.table(MarkdownTable(header: MarkdownTable.cells(t), rows: lines[(i + 1)..<j].map(MarkdownTable.cells), aligns: [])))
+                    i = j
+                    continue
+                }
+            }
             para.append(line)
             i += 1
         }
@@ -103,6 +120,11 @@ struct MarkdownTable: Hashable {
     /// The "|---|:--:|" line under a header.
     static func isSeparator(_ line: String) -> Bool {
         line.trimmingCharacters(in: .whitespaces).range(of: #"^\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?$"#, options: .regularExpression) != nil
+    }
+    /// Reads as a number ("41", "1,200", "$5", "12%", "485 ms", "842 (n=100)"): its column lines up on the right.
+    static func isNumeric(_ cell: String) -> Bool {
+        Double(cell.replacingOccurrences(of: ",", with: "")) != nil
+            || cell.range(of: #"^[-+−~≈<>]?[$€£¥]?\d[\d,.]*(\s?[%a-zA-Zµ]{0,3})?(\s*\([^)]*\))?$"#, options: .regularExpression) != nil
     }
     static func cells(_ line: String) -> [String] {
         var t = line.trimmingCharacters(in: .whitespaces)

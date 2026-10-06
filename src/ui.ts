@@ -743,7 +743,7 @@ dialog.lightbox.zoomed img{max-width:none;max-height:none;margin:auto;border-rad
 /* One piece (jxn #4304, #4325): Reload keeps its corners and sits the same 4px in on top, right and bottom; the bar
    takes the button's corners (its radius plus the inset and the 1px border), so the edges line up. */
 .upd-bar{position:fixed;top:12px;left:50%;transform:translateX(-50%);z-index:60;display:flex;align-items:center;gap:10px;padding:4px 4px 4px 16px;border:1px solid var(--line);border-radius:calc(var(--r-sm) + 5px);background:var(--bg);box-shadow:var(--shadow-lg);font-size:13px;color:var(--ink);white-space:nowrap}
-.md-tw{overflow-x:auto;margin:6px 0;max-width:100%}.md-t{border-collapse:collapse;font-size:13px;line-height:1.45}.md-t th,.md-t td{border:1px solid var(--line);padding:4px 9px;text-align:left;vertical-align:top}.md-t th{background:var(--bg-subtle);color:var(--ink);font-weight:600}
+.md-tw{overflow-x:auto;margin:6px 0;max-width:100%}.md-t{border-collapse:collapse;font-size:13px;line-height:1.45}.md-t th,.md-t td{border:1px solid var(--line);padding:4px 9px;text-align:left;vertical-align:top}.md-t th{background:var(--bg-subtle);color:var(--ink);font-weight:600}.md-t{font-variant-numeric:tabular-nums}.md-t .num{white-space:nowrap}
 .ch{margin:8px 0;padding:10px 12px 6px;border:1px solid var(--line);border-radius:10px;background:var(--bg);max-width:620px}.ch-t{font-size:13px;font-weight:600;color:var(--ink);margin-bottom:4px}
 .ch{container-type:inline-size}.ch-svg{display:block;width:100%;height:auto;overflow:visible}.ch-narrow{display:none}@container (max-width:420px){.ch-wide{display:none}.ch-narrow{display:block}}.ch-grid{stroke:var(--line);stroke-width:1}.ch-axis{stroke:var(--line-strong,var(--line));stroke-width:1}
 .ch-y,.ch-x{fill:var(--muted);font-size:11px;font-family:inherit}.ch-y{text-anchor:end}.ch-x{text-anchor:middle}
@@ -1582,6 +1582,9 @@ function renderTextInner(text: string, mentions?: Mention[] | null): string {
   return out.join("");
 }
 
+/** Reads as a number ("41", "1,200", "$5", "12%", "485 ms", "842 (n=100)"), so its table column lines up on the right. */
+export const numericCell = (c: string) => /^[-+−~≈<>]?[$€£¥]?\d[\d,.]*(\s?[%a-zA-Zµ]{0,3})?(\s*\([^)]*\))?$/.test(c.trim());
+
 /** One paragraph-sized block: headings (#–###), bullet and numbered lists, or a paragraph. */
 function block(p: string, mentions?: Mention[] | null, ck = { n: 0 }): string {
   const lines = p.split("\n");
@@ -1611,19 +1614,36 @@ function block(p: string, mentions?: Mention[] | null, ck = { n: 0 }): string {
     quote = null;
   };
   // Markdown tables ("| a | b |" rows with a "|---|---|" line under the header): a real table, scrolling sideways when wide.
+  // Without the "|---|" line (agents often skip it, vedu #5446), 2+ rows with the same number of cells (2+) are a table
+  // too, its first row the header and its numeric columns on the right.
   let table: string[] | null = null;
   const cells = (r: string) => r.trim().replace(/^\|/, "").replace(/\|$/, "").split("|").map((c) => c.trim());
+  const sep = (r: string) => /^\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$/.test(r.trim());
+  const html = (head: string[], rows: string[][], align: string[], loose = false) => {
+    const td = (tag: string, c: string, i: number) => `<${tag}${align[i] ? ` style="text-align:${align[i]}"` : ""}${loose && align[i] === "right" ? ` class="num"` : ""}>${inline(c, mentions)}</${tag}>`;
+    return `<div class="md-tw"><table class="md-t"><thead><tr>${head.map((c, i) => td("th", c, i)).join("")}</tr></thead><tbody>${rows.map((r) => `<tr>${r.map((c, i) => td("td", c, i)).join("")}</tr>`).join("")}</tbody></table></div>`;
+  };
   const flushTable = () => {
     const t = table;
     table = null;
     if (!t) return;
-    if (t.length < 2 || !/^\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$/.test(t[1].trim())) {
-      para.push(...t);
+    if (t.length >= 2 && sep(t[1])) {
+      const align = cells(t[1]).map((c) => (c.startsWith(":") && c.endsWith(":") ? "center" : c.endsWith(":") ? "right" : ""));
+      out.push(html(cells(t[0]), t.slice(2).map(cells), align));
       return;
     }
-    const align = cells(t[1]).map((c) => (c.startsWith(":") && c.endsWith(":") ? "center" : c.endsWith(":") ? "right" : ""));
-    const td = (tag: string, c: string, i: number) => `<${tag}${align[i] ? ` style="text-align:${align[i]}"` : ""}>${inline(c, mentions)}</${tag}>`;
-    out.push(`<div class="md-tw"><table class="md-t"><thead><tr>${cells(t[0]).map((c, i) => td("th", c, i)).join("")}</tr></thead><tbody>${t.slice(2).map((r) => `<tr>${cells(r).map((c, i) => td("td", c, i)).join("")}</tr>`).join("")}</tbody></table></div>`);
+    // Runs of rows with the same cell count; a run of 2+ (not a stray "|---|") is a table, anything else stays text.
+    for (let i = 0; i < t.length; ) {
+      const n = cells(t[i]).length;
+      let j = i + 1;
+      while (j < t.length && !sep(t[j]) && cells(t[j]).length === n) j++;
+      if (n >= 2 && j - i >= 2 && !sep(t[i])) {
+        flushPara();
+        const head = cells(t[i]), rows = t.slice(i + 1, j).map(cells);
+        out.push(html(head, rows, head.map((_, c) => (rows.every((r) => !r[c] || numericCell(r[c])) && rows.some((r) => r[c]) ? "right" : "")), true));
+      } else para.push(...t.slice(i, j));
+      i = j;
+    }
   };
   for (const line of lines) {
     if (/^\s*\|.*\|\s*$/.test(line)) {
