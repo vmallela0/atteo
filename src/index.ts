@@ -223,7 +223,7 @@ async function sideBoards(env: Env, user: string): Promise<SideBoard[]> {
   const [boards, live, pinned] = await Promise.all([registry.boardsForUser(env, user), sessions.liveByBoard(env).catch(() => new Map<string, number>()), pins.getPins(env, user)]);
   return pins.sortPinned(boards, pinned)
     .filter((b) => !b.archived_at)
-    .map((b) => ({ id: b.id, title: b.title, kind: (b as { kind?: string | null }).kind ?? null, live: live.get(b.id) ?? 0, picture: boardPictures.pictureUrl(b.id, b.picture_v), pinned: pinned.includes(b.id), last: b.last_activity }));
+    .map((b) => ({ id: b.id, title: b.title, kind: (b as { kind?: string | null }).kind ?? null, live: live.get(b.id) ?? 0, picture: boardPictures.pictureUrl(b.id, b.picture_v), pinned: pinned.includes(b.id), last: b.last_activity, opened: b.opened_at ?? null }));
 }
 
 /** The sidebar's boards, with each direct chat's other person by the name they chose (jxn #4369; cached, names.ts). */
@@ -1084,6 +1084,10 @@ const handler = {
         // "Your agent": the composer's picker lists your agents (live or idle) by name.
         const mine = kind === "agent" ? (await sessions.list(env, viewer.name)).filter(sessions.listed).map((x) => ({ name: x.name, state: x.state, client: x.client })) : undefined;
         const agentNamed = agentNames(members);
+        // This board leads the tabs in "Last opened" order (vedu #5192). The page itself records the open when it shows
+        // (STRIP_JS): a hovered link fetches the page ahead (#3717), and that isn't opening it.
+        const here = side.find((b) => b.id === m![2]);
+        if (here) here.opened = Date.now();
         return boardPage(viewer, side, snap.info, withAgents, snap.entries.map((e) => withAgentNames(e, agentNamed)), shown, { connected: status.connected, onThisBoard: !!live[viewer.name] }, snap.summary, agentsHere, { picture: boardPictures.pictureUrl(m[2], row?.picture_v), kind, charter, sessions: mine, seen: snap.reads?.[viewer.name]?.person_seen ?? 0, last_seen: snap.reads?.[viewer.name]?.person_seen ?? 0, muted });
       }
 
@@ -1979,6 +1983,17 @@ const handler = {
         return json({ ok: true, message: `Deleted "${board.title}".` });
       }
 
+      // The app showed this board to its person: the tabs' "Last opened" order (vedu #5192). Personal; nothing is sent.
+      m = path.match(/^\/api\/boards\/([^/]+)\/opened$/);
+      if (m && method === "POST") {
+        if (!viewer) return needLogin();
+        if (viewer.via === "agent") return json({ error: "Only people open boards." }, 403);
+        if (!(await registry.isMember(env, m[1], viewer.name))) return json({ error: "board not found" }, 404);
+        const at = Date.now();
+        await registry.markOpened(env, viewer.name, m[1], at);
+        return json({ ok: true, opened_at: at });
+      }
+
       // A personal bookmark: no post, mail, or push is sent to anyone.
       m = path.match(/^\/api\/boards\/([^/]+)\/unread$/);
       if (m && method === "POST") {
@@ -1996,7 +2011,7 @@ const handler = {
 
       // ---- access: viewers can read but not change anything on a board ----
       m = path.match(/^\/api\/boards\/(b_[a-z0-9]+)\/(.+)$/);
-      if (m && method !== "GET" && viewer && !hasOpsKey(c) && !/^members\/[^/]+\/remove$/.test(m[2]) && m[2] !== "ws" && m[2] !== "seen" && m[2] !== "unread") { // read receipts aren't changes
+      if (m && method !== "GET" && viewer && !hasOpsKey(c) && !/^members\/[^/]+\/remove$/.test(m[2]) && m[2] !== "ws" && m[2] !== "seen" && m[2] !== "unread" && m[2] !== "opened") { // read receipts aren't changes
         if ((await registry.memberRole(env, m[1], viewer.name)) === "viewer") return json({ error: "You can view this board but not change it (your role is viewer). Ask an owner for contributor access." }, 403);
       }
 
@@ -2166,6 +2181,7 @@ const handler = {
           kind: (b as { kind?: string | null }).kind || "board",
           entry_count: b.entry_count,
           last_activity: b.last_activity,
+          opened_at: b.opened_at ?? null, // when you last opened it (web or app): the tabs' "Last opened" order (vedu #5192)
           last: b.last_author ? { by: b.last_via === "agent" ? `${b.last_author}'s agent` : b.last_author, text: b.last_excerpt ?? "" } : null,
           encrypted: !!(b as { encrypted?: number }).encrypted,
           created_by: b.created_by, // the app shows its creator the rename / archive / remove-task actions

@@ -78,4 +78,73 @@ final class StripStaysUITests: AtteoUITestCase {
         assertStrip(a, "feed-later")
         shot("strip-end")
     }
+
+    /// The tabs from left to right (their ids).
+    private func order(_ a: XCUIApplication) -> [String] {
+        a.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'state-tab-'")).allElementsBoundByIndex
+            .sorted { $0.frame.minX < $1.frame.minX }.map { String($0.identifier.dropFirst("state-tab-".count)) }
+    }
+
+    private func until(_ seconds: Double, _ ok: () -> Bool) -> Bool {
+        let end = Date().addingTimeInterval(seconds)
+        while Date() < end { if ok() { return true }; usleep(200_000) }
+        return ok()
+    }
+
+    /// vedu #5194: the tabs never move up or down, also at the largest text, whatever you drag on them. The strip
+    /// records (DEBUG) the most its content ever moved vertically, how much taller than the strip it ever was, and any
+    /// vertical insets: all three stay 0.
+    func testStripNeverScrollsVertically() throws {
+        for size in ["UICTContentSizeCategoryL", "UICTContentSizeCategoryAccessibilityXXXL"] {
+            let a = app()
+            a.launchArguments += ["-UIPreferredContentSizeCategoryName", size]
+            a.launch()
+            // At the largest size the board can be below the fold of Chats: scroll to it (as TabsUITests does).
+            XCTAssertTrue(a.navigationBars["Chats"].waitForExistence(timeout: 15), "Chats")
+            if a.buttons["tab-boards"].waitForExistence(timeout: 10) { a.buttons["tab-boards"].tap() }
+            let row = a.buttons["chat-Checkout bug"].firstMatch
+            for _ in 0..<8 where !row.isHittable { a.swipeUp(velocity: .slow) }
+            XCTAssertTrue(row.waitForExistence(timeout: 5), "Checkout bug is in the list")
+            row.tap()
+            XCTAssertTrue(composer(a).waitForExistence(timeout: 10), "Checkout bug opens")
+            let strip = a.descendants(matching: .any)["board-state-tabs"].firstMatch
+            let tab = a.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'state-tab-'")).firstMatch
+            XCTAssertTrue(tab.waitForExistence(timeout: 5) && strip.exists, "\(size): the tabs are drawn")
+            let inside = { tab.frame.minY >= strip.frame.minY - 0.5 && tab.frame.maxY <= strip.frame.maxY + 0.5 }
+            XCTAssertTrue(inside(), "\(size): the tabs sit inside their strip, not shifted up or down (\(tab.frame) in \(strip.frame))")
+            let y = tab.frame.minY
+            // Slow drags up and down that start on the tabs, held at the end (a bounce shows while held), and quick flicks.
+            let mid = strip.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+            mid.press(forDuration: 0.1, thenDragTo: mid.withOffset(CGVector(dx: 0, dy: 120)), withVelocity: .slow, thenHoldForDuration: 0.5)
+            mid.press(forDuration: 0.1, thenDragTo: mid.withOffset(CGVector(dx: 0, dy: -120)), withVelocity: .slow, thenHoldForDuration: 0.5)
+            mid.press(forDuration: 0.05, thenDragTo: mid.withOffset(CGVector(dx: 10, dy: 90)), withVelocity: .fast, thenHoldForDuration: 0)
+            mid.press(forDuration: 0.05, thenDragTo: mid.withOffset(CGVector(dx: -10, dy: -90)), withVelocity: .fast, thenHoldForDuration: 0)
+            sleep(1)
+            let drift = a.descendants(matching: .any)["board-state-tabs-drift"].firstMatch
+            XCTAssertTrue(drift.waitForExistence(timeout: 3), "the strip's drift probe (DEBUG build)")
+            let v = (drift.value as? String ?? "").split(separator: " ").compactMap { Double($0) }
+            if v.count != 3 || v.contains(where: { $0 > 0.5 }) { shot("strip-drift-\(size)") }
+            XCTAssertEqual(v.count, 3, "\(size): drift reads moved / taller / insets (\(drift.value ?? "none"))")
+            XCTAssertTrue(v.allSatisfy { $0 <= 0.5 }, "\(size): the tabs never moved up or down, never had room to (moved, taller, insets: \(v))")
+            XCTAssertEqual(tab.frame.minY, y, accuracy: 0.5, "\(size): the tabs are where they were")
+            XCTAssertTrue(inside(), "\(size): and still inside their strip (\(tab.frame) in \(strip.frame))")
+            a.terminate()
+        }
+    }
+
+    /// vedu #5194: a post on another board moves its tab to the front while you're in this one, no refresh.
+    func testStripReordersLive() throws {
+        let a = app()
+        a.launch()
+        openChat(a, "Checkout bug")
+        guard let here = boardId(titled: "Checkout bug"), let other = boardId(titled: "Q4 data migration") else { return XCTFail("seeded boards") }
+        assertStrip(a, "open")
+        call("POST", "/api/boards/\(here)/entries", json: ["type": "note", "text": "Strip order: here"], token: otherApp)
+        XCTAssertTrue(until(8) { order(a).first == here }, "a post here puts this board first (\(order(a)))")
+        call("POST", "/api/boards/\(other)/entries", json: ["type": "note", "text": "Strip order: there"], token: otherApp)
+        XCTAssertTrue(until(8) { order(a).first == other }, "a post on Q4 data migration moves its tab to the front at once (\(order(a)))")
+        XCTAssertEqual(order(a).dropFirst().first, here, "this board right after it")
+        assertStrip(a, "reordered")
+        shot("strip-reordered")
+    }
 }
