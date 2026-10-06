@@ -309,7 +309,7 @@ const evJs = (agentChat: boolean) => `
     const c=el.querySelector(':scope>.grow>.chg');if(c&&ev&&!el.querySelector(':scope>.grow>.ev-res')){const r=document.createElement('div');r.className='ev-res';r.innerHTML='<span class="ev-ok" aria-hidden="true">✓</span><b></b>';r.querySelector('b').textContent=el.dataset.title||tr('Done');c.before(r)}}
   function evPage(){const ev=EV();document.querySelectorAll('#thread>.entry').forEach(el=>evEntry(el,ev));
     const tabs=document.querySelectorAll('#board-tabs [role=tab]');if(tabs[0])sayNode(first(tabs[0]),ev,tr('Chat'));if(tabs[3])sayNode(first(tabs[3]),ev,tr('To-dos '));
-    const inv=document.querySelector('.bp-actions [data-open="invite"]:not([data-goto]), [data-open="invite"]:not([data-goto])');if(inv)sayNode(first(inv),ev,tr('Add'));say(document.querySelector('#pf-btn>span'),ev,tr('Hide assistants'));document.getElementById('pf-btn')?.setAttribute('aria-label',ev?tr('Hide assistants'):tr('Hide agents'));
+    const inv=document.querySelector('.bp-actions [data-open="invite"]:not([data-goto]), [data-open="invite"]:not([data-goto])');if(inv)sayNode(first(inv),ev,tr('Add'));window.pfLabel&&window.pfLabel();document.getElementById('pf-btn')?.setAttribute('aria-label',ev?tr('Hide assistants'):tr('Hide agents'));
     const ta=document.getElementById('composer-text');if(ta){if(ta.dataset.dev===undefined)ta.dataset.dev=ta.placeholder;ta.placeholder=ev?(${agentChat}?tr('Ask your assistant…'):tr('Message the group…')):ta.dataset.dev}
     document.querySelectorAll('.fold[data-fold="memory"] .fold-t').forEach(x=>say(x,ev,tr('What assistants remember')))}
   evPage();document.addEventListener('atteo-mode',evPage);
@@ -1370,7 +1370,11 @@ function pfEmpty(){if(pfNone)pfNone.hidden=!pfOn()||!!document.querySelector('#t
 /** save: remember it; told: say why agents' posts came back (a jump to one of them). */
 function pfSet(on,save,told){document.documentElement.toggleAttribute('data-pf',on);if(pfBtn)pfBtn.setAttribute('aria-pressed',String(on));
   if(save)try{on?localStorage.setItem('atteo.pf.'+ME0,'1'):localStorage.removeItem('atteo.pf.'+ME0)}catch(e){}
-  if(told)toast(tr("Showing agents' posts"));pfEmpty();railBuild();if(pinned)toBottom();ghostSoon();window.thrPf&&window.thrPf()}
+  if(told)toast(tr("Showing agents' posts"));pfEmpty();railBuild();if(pinned)toBottom();ghostSoon();window.thrPf&&window.thrPf();pfLabel()}
+// The button says what pressing it does next: Hide agents, then Show agents (vedu #4775); 'assistants' in everyday mode.
+function pfLabel(){if(!pfBtn)return;const on=pfOn(),ev=document.documentElement.dataset.mode==='everyday',t=on?(ev?tr('Show assistants'):tr('Show agents')):(ev?tr('Hide assistants'):tr('Hide agents'));
+  const s=pfBtn.querySelector('span');if(s)s.textContent=t;pfBtn.setAttribute('aria-label',t)}
+window.pfLabel=pfLabel;document.addEventListener('atteo-mode',pfLabel);pfLabel();
 pfBtn?.addEventListener('click',()=>{const on=!pfOn();pfSet(on,true);toast(on?tr("Agents' posts are hidden, for you only"):tr("Showing agents' posts"))});
 if(pfBtn)pfBtn.setAttribute('aria-pressed',String(pfOn()));pfEmpty();
 new MutationObserver(()=>{if(pfOn())pfEmpty()}).observe(document.getElementById('thread'),{childList:true});

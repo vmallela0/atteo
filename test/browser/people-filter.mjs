@@ -121,7 +121,11 @@ async function width(label, w, scheme) {
   await p.goto(`${BASE}/b/${onlyAgents}`);
   await p.locator("#pf-empty").waitFor({ state: "visible", timeout: 15000 });
   check(await p.locator("#pf-empty").isVisible(), `${label}: a board with no people's posts says so`);
+  const pfText = () => p.locator("#pf-btn>span").innerText();
+  check(/^Show (agents|assistants)$/.test(await pfText()), `${label}: while agents are hidden the button says Show (vedu #4775): "${await pfText()}"`);
   await p.locator("#pf-btn").click();
+  await until(async () => /^Hide /.test(await pfText()));
+  check(/^Hide (agents|assistants)$/.test(await pfText()), `${label}: …and Hide again once they show: "${await pfText()}"`);
   await until(async () => !(await p.locator("#pf-empty").isVisible()));
   check(!(await p.locator("#pf-empty").isVisible()) && (await p.evaluate((me) => localStorage.getItem("atteo.pf." + me), P)) === null, `${label}: off again, forgotten`);
   // Chat list: People first.
