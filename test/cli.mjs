@@ -2781,7 +2781,8 @@ await step("atteo host / atteo run: typed consent for the exact folders, root re
   // A attaches a machine in a real terminal (python's pty), with allowlisted commands: the link names this start's
   // machine and carries the folders and allowlist; A, signed in as a person, mints the code for exactly those.
   const pty = "import pty,sys; pty.spawn(sys.argv[1:])";
-  const allow = ["echo allowed", "sleep 5", "env", "sleep 6; touch DONE"];
+  const allow = ["echo allowed", "sleep 5", "env", "sleep 6; touch DONE", `curl -sS --max-time 5 ${BASE}/health`];
+  execFileSync("git", ["init", "-q", share]); // its hooks and config must stay read-only inside (alt-c #4916b)
   const daemon = spawn("python3", ["-c", pty, "node", CLI, "host", "--board", board, "--share", share, "--name", name, ...allow.flatMap((a) => ["--allow", a])], {
     cwd: share,
     env: { ...process.env, ATTEO_CREDENTIALS_FILE: credA, ATTEO_SERVER: BASE, XDG_CONFIG_HOME: join(dir, "cfg-cmds"), MY_API_TOKEN: "zz-should-not-leak", SSH_AUTH_SOCK: "/tmp/zz-agent-sock", DATABASE_URL: "postgres://u:zzpass@h/db" },
@@ -2839,6 +2840,9 @@ await step("atteo host / atteo run: typed consent for the exact folders, root re
     // The environment is an allowlist: no tokens, no URLs with passwords, no ssh agent, no CLI login (#4918).
     r = await cli(["run", name, "env", "--board", board], { cred: credB });
     assert(r.code === 0 && !/zz-should-not-leak|zz-agent-sock|zzpass|ATTEO_CREDENTIALS_FILE/.test(r.out) && r.out.includes("TERM=dumb"), r.out);
+    // No network unless the host was started with --allow-network, not even this machine's own services (jxn #4945).
+    r = await cli(["run", name, `curl -sS --max-time 5 ${BASE}/health`, "--board", board], { cred: credB });
+    assert(r.code !== 0 && /exit [1-9]/.test(r.out + r.err), `no network by default: ${r.out}${r.err}`);
     // The timeout kills it.
     r = await cli(["run", name, "sleep 5", "--timeout", "1", "--board", board], { cred: credB });
     assert(r.code !== 0 && r.err.includes("timeout"), r.out + r.err);
@@ -2877,6 +2881,12 @@ await step("atteo host / atteo run: typed consent for the exact folders, root re
     await approveNext(`secret.txt # ${run}`);
     r = await pending;
     assert(r.code !== 0 && r.err.includes("outside the shared folders") && !r.out.includes("not yours"), r.out + r.err);
+    // Git hooks and config run later, outside the sandbox: read-only inside (alt-c #4916b).
+    const gitConfig = readFileSync(join(shareReal, ".git", "config"), "utf8");
+    pending = cli(["run", name, `echo '[core] fsmonitor = touch PWNED' >> .git/config; echo x > .git/hooks/post-checkout # hk-${run}`, "--board", board], { cred: credB });
+    await approveNext(`hk-${run}`);
+    await pending;
+    assert(readFileSync(join(shareReal, ".git", "config"), "utf8") === gitConfig && !existsSync(join(shareReal, ".git", "hooks", "post-checkout")), "git config and hooks stay read-only in the sandbox");
     // Denied: nothing runs.
     pending = cli(["run", name, `touch denied-${run}`, "--board", board], { cred: credB });
     await approveNext(`denied-${run}`, "reject");

@@ -42,8 +42,9 @@ const live = (a: Approval): Approval => {
 };
 
 /** The person's push / inbox fields for an approval: "Approval needed" (the app maps kind to its notification category). */
-export function pushFor(a: Pick<Approval, "id" | "title" | "client" | "session" | "board_id" | "risk"> & Partial<Pick<Approval, "user" | "requested_by">>): { kind: "approval_needed"; title: string; body: string; url: string; approval: string; board: string | null; risk: string } {
-  return { kind: "approval_needed", title: "Approval needed", body: `${askerOf(a)} asks: ${a.title}`.slice(0, 160), url: `/approvals#${a.id}`, approval: a.id, board: a.board_id, risk: a.risk };
+export function pushFor(a: Pick<Approval, "id" | "title" | "client" | "session" | "board_id" | "risk"> & Partial<Pick<Approval, "user" | "requested_by">>): { kind: "approval_needed"; title: string; body: string; url: string; approval: string; board: string | null; risk: string; by?: string } {
+  const by = a.requested_by && a.user && a.requested_by !== a.user ? a.requested_by : undefined; // another member's agent asks (#5000)
+  return { kind: "approval_needed", title: "Approval needed", body: `${askerOf(a)} asks: ${a.title}`.slice(0, 160), url: `/approvals#${a.id}`, approval: a.id, board: a.board_id, risk: a.risk, ...(by ? { by } : {}) };
 }
 
 /** Who's asking, in words: another member's agent by name (never "Your agent" for someone else's, #4930). */

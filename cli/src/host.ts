@@ -13,7 +13,7 @@ import { join, resolve } from "node:path";
 import { createInterface } from "node:readline";
 import { cleanOutput, clampTimeout, commandProblem, HOST_ID_RE, HOST_PHRASE, insideShares, MAX_OUTPUT, RUN_ID_RE, safeEnv, shareProblem, termSafe } from "../../src/hostCore";
 import { api, CliError, creds, currentBoard, optStr, say, server } from "./commands";
-import { sandboxPlan, sandboxTool } from "./sandbox";
+import { laterRuns, sandboxPlan, sandboxTool } from "./sandbox";
 
 type Opt = Record<string, string | true>;
 
@@ -30,7 +30,7 @@ function hostArgs(args: string[]): { pos: string[]; opt: Opt; shares: string[]; 
       continue;
     }
     const k = a.slice(2);
-    if (k === "all" || k === "json" || k === "quiet" || k === "no-wait") {
+    if (k === "all" || k === "json" || k === "quiet" || k === "no-wait" || k === "allow-network") {
       opt[k] = true;
       continue;
     }
@@ -53,10 +53,11 @@ function ask(question: string): Promise<string> {
   return new Promise((res) => rl.question(question, (a) => (rl.close(), res(a))));
 }
 
-const WARNING = (board: string, shares: string[], allow: string[]) => `
+const WARNING = (board: string, shares: string[], allow: string[], network: boolean) => `
   ⚠️  VERY DANGEROUS: atteo host lets agents on board ${board} ask to run shell commands on THIS machine, as you.
      Each runs in a sandbox that can read and write only: ${shares.join(", ")}
-     (plus the system's programs, and the network). Your home folder, keys and logins stay out of its reach.
+     (and read the system's programs). Your home folder, keys and logins stay out of its reach.
+     ${network ? "NETWORK ON (--allow-network): commands can reach the internet and this machine's services, so they could send these folders anywhere." : "No network: commands can't reach the internet or this machine's services (start with --allow-network to allow it)."}
      You approve every command (in the browser or the app)${allow.length ? ` except these exact ones, in ${shares[0]}: ${allow.map((a) => JSON.stringify(a)).join(", ")}` : ""}.
      Stop any time: Ctrl-C here, Stop on the board, or atteo host stop. Stop kills a command that's running.
 `;
@@ -102,10 +103,10 @@ function killGroup(child: ChildProcess) {
 }
 
 /** Runs one command in the sandbox: no TTY, stdin closed, an allowlisted environment, its own process group. */
-function execute(tool: { kind: "mac" | "bwrap"; file: string }, shares: string[], command: string, cwd: string, timeoutS: number): Promise<{ exit_code: number | null; output: string; timed_out: boolean; stopped: boolean }> {
+function execute(tool: { kind: "mac" | "bwrap"; file: string }, shares: string[], command: string, cwd: string, timeoutS: number, network: boolean): Promise<{ exit_code: number | null; output: string; timed_out: boolean; stopped: boolean }> {
   const box = mkdtempSync(join(tmpdir(), "atteo-run-"));
   const tmp = realpathSync(box);
-  const plan = sandboxPlan(tool, shares, cwd, command, tmp, realHome());
+  const plan = sandboxPlan(tool, shares, cwd, command, tmp, realHome(), { network, ...(tool.kind === "bwrap" ? laterRuns(shares) : {}) });
   return new Promise((done) => {
     let out = "";
     let timedOut = false;
@@ -130,6 +131,13 @@ function execute(tool: { kind: "mac" | "bwrap"; file: string }, shares: string[]
       done({ ...r, timed_out: timedOut, stopped: me.killed });
     };
     child.on("error", (e) => end({ exit_code: null, output: `Couldn't start: ${e.message}` }));
+    // The command ended: anything it left running in the background goes too, so nothing outlives the run or a Stop
+    // (alt-c #4915). A child that called setsid() has left the group; on Linux bubblewrap's PID namespace takes it down.
+    child.on("exit", () => {
+      try {
+        if (child.pid) process.kill(-child.pid, "SIGKILL");
+      } catch {}
+    });
     child.on("close", (code) => end({ exit_code: code, output: out }));
   });
 }
@@ -162,8 +170,8 @@ function refusal(run: Run, hostId: string, shares: string[], allow: string[]): s
 async function start(args: string[]) {
   refuseRoot();
   const { opt, shares: asked, allow } = hostArgs(args);
-  const bad = Object.keys(opt).filter((k) => !["board", "name", "server", "quiet"].includes(k));
-  if (bad.length) throw new CliError(`atteo host doesn't take ${bad.map((k) => "--" + k).join(", ")}. Options: --share DIR (repeat) --allow "<exact command>" (repeat) --name N --board B. Consent is always typed in your browser.`);
+  const bad = Object.keys(opt).filter((k) => !["board", "name", "server", "quiet", "allow-network"].includes(k));
+  if (bad.length) throw new CliError(`atteo host doesn't take ${bad.map((k) => "--" + k).join(", ")}. Options: --share DIR (repeat) --allow "<exact command>" (repeat) --name N --board B --allow-network. Consent is always typed in your browser.`);
   for (const c of allow) {
     const p = commandProblem(c);
     if (p) throw new CliError(`--allow ${JSON.stringify(c)}: ${p}`);
@@ -175,16 +183,18 @@ async function start(args: string[]) {
   // Consent is the person's, every start, and never from an agent: it happens in their browser (only a person's login
   // can mint the code there), and the code is typed into this terminal. No flag skips it; a pipe can't feed it.
   if (!process.stdin.isTTY) throw new CliError("atteo host only starts in an interactive terminal: you confirm it in your browser and type the code here.");
-  say(WARNING(board, shares, allow));
+  // Network is the person's choice, here at start, and shown on the consent page; never the server's or an agent's (jxn #4945).
+  const network = opt["allow-network"] === true;
+  say(WARNING(board, shares, allow, network));
   const machine = "m_" + randomBytes(12).toString("base64url");
   const c = creds();
   // The link carries the folders and the allowlist, so the browser shows exactly what the code will allow (#4917).
-  const scope = Buffer.from(JSON.stringify({ shares, allow })).toString("base64url");
+  const scope = Buffer.from(JSON.stringify({ shares, allow, network })).toString("base64url");
   say(`  To allow it, open this link (signed in as ${c.user}), check the folders and commands it shows, type "${HOST_PHRASE}" there, and copy the code:\n\n    ${server(c, opt)}/host/consent?board=${board}&machine=${machine}&scope=${scope}\n`);
   const code = (await ask("  Code: ")).trim();
   if (!code) throw new CliError("Not attached: no code.");
   const name = optStr(opt, "name") ?? hostname().replace(/\.local$/, "");
-  const reg = await api(opt, "POST", `/api/boards/${board}/hosts`, { code, machine, name, shares, allow });
+  const reg = await api(opt, "POST", `/api/boards/${board}/hosts`, { code, machine, name, shares, allow, network });
   const host = reg.host as { id: string; name: string };
   if (!HOST_ID_RE.test(host.id) || typeof reg.secret !== "string") throw new CliError("The board answered with something unexpected; not attached.");
   const mine = { "x-atteo-host-secret": reg.secret as string }; // only this process holds it (#4939)
@@ -204,6 +214,7 @@ async function start(args: string[]) {
   };
   process.on("SIGINT", () => void stopNow());
   process.on("SIGTERM", () => void stopNow());
+  process.on("SIGHUP", () => void stopNow()); // the terminal closed: same as Ctrl-C (alt-c #4915)
   let misses = 0;
   for (;;) {
     let got: { stop?: string; run?: Run | null };
@@ -251,7 +262,7 @@ async function start(args: string[]) {
           }
         }
       }, 2000);
-      const r = await execute(tool, shares, run.command, cwd, clampTimeout(run.timeout_s)).finally(() => clearInterval(watch));
+      const r = await execute(tool, shares, run.command, cwd, clampTimeout(run.timeout_s), network).finally(() => clearInterval(watch));
       result = r.stopped ? { exit_code: r.exit_code, output: r.output, timed_out: false, error: "killed: the host was stopped" } : r;
     } catch (e) {
       result = { exit_code: null, output: "", timed_out: false, error: e instanceof Error ? e.message : String(e) };

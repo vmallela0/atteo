@@ -58,12 +58,13 @@ const old = await p.locator("#host-dlg").innerText().catch(() => "");
 check(/update atteo/i.test(old) && !(await p.locator("#host-ph").count()), `a link without its folders can't be confirmed ("${old.replace(/\s+/g, " ").slice(0, 100)}")`);
 await p.keyboard.press("Escape");
 const PM = `m_browserp${run}xyz`;
-const pscope = { shares: ["/home/p/proj"], allow: ["make test"] };
+const pscope = { shares: ["/home/p/proj"], allow: ["make test"], network: true };
 await p.goto(`${BASE}/host/consent?board=${board}&machine=${PM}&scope=${Buffer.from(JSON.stringify(pscope)).toString("base64url")}`);
 await p.locator("#host-ph").waitFor({ timeout: 8000 }).catch(() => {});
 check(await p.locator("#host-dlg").isVisible() && !new URL(p.url()).searchParams.has("host_consent"), `the link opens the consent dialog (and tidies the address: ${p.url()})`);
 const shown = await p.locator("#host-dlg").innerText().catch(() => "");
 check(shown.includes("/home/p/proj") && shown.includes("make test"), `the consent shows exactly which folders and commands it allows (#4917): "${shown.replace(/\s+/g, " ").slice(0, 160)}"`);
+check(/Network on \(--allow-network\)/.test(shown), "…and that this host has network, in words (jxn #4945)");
 check(await p.locator("#host-go").isDisabled(), "…its button starts disabled");
 await p.fill("#host-ph", "i understand");
 check(await p.locator("#host-go").isDisabled(), "…stays disabled for anything but the exact phrase");
@@ -79,6 +80,7 @@ const first = await reg({ code: pcode, machine: PM, name: `pbox${run}`, ...pscop
 const again = await reg({ code: pcode, machine: PM, name: `pbox2${run}`, ...pscope });
 check(first.status === 200 && again.status === 403, `the code attaches that machine once (${first.status}, then ${again.status})`);
 const phost = first.ok ? (await first.json()).host : null;
+check(phost?.network === true, "the host attaches with the network the person saw");
 await p.keyboard.press("Escape");
 // Q's agent asks P's machine for a long command with a look-alike letter. P's approval names Q's agent, shows the whole
 // command in every mode, nothing clipped, and flags the non-ASCII letter (#4926/#4927/#4929/#4930).

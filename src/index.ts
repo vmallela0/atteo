@@ -1026,6 +1026,7 @@ const handler = {
         if (archive) {
           const old = BOARD_RE.test(archive) ? await registry.getBoard(env, archive) : null;
           if (!old || old.created_by !== viewer.name || old.archived_at || (old as { kind?: string | null }).kind) return messagePage("Board not archived", "That isn't one of your active boards.", { viewer, status: 400, action: { href: "/?new=1", label: "Try again" } });
+          await stopBoardHosts(env, old.id, `${viewer.name} (archived the board)`); // like any archive (#4951, #5008)
           await boardStub(env, old.id).setArchived(true);
           await registry.setBoardArchived(env, old.id, true);
           ctx.waitUntil(registry.audit(env, old.id, viewer.name, "archived", null, "to make room on the Free plan").catch(() => {}));
@@ -2643,8 +2644,8 @@ const handler = {
           if (target === "confirm" && !act && method === "POST") {
             // The consent is the person's alone, like approvals: an agent (or the CLI an agent could run) can't mint it.
             if (viewer.via === "agent") return json({ error: `Only you can allow a machine, signed in on the web or the app: open ${origin}/host/consent?board=${bid}&machine=… from atteo host's link.` }, 403);
-            const b = (await request.json().catch(() => ({}))) as { phrase?: unknown; machine?: unknown; shares?: unknown; allow?: unknown };
-            return json(await hosts.confirm(env, bid, viewer.name, b.phrase, b.machine, { shares: b.shares, allow: b.allow }));
+            const b = (await request.json().catch(() => ({}))) as { phrase?: unknown; machine?: unknown; shares?: unknown; allow?: unknown; network?: unknown };
+            return json(await hosts.confirm(env, bid, viewer.name, b.phrase, b.machine, { shares: b.shares, allow: b.allow, network: b.network }));
           }
           if (!target && method === "POST") {
             const b = (await request.json().catch(() => ({}))) as Record<string, unknown>;
@@ -2677,7 +2678,7 @@ const handler = {
             if (act === "next" && method === "GET") {
               await ownerOnly();
               const wait = Math.min(25, Math.max(0, parseInt(url.searchParams.get("wait") ?? "0", 10) || 0));
-              const got = await hosts.next(env, bid, host, wait * 1000);
+              const got = await hosts.next(env, bid, host, wait * 1000, requestNow(env, request));
               for (const r of got.settled) await audit(host.owner, hosts.auditText(host, r));
               if (got.stop) return json({ stop: got.stop }, 200, { "cache-control": "no-store" });
               return json({ run: got.run ? hosts.runView(got.run) : null }, 200, { "cache-control": "no-store" });
@@ -2685,7 +2686,7 @@ const handler = {
             if (act === "runs" && !runId && method === "POST") {
               if ((await registry.memberRole(env, bid, viewer.name)) === "viewer") return json({ error: "You can only view this board, so you can't ask its machines to run anything." }, 403);
               const b = (await request.json().catch(() => ({}))) as Record<string, unknown>;
-              const made = await hosts.request(env, bid, host.id, viewer.name, b);
+              const made = await hosts.request(env, bid, host.id, viewer.name, b, requestNow(env, request));
               if (made.approval) {
                 // The owner's card on the board: Approve or Deny, like any approval (only the person decides).
                 await boardStub(env, bid).approvalRequested(approvals.refOf(made.approval), { via: "agent", client: "atteo host" }).catch((e: unknown) => console.error("host approval entry failed", e));
@@ -2694,7 +2695,7 @@ const handler = {
             }
             if (act === "runs" && runId && !result && method === "GET") {
               const wait = Math.min(25, Math.max(0, parseInt(url.searchParams.get("wait") ?? "0", 10) || 0));
-              const got = await hosts.runNow(env, bid, host, runId, wait * 1000);
+              const got = await hosts.runNow(env, bid, host, runId, wait * 1000, requestNow(env, request));
               if (!got) return json({ error: "No such run." }, 404);
               if (got.closed) await audit(host.owner, hosts.auditText(host, got.closed));
               return json({ run: hosts.runView(got.run) }, 200, { "cache-control": "no-store" });

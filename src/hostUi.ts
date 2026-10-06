@@ -21,13 +21,13 @@ function paint(){const live=hosts.filter(x=>!x.stopped_at),on=live.filter(x=>x.o
       // Above the thread, a strip in the conversation's column: inside .thread-wrap (a row) it stood beside the messages
       // and filled the whole view (jxn #4899).
       const at=document.querySelector('.thread-wrap')||document.getElementById('thread-scroll');(at&&at.parentNode?at.parentNode:document.body).insertBefore(ban,at&&at.parentNode?at:null)}
-    const html='<b>⚠️ '+h(t('Machine attached'))+'</b><span style="flex:1;min-width:200px">'+on.map(x=>h(x.owner)+"'s "+h(x.name)).join(', ')+' · '+h(t('agents here can ask to run commands on it; its owner approves each one.'))+'</span>'+
+    const html='<b>⚠️ '+h(t('Machine attached'))+'</b><span style="flex:1;min-width:200px">'+on.map(x=>h(x.owner)+"'s "+h(x.name)+(x.network?' ('+h(t('network on'))+')':'')).join(', ')+' · '+h(t('agents here can ask to run commands on it; its owner approves each one.'))+'</span>'+
       on.filter(canStop).map(x=>'<button type="button" class="btn sm" data-host-stop="'+h(x.id)+'">'+h(t('Stop'))+' '+h(x.name)+'</button>').join('');
     if(ban.dataset.html!==html){ban.innerHTML=html;ban.dataset.html=html}}
   else if(ban)ban.remove();
   const side=document.getElementById('host-side');if(!side)return;
   let list=side.querySelector('.host-list');if(!list){list=document.createElement('div');list.className='host-list';side.insertBefore(list,side.firstChild)}
-  list.innerHTML=live.length?'<h3 class="xs faint" style="margin:0 0 6px">'+h(t('Machines'))+'</h3>'+live.map(x=>'<div class="small" style="display:flex;gap:8px;align-items:center;margin-bottom:6px"><span aria-hidden="true">'+(x.online?'●':'○')+'</span><span style="flex:1;min-width:0;overflow-wrap:anywhere"><b>'+h(x.name)+'</b> · '+h(x.owner)+' · '+h(x.online?t('online'):t('offline'))+'<br><span class="xs faint">'+h(x.shares.join(', '))+'</span></span>'+(canStop(x)?'<button type="button" class="btn sm intervene" data-host-stop="'+h(x.id)+'">'+h(t('Stop'))+'</button>':'')+'</div>').join(''):''}
+  list.innerHTML=live.length?'<h3 class="xs faint" style="margin:0 0 6px">'+h(t('Machines'))+'</h3>'+live.map(x=>'<div class="small" style="display:flex;gap:8px;align-items:center;margin-bottom:6px"><span aria-hidden="true">'+(x.online?'●':'○')+'</span><span style="flex:1;min-width:0;overflow-wrap:anywhere"><b>'+h(x.name)+'</b> · '+h(x.owner)+' · '+h(x.online?t('online'):t('offline'))+(x.network?' · <b>'+h(t('network on'))+'</b>':'')+'<br><span class="xs faint">'+h(x.shares.join(', '))+'</span></span>'+(canStop(x)?'<button type="button" class="btn sm intervene" data-host-stop="'+h(x.id)+'">'+h(t('Stop'))+'</button>':'')+'</div>').join(''):''}
 async function load(){try{hosts=(await api('',{cache:'no-store'})).hosts||[];paint()}catch(e){}}
 document.addEventListener('click',async e=>{const s=e.target.closest('[data-host-stop]');if(s){s.disabled=true;try{await api('/'+s.dataset.hostStop+'/stop',{method:'POST'});window.toast&&toast(t('Stopped. Nothing more runs on it.'))}catch(x){window.toast&&toast(String(x.message||x))}load();return}
   if(e.target.closest('[data-host-attach]'))attach(null)});
@@ -38,10 +38,11 @@ const pre='<pre class="mono" style="white-space:pre-wrap;overflow-wrap:anywhere;
 // The scope the link carries (#4917): the folders it will share and the commands that won't ask, shown before the
 // phrase, and sent with it, so the code allows exactly what the person saw. A link without it can't be confirmed.
 function scopeOf(s){try{const j=JSON.parse(new TextDecoder().decode(Uint8Array.from(atob(String(s||'').replace(/-/g,'+').replace(/_/g,'/')),c=>c.charCodeAt(0))));
-  return Array.isArray(j.shares)&&j.shares.length&&Array.isArray(j.allow)?{shares:j.shares.map(String),allow:j.allow.map(String)}:null}catch(e){return null}}
+  return Array.isArray(j.shares)&&j.shares.length&&Array.isArray(j.allow)?{shares:j.shares.map(String),allow:j.allow.map(String),network:j.network===true}:null}catch(e){return null}}
 function scopeHtml(sc){const li=a=>'<ul class="small mono" style="margin:4px 0 0;padding-left:18px;overflow-wrap:anywhere">'+a.map(x=>'<li>'+h(x)+'</li>').join('')+'</ul>';
   return '<div class="small"><b>'+h(t('It can read and write only these folders:'))+'</b>'+li(sc.shares)+'</div>'+
-    '<p class="xs faint" style="margin:0">'+h(t('Commands run in a sandbox: they can also read the system’s programs and use the network, but not your home folder, keys or logins outside these folders.'))+'</p>'+
+    (sc.network?'<p class="small" role="alert" style="margin:0;color:var(--intervene)"><b>'+h(t('Network on (--allow-network): commands can reach the internet and services on this machine, so they could send anything in these folders anywhere.'))+'</b></p>'
+      :'<p class="xs faint" style="margin:0">'+h(t('Commands run in a sandbox: they can also read the system’s programs, but not your home folder, keys or logins outside these folders. No network: they can’t reach the internet or anything else on this machine.'))+'</p>')+
     '<div class="small"><b>'+h(t('Commands that run without asking you (in the first folder):'))+'</b>'+(sc.allow.length?li(sc.allow):' '+h(t('none: every command asks you.')))+'</div>'}
 function attach(machine,scope){let d=document.getElementById('host-dlg');if(d)d.remove();const sc=machine?scopeOf(scope):null;
   d=document.createElement('dialog');d.id='host-dlg';d.style.maxWidth='520px';d.setAttribute('aria-labelledby','host-dlg-h');
@@ -58,7 +59,7 @@ function attach(machine,scope){let d=document.getElementById('host-dlg');if(d)d.
   if(machine&&sc){const inp=d.querySelector('#host-ph'),go=d.querySelector('#host-go');
     inp.addEventListener('input',()=>{go.disabled=inp.value.replace(/[\\u2018\\u2019]/g,"'")!==PH});
     go.addEventListener('click',async()=>{go.disabled=true;const err=d.querySelector('#host-err');err.hidden=true;
-      try{const j=await api('/confirm',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({phrase:inp.value,machine,shares:sc.shares,allow:sc.allow})});
+      try{const j=await api('/confirm',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({phrase:inp.value,machine,shares:sc.shares,allow:sc.allow,network:sc.network})});
         const box=d.querySelector('#host-cmd');box.hidden=false;
         box.innerHTML=h(t('Type this code into the terminal on that machine. It works once, for 10 minutes.'))+pre.replace('<pre ','<pre id="host-code" ').replace('padding:8px','padding:10px;font-size:20px;letter-spacing:2px;text-align:center')+h(j.code)+'</pre>';
         inp.disabled=true}catch(x){err.hidden=false;err.textContent=String(x.message||x);go.disabled=false}})}

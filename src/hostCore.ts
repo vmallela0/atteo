@@ -100,7 +100,7 @@ export function termSafe(s: unknown): string {
 }
 
 /** Folders never shared, nor anything inside them (#4917). */
-const SYSTEM_DIRS = ["/etc", "/usr", "/bin", "/sbin", "/lib", "/lib64", "/System", "/Library", "/var", "/private", "/dev", "/proc", "/sys", "/boot", "/opt", "/Applications", "/cores", "/root", "/run", "/snap"];
+const SYSTEM_DIRS = ["/tmp", "/etc", "/usr", "/bin", "/sbin", "/lib", "/lib64", "/System", "/Library", "/var", "/private", "/dev", "/proc", "/sys", "/boot", "/opt", "/Applications", "/cores", "/root", "/run", "/snap"];
 
 /** Why a folder can't be shared, or null. Both sides check: the CLI on realpaths with its HOME, the server without it.
  * Never /, a system folder, a hidden folder or anything in one (.ssh, .config), the folder holding people's homes, a
@@ -117,6 +117,11 @@ export function shareProblem(p: unknown, home: string | null = null): string | n
   return null;
 }
 
-/** What a consent code covers (#4917): the shares and the allowlist the person was shown, as one canonical string. */
-export const consentScope = (shares: unknown, allow: unknown): string =>
-  JSON.stringify({ s: (Array.isArray(shares) ? shares : []).map((x) => normPath(x) ?? String(x)), a: (Array.isArray(allow) ? allow : []).map((x) => String(x)) });
+/** A working folder the requester names: plain path characters only, so it can't read as markdown or someone's words (#5003). */
+export const CWD_RE = /^[\w./ -]{1,1024}$/;
+/** A path or name shown in a board line or approval title, as a code span (no backtick can end it early). */
+export const codeSpan = (s: string): string => "`" + s.replace(/`/g, "ʼ") + "`";
+
+/** What a consent code covers (#4917): the shares, the allowlist and network or not (jxn #4945), as the person saw them. */
+export const consentScope = (shares: unknown, allow: unknown, network: unknown = false): string =>
+  JSON.stringify({ s: (Array.isArray(shares) ? shares : []).map((x) => normPath(x) ?? String(x)), a: (Array.isArray(allow) ? allow : []).map((x) => String(x)), n: network === true });

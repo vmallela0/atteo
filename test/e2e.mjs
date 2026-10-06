@@ -7530,6 +7530,79 @@ await step("atteo host: typed consent for the exact scope, owner approves each c
   assert((await post(HR, `/${reg3.host.id}/runs`, { command: "ls" })).status === 409, "nothing runs on an archived board");
 });
 
+await step("atteo host: network is consented, cwd is plain text, the owner isn't capped out, 20 asks an hour, approved runs expire after 2 h, a dead host's run expires (#4945/#5003/#5010/#4959/#4942/#5007)", async () => {
+  const HO = `e2e-hcown-${run}`, A = [1, 2, 3, 4].map((i) => `e2e-hcask${i}-${run}`);
+  await makeUsers([HO, ...A]);
+  const hb = (await ops("boards", { user: HO, title: `host caps ${run}` })).body.board.id;
+  for (const u of A) await ops("members", { board: hb, user: u });
+  const api = (who, path, init = {}) => fetch(`${BASE}/api/boards/${hb}/hosts${path}`, { ...init, headers: { ...auth(who), "content-type": "application/json", ...(init.headers ?? {}) } });
+  const post = (who, path, body, headers = {}) => api(who, path, { method: "POST", body: JSON.stringify(body ?? {}), headers });
+  const PH = "I understand what I'm doing";
+  const mint = async (machine, sc) => (await (await web(`/api/boards/${hb}/hosts/confirm`, HO, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ phrase: PH, machine, ...sc }) })).json()).code;
+  // Network is part of what the person consented to (jxn #4945): a code minted without it can't attach a host with it.
+  const MA = `m_e2ecapsa${run}`, scA = { shares: ["/srv/cap"], allow: [] };
+  const codeA = await mint(MA, scA);
+  assert((await post(HO, "", { code: codeA, machine: MA, name: "capbox", ...scA, network: true })).status === 403, "a code minted without network can't attach with --allow-network");
+  const regA = await (await post(HO, "", { code: codeA, machine: MA, name: "capbox", ...scA })).json();
+  const hA = regA.host;
+  const MN = `m_e2ecapsn${run}`, scN = { shares: ["/srv/net"], allow: [], network: true };
+  const regN = await (await post(HO, "", { code: await mint(MN, scN), machine: MN, name: "netbox", ...scN })).json();
+  const listed = (await (await api(A[0], "")).json()).hosts;
+  assert(listed.find((h) => h.id === hA.id)?.network === false && listed.find((h) => h.id === regN.host?.id)?.network === true, `members see which machines have network: ${JSON.stringify(listed.map((h) => [h.name, h.network]))}`);
+  // cwd is the requester's text: plain path characters only, shown as code (#5003).
+  for (const cwd of ["/srv/cap/ · asked by x's own agent: ok", "/srv/cap/[x](https://e.example)", "/srv/cap/`x`", "/srv/cap/é"]) {
+    const r = await post(A[0], `/${hA.id}/runs`, { command: "ls", cwd });
+    assert(r.status === 400 && /cwd can only use/.test((await r.json()).error), `cwd ${JSON.stringify(cwd)} refused`);
+  }
+  const spaced = (await (await post(A[0], `/${hA.id}/runs`, { command: "ls", cwd: "/srv/cap/sub dir" })).json()).run;
+  const ap = (await (await web(`/api/approvals`, HO)).json()).approvals.find((a) => a.id === spaced?.approval);
+  assert(ap?.title.endsWith("in `/srv/cap/sub dir`"), `the title shows the folder as code: ${ap?.title}`);
+  // Members can fill the host's queue (3 each), never lock its owner out (#5010).
+  for (const [who, n] of [[A[0], 2], [A[1], 3], [A[2], 3]]) for (let i = 0; i < n; i++) assert((await post(who, `/${hA.id}/runs`, { command: `echo ${who} ${i}` })).status === 200, `${who} asks ${i}`);
+  assert((await post(HO, `/${hA.id}/runs`, { command: "echo mine" })).status === 200, "the owner asks: 10 waiting");
+  const full = await post(A[3], `/${hA.id}/runs`, { command: "echo late" });
+  assert(full.status === 429 && /10 commands waiting/.test((await full.json()).error), `a 4th member is refused at 10 waiting: ${full.status}`);
+  assert((await post(HO, `/${hA.id}/runs`, { command: "echo mine again" })).status === 200, "…but the owner still gets through");
+  // The clock (local servers with DEV_FAKE_CLOCK=1 read x-dev-now; CI and verify.sh set it).
+  const MB = `m_e2ecapsb${run}`, scB = { shares: ["/srv/clk"], allow: ["make test"] };
+  const regB = await (await post(HO, "", { code: await mint(MB, scB), machine: MB, name: "clockbox", ...scB })).json();
+  const hB = regB.host, SB = { "x-atteo-host-secret": regB.secret };
+  const t0 = Date.now(), at = (ms) => ({ "x-dev-now": String(t0 + ms) });
+  const r1 = (await (await post(A[0], `/${hB.id}/runs`, { command: "make test" })).json()).run;
+  assert(r1.status === "approved", "allowlisted: approved at once");
+  const soon = (await (await api(A[0], `/${hB.id}/runs/${r1.id}`, { headers: at(3600_000) })).json()).run;
+  if (soon.status === "expired" || (await (await api(A[0], `/${hB.id}/runs/${r1.id}`, { headers: at(2 * 3600_000 + 60_000) })).json()).run.status !== "expired") {
+    console.log("      (skipped the clock checks: add DEV_FAKE_CLOCK=1 to .dev.vars to move the host clock)");
+    return;
+  }
+  // An approved run nobody picked up in 2 hours is closed, and the host never gets it (#4942).
+  const gone = (await (await api(A[0], `/${hB.id}/runs/${r1.id}`)).json()).run;
+  assert(gone.status === "expired" && /didn't pick it up/.test(gone.note), `approved, 2 h later: ${JSON.stringify(gone)}`);
+  assert((await (await api(HO, `/${hB.id}/next?wait=0`, { headers: SB })).json()).run?.id !== r1.id, "the host never gets an expired run");
+  // A run whose host died mid-run (no result, no Stop) is closed once its timeout and a minute's grace pass (#5007).
+  const r2 = (await (await post(A[0], `/${hB.id}/runs`, { command: "make test", timeout_s: 30 })).json()).run;
+  const took = await (await api(HO, `/${hB.id}/next?wait=0`, { headers: SB })).json();
+  assert(took.run?.id === r2.id, `the host takes it: ${JSON.stringify(took)}`);
+  assert((await (await api(A[0], `/${hB.id}/runs/${r2.id}`, { headers: at(60_000) })).json()).run.status === "running", "still running inside timeout + grace");
+  const dead = (await (await api(A[0], `/${hB.id}/runs/${r2.id}`, { headers: at(30_000 + 61_000 + 5_000) })).json()).run;
+  assert(dead.status === "expired" && /went away while it ran/.test(dead.note), `a dead host's run is closed: ${JSON.stringify(dead)}`);
+  assert((await post(HO, `/${hB.id}/runs/${r2.id}/result`, { exit_code: 0, output: "late" }, SB)).status === 409, "a result after that is refused");
+  has(await ok(A[0], hb, "read", { limit: 40 }), "No result: its host went away while it ran");
+  // 20 asks an hour per member, then a plain refusal; an hour later it's open again (#4959).
+  let asked = 2; // r1 and r2
+  while (asked < 20) {
+    const batch = [];
+    for (let i = 0; i < 3 && asked < 20; i++, asked++) batch.push((await (await post(A[0], `/${hB.id}/runs`, { command: `echo hour ${asked}` })).json()).run);
+    for (const r of batch) {
+      await web(`/api/approvals/${r.approval}/reject`, HO, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
+      await api(A[0], `/${hB.id}/runs/${r.id}`); // settles it as rejected, freeing a waiting slot
+    }
+  }
+  const over = await post(A[0], `/${hB.id}/runs`, { command: "echo twenty-one" });
+  assert(over.status === 429 && /20 runs in the last hour/.test((await over.json()).error), `the 21st ask in an hour is refused: ${over.status}`);
+  assert((await post(A[0], `/${hB.id}/runs`, { command: "echo next hour" }, at(3600_000 + 60_000))).status === 200, "an hour later it's open again");
+});
+
 if (ONLY && !matched) { failed++; failures.push(`no steps match ONLY=${JSON.stringify(process.env.ONLY)}`); }
 console.log(`\n${passed} passed, ${failed} failed${failures.length ? `: ${failures.join("; ")}` : ""}`);
 process.exit(failed ? 1 : 0);

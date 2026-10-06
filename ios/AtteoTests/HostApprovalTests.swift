@@ -23,4 +23,14 @@ final class HostApprovalTests: XCTestCase {
         XCTAssertTrue(ApprovalDetail.hasNonASCII("ls \u{202E}txt"))
         XCTAssertTrue(ApprovalDetail.hasNonASCII("echo héllo"))
     }
+
+    /// jxn #4945: the banner says when a machine's commands can reach the network.
+    func testTheBannerSaysWhenAMachineHasNetwork() throws {
+        let json = #"{"hosts":[{"id":"h_1","name":"box","owner":"vedu","shares":["/p"],"online":true,"stopped_at":null,"network":true},{"id":"h_2","name":"mac","owner":"jxn","shares":["/q"],"online":true,"stopped_at":null}]}"#
+        let d = JSONDecoder()
+        d.keyDecodingStrategy = .convertFromSnakeCase
+        let hosts = try d.decode(HostsResponse.self, from: Data(json.utf8)).hosts
+        XCTAssertEqual(hostLabel(hosts[0]), "vedu's box (network on)")
+        XCTAssertEqual(hostLabel(hosts[1]), "jxn's mac")
+    }
 }

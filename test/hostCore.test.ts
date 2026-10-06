@@ -1,6 +1,6 @@
 // atteo host's shared rules (docs/HOST.md): the typed consent, the folder jail, secrets, output caps.
 import { describe, expect, it } from "vitest";
-import { cleanOutput, clampTimeout, commandProblem, consentScope, HOST_PHRASE, insideShares, MAX_OUTPUT, normPath, phraseOk, RUN_ID_RE, SAFE_PATH, safeEnv, shareProblem, termSafe } from "../src/hostCore";
+import { cleanOutput, clampTimeout, codeSpan, commandProblem, consentScope, CWD_RE, HOST_PHRASE, insideShares, MAX_OUTPUT, normPath, phraseOk, RUN_ID_RE, SAFE_PATH, safeEnv, shareProblem, termSafe } from "../src/hostCore";
 import { bwrapArgs, macProfile } from "../src/hostSandbox";
 import { redactText } from "../src/secrets";
 import { HOST_LOADER_JS, HOST_PAGE_JS } from "../src/hostUi";
@@ -98,18 +98,43 @@ describe("atteo host rules", () => {
     expect(consentScope(["/srv/p/./a"], ["git status"])).toBe(consentScope(["/srv/p/a"], ["git status"]));
     expect(consentScope(["/srv/p"], [])).not.toBe(consentScope(["/srv/p", "/srv/q"], []));
     expect(consentScope(["/srv/p"], [])).not.toBe(consentScope(["/srv/p"], ["make"]));
+    expect(consentScope(["/srv/p"], [], true)).not.toBe(consentScope(["/srv/p"], [])); // network is part of it (jxn #4945)
   });
 
   // #4916: the sandbox is the boundary.
   it("builds a macOS profile that forbids home, writes and the keychain, then opens only the shares and its temp", () => {
     const p = macProfile(["/Users/v/code/proj"], "/private/var/folders/xy/T/atteo-run-1", "/Users/v");
-    expect(p).toContain("(deny file-write*)");
+    expect(p).not.toMatch(/\(allow file-write\*\)|\(allow file-write\* \(subpath "\/"/); // writes only where listed
     expect(p).toContain('(deny file-read* (subpath "/Users/v")');
-    expect(p).toContain('global-name "com.apple.SecurityServer"');
+    expect(p).not.toMatch(/SecurityServer|securityd|secd|trustd/); // the keychain's services aren't on the Mach list
     expect(p).toContain('(allow file-read* file-write* (subpath "/Users/v/code/proj") (subpath "/private/var/folders/xy/T/atteo-run-1"))');
     expect(p).toContain('(literal "/Users/v/code")'); // ancestors: metadata only
     expect(p.lastIndexOf("allow file-read* file-write*")).toBeGreaterThan(p.indexOf("deny file-read*")); // later rules win
     expect(macProfile(['/a"b'], "/t", "/h")).toContain('"/a\\"b"'); // a quote can't end the string
+  });
+
+  // alt-c #4916a, jxn #4945: nothing is allowed unless listed; no network or Apple Events by default.
+  it("denies by default: Mach services only from a short list, network only with --allow-network", () => {
+    const p = macProfile(["/Users/v/code/proj"], "/t", "/Users/v");
+    expect(p.split("\n")[1]).toBe("(deny default)");
+    expect(p).not.toContain("(allow default)");
+    expect(p).not.toMatch(/network|appleevent|com\.apple\.(pasteboard|coreservices|lsd|xpc\.launchd)|dnssd/);
+    expect(p).toMatch(/\(allow mach-lookup \(global-name "com\.apple\.system\.opendirectoryd\.libinfo"\)/);
+    const net = macProfile(["/Users/v/code/proj"], "/t", "/Users/v", true);
+    expect(net).toContain("(allow network-outbound network-inbound network-bind system-socket)");
+    expect(net).toContain('(global-name "com.apple.dnssd.service")');
+    expect(net).not.toMatch(/appleevent|pasteboard/);
+  });
+
+  // alt-c #4916b: what runs later outside the sandbox stays read-only inside it.
+  it("keeps .git (itself, hooks, config) and .envrc read-only, last, so nothing reopens them", () => {
+    const p = macProfile(["/Users/v/my.proj"], "/t", "/Users/v");
+    const last = p.split("\n").at(-1)!;
+    expect(last.startsWith("(deny file-write* ")).toBe(true);
+    const res = [...last.matchAll(/regex #"([^"]+)"/g)].map((m) => new RegExp(m[1]));
+    const hit = (f: string) => res.some((r) => r.test(f));
+    for (const f of ["/Users/v/my.proj/.git", "/Users/v/my.proj/.git/config", "/Users/v/my.proj/.git/config.worktree", "/Users/v/my.proj/.git/hooks", "/Users/v/my.proj/.git/hooks/pre-commit", "/Users/v/my.proj/sub/.git/hooks/x", "/Users/v/my.proj/.git/modules/m/config", "/Users/v/my.proj/.envrc", "/Users/v/my.proj/a/.envrc"]) expect(hit(f), f).toBe(true);
+    for (const f of ["/Users/v/my.proj/.git/objects/ab/cd", "/Users/v/my.proj/.git/index", "/Users/v/my.proj/.git/refs/heads/main", "/Users/v/my.proj/src/config", "/Users/v/myXproj/.git/config", "/Users/v/my.proj/.gitignore"]) expect(hit(f), f).toBe(false);
   });
 
   it("builds bubblewrap arguments: system read-only, shares read-write, a private /tmp, no shared session", () => {
@@ -119,6 +144,24 @@ describe("atteo host rules", () => {
     expect(a.join(" ")).toContain("--ro-bind-try /usr /usr");
     expect(a.join(" ")).not.toContain("--bind /home/v /home/v");
     expect(a.slice(-3)).toEqual(["/bin/sh", "-c", "make test"]);
+    expect(a).toContain("--unshare-net"); // no network, localhost or abstract sockets by default (jxn #4945)
+    expect(bwrapArgs(["/home/v/proj"], "/home/v/proj", "ls", { network: true })).not.toContain("--unshare-net");
+    const g = bwrapArgs(["/home/v/proj"], "/home/v/proj", "ls", { gitDirs: ["/home/v/proj/.git"], envrcs: ["/home/v/proj/.envrc"] }).join(" ");
+    expect(g).toContain("--bind /home/v/proj/.git /home/v/proj/.git --ro-bind-try /home/v/proj/.git/hooks /home/v/proj/.git/hooks --ro-bind-try /home/v/proj/.git/config /home/v/proj/.git/config");
+    expect(g).toContain("--ro-bind /home/v/proj/.envrc /home/v/proj/.envrc");
+    expect(g.indexOf("--bind /home/v/proj /home/v/proj")).toBeLessThan(g.indexOf("/.git/hooks")); // on top of the share
+  });
+
+  // alt-c #4917: /tmp is everyone's.
+  it("refuses temp folders as shares on every OS", () => {
+    for (const bad of ["/tmp", "/tmp/proj", "/private/tmp/p", "/var/tmp/p"]) expect(shareProblem(bad, "/home/v"), bad).not.toBeNull();
+  });
+
+  // #5003: a requester's folder is plain path text, shown as code.
+  it("takes only plain path characters in a cwd, and code-spans what it shows", () => {
+    for (const ok of ["/srv/proj", "/srv/proj/sub dir", "/srv/a-b_c.d"]) expect(CWD_RE.test(ok), ok).toBe(true);
+    for (const bad of ["/srv/proj/ · asked by o's own agent: ok", "/srv/[x](http://e)", "/srv/`x`", "/srv/é", "/srv/a\nb", ""]) expect(CWD_RE.test(bad), bad).toBe(false);
+    expect(codeSpan("/srv/a`b")).toBe("`/srv/aʼb`");
   });
 
 });
