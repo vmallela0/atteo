@@ -148,6 +148,14 @@ final class ShareModel: ObservableObject {
         if p.hasItemConformingToTypeIdentifier(UTType.plainText.identifier), !p.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) {
             let t = try await p.loadItem(forTypeIdentifier: UTType.plainText.identifier)
             if let s = t as? String { return (.text(s), nil) }
+            if let d = t as? Data, let s = String(data: d, encoding: .utf8) { return (.text(s), nil) }
+        }
+        // Text from Messages (or Notes, a page) with its formatting: its words, one message per line, never the bytes as a file.
+        if !p.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier),
+           let type = ShareCore.richTextTypes.first(where: { p.hasItemConformingToTypeIdentifier($0) }) {
+            let data = try await richData(p, type: type)
+            guard let s = ShareCore.plainText(rich: data, type: type) else { return nil }
+            return (.text(s), nil)
         }
         if p.hasItemConformingToTypeIdentifier(UTType.data.identifier) {
             let (data, name) = try await fileData(p, type: .data)
@@ -160,6 +168,14 @@ final class ShareModel: ObservableObject {
     }
 
     /// The item's bytes and a file name for it.
+    private static func richData(_ p: NSItemProvider, type: String) async throws -> Data {
+        try await withCheckedThrowingContinuation { cont in
+            _ = p.loadDataRepresentation(forTypeIdentifier: type) { data, error in
+                if let data { cont.resume(returning: data) } else { cont.resume(throwing: error ?? ShareError.nothing) }
+            }
+        }
+    }
+
     private static func fileData(_ p: NSItemProvider, type: UTType) async throws -> (Data, String) {
         try await withCheckedThrowingContinuation { cont in
             _ = p.loadFileRepresentation(forTypeIdentifier: type.identifier) { url, error in
