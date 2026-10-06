@@ -1171,7 +1171,7 @@ dialog.palette{margin-top:12vh;width:min(600px,calc(100vw - 24px));border-radius
 .bp-panel>.layout{flex:1;min-height:0;grid-template-rows:minmax(0,1fr);position:relative;gap:20px}
 @media(min-width:960px){.bp-panel>.layout{grid-template-columns:minmax(0,1fr) 280px}.bp-panel>.layout.info-collapsed{grid-template-columns:minmax(0,1fr)}.layout.info-collapsed>.aside{display:none}
   .layout.info-collapsed>.conv{width:100%;max-width:820px;margin:0 auto} /* a readable measure even with the sidebar hidden */}
-#board-info{display:flex;flex-direction:column}#sum{display:contents}#sum>[data-fold=members]{order:1}#ns-side,#host-side{order:2}
+:where(#board-info){display:flex;flex-direction:column}#sum{display:contents}#sum>[data-fold=members]{order:1}#ns-side,#host-side{order:2}
 .bp-panel .aside{position:static;align-self:stretch;max-height:none;min-height:0;overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain;margin:40px 0 0 -8px;padding:4px 8px 16px 8px}
 /* Board info scrolls below the panel toggle (nothing slides under it), with a thin, faint scrollbar. */
 .aside::-webkit-scrollbar{width:4px}
