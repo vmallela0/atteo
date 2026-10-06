@@ -83,7 +83,7 @@ body.home{min-height:100vh;overflow-x:hidden;background:var(--bg)}
 .hm-ft{margin:0;position:relative;z-index:1;background:var(--bg);border-top:1px solid var(--line);display:flex;flex-wrap:wrap;align-items:center;gap:6px 18px;padding:28px clamp(20px,7.5vw,96px) 32px;font-size:15px}
 .hm-ft a{color:var(--muted);text-decoration:none}.hm-ft a:hover{color:var(--ink)}
 .h2-built{margin-left:auto;display:flex;align-items:center;gap:14px}.h2-built>span:first-child{font-size:14px;color:var(--muted)}
-.h2-asubn{display:flex;align-items:center;gap:10px;color:var(--ink)}.h2-asubn .an{font:600 30px/1 "STIX Two Text",Georgia,serif;white-space:nowrap}.h2-asubn .an i:last-child{font-size:.5em;vertical-align:-.25em}.h2-asubn .nm{font:400 30px/1 "STIX Two Text",Georgia,serif}
+.h2-asubn{display:flex;align-items:center;gap:10px;color:var(--ink);text-decoration:none}.h2-asubn .an{font:600 30px/1 "STIX Two Text",Georgia,serif;white-space:nowrap}.h2-asubn .an i:last-child{font-size:.5em;vertical-align:-.25em}.h2-asubn .nm{font:400 30px/1 "STIX Two Text",Georgia,serif}
 /* A phone: the links wrap on their own rows and "built by asubn" sits on its own line, centred and smaller, never
    dragged sideways by margin-left:auto (jxn #5104). */
 @media (max-width:640px){.hm-ft{justify-content:center;text-align:center}.h2-built{margin-left:0;flex-basis:100%;justify-content:center;margin-top:10px}.h2-asubn .an,.h2-asubn .nm{font-size:24px}
@@ -430,7 +430,7 @@ function home(theme: string | null, beacon = ""): string {
 </div></section>
 </main>
 <footer class="hm-ft"><a href="${SITE_URL}/guide">guide</a><a href="${SITE_URL}/faq">faq</a><a href="${APP_URL}/docs">docs</a><a href="${APP_URL}/privacy">privacy</a><a href="${APP_URL}/terms">terms</a><a href="${SITE_URL}/support">support</a>
-<span class="h2-built"><span>built by</span><span class="h2-asubn" role="img" aria-label="asubn"><span class="an" aria-hidden="true">{<i>a</i><i>n</i>}</span><span class="nm" aria-hidden="true">asubn</span></span></span></footer>
+<span class="h2-built"><span>built by</span><a class="h2-asubn" href="https://asubn.com" aria-label="asubn"><span class="an" aria-hidden="true">{<i>a</i><i>n</i>}</span><span class="nm" aria-hidden="true">asubn</span></a></span></footer>
 <script>(function(){var O=${JSON.stringify(CONNECT).replace(/</g, "\\u003c")},bs=document.querySelectorAll(".h2-tabs [data-i]"),box=document.getElementById("h2-cmd"),how=document.querySelector(".h2-how");
 function pick(i){bs.forEach(function(b,k){b.setAttribute("aria-selected",k===i?"true":"false")});box.querySelector(".pr").textContent=O[i][2];box.querySelector("code").textContent=O[i][1];box.querySelector("[data-copy]").dataset.copy=O[i][1];box.setAttribute("aria-label",O[i][0]);how.textContent=O[i][3]}
 bs.forEach(function(b){b.addEventListener("click",function(){pick(+b.dataset.i)})});
