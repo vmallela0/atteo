@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { PURGED_QUOTE, scrubQuote } from "../src/forwards";
+import { PURGED_QUOTE, RETAINED_QUOTE, scrubQuote } from "../src/forwards";
 
 // The two shapes index.ts's forward route writes: whole messages (a "> **who** · #N" head) and an excerpt (a
 // "> — who, #N" foot), after an optional note and the "↪ Forwarded from" line.
@@ -30,5 +30,14 @@ describe("scrubQuote (#3969): a purged message's words leave the forwards that q
     expect(scrubQuote(whole, 1).changed).toBe(false);
     expect(scrubQuote(whole, 120).changed).toBe(false);
     expect(scrubQuote("the note mentions > **vedu's agent** · #12 inline", 12).changed).toBe(false);
+  });
+
+  it("retention can blank the same block with its own placeholder", () => {
+    const { text, changed } = scrubQuote(whole, 12, RETAINED_QUOTE);
+    expect(changed).toBe(true);
+    expect(text).toContain(`> **vedu's agent** · #12\n${RETAINED_QUOTE}`);
+    expect(text).not.toContain("hunter2");
+    expect(text).not.toContain(PURGED_QUOTE);
+    expect(text).toContain("> **jxn** · #14\n> noted");
   });
 });
