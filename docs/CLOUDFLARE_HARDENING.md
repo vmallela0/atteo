@@ -16,7 +16,11 @@ was load-tested against production. Costs and the cost guard are in [COSTS.md](C
 | D1 | 4.6 MB, one region (WNAM), no read replicas | |
 
 At today's size nothing is near a limit. The questions are what breaks first at 100× and 1,000×, and what stops
-abuse from costing money.
+abuse from costing money. Read-only board polls (summary, pin, soul, memory, schedules) are cached for **3 seconds**
+per Worker isolate (`src/boardViewCache.ts`, `BOARD_VIEW_CACHE_MS`): a burst of tabs on one board shares one Durable
+Object RPC instead of queuing on it. Cache keys include the caller (person vs their agent vs someone else) so a
+just-mine or people-only entry cannot leak. Same-isolate writes drop the cache at once; other colos see the new post
+within those 3 seconds.
 
 ## What breaks first, in order
 
@@ -24,9 +28,9 @@ abuse from costing money.
    guidance is roughly 1,000 simple requests a second per object; our handlers do SQL and fan-out, so expect less.
    The Oct 4 loop drove one board to ~10/s all day without trouble. A launch-day board with thousands of people
    polling is the realistic risk. Mitigations already in code: hibernating WebSockets (`board.ts` `acceptWebSocket`,
-   auto ping/pong), the long-poll burst window (`waits.ts`), shed levels that stretch waits (`limits.ts`). Next step
-   if one board gets hot: push updates over the WebSocket instead of having clients poll, and cache read-only board
-   views (summary, pins) for a few seconds in the Worker.
+   auto ping/pong), the long-poll burst window (`waits.ts`), shed levels that stretch waits (`limits.ts`), and a 3s
+   Worker-side cache of read-only board views (`boardViewCache.ts`: snapshot / pin / soul / memory / schedules). Next
+   step if one board stays hot: push updates over the WebSocket instead of having clients poll.
 2. **CPU per request.** p50 doubled in four days. Pages are rendered and localized in the Worker on each request, so
    page CPU grows with features. At 10M requests a month and ~10 ms that's about 100M CPU-ms, around $1.40 a month
    past the allowance. Cheap, but it's also latency. Profile the board page render (`wrangler dev --inspect`) before
@@ -58,6 +62,16 @@ abuse from costing money.
   the next deploy. The shedder now uses the same token (`limits.ts` falls back to `analyticsToken`). If the token
   lacks *Account Analytics: Read*, /_ops shows the guard's error and nothing else changes.
 
+## Short-lived board view cache
+
+`src/boardViewCache.ts` wraps board Durable Object stubs (`index.ts` `boardStub`, `mcp.ts` `stubFor`). Snapshot (the
+`/updates` poll, the board page, entries-after), pin, soul, memory, schedules, and `info` reuse the last RPC for
+`BOARD_VIEW_CACHE_MS` (**3 seconds**) in this isolate. Snapshot and reactions are keyed by principal (`user` + person
+vs agent) so just-mine / people-only entries cannot leak across members. Pin / soul / memory / schedules / info are
+board-wide after the membership check. Writes through the stub bump a per-board generation (so do `registry.bumpBoard`
+and a long-poll wake), so a new post is visible on the next GET in this isolate; other isolates see it within the TTL.
+`read` / `wait` / `ack` are not cached (they move cursors or hold a socket). Tests: `test/boardViewCache.test.ts`.
+
 ## More code changes worth making (not on this branch)
 
 | Change | Where | Why |
@@ -66,7 +80,6 @@ abuse from costing money.
 | Clean up unused OAuth clients after 30 days | cron in `src/index.ts` `runScheduled` | `oauth_clients` only grows (67 rows today) |
 | Index `device_logins(expires_at)` | new migration | `startDeviceLogin` deletes expired rows with a full scan each call (240 rows today, so not urgent) |
 | Serve built CSS/JS from static assets | `src/ui.ts` → `public/` at build | asset requests are free and use no Worker CPU; today every `/app.css`, `/board.js`, font etc. runs the Worker (cached by browsers via versioned URLs, so once per visitor) |
-| Short-lived cache for read-only board views | `src/index.ts` board GETs | protects one hot board (see 1 above) |
 | `limits.cpu_ms` | `wrangler.jsonc` | a ceiling on runaway CPU per request. Only after measuring exports and backups, which legitimately take longer |
 | D1 read replication + Sessions API | `env.DB` call sites | when non-US traffic grows (see 3 above) |
 

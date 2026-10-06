@@ -27,6 +27,7 @@ import * as boardPictures from "./boardPictures";
 import * as agents from "./agents";
 import * as dm from "./dm";
 import { settle, waitForBoard } from "./waits";
+import { cachedBoardStub, invalidateBoardViews } from "./boardViewCache";
 import { badMessageId, isRetriable, messageId, retryingReads, withRetry } from "./retry";
 import CLI_BUNDLE from "../cli/dist/atteo.mjs";
 import { installScript } from "./install";
@@ -130,8 +131,9 @@ function cliHash(): Promise<string> {
   return (cliHashMemo ??= crypto.subtle.digest("SHA-256", new TextEncoder().encode(CLI_BUNDLE)).then((b) => [...new Uint8Array(b)].map((x) => x.toString(16).padStart(2, "0")).join("")));
 }
 
+/** Board Durable Object stub: hot read-only RPCs are cached a few seconds in this isolate (boardViewCache.ts). */
 function boardStub(env: Env, id: string) {
-  return env.BOARD.get(env.BOARD.idFromName(id));
+  return cachedBoardStub(id, env.BOARD.get(env.BOARD.idFromName(id)));
 }
 
 /** Stops every machine on a board that's being archived or deleted, with the board's log saying so (#4951). */
@@ -3313,7 +3315,9 @@ const handler = {
           const w = limits.beginWait(sid && `s:${sid}`);
           if (w.refused) return waitRefused(w.refused);
           try {
-            await waitForBoard(stub, { kind: "any", after }, ms, w.signal);
+            // The DO said something arrived: this isolate may not have seen the write (another colo posted), so drop
+            // the few-second view cache before the snapshot below.
+            if (await waitForBoard(stub, { kind: "any", after }, ms, w.signal)) invalidateBoardViews(id);
           } finally {
             w.done();
           }

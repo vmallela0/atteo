@@ -7,6 +7,7 @@ import { checkCanAddMember } from "./billing";
 import { agentNameIndex, foldAgentName } from "./mentions";
 import { noteInviteRedeemed, type Later } from "./observe";
 import { PERSON_ONLY_KINDS, type Env } from "./types";
+import { invalidateBoardViews } from "./boardViewCache";
 
 export interface BoardRow {
   id: string;
@@ -502,6 +503,7 @@ export async function pendingInvites(env: Env, boardId: string): Promise<InviteR
 }
 
 export async function bumpBoard(env: Env, boardId: string, entryCount: number) {
+  invalidateBoardViews(boardId);
   await env.DB.prepare(`UPDATE boards SET entry_count = MAX(entry_count, ?), last_activity = ? WHERE id = ?`).bind(entryCount, Date.now(), boardId).run();
 }
 

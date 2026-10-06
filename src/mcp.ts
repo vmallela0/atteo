@@ -15,6 +15,7 @@ import { formatCard } from "./card";
 import { queueLine } from "./handoff";
 import { holderLabel, MAX_WAIT_MS, MEMORY_MAX, WAIT_CAP } from "./board";
 import { settle, waitForBoard } from "./waits";
+import { cachedBoardStub } from "./boardViewCache";
 import * as agents from "./agents";
 import * as dm from "./dm";
 import * as mailbox from "./mailbox";
@@ -713,8 +714,9 @@ const waitKey = (c: Pick<CallContext, "agentSession" | "sharedSession" | "sessio
 /** A URL connection's session unused this long is free for the client's next connection to take over. */
 const MCP_IDLE_MS = 30 * 60 * 1000;
 
+/** Board Durable Object stub: hot read-only RPCs are cached a few seconds in this isolate (boardViewCache.ts). */
 function stubFor(env: Env, id: string) {
-  return env.BOARD.get(env.BOARD.idFromName(id));
+  return cachedBoardStub(id, env.BOARD.get(env.BOARD.idFromName(id)));
 }
 
 async function boardsAndInvites(c: CallContext) {
