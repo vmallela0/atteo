@@ -20,7 +20,7 @@ struct EpochState: Decodable {
 }
 
 private struct SealedResponse: Decodable {
-    struct Item: Decodable { let seq: Int; let payload: String }
+    struct Item: Decodable { let seq: Int; let payload: String; var ts: Double? = nil; var author: String? = nil; var via: String? = nil; var type: String? = nil }
     let entries: [Item]
 }
 
@@ -93,6 +93,25 @@ final class BoardCrypto {
             for e in r.entries { if let t = open(e.payload, board: board) { out[e.seq] = t } }
             return out
         } catch { return [:] }
+    }
+
+    /// The board's whole history that this phone can read, for searching it here (LocalSearch.swift): every page of
+    /// encrypted messages (200 each, at most 10,000), decrypted in memory and never written anywhere.
+    func history(_ board: String) async -> [LocalSearch.Entry] {
+        var out: [LocalSearch.Entry] = []
+        do {
+            try await sync(board)
+            var after = 0
+            for _ in 0..<50 {
+                let r = try await API.shared.get("/api/boards/\(board)/sealed?after=\(after)", as: SealedResponse.self)
+                for e in r.entries {
+                    if let t = open(e.payload, board: board) { out.append(.init(seq: e.seq, ts: e.ts ?? 0, author: e.author ?? "", via: e.via, type: e.type ?? "note", text: t)) }
+                }
+                guard let last = r.entries.last?.seq, r.entries.count >= 200 else { break }
+                after = last
+            }
+        } catch {}
+        return out
     }
 
     /// Encrypts a message with the board's current key (opening one first if needed) as a v2 payload.
