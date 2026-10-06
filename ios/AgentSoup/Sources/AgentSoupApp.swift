@@ -32,7 +32,6 @@ struct AtteoApp: App {
             .tint(Theme.accent)
             .task(id: state.signedIn) { if state.signedIn { await state.refreshAll() } }
             .task { Notifier.shared.setUp() }
-            .onChange(of: state.me?.owner, initial: true) { _, h in Analytics.identify(h) }
             .onChange(of: state.sessions.count) { _, n in if state.loaded, let h = state.me?.owner { Analytics.sessionsSeen(n, for: h) } }
             .onChange(of: phase) { _, p in
                 guard state.signedIn else { return }

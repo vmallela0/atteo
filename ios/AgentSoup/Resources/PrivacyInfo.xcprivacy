@@ -65,8 +65,6 @@
 			<key>NSPrivacyCollectedDataTypePurposes</key>
 			<array>
 				<string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
-				<!-- the handle identifies the person in product analytics (Analytics.swift) -->
-				<string>NSPrivacyCollectedDataTypePurposeAnalytics</string>
 			</array>
 		</dict>
 		<dict>
@@ -94,13 +92,14 @@
 			</array>
 		</dict>
 		<!-- Product analytics (Analytics.swift, PostHog): which features are used (sign in, board created, invite sent,
-		     first message, agent connected, voice used, screen names). No message text, no emails. Off in Settings →
+		     first message, agent connected, voice used, screen names), under a random id made once per install, never
+		     the handle or any account id, so not linked to the person. No message text, no emails. Off in Settings →
 		     Safety and privacy → Share usage analytics. Not tracking: never combined with other companies' data. -->
 		<dict>
 			<key>NSPrivacyCollectedDataType</key>
 			<string>NSPrivacyCollectedDataTypeProductInteraction</string>
 			<key>NSPrivacyCollectedDataTypeLinked</key>
-			<true/>
+			<false/>
 			<key>NSPrivacyCollectedDataTypeTracking</key>
 			<false/>
 			<key>NSPrivacyCollectedDataTypePurposes</key>

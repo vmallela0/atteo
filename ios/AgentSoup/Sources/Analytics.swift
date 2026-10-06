@@ -1,6 +1,7 @@
 // Product analytics (vedu #4416, #4602): PostHog, the same small event set as the web (src/analytics.ts). The project
 // key is public (it can only record events). Nothing here sends message text, emails or names: events carry only
-// short tokens (surface, via), and a person is identified by their handle. No session replay, no autocapture, no
+// short tokens (surface, via). Like the web, a person is only a random id made once per install (PostHog's anonymous
+// id), never their handle or any account id (/privacy, coordinator follow-up). No session replay, no autocapture, no
 // screenshots. Settings → Safety and privacy → "Share usage analytics" (on by default) opts this phone in or out.
 // Debug builds, unit tests and UI tests never start it unless ATTEO_ANALYTICS=1, so test runs never reach PostHog.
 
@@ -12,7 +13,6 @@ protocol AnalyticsSink: AnyObject {
     func start(key: String, host: String, optedOut: Bool)
     func capture(_ event: String, properties: [String: Any])
     func screen(_ name: String)
-    func identify(_ id: String)
     func reset()
     func optIn()
     func optOut()
@@ -69,13 +69,7 @@ enum Analytics {
         sink.screen(name)
     }
 
-    /// Ties this phone's events to the person's handle (no email, no display name).
-    static func identify(_ handle: String?) {
-        guard let handle, !handle.isEmpty, let sink else { return }
-        sink.identify(handle)
-    }
-
-    /// Signing out: the next person on this phone starts anonymous.
+    /// Signing out: a new random id, so the next person on this phone isn't joined to the last.
     static func reset() { sink?.reset() }
 
     // MARK: - Events that need a little memory
@@ -108,13 +102,12 @@ final class PostHogSink: AnalyticsSink {
         config.sessionReplay = false
         config.preloadFeatureFlags = false
         config.sendFeatureFlagEvent = false
-        config.personProfiles = .identifiedOnly
+        config.personProfiles = .never // anonymous events only: no person profiles, never identify()
         config.optOut = optedOut
         PostHogSDK.shared.setup(config)
     }
     func capture(_ event: String, properties: [String: Any]) { PostHogSDK.shared.capture(event, properties: properties) }
     func screen(_ name: String) { PostHogSDK.shared.screen(name) }
-    func identify(_ id: String) { PostHogSDK.shared.identify(id) }
     func reset() { PostHogSDK.shared.reset() }
     func optIn() { PostHogSDK.shared.optIn() }
     func optOut() { PostHogSDK.shared.optOut() }
