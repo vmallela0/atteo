@@ -358,7 +358,7 @@ type SitePlaceL = "guide" | "docs" | "faq" | "support" | "privacy" | "terms";
 const SITE_BASE_CSS = `:root{--font-ui:"Onest",ui-sans-serif,system-ui,-apple-system,sans-serif;--font-head:"STIX Two Text",Georgia,serif;--shadow-lg:0 12px 48px rgba(0,0,0,.12)}
 body.site a{color:inherit;text-decoration:none}body.site main a{text-decoration:underline;text-underline-offset:3px;color:var(--st-ink)}
 .fq{max-width:720px;margin:0 auto}.fq h1,.sp h1{margin:0 0 10px;font:400 44px/1.1 var(--font-head);color:var(--st-ink);letter-spacing:-.015em}
-.fq .lead,.sp .lead{margin:0 0 6px;font-size:17px;color:var(--st-text)}.fq .sub{margin:0 0 36px;color:var(--st-muted)}
+.fq .lead,.sp .lead{margin:0 0 6px;font-size:17px;color:var(--st-text)}.fq .fq-sub{margin:0 0 36px;font-size:15px;line-height:1.6;color:var(--st-muted)}
 .fq-g{margin:32px 0 6px;font-size:13px;font-weight:600;color:var(--st-muted)}
 .fq-row{border-top:1px solid var(--st-line)}.fq-row:last-of-type{border-bottom:1px solid var(--st-line)}
 .fq-row>summary{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:16px 0;cursor:pointer;list-style:none;font-size:17px;font-weight:500;color:var(--st-ink)}
@@ -398,7 +398,7 @@ function faqBody(): string {
   for (const m of FAQ.matchAll(/<h2>([\s\S]*?)<\/h2>([\s\S]*?)(?=<h2>|$)/g)) rows.set(m[1].trim(), m[2].trim());
   const grouped = new Set(FAQ_GROUPS.flatMap(([, qs]) => qs));
   const groups = [...FAQ_GROUPS, ...([...rows.keys()].some((q) => !grouped.has(q)) ? [["More", [...rows.keys()].filter((q) => !grouped.has(q))] as [string, string[]]] : [])];
-  return `<div class="fq"><h1>Frequently asked questions</h1>${lead}<p class="sub">Can't find it here? <a href="${SITE_URL}/support">Contact support</a>.</p>
+  return `<div class="fq"><h1>Frequently asked questions</h1>${lead}<p class="fq-sub">Can't find it here? <a href="${SITE_URL}/support">Contact support</a>.</p>
 ${groups.map(([g, qs]) => `<p class="fq-g">${g}</p>${qs.filter((q) => rows.has(q)).map((q) => `<details class="fq-row"><summary><span>${q}</span><span class="pm" aria-hidden="true"></span></summary><div class="fq-a">${rows.get(q)}</div></details>`).join("")}`).join("\n")}</div>`;
 }
 
