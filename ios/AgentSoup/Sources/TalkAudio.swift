@@ -45,7 +45,12 @@ final class TalkAudio {
     private var configObserver: NSObjectProtocol?
     private var bringing: Task<Void, Never>?
     /// How it last started, for the call's diagnostics: the try, or the error's domain and code; the route's ports.
-    private(set) var status = ""
+    private var startStatus = ""
+    /// That, how often the engine restarted after a configuration change or was rebuilt, and whether it runs now.
+    var status: String {
+        guard !startStatus.isEmpty else { return "" }
+        return "\(startStatus) · restarts \(restarts), rebuilds \(rebuilds) · \(engine?.isRunning == true ? "running" : "stopped")"
+    }
     private var failing = false
     private var tapped = false
 
@@ -55,6 +60,7 @@ final class TalkAudio {
         guard !started else { return }
         started = true
         standingBy = false
+        restarts = 0; rebuilds = 0
         chimePlayer?.stop(); chimePlayer = nil
         let s = AVAudioSession.sharedInstance()
         let nc = NotificationCenter.default
@@ -225,9 +231,9 @@ final class TalkAudio {
             let route = AVAudioSession.sharedInstance().currentRoute
             let ports = (route.inputs + route.outputs).map(\.portType.rawValue).joined(separator: ",")
             if let e = error as NSError? {
-                self.status = "failed after \(tries) tries: \(e.domain) \(e.code) · \(ports)"
+                self.startStatus = "failed after \(tries) tries: \(e.domain) \(e.code) · \(ports)"
             } else {
-                self.status = "started on try \(tries)\(self.micAllowed ? "" : ", no mic permission") · \(ports)"
+                self.startStatus = "started on try \(tries)\(self.micAllowed ? "" : ", no mic permission") · \(ports)"
             }
             if let why {
                 self.failing = true
@@ -309,11 +315,39 @@ final class TalkAudio {
         p.play()
         preferSpeaker() // after voice processing and the engine start, which can move the route to the earpiece
         configObserver = NotificationCenter.default.addObserver(forName: .AVAudioEngineConfigurationChange, object: e, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.rebuild() }
+            MainActor.assumeIsolated { self?.configChanged() }
+        }
+    }
+
+    private var restarting: Task<Void, Never>?
+    private var restarts = 0, rebuilds = 0
+
+    /// The engine's own configuration changed (vedu #5338): the speaker override, or voice processing moving the
+    /// route, which every new engine does. It used to rebuild here, and the new engine's voice processing moved the
+    /// route again, so the call's audio was torn down over and over: nothing played, the mic barely counted, and the
+    /// quiet timer stood the call by (or a rebuild threw 'what', #5249). Now the same engine (nodes, tap, player)
+    /// starts again; only if that fails is it built afresh.
+    private func configChanged() {
+        guard started else { return }
+        restarting?.cancel()
+        restarting = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 100_000_000) // a burst of changes restarts it once
+            guard let self, !Task.isCancelled, self.started, let e = self.engine else { return }
+            guard TalkAudioStart.onConfigChange(running: e.isRunning) == .restart else { return }
+            self.restarts += 1
+            do {
+                e.prepare()
+                try e.start()
+                self.player?.play()
+                self.preferSpeaker()
+            } catch {
+                self.rebuild()
+            }
         }
     }
 
     private func teardown() {
+        restarting?.cancel(); restarting = nil
         if let configObserver { NotificationCenter.default.removeObserver(configObserver) }
         configObserver = nil
         if let engine {
@@ -323,10 +357,11 @@ final class TalkAudio {
         player = nil; engine = nil; boost = nil; tapped = false
     }
 
-    /// New hardware (AirPods in, headphones out, the media server reset, the engine's own configuration change): a
-    /// fresh engine in the new formats, once the route has settled a moment (a burst of changes brings it up once).
+    /// New hardware (AirPods in, headphones out, the media server reset, an interruption's end, an engine that won't
+    /// restart): a fresh engine in the new formats, once the route has settled a moment (a burst brings it up once).
     private func rebuild() {
         guard started else { return }
+        rebuilds += 1
         teardown()
         bringUp(settle: 0.15)
     }
@@ -361,6 +396,12 @@ enum TalkAudioStart {
         default: nil
         }
     }
+
+    enum ConfigAction: Equatable { case restart, nothing }
+
+    /// The engine's configuration changed: start the same engine again if it stopped (never build a new one, whose
+    /// voice processing would move the route and change the configuration again, for ever: vedu #5338).
+    static func onConfigChange(running: Bool) -> ConfigAction { running ? .nothing : .restart }
 
     /// The last try goes without echo cancelling: voice processing is what most often won't start on a route.
     static func mic(attempt n: Int) -> Mic { n >= 2 ? .plain : .echoCancelled }

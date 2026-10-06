@@ -464,6 +464,7 @@ final class TalkSession: ObservableObject {
         guard !ended, phase == .ready, let openedAt else { return }
         let now = Date()
         elapsed = now.timeIntervalSince(openedAt)
+        if audio.useMic, diag.audio != audio.status { diag.audio = audio.status } // restarts, rebuilds, running
         let s = now < audioUntil
         if s != speaking { speaking = s }
         // The VAD heard something that never became a turn (a cough, a door): don't sit on "Thinking…".
