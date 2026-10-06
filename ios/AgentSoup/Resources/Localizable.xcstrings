@@ -10303,48 +10303,140 @@
         }
       }
     },
-    "Audio isn't working (%@); captions still show.": {
+    "No microphone is available right now, so Atteo can't hear you. Captions still show.": {
       "localizations": {
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "El audio no funciona (%@); los subtítulos se siguen mostrando."
+            "value": "No hay ningún micrófono disponible ahora mismo, así que Atteo no puede oírte. Los subtítulos se siguen mostrando."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "L’audio ne fonctionne pas (%@) ; les sous-titres restent affichés."
+            "value": "Aucun micro n’est disponible pour le moment, Atteo ne peut donc pas vous entendre. Les sous-titres restent affichés."
           }
         },
         "hi": {
           "stringUnit": {
             "state": "translated",
-            "value": "ऑडियो काम नहीं कर रहा (%@); कैप्शन फिर भी दिखेंगे।"
+            "value": "अभी कोई माइक्रोफ़ोन उपलब्ध नहीं है, इसलिए Atteo आपको सुन नहीं सकता। कैप्शन फिर भी दिखेंगे।"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "オーディオが使えません（%@）。字幕は引き続き表示されます。"
+            "value": "今はマイクが使えないため、Atteo にはあなたの声が聞こえません。字幕は引き続き表示されます。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "오디오가 작동하지 않습니다(%@). 자막은 계속 표시됩니다."
+            "value": "지금 사용할 수 있는 마이크가 없어 Atteo가 듣지 못합니다. 자막은 계속 표시됩니다."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "音频无法播放（%@）；字幕仍会显示。"
+            "value": "目前没有可用的麦克风，Atteo 听不到你。字幕仍会显示。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "音訊無法播放（%@）；字幕仍會顯示。"
+            "value": "目前沒有可用的麥克風，Atteo 聽不到你。字幕仍會顯示。"
+          }
+        }
+      }
+    },
+    "Another app or a call is using the microphone. Captions still show; end and start again once it's free.": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Otra app o una llamada está usando el micrófono. Los subtítulos se siguen mostrando; termina y vuelve a empezar cuando esté libre."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Une autre app ou un appel utilise le micro. Les sous-titres restent affichés ; terminez et recommencez quand il sera libre."
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "कोई दूसरा ऐप या कॉल माइक्रोफ़ोन इस्तेमाल कर रहा है। कैप्शन फिर भी दिखेंगे; खाली होने पर बंद करके फिर से शुरू करें।"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "別のアプリか通話がマイクを使っています。字幕は引き続き表示されます。空いたら終了して、もう一度始めてください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다른 앱이나 통화가 마이크를 사용 중입니다. 자막은 계속 표시됩니다. 마이크가 비면 종료하고 다시 시작하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "其他应用或通话正在使用麦克风。字幕仍会显示；等它空闲后结束并重新开始。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "其他 App 或通話正在使用麥克風。字幕仍會顯示；等它空閒後結束並重新開始。"
+          }
+        }
+      }
+    },
+    "The microphone and speaker didn't start. Captions still show; end and start again to retry.": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El micrófono y el altavoz no se iniciaron. Los subtítulos se siguen mostrando; termina y vuelve a empezar para reintentarlo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le micro et le haut-parleur n’ont pas démarré. Les sous-titres restent affichés ; terminez et recommencez pour réessayer."
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "माइक्रोफ़ोन और स्पीकर शुरू नहीं हुए। कैप्शन फिर भी दिखेंगे; फिर से कोशिश करने के लिए बंद करके दोबारा शुरू करें।"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "マイクとスピーカーを開始できませんでした。字幕は引き続き表示されます。終了してもう一度始めると再試行します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "마이크와 스피커가 시작되지 않았습니다. 자막은 계속 표시됩니다. 종료한 뒤 다시 시작해 재시도하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "麦克风和扬声器未能启动。字幕仍会显示；结束后重新开始即可重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "麥克風和揚聲器未能啟動。字幕仍會顯示；結束後重新開始即可重試。"
           }
         }
       }
