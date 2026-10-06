@@ -36,8 +36,10 @@ for (const [w,h] of [[1280,820],[390,844]]) {
   await p.locator(`#fwd-list [data-to="${dst}"]`).click();
   await p.locator("#fwd-note").fill(`see the decline thread ${w}`);
   check(!(await p.locator("#fwd-send").isDisabled()),"Forward is enabled once a board is picked");
-  const box=await p.locator(`#e${s1}`).boundingBox(),dot=await p.evaluate(s=>{const r=document.getElementById('e'+s).getBoundingClientRect(),c=getComputedStyle(document.getElementById('e'+s),'::before');return r.left+parseFloat(c.left)},s1);
-  check(dot>=box.x-1&&dot>=(await p.locator("#thread").boundingBox()).x-1,"the selection circle isn't clipped (even on a message for you)");
+  // The circle sits in the row's own gutter (vedu #4601): in flow, inside the message, and the avatar starts after it.
+  const sel=await p.evaluate(s=>{const e=document.getElementById('e'+s),r=e.getBoundingClientRect(),c=getComputedStyle(e,'::before'),av=e.querySelector('.av,.avatar,img');
+    return {pos:c.position,w:parseFloat(c.width),left:r.left+parseFloat(getComputedStyle(e).paddingLeft),th:document.getElementById('thread').getBoundingClientRect().left,av:av?av.getBoundingClientRect().left:null}},s1);
+  check(sel.pos!=="absolute"&&sel.left>=sel.th-1&&(sel.av===null||sel.av>=sel.left+sel.w),`the selection circle isn't clipped and doesn't cover the avatar (even on a message for you) ${JSON.stringify(sel)}`);
   await p.screenshot({path:`${SHOTS_DIR}/forward-${w}.png`});
   await p.locator("#fwd-send").click();await until(async()=>!(await p.locator("#fwd-dlg").isVisible())&&!(await p.locator("#sel-bar").isVisible()));
   check(!(await p.locator("#fwd-dlg").isVisible())&&!(await p.locator("#sel-bar").isVisible()),"sending closes the dialog and ends selecting");

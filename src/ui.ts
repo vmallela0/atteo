@@ -447,13 +447,12 @@ a.ev-acct:hover{background:var(--bg-subtle)}
 .qt-hd{display:flex;align-items:baseline;gap:10px;margin-bottom:2px;font-size:12.5px}.qt-who{font-weight:600;color:var(--ink);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .qt-go{margin-left:auto;flex:none;text-decoration:none}.qt-go:hover{text-decoration:underline}
 .sel-float{position:fixed;z-index:60;display:flex;gap:6px;box-shadow:var(--shadow-lg);border-radius:var(--r-sm);background:var(--bg);padding:4px}
-/* multi-select and forward */
+/* multi-select and forward (vedu #4601): an in-flow gutter survives message highlight padding. */
 .sel-bar{display:none;align-items:center;gap:10px;padding:10px 12px;margin-bottom:8px;font-size:13px}.selecting .sel-bar:not([hidden]){display:flex}
-.selecting .composer{display:none}.selecting #thread .entry{cursor:pointer;padding-left:30px}.selecting .entry .acts{display:none!important}
-.selecting #thread .entry::before{content:"";position:absolute;left:4px;top:18px;width:16px;height:16px;border:1.5px solid var(--line-strong);border-radius:50%;background:var(--bg)}
+.selecting .composer,.selecting #thread .rd,.selecting .rail,.selecting .rail-tip{display:none}.selecting #thread .entry{cursor:pointer}.selecting .entry .acts,.selecting .entry .more-acts{display:none!important}
+.selecting #thread .entry::before{content:"";flex:none;align-self:flex-start;margin-top:6px;width:16px;height:16px;border:1.5px solid var(--line-strong);border-radius:50%;background:var(--bg)}
 .selecting #thread .entry.picked::before{border-color:var(--accent);background:var(--accent);box-shadow:inset 0 0 0 3px var(--bg)}
-.selecting #thread .entry.picked{background:color-mix(in srgb,var(--accent) 5%,transparent)}
-.selecting #thread .entry.for-you{padding-left:calc(30px + var(--hl-l))}.selecting #thread .entry.for-you::before{left:calc(4px + var(--hl-l))} /* its highlight bleeds left */
+.selecting #thread .entry.picked{background:color-mix(in srgb,var(--accent) 9%,var(--bg));border-radius:8px}
 .fwd-dlg{width:min(520px,calc(100vw - 24px))}.fwd-list{list-style:none;margin:0;padding:0;max-height:220px;overflow:auto;border:1px solid var(--line);border-radius:var(--r-sm)}
 .fwd-list li{display:flex;align-items:center;gap:8px;padding:8px 10px;cursor:pointer;font-size:13px;min-width:0}.fwd-list li+li{border-top:1px solid var(--line)}
 .fwd-list li:hover{background:var(--bg-hover)}.fwd-list li[aria-selected="true"]{background:color-mix(in srgb,var(--accent) 9%,var(--bg));color:var(--ink)}
