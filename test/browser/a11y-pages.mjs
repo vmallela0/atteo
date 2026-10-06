@@ -83,7 +83,7 @@ const PAGES = [
     if (phone) await e.locator("[data-more]").tap(); else await e.hover();
     await e.locator("[data-purge]").click(); await p.locator("#purge-dlg[open]").waitFor();
   }],
-  ["members & access", B, async (p) => { await p.locator('[data-open="invite"]').first().click(); await p.locator("#invite").waitFor(); await p.waitForTimeout(600); }],
+  ["members & access", B, async (p) => { await p.locator('[data-open="invite"]').first().click(); await p.locator("#invite").waitFor(); }],
   ["hover card", B, async (p) => { await p.locator(`#e${vSeq} .meta .who`).first().click(); await p.locator(".hcard [data-mute]").waitFor(); }],
   ["thread", B, async (p) => { await p.locator(`#e${vSeq} [data-thread]`).first().click(); await p.locator("dialog.thr-dlg[open]").waitFor(); }],
   ["connect an agent", B, async (p) => { await p.locator('[data-open="connect"]').first().click(); await p.locator("#connect[open]").waitFor(); }],
@@ -101,13 +101,16 @@ const b = await chromium.launch({ executablePath: process.env.PW_CHROME || undef
 await Promise.all(RUNS.map(async ([tag, viewport, phone, scheme, lang]) => {
   const ctxs = {};
   const ctxFor = async (who) => {
-    if (ctxs[who ?? "-"]) return ctxs[who ?? "-"];
-    const ctx = await b.newContext({ viewport, colorScheme: scheme, reducedMotion: "reduce", ...(phone ? { hasTouch: true, isMobile: true } : {}) });
-    if (who) { const [k, ...v] = ck[who].split(";")[0].split("="); await ctx.addCookies([{ name: k, value: v.join("="), url: BASE }]); }
-    await ctx.addInitScript(AXE);
-    // Signing in hands over to WorkOS's hosted page: answer that navigation here instead of loading the real one.
-    await ctx.route((u) => u.origin !== ORIGIN, (r) => (r.request().isNavigationRequest() ? r.fulfill({ contentType: "text/html", body: "<!doctype html><title>Sign in</title>" }) : r.continue()));
-    return (ctxs[who ?? "-"] = ctx);
+    const key = who ?? "-";
+    if (!ctxs[key]) ctxs[key] = (async () => {
+      const ctx = await b.newContext({ viewport, colorScheme: scheme, reducedMotion: "reduce", ...(phone ? { hasTouch: true, isMobile: true } : {}) });
+      if (who) { const [k, ...v] = ck[who].split(";")[0].split("="); await ctx.addCookies([{ name: k, value: v.join("="), url: BASE }]); }
+      await ctx.addInitScript(AXE);
+      // Signing in hands over to WorkOS's hosted page: answer that navigation here instead of loading the real one.
+      await ctx.route((u) => u.origin !== ORIGIN, (r) => (r.request().isNavigationRequest() ? r.fulfill({ contentType: "text/html", body: "<!doctype html><title>Sign in</title>" }) : r.continue()));
+      return ctx;
+    })();
+    return ctxs[key];
   };
   // A few pages at a time (each its own page, in its run's contexts); each page's lines print in PAGES order.
   const lines = PAGES.map(() => []);
@@ -117,13 +120,18 @@ await Promise.all(RUNS.map(async ([tag, viewport, phone, scheme, lang]) => {
     const check = (ok, t, more = []) => { lines[i].push(`${ok ? "✓" : "✗"} ${t}`, ...more); if (!ok) fails++; };
     const name = `${label} ${tag}`;
     if (!path) { check(false, `${name}: no path (setup failed)`); return; }
-    const p = await (await ctxFor(who)).newPage(), errors = []; p.on("pageerror", (e) => errors.push(e.message));
+    const p = await (await ctxFor(who)).newPage(), errors = [], pending = new Set(); p.on("pageerror", (e) => errors.push(e.message));
+    const track = (r) => { if (["fetch", "xhr"].includes(r.resourceType()) && new URL(r.url()).origin === ORIGIN && !new URL(r.url()).pathname.startsWith("/api/tape")) pending.add(r); };
+    const done = (r) => pending.delete(r);
+    p.on("request", track); p.on("requestfinished", done); p.on("requestfailed", done);
     try {
-      await p.goto(`${BASE}${path}${lang ? `${path.includes("?") ? "&" : "?"}lang=${lang}` : ""}`, { waitUntil: "load" }); await p.waitForTimeout(700);
+      await p.goto(`${BASE}${path}${lang ? `${path.includes("?") ? "&" : "?"}lang=${lang}` : ""}`, { waitUntil: "load" });
       // Signing in hands over to WorkOS's hosted page: not ours to scan.
       if (new URL(p.url()).origin !== ORIGIN) { check(true, `${name}: hands over to ${new URL(p.url()).host}, not scanned`); await p.close(); return; }
       if (setup) await setup(p, phone);
-      await p.waitForTimeout(300);
+      // Server-rendered content is ready at load; wait only for page fetches that are already in flight, not a blanket
+      // delay. Two quiet samples keep a request started by the preceding response from slipping through.
+      for (let quiet = 0, end = Date.now() + 3000; quiet < 2 && Date.now() < end; ) { quiet = pending.size ? 0 : quiet + 1; await new Promise((r) => setTimeout(r, 50)); }
       // Colours mid-fade (a post for you flashes for 1.6s) aren't what anyone reads: let finite animations finish first.
       // A fade can start a frame or two later (an entry's actions fade out once a dialog takes the pointer's hover), so
       // wait until a couple of frames pass with none running (3s at most).
@@ -157,6 +165,7 @@ await Promise.all(RUNS.map(async ([tag, viewport, phone, scheme, lang]) => {
   };
   let next = 0;
   await Promise.all(Array.from({ length: PAR }, async () => { for (let i; (i = next++) < PAGES.length; ) await scan(i); }));
+  await Promise.all(Object.values(ctxs).map(async (x) => (await x).close()));
   out.push(...lines.flat());
 }));
 await b.close();
