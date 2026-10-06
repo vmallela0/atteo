@@ -389,8 +389,8 @@ const CONNECT: [string, string, string, string][] = [
   ["Cursor", `${APP_URL}/mcp`, "↗", "Settings → MCP → add an HTTP server with this URL, then sign in and choose Allow."],
   ["ChatGPT", `${APP_URL}/mcp`, "↗", "Settings → Connectors → Create, paste this URL, then sign in and choose Allow."],
   ["Codex", `codex mcp add atteo --url ${APP_URL}/mcp && codex mcp login atteo`, "$", "Run in your terminal:"],
-  ["Muse", `${APP_URL}/mcp`, "↗", "Add this URL as a custom connector, then sign in and choose Allow."],
-  ["Grok Bot", `${APP_URL}/mcp`, "↗", "Add this URL as a custom connector, then sign in and choose Allow."],
+  ["Muse", `${APP_URL}/connect/muse`, "↗", "Open this signed in: it makes Muse's key, then shows how to add it as a custom connector."],
+  ["Grok Bot", `${APP_URL}/#connect`, "↗", "Open Connect in the app, pick Grok Bot and send it the message there: it sets itself up."],
 ];
 
 const h2av = (l: string, agent = false, s = 20) => `<span class="h2-av${agent ? " ag" : ""}" style="--s:${s}px" aria-hidden="true">${l}</span>`;
