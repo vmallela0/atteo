@@ -10,6 +10,7 @@ import { PRUNE_USAGE_DAILY_SQL } from "../src/usage";
 import { LEASE_GET_SQL, NEWER_MAIL_SQL, PRUNE_MAIL_SQL, UNDELIVERED_SQL } from "../src/mailbox";
 import { TOKEN_SQL } from "../src/auth";
 import { ACCOUNT_LOG_SQL, PRUNE_ACCOUNT_LOG_SQL } from "../src/accountlog";
+import { PRUNE_OAUTH_CLIENTS_SQL } from "../src/oauth";
 import { BUMP_SQL, REQUESTS_TODAY_SQL, SHED_GET_SQL, SHED_SET_SQL } from "../src/limits";
 import { ALERT_ONCE_SQL, CAP_CLEAR_SQL, CAP_GET_SQL, CAP_SET_SQL } from "../src/costGuard";
 
@@ -48,6 +49,7 @@ const HOT: Record<string, string> = {
   "token lookup": TOKEN_SQL,
   "account log (a person, newest first)": ACCOUNT_LOG_SQL,
   "account log prune": PRUNE_ACCOUNT_LOG_SQL,
+  "unused oauth clients prune": PRUNE_OAUTH_CLIENTS_SQL,
   "usage counter flush": BUMP_SQL,
   "shed level read": SHED_GET_SQL,
   "shed level write": SHED_SET_SQL,
