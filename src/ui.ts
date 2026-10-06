@@ -1297,7 +1297,7 @@ a.ref:hover{color:var(--ink);background:color-mix(in srgb,var(--accent) 12%,var(
 :root[data-compact="others"] #thread>.entry.ol:is(.ol-open,[data-ol-all] .ol)>.grow>.meta>:is(.seq,.t-change){display:inline-flex!important}
 .gut{display:none}#thread>.entry>.gut{display:grid;align-content:start;align-self:stretch;contain:size;overflow:hidden;flex:0 0 44px;margin-right:12px;font:11px/22px var(--font-mono);color:var(--faint)}
 :root[data-mode="everyday"] .gut-n,#thread .meta>.seq,#thread>*>.agent>img{display:none}
-#thread>.entry>.av.agent{background:radial-gradient(var(--text) 4.5px,transparent 5px);color:transparent}
+#thread>.entry>.av.agent{background:radial-gradient(var(--text) 4.5px,#0000 5px);color:#0000}
 :root:not([data-compact="others"]) .ol-all{display:none}
 .mu-line{display:none}
 .entry.mu:not(.mu-open)>:not(.mu-line){display:none!important} /* a muted member's post: one line until opened (#3602) */
