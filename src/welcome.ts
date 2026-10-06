@@ -73,7 +73,7 @@ const PROVIDERS: Provider[] = [
     letter: "A",
     match: /^claude$|claude[ .-]?ai/i,
     flow: {
-      open: { href: "https://claude.ai/settings/connectors", label: "Open Claude's Connectors" },
+      open: { href: "https://claude.ai/new#customize/connectors", label: "Open Claude's Connectors" },
       step2: `<b>In Claude's Connectors, choose Add custom connector.</b> Name it Atteo and paste the link.`,
       step3: `<b>Choose Connect, sign in to Atteo</b>, and choose Allow. Then press Done here.`,
     },

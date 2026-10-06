@@ -9,11 +9,14 @@
  "files": 4,
  "reads": 7,
  "upload": 7,
+ "paste-rich": 3,
+ "pasted-rtf": 4,
  "rx": 5,
  "tasks": 5,
  "threads": 10,
  "wheel": 4,
  "search": 8,
+ "palette": 10,
  "scrollbars": 7,
  "social": 6,
  "access": 8,
@@ -106,6 +109,7 @@
  "next-key": 6,
  "kbd-approve": 6,
  "pin-stay": 7,
+ "scroll-hold": 8,
  "everyday-leaks": 1,
  "a11y": 10,
  "voice-chat": 14,
@@ -168,5 +172,9 @@
  "delete-account": 4,
  "upd-bar": 2,
  "task-frozen": 4,
- "host": 3
+ "host": 3,
+ "frame-tab-state": 25,
+ "tabs-close": 12,
+ "invite-friend": 6,
+ "strip-live": 14
 }

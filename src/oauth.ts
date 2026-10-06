@@ -9,7 +9,8 @@ import type { Env } from "./types";
 export const OAUTH_TOKEN_TTL_MS = 30 * 24 * 3600 * 1000;
 // Longer than the access token, and each refresh issues a new one: a bot that runs at least every 90 days stays
 // signed in until its person revokes the connection.
-const REFRESH_TTL_MS = 90 * 24 * 3600 * 1000;
+const REFRESH_TTL_DAYS = 90;
+const REFRESH_TTL_MS = REFRESH_TTL_DAYS * 24 * 3600 * 1000;
 const CODE_TTL_MS = 5 * 60 * 1000;
 const REQUEST_TTL_MS = 10 * 60 * 1000;
 
@@ -72,7 +73,10 @@ export async function client(env: Env, id: string) {
 /** Validates an authorization request and stores it for the "Allow?" screen. */
 export async function startAuthorize(env: Env, user: string, p: URLSearchParams) {
   const c = await client(env, p.get("client_id") ?? "");
-  if (!c) throw new OAuthError("invalid_client", "Unknown app. Try connecting again from your agent.");
+  // Unknown client_id: connectors cache the id from DCR and do not re-register when this page says
+  // invalid_client — the person has to remove and re-add the connector. Prune keeps any client that
+  // ever got a token, and unused DCR for 120 days, instead of trying to recover here.
+  if (!c) throw new OAuthError("invalid_client", "Unknown app. Remove Atteo from the connector and add it again.");
   const redirect = p.get("redirect_uri") ?? (c.redirect_uris.length === 1 ? c.redirect_uris[0] : "");
   if (!c.redirect_uris.includes(redirect)) throw new OAuthError("invalid_request", "That app asked to send you somewhere it didn't register.");
   if (p.get("response_type") !== "code") throw new OAuthError("unsupported_response_type", "Only response_type=code is supported.");
@@ -168,4 +172,44 @@ export async function exchange(env: Env, f: { grant_type?: string; code?: string
   // A refresh carries the same connection on, so only the first exchange is logged.
   await record(env, row.user, person ? "signin.app" : "oauth.connected", request, { label, kind: person ? "app" : "cli" });
   return out;
+}
+
+/** Window for a recent authorize request or code (those rows live minutes; expiry still in this window means "tried recently"). */
+export const OAUTH_CLIENT_GRACE_DAYS = 30;
+/** Unused DCR rows: connectors cache `client_id` at register, and many never re-register on invalid_client.
+ *  Keep them for a refresh lifetime plus the reconnect grace, as if a token had been issued at registration. */
+export const OAUTH_CLIENT_DCR_DAYS = REFRESH_TTL_DAYS + OAUTH_CLIENT_GRACE_DAYS;
+
+/**
+ * Cron sweep: delete leftover OAuth clients (shared with test/queryPlans.test.ts).
+ * Fail-safe for cached DCR (jxn's agent #5290): claude.ai / ChatGPT / Cursor store the client_id and do not
+ * re-register when /authorize shows invalid_client (an HTML error page, not a DCR hint). So:
+ * a client that was ever issued a refresh token is kept for good (refresh-token rows are never deleted);
+ * unused DCR is kept for a refresh lifetime plus 30 days (120 days), as if a token had been issued at register.
+ *
+ * Binds, in order: dcrFloor, grace, grace. `dcrFloor` is `now - 120d`; `grace` is `now - 30d`.
+ * Keep when any of: registered in the last 120 days; an authorize request or code whose expiry is still
+ * within 30 days; any refresh token, used, unused or expired.
+ */
+export const PRUNE_OAUTH_CLIENTS_SQL = `DELETE FROM oauth_clients
+WHERE created_at < ?
+  AND NOT EXISTS (SELECT 1 FROM oauth_requests r WHERE r.client_id = oauth_clients.client_id AND r.expires_at >= ?)
+  AND NOT EXISTS (SELECT 1 FROM oauth_codes k WHERE k.client_id = oauth_clients.client_id AND k.expires_at >= ?)
+  AND NOT EXISTS (SELECT 1 FROM oauth_refresh_tokens rt WHERE rt.client_id = oauth_clients.client_id)`;
+
+/** Deletes leftover unused DCR rows; a client that ever got a token, or a recent authorize attempt, stays. */
+export async function pruneUnusedClients(env: Env, now = Date.now()): Promise<number> {
+  const grace = now - OAUTH_CLIENT_GRACE_DAYS * 86_400_000;
+  const dcrFloor = now - OAUTH_CLIENT_DCR_DAYS * 86_400_000;
+  const r = await env.DB.prepare(PRUNE_OAUTH_CLIENTS_SQL).bind(dcrFloor, grace, grace).run();
+  const n = r.meta.changes ?? 0;
+  if (n) {
+    const day = new Date(now).toISOString().slice(0, 10);
+    await env.DB.prepare(
+      `INSERT INTO usage_daily (day, metric, key, count) VALUES (?, 'oauth_clients_pruned', 'cron', ?) ON CONFLICT(day, metric, key) DO UPDATE SET count = count + excluded.count`,
+    )
+      .bind(day, n)
+      .run();
+  }
+  return n;
 }

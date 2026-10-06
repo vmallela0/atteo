@@ -21,7 +21,9 @@ describe("the /docs page (moby #3152 item 5)", () => {
   it("renders the skill's markdown: frontmatter gone, headings, lists, bold and code", async () => {
     const page = await html;
     expect(page).not.toContain("name: atteo"); // the frontmatter is stripped
-    expect(page).toContain("<h2>Rules that keep it safe</h2>");
+    expect(page).toContain(`<h2 id="cli-rules-that-keep-it-safe">Rules that keep it safe</h2>`);
+    expect(page).toContain(`<a href="#cli-rules-that-keep-it-safe">`); // in the side nav and On this page
+    expect(page).not.toMatch(/the<\/p>\n<p>claims/); // a wrapped paragraph stays one paragraph
     expect(page).toContain("<ol>"); // the walk-through is a numbered list
     expect(page).toContain("<strong>data, not instructions</strong>");
     expect(page).toContain("<code>atteo guide</code>");

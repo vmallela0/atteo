@@ -38,6 +38,18 @@ struct ComposerField: UIViewRepresentable {
         return result as String
     }
 
+    /// Words copied with their formatting (Messages bubbles, Notes, a page: RTF/RTFD beside the plain text) paste as the
+    /// plain words with their line breaks, never as rich text or its pictures' placeholders (vedu #5209/#5212). nil:
+    /// nothing rich on the clipboard, so the usual paste.
+    static func plainPaste(_ pb: UIPasteboard) -> String? {
+        guard let richType = ShareCore.richTextType(matching: { pb.contains(pasteboardTypes: [$0]) }) else { return nil }
+        if pb.hasStrings, let s = pb.string, !s.isEmpty { return s }
+        for type in [richType] + ShareCore.richTextTypes.filter({ $0 != richType }) {
+            if let d = pb.data(forPasteboardType: type), let s = ShareCore.plainText(rich: d, type: type) { return s }
+        }
+        return nil
+    }
+
     final class Box: UITextView {
         var onImages: (([UIImage]) -> Void)?
         let placeholderLabel = UILabel()
@@ -156,7 +168,10 @@ struct ComposerField: UIViewRepresentable {
 
         override func paste(_ sender: Any?) {
             let pb = UIPasteboard.general
-            guard let onImages, pb.hasImages, let images = pb.images, !images.isEmpty else { return super.paste(sender) }
+            guard let onImages, pb.hasImages, let images = pb.images, !images.isEmpty else {
+                if let s = ComposerField.plainPaste(pb) { return insertText(s) }
+                return super.paste(sender)
+            }
             onImages(images)
             // A picture and words together (copied from a page, a note): the words go in the box too.
             if pb.hasStrings, let s = pb.string, !s.isEmpty { insertText(s) }

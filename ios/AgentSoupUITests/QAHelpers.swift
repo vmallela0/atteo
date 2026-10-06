@@ -92,11 +92,24 @@ extension XCUIApplication {
         return XCTWaiter().wait(for: [XCTNSPredicateExpectation(predicate: NSPredicate(format: "isSelected == true"), object: t)], timeout: 5) == .completed
     }
 
-    /// Every thread on the board: All threads, in the ⋯ menu at the top right.
-    func openThreadsList() {
-        let menu = buttons["board-menu"].firstMatch
+    /// The board's ⋯ menu, on the top bar (vedu #5051): what the user taps, on the bar itself.
+    func openBoardMenu() {
+        let menu = navigationBars.buttons["board-menu"].firstMatch
         _ = menu.waitForExistence(timeout: 5)
         menu.tap()
+    }
+
+    /// The rail sheet (#4860): Board details, in the ⋯ menu.
+    func openRail() {
+        openBoardMenu()
+        let item = buttons["board-rail"].firstMatch
+        _ = item.waitForExistence(timeout: 5)
+        item.tap()
+    }
+
+    /// Every thread on the board: All threads, in the board's ⋯ menu.
+    func openThreadsList() {
+        openBoardMenu()
         let item = buttons["threads"].firstMatch
         _ = item.waitForExistence(timeout: 3)
         item.tap()

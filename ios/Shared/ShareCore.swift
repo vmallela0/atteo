@@ -4,6 +4,7 @@
 // alone are a note (POST /api/boards/:id/entries), each with an Idempotency-Key.
 
 import Foundation
+import UIKit
 
 /// Something shared into Atteo, after the extension has read it: bytes that already fit, or words (a link is words).
 enum SharedPayload: Equatable {
@@ -70,6 +71,28 @@ enum ShareCore {
     static func text(note: String, payloads: [SharedPayload]) -> String {
         let shared: [String] = payloads.compactMap { if case .text(let t) = $0 { return t } else { return nil } }
         return ([note] + shared).map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }.joined(separator: "\n")
+    }
+
+    /// Words with their formatting (a Messages bubble, Notes, a web page) come as these types beside or instead of plain
+    /// text; their bytes are never a file to upload (vedu #5209/#5212: four "rich text with attachments -RTFD- data").
+    static let richTextTypes = ["com.apple.flat-rtfd", "com.apple.rtfd", "public.rtf"]
+
+    /// A rich-text UTI registered by the pasteboard/provider. File names are deliberately never passed here: names
+    /// such as "public.key.txt" and "com.apple.notes.txt" are ordinary files, not pasteboard type identifiers.
+    static func richTextType(matching hasType: (String) -> Bool) -> String? {
+        richTextTypes.first(where: hasType)
+    }
+
+    /// Rich text as its plain words, line breaks kept and the pictures' placeholders dropped; nil if it isn't words.
+    static func plainText(rich data: Data, type: String) -> String? {
+        let docs: [NSAttributedString.DocumentType] = type == "public.rtf" ? [.rtf] : [.rtfd, .rtf]
+        for doc in docs {
+            guard let a = try? NSAttributedString(data: data, options: [.documentType: doc], documentAttributes: nil) else { continue }
+            let t = a.string.replacingOccurrences(of: "\u{FFFC}", with: "").replacingOccurrences(of: "\r\n", with: "\n")
+                .replacingOccurrences(of: "\u{2028}", with: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+            return t.isEmpty ? nil : t
+        }
+        return nil
     }
 
     /// The one request that posts all of it to `board`.

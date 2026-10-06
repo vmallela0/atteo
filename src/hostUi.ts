@@ -15,15 +15,19 @@ const canStop=x=>x.owner===ME||B.isOwner;
 let hosts=[];
 function paint(){const live=hosts.filter(x=>!x.stopped_at),on=live.filter(x=>x.online);
   let ban=document.getElementById('host-ban');
-  if(on.length){if(!ban){ban=document.createElement('div');ban.id='host-ban';ban.setAttribute('role','alert');
-      ban.style.cssText='display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:8px 12px;padding:10px 12px;border-radius:var(--r);background:var(--intervene);color:var(--on-intervene);font-size:13px';
-      const at=document.getElementById('thread-scroll');(at&&at.parentNode?at.parentNode:document.body).insertBefore(ban,at&&at.parentNode?at:null)}
-    ban.innerHTML='<b>⚠️ '+h(t('Machine attached'))+'</b><span style="flex:1;min-width:200px">'+on.map(x=>h(x.owner)+"'s "+h(x.name)).join(', ')+' · '+h(t('agents here can ask to run commands on it; its owner approves each one.'))+'</span>'+
-      on.filter(canStop).map(x=>'<button type="button" class="btn sm" data-host-stop="'+h(x.id)+'">'+h(t('Stop'))+' '+h(x.name)+'</button>').join('')}
+  // A polite live region, rewritten only when what it says changes: a screen reader announces it once, not every poll (#4932).
+  if(on.length){if(!ban){ban=document.createElement('div');ban.id='host-ban';ban.setAttribute('role','status');ban.setAttribute('aria-live','polite');
+      ban.style.cssText='flex:none;display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:8px 12px;padding:10px 12px;border-radius:var(--r);background:var(--intervene);color:var(--on-intervene);font-size:13px';
+      // Above the thread, a strip in the conversation's column: inside .thread-wrap (a row) it stood beside the messages
+      // and filled the whole view (jxn #4899).
+      const at=document.querySelector('.thread-wrap')||document.getElementById('thread-scroll');(at&&at.parentNode?at.parentNode:document.body).insertBefore(ban,at&&at.parentNode?at:null)}
+    const html='<b>⚠️ '+h(t('Machine attached'))+'</b><span style="flex:1;min-width:200px">'+on.map(x=>h(x.owner)+"'s "+h(x.name)+(x.network?' ('+h(t('network on'))+')':'')).join(', ')+' · '+h(t('agents here can ask to run commands on it; its owner approves each one.'))+'</span>'+
+      on.filter(canStop).map(x=>'<button type="button" class="btn sm" data-host-stop="'+h(x.id)+'">'+h(t('Stop'))+' '+h(x.name)+'</button>').join('');
+    if(ban.dataset.html!==html){ban.innerHTML=html;ban.dataset.html=html}}
   else if(ban)ban.remove();
   const side=document.getElementById('host-side');if(!side)return;
   let list=side.querySelector('.host-list');if(!list){list=document.createElement('div');list.className='host-list';side.insertBefore(list,side.firstChild)}
-  list.innerHTML=live.length?'<h3 class="xs faint" style="margin:0 0 6px">'+h(t('Machines'))+'</h3>'+live.map(x=>'<div class="small" style="display:flex;gap:8px;align-items:center;margin-bottom:6px"><span aria-hidden="true">'+(x.online?'●':'○')+'</span><span style="flex:1;min-width:0;overflow-wrap:anywhere"><b>'+h(x.name)+'</b> · '+h(x.owner)+' · '+h(x.online?t('online'):t('offline'))+'<br><span class="xs faint">'+h(x.shares.join(', '))+'</span></span>'+(canStop(x)?'<button type="button" class="btn sm intervene" data-host-stop="'+h(x.id)+'">'+h(t('Stop'))+'</button>':'')+'</div>').join(''):''}
+  list.innerHTML=live.length?'<h3 class="xs faint" style="margin:0 0 6px">'+h(t('Machines'))+'</h3>'+live.map(x=>'<div class="small" style="display:flex;gap:8px;align-items:center;margin-bottom:6px"><span aria-hidden="true">'+(x.online?'●':'○')+'</span><span style="flex:1;min-width:0;overflow-wrap:anywhere"><b>'+h(x.name)+'</b> · '+h(x.owner)+' · '+h(x.online?t('online'):t('offline'))+(x.network?' · <b>'+h(t('network on'))+'</b>':'')+'<br><span class="xs faint">'+h(x.shares.join(', '))+'</span></span>'+(canStop(x)?'<button type="button" class="btn sm intervene" data-host-stop="'+h(x.id)+'">'+h(t('Stop'))+'</button>':'')+'</div>').join(''):''}
 async function load(){try{hosts=(await api('',{cache:'no-store'})).hosts||[];paint()}catch(e){}}
 document.addEventListener('click',async e=>{const s=e.target.closest('[data-host-stop]');if(s){s.disabled=true;try{await api('/'+s.dataset.hostStop+'/stop',{method:'POST'});window.toast&&toast(t('Stopped. Nothing more runs on it.'))}catch(x){window.toast&&toast(String(x.message||x))}load();return}
   if(e.target.closest('[data-host-attach]'))attach(null)});
@@ -31,26 +35,37 @@ document.addEventListener('click',async e=>{const s=e.target.closest('[data-host
 // (?host_consent=<machine>): the consent, for that machine only. The button waits for the exact phrase; the code it
 // gets back works once, for 10 minutes, on that machine (the server only mints it for a person, never an agent).
 const pre='<pre class="mono" style="white-space:pre-wrap;overflow-wrap:anywhere;margin:6px 0 0;padding:8px;border:1px solid var(--line);border-radius:8px">';
-function attach(machine){let d=document.getElementById('host-dlg');if(d)d.remove();
+// The scope the link carries (#4917): the folders it will share and the commands that won't ask, shown before the
+// phrase, and sent with it, so the code allows exactly what the person saw. A link without it can't be confirmed.
+function scopeOf(s){try{const j=JSON.parse(new TextDecoder().decode(Uint8Array.from(atob(String(s||'').replace(/-/g,'+').replace(/_/g,'/')),c=>c.charCodeAt(0))));
+  return Array.isArray(j.shares)&&j.shares.length&&Array.isArray(j.allow)?{shares:j.shares.map(String),allow:j.allow.map(String),network:j.network===true}:null}catch(e){return null}}
+function scopeHtml(sc){const li=a=>'<ul class="small mono" style="margin:4px 0 0;padding-left:18px;overflow-wrap:anywhere">'+a.map(x=>'<li>'+h(x)+'</li>').join('')+'</ul>';
+  return '<div class="small"><b>'+h(t('It can read and write only these folders:'))+'</b>'+li(sc.shares)+'</div>'+
+    (sc.network?'<p class="small" role="alert" style="margin:0;color:var(--intervene)"><b>'+h(t('Network on (--allow-network): commands can reach the internet and services on this machine, so they could send anything in these folders anywhere.'))+'</b></p>'
+      :'<p class="xs faint" style="margin:0">'+h(t('Commands run in a sandbox: they can also read the system’s programs, but not your home folder, keys or logins outside these folders. No network: they can’t reach the internet or anything else on this machine.'))+'</p>')+
+    '<div class="small"><b>'+h(t('Commands that run without asking you (in the first folder):'))+'</b>'+(sc.allow.length?li(sc.allow):' '+h(t('none: every command asks you.')))+'</div>'}
+function attach(machine,scope){let d=document.getElementById('host-dlg');if(d)d.remove();const sc=machine?scopeOf(scope):null;
   d=document.createElement('dialog');d.id='host-dlg';d.style.maxWidth='520px';d.setAttribute('aria-labelledby','host-dlg-h');
   const head='<h2 id="host-dlg-h" style="margin:0;color:var(--intervene)">⚠️ '+h(t('Attach a machine: very dangerous'))+'</h2>'+
     '<p class="small" style="margin:0">'+h(t('Agents on this board, yours and other people’s, will be able to ask to run shell commands on your computer, as you, in the folders you share. You approve every command (or allowlist exact ones), and you can stop it any time. Only do this on a board you trust.'))+'</p>';
   const foot=(go)=>'<div style="display:flex;justify-content:flex-end;gap:8px"><button type="submit" class="btn ghost sm" value="cancel">'+h(t(go?'Cancel':'Close'))+'</button>'+(go?'<button type="button" class="btn sm intervene" id="host-go" disabled>'+h(t('I understand, give me the code'))+'</button>':'')+'</div>';
-  d.innerHTML='<form method="dialog" style="display:grid;gap:12px;padding:20px 22px">'+head+(machine?
+  d.innerHTML='<form method="dialog" style="display:grid;gap:12px;padding:20px 22px">'+head+(machine&&!sc?
+    '<p class="small" role="alert" style="margin:0;color:var(--intervene)">'+h(t('This link doesn’t say which folders it would share. Update atteo on that machine (npm i -g atteo) and run atteo host again.'))+'</p>'+foot(false)
+    :machine?scopeHtml(sc)+
     '<label class="small" for="host-ph">'+h(t('Type exactly:'))+' <b>'+h(PH)+'</b></label><input id="host-ph" autocomplete="off" spellcheck="false" style="font:inherit;padding:8px 10px;border:1px solid var(--line-strong);border-radius:8px;background:var(--bg);color:var(--ink)">'+
     '<div id="host-cmd" hidden class="small"></div><p id="host-err" class="small" role="alert" hidden style="margin:0;color:var(--intervene)"></p>'+foot(true)
     :'<div class="small">'+h(t('On that machine, in the folder you want to share, run:'))+pre+h('atteo host --board '+B.board+' --share .')+'</pre></div><p class="small" style="margin:0">'+h(t('It prints a link back here, where you confirm it. Nothing is attached until you do.'))+'</p>'+foot(false))+'</form>';
   document.body.appendChild(d);
-  if(machine){const inp=d.querySelector('#host-ph'),go=d.querySelector('#host-go');
+  if(machine&&sc){const inp=d.querySelector('#host-ph'),go=d.querySelector('#host-go');
     inp.addEventListener('input',()=>{go.disabled=inp.value.replace(/[\\u2018\\u2019]/g,"'")!==PH});
     go.addEventListener('click',async()=>{go.disabled=true;const err=d.querySelector('#host-err');err.hidden=true;
-      try{const j=await api('/confirm',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({phrase:inp.value,machine})});
+      try{const j=await api('/confirm',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({phrase:inp.value,machine,shares:sc.shares,allow:sc.allow,network:sc.network})});
         const box=d.querySelector('#host-cmd');box.hidden=false;
         box.innerHTML=h(t('Type this code into the terminal on that machine. It works once, for 10 minutes.'))+pre.replace('<pre ','<pre id="host-code" ').replace('padding:8px','padding:10px;font-size:20px;letter-spacing:2px;text-align:center')+h(j.code)+'</pre>';
         inp.disabled=true}catch(x){err.hidden=false;err.textContent=String(x.message||x);go.disabled=false}})}
   d.showModal();(d.querySelector('#host-ph')||d.querySelector('button')).focus()}
 window.hostAttach=attach;
-{const q=new URLSearchParams(location.search),m=q.get('host_consent');if(m){q.delete('host_consent');history.replaceState(history.state,'',location.pathname+(q.toString()?'?'+q:'')+location.hash);attach(m)}}
+{const q=new URLSearchParams(location.search),m=q.get('host_consent'),s=q.get('host_scope');if(m){q.delete('host_consent');q.delete('host_scope');history.replaceState(history.state,'',location.pathname+(q.toString()?'?'+q:'')+location.hash);attach(m,s)}}
 load();setInterval(()=>{if(!document.hidden)load()},20000);document.addEventListener('visibilitychange',()=>{if(!document.hidden)load()});
 })();`;
 

@@ -51,6 +51,10 @@
     // The developers' bug board: /api/bugs posts web + app bug reports there (jxn #3336). Set to the board's id
     // once it exists; while empty, the endpoint answers that bug reports aren't set up.
     "BUGS_BOARD": "b_tds5v873d8a7",
+    // The north star (src/northStar.ts, vedu #5284): boards where 2+ outside people were active in a week. TEAM_USERS are
+    // our own accounts, left out of it; every Monday from 16:00 UTC the week's line is posted to NORTH_STAR_BOARD.
+    "TEAM_USERS": "vedu,jxn",
+    "NORTH_STAR_BOARD": "b_skyvcqtm7fei",
     // Product analytics (vedu #4416, #4577): PostHog project 647810 "Atteo" (US). The project key is public by design (it can
     // only record events); src/analytics.ts sends event names and route tokens only, never text, emails or handles.
     "POSTHOG_KEY": "phc_wmSGccJEcjikTZXeXaReyTKJXxFKDXVifqBE8QpQdQy2",

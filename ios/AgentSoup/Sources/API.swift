@@ -83,6 +83,8 @@ final class API: @unchecked Sendable {
             throw APIError.signedOut
         }
         if !(200..<300).contains(http.statusCode) {
+            // Crash reporting: a fixed error kind only; never the server message or body.
+            if http.statusCode >= 500 { CrashReporting.capture("http_5xx") }
             let msg = (try? JSONSerialization.jsonObject(with: data) as? [String: Any])?["error"] as? String
             throw APIError.server(msg ?? String(localized: "Something went wrong (\(http.statusCode)).", bundle: .l10n))
         }
@@ -106,6 +108,9 @@ final class API: @unchecked Sendable {
                     try await Task.sleep(nanoseconds: waits[attempt] * 1_000_000); attempt += 1; continue
                 }
                 throw e
+            } catch {
+                if error is DecodingError { CrashReporting.capture("json_decode") } // kind only; never the payload
+                throw error
             }
         }
     }

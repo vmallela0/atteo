@@ -46,7 +46,7 @@ final class AppOpenerTests: XCTestCase {
     func testEachProviderHasAnAppAndAWeb() {
         XCTAssertEqual(AssistantProvider.muse.chat, ProviderLink(app: "https://muse.ai/chat", web: "https://muse.ai"))
         XCTAssertEqual(AssistantProvider.claude.chat?.app?.absoluteString, "https://claude.ai/new")
-        XCTAssertEqual(AssistantProvider.claude.page?.link.app?.absoluteString, "https://claude.ai/customize/connectors?modal=add-custom-connector")
+        XCTAssertEqual(AssistantProvider.claude.page?.link.app?.absoluteString, "https://claude.ai/new#customize/connectors")
         XCTAssertEqual(AssistantProvider.grok.page?.link.app?.absoluteString, "https://grok.com/connectors")
         XCTAssertNil(AssistantProvider.coding.chat, "a terminal: nothing to open")
         XCTAssertNil(AssistantProvider.muse.page, "Muse has no connectors page to paste a link in")

@@ -777,11 +777,11 @@ final class AgentSoupUITests: XCTestCase {
         XCTAssertTrue(message.waitForExistence(timeout: 5), "a friend: Message")
         shot("p10-person")
         message.tap()
-        let dm = expectation(for: NSPredicate(format: "label BEGINSWITH 'jules'"), evaluatedWith: a.buttons["presence"])
+        let dm = expectation(for: NSPredicate(format: "label BEGINSWITH[c] 'jules'"), evaluatedWith: a.buttons["presence"])
         wait(for: [dm], timeout: 10)
         shot("p11-dm")
         a.navigationBars.buttons.element(boundBy: 0).tap()
-        XCTAssertTrue(a.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'chat-' AND identifier CONTAINS 'jules'")).firstMatch.waitForExistence(timeout: 5), "the DM is under DMs")
+        XCTAssertTrue(a.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'chat-' AND identifier CONTAINS[c] 'jules'")).firstMatch.waitForExistence(timeout: 5), "the DM is under DMs")
 
         // 6. Archive a board from its info (it closes and leaves the list), which makes room on the Free plan for…
         a.buttons["tab-boards"].tap()

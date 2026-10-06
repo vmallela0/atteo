@@ -396,7 +396,9 @@ final class TalkSession: ObservableObject {
         }
         // The fake stays silent (its "voice" is only timed): a simulator under test can hang starting audio I/O.
         if audio.useMic {
-            do { try audio.start() } catch { problem = String(localized: "Audio isn't working (\(error.localizedDescription)); captions still show.", bundle: .l10n) }
+            audio.micAllowed = AVAudioApplication.shared.recordPermission == .granted
+            await audio.start() // retried; if it never starts, audioEvent says why
+            guard !ended, self.link === link else { return } // ended while the audio was starting
             if resuming { audio.resumed() }
         }
 
@@ -1350,6 +1352,9 @@ final class TalkSession: ObservableObject {
 
     // MARK: Audio
 
+    /// What audioEvent last said went wrong, cleared from the sheet when the audio works again.
+    private var audioProblem: String?
+
     private static var pausedNote: String { String(localized: "Paused: another app or a call took the audio. Voice chat picks up when it's done.", bundle: .l10n) }
 
     private func audioEvent(_ e: TalkAudio.Event) {
@@ -1362,8 +1367,12 @@ final class TalkSession: ObservableObject {
             problem = Self.pausedNote
         case .resumed:
             if problem == Self.pausedNote { problem = nil }
-        case .failed(let m):
-            problem = String(localized: "Audio isn't working (\(m)); captions still show.", bundle: .l10n)
+        case .failed(let why):
+            audioProblem = why
+            problem = why
+        case .recovered:
+            if problem == audioProblem { problem = nil }
+            audioProblem = nil
         }
     }
 }

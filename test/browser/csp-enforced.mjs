@@ -29,6 +29,8 @@ const ck = (await ops("sessions", { user: P })).cookie, tokV = (await ops("token
 const mcp = async (name, args) => (await fetch(`${BASE}/mcp?board=${board}`, { method: "POST", headers: { "content-type": "application/json", accept: "application/json, text/event-stream", authorization: `Bearer ${tokV}` }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: args } }) })).json();
 await mcp("read", {});
 await mcp("post", { type: "note", text: "code:\n```js\nconst a = 1; // hi\n```\n```mermaid\nflowchart LR\n A --> B\n```" });
+// A sequence diagram too: mermaid inserts different style blocks per diagram type and theme (jxn's agent #5201).
+await mcp("post", { type: "note", text: "```mermaid\nsequenceDiagram\n Alice->>Bob: hi\n Bob-->>Alice: ok\n```" });
 const files = {
   onclick: `<!doctype html><style>#o{color:rgb(12,34,56)}</style><button id="b" onclick="document.getElementById('o').textContent='clicked'">go</button><pre id="o" style="padding:7px">idle</pre>`,
   script: `<!doctype html><style>#o{color:rgb(12,34,56)}</style><pre id="o" style="padding:7px">idle</pre><script>document.getElementById('o').textContent='ran';fetch('${OUT}/preview').catch(()=>{});new Image().src='${OUT}/preview-img'</script>`,
@@ -75,8 +77,25 @@ const drawing = async () => {
   const { p } = await open();
   await p.goto(`${BASE}/b/${board}`);
   const drawn = await p.locator("#thread .mmd[data-mmd='drawn'] svg").first().waitFor({ timeout: 20000 }).then(() => true, () => false);
-  check(await p.locator("#thread pre code span").count() > 0 && drawn, "code colours and the mermaid diagram render");
+  await p.locator("#thread pre code").first().scrollIntoViewIfNeeded().catch(() => {}); // colours come as the block is seen
+  const coloured = await p.locator("#thread pre code span").first().waitFor({ state: "attached", timeout: 10000 }).then(() => true, () => false);
+  check(coloured && drawn, "code colours and the mermaid diagram render");
   await p.close();
+};
+// Both diagrams (flowchart + sequence) in light and dark, each with zero violations (jxn's agent #5201): mermaid's own
+// style blocks are allowed by hash, and those hashes differ per theme and diagram type.
+const diagrams = async (scheme) => {
+  const c = await b.newContext({ viewport: { width: 1200, height: 820 }, colorScheme: scheme });
+  await c.addCookies([{ name: ck.split("=")[0], value: ck.split(";")[0].split("=").slice(1).join("="), url: BASE }]);
+  await c.route(`${BASE}/**`, enforce);
+  const p = await c.newPage(), viol = [];
+  p.on("console", (m) => { if (/content security policy/i.test(m.text())) viol.push(m.text()); });
+  await p.goto(`${BASE}/b/${board}`);
+  const both = await p.waitForFunction(() => document.querySelectorAll("#thread .mmd[data-mmd='drawn'] svg").length >= 2, null, { timeout: 20000 }).then(() => true, () => false);
+  await p.waitForTimeout(500); // a violation report, if any, comes just after
+  const hashes = [...new Set(viol.flatMap((v) => v.match(/sha256-[A-Za-z0-9+/=]+/g) ?? []))];
+  check(both && !viol.length, `${scheme}: flowchart and sequence diagrams draw with no violations${viol.length ? ` (${viol.length}; blocked ${hashes.join(" ")})` : ""}`);
+  await c.close();
 };
 const preview = async (k) => {
   const { p, viol } = await open();
@@ -101,7 +120,7 @@ const bugReport = async () => {
   const response = await p.goto(`${BASE}/for-you`);
   const nonce = (await response.allHeaders())["content-security-policy"]?.match(/'nonce-([^']+)'/)?.[1] ?? "";
   const bugJs = p.waitForResponse((r) => new URL(r.url()).pathname === "/bug.js");
-  await p.locator("[data-bug]").click();
+  await p.locator(".strip [data-bug]").click(); // the strip's on a wide page (jxn #4860)
   await bugJs;
   await p.locator("#bug[open]").waitFor();
   await p.locator("#bug-send:not([disabled])").waitFor({ timeout: 20000 });
@@ -151,7 +170,7 @@ const consent = async (allow) => {
   await p.close();
 };
 try {
-  await Promise.all([pages(), drawing(), ...Object.keys(files).map(preview), bugReport(), opsConsole(), consent(true), consent(false)]);
+  await Promise.all([pages(), drawing(), diagrams("light"), diagrams("dark"), ...Object.keys(files).map(preview), bugReport(), opsConsole(), consent(true), consent(false)]);
   check(!hits.some((h) => h.startsWith("/preview")), `a preview still can't reach the network (${hits.join(", ") || "nothing arrived"})`);
 } finally {
   await ctx.unrouteAll({ behavior: "ignoreErrors" });

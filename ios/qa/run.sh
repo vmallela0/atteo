@@ -33,7 +33,8 @@ fi
 derived="${QA_DERIVED:-$PWD/.qa-build}"
 dest="platform=iOS Simulator,name=${SIM:-iPhone 17 Pro}"
 if [ "${QA_BUILD:-1}" != 0 ] || ! ls "$derived"/Build/Products/*.xctestrun >/dev/null 2>&1; then
-  xcodebuild build-for-testing -project Atteo.xcodeproj -scheme Atteo -destination "$dest" -derivedDataPath "$derived" -quiet 2>&1 \
+  # netrc, not keychain: a headless keychain lookup hangs the Sentry binary downloads forever.
+  xcodebuild build-for-testing -project Atteo.xcodeproj -scheme Atteo -destination "$dest" -derivedDataPath "$derived" -packageAuthorizationProvider netrc -quiet 2>&1 \
     | grep -E "error:|BUILD FAILED" | grep -v "exit code 0 but produced no further output" || true # -quiet's note on a clean build
 fi
 xctestrun=$(ls -t "$derived"/Build/Products/*.xctestrun | head -1)

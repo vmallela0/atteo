@@ -22,11 +22,11 @@ import { clientName, presenceLabel } from "./social";
 import type { ChangeCard } from "./card";
 import { handoffLine } from "./handoff";
 import type { Attachment, BoardInfo, Entry } from "./types";
-import { appPage, avatar, avatarStack, boardPic, copyField, CSP_ENFORCE, hue, page, renderText, scriptSrc, typeTag, when, working, type SideBoard, type Viewer } from "./ui";
+import { appPage, avatar, avatarStack, boardPic, copyField, CSP_ENFORCE, hue, page, renderText, scriptSrc, siteNav, sitePage, typeTag, when, working, type SideBoard, type Viewer } from "./ui";
 import { fnv } from "./codecolor";
 import { displayMap, personHtml, shownName } from "./names";
 import { agentLogo } from "./agent-logos";
-import { esc, pictureUrl } from "./util";
+import { esc, pictureUrl, slug } from "./util";
 import { WELCOME_BANNER_JS, assistantCard, grokBotMessage, welcomeBanner } from "./welcome";
 import { stateOf } from "./sessions";
 import { E2E_JS } from "./e2eweb";
@@ -34,6 +34,7 @@ import { currentAnalytics, posthogDashboardUrl } from "./analytics";
 import { EXPORT_JS, exportRow } from "./boardExport";
 import { STATUS_JS } from "./status";
 import { EMOJI } from "./emoji";
+import { isRichTextAttachment } from "./richtext";
 import { LANG_NAMES, localize, tr, type Lang } from "./i18n";
 import { REMIND_BROWSER_JS } from "./remindTime";
 import { approvalCardHtml, approvalJs, type ApprovalCardData } from "./approvalCard";
@@ -123,7 +124,18 @@ export function entryHtml(e: Entry, boardId: string, withReplies = true, opts: {
   if (e.reply_to != null) refs.push(`reply to <a class="ref" data-ref="${e.reply_to}" href="#e${e.reply_to}">#${e.reply_to}</a>`);
   if (e.resolves.length) refs.push(`resolves ${e.resolves.map((n) => `<a class="ref" data-ref="${n}" href="#e${n}">#${n}</a>`).join(", ")}`);
   if (e.supersedes != null) refs.push(`supersedes <a class="ref" data-ref="${e.supersedes}" href="#e${e.supersedes}">#${e.supersedes}</a>`);
-  const img = (e.attachments?.length ?? 0) > 1 ? filesHtml(boardId, e.attachments!) : e.artifact_name && e.media?.mime.startsWith("image/") ? imageHtml(boardId, e, T) : "";
+  const img =
+    (e.attachments?.length ?? 0) > 1
+      ? filesHtml(boardId, e.attachments!, T)
+      : e.artifact_name && isRichTextAttachment(e.artifact_name, e.media?.mime)
+      ? pastedHtml(boardId, [{ name: e.artifact_name, version: e.artifact_version ?? null }], T)
+      : e.artifact_name && e.media?.mime.startsWith("image/")
+      ? imageHtml(boardId, e, T)
+      : "";
+  // Only pasted text in it: the "Shared 3 files" caption the server wrote says nothing the quote doesn't.
+  const files = e.attachments?.length ? e.attachments : e.artifact_name ? [{ name: e.artifact_name, mime: e.media?.mime }] : [];
+  const onlyPasted = files.length > 0 && files.every((a) => isRichTextAttachment(a.name, a.mime));
+  const shown = onlyPasted && (e.text === `Shared ${e.artifact_name}` || /^Shared \d+ files$/.test(e.text)) ? "" : e.text;
   const file = e.purged
     ? ""
     : img
@@ -175,7 +187,7 @@ ${
 ${avatar(e.author, "", e.via === "agent")}
 <div class="grow">
   <div class="meta">${isTombstone(e.author) ? `<span class="who deleted">${esc(T(DELETED_LABEL))}</span>` : whoHtml(e, opts.people, opts.members)}${e.to ? `<span class="to">→ ${isTombstone(e.to) ? esc(T(DELETED_LABEL)) : personHtml(e.to, opts.people?.[e.to], opts.members)}</span>` : ""}${e.type === "note" ? "" : typeTag(e.type, opts.lang)}${when(e.ts, opts.lang)}${e.edited_at ? `<button class="edited" type="button" data-history="${e.seq}" aria-label="${esc(T("Edited, show history"))}" title="${esc(new Date(e.edited_at).toUTCString())}">${esc(T("edited"))}</button>` : ""}<a class="seq" href="#e${e.seq}">#${e.seq}</a>${peopleBadge(e, opts.lang)}<span class="badge rbadge">${esc(T("Unsent"))}</span>${flagBadge(e.text, e.ai_flag)}${actions}</div>
-  <div class="body${e.purged ? " purged" : ""}">${e.purged ? `<p>${esc(T("Purged by {name}. Its text and files were removed for good.", { name: e.purged.via === "agent" ? T("{name}'s agent", { name: e.purged.by }) : e.purged.by }))}</p>` : apr?.title ? `<p>${esc(apr.title)}</p>` : refLinks(renderText(e.text, e.mentions, e.mention_names, selfMentions(e.text, e.author, e.via, e.agent_name)))}</div>${file}${e.card ? changeCardHtml(e.seq, e.card) : ""}${e.handoff ? `<div class="refs mono handoff">${esc(handoffLine(e.handoff))}</div>` : ""}${apr && !opts.retracted ? approvalCardHtml(apr, false, opts.lang) : ""}${e.type === "task" ? `<div class="tk" data-task="${e.seq}" hidden></div>` : ""}${e.type === "claim" && !opts.retracted ? `<div class="tk cl" data-claim="${e.seq}" hidden></div>` : ""}${e.type === "decision" && e.via === "person" && !opts.retracted ? `<div class="tk hd" data-hd="${e.seq}" hidden></div>` : ""}${quick}
+  <div class="body${e.purged ? " purged" : ""}">${e.purged ? `<p>${esc(T("Purged by {name}. Its text and files were removed for good.", { name: e.purged.via === "agent" ? T("{name}'s agent", { name: e.purged.by }) : e.purged.by }))}</p>` : apr?.title ? `<p>${esc(apr.title)}</p>` : refLinks(renderText(shown, e.mentions, e.mention_names, selfMentions(shown, e.author, e.via, e.agent_name)))}</div>${file}${e.card ? changeCardHtml(e.seq, e.card) : ""}${e.handoff ? `<div class="refs mono handoff">${esc(handoffLine(e.handoff))}</div>` : ""}${apr && !opts.retracted ? approvalCardHtml(apr, false, opts.lang) : ""}${e.type === "task" ? `<div class="tk" data-task="${e.seq}" hidden></div>` : ""}${e.type === "claim" && !opts.retracted ? `<div class="tk cl" data-claim="${e.seq}" hidden></div>` : ""}${e.type === "decision" && e.via === "person" && !opts.retracted ? `<div class="tk hd" data-hd="${e.seq}" hidden></div>` : ""}${quick}
   ${refs.length ? `<div class="refs">${refs.join(" · ")}</div>` : ""}
   <div class="rx" data-rx="${e.seq}"><button class="rx-add" type="button" data-rx-add="${e.seq}" aria-label="${esc(T("Add a reaction"))}" title="${esc(T("Add a reaction"))}">☺<span>+</span></button></div>
   ${withReplies ? `<div class="replies" id="r${e.seq}"></div>` : ""}
@@ -250,7 +262,11 @@ const FILE_ICON = `<svg width="15" height="15" viewBox="0 0 16 16" fill="none" s
  * 5+ a 2×2 whose last tile says "+N"; the rest stay in the page, hidden, so the lightbox steps through all of them),
  * then its other files as chips. Clicking a picture opens the lightbox on it; ←/→ or a swipe goes through the others.
  */
-function filesHtml(boardId: string, list: Attachment[]): string {
+function filesHtml(boardId: string, all: Attachment[], T: (s: string) => string = (x) => x): string {
+  const rich = all.filter((a) => isRichTextAttachment(a.name, a.mime));
+  const pasted = rich.length ? pastedHtml(boardId, rich, T) : "";
+  const list = all.filter((a) => !rich.includes(a));
+  if (!list.length) return pasted;
   const imgs = list.filter((a) => a.mime.startsWith("image/"));
   const others = list.filter((a) => !a.mime.startsWith("image/"));
   const shown = Math.min(imgs.length, 4);
@@ -271,7 +287,25 @@ function filesHtml(boardId: string, list: Attachment[]): string {
     })
     .join("");
   const total = list.reduce((n, a) => n + a.size, 0);
-  return `<div class="mfiles">${grid}${chips ? `<div class="file mchips">${chips}</div>` : ""}<div class="xs faint mcap">${list.length} files · ${fmtBytes(total)} · <a class="link" href="#files" data-open-file="${esc(list[0].name)}"${list[0].version ? ` data-file-ver="${list[0].version}"` : ""}>Open in Files</a></div></div>`;
+  return `${pasted}<div class="mfiles">${grid}${chips ? `<div class="file mchips">${chips}</div>` : ""}<div class="xs faint mcap">${list.length} files · ${fmtBytes(total)} · <a class="link" href="#files" data-open-file="${esc(list[0].name)}"${list[0].version ? ` data-file-ver="${list[0].version}"` : ""}>Open in Files</a></div></div>`;
+}
+
+const DL_ICON = `<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 2.5v8M4.5 7 8 10.5 11.5 7M3 13.5h10"/></svg>`;
+
+/**
+ * Pasted rich text (vedu #5225): files a Mac pasted as RTF/RTFD ("rich text with attachments -RTFD- data") shown as one
+ * quoted "Pasted text" block, a line per file. The words come from ?format=text and RTF_JS sets them with textContent,
+ * so nothing in the file is ever HTML; each line keeps a link to download its original.
+ */
+function pastedHtml(boardId: string, list: { name: string; version: number | null | undefined }[], T: (s: string) => string): string {
+  const dl = T("Download the original");
+  const lines = list
+    .map((a) => {
+      const src = fileSrc(boardId, a.name, a.version);
+      return `<div class="pasted-l"><div class="pasted-t" data-rtf-src="${esc(src)}" data-rtf-name="${esc(a.name)}"><span class="faint">…</span></div><a class="pasted-dl" href="${esc(src)}" download="${esc(a.name)}" data-save title="${esc(dl)}" aria-label="${esc(`${dl}: ${a.name}`)}">${DL_ICON}</a></div>`;
+    })
+    .join("");
+  return `<blockquote class="pasted" data-pasted><div class="pasted-h xs faint">${esc(T("Pasted text"))}</div>${lines}</blockquote>`;
 }
 
 function imageHtml(boardId: string, e: Entry, T: (s: string) => string = (x) => x): string {
@@ -707,7 +741,7 @@ const LEGAL = {
     title: "Terms of Service",
     // DRAFT — review before publishing (vedu): the "No abuse" section and its 24-hour commitment (App Review 1.2).
     body: `<!-- Draft — review before publishing -->
-<p class="muted small">Last updated October 5, 2026.</p>
+<p class="st-updated">Last updated October 5, 2026.</p>
 <h2>The service</h2><p>Atteo lets you and the people you invite share boards where your AI agents and you post questions, answers, files, tasks and decisions. You're responsible for what you and your agents post, and for having the right to share it.</p>
 <h2>Your account</h2><p>Keep your sign-in and agent tokens private; revoke a token from Account if it leaks. You must not use Atteo to break the law, to harass anyone, to distribute malware, or to try to break or overload the service. You must be at least 16 to use Atteo.</p>
 <h2>No abuse, no objectionable content</h2><p>There is no tolerance for objectionable content or abusive users on Atteo. Don't post or have your agent post anything hateful, harassing, threatening, sexually explicit, violent or illegal, and don't impersonate anyone. You can report any message (long-press it in the app, or use Report on the web), mute or block anyone, and hide offensive words. Reports go to the board's owners and to us; we look at them within 24 hours and remove content and suspend or close the accounts of people who break these rules.</p>
@@ -722,7 +756,7 @@ const LEGAL = {
     // is the email provider behind WorkOS, the backup bucket's provider (B2 or S3, docs/BACKUPS.md) once it's set up, and
     // "Delete account" is live (branch account-delete) when this goes out.
     body: `<!-- Draft — review before publishing -->
-<p class="muted small">Last updated October 6, 2026.</p>
+<p class="st-updated">Last updated October 6, 2026.</p>
 <h2>What we collect</h2><p>Your email address and name (from sign-in), your handle, profile picture and the line about you if you add them; the boards you're on and what's posted to them (messages, files, pictures, tasks, reactions, decisions); your agent tokens (stored only as hashes); your devices, for push notifications; notification and read state; bug reports and feedback you send; and, if you pay, your plan and your Stripe customer and subscription ids. We don't collect your location, contacts or browsing history, and we don't track you across other apps or websites.</p>
 <h2>Who sees it</h2><p>What you post on a board is visible to that board's members and their agents (People only and Just mine posts are narrower, as the app shows). We don't sell your data and don't use it for advertising.</p>
 <h2>Services that process it for us</h2><ul>
@@ -730,7 +764,7 @@ const LEGAL = {
 <li><b>WorkOS</b>: sign-in (email codes, Google, GitHub and company single sign-on) and invitation emails. It gets your email address and name.</li>
 <li><b>Resend</b>: delivers sign-in and invitation emails for WorkOS. It gets your email address and the email's text.</li>
 <li><b>xAI</b>: voice chat (Talk to Atteo) and the natural reading voice. Only if you agree first: your voice and the messages being read or discussed are sent to xAI's Grok voice service so it can listen and answer. You can turn this off in Settings.</li>
-<li><b>Sentry</b>: error reports when something breaks: the error and the address it happened at. Request bodies, cookies, headers and who you are are removed before they're sent.</li>
+<li><b>Sentry</b>: error reports when something breaks on the website: the error and the address it happened at. The iOS app can send crash stacks and a few non-PII error codes to the same project only if that build has a Sentry DSN; without one the SDK stays off. Request bodies, cookies, headers, message text, emails and who you are are removed before they're sent. No session replay or screenshots.</li>
 <li><b>PostHog</b>: product analytics on the website and in the iOS app, so we can see which parts get used. It gets the event (a page opened, a board created, a message sent), a random id kept in your browser or on your phone, and the browser's or device's usual details. Never message text, files, names, email addresses or board names. To opt out: on the web, nothing is sent if your browser sends Do Not Track or Global Privacy Control; in the app, turn off Settings → Share usage analytics.</li>
 <li><b>Stripe</b>: payments for Pro. Stripe holds your card details; we never see them.</li>
 <li><b>Apple</b>: push notifications to the iOS app (Apple Push Notification service) get a device token and the notification's text.</li>
@@ -753,9 +787,18 @@ const LEGAL = {
   },
 } as const;
 
-export function legalPage(which: keyof typeof LEGAL, viewer?: Viewer | null): Response {
+/** /privacy and /terms (board #5110): a Contents list of the sections beside the text (a dropdown on a phone); Terms
+ *  numbers its sections. Signed in, the top bar goes back to the app. */
+export function legalPage(which: keyof typeof LEGAL, signedIn = false): Response {
   const l = LEGAL[which];
-  return page(`${l.title} · Atteo`, `<article class="legal card pad" style="max-width:720px;margin:24px auto">${`<h1>${l.title}</h1>`}${l.body}</article>`, { viewer, narrow: true });
+  const heads: { id: string; text: string }[] = [];
+  const body = l.body.replace(/<h2>([\s\S]*?)<\/h2>/g, (_, text: string) => {
+    const id = slug(text);
+    heads.push({ id, text: text.replace(/&amp;/g, "&") });
+    return `<h2 id="${id}">${text}</h2>`;
+  });
+  const nav = siteNav("Contents", [{ title: "Contents", links: heads.map((h) => ({ href: `#${h.id}`, text: h.text })), ordered: which === "terms" }], which);
+  return sitePage(`${l.title} · Atteo`, `<div class="st-cols">${nav.side}<article class="st-doc st-legal ${which}">${nav.toc}<h1>${l.title}</h1>${body}</article></div>`, { current: which, signedIn });
 }
 
 // ---------- first sign-in: pick a handle ----------
@@ -795,7 +838,7 @@ const CONNECT_TILES: Tile[] = [
   ["Cursor", "cursor", "Install", 'data-cn-link="cursor" href="#"', "a"],
   ["VS Code", "vscode", "Install", 'data-cn-link="vscode" href="#"', "a"],
   ["Grok", "grok", "Copy URL & open", 'data-cn-open="https://grok.com/connectors" data-cn-where="Grok: New Connector → Custom"'],
-  ["Claude", "claude", "Copy URL & open", 'data-cn-open="https://claude.ai/settings/connectors" data-cn-where="Claude: Add custom connector"'],
+  ["Claude", "claude", "Copy URL & open", 'data-cn-open="https://claude.ai/new#customize/connectors" data-cn-where="Claude: Add custom connector"'],
   ["ChatGPT", "chatgpt", "Copy URL & open", 'data-cn-open="https://chatgpt.com/#settings/Connectors" data-cn-app="https://chatgpt.com/#settings" data-cn-where="ChatGPT: Connectors → Create"'],
   ["Claude Code", "claudecode", "Copy command", 'data-cn-cmd="claude"'],
   ["Codex", "codex", "Copy command", 'data-cn-cmd="codex"'],
@@ -1151,22 +1194,34 @@ export function agentsSection(agents: AgentHere[], boardId: string, readOnly = f
   return `<div class="ag" id="agents">${fold("agents", esc(T("Agents")), agents.length || "", body, peek)}</div>`;
 }
 
-/** "Invite an agent" (vedu #1812; the app's shape is #1813): your own assistant gets the board's join message to paste
- *  (and the Connect dialog if it isn't connected yet), or a friend's agent comes with the friend: invite them by name,
- *  and their agents join once they accept. The join message is for an agent, so it stays in English. */
+/** "Invite an agent" (vedu #1812; the app's shape is #1813), for everyday people and developers alike (vedu #5192;
+ *  docs/research/INVITE-FRIEND.md). Invite a friend comes first: a name or any email, one button, through the same board
+ *  invite as Members & access, and the friend's agents join once they accept. Then your own assistant (Meet my agent):
+ *  the board's join message to paste (and the Connect dialog if it isn't connected yet), with the exact CLI command, MCP
+ *  call, MCP URL and Claude Code line one tap away under For developers. The join message is for an agent, so it stays
+ *  in English. */
 function inviteAgentDialog(T: (s: string) => string, info: { id: string; title: string }): string {
   // Only the board id goes in: the title is set by whoever made the board, and this text is pasted to an agent as the
   // person's own instruction, so a title could smuggle instructions in (opus-d's review, #1920). The agent reads the
   // title as board data once it has joined.
   const msg = `Join the Atteo board ${info.id}: run atteo join ${info.id}, or call join_board with "${info.id}" if you use the Atteo connector. Then read it.`;
+  // The server's own address is filled in by the page (CONNECT_JS: data-fill-origin), as in the Connect dialog.
+  const dev = (id: string, label: string, text: string, fill = false) =>
+    `<label class="lbl" for="${id}">${label}</label><div class="copy"><pre class="mono" id="${id}"${fill ? " data-fill-origin" : ""}>${esc(text)}</pre><button type="button" class="btn sm" data-copy="${id}">${esc(T("Copy"))}</button></div>`;
   return `<dialog id="invite-agent" class="ia-dlg" aria-label="${esc(T("Invite an agent"))}"><div class="hd"><div><h2>${esc(T("Invite an agent"))}</h2><p class="muted small" style="margin-top:4px">${esc(info.title)}</p></div><button class="btn ghost sm" data-close aria-label="${esc(T("Close"))}">✕</button></div>
 <div class="bd stack">
+  <section class="ia-opt" id="ia-friend"><h3>${esc(T("Invite a friend"))}</h3><p class="small muted">${esc(T("By name or email. Once they accept, they and their agents can join this board."))}</p>
+    <form method="post" action="/api/boards/${esc(info.id)}/invites" data-api data-reset data-track="invite_sent" class="acc-row"><input class="input grow" name="email" required autocomplete="off" placeholder="${esc(T("A friend's name, or anyone's email"))}" aria-label="${esc(T("Friend's name or email"))}"><button class="btn primary">${esc(T("Invite"))}</button>
+    <p data-result hidden style="margin-top:8px;flex-basis:100%"></p></form></section>
   <section class="ia-opt" id="ia-own"><h3>${esc(T("Your own assistant"))}</h3><p class="small muted">${esc(T("Paste this to your assistant. It joins this board and reads it."))}</p>
     <div class="copy"><pre class="mono" id="ia-join">${esc(msg)}</pre><button type="button" class="btn sm" data-copy="ia-join">${esc(T("Copy"))}</button></div>
-    <p class="xs muted">${esc(T("Not connected yet?"))} <button type="button" class="linkish" data-open="connect">${esc(T("Connect your assistant"))}</button></p></section>
-  <section class="ia-opt" id="ia-friend"><h3>${esc(T("A friend's agent"))}</h3><p class="small muted">${esc(T("Invite the friend to this board. Their agents join once they accept."))}</p>
-    <form method="post" action="/api/boards/${esc(info.id)}/invites" data-api data-reset data-track="invite_sent" class="acc-row"><input class="input grow" name="email" required autocomplete="off" placeholder="${esc(T("A friend's name"))}" aria-label="${esc(T("A friend's name"))}"><button class="btn primary">${esc(T("Invite"))}</button>
-    <p data-result hidden style="margin-top:8px;flex-basis:100%"></p></form></section>
+    <p class="xs muted">${esc(T("Not connected yet?"))} <button type="button" class="linkish" data-open="connect">${esc(T("Connect your assistant"))}</button></p>
+    <details class="small ia-dev"><summary class="muted">${esc(T("For developers"))}</summary><div class="stack">
+      ${dev("ia-cli", esc(T("CLI")), `atteo join ${info.id}`)}
+      ${dev("ia-mcp-call", `<span class="mono">join_board</span> · MCP`, `join_board("${info.id}")`)}
+      ${dev("ia-mcp-url", esc(T("MCP URL")), "https://atteo.example/mcp", true)}
+      ${dev("ia-mcp-cc", esc(T("Claude Code")), "claude mcp add --transport http --scope user atteo https://atteo.example/mcp", true)}
+    </div></details></section>
 </div></dialog>`;
 }
 
@@ -1183,9 +1238,13 @@ async function loadEarlier(until){const b=document.getElementById('load-earlier'
   const r=await fetch('/api/boards/'+BOARD+'/entries?before='+before+'&limit='+(until?Math.min(500,before-until+20):60));const j=await r.json().catch(()=>({}));if(!r.ok){b.disabled=false;return}
   const frag=document.createDocumentFragment(),later=[];
   for(const x of j.entries){if(document.getElementById('e'+x.seq)||document.getElementById('g'+x.seq))continue;frag.appendChild(entryEl(x));later.push(x)}
-  const h0=sc.scrollHeight;b.after(frag); // measured now: the thread can grow while the fetch is out (keeps your place, never overshoots to the bottom)
+  // Keeps your place by the message at the top of the view (as placeholders do), not by scrollHeight: Chrome's own scroll
+  // anchoring may already have kept it, and one-line rows fold now (olMark), not a frame later. Adding the height on top of
+  // either threw you to the bottom and stopped you short of older messages (jxn #4879/#4881).
+  let a=ghAnchor();const h0=sc.scrollHeight;if(a&&a.el===b){const n=b.nextElementSibling;a=n?{el:n,seq:n.dataset.seq,y:n.getBoundingClientRect().top}:null} // the button stays on top: hold the first message under it
+  b.after(frag);olMark();
   entryFill(later);
-  if(j.first>1){b.dataset.before=j.first;b.disabled=false}else b.remove();sc.scrollTop+=sc.scrollHeight-h0;railBuild();ghostSoon()}
+  if(j.first>1){b.dataset.before=j.first;b.disabled=false}else b.remove();if(a)ghAnchorBack(a);else sc.scrollTop+=sc.scrollHeight-h0;railBuild();ghostSoon()}
 /** An entry from the entries API as a conversation element (a reply ties to its thread). */
 function entryEl(x){const t=document.createElement('div');t.innerHTML=x.html;const el=t.firstElementChild;
   if(x.root!==x.seq){el.dataset.root=String(x.root);el.querySelector(':scope>.grow>.replies')?.remove()}return el}
@@ -1257,7 +1316,7 @@ pill.addEventListener('click',()=>toBottom(true));
 // The wheel scrolls the conversation from anywhere around it (the margins, the header), not only over the thread;
 // panes that scroll on their own (sidebar, log, files, the composer, menus, the left nav) keep their wheel.
 document.addEventListener('wheel',e=>{if(e.ctrlKey||document.getElementById('panel-conv').hidden||document.querySelector('dialog[open]'))return;
-  if(e.target.closest('.thread-scroll,.aside,.sidebar,textarea,.mention-menu,.rd-pop,.chg-diff,pre'))return;
+  if(e.target.closest('.thread-scroll,.aside,.sidebar,.strip,textarea,.mention-menu,.rd-pop,.chg-diff,pre'))return;
   if(!e.target.closest('#app'))return; // the whole main column: margins, top bar and board header
   usr();scroller.scrollBy({top:e.deltaMode===1?e.deltaY*20:e.deltaY});e.preventDefault()},{passive:false});
 railBuild();pillSync();
@@ -1308,6 +1367,7 @@ async function ghRun(r){try{const lo=r[0],hi=r[r.length-1];
     const a=ghAnchor(),got=[];
     for(const x of j.entries||[]){const g=x.seq>=lo&&document.getElementById('g'+x.seq);if(!g)continue;const el=entryEl(x);
       if(g.dataset.gone){el.classList.add('retracted');el.querySelector('[data-retract]')?.remove()}g.replaceWith(el);got.push(x)}
+    olMark(); // fold them now, so the anchor below keeps your place (they used to fold a frame later and push you down, jxn #4879)
     for(const s of r)if(!got.some(x=>x.seq===s))document.getElementById('g'+s)?.remove(); // gone from the board since
     entryFill(got);ghAnchorBack(a);railBuild()}catch(e){ghPause=Date.now()+3000}finally{r.forEach(s=>GH_BUSY.delete(s))}}
 // A message you jumped to stays where it landed while the ones around it come back and settle (jxn #4648): placeholders
@@ -1561,6 +1621,12 @@ ${approvalJs(null)}
 function markMe(root){root.querySelectorAll('.mention:not(.agent)').forEach(m=>{if(m.dataset.user===ME){m.classList.add('me');m.closest('.entry')?.classList.add('for-you')}})}
 markMe(document.getElementById('thread'));
 new MutationObserver(ms=>ms.forEach(m=>m.addedNodes.forEach(n=>{if(n.nodeType===1)markMe(n)}))).observe(document.getElementById('thread'),{childList:true,subtree:true});
+// Pasted rich text (vedu #5225): each "Pasted text" line gets its file's words, as text only (textContent). A file with
+// no readable text (an encrypted board's, a picture-only RTFD) shows its name; the download link stays either way.
+function rtfFill(){document.querySelectorAll('[data-rtf-src]:not([data-rtf-done])').forEach(el=>{el.dataset.rtfDone='1';
+  fetch(el.dataset.rtfSrc+'&format=text').then(r=>r.ok?r.json():Promise.reject(r.status)).then(j=>{const t=String(j&&j.text||'');if(!t.trim())throw 0;el.textContent=t;el.classList.add('ok')})
+  .catch(()=>{el.textContent=el.dataset.rtfName||'';el.classList.add('mono','na')})})}
+rtfFill();let rtfQ=false;new MutationObserver(()=>{if(rtfQ)return;rtfQ=true;requestAnimationFrame(()=>{rtfQ=false;rtfFill()})}).observe(document.body,{childList:true,subtree:true});
 // Looking at a board reads its inbox items (now, and as new ones arrive while you're here).
 let inboxT=0;function readInbox(){clearTimeout(inboxT);inboxT=setTimeout(()=>{if(document.visibilityState!=='visible')return;
   fetch('/api/inbox/read',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({board:BOARD})}).then(()=>window.inboxRefresh&&inboxRefresh()).catch(()=>{})},800)}
@@ -1827,7 +1893,9 @@ function renderAtt(){attBox.hidden=!pending.length;ta.required=!pending.length;
 document.getElementById('attach-btn').addEventListener('click',()=>attIn.click());
 attIn.addEventListener('change',()=>{addFiles([...attIn.files]);attIn.value=''});
 attBox.addEventListener('click',e=>{const b=e.target.closest('[data-att-rm]');if(!b)return;const i=+b.dataset.attRm;if(pending[i].url)URL.revokeObjectURL(pending[i].url);pending.splice(i,1);renderAtt();ta.focus()});
-ta.addEventListener('paste',e=>{const fs=[...(e.clipboardData?.files||[])];if(fs.length){e.preventDefault();addFiles(fs)}});
+// Rich text (Notes, Pages, TextEdit, a web page) also hands the browser its pasteboard types as "files" (Safari names them like 'rich text with attachments -RTFD- data'; vedu #5209). Then only its pictures attach and the words paste as text. Some synthetic files are named with the exact UTI; a real filename merely beginning "public." or "com.apple." is still a file.
+function pastedFiles(c){const fs=[...(c?.files||[])];if(!fs.length)return null;const ty=[...(c.types||[])];const rich=ty.includes('text/html')||ty.includes('text/rtf')||fs.some(f=>/-RTFD-|^rich text|^(?:public\\.rtf|com\\.apple\\.(?:flat-rtfd|rtfd))$/i.test(f.name||''));return rich?{files:fs.filter(f=>/^image\\//.test(f.type)),text:true}:{files:fs,text:false}}
+ta.addEventListener('paste',e=>{const p=pastedFiles(e.clipboardData);if(!p)return;if(!p.text)e.preventDefault();if(p.files.length)addFiles(p.files)});
 const convEl=document.querySelector('.conv');
 /** Files dropped on the conversation, or on an open thread (vedu #4507), attach to the composer. */
 function dropZone(el){el.addEventListener('dragover',e=>{if([...(e.dataTransfer?.types||[])].includes('Files')){e.preventDefault();el.classList.add('drop')}});
@@ -3404,6 +3472,7 @@ export interface Display {
   lang?: "auto" | "en" | "zh-Hans" | "zh-Hant" | "es" | "ja" | "ko" | "hi" | "fr" | "pt" | "de" | "ru" | "id" | "tr" | "bn" | "ar";
   voice?: "eve" | "ara" | "leo" | "rex" | "sal";
   voice_turns?: "quick" | "pause" | "tap"; // when Atteo answers in a voice call (vedu #2460)
+  tab_order?: "recent" | "opened"; // the top tabs' order (vedu #5192)
   voice_autosend?: boolean; // your own dictated words to your agent go without a yes, after a 5 s Undo (vedu #2638)
   xai_ok?: boolean; // your OK to send voice to xAI (social.ts Display.xai_ok)
 }
@@ -3476,6 +3545,7 @@ ${seg("density", esc(T("Density")), [["comfortable", esc(T("Comfortable"))], ["c
 ${seg("theme", esc(T("Theme")), [["system", esc(T("System"))], ["light", esc(T("Light"))], ["dark", esc(T("Dark"))]])}
 ${seg("replies", esc(T("Replies")), [["chat", esc(T("In the chat"))], ["thread", esc(T("Only in their threads"))]])}
 ${seg("compact", esc(T("Messages")), [["off", esc(T("Whole messages"))], ["others", esc(T("One line unless they mention you"))]])}
+${seg("tab_order", esc(T("Tab order")), [["recent", esc(T("Most recent message"))], ["opened", esc(T("Last opened"))]])}
 ${seg("voice_turns", esc(T("When Atteo answers")), [["quick", esc(T("Right away"))], ["pause", esc(T("After a pause"))], ["tap", esc(T("When I tap Done"))]]).replace(/^<span class="lbl"/, '<span class="lbl" data-voice-only hidden').replace('<div class="seg"', '<div class="seg" data-voice-only hidden')}
 <span class="lbl" id="dp-voice_autosend" data-voice-only hidden>${esc(T("Send what I dictate without asking"))}</span><div data-voice-only hidden><input type="checkbox" class="switch" name="voice_autosend" id="dp-voice-autosend" role="switch" aria-labelledby="dp-voice_autosend"></div>
 <label class="lbl" for="dp-lang">${esc(T("Language"))}</label><select class="input dp-lang" id="dp-lang" data-lang="${esc(d?.lang ?? "auto")}">${(
@@ -3513,11 +3583,11 @@ function profileSection(p: ProfileView | null, lang?: Lang): string {
 const DISPLAY_JS = `
 (()=>{const f=document.getElementById('dp-form');if(!f)return;let saved=null,local={};
   try{saved=JSON.parse(f.dataset.saved)}catch{}try{local=JSON.parse(localStorage.getItem('atteo-display')||'{}')}catch{}
-  const cur=Object.assign({text:'m',density:'comfortable',theme:'system',replies:'chat',voice_turns:'pause',compact:'off'},local,saved||{});
-  for(const k of ['text','density','theme','replies','voice_turns','compact']){const i=f.querySelector('input[name="'+k+'"][value="'+cur[k]+'"]');if(i)i.checked=true}
+  const cur=Object.assign({text:'m',density:'comfortable',theme:'system',replies:'chat',voice_turns:'pause',compact:'off',tab_order:'recent'},local,saved||{});
+  for(const k of ['text','density','theme','replies','voice_turns','compact','tab_order']){const i=f.querySelector('input[name="'+k+'"][value="'+cur[k]+'"]');if(i)i.checked=true}
   const auto=f.querySelector('input[name="voice_autosend"]');if(auto)auto.checked=cur.voice_autosend===true;
   if(saved)applyDisplay(cur);
-  f.addEventListener('change',async e=>{if(e.target.id==='dp-lang'||e.target.id==='dp-voice'||e.target.id==='dp-xai')return;const d={text:f.text.value,density:f.density.value,theme:f.theme.value,replies:f.replies.value,voice_turns:f.voice_turns.value,compact:f.compact.value,voice_autosend:!!(auto&&auto.checked)};applyDisplay(d);
+  f.addEventListener('change',async e=>{if(e.target.id==='dp-lang'||e.target.id==='dp-voice'||e.target.id==='dp-xai')return;const d={text:f.text.value,density:f.density.value,theme:f.theme.value,replies:f.replies.value,voice_turns:f.voice_turns.value,compact:f.compact.value,tab_order:f.tab_order.value,voice_autosend:!!(auto&&auto.checked)};applyDisplay(d);
     const r=await fetch('/api/me/profile',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({display:d})}).catch(()=>null);
     toast(r&&r.ok?tr('Display saved'):tr('Saved on this device only'))});
   // When Atteo answers (vedu #2460): only where voice calls are on.
@@ -3799,6 +3869,8 @@ export interface AdminData {
   totalEntries: number;
   access: { user: string; boards: { id: string; title: string }[]; active_tokens: number; last_token_use: number | null }[];
   metrics?: import("./usage").Metrics;
+  oauth_clients?: number; // registered MCP DCR rows; unused DCR is pruned after 120 days; a client that ever got a token is kept
+  oauth_clients_pruned?: number; // usage_daily oauth_clients_pruned, last 14 days
   // the cost guard (src/costGuard.ts) and its last check
   cost?: { capped: { at: number; reason: string } | null; watching: boolean; thresholds?: import("./costGuard").Thresholds } & Partial<import("./costGuard").Status>;
 }
@@ -3884,21 +3956,39 @@ export function adminPage(viewer: Viewer, side: SideBoard[], d: AdminData): Resp
 <p class="small muted" style="margin:-4px 0 14px">Activation events, not the stock of users and boards above. A board created is a collaboration board (not a DM or Your agent). First agent post is a person whose agent wrote on a board for the first time. Invite redeemed is someone joining through an invite link or an accepted email invitation. Friend accepted is a pending request that became a friendship. The same numbers are <span class="mono">success</span> on <span class="mono">GET /api/ops/metrics</span>, and the <span class="mono">success</span> rows of <span class="mono">usage_daily</span> (<span class="mono">GET /api/ops/usage-daily</span>). Test accounts whose names start with <span class="mono">e2e-</span> are left out.</p>
 <div class="grid4">${kpi(s.board_created, "Boards created", "collaboration boards")}${kpi(s.first_agent_post, "First agent post", "a person's agent posted for the first time")}${kpi(s.invite_redeemed, "Invites redeemed", "invite link or email invitation accepted")}${kpi(s.friend_accepted, "Friends accepted", "a pending request became a friendship")}</div>`
     : "";
+  // The north star (src/northStar.ts, vedu #5284): one number to watch, its last 8 weeks, and the two that feed it.
+  const ns = m?.north_star;
+  const nsMax = Math.max(1, ...(ns?.weeks ?? []).map((w) => w.collab));
+  const nsBars = (ns?.weeks ?? [])
+    .map((w, i, all) => `<div class="ns-bar${i === all.length - 1 ? " now" : ""}" title="${esc(`Week of ${w.week}: ${w.collab}`)}" data-week="${esc(w.week)}" data-n="${w.collab}"><span style="height:${Math.round((w.collab / nsMax) * 100)}%"></span></div>`)
+    .join("");
+  const nsLast = ns?.weeks[ns.weeks.length - 2];
+  const northHtml = ns
+    ? `<section class="ns" id="north-star"><h2 style="margin:0 0 4px">North star</h2>
+<p class="small muted" style="margin:0 0 12px">Collaborating boards: boards where two or more outside people (or their agents) posted that week. Outside means a signed-up account that isn't ours (${esc(ns.team.join(", "))}) or a test account. Weeks start Monday, UTC; past weeks are the cron's snapshots, this week is live. Every Monday the week's line goes to the team board.</p>
+<div class="grid4">${kpi(ns.this_week.collab, "Collaborating boards this week", `last week ${nsLast?.collab ?? 0}`)}<div class="card pad"><div class="ns-trend" aria-label="Collaborating boards, last ${ns.weeks.length} weeks">${nsBars}</div><div class="small muted">Last ${ns.weeks.length} weeks</div><div class="xs faint" style="margin-top:2px">${esc(ns.weeks[0]?.week ?? "")} → this week</div></div>${kpi(ns.this_week.mixed, "Boards with an outsider + us", "both posted this week")}${kpi(ns.this_week.people, "Outside people active", "posted this week, on any board")}</div></section>`
+    : "";
   // The numbers worth knowing at a glance (test accounts and boards left out).
   // The cost guard's line leads either way (it used to show only without the KPIs, so never in production).
   const kpiHtml = k
-    ? `${costHtml(d.cost)}<div class="grid4">${kpi(k.users, "Users", `+${k.users_7d} this week · +${k.users_30d} in 30 days`)}${kpi(k.active_7d, "Active this week", `${k.active_1d} today · ${k.active_30d} in 30 days`)}${kpi(
+    ? `${costHtml(d.cost)}${northHtml}<div class="grid4" style="margin-top:${northHtml ? 24 : 0}px">${kpi(k.users, "Users", `+${k.users_7d} this week · +${k.users_30d} in 30 days`)}${kpi(k.active_7d, "Active this week", `${k.active_1d} today · ${k.active_30d} in 30 days`)}${kpi(
         `$${k.mrr.toLocaleString("en-US")}`,
         "MRR (est.)",
         `${k.pro} on Pro${k.cancelling ? ` · ${k.cancelling} cancelling` : ""}${k.active_30d ? ` · ${Math.round((k.pro / k.active_30d) * 100)}% of active` : ""}`,
       )}${kpi(k.agents_7d, "People with an agent connected", "used a token this week")}</div>
 <div class="grid4" style="margin-top:12px">${kpi(k.boards, "Boards", `${k.boards_active_7d} active this week`)}${kpi(k.posts_7d, "Posts this week", "people and agents")}${kpi(d.totalEntries, "Messages, all time")}${kpi(k.errors_24h, "Kinds of server error, last 24h", k.errors_24h ? `${k.errors_24h_total.toLocaleString("en-US")} times in all · details below and in Sentry` : "all quiet")}</div>`
     : `${costHtml(d.cost)}<div class="grid4">${stat(d.boards.length, "Boards")}${stat(d.users.length, "Users")}${stat(d.totalEntries, "Messages")}${stat(d.invites.length, "Invites")}</div>`;
+  const oauthNote =
+    d.oauth_clients == null
+      ? ""
+      : `<p class="small muted" style="margin:12px 0 0" data-oauth-clients>OAuth clients: ${d.oauth_clients} registered${
+          d.oauth_clients_pruned != null ? ` · ${d.oauth_clients_pruned} unused pruned in 14 days` : ""
+        }. Unused DCR older than 120 days is deleted by the cron; a client that ever got a token is kept, since connectors cache its id and do not re-register on invalid_client.</p>`;
   const ph = currentAnalytics();
   const analyticsNote = ph
     ? `<p class="small muted" style="margin:18px 0 0">Product analytics is on (PostHog, ${ph.region === "us" ? "US" : "EU"}). <a href="${esc(posthogDashboardUrl(ph))}">Open the dashboard</a>. What is recorded is in <span class="mono">docs/ANALYTICS.md</span>.</p>`
     : `<p class="small muted" style="margin:18px 0 0">Product analytics is off until <span class="mono">POSTHOG_KEY</span> is set. How to turn it on is in <span class="mono">docs/ANALYTICS.md</span>. Naming PostHog on <a href="/privacy">/privacy</a> and linking its dashboard here are follow-ups once that key exists.</p>`;
-  const overview = `${kpiHtml}${productHtml}${analyticsNote}${trustHtml}${usageHtml}
+  const overview = `${kpiHtml}${oauthNote}${productHtml}${analyticsNote}${trustHtml}${usageHtml}
 <h2 style="margin:32px 0 10px">Boards</h2>
 ${table(
   ["Board", "Members", "Messages", "Created by", "Last activity"],

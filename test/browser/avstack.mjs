@@ -41,7 +41,7 @@ for (const scheme of ["light", "dark"]) {
   check(fit.every((f) => f.room >= 4), "every side-panel stack ends before its title");
   check(res.some((s) => s.where === "header") && res.some((s) => s.where === "side panel"), "found stacks in the header and the side panel");
   await p.locator(".bp-title").screenshot({ path: `${OUT}avs-${label}-${scheme}-header.png` });
-  await p.locator("#sum").screenshot({ path: `${OUT}avs-${label}-${scheme}-side.png` });
+  await p.locator("#board-info").screenshot({ path: `${OUT}avs-${label}-${scheme}-side.png` }); // #sum lays its parts out in the rail (display: contents, jxn #4860)
   const tight = await p.evaluate(() => { const s = document.querySelector(".bp-head .avs"); const [a, n] = s.querySelectorAll(".av"); const im = document.createElement("img"); im.className = "av-img"; a.append(im); const m = getComputedStyle(n).marginLeft; im.remove(); return m; });
   check(tight === "-7px", `a picture avatar keeps the tight stack (next one at ${tight})`);
   check(errors.length === 0, `no page errors ${errors.join(" | ")}`);

@@ -2,6 +2,7 @@
 // Minimal and quiet (in the spirit of Vercel Geist / Linear): neutral grays, one ink color for primary actions,
 // hairline borders, light + dark, works down to phone width. Type: Onest / STIX Two Text / Courier Prime (fontfaces.ts).
 
+import { PALETTE_JS_SRC, PALETTE_CSS_SRC } from "./palette";
 import { APPLE_TOUCH_PNG_B64 } from "./appleIcon";
 import { APP_FONT_CSS, FONT_V } from "./fontfaces";
 import { markFile, markInline } from "./mark";
@@ -12,15 +13,15 @@ import { MERMAID_CSS, MERMAID_JS, mermaidHtml } from "./mermaid";
 import { CODE_COLOR_CSS, CODE_COLOR_JS, fnv } from "./codecolor";
 import { TALK_CSS } from "./talk";
 import { AGENT_LOGO_CSS } from "./agent-logos";
-import { ASK_CSS, DOC_CSS, GUIDE_CSS } from "./pageCss";
+import { ASK_CSS, DOC_CSS, GUIDE_CSS, SITE_CSS } from "./pageCss";
 import { esc } from "./util";
 import { personHtml, shownName } from "./names";
 import { clientTable, dirOf, tr, type Lang } from "./i18n";
 import { analyticsScriptTag, currentAnalytics } from "./analytics";
 
-/** Report-only for now (jxn's agent #2636): violations go to /api/csp-report and the ops console. Set this to true to
- *  enforce once a day of reports is clean; nothing else changes (every inline script already carries the nonce). */
-export const CSP_ENFORCE = false;
+/** Enforced since 2026-10-06 (vedu #5192) after a week report-only (jxn's agent #2636). Violations still go to
+ *  /api/csp-report and the ops console. Rollback: set false and deploy (docs/security/csp.md). */
+export const CSP_ENFORCE = true;
 export const CSP_REPORT_PATH = "/api/csp-report";
 
 /** The one outside host the web may open a socket to: the voice provider (voice.ts REALTIME_URL; a test keeps them in
@@ -56,15 +57,29 @@ export function formActionSource(raw: string): string | null {
 // /fonts/*.woff2. media-src blob: is read-aloud, the Display voice sample, and Talk's silent media-key wav; live Talk
 // audio is WebAudio on connect-src, not a media element. No data: font or media, and no media host besides 'self'.
 // The pinned mermaid.min.js inserts one fixed <style> block of its own (a nonce can't reach it), so it's allowed by its hash;
-// a new mermaid build changes the hash and the csp browser checks name the new one.
-const MERMAID_STYLE_HASH = "'sha256-lCZPv+siQGbLyHufN87S4tT1GlG+V8T7J184kcDeWZ4='";
+// a new mermaid build, or a new light --bg (jxn #5142), changes the hash and the csp browser checks name the new one.
+// Cloudflare Web Analytics: Cloudflare's edge injects its beacon script (no nonce) and the beacon posts to cloudflareinsights.com.
+// It was the only report in a week of report-only (vedu #5192), so it's allowed by name rather than blocked once enforced.
+// Pinned to its path (jxn's agent #5201): the edge injects .../beacon.min.js/v<version>, and a source ending in "/"
+// matches everything under that path, not the rest of the host.
+export const CF_BEACON_SRC = "https://static.cloudflareinsights.com/beacon.min.js/";
+export const CF_BEACON_POST = "https://cloudflareinsights.com";
+// It isn't one block for every diagram (jxn's agent #5201): a sequence diagram adds one in light and two in dark,
+// built from the page's colour tokens, so each theme has its own fixed text. csp-enforced draws a flowchart and a
+// sequence diagram in light and dark and names any new hash it sees.
+const MERMAID_STYLE_HASH = [
+  "'sha256-vuoYVUMGk/VxhCdzgU8CZI+1pTZh7IqNO0ULnfSkFEE='", // every diagram
+  "'sha256-WF914ipvPGaHv9RY+aJIHeo7JES4ZDusen+ygHbePwc='", // sequence diagram, light
+  "'sha256-ZM/fKL32eTT92dYKEdOclnHO3HDdmO/uLQmDzNcYQGI='", // sequence diagram, dark
+  "'sha256-B0VWRq0QR6EJ1g0ixhqTbiYbVEJuQiCFhI44BsXN92k='", // sequence diagram, dark
+].join(" ");
 export function pageSecurity(opts: { formAction?: string[] } = {}) {
   const nonce = Array.from(crypto.getRandomValues(new Uint8Array(16)), (b) => b.toString(16).padStart(2, "0")).join("");
   const formAction = ["'self'", ...(opts.formAction ?? []).map(formActionSource).filter((x): x is string => !!x)].join(" ");
   // PostHog's ingest host is added only while a project key is configured (src/analytics.ts). script-src stays first-party.
   const ph = currentAnalytics();
-  const connect = ph ? `'self' ${VOICE_SOCKET_ORIGIN} ${ph.host}` : `'self' ${VOICE_SOCKET_ORIGIN}`;
-  const policy = `default-src 'self'; script-src 'self' 'nonce-${nonce}'; script-src-attr 'none'; style-src 'self' 'nonce-${nonce}' ${MERMAID_STYLE_HASH}; style-src-attr 'unsafe-inline'; img-src 'self' blob:; font-src 'self'; media-src 'self' blob:; connect-src ${connect}; frame-src 'self' about:; frame-ancestors 'none'; base-uri 'none'; form-action ${formAction}; object-src 'none'; report-uri ${CSP_REPORT_PATH}; report-to csp`;
+  const connect = ph ? `'self' ${VOICE_SOCKET_ORIGIN} ${CF_BEACON_POST} ${ph.host}` : `'self' ${VOICE_SOCKET_ORIGIN} ${CF_BEACON_POST}`;
+  const policy = `default-src 'self'; script-src 'self' 'nonce-${nonce}' ${CF_BEACON_SRC}; script-src-attr 'none'; style-src 'self' 'nonce-${nonce}' ${MERMAID_STYLE_HASH}; style-src-attr 'unsafe-inline'; img-src 'self' blob:; font-src 'self'; media-src 'self' blob:; connect-src ${connect}; frame-src 'self' about:; frame-ancestors 'none'; base-uri 'none'; form-action ${formAction}; object-src 'none'; report-uri ${CSP_REPORT_PATH}; report-to csp`;
   const headers: Record<string, string> = {
     [CSP_ENFORCE ? "content-security-policy" : "content-security-policy-report-only"]: policy,
     "reporting-endpoints": `csp="${CSP_REPORT_PATH}"`,
@@ -98,8 +113,8 @@ export const CSS = `
   /* The design language (v1, jxn #4682): neutral throughout. Ink on paper, bone and stone around it, line for dividers,
      graphite for secondary text. Oxblood has one job, human intervention: Stop and halted states, nowhere else (on ink
      it's oxblood-lifted); --cone is the current logo's alone until the new mark lands. Primary actions, you, mentions, unread, links and focus are ink. */
-  --bg:#FAFAF7;--bg-subtle:#F2EFE8;--bg-hover:#ECE8DF;--line:#E4E1D9;--line-strong:#D9D6CE;
-  --ink:#0E0E0E;--text:#161614;--muted:#5A5853;--faint:#6B6964;--on-ink:#FAFAF7;--cone:#6A1B24;--oxblood:#6E1F22;--bg-raised:#FAFAF7;
+  --bg:#FFFFFF;--bg-subtle:#F2EFE8;--bg-hover:#ECE8DF;--line:#E4E1D9;--line-strong:#D9D6CE;
+  --ink:#0E0E0E;--text:#161614;--muted:#5A5853;--faint:#6B6964;--on-ink:#FAFAF7;--cone:#6A1B24;--oxblood:#6E1F22;--bg-raised:#FFFFFF;
   --on-fill:#FFFFFF;--preview-bg:#FFFFFF; /* text on a saturated fill (avatars, status marks, scrims); an HTML preview's page */
   --accent:#0E0E0E;--ok:#16a34a;--warn:#c2410c;--danger:#dc2626;
   --q:#d97706;--claim:#16a34a;--decision:#7c3aed;--task:#0284c7;--artifact:#737373;--note:#a3a3a3;
@@ -375,7 +390,7 @@ dialog[open]{animation:pop .16s ease-out}dialog:focus{outline:none}@media (prefe
 dialog.access-dlg{width:min(640px,calc(100vw - 24px))}
 /* Invite an agent (#1855): a small + after the members' faces, and a two-choice dialog */
 .av-add{flex:none;display:inline-grid;place-items:center;width:22px;height:22px;border-radius:50%;border:1px dashed var(--line-strong);background:transparent;color:var(--muted);cursor:pointer;padding:0}.av-add:hover{color:var(--ink);border-color:var(--ink)}
-dialog.ia-dlg{width:min(560px,calc(100vw - 24px))}.ia-opt h3{margin:0 0 4px;font-size:14px}.ia-opt+.ia-opt{border-top:1px solid var(--line);padding-top:14px}.ia-opt .copy{margin:8px 0}.ia-opt form{margin-top:8px;flex-wrap:wrap}
+dialog.ia-dlg{width:min(560px,calc(100vw - 24px))}.ia-opt h3{margin:0 0 4px;font-size:14px}.ia-opt+.ia-opt{border-top:1px solid var(--line);padding-top:14px}.ia-opt .copy{margin:8px 0}.ia-opt form{margin-top:8px;flex-wrap:wrap}.ia-dev{margin-top:10px}.ia-dev summary{cursor:pointer}.ia-dev .stack{margin-top:8px}.ia-dev .copy{margin:0 0 4px}
 .acc-sec{padding:14px 0;border-top:1px solid var(--line)}.acc-sec:first-child{border-top:0;padding-top:0}
 .acc-sec h3{font-size:12.5px;font-weight:600;color:var(--ink);margin:0 0 8px}.acc-sec summary{cursor:pointer}
 .acc-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.acc-sel{width:auto;height:30px;font-size:12.5px;padding:0 8px}
@@ -563,6 +578,7 @@ a.ev-acct:hover{background:var(--bg-subtle)}
 .qr{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}.qr[hidden]{display:none}.qr-b{gap:6px;max-width:100%;border-radius:999px}.qr-t{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .qr-k{font:inherit;font-size:10.5px;min-width:16px;height:16px;line-height:16px;padding:0 3px;border-radius:4px;border:1px solid var(--line);color:var(--muted);background:var(--bg)}@media(hover:none){.qr-k{display:none}}
 .apc{margin-top:8px;max-width:640px}.apc>.tk{margin-top:0}.apc-cmd{margin:0 0 6px;max-height:220px;overflow:auto;padding:8px 10px;border-radius:8px;background:var(--bg-subtle);border:1px solid var(--line);font-size:12px;line-height:1.5;white-space:pre-wrap;word-break:break-word}
+.apc.st-pending .apc-cmd{max-height:none;overflow:visible}.apc-u{background:color-mix(in srgb,var(--intervene) 22%,transparent);color:inherit;border-radius:3px;outline:1px solid var(--intervene)}.apc-u-note{margin:0 0 6px;color:var(--intervene)}.apc-who{font-weight:600}
 .apc .tk-st .dot{background:var(--warn)}.apc.st-approved .tk-st .dot{background:var(--ok)}.apc.st-rejected .tk-st .dot{background:var(--danger)}.apc.st-expired .tk-st .dot{background:var(--muted)}
 .apc.st-approved .tk-st{color:var(--ok)}.apc.st-rejected .tk-st,.apc.st-expired .tk-st{color:var(--muted)}
 .apc[tabindex]:focus-visible,.apc.kbd-sel,.approval:focus-visible,.approval.sel{outline:2px solid var(--accent);outline-offset:3px;border-radius:8px}
@@ -643,6 +659,16 @@ a.ev-acct:hover{background:var(--bg-subtle)}
 .mchips .fh+.fh{border-top:1px solid var(--line)}
 .mfiles .mchips{margin-top:6px}
 .mcap{margin-top:4px}
+/* Pasted rich text (vedu #5225): a quote like a forwarded message's, the words at normal size, one line per file. */
+.pasted{margin:8px 0 0;padding:6px 10px 8px;max-width:640px;border-inline-start:3px solid var(--line-strong);background:var(--bg-subtle);border-radius:0 6px 6px 0;color:var(--text)}
+.pasted-h{margin-bottom:3px;letter-spacing:.01em}
+.pasted-l{display:flex;align-items:flex-start;gap:8px}
+.pasted-l+.pasted-l{margin-top:6px;padding-top:6px;border-top:1px solid var(--line)}
+.pasted-t{flex:1;min-width:0;max-height:24em;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;unicode-bidi:plaintext;text-align:start}
+.pasted-t.na{color:var(--muted);font-size:12px}
+.pasted-dl{flex:none;display:inline-flex;padding:3px;border-radius:5px;color:var(--faint)}
+.pasted-dl:hover,.pasted-dl:focus-visible{color:var(--text);background:var(--bg-hover)}
+.entry.retracted>.grow>.pasted{opacity:.55}
 .entry.retracted>.grow>.mfiles{opacity:.55}
 /* The viewer is as big as its picture (jxn #2990): not the 560px every other dialog is, which cropped wide pictures */
 :root dialog.lightbox{padding:0;border:0;background:transparent;box-shadow:none;width:fit-content;height:fit-content;max-width:min(96vw,1600px);max-height:92vh;cursor:zoom-out}
@@ -737,7 +763,7 @@ input.switch{appearance:none;-webkit-appearance:none;flex:none;width:42px;height
 input.switch::after{content:"";position:absolute;top:3px;left:3px;width:18px;height:18px;border-radius:50%;background:var(--bg);box-shadow:0 1px 2px rgba(0,0,0,.25);transition:left .15s}input.switch:checked{background:var(--ink)}input.switch:checked::after{left:21px}
 /* Everyday (#1272): the same entries in plainer clothes; Developer mode is today's page unchanged. */
 :root[data-mode="everyday"] .entry .seq,:root[data-mode="everyday"] .meta .via:not(.owner):not(.sess),:root[data-mode="everyday"] [aria-controls="panel-log"],
-:root[data-mode="everyday"] .entry .chg,:root[data-mode="everyday"] .apc-cmd,:root[data-mode="everyday"] .apc-risk,:root[data-mode="everyday"] .ag-hint,
+:root[data-mode="everyday"] .entry .chg,:root[data-mode="everyday"] .apc:not(.st-pending) .apc-cmd,:root[data-mode="everyday"] .apc:not(.st-pending) .apc-risk,:root[data-mode="everyday"] .apc:not(.st-pending) .apc-u-note,:root[data-mode="everyday"] .ag-hint,
 :root[data-mode="everyday"] .ag-hint+.copy,:root[data-mode="everyday"] #soul-side,:root[data-mode="everyday"] .meta .t-change,:root[data-mode="everyday"] .side-link .count.dev{display:none!important}
 :root:not([data-mode="everyday"]) .ev-res{display:none}
 :root[data-mode="everyday"] #board-tabs [aria-controls="panel-tasks"]{order:1}:root[data-mode="everyday"] #board-tabs [aria-controls="panel-docs"]{order:2}:root[data-mode="everyday"] #board-tabs>*:not([role=tab]){order:3}
@@ -923,6 +949,7 @@ ${AGENT_LOGO_CSS}
 .ap-hd{display:flex;gap:12px;align-items:flex-start}.ap-title{font-size:15px;font-weight:600;line-height:1.35;margin:0 0 3px}
 .approval.risk-medium .ap-risk{color:var(--warn);border-color:color-mix(in srgb,var(--warn) 40%,var(--line))}.approval.risk-high .ap-risk{color:var(--danger);border-color:color-mix(in srgb,var(--danger) 40%,var(--line))}
 .ap-details{max-height:280px;overflow:auto;margin:12px 0 0;padding:10px 12px;border-radius:8px;background:var(--bg-subtle);border:1px solid var(--line);font-size:12px;line-height:1.5;white-space:pre-wrap;word-break:break-word}
+.card.approval .ap-cmd{max-height:none;overflow:visible} /* a waiting command is shown whole (#4927) */
 .ap-form{display:flex;gap:6px;margin-top:12px}
 .ap-sub{font-size:13px;font-weight:600;margin:28px 0 8px}
 .ap-done{padding:0;list-style:none;margin:0}.ap-done>li+li{border-top:1px solid var(--line)}
@@ -1058,11 +1085,15 @@ mark{background:var(--mark);color:inherit;border-radius:2px;padding:0 1px}
    waits, grey quiet), new, search, messages, alerts, you. Phones keep the top bar's menu button instead. */
 .strip{display:flex;align-items:center;gap:6px;height:44px;padding:0 12px;border-bottom:1px solid var(--line);background:var(--bg-subtle)}
 .strip .ws{display:flex;align-items:center;gap:8px;padding:0 6px;color:var(--ink)}.strip .ws .wm{font-size:19px}
-.btabs{display:flex;flex:1;min-width:0;align-self:stretch;overflow-x:auto;scrollbar-width:none}
+.btabs{display:flex;flex:1;min-width:0;align-self:stretch;overflow-x:auto;overflow-y:hidden;overscroll-behavior:contain;touch-action:pan-x pinch-zoom;scrollbar-width:none}
 .btab{display:flex;align-items:center;gap:7px;flex:none;max-width:240px;margin-top:6px;padding:0 14px;border:1px solid transparent;border-bottom:3px solid var(--line-strong);border-radius:8px 8px 0 0;color:var(--muted);font-size:13px;white-space:nowrap}
 .btab>b{font-weight:500;overflow:hidden;text-overflow:ellipsis}.btab[aria-current]{color:var(--ink);background:var(--bg);border-color:var(--line) var(--line) var(--line-strong)}.btab.st-work{border-bottom-color:var(--ok)}.btab.st-ap{border-bottom-color:var(--warn)}
+.btab-w{position:relative;display:flex;flex:none}.btab-w[hidden]{display:none}.btab-w .btab{padding-right:26px}
+.btab-x{position:absolute;right:5px;top:calc(50% + 3px);transform:translateY(-50%);width:18px;height:18px;display:grid;place-items:center;padding:0;border:0;border-radius:4px;background:none;color:var(--faint);font-size:14px;line-height:1;cursor:pointer;opacity:0}
+.btab-w:hover .btab-x,.btab-x:focus-visible,.btab-w:focus-within .btab-x{opacity:1}.btab-x:hover{background:var(--hover,rgba(0,0,0,.06));color:var(--ink)}
+@media (hover:none){.btab-x{opacity:1}}
 .btab .wk{font-size:11.5px;color:var(--faint)}.btab .apn{font-size:11px;padding:1px 6px;border-radius:999px;background:color-mix(in srgb,var(--warn) 16%,transparent);color:var(--ink)}
-.strip .count{margin-left:-6px}
+.strip .count{margin-left:4px}
 .topbar .menu-btn{display:none}
 @media(min-width:641px){.tb-full{display:none}.content.full{--top:44px}.bp-head>.actions{display:flex;gap:8px;align-items:center;align-self:center;margin-left:auto}}
 .bp-crumb{color:var(--muted);font-size:15px}
@@ -1100,26 +1131,7 @@ dialog.sheet[open]{animation:slide .18s ease-out}
 pre.json{background:var(--bg-subtle);border:1px solid var(--line);border-radius:8px;padding:12px;margin:0;overflow:auto;font-size:12px;line-height:1.55;max-height:50vh}
 .json .k{color:var(--accent)}.json .s{color:var(--claim)}.json .n{color:var(--decision)}
 
-/* command palette */
-dialog.palette{margin-top:12vh;width:min(600px,calc(100vw - 24px));border-radius:12px}
-.palette input{border:0;border-radius:0;height:48px;padding:0 4px;font-size:15px;background:transparent;box-shadow:none!important}
-.palette ul{list-style:none;margin:0;padding:6px;max-height:50vh;overflow:auto}
-.pal-in{display:flex;align-items:center;gap:8px;padding:0 12px;border-bottom:1px solid var(--line);color:var(--muted)}
-.pal-in input{flex:1;min-width:120px;box-shadow:none!important}
-.pal-chips{display:inline-flex;gap:6px;flex-wrap:wrap}
-.pal-chip{display:inline-flex;align-items:center;gap:4px;height:24px;padding:0 4px 0 8px;border-radius:6px;font-size:12.5px;font-weight:500;color:var(--accent);background:color-mix(in srgb,var(--accent) 10%,transparent);white-space:nowrap}
-.pal-chip button{border:0;background:none;color:inherit;opacity:.6;cursor:pointer;font-size:10px;padding:2px 3px}.pal-chip button:hover{opacity:1}
-.pal-filters{display:flex;gap:6px;flex-wrap:wrap;padding:8px 12px;border-bottom:1px solid var(--line)}.pal-filters[hidden]{display:none}
-.pal-opt{height:24px;padding:0 9px;border-radius:999px;border:1px solid var(--line);background:var(--bg-subtle);color:var(--muted);font:inherit;font-size:12px;cursor:pointer}
-.pal-opt:hover{color:var(--ink);border-color:var(--line-strong)}
-.palette li.pal-g{padding:8px 10px 2px;font-size:11.5px;color:var(--faint);cursor:default;text-transform:uppercase;letter-spacing:.04em}
-.palette .pal-l{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.palette .pal-l mark{background:var(--mark);color:inherit;border-radius:3px;padding:0 1px}
-.palette li{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:7px;cursor:pointer;font-size:13.5px;color:var(--text)}
-.palette li[aria-selected=true]{background:var(--bg-hover);color:var(--ink)}
-.palette li .k{flex:none;white-space:nowrap;margin-left:auto;color:var(--faint);font-size:12px}
-.palette .foot{display:flex;gap:14px;padding:8px 14px;border-top:1px solid var(--line);font-size:12px;color:var(--faint)}
-@media (pointer:coarse){.palette .foot{display:none}}
-@media (max-width:640px){.palette li:not(.pal-g){flex-wrap:wrap;row-gap:1px}.palette li .pal-l{flex:1 1 100%}.palette li .k{margin-left:0;font-size:11.5px}}
+
 .entry.sel{background:var(--bg-subtle);border-radius:8px}
 
 /* inline board title rename */
@@ -1170,8 +1182,18 @@ dialog.palette{margin-top:12vh;width:min(600px,calc(100vw - 24px));border-radius
 .bp-panel{flex:1;min-height:0;display:flex;flex-direction:column}
 .bp-panel>.layout{flex:1;min-height:0;grid-template-rows:minmax(0,1fr);position:relative;gap:20px}
 @media(min-width:960px){.bp-panel>.layout{grid-template-columns:minmax(0,1fr) 280px}.bp-panel>.layout.info-collapsed{grid-template-columns:minmax(0,1fr)}.layout.info-collapsed>.aside{display:none}
-  .layout.info-collapsed>.conv{width:100%;max-width:820px;margin:0 auto} /* a readable measure even with the sidebar hidden */}
-#board-info{display:flex;flex-direction:column}#sum{display:contents}#sum>[data-fold=members]{order:1}#ns-side,#host-side{order:2}
+}
+/* A readable measure, centred in its space, whether the info rail is open or not: with no sidebar since the frame, a
+   full-width thread ran from the screen's edge to the rail (jxn #5082). Phones keep the full width. */
+@media(min-width:641px){.bp-panel>.layout>.conv{width:100%;max-width:820px;margin:0 auto}}
+/* The board's rail sits on the left, the narrow conversation centred to its right (jxn #5094). */
+@media(min-width:960px){.bp-panel>.layout{grid-template-columns:280px minmax(0,1fr)}.bp-panel>.layout>.aside{grid-column:1;grid-row:1}.bp-panel>.layout>.conv{grid-column:2;grid-row:1}
+  /* Rail hidden: one column, the conversation centred in it (opus-d #5119: grid-column:2 had made an implicit column). */
+  .bp-panel>.layout.info-collapsed>.conv{grid-column:auto}
+  /* The rail's toggle sits on its side, the left, and the pinned bar clears it there. */
+  .bp-panel .info-btn{right:auto;left:0}.layout.info-collapsed .pin-bar{margin-right:0;margin-left:38px}
+  [dir=rtl] .bp-panel .info-btn{left:auto;right:0}[dir=rtl] .layout.info-collapsed .pin-bar{margin-left:0;margin-right:38px}}
+:where(#board-info){display:flex;flex-direction:column}#sum{display:contents}#sum>[data-fold=members]{order:1}#ns-side,#host-side{order:2}
 .bp-panel .aside{position:static;align-self:stretch;max-height:none;min-height:0;overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain;margin:40px 0 0 -8px;padding:4px 8px 16px 8px}
 /* Board info scrolls below the panel toggle (nothing slides under it), with a thin, faint scrollbar. */
 .aside::-webkit-scrollbar{width:4px}
@@ -1265,6 +1287,7 @@ dialog.palette{margin-top:12vh;width:min(600px,calc(100vw - 24px));border-radius
 .steps .card{padding:20px}.steps .k{font-size:12px;color:var(--faint);margin-bottom:10px}
 .stat{font-size:28px;font-weight:600;letter-spacing:-.03em;color:var(--ink)}
 .grid4{display:grid;gap:12px;grid-template-columns:repeat(2,1fr)}@media(min-width:760px){.grid4{grid-template-columns:repeat(4,1fr)}}
+.ns-trend{display:flex;align-items:flex-end;gap:4px;height:34px;margin-bottom:6px}.ns-bar{flex:1;height:100%;display:flex;align-items:flex-end;background:var(--bg-subtle);border-radius:3px}.ns-bar span{display:block;width:100%;min-height:2px;background:var(--ink);opacity:.35;border-radius:3px}.ns-bar.now span{opacity:1}
 .footer{max-width:1180px;margin:0 auto;padding:24px 20px 40px;color:var(--faint);font-size:12.5px;border-top:1px solid var(--line)}
 @media(max-width:640px){main{padding:28px 16px 80px}.nav .in{padding:0 16px}.nav .links{display:none}h1{font-size:24px}.list .item{padding:12px 14px}
   .hide-sm{display:none!important}.sm-only{display:inline}
@@ -1410,6 +1433,60 @@ ${analyticsScriptTag(security.nonce)}<script src="${APP_JS_SRC}" nonce="${securi
   headers.set("content-type", "text/html; charset=utf-8");
   for (const [name, value] of Object.entries(security.headers)) headers.set(name, value);
   return new Response(html, { status: opts.status ?? 200, headers });
+}
+
+/** The public pages' places (board #5110). FAQ and Support are the landing Worker's (landing/src/index.ts), on atteo.dev. */
+export type SitePlace = "guide" | "docs" | "faq" | "support" | "privacy" | "terms";
+const SITE_HOST = "https://atteo.dev";
+const MENU_ICON = `<svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" aria-hidden="true"><path d="M2.5 4.5h11M2.5 8h11M2.5 11.5h11"/></svg>`;
+
+/**
+ * A public page (board #5110): /guide, /docs, /privacy and /terms. The wordmark and Guide · Docs · FAQ · Support with
+ * Sign in on top (signed in, Open Atteo goes back to the app), © and Privacy · Terms · Support at the foot. No sidebar:
+ * the page's own nav is in `body`. `t` translates the frame's words (the guide's language); English otherwise.
+ */
+export function sitePage(
+  title: string,
+  body: string,
+  opts: { current: SitePlace; signedIn: boolean; lang?: Lang; t?: (s: string) => string; script?: string; headers?: HeadersInit; css?: string[] },
+): Response {
+  const t = opts.t ?? ((s: string) => s);
+  const security = pageSecurity();
+  const href: Record<SitePlace, string> = { guide: "/guide", docs: "/docs", faq: `${SITE_HOST}/faq`, support: `${SITE_HOST}/support`, privacy: "/privacy", terms: "/terms" };
+  const word: Record<SitePlace, string> = { guide: "Guide", docs: "Docs", faq: "FAQ", support: "Support", privacy: "Privacy", terms: "Terms" };
+  const link = (k: SitePlace) => `<a href="${href[k]}"${opts.current === k ? ' aria-current="page"' : ""}>${esc(t(word[k]))}</a>`;
+  const top = (["guide", "docs", "faq", "support"] as const).map(link).join("");
+  const pill = opts.signedIn ? `<a class="st-pill" href="/">${esc(t("Open Atteo"))}</a>` : `<a class="st-pill" href="/auth/login">${esc(t("Sign in"))}</a>`;
+  const lang = opts.lang ?? "en";
+  const html = styleNonce(`<!doctype html><html lang="${lang}"${dirOf(lang) === "rtl" ? ' dir="rtl"' : ""}><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>${esc(title)}</title>
+${FONT_PRELOAD}
+<link rel="icon" href="${FAVICON_SRC}" type="image/svg+xml"><link rel="apple-touch-icon" href="${APPLE_TOUCH_SRC}">
+<link rel="stylesheet" href="${APP_CSS_SRC}"><link rel="stylesheet" href="${SITE_CSS_SRC}">${extraCss(opts.css)}${DISPLAY_HEAD.replace("<script>", `<script nonce="${security.nonce}">`)}</head><body class="site">
+<header class="st-bar"><div class="st-in"><a class="st-wm" href="/">atteo</a><nav class="st-links" aria-label="Atteo">${top}</nav>${pill}<details class="st-menu"><summary>${MENU_ICON}<span class="st-sr">${esc(t("Menu"))}</span></summary><nav aria-label="Atteo">${top}</nav></details></div></header>
+<main class="st-main">${body}</main>
+<footer class="st-foot"><div class="st-in"><span>© 2026 Atteo</span><nav aria-label="${esc(t("Support"))}">${(["privacy", "terms", "support"] as const).map(link).join("")}</nav></div></footer>
+<div id="toast" role="status" aria-live="polite"></div>
+${analyticsScriptTag(security.nonce)}<script src="${APP_JS_SRC}" nonce="${security.nonce}"></script>${opts.script ? `<script nonce="${security.nonce}">${opts.script}</script>` : ""}</body></html>`, security.nonce);
+  const headers = new Headers(opts.headers);
+  headers.set("content-type", "text/html; charset=utf-8");
+  // The page's own cache-control (Docs is public for a few minutes) wins over the private default.
+  for (const [name, value] of Object.entries(security.headers)) if (name !== "cache-control" || !headers.has(name)) headers.set(name, value);
+  return new Response(html, { headers });
+}
+
+/** A page's side nav: groups of links, drawn twice, beside the content and as a Contents dropdown above it on a phone
+ *  (CSS shows one). `extra` classes the nav (Terms numbers its list). */
+export function siteNav(label: string, groups: { title?: string; links: { href: string; text: string; current?: boolean }[]; ordered?: boolean }[], extra = ""): { side: string; toc: string } {
+  const inner = groups
+    .map((g) => {
+      const tag = g.ordered ? "ol" : "ul";
+      const items = g.links.map((l) => `<li><a href="${esc(l.href)}"${l.current ? ' aria-current="true"' : ""}>${esc(l.text)}</a></li>`).join("");
+      return `${g.title ? `<span class="st-group">${esc(g.title)}</span>` : ""}<${tag}>${items}</${tag}>`;
+    })
+    .join("");
+  const nav = `<nav class="st-nav${extra ? ` ${extra}` : ""}" aria-label="${esc(label)}">${inner}</nav>`;
+  return { side: `<aside class="st-side">${nav}</aside>`, toc: `<details class="st-toc"><summary>${esc(label)}</summary>${nav}</details>` };
 }
 
 // ---------- components ----------
@@ -1616,7 +1693,7 @@ function inline(s: string, mentions?: Mention[] | null): string {
 
 // Applies the saved Display settings before first paint, so the page never flashes the wrong size or theme.
 const DISPLAY_HEAD = `<script>try{const d=JSON.parse(localStorage.getItem('atteo-display')||'{}'),r=document.documentElement;
-if(d.text==='s'||d.text==='l')r.dataset.text=d.text;if(d.density==='compact')r.dataset.density='compact';if(d.theme==='light'||d.theme==='dark')r.dataset.theme=d.theme;if(d.ev===true)r.dataset.mode='everyday';if(d.replies==='thread')r.dataset.replies='thread';if(d.compact==='others')r.dataset.compact='others'}catch{}</script>`; // mode: what the account said last time (set on the first sync)
+if(d.text==='s'||d.text==='l')r.dataset.text=d.text;if(d.density==='compact')r.dataset.density='compact';if(d.theme==='light'||d.theme==='dark')r.dataset.theme=d.theme;if(d.ev===true)r.dataset.mode='everyday';if(d.replies==='thread')r.dataset.replies='thread';if(d.compact==='others')r.dataset.compact='others';if(d.tab_order==='opened')r.dataset.tabOrder='opened'}catch{}</script>`; // mode: what the account said last time (set on the first sync)
 
 const CLIENT_JS = `
 // Saving a picture or a file (jxn #2684) is an <a download data-save>. On a phone that can share files (iOS Safari,
@@ -1657,9 +1734,11 @@ window.applyDisplay=d=>{const r=document.documentElement;d=d||{};
   if(d.replies==='thread')r.dataset.replies='thread';else delete r.dataset.replies;
   // One line per message unless it mentions you (jxn #2690): the board folds the others; a tap opens one.
   if(d.compact==='others')r.dataset.compact='others';else delete r.dataset.compact;
+  // The top tabs (vedu #5192): most recent message first, or the board you opened last first.
+  if(d.tab_order==='opened')r.dataset.tabOrder='opened';else delete r.dataset.tabOrder;if(window.orderTabs)window.orderTabs();
   // Everyday (the default) or Developer (#1272): the server says which, from your choice or (auto) whether you've connected a coding agent.
   let ev=r.dataset.mode==='everyday';if(typeof d.developer==='boolean')ev=!d.developer;if(ev)r.dataset.mode='everyday';else delete r.dataset.mode;
-  try{localStorage.setItem('atteo-display',JSON.stringify({text:d.text||'m',density:d.density||'comfortable',theme:d.theme||'system',ev,replies:d.replies==='thread'?'thread':'chat',compact:d.compact==='others'?'others':'off'}))}catch{}
+  try{localStorage.setItem('atteo-display',JSON.stringify({text:d.text||'m',density:d.density||'comfortable',theme:d.theme||'system',ev,replies:d.replies==='thread'?'thread':'chat',compact:d.compact==='others'?'others':'off',tab_order:d.tab_order==='opened'?'opened':'recent'}))}catch{}
   document.dispatchEvent(new CustomEvent('atteo-mode',{detail:{everyday:ev}}));document.dispatchEvent(new CustomEvent('atteo-replies'))};
 if($('a[href="/me"]')){let fresh=false;try{fresh=!!sessionStorage.getItem('atteo-display-sync');sessionStorage.setItem('atteo-display-sync','1')}catch{}
   if(!fresh)fetch('/api/me/profile').then(r=>r.ok?r.json():null).then(j=>{const d=j&&j.profile&&j.profile.display;if(d&&typeof d==='object')applyDisplay({...d,developer:j.profile.developer})}).catch(()=>{})}
@@ -1718,10 +1797,48 @@ ${CODE_COLOR_JS}`;
 // Served without its /* comments */ (about 16 KB of them): they're for whoever reads this file, not for every page load.
 export const APP_CSS = `${APP_FONT_CSS}\n${CSS}`.replace(/\/\*[\s\S]*?\*\//g, "");
 export const APP_CSS_SRC = `/app.css?v=${fnv(APP_CSS)}`;
-export const APP_JS = CLIENT_JS;
+// The frame's strip (jxn #4860): tabs keep their state live (board-states + the inbox poll) and can be closed (#5055).
+// In app.js rather than inline, so it's cached once instead of riding on every page (web-budget).
+const STRIP_JS = `(()=>{const ST={},AP={},here=(location.pathname.match(/^\\/b\\/([^/]+)/)||[])[1];
+function paint(){document.querySelectorAll('.btab').forEach(t=>{const id=t.dataset.tab,s=ST[id],ap=Math.max(AP[id]||0,s?s.pending_approvals:0),wk=s?s.working_agents:+t.dataset.work||0,w=t.querySelector('.wk'),a=t.querySelector('.apn');
+  t.classList.toggle('st-ap',ap>0);t.classList.toggle('st-work',!ap&&wk>0);
+  if(w){w.hidden=!wk;w.textContent=wk?tr('{n} working',{n:wk}):''}if(a){a.hidden=!ap;a.textContent=ap?tr(ap>1?'{n} approvals':'{n} approval',{n:ap}):''}})}
+window.onInbox=j=>{const b=document.querySelector('[data-inbox-count]'),c=j.unread;if(b){b.hidden=!c;b.textContent=c>99?'99+':c}const ab=j.approval_boards||{};for(const k in AP)delete AP[k];Object.assign(AP,ab);paint()};
+let busy=false;async function pull(){if(busy||document.hidden||!document.querySelector('.btab'))return;busy=true;
+  try{const r=await fetch('/api/me/board-states',{cache:'no-store'});if(r.ok){const j=await r.json();for(const k in ST)delete ST[k];for(const x of j.boards||[])ST[x.id]=x;paint()}}catch(e){}finally{busy=false}}
+setInterval(pull,20000);document.addEventListener('visibilitychange',()=>{if(!document.hidden)pull()});pull();
+const nav=document.querySelector('.btabs'),nap=ms=>new Promise(r=>setTimeout(r,ms));
+function orderTabs(){if(!nav)return;const op=document.documentElement.dataset.tabOrder==='opened',l=w=>+w.dataset.last||0,o=w=>+w.dataset.opened||0;
+  const ws=[...nav.querySelectorAll('[data-tabw]')],by=[...ws].sort((a,b)=>op?(o(b)-o(a)||l(b)-l(a)):(l(b)-l(a)));
+  if(by.some((w,i)=>w!==ws[i]))by.forEach(w=>nav.appendChild(w))}
+window.orderTabs=orderTabs;
+// The board you're on was opened now: recorded when the page shows, not when it was fetched ahead (a hovered link, #3717).
+if(here&&nav){const w=nav.querySelector('[data-tabw="'+CSS.escape(here)+'"]');if(w)w.dataset.opened=Date.now();fetch('/api/boards/'+encodeURIComponent(here)+'/opened',{method:'POST'}).catch(()=>{})}
+orderTabs();
+// The cursor at once (one short request, so a post right after the page shows still counts); the long poll only after the
+// page has loaded and settled, so it never competes with the page's own requests.
+const settled=new Promise(r=>{const go=()=>setTimeout(r,2000);if(document.readyState==="complete")go();else addEventListener("load",go,{once:true})});
+async function live(){let at=null;for(;;){if(at!==null)await settled;
+  if(document.hidden||!nav.offsetParent){await nap(3000);continue}
+  try{const r=await fetch(at===null?'/api/tape?limit=1':'/api/tape?after='+at+'&wait=25&every=5&limit=100',{cache:'no-store'});if(r.status===401||r.status===403)return;if(!r.ok){await nap(5000);continue}
+    const j=await r.json();at=j.cursor;if(!j.lines||!j.lines.length)continue;
+    for(const x of j.lines){const w=nav.querySelector('[data-tabw="'+CSS.escape(x.board_id)+'"]');if(w&&x.ts>(+w.dataset.last||0))w.dataset.last=x.ts}
+    orderTabs();pull()}catch(e){await nap(5000)}}}
+if(nav)live();
+const KEY='atteo-tabs-closed';
+const closed=()=>{try{return new Set(JSON.parse(localStorage.getItem(KEY)||'[]'))}catch(e){return new Set()}},keep=s=>{try{localStorage.setItem(KEY,JSON.stringify([...s].slice(-200)))}catch(e){}};
+{const c=closed();if(here&&c.delete(here))keep(c);document.querySelectorAll('[data-tabw]').forEach(w=>{if(c.has(w.dataset.tabw))w.hidden=true})}
+function closeTab(id){const w=document.querySelector('[data-tabw="'+CSS.escape(id)+'"]');if(!w)return;const c=closed();c.add(id);keep(c);
+  if(id===here){const vis=[...document.querySelectorAll('[data-tabw]:not([hidden])')],i=vis.indexOf(w),n=vis[i+1]||vis[i-1];location.href=n&&n!==w?n.querySelector('.btab').href:'/';return}
+  const nx=w.nextElementSibling||w.previousElementSibling;w.hidden=true;nx?.querySelector?.('.btab')?.focus()}
+document.addEventListener('click',e=>{const x=e.target.closest('[data-tab-close]');if(!x)return;e.preventDefault();e.stopPropagation();closeTab(x.dataset.tabClose)});
+document.addEventListener('keydown',e=>{if(e.key!=='Delete')return;const t=e.target.closest&&e.target.closest('.btab');if(!t)return;e.preventDefault();closeTab(t.dataset.tab)});
+document.addEventListener('auxclick',e=>{if(e.button!==1)return;const t=e.target.closest('.btab');if(!t)return;e.preventDefault();closeTab(t.dataset.tab)})})();`;
+export const APP_JS = CLIENT_JS + STRIP_JS;
 export const APP_JS_SRC = `/app.js?v=${fnv(APP_JS)}`;
 /** Page-only stylesheets (Guide / Ask / Docs). Kept off /app.css so board and inbox stay in the CSS budget. */
-export const PAGE_CSS: Record<string, string> = { "/guide.css": GUIDE_CSS, "/ask.css": ASK_CSS, "/docs.css": DOC_CSS };
+export const PAGE_CSS: Record<string, string> = { "/site.css": SITE_CSS, "/guide.css": GUIDE_CSS, "/ask.css": ASK_CSS, "/docs.css": DOC_CSS };
+export const SITE_CSS_SRC = `/site.css?v=${fnv(SITE_CSS)}`;
 export const GUIDE_CSS_SRC = `/guide.css?v=${fnv(GUIDE_CSS)}`;
 export const ASK_CSS_SRC = `/ask.css?v=${fnv(ASK_CSS)}`;
 export const DOC_CSS_SRC = `/docs.css?v=${fnv(DOC_CSS)}`;
@@ -1752,6 +1869,8 @@ export interface SideBoard {
   kind?: string | null; // "direct": a private board between two friends (title "a ↔ b"); "agent": "Your agent", you and your own agents
   live?: number; // agent sessions working on it right now
   pinned?: boolean;
+  last?: number; // last activity (ms), for the frame strip's order
+  opened?: number | null; // when this person last opened it (ms): the strip's "Last opened" order (vedu #5192)
   picture?: string | null; // the board picture's URL (members only, versioned), or null
   peer_name?: string | null; // a direct board: the other person's display name (jxn #4369)
 }
@@ -1816,37 +1935,40 @@ export function appPage(
   const sideOwn = `<a class="side-link side-board" href="${own ? `/b/${esc(own.id)}` : "/agent"}"${own ? cur(own.id) : ""} data-agent-chat>${avatar(v.name, "xs", true)}<span class="truncate">${esc(T("Your agent"))}</span>${own ? working(own.live ?? 0, own.id) : ""}</a>`;
   const paletteItems = [
     { label: T("Your agent"), hint: T("Chat"), href: own ? `/b/${own.id}` : "/agent" },
-    ...opts.boards.filter((b) => b.kind !== "agent").map((b) => ({ label: b.kind === "direct" ? T("{name} (direct)", { name: shownName(directPeer(b, v.name), b.peer_name) }) : b.title, hint: T("Board"), href: `/b/${b.id}` })),
+    ...opts.boards.filter((b) => b.kind !== "agent").map((b) => ({ label: b.kind === "direct" ? T("{name} (direct)", { name: shownName(directPeer(b, v.name), b.peer_name) }) : b.title, hint: T(b.kind === "direct" ? "DMs" : "Board"), kind: "board", href: `/b/${b.id}` })),
     { label: T("For you"), hint: T("Home"), href: "/for-you" },
     { label: T("Inbox"), hint: "G I", href: "/inbox" },
     { label: T("Approvals"), hint: "G A", href: "/approvals" },
-    { label: T("People and friends"), hint: "G P", href: "/people" },
+    { label: T("People"), hint: "G P", href: "/people" },
     { label: T("New board"), hint: "C", href: "/?new=1" },
-    { label: T("All boards"), hint: "G B", href: "/" },
-    { label: T("Account and agent connections"), hint: "G M", href: "/me" },
+    { label: T("Boards"), hint: "G B", href: "/" },
+    { label: T("Settings"), hint: "G M", href: "/me" },
     { label: T("Guide"), hint: T("What Atteo can do"), href: "/guide" },
     { label: T("Keyboard shortcuts"), hint: "?", href: "#shortcuts" },
-    ...(v.admin ? [{ label: "Ops console", hint: "Operators", href: "/_ops" }] : []),
+    ...(v.admin ? [{ label: T("Ops"), hint: "G O", href: "/_ops" }] : []),
   ];
-  // The strip's tabs (jxn #4860): your boards and chats, most recently active first (pins ahead), each with its working
-  // count; its underline shows the state (st-work: agents working; st-ap, set by the inbox poll: an approval waits).
+  // The strip's tabs (jxn #4860): your boards and chats, most recently active first (vedu #5043: no pins ahead), each with its working
+  // count; its underline shows the state (st-work: agents working; st-ap, set by the inbox poll: an approval waits). Display →
+  // Tab order "Last opened" (vedu #5192) reorders them on the page (STRIP_JS), and posts anywhere reorder them live (#5194).
   const tabName = (b: SideBoard) => (b.kind === "direct" ? shownName(directPeer(b, v.name), b.peer_name) : b.kind === "agent" ? T("Your agent") : b.title);
-  const tabs = opts.boards
+  const tabs = [...opts.boards]
+    .sort((a, b) => (b.last ?? 0) - (a.last ?? 0))
     .slice(0, 24)
-    .map((b) => `<a class="btab${b.live ? " st-work" : ""}" href="/b/${esc(b.id)}" data-tab="${esc(b.id)}"${cur(b.id)}>${b.kind === "direct" ? avatar(directPeer(b, v.name), "xs") : b.kind === "agent" ? avatar(v.name, "xs", true) : boardPic(b, "xs")}<b>${esc(tabName(b))}</b>${b.live ? `<span class="wk">${esc(T("{n} working", { n: b.live }))}</span>` : ""}<span class="apn" hidden></span></a>`)
+    .map((b) => `<span class="btab-w" data-tabw="${esc(b.id)}" data-last="${b.last ?? 0}" data-opened="${b.opened ?? 0}"><a class="btab${b.live ? " st-work" : ""}" href="/b/${esc(b.id)}" data-tab="${esc(b.id)}" data-work="${b.live || 0}"${cur(b.id)}>${b.kind === "direct" ? avatar(directPeer(b, v.name), "xs") : b.kind === "agent" ? avatar(v.name, "xs", true) : boardPic(b, "xs")}<b>${esc(tabName(b))}</b><span class="wk"${b.live ? "" : " hidden"}>${b.live ? esc(T("{n} working", { n: b.live })) : ""}</span><span class="apn" hidden></span></a><button class="btab-x" type="button" data-tab-close="${esc(b.id)}" aria-label="${esc(T("Close tab {name}", { name: tabName(b) }))}" title="${esc(T("Close tab"))}">×</button></span>`)
     .join("");
   // The strip's mark draws the Menu's own (<use>), so the page carries the drawing once.
   const strip = `<header class="strip"><a class="ws" href="/"><svg class="pebble" width="20" height="20" viewBox="0 0 100 100" aria-hidden="true"><use href="#mkg"/></svg><span class="wm">atteo</span></a>
-  <button class="btn ghost sm" type="button" data-nav aria-controls="sidebar" aria-expanded="false">${ICON.menu}<span>${esc(T("Menu"))}</span></button>
+  <button class="btn ghost sm" type="button" data-nav-s aria-controls="sidebar" aria-expanded="false">${ICON.menu}<span>${esc(T("Menu"))}</span><span class="count" data-inbox-count hidden></span></button>
   <nav class="btabs" aria-label="${esc(T("Boards and chats"))}">${tabs}</nav>
   <a class="btn ghost sm" href="/?new=1" aria-label="${esc(T("New board"))}">${ICON.plus}</a>
   <button class="search" type="button" data-palette>${ICON.search}<span>${esc(T("Search or jump to…"))}</span><kbd>⌘K</kbd></button>
-  <a class="btn ghost sm" href="/chats" aria-label="${esc(T("Chats"))}">${ICON.feedback}</a>
-  <a class="btn ghost sm" href="/inbox" aria-label="${esc(T("Inbox"))}">${ICON.inbox}<span class="count" data-inbox-count hidden></span></a>
+  <button class="btn ghost sm" type="button" data-feedback aria-label="${esc(T("Send feedback"))}">${ICON.feedback}</button><button class="btn ghost sm" type="button" data-bug data-bug-src="${BUG_JS_SRC}" aria-label="${esc(T("Report a bug"))}">${ICON.warn}</button>
   <a href="/me" aria-label="${esc(T("Account"))}">${avatar(v.name, "sm")}</a></header>`;
   // What the inbox poll (INBOX_JS) hands the strip: its count, and the boards where one of your agent's approvals waits,
   // whose tabs turn amber and say so (jxn #4860).
-  const stripJs = `window.onInbox=j=>{const b=document.querySelector('[data-inbox-count]'),c=j.unread;if(b){b.hidden=!c;b.textContent=c>99?'99+':c}const ab=j.approval_boards||{};document.querySelectorAll('.btab').forEach(t=>{const n=ab[t.dataset.tab]||0,a=t.lastChild;t.classList.toggle('st-ap',n>0);a.hidden=!n;a.textContent=n?tr(n>1?'{n} approvals':'{n} approval',{n}):''})}`;
+  // The tabs keep their state live (jxn #4860): GET /api/me/board-states every 20s while the page shows (and on coming
+  // back to it) gives each board's working agents and approvals; the inbox poll's approval boards count too, so the two
+  // never fight. Approval wins (amber + count), then working (green + "N working"), else quiet (grey).
   const body = `<div class="app" id="app">
 <aside class="sidebar" id="sidebar" aria-label="${esc(T("Navigation"))}">
   <button class="btn ghost sm nav-x" type="button" data-nav-close aria-label="${esc(T("Close menu"))}" title="${esc(T("Close menu"))}">✕</button>
@@ -1871,10 +1993,6 @@ export function appPage(
     <nav class="crumbs" aria-label="Breadcrumb">${opts.crumbs}</nav><div class="actions">${opts.actions ?? ""}</div></header>
   <div class="content${opts.narrow ? " narrow" : ""}${opts.full ? " full" : ""}">${opts.body}</div>
 </div></div>
-<dialog class="palette" id="palette" aria-label="${esc(T("Search"))}">
-<div class="pal-in"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><circle cx="7" cy="7" r="4.5"/><path d="m10.5 10.5 3 3"/></svg><span class="pal-chips" id="pal-chips"></span><input class="input" id="palette-q" placeholder="${esc(T("Search messages, files, boards and actions…"))}" autocomplete="off" aria-label="Search" aria-controls="palette-list"></div>
-<div class="pal-filters" id="pal-filters" aria-label="${esc(T("Filters"))}"></div>
-<ul id="palette-list" role="listbox"></ul><div class="foot"><span><kbd>↑</kbd> <kbd>↓</kbd> ${esc(T("move"))}</span><span><kbd>↵</kbd> ${esc(T("open"))}</span><span><kbd>⌫</kbd> ${esc(T("remove filter"))}</span><span><kbd>esc</kbd> ${esc(T("close"))}</span></div></dialog>
 <dialog id="shortcuts"><div class="hd"><h2>${esc(T("Keyboard shortcuts"))}</h2><button class="btn ghost sm" data-close aria-label="${esc(T("Close"))}">✕</button></div>
 <div class="bd"><dl class="kv">
 <dt><kbd>⌘K</kbd> <kbd>/</kbd></dt><dd>${esc(T("Search or jump to a board"))}</dd>
@@ -1890,7 +2008,7 @@ export function appPage(
 <dt><kbd>↵</kbd> · <kbd>⌫</kbd></dt><dd>${esc(T("Approve · deny the selected or focused approval (asks first when it's high risk)"))}</dd>
 <dt><kbd>G</kbd> ${esc(T("then"))} <kbd>I</kbd> <kbd>A</kbd> <kbd>B</kbd> <kbd>P</kbd> <kbd>M</kbd></dt><dd>${esc(T("Go to Inbox / Approvals / Boards / People / Account"))}</dd>
 <dt><kbd>?</kbd></dt><dd>${esc(T("This list"))}</dd></dl></div></dialog>
-<script>window.PALETTE=${JSON.stringify(paletteItems).replace(/</g, "\\u003c")};${v.admin ? "window.OPS=1;" : ""}${stripJs}</script>`;
+<script>window.PALETTE=${JSON.stringify(paletteItems).replace(/</g, "\\u003c")};${v.admin ? "window.OPS=1;" : ""}</script>`;
   return rawPage(title, body, (opts.script ?? "") + scriptSrc(SHELL_JS_SRC), opts.status, v.lang ?? "en", opts.css);
 }
 
@@ -1917,7 +2035,7 @@ window.inboxRefresh=async()=>{try{const r=await fetch('/api/inbox/count?tz='+tz)
   if(due>dgAt){if(dgAt&&dn&&can)new Notification(tr(dn===1?'{n} update since the last digest':'{n} updates since the last digest',{n:dn}),{body:(ns.digest_boards||[]).join(', '),tag:'inbox-digest'}).onclick=()=>{focus();location.href='/inbox'};
     dgAt=due;try{localStorage.setItem('inbox-dg-at',String(due))}catch{}}
   if(l&&l.created_at>seen){if(l.kind!=='manual_unread'&&seen&&(!l.interrupt||l.interrupt==='now')&&can&&!(document.visibilityState==='visible'&&location.pathname==='/b/'+l.board_id)){
-    const ap=l.kind==='approval',who=ap?'Your agent':l.actor_via==='agent'?l.actor+"'s agent":(l.actor_name||l.actor);
+    const ap=l.kind==='approval',who=ap?(l.push&&l.push.by?l.push.by+"'s agent":'Your agent'):l.actor_via==='agent'?l.actor+"'s agent":(l.actor_name||l.actor);
     const n=new Notification(who+(ap?' is asking for your approval':l.kind==='mention'?' mentioned you':l.kind==='decision'?' asks for a decision':l.kind==='reply'?' replied to you':l.kind==='friend_request'?' wants to be friends':l.kind==='friend_accept'?' accepted your request':l.kind==='report'?' reported a post to you, as an owner':' wrote to your agent'),{body:l.excerpt,tag:'inbox-'+l.id});
     n.onclick=()=>{window.focus();location.href=ap?'/approvals':l.board_id?'/b/'+l.board_id+'#e'+l.seq:'/people'}}
   seen=l.created_at;try{localStorage.setItem('inbox-seen',String(seen))}catch{}}}catch{}};
@@ -1987,7 +2105,9 @@ run(); // bug.js is only loaded on a bug click: that first click is this run
 document.addEventListener('click',e=>{const x=e.target.closest('[data-bug-rm]');if(x){const i=+x.dataset.bugRm;URL.revokeObjectURL(pics[i].url);pics.splice(i,1);render();return}
   if(e.target.closest('#bug-attach'))$('bug-files').click()});
 $('bug-files')?.addEventListener('change',e=>{add([...e.target.files]);e.target.value=''});
-$('bug-text')?.addEventListener('paste',e=>{const fs=[...(e.clipboardData?.files||[])];if(fs.length){e.preventDefault();add(fs)}});
+// Rich text (Notes, Pages, TextEdit, a web page) also hands the browser its pasteboard types as "files" (Safari names them like 'rich text with attachments -RTFD- data'; vedu #5209). Then only its pictures attach and the words paste as text. Some synthetic files are named with the exact UTI; a real filename merely beginning "public." or "com.apple." is still a file.
+function pastedFiles(c){const fs=[...(c?.files||[])];if(!fs.length)return null;const ty=[...(c.types||[])];const rich=ty.includes('text/html')||ty.includes('text/rtf')||fs.some(f=>/-RTFD-|^rich text|^(?:public\\.rtf|com\\.apple\\.(?:flat-rtfd|rtfd))$/i.test(f.name||''));return rich?{files:fs.filter(f=>/^image\\//.test(f.type)),text:true}:{files:fs,text:false}}
+$('bug-text')?.addEventListener('paste',e=>{const p=pastedFiles(e.clipboardData);if(!p)return;if(!p.text)e.preventDefault();if(p.files.length)add(p.files)});
 const dlg=$('bug');
 dlg.addEventListener('click',e=>{if(e.target===dlg)dlg.close()});
 dlg?.addEventListener('dragover',e=>{if([...(e.dataTransfer?.types||[])].includes('Files')){e.preventDefault();dlg.classList.add('drop')}});
@@ -2062,62 +2182,21 @@ document.addEventListener('click',e=>{const b=e.target.closest('[data-bug]');if(
 // form for that click itself; later clicks are its own listener.
 document.addEventListener('click',e=>{if(!e.target.closest('[data-feedback]')||document.getElementById('fb-js'))return;
   const s=document.createElement('script');s.id='fb-js';s.src='${FEEDBACK_JS_SRC}';s.nonce=NONCE;document.head.appendChild(s)});
-// Search (⌘K everywhere; ⌘F on a board starts with "This board · Messages"): filters show up front like VS Code or Lark,
-// and become chips; results mix boards and actions with ranked messages and files (this board, or all your boards).
-const pal=$('#palette'),q=$('#palette-q'),list=$('#palette-list'),pChips=$('#pal-chips'),pFilt=$('#pal-filters');
-let sel=0,items=[],chips=[],mode=null,run=0,timer=null;
-const B=()=>window.BOARD_CTX||null; // on a board page: {id, me, members, jump(seq), openFile(name, version)}
-const KINDS=[['messages',tr('Messages')],['files',tr('Files')],['boards',tr('Boards')],['actions',tr('Actions')]],TYPES=['question','task','decision','claim','note','change','artifact'];
-const h=x=>String(x==null?'':x).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
-const has=(k,v)=>chips.some(c=>c.k===k&&(v==null||c.v===v)),chip=k=>chips.find(c=>c.k===k);
-const who=(u,agent)=>{const me=B()&&B().me;return u===me?(agent?'your agent':'you'):(agent?u+"'s agent":u)};
-const label=c=>c.k==='board'?tr('This board'):c.k==='kind'?KINDS.find(k=>k[0]===c.v)[1]:c.k==='type'?tr('type:')+' '+tr(c.v):tr('from')+' '+who(c.v,c.agent);
-function paintChips(){pChips.innerHTML=chips.map((c,i)=>'<span class="pal-chip">'+h(label(c))+'<button type="button" data-pchip="'+i+'" aria-label="Remove '+h(label(c))+'">✕</button></span>').join('');
-  const o=[];if(B()&&!has('board'))o.push(['board','',tr('This board')]);if(!has('kind'))KINDS.forEach(([v,l])=>o.push(['kind',v,l]));
-  if(B()&&!has('from'))o.push(['from','',tr('From…')]);if(!has('type'))o.push(['type','',tr('Type…')]);
-  pFilt.innerHTML=o.map(x=>'<button type="button" class="pal-opt" data-popt="'+x[0]+'" data-v="'+x[1]+'">'+h(x[2])+'</button>').join('');pFilt.hidden=!o.length}
-function paint(rows){items=rows;sel=Math.min(sel,Math.max(0,rows.length-1));let g='';
-  list.innerHTML=rows.map((r,n)=>(r.g!==g?'<li class="pal-g" aria-hidden="true">'+(g=r.g)+'</li>':'')+'<li role="option" data-n="'+n+'" id="po-'+n+'" aria-selected="'+(n===sel)+'"><span class="pal-l">'+r.label+'</span><span class="k">'+h(r.hint||'')+'</span></li>').join('')||'<li class="faint pal-none">'+(q.value.trim()?'No matches':'Type to search')+'</li>';
-  q.setAttribute('aria-activedescendant',rows.length?'po-'+sel:'')}
-function pickList(){const t=q.value.trim().replace(/^@/,'').toLowerCase();
-  const rows=mode==='from'?(B()?B().members:[]).flatMap(u=>[{u,agent:false},{u,agent:true}]).filter(x=>x.u.startsWith(t)).map(x=>({g:tr('From'),label:h(who(x.u,x.agent)),pick:{k:'from',v:x.u,agent:x.agent}}))
-    :TYPES.filter(x=>x.startsWith(t)).map(x=>({g:tr('Type'),label:h(tr(x)),pick:{k:'type',v:x}}));paint(rows)}
-const snip=x=>h(x||'').split('«').join('<mark>').split('»').join('</mark>');
-function render(){const my=++run;if(mode){pickList();return}const t=q.value.trim(),kind=chip('kind')&&chip('kind').v,b=B(),scoped=b&&(has('board')||has('from')||has('type'));
-  const rows=[];
-  if((!kind||kind==='boards'||kind==='actions')&&!scoped&&!has('from')&&!has('type'))
-    PALETTE.filter(i=>!t||i.label.toLowerCase().includes(t.toLowerCase())).filter(i=>!kind||(kind==='boards')===(i.hint==='Board')).slice(0,t?8:6)
-      .forEach(i=>rows.push({g:i.hint===tr('Board')?tr('Boards'):tr('Actions'),label:h(i.label),hint:i.hint==='Board'?'':i.hint,href:i.href}));
-  paint(rows);
-  if(kind==='boards'||kind==='actions'||(!t&&!has('from')&&!has('type')))return;
-  clearTimeout(timer);timer=setTimeout(async()=>{const more=[];
-    try{if(scoped){const p=new URLSearchParams({q:t});const f=chip('from');if(f){p.set('from',f.v);p.set('agent',f.agent?'1':'0')}if(chip('type'))p.set('type',chip('type').v);if(kind==='messages')p.set('in','chat');
-        const j=await (await fetch('/api/boards/'+b.id+'/search?'+p)).json();
-        if(kind!=='files')(j.entries||[]).forEach(x=>more.push({g:tr('Messages'),label:(x.title?'<b>'+h(x.title)+'</b> ':'')+snip(x.snippet),hint:who(x.author,x.via==='agent')+' · #'+x.seq,act:()=>b.jump(x.seq)}));
-        if(kind!=='messages')(j.files||[]).forEach(x=>more.push({g:tr('Files'),label:'<span class="mono">'+h(x.name)+'</span> '+snip(x.snippet),hint:'v'+x.version,act:()=>b.openFile(x.name,x.version)}))}
-      else if(t){const j=await (await fetch('/api/boards/search?q='+encodeURIComponent(t))).json();
-        (j.hits||[]).filter(x=>kind==='files'?x.kind==='file':kind==='messages'?x.kind==='entry':true).forEach(x=>{const here=b&&x.board===b.id;
-          more.push({g:x.kind==='file'?'Files':'Messages',label:(x.kind==='file'?'<span class="mono">'+h(x.name)+'</span> ':'')+snip(x.snippet),hint:x.title+(x.seq?' · #'+x.seq:''),
-            act:here?(x.kind==='file'?()=>b.openFile(x.name,x.version):()=>b.jump(x.seq)):null,href:'/b/'+x.board+(x.kind==='file'?'#files':'#e'+x.seq)})})}}catch(e){}
-    if(my===run)paint(rows.concat(more))},150)}
-function go(i){if(!i)return;if(i.pick){chips=chips.filter(c=>c.k!==i.pick.k);chips.push(i.pick);mode=null;q.value='';paintChips();sel=0;render();q.focus();return}
-  pal.close();if(i.href==='#shortcuts'){$('#shortcuts').showModal();return}if(i.act){i.act();return}location.href=i.href}
-window.openPalette=(preset)=>{chips=(preset||[]).slice();mode=null;q.value='';sel=0;paintChips();render();if(!pal.open)pal.showModal();q.focus()};
-q.addEventListener('input',()=>{sel=0;if(!mode&&q.value.startsWith('@')&&B())mode='from';if(mode&&!q.value&&mode==='from')mode=null;render()});
-q.addEventListener('keydown',e=>{if(e.key==='ArrowDown'){sel=Math.min(sel+1,items.length-1);paint(items);e.preventDefault()}
-  else if(e.key==='ArrowUp'){sel=Math.max(sel-1,0);paint(items);e.preventDefault()}else if(e.key==='Enter'){go(items[sel]);e.preventDefault()}
-  else if(e.key==='Backspace'&&!q.value&&(mode||chips.length)){if(mode)mode=null;else chips.pop();paintChips();render();e.preventDefault()}});
-list.addEventListener('mousedown',e=>{const li=e.target.closest('[data-n]');if(li){e.preventDefault();go(items[+li.dataset.n])}});
-pChips.addEventListener('click',e=>{const b=e.target.closest('[data-pchip]');if(!b)return;chips.splice(+b.dataset.pchip,1);paintChips();render();q.focus()});
-pFilt.addEventListener('click',e=>{const b=e.target.closest('[data-popt]');if(!b)return;const k=b.dataset.popt;
-  if(k==='from'||k==='type'){mode=k;q.value='';sel=0;render();q.focus();return}chips.push({k,v:b.dataset.v||null});paintChips();render();q.focus()});
+// The existing palette (including board search) is fetched only when opened.
+let paletteLoad;
+window.openPalette=(preset)=>{if(!paletteLoad)paletteLoad=new Promise((resolve,reject)=>{
+  const css=document.createElement('link');css.rel='stylesheet';css.href='${PALETTE_CSS_SRC}';
+  const script=document.createElement('script');script.src='${PALETTE_JS_SRC}';script.nonce=NONCE;
+  const fail=()=>{css.remove();script.remove();paletteLoad=null;reject(Error('palette'))};
+  css.onerror=script.onerror=fail;script.onload=resolve;css.onload=()=>document.head.appendChild(script);document.head.appendChild(css);
+});return paletteLoad.then(()=>window.openPalette(preset)).catch(()=>toast(tr('Could not load')))};
 // The phone menu (a drawer): opens from the menu button; closes with its ✕, the dimmed page beside it, a swipe back to
 // the left or Esc, and focus goes back to the button (jxn #2223). It's never kept open across a reload or a Back.
-let navFrom=null;const navNarrow=matchMedia('(max-width:860px)');
-function navSet(on){const app=$('#app');if(!app)return;const changed=app.classList.contains('nav-open')!==on;app.classList.toggle('nav-open',on);const mb=$('[data-nav]');mb?.setAttribute('aria-expanded',String(on));
-  const sb=$('#sidebar');if(sb)sb.inert=navNarrow.matches&&!on;if(!changed)return;
+let navFrom=null;
+function navSet(on){const app=$('#app');if(!app)return;const changed=app.classList.contains('nav-open')!==on;app.classList.toggle('nav-open',on);const bs=[...document.querySelectorAll('[data-nav],[data-nav-s]')],mb=bs.find(b=>b.offsetParent)||bs[0];bs.forEach(b=>b.setAttribute('aria-expanded',String(on)));
+  const sb=$('#sidebar');if(sb)sb.inert=!on;if(!changed)return;
   if(on){navFrom=document.activeElement;$('.nav-x')?.focus({preventScroll:true})}else{const f=navFrom&&document.contains(navFrom)?navFrom:mb;navFrom=null;if(app.contains(document.activeElement)||document.activeElement===document.body)f?.focus?.({preventScroll:true})}}
-document.addEventListener('click',e=>{if(e.target.closest('[data-palette]'))openPalette();if(e.target.closest('[data-nav]'))navSet(!$('#app')?.classList.contains('nav-open'));else if(e.target.closest('[data-nav-close]'))navSet(false)});
+document.addEventListener('click',e=>{if(e.target.closest('[data-palette]'))openPalette();if(e.target.closest('[data-nav],[data-nav-s]'))navSet(!$('#app')?.classList.contains('nav-open'));else if(e.target.closest('[data-nav-close]'))navSet(false)});
 document.addEventListener('keydown',e=>{if(e.key==='Escape'&&$('#app')?.classList.contains('nav-open')&&!$('dialog[open]')){e.preventDefault();navSet(false)}});
 // Connect an agent (the menu's link, vedu #2241): this page's Connect dialog when it has one, else Account's, opened by
 // its #connect.
@@ -2126,10 +2205,10 @@ if(location.hash==='#connect'){const d=$('dialog#connect');if(d&&!d.open)d.showM
 {let sx=0,sy=0,on=false;const sb=$('#sidebar');
   sb?.addEventListener('touchstart',e=>{const t=e.touches[0];sx=t.clientX;sy=t.clientY;on=$('#app')?.classList.contains('nav-open')},{passive:true});
   sb?.addEventListener('touchend',e=>{const t=e.changedTouches[0],dx=t.clientX-sx,dy=t.clientY-sy;if(on&&(document.dir==='rtl'?dx>50:dx<-50)&&Math.abs(dx)>Math.abs(dy)*1.5)navSet(false)},{passive:true})}
-navNarrow.addEventListener('change',()=>navSet(false));navSet(false);addEventListener('pageshow',()=>navSet(false));
+navSet(false);addEventListener('pageshow',()=>navSet(false));
 let g=false,gt;
 document.addEventListener('keydown',e=>{
-  if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==='k'){e.preventDefault();pal.open?pal.close():openPalette();return}
+  if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==='k'){e.preventDefault();$('#palette')?.open?$('#palette').close():openPalette();return}
   const t=e.target;if(e.metaKey||e.ctrlKey||e.altKey||t.closest('input,textarea,select,[contenteditable]')||$('dialog[open]'))return;
   const k=e.key.toLowerCase();
   if(g){g=false;clearTimeout(gt);const to={b:'/',i:'/inbox',a:'/approvals',m:'/me',p:'/people',o:window.OPS?'/_ops':null}[k];if(to){location.href=to;e.preventDefault()}return}

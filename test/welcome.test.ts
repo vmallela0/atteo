@@ -17,7 +17,7 @@ describe("Bring your assistant (/welcome)", () => {
   it("its scripts compile and the copy stays in plain words", async () => {
     const html = await assistantWelcomePage(viewer, [], "https://atteo.dev", []).text();
     for (const s of scriptsOf(html)) expect(() => new Function(s)).not.toThrow();
-    const main = visible(html.slice(html.indexOf('<div class="ev">'), html.indexOf('<dialog class="palette"'))); // the page, not the app shell
+    const main = visible(html.slice(html.indexOf('<div class="ev">'), html.indexOf('<dialog id="shortcuts"'))); // the page, not the app shell
     expect(main).toContain("Bring your assistant");
     expect(main).not.toMatch(/\bMCP\b|OAuth|\btoken\b|\bagents?\b/i);
   });

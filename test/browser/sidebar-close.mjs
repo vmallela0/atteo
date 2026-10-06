@@ -102,7 +102,8 @@ async function phone(who, mode, w) {
     await ctx.close();
   }
 }
-// On a wide screen there's no ✕ (the sidebar is part of the page).
+// On a wide screen the menu is the same drawer (jxn #4860: tabs on top, no standing sidebar): the strip's Menu opens it
+// with its ✕ and the page dimmed, Esc closes it and focus goes back to Menu; closed, it's inert (nothing in it takes focus).
 async function wide() {
   const ck = cookies[D];
   const ctx = await b.newContext({ viewport: { width: 1280, height: 860 } });
@@ -110,7 +111,12 @@ async function wide() {
   await ctx.addCookies([{ name: k, value: v.join("="), url: BASE }]);
   const p = await ctx.newPage();
   await p.goto(`${BASE}/b/${board}`); await loaded(p);
-  check(!(await p.locator("#sidebar").evaluate((el) => el.inert)) && !(await p.locator(".nav-x").isVisible()) && !(await p.locator(".nav-scrim").isVisible()) && (await p.locator("#info-btn").evaluate((el) => getComputedStyle(el, "::after").content)) === "none", "1280px: sidebar stays focusable, with no ✕ or dimmed page");
+  const menu = p.locator("[data-nav-s]");
+  check(await p.locator("#sidebar").evaluate((el) => el.inert) && await menu.isVisible() && !(await p.locator(".topbar .menu-btn").isVisible()), "1280px: the menu is closed and inert; the strip has the Menu button");
+  await menu.click(); await p.waitForTimeout(300);
+  check(await p.locator(".nav-x").isVisible() && await p.locator(".nav-scrim").isVisible() && !(await p.locator("#sidebar").evaluate((el) => el.inert)) && (await menu.getAttribute("aria-expanded")) === "true", "1280px: Menu opens the drawer with its ✕ and the page dimmed");
+  await p.keyboard.press("Escape"); await p.waitForTimeout(300);
+  check(!(await p.evaluate(() => document.getElementById("app").classList.contains("nav-open"))) && await menu.evaluate((el) => el === document.activeElement), "1280px: Esc closes it and focus goes back to Menu");
   await ctx.close();
 }
 // Arabic (right to left): board info follows the reading direction. A swipe to the right leaves it open; a swipe to the

@@ -67,7 +67,7 @@ try {
     const policy = h[HEADER] ?? "";
     check(!!policy && !h[OTHER], `${path}: ${ENFORCE ? "enforced" : "report-only"} CSP header, as CSP_ENFORCE says`);
     check(policy.includes("report-uri /api/csp-report"), `${path}: reports go to /api/csp-report`);
-    check(/connect-src 'self' wss:\/\/api\.x\.ai(;|$)/.test(policy), `${path}: sockets only to this host and the voice provider`);
+    check(/connect-src 'self' wss:\/\/api\.x\.ai https:\/\/cloudflareinsights\.com(;|$)/.test(policy), `${path}: sockets only to this host and the voice provider (plus Cloudflare's analytics beacon post, vedu #5192)`);
     if (path.startsWith("/b/")) {
       pageNonce = policy.match(/'nonce-([a-f0-9]+)'/)?.[1] ?? "";
       await page.locator(".mmd[data-mmd='drawn'] svg").first().waitFor({ timeout: 20000 });
@@ -118,6 +118,8 @@ try {
     check(!!opsResp?.ok() && (await opsPage.locator("h1").first().innerText()) === "Ops", `/_ops opens for a localhost admin session (${opsResp?.status()})`);
     check(!!opsPolicy && !opsH[OTHER], `/_ops: ${ENFORCE ? "enforced" : "report-only"} CSP header, as CSP_ENFORCE says`);
     check(opsPolicy.includes("report-uri /api/csp-report"), "/_ops: reports go to /api/csp-report");
+    // The north-star tile leads the overview (vedu #5284): its 8 weekly bars draw under the policy.
+    check((await opsPage.locator("#north-star").isVisible()) && (await opsPage.locator("#north-star .ns-bar").count()) === 8 && ((await opsPage.locator("#north-star .ns-bar.now span").boundingBox())?.height ?? 0) > 0, "/_ops: the north-star tile shows 8 weeks");
     for (const [i, tab] of ["Overview", "Access", "Events"].entries()) {
       await opsPage.locator("#ops-tabs button").nth(i).click();
       await opsPage.waitForTimeout(400);

@@ -1,6 +1,7 @@
 import type { AgentCharter } from "./charter";
 import type { EntryData } from "./entryData";
 import type { Mention } from "./mentions";
+import type { Flag } from "./screen";
 
 export interface Media {
   mime: string;
@@ -46,6 +47,7 @@ export interface ApprovalRef {
   about: number | null; // the board message it's about (request_approval's seq), if any
   created_at: number;
   decided_at: number | null;
+  requested_by?: string | null; // whose agent asked, when it isn't the user's own (a machine run, #4930)
 }
 
 /** One immutable entry in a board's log. Entries change only by later entries that resolve or supersede them. */
@@ -72,6 +74,7 @@ export interface Entry {
   artifact_size: number | null; // bytes of artifact content (content itself is fetched with `get`)
   artifact_version?: number | null;
   attachments?: Attachment[]; // file entries only: every file of the message, in order (1 for a single file, ≤10)
+  rich_text?: { name: string; text: string; flag?: Flag }[]; // read/get/wait only: the words of its pasted RTF/RTFD files (vedu #5225, #5258), each screened like the text (#5275)
   media?: Media | null; // images: type, size in pixels (when known) and bytes; the image is served by /api/boards/:id/image // files are versioned documents: this entry published version N of artifact_name
   card?: import("./card").ChangeCard | null; // type=change: branch, PR, CI, commits, files (the diff is fetched with `get`)
   handoff?: import("./handoff").Handoff | null; // type=handoff: ready to gate (branch, sha, base, checks, state), or the lander's landed/failed reply
@@ -175,6 +178,8 @@ export interface Env {
   LIMITS_LOCAL?: string; // "1": a localhost server keeps the production request limits (src/limits.ts)
   BUGS_BOARD?: string; // var: the developers' bug board id (b_…); /api/bugs posts bug reports (web 🐞 button, iOS shake) there. Unset: the endpoint says it's not set up
   FEEDBACK_BOARD?: string; // var: where feedback about Atteo lands (POST /api/feedback, MCP feedback; vedu #4125). Unset: BUGS_BOARD
+  TEAM_USERS?: string; // var: the team's own accounts, comma-separated (default "vedu,jxn"); the north star counts everyone else (src/northStar.ts)
+  NORTH_STAR_BOARD?: string; // var: where the Monday north-star line is posted (b_…). Unset or empty: no post, the number is still on /_ops
   OPERATORS?: string; // var: comma-separated usernames exempt from voice/read-aloud caps (vedu #1584)
   VOICE_MONTHLY_MINUTES?: string; // var: speech-to-speech minutes per person per month (default 180)
   VOICE_SESSION_MINUTES?: string; // var: one voice session's cap, charged up front and settled at the end (default 10)

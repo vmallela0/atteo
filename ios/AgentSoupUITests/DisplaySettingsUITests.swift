@@ -56,7 +56,9 @@ final class DisplaySettingsUITests: XCTestCase {
         let done = expectation(description: "profile")
         URLSession.shared.dataTask(with: r) { data, _, _ in
             if let data, let j = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-               let p = j["profile"] as? [String: Any], let d = p["display"] as? [String: String] { out = d }
+               let p = j["profile"] as? [String: Any], let d = p["display"] as? [String: Any] {
+                out = d.compactMapValues { $0 as? String } // display also has true/false settings (voice_autosend, xai_ok)
+            }
             done.fulfill()
         }.resume()
         wait(for: [done], timeout: 10)

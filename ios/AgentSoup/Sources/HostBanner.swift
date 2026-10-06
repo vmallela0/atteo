@@ -11,9 +11,16 @@ struct HostInfo: Decodable, Identifiable, Equatable {
     let shares: [String]
     let online: Bool
     let stoppedAt: Double?
+    /// Its person started it with --allow-network: commands there can reach the internet (jxn #4945).
+    var network: Bool? = nil
 }
 
 struct HostsResponse: Decodable { let hosts: [HostInfo] }
+
+/// "vedu's laptop", and "(network on)" when its commands can reach the network.
+func hostLabel(_ h: HostInfo) -> String {
+    "\(h.owner)'s \(h.name)" + (h.network == true ? " (" + String(localized: "network on", bundle: .l10n) + ")" : "")
+}
 
 /// Which machines the banner names: online and not stopped.
 func onlineHosts(_ hosts: [HostInfo]) -> [HostInfo] { hosts.filter { $0.online && $0.stoppedAt == nil } }
@@ -36,7 +43,7 @@ struct HostBanner: View {
                         Text("Machine attached").font(Typo.meta.weight(.semibold))
                     }
                     Text(String(format: String(localized: "%@: agents here can ask to run commands on it. Its owner approves each one.", bundle: .l10n),
-                                on.map { "\($0.owner)'s \($0.name)" }.joined(separator: ", ")))
+                                on.map(hostLabel).joined(separator: ", ")))
                         .font(Typo.micro)
                         .fixedSize(horizontal: false, vertical: true)
                     ForEach(on.filter { canStopHost($0, me: state.me?.owner, boardOwner: board.createdBy) }) { h in

@@ -1,3 +1,4 @@
+import { PALETTE_JS, PALETTE_CSS } from "./palette";
 // Worker entry: MCP endpoint, sign-in, web pages, JSON API, and the operator console (/_ops).
 
 import { localize, pickLang } from "./i18n";
@@ -8,9 +9,11 @@ import * as usage from "./usage";
 import * as csp from "./csp";
 import * as limits from "./limits";
 import * as costGuard from "./costGuard";
+import * as northStar from "./northStar";
 import * as oauth from "./oauth";
 import { consentPage } from "./oauthPage";
 import * as approvals from "./approvals";
+import { boardStates } from "./boardStates";
 import { approvalsPage } from "./approvalsPage";
 import { askPage } from "./ask";
 import * as access from "./access";
@@ -104,6 +107,7 @@ import { agentCharter, applyCharter, charterAuditDetail, charterScanFields, char
 import { atteoHeader, BOARD_RE, connectCommand, esc, newBoardId, legacyHostRedirect, normalizeUser, parseBoardMeta, publicOrigin, requestNow } from "./util";
 import { deepChecks, handlePublicStatus } from "./uptime";
 import { isLocalHost } from "./util";
+import { richTextOf } from "./richtext";
 
 import * as Sentry from "@sentry/cloudflare";
 import { scrubForSentry } from "./sentry";
@@ -129,6 +133,18 @@ function cliHash(): Promise<string> {
 
 function boardStub(env: Env, id: string) {
   return env.BOARD.get(env.BOARD.idFromName(id));
+}
+
+/** Stops every machine on a board that's being archived or deleted, with the board's log saying so (#4951). */
+async function stopBoardHosts(env: Env, board: string, by: string): Promise<void> {
+  const got = await hosts.stop(env, board, "all", by, by);
+  const log = (user: string, text: string) => boardStub(env, board).notice(user, "Host", text, { via: "agent", client: "atteo host", session: null }).catch((e: unknown) => console.error("host audit failed", e));
+  for (const h of got.hosts) await log(h.owner, hosts.stopText(h, by));
+  for (const r of got.dropped) {
+    const h = got.hosts.find((x) => x.id === r.host_id);
+    if (h) await log(h.owner, hosts.auditText(h, r));
+  }
+  for (const a of got.closed) await boardStub(env, board).approvalDecided(approvals.refOf(a)).catch((e: unknown) => console.error("approval event failed", e));
 }
 
 function json(data: unknown, status = 200, headers?: HeadersInit): Response {
@@ -208,7 +224,7 @@ async function sideBoards(env: Env, user: string): Promise<SideBoard[]> {
   const [boards, live, pinned] = await Promise.all([registry.boardsForUser(env, user), sessions.liveByBoard(env).catch(() => new Map<string, number>()), pins.getPins(env, user)]);
   return pins.sortPinned(boards, pinned)
     .filter((b) => !b.archived_at)
-    .map((b) => ({ id: b.id, title: b.title, kind: (b as { kind?: string | null }).kind ?? null, live: live.get(b.id) ?? 0, picture: boardPictures.pictureUrl(b.id, b.picture_v), pinned: pinned.includes(b.id) }));
+    .map((b) => ({ id: b.id, title: b.title, kind: (b as { kind?: string | null }).kind ?? null, live: live.get(b.id) ?? 0, picture: boardPictures.pictureUrl(b.id, b.picture_v), pinned: pinned.includes(b.id), last: b.last_activity, opened: b.opened_at ?? null }));
 }
 
 /** The sidebar's boards, with each direct chat's other person by the name they chose (jxn #4369; cached, names.ts). */
@@ -552,6 +568,15 @@ async function opsData(env: Env): Promise<AdminData> {
   const tokenRows = await env.DB.prepare(
     `SELECT user, SUM(CASE WHEN revoked_at IS NULL THEN 1 ELSE 0 END) AS active, MAX(last_used) AS last FROM tokens GROUP BY user`,
   ).all<{ user: string; active: number; last: number | null }>();
+  const since14 = new Date(Date.now() - 13 * 86_400_000).toISOString().slice(0, 10);
+  const [oauthClients, oauthPruned] = await Promise.all([
+    env.DB.prepare(`SELECT COUNT(*) AS n FROM oauth_clients`).first<{ n: number }>().catch(() => ({ n: 0 })),
+    env.DB
+      .prepare(`SELECT COALESCE(SUM(count), 0) AS n FROM usage_daily WHERE metric = 'oauth_clients_pruned' AND day >= ?`)
+      .bind(since14)
+      .first<{ n: number }>()
+      .catch(() => ({ n: 0 })),
+  ]);
   const access = new Map<string, AdminData["access"][number]>();
   for (const u of users) access.set(u.name, { user: u.name, boards: [], active_tokens: 0, last_token_use: null });
   for (const r of memberRows.results) access.get(r.user)?.boards.push({ id: r.id, title: r.title });
@@ -564,6 +589,8 @@ async function opsData(env: Env): Promise<AdminData> {
   }
   return {
     boards, users, invites, recent, totalEntries: boards.reduce((n, b) => n + b.entry_count, 0), access: [...access.values()], metrics: await usage.metrics(env).catch(() => undefined),
+    oauth_clients: oauthClients?.n ?? 0,
+    oauth_clients_pruned: oauthPruned?.n ?? 0,
     cost: {
       capped: await costGuard.capped(env).catch(() => null),
       watching: !!(env.CF_ACCOUNT_ID && costGuard.analyticsToken(env)),
@@ -575,9 +602,9 @@ async function opsData(env: Env): Promise<AdminData> {
 
 // ---------- router ----------
 
-/** Every 5 minutes (the cron; tests call it through POST /api/ops/cron): retention, sweeps, expired memberships, and
- *  workflow triggers on a daily schedule (`now` lets a test pick the time those see). */
-async function runScheduled(env: Env, ctx: ExecutionContext, now = Date.now()): Promise<{ schedules: number; scheduled_tasks: number; housekeeping: boolean; shed: Awaited<ReturnType<typeof limits.updateShedLevel>>; backup?: backup.BackupTick }> {
+/** Every 5 minutes (the cron; tests call it through POST /api/ops/cron): retention, sweeps, unused OAuth clients,
+ *  expired memberships, and workflow triggers on a daily schedule (`now` lets a test pick the time those see). */
+async function runScheduled(env: Env, ctx: ExecutionContext, now = Date.now()): Promise<{ schedules: number; scheduled_tasks: number; housekeeping: boolean; oauth_clients_pruned: number; shed: Awaited<ReturnType<typeof limits.updateShedLevel>>; backup?: backup.BackupTick }> {
   // Load shedding (src/limits.ts): today's usage sets the level every request then sees (0 normal, 1 stretch waits and
   // pause background work, 2 also refuse non-essential agent writes).
   const shed = await limits.updateShedLevel(env).catch(() => ({ level: limits.shedLevelNow(), requests: 0, rows_read: null }));
@@ -599,6 +626,7 @@ async function runScheduled(env: Env, ctx: ExecutionContext, now = Date.now()): 
   for (const b of keep) ctx.waitUntil(boardStub(env, b.id).prune(now - b.retention_days * 86_400_000).catch(() => 0));
   // Housekeeping sweeps wait while shedding load (they catch up on a quieter run).
   const housekeeping = shed.level < 1;
+  let oauth_clients_pruned = 0;
   if (housekeeping) {
     ctx.waitUntil(env.DB.prepare(registry.TAPE_PRUNE_SQL).bind(Date.now() - 7 * 86_400_000).run().catch(() => {}));
     ctx.waitUntil(appSignin.sweep(env).catch(() => {}));
@@ -607,6 +635,9 @@ async function runScheduled(env: Env, ctx: ExecutionContext, now = Date.now()): 
     ctx.waitUntil(usage.pruneUsageDaily(env, now).catch(() => {}));
     ctx.waitUntil(backup.pruneBackupParts(env, now).catch(() => {}));
     ctx.waitUntil(accountlog.prune(env, now).catch(() => {}));
+    // Small table (DCR leftovers); await so POST /api/ops/cron can log the count. Fail-safe: an error leaves rows.
+    oauth_clients_pruned = await oauth.pruneUnusedClients(env, now).catch((e) => (console.error("oauth client prune failed", e), 0));
+    if (oauth_clients_pruned) console.log(`oauth clients pruned: ${oauth_clients_pruned}`);
   }
   for (const m of await registry.expiredMembers(env)) {
     ctx.waitUntil(
@@ -636,12 +667,23 @@ async function runScheduled(env: Env, ctx: ExecutionContext, now = Date.now()): 
       .catch(() => ({ results: [] as { board_id: string }[] }))
   ).results;
   const posted = await Promise.all(dueBoards.map((b) => boardStub(env, b.board_id).runBoardSchedules(now).catch((e) => (console.error("board schedules failed", b.board_id, e), 0))));
+  // The north star (src/northStar.ts): snapshot the running week; Monday from 16:00 UTC, last week's line to the team's
+  // board, posted by the bug bot (the same one-bot-member setup as the cost guard's alerts).
+  ctx.waitUntil(
+    northStar
+      .tick(env, now, async (board, text) => {
+        const stub = boardStub(env, board);
+        await ensureBugBoard(env, board, stub);
+        await stub.post(bugs.BUG_BOT, { type: "note", text, via: "person", client: "north-star" });
+      })
+      .catch((e) => console.error("north star failed", e)),
+  );
   // Tonight's backup outside Cloudflare (src/backup.ts): a batch of parts per run; it waits only at the worst shed level.
   const nightly =
     shed.level < 2
       ? await backup.backupTick(env, now, (id, day) => boardStub(env, id).backup(day)).catch((e) => (console.error("backup run failed", e), undefined))
       : undefined;
-  return { schedules: fired.reduce((a, b) => a + b, 0), scheduled_tasks: posted.reduce((a, b) => a + b, 0), housekeeping, shed, ...(nightly ? { backup: nightly } : {}) };
+  return { schedules: fired.reduce((a, b) => a + b, 0), scheduled_tasks: posted.reduce((a, b) => a + b, 0), housekeeping, oauth_clients_pruned, shed, ...(nightly ? { backup: nightly } : {}) };
 }
 
 /** 429 for the signed-out endpoints limits.publicAllowed caps (one minute windows). */
@@ -685,7 +727,7 @@ const handler = {
         if (!(await limits.publicAllowed(env, "status", request))) return tooManyPublic();
         return await handlePublicStatus(request, env, path);
       }
-      // Browsers post what the report-only CSP would have blocked (jxn's agent #2636): no sign-in, always 204.
+      // Browsers post what the CSP blocked (jxn's agent #2636; enforced since vedu #5192): no sign-in, always 204.
       if (path === "/api/csp-report" && method === "POST") return await csp.handleReport(request, env);
       if (path === "/health/deep") {
         if (!(await limits.publicAllowed(env, "health", request))) return tooManyPublic();
@@ -753,10 +795,12 @@ const handler = {
         }
       }
 
-      if (path === "/terms" || path === "/privacy") return legalPage(path.slice(1) as "terms" | "privacy");
+      // The public pages' top bar offers Open Atteo instead of Sign in to someone with a session cookie (no lookup needed).
+      const signedIn = !!auth.readCookie(request, auth.SESSION_COOKIE);
+      if (path === "/terms" || path === "/privacy") return legalPage(path.slice(1) as "terms" | "privacy", signedIn);
       if (path === "/openapi.json") return json(openapi(origin), 200, { "access-control-allow-origin": "*", "cache-control": "public, max-age=300" });
       if (path === "/skill.md") return new Response(SKILL_MD, { headers: { "content-type": "text/markdown; charset=utf-8", "cache-control": "public, max-age=300" } });
-      if (path === "/docs") return docsPage(origin, SKILL_MD);
+      if (path === "/docs") return docsPage(origin, SKILL_MD, signedIn);
       if (path === "/agents.md") return new Response(agentsMd(origin), { headers: { "content-type": "text/markdown; charset=utf-8", "cache-control": "public, max-age=300", "access-control-allow-origin": "*" } });
       if (path === "/apple-touch-icon.png" || path === "/apple-touch-icon-precomposed.png") {
         return new Response(Uint8Array.from(atob(APPLE_TOUCH_PNG_B64), (c) => c.charCodeAt(0)), { headers: { "content-type": "image/png", "cache-control": "public, max-age=86400" } });
@@ -1012,6 +1056,7 @@ const handler = {
         if (archive) {
           const old = BOARD_RE.test(archive) ? await registry.getBoard(env, archive) : null;
           if (!old || old.created_by !== viewer.name || old.archived_at || (old as { kind?: string | null }).kind) return messagePage("Board not archived", "That isn't one of your active boards.", { viewer, status: 400, action: { href: "/?new=1", label: "Try again" } });
+          await stopBoardHosts(env, old.id, `${viewer.name} (archived the board)`); // like any archive (#4951, #5008)
           await boardStub(env, old.id).setArchived(true);
           await registry.setBoardArchived(env, old.id, true);
           ctx.waitUntil(registry.audit(env, old.id, viewer.name, "archived", null, "to make room on the Free plan").catch(() => {}));
@@ -1066,6 +1111,10 @@ const handler = {
         // "Your agent": the composer's picker lists your agents (live or idle) by name.
         const mine = kind === "agent" ? (await sessions.list(env, viewer.name)).filter(sessions.listed).map((x) => ({ name: x.name, state: x.state, client: x.client })) : undefined;
         const agentNamed = agentNames(members);
+        // This board leads the tabs in "Last opened" order (vedu #5192). The page itself records the open when it shows
+        // (STRIP_JS): a hovered link fetches the page ahead (#3717), and that isn't opening it.
+        const here = side.find((b) => b.id === m![2]);
+        if (here) here.opened = Date.now();
         return boardPage(viewer, side, snap.info, withAgents, snap.entries.map((e) => withAgentNames(e, agentNamed)), shown, { connected: status.connected, onThisBoard: !!live[viewer.name] }, snap.summary, agentsHere, { picture: boardPictures.pictureUrl(m[2], row?.picture_v), kind, charter, sessions: mine, seen: snap.reads?.[viewer.name]?.person_seen ?? 0, last_seen: snap.reads?.[viewer.name]?.person_seen ?? 0, muted });
       }
 
@@ -1081,10 +1130,10 @@ const handler = {
         const people = await displayNames(env, [...items.filter((i) => i.actor_via !== "agent").map((i) => i.actor), ...dmPeers]).catch(() => ({}));
         return inbox.inboxPage(viewer, side, items, aps, people);
       }
-      // ---- The guide (vedu #2402): what people can do, by task. Public; signed in, it has the sidebar ----
+      // ---- The guide (vedu #2402): what people can do, by task. Public; signed in, its top bar goes back to the app ----
       if (path === "/guide" && method === "GET") {
         const lang = viewer?.lang ?? pickLang(null, url.searchParams.get("lang"), request.headers.get("accept-language"));
-        return guidePage(lang, viewer ?? null, viewer ? await sideBoardsNamed(env, viewer.name) : [], origin);
+        return guidePage(lang, !!viewer, origin);
       }
       // ---- For you (Everyday's home): what needs your OK, decisions and questions for you, what your assistant did today ----
       if (path === "/for-you" && method === "GET") {
@@ -1626,7 +1675,10 @@ const handler = {
         }
         let lines = await read(from);
         const until = Date.now() + waitSec * 1000;
-        const every = limits.shedLevelNow() >= 1 ? 5000 : 1500; // shedding load: check D1 less often
+        // How often a waiting call re-reads D1: 1.5s, or 5s while shedding load. ?every=<s> (up to 10) asks for slower
+        // checks, never faster: the web's board tabs wait with every=5 (jxn's agent #5248), a third of the reads per open tab.
+        const slower = Math.min(10, Math.max(0, parseInt(url.searchParams.get("every") ?? "", 10) || 0)) * 1000;
+        const every = Math.max(limits.shedLevelNow() >= 1 ? 5000 : 1500, slower);
         while (!lines.length && Date.now() < until) {
           await new Promise((r) => setTimeout(r, every));
           lines = await read(from);
@@ -1804,6 +1856,7 @@ const handler = {
       if (path === BOARD_PREFETCH_PATH && method === "GET") return new Response(BOARD_PREFETCH_RULES, { headers: { "content-type": "application/speculationrules+json", "cache-control": "public, max-age=3600", "x-content-type-options": "nosniff" } });
       if (path === "/shell.js" && method === "GET") return new Response(SHELL_PAGE_JS, { headers: { "content-type": "text/javascript; charset=utf-8", "cache-control": url.searchParams.get("v") ? "public, max-age=31536000, immutable" : "public, max-age=300", "x-content-type-options": "nosniff" } });
       if (path === "/bug.js" && method === "GET") return new Response(BUG_PAGE_JS, { headers: { "content-type": "text/javascript; charset=utf-8", "cache-control": url.searchParams.get("v") ? "public, max-age=31536000, immutable" : "public, max-age=300", "x-content-type-options": "nosniff" } });
+      if ((path === "/palette.js" || path === "/palette.css") && method === "GET") return new Response(path.endsWith(".js") ? PALETTE_JS : PALETTE_CSS, { headers: { "content-type": path.endsWith(".js") ? "text/javascript; charset=utf-8" : "text/css; charset=utf-8", "cache-control": url.searchParams.get("v") ? "public, max-age=31536000, immutable" : "public, max-age=300", "x-content-type-options": "nosniff" } });
       if (path === "/feedback.js" && method === "GET") return new Response(FEEDBACK_PAGE_JS, { headers: { "content-type": "text/javascript; charset=utf-8", "cache-control": url.searchParams.get("v") ? "public, max-age=31536000, immutable" : "public, max-age=300", "x-content-type-options": "nosniff" } });
       if (path === "/host.js" && method === "GET") return new Response(HOST_PAGE_JS, { headers: { "content-type": "text/javascript; charset=utf-8", "cache-control": url.searchParams.get("v") ? "public, max-age=31536000, immutable" : "public, max-age=300", "x-content-type-options": "nosniff" } });
       if (path === BOARD_TAIL_PATH && method === "GET") {
@@ -1910,6 +1963,9 @@ const handler = {
             return json({ ok: true, title: info.title, message: `Renamed to "${info.title}".` });
           }
           const on = m[2] === "archive" && (body.archived === true || body.archived === "true");
+          // Archiving stops every machine attached here (and drops their waiting runs, logged) before the board goes
+          // read-only, so nothing runs on a board no one can see act (#4951).
+          if (on) await stopBoardHosts(env, board.id, `${viewer?.name ?? "the board"} (archived the board)`);
           await boardStub(env, board.id).setArchived(on);
           await registry.setBoardArchived(env, board.id, on);
           return json({ ok: true, archived: on, message: on ? `Archived "${board.title}". It's read-only until restored.` : `Restored "${board.title}".` });
@@ -1951,9 +2007,21 @@ const handler = {
         if (!isOps(c) && board.created_by !== viewer?.name) return json({ error: "Only the board's creator can delete it." }, 403);
         const body = (await request.json().catch(() => ({}))) as { confirm?: string };
         if (String(body.confirm ?? "").trim() !== board.title) return json({ error: "Type the board's name exactly to confirm." }, 400);
+        await stopBoardHosts(env, board.id, `${viewer?.name ?? "ops"} (deleted the board)`).catch((e: unknown) => console.error("stopping hosts failed", e)); // #4951
         await registry.deleteBoard(env, board.id); // access ends here
         await boardStub(env, board.id).destroy(); // then the data
         return json({ ok: true, message: `Deleted "${board.title}".` });
+      }
+
+      // The app showed this board to its person: the tabs' "Last opened" order (vedu #5192). Personal; nothing is sent.
+      m = path.match(/^\/api\/boards\/([^/]+)\/opened$/);
+      if (m && method === "POST") {
+        if (!viewer) return needLogin();
+        if (viewer.via === "agent") return json({ error: "Only people open boards." }, 403);
+        if (!(await registry.isMember(env, m[1], viewer.name))) return json({ error: "board not found" }, 404);
+        const at = Date.now();
+        await registry.markOpened(env, viewer.name, m[1], at);
+        return json({ ok: true, opened_at: at });
       }
 
       // A personal bookmark: no post, mail, or push is sent to anyone.
@@ -1973,7 +2041,7 @@ const handler = {
 
       // ---- access: viewers can read but not change anything on a board ----
       m = path.match(/^\/api\/boards\/(b_[a-z0-9]+)\/(.+)$/);
-      if (m && method !== "GET" && viewer && !hasOpsKey(c) && !/^members\/[^/]+\/remove$/.test(m[2]) && m[2] !== "ws" && m[2] !== "seen" && m[2] !== "unread") { // read receipts aren't changes
+      if (m && method !== "GET" && viewer && !hasOpsKey(c) && !/^members\/[^/]+\/remove$/.test(m[2]) && m[2] !== "ws" && m[2] !== "seen" && m[2] !== "unread" && m[2] !== "opened") { // read receipts aren't changes
         if ((await registry.memberRole(env, m[1], viewer.name)) === "viewer") return json({ error: "You can view this board but not change it (your role is viewer). Ask an owner for contributor access." }, 403);
       }
 
@@ -2122,6 +2190,11 @@ const handler = {
         }
       }
 
+      if (path === "/api/me/board-states" && method === "GET") {
+        if (!viewer) return json({ error: "sign in required" }, 401);
+        return json({ boards: await boardStates(env, viewer.name) }, 200, { "cache-control": "private, no-store" });
+      }
+
       // ---- the signed-in person's boards (CLI uses its bearer token) ----
       if (path === "/api/me/boards" && method === "GET") {
         const tok = auth.bearer(request);
@@ -2138,6 +2211,7 @@ const handler = {
           kind: (b as { kind?: string | null }).kind || "board",
           entry_count: b.entry_count,
           last_activity: b.last_activity,
+          opened_at: b.opened_at ?? null, // when you last opened it (web or app): the tabs' "Last opened" order (vedu #5192)
           last: b.last_author ? { by: b.last_via === "agent" ? `${b.last_author}'s agent` : b.last_author, text: b.last_excerpt ?? "" } : null,
           encrypted: !!(b as { encrypted?: number }).encrypted,
           created_by: b.created_by, // the app shows its creator the rename / archive / remove-task actions
@@ -2487,6 +2561,15 @@ const handler = {
           const v = url.searchParams.get("version");
           const img = await stub.image(url.searchParams.get("name") ?? "", v ? parseInt(v, 10) : undefined);
           if (!img) return new Response("Not found", { status: 404 });
+          // ?format=text: a pasted rich-text file's words as JSON (vedu #5225), shown with textContent, never as HTML.
+          // 422 when the bytes hold no RTF (an encrypted board's ciphertext): the page keeps the file card.
+          if (url.searchParams.get("format") === "text") {
+            const text = richTextOf(new Uint8Array(img.bytes));
+            if (text === null) return json({ error: "not rich text" }, 422);
+            return new Response(JSON.stringify({ text }), {
+              headers: { "content-type": "application/json; charset=utf-8", "x-content-type-options": "nosniff", "cache-control": v ? "private, max-age=31536000, immutable" : "private, no-cache" },
+            });
+          }
           // Images are served inert (their own type, no sniffing, no script); everything else only as a download.
           const isImg = img.mime.startsWith("image/");
           const fname = (url.searchParams.get("name") ?? "file").replace(/[^\w.\- ]+/g, "_");
@@ -2600,7 +2683,9 @@ const handler = {
         if (!viewer) return needLogin();
         const bid = url.searchParams.get("board") ?? "", machine = url.searchParams.get("machine") ?? "";
         if (!/^b_[a-z0-9]+$/.test(bid) || !MACHINE_RE.test(machine) || !(await registry.isMember(env, bid, viewer.name))) return json({ error: "This link isn't for a board you're on, or it's incomplete. Copy it again from atteo host." }, 404);
-        return redirect(`/b/${bid}?host_consent=${encodeURIComponent(machine)}`);
+        // The folders and allowlist ride along so the dialog shows exactly what the code will allow (#4917).
+        const scope = (url.searchParams.get("scope") ?? "").replace(/[^A-Za-z0-9_-]/g, "").slice(0, 6000);
+        return redirect(`/b/${bid}?host_consent=${encodeURIComponent(machine)}${scope ? `&host_scope=${scope}` : ""}`);
       }
       // ---- atteo host (docs/HOST.md): a member's own machine on the board; every command needs its owner's OK ----
       m = path.match(/^\/api\/boards\/(b_[a-z0-9]+)\/hosts(?:\/(confirm|h_[A-Za-z0-9_-]+|all)(?:\/(stop|next|runs)(?:\/(hr_[A-Za-z0-9_-]+)(?:\/(result))?)?)?)?$/);
@@ -2617,39 +2702,49 @@ const handler = {
           if (target === "confirm" && !act && method === "POST") {
             // The consent is the person's alone, like approvals: an agent (or the CLI an agent could run) can't mint it.
             if (viewer.via === "agent") return json({ error: `Only you can allow a machine, signed in on the web or the app: open ${origin}/host/consent?board=${bid}&machine=… from atteo host's link.` }, 403);
-            const b = (await request.json().catch(() => ({}))) as { phrase?: unknown; machine?: unknown };
-            return json(await hosts.confirm(env, bid, viewer.name, b.phrase, b.machine));
+            const b = (await request.json().catch(() => ({}))) as { phrase?: unknown; machine?: unknown; shares?: unknown; allow?: unknown; network?: unknown };
+            return json(await hosts.confirm(env, bid, viewer.name, b.phrase, b.machine, { shares: b.shares, allow: b.allow, network: b.network }));
           }
           if (!target && method === "POST") {
             const b = (await request.json().catch(() => ({}))) as Record<string, unknown>;
-            const h = await hosts.register(env, bid, viewer.name, b);
+            const { host: h, secret } = await hosts.register(env, bid, viewer.name, b);
             await audit(viewer.name, hosts.attachText(h));
-            return json({ host: hosts.hostView(h) });
+            // The secret is shown once, to the daemon that registered: only it can poll for work and report results (#4939).
+            return json({ host: hosts.hostView(h), secret });
           }
           if (target && act === "stop" && method === "POST") {
             const board = await registry.getBoard(env, bid);
             const owner = (await registry.memberRole(env, bid, viewer.name)) === "owner" || board?.created_by === viewer.name ? viewer.name : null;
-            const stopped = await hosts.stop(env, bid, target, viewer.name, owner);
-            for (const h of stopped) await audit(viewer.name, hosts.stopText(h, viewer.name));
-            return json({ stopped: stopped.map((h) => hosts.hostView(h)) });
+            const got = await hosts.stop(env, bid, target, viewer.name, owner);
+            for (const h of got.hosts) await audit(viewer.name, hosts.stopText(h, viewer.name));
+            for (const r of got.dropped) {
+              const h = got.hosts.find((x) => x.id === r.host_id);
+              if (h) await audit(h.owner, hosts.auditText(h, r)); // one line per run the Stop dropped (#4942)
+            }
+            for (const a of got.closed) await boardStub(env, bid).approvalDecided(approvals.refOf(a)).catch((e: unknown) => console.error("approval event failed", e));
+            return json({ stopped: got.hosts.map((h) => hosts.hostView(h)) });
           }
           if (target && target !== "all" && target !== "confirm") {
             const host = await hosts.getHost(env, bid, target);
             if (!host) return json({ error: "No such host." }, 404);
-            const ownerOnly = () => {
+            // The host's own endpoints: its owner's login AND the daemon's secret, so no other token of the owner (an
+            // agent's) can take approved runs or report fake results (#4939).
+            const ownerOnly = async () => {
               if (host.owner !== viewer.name) throw new hosts.HostError("Only the machine's owner (its atteo host) can do that.", 403);
+              if (!(await hosts.secretOk(host, request.headers.get("x-atteo-host-secret")))) throw new hosts.HostError("Only this machine's own atteo host can do that.", 403);
             };
             if (act === "next" && method === "GET") {
-              ownerOnly();
+              await ownerOnly();
               const wait = Math.min(25, Math.max(0, parseInt(url.searchParams.get("wait") ?? "0", 10) || 0));
-              const got = await hosts.next(env, bid, host, wait * 1000);
+              const got = await hosts.next(env, bid, host, wait * 1000, requestNow(env, request));
               for (const r of got.settled) await audit(host.owner, hosts.auditText(host, r));
               if (got.stop) return json({ stop: got.stop }, 200, { "cache-control": "no-store" });
               return json({ run: got.run ? hosts.runView(got.run) : null }, 200, { "cache-control": "no-store" });
             }
             if (act === "runs" && !runId && method === "POST") {
+              if ((await registry.memberRole(env, bid, viewer.name)) === "viewer") return json({ error: "You can only view this board, so you can't ask its machines to run anything." }, 403);
               const b = (await request.json().catch(() => ({}))) as Record<string, unknown>;
-              const made = await hosts.request(env, bid, host.id, viewer.name, b);
+              const made = await hosts.request(env, bid, host.id, viewer.name, b, requestNow(env, request));
               if (made.approval) {
                 // The owner's card on the board: Approve or Deny, like any approval (only the person decides).
                 await boardStub(env, bid).approvalRequested(approvals.refOf(made.approval), { via: "agent", client: "atteo host" }).catch((e: unknown) => console.error("host approval entry failed", e));
@@ -2658,13 +2753,13 @@ const handler = {
             }
             if (act === "runs" && runId && !result && method === "GET") {
               const wait = Math.min(25, Math.max(0, parseInt(url.searchParams.get("wait") ?? "0", 10) || 0));
-              const got = await hosts.runNow(env, bid, host, runId, wait * 1000);
+              const got = await hosts.runNow(env, bid, host, runId, wait * 1000, requestNow(env, request));
               if (!got) return json({ error: "No such run." }, 404);
               if (got.closed) await audit(host.owner, hosts.auditText(host, got.closed));
               return json({ run: hosts.runView(got.run) }, 200, { "cache-control": "no-store" });
             }
             if (act === "runs" && runId && result && method === "POST") {
-              ownerOnly();
+              await ownerOnly();
               const b = (await request.json().catch(() => ({}))) as Record<string, unknown>;
               const r = await hosts.finish(env, bid, host, runId, b);
               await audit(host.owner, hosts.auditText(host, r));

@@ -13,7 +13,7 @@ fixed on this branch.
 
 | Item | Guideline | Status | Evidence / fix | Owner |
 |---|---|---|---|---|
-| Privacy manifest | Privacy manifest files; 5.1.2 | **Fixed** | `ios/AgentSoup/Resources/PrivacyInfo.xcprivacy` (new): no tracking, no tracking domains; UserDefaults CA92.1 (17 files use `UserDefaults`/`@AppStorage`); file timestamps C617.1 (`BoardPicture.swift:109–112`, own cache); collected data: name, email, user ID, other user content, photos, customer support (bug/feedback), all linked, not tracking, app functionality. No third-party SDKs in the app. | vedu's agent |
+| Privacy manifest | Privacy manifest files; 5.1.2 | **Fixed** | `ios/AgentSoup/Resources/PrivacyInfo.xcprivacy`: no tracking, no tracking domains; UserDefaults CA92.1; file timestamps C617.1 (`BoardPicture.swift`); collected data: name, email, user ID, other user content, photos, product interaction (PostHog, not linked), crash data (Sentry, not linked, App Functionality), customer support. Third-party SDKs: PostHog (analytics) and Sentry Cocoa (**does not start** without a DSN or when Share usage analytics is off; [SENTRY.md](SENTRY.md)). | vedu's agent |
 | Permission strings | 5.1.1(ii), 5.1.2(i) | **Fixed** | `Info.plist` + `InfoPlist.xcstrings` (8 languages): the mic string now also says that in a voice chat with Grok your voice is sent to xAI (`Talk.swift`, `src/voice.ts` → api.x.ai). Camera, photo-add and speech strings were already honest (speech is on-device: `Voice.swift:109 requiresOnDeviceRecognition`). | vedu's agent |
 | Export compliance | Export regulations | **Fixed (confirm)** | `ITSAppUsesNonExemptEncryption = NO`: the app only uses encryption built into iOS (HTTPS; CryptoKit in `BoardCrypto.swift` for end-to-end boards), which Apple calls "typically exempt from export documentation upload". Apple notes exempt apps "might alternatively be required to submit a year-end self-classification report" (BIS, mass-market 5D992); end-to-end messaging is the case where that applies. | vedu: confirm, and file the annual self-classification report |
 | Privacy policy in the app | 5.1.1(i) | **Fixed** | Settings → Privacy Policy / Terms of Service (`LegalRow.swift`, both Settings screens), linking atteo.dev/privacy and /terms (both 200). | vedu's agent |
@@ -31,20 +31,28 @@ fixed on this branch.
 
 ## What vedu does in App Store Connect
 
-1. **Privacy label** (App Privacy), from what the app actually collects, *not used for tracking*, all *linked to you* except usage data:
+1. **Privacy label** (App Privacy), from what the app actually collects, *not used for tracking*, all *linked to you* except usage and crash data:
    - Contact info: name, email address (app functionality).
    - Identifiers: user ID (app functionality).
    - Usage data: product interaction (analytics), *not linked to you*. PostHog records which features are used (sign
      in, board created, invite sent, first message, agent connected, voice used, screen names) under a random id made
      once per install, never the handle or any account id, and never message text or emails (Analytics.swift, vedu
-     #4416), matching the web and /privacy. Settings → Safety and privacy → Share usage analytics turns it off.
+     #4416), matching the web and /privacy. Settings → Safety and privacy → Share usage analytics turns off both
+     analytics and crash reporting, cancels queued uploads and discards cached crash reports.
    - User content: other user content (messages, files), photos or videos (pictures you send), customer support (bug
      reports and feedback).
    - Audio: answer *yes* only if you count Talk's realtime voice as collected. It's streamed to xAI for the
      conversation and not kept by Atteo. Apple counts data sent off the device to a third party, so declaring audio
      data (app functionality) is the safer answer.
-   - Not collected: location, contacts, health, browsing or search history, purchases, diagnostics, advertising data.
-     PostHog's crash and session-replay features are off.
+   - Diagnostics: **Crash Data**, *not linked to you*, not tracking, purpose App Functionality. Declared in
+     `ios/AgentSoup/Resources/PrivacyInfo.xcprivacy`. Collection requires both a configured `SENTRY_DSN` /
+     `AtteoSentryDSN` and Share usage analytics enabled; default configs contain no DSN, so Sentry stays off.
+     Reports contain only a fixed error kind or native stack addresses, a fixed screen name, app version and OS.
+     No message text, emails, handles, request bodies/headers/cookies, IPs, user/device identifiers, breadcrumbs,
+     screenshots, replay or performance data. See [SENTRY.md](SENTRY.md), including Sentry's IP-storage setting.
+     Match the App Store Connect label to the shipping build's configuration.
+   - Not collected: location, contacts, health, browsing or search history, purchases, advertising data.
+     PostHog's crash and session-replay features remain off.
 2. **Age rating**: user-generated content and unrestricted messaging between people (yes); no mature content
    produced by the app itself. Expect 16+ under the current questionnaire. Confirm when filling it in.
 3. **Export compliance**: answer "uses only exempt encryption" (matches the Info.plist key). File the annual

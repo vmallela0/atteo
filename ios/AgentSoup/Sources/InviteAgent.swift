@@ -1,10 +1,12 @@
 // "Invite an agent" (vedu #1812; the app's shape is board #1813; the web's inviteAgentDialog in src/html.ts), from a
-// board's Info and from its empty chat. Two ways in:
+// board's Info and from its empty chat, for everyday people and developers alike (vedu #5192;
+// docs/research/INVITE-FRIEND.md). Two ways in, a friend first:
+// - Invite a friend: by name or any email, one button, the same invite as Info's. Their agents join once they accept.
 // - Your own assistant: the board's join message to paste to it (copied, with its chat a tap away). The message
 //   carries only the board's id, never its title: the title is anyone's text, and this is pasted to your assistant as
 //   your own instruction, so a title could smuggle instructions in (board review #1920; the web, 292ea83). The
 //   assistant reads the title as board data once it has joined. The message is for an agent, so it stays in English.
-// - A friend's agent comes with the friend: invite them by name, and their agents join once they accept.
+//   For developers (folded) has the exact CLI command, MCP call, MCP URL and Claude Code line, each to copy.
 // Not in a DM, "Your agent", an archived board, or as a viewer (the web's canInviteAgent).
 
 import SwiftUI
@@ -21,9 +23,13 @@ extension Board {
 
 enum InviteAgentWords {
     static var title: String { Vocab.pick("Invite an agent", "Invite an assistant") }
+    static var friendLine: String {
+        Vocab.pick("By name or email. They and their agents join once they accept.",
+                   "By name or email. They and their assistants join once they accept.")
+    }
 }
 
-/// The two choices: your own assistant, or a friend's agent. Each opens its own page.
+/// The two choices: a friend (first: what most people want), or your own assistant. Each opens its own page.
 struct InviteAgentSheet: View {
     let board: Board
     @EnvironmentObject var state: AppState
@@ -38,17 +44,15 @@ struct InviteAgentSheet: View {
         NavigationStack(path: $path) {
             List {
                 Section {
+                    NavigationLink(value: Page.friend) {
+                        choice(String(localized: "Invite a friend", bundle: .l10n), InviteAgentWords.friendLine, icon: "person.2")
+                    }
+                    .accessibilityIdentifier("invite-agent-friend")
                     NavigationLink(value: Page.own) {
                         choice(String(localized: "Your own assistant", bundle: .l10n),
                                String(localized: "Grok, ChatGPT, Claude, Muse, or a coding agent", bundle: .l10n), icon: "sparkles")
                     }
                     .accessibilityIdentifier("invite-agent-own")
-                    NavigationLink(value: Page.friend) {
-                        choice(Vocab.pick("A friend's agent", "A friend's assistant"),
-                               Vocab.pick("Invite the friend to this board. Their agents join once they accept.",
-                                          "Invite the friend to this chat. Their assistants join once they accept."), icon: "person.2")
-                    }
-                    .accessibilityIdentifier("invite-agent-friend")
                 } header: {
                     Text(verbatim: state.displayName(for: board)).font(Typo.section).foregroundStyle(Theme.muted).textCase(nil).lineLimit(1)
                 }
@@ -89,13 +93,21 @@ struct InviteAgentSheet: View {
     }
 }
 
-/// Your own assistant: the join message, Copy, then open the assistant to paste it (or connect one first).
+/// Your own assistant: the join message, Copy, then open the assistant to paste it (or connect one first). For
+/// developers, folded under it: the exact lines, each to copy (the web's, word for word).
 struct OwnAssistantInvite: View {
     let board: Board
     @State private var copied = false
     @State private var connecting = false
+    @State private var devCopied: String?
 
     private var message: String { agentJoinMessage(board.id) }
+    private var devLines: [(id: String, label: String, text: String)] {
+        [("cli", "CLI", "atteo join \(board.id)"),
+         ("mcp-call", "join_board · MCP", "join_board(\"\(board.id)\")"),
+         ("mcp-url", "MCP URL", atteoMCP),
+         ("mcp-cc", "Claude Code", "claude mcp add --transport http --scope user atteo \(atteoMCP)")]
+    }
 
     var body: some View {
         ScrollView {
@@ -137,6 +149,19 @@ struct OwnAssistantInvite: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityIdentifier("invite-agent-connect")
+
+                DisclosureGroup {
+                    VStack(alignment: .leading, spacing: Space.s) {
+                        ForEach(devLines, id: \.id) { l in
+                            Text(verbatim: l.label).font(Typo.meta).foregroundStyle(Theme.muted).padding(.top, Space.xs)
+                            devField(l.id, l.text)
+                        }
+                    }
+                    .padding(.top, Space.s)
+                } label: {
+                    Text("For developers").font(Typo.secondary).foregroundStyle(Theme.muted)
+                }
+                .tint(Theme.muted) // no identifier on the group: it would replace its rows' own
             }
             .padding(.horizontal, Space.l).padding(.vertical, Space.m)
         }
@@ -180,9 +205,31 @@ struct OwnAssistantInvite: View {
         Haptics.play(.copied)
         withAnimation(.smooth) { copied = true }
     }
+
+    /// One developer line, selectable, with Copy (a check once copied).
+    private func devField(_ id: String, _ text: String) -> some View {
+        HStack(alignment: .top, spacing: Space.s) {
+            Text(verbatim: text).font(Typo.mono(.footnote)).foregroundStyle(Theme.text)
+                .textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
+                .accessibilityIdentifier("invite-agent-dev-\(id)")
+            Button {
+                UIPasteboard.general.string = text
+                Haptics.play(.copied)
+                withAnimation(.smooth) { devCopied = id }
+            } label: {
+                Image(systemName: devCopied == id ? "checkmark" : "doc.on.doc").font(.system(size: 14))
+                    .foregroundStyle(devCopied == id ? Theme.ok : Theme.muted).frame(width: 32, height: 32)
+            }
+            .accessibilityLabel(Text("Copy"))
+            .accessibilityIdentifier("invite-agent-dev-copy-\(id)")
+        }
+        .padding(Space.m)
+        .background(Theme.card, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+    }
 }
 
-/// A friend's agent: invite the friend by name (the same invite as Info's); their agents join once they accept.
+/// Invite a friend: by name or any email (the same invite as Info's; a friend's email stays private); their agents
+/// join once they accept.
 struct FriendAgentInvite: View {
     let board: Board
     @EnvironmentObject var state: AppState
@@ -202,7 +249,8 @@ struct FriendAgentInvite: View {
         List {
             Section {
                 HStack(spacing: Space.s) {
-                    TextField("A friend's name", text: $to)
+                    TextField("A friend's name or email", text: $to)
+                        .keyboardType(.emailAddress)
                         .textInputAutocapitalization(.never).autocorrectionDisabled()
                         .focused($typing).submitLabel(.send).onSubmit { send(to) }
                         .accessibilityIdentifier("invite-agent-name")
@@ -225,8 +273,7 @@ struct FriendAgentInvite: View {
                 }
                 if let sent { Text(sent).font(Typo.meta).foregroundStyle(Theme.ok).accessibilityIdentifier("invite-agent-sent") }
             } header: {
-                Text(verbatim: Vocab.pick("Invite the friend to this board. Their agents join once they accept.",
-                                          "Invite the friend to this chat. Their assistants join once they accept."))
+                Text(verbatim: InviteAgentWords.friendLine)
                     .font(Typo.secondary).foregroundStyle(Theme.muted).textCase(nil).padding(.bottom, Space.xs)
             }
             .listRowBackground(Theme.card)
@@ -234,7 +281,7 @@ struct FriendAgentInvite: View {
         .listSectionSpacing(.compact)
         .scrollContentBackground(.hidden)
         .background(Theme.bg)
-        .navigationTitle(Vocab.pick("A friend's agent", "A friend's assistant"))
+        .navigationTitle(Text("Invite a friend"))
         .navigationBarTitleDisplayMode(.inline)
         .task {
             async let f = state.friends()

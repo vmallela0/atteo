@@ -9,7 +9,7 @@ import { INSTRUCTIONS, TOOLS } from "../src/mcp";
 
 const people = GUIDE.flatMap((s) => s.items.filter((i) => i.title && i.how).map((i) => ({ ...i, section: s.title })));
 const peopleStrings = [...new Set([...GUIDE.filter((s) => s.items.some((i) => i.title && i.how)).map((s) => s.title), ...people.flatMap((i) => [i.title!, i.how!])])];
-const chrome = ["Everything you can do in Atteo, on the web and in the app, by task.", "Search the guide", "Sections", "Link to this", "Nothing in the guide matches that.", "Agents read the same list at"];
+const chrome = ["Everything you can do in Atteo, on the web and in the app, by task.", "Search the guide", "Sections", "Link to this", "Nothing in the guide matches that.", "Agents read the same list at", "Contents", "Previous", "Next", "Docs", "FAQ", "Support", "Open Atteo"];
 
 describe("the guide (vedu #2402)", () => {
   it("covers every MCP tool, and names no tool that's gone", () => {
@@ -47,14 +47,14 @@ describe("the guide (vedu #2402)", () => {
   });
 
   it("/guide in Arabic is right to left, its code and link stay left to right (#2335)", async () => {
-    const html = await guidePage("ar", null, [], "https://atteo.dev").text();
+    const html = await guidePage("ar", false, "https://atteo.dev").text();
     expect(html).toMatch(/<html lang="ar" dir="rtl">/);
     expect(html).toContain("<code>atteo guide</code>");
-    expect(await guidePage("fr", null, [], "https://atteo.dev").text()).not.toContain('dir="rtl"');
+    expect(await guidePage("fr", false, "https://atteo.dev").text()).not.toContain('dir="rtl"');
   });
 
   it("/guide: sections with anchors, a filter, the agents link; signed out it's public and in the reader's language", async () => {
-    const res = guidePage("ja", null, [], "https://atteo.dev");
+    const res = guidePage("ja", false, "https://atteo.dev");
     const html = await res.text();
     expect(res.headers.get("content-language")).toBe("ja");
     expect(html).toContain('<html lang="ja">');
@@ -65,12 +65,17 @@ describe("the guide (vedu #2402)", () => {
     expect(html).toContain("https://atteo.dev/agents.md");
     expect(html).not.toContain("batch runs several calls"); // agent-only entries stay off the people's page
     for (const s of [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map((m) => m[1])) expect(() => new Function(s)).not.toThrow();
-    // Signed in: the app's page, with the Guide link current in the sidebar.
-    const viewer = { name: "jxn", email: "jxn@example.com", display_name: null, admin: false, lang: "es" as const };
-    const signed = await guidePage("es", viewer, [], "https://atteo.dev").text();
-    expect(signed).toMatch(/href="\/guide" aria-current="page"/);
-    expect(signed).toContain("Guía");
-    expect(signed).toContain(gtr("es", "Approvals"));
+    expect(html).toContain('href="/auth/login"'); // signed out: Sign in in the top bar
+    // Signed in (board #5110): the same public page, Guide current in the top bar, and a way back into the app.
+    const signed = await guidePage("es", true, "https://atteo.dev").text();
+    expect(signed).toMatch(/href="\/guide" aria-current="page">Guía</);
+    expect(signed).toContain(`<a class="st-pill" href="/">${gtr("es", "Open Atteo")}</a>`);
+    expect(signed).not.toContain('href="/auth/login"');
+    // Every section has Previous / Next to its neighbours, and the side nav links every entry.
+    const ids = GUIDE.filter((x) => x.items.some((i) => i.how)).map((x) => x.id);
+    expect(signed).toContain(`<a class="next" href="#${ids[1]}">`);
+    expect(signed).toContain(`<a class="prev" href="#${ids[ids.length - 2]}">`);
+    for (const i of people) expect(signed).toContain(`<li><a href="#${i.id}">`);
   });
 
   it("/agents.md: every tool and rule, compact; the MCP instructions point to it in one line", () => {

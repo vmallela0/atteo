@@ -50,6 +50,11 @@
 	<array>
 		<string>fetch</string>
 	</array>
+	<!-- Crash reporting (CrashReporting.swift, docs/SENTRY.md): empty = off. Filled from the SENTRY_DSN
+	     build setting (project.yml, xcconfig, or xcodebuild). Not the SDK's SentryDSN key, so Sentry
+	     cannot auto-start from this plist. Never commit a real DSN. -->
+	<key>AtteoSentryDSN</key>
+	<string>$(SENTRY_DSN)</string>
 	<!-- Export compliance (docs/APP_STORE_READINESS.md): only encryption built into iOS (HTTPS, CryptoKit for end-to-end boards). -->
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
@@ -91,6 +96,7 @@
 		<string>Enriqueta-SemiBold.ttf</string>
 		<string>CourierPrime-Regular.ttf</string>
 		<string>Schoolbell-Regular.ttf</string>
+		<string>STIXTwoText-Variable.ttf</string>
 	</array>
 </dict>
 </plist>

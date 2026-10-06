@@ -3,13 +3,14 @@
 
 import { track } from "./usage";
 import { imageSize, sniffImage } from "./imageSize";
-import { fence, flagNote, flagOf, screenText } from "./screen";
+import { fence, flagged, flagNote, flagOf, screenText } from "./screen";
 import { FOR_LABEL, pingExcerpt, triagePreview, webhookForWhom } from "./ping";
 import { DurableObject } from "cloudflare:workers";
 import { computeSummary, formatSummary, summaryWithNames, summaryWithinBudget, tasksFor, withinReadBudget, withNames, DEFAULT_SUMMARY_CHARS, type Summary } from "./state";
 import { noteClaimReview, noteContextPack, noteContextPackMs, noteEgressBlock, noteFirstAgentPost, notePaste, noteStaleNotice } from "./observe";
 import { blockedMessage, scanFields, scanText, type SecretHit } from "./secrets";
 import { recordOutcome } from "./agents";
+import { workingAgents, type BoardAgentPresence } from "./boardStates";
 import { ALL_AGENTS, ALL_HUMANS, ALL_MEMBERS, forAgent, forPerson, hasGroupMention, keep, MAX_GROUP_MENTIONS, MAX_MENTIONS, mentionsOwnAgent, parseMentions, SESSION_NAME_RE, type Mention } from "./mentions";
 import { ENTRY_TYPES, type ApprovalRef, type Attachment, type BoardInfo, type Entry, type Env, type Media, type Member, type NewEntry, type Viewer } from "./types";
 import { cleanTitle, EMOJI_RE, ftsQuery, normalizeForScreen, USER_RE } from "./util";
@@ -21,6 +22,7 @@ import type { RecapCore, RecapOwner, RecapTask } from "./recap";
 import type { ForYouCore } from "./forYou";
 import { cleanMatch, cleanTrigger, eventLine, lastOccurrence, matches, MAX_FIRES_PER_HOUR, MAX_TRIGGERS, minuteOf, SCHEDULE_GRACE_MS, type Trigger, type TriggerEvent, type TriggerMatch } from "./triggers";
 import { offBoardSeq } from "./util";
+import { isRichTextAttachment, richTextOf } from "./richtext";
 import { CARD_LIMIT, CARD_MAX_LIMIT, cardsAnswer, cardsThatFit, entryCard, fileCard } from "./searchCards";
 import { compileGrep, grepFtsQuery, scanGrepText, newBudget, isBoardGrepCursor, compactHitLine, cursorKey, decodeCursor, encodeCursor, trimLine, GREP_CANDIDATES, GREP_DEFAULT_MAX, GREP_HARD_MAX, GREP_RECENT, type BoardGrepOpts, type BoardGrepResult } from "./grep";
 import { audienceOk, audienceWord, canSee, ownByDefault, OWN_DEFAULT_MS, OWN_MAIL_HINT, PEOPLE_ONLY_TYPES, type Audience } from "./audience";
@@ -1028,6 +1030,12 @@ export class Board extends DurableObject<Env> {
     this.broadcast({ type: "handling", seq, by: label, done: true }, seq);
   }
 
+  /** Board frame counts: read local handling only; presence and membership came from the caller's single D1 query. */
+  workingAgentCount(sessions: BoardAgentPresence[], now: number): number {
+    const handling = this.sql.exec("SELECT DISTINCT user, session FROM handling WHERE done = 0").toArray() as { user: string; session: string | null }[];
+    return workingAgents(sessions, handling, now);
+  }
+
   /** Who is on what, and who finished what (for pages, and to label entries agents read). */
   handlingMap(seqs?: number[]): Record<number, { by: string; user: string; done: boolean; since?: number }> {
     // Exactly these seqs: a page can skip (5 and 100), so the range alone would attach every marker in between. The
@@ -1040,6 +1048,30 @@ export class Board extends DurableObject<Env> {
       : this.sql.exec("SELECT seq, label, user, done, ts FROM handling ORDER BY seq DESC LIMIT 500").toArray();
     // since: when an open marker was taken, so a page can show how long the agent has been on it (vedu's agent #2498).
     return Object.fromEntries(rows.map((r) => [r.seq as number, { by: r.label as string, user: r.user as string, done: !!r.done, ...(r.done ? {} : { since: r.ts as number }) }]));
+  }
+
+  /**
+   * Pasted rich text for agents (#5258): an entry's RTF/RTFD files (isRichTextAttachment) carry their words as plain
+   * text, bounded like the web's (rtfToText's cap), so read/get/wait show what people see. Only those files are read.
+   */
+  private withRichText(entries: Entry[]): Entry[] {
+    return entries.map((e) => {
+      if (e.purged) return e;
+      const files = e.attachments?.length ? e.attachments : e.artifact_name ? [{ name: e.artifact_name, mime: e.media?.mime ?? "text/plain", version: e.artifact_version ?? null }] : [];
+      const rich: { name: string; text: string }[] = [];
+      for (const a of files) {
+        if (!isRichTextAttachment(a.name, a.mime) || a.version == null) continue;
+        const b = this.sql.exec("SELECT bytes FROM blobs WHERE name = ? AND version = ?", a.name, a.version).toArray()[0];
+        const t = b
+          ? richTextOf(new Uint8Array(b.bytes as ArrayBuffer))
+          : (() => {
+              const d = this.sql.exec("SELECT content FROM doc_versions WHERE name = ? AND version = ?", a.name, a.version).toArray()[0];
+              return d ? richTextOf(new TextEncoder().encode(d.content as string)) : null;
+            })();
+        if (t) rich.push(flagged({ name: a.name, text: t }, t)); // screened like a message (#5275)
+      }
+      return rich.length ? { ...e, rich_text: rich } : e;
+    });
   }
 
   private withHandling(entries: Entry[]): Entry[] {
@@ -1647,7 +1679,7 @@ export class Board extends DurableObject<Env> {
           })()
         : null,
       tasksForYou: tasksFor(c.summary, user, c.tags).length,
-      entries: withNames(this.decisions.attach(this.withHandling(fresh)), opts.names), // "Jarvis (vedu's agent)": names from the Worker
+      entries: withNames(this.decisions.attach(this.withRichText(this.withHandling(fresh))), opts.names), // "Jarvis (vedu's agent)": names from the Worker
       remaining,
       rules,
       memory, // the whole list on this reader's first read, then what changed (null: nothing to say)
@@ -2444,7 +2476,7 @@ export class Board extends DurableObject<Env> {
     if (last) this.markSeen(user, "agent", last);
     this.touch(user);
     await this.decisions.refresh();
-    return { info: this.info(), entries: this.decisions.attach(this.withHandling(fresh)), timedOut: fresh.length === 0, remaining, mine: fresh.filter((e) => mine.has(e.seq)).map((e) => e.seq), gone: false };
+    return { info: this.info(), entries: this.decisions.attach(this.withRichText(this.withHandling(fresh))), timedOut: fresh.length === 0, remaining, mine: fresh.filter((e) => mine.has(e.seq)).map((e) => e.seq), gone: false };
   }
 
   /**
@@ -2759,7 +2791,7 @@ export class Board extends DurableObject<Env> {
       .map(toEntry)
       .filter((e) => canSee(e, viewer) && (e.reply_to === seq || e.supersedes === seq || e.retracts === seq || e.resolves.includes(seq)));
     await this.decisions.refresh(this.decisions.isHuman(seq)); // one decision asked for: who's on the board now, not 30s ago
-    const [entry] = this.decisions.attach([toEntry(rows[0])]);
+    const [entry] = this.decisions.attach(this.withRichText([toEntry(rows[0])]));
     let content = (rows[0].artifact_content as string | null) ?? null;
     if (content == null && entry.artifact_name && entry.artifact_version != null) {
       const v = this.sql.exec("SELECT content FROM doc_versions WHERE name = ? AND version = ?", entry.artifact_name, entry.artifact_version).toArray()[0];

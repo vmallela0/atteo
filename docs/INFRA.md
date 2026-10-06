@@ -15,7 +15,7 @@ published list prices as of writing; check them before buying. Load and cost lim
 | atteo.dev | a proxy Worker **on jxn's account** that fetches the workers.dev host | outside this repo |
 | WorkOS | web sign-in, app magic codes, SSO | `WORKOS_*` |
 | Resend | email (invites, codes, notifications) | `RESEND_API_KEY` secret |
-| Sentry | Worker error reporting, scrubbed of cookies/IPs | `SENTRY_DSN` secret, `src/sentry.ts` |
+| Sentry | Worker error reporting, scrubbed of cookies/IPs. iOS SDK linked, **off until a DSN is set** (no DSN in repo configs) | Worker: `SENTRY_DSN` secret, `src/sentry.ts`. iOS: `CrashReporting.swift`, [SENTRY.md](SENTRY.md) |
 | xAI | read-aloud TTS and voice chat, capped per person and globally | `XAI_API_KEY`, `VOICE_*`/`TTS_*` vars |
 | Cloudflare TURN | voice call relay | `TURN_KEY_*` secrets |
 | Stripe | billing (checkout, portal, webhook) | `STRIPE_*` secrets |
@@ -33,7 +33,7 @@ published list prices as of writing; check them before buying. Load and cost lim
 | 2 | **One account and zone for atteo.dev** | Move atteo.dev's zone (or a `api.atteo.dev` subdomain) to vedu's account and attach the Worker as a Custom Domain; turn workers.dev off for pages | Today every web request runs two Workers (proxy + ours), and the WAF, rate rules, Bot Fight Mode and caching for our traffic can't be set from our account. The app and CLIs call workers.dev directly, which has no WAF at all | $0 (Free zone is enough to start; Pro $20–25/mo adds WAF managed rules) | jxn + vedu 30 min; app/CLI base URL change after |
 | 3 | **Uptime alerts** | Better Stack or UptimeRobot on `/health/deep` every 1 min, alert to phone + email | Nothing pages anyone when prod is down; we find out from the board | Free tier (UptimeRobot 50 monitors / 5 min; Better Stack free 10 monitors) | 10 min |
 | 4 | **Cost guard on** | Already done by this branch: `CF_ACCOUNT_ID` var + the `CF_ANALYTICS_TOKEN` secret (already set). Plus Cloudflare billing notifications (dashboard) | Cloudflare has no spending cap; the guard is our cap | $0 | landing + 5 min dashboard |
-| 5 | **Sentry alerts that reach someone** | Sentry is wired; add an alert rule (new issue / spike → email + Slack or the bugs board) and add the iOS SDK | Errors are recorded but only seen when someone opens Sentry | Free (5k errors/mo); Team $26/mo | 20 min web; ~1 h iOS |
+| 5 | **Sentry alerts that reach someone** | Sentry is wired on the Worker. The iOS SDK is in the app and stays **off** until a DSN is set ([SENTRY.md](SENTRY.md); do not commit one). Still needed: an alert rule (new issue / spike → email + Slack or the bugs board) | Worker errors are recorded but only seen when someone opens Sentry; iOS crashes are not sent until a DSN is configured | Free (5k errors/mo); Team $26/mo | 20 min alerts; iOS SDK is the first slice |
 | 6 | **Email capacity** | Check the Resend plan; verify the sending domain (SPF/DKIM/DMARC on atteo.dev) | Free Resend is ~100 emails/day. A launch with invites + codes blows through that, and sign-in codes then fail | Resend Pro $20/mo (50k/mo) | 15 min |
 | 7 | **Status page** | Better Stack / Instatus status page fed by the uptime monitors, at status.atteo.dev | Users and investors check it during an incident; it cuts support load | Free tier | 15 min |
 | 8 | **Product analytics** | PostHog (web landing now, iOS next) with the funnel events vedu named for the seed round: weekly active boards, boards with 2+ people, invites per user, retention | Can't measure growth without it | Free to 1M events/mo | in progress |

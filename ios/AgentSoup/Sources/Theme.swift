@@ -216,39 +216,86 @@ enum Typo {
     }
 }
 
-/// Atteo's mark (jxn #2944/#2980, vedu's yes #2968): hand-drawn tin-can phones, an oxblood cone (you) with one string
-/// branching to two ink cans (agents). It's art (the hand wobble is an SVG filter), so it ships as an image with a reversed dark
-/// variant (Assets: AtteoMark, rendered by ios/design/logo-cans/render.cjs). Never recoloured, rotated or stretched; at
-/// least 20pt.
+/// Atteo's mark (jxn's atteo_design.pdf; the web's src/mark.ts): three curves through three nodes, cut by a rounded square
+/// (radius 22.5% of its size). Vector, in the text's colour like the web's inline mark (currentColor): ink on paper, paper on
+/// ink. The tiled version is the app icon (ios/design/logo-graph). At least 20pt.
 struct AtteoMark: View {
     var size: CGFloat = 64
-    /// The wordmark's ink: ink on paper, paper on ink.
-    static let word = Theme.text
+    var color: Color = Theme.text
 
     var body: some View {
-        Image("AtteoMark").resizable().interpolation(.high).scaledToFit()
-            .frame(width: max(size, 20), height: max(size, 20))
-            .accessibilityHidden(true)
+        let s = max(size, 20), k = s / 100
+        ZStack {
+            AtteoGraph.Lines().stroke(color, style: StrokeStyle(lineWidth: 4.6 * k, lineCap: .round))
+            AtteoGraph.Nodes(radius: 4.8).fill(color)
+        }
+        .frame(width: s, height: s)
+        .clipShape(RoundedRectangle(cornerRadius: 22.5 * k, style: .circular))
+        .accessibilityHidden(true)
     }
 }
 
-/// The wordmark: lowercase "atteo" in Schoolbell with the marker filter, as art (Assets: AtteoWordmark, ink on paper,
-/// paper on ink). `height` is its x-height box; the name stays "Atteo" for VoiceOver.
+/// The graph mark's drawing in a 100×100 box: src/mark.ts MARK_PATH and its three nodes, verbatim.
+enum AtteoGraph {
+    /// Each curve: a start point, then cubic segments (control 1, control 2, end), as in the SVG path.
+    static let curves: [[CGFloat]] = [
+        [21, -8, 21.5, -2.2, 23.2, 12.8, 24, 27, 24.8, 41.2, 26.7, 63.5, 26, 77, 25.3, 90.5, 21, 102.8, 20, 108],
+        [-8, 24, -2.7, 24.5, 12.5, 24.5, 24, 27, 35.5, 29.5, 47, 32.2, 61, 39, 75, 45.8, 100.2, 63.2, 108, 68],
+        [86, -8, 81.8, -0.2, 71, 24.8, 61, 39, 51, 53.2, 35.8, 65.8, 26, 77, 16.2, 88.2, 6, 101.2, 2, 106],
+    ]
+    static let nodes: [CGPoint] = [CGPoint(x: 24, y: 27), CGPoint(x: 61, y: 39), CGPoint(x: 26, y: 77)]
+
+    static func scale(_ rect: CGRect) -> CGAffineTransform {
+        let k = min(rect.width, rect.height) / 100
+        return CGAffineTransform(scaleX: k, y: k).concatenating(CGAffineTransform(translationX: rect.minX, y: rect.minY))
+    }
+
+    struct Lines: Shape {
+        func path(in rect: CGRect) -> Path {
+            var p = Path()
+            for c in AtteoGraph.curves {
+                p.move(to: CGPoint(x: c[0], y: c[1]))
+                for i in stride(from: 2, to: c.count, by: 6) {
+                    p.addCurve(to: CGPoint(x: c[i + 4], y: c[i + 5]), control1: CGPoint(x: c[i], y: c[i + 1]),
+                               control2: CGPoint(x: c[i + 2], y: c[i + 3]))
+                }
+            }
+            return p.applying(AtteoGraph.scale(rect))
+        }
+    }
+
+    struct Nodes: Shape {
+        var radius: CGFloat
+        func path(in rect: CGRect) -> Path {
+            var p = Path()
+            for n in AtteoGraph.nodes { p.addEllipse(in: CGRect(x: n.x - radius, y: n.y - radius, width: radius * 2, height: radius * 2)) }
+            return p.applying(AtteoGraph.scale(rect))
+        }
+    }
+}
+
+/// The wordmark (atteo_design.pdf p.1, as on the web and the landing page): lowercase "atteo" in STIX Two Text Regular, in
+/// the text's colour, letter-spacing -0.01em. `height` is its font size; the name stays "Atteo" for VoiceOver.
 struct AtteoWordmark: View {
     var height: CGFloat = 32
+    var color: Color = Theme.text
     var body: some View {
-        Image("AtteoWordmark").resizable().interpolation(.high).scaledToFit().frame(height: height)
+        Text(verbatim: "atteo")
+            .font(.custom("STIXTwoText", fixedSize: height))
+            .tracking(-0.01 * height)
+            .foregroundStyle(color)
+            .lineLimit(1).fixedSize()
             .accessibilityLabel("Atteo")
     }
 }
 
-/// The mark and the wordmark side by side (the spec's lockup: the mark at about 1.25× the wordmark's cap height, a
-/// gap of about 0.2× its size).
+/// The mark beside the wordmark, as the web's lockup: the mark at about 0.9× the wordmark's font size (20px beside 22px),
+/// about 0.35em apart (8px). `height` is the wordmark's font size.
 struct AtteoLockup: View {
     var height: CGFloat = 36
     var body: some View {
-        HStack(spacing: height * 0.2) {
-            AtteoMark(size: height * 1.25)
+        HStack(spacing: height * 0.36) {
+            AtteoMark(size: height * 0.91)
             AtteoWordmark(height: height)
         }
         .accessibilityElement(children: .ignore).accessibilityLabel("Atteo").accessibilityAddTraits(.isHeader)
@@ -421,14 +468,20 @@ struct DisplayPrefs: Codable, Equatable {
     /// False when the server's copy had no `compact` (a server from before it): the phone's choice stands, and saves
     /// leave the key out.
     var compactKnown = true
+    /// The board tabs' order (vedu #5192): "recent" (the latest message first, the default) or "opened" (the board you
+    /// opened last first; members.opened_at, set by the web and the app).
+    var tabOrder: String = "recent"
+    /// False when the server's copy had no `tab_order` (a server from before it): the phone's choice stands, and saves
+    /// leave the key out.
+    var tabOrderKnown = true
 
     static let `default` = DisplayPrefs()
     /// xAI's voices, in the order the picker lists them (the server's tts.ts VOICES).
     static let voices = ["eve", "ara", "leo", "rex", "sal"]
 
-    private enum CodingKeys: String, CodingKey { case text, density, theme, lang, voice, replies, voiceTurns = "voice_turns", compact }
+    private enum CodingKeys: String, CodingKey { case text, density, theme, lang, voice, replies, voiceTurns = "voice_turns", compact, tabOrder = "tab_order" }
 
-    init(text: String = "m", density: String = "comfortable", theme: String = "system", lang: String = "auto", voice: String = "eve", replies: String = "chat", voiceTurns: String = "pause", compact: String = "off") {
+    init(text: String = "m", density: String = "comfortable", theme: String = "system", lang: String = "auto", voice: String = "eve", replies: String = "chat", voiceTurns: String = "pause", compact: String = "off", tabOrder: String = "recent") {
         self.text = ["s", "m", "l"].contains(text) ? text : "m"
         self.density = ["comfortable", "compact"].contains(density) ? density : "comfortable"
         self.theme = ["system", "light", "dark"].contains(theme) ? theme : "system"
@@ -437,12 +490,14 @@ struct DisplayPrefs: Codable, Equatable {
         self.replies = ["chat", "thread"].contains(replies) ? replies : "chat"
         self.voiceTurns = VoiceTurns(rawValue: voiceTurns) != nil ? voiceTurns : "pause"
         self.compact = ["off", "others"].contains(compact) ? compact : "off"
+        self.tabOrder = ["recent", "opened"].contains(tabOrder) ? tabOrder : "recent"
     }
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         let replies = try? c.decode(String.self, forKey: .replies)
         let turns = try? c.decode(String.self, forKey: .voiceTurns)
         let compact = try? c.decode(String.self, forKey: .compact)
+        let tabOrder = try? c.decode(String.self, forKey: .tabOrder)
         self.init(text: (try? c.decode(String.self, forKey: .text)) ?? "m",
                   density: (try? c.decode(String.self, forKey: .density)) ?? "comfortable",
                   theme: (try? c.decode(String.self, forKey: .theme)) ?? "system",
@@ -450,13 +505,15 @@ struct DisplayPrefs: Codable, Equatable {
                   voice: (try? c.decode(String.self, forKey: .voice)) ?? "eve",
                   replies: replies ?? "chat",
                   voiceTurns: turns ?? "pause",
-                  compact: compact ?? "off")
+                  compact: compact ?? "off",
+                  tabOrder: tabOrder ?? "recent")
         repliesKnown = replies != nil
         voiceTurnsKnown = turns != nil
         compactKnown = compact != nil
+        tabOrderKnown = tabOrder != nil
     }
     static func == (a: DisplayPrefs, b: DisplayPrefs) -> Bool {
-        a.text == b.text && a.density == b.density && a.theme == b.theme && a.lang == b.lang && a.voice == b.voice && a.replies == b.replies && a.voiceTurns == b.voiceTurns && a.compact == b.compact
+        a.text == b.text && a.density == b.density && a.theme == b.theme && a.lang == b.lang && a.voice == b.voice && a.replies == b.replies && a.voiceTurns == b.voiceTurns && a.compact == b.compact && a.tabOrder == b.tabOrder
     }
     /// "l,compact,dark", "l,compact,dark,zh-Hans", "l,compact,dark,zh-Hans,leo", "l,compact,dark,zh-Hans,leo,thread" or
     /// "…,thread,others" (messages that aren't for you fold to one line)
@@ -476,12 +533,15 @@ struct DisplayPrefs: Codable, Equatable {
     var repliesInThread: Bool { replies == "thread" }
     /// Messages that aren't for you fold to one line (OneLine.swift).
     var foldOthers: Bool { compact == "others" }
+    /// The board tabs put the board you opened last first, not the one with the latest message.
+    var tabsByOpened: Bool { tabOrder == "opened" }
     /// What's saved: everything, or without `replies` / `voice_turns` for a server that doesn't take them yet.
-    func body(replies withReplies: Bool = true, turns withTurns: Bool = true, compact withCompact: Bool = true) -> [String: String] {
+    func body(replies withReplies: Bool = true, turns withTurns: Bool = true, compact withCompact: Bool = true, tabs withTabs: Bool = true) -> [String: String] {
         var b = ["text": text, "density": density, "theme": theme, "lang": lang, "voice": voice]
         if withReplies { b["replies"] = replies }
         if withTurns { b["voice_turns"] = voiceTurns }
         if withCompact { b["compact"] = compact }
+        if withTabs { b["tab_order"] = tabOrder }
         return b
     }
 }

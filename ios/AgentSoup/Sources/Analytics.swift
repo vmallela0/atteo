@@ -50,9 +50,10 @@ enum Analytics {
         sink = s
     }
 
-    /// The Settings toggle: saved here and applied to PostHog at once.
+    /// The Settings toggle: saved here and applied to both analytics and crash reporting at once.
     static func setEnabled(_ on: Bool) {
         enabled = on
+        CrashReporting.consentChanged()
         if on { sink?.optIn() } else { sink?.optOut() }
     }
 
@@ -65,6 +66,7 @@ enum Analytics {
 
     /// A screen by a short fixed name ("chats", "board", "settings"), never a board title or a person.
     static func screen(_ name: String) {
+        CrashReporting.screen(name)
         guard enabled, let sink else { return }
         sink.screen(name)
     }

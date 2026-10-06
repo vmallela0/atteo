@@ -42,4 +42,19 @@ final class DisplayPrefsTests: XCTestCase {
         XCTAssertEqual(DisplayPrefs(spec: "m,compact,dark,auto,eve,thread")?.replies, "thread")
         XCTAssertEqual(DisplayPrefs(spec: "m,compact,dark")?.replies, "chat")
     }
+
+    /// Tab order (vedu #5192): decodes, saves, round-trips through the cache, and an older server leaves it unknown.
+    func testTabOrder() throws {
+        let d = try decode(#"{"tab_order":"opened"}"#)
+        XCTAssertTrue(d.tabsByOpened)
+        XCTAssertTrue(d.tabOrderKnown)
+        XCTAssertEqual(d.body()["tab_order"], "opened")
+        XCTAssertNil(d.body(tabs: false)["tab_order"], "left out for a server that refuses it")
+        XCTAssertEqual(try JSONDecoder().decode(DisplayPrefs.self, from: JSONEncoder().encode(d)).tabOrder, "opened")
+        let old = try decode(#"{"text":"m"}"#)
+        XCTAssertEqual(old.tabOrder, "recent", "the default: the latest message first")
+        XCTAssertFalse(old.tabOrderKnown)
+        XCTAssertEqual(try decode(#"{"tab_order":"alphabetical"}"#).tabOrder, "recent")
+        XCTAssertNotEqual(d, old, "a different order is a different setting")
+    }
 }
