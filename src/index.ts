@@ -631,6 +631,11 @@ async function runScheduled(env: Env, ctx: ExecutionContext, now = Date.now()): 
   return { schedules: fired.reduce((a, b) => a + b, 0), scheduled_tasks: posted.reduce((a, b) => a + b, 0), housekeeping, shed, ...(nightly ? { backup: nightly } : {}) };
 }
 
+/** 429 for the signed-out endpoints limits.publicAllowed caps (one minute windows). */
+function tooManyPublic(headers: Record<string, string> = {}): Response {
+  return json({ error: "Too many requests from this address. Try again in a minute." }, 429, { ...headers, "retry-after": "60" });
+}
+
 const handler = {
   /** Every 5 minutes (wrangler.jsonc triggers.crons). */
   async scheduled(_event: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
@@ -658,6 +663,7 @@ const handler = {
       // Browsers post what the report-only CSP would have blocked (jxn's agent #2636): no sign-in, always 204.
       if (path === "/api/csp-report" && method === "POST") return await csp.handleReport(request, env);
       if (path === "/health/deep") {
+        if (!(await limits.publicAllowed(env, "health", request))) return tooManyPublic();
         // Touches storage the way real requests do: a board (Durable Object) and the database.
         const checks: Record<string, string> = {};
         try {
@@ -830,6 +836,7 @@ const handler = {
       if (path === "/.well-known/oauth-protected-resource" || path === "/.well-known/oauth-protected-resource/mcp") return json(oauth.protectedResource(origin), 200, cors);
       if (path === "/.well-known/oauth-authorization-server" || path === "/.well-known/openid-configuration") return json(oauth.authorizationServer(origin), 200, cors);
       if (path === "/oauth/register" && method === "POST") {
+        if (!(await limits.publicAllowed(env, "oauth-register", request))) return tooManyPublic(cors);
         try {
           return json(await oauth.register(env, (await request.json().catch(() => ({}))) as Record<string, unknown>), 201, cors);
         } catch (e) {
@@ -935,6 +942,7 @@ const handler = {
 
       // ---- CLI login (device flow) ----
       if (path === "/api/device/start" && method === "POST") {
+        if (!(await limits.publicAllowed(env, "device-start", request))) return tooManyPublic();
         const body = (await request.json().catch(() => ({}))) as { client?: string };
         return json(await device.startDeviceLogin(env, origin, String(body.client ?? "Atteo CLI")));
       }

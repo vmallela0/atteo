@@ -147,6 +147,7 @@ export interface Env {
   BOARD: DurableObjectNamespace<import("./board").Board>;
   DB: D1Database;
   ASSETS?: Fetcher; // wrangler.jsonc assets: mermaid.min.js (src/mermaid.ts mermaidResponse)
+  PUBLIC_WRITES?: RateLimit; // wrangler.jsonc ratelimits: per-IP cap on signed-out endpoints that write or fan out (limits.ts publicAllowed)
   WORKOS_API_KEY?: string; // secret
   WORKOS_CLIENT_ID?: string; // var
   ADMIN_EMAIL?: string; // var: comma-separated admin emails

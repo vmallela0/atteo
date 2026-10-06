@@ -10,7 +10,7 @@
 // Every number is an env var (vedu decides them); see Limits for the names and defaults.
 
 import { planOf } from "./billing";
-import { capped, cappedResponse } from "./costGuard";
+import { analyticsToken, capped, cappedResponse } from "./costGuard";
 import type { Env } from "./types";
 
 export interface Limits {
@@ -66,6 +66,26 @@ export function limits(env: Env): Limits {
 const LIMIT_KEYS: (keyof Limits)[] = ["agentPerMin", "appPerMin", "dailyFree", "dailyPro", "liveSessions", "shedL1Requests", "shedL2Requests", "shedL1RowsRead", "shedL2RowsRead"];
 
 /** True when DEV_FAKE_NEAR_QUOTA=1 on a localhost server (tests fake load-shedding level 1). */
+/**
+ * Signed-out endpoints that write a row or wake a board on every call (POST /oauth/register, POST /api/device/start,
+ * /health/deep; vedu #4598) get a per-IP cap from the Workers Rate Limiting binding: no D1 read or write per request,
+ * counted per Cloudflare location. Off on a local dev/test server and when the binding is missing; a limiter error
+ * lets the request through (availability over a counter).
+ */
+export async function publicAllowed(env: Env, what: string, request: Request): Promise<boolean> {
+  if (!env.PUBLIC_WRITES || isLocalServer(env)) return true;
+  // Through the atteo.dev proxy (another account's Worker, stamped CF-Worker) every visitor arrives from the proxy's
+  // address, so a per-IP count would make them all share one budget. Those go uncounted until the Worker has its own
+  // custom domain (docs/CLOUDFLARE_HARDENING.md); direct workers.dev callers (the app, CLIs, scripts) are counted.
+  if (request.headers.has("cf-worker")) return true;
+  const ip = request.headers.get("cf-connecting-ip") ?? "unknown";
+  try {
+    return (await env.PUBLIC_WRITES.limit({ key: `${what}:${ip}` })).success;
+  } catch {
+    return true;
+  }
+}
+
 export function nearQuotaAllowed(env: Env): boolean {
   return env.DEV_FAKE_NEAR_QUOTA === "1" && isLocalServer(env);
 }
@@ -256,14 +276,15 @@ export function shedLevelFor(t: { requests: number; rowsRead?: number | null }, 
   return Math.max(at(t.requests, lim.shedL1Requests, lim.shedL2Requests), at(t.rowsRead, lim.shedL1RowsRead, lim.shedL2RowsRead));
 }
 
-/** D1 rows read today across the account, from Cloudflare's GraphQL analytics (needs CF_ACCOUNT_ID + CF_API_TOKEN). */
+/** D1 rows read today across the account, from Cloudflare's GraphQL analytics (needs CF_ACCOUNT_ID + an analytics token). */
 async function d1RowsReadToday(env: Env, now: number): Promise<number | null> {
-  if (!env.CF_ACCOUNT_ID || !env.CF_API_TOKEN) return null;
+  const token = analyticsToken(env); // the cost guard's CF_ANALYTICS_TOKEN, or CF_API_TOKEN
+  if (!env.CF_ACCOUNT_ID || !token) return null;
   try {
     const d = day(now);
     const r = await fetch("https://api.cloudflare.com/client/v4/graphql", {
       method: "POST",
-      headers: { authorization: `Bearer ${env.CF_API_TOKEN}`, "content-type": "application/json" },
+      headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
       body: JSON.stringify({
         query: `query($a: String!, $d: Date!) { viewer { accounts(filter: {accountTag: $a}) { d1AnalyticsAdaptiveGroups(limit: 100, filter: {date_geq: $d, date_leq: $d}) { sum { rowsRead } } } } }`,
         variables: { a: env.CF_ACCOUNT_ID, d },
