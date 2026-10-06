@@ -29,7 +29,7 @@ describe("landing Worker CSP (docs/security/csp.md #8)", () => {
   });
 
   it("sends an enforced hash policy on /, /guide, /faq and /support, and allows the JSON-LD by hash", async () => {
-    for (const path of ["/", "/guide", "/faq", "/support", "/?theme=dark"]) {
+    for (const path of ["/", "/guide", "/faq", "/support", "/?theme=dark", "/landing"]) {
       const res = await page(path);
       expect(res.status).toBe(200);
       expect(res.headers.get("content-type")).toMatch(/text\/html/);
@@ -58,6 +58,18 @@ describe("landing Worker CSP (docs/security/csp.md #8)", () => {
         expect(JSON.parse(scripts[0]!)).toHaveProperty("@graph");
       }
     }
+  });
+
+  it("serves the home page at /landing too, signed in or not, with the home's canonical (jxn #4772, #4773)", async () => {
+    const home = await (await page("/")).text();
+    for (const cookie of ["", "ab_session=abc"]) {
+      const res = await page("/landing", cookie ? { cookie } : {});
+      expect(res.status).toBe(200);
+      const html = await res.text();
+      expect(html).toBe(home);
+      expect(html).toContain('<link rel="canonical" href="https://atteo.dev/">');
+    }
+    expect(await (await page("/sitemap.xml")).text()).not.toContain("/landing");
   });
 
   it("loads Cloudflare Web Analytics on the home page only when a token is set", async () => {

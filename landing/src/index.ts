@@ -510,6 +510,12 @@ export default {
       const t = theme === "dark" || theme === "light" ? theme : null; // ?theme= forces one (screenshots, previews)
       return html(home(t, beaconSnippet(env.CF_WEB_ANALYTICS_TOKEN)), { vary: "Cookie" });
     }
+    // The same page at /landing, signed in or not (jxn #4772, #4773): to look at it without signing out. Its canonical
+    // stays "/" and it isn't in the sitemap, so search sees one home page.
+    if (read && path === "/landing") {
+      const theme = url.searchParams.get("theme");
+      return html(home(theme === "dark" || theme === "light" ? theme : null, beaconSnippet(env.CF_WEB_ANALYTICS_TOKEN)));
+    }
     // The app's /guide is an app page with the sidebar for signed-in people (src/guide.ts); the landing's marketing
     // guide is the signed-out version, like "/" — anyone signed in is forwarded to the app untouched.
     if (read && path === "/guide" && !hasSession(request)) {
