@@ -75,6 +75,7 @@ struct SignInView: View {
         .animation(.easeOut(duration: 0.2), value: error)
         .onReceive(tick) { now = $0 }
         .onAppear { withAnimation(.spring(duration: 0.7, bounce: 0.3).delay(0.1)) { shown = true } }
+        .analyticsScreen("sign_in")
     }
 
     // MARK: - Hero
@@ -311,6 +312,7 @@ struct SignInView: View {
             do {
                 switch try await EmailSignIn.verify(email: email, code: code) {
                 case .signedIn:
+                    Analytics.track("sign_in")
                     finish()
                 case .needsName(let t, let suggestion):
                     ticket = t
@@ -332,6 +334,7 @@ struct SignInView: View {
             defer { busy = false }
             do {
                 try await EmailSignIn.pickName(ticket: ticket, name: name)
+                Analytics.track("sign_up")
                 finish()
             } catch { fail(error) }
         }

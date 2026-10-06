@@ -127,6 +127,7 @@ final class VoiceInput: ObservableObject {
             try engine.start()
             listening = true
             Haptics.play(.touch)
+            Analytics.track("voice_used", ["surface": "dictate"])
             task = recognizer.recognitionTask(with: req) { [weak self] result, error in
                 Task { @MainActor in
                     guard let self, self.session == mine else { return } // an earlier listen's late words

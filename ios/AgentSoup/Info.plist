@@ -50,6 +50,12 @@
 	<array>
 		<string>fetch</string>
 	</array>
+	<!-- Product analytics (docs/ANALYTICS.md). Empty or unset: the app sends nothing. A phc_ project key turns it on.
+	     Override at build time: xcodebuild … POSTHOG_KEY=phc_… POSTHOG_HOST=eu -->
+	<key>POSTHOG_KEY</key>
+	<string>$(POSTHOG_KEY)</string>
+	<key>POSTHOG_HOST</key>
+	<string>$(POSTHOG_HOST)</string>
 	<!-- Export compliance (docs/APP_STORE_READINESS.md): only encryption built into iOS (HTTPS, CryptoKit for end-to-end boards). -->
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>

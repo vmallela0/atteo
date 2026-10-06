@@ -59,6 +59,7 @@ struct EverydaySettings: View {
             FeedbackRow() // Send feedback to the Atteo team (Feedback.swift, vedu #4125)
             LegalRow() // Privacy Policy + Terms (LegalRow.swift, App Review 5.1.1(i))
             SafetySection() // hide offensive words, the xAI voice consent (Moderation.swift, App Review 1.2 / 5.1.2(i))
+            AnalyticsOptOut() // product analytics opt-out (Analytics.swift)
             DeleteAccountRow() // Delete account (DeleteAccount.swift, App Review 5.1.1(v))
 
             NotificationsSection()

@@ -54,6 +54,8 @@ final class AppState: ObservableObject {
     @Published var handling: [String: [Int: Handling]] = [:] // per board, per message: who's on it ("On it")
     @Published var loadingEarlier: Set<String> = [] // boards loading older messages right now
     private var seenSent: [String: Int] = [:] // per board: the last "seen up to" this phone reported
+    /// Agent ids already listed on an open board. The first list doesn't count; a later new id is agent_connected.
+    private var agentsSeen: [String: Set<String>] = [:]
     // Who's typing (Typing.swift).
     @Published var typing: [String: [String: Double]] = [:] // per board, per person: typing until (ms epoch)
     var typingSent: [String: Date] = [:] // per board: when this phone last said you're typing
@@ -304,6 +306,12 @@ final class AppState: ObservableObject {
             adoptQuick(b.id, r.quick)
             let mine = (entries[b.id] ?? []).filter { $0.pending == true || $0.failed == true }
             let fresh = older + got + mine.filter { m in !r.entries.contains { $0.author == m.author && $0.text == m.text && $0.ts >= m.ts - 60_000 } }
+            // A new agent message on a board that was already showing (not the first load of history).
+            let prior = entries[b.id] ?? []
+            if prior.contains(where: { $0.seq > 0 && $0.pending != true }) {
+                let had = Set(prior.map(\.seq))
+                for e in got where e.seq > 0 && e.byAgent && !had.contains(e.seq) { Analytics.track("agent_posted") }
+            }
             if fresh != entries[b.id] {
                 // A chat's first load (nothing on this phone yet) goes in at once: animating 80 messages sliding in is a
                 // lot of work at once and fights the chat's pin to its newest message. New messages after that
@@ -318,6 +326,11 @@ final class AppState: ObservableObject {
     func loadAgents(_ b: Board) async {
         do {
             let r = try await API.shared.get("/api/boards/\(b.id)/agents", as: BoardAgentsResponse.self)
+            let keys = Set(r.agents.map(\.id))
+            if let seen = agentsSeen[b.id] {
+                for id in keys where !seen.contains(id) { Analytics.track("agent_connected") }
+            }
+            agentsSeen[b.id] = keys
             if r.agents != boardAgents[b.id] { withAnimation(.smooth) { boardAgents[b.id] = r.agents } }
         } catch { report(error, quiet: true) }
     }
@@ -526,6 +539,7 @@ final class AppState: ObservableObject {
                 real = try JSONDecoder.soup.decode(PostResponse.self, from: data).entry
             }
             withAnimation(.smooth) { entries[b.id] = (entries[b.id] ?? []).map { $0.seq == temp.seq ? real : $0 } }
+            noteFirstPost(b.id, real: real.seq)
             Notifier.shared.askIfSensible() // your first message: you'll want to hear when it's answered
             save()
             Task { await refreshBoards() }
@@ -579,6 +593,12 @@ final class AppState: ObservableObject {
         for (e, d) in queue { await upload(e, data: d, to: b) }
     }
 
+    /// The board had no real message before this post: the first one from this phone's composer.
+    private func noteFirstPost(_ board: String, real: Int) {
+        let earlier = (entries[board] ?? []).contains { $0.seq > 0 && $0.seq != real }
+        if !earlier { Analytics.track("first_message") }
+    }
+
     /// The server's caption for files sent without words: "Shared 3 images" / "Shared 3 files".
     static func sharedLabel(_ mimes: [String]) -> String { "Shared \(mimes.count) \(mimes.allSatisfy { $0.hasPrefix("image/") } ? "images" : "files")" }
 
@@ -609,6 +629,7 @@ final class AppState: ObservableObject {
             }
             for f in files { if let path = f.local { try? FileManager.default.removeItem(at: URL(fileURLWithPath: path).deletingLastPathComponent()) } }
             withAnimation(.smooth) { entries[b.id] = (entries[b.id] ?? []).map { $0.seq == temp.seq ? real : $0 } }
+            noteFirstPost(b.id, real: real.seq)
             save()
             Task { await refreshBoards() }
         } catch APIError.offline {
@@ -662,6 +683,7 @@ final class AppState: ObservableObject {
             MediaStore.shared.adopt(data, board: b.id, name: real.artifactName ?? name, version: real.artifactVersion, image: real.isImage)
             if let path = temp.local { try? FileManager.default.removeItem(at: URL(fileURLWithPath: path).deletingLastPathComponent()) }
             withAnimation(.smooth) { entries[b.id] = (entries[b.id] ?? []).map { $0.seq == temp.seq ? real : $0 } }
+            noteFirstPost(b.id, real: real.seq)
             save()
             Task { await refreshBoards() }
         } catch APIError.offline {
@@ -845,7 +867,7 @@ final class AppState: ObservableObject {
         profile = nil
         withAnimation(.smooth) {
             signedIn = false; loaded = false
-            inbox = []; approvals = []; contacts = []; sessions = []; boards = []; entries = [:]; tasks = [:]; me = nil; displayNames = [:]; members = [:]; agentNames = [:]; membersRefreshed = [:]; feedCursor = nil
+            inbox = []; approvals = []; contacts = []; sessions = []; boards = []; entries = [:]; tasks = [:]; me = nil; displayNames = [:]; members = [:]; agentNames = [:]; membersRefreshed = [:]; agentsSeen = [:]; feedCursor = nil
         }
     }
 

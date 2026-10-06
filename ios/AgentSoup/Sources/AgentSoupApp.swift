@@ -30,8 +30,9 @@ struct AtteoApp: App {
             .environment(\.openURL, LinkGate.action) // any link that leaves Atteo asks first (jxn #4173, LinkGate.swift)
             .tint(Theme.accent)
             .task(id: state.signedIn) { if state.signedIn { await state.refreshAll() } }
-            .task { Notifier.shared.setUp() }
-            .onChange(of: phase) { _, p in
+            .task { Notifier.shared.setUp(); Analytics.track("app_open") }
+            .onChange(of: phase) { old, p in
+                if p == .active, old == .background { Analytics.track("app_open") }
                 guard state.signedIn else { return }
                 if p == .active { Task { await state.refreshAll() } } else if p == .background { state.stopFeed(); Notifier.shared.schedule() }
             }

@@ -74,6 +74,7 @@ struct ForYouView: View {
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("for-you-screen")
+        .analyticsScreen("for_you")
         // Pull from the left edge for Settings (vedu #2488), on this first screen only.
         .settingsDrawer(enabled: path.isEmpty && asking == nil && !showSettings)
     }

@@ -307,6 +307,7 @@ struct ChatsView: View {
         }
         // Pull from the left edge for Settings (vedu #2488), on this first screen only.
         .settingsDrawer(enabled: path.isEmpty && compose == nil && !showSettings)
+        .analyticsScreen("chats")
     }
 }
 

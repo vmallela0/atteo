@@ -66,6 +66,7 @@ struct AgentsView: View {
             .confirmationDialog("Disconnect all your agents?", isPresented: $confirmKill, titleVisibility: .visible) {
                 Button("Disconnect all", role: .destructive) { Haptics.play(.warning); Task { await state.disconnectAll() } }
             } message: { Text("Every agent stops right away. Reconnect them later with atteo login.") }
+            .analyticsScreen("agents")
         }
     }
 

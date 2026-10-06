@@ -410,6 +410,7 @@ final class TalkSession: ObservableObject {
         lastActive = Date()
         elapsed = 0
         phase = .ready
+        if !resuming { Analytics.track("voice_used", ["surface": "talk"]) }
         remote.nowPlaying(live: true, subtitle: subtitle)
         if handsFree { listen() }
         Haptics.play(.touch)

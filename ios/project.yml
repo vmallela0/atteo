@@ -20,6 +20,10 @@ settings:
     # would give the extension the app's own id) to build for another id, e.g. the phones' free-team build:
     #   xcodebuild … ATTEO_BUNDLE_ID=com.agentsoup.app DEVELOPMENT_TEAM=T3627N2VC4 -allowProvisioningUpdates
     ATTEO_BUNDLE_ID: com.atteo.app
+    # Product analytics (docs/ANALYTICS.md). Empty: the app sends nothing. A phc_ project key turns it on.
+    #   xcodebuild … POSTHOG_KEY=phc_… POSTHOG_HOST=eu
+    POSTHOG_KEY: ""
+    POSTHOG_HOST: ""
 targets:
   Atteo:
     type: application
