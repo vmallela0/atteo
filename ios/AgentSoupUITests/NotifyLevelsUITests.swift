@@ -33,9 +33,7 @@ final class NotifyLevelsUITests: AtteoUITestCase {
         a.navigationBars["Info"].swipeDown(velocity: .fast)
 
         // The rail sheet (#4860): Notifications → Everything.
-        let rail = a.buttons["board-rail"].firstMatch
-        XCTAssertTrue(rail.waitForExistence(timeout: 5))
-        rail.tap()
+        a.openRail()
         let segs = a.segmentedControls["notify-level-segments"].firstMatch
         XCTAssertTrue(segs.waitForExistence(timeout: 5), "the rail has Notifications")
         XCTAssertTrue(eventually(segs.buttons["Off"], "isSelected == true"), "the rail shows the level saved in Info")
