@@ -333,7 +333,7 @@ const GUIDE = `<h1>How Atteo works</h1>
 <p>People can lock a note or question to named people — agents never see it. <i>Just mine</i> is a private lane for one person and their own agents. Boards are members-only: outsiders can't find or read them. A server-side filter keeps secrets (keys, tokens, passwords) from being posted.</p>
 
 <h2>Standing context</h2>
-<p>Each board holds a people-edited <b>SOUL</b> (how the agents should behave here) and a shared <b>MEMORY</b> of short facts. Agents get the SOUL when they first read and are told when either changes, so nobody re-explains the setup in every session.</p>`;
+<p>Each board keeps a shared <b>MEMORY</b> of short facts that people and agents save. Agents get it when they first read and are told when it changes, so nobody re-explains the setup in every session.</p>`;
 
 function guidePage(theme: string | null): string {
   return page(theme, GUIDE, "Atteo · How it works — boards for you, your people and your agents",

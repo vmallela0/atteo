@@ -31222,52 +31222,6 @@
         }
       }
     },
-    "SOUL.md, MEMORY.md, PROTOCOL.md": {
-      "localizations": {
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "SOUL.md, MEMORY.md, PROTOCOL.md"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "SOUL.md, MEMORY.md, PROTOCOL.md"
-          }
-        },
-        "hi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "SOUL.md, MEMORY.md, PROTOCOL.md"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "SOUL.md、MEMORY.md、PROTOCOL.md"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "SOUL.md, MEMORY.md, PROTOCOL.md"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "SOUL.md、MEMORY.md、PROTOCOL.md"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "SOUL.md、MEMORY.md、PROTOCOL.md"
-          }
-        }
-      }
-    },
     "Save": {
       "localizations": {
         "es": {
@@ -33742,98 +33696,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "排序方式"
-          }
-        }
-      }
-    },
-    "Soul": {
-      "localizations": {
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Alma"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Âme"
-          }
-        },
-        "hi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "सोल"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ソウル"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "소울"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "灵魂"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "靈魂"
-          }
-        }
-      }
-    },
-    "Soul saved: agents get the new version": {
-      "localizations": {
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Alma guardada: los agentes reciben la nueva versión"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Âme enregistrée : les agents reçoivent la nouvelle version"
-          }
-        },
-        "hi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "सोल सहेजा गया: एजेंटों को नया संस्करण मिलेगा"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ソウルを保存しました：エージェントは新しいバージョンを受け取ります"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "소울 저장됨: 에이전트가 새 버전을 받습니다"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "灵魂已保存：智能体会获得新版本"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "靈魂已儲存：智能體會獲得新版本"
           }
         }
       }
@@ -39129,52 +38991,6 @@
         }
       }
     },
-    "Who this board is and how you work. Every agent reads it when it joins, and again when it changes. Only people can edit it.": {
-      "localizations": {
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Quién es este tablero y cómo trabajan. Cada agente lo lee al unirse y de nuevo cuando cambia. Solo las personas pueden editarlo."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Qui est ce tableau et comment vous travaillez. Chaque agent le lit en rejoignant, puis à chaque modification. Seules les personnes peuvent le modifier."
-          }
-        },
-        "hi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "यह बोर्ड क्या है और आप कैसे काम करते हैं। हर एजेंट जुड़ते समय और बदलने पर इसे पढ़ता है। सिर्फ़ लोग इसे संपादित कर सकते हैं।"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "このボードが何者で、どのように働くか。すべてのエージェントが参加時と変更時に読み込みます。編集できるのは人だけです。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "이 보드가 무엇이고 어떻게 일하는지. 모든 에이전트가 참여할 때와 바뀔 때 읽습니다. 사람만 편집할 수 있습니다."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "这个看板是做什么的、你们如何协作。每个智能体加入时都会读取，修改后也会再读一次。只有真人可以编辑。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "這個看板是做什麼的、你們如何協作。每個智能體加入時都會讀取，修改後也會再讀一次。只有真人可以編輯。"
-          }
-        }
-      }
-    },
     "Why? (optional)": {
       "localizations": {
         "es": {
@@ -39355,52 +39171,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "正在工作 · %lld"
-          }
-        }
-      }
-    },
-    "Write who this board is and how you work": {
-      "localizations": {
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Escribe quién es este tablero y cómo trabajan"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Écrivez qui est ce tableau et comment vous travaillez"
-          }
-        },
-        "hi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "लिखें कि यह बोर्ड क्या है और आप कैसे काम करते हैं"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "このボードが何者で、どのように働くかを書く"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "이 보드가 무엇이고 어떻게 일하는지 적기"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "写下这个看板是做什么的、你们如何协作"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "寫下這個看板是做什麼的、你們如何協作"
           }
         }
       }
@@ -41380,52 +41150,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "已完成"
-          }
-        }
-      }
-    },
-    "edited by %@": {
-      "localizations": {
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "editado por %@"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "modifié par %@"
-          }
-        },
-        "hi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ ने संपादित किया"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ が編集"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "편집: %@"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "由 %@ 编辑"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "由 %@ 編輯"
           }
         }
       }
@@ -51861,6 +51585,98 @@
           "stringUnit": {
             "state": "translated",
             "value": "診斷"
+          }
+        }
+      }
+    },
+    "MEMORY.md, PROTOCOL.md": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MEMORY.md, PROTOCOL.md"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MEMORY.md, PROTOCOL.md"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MEMORY.md, PROTOCOL.md"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MEMORY.md、PROTOCOL.md"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MEMORY.md, PROTOCOL.md"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MEMORY.md、PROTOCOL.md"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MEMORY.md、PROTOCOL.md"
+          }
+        }
+      }
+    },
+    "Facts every agent here knows": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Datos que conoce cada agente de aquí"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce que sait chaque agent ici"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "यहाँ हर एजेंट को पता बातें"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ここのエージェント全員が知っていること"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이곳의 모든 에이전트가 아는 사실"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这里每个智能体都知道的事"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這裡每個智能體都知道的事"
           }
         }
       }

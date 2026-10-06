@@ -154,7 +154,7 @@ struct BoardInfoSheet: View {
     @State private var preview: URL?
     @State private var opening: String?
     @State private var running: HTMLPreviewTarget? // an .html file, previewed (HTMLPreview.swift)
-    @StateObject private var context = SoulMemoryModel() // the board's SOUL and MEMORY (BoardContext.swift)
+    @StateObject private var context = MemoryModel() // the board's MEMORY (BoardContext.swift)
 
     private var me: String? { state.me?.owner }
 
@@ -188,10 +188,6 @@ struct BoardInfoSheet: View {
             .task { await load() }
             .task(id: query) { await search() }
             .onReceive(NotificationCenter.default.publisher(for: .memoryChanged)) { n in if n.object as? String == board.id { Task { await context.load(board.id, state) } } }
-            .sheet(isPresented: $context.editing) {
-                SoulEditor(board: board.id, soul: context.soul ?? Soul(version: 0, text: "")) { Task { await context.load(board.id, state) } }
-                    .presentationBackground(Theme.bg)
-            }
         }
     }
 
@@ -201,9 +197,9 @@ struct BoardInfoSheet: View {
     @ViewBuilder private var openAndAgents: some View {
         let open = ChatSummary.open(state.entries[board.id] ?? [])
         let agents = (state.boardAgents[board.id] ?? []).sorted { rank($0.state) == rank($1.state) ? $0.lastSeen > $1.lastSeen : rank($0.state) < rank($1.state) }
-        // The board's standing context for agents, first: its SOUL and MEMORY (vedu #1090).
+        // The board's standing context for agents, first: its MEMORY (vedu #1091; the SOUL went in #5266).
         // (Developer mode only: Everyday keeps agent files out of sight, Everyday.swift.)
-        if !board.isAgentChat && !Vocab.everyday { SoulMemorySections(board: board, model: context) }
+        if !board.isAgentChat && !Vocab.everyday { MemorySection(board: board, model: context) }
         if !open.questions.isEmpty {
             Section { ForEach(open.questions.suffix(8).reversed()) { e in jumpRow(e, icon: "questionmark.circle.fill", tint: Theme.warn) } }
                 header: { SectionHeader("Open questions · \(open.questions.count)") }

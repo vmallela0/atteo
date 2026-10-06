@@ -1,7 +1,7 @@
 // Text other people write shows as text on every web page and never runs (coordinator #2107 item 2). An attacker sets
 // HTML, script and markdown payloads in everything a person can type that someone else sees: their display name, bio
 // and agent name, a board title, an invitation, a file name, a task title, a friend request, a message (raw HTML,
-// javascript: links, image tricks, tables, code, a chart), the board's soul, memory, a schedule, a pinned doc and a
+// javascript: links, image tricks, tables, code, a chart), the board's memory, a schedule, a pinned doc and a
 // decision, and an approval title their victim's agent was talked into. The victim then opens every page those reach
 // (Developer and Everyday, 1280 and 390px). Each payload sets window.__pwned if it ever runs.
 // Fails on: any alert/confirm, window.__pwned set, an element the payloads made (an on* attribute, a javascript: or
@@ -66,8 +66,7 @@ await mcp(tokA, b1, "post", { type: "artifact", text: `a file ${img(12)}`, artif
 await mcp(tokA, b1, "post", { type: "note", text: `@${B} from my agent ${img(14)} [x](javascript:__pwned=15)` });
 await web(ckA, "/api/friends/request", { user: B, note: NOTE });
 const link = await web(ckA, `/api/boards/${b1}/links`, {});
-// The board's own words: its soul, a memory item, a schedule, a pinned doc and a decision.
-await web(ckA, `/api/boards/${b1}/soul`, { text: `# Rules ${img(20)}\n[x](javascript:__pwned=21) </script><script>__pwned=22</script>` }, "PUT");
+// The board's own words: a memory item, a schedule, a pinned doc and a decision.
 await web(ckA, `/api/boards/${b1}/memory`, { text: `remember ${img(23)} '"` });
 await web(ckA, `/api/boards/${b1}/schedules`, { title: `${img(24)} '"sync`, at: "09:00", tz: "Europe/Berlin", days: "weekdays" });
 await mcp(tokA, b1, "post", { type: "artifact", text: "the plan", artifact_name: "plan.md", artifact_content: `# Plan ${img(25)}\n[x](javascript:__pwned=26)` });
