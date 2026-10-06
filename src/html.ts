@@ -2591,7 +2591,7 @@ async function accLoad(){const [m,a,l]=await Promise.all([fetch('/api/boards/'+B
       sel('role',x.role||'contributor',[['owner',tr('Owner')],['contributor',tr('Can post')],['viewer',tr('View only')]],fixed,tr('Role for {name}',{name:x.user}))+
       sel('days',x.expires_at?'keep':'0',(x.expires_at?[['keep',tr('Until ')+accFmt(x.expires_at)]]:[]).concat([['0',tr('No end date')],['7',tr('{n} more days',{n:7})],['30',tr('{n} more days',{n:30})],['90',tr('{n} more days',{n:90})]]),!IS_OWNER||x.user===CREATOR,tr('Access for {name}',{name:x.user}))+'</li>'}).join('')||'<li class="xs faint">'+tr('No members')+'</li>';
   if(IS_OWNER)document.getElementById('acc-links').innerHTML=(l.links||[]).filter(x=>!x.revoked_at&&(!x.expires_at||x.expires_at>Date.now())).map(x=>'<li class="acc-row xs"><span class="grow">'+(x.role==='viewer'?tr('View only'):tr('Can post'))+' link · until '+accFmt(x.expires_at)+(x.member_days?' · access '+x.member_days+'d':'')+' · used '+x.uses+(x.max_uses?' of '+x.max_uses:'')+'</span><button class="btn ghost sm" type="button" data-link-revoke="'+esc(x.id)+'">'+tr('Revoke')+'</button></li>').join('');
-  const verb={invited:'invited',joined:'joined',removed:'removed',left:'left',access_changed:'changed access for',link_created:'created an invite link',link_revoked:'revoked an invite link',renamed:'renamed the board',archived:'archived the board',restored:'restored the board',expired:'access ended for',picture_changed:'changed the board picture',picture_removed:'removed the board picture',charter:'updated the charter',retention:'set how long messages are kept'};
+  const verb={invited:'invited',joined:'joined',removed:'removed',left:'left',access_changed:'changed access for',link_created:'created an invite link',link_revoked:'revoked an invite link',renamed:'renamed the board',archived:'archived the board',restored:'restored the board',expired:'access ended for',picture_changed:'changed the board picture',picture_removed:'removed the board picture',charter:'updated the charter',retention:'set how long messages are kept',github_linked:'connected GitHub',github_unlinked:'disconnected GitHub'};
   document.getElementById('acc-audit').innerHTML=(a.audit||[]).slice(0,50).map(x=>'<li class="xs"><b>'+esc(x.actor)+'</b> '+(verb[x.action]||esc(x.action))+(x.target?' <b>'+esc(x.target)+'</b>':'')+(x.detail?' <span class="faint">· '+esc(x.detail)+'</span>':'')+' <span class="faint">· '+new Date(x.ts).toLocaleString([],{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'})+'</span></li>').join('')||'<li class="xs faint">'+tr('Nothing yet')+'</li>'}
 // ---- The gate's queue (#3209): open handoffs, oldest first, in board info — so nobody has to ask whether the gate is running ----
 const GATE_STALLED_MS=30*60000;
@@ -2672,7 +2672,21 @@ document.addEventListener('click',async e=>{const b=e.target.closest('[data-sch-
   const on=d==='toggle'&&b.getAttribute('aria-checked')!=='true';
   const r=await fetch(schApi+'/'+encodeURIComponent(id),d==='delete'?{method:'DELETE'}:{method:'PATCH',headers:{'content-type':'application/json'},body:JSON.stringify({enabled:on})}).catch(()=>null);
   if(!r||!r.ok){const j=r?await r.json().catch(()=>({})):{};toast(j.error||tr('Couldn’t save'));b.disabled=false;return}toast(d==='delete'?tr('Schedule deleted'):on?tr('Schedule on'):tr('Schedule off'));schLoad()});
-document.addEventListener('click',e=>{const o=e.target.closest('[data-open="invite"]');if(!o)return;accLoad();trgLoad();schLoad();gateLoad();const g=o.dataset.goto&&document.getElementById(o.dataset.goto);if(g)setTimeout(()=>g.scrollIntoView({block:'nearest'}),60)});
+document.addEventListener('click',e=>{const o=e.target.closest('[data-open="invite"]');if(!o)return;accLoad();trgLoad();schLoad();gateLoad();ghLoad();const g=o.dataset.goto&&document.getElementById(o.dataset.goto);if(g)setTimeout(()=>g.scrollIntoView({block:'nearest'}),60)});
+// GitHub: one owner/repo for this board (Members & access). Owners only; the fields are absent otherwise.
+async function ghLoad(){const repo=document.getElementById('gh-repo'),peek=document.getElementById('gh-peek');if(!repo&&!peek)return;
+  const r=await fetch('/api/boards/'+BOARD+'/github').catch(()=>null);const j=r&&r.ok?await r.json().catch(()=>null):null;if(!j)return;
+  if(repo)repo.value=j.repo||'';
+  const inst=document.getElementById('gh-install');if(inst)inst.value=j.installation_id==null?'':String(j.installation_id);
+  if(peek)peek.textContent=j.repo||tr('Not connected')}
+document.getElementById('gh-save')?.addEventListener('click',async()=>{const msg=document.getElementById('gh-msg'),repoEl=document.getElementById('gh-repo'),instEl=document.getElementById('gh-install');if(!repoEl)return;
+  const repo=repoEl.value.trim(),raw=instEl?instEl.value.trim():'',body=repo?{repo}:{repo:null};if(raw)body.installation_id=/^\d+$/.test(raw)?+raw:raw;
+  const r=await fetch('/api/boards/'+BOARD+'/github',{method:'PUT',headers:{'content-type':'application/json'},body:JSON.stringify(body)}).catch(()=>null);
+  const j=r?await r.json().catch(()=>({})):{};if(msg)msg.textContent=r&&r.ok?(j.repo?tr('Connected {repo}',{repo:j.repo}):tr('Cleared')):(j.error||tr('Could not save'));if(r&&r.ok)ghLoad()});
+document.getElementById('gh-clear')?.addEventListener('click',async()=>{const msg=document.getElementById('gh-msg');
+  const r=await fetch('/api/boards/'+BOARD+'/github',{method:'DELETE'}).catch(()=>null);const j=r?await r.json().catch(()=>({})):{};
+  if(msg)msg.textContent=r&&r.ok?tr('Cleared'):(j.error||tr('Could not save'));if(r&&r.ok)ghLoad()});
+ghLoad();
 // Invite: suggest friends who aren't on the board yet, as you type (arrow keys and Enter pick one).
 let accFriends=null,accSel=0;const invIn=document.getElementById('inv-email'),invSug=document.getElementById('inv-sug');
 async function invSuggest(){if(!invIn)return;if(!accFriends)accFriends=(await fetch('/api/friends').then(r=>r.json()).catch(()=>({}))).friends||[];
@@ -3017,7 +3031,7 @@ export function boardPage(
     </form>
   </section>
   <aside class="aside" id="board-info" aria-label="${esc(T("Board info"))}"><!-- the rail (jxn #4860): agents first, then what's open, soul, memory, charter, members, notifications -->${agentsSection(agents, info.id, readOnly || !!info.archived, L, canInviteAgent)}<div class="sum" id="sum">${summaryHtml(entries, viewer.name, members, summary, ctl, L)}</div>${agentChat ? "" : PIN_SIDE + SOUL_SIDE + charterSide(board.charter ?? { goal: null, data_classes: [], retention_days: null, members: members.map((m) => ({ user: m.user, role: m.role ?? (m.user === info.created_by ? "owner" : "contributor"), note: null })) }, isOwner && !info.archived, L, people)}
-${notifySide(L)}${agentChat || info.encrypted || info.archived || readOnly ? "" : hostSide(esc(T("Attach a machine…")))}
+${isOwner && !direct && !agentChat ? githubInfoSide(L) : ""}${notifySide(L)}${agentChat || info.encrypted || info.archived || readOnly ? "" : hostSide(esc(T("Attach a machine…")))}
 </aside>
 </div></div>
 <div role="tabpanel" id="panel-log" aria-labelledby="tab-log" class="bp-panel" data-board-panel hidden><div class="list scroll-x"><table class="log"><thead><tr><th>${esc(T("Time (UTC)"))}</th><th>#</th><th>${esc(T("Author"))}</th><th>${esc(T("Type"))}</th><th>${esc(T("To"))}</th><th>${esc(T("Summary"))}</th></tr></thead>
@@ -3154,6 +3168,7 @@ ${canInviteAgent ? inviteAgentDialog(T, info) : ""}
       : ""
   }</section>
   <section class="acc-sec" id="acc-gate" hidden><h3 id="gate-h"></h3><ul class="acc-list" id="acc-handoffs"></ul></section>
+  ${isOwner && !direct && !agentChat ? githubAccessSection(L) : ""}
   <details class="acc-sec"><summary class="small muted">${esc(T("Activity"))}</summary><ul class="acc-list" id="acc-audit"></ul><p class="xs acc-dl"><a href="/api/boards/${esc(encodeURIComponent(info.id))}/audit/export" download>${esc(T("Download the full log (JSON)"))}</a></p></details>
   ${
     true
@@ -3489,6 +3504,25 @@ const NOTIFY_LEVELS = (T: (s: string) => string): [string, string][] => [
 ];
 
 /** Board info → Notifications: your level for this board (only interrupts change; the Inbox doesn't). */
+/** Owners, on a normal board: one GitHub repository, edited from Members & access. */
+function githubAccessSection(lang?: Lang): string {
+  const T = (s: string) => esc(tr(lang, s));
+  return `<section class="acc-sec" id="acc-github"><h3>${T("GitHub")}</h3>
+  <p class="xs muted">${T("One repository for this board. Notes and Checks use it when those are turned on. This does not store a token or a key.")}</p>
+  <div class="acc-row"><input class="input acc-url" id="gh-repo" placeholder="owner/repo" aria-label="${T("GitHub repository")}" autocomplete="off" spellcheck="false">
+  <input class="input acc-url" id="gh-install" inputmode="numeric" placeholder="${T("Installation id (optional)")}" aria-label="${T("GitHub installation id")}" autocomplete="off">
+  <button class="btn sm" type="button" id="gh-save">${T("Save")}</button>
+  <button class="btn ghost sm" type="button" id="gh-clear">${T("Clear")}</button></div>
+  <p class="xs" id="gh-msg" role="status"></p></section>`;
+}
+
+/** Board info: the linked repository, with a way into the access form. Owners only. */
+function githubInfoSide(lang?: Lang): string {
+  const T = (s: string) => esc(tr(lang, s));
+  return `<section class="ns-side" id="gh-side" aria-labelledby="gh-side-h"><h3 class="xs muted" id="gh-side-h" style="margin:14px 0 6px;font-weight:600">${T("GitHub")} <span class="faint" id="gh-peek">${T("Not connected")}</span></h3>
+  <p class="xs" style="margin:0"><button class="btn ghost sm" type="button" data-open="invite" data-goto="acc-github">${T("Connect a repository")}</button></p></section>`;
+}
+
 function notifySide(lang?: Lang): string {
   const T = (s: string, v?: Record<string, string | number>) => tr(lang, s, v);
   return `<section class="ns-side" id="ns-side" aria-labelledby="ns-side-h"><h3 class="xs muted" id="ns-side-h" style="margin:14px 0 6px;font-weight:600">${esc(T("Notifications"))}</h3>

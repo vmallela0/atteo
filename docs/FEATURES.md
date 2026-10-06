@@ -294,6 +294,7 @@ X-Hub-Signature-256: sha256=<hex HMAC of the raw body>
 - **Off** until the Worker secret `GITHUB_WEBHOOK_SECRET` is set: the route answers 503.
 - **On:** GitHub's signature is checked (same HMAC-SHA256 scheme GitHub documents). A `ping` is `{ ok: true, applied: "ping" }`. Mapped events (`pull_request`, review, PR `issue_comment`, completed `check_suite`, `push`) return `{ ok: true, applied: "note", note }` where `note` is the board entry that a later slice will post. Unknown events are `applied: "ignored"`. The raw GitHub body is not stored.
 - **Outbound** from a change card (`githubChangeNotification` / `postGithubChange` in `src/githubApp.ts`): a Checks `POST` or `PATCH`, and when `pr_url` is a GitHub pull link, an issue comment. Off until `GITHUB_APP_ID` and `GITHUB_APP_PRIVATE_KEY` are set as Worker secrets (never in `wrangler.jsonc`). Those secrets are not set in hosted production. The sender does not run from a live change-card post yet.
+- **Connect a repository:** a board owner sets one `owner/repo` and an optional installation id from Members & access, or `PUT /api/boards/{id}/github` (`src/githubRepo.ts`, D1 `github_repo_boards`). Viewers and contributors get 403. The link is saved with no GitHub App secrets; tokens and private keys are rejected. Inbound posting and Checks stay off until those secrets and the later slices are on.
 
 Slack and Discord remain the paste-a-URL path on **Account → Agent webhooks**. GitHub does not offer that; the App is the substitute.
 

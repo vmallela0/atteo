@@ -37,6 +37,7 @@ import { docsPage } from "./docs";
 import { openapi } from "./openapi";
 import * as billing from "./billing";
 import * as githubApp from "./githubApp";
+import * as githubRepo from "./githubRepo";
 import { egressRefusal, isHeldRequest, noteBoardCreated, noteRequestWallMs, noteWakeDelivery, type Later } from "./observe";
 import * as inbox from "./inbox";
 import * as notify from "./notify";
@@ -2129,6 +2130,17 @@ const handler = {
         }
         return json({ error: "not found" }, 404);
       }
+
+      // GitHub repo → this board (owners). Saves owner/name and an optional installation id. No tokens or keys.
+      // Does not post inbound notes or send Checks; those stay off until their own slices and GITHUB_* secrets.
+      m = path.match(/^\/api\/boards\/(b_[a-z0-9]+)\/github$/);
+      if (m && (method === "GET" || method === "PUT" || method === "POST" || method === "DELETE")) {
+        if (!viewer) return needLogin();
+        const body = method === "PUT" || method === "POST" ? await request.json().catch(() => null) : {};
+        const result = await githubRepo.boardGithubHttp(env, method, m[1], viewer.name, body);
+        return json(result.body, result.status);
+      }
+
       m = path.match(/^\/i\/(il_[A-Za-z0-9_-]+)$/);
       if (m && method === "GET") {
         if (!viewer) return needLogin();

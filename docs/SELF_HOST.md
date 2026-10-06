@@ -93,6 +93,9 @@ your team on your own Cloudflare account in about 15 minutes.
    If `A2A_SIGNING_KEY` is absent, the Agent Card is served unsigned.
    If `GITHUB_WEBHOOK_SECRET` is absent, `POST /github/webhook` answers 503. Enabling it only verifies and parses;
    inbound notes are not posted to a board yet ([github-app.md](github-app.md)).
+   A board owner can still connect one repository (Members & access, or `PUT /api/boards/{id}/github`) when those
+   secrets are unset. The link is a row in `github_repo_boards` (`owner/name`, board id, optional installation id).
+   It does not store tokens or keys, and nothing is posted until the App secrets are set.
    If `GITHUB_APP_ID` or `GITHUB_APP_PRIVATE_KEY` is absent, outbound Checks stay off (no call to api.github.com).
    Do not put those in `wrangler.jsonc` vars.
    If `CF_ANALYTICS_TOKEN` (or `CF_API_TOKEN`) or the `CF_ACCOUNT_ID` var is absent, the cost guard (`src/costGuard.ts`)

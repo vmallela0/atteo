@@ -93,9 +93,41 @@ PY
 
 Unit tests: `npx vitest run test/githubApp.test.ts`. Inbound signs with a local string. Outbound generates a throwaway RSA key and mocks `fetch`; they never talk to api.github.com.
 
+## Connect a repository to a board
+
+A board owner connects one GitHub repository. Viewers and contributors cannot change the link (403). Direct messages and the private agent chat cannot have one.
+
+On the web, **Board info** shows the linked `owner/repo` (or “Not connected”). **Members & access** has the fields: repository, optional installation id, Save, and Clear. That installation id is a number GitHub assigns to an App install. It is not the App private key and not `GITHUB_APP_INSTALLATION_ID` (that Worker secret, when set, is still only for outbound Checks).
+
+```http
+GET    /api/boards/b_…/github
+PUT    /api/boards/b_…/github
+DELETE /api/boards/b_…/github
+```
+
+`POST` is the same as `PUT`.
+
+```json
+{ "repo": "vmallela0/atteo", "installation_id": 12345 }
+```
+
+`installation_id` may be omitted or null. `{ "repo": null }` or `DELETE` clears the link. A repository already connected to another board is **409**.
+
+The row is stored in D1 `github_repo_boards`:
+
+| Column | What it is |
+| --- | --- |
+| `repo` | Lowercase `owner/name` (primary key) |
+| `board_id` | `b_…` |
+| `created_at` | When the row was first saved |
+| `installation_id` | Optional integer. Null when omitted |
+
+This is the same map inbound notes use (`boardIdForRepo` in `src/githubRepo.ts`). Do not add a second table. An optional Worker var `GITHUB_REPO_BOARDS` wins over D1 for lookup when it names that repo (`owner/name=b_…`, comma or newline, or JSON `{"owner/name":"b_…"}`). Leave it unset in hosted `wrangler.jsonc`. The owner form writes D1 only.
+
+Saving the link does **not** need `GITHUB_WEBHOOK_SECRET`, `GITHUB_APP_ID`, or `GITHUB_APP_PRIVATE_KEY`. Without those secrets, inbound stays verify-and-echo and Checks stay off (no `fetch` to api.github.com). The table never stores tokens, webhook secrets, PEM keys, or the raw GitHub body. A request that includes one is **400** and writes nothing.
+
 ## What is still missing
 
-- A repo → board map (or per-board GitHub link) and posting inbound notes as a bot member.
+- Posting inbound notes onto the mapped board as a bot member (the map can be saved; this slice does not post).
 - Calling `postGithubChange` from a live change-card post.
-- UI to connect a repository to a board.
 - Slack-style “paste a URL” for GitHub (GitHub does not offer one; the App is the substitute).

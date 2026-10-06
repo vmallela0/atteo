@@ -2,6 +2,7 @@
 // become GitHub Checks / PR comments. Off until GITHUB_WEBHOOK_SECRET is set (inbound) and GITHUB_APP_ID +
 // GITHUB_APP_PRIVATE_KEY (outbound). Inbound still only verifies and parses (no board write). Outbound posts a Check
 // run (and a PR comment when the card has a pull link) when those App secrets exist; without them it never fetches.
+// The repo→board map (D1 github_repo_boards, optional GITHUB_REPO_BOARDS) lives in src/githubRepo.ts. Do not add a second table.
 
 import { cardLine, type ChangeCard } from "./card";
 import { pingExcerpt } from "./ping";
