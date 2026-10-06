@@ -58,4 +58,4 @@ Those responses do not include the value. See [INFRA.md](INFRA.md) item 11 and [
 
 ## `GET /api/ops/overview`
 
-The `secrets` array is `{ "name": "<NAME>", "set": true }` or `"set": false`. One boolean per row in the table above. No other fields.
+The `secrets` array is `{ "name": "<NAME>", "set": true }` or `"set": false`. One boolean per row in the Worker `agent-board` table. Names that are not on this Worker are absent. No other fields.
