@@ -42,8 +42,8 @@ abuse from costing money.
 
 ## Code changes on this branch (`cf-hardening`)
 
-- **Per-IP limit on signed-out writes:** `POST /oauth/register` (adds an `oauth_clients` row each call; unused rows
-  older than 30 days are deleted by the cron, see below), `POST /api/device/start` (adds a `device_logins` row) and
+- **Per-IP limit on signed-out writes:** `POST /oauth/register` (adds an `oauth_clients` row each call; unused DCR
+  is pruned after 120 days, a client that ever got a token is kept — see below), `POST /api/device/start` (adds a `device_logins` row) and
   `/health/deep` (wakes a Durable Object + D1 on each call). They're now capped at 20 a minute per address per endpoint,
   using Cloudflare's Workers Rate Limiting
   binding (`ratelimits` in `wrangler.jsonc`, `limits.ts` `publicAllowed`). The binding counts in memory at each
@@ -103,18 +103,21 @@ and lets us turn `workers_dev` off. INFRA.md #2.
 
 ## OAuth client retention (ops)
 
-`POST /oauth/register` (MCP dynamic client registration) inserts an `oauth_clients` row on every call. The 5-minute
-cron (`src/index.ts` `runScheduled`, housekeeping) deletes a row only when **all** of these are true — prefer leaving
-a row over deleting an active client:
+`POST /oauth/register` (MCP dynamic client registration) inserts an `oauth_clients` row on every call. Connectors
+(claude.ai, ChatGPT, Cursor) **cache that `client_id`**. A later sign-in with a deleted id is `invalid_client` on
+`/oauth/authorize`, which is an HTML error page — those clients do not re-register, so the person has to remove and
+re-add the connector. Retention prefers leaving the row:
 
-- `created_at` is older than 30 days
-- no `oauth_requests` / `oauth_codes` whose `expires_at` is still within that 30-day window (those rows live minutes;
-  this is "someone tried to connect recently")
-- no `oauth_refresh_tokens` row at all, ever (used, unused or expired). A client that finished sign-in once is kept
-  for good: connectors (claude.ai, ChatGPT, Cursor) cache its `client_id` from DCR and many don't re-register, so
-  deleting it would turn a later re-sign-in into `invalid_client` (#5290). Refresh-token rows are never deleted.
+The 5-minute cron (`src/index.ts` `runScheduled`, housekeeping) deletes a row only when **all** of these are true:
 
-So only registrations whose sign-in never finished are pruned.
+- `created_at` is older than **120 days** (refresh token TTL of 90 days plus a 30-day reconnect grace — unused DCR
+  that a connector cached at register, before sign-in finished)
+- no `oauth_requests` / `oauth_codes` whose `expires_at` is still within the last 30 days
+- **no `oauth_refresh_tokens` row at all** (used, unused or expired). A client that finished sign-in once is kept
+  for good: that is fail-safer than “30 days after the last refresh expires”. Refresh-token rows are never deleted.
+
+`/oauth/authorize` cannot recover an unknown `client_id` — it is an HTML error page, not a signal to re-run DCR —
+so retention keeps the row instead.
 
 Counts: remaining total and `oauth_clients_pruned` (last 14 days, from `usage_daily`) on `/_ops`; each cron run
 returns `oauth_clients_pruned` on `POST /api/ops/cron`. Tests: `test/oauth.test.ts`.

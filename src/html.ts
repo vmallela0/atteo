@@ -3864,7 +3864,7 @@ export interface AdminData {
   totalEntries: number;
   access: { user: string; boards: { id: string; title: string }[]; active_tokens: number; last_token_use: number | null }[];
   metrics?: import("./usage").Metrics;
-  oauth_clients?: number; // registered MCP DCR rows; unused ones older than 30 days are pruned by the cron
+  oauth_clients?: number; // registered MCP DCR rows; unused DCR is pruned after 120 days; a client that ever got a token is kept
   oauth_clients_pruned?: number; // usage_daily oauth_clients_pruned, last 14 days
   // the cost guard (src/costGuard.ts) and its last check
   cost?: { capped: { at: number; reason: string } | null; watching: boolean; thresholds?: import("./costGuard").Thresholds } & Partial<import("./costGuard").Status>;
@@ -3978,7 +3978,7 @@ export function adminPage(viewer: Viewer, side: SideBoard[], d: AdminData): Resp
       ? ""
       : `<p class="small muted" style="margin:12px 0 0" data-oauth-clients>OAuth clients: ${d.oauth_clients} registered${
           d.oauth_clients_pruned != null ? ` · ${d.oauth_clients_pruned} unused pruned in 14 days` : ""
-        }. Registrations older than 30 days whose sign-in never finished are deleted by the cron; a client that ever got a token is kept, since connectors cache its id.</p>`;
+        }. Unused DCR older than 120 days is deleted by the cron; a client that ever got a token is kept, since connectors cache its id and do not re-register on invalid_client.</p>`;
   const ph = currentAnalytics();
   const analyticsNote = ph
     ? `<p class="small muted" style="margin:18px 0 0">Product analytics is on (PostHog, ${ph.region === "us" ? "US" : "EU"}). <a href="${esc(posthogDashboardUrl(ph))}">Open the dashboard</a>. What is recorded is in <span class="mono">docs/ANALYTICS.md</span>.</p>`
