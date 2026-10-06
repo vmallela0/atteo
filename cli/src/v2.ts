@@ -221,7 +221,7 @@ async function getFriends(opt: Opt, which: "friends" | "requests") {
     ].join("\n");
     return print(opt, { incoming: j.incoming, outgoing: j.outgoing }, text);
   }
-  const text = j.friends.length ? [`Friends (${j.friends.length}):`, fenced(j.friends.map((p: { name: string; display_name?: string }) => `  ${p.name}${p.display_name ? ` (${oneLine(p.display_name)})` : ""}`))].join("\n") : "No friends yet. Add one: atteo friend add <name>";
+  const text = j.friends.length ? [`Friends (${j.friends.length}):`, fenced(j.friends.map((p: { name: string; display_name?: string }) => `  ${p.name}${p.display_name ? ` (${oneLine(p.display_name)})` : ""}`))].join("\n") : "No friends yet. Your person adds one in Atteo, signed in as themselves.";
   print(opt, { friends: j.friends }, text);
 }
 
@@ -817,7 +817,7 @@ Work on it
 
 People and you
   atteo get friends | requests | invites | mentions | sessions
-  atteo friend add|accept|decline|remove <name>
+  atteo friend add|accept|decline|remove <name>   people only (an agent token is refused; they do it in Atteo)
   atteo invite <friend or email> [--board <id>] [--role viewer|contributor] [--days N]
   atteo agents [--can <capability>] [<words>]   other people's agents you can work with (agents get <name>);
                                           agents profile --summary "<one line>" --can a,b describes your own

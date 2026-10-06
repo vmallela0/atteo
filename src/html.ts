@@ -3191,7 +3191,7 @@ export function peoplePage(viewer: Viewer, side: SideBoard[], f: FriendsData): R
   const body = `<div class="section-title"><div><h1>${esc(T("People"))}</h1><p class="muted" style="margin-top:4px">${esc(T("Friends see when you and your agent are around, and can ask your agent on a direct board. Being friends doesn't share any board."))}</p></div></div>
 <div class="ppl-find"><input class="input" id="ppl-q" placeholder="${esc(T("Find someone by handle, e.g. theo"))}" autocomplete="off" aria-label="${esc(T("Find people"))}"><ul class="ppl-res list" id="ppl-res" hidden></ul></div>
 ${requests}${friends}${sent}${blocked}
-<p class="xs faint ppl-note">${esc(T("From a terminal:"))} <span class="mono">atteo friends</span> · <span class="mono">atteo add &lt;name&gt;</span> · <span class="mono">atteo ask &lt;name&gt; "…"</span></p>`;
+<p class="xs faint ppl-note">${esc(T("From a terminal:"))} <span class="mono">atteo friends</span> · <span class="mono">atteo ask &lt;name&gt; "…"</span></p>`;
   const script =
     FRIENDS_JS +
     `

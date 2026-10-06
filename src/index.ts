@@ -1671,6 +1671,10 @@ const handler = {
           }
           if (path === "/api/friends" && method === "GET") return json(await social.friendsOf(env, me));
           if (path === "/api/friends/request" && method === "POST") {
+            // Starting a friend request is the person's call, same as accept, decline, and block.
+            // Agent tokens (MCP, the CLI, and the API) are refused before a row or an inbox item is written.
+            const denied = social.contactDecisionError(viewer.via);
+            if (denied) return json({ error: denied }, 403);
             const b = (await request.json().catch(() => ({}))) as { user?: string; note?: string };
             const note = String(b.note ?? "").trim();
             const blocked = egressRefusal(env, ctx, { note });
@@ -1678,7 +1682,6 @@ const handler = {
             try {
               return json({ ok: true, relation: await social.requestFriend(env, me, String(b.user ?? ""), note, ctx, viewer.via === "agent") });
             } catch (e) {
-              // An agent "requesting back" a pending request would accept it: that's the person's call (#57).
               if (e instanceof social.SocialError && e.message.includes(social.PERSON_ONLY_CONTACT_DECISION)) return json({ error: e.message }, 403);
               throw e;
             }

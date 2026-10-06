@@ -164,11 +164,15 @@ async function makeUser(name, { email, verified = "true", token = true, session 
     })(),
   ]);
 }
-// Contact decisions (accept, decline, remove, block) are the person's alone (#57, jxn #4345): agent tokens get 403,
-// so steps make them as the person, with a browser session.
-async function asPerson(who, path) {
+// Contact decisions, including starting a friend request, are the person's alone: agent tokens get 403,
+// so steps make them as the person, with a browser session. `body` is the JSON body when the route takes one.
+async function asPerson(who, path, body) {
   if (!cookie[who]) cookie[who] = (await ops("sessions", { user: who, verified: "true" })).body.cookie;
-  return fetch(`${BASE}${path}`, { method: "POST", headers: { cookie: cookie[who], "content-type": "application/json" } });
+  return fetch(`${BASE}${path}`, {
+    method: "POST",
+    headers: { cookie: cookie[who], "content-type": "application/json" },
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+  });
 }
 async function makeUsers(list, opts = {}) {
   await Promise.all(list.map((n) => (typeof n === "string" ? makeUser(n, opts) : makeUser(n.name, { ...opts, ...n }))));
@@ -2925,7 +2929,7 @@ await step("board pictures: any member sets one; served to members only, version
   const P1 = `e2e-pic1-${run}`, P2 = `e2e-pic2-${run}`;
   await makeUsers([P1, P2]);
   const call = async (who, path) => (await fetch(`${BASE}${path}`, { method: "POST", headers: auth(who) })).json();
-  await fetch(`${BASE}/api/friends/request`, { method: "POST", headers: { ...auth(P1), "content-type": "application/json" }, body: JSON.stringify({ user: P2 }) });
+  await asPerson(P1, "/api/friends/request", { user: P2 });
   await asPerson(P2, `/api/friends/${P1}/accept`);
   const dm = (await call(P1, `/api/direct/${P2}`)).board;
   assert(dm, "direct board");
@@ -3002,18 +3006,24 @@ await step("social: find by handle, friend request with a note, accept from the 
   assert(r.people.length === 1 && r.people[0].name === B && r.people[0].relation === "none", JSON.stringify(r));
   r = await (await api(OUT, "GET", `/api/people?q=${B.slice(0, -2)}`)).json();
   assert(!r.people.some((p) => p.name === B), "partial names only match people you know");
-  // Request with a note; it lands in B's inbox; B accepts with a token (the CLI's way).
+  // Request with a note; it lands in B's inbox. An agent token cannot start it; a person (app token or browser session) can.
   assert((await api(A, "POST", `/api/direct/${B}`)).status === 400, "direct boards need friends");
-  r = await (await api(A, "POST", "/api/friends/request", { user: B, note: `from e2e ${run}` })).json();
+  const agentAsk = await api(A, "POST", "/api/friends/request", { user: B, note: `from an agent ${run}` });
+  assert(agentAsk.status === 403 && (await agentAsk.json()).error.includes("Only you can decide"), `an agent token can't start a friend request: ${agentAsk.status}`);
+  assert(!(await (await api(B, "GET", "/api/inbox")).json()).items.some((i) => i.kind === "friend_request" && i.excerpt.includes(`from an agent ${run}`)), "a refused request writes no inbox item");
+  const appTok = (await ops("tokens", { user: A, kind: "app", label: "e2e friend" })).body.token;
+  r = await (await fetch(`${BASE}/api/friends/request`, { method: "POST", headers: { authorization: `Bearer ${appTok}`, "content-type": "application/json" }, body: JSON.stringify({ user: B, note: `from e2e ${run}` }) })).json();
   assert(r.relation === "pending_out", JSON.stringify(r));
   const inbox = (await (await api(B, "GET", "/api/inbox")).json()).items;
   assert(inbox.some((i) => i.kind === "friend_request" && i.actor === A && i.excerpt.includes(`from e2e ${run}`)), JSON.stringify(inbox.slice(0, 3)));
   const agentAccept = await api(B, "POST", `/api/friends/${A}/accept`);
   assert(agentAccept.status === 403 && (await agentAccept.json()).error.includes("Only you can decide"), "an agent token can't accept (#57)");
-  // Nor by "requesting back" while A's request is pending (jxn's agent #4398): refused, still pending.
+  // Nor by "requesting back", or by asking again, while A's request is pending: refused, still pending.
   const requestBack = await api(B, "POST", "/api/friends/request", { user: A });
   assert(requestBack.status === 403 && (await requestBack.json()).error.includes("Only you can decide"), `agent request-back refused: ${requestBack.status}`);
-  assert((await (await api(A, "POST", "/api/friends/request", { user: B })).json()).relation === "pending_out", "still pending after the agent's request-back");
+  const again = await api(A, "POST", "/api/friends/request", { user: B });
+  assert(again.status === 403 && (await again.json()).error.includes("Only you can decide"), `agent retry refused: ${again.status}`);
+  assert((await (await asPerson(A, "/api/friends/request", { user: B })).json()).relation === "pending_out", "a person asking again leaves it pending");
   assert((await (await asPerson(B, `/api/friends/${A}/accept`)).json()).relation === "friend", "accept");
   // Presence: B's agent session (MCP initialize with a client name) shows as online.
   const sb = await session(B);
@@ -3025,6 +3035,7 @@ await step("social: find by handle, friend request with a note, accept from the 
   assert(f.friends.some((p) => p.name === B), JSON.stringify(f));
   // Agents: people tool; direct joins the DM board for the session.
   const sa = await session(A);
+  await serr(sa, "people", { action: "request", name: B }, "action must be one of");
   has(await sok(sa, "people", { action: "whois", name: B }), "friend");
   has(await sok(sa, "people", { action: "direct", name: B }), d.board);
   await sok(sa, "read", {});
@@ -3035,7 +3046,7 @@ await step("social: find by handle, friend request with a note, accept from the 
   await asPerson(B, `/api/friends/${OUT}/block`);
   r = await (await api(OUT, "GET", `/api/people?q=${B}`)).json();
   assert(!r.people.length, "blocked people can't find you");
-  assert((await api(OUT, "POST", "/api/friends/request", { user: B })).status === 400, "blocked people can't ask");
+  assert((await asPerson(OUT, "/api/friends/request", { user: B })).status === 400, "blocked people can't ask");
   await asPerson(A, `/api/friends/${B}/remove`);
   assert((await api(A, "POST", `/api/direct/${B}`)).status === 400, "not friends anymore");
 });
@@ -3568,10 +3579,12 @@ await step("network: an opt-in directory, and standing rules (invites from frien
   await web("/api/agents/me", B, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ listed: false }) });
   assert((await (await person(B, { listed: true, bio: `hi from ${run}` })).json()).profile.listed, "listed");
   assert((await (await api(D, "GET", `/api/people?q=${partial}`)).json()).people.some((p) => p.name === B), "listed people show up by partial name");
-  // Friend requests from people B shares a board with are accepted by B's rule.
+  // Friend requests from people B shares a board with are accepted by B's rule. An agent token cannot start one.
   await asPerson(A, `/api/friends/${B}/remove`);
   await person(B, { rules: { auto_accept_friends: "coworkers" } });
-  assert((await (await api(A, "POST", "/api/friends/request", { user: B })).json()).relation === "friend", "accepted by rule");
+  const agentRule = await api(A, "POST", "/api/friends/request", { user: B });
+  assert(agentRule.status === 403 && (await agentRule.json()).error.includes("Only you can decide"), "an agent token can't start a request a rule would accept");
+  assert((await (await asPerson(A, "/api/friends/request", { user: B })).json()).relation === "friend", "accepted by rule");
   // Board invites from friends join B right away.
   await person(B, { rules: { auto_accept_invites: "friends" } });
   const nb = (await ops("boards", { user: A, title: `e2e rules ${run}` })).body.board.id;
@@ -4684,7 +4697,7 @@ await step("mailbox: DMs and mail for your agent wait until your agent polls; fu
   const M1 = `e2e-mb1-${run}`, M2 = `e2e-mb2-${run}`;
   await makeUsers([M1, M2], { session: false });
   const call = async (who, method, path, body) => { const r = await fetch(`${BASE}${path}`, { method, headers: { ...auth(who), "content-type": "application/json" }, body: body ? JSON.stringify(body) : undefined }); return r.json(); };
-  await call(M1, "POST", "/api/friends/request", { user: M2 });
+  await asPerson(M1, "/api/friends/request", { user: M2 });
   await asPerson(M2, `/api/friends/${M1}/accept`);
   const dm = (await call(M1, "POST", `/api/direct/${M2}`)).board;
   const long = `Can your agent review the webhook check? ${"padding ".repeat(40)}${run}`;
@@ -4721,7 +4734,7 @@ await step("mailbox tool (MCP): new mail as compact fenced lines under one heade
   const M1 = `e2e-mt1-${run}`, M2 = `e2e-mt2-${run}`;
   await makeUsers([M1, M2], { session: false });
   const call = async (who, method, path, body) => (await fetch(`${BASE}${path}`, { method, headers: { ...auth(who), "content-type": "application/json" }, body: body ? JSON.stringify(body) : undefined })).json();
-  await call(M1, "POST", "/api/friends/request", { user: M2 });
+  await asPerson(M1, "/api/friends/request", { user: M2 });
   await asPerson(M2, `/api/friends/${M1}/accept`);
   const dm = (await call(M1, "POST", `/api/direct/${M2}`)).board;
   const bot = await session(M2); // a URL connection with no board joined, like a Grok Bot routine

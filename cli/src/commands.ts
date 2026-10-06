@@ -744,7 +744,7 @@ async function people(args: string[]) {
   if (json(opt)) return printJson(j);
   if (!j.people.length) return say(`Nobody found. Exact handles always work (e.g. "atteo people jxn"); partial names only match friends, people you share a board with, and people at your organization.`);
   // Display names are what each person typed: inside the fence (#2181).
-  say(fence(j.people.map((p: any) => `${p.name}${p.display_name ? ` (${oneLine(p.display_name)})` : ""}  ${presenceText(p)}  ${RELATION[p.relation] ? `· ${RELATION[p.relation]}` : `· add: atteo add ${p.name}`}${p.shared_boards ? ` · ${p.shared_boards} shared board${p.shared_boards === 1 ? "" : "s"}` : ""}`).join("\n")));
+  say(fence(j.people.map((p: any) => `${p.name}${p.display_name ? ` (${oneLine(p.display_name)})` : ""}  ${presenceText(p)}  ${RELATION[p.relation] ? `· ${RELATION[p.relation]}` : "· your person adds them in Atteo"}${p.shared_boards ? ` · ${p.shared_boards} shared board${p.shared_boards === 1 ? "" : "s"}` : ""}`).join("\n")));
 }
 
 async function whois(args: string[]) {
@@ -765,7 +765,7 @@ async function friends(args: string[]) {
     say(fence(j.incoming.map((p: { name: string; note?: string }) => `  ${p.name}${p.note ? ` — "${oneLine(p.note)}"` : ""}`).join("\n")));
     say("  Your person accepts or declines these in Atteo (People); agents can't (#57).");
   }
-  say(j.friends.length ? "Friends:" : "No friends yet. Find someone: atteo people <name>, then atteo add <name>.");
+  say(j.friends.length ? "Friends:" : "No friends yet. Find someone: atteo people <name>. Your person sends the friend request in Atteo.");
   for (const p of j.friends) say(`  ${p.name.padEnd(16)} ${presenceText(p)}`);
   if (j.outgoing.length) say(`Waiting on: ${j.outgoing.map((p: { name: string }) => p.name).join(", ")}`);
   if (j.friends.length) say(`\nAsk one: atteo ask <name> "…"  (their agent answers now if it's online, or when it's back)`);
@@ -1387,7 +1387,8 @@ export const COMMANDS: Record<string, (args: string[]) => Promise<void>> = {
 export const COMMANDS_HELP = `
 People:
   atteo people <name>              Find someone (exact handle, or friends / people you share boards with / your org)
-  atteo add <name> ["note"]        Send a friend request · accept · decline · unfriend · block <name>
+  atteo add <name> ["note"]        Send a friend request (people only: the website or the app; an agent token is refused)
+                                   accept · decline · unfriend · block <name> are the person's too
   atteo friends                    Friends and who's online (web, or their agent in Claude Code, Codex…)
   atteo ask <name> "<question>"    Ask their agent: on this folder's board if they're on it, otherwise on
                                         your direct board (now if they're online, or when they're back)

@@ -70,11 +70,17 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 // (CI machines are slow too.)
 const SETTLE = /localhost|127\.0\.0\.1/.test(BASE) && !process.env.CI ? 800 : 3000;
 
-// A contact decision is the person's alone (#57, jxn #4345): agents' tokens get 403, so tests accept as the person.
+// Contact decisions, including starting a friend request, are the person's alone: agents' tokens get 403.
 async function personAccept(who, of) {
   const cookie = (await ops("sessions", { user: who, verified: "true" })).cookie;
   const r = await fetch(`${BASE}/api/friends/${of}/accept`, { method: "POST", headers: { cookie, "content-type": "application/json" } });
   if (r.status !== 200) throw new Error(`${who} accepting ${of} as a person: ${r.status} ${await r.text()}`);
+}
+async function personFriendRequest(who, of, note) {
+  const cookie = (await ops("sessions", { user: who, verified: "true" })).cookie;
+  const r = await fetch(`${BASE}/api/friends/request`, { method: "POST", headers: { cookie, "content-type": "application/json" }, body: JSON.stringify({ user: of, ...(note ? { note } : {}) }) });
+  if (r.status !== 200) throw new Error(`${who} requesting ${of} as a person: ${r.status} ${await r.text()}`);
+  return r.json();
 }
 async function ops(path, body) {
   const r = await fetch(`${BASE}/api/ops/${path}`, { method: "POST", headers: { "x-admin-key": ADMIN_KEY, "content-type": "application/json" }, body: JSON.stringify(body) });
@@ -670,12 +676,13 @@ await step("hooks: use installs a pre-push hook that chains the old one; a push 
 await step("people: find, add, accept, friends with presence, ask a friend's agent on your direct board", async () => {
   const home = mkdtempSync(join(tmpdir(), "atteo-social-")); // no folder board here, so ask goes direct
   let r = await cli(["people", B], { cwd: home });
-  assert(r.code === 0 && r.out.includes(B) && r.out.includes(`atteo add ${B}`), r.out + r.err);
+  assert(r.code === 0 && r.out.includes(B) && r.out.includes("your person adds them in Atteo"), r.out + r.err);
   // Not friends yet: the first DM waits for B's OK (once) instead of going through.
   r = await cli(["ask", B, "hello?", "--wait", "0", "--dm"], { cwd: home });
   assert(r.code === 0 && r.out.includes("OK it first"), r.out + r.err);
   r = await cli(["add", B, "it's", "me"], { cwd: home });
-  assert(r.code === 0 && r.out.includes("Friend request sent"), r.out + r.err);
+  assert(r.code !== 0 && /Only you can decide who you and your agents may contact/.test(r.out + r.err), r.out + r.err);
+  await personFriendRequest(A, B, "it's me");
   r = await cli(["friends"], { cwd: home, cred: credB });
   assert(/<<untrusted [0-9a-f]+:[^\n]*>>\n/.test(r.out) && r.out.includes(`${A} — "it's me"`) && r.out.includes("Your person accepts or declines these in Atteo"), r.out); // the note is someone's words: fenced (#2181)
   r = await cli(["accept", A], { cwd: home, cred: credB }); // an agent can't make the contact decision (#57)
@@ -1192,8 +1199,7 @@ await step("harness: the agent you choose answers your DMs (a person's message s
   if (!dm) {
     // A direct board needs A and B to be friends: the people step makes them so, but this step mustn't lean on it
     // having run first (alone with ONLY=…, or in another shard).
-    const home = mkdtempSync(join(tmpdir(), "atteo-harness-"));
-    await cli(["add", B], { cwd: home });
+    await personFriendRequest(A, B);
     await personAccept(B, A);
     dm = await direct();
   }
@@ -1460,7 +1466,7 @@ await step("mailbox: another person's DM and @mention of your agent show up in f
   const credM = join(dir, "m.json");
   writeFileSync(credM, JSON.stringify({ server: BASE, user: M, token: tokM, expires_at: Date.now() + 86400e3 }), { mode: 0o600 });
   const call = async (tok, method, path, body) => (await fetch(`${BASE}${path}`, { method, headers: { authorization: `Bearer ${tok}`, "content-type": "application/json" }, body: body ? JSON.stringify(body) : undefined })).json();
-  await call(tokN, "POST", "/api/friends/request", { user: M });
+  await personFriendRequest(N, M);
   await personAccept(M, N);
   const dm = (await call(tokN, "POST", `/api/direct/${M}`)).board;
   const shared = (await ops("boards", { user: N, title: `e2e cli mail ${run}` })).board.id;
@@ -1535,7 +1541,7 @@ await step("dispatch: one fork per message, each its own session with the messag
   const credD = join(dir, "d.json");
   writeFileSync(credD, JSON.stringify({ server: BASE, user: D, token: tokD, expires_at: Date.now() + 86400e3 }), { mode: 0o600 });
   const call = async (tok, method, path, body) => (await fetch(`${BASE}${path}`, { method, headers: { authorization: `Bearer ${tok}`, "content-type": "application/json" }, body: body ? JSON.stringify(body) : undefined })).json();
-  await call(tokE, "POST", "/api/friends/request", { user: D });
+  await personFriendRequest(E, D);
   await personAccept(D, E);
   const dm = (await call(tokE, "POST", `/api/direct/${D}`)).board;
   const shared = (await ops("boards", { user: E, title: `e2e cli dispatch ${run}` })).board.id;
