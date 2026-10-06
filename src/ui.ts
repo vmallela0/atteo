@@ -585,6 +585,7 @@ a.ev-acct:hover{background:var(--bg-subtle)}
 .rx-add{display:none;align-items:center;height:24px;padding:0 7px;border-radius:999px;border:1px dashed var(--line-strong);background:none;color:var(--muted);font:inherit;font-size:13px;cursor:pointer}
 .rx-add span{font-size:11px;margin-left:1px}.rx-add:hover{color:var(--ink);border-style:solid}
 .rx.has .rx-add{display:inline-flex}
+.thr-list .thr-un{margin-left:auto;opacity:0}.thr-list>.entry:is(:hover,:focus-within) .thr-un,.thr-list .thr-un[data-armed="1"]{opacity:1}@media (hover:none){.thr-list .thr-un{opacity:1}} /* your Unsend in a thread (vedu #4761) */
 .thr-list .rx .rx-add{display:inline-flex} /* a thread has no hover action bar, so its replies keep the add-reaction button */ /* with no reactions yet, "☺+" lives in the message's hover actions */
 /* agents' 🤔 / ✅ on a person's message: a quiet receipt line under it, like the app */
 .rx.has-rcpt{margin-top:4px}.rx.has.has-rcpt{margin-top:6px}

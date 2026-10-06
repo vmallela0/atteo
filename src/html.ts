@@ -1438,7 +1438,7 @@ function addEntry(e){if(document.getElementById('e'+e.seq)){last=Math.max(last,e
     if(el.querySelector('[data-task]'))refreshTask(e.seq);
     if(reply){thrSum(e.root);if(thrOpen===e.root)thrRender();setTimeout(()=>window.reportSeen&&reportSeen(),0)}
     if(!document.querySelector('#log-body tr[data-seq="'+e.seq+'"]')){const lt=document.createElement('tbody');lt.innerHTML=e.row;document.getElementById('log-body').prepend(lt.firstElementChild);document.getElementById('log-empty')?.remove()}
-    if(e.retracts){const t=document.getElementById('e'+e.retracts);if(t){t.classList.add('retracted');t.querySelector('[data-retract]')?.remove()}else{const g=document.getElementById('g'+e.retracts);if(g)g.dataset.gone='1'}}
+    if(e.retracts){const t=document.getElementById('e'+e.retracts);if(t){t.classList.add('retracted');t.querySelector('[data-retract]')?.remove();if(thrOpen&&(t.dataset.root===String(thrOpen)||t.dataset.seq===String(thrOpen)))thrRender()}else{const g=document.getElementById('g'+e.retracts);if(g)g.dataset.gone='1'}} // an open thread shows the unsend at once
     last=Math.max(last,e.seq);return true}
 // Live updates: a WebSocket that only says "something changed"; fall back to long-polling if it can't stay up.
 let ws,retry=0,polling=false,pollAfter=0;
@@ -2364,7 +2364,9 @@ window.thrRearm=()=>{if(!cmpHome||!thrOpen)return false;rpTo.value=String(thrTo|
 document.body.appendChild(thrDlg);if(cmpForm&&!READONLY)dropZone(thrDlg);
 function thrRender(focus){const list=document.getElementById('thr-list'),top=document.getElementById('e'+thrOpen);if(!top)return;list.innerHTML='';
   for(const src of [top,...kidsOf(thrOpen)]){const c=src.cloneNode(true);c.removeAttribute('id');c.classList.remove('flash-in','tap','sel','hit');c.dataset.src=src.dataset.seq;
+    const un=src.querySelector('[data-retract]'); // your own message's Unsend works in the thread too (vedu #4761); the other actions stay in the main chat
     c.querySelectorAll('[id]').forEach(x=>x.removeAttribute('id'));c.querySelectorAll('.thr-sum,.acts,.more-acts,.rd').forEach(x=>x.remove());
+    if(un){const m=c.querySelector(':scope>.grow>.meta'),b=un.cloneNode(true);b.classList.add('thr-un');if(m)m.appendChild(b)}
     const q=c.querySelector(':scope>.grow>.rq');if(q&&q.dataset.thread===String(thrOpen)&&src.dataset.reply===String(thrOpen))q.remove();
     list.appendChild(c)}
   thrPf();
