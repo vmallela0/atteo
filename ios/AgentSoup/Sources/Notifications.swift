@@ -1,8 +1,9 @@
 // Notifications, until real push (#1007): the app icon's badge counts what needs you, and while Atteo is in the
 // background iOS wakes it now and then (a background app refresh) to look at your inbox and approvals; anything new
 // that's for you (a mention, a reply, an approval, a decision) becomes a local notification. Tapping one opens its
-// chat. Permission is asked when it makes sense (after you've sent your first message or answered an approval, or
-// from Settings), never at launch.
+// chat. An end-to-end encrypted board's message is decrypted here, on the phone; a push for one carries only
+// ciphertext, and the notification extension (NotifyExtension/) does the same. Permission is asked when it makes
+// sense (after you've sent your first message or answered an approval, or from Settings), never at launch.
 
 import BackgroundTasks
 import SwiftUI
@@ -96,6 +97,11 @@ final class Notifier: NSObject, ObservableObject, UNUserNotificationCenterDelega
             let who = i.kind == "approval" ? String(localized: "Your agent", bundle: .l10n) : i.actorVia == "agent" ? String(localized: "\(i.actor)'s agent", bundle: .l10n) : i.actor
             c.title = i.boardTitle.map { String(localized: "\(who) in \($0)", bundle: .l10n, comment: "Notification title: who wrote, in which board") } ?? who
             c.body = String(i.excerpt.prefix(180))
+            if Self.sealed(i) {
+                // End-to-end encrypted: the server only has ciphertext; this phone reads it, or says only that it's new.
+                let text = await BoardCrypto.shared.text(i.boardId, seq: i.seq)
+                c.body = text.map { String($0.prefix(180)) } ?? String(localized: "New message (end-to-end encrypted)", bundle: .l10n)
+            }
             c.sound = .default
             c.userInfo = i.boardId.isEmpty ? [:] : ["board": i.boardId, "seq": i.seq]
             c.threadIdentifier = i.boardId
@@ -123,6 +129,9 @@ final class Notifier: NSObject, ObservableObject, UNUserNotificationCenterDelega
     static func setPending(_ p: [DigestEntry]) {
         UserDefaults.standard.set(try? JSONEncoder().encode(Array(p.suffix(200))), forKey: pendingKey)
     }
+
+    /// An end-to-end encrypted message: the server's inbox has only its stand-in (src/board.ts, postSealed).
+    static func sealed(_ i: InboxItem) -> Bool { !i.boardId.isEmpty && i.seq > 0 && i.excerpt.hasPrefix("🔒 Encrypted message") }
 
     /// Mentions, replies, decisions and approvals: what's for you. (Friend and contact notes stay in the app.)
     private static func worthIt(_ kind: String) -> Bool { ["mention", "agent", "reply", "approval", "decision"].contains(kind) }

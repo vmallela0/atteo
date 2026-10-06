@@ -27,8 +27,9 @@ settings:
     # Interface languages (vedu #1645): Localizable.xcstrings and InfoPlist.xcstrings in AgentSoup/Resources.
     SWIFT_EMIT_LOC_STRINGS: YES
     LOCALIZATION_PREFERS_STRING_CATALOGS: YES
-    # The app's bundle id; the share extension is "<it>.share". Override THIS (not PRODUCT_BUNDLE_IDENTIFIER, which
-    # would give the extension the app's own id) to build for another id, e.g. the phones' free-team build:
+    # The app's bundle id; the share extension is "<it>.share", the notification extension "<it>.notify". Override
+    # THIS (not PRODUCT_BUNDLE_IDENTIFIER, which would give the extensions the app's own id) to build for another id,
+    # e.g. the phones' free-team build:
     #   xcodebuild … ATTEO_BUNDLE_ID=com.agentsoup.app DEVELOPMENT_TEAM=T3627N2VC4 -allowProvisioningUpdates
     ATTEO_BUNDLE_ID: com.atteo.app
 targets:
@@ -41,6 +42,7 @@ targets:
       - Shared
     dependencies:
       - target: AtteoShare
+      - target: AtteoNotify
       - package: PostHog
       - package: Sentry
         product: Sentry
@@ -75,6 +77,23 @@ targets:
         PRODUCT_NAME: AtteoShare
         INFOPLIST_FILE: ShareExtension/Info.plist
         CODE_SIGN_ENTITLEMENTS: ShareExtension/AtteoShare.entitlements
+        TARGETED_DEVICE_FAMILY: "1"
+        CODE_SIGN_STYLE: Automatic
+        APPLICATION_EXTENSION_API_ONLY: YES
+  AtteoNotify:
+    # The notification extension (E2E 1b): a push for an end-to-end encrypted board carries ciphertext, and this shows
+    # the real words with the board key the app keeps in the same Keychain group (Shared/SealedOpen.swift).
+    type: app-extension
+    platform: iOS
+    sources:
+      - NotifyExtension
+      - Shared/SealedOpen.swift
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(ATTEO_BUNDLE_ID).notify
+        PRODUCT_NAME: AtteoNotify
+        INFOPLIST_FILE: NotifyExtension/Info.plist
+        CODE_SIGN_ENTITLEMENTS: NotifyExtension/AtteoNotify.entitlements
         TARGETED_DEVICE_FAMILY: "1"
         CODE_SIGN_STYLE: Automatic
         APPLICATION_EXTENSION_API_ONLY: YES

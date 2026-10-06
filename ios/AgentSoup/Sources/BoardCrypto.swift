@@ -74,6 +74,8 @@ final class BoardCrypto {
         }
         var mine: [Int: SymmetricKey] = [:]
         for g in st.mine where g.kid == kid { if let k = try? unwrap(g) { mine[g.epoch] = k } }
+        // Kept for the notification extension too (Shared/SealedOpen.swift), this device only.
+        for (e, k) in mine where keys[board]?[e] == nil { SealedKeys.store(k, board: board, epoch: e) }
         keys[board] = mine
         // Hand on what we hold to devices that may have it (the server only lists what we're allowed to grant).
         let out = try st.missing.flatMap { m in try m.epochs.compactMap { e -> [String: Any]? in
@@ -93,6 +95,15 @@ final class BoardCrypto {
             for e in r.entries { if let t = open(e.payload, board: board) { out[e.seq] = t } }
             return out
         } catch { return [:] }
+    }
+
+    /// One encrypted message's words, if this phone can read it (a notification shows them: Notifications.swift).
+    func text(_ board: String, seq: Int) async -> String? {
+        do {
+            if keys[board] == nil { try await sync(board) }
+            let r = try await API.shared.get("/api/boards/\(board)/sealed?after=\(seq - 1)", as: SealedResponse.self, timeout: 15)
+            return r.entries.first { $0.seq == seq }.flatMap { open($0.payload, board: board) }
+        } catch { return nil }
     }
 
     /// The board's whole history that this phone can read, for searching it here (LocalSearch.swift): every page of
@@ -129,13 +140,7 @@ final class BoardCrypto {
     // MARK: - The scheme
 
     private func open(_ payload: String, board: String) -> String? {
-        guard let d = payload.data(using: .utf8),
-              let j = try? JSONSerialization.jsonObject(with: d) as? [String: Any],
-              j["v"] as? Int == 2, let epoch = j["epoch"] as? Int, let key = keys[board]?[epoch],
-              let iv = (j["iv"] as? String).flatMap({ Data(base64Encoded: $0) }), let ct = (j["ct"] as? String).flatMap({ Data(base64Encoded: $0) }), ct.count >= 16,
-              let box = try? AES.GCM.SealedBox(nonce: AES.GCM.Nonce(data: iv), ciphertext: ct.dropLast(16), tag: ct.suffix(16)),
-              let plain = try? AES.GCM.open(box, using: key) else { return nil }
-        return String(data: plain, encoding: .utf8)
+        SealedOpen.open(payload) { keys[board]?[$0] }
     }
 
     private func kek(_ shared: SharedSecret, epk: Data, devicePublic: Data) -> SymmetricKey {
@@ -158,5 +163,5 @@ final class BoardCrypto {
         return SymmetricKey(data: try AES.GCM.open(box, using: kek(shared, epk: epk, devicePublic: publicKey)))
     }
 
-    func forget() { keys = [:]; UserDefaults.standard.removeObject(forKey: "agent-soup-device-kid") }
+    func forget() { keys = [:]; SealedKeys.forgetAll(); UserDefaults.standard.removeObject(forKey: "agent-soup-device-kid") }
 }
