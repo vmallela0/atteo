@@ -234,6 +234,9 @@ export function staticChecks(tree) {
   if (!UUID.test(String(d1.database_id ?? ""))) shape.push("d1_databases[0].database_id isn't a UUID (replace it after wrangler d1 create)");
   if (d1.migrations_dir !== "migrations") shape.push(`migrations_dir is ${d1.migrations_dir ?? "missing"} (want migrations)`);
   if (doBind.name !== "BOARD" || doBind.class_name !== "Board") shape.push(`Durable Object is ${doBind.name}/${doBind.class_name} (want BOARD/Board)`);
+  // Paid production pins the 30s CPU ceiling. Workers Free cannot set it (deploy error 100328), so omitting
+  // `limits` is the documented self-host escape. Any other value is a different ceiling and needs the docs updated.
+  if (wrangler.limits != null && wrangler.limits.cpu_ms !== 30000) shape.push(`limits.cpu_ms is ${wrangler.limits.cpu_ms} (want 30000, or omit limits on the Workers Free plan; docs/CLOUDFLARE_HARDENING.md)`);
   for (const v of REQUIRED_VARS) if (!(v in vars)) shape.push(`vars missing ${v}`);
   out.push(shape.length ? check("wrangler-shape", "fail", shape.join("; ")) : check("wrangler-shape", "ok", `Worker ${wrangler.name}, D1 ${d1.database_name}, DO Board, migrations_dir=migrations, workers_dev`));
 

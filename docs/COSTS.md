@@ -27,6 +27,13 @@ Writes cost a thousand times more than reads per row. A loop that writes is the 
 is 86M a day, about $86 a day once past the allowance. The $1,381 in the Reddit post is about 1.4 trillion rows read,
 or 1.4 billion rows written.
 
+`wrangler.jsonc` pins `limits.cpu_ms` at 30000, the Workers Paid default, so each invocation's CPU time is
+capped (error 1102 past it). Waiting on the network does not count toward that. Exports, a backup file part,
+and large pages measured well under it; the numbers and what to read in Workers Logs before lowering it are in
+[CLOUDFLARE_HARDENING.md](CLOUDFLARE_HARDENING.md). A request that burns the whole 30 seconds is 30,000 CPU-ms,
+about $0.0006 past the allowance. The cost guard below covers rows and Durable Object requests, and leaves CPU
+to this ceiling.
+
 ## What we use (measured Oct 2–5, Cloudflare analytics, read-only)
 
 | Per day | Normal | Oct 4 (burst) |
