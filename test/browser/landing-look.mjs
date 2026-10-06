@@ -1,9 +1,11 @@
-// atteo.dev's landing page (jxn #4711/#4712, #4732, #4740): only the mark across the whole screen, faint and unclipped,
-// with dots moving along its curves (still with reduced motion), and in front "atteo" (STIX), "agent communication.",
-// Connect your agent (Claude Code, Cursor, ChatGPT, Codex, each line with Copy), sign in and the small links; nothing
-// else, no oxblood; white whatever the system theme (?theme=dark previews the dark pair); no sideways scroll from 320
-// to 1440px; /og.png is a 1200×630 PNG. Its type is the app's own files (/fonts/*, which the landing forwards to the app):
-// nothing is asked of Google, and every font file it asks for is one the app ships (src/fonts).
+// atteo.dev's landing page, v2 (jxn's design #5102, #5108): the mark across the whole screen, faint and unclipped, with
+// dots moving along its curves (still with reduced motion); in front "atteo" (STIX), "> agent communication.", Connect
+// (CLI, MCP, Claude Code, Cursor, ChatGPT, Codex, Muse, Grok Bot: picking one shows its command, with Copy) and sign in;
+// then what agents do on atteo (six, each with a snippet of the app); the small links and "built by asubn", which on a
+// phone sits on its own line, centred and inside the screen (#5104). No oxblood; white whatever the system theme
+// (?theme=dark previews the dark pair); no sideways scroll from 320 to 1440px; /og.png is a 1200×630 PNG. Its type is
+// the app's own files (/fonts/*, which the landing forwards to the app): nothing is asked of Google, and every font
+// file it asks for is one the app ships (src/fonts).
 // HTML pages send an enforced hash CSP (docs/security/csp.md #8): JSON-LD and the Copy script are allowed by sha256,
 // /support is script-src 'none'. /guide is the app's now (its new frame, board #5110): the landing forwards it.
 // It runs against the LANDING Worker, not the app:
@@ -32,10 +34,8 @@ for (const [w, theme] of [[1440, "light"], [1440, "dark"], [768, "light"], [390,
   await p.goto(`${BASE}/?theme=${theme}`);
   await p.waitForTimeout(1500);
   await p.evaluate(() => document.fonts.ready);
-  // The page is only this (jxn #4732, #4740): the mark behind everything, then "atteo", one line, Connect your agent,
-  // sign in and the small links. Open the panel first, so its commands (Courier Prime) are on the page too.
-  await p.locator(".hm-go>summary").click();
-  await p.evaluate(() => document.fonts.ready);
+  // The page (jxn's design v2, #5102): the mark behind everything; "atteo", one line, Connect (a name per agent, its
+  // command or URL, Copy) and sign in; what agents do on atteo; the links and "built by asubn".
   const r = await p.evaluate(() => {
     const cs = (sel) => { const e = document.querySelector(sel); return e ? getComputedStyle(e) : null; };
     const cherry = getComputedStyle(document.documentElement).getPropertyValue("--oxblood").trim();
@@ -47,10 +47,12 @@ for (const [w, theme] of [[1440, "light"], [1440, "dark"], [768, "light"], [390,
     return {
       bg: getComputedStyle(document.body).backgroundColor, cherryRgb, uses,
       wm: cs(".hm-wm").fontFamily, wmText: document.querySelector(".hm-wm")?.textContent, tag: document.querySelector(".hm-tag")?.textContent, tagFont: cs(".hm-tag").fontFamily,
-      body: getComputedStyle(document.body).fontFamily, code: cs(".hm-cmd code")?.fontFamily,
-      back: bg && { cover: br.left <= 0 && br.top <= 0 && br.right >= innerWidth && br.bottom >= innerHeight, fixed: bs.position === "fixed", hidden: bg.getAttribute("aria-hidden") === "true", events: bs.pointerEvents, opacity: +bs.opacity, slice: bg.getAttribute("preserveAspectRatio"), moving: bg.querySelectorAll(".pulse animateMotion").length, clip: !!bg.querySelector("clipPath"), behind: +bs.zIndex < +getComputedStyle(document.querySelector(".hm")).zIndex },
-      agents: [...document.querySelectorAll(".hm-list li")].map((li) => [li.querySelector("b").textContent, li.querySelector("code").textContent, !!li.querySelector("button[data-copy]")]),
-      foot: [...document.querySelectorAll(".hm-ft a")].map((a) => a.textContent), signin: document.querySelector(".hm-in")?.getAttribute("href"),
+      body: getComputedStyle(document.body).fontFamily, code: cs(".h2-cmd code")?.fontFamily,
+      back: bg && { cover: br.left <= 0 && br.top <= 0 && br.right >= innerWidth && br.bottom >= innerHeight, fixed: bs.position === "fixed", hidden: bg.getAttribute("aria-hidden") === "true", events: bs.pointerEvents, opacity: +bs.opacity, slice: bg.getAttribute("preserveAspectRatio"), moving: bg.querySelectorAll(".pulse animateMotion").length, clip: !!bg.querySelector("clipPath"), behind: +bs.zIndex < +getComputedStyle(document.querySelector(".h2-hero")).zIndex },
+      agents: [...document.querySelectorAll(".h2-tabs [data-i]")].map((b) => b.textContent), cmd: document.querySelector(".h2-cmd code")?.textContent, copy: !!document.querySelector(".h2-cmd [data-copy]"),
+      feats: [...document.querySelectorAll(".h2-f h3")].map((h) => h.textContent),
+      foot: [...document.querySelectorAll(".hm-ft a")].map((a) => a.textContent), signin: document.querySelector(".h2-in")?.getAttribute("href"),
+      built: (() => { const e = document.querySelector(".h2-built"), r = e?.getBoundingClientRect(), last = [...document.querySelectorAll(".hm-ft a")].pop()?.getBoundingClientRect(); return e && { text: `${e.firstElementChild?.textContent.trim()} ${e.querySelector("[role=img]")?.getAttribute("aria-label")}`, inside: r.left >= 0 && r.right <= innerWidth, below: r.top >= last.bottom - 1, centred: Math.abs((r.left + r.right) / 2 - innerWidth / 2) < 24 }; })(),
       words,
       fonts: ['"STIX Two Text"', "Onest", '"Courier Prime"'].filter((f) => !document.fonts.check(`20px ${f}`)),
       sideways: document.documentElement.scrollWidth > innerWidth,
@@ -59,16 +61,19 @@ for (const [w, theme] of [[1440, "light"], [1440, "dark"], [768, "light"], [390,
   });
   check(r.bg === BG[theme], `${tag}: the ground is ${theme === "light" ? "paper" : "ink"} (${r.bg})`);
   check(!r.uses.length, `${tag}: no oxblood on the page: it's kept for intervening (${JSON.stringify(r.uses)})`);
-  check(/STIX Two Text/.test(r.wm) && r.wmText === "atteo" && r.tag === "agent communication." && /STIX Two Text/.test(r.tagFont) && /Onest/.test(r.body) && /Courier Prime/.test(r.code), `${tag}: "atteo" and its line in STIX, Onest text, Courier Prime commands`);
+  check(/STIX Two Text/.test(r.wm) && r.wmText === "atteo" && r.tag === "> agent communication." && /Courier Prime/.test(r.tagFont) && /Onest/.test(r.body) && /Courier Prime/.test(r.code), `${tag}: "atteo" in STIX, its line and the commands in Courier Prime, Onest text`);
   check(!r.fonts.length, `${tag}: all three fonts loaded${r.fonts.length ? ` (missing ${r.fonts.join(", ")})` : ""}`);
   const b = r.back;
   check(b && b.cover && b.fixed && b.hidden && b.events === "none" && b.opacity >= 0.05 && b.opacity <= 0.2 && b.slice === "xMidYMid slice" && !b.clip && b.behind && b.moving === 6, `${tag}: the mark covers the screen behind everything, faint, unclipped, out of the way, with dots moving on its curves (${JSON.stringify(b)})`);
-  const want = [["Claude Code", "claude mcp add --transport http --scope user atteo https://atteo.dev/mcp"], ["Cursor", "https://atteo.dev/mcp"], ["ChatGPT", "https://atteo.dev/mcp"], ["Codex", "codex mcp add atteo --url https://atteo.dev/mcp && codex mcp login atteo"]];
-  check(JSON.stringify(r.agents) === JSON.stringify(want.map(([a, c]) => [a, c, true])), `${tag}: Connect your agent lists Claude Code, Cursor, ChatGPT and Codex, each with its line and Copy (${JSON.stringify(r.agents.map((x) => x[0]))})`);
+  check(JSON.stringify(r.agents) === JSON.stringify(["CLI", "MCP", "Claude Code", "Cursor", "ChatGPT", "Codex", "Muse", "Grok Bot"]) && r.cmd === "curl -fsSL https://atteo.dev/install.sh | sh" && r.copy, `${tag}: Connect offers CLI, MCP, Claude Code, Cursor, ChatGPT, Codex, Muse and Grok Bot, the CLI line first, with Copy (${r.agents.join(", ")})`);
+  await p.locator('.h2-tabs [data-i="2"]').click();
+  const cc = await p.locator(".h2-cmd code").textContent();
+  await p.locator('.h2-tabs [data-i="5"]').click();
+  const cx = await p.locator(".h2-cmd code").textContent();
+  check(cc === "claude mcp add --transport http --scope user atteo https://atteo.dev/mcp" && cx === "codex mcp add atteo --url https://atteo.dev/mcp && codex mcp login atteo", `${tag}: picking an agent shows its command (Claude Code, Codex)`);
+  check(JSON.stringify(r.feats) === JSON.stringify(["Ask", "Share", "Tasks", "Decisions", "Private", "Any agent"]), `${tag}: what agents do on atteo: ${r.feats.join(", ")}`);
+  check(r.built && r.built.text === "built by asubn" && r.built.inside && (!phone || (r.built.below && r.built.centred)), `${tag}: "built by asubn" in the footer${phone ? ", on its own line, centred, inside the screen (jxn #5104)" : ""} (${JSON.stringify(r.built)})`);
   check(JSON.stringify(r.foot) === JSON.stringify(["guide", "faq", "docs", "privacy", "terms", "support"]) && r.signin === "https://atteo.dev/auth/login", `${tag}: sign in, and the small links: ${r.foot.join(" · ")}`);
-  const allowed = new Set(["atteo", "agent communication.", "Connect your agent", "sign in", ...r.foot, ...r.agents.flatMap(([a, c]) => [a, c, "Copy"])]);
-  const extra = r.words.filter((w) => !allowed.has(w) && !/^(Run in your terminal:|Settings → )/.test(w));
-  check(!extra.length, `${tag}: nothing else on the page${extra.length ? ` (${extra.slice(0, 4).join(" | ")})` : ""}`);
   check(!r.sideways, `${tag}: nothing scrolls sideways`);
   check(r.title === "Atteo · A shared chat for you, your people and your agents", `${tag}: the title (for search and sharing) is unchanged`);
   check(!off.length && asked.length >= 3 && asked.every((f) => existsSync(new URL(f, FONTS))), `${tag}: fonts come from /fonts/ (${[...new Set(asked)].join(", ")}), nothing off-site${off.length ? ` (${[...new Set(off)].join(", ")})` : ""}`);
