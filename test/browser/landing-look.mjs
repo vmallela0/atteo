@@ -1,10 +1,11 @@
-// atteo.dev's landing page in the design language v1 (board #2508, task #2529): the tin-can mark and the Schoolbell
-// wordmark with its marker filter, Enriqueta headline, Onest text, Courier Prime commands, ink/paper (and the dark
-// pair), one accent: oxblood only on Start a chat (jxn #2858), white whatever the system theme; the shapes stay as they were (jxn #2583:
-// only fonts, colours and the logo change): rounded box, button and links, round avatars; no sideways scroll from 320 to 1440px;
-// the copy is unchanged; /og.png is a 1200×630 PNG. Its type is the app's own files (/fonts/*, which the landing forwards
-// to the app): nothing is asked of Google, and every font file it asks for is one the app ships (src/fonts).
-// HTML pages send an enforced hash CSP (docs/security/csp.md #8): JSON-LD is allowed by sha256, /guide and /support are script-src 'none'.
+// atteo.dev's landing page (jxn #4711/#4712, #4732, #4740): only the mark across the whole screen, faint and unclipped,
+// with dots moving along its curves (still with reduced motion), and in front "atteo" (STIX), "agent communication.",
+// Connect your agent (Claude Code, Cursor, ChatGPT, Codex, each line with Copy), sign in and the small links; nothing
+// else, no oxblood; white whatever the system theme (?theme=dark previews the dark pair); no sideways scroll from 320
+// to 1440px; /og.png is a 1200×630 PNG. Its type is the app's own files (/fonts/*, which the landing forwards to the app):
+// nothing is asked of Google, and every font file it asks for is one the app ships (src/fonts).
+// HTML pages send an enforced hash CSP (docs/security/csp.md #8): JSON-LD and the Copy script are allowed by sha256,
+// /guide and /support are script-src 'none'.
 // It runs against the LANDING Worker, not the app:
 //   npx wrangler dev -c landing/wrangler.jsonc --port 8798 --inspector-port 9237 --var APP_ORIGIN:http://127.0.0.1:9
 //   LANDING=http://localhost:8798 node test/browser/landing-look.mjs
@@ -31,34 +32,45 @@ for (const [w, theme] of [[1440, "light"], [1440, "dark"], [768, "light"], [390,
   await p.goto(`${BASE}/?theme=${theme}`);
   await p.waitForTimeout(1500);
   await p.evaluate(() => document.fonts.ready);
+  // The page is only this (jxn #4732, #4740): the mark behind everything, then "atteo", one line, Connect your agent,
+  // sign in and the small links. Open the panel first, so its commands (Courier Prime) are on the page too.
+  await p.locator(".hm-go>summary").click();
+  await p.evaluate(() => document.fonts.ready);
   const r = await p.evaluate(() => {
     const cs = (sel) => { const e = document.querySelector(sel); return e ? getComputedStyle(e) : null; };
-    // Every element whose text, background or border is the page's cherry (the logo's SVG strokes aside).
     const cherry = getComputedStyle(document.documentElement).getPropertyValue("--oxblood").trim();
     const probe = document.createElement("i"); probe.style.color = cherry; document.body.append(probe); const cherryRgb = getComputedStyle(probe).color; probe.remove();
-    const uses = [...document.querySelectorAll("body *:not(svg):not(svg *)")].filter((e) => { const s = getComputedStyle(e); return e.offsetParent !== null && [s.color, s.backgroundColor, s.borderTopColor].includes(cherryRgb) && (s.backgroundColor === cherryRgb || (e.textContent || "").trim()); }).map((e) => e.tagName.toLowerCase() + "." + e.className);
-    const radius = [".box", ".box button", ".or a", ".entry .via", ".mention", ".av"].map((s) => [s, cs(s)?.borderTopLeftRadius]);
+    const uses = [...document.querySelectorAll("body *:not(svg):not(svg *)")].filter((e) => { const s = getComputedStyle(e); return e.offsetParent !== null && [s.color, s.backgroundColor, s.borderTopColor].includes(cherryRgb); }).map((e) => e.tagName.toLowerCase());
+    const bg = document.querySelector("svg.bgmark"), br = bg?.getBoundingClientRect(), bs = bg && getComputedStyle(bg);
+    const shown = (e) => e.offsetParent !== null || getComputedStyle(e).position === "fixed";
+    const words = [...document.querySelectorAll("body *:not(svg):not(svg *):not(script)")].filter((e) => shown(e) && [...e.childNodes].some((n) => n.nodeType === 3 && n.textContent.trim())).map((e) => [...e.childNodes].filter((n) => n.nodeType === 3).map((n) => n.textContent.trim()).join(" ").trim()).filter(Boolean);
     return {
       bg: getComputedStyle(document.body).backgroundColor, cherryRgb, uses,
-      h1: cs("h1").fontFamily, body: getComputedStyle(document.body).fontFamily, pre: cs(".dev pre").fontFamily, wm: cs(".brand .wm").fontFamily, wmFilter: cs(".brand .wm").filter,
-      rule: cs(".top").borderBottomWidth + " " + cs(".top").borderBottomStyle, boxBorder: cs(".box").borderTopWidth, radius,
-      mark: !!document.querySelector(".brand svg.mk path[stroke=currentColor]") && !!document.querySelector(".brand .tagl"),
-      fonts: ["Onest", "Enriqueta", '"STIX Two Text"', '"Courier Prime"'].filter((f) => !document.fonts.check(`600 20px ${f}`) && !document.fonts.check(`20px ${f}`)),
+      wm: cs(".hm-wm").fontFamily, wmText: document.querySelector(".hm-wm")?.textContent, tag: document.querySelector(".hm-tag")?.textContent, tagFont: cs(".hm-tag").fontFamily,
+      body: getComputedStyle(document.body).fontFamily, code: cs(".hm-cmd code")?.fontFamily,
+      back: bg && { cover: br.left <= 0 && br.top <= 0 && br.right >= innerWidth && br.bottom >= innerHeight, fixed: bs.position === "fixed", hidden: bg.getAttribute("aria-hidden") === "true", events: bs.pointerEvents, opacity: +bs.opacity, slice: bg.getAttribute("preserveAspectRatio"), moving: bg.querySelectorAll(".pulse animateMotion").length, clip: !!bg.querySelector("clipPath"), behind: +bs.zIndex < +getComputedStyle(document.querySelector(".hm")).zIndex },
+      agents: [...document.querySelectorAll(".hm-list li")].map((li) => [li.querySelector("b").textContent, li.querySelector("code").textContent, !!li.querySelector("button[data-copy]")]),
+      foot: [...document.querySelectorAll(".hm-ft a")].map((a) => a.textContent), signin: document.querySelector(".hm-in")?.getAttribute("href"),
+      words,
+      fonts: ['"STIX Two Text"', "Onest", '"Courier Prime"'].filter((f) => !document.fonts.check(`20px ${f}`)),
       sideways: document.documentElement.scrollWidth > innerWidth,
-      title: document.title, h1label: document.querySelector("h1").getAttribute("aria-label"), cta: document.querySelector(".box button").textContent,
-      elsewhere: (() => { const b = document.body.cloneNode(true); b.querySelector("h1").remove(); return (b.textContent.replace(/\s+/g, " ").match(/talk(ing)? to each other/gi) || []).length; })(), headSays: /talking to each other/i.test(document.head.innerHTML),
+      title: document.title,
     };
   });
   check(r.bg === BG[theme], `${tag}: the ground is ${theme === "light" ? "paper" : "ink"} (${r.bg})`);
-  check(r.cherryRgb === ACCENT[theme] && r.uses.length === 1 && /^button/.test(r.uses[0]), `${tag}: one accent, oxblood, on Start a chat only (${JSON.stringify(r.uses)})`);
-  check(/Enriqueta/.test(r.h1) && /Onest/.test(r.body) && /Courier Prime/.test(r.pre), `${tag}: Enriqueta headline, Onest text, Courier Prime commands`); // the wordmark is STIX now (jxn #4713), checked below
-  check(!r.fonts.length, `${tag}: all four fonts loaded${r.fonts.length ? ` (missing ${r.fonts.join(", ")})` : ""}`);
-  check(/STIX Two Text/.test(r.wm) && r.mark, `${tag}: the graph mark, the STIX wordmark and its tagline (${r.wm})`);
-  const want = { ".box": "14px", ".box button": "10px", ".or a": "8px", ".entry .via": "999px", ".mention": "4px", ".av": "50%" };
-  check(r.boxBorder === "1px" && r.rule !== "2px solid" && r.radius.every(([k, v]) => v === want[k]), `${tag}: shapes as before: rounded corners, 1px borders, round avatars (${JSON.stringify(r.radius)})`);
+  check(!r.uses.length, `${tag}: no oxblood on the page: it's kept for intervening (${JSON.stringify(r.uses)})`);
+  check(/STIX Two Text/.test(r.wm) && r.wmText === "atteo" && r.tag === "agent communication." && /STIX Two Text/.test(r.tagFont) && /Onest/.test(r.body) && /Courier Prime/.test(r.code), `${tag}: "atteo" and its line in STIX, Onest text, Courier Prime commands`);
+  check(!r.fonts.length, `${tag}: all three fonts loaded${r.fonts.length ? ` (missing ${r.fonts.join(", ")})` : ""}`);
+  const b = r.back;
+  check(b && b.cover && b.fixed && b.hidden && b.events === "none" && b.opacity >= 0.05 && b.opacity <= 0.2 && b.slice === "xMidYMid slice" && !b.clip && b.behind && b.moving === 6, `${tag}: the mark covers the screen behind everything, faint, unclipped, out of the way, with dots moving on its curves (${JSON.stringify(b)})`);
+  const want = [["Claude Code", "claude mcp add --transport http --scope user atteo https://atteo.dev/mcp"], ["Cursor", "https://atteo.dev/mcp"], ["ChatGPT", "https://atteo.dev/mcp"], ["Codex", "codex mcp add atteo --url https://atteo.dev/mcp && codex mcp login atteo"]];
+  check(JSON.stringify(r.agents) === JSON.stringify(want.map(([a, c]) => [a, c, true])), `${tag}: Connect your agent lists Claude Code, Cursor, ChatGPT and Codex, each with its line and Copy (${JSON.stringify(r.agents.map((x) => x[0]))})`);
+  check(JSON.stringify(r.foot) === JSON.stringify(["guide", "faq", "docs", "privacy", "terms", "support"]) && r.signin === "https://atteo.dev/auth/login", `${tag}: sign in, and the small links: ${r.foot.join(" · ")}`);
+  const allowed = new Set(["atteo", "agent communication.", "Connect your agent", "sign in", ...r.foot, ...r.agents.flatMap(([a, c]) => [a, c, "Copy"])]);
+  const extra = r.words.filter((w) => !allowed.has(w) && !/^(Run in your terminal:|Settings → )/.test(w));
+  check(!extra.length, `${tag}: nothing else on the page${extra.length ? ` (${extra.slice(0, 4).join(" | ")})` : ""}`);
   check(!r.sideways, `${tag}: nothing scrolls sideways`);
-  check(r.title === "Atteo · A shared chat for you, your people and your agents" && r.h1label === "Agents (are now) Talking To Each Other." && r.cta === "Start a chat", `${tag}: the copy is unchanged`);
-  check(r.elsewhere === 0 && !r.headSays, `${tag}: "talking to each other" is said once, by the headline; not in the title, meta, footer or anywhere else on the page (vedu #2853${r.elsewhere ? `; ${r.elsewhere} more` : ""})`);
+  check(r.title === "Atteo · A shared chat for you, your people and your agents", `${tag}: the title (for search and sharing) is unchanged`);
   check(!off.length && asked.length >= 3 && asked.every((f) => existsSync(new URL(f, FONTS))), `${tag}: fonts come from /fonts/ (${[...new Set(asked)].join(", ")}), nothing off-site${off.length ? ` (${[...new Set(off)].join(", ")})` : ""}`);
   check(!errors.length, `${tag}: no page errors${errors.length ? ` (${errors[0]})` : ""}`);
   const cspHits = await p.evaluate(() => window.__cspHits || []);
@@ -73,6 +85,11 @@ const buf = Buffer.from(await og.arrayBuffer());
   const p = await ctx.newPage(); await p.goto(`${BASE}/`); await p.waitForTimeout(300);
   const bg = await p.evaluate(() => getComputedStyle(document.body).backgroundColor);
   check(bg === BG.light, `a system set to dark still gets the white page (${bg})`); await ctx.close(); }
+// Reduced motion: the mark stands still (no dots), the page otherwise the same.
+{ const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, reducedMotion: "reduce" });
+  const p = await ctx.newPage(); await p.goto(`${BASE}/`); await p.waitForTimeout(300);
+  const dots = await p.evaluate(() => getComputedStyle(document.querySelector(".bgmark .pulse")).display);
+  check(dots === "none", `with reduced motion the mark stands still (${dots})`); await ctx.close(); }
 check(og.ok && og.headers.get("content-type") === "image/png" && buf.readUInt32BE(16) === 1200 && buf.readUInt32BE(20) === 630, `/og.png is a 1200×630 PNG (${buf.readUInt32BE(16)}×${buf.readUInt32BE(20)})`);
 // Found by search and answer engines (vedu #3151, task #3152): robots lets the AI crawlers read the public pages but
 // not the app's; the sitemap lists the public pages; /llms.txt and /llms-full.txt answer;
@@ -82,9 +99,9 @@ check(og.ok && og.headers.get("content-type") === "image/png" && buf.readUInt32B
   const group = (ua) => (robots.body.split(/\n\s*\n/).find((g) => g.startsWith(`User-agent: ${ua}\n`)) || "");
   check(["*", "GPTBot", "ClaudeBot", "PerplexityBot", "Google-Extended"].every((ua) => /^Allow: \/$/m.test(group(ua)) && /^Disallow: \/b\/$/m.test(group(ua)) && /^Disallow: \/api\/$/m.test(group(ua))) && /^Sitemap: https:\/\/atteo\.dev\/sitemap\.xml$/m.test(robots.body), "robots.txt: public pages open to all crawlers, AI ones by name; boards and the API closed");
   check(["/", "/guide", "/support", "/llms.txt"].every((p) => sitemap.body.includes(`<loc>https://atteo.dev${p}</loc>`)), "sitemap.xml lists the public pages");
-  check(support.ok && /<title>Atteo · Support<\/title>/.test(support.body) && /mailto:privacy@atteo\.dev/.test(support.body) && /href="https:\/\/atteo\.dev\/privacy"/.test(support.body) && /href="https:\/\/atteo\.dev\/terms"/.test(support.body) && /invite-only boards for people and their agents/.test(support.body) && /href="https:\/\/atteo\.dev\/support">Support<\/a>/.test(home.body), "/support is public, with the privacy contact, legal links, and a home footer link");
-  check(["/docs", "/llms.txt", "/guide", "/faq", "/openapi.json", "/mcp"].every((p) => home.body.includes(`href="https://atteo.dev${p}"`) && faqPg.body.includes(`href="https://atteo.dev${p}"`)), "footer has docs, llms.txt, guide, faq, OpenAPI and the MCP URL");
-  check(/id="connect"/.test(home.body) && /For directories/.test(home.body) && /mcp: https:\/\/atteo\.dev\/mcp/.test(home.body) && !/listed on Smithery/i.test(home.body), "home has connect steps and directory facts, without fake listings");
+  check(support.ok && /<title>Atteo · Support<\/title>/.test(support.body) && /mailto:privacy@atteo\.dev/.test(support.body) && /href="https:\/\/atteo\.dev\/privacy"/.test(support.body) && /href="https:\/\/atteo\.dev\/terms"/.test(support.body) && /invite-only boards for people and their agents/.test(support.body) && /href="https:\/\/atteo\.dev\/support">support<\/a>/i.test(home.body), "/support is public, with the privacy contact, legal links, and a home footer link");
+  check(["/docs", "/llms.txt", "/guide", "/faq"].every((p) => home.body.includes(`href="https://atteo.dev${p}"`)) && ["/docs", "/llms.txt", "/guide", "/faq", "/openapi.json", "/mcp"].every((p) => faqPg.body.includes(`href="https://atteo.dev${p}"`)), "footer has docs, llms.txt, guide, faq, OpenAPI and the MCP URL");
+  check(/claude mcp add --transport http --scope user atteo https:\/\/atteo\.dev\/mcp/.test(home.body) && /MCP server \(streamable HTTP, OAuth sign-in\): https:\/\/atteo\.dev\/mcp/.test(llms.body) && !/listed on Smithery/i.test(home.body), "home has the connect lines; directories read the MCP endpoint from /llms.txt; no fake listings");
   check(llms.ok && llms.body.startsWith("# Atteo\n") && /\(https:\/\/atteo\.dev\/llms-full\.txt\)/.test(llms.body) && full.ok && /text\/plain/.test(full.type) && /PRIVACY/.test(full.body), "/llms.txt (Markdown, links the full text) and /llms-full.txt answer");
   const ldOf = (h) => { try { return JSON.parse(h.match(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/)[1]); } catch { return null; } };
   const ld = ldOf(home.body), fq = ldOf(faqPg.body);
@@ -97,7 +114,8 @@ check(og.ok && og.headers.get("content-type") === "image/png" && buf.readUInt32B
     const scripts = inline(r.body), src = r.csp.split("; ").find((d) => d.startsWith("script-src ")) || "";
     check(!!r.csp && !r.report && /script-src-attr 'none'/.test(r.csp) && !src.includes("'unsafe-inline'"), `${p}: enforced hash CSP, no unsafe-inline scripts`);
     if (p === "/guide" || p === "/support") check(scripts.length === 0 && /script-src 'none'/.test(src), `${p}: script-src 'none'`);
-    else check(scripts.length === 1 && src.includes(`'sha256-${await sha(scripts[0])}'`), `${p}: JSON-LD hash is in script-src`);
+    else { const want = p === "/" ? 2 : 1; const hashed = (await Promise.all(scripts.map(sha))).every((h) => src.includes(`'sha256-${h}'`));
+      check(scripts.length === want && hashed, `${p}: ${want === 2 ? "JSON-LD and the Copy script" : "JSON-LD"} hashed in script-src (${scripts.length})`); }
   }
 }
 await browser.close();
