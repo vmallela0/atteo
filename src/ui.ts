@@ -880,9 +880,9 @@ ${AGENT_LOGO_CSS}
 .app{min-height:100vh}
 .sidebar{position:fixed;inset:0 auto 0 0;width:260px;z-index:40;transform:translateX(-100%);transition:transform .2s,box-shadow .2s;height:100vh;display:flex;flex-direction:column;gap:2px;padding:10px 8px;border-right:1px solid var(--line);background:var(--bg-subtle);overflow:auto}
 .sidebar .ws{display:flex;align-items:center;gap:8px;padding:6px 8px 10px;font-weight:600;color:var(--ink)}
-.sidebar .search{display:flex;align-items:center;gap:8px;height:30px;margin:0 0 8px;padding:0 9px;border:1px solid var(--line);border-radius:7px;background:var(--bg);color:var(--faint);cursor:pointer;font:inherit;font-size:13px;text-align:left}
-.sidebar .search:hover{border-color:var(--line-strong);color:var(--muted)}
-.sidebar .search kbd{margin-left:auto}
+.sidebar .search,.strip .search{display:flex;align-items:center;gap:8px;height:30px;margin:0 0 8px;padding:0 9px;border:1px solid var(--line);border-radius:7px;background:var(--bg);color:var(--faint);cursor:pointer;font:inherit;font-size:13px;text-align:left}
+.sidebar .search:hover,.strip .search:hover{border-color:var(--line-strong);color:var(--muted)}
+.sidebar .search kbd,.strip .search kbd{margin-left:auto}.strip .search{width:240px;margin:0 4px}
 .side-link{display:flex;align-items:center;gap:9px;height:30px;padding:0 9px;border-radius:6px;color:var(--muted);font-size:13px}
 .side-link:hover{background:var(--bg-hover);color:var(--ink)}
 .side-link[aria-current]{background:var(--bg-hover);color:var(--ink);font-weight:500}
@@ -1059,12 +1059,14 @@ mark{background:var(--mark);color:inherit;border-radius:2px;padding:0 1px}
 .strip{display:flex;align-items:center;gap:6px;height:44px;padding:0 12px;border-bottom:1px solid var(--line);background:var(--bg-subtle)}
 .strip .ws{display:flex;align-items:center;gap:8px;padding:0 6px;color:var(--ink)}.strip .ws .wm{font-size:19px}
 .btabs{display:flex;flex:1;min-width:0;align-self:stretch;overflow-x:auto;scrollbar-width:none}
-.btab{display:flex;align-items:center;gap:6px;flex:none;max-width:220px;padding:0 12px;border-bottom:3px solid var(--line-strong);color:var(--muted);font-size:13px;white-space:nowrap}
-.btab>b{font-weight:500;overflow:hidden;text-overflow:ellipsis}.btab[aria-current]{color:var(--ink);background:var(--bg)}.btab.st-work{border-bottom-color:var(--ok)}.btab.st-ap{border-bottom-color:var(--warn)}
-.btab .wk,.btab .apn{font-size:11.5px;color:var(--faint)}.btab .apn{color:var(--warn)}
+.btab{display:flex;align-items:center;gap:7px;flex:none;max-width:240px;margin-top:6px;padding:0 14px;border:1px solid transparent;border-bottom:3px solid var(--line-strong);border-radius:8px 8px 0 0;color:var(--muted);font-size:13px;white-space:nowrap}
+.btab>b{font-weight:500;overflow:hidden;text-overflow:ellipsis}.btab[aria-current]{color:var(--ink);background:var(--bg);border-color:var(--line) var(--line) var(--line-strong)}.btab.st-work{border-bottom-color:var(--ok)}.btab.st-ap{border-bottom-color:var(--warn)}
+.btab .wk{font-size:11.5px;color:var(--faint)}.btab .apn{font-size:11px;padding:1px 6px;border-radius:999px;background:color-mix(in srgb,var(--warn) 16%,transparent);color:var(--ink)}
 .strip .count{margin-left:-6px}
 .topbar .menu-btn{display:none}
-@media(max-width:640px){.strip{display:none}.topbar .menu-btn{display:inline-flex}.content.full{--top:48px}}
+@media(min-width:641px){.tb-full{display:none}.content.full{--top:44px}.bp-head>.actions{display:flex;gap:8px;align-items:center;align-self:center;margin-left:auto}}
+.bp-crumb{color:var(--muted);font-size:15px}
+@media(max-width:640px){.strip{display:none}.topbar .menu-btn{display:inline-flex}.content.full{--top:48px}.bp-crumb{display:none}}
 /* Connect an agent, always in the phone menu (vedu #2241): the board's header button goes once an agent is connected. */
 .side-connect{display:none}@media(max-width:860px){.side-connect{display:flex}}
 .side-connect .ev-l,:root[data-mode="everyday"] .side-connect .dev-l{display:none}:root[data-mode="everyday"] .side-connect .ev-l{display:inline}
@@ -1139,7 +1141,7 @@ dialog.palette{margin-top:12vh;width:min(600px,calc(100vw - 24px));border-radius
 @media (pointer:coarse){.doc-item{padding:10px 8px}}
 .doc-body{font-size:14px}.doc-body p+p{margin-top:10px}
 /* board page: the header and tabs stay put; the thread, sidebar, log and docs each scroll on their own */
-.content.full{max-width:1160px;height:calc(100vh - var(--top,92px));height:calc(100dvh - var(--top,92px));padding:6px 20px 0;display:flex;flex-direction:column;overflow:hidden}
+.content.full{max-width:none;height:calc(100vh - var(--top,92px));height:calc(100dvh - var(--top,92px));padding:6px 20px 0;display:flex;flex-direction:column;overflow:hidden}
 .bp-banner{flex:none;display:flex;align-items:center;gap:12px;margin:6px 0;padding:8px 12px}
 .e2e-bar{flex-wrap:wrap}.e2e-asks{flex-basis:100%;display:flex;flex-direction:column;gap:6px}.e2e-asks:empty{display:none}
 .e2e-ask{display:flex;align-items:center;gap:10px;padding-top:6px;border-top:1px solid var(--line)}.e2e-ask.xs{display:block}
@@ -1697,7 +1699,8 @@ ${CODE_COLOR_JS}`;
 // Every page's stylesheet and shell script, served by the Worker as /app.css and /app.js (index.ts), versioned by a hash of
 // their text and cached for good: a page no longer carries ~135KB of CSS and ~40KB of JS inline on every navigation, and
 // the script gets V8's code cache. A page's own script stays inline (it carries that page's data) and runs after it.
-export const APP_CSS = `${APP_FONT_CSS}\n${CSS}`;
+// Served without its /* comments */ (about 16 KB of them): they're for whoever reads this file, not for every page load.
+export const APP_CSS = `${APP_FONT_CSS}\n${CSS}`.replace(/\/\*[\s\S]*?\*\//g, "");
 export const APP_CSS_SRC = `/app.css?v=${fnv(APP_CSS)}`;
 export const APP_JS = CLIENT_JS;
 export const APP_JS_SRC = `/app.js?v=${fnv(APP_JS)}`;
@@ -1814,16 +1817,16 @@ export function appPage(
   const tabName = (b: SideBoard) => (b.kind === "direct" ? shownName(directPeer(b, v.name), b.peer_name) : b.kind === "agent" ? T("Your agent") : b.title);
   const tabs = opts.boards
     .slice(0, 24)
-    .map((b) => `<a class="btab${b.live ? " st-work" : ""}" href="/b/${esc(b.id)}" data-tab="${esc(b.id)}"${cur(b.id)}><b>${esc(tabName(b))}</b>${b.live ? `<span class="wk">${esc(T("{n} working", { n: b.live }))}</span>` : ""}<span class="apn" hidden></span></a>`)
+    .map((b) => `<a class="btab${b.live ? " st-work" : ""}" href="/b/${esc(b.id)}" data-tab="${esc(b.id)}"${cur(b.id)}>${b.kind === "direct" ? avatar(directPeer(b, v.name), "xs") : b.kind === "agent" ? avatar(v.name, "xs", true) : boardPic(b, "xs")}<b>${esc(tabName(b))}</b>${b.live ? `<span class="wk">${esc(T("{n} working", { n: b.live }))}</span>` : ""}<span class="apn" hidden></span></a>`)
     .join("");
   const strip = `<header class="strip"><a class="ws" href="/">${LOGO}<span class="wm">atteo</span></a>
   <button class="btn ghost sm" type="button" data-nav aria-controls="sidebar" aria-expanded="false">${ICON.menu}<span>${esc(T("Menu"))}</span></button>
   <nav class="btabs" aria-label="${esc(T("Boards and chats"))}">${tabs}</nav>
-  <a class="btn ghost sm" href="/?new=1" aria-label="${esc(T("New board"))}" title="${esc(T("New board (C)"))}">${ICON.plus}</a>
-  <button class="btn ghost sm" type="button" data-palette aria-label="${esc(T("Search or jump to…"))}" title="⌘K">${ICON.search}</button>
-  <a class="btn ghost sm" href="/chats" aria-label="${esc(T("Chats"))}" title="${esc(T("Chats"))}">${ICON.feedback}</a>
-  <a class="btn ghost sm" href="/inbox" aria-label="${esc(T("Inbox"))}" title="${esc(T("Inbox"))}">${ICON.inbox}<span class="count" data-inbox-count hidden></span></a>
-  <a href="/me" aria-label="${esc(T("Account"))}" title="${esc(shownName(v.name, v.display_name))}">${avatar(v.name, "sm")}</a></header>`;
+  <a class="btn ghost sm" href="/?new=1" aria-label="${esc(T("New board"))}">${ICON.plus}</a>
+  <button class="search" type="button" data-palette>${ICON.search}<span>${esc(T("Search or jump to…"))}</span><kbd>⌘K</kbd></button>
+  <a class="btn ghost sm" href="/chats" aria-label="${esc(T("Chats"))}">${ICON.feedback}</a>
+  <a class="btn ghost sm" href="/inbox" aria-label="${esc(T("Inbox"))}">${ICON.inbox}<span class="count" data-inbox-count hidden></span></a>
+  <a href="/me" aria-label="${esc(T("Account"))}">${avatar(v.name, "sm")}</a></header>`;
   const body = `<div class="app" id="app">
 <aside class="sidebar" id="sidebar" aria-label="${esc(T("Navigation"))}">
   <button class="btn ghost sm nav-x" type="button" data-nav-close aria-label="${esc(T("Close menu"))}" title="${esc(T("Close menu"))}">✕</button>
@@ -1844,7 +1847,7 @@ export function appPage(
 </aside>
 <div class="nav-scrim" data-nav-close aria-hidden="true"></div>
 <div class="grow" style="min-width:0">${strip}
-  <header class="topbar"><button class="btn ghost sm menu-btn" type="button" data-nav aria-label="${esc(T("Menu"))}" aria-controls="sidebar" aria-expanded="false">${ICON.menu}</button>
+  <header class="topbar${opts.full ? " tb-full" : ""}"><button class="btn ghost sm menu-btn" type="button" data-nav aria-label="${esc(T("Menu"))}" aria-controls="sidebar" aria-expanded="false">${ICON.menu}</button>
     <nav class="crumbs" aria-label="Breadcrumb">${opts.crumbs}</nav><div class="actions">${opts.actions ?? ""}</div></header>
   <div class="content${opts.narrow ? " narrow" : ""}${opts.full ? " full" : ""}">${opts.body}</div>
 </div></div>

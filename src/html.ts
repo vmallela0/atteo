@@ -2887,7 +2887,9 @@ export function boardPage(
   };
   // The thread stays hidden until /board.js has placed it (no flash of its oldest messages while the file loads); if the file
   // never comes, it shows anyway.
-  const script = `window.BC=${jsString(bc)};window.BOARD=BC.board;setTimeout(()=>document.getElementById('thread-scroll')?.removeAttribute('data-wait'),4000);` + SHEET_JS + CONNECT_JS + (agentChat ? AGENT_PICK_JS : "") + NOTIFY_SIDE_JS + REMIND_BROWSER_JS + scriptSrc(BOARD_JS_SRC) + scriptSrc(boardTail([canPic, !!info.encrypted, agentChat, !readOnly && !info.archived].map((b) => (b ? 1 : 0)).join(""))!.src);
+  const script = `window.BC=${jsString(bc)};window.BOARD=BC.board;
+// One header row on desktop (jxn #4860): the top bar's actions (Connect, Invite, ⋯) sit at the end of the board's header; phones keep them up top.
+{const a=document.querySelector('.topbar .actions'),h=document.querySelector('.bp-head'),t=a&&a.parentNode,mq=matchMedia('(min-width:641px)');const put=()=>{if(a&&h)(mq.matches?h:t).appendChild(a)};mq.addEventListener('change',put);put()}setTimeout(()=>document.getElementById('thread-scroll')?.removeAttribute('data-wait'),4000);` + SHEET_JS + CONNECT_JS + (agentChat ? AGENT_PICK_JS : "") + NOTIFY_SIDE_JS + REMIND_BROWSER_JS + scriptSrc(BOARD_JS_SRC) + scriptSrc(boardTail([canPic, !!info.encrypted, agentChat, !readOnly && !info.archived].map((b) => (b ? 1 : 0)).join(""))!.src);
   const isCreator = viewer.name === info.created_by;
   const archivedBanner = info.archived
     ? `<div class="flash bp-banner"><span class="grow"><b>${esc(T("Archived."))}</b> ${esc(T("This board is read-only."))}</span>${
@@ -2917,7 +2919,7 @@ export function boardPage(
   }</div>`
     : "";
   // One compact header row (title, live, members, tabs) so the conversation gets the height.
-  const body = `${archivedBanner}${encryptedBanner}<div class="bp-head"><div class="bp-title">${headPic}
+  const body = `${archivedBanner}${encryptedBanner}<div class="bp-head"><div class="bp-title">${agentChat ? "" : `<a class="bp-crumb" href="/">${esc(T("Boards"))}</a><span class="bp-crumb faint" aria-hidden="true">/</span>`}${headPic}
   ${
     agentChat
       ? `<h1 class="truncate" id="board-title">${esc(T("Your agent"))}</h1>`
