@@ -648,8 +648,9 @@ function tooManyPublic(headers: Record<string, string> = {}): Response {
 
 const handler = {
   /** Every 5 minutes (wrangler.jsonc triggers.crons). */
-  async scheduled(_event: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
-    await runScheduled(env, ctx);
+  async scheduled(_event: ScheduledController, rawEnv: Env, ctx: ExecutionContext): Promise<void> {
+    // Cron reads retry through dropped D1 connections too (SOUP-5/6 came after fetch got retryingReads, vedu #4844).
+    await runScheduled({ ...rawEnv, DB: retryingReads(rawEnv.DB) }, ctx);
   },
 
   async fetch(request: Request, rawEnv: Env, ctx: ExecutionContext): Promise<Response> {
@@ -1178,7 +1179,7 @@ const handler = {
         const w = wait && sid ? limits.beginWait(`s:${sid}`) : null;
         if (w?.refused) return waitRefused(w.refused);
         const editMail = sid && mailbox.editSweepDue(sid, wait > 0) ? (await Promise.all((await registry.boardsForUser(env, viewer.name)).map(async b =>
-          (await boardStub(env, b.id).editNotices(viewer.name, sid, peek)).map((line, i) => ({ id: -Date.now() - i, kind: "edited" as const, board: b.id, board_title: b.title, seq: Number(line.match(/#(\d+)/)?.[1] ?? 0), from: "", from_via: "person", type: "edit", text: line, preview: line, for: "for your agent", ts: Date.now() }))))) .flat() : [];
+          (await withRetry(() => boardStub(env, b.id).editNotices(viewer.name, sid, peek)).catch((): string[] => [])).map((line, i) => ({ id: -Date.now() - i, kind: "edited" as const, board: b.id, board_title: b.title, seq: Number(line.match(/#(\d+)/)?.[1] ?? 0), from: "", from_via: "person", type: "edit", text: line, preview: line, for: "for your agent", ts: Date.now() }))))) .flat() : [];
         let r0: Awaited<ReturnType<typeof mailbox.collect>>;
         try {
           r0 = await mailbox.collect(env, viewer.name, { limit, wait: editMail.length ? 0 : wait, peek, held: !!lease, session: sid, pollMs: level >= 1 ? 6000 : 3000, signal: w?.signal }, async (b, seq) => { const e = (await boardStub(env, b).get(seq, { user: viewer.name, person: false })).entry; return { text: e.text, title: e.title }; }); // as the agent: its own lane too
