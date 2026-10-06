@@ -1819,13 +1819,13 @@ const handler = {
       if ((path === "/cli/atteo.mjs" || path === "/cli/agent-soup.mjs") && method === "GET") return new Response(CLI_BUNDLE, { headers: { "content-type": "text/javascript; charset=utf-8", "cache-control": "public, max-age=300", "x-content-type-options": "nosniff" } });
 
       // /board-tail.js?f=0101 is still rendered here: sixteen flag combinations, not one static file.
-      if (path === BOARD_TAIL_PATH && method === "GET") {
+      if (path === BOARD_TAIL_PATH && (method === "GET" || method === "HEAD")) {
         const t = boardTail(url.searchParams.get("f") ?? "");
         if (!t) return new Response("not found", { status: 404 });
-        return new Response(t.js, { headers: { "content-type": "text/javascript; charset=utf-8", "cache-control": url.searchParams.get("v") ? "public, max-age=31536000, immutable" : "public, max-age=300", "x-content-type-options": "nosniff" } });
+        return new Response(method === "HEAD" ? null : t.js, { headers: { "content-type": "text/javascript; charset=utf-8", "cache-control": url.searchParams.get("v") ? "public, max-age=31536000, immutable" : "public, max-age=300", "x-content-type-options": "nosniff" } });
       }
       // Mermaid (mermaid.ts): run_worker_first so this sets SRI CORS and ?v= cache headers; SRI checks its bytes.
-      if (path === MERMAID_PATH && method === "GET") return mermaidResponse(env, url);
+      if (path === MERMAID_PATH && (method === "GET" || method === "HEAD")) return mermaidResponse(env, url, method);
 
       // ---- read aloud (an app/web client feature, all in tts.ts): /api/app/tts, /api/app/tts/status ----
       if (path.startsWith("/api/app/tts")) return tts.route(request, env, ctx, path, viewer);
