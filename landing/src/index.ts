@@ -660,6 +660,8 @@ export default {
     if (read && path === "/og.png") return asset(OG_PNG, "image/png");
     if (read && path === "/robots.txt") return asset(ROBOTS, "text/plain; charset=utf-8");
     // Search engine ownership checks for atteo.dev (vedu #5192): Google Search Console's HTML file. Keep it, or the site un-verifies.
+    // IndexNow (Bing, Yandex, Seznam): a public key file, so pings to api.indexnow.org about atteo.dev pages are trusted (vedu #5192).
+    if (read && path === "/de44adcb0b9059a17804885f2dee9750.txt") return asset("de44adcb0b9059a17804885f2dee9750", "text/plain; charset=utf-8");
     if (read && path === "/googlecaaafb0191bb5e59.html") return asset("google-site-verification: googlecaaafb0191bb5e59.html", "text/html; charset=utf-8");
     if (read && path === "/sitemap.xml") return asset(SITEMAP, "application/xml; charset=utf-8");
     if (read && path === "/llms.txt") return asset(LLMS, "text/markdown; charset=utf-8");
