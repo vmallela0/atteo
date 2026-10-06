@@ -83,6 +83,8 @@ final class API: @unchecked Sendable {
             throw APIError.signedOut
         }
         if !(200..<300).contains(http.statusCode) {
+            // Crash reporting (CrashReporting.swift): the status only, never the body (it can name a board or a person).
+            if http.statusCode >= 500 { CrashReporting.capture("http_5xx", tags: ["status": String(http.statusCode)]) }
             let msg = (try? JSONSerialization.jsonObject(with: data) as? [String: Any])?["error"] as? String
             throw APIError.server(msg ?? String(localized: "Something went wrong (\(http.statusCode)).", bundle: .l10n))
         }
@@ -93,7 +95,12 @@ final class API: @unchecked Sendable {
         let r = try request("GET", path, timeout: timeout)
         let (data, resp): (Data, URLResponse)
         do { (data, resp) = try await session.data(for: r) } catch { throw APIError.offline }
-        return try JSONDecoder.soup.decode(T.self, from: check(data, resp))
+        do {
+            return try JSONDecoder.soup.decode(T.self, from: check(data, resp))
+        } catch {
+            if error is DecodingError { CrashReporting.capture("json_decode") } // kind only; the payload can be a board
+            throw error
+        }
     }
 
     /// Uploads raw bytes (a picture, a file). Not retried: the person is watching and can tap again.

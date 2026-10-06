@@ -8,16 +8,22 @@ options:
   createIntermediateGroups: true
   developmentLanguage: en
 # Product analytics (Analytics.swift, vedu #4416): PostHog's iOS SDK.
+# Crash reporting (CrashReporting.swift, vedu #4640): Sentry Cocoa, off until a DSN is set (docs/SENTRY.md).
 packages:
   PostHog:
     url: https://github.com/PostHog/posthog-ios
     exactVersion: 3.90.1 # pinned: Atteo.xcodeproj (and its Package.resolved) is generated, not committed
+  Sentry:
+    url: https://github.com/getsentry/sentry-cocoa
+    exactVersion: 9.30.0 # pinned: same reason as PostHog
 settings:
   base:
     SWIFT_VERSION: "5.0"
     MARKETING_VERSION: "0.1.0"
     CURRENT_PROJECT_VERSION: "1"
     DEVELOPMENT_TEAM: ""
+    # Crash reporting DSN (CrashReporting.swift). Empty = off. Do not commit a real value.
+    SENTRY_DSN: ""
     # Interface languages (vedu #1645): Localizable.xcstrings and InfoPlist.xcstrings in AgentSoup/Resources.
     SWIFT_EMIT_LOC_STRINGS: YES
     LOCALIZATION_PREFERS_STRING_CATALOGS: YES
@@ -36,6 +42,8 @@ targets:
     dependencies:
       - target: AtteoShare
       - package: PostHog
+      - package: Sentry
+        product: Sentry
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: $(ATTEO_BUNDLE_ID)

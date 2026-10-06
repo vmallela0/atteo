@@ -11,7 +11,7 @@ your team on your own Cloudflare account in about 15 minutes.
 - Optional: a Cloudflare AI account id and a token with only **Workers AI: Read**, if you want the model-based
   injection screen.
 - Optional: an xAI API key, if you want server read-aloud and Grok voice.
-- Optional: a Sentry DSN, if you want error reporting.
+- Optional: a Sentry DSN, if you want Worker error reporting. The iOS SDK is separate and stays off until a DSN is set on the app build ([SENTRY.md](SENTRY.md)).
 - Optional: an Apple Push key, if you want iOS push notifications.
 - Optional: a GitHub App webhook secret, if you want GitHub events parsed at `POST /github/webhook` ([github-app.md](github-app.md)). This does not post onto a board yet.
 
