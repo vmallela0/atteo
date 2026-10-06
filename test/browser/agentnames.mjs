@@ -2,6 +2,7 @@
 // agent's chip, offered by name in the @ menu, the hover card says whose it is, set in Account, renamed live.
 import { SHOTS_DIR } from "./lib/shots.mjs";
 import { chromium } from "playwright-core";
+import { until } from "./lib/wait.mjs";
 const BASE=process.env.BASE||"http://localhost:8787";
 const ops=async(p,b)=>(await fetch(`${BASE}/api/ops/${p}`,{method:"POST",headers:{"x-admin-key":"ci-admin-key","content-type":"application/json"},body:JSON.stringify(b)})).json();
 const run=Date.now().toString(36).slice(-4),P=`jn${run}`,V=`vn${run}`,NAME=`Jarv${run}`;
@@ -30,12 +31,9 @@ for(const [w,scheme] of [[1280,"light"],[390,"dark"]]){
   // olMark runs on a timer/frame; the capture-phase opener only handles rows already marked .ol.
   await p.locator(`#e${a1}.ol`).waitFor({state:"attached",timeout:5000});
   check(!await p.locator(`#e${a1} .agent-info`).isVisible(),`${w}px: owner details are hidden in collapsed rows`);
-  // Under load the first tap can land while the row is being re-marked; tap again only while it's still folded.
-  for (let i = 0; i < 3 && !(await p.locator(`#e${a1}.ol-open`).count()); i++) {
-    await p.locator(`#e${a1} .body`).click();
-    await p.locator(`#e${a1}.ol-open`).waitFor({state:"attached",timeout:4000}).catch(()=>{});
-  }
-  await p.locator(`#e${a1} .agent-info`).waitFor({state:"visible",timeout:5000}).catch(()=>{});
+  const opened=async()=>await p.locator(`#e${a1}.ol-open`).count()&&await p.locator(`#e${a1} .agent-info`).isVisible()&&await p.locator(`#e${a1} .agent-info`).innerText()===`${V}'s agent`&&await p.locator(`#e${a1} .who`).innerText()===NAME;
+  // Under load a click can land while olMark is re-marking the row. Retry only while the whole opened state below is absent.
+  await until(async()=>await opened()||(await p.locator(`#e${a1} .body`).click(),false));
   check(await p.locator(`#e${a1} .agent-info`).isVisible()&&await p.locator(`#e${a1} .agent-info`).innerText()===`${V}'s agent`&&await p.locator(`#e${a1} .who`).innerText()===NAME,`${w}px: opening keeps the agent name and shows its owner`);
   const chip=p.locator(`#e${ms} .mention.agent[data-user="${V}"]`);
   check(await chip.count()===1&&(await chip.innerText())===`@${NAME}`,`${w}px: "@${NAME}" in a message is that agent's chip`);
@@ -55,9 +53,10 @@ for(const [w,scheme] of [[1280,"light"],[390,"dark"]]){
 // Account: the field
 {const ctx=await b.newContext({viewport:{width:1100,height:900}});const [k,...v]=ckV.split(";")[0].split("=");await ctx.addCookies([{name:k,value:v.join("="),url:BASE}]);const p=await ctx.newPage();
   await p.goto(`${BASE}/me`);await p.waitForFunction((n)=>document.getElementById("pf-agent")?.value===n,NAME,{timeout:8000}).catch(()=>{});check(await p.inputValue("#pf-agent").catch(()=>null)===NAME,"Account shows your agent's name");
-  await p.fill("#pf-agent",`Max${run}`);await p.locator("#pf-form button.primary").click();await p.waitForFunction(()=>/./.test(document.getElementById("toast")?.textContent||""),null,{timeout:8000}).catch(()=>{});await p.waitForTimeout(150);
+  await p.fill("#pf-agent",`Max${run}`);await p.locator("#pf-form button.primary").click();await until(()=>p.evaluate(()=>/Profile saved/.test(document.getElementById("toast")?.textContent||"")));
+  await until(async()=>{const j=await (await fetch(`${BASE}/api/people/${V}`,{headers:{cookie:ckV}})).json();return (j.person?.agent_name||j.agent_name)===`Max${run}`});
   const me=await (await fetch(`${BASE}/api/people/${V}`,{headers:{cookie:ckV}})).json();check((me.person?.agent_name||me.agent_name)===`Max${run}`,`saving the form renames it (${me.person?.agent_name||me.agent_name})`);
-  await p.evaluate(()=>{document.getElementById("toast").textContent=""});await p.fill("#pf-agent",P);await p.locator("#pf-form button.primary").click();await p.waitForFunction(()=>/./.test(document.getElementById("toast")?.textContent||""),null,{timeout:8000}).catch(()=>{});await p.waitForTimeout(150);
+  await p.evaluate(()=>{document.getElementById("toast").textContent=""});await p.fill("#pf-agent",P);await p.locator("#pf-form button.primary").click();await until(()=>p.evaluate(()=>{const t=document.getElementById("toast")?.textContent||"";return /./.test(t)&&!/Profile saved/.test(t)}));
   check(/./.test(await p.locator("#toast").innerText())&&!/Profile saved/.test(await p.locator("#toast").innerText()),`a look-alike name shows the server's error (${await p.locator("#toast").innerText()})`);
   await ctx.close()}
 await b.close();console.log(fails?`${fails} FAILED`:"agent names: all passed");process.exit(fails?1:0);
