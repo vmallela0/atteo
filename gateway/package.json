@@ -2,7 +2,7 @@
   "name": "atteo-gateway",
   "version": "0.1.0",
   "private": true,
-  "description": "Local Atteo Gateway: filter secrets on the user's machine before writes reach the hosted API.",
+  "description": "Local Atteo Gateway: filter secrets before writes leave the machine, and deny harness shell, file writes, and other tool calls unless an allow rule matches.",
   "type": "module",
   "exports": {
     ".": "./src/index.ts"

@@ -9,6 +9,7 @@ import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, realpathSync
 import { env } from "./env";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { homedir } from "node:os";
+import { policyFromJson, reviewHarnessHook, type ActionPolicy } from "../../gateway/src/index";
 import { buildCard, EMPTY_TREE, runner } from "./card";
 import { cardLine } from "../../src/card";
 import { api, CliError, folderBoard, isEncrypted, optStr, parseArgs, say, tool } from "./commands";
@@ -189,6 +190,36 @@ async function prePush(args: string[]) {
 const APPROVE_CMD = "hooks approve";
 const APPROVALS_OFF = "atteo hooks install --approvals --off";
 const claudeSettings = () => join(process.env.CLAUDE_CONFIG_DIR || join(homedir(), ".claude"), "settings.json");
+const actionPolicyFile = () => join(process.env.XDG_CONFIG_HOME || join(homedir(), ".config"), "agent-board", "action-policy.json");
+
+// A configured policy denies shell, file writes, and other tool calls that are not allowlisted, before
+// request_approval. No file and no ATTEO_ACTION_POLICY: this hook stays as it was (the person decides).
+function loadHarnessPolicy(): { policy: ActionPolicy } | { error: string } | null {
+  const fromEnv = env("ACTION_POLICY");
+  if (fromEnv == null || fromEnv.trim() === "") {
+    const file = actionPolicyFile();
+    if (!existsSync(file)) return null;
+    try {
+      return finishPolicy(readFileSync(file, "utf8"));
+    } catch {
+      return { error: "Blocked by action policy: the policy file could not be read. Nothing was run." };
+    }
+  }
+  const text = fromEnv.trim();
+  if (text.startsWith("{")) return finishPolicy(text);
+  if (!existsSync(text)) return { error: "Blocked by action policy: the policy file could not be read. Nothing was run." };
+  try {
+    return finishPolicy(readFileSync(text, "utf8"));
+  } catch {
+    return { error: "Blocked by action policy: the policy file could not be read. Nothing was run." };
+  }
+}
+
+function finishPolicy(text: string): { policy: ActionPolicy } | { error: string } {
+  const parsed = policyFromJson(text);
+  if (!parsed.ok) return { error: parsed.reason };
+  return { policy: parsed.policy };
+}
 type HookGroup = { matcher?: string; hooks?: { type?: string; command?: string; timeout?: number }[] };
 
 function installApprovals(off: boolean): string {
@@ -234,6 +265,14 @@ async function approveHook(): Promise<void> {
   const details = `Claude Code wants to use ${name}${req.cwd ? ` in ${req.cwd}` : ""}:\n\n${JSON.stringify(input, null, 2).slice(0, 4000)}`;
   const answer = (behavior: "allow" | "deny", message?: string) =>
     process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: "PermissionRequest", decision: { behavior, ...(message ? { message } : {}) } } }) + "\n");
+  // Local action policy, when one is configured. A deny is a normal hook answer (exit 0): throwing would
+  // make Claude Code fail open and ask in the terminal. An allow rule only lets the ask below happen.
+  const loaded = loadHarnessPolicy();
+  if (loaded && "error" in loaded) return answer("deny", loaded.error);
+  if (loaded && "policy" in loaded) {
+    const review = await reviewHarnessHook(loaded.policy, { tool_name: req.tool_name, tool_input: req.tool_input, cwd: req.cwd });
+    if (review.effect === "deny") return answer("deny", review.reason ?? "Blocked by action policy. Nothing was run.");
+  }
   const waitS = Number(env("APPROVAL_WAIT_S")) || 540;
   const until = Date.now() + waitS * 1000;
   // Any error (not signed in, offline) exits non-zero: Claude Code then asks in its terminal as usual. So does a
