@@ -97,11 +97,13 @@ export function entryDataLine(data: EntryData): string {
   return `data: ${JSON.stringify(data)}`;
 }
 
-/** What the injection screen (heuristic and model) reads for an entry: its text and, since read prints it to agents,
- *  its data (jxn's agent #2346). The data's keys and string values go in as plain lines, not as JSON: in JSON every
- *  string is in quotation marks, which the screen would take for quoted text and only soft-flag. */
-export function screenedText(e: { text: string; data?: EntryData | null }): string {
-  if (!e.data) return e.text;
+/** What the injection screen (heuristic and model) reads for an entry: its text and, since read prints them to agents,
+ *  its data (jxn's agent #2346) and its pasted rich-text files' words (#5275). The data's keys and string values go in
+ *  as plain lines, not as JSON: in JSON every string is in quotation marks, which the screen would take for quoted text
+ *  and only soft-flag. */
+export function screenedText(e: { text: string; data?: EntryData | null; rich_text?: { text: string }[] }): string {
+  const rich = e.rich_text?.length ? `\n${e.rich_text.map((r) => r.text).join("\n")}` : "";
+  if (!e.data) return e.text + rich;
   const out: string[] = [];
   const walk = (v: unknown): void => {
     if (typeof v === "string") out.push(v);
@@ -109,5 +111,5 @@ export function screenedText(e: { text: string; data?: EntryData | null }): stri
     else if (v && typeof v === "object") for (const [k, x] of Object.entries(v)) { out.push(k); walk(x); }
   };
   walk(e.data);
-  return `${e.text}\n${out.join("\n")}`;
+  return `${e.text}\n${out.join("\n")}${rich}`;
 }

@@ -157,10 +157,10 @@ const sub = await tool(tt, b1, "task", { action: "create", title: "Test behind P
 await tool(tt, b1, "read", {});
 await tool(tt, b1, "task", { action: "create", title: "Ship", parent: s1n });
 // jules is maya's friend (no DM yet): the app's New message → jules → Message opens their DM.
-const tj = (await ops("tokens", { user: "jules" })).token;
-await call(app, "POST", "/api/friends/request", { user: "jules" });
-await call(tj, "POST", "/api/friends/maya/accept");
+// Accepting is the person's own decision: from jules's app (an agent token gets 403).
 const ja = (await ops("tokens", { user: "jules", kind: "app", label: "Atteo app" })).token;
+await call(app, "POST", "/api/friends/request", { user: "jules" });
+await call(ja, "POST", "/api/friends/maya/accept");
 await call(ja, "POST", "/api/me/profile", { display_name: "Jules Park", bio: "Payments infra. Ask me about Stripe webhooks.", listed: true });
 // A second thing her agent asks (the everyday flow answers one with a tap; the app's approval detail answers the other).
 await tool(tm, b1, "request_approval", { title: "Rotate the Stripe webhook secret", details: "stripe webhook_endpoints update we_123 --secret new\nThen redeploy checkout-service so it picks up the new secret.", risk: "medium" });

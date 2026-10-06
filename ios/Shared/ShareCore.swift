@@ -77,6 +77,12 @@ enum ShareCore {
     /// text; their bytes are never a file to upload (vedu #5209/#5212: four "rich text with attachments -RTFD- data").
     static let richTextTypes = ["com.apple.flat-rtfd", "com.apple.rtfd", "public.rtf"]
 
+    /// A rich-text UTI registered by the pasteboard/provider. File names are deliberately never passed here: names
+    /// such as "public.key.txt" and "com.apple.notes.txt" are ordinary files, not pasteboard type identifiers.
+    static func richTextType(matching hasType: (String) -> Bool) -> String? {
+        richTextTypes.first(where: hasType)
+    }
+
     /// Rich text as its plain words, line breaks kept and the pictures' placeholders dropped; nil if it isn't words.
     static func plainText(rich data: Data, type: String) -> String? {
         let docs: [NSAttributedString.DocumentType] = type == "public.rtf" ? [.rtf] : [.rtfd, .rtf]

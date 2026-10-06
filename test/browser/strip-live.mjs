@@ -12,7 +12,7 @@ const [one, two, three, four] = ids;
 const ck = (await ops("sessions", { user: A })).cookie, tok = (await ops("tokens", { user: A })).token;
 const post = (id, text) => fetch(`${BASE}/api/boards/${id}/entries`, { method: "POST", headers: { authorization: `Bearer ${tok}`, "content-type": "application/json" }, body: JSON.stringify({ type: "note", text }) });
 // Activity order to start with: Four, Three, Two, One (each board's last post is newer than the one before).
-for (const id of ids) { await post(id, `hello ${run}`); await new Promise((r) => setTimeout(r, 20)); }
+for (const id of ids) await post(id, `hello ${run}`);
 let fails = 0;
 const check = (ok, t) => { console.log(`${ok ? "✓" : "✗"} ${t}`); if (!ok) fails++; };
 const b = await chromium.launch({ executablePath: process.env.PW_CHROME || undefined });
@@ -54,7 +54,7 @@ await p.locator("#dp-form").count(); // (Settings shows the choice: checked belo
 await p.goto(`${BASE}/me`);
 check(await p.locator('#dp-form input[name="tab_order"][value="opened"]').isChecked(), "Settings → Display shows Tab order: Last opened");
 await p.locator('label[for="dp-tab_order-recent"]').click();
-await open(one);
+await until(() => p.locator('#dp-form input[name="tab_order"][value="recent"]').isChecked());
 check(await until(async () => (await order())[0] === two), "back to Most recent message: the latest post's board leads again");
 
 // Only people mark a board opened.

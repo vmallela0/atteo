@@ -577,6 +577,7 @@ struct BoardView: View {
             }
         }
         .task(id: board.id) { await state.watch(board) } // live: ticks and new messages as they happen
+        .task(id: board.id) { await state.markOpened(board) } // leads the tabs in "Last opened" order (vedu #5192)
         .task(id: board.id) { if board.isAgentChat { _ = await state.openAgentChat() } } // its sessions, fresh
         .refreshable { await state.loadEntries(board) }
     }
@@ -1267,7 +1268,9 @@ struct EntryRow: View {
     @ViewBuilder private var attachment: some View {
         if e.artifactName != nil && !unsent {
             if e.isMultiFile { MultiAttachment(e: e, board: board, progress: progress) }
-            else if e.isImage { ChatImage(e: e, board: board, progress: progress, alignment: mine ? .trailing : .leading) } else { FileChip(e: e, board: board, progress: progress) }
+            else if PastedText.isRich(name: e.artifactName, mime: e.media?.mime) {
+                PastedTextQuote(e: e, board: board, files: [FileRef(name: e.artifactName ?? "", mime: e.media?.mime ?? "text/plain", size: e.media?.size ?? e.artifactSize, version: e.artifactVersion, local: e.local)])
+            } else if e.isImage { ChatImage(e: e, board: board, progress: progress, alignment: mine ? .trailing : .leading) } else { FileChip(e: e, board: board, progress: progress) }
         }
     }
 

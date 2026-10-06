@@ -390,7 +390,7 @@ dialog[open]{animation:pop .16s ease-out}dialog:focus{outline:none}@media (prefe
 dialog.access-dlg{width:min(640px,calc(100vw - 24px))}
 /* Invite an agent (#1855): a small + after the members' faces, and a two-choice dialog */
 .av-add{flex:none;display:inline-grid;place-items:center;width:22px;height:22px;border-radius:50%;border:1px dashed var(--line-strong);background:transparent;color:var(--muted);cursor:pointer;padding:0}.av-add:hover{color:var(--ink);border-color:var(--ink)}
-dialog.ia-dlg{width:min(560px,calc(100vw - 24px))}.ia-opt h3{margin:0 0 4px;font-size:14px}.ia-opt+.ia-opt{border-top:1px solid var(--line);padding-top:14px}.ia-opt .copy{margin:8px 0}.ia-opt form{margin-top:8px;flex-wrap:wrap}
+dialog.ia-dlg{width:min(560px,calc(100vw - 24px))}.ia-opt h3{margin:0 0 4px;font-size:14px}.ia-opt+.ia-opt{border-top:1px solid var(--line);padding-top:14px}.ia-opt .copy{margin:8px 0}.ia-opt form{margin-top:8px;flex-wrap:wrap}.ia-dev{margin-top:10px}.ia-dev summary{cursor:pointer}.ia-dev .stack{margin-top:8px}.ia-dev .copy{margin:0 0 4px}
 .acc-sec{padding:14px 0;border-top:1px solid var(--line)}.acc-sec:first-child{border-top:0;padding-top:0}
 .acc-sec h3{font-size:12.5px;font-weight:600;color:var(--ink);margin:0 0 8px}.acc-sec summary{cursor:pointer}
 .acc-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.acc-sel{width:auto;height:30px;font-size:12.5px;padding:0 8px}
@@ -659,6 +659,16 @@ a.ev-acct:hover{background:var(--bg-subtle)}
 .mchips .fh+.fh{border-top:1px solid var(--line)}
 .mfiles .mchips{margin-top:6px}
 .mcap{margin-top:4px}
+/* Pasted rich text (vedu #5225): a quote like a forwarded message's, the words at normal size, one line per file. */
+.pasted{margin:8px 0 0;padding:6px 10px 8px;max-width:640px;border-inline-start:3px solid var(--line-strong);background:var(--bg-subtle);border-radius:0 6px 6px 0;color:var(--text)}
+.pasted-h{margin-bottom:3px;letter-spacing:.01em}
+.pasted-l{display:flex;align-items:flex-start;gap:8px}
+.pasted-l+.pasted-l{margin-top:6px;padding-top:6px;border-top:1px solid var(--line)}
+.pasted-t{flex:1;min-width:0;max-height:24em;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;unicode-bidi:plaintext;text-align:start}
+.pasted-t.na{color:var(--muted);font-size:12px}
+.pasted-dl{flex:none;display:inline-flex;padding:3px;border-radius:5px;color:var(--faint)}
+.pasted-dl:hover,.pasted-dl:focus-visible{color:var(--text);background:var(--bg-hover)}
+.entry.retracted>.grow>.pasted{opacity:.55}
 .entry.retracted>.grow>.mfiles{opacity:.55}
 /* The viewer is as big as its picture (jxn #2990): not the 560px every other dialog is, which cropped wide pictures */
 :root dialog.lightbox{padding:0;border:0;background:transparent;box-shadow:none;width:fit-content;height:fit-content;max-width:min(96vw,1600px);max-height:92vh;cursor:zoom-out}
@@ -1075,7 +1085,7 @@ mark{background:var(--mark);color:inherit;border-radius:2px;padding:0 1px}
    waits, grey quiet), new, search, messages, alerts, you. Phones keep the top bar's menu button instead. */
 .strip{display:flex;align-items:center;gap:6px;height:44px;padding:0 12px;border-bottom:1px solid var(--line);background:var(--bg-subtle)}
 .strip .ws{display:flex;align-items:center;gap:8px;padding:0 6px;color:var(--ink)}.strip .ws .wm{font-size:19px}
-.btabs{display:flex;flex:1;min-width:0;align-self:stretch;overflow-x:auto;overflow-y:hidden;overscroll-behavior:contain;touch-action:pan-x;scrollbar-width:none}
+.btabs{display:flex;flex:1;min-width:0;align-self:stretch;overflow-x:auto;overflow-y:hidden;overscroll-behavior:contain;touch-action:pan-x pinch-zoom;scrollbar-width:none}
 .btab{display:flex;align-items:center;gap:7px;flex:none;max-width:240px;margin-top:6px;padding:0 14px;border:1px solid transparent;border-bottom:3px solid var(--line-strong);border-radius:8px 8px 0 0;color:var(--muted);font-size:13px;white-space:nowrap}
 .btab>b{font-weight:500;overflow:hidden;text-overflow:ellipsis}.btab[aria-current]{color:var(--ink);background:var(--bg);border-color:var(--line) var(--line) var(--line-strong)}.btab.st-work{border-bottom-color:var(--ok)}.btab.st-ap{border-bottom-color:var(--warn)}
 .btab-w{position:relative;display:flex;flex:none}.btab-w[hidden]{display:none}.btab-w .btab{padding-right:26px}
@@ -1258,6 +1268,7 @@ pre.json{background:var(--bg-subtle);border:1px solid var(--line);border-radius:
 .steps .card{padding:20px}.steps .k{font-size:12px;color:var(--faint);margin-bottom:10px}
 .stat{font-size:28px;font-weight:600;letter-spacing:-.03em;color:var(--ink)}
 .grid4{display:grid;gap:12px;grid-template-columns:repeat(2,1fr)}@media(min-width:760px){.grid4{grid-template-columns:repeat(4,1fr)}}
+.ns-trend{display:flex;align-items:flex-end;gap:4px;height:34px;margin-bottom:6px}.ns-bar{flex:1;height:100%;display:flex;align-items:flex-end;background:var(--bg-subtle);border-radius:3px}.ns-bar span{display:block;width:100%;min-height:2px;background:var(--ink);opacity:.35;border-radius:3px}.ns-bar.now span{opacity:1}
 .footer{max-width:1180px;margin:0 auto;padding:24px 20px 40px;color:var(--faint);font-size:12.5px;border-top:1px solid var(--line)}
 @media(max-width:640px){main{padding:28px 16px 80px}.nav .in{padding:0 16px}.nav .links{display:none}h1{font-size:24px}.list .item{padding:12px 14px}
   .hide-sm{display:none!important}.sm-only{display:inline}
@@ -1790,7 +1801,7 @@ orderTabs();
 const settled=new Promise(r=>{const go=()=>setTimeout(r,2000);if(document.readyState==="complete")go();else addEventListener("load",go,{once:true})});
 async function live(){let at=null;for(;;){if(at!==null)await settled;
   if(document.hidden||!nav.offsetParent){await nap(3000);continue}
-  try{const r=await fetch(at===null?'/api/tape?limit=1':'/api/tape?after='+at+'&wait=25&limit=100',{cache:'no-store'});if(r.status===401||r.status===403)return;if(!r.ok){await nap(5000);continue}
+  try{const r=await fetch(at===null?'/api/tape?limit=1':'/api/tape?after='+at+'&wait=25&every=5&limit=100',{cache:'no-store'});if(r.status===401||r.status===403)return;if(!r.ok){await nap(5000);continue}
     const j=await r.json();at=j.cursor;if(!j.lines||!j.lines.length)continue;
     for(const x of j.lines){const w=nav.querySelector('[data-tabw="'+CSS.escape(x.board_id)+'"]');if(w&&x.ts>(+w.dataset.last||0))w.dataset.last=x.ts}
     orderTabs();pull()}catch(e){await nap(5000)}}}
@@ -2075,8 +2086,8 @@ run(); // bug.js is only loaded on a bug click: that first click is this run
 document.addEventListener('click',e=>{const x=e.target.closest('[data-bug-rm]');if(x){const i=+x.dataset.bugRm;URL.revokeObjectURL(pics[i].url);pics.splice(i,1);render();return}
   if(e.target.closest('#bug-attach'))$('bug-files').click()});
 $('bug-files')?.addEventListener('change',e=>{add([...e.target.files]);e.target.value=''});
-// Rich text (Notes, Pages, TextEdit, a web page) also hands the browser its pasteboard types as "files" (Safari names them like 'rich text with attachments -RTFD- data'; vedu #5209). Then only its pictures attach and the words paste as text.
-function pastedFiles(c){const fs=[...(c?.files||[])];if(!fs.length)return null;const ty=[...(c.types||[])];const rich=ty.includes('text/html')||ty.includes('text/rtf')||fs.some(f=>/-RTFD-|^rich text|^(public|com\\.apple)\\./i.test(f.name||''));return rich?{files:fs.filter(f=>/^image\\//.test(f.type)),text:true}:{files:fs,text:false}}
+// Rich text (Notes, Pages, TextEdit, a web page) also hands the browser its pasteboard types as "files" (Safari names them like 'rich text with attachments -RTFD- data'; vedu #5209). Then only its pictures attach and the words paste as text. Some synthetic files are named with the exact UTI; a real filename merely beginning "public." or "com.apple." is still a file.
+function pastedFiles(c){const fs=[...(c?.files||[])];if(!fs.length)return null;const ty=[...(c.types||[])];const rich=ty.includes('text/html')||ty.includes('text/rtf')||fs.some(f=>/-RTFD-|^rich text|^(?:public\\.rtf|com\\.apple\\.(?:flat-rtfd|rtfd))$/i.test(f.name||''));return rich?{files:fs.filter(f=>/^image\\//.test(f.type)),text:true}:{files:fs,text:false}}
 $('bug-text')?.addEventListener('paste',e=>{const p=pastedFiles(e.clipboardData);if(!p)return;if(!p.text)e.preventDefault();if(p.files.length)add(p.files)});
 const dlg=$('bug');
 dlg.addEventListener('click',e=>{if(e.target===dlg)dlg.close()});

@@ -366,6 +366,8 @@ export const ES: Record<string, string> = {
   "Done for you today": "Hecho para ti hoy",
   "Done: your agents can talk now": "Listo: vuestros agentes ya pueden hablar",
   "Download": "Descargar",
+  "Pasted text": "Texto pegado",
+  "Download the original": "Descargar el original",
   "Drag a card to change its status. Agents see the same board through the": "Arrastra una tarjeta para cambiar su estado. Los agentes ven el mismo tablero con la herramienta",
   "Drag to move the picture": "Arrastra para mover la imagen",
   "Drop the marker": "Quitar la marca",
@@ -1106,4 +1108,7 @@ export const ES: Record<string, string> = {
   "{n} working": "{n} trabajando",
   "{n} approval": "{n} aprobación",
   "{n} approvals": "{n} aprobaciones",
+  "Invite a friend": "Invitar a un amigo",
+  "By name or email. Once they accept, they and their agents can join this board.": "Por nombre o correo. Cuando acepte, él y sus agentes pueden unirse a este tablero.",
+  "For developers": "Para desarrolladores",
 };

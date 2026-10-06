@@ -9,6 +9,7 @@ import * as usage from "./usage";
 import * as csp from "./csp";
 import * as limits from "./limits";
 import * as costGuard from "./costGuard";
+import * as northStar from "./northStar";
 import * as oauth from "./oauth";
 import { consentPage } from "./oauthPage";
 import * as approvals from "./approvals";
@@ -106,6 +107,7 @@ import { agentCharter, applyCharter, charterAuditDetail, charterScanFields, char
 import { atteoHeader, BOARD_RE, connectCommand, esc, newBoardId, legacyHostRedirect, normalizeUser, parseBoardMeta, publicOrigin, requestNow } from "./util";
 import { deepChecks, handlePublicStatus } from "./uptime";
 import { isLocalHost } from "./util";
+import { richTextOf } from "./richtext";
 
 import * as Sentry from "@sentry/cloudflare";
 import { scrubForSentry } from "./sentry";
@@ -566,6 +568,15 @@ async function opsData(env: Env): Promise<AdminData> {
   const tokenRows = await env.DB.prepare(
     `SELECT user, SUM(CASE WHEN revoked_at IS NULL THEN 1 ELSE 0 END) AS active, MAX(last_used) AS last FROM tokens GROUP BY user`,
   ).all<{ user: string; active: number; last: number | null }>();
+  const since14 = new Date(Date.now() - 13 * 86_400_000).toISOString().slice(0, 10);
+  const [oauthClients, oauthPruned] = await Promise.all([
+    env.DB.prepare(`SELECT COUNT(*) AS n FROM oauth_clients`).first<{ n: number }>().catch(() => ({ n: 0 })),
+    env.DB
+      .prepare(`SELECT COALESCE(SUM(count), 0) AS n FROM usage_daily WHERE metric = 'oauth_clients_pruned' AND day >= ?`)
+      .bind(since14)
+      .first<{ n: number }>()
+      .catch(() => ({ n: 0 })),
+  ]);
   const access = new Map<string, AdminData["access"][number]>();
   for (const u of users) access.set(u.name, { user: u.name, boards: [], active_tokens: 0, last_token_use: null });
   for (const r of memberRows.results) access.get(r.user)?.boards.push({ id: r.id, title: r.title });
@@ -578,6 +589,8 @@ async function opsData(env: Env): Promise<AdminData> {
   }
   return {
     boards, users, invites, recent, totalEntries: boards.reduce((n, b) => n + b.entry_count, 0), access: [...access.values()], metrics: await usage.metrics(env).catch(() => undefined),
+    oauth_clients: oauthClients?.n ?? 0,
+    oauth_clients_pruned: oauthPruned?.n ?? 0,
     cost: {
       capped: await costGuard.capped(env).catch(() => null),
       watching: !!(env.CF_ACCOUNT_ID && costGuard.analyticsToken(env)),
@@ -589,9 +602,9 @@ async function opsData(env: Env): Promise<AdminData> {
 
 // ---------- router ----------
 
-/** Every 5 minutes (the cron; tests call it through POST /api/ops/cron): retention, sweeps, expired memberships, and
- *  workflow triggers on a daily schedule (`now` lets a test pick the time those see). */
-async function runScheduled(env: Env, ctx: ExecutionContext, now = Date.now()): Promise<{ schedules: number; scheduled_tasks: number; housekeeping: boolean; shed: Awaited<ReturnType<typeof limits.updateShedLevel>>; backup?: backup.BackupTick }> {
+/** Every 5 minutes (the cron; tests call it through POST /api/ops/cron): retention, sweeps, unused OAuth clients,
+ *  expired memberships, and workflow triggers on a daily schedule (`now` lets a test pick the time those see). */
+async function runScheduled(env: Env, ctx: ExecutionContext, now = Date.now()): Promise<{ schedules: number; scheduled_tasks: number; housekeeping: boolean; oauth_clients_pruned: number; shed: Awaited<ReturnType<typeof limits.updateShedLevel>>; backup?: backup.BackupTick }> {
   // Load shedding (src/limits.ts): today's usage sets the level every request then sees (0 normal, 1 stretch waits and
   // pause background work, 2 also refuse non-essential agent writes).
   const shed = await limits.updateShedLevel(env).catch(() => ({ level: limits.shedLevelNow(), requests: 0, rows_read: null }));
@@ -613,6 +626,7 @@ async function runScheduled(env: Env, ctx: ExecutionContext, now = Date.now()): 
   for (const b of keep) ctx.waitUntil(boardStub(env, b.id).prune(now - b.retention_days * 86_400_000).catch(() => 0));
   // Housekeeping sweeps wait while shedding load (they catch up on a quieter run).
   const housekeeping = shed.level < 1;
+  let oauth_clients_pruned = 0;
   if (housekeeping) {
     ctx.waitUntil(env.DB.prepare(registry.TAPE_PRUNE_SQL).bind(Date.now() - 7 * 86_400_000).run().catch(() => {}));
     ctx.waitUntil(appSignin.sweep(env).catch(() => {}));
@@ -621,6 +635,9 @@ async function runScheduled(env: Env, ctx: ExecutionContext, now = Date.now()): 
     ctx.waitUntil(usage.pruneUsageDaily(env, now).catch(() => {}));
     ctx.waitUntil(backup.pruneBackupParts(env, now).catch(() => {}));
     ctx.waitUntil(accountlog.prune(env, now).catch(() => {}));
+    // Small table (DCR leftovers); await so POST /api/ops/cron can log the count. Fail-safe: an error leaves rows.
+    oauth_clients_pruned = await oauth.pruneUnusedClients(env, now).catch((e) => (console.error("oauth client prune failed", e), 0));
+    if (oauth_clients_pruned) console.log(`oauth clients pruned: ${oauth_clients_pruned}`);
   }
   for (const m of await registry.expiredMembers(env)) {
     ctx.waitUntil(
@@ -650,12 +667,23 @@ async function runScheduled(env: Env, ctx: ExecutionContext, now = Date.now()): 
       .catch(() => ({ results: [] as { board_id: string }[] }))
   ).results;
   const posted = await Promise.all(dueBoards.map((b) => boardStub(env, b.board_id).runBoardSchedules(now).catch((e) => (console.error("board schedules failed", b.board_id, e), 0))));
+  // The north star (src/northStar.ts): snapshot the running week; Monday from 16:00 UTC, last week's line to the team's
+  // board, posted by the bug bot (the same one-bot-member setup as the cost guard's alerts).
+  ctx.waitUntil(
+    northStar
+      .tick(env, now, async (board, text) => {
+        const stub = boardStub(env, board);
+        await ensureBugBoard(env, board, stub);
+        await stub.post(bugs.BUG_BOT, { type: "note", text, via: "person", client: "north-star" });
+      })
+      .catch((e) => console.error("north star failed", e)),
+  );
   // Tonight's backup outside Cloudflare (src/backup.ts): a batch of parts per run; it waits only at the worst shed level.
   const nightly =
     shed.level < 2
       ? await backup.backupTick(env, now, (id, day) => boardStub(env, id).backup(day)).catch((e) => (console.error("backup run failed", e), undefined))
       : undefined;
-  return { schedules: fired.reduce((a, b) => a + b, 0), scheduled_tasks: posted.reduce((a, b) => a + b, 0), housekeeping, shed, ...(nightly ? { backup: nightly } : {}) };
+  return { schedules: fired.reduce((a, b) => a + b, 0), scheduled_tasks: posted.reduce((a, b) => a + b, 0), housekeeping, oauth_clients_pruned, shed, ...(nightly ? { backup: nightly } : {}) };
 }
 
 /** 429 for the signed-out endpoints limits.publicAllowed caps (one minute windows). */
@@ -1647,7 +1675,10 @@ const handler = {
         }
         let lines = await read(from);
         const until = Date.now() + waitSec * 1000;
-        const every = limits.shedLevelNow() >= 1 ? 5000 : 1500; // shedding load: check D1 less often
+        // How often a waiting call re-reads D1: 1.5s, or 5s while shedding load. ?every=<s> (up to 10) asks for slower
+        // checks, never faster: the web's board tabs wait with every=5 (jxn's agent #5248), a third of the reads per open tab.
+        const slower = Math.min(10, Math.max(0, parseInt(url.searchParams.get("every") ?? "", 10) || 0)) * 1000;
+        const every = Math.max(limits.shedLevelNow() >= 1 ? 5000 : 1500, slower);
         while (!lines.length && Date.now() < until) {
           await new Promise((r) => setTimeout(r, every));
           lines = await read(from);
@@ -2530,6 +2561,15 @@ const handler = {
           const v = url.searchParams.get("version");
           const img = await stub.image(url.searchParams.get("name") ?? "", v ? parseInt(v, 10) : undefined);
           if (!img) return new Response("Not found", { status: 404 });
+          // ?format=text: a pasted rich-text file's words as JSON (vedu #5225), shown with textContent, never as HTML.
+          // 422 when the bytes hold no RTF (an encrypted board's ciphertext): the page keeps the file card.
+          if (url.searchParams.get("format") === "text") {
+            const text = richTextOf(new Uint8Array(img.bytes));
+            if (text === null) return json({ error: "not rich text" }, 422);
+            return new Response(JSON.stringify({ text }), {
+              headers: { "content-type": "application/json; charset=utf-8", "x-content-type-options": "nosniff", "cache-control": v ? "private, max-age=31536000, immutable" : "private, no-cache" },
+            });
+          }
           // Images are served inert (their own type, no sniffing, no script); everything else only as a download.
           const isImg = img.mime.startsWith("image/");
           const fname = (url.searchParams.get("name") ?? "file").replace(/[^\w.\- ]+/g, "_");

@@ -366,6 +366,8 @@ export const KO: Record<string, string> = {
   "Done for you today": "오늘 당신을 위해 한 일",
   "Done: your agents can talk now": "완료: 이제 에이전트끼리 대화할 수 있습니다",
   "Download": "다운로드",
+  "Pasted text": "붙여 넣은 텍스트",
+  "Download the original": "원본 다운로드",
   "Drag a card to change its status. Agents see the same board through the": "카드를 끌어 상태를 바꾸세요. 에이전트는 다음 도구로 같은 보드를 봅니다:",
   "Drag to move the picture": "끌어서 사진 이동",
   "Drop the marker": "표시 지우기",
@@ -1106,4 +1108,7 @@ export const KO: Record<string, string> = {
   "{n} working": "{n}명 작업 중",
   "{n} approval": "승인 {n}건",
   "{n} approvals": "승인 {n}건",
+  "Invite a friend": "친구 초대",
+  "By name or email. Once they accept, they and their agents can join this board.": "이름이나 이메일로 초대하세요. 수락하면 친구와 그 에이전트들이 이 보드에 참여할 수 있습니다.",
+  "For developers": "개발자용",
 };

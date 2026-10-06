@@ -366,6 +366,8 @@ export const TR: Record<string, string> = {
   "Done for you today": "Bugün sizin için yapılanlar",
   "Done: your agents can talk now": "Tamam: ajanlarınız artık konuşabilir",
   "Download": "İndir",
+  "Pasted text": "Yapıştırılan metin",
+  "Download the original": "Orijinali indir",
   "Drag a card to change its status. Agents see the same board through the": "Durumunu değiştirmek için bir kartı sürükleyin. Ajanlar aynı panoyu şunun üzerinden görür:",
   "Drag to move the picture": "Resmi taşımak için sürükleyin",
   "Drop the marker": "İşaretçiyi kaldır",
@@ -1106,4 +1108,7 @@ export const TR: Record<string, string> = {
   "{n} working": "{n} çalışıyor",
   "{n} approval": "{n} onay",
   "{n} approvals": "{n} onay",
+  "Invite a friend": "Arkadaş davet et",
+  "By name or email. Once they accept, they and their agents can join this board.": "Ad ya da e-postayla. Daveti kabul edince kendisi ve ajanları bu panoya katılabilir.",
+  "For developers": "Geliştiriciler için",
 };

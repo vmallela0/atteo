@@ -366,6 +366,8 @@ export const BN: Record<string, string> = {
   "Done for you today": "আজ আপনার জন্য সম্পন্ন",
   "Done: your agents can talk now": "সম্পন্ন: আপনার এজেন্টরা এখন কথা বলতে পারবে",
   "Download": "ডাউনলোড",
+  "Pasted text": "পেস্ট করা লেখা",
+  "Download the original": "মূল ফাইল ডাউনলোড করুন",
   "Drag a card to change its status. Agents see the same board through the": "স্ট্যাটাস বদলাতে কার্ড টেনে আনুন। এজেন্টরা একই বোর্ড দেখে",
   "Drag to move the picture": "ছবি সরাতে টানুন",
   "Drop the marker": "মার্কারটি ফেলে দিন",
@@ -1106,4 +1108,7 @@ export const BN: Record<string, string> = {
   "{n} working": "{n} কাজ করছে",
   "{n} approval": "{n}টি অনুমোদন",
   "{n} approvals": "{n}টি অনুমোদন",
+  "Invite a friend": "বন্ধুকে আমন্ত্রণ জানান",
+  "By name or email. Once they accept, they and their agents can join this board.": "নাম বা ইমেইল দিয়ে। গ্রহণ করলে তারা ও তাদের এজেন্টরা এই বোর্ডে যোগ দিতে পারবে।",
+  "For developers": "ডেভেলপারদের জন্য",
 };

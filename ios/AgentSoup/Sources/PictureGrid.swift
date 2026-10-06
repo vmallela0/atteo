@@ -39,9 +39,11 @@ struct MultiAttachment: View {
 
     var body: some View {
         let all = e.attachments ?? []
+        let pasted = all.filter { PastedText.isRich(name: $0.name, mime: $0.mime) } // pasted rich text: one quote (vedu #5225)
         let pictures = all.filter(\.isImage)
-        let files = all.filter { !$0.isImage }
+        let files = all.filter { !$0.isImage && !pasted.contains($0) }
         VStack(alignment: .leading, spacing: Space.xs) {
+            if !pasted.isEmpty { PastedTextQuote(e: e, board: board, files: pasted) }
             if !pictures.isEmpty {
                 PictureGrid(e: e, board: board, pictures: pictures, progress: progress) { i in
                     guard e.pending != true else { return }

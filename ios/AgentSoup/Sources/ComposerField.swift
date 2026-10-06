@@ -42,9 +42,9 @@ struct ComposerField: UIViewRepresentable {
     /// plain words with their line breaks, never as rich text or its pictures' placeholders (vedu #5209/#5212). nil:
     /// nothing rich on the clipboard, so the usual paste.
     static func plainPaste(_ pb: UIPasteboard) -> String? {
-        guard pb.contains(pasteboardTypes: ShareCore.richTextTypes) else { return nil }
+        guard let richType = ShareCore.richTextType(matching: { pb.contains(pasteboardTypes: [$0]) }) else { return nil }
         if pb.hasStrings, let s = pb.string, !s.isEmpty { return s }
-        for type in ShareCore.richTextTypes {
+        for type in [richType] + ShareCore.richTextTypes.filter({ $0 != richType }) {
             if let d = pb.data(forPasteboardType: type), let s = ShareCore.plainText(rich: d, type: type) { return s }
         }
         return nil

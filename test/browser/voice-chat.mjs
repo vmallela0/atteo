@@ -15,8 +15,9 @@ await mkUser(V); const ckV = (await ops("sessions", { user: V })).cookie;
 // A person with a board of their own that V is on.
 async function person(tag, xai = true) {
   const me = `t${tag}${run}`; await mkUser(me, xai);
-  const board = (await ops("boards", { user: me, title: `Talk ${tag} ${run}` })).board.id; await ops("members", { board, user: V });
-  return { me, board, ck: (await ops("sessions", { user: me })).cookie };
+  const board = (await ops("boards", { user: me, title: `Talk ${tag} ${run}` })).board.id;
+  const [, session] = await Promise.all([ops("members", { board, user: V }), ops("sessions", { user: me })]);
+  return { me, board, ck: session.cookie };
 }
 let fails = 0; const parts = [];
 const part = (fn) => { const lines = []; const check = (ok, t) => { lines.push(`${ok ? "✓" : "✗"} ${t}`); if (!ok) fails++; }; parts.push(fn(check).then(() => lines, (e) => { fails++; return [...lines, `✗ ${e.stack || e}`]; })); };
@@ -24,8 +25,9 @@ const part = (fn) => { const lines = []; const check = (ok, t) => { lines.push(`
 // check that follows says what went wrong.
 const until = (p, fn, arg, ms = 6000) => p.waitForFunction(fn, arg, { timeout: ms, polling: 40 }).then(() => true, () => false);
 const ok = async (fn, ms = 6000) => { for (const t = Date.now() + ms; Date.now() < t; await new Promise((r) => setTimeout(r, 25))) if (fn()) return true; return false; };
-// 24 kHz 16-bit PCM, base64: `sec` seconds of a quiet tone.
-const pcm = (sec) => { const n = Math.round(24000 * sec), b = Buffer.alloc(n * 2); for (let i = 0; i < n; i++) b.writeInt16LE(Math.round(Math.sin(i / 10) * 3000), i * 2); return b.toString("base64"); };
+// 24 kHz 16-bit PCM, base64: `sec` seconds of a quiet tone. Reuse it across emitted fake audio frames.
+const pcmCache = new Map();
+const pcm = (sec) => { if (pcmCache.has(sec)) return pcmCache.get(sec); const n = Math.round(24000 * sec), b = Buffer.alloc(n * 2); for (let i = 0; i < n; i++) b.writeInt16LE(Math.round(Math.sin(i / 10) * 3000), i * 2); const out = b.toString("base64"); pcmCache.set(sec, out); return out; };
 const FAKE_WS = `(()=>{const Real=window.WebSocket;window.__talk={sent:[],opened:0};window.__live=[];
   window.WebSocket=function(url,protocols){if(!String(url).startsWith('wss://api.x.ai')){const w=new Real(url,protocols);window.__live.push(w);return w}
     const ws={url,protocols,readyState:0,send(m){window.__talk.sent.push(JSON.parse(m))},close(){if(this.readyState===3)return;this.readyState=3;setTimeout(()=>this.onclose&&this.onclose({}),0)}};
@@ -122,7 +124,8 @@ part(async (check) => { const { board, ck } = await person("k");
   // A tool that acts for you waits for your OK: read back, then a short yes said after it.
   const fnCall = (id, name, args) => emit(p, { type: "response.function_call_arguments.done", name, call_id: id, arguments: JSON.stringify(args) });
   const outOf = async (id) => (await sent(p)).find((x) => x.type === "conversation.item.create" && x.item?.call_id === id)?.item.output || "";
-  const agentChat = async () => { const c = await p.evaluate(async () => (await (await fetch("/api/me/agent-chat", { method: "POST", headers: { "content-type": "application/json" }, body: "{}" })).json()).board); return p.evaluate(async (c) => (await (await fetch(`/api/boards/${c}/entries?after=0`)).json()).entries.map((e) => e.text), c) };
+  let agentBoard;
+  const agentChat = async () => { agentBoard ||= await p.evaluate(async () => (await (await fetch("/api/me/agent-chat", { method: "POST", headers: { "content-type": "application/json" }, body: "{}" })).json()).board); return p.evaluate(async (c) => (await (await fetch(`/api/boards/${c}/entries?after=0`)).json()).entries.map((e) => e.text), agentBoard) };
   const say = async (t) => { await emit(p, { type: "input_audio_buffer.speech_started" }); await emit(p, { type: "input_audio_buffer.speech_stopped" }); await emit(p, { type: "conversation.item.input_audio_transcription.completed", transcript: t }) }; // heard at once
   // A tool call has answered once its output goes back to Atteo.
   const answered = (id, ms = 6000) => until(p, (id) => window.__talk.sent.some((x) => x.type === "conversation.item.create" && x.item?.call_id === id), id, ms);
@@ -235,7 +238,7 @@ part(async (check) => { const { board, ck } = await person("m");
 
 // 4b. On a phone: the call button sits at the header's top right, icon only.
 part(async (check) => { const { board, ck } = await person("p");
-  const { ctx, p } = await page(`/b/${board}`, { ck }); await p.setViewportSize({ width: 390, height: 844 }); await p.waitForTimeout(300);
+  const { ctx, p } = await page(`/b/${board}`, { ck }); await p.setViewportSize({ width: 390, height: 844 }); await p.evaluate(() => document.fonts.ready.then(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))));
   const g = await p.evaluate(() => { const h = document.querySelector(".bp-head").getBoundingClientRect(), b = document.querySelector(".bp-head [data-talk]").getBoundingClientRect(), t = document.querySelector("#board-title").getBoundingClientRect(); return { right: Math.round(h.right - b.right), top: Math.round(b.top - h.top), w: Math.round(b.width), overlap: t.right > b.left && t.bottom > b.top && t.top < b.bottom, doc: document.documentElement.scrollWidth } });
   check(g.right < 4 && g.top < 12 && g.w <= 34 && !g.overlap && g.doc <= 390, `phone: top right, icon only, clear of the title (${JSON.stringify(g)})`);
   await ctx.close(); });

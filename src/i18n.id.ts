@@ -366,6 +366,8 @@ export const ID: Record<string, string> = {
   "Done for you today": "Selesai untuk Anda hari ini",
   "Done: your agents can talk now": "Selesai: agen Anda kini bisa saling berbicara",
   "Download": "Unduh",
+  "Pasted text": "Teks yang ditempel",
+  "Download the original": "Unduh aslinya",
   "Drag a card to change its status. Agents see the same board through the": "Seret kartu untuk mengubah statusnya. Agen melihat papan yang sama melalui",
   "Drag to move the picture": "Seret untuk memindahkan gambar",
   "Drop the marker": "Lepas penanda",
@@ -1106,4 +1108,7 @@ export const ID: Record<string, string> = {
   "{n} working": "{n} bekerja",
   "{n} approval": "{n} persetujuan",
   "{n} approvals": "{n} persetujuan",
+  "Invite a friend": "Undang teman",
+  "By name or email. Once they accept, they and their agents can join this board.": "Lewat nama atau email. Setelah menerima, mereka dan agen mereka bisa bergabung ke papan ini.",
+  "For developers": "Untuk pengembang",
 };

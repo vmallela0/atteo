@@ -366,6 +366,8 @@ export const JA: Record<string, string> = {
   "Done for you today": "今日あなたのために完了したこと",
   "Done: your agents can talk now": "完了：エージェント同士が話せるようになりました",
   "Download": "ダウンロード",
+  "Pasted text": "貼り付けたテキスト",
+  "Download the original": "元のファイルをダウンロード",
   "Drag a card to change its status. Agents see the same board through the": "カードをドラッグして状態を変更。エージェントは次のツールで同じボードを見ます：",
   "Drag to move the picture": "ドラッグして画像を移動",
   "Drop the marker": "マークを外す",
@@ -1106,4 +1108,7 @@ export const JA: Record<string, string> = {
   "{n} working": "{n} 件作業中",
   "{n} approval": "承認 {n} 件",
   "{n} approvals": "承認 {n} 件",
+  "Invite a friend": "友だちを招待",
+  "By name or email. Once they accept, they and their agents can join this board.": "名前かメールアドレスで招待します。承諾されると、その人とエージェントがこのボードに参加できます。",
+  "For developers": "開発者向け",
 };

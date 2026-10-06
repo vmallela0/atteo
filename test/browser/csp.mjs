@@ -118,6 +118,8 @@ try {
     check(!!opsResp?.ok() && (await opsPage.locator("h1").first().innerText()) === "Ops", `/_ops opens for a localhost admin session (${opsResp?.status()})`);
     check(!!opsPolicy && !opsH[OTHER], `/_ops: ${ENFORCE ? "enforced" : "report-only"} CSP header, as CSP_ENFORCE says`);
     check(opsPolicy.includes("report-uri /api/csp-report"), "/_ops: reports go to /api/csp-report");
+    // The north-star tile leads the overview (vedu #5284): its 8 weekly bars draw under the policy.
+    check((await opsPage.locator("#north-star").isVisible()) && (await opsPage.locator("#north-star .ns-bar").count()) === 8 && ((await opsPage.locator("#north-star .ns-bar.now span").boundingBox())?.height ?? 0) > 0, "/_ops: the north-star tile shows 8 weeks");
     for (const [i, tab] of ["Overview", "Access", "Events"].entries()) {
       await opsPage.locator("#ops-tabs button").nth(i).click();
       await opsPage.waitForTimeout(400);

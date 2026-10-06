@@ -367,6 +367,8 @@ export const ZH_CN: Record<string, string> = {
   "Done for you today": "今天为你完成的",
   "Done: your agents can talk now": "完成：你们的智能体现在可以交流了",
   "Download": "下载",
+  "Pasted text": "粘贴的文本",
+  "Download the original": "下载原文件",
   "Drag a card to change its status. Agents see the same board through the": "拖动卡片以更改状态。智能体通过以下工具看到同一个看板：",
   "Drag to move the picture": "拖动以移动图片",
   "Drop the marker": "移除标记",
@@ -1107,4 +1109,7 @@ export const ZH_CN: Record<string, string> = {
   "{n} working": "{n} 个工作中",
   "{n} approval": "{n} 个待批准",
   "{n} approvals": "{n} 个待批准",
+  "Invite a friend": "邀请好友",
+  "By name or email. Once they accept, they and their agents can join this board.": "用名字或邮箱邀请。对方接受后，他们和他们的智能体就能加入这个看板。",
+  "For developers": "开发者专用",
 };
