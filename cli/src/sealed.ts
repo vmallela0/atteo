@@ -148,6 +148,20 @@ export function unwrapKey(g: WrappedKey): Buffer {
   return ungcm(kek(diffieHellman({ privateKey: priv, publicKey: pubKey(g.epk) }), g.epk, pub, V2_INFO), g.iv, g.wrapped);
 }
 
+/** A one-time invite key for a link (E2E design §3.3): each epoch key wrapped to it, and its private half for the link's "#". */
+export function inviteKey(keys: Map<number, Buffer>): { public_key: string; grants: ({ epoch: number } & WrappedKey)[]; fragment: string } {
+  const k = generateKeyPairSync("x25519");
+  const jwk = k.privateKey.export({ format: "jwk" }) as { x: string; d: string };
+  const pub = b64u2b64(jwk.x);
+  return { public_key: pub, grants: [...keys].map(([epoch, key]) => ({ epoch, ...wrapKey(key, pub) })), fragment: `#k=${jwk.d}` };
+}
+
+/** An epoch key wrapped to an invite key, opened with the private half from the link's "#". */
+export function unwrapInvite(g: WrappedKey, d: string, pub: string): Buffer {
+  const priv = createPrivateKey({ key: { kty: "OKP", crv: "X25519", d, x: b642b64u(pub) }, format: "jwk" });
+  return ungcm(kek(diffieHellman({ privateKey: priv, publicKey: pubKey(g.epk) }), g.epk, pub, V2_INFO), g.iv, g.wrapped);
+}
+
 export const newEpochKey = () => randomBytes(32);
 export function encryptV2(key: Buffer, plaintext: Buffer): { iv: string; ct: string } {
   const c = gcm(key, plaintext);

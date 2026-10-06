@@ -1056,7 +1056,7 @@ await step("atteo mcp on an encrypted board (E2E 1c): a local MCP agent reads, g
 await step("encrypted by default (E2E_DEFAULT): DMs, Your agent and a local agent's create_board are encrypted; a hosted connector's and an explicit false aren't", async () => {
   // Needs a server started with --var E2E_DEFAULT:1 (E2E_ON=1 says so); with the default off, it checks nothing changed.
   const on = process.env.E2E_ON === "1";
-  const U = `e2e-cli-u-${run}`, V = `e2e-cli-v-${run}`;
+  const U = `e2e-cli-du-${run}`, V = `e2e-cli-dv-${run}`;
   for (const u of [U, V]) await ops("users", { name: u, email: `${u}@example.com`, verified: "true" });
   const ck = async (u) => (await ops("sessions", { user: u })).cookie;
   const [cu, cv] = [await ck(U), await ck(V)];
@@ -1086,6 +1086,59 @@ await step("encrypted by default (E2E_DEFAULT): DMs, Your agent and a local agen
   assert(enc2(idOf(local)) === on && local.includes("end-to-end encrypted") === on, local);
   assert(enc2(idOf(plain)) === false, "encrypted: false is Readable by Atteo's servers: " + plain);
   assert(enc2(idOf(hosted)) === false && !hosted.includes("It's end-to-end encrypted"), "a hosted connector's board stays readable until it can be a visible reader: " + hosted);
+});
+
+await step("invite links carry an encrypted board's key after the # (E2E 1c): atteo join <link> reads at once, and everyone sees how it got the key", async () => {
+  const P = `e2e-cli-p-${run}`, Q = `e2e-cli-q-${run}`;
+  const cred = {};
+  for (const u of [P, Q]) {
+    await ops("users", { name: u, email: `${u}@example.com`, verified: "true" });
+    cred[u] = join(dir, `${u}.json`);
+    writeFileSync(cred[u], JSON.stringify({ server: BASE, user: u, token: (await ops("tokens", { user: u })).token, expires_at: Date.now() + 86400e3 }), { mode: 0o600 });
+  }
+  const proj = { [P]: mkdtempSync(join(tmpdir(), "atteo-invkey-p-")), [Q]: mkdtempSync(join(tmpdir(), "atteo-invkey-q-")) };
+  const as = (u, args) => cli(args, { cwd: proj[u], cred: cred[u], env: { XDG_CONFIG_HOME: join(dir, `cfg-${u}`) } });
+  let r = await as(P, ["create", `invite key ${run}`, "--encrypted"]);
+  assert(r.code === 0, r.out + r.err);
+  const eb = r.out.match(/\((b_[a-z0-9]+)\)/)[1];
+  const secret = `only for the invited ${run}`;
+  r = await as(P, ["post", secret, "--board", eb]);
+  assert(r.code === 0, r.out + r.err);
+  r = await as(P, ["link", "--board", eb]);
+  assert(r.code === 0 && /\/i\/il_[A-Za-z0-9_-]+#k=[A-Za-z0-9_-]{43}$/m.test(r.out) && r.err.includes("carries the board key"), r.out + r.err);
+  const url = r.out.trim().split("\n").pop();
+  // The server keeps only the invite key's public half and wrapped copies; the "#" part is nowhere it can see.
+  const linkSecret = url.match(/\/i\/(il_[A-Za-z0-9_-]+)#/)[1];
+  const fragment = url.split("#k=")[1];
+  const qTok = JSON.parse(readFileSync(cred[Q], "utf8")).token;
+  const before = await fetch(`${BASE}/api/invite-keys`, { method: "POST", headers: { authorization: `Bearer ${qTok}`, "content-type": "application/json" }, body: JSON.stringify({ secret: linkSecret }) }).then((x) => x.json());
+  assert(before.error?.includes("Join the board"), "the wrapped copies go only to members: " + JSON.stringify(before));
+  r = await as(Q, ["join", url]);
+  assert(r.code === 0 && r.out.includes(`Joined ${eb}`), r.out + r.err);
+  r = await as(Q, ["read"]);
+  assert(r.code === 0 && r.out.includes(secret), "Q reads with no one else online: " + r.out + r.err);
+  const k = await fetch(`${BASE}/api/invite-keys`, { method: "POST", headers: { authorization: `Bearer ${qTok}`, "content-type": "application/json" }, body: JSON.stringify({ secret: linkSecret }) }).then((x) => x.json());
+  assert(k.public_key && k.grants.length === 1 && !JSON.stringify(k).includes(fragment), JSON.stringify(k).slice(0, 200));
+  // Only once, only while none of Q's devices reads the board.
+  const again = await fetch(`${BASE}/api/boards/${eb}/grants/invite`, { method: "POST", headers: { authorization: `Bearer ${qTok}`, "content-type": "application/json" }, body: JSON.stringify({ secret: linkSecret, grants: [{ epoch: 1, kid: "x", epk: k.grants[0].epk, iv: k.grants[0].iv, wrapped: k.grants[0].wrapped }] }) }).then((x) => x.json());
+  assert(again.error?.includes("already reads this board"), JSON.stringify(again));
+  const pCookie = (await ops("sessions", { user: P })).cookie;
+  const boardHtml = await fetch(`${BASE}/b/${eb}`, { headers: { cookie: pCookie } }).then((x) => x.text());
+  assert(boardHtml.includes(`🔑 ${Q} joined with an invite link that carries this board&#39;s key`) || boardHtml.includes(`🔑 ${Q} joined with an invite link that carries this board's key`), "the visible key line on the board");
+  // The link's default role is viewer: a viewer reads with the link's key, though viewers can't hand keys on.
+  r = await as(Q, ["post", `the invited answers ${run}`]);
+  assert(r.code !== 0 && (r.out + r.err).includes("viewer"), r.out + r.err);
+  // A plain board's link has no key, and the /i/ page goes straight to sign-in; a keyed one first moves the key out of the address bar.
+  const page = await fetch(`${BASE}/i/${linkSecret}`, { redirect: "manual" });
+  const html = await page.text();
+  assert(page.status === 200 && html.includes("atteo.invite.") && html.includes("?go=1"), page.status + html.slice(0, 200));
+  r = await as(P, ["create", `invite plain ${run}`]);
+  const pb = r.out.match(/\((b_[a-z0-9]+)\)/)[1];
+  r = await as(P, ["link", "--board", pb]);
+  assert(r.code === 0 && !r.out.includes("#k=") && !r.err.includes("carries the board key"), r.out + r.err);
+  const plainLink = r.out.trim().split("\n").pop().match(/\/i\/(il_[A-Za-z0-9_-]+)/)[1];
+  const straight = await fetch(`${BASE}/i/${plainLink}`, { redirect: "manual" });
+  assert(straight.status >= 300 && straight.status < 400 && straight.headers.get("location").includes("/auth/login"), "a key-less link goes straight to sign-in: " + straight.status);
 });
 
 await step("encrypted board past 200 (alt-c #3398): read --all shows everything; a plain read takes a page and says more are waiting", async () => {

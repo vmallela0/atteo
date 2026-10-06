@@ -10,7 +10,7 @@ import { env } from "./env";
 import SKILL_MD from "../../skills/atteo/SKILL.md";
 import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { hostname, tmpdir } from "node:os";
-import { decryptV2, encryptV2, myKey, newEpochKey, seal, unseal, unwrapKey, wrapKey, type WrappedKey } from "./sealed";
+import { decryptV2, encryptV2, inviteKey, myKey, newEpochKey, seal, unseal, unwrapInvite, unwrapKey, wrapKey, type WrappedKey } from "./sealed";
 import { homedir } from "node:os";
 import { basename, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { blockedMessage, scanFields } from "../../src/secrets";
@@ -1074,9 +1074,34 @@ async function link(args: string[]) {
     await api(opt, "DELETE", `/api/boards/${b}/links/${pos[1]}`);
     return say("Revoked.");
   }
-  const j = await api(opt, "POST", `/api/boards/${b}/links`, { role: optStr(opt, "role"), link_days: optStr(opt, "days"), member_days: optStr(opt, "access-days"), max_uses: optStr(opt, "uses") });
-  say(j.url);
+  // An encrypted board's link carries the board key after its "#" (E2E design §3.3), so whoever opens it reads at once.
+  const held = (await isEncrypted(opt, b)) ? (await boardKeys(opt, b)).keys : null;
+  const ik = held?.size ? inviteKey(held) : null;
+  const j = await api(opt, "POST", `/api/boards/${b}/links`, {
+    role: optStr(opt, "role"),
+    link_days: optStr(opt, "days"),
+    member_days: optStr(opt, "access-days"),
+    max_uses: optStr(opt, "uses"),
+    invite_key: ik ? { public_key: ik.public_key, grants: ik.grants } : undefined,
+  });
+  say(j.url + (ik?.fragment ?? ""));
   process.stderr.write(`Anyone with this link who signs in joins as ${j.link.role}${j.link.member_days ? ` for ${j.link.member_days} days` : ""}. It works until ${j.link.expires_at ? day(j.link.expires_at) : "revoked"}${j.link.max_uses ? `, ${j.link.max_uses} times` : ""}. Revoke: atteo link revoke ${j.link.id}\n`);
+  if (ik) process.stderr.write(`🔑 It carries the board key (after the "#", which the server never sees): whoever opens it can read the board. Share it only with the person it's for.\n`);
+}
+
+/** Joins with an invite link (`atteo join <link>`); when it carries an encrypted board's key, this machine takes it at once. */
+export async function joinLink(opt: Record<string, string | true>, link: string): Promise<string> {
+  const m = link.match(/\/i\/(il_[A-Za-z0-9_-]+)(?:\?[^#]*)?(?:#k=([A-Za-z0-9_-]{43}))?$/);
+  if (!m) throw new CliError("That isn't an invite link.");
+  const { board } = await api(opt, "POST", "/api/links/redeem", { secret: m[1] });
+  if (!m[2]) return board;
+  const kid = await ensureKey(opt);
+  const st: EpochState = await api(opt, "GET", `/api/boards/${board}/epochs`);
+  if (st.mine.length) return board; // one of your devices reads it already and hands this one the key
+  const k = await api(opt, "POST", "/api/invite-keys", { secret: m[1] });
+  const grants = (k.grants as ({ epoch: number } & WrappedKey)[]).map((g) => ({ epoch: g.epoch, kid, ...wrapKey(unwrapInvite(g, m[2], k.public_key), myKey().pub) }));
+  await api(opt, "POST", `/api/boards/${board}/grants/invite`, { secret: m[1], grants });
+  return board;
 }
 
 async function auditCmd(args: string[]) {

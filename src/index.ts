@@ -1458,6 +1458,44 @@ const handler = {
           return json({ error: e instanceof Error ? e.message : String(e) }, e instanceof boardkeys.KeyError ? 400 : 500);
         }
       }
+      // ---- invite links that carry the board key (E2E design §3.3): the joiner's device fetches the link's wrapped
+      // copies, unwraps them with the private half from the link's "#", and hands the key to itself ----
+      if (path === "/api/invite-keys" && method === "POST") {
+        if (!viewer) return needLogin();
+        const b = (await request.json().catch(() => ({}))) as { secret?: unknown };
+        try {
+          return json(await access.inviteKeyFor(env, String(b.secret ?? ""), viewer.name));
+        } catch (e) {
+          return json({ error: e instanceof Error ? e.message : String(e) }, e instanceof access.AccessError ? 400 : 500);
+        }
+      }
+      // The CLI's `atteo join <invite link>`: the /i/ page's join, as JSON.
+      if (path === "/api/links/redeem" && method === "POST") {
+        if (!viewer) return needLogin();
+        const b = (await request.json().catch(() => ({}))) as { secret?: unknown };
+        try {
+          return json({ board: await access.redeemLink(env, String(b.secret ?? ""), viewer.name, origin, ctx) });
+        } catch (e) {
+          return json({ error: e instanceof Error ? e.message : String(e) }, e instanceof access.AccessError ? 400 : 500);
+        }
+      }
+      km = path.match(/^\/api\/boards\/(b_[a-z0-9]+)\/grants\/invite$/);
+      if (km && method === "POST") {
+        if (!viewer) return needLogin();
+        if (!(await registry.isMember(env, km[1], viewer.name))) return json({ error: "board not found" }, 404);
+        const b = (await request.json().catch(() => ({}))) as { secret?: unknown; grants?: unknown };
+        try {
+          const k = await access.inviteKeyFor(env, String(b.secret ?? ""), viewer.name);
+          if (k.board !== km[1]) return json({ error: "That link is for another board." }, 400);
+          const r = await boardkeys.addInviteGrants(env, km[1], viewer.name, new Set(k.grants.map((g) => g.epoch)), b);
+          const opts = { via: pv(), client: viewer.via === "agent" ? "atteo CLI" : null, session: await asid() };
+          const stub = boardStub(env, km[1]);
+          for (const a of r.added) await stub.keyNotice(viewer.name, boardkeys.inviteNotice(a), opts);
+          return json({ ok: true, ...r });
+        } catch (e) {
+          return json({ error: e instanceof Error ? e.message : String(e) }, e instanceof boardkeys.KeyError || e instanceof access.AccessError ? 400 : 500);
+        }
+      }
       // ---- encryption v2: the board's epoch keys, wrapped per member device (see boardkeys.ts for the rules) ----
       km = path.match(/^\/api\/boards\/(b_[a-z0-9]+)\/(epochs|grants)$/);
       if (km) {
@@ -2189,6 +2227,15 @@ const handler = {
       }
       m = path.match(/^\/i\/(il_[A-Za-z0-9_-]+)$/);
       if (m && method === "GET") {
+        // A link that carries an encrypted board's key: first move the key from the "#" (which the server never sees)
+        // into this browser for a day and out of the address bar, so it survives signing in. The board page uses it.
+        if (url.searchParams.get("go") !== "1" && (await access.linkHasKey(env, m[1])))
+          return page("Invite link · Atteo", `<div class="card pad" style="max-width:480px;margin:48px auto 0;text-align:center"><p class="muted">Opening the invite…</p><noscript><a class="btn primary" href="/i/${m[1]}?go=1">Continue</a></noscript></div>`, {
+            viewer,
+            narrow: true,
+            headers: { "cache-control": "no-store" },
+            script: `(()=>{const s=${JSON.stringify(m[1])},h=new URLSearchParams(location.hash.slice(1)).get('k');try{if(h&&/^[A-Za-z0-9_-]{43}$/.test(h))localStorage.setItem('atteo.invite.'+s,JSON.stringify({k:h,at:Date.now()}))}catch(e){}location.replace('/i/'+s+'?go=1')})()`,
+          });
         if (!viewer) return needLogin();
         try {
           return redirect(`/b/${await access.redeemLink(env, m[1], viewer.name, origin, ctx)}`);

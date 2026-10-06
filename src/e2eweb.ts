@@ -81,6 +81,7 @@ const isPinned=(pin,k)=>(pin[k.user]||[]).includes(pinId(k.kid,k.public_key));
 const KEYS=new Map(); // "epoch:wrapped" → {raw, aes}
 let ST=null;
 async function epochKeys(tries){tries=tries||0;const dev=await device();const st=await api('GET','/api/boards/'+BOARD+'/epochs');const keys=new Map();
+  if(!st.mine.length&&await inviteTake(dev))return epochKeys(tries);
   for(const g of st.mine)if(g.kid===dev.kid){const c=g.epoch+':'+g.wrapped;if(!KEYS.has(c))try{const raw=await unwrapMine(g,dev);KEYS.set(c,{raw,aes:await aesKey(raw)})}catch(e){continue}keys.set(g.epoch,KEYS.get(c))}
   const before=JSON.stringify(pins()),pin=pinUpdate(pins(),ME,dev,st);
   if(JSON.stringify(pin)!==before)savePins(pin);
@@ -147,6 +148,24 @@ window.e2eSync=from=>{if(busy){queued=true;if(from!=null)qFrom=qFrom==null?from:
     for(const [seq,payload] of PAY)if(!OPEN.has(seq)&&document.getElementById('e'+seq)){if(show(seq,await openOne(seq,payload)))OPEN.add(seq)}}
   catch(e){if(!ST)say('🔒 <b>End-to-end encrypted.</b> '+esc(e.message||String(e)))}
   finally{busy=null;if(queued){const f=qFrom;queued=false;qFrom=null;e2eSync(f)}}})();return busy};
+// ---- invite links that carry the board key (E2E design §3.3) ----
+const INV='atteo.invite.',url64=s=>s.replace(/\\+/g,'-').replace(/\\//g,'_').replace(/=+$/,'');
+/** The inviter: a one-time invite key, each epoch key this browser holds wrapped to it; its private half goes after the link's "#". */
+window.e2eInviteKey=async()=>{const st=ST||await epochKeys();if(!st.keys.size)return null;
+  const k=await S.generateKey({name:'X25519'},true,['deriveBits']),pub=b64(await S.exportKey('raw',k.publicKey)),grants=[];
+  for(const [epoch,v] of st.keys)grants.push({epoch,...await wrapFor(v.raw,pub)});
+  return {invite_key:{public_key:pub,grants},fragment:'#k='+(await S.exportKey('jwk',k.privateKey)).d}};
+/** The joiner: a key kept by the /i/ page, for this board, unwrapped here and handed to this device. True when it did. */
+async function inviteTake(dev){let names=[];try{for(let i=0;i<localStorage.length;i++){const n=localStorage.key(i);if(n&&n.startsWith(INV))names.push(n)}}catch(e){return false}
+  for(const n of names){let v=null;try{v=JSON.parse(localStorage.getItem(n))}catch(e){}
+    const drop=()=>{try{localStorage.removeItem(n)}catch(e){}};if(!v||!v.k||Date.now()-v.at>864e5){drop();continue}
+    const secret=n.slice(INV.length);let j;try{j=await api('POST','/api/invite-keys',{secret})}catch(e){drop();continue}
+    if(j.board!==BOARD)continue; // another board's link: that board's page takes it
+    drop();try{const priv=await S.importKey('jwk',{kty:'OKP',crv:'X25519',d:v.k,x:url64(j.public_key)},{name:'X25519'},false,['deriveBits']),inv={priv,pub:j.public_key},grants=[];
+      for(const g of j.grants)grants.push({epoch:g.epoch,kid:dev.kid,...await wrapFor(await unwrapMine(g,inv),dev.pub)});
+      await api('POST','/api/boards/'+BOARD+'/grants/invite',{secret,grants});return true}
+    catch(e){console.warn('[e2e] invite key',e)}}
+  return false}
 
 // ---- writing: the composer (new messages and replies) encrypts here and posts the envelope (refetching keys on 409) ----
 async function encPost(text,type,reply_to,tries){tries=tries||0;const st=await epochKeys();const k=st.keys.get(st.current);

@@ -624,6 +624,14 @@ board the server stores ciphertext and can't read messages. High level:
 - **Local MCP agents.** `atteo mcp` decrypts and encrypts on the agent's machine: on an encrypted board its `read`,
   `get`, `post` and `wait` go through the sealed routes, never through the server's plaintext tools
   (cli/src/e2emcp.ts). A post whose board isn't known yet is refused there rather than sent (E2E design §5 (L)).
+- **Invite links carry the key.** On an encrypted board, a link made on the web or with `atteo link` comes with a one-time
+  X25519 invite key: each epoch key the maker holds is wrapped to its public half (stored with the link,
+  `invite_key_grants`, migration 0077) and the private half goes after the link's `#k=`, which the server never sees.
+  The `/i/` page moves it into the browser (a day at most) and out of the address bar before sign-in; the board page then
+  fetches the wrapped copies (`POST /api/invite-keys`, members only), unwraps, and hands the key to its own device
+  (`POST /api/boards/{id}/grants/invite`, viewers too, only while none of the person's devices reads the board). A `🔑`
+  line says so. `atteo join <link>` does the same on the CLI. Revoking the link deletes the copies (src/access.ts,
+  src/boardkeys.ts `addInviteGrants`). Anyone holding the full link can read the board, as with a shared key.
 
 ## 17. Known gaps between transports
 

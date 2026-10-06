@@ -26,14 +26,15 @@ const EPK = B64(32); // an X25519 public key
 const IV = B64(12);
 const WRAPPED = B64(48); // a 32-byte key + 16-byte GCM tag
 
-function checkGrant(g: Partial<Grant>): Grant {
+/** A grant's shape; `noKid` for a copy wrapped to an invite key rather than a device. */
+export function checkGrant(g: Partial<Grant>, noKid = false): Grant {
   const epoch = Number(g.epoch);
   if (!Number.isInteger(epoch) || epoch < 1) throw new KeyError("Each grant needs its epoch (1, 2, …).");
-  if (typeof g.kid !== "string" || !/^[a-z0-9-]{1,40}$/.test(g.kid)) throw new KeyError("Each grant needs the device key id (kid).");
+  if (!noKid && (typeof g.kid !== "string" || !/^[a-z0-9-]{1,40}$/.test(g.kid))) throw new KeyError("Each grant needs the device key id (kid).");
   if (typeof g.epk !== "string" || !EPK.test(g.epk)) throw new KeyError("epk must be a base64 X25519 public key.");
   if (typeof g.iv !== "string" || !IV.test(g.iv)) throw new KeyError("iv must be 12 bytes, base64.");
   if (typeof g.wrapped !== "string" || !WRAPPED.test(g.wrapped)) throw new KeyError("wrapped must be the 32-byte key plus its 16-byte tag, base64.");
-  return { epoch, kid: g.kid, epk: g.epk, iv: g.iv, wrapped: g.wrapped };
+  return { epoch, kid: g.kid ?? "", epk: g.epk, iv: g.iv, wrapped: g.wrapped };
 }
 
 /** Members' live device keys on a board. */
@@ -143,6 +144,44 @@ export async function addGrants(env: Env, board: string, viewer: string, body: {
   }
   if (stmts.length) await env.DB.batch(stmts);
   return { added };
+}
+
+/**
+ * A member's first device takes the board key from an invite link it was opened with (E2E design §3.3): the device
+ * unwrapped the link's copies with the private half from the link's "#", and hands them to itself. Allowed only for the
+ * person's own live devices, only while none of their devices reads the board yet, and only for the epochs the link
+ * carries. The server can't check the wrap, but a wrong one only locks that person out of their own copy.
+ */
+export async function addInviteGrants(env: Env, board: string, viewer: string, linkEpochs: Set<number>, body: { grants?: unknown }) {
+  const list = (Array.isArray(body.grants) ? body.grants : []).map((g) => checkGrant(g as Partial<Grant>));
+  if (!list.length || list.length > 500) throw new KeyError("Send 1–500 grants.");
+  const [keys, mineAlready] = await Promise.all([
+    memberKeys(env, board),
+    env.DB.prepare(`SELECT 1 AS x FROM key_grants WHERE board_id = ? AND user = ? LIMIT 1`).bind(board, viewer).first(),
+  ]);
+  if (mineAlready) throw new KeyError("One of your devices already reads this board; it hands the key to your others.");
+  const byKid = new Map(keys.map((k) => [k.id, k]));
+  const added: { kid: string; user: string; label: string | null; first_device: boolean }[] = [];
+  const now = Date.now();
+  const stmts: D1PreparedStatement[] = [];
+  for (const g of list) {
+    const k = byKid.get(g.kid);
+    if (!k || k.user !== viewer) throw new KeyError(`Device ${g.kid} isn't one of your live device keys.`);
+    if (!linkEpochs.has(g.epoch)) throw new KeyError(`The link doesn't carry epoch ${g.epoch}'s key.`);
+    stmts.push(
+      env.DB.prepare(`INSERT OR IGNORE INTO key_grants (board_id, epoch, kid, user, epk, iv, wrapped, granted_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`).bind(
+        board, g.epoch, g.kid, viewer, g.epk, g.iv, g.wrapped, viewer, now,
+      ),
+    );
+    if (!added.some((a) => a.kid === g.kid)) added.push({ kid: g.kid, user: viewer, label: k.label, first_device: true });
+  }
+  await env.DB.batch(stmts);
+  return { added };
+}
+
+/** The visible line for a device that took the board key from an invite link. */
+export function inviteNotice(a: { kid: string; user: string; label: string | null }): string {
+  return `🔑 ${a.user} joined with an invite link that carries this board's key; their ${a.label ? `“${a.label}”` : "device"} (key ${a.kid.slice(0, 6)}) can read it now.`;
 }
 
 /** The visible line for a grant, so everyone sees which devices can read the board. */
