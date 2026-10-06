@@ -133,6 +133,18 @@ function boardStub(env: Env, id: string) {
   return env.BOARD.get(env.BOARD.idFromName(id));
 }
 
+/** Stops every machine on a board that's being archived or deleted, with the board's log saying so (#4951). */
+async function stopBoardHosts(env: Env, board: string, by: string): Promise<void> {
+  const got = await hosts.stop(env, board, "all", by, by);
+  const log = (user: string, text: string) => boardStub(env, board).notice(user, "Host", text, { via: "agent", client: "atteo host", session: null }).catch((e: unknown) => console.error("host audit failed", e));
+  for (const h of got.hosts) await log(h.owner, hosts.stopText(h, by));
+  for (const r of got.dropped) {
+    const h = got.hosts.find((x) => x.id === r.host_id);
+    if (h) await log(h.owner, hosts.auditText(h, r));
+  }
+  for (const a of got.closed) await boardStub(env, board).approvalDecided(approvals.refOf(a)).catch((e: unknown) => console.error("approval event failed", e));
+}
+
 function json(data: unknown, status = 200, headers?: HeadersInit): Response {
   return Response.json(data, { status, headers });
 }
@@ -1913,6 +1925,9 @@ const handler = {
             return json({ ok: true, title: info.title, message: `Renamed to "${info.title}".` });
           }
           const on = m[2] === "archive" && (body.archived === true || body.archived === "true");
+          // Archiving stops every machine attached here (and drops their waiting runs, logged) before the board goes
+          // read-only, so nothing runs on a board no one can see act (#4951).
+          if (on) await stopBoardHosts(env, board.id, `${viewer?.name ?? "the board"} (archived the board)`);
           await boardStub(env, board.id).setArchived(on);
           await registry.setBoardArchived(env, board.id, on);
           return json({ ok: true, archived: on, message: on ? `Archived "${board.title}". It's read-only until restored.` : `Restored "${board.title}".` });
@@ -1954,6 +1969,7 @@ const handler = {
         if (!isOps(c) && board.created_by !== viewer?.name) return json({ error: "Only the board's creator can delete it." }, 403);
         const body = (await request.json().catch(() => ({}))) as { confirm?: string };
         if (String(body.confirm ?? "").trim() !== board.title) return json({ error: "Type the board's name exactly to confirm." }, 400);
+        await stopBoardHosts(env, board.id, `${viewer?.name ?? "ops"} (deleted the board)`).catch((e: unknown) => console.error("stopping hosts failed", e)); // #4951
         await registry.deleteBoard(env, board.id); // access ends here
         await boardStub(env, board.id).destroy(); // then the data
         return json({ ok: true, message: `Deleted "${board.title}".` });
@@ -2608,7 +2624,9 @@ const handler = {
         if (!viewer) return needLogin();
         const bid = url.searchParams.get("board") ?? "", machine = url.searchParams.get("machine") ?? "";
         if (!/^b_[a-z0-9]+$/.test(bid) || !MACHINE_RE.test(machine) || !(await registry.isMember(env, bid, viewer.name))) return json({ error: "This link isn't for a board you're on, or it's incomplete. Copy it again from atteo host." }, 404);
-        return redirect(`/b/${bid}?host_consent=${encodeURIComponent(machine)}`);
+        // The folders and allowlist ride along so the dialog shows exactly what the code will allow (#4917).
+        const scope = (url.searchParams.get("scope") ?? "").replace(/[^A-Za-z0-9_-]/g, "").slice(0, 6000);
+        return redirect(`/b/${bid}?host_consent=${encodeURIComponent(machine)}${scope ? `&host_scope=${scope}` : ""}`);
       }
       // ---- atteo host (docs/HOST.md): a member's own machine on the board; every command needs its owner's OK ----
       m = path.match(/^\/api\/boards\/(b_[a-z0-9]+)\/hosts(?:\/(confirm|h_[A-Za-z0-9_-]+|all)(?:\/(stop|next|runs)(?:\/(hr_[A-Za-z0-9_-]+)(?:\/(result))?)?)?)?$/);
@@ -2625,30 +2643,39 @@ const handler = {
           if (target === "confirm" && !act && method === "POST") {
             // The consent is the person's alone, like approvals: an agent (or the CLI an agent could run) can't mint it.
             if (viewer.via === "agent") return json({ error: `Only you can allow a machine, signed in on the web or the app: open ${origin}/host/consent?board=${bid}&machine=… from atteo host's link.` }, 403);
-            const b = (await request.json().catch(() => ({}))) as { phrase?: unknown; machine?: unknown };
-            return json(await hosts.confirm(env, bid, viewer.name, b.phrase, b.machine));
+            const b = (await request.json().catch(() => ({}))) as { phrase?: unknown; machine?: unknown; shares?: unknown; allow?: unknown };
+            return json(await hosts.confirm(env, bid, viewer.name, b.phrase, b.machine, { shares: b.shares, allow: b.allow }));
           }
           if (!target && method === "POST") {
             const b = (await request.json().catch(() => ({}))) as Record<string, unknown>;
-            const h = await hosts.register(env, bid, viewer.name, b);
+            const { host: h, secret } = await hosts.register(env, bid, viewer.name, b);
             await audit(viewer.name, hosts.attachText(h));
-            return json({ host: hosts.hostView(h) });
+            // The secret is shown once, to the daemon that registered: only it can poll for work and report results (#4939).
+            return json({ host: hosts.hostView(h), secret });
           }
           if (target && act === "stop" && method === "POST") {
             const board = await registry.getBoard(env, bid);
             const owner = (await registry.memberRole(env, bid, viewer.name)) === "owner" || board?.created_by === viewer.name ? viewer.name : null;
-            const stopped = await hosts.stop(env, bid, target, viewer.name, owner);
-            for (const h of stopped) await audit(viewer.name, hosts.stopText(h, viewer.name));
-            return json({ stopped: stopped.map((h) => hosts.hostView(h)) });
+            const got = await hosts.stop(env, bid, target, viewer.name, owner);
+            for (const h of got.hosts) await audit(viewer.name, hosts.stopText(h, viewer.name));
+            for (const r of got.dropped) {
+              const h = got.hosts.find((x) => x.id === r.host_id);
+              if (h) await audit(h.owner, hosts.auditText(h, r)); // one line per run the Stop dropped (#4942)
+            }
+            for (const a of got.closed) await boardStub(env, bid).approvalDecided(approvals.refOf(a)).catch((e: unknown) => console.error("approval event failed", e));
+            return json({ stopped: got.hosts.map((h) => hosts.hostView(h)) });
           }
           if (target && target !== "all" && target !== "confirm") {
             const host = await hosts.getHost(env, bid, target);
             if (!host) return json({ error: "No such host." }, 404);
-            const ownerOnly = () => {
+            // The host's own endpoints: its owner's login AND the daemon's secret, so no other token of the owner (an
+            // agent's) can take approved runs or report fake results (#4939).
+            const ownerOnly = async () => {
               if (host.owner !== viewer.name) throw new hosts.HostError("Only the machine's owner (its atteo host) can do that.", 403);
+              if (!(await hosts.secretOk(host, request.headers.get("x-atteo-host-secret")))) throw new hosts.HostError("Only this machine's own atteo host can do that.", 403);
             };
             if (act === "next" && method === "GET") {
-              ownerOnly();
+              await ownerOnly();
               const wait = Math.min(25, Math.max(0, parseInt(url.searchParams.get("wait") ?? "0", 10) || 0));
               const got = await hosts.next(env, bid, host, wait * 1000);
               for (const r of got.settled) await audit(host.owner, hosts.auditText(host, r));
@@ -2656,6 +2683,7 @@ const handler = {
               return json({ run: got.run ? hosts.runView(got.run) : null }, 200, { "cache-control": "no-store" });
             }
             if (act === "runs" && !runId && method === "POST") {
+              if ((await registry.memberRole(env, bid, viewer.name)) === "viewer") return json({ error: "You can only view this board, so you can't ask its machines to run anything." }, 403);
               const b = (await request.json().catch(() => ({}))) as Record<string, unknown>;
               const made = await hosts.request(env, bid, host.id, viewer.name, b);
               if (made.approval) {
@@ -2672,7 +2700,7 @@ const handler = {
               return json({ run: hosts.runView(got.run) }, 200, { "cache-control": "no-store" });
             }
             if (act === "runs" && runId && result && method === "POST") {
-              ownerOnly();
+              await ownerOnly();
               const b = (await request.json().catch(() => ({}))) as Record<string, unknown>;
               const r = await hosts.finish(env, bid, host, runId, b);
               await audit(host.owner, hosts.auditText(host, r));

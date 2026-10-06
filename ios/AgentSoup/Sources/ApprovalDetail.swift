@@ -40,6 +40,8 @@ struct ApprovalDetail: View {
         guard let command = a.command, !command.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
         return command
     }
+    /// A look-alike letter (a Cyrillic "а") or any other non-ASCII character in a command is called out (#4929).
+    static func hasNonASCII(_ s: String) -> Bool { s.unicodeScalars.contains { !(($0.value >= 0x20 && $0.value < 0x7F) || $0 == "\n" || $0 == "\t") } }
     private var tool: String? {
         guard let tool = a.tool, !tool.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
         return tool
@@ -67,13 +69,19 @@ struct ApprovalDetail: View {
                     }
                     VStack(alignment: .leading, spacing: Space.s) {
                         SectionHeader("What will happen")
-                        if let command, !Vocab.everyday {
+                        // A waiting command is shown whole in every mode: it's what you approve (jxn's agent #4926/#4928).
+                        if let command, !Vocab.everyday || a.status == "pending" {
                             VStack(alignment: .leading, spacing: Space.xs) {
                                 if let tool { Text(tool).font(Typo.micro).foregroundStyle(Theme.faint) }
                                 Text(command)
                                     .font(Typo.mono(.footnote))
                                     .foregroundStyle(Theme.text).textSelection(.enabled)
                                     .frame(maxWidth: .infinity, alignment: .leading)
+                                if Self.hasNonASCII(command) {
+                                    Text("It has characters that aren't plain ASCII: check they're what you expect.")
+                                        .font(Typo.micro).foregroundStyle(Theme.danger)
+                                        .accessibilityIdentifier("approval-nonascii")
+                                }
                             }
                             .surface()
                             .accessibilityElement(children: .combine)

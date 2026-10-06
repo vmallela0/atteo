@@ -46,6 +46,7 @@ export interface ApprovalRef {
   about: number | null; // the board message it's about (request_approval's seq), if any
   created_at: number;
   decided_at: number | null;
+  requested_by?: string | null; // whose agent asked, when it isn't the user's own (a machine run, #4930)
 }
 
 /** One immutable entry in a board's log. Entries change only by later entries that resolve or supersede them. */

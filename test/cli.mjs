@@ -2,8 +2,8 @@
 // Usage: npm run build:cli && BASE=http://localhost:8787 ADMIN_KEY=... node test/cli.mjs
 
 import { execFileSync, spawn } from "node:child_process";
-import { mkdtempSync, mkdirSync, readFileSync, readdirSync, writeFileSync, chmodSync, existsSync, realpathSync, statSync, symlinkSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdtempSync, mkdirSync, readFileSync, readdirSync, writeFileSync, chmodSync, existsSync, realpathSync, statSync, symlinkSync, rmSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { devFetch } from "./devfetch.mjs";
 
@@ -2749,9 +2749,12 @@ await step("handoff --sweep (glm-b #3299): a handoff whose sha reached origin/ma
   assert(g("rev-parse", "HEAD") === head2 && g("rev-parse", "--abbrev-ref", "HEAD") === `fix/other-${run}` && g("status", "--porcelain") === "", "the sweep never touches the repo");
 });
 
-await step("atteo host / atteo run: typed consent, root refusal, approvals, allowlist, symlink jail, timeout, no secrets in env, kill switch", async () => {
+await step("atteo host / atteo run: typed consent for the exact folders, root refusal, approvals, allowlist, sandbox, symlink jail, timeout, allowlisted env, Stop kills a running command", async () => {
   const PHRASE = "I understand what I'm doing";
-  const hostDir = mkdtempSync(join(tmpdir(), "atteo-host-"));
+  const sandboxed = process.platform === "darwin" ? existsSync("/usr/bin/sandbox-exec") : process.platform === "linux" && (process.env.PATH ?? "").split(":").some((d) => existsSync(join(d, "bwrap")));
+  if (!sandboxed) return console.log("    (skipped: no sandbox tool here, so atteo host refuses to run)");
+  // Shares live under HOME, never in a system or hidden folder (#4917): a temp folder of /var is refused now.
+  const hostDir = mkdtempSync(join(homedir(), "atteo-host-test-"));
   const share = join(hostDir, "share");
   const outside = join(hostDir, "outside");
   mkdirSync(join(share, "sub"), { recursive: true });
@@ -2759,46 +2762,83 @@ await step("atteo host / atteo run: typed consent, root refusal, approvals, allo
   writeFileSync(join(outside, "secret.txt"), "not yours");
   symlinkSync(outside, join(share, "sub", "escape"));
   const shareReal = realpathSync(share);
+  const outsideReal = realpathSync(outside);
   const name = `box-${run}`;
   // Consent is the person's, in their browser, and typed back into a real terminal: a pipe (an agent's shell) can't start
-  // a host, there's no flag to skip it, root never hosts, and / is never shared.
+  // a host, there's no flag to skip it, root never hosts, and / (or home, a hidden or system folder) is never shared.
   let r = await cli(["host", "--board", board, "--share", share]);
   assert(r.code !== 0 && r.err.includes("interactive terminal"), `no TTY: refused: ${r.out}${r.err}`);
   r = await cli(["host", "--board", board, "--share", share, "--confirm", PHRASE]);
   assert(r.code !== 0 && r.err.includes("doesn't take --confirm"), `no --confirm: ${r.err}`);
   r = await cli(["host", "--board", board, "--share", share], { env: { ATTEO_HOST_ASSUME_ROOT: "1" } });
   assert(r.code !== 0 && r.err.includes("refuses to run as root"), r.err);
-  r = await cli(["host", "--board", board, "--share", "/"]);
-  assert(r.code !== 0 && r.err.includes("isn't allowed"), r.err);
-  // A attaches a machine in a real terminal (python's pty), with two allowlisted commands: the link names this start's
-  // machine; A, signed in as a person, mints the code for it; the code goes into the prompt.
+  for (const bad of ["/", homedir(), join(homedir(), ".ssh"), "/etc", tmpdir()]) {
+    r = await cli(["host", "--board", board, "--share", bad]);
+    assert(r.code !== 0 && /isn't allowed|no such folder/.test(r.err), `refuses to share ${bad}: ${r.err}`);
+  }
+  r = await cli(["host", "--board", board, "--share", share, "--allow", "echo ‮evil"]);
+  assert(r.code !== 0 && r.err.includes("invisible"), `an allowlisted command can't hide characters: ${r.err}`);
+  // A attaches a machine in a real terminal (python's pty), with allowlisted commands: the link names this start's
+  // machine and carries the folders and allowlist; A, signed in as a person, mints the code for exactly those.
   const pty = "import pty,sys; pty.spawn(sys.argv[1:])";
-  const daemon = spawn("python3", ["-c", pty, "node", CLI, "host", "--board", board, "--share", share, "--name", name, "--allow", "echo allowed", "--allow", "sleep 5", "--allow", "env"], {
+  const allow = ["echo allowed", "sleep 5", "env", "sleep 6; touch DONE"];
+  const daemon = spawn("python3", ["-c", pty, "node", CLI, "host", "--board", board, "--share", share, "--name", name, ...allow.flatMap((a) => ["--allow", a])], {
     cwd: share,
-    env: { ...process.env, ATTEO_CREDENTIALS_FILE: credA, ATTEO_SERVER: BASE, XDG_CONFIG_HOME: join(dir, "cfg-cmds"), MY_API_TOKEN: "zz-should-not-leak" },
+    env: { ...process.env, ATTEO_CREDENTIALS_FILE: credA, ATTEO_SERVER: BASE, XDG_CONFIG_HOME: join(dir, "cfg-cmds"), MY_API_TOKEN: "zz-should-not-leak", SSH_AUTH_SOCK: "/tmp/zz-agent-sock", DATABASE_URL: "postgres://u:zzpass@h/db" },
   });
   let dout = "";
   daemon.stdout.on("data", (d) => (dout += d));
   daemon.stderr.on("data", (d) => (dout += d));
   const exited = new Promise((res) => daemon.on("close", (code) => res(code)));
   try {
-    for (let i = 0; i < 100 && !/machine=m_[A-Za-z0-9_-]+/.test(dout); i++) await sleep(100);
+    for (let i = 0; i < 100 && !/scope=[A-Za-z0-9_-]+/.test(dout); i++) await sleep(100);
     const machine = dout.match(/machine=(m_[A-Za-z0-9_-]+)/)?.[1];
-    assert(dout.includes("VERY DANGEROUS") && dout.includes(`/host/consent?board=${board}&machine=`) && machine, `the link: ${dout}`);
+    const scope = JSON.parse(Buffer.from(dout.match(/scope=([A-Za-z0-9_-]+)/)?.[1] ?? "", "base64url").toString() || "{}");
+    assert(dout.includes("VERY DANGEROUS") && dout.includes(`/host/consent?board=${board}&machine=`) && machine && scope.shares?.[0] === shareReal && scope.allow?.length === allow.length, `the link: ${dout}`);
     const cookieA0 = (await ops("sessions", { user: A, verified: "true" })).cookie;
-    const minted = await fetch(`${BASE}/api/boards/${board}/hosts/confirm`, { method: "POST", headers: { cookie: cookieA0, "content-type": "application/json" }, body: JSON.stringify({ phrase: PHRASE, machine }) });
-    assert(minted.status === 200, `A mints the code as a person: ${minted.status}`);
-    daemon.stdin.write((await minted.json()).code + "\n");
+    const mint = (body) => fetch(`${BASE}/api/boards/${board}/hosts/confirm`, { method: "POST", headers: { cookie: cookieA0, "content-type": "application/json" }, body: JSON.stringify(body) });
+    // A code minted for fewer commands than the host asks for doesn't attach it (#4917).
+    const narrow = await mint({ phrase: PHRASE, machine, shares: scope.shares, allow: ["echo allowed"] });
+    assert(narrow.status === 200, `mint (narrow): ${narrow.status}`);
+    const minted = await mint({ phrase: PHRASE, machine, shares: scope.shares, allow: scope.allow });
+    assert(minted.status === 200, `A mints the code as a person, for exactly what the link shows: ${minted.status}`);
+    daemon.stdin.write((await narrow.json()).code + "\n");
+    for (let i = 0; i < 100 && !/isn't valid|Attached/.test(dout); i++) await sleep(100);
+    assert(!dout.includes("Attached") && dout.includes("isn't valid"), `a code for a narrower scope is refused: ${dout.slice(-300)}`);
+  } finally {
+    daemon.kill("SIGKILL");
+  }
+  // Again, with the right code.
+  const daemon2 = spawn("python3", ["-c", pty, "node", CLI, "host", "--board", board, "--share", share, "--name", name, ...allow.flatMap((a) => ["--allow", a])], {
+    cwd: share,
+    env: { ...process.env, ATTEO_CREDENTIALS_FILE: credA, ATTEO_SERVER: BASE, XDG_CONFIG_HOME: join(dir, "cfg-cmds"), MY_API_TOKEN: "zz-should-not-leak", SSH_AUTH_SOCK: "/tmp/zz-agent-sock", DATABASE_URL: "postgres://u:zzpass@h/db" },
+  });
+  dout = "";
+  daemon2.stdout.on("data", (d) => (dout += d));
+  daemon2.stderr.on("data", (d) => (dout += d));
+  const exited2 = new Promise((res) => daemon2.on("close", (code) => res(code)));
+  try {
+    for (let i = 0; i < 100 && !/scope=[A-Za-z0-9_-]+/.test(dout); i++) await sleep(100);
+    const machine = dout.match(/machine=(m_[A-Za-z0-9_-]+)/)?.[1];
+    const scope = JSON.parse(Buffer.from(dout.match(/scope=([A-Za-z0-9_-]+)/)?.[1] ?? "", "base64url").toString());
+    const cookieA0 = (await ops("sessions", { user: A, verified: "true" })).cookie;
+    const minted = await fetch(`${BASE}/api/boards/${board}/hosts/confirm`, { method: "POST", headers: { cookie: cookieA0, "content-type": "application/json" }, body: JSON.stringify({ phrase: PHRASE, machine, shares: scope.shares, allow: scope.allow }) });
+    assert(minted.status === 200, `A mints the code: ${minted.status}`);
+    daemon2.stdin.write((await minted.json()).code + "\n");
     for (let i = 0; i < 100 && !dout.includes("Attached"); i++) await sleep(100);
     assert(dout.includes("Attached"), `daemon: ${dout}`);
     r = await cli(["host", "list", "--board", board], { cred: credB });
     assert(r.code === 0 && r.out.includes(name) && r.out.includes("online"), r.out + r.err);
-    // Allowlisted: runs without asking.
+    const hostId = r.out.match(/\((h_[A-Za-z0-9_-]+)\)/)?.[1];
+    // The host's own endpoints need the daemon's secret: another of A's tokens can't take its work (#4939).
+    const stolen = await fetch(`${BASE}/api/boards/${board}/hosts/${hostId}/next?wait=0`, { headers: { authorization: `Bearer ${JSON.parse(readFileSync(credA, "utf8")).token}` } });
+    assert(stolen.status === 403, `polling without the daemon's secret is refused: ${stolen.status}`);
+    // Allowlisted: runs without asking, in the first shared folder.
     r = await cli(["run", name, "echo allowed", "--board", board], { cred: credB });
-    assert(r.code === 0 && r.out.includes("allowed") && r.out.includes("exit 0"), r.out + r.err);
-    // The environment drops secret-looking variables (and the CLI's own login).
+    assert(r.code === 0 && r.out.includes("allowed") && r.out.includes("exit 0") && r.out.includes("<<untrusted output"), r.out + r.err);
+    // The environment is an allowlist: no tokens, no URLs with passwords, no ssh agent, no CLI login (#4918).
     r = await cli(["run", name, "env", "--board", board], { cred: credB });
-    assert(r.code === 0 && !r.out.includes("zz-should-not-leak") && !r.out.includes("ATTEO_CREDENTIALS_FILE"), r.out);
+    assert(r.code === 0 && !/zz-should-not-leak|zz-agent-sock|zzpass|ATTEO_CREDENTIALS_FILE/.test(r.out) && r.out.includes("TERM=dumb"), r.out);
     // The timeout kills it.
     r = await cli(["run", name, "sleep 5", "--timeout", "1", "--board", board], { cred: credB });
     assert(r.code !== 0 && r.err.includes("timeout"), r.out + r.err);
@@ -2822,6 +2862,16 @@ await step("atteo host / atteo run: typed consent, root refusal, approvals, allo
     r = await pending;
     assert(r.code === 0 && r.out.includes(`hi-${run}`), r.out + r.err);
     assert(readFileSync(join(shareReal, "made.txt"), "utf8").includes(`hi-${run}`), "ran in the shared folder");
+    // The sandbox: even approved, a command can't read a file outside the shares by its absolute path (#4916)…
+    pending = cli(["run", name, `cat ${outsideReal}/secret.txt # abs-${run}`, "--board", board], { cred: credB });
+    await approveNext(`abs-${run}`);
+    r = await pending;
+    assert(!r.out.includes("not yours"), `the sandbox keeps outside files out of reach: ${r.out}${r.err}`);
+    // …nor write outside them.
+    pending = cli(["run", name, `touch ${outsideReal}/wrote-${run} # w-${run}`, "--board", board], { cred: credB });
+    await approveNext(`w-${run}`);
+    await pending;
+    assert(!existsSync(join(outsideReal, `wrote-${run}`)), "the sandbox blocks writes outside the shares");
     // A symlink inside the share can't lead out: the server's lexical check passes, the host's realpath check refuses.
     pending = cli(["run", name, `cat secret.txt # ${run}`, "--cwd", join(shareReal, "sub", "escape"), "--board", board], { cred: credB });
     await approveNext(`secret.txt # ${run}`);
@@ -2832,15 +2882,26 @@ await step("atteo host / atteo run: typed consent, root refusal, approvals, allo
     await approveNext(`denied-${run}`, "reject");
     r = await pending;
     assert(r.code !== 0 && r.err.includes("Denied") && !existsSync(join(shareReal, `denied-${run}`)), r.out + r.err);
-    // The kill switch: the daemon is told to stop and exits.
+    // The kill switch kills a command that's running (#4915/#4937): an allowlisted 'sleep 6; touch DONE' is stopped
+    // mid-sleep, the daemon exits, and DONE never appears.
+    const long = cli(["run", name, "sleep 6; touch DONE", "--board", board], { cred: credB });
+    for (let i = 0; i < 50 && !dout.includes("sleep 6; touch DONE"); i++) await sleep(100);
+    await sleep(500);
     r = await cli(["host", "stop", name, "--board", board]);
     assert(r.code === 0 && r.out.includes(`Stopped ${name}`), r.out + r.err);
-    const code = await Promise.race([exited, sleep(30_000).then(() => "timeout")]);
-    assert(code === 0 && dout.includes("Stopped: stopped by"), `daemon after stop: ${code} ${dout.slice(-200)}`);
+    const code = await Promise.race([exited2, sleep(15_000).then(() => "timeout")]);
+    assert(code === 0 && dout.includes("Stopped"), `daemon after stop: ${code} ${dout.slice(-300)}`);
+    const lr = await long;
+    assert(lr.code !== 0 && /stopped/.test(lr.err), `the asker hears it was stopped: ${lr.out}${lr.err}`);
+    await sleep(7000);
+    assert(!existsSync(join(shareReal, "DONE")), "Stop killed the running command: DONE never appeared");
     r = await cli(["run", name, "echo late", "--board", board], { cred: credB });
     assert(r.code !== 0, "a stopped host takes nothing");
   } finally {
-    daemon.kill("SIGKILL");
+    daemon2.kill("SIGKILL");
+    try {
+      rmSync(hostDir, { recursive: true, force: true });
+    } catch {}
   }
 });
 

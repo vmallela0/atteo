@@ -4,8 +4,15 @@
 
 import * as approvals from "./approvals";
 import { randomSecret, sha256hex } from "./auth";
-import { BOARD_OUTPUT, clampTimeout, cleanOutput, commandProblem, CONFIRM_TTL_MS, insideShares, MACHINE_RE, MAX_ALLOW, MAX_SHARES, MAX_WAITING, newConsentCode, normCode, normPath, ONLINE_MS, phraseOk, HOST_PHRASE } from "./hostCore";
+import { BOARD_OUTPUT, clampTimeout, cleanOutput, commandProblem, CONFIRM_TTL_MS, consentScope, insideShares, MACHINE_RE, MAX_ALLOW, MAX_SHARES, MAX_WAITING, newConsentCode, normCode, normPath, ONLINE_MS, phraseOk, HOST_PHRASE, shareProblem } from "./hostCore";
+import { mutersOf } from "./moderation";
 import type { Env } from "./types";
+
+/** An approved run must reach its host within this (an offline host doesn't run it days later, #4942). */
+export const APPROVED_TTL_MS = 2 * 3600_000;
+/** Per requester, per host (#4959): commands waiting at once, and asks in an hour. */
+export const MAX_WAITING_PER_REQUESTER = 3;
+export const MAX_RUNS_PER_HOUR = 20;
 
 export class HostError extends Error {
   constructor(message: string, public status = 400) {
@@ -24,6 +31,7 @@ export interface HostRow {
   last_seen: number;
   stopped_at: number | null;
   stopped_by: string | null;
+  secret_hash?: string | null; // the daemon's own secret (hash): only it may poll and report (#4939)
 }
 
 export interface RunRow {
@@ -101,50 +109,71 @@ async function boardOk(env: Env, board: string): Promise<void> {
   if (b.archived_at) throw new HostError("This board is archived.", 409);
 }
 
-const codeHash = async (board: string, machine: string, code: string) => sha256hex(`${board}|${machine}|${normCode(code)}`);
+// A code covers one board, one machine, and exactly the shares and allowlist the person was shown (#4917).
+const codeHash = async (board: string, machine: string, code: string, scope: string) => sha256hex(`${board}|${machine}|${normCode(code)}|${scope}`);
 
-/**
- * Step 1 of attaching, for the PERSON only (the route refuses agent and CLI tokens, as approvals do): typing the exact
- * phrase for one machine (the id `atteo host` printed in its link) mints a one-time code (10 minutes) for that machine.
- */
-export async function confirm(env: Env, board: string, owner: string, phrase: unknown, machine: unknown): Promise<{ code: string; expires_at: number }> {
-  if (!phraseOk(phrase)) throw new HostError(`To attach a machine, type exactly: ${HOST_PHRASE}`, 400);
-  if (typeof machine !== "string" || !MACHINE_RE.test(machine)) throw new HostError("Open the link atteo host printed on that machine: it names the machine this code is for.", 400);
-  await boardOk(env, board);
-  const code = newConsentCode(crypto.getRandomValues(new Uint8Array(10)));
-  const now = Date.now();
-  await env.DB.prepare(`INSERT INTO host_confirms (token_hash, board_id, owner, machine, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?)`)
-    .bind(await codeHash(board, machine, code), board, owner, machine, now, now + CONFIRM_TTL_MS)
-    .run();
-  return { code, expires_at: now + CONFIRM_TTL_MS };
-}
-
-/** Step 2 (atteo host, with the owner's login): register that machine with the code from step 1. One code, one machine, once. */
-export async function register(env: Env, board: string, owner: string, b: { code?: unknown; machine?: unknown; name?: unknown; shares?: unknown; allow?: unknown }): Promise<HostRow> {
-  await boardOk(env, board);
-  const now = Date.now();
-  const machine = typeof b.machine === "string" && MACHINE_RE.test(b.machine) ? b.machine : "";
-  const hash = machine && normCode(b.code) ? await codeHash(board, machine, String(b.code)) : "";
-  const live = await env.DB.prepare(`SELECT 1 AS ok FROM host_confirms WHERE token_hash = ? AND board_id = ? AND owner = ? AND machine = ? AND used_at IS NULL AND expires_at > ?`).bind(hash, board, owner, machine, now).first();
-  const noToken = () => new HostError(`That code isn't valid for this machine (codes work once, for 10 minutes, on the machine whose link minted them). Run atteo host again and confirm in your browser.`, 403);
-  if (!live) throw noToken();
-  const shares = (Array.isArray(b.shares) ? b.shares : []).map((s) => normPath(s)).filter((s): s is string => !!s);
-  if (!shares.length) throw new HostError("Share at least one folder (absolute path).");
-  if (shares.length > MAX_SHARES) throw new HostError(`At most ${MAX_SHARES} shared folders.`);
-  if (shares.includes("/")) throw new HostError("Sharing / (the whole machine) isn't allowed. Share a project folder.");
+/** The shares and allowlist a host asks for, checked (the same rules at consent and at registration). */
+function scopeOf(b: { shares?: unknown; allow?: unknown }): { shares: string[]; allow: string[] } {
+  const raw = Array.isArray(b.shares) ? b.shares : [];
+  if (!raw.length) throw new HostError("Share at least one folder (absolute path).");
+  if (raw.length > MAX_SHARES) throw new HostError(`At most ${MAX_SHARES} shared folders.`);
+  const shares: string[] = [];
+  for (const s of raw) {
+    const p = shareProblem(s);
+    if (p) throw new HostError(p);
+    shares.push(normPath(s)!);
+  }
   const allow = (Array.isArray(b.allow) ? b.allow : []).filter((c): c is string => typeof c === "string" && !!c.trim());
   if (allow.length > MAX_ALLOW) throw new HostError(`At most ${MAX_ALLOW} allowlisted commands.`);
   for (const c of allow) {
     const p = commandProblem(c);
     if (p) throw new HostError(`Allowlist: ${p}`);
   }
+  return { shares, allow };
+}
+
+/**
+ * Step 1 of attaching, for the PERSON only (the route refuses agent and CLI tokens, as approvals do): typing the exact
+ * phrase for one machine (the id `atteo host` printed in its link), having seen the folders it shares and the commands
+ * it allowlists, mints a one-time code (10 minutes) for that machine and that scope only.
+ */
+export async function confirm(env: Env, board: string, owner: string, phrase: unknown, machine: unknown, scope: { shares?: unknown; allow?: unknown } = {}): Promise<{ code: string; expires_at: number }> {
+  if (!phraseOk(phrase)) throw new HostError(`To attach a machine, type exactly: ${HOST_PHRASE}`, 400);
+  if (typeof machine !== "string" || !MACHINE_RE.test(machine)) throw new HostError("Open the link atteo host printed on that machine: it names the machine this code is for.", 400);
+  const { shares, allow } = scopeOf(scope);
+  await boardOk(env, board);
+  const code = newConsentCode(crypto.getRandomValues(new Uint8Array(10)));
+  const now = Date.now();
+  await env.DB.prepare(`INSERT INTO host_confirms (token_hash, board_id, owner, machine, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?)`)
+    .bind(await codeHash(board, machine, code, consentScope(shares, allow)), board, owner, machine, now, now + CONFIRM_TTL_MS)
+    .run();
+  return { code, expires_at: now + CONFIRM_TTL_MS };
+}
+
+/** The daemon's secret: shown once at registration, only its hash kept; the host's own endpoints need it (#4939). */
+export async function secretOk(h: HostRow, given: string | null): Promise<boolean> {
+  return !!h.secret_hash && !!given && (await sha256hex(given)) === h.secret_hash;
+}
+
+/** Step 2 (atteo host, with the owner's login): register that machine with the code from step 1. One code, one machine, once. */
+export async function register(env: Env, board: string, owner: string, b: { code?: unknown; machine?: unknown; name?: unknown; shares?: unknown; allow?: unknown }): Promise<{ host: HostRow; secret: string }> {
+  await boardOk(env, board);
+  const now = Date.now();
+  const { shares, allow } = scopeOf(b);
+  const machine = typeof b.machine === "string" && MACHINE_RE.test(b.machine) ? b.machine : "";
+  // The code was minted for these exact shares and allowlist: asking for more than the person saw doesn't match.
+  const hash = machine && normCode(b.code) ? await codeHash(board, machine, String(b.code), consentScope(shares, allow)) : "";
+  const live = await env.DB.prepare(`SELECT 1 AS ok FROM host_confirms WHERE token_hash = ? AND board_id = ? AND owner = ? AND machine = ? AND used_at IS NULL AND expires_at > ?`).bind(hash, board, owner, machine, now).first();
+  const noToken = () => new HostError(`That code isn't valid for this machine and these folders (codes work once, for 10 minutes, on the machine whose link minted them, for the folders and commands shown there). Run atteo host again and confirm in your browser.`, 403);
+  if (!live) throw noToken();
   const name = (typeof b.name === "string" ? b.name : "").replace(/[^\w .@-]/g, "").trim().slice(0, 40) || "machine";
   // Spent only now, once the request is good: one token, one machine (a second use, or a race, gets 403).
   const used = await env.DB.prepare(`UPDATE host_confirms SET used_at = ? WHERE token_hash = ? AND board_id = ? AND owner = ? AND machine = ? AND used_at IS NULL AND expires_at > ?`).bind(now, hash, board, owner, machine, now).run();
   if (!used.meta.changes) throw noToken();
-  const h: HostRow = { id: randomSecret("h_", 9), board_id: board, owner, name, shares: JSON.stringify(shares), allow: JSON.stringify(allow), created_at: now, last_seen: now, stopped_at: null, stopped_by: null };
-  await env.DB.prepare(`INSERT INTO hosts (id, board_id, owner, name, shares, allow, created_at, last_seen) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`).bind(h.id, board, owner, name, h.shares, h.allow, now, now).run();
-  return h;
+  const secret = randomSecret("hs_", 24);
+  const h: HostRow = { id: randomSecret("h_", 9), board_id: board, owner, name, shares: JSON.stringify(shares), allow: JSON.stringify(allow), created_at: now, last_seen: now, stopped_at: null, stopped_by: null, secret_hash: await sha256hex(secret) };
+  await env.DB.prepare(`INSERT INTO hosts (id, board_id, owner, name, shares, allow, created_at, last_seen, secret_hash) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`).bind(h.id, board, owner, name, h.shares, h.allow, now, now, h.secret_hash).run();
+  return { host: h, secret };
 }
 
 export async function getHost(env: Env, board: string, id: string): Promise<HostRow | null> {
@@ -156,23 +185,40 @@ export async function listHosts(env: Env, board: string): Promise<HostRow[]> {
   return (await env.DB.prepare(`SELECT * FROM hosts WHERE board_id = ? AND (stopped_at IS NULL OR stopped_at > ?) ORDER BY created_at DESC LIMIT 50`).bind(board, Date.now() - 86_400_000).all<HostRow>()).results;
 }
 
-/** The kill switch: the host's owner or the board's owner. Waiting runs are dropped; the host exits at its next poll. */
-export async function stop(env: Env, board: string, id: string, by: string, boardOwner: string | null): Promise<HostRow[]> {
+/**
+ * The kill switch: the host's owner or the board's owner. Every run not finished is dropped (waiting ones, and a running
+ * one: the daemon kills it within ~2 s), and the approvals still waiting for them are closed as denied, so Approve can't
+ * say "Approved" for something that will never run (#4931). Returns the stopped hosts, the dropped runs (one audit line
+ * each, #4942) and the closed approvals (their cards update live).
+ */
+export async function stop(env: Env, board: string, id: string, by: string, boardOwner: string | null): Promise<{ hosts: HostRow[]; dropped: RunRow[]; closed: approvals.Approval[] }> {
   const targets = id === "all" ? (await listHosts(env, board)).filter((h) => !h.stopped_at) : [await getHost(env, board, id)].filter((h): h is HostRow => !!h);
   if (id !== "all" && !targets.length) throw new HostError("No such host.", 404);
   const mine = targets.filter((h) => h.owner === by || by === boardOwner);
   if (!mine.length && targets.length) throw new HostError("Only the machine's owner or the board's owner can stop it.", 403);
   const now = Date.now();
+  const dropped: RunRow[] = [];
+  const closed: approvals.Approval[] = [];
   for (const h of mine) {
     if (h.stopped_at) continue;
+    const open = (await env.DB.prepare(`SELECT * FROM host_runs WHERE host_id = ? AND status IN ('pending', 'approved', 'running')`).bind(h.id).all<RunRow>()).results;
     await env.DB.batch([
       env.DB.prepare(`UPDATE hosts SET stopped_at = ?, stopped_by = ? WHERE id = ? AND stopped_at IS NULL`).bind(now, by, h.id),
-      env.DB.prepare(`UPDATE host_runs SET status = 'stopped', finished_at = ?, note = 'host stopped' WHERE host_id = ? AND status IN ('pending', 'approved')`).bind(now, h.id),
+      env.DB.prepare(`UPDATE host_runs SET status = 'stopped', finished_at = ?, note = CASE status WHEN 'running' THEN 'host stopped while it ran' ELSE 'host stopped' END WHERE host_id = ? AND status IN ('pending', 'approved', 'running')`).bind(now, h.id),
     ]);
+    for (const r of open) {
+      dropped.push({ ...r, status: "stopped", finished_at: now, note: r.status === "running" ? "host stopped while it ran" : "host stopped" });
+      if (r.status !== "pending" || !r.approval_id) continue;
+      const moved = await env.DB.prepare(`UPDATE approvals SET status = 'rejected', note = 'host stopped', decided_at = ? WHERE id = ? AND user = ? AND status = 'pending'`).bind(now, r.approval_id, h.owner).run();
+      if (moved.meta.changes) {
+        const a = await approvals.getApproval(env, h.owner, r.approval_id);
+        if (a) closed.push(a);
+      }
+    }
     h.stopped_at = now;
     h.stopped_by = by;
   }
-  return mine;
+  return { hosts: mine, dropped, closed };
 }
 
 export async function getRun(env: Env, board: string, host: string, id: string): Promise<RunRow | null> {
@@ -190,17 +236,30 @@ export async function request(
   const host = await getHost(env, board, hostId);
   if (!host) throw new HostError("No such host.", 404);
   if (host.stopped_at) throw new HostError(`${host.name} was stopped by ${host.stopped_by}.`, 409);
+  await boardOk(env, board); // archived or deleted since: nothing runs (#4951)
   if (Date.now() - host.last_seen > ONLINE_MS) throw new HostError(`${host.name} is offline (its owner's atteo host isn't running).`, 409);
+  // Someone the owner muted here can't fill their inbox with run approvals (#4941).
+  if (by !== host.owner && (await mutersOf(env.DB, board, by)).has(host.owner)) throw new HostError(`${host.owner} muted you on this board, so you can't ask their machine to run anything.`, 403);
   const problem = commandProblem(b.command);
   if (problem) throw new HostError(problem);
   const command = b.command as string;
   const shares = parse(host.shares);
   const cwd = b.cwd == null || b.cwd === "" ? shares[0] : normPath(b.cwd);
   if (!cwd || !insideShares(cwd, shares)) throw new HostError(`cwd must be inside a folder ${host.name} shares: ${shares.join(", ")}`);
-  const waiting = (await env.DB.prepare(`SELECT COUNT(*) AS n FROM host_runs WHERE host_id = ? AND status IN ('pending', 'approved', 'running')`).bind(host.id).first<{ n: number }>())?.n ?? 0;
-  if (waiting >= MAX_WAITING) throw new HostError(`${host.name} already has ${MAX_WAITING} commands waiting.`, 429);
+  const counts = await env.DB.prepare(
+    `SELECT SUM(CASE WHEN status IN ('pending', 'approved', 'running') THEN 1 ELSE 0 END) AS waiting,
+            SUM(CASE WHEN status IN ('pending', 'approved', 'running') AND requested_by = ?1 THEN 1 ELSE 0 END) AS mine,
+            SUM(CASE WHEN requested_by = ?1 AND created_at > ?2 THEN 1 ELSE 0 END) AS hour
+       FROM host_runs WHERE host_id = ?3`,
+  ).bind(by, Date.now() - 3600_000, host.id).first<{ waiting: number | null; mine: number | null; hour: number | null }>();
+  if ((counts?.waiting ?? 0) >= MAX_WAITING) throw new HostError(`${host.name} already has ${MAX_WAITING} commands waiting.`, 429);
+  // One member can't fill the queue for everyone, or flood the owner (#4959).
+  if ((counts?.mine ?? 0) >= MAX_WAITING_PER_REQUESTER) throw new HostError(`You already have ${MAX_WAITING_PER_REQUESTER} commands waiting on ${host.name}. Wait for those first.`, 429);
+  if ((counts?.hour ?? 0) >= MAX_RUNS_PER_HOUR) throw new HostError(`You've asked ${host.name} for ${MAX_RUNS_PER_HOUR} runs in the last hour. Try again later.`, 429);
   const timeout = clampTimeout(b.timeout_s);
-  const allowed = parse(host.allow).includes(command);
+  // An allowlisted command skips approval only in the first shared folder (where it was allowlisted for): anywhere else
+  // the owner approves it like any other (#4920).
+  const allowed = parse(host.allow).includes(command) && cwd === shares[0];
   let approval: approvals.Approval | null = null;
   if (!allowed) {
     try {
@@ -208,8 +267,9 @@ export async function request(
         client: "atteo host",
         board_id: board,
         requested_by: by,
-        title: `Run on ${host.name}: ${command}`,
-        details: `${by} asks to run this on your machine "${host.name}", in ${cwd} (stops after ${timeout}s). It runs as you, with your files in that folder. Approve only if you'd type it yourself.`,
+        // The title says where; the exact command is shown in full on the card, never only in a cut title (#4926).
+        title: `${by === host.owner ? "Your agent" : `${by}'s agent`} asks to run a command on ${host.name}, in ${cwd}`,
+        details: `${by} asks to run this on your machine "${host.name}", in ${cwd} (stops after ${timeout}s). It runs as you, sandboxed to the shared folders. Approve only if you'd type it yourself.`,
         tool: `Host ${host.name}`,
         command,
         risk: "high",
@@ -281,10 +341,11 @@ export async function next(env: Env, board: string, host: HostRow, waitMs: numbe
   for (;;) {
     const h = await getHost(env, board, host.id);
     if (!h || h.stopped_at) return { stop: h?.stopped_by ? `stopped by ${h.stopped_by}` : "stopped", settled };
-    const member = await env.DB.prepare(`SELECT 1 AS ok FROM members m JOIN boards b ON b.id = m.board_id WHERE m.board_id = ? AND m.user = ? AND b.deleted_at IS NULL AND (m.expires_at IS NULL OR m.expires_at > ?)`).bind(board, h.owner, Date.now()).first();
+    const member = await env.DB.prepare(`SELECT 1 AS ok FROM members m JOIN boards b ON b.id = m.board_id WHERE m.board_id = ? AND m.user = ? AND b.deleted_at IS NULL AND b.archived_at IS NULL AND (m.expires_at IS NULL OR m.expires_at > ?)`).bind(board, h.owner, Date.now()).first();
     if (!member) {
-      await stop(env, board, h.id, h.owner, null);
-      return { stop: "you're no longer on this board (or it was deleted)", settled };
+      const got = await stop(env, board, h.id, h.owner, null);
+      settled.push(...got.dropped);
+      return { stop: "you're no longer on this board, or it was archived or deleted", settled };
     }
     await env.DB.prepare(`UPDATE hosts SET last_seen = ? WHERE id = ?`).bind(Date.now(), h.id).run();
     const pending = (await env.DB.prepare(`SELECT * FROM host_runs WHERE host_id = ? AND status = 'pending' ORDER BY created_at LIMIT 20`).bind(h.id).all<RunRow>()).results;
@@ -293,7 +354,13 @@ export async function next(env: Env, board: string, host: HostRow, waitMs: numbe
       if (s.closed) settled.push(s.run);
     }
     const now = Date.now();
-    const r = await env.DB.prepare(`SELECT * FROM host_runs WHERE host_id = ? AND status = 'approved' ORDER BY created_at LIMIT 1`).bind(h.id).first<RunRow>();
+    // An approved run that waited too long for its host is closed, not run whenever the host comes back (#4942).
+    const stale = (await env.DB.prepare(`SELECT * FROM host_runs WHERE host_id = ? AND status = 'approved' AND created_at < ?`).bind(h.id, now - APPROVED_TTL_MS).all<RunRow>()).results;
+    for (const s of stale) {
+      const moved = await env.DB.prepare(`UPDATE host_runs SET status = 'expired', finished_at = ?, note = 'its host didn''t pick it up in time' WHERE id = ? AND status = 'approved'`).bind(now, s.id).run();
+      if (moved.meta.changes) settled.push({ ...s, status: "expired", finished_at: now, note: "its host didn't pick it up in time" });
+    }
+    const r = await env.DB.prepare(`SELECT * FROM host_runs WHERE host_id = ? AND status = 'approved' AND created_at >= ? ORDER BY created_at LIMIT 1`).bind(h.id, now - APPROVED_TTL_MS).first<RunRow>();
     if (r) {
       const took = await env.DB.prepare(`UPDATE host_runs SET status = 'running', started_at = ? WHERE id = ? AND status = 'approved'`).bind(now, r.id).run();
       if (took.meta.changes) return { run: { ...r, status: "running", started_at: now }, settled };
@@ -321,12 +388,18 @@ export async function finish(env: Env, board: string, host: HostRow, id: string,
 
 const fenceOut = (s: string) => "```\n" + s.replace(/```/g, "ʼʼʼ") + "\n```";
 
-/** The board's audit line for a run that finished (or was refused): who asked, what, where, and how it went. */
+/**
+ * The board's audit line for a run that finished (or was refused): who asked, what, where, and how it went. The command
+ * is the requester's text, so it is only ever shown inside a fence, with the requester named before it: it can't
+ * break out and read as the machine owner's own words (#4938).
+ */
 export function auditText(h: Pick<HostRow, "name" | "owner">, r: RunRow): string {
-  const head = `🖥 ${h.name} (${h.owner}'s machine) · ${r.requested_by} asked: \`${r.command.replace(/`/g, "ʼ").slice(0, 300)}\` in ${r.cwd}`;
-  if (r.status === "rejected") return `${head}\n⛔ Denied by ${h.owner}${r.note ? `: "${r.note}"` : ""}.`;
-  if (r.status === "expired") return `${head}\n⛔ Denied: no decision in time.`;
-  if (r.status === "stopped") return `${head}\n⛔ Dropped: the host was stopped.`;
+  const asked = r.requested_by === h.owner ? `${h.owner}'s own agent` : `${r.requested_by}'s agent (not ${h.owner})`;
+  const cmd = r.command.length > 1000 ? r.command.slice(0, 1000) + `\n… (${r.command.length - 1000} more characters)` : r.command;
+  const head = `🖥 Machine log · ${h.name} (${h.owner}'s machine) · in ${r.cwd} · asked by ${asked}:\n${fenceOut(cmd)}`;
+  if (r.status === "rejected") return `${head}\n⛔ Denied by ${h.owner}${r.note ? ` (note: ${JSON.stringify(r.note.replace(/\s+/g, " ").slice(0, 200))})` : ""}.`;
+  if (r.status === "expired") return `${head}\n⛔ Not run: ${r.note && r.note !== "no decision in time" ? r.note : "no decision in time"}.`;
+  if (r.status === "stopped") return `${head}\n⛔ ${r.note === "host stopped while it ran" ? "Killed: the host was stopped while it ran." : "Dropped: the host was stopped."}`;
   const how = r.timed_out ? `stopped after ${r.timeout_s}s (timeout)` : r.note && r.status === "failed" ? `not run: ${r.note}` : `exit ${r.exit_code}`;
   const out = (r.output ?? "").trim();
   const shown = out.length > BOARD_OUTPUT ? out.slice(0, BOARD_OUTPUT) + `\n… (${out.length - BOARD_OUTPUT} more characters; the requester can read the rest)` : out;
