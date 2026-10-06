@@ -180,15 +180,20 @@ export async function backupTick(env: Env, now: number, board: (id: string, day:
     out.manifest = await run(env, day, "manifest", async () => uploadPart(cfg, objectKey(cfg, day, "manifest"), { kind: "manifest", day, created_at: Date.now(), key_id: await keyId(cfg.publicKey), parts }));
   }
 
-  // Report a night that hasn't finished in time, or that gave up on a part: once a day.
-  const late = d.getUTCHours() >= Math.min(23, start + num(env.BACKUP_ALERT_HOURS, 6));
+  // Report a night that hasn't finished in time, or that gave up on a part: once a day. Not the night backups were
+  // turned on after the deadline (SOUP-A): nothing of it was there by then and no night before it ever finished.
+  const lateHour = Math.min(23, start + num(env.BACKUP_ALERT_HOURS, 6));
+  const late = d.getUTCHours() >= lateHour;
   const st = await env.DB.prepare(
     `SELECT (SELECT status FROM backup_parts WHERE day = ?1 AND part = 'manifest') AS manifest,
-            (SELECT COUNT(*) FROM backup_parts WHERE day = ?1 AND status = 'failed' AND attempts >= ?2 AND part NOT IN ('alert')) AS gave_up`,
+            (SELECT COUNT(*) FROM backup_parts WHERE day = ?1 AND status = 'failed' AND attempts >= ?2 AND part NOT IN ('alert')) AS gave_up,
+            (SELECT MIN(started_at) FROM backup_parts WHERE day = ?1 AND part NOT IN ('alert')) AS first_at,
+            EXISTS (SELECT 1 FROM backup_parts WHERE day < ?1 AND part = 'manifest' AND status = 'done') AS ever_done`,
   )
     .bind(day, MAX_ATTEMPTS)
-    .first<{ manifest: string | null; gave_up: number }>();
-  const problem = st?.gave_up ? `${st.gave_up} part${st.gave_up === 1 ? "" : "s"} failed ${MAX_ATTEMPTS} times` : late && st?.manifest !== "done" ? `no manifest by ${String(start + num(env.BACKUP_ALERT_HOURS, 6)).padStart(2, "0")}:00 UTC` : "";
+    .first<{ manifest: string | null; gave_up: number; first_at: number | null; ever_done: number }>();
+  const firstNight = !st?.ever_done && (st?.first_at ?? now) >= Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), lateHour);
+  const problem = st?.gave_up ? `${st.gave_up} part${st.gave_up === 1 ? "" : "s"} failed ${MAX_ATTEMPTS} times` : late && !firstNight && st?.manifest !== "done" ? `no manifest by ${String(start + num(env.BACKUP_ALERT_HOURS, 6)).padStart(2, "0")}:00 UTC` : "";
   if (problem && (await env.DB.prepare(`INSERT OR IGNORE INTO backup_parts (day, part, status, error, started_at) VALUES (?, 'alert', 'done', ?, ?)`).bind(day, problem, now).run()).meta.changes) {
     out.alert = `Backup ${day} incomplete: ${problem} (GET /api/ops/backups)`;
     console.error(out.alert);
