@@ -15,6 +15,7 @@ const SOURCES: [string, string][] = [
   ["src/pageCss.ts", "GUIDE_CSS"],
   ["src/pageCss.ts", "ASK_CSS"],
   ["src/pageCss.ts", "DOC_CSS"],
+  ["src/pageCss.ts", "SITE_CSS"],
   ["src/status.ts", "STATUS_CSS"],
   ["src/mermaid.ts", "MERMAID_CSS"],
   ["src/codecolor.ts", "CODE_COLOR_CSS"],

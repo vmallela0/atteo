@@ -8,7 +8,7 @@
 
 import { GUIDE_TR } from "./guide.i18n";
 import { tr, type Lang } from "./i18n";
-import { appPage, GUIDE_CSS_SRC, page, type SideBoard, type Viewer } from "./ui";
+import { GUIDE_CSS_SRC, siteNav, sitePage } from "./ui";
 import { esc } from "./util";
 
 export type GuideItem = {
@@ -498,36 +498,56 @@ export function gtr(lang: Lang | null | undefined, s: string): string {
   return (lang && lang !== "en" && GUIDE_TR[lang]?.[s]) || tr(lang, s);
 }
 
+// One section at a time (board #5110), like pages: the one the address names (a section or an item in it), else the
+// first; Previous / Next and the side nav move between them. Searching looks through every section at once. Without
+// the script every section shows, each under its name.
 const GUIDE_JS = `
-(()=>{const q=document.getElementById('gd-q'),none=document.getElementById('gd-none');if(!q)return;
+(()=>{const q=document.getElementById('gd-q'),none=document.getElementById('gd-none'),doc=document.querySelector('.gd-doc'),crumb=document.getElementById('gd-crumb');if(!q||!doc)return;
+const secs=[...doc.querySelectorAll('.gd-sec')],links=[...document.querySelectorAll('.st-nav a')];let cur=secs[0];
 const norm=s=>s.toLowerCase().normalize('NFKD').replace(/[\\u0300-\\u036f]/g,'');
-const run=()=>{const words=norm(q.value).split(/\\s+/).filter(Boolean);let shown=0;
-  document.querySelectorAll('.gd-sec').forEach(sec=>{let n=0;sec.querySelectorAll('.gd-item').forEach(it=>{const t=it.dataset.t||(it.dataset.t=norm(it.textContent));const ok=words.every(w=>t.includes(w));it.hidden=!ok;if(ok)n++});sec.hidden=!n;shown+=n});
+const run=()=>{const words=norm(q.value).split(/\\s+/).filter(Boolean);let shown=0;doc.classList.toggle('one',!words.length);
+  secs.forEach(sec=>{let n=0;sec.querySelectorAll('.gd-item').forEach(it=>{const t=it.dataset.t||(it.dataset.t=norm(it.textContent));const ok=words.every(w=>t.includes(w));it.hidden=!ok;if(ok)n++});sec.hidden=words.length?!n:sec!==cur;shown+=n});
   none.hidden=!!shown};
+const go=jump=>{const id=decodeURIComponent(location.hash.slice(1)),el=id?document.getElementById(id):null,sec=el&&el.closest('.gd-sec');
+  if(sec){cur=sec;q.value=''}
+  crumb.textContent=cur.dataset.title;
+  links.forEach(a=>{if(el&&a.getAttribute('href')==='#'+id)a.setAttribute('aria-current','true');else a.removeAttribute('aria-current')});
+  run();if(el&&el!==sec)el.scrollIntoView();else if(jump)scrollTo(0,0)};
 q.addEventListener('input',run);
+addEventListener('hashchange',()=>go(true));
+document.querySelectorAll('.st-toc a').forEach(a=>a.addEventListener('click',()=>a.closest('details').open=false));
 document.addEventListener('keydown',e=>{if(e.key==='/'&&!e.target.closest('input,textarea,[contenteditable]')&&!document.querySelector('dialog[open]')){e.preventDefault();e.stopPropagation();q.focus()}},true);
-if(location.hash)document.querySelector(location.hash.replace(/[^#\\w-]/g,''))?.scrollIntoView()})();`;
+go(false)})();`;
 
-/** /guide: everything people can do, by task, with a filter. Signed in, it's an app page (sidebar); otherwise public. */
-export function guidePage(lang: Lang, viewer: Viewer | null, side: SideBoard[], origin: string): Response {
-  const G = (s: string) => esc(gtr(lang, s));
+/** /guide: everything people can do, by task, with a filter (board #5110): the sections in a side nav, one section's
+ *  entries at a time with Previous / Next. Public, in the reader's language; signed in, the top bar goes back to the app. */
+export function guidePage(lang: Lang, signedIn: boolean, origin: string): Response {
+  const T = (s: string) => gtr(lang, s);
+  const G = (s: string) => esc(T(s));
   const sections = GUIDE.map((s) => ({ ...s, items: s.items.filter((i) => i.title && i.how) })).filter((s) => s.items.length);
-  const body = `<div class="section-title"><div><h1>${G("What Atteo can do")}</h1><p class="muted" style="margin-top:4px">${G("Everything you can do in Atteo, on the web and in the app, by task.")}</p></div></div>
-<div class="gd-top"><input class="input gd-q" id="gd-q" type="search" placeholder="${G("Search the guide")}" aria-label="${G("Search the guide")}" autocomplete="off">
-<nav class="gd-jump" aria-label="${G("Sections")}">${sections.map((s) => `<a href="#${s.id}">${G(s.title)}</a>`).join("")}</nav></div>
+  const nav = siteNav(T("Contents"), sections.map((s) => ({ title: T(s.title), links: s.items.map((i) => ({ href: `#${i.id}`, text: T(i.title!) })) })));
+  const pager = (n: number) => {
+    const prev = sections[n - 1], next = sections[n + 1];
+    return `<nav class="gd-pager" aria-label="${G("Sections")}">${prev ? `<a class="prev" href="#${prev.id}"><span>${G("Previous")}</span>${G(prev.title)}</a>` : ""}${next ? `<a class="next" href="#${next.id}"><span>${G("Next")}</span>${G(next.title)}</a>` : ""}</nav>`;
+  };
+  const body = `<div class="st-cols gd">${nav.side}<article class="st-doc gd-doc">${nav.toc}
+<p class="st-crumb"><a href="/guide">${G("Guide")}</a> / <span id="gd-crumb">${G(sections[0].title)}</span></p>
+<h1>${G("What Atteo can do")}</h1>
+<p class="st-lead">${G("Everything you can do in Atteo, on the web and in the app, by task.")}</p>
+<input class="gd-q" id="gd-q" type="search" placeholder="${G("Search the guide")}" aria-label="${G("Search the guide")}" autocomplete="off">
 ${sections
   .map(
-    (s) => `<section class="gd-sec" id="${s.id}"><h2>${G(s.title)}</h2><div class="gd-list">${s.items
-      .map((i) => `<article class="card gd-item" id="${i.id}"><h3>${G(i.title!)}<a href="#${i.id}" aria-label="${G("Link to this")}">#</a></h3><p>${G(i.how!)}</p></article>`)
-      .join("")}</div></section>`,
+    (s, n) => `<section class="gd-sec" id="${s.id}" data-title="${G(s.title)}"><p class="gd-label">${G(s.title)}</p>${s.items
+      .map((i) => `<div class="gd-item" id="${i.id}"><h2>${G(i.title!)}<a href="#${i.id}" aria-label="${G("Link to this")}">#</a></h2><p>${G(i.how!)}</p></div>`)
+      .join("")}${pager(n)}</section>`,
   )
   .join("")}
-<p class="muted" id="gd-none" hidden>${G("Nothing in the guide matches that.")}</p>
-<p class="faint gd-agents">${G("Agents read the same list at")} <a href="${esc(origin)}/agents.md">${esc(origin.replace(/^https?:\/\//, ""))}/agents.md</a> (<code>atteo guide</code>).</p>`;
-  const title = `${gtr(lang, "Guide")} · Atteo`;
-  if (viewer) return appPage(title, { viewer, boards: side, active: "guide", crumbs: `<span class="cur">${G("Guide")}</span>`, body, script: GUIDE_JS, css: [GUIDE_CSS_SRC] });
-  return page(title, body, { script: GUIDE_JS, lang, headers: { "content-language": lang, vary: "Accept-Language, Cookie" }, css: [GUIDE_CSS_SRC] });
+<p id="gd-none" hidden>${G("Nothing in the guide matches that.")}</p>
+<p class="gd-agents">${G("Agents read the same list at")} <a href="${esc(origin)}/agents.md">${esc(origin.replace(/^https?:\/\//, ""))}/agents.md</a> (<code>atteo guide</code>).</p>
+</article></div>`;
+  return sitePage(`${T("Guide")} · Atteo`, body, { current: "guide", signedIn, lang, t: T, script: GUIDE_JS, headers: { "content-language": lang, vary: "Accept-Language, Cookie" }, css: [GUIDE_CSS_SRC] });
 }
+
 
 /** /agents.md: the same features as tools and one-line rules, compact plain Markdown (agent-first: read it when needed). */
 export function agentsMd(origin: string): string {

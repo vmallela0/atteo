@@ -144,6 +144,11 @@ export function esc(s: unknown): string {
   return stripBidiControls(String(s ?? "")).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
 }
 
+/** An id for a heading, from its text: "No abuse, no objectionable content" → "no-abuse-no-objectionable-content". */
+export function slug(text: string): string {
+  return text.replace(/<[^>]*>/g, "").toLowerCase().replace(/&[a-z]+;/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+}
+
 /** One emoji (with skin tones, ZWJ sequences, flags) or a :shortcode: (custom names the web app renders). */
 export const EMOJI_RE = /^(?:(?:\p{Extended_Pictographic}|\p{Regional_Indicator}|[#*0-9]\uFE0F?\u20E3)(?:\p{Emoji_Modifier}|\p{Regional_Indicator}|\uFE0F|\u200D\p{Extended_Pictographic})*|:[a-z0-9_+\-]{1,32}:)$/u;
 
