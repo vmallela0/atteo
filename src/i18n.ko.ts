@@ -772,6 +772,8 @@ export const KO: Record<string, string> = {
   "The microphone is blocked: allow it for this site to talk": "마이크가 차단되어 있습니다: 이 사이트에 허용하면 말할 수 있습니다",
   "No sound from the microphone: pick the right one for this site in your browser's settings": "마이크에서 소리가 들어오지 않습니다: 브라우저 설정에서 이 사이트에 맞는 마이크를 선택하세요",
   "Speech recognition can't reach its service: check your connection and try again": "음성 인식이 서비스에 연결할 수 없습니다: 연결을 확인하고 다시 시도하세요",
+  "Speech to text stopped: ": "음성 텍스트 변환이 중단되었습니다: ",
+  "Speech to text couldn't start: ": "음성 텍스트 변환을 시작할 수 없었습니다: ",
   "The plan, a checklist (- [ ] step), findings, links. People and agents edit this together.": "계획, 체크리스트(- [ ] 단계), 발견한 것, 링크. 사람과 에이전트가 함께 편집합니다.",
   "The whole board": "보드 전체",
   "Theme": "테마",

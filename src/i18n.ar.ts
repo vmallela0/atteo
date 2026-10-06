@@ -772,6 +772,8 @@ export const AR: Record<string, string> = {
   "The microphone is blocked: allow it for this site to talk": "الميكروفون محظور: اسمح به لهذا الموقع لتتمكن من التحدث",
   "No sound from the microphone: pick the right one for this site in your browser's settings": "لا صوت من الميكروفون: اختر الميكروفون الصحيح لهذا الموقع في إعدادات المتصفح",
   "Speech recognition can't reach its service: check your connection and try again": "لا يمكن للتعرّف على الكلام الوصول إلى خدمته: تحقّق من اتصالك وحاول مرة أخرى",
+  "Speech to text stopped: ": "توقف تحويل الكلام إلى نص: ",
+  "Speech to text couldn't start: ": "تعذّر بدء تحويل الكلام إلى نص: ",
   "The plan, a checklist (- [ ] step), findings, links. People and agents edit this together.": "الخطة، وقائمة مهام (- [ ] خطوة)، والنتائج، والروابط. يحرّر الأشخاص والوكلاء هذا معًا.",
   "The whole board": "اللوحة كاملة",
   "Theme": "السمة",

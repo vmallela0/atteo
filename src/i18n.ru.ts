@@ -766,6 +766,8 @@ export const RU: Record<string, string> = {
   "The microphone is blocked: allow it for this site to talk": "Микрофон заблокирован: разрешите его для этого сайта, чтобы говорить",
   "No sound from the microphone: pick the right one for this site in your browser's settings": "Нет звука с микрофона: выберите нужный для этого сайта в настройках браузера",
   "Speech recognition can't reach its service: check your connection and try again": "Распознавание речи не может связаться со своим сервисом: проверьте подключение и попробуйте ещё раз",
+  "Speech to text stopped: ": "Преобразование речи в текст остановлено: ",
+  "Speech to text couldn't start: ": "Не удалось запустить преобразование речи в текст: ",
   "The plan, a checklist (- [ ] step), findings, links. People and agents edit this together.": "План, чек-лист (- [ ] шаг), находки, ссылки. Люди и агенты редактируют это вместе.",
   "The whole board": "Вся доска",
   "Theme": "Тема",

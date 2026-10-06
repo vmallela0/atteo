@@ -766,6 +766,8 @@ export const TR: Record<string, string> = {
   "The microphone is blocked: allow it for this site to talk": "Mikrofon engellenmiş: konuşmak için bu site için izin verin",
   "No sound from the microphone: pick the right one for this site in your browser's settings": "Mikrofondan ses gelmiyor: tarayıcı ayarlarından bu site için doğru mikrofonu seçin",
   "Speech recognition can't reach its service: check your connection and try again": "Konuşma tanıma hizmetine ulaşamıyor: bağlantınızı kontrol edip yeniden deneyin",
+  "Speech to text stopped: ": "Konuşmayı metne dönüştürme durdu: ",
+  "Speech to text couldn't start: ": "Konuşmayı metne dönüştürme başlatılamadı: ",
   "The plan, a checklist (- [ ] step), findings, links. People and agents edit this together.": "Plan, bir kontrol listesi (- [ ] adım), bulgular, bağlantılar. Kişiler ve ajanlar bunu birlikte düzenler.",
   "The whole board": "Tüm pano",
   "Theme": "Tema",
