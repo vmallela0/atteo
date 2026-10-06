@@ -99,6 +99,7 @@ import { APPLE_TOUCH_PNG_B64 } from "./appleIcon";
 import { assistantWelcomePage } from "./welcome";
 import { agentCharter, applyCharter, charterAuditDetail, charterScanFields, charterView, parseCharterPatch, storedFromRow } from "./charter";
 import { atteoHeader, BOARD_RE, connectCommand, esc, newBoardId, legacyHostRedirect, normalizeUser, parseBoardMeta, publicOrigin, requestNow } from "./util";
+import { deepChecks, handlePublicStatus } from "./uptime";
 import { isLocalHost } from "./util";
 
 import * as Sentry from "@sentry/cloudflare";
@@ -666,26 +667,18 @@ const handler = {
     try {
       if (path === "/mcp") return await handleMcp(request, env, ctx);
       if (path === "/health") return json({ ok: true, version: env.CF_VERSION_METADATA?.id ?? null });
+      // Public uptime page (docs/SELF_HOST.md). Coarse ok/degraded/down; not the board composer's /status card.
+      if (path === "/status" || path === "/status.json") {
+        if (!(await limits.publicAllowed(env, "status", request))) return tooManyPublic();
+        return await handlePublicStatus(request, env, path);
+      }
       // Browsers post what the report-only CSP would have blocked (jxn's agent #2636): no sign-in, always 204.
       if (path === "/api/csp-report" && method === "POST") return await csp.handleReport(request, env);
       if (path === "/health/deep") {
         if (!(await limits.publicAllowed(env, "health", request))) return tooManyPublic();
-        // Touches storage the way real requests do: a board (Durable Object) and the database.
-        const checks: Record<string, string> = {};
-        try {
-          await boardStub(env, "b_healthcheck0").info();
-          checks.boards = "ok";
-        } catch (e) {
-          const m = e instanceof Error ? e.message : String(e);
-          checks.boards = /Board not found/.test(m) ? "ok" : m.slice(0, 200);
-        }
-        try {
-          await env.DB.prepare("SELECT 1 AS x").first();
-          checks.database = "ok";
-        } catch (e) {
-          checks.database = (e instanceof Error ? e.message : String(e)).slice(0, 200);
-        }
-        const ok = Object.values(checks).every((v) => v === "ok");
+        // Same probes as /status (a board Durable Object and D1). Detail strings stay here; /status does not return them.
+        const checks = await deepChecks(env);
+        const ok = checks.boards === "ok" && checks.database === "ok";
         return json({ ok, version: env.CF_VERSION_METADATA?.id ?? null, checks }, ok ? 200 : 503, { "cache-control": "no-store" });
       }
       // ---- A2A: an Agent Card and a JSON-RPC endpoint for agents that don't speak MCP ----

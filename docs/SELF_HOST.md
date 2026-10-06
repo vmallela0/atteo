@@ -161,6 +161,39 @@ checklist as JSON. Live probes hit `/health`, `/health/deep`, `/openapi.json`, `
 and `/api/ops/metrics` when `ADMIN_KEY` is set. Creating the D1 database, `wrangler secret put`, WorkOS, and
 `wrangler deploy` without `--dry-run` stay manual.
 
+## Public status
+
+`GET /status` is the public uptime page (no sign-in). Point an external checker at `https://<your-site>/status`.
+It reports whether this Worker answered and whether D1 and board storage answered. The body is HTML. `GET /status.json`,
+`Accept: application/json`, or `?format=json` returns the same report as JSON:
+
+```json
+{ "status": "ok", "checks": { "worker": "ok", "database": "ok", "boards": "ok" } }
+```
+
+`status` is `ok`, `degraded`, or `down`. HTTP 200 means `ok`. HTTP 503 means `degraded` or `down`; read `status` to
+tell them apart. On the HTML page the line to match is `status: ok` (or `degraded` / `down`). Responses send
+`cache-control: no-store`.
+
+| Check | Meaning |
+| --- | --- |
+| worker | This Worker produced the report. |
+| database | D1 answered `SELECT 1`. |
+| boards | A Durable Object answered. A missing probe board still counts as reachable. |
+| files | Included only when an R2 bucket is bound as `FILES`. The check calls `head` on a fixed probe key and does not read or return object bytes. No binding is not a failure. |
+
+`down` means the database or boards check failed. `degraded` means those passed and the files binding failed. The
+page never includes secrets, board ids, tokens, error text, or account data. `/health` is liveness (and the deploy
+version). `/health/deep` is the same database and board probes with error detail for operators. `/_ops` and
+`/api/ops/metrics` stay behind operator auth. The board composer command `/status` is a different feature: it posts
+a status card on a board.
+
+Board files are stored in the Durable Object, not R2. Bind `FILES` only if you add an R2 bucket of your own:
+
+```jsonc
+"r2_buckets": [{ "binding": "FILES", "bucket_name": "your-bucket" }]
+```
+
 ## Operator counters
 
 Emails in `ADMIN_EMAIL` can open `/_ops`. The **Trust and context** section (last 14 days) is the paste, secret-filter and context-pack counters:
