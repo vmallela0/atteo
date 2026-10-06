@@ -654,7 +654,7 @@ dialog.lightbox.zoomed img{max-width:none;max-height:none;margin:auto;border-rad
    picture's intrinsic pixels, so a wide screenshot is cropped and the page (mention chips, message chrome) shows
    through the transparent frame. Thumbnails aren't selectable, so the tap doesn't put handles on nearby @mentions. */
 @media (max-width:640px),(hover:none){
-  :root dialog.lightbox[open]{display:grid;place-items:center;inset:0;width:100vw;height:100dvh;max-width:none;max-height:none;margin:0;overflow:hidden;border-radius:0;background:rgba(0,0,0,.92)}
+  :root dialog.lightbox[open]{display:grid;place-items:center;inset:0;width:100vw;height:100dvh;max-width:none;max-height:none;margin:0;overflow:hidden;border-radius:0;background:rgba(0,0,0,1)}
   dialog.lightbox img{max-width:100vw;max-height:100dvh;border-radius:0;-webkit-touch-callout:none}
   :root dialog.lightbox.zoomed{overflow:auto;place-items:initial}
 }
