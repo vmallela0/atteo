@@ -57,8 +57,9 @@ struct BoardView: View {
         // plus 60 in (back button and gap), the glass group is about 51 points a button, and the bar keeps some 24 points
         // between the two. Any wider and it drops the phone instead.
         let margin: CGFloat = screen >= 428 ? 20 : 16
-        // The Menu button before the header takes about 44 more.
-        return max(100, screen - (margin + 60 + 44) - (margin + CGFloat(buttons) * 51) - 24)
+        // The Menu button before the header puts it 56 further in (measured on iOS 26.5 and 27, Pro Max: header at 136).
+        // Any wider and the bar folds search and ⋯ into its own overflow ⋯ (vedu #5044), so keep 16 points to spare.
+        return max(100, screen - (margin + 60 + 56) - (margin + CGFloat(buttons) * 51) - 24 - 16)
     }
     private var header: some View {
         ChatHeader(board: board, title: state.displayName(for: board), presence: presence, presenceShort: presenceShort,
@@ -272,12 +273,42 @@ struct BoardView: View {
                     .accessibilityIdentifier("board-search")
                     .accessibilityLabel("Search this board")
             }
-            // The rail (#4860): the board's agents, open tasks, decisions, soul and memory, members and notifications as a
-            // bottom sheet; its ⋯ has what this bar's ⋯ used to (threads, Hide agents, Open all / Fold all, Talk).
+            // ⋯ is back on the bar (vedu #5044/#5051): every thread here (a dot when one has answers you haven't seen), the
+            // People filter, Open all / Fold all, how much this chat may interrupt you, and Board details: the rail (#4860),
+            // the board's agents, open tasks, decisions, soul and memory, members and notifications as a bottom sheet.
             ToolbarItem(placement: .topBarTrailing) {
-                Button { focused = false; Haptics.play(.touch); showRail = true } label: { ToolbarIcon("sidebar.right") }
-                    .accessibilityIdentifier("board-rail")
-                    .accessibilityLabel(Text("Board details", bundle: .l10n))
+                Menu {
+                    Button { showThreads = true } label: {
+                        Label(anyUnreadThread ? String(localized: "All threads · new replies", bundle: .l10n) : String(localized: "All threads", bundle: .l10n), systemImage: "bubble.left.and.text.bubble.right")
+                    }
+                    .accessibilityIdentifier("threads")
+                    if !board.isAgentChat {
+                        Divider()
+                        // Only messages people wrote (the web's Hide agents): for you, on this board.
+                        Toggle(isOn: Binding(get: { peopleOnly }, set: { on in Haptics.play(.touch); setPeopleOnly(on) })) {
+                            Label(Vocab.pick(String(localized: "Hide agents", bundle: .l10n), String(localized: "Hide assistants", bundle: .l10n)), systemImage: "person")
+                        }
+                        .accessibilityIdentifier("people-filter")
+                    }
+                    // One line (jxn #2690): open or fold every message that isn't for you; the chat's, so on the Chat tab.
+                    if state.display.foldOthers, tab == .chat, !board.isAgentChat, board.kind != "direct" {
+                        Divider()
+                        Button("Open all", systemImage: "chevron.down.2") { setAllOpen(true) }
+                            .accessibilityIdentifier("open-all")
+                        Button("Fold all", systemImage: "chevron.up.2") { setAllOpen(false) }
+                            .accessibilityIdentifier("fold-all")
+                    }
+                    Divider()
+                    NotifyLevelMenu(boardId: board.id) // how much this chat may interrupt you (vedu #2490)
+                    Divider()
+                    Button { focused = false; showRail = true } label: { Label(String(localized: "Board details", bundle: .l10n), systemImage: "sidebar.right") }
+                        .accessibilityIdentifier("board-rail")
+                } label: {
+                    // Just the three dots, nothing on top (vedu #4107): new thread replies show in the menu's Threads row.
+                    ToolbarIcon("ellipsis")
+                }
+                .accessibilityIdentifier("board-menu")
+                .accessibilityLabel("More")
             }
             // Voice chat with Atteo, like a call, at the top right (vedu #1783): the message box keeps the mic for dictation.
             if talkStatus.enabled == true {
