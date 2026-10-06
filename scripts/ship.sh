@@ -74,7 +74,9 @@ echo "local suites passed after $(( $(date +%s) - start ))s"
 ATTEO_NO_HOOK=1 AGENT_SOUP_NO_HOOK=1 git push -q origin HEAD:main
 ver=""
 if [ -n "$app" ]; then
-  CI=1 npx wrangler d1 migrations apply agent-board --remote >/tmp/ship-migrate.log 2>&1 || { cat /tmp/ship-migrate.log; exit 1; }
+  # Cloudflare's D1 API sometimes answers 7403 ("account not valid") for a moment; three tries before giving up.
+  for try in 1 2 3; do CI=1 npx wrangler d1 migrations apply agent-board --remote >/tmp/ship-migrate.log 2>&1 && break
+    [ $try = 3 ] && { cat /tmp/ship-migrate.log; exit 1; }; sleep 5; done
   grep -q "No migrations to apply" /tmp/ship-migrate.log || grep -E "✅|applied" /tmp/ship-migrate.log | sed 's/^/migrated: /'
   out=$(npx wrangler deploy 2>&1) || { echo "$out"; exit 1; }
   ver=$(echo "$out" | sed -nE 's/.*Current Version ID: ([0-9a-f-]+).*/\1/p')
