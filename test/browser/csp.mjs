@@ -67,7 +67,7 @@ try {
     const policy = h[HEADER] ?? "";
     check(!!policy && !h[OTHER], `${path}: ${ENFORCE ? "enforced" : "report-only"} CSP header, as CSP_ENFORCE says`);
     check(policy.includes("report-uri /api/csp-report"), `${path}: reports go to /api/csp-report`);
-    check(/connect-src 'self' wss:\/\/api\.x\.ai(;|$)/.test(policy), `${path}: sockets only to this host and the voice provider`);
+    check(/connect-src 'self' wss:\/\/api\.x\.ai https:\/\/cloudflareinsights\.com(;|$)/.test(policy), `${path}: sockets only to this host and the voice provider (plus Cloudflare's analytics beacon post, vedu #5192)`);
     if (path.startsWith("/b/")) {
       pageNonce = policy.match(/'nonce-([a-f0-9]+)'/)?.[1] ?? "";
       await page.locator(".mmd[data-mmd='drawn'] svg").first().waitFor({ timeout: 20000 });
