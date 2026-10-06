@@ -1,7 +1,7 @@
 // The agent log (jxn #4734): board messages as log rows. A gutter with the #number and local time; agents drawn as a node
 // (no picture), people keep theirs; each reply joined to its parent by a rail in the gutter (one SVG path per reply that
 // ends on the reply's node). The rail follows the rows: in one-line mode, and when a parent 90 messages back loads by
-// a jump. On a phone the gutter and graph give way to an indent line on replies.
+// a jump. On a phone the gutter goes and the rails share one lane left of the pictures.
 // Usage: BASE=http://localhost:8787 node agent-log.mjs  (local dev only, ADMIN_KEY=ci-admin-key in .dev.vars)
 import { chromium } from "playwright-core";
 import { until } from "./lib/wait.mjs";
@@ -50,9 +50,9 @@ check(matches(g) && g.edges.length === 4, `a rail per reply, from its parent's n
 await p.waitForSelector(`#e${r2} .rq`, { state: "attached", timeout: 4000 }).catch(() => {});
 const look = await p.evaluate(([a, h, q]) => {
   const ag = document.querySelector(`#e${a}>.av`), hu = document.querySelector(`#e${h}>.av`), lg = document.querySelector(`#e${a}>.gut`);
-  return { agentImg: getComputedStyle(ag.querySelector(".av-img")).display, agentBg: getComputedStyle(ag).backgroundColor, dot: getComputedStyle(ag, "::before").width, human: getComputedStyle(hu).fontSize !== "0px" && getComputedStyle(hu, "::before").content === "none" && (!hu.querySelector(".av-img") || getComputedStyle(hu.querySelector(".av-img")).display !== "none"), lg: lg.innerText.replace(/\s+/g, " ").trim(), font: getComputedStyle(lg).fontFamily, radius: (() => { const x = document.querySelector(`#e${q} .rq`); return x ? getComputedStyle(x).borderRadius : "(no quote)"; })() };
+  return { agentImg: getComputedStyle(ag.querySelector(".av-img")).display, agentBg: getComputedStyle(ag).backgroundColor, dot: getComputedStyle(ag).backgroundImage.startsWith("radial-gradient"), human: getComputedStyle(hu).fontSize !== "0px" && getComputedStyle(hu, "::before").content === "none" && (!hu.querySelector(".av-img") || getComputedStyle(hu.querySelector(".av-img")).display !== "none"), lg: lg.innerText.replace(/\s+/g, " ").trim(), font: getComputedStyle(lg).fontFamily, radius: (() => { const x = document.querySelector(`#e${q} .rq`); return x ? getComputedStyle(x).borderRadius : "(no quote)"; })() };
 }, [r1, r3, r2]);
-check(look.agentImg === "none" && /rgba\(0, 0, 0, 0\)|transparent/.test(look.agentBg) && look.dot === "10px", `an agent is a node, not a picture (${JSON.stringify(look)})`);
+check(look.agentImg === "none" && /rgba\(0, 0, 0, 0\)|transparent/.test(look.agentBg) && look.dot, `an agent is a node, not a picture (${JSON.stringify(look)})`);
 check(look.human, "a person keeps their avatar (picture, or initials until they set one)");
 check(new RegExp(`^#${r1} \\d\\d:\\d\\d$`).test(look.lg) && /mono|courier/i.test(look.font), `the gutter shows the #number and local time in mono ("${look.lg}")`);
 check(look.radius === "0px", "the reply quote is a hairline, not a rounded card");
@@ -76,8 +76,9 @@ await ph.addCookies([{ name: k, value: v.join("="), url: BASE }]);
 const q = await ph.newPage();
 await q.goto(`${BASE}/b/${board}`);
 await q.waitForSelector(`#e${r4}`);
-const phone = await q.evaluate((s) => ({ lg: getComputedStyle(document.querySelector(`#e${s}>.gut`)).display, graph: getComputedStyle(document.querySelector(".graph")).display, line: getComputedStyle(document.getElementById("e" + s), "::after").borderLeftWidth, wide: document.documentElement.scrollWidth > innerWidth }), r4);
-check(phone.lg === "none" && phone.graph === "none" && phone.line === "1px" && !phone.wide, `390px: an indent line instead of the gutter and graph (${JSON.stringify(phone)})`);
+await until(() => q.evaluate(() => (document.querySelector(".graph path")?.getAttribute("d") || "").split("M").length > 2), 4000);
+const phone = await q.evaluate((s) => { const d = document.querySelector(".graph path")?.getAttribute("d") || "", lanes = new Set(d.split("M").filter(Boolean).map((x) => x.match(/V/) ? x.split("Q")[1].split(" ")[0] : null)); return { gut: getComputedStyle(document.querySelector(`#e${s}>.gut`)).display, rails: d.split("M").length - 1, lanes: lanes.size, wide: document.documentElement.scrollWidth > innerWidth }; }, r4);
+check(phone.gut === "none" && phone.rails >= 3 && phone.lanes === 1 && !phone.wide, `390px: no gutter, and the rails share one lane (${JSON.stringify(phone)})`);
 await browser.close();
 console.log(fails ? `${fails} FAILED` : "agent log: all passed");
 process.exit(fails ? 1 : 0);

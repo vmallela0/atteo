@@ -128,7 +128,7 @@ export const CSS = `
    rules (Chrome ignores them once scrollbar-width is set, so that's Firefox-only); darker while the pane is hovered. */
 :root{--sb:color-mix(in srgb,var(--muted) 35%,transparent);--sb-hover:color-mix(in srgb,var(--muted) 70%,transparent)}
 /* How far a message highlight reaches past the entry: left, past the avatar; right, only up to the scroll rail (jxn #2003). */
-:root{--hl-l:12px;--hl-r:4px}@media(max-width:640px){:root{--hl-l:8px}}
+:root{--hl-l:12px;--hl-r:4px}@media(max-width:640px){:root{--hl-l:8px}#thread>.entry>span.gut{display:none}}
 ::-webkit-scrollbar{width:6px;height:6px}
 ::-webkit-scrollbar-track,::-webkit-scrollbar-corner{background:transparent}
 ::-webkit-scrollbar-thumb{background:var(--sb);border-radius:6px}
@@ -363,7 +363,7 @@ dialog[open]{animation:pop .16s ease-out}dialog:focus{outline:none}@media (prefe
 .replying .rp-text{color:var(--faint)}.replying .rp-text:empty{display:none}.replying .rp-text::before{content:": "}
 .replying .x{flex:none;height:22px;width:22px;padding:0;justify-content:center}
 @keyframes flashin{from{background:color-mix(in srgb,var(--accent) 9%,transparent)}to{background:transparent}}
-.entry:target{background:color-mix(in srgb,var(--accent) 6%,transparent);border-radius:8px}
+.entry:target{background:color-mix(in srgb,var(--accent) 6%,transparent)}
 .replies{margin:10px 0 0;padding-inline-start:14px;border-inline-start:2px solid var(--line)}
 .replies:empty{display:none}
 .replies .entry{border-top:0;padding:10px 0 0}
@@ -1280,14 +1280,9 @@ a.ref:hover{color:var(--ink);background:color-mix(in srgb,var(--accent) 12%,var(
 :root[data-compact="others"] #thread>.entry.ol:is(.ol-open,[data-ol-all] .ol)>.grow>.meta>.agent-info{display:inline}
 :root[data-compact="others"] #thread>.entry.ol:is(.ol-open,[data-ol-all] .ol)>.grow>.meta>.who{order:-2}:root[data-compact="others"] #thread>.entry.ol:is(.ol-open,[data-ol-all] .ol)>.grow>.meta>.when{order:-1} /* name, time, then the details: the time stays clear of the first row's action bar */
 :root[data-compact="others"] #thread>.entry.ol:is(.ol-open,[data-ol-all] .ol)>.grow>.meta>:is(.seq,.t-change){display:inline-flex!important}
-.gut{display:none}#thread>.entry>.gut{display:flex;flex-direction:column;flex:none;width:44px;margin-right:12px;padding-top:3px;font:11px/14px var(--font-mono);color:var(--faint);white-space:nowrap;overflow:hidden}
-:root[data-mode="everyday"] .gut-n,#thread>.entry>.grow>.meta>.seq{display:none}
-#thread>.entry>.av.agent{background:none;font-size:0}#thread>.entry>.av.agent>.av-img{display:none}
-#thread>.entry>.av.agent::before{content:"";width:10px;height:10px;border-radius:50%;background:var(--text)}
-#thread>.entry>.av.agent:hover::before{display:none}#thread>.entry>.av.agent:hover{font-size:10px;color:var(--muted)}
-.thread-scroll{position:relative}.graph{position:absolute;pointer-events:none;fill:none;stroke:var(--line-strong)}
-:root[data-compact="others"]:not([data-ol-all]) #thread>.entry.ol:not(.ol-open)>.gut{padding:0;height:14px}
-@media (max-width:640px){#thread>.entry>.gut,.graph{display:none}#thread>.entry[data-reply]{padding-left:14px}#thread>.entry[data-reply]::after{content:"";position:absolute;left:4px;top:8px;bottom:8px;border-left:1px solid var(--line-strong)}}
+.gut{display:none}#thread>.entry>.gut{display:grid;align-content:start;align-self:stretch;contain:size;overflow:hidden;flex:0 0 44px;margin-right:12px;font:11px/22px var(--font-mono);color:var(--faint)}
+:root[data-mode="everyday"] .gut-n,#thread .meta>.seq,#thread>*>.agent>img{display:none}
+#thread>.entry>.av.agent{background:radial-gradient(var(--text) 4.5px,#0000 5px);color:#0000}
 :root:not([data-compact="others"]) .ol-all{display:none}
 .mu-line{display:none}
 .entry.mu:not(.mu-open)>:not(.mu-line){display:none!important} /* a muted member's post: one line until opened (#3602) */

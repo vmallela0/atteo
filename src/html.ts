@@ -1364,12 +1364,11 @@ document.addEventListener('atteo-replies',()=>{olMark();railBuild();if(pinned)to
 // answers by a thin rail in the gutter, like a git graph: out of the parent's node, down a lane, into the reply's node.
 // Threads that overlap take the next lane. Drawn as one SVG behind the rows, redrawn when rows come, go or change height.
 const LG_DAY=new Date().toDateString(),GRAPH=document.createElementNS('http://www.w3.org/2000/svg','svg');
-GRAPH.setAttribute('class','graph');GRAPH.setAttribute('aria-hidden','true');
+GRAPH.setAttribute('class','graph');GRAPH.style.cssText='position:absolute;pointer-events:none;overflow:visible;fill:none;stroke:var(--line-strong)';GRAPH.setAttribute('aria-hidden','true');
 function lgTime(t){const d=new Date(+t.dataset.ts);t.textContent=d.toDateString()===LG_DAY?d.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit',hour12:false}):d.toLocaleDateString([],{month:'short',day:'numeric'})}
 let graphQ=0;function graphSoon(){if(!graphQ)graphQ=requestAnimationFrame(()=>{graphQ=0;graphDraw()})}
-function graphDraw(){const th=document.getElementById('thread');if(!th)return;if(!GRAPH.isConnected)th.before(GRAPH);
+function graphDraw(){const th=document.getElementById('thread');if(!th)return;if(!GRAPH.isConnected){th.before(GRAPH);th.parentElement.style.position='relative'}
   th.querySelectorAll(':scope>.entry>.gut>.gut-t:empty').forEach(lgTime);
-  if(getComputedStyle(GRAPH).display==='none'){GRAPH.replaceChildren();return}
   const o=th.getBoundingClientRect(),at=new Map();
   GRAPH.style.top=th.offsetTop+'px';GRAPH.style.left=th.offsetLeft+'px';GRAPH.setAttribute('width',o.width);GRAPH.setAttribute('height',th.scrollHeight);
   for(const el of th.querySelectorAll(':scope>.entry,:scope>.ghost')){const r=el.getBoundingClientRect();if(!r.height)continue;const av=el.querySelector(':scope>.av');
@@ -1378,9 +1377,9 @@ function graphDraw(){const th=document.getElementById('thread');if(!th)return;if
   const groups=new Map();
   for(const [s,c] of at){const p=c.el.dataset.reply;if(!p||!c.el.classList.contains('entry')||c.x==null)continue;const q=at.get(p);if(!q||q.y>=c.y)continue;
     let g=groups.get(p);if(!g)groups.set(p,g={y0:q.y,y1:c.y,q,cs:[]});g.y1=Math.max(g.y1,c.y);g.cs.push(c)}
-  const ends=[],R=4;let d='';
+  const ends=[],R=4,one=matchMedia('(max-width:640px)').matches;let d=''; // a phone has no gutter: one lane, in the margin left of the pictures
   for(const g of [...groups.values()].sort((a,b)=>a.y0-b.y0)){let k=ends.findIndex(v=>v<=g.y0+1);if(k<0){k=ends.length;ends.push(0)}ends[k]=g.y1;
-    for(const c of g.cs){const x=c.x-7-5*Math.min(k,5),y0=g.q.y,y1=c.y,x0=g.q.x==null?x:g.q.e,r=Math.min(R,(y1-y0)/2);
+    for(const c of g.cs){const x=c.x-7-5*(one?0:Math.min(k,5)),y0=g.q.y,y1=c.y,x0=g.q.x==null?x:g.q.e,r=Math.min(R,(y1-y0)/2);
       d+='M'+x0.toFixed(1)+' '+y0.toFixed(1)+'H'+(x+r).toFixed(1)+'Q'+x.toFixed(1)+' '+y0.toFixed(1)+' '+x.toFixed(1)+' '+(y0+r).toFixed(1)+'V'+(y1-r).toFixed(1)+'Q'+x.toFixed(1)+' '+y1.toFixed(1)+' '+(x+r).toFixed(1)+' '+y1.toFixed(1)+'H'+c.e.toFixed(1)}}
   let path=GRAPH.firstElementChild;if(!path){path=document.createElementNS('http://www.w3.org/2000/svg','path');GRAPH.append(path)}path.setAttribute('d',d)}
 new MutationObserver(graphSoon).observe(document.getElementById('thread'),{childList:true});new ResizeObserver(graphSoon).observe(document.getElementById('thread'));
