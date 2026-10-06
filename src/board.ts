@@ -3345,10 +3345,11 @@ export class Board extends DurableObject<Env> {
       .map((r) => ({ seq: r.seq as number, who: r.user as string }));
   }
 
-  /** A person is typing: everyone on the board hears it for a few seconds. Nothing is stored. */
-  typing(user: string) {
+  /** A person is typing: everyone on the board hears it for a few seconds, with the thread it's in (root; 0 is the
+   *  chat itself, vedu #4746). Nothing is stored. */
+  typing(user: string, root = 0) {
     this.info();
-    this.broadcast({ type: "typing", who: user, until: Date.now() + 6000 });
+    this.broadcast({ type: "typing", who: user, until: Date.now() + 6000, root });
   }
 
   /**

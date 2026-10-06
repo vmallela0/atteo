@@ -658,7 +658,7 @@ struct ThreadView: View {
 
     /// The chat's own message box (jxn #1094): typing, "/", "@", pictures and files, send.
     private var composer: some View {
-        ChatComposer(board: board, box: draft, focused: $focused, placeholder: String(localized: "Reply…", bundle: .l10n), replyTo: answering ?? rootSeq,
+        ChatComposer(board: board, box: draft, focused: $focused, placeholder: String(localized: "Reply…", bundle: .l10n), replyTo: answering ?? rootSeq, threadRoot: rootSeq,
                      identifier: "thread-composer", sendIdentifier: "thread-send", attachIdentifier: "thread-attach",
                      sent: {
                          // Sent: the chat's box is done with it too (it no longer follows this one).

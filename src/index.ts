@@ -3396,10 +3396,12 @@ const handler = {
         // grep for agents: exact matching lines, one per hit (grep.ts). Members only (canSee above).
         if (what === "grep" && method === "GET") return grepResponse(env, viewer?.name ?? "", url, id, seer());
         // Read receipts: the board page reports the newest entry its person has had on screen.
-        // "jxn is typing…": a person's composer says so every few seconds while they type; nothing is stored.
+        // "jxn is typing…": a person's composer says so every few seconds while they type; nothing is stored. ?root=N
+        // says it's in thread N's reply box (vedu #4746: a thread's typing shows only in that thread); none means the chat.
         if (what === "typing" && method === "POST") {
           if (!viewer || viewer.via === "agent" || !(await registry.isMember(env, id, viewer.name))) return json({ error: "Only members can do that." }, 403);
-          await stub.typing(viewer.name);
+          const r = Number(url.searchParams.get("root"));
+          await stub.typing(viewer.name, Number.isSafeInteger(r) && r > 0 ? r : 0);
           return new Response(null, { status: 204 });
         }
         if (what === "handle" && method === "POST" && seqStr) {

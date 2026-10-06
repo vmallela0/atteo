@@ -528,7 +528,7 @@ a.ev-acct:hover{background:var(--bg-subtle)}
 .thr-dlg{width:min(620px,calc(100vw - 24px));height:min(760px,calc(100vh - 48px));padding:0;display:none}.thr-dlg[open]{display:flex;flex-direction:column}
 .thr-hd{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:12px 16px;border-bottom:1px solid var(--line)}.thr-hd b{color:var(--ink)}.thr-hd .grow{flex:1}
 .thr-list{flex:1;overflow:auto;padding:4px 16px 12px}.thr-list>.entry:first-child{border-top:0}.thr-list>.entry.hit{background:color-mix(in srgb,var(--accent) 7%,transparent)}
-.thr-dlg>.composer.in-thr{margin:0 12px 12px;flex:none}.composer.in-thr .replying{display:none}.composer.in-thr .input{max-height:30vh}
+.thr-dlg>.composer.in-thr{margin:0 12px 12px;flex:none}.thr-dlg>.typing{margin:0 12px 6px 16px;flex:none}.composer.in-thr .replying{display:none}.composer.in-thr .input{max-height:30vh}
 @media (max-width:640px){.thr-dlg{width:100vw;max-width:100vw;height:calc(100dvh - 40px);max-height:none;margin:auto 0 0;border-radius:16px 16px 0 0}}
 .thr-sum{display:flex;flex-direction:column;align-items:stretch;gap:2px;width:fit-content;max-width:100%;margin-top:6px;padding:3px 10px 4px 4px;text-align:left;border:1px solid transparent;border-radius:8px;background:none;font:inherit;font-size:12.5px;color:var(--accent);cursor:pointer}
 .thr-sum:hover{border-color:var(--line);background:var(--bg-subtle)}.thr-sum .faint{color:var(--faint)}

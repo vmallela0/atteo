@@ -21,6 +21,8 @@ struct ChatComposer: View {
     var placeholder: String
     /// The thread's box: what its messages answer (nil: the chat's box).
     var replyTo: Int? = nil
+    /// The thread this box writes in (its first message), or nil for the chat: "… is typing" is per place (vedu #4746).
+    var threadRoot: Int? = nil
     /// "Your agent": one of your sessions (only the agent chat's box picks one).
     var toSession: Binding<String?>? = nil
     var identifier = "composer"
@@ -133,7 +135,7 @@ struct ChatComposer: View {
     /// Above it, when they apply: who's typing, what "/" makes it, and who "@" can name.
     var body: some View {
         VStack(spacing: 0) {
-            TypingRow(board: board.id)
+            TypingRow(board: board.id, root: threadRoot ?? 0)
             if let toSession { AgentToPicker(to: toSession) }
             // "/": what a message can be besides a note (a task, a decision, a question).
             if attachments.isEmpty {
@@ -208,7 +210,7 @@ struct ChatComposer: View {
         .animation(.smooth(duration: 0.25), value: state.typing[board.id])
         .animation(.spring(duration: 0.28, bounce: 0.1), value: draft.hasPrefix("/"))
         .animation(.spring(duration: 0.28, bounce: 0.1), value: privacy)
-        .onChange(of: draft) { _, d in state.typed(d, in: board); refreshSessions() } // "maya is typing…" for everyone else here
+        .onChange(of: draft) { _, d in state.typed(d, in: board, root: threadRoot ?? 0); refreshSessions() } // "maya is typing…" for everyone else here
         .photosPicker(isPresented: $showPhotos, selection: $picked, maxSelectionCount: max(1, maxAttachments - attachments.count - preparing), selectionBehavior: .ordered, matching: .images)
         .onChange(of: picked) { _, items in
             guard !items.isEmpty else { return }
