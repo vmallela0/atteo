@@ -1158,7 +1158,17 @@ pre.json{background:var(--bg-subtle);border:1px solid var(--line);border-radius:
 .bp-panel{flex:1;min-height:0;display:flex;flex-direction:column}
 .bp-panel>.layout{flex:1;min-height:0;grid-template-rows:minmax(0,1fr);position:relative;gap:20px}
 @media(min-width:960px){.bp-panel>.layout{grid-template-columns:minmax(0,1fr) 280px}.bp-panel>.layout.info-collapsed{grid-template-columns:minmax(0,1fr)}.layout.info-collapsed>.aside{display:none}
-  .layout.info-collapsed>.conv{width:100%;max-width:820px;margin:0 auto} /* a readable measure even with the sidebar hidden */}
+}
+/* A readable measure, centred in its space, whether the info rail is open or not: with no sidebar since the frame, a
+   full-width thread ran from the screen's edge to the rail (jxn #5082). Phones keep the full width. */
+@media(min-width:641px){.bp-panel>.layout>.conv{width:100%;max-width:820px;margin:0 auto}}
+/* The board's rail sits on the left, the narrow conversation centred to its right (jxn #5094). */
+@media(min-width:960px){.bp-panel>.layout{grid-template-columns:280px minmax(0,1fr)}.bp-panel>.layout>.aside{grid-column:1;grid-row:1}.bp-panel>.layout>.conv{grid-column:2;grid-row:1}
+  /* Rail hidden: one column, the conversation centred in it (opus-d #5119: grid-column:2 had made an implicit column). */
+  .bp-panel>.layout.info-collapsed>.conv{grid-column:auto}
+  /* The rail's toggle sits on its side, the left, and the pinned bar clears it there. */
+  .bp-panel .info-btn{right:auto;left:0}.layout.info-collapsed .pin-bar{margin-right:0;margin-left:38px}
+  [dir=rtl] .bp-panel .info-btn{left:auto;right:0}[dir=rtl] .layout.info-collapsed .pin-bar{margin-left:0;margin-right:38px}}
 :where(#board-info){display:flex;flex-direction:column}#sum{display:contents}#sum>[data-fold=members]{order:1}#ns-side,#host-side{order:2}
 .bp-panel .aside{position:static;align-self:stretch;max-height:none;min-height:0;overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain;margin:40px 0 0 -8px;padding:4px 8px 16px 8px}
 /* Board info scrolls below the panel toggle (nothing slides under it), with a thin, faint scrollbar. */
