@@ -31,7 +31,7 @@ const a = await open(A), bb = await open(B);
 check(await a.p.locator(`[data-call="${board}"]`).isVisible(), "the board's header has a Call button");
 await a.p.click(`[data-call="${board}"]`);
 await a.p.locator("dialog.call-dlg #call-join").waitFor({ state: "visible", timeout: 8000 });
-check((await a.p.locator("#call-join").innerText()).trim() === "Start a call" && (await a.p.locator("#call-people").innerText()).includes("Nobody"), "with no call on, the dialog offers to start one");
+check(await until(async () => (await a.p.locator("#call-join").innerText()).trim() === "Start a call" && (await a.p.locator("#call-people").innerText()).includes("Nobody")), "with no call on, the dialog offers to start one");
 await a.p.click("#call-join");
 check(await until(async () => (await names(a.p)).join() === A), "the first to join is in the call");
 check(await until(async () => (await a.p.locator("#call-st").innerText()).includes("Test room")), "the stub room says there's no audio here");

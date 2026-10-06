@@ -15,7 +15,7 @@ const PEOPLE = `<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stro
 
 /** The header's Call button (a board that isn't encrypted or your agent chat). */
 export function callBtn(board: string): string {
-  return `<button class="btn ghost sm bcall-btn" type="button" data-call="${esc(board)}" aria-label="Call" title="A call with the people on this board (up to 4), with Atteo when you ask">${PEOPLE}<span class="call-l">Call</span></button>`;
+  return `<button class="btn ghost sm bcall-btn" type="button" data-call="${esc(board)}" aria-label="Call" title="Call (up to 4 people)">${PEOPLE}</button>`;
 }
 
 // The words-to-Atteo rule, as page script (test/calls.test.ts checks it against calls.ts addressesAtteo).
