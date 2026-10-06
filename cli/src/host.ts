@@ -59,7 +59,7 @@ const WARNING = (board: string, shares: string[], allow: string[], network: bool
      (and read the system's programs). Your home folder, keys and logins stay out of its reach.
      ${network ? "NETWORK ON (--allow-network): commands can reach the internet and this machine's services, so they could send these folders anywhere." : "No network: commands can't reach the internet or this machine's services (start with --allow-network to allow it)."}
      You approve every command (in the browser or the app)${allow.length ? ` except these exact ones, in ${shares[0]}: ${allow.map((a) => JSON.stringify(a)).join(", ")}` : ""}.
-     Stop any time: Ctrl-C here, Stop on the board, or atteo host stop. Stop kills a command that's running.
+     Stop any time: Ctrl-C here, Stop on the board, or atteo host stop. Stop kills a command that's running (on macOS, not a child that detached with setsid).
 `;
 
 const realHome = () => {

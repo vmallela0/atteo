@@ -35,8 +35,8 @@ of a mistake, it doesn't make an unknown command safe.
   not; on Linux, the ones that exist when the command starts (up to 4 folders deep, not in `node_modules`): a repo or
   `.envrc` a command creates there isn't covered, so look before you run git in a folder an agent made.
 - **Network: off, unless you start with `--allow-network`** (jxn #4945). Off means nothing: no internet, no DNS, no
-  services on your machine (localhost databases, dev servers, Docker), no unix sockets (Linux: its own network
-  namespace, which also cuts abstract sockets like X11). With `--allow-network` a command can reach the internet and
+  services on your machine (localhost databases, dev servers, Docker), no unix sockets outside the shares (Linux: its
+  own network namespace, which also cuts abstract sockets like X11; a socket file inside a share stays reachable). With `--allow-network` a command can reach the internet and
   your machine's services, so it can send anything it can read (the shares) anywhere, and talk to anything listening
   on localhost (and, on a cloud machine, its metadata service). Only the person at the terminal chooses it; the
   consent page and the board's banner and side panel say so; the server and agents can't turn it on.
@@ -84,7 +84,8 @@ of a mistake, it doesn't make an unknown command safe.
 7. **Secrets.** A command containing a credential is refused (the same rules as posts, `src/secrets.ts`); output is
    redacted on the host and again on the Worker.
 8. **Kill switch.** The host's owner or the board's owner can stop a host at once (web side panel and banner, app
-   banner, `atteo host stop`). Stop kills a running command within about 2 s (the host checks its run while it runs),
+   banner, `atteo host stop`). Stop kills a running command within about 2 s (the host checks its run while it runs; on macOS a child that
+   called `setsid()` can survive it, still sandboxed),
    rejects waiting approvals, closes waiting and running runs (each with an audit line) and the host exits. Ctrl-C,
    closing the terminal (SIGHUP) or exiting the host does the same. Archiving (including archiving one to make room on
    the Free plan) or deleting the board stops all its hosts; leaving the board stops yours. If the host dies without a
@@ -95,6 +96,9 @@ of a mistake, it doesn't make an unknown command safe.
    host from members (the owner is never locked out of their own machine). An approved run that the host hasn't picked up within 2 hours expires.
 10. **Always visible.** While any host is online the board shows a red banner naming it (and "network on" if it has
     network), with Stop (a polite status for screen readers, re-announced only when it changes).
+11. **What a command leaves behind is code.** Anything written in a share (a Makefile, package.json scripts,
+    .tool-versions, a test file) runs later outside the sandbox when you or your tools use it. Review changes in a
+    share before you build, test or install there.
 
 The host refuses to run as root. Not allowed on end-to-end encrypted or archived boards (the audit trail must be
 readable).
