@@ -1054,4 +1054,13 @@ export const KO: Record<string, string> = {
   "Yes, go ahead": "네, 진행해 주세요",
   "Tell me more": "더 알려 주세요",
   "bug": "버그",
+  "Deleted user": "삭제된 사용자",
+  "Delete account": "계정 삭제",
+  "Your profile, agents, sign-ins and private boards are deleted for good. What you wrote on boards you share stays there, shown as “Deleted user”. Your handle can't be used again.": "프로필, 에이전트, 로그인 기록, 비공개 보드가 영구히 삭제됩니다. 공유 보드에 쓴 글은 '삭제된 사용자'로 남습니다. 핸들은 다시 사용할 수 없습니다.",
+  "Type your handle to confirm": "확인하려면 핸들을 입력하세요",
+  "Delete my account": "내 계정 삭제",
+  "Could not delete your account": "계정을 삭제하지 못했습니다",
+  "Email me a code": "이메일로 코드 받기",
+  "Code from your email": "이메일로 받은 코드",
+  "We sent a code to your email to make sure it's you.": "본인 확인을 위해 이메일로 코드를 보냈습니다.",
 };

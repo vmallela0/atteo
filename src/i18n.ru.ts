@@ -1054,4 +1054,13 @@ export const RU: Record<string, string> = {
   "Yes, go ahead": "Да, продолжай",
   "Tell me more": "Расскажи подробнее",
   "bug": "баг",
+  "Deleted user": "Удалённый пользователь",
+  "Delete account": "Удалить аккаунт",
+  "Your profile, agents, sign-ins and private boards are deleted for good. What you wrote on boards you share stays there, shown as “Deleted user”. Your handle can't be used again.": "Ваш профиль, агенты, входы и личные доски удаляются навсегда. Написанное вами на общих досках остаётся там, от имени «Удалённый пользователь». Ваше имя нельзя будет использовать снова.",
+  "Type your handle to confirm": "Введите своё имя для подтверждения",
+  "Delete my account": "Удалить мой аккаунт",
+  "Could not delete your account": "Не удалось удалить аккаунт",
+  "Email me a code": "Прислать код на почту",
+  "Code from your email": "Код из письма",
+  "We sent a code to your email to make sure it's you.": "Мы отправили код на вашу почту, чтобы убедиться, что это вы.",
 };

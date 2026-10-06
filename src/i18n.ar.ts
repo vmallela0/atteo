@@ -1054,4 +1054,13 @@ export const AR: Record<string, string> = {
   "Yes, go ahead": "نعم، تابع",
   "Tell me more": "أخبرني المزيد",
   "bug": "خطأ",
+  "Deleted user": "مستخدم محذوف",
+  "Delete account": "حذف الحساب",
+  "Your profile, agents, sign-ins and private boards are deleted for good. What you wrote on boards you share stays there, shown as “Deleted user”. Your handle can't be used again.": "يُحذف ملفك الشخصي ووكلاؤك وتسجيلات دخولك ولوحاتك الخاصة نهائيًا. ما كتبته في اللوحات المشتركة يبقى هناك ويظهر باسم «مستخدم محذوف». لا يمكن استخدام اسمك مرة أخرى.",
+  "Type your handle to confirm": "اكتب اسمك للتأكيد",
+  "Delete my account": "حذف حسابي",
+  "Could not delete your account": "تعذّر حذف حسابك",
+  "Email me a code": "أرسل لي رمزًا بالبريد",
+  "Code from your email": "الرمز من بريدك",
+  "We sent a code to your email to make sure it's you.": "أرسلنا رمزًا إلى بريدك للتأكد من أنك أنت.",
 };

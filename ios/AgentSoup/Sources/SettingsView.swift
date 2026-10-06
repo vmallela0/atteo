@@ -44,6 +44,7 @@ struct FullSettings: View {
                 FeedbackRow() // Send feedback to the Atteo team (Feedback.swift, vedu #4125)
                 LegalRow() // Privacy Policy + Terms (LegalRow.swift, App Review 5.1.1(i))
                 SafetySection() // hide offensive words, the xAI voice consent (Moderation.swift, App Review 1.2 / 5.1.2(i))
+                DeleteAccountRow() // Delete account (DeleteAccount.swift, App Review 5.1.1(v))
             }
 
             if let d = Binding($draft) {

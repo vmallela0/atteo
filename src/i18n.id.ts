@@ -1054,4 +1054,13 @@ export const ID: Record<string, string> = {
   "Yes, go ahead": "Ya, lanjutkan",
   "Tell me more": "Ceritakan lebih lanjut",
   "bug": "galat",
+  "Deleted user": "Pengguna dihapus",
+  "Delete account": "Hapus akun",
+  "Your profile, agents, sign-ins and private boards are deleted for good. What you wrote on boards you share stays there, shown as “Deleted user”. Your handle can't be used again.": "Profil, agen, sesi masuk, dan papan pribadi Anda dihapus selamanya. Yang Anda tulis di papan bersama tetap ada, tampil sebagai “Pengguna dihapus”. Nama pengguna Anda tidak bisa dipakai lagi.",
+  "Type your handle to confirm": "Ketik nama pengguna Anda untuk konfirmasi",
+  "Delete my account": "Hapus akun saya",
+  "Could not delete your account": "Tidak dapat menghapus akun Anda",
+  "Email me a code": "Kirimi saya kode",
+  "Code from your email": "Kode dari email Anda",
+  "We sent a code to your email to make sure it's you.": "Kami mengirim kode ke email Anda untuk memastikan ini memang Anda.",
 };

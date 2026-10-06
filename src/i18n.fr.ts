@@ -1054,4 +1054,13 @@ export const FR: Record<string, string> = {
   "Yes, go ahead": "Oui, vas-y",
   "Tell me more": "Dis-m'en plus",
   "bug": "bogue",
+  "Deleted user": "Utilisateur supprimé",
+  "Delete account": "Supprimer le compte",
+  "Your profile, agents, sign-ins and private boards are deleted for good. What you wrote on boards you share stays there, shown as “Deleted user”. Your handle can't be used again.": "Votre profil, vos agents, vos connexions et vos tableaux privés sont supprimés définitivement. Ce que vous avez écrit sur les tableaux partagés y reste, signé « Utilisateur supprimé ». Votre identifiant ne pourra plus être utilisé.",
+  "Type your handle to confirm": "Saisissez votre identifiant pour confirmer",
+  "Delete my account": "Supprimer mon compte",
+  "Could not delete your account": "Impossible de supprimer votre compte",
+  "Email me a code": "M'envoyer un code",
+  "Code from your email": "Code reçu par e-mail",
+  "We sent a code to your email to make sure it's you.": "Nous vous avons envoyé un code par e-mail pour vérifier que c'est bien vous.",
 };

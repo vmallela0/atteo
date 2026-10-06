@@ -2523,6 +2523,75 @@ export class Board extends DurableObject<Env> {
     }
   }
 
+  /**
+   * A member deleted their account (Apple 5.1.1(v), jxn #4329): they leave the board, and everything they wrote here
+   * stays, attributed to `tomb` (shown as "Deleted user"). Mentions of them point at the tombstone too, so an old
+   * @handle chip never resolves to someone who registers later. Their own read positions and notices go.
+   */
+  async forgetUser(user: string, tomb: string, opts: { title?: string | null } = {}): Promise<{ entries: number }> {
+    await this.removeMember(user);
+    if (opts.title) this.setMeta("title", opts.title); // a conversation of two takes the tombstone in its name
+    const entries = (this.sql.exec("SELECT COUNT(*) AS n FROM entries WHERE author = ?", user).one().n as number) ?? 0;
+    const rename: [string, string][] = [
+      ["entries", "author"], ["entries", "to_user"], ["entries", "for_user"], ["purged", "by_user"], ["reviews", "reviewer"],
+      ["tasks", "assignee"], ["tasks", "lease_holder"], ["tasks", "updated_by"], ["claim_state", "verified_by"], ["claim_state", "disputed_by"],
+      ["task_versions", "author"], ["docs", "updated_by"], ["docs", "created_by"], ["doc_versions", "author"], ["handling", "user"],
+      ["answered_marks", "user"], ["memory", "by_user"], ["memory", "struck_by"], ["approval_entries", "user"], ["schedules", "created_by"],
+      ["entries", "sealed_to"], ["tasks", "lapsed_holder"],
+    ];
+    for (const [t, c] of rename) {
+      try {
+        this.sql.exec(`UPDATE ${t} SET ${c} = ? WHERE ${c} = ?`, tomb, user);
+        // A session form, "maya/alt-b", keeps its session name.
+        this.sql.exec(`UPDATE ${t} SET ${c} = ? || substr(${c}, ?) WHERE substr(${c}, 1, ?) = ?`, tomb, user.length + 1, user.length + 1, `${user}/`);
+      } catch {} // a column an older board never grew
+    }
+    this.sql.exec("INSERT OR IGNORE INTO reactions (seq, user, emoji, ts) SELECT seq, ?, emoji, ts FROM reactions WHERE user = ?", tomb, user);
+    this.sql.exec("DELETE FROM reactions WHERE user = ?", user);
+    for (const t of ["edit_notices", "rules_seen", "pin_seen", "memory_seen"]) {
+      try {
+        this.sql.exec(`DELETE FROM ${t} WHERE user = ?`, user);
+      } catch {}
+    }
+    this.sql.exec("UPDATE meta SET value = ? WHERE value = ? AND key LIKE '%by%'", tomb, user);
+    // JSON columns that name people: mentions [{user,…}] and to_people ["name",…].
+    const like = `%"${user}"%`;
+    for (const r of this.sql.exec("SELECT seq, mentions, to_people FROM entries WHERE mentions LIKE ? OR to_people LIKE ?", like, like).toArray()) {
+      const sub = (v: unknown) => (v === user ? tomb : v);
+      let mentions = r.mentions as string | null, to = r.to_people as string | null;
+      try {
+        if (mentions) mentions = JSON.stringify((JSON.parse(mentions) as { user: string; name?: string }[]).map((m) => (m.user === user ? { ...m, user: tomb, name: undefined } : m)));
+      } catch {}
+      try {
+        if (to) to = JSON.stringify((JSON.parse(to) as unknown[]).map(sub));
+      } catch {}
+      this.sql.exec("UPDATE entries SET mentions = ?, to_people = ? WHERE seq = ?", mentions, to, r.seq as number);
+    }
+    // Other JSON that can name a person ({by} of a purge, an approval's or a handoff's people, entry data): every string
+    // that is exactly them, or one of their sessions ("maya/alt-b"), moves to the tombstone.
+    const deep = (v: unknown): unknown =>
+      typeof v === "string" ? (v === user ? tomb : v.startsWith(`${user}/`) ? tomb + v.slice(user.length) : v)
+        : Array.isArray(v) ? v.map(deep)
+        : v && typeof v === "object" ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, deep(x)]))
+        : v;
+    for (const c of ["purged", "approval", "handoff", "data", "card"]) {
+      let rows: Record<string, unknown>[] = [];
+      try {
+        rows = this.sql.exec(`SELECT seq, ${c} AS v FROM entries WHERE ${c} LIKE ? OR ${c} LIKE ?`, like, `%"${user}/%`).toArray();
+      } catch {
+        continue;
+      }
+      for (const r of rows) {
+        try {
+          const next = JSON.stringify(deep(JSON.parse(r.v as string)));
+          if (next !== r.v) this.sql.exec(`UPDATE entries SET ${c} = ? WHERE seq = ?`, next, r.seq as number);
+        } catch {}
+      }
+    }
+    this.broadcast({ type: "reload" });
+    return { entries };
+  }
+
   edit(user: string, via: string | null, seq: number, text: string): Entry {
     const info = this.info();
     if (info.encrypted) throw new BoardError("Messages on an encrypted board cannot be edited.");

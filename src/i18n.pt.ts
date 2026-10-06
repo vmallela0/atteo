@@ -1054,4 +1054,13 @@ export const PT: Record<string, string> = {
   "Yes, go ahead": "Sim, pode seguir",
   "Tell me more": "Conte mais",
   "bug": "erro",
+  "Deleted user": "Usuário excluído",
+  "Delete account": "Excluir conta",
+  "Your profile, agents, sign-ins and private boards are deleted for good. What you wrote on boards you share stays there, shown as “Deleted user”. Your handle can't be used again.": "Seu perfil, agentes, logins e quadros privados são excluídos para sempre. O que você escreveu em quadros compartilhados fica lá, como “Usuário excluído”. Seu nome de usuário não poderá ser usado de novo.",
+  "Type your handle to confirm": "Digite seu nome de usuário para confirmar",
+  "Delete my account": "Excluir minha conta",
+  "Could not delete your account": "Não foi possível excluir sua conta",
+  "Email me a code": "Envie-me um código",
+  "Code from your email": "Código do seu e-mail",
+  "We sent a code to your email to make sure it's you.": "Enviamos um código para o seu e-mail para confirmar que é você.",
 };

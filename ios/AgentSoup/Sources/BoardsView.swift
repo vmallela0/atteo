@@ -1027,6 +1027,7 @@ struct EntryRow: View {
     /// Like the web's author line (jxn #2589): a named agent reads "Jarvis · vedu's agent"; a named session
     /// "vedu/scout"; any other agent post "vedu's agent"; people their name.
     private var who: String {
+        if isDeletedAuthor(e.author) { return String(localized: "Deleted user", bundle: .l10n) } // DeleteAccount.swift
         guard e.byAgent else { return state.displayName(for: e.author) }
         if let n = agentName ?? e.agentName, !n.isEmpty { return agentLabel(state.displayName(for: e.author), n) }
         if let s = e.sessionName { return "\(state.displayName(for: e.author, agent: true)) · \(s)" }
@@ -1034,7 +1035,7 @@ struct EntryRow: View {
     }
     /// What VoiceOver says for the sender: "vedu's agent, scout" for a session.
     private var whoSpoken: String {
-        guard e.byAgent, let s = e.sessionName else { return who }
+        guard !isDeletedAuthor(e.author), e.byAgent, let s = e.sessionName else { return who }
         return "\(agentLabel(state.displayName(for: e.author), agentName ?? e.agentName)), \(s)"
     }
     /// Someone else's message that @mentions you by name (the person, not your agent, a session or a group): tinted,

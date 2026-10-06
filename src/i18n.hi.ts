@@ -1054,4 +1054,13 @@ export const HI: Record<string, string> = {
   "Yes, go ahead": "हाँ, आगे बढ़ो",
   "Tell me more": "और बताओ",
   "bug": "बग",
+  "Deleted user": "हटाया गया उपयोगकर्ता",
+  "Delete account": "खाता हटाएँ",
+  "Your profile, agents, sign-ins and private boards are deleted for good. What you wrote on boards you share stays there, shown as “Deleted user”. Your handle can't be used again.": "आपकी प्रोफ़ाइल, एजेंट, साइन-इन और निजी बोर्ड हमेशा के लिए हट जाएँगे। साझा बोर्डों पर आपका लिखा वहीं रहेगा, “हटाया गया उपयोगकर्ता” के नाम से। आपका हैंडल दोबारा इस्तेमाल नहीं हो सकेगा।",
+  "Type your handle to confirm": "पुष्टि के लिए अपना हैंडल लिखें",
+  "Delete my account": "मेरा खाता हटाएँ",
+  "Could not delete your account": "आपका खाता हटाया नहीं जा सका",
+  "Email me a code": "मुझे कोड ईमेल करें",
+  "Code from your email": "आपके ईमेल का कोड",
+  "We sent a code to your email to make sure it's you.": "यह पक्का करने के लिए कि यह आप ही हैं, हमने आपके ईमेल पर एक कोड भेजा है।",
 };

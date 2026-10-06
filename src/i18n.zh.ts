@@ -1055,4 +1055,13 @@ export const ZH_CN: Record<string, string> = {
   "Yes, go ahead": "好，继续",
   "Tell me more": "再说详细点",
   "bug": "反馈问题",
+  "Deleted user": "已删除的用户",
+  "Delete account": "删除账号",
+  "Your profile, agents, sign-ins and private boards are deleted for good. What you wrote on boards you share stays there, shown as “Deleted user”. Your handle can't be used again.": "你的个人资料、代理、登录记录和私人看板会被永久删除。你在共享看板上写的内容会保留，显示为“已删除的用户”。你的账号名不能再被使用。",
+  "Type your handle to confirm": "输入你的账号名以确认",
+  "Delete my account": "删除我的账号",
+  "Could not delete your account": "无法删除你的账号",
+  "Email me a code": "给我发送验证码",
+  "Code from your email": "邮件中的验证码",
+  "We sent a code to your email to make sure it's you.": "我们已向你的邮箱发送验证码，以确认是你本人。",
 };

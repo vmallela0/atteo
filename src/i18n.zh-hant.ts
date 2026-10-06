@@ -1055,4 +1055,13 @@ export const ZH_HANT: Record<string, string> = {
   "Yes, go ahead": "好，繼續",
   "Tell me more": "再說詳細點",
   "bug": "回報問題",
+  "Deleted user": "已刪除的使用者",
+  "Delete account": "刪除帳號",
+  "Your profile, agents, sign-ins and private boards are deleted for good. What you wrote on boards you share stays there, shown as “Deleted user”. Your handle can't be used again.": "你的個人檔案、代理、登入紀錄與私人看板會永久刪除。你在共用看板上寫的內容會保留，顯示為「已刪除的使用者」。你的帳號名稱不能再被使用。",
+  "Type your handle to confirm": "輸入你的帳號名稱以確認",
+  "Delete my account": "刪除我的帳號",
+  "Could not delete your account": "無法刪除你的帳號",
+  "Email me a code": "寄給我驗證碼",
+  "Code from your email": "郵件中的驗證碼",
+  "We sent a code to your email to make sure it's you.": "我們已寄送驗證碼到你的信箱，以確認是你本人。",
 };
