@@ -122,7 +122,8 @@ export const POSTS_PER_MINUTE = 60;
 export const ALL_PER_HOUR = 10; // @all posts per person per board per hour
 export const REVIEW_VERDICTS = ["approve", "request_changes", "comment"] as const;
 export type ReviewVerdict = (typeof REVIEW_VERDICTS)[number];
-export const TASK_STATUSES = ["todo", "doing", "blocked", "done", "stopped"] as const;
+// frozen (vedu #4791): parked for the far future. Not open work: no counts, nudges, recaps or claims until it goes back to todo.
+export const TASK_STATUSES = ["todo", "doing", "blocked", "done", "stopped", "frozen"] as const;
 export type TaskStatus = (typeof TASK_STATUSES)[number];
 export const TASK_PRIORITIES = ["high", "medium", "low"] as const;
 export type TaskPriority = (typeof TASK_PRIORITIES)[number];
@@ -1584,7 +1585,7 @@ export class Board extends DurableObject<Env> {
 
   private computeSummaryNow(): Summary {
     // A task is closed by its status (marking it done posts nothing), or, as before, by an entry that resolves it.
-    const done = new Set(this.sql.exec("SELECT seq FROM tasks WHERE status = 'done'").toArray().map((r) => r.seq as number));
+    const done = new Set(this.sql.exec("SELECT seq FROM tasks WHERE status IN ('done','frozen')").toArray().map((r) => r.seq as number)); // frozen isn't open work (vedu #4791)
     const closed = new Set(this.sql.exec("SELECT seq FROM answered_marks").toArray().map((r) => r.seq as number));
     const s = computeSummary(this.allEntries(), done, closed);
     const titles = new Map(this.sql.exec("SELECT seq, title FROM tasks WHERE title IS NOT NULL").toArray().map((r) => [r.seq as number, r.title as string]));
@@ -2107,7 +2108,7 @@ export class Board extends DurableObject<Env> {
       const moved = t.updated_at > sinceTs;
       if (t.status === "done" && (moved || t.seq > from)) own(lite(t, t.assignee ?? t.updated_by, t.assignee ? t.assignee_agent : t.updated_via === "agent"), "done");
       else if (t.status === "blocked" && (moved || t.seq > from)) own(lite(t, t.assignee ?? t.lease_holder, t.assignee ? t.assignee_agent : t.lease_agent), "blocked");
-      else if (t.seq > from && t.status !== "done") own(lite(t, t.assignee ?? t.lease_holder, t.assignee ? t.assignee_agent : t.lease_agent), "new");
+      else if (t.seq > from && t.status !== "done" && t.status !== "frozen") own(lite(t, t.assignee ?? t.lease_holder, t.assignee ? t.assignee_agent : t.lease_agent), "new");
     }
     // Whoever owes the most first; the unassigned last.
     tasks.by_owner = [...owners.values()].sort((a, b) => (a.owner == null ? 1 : 0) - (b.owner == null ? 1 : 0) || b.blocked.length + b.new.length - (a.blocked.length + a.new.length) || a.label.localeCompare(b.label));
@@ -3569,11 +3570,11 @@ export class Board extends DurableObject<Env> {
         lease_agent: r.lease_agent === 1,
         lease_session_name: (r.lease_until as number | null) && (r.lease_until as number) > now && r.lease_agent === 1 ? ((r.lease_session_name as string | null) ?? null) : null,
         lease_until: (r.lease_until as number | null) && (r.lease_until as number) > now ? (r.lease_until as number) : null,
-        lapsed_holder: r.status === "done" || r.status === "stopped" ? null : ((r.lapsed_holder as string | null) ?? null),
-        lapsed_at: r.status === "done" || r.status === "stopped" ? null : ((r.lapsed_at as number | null) ?? null),
+        lapsed_holder: r.status === "done" || r.status === "stopped" || r.status === "frozen" ? null : ((r.lapsed_holder as string | null) ?? null),
+        lapsed_at: r.status === "done" || r.status === "stopped" || r.status === "frozen" ? null : ((r.lapsed_at as number | null) ?? null),
         stop_reason: (r.stop_reason as string | null) ?? null,
         done_note: r.status === "done" ? ((r.done_note as string | null) ?? null) : null,
-        resolved_by: r.status === "done" || r.status === "stopped" ? null : ((r.resolved_by as number | null) ?? null),
+        resolved_by: r.status === "done" || r.status === "stopped" || r.status === "frozen" ? null : ((r.resolved_by as number | null) ?? null),
         priority: (r.priority as TaskPriority | null) ?? null,
         title: (r.title as string | null) ?? splitTask(r.text as string).title,
         body: (r.body as string | null) ?? "",
@@ -3932,6 +3933,7 @@ export class Board extends DurableObject<Env> {
     const info = this.info();
     const t = this.task(seq);
     if (t.status === "done") throw new BoardError(`#${seq} is already done.`);
+    if (t.status === "frozen") throw new BoardError(`#${seq} is frozen (parked for later). Unfreeze it first: set its status back to todo.`);
     if (t.lease_holder && t.lease_holder !== user) {
       throw new BoardError(`#${seq} is claimed by ${holderLabel(t)} until ${iso(t.lease_until!)}. Pick another task, or ask them on the board.`);
     }
@@ -3990,7 +3992,7 @@ export class Board extends DurableObject<Env> {
     if (change.status && change.status !== t.status) {
       if (!TASK_STATUSES.includes(change.status)) throw new BoardError(`status must be one of: ${TASK_STATUSES.join(", ")}`);
       this.sql.exec("UPDATE tasks SET status = ?, stop_reason = CASE WHEN ? = 'stopped' THEN stop_reason ELSE NULL END, done_note = NULL, resolved_by = NULL, lapsed_holder = NULL, lapsed_at = NULL WHERE seq = ?", change.status, change.status, seq);
-      if (change.status === "done") this.sql.exec("UPDATE tasks SET lease_holder = NULL, lease_until = NULL WHERE seq = ?", seq);
+      if (change.status === "done" || change.status === "frozen") this.sql.exec("UPDATE tasks SET lease_holder = NULL, lease_until = NULL WHERE seq = ?", seq); // a frozen task is nobody's for now
       parts.push(`status → ${change.status}`);
     }
     if (change.assignee !== undefined) {
@@ -4070,7 +4072,7 @@ export class Board extends DurableObject<Env> {
       const t = this.sql
         .exec("SELECT t.status, t.lease_holder, t.lease_until, t.assignee, e.author FROM tasks t JOIN entries e ON e.seq = t.seq WHERE t.seq = ?", r)
         .toArray()[0];
-      if (!t || t.status === "done" || t.status === "stopped") continue;
+      if (!t || t.status === "done" || t.status === "stopped" || t.status === "frozen") continue;
       const holder = (t.lease_until as number | null) && (t.lease_until as number) > Date.now() ? (t.lease_holder as string | null) : null;
       if (![holder, t.assignee, t.author, creator].includes(user)) {
         this.sql.exec("UPDATE tasks SET resolved_by = ?, updated_at = ? WHERE seq = ?", entry.seq, Date.now(), r);
@@ -4264,7 +4266,7 @@ export class Board extends DurableObject<Env> {
   /** A retracted premise stops every open task built on it (reply_to). */
   private stopDependents(user: string, retracted: number) {
     const deps = this.sql
-      .exec("SELECT t.seq, t.lease_holder, t.assignee FROM tasks t JOIN entries e ON e.seq = t.seq WHERE e.reply_to = ? AND t.status NOT IN ('done','stopped')", retracted)
+      .exec("SELECT t.seq, t.lease_holder, t.assignee FROM tasks t JOIN entries e ON e.seq = t.seq WHERE e.reply_to = ? AND t.status NOT IN ('done','stopped','frozen')", retracted)
       .toArray();
     for (const d of deps) {
       this.sql.exec("UPDATE tasks SET status = 'stopped', stop_reason = ?, lease_holder = NULL, lease_until = NULL, updated_at = ? WHERE seq = ?", `premise #${retracted} was retracted`, Date.now(), d.seq);

@@ -2119,7 +2119,7 @@ document.addEventListener('mouseover',e=>{const c=e.target.closest('.rx-chip');i
 fetch('/api/boards/'+BOARD+'/reactions').then(r=>r.json()).then(j=>{for(const [seq,list] of Object.entries(j.reactions||{}))renderRx(+seq,list)}).catch(()=>{});
 // ---- tasks in the conversation: each task's card shows the task as it is now (its checklist as boxes people can tick,
 // n/m done, its sub-tasks), with a live strip under it (status, priority, who it's for, who holds it) ----
-const TSTATUS={todo:tr('To do'),doing:tr('In progress'),blocked:tr('Blocked'),done:tr('Done'),stopped:tr('Stopped')};
+const TSTATUS={todo:tr('To do'),doing:tr('In progress'),blocked:tr('Blocked'),done:tr('Done'),stopped:tr('Stopped'),frozen:tr('Frozen')};
 const whoName=(u,agent)=>u===ME?(agent?'your agent':'you'):(agent?u+"'s agent":u);
 const TASKS={};
 const CK_RE=/^\\s*(?:[-*]|\\d+[.)])\\s+\\[( |x|X)\\]\\s+.+$/;
@@ -2143,7 +2143,7 @@ function renderTask(t){const old=TASKS[t.seq];if(!t.html&&old&&old.html&&old.ver
   el.innerHTML='<span class="tk-st st-'+t.status+'"><span class="dot"></span>'+TSTATUS[t.status]+'</span>'+(t.priority?'<span class="badge pri-'+t.priority+'">'+t.priority+'</span>':'')+
     (cks.length?bar(ticked,cks.length,'ticked'):t.children?bar(t.children.done,t.children.total,'sub-tasks done'):'')+
     '<span class="tk-who">'+bits.join(' · ')+'</span><span class="grow"></span>'+
-    (READONLY?'':(t.status==='done'?'<button class="btn ghost sm" type="button" data-tk="reopen">'+tr('Reopen')+'</button>':
+    (READONLY?'':(t.status==='done'?'<button class="btn ghost sm" type="button" data-tk="reopen">'+tr('Reopen')+'</button>':t.status==='frozen'?'<button class="btn ghost sm" type="button" data-tk="reopen">'+tr('Unfreeze')+'</button>':
       '<button class="btn ghost sm" type="button" data-tk="done">'+tr('Done')+'</button>'))+
     '<button class="btn ghost sm" type="button" data-tk="open">'+tr('Open')+'</button>';
   el.hidden=false;renderSubs(t.seq)}
@@ -2681,12 +2681,14 @@ document.getElementById('board-tabs').addEventListener('keydown',e=>{if(!['Arrow
   const b=vis[next];tab(all.indexOf(b));b.focus()});
 if(location.hash==='#log')tab(1);if(location.hash==='#files'||location.hash==='#docs')tab(2);
 // ---- Tasks (Kanban): the board's tasks by status; drag a card to another column to change it ----
-const KCOLS=[['todo',tr('To do')],['doing',tr('In progress')],['blocked',tr('Blocked')],['done',tr('Done')]];
+// Frozen (vedu #4791): parked for the far future, last and folded until opened; dropping a card on it freezes it.
+const KCOLS=[['todo',tr('To do')],['doing',tr('In progress')],['blocked',tr('Blocked')],['done',tr('Done')],['frozen',tr('Frozen')]];let kFrozenOpen=false;
 const PRI={high:0,medium:1,low:2};
 async function loadTasks(){const r=await fetch('/api/boards/'+BOARD+'/tasks');const j=await r.json().catch(()=>({}));if(!r.ok){document.getElementById('kanban').innerHTML='<p class="muted small">'+esc(j.error||tr('Could not load tasks'))+'</p>';return}
-  const ts=j.tasks||[];ts.forEach(t=>TASKS[t.seq]={...TASKS[t.seq],...t});const open=ts.filter(t=>t.status!=='done').length;document.getElementById('task-count').textContent=open||'';
+  const ts=j.tasks||[];ts.forEach(t=>TASKS[t.seq]={...TASKS[t.seq],...t});const open=ts.filter(t=>t.status!=='done'&&t.status!=='frozen').length;document.getElementById('task-count').textContent=open||'';
   document.getElementById('kanban').innerHTML=KCOLS.map(([k,label])=>{const col=ts.filter(t=>(k==='blocked'?(t.status==='blocked'||t.status==='stopped'):t.status===k))
       .sort((a,b)=>(PRI[a.priority]??3)-(PRI[b.priority]??3)||(k==='done'?b.updated_at-a.updated_at:a.seq-b.seq)).slice(0,k==='done'?30:200);
+    if(k==='frozen')return '<section class="kcol kfrozen'+(kFrozenOpen?' open':'')+'" data-status="frozen"><h3><button type="button" class="kfz" aria-expanded="'+kFrozenOpen+'">'+label+' <span class="faint">'+col.length+'</span></button></h3><div class="kcards"'+(kFrozenOpen?'':' hidden')+'>'+col.map(card).join('')+'</div></section>';
     return '<section class="kcol" data-status="'+k+'"><h3>'+label+' <span class="faint">'+col.length+'</span></h3><div class="kcards">'+col.map(card).join('')+'</div></section>'}).join('')}
 function card(t){const first=t.title||'';const boxes=ckLines(t.body||'');const ticked=boxes.filter(b=>b.done).length;const par=t.parent!=null&&TASKS[t.parent];
   const who=t.assignee?(t.assignee_agent?t.assignee+"'s agent":t.assignee):'';
@@ -2705,6 +2707,7 @@ async function taskAct(seq,body){const r=await fetch('/api/boards/'+BOARD+'/task
   const j=await r.json().catch(()=>({}));if(!r.ok)toast(j.error||tr('Could not update'));loadTasks();tick(false)}
 const kb=document.getElementById('kanban');let dragSeq=null;
 kb.addEventListener('dragstart',e=>{const c=e.target.closest('.kcard');if(!c)return;dragSeq=c.dataset.seq;e.dataTransfer.effectAllowed='move';c.classList.add('dragging')});
+kb.addEventListener('click',e=>{const b=e.target.closest('.kfz');if(!b)return;kFrozenOpen=!kFrozenOpen;const col=b.closest('.kcol');col.classList.toggle('open',kFrozenOpen);b.setAttribute('aria-expanded',String(kFrozenOpen));col.querySelector('.kcards').hidden=!kFrozenOpen});
 kb.addEventListener('dragend',e=>{e.target.closest('.kcard')?.classList.remove('dragging');kb.querySelectorAll('.kcol.over').forEach(x=>x.classList.remove('over'))});
 kb.addEventListener('dragover',e=>{const col=e.target.closest('.kcol');if(!col||!dragSeq)return;e.preventDefault();kb.querySelectorAll('.kcol.over').forEach(x=>x!==col&&x.classList.remove('over'));col.classList.add('over')});
 kb.addEventListener('drop',e=>{const col=e.target.closest('.kcol');if(!col||!dragSeq)return;e.preventDefault();const s=dragSeq;dragSeq=null;taskAct(s,{action:'update',status:col.dataset.status})});
@@ -2951,7 +2954,7 @@ ${notifySide(L)}
   <dialog id="task-dlg" class="task-dlg"><form id="td-form">
     <div class="hd"><div class="row grow" style="gap:8px"><span class="faint mono" id="td-seq"></span><input class="input td-title grow" id="td-title" maxlength="120" aria-label="${esc(T("Title"))}"></div><button class="btn ghost sm" type="button" data-close aria-label="${esc(T("Close"))}">✕</button></div>
     <div class="bd">
-      <div class="row td-fields"><label>${esc(T("Status"))} <select class="input sm" id="td-status"><option value="todo">${esc(T("To do"))}</option><option value="doing">${esc(T("In progress"))}</option><option value="blocked">${esc(T("Blocked"))}</option><option value="done">${esc(T("Done"))}</option></select></label>
+      <div class="row td-fields"><label>${esc(T("Status"))} <select class="input sm" id="td-status"><option value="todo">${esc(T("To do"))}</option><option value="doing">${esc(T("In progress"))}</option><option value="blocked">${esc(T("Blocked"))}</option><option value="done">${esc(T("Done"))}</option><option value="frozen">${esc(T("Frozen"))}</option></select></label>
         <label>${esc(T("Priority"))} <select class="input sm" id="td-pri"><option value="">—</option><option value="high">${esc(T("High"))}</option><option value="medium">${esc(T("Medium"))}</option><option value="low">${esc(T("Low"))}</option></select></label>
         <label class="grow">${esc(T("Assignee"))} <input class="input sm" id="td-assignee" list="td-people" placeholder="${esc(T("name or name's agent"))}"></label></div>
       <datalist id="td-people">${members.flatMap((m) => [`<option value="${esc(m.user)}">`, `<option value="${esc(m.user)}'s agent">`]).join("")}</datalist>

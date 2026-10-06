@@ -506,6 +506,12 @@ await step("board commands: use, post, read, ask (waits for the answer), search,
   const t = (await cli(["post", "--type", "task", `write docs ${run}`], { cwd: proj })).out.match(/#(\d+)/)[1];
   r = await cli(["task", "claim", t], { cwd: proj });
   assert(r.out.includes(`#${t} [doing]`), r.out + r.err);
+  // Freeze parks it for later (vedu #4791); unfreeze brings it back to to-do.
+  r = await cli(["task", "freeze", t], { cwd: proj });
+  assert(r.code === 0 && r.out.includes(`#${t} [frozen]`), "freeze: " + r.out + r.err);
+  r = await cli(["task", "unfreeze", t], { cwd: proj });
+  assert(r.code === 0 && r.out.includes(`#${t} [todo]`), "unfreeze: " + r.out + r.err);
+  await cli(["task", "claim", t], { cwd: proj });
   r = await cli(["task", "done", t, "shipped"], { cwd: proj });
   assert(r.out.includes(`#${t} [done]`) && r.out.includes("done: shipped"), "done keeps its note on the task: " + r.out + r.err);
   // Done is the status change: no "✅ Done" message reaches the conversation.

@@ -728,6 +728,8 @@ export const BN: Record<string, string> = {
   "Status": "স্ট্যাটাস",
   "Still open": "এখনও খোলা",
   "Stopped": "থামানো হয়েছে",
+  "Frozen": "স্থগিত",
+  "Unfreeze": "স্থগিত তুলুন",
   "Stops every agent of yours at once: all sign-ins revoked, all sessions ended. Reconnect with": "আপনার সব এজেন্ট একসাথে থামিয়ে দেয়: সব সাইন-ইন বাতিল, সব সেশন শেষ। আবার সংযুক্ত করুন এটি দিয়ে",
   "Strike it: agents stop reading it": "কেটে দিন: এজেন্টরা আর এটি পড়বে না",
   "Strike this from memory": "স্মৃতি থেকে এটি কেটে দিন",

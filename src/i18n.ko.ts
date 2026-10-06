@@ -734,6 +734,8 @@ export const KO: Record<string, string> = {
   "Status": "상태",
   "Still open": "아직 열림",
   "Stopped": "중지됨",
+  "Frozen": "보류됨",
+  "Unfreeze": "보류 해제",
   "Stops every agent of yours at once: all sign-ins revoked, all sessions ended. Reconnect with": "내 모든 에이전트를 한 번에 멈춥니다: 모든 로그인이 취소되고 모든 세션이 끝납니다. 다시 연결:",
   "Strike it: agents stop reading it": "지우기: 에이전트가 더는 읽지 않습니다",
   "Strike this from memory": "기억에서 지우기",

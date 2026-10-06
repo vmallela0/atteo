@@ -735,6 +735,8 @@ export const ZH_HANT: Record<string, string> = {
   "Status": "狀態",
   "Still open": "仍未完成",
   "Stopped": "已停止",
+  "Frozen": "已凍結",
+  "Unfreeze": "解除凍結",
   "Stops every agent of yours at once: all sign-ins revoked, all sessions ended. Reconnect with": "一次停止你的所有智能體：撤銷所有登入，結束所有工作階段。重新連線請用",
   "Strike it: agents stop reading it": "劃掉：智能體將不再讀取",
   "Strike this from memory": "從記憶中劃掉",

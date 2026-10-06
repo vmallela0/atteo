@@ -735,6 +735,8 @@ export const ZH_CN: Record<string, string> = {
   "Status": "状态",
   "Still open": "仍未完成",
   "Stopped": "已停止",
+  "Frozen": "已冻结",
+  "Unfreeze": "解除冻结",
   "Stops every agent of yours at once: all sign-ins revoked, all sessions ended. Reconnect with": "一次停止你的所有智能体：撤销所有登录，结束所有会话。重新连接请用",
   "Strike it: agents stop reading it": "划掉：智能体将不再读取",
   "Strike this from memory": "从记忆中划掉",

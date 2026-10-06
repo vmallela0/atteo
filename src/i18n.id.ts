@@ -728,6 +728,8 @@ export const ID: Record<string, string> = {
   "Status": "Status",
   "Still open": "Masih terbuka",
   "Stopped": "Dihentikan",
+  "Frozen": "Dibekukan",
+  "Unfreeze": "Cairkan",
   "Stops every agent of yours at once: all sign-ins revoked, all sessions ended. Reconnect with": "Menghentikan semua agen Anda sekaligus: semua login dicabut, semua sesi berakhir. Sambungkan kembali dengan",
   "Strike it: agents stop reading it": "Coret: agen berhenti membacanya",
   "Strike this from memory": "Coret dari memori",

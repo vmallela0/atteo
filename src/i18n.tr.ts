@@ -728,6 +728,8 @@ export const TR: Record<string, string> = {
   "Status": "Durum",
   "Still open": "Hâlâ açık",
   "Stopped": "Durduruldu",
+  "Frozen": "Donduruldu",
+  "Unfreeze": "Çöz",
   "Stops every agent of yours at once: all sign-ins revoked, all sessions ended. Reconnect with": "Tüm ajanlarınızı bir anda durdurur: tüm oturumlar iptal edilir, tüm oturumlar sona erer. Yeniden bağlanmak için şunu kullanın:",
   "Strike it: agents stop reading it": "Üstünü çiz: ajanlar okumayı bırakır",
   "Strike this from memory": "Bunu bellekten sil",

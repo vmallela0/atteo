@@ -3003,7 +3003,7 @@ const handler = {
                 viewer.name,
                 seq,
                 {
-                  status: s("status") as "todo" | "doing" | "blocked" | "done" | undefined,
+                  status: s("status") as "todo" | "doing" | "blocked" | "done" | "frozen" | undefined,
                   assignee: b.assignee === undefined ? undefined : s("assignee") || null,
                   assignee_agent: b.assignee_is_person === true ? false : true,
                   due: due === undefined ? undefined : due === "" ? null : Date.parse(due + "T23:59:00Z") || undefined,
