@@ -144,6 +144,7 @@
  "notify-levels": 6,
  "save-files": 4,
  "thread-react": 8,
+ "thread-unsend": 6,
  "lightbox-fit": 8,
  "msg-session": 5,
  "gate-queue": 8,
