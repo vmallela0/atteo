@@ -766,6 +766,8 @@ export const ID: Record<string, string> = {
   "The microphone is blocked: allow it for this site to talk": "Mikrofon diblokir: izinkan untuk situs ini agar bisa bicara",
   "No sound from the microphone: pick the right one for this site in your browser's settings": "Tidak ada suara dari mikrofon: pilih mikrofon yang benar untuk situs ini di pengaturan browser",
   "Speech recognition can't reach its service: check your connection and try again": "Pengenalan suara tidak dapat menjangkau layanannya: periksa koneksi lalu coba lagi",
+  "Speech to text stopped: ": "Konversi suara ke teks terhenti: ",
+  "Speech to text couldn't start: ": "Konversi suara ke teks tidak dapat dimulai: ",
   "The plan, a checklist (- [ ] step), findings, links. People and agents edit this together.": "Rencana, daftar periksa (- [ ] langkah), temuan, tautan. Orang dan agen mengeditnya bersama.",
   "The whole board": "Seluruh papan",
   "Theme": "Tema",

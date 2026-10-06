@@ -773,6 +773,8 @@ export const ZH_HANT: Record<string, string> = {
   "The microphone is blocked: allow it for this site to talk": "麥克風被禁用：請允許本網站使用麥克風後再說話",
   "No sound from the microphone: pick the right one for this site in your browser's settings": "麥克風沒有聲音：請在瀏覽器設定中為本網站選擇正確的麥克風",
   "Speech recognition can't reach its service: check your connection and try again": "語音辨識無法連線到其服務：請檢查網路後再試一次",
+  "Speech to text stopped: ": "語音轉文字已停止： ",
+  "Speech to text couldn't start: ": "語音轉文字無法啟動： ",
   "The plan, a checklist (- [ ] step), findings, links. People and agents edit this together.": "計劃、清單（- [ ] 步驟）、發現、連結。人和智能體一起編輯。",
   "The whole board": "整個看板",
   "Theme": "主題",

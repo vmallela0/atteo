@@ -452,9 +452,9 @@ const voiceJs = (agentChat: boolean) => `
       const send=/(^|[ ,.])send it[.!]?$/i.test(fin.trim());
       own=true;ta.value=base+spoken(send?fin.trim().replace(/[ ,.]*send it[.!]?$/i,''):(fin+mid).trim());ta.dispatchEvent(new Event('input',{bubbles:true}));own=false;
       if(send){micStop();if(ta.value.trim())ta.form.requestSubmit()}};
-    r.onerror=ev=>{const e=ev.error;if(e==='not-allowed'||e==='service-not-allowed')toast(tr('The microphone is blocked: allow it for this site to talk'));else if(e==='audio-capture'||e==='no-speech')toast(tr("No sound from the microphone: pick the right one for this site in your browser's settings"));else if(e==='network')toast(tr("Speech recognition can't reach its service: check your connection and try again"))};
+    r.onerror=ev=>{const e=ev.error;if(e==='not-allowed'||e==='service-not-allowed')toast(tr('The microphone is blocked: allow it for this site to talk'));else if(e==='audio-capture'||e==='no-speech')toast(tr("No sound from the microphone: pick the right one for this site in your browser's settings"));else if(e==='network')toast(tr("Speech recognition can't reach its service: check your connection and try again"));else if(e!=='aborted')toast(tr("Speech to text stopped: ")+e)}; // any other reason is shown, never silent (vedu #4594)
     r.onend=()=>{if(rec!==r)return;rec=null;mic.setAttribute('aria-pressed','false');mic.classList.remove('on')};
-    try{r.start()}catch(e){rec=null}}
+    try{r.start()}catch(e){rec=null;mic.setAttribute('aria-pressed','false');mic.classList.remove('on');toast(tr("Speech to text couldn't start: ")+(e&&e.message||e))}}
   if(SR&&mic){mic.hidden=false;
     mic.addEventListener('pointerdown',e=>{if(e.button)return;e.preventDefault();try{mic.setPointerCapture(e.pointerId)}catch(x){}press={t:Date.now(),started:!rec};micGo()});
     const up=()=>{const p=press;press=null;if(p&&p.started&&Date.now()-p.t>=HOLD_MS&&rec)try{rec.stop()}catch(x){}};

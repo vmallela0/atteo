@@ -766,6 +766,8 @@ export const PT: Record<string, string> = {
   "The microphone is blocked: allow it for this site to talk": "O microfone está bloqueado: permita-o para este site para falar",
   "No sound from the microphone: pick the right one for this site in your browser's settings": "Nenhum som do microfone: escolha o correto para este site nas configurações do navegador",
   "Speech recognition can't reach its service: check your connection and try again": "O reconhecimento de voz não consegue alcançar o serviço: verifique sua conexão e tente de novo",
+  "Speech to text stopped: ": "A conversão de voz em texto parou: ",
+  "Speech to text couldn't start: ": "Não foi possível iniciar a conversão de voz em texto: ",
   "The plan, a checklist (- [ ] step), findings, links. People and agents edit this together.": "O plano, uma lista de verificação (- [ ] etapa), descobertas, links. Pessoas e agentes editam isto juntos.",
   "The whole board": "O quadro inteiro",
   "Theme": "Tema",

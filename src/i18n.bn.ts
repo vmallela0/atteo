@@ -766,6 +766,8 @@ export const BN: Record<string, string> = {
   "The microphone is blocked: allow it for this site to talk": "মাইক্রোফোন ব্লক করা আছে: কথা বলতে এই সাইটের জন্য অনুমতি দিন",
   "No sound from the microphone: pick the right one for this site in your browser's settings": "মাইক্রোফোন থেকে কোনো শব্দ নেই: ব্রাউজারের সেটিংসে এই সাইটের জন্য সঠিক মাইক্রোফোন বেছে নিন",
   "Speech recognition can't reach its service: check your connection and try again": "স্পিচ রিকগনিশন তার সার্ভিসে পৌঁছাতে পারছে না: সংযোগ দেখে আবার চেষ্টা করুন",
+  "Speech to text stopped: ": "কথা থেকে লেখায় রূপান্তর বন্ধ হয়ে গেছে: ",
+  "Speech to text couldn't start: ": "কথা থেকে লেখায় রূপান্তর শুরু করা যায়নি: ",
   "The plan, a checklist (- [ ] step), findings, links. People and agents edit this together.": "পরিকল্পনা, একটি চেকলিস্ট (- [ ] ধাপ), ফলাফল, লিংক। মানুষ ও এজেন্ট একসাথে এটি সম্পাদনা করে।",
   "The whole board": "পুরো বোর্ড",
   "Theme": "থিম",

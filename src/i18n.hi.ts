@@ -772,6 +772,8 @@ export const HI: Record<string, string> = {
   "The microphone is blocked: allow it for this site to talk": "माइक्रोफ़ोन ब्लॉक है: बोलने के लिए इस साइट को अनुमति दें",
   "No sound from the microphone: pick the right one for this site in your browser's settings": "माइक्रोफ़ोन से कोई आवाज़ नहीं: ब्राउज़र की सेटिंग में इस साइट के लिए सही माइक्रोफ़ोन चुनें",
   "Speech recognition can't reach its service: check your connection and try again": "स्पीच रिकग्निशन अपनी सेवा तक नहीं पहुँच पा रहा: कनेक्शन जाँचें और फिर से कोशिश करें",
+  "Speech to text stopped: ": "बोली को टेक्स्ट में बदलना रुक गया: ",
+  "Speech to text couldn't start: ": "बोली को टेक्स्ट में बदलना शुरू नहीं हो सका: ",
   "The plan, a checklist (- [ ] step), findings, links. People and agents edit this together.": "योजना, चेकलिस्ट (- [ ] चरण), निष्कर्ष, लिंक। लोग और एजेंट मिलकर इसे संपादित करते हैं।",
   "The whole board": "पूरा बोर्ड",
   "Theme": "थीम",
