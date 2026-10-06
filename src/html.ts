@@ -1197,14 +1197,15 @@ window.ensureEntry=async seq=>{ghHold(seq);const far=!document.getElementById('e
   if(document.getElementById('g'+seq))await ghostAround(seq);const el=document.getElementById('e'+seq);
   // It wasn't on the page, so it's far: be there already (a long smooth scroll would be cut short as messages come back).
   if(el&&pfHid(el))pfSet(false,false,true); // a jump to an agent's message brings agents' messages back
-  if(el&&far){pinned=false;el.scrollIntoView({block:'center'})}return !!el};
+  if(el&&far){pinned=false;el.scrollIntoView({block:'center'});focusOn(el)}return !!el};
 // The thread scrolls in its own area, opens at the latest entry and stays pinned to the bottom (new entries, images,
 // expanding cards, a growing composer) until you scroll up yourself; reaching the bottom again re-pins. While unpinned a
 // pill offers the jump ("New messages" if something arrived).
 const scroller=document.getElementById('thread-scroll'),pill=document.getElementById('new-pill');let stickNext=false,moved=false,userT=0,pinned=!/^#e\\d+$/.test(location.hash);
 const usr=()=>{userT=Date.now()},nearEnd=()=>scroller.scrollHeight-scroller.scrollTop-scroller.clientHeight<=24; // userT: the last wheel/touch/key/drag, so programmatic scrolls aren't mistaken for the user's
 const atBottom=()=>scroller.clientHeight===0||scroller.scrollHeight-scroller.scrollTop-scroller.clientHeight<80;
-function toBottom(smooth){const far=scroller.scrollHeight-scroller.scrollTop-scroller.clientHeight>1200; // long jumps are instant
+let FOCUS=null; // the message a jump just landed on, held in view while its neighbours settle (focusOn, below)
+function toBottom(smooth){FOCUS=null;const far=scroller.scrollHeight-scroller.scrollTop-scroller.clientHeight>1200; // long jumps are instant
   pinned=true;userT=0;scroller.scrollTo({top:scroller.scrollHeight,behavior:smooth&&!far?'smooth':'auto'});pill.hidden=true;unseen=0}
 // The rail: one tick per message at its place in the conversation (instead of a scrollbar). Ticks in view are darker,
 // so scrolling steps through them; hover previews a message, click jumps to it, drag scrubs.
@@ -1301,8 +1302,17 @@ async function ghRun(r){try{const lo=r[0],hi=r[r.length-1];
       if(g.dataset.gone){el.classList.add('retracted');el.querySelector('[data-retract]')?.remove()}g.replaceWith(el);got.push(x)}
     for(const s of r)if(!got.some(x=>x.seq===s))document.getElementById('g'+s)?.remove(); // gone from the board since
     entryFill(got);ghAnchorBack(a);railBuild()}catch(e){ghPause=Date.now()+3000}finally{r.forEach(s=>GH_BUSY.delete(s))}}
-/** Messages coming back can differ in height from their placeholders: whatever is at the top of the view stays put. */
-function ghAnchor(){if(pinned)return null;const r=scroller.getBoundingClientRect();let el=document.elementFromPoint(r.left+r.width/3,r.top+4)?.closest?.('#thread>*');
+// A message you jumped to stays where it landed while the ones around it come back and settle (jxn #4648): placeholders
+// turning into messages of another height, pictures loading. It lets go when you scroll yourself, or after a few seconds.
+function focusOn(el){FOCUS={el,seq:el.dataset.seq,y:el.getBoundingClientRect().top,at:Date.now()}}
+function focusLive(){const f=FOCUS;if(!f)return null;if(ghUser>f.at||Date.now()-f.at>8000||pinned){FOCUS=null;return null}
+  if(!f.el.isConnected)f.el=document.getElementById('e'+f.seq)||document.getElementById('g'+f.seq);if(!f.el)return FOCUS=null;
+  // The page went elsewhere (the pill, another jump, the rail): it's no longer the message you're looking at.
+  const r=f.el.getBoundingClientRect(),q=scroller.getBoundingClientRect();if(r.bottom<q.top||r.top>q.bottom){FOCUS=null;return null}return f}
+new ResizeObserver(()=>{const f=focusLive();if(!f)return;const d=f.el.getBoundingClientRect().top-f.y;if(Math.abs(d)>=1)scroller.scrollTop+=d}).observe(document.getElementById('thread'));
+/** Messages coming back can differ in height from their placeholders: whatever is at the top of the view stays put
+ *  (or the message you just jumped to, while it's held). */
+function ghAnchor(){const f=focusLive();if(f)return {el:f.el,seq:f.seq,y:f.y};if(pinned)return null;const r=scroller.getBoundingClientRect();let el=document.elementFromPoint(r.left+r.width/3,r.top+4)?.closest?.('#thread>*');
   if(!el)for(const c of document.getElementById('thread').children)if(c.getBoundingClientRect().bottom>r.top){el=c;break}
   return el?{el,seq:el.dataset.seq,y:el.getBoundingClientRect().top}:null}
 function ghAnchorBack(a){if(!a||pinned)return;const el=a.el.isConnected?a.el:a.seq&&(document.getElementById('e'+a.seq)||document.getElementById('g'+a.seq));if(!el)return;
@@ -2311,7 +2321,10 @@ window.BOARD_CTX={id:BOARD,me:ME,members:MEMBERS,
     if(rpHid(el)){openThread(+el.dataset.root,{focus:seq});return} // replies only in threads: open it there
     el.classList.add('ol-open'); // a folded one-line message opens where you land
     
-    document.querySelectorAll('#thread .entry.hit').forEach(x=>x.classList.remove('hit'));el.classList.add('hit');pinned=false;el.scrollIntoView({block:'center',behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth'});moved=true;setTimeout(()=>el.classList.remove('hit'),2200)},
+    document.querySelectorAll('#thread .entry.hit').forEach(x=>x.classList.remove('hit'));el.classList.add('hit');pinned=false;
+    // Be there at once and hold it there (focusOn) while what's around it comes back: a smooth glide got cut short as
+    // placeholders filled in and moved the view mid-scroll (jxn #4648). The highlight shows where you landed.
+    el.scrollIntoView({block:'center'});focusOn(el);moved=true;setTimeout(()=>el.classList.remove('hit'),2200)},
   openFile(name,v){tab(2);openDoc(name,v)}};
 document.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&!e.altKey&&!e.shiftKey&&e.key.toLowerCase()==='f'&&!document.querySelector('dialog[open]:not(#palette)')){e.preventDefault();window.openPalette([{k:'board'},{k:'kind',v:'messages'}])}},true);
 // ---- threads: replies fold into "N replies" under their message; clicking it opens the thread right there, in the chat ----
@@ -2364,7 +2377,7 @@ function openThread(root,o={}){const top=document.getElementById('e'+root);if(!t
 function closeThread(){if(thrDlg.open)thrDlg.close();else{thrOpen=0;cmpBack()}}
 thrDlg.addEventListener('close',()=>{thrOpen=0;cmpBack()});
 thrDlg.addEventListener('click',e=>{if(e.target===thrDlg||e.target.closest('[data-thr-close]'))closeThread();const s=e.target.closest('.thr-list [data-src]');
-  if(s&&e.target.closest('a.seq,.rq')){e.preventDefault();const n=s.dataset.src;closeThread();const el=document.getElementById('e'+n);if(el){pinned=false;el.scrollIntoView({block:'center'});el.classList.add('hit');setTimeout(()=>el.classList.remove('hit'),4000)}}});
+  if(s&&e.target.closest('a.seq,.rq')){e.preventDefault();const n=s.dataset.src;closeThread();const el=document.getElementById('e'+n);if(el){pinned=false;el.scrollIntoView({block:'center'});focusOn(el);el.classList.add('hit');setTimeout(()=>el.classList.remove('hit'),4000)}}});
 document.addEventListener('click',e=>{const s=e.target.closest('#thread [data-thread]');if(!s)return;const sel=getSelection();if(sel&&!sel.isCollapsed&&sel.rangeCount&&sel.getRangeAt(0).intersectsNode(s))return; // ending a selection isn't a click
   e.preventDefault();openThread(+s.dataset.thread,{focus:+(s.dataset.focus||0)||undefined})});
 document.querySelectorAll('#thread>.entry[data-reply]').forEach(quotify);
