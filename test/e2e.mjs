@@ -222,7 +222,7 @@ await step("repo init: one linked encrypted board, one open join request, owner 
   assert(mine.boards.some((b) => b.id === made.board && b.encrypted), "repo board starts encrypted");
   assert((await init(joiner, { repo: "wrong/repo", board: made.board })).status === 404, "a forged file cannot pick a board");
   const preview = await (await fetch(`${BASE}/api/repos/preview?repo=${encodeURIComponent(repo)}&board=${made.board}`, { headers: auth(joiner) })).json();
-  assert(preview.status === "not_member" && preview.title === repo && preview.linked_by === owner && preview.owners.some((o) => o.user === owner), JSON.stringify(preview));
+  assert(preview.status === "not_member" && preview.title === null && preview.linked_by === null && preview.owners.length === 0, "a non-member's preview hides the title, owners and linker: " + JSON.stringify(preview));
   // check: only membership, never a request or a board (the CLI's other commands; opus-d, repo-init review).
   const checked = await (await init(joiner, { repo, board: made.board, check: true })).json();
   assert(checked.status === "not_member" && checked.board === null, JSON.stringify(checked));

@@ -2406,9 +2406,10 @@ const handler = {
         if (!linked) return json({ error: "This repo file does not match a board link. Ask the board owner to check .atteo.json." }, 404);
         if (linked.archived_at || linked.deleted_at) return json({ error: "This board is archived or deleted. Ask an owner to reopen it." }, 409);
         const member = !!(await registry.memberRole(env, linked.id, viewer.name));
+        // Only members see the title, owners and linker: anyone who can read .atteo.json may call this (opus-d #5723).
+        if (!member) return json({ board: linked.id, repo, title: null, owners: [], linked_by: null, status: (await repoBoards.joinState(env, linked.id, viewer.name)) ?? "not_member" }, 200, { "cache-control": "private, no-store" });
         const owners = (await registry.boardMembers(env, linked.id)).filter((m) => m.role === "owner").map((m) => ({ user: m.user, display_name: m.display_name }));
-        const state = member ? null : await repoBoards.joinState(env, linked.id, viewer.name);
-        return json({ board: linked.id, repo, title: linked.title, owners, linked_by: await repoBoards.linkedBy(env, repo, linked.id), status: member ? "member" : state ?? "not_member" }, 200, { "cache-control": "private, no-store" });
+        return json({ board: linked.id, repo, title: linked.title, owners, linked_by: await repoBoards.linkedBy(env, repo, linked.id), status: "member" }, 200, { "cache-control": "private, no-store" });
       }
 
       // A repository identifies its board; only a board owner may let a requester become a member.

@@ -1236,19 +1236,18 @@ async function initRepo() {
   let j;
   if (linked.board) {
     const preview = await api(opt, "GET", `/api/repos/preview?repo=${encodeURIComponent(linked.repo)}&board=${encodeURIComponent(linked.board)}`) as {
-      board: string; repo: string; title: string; owners: { user: string; display_name: string | null }[]; linked_by: string | null; status: string;
+      board: string; repo: string; title: string | null; owners: { user: string; display_name: string | null }[]; linked_by: string | null; status: string;
     };
-    if (preview.board !== linked.board || preview.repo !== linked.repo || typeof preview.title !== "string" || !Array.isArray(preview.owners) || typeof preview.linked_by !== "string" || !["member", "pending", "not_member", "cooldown", "blocked"].includes(preview.status))
+    if (preview.board !== linked.board || preview.repo !== linked.repo || !Array.isArray(preview.owners) || !["member", "pending", "not_member", "cooldown", "blocked"].includes(preview.status))
       throw new CliError("The server did not return a valid repo board preview. No join request was sent.");
     if (preview.status === "cooldown") throw new CliError("An owner declined this join request. You can ask again 30 days after the decline.");
     if (preview.status === "blocked") throw new CliError("An owner blocked join requests from you for this board.");
     if (preview.status === "not_member") {
       if (!process.stdin.isTTY || !process.stdout.isTTY) throw new CliError("This repo's board needs your confirmation before asking to join. Run atteo init in a terminal.");
-      const owners = preview.owners.map((o) => o.display_name?.trim() ? `${terminalLabel(o.display_name)} (@${o.user})` : `@${o.user}`).join(", ");
-      console.log(`Board: ${terminalLabel(preview.title)} (${preview.board})`);
-      console.log(`Owners: ${owners || "none listed"}`);
-      console.log(`Linked to ${linked.repo} by @${preview.linked_by ?? "unknown"}; this link is not verified with GitHub.`);
-      if (!(await askYes("Ask these owners to let you in?", false))) throw new CliError("No join request sent.");
+      // The board's name and owners stay hidden until an owner lets you in (opus-d #5723).
+      console.log(`${linked.repo}'s .atteo.json links it to the Atteo board ${preview.board}.`);
+      console.log("This link is not verified with GitHub: anyone who can change the repo can change that file.");
+      if (!(await askYes("Ask the board's owners to let you in?", false))) throw new CliError("No join request sent.");
     }
     j = preview.status === "member" || preview.status === "pending" ? preview
       : await api(opt, "POST", "/api/repos/init", { repo: linked.repo, board: linked.board });

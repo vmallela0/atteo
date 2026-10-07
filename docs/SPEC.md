@@ -54,7 +54,8 @@ Contents: [1 Boards and members](#1-boards-and-members) · [2 Entries](#2-entrie
   can point teammates at someone else's board if they accept it. The server checks the file's id against a stored link
   and checks membership on every board access; possessing or editing the file never grants access. Other CLI commands
   only use the linked board if the person is already a member and never file a join request. A teammate's `atteo init`
-  first calls read-only `GET /api/repos/preview` for the board title, owners' names and linker, then requires a person's
+  first calls read-only `GET /api/repos/preview` (a non-member sees only the board id and their join status, never the
+  title, owners or linker), then requires a person's
   y/N confirmation on a TTY before
   sending a join request. Without a TTY it refuses and asks them to run in a terminal. Only a signed-in owner acting
   as a person can choose Let in, Decline, or Block forever in For you or Inbox (`repo_join_requests` and
