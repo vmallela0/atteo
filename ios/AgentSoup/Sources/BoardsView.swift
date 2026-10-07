@@ -1318,10 +1318,10 @@ struct EntryRow: View {
     private func words(_ t: String) -> (text: Text, handles: [String]) {
         var agentNames = self.agentNames
         if e.byAgent, let name = e.agentName, !name.isEmpty { agentNames[name.lowercased()] = e.author.lowercased() } // the entry's own agent name (vedu #4583)
-        let rendered = t.mentioned(e.mentions, members: members, me: me, agentNames: agentNames, author: selfMention(in: e.text, author: e.author, agent: e.via == "agent", agentName: e.agentName), displayName: { state.displayName(for: $0, board: board.id) }, refTitle: refTitle.callAsFunction)
+        let rendered = t.mentioned(e.mentions, members: members, me: me, agentNames: agentNames, author: selfMention(in: e.text, author: e.author, agent: e.via == "agent", agentName: e.agentName), displayName: { state.displayName(for: $0, board: board) }, refTitle: refTitle.callAsFunction)
         return (rendered.text, rendered.handles.map { handle in
             let address = String(handle.dropFirst())
-            return state.displayName(for: agentNames[address.lowercased()].map { "\($0)'s agent" } ?? address, board: board.id)
+            return state.displayName(for: agentNames[address.lowercased()].map { "\($0)'s agent" } ?? address, board: board)
         })
     }
 
