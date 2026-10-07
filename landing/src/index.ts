@@ -12,6 +12,7 @@ import { MARK_PATH, markInline } from "../../src/mark";
 import { SITE_CSS } from "../../src/pageCss";
 import { beaconSnippet, landingCsp } from "./csp";
 import { HOME_CSS, homeBody } from "./home";
+import { STARTUP_CSS, STARTUP_DESC, STARTUP_TITLE, startupBody } from "./startup";
 
 /**
  * Where people open the app: "Open Atteo", the install command and the MCP URL all use it. Today that's this same host
@@ -199,7 +200,7 @@ function head(theme: string | null, title = TITLE, desc = DESCRIPTION, path = "/
 <meta name="twitter:card" content="summary_large_image"><meta name="twitter:title" content="${title}"><meta name="twitter:description" content="${desc}"><meta name="twitter:image" content="${SITE_URL}/og.png">
 <link rel="preload" href="/fonts/onest-latin.woff2?v=${FONT_V}" as="font" type="font/woff2" crossorigin><link rel="preload" href="/fonts/enriqueta-latin-600.woff2?v=${FONT_V}" as="font" type="font/woff2" crossorigin>
 ${jsonLd(path)}<style>${FONT_CSS}
-${CSS}${path === "/" ? HOME_CSS : ""}</style></head>`;
+${CSS}${path === "/" ? HOME_CSS : path === "/landing/startup" ? STARTUP_CSS : ""}</style></head>`;
 }
 
 /** The public-page footer: docs, guide, FAQ, llms.txt, OpenAPI, MCP, support and the legal pages, for people, agents and directory listings. Home uses the same links. */
@@ -539,6 +540,9 @@ export default {
       const theme = url.searchParams.get("theme");
       return html(home(theme === "dark" || theme === "light" ? theme : null, beaconSnippet(env.CF_WEB_ANALYTICS_TOKEN)));
     }
+    // A short, startup-first landing (jxn #5664): landing/src/startup.ts. Not in the sitemap; "/" stays the home page.
+    if (read && path === "/landing/startup")
+      return html(`${head(null, STARTUP_TITLE, STARTUP_DESC, path)}<body class="su">\n${startupBody()}\n${beaconSnippet(env.CF_WEB_ANALYTICS_TOKEN)}</body></html>`);
     // The app's /guide is an app page with the sidebar for signed-in people (src/guide.ts); the landing's marketing
     // guide is the signed-out version, like "/" — anyone signed in is forwarded to the app untouched.
     // /guide is the app's now (its new frame, board #5110), for everyone: forwarded like every other app path.
