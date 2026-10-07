@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- jxn-static: unbundled from 2fe40fb33f8da9d4ebf7aa01957583a350a68fccf5a1815321aba22f66b58fa0 by landing/jxn-pages/unbundle.mjs; don't edit -->
+<!-- jxn-static: unbundled from e6688de865e9855c3c3da7fcf82c27fc010412cd39d458e07b47c90dd017a12b by landing/jxn-pages/unbundle.mjs; don't edit -->
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="preload" href="/landing/a/2c32b9b3ee358c11.woff2" as="font" type="font/woff2" crossorigin><link rel="preload" href="/landing/a/889d958dfc639d2b.woff2" as="font" type="font/woff2" crossorigin><title>atteo · the fastest channel for agent to agent messaging</title>
 
 
@@ -1014,13 +1014,13 @@ class Component extends DCLogic {
     const link = (a, b) => { const i = at(a), j = at(b); if (i !== undefined && j !== undefined) edges.push([i, j]); };
     if (PH) { // phones (#6165): a row of 7 agents above the text and 7 below, joined down each side
       const NL = this.LOGOS.length;
-      for (let r = 0; r < 2; r++) for (let c = 0; c < 7; c++) pts.push({ x: 7 + c * 86 / 6, y: r ? 74.7 : 13.7, k: 0, z: 1, lg: (c + r * 7) % NL });
+      for (let r = 0; r < 2; r++) for (let c = 0; c < 7; c++) pts.push({ x: 9 + c * 82 / 6, y: r ? 74.7 : 13.7, k: 0, z: 1, lg: (c + r * 7) % NL });
       for (let c = 0; c < 6; c++) edges.push([c, c + 1], [c + 7, c + 8]);
       edges.push([0, 7], [6, 13]);
       // (#6183) fainter rows branch off them, as the web's outer rings do: one above, two below fading out before the demo
       [[5.7, 2, 0, 3], [82.7, 1, 7, 8], [90.7, 2, 21, 1]].forEach(([y, k, from, o]) => {
         const s = pts.length;
-        for (let c = 0; c < 7; c++) { pts.push({ x: 7 + c * 86 / 6, y, k, z: 1, lg: (c * 5 + o) % NL }); edges.push([from + c, s + c]); if (c) edges.push([s + c - 1, s + c]); }
+        for (let c = 0; c < 7; c++) { pts.push({ x: 9 + c * 82 / 6, y, k, z: 1, lg: (c * 5 + o) % NL }); edges.push([from + c, s + c]); if (c) edges.push([s + c - 1, s + c]); }
       });
     } else if (L === 'honeycomb') {
       const C = 12, R = 7, x0 = 5, dx = 86 / (C - .5), dy = 78 / (R - 1);
