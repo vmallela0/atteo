@@ -14,6 +14,23 @@
 // The HKDF labels (V2, V1) and the IndexedDB name (agent-soup-e2e) are from before the rename to Atteo. They must never
 // change: the labels are baked into every stored key and sealed secret, and the database holds this browser's keys.
 
+/**
+ * Signing out of this browser (the /auth/logout response runs it, then goes home): every board's search index and the
+ * index key go (review #5551 item 7). The device key stays: this browser is still one of your devices next time.
+ * Opens the database only if it's there (an upgrade means it wasn't: aborted, nothing made).
+ */
+export const SIGN_OUT_JS = `(function(){var done=function(){location.replace('/')};try{var r=indexedDB.open('agent-soup-e2e',1);
+r.onupgradeneeded=function(){r.transaction.abort()};r.onerror=done;
+r.onsuccess=function(){var db=r.result,t=db.transaction('keys','readwrite'),s=t.objectStore('keys'),q=s.getAllKeys();
+q.onsuccess=function(){q.result.forEach(function(k){if(typeof k==='string'&&/^index(-key)?:/.test(k))s.delete(k)})};
+t.oncomplete=t.onerror=t.onabort=function(){db.close();done()}}}catch(e){done()}})();`;
+
+/** The /auth/logout response: clears this browser's encrypted-board search indexes (SIGN_OUT_JS), then goes home. */
+export function signedOutPage(clearCookie: string, sec: { nonce: string; headers: Record<string, string> }): Response {
+  const body = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Signing out · Atteo</title><noscript><meta http-equiv="refresh" content="0;url=/"></noscript></head><body><script nonce="${sec.nonce}">${SIGN_OUT_JS}</script></body></html>`;
+  return new Response(body, { headers: { ...sec.headers, "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "set-cookie": clearCookie } });
+}
+
 export const E2E_JS = `
 (()=>{
 const S=crypto.subtle,te=new TextEncoder(),td=new TextDecoder(),V2='agent-soup board key v2',V1='agent-soup seal v1';
@@ -160,17 +177,29 @@ window.e2eSync=from=>{if(busy){queued=true;if(from!=null)qFrom=qFrom==null?from:
 // ---- on-device search (E2E §4): the server can't search what it can't read, so this browser does. What it opens is
 // kept as an index (seq, when, who, type, text) in IndexedDB, encrypted with an AES key made here that can't be
 // exported; the first search on a page reads the board again, so unsends and edits drop out. The palette (⌘K, ⌘F)
-// asks window.e2eSearch instead of the server on this board. ----
+// asks window.e2eSearch instead of the server on this board. Its lifetime (review #5551 item 7): an index made under
+// an older board key is dropped and rebuilt; leaving the board drops it (e2eForget), and so does a page of any
+// encrypted board once you're no longer on it (idxSweep); signing out drops every index and the index key
+// (SIGN_OUT_JS). ----
 let IDX=null,IDX_FULL=null;
 const idxId='index:'+ME+':'+BOARD,idxKeyId='index-key:'+ME;
 async function idxKey(){const had=await idbDo('readonly',s=>s.get(idxKeyId)).catch(()=>null);if(had)return had;
   const k=await S.generateKey({name:'AES-GCM',length:256},false,['encrypt','decrypt']);
   try{await idbDo('readwrite',s=>s.put(k,idxKeyId));return k}catch(e){return null}} // a browser that can't keep a key: the index lives in memory only
 async function idxLoad(){if(IDX)return IDX;const m=new Map();
-  try{const k=await idxKey(),rec=await idbDo('readonly',s=>s.get(idxId));if(k&&rec&&rec.iv)for(const e of JSON.parse(td.decode(await ungcm(k,rec.iv,rec.ct))))m.set(e.seq,e)}catch(e){}
+  try{if(!ST)await epochKeys();const k=await idxKey(),rec=await idbDo('readonly',s=>s.get(idxId));
+    // Made under an older board key (someone left or was removed since): dropped, and the next search rebuilds it.
+    if(rec&&rec.epoch!==ST.current)await idbDo('readwrite',s=>s.delete(idxId));
+    else if(k&&rec&&rec.iv)for(const e of JSON.parse(td.decode(await ungcm(k,rec.iv,rec.ct))))m.set(e.seq,e)}catch(e){}
   return IDX=IDX||m}
-async function idxSave(){try{const k=await idxKey();if(!k||!IDX)return;const list=[...IDX.values()].sort((a,b)=>a.seq-b.seq).slice(-5000);
-  const c=await gcm(k,te.encode(JSON.stringify(list)));await idbDo('readwrite',s=>s.put({iv:c.iv,ct:c.ct},idxId))}catch(e){}}
+async function idxSave(){try{const k=await idxKey();if(!k||!IDX||!ST)return;const list=[...IDX.values()].sort((a,b)=>a.seq-b.seq).slice(-5000);
+  const c=await gcm(k,te.encode(JSON.stringify(list)));await idbDo('readwrite',s=>s.put({iv:c.iv,ct:c.ct,epoch:ST.current},idxId))}catch(e){}}
+/** Leaving this board: its index goes (html.ts's Leave waits for it). */
+window.e2eForget=async()=>{IDX=null;IDX_FULL=null;await idbDo('readwrite',s=>s.delete(idxId)).catch(()=>{})};
+/** Indexes of boards you're no longer on (you left elsewhere, or were removed) go. */
+async function idxSweep(){try{const mine=new Set(((await api('GET','/api/me/boards')).boards||[]).map(b=>b.id));if(!mine.has(BOARD))return; // a partial answer: leave everything
+  const pre='index:'+ME+':',ks=await idbDo('readonly',s=>s.getAllKeys());
+  for(const k of ks)if(typeof k==='string'&&k.startsWith(pre)&&!mine.has(k.slice(pre.length)))await idbDo('readwrite',s=>s.delete(k))}catch(e){}}
 /** The whole board (its newest 10,000 messages), opened here: what this browser can read goes in the index. */
 function idxRefresh(){if(IDX_FULL)return IDX_FULL;IDX_FULL=(async()=>{await idxLoad();if(!ST)await epochKeys();const fresh=new Map();let after=0;
     for(let i=0;i<50;i++){const es=(await api('GET','/api/boards/'+BOARD+'/sealed?after='+after)).entries||[];
@@ -212,7 +241,7 @@ window.addEventListener('submit',async e=>{const f=e.target;if(!f.matches||!f.ma
 
 if(!window.isSecureContext||!S||!window.indexedDB){say("🔒 <b>End-to-end encrypted.</b> This page can't hold an encryption key here (it needs a secure connection). Read and write with the atteo CLI.");return}
 S.generateKey({name:'X25519'},false,['deriveBits']).then(()=>{document.getElementById('attach-btn')?.remove();
-  e2eSync((+document.querySelector('#thread>.entry')?.dataset.seq||1)-1)},
+  e2eSync((+document.querySelector('#thread>.entry')?.dataset.seq||1)-1);setTimeout(idxSweep,3000)},
   ()=>say("🔒 <b>End-to-end encrypted.</b> This browser can't hold an encryption key (it needs X25519 in WebCrypto: Chrome 133+, Safari 17+ or Firefox 130+). Read and write with the atteo CLI."));
 })();
 `;

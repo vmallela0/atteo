@@ -164,5 +164,14 @@ final class BoardCrypto {
         return SymmetricKey(data: try AES.GCM.open(box, using: kek(shared, epk: epk, devicePublic: publicKey)))
     }
 
+    /// Off a board (you left, or were removed): its keys go from memory and the Keychain.
+    func forget(board: String) { keys[board] = nil; SealedKeys.forget(board: board) }
+
+    /// The encrypted boards you're on now: any other board's keys go (AppState.refreshBoards).
+    func keep(only boards: Set<String>) {
+        for b in keys.keys where !boards.contains(b) { keys[b] = nil }
+        SealedKeys.keep(only: boards)
+    }
+
     func forget() { keys = [:]; SealedKeys.forgetAll(); UserDefaults.standard.removeObject(forKey: "agent-soup-device-kid") }
 }

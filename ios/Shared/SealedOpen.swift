@@ -57,6 +57,29 @@ enum SealedKeys {
     }
 
     static func forgetAll() { forget(); PushNames.set([:]) }
+
+    /// The boards this phone keeps keys for.
+    static func boards() -> Set<String> {
+        guard var q = query() else { return [] }
+        q[kSecMatchLimit as String] = kSecMatchLimitAll
+        q[kSecReturnAttributes as String] = true
+        var out: AnyObject?
+        guard SecItemCopyMatching(q as CFDictionary, &out) == errSecSuccess, let items = out as? [[String: Any]] else { return [] }
+        return Set(items.compactMap { i -> String? in
+            guard let a = i[kSecAttrAccount as String] as? String, a.hasPrefix(prefix) else { return nil }
+            let rest = a.dropFirst(prefix.count)
+            return rest.lastIndex(of: ":").map { String(rest[..<$0]) }
+        })
+    }
+
+    /// Keeps keys only for these boards (the encrypted boards you're on): leaving one, or being removed, drops its
+    /// keys from this phone (review #5551 item 7). Returns the boards dropped.
+    @discardableResult
+    static func keep(only boards: Set<String>) -> Set<String> {
+        let gone = Self.boards().subtracting(boards)
+        for b in gone { forget(board: b) }
+        return gone
+    }
 }
 
 /// The names of your encrypted boards, as the app last listed them, so a push (which carries no names: review #5550)

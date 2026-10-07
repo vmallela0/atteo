@@ -2751,7 +2751,7 @@ document.addEventListener('click',async e=>{const b=e.target.closest('[data-memb
     setTimeout(()=>{b.dataset.armed='';b.textContent=b.dataset.label;b.classList.remove('danger')},4000);return}
   b.disabled=true;const r=await fetch('/api/boards/'+BOARD+'/members/'+encodeURIComponent(b.dataset.memberRemove)+'/remove',{method:'POST'});
   const j=await r.json().catch(()=>({}));if(!r.ok){toast(j.error||tr('Could not remove'));b.disabled=false;return}
-  if(j.left){location.href='/'}else{toast(j.message);location.reload()}});
+  if(j.left){Promise.resolve(window.e2eForget&&e2eForget()).catch(()=>{}).then(()=>{location.href='/'})}else{toast(j.message);location.reload()}}); // e2eForget: an encrypted board's search index goes too
 const infoBtn=document.getElementById('info-btn'),convLayout=document.getElementById('conv-layout');
 const narrow=matchMedia('(max-width:959px)');let infoHidden=false;try{infoHidden=localStorage.getItem('soup.infoHidden')==='1'}catch(e){}
 function infoSync(){const wide=!narrow.matches;convLayout.classList.toggle('info-collapsed',wide&&infoHidden);

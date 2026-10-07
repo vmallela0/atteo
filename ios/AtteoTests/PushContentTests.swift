@@ -97,4 +97,17 @@ final class PushContentTests: XCTestCase {
         XCTAssertNil(SealedKeys.read(board: "b_leave", epoch: 2))
         XCTAssertNotNil(SealedKeys.read(board: "b_stay", epoch: 1))
     }
+
+    /// Boards you're no longer on (left, or removed) lose their keys at the next list refresh.
+    func testOnlyTheBoardsYoureOnKeepKeys() {
+        SealedKeys.forgetAll()
+        SealedKeys.store(SymmetricKey(size: .bits256), board: "b_on", epoch: 1)
+        SealedKeys.store(SymmetricKey(size: .bits256), board: "b_removed", epoch: 1)
+        SealedKeys.store(SymmetricKey(size: .bits256), board: "b_removed", epoch: 2)
+        defer { SealedKeys.forgetAll() }
+        XCTAssertEqual(SealedKeys.boards(), ["b_on", "b_removed"])
+        XCTAssertEqual(SealedKeys.keep(only: ["b_on", "b_never_had_keys"]), ["b_removed"])
+        XCTAssertEqual(SealedKeys.boards(), ["b_on"])
+        XCTAssertNotNil(SealedKeys.read(board: "b_on", epoch: 1))
+    }
 }

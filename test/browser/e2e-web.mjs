@@ -192,5 +192,14 @@ check(st3.current===3&&!st3.rotate_needed,"…and removing the old key rotated t
 const g3=JSON.parse((await d1Execute(`--json --command ${JSON.stringify(`SELECT kid FROM key_grants WHERE board_id = '${board}' AND epoch = 3`)}`,{cwd:WT})).toString())[0].results.map(x=>x.kid);
 check(!g3.includes(bobCli.id)&&g3.length>=1,`…and epoch 3 was NOT wrapped to Bob's pinned id with the swapped key (wrapped to ${g3.join(", ")})`);
 r=await cli(A,["read"]);check(/A new device of yours/.test(r.err),"Ann's CLI says her new browser is waiting for her approval");
+// Signing out of the browser drops every board's search index and the index key; the device key stays (review #5551 item 7).
+{ const before=await pa.evaluate(async()=>{const db=await new Promise(r=>{const q=indexedDB.open("agent-soup-e2e",1);q.onsuccess=()=>r(q.result)});
+    return await new Promise(r=>{const q=db.transaction("keys").objectStore("keys").getAllKeys();q.onsuccess=()=>{db.close();r(q.result)}})});
+  await pa.evaluate(()=>{const f=document.createElement("form");f.method="post";f.action="/auth/logout";document.body.append(f);f.submit()});
+  await pa.waitForURL(u=>new URL(u).pathname==="/",{timeout:10000}).catch(()=>{});
+  const after=await pa.evaluate(async()=>{const db=await new Promise(r=>{const q=indexedDB.open("agent-soup-e2e",1);q.onsuccess=()=>r(q.result)});
+    return await new Promise(r=>{const q=db.transaction("keys").objectStore("keys").getAllKeys();q.onsuccess=()=>{db.close();r(q.result)}})});
+  const idx=k=>/^index(-key)?:/.test(k);
+  check(before.some(idx)&&!after.some(idx)&&after.length===before.filter(k=>!idx(k)).length&&after.length>0,`signing out clears this browser's search indexes and their key, and keeps its device key (${before.length} → ${after.length} records)`); }
 check(errors.length===0,`no page errors ${errors.join(" | ")}`);
 await b.close();console.log(fails?`${fails} FAILED`:"all web encryption checks passed");

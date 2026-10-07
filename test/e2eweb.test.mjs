@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { createPublicKey, diffieHellman, generateKeyPairSync, hkdfSync, createDecipheriv } from "node:crypto";
 import { CLIENT_SCAN_JS } from "../src/clientScan";
-import { E2E_JS } from "../src/e2eweb";
+import { E2E_JS, SIGN_OUT_JS, signedOutPage } from "../src/e2eweb";
 import { decryptV2, encryptV2, newEpochKey, seal, wrapKey } from "../cli/src/sealed";
 import { BOARD_JS, boardPage, boardTail } from "../src/html";
 
@@ -175,5 +175,75 @@ describe("the client screen on an encrypted board page", () => {
   it("is on encrypted board pages only", () => {
     expect(boardTail("0100").js).toContain("g.atteoScan=");
     expect(boardTail("0000").js).not.toContain("g.atteoScan=");
+  });
+});
+
+describe("the search index's lifetime (review #5551 item 7)", () => {
+  // The page's index code with a fake IndexedDB store, a fake board key epoch and identity "encryption".
+  const page = ({ epoch = 2, store = new Map(), boards = ["b_x"] } = {}) => {
+    const window = {};
+    const req = (result) => ({ result });
+    const fake = { get: (k) => req(store.get(k)), put: (v, k) => (store.set(k, v), req(k)), delete: (k) => (store.delete(k), req(undefined)), getAllKeys: () => req([...store.keys()]) };
+    const idbDo = async (_mode, f) => f(fake).result;
+    const api = async (_m, path) => (path === "/api/me/boards" ? { boards: boards.map((id) => ({ id })) } : { entries: [] });
+    const S = { generateKey: async () => ({ k: 1 }) };
+    const gcm = async (_k, bytes) => ({ iv: "iv", ct: bytes });
+    const ungcm = async (_k, _iv, ct) => ct;
+    const f = new Function("window", "ME", "BOARD", "idbDo", "api", "S", "gcm", "ungcm", "te", "td", "openOne", "EPOCH",
+      `let ST=null;const epochKeys=async()=>(ST={current:EPOCH});\n${pick("// ---- on-device search", "// ---- writing")}\nreturn {idxLoad,idxSave,idxSweep,set:(m)=>{IDX=m}};`);
+    return { window, store, ...f(window, "ann", "b_x", idbDo, api, S, gcm, ungcm, new TextEncoder(), new TextDecoder(), async () => ({ text: null }), epoch) };
+  };
+  const rec = (epoch) => ({ iv: "iv", ct: new TextEncoder().encode(JSON.stringify([{ seq: 1, ts: 1, author: "bob", via: null, type: "note", text: "hello" }])), epoch });
+
+  it("keeps an index made under the current board key", async () => {
+    const p = page({ epoch: 2, store: new Map([["index:ann:b_x", rec(2)]]) });
+    expect((await p.idxLoad()).size).toBe(1);
+  });
+
+  it("drops one made under an older key (someone left or was removed), to rebuild", async () => {
+    const p = page({ epoch: 3, store: new Map([["index:ann:b_x", rec(2)]]) });
+    expect((await p.idxLoad()).size).toBe(0);
+    expect(p.store.has("index:ann:b_x")).toBe(false);
+  });
+
+  it("saves under the current key's epoch", async () => {
+    const p = page({ epoch: 4 });
+    await p.idxLoad();
+    p.set(new Map([[1, { seq: 1, text: "x" }]]));
+    await p.idxSave();
+    expect(p.store.get("index:ann:b_x").epoch).toBe(4);
+  });
+
+  it("leaving drops this board's index", async () => {
+    const p = page({ store: new Map([["index:ann:b_x", rec(2)], ["index:ann:b_y", rec(1)], ["index-key:ann", {}]]) });
+    await p.window.e2eForget();
+    expect([...p.store.keys()]).toEqual(["index:ann:b_y", "index-key:ann"]);
+  });
+
+  it("a board you're no longer on loses its index the next time any encrypted board opens", async () => {
+    const p = page({ boards: ["b_x"], store: new Map([["index:ann:b_x", rec(2)], ["index:ann:b_gone", rec(1)], ["index:cat:b_other", rec(1)], ["device", {}]]) });
+    await p.idxSweep();
+    expect([...p.store.keys()]).toEqual(["index:ann:b_x", "index:cat:b_other", "device"]);
+    const partial = page({ boards: ["b_q"], store: new Map([["index:ann:b_gone", rec(1)]]) });
+    await partial.idxSweep();
+    expect(partial.store.has("index:ann:b_gone")).toBe(true); // a list without this very board isn't trusted
+  });
+
+  it("signing out clears every index and the index key, keeps the device key, and goes home", async () => {
+    const res = signedOutPage("s=; Max-Age=0", { nonce: "n0nce", headers: { "content-security-policy": "x" } });
+    const html = await res.text();
+    expect(res.headers.get("set-cookie")).toBe("s=; Max-Age=0");
+    expect(res.headers.get("cache-control")).toBe("no-store");
+    expect(html).toContain('<script nonce="n0nce">');
+    expect(html).toContain(SIGN_OUT_JS);
+    // Run it against a fake IndexedDB.
+    const store = new Map([["index:ann:b_x", 1], ["index-key:ann", 2], ["device-key", 3], ["device:ann", 4]]);
+    let went = null;
+    const tx = { objectStore: () => ({ getAllKeys() { const q = { result: [...store.keys()] }; setTimeout(() => { q.onsuccess(); setTimeout(() => tx.oncomplete(), 0); }, 0); return q; }, delete: (k) => store.delete(k) }) };
+    const indexedDB = { open() { const r = { result: { transaction: () => tx, close() {} } }; setTimeout(() => r.onsuccess(), 0); return r; } };
+    new Function("indexedDB", "location", SIGN_OUT_JS)(indexedDB, { replace: (u) => (went = u) });
+    await new Promise((r) => setTimeout(r, 20));
+    expect([...store.keys()]).toEqual(["device-key", "device:ann"]);
+    expect(went).toBe("/");
   });
 });
