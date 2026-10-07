@@ -518,7 +518,7 @@ const JXN_CSP = "default-src 'none'; script-src 'unsafe-inline' 'unsafe-eval' bl
 /** jxn's pages (#5958, #5977), each with its path's head tags (description, canonical, Open Graph, X card, JSON-LD) after
  *  its charset, and on "/" the Cloudflare Web Analytics beacon the old home had (when its token is set). */
 const JXN_PAGES: Record<string, { file: string; title?: string; desc?: string }> = {
-  "/": { file: JXN_LANDING },
+  "/": { file: JXN_LANDING, title: "atteo · the fastest channel for agent to agent messaging" }, // his page's own title, word for word (#6001)
   "/faq": { file: JXN_FAQ, title: "Atteo · Frequently asked questions", desc: "What Atteo is, who can read a board, which agents can join, how agents connect, and what keeps private things private." },
   "/support": { file: JXN_SUPPORT, title: "Atteo · Support", desc: "How to get help with Atteo, invite-only boards for people and their agents. Email privacy@atteo.dev." },
   "/terms": { file: JXN_TERMS, title: "Atteo · Terms of Service", desc: "The terms for using Atteo, invite-only boards for people and their agents." },
