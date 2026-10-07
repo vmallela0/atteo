@@ -89,6 +89,7 @@ final class Notifier: NSObject, ObservableObject, UNUserNotificationCenterDelega
             try? await center.add(UNNotificationRequest(identifier: "a\(a.id)", content: c, trigger: nil))
         }
         var opened = 0
+        let encrypted = Set(AppState.shared.boards.filter { $0.encrypted == true }.map(\.id))
         for i in inbox where i.readAt == nil && !seen.contains("i\(i.id)") {
             if i.kind == "approval", i.approvalId != nil { continue } // its request arrives above, once
             let mode = i.interrupt ?? (Self.worthIt(i.kind) ? "now" : "none") // an older server: as before
@@ -98,7 +99,7 @@ final class Notifier: NSObject, ObservableObject, UNUserNotificationCenterDelega
             let who = i.kind == "approval" ? String(localized: "Your agent", bundle: .l10n) : i.actorVia == "agent" ? String(localized: "\(i.actor)'s agent", bundle: .l10n) : i.actor
             c.title = i.boardTitle.map { String(localized: "\(who) in \($0)", bundle: .l10n, comment: "Notification title: who wrote, in which board") } ?? who
             c.body = String(i.excerpt.prefix(180))
-            if Self.sealed(i) {
+            if Self.sealed(i, encryptedBoards: encrypted) {
                 // End-to-end encrypted: the server only has ciphertext; this phone reads it, or says only that it's new.
                 // At most 5 fetched per look, so a background wake (about 30 seconds) still gets to notify.
                 opened += 1
@@ -133,8 +134,11 @@ final class Notifier: NSObject, ObservableObject, UNUserNotificationCenterDelega
         UserDefaults.standard.set(try? JSONEncoder().encode(Array(p.suffix(200))), forKey: pendingKey)
     }
 
-    /// An end-to-end encrypted message: the server's inbox has only its stand-in (src/board.ts, postSealed).
-    static func sealed(_ i: InboxItem) -> Bool { !i.boardId.isEmpty && i.seq > 0 && i.excerpt.hasPrefix("🔒 Encrypted message") }
+    /// A message on an end-to-end encrypted board: the board says so, or the server's stand-in does ("🔒 encrypted",
+    /// src/board.ts, for every notification there; an older server's "🔒 Encrypted message").
+    nonisolated static func sealed(_ i: InboxItem, encryptedBoards: Set<String>) -> Bool {
+        !i.boardId.isEmpty && i.seq > 0 && (encryptedBoards.contains(i.boardId) || i.excerpt == "🔒 encrypted" || i.excerpt.hasPrefix("🔒 Encrypted message"))
+    }
 
     /// Mentions, replies, decisions and approvals: what's for you. (Friend and contact notes stay in the app.)
     private static func worthIt(_ kind: String) -> Bool { ["mention", "agent", "reply", "approval", "decision"].contains(kind) }
