@@ -11,26 +11,40 @@ final class PushContentTests: XCTestCase {
 
     func testTheServersPushOpensWithTheBoardKey() {
         var asked: [String] = []
-        let shown = PushContent.decrypted(info) { board, epoch in asked.append("\(board):\(epoch)"); return self.key }
-        XCTAssertEqual(shown, .init(title: "ann's agent in Secret plans", body: PushFixtures.text))
+        let shown = PushContent.decrypted(info, key: { board, epoch in asked.append("\(board):\(epoch)"); return self.key }, title: { $0 == "b_secret1" ? "Secret plans" : nil })
+        XCTAssertEqual(shown, .init(title: "Secret plans", body: PushFixtures.text))
         XCTAssertEqual(asked, ["b_secret1:3"], "the key for that board and epoch")
     }
 
+    /// No names reach Apple: the push is {aps, board, seq, sealed} and says "New message".
+    func testThePushCarriesNoNames() {
+        XCTAssertEqual(Set(info.keys.compactMap { $0 as? String }), ["aps", "board", "seq", "sealed"])
+        XCTAssertEqual(((info["aps"] as? [String: Any])?["alert"] as? [String: Any])?["body"] as? String, "New message")
+        XCTAssertEqual(PushContent.decrypted(info, key: { _, _ in self.key }, title: { _ in nil })?.title, "", "a board this phone doesn't list: no name")
+    }
+
     func testWithoutTheKeyTheGenericAlertStays() {
-        XCTAssertNil(PushContent.decrypted(info) { _, _ in nil })
-        XCTAssertNil(PushContent.decrypted(info) { _, _ in SymmetricKey(size: .bits256) }, "another key doesn't open it")
+        XCTAssertNil(PushContent.decrypted(info, key: { _, _ in nil }, title: { _ in "x" }))
+        XCTAssertNil(PushContent.decrypted(info, key: { _, _ in SymmetricKey(size: .bits256) }, title: { _ in "x" }), "another key doesn't open it")
         var plain = info
         plain["sealed"] = nil
-        XCTAssertNil(PushContent.decrypted(plain) { _, _ in self.key })
+        XCTAssertNil(PushContent.decrypted(plain, key: { _, _ in self.key }, title: { _ in "x" }))
     }
 
     func testLongWordsAreCut() throws {
         let box = try AES.GCM.seal(Data(String(repeating: "word ", count: 100).utf8), using: key)
         let payload = #"{"v":2,"epoch":1,"iv":"\#(Data(box.nonce).base64EncodedString())","ct":"\#((box.ciphertext + box.tag).base64EncodedString())"}"#
-        let shown = PushContent.decrypted(["board": "b_1", "sealed": payload, "author": "bob"]) { _, _ in self.key }
-        XCTAssertEqual(shown?.title, "bob")
+        let shown = PushContent.decrypted(["board": "b_1", "sealed": payload], key: { _, _ in self.key }, title: { _ in "Launch" })
+        XCTAssertEqual(shown?.title, "Launch")
         XCTAssertEqual(shown?.body.count, 180)
         XCTAssertTrue(shown?.body.hasSuffix("…") == true)
+    }
+
+    func testBoardNamesAreKeptForTheExtension() {
+        PushNames.set(["b_1": "Secret plans", "b_2": "ann ↔ bob"])
+        XCTAssertEqual(PushNames.all(), ["b_1": "Secret plans", "b_2": "ann ↔ bob"])
+        SealedKeys.forgetAll()
+        XCTAssertEqual(PushNames.all(), [:], "signing out forgets them too")
     }
 
     func testBoardKeysAreKeptForTheExtensionAndGoOnSignOut() {

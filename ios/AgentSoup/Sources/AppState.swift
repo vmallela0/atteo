@@ -279,6 +279,8 @@ final class AppState: ObservableObject {
             let list = r.boards.map(BoardPictureStore.shared.applyPending)
             let sorted = list.sorted { $0.lastActivity > $1.lastActivity }
             if sorted != boards { withAnimation(.smooth) { boards = sorted } } // unchanged: no publish (refreshInbox)
+            // A push for an encrypted board carries no names: the notification extension names it from this list.
+            PushNames.set(Dictionary(list.filter { $0.encrypted == true }.map { ($0.id, $0.title) }, uniquingKeysWith: { a, _ in a }))
             // The chat list needs names before any chat is opened. Refresh each board's member data in small batches.
             let stale = list.filter { Date().timeIntervalSince(membersRefreshed[$0.id] ?? .distantPast) > 60 }
             for start in stride(from: 0, to: stale.count, by: 6) {

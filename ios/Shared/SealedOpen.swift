@@ -16,7 +16,7 @@ enum SealedKeys {
     /// the sign-in token's group). Without it nothing is kept or read: board keys never land in the default group.
     static let group: String? = (Bundle.main.object(forInfoDictionaryKey: "AtteoE2EKeychainGroup") as? String).flatMap { $0.hasSuffix(".e2e") ? $0 : nil }
 
-    private static func query(_ account: String? = nil) -> [String: Any]? {
+    static func query(_ account: String? = nil) -> [String: Any]? {
         guard let group else { return nil }
         var q: [String: Any] = [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service, kSecAttrAccessGroup as String: group]
         if let account { q[kSecAttrAccount as String] = account }
@@ -56,7 +56,32 @@ enum SealedKeys {
         }
     }
 
-    static func forgetAll() { forget() }
+    static func forgetAll() { forget(); PushNames.set([:]) }
+}
+
+/// The names of your encrypted boards, as the app last listed them, so a push (which carries no names: review #5550)
+/// can say which board it's from. Kept beside the board keys, in their Keychain group.
+enum PushNames {
+    private static let account = "board-titles"
+
+    static func all() -> [String: String] {
+        guard var q = SealedKeys.query(account) else { return [:] }
+        q[kSecReturnData as String] = true
+        var out: AnyObject?
+        guard SecItemCopyMatching(q as CFDictionary, &out) == errSecSuccess, let d = out as? Data else { return [:] }
+        return (try? JSONDecoder().decode([String: String].self, from: d)) ?? [:]
+    }
+
+    /// Replaces the list (only when it changed: no Keychain write on every refresh).
+    static func set(_ titles: [String: String]) {
+        guard titles != all(), let q = SealedKeys.query(account) else { return }
+        SecItemDelete(q as CFDictionary)
+        guard !titles.isEmpty, let d = try? JSONEncoder().encode(titles) else { return }
+        var add = q
+        add[kSecValueData as String] = d
+        add[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+        SecItemAdd(add as CFDictionary, nil)
+    }
 }
 
 enum SealedOpen {
@@ -73,18 +98,16 @@ enum SealedOpen {
     }
 }
 
-/// A push for an encrypted board (src/pushPayload.ts) carries the message's ciphertext, never its text; its alert says
-/// only "New message on <board>". The notification extension swaps in the real words when this phone can read them.
+/// A push for an encrypted board (src/pushPayload.ts) is only {board, seq, sealed} with the alert "New message": no
+/// text and no names reach Apple. The notification extension swaps in the real words when this phone can read them,
+/// under the board's name from the app's own list.
 enum PushContent {
     struct Shown: Equatable { let title: String; let body: String }
 
-    static func decrypted(_ info: [AnyHashable: Any], key: (String, Int) -> SymmetricKey?) -> Shown? {
+    static func decrypted(_ info: [AnyHashable: Any], key: (String, Int) -> SymmetricKey?, title: (String) -> String?) -> Shown? {
         guard let board = info["board"] as? String, let sealed = info["sealed"] as? String,
               let text = SealedOpen.open(sealed, key: { key(board, $0) }) else { return nil }
-        let author = info["author"] as? String ?? ""
-        let who = info["via"] as? String == "agent" ? "\(author)'s agent" : author
-        let title = (info["board_title"] as? String).map { who.isEmpty ? $0 : "\(who) in \($0)" } ?? who
         let body = text.count > 180 ? String(text.prefix(179)) + "…" : text
-        return Shown(title: title, body: body)
+        return Shown(title: title(board) ?? "", body: body)
     }
 }

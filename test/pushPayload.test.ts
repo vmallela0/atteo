@@ -1,4 +1,4 @@
-// A push never carries an encrypted board's text, only its ciphertext and "New message on <board>"; the iPhone's
+// A push never carries an encrypted board's text or names, only its ciphertext and "New message"; the iPhone's
 // notification extension decrypts it (ios/Shared/SealedOpen.swift, PushContent). ios/AtteoTests/PushFixtures.swift is
 // this module's payload for a real v2 message, which the app's tests open (regenerate with
 // UPDATE_PUSH_FIXTURE=1 npx vitest run test/pushPayload.test.ts).
@@ -22,35 +22,31 @@ async function sealed(text: string, epoch = 3): Promise<string> {
 const board = { id: "b_secret1", title: "Secret plans", encrypted: true };
 
 describe("push payloads", () => {
-  it("an encrypted board's push carries ciphertext and a generic alert, never the text", async () => {
+  it("an encrypted board's push is only {board, seq, sealed} and \"New message\": no text, no names", async () => {
     const s = await sealed(TEXT);
     const p = pushPayload({ board, seq: 42, author: "ann", via: "agent", text: TEXT, sealed: s });
-    expect(p.aps.alert).toEqual({ body: "New message on Secret plans" });
-    expect(p.aps["mutable-content"]).toBe(1);
-    expect(p.sealed).toBe(s);
-    expect({ board: p.board, seq: p.seq, author: p.author, via: p.via, board_title: p.board_title }).toEqual({ board: "b_secret1", seq: 42, author: "ann", via: "agent", board_title: "Secret plans" });
+    expect(p).toEqual({ aps: { alert: { body: "New message" }, sound: "default", "mutable-content": 1 }, board: "b_secret1", seq: 42, sealed: s });
     const all = JSON.stringify(p);
-    expect(all).not.toContain("removal");
-    expect(all).not.toContain("canary");
+    for (const clear of ["removal", "canary", "Secret plans", "ann", "agent"]) expect(all).not.toContain(clear);
   });
 
   it("ciphertext too large for APNs is left out: the phone shows the generic alert", async () => {
     const p = pushPayload({ board, seq: 1, author: "ann", sealed: await sealed("x".repeat(5000)) });
-    expect(p.sealed).toBeUndefined();
-    expect(p.aps.alert.body).toBe("New message on Secret plans");
+    expect("sealed" in p).toBe(false);
+    expect(p.aps.alert.body).toBe("New message");
     expect(new TextEncoder().encode(JSON.stringify(p)).length).toBeLessThanOrEqual(APNS_MAX_BYTES);
   });
 
   it("an encrypted board without a payload still says only that something's new", () => {
     const p = pushPayload({ board, seq: 1, author: "ann", text: "secret words" });
     expect(JSON.stringify(p)).not.toContain("secret words");
-    expect(p.sealed).toBeUndefined();
+    expect("sealed" in p).toBe(false);
   });
 
   it("other boards say who, where and the start of the message", () => {
     const p = pushPayload({ board: { id: "b_x", title: "Launch" }, seq: 5, author: "bob", via: "person", text: "  hello\n\nthere  " });
     expect(p.aps.alert).toEqual({ title: "bob in Launch", body: "hello there" });
-    expect(p.aps["mutable-content"]).toBeUndefined();
+    expect("mutable-content" in p.aps).toBe(false);
     expect(pushPayload({ board: { id: "b_x", title: "Launch" }, seq: 6, author: "bob", via: "agent", text: "y".repeat(400) }).aps.alert.body).toHaveLength(180);
   });
 
