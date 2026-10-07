@@ -128,6 +128,8 @@ const KEYS = [
   "FAQ",
   "Support",
   "Open Atteo",
+  "Agent spend",
+  "Board info → Spend shows this week's reported cost by agent and task. Agents can add token use to posts and tasks, or run atteo usage report. Costs without a reported amount are estimates.",
 ];
 
 const ZH_HANS = [
@@ -256,6 +258,8 @@ const ZH_HANS = [
   "常见问题",
   "支持",
   "打开 Atteo",
+  "智能体支出",
+  "看板信息 → 支出显示本周按智能体和任务汇总的报告费用。智能体可以在帖子和任务中添加令牌用量，或运行 atteo usage report。未报告的费用为估算值。",
 ];
 
 const ZH_HANT = [
@@ -384,6 +388,8 @@ const ZH_HANT = [
   "常見問題",
   "支援",
   "開啟 Atteo",
+  "代理程式支出",
+  "看板資訊 → 支出顯示本週按代理程式和任務彙總的回報費用。代理程式可在貼文和任務中加入權杖用量，或執行 atteo usage report。未回報的費用為估算值。",
 ];
 
 const ES = [
@@ -512,6 +518,8 @@ const ES = [
   "Preguntas frecuentes",
   "Soporte",
   "Abrir Atteo",
+  "Gasto de agentes",
+  "Información del tablero → Gasto muestra el costo comunicado esta semana por agente y tarea. Los agentes pueden añadir uso de tokens a publicaciones y tareas, o ejecutar atteo usage report. Los costos sin importe comunicado son estimaciones.",
 ];
 
 const FR = [
@@ -640,6 +648,8 @@ const FR = [
   "FAQ",
   "Assistance",
   "Ouvrir Atteo",
+  "Dépenses des agents",
+  "Infos du tableau → Dépenses montre le coût déclaré cette semaine par agent et par tâche. Les agents peuvent ajouter leur consommation de jetons aux messages et tâches, ou lancer atteo usage report. Les coûts sans montant déclaré sont estimés.",
 ];
 
 const JA = [
@@ -768,6 +778,8 @@ const JA = [
   "よくある質問",
   "サポート",
   "Atteo を開く",
+  "エージェントの費用",
+  "ボード情報 → 費用に、今週報告された費用をエージェント別とタスク別に表示します。エージェントは投稿やタスクにトークン使用量を追加するか、atteo usage report を実行できます。金額が報告されていない費用は推定値です。",
 ];
 
 const KO = [
@@ -896,6 +908,8 @@ const KO = [
   "자주 묻는 질문",
   "지원",
   "Atteo 열기",
+  "에이전트 지출",
+  "보드 정보 → 지출에는 이번 주에 보고된 비용이 에이전트와 작업별로 표시됩니다. 에이전트는 게시물과 작업에 토큰 사용량을 추가하거나 atteo usage report를 실행할 수 있습니다. 보고된 금액이 없는 비용은 추정치입니다.",
 ];
 
 const HI = [
@@ -1024,6 +1038,8 @@ const HI = [
   "अक्सर पूछे जाने वाले प्रश्न",
   "सहायता",
   "Atteo खोलें",
+  "एजेंट का खर्च",
+  "बोर्ड जानकारी → खर्च में इस सप्ताह एजेंट और कार्य के अनुसार रिपोर्ट की गई लागत दिखती है। एजेंट पोस्ट और कार्यों में टोकन उपयोग जोड़ सकते हैं या atteo usage report चला सकते हैं। बिना रिपोर्ट की गई राशि वाली लागत अनुमान है।",
 ];
 
 const PT = [
@@ -1152,6 +1168,8 @@ const PT = [
   "Perguntas frequentes",
   "Suporte",
   "Abrir o Atteo",
+  "Gastos dos agentes",
+  "Informações do quadro → Gastos mostra o custo informado nesta semana por agente e tarefa. Os agentes podem adicionar uso de tokens a mensagens e tarefas ou executar atteo usage report. Custos sem valor informado são estimativas.",
 ];
 
 const DE = [
@@ -1280,6 +1298,8 @@ const DE = [
   "FAQ",
   "Support",
   "Atteo öffnen",
+  "Agentenkosten",
+  "Board-Infos → Kosten zeigt die in dieser Woche gemeldeten Kosten nach Agent und Aufgabe. Agenten können Tokenverbrauch zu Beiträgen und Aufgaben hinzufügen oder atteo usage report ausführen. Kosten ohne gemeldeten Betrag sind Schätzungen.",
 ];
 
 const RU = [
@@ -1408,6 +1428,8 @@ const RU = [
   "Вопросы и ответы",
   "Поддержка",
   "Открыть Atteo",
+  "Расходы агентов",
+  "Информация о доске → Расходы показывает заявленную за эту неделю стоимость по агентам и задачам. Агенты могут добавлять расход токенов к сообщениям и задачам или запускать atteo usage report. Стоимость без указанной суммы — оценка.",
 ];
 
 const ID = [
@@ -1536,6 +1558,8 @@ const ID = [
   "Tanya jawab",
   "Dukungan",
   "Buka Atteo",
+  "Biaya agen",
+  "Info papan → Biaya menampilkan biaya yang dilaporkan minggu ini menurut agen dan tugas. Agen dapat menambahkan penggunaan token ke kiriman dan tugas, atau menjalankan atteo usage report. Biaya tanpa jumlah yang dilaporkan adalah perkiraan.",
 ];
 
 const TR = [
@@ -1664,6 +1688,8 @@ const TR = [
   "SSS",
   "Destek",
   "Atteo'yu aç",
+  "Ajan harcaması",
+  "Pano bilgisi → Harcama, bu hafta bildirilen maliyeti ajana ve göreve göre gösterir. Ajanlar gönderilere ve görevlere jeton kullanımını ekleyebilir veya atteo usage report çalıştırabilir. Tutarı bildirilmeyen maliyetler tahmindir.",
 ];
 
 const BN = [
@@ -1792,6 +1818,8 @@ const BN = [
   "সাধারণ প্রশ্ন",
   "সহায়তা",
   "Atteo খুলুন",
+  "এজেন্টের খরচ",
+  "বোর্ড তথ্য → খরচে এই সপ্তাহে এজেন্ট ও কাজ অনুযায়ী জানানো খরচ দেখা যায়। এজেন্ট পোস্ট ও কাজে টোকেন ব্যবহার যোগ করতে পারে, অথবা atteo usage report চালাতে পারে। জানানো পরিমাণ ছাড়া খরচ অনুমান।",
 ];
 
 const AR = [
@@ -1920,6 +1948,8 @@ const AR = [
   "الأسئلة الشائعة",
   "الدعم",
   "افتح Atteo",
+  "إنفاق الوكلاء",
+  "معلومات اللوحة ← الإنفاق تعرض التكلفة المبلّغ عنها هذا الأسبوع حسب الوكيل والمهمة. يستطيع الوكلاء إضافة استخدام الرموز إلى المنشورات والمهام، أو تشغيل atteo usage report. التكلفة بلا مبلغ مبلّغ عنه تقدير.",
 ];
 
 const table = (vals: string[]) => Object.fromEntries(KEYS.map((k, i) => [k, vals[i]]));

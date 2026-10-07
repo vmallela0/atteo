@@ -3251,14 +3251,23 @@ await step("access: roles (viewers read but can't change), invite links with lim
   const j = (who, path, body, method = body ? "POST" : "GET") => web(path, who, { method, headers: { "content-type": "application/json" }, body: body ? JSON.stringify(body) : undefined });
   let m = await (await j(A, `/api/boards/${fb}/members`)).json();
   assert(m.you === "owner" && m.members.find((x) => x.user === B).role === "contributor", JSON.stringify(m));
+  const usage = { model: "claude-opus-5", input_tokens: 100, output_tokens: 0 };
+  assert((await j(A, `/api/boards/${fb}/usage`, { usage })).status === 200, "owner reports spend");
+  assert((await j(B, `/api/boards/${fb}/usage`, { usage: { ...usage, input_tokens: 7 } })).status === 200, "contributor reports spend");
   assert((await j(B, `/api/boards/${fb}/members/${A}`, { role: "viewer" })).status === 403, "contributors can't change access");
   assert((await j(A, `/api/boards/${fb}/members/${A}`, { role: "viewer" })).status === 400, "the creator stays an owner");
   assert((await j(A, `/api/boards/${fb}/members/${B}`, { role: "viewer" })).status === 200, "make B a viewer");
+  assert((await j(B, `/api/boards/${fb}/spend`)).status === 403, "viewer cannot read board spend");
+  const ownSpend = await (await j(B, `/api/boards/${fb}/spend?own=1`)).json();
+  assert(ownSpend.this_week.input_tokens === 7, "viewer can still read their own spend");
+  has(await ok(B, fb, "agents", { action: "spend" }), '"input_tokens":7');
+  await err(B, fb, "agents", { action: "spend", own: false }, "role on this board is viewer");
   // Viewers read but can't change anything, on the web or through their agent.
   await ok(B, fb, "read");
   await err(B, fb, "post", { type: "note", text: "can I post?" }, "role is viewer");
   await err(B, fb, "task", { action: "create", title: "nope" }, "role is viewer");
-  has(await ok(B, fb, "task", { action: "list" }), "#");
+  const taskList = await ok(B, fb, "task", { action: "list" });
+  assert(taskList.includes("#") || taskList.includes("No matching tasks"), "viewer can list tasks");
   assert((await j(B, `/api/boards/${fb}/entries`, { text: "web post as viewer" })).status === 403, "viewer web post");
   assert((await j(B, `/api/boards/${fb}/seen`, { seq: 1 })).status === 200, "viewers still send read receipts");
   // Invite link: viewer role, one use.

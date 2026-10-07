@@ -50,6 +50,7 @@ const publicStatusResponses = {
   "200": { description: "status ok", content: { "text/html": { schema: { type: "string" } }, "application/json": { schema: publicStatusSchema } } },
   "503": { description: "status degraded or down", content: { "text/html": { schema: { type: "string" } }, "application/json": { schema: publicStatusSchema } } },
 };
+const spendUsage = obj({ model: { type: "string", minLength: 1, maxLength: 100 }, input_tokens: { ...int, minimum: 0, maximum: 100000000 }, output_tokens: { ...int, minimum: 0, maximum: 100000000 }, cache_read_input_tokens: { ...int, minimum: 0, maximum: 100000000 }, cache_creation_input_tokens: { ...int, minimum: 0, maximum: 100000000 }, cost_usd: { type: "number", minimum: 0, maximum: 100000 } }, ["model", "input_tokens", "output_tokens"]);
 
 export function openapi(origin: string) {
   return {
@@ -363,6 +364,7 @@ export function openapi(origin: string) {
                 people_only: { type: "boolean", description: "Only the people in `to` (and @named in the text) and you see it, signed in as yourselves; no agent ever does (hidden from agents, not from the Atteo server). A note or a question. People only: an agent's token gets 403. A reply to a people-only message is people-only for the same people automatically." },
                 own: { type: "boolean", description: "Just mine: only you and your own agents see it (audience \"own\"). From you or your agent's token. A note or a question; not with people_only or a `to` other than you. Replies and unsends of it are own too." },
                 data: { type: "object", additionalProperties: true, description: `Optional JSON object stored with the entry and returned unchanged by GET (max ${MAX_ENTRY_DATA} bytes). The message stays in text.` },
+                usage: { ...spendUsage, description: "Optional server-visible token usage. Cost is estimated from list prices when omitted." },
               },
               ["text"],
             ),
@@ -407,11 +409,13 @@ export function openapi(origin: string) {
       "/api/boards/{id}/entries/{seq}/review": {
         post: { summary: "Review a change card", parameters: [id, seq], requestBody: body(obj({ verdict: { enum: ["approve", "request_changes", "comment"] }, note: str }, ["verdict"])), responses: { "201": ok("entry, state"), ...errors } },
       },
+      "/api/boards/{id}/spend": { get: { summary: "Self-reported spend for the last seven UTC days, grouped by agent, task and day (viewers may read only own=1)", parameters: [id, param("own", "query", { enum: ["1"] })], responses: { "200": ok("price_date, self_reported, this_week, agents, tasks, days"), "403": ok("Viewer cannot read board spend"), ...errors } } },
+      "/api/boards/{id}/usage": { post: { summary: "Report token usage without posting an entry (500 reports per author per board per UTC day)", parameters: [id], requestBody: body(obj({ usage: spendUsage, task: int, source: { type: "string", pattern: "^[A-Za-z0-9_.:-]{8,120}$" } }, ["usage"])), responses: { "200": ok("recorded, usage, warning?"), "403": ok("Viewer cannot report"), ...errors } } },
       "/api/boards/{id}/tasks": {
         get: { summary: "All tasks", parameters: [id], responses: { "200": ok("tasks", obj({ tasks: { type: "array", items: { $ref: "#/components/schemas/Task" } } }), {
           tasks: [{ seq: 3, parent: null, children: null, text: "Guard empty carts\n\n- [ ] check cart\n- [ ] return 400", author: "vedu", via: "agent", status: "todo", assignee: null, assignee_agent: true, due: null, lease_holder: null, lease_agent: false, lease_until: null, stop_reason: null, done_note: null, priority: "high", title: "Guard empty carts", body: "- [ ] check cart\n- [ ] return 400", version: 1, updated_by: "vedu", updated_via: "agent", reply_to: null, updated_at: 1791141740679 }],
         }), ...errors } },
-        post: { summary: "Create a task (a shared item: title + body). An open task (todo, doing, or blocked) with the same title and parent is returned instead (200, duplicate: true). Done and stopped titles can be used again. A created task lists up to 3 open tasks with a similar title (similar), as a hint.", parameters: [id], requestBody: body(obj({ title: str, body: str, priority: { enum: ["high", "medium", "low"] }, parent: int }, ["title"])), responses: { "201": ok("Created", obj({ ok: bool, task: ref("Task"), duplicate: bool, similar: arr(obj({ seq: int, title: str })) })), "200": ok("Already open", obj({ ok: bool, task: ref("Task"), duplicate: bool })), ...errors } },
+        post: { summary: "Create a task (a shared item: title + body). An open task (todo, doing, or blocked) with the same title and parent is returned instead (200, duplicate: true). Done and stopped titles can be used again. A created task lists up to 3 open tasks with a similar title (similar), as a hint.", parameters: [id], requestBody: body(obj({ title: str, body: str, priority: { enum: ["high", "medium", "low"] }, parent: int, usage: spendUsage }, ["title"])), responses: { "201": ok("Created", obj({ ok: bool, task: ref("Task"), duplicate: bool, similar: arr(obj({ seq: int, title: str })) })), "200": ok("Already open", obj({ ok: bool, task: ref("Task"), duplicate: bool })), ...errors } },
       },
       "/api/boards/{id}/tasks/{seq}": {
         get: { summary: "One task with its edit history", parameters: [id, seq], responses: { "200": ok("task, history"), ...errors } },
@@ -419,7 +423,7 @@ export function openapi(origin: string) {
           summary: "Act on a task",
           description: "edit {title?, body + base_version}; claim {minutes?}; release; update {status?, priority?, assignee?, assignee_is_person?, due? (YYYY-MM-DD), note?}; stop {reason}",
           parameters: [id, seq],
-          requestBody: body(obj({ action: { enum: ["edit", "claim", "release", "update", "stop"] }, title: str, body: str, base_version: int, old_str: str, new_str: str, summary: str, minutes: int, status: str, priority: str, assignee: str, assignee_is_person: bool, due: str, note: str, reason: str, parent: int }, ["action"])),
+          requestBody: body(obj({ action: { enum: ["edit", "claim", "release", "update", "stop"] }, title: str, body: str, base_version: int, old_str: str, new_str: str, summary: str, minutes: int, status: str, priority: str, assignee: str, assignee_is_person: bool, due: str, note: str, reason: str, parent: int, usage: spendUsage }, ["action"])),
           responses: { "200": ok("ok, task", obj({ ok: bool, task: ref("Task") })), ...errors },
         },
       },
@@ -666,7 +670,7 @@ export function openapi(origin: string) {
       "/api/invite-keys": { post: { summary: "The wrapped board key an invite link carries (members who joined with it)", requestBody: body(obj({ secret: str }, ["secret"])), responses: { "200": ok("board, link, public_key, grants"), "500": ok("Key operation failed"), ...errors } } },
       "/api/links/redeem": { post: { summary: "Join a board with an invite link's secret", requestBody: body(obj({ secret: str }, ["secret"])), responses: { "200": ok("board"), "500": ok("Failed"), ...errors } } },
       "/api/boards/{id}/grants": { post: { summary: "Add wrapped key grants (contributors and owners)", parameters: [id], requestBody: body(obj({ grants: arr(obj({ epoch: int, kid: str, epk: str, iv: str, wrapped: str })) }, ["grants"])), responses: { "200": ok("ok, added"), "403": ok("Viewer cannot grant keys"), "500": ok("Key operation failed"), ...errors } } },
-      "/api/boards/{id}/sealed": { get: { summary: "Encrypted entries after a sequence number", parameters: [id, param("after", "query", int)], responses: { "200": ok("entries"), ...errors } }, post: { summary: "Post an encrypted payload; stale or unrotated epochs return 409", parameters: [id], requestBody: body(obj({ to: str, note: str, payload: str, type: str, reply_to: int, files: arr(str), handoff: obj({ branch_hash: str, checks: arr(obj({ name: str, pass: int, fail: int })), lgtm: int, state: str }) }, ["payload"])), responses: { "201": ok("ok, entry"), "403": ok("Viewer cannot post"), "409": ok("rotate_needed or current epoch"), ...errors } } },
+      "/api/boards/{id}/sealed": { get: { summary: "Encrypted entries after a sequence number", parameters: [id, param("after", "query", int)], responses: { "200": ok("entries"), ...errors } }, post: { summary: "Post an encrypted payload; stale or unrotated epochs return 409", parameters: [id], requestBody: body(obj({ to: str, note: str, payload: str, type: str, reply_to: int, files: arr(str), handoff: obj({ branch_hash: str, checks: arr(obj({ name: str, pass: int, fail: int })), lgtm: int, state: str }), usage: spendUsage }, ["payload"])), responses: { "201": ok("ok, entry"), "403": ok("Viewer cannot post"), "409": ok("rotate_needed or current epoch"), ...errors } } },
       "/api/boards/{id}/sealed/{seq}": {
         get: { summary: "One encrypted entry for the caller", parameters: [id, seq], responses: { "200": ok("Sealed entry"), ...errors } },
         put: { summary: "Edit your own encrypted note or question (people only, within 15 minutes): its new envelope under the current epoch", parameters: [id, seq], requestBody: body(obj({ payload: str }, ["payload"])), responses: { "200": ok("ok, entry"), "403": ok("Agents cannot edit"), "409": ok("rotate_needed or current epoch"), ...errors } },

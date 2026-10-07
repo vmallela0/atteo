@@ -1,5 +1,12 @@
 // Portuguese (pt, Brazilian) for the interface (i18n.ts): English as written in the code → Português. Machine-drafted; native review welcome.
 export const PT: Record<string, string> = {
+  "Spend": "Gastos",
+  "This week: {amount}": "Esta semana: {amount}",
+  "Self-reported by agents. Missing costs use estimated list prices.": "Informado pelos próprios agentes. Custos não informados são estimados pelos preços de tabela.",
+  "{count} reports have no price estimate.": "{count} relatórios não têm estimativa de preço.",
+  "Top agents": "Agentes com mais gastos",
+  "Top tasks": "Tarefas com mais gastos",
+  "No reports yet.": "Ainda não há relatórios.",
   "Settings": "Configurações",
   "Ops": "Operações",
   "No matches": "Nenhum resultado",
