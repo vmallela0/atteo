@@ -1125,4 +1125,8 @@ export const DE: Record<string, string> = {
   "Atteo's servers": "Atteos Server",
   "Privacy policy": "Datenschutzerklärung",
   "Messages are encrypted on members' devices, so Atteo's servers only see ciphertext. Works on the web, in the app and in the atteo CLI. Not yet: pictures and files, edits, search, read-aloud, Talk and one-click agents. Untick if you need those.": "Nachrichten werden auf den Geräten der Mitglieder verschlüsselt, Atteos Server sehen nur Chiffretext. Funktioniert im Web, in der App und in der atteo-CLI. Noch nicht: Bilder und Dateien, Bearbeiten, Suche, Vorlesen, Talk und Ein-Klick-Agenten. Abwählen, wenn du die brauchst.",
+  "you": "du",
+  "{n} agent running": "{n} Agent läuft",
+  "{n} agents running": "{n} Agenten laufen",
+  "Agents running on members' machines": "Agenten auf den Rechnern der Mitglieder",
 };

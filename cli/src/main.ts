@@ -1,9 +1,9 @@
 // atteo: sign in once (link, code or QR), keep the token in the OS keychain, and run the local MCP server
 // your agent connects to. The local server filters secrets on this machine before anything is sent.
 
-import { execFile, execFileSync } from "node:child_process";
+import { execFile, execFileSync, spawn as spawnChild } from "node:child_process";
 import { env } from "./env";
-import { copyFileSync, existsSync, mkdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { closeSync, copyFileSync, existsSync, mkdirSync, openSync, readFileSync, readlinkSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { homedir, hostname, platform } from "node:os";
 import { dirname, join } from "node:path";
 import { createInterface } from "node:readline";
@@ -20,6 +20,8 @@ import { api, boardIdIn, CliError, COMMANDS, COMMANDS_HELP, decryptEntry, folder
 import { AcpAgent, type AcpBoard } from "./acp";
 import { entryKey, FORK_TOOLS, forkName, forkPrompt, needsFork, screenMail, type Mail } from "./dispatch";
 import { agentCommand, HARNESSES, splitCommand } from "./harness";
+import { agentEnv, Standby, STANDBY_AFTER_S, STANDBY_MAX_PER_HOUR, standbyCommand, type LeaseState } from "./standby";
+import { agentKind, type Caps, checkMode, checkPrefix, Listener, type LocalAgent, localAgents, parsePs, SPAWN_CAPS, spawnCommand, type Spawned, toStop, uptime, workerPrompt } from "./spawn";
 import { myKey } from "./sealed";
 import { EncryptedTools } from "./e2emcp";
 import { doctorCmd, forgetSession, HELP_AGENTS, mentionLine, prepare, session as agentSessionFor, V2, versionCheck } from "./v2";
@@ -697,6 +699,402 @@ async function watch(args: string[]) {
   setInterval(refresh, 60_000);
 }
 
+// ---------- watch --standby: an agent for your DMs when nobody is watching them (standby.ts, jxn #5679) ----------
+
+/**
+ * atteo watch --standby [--after 10] [--agent claude|"<command>"] [--max-per-hour 3] [--from friends|anyone] [--dir <folder>]:
+ * peeks the mailbox and the drainer lease every few seconds (never drains or acks), and starts your agent in a session of
+ * its own for a DM nobody is collecting. Only friends' DMs start one unless --from anyone. The agent runs in a fresh
+ * folder holding only the DMs' file, unless --dir names one it may read. Off unless you run it; one per machine.
+ */
+async function standbyCmd(args: string[]) {
+  const opt = (n: string) => (args.indexOf(n) >= 0 ? args[args.indexOf(n) + 1] : undefined);
+  const afterS = Math.max(1, Number(opt("--after") ?? STANDBY_AFTER_S) || STANDBY_AFTER_S);
+  const maxPerHour = Math.max(1, Math.floor(Number(opt("--max-per-hour") ?? STANDBY_MAX_PER_HOUR)) || STANDBY_MAX_PER_HOUR);
+  // The agent's working folder: a fresh one per run with only the DMs' file in it (its file tools read only there), unless
+  // you name one (#5695).
+  const dir = opt("--dir") ? expandHome(opt("--dir")!) : null;
+  const from = opt("--from") ?? "friends";
+  if (from !== "friends" && from !== "anyone") throw new CliError('--from is friends (the default) or anyone.');
+  try {
+    standbyCommand(opt("--agent"), ""); // an agent that acts without asking is refused before anything runs
+  } catch (e) {
+    throw new CliError((e as Error).message);
+  }
+  const o = { server: serverFrom(args, load()) };
+  const creds = loadFor(o.server);
+  if (!creds || creds.expires_at < Date.now()) throw new CliError("Not signed in (or the login expired). Run: atteo login");
+  const lock = join(configDirPath(), "standby.pid");
+  try {
+    const pid = Number(readFileSync(lock, "utf8"));
+    if (pid && pid !== process.pid) {
+      process.kill(pid, 0);
+      throw new CliError(`atteo watch --standby is already running on this machine (pid ${pid}).`);
+    }
+  } catch (e) {
+    if (e instanceof CliError) throw e;
+  }
+  mkdirSync(configDirPath(), { recursive: true, mode: 0o700 });
+  writeFileSync(lock, String(process.pid));
+  process.on("exit", () => {
+    try {
+      if (Number(readFileSync(lock, "utf8")) === process.pid) rmSync(lock);
+    } catch {}
+  });
+  for (const sig of ["SIGINT", "SIGTERM"] as const) process.on(sig, () => process.exit(0));
+  const logFile = join(configDirPath(), "standby.log");
+  const dmDir = join(configDirPath(), "standby");
+  const log = (event: Record<string, unknown>) => {
+    const line = JSON.stringify({ ts: new Date().toISOString(), ...event });
+    console.log(line);
+    try {
+      writeFileSync(logFile, line + "\n", { flag: "a", mode: 0o600 });
+    } catch {}
+  };
+  // Friends only by default: a DM can come from anyone your agent accepts (a contact, or a coworker under your rule).
+  let friends: { at: number; names: Set<string> } | null = null;
+  const skipped = new Set<string>();
+  const fromFriends = async (mail: Mail[]): Promise<Mail[]> => {
+    if (!mail.length) return mail;
+    if (!friends || Date.now() - friends.at > 60_000) {
+      const j = (await api(o, "GET", "/api/friends")) as { friends?: { name: string }[] };
+      friends = { at: Date.now(), names: new Set((j.friends ?? []).map((p) => p.name)) };
+    }
+    return mail.filter((m) => {
+      const ok = m.from === creds.user || friends!.names.has(m.from);
+      if (!ok && !skipped.has(entryKey(m))) {
+        skipped.add(entryKey(m));
+        log({ event: "skipped", board: m.board, seq: m.seq, from: m.from, why: "not a friend (--from anyone starts an agent for them too)" });
+      }
+      return ok;
+    });
+  };
+  const sb = new Standby(
+    {
+      peek: async () => {
+        // kinds=dm: only DMs, so mail nobody drains (mentions, replies…) can't push them out of the page (#5695).
+        const j = (await api(o, "GET", "/api/mailbox?peek=1&lease=1&kinds=dm&limit=100")) as { mail: Mail[]; lease?: LeaseState };
+        const mail = (j.mail ?? []).filter((m) => m.kind === "dm");
+        return { mail: from === "anyone" ? mail : await fromFriends(mail), lease: j.lease ?? { held: false } };
+      },
+      newSession: async (board, name) => {
+        const s = (await api(o, "POST", "/api/sessions", { suggest: name, client: "standby (atteo watch --standby)", kind: "fork" })).session as { id: string; name: string };
+        await api(o, "POST", `/api/sessions/${s.id}/boards`, { board }).catch(() => {});
+        await api(o, "POST", `/api/sessions/${s.id}`, { status: "Answering a direct message nobody had collected" }).catch(() => {});
+        return s;
+      },
+      endSession: async (id) => void (await api(o, "DELETE", `/api/sessions/${id}`)),
+      writeDms: (board, body) => {
+        // A folder of its own per run, holding only this file: the agent's working folder.
+        const run = join(dmDir, `${board}-${Date.now()}`);
+        mkdirSync(run, { recursive: true, mode: 0o700 });
+        const file = join(run, "dms.json");
+        writeFileSync(file, body, { mode: 0o600 });
+        return file;
+      },
+      spawn: (run, childEnv, file) =>
+        new Promise<void>((resolve, reject) =>
+          execFile(run.bin, run.args, { cwd: dir ?? dirname(file), timeout: 30 * 60_000, maxBuffer: 16 << 20, env: childEnv }, (error) => (error ? reject(error) : resolve())),
+        ),
+      log,
+      now: Date.now,
+    },
+    { me: creds.user, agent: opt("--agent"), afterS, maxPerHour },
+  );
+  log({ event: "standby", user: creds.user, after_s: afterS, max_per_hour: maxPerHour, from, dir: dir ?? "(a fresh folder per run)", log: logFile });
+  let failures = 0;
+  for (;;) {
+    try {
+      await sb.tick();
+      failures = 0;
+    } catch (e) {
+      if (failures++ % 20 === 0) log({ event: "error", error: (e as Error).message });
+    }
+    await sleep(failures ? Math.min(60_000, 3000 * 2 ** Math.min(failures, 4)) : 3000);
+  }
+}
+
+// ---------- atteo agents local / atteo spawn: agents on this machine, and standing agents on a board (spawn.ts, jxn #5722) ----------
+
+const spawnDir = () => join(configDirPath(), "spawn");
+const spawnedFile = () => join(spawnDir(), "agents.json");
+function loadSpawned(): Spawned[] {
+  try {
+    const j = JSON.parse(readFileSync(spawnedFile(), "utf8"));
+    return Array.isArray(j) ? j : [];
+  } catch {
+    return [];
+  }
+}
+function saveSpawned(list: Spawned[]) {
+  mkdirSync(spawnDir(), { recursive: true, mode: 0o700 });
+  writeFileSync(spawnedFile(), JSON.stringify(list, null, 1), { mode: 0o600 });
+}
+/** When a process started, as the OS tells it (Linux: /proc/<pid>/stat's start tick; else ps lstart), or null. Never
+ *  its environment: that holds API keys and tokens, and we don't read other processes' secrets (opus-d #5742). */
+function procStart(pid: number): string | null {
+  try {
+    if (platform() === "linux") {
+      const stat = readFileSync(`/proc/${pid}/stat`, "utf8");
+      return stat.slice(stat.lastIndexOf(")") + 2).split(" ")[19] ?? null; // field 22, counted after "(comm)"
+    }
+    return execFileSync("ps", ["-o", "lstart=", "-p", String(pid)], { encoding: "utf8" }).trim() || null;
+  } catch {
+    return null;
+  }
+}
+/** Still running, and still the agent we started (not a process that got its pid since: same start time). */
+function isRunning(s: Spawned): boolean {
+  try {
+    process.kill(s.pid, 0);
+  } catch (e) {
+    if ((e as { code?: string }).code !== "EPERM") return false;
+  }
+  if (s.proc_start) return procStart(s.pid) === s.proc_start;
+  try {
+    return !!agentKind(execFileSync("ps", ["-o", "args=", "-p", String(s.pid)], { encoding: "utf8" }).trim()); // recorded before proc_start
+  } catch {
+    return false;
+  }
+}
+/** The recorded agents still running; ended ones are dropped and their sessions ended. */
+async function liveSpawned(o: Record<string, string>): Promise<Spawned[]> {
+  const list = loadSpawned();
+  const live = list.filter(isRunning);
+  for (const s of list) if (!live.includes(s)) await api(o, "DELETE", `/api/sessions/${s.session}`).catch(() => {});
+  if (live.length !== list.length) saveSpawned(live);
+  return live;
+}
+
+/** This machine's name on your boards: --machine, ATTEO_MACHINE or the host name, cut to what the server accepts. */
+function machineLabel(given?: string): string {
+  const raw = given ?? process.env.ATTEO_MACHINE ?? hostname();
+  return raw.replace(/[^\p{L}\p{N} ._'-]/gu, "-").replace(/^[^\p{L}\p{N}]+/u, "").slice(0, 40) || "this machine";
+}
+
+type Seen = LocalAgent & { cwd?: string; session?: string; name?: string; board?: string };
+/** The agents running here (ps), with their folder (Linux) and, for the ones atteo spawn started, their session. */
+function scanLocal(): Seen[] {
+  if (platform() === "win32") throw new CliError("atteo agents local reads ps: Linux and macOS (on Windows, run it in WSL).");
+  const out = execFileSync("ps", ["-A", "-o", "pid=,ppid=,etime=,pcpu=,args="], { encoding: "utf8", maxBuffer: 32 << 20 });
+  const spawned = new Map(loadSpawned().map((s) => [s.pid, s]));
+  return localAgents(parsePs(out)).map((a) => {
+    const s = spawned.get(a.pid);
+    let cwd: string | undefined;
+    if (platform() === "linux") {
+      try {
+        cwd = readlinkSync(`/proc/${a.pid}/cwd`);
+      } catch {}
+    }
+    // The session only from our own record of what we started: another agent's lives in its environment, beside its keys.
+    const ours = s && isRunning(s) ? s : undefined;
+    return { ...a, cwd: cwd ?? ours?.dir, session: ours?.session, name: ours?.name, board: ours?.board };
+  });
+}
+
+/** Tells the server how many agents run here (only the count and the machine's name): "you · desktop · 3 agents running". */
+async function reportMachine(o: Record<string, string>, machine: string, agents: number): Promise<boolean> {
+  return api(o, "POST", "/api/me/machines", { machine, agents }).then(() => true, () => false);
+}
+
+/** atteo agents local [--json] [--machine <label>] [--no-report] */
+async function localAgentsCmd(args: string[]) {
+  const opt = (n: string) => (args.indexOf(n) >= 0 ? args[args.indexOf(n) + 1] : undefined);
+  const agents = scanLocal();
+  const machine = machineLabel(opt("--machine"));
+  const server = serverFrom(args, load());
+  const creds = loadFor(server);
+  const reported = !args.includes("--no-report") && !!creds && creds.expires_at > Date.now() && (await reportMachine({ server }, machine, agents.length));
+  if (args.includes("--json")) {
+    return console.log(JSON.stringify({ machine, reported, agents: agents.map((a) => ({ pid: a.pid, kind: a.kind, name: a.name ?? null, uptime_s: a.secs, cwd: a.cwd ?? null, session: a.session ?? null, board: a.board ?? null, busy: a.busy })) }, null, 2));
+  }
+  if (!agents.length) console.log(`No agents running on ${machine}.`);
+  else {
+    console.log(`${agents.length} agent${agents.length === 1 ? "" : "s"} running on ${machine}:`);
+    for (const a of agents) {
+      const who = a.session ? [a.name, a.session, a.board].filter(Boolean).join(" · ") : "session unknown: not started by atteo spawn";
+      console.log(`  ${String(a.pid).padStart(7)}  ${a.kind.padEnd(8)} ${uptime(a.secs).padStart(7)}  ${a.busy ? "busy" : "idle"}  ${a.cwd ?? "?"}${who ? `  (${who})` : ""}`);
+    }
+  }
+  if (reported) console.log(`Your boards show: you · ${machine} · ${agents.length} agent${agents.length === 1 ? "" : "s"} running (only you see the machine's name).`);
+}
+
+interface SpawnOpts {
+  me: string;
+  agent?: string;
+  mode: string;
+  prefix: string;
+  dir?: string;
+  maxTurns?: number;
+}
+
+/** Starts n standing agents on a board: a session each, a folder each (or --dir), detached, logging to spawn/logs. */
+async function startAgents(o: Record<string, string>, so: SpawnOpts, n: number, board: string): Promise<string[]> {
+  const names: string[] = [];
+  for (let i = 0; i < n; i++) {
+    const s = (await api(o, "POST", "/api/sessions", { suggest: `${so.prefix}-${loadSpawned().length + 1}`, client: "atteo spawn", kind: "fork" })).session as { id: string; name: string };
+    try {
+      await api(o, "POST", `/api/sessions/${s.id}/boards`, { board });
+      await api(o, "POST", `/api/sessions/${s.id}`, { status: "Standing agent: picking up unclaimed work" }).catch(() => {});
+      const stamp = `${s.name}-${Date.now()}`.replace(/[^\w.-]/g, "_");
+      const dir = so.dir ?? join(spawnDir(), "agents", stamp);
+      mkdirSync(dir, { recursive: true, mode: 0o700 });
+      mkdirSync(join(spawnDir(), "logs"), { recursive: true, mode: 0o700 });
+      const logPath = join(spawnDir(), "logs", `${stamp}.log`);
+      const run = spawnCommand(so.agent, workerPrompt({ me: so.me, board, name: s.name, session: s.id }), { mode: so.mode, maxTurns: so.maxTurns });
+      const fd = openSync(logPath, "a", 0o600);
+      const child = spawnChild(run.bin, run.args, { cwd: dir, env: agentEnv(process.env, s.id) as typeof process.env, detached: true, stdio: ["ignore", fd, fd] });
+      closeSync(fd);
+      const pid = await new Promise<number>((resolve, reject) => {
+        child.once("spawn", () => resolve(child.pid!));
+        child.once("error", reject);
+      });
+      child.unref();
+      saveSpawned([...loadSpawned(), { name: s.name, pid, proc_start: procStart(pid) ?? undefined, session: s.id, board, dir, log: logPath, agent: so.agent ?? "claude", mode: so.mode, started: Date.now() }]);
+      names.push(s.name);
+    } catch (e) {
+      await api(o, "DELETE", `/api/sessions/${s.id}`).catch(() => {});
+      throw e;
+    }
+  }
+  return names;
+}
+
+/** One instance per machine of a long-running command (spawn.pid…). */
+function lockOrFail(file: string, what: string) {
+  try {
+    const pid = Number(readFileSync(file, "utf8"));
+    if (pid && pid !== process.pid) {
+      process.kill(pid, 0);
+      throw new CliError(`${what} is already running on this machine (pid ${pid}).`);
+    }
+  } catch (e) {
+    if (e instanceof CliError) throw e;
+  }
+  mkdirSync(dirname(file), { recursive: true, mode: 0o700 });
+  writeFileSync(file, String(process.pid));
+  process.on("exit", () => {
+    try {
+      if (Number(readFileSync(file, "utf8")) === process.pid) rmSync(file);
+    } catch {}
+  });
+  for (const sig of ["SIGINT", "SIGTERM"] as const) process.on(sig, () => process.exit(0));
+}
+
+/**
+ * atteo spawn N --board <board> [--agent claude|"<command>"] [--name worker] [--dir <folder>] [--permission-mode default]
+ * atteo spawn --listen [same options] [--max-per-request 3] [--max-per-hour 6] [--max-running 10]
+ * atteo spawn --stop <name|all>
+ */
+async function spawnCmd(args: string[]) {
+  const opt = (n: string) => (args.indexOf(n) >= 0 ? args[args.indexOf(n) + 1] : undefined);
+  const num = (n: string, d: number) => Math.max(1, Math.floor(Number(opt(n) ?? d)) || d);
+  const server = serverFrom(args, load());
+  const creds = loadFor(server);
+  if (!creds || creds.expires_at < Date.now()) throw new CliError("Not signed in (or the login expired). Run: atteo login");
+  const o = { server };
+
+  const which = opt("--stop");
+  if (args.includes("--stop")) {
+    if (!which) throw new CliError("Usage: atteo spawn --stop <name|all>");
+    const list = loadSpawned();
+    const hit = toStop(list, which);
+    if (!hit.length) throw new CliError(which === "all" ? "No spawned agents on this machine." : `No spawned agent named "${which}" on this machine (atteo agents local lists them).`);
+    for (const s of hit) {
+      if (isRunning(s)) {
+        try {
+          process.kill(-s.pid, "SIGTERM"); // its process group: the agent and what it started
+        } catch {
+          try {
+            process.kill(s.pid, "SIGTERM");
+          } catch {}
+        }
+      }
+      await api(o, "DELETE", `/api/sessions/${s.session}`).catch(() => {});
+    }
+    saveSpawned(loadSpawned().filter((s) => !hit.some((h) => h.name === s.name)));
+    return console.log(`Stopped ${hit.map((s) => s.name).join(", ")}.`);
+  }
+
+  let so: SpawnOpts;
+  try {
+    so = { me: creds.user, agent: opt("--agent"), mode: checkMode(opt("--permission-mode")), prefix: checkPrefix(opt("--name")), dir: opt("--dir") ? expandHome(opt("--dir")!) : undefined, maxTurns: opt("--max-turns") ? num("--max-turns", 200) : undefined };
+    spawnCommand(so.agent, "", { mode: so.mode, maxTurns: so.maxTurns }); // an agent that acts without asking is refused before anything runs
+  } catch (e) {
+    throw new CliError((e as Error).message);
+  }
+  if (so.dir && !existsSync(so.dir)) throw new CliError(`--dir ${so.dir} doesn't exist.`);
+  const caps: Caps = { perRequest: num("--max-per-request", SPAWN_CAPS.perRequest), perHour: num("--max-per-hour", SPAWN_CAPS.perHour), maxRunning: num("--max-running", SPAWN_CAPS.maxRunning) };
+  const machine = machineLabel(opt("--machine"));
+  const heartbeat = () => reportMachine(o, machine, (() => { try { return scanLocal().length; } catch { return 0; } })());
+
+  if (args.includes("--listen")) return spawnListen(o, so, caps, machine, heartbeat);
+
+  const n = Number(args.find((a, i) => /^\d+$/.test(a) && !args[i - 1]?.startsWith("--")));
+  const boardArg = opt("--board");
+  if (!n || !boardArg) throw new CliError('Usage: atteo spawn N --board <board> [--agent claude|"<command>"] [--name worker] [--dir <folder>] [--permission-mode default]');
+  const running = (await liveSpawned(o)).length;
+  if (running + n > caps.maxRunning) throw new CliError(`${running} spawned agents already running here; the limit is ${caps.maxRunning} (--max-running). Stop some: atteo spawn --stop <name|all>.`);
+  const { boards } = (await api(o, "GET", "/api/me/boards")) as { boards: { id: string; title: string }[] };
+  const b = boards.find((x) => x.id === boardArg) ?? boards.find((x) => x.title.toLowerCase() === boardArg.toLowerCase());
+  if (!b) throw new CliError(`You're not on a board "${boardArg}" (atteo boards lists yours).`);
+  const names = await startAgents(o, so, n, b.id);
+  await heartbeat();
+  console.log(`Started ${names.join(", ")} on "${b.title}" (${so.agent ?? "claude"}, permission mode ${so.mode}). Logs: ${join(spawnDir(), "logs")}. Stop: atteo spawn --stop <name|all>`);
+}
+
+/** --listen: follows your boards (never your mailbox, so a session collecting your mail misses nothing and changes nothing). */
+async function spawnListen(o: Record<string, string>, so: SpawnOpts, caps: Caps, machine: string, heartbeat: () => Promise<boolean>) {
+  lockOrFail(join(spawnDir(), "listen.pid"), "atteo spawn --listen");
+  const logFile = join(spawnDir(), "listen.log");
+  const log = (event: Record<string, unknown>) => {
+    const line = JSON.stringify({ ts: new Date().toISOString(), ...event });
+    console.log(line);
+    try {
+      writeFileSync(logFile, line + "\n", { flag: "a", mode: 0o600 });
+    } catch {}
+  };
+  let live = (await liveSpawned(o)).length;
+  const listener = new Listener(
+    {
+      running: () => live,
+      spawn: async (n, board) => {
+        const names = await startAgents(o, so, n, board);
+        live += names.length;
+        void heartbeat();
+        return names;
+      },
+      reply: async (board, seq, text) => void (await tool(o, "post", { type: "note", text, reply_to: seq }, board)),
+      log,
+      now: Date.now,
+    },
+    so.me,
+    caps,
+  );
+  const kinds = new Map<string, string>();
+  const followers = new Map<string, () => void>();
+  let creds = loadFor(o.server);
+  const onEntry = (e: EntrySignal) =>
+    void listener
+      .handle({ board: e.board, board_kind: kinds.get(e.board), seq: e.seq, author: e.author, via: e.via, excerpt: e.excerpt, to_own_agent: forAgent(e, so.me) })
+      .catch((err) => log({ event: "error", error: (err as Error).message }));
+  const refresh = async () => {
+    creds = loadFor(o.server) ?? creds;
+    live = (await liveSpawned(o).catch(() => [])).length;
+    const j = (await api(o, "GET", "/api/me/boards").catch(() => null)) as { boards: { id: string; kind?: string }[] } | null;
+    if (!j) return followers.size;
+    for (const b of j.boards) kinds.set(b.id, b.kind ?? "board");
+    for (const b of j.boards.slice(0, 50)) if (!followers.has(b.id)) followers.set(b.id, follow(o.server, () => creds?.token, b.id, onEntry));
+    for (const [id, stop] of followers) if (!j.boards.some((b) => b.id === id)) (stop(), followers.delete(id));
+    await heartbeat();
+    return j.boards.length;
+  };
+  const n = await refresh();
+  log({ event: "listen", user: so.me, machine, boards: n, agent: so.agent ?? "claude", permission_mode: so.mode, ...caps, log: logFile });
+  console.log(`Listening on ${n} boards: write "@${so.me}'s agent spawn 2" (as you, not an agent) to start agents there.`);
+  setInterval(refresh, 60_000);
+}
+
 // ---------- dispatch: you stay the main agent; every message gets a fork (its own session) that does the work ----------
 
 /** Mail already handed to a fork (ids and entries), on disk: a restart between starting a fork and the ack can't start a second. */
@@ -1130,6 +1528,20 @@ const HELP = `Atteo CLI ${VERSION} (the atteo command)
     --all                Notify on every post, not just ones for you or your agent
     --install            Run it in the background: starts at login, restarts if it stops
     --status / --uninstall
+    --standby            Only look: when a DM for your agent waits and no session collects your mailbox (or it waits
+                         over --after 10 seconds), start --agent (default claude, or "<command>") in a session of its
+                         own to answer it, in a folder holding only the DMs (--dir: one of yours). Friends' DMs only
+                         unless --from anyone. Never drains your mail; never with permission prompts off; --max-per-hour 3
+  atteo agents local [--json] [--machine <label>] [--no-report]
+                         Agents running on this machine (claude, codex, gemini, cursor-agent, opencode, pi): pid, uptime,
+                         folder, busy/idle, and the session of ones atteo spawn started (never read from a process's environment). Sends only the count: Board info shows "you · <machine> · N agents running"
+  atteo spawn N --board <board> [--agent claude|"<command>"] [--name worker] [--dir <folder>] [--permission-mode default]
+                         Start N standing agents, each with its own session and folder (--dir: one of yours), that join the
+                         board and pick up unclaimed work. Detached; logs in the CLI config folder (spawn/logs). The mode is
+                         default, plan, acceptEdits or auto, set only here; flags that skip prompts are refused
+    --listen             Opt in: when you, the person, write "@you's agent spawn 2" on a board, start them there and reply
+                         in the thread. Follows your boards (never your mailbox). --max-per-request 3 --max-per-hour 6 --max-running 10
+    --stop <name|all>    Stop spawned agents and end their sessions
 
 ${COMMANDS_HELP}${CARD_HELP}
 
@@ -1212,10 +1624,12 @@ const run: Record<string, () => unknown> = {
   logout,
   mcp: () => mcp(rest),
   acp: () => acpCmd(rest),
-  watch: () => (rest.includes("--install") ? serviceInstall(rest) : rest.includes("--uninstall") ? serviceUninstall() : rest.includes("--status") ? serviceStatus() : watch(rest)),
+  watch: () => (rest.includes("--standby") ? standbyCmd(rest) : rest.includes("--install") ? serviceInstall(rest) : rest.includes("--uninstall") ? serviceUninstall() : rest.includes("--status") ? serviceStatus() : watch(rest)),
   dispatch: () => (rest.includes("--install") ? serviceInstall(rest, "dispatch") : rest.includes("--uninstall") ? serviceUninstall() : rest.includes("--status") ? serviceStatus() : dispatch(rest)),
   ...Object.fromEntries(Object.entries(COMMANDS).map(([k, f]) => [k, board(k, f)])),
   ...Object.fromEntries(Object.entries(V2).map(([k, f]) => [k, board(k, f)])),
+  agents: () => (rest[0] === "local" || rest.includes("--local") ? localAgentsCmd(rest) : board("agents", COMMANDS.agents)()), // local: agents on this machine (#5722)
+  spawn: () => spawnCmd(rest),
   help: () => (rest.includes("--all") ? err(HELP) : console.log(HELP_AGENTS + "\n\nSetup, the background watcher and every command: atteo help --all")),
   card: board("card", (a) => cardCommand(a)),
   // Bring your own machine (docs/HOST.md): very dangerous, so no session and nothing automatic.

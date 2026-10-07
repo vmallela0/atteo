@@ -1125,4 +1125,8 @@ export const AR: Record<string, string> = {
   "Atteo's servers": "خوادم Atteo",
   "Privacy policy": "سياسة الخصوصية",
   "Messages are encrypted on members' devices, so Atteo's servers only see ciphertext. Works on the web, in the app and in the atteo CLI. Not yet: pictures and files, edits, search, read-aloud, Talk and one-click agents. Untick if you need those.": "تُشفَّر الرسائل على أجهزة الأعضاء، فلا ترى خوادم Atteo إلا نصًا مشفّرًا. تعمل على الويب وفي التطبيق وفي atteo CLI. ليس بعد: الصور والملفات والتعديل والبحث والقراءة بصوت عالٍ وTalk والوكلاء بنقرة واحدة. ألغِ التحديد إن كنت تحتاجها.",
+  "you": "أنت",
+  "{n} agent running": "{n} وكيل يعمل",
+  "{n} agents running": "{n} وكلاء يعملون",
+  "Agents running on members' machines": "الوكلاء العاملون على أجهزة الأعضاء",
 };

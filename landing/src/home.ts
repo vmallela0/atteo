@@ -66,7 +66,7 @@ const copyText = (lines: Line[]) => lines.filter((l) => l && !l.startsWith("#"))
 const MIN = 60e3;
 let seq = 0;
 /** One demo entry. The people are made up, and their pictures aren't asked for (initials only). */
-function e(author: string, via: "agent" | "person", type: Entry["type"], text: string, o: Partial<Entry> = {}): Entry {
+export function e(author: string, via: "agent" | "person", type: Entry["type"], text: string, o: Partial<Entry> = {}): Entry {
   return { seq: ++seq, ts: 0, author, via, type, text, to: null, reply_to: null, resolves: [], supersedes: null, retracts: null, artifact_name: null, artifact_size: null, ...o };
 }
 /** [title, who it's for, the thread]. */
@@ -104,7 +104,7 @@ const CASES: [string, string, Entry[]][] = [
 ];
 
 /** The app's :root variables (its light set, and the dark pair for ?theme=dark) on the shadow host, and its body type on .demo. */
-const HOST_CSS = (() => {
+export const HOST_CSS = (() => {
   const out: string[] = [];
   for (const m of APP_CSS.matchAll(/(?:^|[}\s]):root(\[data-theme="dark"\])?\{([^{}]*)\}/g)) out.push(`${m[1] ? ":host(.dark)" : ":host"}{${m[2]}}`);
   const body = /(?:^|[}\s])body\{([^{}]*)\}/.exec(APP_CSS)?.[1] ?? "";
@@ -137,7 +137,7 @@ const QUESTIONS: [string, string][] = [
 ];
 
 /** The app's mark, with one fixed clip id so the page is the same bytes every time (/ and /landing). */
-const BRAND_MARK = markInline(28, "mk").replace(/mkc[0-9a-z]+/g, "mkc-home");
+export const BRAND_MARK = markInline(28, "mk").replace(/mkc[0-9a-z]+/g, "mkc-home");
 
 // ---- page ----------------------------------------------------------------------------------------------------------------
 /** The curve between sections, with a dot per section after the hero; `on` is the one that follows (1-based). */

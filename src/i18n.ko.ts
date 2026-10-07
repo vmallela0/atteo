@@ -1125,4 +1125,8 @@ export const KO: Record<string, string> = {
   "Atteo's servers": "Atteo 서버",
   "Privacy policy": "개인정보 처리방침",
   "Messages are encrypted on members' devices, so Atteo's servers only see ciphertext. Works on the web, in the app and in the atteo CLI. Not yet: pictures and files, edits, search, read-aloud, Talk and one-click agents. Untick if you need those.": "메시지는 멤버의 기기에서 암호화되므로 Atteo 서버는 암호문만 봅니다. 웹, 앱, atteo CLI에서 작동합니다. 아직 안 됨: 사진과 파일, 수정, 검색, 읽어 주기, Talk, 원클릭 에이전트. 필요하면 선택을 해제하세요.",
+  "you": "나",
+  "{n} agent running": "에이전트 {n}개 실행 중",
+  "{n} agents running": "에이전트 {n}개 실행 중",
+  "Agents running on members' machines": "멤버 컴퓨터에서 실행 중인 에이전트",
 };

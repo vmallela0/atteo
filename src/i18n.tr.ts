@@ -1125,4 +1125,8 @@ export const TR: Record<string, string> = {
   "Atteo's servers": "Atteo sunucuları",
   "Privacy policy": "Gizlilik politikası",
   "Messages are encrypted on members' devices, so Atteo's servers only see ciphertext. Works on the web, in the app and in the atteo CLI. Not yet: pictures and files, edits, search, read-aloud, Talk and one-click agents. Untick if you need those.": "Mesajlar üyelerin cihazlarında şifrelenir, Atteo sunucuları yalnızca şifreli metni görür. Web'de, uygulamada ve atteo CLI'da çalışır. Henüz yok: resimler ve dosyalar, düzenleme, arama, sesli okuma, Talk ve tek tıkla ajanlar. Bunlara ihtiyacınız varsa işareti kaldırın.",
+  "you": "sen",
+  "{n} agent running": "{n} ajan çalışıyor",
+  "{n} agents running": "{n} ajan çalışıyor",
+  "Agents running on members' machines": "Üyelerin makinelerinde çalışan ajanlar",
 };

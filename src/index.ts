@@ -122,6 +122,7 @@ export { SlackTeam } from "./slackQueue";
 import { forwardDestOk, forwardExcerptInEntry, keptOwnNotice } from "./audience";
 import { audienceNotice, MAX_FILES_PER_MESSAGE, MAX_IMAGE, MAX_MESSAGE_BYTES, MAX_SEALED_FILE, MAX_WAIT_MS, WAIT_CAP } from "./board";
 import * as sessions from "./sessions";
+import * as machines from "./machines";
 import * as listen from "./listen";
 import { compactLine, formatEntry, formatMemory, handleMessage, parseReadBudget, parseSummaryBudget, presentReadEntries, readHeader, readParts, withNames } from "./state";
 import { fence, flagged } from "./screen";
@@ -1142,10 +1143,12 @@ const handler = {
         const here = side.find((b) => b.id === m![2]);
         if (here) here.opened = Date.now();
         // Slack channels that read this board, for its "Who can read this board" list (only while the bridge is on).
+        // Agents running on members' machines (jxn #5722): theirs as a count, yours by machine.
+        const machinesHere = machines.visibleTo(await machines.forUsers(env, members.map((x) => x.user)).catch(() => []), viewer.name);
         const slackChannels = slackOn(env, request)
           ? ((await env.DB.prepare(`SELECT channel_name FROM slack_links WHERE board_id = ? AND paused IS NULL`).bind(m[2]).all<{ channel_name: string }>().catch(() => ({ results: [] as { channel_name: string }[] }))).results ?? []).map((r) => r.channel_name)
           : [];
-        return boardPage(viewer, side, snap.info, withAgents, snap.entries.map((e) => withAgentNames(e, agentNamed)), shown, { connected: status.connected, onThisBoard: !!live[viewer.name] }, snap.summary, agentsHere, { picture: boardPictures.pictureUrl(m[2], row?.picture_v), kind, charter, sessions: mine, seen: snap.reads?.[viewer.name]?.person_seen ?? 0, last_seen: snap.reads?.[viewer.name]?.person_seen ?? 0, muted, calls: calls.callsOn(env, request), slack: slackOn(env, request), slackChannels, ...(members.find((m) => m.user === viewer.name)?.role === "viewer" ? {} : { spend: await boardStub(env, m[2]).spend() }) });
+        return boardPage(viewer, side, snap.info, withAgents, snap.entries.map((e) => withAgentNames(e, agentNamed)), shown, { connected: status.connected, onThisBoard: !!live[viewer.name] }, snap.summary, agentsHere, { picture: boardPictures.pictureUrl(m[2], row?.picture_v), kind, charter, sessions: mine, machines: machinesHere, seen: snap.reads?.[viewer.name]?.person_seen ?? 0, last_seen: snap.reads?.[viewer.name]?.person_seen ?? 0, muted, calls: calls.callsOn(env, request), slack: slackOn(env, request), slackChannels, ...(members.find((m) => m.user === viewer.name)?.role === "viewer" ? {} : { spend: await boardStub(env, m[2]).spend() }) });
       }
 
       // ---- inbox: mentions of you, posts for your agent, replies to you ----
@@ -1286,6 +1289,8 @@ const handler = {
         // read only peeks (mail for this very session still comes). A plain peek never looks.
         const drain = url.searchParams.get("drain") === "1";
         const lease = drain || !peek ? await mailbox.leaseFor(env, viewer.name, await mailboxHolder(), (await asess())?.name ?? null, requestNow(env, request), drain) : null;
+        // lease=1: is anyone draining it, whoever holds it (a standby watcher's check, #5679). Looks only.
+        const leaseNow = url.searchParams.get("lease") === "1" ? await mailbox.leaseState(env, viewer.name, requestNow(env, request)) : null;
         // One open wait per agent session: a newer one ends this one (limits.beginWait).
         const w = wait && sid ? limits.beginWait(`s:${sid}`) : null;
         if (w?.refused) return waitRefused(w.refused);
@@ -1293,11 +1298,11 @@ const handler = {
           (await withRetry(() => boardStub(env, b.id).editNotices(viewer.name, sid, peek)).catch((): string[] => [])).map((line, i) => ({ id: -Date.now() - i, kind: "edited" as const, board: b.id, board_title: b.title, seq: Number(line.match(/#(\d+)/)?.[1] ?? 0), from: "", from_via: "person", type: "edit", text: line, preview: line, for: "for your agent", ts: Date.now() }))))) .flat() : [];
         let r0: Awaited<ReturnType<typeof mailbox.collect>>;
         try {
-          r0 = await mailbox.collect(env, viewer.name, { limit, wait: editMail.length ? 0 : wait, peek, held: !!lease, session: sid, pollMs: level >= 1 ? 6000 : 3000, signal: w?.signal }, async (b, seq) => { const e = (await boardStub(env, b).get(seq, { user: viewer.name, person: false })).entry; return { text: e.text, title: e.title }; }); // as the agent: its own lane too
+          r0 = await mailbox.collect(env, viewer.name, { limit, wait: editMail.length ? 0 : wait, peek, held: !!lease, session: sid, direct: peek && url.searchParams.get("kinds") === "dm", pollMs: level >= 1 ? 6000 : 3000, signal: w?.signal }, async (b, seq) => { const e = (await boardStub(env, b).get(seq, { user: viewer.name, person: false })).entry; return { text: e.text, title: e.title }; }); // as the agent: its own lane too
         } finally {
           w?.done();
         }
-        const r = { ...r0, mail: [...await social.mailWithAgentNames(env, r0.mail), ...editMail], ...(lease ? { held: mailbox.heldHint(lease), held_until: lease.expires_at } : {}), ...(limits.superseded(w?.signal) ? { superseded: true } : {}), ...(limits.pollAfterMs(level) ? { poll_after_ms: limits.pollAfterMs(level) } : {}) }; // from_agent_name: "Jarvis" (from: its owner)
+        const r = { ...r0, mail: [...await social.mailWithAgentNames(env, r0.mail), ...editMail], ...(lease ? { held: mailbox.heldHint(lease), held_until: lease.expires_at } : {}), ...(leaseNow ? { lease: leaseNow } : {}), ...(limits.superseded(w?.signal) ? { superseded: true } : {}), ...(limits.pollAfterMs(level) ? { poll_after_ms: limits.pollAfterMs(level) } : {}) }; // from_agent_name: "Jarvis" (from: its owner)
         // headless: the person reads the board, not the agent's terminal (the CLI says so over the mail).
         return json((await social.agentsHeadless(env, viewer.name)) ? { ...r, headless: true } : r, 200, { "cache-control": "no-store" });
       }
@@ -2398,6 +2403,19 @@ const handler = {
       if (path === "/api/me/board-states" && method === "GET") {
         if (!viewer) return json({ error: "sign in required" }, 401);
         return json({ boards: await boardStates(env, viewer.name) }, 200, { "cache-control": "private, no-store" });
+      }
+
+      // ---- your machines and the agents running on each (atteo agents / atteo spawn --listen, jxn #5722) ----
+      if (path === "/api/me/machines" && (method === "GET" || method === "POST")) {
+        if (!viewer) return needLogin();
+        if (method === "GET") return json({ machines: (await machines.forUsers(env, [viewer.name])).map(({ machine, agents, seen_at }) => ({ machine, agents, seen_at })) }, 200, { "cache-control": "no-store" });
+        try {
+          const r = await machines.report(env, viewer.name, (await request.json().catch(() => ({}))) as { machine?: unknown; agents?: unknown });
+          return json({ ok: true, machine: r.machine, agents: r.agents });
+        } catch (e) {
+          if (e instanceof machines.MachineError) return json({ error: e.message }, 400);
+          throw e;
+        }
       }
 
       // ---- the signed-in person's boards (CLI uses its bearer token) ----

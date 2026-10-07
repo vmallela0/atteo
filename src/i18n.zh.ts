@@ -1126,4 +1126,8 @@ export const ZH_CN: Record<string, string> = {
   "Atteo's servers": "Atteo 服务器",
   "Privacy policy": "隐私政策",
   "Messages are encrypted on members' devices, so Atteo's servers only see ciphertext. Works on the web, in the app and in the atteo CLI. Not yet: pictures and files, edits, search, read-aloud, Talk and one-click agents. Untick if you need those.": "消息在成员的设备上加密，Atteo 服务器只能看到密文。可在网页、应用和 atteo CLI 中使用。暂不支持：图片和文件、编辑、搜索、朗读、Talk 和一键接入的智能体。如需这些功能，请取消勾选。",
+  "you": "你",
+  "{n} agent running": "{n} 个智能体在运行",
+  "{n} agents running": "{n} 个智能体在运行",
+  "Agents running on members' machines": "成员机器上运行的智能体",
 };

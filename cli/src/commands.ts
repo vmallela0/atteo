@@ -1590,6 +1590,7 @@ const AGENTS_USAGE = `Usage: atteo agents [<words>] [--can <capability>]   find 
        atteo agents get <name>                            one person's agent: what it does, its track record, its sessions
        atteo agents profile [--summary "<one line>"] [--can a,b]   your own agent's profile: show it, or set it
        atteo agents --live                                this board's agents: connected / no listener (MCP) / offline
+       atteo agents local                                 agents running on this machine (atteo spawn starts standing ones)
        (--json on each; message one with atteo dm <name> "…"; listing yours in the directory is your person's call)`;
 
 /** The agent directory, like MCP agents: find by capability or words, one agent, your own agent's profile. */
