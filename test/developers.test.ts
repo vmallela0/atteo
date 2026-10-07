@@ -25,11 +25,24 @@ describe("developer docs", () => {
     expect(res.status).toBe(200);
     expect(res.headers.get("content-security-policy")).toContain("script-src 'none'");
     const html = await res.text();
-    for (const heading of ["How it fits together", "Three ways in", "Every MCP tool", "Every CLI command", "HTTP API essentials", "Suggested workflow"])
+    for (const heading of ["The 5 verbs over HTTP", "How it fits together", "Three ways in", "Every MCP tool", "Every CLI command", "HTTP API essentials", "Suggested workflow"])
       expect(html).toContain(`>${heading}</h2>`);
     expect(html).toContain('<link rel="canonical" href="https://atteo.dev/developers">');
     expect(html).toContain('href="/openapi.json"');
     expect(html).toContain("curl -fsSL https://atteo.dev/install.sh | sh");
+    for (const verb of ["post", "read", "wait", "handoff", "approve"]) {
+      const start = html.indexOf(`id="verb-${verb}"`);
+      expect(start, verb).toBeGreaterThan(-1);
+      const example = html.slice(start, html.indexOf("</div>", start));
+      expect(example, verb).toContain("curl -sS");
+      expect(example, verb).toContain("Response (trimmed)");
+    }
+    expect(html).toContain("/api/boards/$BOARD/entries?after=0&amp;ack=1");
+    expect(html).toContain("/api/boards/$BOARD/entries?after=12&amp;ack=1&amp;wait=25");
+    expect(html).toContain("/api/boards/$BOARD/approvals");
+    expect(html).toContain("/api/approvals/$APPROVAL");
+    expect(html).toContain("sdk/js/README.md");
+    expect(html).toContain("sdk/python/README.md");
     for (const [name] of MCP_TOOLS) expect(html, name).toContain(`<dt><code>${name}</code></dt>`);
     for (const [command] of CLI_COMMANDS) expect(html, command).toContain(`<dt><code>atteo ${command}</code></dt>`);
     const faq = await (await worker.fetch(new Request("http://localhost/faq"), env)).text();

@@ -7,6 +7,7 @@ import { egressRefusal, noteApprovalDecision, noteApprovalRequested, type Later 
 import type { ApprovalRef, Env } from "./types";
 import { offBoardSeq } from "./util";
 import * as rules from "./approvalRules";
+import * as boardkeys from "./boardkeys";
 
 /** Undecided by then, a request is denied (timed out). expires_in (seconds) sets it per request. */
 export const DEFAULT_EXPIRES_S = 24 * 3600; // people answer approvals in their own time; a permission hook passes a short expires_in (e.g. 600)
@@ -46,6 +47,37 @@ export interface Approval {
 }
 
 export class ApprovalError extends Error {}
+
+/** Shared MCP/REST approval content rules. Callers check board membership before reading the request body. */
+export async function requestContent(env: Env, user: string, boardId: string | null, input: Record<string, unknown>): Promise<{ title: string; details: string; command: string | null; sealed: string | undefined }> {
+  const field = (name: string) => typeof input[name] === "string" ? input[name] as string : "";
+  const sealed = field("sealed").trim() || undefined;
+  const sealedDetails = field("sealed_details").trim() || undefined;
+  const board = boardId ? await env.DB.prepare("SELECT encrypted, archived_at FROM boards WHERE id = ? AND deleted_at IS NULL").bind(boardId).first<{ encrypted: number; archived_at: number | null }>() : null;
+  if (boardId && !board) throw new ApprovalError("Board not found.");
+  if (board?.archived_at) throw new ApprovalError("This board is archived. Restore it before requesting approval.");
+  if (board?.encrypted) {
+    if (!sealed) throw new ApprovalError("This board is end-to-end encrypted. Send sealed and sealed_details (or use the atteo CLI, which encrypts); do not send a plain title or details.");
+    if ((field("title").trim() && !["Encrypted approval request", "🔒 Encrypted approval request"].includes(field("title").trim())) || field("details").trim() || field("command").trim())
+      throw new ApprovalError("On an encrypted board, send the title and details only as sealed and sealed_details (or use the atteo CLI, which encrypts).");
+  } else if (sealed) throw new ApprovalError("sealed goes only with an end-to-end encrypted board.");
+  if (sealedDetails && !sealed) throw new ApprovalError("sealed_details requires sealed on an end-to-end encrypted board.");
+  if (sealed && !sealedDetails) throw new ApprovalError("With sealed, put the details and command in sealed_details (encrypted for your person's devices).");
+  if (sealedDetails) {
+    const d = (() => { try { return JSON.parse(sealedDetails) as { v?: number; recipients?: unknown }; } catch { return null; } })();
+    if (d?.v !== 1 || !Array.isArray(d.recipients) || !d.recipients.length || sealedDetails.length > 20_000)
+      throw new ApprovalError("sealed_details is a v1 envelope for your own devices (at most 20,000 characters).");
+  }
+  if (sealed) {
+    const bk = await boardkeys.state(env, boardId!, user);
+    const p = (() => { try { return JSON.parse(sealed) as { v?: number; epoch?: number; iv?: unknown; ct?: unknown; x?: { iv?: unknown; ct?: unknown } }; } catch { return null; } })();
+    if (p?.v !== 2 || bk.current < 1 || bk.rotate_needed || p.epoch !== bk.current)
+      throw new ApprovalError(`Encrypt it with this board's current key (epoch ${bk.current}${bk.rotate_needed ? ", after opening the next one" : ""}).`);
+    if (sealed.length > 100_000 || typeof p.iv !== "string" || typeof p.ct !== "string" || (p.x != null && (typeof p.x !== "object" || typeof p.x.iv !== "string" || typeof p.x.ct !== "string")))
+      throw new ApprovalError("sealed must be a board-key v2 envelope (at most 100,000 characters).");
+  }
+  return { title: sealed ? "🔒 Encrypted approval request" : field("title").trim(), details: sealed ? sealedDetails! : field("details"), command: sealed ? null : field("command") || null, sealed };
+}
 
 const live = (a: Approval): Approval => {
   const status = a.status === "pending" && a.expires_at < Date.now() ? "expired" : a.status;
