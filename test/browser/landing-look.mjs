@@ -56,6 +56,19 @@ for (const [path, w] of [["/", 1440], ["/", 390], ["/", 440], ["/landing", 1440]
     check(m.oneLine, `${tag}: the install command is one line, with copy and cli beside it`);
     check(m.stacked, `${tag}: the demo panels stack`);
   }
+  if (!phone) {
+    // jxn #6240: the web's inner ring, where it's at full strength (not under the network's fade), shows every agent at
+    // least once. The fade is the network's own mask: two top-corner radial gradients and the bottom 45%.
+    const ring = await p.evaluate(() => {
+      const net = document.querySelector("[data-net]"), nb = net.getBoundingClientRect(), W = nb.width, H = nb.height;
+      const rad = (x, y, cx, cy, rx, ry) => Math.max(0, Math.min(1, (Math.hypot((x - cx) / rx, (y - cy) / ry) - 0.55) / 0.45));
+      const alpha = (x, y) => rad(x, y, 0, 0, 340, 200) * rad(x, y, W, 0, 300, 220) * (y / H <= 0.55 ? 1 : Math.max(0, 1 - (y / H - 0.55) / 0.45));
+      const nodes = [...net.querySelectorAll("[data-node]")].map((n) => { const r = n.getBoundingClientRect(); return { t: n.title, op: +getComputedStyle(n).opacity, a: alpha(r.left + r.width / 2 - nb.left, r.top + r.height / 2 - nb.top) }; });
+      const all = new Set(nodes.map((n) => n.t)), shown = new Set(nodes.filter((n) => n.op === 1 && n.a > 0.9).map((n) => n.t));
+      return { all: all.size, missing: [...all].filter((t) => !shown.has(t)) };
+    });
+    check(ring.all >= 12 && !ring.missing.length, `${tag}: every agent (${ring.all}) shows at full strength in the inner ring${ring.missing.length ? ` (missing ${ring.missing.join(", ")})` : ""}`);
+  }
   check(!errors.length, `${tag}: no page errors${errors.length ? ` (${errors[0]})` : ""}`);
   const cspHits = await p.evaluate(() => window.__cspHits || []);
   check(!cspHits.length, `${tag}: no CSP violations${cspHits.length ? ` (${cspHits.join("; ")})` : ""}`);
