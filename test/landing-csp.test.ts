@@ -2,6 +2,13 @@ import { describe, expect, it } from "vitest";
 import { CSP_ENFORCE } from "../src/ui";
 import { beaconSnippet, cspHash, inlineScripts, landingCsp } from "../landing/src/csp";
 import worker from "../landing/src/index";
+// @ts-expect-error: a plain .mjs script, no types
+import { build } from "../landing/jxn-pages/build.mjs";
+import JXN_DEVELOPERS from "../landing/jxn-pages/developers.html";
+import JXN_FAQ from "../landing/jxn-pages/faq.html";
+import JXN_PRIVACY from "../landing/jxn-pages/privacy.html";
+import JXN_SUPPORT from "../landing/jxn-pages/support.html";
+import JXN_TERMS from "../landing/jxn-pages/terms.html";
 
 const env = { APP_ORIGIN: "http://127.0.0.1:9" };
 const FORM = "https://atteo.dev";
@@ -31,8 +38,8 @@ describe("landing Worker CSP (docs/security/csp.md #8)", () => {
     expect(await landingCsp("<p>x</p>", "https://evil.example; script-src *")).not.toContain("evil");
   });
 
-  it("sends an enforced hash policy on /developers and /landing/startup (/guide is the app's now, #5110)", async () => {
-    for (const path of ["/developers", "/landing/startup"]) {
+  it("sends an enforced hash policy on /landing/startup (/guide is the app's now, #5110)", async () => {
+    for (const path of ["/landing/startup"]) {
       const res = await page(path);
       expect(res.status).toBe(200);
       expect(res.headers.get("content-type")).toMatch(/text\/html/);
@@ -73,8 +80,8 @@ describe("landing Worker CSP (docs/security/csp.md #8)", () => {
     expect(await (await page("/sitemap.xml")).text()).not.toContain("/landing");
   });
 
-  it("serves jxn's /faq, /support and /terms (#5977) signed in or not, each with its own head tags, linking to each other by path", async () => {
-    for (const [path, title] of [["/faq", "Atteo · Frequently asked questions"], ["/support", "Atteo · Support"], ["/terms", "Atteo · Terms of Service"]] as const) {
+  it("serves jxn's /developers, /faq, /support, /privacy and /terms (#5977) signed in or not, each with its own head tags, linking to each other by path", async () => {
+    for (const [path, title] of [["/developers", "Atteo · Developer docs"], ["/faq", "Atteo · Frequently asked questions"], ["/support", "Atteo · Support"], ["/privacy", "Atteo · Privacy"], ["/terms", "Atteo · Terms of Service"]] as const) {
       for (const cookie of ["", "ab_session=abc"]) {
         const res = await page(path, cookie ? { cookie } : {});
         expect(res.status, path).toBe(200);
@@ -91,6 +98,17 @@ describe("landing Worker CSP (docs/security/csp.md #8)", () => {
     // The FAQ keeps its FAQPage data: the questions are the same as before.
     const faq = await (await page("/faq")).text();
     expect(JSON.parse(inlineScripts(faq).find((s) => s.includes("FAQPage"))!)["@graph"][0].mainEntity).toHaveLength(9);
+  });
+
+  it("serves jxn's pages as landing/jxn-pages/build.mjs makes them from today's code: the app's privacy policy, every MCP tool and CLI command (jxn #5998)", async () => {
+    for (const [page, file] of Object.entries({ developers: JXN_DEVELOPERS, faq: JXN_FAQ, support: JXN_SUPPORT, privacy: JXN_PRIVACY, terms: JXN_TERMS }))
+      expect(build(file).out === file, `${page}.html is stale: run node landing/jxn-pages/build.mjs`).toBe(true);
+    const t = (html: string) => JSON.parse(/<script type="__bundler\/template">([\s\S]*?)<\/script>/.exec(html)![1]!) as string;
+    const privacy = t(await (await page("/privacy")).text());
+    const text = (h: string) => h.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+    const shown = text(privacy.slice(privacy.indexOf('<sc-if value="{{ is_privacy }}"'), privacy.indexOf('<sc-if value="{{ is_terms }}"')));
+    for (const line of ["Atteo staff don't look at what's on your boards", "end-to-end encrypted", "We'll send the current list of these providers on request", "Last updated October 6, 2026"]) expect(shown).toContain(line);
+    for (const vendor of ["WorkOS", "Resend", "Sentry", "PostHog", "Stripe", "Backblaze"]) expect(shown).not.toContain(vendor); // by category (vedu #5410/#5412)
   });
 
   it("loads Cloudflare Web Analytics on the signed-out home page only when a token is set", async () => {

@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 // The tool definitions do not use the Durable Object class, but mcp.ts imports board.ts.
 vi.mock("cloudflare:workers", () => ({ DurableObject: class {} }));
 import worker from "../landing/src/index";
-import { CLI_COMMANDS, DEVELOPERS_CSS, MCP_TOOLS } from "../landing/src/developers";
+import { CLI_COMMANDS, MCP_TOOLS } from "../landing/src/developers";
 import { TOOLS } from "../src/mcp";
 import commandsSource from "../cli/src/commands.ts?raw";
 import v2Source from "../cli/src/v2.ts?raw";
@@ -20,37 +20,37 @@ function tableKeys(source: string, variable: string): string[] {
 }
 
 describe("developer docs", () => {
-  it("serves /developers as a public HTML page with the requested sections", async () => {
+  it("serves jxn's /developers (#5977) with the live sections, every MCP tool and every CLI command (jxn #5998)", async () => {
     const res = await worker.fetch(new Request("http://localhost/developers"), env);
     expect(res.status).toBe(200);
-    expect(res.headers.get("content-security-policy")).toContain("script-src 'none'");
     const html = await res.text();
-    for (const heading of ["The 5 verbs over HTTP", "How it fits together", "Three ways in", "Every MCP tool", "Every CLI command", "HTTP API essentials", "Suggested workflow"])
-      expect(html).toContain(`>${heading}</h2>`);
     expect(html).toContain('<link rel="canonical" href="https://atteo.dev/developers">');
-    expect(html).toContain('href="/openapi.json"');
-    expect(html).toContain("curl -fsSL https://atteo.dev/install.sh | sh");
+    // The page is a bundle: its HTML is the "__bundler/template" JSON string, and the lists are in its logic.
+    const t = JSON.parse(/<script type="__bundler\/template">([\s\S]*?)<\/script>/.exec(html)![1]!) as string;
+    for (const heading of ["the 5 verbs over http", "how it fits together", "three ways in", "every mcp tool", "every cli command", "http api essentials", "suggested workflow"])
+      expect(t).toMatch(new RegExp(`<h2 id="[a-z-]+" style="[^"]*">${heading}</h2>`));
+    expect(t).toContain('href="https://atteo.dev/openapi.json"');
+    expect(t).toContain("curl -fsSL https://atteo.dev/install.sh | sh");
     for (const verb of ["post", "read", "wait", "handoff", "approve"]) {
-      const start = html.indexOf(`id="verb-${verb}"`);
+      const start = t.indexOf(`id="verb-${verb}"`);
       expect(start, verb).toBeGreaterThan(-1);
-      const example = html.slice(start, html.indexOf("</div>", start));
+      const example = t.slice(start, t.indexOf("</div></div>", start));
       expect(example, verb).toContain("curl -sS");
       expect(example, verb).toContain("Response (trimmed)");
     }
-    expect(html).toContain("/api/boards/$BOARD/entries?after=0&amp;ack=1");
-    expect(html).toContain("/api/boards/$BOARD/entries?after=12&amp;ack=1&amp;wait=25");
-    expect(html).toContain("/api/boards/$BOARD/approvals");
-    expect(html).toContain("/api/approvals/$APPROVAL");
-    expect(html).toContain("sdk/js/README.md");
-    expect(html).toContain("sdk/python/README.md");
-    for (const [name] of MCP_TOOLS) expect(html, name).toContain(`<dt><code>${name}</code></dt>`);
-    for (const [command] of CLI_COMMANDS) expect(html, command).toContain(`<dt><code>atteo ${command}</code></dt>`);
+    expect(t).toContain("/api/boards/$BOARD/entries?after=0&amp;ack=1");
+    expect(t).toContain("/api/boards/$BOARD/entries?after=12&amp;ack=1&amp;wait=25");
+    expect(t).toContain("/api/boards/$BOARD/approvals");
+    expect(t).toContain("/api/approvals/$APPROVAL");
+    expect(t).toContain("sdk/js/README.md");
+    expect(t).toContain("sdk/python/README.md");
+    const list = (name: string) => JSON.parse(new RegExp(`\\n  ${name} = ("(?:[^"\\\\]|\\\\.)*")`).exec(t)![1]!).split("\n").map((l: string) => l.split("|"));
+    expect(list("MCP")).toEqual(MCP_TOOLS.map(([name, desc, actions]) => [name, desc, actions ? actions.join(", ") : ""]));
+    expect(list("CLI")).toEqual(CLI_COMMANDS.map((row) => [...row]));
     const faq = await (await worker.fetch(new Request("http://localhost/faq"), env)).text();
     expect(faq).toContain('href=\\"/developers\\"'); // jxn's FAQ (#5977) links here by path
     expect(await (await worker.fetch(new Request("http://localhost/sitemap.xml"), env)).text()).toContain("<loc>https://atteo.dev/developers</loc>");
     expect(await (await worker.fetch(new Request("http://localhost/llms.txt"), env)).text()).toContain("https://atteo.dev/developers");
-    expect(DEVELOPERS_CSS).toContain("overflow-x:auto");
-    expect(DEVELOPERS_CSS).toContain("minmax(0,1fr)");
   });
 
   it("lists each MCP tool and every declared action exactly once", () => {

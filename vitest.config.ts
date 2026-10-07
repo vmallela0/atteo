@@ -10,7 +10,7 @@ export default defineConfig({
       load(id) {
         const file = id.split("?")[0].replace(/\\/g, "/");
         if (file.endsWith("/landing/og.png")) return "export default new ArrayBuffer(0);";
-        if (file.endsWith("/landing/landing-jxn.html") || file.includes("/landing/jxn-pages/")) return `export default ${JSON.stringify(readFileSync(file, "utf8"))};`;
+        if (file.endsWith("/landing/landing-jxn.html") || /\/landing\/jxn-pages\/[a-z]+\.html$/.test(file)) return `export default ${JSON.stringify(readFileSync(file, "utf8"))};`;
       },
     },
   ],

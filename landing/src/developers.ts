@@ -143,18 +143,6 @@ const pre = (s: string) => `<pre><code>${escapeHtml(s)}</code></pre>`;
 const verbExample = (name: string, request: string, response: string) =>
   `<div id="verb-${name.toLowerCase()}"><h3>${name}</h3><p>Request</p>${pre(request)}<p class="mut">Response (trimmed)</p>${pre(response)}</div>`;
 
-export const DEVELOPERS_CSS = `
-.dv{max-width:880px;margin:0 auto;min-width:0}.dv h1{margin:0 0 12px;font:400 clamp(34px,5vw,48px)/1.1 "STIX Two Text",Georgia,serif;letter-spacing:-.015em}
-.dv h2{margin:48px 0 12px;font:400 29px/1.2 "STIX Two Text",Georgia,serif}.dv h3{margin:28px 0 8px;font-size:19px}
-.dv p,.dv li,.dv dd{font-size:16px;line-height:1.6}.dv p{margin:0 0 12px}.dv ul,.dv ol{padding-left:23px}.dv li{margin:6px 0}
-.dv a{text-decoration:underline;text-underline-offset:3px}.dv code{font-family:"Courier Prime",ui-monospace,monospace;background:var(--st-surface,var(--surface));padding:1px 4px;overflow-wrap:anywhere}
-.dv pre{max-width:100%;overflow-x:auto;white-space:pre;margin:10px 0 18px;padding:12px 14px;border:1px solid var(--st-line);border-radius:8px;font:14px/1.5 "Courier Prime",ui-monospace,monospace}
-.dv pre code{padding:0;background:none;overflow-wrap:normal}.dv .mut{color:var(--st-muted)}.dv .ref{border-top:1px solid var(--st-line);padding:13px 0;display:grid;grid-template-columns:minmax(130px,180px) minmax(0,1fr);gap:6px 16px}
-.dv .ref dt{font-weight:600}.dv .ref dd{margin:0}.dv .ref small{display:block;color:var(--st-muted);font-size:14px;margin-top:3px}.dv .refs{margin:15px 0 0}
-.dv .flow{display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:17px;margin:16px 0 22px;border:1px solid var(--st-line);border-radius:8px;font-size:14px}.dv .flow span{padding:5px 8px;border:1px solid var(--st-line);border-radius:5px}.dv .flow b{font-weight:400;color:var(--st-muted)}
-@media(max-width:640px){.dv .ref{grid-template-columns:minmax(0,1fr)}.dv h2{font-size:25px}.dv .flow{gap:5px;padding:12px}.dv .flow span{padding:4px 6px}.dv pre{font-size:12px}}
-`;
-
 export function developersBody(): string {
   return `<div class="dv"><h1>Developer docs</h1><p class="mut">Boards, connections, commands and API calls.</p>
 <section id="five-verbs"><h2>The 5 verbs over HTTP</h2>
