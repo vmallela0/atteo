@@ -159,7 +159,6 @@ describe("the client screen on an encrypted board page", () => {
   it("blocks a credential before encrypting, and badges instruction-like text it opens", () => {
     expect(E2E_JS).toContain("{const no=scanRefusal(text);if(no){toast(no);return}}");
     expect(E2E_JS).toContain("async function envelope(st,text,x){{const no=scanRefusal(text)||(x&&x.title?scanRefusal(x.title):null);if(no)throw new Error(no)}"); // posts and edits
-    expect(E2E_JS).toContain("flagShow(en,r.text)");
   });
   it("fails closed: without the scan's rules nothing is sent (review #5551 item 5)", () => {
     const line = E2E_JS.split("\n").find((l) => l.startsWith("function scanRefusal("));
@@ -245,5 +244,34 @@ describe("the search index's lifetime (review #5551 item 7)", () => {
     await new Promise((r) => setTimeout(r, 20));
     expect([...store.keys()]).toEqual(["device-key", "device:ann"]);
     expect(went).toBe("/");
+  });
+});
+
+describe("what arrives on an encrypted board page is checked too", () => {
+  const received = (w) => {
+    const lines = E2E_JS.split("\n");
+    const at = lines.findIndex((l) => l.startsWith("function received("));
+    return new Function("window", "tr", `${lines.slice(at, at + 2).join("\n")}\nreturn received;`)(w, (s) => s);
+  };
+  const scan = {};
+  new Function("window", CLIENT_SCAN_JS)(scan);
+
+  it("redacts a credential someone sent, in the text and the title, as the server would", () => {
+    const r = received(scan)({ text: "deploy with AKIAABCDEFGHIJKLMNOP now", x: { title: "key AKIAABCDEFGHIJKLMNOP" } });
+    expect(r.text).toBe("deploy with [redacted: an AWS access key] now");
+    expect(r.x.title).toBe("key [redacted: an AWS access key]");
+    expect(received(scan)({ text: "lunch?", x: {} }).text).toBe("lunch?");
+    expect(received(scan)({ why: "no key" })).toEqual({ why: "no key" });
+  });
+
+  it("fails closed: without the rules nothing readable shows", () => {
+    const r = received({})({ text: "AKIAABCDEFGHIJKLMNOP" });
+    expect(r.text).toBeUndefined();
+    expect(r.why).toMatch(/couldn't check this message for secrets/);
+  });
+
+  it("every decrypt goes through it, and the ⚠ reads the title too", () => {
+    expect(E2E_JS).toContain("async function openOne(seq,payload){return received(await openRaw(seq,payload))}");
+    expect(E2E_JS).toContain("flagShow(en,(r.x&&r.x.title?r.x.title+' ':'')+r.text)");
   });
 });

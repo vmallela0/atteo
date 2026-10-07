@@ -159,7 +159,12 @@ document.addEventListener('click',async e=>{const b=e.target.closest('[data-sf-d
 
 // ---- reading: every envelope on the page is opened here; what can't be opened says why ----
 const PAY=new Map(),OPEN=new Set(),TXT=new Map();let HI=0; // TXT: seq → {text, x} opened here (edits start from it)
-async function openOne(seq,payload){let p;try{p=JSON.parse(payload)}catch(e){return {why:'Not an envelope this browser understands.'}}
+// What arrives is checked as the server checks plain boards (clientScan.ts): a credential someone sent shows as
+// "[redacted: …]", in the text and its title. Without the rules nothing readable shows (fails closed).
+function received(r){if(r.text==null)return r;const a=window.atteoScan;if(!a||typeof a.redactText!=='function')return {why:tr("This browser couldn't check this message for secrets, so it isn't shown. Reload the page.")};
+  r.text=a.redactText(r.text);if(r.x&&typeof r.x.title==='string')r.x.title=a.redactText(r.x.title);return r}
+async function openOne(seq,payload){return received(await openRaw(seq,payload))}
+async function openRaw(seq,payload){let p;try{p=JSON.parse(payload)}catch(e){return {why:'Not an envelope this browser understands.'}}
   try{if(p.v===2){const k=ST.keys.get(p.epoch);if(!k)return {why:"Can't read this on this device yet: a member's device hands this browser the board's key when they're next here."};
       let x={};if(p.x)try{x=JSON.parse(td.decode(await ungcm(k.aes,p.x.iv,p.x.ct)))||{}}catch(e){x={}}
       return {text:td.decode(await ungcm(k.aes,p.iv,p.ct)),x}}
@@ -190,7 +195,7 @@ function show(seq,r){const el=document.querySelector('#e'+seq+'>.grow>.body');if
   if(r.text!=null)TXT.set(seq,{text:r.text,x:r.x||{}});
   el.innerHTML=r.text!=null?(r.x&&r.x.title?'<div class="e2e-title"><b>'+esc(r.x.title)+'</b></div>':'')+opened(r.text)+filesBlock(r.x&&r.x.files):'<span class="e2e-none">🔒 '+esc(r.why)+'</span>';el.closest('.entry').classList.toggle('e2e-open',r.text!=null);
   if(r.text!=null)hydrate(el);
-  if(r.text!=null){const t=short(r.text),en=el.closest('.entry');flagShow(en,r.text);if(t){en.dataset.title=t;document.querySelectorAll('a.ref[data-ref="'+seq+'"][data-done]').forEach(a=>{a.textContent='↗ '+t})}if(window.refChips)refChips(el)}
+  if(r.text!=null){const t=short(r.text),en=el.closest('.entry');flagShow(en,(r.x&&r.x.title?r.x.title+' ':'')+r.text);if(t){en.dataset.title=t;document.querySelectorAll('a.ref[data-ref="'+seq+'"][data-done]').forEach(a=>{a.textContent='↗ '+t})}if(window.refChips)refChips(el)}
   const top=el.closest('.replies')?.closest('#thread>.entry');if(top)thrSum(+top.dataset.seq);return r.text!=null}
 // Your own approval requests (#5542): the board has only what's asked; the details and command are sealed to your
 // devices (a v1 envelope as the approval's details), opened here into the card above its buttons.
