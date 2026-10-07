@@ -1428,19 +1428,32 @@ const handler = {
         const b = (await request.json().catch(() => ({}))) as { public_key?: string; label?: string; sign_pub?: string };
         const pk = String(b.public_key ?? "");
         if (!/^[A-Za-z0-9+/]{43}=$/.test(pk)) return json({ error: "public_key must be a base64 X25519 key (32 bytes)." }, 400);
-        // The device's Ed25519 signing key (cross-signed device lists, E2E design §2.2): set once, never replaced.
+        // The device's Ed25519 signing key (cross-signed device lists, E2E design §2.2): set once, never replaced, and only
+        // with proof the caller holds this device's X25519 key (review #5523): the answer carries a challenge sealed to
+        // public_key, which the device opens and sends back to /api/me/keys/{kid}/sign-key.
         const spk = b.sign_pub == null ? null : String(b.sign_pub);
         if (spk !== null && !/^[A-Za-z0-9+/]{43}=$/.test(spk)) return json({ error: "sign_pub must be a base64 Ed25519 key (32 bytes)." }, 400);
         const existing = await env.DB.prepare(`SELECT id FROM agent_keys WHERE user = ? AND public_key = ? AND revoked_at IS NULL`).bind(viewer.name, pk).first<{ id: string }>();
-        if (existing && spk) await env.DB.prepare(`UPDATE agent_keys SET sign_pub = ? WHERE id = ? AND sign_pub IS NULL`).bind(spk, existing.id).run();
-        if (existing) return json({ ok: true, id: existing.id });
+        const challenge = async (id: string) => (spk ? await boardkeys.signKeyChallenge(env, viewer.name, id, spk) : null);
+        if (existing) return json({ ok: true, id: existing.id, sign_challenge: await challenge(existing.id) });
         const n = (await env.DB.prepare(`SELECT COUNT(*) AS n FROM agent_keys WHERE user = ? AND revoked_at IS NULL`).bind(viewer.name).first<{ n: number }>())?.n ?? 0;
         if (n >= 10) return json({ error: "At most 10 machines; remove one first." }, 400);
         const kid = crypto.randomUUID().slice(0, 8);
-        await env.DB.prepare(`INSERT INTO agent_keys (id, user, public_key, label, created_at, sign_pub) VALUES (?, ?, ?, ?, ?, ?)`).bind(kid, viewer.name, pk, String(b.label ?? "").slice(0, 60) || null, Date.now(), spk).run();
-        return json({ ok: true, id: kid }, 201);
+        await env.DB.prepare(`INSERT INTO agent_keys (id, user, public_key, label, created_at) VALUES (?, ?, ?, ?, ?)`).bind(kid, viewer.name, pk, String(b.label ?? "").slice(0, 60) || null, Date.now()).run();
+        return json({ ok: true, id: kid, sign_challenge: await challenge(kid) }, 201);
       }
-      let km = path.match(/^\/api\/keys\/([a-z0-9][a-z0-9_.-]{0,31})$/);
+      // The device opens the challenge and sends the nonce back: its signing key is set.
+      let km = path.match(/^\/api\/me\/keys\/([a-z0-9-]{1,40})\/sign-key$/);
+      if (km && method === "POST") {
+        if (!viewer) return needLogin();
+        try {
+          await boardkeys.proveSignKey(env, viewer.name, km[1], (await request.json().catch(() => ({}))) as Record<string, unknown>);
+          return json({ ok: true });
+        } catch (e) {
+          return json({ error: e instanceof Error ? e.message : String(e) }, e instanceof boardkeys.KeyError ? 400 : 500);
+        }
+      }
+      km = path.match(/^\/api\/keys\/([a-z0-9][a-z0-9_.-]{0,31})$/);
       if (km && method === "GET") {
         if (!viewer) return needLogin();
         // Anyone you share a board with (sealing needs a shared board anyway).
@@ -1463,7 +1476,8 @@ const handler = {
         try {
           const r = await boardkeys.signDevice(env, viewer.name, km[1], (await request.json().catch(() => ({}))) as Record<string, unknown>);
           const opts = { via: pv(), client: viewer.via === "agent" ? "atteo CLI" : null, session: await asid() };
-          for (const id of r.boards) await boardStub(env, id).keyNotice(viewer.name, boardkeys.deviceNotice(viewer.name, r.target, r.signer), opts);
+          // The change is made; a board that can't take the line now (read-only, deleted) doesn't undo it.
+          for (const id of r.boards) await boardStub(env, id).keyNotice(viewer.name, boardkeys.deviceNotice(viewer.name, r.target, r.signer), opts).catch(() => {});
           return json({ ok: true, boards: r.boards.length });
         } catch (e) {
           return json({ error: e instanceof Error ? e.message : String(e) }, e instanceof boardkeys.KeyError ? 400 : 500);
@@ -1475,8 +1489,10 @@ const handler = {
         if (!viewer) return needLogin();
         if (viewer.via === "agent") return json({ error: "Remove devices from your account (the website or the app)." }, 403);
         try {
-          await boardkeys.revokeDevice(env, viewer.name, km[1]);
-          return json({ ok: true });
+          const r = await boardkeys.revokeDevice(env, viewer.name, km[1]);
+          const opts = { via: pv(), client: null, session: await asid() };
+          for (const id of r.boards) await boardStub(env, id).keyNotice(viewer.name, boardkeys.revokeNotice(viewer.name, r.revoked), opts).catch(() => {});
+          return json({ ok: true, revoked: r.revoked.map((k) => k.id) });
         } catch (e) {
           return json({ error: e instanceof Error ? e.message : String(e) }, e instanceof boardkeys.KeyError ? 400 : 500);
         }
@@ -2257,7 +2273,7 @@ const handler = {
             viewer,
             narrow: true,
             headers: { "cache-control": "no-store" },
-            script: `(()=>{const s=${JSON.stringify(m[1])},h=new URLSearchParams(location.hash.slice(1)).get('k');try{if(h&&/^[A-Za-z0-9_-]{43}$/.test(h))localStorage.setItem('atteo.invite.'+s,JSON.stringify({k:h,at:Date.now()}))}catch(e){}location.replace('/i/'+s+'?go=1')})()`,
+            script: `(()=>{const s=${JSON.stringify(m[1])},h=new URLSearchParams(location.hash.slice(1)).get('k');try{if(h&&/^[A-Za-z0-9_-]{43}[.][A-Za-z0-9_-]{43}$/.test(h))localStorage.setItem('atteo.invite.'+s,JSON.stringify({k:h,at:Date.now()}))}catch(e){}location.replace('/i/'+s+'?go=1')})()`,
           });
         if (!viewer) return needLogin();
         try {

@@ -16,6 +16,8 @@ type Args = Record<string, unknown>;
 /** Entry types the sealed route takes; anything else is posted as a note (a sealed entry has no handoff or card). */
 const SEALED_TYPES = new Set(["note", "question", "claim", "decision", "task"]);
 /** Arguments that would be stored in plain text, so an encrypted board can't take them. */
+/** The tools atteo mcp lets through on an encrypted board (review #5525); the rest are refused locally. */
+const ENC_ALLOWED = new Set(["read", "get", "post", "wait", "react", "retract", "agents", "people", "session", "join_board", "leave_board", "list_boards"]);
 const PLAIN_ONLY = ["artifact_content", "artifact_name", "data", "handoff", "card", "own", "resolves", "supersedes", "depends_on"];
 
 const str = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim() : undefined);
@@ -45,7 +47,14 @@ export class EncryptedTools {
    * server as usual. Throws an Error whose message is the tool error to show.
    */
   async handle(name: string, args: Args): Promise<string | null> {
-    if (!["read", "get", "post", "wait"].includes(name)) return null;
+    if (!["read", "get", "post", "wait"].includes(name)) {
+      // Everything else on an encrypted board is refused here, before anything is sent (review #5525): the server's own
+      // tools would read or write plain text there (tasks, docs, search, claims, publish…). Only these are safe.
+      const board = this.boardOf(args);
+      if (!ENC_ALLOWED.has(name) && board && (await isEncrypted(this.opt, board)))
+        throw new Error(`${name} isn't available on an end-to-end encrypted board here: the server would see it in plain text. On this board, use read, get, post, wait, react or retract.`);
+      return null;
+    }
     const board = this.boardOf(args);
     if (!board) {
       if (name === "post" && (await this.anyEncrypted()))

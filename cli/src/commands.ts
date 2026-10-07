@@ -10,13 +10,13 @@ import { env } from "./env";
 import SKILL_MD from "../../skills/atteo/SKILL.md";
 import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { hostname, tmpdir } from "node:os";
-import { decryptV2, deviceSigned, encryptV2, inviteKey, myKey, mySignKey, newEpochKey, seal, signDevice, unseal, unwrapInvite, unwrapKey, wrapKey, type WrappedKey } from "./sealed";
-import { crossSigned, pinId, pinned } from "./crosssign";
+import { decryptV2, deviceSigned, encryptV2, inviteKey, keysDigest, myKey, mySignKey, newEpochKey, openProof, seal, signDevice, unseal, unwrapInvite, unwrapKey, wrapKey, type WrappedKey } from "./sealed";
+import { crossSigned, dropGone, pinId, pinned } from "./crosssign";
 import { homedir } from "node:os";
 import { basename, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { blockedMessage, scanFields } from "../../src/secrets";
 import { gatewayFetch, GatewayError } from "../../gateway/src/index";
-import { fence } from "../../src/screen";
+import { fence, flagNote, screenText } from "../../src/screen";
 import { proseForAgent } from "../../src/util";
 import { load, sameServer, type Credentials } from "./credentials";
 import { createInterface } from "node:readline";
@@ -365,6 +365,21 @@ export function savePins(p: Record<string, string[]>) {
   mkdirSync(join(pinFile(), ".."), { recursive: true, mode: 0o700 });
   writeFileSync(pinFile(), JSON.stringify(p, null, 2), { mode: 0o600 });
 }
+const epochFile = () => `${pinFile()}.epochs`;
+function epochsSeen(): Record<string, number> {
+  try {
+    return JSON.parse(readFileSync(epochFile(), "utf8"));
+  } catch {
+    return {};
+  }
+}
+function saveEpochSeen(board: string, epoch: number) {
+  const all = epochsSeen();
+  all[board] = epoch;
+  mkdirSync(join(epochFile(), ".."), { recursive: true, mode: 0o700 });
+  writeFileSync(epochFile(), JSON.stringify(all), { mode: 0o600 });
+}
+
 /** The server shows this machine with a signing key that isn't this machine's: someone could sign devices as you. */
 function signMismatch(k: { sign_pub?: string | null } | undefined) {
   if (k?.sign_pub && k.sign_pub !== mySignKey().pub)
@@ -385,6 +400,11 @@ async function boardKeys(opt: Record<string, string | true>, board: string, trie
   const kid = await ensureKey(opt);
   const me = creds().user;
   const st: EpochState = await api(opt, "GET", `/api/boards/${board}/epochs`);
+  // The newest key epoch this machine has seen for the board: a server showing an older one may be replaying an old key
+  // (review #5526), so nothing is encrypted with it.
+  const seenMax = epochsSeen()[board] ?? 0;
+  if (st.current < seenMax)
+    throw new CliError(`The server shows this board at key epoch ${st.current}, but this machine has seen epoch ${seenMax}: it may be replaying an old key, so nothing was encrypted. Tell the board's members.`);
   const keys = new Map<number, Buffer>();
   for (const g of st.mine)
     if (g.kid === kid)
@@ -402,6 +422,7 @@ async function boardKeys(opt: Record<string, string | true>, board: string, trie
   signMismatch(st.keys.find((k) => k.kid === kid));
   for (const k of st.keys) if (k.user !== me && !pin[k.user]) (pin[k.user] ??= []).push(pinId(k.kid, k.public_key, k.sign_pub)); // first sight: trust on first use
   for (const m of st.missing) if (m.user !== me && m.first_device && !pin[m.user]?.length) (pin[m.user] ??= []).push(pinId(m.kid, m.public_key, m.sign_pub));
+  dropGone(pin, st.keys); // removed devices, and devices trusted through them (review #5524); st.keys is every live member device
   crossSigned(pin, [...st.keys, ...st.missing]);
   if (JSON.stringify(pin) !== before) savePins(pin);
   const trusted = (k: { kid: string; user: string; public_key: string }) => !!pinned(pin[k.user], k.kid, k.public_key);
@@ -427,6 +448,7 @@ async function boardKeys(opt: Record<string, string | true>, board: string, trie
     .filter((m) => (trusted(m) ? true : (skip(m), false)))
     .flatMap((m) => m.epochs.filter((e) => keys.has(e)).map((e) => ({ epoch: e, kid: m.kid, ...wrapKey(keys.get(e)!, m.public_key) })));
   if (grants.length) await api(opt, "POST", `/api/boards/${board}/grants`, { grants }).catch(() => {}); // anyone else online can do it too
+  if (current > seenMax) saveEpochSeen(board, current);
   return { current, keys };
 }
 
@@ -487,8 +509,11 @@ export async function decryptEntry(opt: Record<string, string | true>, board: st
   return (await encEntries(opt, board, seq - 1)).find((e) => e.seq === seq)?.text ?? null;
 }
 
-export const encLine = (e: { seq: number; ts: number; author: string; via: string | null; type: string; to: string | null; reply_to: number | null; text: string }) =>
-  `#${e.seq} ${e.type} · ${e.via === "agent" ? `${e.author}'s agent` : e.author}${e.to ? ` → ${e.to}` : ""}${e.reply_to ? ` · re #${e.reply_to}` : ""} · ${new Date(e.ts).toISOString().slice(0, 16).replace("T", " ")}Z\n    ${proseForAgent(e.text).replace(/\n/g, "\n    ")}`;
+/** One decrypted entry. Screened here like the server screens plain boards' (it never sees this text): "⚠ flagged". */
+export const encLine = (e: { seq: number; ts: number; author: string; via: string | null; type: string; to: string | null; reply_to: number | null; text: string }) => {
+  const f = screenText(e.text);
+  return `#${e.seq} ${e.type} · ${e.via === "agent" ? `${e.author}'s agent` : e.author}${e.to ? ` → ${e.to}` : ""}${e.reply_to ? ` · re #${e.reply_to}` : ""} · ${new Date(e.ts).toISOString().slice(0, 16).replace("T", " ")}Z${f ? ` · ⚠ ${flagNote(f)}` : ""}\n    ${proseForAgent(e.text).replace(/\n/g, "\n    ")}`;
+};
 
 async function read(args: string[]) {
   const { opt } = parseArgs(args, ["all", "summary", "brief"]);
@@ -1074,7 +1099,7 @@ async function role(args: string[]) {
 }
 
 async function link(args: string[]) {
-  const { pos, opt } = parseArgs(args);
+  const { pos, opt } = parseArgs(args, ["with-key"]);
   const b = currentBoard(opt);
   if (pos[0] === "list") {
     const j = await api(opt, "GET", `/api/boards/${b}/links`);
@@ -1087,8 +1112,13 @@ async function link(args: string[]) {
     return say("Revoked.");
   }
   // An encrypted board's link carries the board key after its "#" (E2E design §3.3), so whoever opens it reads at once.
-  const held = (await isEncrypted(opt, b)) ? (await boardKeys(opt, b)).keys : null;
+  // Only for a person at a terminal, or with --with-key (review #5527): an agent that runs this would otherwise have the
+  // board key in its context, and could post it.
+  const enc = await isEncrypted(opt, b);
+  const withKey = enc && (opt["with-key"] === true || !!process.stdout.isTTY);
+  const held = withKey ? (await boardKeys(opt, b)).keys : null;
   const ik = held?.size ? inviteKey(held) : null;
+  if (enc && !withKey) process.stderr.write(`This link carries no board key (not a terminal): whoever joins gets the key from a member's device when one is next here. For a link with the key: atteo link --with-key\n`);
   const j = await api(opt, "POST", `/api/boards/${b}/links`, {
     role: optStr(opt, "role"),
     link_days: optStr(opt, "days"),
@@ -1103,7 +1133,7 @@ async function link(args: string[]) {
 
 /** Joins with an invite link (`atteo join <link>`); when it carries an encrypted board's key, this machine takes it at once. */
 export async function joinLink(opt: Record<string, string | true>, link: string): Promise<string> {
-  const m = link.match(/\/i\/(il_[A-Za-z0-9_-]+)(?:\?[^#]*)?(?:#k=([A-Za-z0-9_-]{43}))?$/);
+  const m = link.match(/\/i\/(il_[A-Za-z0-9_-]+)(?:\?[^#]*)?(?:#k=([A-Za-z0-9_-]{43})\.([A-Za-z0-9_-]{43}))?$/);
   if (!m) throw new CliError("That isn't an invite link.");
   const { board } = await api(opt, "POST", "/api/links/redeem", { secret: m[1] });
   if (!m[2]) return board;
@@ -1111,7 +1141,10 @@ export async function joinLink(opt: Record<string, string | true>, link: string)
   const st: EpochState = await api(opt, "GET", `/api/boards/${board}/epochs`);
   if (st.mine.length) return board; // one of your devices reads it already and hands this one the key
   const k = await api(opt, "POST", "/api/invite-keys", { secret: m[1] });
-  const grants = (k.grants as ({ epoch: number } & WrappedKey)[]).map((g) => ({ epoch: g.epoch, kid, ...wrapKey(unwrapInvite(g, m[2], k.public_key), myKey().pub) }));
+  const keys = new Map((k.grants as ({ epoch: number } & WrappedKey)[]).map((g) => [g.epoch, unwrapInvite(g, m[2], k.public_key)] as const));
+  // Exactly the keys the inviter's link vouches for (review #5526), or none.
+  if (keysDigest(keys) !== m[3]) throw new CliError("Joined, but the board key the server gave for this link isn't the one the link vouches for, so this machine didn't take it. Tell the person who sent the link.");
+  const grants = [...keys].map(([epoch, key]) => ({ epoch, kid, ...wrapKey(key, myKey().pub) }));
   await api(opt, "POST", `/api/boards/${board}/grants/invite`, { secret: m[1], grants });
   return board;
 }
@@ -1139,6 +1172,8 @@ async function auditCmd(args: string[]) {
 async function ensureKey(opt: Record<string, string | true>): Promise<string> {
   const { pub } = myKey();
   const j = await api(opt, "POST", "/api/me/keys", { public_key: pub, label: hostname(), sign_pub: mySignKey().pub });
+  // The signing key is set only with proof this machine holds the device key: open the server's challenge, send it back.
+  if (j.sign_challenge) await api(opt, "POST", `/api/me/keys/${j.id}/sign-key`, { nonce: openProof(j.sign_challenge) });
   return j.id as string;
 }
 

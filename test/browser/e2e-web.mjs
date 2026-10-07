@@ -137,7 +137,7 @@ await pa.screenshot({path:`${SHOTS_DIR}/e2e-board-light.png`});
 // Pins hold the device id and its public key.
 const pinsA=await pa.evaluate(me=>JSON.parse(localStorage.getItem("soup.e2e.pins."+me)||"{}"),A);
 const bobCli=(await (await fetch(`${BASE}/api/keys/${B}`,{headers:{authorization:`Bearer ${tok[A]}`}})).json()).keys.find(k=>!/web/.test(k.label||""));
-check(Object.values(pinsA).flat().every(e=>/^[a-z0-9-]+\|[A-Za-z0-9+/]{43}=(\|[A-Za-z0-9+/]{43}=)?$/.test(e))&&pinsA[B]?.[0]?.startsWith(`${bobCli.id}|${bobCli.public_key}`),`pins are id|public key[|signing key] (Bob: ${pinsA[B]?.[0]?.slice(0,20)}…)`);
+check(Object.values(pinsA).flat().every(e=>/^[a-z0-9-]+\|[A-Za-z0-9+/]{43}=(\|([A-Za-z0-9+/]{43}=)?(\|[a-z0-9-]+)?)?$/.test(e))&&pinsA[B]?.[0]?.startsWith(`${bobCli.id}|${bobCli.public_key}`),`pins are id|public key[|signing key] (Bob: ${pinsA[B]?.[0]?.slice(0,20)}…)`);
 // A server that shows Bob's machine with a signing key of its own: Bob's CLI notices and says so (E2E 1c cross-signing).
 await sql(`UPDATE agent_keys SET sign_pub = '${Buffer.alloc(32, 9).toString("base64")}' WHERE id = '${bobCli.id}'`);
 const bobKeys=await cli(B,["keys"]);check(/signing key that isn't this machine's/.test(bobKeys.err),"a CLI shown with a signing key that isn't its own warns");
@@ -146,7 +146,11 @@ const { generateKeyPairSync } = await import("node:crypto");const evil=Buffer.fr
 await sql(`UPDATE agent_keys SET public_key = '${evil}' WHERE id = '${bobCli.id}'`);
 // Removing this browser's key from the account (a lost device): the browser never brings that key back; it makes a new one, which waits.
 const before=await pa.evaluate(async()=>{const r=await fetch("/api/me/keys");return (await r.json()).keys.find(k=>/web/.test(k.label)).id});
-check((await pa.evaluate(async k=>(await fetch("/api/me/keys/"+k,{method:"DELETE"})).status,before))===200,"Ann removes this browser's key from her account");
+const annCli=(await (await fetch(`${BASE}/api/me/keys`,{headers:{authorization:`Bearer ${tok[A]}`}})).json()).keys.find(k=>!/web/.test(k.label||""));
+const removed=await pa.evaluate(async k=>{const r=await fetch("/api/me/keys/"+k,{method:"DELETE"});return {status:r.status,...await r.json()}},before);
+check(removed.status===200,"Ann removes this browser's key from her account");
+// Review #5524: it had signed (approved) Ann's CLI, so the CLI goes with it.
+check(annCli.signed_by===before&&removed.revoked.includes(annCli.id),`…and the CLI it had signed goes with it (${removed.revoked.join(", ")})`);
 await pa.reload();
 const webKeys=()=>pa.evaluate(async()=>(await (await fetch("/api/me/keys")).json()).keys.filter(k=>/web/.test(k.label)).map(k=>k.id)).catch(()=>[]);
 const after=await until(webKeys,ids=>ids.length===1&&ids[0]!==before);
@@ -158,6 +162,6 @@ const st3=await until(async()=>(await fetch(`${BASE}/api/boards/${board}/epochs`
 check(st3.current===3&&!st3.rotate_needed,"…and removing the old key rotated the board (epoch 3, opened like the CLI does on rotate_needed)");
 const g3=JSON.parse((await d1Execute(`--json --command ${JSON.stringify(`SELECT kid FROM key_grants WHERE board_id = '${board}' AND epoch = 3`)}`,{cwd:WT})).toString())[0].results.map(x=>x.kid);
 check(!g3.includes(bobCli.id)&&g3.length>=1,`…and epoch 3 was NOT wrapped to Bob's pinned id with the swapped key (wrapped to ${g3.join(", ")})`);
-r=await cli(A,["read"]);check(/A new device of yours/.test(r.err),"Ann's CLI says her new browser is waiting for her approval");
+r=await cli(A,["read"]);check(/no key for this part of the board on this machine/.test(r.out)&&!/A new device of yours/.test(r.err),"Ann's removed CLI comes back as a new device that holds no key and approves nothing");
 check(errors.length===0,`no page errors ${errors.join(" | ")}`);
 await b.close();console.log(fails?`${fails} FAILED`:"all web encryption checks passed");
