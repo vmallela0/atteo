@@ -7,6 +7,7 @@ import { SHOTS_DIR } from "./lib/shots.mjs";
 import { chromium } from "playwright-core";
 import { spawn } from "node:child_process";
 import { d1Execute } from "./lib/d1.mjs";
+import { cliTty as tty } from "./lib/clitty.mjs";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -21,6 +22,7 @@ for (const u of [A,B,C]) { await ops("users",{name:u,email:`${u}@example.com`,ve
   cred[u]=join(dir,`${u}.json`); writeFileSync(cred[u],JSON.stringify({server:BASE,user:u,token:tok[u],expires_at:Date.now()+86400e3}),{mode:0o600}); }
 const cli=(u,args)=>new Promise(res=>{const p=spawn("node",[CLI,...args],{cwd:dir,env:{...process.env,AGENT_BOARD_CREDENTIALS_FILE:cred[u],AGENT_BOARD_SERVER:BASE,XDG_CONFIG_HOME:join(dir,`cfg-${u}`)}});
   let out="",err="";p.stdout.on("data",d=>out+=d);p.stderr.on("data",d=>err+=d);p.stdin.end();p.on("close",code=>res({code,out,err}))});
+const cliTty=(u,args)=>tty(CLI,args,{cwd:dir,env:{AGENT_BOARD_CREDENTIALS_FILE:cred[u],AGENT_BOARD_SERVER:BASE,XDG_CONFIG_HOME:join(dir,`cfg-${u}`)}}); // a person at a terminal (#5567)
 const sql=(q)=>d1Execute(`--command ${JSON.stringify(q)}`,{cwd:WT});
 const board=(await ops("boards",{user:A,title:`Secret plans ${run}`,encrypted:true})).board.id;
 await ops("members",{board,user:B});
@@ -106,7 +108,7 @@ await pb.evaluate(()=>e2eSync());await pb.waitForTimeout(400);
 check(await pa.locator(`[data-e2e-approve]`).count()===0&&await pb.locator("#thread .e2e-text").count()===0,"Ann's browser doesn't grant Bob's new device (only Bob's own devices may)");
 r=await cli(B,["read"]);const bkid=(r.err.match(/keys approve (\S+)/)||[])[1];
 check(!!bkid,"Bob's CLI says a new device of his is waiting");
-await cli(B,["keys","approve",bkid]);await cli(B,["read"]);
+await cliTty(B,["keys","approve",bkid]);await cli(B,["read"]);
 await pb.evaluate(()=>e2eSync());await bodyOf(pb,`hello from the web ${run}`).waitFor({timeout:6000}).catch(()=>{});
 check(await bodyOf(pb,`hello from the web ${run}`).count()===1&&!(await pb.locator("form.composer").isHidden()),"after Bob's CLI approves it, Bob's browser reads the history and can write");
 await post(pb,`bob in the browser ${run}`);
@@ -172,13 +174,20 @@ await pa.screenshot({path:`${SHOTS_DIR}/e2e-board-light.png`});
 // Pins hold the device id and its public key.
 const pinsA=await pa.evaluate(me=>JSON.parse(localStorage.getItem("soup.e2e.pins."+me)||"{}"),A);
 const bobCli=(await (await fetch(`${BASE}/api/keys/${B}`,{headers:{authorization:`Bearer ${tok[A]}`}})).json()).keys.find(k=>!/web/.test(k.label||""));
-check(Object.values(pinsA).flat().every(e=>/^[a-z0-9-]+\|[A-Za-z0-9+/]{43}=$/.test(e))&&pinsA[B]?.[0]===`${bobCli.id}|${bobCli.public_key}`,`pins are id|public key (Bob: ${pinsA[B]?.[0]?.slice(0,20)}…)`);
+check(Object.values(pinsA).flat().every(e=>/^[a-z0-9-]+\|[A-Za-z0-9+/]{43}=(\|([A-Za-z0-9+/]{43}=)?(\|[a-z0-9-]+)?)?$/.test(e))&&pinsA[B]?.[0]?.startsWith(`${bobCli.id}|${bobCli.public_key}`),`pins are id|public key[|signing key] (Bob: ${pinsA[B]?.[0]?.slice(0,20)}…)`);
+// A server that shows Bob's machine with a signing key of its own: Bob's CLI notices and says so (E2E 1c cross-signing).
+await sql(`UPDATE agent_keys SET sign_pub = '${Buffer.alloc(32, 9).toString("base64")}' WHERE id = '${bobCli.id}'`);
+const bobKeys=await cli(B,["keys"]);check(/signing key that isn't this machine's/.test(bobKeys.err),"a CLI shown with a signing key that isn't its own warns");
 // A server that swaps the public key under Bob's pinned id: the next epoch isn't wrapped to it.
 const { generateKeyPairSync } = await import("node:crypto");const evil=Buffer.from(generateKeyPairSync("x25519").publicKey.export({format:"jwk"}).x,"base64url").toString("base64");
 await sql(`UPDATE agent_keys SET public_key = '${evil}' WHERE id = '${bobCli.id}'`);
 // Removing this browser's key from the account (a lost device): the browser never brings that key back; it makes a new one, which waits.
 const before=await pa.evaluate(async()=>{const r=await fetch("/api/me/keys");return (await r.json()).keys.find(k=>/web/.test(k.label)).id});
-check((await pa.evaluate(async k=>(await fetch("/api/me/keys/"+k,{method:"DELETE"})).status,before))===200,"Ann removes this browser's key from her account");
+const annCli=(await (await fetch(`${BASE}/api/me/keys`,{headers:{authorization:`Bearer ${tok[A]}`}})).json()).keys.find(k=>!/web/.test(k.label||""));
+const removed=await pa.evaluate(async k=>{const r=await fetch("/api/me/keys/"+k,{method:"DELETE"});return {status:r.status,...await r.json()}},before);
+check(removed.status===200,"Ann removes this browser's key from her account");
+// Review #5524: it had signed (approved) Ann's CLI, so the CLI goes with it.
+check(annCli.signed_by===before&&removed.revoked.includes(annCli.id),`…and the CLI it had signed goes with it (${removed.revoked.join(", ")})`);
 await pa.reload();
 const webKeys=()=>pa.evaluate(async()=>(await (await fetch("/api/me/keys")).json()).keys.filter(k=>/web/.test(k.label)).map(k=>k.id)).catch(()=>[]);
 const after=await until(webKeys,ids=>ids.length===1&&ids[0]!==before);
@@ -190,7 +199,19 @@ const st3=await until(async()=>(await fetch(`${BASE}/api/boards/${board}/epochs`
 check(st3.current===3&&!st3.rotate_needed,"…and removing the old key rotated the board (epoch 3, opened like the CLI does on rotate_needed)");
 const g3=JSON.parse((await d1Execute(`--json --command ${JSON.stringify(`SELECT kid FROM key_grants WHERE board_id = '${board}' AND epoch = 3`)}`,{cwd:WT})).toString())[0].results.map(x=>x.kid);
 check(!g3.includes(bobCli.id)&&g3.length>=1,`…and epoch 3 was NOT wrapped to Bob's pinned id with the swapped key (wrapped to ${g3.join(", ")})`);
-r=await cli(A,["read"]);check(/A new device of yours/.test(r.err),"Ann's CLI says her new browser is waiting for her approval");
+r=await cli(A,["read"]);check(/no key for this part of the board on this machine/.test(r.out)&&!/A new device of yours/.test(r.err),"Ann's removed CLI comes back as a new device that holds no key and approves nothing");
+// Review #5558: none of Ann's devices Bob's browser trusted is listed now, and new ones show up (as a server could make
+// them). Bob's browser saw Ann before, so however often it syncs they're never trusted on first use: no key, a warning
+// with a Trust button, and only that click (on Ann's word) hands one the key.
+const grantsTo=async kid=>JSON.parse((await d1Execute(`--json --command ${JSON.stringify(`SELECT COUNT(*) AS n FROM key_grants WHERE board_id = '${board}' AND kid = '${kid}'`)}`,{cwd:WT})).toString())[0].results[0].n;
+for(let i=0;i<3;i++){await pb.evaluate(()=>e2eSync());await pb.waitForTimeout(200)} // a negative: an unwanted grant would show by now
+const pinsB=await pb.evaluate(me=>JSON.parse(localStorage.getItem("soup.e2e.pins."+me)||"{}"),B);
+check(Array.isArray(pinsB[A])&&!pinsB[A].some(e=>e.startsWith(after[0]+"|"))&&await grantsTo(after[0])===0,`Bob's browser keeps Ann's (empty) entry and hands her new device no key (${JSON.stringify(pinsB[A])})`);
+const trustAsk=pb.locator(".e2e-ask",{has:pb.locator(`[data-e2e-trust="${after[0]}"]`)});
+check(/None of .+ devices this browser trusted is listed any more/.test(await trustAsk.innerText().catch(()=>"")),"…and says why, with a Trust button");
+await pb.locator(`[data-e2e-trust="${after[0]}"]`).click();
+check(await until(()=>grantsTo(after[0]),n=>n>0)>0,"Trust, on Ann's word, hands it the keys");
+await pa.evaluate(()=>e2eSync());check(await until(()=>bodyOf(pa,`after removal ${run}`).count(),n=>n===1)===1,"…and Ann's new browser reads again");
 // Signing out of the browser drops every board's search index and the index key; the device key stays (review #5551 item 7).
 { const before=await pa.evaluate(async()=>{const db=await new Promise(r=>{const q=indexedDB.open("agent-soup-e2e",1);q.onsuccess=()=>r(q.result)});
     return await new Promise(r=>{const q=db.transaction("keys").objectStore("keys").getAllKeys();q.onsuccess=()=>{db.close();r(q.result)}})});

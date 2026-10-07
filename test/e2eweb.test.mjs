@@ -272,6 +272,7 @@ describe("what arrives on an encrypted board page is checked too", () => {
 
   it("every decrypt goes through it, and the ⚠ reads the title too", () => {
     expect(E2E_JS).toContain("async function openOne(seq,payload){return received(await openRaw(seq,payload))}");
-    expect(E2E_JS).toContain("flagShow(en,(r.x&&r.x.title?r.x.title+' ':'')+r.text)");
+    expect(E2E_JS).toContain("flagShow(en,(r.x&&r.x.title?r.x.title+' ':'')+r.text+ho)");
+    expect(E2E_JS).toContain("r.x.handoff.branch.replace("); // and a handoff's branch and checks (#5580)
   });
 });

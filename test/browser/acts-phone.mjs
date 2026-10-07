@@ -24,7 +24,12 @@ for(const [w,scheme] of [[320,"dark"],[360,"light"],[390,"dark"],[430,"light"]])
   const ctx=await b.newContext({viewport:{width:w,height:780},colorScheme:scheme,hasTouch:true,isMobile:true});const [k,...v]=ckP.split(";")[0].split("=");await ctx.addCookies([{name:k,value:v.join("="),url:BASE}]);
   const p=await ctx.newPage();p.on("pageerror",e=>errors.push(e.message));await p.goto(`${BASE}/b/${board}`);await p.locator(`#e${top}`).waitFor();await p.evaluate(()=>document.fonts.ready);
   for(const [seq,label] of [[top,"top-level"],[rep,"agent's reply in the conversation"],[myRep,"your reply in the conversation"]]){
-    await p.locator(`#e${seq} .body`).tap({position:{x:10,y:8}});
+    // Tap once the message has stopped moving: a late live update ("builder is on it", the working status) shifts the
+    // thread, and a tap that lands on an avatar or name instead opens its profile sheet, whose backdrop takes every tap.
+    const body=p.locator(`#e${seq} .body`);await body.scrollIntoViewIfNeeded();
+    await stable(()=>body.boundingBox().then(r=>r&&[Math.round(r.x),Math.round(r.y)]));
+    await body.tap({position:{x:10,y:8}});
+    if(await p.locator(".hc-back:not([hidden])").count()){await p.keyboard.press("Escape");await stable(()=>body.boundingBox().then(r=>r&&[Math.round(r.x),Math.round(r.y)]));await body.tap({position:{x:10,y:8}})}
     // the actions are up and done moving (measured below)
     const acts=`#e${seq}>.grow>.meta>.acts`;await until(()=>p.locator(`${acts} button`).first().isVisible());
     await stable(()=>p.evaluate(a=>[...document.querySelector(a).querySelectorAll("button")].filter(x=>x.offsetParent).map(x=>Math.round(x.getBoundingClientRect().right)),acts));

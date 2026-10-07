@@ -2,7 +2,7 @@
 // you can read); the server knows only public keys. Sealing encrypts a random content key to every key the recipient
 // (and you) have: X25519 → HKDF-SHA256 → AES-256-GCM. The server stores the envelope and never sees the plaintext.
 
-import { createPrivateKey, createPublicKey, diffieHellman, generateKeyPairSync, hkdfSync, randomBytes, createCipheriv, createDecipheriv, type KeyObject } from "node:crypto";
+import { createHash, createHmac, createPrivateKey, createPublicKey, diffieHellman, generateKeyPairSync, hkdfSync, randomBytes, createCipheriv, createDecipheriv, sign as edSign, verify as edVerify, type KeyObject } from "node:crypto";
 import { env } from "./env";
 import { execFileSync } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -50,7 +50,7 @@ function loadJwk(): { d: string; x: string } | null {
   }
 }
 
-function saveJwk(jwk: { d: string; x: string }) {
+function saveJwk(jwk: { d: string; x: string; sd?: string; sx?: string }) {
   const json = JSON.stringify(jwk);
   const f = keyFile();
   if (f) {
@@ -74,6 +74,40 @@ export function myKey(): { priv: KeyObject; pub: string } {
 }
 
 const pubKey = (b64: string) => createPublicKey({ key: { kty: "OKP", crv: "X25519", x: b642b64u(b64) }, format: "jwk" });
+
+// ---- this machine's Ed25519 signing key (cross-signed device lists, E2E design §2.2), kept with its X25519 key ----
+
+/** This machine's signing key (created the first time, next to the X25519 key). The public half as base64. */
+export function mySignKey(): { priv: KeyObject; pub: string } {
+  myKey();
+  let jwk = loadJwk() as { d: string; x: string; sd?: string; sx?: string };
+  if (!jwk.sd || !jwk.sx) {
+    const j = generateKeyPairSync("ed25519").privateKey.export({ format: "jwk" }) as { d: string; x: string };
+    jwk = { ...jwk, sd: j.d, sx: j.x };
+    saveJwk(jwk);
+  }
+  return { priv: createPrivateKey({ key: { kty: "OKP", crv: "Ed25519", d: jwk.sd, x: jwk.sx! }, format: "jwk" }), pub: b64u2b64(jwk.sx!) };
+}
+
+/** What a device signature covers (src/boardkeys.ts deviceSigned; never change it). */
+export const deviceSigned = (user: string, kid: string, publicKey: string, signPub: string | null) => `atteo device v1\n${user}\n${kid}\n${publicKey}\n${signPub ?? ""}`;
+
+/** Opens the server's sign-key challenge with this machine's X25519 key (its own label: it can never open a board key). */
+export function openProof(g: WrappedKey): string {
+  const { priv, pub } = myKey();
+  return ungcm(kek(diffieHellman({ privateKey: priv, publicKey: pubKey(g.epk) }), g.epk, pub, "atteo sign-key proof v1"), g.iv, g.wrapped).toString("base64");
+}
+
+export const signDevice = (data: string) => edSign(null, Buffer.from(data), mySignKey().priv).toString("base64");
+
+/** Whether `sig` is `signPub`'s signature of `data`; false on anything malformed. */
+export function verifyDevice(signPub: string, data: string, sig: string): boolean {
+  try {
+    return edVerify(null, Buffer.from(data), createPublicKey({ key: { kty: "OKP", crv: "Ed25519", x: b642b64u(signPub) }, format: "jwk" }), Buffer.from(sig, "base64"));
+  } catch {
+    return false;
+  }
+}
 
 // The HKDF info labels ("agent-soup seal v1", "agent-soup board key v2") are historical: they are part of every
 // sealed secret and wrapped board key already stored, so they must never change (the product is Atteo now).
@@ -148,12 +182,48 @@ export function unwrapKey(g: WrappedKey): Buffer {
   return ungcm(kek(diffieHellman({ privateKey: priv, publicKey: pubKey(g.epk) }), g.epk, pub, V2_INFO), g.iv, g.wrapped);
 }
 
+/** A one-time invite key for a link (E2E design §3.3): each epoch key wrapped to it, and its private half for the link's "#". */
+export function inviteKey(keys: Map<number, Buffer>): { public_key: string; grants: ({ epoch: number } & WrappedKey)[]; fragment: string } {
+  const k = generateKeyPairSync("x25519");
+  const jwk = k.privateKey.export({ format: "jwk" }) as { x: string; d: string };
+  const pub = b64u2b64(jwk.x);
+  return { public_key: pub, grants: [...keys].map(([epoch, key]) => ({ epoch, ...wrapKey(key, pub) })), fragment: `#k=${jwk.d}.${keysDigest(keys)}` };
+}
+
+/**
+ * What the link's "#" also carries (review #5526): a hash of the epoch keys it hands over, so the joiner takes exactly
+ * those, never a key the server wrapped to the invite key's public half itself. SHA-256 over each epoch (4 bytes, big
+ * endian) and its key, in epoch order; base64url. The web computes the same (src/e2eweb.ts keysDigest).
+ */
+export function keysDigest(keys: Map<number, Buffer>): string {
+  const h = createHash("sha256");
+  for (const [epoch, key] of [...keys].sort((a, b) => a[0] - b[0])) {
+    const e = Buffer.alloc(4);
+    e.writeUInt32BE(epoch);
+    h.update(e).update(key);
+  }
+  return h.digest("base64url");
+}
+
+/** An epoch key wrapped to an invite key, opened with the private half from the link's "#". */
+export function unwrapInvite(g: WrappedKey, d: string, pub: string): Buffer {
+  const priv = createPrivateKey({ key: { kty: "OKP", crv: "X25519", d, x: b642b64u(pub) }, format: "jwk" });
+  return ungcm(kek(diffieHellman({ privateKey: priv, publicKey: pubKey(g.epk) }), g.epk, pub, V2_INFO), g.iv, g.wrapped);
+}
+
 export const newEpochKey = () => randomBytes(32);
 export function encryptV2(key: Buffer, plaintext: Buffer): { iv: string; ct: string } {
   const c = gcm(key, plaintext);
   return { iv: c.iv, ct: c.out };
 }
 export const decryptV2 = (key: Buffer, iv: string, ct: string) => ungcm(key, iv, ct);
+
+/** A branch's keyed hash for an encrypted handoff (docs/SPEC.md §16): HMAC-SHA256 under HKDF(epoch key, info
+ *  "atteo handoff branch v1"), lowercase hex. The server sees one open handoff per branch without seeing the branch. */
+export function branchHash(key: Buffer, branch: string): string {
+  const k = Buffer.from(hkdfSync("sha256", key, Buffer.alloc(0), Buffer.from("atteo handoff branch v1"), 32));
+  return createHmac("sha256", k).update(branch, "utf8").digest("hex");
+}
 
 // ---- encrypted files (pictures and files on encrypted boards, docs/SPEC.md §16) ----
 // A fresh 32-byte key per file; the plaintext in 64 KB chunks, each AES-256-GCM with the nonce 0⁸ ‖ chunk index

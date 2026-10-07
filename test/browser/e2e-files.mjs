@@ -2,10 +2,11 @@
 // in the message's encrypted extras), the server stores only ciphertext, and the CLI decrypts them (and the other way
 // round). Your own message can be edited for 15 minutes: the browser encrypts the new text and keeps the files.
 import { chromium } from "playwright-core";
-import { spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { mkdtempSync, writeFileSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { cliTty as tty } from "./lib/clitty.mjs";
 const BASE=process.env.BASE||"http://localhost:8787", WT=new URL("../../", import.meta.url).pathname, CLI=WT+"cli/dist/agent-soup.mjs";
 const ops = async (p, b) => (await fetch(`${BASE}/api/ops/${p}`, { method: "POST", headers: { "x-admin-key": "ci-admin-key", "content-type": "application/json" }, body: JSON.stringify(b) })).json();
 const run=Date.now().toString(36).slice(-4), A=`anf${run}`, B=`bof${run}`;
@@ -13,7 +14,8 @@ const dir=mkdtempSync(join(tmpdir(),"e2e-files-"));
 const tok={},cred={};
 for (const u of [A,B]) { await ops("users",{name:u,email:`${u}@example.com`,verified:"true"}); tok[u]=(await ops("tokens",{user:u})).token;
   cred[u]=join(dir,`${u}.json`); writeFileSync(cred[u],JSON.stringify({server:BASE,user:u,token:tok[u],expires_at:Date.now()+86400e3}),{mode:0o600}); }
-const cli=(u,args)=>new Promise(res=>{const p=spawn("node",[CLI,...args],{cwd:dir,env:{...process.env,AGENT_BOARD_CREDENTIALS_FILE:cred[u],AGENT_BOARD_SERVER:BASE,XDG_CONFIG_HOME:join(dir,`cfg-${u}`)}});
+const cliTty=(u,args)=>tty(CLI,args,{cwd:dir,env:{AGENT_BOARD_CREDENTIALS_FILE:cred[u],AGENT_BOARD_SERVER:BASE,XDG_CONFIG_HOME:join(dir,`cfg-${u}`)}}); // a person at a terminal (#5567)
+const cli=(u,args,cwd=dir)=>new Promise(res=>{const p=spawn("node",[CLI,...args],{cwd,env:{...process.env,AGENT_BOARD_CREDENTIALS_FILE:cred[u],AGENT_BOARD_SERVER:BASE,XDG_CONFIG_HOME:join(dir,`cfg-${u}`)}});
   let out="",err="";p.stdout.on("data",d=>out+=d);p.stderr.on("data",d=>err+=d);p.stdin.end();p.on("close",code=>res({code,out,err}))});
 const board=(await ops("boards",{user:A,title:`Sealed files ${run}`,encrypted:true})).board.id;
 await ops("members",{board,user:B});
@@ -68,7 +70,7 @@ const ctxB=await b.newContext({viewport:{width:1280,height:900}});
 { const ckB=(await ops("sessions",{user:B})).cookie;const [k,...v]=ckB.split(";")[0].split("=");await ctxB.addCookies([{name:k,value:v.join("="),url:BASE}]); }
 const pb=await ctxB.newPage();pb.on("pageerror",e=>errors.push(e.message));await pb.goto(`${BASE}/b/${board}`);
 await until(()=>pb.locator("#e2e-msg").innerText().catch(()=>""),t=>/waiting for the board's key/.test(t));
-r=await until(()=>cli(B,["read"]),x=>/keys approve \S+/.test(x.err));await cli(B,["keys","approve",(r.err.match(/keys approve (\S+)/)||[])[1]]);
+r=await until(()=>cli(B,["read"]),x=>/keys approve \S+/.test(x.err));await cliTty(B,["keys","approve",(r.err.match(/keys approve (\S+)/)||[])[1]]);
 r=await cli(B,["approvals","ask",`ship the plan ${run}`,"--details",`deploy plan ${run} to staging`,"--command","make deploy"]);
 check(r.code===0&&/ap_/.test(r.out),`Bob's agent asks for approval on the encrypted board (${r.code})`);
 const apTitle=pa.locator("#thread .entry .e2e-text",{hasText:`ship the plan ${run}`});
@@ -82,7 +84,7 @@ check((await apd.innerText().catch(()=>"")).includes(`deploy plan ${run} to stag
 { const { createCipheriv, createDecipheriv, createPublicKey, diffieHellman, generateKeyPairSync, hkdfSync, randomBytes } = await import("node:crypto");
   const k=generateKeyPairSync("x25519"),pub=Buffer.from(k.publicKey.export({format:"jwk"}).x,"base64url").toString("base64");
   const kid=(await (await fetch(`${BASE}/api/me/keys`,{method:"POST",headers:{authorization:`Bearer ${tok[B]}`,"content-type":"application/json"},body:JSON.stringify({public_key:pub,label:"test device"})})).json()).id;
-  await cli(B,["read"]);await cli(B,["keys","approve",kid]);await cli(B,["read"]);
+  await cli(B,["read"]);await cliTty(B,["keys","approve",kid]);await cli(B,["read"]);
   const st=await (await fetch(`${BASE}/api/boards/${board}/epochs`,{headers:{authorization:`Bearer ${tok[B]}`}})).json(),g=st.mine.find(x=>x.kid===kid&&x.epoch===st.current);
   const un=(key,iv,d)=>{const raw=Buffer.from(d,"base64"),c=createDecipheriv("aes-256-gcm",key,Buffer.from(iv,"base64"));c.setAuthTag(raw.subarray(raw.length-16));return Buffer.concat([c.update(raw.subarray(0,raw.length-16)),c.final()])};
   const shared=diffieHellman({privateKey:k.privateKey,publicKey:createPublicKey({key:{kty:"OKP",crv:"X25519",x:Buffer.from(g.epk,"base64").toString("base64url")},format:"jwk"})});
@@ -107,6 +109,23 @@ check(after.edited_at>0&&!after.payload.includes("edited")&&after.files.length==
 r=await until(()=>cli(B,["read","--all"]),x=>x.out.includes(`edited ${run}`));
 check(r.out.includes(`files from the web, edited ${run}`)&&r.out.includes("edited"),"the CLI reads the edit");
 check(await pa.locator(`#e${(await sealed()).at(-1).seq} [data-edit]`).count()===0,"…and there's no Edit on someone else's message");
+// A handoff (docs/SPEC.md §16): Bob's CLI seals the branch and commits; Ann's page opens them under the message and
+// keeps the clear line (state, check counts); board info's gate queue shows the branch the page opened.
+{ const repo=mkdtempSync(join(tmpdir(),"e2e-ho-")),genv={...process.env,GIT_AUTHOR_NAME:"t",GIT_AUTHOR_EMAIL:"t@example.com",GIT_COMMITTER_NAME:"t",GIT_COMMITTER_EMAIL:"t@example.com"};
+  const g=(...a)=>execFileSync("git",a,{cwd:repo,env:genv,stdio:"pipe"}).toString().trim();
+  g("init","-q","-b","main");writeFileSync(join(repo,"a.txt"),"1\n");g("add",".");g("commit","-qm","m");g("update-ref","refs/remotes/origin/main",g("rev-parse","HEAD"));
+  g("checkout","-qb",`gate/web-${run}`);writeFileSync(join(repo,"a.txt"),"2\n");g("commit","-qam","f");const head=g("rev-parse","HEAD");
+  r=await cli(B,["post","handoff","--checks","vitest 9, e2e 2/3","--board",board],repo);
+  const h=Number((r.out.match(/Posted #(\d+)/)||[])[1]);
+  check(r.code===0&&h>0,`Bob's CLI hands off on the encrypted board (${r.code} ${r.err.slice(0,160)})`);
+  await pa.evaluate(()=>e2eSync());
+  const ho=pa.locator(`#e${h} .e2e-ho`);await ho.waitFor({timeout:10000}).catch(()=>{});
+  check((await ho.innerText().catch(()=>"")).includes(`ready to gate: gate/web-${run} @${head.slice(0,7)}`),"the page opens the handoff's branch and commit");
+  check((await pa.locator(`#e${h} .handoff:not(.e2e-ho)`).innerText().catch(()=>"")).includes("e2e 2 (1 failed)"),"…and keeps the clear line (check counts)");
+  await pa.locator('[data-open="invite"]').first().click();await pa.locator("#acc-gate:not([hidden])").waitFor({timeout:8000}).catch(()=>{});
+  await until(()=>pa.locator("#acc-handoffs .acc-row").first().innerText().catch(()=>""),t=>t.includes(`gate/web-${run}`),5000);
+  check((await pa.locator("#acc-handoffs .acc-row").first().innerText().catch(()=>"")).includes(`🔒 gate/web-${run}`),"board info's gate queue shows the branch this page opened");
+  await pa.keyboard.press("Escape"); }
 check(errors.length===0,`no page errors ${errors.join(" | ")}`);
 await b.close();console.log(fails?`${fails} FAILED`:"all encrypted file and edit checks passed");
 if (fails) process.exitCode = 1;

@@ -15,14 +15,36 @@ export interface HandoffReady {
   closed_seq?: number | null; // the reply that closed it
 }
 
-/** The lander's reply that closes handoff #of. */
+/** One check's name and counts, kept in clear on an encrypted board so the gate can see what passed. */
+export interface CheckTally {
+  name: string;
+  pass: number | null;
+  fail: number | null;
+}
+
+/**
+ * A handoff on an end-to-end encrypted board (docs/SPEC.md §16): the gate's metadata in clear, the rest sealed. The
+ * branch, sha, base and checks' output are in the entry's envelope (extras `handoff`); the server keeps a keyed hash of
+ * the branch (one open handoff per branch) and the checks' names and counts.
+ */
+export interface SealedReady {
+  sealed: true;
+  branch_hash: string; // HMAC-SHA256 under a key derived from the board key: the same branch, the same hash
+  checks: CheckTally[];
+  lgtm: number | null;
+  state: "open" | "landed" | "failed";
+  closed_by?: string | null;
+  closed_seq?: number | null;
+}
+
+/** The lander's reply that closes handoff #of. On an encrypted board `sha` is null (it's in the reply's envelope). */
 export interface HandoffResult {
   of: number;
   state: "landed" | "failed";
   sha: string | null; // landed: the commit on main
 }
 
-export type Handoff = HandoffReady | HandoffResult;
+export type Handoff = HandoffReady | SealedReady | HandoffResult;
 
 export class HandoffError extends Error {}
 
@@ -30,6 +52,69 @@ export const MAX_CHECKS = 300;
 const SHA_RE = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
 
 export const isResult = (h: Handoff): h is HandoffResult => "of" in h;
+export const isSealedReady = (h: Handoff): h is SealedReady => "sealed" in h && h.sealed === true;
+/** What makes two handoffs the same branch: the branch, or on an encrypted board its keyed hash. */
+export const branchKey = (h: HandoffReady | SealedReady): string => ("sealed" in h ? `#${h.branch_hash}` : h.branch);
+
+export const MAX_TALLIES = 20;
+/** The check names that may go in clear: well-known tools and suites, so a free-text check ("fix auth bypass 3") never
+ *  leaks what the work is about (#5580). Anything else is "other" in clear; its words stay in the envelope. */
+export const KNOWN_CHECKS = [
+  "vitest", "jest", "mocha", "tsc", "typecheck", "lint", "eslint", "prettier", "build", "unit", "integration", "e2e", "cli",
+  "browser", "playwright", "crawl", "smoke", "ios", "xcodebuild", "android", "pytest", "rspec", "go test", "cargo test",
+  "swift test", "other",
+] as const;
+const KNOWN = new Set<string>(KNOWN_CHECKS);
+const count = (v: unknown, field: string): number | null => {
+  if (v == null) return null;
+  if (typeof v !== "number" || !Number.isInteger(v) || v < 0 || v > 1e7) throw new HandoffError(`${field} is a whole number of checks.`);
+  return v;
+};
+
+/** The clear checks of an encrypted handoff: known names (KNOWN_CHECKS) with pass and fail counts. */
+export function tallies(v: unknown): CheckTally[] {
+  if (!Array.isArray(v) || !v.length) throw new HandoffError('checks is a list of {name, pass, fail}, e.g. [{"name": "vitest", "pass": 470, "fail": 0}].');
+  if (v.length > MAX_TALLIES) throw new HandoffError(`At most ${MAX_TALLIES} checks.`);
+  return v.map((c, i) => {
+    const o = c && typeof c === "object" && !Array.isArray(c) ? (c as Record<string, unknown>) : {};
+    const name = typeof o.name === "string" ? o.name.replace(/\s+/g, " ").trim().toLowerCase() : "";
+    if (!KNOWN.has(name)) throw new HandoffError(`checks[${i}].name is a known check name (${KNOWN_CHECKS.join(", ")}); say anything else in the envelope.`);
+    return { name, pass: count(o.pass, `checks[${i}].pass`), fail: count(o.fail, `checks[${i}].fail`) };
+  });
+}
+
+/** A check list as people write it ("vitest 470, e2e 183/185, browser crawl") as tallies: "name N" passed N, "name N/M"
+ *  N of M. A name that isn't a known check becomes "other" (its words stay sealed). */
+export function talliesFrom(text: string): CheckTally[] {
+  return text
+    .split(/[,;\n]/)
+    .map((s) => s.replace(/\s+/g, " ").trim())
+    .filter(Boolean)
+    .slice(0, MAX_TALLIES)
+    .map((s) => {
+      const m = s.match(/^(.*?)\s+(\d+)(?:\s*\/\s*(\d+))?(?:\s+passed)?$/);
+      const said = (m ? m[1] : s).trim().toLowerCase();
+      const name = KNOWN.has(said) ? said : "other";
+      if (!m) return { name, pass: null, fail: null };
+      const pass = Number(m[2]);
+      return { name, pass, fail: m[3] != null ? Math.max(0, Number(m[3]) - pass) : 0 };
+    });
+}
+
+const fmtTally = (t: CheckTally) => (t.pass == null ? t.name : `${t.name} ${t.pass}${t.fail ? ` (${t.fail} failed)` : ""}`);
+export const tallyText = (ts: CheckTally[]) => ts.map(fmtTally).join(", ");
+
+/** A new handoff on an encrypted board: only its clear part. Branch, commits and checks' output belong in the envelope. */
+export function parseSealedReady(raw: unknown): SealedReady {
+  const r = obj(raw);
+  if (r.state != null || r.of != null) throw new HandoffError("To close a handoff, reply to it (reply_to) with {state: \"landed\"} or {state: \"failed\"}.");
+  for (const k of ["branch", "sha", "base"]) if (r[k] != null) throw new HandoffError(`On an end-to-end encrypted board the ${k} goes in the envelope, not in clear: post it with atteo post handoff.`);
+  const hash = typeof r.branch_hash === "string" ? r.branch_hash.trim().toLowerCase() : "";
+  if (!/^[0-9a-f]{64}$/.test(hash)) throw new HandoffError("branch_hash is the branch's keyed hash (64 hex characters; atteo post handoff works it out).");
+  const lgtm = r.lgtm == null || r.lgtm === "" ? null : Number(String(r.lgtm).replace(/^#/, ""));
+  if (lgtm != null && (!Number.isInteger(lgtm) || lgtm < 1)) throw new HandoffError("lgtm is the number of the entry with the reviewer's LGTM.");
+  return { sealed: true, branch_hash: hash, checks: tallies(r.checks), lgtm, state: "open" };
+}
 
 /** A full commit id (sha1 or sha256), lowercased, or an error naming the field. */
 export function fullSha(v: unknown, field: string): string {
@@ -81,8 +166,11 @@ export function parseReady(raw: unknown): HandoffReady {
 }
 
 /** The lander's answer to handoff #of: landed (with the sha on main) or failed. */
-export function parseResult(raw: unknown, of: number): HandoffResult {
+export function parseResult(raw: unknown, of: number, sealed = false): HandoffResult {
   const r = obj(raw);
+  // Encrypted: the commit on main is in the reply's envelope, never in clear.
+  if (sealed && r.sha != null) throw new HandoffError("On an end-to-end encrypted board the sha goes in the envelope, not in clear: close it with atteo post handoff --reply.");
+  if (sealed && (r.state === "landed" || r.state === "failed")) return { of, state: r.state, sha: null };
   if (r.state === "landed") return { of, state: "landed", sha: fullSha(r.sha, "sha") };
   if (r.state === "failed") return { of, state: "failed", sha: null };
   throw new HandoffError('state is "landed" (with the sha on main) or "failed" (the text says why).');
@@ -102,21 +190,25 @@ const short = (sha: string | null | undefined) => (sha ? sha.slice(0, 7) : "?");
 
 /** One line for reads and summaries. */
 export function handoffLine(h: Handoff): string {
-  if (isResult(h)) return h.state === "landed" ? `landed #${h.of} as ${short(h.sha)}` : `failed #${h.of}`;
+  if (isResult(h)) return h.state === "landed" ? (h.sha ? `landed #${h.of} as ${short(h.sha)}` : `landed #${h.of}`) : `failed #${h.of}`;
   const lgtm = h.lgtm != null ? ` · LGTM #${h.lgtm}` : "";
-  const state = h.state === "landed" ? ` · landed as ${short(h.landed_sha)}${h.closed_seq ? ` (#${h.closed_seq})` : ""}` : h.state === "failed" ? ` · failed${h.closed_seq ? ` (#${h.closed_seq})` : ""}` : "";
+  const landed = "sealed" in h ? "" : ` as ${short(h.landed_sha)}`;
+  const state = h.state === "landed" ? ` · landed${landed}${h.closed_seq ? ` (#${h.closed_seq})` : ""}` : h.state === "failed" ? ` · failed${h.closed_seq ? ` (#${h.closed_seq})` : ""}` : "";
+  if ("sealed" in h) return `ready to gate (encrypted branch and commits) · checks: ${tallyText(h.checks)}${lgtm}${state}`;
   return `ready to gate: ${h.branch} @${short(h.sha)} on ${short(h.base)} · checks: ${h.checks}${lgtm}${state}`;
 }
 
-/** The free-text part of a handoff, for the secret filter and the injection screen. */
-export function handoffText(h: HandoffReady): string {
-  return `${h.branch}\n${h.checks}`;
+/** The free-text part of a handoff, for the secret filter and the injection screen (an encrypted one's check names). */
+export function handoffText(h: HandoffReady | SealedReady): string {
+  return "sealed" in h ? h.checks.map((c) => c.name).join("\n") : `${h.branch}\n${h.checks}`;
 }
 
-/** The gate's queue, one line per open handoff (full shas, so the lander can check out exactly that commit). */
-export function queueLine(e: { seq: number; author: string; ts: number; handoff?: Handoff | null }, flag: string, now = Date.now()): string {
-  const h = e.handoff as HandoffReady;
+/** The gate's queue, one line per open handoff (full shas, so the lander can check out exactly that commit). `holder`:
+ *  who's on it (handle), in clear on any board. */
+export function queueLine(e: { seq: number; author: string; ts: number; handoff?: Handoff | null }, flag: string, now = Date.now(), holder?: string | null): string {
+  const h = e.handoff as HandoffReady | SealedReady;
   const mins = Math.max(0, Math.round((now - e.ts) / 60_000));
   const age = mins < 60 ? `${mins}m` : mins < 48 * 60 ? `${Math.round(mins / 60)}h` : `${Math.round(mins / 1440)}d`;
-  return `#${e.seq} ${flag}${h.branch} ${h.sha} on ${h.base} · checks: ${h.checks}${h.lgtm != null ? ` · LGTM #${h.lgtm}` : ""} · ${e.author} · ${age} ago`;
+  const what = "sealed" in h ? `🔒 branch and commits encrypted (atteo get handoffs decrypts them) · checks: ${tallyText(h.checks)}` : `${h.branch} ${h.sha} on ${h.base} · checks: ${h.checks}`;
+  return `#${e.seq} ${flag}${what}${h.lgtm != null ? ` · LGTM #${h.lgtm}` : ""} · ${e.author} · ${age} ago${holder ? ` · ${holder} is on it` : ""}`;
 }

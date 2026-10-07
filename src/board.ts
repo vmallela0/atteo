@@ -15,7 +15,7 @@ import { ALL_AGENTS, ALL_HUMANS, ALL_MEMBERS, forAgent, forPerson, hasGroupMenti
 import { ENTRY_TYPES, type ApprovalRef, type Attachment, type BoardInfo, type Entry, type Env, type Media, type Member, type NewEntry, type Viewer } from "./types";
 import { cleanTitle, EMOJI_RE, ftsQuery, normalizeForScreen, USER_RE } from "./util";
 import { cardText, parseCard, type ChangeCard } from "./card";
-import { closes, handoffText, HandoffError, isResult, parseReady, parseResult, type Handoff, type HandoffReady, type HandoffResult } from "./handoff";
+import { branchKey, closes, handoffText, HandoffError, isResult, isSealedReady, parseReady, parseResult, parseSealedReady, type Handoff, type HandoffReady, type HandoffResult, type SealedReady } from "./handoff";
 import { deliver } from "./webhooks";
 import { HumanDecisions, isHumanDecisionPost, type HumanDecision } from "./decisions";
 import type { RecapCore, RecapOwner, RecapTask } from "./recap";
@@ -1451,17 +1451,18 @@ export class Board extends DurableObject<Env> {
 
     // A gate handoff (#2173 item 3, #2358): a new one says what's ready to land; a handoff reply to an open one closes it.
     let handoff: Handoff | null = null;
-    let closing: { seq: number; ready: HandoffReady } | null = null;
+    let closing: { seq: number; ready: HandoffReady | SealedReady } | null = null;
     if (input.handoff != null && input.type !== "handoff") throw new BoardError("handoff goes with type handoff.");
     if (input.type === "handoff") {
-      if (info.encrypted) throw new BoardError("Handoffs aren't available on an end-to-end encrypted board: the server would see the branch and checks.");
+      // Encrypted: only as an envelope (postSealed), its clear part the gate's metadata (docs/SPEC.md §16).
+      if (info.encrypted && !internal.sealed) throw new BoardError("This board is end-to-end encrypted: hand off with atteo post handoff, which encrypts the branch and commits on your machine.");
       if (aud) throw new BoardError("A handoff is for the board's gate, so it can't be people-only or just mine.");
       try {
         if (closes(input.handoff)) {
-          const c = this.handoffToClose({ user, session: input.session ?? null }, input.reply_to ?? null, input.handoff);
+          const c = this.handoffToClose({ user, session: input.session ?? null }, input.reply_to ?? null, input.handoff, !!info.encrypted);
           closing = c.closing;
           handoff = c.result;
-        } else handoff = this.handoffReady({ user, session: input.session ?? null }, poster, input.handoff);
+        } else handoff = this.handoffReady({ user, session: input.session ?? null }, poster, input.handoff, !!info.encrypted);
       } catch (e) {
         throw e instanceof HandoffError ? new BoardError(e.message) : e;
       }
@@ -3840,8 +3841,8 @@ export class Board extends DurableObject<Env> {
   }
 
   /** A new handoff, checked: its lgtm is a public entry on this board by someone other than the poster. */
-  private handoffReady(me: { user: string; session: string | null }, poster: Viewer, raw: unknown): HandoffReady {
-    const ready = parseReady(raw);
+  private handoffReady(me: { user: string; session: string | null }, poster: Viewer, raw: unknown, sealed = false): HandoffReady | SealedReady {
+    const ready = sealed ? parseSealedReady(raw) : parseReady(raw);
     const n = ready.lgtm;
     if (n != null) {
       const row = this.sql.exec("SELECT author, session, audience FROM entries WHERE seq = ?", n).toArray()[0];
@@ -3857,19 +3858,21 @@ export class Board extends DurableObject<Env> {
    * The lander's reply closing handoff #of. Any member may close an open handoff, but never mark their own landed:
    * whoever handed it off can only withdraw it (failed). Unsent and already closed handoffs stay as they are.
    */
-  private handoffToClose(me: { user: string; session: string | null }, of: number | null, raw: unknown): { closing: { seq: number; ready: HandoffReady }; result: HandoffResult } {
+  private handoffToClose(me: { user: string; session: string | null }, of: number | null, raw: unknown, sealed = false): { closing: { seq: number; ready: HandoffReady | SealedReady }; result: HandoffResult } {
     const row = of != null ? this.sql.exec("SELECT author, session, handoff FROM entries WHERE seq = ?", of).toArray()[0] : undefined;
     const target = row?.handoff ? (JSON.parse(row.handoff as string) as Handoff) : null;
     if (of == null || !target || isResult(target)) throw new BoardError("To close a handoff, reply to it: reply_to is the handoff's number.");
     if (this.sql.exec("SELECT 1 AS x FROM entries WHERE retracts = ?", of).toArray().length) throw new BoardError(`#${of} was unsent.`);
     if (target.state !== "open") throw new BoardError(`#${of} is already ${target.state}${target.closed_seq ? ` (#${target.closed_seq})` : ""}.`);
-    const result = parseResult(raw, of);
+    const result = parseResult(raw, of, sealed);
     if (result.state === "landed" && this.sameActor(me, row!)) throw new BoardError(`You handed off #${of}, so someone else lands it and says so. To withdraw it, reply with state "failed".`);
     return { closing: { seq: of, ready: target }, result };
   }
 
-  private closeHandoff(closing: { seq: number; ready: HandoffReady }, result: HandoffResult, user: string, seq: number) {
-    const h: HandoffReady = { ...closing.ready, state: result.state, landed_sha: result.sha, closed_by: user, closed_seq: seq };
+  private closeHandoff(closing: { seq: number; ready: HandoffReady | SealedReady }, result: HandoffResult, user: string, seq: number) {
+    const h: HandoffReady | SealedReady = isSealedReady(closing.ready)
+      ? { ...closing.ready, state: result.state, closed_by: user, closed_seq: seq } // the sha on main is in the reply's envelope
+      : { ...closing.ready, state: result.state, landed_sha: result.sha, closed_by: user, closed_seq: seq };
     this.sql.exec("UPDATE entries SET handoff = ? WHERE seq = ?", JSON.stringify(h), closing.seq);
     this.entryMemo = this.entryMemo.map((e) => (e.seq === closing.seq ? { ...e, handoff: h } : e));
     this.changes++;
@@ -3880,7 +3883,7 @@ export class Board extends DurableObject<Env> {
    * of the same branch (a fix, a merge of main) supersedes the older ones, which stay open on the board but leave the
    * queue (opus-d #3313: the queue showed four shas of gate-queue).
    */
-  async handoffs(viewer?: Viewer | null): Promise<Entry[]> {
+  async handoffs(viewer?: Viewer | null): Promise<(Entry & { held_by?: string | null })[]> {
     this.info();
     const rows = this.sql
       .exec(
@@ -3889,9 +3892,21 @@ export class Board extends DurableObject<Env> {
       )
       .toArray();
     const open = rows.map(toEntry).filter((e) => canSee(e, viewer));
+    // Encrypted handoffs all stay: the server can't check a branch hash against the sealed branch (a member could copy
+    // someone else's), so the gate's client checks each hash it decrypts and keeps the newest per branch (#5580).
+    const key = (e: Entry) => (e.handoff && !isResult(e.handoff) && !isSealedReady(e.handoff) ? branchKey(e.handoff) : null);
     const newest = new Map<string, number>();
-    for (const e of open) if (e.handoff && "branch" in e.handoff) newest.set(e.handoff.branch, e.seq);
-    return open.filter((e) => !(e.handoff && "branch" in e.handoff) || newest.get(e.handoff.branch) === e.seq);
+    for (const e of open) {
+      const k = key(e);
+      if (k) newest.set(k, e.seq);
+    }
+    const queue = open.filter((e) => {
+      const k = key(e);
+      return !k || newest.get(k) === e.seq;
+    });
+    // Who's landing each (the lease: "On it", /handle), in clear on every board.
+    const held = new Map(this.sql.exec("SELECT seq, label FROM handling WHERE done = 0").toArray().map((r) => [r.seq as number, r.label as string]));
+    return queue.map((e) => (held.has(e.seq) ? { ...e, held_by: held.get(e.seq)! } : e));
   }
 
   // ---- claims: asserted → evidenced → verified (never by their author), or disputed; dependents go stale ----
@@ -4923,7 +4938,7 @@ export class Board extends DurableObject<Env> {
    * A sealed secret: ciphertext only the recipient's agents can open (their CLI holds the private keys). The server
    * stores and serves the envelope and never sees the plaintext; the visible note says who it's for.
    */
-  async postSealed(user: string, s: { to: string | null; note?: string; payload: string; type?: string; reply_to?: number | null; files?: string[] }, opts: TaskActOpts): Promise<Entry> {
+  async postSealed(user: string, s: { to: string | null; note?: string; payload: string; type?: string; reply_to?: number | null; files?: string[]; handoff?: unknown }, opts: TaskActOpts): Promise<Entry> {
     const info = this.info();
     const to = s.to ? s.to.toLowerCase() : null;
     if (!to && !info.encrypted) throw new BoardError("Say who it's for (to).");
@@ -4939,9 +4954,11 @@ export class Board extends DurableObject<Env> {
     }
     const note = (s.note ?? "").replace(/\s+/g, " ").trim().slice(0, 200);
     // On an encrypted board every message is an envelope for all members; elsewhere it's a secret for one member.
-    const type = (["note", "question", "claim", "decision", "task"] as const).find((t) => t === s.type) ?? "note";
+    // A handoff's clear part is the gate's metadata (branch hash, checks' names and counts, state); the rest is sealed.
+    const type = (["note", "question", "claim", "decision", "task", ...(info.encrypted ? (["handoff"] as const) : [])] as const).find((t) => t === s.type) ?? "note";
+    if (s.handoff != null && type !== "handoff") throw new BoardError("handoff goes with type handoff.");
     const e = info.encrypted
-      ? await this.post(user, { type, to, reply_to: s.reply_to ?? null, title: "Encrypted", text: "🔒 Encrypted message (read it with atteo read)", via: opts.via, client: opts.client, session: opts.session }, { sealed: true })
+      ? await this.post(user, { type, to, reply_to: s.reply_to ?? null, title: "Encrypted", text: "🔒 Encrypted message (read it with atteo read)", via: opts.via, client: opts.client, session: opts.session, ...(type === "handoff" ? { handoff: s.handoff ?? {} } : {}) }, { sealed: true })
       : await this.post(user, { type: "note", to, title: "Sealed secret", text: `🔒 A sealed secret for ${to}'s agent${note ? `: ${note}` : "."} Only ${to}'s agent can open it: atteo unseal <this entry's number>.`, via: opts.via, client: opts.client, session: opts.session });
     // On an encrypted board every envelope is for all members ("*"); `to` is just who it's addressed to.
     this.sql.exec("UPDATE entries SET sealed = ?, sealed_to = ? WHERE seq = ?", s.payload, info.encrypted ? "*" : to, e.seq);
