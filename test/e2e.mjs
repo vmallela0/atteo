@@ -4625,6 +4625,15 @@ await step("CLI login: device code, approve in the browser, token works once; de
   const self = await fetch(`${BASE}/api/device/decide`, { method: "POST", headers: { authorization: `Bearer ${got.token}`, "content-type": "application/json" }, body: JSON.stringify({ user_code: s3.user_code, approve: true }) });
   assert(self.status === 401 || self.status === 403, `a CLI token approving a sign-in got ${self.status}`);
   assert((await fetch(`${BASE}/api/device/token`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ device_code: s3.device_code }) })).status === 428, "still pending after a token's try");
+  // Nor the app's token, a form posted as text/plain, or a request from another site (Codex review)
+  const appTok = (await ops("tokens", { user: A, kind: "app", label: "e2e device app" })).body.token;
+  const viaApp = await fetch(`${BASE}/api/device/decide`, { method: "POST", headers: { authorization: `Bearer ${appTok}`, "content-type": "application/json" }, body: JSON.stringify({ user_code: s3.user_code, approve: true }) });
+  assert(viaApp.status === 401 || viaApp.status === 403, `an app token approving a sign-in got ${viaApp.status}`);
+  const asText = await web("/api/device/decide", A, { method: "POST", headers: { "content-type": "text/plain" }, body: JSON.stringify({ user_code: s3.user_code, approve: true }) });
+  assert(asText.status === 403, `text/plain decide got ${asText.status}`);
+  const sibling = await web("/api/device/decide", A, { method: "POST", headers: { "content-type": "application/json", "sec-fetch-site": "same-site" }, body: JSON.stringify({ user_code: s3.user_code, approve: true }) });
+  assert(sibling.status === 403, `same-site decide got ${sibling.status}`);
+  assert((await fetch(`${BASE}/api/device/token`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ device_code: s3.device_code }) })).status === 428, "still pending after those tries");
   // deny
   const s2 = await (await fetch(`${BASE}/api/device/start`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" })).json();
   await web("/api/device/decide", A, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ user_code: s2.user_code, approve: false }) });
