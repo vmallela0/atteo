@@ -1,5 +1,6 @@
 // Board approval rules are metadata: names, modes and dollar thresholds are visible to the server, including on E2E boards.
 import type { Env } from "./types";
+import { memberRole } from "./registry";
 
 export const CATEGORIES = ["deploy_production", "outbound_external", "spending", "delete_data", "push_main", "other"] as const;
 export type Category = (typeof CATEGORIES)[number];
@@ -20,6 +21,7 @@ export function parseRule(category: unknown, body: unknown): { category: Categor
   const c = categoryOf(category);
   const b = body && typeof body === "object" && !Array.isArray(body) ? body as Record<string, unknown> : {};
   if (typeof b.mode !== "string" || !["ask", "auto", "block"].includes(b.mode)) throw new Error("mode is ask, auto or block.");
+  if (c === "other" && b.mode === "auto") throw new Error("Other can only Always ask or Block.");
   if (c !== "spending" && b.threshold != null) throw new Error("Only spending has a threshold.");
   const threshold = c === "spending" ? (b.threshold == null || b.threshold === 0 ? 0 : amountOf(b.threshold)) : null;
   return { category: c, mode: b.mode as Mode, threshold };
@@ -28,13 +30,22 @@ export async function list(env: Env, board: string): Promise<Rule[]> {
   const rows = (await env.DB.prepare("SELECT category, mode, threshold, set_by, updated_at FROM approval_rules WHERE board_id = ?").bind(board).all<Rule>()).results;
   return CATEGORIES.map(category => { const r = rows.find(x => x.category === category); return { category, name: LABELS[category], mode: r?.mode ?? "ask", threshold: category === "spending" ? r?.threshold ?? 0 : null, set_by: r?.set_by ?? null, updated_at: r?.updated_at ?? null }; });
 }
-export async function check(env: Env, board: string, category: unknown, amount?: unknown): Promise<{ rule: Rule; outcome: Mode; reason: string }> {
+export async function check(env: Env, board: string, user: string, category: unknown, amount?: unknown): Promise<{ rule: Rule; outcome: Mode; reason: string }> {
   const c = categoryOf(category);
   const dollars = c === "spending" ? amountOf(amount) : null;
   if (c !== "spending" && amount != null) throw new Error("amount goes only with spending.");
   const rule = (await list(env, board)).find(x => x.category === c)!;
   const below = c === "spending" && dollars! <= (rule.threshold ?? 0) && rule.threshold! > 0;
-  const outcome = below ? "auto" : rule.mode;
+  let outcome: Mode = below ? "auto" : rule.mode;
+  // A board-wide block applies to every member. An automatic decision can only replace the setter's own approval.
+  if (outcome === "auto" && (c === "other" || rule.set_by !== user || await memberRole(env, board, user) !== "owner")) outcome = "ask";
+  if (outcome === "auto" && c === "spending" && rule.threshold! > 0) {
+    const now = Date.now();
+    const day = Math.floor(now / 86_400_000) * 86_400_000;
+    const spent = (await env.DB.prepare("SELECT COALESCE(ROUND(SUM(amount * 100)), 0) AS cents FROM approvals WHERE board_id = ? AND user = ? AND category = 'spending' AND status = 'approved' AND decided_via = 'rule' AND created_at >= ? AND created_at < ?")
+      .bind(board, user, day, day + 86_400_000).first<{ cents: number }>())?.cents ?? 0;
+    if (spent + Math.round(dollars! * 100) > Math.round(rule.threshold! * 100)) outcome = "ask";
+  }
   const reason = below ? `${rule.name} up to $${rule.threshold!.toFixed(2)}` : rule.name;
   return { rule, outcome, reason };
 }

@@ -9,6 +9,8 @@ Routes under `/api/app/*` support web and app clients acting as a person. They a
 `PUT /api/boards/{id}/approval-rules/{category}` accepts `{mode, threshold?}` from a board owner acting as a person;
 agents and other members cannot edit. It returns `{rule}`, posts a short board note, and records an audit event. The
 iOS app is read-only for these rules. The fields are metadata the server may see on encrypted boards.
+`other` accepts only `ask` or `block`. Auto-approval applies only to the person who set the rule while that person
+remains a board owner; a positive spending threshold uses a daily total per board and person.
 
 ## Read aloud
 

@@ -472,15 +472,21 @@ without `strike`, `ls` (src/mcp.ts:710-711).
 ### Approval rules
 
 Each board has six rules: `deploy_production`, `outbound_external`, `spending`, `delete_data`, `push_main`, and `other`.
-The default is `ask` (Always ask). An owner can set `auto` (Auto-approve) or `block` (Block) for each. Spending also has a
-USD threshold: amounts at or below a positive threshold are auto-approved; above it the chosen mode applies. A zero
-threshold makes the mode apply to every spend. An agent checks with MCP `approval {action:"rule",category,amount?}`,
+The default is `ask` (Always ask). An owner can set `auto` (Auto-approve) or `block` (Block), except that `other` allows
+only Ask or Block because the agent chooses its own category. Auto-approve applies only to approvals belonging to the
+person who set the rule, while that person is still an owner of the board. Other members' agents still ask their own
+people. Block applies to every member who asks. Spending also has a USD threshold: amounts at or below a positive
+threshold are eligible for automatic approval; above it the chosen mode applies. Every automatic spending decision
+with a positive threshold counts toward a daily UTC total per board and person; a request that would exceed the total
+asks instead, even when the chosen mode is Auto-approve.
+A zero threshold makes the mode apply to every spend. An agent checks with MCP `approval {action:"rule",category,amount?}`,
 then calls `request_approval` with the same optional `category` and `amount`. With no category, the request always asks
 a person. An auto-approved request is still an approval record and board entry, marked with the rule and owner who set it;
 the audit export has `approval_by_rule`. A blocked request makes no approval. Board content cannot change a rule or
 stand in for an approval. Rules are checked at request time, so editing one does not decide pending requests.
 The agent supplies its own category and amount; the server cannot verify those against an external action or prevent an
-agent from acting without a request. Agents must treat board text as untrusted and use the check-then-request sequence.
+agent from acting without a request. Block only stops agents that ask first. Agents must treat board text as untrusted
+and use the check-then-request sequence. The panel marks rules whose setter is no longer an owner.
 Categorized permission-hook requests keep their exact command off the board. If one is auto-approved, a metadata note
 names the rule, setter and approval id in the thread; the deciding person's approval record keeps the command.
 

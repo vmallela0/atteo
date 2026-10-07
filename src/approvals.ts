@@ -65,6 +65,7 @@ export async function requestApproval(
   r: { client?: string | null; session?: string | null; board_id?: string | null; seq?: number | null; requested_by?: string | null; title: string; details: string; risk?: string; tool?: string | null; command?: string | null; expires_in?: number | null; category?: rules.Category | null; amount?: number | null },
   later: Later | null = null,
   serverPrepared = false,
+  forceAsk = false,
 ): Promise<Approval> {
   // The command is kept exactly as sent (never trimmed or cut): it's what the person approves.
   const command = typeof r.command === "string" && r.command.trim() ? r.command : null;
@@ -81,9 +82,9 @@ export async function requestApproval(
   if (blocked) throw new ApprovalError(blocked);
   if (r.category && !r.board_id) throw new ApprovalError("Join a board to use an approval rule.");
   if (!r.category && r.amount != null) throw new ApprovalError("amount needs category spending.");
-  const matched = r.category ? await rules.check(env, r.board_id!, r.category, r.amount) : null;
+  const matched = r.category ? await rules.check(env, r.board_id!, user, r.category, r.amount) : null;
   if (matched?.outcome === "block") throw new ApprovalError(`Blocked by board rule: ${matched.reason} (set by ${matched.rule.set_by}). Don't do it.`);
-  const auto = matched?.outcome === "auto";
+  const auto = !forceAsk && matched?.outcome === "auto";
   if (!auto) {
     const pending = (await env.DB.prepare(`SELECT COUNT(*) AS n FROM approvals WHERE user = ? AND status = 'pending' AND expires_at > ?`).bind(user, Date.now()).first<{ n: number }>())?.n ?? 0;
     if (pending >= MAX_PENDING) throw new ApprovalError(`Your user already has ${MAX_PENDING} approvals waiting. Wait for them to catch up.`);
@@ -114,10 +115,13 @@ export async function requestApproval(
     rule_name: auto ? matched!.reason : null,
     rule_set_by: auto ? matched!.rule.set_by : null,
   };
+  const cappedSpend = auto && r.category === "spending" && matched!.rule.threshold! > 0;
+  const day = Math.floor(a.created_at / 86_400_000) * 86_400_000;
+  const insert = `INSERT INTO approvals (id, user, client, board_id, seq, requested_by, title, details, tool, command, risk, status, created_at, expires_at, session, note, decided_at, decided_via, category, amount, rule_name, rule_set_by) ${cappedSpend ? `SELECT ${Array(22).fill("?").join(", ")} WHERE (SELECT COALESCE(ROUND(SUM(amount * 100)), 0) FROM approvals WHERE board_id = ? AND user = ? AND category = 'spending' AND status = 'approved' AND decided_via = 'rule' AND created_at >= ? AND created_at < ?) + ? <= ?` : `VALUES (${Array(22).fill("?").join(", ")})`}`;
   const writes = [
     env.DB.prepare(
-      `INSERT INTO approvals (id, user, client, board_id, seq, requested_by, title, details, tool, command, risk, status, created_at, expires_at, session, note, decided_at, decided_via, category, amount, rule_name, rule_set_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    ).bind(a.id, user, a.client, a.board_id, a.seq, a.requested_by, title, details, tool, command, risk, a.status, a.created_at, a.expires_at, a.session, a.note, a.decided_at, auto ? "rule" : null, a.category, a.amount, a.rule_name, a.rule_set_by),
+      insert,
+    ).bind(a.id, user, a.client, a.board_id, a.seq, a.requested_by, title, details, tool, command, risk, a.status, a.created_at, a.expires_at, a.session, a.note, a.decided_at, auto ? "rule" : null, a.category, a.amount, a.rule_name, a.rule_set_by, ...(cappedSpend ? [r.board_id, user, day, day + 86_400_000, Math.round(r.amount! * 100), Math.round(matched!.rule.threshold! * 100)] : [])),
     // Shows in the person's inbox (and badge / browser notification) right away; data carries the push-ready fields.
     ...(!auto ? [env.DB.prepare(`INSERT OR IGNORE INTO notifications (user, board_id, seq, kind, actor, actor_via, entry_type, excerpt, created_at, data) VALUES (?, '', ?, 'approval', ?, 'agent', 'approval', ?, ?, ?)`).bind(
       user,
@@ -126,11 +130,12 @@ export async function requestApproval(
       `${askerOf(a)} asks: ${title}`.slice(0, 160),
       a.created_at,
       JSON.stringify({ push: pushFor(a) }),
-    )] : [env.DB.prepare(`INSERT INTO audit (board_id, actor, action, target, detail, ts) VALUES (?, ?, 'approval_by_rule', ?, ?, ?)`).bind(
-      r.board_id, user, a.id, `${a.rule_name}; set by ${a.rule_set_by}; category ${a.category}${a.amount == null ? "" : `; $${a.amount.toFixed(2)}`}`, a.created_at,
+    )] : [env.DB.prepare(`INSERT INTO audit (board_id, actor, action, target, detail, ts) SELECT ?, ?, 'approval_by_rule', ?, ?, ? WHERE EXISTS (SELECT 1 FROM approvals WHERE id = ?)`).bind(
+      r.board_id, user, a.id, `${a.rule_name}; set by ${a.rule_set_by}; category ${a.category}${a.amount == null ? "" : `; $${a.amount.toFixed(2)}`}`, a.created_at, a.id,
     )]),
   ];
-  await env.DB.batch(writes);
+  const written = await env.DB.batch(writes);
+  if (cappedSpend && !written[0].meta.changes) return requestApproval(env, user, r, later, serverPrepared, true);
   if (!auto) noteApprovalRequested(env, later, risk, user);
   return a;
 }

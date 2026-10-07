@@ -1240,7 +1240,7 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
       if (action === "rule") {
         try {
           const board = await currentBoard(c, args);
-          const checked = await approvalRules.check(env, board, args.category, args.amount);
+          const checked = await approvalRules.check(env, board, user, args.category, args.amount);
           return `${checked.rule.name}: ${checked.outcome === "ask" ? "Always ask" : checked.outcome === "auto" ? "Auto-approve" : "Block"}${checked.rule.category === "spending" ? ` (threshold $${checked.rule.threshold!.toFixed(2)})` : ""}. ${checked.rule.set_by ? `Set by ${checked.rule.set_by}. ` : "Default. "}${checked.outcome === "block" ? "Stop; this action is blocked." : "Use request_approval with this category before acting."}`;
         } catch (e) { throw new ToolError(e instanceof Error ? e.message : String(e)); }
       }
