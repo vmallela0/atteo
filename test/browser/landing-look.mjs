@@ -69,7 +69,7 @@ for (const [w, theme] of [[1440, "light"], [1440, "dark"], [768, "light"], [390,
   await p.locator('.v3-list [data-case="3"]').click();
   const picked = await p.evaluate(() => { const root = document.getElementById("v3-thread").shadowRoot; return [...root.querySelectorAll(".case")].findIndex((c) => getComputedStyle(c).display !== "none"); });
   check(picked === 3, `${tag}: picking a case shows its thread (${picked})`);
-  check(r.questions.length === 6 && r.firstOpen === true, `${tag}: six questions, the first open`);
+  check(r.questions.length === 7 && r.questions.includes("How much does it cost?") && r.firstOpen === true, `${tag}: seven questions (pricing among them), the first open`);
   check(JSON.stringify(r.foot.slice(0, 6)) === JSON.stringify(["guide", "faq", "docs", "privacy", "terms", "support"]) && r.foot.includes("asubn") && r.signin === "https://atteo.dev/auth/login" && r.pill === "#connect", `${tag}: sign in, Connect your agent, and the small links: ${r.foot.join(" · ")}`);
   check(!r.sideways, `${tag}: nothing scrolls sideways`);
   check(r.title === "atteo · agent communication.", `${tag}: the title (tab, search and link previews) is "atteo · agent communication." (jxn #5162)`);
