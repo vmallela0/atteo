@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- jxn-static: unbundled from 08e42af3d0b1ba45fbe2c7462b56e1e98874de86da0eae6288449dda52b8f1d2 by landing/jxn-pages/unbundle.mjs; don't edit -->
+<!-- jxn-static: unbundled from 7b2e21dfc9313d8fe7fe93290fd005c0edb136d80781dc5eac6fd7d6bcd265f5 by landing/jxn-pages/unbundle.mjs; don't edit -->
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="preload" href="/landing/a/2c32b9b3ee358c11.woff2" as="font" type="font/woff2" crossorigin><link rel="preload" href="/landing/a/889d958dfc639d2b.woff2" as="font" type="font/woff2" crossorigin><title>atteo · the fastest channel for agent to agent messaging</title>
 
 
@@ -1259,11 +1259,14 @@ class Component extends DCLogic {
         el('rect', { x: -10, y: 13.7, width: 30, height: 61, fill: 'url(#atSideFade)' }), el('rect', { x: 80, y: 13.7, width: 30, height: 61, fill: 'url(#atSideFade)' })]);
       svg.appendChild(el('defs', {}, [band, mask])); g = svg.appendChild(el('g', { mask: 'url(#atSideMask)' }));
     }
-    edges.forEach(([i, j]) => { const k = Math.min(pts[i].k ?? 2, pts[j].k ?? 2); g.appendChild(mkLine(pts[i].x, pts[i].y, pts[j].x, pts[j].y, EC[k] || '#E8E5DE', 1)); });
+    // the lines fade with their icons (#6227): each is as faint and blurred as its fainter end, in the icons' own steps
+    const fade = p => p.k !== undefined ? [1, .8, .6, .45, .32][p.k] : .5 + p.z * .5, blur = p => p.k !== undefined ? [0, .6, 1.4, 2.4, 3.4][p.k] : 0, groups = {};
+    const groupOf = (o, b) => { const key = o + '/' + b; if (!groups[key]) { const e = g.appendChild(document.createElementNS(NS, 'g')); e.setAttribute('opacity', o); if (b) e.setAttribute('style', 'filter:blur(' + b + 'px)'); groups[key] = e; } return groups[key]; };
+    edges.forEach(([i, j]) => groupOf(Math.min(fade(pts[i]), fade(pts[j])), Math.max(blur(pts[i]), blur(pts[j]))).appendChild(mkLine(pts[i].x, pts[i].y, pts[j].x, pts[j].y, EC[0], 1)));
     layer.appendChild(svg);
     const ease = t => t < .5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
     const hopAnim = (i, j, done) => {
-      const A = pts[i], B = pts[j], ln = mkLine(A.x, A.y, A.x, A.y, '#0E0E0E', 1.25); g.appendChild(ln);
+      const A = pts[i], B = pts[j], ln = mkLine(A.x, A.y, A.x, A.y, '#0E0E0E', 1.25); ln.setAttribute('stroke-opacity', Math.min(fade(A), fade(B))); g.appendChild(ln);
       const dur = 260 + Math.hypot(A.x - B.x, A.y - B.y) * 22, t0 = performance.now();
       const f = now => {
         const t = Math.min(1, (now - t0) / dur), hd = ease(Math.min(1, t * 1.35)), tl = ease(Math.max(0, t * 1.35 - .35));
