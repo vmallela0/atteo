@@ -2399,10 +2399,17 @@ const handler = {
       // A repository identifies its board; only a board owner may let a requester become a member.
       if (path === "/api/repos/init" && method === "POST") {
         if (!viewer) return needLogin();
-        const body = (await request.json().catch(() => ({}))) as { repo?: unknown; board?: unknown };
+        const body = (await request.json().catch(() => ({}))) as { repo?: unknown; board?: unknown; check?: unknown };
         const repo = repoBoards.normalizeRepo(body.repo);
         if (!repo) return json({ error: "Give a GitHub owner/repo." }, 400);
         if (body.board != null && !BOARD_RE.test(String(body.board))) return json({ error: "The .atteo.json board id is invalid." }, 400);
+        // check: only whether you're already a member, for the CLI's other commands in a linked repo. It never creates a
+        // board or a join request: only atteo init asks the owners (opus-d, repo-init review).
+        if (body.check === true) {
+          const linked = body.board ? await repoBoards.linkedBoard(env, repo, String(body.board)) : null;
+          const member = !!linked && !linked.archived_at && !linked.deleted_at && !!(await registry.memberRole(env, linked.id, viewer.name));
+          return json({ board: member ? linked!.id : null, repo, status: member ? "member" : "not_member" });
+        }
         let board = body.board ? await repoBoards.linkedBoard(env, repo, String(body.board)) : await repoBoards.ownedBoard(env, viewer.name, repo);
         if (body.board && !board) return json({ error: "This repo file does not match a board link. Ask the board owner to check .atteo.json." }, 404);
         if (board?.archived_at || board?.deleted_at) return json({ error: "This board is archived or deleted. Ask an owner to reopen it." }, 409);

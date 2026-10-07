@@ -3,7 +3,7 @@
 // They call the same tools as `atteo mcp`, on the board chosen with `use` (per folder), and filter secrets locally first.
 
 import { boardIdIn } from "./boardid";
-import { repoContext } from "./repoInit";
+import { repoContext, repoLink } from "./repoInit";
 export { boardIdIn };
 import { randomUUID } from "node:crypto";
 import { execFileSync } from "node:child_process";
@@ -133,14 +133,18 @@ export function currentBoard(opt: Record<string, string | true>): string {
   throw new CliError('No board chosen for this folder. Run: atteo use "<board name or id>"  (atteo boards lists them)');
 }
 
-/** The board set for this folder (or the closest one above it, so a whole project shares one), or the global default. */
+/** The board set for this folder (or the closest one above it, so a whole project shares one), else the repo's linked
+ *  board once the server has said you're a member of it, else the global default. Your own choice wins over the file. */
 export function folderBoard(from: string = process.cwd()): string | null {
-  const linked = repoContext(from);
-  if (linked?.board) return linked.board;
   const map = boardMap();
   for (let dir = resolve(from); ; dir = resolve(dir, "..")) {
     if (map[dir]) return map[dir].id;
     if (dir === resolve(dir, "..")) break;
+  }
+  if (repoLink.verified) {
+    try {
+      if (repoContext(from)?.board === repoLink.verified) return repoLink.verified;
+    } catch {}
   }
   return map["*"]?.id ?? null;
 }

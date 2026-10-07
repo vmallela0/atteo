@@ -3,7 +3,7 @@ import { execFileSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { commitLink, githubRepo, repoContext } from "../cli/src/repoInit.ts";
+import { commitLink, githubRepo, repoContext, repoLink } from "../cli/src/repoInit.ts";
 
 const dirs = [];
 const git = (dir, ...args) => execFileSync("git", ["-C", dir, ...args], { encoding: "utf8" }).trim();
@@ -19,6 +19,10 @@ const makeRepo = () => {
 afterEach(() => dirs.splice(0).forEach((d) => rmSync(d, { recursive: true, force: true })));
 
 describe("repo init", () => {
+  it("a committed .atteo.json picks no board until the server says you're a member (opus-d, repo-init review)", () => {
+    expect(repoLink.verified).toBeNull();
+  });
+
   it("accepts only a GitHub owner and repo from the remote", () => {
     expect(githubRepo("git@github.com:Acme/Widgets.git")).toBe("acme/widgets");
     expect(githubRepo("https://github.com/Acme/Widgets")).toBe("acme/widgets");

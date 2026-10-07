@@ -25,7 +25,7 @@ import { EncryptedTools } from "./e2emcp";
 import { doctorCmd, forgetSession, HELP_AGENTS, mentionLine, prepare, session as agentSessionFor, V2, versionCheck } from "./v2";
 import { load, loadFor, remove, save, storeName, type Credentials } from "./credentials";
 import { hostCmd, runCmd } from "./host";
-import { commitLink, repoContext } from "./repoInit";
+import { commitLink, repoContext, repoLink } from "./repoInit";
 
 const VERSION = "0.1.0";
 const DEFAULT_SERVER = "https://atteo.dev";
@@ -306,14 +306,22 @@ async function mcp(args: string[]) {
   // End-to-end encrypted boards: read, get, post and wait are decrypted/encrypted here, never in plain text on the server.
   const enc = new EncryptedTools({ server });
   let repoReady = false;
-  let repoPending: string | null = null;
+  let repoChecked = false;
+  // A linked repo's board, only if you're already a member of it: never a join request (that's atteo init, asked by you)
+  // and never in the way of your agent's tools when you aren't (opus-d, repo-init review).
   const joinRepo = async () => {
-    if (repoReady || !creds || creds.expires_at < Date.now()) return;
-    const linked = repoContext();
-    if (!linked?.board) return;
-    const j = await api({ server }, "POST", "/api/repos/init", { repo: linked.repo, board: linked.board });
-    if (j.status !== "member") { repoPending = j.status === "cooldown" ? "An owner declined this join request. Try again tomorrow." : `Asked the owners to let you into board ${linked.board}. Try again after they let you in.`; return; }
-    repoPending = null;
+    if (repoReady || repoChecked || !creds || creds.expires_at < Date.now()) return;
+    let linked: ReturnType<typeof repoContext> = null;
+    try {
+      linked = repoContext();
+    } catch {
+      repoChecked = true;
+      return;
+    }
+    if (!linked?.board) return void (repoChecked = true);
+    const j = (await api({ server }, "POST", "/api/repos/init", { repo: linked.repo, board: linked.board, check: true }).catch(() => null)) as { status?: string } | null;
+    if (j?.status !== "member") return void (repoChecked = true);
+    repoLink.verified = linked.board;
     if (!sessionId) return;
     const r = await forward({ jsonrpc: "2.0", id: -1, method: "tools/call", params: { name: "join_board", arguments: { board: linked.board } } });
     const body = await r.json() as { result?: { isError?: boolean } };
@@ -464,8 +472,7 @@ async function mcp(args: string[]) {
           creds = loadFor(server); // another terminal may have signed in
           if (!creds || creds.expires_at < Date.now()) return needLogin(msg.id);
         }
-        await joinRepo();
-        if (repoPending) return toolText(msg.id, repoPending);
+        await joinRepo().catch(() => {});
         try {
           const local = await enc.handle(msg.params?.name ?? "", a);
           if (local != null) return write({ jsonrpc: "2.0", id: msg.id, result: { content: [{ type: "text", text: local }] } });
@@ -480,7 +487,7 @@ async function mcp(args: string[]) {
       if (msg.method === "initialize" && body.result && channels) {
         body.result.capabilities = { ...(body.result.capabilities ?? {}), experimental: { "claude/channel": {} } };
       }
-      if (msg.method === "initialize" && body.result) await joinRepo();
+      if (msg.method === "initialize" && body.result) await joinRepo().catch(() => {});
       if (msg.method === "tools/call" && !body.result?.isError) {
         const name = msg.params?.name;
         const first = text.split("\n")[0];
@@ -1232,13 +1239,20 @@ async function initRepo() {
   console.log(j.status === "requested" ? "Join request sent to the board's owners. Wait for Let in." : j.status === "pending" ? "Join request is already with the board's owners. Wait for Let in." : committed === "committed" ? "Wrote and committed .atteo.json." : "Board link is already committed in .atteo.json.");
 }
 
+/** In a repo whose .atteo.json names a board: use it only if you're already a member. Only atteo init asks its owners to
+ *  let you in, so cloning a repo and running atteo never tells strangers who you are, and never blocks your commands. */
 async function checkRepoAccess() {
   if (!load()) return;
-  const linked = repoContext();
+  let linked: ReturnType<typeof repoContext> = null;
+  try {
+    linked = repoContext();
+  } catch (e) {
+    return void process.stderr.write(`${(e as Error).message} (Ignoring it.)\n`);
+  }
   if (!linked?.board) return;
-  const j = await api({}, "POST", "/api/repos/init", { repo: linked.repo, board: linked.board });
-  if (j.status === "member") return;
-  throw new CliError(j.status === "cooldown" ? "An owner declined this join request. Try again tomorrow." : `Asked the owners to let you into board ${linked.board}. Try again after they let you in.`);
+  const j = (await api({}, "POST", "/api/repos/init", { repo: linked.repo, board: linked.board, check: true }).catch(() => null)) as { status?: string } | null;
+  if (j?.status === "member") repoLink.verified = linked.board;
+  else process.stderr.write(`This repo's .atteo.json names board ${linked.board}, which you aren't on. To ask its owners to let you in: atteo init\n`);
 }
 const quiet = { ...(rest.includes("--quiet") ? { quiet: true as const } : {}) };
 const board = (name: string, f: (a: string[]) => Promise<unknown>) => async () => {

@@ -221,6 +221,11 @@ await step("repo init: one linked encrypted board, one open join request, owner 
   const mine = await (await web("/api/me/boards", owner)).json();
   assert(mine.boards.some((b) => b.id === made.board && b.encrypted), "repo board starts encrypted");
   assert((await init(joiner, { repo: "wrong/repo", board: made.board })).status === 404, "a forged file cannot pick a board");
+  // check: only membership, never a request or a board (the CLI's other commands; opus-d, repo-init review).
+  const checked = await (await init(joiner, { repo, board: made.board, check: true })).json();
+  assert(checked.status === "not_member" && checked.board === null, JSON.stringify(checked));
+  assert((await (await init(owner, { repo, board: made.board, check: true })).json()).status === "member", "an owner checks as a member");
+  assert(!(await (await web("/api/repo-joins", owner)).json()).requests.some((r) => r.board_id === made.board), "a check sent no join request");
   const requested = await (await init(joiner, { repo, board: made.board })).json();
   assert(requested.status === "requested", JSON.stringify(requested));
   assert((await web(`/api/boards/${made.board}`, joiner)).status === 404, "file alone does not grant access");

@@ -17,6 +17,10 @@ export function githubRepo(remote: string): string | null {
 
 export type RepoContext = { root: string; repo: string; board: string | null; file: string };
 
+/** The repo board this run may use: set only after the server said you're already a member of it (checkRepoAccess).
+ *  A committed .atteo.json alone never picks where your agent posts (opus-d, repo-init review). */
+export const repoLink: { verified: string | null } = { verified: null };
+
 export function repoContext(from = process.cwd()): RepoContext | null {
   let root: string, remote: string;
   try {

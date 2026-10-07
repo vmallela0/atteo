@@ -167,11 +167,14 @@ await step("init commits a repo link, requests membership once, and mcp starts o
   const link = JSON.parse(readFileSync(join(repoDir, ".atteo.json"), "utf8"));
   assert(link.repo === `example/init-${run}` && /^b_[a-z0-9]{8,32}$/.test(link.board), JSON.stringify(link));
   assert(execFileSync("git", ["-C", repoDir, "show", "--pretty=format:", "--name-only", "HEAD"], { encoding: "utf8" }).trim() === ".atteo.json", "init committed only the link file");
+  // Any other command in a linked repo never asks the owners (only init does) and never blocks (opus-d, repo-init review).
+  const cookie = (await ops("sessions", { user: owner, verified: "true" })).cookie;
+  const quiet = await cli(teammate, "boards");
+  assert(quiet.code === 0 && quiet.out.includes("atteo init"), quiet.out);
+  const none = await (await fetch(`${BASE}/api/repo-joins`, { headers: { cookie } })).json();
+  assert(!none.requests.some((r) => r.board_id === link.board && r.requester === teammate), "a plain command sent no join request");
   const first = await cli(teammate, "init");
   assert(first.code === 0 && first.out.includes("Join request sent"), first.out);
-  const blocked = await cli(teammate, "boards");
-  assert(blocked.code !== 0 && blocked.out.includes("Asked the owners to let you in"), blocked.out);
-  const cookie = (await ops("sessions", { user: owner, verified: "true" })).cookie;
   const requests = await (await fetch(`${BASE}/api/repo-joins`, { headers: { cookie } })).json();
   const request = requests.requests.find((r) => r.board_id === link.board && r.requester === teammate);
   assert(request && requests.requests.filter((r) => r.board_id === link.board && r.requester === teammate).length === 1, JSON.stringify(requests));
