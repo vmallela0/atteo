@@ -24,9 +24,9 @@
   "build": { "command": "npm run -s build:cli" },
   "durable_objects": {
     // SLACK: one object per Slack workspace, its outbound queue (src/slackQueue.ts); idle until the Slack app is set up.
-    "bindings": [{ "name": "BOARD", "class_name": "Board" }, { "name": "SLACK", "class_name": "SlackTeam" }]
+    "bindings": [{ "name": "BOARD", "class_name": "Board" }, { "name": "SLACK", "class_name": "SlackTeam" }, { "name": "MAILBOX_SIGNAL", "class_name": "MailboxSignal" }]
   },
-  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Board"] }, { "tag": "v2", "new_sqlite_classes": ["SlackTeam"] }],
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Board"] }, { "tag": "v2", "new_sqlite_classes": ["SlackTeam"] }, { "tag": "v3", "new_sqlite_classes": ["MailboxSignal"] }],
   // Per-IP cap on signed-out endpoints that write a row or wake a board each call (limits.ts publicAllowed, vedu #4598):
   // 20 a minute per address per endpoint. The Rate Limiting binding counts in memory at each location: no D1 per request.
   "ratelimits": [{ "name": "PUBLIC_WRITES", "namespace_id": "4598", "simple": { "limit": 20, "period": 60 } }],

@@ -121,6 +121,7 @@ import * as Sentry from "@sentry/cloudflare";
 import { scrubForSentry } from "./sentry";
 import { analyticsConfig, trackCookieHeader, withAnalytics } from "./analytics";
 export { Board } from "./board";
+export { MailboxSignal } from "./mailboxSignal";
 export { SlackTeam } from "./slackQueue";
 import { forwardDestOk, forwardExcerptInEntry, keptOwnNotice } from "./audience";
 import { audienceNotice, MAX_FILES_PER_MESSAGE, MAX_IMAGE, MAX_MESSAGE_BYTES, MAX_SEALED_FILE, MAX_WAIT_MS, WAIT_CAP } from "./board";
@@ -1035,7 +1036,8 @@ const handler = {
         return devicePage(viewer, side, code, d);
       }
       if (path === "/api/device/decide" && method === "POST") {
-        if (!viewer) return needLogin();
+        // Only a person approves a sign-in: an agent or CLI token could otherwise mint itself a fresh 30-day token (alt-c #5841).
+        if (!viewer || viewer.via === "agent") return needLogin();
         const body = (await request.json().catch(() => ({}))) as { user_code?: string; approve?: boolean | string };
         const code = device.normalizeUserCode(body.user_code);
         if (!code) return json({ error: "That code doesn't look right. It's 8 letters, like BCDF-GHJK." }, 400);
@@ -1285,7 +1287,7 @@ const handler = {
         );
         return json({ probe, agents: rows.map((r) => ({ ...r, line: listen.describeRow(r) })) }, 200, { "cache-control": "no-store" });
       }
-      // ---- the mailbox: your agent's mail across every board and DM, for your own dispatcher to poll ----
+      // ---- the mailbox: your agent's mail across every board and DM, with push for waiting dispatchers ----
       if (path === "/api/mailbox" && method === "GET") {
         if (!viewer) return needLogin();
         const limit = Math.min(100, Math.max(1, parseInt(url.searchParams.get("limit") ?? "50", 10) || 50));
@@ -1308,7 +1310,7 @@ const handler = {
           (await withRetry(() => boardStub(env, b.id).editNotices(viewer.name, sid, peek)).catch((): string[] => [])).map((line, i) => ({ id: -Date.now() - i, kind: "edited" as const, board: b.id, board_title: b.title, seq: Number(line.match(/#(\d+)/)?.[1] ?? 0), from: "", from_via: "person", type: "edit", text: line, preview: line, for: "for your agent", ts: Date.now() }))))) .flat() : [];
         let r0: Awaited<ReturnType<typeof mailbox.collect>>;
         try {
-          r0 = await mailbox.collect(env, viewer.name, { limit, wait: editMail.length ? 0 : wait, peek, held: !!lease, session: sid, direct: peek && url.searchParams.get("kinds") === "dm", pollMs: level >= 1 ? 6000 : 3000, signal: w?.signal }, async (b, seq) => { const e = (await boardStub(env, b).get(seq, { user: viewer.name, person: false })).entry; return { text: e.text, title: e.title }; }); // as the agent: its own lane too
+          r0 = await mailbox.collect(env, viewer.name, { limit, wait: editMail.length ? 0 : wait, peek, held: !!lease, session: sid, direct: peek && url.searchParams.get("kinds") === "dm", signal: w?.signal }, async (b, seq) => { const e = (await boardStub(env, b).get(seq, { user: viewer.name, person: false })).entry; return { text: e.text, title: e.title }; }); // as the agent: its own lane too
         } finally {
           w?.done();
         }

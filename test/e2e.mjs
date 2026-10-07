@@ -4558,6 +4558,11 @@ await step("CLI login: device code, approve in the browser, token works once; de
   assert(got.status === "ok" && got.user === A && got.token.startsWith("ab_") && got.expires_at > Date.now() + 29 * 86400e3, JSON.stringify(got));
   has(await ok(got.token, board, "read"), `== "e2e ${run}" (`);
   assert((await (await poll()).json()).status === "used", "a code issues a token only once");
+  // an agent or CLI token can't approve a sign-in for itself (alt-c #5841)
+  const s3 = await (await fetch(`${BASE}/api/device/start`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" })).json();
+  const self = await fetch(`${BASE}/api/device/decide`, { method: "POST", headers: { authorization: `Bearer ${got.token}`, "content-type": "application/json" }, body: JSON.stringify({ user_code: s3.user_code, approve: true }) });
+  assert(self.status === 401 || self.status === 403, `a CLI token approving a sign-in got ${self.status}`);
+  assert((await fetch(`${BASE}/api/device/token`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ device_code: s3.device_code }) })).status === 428, "still pending after a token's try");
   // deny
   const s2 = await (await fetch(`${BASE}/api/device/start`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" })).json();
   await web("/api/device/decide", A, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ user_code: s2.user_code, approve: false }) });
@@ -4998,6 +5003,22 @@ await step("account log: each sign-in and token change lands once, for its perso
   has(me, 'href="/api/me/audit?format=jsonl"');
 });
 
+await step("mailbox push: a waiting read receives a mention within one second of the post", async () => {
+  const from = `e2e-mpush1-${run}`, to = `e2e-mpush2-${run}`;
+  await makeUsers([from, to], { session: false });
+  const id = (await ops("boards", { user: from, title: `e2e mailbox push ${run}` })).body.board.id;
+  assert((await ops("members", { board: id, user: to })).status === 200, "add mailbox recipient");
+  const waiting = fetch(`${BASE}/api/mailbox?wait=10`, { headers: auth(to) }).then((r) => r.json());
+  await sleep(150); // let the long-poll attach before the post
+  const start = Date.now();
+  const posted = await fetch(`${BASE}/api/boards/${id}/entries`, { method: "POST", headers: { ...auth(from), "content-type": "application/json" }, body: JSON.stringify({ type: "note", text: `@${to} mailbox push ${run}` }) });
+  assert(posted.ok, `post status ${posted.status}`);
+  const result = await waiting;
+  const elapsed = Date.now() - start;
+  assert(result.mail?.some((m) => m.board === id && m.text.includes(`mailbox push ${run}`)), `mention missing: ${JSON.stringify(result).slice(0, 300)}`);
+  assert(elapsed < 1000, `mailbox woke ${elapsed}ms after post started`);
+});
+
 await step("mailbox: DMs and mail for your agent wait until your agent polls; full text; delivery is separate from your web reading; wait and ack", async () => {
   const M1 = `e2e-mb1-${run}`, M2 = `e2e-mb2-${run}`;
   await makeUsers([M1, M2], { session: false });
@@ -5021,7 +5042,7 @@ await step("mailbox: DMs and mail for your agent wait until your agent polls; fu
   assert(m.mail.some((x) => x.board === dm && x.text === long), "your web reading doesn't deliver your agent's mail");
   assert(!(await call(M2, "GET", "/api/mailbox")).mail.some((x) => x.board === dm), "polling delivered it");
   assert(!(await call(M1, "GET", "/api/mailbox")).mail.some((x) => x.board === dm && x.from === M1), "your own messages aren't your mail");
-  // wait: the poll holds until mail arrives.
+  // wait: the read holds until mail arrives.
   const t0 = Date.now();
   const waiting = call(M2, "GET", "/api/mailbox?wait=10");
   await new Promise((r) => setTimeout(r, 1000));

@@ -157,6 +157,7 @@ export interface BoardInfo {
 
 export interface Env {
   BOARD: DurableObjectNamespace<import("./board").Board>;
+  MAILBOX_SIGNAL: DurableObjectNamespace<import("./mailboxSignal").MailboxSignal>;
   DB: D1Database;
   /** Optional R2 binding. Public /status probes it when set. Board files live in the Durable Object; the hosted Worker does not bind this. */
   FILES?: R2Bucket;
