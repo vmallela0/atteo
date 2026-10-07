@@ -424,7 +424,12 @@ async function boardKeys(opt: Record<string, string | true>, board: string, trie
   const own = pinned(pin[me], kid, myKey().pub);
   if (own !== pinId(kid, myKey().pub, mySignKey().pub)) pin[me] = [...(pin[me] ?? []).filter((e) => e !== own), pinId(kid, myKey().pub, mySignKey().pub)];
   signMismatch(st.keys.find((k) => k.kid === kid));
-  firstSight(pin, me, st.keys, st.missing.filter((m) => m.first_device)); // a person never seen here: trust on first use
+  // A person never seen here: trusted on first use, but only once this machine holds the board's key (coordinator,
+  // after review #5592). Until then it hands nothing on, so it pins no one: a device of yours you then approve takes
+  // your other device's pins instead (adoptPins), and one that gets the key some other way falls back to first sight.
+  const waiting = st.current > 0 && !keys.size;
+  if (waiting) warnOnce(`wait:${board}`, `🔑 This machine doesn't hold this board's key yet, so it trusts no one here yet (members show as unverified). It pins them once it has the key, or takes your other device's pins when you approve it there.`);
+  else firstSight(pin, me, st.keys, st.missing.filter((m) => m.first_device));
   dropGone(pin, st.keys); // removed devices, and devices trusted through them (review #5524); st.keys is every live member device
   crossSigned(pin, [...st.keys, ...st.missing]);
   if (JSON.stringify(pin) !== before) savePins(pin);
@@ -437,7 +442,7 @@ async function boardKeys(opt: Record<string, string | true>, board: string, trie
         : warnOnce(k.kid, `🔑 ${k.user} has a device this machine hasn't seen (${k.label ?? "unnamed"}, ${k.kid.slice(0, 8)}). It gets the key from one of ${k.user}'s own devices, not from here.`);
 
   let current = st.current;
-  if (current === 0 || st.rotate_needed) {
+  if (current === 0 || (st.rotate_needed && !waiting)) {
     const key = newEpochKey();
     const to = st.keys.filter((k) => (trusted(k) ? true : (skip(k), false)));
     try {

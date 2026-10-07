@@ -1261,6 +1261,8 @@ await step("cross-signed devices (E2E 1c): approving your new machine signs it; 
   await as("s", ["read", "--board", eb]); // the server doesn't even offer it to S: an unsigned later device is R's own business
   r = await as("r2", ["read", "--all", "--board", eb]);
   assert(!r.out.includes(secret), "not yet: " + r.out);
+  // Without the board's key it trusts no one here yet: S isn't pinned on first sight (it says so).
+  assert(r.err.includes("doesn't hold this board's key yet") && !Object.hasOwn(JSON.parse(readFileSync(`${cred.r2}.pins`, "utf8")), S), "R2 pinned no one: " + r.err);
   // R approves it on the first machine: signed into R's device list. R1 isn't used again.
   r = await asTty("r1", ["keys", "approve", r2.id]);
   assert(r.code === 0 && r.out.includes("signed it into your device list") && r.out.includes("It also has this machine's pins"), r.out + r.err);
@@ -1269,10 +1271,10 @@ await step("cross-signed devices (E2E 1c): approving your new machine signs it; 
   r = await as("s", ["read", "--board", eb]); // S's CLI checks the signature against R1's pinned signing key, and grants
   r = await as("r2", ["read", "--all", "--board", eb]);
   assert(r.out.includes(secret), "R's second machine reads, handed the key by S's CLI: " + r.out + r.err);
-  // Review #5592: R2 had already trusted S's devices on first sight itself (it read before it was approved), so it
-  // doesn't take R1's pins: a machine that knows anyone takes pins only signed by one of its own pinned devices.
-  const pinsR1 = JSON.parse(readFileSync(`${cred.r1}.pins`, "utf8"));
-  assert(!existsSync(`${cred.r2}.pins.from`) && !r.err.includes("Approved by"), "R2 kept its own pins: " + r.err);
+  // Review #5567/#5592: R2 read before it was approved, but pinned no one then, so it took R1's pins (sealed to it,
+  // signed by R1) rather than trusting S's devices on first sight itself, and showed R1's fingerprint.
+  const pinsR1 = JSON.parse(readFileSync(`${cred.r1}.pins`, "utf8")), pinsR2 = JSON.parse(readFileSync(`${cred.r2}.pins`, "utf8"));
+  assert(existsSync(`${cred.r2}.pins.from`) && r.err.includes("Approved by") && pinsR1[S]?.length && pinsR1[S].every((e) => pinsR2[S]?.includes(e)), "R2 has R1's pins: " + JSON.stringify({ pinsR1, pinsR2 }) + r.err);
   // Review #5567/#5592: R3 is brand new (it only registered) when R1 approves it. The approval shows R3's fingerprint
   // before the yes; R3 takes R1's pins, once, and shows R1's fingerprint for R to compare.
   r = await as("r1", ["keys", "--json"]);
@@ -1301,6 +1303,20 @@ await step("cross-signed devices (E2E 1c): approving your new machine signs it; 
     const got = JSON.parse(readFileSync(`${cred[who]}.pins`, "utf8"));
     assert(!Object.hasOwn(got, evil) && !r.err.includes("Approved by"), `${who} refused R4's pins: ` + JSON.stringify(got) + r.err);
   }
+  // A newcomer's first device that gets the key with no handoff (a member's device hands it over) falls back to first
+  // sight once it holds the key: nothing pinned while it waits, R and S pinned after.
+  const T = `e2e-cli-t-${run}`;
+  await ops("users", { name: T, email: `${T}@example.com`, verified: "true" });
+  cred.t = join(dir, "xs-t.json");
+  writeFileSync(cred.t, JSON.stringify({ server: BASE, user: T, token: (await ops("tokens", { user: T })).token, expires_at: Date.now() + 86400e3 }), { mode: 0o600 });
+  await ops("members", { board: eb, user: T });
+  r = await as("t", ["read", "--all", "--board", eb]);
+  const pinsT0 = JSON.parse(readFileSync(`${cred.t}.pins`, "utf8"));
+  assert(!r.out.includes(secret) && !Object.hasOwn(pinsT0, R) && !Object.hasOwn(pinsT0, S), "T waits, pinning no one: " + JSON.stringify(pinsT0));
+  await as("s", ["read", "--board", eb]);
+  r = await as("t", ["read", "--all", "--board", eb]);
+  const pinsT = JSON.parse(readFileSync(`${cred.t}.pins`, "utf8"));
+  assert(r.out.includes(secret) && pinsT[R]?.length && pinsT[S]?.length && !existsSync(`${cred.t}.pins.from`), "T reads and pins on first sight: " + JSON.stringify(pinsT) + r.err);
   const tokR2 = JSON.parse(readFileSync(cred.r2, "utf8")).token;
   const sealedPins = await fetch(`${BASE}/api/me/keys?pins=${r2.id}`, { headers: { authorization: `Bearer ${tokR2}` } }).then((x) => x.json());
   assert(sealedPins.pins?.wrapped && !JSON.stringify(sealedPins).includes(pinsR1[S][0].split("|")[1]), "the server holds the pins only sealed");

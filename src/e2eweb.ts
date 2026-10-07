@@ -103,14 +103,16 @@ function savePins(p){try{localStorage.setItem(PIN_KEY,JSON.stringify(p))}catch(e
 const pinId=(kid,pub,spub,via)=>kid+'|'+pub+(spub?'|'+spub:via?'|':'')+(via?'|'+via:'');
 const pinOf=(pin,u,kid,pub)=>(pin[u]||[]).find(e=>e===pinId(kid,pub)||e.startsWith(pinId(kid,pub)+'|'));
 /** The CLI's pinning: older bare-id pins get bound to the key the server shows; you, and each person's first device seen. */
-function pinUpdate(pin,me,dev,st){const seen=new Map([...st.keys,...st.missing].map(k=>[k.kid,k.public_key]));
+function pinUpdate(pin,me,dev,st,waiting){const seen=new Map([...st.keys,...st.missing].map(k=>[k.kid,k.public_key]));
   for(const u of Object.keys(pin))pin[u]=pin[u].map(e=>e.includes('|')||!seen.has(e)?e:pinId(e,seen.get(e))); // older pins were ids alone
   // This browser: pinned with its own signing key, never the one the server shows (checked in device()).
   const own=pinOf(pin,me,dev.kid,dev.pub);if(own!==pinId(dev.kid,dev.pub,dev.spub))pin[me]=[...(pin[me]||[]).filter(e=>e!==own),pinId(dev.kid,dev.pub,dev.spub)];
   // First sight of a person never seen here: trust on first use (the CLI's firstSight). A person seen once keeps their
   // entry, emptied or not, so a server that hides all their devices and shows one of its own never gets it trusted
   // this way (review #5558): that takes a still-pinned device's signature, or Trust on the person's word.
-  for(const k of [...st.keys,...st.missing.filter(m=>m.first_device)])if(k.user!==me&&!Object.hasOwn(pin,k.user))pin[k.user]=[pinId(k.kid,k.public_key,k.sign_pub)];
+  // Only once this browser holds the board's key (the CLI's waiting): until then it pins no one, so a browser you
+  // approve takes your other device's pins, and one that gets the key some other way falls back to this.
+  if(!waiting)for(const k of [...st.keys,...st.missing.filter(m=>m.first_device)])if(k.user!==me&&!Object.hasOwn(pin,k.user))pin[k.user]=[pinId(k.kid,k.public_key,k.sign_pub)];
   return pin}
 const noneLeft=(pin,u)=>Object.hasOwn(pin,u)&&!pin[u].length;
 /** A device's fingerprint (the CLI's crosssign.ts fingerprint, review #5566): SHA-256 over its X25519 and signing keys,
@@ -170,11 +172,12 @@ async function epochKeys(tries){tries=tries||0;const dev=await device();const st
   if(st.current<(seenEp[BOARD]||0))throw new Error('The server shows this board at key epoch '+st.current+', but this browser has seen epoch '+seenEp[BOARD]+': it may be replaying an old key, so nothing was encrypted. Tell the board\\'s members.');
   for(const g of st.mine)if(g.kid===dev.kid){const c=g.epoch+':'+g.wrapped;if(!KEYS.has(c))try{const raw=await unwrapMine(g,dev);KEYS.set(c,{raw,aes:await aesKey(raw)})}catch(e){continue}keys.set(g.epoch,KEYS.get(c))}
   const before=JSON.stringify(pins()),got=pins();await adoptPins(got,dev,st.mine.length); // from the approving device, before anyone's trusted on first sight
-  const pin=await crossSigned(dropGone(pinUpdate(got,ME,dev,st),st.keys),[...st.keys,...st.missing]);
+  const waiting=st.current>0&&!keys.size;
+  const pin=await crossSigned(dropGone(pinUpdate(got,ME,dev,st,waiting),st.keys),[...st.keys,...st.missing]);
   if(JSON.stringify(pin)!==before)savePins(pin);
   const trusted=k=>isPinned(pin,k);
   let current=st.current;
-  if(!READONLY&&(current===0||st.rotate_needed)){const raw=crypto.getRandomValues(new Uint8Array(32));const to=st.keys.filter(trusted);
+  if(!READONLY&&(current===0||(st.rotate_needed&&!waiting))){const raw=crypto.getRandomValues(new Uint8Array(32));const to=st.keys.filter(trusted);
     try{await api('POST','/api/boards/'+BOARD+'/epochs',{epoch:current+1,grants:await Promise.all(to.map(async k=>({kid:k.kid,...await wrapFor(raw,k.public_key)})))})}
     catch(e){if(tries<2&&e.status===400)return epochKeys(tries+1);throw e} // someone else opened it first
     current+=1;keys.set(current,{raw,aes:await aesKey(raw)})}
@@ -188,7 +191,7 @@ function renderBar(){if(!ST)return;const {dev,keys,current}=ST,kid='<span class=
   const ready=current>0&&keys.has(current);
   say(ready?'🔒 <b>End-to-end encrypted.</b> This browser decrypts and encrypts here; the server only sees ciphertext. This browser\\'s key: '+kid+'.'
     :current===0?'🔒 <b>End-to-end encrypted.</b> No messages yet. This browser\\'s key: '+kid+'.'
-    :'🔒 <b>End-to-end encrypted.</b> This browser (key '+kid+') is waiting for the board\\'s key: a member\\'s device hands it over when they\\'re next here. If you already read this board on another device of yours, approve this one there (<span class="mono">atteo keys approve '+esc(dev.kid)+'</span>).');
+    :'🔒 <b>End-to-end encrypted.</b> This browser (key '+kid+') is waiting for the board\\'s key: a member\\'s device hands it over when they\\'re next here. Until then it trusts no one here (members show as unverified). If you already read this board on another device of yours, approve this one there (<span class="mono">atteo keys approve '+esc(dev.kid)+'</span>).');
   if(APPROVED_BY)say((msg?msg.innerHTML+'<br>':'')+'🔑 Approved by <b>'+esc(APPROVED_BY.label)+'</b> (key <span class="mono">'+esc(APPROVED_BY.kid)+'</span>), fingerprint <span class="mono" id="e2e-approver-fp">'+esc(APPROVED_BY.fp)+'</span>: does it match what that device shows? This browser took its pins. If it doesn\\'t match, that wasn\\'t your device: tell your boards\\' members.');
   if(SIGN_BAD)say('⚠ <b>The server shows this browser with a signing key that isn\\'t this browser\\'s.</b> Devices "signed" with it aren\\'t from you: don\\'t trust them, and tell the board\\'s members.');
   if(composer)composer.hidden=!ready||READONLY;

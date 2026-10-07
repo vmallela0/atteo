@@ -84,6 +84,7 @@ check(await until(()=>pa.locator("#thread .entry",{hasText:`gave ${C}'s`}).count
 await cli(A,["keys"]);await cli(A,["use",board]);await cli(B,["read"]);
 r=await cli(A,["read","--all"]);
 check(!r.out.includes(`hello from the web ${run}`),"Ann's new CLI device can't read yet (Bob may not hand it over)");
+check(!Object.hasOwn(JSON.parse(readFileSync(cred[A]+".pins","utf8")),B)&&r.err.includes("doesn't hold this board's key yet"),"…and, without the key, trusts no one here yet (Bob isn't pinned on first sight)");
 await pa.evaluate(()=>e2eSync());await pa.locator("[data-e2e-approve]").waitFor({timeout:6000}).catch(()=>{});
 const ask=await pa.locator(".e2e-ask").first().innerText().catch(()=>"");
 check(/A new device of yours wants this board's key/.test(ask),`Ann's browser asks her: "${ask.replace(/\s+/g," ").slice(0,90)}…"`);
@@ -93,16 +94,17 @@ await pa.locator("#e2e-msg").scrollIntoViewIfNeeded();await pa.screenshot({path:
 await pa.waitForTimeout(500);r=await cli(A,["read","--all"]); // a negative: give an unwanted grant time to show
 check(!r.out.includes(`hello from the web ${run}`),"…nothing is granted before she clicks Approve");
 await pa.locator("[data-e2e-approve]").click();
-r=await readUntil(A,[`hello from the web ${run}`]);
+let errsA="";r=await until(async()=>{const x=await cli(A,["read","--all"]);errsA+=x.err;return x},x=>x.out.includes(`hello from the web ${run}`));
 check(r.out.includes(`hello from the web ${run}`),"after Approve in the browser, Ann's CLI reads the board");
-// Review #5592: the browser handed Ann's CLI its pins too, but the CLI read the board before it was approved (trusting
-// its members on first sight then), so it keeps its own: the server's word for the signer counts only on a device that
-// knows nobody.
-check(!existsSync(cred[A]+".pins.from"),"…and her CLI, which already knew the board's people, didn't take the browser's pins");
+// Review #5567/#5592: the browser handed Ann's CLI its pins too (sealed to the CLI, signed by the browser). The CLI
+// pinned no one while it waited, so it took them, and showed the browser's fingerprint (checked below).
+const pinsWeb=await pa.evaluate(me=>JSON.parse(localStorage.getItem("soup.e2e.pins."+me)||"{}"),A),pinsCli=JSON.parse(readFileSync(cred[A]+".pins","utf8"));
+check(existsSync(cred[A]+".pins.from")&&(pinsWeb[B]||[]).length>0&&pinsWeb[B].every(e=>(pinsCli[B]||[]).includes(e)),"…and took the browser's pins, handed over with the approval");
 // Review #5566: the bar shows this browser's fingerprint, from its own keys; it's what others compute from the listing.
 const fpOf=(pub,spub)=>createHash("sha256").update(`atteo fingerprint v1\n${pub}\n${spub??""}`).digest("hex").slice(0,32).match(/.{4}/g).join(" ");
 const meWeb=(await (await fetch(`${BASE}/api/me/keys`,{headers:{authorization:`Bearer ${tok[A]}`}})).json()).keys.find(k=>/web/.test(k.label||""));
 check(await pa.locator("#e2e-fp").innerText().catch(()=>"")===fpOf(meWeb.public_key,meWeb.sign_pub),"the bar shows this browser's fingerprint");
+check(errsA.includes(`fingerprint ${fpOf(meWeb.public_key,meWeb.sign_pub)}`)&&/Approved by Chrome on/.test(errsA),"…which Ann's CLI showed once it took the browser's pins (\"Approved by …\")");
 check(await until(()=>pa.locator(".e2e-ask").count(),n=>n===0)===0,"…and the prompt is gone");
 // Review #5592, the main path: Ann's CLI approves her browser back, handing it the CLI's pins. The browser pinned the
 // CLI's signing key when it approved it, so it checks the signature against that, quietly (no "Approved by").
@@ -116,6 +118,8 @@ await pb.goto(`${BASE}/b/${board}`);
 const wait=await until(()=>pb.locator("#e2e-msg").innerText().catch(()=>""),t=>/waiting for the board's key/.test(t));
 await until(()=>pb.locator("#thread .e2e-none").count(),n=>n>=3);
 check(/waiting for the board's key/.test(wait)&&await pb.locator("form.composer").isHidden(),"Bob's new browser waits for the key (no composer)");
+const pinsOf=(p,me)=>p.evaluate(me=>JSON.parse(localStorage.getItem("soup.e2e.pins."+me)||"{}"),me);
+check(!Object.hasOwn(await pinsOf(pb,B),A)&&/trusts no one here/.test(wait),"…and trusts no one here until it has it (Ann isn't pinned on first sight)");
 check(await pb.locator("#thread .e2e-none").count()>=3&&await pb.locator("#thread .e2e-text").count()===0,"…messages show \"Can't read this on this device yet\"");
 const logB=await logOf(pb);
 check(logB.length>=3&&logB.every(e=>/^\(Can't /.test(e.text))&&!JSON.stringify(logB).includes(`hello from`),`…its log download keeps each entry with the reason instead (${JSON.stringify(logB[0]?.text).slice(0,60)})`);
@@ -128,8 +132,22 @@ check(!!bkid,"Bob's CLI says a new device of his is waiting");
 await cliTty(B,["keys","approve",bkid]);await cli(B,["read"]);
 await pb.evaluate(()=>e2eSync());await bodyOf(pb,`hello from the web ${run}`).waitFor({timeout:6000}).catch(()=>{});
 check(await bodyOf(pb,`hello from the web ${run}`).count()===1&&!(await pb.locator("form.composer").isHidden()),"after Bob's CLI approves it, Bob's browser reads the history and can write");
+// Review #5592: it took Bob's CLI's pins with the approval, and shows the CLI's fingerprint once, to compare.
+const bobCliFp=JSON.parse((await cli(B,["keys","--json"])).out).fingerprint,pinsBobCli=JSON.parse(readFileSync(cred[B]+".pins","utf8")),pinsBobWeb=await pinsOf(pb,B);
+check(await pb.locator("#e2e-approver-fp").innerText().catch(()=>"")===bobCliFp&&(pinsBobCli[A]||[]).length>0&&pinsBobCli[A].every(e=>(pinsBobWeb[A]||[]).includes(e)),"…took the CLI's pins, and shows \"Approved by\" with the CLI's fingerprint");
 await post(pb,`bob in the browser ${run}`);
 r=await readUntil(A,[`bob in the browser ${run}`]);check(r.out.includes(`bob in the browser ${run}`),"…and what he writes there, Ann's CLI reads");
+// A newcomer's browser (Dee) that gets the key from a member's device, with no handoff: it pins no one while it waits,
+// then falls back to first sight once it holds the key.
+const D=`wdee${run}`;await ops("users",{name:D,email:`${D}@example.com`,verified:"true"});await ops("members",{board,user:D});
+const ctxD=await login(D);const pd=await ctxD.newPage();watch(pd);await pd.goto(`${BASE}/b/${board}`);
+await until(()=>pd.locator("#e2e-msg").innerText().catch(()=>""),t=>/waiting for the board's key/.test(t));
+const pinsD0=await pinsOf(pd,D);
+check(!Object.hasOwn(pinsD0,A)&&!Object.hasOwn(pinsD0,B),"a newcomer's browser pins no one while it waits for the key");
+await until(async()=>{await pa.evaluate(()=>e2eSync());await pd.evaluate(()=>e2eSync());return bodyOf(pd,`hello from the web ${run}`).count()},n=>n===1);
+const pinsD=await until(()=>pinsOf(pd,D),p=>(p[A]||[]).length>0&&(p[B]||[]).length>0);
+check(await bodyOf(pd,`hello from the web ${run}`).count()===1&&(pinsD[A]||[]).length>0&&(pinsD[B]||[]).length>0&&await pd.locator("#e2e-approver-fp").count()===0,"…and once Ann's browser hands it the key, it reads and pins Ann and Bob on first sight");
+await ctxD.close();
 // Removing Cat rotates: the next message (from the web) opens epoch 2 for the rest only.
 const rm=await pa.evaluate(async([bd,u])=>(await fetch(`/api/boards/${bd}/members/${u}/remove`,{method:"POST"})).status,[board,C]);
 check(rm===200,`Ann removes Cat (${rm})`);

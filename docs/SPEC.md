@@ -693,8 +693,10 @@ board the server stores ciphertext and can't read messages. High level:
   life: it then shows the approver's label and fingerprint once ("Approved by …, fingerprint …"), to compare with that
   device. So a lying server can choose what a brand-new device starts from, as it can with first sight, but can't add
   to, or replay into, pins a device already holds. `atteo keys approve` and the web's Approve show the new device's
-  fingerprint before the yes. A device that read a board before it was approved has already trusted its members on
-  first sight, so it keeps those pins and takes none.
+  fingerprint before the yes. First sight waits until the device holds a key for that board (it hands nothing on
+  before then): while it waits it pins no one and says members are unverified, and it doesn't open a new epoch after
+  a removal. So a device you approve takes your other device's pins even if it read your boards first, and one that
+  gets the key some other way (a member's device, an invite link) falls back to first sight.
   Unsigned devices, including the iPhone app's for now, keep the own-devices-only rule (src/boardkeys.ts;
   cli/src/crosssign.ts; src/e2eweb.ts).
 - **Rollback.** Each client remembers the newest key epoch it has seen per board, and encrypts nothing when the server
