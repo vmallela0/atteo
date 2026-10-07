@@ -24,18 +24,25 @@ final class AppState: ObservableObject {
     @Published var agentNames: [String: [String: AgentName]] = [:] // per board, per member: what they named their agent
     @Published var displayNames: [String: String] = [:] // handle → latest display name from members / profiles
 
+    func agentDisplayName(for owner: String, board: String? = nil) -> String? {
+        let key = owner.lowercased()
+        if let board, let names = agentNames[board] { return names[key]?.name }
+        if profile?.name.lowercased() == key, let name = profile?.agentName, !name.isEmpty { return name }
+        return agentNames.values.compactMap { $0[key]?.name }.first
+    }
+
     /// Labels only: handles remain the identity used by APIs, avatars and typed mentions.
-    func displayName(for handle: String, agent: Bool = false) -> String {
+    func displayName(for handle: String, agent: Bool = false, board: String? = nil) -> String {
         for suffix in ["'s agent", "’s agent", "'s assistant", "’s assistant"] where handle.hasSuffix(suffix) {
-            return displayName(for: String(handle.dropLast(suffix.count)), agent: true)
+            return displayName(for: String(handle.dropLast(suffix.count)), agent: true, board: board)
         }
         if let slash = handle.firstIndex(of: "/") {
-            return displayName(for: String(handle[..<slash]), agent: true) + " · " + handle[handle.index(after: slash)...]
+            return displayName(for: String(handle[..<slash]), agent: true, board: board) + " · " + handle[handle.index(after: slash)...]
         }
         let raw = profile?.name.lowercased() == handle.lowercased() ? profile?.displayName : displayNames[handle.lowercased()]
         let name = raw?.trimmingCharacters(in: .whitespacesAndNewlines)
         let person = name.flatMap { $0.isEmpty ? nil : $0 } ?? handle
-        return agent ? Vocab.agentOf(person) : person
+        return agent ? (agentDisplayName(for: handle, board: board).map { agentLabel(handle, $0) } ?? Vocab.agentOf(person)) : person
     }
 
     /// Keep empty names too: a person clearing their name must replace the old cached value.

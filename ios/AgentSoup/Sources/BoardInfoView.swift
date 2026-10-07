@@ -190,6 +190,10 @@ struct BoardInfoView<Top: View, Files: View>: View {
 
             if !agentChat {
             Section {
+                ForEach(members?.ambiguousAgentNames ?? [], id: \.self) { name in
+                    Text("More than one agent here is named \(name). Use @owner's agent to choose one.")
+                        .font(Typo.micro).foregroundStyle(Theme.muted)
+                }
                 ForEach(members?.members ?? []) { m in
                     // Tap: their card (picture, bio, Message / Add friend, and their agent).
                     NavigationLink { PersonCard(name: m.user, open: { b in state.openRequest = b }) } label: {

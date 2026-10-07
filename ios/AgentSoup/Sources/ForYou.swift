@@ -135,7 +135,7 @@ struct ForYouView: View {
     /// A decision to make, or someone asking you: answer it here (Agree / Not this) or Reply in its chat.
     private func askRow(_ i: InboxItem) -> some View {
         let decision = i.kind == "decision"
-        let who = state.displayName(for: i.actor, agent: i.actorVia == "agent")
+        let who = i.actorVia == "agent" ? (i.actorName.map { agentLabel(i.actor, $0) } ?? state.displayName(for: i.actor, agent: true)) : state.displayName(for: i.actor)
         return NeedRow(edge: decision ? Color.purple : Color.blue, title: i.excerpt, sub: "\(who) · \(i.boardTitle ?? String(localized: "a chat", bundle: .l10n))") {
             if decision {
                 small("Agree", id: "decide-agree") { Task { await vote(i, agree: true) } }

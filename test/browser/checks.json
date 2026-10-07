@@ -1,4 +1,5 @@
 {
+ "spend": 4,
  "calls": 20,
  "slack": 12,
  "mention-nickname": 2,
@@ -23,6 +24,7 @@
  "social": 6,
  "access": 8,
  "approvals": 5,
+ "approval-rules": 5,
  "claims": 6,
  "connect": 5,
  "sumchk": 2,
@@ -75,6 +77,7 @@
  "chglink": 6,
  "memory-panel": 4,
  "agentnames": 4,
+ "agent-display-names": 5,
  "replyop": 4,
  "emojipick": 11,
  "schedules": 4,
@@ -85,6 +88,7 @@
  "codecopy": 4,
  "everyday": 9,
  "foryoupage": 8,
+ "repo-join": 5,
  "welcome": 12,
  "peopleonly": 8,
  "htmlpreview": 3,
@@ -182,5 +186,6 @@
  "frame-tab-state": 25,
  "tabs-close": 12,
  "invite-friend": 6,
- "strip-live": 14
+ "strip-live": 14,
+ "free-for-now": 4
 }

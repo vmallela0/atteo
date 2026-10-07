@@ -13,6 +13,7 @@ import * as northStar from "./northStar";
 import * as oauth from "./oauth";
 import { consentPage } from "./oauthPage";
 import * as approvals from "./approvals";
+import * as approvalRules from "./approvalRules";
 import { boardStates } from "./boardStates";
 import { approvalsPage } from "./approvalsPage";
 import { askPage } from "./ask";
@@ -53,6 +54,7 @@ import * as device from "./device";
 import { EMAIL_RE, sendInvite } from "./invite";
 import { mayMention, parseMentions, SESSION_NAME_RE, type Mention } from "./mentions";
 import * as registry from "./registry";
+import * as repoBoards from "./repoBoards";
 import { recordForward, scrubForwards } from "./forwards";
 import * as backup from "./backup";
 import * as cardsign from "./cardsign";
@@ -122,6 +124,7 @@ export { SlackTeam } from "./slackQueue";
 import { forwardDestOk, forwardExcerptInEntry, keptOwnNotice } from "./audience";
 import { audienceNotice, MAX_FILES_PER_MESSAGE, MAX_IMAGE, MAX_MESSAGE_BYTES, MAX_SEALED_FILE, MAX_WAIT_MS, WAIT_CAP } from "./board";
 import * as sessions from "./sessions";
+import * as machines from "./machines";
 import * as listen from "./listen";
 import { compactLine, formatEntry, formatMemory, handleMessage, parseReadBudget, parseSummaryBudget, presentReadEntries, readHeader, readParts, withNames } from "./state";
 import { fence, flagged } from "./screen";
@@ -1109,7 +1112,7 @@ const handler = {
         if (m[1] === "join") return redirect(`/b/${m[2]}`);
         if (!viewer) return needLogin();
         if (!(await canSee(c, m[2]))) return notFound(viewer);
-        const [snap, members, invites, side, live, status, row, muted] = await Promise.all([
+        const [snap, members, invites, side, live, status, row, muted, approvalRulesForBoard] = await Promise.all([
           boardStub(env, m[2]).snapshot(0, { latest: 80 }, seer()), // fewer messages on the page keeps scrolling smooth (jxn #1365); older ones load as you go back
           registry.boardMembers(env, m[2]),
           registry.pendingInvites(env, m[2]),
@@ -1118,6 +1121,7 @@ const handler = {
           registry.agentStatus(env, viewer.name),
           registry.getBoard(env, m[2]),
           viewer.via === "agent" ? [] : moderation.mutedOn(env, viewer.name, m[2]).catch(() => []), // whom you muted here (#3602)
+          approvalRules.list(env, m[2]),
         ]);
         // Agents here: named sessions, plus members' agents connected without one (e.g. an MCP URL connection).
         const memberSet = new Set(members.map((x) => x.user));
@@ -1142,23 +1146,28 @@ const handler = {
         const here = side.find((b) => b.id === m![2]);
         if (here) here.opened = Date.now();
         // Slack channels that read this board, for its "Who can read this board" list (only while the bridge is on).
+        // Agents running on members' machines (jxn #5722): theirs as a count, yours by machine.
+        const machinesHere = machines.visibleTo(await machines.forUsers(env, members.map((x) => x.user)).catch(() => []), viewer.name);
         const slackChannels = slackOn(env, request)
           ? ((await env.DB.prepare(`SELECT channel_name FROM slack_links WHERE board_id = ? AND paused IS NULL`).bind(m[2]).all<{ channel_name: string }>().catch(() => ({ results: [] as { channel_name: string }[] }))).results ?? []).map((r) => r.channel_name)
           : [];
-        return boardPage(viewer, side, snap.info, withAgents, snap.entries.map((e) => withAgentNames(e, agentNamed)), shown, { connected: status.connected, onThisBoard: !!live[viewer.name] }, snap.summary, agentsHere, { picture: boardPictures.pictureUrl(m[2], row?.picture_v), kind, charter, sessions: mine, seen: snap.reads?.[viewer.name]?.person_seen ?? 0, last_seen: snap.reads?.[viewer.name]?.person_seen ?? 0, muted, calls: calls.callsOn(env, request), slack: slackOn(env, request), slackChannels });
+        return boardPage(viewer, side, snap.info, withAgents, snap.entries.map((e) => withAgentNames(e, agentNamed)), shown, { connected: status.connected, onThisBoard: !!live[viewer.name] }, snap.summary, agentsHere, { picture: boardPictures.pictureUrl(m[2], row?.picture_v), kind, charter, approvalRules: approvalRulesForBoard, sessions: mine, machines: machinesHere, seen: snap.reads?.[viewer.name]?.person_seen ?? 0, last_seen: snap.reads?.[viewer.name]?.person_seen ?? 0, muted, calls: calls.callsOn(env, request), slack: slackOn(env, request), slackChannels, ...(members.find((m) => m.user === viewer.name)?.role === "viewer" ? {} : { spend: await boardStub(env, m[2]).spend() }) });
       }
 
       // ---- inbox: mentions of you, posts for your agent, replies to you ----
       if (path === "/inbox" && method === "GET") {
         if (!viewer) return needLogin();
-        const [side, items, aps] = await Promise.all([sideBoardsNamed(env, viewer.name), inbox.listInbox(env, viewer.name, 100, viewer.via !== "agent"), approvals.listApprovals(env, viewer.name, "all")]);
+        const [side, items, aps, joins] = await Promise.all([sideBoardsNamed(env, viewer.name), inbox.listInbox(env, viewer.name, 100, viewer.via !== "agent"), approvals.listApprovals(env, viewer.name, "all"), viewer.via === "agent" ? Promise.resolve([]) : repoBoards.forOwner(env, viewer.name)]);
         // Looking at the inbox is reading it: the badge clears (items still show as new on this view). Off-board items
         // (friend and contact requests, approvals) have no board to open, so this is where they get read.
         const unreadIds = items.filter((i) => !i.read_at).map((i) => i.id).slice(0, 90); // D1: at most 100 bound parameters
         if (unreadIds.length) ctx.waitUntil(inbox.markRead(env, viewer.name, { ids: unreadIds }).catch(() => 0));
         const dmPeers = items.flatMap((i) => (i.board_title?.includes(" ↔ ") ? i.board_title.split(" ↔ ") : []));
-        const people = await displayNames(env, [...items.filter((i) => i.actor_via !== "agent").map((i) => i.actor), ...dmPeers]).catch(() => ({}));
-        return inbox.inboxPage(viewer, side, items, aps, people);
+        const [people, agentNames] = await Promise.all([
+          displayNames(env, [...items.filter((i) => i.actor_via !== "agent").map((i) => i.actor), ...dmPeers]).catch(() => ({})),
+          agents.displayNames(env, items.flatMap((i) => i.kind === "approval" ? (i.push?.by ? [i.push.by] : []) : i.actor_via === "agent" ? [i.actor] : [])).catch(() => ({} as Record<string, string>)),
+        ]);
+        return inbox.inboxPage(viewer, side, items, aps, people, agentNames, joins);
       }
       // ---- The guide (vedu #2402): what people can do, by task. Public; signed in, its top bar goes back to the app ----
       if (path === "/guide" && method === "GET") {
@@ -1169,7 +1178,7 @@ const handler = {
       if (path === "/for-you" && method === "GET") {
         if (!viewer) return needLogin();
         const now = Date.now();
-        const [side, aps, items] = await Promise.all([sideBoardsNamed(env, viewer.name), approvals.listApprovals(env, viewer.name, "pending"), inbox.listInbox(env, viewer.name, 60)]);
+        const [side, aps, items, joins] = await Promise.all([sideBoardsNamed(env, viewer.name), approvals.listApprovals(env, viewer.name, "pending"), inbox.listInbox(env, viewer.name, 60), viewer.via === "agent" ? Promise.resolve([]) : repoBoards.forOwner(env, viewer.name)]);
         // Unread mail for you (the person) from the last week: mentions and replies open in their chat; their boards are
         // looked at too, so a decision or question waiting there shows even on a quiet board.
         const mail = items.filter((i) => !i.read_at && i.board_id && (i.kind === "mention" || i.kind === "reply" || i.kind === "decision") && now - i.created_at < 7 * 86_400_000);
@@ -1180,16 +1189,18 @@ const handler = {
         const snoozed = new Set(snoozedRows.map((r) => `${r.board_id}:${r.seq}`));
         const snoozedApprovals = new Set(snoozedRows.flatMap((r) => { try { const id = JSON.parse(r.data ?? "null")?.push?.approval; return id ? [id as string] : []; } catch { return []; } }));
         const visible = boards.map((b) => ({ ...b, decisions: b.decisions.filter((x) => !snoozed.has(`${b.board.id}:${x.seq}`)), questions: b.questions.filter((x) => !snoozed.has(`${b.board.id}:${x.seq}`)) }));
-        return forYou.forYouPage(viewer, side, { approvals: aps.filter((a) => !snoozedApprovals.has(a.id)), boards: visible, mentions, now });
+        return forYou.forYouPage(viewer, side, { approvals: aps.filter((a) => !snoozedApprovals.has(a.id)), joins, boards: visible, mentions, now });
       }
       if (path === "/api/inbox" && method === "GET") {
         if (!viewer) return needLogin();
         const items = await inbox.listInbox(env, viewer.name, 50, viewer.via !== "agent");
         if (viewer.via === "agent") return json({ items }); // agents never see a person's notification settings
+        const agentNames = await agents.displayNames(env, items.filter((i) => i.actor_via === "agent").map((i) => i.actor)).catch(() => ({} as Record<string, string>));
+        const namedItems = items.map((i) => i.actor_via === "agent" && agentNames[i.actor] ? { ...i, actor_name: agentNames[i.actor] } : i);
         // People: each item says whether it interrupts (src/notify.ts), and when the digest is due.
         const [levels, prefs] = await Promise.all([notify.getLevels(env, viewer.name), notify.getPrefs(env, viewer.name, notify.fallbackTz(url.searchParams.get("tz")))]);
         const now = requestNow(env, request);
-        return json({ items: inbox.withInterrupts(items, levels, prefs, now), notify: notify.summary(prefs, now) });
+        return json({ items: inbox.withInterrupts(namedItems, levels, prefs, now), notify: notify.summary(prefs, now) });
       }
       // ---- notification volume (a person's own): level per board, quiet hours, digest times ----
       if (path === "/api/me/notify" && (method === "GET" || method === "PUT")) {
@@ -1286,6 +1297,8 @@ const handler = {
         // read only peeks (mail for this very session still comes). A plain peek never looks.
         const drain = url.searchParams.get("drain") === "1";
         const lease = drain || !peek ? await mailbox.leaseFor(env, viewer.name, await mailboxHolder(), (await asess())?.name ?? null, requestNow(env, request), drain) : null;
+        // lease=1: is anyone draining it, whoever holds it (a standby watcher's check, #5679). Looks only.
+        const leaseNow = url.searchParams.get("lease") === "1" ? await mailbox.leaseState(env, viewer.name, requestNow(env, request)) : null;
         // One open wait per agent session: a newer one ends this one (limits.beginWait).
         const w = wait && sid ? limits.beginWait(`s:${sid}`) : null;
         if (w?.refused) return waitRefused(w.refused);
@@ -1293,11 +1306,11 @@ const handler = {
           (await withRetry(() => boardStub(env, b.id).editNotices(viewer.name, sid, peek)).catch((): string[] => [])).map((line, i) => ({ id: -Date.now() - i, kind: "edited" as const, board: b.id, board_title: b.title, seq: Number(line.match(/#(\d+)/)?.[1] ?? 0), from: "", from_via: "person", type: "edit", text: line, preview: line, for: "for your agent", ts: Date.now() }))))) .flat() : [];
         let r0: Awaited<ReturnType<typeof mailbox.collect>>;
         try {
-          r0 = await mailbox.collect(env, viewer.name, { limit, wait: editMail.length ? 0 : wait, peek, held: !!lease, session: sid, pollMs: level >= 1 ? 6000 : 3000, signal: w?.signal }, async (b, seq) => { const e = (await boardStub(env, b).get(seq, { user: viewer.name, person: false })).entry; return { text: e.text, title: e.title }; }); // as the agent: its own lane too
+          r0 = await mailbox.collect(env, viewer.name, { limit, wait: editMail.length ? 0 : wait, peek, held: !!lease, session: sid, direct: peek && url.searchParams.get("kinds") === "dm", pollMs: level >= 1 ? 6000 : 3000, signal: w?.signal }, async (b, seq) => { const e = (await boardStub(env, b).get(seq, { user: viewer.name, person: false })).entry; return { text: e.text, title: e.title }; }); // as the agent: its own lane too
         } finally {
           w?.done();
         }
-        const r = { ...r0, mail: [...await social.mailWithAgentNames(env, r0.mail), ...editMail], ...(lease ? { held: mailbox.heldHint(lease), held_until: lease.expires_at } : {}), ...(limits.superseded(w?.signal) ? { superseded: true } : {}), ...(limits.pollAfterMs(level) ? { poll_after_ms: limits.pollAfterMs(level) } : {}) }; // from_agent_name: "Jarvis" (from: its owner)
+        const r = { ...r0, mail: [...await social.mailWithAgentNames(env, r0.mail), ...editMail], ...(lease ? { held: mailbox.heldHint(lease), held_until: lease.expires_at } : {}), ...(leaseNow ? { lease: leaseNow } : {}), ...(limits.superseded(w?.signal) ? { superseded: true } : {}), ...(limits.pollAfterMs(level) ? { poll_after_ms: limits.pollAfterMs(level) } : {}) }; // from_agent_name: "Jarvis" (from: its owner)
         // headless: the person reads the board, not the agent's terminal (the CLI says so over the mail).
         return json((await social.agentsHeadless(env, viewer.name)) ? { ...r, headless: true } : r, 200, { "cache-control": "no-store" });
       }
@@ -1321,7 +1334,9 @@ const handler = {
         const due = await inbox.digestDue(env, viewer.name, levels, prefs, sum.digest_at);
         const latest0 = cnt.latest ? inbox.withInterrupts([cnt.latest], levels, prefs, now)[0] : null;
         // The notification names a person as they chose (jxn #4369; cached in names.ts, so polling costs no extra reads).
-        const actorName = latest0 && latest0.actor_via !== "agent" && latest0.actor ? (await displayNames(env, [latest0.actor]).catch(() => ({}) as Record<string, string>))[latest0.actor] : undefined;
+        const owner = latest0?.kind === "approval" ? latest0.push?.by : latest0?.actor_via === "agent" ? latest0.actor : undefined;
+        const agentName = owner ? (await agents.displayNames(env, [owner]).catch(() => ({} as Record<string, string>)))[owner] : undefined;
+        const actorName = owner && agentName ? `${agentName} · ${owner}'s agent` : latest0?.actor && !owner ? (await displayNames(env, [latest0.actor]).catch(() => ({} as Record<string, string>)))[latest0.actor] : undefined;
         const latest = latest0 && actorName ? { ...latest0, actor_name: actorName } : latest0;
         return json({ ...cnt, latest, notify: { ...sum, digest_count: due?.n ?? 0, digest_boards: due?.boards ?? [] } }, 200, { "cache-control": "no-store" });
       }
@@ -1596,7 +1611,7 @@ const handler = {
         };
         try {
           if (method === "POST" && !km[2]) {
-            const b = (await request.json().catch(() => ({}))) as { to?: string; note?: string; payload?: string; type?: string; reply_to?: number; files?: unknown; handoff?: unknown };
+            const b = (await request.json().catch(() => ({}))) as { to?: string; note?: string; payload?: string; type?: string; reply_to?: number; files?: unknown; handoff?: unknown; usage?: import("./spend").Usage };
             const note = String(b.note ?? "");
             const blocked = egressRefusal(env, ctx, { note });
             if (blocked) return json({ error: blocked }, 400);
@@ -1604,9 +1619,9 @@ const handler = {
             const refused = await epochRefusal(String(b.payload ?? ""));
             if (refused) return refused;
             const files = Array.isArray(b.files) ? b.files.map(String) : [];
-            const e = await stub.postSealed(viewer.name, { to: b.to ? String(b.to) : null, note, payload: String(b.payload ?? ""), type: b.type, reply_to: Number(b.reply_to) || null, files, handoff: b.handoff }, { via: pv(), client: viewer.via === "agent" ? "atteo CLI" : null, ...(await asOpts()) });
+            const e = await stub.postSealed(viewer.name, { to: b.to ? String(b.to) : null, note, payload: String(b.payload ?? ""), type: b.type, reply_to: Number(b.reply_to) || null, files, handoff: b.handoff, usage: b.usage }, { via: pv(), client: viewer.via === "agent" ? "atteo CLI" : null, ...(await asOpts()) });
             ctx.waitUntil(registry.bumpBoard(env, km[1], e.seq).catch(() => {}));
-            return json({ ok: true, entry: e }, 201);
+            return json({ ok: true, entry: e, ...(e.warning ? { warning: e.warning } : {}) }, 201);
           }
           // An edit: the author's new envelope for their message (people only, within 15 minutes; Board.editSealed).
           if (method === "PUT" && km[2]) {
@@ -2276,6 +2291,32 @@ const handler = {
         return json({ ok: true, picture: boardPictures.pictureUrl(board.id, v) });
       }
 
+      // ---- approval rules: the owner sets metadata that agents check before asking ----
+      m = path.match(/^\/api\/boards\/(b_[a-z0-9]+)\/approval-rules(?:\/([a-z_]+))?$/);
+      if (m) {
+        if (!viewer) return needLogin();
+        const board = await registry.getBoard(env, m[1]);
+        const role = await registry.memberRole(env, m[1], viewer.name);
+        if (!board || !role) return json({ error: "board not found" }, 404);
+        if (method === "GET" && !m[2]) return json({ rules: await approvalRules.list(env, m[1]), can_edit: viewer.via !== "agent" && (role === "owner" || board.created_by === viewer.name) && !board.archived_at }, 200, { "cache-control": "no-store" });
+        if (method !== "PUT" || !m[2]) return json({ error: "not found" }, 404);
+        if (viewer.via === "agent") return json({ error: "Only a board owner can change approval rules. Ask your person." }, 403);
+        if (role !== "owner" && board.created_by !== viewer.name) return json({ error: "Only the board's owners can change approval rules." }, 403);
+        if (board.archived_at) return json({ error: "This board is archived. Restore it to change approval rules." }, 403);
+        try {
+          const body = await request.json().catch(() => ({}));
+          const parsed = approvalRules.parseRule(m[2], body);
+          const old = (await approvalRules.list(env, m[1])).find(x => x.category === parsed.category)!;
+          if (old.mode === parsed.mode && old.threshold === parsed.threshold) return json({ rule: old });
+          const rule = await approvalRules.save(env, m[1], m[2], body, viewer.name);
+          const detail = `${rule.name}: ${rule.mode === "ask" ? "Always ask" : rule.mode === "auto" ? "Auto-approve" : "Block"}${rule.category === "spending" ? ` over $${rule.threshold!.toFixed(2)}` : ""}`;
+          await registry.audit(env, m[1], viewer.name, "approval_rule_changed", rule.category, detail);
+          const note = await boardStub(env, m[1]).notice(viewer.name, "Approval rule changed", `${viewer.name} changed the approval rule: ${detail}.`, { via: "person" });
+          await registry.bumpBoard(env, m[1], note.seq);
+          return json({ rule });
+        } catch (e) { return json({ error: e instanceof Error ? e.message : String(e) }, 400); }
+      }
+
       // ---- access management: roles, expiry, invite links, audit log ----
       m = path.match(/^\/api\/boards\/(b_[a-z0-9]+)\/(members|links|audit)(?:\/([^/]+))?$/);
       if (m && !(m[2] === "members" && method === "POST" && /\/remove$/.test(path))) {
@@ -2395,9 +2436,92 @@ const handler = {
         }
       }
 
+      // Read-only metadata for a person's terminal confirmation. A repo file is an unverified claim about GitHub.
+      if (path === "/api/repos/preview" && method === "GET") {
+        if (!viewer) return needLogin();
+        const repo = repoBoards.normalizeRepo(url.searchParams.get("repo"));
+        const boardId = url.searchParams.get("board");
+        if (!repo || !boardId || !BOARD_RE.test(boardId)) return json({ error: "Give a GitHub owner/repo and a valid board id." }, 400);
+        const linked = await repoBoards.linkedBoard(env, repo, boardId);
+        if (!linked) return json({ error: "This repo file does not match a board link. Ask the board owner to check .atteo.json." }, 404);
+        if (linked.archived_at || linked.deleted_at) return json({ error: "This board is archived or deleted. Ask an owner to reopen it." }, 409);
+        const member = !!(await registry.memberRole(env, linked.id, viewer.name));
+        // Only members see the title, owners and linker: anyone who can read .atteo.json may call this (opus-d #5723).
+        if (!member) return json({ board: linked.id, repo, title: null, owners: [], linked_by: null, status: (await repoBoards.joinState(env, linked.id, viewer.name)) ?? "not_member" }, 200, { "cache-control": "private, no-store" });
+        const owners = (await registry.boardMembers(env, linked.id)).filter((m) => m.role === "owner").map((m) => ({ user: m.user, display_name: m.display_name }));
+        return json({ board: linked.id, repo, title: linked.title, owners, linked_by: await repoBoards.linkedBy(env, repo, linked.id), status: "member" }, 200, { "cache-control": "private, no-store" });
+      }
+
+      // A repository identifies its board; only a board owner may let a requester become a member.
+      if (path === "/api/repos/init" && method === "POST") {
+        if (!viewer) return needLogin();
+        const body = (await request.json().catch(() => ({}))) as { repo?: unknown; board?: unknown; check?: unknown };
+        const repo = repoBoards.normalizeRepo(body.repo);
+        if (!repo) return json({ error: "Give a GitHub owner/repo." }, 400);
+        if (body.board != null && !BOARD_RE.test(String(body.board))) return json({ error: "The .atteo.json board id is invalid." }, 400);
+        // check: only whether you're already a member, for the CLI's other commands in a linked repo. It never creates a
+        // board or a join request: only atteo init asks the owners (opus-d, repo-init review).
+        if (body.check === true) {
+          const linked = body.board ? await repoBoards.linkedBoard(env, repo, String(body.board)) : null;
+          const member = !!linked && !linked.archived_at && !linked.deleted_at && !!(await registry.memberRole(env, linked.id, viewer.name));
+          return json({ board: member ? linked!.id : null, repo, status: member ? "member" : "not_member" });
+        }
+        let board = body.board ? await repoBoards.linkedBoard(env, repo, String(body.board)) : await repoBoards.ownedBoard(env, viewer.name, repo);
+        if (body.board && !board) return json({ error: "This repo file does not match a board link. Ask the board owner to check .atteo.json." }, 404);
+        if (board?.archived_at || board?.deleted_at) return json({ error: "This board is archived or deleted. Ask an owner to reopen it." }, 409);
+        let created = false;
+        if (!board) {
+          try {
+            const made = await createBoard(env, repo, viewer.name, origin, { encrypted: true }, ctx);
+            const chosen = await repoBoards.linkBoard(env, viewer.name, repo, made.id);
+            if (chosen !== made.id) await registry.deleteBoard(env, made.id);
+            board = await registry.getBoard(env, chosen);
+            created = chosen === made.id;
+          } catch (e) {
+            return json({ error: e instanceof Error ? e.message.replace(/: https?:\S+$/, ".") : String(e) }, e instanceof billing.BillingError ? 402 : 400);
+          }
+        }
+        if (!board) return json({ error: "Board not found." }, 404);
+        try {
+          const status = await repoBoards.requestJoin(env, board, viewer.name);
+          return json({ board: board.id, repo, status: created ? "created" : status }, created ? 201 : 200);
+        } catch (e) {
+          return json({ error: e instanceof Error ? e.message : String(e) }, 409);
+        }
+      }
+      if (path === "/api/repo-joins" && method === "GET") {
+        if (!viewer) return needLogin();
+        if (viewer.via === "agent") return json({ error: "Only people can decide who joins a board." }, 403);
+        return json({ requests: await repoBoards.forOwner(env, viewer.name) });
+      }
+      const repoJoin = path.match(/^\/api\/repo-joins\/(jr_[A-Za-z0-9_-]+)\/(let-in|decline|block)$/);
+      if (repoJoin && method === "POST") {
+        if (!viewer) return needLogin();
+        if (viewer.via === "agent") return json({ error: "Only people can decide who joins a board." }, 403);
+        try {
+          const decided = await repoBoards.decide(env, repoJoin[1], viewer.name, repoJoin[2] as "let-in" | "decline" | "block", origin);
+          return json({ request: decided });
+        } catch (e) {
+          return json({ error: e instanceof Error ? e.message.replace(/: https?:\S+$/, ".") : String(e) }, e instanceof billing.BillingError ? 402 : 400);
+        }
+      }
+
       if (path === "/api/me/board-states" && method === "GET") {
         if (!viewer) return json({ error: "sign in required" }, 401);
         return json({ boards: await boardStates(env, viewer.name) }, 200, { "cache-control": "private, no-store" });
+      }
+
+      // ---- your machines and the agents running on each (atteo agents / atteo spawn --listen, jxn #5722) ----
+      if (path === "/api/me/machines" && (method === "GET" || method === "POST")) {
+        if (!viewer) return needLogin();
+        if (method === "GET") return json({ machines: (await machines.forUsers(env, [viewer.name])).map(({ machine, agents, seen_at }) => ({ machine, agents, seen_at })) }, 200, { "cache-control": "no-store" });
+        try {
+          const r = await machines.report(env, viewer.name, (await request.json().catch(() => ({}))) as { machine?: unknown; agents?: unknown });
+          return json({ ok: true, machine: r.machine, agents: r.agents });
+        } catch (e) {
+          if (e instanceof machines.MachineError) return json({ error: e.message }, 400);
+          throw e;
+        }
       }
 
       // ---- the signed-in person's boards (CLI uses its bearer token) ----
@@ -3309,6 +3433,27 @@ const handler = {
       }
 
       // ---- tasks board (web): list, and act on one task as a person ----
+      m = path.match(/^\/api\/boards\/(b_[a-z0-9]+)\/(spend|usage)$/);
+      if (m) {
+        if (!viewer) return needLogin();
+        if (!(await registry.isMember(env, m[1], viewer.name))) return json({ error: "board not found" }, 404);
+        const stub = boardStub(env, m[1]);
+        if (m[2] === "spend" && method === "GET") {
+          const own = url.searchParams.get("own") === "1";
+          if (!own && (await registry.memberRole(env, m[1], viewer.name)) === "viewer") return json({ error: "Your role on this board is viewer. Use own=1 for your reports." }, 403);
+          return json(await stub.spend(own ? viewer.name : undefined), 200, { "cache-control": "no-store" });
+        }
+        if (m[2] === "usage" && method === "POST") {
+          if ((await registry.memberRole(env, m[1], viewer.name)) === "viewer") return json({ error: "Your role on this board is viewer." }, 403);
+          const b = (await request.json().catch(() => ({}))) as { usage?: unknown; task?: unknown; source?: unknown };
+          try {
+            return json(await stub.reportUsage(viewer.name, b.usage, { via: pv(), client: viewer.via === "agent" ? "atteo CLI" : null, ...(await asOpts()) }, b.task == null ? null : Number(b.task), b.source == null ? undefined : String(b.source)), 200, { "cache-control": "no-store" });
+          } catch (e) { return json({ error: e instanceof Error ? e.message : String(e) }, 400); }
+        }
+        return json({ error: "method not allowed" }, 405);
+      }
+
+      // ---- tasks board (web): list, and act on one task as a person ----
       m = path.match(/^\/api\/boards\/([^/]+)\/tasks(?:\/(\d+))?$/);
       if (m) {
         if (!viewer) return needLogin();
@@ -3331,10 +3476,10 @@ const handler = {
             const created = await stub.taskCreate(
               viewer.name,
               { title: String(b.title ?? ""), body: typeof b.body === "string" ? b.body : "", priority: (["high", "medium", "low"] as const).find((p) => p === b.priority) ?? null, parent: typeof b.parent === "number" && b.parent > 0 ? b.parent : null },
-              { via: pv(), ...(await asOpts()) },
+              { via: pv(), ...(await asOpts()), usage: b.usage as import("./spend").Usage | undefined },
             );
             if (!created.duplicate) ctx.waitUntil(registry.bumpBoard(env, m[1], created.task.seq).catch(() => {}));
-            return json({ ok: true, task: created.task, duplicate: created.duplicate, ...(created.similar?.length ? { similar: created.similar } : {}) }, created.duplicate ? 200 : 201);
+            return json({ ok: true, task: created.task, duplicate: created.duplicate, ...(created.task.warning ? { warning: created.task.warning } : {}), ...(created.similar?.length ? { similar: created.similar } : {}) }, created.duplicate ? 200 : 201);
           } catch (e) {
             return json({ error: e instanceof Error ? e.message : String(e) }, 400);
           }
@@ -3343,7 +3488,7 @@ const handler = {
           const seq = parseInt(m[2], 10);
           const b = (await request.json().catch(() => ({}))) as Record<string, unknown>;
           const s = (k: string) => (typeof b[k] === "string" ? (b[k] as string).trim() : undefined);
-          const opts = { via: pv(), ...(await asOpts()) };
+          const opts = { via: pv(), ...(await asOpts()), usage: b.usage as import("./spend").Usage | undefined };
           try {
             let t;
             if (b.action === "edit")
@@ -3381,7 +3526,7 @@ const handler = {
               );
             } else return json({ error: "action must be claim, release, update or stop" }, 400);
             ctx.waitUntil(registry.bumpBoard(env, m[1], 0).catch(() => {}));
-            return json({ ok: true, task: t });
+            return json({ ok: true, task: t, ...(t.warning ? { warning: t.warning } : {}) });
           } catch (e) {
             return json({ error: e instanceof Error ? e.message : String(e) }, 400);
           }
@@ -3647,7 +3792,7 @@ const handler = {
         if (what === "entries" && !seqStr && method === "POST") {
           // canSee above already checked membership, unless it let an operator through.
           if (!viewer || (isOps(c) && !(await registry.isMember(env, id, viewer.name)))) return json({ error: "Only members can post." }, 403);
-          const body = (await request.json().catch(() => ({}))) as { text?: string; type?: string; title?: unknown; to?: string | string[]; reply_to?: string | number; to_session?: string; people_only?: unknown; own?: unknown; resolves?: unknown; supersedes?: unknown; depends_on?: unknown; strict?: unknown; artifact_name?: unknown; artifact_content?: unknown; card?: unknown; handoff?: unknown; data?: unknown };
+          const body = (await request.json().catch(() => ({}))) as { text?: string; type?: string; title?: unknown; to?: string | string[]; reply_to?: string | number; to_session?: string; people_only?: unknown; own?: unknown; resolves?: unknown; supersedes?: unknown; depends_on?: unknown; strict?: unknown; artifact_name?: unknown; artifact_content?: unknown; card?: unknown; handoff?: unknown; data?: unknown; usage?: import("./spend").Usage };
           // The same entry as MCP's post (SPEC.md §17): an unknown type is refused, not turned into a note.
           const askedType = typeof body.type === "string" ? body.type.trim().toLowerCase() : "";
           if (body.type != null && !(ENTRY_TYPES as readonly string[]).includes(askedType)) return json({ error: `type must be one of: ${ENTRY_TYPES.join(", ")}` }, 400);
@@ -3709,7 +3854,7 @@ const handler = {
             const input: NewEntry = {
               type, text, title, to, mentions, reply_to: replyTo, ...(resolves.length ? { resolves } : {}), ...(supersedes ? { supersedes } : {}), ...(dependsOn.length ? { depends_on: dependsOn } : {}),
               ...(typeof body.artifact_name === "string" ? { artifact_name: body.artifact_name } : {}), ...(typeof body.artifact_content === "string" ? { artifact_content: body.artifact_content } : {}), ...(body.card != null ? { card: body.card } : {}),
-              via: pv(), ...so, idem, data: body.data, ...(peopleOnly ? { people_only: true, to_people: toPeople } : {}), ...(own ? { own: true } : notOwn ? { own: false } : {}), ...(body.handoff != null ? { handoff: body.handoff } : {}),
+              via: pv(), ...so, idem, data: body.data, usage: body.usage, ...(peopleOnly ? { people_only: true, to_people: toPeople } : {}), ...(own ? { own: true } : notOwn ? { own: false } : {}), ...(body.handoff != null ? { handoff: body.handoff } : {}),
             };
             // An agent's post goes through the stale-read rule, as over MCP (SPEC.md §9): if something it hasn't read bears
             // on it, nothing is posted and it gets those entries (now marked read). People on the web post as before.
@@ -3732,7 +3877,7 @@ const handler = {
             // An agent's top-level post the board kept in Just mine (board.ts ownByDefault) says so instead.
             const said = entry.audience === "own" && entry.reply_to == null && !own && !notOwn && viewer.via === "agent" ? keptOwnNotice(viewer.name) : audienceNotice(entry, viewer.name);
             const notice = said ? { notice: said } : {};
-            return json({ ok: true, entry, ...notice, ...(missed?.length ? { missed } : {}), update: { seq: entry.seq, root, retracts: entry.retracts, html: entryHtml(withAgentNames(entry, agentNames(boardMembers)), id, true, { canRetract: true, canEdit: true, lang: viewer?.lang, members: boardMembers.map((m) => m.user), person: !!viewer && viewer.via !== "agent", people: displayMap(boardMembers) }), row: logRow(entry, undefined, undefined, viewer?.lang), reactions: [] }, ...(ambiguous.length ? { ambiguous } : {}) }, 201);
+            return json({ ok: true, entry, ...notice, ...(entry.warning ? { warning: entry.warning } : {}), ...(missed?.length ? { missed } : {}), update: { seq: entry.seq, root, retracts: entry.retracts, html: entryHtml(withAgentNames(entry, agentNames(boardMembers)), id, true, { canRetract: true, canEdit: true, lang: viewer?.lang, members: boardMembers.map((m) => m.user), person: !!viewer && viewer.via !== "agent", people: displayMap(boardMembers) }), row: logRow(entry, undefined, undefined, viewer?.lang), reactions: [] }, ...(ambiguous.length ? { ambiguous } : {}) }, 201);
           } catch (e) {
             // Still restarting after our retries: say "try again" (the page retries with the same message id).
             if (isRetriable(e)) {
@@ -4120,5 +4265,3 @@ export default Sentry.withSentry(
   (env: Env) => ({ dsn: env.SENTRY_DSN, release: env.CF_VERSION_METADATA?.id, tracesSampleRate: 0, beforeSend: scrubForSentry }),
   handler,
 );
-
-

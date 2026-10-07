@@ -132,7 +132,7 @@ export async function markOpened(env: Env, user: string, boardId: string, at = D
   await env.DB.prepare(`UPDATE members SET opened_at = ? WHERE board_id = ? AND user = ?`).bind(at, boardId, user).run();
 }
 
-/** The only way into a board: creating it, an accepted invite, or an existing member adding someone. */
+/** Membership starts with creation, an accepted invite, an existing member's grant, or a repo owner's Let in. */
 export type Role = "owner" | "contributor" | "viewer";
 export const ROLES: Role[] = ["owner", "contributor", "viewer"];
 /** New grants (email invites, unspecified invite-link members): view only, 30 days. Owners set contributor / no end after. */
@@ -211,9 +211,12 @@ export async function deletedAt(env: Env, boardId: string): Promise<number | nul
   return (await env.DB.prepare(`SELECT deleted_at FROM boards WHERE id = ?`).bind(boardId).first<{ deleted_at: number | null }>())?.deleted_at ?? null;
 }
 
-/** Removes a board from the directory: memberships, invitations, joined sessions, and the board row. */
+/** Removes a board from the directory: memberships, invitations, repo links, joined sessions, and the board row. */
 export async function deleteBoard(env: Env, boardId: string) {
   await env.DB.batch([
+    env.DB.prepare(`DELETE FROM notifications WHERE kind = 'repo_join' AND json_extract(data, '$.join') IN (SELECT id FROM repo_join_requests WHERE board_id = ?)`).bind(boardId),
+    env.DB.prepare(`DELETE FROM repo_join_requests WHERE board_id = ?`).bind(boardId),
+    env.DB.prepare(`DELETE FROM repo_boards WHERE board_id = ?`).bind(boardId),
     env.DB.prepare(`DELETE FROM members WHERE board_id = ?`).bind(boardId),
     env.DB.prepare(`DELETE FROM invites WHERE board_id = ?`).bind(boardId),
     env.DB.prepare(`DELETE FROM board_pictures WHERE board_id = ?`).bind(boardId),

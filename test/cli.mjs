@@ -99,8 +99,8 @@ async function tool(token, board, name, args) {
 }
 
 /** Runs `atteo mcp` and talks JSON-RPC to it over stdio. */
-function startMcp(credFile, env = {}) {
-  const p = spawn("node", [CLI, "mcp", "--server", BASE], { env: { ...process.env, ATTEO_CREDENTIALS_FILE: credFile, ...env } });
+function startMcp(credFile, env = {}, cwd) {
+  const p = spawn("node", [CLI, "mcp", "--server", BASE], { cwd, env: { ...process.env, ATTEO_CREDENTIALS_FILE: credFile, ...env } });
   const lines = [];
   let buf = "";
   p.stdout.on("data", (d) => {
@@ -138,6 +138,102 @@ await step("setup", async () => {
   credB = join(dir, "b.json");
   writeFileSync(credA, JSON.stringify({ server: BASE, user: A, token: tokA, expires_at: Date.now() + 86400e3 }), { mode: 0o600 });
   writeFileSync(credB, JSON.stringify({ server: BASE, user: B, token: tokB, expires_at: Date.now() + 86400e3 }), { mode: 0o600 });
+});
+
+await step("init commits a repo link, requests membership once, and mcp starts on that board", async () => {
+  const owner = `e2e-cli-init-o-${run}`, teammate = `e2e-cli-init-j-${run}`;
+  for (const u of [owner, teammate]) await ops("users", { name: u, email: `${u}@example.com`, verified: "true" });
+  const cred = {};
+  for (const u of [owner, teammate]) {
+    const token = (await ops("tokens", { user: u })).token;
+    cred[u] = join(dir, `${u}.json`);
+    writeFileSync(cred[u], JSON.stringify({ server: BASE, user: u, token, expires_at: Date.now() + 86400e3 }), { mode: 0o600 });
+  }
+  const repoDir = join(dir, `repo-${run}`);
+  mkdirSync(repoDir);
+  execFileSync("git", ["-C", repoDir, "init", "-q"]);
+  execFileSync("git", ["-C", repoDir, "config", "user.name", "Atteo test"]);
+  execFileSync("git", ["-C", repoDir, "config", "user.email", "test@example.com"]);
+  execFileSync("git", ["-C", repoDir, "remote", "add", "origin", `git@github.com:Example/Init-${run}.git`]);
+  const cli = (u, ...args) => new Promise((resolve) => {
+    const p = spawn("node", [CLI, ...args], { cwd: repoDir, env: { ...process.env, ATTEO_CREDENTIALS_FILE: cred[u], XDG_CONFIG_HOME: join(dir, `cfg-${u}`), ATTEO_NO_UPDATE_CHECK: "1" } });
+    let out = "";
+    p.stdout.on("data", (d) => (out += d));
+    p.stderr.on("data", (d) => (out += d));
+    p.on("close", (code) => resolve({ code, out }));
+  });
+  const cliTty = (u, answer, ...args) => new Promise((resolve) => {
+    // Python's stdlib pty gives both ends a real terminal, so the CLI's y/N gate is exercised.
+    const driver = `import os, pty, select, subprocess, sys, time
+master, slave = pty.openpty()
+child = subprocess.Popen(sys.argv[2:], stdin=slave, stdout=slave, stderr=slave)
+os.close(slave)
+output = b''
+answered = False
+deadline = time.monotonic() + 20
+while time.monotonic() < deadline:
+    ready, _, _ = select.select([master], [], [], 0.1)
+    if ready:
+        try: chunk = os.read(master, 4096)
+        except OSError: break
+        if not chunk: break
+        sys.stdout.buffer.write(chunk)
+        sys.stdout.buffer.flush()
+        output += chunk
+        if not answered and b'[y/N]' in output:
+            os.write(master, sys.argv[1].encode() + b'\\n')
+            answered = True
+    if child.poll() is not None and not ready: break
+if child.poll() is None: child.kill()
+sys.exit(child.wait())`;
+    const p = spawn("python3", ["-c", driver, answer, process.execPath, CLI, ...args], { cwd: repoDir, env: { ...process.env, ATTEO_CREDENTIALS_FILE: cred[u], XDG_CONFIG_HOME: join(dir, `cfg-${u}`), ATTEO_NO_UPDATE_CHECK: "1" } });
+    let out = "";
+    p.stdout.on("data", (d) => (out += d));
+    p.stderr.on("data", (d) => (out += d));
+    p.on("close", (code) => resolve({ code, out }));
+  });
+  const made = await cli(owner, "init");
+  assert(made.code === 0 && made.out.trim().split("\n").length === 2 && made.out.includes("Wrote and committed .atteo.json"), made.out);
+  const link = JSON.parse(readFileSync(join(repoDir, ".atteo.json"), "utf8"));
+  assert(link.repo === `example/init-${run}` && /^b_[a-z0-9]{8,32}$/.test(link.board), JSON.stringify(link));
+  assert(execFileSync("git", ["-C", repoDir, "show", "--pretty=format:", "--name-only", "HEAD"], { encoding: "utf8" }).trim() === ".atteo.json", "init committed only the link file");
+  // Any other command in a linked repo never asks the owners (only init does) and never blocks (opus-d, repo-init review).
+  const cookie = (await ops("sessions", { user: owner, verified: "true" })).cookie;
+  const quiet = await cli(teammate, "boards");
+  assert(quiet.code === 0 && quiet.out.includes("atteo init"), quiet.out);
+  const none = await (await fetch(`${BASE}/api/repo-joins`, { headers: { cookie } })).json();
+  assert(!none.requests.some((r) => r.board_id === link.board && r.requester === teammate), "a plain command sent no join request");
+  const headless = await cli(teammate, "init");
+  assert(headless.code !== 0 && headless.out.includes("Run atteo init in a terminal"), headless.out);
+  assert(!(await (await fetch(`${BASE}/api/repo-joins`, { headers: { cookie } })).json()).requests.some((r) => r.board_id === link.board && r.requester === teammate), "headless init sent no join request");
+  const no = await cliTty(teammate, "n", "init");
+  assert(no.code !== 0 && no.out.includes("No join request sent") && no.out.includes(link.board) && !no.out.includes(`@${owner}`), no.out);
+  assert(!(await (await fetch(`${BASE}/api/repo-joins`, { headers: { cookie } })).json()).requests.some((r) => r.board_id === link.board && r.requester === teammate), "declined confirmation sent no join request");
+  const first = await cliTty(teammate, "y", "init");
+  assert(first.code === 0 && first.out.includes("Join request sent") && first.out.includes(link.board) && !first.out.includes(`@${owner}`) && first.out.includes("not verified with GitHub"), first.out);
+  const requests = await (await fetch(`${BASE}/api/repo-joins`, { headers: { cookie } })).json();
+  const request = requests.requests.find((r) => r.board_id === link.board && r.requester === teammate);
+  assert(request && requests.requests.filter((r) => r.board_id === link.board && r.requester === teammate).length === 1, JSON.stringify(requests));
+  const decision = await fetch(`${BASE}/api/repo-joins/${request.id}/let-in`, { method: "POST", headers: { cookie } });
+  assert(decision.status === 200, `let in: ${decision.status}`);
+  assert((await cli(teammate, "boards")).code === 0, "teammate may use commands after the owner lets them in");
+  const m = startMcp(cred[owner], { XDG_CONFIG_HOME: join(dir, `cfg-${owner}`) }, repoDir);
+  const teammateMcp = startMcp(cred[teammate], { XDG_CONFIG_HOME: join(dir, `cfg-${teammate}`) }, repoDir);
+  try {
+    const init = await m.call("initialize", { protocolVersion: "2025-06-18", capabilities: {} });
+    assert(init.result, JSON.stringify(init));
+    const list = await m.call("tools/call", { name: "list_boards", arguments: {} });
+    assert(list.result.content[0].text.includes(`${link.board}`) && list.result.content[0].text.includes("← this session"), list.result.content[0].text);
+    const read = await m.call("tools/call", { name: "read", arguments: {} });
+    assert(!read.result.isError && read.result.content[0].text.includes("END-TO-END ENCRYPTED"), JSON.stringify(read.result));
+    assert((await teammateMcp.call("initialize", { protocolVersion: "2025-06-18", capabilities: {} })).result, "teammate MCP starts");
+    await teammateMcp.call("tools/call", { name: "read", arguments: {} }); // registers its device; it waits for a member's key
+    await m.call("tools/call", { name: "read", arguments: {} }); // the owner hands the new device its key
+    const posted = await m.call("tools/call", { name: "post", arguments: { type: "note", text: `repo key works ${run}` } });
+    assert(!posted.result.isError, JSON.stringify(posted.result));
+    const shared = await teammateMcp.call("tools/call", { name: "read", arguments: { since: 0 } });
+    assert(!shared.result.isError && shared.result.content[0].text.includes(`repo key works ${run}`), JSON.stringify(shared.result));
+  } finally { m.stop(); teammateMcp.stop(); }
 });
 // Without test logins every later step would fall back to the real login in the keychain. Never run them that way.
 if (!credA || !tokA) {
@@ -452,6 +548,66 @@ function cli(args, { cred = credA, cwd = dir, input, env = {} } = {}) {
     p.on("close", (code) => resolve({ code, out, err: errOut }));
   });
 }
+
+await step("usage reports: CLI post, script and Claude transcript retry count once", async () => {
+  const spendBoard = (await ops("boards", { user: A, title: `spend cli ${run}` })).board.id;
+  const cfg = join(dir, "cfg-spend"), env = { XDG_CONFIG_HOME: cfg };
+  let r = await cli(["post", "usage test", "--board", spendBoard, "--model", "claude-sonnet-4-5", "--input-tokens", "100", "--output-tokens", "20", "--cache-read-input-tokens", "10", "--cache-creation-input-tokens", "2"], { env });
+  assert(r.code === 0, r.out + r.err);
+  r = await cli(["usage", "report", "--board", spendBoard, "--model", "gpt-5-mini", "--input-tokens", "200", "--output-tokens", "50", "--source", `script:${run}`], { env });
+  assert(r.code === 0 && r.out.includes("Usage reported"), r.out + r.err);
+  r = await cli(["usage", "report", "--board", spendBoard, "--model", "gpt-5-mini", "--input-tokens", "200", "--output-tokens", "50", "--source", `script:${run}`], { env });
+  assert(r.code === 0 && r.out.includes("already reported"), r.out + r.err);
+  const transcript = join(dir, `usage-${run}.jsonl`);
+  const line = (id, n) => JSON.stringify({ sessionId: `session-${run}`, type: "assistant", message: { id, model: "claude-sonnet-4-5", usage: { input_tokens: n, output_tokens: 10, cache_read_input_tokens: 50, cache_creation_input_tokens: 5 } } }) + "\n";
+  writeFileSync(transcript, line("m1", 30) + line("m1", 40));
+  r = await cli(["usage", "report", "--board", spendBoard, "--from-transcript", transcript], { env });
+  assert(r.code === 0 && r.out.includes("1 new"), r.out + r.err);
+  r = await cli(["usage", "report", "--board", spendBoard, "--from-transcript", transcript], { env });
+  assert(r.code === 0 && r.out.includes("No new"), r.out + r.err);
+  writeFileSync(transcript, line("m1", 30) + line("m1", 40) + line("m2", 5));
+  r = await cli(["usage", "report", "--board", spendBoard, "--from-transcript", transcript], { env });
+  assert(r.code === 0 && r.out.includes("1 new"), r.out + r.err);
+  const made = await (await fetch(`${BASE}/api/boards/${spendBoard}/tasks`, { method: "POST", headers: { authorization: `Bearer ${tokA}`, "content-type": "application/json" }, body: JSON.stringify({ title: `Measure ${run}`, body: "- [ ] verify" }) })).json();
+  const task = made.task.seq;
+  r = await cli(["task", "done", String(task), "--board", spendBoard, "--model", "claude-sonnet-4-5", "--input-tokens", "8", "--output-tokens", "2"], { env });
+  assert(r.code === 0, r.out + r.err);
+  r = await cli(["post", `Task result ${run}`, "--board", spendBoard, "--reply", String(task), "--model", "claude-sonnet-4-5", "--input-tokens", "7", "--output-tokens", "1"], { env });
+  assert(r.code === 0, r.out + r.err);
+  const spend = await (await fetch(`${BASE}/api/boards/${spendBoard}/spend`, { headers: { authorization: `Bearer ${tokA}` } })).json();
+  assert(spend.this_week.input_tokens === 360 && spend.this_week.output_tokens === 93, JSON.stringify(spend.this_week));
+  assert(Math.abs(spend.this_week.cost_usd - 0.001353) < 0.000001, `cache tokens use cache rates: ${JSON.stringify(spend.this_week)}`);
+  assert(spend.tasks.find((t) => t.task === task)?.input_tokens === 15, `task update and reply attribution: ${JSON.stringify(spend.tasks)}`);
+  assert((await tool(tokA, spendBoard, "agents", { action: "spend" })).includes("Reported spend") && (await tool(tokA, spendBoard, "agents", { action: "spend" })).includes("<<untrusted"), "the MCP spend action fences labels");
+});
+
+await step("usage daily cap: 500 reports per author per board; posts and tasks still succeed", async () => {
+  const spendBoard = (await ops("boards", { user: A, title: `spend cap ${run}` })).board.id;
+  const url = `${BASE}/api/boards/${spendBoard}/usage`, headers = { authorization: `Bearer ${tokA}`, "content-type": "application/json" };
+  const send = (source) => fetch(url, { method: "POST", headers, body: JSON.stringify({ usage: { model: "claude-sonnet-4-5", input_tokens: 1, output_tokens: 0 }, source }) });
+  const day = new Date().toISOString().slice(0, 10);
+  const seeded = await ops("restore-board", { board: spendBoard, append: true, tables: { spend_reports: { columns: ["ts", "day", "author", "agent", "model", "input_tokens", "output_tokens", "cost_usd", "estimate", "source"], rows: Array.from({ length: 500 }, (_, i) => [Date.now(), day, A, A, "claude-sonnet-4-5", 1, 0, 0.000003, 1, `cap:${run}:${i}`]) } } });
+  assert(seeded.rows === 500, `seed cap: ${JSON.stringify(seeded)}`);
+  const dropped = await send(`cap:${run}:overflow`);
+  const drop = await dropped.json();
+  assert(dropped.status === 200 && drop.recorded === false && drop.warning?.includes("Usage was dropped"), `501st report: ${dropped.status} ${JSON.stringify(drop)}`);
+  const retry = await send(`cap:${run}:0`);
+  assert(retry.status === 200 && (await retry.json()).recorded === false, "a retry after the cap still counts once");
+  await ops("members", { board: spendBoard, user: B });
+  const other = await fetch(url, { method: "POST", headers: { ...headers, authorization: `Bearer ${tokB}` }, body: JSON.stringify({ usage: { model: "claude-sonnet-4-5", input_tokens: 7, output_tokens: 0 } }) });
+  assert(other.status === 200 && (await other.json()).recorded === true, "another author can report on the same board");
+  const post = await fetch(`${BASE}/api/boards/${spendBoard}/entries`, { method: "POST", headers, body: JSON.stringify({ type: "note", text: `After cap ${run}`, usage: { model: "claude-sonnet-4-5", input_tokens: 2, output_tokens: 0 } }) });
+  const posted = await post.json();
+  assert(post.status === 201 && posted.entry?.seq && posted.warning?.includes("Usage was dropped"), `post after cap: ${post.status} ${JSON.stringify(posted).slice(0, 500)}`);
+  const made = await fetch(`${BASE}/api/boards/${spendBoard}/tasks`, { method: "POST", headers, body: JSON.stringify({ title: `After cap task ${run}`, usage: { model: "claude-sonnet-4-5", input_tokens: 3, output_tokens: 0 } }) });
+  const task = await made.json();
+  assert(made.status === 201 && task.task?.seq && task.warning?.includes("Usage was dropped"), `task after cap: ${made.status} ${JSON.stringify(task).slice(0, 500)}`);
+  const done = await fetch(`${BASE}/api/boards/${spendBoard}/tasks/${task.task.seq}`, { method: "POST", headers, body: JSON.stringify({ action: "update", status: "done", usage: { model: "claude-sonnet-4-5", input_tokens: 4, output_tokens: 0 } }) });
+  const updated = await done.json();
+  assert(done.status === 200 && updated.task?.status === "done" && updated.warning?.includes("Usage was dropped"), `task change after cap: ${done.status} ${JSON.stringify(updated).slice(0, 500)}`);
+  const spend = await (await fetch(`${BASE}/api/boards/${spendBoard}/spend`, { headers })).json();
+  assert(spend.this_week.input_tokens === 507, `only the other author's usage was added: ${JSON.stringify(spend.this_week)}`);
+});
 
 await step("board commands: use, post, read, ask (waits for the answer), search, share, task, doc grep, local secret filter", async () => {
   const proj = join(dir, "proj");
@@ -970,8 +1126,10 @@ await step("end-to-end encrypted board: CLI encrypts and decrypts; the server an
   await cli(["keys"], { cwd: projB, cred: credB });
   await cli(["use", eb], { cwd: projB, cred: credB });
   const secret = `launch codes are 0000 ${run}`;
-  r = await cli(["post", secret], { cwd: projA });
+  r = await cli(["post", secret, "--model", "claude-sonnet-4-5", "--input-tokens", "12", "--output-tokens", "3"], { cwd: projA });
   assert(r.code === 0 && r.out.includes("encrypted on this machine"), r.out + r.err);
+  const spend = await (await fetch(`${BASE}/api/boards/${eb}/spend`, { headers: { authorization: `Bearer ${tokA}` } })).json();
+  assert(spend.this_week.input_tokens === 12 && spend.this_week.output_tokens === 3, `encrypted usage is server-visible metadata: ${JSON.stringify(spend.this_week)}`);
   // The server, and agents reading through it, see only a placeholder.
   const viaServer = await tool(tokB, eb, "read", {});
   assert(viaServer.includes("END-TO-END ENCRYPTED") && !viaServer.includes("launch codes"), viaServer);
@@ -3192,8 +3350,10 @@ await step("encrypted handoffs: post handoff seals the branch, commits and check
   g("commit", "-qam", "the fix");
   const head = g("rev-parse", "HEAD");
 
-  r = await cli(["post", "handoff", "--checks", "vitest 12, e2e 3/4", "--board", eb], { cwd: repo });
+  r = await cli(["post", "handoff", "--checks", "vitest 12, e2e 3/4", "--board", eb, "--model", "claude-sonnet-4-5", "--input-tokens", "21", "--output-tokens", "4"], { cwd: repo });
   assert(r.code === 0 && r.out.includes("ready to gate") && r.out.includes("encrypted on this machine"), r.out + r.err);
+  const spend = await (await fetch(`${BASE}/api/boards/${eb}/spend`, { headers: { authorization: `Bearer ${tokA}` } })).json();
+  assert(spend.this_week.input_tokens === 21 && spend.this_week.output_tokens === 4, `handoff usage metadata: ${JSON.stringify(spend.this_week)}`);
   const h = Number(r.out.match(/Posted #(\d+)/)[1]);
   // The server has the gate's metadata only.
   const rest = await fetch(`${BASE}/api/boards/${eb}/handoffs`, { headers: { authorization: `Bearer ${tokB}` } }).then((x) => x.json());

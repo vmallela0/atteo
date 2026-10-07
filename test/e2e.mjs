@@ -207,6 +207,104 @@ await step("ops API is invisible without the key", async () => {
   assert(wrong.status === 404, "wrong key should 404");
 });
 
+await step("repo init: one linked encrypted board, one open join request, owner decision and archived refusal", async () => {
+  const owner = `e2e-repo-o-${run}`, joiner = `e2e-repo-j-${run}`;
+  await makeUsers([owner, joiner]);
+  const repo = `example/widgets-${run}`;
+  const init = (who, body) => fetch(`${BASE}/api/repos/init`, { method: "POST", headers: { authorization: `Bearer ${tok[who]}`, "content-type": "application/json" }, body: JSON.stringify(body) });
+  const first = await init(owner, { repo });
+  if (first.status !== 201) throw new Error(`create: ${first.status} ${await first.text()}`);
+  const made = await first.json();
+  assert(made.status === "created" && /^b_[a-z0-9]{8,32}$/.test(made.board), JSON.stringify(made));
+  const again = await (await init(owner, { repo })).json();
+  assert(again.board === made.board && again.status === "member", JSON.stringify(again));
+  const mine = await (await web("/api/me/boards", owner)).json();
+  assert(mine.boards.some((b) => b.id === made.board && b.encrypted), "repo board starts encrypted");
+  assert((await init(joiner, { repo: "wrong/repo", board: made.board })).status === 404, "a forged file cannot pick a board");
+  const preview = await (await fetch(`${BASE}/api/repos/preview?repo=${encodeURIComponent(repo)}&board=${made.board}`, { headers: auth(joiner) })).json();
+  assert(preview.status === "not_member" && preview.title === null && preview.linked_by === null && preview.owners.length === 0, "a non-member's preview hides the title, owners and linker: " + JSON.stringify(preview));
+  // check: only membership, never a request or a board (the CLI's other commands; opus-d, repo-init review).
+  const checked = await (await init(joiner, { repo, board: made.board, check: true })).json();
+  assert(checked.status === "not_member" && checked.board === null, JSON.stringify(checked));
+  assert((await (await init(owner, { repo, board: made.board, check: true })).json()).status === "member", "an owner checks as a member");
+  assert(!(await (await web("/api/repo-joins", owner)).json()).requests.some((r) => r.board_id === made.board), "a check sent no join request");
+  const requested = await (await init(joiner, { repo, board: made.board })).json();
+  assert(requested.status === "requested", JSON.stringify(requested));
+  assert((await web(`/api/boards/${made.board}`, joiner)).status === 404, "file alone does not grant access");
+  assert((await (await init(joiner, { repo, board: made.board })).json()).status === "pending", "duplicate init stays pending");
+  const pending = await (await web("/api/repo-joins", owner)).json();
+  const matches = pending.requests.filter((r) => r.board_id === made.board && r.requester === joiner);
+  assert(matches.length === 1 && matches[0].repo === repo, JSON.stringify(matches));
+  assert(matches[0].linked_by === owner, "join request records who linked the repo");
+  const forYouPage = await (await web("/for-you", owner)).text();
+  const inboxPage = await (await web("/inbox", owner)).text();
+  has(forYouPage, `data-join="${matches[0].id}"`);
+  has(forYouPage, 'data-fy-join="let-in"');
+  has(forYouPage, `linked to ${repo} by ${owner}, not verified with GitHub`);
+  has(forYouPage, 'data-fy-join="block"');
+  has(inboxPage, `data-repo-join="${matches[0].id}"`);
+  has(inboxPage, 'data-join-decision="decline"');
+  has(inboxPage, `linked to ${repo} by ${owner}, not verified with GitHub`);
+  has(inboxPage, 'data-join-decision="block"');
+  for (const page of [forYouPage, inboxPage])
+    for (const script of [...page.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/g)].map((m) => m[1]).filter(Boolean)) new Function(script);
+  assert((await fetch(`${BASE}/api/repo-joins/${matches[0].id}/let-in`, { method: "POST", headers: auth(owner) })).status === 403, "an owner agent cannot decide");
+  assert((await asPerson(joiner, `/api/repo-joins/${matches[0].id}/let-in`)).status === 400, "another person cannot decide");
+  const letIn = await asPerson(owner, `/api/repo-joins/${matches[0].id}/let-in`);
+  if (letIn.status !== 200) throw new Error(`let in: ${letIn.status} ${await letIn.text()}`);
+  assert((await web(`/api/boards/${made.board}`, joiner)).status === 200, "owner let in grants membership");
+  assert((await (await init(joiner, { repo, board: made.board })).json()).status === "member", "joined user stays a member");
+
+  const other = `example/second-${run}`;
+  const second = await (await init(owner, { repo: other })).json();
+  await init(joiner, { repo: other, board: second.board });
+  const req = (await (await web("/api/repo-joins", owner)).json()).requests.find((r) => r.board_id === second.board);
+  assert(req, "second request pending");
+  assert((await asPerson(owner, `/api/repo-joins/${req.id}/decline`)).status === 200, "owner can decline");
+  assert((await (await init(joiner, { repo: other, board: second.board })).json()).status === "cooldown", "decline has a cooldown");
+  assert((await (await fetch(`${BASE}/api/repos/preview?repo=${encodeURIComponent(other)}&board=${second.board}`, { headers: auth(joiner) })).json()).status === "cooldown", "preview does not bypass the 30-day decline cooldown");
+  const later = `e2e-repo-k-${run}`;
+  await makeUser(later);
+  assert((await (await init(later, { repo: other, board: second.board })).json()).status === "requested", "another teammate can ask");
+  const waiting = (await (await web("/api/repo-joins", owner)).json()).requests.find((r) => r.board_id === second.board && r.requester === later);
+  assert(waiting, "another request pending");
+  assert((await asPerson(owner, `/api/boards/${second.board}/archive`, { archived: true })).status === 200, "owner archived second board");
+  assert((await init(joiner, { repo: other, board: second.board })).status === 409, "archived board refuses requests");
+  assert((await asPerson(owner, `/api/repo-joins/${waiting.id}/let-in`)).status === 400, "archived board refuses a decision");
+  assert((await asPerson(owner, `/api/boards/${second.board}/unarchive`)).status === 200, "owner unarchived second board");
+  assert((await web(`/api/boards/${second.board}`, owner, { method: "DELETE" })).status === 200, "owner deleted second board");
+  assert((await init(later, { repo: other, board: second.board })).status === 409, "deleted board refuses requests");
+
+  const blockedRepo = `example/blocked-${run}`;
+  const blockedBoard = await (await init(owner, { repo: blockedRepo })).json();
+  assert((await (await init(joiner, { repo: blockedRepo, board: blockedBoard.board })).json()).status === "requested", "block test request opened");
+  const blockRequest = (await (await web("/api/repo-joins", owner)).json()).requests.find((r) => r.board_id === blockedBoard.board && r.requester === joiner);
+  assert(blockRequest, "owner sees request to block");
+  assert((await fetch(`${BASE}/api/repo-joins/${blockRequest.id}/block`, { method: "POST", headers: auth(owner) })).status === 403, "an owner agent cannot block");
+  assert((await asPerson(joiner, `/api/repo-joins/${blockRequest.id}/block`)).status === 400, "another person cannot block");
+  assert((await asPerson(owner, `/api/repo-joins/${blockRequest.id}/block`)).status === 200, "owner can block forever");
+  assert((await (await init(joiner, { repo: blockedRepo, board: blockedBoard.board })).json()).status === "blocked", "blocked person cannot re-request");
+});
+
+await step("repo init: each person can have at most ten open join requests across boards", async () => {
+  const owner = `e2e-repo-limit-o-${run}`, joiner = `e2e-repo-limit-j-${run}`;
+  await makeUsers([owner, joiner]);
+  const init = (who, body) => fetch(`${BASE}/api/repos/init`, { method: "POST", headers: { authorization: `Bearer ${tok[who]}`, "content-type": "application/json" }, body: JSON.stringify(body) });
+  for (let i = 0; i < 11; i++) {
+    const repo = `example/limit-${run}-${i}`;
+    const made = await (await init(owner, { repo })).json();
+    assert(made.status === "created", JSON.stringify(made));
+    const request = await init(joiner, { repo, board: made.board });
+    if (i < 10) assert((await request.json()).status === "requested", `request ${i + 1} should open`);
+    else assert(request.status === 409 && (await request.text()).includes("10 open repo join requests"), "eleventh open request refused");
+  }
+  const requests = (await (await web("/api/repo-joins", owner)).json()).requests.filter((r) => r.requester === joiner);
+  assert(requests.length === 10, `expected exactly ten open requests, got ${requests.length}`);
+  assert((await asPerson(owner, `/api/repo-joins/${requests[0].id}/decline`)).status === 200, "deciding a request frees a slot");
+  const retry = await init(joiner, { repo: `example/limit-${run}-10`, board: (await (await init(owner, { repo: `example/limit-${run}-10` })).json()).board });
+  assert((await retry.json()).status === "requested", "a person can request a different board after a slot opens");
+});
+
 await step("MCP initialize, tools/list, notifications, protocol errors", async () => {
   const r = await rpcRaw(auth(A), null, "initialize", { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "e2e", version: "0" } });
   assert(r.protocolVersion === "2025-06-18" && r.serverInfo.name === "atteo" && r.serverInfo.title === "Atteo", JSON.stringify(r));
@@ -2767,7 +2865,7 @@ await step("checklist lines that mention #N tick themselves when #N is done or a
   assert((await (await web(`/api/boards/${fb}/tasks/${l}`, A)).json()).task.status === "todo", "ticking lines doesn't finish the task");
 });
 
-await step("plans: Free caps boards you create; a signed Stripe webhook upgrades to Pro and back; checkout opens", async () => {
+await step("plans: free for now (no caps), or Free caps boards you create; a signed Stripe webhook upgrades to Pro and back; checkout opens", async () => {
   const whsec = process.env.STRIPE_WEBHOOK_SECRET ?? (() => { try { return readFileSync(new URL("../.dev.vars", import.meta.url), "utf8").match(/^STRIPE_WEBHOOK_SECRET=(.*)$/m)?.[1]; } catch { return undefined; } })();
   const C = `e2e-cap-${run}`;
   await ops("users", { name: C, email: `${C}@example.com`, verified: "true" });
@@ -2775,25 +2873,31 @@ await step("plans: Free caps boards you create; a signed Stripe webhook upgrades
   const create = (title) => fetch(`${BASE}/boards`, { method: "POST", redirect: "manual", headers: { cookie: cc, "content-type": "application/x-www-form-urlencoded" }, body: `title=${encodeURIComponent(title)}` });
   const made = (r) => r.status === 302 || r.status === 303;
   for (let i = 1; i <= 3; i++) assert(made(await create(`e2e cap ${i} ${run}`)), `board ${i}`);
-  const fourth = await create(`e2e cap 4 ${run}`);
-  const room = await fourth.text();
-  assert(fourth.status === 402 && room.includes("Free plan") && room.includes("Archive it"), `4th board on Free: ${fourth.status}`);
-  // Archive one right there and the new board is made; the archived one stays readable.
-  const first = room.match(/name="archive" value="(b_[a-z0-9]+)"/)[1];
-  const made4 = await fetch(`${BASE}/boards`, { method: "POST", redirect: "manual", headers: { cookie: cc, "content-type": "application/x-www-form-urlencoded" }, body: `title=${encodeURIComponent(`e2e cap 4 ${run}`)}&archive=${first}` });
-  assert(made(made4) && /\/b\/b_/.test(made4.headers.get("location") ?? ""), `archive-and-create: ${made4.status}`);
-  const old = await fetch(`${BASE}/b/${first}`, { headers: { cookie: cc } });
-  const oldHtml = await old.text();
-  assert(old.status === 200 && oldHtml.includes("Archived"), "the archived board is still readable");
-  // A deleted board doesn't count toward the cap either: at 3 active, delete one and a new board is allowed.
-  const five = await create(`e2e cap 5 ${run}`);
-  assert(five.status === 402, `at the cap again: ${five.status}`);
-  const victim = (await five.text()).match(/name="archive" value="(b_[a-z0-9]+)"/)[1];
-  assert((await fetch(`${BASE}/api/boards/${victim}`, { method: "DELETE", headers: { cookie: cc } })).status === 200, "delete frees a slot");
-  assert(made(await create(`e2e cap 5 ${run}`)), "a deleted board isn't counted");
-  // Someone else's board can't be archived through this.
-  const notMine = await fetch(`${BASE}/boards`, { method: "POST", redirect: "manual", headers: { cookie: cc, "content-type": "application/x-www-form-urlencoded" }, body: `title=x&archive=${board}` });
-  assert(notMine.status === 400, `archiving a board you didn't make: ${notMine.status}`);
+  // Free for now (jxn #5636, FREE_FOR_NOW unset): no cap and nothing to buy (test/browser/free-for-now.mjs checks the
+  // page). The caps below run only on a server with FREE_FOR_NOW=0.
+  const freeNow = /free for now/i.test(await (await fetch(`${BASE}/me`, { headers: { cookie: cc } })).text());
+  if (freeNow) assert(made(await create(`e2e cap 4 ${run}`)), "free for now: a 4th board is made");
+  if (!freeNow) {
+    const fourth = await create(`e2e cap 4 ${run}`);
+    const room = await fourth.text();
+    assert(fourth.status === 402 && room.includes("Free plan") && room.includes("Archive it"), `4th board on Free: ${fourth.status}`);
+    // Archive one right there and the new board is made; the archived one stays readable.
+    const first = room.match(/name="archive" value="(b_[a-z0-9]+)"/)[1];
+    const made4 = await fetch(`${BASE}/boards`, { method: "POST", redirect: "manual", headers: { cookie: cc, "content-type": "application/x-www-form-urlencoded" }, body: `title=${encodeURIComponent(`e2e cap 4 ${run}`)}&archive=${first}` });
+    assert(made(made4) && /\/b\/b_/.test(made4.headers.get("location") ?? ""), `archive-and-create: ${made4.status}`);
+    const old = await fetch(`${BASE}/b/${first}`, { headers: { cookie: cc } });
+    const oldHtml = await old.text();
+    assert(old.status === 200 && oldHtml.includes("Archived"), "the archived board is still readable");
+    // A deleted board doesn't count toward the cap either: at 3 active, delete one and a new board is allowed.
+    const five = await create(`e2e cap 5 ${run}`);
+    assert(five.status === 402, `at the cap again: ${five.status}`);
+    const victim = (await five.text()).match(/name="archive" value="(b_[a-z0-9]+)"/)[1];
+    assert((await fetch(`${BASE}/api/boards/${victim}`, { method: "DELETE", headers: { cookie: cc } })).status === 200, "delete frees a slot");
+    assert(made(await create(`e2e cap 5 ${run}`)), "a deleted board isn't counted");
+    // Someone else's board can't be archived through this.
+    const notMine = await fetch(`${BASE}/boards`, { method: "POST", redirect: "manual", headers: { cookie: cc, "content-type": "application/x-www-form-urlencoded" }, body: `title=x&archive=${board}` });
+    assert(notMine.status === 400, `archiving a board you didn't make: ${notMine.status}`);
+  }
   if (!whsec) return console.log("      (no STRIPE_WEBHOOK_SECRET here: skipped the webhook part)");
   const event = (type, status) => JSON.stringify({ type, data: { object: { id: `sub_${run}`, customer: `cus_${run}`, status, cancel_at_period_end: false, current_period_end: Math.floor(Date.now() / 1000) + 30 * 86400, metadata: { user: C } } } });
   const send = async (body, secret = whsec) => {
@@ -2804,9 +2908,10 @@ await step("plans: Free caps boards you create; a signed Stripe webhook upgrades
   };
   assert((await send(event("customer.subscription.updated", "active"), "whsec_wrong")).status === 400, "forged webhook rejected");
   assert((await send(event("customer.subscription.created", "active"))).status === 200, "webhook accepted");
-  assert(made(await create(`e2e cap 4 ${run}`)), "Pro lifts the board limit");
+  if (!freeNow) assert(made(await create(`e2e cap 4 ${run}`)), "Pro lifts the board limit");
   { const pg = await (await fetch(`${BASE}/me`, { headers: { cookie: cc } })).text(); assert(/You(?:'|&#39;)re on <b>Pro/.test(pg), "Account shows Pro"); } // the page escapes the apostrophe (i18n)
   await send(event("customer.subscription.deleted", "canceled"));
+  if (freeNow) return; // nothing to buy: checkout is refused (test/browser/free-for-now.mjs)
   assert((await create(`e2e cap 5 ${run}`)).status === 402, "back on Free after cancelling");
   // Checkout opens a Stripe-hosted page. Only against a local server: production uses live keys.
   if (!/localhost|127\.0\.0\.1/.test(BASE)) return;
@@ -3146,14 +3251,23 @@ await step("access: roles (viewers read but can't change), invite links with lim
   const j = (who, path, body, method = body ? "POST" : "GET") => web(path, who, { method, headers: { "content-type": "application/json" }, body: body ? JSON.stringify(body) : undefined });
   let m = await (await j(A, `/api/boards/${fb}/members`)).json();
   assert(m.you === "owner" && m.members.find((x) => x.user === B).role === "contributor", JSON.stringify(m));
+  const usage = { model: "claude-opus-5", input_tokens: 100, output_tokens: 0 };
+  assert((await j(A, `/api/boards/${fb}/usage`, { usage })).status === 200, "owner reports spend");
+  assert((await j(B, `/api/boards/${fb}/usage`, { usage: { ...usage, input_tokens: 7 } })).status === 200, "contributor reports spend");
   assert((await j(B, `/api/boards/${fb}/members/${A}`, { role: "viewer" })).status === 403, "contributors can't change access");
   assert((await j(A, `/api/boards/${fb}/members/${A}`, { role: "viewer" })).status === 400, "the creator stays an owner");
   assert((await j(A, `/api/boards/${fb}/members/${B}`, { role: "viewer" })).status === 200, "make B a viewer");
+  assert((await j(B, `/api/boards/${fb}/spend`)).status === 403, "viewer cannot read board spend");
+  const ownSpend = await (await j(B, `/api/boards/${fb}/spend?own=1`)).json();
+  assert(ownSpend.this_week.input_tokens === 7, "viewer can still read their own spend");
+  has(await ok(B, fb, "agents", { action: "spend" }), '"input_tokens":7');
+  await err(B, fb, "agents", { action: "spend", own: false }, "role on this board is viewer");
   // Viewers read but can't change anything, on the web or through their agent.
   await ok(B, fb, "read");
   await err(B, fb, "post", { type: "note", text: "can I post?" }, "role is viewer");
   await err(B, fb, "task", { action: "create", title: "nope" }, "role is viewer");
-  has(await ok(B, fb, "task", { action: "list" }), "#");
+  const taskList = await ok(B, fb, "task", { action: "list" });
+  assert(taskList.includes("#") || taskList.includes("No matching tasks"), "viewer can list tasks");
   assert((await j(B, `/api/boards/${fb}/entries`, { text: "web post as viewer" })).status === 403, "viewer web post");
   assert((await j(B, `/api/boards/${fb}/seen`, { seq: 1 })).status === 200, "viewers still send read receipts");
   // Invite link: viewer role, one use.
@@ -5829,6 +5943,94 @@ await step("approval cards: request_approval posts an approval entry; board list
   tabB.ws.close();
 });
 
+await step("approval rules: owner changes, agent checks, auto-approval and block are audited; encrypted boards keep metadata", async () => {
+  const b = (await ops("boards", { user: A, title: `e2e rules ${run}` })).body.board.id;
+  await ops("members", { board: b, user: B });
+  const path = `/api/boards/${b}/approval-rules`;
+  const put = (who, category, data) => web(`${path}/${category}`, who, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(data) });
+  const fresh = await (await web(path, B)).json();
+  assert(fresh.rules.length === 6 && fresh.rules.every(x => x.mode === "ask") && fresh.can_edit === false, JSON.stringify(fresh));
+  const ownerHtml = await (await web(`/b/${b}`, A)).text(), memberHtml = await (await web(`/b/${b}`, B)).text();
+  assert(ownerHtml.includes('id="approval-rules-side"') && ownerHtml.includes('data-rule="spending"') && ownerHtml.includes('class="btn sm ar-save"'), "owner sees editable rules in Board info");
+  assert(memberHtml.includes('id="approval-rules-side"') && !memberHtml.includes('class="btn sm ar-save"'), "member sees read-only rules in Board info");
+  assert((await web(path, OUT)).status === 404, "outsider cannot see rules");
+  assert((await put(B, "deploy_production", { mode: "auto" })).status === 403, "member cannot edit");
+  assert((await web(`${path}/deploy_production`, null, { method: "PUT", headers: { authorization: `Bearer ${tok[A]}`, "content-type": "application/json" }, body: JSON.stringify({ mode: "auto" }) })).status === 403, "agent cannot edit");
+  assert((await put(A, "deploy_production", { mode: "auto" })).status === 200, "owner sets auto");
+  assert((await put(A, "other", { mode: "auto" })).status === 400, "other cannot auto-approve");
+  assert((await put(A, "other", { mode: "block" })).status === 200, "other can block");
+  assert((await put(A, "delete_data", { mode: "block" })).status === 200, "owner sets block");
+  assert((await put(A, "spending", { mode: "block", threshold: 25 })).status === 200, "owner sets spend threshold");
+  assert((await put(A, "spending", { mode: "block", threshold: -1 })).status === 400, "invalid threshold refused");
+  const sa = await session(A, b);
+  const sb = await session(B, b);
+  has(await sok(sa, "approval", { action: "rule", category: "deploy_production" }), "Auto-approve");
+  has(await sok(sb, "approval", { action: "rule", category: "deploy_production" }), "Always ask");
+  has(await sok(sa, "approval", { action: "rule", category: "spending", amount: 25 }), "Auto-approve");
+  has(await sok(sa, "approval", { action: "rule", category: "spending", amount: 25.01 }), "Block");
+  const auto = await sok(sa, "request_approval", { title: "Deploy production", details: "deploy the reviewed release", category: "deploy_production", wait_seconds: 0 });
+  has(auto, `Approved by board rule Deploy to production, set by ${A}`);
+  const apid = auto.match(/ap_[A-Za-z0-9_-]+/)?.[0];
+  assert(apid, auto);
+  const approved = (await (await web(`/api/approvals/${apid}`, A)).json()).approval;
+  assert(approved.status === "approved" && approved.rule_name === "Deploy to production" && approved.rule_set_by === A && approved.category === "deploy_production", JSON.stringify(approved));
+  const entries = (await (await web(`/api/boards/${b}/entries?after=0`, B)).json()).entries;
+  assert(entries.some(x => x.type === "approval" && x.approval?.id === apid && x.approval?.rule_set_by === A), "auto-approved card on board");
+  assert((await (await web(`/b/${b}`, B)).text()).includes("Approved by rule"), "auto approval is named in the thread");
+  assert(entries.some(x => x.text.includes("changed the approval rule")), "rule change note on board");
+  const memberRequest = await sok(sb, "request_approval", { title: "Member deploy", details: "deploy B's reviewed release", category: "deploy_production", wait_seconds: 0 });
+  has(memberRequest, `Waiting for ${B} to decide`);
+  const memberId = memberRequest.match(/ap_[A-Za-z0-9_-]+/)?.[0];
+  const memberApproval = (await (await web(`/api/approvals/${memberId}`, B)).json()).approval;
+  assert(memberApproval?.status === "pending" && !memberApproval.rule_name, JSON.stringify(memberApproval));
+  assert((await (await web("/api/inbox", B)).json()).items.some(x => x.kind === "approval" && x.approval_id === memberId), "member's own inbox gets the pending approval");
+  assert((await web(`/api/approvals/${memberId}`, A)).status === 404, "owner cannot decide member's approval");
+  const privateCommand = `echo private-${run}`;
+  const hook = await sok(sa, "request_approval", { tool: "Bash", command: privateCommand, category: "deploy_production", wait_seconds: 0 });
+  has(hook, "Approved by board rule");
+  const hookId = hook.match(/ap_[A-Za-z0-9_-]+/)?.[0];
+  const afterHook = (await (await web(`/api/boards/${b}/entries?after=0`, B)).json()).entries;
+  assert(afterHook.some(x => x.text.includes(`Approval ${hookId} was approved by board rule`)) && !JSON.stringify(afterHook).includes(privateCommand), "categorized permission hook posts only decision metadata");
+  await serr(sa, "request_approval", { title: "Delete records", details: "remove the old records", category: "delete_data", wait_seconds: 0 }, "Blocked by board rule: Delete data");
+  await serr(sb, "request_approval", { title: "Delete member records", details: "remove records", category: "delete_data", wait_seconds: 0 }, "Blocked by board rule: Delete data");
+  await serr(sa, "request_approval", { title: "Other action", details: "action chosen by agent", category: "other", wait_seconds: 0 }, "Blocked by board rule: Other");
+  has(await sok(sa, "request_approval", { title: "Buy first part", details: "one part", category: "spending", amount: 10, wait_seconds: 0 }), "Approved by board rule");
+  has(await sok(sa, "request_approval", { title: "Buy second part", details: "one part", category: "spending", amount: 15, wait_seconds: 0 }), "Approved by board rule");
+  has(await sok(sa, "approval", { action: "rule", category: "spending", amount: 0.01 }), "Always ask");
+  has(await sok(sa, "request_approval", { title: "Buy another part", details: "one part", category: "spending", amount: 0.01, wait_seconds: 0 }), `Waiting for ${A} to decide`);
+  await serr(sa, "request_approval", { title: "Buy large part", details: "one part", category: "spending", amount: 25.01, wait_seconds: 0 }, "Blocked by board rule");
+  const access = `/api/boards/${b}/members/${B}`;
+  assert((await web(access, A, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ role: "owner" }) })).status === 200, "member promoted to owner");
+  assert((await put(B, "push_main", { mode: "auto" })).status === 200, "new owner sets auto");
+  assert((await web(access, A, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ role: "contributor" }) })).status === 200, "rule setter demoted");
+  has(await sok(sb, "approval", { action: "rule", category: "push_main" }), "Always ask");
+  has(await sok(sb, "request_approval", { title: "Push after demotion", details: "push reviewed change", category: "push_main", wait_seconds: 0 }), `Waiting for ${B} to decide`);
+  assert((await (await web(`/b/${b}`, A)).text()).includes(`(set by ${B}, no longer an owner)`), "Board info names former owner");
+  const spendBoard = (await ops("boards", { user: A, title: `e2e spend total ${run}` })).body.board.id;
+  await ops("members", { board: spendBoard, user: B });
+  const spendPath = `/api/boards/${spendBoard}/approval-rules/spending`;
+  const spendPut = (who, data) => web(spendPath, who, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(data) });
+  assert((await spendPut(A, { mode: "ask", threshold: 10 })).status === 200, "separate board has its own spend limit");
+  const spendSession = await session(A, spendBoard);
+  const simultaneous = await Promise.all([1, 2].map(n => sok(spendSession, "request_approval", { title: `Concurrent part ${n}`, details: "one part", category: "spending", amount: 6, wait_seconds: 0 })));
+  assert(simultaneous.filter(x => x.includes("Approved by board rule")).length === 1 && simultaneous.filter(x => x.includes(`Waiting for ${A} to decide`)).length === 1, JSON.stringify(simultaneous));
+  const promote = `/api/boards/${spendBoard}/members/${B}`;
+  assert((await web(promote, A, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ role: "owner" }) })).status === 200, "second spender promoted");
+  assert((await spendPut(B, { mode: "block", threshold: 10 })).status === 200, "second spender sets the rule");
+  const spendMember = await session(B, spendBoard);
+  has(await sok(spendMember, "request_approval", { title: "B's part", details: "one part", category: "spending", amount: 6, wait_seconds: 0 }), "Approved by board rule");
+  has(await sok(sa, "request_approval", { title: "Uncategorized work", details: "still asks", wait_seconds: 0 }), "Waiting for");
+  const audit = (await (await web(`/api/boards/${b}/audit/export`, A)).json()).audit;
+  assert(audit.some(x => x.action === "approval_by_rule" && x.target === apid && x.detail.includes(A)), "auto approval in audit export");
+  assert(audit.some(x => x.action === "approval_rule_changed" && x.target === "deploy_production"), "rule change in audit export");
+  const eb = (await ops("boards", { user: A, title: `e2e encrypted rules ${run}`, encrypted: true })).body.board.id;
+  const ep = `/api/boards/${eb}/approval-rules`;
+  assert((await web(`${ep}/push_main`, A, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ mode: "block" }) })).status === 200, "encrypted board accepts metadata rule");
+  assert((await (await web(ep, A)).json()).rules.find(x => x.category === "push_main").mode === "block", "encrypted board reads metadata rule");
+  const encryptedEntries = (await (await web(`/api/boards/${eb}/entries?after=0`, A)).json()).entries;
+  assert(encryptedEntries.some(x => x.text.includes("changed the approval rule")), "encrypted board has metadata note");
+});
+
 await step("workflow triggers: CRUD, fire into the right mailbox, only your own agent, loop protection, rate limit, schedule via the cron", async () => {
   const tapi = async (who, method, path, body, headers = {}) => {
     const r = await fetch(`${BASE}${path}`, { method, headers: { authorization: `Bearer ${tok[who]}`, "content-type": "application/json", ...headers }, body: body ? JSON.stringify(body) : undefined });
@@ -6237,6 +6439,10 @@ await step("agent names: set, trim, clear; refused when it could pass for a pers
     ["Jarvis’s Agent", "'s agent"],
     ["everyone", "reserved"],
     ["Atteo", "reserved"],
+    ["Yоur agent", "reads as an agent or Atteo"], // Cyrillic о
+    ["Atteo helper", "reads as an agent or Atteo"],
+    ["Travel Agents", "reads as an agent or Atteo"],
+    ["Travel'agent", "reads as an agent or Atteo"],
     ["you", "reserved"],
     ["аll", "reserved"], // Cyrillic а
     ["J".repeat(25), "at most 24"],
@@ -6285,7 +6491,7 @@ await step("agent names: entries, members, agents and people carry agent_name wi
   const e1 = p1.entry;
   assert(JSON.stringify(e1.mentions) === JSON.stringify([{ user: v, agent: true }]), JSON.stringify(e1.mentions));
   // The page draws "@jarvis" as that agent's chip: in the post's own response, live updates and earlier messages (jxn #1659).
-  const chip = `<span class="mention agent" data-user="${v}" data-named="1" title="${v}'s agent">@jarvis</span>`;
+  const chip = `<span class="mention agent" data-user="${v}" data-named="1" title="${v}&#39;s agent, mentioned as @jarvis">@Jarvis <span class="faint">· ${v}'s agent</span></span>`;
   assert(p1.update.html.includes(chip), `post response: ${p1.update.html}`);
   assert((await (await web(`/api/boards/${anBoard}/updates?after=${e1.seq - 1}`, j)).json()).entries.find((x) => x.seq === e1.seq).html.includes(chip), "live update");
   assert((await (await web(`/api/boards/${anBoard}/entries?before=${e1.seq + 1}&limit=1`, j)).json()).entries[0].html.includes(chip), "earlier messages");

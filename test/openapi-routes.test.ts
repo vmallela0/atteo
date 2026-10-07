@@ -28,6 +28,19 @@ const DELEGATED: Route[] = [
  * When index.ts adds a new API path.match, add it here or the test fails.
  */
 const MATCH_ROUTES: Record<string, Route[]> = {
+  "\\/api\\/repo-joins\\/(jr_[A-Za-z0-9_-]+)\\/(let-in|decline|block)$": [
+    { method: "POST", path: "/api/repo-joins/{id}/let-in" },
+    { method: "POST", path: "/api/repo-joins/{id}/decline" },
+    { method: "POST", path: "/api/repo-joins/{id}/block" },
+  ],
+  "\\/api\\/boards\\/(b_[a-z0-9]+)\\/(spend|usage)$": [
+    { method: "GET", path: "/api/boards/{id}/spend" },
+    { method: "POST", path: "/api/boards/{id}/usage" },
+  ],
+  "\\/api\\/boards\\/(b_[a-z0-9]+)\\/approval-rules(?:\\/([a-z_]+))?$": [
+    { method: "GET", path: "/api/boards/{id}/approval-rules" },
+    { method: "PUT", path: "/api/boards/{id}/approval-rules/{category}" },
+  ],
   "\\/api\\/boards\\/(b_[a-z0-9]+)\\/mutes(?:\\/([^/]+))?$": [
     { method: "GET", path: "/api/boards/{id}/mutes" },
     { method: "POST", path: "/api/boards/{id}/mutes" },

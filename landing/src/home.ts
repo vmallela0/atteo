@@ -66,7 +66,7 @@ const copyText = (lines: Line[]) => lines.filter((l) => l && !l.startsWith("#"))
 const MIN = 60e3;
 let seq = 0;
 /** One demo entry. The people are made up, and their pictures aren't asked for (initials only). */
-function e(author: string, via: "agent" | "person", type: Entry["type"], text: string, o: Partial<Entry> = {}): Entry {
+export function e(author: string, via: "agent" | "person", type: Entry["type"], text: string, o: Partial<Entry> = {}): Entry {
   return { seq: ++seq, ts: 0, author, via, type, text, to: null, reply_to: null, resolves: [], supersedes: null, retracts: null, artifact_name: null, artifact_size: null, ...o };
 }
 /** [title, who it's for, the thread]. */
@@ -104,7 +104,7 @@ const CASES: [string, string, Entry[]][] = [
 ];
 
 /** The app's :root variables (its light set, and the dark pair for ?theme=dark) on the shadow host, and its body type on .demo. */
-const HOST_CSS = (() => {
+export const HOST_CSS = (() => {
   const out: string[] = [];
   for (const m of APP_CSS.matchAll(/(?:^|[}\s]):root(\[data-theme="dark"\])?\{([^{}]*)\}/g)) out.push(`${m[1] ? ":host(.dark)" : ":host"}{${m[2]}}`);
   const body = /(?:^|[}\s])body\{([^{}]*)\}/.exec(APP_CSS)?.[1] ?? "";
@@ -137,7 +137,7 @@ const QUESTIONS: [string, string][] = [
 ];
 
 /** The app's mark, with one fixed clip id so the page is the same bytes every time (/ and /landing). */
-const BRAND_MARK = markInline(28, "mk").replace(/mkc[0-9a-z]+/g, "mkc-home");
+export const BRAND_MARK = markInline(28, "mk").replace(/mkc[0-9a-z]+/g, "mkc-home");
 
 // ---- page ----------------------------------------------------------------------------------------------------------------
 /** The curve between sections, with a dot per section after the hero; `on` is the one that follows (1-based). */
@@ -237,14 +237,14 @@ html{scroll-behavior:smooth}
 @media (max-width:640px){.v3{padding:0 16px}
   .v3-list{margin:0 -16px;padding:0 16px}
   .v3-top .v3-col{height:72px;gap:14px}.v3-brand span{font-size:24px}.v3-in{font-size:13px}.v3-top .v3-pill{padding:8px 14px;font-size:13px}
-  .v3-hero{min-height:max(640px,100svh);padding:96px 0 48px}
-  .v3-hero h1{font-size:40px;margin-bottom:40px}
+  .v3-hero{min-height:0;display:block;padding:104px 0 32px}
+  .v3-hero h1{font-size:40px;margin-bottom:32px}
   .v3-speed{grid-template-columns:96px 1fr 52px;column-gap:12px;row-gap:18px;font-size:14px}
   .v3-speed .k.me{font-size:17px}
-  .v3-statement{padding:40px 0 48px}.v3-statement p{font-size:28px}
+  .v3-statement{padding:32px 0 40px}.v3-install{padding-bottom:48px}.v3-statement p{font-size:28px}
   .v3-tabs{gap:20px;padding:0 16px;font-size:14px}.v3-code{padding:18px 16px;font-size:13.5px;height:200px}
-  .v3-sec{padding:56px 0 64px}.v3-sec h2{font-size:34px;margin-bottom:28px}
-  .v3-connect h2{font-size:38px}.v3-line{padding-left:14px}.v3-line code{font-size:13.5px}
+  .v3-sec{padding:40px 0 48px}.v3-sec h2{font-size:34px;margin-bottom:24px}.v3-thread{min-height:0}.v3-qa summary{padding:16px 0;font-size:17px}
+  .v3-connect{padding:40px 0 56px}.v3-connect h2{font-size:38px;margin-bottom:24px}.v3-ft .v3-col{padding:24px 0 32px}.v3-line{padding-left:14px}.v3-line code{font-size:13.5px}
   .v3-ft .built{margin-left:0;flex-basis:100%}}
 `;
 
@@ -289,7 +289,7 @@ ${sectionBreak(5)}
 </div></section>
 </main>
 <footer class="v3-ft"><div class="v3"><div class="v3-col">
-<a href="${SITE_URL}/guide">guide</a><a href="${SITE_URL}/faq">faq</a><a href="${APP_URL}/docs">docs</a><a href="${APP_URL}/privacy">privacy</a><a href="${APP_URL}/terms">terms</a><a href="${SITE_URL}/support">support</a>
+<a href="${SITE_URL}/guide">guide</a><a href="${SITE_URL}/faq">faq</a><a href="${SITE_URL}/developers">developers</a><a href="${APP_URL}/docs">docs</a><a href="${APP_URL}/privacy">privacy</a><a href="${APP_URL}/terms">terms</a><a href="${SITE_URL}/support">support</a>
 <span class="mail">humans[at]asubn[dot]com</span><span class="built">built by <a href="https://asubn.com">asubn</a></span>
 </div></div></footer>
 <script>(function(){var T=document.querySelectorAll(".v3-tabs [data-tab]"),P=document.querySelectorAll(".v3-code"),cp=document.querySelector(".v3-tabs .copy"),nm=document.querySelector("[data-tab-name]");

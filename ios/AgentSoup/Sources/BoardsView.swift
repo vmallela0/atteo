@@ -952,6 +952,7 @@ struct Mentionable: Hashable {
     let user: String? // nil: a group
     let agent: Bool
     var note: String? = nil // what it is, on the right ("vedu's agent" for "@Jarvis", "everyone and their agents")
+    var display: String? = nil // primary label and an additional search term; handle remains the wire token
 }
 
 /// What "@" suggests, just above the message box: a compact list, one tap to insert.
@@ -961,6 +962,7 @@ struct MentionList: View {
     let pick: (Mentionable) -> Void
 
     private func label(_ mention: Mentionable) -> String {
+        if let display = mention.display { return display }
         guard let user = mention.user else { return "@" + mention.handle }
         if mention.handle.contains("/") { return state.displayName(for: mention.handle) }
         return state.displayName(for: user, agent: mention.agent)
@@ -977,7 +979,7 @@ struct MentionList: View {
                         }
                         Text(label(m)).font(Typo.secondary.weight(.medium)).foregroundStyle(Theme.text)
                         Spacer(minLength: Space.s)
-                        (m.note.map { note in Text(verbatim: note == m.user.map({ "\($0)'s agent" }) ? state.displayName(for: note) : note) } ?? (m.user == nil ? (m.agent ? Text("every agent here") : Text("everyone here")) : (m.agent ? Text("agent") : Text("person")))).font(Typo.micro).foregroundStyle(Theme.faint).lineLimit(1)
+                        (m.note.map { Text(verbatim: $0) } ?? (m.user == nil ? (m.agent ? Text("every agent here") : Text("everyone here")) : (m.agent ? Text("agent") : Text("person")))).font(Typo.micro).foregroundStyle(Theme.faint).lineLimit(1)
                     }
                     .padding(.horizontal, Space.m).frame(minHeight: 40)
                     .contentShape(Rectangle())
@@ -1098,19 +1100,18 @@ struct EntryRow: View {
         density == .compact ? (grouped ? Space.xxs : Space.gap(density)) : (grouped ? Space.xs : comfortable)
     }
 
-    /// Like the web's author line (jxn #2589): a named agent reads "Jarvis · vedu's agent"; a named session
-    /// "vedu/scout"; any other agent post "vedu's agent"; people their name.
+    /// Like the web's author line: a named agent always shows its owner.
     private var who: String {
         if isDeletedAuthor(e.author) { return String(localized: "Deleted user", bundle: .l10n) } // DeleteAccount.swift
         guard e.byAgent else { return state.displayName(for: e.author) }
-        if let n = agentName ?? e.agentName, !n.isEmpty { return agentLabel(state.displayName(for: e.author), n) }
+        if let n = agentName ?? e.agentName, !n.isEmpty { return agentLabel(e.author, n) }
         if let s = e.sessionName { return "\(state.displayName(for: e.author, agent: true)) · \(s)" }
         return agentLabel(state.displayName(for: e.author), nil)
     }
-    /// What VoiceOver says for the sender: "vedu's agent, scout" for a session.
+    /// VoiceOver reads the same owner shown in the sender line.
     private var whoSpoken: String {
-        guard !isDeletedAuthor(e.author), e.byAgent, let s = e.sessionName else { return who }
-        return "\(agentLabel(state.displayName(for: e.author), agentName ?? e.agentName)), \(s)"
+        guard !isDeletedAuthor(e.author), e.byAgent else { return who }
+        return ([who] + (e.sessionName.map { [$0] } ?? [])).joined(separator: ", ")
     }
     /// Someone else's message that @mentions you by name (the person, not your agent, a session or a group): tinted,
     /// like the web's (jxn #4120).
@@ -1317,10 +1318,10 @@ struct EntryRow: View {
     private func words(_ t: String) -> (text: Text, handles: [String]) {
         var agentNames = self.agentNames
         if e.byAgent, let name = e.agentName, !name.isEmpty { agentNames[name.lowercased()] = e.author.lowercased() } // the entry's own agent name (vedu #4583)
-        let rendered = t.mentioned(e.mentions, members: members, me: me, agentNames: agentNames, author: selfMention(in: e.text, author: e.author, agent: e.via == "agent", agentName: e.agentName), displayName: { state.displayName(for: $0) }, refTitle: refTitle.callAsFunction)
+        let rendered = t.mentioned(e.mentions, members: members, me: me, agentNames: agentNames, author: selfMention(in: e.text, author: e.author, agent: e.via == "agent", agentName: e.agentName), displayName: { state.displayName(for: $0, board: board) }, refTitle: refTitle.callAsFunction)
         return (rendered.text, rendered.handles.map { handle in
             let address = String(handle.dropFirst())
-            return state.displayName(for: agentNames[address.lowercased()].map { "\($0)'s agent" } ?? address)
+            return state.displayName(for: agentNames[address.lowercased()].map { "\($0)'s agent" } ?? address, board: board)
         })
     }
 

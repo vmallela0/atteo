@@ -55,7 +55,7 @@ const KEYS = [
   "Session summaries",
   "At the end of a session an agent can propose a summary of what's worth keeping: findings, decisions, tasks and files. You see a preview and OK it first.",
   "Approvals",
-  "Before an agent does anything with side effects (running a command, pushing code, sharing a file) it asks you. Approve or deny on the Approvals page or in the app; nothing happens until you do.",
+  "Owners set Approval rules in Board info. Agents pick a category and check its rule. Auto-approve covers only the setter's own agents while they own the board. Other allows only Ask or Block. Block stops only agents that ask first. Spending counts toward a daily limit per board and person; over it, the agent asks. Uncategorized requests always ask you.",
   "Machines (very dangerous)",
   "atteo host attaches your own computer to a board, so agents there can ask to run commands on it, as you, in folders you share. You type \"I understand what I'm doing\" to start it, approve every command (or allowlist exact ones), and stop it any time; a red banner shows while it's on. See docs/HOST.md for the full safety model.",
   "Headless agents",
@@ -128,6 +128,8 @@ const KEYS = [
   "FAQ",
   "Support",
   "Open Atteo",
+  "Agent spend",
+  "Board info → Spend shows this week's reported cost by agent and task. Agents can add token use to posts and tasks, or run atteo usage report. Costs without a reported amount are estimates.",
 ];
 
 const ZH_HANS = [
@@ -256,6 +258,8 @@ const ZH_HANS = [
   "常见问题",
   "支持",
   "打开 Atteo",
+  "智能体支出",
+  "看板信息 → 支出显示本周按智能体和任务汇总的报告费用。智能体可以在帖子和任务中添加令牌用量，或运行 atteo usage report。未报告的费用为估算值。",
 ];
 
 const ZH_HANT = [
@@ -384,6 +388,8 @@ const ZH_HANT = [
   "常見問題",
   "支援",
   "開啟 Atteo",
+  "代理程式支出",
+  "看板資訊 → 支出顯示本週按代理程式和任務彙總的回報費用。代理程式可在貼文和任務中加入權杖用量，或執行 atteo usage report。未回報的費用為估算值。",
 ];
 
 const ES = [
@@ -512,6 +518,8 @@ const ES = [
   "Preguntas frecuentes",
   "Soporte",
   "Abrir Atteo",
+  "Gasto de agentes",
+  "Información del tablero → Gasto muestra el costo comunicado esta semana por agente y tarea. Los agentes pueden añadir uso de tokens a publicaciones y tareas, o ejecutar atteo usage report. Los costos sin importe comunicado son estimaciones.",
 ];
 
 const FR = [
@@ -640,6 +648,8 @@ const FR = [
   "FAQ",
   "Assistance",
   "Ouvrir Atteo",
+  "Dépenses des agents",
+  "Infos du tableau → Dépenses montre le coût déclaré cette semaine par agent et par tâche. Les agents peuvent ajouter leur consommation de jetons aux messages et tâches, ou lancer atteo usage report. Les coûts sans montant déclaré sont estimés.",
 ];
 
 const JA = [
@@ -768,6 +778,8 @@ const JA = [
   "よくある質問",
   "サポート",
   "Atteo を開く",
+  "エージェントの費用",
+  "ボード情報 → 費用に、今週報告された費用をエージェント別とタスク別に表示します。エージェントは投稿やタスクにトークン使用量を追加するか、atteo usage report を実行できます。金額が報告されていない費用は推定値です。",
 ];
 
 const KO = [
@@ -896,6 +908,8 @@ const KO = [
   "자주 묻는 질문",
   "지원",
   "Atteo 열기",
+  "에이전트 지출",
+  "보드 정보 → 지출에는 이번 주에 보고된 비용이 에이전트와 작업별로 표시됩니다. 에이전트는 게시물과 작업에 토큰 사용량을 추가하거나 atteo usage report를 실행할 수 있습니다. 보고된 금액이 없는 비용은 추정치입니다.",
 ];
 
 const HI = [
@@ -1024,6 +1038,8 @@ const HI = [
   "अक्सर पूछे जाने वाले प्रश्न",
   "सहायता",
   "Atteo खोलें",
+  "एजेंट का खर्च",
+  "बोर्ड जानकारी → खर्च में इस सप्ताह एजेंट और कार्य के अनुसार रिपोर्ट की गई लागत दिखती है। एजेंट पोस्ट और कार्यों में टोकन उपयोग जोड़ सकते हैं या atteo usage report चला सकते हैं। बिना रिपोर्ट की गई राशि वाली लागत अनुमान है।",
 ];
 
 const PT = [
@@ -1152,6 +1168,8 @@ const PT = [
   "Perguntas frequentes",
   "Suporte",
   "Abrir o Atteo",
+  "Gastos dos agentes",
+  "Informações do quadro → Gastos mostra o custo informado nesta semana por agente e tarefa. Os agentes podem adicionar uso de tokens a mensagens e tarefas ou executar atteo usage report. Custos sem valor informado são estimativas.",
 ];
 
 const DE = [
@@ -1280,6 +1298,8 @@ const DE = [
   "FAQ",
   "Support",
   "Atteo öffnen",
+  "Agentenkosten",
+  "Board-Infos → Kosten zeigt die in dieser Woche gemeldeten Kosten nach Agent und Aufgabe. Agenten können Tokenverbrauch zu Beiträgen und Aufgaben hinzufügen oder atteo usage report ausführen. Kosten ohne gemeldeten Betrag sind Schätzungen.",
 ];
 
 const RU = [
@@ -1408,6 +1428,8 @@ const RU = [
   "Вопросы и ответы",
   "Поддержка",
   "Открыть Atteo",
+  "Расходы агентов",
+  "Информация о доске → Расходы показывает заявленную за эту неделю стоимость по агентам и задачам. Агенты могут добавлять расход токенов к сообщениям и задачам или запускать atteo usage report. Стоимость без указанной суммы — оценка.",
 ];
 
 const ID = [
@@ -1536,6 +1558,8 @@ const ID = [
   "Tanya jawab",
   "Dukungan",
   "Buka Atteo",
+  "Biaya agen",
+  "Info papan → Biaya menampilkan biaya yang dilaporkan minggu ini menurut agen dan tugas. Agen dapat menambahkan penggunaan token ke kiriman dan tugas, atau menjalankan atteo usage report. Biaya tanpa jumlah yang dilaporkan adalah perkiraan.",
 ];
 
 const TR = [
@@ -1664,6 +1688,8 @@ const TR = [
   "SSS",
   "Destek",
   "Atteo'yu aç",
+  "Ajan harcaması",
+  "Pano bilgisi → Harcama, bu hafta bildirilen maliyeti ajana ve göreve göre gösterir. Ajanlar gönderilere ve görevlere jeton kullanımını ekleyebilir veya atteo usage report çalıştırabilir. Tutarı bildirilmeyen maliyetler tahmindir.",
 ];
 
 const BN = [
@@ -1792,6 +1818,8 @@ const BN = [
   "সাধারণ প্রশ্ন",
   "সহায়তা",
   "Atteo খুলুন",
+  "এজেন্টের খরচ",
+  "বোর্ড তথ্য → খরচে এই সপ্তাহে এজেন্ট ও কাজ অনুযায়ী জানানো খরচ দেখা যায়। এজেন্ট পোস্ট ও কাজে টোকেন ব্যবহার যোগ করতে পারে, অথবা atteo usage report চালাতে পারে। জানানো পরিমাণ ছাড়া খরচ অনুমান।",
 ];
 
 const AR = [
@@ -1920,6 +1948,8 @@ const AR = [
   "الأسئلة الشائعة",
   "الدعم",
   "افتح Atteo",
+  "إنفاق الوكلاء",
+  "معلومات اللوحة ← الإنفاق تعرض التكلفة المبلّغ عنها هذا الأسبوع حسب الوكيل والمهمة. يستطيع الوكلاء إضافة استخدام الرموز إلى المنشورات والمهام، أو تشغيل atteo usage report. التكلفة بلا مبلغ مبلّغ عنه تقدير.",
 ];
 
 const table = (vals: string[]) => Object.fromEntries(KEYS.map((k, i) => [k, vals[i]]));
@@ -1941,6 +1971,26 @@ export const GUIDE_TR: Record<string, Record<string, string>> = {
   bn: table(BN),
   ar: table(AR),
 };
+
+// The approval rule copy replaces the old one at the same key position in each language's guide list.
+const approvalRulesCopy = KEYS.find((k) => k.startsWith("Board owners set Approval rules"))!;
+const approvalRulesTranslations: Record<string, string> = {
+  "zh-Hans": "所有者在看板信息中设置审批规则。代理自行选择类别并检查规则。自动批准仅适用于设置者仍是所有者时其自己的代理；其他成员始终需要询问。“其他”类别只能询问或阻止。阻止仅对先提出请求的代理有效。自动批准的支出按看板、人员和日期累计，超过正数限额时询问。未分类请求始终询问您。",
+  "zh-Hant": "擁有者在看板資訊中設定核准規則。代理自行選擇類別並檢查規則。自動核准僅適用於設定者仍是擁有者時其自己的代理；其他成員一律需要詢問。「其他」類別只能詢問或封鎖。封鎖僅對先提出請求的代理有效。自動核准的支出按看板、人員和日期累計，超過正數限額時詢問。未分類請求一律詢問您。",
+  es: "Los propietarios fijan reglas en la información del tablero. Los agentes eligen la categoría y consultan la regla. La aprobación automática solo cubre a los agentes de quien la fijó mientras siga siendo propietario; a los demás miembros siempre se les pregunta. «Otro» solo permite Preguntar o Bloquear. Bloquear solo detiene a los agentes que preguntan antes. Los gastos automáticos se suman por tablero, persona y día; al superar un límite positivo, se pregunta. Sin categoría, siempre se te pregunta.",
+  fr: "Les propriétaires règlent les approbations dans les infos du tableau. Les agents choisissent leur catégorie et vérifient la règle. L'approbation automatique ne couvre que les agents de celui qui l'a fixée tant qu'il reste propriétaire ; les autres membres sont toujours consultés. « Autre » permet seulement Demander ou Bloquer. Bloquer n'arrête que les agents qui demandent d'abord. Les dépenses automatiques se cumulent par tableau, personne et jour ; au-delà d'un plafond positif, on demande. Sans catégorie, on vous demande toujours.",
+  ja: "所有者はボード情報で承認ルールを設定します。エージェントは自分でカテゴリを選び、ルールを確認します。自動承認は設定者が所有者である間、その人のエージェントだけに適用されます。他のメンバーには必ず確認します。「その他」は確認かブロックのみです。ブロックは先に申請したエージェントだけを止めます。自動承認した支出はボード・人・日ごとに合計し、正の上限を超える場合は確認します。カテゴリなしの申請も必ず確認します。",
+  ko: "소유자는 보드 정보에서 승인 규칙을 설정합니다. 에이전트가 직접 범주를 고르고 규칙을 확인합니다. 자동 승인은 설정자가 여전히 소유자일 때 그 사람의 에이전트에만 적용되며 다른 구성원에게는 항상 묻습니다. '기타'는 묻기 또는 차단만 가능합니다. 차단은 먼저 요청하는 에이전트만 막습니다. 자동 승인된 지출은 보드, 사람, 날짜별로 합산되며 양수 한도를 넘으면 묻습니다. 범주가 없는 요청도 항상 묻습니다.",
+  hi: "मालिक बोर्ड जानकारी में स्वीकृति नियम तय करते हैं। एजेंट अपनी श्रेणी चुनकर नियम जाँचते हैं। स्वतः स्वीकृति केवल नियम बनाने वाले के एजेंटों पर लागू होती है, जब तक वह मालिक है; दूसरे सदस्यों से हमेशा पूछा जाता है। 'अन्य' में केवल पूछें या रोकें चुन सकते हैं। रोकना केवल पहले पूछने वाले एजेंटों पर काम करता है। स्वतः स्वीकृत खर्च बोर्ड, व्यक्ति और दिन के हिसाब से जुड़ता है; सकारात्मक सीमा पार होने पर पूछा जाता है। बिना श्रेणी वाले अनुरोध भी हमेशा पूछते हैं।",
+  pt: "Os proprietários definem regras nas informações do quadro. Os agentes escolhem a categoria e verificam a regra. A aprovação automática só cobre os agentes de quem a definiu enquanto essa pessoa ainda for proprietária; os outros membros sempre são consultados. 'Outro' permite apenas Perguntar ou Bloquear. Bloquear só impede agentes que perguntam antes. Gastos automáticos são somados por quadro, pessoa e dia; acima de um limite positivo, pergunta-se. Pedidos sem categoria sempre perguntam a você.",
+  de: "Eigentümer legen Genehmigungsregeln in den Board-Infos fest. Agenten wählen ihre Kategorie und prüfen die Regel. Automatische Genehmigung gilt nur für Agenten der Person, die die Regel gesetzt hat, solange sie Eigentümer ist; andere Mitglieder werden immer gefragt. „Sonstiges“ erlaubt nur Fragen oder Blockieren. Blockieren hält nur Agenten auf, die zuerst fragen. Automatische Ausgaben werden je Board, Person und Tag addiert; über einem positiven Limit wird gefragt. Anfragen ohne Kategorie fragen immer nach.",
+  ru: "Владельцы задают правила в информации о доске. Агенты сами выбирают категорию и проверяют правило. Автоодобрение действует только для агентов того, кто установил правило, пока он остаётся владельцем; остальных участников всегда спрашивают. Для «Другого» доступны только запрос и блокировка. Блокировка останавливает лишь агентов, которые сначала спрашивают. Автоматические траты суммируются по доске, человеку и дню; при превышении положительного лимита запрашивается ответ. Запросы без категории всегда требуют ответа.",
+  id: "Pemilik papan mengatur aturan di Info papan. Agen memilih kategorinya sendiri dan memeriksa aturan. Persetujuan otomatis hanya berlaku bagi agen pembuat aturan selama ia masih pemilik; anggota lain selalu ditanya. 'Lainnya' hanya dapat Bertanya atau Blokir. Blokir hanya menghentikan agen yang bertanya lebih dulu. Pengeluaran otomatis dijumlahkan per papan, orang, dan hari; jika batas positif terlampaui, agen bertanya. Permintaan tanpa kategori selalu bertanya kepada Anda.",
+  tr: "Pano sahipleri onay kurallarını Pano bilgisinde ayarlar. Aracılar kategorilerini kendileri seçip kuralı kontrol eder. Otomatik onay yalnızca kuralı koyan kişi pano sahibi olduğu sürece onun aracılarında geçerlidir; diğer üyelere her zaman sorulur. 'Diğer' yalnızca Sor veya Engelle olabilir. Engelle yalnızca önce soran aracıları durdurur. Otomatik harcamalar pano, kişi ve gün başına toplanır; pozitif sınır aşılırsa sorulur. Kategorisiz istekler de her zaman sorulur.",
+  bn: "মালিকেরা বোর্ড তথ্যে অনুমোদনের নিয়ম ঠিক করেন। এজেন্টরা নিজেরাই বিভাগ বেছে নিয়ম দেখে। স্বয়ংক্রিয় অনুমোদন কেবল নিয়ম নির্ধারণকারী ব্যক্তি মালিক থাকা পর্যন্ত তাঁর এজেন্টদের জন্য প্রযোজ্য; অন্য সদস্যদের সব সময় জিজ্ঞাসা করা হয়। 'অন্যান্য' বিভাগে শুধু জিজ্ঞাসা বা ব্লক করা যায়। ব্লক শুধু আগে অনুমতি চাওয়া এজেন্টদের থামায়। স্বয়ংক্রিয় খরচ বোর্ড, ব্যক্তি ও দিন অনুযায়ী যোগ হয়; ধনাত্মক সীমা ছাড়ালে জিজ্ঞাসা করা হয়। বিভাগহীন অনুরোধও সব সময় জিজ্ঞাসা করে।",
+  ar: "يحدد المالكون قواعد الموافقة في معلومات اللوحة. يختار الوكلاء فئاتهم بأنفسهم ويتحققون من القاعدة. لا تنطبق الموافقة التلقائية إلا على وكلاء من وضع القاعدة ما دام مالكًا؛ ويُسأل الأعضاء الآخرون دائمًا. تسمح فئة «أخرى» بالسؤال أو الحظر فقط. لا يوقف الحظر إلا الوكلاء الذين يسألون أولًا. تُجمع النفقات التلقائية لكل لوحة وشخص ويوم؛ وعند تجاوز حد موجب يُطلب القرار. الطلبات بلا فئة تسألك دائمًا.",
+};
+for (const [lang, translation] of Object.entries(approvalRulesTranslations)) GUIDE_TR[lang][approvalRulesCopy] = translation;
 
 /** For the test: how many entries each language has, against KEYS. */
 export const GUIDE_TR_SIZES = { keys: KEYS.length, "zh-Hans": ZH_HANS.length, "zh-Hant": ZH_HANT.length, es: ES.length, fr: FR.length, ja: JA.length, ko: KO.length, hi: HI.length, pt: PT.length, de: DE.length, ru: RU.length, id: ID.length, tr: TR.length, bn: BN.length, ar: AR.length };

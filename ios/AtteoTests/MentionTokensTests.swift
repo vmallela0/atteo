@@ -119,7 +119,7 @@ final class MentionTokensTests: XCTestCase {
                                        sessions: [agent("jxn", "opus-b", status: "running tests"), agent("jxn", "opus-a"), agent("jxn", nil), agent("vedu", "scout")])
         XCTAssertEqual(opts.map(\.handle), [
             "jxn", "jxn's agent", "jxn/opus-a", "jxn/opus-b",
-            "maya", "Jarvis", "maya's agent",
+            "maya", "maya's agent",
             "vedu's agent", "vedu/scout",
             "agents", "humans", "all",
         ])
@@ -128,6 +128,9 @@ final class MentionTokensTests: XCTestCase {
         XCTAssertEqual(opts.first { $0.handle == "jxn/opus-a" }?.note, "claude-code", "else its client")
         XCTAssertEqual(b?.user, "jxn")
         XCTAssertEqual(b?.agent, true)
+        let named = opts.first { $0.handle == "maya's agent" }
+        XCTAssertEqual(named?.display, "Jarvis")
+        XCTAssertEqual(named?.note, "@maya's agent")
     }
 
     func testFilteringLikeTheWeb() {
@@ -139,8 +142,20 @@ final class MentionTokensTests: XCTestCase {
         XCTAssertEqual(MentionMenu.filter(opts, query: "a").map(\.handle), ["agents", "all"])
     }
 
+    func testDisplayNamesFindPeopleAndAgentsWithoutChangingTheirAddress() {
+        let opts = MentionMenu.options(people: ["vedu", "jxn", "maya"], me: "vedu",
+                                       named: ["jxn": AppState.AgentName(name: "Bender", ambiguous: true),
+                                               "maya": AppState.AgentName(name: "Bender", ambiguous: true)], sessions: [],
+                                       displayNames: ["maya": "Maya Chen"])
+        XCTAssertEqual(MentionMenu.filter(opts, query: "ben").map(\.handle), ["jxn's agent", "maya's agent"])
+        XCTAssertEqual(MentionMenu.filter(opts, query: "maya ch").map(\.handle), ["maya"])
+        XCTAssertEqual(opts.first { $0.handle == "maya" }?.note, "@maya")
+        XCTAssertEqual(opts.first { $0.handle == "maya's agent" }?.display, "Bender")
+        XCTAssertEqual(MentionMenu.filter(opts, query: "ben").map { "@" + $0.handle + " " }, ["@jxn's agent ", "@maya's agent "])
+    }
+
     func testThePickedTextIsWhatTheWebInserts() {
-        // The web's mpick: "@" + its ins + a space; ins is "jxn", "jxn's agent", "jxn/opus-b", or the agent's name.
+        // The web's mpick: "@" + its ins + a space; ins is "jxn", "jxn's agent", or "jxn/opus-b".
         let opts = MentionMenu.options(people: ["vedu", "jxn"], me: "vedu", named: [:], sessions: [agent("jxn", "opus-b")])
         let ins = opts.map { "@" + $0.handle + " " }
         XCTAssertTrue(ins.contains("@jxn/opus-b "))

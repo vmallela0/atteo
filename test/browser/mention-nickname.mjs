@@ -1,6 +1,5 @@
-// Your own agent by its nickname (jxn #3019): typing "@The" offers "The Thinker · you's agent", picking it inserts the
-// name, and the post mentions your agent. The name is a second way in, not a replacement (jxn #3103): "you's agent" is
-// still offered, and your named sessions ("@you/opus-z") stay in the menu after its live refresh. One width. Usage: BASE=http://localhost:8787 node mention-nickname.mjs
+// Your own agent by its display name: typing "@The" offers "The Thinker @you's agent" and inserts the canonical token.
+// Its named sessions ("@you/opus-z") stay in the menu after a live refresh. One width.
 import { chromium } from "playwright-core";
 const BASE = process.env.BASE || "http://localhost:8787";
 const ops = async (p, b) => (await fetch(`${BASE}/api/ops/${p}`, { method: "POST", headers: { "x-admin-key": process.env.ADMIN_KEY || "ci-admin-key", "content-type": "application/json" }, body: JSON.stringify(b) })).json();
@@ -27,7 +26,7 @@ await opt.first().waitFor({ timeout: 5000 }).catch(() => {});
 const t = await opt.first().innerText().catch(() => "");
 check(/The Thinker/.test(t) && /your agent/.test(t), `"@The" offers your agent by its nickname (${t.replace(/\s+/g, " ")})`);
 await p.keyboard.press("Enter");
-check((await p.inputValue("#composer-text")) === "@The Thinker ", `picking it inserts "@The Thinker"`);
+check((await p.inputValue("#composer-text")) === `@${A}'s agent `, `picking it inserts the agent's canonical address`);
 await p.keyboard.type(`check this ${run}`); await p.keyboard.press("Enter");
 let m = null;
 for (let i = 0; i < 50 && !m; i++) { const e = (await (await fetch(`${BASE}/api/boards/${board}/entries?after=0`, { headers: { cookie: ck } })).json()).entries?.find((x) => x.text.includes(`check this ${run}`)); m = e?.mentions ?? null; if (!m) await p.waitForTimeout(100); }

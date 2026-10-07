@@ -476,6 +476,8 @@ a.ev-acct:hover{background:var(--bg-subtle)}
 .ch-classes{display:flex;flex-wrap:wrap;gap:4px}.ch-members{list-style:none;margin:0;padding:0}.ch-members li{font-size:13px;padding:2px 0}
 #ch-form:not([hidden]),#ch-notes{display:flex;flex-direction:column;gap:8px;margin-top:8px}.ch-note{display:flex;align-items:center;gap:8px}.ch-note .xs{width:7em;flex:none}
 .ch-err{color:var(--danger);min-height:1em;margin:0}#ch-form .lbl{margin:0}
+/* Board info → Approval rules */
+.ar-table{width:100%;border-collapse:collapse;font-size:12px}.ar-table th,.ar-table td{text-align:left;vertical-align:top;padding:7px 4px;border-bottom:1px solid var(--line)}.ar-table th{width:42%;font-weight:500}.ar-table thead th{font-size:11px;color:var(--faint);font-weight:400}.ar-table td{min-width:0}.ar-table .ar-mode{width:100%;font-size:12px;padding:4px}.ar-limit{display:flex;align-items:center;gap:3px;margin-top:5px;color:var(--muted)}.ar-threshold{width:76px;font-size:12px;padding:4px}.ar-save{margin-top:5px}.ar-by{display:block;margin-top:3px}.ar-error{color:var(--danger);min-height:1em;margin:5px 0 0}
 .kill{display:flex;align-items:center;gap:14px;margin-top:12px;padding:12px 14px;border:1px solid color-mix(in srgb,var(--intervene) 40%,var(--line));border-radius:var(--r)}.kill b{color:var(--ink);font-size:13px}.kill p{margin:2px 0 0}
 .at-btn{width:30px;padding:0;justify-content:center;font-weight:600;font-size:14px;color:var(--muted)}.at-btn:hover{color:var(--ink)}
 /* quotes (forwarded messages) */
@@ -2056,7 +2058,7 @@ window.inboxRefresh=async()=>{try{const r=await fetch('/api/inbox/count?tz='+tz)
   if(due>dgAt){if(dgAt&&dn&&can)new Notification(tr(dn===1?'{n} update since the last digest':'{n} updates since the last digest',{n:dn}),{body:(ns.digest_boards||[]).join(', '),tag:'inbox-digest'}).onclick=()=>{focus();location.href='/inbox'};
     dgAt=due;try{localStorage.setItem('inbox-dg-at',String(due))}catch{}}
   if(l&&l.created_at>seen){if(l.kind!=='manual_unread'&&seen&&(!l.interrupt||l.interrupt==='now')&&can&&!(document.visibilityState==='visible'&&location.pathname==='/b/'+l.board_id)){
-    const ap=l.kind==='approval',who=ap?(l.push&&l.push.by?l.push.by+"'s agent":'Your agent'):l.actor_via==='agent'?l.actor+"'s agent":(l.actor_name||l.actor);
+    const ap=l.kind==='approval',owner=ap?l.push&&l.push.by:l.actor_via==='agent'?l.actor:null,suffix=owner?' · '+owner+"'s agent":'',named=owner&&l.actor_name?(l.actor_name.endsWith(suffix)?l.actor_name.slice(0,-suffix.length):l.actor_name):null,who=owner?(named?named+suffix:owner+"'s agent"):(ap?'Your agent':l.actor_name||l.actor);
     const n=new Notification(who+(ap?' is asking for your approval':l.kind==='mention'?' mentioned you':l.kind==='decision'?' asks for a decision':l.kind==='reply'?' replied to you':l.kind==='friend_request'?' wants to be friends':l.kind==='friend_accept'?' accepted your request':l.kind==='report'?' reported a post to you, as an owner':l.kind==='slack_link'?' linked a Slack account to Atteo':' wrote to your agent'),{body:l.excerpt,tag:'inbox-'+l.id});
     n.onclick=()=>{window.focus();location.href=ap?'/approvals':l.board_id?'/b/'+l.board_id+'#e'+l.seq:'/people'}}
   seen=l.created_at;try{localStorage.setItem('inbox-seen',String(seen))}catch{}}}catch{}};

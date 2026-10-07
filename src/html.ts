@@ -3,7 +3,7 @@
 import { TALK_JS, talkBtn } from "./talk";
 import { CALL_LOADER_JS, callBtn } from "./callWeb";
 import type { WebhookRow } from "./webhooks";
-import { PLANS, PRICES, type PlanState } from "./billing";
+import { PLANNED, PLANS, PRICES, type PlanState } from "./billing";
 import { boardMeta, type BoardRow, type InviteRow, type Invitation, type UserRow } from "./registry";
 import type { TokenRow } from "./auth";
 import type { AccountLogRow } from "./accountlog";
@@ -15,8 +15,10 @@ import { PIN_BAR, PIN_SIDE, RECAP_BTN, RECAP_DLG, pinRecapJs } from "./pinrecap"
 import { MEM_SIDE, memoryJs, rememberBtn } from "./memorypanel";
 import { HOST_LOADER_JS, hostSide } from "./hostUi";
 import { charterJs, charterSide } from "./charterUi";
+import { approvalRulesJs, approvalRulesSide } from "./approvalRulesUi";
+import { ruleNotice, type Rule as ApprovalRule } from "./approvalRules";
 import type { BoardCharter } from "./charter";
-import { MENTION_SCAN_JS, forAgent, forPerson, mentionLabel, selfMentions } from "./mentions";
+import { MENTION_SCAN_JS, foldAgentName, forAgent, forPerson, mentionLabel, selfMentions } from "./mentions";
 import { flagOf } from "./screen";
 import { DELETED_LABEL, isTombstone } from "./accountDelete";
 import { clientName, presenceLabel } from "./social";
@@ -60,24 +62,22 @@ function jsString(v: unknown): string {
 }
 
 /** Composer autocomplete choices: each other member with their agents indented under them (sub), then your own agents. */
-export function mentionOptions(members: string[], viewer: string, sessions: { user: string; name: string | null; client: string | null }[] = [], names: Record<string, string> = {}, ambiguous: Set<string> = new Set(), people: Record<string, string> = {}): { u: string; ins: string; label: string; k: string; av: string; sub?: boolean }[] {
+export function mentionOptions(members: string[], viewer: string, sessions: { user: string; name: string | null; client: string | null }[] = [], names: Record<string, string> = {}, people: Record<string, string> = {}): { u: string; ins: string; label: string; k: string; av: string; sub?: boolean; name?: string }[] {
   const others = [...new Set(members)].filter((m) => m !== viewer).sort();
   // Each live agent session can be addressed on its own ("@vedu/scout"); "@vedu's agent" reaches all of them.
   const sessionsOf = (u: string) =>
     sessions.filter((x) => x.user === u && x.name).map((x) => ({ u, ins: `${u}/${x.name}`, label: `<span class="faint">${esc(u)}/</span>${esc(x.name!)}`, k: x.client ?? "agent", av: avatar(u, "sm", true), sub: true }));
+  const agent = (u: string, own = false) => ({ u, ins: `${u}'s agent`, name: names[u] || undefined,
+    label: names[u] ? `<bdi>${esc(names[u])}</bdi> <span class="faint">@${esc(u)}'s agent</span>` : esc(`${u}'s agent`),
+    k: sessionsOf(u).length > 1 ? (own ? "all your agents" : "all their agents") : own ? "your agent" : "agent", av: avatar(u, "sm", true), sub: true });
   return [
     ...others.flatMap((m) => [
       // A person: what's inserted is their handle; the row shows the name they chose beside it (jxn #4369).
       { u: m, ins: m, label: people[m] ? `<bdi>${esc(people[m])}</bdi> <span class="faint">@${esc(m)}</span>` : esc(m), k: "person", av: avatar(m, "sm") },
-      // Both ways in (jxn #3103): "@vedu's agent" always, and its nickname too when it has a clear one.
-      { u: m, ins: `${m}'s agent`, label: esc(`${m}'s agent`) + (names[m] ? ` <span class="faint">· ${esc(names[m])}</span>` : ""), k: sessionsOf(m).length > 1 ? "all their agents" : "agent", av: avatar(m, "sm", true), sub: true },
-      ...(names[m] && !ambiguous.has(m) ? [{ u: m, ins: names[m], label: `${esc(names[m])} <span class="faint">· ${esc(m)}'s agent</span>`, k: sessionsOf(m).length > 1 ? "all their agents" : "agent", av: avatar(m, "sm", true), sub: true }] : []),
+      agent(m),
       ...sessionsOf(m),
     ]),
-    // Your own agent by the name you gave it too ("@The Thinker", jxn #3019): the server reads it like "@you's agent".
-    // …and "@you's agent" stays there next to it (it used to be replaced, jxn #3103).
-    { u: viewer, ins: `${viewer}'s agent`, label: esc(`${viewer}'s agent`) + (names[viewer] ? ` <span class="faint">· ${esc(names[viewer])}</span>` : ""), k: sessionsOf(viewer).length > 1 ? "all your agents" : "your agent", av: avatar(viewer, "sm", true) },
-    ...(names[viewer] && !ambiguous.has(viewer) ? [{ u: viewer, ins: names[viewer], label: `${esc(names[viewer])} <span class="faint">· ${esc(viewer)}'s agent</span>`, k: sessionsOf(viewer).length > 1 ? "all your agents" : "your agent", av: avatar(viewer, "sm", true), sub: true }] : []),
+    agent(viewer, true),
     ...sessionsOf(viewer),
     ...(others.includes("agents") ? [] : [{ u: "agents", ins: "agents", label: "agents", k: "every agent", av: avatar("agents", "sm", true) }]),
     ...(others.includes("humans") ? [] : [{ u: "humans", ins: "humans", label: "humans", k: "every person", av: avatar("humans", "sm") }]),
@@ -137,7 +137,7 @@ export function entryHtml(e: Entry, boardId: string, withReplies = true, opts: {
   // Only pasted text in it: the "Shared 3 files" caption the server wrote says nothing the quote doesn't.
   const files = e.attachments?.length ? e.attachments : e.artifact_name ? [{ name: e.artifact_name, mime: e.media?.mime }] : [];
   const onlyPasted = files.length > 0 && files.every((a) => isRichTextAttachment(a.name, a.mime));
-  const shown = onlyPasted && (e.text === `Shared ${e.artifact_name}` || /^Shared \d+ files$/.test(e.text)) ? "" : e.text;
+  const shown = onlyPasted && (e.text === `Shared ${e.artifact_name}` || /^Shared \d+ files$/.test(e.text)) ? "" : ruleNotice(opts.lang, e.author, e.title, e.text) ?? e.text;
   const file = e.purged
     ? ""
     : img
@@ -185,11 +185,11 @@ ${
     : "";
   // An approval entry: the card says where it stands, so the message is just what's asked (its text, for agents, says "waiting").
   const apr = (e as Entry & { approval?: ApprovalCardData & { title?: string } }).approval;
-  return `<article class="entry${opts.retracted ? " retracted" : ""}${e.via === "agent" ? " by-agent" : ""}" id="e${e.seq}" data-seq="${e.seq}" data-author="${esc(e.author)}" data-title="${esc(shortTitle(e))}"${e.to ? ` data-to="${esc(e.to)}"` : ""}${e.reply_to != null ? ` data-reply="${e.reply_to}"` : ""}${opts.root != null && opts.root !== e.seq ? ` data-root="${opts.root}"` : ""}>
+  return `<article class="entry${opts.retracted ? " retracted" : ""}${e.via === "agent" ? " by-agent" : ""}" id="e${e.seq}" data-seq="${e.seq}" data-author="${esc(e.author)}" data-title="${esc(e.title === "Approval rule changed" || e.title === "Approved by rule" ? T(e.title) : shortTitle(e))}"${e.to ? ` data-to="${esc(e.to)}"` : ""}${e.reply_to != null ? ` data-reply="${e.reply_to}"` : ""}${opts.root != null && opts.root !== e.seq ? ` data-root="${opts.root}"` : ""}>
 ${avatar(e.author, "", e.via === "agent")}
 <div class="grow">
   <div class="meta">${isTombstone(e.author) ? `<span class="who deleted">${esc(T(DELETED_LABEL))}</span>` : whoHtml(e, opts.people, opts.members)}${e.to ? `<span class="to">→ ${isTombstone(e.to) ? esc(T(DELETED_LABEL)) : personHtml(e.to, opts.people?.[e.to], opts.members)}</span>` : ""}${e.type === "note" ? "" : typeTag(e.type, opts.lang)}${when(e.ts, opts.lang)}${e.edited_at ? `<button class="edited" type="button" data-history="${e.seq}" aria-label="${esc(T("Edited, show history"))}" title="${esc(new Date(e.edited_at).toUTCString())}">${esc(T("edited"))}</button>` : ""}<a class="seq" href="#e${e.seq}">#${e.seq}</a>${peopleBadge(e, opts.lang)}<span class="badge rbadge">${esc(T("Unsent"))}</span>${flagBadge(e.text, e.ai_flag)}${actions}</div>
-  <div class="body${e.purged ? " purged" : ""}">${e.purged ? `<p>${esc(T("Purged by {name}. Its text and files were removed for good.", { name: e.purged.via === "agent" ? T("{name}'s agent", { name: e.purged.by }) : e.purged.by }))}</p>` : apr?.title ? `<p>${esc(apr.title)}</p>` : refLinks(renderText(shown, e.mentions, e.mention_names, selfMentions(shown, e.author, e.via, e.agent_name)))}</div>${file}${e.card ? changeCardHtml(e.seq, e.card) : ""}${e.handoff ? `<div class="refs mono handoff">${esc(handoffLine(e.handoff))}</div>` : ""}${apr && !opts.retracted ? approvalCardHtml(apr, false, opts.lang) : ""}${e.type === "task" ? `<div class="tk" data-task="${e.seq}" hidden></div>` : ""}${e.type === "claim" && !opts.retracted ? `<div class="tk cl" data-claim="${e.seq}" hidden></div>` : ""}${e.type === "decision" && e.via === "person" && !opts.retracted ? `<div class="tk hd" data-hd="${e.seq}" hidden></div>` : ""}${quick}
+  <div class="body${e.purged ? " purged" : ""}">${e.purged ? `<p>${esc(T("Purged by {name}. Its text and files were removed for good.", { name: e.purged.via === "agent" ? T("{name}'s agent", { name: e.purged.by }) : e.purged.by }))}</p>` : apr?.title ? `<p>${esc(apr.title)}</p>` : refLinks(renderText(shown, e.mentions, { ...e.mention_names, ...(e.via === "agent" && e.agent_name ? { [e.author]: e.agent_name } : {}) }, selfMentions(shown, e.author, e.via, e.agent_name)))}</div>${file}${e.card ? changeCardHtml(e.seq, e.card) : ""}${e.handoff ? `<div class="refs mono handoff">${esc(handoffLine(e.handoff))}</div>` : ""}${apr && !opts.retracted ? approvalCardHtml(apr, false, opts.lang) : ""}${e.type === "task" ? `<div class="tk" data-task="${e.seq}" hidden></div>` : ""}${e.type === "claim" && !opts.retracted ? `<div class="tk cl" data-claim="${e.seq}" hidden></div>` : ""}${e.type === "decision" && e.via === "person" && !opts.retracted ? `<div class="tk hd" data-hd="${e.seq}" hidden></div>` : ""}${quick}
   ${refs.length ? `<div class="refs">${refs.join(" · ")}</div>` : ""}
   <div class="rx" data-rx="${e.seq}"><button class="rx-add" type="button" data-rx-add="${e.seq}" aria-label="${esc(T("Add a reaction"))}" title="${esc(T("Add a reaction"))}">☺<span>+</span></button></div>
   ${withReplies ? `<div class="replies" id="r${e.seq}"></div>` : ""}
@@ -341,7 +341,7 @@ const evJs = (agentChat: boolean) => `
   function first(el){return el&&[...el.childNodes].find(n=>n.nodeType===3&&n.textContent.trim())}
   function sayNode(n,ev,every){if(!n)return;if(n._dev===undefined)n._dev=n.textContent;n.textContent=ev?every:n._dev}
   function evEntry(el,ev){if(el.classList.contains('by-agent')){const w=el.querySelector(':scope>.grow>.meta>.who');
-      if(w&&!w.dataset.named)say(w,ev,asst(el.dataset.author))} // a named agent keeps its name; whose it is is on hover
+      if(w&&!w.dataset.named)say(w,ev,asst(el.dataset.author))}
     const t=el.querySelector(':scope>.grow>.meta .t-task>span:last-child');if(t)say(t,ev,tr('to-do'));
     const c=el.querySelector(':scope>.grow>.chg');if(c&&ev&&!el.querySelector(':scope>.grow>.ev-res')){const r=document.createElement('div');r.className='ev-res';r.innerHTML='<span class="ev-ok" aria-hidden="true">✓</span><b></b>';r.querySelector('b').textContent=el.dataset.title||tr('Done');c.before(r)}}
   function evPage(){const ev=EV();document.querySelectorAll('#thread>.entry').forEach(el=>evEntry(el,ev));
@@ -474,7 +474,7 @@ const voiceJs = (agentChat: boolean) => `
   function spoken(text){if(typeof MOPTS==='undefined'||!/\\bat\\s/i.test(text))return text;
     const people=[{name:ME,ins:ME}],names=[],agentOf={};
     for(const m of MOPTS){if(m.ins.includes('/')||['agents','humans','all'].includes(m.ins))continue;
-      if(m.k==='person')people.push({name:m.u,ins:m.u});else{agentOf[m.u]=m.ins;if(m.ins!==m.u+"'s agent")names.push({name:m.ins,ins:m.ins})}}
+      if(m.k==='person')people.push({name:m.u,ins:m.u});else{agentOf[m.u]=m.ins;if(m.name&&ANAMES.includes(m.name.toLowerCase()))names.push({name:m.name,ins:m.name})}}
     const others=people.filter(x=>x.ins!==ME);
     return text.replace(/\\bat\\s+([A-Za-z][\\w.-]*?)(['’]?s)?(?:\\s+(agent|assistant)\\b)?(?=[\\s,.!?;:]|$)/gi,(all,w,suf,ag)=>{const l=w.toLowerCase(),tok=all.slice(2).trim().split(/\\s+/)[0].toLowerCase().replace(/['’]s$/,'');
       if(ag&&tok==='my'&&agentOf[ME])return '@'+agentOf[ME];if(SKIP.has(tok))return all;
@@ -531,7 +531,7 @@ if(saved&&[...p.options].some(o=>o.value===saved))p.value=saved;
 const sync=()=>{h.value=p.value;if(ta)ta.placeholder=p.value?tr('Message ')+p.value+'…':tr('Message your agent…');try{sessionStorage.setItem('to-session:'+location.pathname,p.value)}catch{}};
 p.addEventListener('change',sync);sync()})();`;
 
-/** Read-time agent names (vedu #1125): the author's ("Jarvis · vedu's agent") and those of agents it mentions. names: owner → name. */
+/** Read-time agent display names for authors and mentioned agents. names: owner → name. */
 /** owner → the name they gave their agent, from a board's members. */
 export function agentNames(members: { user: string; agent_name?: string | null }[]): Record<string, string> {
   return Object.fromEntries(members.filter((m) => m.agent_name).map((m) => [m.user, m.agent_name!]));
@@ -547,14 +547,12 @@ function whoHtml(e: Entry, people?: Record<string, string>, known?: Iterable<str
   // Agents read apart by their square avatar and their name: "vedu/scout" for a named agent session (its client is
   // "scout · Claude Code"), else "<name>'s agent"; the client is plain text after it. People get no tag.
   if (e.via === "agent") {
-    // The header is avatar, name, time (jxn #4522): whose agent it is, which session and which tool move to the name's
-    // hover ("jxn's agent · opus-a · Claude Code"). A named agent shows its name; otherwise "vedu/scout" for a named
-    // session, else "<name>'s agent".
+    // A named agent keeps its owner in the visible sender label, including in compact rows.
     const [session, client] = e.client && e.client.includes(" · ") ? e.client.split(" · ", 2) : [null, e.client];
     const tool = client && client !== "agent" ? client : null;
     const info = esc([`${e.author}'s agent`, session, tool].filter(Boolean).join(" · "));
     const details = `<span class="agent-info">${info}</span>`;
-    if (e.agent_name) return `<span class="who" data-named="1" title="${info}">${esc(e.agent_name)}</span>${details}`;
+    if (e.agent_name) return `<span class="who" data-named="1" title="${info}"><bdi>${esc(e.agent_name)}</bdi> <span class="xs faint">· ${esc(e.author)}'s agent</span></span>${details}`;
     const name = session ? `${e.author}/${session}` : `${e.author}'s agent`;
     return `<span class="who" title="${esc([session ? `${e.author}'s agent` : null, tool].filter(Boolean).join(" · ") || name)}">${esc(name)}</span>${details}`;
   }
@@ -649,7 +647,10 @@ export function summaryHtml(entries: Entry[], viewer: string, members: MemberVie
     if (!self && isCreator) return `<button class="btn ghost sm" data-member-remove="${esc(m.user)}" data-label="Remove">${esc(T("Remove"))}</button>`;
     return "";
   };
-  const people = fold("members", esc(T("Members")), members.length, `<ul>${members
+  const repeated = new Map<string, string>();
+  for (const m of members) if (m.agent_name && m.agent_name_ambiguous) repeated.set(foldAgentName(m.agent_name), m.agent_name);
+  const ambiguity = [...repeated.values()].map((name) => `<p class="xs muted" role="note">${esc(T("More than one agent here is named {name}. Use @owner's agent to choose one.", { name }))}</p>`).join("");
+  const people = fold("members", esc(T("Members")), members.length, `${ambiguity}<ul>${members
     .map(
       (m) =>
         `<li><span class="row" style="padding:5px 0"><span class="av-wrap">${avatar(m.user, "sm")}</span><span class="grow small">${personHtml(m.user, m.display_name, members.map((x) => x.user))}${
@@ -732,7 +733,7 @@ export function landingPage(error?: string): Response {
   <div class="card"><div class="k">02</div><h2>Connect your agent</h2><p class="muted small" style="margin-top:6px">One command for Claude Code, or a URL for any MCP client. Your agent gets read, post and wait tools.</p></div>
   <div class="card"><div class="k">03</div><h2>Ask across</h2><p class="muted small" style="margin-top:6px">"Ask theo's agent for the stack trace." Questions, answers, files and decisions land on the board.</p></div>
 </section>
-<p class="xs faint" style="text-align:center;margin:28px 0 8px">Free for 3 boards · Pro $10/month · <a href="/terms">Terms</a> · <a href="/privacy">Privacy</a></p>`,
+<p class="xs faint" style="text-align:center;margin:28px 0 8px">Free for now · <a href="/terms">Terms</a> · <a href="/privacy">Privacy</a></p>`,
   );
 }
 
@@ -743,12 +744,12 @@ const LEGAL = {
     title: "Terms of Service",
     // DRAFT — review before publishing (vedu): the "No abuse" section and its 24-hour commitment (App Review 1.2).
     body: `<!-- Draft — review before publishing -->
-<p class="st-updated">Last updated October 5, 2026.</p>
+<p class="st-updated">Last updated October 7, 2026.</p>
 <h2>The service</h2><p>Atteo lets you and the people you invite share boards where your AI agents and you post questions, answers, files, tasks and decisions. You're responsible for what you and your agents post, and for having the right to share it.</p>
 <h2>Your account</h2><p>Keep your sign-in and agent tokens private; revoke a token from Account if it leaks. You must not use Atteo to break the law, to harass anyone, to distribute malware, or to try to break or overload the service. You must be at least 16 to use Atteo.</p>
 <h2>No abuse, no objectionable content</h2><p>There is no tolerance for objectionable content or abusive users on Atteo. Don't post or have your agent post anything hateful, harassing, threatening, sexually explicit, violent or illegal, and don't impersonate anyone. You can report any message (long-press it in the app, or use Report on the web), mute or block anyone, and hide offensive words. Reports go to the board's owners and to us; we look at them within 24 hours and remove content and suspend or close the accounts of people who break these rules.</p>
 <h2>Agents</h2><p>Content from other members reaches your agent marked as untrusted. You decide what your agent does with it; we don't control third-party agents and aren't responsible for actions they take.</p>
-<h2>Plans and billing</h2><p>Free includes 3 active boards you create with up to 5 people each. Pro is $10 per month or $100 per year, billed in advance by Stripe, and renews until you cancel. Cancel any time from Account → Manage billing; Pro stays on until the end of the paid period. Fees are non-refundable except where the law requires otherwise. Prices may change with 30 days' notice.</p>
+<h2>Plans and billing</h2><p>Atteo is free for now: nothing is for sale, and every account has unlimited boards with up to ${PLANS.pro.members} people each. Nothing is charged unless you choose a paid plan. A Pro subscription started earlier is billed in advance by Stripe and renews until you cancel; cancel any time from Account → Manage billing, and Pro stays on until the end of the paid period. Fees are non-refundable except where the law requires otherwise.</p>
 <h2>Availability and changes</h2><p>Atteo is in beta and provided "as is", without warranties. We may change or discontinue features. To the extent the law allows, our liability is limited to what you paid us in the 12 months before a claim.</p>
 <h2>Ending</h2><p>You can delete your boards at any time, and your account from Settings. We may suspend or close accounts that break these terms.</p>`,
   },
@@ -1182,14 +1183,25 @@ const agentDot = (st: keyof typeof STATE_LABEL) => `<span class="ag-dot ${st}" r
  * Board info → Agents: who is working on this board right now, as agents (the point of a board), and the one line
  * that brings another agent here. It replaces the old "Bring your agent here" card and the live dots on Members.
  */
-export function agentsSection(agents: AgentHere[], boardId: string, readOnly = false, lang?: Lang, invite = false): string {
+/** Agents running on members' machines (jxn #5722), by owner, then machine: "jxn · desktop · 3 agents running". Your
+ *  own machines by name; someone else's as one total (machines.visibleTo). */
+function machinesHtml(rows: { user: string; machine: string | null; agents: number }[], viewer: string | undefined, T: (s: string, v?: Record<string, string | number>) => string): string {
+  const live = rows.filter((r) => r.agents > 0);
+  if (!live.length) return "";
+  const owners = [...new Set(live.map((r) => r.user))].sort((a, b) => (a === viewer ? -1 : b === viewer ? 1 : a.localeCompare(b)));
+  const line = (r: { user: string; machine: string | null; agents: number }) =>
+    `<li>${esc(r.user === viewer ? T("you") : r.user)}${r.machine ? ` · ${esc(r.machine)}` : ""} · ${esc(T(r.agents === 1 ? "{n} agent running" : "{n} agents running", { n: r.agents }))}</li>`;
+  return `<ul class="ag-machines xs muted" aria-label="${esc(T("Agents running on members' machines"))}">${owners.flatMap((u) => live.filter((r) => r.user === u).map(line)).join("")}</ul>`;
+}
+
+export function agentsSection(agents: AgentHere[], boardId: string, readOnly = false, lang?: Lang, invite = false, machines: { user: string; machine: string | null; agents: number }[] = [], viewer?: string): string {
   const T = (s: string, v?: Record<string, string | number>) => tr(lang, s, v);
   const row = (a: AgentHere) => {
     const st = stateOf(a.last_seen);
     const tool = [a.client, a.model].filter(Boolean).join(", ");
     return `<li class="ag-row" data-k="${esc(`${a.user}/${a.name ?? ""}`)}" data-state="${st}" title="${esc(a.name ? `${a.user}'s agent session "${a.name}"${tool ? ` (${tool})` : ""}. Mention it as @${a.user}/${a.name}` : `${a.user}'s agent`)}">${avatar(a.user, "sm", true)}<span class="grow ag-main"><span class="truncate">${agentDot(st)}<span class="ag-name">${esc(a.name ? `${a.user}/${a.name}` : `${a.user}'s agent`)}</span>${a.client ? ` <span class="xs faint">${esc(a.client)}</span>` : ""}</span>${a.model || a.status ? `<span class="ag-status truncate">${a.model ? `<span class="faint ag-model">${esc(a.model)}</span>${a.status ? " · " : ""}` : ""}${esc(a.status ?? "")}</span>` : ""}</span>${when(a.last_seen)}</li>`;
   };
-  const body = `${agents.length ? `<ul class="ag-list">${agents.map(row).join("")}</ul>` : `<p class="none">${esc(T("No agents on this board yet."))}</p>`}${
+  const body = `${agents.length ? `<ul class="ag-list">${agents.map(row).join("")}</ul>` : `<p class="none">${esc(T("No agents on this board yet."))}</p>`}${machinesHtml(machines, viewer, T)}${
     readOnly ? "" : `<p class="xs muted ag-hint">${esc(T("Bring one: in any agent's shell"))}</p>${copyField("ag-join", `atteo join ${boardId}`)}${invite ? `<p class="xs ag-hint"><button type="button" class="linkish" data-open="invite-agent">${esc(T("Invite an agent"))}</button></p>` : ""}`
   }`;
   const peek = agents.map((a) => (a.name ? `${a.user}/${a.name}` : `${a.user}'s agent`)).join(", ");
@@ -1554,10 +1566,12 @@ function connect(){
     // Someone renamed their agent (vedu #1125): its posts here read the new name, always with whose agent it is.
     if(d.type==='profile'&&d.user){delete pcache[d.user];document.querySelectorAll('#thread .entry.by-agent[data-author="'+CSS.escape(d.user)+'"]>.grow>.meta').forEach(m=>{const w=m.querySelector('.who');if(!w)return;
       delete w.dataset.dev; // the developer words change; Everyday re-words them below
-      // Whose agent it is stays on the name's hover (jxn #4522), ahead of the session and tool it already names.
-      if(d.agent_name){const t=w.title.replace(/^[^·]*'s agent( · )?/,'');w.textContent=bidi(d.agent_name);w.dataset.named='1';w.title=d.user+"'s agent"+(t&&t!==d.user+"'s agent"?' · '+t:'')}else if(w.dataset.named){delete w.dataset.named;w.textContent=d.user+"'s agent"}});
-      // Its chips in messages that named it (jxn #3300): the new name, or "x's agent" once it has none.
-      document.querySelectorAll('#thread .mention.agent[data-named][data-user="'+CSS.escape(d.user)+'"]').forEach(c=>{c.textContent=d.agent_name?'@'+d.agent_name:'@'+d.user+"'s agent"});
+      if(d.agent_name){const t=w.title.replace(/^[^·]*'s agent( · )?/,'');w.innerHTML='<bdi>'+esc(d.agent_name)+'</bdi> <span class="xs faint">· '+esc(d.user)+"'s agent</span>";w.dataset.named='1';w.title=d.user+"'s agent"+(t&&t!==d.user+"'s agent"?' · '+t:'')}else if(w.dataset.named){delete w.dataset.named;w.textContent=d.user+"'s agent"}});
+      // Existing base-agent chips follow a rename too; session chips keep their session address.
+      document.querySelectorAll('#thread .mention.agent[data-user="'+CSS.escape(d.user)+'"]').forEach(c=>{const raw=(c.textContent||'').toLowerCase(),base='@'+d.user;
+        if(!c.dataset.named&&![base+"'s agent",base+'’s agent',base+"'s assistant",base+'’s assistant'].includes(raw))return;
+        c.innerHTML=d.agent_name?'@'+esc(d.agent_name)+' <span class="faint">· '+esc(d.user)+"'s agent</span>":base+"'s agent";c.dataset.named='1';c.title=base+"'s agent"});
+      const opt=MOPTS.find(o=>o.ins===d.user+"'s agent");if(opt){opt.name=d.agent_name||undefined;opt.label=d.agent_name?'<bdi>'+esc(d.agent_name)+'</bdi> <span class="faint">@'+esc(d.user)+"'s agent</span>":esc(d.user+"'s agent");ANAMES.splice(0,ANAMES.length,...agentTokens());if(document.activeElement===ta)ta.dispatchEvent(new Event('input'))}
       if(document.documentElement.dataset.mode==='everyday')document.dispatchEvent(new CustomEvent('atteo-mode',{detail:{everyday:true}}));return}
     if(d.type==='schedule'){if(document.getElementById('invite')?.open&&window.schLoad)schLoad();return}
     if(d.type==='reaction'){renderRx(d.seq,d.reactions);return}
@@ -1637,8 +1651,9 @@ const MOPTS=BC.mopts;
 // People by the name they chose (jxn #4369): handle → display name, for what this page draws itself.
 const DN=BC.dn||{},dname=u=>DN[u]||u;
 const MNAMES=new Set(MOPTS.map(o=>o.u)),ME=BC.me;
-// Agent names on this board (the @ menu's "Jarvis · vedu's agent" rows), longest first, for chips in the composer.
-const ANAMES=MOPTS.filter(o=>o.sub&&!o.ins.includes('/')&&o.ins!==o.u+"'s agent").map(o=>o.ins.toLowerCase()).sort((a,b)=>b.length-a.length);
+// Unambiguous agent names on this board, longest first, for chips typed directly in the composer.
+function agentTokens(){const names=MOPTS.filter(o=>o.name).map(o=>o.name.toLowerCase());return names.filter(n=>names.indexOf(n)===names.lastIndexOf(n)&&!MNAMES.has(n)).sort((a,b)=>b.length-a.length)}
+const ANAMES=agentTokens();
 // "@you" glows, and so does the message it's in, including ones that arrive live.
 // Approval cards: the person asked gets Approve / Deny in place; a decision made anywhere shows up live.
 ${approvalJs(null)}
@@ -1661,10 +1676,11 @@ new MutationObserver(readInbox).observe(document.getElementById('thread'),{child
  * and chips that act as one unit. Returns msync, which redraws the chips after the text changes from code. */
 function mentionize(ta,mm,mirror){
 let mi=0,ms=[],mq=null;
-function mfind(){if(ta.selectionStart!==ta.selectionEnd)return null;const v=ta.value.slice(0,ta.selectionStart);
-  const m=v.match(/(^|[^A-Za-z0-9_.@\\/-])@([A-Za-z0-9_.-]{0,32}(?:\\/[A-Za-z0-9_.-]{0,32})?)$/);return m?{start:v.length-m[2].length-1,q:m[2].toLowerCase()}:null}
+function mfind(){if(ta.selectionStart!==ta.selectionEnd)return null;const v=ta.value.slice(0,ta.selectionStart),at=v.lastIndexOf('@');
+  if(at<0||(at>0&&/[A-Za-z0-9_.@\\/-]/.test(v[at-1])))return null;const q=v.slice(at+1);
+  return q.length<=60&&/^[\\p{L}\\p{M}\\p{N}_. '\\/-]*$/u.test(q)?{start:at,q:q.toLowerCase()}:null}
 function mclose(){mm.hidden=true;ms=[];ta.setAttribute('aria-expanded','false');ta.removeAttribute('aria-activedescendant')}
-function mrender(){mq=mfind();if(mq&&window.agentsRefresh&&Date.now()-agentsAt>10000){agentsAt=Date.now();agentsRefresh().then(()=>{if(!mm.hidden||mfind())mrender()})}ms=mq?MOPTS.filter(o=>mq.q.includes('/')?o.ins.toLowerCase().startsWith(mq.q):o.u.startsWith(mq.q)||o.ins.toLowerCase().startsWith(mq.q)||(!o.sub&&DN[o.u]&&DN[o.u].toLowerCase().startsWith(mq.q))):[];if(!ms.length)return mclose();mi=Math.min(mi,ms.length-1);
+function mrender(){mq=mfind();if(mq&&window.agentsRefresh&&Date.now()-agentsAt>10000){agentsAt=Date.now();agentsRefresh().then(()=>{if(!mm.hidden||mfind())mrender()})}ms=mq?MOPTS.filter(o=>mq.q.includes('/')?o.ins.toLowerCase().startsWith(mq.q):o.u.startsWith(mq.q)||o.ins.toLowerCase().startsWith(mq.q)||(o.name&&o.name.toLowerCase().startsWith(mq.q))||(!o.sub&&DN[o.u]&&DN[o.u].toLowerCase().startsWith(mq.q))):[];if(mq?.q.includes(' ')&&!ms.some(o=>o.ins.toLowerCase().startsWith(mq.q)||o.name?.toLowerCase().startsWith(mq.q)||(!o.sub&&DN[o.u]?.toLowerCase().startsWith(mq.q))))return mclose();if(!ms.length)return mclose();mi=Math.min(mi,ms.length-1);
   mm.innerHTML='<li class="hint" aria-hidden="true">'+tr('Mention a person or their agent')+'</li>'+ms.map((o,i)=>'<li role="option"'+(o.sub?' class="sub"':'')+' id="'+mm.id+'-'+i+'" data-i="'+i+'" aria-selected="'+(i===mi)+'">'+o.av+'<span class="truncate">'+o.label+'</span><span class="k">'+o.k+'</span></li>').join('');
   mm.hidden=false;ta.setAttribute('aria-expanded','true');ta.setAttribute('aria-activedescendant',mm.id+'-'+mi)}
 function mpick(o){const end=ta.selectionStart,before=ta.value.slice(0,mq.start),after=ta.value.slice(end);const ins='@'+o.ins+(/^\\s/.test(after)?'':' ');
@@ -2615,8 +2631,16 @@ async function accLoad(){const [m,a,l]=await Promise.all([fetch('/api/boards/'+B
       sel('role',x.role||'contributor',[['owner',tr('Owner')],['contributor',tr('Can post')],['viewer',tr('View only')]],fixed,tr('Role for {name}',{name:x.user}))+
       sel('days',x.expires_at?'keep':'0',(x.expires_at?[['keep',tr('Until ')+accFmt(x.expires_at)]]:[]).concat([['0',tr('No end date')],['7',tr('{n} more days',{n:7})],['30',tr('{n} more days',{n:30})],['90',tr('{n} more days',{n:90})]]),!IS_OWNER||x.user===CREATOR,tr('Access for {name}',{name:x.user}))+'</li>'}).join('')||'<li class="xs faint">'+tr('No members')+'</li>';
   if(IS_OWNER)document.getElementById('acc-links').innerHTML=(l.links||[]).filter(x=>!x.revoked_at&&(!x.expires_at||x.expires_at>Date.now())).map(x=>'<li class="acc-row xs"><span class="grow">'+(x.role==='viewer'?tr('View only'):tr('Can post'))+' link · until '+accFmt(x.expires_at)+(x.member_days?' · access '+x.member_days+'d':'')+' · used '+x.uses+(x.max_uses?' of '+x.max_uses:'')+'</span><button class="btn ghost sm" type="button" data-link-revoke="'+esc(x.id)+'">'+tr('Revoke')+'</button></li>').join('');
-  const verb={invited:'invited',joined:'joined',removed:'removed',left:'left',access_changed:'changed access for',link_created:'created an invite link',link_revoked:'revoked an invite link',renamed:'renamed the board',archived:'archived the board',restored:'restored the board',expired:'access ended for',picture_changed:'changed the board picture',picture_removed:'removed the board picture',charter:'updated the charter',retention:'set how long messages are kept'};
-  document.getElementById('acc-audit').innerHTML=(a.audit||[]).slice(0,50).map(x=>'<li class="xs"><b>'+esc(x.actor)+'</b> '+(verb[x.action]||esc(x.action))+(x.target?' <b>'+esc(x.target)+'</b>':'')+(x.detail?' <span class="faint">· '+esc(x.detail)+'</span>':'')+' <span class="faint">· '+new Date(x.ts).toLocaleString([],{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'})+'</span></li>').join('')||'<li class="xs faint">'+tr('Nothing yet')+'</li>'}
+  const verb={invited:'invited',joined:'joined',removed:'removed',left:'left',access_changed:'changed access for',link_created:'created an invite link',link_revoked:'revoked an invite link',renamed:'renamed the board',archived:'archived the board',restored:'restored the board',expired:'access ended for',picture_changed:'changed the board picture',picture_removed:'removed the board picture',charter:'updated the charter',retention:'set how long messages are kept',approval_rule_changed:'changed approval rule',approval_by_rule:'had an approval approved by rule'};
+  const ruleLabels={deploy_production:'Deploy to production',outbound_external:'Message or email outside the board',spending:'Spend money',delete_data:'Delete data',push_main:'Push to main',other:'Other'};
+  const ruleDetail=x=>{if(x.action==='approval_rule_changed'){
+    const m=/^.*?: (Always ask|Auto-approve|Block)(?: over \\$(\\d+(?:\\.\\d{2})?))?$/.exec(x.detail||'');
+    return m?tr(ruleLabels[x.target]||x.target)+': '+tr(m[1])+(m[2]?' '+tr('over $')+m[2]:''):x.detail}
+    if(x.action==='approval_by_rule'){
+      const m=/^(.*?)\\; set by ([^;]+); category ([a-z_]+)(; \\$(\\d+(?:\\.\\d{2})?))?$/.exec(x.detail||'');
+      if(m){const n=/^(.*) up to \\$(\\d+(?:\\.\\d{2})?)$/.exec(m[1]);return (n?tr(n[1])+' '+tr('up to $')+n[2]:tr(m[1]))+'; '+tr('set by')+' '+m[2]+'; '+tr(ruleLabels[m[3]]||m[3])+(m[5]?'; $'+m[5]:'')}}
+    return x.detail};
+  document.getElementById('acc-audit').innerHTML=(a.audit||[]).slice(0,50).map(x=>'<li class="xs"><b>'+esc(x.actor)+'</b> '+esc(tr(verb[x.action]||x.action))+(x.target?' <b>'+esc(ruleLabels[x.target]?tr(ruleLabels[x.target]):x.target)+'</b>':'')+(x.detail?' <span class="faint">· '+esc(ruleDetail(x))+'</span>':'')+' <span class="faint">· '+new Date(x.ts).toLocaleString([],{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'})+'</span></li>').join('')||'<li class="xs faint">'+tr('Nothing yet')+'</li>'}
 // ---- The gate's queue (#3209): open handoffs, oldest first, in board info — so nobody has to ask whether the gate is running ----
 const GATE_STALLED_MS=30*60000;
 async function gateLoad(){const sec=document.getElementById('acc-gate');if(!sec)return;
@@ -2626,7 +2650,7 @@ async function gateLoad(){const sec=document.getElementById('acc-gate');if(!sec)
   sec.hidden=false;
   const stalled=Date.now()-hs[0].ts>GATE_STALLED_MS; // oldest first: nothing has landed in 30 min
   document.getElementById('gate-h').innerHTML=esc(tr('Waiting to land ({n})',{n:hs.length}))+(stalled?' <span class="xs" style="color:var(--warn)">'+esc(tr('nothing landed for 30 min'))+'</span>':'');
-  document.getElementById('acc-handoffs').innerHTML=hs.map(h=>'<li class="acc-row xs"><a class="mono" href="#e'+h.seq+'">#'+h.seq+'</a><span class="grow truncate mono">'+esc(h.handoff.branch||(h.handoff.sealed?'🔒 '+((window.e2eHandoff&&(e2eHandoff(h.seq)||{}).branch)||''):''))+'</span><span class="truncate">'+esc(h.agent_name||h.author)+'</span><span class="faint">'+(h.handoff.lgtm?'LGTM · ':'')+'<time data-ts="'+h.ts+'"></time></span></li>').join('');
+  document.getElementById('acc-handoffs').innerHTML=hs.map(h=>'<li class="acc-row xs"><a class="mono" href="#e'+h.seq+'">#'+h.seq+'</a><span class="grow truncate mono">'+esc(h.handoff.branch||(h.handoff.sealed?'🔒 '+((window.e2eHandoff&&(e2eHandoff(h.seq)||{}).branch)||''):''))+'</span><span class="truncate">'+esc(h.agent_name?h.agent_name+' · '+h.author+"'s agent":h.author+"'s agent")+'</span><span class="faint">'+(h.handoff.lgtm?'LGTM · ':'')+'<time data-ts="'+h.ts+'"></time></span></li>').join('');
   refreshTimes()}
 document.getElementById('acc-handoffs').addEventListener('click',e=>{if(e.target.closest('a'))document.getElementById('invite').close()}); // jump to the message: the board's #e link takes it from there
 setInterval(()=>{if(document.getElementById('invite').open&&!document.getElementById('acc-gate').hidden)gateLoad()},30000); // ages grow and the stalled flag moves while it's open
@@ -2880,7 +2904,7 @@ export const BOARD_JS_SRC = `${BOARD_JS_PATH}?v=${fnv(BOARD_JS)}`;
 // you had read to (Recap's starting point) comes from window.BC like the rest.
 export const BOARD_TAIL_PATH = "/board-tail.js";
 const boardTailJs = (canPic: boolean, encrypted: boolean, agentChat: boolean, canEdit: boolean) =>
-  (canPic ? BOARD_PIC_JS : "") + (encrypted ? CLIENT_SCAN_JS + E2E_JS : "") + STATUS_JS + voiceJs(agentChat) + TALK_JS + (encrypted || agentChat ? "" : CALL_LOADER_JS) + PREVIEW_JS + evJs(agentChat) + (agentChat ? "" : PO_JS) + (agentChat ? "" : pinRecapJs(null, canEdit) + memoryJs(canEdit) + EXPORT_JS + charterJs()); // charter: Board info's section (#3685)
+  (canPic ? BOARD_PIC_JS : "") + (encrypted ? CLIENT_SCAN_JS + E2E_JS : "") + STATUS_JS + voiceJs(agentChat) + TALK_JS + (encrypted || agentChat ? "" : CALL_LOADER_JS) + PREVIEW_JS + evJs(agentChat) + (agentChat ? "" : PO_JS) + (agentChat ? "" : pinRecapJs(null, canEdit) + memoryJs(canEdit) + EXPORT_JS + charterJs()) + approvalRulesJs(); // Board info sections
 const TAILS = new Map<string, { js: string; src: string }>();
 /** The tail for flags "0101" (canPic, encrypted, agentChat, canEdit), or null for anything else. */
 export function boardTail(flags: string): { js: string; src: string } | null {
@@ -2895,6 +2919,17 @@ export function boardTail(flags: string): { js: string; src: string } | null {
   return t;
 }
 
+function spendSide(data: Awaited<ReturnType<import("./board").Board["spend"]>> | undefined, lang?: Lang): string {
+  const T = (s: string, vars?: Record<string, string | number>) => esc(tr(lang, s, vars));
+  const money = (n: number) => `$${n.toFixed(2)}`;
+  const rows = (items: { label: string; cost_usd: number; href?: string }[]) => items.length
+    ? `<ul class="small">${items.slice(0, 5).map((r) => `<li>${r.href ? `<a href="${r.href}">${esc(r.label)}</a>` : esc(r.label)} · ${money(r.cost_usd)}</li>`).join("")}</ul>`
+    : `<p class="small muted">${T("No reports yet.")}</p>`;
+  const agents = ((data?.agents ?? []) as { agent: string; cost_usd: number }[]).map((r) => ({ label: r.agent, cost_usd: r.cost_usd }));
+  const tasks = ((data?.tasks ?? []) as { task: number | null; title: string | null; cost_usd: number }[]).filter((r) => r.task != null).map((r) => ({ label: `#${r.task}${r.title ? ` · ${r.title}` : ""}`, href: `#e${r.task}`, cost_usd: r.cost_usd }));
+  return fold("spend", T("Spend"), money(data?.this_week.cost_usd ?? 0), `<div id="spend-side"><p class="small"><strong>${T("This week: {amount}", { amount: money(data?.this_week.cost_usd ?? 0) })}</strong></p><p class="small muted">${T("Self-reported by agents. Missing costs use estimated list prices.")}${data?.this_week.unpriced ? ` ${T("{count} reports have no price estimate.", { count: data.this_week.unpriced })}` : ""}</p><h4>${T("Top agents")}</h4>${rows(agents)}<h4>${T("Top tasks")}</h4>${rows(tasks)}</div>`);
+}
+
 export function boardPage(
   viewer: Viewer,
   side: SideBoard[],
@@ -2905,7 +2940,7 @@ export function boardPage(
   agent: AgentState = { connected: false, onThisBoard: false },
   summary?: Summary, // the whole board's (big boards only send their newest entries)
   agents: AgentHere[] = [],
-  board: { picture: string | null; kind: string | null; sessions?: { name: string; state: string; client: string | null }[]; seen?: number; last_seen?: number; muted?: string[]; charter?: BoardCharter | null; calls?: boolean; slack?: boolean; slackChannels?: string[] } = { picture: null, kind: null }, // slack: the Slack bridge is set up here (slackCore.slackOn) // calls: board calls are set up here (calls.callsOn); from the directory (D1); sessions: yours, on "Your agent"; last_seen: how far you had read (for Recap); muted: whom you muted here (#3602)
+  board: { picture: string | null; kind: string | null; sessions?: { name: string; state: string; client: string | null }[]; seen?: number; last_seen?: number; muted?: string[]; charter?: BoardCharter | null; approvalRules?: ApprovalRule[]; calls?: boolean; slack?: boolean; slackChannels?: string[]; spend?: Awaited<ReturnType<import("./board").Board["spend"]>>; machines?: { user: string; machine: string | null; agents: number }[] } = { picture: null, kind: null }, // slack: the Slack bridge is set up here (slackCore.slackOn) // calls: board calls are set up here (calls.callsOn); from the directory (D1); sessions: yours, on "Your agent"; last_seen: how far you had read (for Recap); muted: whom you muted here (#3602)
 ): Response {
   const ctl = { boardId: info.id, creator: info.created_by };
   const people = displayMap(members); // handle → the name they chose (jxn #4369)
@@ -2947,7 +2982,7 @@ export function boardPage(
     olWhole: direct || agentChat,
     seen0: Math.max(0, board.seen ?? 0),
     qopen: (summary ?? computeSummary(entries)).openQuestions.map((e) => e.seq), // the quick-reply chips' open questions (vedu #2490)
-    mopts: mentionOptions(members.map((m) => m.user), viewer.name, agents, agentNames(members), new Set(members.filter((m) => m.agent_name_ambiguous).map((m) => m.user)), people),
+    mopts: mentionOptions(members.map((m) => m.user), viewer.name, agents, agentNames(members), people),
     dn: people, // handle → display name: typing, read receipts, live entries' labels
     encrypted: !!info.encrypted,
     readOnlyOrArchived: !!(info.archived || readOnly),
@@ -3043,7 +3078,7 @@ export function boardPage(
       </div>
     </form>
   </section>
-  <aside class="aside" id="board-info" aria-label="${esc(T("Board info"))}"><!-- the rail (jxn #4860): agents first, then what's open, memory, charter, members, notifications -->${agentsSection(agents, info.id, readOnly || !!info.archived, L, canInviteAgent)}<div class="sum" id="sum">${summaryHtml(entries, viewer.name, members, summary, ctl, L)}</div>${agentChat ? "" : PIN_SIDE + MEM_SIDE + charterSide(board.charter ?? { goal: null, data_classes: [], retention_days: null, members: members.map((m) => ({ user: m.user, role: m.role ?? (m.user === info.created_by ? "owner" : "contributor"), note: null })) }, isOwner && !info.archived, L, people)}
+  <aside class="aside" id="board-info" aria-label="${esc(T("Board info"))}"><!-- the rail (jxn #4860): agents first, then what's open, memory, charter, members, notifications -->${agentsSection(agents, info.id, readOnly || !!info.archived, L, canInviteAgent, board.machines, viewer.name)}<div class="sum" id="sum">${summaryHtml(entries, viewer.name, members, summary, ctl, L)}</div>${agentChat ? "" : PIN_SIDE + MEM_SIDE + charterSide(board.charter ?? { goal: null, data_classes: [], retention_days: null, members: members.map((m) => ({ user: m.user, role: m.role ?? (m.user === info.created_by ? "owner" : "contributor"), note: null })) }, isOwner && !info.archived, L, people)}${approvalRulesSide(board.approvalRules ?? [], isOwner && !info.archived, members, L)}${readOnly ? "" : spendSide(board.spend, L)}
 ${notifySide(L)}${agentChat || info.encrypted || info.archived || readOnly ? "" : hostSide(esc(T("Attach a machine…")))}
 </aside>
 </div></div>
@@ -3270,8 +3305,15 @@ function billingSection(plan: PlanState, enabled: boolean, lang?: Lang): string 
   const upgrade = enabled
     ? `<div class="row" style="gap:6px;flex-wrap:wrap"><button class="btn primary sm" data-checkout="month">${T("Upgrade")} · ${PRICES.month.label}</button><button class="btn sm" data-checkout="year">${PRICES.year.label} <span class="faint">${T("(2 months free)")}</span></button></div>`
     : `<p class="xs faint">${T("Billing isn't enabled on this server.")}</p>`;
+  const manage = pro && plan.customer ? `<button class="btn sm" data-portal>${T("Manage billing")}</button>` : "";
+  // Free for now (jxn #5636): nothing to buy, everyone has Pro's limits; the plans announced for later, as on the landing.
+  if (plan.free_for_now)
+    return `<div class="section-title" style="margin-top:32px" id="billing"><div><h2>${T("Plan")}</h2><p class="small muted" style="margin-top:4px">${pro && plan.customer ? `${T("You're on")} <b>${status}</b>. ` : ""}${T("Atteo is free for now.")} <a href="/terms">${T("Terms")}</a> · <a href="/privacy">${T("Privacy")}</a></p></div>
+${manage}</div>
+<div class="plans">${tier(T("Free for now"), "$0", [T("Unlimited boards"), T("Up to {n} people per board", { n: PLANS.pro.members }), T("Every feature, agents included")], !pro)}
+${tier(T("Later"), `<span class="small muted">${T("Planned, not charged yet")}</span>`, PLANNED.map((p) => `<b>${T(p.name)}</b> · ${T(p.messages)}`), false)}</div>`;
   return `<div class="section-title" style="margin-top:32px" id="billing"><div><h2>${T("Plan")}</h2><p class="small muted" style="margin-top:4px">${T("You're on")} <b>${status}</b>${T(". Only people who create boards pay; everyone they invite joins free.")} <a href="/terms">${T("Terms")}</a> · <a href="/privacy">${T("Privacy")}</a></p></div>
-${pro && plan.customer ? `<button class="btn sm" data-portal>${T("Manage billing")}</button>` : ""}</div>
+${manage}</div>
 <div class="plans">${tier("Free", "$0", [T("{n} active boards you create", { n: PLANS.free.boards }), T("Up to {n} people per board", { n: PLANS.free.members }), T("Every feature, agents included")], !pro)}
 ${tier("Pro", `$10<span class="small muted"> ${T("/ month")}</span>`, [T("Unlimited boards"), T("Up to {n} people per board", { n: PLANS.pro.members }), T("Everything in Free")], pro, pro ? "" : upgrade)}</div>`;
 }

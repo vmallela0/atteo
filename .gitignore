@@ -6,7 +6,7 @@ secrets.txt
 # agents' private notes
 .notes-*.md
 
-node_modules/
+node_modules
 .wrangler/
 dist/
 coverage/

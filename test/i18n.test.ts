@@ -16,8 +16,40 @@ import { BN } from "../src/i18n.bn";
 import { AR } from "../src/i18n.ar";
 import { boardPage, homePage } from "../src/html";
 import type { BoardInfo, Entry } from "../src/types";
+import { LABELS, ruleName, ruleNotice, type Rule } from "../src/approvalRules";
+import { approvalRulesSide } from "../src/approvalRulesUi";
+import { approvalCardHtml } from "../src/approvalCard";
 
 describe("languages (#1646)", () => {
+  it("translates approval rules, category labels, errors and rule notes in every interface language", () => {
+    const tables = [ZH_CN, ZH_HANT, ES, FR, JA, KO, HI, PT, DE, RU, ID, TR, BN, AR];
+    const strings = ["Approval rules", ...Object.values(LABELS), "Always ask", "Auto-approve", "Block", "Rule", "Action", "Set by", "set by", "no longer an owner", "Spending threshold in dollars", "Over $", "Approved by rule", "Your agent asks here before side effects. Board rules can approve or block categorized work; other requests wait for you.", "Agents choose their own category. Block stops only agents that ask first. Auto-approve covers only the rule setter's own agents while that person is still an owner; other members' agents ask their own people. Spending under a positive threshold uses a daily total per board and person; requests over that total ask. Requests without a category always ask.", "Only a board owner can change approval rules. Ask your person.", "Other can only Always ask or Block."];
+    for (const table of tables) for (const key of strings) expect(table[key], key).toBeTruthy();
+    const rule: Rule = { category: "spending", name: LABELS.spending, mode: "auto", threshold: 25, set_by: "owner", updated_at: 1 };
+    const html = approvalRulesSide([rule], true, [{ user: "owner", role: "owner" }], "zh-Hans");
+    expect(html).toContain(ZH_CN["Spend money"]);
+    expect(html).toContain(`aria-label="${ZH_CN["Spend money"]}"`);
+    expect(html).toContain(ZH_CN["Over $"]);
+    expect(html).not.toContain(">Spend money<");
+    expect(ruleName("zh-Hans", "Spend money up to $25.00")).toContain(`${ZH_CN["Spend money"]} ${ZH_CN["up to $"]}25.00`);
+    expect(approvalCardHtml({ id: "ap_1", user: "owner", status: "approved", rule_name: "Spend money up to $25.00", rule_set_by: "owner" }, true, "zh-Hans")).toContain(ZH_CN["Spend money"]);
+    const notice = ruleNotice("zh-Hans", "owner", "Approval rule changed", "owner changed the approval rule: Spend money: Auto-approve over $25.00.");
+    expect(notice).toContain(ZH_CN["Spend money"]);
+    expect(notice).toContain(ZH_CN["Auto-approve"]);
+    expect(notice).not.toContain("changed the approval rule");
+    expect(ruleNotice("zh-Hans", "owner", "Approved by rule", "Approval ap_1 was approved by board rule Spend money up to $25.00 (set by owner)."))
+      .toContain(ZH_CN["Spend money"]);
+  });
+  it("renders the approval panel in the board page's language", async () => {
+    const rule: Rule = { category: "deploy_production", name: LABELS.deploy_production, mode: "ask", threshold: null, set_by: null, updated_at: null };
+    const info: BoardInfo = { id: "b_test1234", title: "项目", created_by: "owner", created_at: 0, entry_count: 0, last_seq: 0 };
+    const viewer = { name: "owner", email: "owner@example.com", display_name: null, admin: false, lang: "zh-Hans" as const };
+    const html = await boardPage(viewer, [], info, [{ user: "owner", display_name: null, last_seen: 0, role: "owner" }], [], [], undefined, undefined, [], { picture: null, kind: null, approvalRules: [rule] }).text();
+    expect(html).toContain(ZH_CN["Approval rules"]);
+    expect(html).toContain(ZH_CN["Deploy to production"]);
+    expect(html).toContain(ZH_CN["Agents choose their own category. Block stops only agents that ask first. Auto-approve covers only the rule setter's own agents while that person is still an owner; other members' agents ask their own people. Spending under a positive threshold uses a daily total per board and person; requests over that total ask. Requests without a category always ask."]);
+    expect(html).not.toContain(">Deploy to production<");
+  });
   it("picks ?lang=, then the saved pref, then the browser's Accept-Language, else English", () => {
     expect(pickLang(null, null, null)).toBe("en");
     expect(pickLang("auto", null, "zh-CN,zh;q=0.9,en;q=0.8")).toBe("zh-Hans");
@@ -48,6 +80,18 @@ describe("languages (#1646)", () => {
       for (const ph of k.match(/\{\w+\}/g) ?? []) expect(v, k).toContain(ph);
       expect(v.trim(), k).not.toBe("");
     }
+  });
+
+  it("translates the Spend panel in every language, including amounts and report counts", () => {
+    const keys = ["Spend", "This week: {amount}", "Self-reported by agents. Missing costs use estimated list prices.", "{count} reports have no price estimate.", "Top agents", "Top tasks", "No reports yet."];
+    for (const [lang, table] of Object.entries({ ar: AR, bn: BN, de: DE, es: ES, fr: FR, hi: HI, id: ID, ja: JA, ko: KO, pt: PT, ru: RU, tr: TR, zh: ZH_CN, "zh-hant": ZH_HANT })) {
+      for (const key of keys) {
+        expect(table[key], `${lang}: ${key}`).toBeTruthy();
+        for (const placeholder of key.match(/\{\w+\}/g) ?? []) expect(table[key], `${lang}: ${key}`).toContain(placeholder);
+      }
+    }
+    expect(tr("zh-Hans", "This week: {amount}", { amount: "$0.00" })).toBe("本周：$0.00");
+    expect(tr("zh-Hans", "{count} reports have no price estimate.", { count: 2 })).toBe("2 份报告无法估算费用。");
   });
 
   const info: BoardInfo = { id: "b_test1234", title: "支付 bug", created_by: "jxn", created_at: 0, entry_count: 1, last_seq: 1 };
