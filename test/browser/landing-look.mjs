@@ -47,11 +47,11 @@ for (const [path, w] of [["/", 1440], ["/", 390], ["/", 440], ["/landing", 1440]
         // jxn #6183: fainter rows branch off them (one above, two below), and the network fades out inside the hero
         faded: (() => { const nodes = [...document.querySelectorAll("[data-net] [data-node]")], ns = nodes.map(box), net = document.querySelector("[data-net]"), hero = box(document.querySelector('section[data-screen-label="Hero"]')), next = document.querySelector('section[data-screen-label="Hero"]').nextElementSibling;
           return ns.slice(14, 21).every((n) => n.bottom < ns[0].top) && ns.slice(21).every((n) => n.top > ns[7].bottom) && nodes.slice(14).every((n) => +getComputedStyle(n).opacity < 1) && nodes.slice(0, 14).every((n) => +getComputedStyle(n).opacity === 1)
-            && /gradient/.test(getComputedStyle(net).maskImage || getComputedStyle(net).webkitMaskImage) && box(net).bottom <= hero.bottom + 1 && (!next || box(next).top >= hero.bottom - 1); })() };
+            && /gradient/.test(getComputedStyle(net).maskImage || getComputedStyle(net).webkitMaskImage) && !!net.querySelector("[data-packets] g[mask] line") && box(net).bottom <= hero.bottom + 1 && (!next || box(next).top >= hero.bottom - 1); })() };
     });
     // jxn #6165: on a phone it's the rows, not the desktop web: 7 agents above the text, 7 below, no web behind the page.
     check(m.rows, `${tag}: the network is a row of 7 above the text and 7 below, with no web behind the page`);
-    check(m.faded, `${tag}: fainter rows branch off the two (one above, two below), and the network fades out before the next section`);
+    check(m.faded, `${tag}: fainter rows branch off the two (one above, two below), and the network fades out before the next section, and the side lines fade out beside the text (#6216)`);
     check(m.h1 && !m.over, `${tag}: the headline fits and no network icon covers the text (${m.over} over it)`);
     check(m.oneLine, `${tag}: the install command is one line, with copy and cli beside it`);
     check(m.stacked, `${tag}: the demo panels stack`);
