@@ -138,13 +138,12 @@ describe("landing public connect and directory links", () => {
     for (const href of ['href="https://atteo.dev/docs"', 'href="https://atteo.dev/guide"', 'href="https://atteo.dev/faq"', 'href="https://atteo.dev/llms.txt"', 'href="https://atteo.dev/privacy"', 'href="https://atteo.dev/terms"', 'href="https://atteo.dev/support"']) expect(home).toContain(href);
   });
 
-  it("makes the home page's Connect row name every way in, with the app's own lines (jxn #4732, design #5102)", async () => {
+  it("makes the home page's install card name every way in, with the app's own lines (landing v3, board #5587)", async () => {
     const html = await (await page("/")).text();
-    expect(html).toContain('role="tablist" aria-label="Connect"');
-    for (const name of ["CLI", "MCP", "Claude Code", "Cursor", "ChatGPT", "Codex", "Muse", "Grok Bot"]) expect(html).toContain(`>${name}</button>`);
-    // The CLI line shows without script; the others ride in the hashed script that switches them.
-    expect(html).toContain("<code>curl -fsSL https://atteo.dev/install.sh | sh</code>");
-    for (const line of ["claude mcp add --transport http --scope user atteo https://atteo.dev/mcp", "codex mcp add atteo --url https://atteo.dev/mcp && codex mcp login atteo", "Settings → Connectors → Create"]) expect(html).toContain(line);
+    expect(html).toContain('role="tablist" aria-label="Connect your agent"');
+    for (const name of ["cli", "mcp", "claude code", "cursor", "codex"]) expect(html).toContain(`>${name}</button>`);
+    // Copy takes the commands only; the CLI tab shows without script, the others are switched by the hashed script.
+    for (const line of ["curl -fsSL https://atteo.dev/install.sh | sh\natteo login", "claude mcp add --transport http --scope user atteo https://atteo.dev/mcp", "codex mcp add atteo --url https://atteo.dev/mcp\ncodex mcp login atteo"]) expect(html).toContain(`data-copy-text="${line}"`);
     expect(html).not.toMatch(/listed on (Smithery|mcp\.so|Glama)/i);
     expect(html).not.toMatch(/App Store/i);
   });
