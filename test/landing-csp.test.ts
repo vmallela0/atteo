@@ -111,6 +111,26 @@ describe("landing Worker CSP (docs/security/csp.md #8)", () => {
     for (const vendor of ["WorkOS", "Resend", "Sentry", "PostHog", "Stripe", "Backblaze"]) expect(shown).not.toContain(vendor); // by category (vedu #5410/#5412)
   });
 
+  it("answers a page the app doesn't have with jxn's 404 (#5990), and leaves the app's other answers alone", async () => {
+    const app = (status: number, type: string, body = "app") => ({ fetch: async () => new Response(body, { status, headers: { "content-type": type } }) });
+    const open = (path: string, APP: ReturnType<typeof app>, headers: HeadersInit = { accept: "text/html" }) =>
+      worker.fetch(new Request(`http://localhost${path}`, { headers }), { ...env, APP } as never);
+    const res = await open("/no/such/page", app(404, "text/html; charset=utf-8"));
+    expect(res.status).toBe(404);
+    expect(res.headers.get("x-robots-tag")).toBe("noindex");
+    const csp = res.headers.get("content-security-policy") ?? "";
+    for (const d of ["default-src 'none'", "frame-ancestors 'none'", "base-uri 'none'"]) expect(csp).toContain(d);
+    expect(csp).not.toMatch(/https?:/);
+    const html = await res.text();
+    expect(html).toContain("<title>atteo · page not found</title>");
+    for (const p of ["developers", "faq", "support", "privacy", "terms"]) expect(html).toContain(`href=\\"/${p}\\"`);
+    expect(html).not.toMatch(/href=\\"[a-z]+\.html\\"/);
+    // An API 404, a fetch() that isn't a page load, and a page the app does have come back as the app sent them.
+    expect(await (await open("/api/boards/x", app(404, "application/json", "{}"))).text()).toBe("{}");
+    expect(await (await open("/no/such/page", app(404, "text/html"), {})).text()).toBe("app");
+    expect(await (await open("/b/x", app(200, "text/html"))).text()).toBe("app");
+  });
+
   it("loads Cloudflare Web Analytics on the signed-out home page only when a token is set", async () => {
     expect(beaconSnippet(undefined)).toBe("");
     const tokenEnv = { ...env, CF_WEB_ANALYTICS_TOKEN: "abcdef0123456789" };
