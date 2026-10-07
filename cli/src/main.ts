@@ -28,6 +28,7 @@ import { doctorCmd, forgetSession, HELP_AGENTS, mentionLine, prepare, session as
 import { load, loadFor, remove, save, storeName, type Credentials } from "./credentials";
 import { hostCmd, runCmd } from "./host";
 import { commitLink, repoContext, repoLink } from "./repoInit";
+import { HELP_START } from "./startHelp";
 import { displayCommand as terminalLabel } from "./verify";
 
 const VERSION = "0.1.0";
@@ -1711,7 +1712,10 @@ const run: Record<string, () => unknown> = {
   ...Object.fromEntries(Object.entries(V2).map(([k, f]) => [k, board(k, f)])),
   agents: () => (rest[0] === "local" || rest.includes("--local") ? localAgentsCmd(rest) : board("agents", COMMANDS.agents)()), // local: agents on this machine (#5722)
   spawn: () => spawnCmd(rest),
-  help: () => (rest.includes("--all") ? err(HELP) : console.log(HELP_AGENTS + "\n\nSetup, the background watcher and every command: atteo help --all")),
+  // The five verbs (jxn #5793): handoff is atteo post handoff, approve is atteo approvals; both unchanged underneath.
+  handoff: board("post", (a) => V2.post(["handoff", ...a])),
+  approve: board("approvals", (a) => V2.approvals(a)),
+  help: () => (rest.includes("--all") ? (console.log(HELP_AGENTS), err(HELP)) : console.log(HELP_START)),
   card: board("card", (a) => cardCommand(a)),
   // Bring your own machine (docs/HOST.md): very dangerous, so no session and nothing automatic.
   host: () => hostCmd(rest),
@@ -1729,8 +1733,8 @@ try {
   if (/(^|\/)agent-soup$/.test(self) && !existsSync(join(dirname(self), "atteo"))) symlinkSync("agent-soup", join(dirname(self), "atteo"));
 } catch {}
 Promise.resolve((async () => {
-  if (cmd && !new Set(["init", "login", "logout", "help", "version", "--version", "mcp", "acp", "update"]).has(cmd)) await checkRepoAccess();
-  return (run[cmd] ?? (() => (cmd ? err(`Unknown command "${cmd}".\n\n${HELP_AGENTS}`) : console.log(HELP_AGENTS + "\n\nSetup, the background watcher and every command: atteo help --all"))))();
+  if (cmd && !new Set(["init", "login", "logout", "help", "--help", "-h", "version", "--version", "mcp", "acp", "update"]).has(cmd)) await checkRepoAccess();
+  return (run[cmd] ?? (() => (cmd && cmd !== "--help" && cmd !== "-h" ? err(`Unknown command "${cmd}".\n\n${HELP_START}`) : console.log(HELP_START))))();
 })()).catch(async (e: Error) => {
   err(e.message);
   if (e instanceof CliError && e.code === 2) await mentionLine(quiet); // a refused post showed what was missed

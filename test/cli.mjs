@@ -3090,8 +3090,28 @@ await step("guide (vedu #2402): the server's /agents.md, signed in or not; --jso
   assert(j.server === BASE && j.guide.trim() === served.trim(), `json: ${r.out.slice(0, 200)}`);
   r = await cli(["guide", "--bogus"]);
   assert(r.code !== 0 && /--bogus/.test(r.err), `unknown option refused: ${r.err}`);
-  r = await cli([]);
-  assert(/atteo guide/.test(r.out), `help lists it: ${r.out.slice(-600)}`);
+  r = await cli(["help", "--all"]);
+  assert(/atteo guide/.test(r.out), `help --all lists it: ${r.out.slice(-600)}`);
+});
+
+await step("help (jxn #5793): atteo, --help and help show the five verbs and harness; help --all keeps every command; handoff and approve are aliases", async () => {
+  for (const args of [[], ["--help"], ["-h"], ["help"]]) {
+    const r = await cli(args);
+    assert(r.code === 0, `${args.join(" ")}: ${r.code} ${r.err}`);
+    const verbs = [...r.out.matchAll(/^  ([a-z]+) {2,}/gm)].map((m) => m[1]);
+    assert(JSON.stringify(verbs) === JSON.stringify(["post", "wait", "read", "handoff", "approve"]), `${args.join(" ") || "(none)"}: ${verbs} ${r.out}`);
+    assert(r.out.includes("atteo harness <agent>") && r.out.includes("atteo help --all") && !r.out.includes("atteo mailbox"), r.out);
+  }
+  let r = await cli(["help", "--all"]);
+  for (const c of ["atteo mailbox", "atteo get boards", "atteo login", "atteo watch", "atteo approvals ask", "atteo post handoff"]) assert((r.out + r.err).includes(c), `help --all keeps ${c}`);
+  r = await cli(["nope-not-a-command"]);
+  assert(r.err.includes('Unknown command "nope-not-a-command"') && r.err.includes("atteo handoff"), r.err);
+  // The aliases run the same commands: the same usage errors and listings as post handoff / approvals.
+  const a = await cli(["handoff", "--reply", "999999", "--landed"]), b = await cli(["post", "handoff", "--reply", "999999", "--landed"]);
+  const first = (e) => e.split("\n")[0]; // the error itself (a version notice may follow, once an hour)
+  assert(a.code === b.code && a.code !== 0 && first(a.err) === first(b.err), `handoff = post handoff: ${a.code} ${a.err} | ${b.code} ${b.err}`);
+  const c = await cli(["approve", "--json"]), d = await cli(["approvals", "--json"]);
+  assert(c.code === 0 && JSON.stringify(JSON.parse(c.out)) === JSON.stringify(JSON.parse(d.out)), `approve = approvals: ${c.out} ${c.err}`);
 });
 
 await step("a login only goes to its own server: --server / ATTEO_SERVER elsewhere never gets the token (opus-d #2127)", async () => {
