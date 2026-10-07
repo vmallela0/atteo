@@ -50,7 +50,7 @@ const publicStatusResponses = {
   "200": { description: "status ok", content: { "text/html": { schema: { type: "string" } }, "application/json": { schema: publicStatusSchema } } },
   "503": { description: "status degraded or down", content: { "text/html": { schema: { type: "string" } }, "application/json": { schema: publicStatusSchema } } },
 };
-const spendUsage = obj({ model: { type: "string", minLength: 1, maxLength: 100 }, input_tokens: { ...int, minimum: 0, maximum: 100000000 }, output_tokens: { ...int, minimum: 0, maximum: 100000000 }, cost_usd: { type: "number", minimum: 0, maximum: 100000 } }, ["model", "input_tokens", "output_tokens"]);
+const spendUsage = obj({ model: { type: "string", minLength: 1, maxLength: 100 }, input_tokens: { ...int, minimum: 0, maximum: 100000000 }, output_tokens: { ...int, minimum: 0, maximum: 100000000 }, cache_read_input_tokens: { ...int, minimum: 0, maximum: 100000000 }, cache_creation_input_tokens: { ...int, minimum: 0, maximum: 100000000 }, cost_usd: { type: "number", minimum: 0, maximum: 100000 } }, ["model", "input_tokens", "output_tokens"]);
 
 export function openapi(origin: string) {
   return {
@@ -397,8 +397,8 @@ export function openapi(origin: string) {
       "/api/boards/{id}/entries/{seq}/review": {
         post: { summary: "Review a change card", parameters: [id, seq], requestBody: body(obj({ verdict: { enum: ["approve", "request_changes", "comment"] }, note: str }, ["verdict"])), responses: { "201": ok("entry, state"), ...errors } },
       },
-      "/api/boards/{id}/spend": { get: { summary: "Self-reported spend for the last seven UTC days, grouped by agent, task and day", parameters: [id, param("own", "query", { enum: ["1"] })], responses: { "200": ok("price_date, self_reported, this_week, agents, tasks, days"), ...errors } } },
-      "/api/boards/{id}/usage": { post: { summary: "Report token usage without posting an entry (500 reports per board per UTC day)", parameters: [id], requestBody: body(obj({ usage: spendUsage, task: int, source: { type: "string", pattern: "^[A-Za-z0-9_.:-]{8,120}$" } }, ["usage"])), responses: { "200": ok("recorded, usage"), "403": ok("Viewer cannot report"), ...errors } } },
+      "/api/boards/{id}/spend": { get: { summary: "Self-reported spend for the last seven UTC days, grouped by agent, task and day (viewers may read only own=1)", parameters: [id, param("own", "query", { enum: ["1"] })], responses: { "200": ok("price_date, self_reported, this_week, agents, tasks, days"), "403": ok("Viewer cannot read board spend"), ...errors } } },
+      "/api/boards/{id}/usage": { post: { summary: "Report token usage without posting an entry (500 reports per author per board per UTC day)", parameters: [id], requestBody: body(obj({ usage: spendUsage, task: int, source: { type: "string", pattern: "^[A-Za-z0-9_.:-]{8,120}$" } }, ["usage"])), responses: { "200": ok("recorded, usage, warning?"), "403": ok("Viewer cannot report"), ...errors } } },
       "/api/boards/{id}/tasks": {
         get: { summary: "All tasks", parameters: [id], responses: { "200": ok("tasks", obj({ tasks: { type: "array", items: { $ref: "#/components/schemas/Task" } } }), {
           tasks: [{ seq: 3, parent: null, children: null, text: "Guard empty carts\n\n- [ ] check cart\n- [ ] return 400", author: "vedu", via: "agent", status: "todo", assignee: null, assignee_agent: true, due: null, lease_holder: null, lease_agent: false, lease_until: null, stop_reason: null, done_note: null, priority: "high", title: "Guard empty carts", body: "- [ ] check cart\n- [ ] return 400", version: 1, updated_by: "vedu", updated_via: "agent", reply_to: null, updated_at: 1791141740679 }],

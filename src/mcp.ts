@@ -148,7 +148,7 @@ const TOOL_DEFS = [
           description: `Optional JSON object stored with this entry and returned unchanged by read and get (max ${MAX_ENTRY_DATA} bytes). For machine-readable fields; keep the message in text.`,
           additionalProperties: true,
         },
-        usage: { type: "object", description: "Optional server-visible token usage for this post; cost_usd may be omitted for a price estimate.", properties: { model: { type: "string" }, input_tokens: { type: "integer" }, output_tokens: { type: "integer" }, cost_usd: { type: "number" } }, required: ["model", "input_tokens", "output_tokens"] },
+        usage: { type: "object", description: "Optional server-visible token usage for this post; cost_usd may be omitted for a price estimate.", properties: { model: { type: "string" }, input_tokens: { type: "integer" }, output_tokens: { type: "integer" }, cache_read_input_tokens: { type: "integer" }, cache_creation_input_tokens: { type: "integer" }, cost_usd: { type: "number" } }, required: ["model", "input_tokens", "output_tokens"] },
         title: { type: "string", description: "A 2–5 word title for this post, shown in lists and summaries (e.g. \"Fix empty-cart crash\"). Always give one." },
         to: {
           type: "string",
@@ -235,7 +235,7 @@ const TOOL_DEFS = [
         priority: { type: "string", enum: ["high", "medium", "low", ""], description: "update: priority (empty to clear)" },
         note: { type: "string", description: "update: one line of progress (with status done: kept on the task)" },
         reason: { type: "string", description: "stop: why" },
-        usage: { type: "object", description: "Optional server-visible token usage for this task change.", properties: { model: { type: "string" }, input_tokens: { type: "integer" }, output_tokens: { type: "integer" }, cost_usd: { type: "number" } }, required: ["model", "input_tokens", "output_tokens"] },
+        usage: { type: "object", description: "Optional server-visible token usage for this task change.", properties: { model: { type: "string" }, input_tokens: { type: "integer" }, output_tokens: { type: "integer" }, cache_read_input_tokens: { type: "integer" }, cache_creation_input_tokens: { type: "integer" }, cost_usd: { type: "number" } }, required: ["model", "input_tokens", "output_tokens"] },
       },
       required: ["action"],
     },
@@ -1044,7 +1044,7 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
       const kept = entry.audience === "own" && entry.reply_to == null && !own && !notOwn ? ` ${keptOwnNotice(user)}` : "";
       // A handoff says where it stands: in the gate's queue, or the one it just closed.
       const gate = !entry.handoff ? "" : "of" in entry.handoff ? ` Closed #${entry.handoff.of}: ${entry.handoff.state}.` : " In the gate's queue (get {list: \"handoffs\"}).";
-      return `Posted #${entry.seq} (${type}${entry.to ? ` → ${entry.to}` : ""}${tagged}${lock}) to ${id}.${gate}${kept}${threaded}${hint}${notTagged}${missed}`;
+      return `Posted #${entry.seq} (${type}${entry.to ? ` → ${entry.to}` : ""}${tagged}${lock}) to ${id}.${gate}${kept}${threaded}${hint}${notTagged}${missed}${entry.warning ? `\n${entry.warning}` : ""}`;
     }
 
     case "remember": {
@@ -1133,6 +1133,7 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
 
     case "spend": {
       const id = await currentBoard(c, args);
+      if (args.own === false && (await registry.memberRole(env, id, user)) === "viewer") throw new ToolError("Your role on this board is viewer. Use own=true for your reports.");
       const data = await stubFor(env, id).spend(args.own === false ? undefined : user);
       return "Reported spend for the last seven UTC days (self-reported; estimated costs use list prices):\n" + fence(JSON.stringify(data));
     }
@@ -1167,7 +1168,7 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
         if (!created.duplicate) later(registry.bumpBoard(env, id, t.seq));
         // Titles are members' text, so the similar-tasks hint goes inside the fence with the task.
         const similar = created.similar?.length ? `Similar open: ${created.similar.map((s) => `#${s.seq} ${s.title}`).join("; ")}\n` : "";
-        return `${created.duplicate ? `Already open as #${t.seq}` : `Created task #${t.seq}`}.\n` + fence(similar + full(t));
+        return `${created.duplicate ? `Already open as #${t.seq}` : `Created task #${t.seq}`}.\n` + fence(similar + full(t)) + (t.warning ? `\n${t.warning}` : "");
       }
       if (action === "list") {
         let list = await stub.tasks({ status: str(args.status) });
@@ -1201,7 +1202,7 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
           },
           opts,
         );
-        return `Saved #${seq} v${t.version}.\n` + fence(line(t));
+        return `Saved #${seq} v${t.version}.\n` + fence(line(t)) + (t.warning ? `\n${t.warning}` : "");
       }
       let t;
       if (action === "claim") t = await stub.taskClaim(user, seq, int(args.minutes) ?? 30, opts);
@@ -1226,7 +1227,7 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
         );
       } else throw new ToolError("action must be one of: list, get, create, edit, history, claim, release, update, stop.");
       later(registry.touch(env, user, id));
-      return `OK.\n` + fence(line(t));
+      return `OK.\n` + fence(line(t)) + (t.warning ? `\n${t.warning}` : "");
     }
 
     case "review": {

@@ -52,6 +52,7 @@ export interface ApprovalRef {
 
 /** One immutable entry in a board's log. Entries change only by later entries that resolve or supersede them. */
 export interface Entry {
+  warning?: string; // usage report was dropped after its daily cap; the post still succeeded
   seq: number;
   ts: number; // ms since epoch
   author: string;

@@ -1145,7 +1145,7 @@ const handler = {
         const slackChannels = slackOn(env, request)
           ? ((await env.DB.prepare(`SELECT channel_name FROM slack_links WHERE board_id = ? AND paused IS NULL`).bind(m[2]).all<{ channel_name: string }>().catch(() => ({ results: [] as { channel_name: string }[] }))).results ?? []).map((r) => r.channel_name)
           : [];
-        return boardPage(viewer, side, snap.info, withAgents, snap.entries.map((e) => withAgentNames(e, agentNamed)), shown, { connected: status.connected, onThisBoard: !!live[viewer.name] }, snap.summary, agentsHere, { picture: boardPictures.pictureUrl(m[2], row?.picture_v), kind, charter, sessions: mine, seen: snap.reads?.[viewer.name]?.person_seen ?? 0, last_seen: snap.reads?.[viewer.name]?.person_seen ?? 0, muted, calls: calls.callsOn(env, request), slack: slackOn(env, request), slackChannels, spend: await boardStub(env, m[2]).spend() });
+        return boardPage(viewer, side, snap.info, withAgents, snap.entries.map((e) => withAgentNames(e, agentNamed)), shown, { connected: status.connected, onThisBoard: !!live[viewer.name] }, snap.summary, agentsHere, { picture: boardPictures.pictureUrl(m[2], row?.picture_v), kind, charter, sessions: mine, seen: snap.reads?.[viewer.name]?.person_seen ?? 0, last_seen: snap.reads?.[viewer.name]?.person_seen ?? 0, muted, calls: calls.callsOn(env, request), slack: slackOn(env, request), slackChannels, ...(members.find((m) => m.user === viewer.name)?.role === "viewer" ? {} : { spend: await boardStub(env, m[2]).spend() }) });
       }
 
       // ---- inbox: mentions of you, posts for your agent, replies to you ----
@@ -1606,7 +1606,7 @@ const handler = {
             const files = Array.isArray(b.files) ? b.files.map(String) : [];
             const e = await stub.postSealed(viewer.name, { to: b.to ? String(b.to) : null, note, payload: String(b.payload ?? ""), type: b.type, reply_to: Number(b.reply_to) || null, files, handoff: b.handoff, usage: b.usage }, { via: pv(), client: viewer.via === "agent" ? "atteo CLI" : null, ...(await asOpts()) });
             ctx.waitUntil(registry.bumpBoard(env, km[1], e.seq).catch(() => {}));
-            return json({ ok: true, entry: e }, 201);
+            return json({ ok: true, entry: e, ...(e.warning ? { warning: e.warning } : {}) }, 201);
           }
           // An edit: the author's new envelope for their message (people only, within 15 minutes; Board.editSealed).
           if (method === "PUT" && km[2]) {
@@ -3314,7 +3314,11 @@ const handler = {
         if (!viewer) return needLogin();
         if (!(await registry.isMember(env, m[1], viewer.name))) return json({ error: "board not found" }, 404);
         const stub = boardStub(env, m[1]);
-        if (m[2] === "spend" && method === "GET") return json(await stub.spend(url.searchParams.get("own") === "1" ? viewer.name : undefined), 200, { "cache-control": "no-store" });
+        if (m[2] === "spend" && method === "GET") {
+          const own = url.searchParams.get("own") === "1";
+          if (!own && (await registry.memberRole(env, m[1], viewer.name)) === "viewer") return json({ error: "Your role on this board is viewer. Use own=1 for your reports." }, 403);
+          return json(await stub.spend(own ? viewer.name : undefined), 200, { "cache-control": "no-store" });
+        }
         if (m[2] === "usage" && method === "POST") {
           if ((await registry.memberRole(env, m[1], viewer.name)) === "viewer") return json({ error: "Your role on this board is viewer." }, 403);
           const b = (await request.json().catch(() => ({}))) as { usage?: unknown; task?: unknown; source?: unknown };
@@ -3351,7 +3355,7 @@ const handler = {
               { via: pv(), ...(await asOpts()), usage: b.usage as import("./spend").Usage | undefined },
             );
             if (!created.duplicate) ctx.waitUntil(registry.bumpBoard(env, m[1], created.task.seq).catch(() => {}));
-            return json({ ok: true, task: created.task, duplicate: created.duplicate, ...(created.similar?.length ? { similar: created.similar } : {}) }, created.duplicate ? 200 : 201);
+            return json({ ok: true, task: created.task, duplicate: created.duplicate, ...(created.task.warning ? { warning: created.task.warning } : {}), ...(created.similar?.length ? { similar: created.similar } : {}) }, created.duplicate ? 200 : 201);
           } catch (e) {
             return json({ error: e instanceof Error ? e.message : String(e) }, 400);
           }
@@ -3398,7 +3402,7 @@ const handler = {
               );
             } else return json({ error: "action must be claim, release, update or stop" }, 400);
             ctx.waitUntil(registry.bumpBoard(env, m[1], 0).catch(() => {}));
-            return json({ ok: true, task: t });
+            return json({ ok: true, task: t, ...(t.warning ? { warning: t.warning } : {}) });
           } catch (e) {
             return json({ error: e instanceof Error ? e.message : String(e) }, 400);
           }
@@ -3749,7 +3753,7 @@ const handler = {
             // An agent's top-level post the board kept in Just mine (board.ts ownByDefault) says so instead.
             const said = entry.audience === "own" && entry.reply_to == null && !own && !notOwn && viewer.via === "agent" ? keptOwnNotice(viewer.name) : audienceNotice(entry, viewer.name);
             const notice = said ? { notice: said } : {};
-            return json({ ok: true, entry, ...notice, ...(missed?.length ? { missed } : {}), update: { seq: entry.seq, root, retracts: entry.retracts, html: entryHtml(withAgentNames(entry, agentNames(boardMembers)), id, true, { canRetract: true, canEdit: true, lang: viewer?.lang, members: boardMembers.map((m) => m.user), person: !!viewer && viewer.via !== "agent", people: displayMap(boardMembers) }), row: logRow(entry, undefined, undefined, viewer?.lang), reactions: [] }, ...(ambiguous.length ? { ambiguous } : {}) }, 201);
+            return json({ ok: true, entry, ...notice, ...(entry.warning ? { warning: entry.warning } : {}), ...(missed?.length ? { missed } : {}), update: { seq: entry.seq, root, retracts: entry.retracts, html: entryHtml(withAgentNames(entry, agentNames(boardMembers)), id, true, { canRetract: true, canEdit: true, lang: viewer?.lang, members: boardMembers.map((m) => m.user), person: !!viewer && viewer.via !== "agent", people: displayMap(boardMembers) }), row: logRow(entry, undefined, undefined, viewer?.lang), reactions: [] }, ...(ambiguous.length ? { ambiguous } : {}) }, 201);
           } catch (e) {
             // Still restarting after our retries: say "try again" (the page retries with the same message id).
             if (isRetriable(e)) {

@@ -16,7 +16,19 @@ const encrypted = (await ops("boards", { user, title: `Private spend ${run}`, en
 const privateReport = await fetch(`${BASE}/api/boards/${encrypted}/usage`, { method: "POST", headers, body: JSON.stringify({ usage: { model: "claude-sonnet-4-5", input_tokens: 10, output_tokens: 2 } }) });
 const privateSpend = await (await fetch(`${BASE}/api/boards/${encrypted}/spend`, { headers })).json();
 check(privateReport.status === 200 && privateSpend.this_week.input_tokens === 10, "encrypted board accepts server-visible usage metadata");
+const viewer = `sv${run}`;
+await ops("users", { name: viewer, email: `${viewer}@example.com`, verified: "true" });
+await ops("members", { board, user: viewer });
+const viewerToken = (await ops("tokens", { user: viewer })).token;
+const viewerHeaders = { authorization: `Bearer ${viewerToken}`, "content-type": "application/json" };
+await fetch(`${BASE}/api/boards/${board}/usage`, { method: "POST", headers: viewerHeaders, body: JSON.stringify({ usage: { model: "claude-sonnet-4-5", input_tokens: 100, output_tokens: 0 } }) });
+const demote = await fetch(`${BASE}/api/boards/${board}/members/${viewer}`, { method: "POST", headers, body: JSON.stringify({ role: "viewer" }) });
+check(demote.status === 200, "member became a viewer");
+const whole = await fetch(`${BASE}/api/boards/${board}/spend`, { headers: viewerHeaders });
+const own = await (await fetch(`${BASE}/api/boards/${board}/spend?own=1`, { headers: viewerHeaders })).json();
+check(whole.status === 403 && own.this_week.input_tokens === 100, "viewer sees own spend but not board spend");
 const cookie = (await ops("sessions", { user })).cookie;
+const viewerCookie = (await ops("sessions", { user: viewer })).cookie;
 let browser;
 try { browser = await chromium.launch({ executablePath: process.env.PW_CHROME || undefined }); }
 catch (e) { if (!String(e).includes("MachPortRendezvousServer")) throw e; console.log("Chromium is blocked by this macOS sandbox; checking the rendered panel over HTTP."); }
@@ -29,7 +41,13 @@ if (browser) {
   check(await side.count() === 1 && (await side.innerText()).includes("$3.00"), "week's estimated spend is shown");
   check((await side.innerText()).includes(user) && (await side.innerText()).includes(`#${task.task.seq}`), "top agent and task are shown");
   check((await side.innerText()).includes("Self-reported"), "self-reported note is visible");
+  const viewerContext = await browser.newContext();
+  const [viewerName, ...viewerParts] = viewerCookie.split(";")[0].split("="); await viewerContext.addCookies([{ name: viewerName, value: viewerParts.join("="), url: BASE }]);
+  const viewerPage = await viewerContext.newPage();
+  await viewerPage.goto(`${BASE}/b/${board}`);
+  check(await viewerPage.locator('#board-info [data-fold="spend"]').count() === 0, "viewer has no Spend panel");
   check(errors.length === 0, `no page errors ${errors.join(" | ")}`);
+  await viewerContext.close();
   await browser.close();
 } else {
   const html = await (await fetch(`${BASE}/b/${board}`, { headers: { cookie } })).text();
@@ -37,5 +55,7 @@ if (browser) {
   check(side.includes("$3.00"), "week's estimated spend is rendered");
   check(side.includes(user) && side.includes(`#${task.task.seq}`), "top agent and task are rendered");
   check(side.includes("Self-reported"), "self-reported note is rendered");
+  const viewerHtml = await (await fetch(`${BASE}/b/${board}`, { headers: { cookie: viewerCookie } })).text();
+  check(!viewerHtml.includes('data-fold="spend"'), "viewer has no Spend panel");
 }
 console.log(fails ? `${fails} FAILED` : "all spend checks passed"); process.exit(fails ? 1 : 0);

@@ -141,6 +141,7 @@ export type TaskStatus = (typeof TASK_STATUSES)[number];
 export const TASK_PRIORITIES = ["high", "medium", "low"] as const;
 export type TaskPriority = (typeof TASK_PRIORITIES)[number];
 export interface TaskView {
+  warning?: string; // usage exceeded its daily cap; the task change still succeeded
   seq: number;
   parent: number | null; // the task this is a sub-task of
   children: { done: number; total: number } | null; // this task's sub-tasks, if any
@@ -1331,13 +1332,9 @@ export class Board extends DurableObject<Env> {
     return aud;
   }
 
-  /** Usage is a member's report, never a bill. The board's single writer caps accepted rows each UTC day. */
+  /** Usage is a member's report, never a bill. Validate before the write; the cap only drops usage. */
   private checkSpend(raw: unknown): PricedUsage {
-    const u = priceUsage(raw);
-    const day = new Date().toISOString().slice(0, 10);
-    const n = this.sql.exec("SELECT COUNT(*) AS n FROM spend_reports WHERE day = ?", day).one().n as number;
-    if (n >= 500) throw new BoardError("This board has reached its daily limit of 500 usage reports. Try again tomorrow (UTC).");
-    return u;
+    return priceUsage(raw);
   }
 
   private taskForSpend(seq: number | null, reply: number | null, type?: string): number | null {
@@ -1349,22 +1346,27 @@ export class Board extends DurableObject<Env> {
     return null;
   }
 
-  private saveSpend(user: string, raw: unknown, opts: TaskActOpts, task: number | null, entry: number | null, source?: string): { recorded: boolean; usage: PricedUsage } {
+  private saveSpend(user: string, raw: unknown, opts: TaskActOpts, task: number | null, entry: number | null, source?: string): { recorded: boolean; usage: PricedUsage; warning?: string } {
     const old = source ? this.sql.exec("SELECT model, input_tokens, output_tokens, cost_usd, estimate FROM spend_reports WHERE author = ? AND source = ?", user, source).toArray()[0] : null;
     if (old) return { recorded: false, usage: { model: old.model as string, input_tokens: old.input_tokens as number, output_tokens: old.output_tokens as number, cost_usd: old.cost_usd as number | null, estimate: !!old.estimate } };
     const usage = this.checkSpend(raw);
     const now = Date.now();
+    const day = new Date(now).toISOString().slice(0, 10);
+    const n = this.sql.exec("SELECT COUNT(*) AS n FROM spend_reports WHERE day = ? AND author = ?", day, user).one().n as number;
+    if (n >= 500) return { recorded: false, usage, warning: "Usage was dropped: 500 reports per author per board per UTC day." };
     const agent = opts.via === "agent" ? `${user}/${(opts.session_name ?? opts.session?.slice(0, 12) ?? opts.client ?? "agent").slice(0, 40)}` : user;
     this.sql.exec("INSERT INTO spend_reports (ts, day, author, agent, task_seq, entry_seq, model, input_tokens, output_tokens, cost_usd, estimate, source) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-      now, new Date(now).toISOString().slice(0, 10), user, agent, task, entry, usage.model, usage.input_tokens, usage.output_tokens, usage.cost_usd, usage.estimate ? 1 : 0, source ?? null);
+      now, day, user, agent, task, entry, usage.model, usage.input_tokens, usage.output_tokens, usage.cost_usd, usage.estimate ? 1 : 0, source ?? null);
     return { recorded: true, usage };
   }
 
-  async reportUsage(user: string, raw: unknown, opts: TaskActOpts, task?: number | null, source?: string): Promise<{ recorded: boolean; usage: PricedUsage }> {
+  async reportUsage(user: string, raw: unknown, opts: TaskActOpts, task?: number | null, source?: string): Promise<{ recorded: boolean; usage: PricedUsage; warning?: string }> {
     const info = this.info();
     if (info.archived) throw new BoardError(archivedError(info.id));
     if (source !== undefined && (!/^[A-Za-z0-9_.:-]{8,120}$/.test(source))) throw new BoardError("source must be 8–120 letters, digits, _, ., : or -.");
     if (task != null && (!Number.isInteger(task) || !this.sql.exec("SELECT 1 AS x FROM tasks WHERE seq = ?", task).toArray().length)) throw new BoardError(`Task #${task} does not exist on this board.`);
+    this.checkSpend(raw);
+    this.rateLimit(user);
     return this.saveSpend(user, raw, opts, task ?? null, null, source);
   }
 
@@ -1593,7 +1595,7 @@ export class Board extends DurableObject<Env> {
     if (artifactVersion != null) this.broadcast({ type: "doc", name: artifactName, version: artifactVersion, by: user });
     for (const a of internal.attachments?.list.slice(1) ?? []) this.broadcast({ type: "doc", name: a.name, version: a.version, by: user });
     const entry = toEntry(row);
-    if (input.usage != null) this.saveSpend(user, input.usage, { via: input.via, client: input.client, session: input.session, session_name: input.session_name }, this.taskForSpend(entry.seq, entry.reply_to, entry.type), entry.seq);
+    if (input.usage != null) entry.warning = this.saveSpend(user, input.usage, { via: input.via, client: input.client, session: input.session, session_name: input.session_name }, this.taskForSpend(entry.seq, entry.reply_to, entry.type), entry.seq).warning;
     if (internal.attachments) this.indexEntry(entry.seq, entry.text, internal.attachments.list.map((a) => a.name).join(" "), null, internal.attachments.text || null);
     else this.indexEntry(entry.seq, handoff && !isResult(handoff) ? `${entry.text}\n${handoffText(handoff)}` : entry.text, entry.artifact_name, entry.card ?? null, artifactContent);
     // A write that landed. System lines and board notices aren't pastes; test accounts stay out of the ops counters.
@@ -4213,8 +4215,8 @@ export class Board extends DurableObject<Env> {
     void info;
     if (t.status !== "doing" && (t.status === "todo" || t.status === "stopped")) this.taskEvent(seq, user, opts, "status", t.status);
     this.broadcast({ type: "task", seq });
-    if (opts.usage != null) this.saveSpend(user, opts.usage, opts, seq, null);
-    return this.task(seq);
+    const warning = opts.usage != null ? this.saveSpend(user, opts.usage, opts, seq, null).warning : undefined;
+    return { ...this.task(seq), ...(warning ? { warning } : {}) };
   }
 
   async taskRelease(user: string, seq: number, opts: TaskActOpts): Promise<TaskView> {
@@ -4225,8 +4227,8 @@ export class Board extends DurableObject<Env> {
     this.sql.exec("UPDATE tasks SET lease_holder = NULL, lease_agent = NULL, lease_until = NULL, status = CASE WHEN status = 'doing' THEN 'todo' ELSE status END, updated_at = ? WHERE seq = ?", Date.now(), seq);
     if (t.status === "doing") this.taskEvent(seq, user, opts, "status", t.status);
     this.broadcast({ type: "task", seq });
-    if (opts.usage != null) this.saveSpend(user, opts.usage, opts, seq, null);
-    return this.task(seq);
+    const warning = opts.usage != null ? this.saveSpend(user, opts.usage, opts, seq, null).warning : undefined;
+    return { ...this.task(seq), ...(warning ? { warning } : {}) };
   }
 
   /** Change status, assignee or due date, optionally with a note. Blocked while someone else holds the lease. */
@@ -4281,7 +4283,7 @@ export class Board extends DurableObject<Env> {
     if (after.status !== t.status) this.taskEvent(seq, user, opts, "status", t.status);
     const done = change.status === "done" && t.status !== "done";
     this.broadcast({ type: "task", seq, ...(done ? { done: true } : {}) });
-    if (opts.usage != null) this.saveSpend(user, opts.usage, opts, seq, null);
+    const warning = opts.usage != null ? this.saveSpend(user, opts.usage, opts, seq, null).warning : undefined;
     // The conversation only hears about a task when it's newly assigned or someone adds a note; everything else,
     // finishing it included, is visible on the task itself (Tasks tab, `task get`) and goes out live.
     if (done) await this.finishTask(user, seq, opts, after);
@@ -4299,7 +4301,7 @@ export class Board extends DurableObject<Env> {
         session: opts.session,
       });
     }
-    return after;
+    return { ...after, ...(warning ? { warning } : {}) };
   }
 
   /** What finishing a task does besides its status (marked done, or resolved by a message). */
@@ -4314,7 +4316,7 @@ export class Board extends DurableObject<Env> {
     const me = this.taskRows().find((x) => x.seq === seq);
     if (me && /^\s*- \[ \]/m.test(me.body)) {
       const body = me.body.replace(/^(\s*- )\[ \]/gm, "$1[x]");
-      await this.taskEdit(user, seq, { body, base_version: me.version, summary: "done: ticked the remaining items" }, opts).catch(() => {});
+      await this.taskEdit(user, seq, { body, base_version: me.version, summary: "done: ticked the remaining items" }, { ...opts, usage: undefined }).catch(() => {});
     }
     // Finishing #N ticks every open checklist line naming it in the other open tasks (a sub-task's parent also matches by
     // title).
@@ -4359,11 +4361,11 @@ export class Board extends DurableObject<Env> {
     const t = this.task(seq);
     const why = reason.trim().slice(0, 300) || "stopped";
     this.sql.exec("UPDATE tasks SET status = 'stopped', stop_reason = ?, lease_holder = NULL, lease_until = NULL, updated_at = ? WHERE seq = ?", why, Date.now(), seq);
-    if (opts.usage != null) this.saveSpend(user, opts.usage, opts, seq, null);
+    const warning = opts.usage != null ? this.saveSpend(user, opts.usage, opts, seq, null).warning : undefined;
     await this.post(user, { type: "note", reply_to: seq, to: t.lease_holder ?? t.assignee, text: `Stop task #${seq}: ${why}`, via: opts.via, client: opts.client, session: opts.session });
     if (t.status !== "stopped") this.taskEvent(seq, user, opts, "status", t.status);
     this.broadcast({ type: "task", seq });
-    return this.task(seq);
+    return { ...this.task(seq), ...(warning ? { warning } : {}) };
   }
 
   /**
@@ -4441,7 +4443,7 @@ export class Board extends DurableObject<Env> {
     const task = this.task(e.seq);
     // Alike but not the same (an owner suffix, a reworded title): created anyway, with up to 3 to check (#2357).
     const similar = similarOpen(task.title, this.openTasks(input.parent ?? null), task.seq).map((t) => ({ seq: t.seq, title: t.title }));
-    return { task, duplicate: false, similar };
+    return { task: { ...task, ...(e.warning ? { warning: e.warning } : {}) }, duplicate: false, similar };
   }
 
   /** Open tasks (to do, in progress, blocked) under one parent (top level: null). */
@@ -4513,8 +4515,8 @@ export class Board extends DurableObject<Env> {
     this.sql.exec("DELETE FROM search_idx WHERE kind = 'task' AND ref = ?", String(seq));
     this.sql.exec("INSERT INTO search_idx (body, name, kind, ref) VALUES (?, ?, 'task', ?)", body, title, String(seq));
     this.broadcast({ type: "task", seq });
-    if (!internal.auto && opts.usage != null) this.saveSpend(user, opts.usage, opts, seq, null);
-    return this.task(seq);
+    const warning = !internal.auto && opts.usage != null ? this.saveSpend(user, opts.usage, opts, seq, null).warning : undefined;
+    return { ...this.task(seq), ...(warning ? { warning } : {}) };
   }
 
   async taskHistory(seq: number): Promise<{ version: number; title: string; author: string; via: string | null; summary: string | null; ts: number }[]> {

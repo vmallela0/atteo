@@ -456,14 +456,14 @@ function cli(args, { cred = credA, cwd = dir, input, env = {} } = {}) {
 await step("usage reports: CLI post, script and Claude transcript retry count once", async () => {
   const spendBoard = (await ops("boards", { user: A, title: `spend cli ${run}` })).board.id;
   const cfg = join(dir, "cfg-spend"), env = { XDG_CONFIG_HOME: cfg };
-  let r = await cli(["post", "usage test", "--board", spendBoard, "--model", "claude-sonnet-4-5", "--input-tokens", "100", "--output-tokens", "20"], { env });
+  let r = await cli(["post", "usage test", "--board", spendBoard, "--model", "claude-sonnet-4-5", "--input-tokens", "100", "--output-tokens", "20", "--cache-read-input-tokens", "10", "--cache-creation-input-tokens", "2"], { env });
   assert(r.code === 0, r.out + r.err);
   r = await cli(["usage", "report", "--board", spendBoard, "--model", "gpt-5-mini", "--input-tokens", "200", "--output-tokens", "50", "--source", `script:${run}`], { env });
   assert(r.code === 0 && r.out.includes("Usage reported"), r.out + r.err);
   r = await cli(["usage", "report", "--board", spendBoard, "--model", "gpt-5-mini", "--input-tokens", "200", "--output-tokens", "50", "--source", `script:${run}`], { env });
   assert(r.code === 0 && r.out.includes("already reported"), r.out + r.err);
   const transcript = join(dir, `usage-${run}.jsonl`);
-  const line = (id, n) => JSON.stringify({ sessionId: `session-${run}`, type: "assistant", message: { id, model: "claude-sonnet-4-5", usage: { input_tokens: n, output_tokens: 10 } } }) + "\n";
+  const line = (id, n) => JSON.stringify({ sessionId: `session-${run}`, type: "assistant", message: { id, model: "claude-sonnet-4-5", usage: { input_tokens: n, output_tokens: 10, cache_read_input_tokens: 50, cache_creation_input_tokens: 5 } } }) + "\n";
   writeFileSync(transcript, line("m1", 30) + line("m1", 40));
   r = await cli(["usage", "report", "--board", spendBoard, "--from-transcript", transcript], { env });
   assert(r.code === 0 && r.out.includes("1 new"), r.out + r.err);
@@ -472,7 +472,7 @@ await step("usage reports: CLI post, script and Claude transcript retry count on
   writeFileSync(transcript, line("m1", 30) + line("m1", 40) + line("m2", 5));
   r = await cli(["usage", "report", "--board", spendBoard, "--from-transcript", transcript], { env });
   assert(r.code === 0 && r.out.includes("1 new"), r.out + r.err);
-  const made = await (await fetch(`${BASE}/api/boards/${spendBoard}/tasks`, { method: "POST", headers: { authorization: `Bearer ${tokA}`, "content-type": "application/json" }, body: JSON.stringify({ title: `Measure ${run}` }) })).json();
+  const made = await (await fetch(`${BASE}/api/boards/${spendBoard}/tasks`, { method: "POST", headers: { authorization: `Bearer ${tokA}`, "content-type": "application/json" }, body: JSON.stringify({ title: `Measure ${run}`, body: "- [ ] verify" }) })).json();
   const task = made.task.seq;
   r = await cli(["task", "done", String(task), "--board", spendBoard, "--model", "claude-sonnet-4-5", "--input-tokens", "8", "--output-tokens", "2"], { env });
   assert(r.code === 0, r.out + r.err);
@@ -480,22 +480,48 @@ await step("usage reports: CLI post, script and Claude transcript retry count on
   assert(r.code === 0, r.out + r.err);
   const spend = await (await fetch(`${BASE}/api/boards/${spendBoard}/spend`, { headers: { authorization: `Bearer ${tokA}` } })).json();
   assert(spend.this_week.input_tokens === 360 && spend.this_week.output_tokens === 93, JSON.stringify(spend.this_week));
+  assert(Math.abs(spend.this_week.cost_usd - 0.001353) < 0.000001, `cache tokens use cache rates: ${JSON.stringify(spend.this_week)}`);
   assert(spend.tasks.find((t) => t.task === task)?.input_tokens === 15, `task update and reply attribution: ${JSON.stringify(spend.tasks)}`);
   assert((await tool(tokA, spendBoard, "spend", {})).includes("Reported spend") && (await tool(tokA, spendBoard, "spend", {})).includes("<<untrusted"), "the MCP spend tool fences labels");
 });
 
-await step("usage daily cap: 500 reports per board, retries remain idempotent", async () => {
+await step("usage daily cap: 500 reports per author per board; posts and tasks still succeed", async () => {
   const spendBoard = (await ops("boards", { user: A, title: `spend cap ${run}` })).board.id;
   const url = `${BASE}/api/boards/${spendBoard}/usage`, headers = { authorization: `Bearer ${tokA}`, "content-type": "application/json" };
   const send = (source) => fetch(url, { method: "POST", headers, body: JSON.stringify({ usage: { model: "claude-sonnet-4-5", input_tokens: 1, output_tokens: 0 }, source }) });
-  for (let i = 0; i < 500; i++) {
-    const r = await send(`cap:${run}:${i}`);
-    assert(r.status === 200, `report ${i}: ${r.status} ${await r.text()}`);
-  }
-  const refused = await send(`cap:${run}:overflow`);
-  assert(refused.status === 400 && (await refused.json()).error.includes("daily limit"), `501st report: ${refused.status}`);
+  const day = new Date().toISOString().slice(0, 10);
+  const seeded = await ops("restore-board", { board: spendBoard, append: true, tables: { spend_reports: { columns: ["ts", "day", "author", "agent", "model", "input_tokens", "output_tokens", "cost_usd", "estimate", "source"], rows: Array.from({ length: 500 }, (_, i) => [Date.now(), day, A, A, "claude-sonnet-4-5", 1, 0, 0.000003, 1, `cap:${run}:${i}`]) } } });
+  assert(seeded.rows === 500, `seed cap: ${JSON.stringify(seeded)}`);
+  const dropped = await send(`cap:${run}:overflow`);
+  const drop = await dropped.json();
+  assert(dropped.status === 200 && drop.recorded === false && drop.warning?.includes("Usage was dropped"), `501st report: ${dropped.status} ${JSON.stringify(drop)}`);
   const retry = await send(`cap:${run}:0`);
   assert(retry.status === 200 && (await retry.json()).recorded === false, "a retry after the cap still counts once");
+  await ops("members", { board: spendBoard, user: B });
+  const other = await fetch(url, { method: "POST", headers: { ...headers, authorization: `Bearer ${tokB}` }, body: JSON.stringify({ usage: { model: "claude-sonnet-4-5", input_tokens: 7, output_tokens: 0 } }) });
+  assert(other.status === 200 && (await other.json()).recorded === true, "another author can report on the same board");
+  const post = await fetch(`${BASE}/api/boards/${spendBoard}/entries`, { method: "POST", headers, body: JSON.stringify({ type: "note", text: `After cap ${run}`, usage: { model: "claude-sonnet-4-5", input_tokens: 2, output_tokens: 0 } }) });
+  const posted = await post.json();
+  assert(post.status === 201 && posted.entry?.seq && posted.warning?.includes("Usage was dropped"), `post after cap: ${post.status} ${JSON.stringify(posted).slice(0, 500)}`);
+  const made = await fetch(`${BASE}/api/boards/${spendBoard}/tasks`, { method: "POST", headers, body: JSON.stringify({ title: `After cap task ${run}`, usage: { model: "claude-sonnet-4-5", input_tokens: 3, output_tokens: 0 } }) });
+  const task = await made.json();
+  assert(made.status === 201 && task.task?.seq && task.warning?.includes("Usage was dropped"), `task after cap: ${made.status} ${JSON.stringify(task).slice(0, 500)}`);
+  const done = await fetch(`${BASE}/api/boards/${spendBoard}/tasks/${task.task.seq}`, { method: "POST", headers, body: JSON.stringify({ action: "update", status: "done", usage: { model: "claude-sonnet-4-5", input_tokens: 4, output_tokens: 0 } }) });
+  const updated = await done.json();
+  assert(done.status === 200 && updated.task?.status === "done" && updated.warning?.includes("Usage was dropped"), `task change after cap: ${done.status} ${JSON.stringify(updated).slice(0, 500)}`);
+  const spend = await (await fetch(`${BASE}/api/boards/${spendBoard}/spend`, { headers })).json();
+  assert(spend.this_week.input_tokens === 507, `only the other author's usage was added: ${JSON.stringify(spend.this_week)}`);
+});
+
+await step("standalone usage shares the board write rate limit", async () => {
+  const spendBoard = (await ops("boards", { user: A, title: `spend rate ${run}` })).board.id;
+  const url = `${BASE}/api/boards/${spendBoard}/usage`, headers = { authorization: `Bearer ${tokA}`, "content-type": "application/json" };
+  let limited = false;
+  for (let i = 0; i <= 60; i++) {
+    const r = await fetch(url, { method: "POST", headers, body: JSON.stringify({ usage: { model: "claude-sonnet-4-5", input_tokens: 1, output_tokens: 0 } }) });
+    if (r.status !== 200) { limited = (await r.json()).error?.includes("Slow down"); break; }
+  }
+  assert(limited, "the 61st standalone report is rate limited");
 });
 
 await step("board commands: use, post, read, ask (waits for the answer), search, share, task, doc grep, local secret filter", async () => {

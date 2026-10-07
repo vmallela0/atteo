@@ -87,10 +87,10 @@ export const optStr = (o: Record<string, string | true>, k: string) => (typeof o
 
 function usageFlags(opt: Record<string, string | true>): Usage | undefined {
   const model = optStr(opt, "model");
-  const has = ["model", "input-tokens", "output-tokens", "cost-usd"].some((k) => opt[k] !== undefined);
+  const has = ["model", "input-tokens", "output-tokens", "cache-read-input-tokens", "cache-creation-input-tokens", "cost-usd"].some((k) => opt[k] !== undefined);
   if (!has) return undefined;
   if (!model || optStr(opt, "input-tokens") == null || optStr(opt, "output-tokens") == null) throw new CliError("Usage needs --model, --input-tokens and --output-tokens together.");
-  const u: Usage = { model, input_tokens: Number(optStr(opt, "input-tokens")), output_tokens: Number(optStr(opt, "output-tokens")), ...(opt["cost-usd"] !== undefined ? { cost_usd: Number(optStr(opt, "cost-usd")) } : {}) };
+  const u: Usage = { model, input_tokens: Number(optStr(opt, "input-tokens")), output_tokens: Number(optStr(opt, "output-tokens")), ...(opt["cache-read-input-tokens"] !== undefined ? { cache_read_input_tokens: Number(optStr(opt, "cache-read-input-tokens")) } : {}), ...(opt["cache-creation-input-tokens"] !== undefined ? { cache_creation_input_tokens: Number(optStr(opt, "cache-creation-input-tokens")) } : {}), ...(opt["cost-usd"] !== undefined ? { cost_usd: Number(optStr(opt, "cost-usd")) } : {}) };
   try { priceUsage(u); } catch (e) { throw new CliError((e as Error).message); }
   return u;
 }
@@ -760,7 +760,7 @@ function gitSha(ref: string, flag: string): string {
 
 async function post(args: string[], forced?: string) {
   const { pos, opt } = parseArgs(args, ["own", "public", "sweep"]);
-  onlyOptions(forced ?? "post", opt, ["board", "server", "type", "to", "reply", "title", "resolves", "supersedes", "own", "public", "branch", "sha", "base", "checks", "lgtm", "landed", "failed", "sweep", "model", "input-tokens", "output-tokens", "cost-usd"]);
+  onlyOptions(forced ?? "post", opt, ["board", "server", "type", "to", "reply", "title", "resolves", "supersedes", "own", "public", "branch", "sha", "base", "checks", "lgtm", "landed", "failed", "sweep", "model", "input-tokens", "output-tokens", "cache-read-input-tokens", "cache-creation-input-tokens", "cost-usd"]);
   const usage = usageFlags(opt);
   if (opt.own && opt.public) throw new CliError("Pick one: --own (just you and your agents) or --public.");
   const type = forced ?? optStr(opt, "type") ?? "note";
@@ -1184,7 +1184,7 @@ async function task(args: string[]) {
 async function usage(args: string[]) {
   const { pos, opt } = parseArgs(args, ["json"]);
   if (pos.length !== 1 || pos[0] !== "report") throw new CliError("Usage: atteo usage report --model M --input-tokens N --output-tokens N [--cost-usd D] [--task N] | --from-transcript <path>");
-  onlyOptions("usage report", opt, ["board", "server", "json", "model", "input-tokens", "output-tokens", "cost-usd", "task", "source", "from-transcript"]);
+  onlyOptions("usage report", opt, ["board", "server", "json", "model", "input-tokens", "output-tokens", "cache-read-input-tokens", "cache-creation-input-tokens", "cost-usd", "task", "source", "from-transcript"]);
   const board = currentBoard(opt);
   const task = optStr(opt, "task") == null ? undefined : int(optStr(opt, "task")!, "--task");
   const path = optStr(opt, "from-transcript");
@@ -1205,7 +1205,8 @@ async function usage(args: string[]) {
     let recorded = 0;
     for (const u of delta) {
       const source = `cc:${hash(session)}:${parsed.offset}:${hash(u.model)}`;
-      const r = await api(opt, "POST", `/api/boards/${board}/usage`, { usage: u, task, source }) as { recorded: boolean };
+      const r = await api(opt, "POST", `/api/boards/${board}/usage`, { usage: u, task, source }) as { recorded: boolean; warning?: string };
+      if (r.warning) throw new CliError(r.warning);
       if (r.recorded) recorded++;
     }
     if (parsed.offset > 0 && (!before || parsed.offset >= before.offset)) {
@@ -1219,7 +1220,7 @@ async function usage(args: string[]) {
   const u = usageFlags(opt);
   if (!u) throw new CliError("Give --model, --input-tokens and --output-tokens, or --from-transcript <path>.");
   const r = await api(opt, "POST", `/api/boards/${board}/usage`, { usage: u, task, source: optStr(opt, "source") });
-  say(opt.json ? JSON.stringify(r, null, 2) : r.recorded ? `Usage reported${r.usage.estimate ? " (estimated cost)" : ""}.` : "Usage already reported.");
+  say(opt.json ? JSON.stringify(r, null, 2) : r.warning ?? (r.recorded ? `Usage reported${r.usage.estimate ? " (estimated cost)" : ""}.` : "Usage already reported."));
 }
 
 /** Ticks (or unticks) the one checklist item on a task whose text contains `want`, as a task edit (old_str → new_str). */
