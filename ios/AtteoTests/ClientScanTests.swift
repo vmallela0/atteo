@@ -24,4 +24,11 @@ final class ClientScanTests: XCTestCase {
         XCTAssertNil(ClientScan.blocked("db: postgres://admin:${PASS}@db.example.com/app"))
         XCTAssertNil(ClientScan.blocked(""))
     }
+
+    /// Fails closed (review #5551 item 5): without the rules, an encrypted board gets nothing.
+    func testWithoutTheRulesNothingIsSent() {
+        XCTAssertTrue(ClientScan.refusal("hello there", using: nil) is ScanUnavailable)
+        XCTAssertNil(ClientScan.refusal("hello there"))
+        XCTAssertTrue(ClientScan.refusal("AKIAABCDEFGHIJKLMNOP") is SecretBlocked)
+    }
 }

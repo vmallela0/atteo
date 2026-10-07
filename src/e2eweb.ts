@@ -193,14 +193,17 @@ window.e2eSearch=async(q,o)=>{o=o||{};let idx=IDX_FULL?await IDX_FULL:await idxL
   return {entries:hits.slice(0,50).map(h=>({seq:h.e.seq,ts:h.e.ts,author:h.e.author,via:h.e.via,type:h.e.type,title:null,snippet:snippetOf(h.e.text,h.sp)})),on_device:true}};
 
 // ---- writing: the composer (new messages and replies) encrypts here and posts the envelope (refetching keys on 409) ----
-async function encPost(text,type,reply_to,tries){tries=tries||0;const st=await epochKeys();const k=st.keys.get(st.current);
+// Why this text mustn't be sent (a credential in it, or no rules to check it with), or null. Fails closed: without
+// clientScan.ts's rules (window.atteoScan) nothing is encrypted or sent (review #5551 item 5).
+function scanRefusal(text){const a=window.atteoScan;if(!a||typeof a.scanText!=='function')return tr("This browser couldn't check the message for secrets, so nothing was encrypted or sent. Reload the page and try again.");const hit=a.scanText(text);return hit?a.blockedMessage(hit)+' '+tr('(Caught in this browser: nothing was encrypted or sent.)'):null}
+async function encPost(text,type,reply_to,tries){tries=tries||0;{const no=scanRefusal(text);if(no)throw new Error(no)}const st=await epochKeys();const k=st.keys.get(st.current);
   if(!k)throw new Error("This browser doesn't hold the board's key yet.");
   const c=await gcm(k.aes,te.encode(text));const m=text.match(/^@([a-z0-9][a-z0-9_.-]{0,31})/i),to=m&&MEMBERS.includes(m[1].toLowerCase())?m[1].toLowerCase():undefined; // addressed, like the CLI's --to
   try{return await api('POST','/api/boards/'+BOARD+'/sealed',{payload:JSON.stringify({v:2,epoch:st.current,iv:c.iv,ct:c.ct}),type,to,reply_to:reply_to||undefined})}
   catch(e){if(tries<2&&e.status===409)return encPost(text,type,reply_to,tries+1);throw e}} // a removal or a newer epoch since we looked
 window.addEventListener('submit',async e=>{const f=e.target;if(!f.matches||!f.matches('form.composer'))return;e.preventDefault();e.stopImmediatePropagation();if(window.micStop)micStop(); // it stops the submit, so the mic's own listener never hears it (#1711)
   const text=ta.value.trim();if(!text)return;const type=f.querySelector('input[name=type]:checked')?.value||'note',was=+rpTo.value||null;
-  const hit=window.atteoScan&&atteoScan.scanText(text);if(hit){toast(atteoScan.blockedMessage(hit)+' (Caught in this browser: nothing was encrypted or sent.)');return}
+  {const no=scanRefusal(text);if(no){toast(no);return}}
   const btn=f.querySelector('button:not([type=button])');if(btn)btn.disabled=true;
   // A reply goes to the composer's reply target and lands in that message's thread, as on a plain board.
   const first=!was&&!document.querySelector('#thread>.entry');

@@ -318,7 +318,7 @@ struct ChatComposer: View {
             return
         }
         // End-to-end encrypted: a credential is caught here (ClientScan.swift), and what you typed stays to fix.
-        if board.encrypted == true, let blocked = ClientScan.blocked(text) {
+        if board.encrypted == true, let blocked = ClientScan.refusal(text) {
             Haptics.play(.failed)
             state.report(blocked)
             return

@@ -26160,6 +26160,52 @@
         }
       }
     },
+    "This phone couldn't check the message for secrets, so nothing was encrypted or sent. Update Atteo and try again.": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este teléfono no pudo revisar si el mensaje contiene secretos, así que no se cifró ni se envió nada. Actualiza Atteo y vuelve a intentarlo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce téléphone n’a pas pu vérifier si le message contient des secrets : rien n’a été chiffré ni envoyé. Mettez Atteo à jour et réessayez."
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "यह फ़ोन संदेश में सीक्रेट की जाँच नहीं कर सका, इसलिए कुछ भी एन्क्रिप्ट या भेजा नहीं गया। Atteo अपडेट करके फिर कोशिश करें।"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このiPhoneではメッセージに秘密情報が含まれていないか確認できなかったため、何も暗号化・送信していません。Atteoをアップデートしてもう一度お試しください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 휴대폰에서 메시지에 비밀 정보가 있는지 확인하지 못해 아무것도 암호화하거나 보내지 않았습니다. Atteo를 업데이트한 후 다시 시도하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这台手机无法检查消息中是否含有机密信息，所以没有加密或发送任何内容。请更新 Atteo 后重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這台手機無法檢查訊息中是否含有機密資訊，所以沒有加密或傳送任何內容。請更新 Atteo 後再試一次。"
+          }
+        }
+      }
+    },
     "New message (end-to-end encrypted)": {
       "localizations": {
         "es": {

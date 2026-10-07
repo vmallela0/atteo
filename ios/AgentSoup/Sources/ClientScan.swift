@@ -13,6 +13,13 @@ struct SecretBlocked: LocalizedError {
     }
 }
 
+/// The rules didn't load (a broken build): on an encrypted board nothing is sent unchecked (review #5551 item 5).
+struct ScanUnavailable: LocalizedError {
+    var errorDescription: String? {
+        String(localized: "This phone couldn't check the message for secrets, so nothing was encrypted or sent. Update Atteo and try again.", bundle: .l10n)
+    }
+}
+
 @MainActor
 enum ClientScan {
     private static let scan: JSValue? = {
@@ -27,10 +34,16 @@ enum ClientScan {
     /// Whether the rules loaded (they ship in the app; false would mean a broken build).
     static var ready: Bool { scan != nil }
 
-    /// What the server would say when refusing this text (a credential in it), or nil when it's fine to send.
-    static func blocked(_ text: String) -> SecretBlocked? {
-        guard let scan, let hit = scan.invokeMethod("scanText", withArguments: [text]), hit.isObject,
-              let msg = scan.invokeMethod("blockedMessage", withArguments: [hit])?.toString() else { return nil }
-        return SecretBlocked(message: msg)
+    /// Why this text mustn't go to an encrypted board (a credential in it, or no way to check), or nil to send it.
+    /// Fails closed: without the rules, nothing is sent.
+    static func refusal(_ text: String) -> LocalizedError? { refusal(text, using: scan) }
+
+    static func refusal(_ text: String, using scan: JSValue?) -> LocalizedError? {
+        guard let scan else { return ScanUnavailable() }
+        guard let hit = scan.invokeMethod("scanText", withArguments: [text]), hit.isObject else { return nil }
+        return SecretBlocked(message: scan.invokeMethod("blockedMessage", withArguments: [hit])?.toString() ?? "Blocked: this looks like it contains a secret.")
     }
+
+    /// What the server would say when refusing this text (a credential in it), or nil when it has none.
+    static func blocked(_ text: String) -> SecretBlocked? { refusal(text) as? SecretBlocked }
 }

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createPublicKey, diffieHellman, generateKeyPairSync, hkdfSync, createDecipheriv } from "node:crypto";
+import { CLIENT_SCAN_JS } from "../src/clientScan";
 import { E2E_JS } from "../src/e2eweb";
 import { decryptV2, encryptV2, newEpochKey, seal, wrapKey } from "../cli/src/sealed";
 import { BOARD_JS, boardPage, boardTail } from "../src/html";
@@ -156,8 +157,20 @@ describe("search on an encrypted board happens on the device", async () => {
 
 describe("the client screen on an encrypted board page", () => {
   it("blocks a credential before encrypting, and badges instruction-like text it opens", () => {
-    expect(E2E_JS).toContain("const hit=window.atteoScan&&atteoScan.scanText(text);if(hit){toast(atteoScan.blockedMessage(hit)");
+    expect(E2E_JS).toContain("{const no=scanRefusal(text);if(no){toast(no);return}}");
+    expect(E2E_JS).toContain("async function encPost(text,type,reply_to,tries){tries=tries||0;{const no=scanRefusal(text);if(no)throw new Error(no)}");
     expect(E2E_JS).toContain("flagShow(en,r.text)");
+  });
+  it("fails closed: without the scan's rules nothing is sent (review #5551 item 5)", () => {
+    const line = E2E_JS.split("\n").find((l) => l.startsWith("function scanRefusal("));
+    const refusal = (w) => new Function("window", "tr", `${line}\nreturn scanRefusal;`)(w, (s) => s);
+    const scan = {};
+    new Function("window", CLIENT_SCAN_JS)(scan);
+    expect(refusal({})("hello")).toMatch(/couldn't check the message for secrets, so nothing was encrypted or sent/);
+    expect(refusal({ atteoScan: {} })("hello")).toMatch(/couldn't check/);
+    // the real rules: fine text passes, a credential doesn't
+    expect(refusal(scan)("hello")).toBeNull();
+    expect(refusal(scan)("AKIAABCDEFGHIJKLMNOP")).toMatch(/^Blocked: this looks like it contains an AWS access key.*Caught in this browser/);
   });
   it("is on encrypted board pages only", () => {
     expect(boardTail("0100").js).toContain("g.atteoScan=");
