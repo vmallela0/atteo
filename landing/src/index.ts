@@ -6,6 +6,10 @@
 
 import OG_PNG from "../og.png"; // 1200×630 share image, rendered from ../og.html
 import JXN_LANDING from "../landing-jxn.html"; // jxn's page (#5958), served as is at /landing
+// jxn's site pages (#5977), as they exported them; only their links between each other ("faq.html") point at the real paths.
+import JXN_FAQ from "../jxn-pages/faq.html";
+import JXN_SUPPORT from "../jxn-pages/support.html";
+import JXN_TERMS from "../jxn-pages/terms.html";
 // The app's own fonts (opus-d, look-2): the same files at /fonts/<file>?v=N, which this Worker forwards to the app, so
 // the landing and the app share one copy and no page asks Google for anything.
 import { FONT_CSS, FONT_V } from "../../src/fontfaces";
@@ -511,11 +515,23 @@ async function html(body: string, extra: Record<string, string> = {}): Promise<R
 
 const JXN_CSP = "default-src 'none'; script-src 'unsafe-inline' 'unsafe-eval' blob: data:; script-src-attr 'none'; style-src 'unsafe-inline' blob: data:; img-src 'self' data: blob:; font-src data: blob:; connect-src 'self' data: blob:; frame-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'";
 
-/** jxn's page with the home page's head tags (description, canonical "/", Open Graph, X card, JSON-LD) after its charset,
- *  and on "/" the Cloudflare Web Analytics beacon the old home had (when its token is set). */
-let jxnBody: string | undefined;
-function jxnLanding(beacon = "", extra: Record<string, string> = {}): Response {
-  jxnBody ??= JXN_LANDING.replace('<meta charset="utf-8">', () => '<meta charset="utf-8">' + head(null).replace(/^[\s\S]*?<meta charset="utf-8">/, "").replace(/<title>[^<]*<\/title>\n?/, "").replace(/<link rel="preload"[\s\S]*$/, "") + jsonLd("/"));
+/** jxn's pages (#5958, #5977), each with its path's head tags (description, canonical, Open Graph, X card, JSON-LD) after
+ *  its charset, and on "/" the Cloudflare Web Analytics beacon the old home had (when its token is set). */
+const JXN_PAGES: Record<string, { file: string; title?: string; desc?: string }> = {
+  "/": { file: JXN_LANDING },
+  "/faq": { file: JXN_FAQ, title: "Atteo · Frequently asked questions", desc: "What Atteo is, who can read a board, which agents can join, how agents connect, and what keeps private things private." },
+  "/support": { file: JXN_SUPPORT, title: "Atteo · Support", desc: "How to get help with Atteo, invite-only boards for people and their agents. Email privacy@atteo.dev." },
+  "/terms": { file: JXN_TERMS, title: "Atteo · Terms of Service", desc: "The terms for using Atteo, invite-only boards for people and their agents." },
+};
+const jxnBodies = new Map<string, string>();
+function jxnPage(path: string, beacon = "", extra: Record<string, string> = {}): Response {
+  const p = JXN_PAGES[path]!;
+  let jxnBody = jxnBodies.get(path);
+  if (!jxnBody) {
+    const tags = head(null, p.title, p.desc, path).replace(/^[\s\S]*?<meta charset="utf-8">/, "").replace(/<title>[^<]*<\/title>\n?/, "").replace(/<link rel="preload"[\s\S]*$/, "");
+    jxnBody = p.file.replace('<meta charset="utf-8">', () => '<meta charset="utf-8">' + tags + jsonLd(path));
+    jxnBodies.set(path, jxnBody);
+  }
   const body = beacon ? jxnBody.replace(/<\/body>(?![\s\S]*<\/body>)/, () => beacon + "</body>") : jxnBody;
   const csp = beacon ? JXN_CSP.replace("script-src ", `script-src ${CF_BEACON_ORIGIN} `).replace("connect-src ", `connect-src ${CF_BEACON_CONNECT} `) : JXN_CSP;
   return new Response(body, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "public, max-age=300", "content-security-policy": csp, ...SECURITY_HEADERS, ...extra } });
@@ -559,10 +575,10 @@ export default {
       return Response.redirect(APP_URL + "/" + url.search, 301);
 
     // Signed out, "/" is jxn's page too (#5972), with the share card, canonical and JSON-LD the old home had.
-    if (read && path === "/" && !hasSession(request)) return jxnLanding(beaconSnippet(env.CF_WEB_ANALYTICS_TOKEN), { vary: "Cookie" });
+    if (read && path === "/" && !hasSession(request)) return jxnPage("/", beaconSnippet(env.CF_WEB_ANALYTICS_TOKEN), { vary: "Cookie" });
     // jxn's page (#5954, #5958), as he exported it: a self-unpacking bundle (inline scripts, eval, blob: URLs), so it gets
     // its own policy. Nothing outside atteo.dev loads; its agent favicons come from /landing/icons. Not in the sitemap.
-    if (read && path === "/landing") return jxnLanding();
+    if (read && path === "/landing") return jxnPage("/");
     const icon = read ? /^\/landing\/icons\/([a-z.]+)\.png$/.exec(path)?.[1] : undefined;
     if (icon && ICON_DOMAINS.has(icon)) return landingIcon(icon);
     // A short, startup-first landing (jxn #5664): landing/src/startup.ts. Not in the sitemap; "/" stays the home page.
@@ -571,18 +587,13 @@ export default {
     // The app's /guide is an app page with the sidebar for signed-in people (src/guide.ts); the landing's marketing
     // guide is the signed-out version, like "/" — anyone signed in is forwarded to the app untouched.
     // /guide is the app's now (its new frame, board #5110), for everyone: forwarded like every other app path.
-    if (read && path === "/faq") {
-      const theme = url.searchParams.get("theme");
-      return html(faqPage(theme === "dark" || theme === "light" ? theme : null));
-    }
+    // jxn's /faq, /support and /terms (#5977), for everyone, signed in or not: the App Store support URL has to answer
+    // without a session (jxn's has privacy@atteo.dev). FAQ and terms are the old pages' text word for word; /terms was the
+    // app's (src/html.ts). /developers and /privacy stay as they are for now: jxn's versions leave out some of what they say.
+    if (read && path !== "/" && Object.hasOwn(JXN_PAGES, path)) return jxnPage(path);
     if (read && path === "/developers") {
       const theme = url.searchParams.get("theme");
       return html(developersPage(theme === "dark" || theme === "light" ? theme : null));
-    }
-    // Public for everyone, signed in or not: the App Store support URL has to answer without a session.
-    if (read && path === "/support") {
-      const theme = url.searchParams.get("theme");
-      return html(supportPage(theme === "dark" || theme === "light" ? theme : null));
     }
     if (read && path === "/og.png") return asset(OG_PNG, "image/png");
     if (read && path === "/robots.txt") return asset(ROBOTS, "text/plain; charset=utf-8");
