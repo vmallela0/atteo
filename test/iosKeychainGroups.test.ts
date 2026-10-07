@@ -27,9 +27,22 @@ describe("iOS Keychain groups for board keys", () => {
   it("the code is told the same group (Info.plist), and sets it on every Keychain call", () => {
     for (const p of ["ios/AgentSoup/Info.plist", "ios/NotifyExtension/Info.plist"]) expect(readFileSync(p, "utf8")).toMatch(/<key>AtteoE2EKeychainGroup<\/key>\s*<string>\$\(AppIdentifierPrefix\)\$\(ATTEO_BUNDLE_ID\)\.e2e<\/string>/);
     const src = readFileSync("ios/Shared/SealedOpen.swift", "utf8");
-    const keys = src.slice(src.indexOf("enum SealedKeys"), src.indexOf("enum SealedOpen"));
+    const keys = src.slice(src.indexOf("enum SealedKeys"), src.indexOf("\n}\n", src.indexOf("enum SealedKeys")));
     expect(keys).toContain("kSecAttrAccessGroup as String: group");
     expect(keys.match(/kSecClassGenericPassword/g)).toHaveLength(1); // one query builder, used by read, store and forget
     expect(keys).toContain("kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly");
+  });
+
+  it("the device key is read and kept only through the .e2e group (moved there once from the app's group)", () => {
+    const crypto = readFileSync("ios/AgentSoup/Sources/BoardCrypto.swift", "utf8");
+    const pk = crypto.slice(crypto.indexOf("private var privateKey"), crypto.indexOf("private static var migrated"));
+    const e2ePath = pk.slice(pk.indexOf("DeviceKeyStore.migrate()"));
+    expect(e2ePath).toContain("DeviceKeyStore.read()");
+    expect(e2ePath).toContain("DeviceKeyStore.store(");
+    expect(e2ePath).not.toContain("Keychain.");
+    const shared = readFileSync("ios/Shared/SealedOpen.swift", "utf8");
+    const store = shared.slice(shared.indexOf("enum DeviceKeyStore"), shared.indexOf("/// What a notification"));
+    expect(store).toContain("kSecAttrAccessGroup as String: group");
+    expect(store).toMatch(/static func read\(in group: String\? = SealedKeys\.group\)/);
   });
 });

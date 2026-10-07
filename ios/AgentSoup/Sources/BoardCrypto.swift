@@ -100,12 +100,22 @@ final class BoardCrypto {
 
     // MARK: - This phone's device key
 
+    /// In the .e2e Keychain group (DeviceKeyStore: not the share extension's), moved there once from the app's group.
+    /// A build without that group (none ships so) keeps it where earlier builds did, rather than a new key each time.
     private var privateKey: Curve25519.KeyAgreement.PrivateKey {
-        if let raw = Keychain.data("device-key"), let k = try? Curve25519.KeyAgreement.PrivateKey(rawRepresentation: raw) { return k }
+        guard SealedKeys.group != nil else {
+            if let raw = Keychain.data(DeviceKeyStore.account), let k = try? Curve25519.KeyAgreement.PrivateKey(rawRepresentation: raw) { return k }
+            let k = Curve25519.KeyAgreement.PrivateKey()
+            Keychain.setData(k.rawRepresentation, for: DeviceKeyStore.account)
+            return k
+        }
+        if !Self.migrated { DeviceKeyStore.migrate(); Self.migrated = true }
+        if let raw = DeviceKeyStore.read(), let k = try? Curve25519.KeyAgreement.PrivateKey(rawRepresentation: raw) { return k }
         let k = Curve25519.KeyAgreement.PrivateKey()
-        Keychain.setData(k.rawRepresentation, for: "device-key")
+        DeviceKeyStore.store(k.rawRepresentation)
         return k
     }
+    private static var migrated = false
     private var publicKey: Data { privateKey.publicKey.rawRepresentation }
 
     /// This phone's key id on the server (registered once; the server returns the same id for the same key).

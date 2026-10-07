@@ -82,6 +82,50 @@ enum SealedKeys {
     }
 }
 
+/// This phone's device private key (X25519, BoardCrypto): in the board keys' own Keychain group, so the share
+/// extension, which holds only the app's group, can't read it. Earlier builds kept it in the app's group; `migrate`
+/// moves it once, deleting the old item after the copy reads back the same.
+enum DeviceKeyStore {
+    static let account = "device-key"
+    private static let service = "com.agentsoup.app"
+
+    /// The app's own group, "<team>.<app id>" (the .e2e group without ".e2e"), where earlier builds kept the key.
+    static var legacyGroup: String? { SealedKeys.group.map { String($0.dropLast(".e2e".count)) } }
+
+    private static func query(_ group: String) -> [String: Any] {
+        [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service, kSecAttrAccount as String: account, kSecAttrAccessGroup as String: group]
+    }
+
+    static func read(in group: String? = SealedKeys.group) -> Data? {
+        guard let group else { return nil }
+        var q = query(group)
+        q[kSecReturnData as String] = true
+        var out: AnyObject?
+        return SecItemCopyMatching(q as CFDictionary, &out) == errSecSuccess ? out as? Data : nil
+    }
+
+    @discardableResult
+    static func store(_ d: Data, in group: String? = SealedKeys.group) -> Bool {
+        guard let group else { return false }
+        let q = query(group)
+        SecItemDelete(q as CFDictionary)
+        var add = q
+        add[kSecValueData as String] = d
+        add[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+        return SecItemAdd(add as CFDictionary, nil) == errSecSuccess
+    }
+
+    static func delete(in group: String) { SecItemDelete(query(group) as CFDictionary) }
+
+    /// Once: the key in the app's group moves to the .e2e group (copied, read back, then deleted there). A key
+    /// already in the .e2e group wins; a leftover old copy is then just deleted.
+    static func migrate() {
+        guard let legacy = legacyGroup, let old = read(in: legacy) else { return }
+        if read() == nil { store(old) }
+        if read() != nil { delete(in: legacy) }
+    }
+}
+
 /// What a notification from an encrypted board shows (review #5551 item 8): "New message" (the default), or the
 /// message itself, decrypted on this phone. iOS keeps a delivered notification, shows it on the lock screen and can
 /// read it aloud or summarise it, so the words only go there if you turn this on (Settings → Notifications). Kept in

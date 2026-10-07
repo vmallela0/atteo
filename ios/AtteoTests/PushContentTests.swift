@@ -121,4 +121,25 @@ final class PushContentTests: XCTestCase {
         XCTAssertTrue(PushPreview.full)
         XCTAssertEqual(PushContent.decrypted(info, key: { _, _ in self.key }, title: { _ in "Secret plans" }, scan: scan, full: PushPreview.full)?.body, PushFixtures.text)
     }
+
+    /// The device key moves once from the app's group (which the share extension also holds) to the .e2e group.
+    func testTheDeviceKeyMovesOutOfTheShareExtensionsReach() throws {
+        let legacy = try XCTUnwrap(DeviceKeyStore.legacyGroup), e2e = try XCTUnwrap(SealedKeys.group)
+        XCTAssertEqual(legacy + ".e2e", e2e)
+        let saved = DeviceKeyStore.read() // this simulator's own key, put back after
+        defer { if let saved { DeviceKeyStore.store(saved) } }
+        DeviceKeyStore.delete(in: e2e)
+        let old = Data((0..<32).map { _ in UInt8.random(in: 0...255) })
+        XCTAssertTrue(DeviceKeyStore.store(old, in: legacy), "an earlier build's key, in the app's group")
+        DeviceKeyStore.migrate()
+        XCTAssertEqual(DeviceKeyStore.read(), old, "the same key, now in the .e2e group")
+        XCTAssertNil(DeviceKeyStore.read(in: legacy), "gone from the group the share extension can read")
+        DeviceKeyStore.migrate()
+        XCTAssertEqual(DeviceKeyStore.read(), old, "a second run changes nothing")
+        // What AtteoShare can see: a query in its only group (the app's) finds nothing, whatever the account.
+        var out: AnyObject?
+        let share: [String: Any] = [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: "com.agentsoup.app", kSecAttrAccount as String: "device-key", kSecAttrAccessGroup as String: legacy, kSecReturnData as String: true]
+        XCTAssertEqual(SecItemCopyMatching(share as CFDictionary, &out), errSecItemNotFound)
+        DeviceKeyStore.delete(in: e2e)
+    }
 }
