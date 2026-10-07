@@ -10,7 +10,7 @@ import { blockedMessage, scanFields } from "../../src/secrets";
 import { grepEntries } from "../../src/localSearch";
 import { env } from "./env";
 import { flagLine, screenMail } from "./dispatch";
-import { api, askYes, boardIdIn, CliError, COMMANDS, creds, currentBoard, decryptEntry, encAll, encEntries, encHandoffQueue, folderBoard, getEntry, isEncrypted, onlyOptions, optStr, parseArgs, picturesNote, say, sealForBoard, sealForMe, server as serverFor, setSession, shown, tool } from "./commands";
+import { api, askYes, boardIdIn, CliError, COMMANDS, creds, currentBoard, decryptEntry, encAll, encEntries, encHandoffQueue, folderBoard, getEntry, isEncrypted, joinLink, onlyOptions, optStr, parseArgs, picturesNote, say, sealForBoard, sealForMe, server as serverFor, setSession, shown, tool } from "./commands";
 import { load, sameServer, storeName } from "./credentials";
 import { caller, detectModel, loadMap, saveMap, type LocalSession } from "./session";
 import { createHash } from "node:crypto";
@@ -308,8 +308,9 @@ async function getCmd(args: string[]) {
 
 async function joinCmd(args: string[]) {
   const { pos, opt } = parseArgs(args, BOOLS);
-  const want = pos.join(" ").trim();
-  if (!want) throw new CliError("Usage: atteo join <board id or title>   (atteo get boards lists them)");
+  let want = pos.join(" ").trim();
+  if (!want) throw new CliError("Usage: atteo join <board id or title, or an invite link>   (atteo get boards lists them)");
+  if (/^https?:\/\/\S+\/i\/il_/.test(want)) want = await joinLink(opt, want); // an invite link: join with it (and take the board key it carries)
   await withSession(opt, async (s) => {
     let j;
     try {

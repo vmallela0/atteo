@@ -10,7 +10,8 @@ import { env } from "./env";
 import SKILL_MD from "../../skills/atteo/SKILL.md";
 import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { hostname, tmpdir } from "node:os";
-import { branchHash, decryptFile, decryptV2, encryptFile, encryptV2, FILE_CHUNK, myKey, newEpochKey, seal, unseal, unwrapKey, wrapKey, type WrappedKey } from "./sealed";
+import { branchHash, decryptFile, decryptV2, deviceSigned, encryptFile, encryptV2, FILE_CHUNK, inviteKey, keysDigest, myKey, mySignKey, newEpochKey, openProof, seal, signDevice, unseal, unwrapInvite, unwrapKey, wrapKey, type WrappedKey } from "./sealed";
+import { crossSigned, dropGone, firstSight, noneLeft, pinId, pinned } from "./crosssign";
 import { homedir } from "node:os";
 import { basename, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { blockedMessage, scanFields } from "../../src/secrets";
@@ -347,7 +348,7 @@ export async function isEncrypted(opt: Record<string, string | true>, board: str
 // Encryption v2: one key per board epoch, wrapped once per member device; the server only stores wrapped copies.
 // Devices are trusted on first sight of a person (pinned on this machine); a person's later devices get the key only
 // from their own devices, so a device the server slips in is never handed a key from here.
-type DeviceKey = { kid: string; user: string; public_key: string; label: string | null };
+type DeviceKey = { kid: string; user: string; public_key: string; label: string | null; sign_pub?: string | null; signed_by?: string | null; sig?: string | null };
 type EpochState = {
   current: number;
   rotate_needed: boolean;
@@ -368,7 +369,29 @@ export function savePins(p: Record<string, string[]>) {
   mkdirSync(join(pinFile(), ".."), { recursive: true, mode: 0o700 });
   writeFileSync(pinFile(), JSON.stringify(p, null, 2), { mode: 0o600 });
 }
-const pinId = (kid: string, publicKey: string) => `${kid}|${publicKey}`;
+const epochFile = () => `${pinFile()}.epochs`;
+function epochsSeen(): Record<string, number> {
+  try {
+    return JSON.parse(readFileSync(epochFile(), "utf8"));
+  } catch {
+    return {};
+  }
+}
+function saveEpochSeen(board: string, epoch: number) {
+  const all = epochsSeen();
+  all[board] = epoch;
+  mkdirSync(join(epochFile(), ".."), { recursive: true, mode: 0o700 });
+  writeFileSync(epochFile(), JSON.stringify(all), { mode: 0o600 });
+}
+
+/** The server shows this machine with a signing key that isn't this machine's: someone could sign devices as you. */
+function signMismatch(k: { sign_pub?: string | null } | undefined) {
+  if (k?.sign_pub && k.sign_pub !== mySignKey().pub)
+    warnOnce(
+      "sign_pub",
+      "⚠ The server shows this machine with a signing key that isn't this machine's. Devices \"signed\" with it aren't from you: don't trust them, and tell the board's members.",
+    );
+}
 const warned = new Set<string>();
 const warnOnce = (k: string, line: string) => {
   if (!warned.has(k)) process.stderr.write(line + "\n");
@@ -381,6 +404,11 @@ async function boardKeys(opt: Record<string, string | true>, board: string, trie
   const kid = await ensureKey(opt);
   const me = creds().user;
   const st: EpochState = await api(opt, "GET", `/api/boards/${board}/epochs`);
+  // The newest key epoch this machine has seen for the board: a server showing an older one may be replaying an old key
+  // (review #5526), so nothing is encrypted with it.
+  const seenMax = epochsSeen()[board] ?? 0;
+  if (st.current < seenMax)
+    throw new CliError(`The server shows this board at key epoch ${st.current}, but this machine has seen epoch ${seenMax}: it may be replaying an old key, so nothing was encrypted. Tell the board's members.`);
   const keys = new Map<number, Buffer>();
   for (const g of st.mine)
     if (g.kid === kid)
@@ -392,15 +420,21 @@ async function boardKeys(opt: Record<string, string | true>, board: string, trie
   const before = JSON.stringify(pin);
   const seen = new Map([...st.keys, ...st.missing].map((k) => [k.kid, k.public_key]));
   for (const [u, list] of Object.entries(pin)) pin[u] = list.map((e) => (e.includes("|") || !seen.has(e) ? e : pinId(e, seen.get(e)!))); // older pins were ids alone
-  if (!pin[me]?.includes(pinId(kid, myKey().pub))) (pin[me] ??= []).push(pinId(kid, myKey().pub));
-  for (const k of st.keys) if (k.user !== me && !pin[k.user]) (pin[k.user] ??= []).push(pinId(k.kid, k.public_key)); // first sight: trust on first use
-  for (const m of st.missing) if (m.user !== me && m.first_device && !pin[m.user]?.length) (pin[m.user] ??= []).push(pinId(m.kid, m.public_key));
+  // This machine: pinned with its own signing key, never the one the server shows, which it checks.
+  const own = pinned(pin[me], kid, myKey().pub);
+  if (own !== pinId(kid, myKey().pub, mySignKey().pub)) pin[me] = [...(pin[me] ?? []).filter((e) => e !== own), pinId(kid, myKey().pub, mySignKey().pub)];
+  signMismatch(st.keys.find((k) => k.kid === kid));
+  firstSight(pin, me, st.keys, st.missing.filter((m) => m.first_device)); // a person never seen here: trust on first use
+  dropGone(pin, st.keys); // removed devices, and devices trusted through them (review #5524); st.keys is every live member device
+  crossSigned(pin, [...st.keys, ...st.missing]);
   if (JSON.stringify(pin) !== before) savePins(pin);
-  const trusted = (k: { kid: string; user: string; public_key: string }) => !!pin[k.user]?.includes(pinId(k.kid, k.public_key));
+  const trusted = (k: { kid: string; user: string; public_key: string }) => !!pinned(pin[k.user], k.kid, k.public_key);
   const skip = (k: DeviceKey) =>
     k.user === me
       ? warnOnce(k.kid, `🔑 A new device of yours (${k.label ?? "unnamed"}, ${k.kid.slice(0, 8)}) is waiting for this board's key. If it's yours: atteo keys approve ${k.kid}`)
-      : warnOnce(k.kid, `🔑 ${k.user} has a device this machine hasn't seen (${k.label ?? "unnamed"}, ${k.kid.slice(0, 8)}). It gets the key from one of ${k.user}'s own devices, not from here.`);
+      : noneLeft(pin, k.user)
+        ? warnOnce(k.kid, `⚠ None of ${k.user}'s devices this machine trusted is listed any more, and the server shows a new one (${k.label ?? "unnamed"}, ${k.kid}) that none of them signed. It could be the server's own, so it gets no key from here. ${atTerminal() ? `Check with ${k.user} (not on this board), then: atteo keys trust ${k.user} ${k.kid}` : `Only your user can trust it, in a terminal, after checking with ${k.user} (not on this board).`}`)
+        : warnOnce(k.kid, `🔑 ${k.user} has a device this machine hasn't seen (${k.label ?? "unnamed"}, ${k.kid.slice(0, 8)}). It gets the key from one of ${k.user}'s own devices, not from here.`);
 
   let current = st.current;
   if (current === 0 || st.rotate_needed) {
@@ -419,6 +453,7 @@ async function boardKeys(opt: Record<string, string | true>, board: string, trie
     .filter((m) => (trusted(m) ? true : (skip(m), false)))
     .flatMap((m) => m.epochs.filter((e) => keys.has(e)).map((e) => ({ epoch: e, kid: m.kid, ...wrapKey(keys.get(e)!, m.public_key) })));
   if (grants.length) await api(opt, "POST", `/api/boards/${board}/grants`, { grants }).catch(() => {}); // anyone else online can do it too
+  if (current > seenMax) saveEpochSeen(board, current);
   return { current, keys };
 }
 
@@ -447,7 +482,7 @@ export async function sealForBoard(opt: Record<string, string | true>, board: st
   return envelope(keys.get(current)!, current, text, extras);
 }
 
-async function encPost(opt: Record<string, string | true>, board: string, p: { type: string; text: string; to?: string; reply_to?: number; extras?: SealedExtras; files?: string[]; handoff?: (key: Buffer) => Record<string, unknown> }, tries = 0): Promise<{ seq: number }> {
+export async function encPost(opt: Record<string, string | true>, board: string, p: { type: string; text: string; to?: string; reply_to?: number; extras?: SealedExtras; files?: string[]; handoff?: (key: Buffer) => Record<string, unknown> }, tries = 0): Promise<{ seq: number }> {
   const { current, keys } = await boardKeys(opt, board);
   const payload = envelope(keys.get(current)!, current, p.text, p.extras);
   try {
@@ -462,7 +497,7 @@ async function encPost(opt: Record<string, string | true>, board: string, p: { t
 }
 
 const cursorFile = () => join(configDir(), "e2e-cursors.json");
-function cursors(): Record<string, number> {
+export function cursors(): Record<string, number> {
   try {
     return JSON.parse(readFileSync(cursorFile(), "utf8"));
   } catch {
@@ -470,8 +505,16 @@ function cursors(): Record<string, number> {
   }
 }
 
+/** Where this machine has read an encrypted board up to (shared by atteo read and atteo mcp). */
+export function saveCursor(board: string, seq: number) {
+  const cur = cursors();
+  if ((cur[board] ?? 0) >= seq) return;
+  mkdirSync(configDir(), { recursive: true, mode: 0o700 });
+  writeFileSync(cursorFile(), JSON.stringify({ ...cur, [board]: seq }), { mode: 0o600 });
+}
+
 /** The most entries GET /sealed returns in one call (Board.sealedAfter's default). */
-const SEALED_PAGE = 200;
+export const SEALED_PAGE = 200;
 
 export async function encEntries(opt: Record<string, string | true>, board: string, after: number) {
   const kid = await ensureKey(opt);
@@ -1241,7 +1284,7 @@ async function role(args: string[]) {
 }
 
 async function link(args: string[]) {
-  const { pos, opt } = parseArgs(args);
+  const { pos, opt } = parseArgs(args, ["with-key"]);
   const b = currentBoard(opt);
   if (pos[0] === "list") {
     const j = await api(opt, "GET", `/api/boards/${b}/links`);
@@ -1253,9 +1296,42 @@ async function link(args: string[]) {
     await api(opt, "DELETE", `/api/boards/${b}/links/${pos[1]}`);
     return say("Revoked.");
   }
-  const j = await api(opt, "POST", `/api/boards/${b}/links`, { role: optStr(opt, "role"), link_days: optStr(opt, "days"), member_days: optStr(opt, "access-days"), max_uses: optStr(opt, "uses") });
-  say(j.url);
+  // An encrypted board's link carries the board key after its "#" (E2E design §3.3), so whoever opens it reads at once.
+  // Only for a person at a terminal, or with --with-key (review #5527): an agent that runs this would otherwise have the
+  // board key in its context, and could post it.
+  const enc = await isEncrypted(opt, b);
+  const withKey = enc && (opt["with-key"] === true || !!process.stdout.isTTY);
+  const held = withKey ? (await boardKeys(opt, b)).keys : null;
+  const ik = held?.size ? inviteKey(held) : null;
+  if (enc && !withKey) process.stderr.write(`This link carries no board key (not a terminal): whoever joins gets the key from a member's device when one is next here. For a link with the key: atteo link --with-key\n`);
+  const j = await api(opt, "POST", `/api/boards/${b}/links`, {
+    role: optStr(opt, "role"),
+    link_days: optStr(opt, "days"),
+    member_days: optStr(opt, "access-days"),
+    max_uses: optStr(opt, "uses"),
+    invite_key: ik ? { public_key: ik.public_key, grants: ik.grants } : undefined,
+  });
+  say(j.url + (ik?.fragment ?? ""));
   process.stderr.write(`Anyone with this link who signs in joins as ${j.link.role}${j.link.member_days ? ` for ${j.link.member_days} days` : ""}. It works until ${j.link.expires_at ? day(j.link.expires_at) : "revoked"}${j.link.max_uses ? `, ${j.link.max_uses} times` : ""}. Revoke: atteo link revoke ${j.link.id}\n`);
+  if (ik) process.stderr.write(`🔑 It carries the board key (after the "#", which the server never sees): whoever opens it can read the board. Share it only with the person it's for.\n`);
+}
+
+/** Joins with an invite link (`atteo join <link>`); when it carries an encrypted board's key, this machine takes it at once. */
+export async function joinLink(opt: Record<string, string | true>, link: string): Promise<string> {
+  const m = link.match(/\/i\/(il_[A-Za-z0-9_-]+)(?:\?[^#]*)?(?:#k=([A-Za-z0-9_-]{43})\.([A-Za-z0-9_-]{43}))?$/);
+  if (!m) throw new CliError("That isn't an invite link.");
+  const { board } = await api(opt, "POST", "/api/links/redeem", { secret: m[1] });
+  if (!m[2]) return board;
+  const kid = await ensureKey(opt);
+  const st: EpochState = await api(opt, "GET", `/api/boards/${board}/epochs`);
+  if (st.mine.length) return board; // one of your devices reads it already and hands this one the key
+  const k = await api(opt, "POST", "/api/invite-keys", { secret: m[1] });
+  const keys = new Map((k.grants as ({ epoch: number } & WrappedKey)[]).map((g) => [g.epoch, unwrapInvite(g, m[2], k.public_key)] as const));
+  // Exactly the keys the inviter's link vouches for (review #5526), or none.
+  if (keysDigest(keys) !== m[3]) throw new CliError("Joined, but the board key the server gave for this link isn't the one the link vouches for, so this machine didn't take it. Tell the person who sent the link.");
+  const grants = [...keys].map(([epoch, key]) => ({ epoch, kid, ...wrapKey(key, myKey().pub) }));
+  await api(opt, "POST", `/api/boards/${board}/grants/invite`, { secret: m[1], grants });
+  return board;
 }
 
 async function auditCmd(args: string[]) {
@@ -1280,7 +1356,9 @@ async function auditCmd(args: string[]) {
 /** Registers this machine's public key (once; repeat calls are no-ops). Returns its id. */
 async function ensureKey(opt: Record<string, string | true>): Promise<string> {
   const { pub } = myKey();
-  const j = await api(opt, "POST", "/api/me/keys", { public_key: pub, label: hostname() });
+  const j = await api(opt, "POST", "/api/me/keys", { public_key: pub, label: hostname(), sign_pub: mySignKey().pub });
+  // The signing key is set only with proof this machine holds the device key: open the server's challenge, send it back.
+  if (j.sign_challenge) await api(opt, "POST", `/api/me/keys/${j.id}/sign-key`, { nonce: openProof(j.sign_challenge) });
   return j.id as string;
 }
 
@@ -1288,20 +1366,51 @@ async function keys(args: string[]) {
   const { pos, opt } = parseArgs(args);
   const mine = await ensureKey(opt);
   const j = await api(opt, "GET", "/api/me/keys");
+  signMismatch((j.keys as { id: string; sign_pub: string | null }[]).find((k) => k.id === mine));
   if (pos[0] === "approve") {
     // Your own new device (another machine, the web, the phone): this machine hands it the keys of your encrypted boards.
     const kid = pos[1];
-    const k = (j.keys as { id: string; label: string | null; public_key: string }[]).find((x) => x.id === kid || (kid && kid.length >= 6 && x.id.startsWith(kid)));
+    const k = (j.keys as { id: string; label: string | null; public_key: string; sign_pub: string | null; sig: string | null }[]).find((x) => x.id === kid || (kid && kid.length >= 6 && x.id.startsWith(kid)));
     if (!k) throw new CliError(`Usage: atteo keys approve <device id>   (one of yours: ${(j.keys as { id: string }[]).map((x) => x.id.slice(0, 8)).join(", ")})`);
+    if (k.id === mine) throw new CliError("That's this machine.");
+    await personConfirms("atteo keys approve", `Approve ${k.label ?? "that device"} (${k.id}) as one of yours? It gets the keys of your encrypted boards.`);
     const p = pins();
     const me = creds().user;
-    if (!p[me]?.includes(pinId(k.id, k.public_key))) (p[me] ??= []).push(pinId(k.id, k.public_key));
+    if (!pinned(p[me], k.id, k.public_key)) (p[me] ??= []).push(pinId(k.id, k.public_key, k.sign_pub));
     savePins(p);
-    return say(`Approved ${k.label ?? "that device"} (${k.id.slice(0, 8)}). It gets the keys of your encrypted boards the next time this machine reads or posts on them.`);
+    // Signed into your device list (E2E design §2.2): other members' devices can then hand it board keys too, and your
+    // encrypted boards show the change.
+    let signedNote = "";
+    if (!k.sig)
+      try {
+        await api(opt, "POST", `/api/me/keys/${k.id}/sign`, { by: mine, sig: signDevice(deviceSigned(me, k.id, k.public_key, k.sign_pub)) });
+        signedNote = " This machine signed it into your device list; your encrypted boards show the change.";
+      } catch (e) {
+        signedNote = ` (Not signed: ${(e as Error).message})`;
+      }
+    return say(`Approved ${k.label ?? "that device"} (${k.id.slice(0, 8)}). It gets the keys of your encrypted boards the next time this machine reads or posts on them.${signedNote}`);
   }
-  const ok = new Set(pins()[creds().user] ?? []);
-  if (json(opt)) return printJson({ keys: (j.keys as { id: string; public_key: string }[]).map((k) => ({ ...k, this_machine: k.id === mine, approved_here: ok.has(pinId(k.id, k.public_key)) })) });
-  for (const k of j.keys) say(`${k.id}  ${k.label ?? ""}${k.id === mine ? "  (this machine)" : ok.has(pinId(k.id, k.public_key)) ? "  (approved here)" : ""}  ${new Date(k.created_at).toISOString().slice(0, 10)}`);
+  if (pos[0] === "trust") {
+    // Someone else's device that nothing here vouches for (review #5558): only on the person's own word, checked
+    // outside the board. It's pinned on this machine, which hands it this board's keys from then on.
+    const [, whoRaw, kidArg] = pos;
+    const who = whoRaw?.replace(/^@/, "").toLowerCase();
+    const board = currentBoard(opt);
+    const st: EpochState = await api(opt, "GET", `/api/boards/${board}/epochs`);
+    const k = who && kidArg ? [...st.keys, ...st.missing].find((x) => x.user === who && (x.kid === kidArg || (kidArg.length >= 6 && x.kid.startsWith(kidArg)))) : undefined;
+    if (!k) throw new CliError("Usage: atteo keys trust <person> <device id> [--board <id>]   (a device of theirs this board lists; check it with them first)");
+    if (k.user === creds().user) throw new CliError(`That's one of yours: atteo keys approve ${k.kid}`);
+    await personConfirms("atteo keys trust", `Trust ${k.user}'s device ${k.label ?? "unnamed"} (${k.kid})? Only if ${k.user} told you, outside this board, that it's theirs.`);
+    const p = pins();
+    if (!pinned(p[k.user], k.kid, k.public_key)) (p[k.user] ??= []).push(pinId(k.kid, k.public_key, k.sign_pub));
+    savePins(p);
+    await boardKeys(opt, board);
+    return say(`Trusted ${k.user}'s device ${k.label ?? "unnamed"} (${k.kid}, key ${k.public_key.slice(0, 12)}…) on this machine: it has this board's keys now.`);
+  }
+  const mp = pins()[creds().user];
+  const ok = (k: { id: string; public_key: string }) => !!pinned(mp, k.id, k.public_key);
+  if (json(opt)) return printJson({ keys: (j.keys as { id: string; public_key: string }[]).map((k) => ({ ...k, this_machine: k.id === mine, approved_here: ok(k) })) });
+  for (const k of j.keys) say(`${k.id}  ${k.label ?? ""}${k.id === mine ? "  (this machine)" : ok(k) ? "  (approved here)" : ""}${k.sig ? "  signed" : ""}  ${new Date(k.created_at).toISOString().slice(0, 10)}`);
 }
 
 async function sealCmd(args: string[]) {
@@ -1451,6 +1560,18 @@ async function checkCmd(args: string[]) {
   const repo = repoRoot(process.cwd());
   const commit = optStr(opt, "commit") ?? (repo && !opt["any-commit"] ? resolveCommit(repo, "HEAD") ?? undefined : undefined);
   say(await tool(opt, "claim", { action: "check", seq, command, commit }));
+}
+
+/** A person at a keyboard: both ends are a terminal (an agent's tool call has neither). */
+const atTerminal = () => !!process.stdin.isTTY && !!process.stdout.isTTY;
+
+/**
+ * Trusting a device hands it keys, so it's a person's call (review #5567): in a terminal, with their yes. An agent is
+ * refused before anything changes, and isn't handed the exact command to pass on.
+ */
+async function personConfirms(what: string, question: string) {
+  if (!atTerminal()) throw new CliError(`${what} hands a device this board's keys, so a person has to run it in a terminal and say yes. Ask your user to do it themselves.`);
+  if (!(await askYes(question, false))) throw new CliError("Nothing changed.");
 }
 
 export function askYes(question: string, dflt: boolean): Promise<boolean> {

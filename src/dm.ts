@@ -105,7 +105,7 @@ export async function deliver(
   via: "agent" | "person",
   opts: { session?: string | null; toSession?: string | null; idem?: string } = {},
 ): Promise<{ board: string; seq: number }> {
-  const d = await social.openDirect(env, from, to, (bid, title, creator) => stub(bid).init(bid, title, creator));
+  const d = await social.openDirect(env, from, to, (bid, title, creator, opts) => stub(bid).init(bid, title, creator, opts));
   const mentions: Mention[] = opts.toSession && /^[a-z0-9][a-z0-9._-]{0,31}$/.test(opts.toSession) ? [{ user: to, agent: true, session: opts.toSession }] : [];
   const entry = await withRetry(async () => await stub(d.id).post(from, { type: "note", text, to, mentions, via, client: via === "agent" ? "dm" : null, session: opts.session ?? null, idem: opts.idem ?? crypto.randomUUID() }));
   await registry.bumpBoard(env, d.id, entry.seq).catch(() => {});

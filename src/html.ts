@@ -2715,9 +2715,12 @@ document.getElementById('acc-members').addEventListener('change',async e=>{const
   const body=s.dataset.acc==='role'?{role:s.value}:s.value==='keep'?null:{expires_days:+s.value};if(!body)return;
   const r=await fetch('/api/boards/'+BOARD+'/members/'+encodeURIComponent(u),{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)});const j=await r.json().catch(()=>({}));
   toast(r.ok?tr('Saved'):(j.error||tr('Could not save')));accLoad()});
-document.getElementById('link-make')?.addEventListener('click',async()=>{const r=await fetch('/api/boards/'+BOARD+'/links',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({role:document.getElementById('link-role').value,link_days:+document.getElementById('link-days').value,member_days:+document.getElementById('link-access').value})});
+document.getElementById('link-make')?.addEventListener('click',async()=>{
+  // An encrypted board's link carries the board key after its "#" (E2E design §3.3), so whoever opens it reads at once.
+  let ik=null;if(window.e2eInviteKey)try{ik=await e2eInviteKey()}catch(e){}
+  const r=await fetch('/api/boards/'+BOARD+'/links',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({role:document.getElementById('link-role').value,link_days:+document.getElementById('link-days').value,member_days:+document.getElementById('link-access').value,invite_key:ik?ik.invite_key:undefined})});
   const j=await r.json().catch(()=>({}));if(!r.ok){toast(j.error||tr('Could not create'));return}const box=document.getElementById('link-new');
-  box.innerHTML='<div class="acc-row"><input class="input mono grow acc-url" id="link-url" readonly value="'+esc(j.url)+'" aria-label="'+tr('Invite link')+'"><button class="btn sm" type="button" data-copy="link-url">'+tr('Copy')+'</button></div>';box.hidden=false;accLoad()});
+  box.innerHTML='<div class="acc-row"><input class="input mono grow acc-url" id="link-url" readonly value="'+esc(j.url+(ik?ik.fragment:''))+'" aria-label="'+tr('Invite link')+'"><button class="btn sm" type="button" data-copy="link-url">'+tr('Copy')+'</button></div>'+(ik?'<p class="xs faint">🔑 '+tr('This link carries the board key: anyone who opens it can read the board. Share it only with the person it is for.')+'</p>':'');box.hidden=false;accLoad()});
 document.addEventListener('click',async e=>{const b=e.target.closest('[data-link-revoke]');if(!b)return;const r=await fetch('/api/boards/'+BOARD+'/links/'+b.dataset.linkRevoke,{method:'DELETE'});toast(r.ok?tr('Link revoked'):tr('Could not revoke'));accLoad()});
 window.deleted=()=>{location.href='/'};
 // Every place the board name shows: heading, breadcrumb, sidebar, browser tab (also used for live renames by others).
