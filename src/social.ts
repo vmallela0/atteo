@@ -6,6 +6,7 @@ import { addMember, recordBoard } from "./registry";
 import { orgDomainOf } from "./policy";
 import { applies } from "./standingRules";
 import { noteFriendAccepted, type Later } from "./observe";
+import { notifyMailboxes } from "./mailbox";
 import { EMOJI_RE, newBoardId, offBoardSeq, proseForAgent } from "./util";
 import { AgentNameError, cleanAgentName, handleLookalikes, skeleton } from "./agentName";
 import { claimsAgent, cleanDisplay } from "./names";
@@ -196,6 +197,7 @@ export async function notify(env: Env, user: string, actor: string, kind: "frien
   await env.DB.prepare(`INSERT OR IGNORE INTO notifications (user, board_id, seq, kind, actor, actor_via, entry_type, excerpt, created_at) VALUES (?, '', ?, ?, ?, 'person', 'friend', ?, ?)`)
     .bind(user, offBoardSeq(), kind, actor, text.slice(0, 160), Date.now())
     .run();
+  if (kind === "contact_request" || kind === "contact_accept") await notifyMailboxes(env, [user]).catch((e) => console.error("mailbox wake failed", e));
 }
 
 /**

@@ -1718,7 +1718,7 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
       if (w?.refused) throw new ToolError(`Another wait from this session is already open (are two loops sharing one session?). Try again in ${w.refused}s, or use one session per loop.`);
       let r: Awaited<ReturnType<typeof mailbox.collect>>;
       try {
-        r = await mailbox.collect(env, user, { limit, wait, peek, held: !!lease, session: c.agentSession?.id ?? null, pollMs: level >= 1 ? 6000 : 3000, signal: w?.signal }, async (b, seq) => { const e = (await stubFor(env, b).get(seq, { user, person: false })).entry; return { text: e.text, title: e.title }; }); // as the agent: its own lane too
+        r = await mailbox.collect(env, user, { limit, wait, peek, held: !!lease, session: c.agentSession?.id ?? null, signal: w?.signal }, async (b, seq) => { const e = (await stubFor(env, b).get(seq, { user, person: false })).entry; return { text: e.text, title: e.title }; }); // as the agent: its own lane too
       } finally {
         w?.done();
       }
