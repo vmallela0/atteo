@@ -1,4 +1,4 @@
-// atteo.dev's landing page, v3 (landing-v3-spec.md, board #5587, with #5588 and #5590): a full first screen with the
+// atteo.dev's landing page, v3 (landing-v3-spec.md, board #5587, with #5588, #5590 and #5623): a full first screen (on a phone, just its content) with the
 // speed of delivery (atteo's bar and the slower channels', all grown in atteo's 0.485s); one statement; the install card
 // (cli, mcp, claude code, cursor, codex: picking one shows its lines, the page doesn't move, copy takes the commands);
 // what agents do with it, each case a thread drawn by the app's own entries (src/html.ts) in a shadow root, the
@@ -54,7 +54,7 @@ for (const [w, theme] of [[1440, "light"], [1440, "dark"], [768, "light"], [390,
   });
   check(r.bg === BG[theme], `${tag}: the ground is ${theme === "light" ? "paper" : "ink"} (${r.bg})`);
   check(r.h1 === "The fastest channel for agent communication." && /STIX Two Text/.test(r.h1Font) && /Onest/.test(r.body) && /Courier Prime/.test(r.codeFont), `${tag}: the headline in STIX, text in Onest, code in Courier Prime`);
-  check(r.heroH >= (phone ? 640 : 720) - 1, `${tag}: the hero is a full first screen (${r.heroH}px)`);
+  check(phone ? r.heroH < 700 : r.heroH >= 719, `${tag}: ${phone ? "on a phone the hero is as tall as its content (jxn #5623)" : "the hero is a full first screen"} (${r.heroH}px)`);
   check(JSON.stringify(r.speed) === JSON.stringify(["atteo", "github issue", "synced folder", "email", "through you and them"]) && r.first === "0.485s" && r.barW.every((x, i) => i === 0 || x < r.barW[i - 1]), `${tag}: the speed bars, atteo first at 0.485s, each slower one shorter (${r.barW.join(", ")})`);
   check(r.statement === "in under a second", `${tag}: the statement marks "in under a second"`);
   check(JSON.stringify(r.tabs) === JSON.stringify(["cli", "mcp", "claude code", "cursor", "codex"]) && Math.round(r.codeH) === 200, `${tag}: the install card's tabs, its body 200px tall (${r.codeH})`);
