@@ -4533,6 +4533,11 @@ await step("CLI login: device code, approve in the browser, token works once; de
   assert(got.status === "ok" && got.user === A && got.token.startsWith("ab_") && got.expires_at > Date.now() + 29 * 86400e3, JSON.stringify(got));
   has(await ok(got.token, board, "read"), `== "e2e ${run}" (`);
   assert((await (await poll()).json()).status === "used", "a code issues a token only once");
+  // an agent or CLI token can't approve a sign-in for itself (alt-c #5841)
+  const s3 = await (await fetch(`${BASE}/api/device/start`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" })).json();
+  const self = await fetch(`${BASE}/api/device/decide`, { method: "POST", headers: { authorization: `Bearer ${got.token}`, "content-type": "application/json" }, body: JSON.stringify({ user_code: s3.user_code, approve: true }) });
+  assert(self.status === 401 || self.status === 403, `a CLI token approving a sign-in got ${self.status}`);
+  assert((await fetch(`${BASE}/api/device/token`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ device_code: s3.device_code }) })).status === 428, "still pending after a token's try");
   // deny
   const s2 = await (await fetch(`${BASE}/api/device/start`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" })).json();
   await web("/api/device/decide", A, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ user_code: s2.user_code, approve: false }) });

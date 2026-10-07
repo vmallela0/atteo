@@ -1035,7 +1035,8 @@ const handler = {
         return devicePage(viewer, side, code, d);
       }
       if (path === "/api/device/decide" && method === "POST") {
-        if (!viewer) return needLogin();
+        // Only a person approves a sign-in: an agent or CLI token could otherwise mint itself a fresh 30-day token (alt-c #5841).
+        if (!viewer || viewer.via === "agent") return needLogin();
         const body = (await request.json().catch(() => ({}))) as { user_code?: string; approve?: boolean | string };
         const code = device.normalizeUserCode(body.user_code);
         if (!code) return json({ error: "That code doesn't look right. It's 8 letters, like BCDF-GHJK." }, 400);
