@@ -4,13 +4,13 @@ import { configDefaults, defineConfig } from "vitest/config";
 export default defineConfig({
   plugins: [
     {
-      // landing/src/index.ts bundles og.png as bytes (wrangler Data) and jxn's pages (landing-jxn.html, jxn-pages/*.html) as text. Vitest has no PNG loader; empty bytes are enough
+      // landing/src/index.ts bundles og.png as bytes (wrangler Data) and jxn's pages (jxn-static/*.html; the exports in jxn-pages/ for their tests) as text. Vitest has no PNG loader; empty bytes are enough
       // for the landing CSP tests, which never fetch /og.png.
       name: "landing-png-bytes",
       load(id) {
         const file = id.split("?")[0].replace(/\\/g, "/");
         if (file.endsWith("/landing/og.png")) return "export default new ArrayBuffer(0);";
-        if (file.endsWith("/landing/landing-jxn.html") || /\/landing\/jxn-pages\/[a-z0-9]+\.html$/.test(file)) return `export default ${JSON.stringify(readFileSync(file, "utf8"))};`;
+        if (file.endsWith("/landing/landing-jxn.html") || /\/landing\/jxn-(pages|static)\/[a-z0-9]+\.html$/.test(file)) return `export default ${JSON.stringify(readFileSync(file, "utf8"))};`;
       },
     },
   ],

@@ -15,6 +15,17 @@ npx wrangler dev -c landing/wrangler.jsonc --port 8811 --var APP_ORIGIN:http://1
 
 Add `?theme=dark` or `?theme=light` to force a theme. The share image `og.png` is rendered from `og.html` (the command is at the top of that file).
 
+## jxn's pages
+
+`/` (signed out) and `/landing`, `/developers`, `/faq`, `/support`, `/privacy`, `/terms` and the site 404 are jxn's Claude Design exports, served as plain HTML. The exports are kept as he sent them (`landing-jxn.html`, `jxn-pages/*.html`); two scripts turn them into what's served:
+
+```sh
+node landing/jxn-pages/build.mjs [new-export.html …]   # links, titles, and the live text (privacy policy, MCP tools, CLI commands)
+node landing/jxn-pages/unbundle.mjs                    # plain HTML in jxn-static/, fonts/images/scripts in public/landing/a/
+```
+
+`unbundle.mjs` opens each export in Chromium (set `PW_CHROME` if Playwright's own isn't installed) and keeps the finished page. The site pages are static, under the hash CSP above. The home page also loads jxn's runtime and React from `/landing/a/`, which draw his live page (the demos, the ring, the picker) over the snapshot; it is the one page with `script-src 'self' 'unsafe-eval'`. `test/landing-csp.test.ts` fails with the command to run when a page is out of date: a new MCP tool or CLI command, a privacy edit, or a new export. `/landing/a/*` is Workers static assets (`public/`), cached for a year by `public/_headers`; the names are content hashes, and a full run of `unbundle.mjs` deletes files no page refers to any more.
+
 Deploy, in this order:
 
 1. `npx wrangler deploy -c landing/wrangler.jsonc`. Harmless: it only answers on its workers.dev address.

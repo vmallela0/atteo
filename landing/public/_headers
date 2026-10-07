@@ -1,0 +1,4 @@
+# jxn's pages' files (landing/jxn-pages/unbundle.mjs): named by their content, so they never change under a name.
+/landing/a/*
+  Cache-Control: public, max-age=31536000, immutable
+  X-Content-Type-Options: nosniff
