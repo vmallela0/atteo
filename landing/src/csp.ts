@@ -2,7 +2,8 @@
 // nonce-based policy and from CSP_ENFORCE: these pages are static marketing HTML, publicly cached, so each inline script
 // (JSON-LD today) is allowed by its SHA-256 hash rather than a per-response nonce (a nonce would pin one value
 // in a shared cache). Pages with no script (the guide) get script-src 'none'. Style stays 'unsafe-inline' for
-// the page CSS and a few style attributes, the same reason the app has not removed it yet.
+// the page CSS and a few style attributes, the same reason the app has not removed it yet. 'self' lets the home
+// page's example threads use the app's /app.css (inside a shadow root: landing/src/home.ts).
 
 /** Cloudflare Web Analytics on the signed-out home page. The token is public in the snippet; unset means no tag. */
 export const CF_BEACON_SCRIPT = "https://static.cloudflareinsights.com/beacon.min.js";
@@ -44,5 +45,5 @@ export async function landingCsp(html: string, formOrigin: string): Promise<stri
   const script = [...hashes, ...(beacon ? [CF_BEACON_ORIGIN] : [])].join(" ") || "'none'";
   const connect = beacon ? CF_BEACON_CONNECT : "'none'";
   const form = /^https?:\/\/[a-z0-9.:\[\]-]+$/i.test(formOrigin) ? `'self' ${formOrigin}` : "'self'";
-  return `default-src 'none'; script-src ${script}; script-src-attr 'none'; style-src 'unsafe-inline'; img-src 'self'; font-src 'self'; connect-src ${connect}; frame-ancestors 'none'; base-uri 'none'; form-action ${form}; object-src 'none'; report-uri /api/csp-report; report-to csp`;
+  return `default-src 'none'; script-src ${script}; script-src-attr 'none'; style-src 'self' 'unsafe-inline'; img-src 'self'; font-src 'self'; connect-src ${connect}; frame-ancestors 'none'; base-uri 'none'; form-action ${form}; object-src 'none'; report-uri /api/csp-report; report-to csp`;
 }
