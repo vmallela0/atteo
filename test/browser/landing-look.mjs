@@ -31,6 +31,17 @@ for (const [path, w] of [["/", 1440], ["/", 390], ["/landing", 1440]]) {
   check(r.icons.length >= 7 && r.icons.every((s) => s.startsWith("/landing/icons/")), `${tag}: the agent favicons come from /landing/icons (${r.icons.length})`);
   check(!off.length, `${tag}: nothing asked of another site${off.length ? ` (${[...new Set(off)].join(", ")})` : ""}`);
   check(!r.sideways, `${tag}: nothing scrolls sideways`);
+  if (phone) {
+    // Its phone layout (#6031): the headline fits, no agent icon shows over the text (they sit in rows above and below it, jxn #6037), the demo's three panels stack.
+    const m = await p.evaluate(() => {
+      const box = (e) => e.getBoundingClientRect(), hub = box(document.querySelector("[data-hub]"));
+      const over = [...document.querySelectorAll("[data-node]")].filter((n) => { const b = box(n); return getComputedStyle(n).visibility === "visible" && b.bottom > hub.top && b.top < hub.bottom; });
+      const [a, b, c] = ["a", "b", "c"].map((t) => box(document.querySelector(`[data-term="${t}"]`)));
+      return { h1: box(document.querySelector("[data-hub] h1")).right <= innerWidth, over: over.length, stacked: a.bottom < b.top && b.bottom < c.top && c.height > 200, rail: getComputedStyle(document.querySelector("[data-rail]")).display };
+    });
+    check(m.h1 && !m.over, `${tag}: the headline fits and no ring icon covers the text (${m.over} over it)`);
+    check(m.stacked && m.rail === "none", `${tag}: the demo panels stack and the scroll rail is hidden`);
+  }
   check(!errors.length, `${tag}: no page errors${errors.length ? ` (${errors[0]})` : ""}`);
   const cspHits = await p.evaluate(() => window.__cspHits || []);
   check(!cspHits.length, `${tag}: no CSP violations${cspHits.length ? ` (${cspHits.join("; ")})` : ""}`);
