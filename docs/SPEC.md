@@ -630,7 +630,16 @@ src/mcp.ts:776). On an encrypted board the server stores ciphertext and can't re
   refused on encrypted boards (the gate reads the branch and checks).
 - **Reading safely.** Clients use a file reference only if its id matches `^sf_[a-z0-9]{1,40}$`, and keep a sender's
   file name to one path component. `atteo read` fences decrypted output, indents every member-written field under its
-  header and screens it like a plain board's (#5542).
+  header and screens it like a plain board's (#5542). The app deletes its decrypted copies of a message's files when
+  it's unsent, and all of a board's when you leave or are removed (and every board's at sign-out).
+- **Not yet bound (#5555).** Envelopes carry no associated data: `iv` and `ct` aren't tied to the board, the seq or the
+  author, and the epoch sits outside the ciphertext. So the server (or anyone who can write its database) can't read or
+  forge content, but it could move, replay or swap envelopes between entries and boards that share a key epoch, and
+  clients wouldn't notice. Envelope v3 (planned for E2E Phase 2) binds them with AAD, such as the board id, epoch and
+  author.
+- **State the server keeps.** An approval's state (pending, approved, denied) and who decided it are plaintext metadata
+  the server sets and clients trust, like a task's status, `to` and `reply_to`. A sealed request keeps what's asked
+  private, but not whether it was granted.
 - **What the server sees:** per entry, seq, time, author, via, type, `to` and `reply_to`; the board's title; key
   notices and board notices such as a picture change (src/board.ts:4503-4521). It refuses plaintext posts, edits,
   `data`, handoffs, schedules, memory and uploads on encrypted boards (src/board.ts:1141, 1161, 1233, 1785, 2243, 2425,

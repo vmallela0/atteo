@@ -230,9 +230,38 @@ final class BoardCrypto {
     /// when the message's id or the board isn't well-formed.
     nonisolated static func fileURL(board: String, _ f: SealedFile) -> URL? {
         guard isFileId(f.id), isBoardId(board) else { return nil }
-        return FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0].appendingPathComponent("sealed", isDirectory: true)
-            .appendingPathComponent(board, isDirectory: true).appendingPathComponent(f.id, isDirectory: true)
+        return sealedRoot.appendingPathComponent(board, isDirectory: true).appendingPathComponent(f.id, isDirectory: true)
             .appendingPathComponent(safeName(f.name), isDirectory: false)
+    }
+    nonisolated static var sealedRoot: URL {
+        FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0].appendingPathComponent("sealed", isDirectory: true)
+    }
+
+    /// Deletes this phone's decrypted copies of these files (an unsent message's), or all of a board's when `files` is
+    /// nil (you left it or were removed). A malformed board or id deletes nothing.
+    nonisolated static func wipe(board: String, files: [String]? = nil) {
+        guard isBoardId(board) else { return }
+        let dir = sealedRoot.appendingPathComponent(board, isDirectory: true)
+        guard let files else { try? FileManager.default.removeItem(at: dir); return }
+        for id in files where isFileId(id) { try? FileManager.default.removeItem(at: dir.appendingPathComponent(id, isDirectory: true)) }
+    }
+
+    /// The ids of the decrypted files a message shows from this phone (its copies at …/sealed/<board>/<id>/<name>).
+    /// Read from the path's end, since the app's container moves between launches.
+    nonisolated static func fileIds(of e: Entry, board: String) -> [String] {
+        ([e.local] + (e.attachments ?? []).map(\.local)).compactMap { $0 }.compactMap { p in
+            let c = URL(fileURLWithPath: p).pathComponents
+            guard c.count >= 4, c[c.count - 4] == "sealed", c[c.count - 3] == board, isFileId(c[c.count - 2]) else { return nil }
+            return c[c.count - 2]
+        }
+    }
+
+    /// Unsent messages' files: deleted from this phone. `list` has the unsends; `known` the messages they may unsend.
+    nonisolated static func wipeUnsent(board: String, in list: [Entry], known: [Entry]) {
+        let gone = Set(list.compactMap(\.retracts))
+        guard !gone.isEmpty else { return }
+        let ids = (list + known).filter { gone.contains($0.seq) }.flatMap { fileIds(of: $0, board: board) }
+        if !ids.isEmpty { wipe(board: board, files: ids) }
     }
 
     /// The file decrypted on this phone: from its cache, else downloaded (ciphertext) and decrypted here.
@@ -330,8 +359,9 @@ final class BoardCrypto {
         return SymmetricKey(data: try AES.GCM.open(box, using: kek(shared, epk: epk, devicePublic: publicKey)))
     }
 
-    /// Off a board (you left, or were removed): its keys go from memory and the Keychain.
-    func forget(board: String) { keys[board] = nil; SealedKeys.forget(board: board) }
+    /// Off a board (you left, were removed, it was deleted): its keys leave memory and the .e2e Keychain group, and
+    /// its decrypted files this phone.
+    func forget(board: String) { keys[board] = nil; SealedKeys.forget(board: board); Self.wipe(board: board) }
 
     /// The encrypted boards you're on now: any other board's keys go (AppState.refreshBoards).
     func keep(only boards: Set<String>) {
@@ -339,5 +369,11 @@ final class BoardCrypto {
         SealedKeys.keep(only: boards)
     }
 
-    func forget() { keys = [:]; SealedKeys.forgetAll(); UserDefaults.standard.removeObject(forKey: "agent-soup-device-kid") }
+    /// Signing out: every board key (the .e2e group) and every decrypted file go with the person.
+    func forget() {
+        keys = [:]
+        SealedKeys.forgetAll()
+        UserDefaults.standard.removeObject(forKey: "agent-soup-device-kid")
+        try? FileManager.default.removeItem(at: Self.sealedRoot)
+    }
 }
