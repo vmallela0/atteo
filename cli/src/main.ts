@@ -1537,7 +1537,7 @@ const HELP = `Atteo CLI ${VERSION} (the atteo command)
                          folder, busy/idle, and the session of ones atteo spawn started (never read from a process's environment). Sends only the count: Board info shows "you · <machine> · N agents running"
   atteo spawn N --board <board> [--agent claude|"<command>"] [--name worker] [--dir <folder>] [--permission-mode default]
                          Start N standing agents, each with its own session and folder (--dir: one of yours), that join the
-                         board and pick up unclaimed work. Detached; logs in ~/.config/agent-board/spawn/logs. The mode is
+                         board and pick up unclaimed work. Detached; logs in the CLI config folder (spawn/logs). The mode is
                          default, plan, acceptEdits or auto, set only here; flags that skip prompts are refused
     --listen             Opt in: when you, the person, write "@you's agent spawn 2" on a board, start them there and reply
                          in the thread. Follows your boards (never your mailbox). --max-per-request 3 --max-per-hour 6 --max-running 10
