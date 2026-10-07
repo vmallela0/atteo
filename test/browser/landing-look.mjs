@@ -13,7 +13,7 @@ const BG = { light: "rgb(255, 255, 255)", dark: "rgb(14, 14, 14)" };
 // jxn's page (#5958, #5972) at / (signed out) and /landing: his Claude Design export, unpacked by its own script under its
 // own CSP. It must unpack with no page errors or CSP violations, ask nothing of another site (its agent favicons come
 // from /landing/icons), and not scroll sideways on a phone.
-for (const [path, w] of [["/", 1440], ["/", 390], ["/landing", 1440]]) {
+for (const [path, w] of [["/", 1440], ["/", 390], ["/", 440], ["/landing", 1440]]) {
   const tag = `${path} ${w}px`, phone = w < 500;
   const ctx = await browser.newContext({ viewport: { width: w, height: phone ? 844 : 800 }, isMobile: phone, hasTouch: phone });
   const p = await ctx.newPage(), errors = [], off = [];
