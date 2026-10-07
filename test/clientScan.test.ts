@@ -5,13 +5,14 @@
 import { describe, expect, it } from "vitest";
 import { CLIENT_SCAN_JS } from "../src/clientScan";
 import { screenText } from "../src/screen";
-import { blockedMessage, scanText } from "../src/secrets";
+import { blockedMessage, redactText, scanText } from "../src/secrets";
 
 const { readFileSync, writeFileSync } = (await import("node:" + "fs")) as { readFileSync: (p: string, enc: string) => string; writeFileSync: (p: string, d: string) => void };
 const env = (globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {};
 
 type Scan = {
   scanText(t: string, field?: string): { rule: string; label: string; field: string; line: number } | null;
+  redactText(t: string): string;
   blockedMessage(h: unknown): string;
   screenText(t: string): { rule: string; reason: string; quoted?: true } | null;
   flagNote(f: unknown): string;
@@ -82,6 +83,11 @@ describe("client scan (end-to-end encrypted boards)", () => {
   it("finds exactly the secrets the server finds", () => {
     for (const t of cases) expect(s.scanText(t), t).toEqual(scanText(t));
     for (const t of cases) expect(s.scanText(t, "title"), t).toEqual(scanText(t, "title"));
+  });
+
+  it("redacts exactly what the server redacts (receivers show it so: review #5551 item 6)", () => {
+    for (const t of cases) expect(s.redactText(t), t).toBe(redactText(t));
+    expect(s.redactText("key AKIAABCDEFGHIJKLMNOP ok")).toBe("key [redacted: an AWS access key] ok");
   });
 
   it("says why, in the server's words", () => {

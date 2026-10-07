@@ -104,9 +104,12 @@ enum SealedOpen {
 enum PushContent {
     struct Shown: Equatable { let title: String; let body: String }
 
-    static func decrypted(_ info: [AnyHashable: Any], key: (String, Int) -> SymmetricKey?, title: (String) -> String?) -> Shown? {
-        guard let board = info["board"] as? String, let sealed = info["sealed"] as? String,
-              let text = SealedOpen.open(sealed, key: { key(board, $0) }) else { return nil }
+    /// The words are checked as the app checks them (review #5551 item 6): a credential shows redacted, and text that
+    /// reads like instructions to an agent starts with ⚠. Without the rules (`scan` nil) nothing readable shows.
+    static func decrypted(_ info: [AnyHashable: Any], key: (String, Int) -> SymmetricKey?, title: (String) -> String?, scan: ScanRules?) -> Shown? {
+        guard let scan, let board = info["board"] as? String, let sealed = info["sealed"] as? String,
+              let plain = SealedOpen.open(sealed, key: { key(board, $0) }) else { return nil }
+        let text = (scan.flag(plain) != nil ? "⚠ " : "") + scan.redact(plain)
         let body = text.count > 180 ? String(text.prefix(179)) + "…" : text
         return Shown(title: title(board) ?? "", body: body)
     }

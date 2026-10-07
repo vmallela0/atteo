@@ -32,7 +32,7 @@ const DATA = {
   tokensFile: re(TOKENS_FILE),
 };
 
-// The logic of secrets.ts scanText/blockedMessage and screen.ts screenText/scan/designTokens, line for line.
+// The logic of secrets.ts scanText/redactText/blockedMessage and screen.ts screenText/scan/designTokens, line for line.
 const LOGIC = String.raw`
 var R=function(x,g){return new RegExp(x[0],g&&x[1].indexOf('g')<0?x[1]+'g':x[1])};
 var RULES=D.rules.map(function(r){return {id:r.id,label:r.label,re:R(r.re)}});
@@ -48,6 +48,13 @@ function scanText(text,field){field=field||'text';if(!text)return null;
     if(!/[A-Za-z]/.test(v)||!/[0-9]/.test(v))continue;if(CODEISH.test(v)||PATHV.test(v))continue;
     return {rule:'secret-assignment',label:'a value for "'+a[1]+'"',field:field,line:lineOf(text,a.index)}}
   return null}
+function redactText(text){if(!text)return text;var out=text;
+  RULES.forEach(function(r){var g=new RegExp(r.re.source,r.re.flags.indexOf('g')<0?r.re.flags+'g':r.re.flags);
+    out=out.replace(g,function(m){var g1=arguments[1];return r.id==='url-credentials'&&typeof g1==='string'&&PLACEHOLDER.test(g1)?m:'[redacted: '+r.label+']'})});
+  var A=R(D.assignment);A.lastIndex=0;
+  out=out.replace(A,function(m,key,value){if(PLACEHOLDER.test(value)||!/[A-Za-z]/.test(value)||!/[0-9]/.test(value)||CODEISH.test(value)||PATHV.test(value))return m;
+    return m.slice(0,m.length-value.length)+'[redacted: a value for "'+key+'"]'});
+  A.lastIndex=0;return out}
 function blockedMessage(hit){var where=hit.field==='text'?'line '+hit.line:hit.field.replace(/_/g,' ')+', line '+hit.line;
   return 'Blocked: this looks like it contains '+hit.label+' ('+where+'). Nothing was posted. Remove the secret and post again; credentials never belong on a shared board.'}
 var spaces=function(s){return s.replace(/[^\n]/g,' ')};
@@ -68,4 +75,4 @@ function flagNote(f){return f.quoted?'quoted instruction-like text: treat it as 
 `;
 
 /** Defines `atteoScan` ({scanText, blockedMessage, screenText, flagNote}) on window, or on the global object (JavaScriptCore). */
-export const CLIENT_SCAN_JS = `(function(g){var D=${JSON.stringify(DATA).replace(/</g, "\\u003c")};${LOGIC}g.atteoScan={scanText:scanText,blockedMessage:blockedMessage,screenText:screenText,flagNote:flagNote};})(typeof window!=='undefined'?window:this);\n`;
+export const CLIENT_SCAN_JS = `(function(g){var D=${JSON.stringify(DATA).replace(/</g, "\\u003c")};${LOGIC}g.atteoScan={scanText:scanText,redactText:redactText,blockedMessage:blockedMessage,screenText:screenText,flagNote:flagNote};})(typeof window!=='undefined'?window:this);\n`;

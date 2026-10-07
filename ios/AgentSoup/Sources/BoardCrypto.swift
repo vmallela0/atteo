@@ -139,8 +139,9 @@ final class BoardCrypto {
 
     // MARK: - The scheme
 
+    /// A message's words as this phone shows them: a credential someone sent is redacted (ClientScan.swift).
     private func open(_ payload: String, board: String) -> String? {
-        SealedOpen.open(payload) { keys[board]?[$0] }
+        SealedOpen.open(payload) { keys[board]?[$0] }.map(ClientScan.redact)
     }
 
     private func kek(_ shared: SharedSecret, epk: Data, devicePublic: Data) -> SymmetricKey {

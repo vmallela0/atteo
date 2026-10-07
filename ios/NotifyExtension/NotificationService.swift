@@ -14,7 +14,7 @@ final class NotificationService: UNNotificationServiceExtension {
         let c = (request.content.mutableCopy() as? UNMutableNotificationContent) ?? UNMutableNotificationContent()
         content = c
         let names = PushNames.all()
-        if let shown = PushContent.decrypted(request.content.userInfo, key: { SealedKeys.read(board: $0, epoch: $1) }, title: { names[$0] }) {
+        if let shown = PushContent.decrypted(request.content.userInfo, key: { SealedKeys.read(board: $0, epoch: $1) }, title: { names[$0] }, scan: ScanRules()) {
             c.title = shown.title
             c.body = shown.body
         }

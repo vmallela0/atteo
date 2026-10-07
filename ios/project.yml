@@ -65,6 +65,7 @@ targets:
       - path: Shared
         excludes:
           - SealedOpen.swift # board keys: the app and AtteoNotify only
+          - ScanRules.swift
       - path: AgentSoup/Resources/Fonts/Onest-Regular.ttf
         buildPhase: resources
       - path: AgentSoup/Resources/Fonts/Onest-Medium.ttf
@@ -91,6 +92,9 @@ targets:
     sources:
       - NotifyExtension
       - Shared/SealedOpen.swift
+      - Shared/ScanRules.swift # a push's words are checked as the app checks them
+      - path: AgentSoup/Resources/ClientScan.js
+        buildPhase: resources
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: $(ATTEO_BUNDLE_ID).notify
