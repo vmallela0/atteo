@@ -2767,7 +2767,7 @@ await step("checklist lines that mention #N tick themselves when #N is done or a
   assert((await (await web(`/api/boards/${fb}/tasks/${l}`, A)).json()).task.status === "todo", "ticking lines doesn't finish the task");
 });
 
-await step("plans: Free caps boards you create; a signed Stripe webhook upgrades to Pro and back; checkout opens", async () => {
+await step("plans: free for now (no caps), or Free caps boards you create; a signed Stripe webhook upgrades to Pro and back; checkout opens", async () => {
   const whsec = process.env.STRIPE_WEBHOOK_SECRET ?? (() => { try { return readFileSync(new URL("../.dev.vars", import.meta.url), "utf8").match(/^STRIPE_WEBHOOK_SECRET=(.*)$/m)?.[1]; } catch { return undefined; } })();
   const C = `e2e-cap-${run}`;
   await ops("users", { name: C, email: `${C}@example.com`, verified: "true" });
@@ -2775,25 +2775,31 @@ await step("plans: Free caps boards you create; a signed Stripe webhook upgrades
   const create = (title) => fetch(`${BASE}/boards`, { method: "POST", redirect: "manual", headers: { cookie: cc, "content-type": "application/x-www-form-urlencoded" }, body: `title=${encodeURIComponent(title)}` });
   const made = (r) => r.status === 302 || r.status === 303;
   for (let i = 1; i <= 3; i++) assert(made(await create(`e2e cap ${i} ${run}`)), `board ${i}`);
-  const fourth = await create(`e2e cap 4 ${run}`);
-  const room = await fourth.text();
-  assert(fourth.status === 402 && room.includes("Free plan") && room.includes("Archive it"), `4th board on Free: ${fourth.status}`);
-  // Archive one right there and the new board is made; the archived one stays readable.
-  const first = room.match(/name="archive" value="(b_[a-z0-9]+)"/)[1];
-  const made4 = await fetch(`${BASE}/boards`, { method: "POST", redirect: "manual", headers: { cookie: cc, "content-type": "application/x-www-form-urlencoded" }, body: `title=${encodeURIComponent(`e2e cap 4 ${run}`)}&archive=${first}` });
-  assert(made(made4) && /\/b\/b_/.test(made4.headers.get("location") ?? ""), `archive-and-create: ${made4.status}`);
-  const old = await fetch(`${BASE}/b/${first}`, { headers: { cookie: cc } });
-  const oldHtml = await old.text();
-  assert(old.status === 200 && oldHtml.includes("Archived"), "the archived board is still readable");
-  // A deleted board doesn't count toward the cap either: at 3 active, delete one and a new board is allowed.
-  const five = await create(`e2e cap 5 ${run}`);
-  assert(five.status === 402, `at the cap again: ${five.status}`);
-  const victim = (await five.text()).match(/name="archive" value="(b_[a-z0-9]+)"/)[1];
-  assert((await fetch(`${BASE}/api/boards/${victim}`, { method: "DELETE", headers: { cookie: cc } })).status === 200, "delete frees a slot");
-  assert(made(await create(`e2e cap 5 ${run}`)), "a deleted board isn't counted");
-  // Someone else's board can't be archived through this.
-  const notMine = await fetch(`${BASE}/boards`, { method: "POST", redirect: "manual", headers: { cookie: cc, "content-type": "application/x-www-form-urlencoded" }, body: `title=x&archive=${board}` });
-  assert(notMine.status === 400, `archiving a board you didn't make: ${notMine.status}`);
+  // Free for now (jxn #5636, FREE_FOR_NOW unset): no cap and nothing to buy (test/browser/free-for-now.mjs checks the
+  // page). The caps below run only on a server with FREE_FOR_NOW=0.
+  const freeNow = /free for now/i.test(await (await fetch(`${BASE}/me`, { headers: { cookie: cc } })).text());
+  if (freeNow) assert(made(await create(`e2e cap 4 ${run}`)), "free for now: a 4th board is made");
+  if (!freeNow) {
+    const fourth = await create(`e2e cap 4 ${run}`);
+    const room = await fourth.text();
+    assert(fourth.status === 402 && room.includes("Free plan") && room.includes("Archive it"), `4th board on Free: ${fourth.status}`);
+    // Archive one right there and the new board is made; the archived one stays readable.
+    const first = room.match(/name="archive" value="(b_[a-z0-9]+)"/)[1];
+    const made4 = await fetch(`${BASE}/boards`, { method: "POST", redirect: "manual", headers: { cookie: cc, "content-type": "application/x-www-form-urlencoded" }, body: `title=${encodeURIComponent(`e2e cap 4 ${run}`)}&archive=${first}` });
+    assert(made(made4) && /\/b\/b_/.test(made4.headers.get("location") ?? ""), `archive-and-create: ${made4.status}`);
+    const old = await fetch(`${BASE}/b/${first}`, { headers: { cookie: cc } });
+    const oldHtml = await old.text();
+    assert(old.status === 200 && oldHtml.includes("Archived"), "the archived board is still readable");
+    // A deleted board doesn't count toward the cap either: at 3 active, delete one and a new board is allowed.
+    const five = await create(`e2e cap 5 ${run}`);
+    assert(five.status === 402, `at the cap again: ${five.status}`);
+    const victim = (await five.text()).match(/name="archive" value="(b_[a-z0-9]+)"/)[1];
+    assert((await fetch(`${BASE}/api/boards/${victim}`, { method: "DELETE", headers: { cookie: cc } })).status === 200, "delete frees a slot");
+    assert(made(await create(`e2e cap 5 ${run}`)), "a deleted board isn't counted");
+    // Someone else's board can't be archived through this.
+    const notMine = await fetch(`${BASE}/boards`, { method: "POST", redirect: "manual", headers: { cookie: cc, "content-type": "application/x-www-form-urlencoded" }, body: `title=x&archive=${board}` });
+    assert(notMine.status === 400, `archiving a board you didn't make: ${notMine.status}`);
+  }
   if (!whsec) return console.log("      (no STRIPE_WEBHOOK_SECRET here: skipped the webhook part)");
   const event = (type, status) => JSON.stringify({ type, data: { object: { id: `sub_${run}`, customer: `cus_${run}`, status, cancel_at_period_end: false, current_period_end: Math.floor(Date.now() / 1000) + 30 * 86400, metadata: { user: C } } } });
   const send = async (body, secret = whsec) => {
@@ -2804,9 +2810,10 @@ await step("plans: Free caps boards you create; a signed Stripe webhook upgrades
   };
   assert((await send(event("customer.subscription.updated", "active"), "whsec_wrong")).status === 400, "forged webhook rejected");
   assert((await send(event("customer.subscription.created", "active"))).status === 200, "webhook accepted");
-  assert(made(await create(`e2e cap 4 ${run}`)), "Pro lifts the board limit");
+  if (!freeNow) assert(made(await create(`e2e cap 4 ${run}`)), "Pro lifts the board limit");
   { const pg = await (await fetch(`${BASE}/me`, { headers: { cookie: cc } })).text(); assert(/You(?:'|&#39;)re on <b>Pro/.test(pg), "Account shows Pro"); } // the page escapes the apostrophe (i18n)
   await send(event("customer.subscription.deleted", "canceled"));
+  if (freeNow) return; // nothing to buy: checkout is refused (test/browser/free-for-now.mjs)
   assert((await create(`e2e cap 5 ${run}`)).status === 402, "back on Free after cancelling");
   // Checkout opens a Stripe-hosted page. Only against a local server: production uses live keys.
   if (!/localhost|127\.0\.0\.1/.test(BASE)) return;

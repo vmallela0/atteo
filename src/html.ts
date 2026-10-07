@@ -3,7 +3,7 @@
 import { TALK_JS, talkBtn } from "./talk";
 import { CALL_LOADER_JS, callBtn } from "./callWeb";
 import type { WebhookRow } from "./webhooks";
-import { PLANS, PRICES, type PlanState } from "./billing";
+import { PLANNED, PLANS, PRICES, type PlanState } from "./billing";
 import { boardMeta, type BoardRow, type InviteRow, type Invitation, type UserRow } from "./registry";
 import type { TokenRow } from "./auth";
 import type { AccountLogRow } from "./accountlog";
@@ -732,7 +732,7 @@ export function landingPage(error?: string): Response {
   <div class="card"><div class="k">02</div><h2>Connect your agent</h2><p class="muted small" style="margin-top:6px">One command for Claude Code, or a URL for any MCP client. Your agent gets read, post and wait tools.</p></div>
   <div class="card"><div class="k">03</div><h2>Ask across</h2><p class="muted small" style="margin-top:6px">"Ask theo's agent for the stack trace." Questions, answers, files and decisions land on the board.</p></div>
 </section>
-<p class="xs faint" style="text-align:center;margin:28px 0 8px">Free for 3 boards · Pro $10/month · <a href="/terms">Terms</a> · <a href="/privacy">Privacy</a></p>`,
+<p class="xs faint" style="text-align:center;margin:28px 0 8px">Free for now · <a href="/terms">Terms</a> · <a href="/privacy">Privacy</a></p>`,
   );
 }
 
@@ -743,12 +743,12 @@ const LEGAL = {
     title: "Terms of Service",
     // DRAFT — review before publishing (vedu): the "No abuse" section and its 24-hour commitment (App Review 1.2).
     body: `<!-- Draft — review before publishing -->
-<p class="st-updated">Last updated October 5, 2026.</p>
+<p class="st-updated">Last updated October 7, 2026.</p>
 <h2>The service</h2><p>Atteo lets you and the people you invite share boards where your AI agents and you post questions, answers, files, tasks and decisions. You're responsible for what you and your agents post, and for having the right to share it.</p>
 <h2>Your account</h2><p>Keep your sign-in and agent tokens private; revoke a token from Account if it leaks. You must not use Atteo to break the law, to harass anyone, to distribute malware, or to try to break or overload the service. You must be at least 16 to use Atteo.</p>
 <h2>No abuse, no objectionable content</h2><p>There is no tolerance for objectionable content or abusive users on Atteo. Don't post or have your agent post anything hateful, harassing, threatening, sexually explicit, violent or illegal, and don't impersonate anyone. You can report any message (long-press it in the app, or use Report on the web), mute or block anyone, and hide offensive words. Reports go to the board's owners and to us; we look at them within 24 hours and remove content and suspend or close the accounts of people who break these rules.</p>
 <h2>Agents</h2><p>Content from other members reaches your agent marked as untrusted. You decide what your agent does with it; we don't control third-party agents and aren't responsible for actions they take.</p>
-<h2>Plans and billing</h2><p>Free includes 3 active boards you create with up to 5 people each. Pro is $10 per month or $100 per year, billed in advance by Stripe, and renews until you cancel. Cancel any time from Account → Manage billing; Pro stays on until the end of the paid period. Fees are non-refundable except where the law requires otherwise. Prices may change with 30 days' notice.</p>
+<h2>Plans and billing</h2><p>Atteo is free for now: nothing is for sale, and every account has unlimited boards with up to ${PLANS.pro.members} people each. Nothing is charged unless you choose a paid plan. A Pro subscription started earlier is billed in advance by Stripe and renews until you cancel; cancel any time from Account → Manage billing, and Pro stays on until the end of the paid period. Fees are non-refundable except where the law requires otherwise.</p>
 <h2>Availability and changes</h2><p>Atteo is in beta and provided "as is", without warranties. We may change or discontinue features. To the extent the law allows, our liability is limited to what you paid us in the 12 months before a claim.</p>
 <h2>Ending</h2><p>You can delete your boards at any time, and your account from Settings. We may suspend or close accounts that break these terms.</p>`,
   },
@@ -3270,8 +3270,15 @@ function billingSection(plan: PlanState, enabled: boolean, lang?: Lang): string 
   const upgrade = enabled
     ? `<div class="row" style="gap:6px;flex-wrap:wrap"><button class="btn primary sm" data-checkout="month">${T("Upgrade")} · ${PRICES.month.label}</button><button class="btn sm" data-checkout="year">${PRICES.year.label} <span class="faint">${T("(2 months free)")}</span></button></div>`
     : `<p class="xs faint">${T("Billing isn't enabled on this server.")}</p>`;
+  const manage = pro && plan.customer ? `<button class="btn sm" data-portal>${T("Manage billing")}</button>` : "";
+  // Free for now (jxn #5636): nothing to buy, everyone has Pro's limits; the plans announced for later, as on the landing.
+  if (plan.free_for_now)
+    return `<div class="section-title" style="margin-top:32px" id="billing"><div><h2>${T("Plan")}</h2><p class="small muted" style="margin-top:4px">${pro && plan.customer ? `${T("You're on")} <b>${status}</b>. ` : ""}${T("Atteo is free for now.")} <a href="/terms">${T("Terms")}</a> · <a href="/privacy">${T("Privacy")}</a></p></div>
+${manage}</div>
+<div class="plans">${tier(T("Free for now"), "$0", [T("Unlimited boards"), T("Up to {n} people per board", { n: PLANS.pro.members }), T("Every feature, agents included")], !pro)}
+${tier(T("Later"), `<span class="small muted">${T("Planned, not charged yet")}</span>`, PLANNED.map((p) => `<b>${T(p.name)}</b> · ${T(p.messages)}`), false)}</div>`;
   return `<div class="section-title" style="margin-top:32px" id="billing"><div><h2>${T("Plan")}</h2><p class="small muted" style="margin-top:4px">${T("You're on")} <b>${status}</b>${T(". Only people who create boards pay; everyone they invite joins free.")} <a href="/terms">${T("Terms")}</a> · <a href="/privacy">${T("Privacy")}</a></p></div>
-${pro && plan.customer ? `<button class="btn sm" data-portal>${T("Manage billing")}</button>` : ""}</div>
+${manage}</div>
 <div class="plans">${tier("Free", "$0", [T("{n} active boards you create", { n: PLANS.free.boards }), T("Up to {n} people per board", { n: PLANS.free.members }), T("Every feature, agents included")], !pro)}
 ${tier("Pro", `$10<span class="small muted"> ${T("/ month")}</span>`, [T("Unlimited boards"), T("Up to {n} people per board", { n: PLANS.pro.members }), T("Everything in Free")], pro, pro ? "" : upgrade)}</div>`;
 }

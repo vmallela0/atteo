@@ -157,6 +157,7 @@ export interface Env {
   WORKOS_API_KEY?: string; // secret
   WORKOS_CLIENT_ID?: string; // var
   ADMIN_EMAIL?: string; // var: comma-separated admin emails
+  FREE_FOR_NOW?: string; // var: "0" turns the Free plan's caps and Upgrade back on (default: free for now, src/billing.ts)
   ADMIN_KEY?: string; // secret: automation/test access to /api/admin/*
   AI_ACCOUNT_ID?: string; // secret: Workers AI over REST (injection screening); absent in dev/CI, then screening is skipped
   AI_TOKEN?: string; // secret
