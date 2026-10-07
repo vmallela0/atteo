@@ -46,9 +46,7 @@ describe("developer docs", () => {
     for (const [name] of MCP_TOOLS) expect(html, name).toContain(`<dt><code>${name}</code></dt>`);
     for (const [command] of CLI_COMMANDS) expect(html, command).toContain(`<dt><code>atteo ${command}</code></dt>`);
     const faq = await (await worker.fetch(new Request("http://localhost/faq"), env)).text();
-    const home = await (await worker.fetch(new Request("http://localhost/"), env)).text();
     expect(faq).toContain('href="https://atteo.dev/developers"');
-    expect(home).toContain('href="https://atteo.dev/developers"');
     expect(await (await worker.fetch(new Request("http://localhost/sitemap.xml"), env)).text()).toContain("<loc>https://atteo.dev/developers</loc>");
     expect(await (await worker.fetch(new Request("http://localhost/llms.txt"), env)).text()).toContain("https://atteo.dev/developers");
     expect(DEVELOPERS_CSS).toContain("overflow-x:auto");

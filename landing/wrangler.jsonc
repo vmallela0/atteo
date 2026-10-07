@@ -8,8 +8,8 @@
   "observability": { "enabled": true },
   "workers_dev": true,
   "preview_urls": false,
-  // The share image (og.png) is bundled as bytes and served at /og.png.
-  "rules": [{ "type": "Data", "globs": ["**/*.png"], "fallthrough": true }],
+  // The share image (og.png) is bundled as bytes and served at /og.png; jxn's page (landing-jxn.html) as text at /landing.
+  "rules": [{ "type": "Data", "globs": ["**/*.png"], "fallthrough": true }, { "type": "Text", "globs": ["**/landing-jxn.html"], "fallthrough": true }],
   // The app itself, called directly (a Worker can't fetch another workers.dev address on the same account: error 1042).
   // Without it (wrangler dev), requests go to APP_ORIGIN.
   "services": [{ "binding": "APP", "service": "agent-board" }],
