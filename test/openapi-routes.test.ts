@@ -32,6 +32,10 @@ const MATCH_ROUTES: Record<string, Route[]> = {
     { method: "GET", path: "/api/boards/{id}/spend" },
     { method: "POST", path: "/api/boards/{id}/usage" },
   ],
+  "\\/api\\/boards\\/(b_[a-z0-9]+)\\/approval-rules(?:\\/([a-z_]+))?$": [
+    { method: "GET", path: "/api/boards/{id}/approval-rules" },
+    { method: "PUT", path: "/api/boards/{id}/approval-rules/{category}" },
+  ],
   "\\/api\\/boards\\/(b_[a-z0-9]+)\\/mutes(?:\\/([^/]+))?$": [
     { method: "GET", path: "/api/boards/{id}/mutes" },
     { method: "POST", path: "/api/boards/{id}/mutes" },

@@ -24,6 +24,7 @@
  "social": 6,
  "access": 8,
  "approvals": 5,
+ "approval-rules": 5,
  "claims": 6,
  "connect": 5,
  "sumchk": 2,

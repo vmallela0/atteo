@@ -476,6 +476,8 @@ a.ev-acct:hover{background:var(--bg-subtle)}
 .ch-classes{display:flex;flex-wrap:wrap;gap:4px}.ch-members{list-style:none;margin:0;padding:0}.ch-members li{font-size:13px;padding:2px 0}
 #ch-form:not([hidden]),#ch-notes{display:flex;flex-direction:column;gap:8px;margin-top:8px}.ch-note{display:flex;align-items:center;gap:8px}.ch-note .xs{width:7em;flex:none}
 .ch-err{color:var(--danger);min-height:1em;margin:0}#ch-form .lbl{margin:0}
+/* Board info → Approval rules */
+.ar-table{width:100%;border-collapse:collapse;font-size:12px}.ar-table th,.ar-table td{text-align:left;vertical-align:top;padding:7px 4px;border-bottom:1px solid var(--line)}.ar-table th{width:42%;font-weight:500}.ar-table thead th{font-size:11px;color:var(--faint);font-weight:400}.ar-table td{min-width:0}.ar-table .ar-mode{width:100%;font-size:12px;padding:4px}.ar-limit{display:flex;align-items:center;gap:3px;margin-top:5px;color:var(--muted)}.ar-threshold{width:76px;font-size:12px;padding:4px}.ar-save{margin-top:5px}.ar-by{display:block;margin-top:3px}.ar-error{color:var(--danger);min-height:1em;margin:5px 0 0}
 .kill{display:flex;align-items:center;gap:14px;margin-top:12px;padding:12px 14px;border:1px solid color-mix(in srgb,var(--intervene) 40%,var(--line));border-radius:var(--r)}.kill b{color:var(--ink);font-size:13px}.kill p{margin:2px 0 0}
 .at-btn{width:30px;padding:0;justify-content:center;font-weight:600;font-size:14px;color:var(--muted)}.at-btn:hover{color:var(--ink)}
 /* quotes (forwarded messages) */

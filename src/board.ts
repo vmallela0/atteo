@@ -2252,7 +2252,7 @@ export class Board extends DurableObject<Env> {
     }
     const e = await this.post(
       ref.user,
-      { type: "approval", title: "Approval request", text: `Approval requested: ${ref.title} (waiting for ${ref.user} to decide)`, reply_to: 0, via: "agent", client: opts.client, session: opts.session },
+      { type: "approval", title: "Approval request", text: ref.rule_name ? `Approved by board rule: ${ref.title} (${ref.rule_name}, set by ${ref.rule_set_by})` : `Approval requested: ${ref.title} (waiting for ${ref.user} to decide)`, reply_to: 0, via: "agent", client: opts.client, session: opts.session },
       { approval: ref, notice: true },
     );
     this.sql.exec("INSERT OR REPLACE INTO approval_entries (id, seq, user) VALUES (?, ?, ?)", ref.id, e.seq, ref.user);
