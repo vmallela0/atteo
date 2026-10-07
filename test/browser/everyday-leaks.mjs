@@ -2,8 +2,8 @@
 // Everyday leak audit (#1527): what Everyday mode re-words on the page ("Q's assistant", "to-do", "Chat", "Add", the
 // composer's placeholder) never goes back out. Runs as a person in Everyday (no coding agent connected = Everyday by
 // default). Quoting an agent's message posts "— q's agent, #N", not "assistant"; typing "@q's assistant" (the word
-// Everyday shows) reaches q's agent, like "@q's agent"; a renamed agent keeps Everyday's words and Developer gets the new
-// ones back; the page still shows Everyday words. No page errors.
+// Everyday shows) reaches q's agent, like "@q's agent"; a renamed agent shows its name and owner in both modes.
+// No page errors.
 // Usage: BASE=http://localhost:8787 [ADMIN_KEY=…] node everyday-leaks.mjs
 import { chromium } from "playwright-core";
 const BASE = (process.env.BASE || "http://localhost:8787").replace(/\/$/, "");
@@ -68,16 +68,17 @@ if (await po.count()) {
   await po.click();
 } else check(false, "people-only toggle found");
 
-// 3. Q names their agent: Everyday still says "Q's assistant" by the name; Developer shows the new words.
+// 3. Q names their agent: both modes keep the name and visibly identify its owner.
 await fetch(`${BASE}/api/me/profile`, { method: "POST", headers: { cookie: ckQ.split(";")[0], "content-type": "application/json" }, body: JSON.stringify({ agent_name: "Scout" }) });
-check(await until(async () => (await who1()) === "Scout" && "ok"), `renamed live: ${await who1()}`);
-// Whose agent it is sits on the name's hover (jxn #4522), and the name stays in both modes.
+const named = `Scout · ${Q}'s agent`;
+check(await until(async () => (await who1()) === named && "ok"), `renamed live: ${await who1()}`);
+// Hover also gives the owner and any session details.
 const owner = () => p.locator(`#e${s1} .meta .who`).getAttribute("title");
 check(await until(async () => (await owner())?.startsWith(`${Q}'s agent`) && "ok", 3000), `…with whose agent on hover (${await owner()})`);
 await p.evaluate(() => window.applyDisplay({ developer: true }));
-check(await until(async () => (await who1()) === "Scout" && (await owner())?.startsWith(`${Q}'s agent`) && "ok", 2000), `Developer: the name, whose agent on hover (${await owner()})`);
+check(await until(async () => (await who1()) === named && (await owner())?.startsWith(`${Q}'s agent`) && "ok", 2000), `Developer: the name and owner, whose agent on hover (${await owner()})`);
 await p.evaluate(() => window.applyDisplay({ developer: false }));
-check(await until(async () => (await who1()) === "Scout" && "ok", 2000), "back to Everyday, still the name");
+check(await until(async () => (await who1()) === named && "ok", 2000), "back to Everyday, still the name and owner");
 
 // 4. The task tag reads "to-do" here, and the board's tasks API still says task.
 check(((await p.locator(`#e${s2} .t-task`).textContent()) || "").includes("to-do"), "Everyday shows the task as a to-do");

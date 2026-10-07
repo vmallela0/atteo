@@ -14,6 +14,7 @@ struct InboxItem: Codable, Identifiable, Hashable {
     let kind: String
     let actor: String
     let actorVia: String?
+    var actorName: String? = nil // current agent display name, when the server knows it
     let excerpt: String
     let createdAt: Double
     let readAt: Double?
@@ -21,7 +22,7 @@ struct InboxItem: Codable, Identifiable, Hashable {
     var approvalId: String? = nil // kind approval: the request it's for
 
     func read(at t: Double) -> InboxItem {
-        InboxItem(id: id, boardId: boardId, boardTitle: boardTitle, seq: seq, kind: kind, actor: actor, actorVia: actorVia, excerpt: excerpt, createdAt: createdAt, readAt: t, interrupt: interrupt, approvalId: approvalId)
+        InboxItem(id: id, boardId: boardId, boardTitle: boardTitle, seq: seq, kind: kind, actor: actor, actorVia: actorVia, actorName: actorName, excerpt: excerpt, createdAt: createdAt, readAt: t, interrupt: interrupt, approvalId: approvalId)
     }
 }
 
@@ -162,7 +163,7 @@ struct Entry: Codable, Identifiable, Hashable {
 }
 
 /// "@theo", "@theo's agent", "@theo/builder": who a message names.
-struct EntryMention: Codable, Hashable { let user: String; let agent: Bool; var session: String? = nil }
+struct EntryMention: Codable, Hashable { let user: String; let agent: Bool; var session: String? = nil; var name: String? = nil }
 /// A stored file: its type, pixel size (pictures) and bytes.
 struct Media: Codable, Hashable { let mime: String; let w: Int?; let h: Int?; let size: Int? }
 
@@ -406,9 +407,16 @@ struct DocHistoryResponse: Decodable { let versions: [DocVersion] }
 
 /// A board's members with their roles, and yours.
 struct BoardMembersResponse: Decodable {
-    struct Member: Decodable, Identifiable, Hashable { let user: String; let displayName: String?; let role: String; let lastSeen: Double?; var id: String { user } }
+    struct Member: Decodable, Identifiable, Hashable { let user: String; let displayName: String?; let agentName: String?; let agentNameAmbiguous: Bool?; let role: String; let lastSeen: Double?; var id: String { user } }
     let members: [Member]
     let you: String?
+    var ambiguousAgentNames: [String] {
+        var seen = Set<String>()
+        return members.compactMap { m in
+            guard m.agentNameAmbiguous == true, let name = m.agentName else { return nil }
+            return seen.insert(name.lowercased()).inserted ? name : nil
+        }
+    }
 }
 struct InviteLinkResponse: Decodable { let url: String }
 struct InviteResponse: Decodable { let message: String? }

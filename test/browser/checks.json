@@ -77,6 +77,7 @@
  "chglink": 6,
  "memory-panel": 4,
  "agentnames": 4,
+ "agent-display-names": 5,
  "replyop": 4,
  "emojipick": 11,
  "schedules": 4,

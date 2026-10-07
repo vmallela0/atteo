@@ -115,13 +115,15 @@ extension String {
         let stored = mentions ?? members.flatMap { [EntryMention(user: $0.lowercased(), agent: false), EntryMention(user: $0.lowercased(), agent: true)] }
         guard !stored.isEmpty || author != nil else { return (Text(out), []) }
         let wanted = Set((stored + (author.map { [$0] } ?? [])).map { $0.user.lowercased() + ($0.agent ? "/agent" : "") })
+        var addressNames = agentNames
+        for m in stored where m.agent && m.session == nil { if let name = m.name, !name.isEmpty { addressNames[name.lowercased()] = m.user.lowercased() } }
         let plain = String(out.characters)
         let ns = plain as NSString
         var handles: [String] = []
         var boxes: [(Range<AttributedString.Index>, Bool)] = []
         // "@Jarvis": a member's agent by its name (#1125), stored as that member's agent.
         var taken = Set<Int>()
-        for hit in agentNameMentions(in: plain, names: agentNames, members: Set(members.map { $0.lowercased() })) where wanted.contains(hit.owner + "/agent") {
+        for hit in agentNameMentions(in: plain, names: addressNames, members: Set(members.map { $0.lowercased() })) where wanted.contains(hit.owner + "/agent") {
             guard let r = Range(hit.range, in: out), !out[r].runs.contains(where: { $0.inlinePresentationIntent?.contains(.code) == true }) else { continue }
             let mine = hit.owner == me?.lowercased()
             out[r].foregroundColor = mine ? MentionColor.mineText : MentionColor.text
@@ -234,10 +236,10 @@ enum MentionTokens {
 }
 
 /// What "@" offers in the message box, in the web's order (src/html.ts mentionOptions): each other member, then their
-/// agent (by its name too, when it has one), then each of their agent sessions ("@jxn/opus-b", jxn #2551); then your
+/// agent (display name first, with "@owner's agent" as its token), then each of their agent sessions ("@jxn/opus-b"); then your
 /// own agent and sessions; then everyone's agents, everyone, and everyone and their agents.
 enum MentionMenu {
-    static func options(people: [String], me: String?, named: [String: AppState.AgentName], sessions: [BoardAgent]) -> [Mentionable] {
+    static func options(people: [String], me: String?, named: [String: AppState.AgentName], sessions: [BoardAgent], displayNames: [String: String] = [:]) -> [Mentionable] {
         func sessionsOf(_ u: String) -> [Mentionable] {
             sessions.filter { $0.user == u && !($0.name ?? "").isEmpty }
                 .sorted { ($0.name ?? "") < ($1.name ?? "") }
@@ -248,18 +250,15 @@ enum MentionMenu {
                 }
         }
         func agentOptions(_ u: String) -> [Mentionable] {
-            var out: [Mentionable] = []
-            if let n = named[u], !n.ambiguous {
-                out.append(Mentionable(handle: n.name, user: u, agent: true, note: u == me ? String(localized: "your agent", bundle: .l10n) : String(localized: "\(u)'s agent", bundle: .l10n)))
-            }
-            let note: String? = named[u].map { String(localized: "\($0.name) · agent", bundle: .l10n) }
-            out.append(Mentionable(handle: "\(u)'s agent", user: u, agent: true, note: note))
-            return out + sessionsOf(u)
+            let handle = "\(u)'s agent"
+            let agent = Mentionable(handle: handle, user: u, agent: true,
+                                    note: named[u] == nil ? nil : "@" + handle, display: named[u]?.name ?? handle)
+            return [agent] + sessionsOf(u)
         }
         var out: [Mentionable] = []
         var seen = Set<String>()
         for u in people.sorted() where u != me && seen.insert(u.lowercased()).inserted { // sorted, like the web
-            out.append(Mentionable(handle: u, user: u, agent: false))
+            out.append(Mentionable(handle: u, user: u, agent: false, note: displayNames[u] == nil ? nil : "@" + u, display: displayNames[u]))
             out += agentOptions(u)
         }
         if let me { out += agentOptions(me) }
@@ -278,7 +277,7 @@ enum MentionMenu {
             let h = m.handle.lowercased()
             guard h != q else { return false }
             if q.contains("/") { return h.hasPrefix(q) }
-            return h.hasPrefix(q) || (m.user?.lowercased().hasPrefix(q) ?? false)
+            return h.hasPrefix(q) || (m.user?.lowercased().hasPrefix(q) ?? false) || (m.display?.lowercased().hasPrefix(q) ?? false)
         }
     }
 }
