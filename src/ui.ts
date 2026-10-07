@@ -645,6 +645,7 @@ a.ev-acct:hover{background:var(--bg-subtle)}
 /* images: inline in the conversation (real proportions, capped), full size in a lightbox; attachments in the composer */
 .img{margin:8px 0 0}.img-open{display:block;padding:0;border:0;background:none;cursor:zoom-in;max-width:100%;touch-action:manipulation;-webkit-touch-callout:none;-webkit-user-select:none;user-select:none}
 .img img{display:block;max-width:min(100%,440px);max-height:340px;width:auto;height:auto;border-radius:8px;border:1px solid var(--line);background:var(--bg-subtle);pointer-events:none;-webkit-user-drag:none}
+.vid{margin:8px 0 0}.vid video{display:block;max-width:min(100%,520px);max-height:400px;border-radius:8px;border:1px solid var(--line);background:var(--bg-subtle)}.vid figcaption{margin-top:4px}
 .img figcaption{margin-top:4px}
 /* a message with several files: pictures in a grid (1, 2, 1+2, 2×2; "+N" on the last), other files as chips below */
 .mfiles{margin-top:8px;width:min(100%,440px)}

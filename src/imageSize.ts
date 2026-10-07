@@ -11,6 +11,26 @@ export function sniffImage(b: Uint8Array): string | null {
   return null;
 }
 
+/** A video's type from its first bytes, or null: MP4/MOV/M4V ("ftyp" box at byte 4) and WebM (EBML header), the kinds a
+ *  browser plays in <video> (jxn #6161). Served as video/mp4 for every ftyp brand: browsers play QuickTime's H.264
+ *  under that type, and an encrypted board's ciphertext matches neither, so it stays a download. */
+export function sniffVideo(b: Uint8Array): string | null {
+  if (b.length >= 12 && String.fromCharCode(...b.slice(4, 8)) === "ftyp") return "video/mp4";
+  if (b.length >= 4 && b[0] === 0x1a && b[1] === 0x45 && b[2] === 0xdf && b[3] === 0xa3) return "video/webm";
+  return null;
+}
+
+/** The part of a `total`-byte file a Range header asks for: "bytes=a-b", "bytes=a-" or the last n bytes ("bytes=-n"),
+ *  clipped to the file. null for no range or one we don't do (several parts, other units): send the whole file.
+ *  "unsatisfiable" when it starts past the end (416). */
+export function byteRange(header: string | null, total: number): { start: number; end: number } | "unsatisfiable" | null {
+  const m = /^bytes=(\d*)-(\d*)$/.exec((header ?? "").trim());
+  if (!m || (m[1] === "" && m[2] === "")) return null;
+  const start = m[1] === "" ? Math.max(0, total - Number(m[2])) : Number(m[1]);
+  const end = m[1] === "" || m[2] === "" ? total - 1 : Math.min(Number(m[2]), total - 1);
+  return start >= total || start > end ? "unsatisfiable" : { start, end };
+}
+
 /** The image's pixel size from its header bytes (the type sniffImage found), or null.
  *  PNG's IHDR, GIF's screen size, JPEG's SOF marker and all three WebP chunk shapes (VP8, VP8L, VP8X). */
 export function imageSize(image: string, b: Uint8Array): { w: number; h: number } | null {

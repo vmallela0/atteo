@@ -135,6 +135,8 @@ export function entryHtml(e: Entry, boardId: string, withReplies = true, opts: {
       ? pastedHtml(boardId, [{ name: e.artifact_name, version: e.artifact_version ?? null }], T)
       : e.artifact_name && e.media?.mime.startsWith("image/")
       ? imageHtml(boardId, e, T)
+      : e.artifact_name && e.media && VIDEO_NAME.test(e.artifact_name)
+      ? videoHtml(boardId, e.artifact_name, e.artifact_version, e.media.size ?? e.artifact_size ?? 0, T)
       : "";
   // Only pasted text in it: the "Shared 3 files" caption the server wrote says nothing the quote doesn't.
   const files = e.attachments?.length ? e.attachments : e.artifact_name ? [{ name: e.artifact_name, mime: e.media?.mime }] : [];
@@ -272,7 +274,8 @@ function filesHtml(boardId: string, all: Attachment[], T: (s: string) => string 
   const list = all.filter((a) => !rich.includes(a));
   if (!list.length) return pasted;
   const imgs = list.filter((a) => a.mime.startsWith("image/"));
-  const others = list.filter((a) => !a.mime.startsWith("image/"));
+  const videos = list.filter((a) => !a.mime.startsWith("image/") && VIDEO_NAME.test(a.name));
+  const others = list.filter((a) => !a.mime.startsWith("image/") && !videos.includes(a));
   const shown = Math.min(imgs.length, 4);
   const tiles = imgs
     .map((a, i) => {
@@ -291,7 +294,7 @@ function filesHtml(boardId: string, all: Attachment[], T: (s: string) => string 
     })
     .join("");
   const total = list.reduce((n, a) => n + a.size, 0);
-  return `${pasted}<div class="mfiles">${grid}${chips ? `<div class="file mchips">${chips}</div>` : ""}<div class="xs faint mcap">${list.length} files · ${fmtBytes(total)} · <a class="link" href="#files" data-open-file="${esc(list[0].name)}"${list[0].version ? ` data-file-ver="${list[0].version}"` : ""}>Open in Files</a></div></div>`;
+  return `${pasted}<div class="mfiles">${grid}${videos.map((a) => videoHtml(boardId, a.name, a.version, a.size, T)).join("")}${chips ? `<div class="file mchips">${chips}</div>` : ""}<div class="xs faint mcap">${list.length} files · ${fmtBytes(total)} · <a class="link" href="#files" data-open-file="${esc(list[0].name)}"${list[0].version ? ` data-file-ver="${list[0].version}"` : ""}>Open in Files</a></div></div>`;
 }
 
 const DL_ICON = `<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 2.5v8M4.5 7 8 10.5 11.5 7M3 13.5h10"/></svg>`;
@@ -310,6 +313,15 @@ function pastedHtml(boardId: string, list: { name: string; version: number | nul
     })
     .join("");
   return `<blockquote class="pasted" data-pasted><div class="pasted-h xs faint">${esc(T("Pasted text"))}</div>${lines}</blockquote>`;
+}
+
+/** Videos play in the chat (jxn #6161): the file endpoint serves MP4/MOV/WebM inline with byte ranges. One the browser
+ *  can't play (an encrypted board's ciphertext, an odd codec) drops its player and keeps the caption's Save link. */
+const VIDEO_NAME = /\.(mp4|m4v|mov|webm)$/i;
+function videoHtml(boardId: string, name: string, version: number | null | undefined, size: number, T: (s: string) => string = (x) => x): string {
+  const src = fileSrc(boardId, name, version);
+  return `<figure class="vid"><video src="${esc(src)}" controls preload="metadata" playsinline data-vid></video>
+<figcaption class="xs faint"><span class="mono">${esc(name)}</span>${version ? ` v${version}` : ""} · ${fmtBytes(size)} · <a class="link" href="${esc(src)}" download="${esc(name)}" data-save>${esc(T("Save"))}</a></figcaption></figure>`;
 }
 
 function imageHtml(boardId: string, e: Entry, T: (s: string) => string = (x) => x): string {
@@ -1977,6 +1989,7 @@ lbImg.addEventListener('load',lbZoomable);addEventListener('resize',()=>{if(lb.o
 function lbShow(i){if(lb.classList.contains('zoomed'))lbZoom(false);lb.classList.remove('zoomable');lbI=(i+lbSet.length)%lbSet.length;const b=lbSet[lbI];lbImg.src=b.dataset.img;lbImg.alt=b.dataset.imgName||'';
   const sv=document.getElementById('lightbox-save');sv.href=b.dataset.img;sv.download=b.dataset.imgName||b.querySelector('img')?.alt||new URL(b.dataset.img,location.href).searchParams.get('name')||'picture';
   const many=lbSet.length>1;lb.querySelectorAll('.lb-nav').forEach(x=>x.hidden=!many);lbCount.hidden=!many;lbCount.textContent=(lbI+1)+' / '+lbSet.length}
+document.addEventListener('error',e=>{if(e.target.matches?.('video[data-vid]'))e.target.remove()},true);
 document.addEventListener('click',e=>{const b=e.target.closest('[data-img]');if(!b||b.closest('#lightbox'))return;e.preventDefault();e.stopPropagation();if(getSelection)getSelection().removeAllRanges();const g=b.closest('[data-gallery]');lbSet=g?[...g.querySelectorAll('[data-img]')]:[b];lbShow(lbSet.indexOf(b));if(!lb.open){lb.showModal();lb.querySelector('.lb-nav:focus')?.blur()}lbZoomable()},true);
 lb.addEventListener('click',e=>{if(Date.now()-lbSwiped<400||e.target.closest('.lb-save'))return;const n=e.target.closest('.lb-nav');if(n){lbShow(lbI+(n.classList.contains('lb-prev')?-1:1));return}
   if(e.target===lbImg){if(lbDrag&&lbDrag.moved)return;if(lb.classList.contains('zoomed')){lbZoom(false);return}if(lbBig()){lbZoom(true,e.clientX,e.clientY);return}}
