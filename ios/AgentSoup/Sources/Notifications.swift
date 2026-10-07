@@ -88,6 +88,7 @@ final class Notifier: NSObject, ObservableObject, UNUserNotificationCenterDelega
             c.threadIdentifier = "approvals"
             try? await center.add(UNNotificationRequest(identifier: "a\(a.id)", content: c, trigger: nil))
         }
+        var opened = 0
         for i in inbox where i.readAt == nil && !seen.contains("i\(i.id)") {
             if i.kind == "approval", i.approvalId != nil { continue } // its request arrives above, once
             let mode = i.interrupt ?? (Self.worthIt(i.kind) ? "now" : "none") // an older server: as before
@@ -99,7 +100,9 @@ final class Notifier: NSObject, ObservableObject, UNUserNotificationCenterDelega
             c.body = String(i.excerpt.prefix(180))
             if Self.sealed(i) {
                 // End-to-end encrypted: the server only has ciphertext; this phone reads it, or says only that it's new.
-                let text = await BoardCrypto.shared.text(i.boardId, seq: i.seq)
+                // At most 5 fetched per look, so a background wake (about 30 seconds) still gets to notify.
+                opened += 1
+                let text = opened <= 5 ? await BoardCrypto.shared.text(i.boardId, seq: i.seq) : nil
                 c.body = text.map { String($0.prefix(180)) } ?? String(localized: "New message (end-to-end encrypted)", bundle: .l10n)
             }
             c.sound = .default

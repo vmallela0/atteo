@@ -101,7 +101,7 @@ final class BoardCrypto {
     func text(_ board: String, seq: Int) async -> String? {
         do {
             if keys[board] == nil { try await sync(board) }
-            let r = try await API.shared.get("/api/boards/\(board)/sealed?after=\(seq - 1)", as: SealedResponse.self, timeout: 15)
+            let r = try await API.shared.get("/api/boards/\(board)/sealed?after=\(seq - 1)", as: SealedResponse.self, timeout: 8)
             return r.entries.first { $0.seq == seq }.flatMap { open($0.payload, board: board) }
         } catch { return nil }
     }
