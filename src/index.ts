@@ -1036,7 +1036,10 @@ const handler = {
       }
       if (path === "/api/device/decide" && method === "POST") {
         // Only a person approves a sign-in: an agent or CLI token could otherwise mint itself a fresh 30-day token (alt-c #5841).
-        if (!viewer || viewer.via === "agent") return needLogin();
+        // Browser session only (no app or agent bearer), JSON only and same-origin only, so a sibling site can't post a form (Codex review).
+        if (!viewer || viewer.via === "agent" || !session?.user) return needLogin();
+        const site = request.headers.get("sec-fetch-site");
+        if ((site && site !== "same-origin") || !/^application\/json\b/i.test(request.headers.get("content-type") ?? "")) return json({ error: "Approve sign-ins from the Atteo page." }, 403);
         const body = (await request.json().catch(() => ({}))) as { user_code?: string; approve?: boolean | string };
         const code = device.normalizeUserCode(body.user_code);
         if (!code) return json({ error: "That code doesn't look right. It's 8 letters, like BCDF-GHJK." }, 400);
