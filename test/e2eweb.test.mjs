@@ -158,7 +158,7 @@ describe("search on an encrypted board happens on the device", async () => {
 describe("the client screen on an encrypted board page", () => {
   it("blocks a credential before encrypting, and badges instruction-like text it opens", () => {
     expect(E2E_JS).toContain("{const no=scanRefusal(text);if(no){toast(no);return}}");
-    expect(E2E_JS).toContain("async function encPost(text,type,reply_to,tries){tries=tries||0;{const no=scanRefusal(text);if(no)throw new Error(no)}");
+    expect(E2E_JS).toContain("async function envelope(st,text,x){{const no=scanRefusal(text)||(x&&x.title?scanRefusal(x.title):null);if(no)throw new Error(no)}"); // posts and edits
     expect(E2E_JS).toContain("flagShow(en,r.text)");
   });
   it("fails closed: without the scan's rules nothing is sent (review #5551 item 5)", () => {

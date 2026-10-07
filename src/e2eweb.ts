@@ -129,10 +129,40 @@ document.addEventListener('click',async e=>{const b=e.target.closest('[data-e2e-
   b.disabled=true;const p=pins(),id=pinId(m.kid,m.public_key);if(!(p[ME]||[]).includes(id))(p[ME]=p[ME]||[]).push(id);savePins(p);
   try{await epochKeys();toast('Approved: that device can read this board now')}catch(err){toast(err.message)}finally{b.disabled=false}});
 
+// ---- files (docs/SPEC.md §16): a fresh key per file, 64 KB chunks, AES-GCM with the nonce 0⁸ ‖ chunk index; the key
+// rides in the message's encrypted extras (x), the server stores only the ciphertext ----
+const CH=65536,chunkIv=i=>{const iv=new Uint8Array(12);new DataView(iv.buffer).setUint32(8,i);return iv};
+async function encFile(buf){const raw=crypto.getRandomValues(new Uint8Array(32)),key=await aesKey(raw),u=new Uint8Array(buf),parts=[];
+  for(let i=0;i===0||i*CH<u.length;i++)parts.push(new Uint8Array(await S.encrypt({name:'AES-GCM',iv:chunkIv(i)},key,u.subarray(i*CH,(i+1)*CH))));
+  return {raw,blob:new Blob(parts)}}
+const SFID=/^sf_[a-z0-9]{1,40}$/; // a server-issued file id: anything else in a message is never fetched or shown (#5542)
+async function decFile(f){if(!SFID.test(String(f.id)))throw new Error('bad file id');const r=await fetch('/api/boards/'+BOARD+'/sealed-files/'+encodeURIComponent(f.id));if(!r.ok)throw new Error('HTTP '+r.status);
+  const key=await aesKey(unb64(f.key)),u=new Uint8Array(await r.arrayBuffer()),out=[];
+  for(let i=0,off=0;off<u.length;i++){const n=Math.min(CH+16,u.length-off);out.push(new Uint8Array(await S.decrypt({name:'AES-GCM',iv:chunkIv(i)},key,u.subarray(off,off+n))));off+=n}
+  const b=new Blob(out,{type:SHOWN.includes(f.mime)?f.mime:'application/octet-stream'});if(b.size!==f.size)throw new Error('damaged');return b}
+const SHOWN=['image/png','image/jpeg','image/gif','image/webp'],FURL=new Map(); // file id → its decrypted object URL (a promise)
+const fileUrl=f=>{if(!FURL.has(f.id))FURL.set(f.id,decFile(f).then(b=>URL.createObjectURL(b)).catch(e=>{FURL.delete(f.id);throw e}));return FURL.get(f.id)};
+const kb=n=>n>=1e6?(n/1e6).toFixed(1)+' MB':n>=1e3?Math.round(n/1e3)+' KB':n+' B';
+const XF=new Map(); // file id → its reference (from an opened message), for the clicks below
+/** An opened message's files: its pictures in the plain board's grid (decrypted as they load), its other files as chips. */
+function filesBlock(files){files=(Array.isArray(files)?files:[]).filter(f=>f&&SFID.test(String(f.id))&&typeof f.key==='string');if(!files.length)return '';for(const f of files)XF.set(f.id,f);
+  const imgs=files.filter(f=>SHOWN.includes(f.mime)),others=files.filter(f=>!SHOWN.includes(f.mime)),n=Math.min(imgs.length,4);
+  const tiles=imgs.map((f,i)=>'<button class="mg-tile" type="button" data-sf-img="'+esc(f.id)+'" data-img-name="'+esc(f.name)+'" aria-label="View '+esc(f.name)+' full size"'+(i>=n?' hidden></button>':'><img alt="'+esc(f.name)+'"'+(f.w&&f.h?' width="'+(+f.w)+'" height="'+(+f.h)+'"':'')+'>'+(i===3&&imgs.length>4?'<span class="mg-more">+'+(imgs.length-4)+'</span>':'')+'</button>')).join('');
+  const chips=others.map(f=>'<div class="fh"><span class="mono grow truncate">'+esc(f.name)+'</span><span class="xs faint">'+kb(+f.size||0)+'</span><button class="btn sm" type="button" data-sf-dl="'+esc(f.id)+'">'+tr('Download')+'</button></div>').join('');
+  return '<div class="mfiles e2e-files">'+(imgs.length?'<div class="mgrid g'+n+'" data-gallery>'+tiles+'</div>':'')+(chips?'<div class="file mchips">'+chips+'</div>':'')+'</div>'}
+/** Pictures are decrypted here and shown from memory; the lightbox opens them like any other (data-img). */
+function hydrate(el){el.querySelectorAll('[data-sf-img]').forEach(b=>{const f=XF.get(b.dataset.sfImg);if(!f||b.dataset.img)return;
+  fileUrl(f).then(u=>{b.dataset.img=u;const im=b.querySelector('img');if(im)im.src=u}).catch(()=>{b.classList.add('e2e-none');b.title=tr("Can't decrypt this file on this device.")})})}
+document.addEventListener('click',async e=>{const b=e.target.closest('[data-sf-dl]');if(!b)return;const f=XF.get(b.dataset.sfDl);if(!f)return;b.disabled=true;
+  try{const a=document.createElement('a');a.href=await fileUrl(f);a.download=f.name||'file';document.body.append(a);a.click();a.remove()}
+  catch(err){toast(tr("Can't decrypt this file on this device."))}finally{b.disabled=false}});
+
 // ---- reading: every envelope on the page is opened here; what can't be opened says why ----
-const PAY=new Map(),OPEN=new Set();let HI=0;
+const PAY=new Map(),OPEN=new Set(),TXT=new Map();let HI=0; // TXT: seq → {text, x} opened here (edits start from it)
 async function openOne(seq,payload){let p;try{p=JSON.parse(payload)}catch(e){return {why:'Not an envelope this browser understands.'}}
-  try{if(p.v===2){const k=ST.keys.get(p.epoch);if(!k)return {why:"Can't read this on this device yet: a member's device hands this browser the board's key when they're next here."};return {text:td.decode(await ungcm(k.aes,p.iv,p.ct))}}
+  try{if(p.v===2){const k=ST.keys.get(p.epoch);if(!k)return {why:"Can't read this on this device yet: a member's device hands this browser the board's key when they're next here."};
+      let x={};if(p.x)try{x=JSON.parse(td.decode(await ungcm(k.aes,p.x.iv,p.x.ct)))||{}}catch(e){x={}}
+      return {text:td.decode(await ungcm(k.aes,p.iv,p.ct)),x}}
     if(p.v===1){const r=(p.recipients||[]).find(x=>x.kid===ST.dev.kid);if(!r)return {why:"Can't read this on this device: it was sent before this browser's key existed."};
       const content=await unwrapMine(r,ST.dev,V1);return {text:td.decode(await ungcm(await aesKey(content),p.iv,p.ct))}}}
   catch(e){return {why:"Can't decrypt this on this device."}}return {why:'Not an envelope this browser understands.'}}
@@ -157,9 +187,19 @@ function flagShow(en,text){const meta=en&&en.querySelector(':scope>.grow>.meta')
   else{b.title='Looks like it '+f.reason.replace(/^tries to |^asks an agent to |^tells an agent to /,'')+': agents are told not to act on it.';b.textContent='⚠ Flagged: '+f.reason}
   meta.insertBefore(b,meta.querySelector(':scope>.more-acts,:scope>.acts'))}
 function show(seq,r){const el=document.querySelector('#e'+seq+'>.grow>.body');if(!el)return false;
-  el.innerHTML=r.text!=null?opened(r.text):'<span class="e2e-none">🔒 '+esc(r.why)+'</span>';el.closest('.entry').classList.toggle('e2e-open',r.text!=null);
+  if(r.text!=null)TXT.set(seq,{text:r.text,x:r.x||{}});
+  el.innerHTML=r.text!=null?(r.x&&r.x.title?'<div class="e2e-title"><b>'+esc(r.x.title)+'</b></div>':'')+opened(r.text)+filesBlock(r.x&&r.x.files):'<span class="e2e-none">🔒 '+esc(r.why)+'</span>';el.closest('.entry').classList.toggle('e2e-open',r.text!=null);
+  if(r.text!=null)hydrate(el);
   if(r.text!=null){const t=short(r.text),en=el.closest('.entry');flagShow(en,r.text);if(t){en.dataset.title=t;document.querySelectorAll('a.ref[data-ref="'+seq+'"][data-done]').forEach(a=>{a.textContent='↗ '+t})}if(window.refChips)refChips(el)}
   const top=el.closest('.replies')?.closest('#thread>.entry');if(top)thrSum(+top.dataset.seq);return r.text!=null}
+// Your own approval requests (#5542): the board has only what's asked; the details and command are sealed to your
+// devices (a v1 envelope as the approval's details), opened here into the card above its buttons.
+async function openApprovals(){for(const c of document.querySelectorAll('.apc[data-apc]')){if(c.dataset.apcUser!==ME||c.dataset.e2eDone)continue;c.dataset.e2eDone='1';
+  try{const a=(await api('GET','/api/approvals/'+encodeURIComponent(c.dataset.apc))).approval;if(!a||!String(a.details||'').startsWith('{"v":1'))continue;
+    const p=JSON.parse(a.details),r=(p.recipients||[]).find(x=>x.kid===ST.dev.kid);if(!r)continue;
+    const o=JSON.parse(td.decode(await ungcm(await aesKey(await unwrapMine(r,ST.dev,V1)),p.iv,p.ct)));
+    const pre=document.createElement('pre');pre.className='mono apc-cmd e2e-apd';pre.textContent=[o.details||'',o.command?'$ '+o.command:''].filter(Boolean).join('\\n\\n');c.prepend(pre)}
+  catch(e){}}}
 let busy=null,queued=false,qFrom=null;
 /** Messages that came back on the page (a bounded conversation, #1365) arrive sealed again: open them on the next sync. */
 window.e2eForget=seqs=>{for(const s of seqs)OPEN.delete(s)};
@@ -170,7 +210,7 @@ window.e2eSync=from=>{if(busy){queued=true;if(from!=null)qFrom=qFrom==null?from:
   busy=(async()=>{try{await epochKeys();let after=from!=null?from:HI;
     for(let i=0;i<50;i++){const es=(await api('GET','/api/boards/'+BOARD+'/sealed?after='+after)).entries||[];let seen=false;
       for(const e of es){if(PAY.has(e.seq))seen=true;PAY.set(e.seq,e.payload);HI=Math.max(HI,e.seq)}if(es.length<200||(from!=null&&seen))break;after=es[es.length-1].seq}
-    for(const [seq,payload] of PAY)if(!OPEN.has(seq)&&document.getElementById('e'+seq)){if(show(seq,await openOne(seq,payload)))OPEN.add(seq)}}
+    for(const [seq,payload] of PAY)if(!OPEN.has(seq)&&document.getElementById('e'+seq)){if(show(seq,await openOne(seq,payload)))OPEN.add(seq)}await openApprovals()}
   catch(e){if(!ST)say('🔒 <b>End-to-end encrypted.</b> '+esc(e.message||String(e)))}
   finally{busy=null;if(queued){const f=qFrom;queued=false;qFrom=null;e2eSync(f)}}})();return busy};
 
@@ -225,22 +265,47 @@ window.e2eSearch=async(q,o)=>{o=o||{};let idx=IDX_FULL?await IDX_FULL:await idxL
 // Why this text mustn't be sent (a credential in it, or no rules to check it with), or null. Fails closed: without
 // clientScan.ts's rules (window.atteoScan) nothing is encrypted or sent (review #5551 item 5).
 function scanRefusal(text){const a=window.atteoScan;if(!a||typeof a.scanText!=='function')return tr("This browser couldn't check the message for secrets, so nothing was encrypted or sent. Reload the page and try again.");const hit=a.scanText(text);return hit?a.blockedMessage(hit)+' '+tr('(Caught in this browser: nothing was encrypted or sent.)'):null}
-async function encPost(text,type,reply_to,tries){tries=tries||0;{const no=scanRefusal(text);if(no)throw new Error(no)}const st=await epochKeys();const k=st.keys.get(st.current);
-  if(!k)throw new Error("This browser doesn't hold the board's key yet.");
-  const c=await gcm(k.aes,te.encode(text));const m=text.match(/^@([a-z0-9][a-z0-9_.-]{0,31})/i),to=m&&MEMBERS.includes(m[1].toLowerCase())?m[1].toLowerCase():undefined; // addressed, like the CLI's --to
-  try{return await api('POST','/api/boards/'+BOARD+'/sealed',{payload:JSON.stringify({v:2,epoch:st.current,iv:c.iv,ct:c.ct}),type,to,reply_to:reply_to||undefined})}
-  catch(e){if(tries<2&&e.status===409)return encPost(text,type,reply_to,tries+1);throw e}} // a removal or a newer epoch since we looked
+/** An envelope for this text under the current epoch key; extras (title, files: docs/SPEC.md §16) go in x, their own ciphertext. */
+async function envelope(st,text,x){{const no=scanRefusal(text)||(x&&x.title?scanRefusal(x.title):null);if(no)throw new Error(no)}const k=st.keys.get(st.current);if(!k)throw new Error("This browser doesn't hold the board's key yet.");
+  const c=await gcm(k.aes,te.encode(text)),p={v:2,epoch:st.current,iv:c.iv,ct:c.ct};
+  if(x&&(x.title||(x.files&&x.files.length))){const e=await gcm(k.aes,te.encode(JSON.stringify(Object.assign({xv:1},x))));p.x={iv:e.iv,ct:e.ct}}
+  return JSON.stringify(p)}
+async function encPost(text,type,reply_to,x,tries){tries=tries||0;const st=await epochKeys();
+  const payload=await envelope(st,text,x);const m=text.match(/^@([a-z0-9][a-z0-9_.-]{0,31})/i),to=m&&MEMBERS.includes(m[1].toLowerCase())?m[1].toLowerCase():undefined; // addressed, like the CLI's --to
+  const files=x&&x.files&&x.files.length?x.files.map(f=>f.id):undefined;
+  try{return await api('POST','/api/boards/'+BOARD+'/sealed',{payload,type,to,reply_to:reply_to||undefined,files})}
+  catch(e){if(tries<2&&e.status===409)return encPost(text,type,reply_to,x,tries+1);throw e}} // a removal or a newer epoch since we looked
+// Edit (the plain board's 15 minutes, own notes and questions): the opened text in a box; Save encrypts it again with the
+// same extras and PUTs the new envelope. The server keeps no readable history, so there's none to show.
+async function encEdit(seq,text,x,tries){tries=tries||0;const st=await epochKeys();
+  try{return await api('PUT','/api/boards/'+BOARD+'/sealed/'+seq,{payload:await envelope(st,text,x)})}
+  catch(e){if(tries<1&&e.status===409)return encEdit(seq,text,x,tries+1);throw e}}
+window.addEventListener('click',e=>{const b=e.target.closest&&e.target.closest('[data-edit]');if(!b)return;e.preventDefault();e.stopImmediatePropagation();
+  const seq=+b.dataset.edit,row=b.closest('.entry'),body=row?.querySelector('.body'),o=TXT.get(seq);if(!body||row.querySelector('[data-edit-box]'))return;
+  if(!o){toast(tr("This browser can't read that message, so it can't edit it."));return}
+  const old=body.innerHTML;body.textContent='';const box=document.createElement('textarea');box.dataset.editBox='1';box.value=o.text;box.rows=4;box.style.width='100%';body.append(box);
+  const save=document.createElement('button'),cancel=document.createElement('button');save.type=cancel.type='button';save.className=cancel.className='btn sm';save.textContent=tr('Save');cancel.textContent=tr('Cancel');body.append(save,cancel);
+  cancel.onclick=()=>{body.innerHTML=old;hydrate(body)};
+  save.onclick=async()=>{const t=box.value.trim();if(!t&&!(o.x.files&&o.x.files.length))return;save.disabled=true;
+    try{await encEdit(seq,t,o.x);location.reload()}catch(err){toast(err.message||tr('Could not save'));save.disabled=false}};box.focus()},true);
+/** The composer's attached files, each encrypted here and uploaded as ciphertext: their references for the message's extras. */
+async function sealFiles(list){const out=[];for(const p of list){const {raw,blob}=await encFile(await p.blob.arrayBuffer());
+    const r=await fetch('/api/boards/'+BOARD+'/sealed-files',{method:'POST',headers:{'content-type':'application/octet-stream'},body:blob});
+    const j=await r.json().catch(()=>({}));if(!r.ok)throw new Error(j.error||tr("Couldn't post ")+p.name+'.');
+    const f={id:j.id,name:p.name,mime:p.blob.type||'application/octet-stream',size:p.blob.size,key:b64(raw),chunk:CH};if(p.image&&p.w&&p.h){f.w=p.w;f.h=p.h}out.push(f)}
+  return out}
 window.addEventListener('submit',async e=>{const f=e.target;if(!f.matches||!f.matches('form.composer'))return;e.preventDefault();e.stopImmediatePropagation();if(window.micStop)micStop(); // it stops the submit, so the mic's own listener never hears it (#1711)
-  const text=ta.value.trim();if(!text)return;const type=f.querySelector('input[name=type]:checked')?.value||'note',was=+rpTo.value||null;
+  const text=ta.value.trim(),atts=pending.slice();if(!text&&!atts.length)return;const type=f.querySelector('input[name=type]:checked')?.value||'note',was=+rpTo.value||null;
   {const no=scanRefusal(text);if(no){toast(no);return}}
   const btn=f.querySelector('button:not([type=button])');if(btn)btn.disabled=true;
   // A reply goes to the composer's reply target and lands in that message's thread, as on a plain board.
   const first=!was&&!document.querySelector('#thread>.entry');
-  try{await encPost(text,type,was);if(first)try{window.atteoTrack&&atteoTrack('first_message')}catch(x){}ta.value='';replyClear(true);if(was&&!(window.thrRearm&&thrRearm()))replyShown(was);taFit();stickNext=!was;await tick(false)}
-  catch(err){toast((err.message||tr("Couldn't send"))+' Your message is still in the box.')}finally{if(btn)btn.disabled=false}},true);
+  try{const files=atts.length?await sealFiles(atts):null;await encPost(text,type,was,files?{files}:null);
+    if(atts.length){atts.forEach(x=>{if(x.url)URL.revokeObjectURL(x.url)});pending=pending.filter(x=>!atts.includes(x));renderAtt()}if(first)try{window.atteoTrack&&atteoTrack('first_message')}catch(x){}ta.value='';replyClear(true);if(was&&!(window.thrRearm&&thrRearm()))replyShown(was);taFit();stickNext=!was;await tick(false)}
+  catch(err){toast((err.message||tr("Couldn't send"))+(atts.length?' Your message and files are still there.':' Your message is still in the box.'))}finally{if(btn)btn.disabled=false}},true);
 
 if(!window.isSecureContext||!S||!window.indexedDB){say("🔒 <b>End-to-end encrypted.</b> This page can't hold an encryption key here (it needs a secure connection). Read and write with the atteo CLI.");return}
-S.generateKey({name:'X25519'},false,['deriveBits']).then(()=>{document.getElementById('attach-btn')?.remove();
+S.generateKey({name:'X25519'},false,['deriveBits']).then(()=>{
   e2eSync((+document.querySelector('#thread>.entry')?.dataset.seq||1)-1);setTimeout(idxSweep,3000)},
   ()=>say("🔒 <b>End-to-end encrypted.</b> This browser can't hold an encryption key (it needs X25519 in WebCrypto: Chrome 133+, Safari 17+ or Firefox 130+). Read and write with the atteo CLI."));
 })();

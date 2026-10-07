@@ -186,6 +186,12 @@ export async function waitForDecision(env: Env, user: string, id: string, ms: nu
 }
 
 /** What a board's approval entry (and its live event) carries: everything but the details. */
+/** Details sealed to the person's own devices (an approval on an end-to-end encrypted board, #5542): a v1 envelope the
+ *  server can't read, so pages say so instead of showing it; the board page and the app open it on a device that can. */
+export const isSealedDetails = (d: string | null | undefined): boolean => !!d && d.startsWith('{"v":1');
+export const SEALED_DETAILS_NOTE = "🔒 Encrypted for your devices: open it on the board in a browser or app that holds your key.";
+export const shownDetails = (d: string): string => (isSealedDetails(d) ? SEALED_DETAILS_NOTE : d);
+
 export function refOf(a: Approval): ApprovalRef {
   return { id: a.id, user: a.user, status: a.state, title: a.title, tool: a.tool, command: a.command, risk: a.risk, expires_at: a.expires_at, note: a.note, session: a.session, about: a.seq, created_at: a.created_at, decided_at: a.decided_at, requested_by: a.requested_by ?? null };
 }

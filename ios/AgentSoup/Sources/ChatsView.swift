@@ -492,7 +492,7 @@ struct ApprovalRow: View {
             NeedTile(symbol: a.risk == "high" ? "exclamationmark.shield.fill" : "checkmark.shield.fill", color: riskColor)
             VStack(alignment: .leading, spacing: Space.xxs) {
                 Text(a.title).font(Typo.rowTitle).foregroundStyle(Theme.text).lineLimit(1)
-                Text(verbatim: a.details.isEmpty ? "\(riskLabel) · \(a.createdAt.ago)" : a.details).font(Typo.secondary).foregroundStyle(Theme.muted).lineLimit(1)
+                Text(verbatim: a.previewDetails.isEmpty ? "\(riskLabel) · \(a.createdAt.ago)" : a.previewDetails).font(Typo.secondary).foregroundStyle(Theme.muted).lineLimit(1)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .contentShape(Rectangle())

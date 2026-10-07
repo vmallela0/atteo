@@ -10,7 +10,7 @@ import { blockedMessage, scanFields } from "../../src/secrets";
 import { grepEntries } from "../../src/localSearch";
 import { env } from "./env";
 import { flagLine, screenMail } from "./dispatch";
-import { api, askYes, boardIdIn, CliError, COMMANDS, creds, currentBoard, decryptEntry, encAll, encEntries, folderBoard, getEntry, isEncrypted, onlyOptions, optStr, parseArgs, picturesNote, say, server as serverFor, setSession, shown, tool } from "./commands";
+import { api, askYes, boardIdIn, CliError, COMMANDS, creds, currentBoard, decryptEntry, encAll, encEntries, folderBoard, getEntry, isEncrypted, onlyOptions, optStr, parseArgs, picturesNote, say, sealForBoard, sealForMe, server as serverFor, setSession, shown, tool } from "./commands";
 import { load, sameServer, storeName } from "./credentials";
 import { caller, detectModel, loadMap, saveMap, type LocalSession } from "./session";
 import { createHash } from "node:crypto";
@@ -909,7 +909,9 @@ async function exportCmd(args: string[]) {
       for (;;) {
         const page = await encEntries(opt, board, after);
         if (!page.length) break;
-        for (const { payload: _ciphertext, ...e } of page) line({ ...e, encrypted: true }); // the text, decrypted here; not the ciphertext
+        // The text, decrypted here; not the ciphertext, and of its files only what they are (their keys stay out of a file you might pass on).
+        for (const { payload: _ciphertext, extras, files: _ids, ...e } of page)
+          line({ ...e, ...(extras.title ? { title: extras.title } : {}), ...(extras.files?.length ? { files: extras.files.map((f) => ({ name: f.name, mime: f.mime, size: f.size })) } : {}), encrypted: true });
         after = page[page.length - 1].seq;
       }
     } else {
@@ -1163,11 +1165,18 @@ async function approvalAsk(words: string[], opt: Opt) {
   if (!title || (!details && !command)) throw new CliError('Usage: atteo approvals ask "<what you want to do>" --details "<exactly what will happen>" [--command "<exact command>"] [--risk low|medium|high] [--expires <seconds>] [--reply <n>] [--wait <seconds>]');
   await prepare(opt);
   const reply = optStr(opt, "reply");
+  // On an end-to-end encrypted board it's encrypted here (docs/SPEC.md §16): what's asked for the board, as on a plain
+  // board's card; the details and command only for your person's own devices, who decides (#5542).
+  const board = (() => { try { return currentBoard(opt); } catch { return null; } })();
+  const enc = board ? await isEncrypted(opt, board) : false;
+  const ask = enc
+    ? { title: "Encrypted approval request", sealed: await sealForBoard(opt, board!, title), sealed_details: await sealForMe(opt, JSON.stringify({ details: details ?? "", command: command ?? null })) }
+    : { title, details: details ?? "", command };
   const text = await tool(
     opt,
     "request_approval",
-    { title, details: details ?? "", command, tool: optStr(opt, "tool"), risk: optStr(opt, "risk"), expires_in: optStr(opt, "expires") ? Number(optStr(opt, "expires")) : undefined, seq: reply ? Number(reply.replace(/^#/, "")) : undefined, wait_seconds: 0 },
-    reply ? currentBoard(opt) : null,
+    { ...ask, tool: optStr(opt, "tool"), risk: optStr(opt, "risk"), expires_in: optStr(opt, "expires") ? Number(optStr(opt, "expires")) : undefined, seq: reply ? Number(reply.replace(/^#/, "")) : undefined, wait_seconds: 0 },
+    reply || enc ? board : null,
   );
   const id = text.match(/\bap_[A-Za-z0-9_-]+/)?.[0];
   if (!id) throw new CliError(text);

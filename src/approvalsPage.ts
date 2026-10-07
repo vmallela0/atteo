@@ -1,7 +1,7 @@
 // The approvals screen: what your agent wants to do, who asked for it, and exactly what will happen. Approve or reject
 // with a note, like reviewing a pull request.
 
-import type { Approval } from "./approvals";
+import { shownDetails, type Approval } from "./approvals";
 import { appPage, relTime, type SideBoard, type Viewer } from "./ui";
 import { esc } from "./util";
 import { commandHtml, nonAsciiNote } from "./approvalCard";
@@ -15,7 +15,7 @@ const STATUS: Record<string, string> = { approved: "Approved", rejected: "Denied
 // From a permission hook: the tool and its exact command or file, verbatim (escaped, monospace).
 // The command in full (never clipped), with any non-ASCII character flagged so a look-alike can't pass for plain text (#4929).
 const cmd = (a: Approval): string => (a.command ? `<pre class="mono ap-details ap-cmd">${a.tool ? `<span class="faint">${esc(a.tool)}</span>\n` : ""}${commandHtml(a.command)}</pre>${nonAsciiNote(a.command)}` : "");
-const det = (a: Approval): string => (a.details ? `<pre class="mono ap-details">${esc(a.details)}</pre>` : "");
+const det = (a: Approval): string => (a.details ? `<pre class="mono ap-details">${esc(shownDetails(a.details))}</pre>` : "");
 // Whose agent asked: someone else's is named, never "Your agent" (#4930).
 const asker = (a: Approval, T: Tr): string => (a.requested_by && a.requested_by !== a.user ? T("{name}'s agent", { name: a.requested_by }) : a.client ?? T("Your agent"));
 

@@ -605,6 +605,32 @@ src/mcp.ts:776). On an encrypted board the server stores ciphertext and can't re
   `{"v":2,"epoch":E,"iv":…,"ct":…}` to `POST /api/boards/{id}/sealed` and read back from `GET …/sealed?after=N`
   (cli/src/sealed.ts:84-89; cli/src/commands.ts:408; src/index.ts:1290-1309). On the normal entry routes the entry reads
   `🔒 Encrypted message (read it with atteo read)` (src/board.ts:4493-4497).
+- **Extras (E2E Phase 1a).** A v2 envelope may also carry `"x":{"iv","ct"}`: a second AES-256-GCM ciphertext under the
+  same epoch key of the JSON `{"xv":1,"title"?,"files"?:[{"id","name","mime","size","key","chunk":65536,"w"?,"h"?}]}`.
+  Clients that don't know `x` ignore it and still read the text; the server only checks that `iv` and `ct` are strings
+  (`sealedEnvelope`, src/board.ts). Future fields go inside the extras (bump `xv` only for a change old readers would get
+  wrong).
+- **Files.** Each file gets a random 32-byte key (the extras' `key`, base64). The plaintext is cut into 64 KB chunks,
+  each AES-256-GCM with the nonce `00000000 00000000 ‖ uint32 BE chunk index`, stored as ct‖tag one after the other
+  (an empty file is one chunk); readers check the decrypted length against `size` (cli/src/sealed.ts `encryptFile`;
+  src/e2eweb.ts `encFile`). The ciphertext goes to `POST /api/boards/{id}/sealed-files` (octet-stream, members who can
+  write, ≤ 1.5 MB + 4 KB; returns `{id}`, `sf_…`); the sealed post then names it in a plaintext `files: [id…]` list,
+  which attaches it (only the uploader, one message per file, at most 10). `GET …/sealed-files/{id}` serves attached
+  blobs to members; unattached uploads are dropped after an hour, and unsend, purge and retention delete them with the
+  message. `GET …/sealed` lists each entry's file ids and `edited_at`.
+- **Edits.** `PUT /api/boards/{id}/sealed/{seq} {payload}` replaces the envelope of your own note or question within
+  15 minutes, at the current epoch (409 otherwise), people only; the server keeps no earlier version. Unsend clears the
+  envelope.
+- **Approval requests.** MCP `request_approval` takes `sealed`, a v2 envelope at the current epoch whose text is what's
+  asked (the title), and `sealed_details`, a v1 envelope (the sealed-secret format) of `{title, details, command}` for
+  the deciding person's own devices only (`atteo approvals ask` does both on an encrypted board). The board gets a sealed
+  `approval` entry whose card carries only the state (pending, approved, denied); the approvals table keeps a
+  placeholder title, `sealed_details` as its details and no command. The person's browser (on the board page) and app
+  open the details; pages that can't say so. Tasks and questions are sealed posts of their type. Handoffs are still
+  refused on encrypted boards (the gate reads the branch and checks).
+- **Reading safely.** Clients use a file reference only if its id matches `^sf_[a-z0-9]{1,40}$`, and keep a sender's
+  file name to one path component. `atteo read` fences decrypted output, indents every member-written field under its
+  header and screens it like a plain board's (#5542).
 - **What the server sees:** per entry, seq, time, author, via, type, `to` and `reply_to`; the board's title; key
   notices and board notices such as a picture change (src/board.ts:4503-4521). It refuses plaintext posts, edits,
   `data`, handoffs, schedules, memory and uploads on encrypted boards (src/board.ts:1141, 1161, 1233, 1785, 2243, 2425,

@@ -6,7 +6,7 @@
 // finished). Board content is untrusted: every string from it is escaped here.
 
 import { shownName } from "./names";
-import type { Approval } from "./approvals";
+import { shownDetails, type Approval } from "./approvals";
 import type { InboxItem } from "./inbox";
 import { appPage, avatar, directPeer, relTime, type SideBoard, type Viewer } from "./ui";
 import { esc } from "./util";
@@ -125,7 +125,7 @@ export function forYouPage(viewer: Viewer, side: SideBoard[], d: ForYouData): Re
     .map((a, i) => {
       const where = a.board_id ? ` ${esc(T("asked in"))} <a href="/b/${esc(a.board_id)}${a.seq ? `#e${a.seq}` : ""}">${esc(chatOf(a.board_id))}</a>` : ` ${esc(T("asked"))}`;
       const forWhom = a.requested_by && a.requested_by !== me ? ` ${esc(T("for {name}", { name: cap(a.requested_by) }))}` : "";
-      const lines = detailLines(a.details);
+      const lines = detailLines(shownDetails(a.details));
       const det = lines.length
         ? `<div class="det">${lines.map((l) => (l.label ? `<div class="ln"><span>${esc(l.label)}</span><span>${esc(l.text)}</span></div>` : `<div class="ln"><span class="one">${esc(l.text)}</span></div>`)).join("")}</div>`
         : "";

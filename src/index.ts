@@ -120,7 +120,7 @@ import { analyticsConfig, trackCookieHeader, withAnalytics } from "./analytics";
 export { Board } from "./board";
 export { SlackTeam } from "./slackQueue";
 import { forwardDestOk, forwardExcerptInEntry, keptOwnNotice } from "./audience";
-import { audienceNotice, MAX_FILES_PER_MESSAGE, MAX_IMAGE, MAX_MESSAGE_BYTES, MAX_WAIT_MS, WAIT_CAP } from "./board";
+import { audienceNotice, MAX_FILES_PER_MESSAGE, MAX_IMAGE, MAX_MESSAGE_BYTES, MAX_SEALED_FILE, MAX_WAIT_MS, WAIT_CAP } from "./board";
 import * as sessions from "./sessions";
 import * as listen from "./listen";
 import { compactLine, formatEntry, formatMemory, handleMessage, parseReadBudget, parseSummaryBudget, presentReadEntries, readHeader, readParts, withNames } from "./state";
@@ -1496,27 +1496,65 @@ const handler = {
         if (!viewer) return needLogin();
         if (!(await registry.isMember(env, km[1], viewer.name))) return json({ error: "board not found" }, 404);
         const stub = boardStub(env, km[1]);
+        // v2 messages use the board's current key; while a removal's rotation is pending, nothing new goes out under the
+        // old one (the person removed still has it). Null when the payload may go ahead.
+        const epochRefusal = async (payload: string): Promise<Response | null> => {
+          const v2 = (() => { try { const p = JSON.parse(payload) as { v?: number; epoch?: number }; return p.v === 2 ? p : null; } catch { return null; } })();
+          if (!v2) return null;
+          const k = await boardkeys.state(env, km![1], viewer.name);
+          if (k.rotate_needed) return json({ error: "Someone left or a device was removed: open a new epoch first (atteo does this for you).", rotate_needed: true }, 409);
+          if (v2.epoch !== k.current) return json({ error: `This board's key is at epoch ${k.current}; encrypt with that.`, current: k.current }, 409);
+          return null;
+        };
         try {
           if (method === "POST" && !km[2]) {
-            const b = (await request.json().catch(() => ({}))) as { to?: string; note?: string; payload?: string; type?: string; reply_to?: number };
+            const b = (await request.json().catch(() => ({}))) as { to?: string; note?: string; payload?: string; type?: string; reply_to?: number; files?: unknown };
             const note = String(b.note ?? "");
             const blocked = egressRefusal(env, ctx, { note });
             if (blocked) return json({ error: blocked }, 400);
             if ((await registry.memberRole(env, km[1], viewer.name)) === "viewer") return json({ error: "Your role on this board is viewer." }, 403);
-            // v2 messages use the board's current key; while a removal's rotation is pending, nothing new goes out
-            // under the old one (the person removed still has it).
-            const v2 = (() => { try { return (JSON.parse(String(b.payload ?? "")) as { v?: number; epoch?: number }).v === 2 ? JSON.parse(String(b.payload)) as { epoch?: number } : null; } catch { return null; } })();
-            if (v2) {
-              const k = await boardkeys.state(env, km[1], viewer.name);
-              if (k.rotate_needed) return json({ error: "Someone left or a device was removed: open a new epoch first (atteo does this for you).", rotate_needed: true }, 409);
-              if (v2.epoch !== k.current) return json({ error: `This board's key is at epoch ${k.current}; encrypt with that.`, current: k.current }, 409);
-            }
-            const e = await stub.postSealed(viewer.name, { to: b.to ? String(b.to) : null, note, payload: String(b.payload ?? ""), type: b.type, reply_to: Number(b.reply_to) || null }, { via: pv(), client: viewer.via === "agent" ? "atteo CLI" : null, ...(await asOpts()) });
+            const refused = await epochRefusal(String(b.payload ?? ""));
+            if (refused) return refused;
+            const files = Array.isArray(b.files) ? b.files.map(String) : [];
+            const e = await stub.postSealed(viewer.name, { to: b.to ? String(b.to) : null, note, payload: String(b.payload ?? ""), type: b.type, reply_to: Number(b.reply_to) || null, files }, { via: pv(), client: viewer.via === "agent" ? "atteo CLI" : null, ...(await asOpts()) });
             ctx.waitUntil(registry.bumpBoard(env, km[1], e.seq).catch(() => {}));
             return json({ ok: true, entry: e }, 201);
           }
+          // An edit: the author's new envelope for their message (people only, within 15 minutes; Board.editSealed).
+          if (method === "PUT" && km[2]) {
+            if (viewer.via === "agent") return json({ error: "Only people can edit their messages." }, 403);
+            const b = (await request.json().catch(() => ({}))) as { payload?: string };
+            const refused = await epochRefusal(String(b.payload ?? ""));
+            if (refused) return refused;
+            return json({ ok: true, entry: await stub.editSealed(viewer.name, pv(), parseInt(km[2], 10), String(b.payload ?? "")) });
+          }
           if (method === "GET" && km[2]) return json(await stub.sealedFor(viewer.name, parseInt(km[2], 10)));
           if (method === "GET" && !km[2]) return json({ entries: await stub.sealedAfter(parseInt(url.searchParams.get("after") ?? "0", 10) || 0) });
+        } catch (e) {
+          return json({ error: e instanceof Error ? e.message : String(e) }, 400);
+        }
+        return json({ error: "not found" }, 404);
+      }
+
+      // ---- end-to-end encrypted boards' files: ciphertext in, ciphertext out (the key is inside the message) ----
+      km = path.match(/^\/api\/boards\/(b_[a-z0-9]+)\/sealed-files(?:\/(sf_[a-z0-9]{1,40}))?$/);
+      if (km) {
+        if (!viewer) return needLogin();
+        if (!(await registry.isMember(env, km[1], viewer.name))) return json({ error: "board not found" }, 404);
+        const stub = boardStub(env, km[1]);
+        try {
+          if (method === "POST" && !km[2]) {
+            if ((await registry.memberRole(env, km[1], viewer.name)) === "viewer") return json({ error: "Your role on this board is viewer." }, 403);
+            const len = Number(request.headers.get("content-length") ?? "0");
+            if (len > MAX_SEALED_FILE) return json({ error: `That file is too large (max ${MAX_IMAGE / 1e6} MB per file).` }, 413);
+            const bytes = await request.arrayBuffer();
+            return json({ ok: true, ...(await stub.putSealedFile(viewer.name, bytes)) }, 201);
+          }
+          if (method === "GET" && km[2]) {
+            const bytes = await stub.sealedFile(km[2]);
+            // Ciphertext never changes under an id, and only members get it.
+            return new Response(bytes, { headers: { "content-type": "application/octet-stream", "cache-control": "private, max-age=31536000, immutable", "x-content-type-options": "nosniff" } });
+          }
         } catch (e) {
           return json({ error: e instanceof Error ? e.message : String(e) }, 400);
         }
@@ -3413,7 +3451,7 @@ const handler = {
               ...(e.via === "agent" && names[e.author] ? { agent_name: names[e.author] } : {}), // "Jarvis · vedu's agent"
               root: roots[e.seq] ?? e.seq,
               retracts: e.retracts,
-              html: entryHtml(withAgentNames(e, names), id, true, { canRetract: canRetract(e), canEdit: !!viewer && !snap.info.encrypted && e.author === viewer.name, lang: viewer?.lang, members: memberSet, people, person: !!viewer && viewer.via !== "agent" }),
+              html: entryHtml(withAgentNames(e, names), id, true, { canRetract: canRetract(e), canEdit: !!viewer && e.author === viewer.name, lang: viewer?.lang, members: memberSet, people, person: !!viewer && viewer.via !== "agent" }),
               row: logRow(e, undefined, undefined, viewer?.lang),
               reactions: snap.reactions[e.seq] ?? [],
               ...(e.type === "change" ? { reviews: snap.reviews[e.seq] ?? [] } : {}),
@@ -3475,7 +3513,7 @@ const handler = {
             entries: page.map((e) => ({
               seq: e.seq,
               root: roots[e.seq] ?? e.seq,
-              html: entryHtml(withAgentNames(e, pageNames), id, true, { canRetract: !!viewer && (e.author === viewer.name || isOwner), canEdit: !!viewer && !pageInfo.encrypted && e.author === viewer.name, lang: viewer?.lang, members: pageMembers, people: pagePeople, person: !!viewer && viewer.via !== "agent" }),
+              html: entryHtml(withAgentNames(e, pageNames), id, true, { canRetract: !!viewer && (e.author === viewer.name || isOwner), canEdit: !!viewer && e.author === viewer.name, lang: viewer?.lang, members: pageMembers, people: pagePeople, person: !!viewer && viewer.via !== "agent" }),
               row: logRow(e, undefined, undefined, viewer?.lang),
               reactions: reactions[e.seq] ?? [],
               ...(e.human_decision ? { human_decision: e.human_decision } : {}),

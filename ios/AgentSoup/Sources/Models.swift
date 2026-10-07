@@ -118,10 +118,10 @@ struct Entry: Codable, Identifiable, Hashable {
     let author: String
     let type: String
     var text: String // on an encrypted board: decrypted on this phone
-    let title: String?
+    var title: String? // on an encrypted board: from the message's encrypted extras
     let to: String?
     let via: String?
-    let artifactName: String?
+    var artifactName: String? // on an encrypted board: the first of its decrypted files
     var pending: Bool? = nil // sent from this phone, not confirmed yet
     var failed: Bool? = nil
     var replyTo: Int? = nil // the message this one answers
