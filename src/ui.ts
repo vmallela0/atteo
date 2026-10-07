@@ -646,6 +646,7 @@ a.ev-acct:hover{background:var(--bg-subtle)}
 .img{margin:8px 0 0}.img-open{display:block;padding:0;border:0;background:none;cursor:zoom-in;max-width:100%;touch-action:manipulation;-webkit-touch-callout:none;-webkit-user-select:none;user-select:none}
 .img img{display:block;max-width:min(100%,440px);max-height:340px;width:auto;height:auto;border-radius:8px;border:1px solid var(--line);background:var(--bg-subtle);pointer-events:none;-webkit-user-drag:none}
 .img figcaption{margin-top:4px}
+.vid{margin:8px 0 0}.vid video{display:block;max-width:min(100%,440px);max-height:340px;border-radius:8px;border:1px solid var(--line);background:var(--bg-subtle)}.vid figcaption{margin-top:4px}
 /* a message with several files: pictures in a grid (1, 2, 1+2, 2×2; "+N" on the last), other files as chips below */
 .mfiles{margin-top:8px;width:min(100%,440px)}
 .mgrid{display:grid;gap:3px;border-radius:8px;overflow:hidden;border:1px solid var(--line);background:var(--line)}
@@ -714,7 +715,7 @@ dialog.lightbox.zoomed img{max-width:none;max-height:none;margin:auto;border-rad
 .composer.typed:has(textarea:not(:placeholder-shown)) .mic-btn:not(.on){display:none}
 .composer .attach{width:30px;padding:0;justify-content:center;color:var(--muted)}.composer .attach:hover{color:var(--ink)}
 .conv.drop .composer,.thr-dlg.drop .composer{box-shadow:0 0 0 2px var(--accent)}
-.doc-img img{display:block;max-width:100%;height:auto;border-radius:8px;border:1px solid var(--line);background:var(--bg-subtle)}
+.doc-img img,.doc-img video{display:block;max-width:100%;height:auto;border-radius:8px;border:1px solid var(--line);background:var(--bg-subtle)}
 /* read receipts: a ring on your latest message, filling green as people and agents see it; a dot on each @mention */
 .entry .meta .when{cursor:pointer}
 .entry.has-rd>.grow{padding-right:24px}

@@ -11,6 +11,21 @@ export function sniffImage(b: Uint8Array): string | null {
   return null;
 }
 
+/** A video's type from its bytes, or null: MP4/M4V and QuickTime (an ISO "ftyp" box with a video brand) and WebM (EBML
+ *  whose doctype is webm). Audio-only and still-image brands (M4A, HEIC, AVIF) aren't videos. */
+const VIDEO_BRANDS = new Set(["isom", "iso2", "iso3", "iso4", "iso5", "iso6", "mp41", "mp42", "avc1", "M4V ", "M4VH", "M4VP", "dash", "mmp4", "MSNV", "3gp4", "3gp5", "3gp6", "3g2a", "f4v "]);
+export function sniffVideo(b: Uint8Array): string | null {
+  const text = (at: number, n: number) => String.fromCharCode(...b.slice(at, at + n));
+  if (b.length >= 12 && text(4, 4) === "ftyp") {
+    const brand = text(8, 4);
+    if (brand === "qt  ") return "video/quicktime";
+    if (VIDEO_BRANDS.has(brand)) return "video/mp4";
+    return null;
+  }
+  if (b.length >= 4 && b[0] === 0x1a && b[1] === 0x45 && b[2] === 0xdf && b[3] === 0xa3 && text(4, 60).includes("webm")) return "video/webm";
+  return null;
+}
+
 /** The image's pixel size from its header bytes (the type sniffImage found), or null.
  *  PNG's IHDR, GIF's screen size, JPEG's SOF marker and all three WebP chunk shapes (VP8, VP8L, VP8X). */
 export function imageSize(image: string, b: Uint8Array): { w: number; h: number } | null {

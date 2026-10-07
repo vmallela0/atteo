@@ -135,6 +135,8 @@ export function entryHtml(e: Entry, boardId: string, withReplies = true, opts: {
       ? pastedHtml(boardId, [{ name: e.artifact_name, version: e.artifact_version ?? null }], T)
       : e.artifact_name && e.media?.mime.startsWith("image/")
       ? imageHtml(boardId, e, T)
+      : e.artifact_name && e.media?.mime.startsWith("video/")
+      ? videoHtml(boardId, { name: e.artifact_name, version: e.artifact_version ?? null, size: e.media.size }, T)
       : "";
   // Only pasted text in it: the "Shared 3 files" caption the server wrote says nothing the quote doesn't.
   const files = e.attachments?.length ? e.attachments : e.artifact_name ? [{ name: e.artifact_name, mime: e.media?.mime }] : [];
@@ -272,7 +274,8 @@ function filesHtml(boardId: string, all: Attachment[], T: (s: string) => string 
   const list = all.filter((a) => !rich.includes(a));
   if (!list.length) return pasted;
   const imgs = list.filter((a) => a.mime.startsWith("image/"));
-  const others = list.filter((a) => !a.mime.startsWith("image/"));
+  const vids = list.filter((a) => a.mime.startsWith("video/"));
+  const others = list.filter((a) => !a.mime.startsWith("image/") && !a.mime.startsWith("video/"));
   const shown = Math.min(imgs.length, 4);
   const tiles = imgs
     .map((a, i) => {
@@ -291,7 +294,8 @@ function filesHtml(boardId: string, all: Attachment[], T: (s: string) => string 
     })
     .join("");
   const total = list.reduce((n, a) => n + a.size, 0);
-  return `${pasted}<div class="mfiles">${grid}${chips ? `<div class="file mchips">${chips}</div>` : ""}<div class="xs faint mcap">${list.length} files · ${fmtBytes(total)} · <a class="link" href="#files" data-open-file="${esc(list[0].name)}"${list[0].version ? ` data-file-ver="${list[0].version}"` : ""}>Open in Files</a></div></div>`;
+  const players = vids.map((a) => videoHtml(boardId, a, T)).join("");
+  return `${pasted}<div class="mfiles">${grid}${players}${chips ? `<div class="file mchips">${chips}</div>` : ""}<div class="xs faint mcap">${list.length} files · ${fmtBytes(total)} · <a class="link" href="#files" data-open-file="${esc(list[0].name)}"${list[0].version ? ` data-file-ver="${list[0].version}"` : ""}>Open in Files</a></div></div>`;
 }
 
 const DL_ICON = `<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 2.5v8M4.5 7 8 10.5 11.5 7M3 13.5h10"/></svg>`;
@@ -318,6 +322,13 @@ function imageHtml(boardId: string, e: Entry, T: (s: string) => string = (x) => 
   const dims = e.media?.w && e.media?.h ? ` width="${e.media.w}" height="${e.media.h}"` : "";
   return `<figure class="img"><button class="img-open" type="button" data-img="${esc(src)}" aria-label="View ${esc(name)} full size"><img src="${esc(src)}" alt="${esc(name)}" loading="lazy"${dims}></button>
 <figcaption class="xs faint"><span class="mono">${esc(name)}</span>${e.artifact_version ? ` v${e.artifact_version}` : ""} · ${fmtBytes(e.media?.size ?? e.artifact_size ?? 0)} · <a class="link" href="${esc(src)}" download="${esc(name)}" data-save>${esc(T("Save"))}</a> · <a class="link" href="#files" data-open-file="${esc(name)}"${e.artifact_version ? ` data-file-ver="${e.artifact_version}"` : ""}>Open in Files</a></figcaption></figure>`;
+}
+
+/** A video plays in the page (jxn #6161): the browser's own controls, only its first frames fetched until played. */
+function videoHtml(boardId: string, a: { name: string; version?: number | null; size: number }, T: (s: string) => string = (x) => x): string {
+  const src = fileSrc(boardId, a.name, a.version);
+  return `<figure class="vid"><video src="${esc(src)}" controls preload="metadata" playsinline aria-label="${esc(a.name)}"></video>
+<figcaption class="xs faint"><span class="mono">${esc(a.name)}</span>${a.version ? ` v${a.version}` : ""} · ${fmtBytes(a.size)} · <a class="link" href="${esc(src)}" download="${esc(a.name)}" data-save>${esc(T("Save"))}</a> · <a class="link" href="#files" data-open-file="${esc(a.name)}"${a.version ? ` data-file-ver="${a.version}"` : ""}>Open in Files</a></figcaption></figure>`;
 }
 
 /** Author, marked as the person or their agent (and which agent). */
@@ -1864,7 +1875,7 @@ async function loadDocs(){const r=await fetch('/api/boards/'+BOARD+'/files');con
 let docAsked=false;async function openDoc(name,version){docAsked=true;editing=false;const r=await fetch('/api/boards/'+BOARD+'/doc?name='+encodeURIComponent(name)+(version?'&version='+version:''));const d=await r.json();if(!r.ok){toast(d.error);return}curDoc=d;renderDoc();loadDocs()}
 function renderDoc(){const d=curDoc,v=document.getElementById('doc-view');const old=d.version!==d.latest;v.classList.remove('editing');
   v.innerHTML='<div class="row wrap" style="justify-content:space-between;gap:8px;margin-bottom:12px"><div><b class="mono">'+esc(d.name)+'</b> <span class="xs faint">v'+d.version+(old?' (viewing an older version; latest v'+d.latest+')':'')+' · '+esc(d.via==='agent'?d.updated_by+"'s agent":d.updated_by)+'</span></div><div class="row">'+
-  '<span id="doc-pin-slot"></span>'+(!d.media&&/\\.(html?|svg)$/i.test(d.name)?'<button class="btn sm ghost" type="button" data-preview-file="'+esc(d.name)+'" data-file-ver="'+d.version+'">'+tr('Preview')+'</button>':'')+'<a class="btn sm ghost" href="/api/boards/'+BOARD+'/image?name='+encodeURIComponent(d.name)+'&version='+d.version+'" download="'+esc(d.name)+'" data-save>'+tr('Download')+'</a>'+(d.seq?'<a class="btn sm ghost" href="#e'+d.seq+'" title="#'+d.seq+'">'+tr('Show in chat')+'</a>':'')+'<button class="btn sm ghost" type="button" id="doc-hist">'+tr('History')+'</button>'+(READONLY||old||d.media?'':'<button class="btn sm" type="button" id="doc-edit">'+tr('Edit')+'</button>')+'</div></div>'+(d.media?'<div class="doc-img"><img alt="'+esc(d.name)+'" src="/api/boards/'+BOARD+'/image?name='+encodeURIComponent(d.name)+'&version='+d.version+'"></div>':'<div class="doc-body body">'+d.html+'</div>')+'<div id="doc-history"></div>';if(window.pinSlot)pinSlot(d)}
+  '<span id="doc-pin-slot"></span>'+(!d.media&&/\\.(html?|svg)$/i.test(d.name)?'<button class="btn sm ghost" type="button" data-preview-file="'+esc(d.name)+'" data-file-ver="'+d.version+'">'+tr('Preview')+'</button>':'')+'<a class="btn sm ghost" href="/api/boards/'+BOARD+'/image?name='+encodeURIComponent(d.name)+'&version='+d.version+'" download="'+esc(d.name)+'" data-save>'+tr('Download')+'</a>'+(d.seq?'<a class="btn sm ghost" href="#e'+d.seq+'" title="#'+d.seq+'">'+tr('Show in chat')+'</a>':'')+'<button class="btn sm ghost" type="button" id="doc-hist">'+tr('History')+'</button>'+(READONLY||old||d.media?'':'<button class="btn sm" type="button" id="doc-edit">'+tr('Edit')+'</button>')+'</div></div>'+(d.media&&/^video\\//.test(d.media.mime)?'<div class="doc-img"><video controls playsinline preload="metadata" aria-label="'+esc(d.name)+'" src="/api/boards/'+BOARD+'/image?name='+encodeURIComponent(d.name)+'&version='+d.version+'"></video></div>':d.media?'<div class="doc-img"><img alt="'+esc(d.name)+'" src="/api/boards/'+BOARD+'/image?name='+encodeURIComponent(d.name)+'&version='+d.version+'"></div>':'<div class="doc-body body">'+d.html+'</div>')+'<div id="doc-history"></div>';if(window.pinSlot)pinSlot(d)}
 function editDoc(){const d=curDoc,v=document.getElementById('doc-view');editing=true;v.classList.add('editing');
   v.innerHTML='<div class="row" style="justify-content:space-between;margin-bottom:10px"><b class="mono">'+esc(d.name)+'</b><span class="xs faint">editing v'+d.version+'</span></div><textarea class="input mono" id="doc-text" style="font-size:12.5px">'+esc(d.content)+'</textarea><input class="input" id="doc-summary" placeholder="'+tr('What changed? (optional)')+'" style="margin-top:8px"><p id="doc-warn" class="flash" hidden style="margin-top:8px"></p><div class="row" style="justify-content:flex-end;margin-top:10px"><button class="btn" type="button" id="doc-cancel">'+tr('Cancel')+'</button><button class="btn primary" type="button" id="doc-save">'+tr('Save')+'</button></div>'}
 async function saveDoc(name,content,base,summary){const r=await fetch('/api/boards/'+BOARD+'/doc',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({action:'write',name,content,base_version:base,summary})});const j=await r.json();

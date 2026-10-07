@@ -3,6 +3,7 @@ import { PALETTE_JS, PALETTE_CSS } from "./palette";
 
 import { localize, pickLang } from "./i18n";
 import { displayMap, displayNames, forgetDisplayName } from "./names";
+import { byteRange } from "./byteRange";
 import * as a2a from "./a2a";
 import { runGrep } from "./grep";
 import * as usage from "./usage";
@@ -2965,18 +2966,22 @@ const handler = {
               headers: { "content-type": "application/json; charset=utf-8", "x-content-type-options": "nosniff", "cache-control": v ? "private, max-age=31536000, immutable" : "private, no-cache" },
             });
           }
-          // Images are served inert (their own type, no sniffing, no script); everything else only as a download.
-          const isImg = img.mime.startsWith("image/");
+          // Images and videos are served inert (their own type, no sniffing, no script); everything else only as a
+          // download. A video answers byte ranges (Safari won't play one otherwise, and seeking uses them).
+          const inline = img.mime.startsWith("image/") || img.mime.startsWith("video/");
           const fname = (url.searchParams.get("name") ?? "file").replace(/[^\w.\- ]+/g, "_");
-          return new Response(img.bytes, {
-            headers: {
-              "content-type": isImg ? img.mime : "application/octet-stream",
-              "x-content-type-options": "nosniff",
-              "content-security-policy": "default-src 'none'; sandbox",
-              "content-disposition": isImg ? "inline" : `attachment; filename="${fname}"`,
-              "cache-control": v ? "private, max-age=31536000, immutable" : "private, no-cache",
-            },
-          });
+          const headers: Record<string, string> = {
+            "content-type": inline ? img.mime : "application/octet-stream",
+            "x-content-type-options": "nosniff",
+            "content-security-policy": "default-src 'none'; sandbox",
+            "content-disposition": inline ? "inline" : `attachment; filename="${fname}"`,
+            "cache-control": v ? "private, max-age=31536000, immutable" : "private, no-cache",
+            "accept-ranges": "bytes",
+          };
+          const range = byteRange(request.headers.get("range"), img.bytes.byteLength);
+          if (range === "bad") return new Response(null, { status: 416, headers: { ...headers, "content-range": `bytes */${img.bytes.byteLength}` } });
+          if (range) return new Response(img.bytes.slice(range.start, range.end + 1), { status: 206, headers: { ...headers, "content-range": `bytes ${range.start}-${range.end}/${img.bytes.byteLength}` } });
+          return new Response(img.bytes, { headers });
         }
         if (what === "upload" && method === "POST") {
           if (!viewer || !(await registry.isMember(env, id, viewer.name))) return json({ error: "Only members can post." }, 403);

@@ -232,20 +232,24 @@ const SFID=/^sf_[a-z0-9]{1,40}$/; // a server-issued file id: anything else in a
 async function decFile(f){if(!SFID.test(String(f.id)))throw new Error('bad file id');const r=await fetch('/api/boards/'+BOARD+'/sealed-files/'+encodeURIComponent(f.id));if(!r.ok)throw new Error('HTTP '+r.status);
   const key=await aesKey(unb64(f.key)),u=new Uint8Array(await r.arrayBuffer()),out=[];
   for(let i=0,off=0;off<u.length;i++){const n=Math.min(CH+16,u.length-off);out.push(new Uint8Array(await S.decrypt({name:'AES-GCM',iv:chunkIv(i)},key,u.subarray(off,off+n))));off+=n}
-  const b=new Blob(out,{type:SHOWN.includes(f.mime)?f.mime:'application/octet-stream'});if(b.size!==f.size)throw new Error('damaged');return b}
-const SHOWN=['image/png','image/jpeg','image/gif','image/webp'],FURL=new Map(); // file id → its decrypted object URL (a promise)
+  const b=new Blob(out,{type:SHOWN.includes(f.mime)||VIDS.includes(f.mime)?f.mime:'application/octet-stream'});if(b.size!==f.size)throw new Error('damaged');return b}
+const SHOWN=['image/png','image/jpeg','image/gif','image/webp'],VIDS=['video/mp4','video/webm','video/quicktime'],FURL=new Map(); // file id → its decrypted object URL (a promise)
 const fileUrl=f=>{if(!FURL.has(f.id))FURL.set(f.id,decFile(f).then(b=>URL.createObjectURL(b)).catch(e=>{FURL.delete(f.id);throw e}));return FURL.get(f.id)};
 const kb=n=>n>=1e6?(n/1e6).toFixed(1)+' MB':n>=1e3?Math.round(n/1e3)+' KB':n+' B';
 const XF=new Map(); // file id → its reference (from an opened message), for the clicks below
 /** An opened message's files: its pictures in the plain board's grid (decrypted as they load), its other files as chips. */
 function filesBlock(files){files=(Array.isArray(files)?files:[]).filter(f=>f&&SFID.test(String(f.id))&&typeof f.key==='string');if(!files.length)return '';for(const f of files)XF.set(f.id,f);
-  const imgs=files.filter(f=>SHOWN.includes(f.mime)),others=files.filter(f=>!SHOWN.includes(f.mime)),n=Math.min(imgs.length,4);
+  const imgs=files.filter(f=>SHOWN.includes(f.mime)),vids=files.filter(f=>VIDS.includes(f.mime)),others=files.filter(f=>!SHOWN.includes(f.mime)&&!VIDS.includes(f.mime)),n=Math.min(imgs.length,4);
   const tiles=imgs.map((f,i)=>'<button class="mg-tile" type="button" data-sf-img="'+esc(f.id)+'" data-img-name="'+esc(f.name)+'" aria-label="View '+esc(f.name)+' full size"'+(i>=n?' hidden></button>':'><img alt="'+esc(f.name)+'"'+(f.w&&f.h?' width="'+(+f.w)+'" height="'+(+f.h)+'"':'')+'>'+(i===3&&imgs.length>4?'<span class="mg-more">+'+(imgs.length-4)+'</span>':'')+'</button>')).join('');
   const chips=others.map(f=>'<div class="fh"><span class="mono grow truncate">'+esc(f.name)+'</span><span class="xs faint">'+kb(+f.size||0)+'</span><button class="btn sm" type="button" data-sf-dl="'+esc(f.id)+'">'+tr('Download')+'</button></div>').join('');
-  return '<div class="mfiles e2e-files">'+(imgs.length?'<div class="mgrid g'+n+'" data-gallery>'+tiles+'</div>':'')+(chips?'<div class="file mchips">'+chips+'</div>':'')+'</div>'}
+  // a video plays in the page (jxn #6161), from its decrypted copy in memory
+  const players=vids.map(f=>'<figure class="vid"><video data-sf-vid="'+esc(f.id)+'" controls playsinline aria-label="'+esc(f.name)+'"></video><figcaption class="xs faint"><span class="mono">'+esc(f.name)+'</span> · '+kb(+f.size||0)+' · <button class="linkish" type="button" data-sf-dl="'+esc(f.id)+'">'+tr('Save')+'</button></figcaption></figure>').join('');
+  return '<div class="mfiles e2e-files">'+(imgs.length?'<div class="mgrid g'+n+'" data-gallery>'+tiles+'</div>':'')+players+(chips?'<div class="file mchips">'+chips+'</div>':'')+'</div>'}
 /** Pictures are decrypted here and shown from memory; the lightbox opens them like any other (data-img). */
 function hydrate(el){el.querySelectorAll('[data-sf-img]').forEach(b=>{const f=XF.get(b.dataset.sfImg);if(!f||b.dataset.img)return;
-  fileUrl(f).then(u=>{b.dataset.img=u;const im=b.querySelector('img');if(im)im.src=u}).catch(()=>{b.classList.add('e2e-none');b.title=tr("Can't decrypt this file on this device.")})})}
+  fileUrl(f).then(u=>{b.dataset.img=u;const im=b.querySelector('img');if(im)im.src=u}).catch(()=>{b.classList.add('e2e-none');b.title=tr("Can't decrypt this file on this device.")})});
+  el.querySelectorAll('[data-sf-vid]').forEach(v=>{const f=XF.get(v.dataset.sfVid);if(!f||v.src)return;
+    fileUrl(f).then(u=>{v.src=u}).catch(()=>{v.classList.add('e2e-none');v.title=tr("Can't decrypt this file on this device.")})})}
 document.addEventListener('click',async e=>{const b=e.target.closest('[data-sf-dl]');if(!b)return;const f=XF.get(b.dataset.sfDl);if(!f)return;b.disabled=true;
   try{const a=document.createElement('a');a.href=await fileUrl(f);a.download=f.name||'file';document.body.append(a);a.click();a.remove()}
   catch(err){toast(tr("Can't decrypt this file on this device."))}finally{b.disabled=false}});
