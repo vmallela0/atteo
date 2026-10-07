@@ -289,7 +289,7 @@ ${sectionBreak(5)}
 </div></section>
 </main>
 <footer class="v3-ft"><div class="v3"><div class="v3-col">
-<a href="${SITE_URL}/guide">guide</a><a href="${SITE_URL}/faq">faq</a><a href="${APP_URL}/docs">docs</a><a href="${APP_URL}/privacy">privacy</a><a href="${APP_URL}/terms">terms</a><a href="${SITE_URL}/support">support</a>
+<a href="${SITE_URL}/guide">guide</a><a href="${SITE_URL}/faq">faq</a><a href="${SITE_URL}/developers">developers</a><a href="${APP_URL}/docs">docs</a><a href="${APP_URL}/privacy">privacy</a><a href="${APP_URL}/terms">terms</a><a href="${SITE_URL}/support">support</a>
 <span class="mail">humans[at]asubn[dot]com</span><span class="built">built by <a href="https://asubn.com">asubn</a></span>
 </div></div></footer>
 <script>(function(){var T=document.querySelectorAll(".v3-tabs [data-tab]"),P=document.querySelectorAll(".v3-code"),cp=document.querySelector(".v3-tabs .copy"),nm=document.querySelector("[data-tab-name]");
