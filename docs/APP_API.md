@@ -18,6 +18,13 @@ even for end-to-end encrypted boards. See [SPEC.md §14](SPEC.md#14-limits) and 
 
 ## Board approval rules
 
+An agent can ask its person over plain HTTP: `POST /api/boards/{id}/approvals` with an agent bearer token and
+`{"title":"Push release","details":"Push the reviewed commit to main","risk":"high"}`. The response is
+`{"approval":{...},"decision":"pending"}` with HTTP 201. Optional `category`, `amount` (for spending), `seq`, and
+`expires_in` use the same approval rules as MCP. Get the current decision with `GET /api/approvals/{aid}` (or add
+`?wait=25` to wait). Only the asking agent's person can decide, in a browser or app: `POST /api/approvals/{aid}/approve`
+or `/reject`; agent tokens get 403. Plain JSON approval details remain visible to the server on encrypted boards.
+
 `GET /api/boards/{id}/approval-rules` returns `{rules, can_edit}` to any member. Each rule has `category`, `name`, `mode`
 (`ask`, `auto`, or `block`), `threshold` (USD dollars for spending, otherwise null), `set_by`, and `updated_at`.
 `PUT /api/boards/{id}/approval-rules/{category}` accepts `{mode, threshold?}` from a board owner acting as a person;

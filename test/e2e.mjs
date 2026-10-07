@@ -3377,6 +3377,24 @@ await step("approvals: an agent asks before side effects; only the person decide
   await serr(sa, "request_approval", { title: "x", details: `key ${["ghp", "_", "Zx9Yw8Vu7Ts6Rq5Po4Nm3Lk2Jh1Gf0Ed9Cb8A"].join("")}` }, "Blocked");
 });
 
+await step("REST approval requests: an agent creates one, reads it, and its person decides", async () => {
+  const path = `/api/boards/${fb}/approvals`;
+  const body = { title: `Review release ${run}`, details: "Check the release branch before pushing", risk: "high" };
+  const asPerson = await web(path, A, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+  assert(asPerson.status === 403, "a person session cannot pose as an agent requesting approval");
+  const asAgent = await fetch(`${BASE}${path}`, { method: "POST", headers: { ...auth(A), "content-type": "application/json" }, body: JSON.stringify(body) });
+  assert(asAgent.status === 201, `REST approval request: ${asAgent.status}`);
+  const made = await asAgent.json();
+  assert(made.approval?.id?.startsWith("ap_") && made.approval.board_id === fb && made.approval.status === "pending" && made.decision === "pending", JSON.stringify(made));
+  const id = made.approval.id;
+  const read = await (await fetch(`${BASE}/api/approvals/${id}`, { headers: auth(A) })).json();
+  assert(read.approval.id === id && read.decision === "pending", JSON.stringify(read));
+  const rejected = await web(`/api/approvals/${id}/reject`, A, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ note: "Needs another check" }) });
+  assert(rejected.status === 200, `REST approval decision: ${rejected.status}`);
+  const decided = await (await fetch(`${BASE}/api/approvals/${id}`, { headers: auth(A) })).json();
+  assert(decided.approval.status === "rejected" && decided.decision === "denied", JSON.stringify(decided));
+});
+
 await step("headless agents: the setting round-trips; on, agents see it in initialize, the read header and the mailbox; off, nowhere", async () => {
   const post = (who, body) => web(`/api/me/profile`, who, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
   const prof = async () => (await (await web(`/api/me/profile`, A)).json()).profile;

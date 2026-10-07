@@ -3101,11 +3101,33 @@ const handler = {
         return json({ error: "not found" }, 404);
       }
 
-      // ---- approval cards: your own approvals on this board (only you decide them), pending by default ----
+      // ---- approval cards: agents request; their people decide in the browser or app ----
       m = path.match(/^\/api\/boards\/(b_[a-z0-9]+)\/approvals$/);
-      if (m && method === "GET") {
+      if (m && (method === "GET" || method === "POST")) {
         if (!viewer) return needLogin();
         if (!(await registry.isMember(env, m[1], viewer.name))) return json({ error: "board not found" }, 404);
+        if (method === "POST") {
+          if (viewer.via !== "agent") return json({ error: "Only an agent token can request approval." }, 403);
+          const b = (await request.json().catch(() => ({}))) as Record<string, unknown>;
+          try {
+            const seq = Number.isInteger(b.seq) && Number(b.seq) > 0 ? Number(b.seq) : null;
+            if (b.seq != null && seq == null) return json({ error: "seq must be a positive entry number." }, 400);
+            const requestedBy = seq == null ? null : (await boardStub(env, m[1]).get(seq, seer())).entry.author;
+            const { session: agentSession } = await asOpts();
+            const made = await approvals.requestApproval(env, viewer.name, {
+              board_id: m[1], seq, requested_by: requestedBy,
+              client: "REST API", session: agentSession,
+              title: typeof b.title === "string" ? b.title : "",
+              details: typeof b.details === "string" ? b.details : "",
+              risk: typeof b.risk === "string" ? b.risk : undefined,
+              category: typeof b.category === "string" ? b.category as import("./approvalRules").Category : undefined,
+              amount: b.amount == null ? null : typeof b.amount === "number" ? b.amount : NaN,
+              expires_in: b.expires_in == null ? null : Number(b.expires_in),
+            }, ctx);
+            await boardStub(env, m[1]).approvalRequested(approvals.refOf(made), { via: "agent", client: "REST API", session: agentSession }).catch((e) => console.error("approval entry failed", e));
+            return json({ approval: made, ...approvals.decision(made) }, 201, { "cache-control": "no-store" });
+          } catch (e) { return json({ error: e instanceof Error ? e.message : String(e) }, 400); }
+        }
         const state = (url.searchParams.get("state") ?? "pending") as (typeof approvals.APPROVAL_STATES)[number];
         if (!approvals.APPROVAL_STATES.includes(state)) return json({ error: `state is one of: ${approvals.APPROVAL_STATES.join(", ")}` }, 400);
         return json({ approvals: await approvals.listBoardApprovals(env, viewer.name, m[1], state) }, 200, { "cache-control": "no-store" });
