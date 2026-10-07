@@ -18,7 +18,7 @@ import { CARD_HELP, cardCommand } from "./card";
 import { hooksCmd } from "./hooks";
 import { api, boardIdIn, CliError, COMMANDS, COMMANDS_HELP, decryptEntry, folderBoard, isEncrypted, optStr, parseArgs, tool } from "./commands";
 import { AcpAgent, type AcpBoard } from "./acp";
-import { entryKey, FORK_TOOLS, forkName, forkPrompt, needsFork, type Mail } from "./dispatch";
+import { entryKey, FORK_TOOLS, forkName, forkPrompt, needsFork, screenMail, type Mail } from "./dispatch";
 import { agentCommand, HARNESSES, splitCommand } from "./harness";
 import { myKey } from "./sealed";
 import { doctorCmd, forgetSession, HELP_AGENTS, mentionLine, prepare, session as agentSessionFor, V2, versionCheck } from "./v2";
@@ -765,7 +765,10 @@ async function dispatch(args: string[]) {
   /** One fork: its own session, your harness in it, then the session ends (if the fork didn't end it itself). */
   async function startFork(m: Mail) {
     runs.push(Date.now());
-    if (m.encrypted) m.text = (await decryptEntry(o, m.board!, m.seq!).catch(() => null)) ?? m.text; // decrypted on this machine
+    if (m.encrypted) {
+      m.text = (await decryptEntry(o, m.board!, m.seq!).catch(() => null)) ?? m.text; // decrypted on this machine
+      screenMail(m); // and screened here: the server never saw the words
+    }
     // A trigger names the entry that fired it: the fork gets its full text (fenced in the prompt).
     if (m.kind === "trigger" && m.board && m.event?.seq != null) m.entry_text = (await api(o, "GET", `/api/boards/${m.board}/entries/${m.event.seq}`).then((j) => j.entry?.text as string | undefined).catch(() => undefined)) ?? undefined;
     const choice = harnessNow();

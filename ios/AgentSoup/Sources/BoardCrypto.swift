@@ -20,7 +20,7 @@ struct EpochState: Decodable {
 }
 
 private struct SealedResponse: Decodable {
-    struct Item: Decodable { let seq: Int; let payload: String }
+    struct Item: Decodable { let seq: Int; let payload: String; var ts: Double? = nil; var author: String? = nil; var via: String? = nil; var type: String? = nil }
     let entries: [Item]
 }
 
@@ -100,12 +100,22 @@ final class BoardCrypto {
 
     // MARK: - This phone's device key
 
+    /// In the .e2e Keychain group (DeviceKeyStore: not the share extension's), moved there once from the app's group.
+    /// A build without that group (none ships so) keeps it where earlier builds did, rather than a new key each time.
     private var privateKey: Curve25519.KeyAgreement.PrivateKey {
-        if let raw = Keychain.data("device-key"), let k = try? Curve25519.KeyAgreement.PrivateKey(rawRepresentation: raw) { return k }
+        guard SealedKeys.group != nil else {
+            if let raw = Keychain.data(DeviceKeyStore.account), let k = try? Curve25519.KeyAgreement.PrivateKey(rawRepresentation: raw) { return k }
+            let k = Curve25519.KeyAgreement.PrivateKey()
+            Keychain.setData(k.rawRepresentation, for: DeviceKeyStore.account)
+            return k
+        }
+        if !Self.migrated { DeviceKeyStore.migrate(); Self.migrated = true }
+        if let raw = DeviceKeyStore.read(), let k = try? Curve25519.KeyAgreement.PrivateKey(rawRepresentation: raw) { return k }
         let k = Curve25519.KeyAgreement.PrivateKey()
-        Keychain.setData(k.rawRepresentation, for: "device-key")
+        DeviceKeyStore.store(k.rawRepresentation)
         return k
     }
+    private static var migrated = false
     private var publicKey: Data { privateKey.publicKey.rawRepresentation }
 
     /// This phone's key id on the server (registered once; the server returns the same id for the same key).
@@ -135,6 +145,8 @@ final class BoardCrypto {
         }
         var mine: [Int: SymmetricKey] = [:]
         for g in st.mine where g.kid == kid { if let k = try? unwrap(g) { mine[g.epoch] = k } }
+        // Kept for the notification extension too (Shared/SealedOpen.swift), this device only.
+        for (e, k) in mine where keys[board]?[e] == nil { SealedKeys.store(k, board: board, epoch: e) }
         keys[board] = mine
         // Hand on what we hold to devices that may have it (the server only lists what we're allowed to grant).
         let out = try st.missing.flatMap { m in try m.epochs.compactMap { e -> [String: Any]? in
@@ -157,6 +169,34 @@ final class BoardCrypto {
             for e in r.entries { if let o = open(e.payload, board: board) { out[e.seq] = o } }
             return out
         } catch { return [:] }
+    }
+
+    /// One encrypted message's words, if this phone can read it (a notification shows them: Notifications.swift).
+    func text(_ board: String, seq: Int) async -> String? {
+        do {
+            if keys[board] == nil { try await sync(board) }
+            let r = try await API.shared.get("/api/boards/\(board)/sealed?after=\(seq - 1)", as: SealedResponse.self, timeout: 8)
+            return r.entries.first { $0.seq == seq }.flatMap { open($0.payload, board: board)?.text }
+        } catch { return nil }
+    }
+
+    /// The board's whole history that this phone can read, for searching it here (LocalSearch.swift): every page of
+    /// encrypted messages (200 each, at most 10,000), decrypted in memory and never written anywhere.
+    func history(_ board: String) async -> [LocalSearch.Entry] {
+        var out: [LocalSearch.Entry] = []
+        do {
+            try await sync(board)
+            var after = 0
+            for _ in 0..<50 {
+                let r = try await API.shared.get("/api/boards/\(board)/sealed?after=\(after)", as: SealedResponse.self)
+                for e in r.entries {
+                    if let t = open(e.payload, board: board)?.text { out.append(.init(seq: e.seq, ts: e.ts ?? 0, author: e.author ?? "", via: e.via, type: e.type ?? "note", text: t)) }
+                }
+                guard let last = r.entries.last?.seq, r.entries.count >= 200 else { break }
+                after = last
+            }
+        } catch {}
+        return out
     }
 
     /// Encrypts a message with the board's current key (opening one first if needed) as a v2 payload; extras, when
@@ -254,11 +294,16 @@ final class BoardCrypto {
 
     // MARK: - The scheme
 
+    /// A message as this phone shows it: a credential someone sent is redacted (ClientScan.swift, review #5551 item 6).
     private func open(_ payload: String, board: String) -> Opened? {
         guard let d = payload.data(using: .utf8),
               let j = try? JSONSerialization.jsonObject(with: d) as? [String: Any],
               j["v"] as? Int == 2, let epoch = j["epoch"] as? Int, let key = keys[board]?[epoch] else { return nil }
-        return Self.opened(j, key: key)
+        return Self.opened(j, key: key).map { o in
+            var x = o.extras
+            x.title = x.title.map(ClientScan.redact)
+            return Opened(text: ClientScan.redact(o.text), extras: x)
+        }
     }
 
     /// An envelope's text and extras under `key`. The extras are optional: a message without them, or with ones this
@@ -314,12 +359,21 @@ final class BoardCrypto {
         return SymmetricKey(data: try AES.GCM.open(box, using: kek(shared, epk: epk, devicePublic: publicKey)))
     }
 
-    func forget() {
-        keys = [:]
-        UserDefaults.standard.removeObject(forKey: "agent-soup-device-kid")
-        try? FileManager.default.removeItem(at: Self.sealedRoot) // every decrypted file goes with the person
+    /// Off a board (you left, were removed, it was deleted): its keys leave memory and the .e2e Keychain group, and
+    /// its decrypted files this phone.
+    func forget(board: String) { keys[board] = nil; SealedKeys.forget(board: board); Self.wipe(board: board) }
+
+    /// The encrypted boards you're on now: any other board's keys go (AppState.refreshBoards).
+    func keep(only boards: Set<String>) {
+        for b in keys.keys where !boards.contains(b) { keys[b] = nil }
+        SealedKeys.keep(only: boards)
     }
 
-    /// Off a board: its keys leave memory and its decrypted files this phone.
-    func forget(board: String) { keys[board] = nil; Self.wipe(board: board) }
+    /// Signing out: every board key (the .e2e group) and every decrypted file go with the person.
+    func forget() {
+        keys = [:]
+        SealedKeys.forgetAll()
+        UserDefaults.standard.removeObject(forKey: "agent-soup-device-kid")
+        try? FileManager.default.removeItem(at: Self.sealedRoot)
+    }
 }

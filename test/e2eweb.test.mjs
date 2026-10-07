@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { createPublicKey, diffieHellman, generateKeyPairSync, hkdfSync, createDecipheriv } from "node:crypto";
-import { E2E_JS } from "../src/e2eweb";
+import { CLIENT_SCAN_JS } from "../src/clientScan";
+import { E2E_JS, SIGN_OUT_JS, signedOutPage } from "../src/e2eweb";
 import { decryptV2, encryptV2, newEpochKey, seal, wrapKey } from "../cli/src/sealed";
 import { BOARD_JS, boardPage, boardTail } from "../src/html";
 
@@ -105,5 +106,173 @@ describe("pins (which devices this browser wraps keys to)", () => {
     const after = pinsJs.pinUpdate({ ann: ["web1"], bob: ["bob1", "gone9"] }, "ann", { kid: "web1", pub: K("A") }, st([{ kid: "web1", user: "ann", public_key: K("A") }], [{ kid: "bob1", user: "bob", public_key: K("B"), first_device: false }]));
     expect(after).toEqual({ ann: [`web1|${K("A")}`], bob: [`bob1|${K("B")}`, "gone9"] });
     expect(pinsJs.isPinned(after, { kid: "gone9", user: "bob", public_key: K("Q") })).toBe(false); // a bare id never matches a key
+  });
+});
+
+describe("search on an encrypted board happens on the device", async () => {
+  const { searchEntries, grepEntries } = await import("../src/localSearch");
+  // The browser's search (e2eweb.ts), lifted out of the page script, given an index directly.
+  const webSearch = (entries) => {
+    const window = {};
+    new Function("window", "ME", "BOARD", `${pick("// ---- on-device search", "// ---- writing")}\nIDX_FULL=Promise.resolve(new Map(arguments[3].map(e=>[e.seq,e])));`)(window, "ann", "b_x", entries);
+    return window.e2eSearch;
+  };
+  const E = (seq, text, o = {}) => ({ seq, ts: 1_700_000_000_000 + seq, author: o.author ?? "ann", via: o.via ?? null, type: o.type ?? "note", text });
+  const entries = [
+    E(1, "Deploy the checkout service on Friday"),
+    E(2, "The CHECKOUT bug: refunds double-count", { author: "bob", via: "agent" }),
+    E(3, "prechecking isn't a match for checkout"),
+    E(4, "Café opening hours are posted", { type: "decision" }),
+    E(5, "x".repeat(120) + " checkout " + "y".repeat(200)),
+    E(6, "checkout checkout refunds", { author: "bob" }),
+  ];
+  it("every word starts a word (any case); best match first, then newest; snippets mark the words like the server's", async () => {
+    const hits = searchEntries(entries, "checkout");
+    expect(hits.map((h) => h.seq)).toEqual([6, 5, 3, 2, 1]);
+    expect(hits[0].snippet).toBe("«checkout» «checkout» refunds");
+    expect(hits.find((h) => h.seq === 2).snippet).toContain("«CHECKOUT»");
+    expect(hits.find((h) => h.seq === 5).snippet).toMatch(/^… x+ «checkout» y+ …$/);
+    expect(searchEntries(entries, "checkout refunds").map((h) => h.seq)).toEqual([6, 2]);
+    expect(searchEntries(entries, "heck")).toEqual([]); // inside a word: no
+    expect(searchEntries(entries, "café").map((h) => h.seq)).toEqual([4]);
+  });
+  it("filters by who, agent or person, and type; no words lists the newest", () => {
+    expect(searchEntries(entries, "checkout", { from: "bob" }).map((h) => h.seq)).toEqual([6, 2]);
+    expect(searchEntries(entries, "checkout", { from: "bob", agent: true }).map((h) => h.seq)).toEqual([2]);
+    expect(searchEntries(entries, "", { type: "decision" }).map((h) => h.seq)).toEqual([4]);
+  });
+  it("the browser's search answers exactly as the CLI's", async () => {
+    const web = webSearch(entries);
+    for (const [q, o] of [["checkout", {}], ["checkout refunds", {}], ["CAFÉ", {}], ["", { from: "bob" }], ["checkout", { from: "bob", agent: false }], ["nothing", {}]])
+      expect((await web(q, o)).entries, q).toEqual(searchEntries(entries, q, o));
+  });
+  it("grep: literal or regex lines, newest message first, each line once", () => {
+    const g = grepEntries([E(1, "a: one\nb: two\na: one"), E(2, "a.b literal\nab")], "a.b");
+    expect(g.map((h) => [h.seq, h.line, h.text])).toEqual([[2, 1, "a.b literal"]]);
+    expect(grepEntries([E(1, "a: one\nb: two\na: one")], "^a:", { regex: true }).map((h) => h.line)).toEqual([1]);
+    expect(grepEntries([E(1, "Hello")], "hello", { caseSensitive: true })).toEqual([]);
+    expect(() => grepEntries([], "(", { regex: true })).toThrow(/valid regular expression/);
+  });
+});
+
+describe("the client screen on an encrypted board page", () => {
+  it("blocks a credential before encrypting, and badges instruction-like text it opens", () => {
+    expect(E2E_JS).toContain("{const no=scanRefusal(text);if(no){toast(no);return}}");
+    expect(E2E_JS).toContain("async function envelope(st,text,x){{const no=scanRefusal(text)||(x&&x.title?scanRefusal(x.title):null);if(no)throw new Error(no)}"); // posts and edits
+  });
+  it("fails closed: without the scan's rules nothing is sent (review #5551 item 5)", () => {
+    const line = E2E_JS.split("\n").find((l) => l.startsWith("function scanRefusal("));
+    const refusal = (w) => new Function("window", "tr", `${line}\nreturn scanRefusal;`)(w, (s) => s);
+    const scan = {};
+    new Function("window", CLIENT_SCAN_JS)(scan);
+    expect(refusal({})("hello")).toMatch(/couldn't check the message for secrets, so nothing was encrypted or sent/);
+    expect(refusal({ atteoScan: {} })("hello")).toMatch(/couldn't check/);
+    // the real rules: fine text passes, a credential doesn't
+    expect(refusal(scan)("hello")).toBeNull();
+    expect(refusal(scan)("AKIAABCDEFGHIJKLMNOP")).toMatch(/^Blocked: this looks like it contains an AWS access key.*Caught in this browser/);
+  });
+  it("is on encrypted board pages only", () => {
+    expect(boardTail("0100").js).toContain("g.atteoScan=");
+    expect(boardTail("0000").js).not.toContain("g.atteoScan=");
+  });
+});
+
+describe("the search index's lifetime (review #5551 item 7)", () => {
+  // The page's index code with a fake IndexedDB store, a fake board key epoch and identity "encryption".
+  const page = ({ epoch = 2, store = new Map(), boards = ["b_x"] } = {}) => {
+    const window = {};
+    const req = (result) => ({ result });
+    const fake = { get: (k) => req(store.get(k)), put: (v, k) => (store.set(k, v), req(k)), delete: (k) => (store.delete(k), req(undefined)), getAllKeys: () => req([...store.keys()]) };
+    const idbDo = async (_mode, f) => f(fake).result;
+    const api = async (_m, path) => (path === "/api/me/boards" ? { boards: boards.map((id) => ({ id })) } : { entries: [] });
+    const S = { generateKey: async () => ({ k: 1 }) };
+    const gcm = async (_k, bytes) => ({ iv: "iv", ct: bytes });
+    const ungcm = async (_k, _iv, ct) => ct;
+    const f = new Function("window", "ME", "BOARD", "idbDo", "api", "S", "gcm", "ungcm", "te", "td", "openOne", "EPOCH",
+      `let ST=null;const epochKeys=async()=>(ST={current:EPOCH});\n${pick("// ---- on-device search", "// ---- writing")}\nreturn {idxLoad,idxSave,idxSweep,set:(m)=>{IDX=m}};`);
+    return { window, store, ...f(window, "ann", "b_x", idbDo, api, S, gcm, ungcm, new TextEncoder(), new TextDecoder(), async () => ({ text: null }), epoch) };
+  };
+  const rec = (epoch) => ({ iv: "iv", ct: new TextEncoder().encode(JSON.stringify([{ seq: 1, ts: 1, author: "bob", via: null, type: "note", text: "hello" }])), epoch });
+
+  it("keeps an index made under the current board key", async () => {
+    const p = page({ epoch: 2, store: new Map([["index:ann:b_x", rec(2)]]) });
+    expect((await p.idxLoad()).size).toBe(1);
+  });
+
+  it("drops one made under an older key (someone left or was removed), to rebuild", async () => {
+    const p = page({ epoch: 3, store: new Map([["index:ann:b_x", rec(2)]]) });
+    expect((await p.idxLoad()).size).toBe(0);
+    expect(p.store.has("index:ann:b_x")).toBe(false);
+  });
+
+  it("saves under the current key's epoch", async () => {
+    const p = page({ epoch: 4 });
+    await p.idxLoad();
+    p.set(new Map([[1, { seq: 1, text: "x" }]]));
+    await p.idxSave();
+    expect(p.store.get("index:ann:b_x").epoch).toBe(4);
+  });
+
+  it("leaving drops this board's index", async () => {
+    const p = page({ store: new Map([["index:ann:b_x", rec(2)], ["index:ann:b_y", rec(1)], ["index-key:ann", {}]]) });
+    await p.window.e2eForget();
+    expect([...p.store.keys()]).toEqual(["index:ann:b_y", "index-key:ann"]);
+  });
+
+  it("a board you're no longer on loses its index the next time any encrypted board opens", async () => {
+    const p = page({ boards: ["b_x"], store: new Map([["index:ann:b_x", rec(2)], ["index:ann:b_gone", rec(1)], ["index:cat:b_other", rec(1)], ["device", {}]]) });
+    await p.idxSweep();
+    expect([...p.store.keys()]).toEqual(["index:ann:b_x", "index:cat:b_other", "device"]);
+    const partial = page({ boards: ["b_q"], store: new Map([["index:ann:b_gone", rec(1)]]) });
+    await partial.idxSweep();
+    expect(partial.store.has("index:ann:b_gone")).toBe(true); // a list without this very board isn't trusted
+  });
+
+  it("signing out clears every index and the index key, keeps the device key, and goes home", async () => {
+    const res = signedOutPage("s=; Max-Age=0", { nonce: "n0nce", headers: { "content-security-policy": "x" } });
+    const html = await res.text();
+    expect(res.headers.get("set-cookie")).toBe("s=; Max-Age=0");
+    expect(res.headers.get("cache-control")).toBe("no-store");
+    expect(html).toContain('<script nonce="n0nce">');
+    expect(html).toContain(SIGN_OUT_JS);
+    // Run it against a fake IndexedDB.
+    const store = new Map([["index:ann:b_x", 1], ["index-key:ann", 2], ["device-key", 3], ["device:ann", 4]]);
+    let went = null;
+    const tx = { objectStore: () => ({ getAllKeys() { const q = { result: [...store.keys()] }; setTimeout(() => { q.onsuccess(); setTimeout(() => tx.oncomplete(), 0); }, 0); return q; }, delete: (k) => store.delete(k) }) };
+    const indexedDB = { open() { const r = { result: { transaction: () => tx, close() {} } }; setTimeout(() => r.onsuccess(), 0); return r; } };
+    new Function("indexedDB", "location", SIGN_OUT_JS)(indexedDB, { replace: (u) => (went = u) });
+    await new Promise((r) => setTimeout(r, 20));
+    expect([...store.keys()]).toEqual(["device-key", "device:ann"]);
+    expect(went).toBe("/");
+  });
+});
+
+describe("what arrives on an encrypted board page is checked too", () => {
+  const received = (w) => {
+    const lines = E2E_JS.split("\n");
+    const at = lines.findIndex((l) => l.startsWith("function received("));
+    return new Function("window", "tr", `${lines.slice(at, at + 2).join("\n")}\nreturn received;`)(w, (s) => s);
+  };
+  const scan = {};
+  new Function("window", CLIENT_SCAN_JS)(scan);
+
+  it("redacts a credential someone sent, in the text and the title, as the server would", () => {
+    const r = received(scan)({ text: "deploy with AKIAABCDEFGHIJKLMNOP now", x: { title: "key AKIAABCDEFGHIJKLMNOP" } });
+    expect(r.text).toBe("deploy with [redacted: an AWS access key] now");
+    expect(r.x.title).toBe("key [redacted: an AWS access key]");
+    expect(received(scan)({ text: "lunch?", x: {} }).text).toBe("lunch?");
+    expect(received(scan)({ why: "no key" })).toEqual({ why: "no key" });
+  });
+
+  it("fails closed: without the rules nothing readable shows", () => {
+    const r = received({})({ text: "AKIAABCDEFGHIJKLMNOP" });
+    expect(r.text).toBeUndefined();
+    expect(r.why).toMatch(/couldn't check this message for secrets/);
+  });
+
+  it("every decrypt goes through it, and the ⚠ reads the title too", () => {
+    expect(E2E_JS).toContain("async function openOne(seq,payload){return received(await openRaw(seq,payload))}");
+    expect(E2E_JS).toContain("flagShow(en,(r.x&&r.x.title?r.x.title+' ':'')+r.text+ho)");
+    expect(E2E_JS).toContain("r.x.handoff.branch.replace("); // and a handoff's branch and checks (#5580)
   });
 });
