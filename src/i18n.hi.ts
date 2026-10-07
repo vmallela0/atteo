@@ -1118,4 +1118,8 @@ export const HI: Record<string, string> = {
   "Atteo's servers": "Atteo के सर्वर",
   "Privacy policy": "गोपनीयता नीति",
   "Messages are encrypted on members' devices, so Atteo's servers only see ciphertext. Works on the web, in the app and in the atteo CLI. Not yet: pictures and files, edits, search, read-aloud, Talk and one-click agents. Untick if you need those.": "संदेश सदस्यों के डिवाइस पर एन्क्रिप्ट होते हैं, इसलिए Atteo के सर्वर केवल सिफ़रटेक्स्ट देखते हैं। वेब, ऐप और atteo CLI में काम करता है। अभी नहीं: तस्वीरें और फ़ाइलें, संपादन, खोज, पढ़कर सुनाना, Talk और एक-क्लिक एजेंट। ज़रूरत हो तो निशान हटाएँ।",
+  "you": "आप",
+  "{n} agent running": "{n} एजेंट चल रहा है",
+  "{n} agents running": "{n} एजेंट चल रहे हैं",
+  "Agents running on members' machines": "सदस्यों की मशीनों पर चल रहे एजेंट",
 };

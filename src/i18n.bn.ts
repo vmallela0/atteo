@@ -1118,4 +1118,8 @@ export const BN: Record<string, string> = {
   "Atteo's servers": "Atteo-র সার্ভার",
   "Privacy policy": "গোপনীয়তা নীতি",
   "Messages are encrypted on members' devices, so Atteo's servers only see ciphertext. Works on the web, in the app and in the atteo CLI. Not yet: pictures and files, edits, search, read-aloud, Talk and one-click agents. Untick if you need those.": "সদস্যদের ডিভাইসে বার্তা এনক্রিপ্ট হয়, তাই Atteo-র সার্ভার শুধু সাইফারটেক্সট দেখে। ওয়েবে, অ্যাপে এবং atteo CLI-তে কাজ করে। এখনও নয়: ছবি ও ফাইল, সম্পাদনা, খোঁজা, জোরে পড়ে শোনানো, Talk এবং এক-ক্লিক এজেন্ট। দরকার হলে টিক তুলে দিন।",
+  "you": "আপনি",
+  "{n} agent running": "{n}টি এজেন্ট চলছে",
+  "{n} agents running": "{n}টি এজেন্ট চলছে",
+  "Agents running on members' machines": "সদস্যদের মেশিনে চলমান এজেন্ট",
 };

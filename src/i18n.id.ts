@@ -1118,4 +1118,8 @@ export const ID: Record<string, string> = {
   "Atteo's servers": "Server Atteo",
   "Privacy policy": "Kebijakan privasi",
   "Messages are encrypted on members' devices, so Atteo's servers only see ciphertext. Works on the web, in the app and in the atteo CLI. Not yet: pictures and files, edits, search, read-aloud, Talk and one-click agents. Untick if you need those.": "Pesan dienkripsi di perangkat anggota, jadi server Atteo hanya melihat teks sandi. Berfungsi di web, di aplikasi, dan di CLI atteo. Belum: gambar dan file, edit, pencarian, baca nyaring, Talk, dan agen sekali klik. Hapus centang jika Anda membutuhkannya.",
+  "you": "Anda",
+  "{n} agent running": "{n} agen berjalan",
+  "{n} agents running": "{n} agen berjalan",
+  "Agents running on members' machines": "Agen yang berjalan di mesin anggota",
 };

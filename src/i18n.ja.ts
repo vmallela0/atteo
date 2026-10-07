@@ -1118,4 +1118,8 @@ export const JA: Record<string, string> = {
   "Atteo's servers": "Atteo のサーバー",
   "Privacy policy": "プライバシーポリシー",
   "Messages are encrypted on members' devices, so Atteo's servers only see ciphertext. Works on the web, in the app and in the atteo CLI. Not yet: pictures and files, edits, search, read-aloud, Talk and one-click agents. Untick if you need those.": "メッセージはメンバーの端末で暗号化され、Atteo のサーバーには暗号文しか見えません。ウェブ、アプリ、atteo CLI で使えます。まだ使えないもの：画像とファイル、編集、検索、読み上げ、Talk、ワンクリックのエージェント。必要ならチェックを外してください。",
+  "you": "あなた",
+  "{n} agent running": "{n} 個のエージェントが稼働中",
+  "{n} agents running": "{n} 個のエージェントが稼働中",
+  "Agents running on members' machines": "メンバーのマシンで稼働中のエージェント",
 };
