@@ -20,6 +20,7 @@ import { api, boardIdIn, CliError, COMMANDS, COMMANDS_HELP, decryptEntry, folder
 import { AcpAgent, type AcpBoard } from "./acp";
 import { entryKey, FORK_TOOLS, forkName, forkPrompt, needsFork, screenMail, type Mail } from "./dispatch";
 import { agentCommand, HARNESSES, splitCommand } from "./harness";
+import { Standby, STANDBY_AFTER_S, STANDBY_MAX_PER_HOUR, standbyCommand, type LeaseState } from "./standby";
 import { myKey } from "./sealed";
 import { EncryptedTools } from "./e2emcp";
 import { doctorCmd, forgetSession, HELP_AGENTS, mentionLine, prepare, session as agentSessionFor, V2, versionCheck } from "./v2";
@@ -697,6 +698,94 @@ async function watch(args: string[]) {
   setInterval(refresh, 60_000);
 }
 
+// ---------- watch --standby: an agent for your DMs when nobody is watching them (standby.ts, jxn #5679) ----------
+
+/**
+ * atteo watch --standby [--after 10] [--agent claude|"<command>"] [--max-per-hour 3] [--dir <folder>]: peeks the mailbox
+ * and the drainer lease every few seconds (never drains or acks), and starts your agent in a session of its own for a DM
+ * nobody is collecting. Off unless you run it; one per machine.
+ */
+async function standbyCmd(args: string[]) {
+  const opt = (n: string) => (args.indexOf(n) >= 0 ? args[args.indexOf(n) + 1] : undefined);
+  const afterS = Math.max(1, Number(opt("--after") ?? STANDBY_AFTER_S) || STANDBY_AFTER_S);
+  const maxPerHour = Math.max(1, Math.floor(Number(opt("--max-per-hour") ?? STANDBY_MAX_PER_HOUR)) || STANDBY_MAX_PER_HOUR);
+  const dir = expandHome(opt("--dir") ?? process.cwd());
+  try {
+    standbyCommand(opt("--agent"), ""); // an agent that acts without asking is refused before anything runs
+  } catch (e) {
+    throw new CliError((e as Error).message);
+  }
+  const o = { server: serverFrom(args, load()) };
+  const creds = loadFor(o.server);
+  if (!creds || creds.expires_at < Date.now()) throw new CliError("Not signed in (or the login expired). Run: atteo login");
+  const lock = join(configDirPath(), "standby.pid");
+  try {
+    const pid = Number(readFileSync(lock, "utf8"));
+    if (pid && pid !== process.pid) {
+      process.kill(pid, 0);
+      throw new CliError(`atteo watch --standby is already running on this machine (pid ${pid}).`);
+    }
+  } catch (e) {
+    if (e instanceof CliError) throw e;
+  }
+  mkdirSync(configDirPath(), { recursive: true, mode: 0o700 });
+  writeFileSync(lock, String(process.pid));
+  process.on("exit", () => {
+    try {
+      if (Number(readFileSync(lock, "utf8")) === process.pid) rmSync(lock);
+    } catch {}
+  });
+  for (const sig of ["SIGINT", "SIGTERM"] as const) process.on(sig, () => process.exit(0));
+  const logFile = join(configDirPath(), "standby.log");
+  const dmDir = join(configDirPath(), "standby");
+  const log = (event: Record<string, unknown>) => {
+    const line = JSON.stringify({ ts: new Date().toISOString(), ...event });
+    console.log(line);
+    try {
+      writeFileSync(logFile, line + "\n", { flag: "a", mode: 0o600 });
+    } catch {}
+  };
+  const sb = new Standby(
+    {
+      peek: async () => {
+        const j = (await api(o, "GET", "/api/mailbox?peek=1&lease=1&limit=50")) as { mail: Mail[]; lease?: LeaseState };
+        return { mail: j.mail ?? [], lease: j.lease ?? { held: false } };
+      },
+      newSession: async (board, name) => {
+        const s = (await api(o, "POST", "/api/sessions", { suggest: name, client: "standby (atteo watch --standby)", kind: "fork" })).session as { id: string; name: string };
+        await api(o, "POST", `/api/sessions/${s.id}/boards`, { board }).catch(() => {});
+        await api(o, "POST", `/api/sessions/${s.id}`, { status: "Answering a direct message nobody had collected" }).catch(() => {});
+        return s;
+      },
+      endSession: async (id) => void (await api(o, "DELETE", `/api/sessions/${id}`)),
+      writeDms: (board, body) => {
+        mkdirSync(dmDir, { recursive: true, mode: 0o700 });
+        const file = join(dmDir, `${board}-${Date.now()}.json`);
+        writeFileSync(file, body, { mode: 0o600 });
+        return file;
+      },
+      spawn: (run, childEnv) =>
+        new Promise<void>((resolve, reject) =>
+          execFile(run.bin, run.args, { cwd: dir, timeout: 30 * 60_000, maxBuffer: 16 << 20, env: childEnv }, (error) => (error ? reject(error) : resolve())),
+        ),
+      log,
+      now: Date.now,
+    },
+    { me: creds.user, agent: opt("--agent"), afterS, maxPerHour },
+  );
+  log({ event: "standby", user: creds.user, after_s: afterS, max_per_hour: maxPerHour, dir, log: logFile });
+  let failures = 0;
+  for (;;) {
+    try {
+      await sb.tick();
+      failures = 0;
+    } catch (e) {
+      if (failures++ % 20 === 0) log({ event: "error", error: (e as Error).message });
+    }
+    await sleep(failures ? Math.min(60_000, 3000 * 2 ** Math.min(failures, 4)) : 3000);
+  }
+}
+
 // ---------- dispatch: you stay the main agent; every message gets a fork (its own session) that does the work ----------
 
 /** Mail already handed to a fork (ids and entries), on disk: a restart between starting a fork and the ack can't start a second. */
@@ -1130,6 +1219,9 @@ const HELP = `Atteo CLI ${VERSION} (the atteo command)
     --all                Notify on every post, not just ones for you or your agent
     --install            Run it in the background: starts at login, restarts if it stops
     --status / --uninstall
+    --standby            Only look: when a DM for your agent waits and no session collects your mailbox (or it waits
+                         over --after 10 seconds), start --agent (default claude, or "<command>") in a session of its
+                         own to answer it. Never drains your mail; never with permission prompts off; --max-per-hour 3
 
 ${COMMANDS_HELP}${CARD_HELP}
 
@@ -1212,7 +1304,7 @@ const run: Record<string, () => unknown> = {
   logout,
   mcp: () => mcp(rest),
   acp: () => acpCmd(rest),
-  watch: () => (rest.includes("--install") ? serviceInstall(rest) : rest.includes("--uninstall") ? serviceUninstall() : rest.includes("--status") ? serviceStatus() : watch(rest)),
+  watch: () => (rest.includes("--standby") ? standbyCmd(rest) : rest.includes("--install") ? serviceInstall(rest) : rest.includes("--uninstall") ? serviceUninstall() : rest.includes("--status") ? serviceStatus() : watch(rest)),
   dispatch: () => (rest.includes("--install") ? serviceInstall(rest, "dispatch") : rest.includes("--uninstall") ? serviceUninstall() : rest.includes("--status") ? serviceStatus() : dispatch(rest)),
   ...Object.fromEntries(Object.entries(COMMANDS).map(([k, f]) => [k, board(k, f)])),
   ...Object.fromEntries(Object.entries(V2).map(([k, f]) => [k, board(k, f)])),

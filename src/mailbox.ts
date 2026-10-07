@@ -228,6 +228,13 @@ export async function leaseFor(env: Env, user: string, holder: string, holderNam
   return l && l.holder !== holder && l.expires_at > now ? l : null;
 }
 
+/** Is anyone draining `user`'s mailbox, whoever asks (lease=1: atteo watch --standby, #5679)? Looks only: never takes,
+ *  renews or frees the lease, so a watcher checking it can't become a second drainer. */
+export async function leaseState(env: Env, user: string, now: number): Promise<{ held: boolean; by: string | null; until: number | null }> {
+  const l = await env.DB.prepare(LEASE_GET_SQL).bind(user).first<Lease>();
+  return l && l.expires_at > now ? { held: true, by: l.holder_name, until: l.expires_at } : { held: false, by: null, until: null };
+}
+
 /** What a caller that doesn't hold the lease is told (outside any fence: these are the platform's words). */
 export function heldHint(l: Lease): string {
   return `Mailbox held by ${l.holder_name ? `session ${l.holder_name}` : "another session"} until ${new Date(l.expires_at).toISOString().slice(11, 16)}Z; pass peek or wait (one drainer per person: this call only peeked, so that mail is still waiting for it).`;

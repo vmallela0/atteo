@@ -1286,6 +1286,8 @@ const handler = {
         // read only peeks (mail for this very session still comes). A plain peek never looks.
         const drain = url.searchParams.get("drain") === "1";
         const lease = drain || !peek ? await mailbox.leaseFor(env, viewer.name, await mailboxHolder(), (await asess())?.name ?? null, requestNow(env, request), drain) : null;
+        // lease=1: is anyone draining it, whoever holds it (a standby watcher's check, #5679). Looks only.
+        const leaseNow = url.searchParams.get("lease") === "1" ? await mailbox.leaseState(env, viewer.name, requestNow(env, request)) : null;
         // One open wait per agent session: a newer one ends this one (limits.beginWait).
         const w = wait && sid ? limits.beginWait(`s:${sid}`) : null;
         if (w?.refused) return waitRefused(w.refused);
@@ -1297,7 +1299,7 @@ const handler = {
         } finally {
           w?.done();
         }
-        const r = { ...r0, mail: [...await social.mailWithAgentNames(env, r0.mail), ...editMail], ...(lease ? { held: mailbox.heldHint(lease), held_until: lease.expires_at } : {}), ...(limits.superseded(w?.signal) ? { superseded: true } : {}), ...(limits.pollAfterMs(level) ? { poll_after_ms: limits.pollAfterMs(level) } : {}) }; // from_agent_name: "Jarvis" (from: its owner)
+        const r = { ...r0, mail: [...await social.mailWithAgentNames(env, r0.mail), ...editMail], ...(lease ? { held: mailbox.heldHint(lease), held_until: lease.expires_at } : {}), ...(leaseNow ? { lease: leaseNow } : {}), ...(limits.superseded(w?.signal) ? { superseded: true } : {}), ...(limits.pollAfterMs(level) ? { poll_after_ms: limits.pollAfterMs(level) } : {}) }; // from_agent_name: "Jarvis" (from: its owner)
         // headless: the person reads the board, not the agent's terminal (the CLI says so over the mail).
         return json((await social.agentsHeadless(env, viewer.name)) ? { ...r, headless: true } : r, 200, { "cache-control": "no-store" });
       }
