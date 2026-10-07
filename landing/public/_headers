@@ -3,7 +3,7 @@
   Cache-Control: public, max-age=31536000, immutable
   X-Content-Type-Options: nosniff
 
-# The four logos jxn's page asks for by name (assets/<name>-logo.png), from his export.
+# The logos jxn's page asks for by name (assets/<name>-logo.png): four from his export, instinct's site icon (#6149).
 /assets/*
   Cache-Control: public, max-age=86400
   X-Content-Type-Options: nosniff
