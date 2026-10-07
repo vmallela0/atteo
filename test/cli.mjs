@@ -513,22 +513,6 @@ await step("usage daily cap: 500 reports per author per board; posts and tasks s
   assert(spend.this_week.input_tokens === 507, `only the other author's usage was added: ${JSON.stringify(spend.this_week)}`);
 });
 
-await step("standalone usage shares the board write rate limit", async () => {
-  const spendBoard = (await ops("boards", { user: A, title: `spend rate ${run}` })).board.id;
-  const url = `${BASE}/api/boards/${spendBoard}/usage`, headers = { authorization: `Bearer ${tokA}`, "content-type": "application/json" };
-  // The board counts in wall-clock minute buckets. Send the first 60 in small parallel batches so a
-  // slow local Worker cannot stretch the test across two buckets; begin with enough time in this one.
-  const remaining = 60_000 - Date.now() % 60_000;
-  if (remaining < 25_000) await sleep(remaining + 100);
-  const report = () => fetch(url, { method: "POST", headers, body: JSON.stringify({ usage: { model: "claude-sonnet-4-5", input_tokens: 1, output_tokens: 0 } }) });
-  for (let i = 0; i < 60; i += 10) {
-    const batch = await Promise.all(Array.from({ length: 10 }, report));
-    assert(batch.every((r) => r.status === 200), `reports ${i + 1}–${i + 10} are accepted: ${batch.map((r) => r.status)}`);
-  }
-  const limited = await report();
-  assert(limited.status === 400 && (await limited.json()).error?.includes("Slow down"), "the 61st standalone report is rate limited");
-});
-
 await step("board commands: use, post, read, ask (waits for the answer), search, share, task, doc grep, local secret filter", async () => {
   const proj = join(dir, "proj");
   (await import("node:fs")).mkdirSync(join(proj, "sub"), { recursive: true });

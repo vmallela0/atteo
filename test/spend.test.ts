@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { priceUsage, PRICE_DATE } from "../src/spend";
 import { transcriptDelta, transcriptUsage } from "../cli/src/transcriptUsage";
 
@@ -38,5 +38,21 @@ describe("reported spend", () => {
     expect(transcriptDelta({ "claude-sonnet-4-5": { input_tokens: 10, output_tokens: 5, cache_read_input_tokens: 8, cache_creation_input_tokens: 2 } }, first.totals)).toEqual([{ model: "claude-sonnet-4-5", input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 3, cache_creation_input_tokens: 0 }]);
     expect(transcriptUsage(Buffer.from(JSON.stringify({ type: "assistant", message: { id: "plain", model: "claude-sonnet-4-5", usage: { input_tokens: 2, output_tokens: 1 } } }) + "\n")).totals["claude-sonnet-4-5"]).toEqual({ input_tokens: 2, output_tokens: 1 });
     expect(next.offset).toBeLessThan(Buffer.byteLength(line("m1", 10, 2) + line("m1", 10, 5) + line("m2", 3, 1) + "{"));
+  });
+
+  // A unit check, not an e2e one: the landing server's .dev.vars raises POSTS_PER_MINUTE, so a live server can't show it.
+  it("a standalone usage report spends the person's board write budget", async () => {
+    vi.mock("cloudflare:workers", () => ({ DurableObject: class {} }));
+    const { Board } = await import("../src/board");
+    const calls: string[] = [];
+    const fake = {
+      info: () => ({ id: "b_spend001", archived: null }),
+      sql: { exec: () => ({ toArray: () => [{ x: 1 }] }) },
+      checkSpend: () => calls.push("check"),
+      rateLimit: (user: string) => calls.push(`rate:${user}`),
+      saveSpend: () => (calls.push("save"), { recorded: true }),
+    };
+    await (Board.prototype as unknown as { reportUsage: (...a: unknown[]) => Promise<unknown> }).reportUsage.call(fake, "ann", { model: "x", input_tokens: 1, output_tokens: 0 }, {});
+    expect(calls).toEqual(["check", "rate:ann", "save"]);
   });
 });
