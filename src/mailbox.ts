@@ -1,6 +1,6 @@
 // The mailbox: one place a developer's own dispatcher (or any number of monitors; we don't dictate) collects mail for
 // their agent across every board and DM: DMs, @you, @your agent, replies to what you or your agent posted, and
-// first-contact requests. Mail waits, undelivered, until the agent polls; polling delivers it (peek=1 doesn't).
+// first-contact requests. Mail waits, undelivered, until the agent reads it; a waiting read is pushed awake.
 // The platform only delivers: deciding which of your agents handles what is up to you. Two exceptions route mail:
 // what you write on your own agent's board ("Your agent") is a DM from you (from_owner), and mail for one of your
 // agent sessions ("@you/claude-2") is only in that session's mailbox: your other sessions and your dispatcher skip it.
@@ -45,7 +45,7 @@ type TriggerData = { trigger: { id: string; on: string }; prompt: string; event:
 
 type Row = { id: number; board_id: string; board_title: string | null; board_kind: string | null; encrypted: number | null; seq: number; kind: string; actor: string; actor_via: string | null; entry_type: string; excerpt: string; created_at: number; to_session: string | null; to_session_name: string | null; data: string | null };
 
-/** Undelivered mail (hot: mailbox waits check it every few seconds), shared with test/queryPlans.test.ts. `direct`:
+/** Undelivered mail, shared with test/queryPlans.test.ts. `direct`:
  *  only mail on direct-message boards (a standby watcher's peek, kinds=dm: other mail nobody drains can't crowd its page
  *  out, #5695). */
 const undeliveredSql = (direct: boolean) => `SELECT n.id, n.board_id, b.title AS board_title, b.kind AS board_kind, b.encrypted, n.seq, n.kind, n.actor, n.actor_via, n.entry_type, n.excerpt, n.created_at, n.to_session, s.name AS to_session_name, n.data
@@ -76,16 +76,60 @@ async function undelivered(env: Env, user: string, limit: number, session: strin
   ).results;
 }
 
-/** Any undelivered mail newer than `since` (created_at)? One indexed seek that reads at most one row (the cost guard,
- *  vedu #4340): what a peeking or held wait polls instead of re-reading the whole backlog every few seconds. */
-export const NEWER_MAIL_SQL = `SELECT 1 AS x FROM notifications WHERE user = ? AND agent_seen_at IS NULL AND created_at > ? LIMIT 1`;
+/** A peeking or held wait checks for a later row without re-reading its backlog. The id handles posts in the same ms. */
+export const NEWER_MAIL_SQL = `SELECT 1 AS x FROM notifications WHERE user = ? AND agent_seen_at IS NULL AND created_at >= ? AND (created_at > ? OR id > ?) LIMIT 1`;
 
 // A peek (or a read while another session holds the drain lease) never takes the mail, so the same rows come back every
 // time. In prod one such loop asked about 14 times a minute for days and re-read ~80 rows each time (#4340). Each
 // isolate remembers the newest mail it already showed to a peeking/held caller; a wait from that caller then holds until
 // something newer arrives (or mail for its own session), instead of returning the same mail at once.
-const shown = new Map<string, number>();
+const shown = new Map<string, { at: number; id: number }>();
 const shownKey = (user: string, session: string | null, held: boolean) => `${user}\n${session ?? ""}\n${held ? "h" : "p"}`;
+const newestRow = (rows: Row[]) => rows.reduce((a, r) => r.created_at > a.at || (r.created_at === a.at && r.id > a.id) ? { at: r.created_at, id: r.id } : a, { at: -1, id: -1 });
+const later = (a: { at: number; id: number }, b: { at: number; id: number }) => a.at > b.at || (a.at === b.at && a.id > b.id);
+
+/** A board calls this after the D1 notification write. One DO notification per person, regardless of mail kind. */
+export async function notifyMailboxes(env: Env, users: Iterable<string>): Promise<void> {
+  const results = await Promise.allSettled([...new Set(users)].map((user) => env.MAILBOX_SIGNAL.get(env.MAILBOX_SIGNAL.idFromName(user)).notify()));
+  const failed = results.find((r): r is PromiseRejectedResult => r.status === "rejected");
+  if (failed) throw failed.reason;
+}
+
+/** Attach before the first D1 read: a notification racing that read is either in its result or buffered here. */
+async function openWake(env: Env, user: string): Promise<{ wait(ms: number, signal?: AbortSignal): Promise<void>; close(): void } | null> {
+  if (!env.MAILBOX_SIGNAL) return null; // unit fixtures and older local bindings use the safety poll
+  try {
+    const socket = (await env.MAILBOX_SIGNAL.get(env.MAILBOX_SIGNAL.idFromName(user)).fetch("https://mailbox/wait", { headers: { Upgrade: "websocket" } })).webSocket;
+    if (!socket) return null;
+    socket.accept();
+    let pending = false, closed = false;
+    const listeners = new Set<() => void>();
+    const wake = () => { pending = true; for (const listener of listeners) listener(); };
+    const lost = () => { closed = true; wake(); };
+    socket.addEventListener("message", wake);
+    socket.addEventListener("close", lost);
+    socket.addEventListener("error", lost);
+    return {
+      wait(ms, signal) {
+        if (pending || signal?.aborted) { pending = false; return Promise.resolve(); }
+        return new Promise<void>((resolve) => {
+          // Once the socket is gone nothing wakes this wait: poll every 3 s as before push (alt-b #5832).
+          const timer = setTimeout(done, closed ? Math.min(ms, 3_000) : ms);
+          function done() {
+            clearTimeout(timer);
+            listeners.delete(done);
+            signal?.removeEventListener("abort", done);
+            pending = false;
+            resolve();
+          }
+          listeners.add(done);
+          signal?.addEventListener("abort", done);
+        });
+      },
+      close() { try { socket.close(1000, "done"); } catch {} },
+    };
+  } catch { return null; }
+}
 
 // Edit notices live in each board (a Durable Object), so collecting them is one call per board the person is on, 13 for
 // vedu, on every mailbox request. A polling loop multiplied that into ~900k Durable Object calls in three hours on Oct 4
@@ -102,9 +146,8 @@ export function editSweepDue(session: string, wait: boolean, now = Date.now()): 
 
 /**
  * Your agent's undelivered mail, oldest first, with each message's full text. `wait` (seconds; the API caps it at 25, the MCP tool at 45) holds the
- * request until mail arrives, checking every few seconds (one indexed lookup each). Delivers what it returns unless
- * `peek`. `pollMs` spaces the checks out (longer while shedding load); `signal` ends the wait early (a newer wait from
- * the same session took over).
+ * request until mail arrives. A per-person DO wakes it after the D1 write; a slow poll recovers missed signals.
+ * Delivers what it returns unless `peek`. `signal` ends a superseded wait early.
  */
 export async function collect(
   env: Env,
@@ -114,46 +157,58 @@ export async function collect(
 ): Promise<{ mail: Mail[]; more: boolean }> {
   const deadline = Date.now() + opts.wait * 1000;
   const session = opts.session ?? null;
-  let rows = await undelivered(env, user, opts.limit + 1, session, !!opts.direct);
-  const every = opts.pollMs ?? 3000;
-  const sleep = () =>
-    new Promise<void>((r) => {
-      const t = setTimeout(done, every);
-      function done() {
-        clearTimeout(t);
-        opts.signal?.removeEventListener("abort", done);
-        r();
-      }
-      opts.signal?.addEventListener("abort", done);
-    });
-  // Peeking or held: mail this caller was already shown (and can't take) doesn't end a wait; something newer does, or
-  // mail for its own session (which a held read still takes).
-  const repeats = opts.peek || opts.held;
-  const key = shownKey(user, session, !!opts.held);
-  if (repeats && opts.wait > 0 && rows.length) {
-    const newest = Math.max(...rows.map((r) => r.created_at));
-    const own = opts.held && session ? rows.some((r) => r.to_session === session) : false;
-    if (!own && newest <= (shown.get(key) ?? -1)) {
-      while (Date.now() + every <= deadline && !opts.signal?.aborted) {
-        await sleep();
-        if (opts.signal?.aborted) break;
-        if (await env.DB.prepare(NEWER_MAIL_SQL).bind(user, newest).first()) {
-          rows = await undelivered(env, user, opts.limit + 1, session, !!opts.direct);
-          break;
+  const wake = opts.wait > 0 ? await openWake(env, user) : null;
+  let rows: Row[];
+  let more = false;
+  try {
+    rows = await undelivered(env, user, opts.limit + 1, session, !!opts.direct);
+    const every = opts.pollMs ?? (wake ? 30_000 : 3_000); // no wake socket: the old 3 s poll (alt-b #5832)
+    const sleep = (ms: number) =>
+      new Promise<void>((r) => {
+        const t = setTimeout(done, ms);
+        function done() {
+          clearTimeout(t);
+          opts.signal?.removeEventListener("abort", done);
+          r();
+        }
+        opts.signal?.addEventListener("abort", done);
+      });
+    const waitForChange = () => {
+      const ms = Math.min(every, Math.max(0, deadline - Date.now()));
+      return wake?.wait(ms, opts.signal) ?? sleep(ms);
+    };
+    // Peeking or held: mail this caller was already shown (and can't take) doesn't end a wait; something newer does,
+    // or mail for its own session (which a held read still takes).
+    const repeats = opts.peek || opts.held;
+    const key = shownKey(user, session, !!opts.held);
+    if (repeats && opts.wait > 0 && rows.length) {
+      const newest = newestRow(rows);
+      const own = opts.held && session ? rows.some((r) => r.to_session === session) : false;
+      if (!own && !later(newest, shown.get(key) ?? { at: -1, id: -1 })) {
+        while (Date.now() < deadline && !opts.signal?.aborted) {
+          await waitForChange();
+          if (opts.signal?.aborted) break;
+          if (await env.DB.prepare(NEWER_MAIL_SQL).bind(user, newest.at, newest.at, newest.id).first()) {
+            rows = await undelivered(env, user, opts.limit + 1, session, !!opts.direct);
+            break;
+          }
         }
       }
     }
-  }
-  while (!rows.length && Date.now() + every <= deadline && !opts.signal?.aborted) {
-    await sleep();
-    if (opts.signal?.aborted) break;
-    rows = await undelivered(env, user, opts.limit + 1, session, !!opts.direct);
-  }
-  const more = rows.length > opts.limit;
-  rows = rows.slice(0, opts.limit);
-  if (repeats && rows.length) {
-    if (shown.size > 5000) shown.clear();
-    shown.set(key, Math.max(shown.get(key) ?? -1, ...rows.map((r) => r.created_at)));
+    while (!rows.length && Date.now() < deadline && !opts.signal?.aborted) {
+      await waitForChange();
+      if (opts.signal?.aborted) break;
+      rows = await undelivered(env, user, opts.limit + 1, session, !!opts.direct);
+    }
+    more = rows.length > opts.limit;
+    rows = rows.slice(0, opts.limit);
+    if (repeats && rows.length) {
+      if (shown.size > 5000) shown.clear();
+      const newest = newestRow(rows);
+      if (later(newest, shown.get(key) ?? { at: -1, id: -1 })) shown.set(key, newest);
+    }
+  } finally {
+    wake?.close();
   }
   const mail = await Promise.all(
     rows.map(async (r): Promise<Mail> => {

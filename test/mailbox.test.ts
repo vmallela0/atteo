@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { collect, pruneMail } from "../src/mailbox";
+import { collect, notifyMailboxes, pruneMail } from "../src/mailbox";
 import { ENCRYPTED, MAIL_TEXT_MAX, mailText } from "../src/ping";
 import type { Env } from "../src/types";
 
@@ -161,7 +161,7 @@ describe("peeking and held waits don't spin on mail they already showed (cost gu
     const { env, add } = setup();
     add(1, 10);
     await collect(env, "cara", { limit: 10, wait: 0, peek: false, held: true, session: "s-held" }, full); // shown once
-    setTimeout(() => add(2, 20), 250);
+    setTimeout(() => add(2, 10), 250); // same millisecond as the row already shown
     const t = Date.now();
     const r = await collect(env, "cara", { limit: 10, wait: 3, peek: false, held: true, session: "s-held", pollMs: 100 }, full);
     expect(Date.now() - t).toBeLessThan(2000);
@@ -175,5 +175,39 @@ describe("peeking and held waits don't spin on mail they already showed (cost gu
     expect(r.mail.map((m) => m.seq)).toEqual([1]);
     const again = await collect(env, "cara", { limit: 10, wait: 0, peek: true }, full);
     expect(again.mail).toEqual([]);
+  });
+});
+
+describe("mailbox push", () => {
+  it("wakes a waiting read after notification insert, without waiting for the safety poll", async () => {
+    const { env, db } = fakeEnv();
+    db.prepare(`INSERT INTO boards (id, title, created_by, created_at, last_activity) VALUES ('push', 'Push', 'ada', 1, 1)`).run();
+    db.prepare(`INSERT INTO members (board_id, user, joined_at, last_seen) VALUES ('push', 'push-reader', 1, 1)`).run();
+    const sockets = new Set<EventTarget>();
+    let notifications = 0;
+    (env as unknown as { MAILBOX_SIGNAL: unknown }).MAILBOX_SIGNAL = {
+      idFromName: (user: string) => user,
+      get: (user: string) => {
+        expect(user).toBe("push-reader");
+        return {
+          fetch: async () => {
+            const socket = Object.assign(new EventTarget(), { accept() {}, close() { sockets.delete(socket); } });
+            sockets.add(socket);
+            return { webSocket: socket };
+          },
+          notify: async () => { notifications++; for (const socket of sockets) socket.dispatchEvent(new Event("message")); },
+        };
+      },
+    };
+    const started = Date.now();
+    const waiting = collect(env, "push-reader", { limit: 10, wait: 3, peek: false, pollMs: 10_000 }, async () => ({ text: "new mention" }));
+    await new Promise((resolve) => setTimeout(resolve, 25));
+    insert(db, "push-reader", "push", 1, null);
+    await notifyMailboxes(env, ["push-reader", "push-reader"]);
+    const result = await waiting;
+    expect(notifications).toBe(1);
+    expect(result.mail.map((m) => m.seq)).toEqual([1]);
+    expect(Date.now() - started).toBeLessThan(1000);
+    expect(sockets.size).toBe(0);
   });
 });

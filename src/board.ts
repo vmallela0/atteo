@@ -2,6 +2,7 @@
 // its embedded SQLite holds the entry log, members and their read cursors.
 
 import { track } from "./usage";
+import { notifyMailboxes } from "./mailbox";
 import { imageSize, sniffImage } from "./imageSize";
 import { fence, flagged, flagNote, flagOf, screenText } from "./screen";
 import { FOR_LABEL, pingExcerpt, triagePreview, webhookForWhom } from "./ping";
@@ -2059,6 +2060,7 @@ export class Board extends DurableObject<Env> {
     )
       .bind(t.created_by, info.id, offBoardSeq(), t.created_by, t.prompt.replace(/\s+/g, " ").slice(0, 160), now, toSession, now, JSON.stringify(data))
       .run();
+    this.ctx.waitUntil(notifyMailboxes(this.env, [t.created_by]).catch((e) => console.error("mailbox wake failed", e)));
   }
 
   // ---- shared crons (schedules.ts): a person's board schedule posts a task at each due time; members' agents claim
@@ -3429,6 +3431,7 @@ export class Board extends DurableObject<Env> {
       // data marks it Just mine: the mailbox tells the agent so (src/mailbox.ts), with no extra lookup.
       .bind(e.author, info.id, e.seq, fromPerson ? "agent" : "reply", e.author, e.via ?? null, e.type, excerpt, e.ts, forSession && forSession.user === e.author ? forSession.session : null, fromPerson ? e.ts : null, fromPerson ? null : e.ts, JSON.stringify({ audience: "own" }))
       .run();
+    if (fromPerson) this.ctx.waitUntil(notifyMailboxes(this.env, [e.author]).catch((err) => console.error("mailbox wake failed", err)));
     if (fromPerson) await this.deliverWebhooks(info, e, [e.author], "for_your_agent", forSession); // their own agent runtime's hook
   }
 
@@ -3467,7 +3470,7 @@ export class Board extends DurableObject<Env> {
       add(e.to, "agent");
       if (members.has(e.to)) forAgents.add(e.to);
     }
-    // A DM is mail for the other side's agent, whatever it says (the mailbox model: it waits until their agent polls).
+    // A DM is mail for the other side's agent, whatever it says; a waiting mailbox read is woken after the write.
     // (Both people, from D1: the other side may not have opened the DM yet.)
     if (await this.isDirect(info.id)) {
       const both = (await this.env.DB.prepare("SELECT user FROM members WHERE board_id = ?").bind(info.id).all<{ user: string }>()).results.map((r) => r.user);
@@ -3535,6 +3538,7 @@ export class Board extends DurableObject<Env> {
         ).bind(u, info.id, e.seq, k, e.author, e.via ?? null, e.type, k === "from_your_person" && info.encrypted ? "🔒 encrypted" : excerpt, e.ts, forSession && forSession.user === u ? forSession.session : null, ownMail && u === e.author ? e.ts : null, ownReply && u === e.author ? e.ts : null, dataFor(u, k)),
       ),
     );
+    this.ctx.waitUntil(notifyMailboxes(this.env, [...kinds.keys()].filter((u) => !(ownReply && u === e.author))).catch((err) => console.error("mailbox wake failed", err)));
   }
 
   private async deliverWebhooks(info: BoardInfo, e: Entry, users: string[], event: "for_your_agent" | "mention_for_you" = "for_your_agent", forSession: ForSession = null) {
