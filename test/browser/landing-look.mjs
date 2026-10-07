@@ -32,7 +32,7 @@ for (const [path, w] of [["/", 1440], ["/", 390], ["/landing", 1440]]) {
   check(!off.length, `${tag}: nothing asked of another site${off.length ? ` (${[...new Set(off)].join(", ")})` : ""}`);
   check(!r.sideways, `${tag}: nothing scrolls sideways`);
   if (phone) {
-    // Its phone layout (#6031): the headline fits, no ring icon shows over the text, the demo's three panels stack.
+    // Its phone layout (#6031): the headline fits, no agent icon shows over the text (they sit in rows above and below it, jxn #6037), the demo's three panels stack.
     const m = await p.evaluate(() => {
       const box = (e) => e.getBoundingClientRect(), hub = box(document.querySelector("[data-hub]"));
       const over = [...document.querySelectorAll("[data-node]")].filter((n) => { const b = box(n); return getComputedStyle(n).visibility === "visible" && b.bottom > hub.top && b.top < hub.bottom; });
