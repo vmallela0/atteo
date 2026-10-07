@@ -82,6 +82,32 @@ enum SealedKeys {
     }
 }
 
+/// What a notification from an encrypted board shows (review #5551 item 8): "New message" (the default), or the
+/// message itself, decrypted on this phone. iOS keeps a delivered notification, shows it on the lock screen and can
+/// read it aloud or summarise it, so the words only go there if you turn this on (Settings → Notifications). Kept in
+/// the board keys' Keychain group, where the notification extension reads it.
+enum PushPreview {
+    private static let account = "push-previews"
+
+    static var full: Bool {
+        get {
+            guard var q = SealedKeys.query(account) else { return false }
+            q[kSecReturnData as String] = true
+            var out: AnyObject?
+            return SecItemCopyMatching(q as CFDictionary, &out) == errSecSuccess && (out as? Data) == Data("full".utf8)
+        }
+        set {
+            guard let q = SealedKeys.query(account) else { return }
+            SecItemDelete(q as CFDictionary)
+            guard newValue else { return }
+            var add = q
+            add[kSecValueData as String] = Data("full".utf8)
+            add[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+            SecItemAdd(add as CFDictionary, nil)
+        }
+    }
+}
+
 /// The names of your encrypted boards, as the app last listed them, so a push (which carries no names: review #5550)
 /// can say which board it's from. Kept beside the board keys, in their Keychain group.
 enum PushNames {
@@ -129,8 +155,9 @@ enum PushContent {
 
     /// The words are checked as the app checks them (review #5551 item 6): a credential shows redacted, and text that
     /// reads like instructions to an agent starts with ⚠. Without the rules (`scan` nil) nothing readable shows.
-    static func decrypted(_ info: [AnyHashable: Any], key: (String, Int) -> SymmetricKey?, title: (String) -> String?, scan: ScanRules?) -> Shown? {
-        guard let scan, let board = info["board"] as? String, let sealed = info["sealed"] as? String,
+    /// `full` false (PushPreview's default): nothing is decrypted and the push's "New message" stays.
+    static func decrypted(_ info: [AnyHashable: Any], key: (String, Int) -> SymmetricKey?, title: (String) -> String?, scan: ScanRules?, full: Bool) -> Shown? {
+        guard full, let scan, let board = info["board"] as? String, let sealed = info["sealed"] as? String,
               let plain = SealedOpen.open(sealed, key: { key(board, $0) }) else { return nil }
         let text = (scan.flag(plain) != nil ? "⚠ " : "") + scan.redact(plain)
         let body = text.count > 180 ? String(text.prefix(179)) + "…" : text

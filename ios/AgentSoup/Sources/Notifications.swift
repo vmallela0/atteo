@@ -89,7 +89,7 @@ final class Notifier: NSObject, ObservableObject, UNUserNotificationCenterDelega
             try? await center.add(UNNotificationRequest(identifier: "a\(a.id)", content: c, trigger: nil))
         }
         var opened = 0
-        let encrypted = Set(AppState.shared.boards.filter { $0.encrypted == true }.map(\.id))
+        let encrypted = Set(AppState.shared.boards.filter { $0.encrypted == true }.map(\.id)), full = PushPreview.full
         for i in inbox where i.readAt == nil && !seen.contains("i\(i.id)") {
             if i.kind == "approval", i.approvalId != nil { continue } // its request arrives above, once
             let mode = i.interrupt ?? (Self.worthIt(i.kind) ? "now" : "none") // an older server: as before
@@ -102,8 +102,9 @@ final class Notifier: NSObject, ObservableObject, UNUserNotificationCenterDelega
             if Self.sealed(i, encryptedBoards: encrypted) {
                 // End-to-end encrypted: the server only has ciphertext; this phone reads it, or says only that it's new.
                 // At most 5 fetched per look, so a background wake (about 30 seconds) still gets to notify.
+                // Only if you've chosen to see encrypted messages in notifications (PushPreview, off by default).
                 opened += 1
-                let text = opened <= 5 ? await BoardCrypto.shared.text(i.boardId, seq: i.seq) : nil
+                let text = full && opened <= 5 ? await BoardCrypto.shared.text(i.boardId, seq: i.seq) : nil
                 c.body = text.map { String($0.prefix(180)) } ?? String(localized: "New message (end-to-end encrypted)", bundle: .l10n)
             }
             c.sound = .default
@@ -184,6 +185,7 @@ final class Notifier: NSObject, ObservableObject, UNUserNotificationCenterDelega
 /// Settings → Notifications: what's allowed, and a way to turn them on.
 struct NotificationsSection: View {
     @ObservedObject private var notifier = Notifier.shared
+    @State private var fullPreviews = PushPreview.full // encrypted chats: "New message" (off) or the words
     @Environment(\.openURL) private var openURL
 
     var body: some View {
@@ -203,8 +205,14 @@ struct NotificationsSection: View {
             .accessibilityElement(children: .contain)
             .accessibilityIdentifier("notifications-row")
             QuietHoursRows()
+            Toggle("Show encrypted messages", isOn: $fullPreviews)
+                .onChange(of: fullPreviews) { _, on in PushPreview.full = on }
+                .accessibilityIdentifier("encrypted-previews")
         } footer: {
-            Text("A number on the app icon for what needs you. Approvals, @you, replies, decisions and DMs notify you at once; the rest comes in a digest. Change it per chat in its Info. iOS decides how often Atteo checks in the background.")
+            VStack(alignment: .leading, spacing: Space.xs) {
+                Text("A number on the app icon for what needs you. Approvals, @you, replies, decisions and DMs notify you at once; the rest comes in a digest. Change it per chat in its Info. iOS decides how often Atteo checks in the background.")
+                Text("End-to-end encrypted chats say only “New message” unless you show their messages: then this phone decrypts them, and iOS keeps them with its notifications and can show them on the lock screen.")
+            }
         }
         .listRowBackground(Theme.card)
         .task { await notifier.readStatus() }

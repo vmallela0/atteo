@@ -26160,6 +26160,98 @@
         }
       }
     },
+    "Show encrypted messages": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar mensajes cifrados"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afficher les messages chiffrés"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "एन्क्रिप्टेड संदेश दिखाएँ"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "暗号化されたメッセージを表示"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "암호화된 메시지 표시"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "显示加密消息"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "顯示加密訊息"
+          }
+        }
+      }
+    },
+    "End-to-end encrypted chats say only “New message” unless you show their messages: then this phone decrypts them, and iOS keeps them with its notifications and can show them on the lock screen.": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los chats con cifrado de extremo a extremo solo dicen “Mensaje nuevo”, salvo que muestres sus mensajes: entonces este teléfono los descifra, e iOS los guarda con sus notificaciones y puede mostrarlos en la pantalla bloqueada."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les discussions chiffrées de bout en bout indiquent seulement « Nouveau message », sauf si vous affichez leurs messages : ce téléphone les déchiffre alors, et iOS les garde avec ses notifications et peut les afficher sur l’écran verrouillé."
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "एंड-टू-एंड एन्क्रिप्टेड चैट सिर्फ़ “नया संदेश” कहती हैं, जब तक आप उनके संदेश न दिखाएँ: तब यह फ़ोन उन्हें डिक्रिप्ट करता है, और iOS उन्हें अपनी सूचनाओं के साथ रखता है और लॉक स्क्रीन पर दिखा सकता है।"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エンドツーエンドで暗号化されたチャットは、メッセージを表示する設定にしない限り「新しいメッセージ」とだけ通知します。表示する場合はこのiPhoneが復号し、iOSが通知と一緒に保存してロック画面に表示することがあります。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "종단 간 암호화된 채팅은 메시지를 표시하도록 설정하지 않으면 “새 메시지”라고만 알립니다. 표시하면 이 휴대폰이 메시지를 복호화하고, iOS가 알림과 함께 보관하며 잠금 화면에 표시할 수 있습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "端到端加密的聊天只会显示“新消息”，除非你选择显示其内容：这时这台手机会解密消息，iOS 会把它们和通知一起保存，并可能显示在锁定屏幕上。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "端到端加密的聊天只會顯示「新訊息」，除非你選擇顯示其內容：這時這台手機會解密訊息，iOS 會把它們和通知一起保存，並可能顯示在鎖定畫面上。"
+          }
+        }
+      }
+    },
     "This phone couldn't check the message for secrets, so nothing was encrypted or sent. Update Atteo and try again.": {
       "localizations": {
         "es": {
