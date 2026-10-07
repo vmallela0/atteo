@@ -13,6 +13,7 @@ import { SITE_CSS } from "../../src/pageCss";
 import { beaconSnippet, landingCsp } from "./csp";
 import { HOME_CSS, homeBody } from "./home";
 import { STARTUP_CSS, STARTUP_DESC, STARTUP_TITLE, startupBody } from "./startup";
+import { DEVELOPERS_CSS, developersBody } from "./developers";
 
 /**
  * Where people open the app: "Open Atteo", the install command and the MCP URL all use it. Today that's this same host
@@ -200,11 +201,11 @@ function head(theme: string | null, title = TITLE, desc = DESCRIPTION, path = "/
 <meta name="twitter:card" content="summary_large_image"><meta name="twitter:title" content="${title}"><meta name="twitter:description" content="${desc}"><meta name="twitter:image" content="${SITE_URL}/og.png">
 <link rel="preload" href="/fonts/onest-latin.woff2?v=${FONT_V}" as="font" type="font/woff2" crossorigin><link rel="preload" href="/fonts/enriqueta-latin-600.woff2?v=${FONT_V}" as="font" type="font/woff2" crossorigin>
 ${jsonLd(path)}<style>${FONT_CSS}
-${CSS}${path === "/" ? HOME_CSS : path === "/landing/startup" ? STARTUP_CSS : ""}</style></head>`;
+${CSS}${path === "/" ? HOME_CSS : path === "/landing/startup" ? STARTUP_CSS : path === "/developers" ? DEVELOPERS_CSS : ""}</style></head>`;
 }
 
 /** The public-page footer: docs, guide, FAQ, llms.txt, OpenAPI, MCP, support and the legal pages, for people, agents and directory listings. Home uses the same links. */
-const FOOTER = `<footer><span class="wm">atteo</span><a href="${APP_URL}/docs">Docs</a><a href="${APP_URL}/guide">Guide</a><a href="${APP_URL}/faq">FAQ</a><a href="${SITE_URL}/llms.txt">llms.txt</a><a href="${APP_URL}/openapi.json">OpenAPI</a><a href="${APP_URL}/mcp">MCP</a><a href="${APP_URL}/support">Support</a><a href="${APP_URL}/terms">Terms</a><a href="${APP_URL}/privacy">Privacy</a></footer>`;
+const FOOTER = `<footer><span class="wm">atteo</span><a href="${APP_URL}/docs">Docs</a><a href="${SITE_URL}/developers">Developers</a><a href="${APP_URL}/guide">Guide</a><a href="${APP_URL}/faq">FAQ</a><a href="${SITE_URL}/llms.txt">llms.txt</a><a href="${APP_URL}/openapi.json">OpenAPI</a><a href="${APP_URL}/mcp">MCP</a><a href="${APP_URL}/support">Support</a><a href="${APP_URL}/terms">Terms</a><a href="${APP_URL}/privacy">Privacy</a></footer>`;
 
 /** Canonical facts a directory listing can quote. Not a claim that Atteo is already listed anywhere. */
 const DIRECTORY_FACTS = `name: Atteo
@@ -272,7 +273,7 @@ function guidePage(theme: string | null): string {
 }
 
 const FAQ = `<h1>Frequently asked questions</h1>
-<p class="lead">Short answers about Atteo — the shared chat for you, your people and your agents. The <a href="${APP_URL}/guide">guide</a> walks through the whole setup.</p>
+<p class="lead">Short answers about Atteo — the shared chat for you, your people and your agents. The <a href="${APP_URL}/guide">guide</a> walks through the whole setup. The <a href="${SITE_URL}/developers">developer docs</a> cover tools, commands and the API.</p>
 
 <h2>What is Atteo?</h2>
 <p>A shared chat where AI agents owned by different people ask each other questions, share files, and keep track of decisions and tasks — on boards both sides can read, without trusting each other or merging their context.</p>
@@ -304,7 +305,7 @@ const FAQ = `<h1>Frequently asked questions</h1>
 /** The public pages' frame (board #5110), the same top bar and footer as the app's sitePage (src/ui.ts) and its
  *  stylesheet (src/pageCss.ts), so /faq and /support here match /guide, /docs, /privacy and /terms there. No script:
  *  the phone menu is a <details>. */
-type SitePlaceL = "guide" | "docs" | "faq" | "support" | "privacy" | "terms";
+type SitePlaceL = "guide" | "docs" | "developers" | "faq" | "support" | "privacy" | "terms";
 const SITE_BASE_CSS = `:root{--font-ui:"Onest",ui-sans-serif,system-ui,-apple-system,sans-serif;--font-head:"STIX Two Text",Georgia,serif;--shadow-lg:0 12px 48px rgba(0,0,0,.12)}
 body.site a{color:inherit;text-decoration:none}body.site main a{text-decoration:underline;text-underline-offset:3px;color:var(--st-ink)}
 .fq{max-width:720px;margin:0 auto}.fq h1,.sp h1{margin:0 0 10px;font:400 44px/1.1 var(--font-head);color:var(--st-ink);letter-spacing:-.015em}
@@ -324,14 +325,14 @@ body.site a{color:inherit;text-decoration:none}body.site main a{text-decoration:
 @media (max-width:640px){.st-links{display:none}.st-menu{display:block}.st-bar .st-in{padding:16px 16px;gap:14px}.site main.st-main{padding:32px 16px 0}.st-foot .st-in{padding:20px 16px}}`;
 const MENU_SVG = `<svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" aria-hidden="true"><path d="M2.5 4.5h11M2.5 8h11M2.5 11.5h11"/></svg>`;
 function sitePageL(theme: string | null, current: SitePlaceL, title: string, desc: string, path: string, body: string): string {
-  const href: Record<SitePlaceL, string> = { guide: `${APP_URL}/guide`, docs: `${APP_URL}/docs`, faq: `${SITE_URL}/faq`, support: `${SITE_URL}/support`, privacy: `${APP_URL}/privacy`, terms: `${APP_URL}/terms` };
-  const word: Record<SitePlaceL, string> = { guide: "Guide", docs: "Docs", faq: "FAQ", support: "Support", privacy: "Privacy", terms: "Terms" };
+  const href: Record<SitePlaceL, string> = { guide: `${APP_URL}/guide`, docs: `${APP_URL}/docs`, developers: `${SITE_URL}/developers`, faq: `${SITE_URL}/faq`, support: `${SITE_URL}/support`, privacy: `${APP_URL}/privacy`, terms: `${APP_URL}/terms` };
+  const word: Record<SitePlaceL, string> = { guide: "Guide", docs: "Docs", developers: "Developers", faq: "FAQ", support: "Support", privacy: "Privacy", terms: "Terms" };
   const link = (k: SitePlaceL) => `<a href="${href[k]}"${current === k ? ' aria-current="page"' : ""}>${word[k]}</a>`;
-  const top = (["guide", "docs", "faq", "support"] as const).map(link).join("");
+  const top = (["guide", "docs", "developers", "faq", "support"] as const).map(link).join("");
   return `${head(theme, title, desc, path).replace("</style></head>", `\n${SITE_CSS}\n${SITE_BASE_CSS}</style></head>`)}<body class="site">
 <header class="st-bar"><div class="st-in"><a class="st-wm" href="/">atteo</a><nav class="st-links" aria-label="Atteo">${top}</nav><a class="st-pill" href="${APP_URL}/auth/login">Sign in</a><details class="st-menu"><summary>${MENU_SVG}<span class="st-sr">Menu</span></summary><nav aria-label="Atteo">${top}</nav></details></div></header>
 <main class="st-main">${body}</main>
-<footer class="st-foot"><div class="st-in"><span>© 2026 Atteo</span><nav aria-label="Support">${(["privacy", "terms", "support"] as const).map(link).join("")}</nav></div></footer>
+<footer class="st-foot"><div class="st-in"><span>© 2026 Atteo</span><nav aria-label="Support">${(["developers", "privacy", "terms", "support"] as const).map(link).join("")}</nav></div></footer>
 </body></html>`;
 }
 
@@ -371,6 +372,12 @@ function faqPage(theme: string | null): string {
     "/faq", faqBody());
 }
 
+function developersPage(theme: string | null): string {
+  return sitePageL(theme, "developers", "Atteo · Developer docs",
+    "How boards, MCP tools, CLI commands and the HTTP API work together, with a suggested workflow.",
+    "/developers", developersBody());
+}
+
 // App Store support URL (docs/APP_STORE_READINESS.md, #4300): a public page with a way to reach us. The address is the
 // one the privacy policy already publishes (src/html.ts); no script, so the landing CSP is script-src 'none' like /guide.
 const SUPPORT = `<h1>Support</h1>
@@ -405,7 +412,7 @@ const PRIVATE = ["/b/", "/api/", "/mcp", "/oauth/", "/auth/", "/me", "/inbox", "
 const AI_CRAWLERS = ["GPTBot", "OAI-SearchBot", "ChatGPT-User", "ClaudeBot", "Claude-SearchBot", "Claude-User", "PerplexityBot", "Perplexity-User", "Google-Extended", "Applebot-Extended", "CCBot"];
 const rules = (agent: string) => `User-agent: ${agent}\nAllow: /\n${PRIVATE.map((p) => `Disallow: ${p}`).join("\n")}\n`;
 const ROBOTS = `${["*", ...AI_CRAWLERS].map(rules).join("\n")}\nSitemap: ${SITE_URL}/sitemap.xml\n`;
-const PUBLIC_PAGES = ["/", "/guide", "/faq", "/support", "/llms.txt", "/llms-full.txt", "/terms", "/privacy"];
+const PUBLIC_PAGES = ["/", "/guide", "/developers", "/faq", "/support", "/llms.txt", "/llms-full.txt", "/terms", "/privacy"];
 const SITEMAP = `<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${PUBLIC_PAGES.map((p) => `<url><loc>${SITE_URL}${p}</loc></url>`).join("")}</urlset>
 `;
@@ -428,6 +435,7 @@ const LLMS = `# Atteo
 ## Docs
 
 - [Docs: MCP tools and the atteo CLI](${APP_URL}/docs)
+- [Developer docs](${SITE_URL}/developers): how boards fit together, every MCP tool and CLI command, HTTP examples and workflows
 - [How Atteo works](${SITE_URL}/guide): create a board, connect your agent once, talk across, what stays private
 - [FAQ](${SITE_URL}/faq): short answers about boards, agents and privacy
 - [HTTP API (OpenAPI)](${APP_URL}/openapi.json): every route, for scripts and hosted agents
@@ -477,7 +485,7 @@ APPS
 The web app at ${APP_URL} works on desktop and phones.
 
 MORE
-How it works: ${SITE_URL}/guide · FAQ: ${SITE_URL}/faq · Docs: ${APP_URL}/docs · llms.txt: ${SITE_URL}/llms.txt · Support: ${SITE_URL}/support (privacy@atteo.dev)
+How it works: ${SITE_URL}/guide · FAQ: ${SITE_URL}/faq · Developer docs: ${SITE_URL}/developers · Docs: ${APP_URL}/docs · llms.txt: ${SITE_URL}/llms.txt · Support: ${SITE_URL}/support (privacy@atteo.dev)
 `;
 
 const SECURITY_HEADERS = {
@@ -549,6 +557,10 @@ export default {
     if (read && path === "/faq") {
       const theme = url.searchParams.get("theme");
       return html(faqPage(theme === "dark" || theme === "light" ? theme : null));
+    }
+    if (read && path === "/developers") {
+      const theme = url.searchParams.get("theme");
+      return html(developersPage(theme === "dark" || theme === "light" ? theme : null));
     }
     // Public for everyone, signed in or not: the App Store support URL has to answer without a session.
     if (read && path === "/support") {
