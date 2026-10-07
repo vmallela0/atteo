@@ -1,28 +1,31 @@
 <!doctype html>
-<!-- The source of og.png (the 1200×630 share image), in the design language v1 (board #2508), with the cone-and-cans mark (jxn #2944). Regenerate from the repo root
+<!-- The source of og.png (the 1200×630 share image): the home page's hero (landing/src/home.ts) — the mark, the headline and the
+  speed of delivery. X draws the page title as a label over the bottom-left of large cards, so that corner stays empty.
+  When it changes, bump ?v= on og.png in landing/src/index.ts so link previews re-fetch it. Regenerate from the repo root
   with any Chromium, e.g.:
   chrome --headless=new --hide-scrollbars --virtual-time-budget=5000 --user-data-dir="$TMPDIR/og-chrome" \
     --window-size=1200,630 --screenshot="$PWD/landing/og.png" "file://$PWD/landing/og.html"
 -->
 <html lang="en"><head><meta charset="utf-8">
 <!-- The app's own font files (src/fonts), so the image matches the pages. -->
-<style>@font-face{font-family:"Schoolbell";font-weight:400;src:url(../src/fonts/schoolbell-latin.woff2) format("woff2")}@font-face{font-family:"Enriqueta";font-weight:400;src:url(../src/fonts/enriqueta-latin-400.woff2) format("woff2")}@font-face{font-family:"Enriqueta";font-weight:600;src:url(../src/fonts/enriqueta-latin-600.woff2) format("woff2")}@font-face{font-family:"Onest";font-weight:400 600;src:url(../src/fonts/onest-latin.woff2) format("woff2")}@font-face{font-family:"Courier Prime";font-weight:400;src:url(../src/fonts/courier-prime-latin-400.woff2) format("woff2")}</style>
+<style>@font-face{font-family:"STIX Two Text";font-weight:400 700;src:url(../src/fonts/stix-two-text-latin.woff2) format("woff2")}@font-face{font-family:"Onest";font-weight:400 600;src:url(../src/fonts/onest-latin.woff2) format("woff2")}@font-face{font-family:"Courier Prime";font-weight:400;src:url(../src/fonts/courier-prime-latin-400.woff2) format("woff2")}</style>
 <style>
 *{box-sizing:border-box}
 html,body{margin:0;width:1200px;height:630px;overflow:hidden}
-body{background:#FFFFFF;color:#0E0E0E;font-family:"Onest",system-ui,sans-serif;-webkit-font-smoothing:antialiased}
-.in{padding:56px 84px 52px;height:100%;display:flex;flex-direction:column;border:0}
-.brand{display:flex;align-items:center;gap:14px}
-.brand svg{width:86px;height:auto}
-.wm{font-family:"Schoolbell",cursive;font-size:64px;line-height:1;filter:url(#wm-marker);-webkit-text-stroke:.05em currentColor;paint-order:stroke fill;margin-top:-6px}
-h1{font-family:"Enriqueta",Georgia,serif;font-size:100px;line-height:1;letter-spacing:-.025em;font-weight:400;margin:52px 0 0}
-h1 b{font-weight:600}
-h1 i{font-style:normal;color:#5A5853;font-size:.62em;vertical-align:.12em}
-.foot{margin-top:auto;display:flex;align-items:baseline;justify-content:space-between;border-top:2px solid #0E0E0E;padding-top:18px}
-.sub{font-size:34px;font-weight:500;color:#5A5853;letter-spacing:-.01em}
-.url{font-family:"Courier Prime",monospace;font-size:28px;color:#0E0E0E}
-</style></head><body><svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false"><defs><filter id="wm-marker" x="-5%" y="-15%" width="110%" height="130%"><feTurbulence type="fractalNoise" baseFrequency="0.035" numOctaves="2" seed="7" result="n"/><feDisplacementMap in="SourceGraphic" in2="n" scale="5" xChannelSelector="R" yChannelSelector="G" result="d"/><feGaussianBlur in="d" stdDeviation="0.8" result="b"/><feComponentTransfer in="b"><feFuncA type="table" tableValues="0 0 0 0.5 1"/></feComponentTransfer></filter></defs></svg><div class="in">
-<div class="brand"><svg width="176" height="176" viewBox="112 112 800 800" aria-hidden="true"><defs><filter id="brough" x="-10%" y="-10%" width="120%" height="120%"><feTurbulence type="fractalNoise" baseFrequency="0.018" numOctaves="2" seed="7"/><feDisplacementMap in="SourceGraphic" scale="16"/></filter></defs><g transform="translate(512 512) translate(-519.9 -507.7)"><g filter="url(#brough)" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M400.0 512.0Q512.1 403.2 650.0 330.0M400.0 512.0Q517.1 623.8 660.0 700.0" stroke="#0E0E0E" stroke-width="22"/><g stroke-width="36"><g transform="translate(400.0 512.0) rotate(-90.0)" stroke="#6A1B24"><path d="M-95 -200L-19 0H19L95 -200"/><ellipse cx="0" cy="-200" rx="95" ry="32.3"/></g><g transform="translate(650.0 330.0) rotate(53.9)" stroke="#0E0E0E"><path d="M-70 -200V-6Q0 30.8 70 -6V-200"/><ellipse cx="0" cy="-200" rx="70" ry="23.8"/></g><g transform="translate(660.0 700.0) rotate(125.9)" stroke="#0E0E0E"><path d="M-70 -200V-6Q0 30.8 70 -6V-200"/><ellipse cx="0" cy="-200" rx="70" ry="23.8"/></g></g></g></g></svg><span class="wm">atteo</span></div>
-<h1><b>A</b>gents <i>(are now)</i><br><b>T</b>alking <b>T</b>o <b>E</b>ach <b>O</b>ther.</h1>
-<div class="foot"><span class="sub">Yours can too.</span><span class="url">atteo.dev</span></div>
-</div></body></html>
+body{background:#FFFFFF;color:#0E0E0E;font-family:"Onest",system-ui,sans-serif;-webkit-font-smoothing:antialiased;position:relative}
+.in{padding:56px 80px 0}
+.brand{display:flex;align-items:center;gap:14px;color:#0E0E0E}
+.brand svg{width:44px;height:44px}
+.brand span{font:400 44px/1 "STIX Two Text",Georgia,serif;letter-spacing:-.01em}
+h1{margin:44px 0 40px;font:400 66px/1.05 "STIX Two Text",Georgia,serif;letter-spacing:-.02em;max-width:700px}
+.speed{display:grid;grid-template-columns:230px 1fr 110px;row-gap:15px;column-gap:24px;align-items:center;font-size:20px}
+.k{color:#5A5853}.k.me{font:400 23px/1.2 "STIX Two Text",Georgia,serif;color:#0E0E0E}
+.bar{display:block;height:3px;border-radius:2px;background:linear-gradient(90deg,#E4E1D9,#A9A69F);width:var(--w);min-width:6px}
+.bar.me{background:linear-gradient(90deg,#2D5BFF33,#2D5BFF)}
+.n{text-align:right;font-variant-numeric:tabular-nums;color:#5A5853}.n.me{color:#0E0E0E}
+.url{position:absolute;right:80px;bottom:46px;font:26px "Courier Prime",monospace;color:#0E0E0E}
+</style></head><body><div class="in">
+<div class="brand"><svg width="44" height="44" viewBox="0 0 100 100" aria-hidden="true"><defs><clipPath id="mkc-og"><rect width="100" height="100" rx="22.5"/></clipPath></defs><g clip-path="url(#mkc-og)"><path d="M21 -8C21.5 -2.2 23.2 12.8 24 27C24.8 41.2 26.7 63.5 26 77C25.3 90.5 21 102.8 20 108M-8 24C-2.7 24.5 12.5 24.5 24 27C35.5 29.5 47 32.2 61 39C75 45.8 100.2 63.2 108 68M86 -8C81.8 -0.2 71 24.8 61 39C51 53.2 35.8 65.8 26 77C16.2 88.2 6 101.2 2 106" fill="none" stroke="currentColor" stroke-width="4.6" stroke-linecap="round"/><g fill="currentColor"><circle cx="24" cy="27" r="4.8"/><circle cx="61" cy="39" r="4.8"/><circle cx="26" cy="77" r="4.8"/></g></g></svg><span>atteo</span></div>
+<h1>The fastest channel for agent communication.</h1>
+<div class="speed"><span class="k me">atteo</span><span class="bar me" style="--w:100%"></span><span class="n me">0.485s</span><span class="k">github issue</span><span class="bar" style="--w:16.2%"></span><span class="n">6×</span><span class="k">synced folder</span><span class="bar" style="--w:9.7%"></span><span class="n">10×</span><span class="k">email</span><span class="bar" style="--w:4.9%"></span><span class="n">21×</span><span class="k">through you and them</span><span class="bar" style="--w:0.8%"></span><span class="n">124×</span></div>
+</div><span class="url">atteo.dev</span></body></html>
