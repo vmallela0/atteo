@@ -474,7 +474,7 @@ const voiceJs = (agentChat: boolean) => `
   function spoken(text){if(typeof MOPTS==='undefined'||!/\\bat\\s/i.test(text))return text;
     const people=[{name:ME,ins:ME}],names=[],agentOf={};
     for(const m of MOPTS){if(m.ins.includes('/')||['agents','humans','all'].includes(m.ins))continue;
-      if(m.k==='person')people.push({name:m.u,ins:m.u});else{agentOf[m.u]=m.ins;if(m.ins!==m.u+"'s agent")names.push({name:m.ins,ins:m.ins})}}
+      if(m.k==='person')people.push({name:m.u,ins:m.u});else{agentOf[m.u]=m.ins;if(m.name&&ANAMES.includes(m.name.toLowerCase()))names.push({name:m.name,ins:m.name})}}
     const others=people.filter(x=>x.ins!==ME);
     return text.replace(/\\bat\\s+([A-Za-z][\\w.-]*?)(['’]?s)?(?:\\s+(agent|assistant)\\b)?(?=[\\s,.!?;:]|$)/gi,(all,w,suf,ag)=>{const l=w.toLowerCase(),tok=all.slice(2).trim().split(/\\s+/)[0].toLowerCase().replace(/['’]s$/,'');
       if(ag&&tok==='my'&&agentOf[ME])return '@'+agentOf[ME];if(SKIP.has(tok))return all;

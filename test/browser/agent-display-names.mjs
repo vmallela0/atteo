@@ -33,7 +33,8 @@ await choice.click();
 check((await composer.inputValue()) === `@${A}'s agent `, "picking the agent inserts the canonical token");
 await composer.fill(`@${A}'s agent check ${run}`);
 await composer.press("Enter");
-const sent = page.locator("#thread .entry", { hasText: `check ${run}` }).last();
+// Wait for the saved row; the optimistic sending row has no sequence or stored mentions.
+const sent = page.locator("#thread .entry[data-seq]", { hasText: `check ${run}` }).last();
 await sent.waitFor({ timeout: 8000 });
 const seq = Number(await sent.getAttribute("data-seq"));
 const saved = await api(ckP, `/api/boards/${board}/entries?after=0`);
