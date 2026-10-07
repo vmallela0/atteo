@@ -195,6 +195,13 @@ final class MediaStore: @unchecked Sendable {
         if image, let i = Attachments.thumbnail(d, max: 720) { memory.setObject(i, forKey: key(board, name, version)) }
     }
 
+    /// A board's files off this phone (you left it or were removed).
+    func forget(board: String) {
+        guard BoardCrypto.isBoardId(board) else { return }
+        memory.removeAllObjects()
+        try? FileManager.default.removeItem(at: root.appendingPathComponent(board, isDirectory: true))
+    }
+
     private func keep(_ d: Data, at u: URL) {
         try? FileManager.default.createDirectory(at: u.deletingLastPathComponent(), withIntermediateDirectories: true)
         try? d.write(to: u, options: .atomic)
