@@ -7122,7 +7122,7 @@ await step("forward excerpt: fabricated selectedText is refused; a real selectio
     // The mailbox (agents') never carries it.
     hidden(JSON.stringify((await papi(B, "GET", "/api/mailbox?peek=1", null, { bearer: true })).body), "mailbox");
     // Author: no item for their own message. Non-audience member (OUT): nothing.
-    const ai2 = (await mine(A)).filter((i) => i.kind === "people_only"); // B's people-only reply does reach A, but nothing A wrote does
+    const ai2 = (await mine(A)).filter((i) => i.kind === "people_only" && i.board_id === pb); // B's people-only reply does reach A, but nothing A wrote does (terminal-approve alerts have no board)
     assert(!ai2.some((i) => i.actor === A || i.seq === secret) && ai2.some((i) => i.seq === reply && i.actor === B), `the author got an item for their own message: ${JSON.stringify(ai2)}`);
     assert(!(await papi(A, "GET", "/api/inbox", null, { bearer: true })).body.items.some((i) => i.kind === "people_only"), "A's agent token got one");
     assert(!(await mine(OUT)).some((i) => i.kind === "people_only") && !JSON.stringify(await mine(OUT)).includes(SECRET), "a non-audience member got an item");
