@@ -9,6 +9,7 @@ import { ENCRYPTED, mailText as mailBody, titled } from "../../src/ping";
 import { blockedMessage, scanFields } from "../../src/secrets";
 import { grepEntries } from "../../src/localSearch";
 import { env } from "./env";
+import { flagLine, screenMail } from "./dispatch";
 import { api, askYes, boardIdIn, CliError, COMMANDS, creds, currentBoard, decryptEntry, encAll, encEntries, folderBoard, getEntry, isEncrypted, onlyOptions, optStr, parseArgs, picturesNote, say, server as serverFor, setSession, shown, tool } from "./commands";
 import { load, sameServer, storeName } from "./credentials";
 import { caller, detectModel, loadMap, saveMap, type LocalSession } from "./session";
@@ -418,7 +419,7 @@ async function waitCmd(args: string[]) {
 
 // ---- the mailbox: one place for everything addressed to your agent, on every board and DM ----
 
-type Mail = { direct?: boolean; id: number; kind: string; board: string | null; board_title: string | null; seq: number | null; from: string; from_via: string | null; type: string; title?: string | null; text: string; preview?: string; for?: string; ts: number; encrypted?: boolean; from_owner?: boolean; to_session?: string; audience?: "own" };
+type Mail = { flagged?: boolean | "quoted"; direct?: boolean; id: number; kind: string; board: string | null; board_title: string | null; seq: number | null; from: string; from_via: string | null; type: string; title?: string | null; text: string; preview?: string; for?: string; ts: number; encrypted?: boolean; from_owner?: boolean; to_session?: string; audience?: "own" };
 
 /** Just mine mail (audience "own"): only your person sees it, so the answer must stay in the lane. */
 export const OWN_MAIL_HINT = "Just mine: only your person sees this; reply in its thread or with own: true.";
@@ -435,7 +436,7 @@ const when = (ts: number) => {
 const mailBlock = (m: Mail) => {
   const shown = m.text === ENCRYPTED ? m.text : titled(m.title, mailBody(m.text, m.seq));
   const kind = m.kind === "from_your_person" && !m.direct ? "from your person (to all agents: @agents/@all)" : (MAIL_KIND[m.kind] ?? m.kind);
-  return `── ${m.seq ? `#${m.seq} ` : ""}${m.type} · ${kind}${m.audience === "own" ? " · 🔒 own" : ""}${m.for && m.for !== kind ? ` · ${m.for}` : ""} · from ${m.from_owner ? `your user (${m.from})` : m.from_via === "agent" ? `${m.from}'s agent` : `${m.from} (person)`}${m.to_session ? ` · for your session "${m.to_session}"` : ""} · ${when(m.ts)}\n    ${shown.replace(/\n/g, "\n    ")}`;
+  return `── ${m.seq ? `#${m.seq} ` : ""}${m.type} · ${kind}${m.audience === "own" ? " · 🔒 own" : ""}${m.flagged ? ` · ${flagLine(m.flagged)}` : ""}${m.for && m.for !== kind ? ` · ${m.for}` : ""} · from ${m.from_owner ? `your user (${m.from})` : m.from_via === "agent" ? `${m.from}'s agent` : `${m.from} (person)`}${m.to_session ? ` · for your session "${m.to_session}"` : ""} · ${when(m.ts)}\n    ${shown.replace(/\n/g, "\n    ")}`;
 };
 /** Mail grouped under one line per board (in order of first arrival), each message under it oldest first. */
 const mailText = (mail: Mail[]) => {
@@ -469,7 +470,7 @@ async function mailboxCmd(args: string[]) {
   // End-to-end encrypted boards: the server only has ciphertext, so the text is decrypted on this machine.
   for (const m of j.mail)
     if (m.encrypted && m.board && m.seq)
-      m.text = (await decryptEntry(opt, m.board, m.seq).catch(() => null)) ?? m.text;
+      screenMail(Object.assign(m, { text: (await decryptEntry(opt, m.board, m.seq).catch(() => null)) ?? m.text })); // screened here: the server never saw the words
   if (!j.mail.length) return print(opt, j, [...(j.held ? [j.held] : []), total ? `Nothing new in ${total}s.` : "Nothing new."].join("\n"));
   for (const m of j.mail) if (m.board && m.seq) shown.add(`${m.board}#${m.seq}`);
   const text = [
