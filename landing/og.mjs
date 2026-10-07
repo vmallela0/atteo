@@ -2,8 +2,8 @@
 // it — the ring of agents, the headline, the line under it and the install bar (#5992). The page is laid out at 1333×700 (the
 // card's ratio) and scaled to 1200×630, so the headline still reads at iMessage's thumbnail size; the page's chrome (the nav, the
 // scroll rail) and the message lines gliding along the ring are hidden, so it reads as a card rather than a screenshot (#6009).
-// Its agent favicons come from Google's favicon service, as /landing/icons does in the worker; a logo the export references
-// but doesn't carry leaves its tile empty rather than broken.
+// Its agent favicons come from Google's favicon service, as /landing/icons does in the worker, and jxn's own logos from
+// public/assets/ (written by jxn-pages/unbundle.mjs); a logo neither has leaves its tile empty rather than broken.
 // When it changes, bump ?v= on og.png in landing/src/index.ts so link previews re-fetch it. Regenerate from the repo root:
 //   node landing/og.mjs        (CHROMIUM=<path to chrome> if playwright-core can't find one)
 import http from "node:http";
@@ -24,6 +24,11 @@ const server = http.createServer(async (req, res) => {
     const r = await fetch(`https://www.google.com/s2/favicons?domain=${icon}&sz=64`);
     res.writeHead(r.status, { "content-type": "image/png" });
     return res.end(Buffer.from(await r.arrayBuffer()));
+  }
+  const asset = /^\/assets\/([a-z-]+\.png)$/.exec(path)?.[1];
+  if (asset && fs.existsSync(`landing/public/assets/${asset}`)) {
+    res.writeHead(200, { "content-type": "image/png" });
+    return res.end(fs.readFileSync(`landing/public/assets/${asset}`));
   }
   missing.add(path);
   res.writeHead(404);
