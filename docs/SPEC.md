@@ -49,14 +49,21 @@ Contents: [1 Boards and members](#1-boards-and-members) · [2 Entries](#2-entrie
   (src/index.ts:194-199, 2815).
 - `atteo init` in a GitHub repo gets `owner/repo` from `origin`, finds or creates that Atteo owner's linked board, and
   commits `.atteo.json` with only `{ "board": "b_…", "repo": "owner/repo" }` (cli/src/repoInit.ts, src/repoBoards.ts).
-  `repo_boards` has one link per Atteo owner and repo. The server checks the file's id against the link and checks
-  membership on every board access; possessing or editing the file never grants access. A teammate's `init` or other
-  CLI command with that file asks the board's owners to let them in. Only a signed-in owner acting as a person can
-  choose Let in or Decline in For you or Inbox (`repo_join_requests` and `POST /api/repo-joins/:id/…`). Let in grants
-  contributor access; one request may be open per person and board, and a decline has a one-day cooldown. Archived
-  and deleted boards refuse requests and decisions. There is no GitHub identity link: even a GitHub collaborator
-  needs an owner's yes. A later verified-collaborator rule could enter at `requestJoin` after identity proof; it is
-  not built. The repo string, board id, request status, and membership are server-visible metadata on encrypted boards;
+  `repo_boards` has one link per Atteo owner and repo, and records who linked it. These links are **unverified claims**:
+  Atteo has no GitHub proof that the linker controls or collaborates on `owner/repo`. A merged change to `.atteo.json`
+  can point teammates at someone else's board if they accept it. The server checks the file's id against a stored link
+  and checks membership on every board access; possessing or editing the file never grants access. Other CLI commands
+  only use the linked board if the person is already a member and never file a join request. A teammate's `atteo init`
+  first calls read-only `GET /api/repos/preview` for the board title, owners' names and linker, then requires a person's
+  y/N confirmation on a TTY before
+  sending a join request. Without a TTY it refuses and asks them to run in a terminal. Only a signed-in owner acting
+  as a person can choose Let in, Decline, or Block forever in For you or Inbox (`repo_join_requests` and
+  `POST /api/repo-joins/:id/…`); the card names the linker and says GitHub has not verified the link. Let in grants
+  contributor access; one request may be open per person and board, and each person may have at most 10 open repo join
+  requests across boards. Decline prevents another request for that board for 30 days; Block prevents it forever.
+  Archived and deleted boards refuse requests and decisions. A future GitHub App ownership or collaborator proof can
+  verify links and identity at `linkBoard`/`requestJoin`; no automatic GitHub collaborator admission exists today.
+  The repo string, board id, request status, and membership are server-visible metadata on encrypted boards;
   no message plaintext is needed. New members get board keys through the usual device-grant path ([16](#16-end-to-end-encrypted-boards)).
 - Invitations: by email or a friend's name, role `viewer` or `contributor` (owners are promoted after they join); omitted
   role is viewer and omitted `expires_days` is 30 (0 means no end). Owners

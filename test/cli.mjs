@@ -162,6 +162,36 @@ await step("init commits a repo link, requests membership once, and mcp starts o
     p.stderr.on("data", (d) => (out += d));
     p.on("close", (code) => resolve({ code, out }));
   });
+  const cliTty = (u, answer, ...args) => new Promise((resolve) => {
+    // Python's stdlib pty gives both ends a real terminal, so the CLI's y/N gate is exercised.
+    const driver = `import os, pty, select, subprocess, sys, time
+master, slave = pty.openpty()
+child = subprocess.Popen(sys.argv[2:], stdin=slave, stdout=slave, stderr=slave)
+os.close(slave)
+output = b''
+answered = False
+deadline = time.monotonic() + 20
+while time.monotonic() < deadline:
+    ready, _, _ = select.select([master], [], [], 0.1)
+    if ready:
+        try: chunk = os.read(master, 4096)
+        except OSError: break
+        if not chunk: break
+        sys.stdout.buffer.write(chunk)
+        sys.stdout.buffer.flush()
+        output += chunk
+        if not answered and b'[y/N]' in output:
+            os.write(master, sys.argv[1].encode() + b'\\n')
+            answered = True
+    if child.poll() is not None and not ready: break
+if child.poll() is None: child.kill()
+sys.exit(child.wait())`;
+    const p = spawn("python3", ["-c", driver, answer, process.execPath, CLI, ...args], { cwd: repoDir, env: { ...process.env, ATTEO_CREDENTIALS_FILE: cred[u], XDG_CONFIG_HOME: join(dir, `cfg-${u}`), ATTEO_NO_UPDATE_CHECK: "1" } });
+    let out = "";
+    p.stdout.on("data", (d) => (out += d));
+    p.stderr.on("data", (d) => (out += d));
+    p.on("close", (code) => resolve({ code, out }));
+  });
   const made = await cli(owner, "init");
   assert(made.code === 0 && made.out.trim().split("\n").length === 2 && made.out.includes("Wrote and committed .atteo.json"), made.out);
   const link = JSON.parse(readFileSync(join(repoDir, ".atteo.json"), "utf8"));
@@ -173,8 +203,14 @@ await step("init commits a repo link, requests membership once, and mcp starts o
   assert(quiet.code === 0 && quiet.out.includes("atteo init"), quiet.out);
   const none = await (await fetch(`${BASE}/api/repo-joins`, { headers: { cookie } })).json();
   assert(!none.requests.some((r) => r.board_id === link.board && r.requester === teammate), "a plain command sent no join request");
-  const first = await cli(teammate, "init");
-  assert(first.code === 0 && first.out.includes("Join request sent"), first.out);
+  const headless = await cli(teammate, "init");
+  assert(headless.code !== 0 && headless.out.includes("Run atteo init in a terminal"), headless.out);
+  assert(!(await (await fetch(`${BASE}/api/repo-joins`, { headers: { cookie } })).json()).requests.some((r) => r.board_id === link.board && r.requester === teammate), "headless init sent no join request");
+  const no = await cliTty(teammate, "n", "init");
+  assert(no.code !== 0 && no.out.includes("No join request sent") && no.out.includes(`Owners: @${owner}`), no.out);
+  assert(!(await (await fetch(`${BASE}/api/repo-joins`, { headers: { cookie } })).json()).requests.some((r) => r.board_id === link.board && r.requester === teammate), "declined confirmation sent no join request");
+  const first = await cliTty(teammate, "y", "init");
+  assert(first.code === 0 && first.out.includes("Join request sent") && first.out.includes(`Board: ${link.repo}`) && first.out.includes(`Owners: @${owner}`) && first.out.includes("not verified with GitHub"), first.out);
   const requests = await (await fetch(`${BASE}/api/repo-joins`, { headers: { cookie } })).json();
   const request = requests.requests.find((r) => r.board_id === link.board && r.requester === teammate);
   assert(request && requests.requests.filter((r) => r.board_id === link.board && r.requester === teammate).length === 1, JSON.stringify(requests));

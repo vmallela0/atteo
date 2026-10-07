@@ -109,9 +109,11 @@ describe("For you page", () => {
   });
 
   it("shows an owner a repo join decision without trusting the names as HTML", async () => {
-    const html = await forYouPage(viewer, [], { approvals: [], boards: [], mentions: [], joins: [{ id: "jr_test", board_id: "b_fam00001", requester: "<script>bad</script>", repo: "org/<img>", status: "pending", created_at: 1, decided_at: null, decided_by: null }] }).text();
+    const html = await forYouPage(viewer, [], { approvals: [], boards: [], mentions: [], joins: [{ id: "jr_test", board_id: "b_fam00001", requester: "<script>bad</script>", repo: "org/<img>", linked_by: "<b>attacker</b>", status: "pending", created_at: 1, decided_at: null, decided_by: null }] }).text();
     expect(html).toContain("&lt;script&gt;bad&lt;/script&gt;");
     expect(html).toContain("org/&lt;img&gt;");
+    expect(html).toContain("by &lt;b&gt;attacker&lt;/b&gt;, not verified with GitHub");
+    expect(html).toContain('data-fy-join="block"');
     expect(html).toContain('data-fy-join="let-in"');
     expect(html).toContain("1 thing needs you.");
     expect(html).not.toContain("<script>bad</script>");

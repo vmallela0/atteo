@@ -2396,6 +2396,21 @@ const handler = {
         }
       }
 
+      // Read-only metadata for a person's terminal confirmation. A repo file is an unverified claim about GitHub.
+      if (path === "/api/repos/preview" && method === "GET") {
+        if (!viewer) return needLogin();
+        const repo = repoBoards.normalizeRepo(url.searchParams.get("repo"));
+        const boardId = url.searchParams.get("board");
+        if (!repo || !boardId || !BOARD_RE.test(boardId)) return json({ error: "Give a GitHub owner/repo and a valid board id." }, 400);
+        const linked = await repoBoards.linkedBoard(env, repo, boardId);
+        if (!linked) return json({ error: "This repo file does not match a board link. Ask the board owner to check .atteo.json." }, 404);
+        if (linked.archived_at || linked.deleted_at) return json({ error: "This board is archived or deleted. Ask an owner to reopen it." }, 409);
+        const member = !!(await registry.memberRole(env, linked.id, viewer.name));
+        const owners = (await registry.boardMembers(env, linked.id)).filter((m) => m.role === "owner").map((m) => ({ user: m.user, display_name: m.display_name }));
+        const state = member ? null : await repoBoards.joinState(env, linked.id, viewer.name);
+        return json({ board: linked.id, repo, title: linked.title, owners, linked_by: await repoBoards.linkedBy(env, repo, linked.id), status: member ? "member" : state ?? "not_member" }, 200, { "cache-control": "private, no-store" });
+      }
+
       // A repository identifies its board; only a board owner may let a requester become a member.
       if (path === "/api/repos/init" && method === "POST") {
         if (!viewer) return needLogin();
@@ -2438,12 +2453,12 @@ const handler = {
         if (viewer.via === "agent") return json({ error: "Only people can decide who joins a board." }, 403);
         return json({ requests: await repoBoards.forOwner(env, viewer.name) });
       }
-      const repoJoin = path.match(/^\/api\/repo-joins\/(jr_[A-Za-z0-9_-]+)\/(let-in|decline)$/);
+      const repoJoin = path.match(/^\/api\/repo-joins\/(jr_[A-Za-z0-9_-]+)\/(let-in|decline|block)$/);
       if (repoJoin && method === "POST") {
         if (!viewer) return needLogin();
         if (viewer.via === "agent") return json({ error: "Only people can decide who joins a board." }, 403);
         try {
-          const decided = await repoBoards.decide(env, repoJoin[1], viewer.name, repoJoin[2] === "let-in", origin);
+          const decided = await repoBoards.decide(env, repoJoin[1], viewer.name, repoJoin[2] as "let-in" | "decline" | "block", origin);
           return json({ request: decided });
         } catch (e) {
           return json({ error: e instanceof Error ? e.message.replace(/: https?:\S+$/, ".") : String(e) }, e instanceof billing.BillingError ? 402 : 400);

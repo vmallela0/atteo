@@ -16,7 +16,7 @@ import { pingTail, type PingContent, type PingFor } from "../../src/ping";
 import { pongFor } from "../../src/listen";
 import { CARD_HELP, cardCommand } from "./card";
 import { hooksCmd } from "./hooks";
-import { api, boardIdIn, CliError, COMMANDS, COMMANDS_HELP, decryptEntry, folderBoard, isEncrypted, optStr, parseArgs, tool } from "./commands";
+import { api, askYes, boardIdIn, CliError, COMMANDS, COMMANDS_HELP, decryptEntry, folderBoard, isEncrypted, optStr, parseArgs, tool } from "./commands";
 import { AcpAgent, type AcpBoard } from "./acp";
 import { entryKey, FORK_TOOLS, forkName, forkPrompt, needsFork, screenMail, type Mail } from "./dispatch";
 import { agentCommand, HARNESSES, splitCommand } from "./harness";
@@ -26,6 +26,7 @@ import { doctorCmd, forgetSession, HELP_AGENTS, mentionLine, prepare, session as
 import { load, loadFor, remove, save, storeName, type Credentials } from "./credentials";
 import { hostCmd, runCmd } from "./host";
 import { commitLink, repoContext, repoLink } from "./repoInit";
+import { displayCommand as terminalLabel } from "./verify";
 
 const VERSION = "0.1.0";
 const DEFAULT_SERVER = "https://atteo.dev";
@@ -1232,8 +1233,31 @@ async function initRepo() {
   if (pos.length || Object.keys(opt).some((k) => k !== "server") || opt.server === true) throw new CliError("atteo init takes no arguments (only --server <url>).");
   const linked = repoContext();
   if (!linked) throw new CliError("Run atteo init in a git repo with a GitHub origin remote.");
-  const j = await api(opt, "POST", "/api/repos/init", { repo: linked.repo, ...(linked.board ? { board: linked.board } : {}) });
-  if (j.status === "cooldown") throw new CliError("An owner declined this join request. Try again tomorrow.");
+  let j;
+  if (linked.board) {
+    const preview = await api(opt, "GET", `/api/repos/preview?repo=${encodeURIComponent(linked.repo)}&board=${encodeURIComponent(linked.board)}`) as {
+      board: string; repo: string; title: string; owners: { user: string; display_name: string | null }[]; linked_by: string | null; status: string;
+    };
+    if (preview.board !== linked.board || preview.repo !== linked.repo || typeof preview.title !== "string" || !Array.isArray(preview.owners) || typeof preview.linked_by !== "string" || !["member", "pending", "not_member", "cooldown", "blocked"].includes(preview.status))
+      throw new CliError("The server did not return a valid repo board preview. No join request was sent.");
+    if (preview.status === "cooldown") throw new CliError("An owner declined this join request. You can ask again 30 days after the decline.");
+    if (preview.status === "blocked") throw new CliError("An owner blocked join requests from you for this board.");
+    if (preview.status === "not_member") {
+      if (!process.stdin.isTTY || !process.stdout.isTTY) throw new CliError("This repo's board needs your confirmation before asking to join. Run atteo init in a terminal.");
+      const owners = preview.owners.map((o) => o.display_name?.trim() ? `${terminalLabel(o.display_name)} (@${o.user})` : `@${o.user}`).join(", ");
+      console.log(`Board: ${terminalLabel(preview.title)} (${preview.board})`);
+      console.log(`Owners: ${owners || "none listed"}`);
+      console.log(`Linked to ${linked.repo} by @${preview.linked_by ?? "unknown"}; this link is not verified with GitHub.`);
+      if (!(await askYes("Ask these owners to let you in?", false))) throw new CliError("No join request sent.");
+    }
+    j = preview.status === "member" || preview.status === "pending" ? preview
+      : await api(opt, "POST", "/api/repos/init", { repo: linked.repo, board: linked.board });
+  } else {
+    j = await api(opt, "POST", "/api/repos/init", { repo: linked.repo });
+  }
+  if (j.status === "cooldown") throw new CliError("An owner declined this join request. You can ask again 30 days after the decline.");
+  if (j.status === "blocked") throw new CliError("An owner blocked join requests from you for this board.");
+  if (linked.board && j.board !== linked.board) throw new CliError("The server returned a different board. No board link was committed.");
   const committed = commitLink(linked, j.board);
   console.log(`Repo ${linked.repo} uses board ${j.board}.`);
   console.log(j.status === "requested" ? "Join request sent to the board's owners. Wait for Let in." : j.status === "pending" ? "Join request is already with the board's owners. Wait for Let in." : committed === "committed" ? "Wrote and committed .atteo.json." : "Board link is already committed in .atteo.json.");

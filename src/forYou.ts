@@ -192,7 +192,7 @@ ${det}<div class="acts"><button class="btn xl" type="button" data-fy-ap="reject"
 <div class="list" id="fy-done-list">${doneRows}</div></section>`;
 
   const joins = d.joins ?? [];
-  const joinCards = joins.map((j) => `<article class="nc fy-join" data-join="${esc(j.id)}"><div class="type"><span class="dot"></span>${esc(T("A request for you"))}</div><h2 class="tt">${esc(j.requester)} ${esc(T("wants to join"))} ${esc(j.repo)}</h2><div class="acts"><button class="btn xl" type="button" data-fy-join="decline">${esc(T("Decline"))}</button><button class="btn xl primary" type="button" data-fy-join="let-in">${esc(T("Let in"))}</button></div></article>`).join("");
+  const joinCards = joins.map((j) => `<article class="nc fy-join" data-join="${esc(j.id)}"><div class="type"><span class="dot"></span>${esc(T("A request for you"))}</div><h2 class="tt">${esc(j.requester)} ${esc(T("wants to join"))} ${esc(j.repo)}</h2><p class="small muted">linked to ${esc(j.repo)} by ${esc(j.linked_by)}, not verified with GitHub</p><div class="acts"><button class="btn xl" type="button" data-fy-join="decline">${esc(T("Decline"))}</button><button class="btn xl" type="button" data-fy-join="block">${esc(T("Block forever"))}</button><button class="btn xl primary" type="button" data-fy-join="let-in">${esc(T("Let in"))}</button></div></article>`).join("");
   const joinSec = joinCards ? `<section class="fy-ok" id="fy-joins">${joinCards}</section>` : "";
   const need = aps.length + joins.length + quick.length;
   const empty = `<div class="card empty fy-empty" id="fy-empty"${need ? " hidden" : ""}><h3>${esc(T("Nothing needs you right now"))}</h3><p class="muted">${esc(T("When your assistant needs your OK, or someone asks you something, it shows up here."))}</p></div>`;
@@ -296,11 +296,12 @@ document.addEventListener('click',async e=>{const b=e.target.closest('[data-fy-a
   if(!r||!r.ok){toast(j.error||tr('Could not save'));c.querySelectorAll('[data-fy-ap]').forEach(x=>x.disabled=false);return}
   toast(yes?tr('Approved'):tr('OK, not now'));c.remove();counts()});
 document.addEventListener('click',async e=>{const b=e.target.closest('[data-fy-join]');if(!b)return;const c=b.closest('.fy-join');
+  if(b.dataset.fyJoin==='block'&&!confirm('Block this person from asking to join this board forever?'))return;
   c.querySelectorAll('[data-fy-join]').forEach(x=>x.disabled=true);
   const r=await fetch('/api/repo-joins/'+encodeURIComponent(c.dataset.join)+'/'+b.dataset.fyJoin,{method:'POST',headers:{'content-type':'application/json'},body:'{}'}).catch(()=>null);
   const j=r?await r.json().catch(()=>({})):{error:"Couldn't reach Atteo. Try again."};
   if(!r||!r.ok){toast(j.error||tr('Could not save'));c.querySelectorAll('[data-fy-join]').forEach(x=>x.disabled=false);return}
-  toast(b.dataset.fyJoin==='let-in'?tr('Let in'):tr('Declined'));c.remove();counts()});
+  toast(b.dataset.fyJoin==='let-in'?tr('Let in'):b.dataset.fyJoin==='block'?tr('Blocked'):tr('Declined'));c.remove();counts()});
 // Decisions: Agree / Object, the same vote as on the chat's decision card.
 document.addEventListener('click',async e=>{const b=e.target.closest('[data-fy-vote]');if(!b)return;const row=b.closest('[data-hd-seq]'),v=b.dataset.fyVote;
   row.querySelectorAll('[data-fy-vote]').forEach(x=>x.disabled=true);

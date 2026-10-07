@@ -204,7 +204,7 @@ ${avatar(i.actor, "sm", i.actor_via === "agent")}
         approvalFor(i, approvals)
           ? approvalCardHtml(approvalFor(i, approvals)!, true, L)
           : i.kind === "repo_join" && joins.some((j) => j.id === i.join_id)
-          ? `<div class="row" style="gap:6px;padding:0 12px 10px 48px" data-repo-join="${esc(i.join_id!)}"><span class="small muted">${esc(joins.find((j) => j.id === i.join_id)!.repo)}</span><button class="btn sm primary" type="button" data-join-decision="let-in">${esc(T("Let in"))}</button><button class="btn sm ghost" type="button" data-join-decision="decline">${esc(T("Decline"))}</button></div>`
+          ? `<div class="row" style="gap:6px;padding:0 12px 10px 48px" data-repo-join="${esc(i.join_id!)}"><span class="small muted">linked to ${esc(joins.find((j) => j.id === i.join_id)!.repo)} by ${esc(joins.find((j) => j.id === i.join_id)!.linked_by)}, not verified with GitHub</span><button class="btn sm primary" type="button" data-join-decision="let-in">${esc(T("Let in"))}</button><button class="btn sm ghost" type="button" data-join-decision="decline">${esc(T("Decline"))}</button><button class="btn sm ghost" type="button" data-join-decision="block">${esc(T("Block forever"))}</button></div>`
           : i.kind === "contact_request" && !i.read_at
           ? `<div class="row" style="gap:6px;padding:0 12px 10px 48px"><button class="btn sm primary" type="button" data-contact="${esc(i.actor)}" data-decide="accept">${esc(T("Let them talk"))}</button><button class="btn sm ghost" type="button" data-contact="${esc(i.actor)}" data-decide="decline">${esc(T("Decline"))}</button></div>`
           : ""
@@ -226,9 +226,9 @@ ${approvalJs(viewer.name)}
 document.addEventListener('click',async e=>{const b=e.target.closest('[data-contact]');if(!b)return;b.disabled=true;
   const r=await sendReliably('/api/contacts/'+encodeURIComponent(b.dataset.contact)+'/'+b.dataset.decide,{});const j=await r.json().catch(()=>({}));
   toast(r.ok?(b.dataset.decide==='accept'?tr('Done: your agents can talk now'):tr('Declined')):(j.error||tr('Something went wrong')));if(r.ok)setTimeout(()=>location.reload(),600);else b.disabled=false});
-document.addEventListener('click',async e=>{const b=e.target.closest('[data-join-decision]');if(!b)return;const row=b.closest('[data-repo-join]');b.disabled=true;
+document.addEventListener('click',async e=>{const b=e.target.closest('[data-join-decision]');if(!b)return;const row=b.closest('[data-repo-join]');if(b.dataset.joinDecision==='block'&&!confirm('Block this person from asking to join this board forever?'))return;b.disabled=true;
   const r=await sendReliably('/api/repo-joins/'+encodeURIComponent(row.dataset.repoJoin)+'/'+b.dataset.joinDecision,{});const j=await r.json().catch(()=>({}));
-  toast(r.ok?(b.dataset.joinDecision==='let-in'?tr('Let in'):tr('Declined')):(j.error||tr('Something went wrong')));if(r.ok)row.remove();else b.disabled=false});
+  toast(r.ok?(b.dataset.joinDecision==='let-in'?tr('Let in'):b.dataset.joinDecision==='block'?tr('Blocked'):tr('Declined')):(j.error||tr('Something went wrong')));if(r.ok)row.remove();else b.disabled=false});
 const nb=document.getElementById('notif-on');
 if('Notification' in window&&Notification.permission==='default'){nb.hidden=false;nb.onclick=async()=>{await Notification.requestPermission();nb.hidden=true}}`;
   return appPage(`${T("Inbox")} · Atteo`, { viewer, boards: side, active: "inbox", crumbs: `<span class="cur">${esc(T("Inbox"))}</span>`, body, script, narrow: true });
