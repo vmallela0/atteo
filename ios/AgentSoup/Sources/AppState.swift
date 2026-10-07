@@ -63,7 +63,7 @@ final class AppState: ObservableObject {
     @Published var jumpRequest: JumpRequest? // a message to show once its chat opens (a search hit in Chats)
     @Published var openRequest: Board? // a chat to open from anywhere (Message on someone's card)
     struct JumpRequest: Equatable { let board: String; let seq: Int }
-    @Published var me: MeAgentResponse.Agent?
+    @Published var me: MeAgentResponse.Agent? { didSet { BoardCrypto.shared.user = me?.owner } } // pins are kept per person
     @Published var profile: Profile? {
         didSet { if let p = profile { rememberDisplayName(p.displayName, for: p.name) } }
     }
@@ -968,6 +968,7 @@ final class AppState: ObservableObject {
         stopFeed()
         Analytics.reset() // the next person on this phone starts anonymous
         BoardCrypto.shared.forget()
+        TrustCenter.shared.reset()
         Keychain.token = nil
         try? FileManager.default.removeItem(at: Self.cacheURL)
         // Display settings are the person's: the next one to sign in starts from the defaults (then their own).

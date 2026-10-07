@@ -234,12 +234,25 @@ extension AppState {
         } catch { report(error); return nil }
     }
 
-    /// A link anyone with an account can use to join (view only, access 30 days; the link works 7 days).
+    /// A link anyone with an account can use to join (view only, access 30 days; the link works 7 days). An encrypted
+    /// board's link carries the board key after its "#", which the server never sees (E2E design §3.3), so whoever opens
+    /// it reads at once: each key this phone holds, wrapped to a one-time invite key, and that key's private half with
+    /// the keys' digest in the "#".
     func inviteLink(_ board: String) async -> URL? {
         do {
-            let d = try await API.shared.send("/api/boards/\(board)/links", body: ["link_days": 7], retries: false)
+            var body: [String: Any] = ["link_days": 7]
+            var fragment = ""
+            if boards.first(where: { $0.id == board })?.encrypted == true {
+                let held = await BoardCrypto.shared.heldKeys(board)
+                if !held.isEmpty {
+                    let ik = try DeviceTrust.inviteKey(held)
+                    body["invite_key"] = ["public_key": ik.publicKey, "grants": ik.grants]
+                    fragment = ik.fragment
+                }
+            }
+            let d = try await API.shared.send("/api/boards/\(board)/links", body: body, retries: false)
             Analytics.capture("invite_sent", via: "link")
-            return URL(string: try JSONDecoder.soup.decode(InviteLinkResponse.self, from: d).url)
+            return URL(string: try JSONDecoder.soup.decode(InviteLinkResponse.self, from: d).url + fragment)
         } catch { report(error); return nil }
     }
 

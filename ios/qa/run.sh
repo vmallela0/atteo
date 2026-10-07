@@ -12,6 +12,9 @@
 #     2 clones took 990s against 628s serial, and two classes collided on the shared seeded boards
 #     (NewMessagesUITests counted another test's message). Use it only on an otherwise idle Mac, and expect that collision
 #     until the seed gives each worker its own boards.
+#   - Encrypted boards (E2E 1c): the phone pins theo's laptop key, which enc-peer.mjs keeps in .qa-build. If that key was
+#     removed (an older seed, a deleted .qa-build), the phone rightly won't hand theo the key any more: start the
+#     simulator's pins over with `xcrun simctl keychain "$SIM" reset`.
 #   - Test timeouts: a test that runs past QA_TEST_ALLOWANCE seconds (default 300) is stopped and reported as failed,
 #     instead of a frozen app (or XCTest stuck symbolicating a failure) holding the whole run for many minutes.
 set -euo pipefail

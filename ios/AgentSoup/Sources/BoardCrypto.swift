@@ -10,13 +10,16 @@ import UIKit
 
 struct EpochState: Decodable {
     struct Grant: Codable { let epoch: Int; let kid: String; let epk: String; let iv: String; let wrapped: String }
-    struct Missing: Decodable { let kid: String; let user: String; let publicKey: String; let firstDevice: Bool; let epochs: [Int] }
-    struct DeviceKey: Decodable { let kid: String; let user: String; let publicKey: String }
+    struct Missing: Decodable {
+        let kid: String; let user: String; let publicKey: String; let firstDevice: Bool; let epochs: [Int]
+        var label: String? = nil; var signPub: String? = nil; var signedBy: String? = nil; var sig: String? = nil
+        var device: SignedDevice { SignedDevice(kid: kid, user: user, publicKey: publicKey, label: label, signPub: signPub, signedBy: signedBy, sig: sig) }
+    }
     let current: Int
     let rotateNeeded: Bool
     let mine: [Grant]
     let missing: [Missing]
-    let keys: [DeviceKey]
+    let keys: [SignedDevice] // every live member device
 }
 
 private struct SealedResponse: Decodable {
@@ -87,8 +90,14 @@ enum SealedFiles {
 
 enum BoardCryptoError: LocalizedError {
     case waitingForApproval
+    case rolledBack(shown: Int, seen: Int)
     var errorDescription: String? {
-        String(localized: "This phone can't read this board yet: open it on one of your devices that already can (the atteo CLI does it on its next read).", bundle: .l10n)
+        switch self {
+        case .waitingForApproval:
+            String(localized: "This phone can't read this board yet. Approve it on one of your devices that already can (the web's encryption bar, or atteo keys approve), after checking its fingerprint in Settings → Encryption.", bundle: .l10n)
+        case let .rolledBack(shown, seen):
+            String(localized: "The server shows this board at key epoch \(shown), but this phone has seen epoch \(seen): it may be replaying an old key, so nothing was encrypted. Tell the board's members.", bundle: .l10n)
+        }
     }
 }
 
@@ -117,44 +126,155 @@ final class BoardCrypto {
     }
     private static var migrated = false
     private var publicKey: Data { privateKey.publicKey.rawRepresentation }
+    var publicKeyB64: String { publicKey.base64EncodedString() }
 
-    /// This phone's key id on the server (registered once; the server returns the same id for the same key).
+    /// Its Ed25519 signing key (cross-signed device lists, E2E design §2.2), kept next to the device key.
+    private var signKey: Curve25519.Signing.PrivateKey {
+        if let raw = E2EItem.read("device-sign-key"), let k = try? Curve25519.Signing.PrivateKey(rawRepresentation: raw) { return k }
+        let k = Curve25519.Signing.PrivateKey()
+        E2EItem.write("device-sign-key", k.rawRepresentation)
+        return k
+    }
+    var signPubB64: String { signKey.publicKey.rawRepresentation.base64EncodedString() }
+    /// This phone's fingerprint, from the keys it holds (never the server's copy).
+    var fingerprint: String { DeviceTrust.fingerprint(publicKeyB64, signPubB64) }
+    func sign(_ data: Data) throws -> String { try signKey.signature(for: data).base64EncodedString() }
+
+    /// The person signed in (AppState sets it): pins are kept per person.
+    var user: String?
+    private var registering: Task<String, Error>?
+    /// Pins the device that approved this one handed it (review #5567), as the server last returned them.
+    struct Handed: Decodable { let by: String; let epk: String; let iv: String; let wrapped: String; let sig: String; let bySignPub: String; var byPublicKey: String? = nil; var byLabel: String? = nil }
+    private var handed: Handed?
+    private var pinsLooked: [String: Int] = [:] // board → keys held when this phone last asked for handed-over pins
+
+    /// This phone's key id on the server, registered once per launch with its signing key (set only with proof this
+    /// phone holds the device key: it opens the server's challenge and sends it back). The answer carries any pins
+    /// another device of yours handed this one.
     func deviceId() async throws -> String {
-        if let kid = UserDefaults.standard.string(forKey: "agent-soup-device-kid") { return kid }
-        struct R: Decodable { let id: String }
-        let d = try await API.shared.send("/api/me/keys", body: ["public_key": publicKey.base64EncodedString(), "label": UIDevice.current.name])
-        let kid = try JSONDecoder.soup.decode(R.self, from: d).id
-        UserDefaults.standard.set(kid, forKey: "agent-soup-device-kid")
-        return kid
+        if let r = registering, let kid = try? await r.value { return kid }
+        let t = Task { () throws -> String in
+            struct R: Decodable { let id: String; var signChallenge: DeviceTrust.Sealed? = nil; var pins: Handed? = nil }
+            let d = try await API.shared.send("/api/me/keys", body: ["public_key": publicKeyB64, "label": UIDevice.current.name, "sign_pub": signPubB64])
+            let r = try JSONDecoder.soup.decode(R.self, from: d)
+            if let c = r.signChallenge, let nonce = DeviceTrust.open(c, with: privateKey, info: DeviceTrust.proofInfo) {
+                _ = try? await API.shared.send("/api/me/keys/\(r.id)/sign-key", body: ["nonce": nonce.base64EncodedString()], retries: false)
+            }
+            handed = r.pins
+            UserDefaults.standard.set(r.id, forKey: "agent-soup-device-kid")
+            return r.id
+        }
+        registering = t
+        do { return try await t.value } catch { registering = nil; throw error }
     }
 
     // MARK: - Board keys
 
-    /// Gets this phone's board keys; hands keys on to members who lack them (newcomers read the history); and,
-    /// when about to write, opens the board's first or next key (after someone left) for everyone remaining.
+    /// Gets this phone's board keys; hands keys on to the devices it trusts that lack them (newcomers read the
+    /// history); and, when about to write, opens the board's first or next key (after someone left) for the devices
+    /// it trusts. The CLI's boardKeys and the web's epochKeys (docs/SPEC.md §16): pins, first sight only once this phone
+    /// holds the board's key, cross-signed devices, removals, the pins your other device handed this one.
     @discardableResult
     func sync(_ board: String, forWriting: Bool = false) async throws -> EpochState {
         let kid = try await deviceId()
         var st = try await API.shared.get("/api/boards/\(board)/epochs", as: EpochState.self)
-        if forWriting && (st.current == 0 || st.rotateNeeded) {
-            let fresh = SymmetricKey(size: .bits256)
-            let grants = try st.keys.map { k -> [String: Any] in try ["kid": k.kid] .merging(wrap(fresh, to: k.publicKey)) { a, _ in a } }
-            if !st.keys.contains(where: { $0.kid == kid }) { throw BoardCryptoError.waitingForApproval }
-            _ = try await API.shared.send("/api/boards/\(board)/epochs", body: ["epoch": st.current + 1, "grants": grants], retries: false)
-            st = try await API.shared.get("/api/boards/\(board)/epochs", as: EpochState.self)
-        }
+        let me = user ?? (st.keys + st.missing.map(\.device)).first { $0.kid == kid }?.user
+        // A server showing an older key epoch than this phone has seen may be replaying an old key (review #5526).
+        let seen = me.map { Self.epochsSeen($0)[board] ?? 0 } ?? 0
+        if st.current < seen { throw BoardCryptoError.rolledBack(shown: st.current, seen: seen) }
         var mine: [Int: SymmetricKey] = [:]
         for g in st.mine where g.kid == kid { if let k = try? unwrap(g) { mine[g.epoch] = k } }
+        var trusted: (SignedDevice) -> Bool = { _ in false }
+        var waiting = st.current > 0 && mine.isEmpty
+        if let me {
+            var pin = Self.pins(me)
+            let before = pin
+            await adoptPins(&pin, me: me, kid: kid, board: board, held: mine.count) // before anyone's trusted on first sight
+            let own = DeviceTrust.pinned(pin[me], kid, publicKeyB64), mePin = DeviceTrust.pinId(kid, publicKeyB64, signPubB64)
+            if own != mePin { pin[me] = (pin[me] ?? []).filter { $0 != own } + [mePin] }
+            // The server showing this phone with someone else's signing key could sign devices as you: say so.
+            if let shown = st.keys.first(where: { $0.kid == kid }), shown.signPub != nil, shown.signPub != signPubB64 { TrustCenter.shared.signMismatch = true }
+            // First sight only once this phone holds the board's key: until then it hands nothing on, so it pins no one.
+            if !waiting { DeviceTrust.firstSight(&pin, me: me, st.keys + st.missing.filter(\.firstDevice).map(\.device)) }
+            DeviceTrust.dropGone(&pin, st.keys)
+            DeviceTrust.crossSigned(&pin, st.keys + st.missing.map(\.device))
+            if pin != before { Self.savePins(pin, me) }
+            trusted = { DeviceTrust.isPinned(pin, $0) }
+            TrustCenter.shared.saw(board: board, me: me, untrusted: st.missing.filter { !trusted($0.device) }.map(\.device), pin: pin, waiting: waiting)
+        }
+        if forWriting && (st.current == 0 || (st.rotateNeeded && !waiting)) {
+            if !st.keys.contains(where: { $0.kid == kid }) || me == nil { throw BoardCryptoError.waitingForApproval }
+            let fresh = SymmetricKey(size: .bits256)
+            let grants = try st.keys.filter(trusted).map { k -> [String: Any] in try ["kid": k.kid].merging(wrap(fresh, to: k.publicKey)) { a, _ in a } }
+            _ = try await API.shared.send("/api/boards/\(board)/epochs", body: ["epoch": st.current + 1, "grants": grants], retries: false)
+            st = try await API.shared.get("/api/boards/\(board)/epochs", as: EpochState.self)
+            for g in st.mine where g.kid == kid { if let k = try? unwrap(g) { mine[g.epoch] = k } }
+            waiting = false
+        }
         // Kept for the notification extension too (Shared/SealedOpen.swift), this device only.
         for (e, k) in mine where keys[board]?[e] == nil { SealedKeys.store(k, board: board, epoch: e) }
         keys[board] = mine
-        // Hand on what we hold to devices that may have it (the server only lists what we're allowed to grant).
-        let out = try st.missing.flatMap { m in try m.epochs.compactMap { e -> [String: Any]? in
+        // Hand on what we hold to the trusted devices that lack it (the server only lists what we're allowed to grant).
+        let out = try st.missing.filter { trusted($0.device) }.flatMap { m in try m.epochs.compactMap { e -> [String: Any]? in
             guard let k = mine[e] else { return nil }
             return try ["epoch": e, "kid": m.kid].merging(wrap(k, to: m.publicKey)) { a, _ in a }
         } }
         if !out.isEmpty { _ = try? await API.shared.send("/api/boards/\(board)/grants", body: ["grants": out], retries: false) }
+        if let me, st.current > seen { Self.saveEpochSeen(me, board, st.current) }
         return st
+    }
+
+    /// Takes the pins the device that approved this one handed it (review #5567), only for people never seen here. The
+    /// signature counts against a signing key pinned here for one of your own devices; the server's word for the
+    /// signer counts only while this phone knows nobody and never took a bundle (review #5592). Then the approver's
+    /// label and fingerprint stay in Settings → Encryption until you say they match.
+    private func adoptPins(_ pin: inout Pins, me: String, kid: String, board: String, held: Int) async {
+        let doneKey = "pins-from:\(me):\(kid)"
+        let done = E2EItem.read(doneKey).flatMap { String(data: $0, encoding: .utf8) }
+        let canSigner = (pin[me] ?? []).contains { e in let p = e.split(separator: "|", omittingEmptySubsequences: false); return p.count > 2 && p[0] != kid && !p[2].isEmpty }
+        let fresh = done == nil && DeviceTrust.knowsNobody(pin, me: me, kid: kid)
+        guard canSigner || fresh else { return }
+        // Asked again when this phone's first keys for the board arrive (the approval came after it opened the board).
+        if handed == nil, pinsLooked[board] != held {
+            pinsLooked[board] = held
+            struct R: Decodable { var pins: Handed? = nil }
+            handed = (try? await API.shared.get("/api/me/keys?pins=\(kid)", as: R.self))?.pins
+        }
+        guard let h = handed, h.sig != done else { return }
+        let signer = DeviceTrust.ownSigner(pin, me: me, kid: h.by)
+        guard signer != nil || fresh else { return }
+        guard DeviceTrust.verify(signer ?? h.bySignPub, DeviceTrust.pinsSigned(me, kid, epk: h.epk, iv: h.iv, wrapped: h.wrapped), h.sig),
+              let got = DeviceTrust.openPins(.init(epk: h.epk, iv: h.iv, wrapped: h.wrapped), with: privateKey) else { return }
+        DeviceTrust.mergePins(&pin, got, me: me)
+        E2EItem.write(doneKey, Data(h.sig.utf8))
+        if signer == nil { TrustCenter.shared.setApprovedBy(.init(label: h.byLabel ?? String(localized: "another device of yours", bundle: .l10n), kid: h.by, fingerprint: DeviceTrust.fingerprint(h.byPublicKey ?? "", h.bySignPub)), me: me) }
+    }
+
+    // MARK: - Pins, kept per person in the .e2e Keychain group
+
+    static func pins(_ me: String) -> Pins {
+        E2EItem.read("pins:\(me)").flatMap { try? JSONDecoder().decode(Pins.self, from: $0) } ?? [:]
+    }
+    static func savePins(_ p: Pins, _ me: String) {
+        if let d = try? JSONEncoder().encode(p) { E2EItem.write("pins:\(me)", d) }
+    }
+    static func epochsSeen(_ me: String) -> [String: Int] {
+        E2EItem.read("epochs-seen:\(me)").flatMap { try? JSONDecoder().decode([String: Int].self, from: $0) } ?? [:]
+    }
+    static func saveEpochSeen(_ me: String, _ board: String, _ e: Int) {
+        var m = epochsSeen(me); m[board] = e
+        if let d = try? JSONEncoder().encode(m) { E2EItem.write("epochs-seen:\(me)", d) }
+    }
+
+    /// The keys this phone holds for a board, raw (for an invite link that carries them).
+    func heldKeys(_ board: String) async -> [Int: Data] {
+        if keys[board] == nil { _ = try? await sync(board) }
+        return (keys[board] ?? [:]).mapValues { $0.withUnsafeBytes { Data($0) } }
+    }
+
+    /// Re-syncs every encrypted board this phone holds keys for (after you approve or trust a device: it gets them now).
+    func syncAll() async {
+        for b in SealedKeys.boards().union(keys.keys) { _ = try? await sync(b) }
     }
 
     /// The board's encrypted messages from `after`, decrypted where this phone holds the key (seq → text).
@@ -374,6 +494,7 @@ final class BoardCrypto {
         keys = [:]
         SealedKeys.forgetAll()
         UserDefaults.standard.removeObject(forKey: "agent-soup-device-kid")
+        registering = nil; handed = nil; pinsLooked = [:]; user = nil
         try? FileManager.default.removeItem(at: Self.sealedRoot)
     }
 }

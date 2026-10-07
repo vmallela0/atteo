@@ -2,7 +2,8 @@
 // phone's message, decrypts it, and answers "theo read: <text>", encrypted with the board key; then opens the phone's
 // encrypted picture, says so ("theo opened <name> (a picture)") and sends an encrypted picture back (theo.png).
 import zlib from "node:zlib";
-import { createCipheriv, createDecipheriv, createPublicKey, diffieHellman, generateKeyPairSync, hkdfSync, randomBytes } from "node:crypto";
+import { createCipheriv, createDecipheriv, createPrivateKey, createPublicKey, diffieHellman, generateKeyPairSync, hkdfSync, randomBytes } from "node:crypto";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 const [BASE, TOKEN, BOARD] = process.argv.slice(2);
 const b64u = (s) => s.replace(/-/g, "+").replace(/_/g, "/") + "=".repeat((4 - (s.length % 4)) % 4);
 const device = () => { const k = generateKeyPairSync("x25519"); return { priv: k.privateKey, pub: b64u(k.publicKey.export({ format: "jwk" }).x) }; };
@@ -12,7 +13,16 @@ const ungcm = (key, iv, data) => { const raw = Buffer.from(data, "base64"); cons
 const kek = (shared, epk, rpk) => Buffer.from(hkdfSync("sha256", shared, Buffer.concat([Buffer.from(epk, "base64"), Buffer.from(rpk, "base64")]), "agent-soup board key v2", 32));
 const unwrap = (g, d) => ungcm(kek(diffieHellman({ privateKey: d.priv, publicKey: pubKey(g.epk) }), g.epk, d.pub), g.iv, g.wrapped);
 const api = async (path, body) => (await fetch(BASE + path, { method: body ? "POST" : "GET", headers: { authorization: `Bearer ${TOKEN}`, "content-type": "application/json" }, body: body ? JSON.stringify(body) : undefined })).json();
-const me = device();
+// The same laptop key every run (ios/.qa-build, gitignored; seed.mjs keeps it): the phone pins theo's devices (E2E 1c),
+// so a new key each run would be a device none of theo's pinned ones signed, and get no key from the phone.
+const keyFile = new URL("../.qa-build/theo-laptop.json", import.meta.url);
+const me = existsSync(keyFile)
+  ? (({ d, x }) => ({ priv: createPrivateKey({ key: { kty: "OKP", crv: "X25519", d, x }, format: "jwk" }), pub: b64u(x) }))(JSON.parse(readFileSync(keyFile, "utf8")))
+  : device();
+if (!existsSync(keyFile)) {
+  mkdirSync(new URL("../.qa-build/", import.meta.url), { recursive: true });
+  writeFileSync(keyFile, JSON.stringify(me.priv.export({ format: "jwk" })), { mode: 0o600 });
+}
 me.kid = (await api("/api/me/keys", { public_key: me.pub, label: "theo's laptop" })).id;
 console.log("registered", me.kid);
 // Files (docs/SPEC.md §16): a key each, 64 KB AES-GCM chunks with the nonce 0⁸ ‖ chunk index; the keys ride in x.

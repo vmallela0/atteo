@@ -96,6 +96,7 @@ struct EverydaySettings: View {
 
             FeelSection()
             TalkSection() // voice chat (TalkView.swift)
+            EncryptionRow() // Settings → Encryption (EncryptionSettings.swift)
 
             GuideRow() // What Atteo can do (GuideLink.swift)
 

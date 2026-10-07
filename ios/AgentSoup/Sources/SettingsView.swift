@@ -112,6 +112,7 @@ struct FullSettings: View {
             FeelSection()
             VoiceSection()
             TalkSection() // voice chat (TalkView.swift)
+            EncryptionRow() // Settings → Encryption (EncryptionSettings.swift)
 
             Section {
                 if state.connections.isEmpty { Text("Nothing connected yet.").foregroundStyle(Theme.muted) }

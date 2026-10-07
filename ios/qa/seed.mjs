@@ -1,4 +1,5 @@
 // Seeds a local server with a believable account for simulator screenshots, and prints an app token for "maya".
+import { readFileSync } from "node:fs";
 const BASE = process.env.BASE ?? "http://localhost:8788";
 const KEY = process.env.ADMIN_KEY;
 const ops = async (p, b) => (await fetch(`${BASE}/api/ops/${p}`, { method: "POST", headers: { "x-admin-key": KEY, "content-type": "application/json" }, body: JSON.stringify(b) })).json();
@@ -180,8 +181,10 @@ await tool(tm, ac.board, "post", { type: "note", reply_to: ask.entry?.seq, text:
 // theo as a person, from his phone (otherApp, above): QA posts "from someone else" with it (an agent's post would be threaded).
 // theo's QA "laptop" (enc-peer.mjs) registers a new device key every run and the server keeps at most 10: drop the
 // earlier runs' keys (as theo, from his phone: agents can't remove devices), or the 11th run's encrypted chat fails.
+// The one it keeps using (enc-peer.mjs: ios/.qa-build/theo-laptop.json) stays, so the phone's pin of it holds (E2E 1c).
+const keep = (() => { try { return Buffer.from(JSON.parse(readFileSync(new URL("../.qa-build/theo-laptop.json", import.meta.url), "utf8")).x, "base64url").toString("base64"); } catch { return null; } })();
 for (const k of (await call(otherApp, "GET", "/api/me/keys")).keys ?? []) {
-  if (k.label === "theo's laptop") await call(otherApp, "DELETE", `/api/me/keys/${k.id}`);
+  if (k.label === "theo's laptop" && k.public_key !== keep) await call(otherApp, "DELETE", `/api/me/keys/${k.id}`);
 }
 // env: handed to the UI tests as AGENT_SOUP_<KEY> (maya's agent: replying to your own agent's post, #975; jules, who has
 // no agent connected: Everyday's first run).

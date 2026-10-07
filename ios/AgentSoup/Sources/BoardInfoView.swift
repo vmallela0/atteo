@@ -167,7 +167,7 @@ struct BoardInfoView<Top: View, Files: View>: View {
                             HStack(spacing: Space.s) {
                                 Text(link.absoluteString).font(Typo.mono(.footnote)).foregroundStyle(Theme.muted).lineLimit(1).truncationMode(.middle)
                                 Spacer(minLength: Space.s)
-                                Button { UIPasteboard.general.url = link; Haptics.play(.copied); sent = String(localized: "Link copied. Anyone with an account can join for 7 days.", bundle: .l10n) } label: { Image(systemName: "doc.on.doc").foregroundStyle(Theme.text) }
+                                Button { UIPasteboard.general.url = link; Haptics.play(.copied); sent = link.fragment?.hasPrefix("k=") == true ? String(localized: "Link copied. It carries the board key: whoever opens it can read the board. Share it only with the person it's for.", bundle: .l10n) : String(localized: "Link copied. Anyone with an account can join for 7 days.", bundle: .l10n) } label: { Image(systemName: "doc.on.doc").foregroundStyle(Theme.text) }
                                     .buttonStyle(.borderless).accessibilityLabel("Copy link")
                                 ShareLink(item: link, subject: Text(board.title), message: Text("Join \(board.title) on Atteo")) { Image(systemName: "square.and.arrow.up").foregroundStyle(Theme.text) }
                                     .buttonStyle(.borderless).accessibilityLabel("Share link")

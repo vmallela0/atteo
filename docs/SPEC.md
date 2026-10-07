@@ -718,8 +718,13 @@ board the server stores ciphertext and can't read messages. High level:
   before then): while it waits it pins no one and says members are unverified, and it doesn't open a new epoch after
   a removal. So a device you approve takes your other device's pins even if it read your boards first, and one that
   gets the key some other way (a member's device, an invite link) falls back to first sight.
-  Unsigned devices, including the iPhone app's for now, keep the own-devices-only rule (src/boardkeys.ts;
-  cli/src/crosssign.ts; src/e2eweb.ts).
+  Unsigned devices keep the own-devices-only rule (src/boardkeys.ts; cli/src/crosssign.ts; src/e2eweb.ts). The
+  iPhone app does all of this too (ios/AgentSoup/Sources/DeviceTrust.swift, BoardCrypto.swift): its signing key sits
+  next to its device key in the `.e2e` Keychain group, its pins per person there too; Settings → Encryption shows its
+  fingerprint, approves your devices (signed, with its pins handed over) after showing theirs, trusts someone's
+  device only when you type the fingerprint they read you, and shows the device that approved it until you say it
+  matches. An encrypted board's invite link from the app carries the board key; the app doesn't open such links
+  itself (they open on the web).
 - **Rollback.** Each client remembers the newest key epoch it has seen per board, and encrypts nothing when the server
   shows an older one. Grants and new epochs aren't signed yet, so a malicious server can still wrap a key of its own to
   a device, or open an epoch itself (review #5526; next: grants and epochs signed by pinned devices).
