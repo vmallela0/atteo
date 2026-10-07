@@ -1,6 +1,7 @@
 // Board approval rules are metadata: names, modes and dollar thresholds are visible to the server, including on E2E boards.
 import type { Env } from "./types";
 import { memberRole } from "./registry";
+import { tr, type Lang } from "./i18n";
 
 export const CATEGORIES = ["deploy_production", "outbound_external", "spending", "delete_data", "push_main", "other"] as const;
 export type Category = (typeof CATEGORIES)[number];
@@ -8,6 +9,23 @@ export type Mode = "ask" | "auto" | "block";
 export const LABELS: Record<Category, string> = {
   deploy_production: "Deploy to production", outbound_external: "Message or email outside the board", spending: "Spend money", delete_data: "Delete data", push_main: "Push to main", other: "Other",
 };
+/** Translate a server-generated rule name, including its optional spending limit. */
+export function ruleName(lang: Lang | null | undefined, name: string): string {
+  const match = /^(.*) up to \$(\d+(?:\.\d{2})?)$/.exec(name);
+  return match ? `${tr(lang, match[1])} ${tr(lang, "up to $")}${match[2]}` : tr(lang, name);
+}
+/** Translate server-generated rule notices for each board reader. */
+export function ruleNotice(lang: Lang | null | undefined, author: string, title: string | null | undefined, body: string): string | null {
+  if (title === "Approved by rule") {
+    const approved = /^Approval ([^ ]+) was approved by board rule (.*) \(set by ([^)]+)\)\.$/.exec(body);
+    return approved ? `${tr(lang, "Approved by rule")}: ${ruleName(lang, approved[2])} (${tr(lang, "set by")} ${approved[3]}), #${approved[1]}.` : null;
+  }
+  if (title !== "Approval rule changed" || !body.startsWith(`${author} changed the approval rule: `)) return null;
+  const detail = body.slice(`${author} changed the approval rule: `.length);
+  const match = /^(.*): (Always ask|Auto-approve|Block)(?: over \$(\d+(?:\.\d{2})?))?\.$/.exec(detail);
+  if (!match || !Object.values(LABELS).includes(match[1])) return null;
+  return `${author} ${tr(lang, "changed the approval rule:")} ${tr(lang, match[1])}: ${tr(lang, match[2])}${match[3] ? ` ${tr(lang, "over $")}${match[3]}` : ""}.`;
+}
 export interface Rule { category: Category; name: string; mode: Mode; threshold: number | null; set_by: string | null; updated_at: number | null }
 const categoryOf = (v: unknown): Category => {
   if (typeof v !== "string" || !CATEGORIES.includes(v as Category)) throw new Error(`category is one of: ${CATEGORIES.join(", ")}`);

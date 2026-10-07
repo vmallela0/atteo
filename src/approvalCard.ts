@@ -3,6 +3,7 @@
 
 import { esc } from "./util";
 import { tr, type Lang } from "./i18n";
+import { ruleName } from "./approvalRules";
 
 /** The fields a card needs (an Approval, or the `approval` a board entry carries). */
 export interface ApprovalCardData {
@@ -62,7 +63,7 @@ export function approvalCardHtml(a: ApprovalCardData, mine = false, lang?: Lang)
     : "";
   return `<div class="apc st-${st}" data-apc="${esc(a.id)}" data-apc-user="${esc(a.user)}">${cmd}<div class="tk"><span class="tk-st"><span class="dot"></span><span class="apc-lbl">${esc(
     approvalLabel(a, mine, lang),
-  )}</span></span>${a.command ? "" : risk}<span class="grow"></span>${acts}</div>${a.rule_name ? `<p class="xs muted apc-rule">${esc(a.rule_name)} · ${esc(a.rule_set_by ?? "")}</p>` : ""}${a.note && !a.rule_name ? `<p class="xs muted apc-note">${T("Note:")} ${esc(a.note)}</p>` : ""}</div>`;
+  )}</span></span>${a.command ? "" : risk}<span class="grow"></span>${acts}</div>${a.rule_name ? `<p class="xs muted apc-rule">${esc(ruleName(lang, a.rule_name))} · ${esc(a.rule_set_by ?? "")}</p>` : ""}${a.note && !a.rule_name ? `<p class="xs muted apc-note">${T("Note:")} ${esc(a.note)}</p>` : ""}</div>`;
 }
 
 /**
@@ -71,12 +72,12 @@ export function approvalCardHtml(a: ApprovalCardData, mine = false, lang?: Lang)
  */
 // me = null: the board page's shared script, which reads the viewer from window.BC (html.ts).
 export const approvalJs = (me: string | null): string => `
-(()=>{const ME=${me === null ? "window.BC.me" : JSON.stringify(me).replace(/</g, "\\u003c")};const lbl=(a,mine)=>a.status==='pending'?(mine?tr('Waiting on you'):tr('Waiting on ')+a.user):a.status==='approved'?tr('Approved'):a.status==='rejected'?tr('Denied'):tr('Timed out, denied');
+(()=>{const ME=${me === null ? "window.BC.me" : JSON.stringify(me).replace(/</g, "\\u003c")};const lbl=(a,mine)=>a.status==='pending'?(mine?tr('Waiting on you'):tr('Waiting on ')+a.user):a.status==='approved'?tr(a.rule_name?'Approved by rule':'Approved'):a.status==='rejected'?tr('Denied'):tr('Timed out, denied');
 function mark(root){(root||document).querySelectorAll('.apc.st-pending').forEach(c=>{if(c.dataset.apcUser!==ME)return;const s=c.querySelector('.apc-acts');if(s)s.hidden=false;const l=c.querySelector('.apc-lbl');if(l)l.textContent=tr('Waiting on you');
   c.tabIndex=0;c.setAttribute('aria-keyshortcuts','Enter Backspace');c.setAttribute('aria-label',tr('Approval waiting on you: Enter approves, Backspace denies'))})}
 function apply(a){if(!a||!a.id)return;document.querySelectorAll('.apc[data-apc="'+a.id+'"]').forEach(c=>{const st=a.status==='pending'?'pending':a.status==='approved'?'approved':a.status==='rejected'?'rejected':'expired';
   c.className='apc st-'+st;const l=c.querySelector('.apc-lbl');if(l)l.textContent=lbl(a,a.user===ME);if(st!=='pending'){c.querySelector('.apc-acts')?.remove();c.removeAttribute('tabindex');c.removeAttribute('aria-keyshortcuts');c.removeAttribute('aria-label')}
-  if(a.note&&!c.querySelector('.apc-note')){const p=document.createElement('p');p.className='xs muted apc-note';p.textContent=tr('Note: ')+a.note;c.appendChild(p)}})}
+  if(a.note&&!a.rule_name&&!c.querySelector('.apc-note')){const p=document.createElement('p');p.className='xs muted apc-note';p.textContent=tr('Note: ')+a.note;c.appendChild(p)}})}
 window.apcMark=mark;window.apcApply=apply;mark();
 document.addEventListener('click',async e=>{const b=e.target.closest('[data-apc-do]');if(!b)return;e.preventDefault();e.stopPropagation();const c=b.closest('.apc');
   c.querySelectorAll('[data-apc-do]').forEach(x=>x.disabled=true);

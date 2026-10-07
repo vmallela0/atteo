@@ -6,6 +6,7 @@ import { appPage, relTime, type SideBoard, type Viewer } from "./ui";
 import { esc } from "./util";
 import { commandHtml, nonAsciiNote } from "./approvalCard";
 import { tr, type Lang } from "./i18n";
+import { ruleName } from "./approvalRules";
 
 type Tr = (s: string, v?: Record<string, string | number>) => string;
 
@@ -39,7 +40,7 @@ ${cmd(a)}${det(a)}
 // A decided one: one line, with the details a click away.
 function decidedRow(a: Approval, titles: Record<string, string>, T: Tr, L?: Lang): string {
   return `<li><details class="ap-row"><summary><span class="ap-st st-${esc(a.status)}">${a.rule_name ? esc(T("Approved by rule")) : STATUS[a.status] ? esc(T(STATUS[a.status])) : esc(a.status)}</span><span class="grow truncate">${esc(a.title)}</span><span class="xs faint">${esc(relTime(a.decided_at ?? a.created_at, Date.now(), L))}</span></summary>
-<p class="xs muted">${esc(asker(a, T))} · ${origin(a, titles, T)}${a.rule_name ? ` · ${esc(a.rule_name)} (${esc(T("set by"))} ${esc(a.rule_set_by ?? "")})` : a.note ? ` · ${esc(T("your note:"))} "${esc(a.note)}"` : ""}</p>${cmd(a)}${det(a)}</details></li>`;
+<p class="xs muted">${esc(asker(a, T))} · ${origin(a, titles, T)}${a.rule_name ? ` · ${esc(ruleName(L, a.rule_name))} (${esc(T("set by"))} ${esc(a.rule_set_by ?? "")})` : a.note ? ` · ${esc(T("your note:"))} "${esc(a.note)}"` : ""}</p>${cmd(a)}${det(a)}</details></li>`;
 }
 
 export function approvalsPage(viewer: Viewer, side: SideBoard[], list: Approval[], titles: Record<string, string>): Response {
