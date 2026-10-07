@@ -2,10 +2,11 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<!-- The app's own application identifier as a shared Keychain group, so a push reads the board keys the app keeps. -->
+	<!-- Only the board keys' own Keychain group (the app keeps them there): never the app's group, which holds the
+	     sign-in token and the device key. -->
 	<key>keychain-access-groups</key>
 	<array>
-		<string>$(AppIdentifierPrefix)$(ATTEO_BUNDLE_ID)</string>
+		<string>$(AppIdentifierPrefix)$(ATTEO_BUNDLE_ID).e2e</string>
 	</array>
 </dict>
 </plist>

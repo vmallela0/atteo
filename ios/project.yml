@@ -62,7 +62,9 @@ targets:
     platform: iOS
     sources:
       - ShareExtension
-      - Shared
+      - path: Shared
+        excludes:
+          - SealedOpen.swift # board keys: the app and AtteoNotify only
       - path: AgentSoup/Resources/Fonts/Onest-Regular.ttf
         buildPhase: resources
       - path: AgentSoup/Resources/Fonts/Onest-Medium.ttf
@@ -82,7 +84,8 @@ targets:
         APPLICATION_EXTENSION_API_ONLY: YES
   AtteoNotify:
     # The notification extension (E2E 1b): a push for an end-to-end encrypted board carries ciphertext, and this shows
-    # the real words with the board key the app keeps in the same Keychain group (Shared/SealedOpen.swift).
+    # the real words with the board key the app keeps in the board keys' own Keychain group, "<app id>.e2e"
+    # (Shared/SealedOpen.swift). That's its only group: not the sign-in's, and AtteoShare isn't entitled to this one.
     type: app-extension
     platform: iOS
     sources:

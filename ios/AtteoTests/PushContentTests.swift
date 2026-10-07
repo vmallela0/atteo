@@ -41,4 +41,30 @@ final class PushContentTests: XCTestCase {
         SealedKeys.forgetAll()
         XCTAssertNil(SealedKeys.read(board: "b_test_push", epoch: 2))
     }
+
+    /// In the board keys' own group (the notification extension's only one; the share extension has none of it).
+    func testBoardKeysLiveInTheirOwnKeychainGroup() throws {
+        let group = try XCTUnwrap(SealedKeys.group)
+        XCTAssertTrue(group.hasSuffix(".e2e"), group)
+        SealedKeys.store(SymmetricKey(size: .bits256), board: "b_test_group", epoch: 1)
+        defer { SealedKeys.forgetAll() }
+        var out: AnyObject?
+        let q: [String: Any] = [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: "com.agentsoup.app", kSecAttrAccount as String: "board-key:b_test_group:1", kSecReturnAttributes as String: true]
+        XCTAssertEqual(SecItemCopyMatching(q as CFDictionary, &out), errSecSuccess)
+        let attrs = try XCTUnwrap(out as? [String: Any])
+        XCTAssertEqual(attrs[kSecAttrAccessGroup as String] as? String, group)
+        XCTAssertEqual(attrs[kSecAttrAccessible as String] as? String, kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly as String)
+    }
+
+    /// Leaving a board (or being removed) drops its keys and only its keys.
+    func testLeavingABoardForgetsOnlyItsKeys() {
+        SealedKeys.store(SymmetricKey(size: .bits256), board: "b_leave", epoch: 1)
+        SealedKeys.store(SymmetricKey(size: .bits256), board: "b_leave", epoch: 2)
+        SealedKeys.store(SymmetricKey(size: .bits256), board: "b_stay", epoch: 1)
+        defer { SealedKeys.forgetAll() }
+        SealedKeys.forget(board: "b_leave")
+        XCTAssertNil(SealedKeys.read(board: "b_leave", epoch: 1))
+        XCTAssertNil(SealedKeys.read(board: "b_leave", epoch: 2))
+        XCTAssertNotNil(SealedKeys.read(board: "b_stay", epoch: 1))
+    }
 }

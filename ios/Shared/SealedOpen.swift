@@ -1,7 +1,7 @@
-// Reading end-to-end encrypted messages without the app running: compiled into the app and its extensions (the
-// notification extension, NotifyExtension/, shows a push's real text with it). The board keys this phone holds are
-// kept in the Keychain group the app and its extensions share, this device only (BoardCrypto.sync stores them;
-// docs/research/E2E-EVERYWHERE.md §4). Extensions only read them: they never make a device key or fetch a key.
+// Reading end-to-end encrypted messages without the app running: compiled into the app and the notification extension
+// (NotifyExtension/ shows a push's real text with it). The board keys this phone holds are kept in a Keychain group
+// of their own that only the app and that extension share, this device only (BoardCrypto.sync stores them;
+// docs/research/E2E-EVERYWHERE.md §4). The extension only reads them: it never makes a device key or fetches a key.
 
 import CryptoKit
 import Foundation
@@ -11,35 +11,52 @@ enum SealedKeys {
     private static let service = "com.agentsoup.app" // the app's Keychain service (Auth.swift)
     private static let prefix = "board-key:"
 
+    /// The board keys' own Keychain group, "<team>.<app id>.e2e" (Info.plist AtteoE2EKeychainGroup): the app and the
+    /// notification extension are entitled to it, the share extension isn't, and the extension gets nothing else (not
+    /// the sign-in token's group). Without it nothing is kept or read: board keys never land in the default group.
+    static let group: String? = (Bundle.main.object(forInfoDictionaryKey: "AtteoE2EKeychainGroup") as? String).flatMap { $0.hasSuffix(".e2e") ? $0 : nil }
+
+    private static func query(_ account: String? = nil) -> [String: Any]? {
+        guard let group else { return nil }
+        var q: [String: Any] = [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service, kSecAttrAccessGroup as String: group]
+        if let account { q[kSecAttrAccount as String] = account }
+        return q
+    }
+
     private static func account(_ board: String, _ epoch: Int) -> String { "\(prefix)\(board):\(epoch)" }
 
     static func read(board: String, epoch: Int) -> SymmetricKey? {
+        guard var q = query(account(board, epoch)) else { return nil }
+        q[kSecReturnData as String] = true
         var out: AnyObject?
-        let q: [String: Any] = [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service, kSecAttrAccount as String: account(board, epoch), kSecReturnData as String: true]
         guard SecItemCopyMatching(q as CFDictionary, &out) == errSecSuccess, let d = out as? Data, d.count == 32 else { return nil }
         return SymmetricKey(data: d)
     }
 
     static func store(_ key: SymmetricKey, board: String, epoch: Int) {
-        let raw = key.withUnsafeBytes { Data($0) }
-        let q: [String: Any] = [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service, kSecAttrAccount as String: account(board, epoch)]
+        guard let q = query(account(board, epoch)) else { return }
         SecItemDelete(q as CFDictionary)
         var add = q
-        add[kSecValueData as String] = raw
+        add[kSecValueData as String] = key.withUnsafeBytes { Data($0) }
         add[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
         SecItemAdd(add as CFDictionary, nil)
     }
 
-    /// Signing out: every board key goes (the device key stays, as it always has).
-    static func forgetAll() {
+    /// The board's keys (leaving it, or removed from it), or every board's (signing out). The device key stays.
+    static func forget(board: String? = nil) {
+        guard var q = query() else { return }
+        q[kSecMatchLimit as String] = kSecMatchLimitAll
+        q[kSecReturnAttributes as String] = true
         var out: AnyObject?
-        let q: [String: Any] = [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service, kSecMatchLimit as String: kSecMatchLimitAll, kSecReturnAttributes as String: true]
         guard SecItemCopyMatching(q as CFDictionary, &out) == errSecSuccess, let items = out as? [[String: Any]] else { return }
+        let mine = board.map { "\(prefix)\($0):" } ?? prefix
         for i in items {
-            guard let a = i[kSecAttrAccount as String] as? String, a.hasPrefix(prefix) else { continue }
-            SecItemDelete([kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service, kSecAttrAccount as String: a] as CFDictionary)
+            guard let a = i[kSecAttrAccount as String] as? String, a.hasPrefix(mine), let d = query(a) else { continue }
+            SecItemDelete(d as CFDictionary)
         }
     }
+
+    static func forgetAll() { forget() }
 }
 
 enum SealedOpen {
