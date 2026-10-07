@@ -7,10 +7,11 @@
 import { fence, flagNote, neutralize, randomId, screenText } from "../../src/screen";
 import { ENCRYPTED, mailText as mailBody, titled } from "../../src/ping";
 import { blockedMessage, scanFields } from "../../src/secrets";
+import { grepEntries } from "../../src/localSearch";
 import { env } from "./env";
-import { api, askYes, boardIdIn, CliError, COMMANDS, creds, currentBoard, decryptEntry, encEntries, folderBoard, getEntry, isEncrypted, joinLink, onlyOptions, optStr, parseArgs, picturesNote, say, sealForBoard, sealForMe, server as serverFor, setSession, shown, tool } from "./commands";
+import { flagLine, screenMail } from "./dispatch";
+import { api, askYes, boardIdIn, CliError, COMMANDS, creds, currentBoard, decryptEntry, encAll, encEntries, folderBoard, getEntry, isEncrypted, joinLink, onlyOptions, optStr, parseArgs, picturesNote, say, sealForBoard, sealForMe, server as serverFor, setSession, shown, tool } from "./commands";
 import { load, sameServer, storeName } from "./credentials";
-import { screenDecrypted } from "./dispatch";
 import { caller, detectModel, loadMap, saveMap, type LocalSession } from "./session";
 import { createHash } from "node:crypto";
 import { closeSync, mkdirSync, openSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync, writeSync } from "node:fs";
@@ -419,7 +420,7 @@ async function waitCmd(args: string[]) {
 
 // ---- the mailbox: one place for everything addressed to your agent, on every board and DM ----
 
-type Mail = { direct?: boolean; id: number; kind: string; board: string | null; board_title: string | null; seq: number | null; from: string; from_via: string | null; type: string; title?: string | null; text: string; preview?: string; for?: string; ts: number; encrypted?: boolean; from_owner?: boolean; to_session?: string; audience?: "own"; flagged?: string };
+type Mail = { flagged?: boolean | "quoted"; direct?: boolean; id: number; kind: string; board: string | null; board_title: string | null; seq: number | null; from: string; from_via: string | null; type: string; title?: string | null; text: string; preview?: string; for?: string; ts: number; encrypted?: boolean; from_owner?: boolean; to_session?: string; audience?: "own" };
 
 /** Just mine mail (audience "own"): only your person sees it, so the answer must stay in the lane. */
 export const OWN_MAIL_HINT = "Just mine: only your person sees this; reply in its thread or with own: true.";
@@ -436,7 +437,7 @@ const when = (ts: number) => {
 const mailBlock = (m: Mail) => {
   const shown = m.text === ENCRYPTED ? m.text : titled(m.title, mailBody(m.text, m.seq));
   const kind = m.kind === "from_your_person" && !m.direct ? "from your person (to all agents: @agents/@all)" : (MAIL_KIND[m.kind] ?? m.kind);
-  return `── ${m.seq ? `#${m.seq} ` : ""}${m.type} · ${kind}${m.audience === "own" ? " · 🔒 own" : ""}${m.for && m.for !== kind ? ` · ${m.for}` : ""} · from ${m.from_owner ? `your user (${m.from})` : m.from_via === "agent" ? `${m.from}'s agent` : `${m.from} (person)`}${m.to_session ? ` · for your session "${m.to_session}"` : ""} · ${when(m.ts)}${m.flagged ? ` · ⚠ ${m.flagged}` : ""}\n    ${shown.replace(/\n/g, "\n    ")}`;
+  return `── ${m.seq ? `#${m.seq} ` : ""}${m.type} · ${kind}${m.audience === "own" ? " · 🔒 own" : ""}${m.flagged ? ` · ${flagLine(m.flagged)}` : ""}${m.for && m.for !== kind ? ` · ${m.for}` : ""} · from ${m.from_owner ? `your user (${m.from})` : m.from_via === "agent" ? `${m.from}'s agent` : `${m.from} (person)`}${m.to_session ? ` · for your session "${m.to_session}"` : ""} · ${when(m.ts)}\n    ${shown.replace(/\n/g, "\n    ")}`;
 };
 /** Mail grouped under one line per board (in order of first arrival), each message under it oldest first. */
 const mailText = (mail: Mail[]) => {
@@ -469,10 +470,8 @@ async function mailboxCmd(args: string[]) {
   }
   // End-to-end encrypted boards: the server only has ciphertext, so the text is decrypted on this machine.
   for (const m of j.mail)
-    if (m.encrypted && m.board && m.seq) {
-      const t = await decryptEntry(opt, m.board, m.seq).catch(() => null);
-      if (t != null) screenDecrypted(((m.text = t), m)); // screened here: the server never saw it (review #5559)
-    }
+    if (m.encrypted && m.board && m.seq)
+      screenMail(Object.assign(m, { text: (await decryptEntry(opt, m.board, m.seq).catch(() => null)) ?? m.text })); // screened here: the server never saw the words
   if (!j.mail.length) return print(opt, j, [...(j.held ? [j.held] : []), total ? `Nothing new in ${total}s.` : "Nothing new."].join("\n"));
   for (const m of j.mail) if (m.board && m.seq) shown.add(`${m.board}#${m.seq}`);
   const text = [
@@ -995,6 +994,28 @@ async function grepCmd(args: string[], compact = false) {
   let j: { text: string; compact?: string; more?: string | null; count: number; boards: number; encrypted_skipped: number; notes: string[]; hits: unknown[] };
   try {
     await prepare(opt);
+    if (!opt.all && !opt.files && (await isEncrypted(opt, currentBoard(opt)))) {
+      // An end-to-end encrypted board: the server can't read it, so the lines are found here, after decrypting.
+      const board = currentBoard(opt);
+      const since = optStr(opt, "since");
+      const entries = await encAll(opt, board);
+      const hits = grepEntries(entries, pattern, {
+        regex: !!opt.regex,
+        caseSensitive,
+        author: optStr(opt, "author") ?? null,
+        type: optStr(opt, "type") ?? null,
+        ...(since ? (/^\d+$/.test(since) ? { sinceSeq: Number(since) } : { sinceTs: Date.parse(since) }) : {}),
+        max: optStr(opt, "max") ? Number(optStr(opt, "max")) : undefined,
+      });
+      const head = `${hits.length} hit${hits.length === 1 ? "" : "s"} in this board (end-to-end encrypted: searched on this machine, ${entries.length} messages)`;
+      const lines = hits.map((h) => `#${h.seq} ${h.author}: ${h.text}`);
+      const compactLines = hits.map((h) => `#${h.seq} · ${h.author} · ${new Date(h.ts).toISOString().slice(5, 10)} · ${h.text.replace(/\s+/g, " ").trim()}`);
+      j = { text: [head, ...lines].join("\n"), compact: [head, ...compactLines].join("\n"), more: null, count: hits.length, boards: 1, encrypted_skipped: 0, notes: ["on this machine"], hits };
+      const text = compact || opt.compact ? j.compact! : j.text;
+      print(opt, j, j.count ? fence(text) : text);
+      if (!j.count) process.exitCode = 1;
+      return;
+    }
     const q = new URLSearchParams({ q: pattern });
     if (compact || opt.compact) q.set("compact", "1");
     if (opt.regex) q.set("regex", "1");

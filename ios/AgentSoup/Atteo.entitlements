@@ -7,6 +7,9 @@
 	<key>keychain-access-groups</key>
 	<array>
 		<string>$(AppIdentifierPrefix)$(ATTEO_BUNDLE_ID)</string>
+		<!-- Board keys for end-to-end encrypted boards (Shared/SealedOpen.swift): shared with the notification extension
+		     only (AtteoNotify.entitlements), never the share extension. Not first, so it's never the default group. -->
+		<string>$(AppIdentifierPrefix)$(ATTEO_BUNDLE_ID).e2e</string>
 	</array>
 </dict>
 </plist>

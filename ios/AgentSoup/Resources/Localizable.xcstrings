@@ -26068,48 +26068,278 @@
         }
       }
     },
-    "Nothing on this phone matches “%@”. This board is end-to-end encrypted, so only the messages this phone has loaded can be searched.": {
+    "Nothing matches “%@”. This board is end-to-end encrypted, so it was searched on this phone (messages it can't read yet aren't included).": {
       "localizations": {
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nada en este teléfono coincide con “%@”. Este tablero tiene cifrado de extremo a extremo, así que solo se pueden buscar los mensajes que este teléfono ha cargado."
+            "value": "Nada coincide con “%@”. Este tablero tiene cifrado de extremo a extremo, así que se buscó en este teléfono (no se incluyen los mensajes que aún no puede leer)."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Rien sur ce téléphone ne correspond à « %@ ». Ce tableau est chiffré de bout en bout : seuls les messages chargés sur ce téléphone peuvent être recherchés."
+            "value": "Rien ne correspond à « %@ ». Ce tableau est chiffré de bout en bout : la recherche s’est faite sur ce téléphone (sans les messages qu’il ne peut pas encore lire)."
           }
         },
         "hi": {
           "stringUnit": {
             "state": "translated",
-            "value": "इस फ़ोन पर “%@” से कुछ मेल नहीं खाता। यह बोर्ड एंड-टू-एंड एन्क्रिप्टेड है, इसलिए सिर्फ़ इस फ़ोन पर लोड हुए संदेश ही खोजे जा सकते हैं।"
+            "value": "“%@” से कुछ मेल नहीं खाता। यह बोर्ड एंड-टू-एंड एन्क्रिप्टेड है, इसलिए खोज इसी फ़ोन पर हुई (जो संदेश यह अभी पढ़ नहीं सकता, वे शामिल नहीं हैं)।"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "このiPhoneには「%@」に一致するものはありません。このボードはエンドツーエンドで暗号化されているため、このiPhoneに読み込まれたメッセージだけを検索できます。"
+            "value": "「%@」に一致するものはありません。このボードはエンドツーエンドで暗号化されているため、このiPhone上で検索しました（まだ読めないメッセージは含まれません）。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "이 휴대폰에는 “%@”에 일치하는 것이 없습니다. 이 보드는 종단 간 암호화되어 있어 이 휴대폰에 불러온 메시지만 검색할 수 있습니다."
+            "value": "“%@”에 일치하는 것이 없습니다. 이 보드는 종단 간 암호화되어 있어 이 휴대폰에서 검색했습니다(아직 읽을 수 없는 메시지는 포함되지 않음)."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "这台手机上没有与“%@”匹配的内容。这个看板是端到端加密的，只能搜索这台手机已加载的消息。"
+            "value": "没有与“%@”匹配的内容。这个看板是端到端加密的，所以是在这台手机上搜索的（尚无法读取的消息不包括在内）。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "這台手機上沒有與“%@”匹配的內容。這個看板是端到端加密的，只能搜尋這台手機已載入的訊息。"
+            "value": "沒有與“%@”匹配的內容。這個看板是端到端加密的，所以是在這台手機上搜尋的（尚無法讀取的訊息不包括在內）。"
+          }
+        }
+      }
+    },
+    "(Caught on this phone: nothing was encrypted or sent.)": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "(Detectado en este teléfono: no se cifró ni se envió nada.)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "(Repéré sur ce téléphone : rien n’a été chiffré ni envoyé.)"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "(इसी फ़ोन पर पकड़ा गया: कुछ भी एन्क्रिप्ट या भेजा नहीं गया।)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "（このiPhoneで検出：何も暗号化・送信されていません。）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "(이 휴대폰에서 감지됨: 아무것도 암호화하거나 보내지 않았습니다.)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "（已在这台手机上拦截：没有加密或发送任何内容。）"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "（已在這台手機上攔截：沒有加密或傳送任何內容。）"
+          }
+        }
+      }
+    },
+    "Show encrypted messages": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar mensajes cifrados"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afficher les messages chiffrés"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "एन्क्रिप्टेड संदेश दिखाएँ"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "暗号化されたメッセージを表示"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "암호화된 메시지 표시"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "显示加密消息"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "顯示加密訊息"
+          }
+        }
+      }
+    },
+    "End-to-end encrypted chats say only “New message” unless you show their messages: then this phone decrypts them, and iOS keeps them with its notifications and can show them on the lock screen.": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los chats con cifrado de extremo a extremo solo dicen “Mensaje nuevo”, salvo que muestres sus mensajes: entonces este teléfono los descifra, e iOS los guarda con sus notificaciones y puede mostrarlos en la pantalla bloqueada."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les discussions chiffrées de bout en bout indiquent seulement « Nouveau message », sauf si vous affichez leurs messages : ce téléphone les déchiffre alors, et iOS les garde avec ses notifications et peut les afficher sur l’écran verrouillé."
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "एंड-टू-एंड एन्क्रिप्टेड चैट सिर्फ़ “नया संदेश” कहती हैं, जब तक आप उनके संदेश न दिखाएँ: तब यह फ़ोन उन्हें डिक्रिप्ट करता है, और iOS उन्हें अपनी सूचनाओं के साथ रखता है और लॉक स्क्रीन पर दिखा सकता है।"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エンドツーエンドで暗号化されたチャットは、メッセージを表示する設定にしない限り「新しいメッセージ」とだけ通知します。表示する場合はこのiPhoneが復号し、iOSが通知と一緒に保存してロック画面に表示することがあります。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "종단 간 암호화된 채팅은 메시지를 표시하도록 설정하지 않으면 “새 메시지”라고만 알립니다. 표시하면 이 휴대폰이 메시지를 복호화하고, iOS가 알림과 함께 보관하며 잠금 화면에 표시할 수 있습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "端到端加密的聊天只会显示“新消息”，除非你选择显示其内容：这时这台手机会解密消息，iOS 会把它们和通知一起保存，并可能显示在锁定屏幕上。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "端到端加密的聊天只會顯示「新訊息」，除非你選擇顯示其內容：這時這台手機會解密訊息，iOS 會把它們和通知一起保存，並可能顯示在鎖定畫面上。"
+          }
+        }
+      }
+    },
+    "This phone couldn't check the message for secrets, so nothing was encrypted or sent. Update Atteo and try again.": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este teléfono no pudo revisar si el mensaje contiene secretos, así que no se cifró ni se envió nada. Actualiza Atteo y vuelve a intentarlo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce téléphone n’a pas pu vérifier si le message contient des secrets : rien n’a été chiffré ni envoyé. Mettez Atteo à jour et réessayez."
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "यह फ़ोन संदेश में सीक्रेट की जाँच नहीं कर सका, इसलिए कुछ भी एन्क्रिप्ट या भेजा नहीं गया। Atteo अपडेट करके फिर कोशिश करें।"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このiPhoneではメッセージに秘密情報が含まれていないか確認できなかったため、何も暗号化・送信していません。Atteoをアップデートしてもう一度お試しください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 휴대폰에서 메시지에 비밀 정보가 있는지 확인하지 못해 아무것도 암호화하거나 보내지 않았습니다. Atteo를 업데이트한 후 다시 시도하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这台手机无法检查消息中是否含有机密信息，所以没有加密或发送任何内容。请更新 Atteo 后重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這台手機無法檢查訊息中是否含有機密資訊，所以沒有加密或傳送任何內容。請更新 Atteo 後再試一次。"
+          }
+        }
+      }
+    },
+    "New message (end-to-end encrypted)": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mensaje nuevo (cifrado de extremo a extremo)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nouveau message (chiffré de bout en bout)"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "नया संदेश (एंड-टू-एंड एन्क्रिप्टेड)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しいメッセージ（エンドツーエンドで暗号化）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "새 메시지 (종단 간 암호화)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新消息（端到端加密）"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新訊息（端到端加密）"
           }
         }
       }
@@ -31498,48 +31728,48 @@
         }
       }
     },
-    "Search what's on this phone": {
+    "Search on this phone": {
       "localizations": {
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Buscar en lo que hay en este teléfono"
+            "value": "Buscar en este teléfono"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Rechercher dans le contenu de ce téléphone"
+            "value": "Rechercher sur ce téléphone"
           }
         },
         "hi": {
           "stringUnit": {
             "state": "translated",
-            "value": "इस फ़ोन पर मौजूद चीज़ें खोजें"
+            "value": "इस फ़ोन पर खोजें"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "このiPhone上の内容を検索"
+            "value": "このiPhone上で検索"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "이 휴대폰에 있는 내용 검색"
+            "value": "이 휴대폰에서 검색"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "搜索这台手机上的内容"
+            "value": "在这台手机上搜索"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "搜尋這台手機上的內容"
+            "value": "在這台手機上搜尋"
           }
         }
       }
@@ -47583,48 +47813,48 @@
         }
       }
     },
-    "Messages this phone has loaded. This board is end-to-end encrypted, so the server can't search it.": {
+    "Every message, searched on this phone. This board is end-to-end encrypted, so the server can't search it.": {
       "localizations": {
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Los mensajes que este teléfono ha cargado. Este tablero tiene cifrado de extremo a extremo, así que el servidor no puede buscar en él."
+            "value": "Todos los mensajes, buscados en este teléfono. Este tablero tiene cifrado de extremo a extremo, así que el servidor no puede buscar en él."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Les messages que ce téléphone a chargés. Ce tableau est chiffré de bout en bout : le serveur ne peut pas y chercher."
+            "value": "Tous les messages, cherchés sur ce téléphone. Ce tableau est chiffré de bout en bout : le serveur ne peut pas y chercher."
           }
         },
         "hi": {
           "stringUnit": {
             "state": "translated",
-            "value": "इस फ़ोन पर लोड हुए मैसेज। यह बोर्ड एंड-टू-एंड एन्क्रिप्टेड है, इसलिए सर्वर इसमें खोज नहीं कर सकता।"
+            "value": "हर संदेश, इसी फ़ोन पर खोजा गया। यह बोर्ड एंड-टू-एंड एन्क्रिप्टेड है, इसलिए सर्वर इसमें खोज नहीं कर सकता।"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "このスマホが読み込んだメッセージ。このボードはエンドツーエンドで暗号化されているため、サーバーは検索できません。"
+            "value": "すべてのメッセージをこのiPhone上で検索します。このボードはエンドツーエンドで暗号化されているため、サーバーは検索できません。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "이 휴대폰에 불러온 메시지. 이 보드는 종단간 암호화되어 있어 서버가 검색할 수 없습니다."
+            "value": "모든 메시지를 이 휴대폰에서 검색합니다. 이 보드는 종단 간 암호화되어 있어 서버가 검색할 수 없습니다."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "这台手机已加载的消息。此看板端到端加密，服务器无法搜索。"
+            "value": "所有消息，都在这台手机上搜索。这个看板是端到端加密的，服务器无法搜索。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "這支手機已載入的訊息。此看板端對端加密，伺服器無法搜尋。"
+            "value": "所有訊息，都在這台手機上搜尋。這個看板是端到端加密的，伺服器無法搜尋。"
           }
         }
       }

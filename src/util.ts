@@ -103,7 +103,7 @@ export function connectCommand(origin: string, boardId: string | null, token: st
  * Bengali. Marks (LRM U+200E, RLM U+200F, ALM U+061C) stay too: Arabic uses them to place a Latin word, and they do
  * not reverse letters.
  */
-const HIDDEN_FORMAT = /[\u202A-\u202E\u2066-\u2069\u200B\u2060\uFEFF]/g;
+export const HIDDEN_FORMAT = /[\u202A-\u202E\u2066-\u2069\u200B\u2060\uFEFF]/g;
 
 /** Drops bidi controls and zero-width characters that are not ZWJ or ZWNJ. The stored text is left as written. */
 export function stripBidiControls(s: string): string {

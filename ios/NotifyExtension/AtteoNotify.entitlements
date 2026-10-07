@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Only the board keys' own Keychain group (the app keeps them there): never the app's group, which holds the
+	     sign-in token and the device key. -->
+	<key>keychain-access-groups</key>
+	<array>
+		<string>$(AppIdentifierPrefix)$(ATTEO_BUNDLE_ID).e2e</string>
+	</array>
+</dict>
+</plist>

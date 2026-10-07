@@ -17,6 +17,7 @@ import { basename, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { blockedMessage, scanFields } from "../../src/secrets";
 import { gatewayFetch, GatewayError } from "../../gateway/src/index";
 import { fence } from "../../src/screen";
+import { grepEntries, LocalGrepError, searchEntries, type LocalEntry } from "../../src/localSearch";
 import { cleanExtras, encLine, fmtSize, SEALED_FILE_ID, type SealedExtras, type SealedFileRef } from "./encread";
 export { encLine };
 import { proseForAgent } from "../../src/util";
@@ -459,6 +460,9 @@ export type { SealedExtras, SealedFileRef } from "./encread";
 
 /** The envelope for a message: its text, and its extras (if any) as a second ciphertext under the same key. */
 function envelope(key: Buffer, epoch: number, text: string, extras?: SealedExtras): string {
+  // The server only ever sees ciphertext here, so it can't refuse a credential: this machine does (E2E §4).
+  const hit = scanFields({ text, title: extras?.title ?? null });
+  if (hit) throw new CliError(blockedMessage(hit) + " (Caught on this machine; nothing was encrypted or sent.)");
   const p: Record<string, unknown> = { v: 2, epoch, ...encryptV2(key, Buffer.from(text)) };
   if (extras && Object.keys(extras).length) p.x = encryptV2(key, Buffer.from(JSON.stringify({ xv: 1, ...extras })));
   return JSON.stringify(p);
@@ -537,6 +541,21 @@ export async function encEntries(opt: Record<string, string | true>, board: stri
 /** One entry of an end-to-end encrypted board, decrypted on this machine (null when it isn't there). */
 export async function decryptEntry(opt: Record<string, string | true>, board: string, seq: number): Promise<string | null> {
   return (await encEntries(opt, board, seq - 1)).find((e) => e.seq === seq)?.text ?? null;
+}
+
+const UNREADABLE = /^\((?:no key for this part of the board|can't decrypt on this machine)/;
+
+/** Every message of an encrypted board this machine can open (up to 50 pages), for search and grep here. */
+export async function encAll(opt: Record<string, string | true>, board: string): Promise<LocalEntry[]> {
+  const out: LocalEntry[] = [];
+  let after = 0;
+  for (let i = 0; i < 50; i++) {
+    const page = await encEntries(opt, board, after);
+    for (const e of page) if (!UNREADABLE.test(e.text)) out.push({ seq: e.seq, ts: e.ts, author: e.author, via: e.via, type: e.type, text: e.text });
+    if (page.length < SEALED_PAGE) break;
+    after = page[page.length - 1].seq;
+  }
+  return out;
 }
 
 async function read(args: string[]) {
@@ -881,6 +900,19 @@ async function get(args: string[]) {
 async function search(args: string[]) {
   const { pos, opt } = parseArgs(args, ["compact"]);
   if (!pos.length) throw new CliError('Usage: atteo search "<words>" [--author name] [--type t] [--since YYYY-MM-DD] [--more cursor] [--compact]');
+  if (await isEncrypted(opt, currentBoard(opt))) {
+    // The server can't search what it can't read: decrypt here, search here.
+    const board = currentBoard(opt);
+    const since = optStr(opt, "since") ? Date.parse(optStr(opt, "since")!) : NaN;
+    const all = (await encAll(opt, board)).filter((e) => !Number.isFinite(since) || e.ts >= since);
+    const hits = searchEntries(all, pos.join(" "), { from: optStr(opt, "author") ?? null, type: optStr(opt, "type") ?? null }).slice(0, optStr(opt, "limit") ? Number(optStr(opt, "limit")) : 20);
+    if (json(opt)) return printJson({ board, entries: hits, files: [], more: null, on_device: true });
+    if (!hits.length) return say(`Nothing matches "${pos.join(" ")}" (end-to-end encrypted board: searched the ${all.length} messages this machine can read).`);
+    return say(
+      `🔒 End-to-end encrypted board · searched on this machine (${all.length} messages) · ${hits.length} match${hits.length === 1 ? "" : "es"}, best first:\n` +
+        fence(hits.map((h) => `#${h.seq} ${h.type} · ${h.via === "agent" ? `${h.author}'s agent` : h.author} · ${new Date(h.ts).toISOString().slice(0, 10)} · ${h.snippet}`).join("\n")),
+    );
+  }
   if (json(opt)) {
     const board = currentBoard(opt);
     const q = new URLSearchParams({ q: pos.join(" ") });

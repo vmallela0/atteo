@@ -296,6 +296,12 @@ struct ChatComposer: View {
             withAnimation(.smooth(duration: 0.2)) { lockWarning = true }
             return
         }
+        // End-to-end encrypted: a credential is caught here (ClientScan.swift), and what you typed stays to fix.
+        if board.encrypted == true, let blocked = ClientScan.refusal(text) {
+            Haptics.play(.failed)
+            state.report(blocked)
+            return
+        }
         draft = ""
         box.save() // sent: the saved draft goes now, so it can't come back if the app is closed within the pause
         withAnimation(.spring(duration: 0.3, bounce: 0.15)) { attachments = [] }

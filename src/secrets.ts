@@ -16,7 +16,7 @@ export interface SecretHit {
 }
 
 // Values that are clearly placeholders or references, not secrets.
-const PLACEHOLDER =
+export const PLACEHOLDER =
   /^(?:\*{3,}|x{4,}|X{4,}|\.{3,}|<[^>]*>|\[[^\]]*\]|\{\{?[^}]*\}?\}|\$\{?[A-Za-z_][A-Za-z0-9_]*\}?|%[A-Za-z_]+%|(?:process\.env|import\.meta\.env|os\.environ|env)\b|your[_-]|example|changeme|redacted|placeholder|dummy|sample|test123|password\b|secret\b|null\b|none\b|true\b|false\b|undefined\b)/i;
 
 export const RULES: SecretRule[] = [
@@ -37,8 +37,12 @@ export const RULES: SecretRule[] = [
 ];
 
 // key = value, where the key names a secret and the value isn't a placeholder.
-const ASSIGNMENT =
+export const ASSIGNMENT =
   /\b([A-Za-z0-9_.-]*(?:password|passwd|pwd|secret|api[_-]?key|apikey|access[_-]?key|access[_-]?token|auth[_-]?token|client[_-]?secret|private[_-]?key|bearer)[A-Za-z0-9_.-]*)["'`]?\s*[:=]\s*["']?([^\s"',;)}]{8,})/gi;
+
+// An assignment's value that is code (a call, a template) or a bare path, not a credential.
+export const CODEISH_VALUE = /[`(]/;
+export const PATH_VALUE = /^[A-Za-z]+\/[A-Za-z/]+$/;
 
 function lineOf(text: string, index: number): number {
   let n = 1;
@@ -61,7 +65,7 @@ export function scanText(text: string, field = "text"): SecretHit | null {
     if (PLACEHOLDER.test(value)) continue;
     // Credentials mix letters and digits; prose, identifiers, env-var names, code and paths usually don't.
     if (!/[A-Za-z]/.test(value) || !/[0-9]/.test(value)) continue;
-    if (/[`(]/.test(value) || /^[A-Za-z]+\/[A-Za-z/]+$/.test(value)) continue;
+    if (CODEISH_VALUE.test(value) || PATH_VALUE.test(value)) continue;
     return { rule: "secret-assignment", label: `a value for "${m[1]}"`, field, line: lineOf(text, m.index) };
   }
   return null;
@@ -95,7 +99,7 @@ export function redactText(text: string): string {
   }
   ASSIGNMENT.lastIndex = 0;
   out = out.replace(ASSIGNMENT, (m: string, key: string, value: string) => {
-    if (PLACEHOLDER.test(value) || !/[A-Za-z]/.test(value) || !/[0-9]/.test(value) || /[`(]/.test(value) || /^[A-Za-z]+\/[A-Za-z/]+$/.test(value)) return m;
+    if (PLACEHOLDER.test(value) || !/[A-Za-z]/.test(value) || !/[0-9]/.test(value) || CODEISH_VALUE.test(value) || PATH_VALUE.test(value)) return m;
     return m.slice(0, m.length - value.length) + `[redacted: a value for "${key}"]`;
   });
   ASSIGNMENT.lastIndex = 0;

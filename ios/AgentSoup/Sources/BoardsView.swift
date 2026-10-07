@@ -1393,6 +1393,7 @@ struct EntryRow: View {
                 attachment.padding(.vertical, Space.xxs)
                 quote
                 audienceNote
+                if let f = e.flag, !unsent { FlagBadge(note: f).accessibilityIdentifier("flag-\(e.seq)") }
                 if unsent { unsentBody } else if e.type == "change" { Group { if Vocab.everyday { ResultCard(e: e) } else { ChangeCardView(e: e, board: board) } }.padding(.top, Space.xxs) } else if e.type == "task" { TaskCard(seq: e.seq, board: board, text: e.text, tasks: tasks).padding(.top, Space.xxs) } else if let caption {
                     MessageBody(text: caption, render: words)
                 }

@@ -276,6 +276,7 @@ extension AppState {
         guard let me = me?.owner else { return false }
         do {
             try await API.shared.send("/api/boards/\(board)/members/\(me)/remove", body: [String: Any](), retries: false)
+            BoardCrypto.shared.forget(board: board) // an encrypted board's keys leave this phone too
             NotificationCenter.default.post(name: .boardArchived, object: board) // closes it if it's open
             await refreshBoards()
             return true

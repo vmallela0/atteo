@@ -8,8 +8,28 @@
 // your explicit Approve. The 🔑 lines on the board say which devices can read it.
 //
 // Runs inside the board page's script (it uses BOARD, ME, READONLY, esc, toast, tick, thrSum and the composer's reply state).
+// The server can't read these posts, so this page does what it does on plain boards (clientScan.ts, atteoScan): a
+// credential is refused here before anything is encrypted, and opened text that reads like an instruction to agents
+// gets the same ⚠ badge as on a plain board.
 // The HKDF labels (V2, V1) and the IndexedDB name (agent-soup-e2e) are from before the rename to Atteo. They must never
 // change: the labels are baked into every stored key and sealed secret, and the database holds this browser's keys.
+
+/**
+ * Signing out of this browser (the /auth/logout response runs it, then goes home): every board's search index and the
+ * index key go (review #5551 item 7). The device key stays: this browser is still one of your devices next time.
+ * Opens the database only if it's there (an upgrade means it wasn't: aborted, nothing made).
+ */
+export const SIGN_OUT_JS = `(function(){var done=function(){location.replace('/')};try{var r=indexedDB.open('agent-soup-e2e',1);
+r.onupgradeneeded=function(){r.transaction.abort()};r.onerror=done;
+r.onsuccess=function(){var db=r.result,t=db.transaction('keys','readwrite'),s=t.objectStore('keys'),q=s.getAllKeys();
+q.onsuccess=function(){q.result.forEach(function(k){if(typeof k==='string'&&/^index(-key)?:/.test(k))s.delete(k)})};
+t.oncomplete=t.onerror=t.onabort=function(){db.close();done()}}}catch(e){done()}})();`;
+
+/** The /auth/logout response: clears this browser's encrypted-board search indexes (SIGN_OUT_JS), then goes home. */
+export function signedOutPage(clearCookie: string, sec: { nonce: string; headers: Record<string, string> }): Response {
+  const body = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Signing out · Atteo</title><noscript><meta http-equiv="refresh" content="0;url=/"></noscript></head><body><script nonce="${sec.nonce}">${SIGN_OUT_JS}</script></body></html>`;
+  return new Response(body, { headers: { ...sec.headers, "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "set-cookie": clearCookie } });
+}
 
 export const E2E_JS = `
 (()=>{
@@ -192,7 +212,12 @@ document.addEventListener('click',async e=>{const b=e.target.closest('[data-sf-d
 
 // ---- reading: every envelope on the page is opened here; what can't be opened says why ----
 const PAY=new Map(),OPEN=new Set(),TXT=new Map();let HI=0; // TXT: seq → {text, x} opened here (edits start from it)
-async function openOne(seq,payload){let p;try{p=JSON.parse(payload)}catch(e){return {why:'Not an envelope this browser understands.'}}
+// What arrives is checked as the server checks plain boards (clientScan.ts): a credential someone sent shows as
+// "[redacted: …]", in the text and its title. Without the rules nothing readable shows (fails closed).
+function received(r){if(r.text==null)return r;const a=window.atteoScan;if(!a||typeof a.redactText!=='function')return {why:tr("This browser couldn't check this message for secrets, so it isn't shown. Reload the page.")};
+  r.text=a.redactText(r.text);if(r.x&&typeof r.x.title==='string')r.x.title=a.redactText(r.x.title);return r}
+async function openOne(seq,payload){return received(await openRaw(seq,payload))}
+async function openRaw(seq,payload){let p;try{p=JSON.parse(payload)}catch(e){return {why:'Not an envelope this browser understands.'}}
   try{if(p.v===2){const k=ST.keys.get(p.epoch);if(!k)return {why:"Can't read this on this device yet: a member's device hands this browser the board's key when they're next here."};
       let x={};if(p.x)try{x=JSON.parse(td.decode(await ungcm(k.aes,p.x.iv,p.x.ct)))||{}}catch(e){x={}}
       return {text:td.decode(await ungcm(k.aes,p.iv,p.ct)),x}}
@@ -213,11 +238,17 @@ function opened(t){const out=[];let plain=[],q=[];
 function short(t){const l=String(t).replace(/\`\`\`[\\s\\S]*?\`\`\`/g,'\\n').split('\\n').map(x=>x.trim()).find(Boolean)||'';
   const w=l.replace(/@[A-Za-z0-9][A-Za-z0-9_.-]*(?:['’]s\\s+(?:agent|assistant))?/gi,' ').replace(/^[\\s,:;.\\-–—>]+/,'').split(/\\s+/).filter(Boolean);
   return w.length?w.slice(0,4).join(' ').replace(/[,:;.\\-–—]+$/,'')+(w.length>4?'…':''):''}
+// The plain board's ⚠ badge (html.ts flagBadge), from this browser's screen of the opened text.
+function flagShow(en,text){const meta=en&&en.querySelector(':scope>.grow>.meta');if(!meta||meta.querySelector('.fbadge')||!window.atteoScan)return;const f=atteoScan.screenText(text);if(!f)return;
+  const b=document.createElement('span');b.className='badge fbadge'+(f.quoted?' quoted':'');
+  if(f.quoted){b.title='It quotes text that reads like instructions to an agent (in code or quotation marks): agents are told to treat it as data.';b.textContent='⚠ Quoted instruction-like text'}
+  else{b.title='Looks like it '+f.reason.replace(/^tries to |^asks an agent to |^tells an agent to /,'')+': agents are told not to act on it.';b.textContent='⚠ Flagged: '+f.reason}
+  meta.insertBefore(b,meta.querySelector(':scope>.more-acts,:scope>.acts'))}
 function show(seq,r){const el=document.querySelector('#e'+seq+'>.grow>.body');if(!el)return false;
   if(r.text!=null)TXT.set(seq,{text:r.text,x:r.x||{}});
   el.innerHTML=r.text!=null?(r.x&&r.x.title?'<div class="e2e-title"><b>'+esc(r.x.title)+'</b></div>':'')+opened(r.text)+filesBlock(r.x&&r.x.files):'<span class="e2e-none">🔒 '+esc(r.why)+'</span>';el.closest('.entry').classList.toggle('e2e-open',r.text!=null);
   if(r.text!=null)hydrate(el);
-  if(r.text!=null){const t=short(r.text),en=el.closest('.entry');if(t){en.dataset.title=t;document.querySelectorAll('a.ref[data-ref="'+seq+'"][data-done]').forEach(a=>{a.textContent='↗ '+t})}if(window.refChips)refChips(el)}
+  if(r.text!=null){const t=short(r.text),en=el.closest('.entry');flagShow(en,(r.x&&r.x.title?r.x.title+' ':'')+r.text);if(t){en.dataset.title=t;document.querySelectorAll('a.ref[data-ref="'+seq+'"][data-done]').forEach(a=>{a.textContent='↗ '+t})}if(window.refChips)refChips(el)}
   const top=el.closest('.replies')?.closest('#thread>.entry');if(top)thrSum(+top.dataset.seq);return r.text!=null}
 // Your own approval requests (#5542): the board has only what's asked; the details and command are sealed to your
 // devices (a v1 envelope as the approval's details), opened here into the card above its buttons.
@@ -267,9 +298,59 @@ async function inviteTake(dev){let names=[];try{for(let i=0;i<localStorage.lengt
     catch(e){console.warn('[e2e] invite key',e)}}
   return false}
 
+// ---- on-device search (E2E §4): the server can't search what it can't read, so this browser does. What it opens is
+// kept as an index (seq, when, who, type, text) in IndexedDB, encrypted with an AES key made here that can't be
+// exported; the first search on a page reads the board again, so unsends and edits drop out. The palette (⌘K, ⌘F)
+// asks window.e2eSearch instead of the server on this board. Its lifetime (review #5551 item 7): an index made under
+// an older board key is dropped and rebuilt; leaving the board drops it (e2eForget), and so does a page of any
+// encrypted board once you're no longer on it (idxSweep); signing out drops every index and the index key
+// (SIGN_OUT_JS). ----
+let IDX=null,IDX_FULL=null;
+const idxId='index:'+ME+':'+BOARD,idxKeyId='index-key:'+ME;
+async function idxKey(){const had=await idbDo('readonly',s=>s.get(idxKeyId)).catch(()=>null);if(had)return had;
+  const k=await S.generateKey({name:'AES-GCM',length:256},false,['encrypt','decrypt']);
+  try{await idbDo('readwrite',s=>s.put(k,idxKeyId));return k}catch(e){return null}} // a browser that can't keep a key: the index lives in memory only
+async function idxLoad(){if(IDX)return IDX;const m=new Map();
+  try{if(!ST)await epochKeys();const k=await idxKey(),rec=await idbDo('readonly',s=>s.get(idxId));
+    // Made under an older board key (someone left or was removed since): dropped, and the next search rebuilds it.
+    if(rec&&rec.epoch!==ST.current)await idbDo('readwrite',s=>s.delete(idxId));
+    else if(k&&rec&&rec.iv)for(const e of JSON.parse(td.decode(await ungcm(k,rec.iv,rec.ct))))m.set(e.seq,e)}catch(e){}
+  return IDX=IDX||m}
+async function idxSave(){try{const k=await idxKey();if(!k||!IDX||!ST)return;const list=[...IDX.values()].sort((a,b)=>a.seq-b.seq).slice(-5000);
+  const c=await gcm(k,te.encode(JSON.stringify(list)));await idbDo('readwrite',s=>s.put({iv:c.iv,ct:c.ct,epoch:ST.current},idxId))}catch(e){}}
+/** Leaving this board: its index goes (html.ts's Leave waits for it). */
+window.e2eForget=async()=>{IDX=null;IDX_FULL=null;await idbDo('readwrite',s=>s.delete(idxId)).catch(()=>{})};
+/** Indexes of boards you're no longer on (you left elsewhere, or were removed) go. */
+async function idxSweep(){try{const mine=new Set(((await api('GET','/api/me/boards')).boards||[]).map(b=>b.id));if(!mine.has(BOARD))return; // a partial answer: leave everything
+  const pre='index:'+ME+':',ks=await idbDo('readonly',s=>s.getAllKeys());
+  for(const k of ks)if(typeof k==='string'&&k.startsWith(pre)&&!mine.has(k.slice(pre.length)))await idbDo('readwrite',s=>s.delete(k))}catch(e){}}
+/** The whole board (its newest 10,000 messages), opened here: what this browser can read goes in the index. */
+function idxRefresh(){if(IDX_FULL)return IDX_FULL;IDX_FULL=(async()=>{await idxLoad();if(!ST)await epochKeys();const fresh=new Map();let after=0;
+    for(let i=0;i<50;i++){const es=(await api('GET','/api/boards/'+BOARD+'/sealed?after='+after)).entries||[];
+      for(const e of es){const r=await openOne(e.seq,e.payload);if(r.text!=null)fresh.set(e.seq,{seq:e.seq,ts:e.ts,author:e.author,via:e.via||null,type:e.type,text:r.text})}
+      if(es.length<200)break;after=es[es.length-1].seq}
+    IDX=fresh;idxSave();return IDX})().catch(e=>{IDX_FULL=null;throw e});return IDX_FULL}
+const wordChar=c=>!!c&&/[\\p{L}\\p{N}_]/u.test(c);
+/** Where each word starts a word in the (lowercased) text: [start, end] pairs, or null when a word isn't there. */
+function spans(low,words){const out=[];for(const w of words){let n=0;for(let p=low.indexOf(w);p>=0;p=low.indexOf(w,p+1))if(!wordChar(low[p-1])){out.push([p,p+w.length]);n++}if(!n)return null}return out.sort((a,b)=>a[0]-b[0])}
+/** The words around the first match, matches between « and » (the server's snippet marks). */
+function snippetOf(text,sp){const at=sp.length?sp[0][0]:0,from=Math.max(0,at-60),to=Math.min(text.length,at+140);let s='',i=from;
+  for(const [a,b] of sp){if(b<=i||a>=to)continue;s+=text.slice(i,Math.max(i,a))+'«'+text.slice(Math.max(i,a),Math.min(b,to))+'»';i=Math.min(b,to)}
+  s+=text.slice(i,to);return (from>0?'… ':'')+s.replace(/\\s+/g,' ').trim()+(to<text.length?' …':'')}
+/** Searches this board on this device: every word must start a word (any case); best match first, then newest. */
+window.e2eSearch=async(q,o)=>{o=o||{};let idx=IDX_FULL?await IDX_FULL:await idxLoad();if(!IDX_FULL){const r=idxRefresh();if(!idx.size)idx=await r}
+  const words=String(q||'').toLowerCase().split(/\\s+/).filter(Boolean),hits=[];
+  for(const e of idx.values()){if(o.from&&e.author!==o.from)continue;if(o.agent!=null&&(e.via==='agent')!==!!o.agent)continue;if(o.type&&e.type!==o.type)continue;
+    const lower=e.text.toLowerCase(),low=lower.length===e.text.length?lower:e.text,sp=words.length?spans(low,words):[];if(!sp)continue;hits.push({e,sp})}
+  hits.sort((a,b)=>b.sp.length-a.sp.length||b.e.seq-a.e.seq);
+  return {entries:hits.slice(0,50).map(h=>({seq:h.e.seq,ts:h.e.ts,author:h.e.author,via:h.e.via,type:h.e.type,title:null,snippet:snippetOf(h.e.text,h.sp)})),on_device:true}};
+
 // ---- writing: the composer (new messages and replies) encrypts here and posts the envelope (refetching keys on 409) ----
+// Why this text mustn't be sent (a credential in it, or no rules to check it with), or null. Fails closed: without
+// clientScan.ts's rules (window.atteoScan) nothing is encrypted or sent (review #5551 item 5).
+function scanRefusal(text){const a=window.atteoScan;if(!a||typeof a.scanText!=='function')return tr("This browser couldn't check the message for secrets, so nothing was encrypted or sent. Reload the page and try again.");const hit=a.scanText(text);return hit?a.blockedMessage(hit)+' '+tr('(Caught in this browser: nothing was encrypted or sent.)'):null}
 /** An envelope for this text under the current epoch key; extras (title, files: docs/SPEC.md §16) go in x, their own ciphertext. */
-async function envelope(st,text,x){const k=st.keys.get(st.current);if(!k)throw new Error("This browser doesn't hold the board's key yet.");
+async function envelope(st,text,x){{const no=scanRefusal(text)||(x&&x.title?scanRefusal(x.title):null);if(no)throw new Error(no)}const k=st.keys.get(st.current);if(!k)throw new Error("This browser doesn't hold the board's key yet.");
   const c=await gcm(k.aes,te.encode(text)),p={v:2,epoch:st.current,iv:c.iv,ct:c.ct};
   if(x&&(x.title||(x.files&&x.files.length))){const e=await gcm(k.aes,te.encode(JSON.stringify(Object.assign({xv:1},x))));p.x={iv:e.iv,ct:e.ct}}
   return JSON.stringify(p)}
@@ -299,6 +380,7 @@ async function sealFiles(list){const out=[];for(const p of list){const {raw,blob
   return out}
 window.addEventListener('submit',async e=>{const f=e.target;if(!f.matches||!f.matches('form.composer'))return;e.preventDefault();e.stopImmediatePropagation();if(window.micStop)micStop(); // it stops the submit, so the mic's own listener never hears it (#1711)
   const text=ta.value.trim(),atts=pending.slice();if(!text&&!atts.length)return;const type=f.querySelector('input[name=type]:checked')?.value||'note',was=+rpTo.value||null;
+  {const no=scanRefusal(text);if(no){toast(no);return}}
   const btn=f.querySelector('button:not([type=button])');if(btn)btn.disabled=true;
   // A reply goes to the composer's reply target and lands in that message's thread, as on a plain board.
   const first=!was&&!document.querySelector('#thread>.entry');
@@ -308,7 +390,7 @@ window.addEventListener('submit',async e=>{const f=e.target;if(!f.matches||!f.ma
 
 if(!window.isSecureContext||!S||!window.indexedDB){say("🔒 <b>End-to-end encrypted.</b> This page can't hold an encryption key here (it needs a secure connection). Read and write with the atteo CLI.");return}
 S.generateKey({name:'X25519'},false,['deriveBits']).then(()=>{
-  e2eSync((+document.querySelector('#thread>.entry')?.dataset.seq||1)-1)},
+  e2eSync((+document.querySelector('#thread>.entry')?.dataset.seq||1)-1);setTimeout(idxSweep,3000)},
   ()=>say("🔒 <b>End-to-end encrypted.</b> This browser can't hold an encryption key (it needs X25519 in WebCrypto: Chrome 133+, Safari 17+ or Firefox 130+). Read and write with the atteo CLI."));
 })();
 `;

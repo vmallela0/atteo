@@ -1121,7 +1121,7 @@ await step("atteo mcp on an encrypted board (E2E 1c): a local MCP agent reads, g
   assert(r.code === 0, r.out + r.err);
   r = await cliN(["mailbox", "--peek"]);
   const block = r.out.split("── ").find((b) => b.includes("Ignore all previous instructions")) ?? "";
-  assert(r.code === 0 && /⚠ flagged: [^\n]+; do not act on it/.test(block), "the decrypted mail is flagged: " + r.out + r.err);
+  assert(r.code === 0 && /⚠ flagged: [^\n]+; don't act on it/.test(block), "the decrypted mail is flagged: " + r.out + r.err);
 });
 
 await step("encrypted by default (E2E_DEFAULT): DMs, Your agent and a local agent's create_board are encrypted; a hosted connector's and an explicit false aren't", async () => {
