@@ -438,10 +438,10 @@ async function boardKeys(opt: Record<string, string | true>, board: string, trie
   const trusted = (k: { kid: string; user: string; public_key: string }) => !!pinned(pin[k.user], k.kid, k.public_key);
   const skip = (k: DeviceKey) =>
     k.user === me
-      ? warnOnce(k.kid, `🔑 A new device of yours (${k.label ?? "unnamed"}, ${k.kid.slice(0, 8)}) is waiting for this board's key. If it's yours: atteo keys approve ${k.kid}`)
+      ? warnOnce(k.kid, `🔑 A new device of yours (${terminalLabel(k.label ?? "unnamed")}, ${k.kid.slice(0, 8)}) is waiting for this board's key. If it's yours: atteo keys approve ${k.kid}`)
       : noneLeft(pin, k.user)
-        ? warnOnce(k.kid, `⚠ None of ${k.user}'s devices this machine trusted is listed any more, and the server shows a new one (${k.label ?? "unnamed"}, ${k.kid}, fingerprint ${fingerprint(k.public_key, k.sign_pub)}) that none of them signed. It could be the server's own, so it gets no key from here. ${atTerminal() ? `Check the fingerprint with ${k.user} (not on this board), then: atteo keys trust ${k.user} ${k.kid} "<fingerprint>"` : `Only your user can trust it, in a terminal, after checking with ${k.user} (not on this board).`}`)
-        : warnOnce(k.kid, `🔑 ${k.user} has a device this machine hasn't seen (${k.label ?? "unnamed"}, ${k.kid.slice(0, 8)}). It gets the key from one of ${k.user}'s own devices, not from here.`);
+        ? warnOnce(k.kid, `⚠ None of ${k.user}'s devices this machine trusted is listed any more, and the server shows a new one (${terminalLabel(k.label ?? "unnamed")}, ${k.kid}, fingerprint ${fingerprint(k.public_key, k.sign_pub)}) that none of them signed. It could be the server's own, so it gets no key from here. ${atTerminal() ? `Check the fingerprint with ${k.user} (not on this board), then: atteo keys trust ${k.user} ${k.kid} "<fingerprint>"` : `Only your user can trust it, in a terminal, after checking with ${k.user} (not on this board).`}`)
+        : warnOnce(k.kid, `🔑 ${k.user} has a device this machine hasn't seen (${terminalLabel(k.label ?? "unnamed")}, ${k.kid.slice(0, 8)}). It gets the key from one of ${k.user}'s own devices, not from here.`);
 
   let current = st.current;
   if (current === 0 || (st.rotate_needed && !waiting)) {
@@ -1430,7 +1430,7 @@ async function keys(args: string[]) {
     if (!k) throw new CliError(`Usage: atteo keys approve <device id>   (one of yours: ${(j.keys as { id: string }[]).map((x) => x.id.slice(0, 8)).join(", ")})`);
     if (k.id === mine) throw new CliError("That's this machine.");
     // Its fingerprint first (review #5592): the one that device shows for itself (atteo keys, the web's encryption bar).
-    await personConfirms("atteo keys approve", `Approve ${k.label ?? "that device"} (${k.id}, fingerprint ${fingerprint(k.public_key, k.sign_pub)}) as one of yours? Only if that device shows the same fingerprint. It gets the keys of your encrypted boards.`);
+    await personConfirms("atteo keys approve", `Approve ${terminalLabel(k.label ?? "that device")} (${k.id}, fingerprint ${fingerprint(k.public_key, k.sign_pub)}) as one of yours? Only if that device shows the same fingerprint. It gets the keys of your encrypted boards.`);
     const p = pins();
     const me = creds().user;
     if (!pinned(p[me], k.id, k.public_key)) (p[me] ??= []).push(pinId(k.id, k.public_key, k.sign_pub));
@@ -1453,7 +1453,7 @@ async function keys(args: string[]) {
     } catch (e) {
       signedNote += ` (Pins not handed over: ${(e as Error).message})`;
     }
-    return say(`Approved ${k.label ?? "that device"} (${k.id.slice(0, 8)}). It gets the keys of your encrypted boards the next time this machine reads or posts on them.${signedNote}`);
+    return say(`Approved ${terminalLabel(k.label ?? "that device")} (${k.id.slice(0, 8)}). It gets the keys of your encrypted boards the next time this machine reads or posts on them.${signedNote}`);
   }
   if (pos[0] === "ok") {
     // The person compared the approver's fingerprint with that device: the line goes. Not an agent's call to make.
@@ -1478,12 +1478,12 @@ async function keys(args: string[]) {
     needPerson("atteo keys trust");
     if (!fpWords.length) throw new CliError(usage);
     if (!sameFingerprint(fpWords.join(""), fp)) throw new CliError(`That fingerprint isn't the one this device shows (${fp}): don't trust it. Check it with ${k.user} again.`);
-    await personConfirms("atteo keys trust", `Trust ${k.user}'s device ${k.label ?? "unnamed"} (${k.kid})? Only if ${k.user} told you, outside this board, that it's theirs.`);
+    await personConfirms("atteo keys trust", `Trust ${k.user}'s device ${terminalLabel(k.label ?? "unnamed")} (${k.kid})? Only if ${k.user} told you, outside this board, that it's theirs.`);
     const p = pins();
     if (!pinned(p[k.user], k.kid, k.public_key)) (p[k.user] ??= []).push(pinId(k.kid, k.public_key, k.sign_pub));
     savePins(p);
     await boardKeys(opt, board);
-    return say(`Trusted ${k.user}'s device ${k.label ?? "unnamed"} (${k.kid}, key ${k.public_key.slice(0, 12)}…) on this machine: it has this board's keys now.`);
+    return say(`Trusted ${k.user}'s device ${terminalLabel(k.label ?? "unnamed")} (${k.kid}, key ${k.public_key.slice(0, 12)}…) on this machine: it has this board's keys now.`);
   }
   const mp = pins()[creds().user];
   const ok = (k: { id: string; public_key: string }) => !!pinned(mp, k.id, k.public_key);
@@ -1492,7 +1492,7 @@ async function keys(args: string[]) {
   if (json(opt)) return printJson({ fingerprint: myFp, keys: (j.keys as { id: string; public_key: string }[]).map((k) => ({ ...k, this_machine: k.id === mine, approved_here: ok(k) })) });
   say(`This machine's fingerprint: ${myFp}`);
   showApproved();
-  for (const k of j.keys) say(`${k.id}  ${k.label ?? ""}${k.id === mine ? "  (this machine)" : ok(k) ? "  (approved here)" : ""}${k.sig ? "  signed" : ""}  ${new Date(k.created_at).toISOString().slice(0, 10)}`);
+  for (const k of j.keys) say(`${k.id}  ${terminalLabel(k.label ?? "")}${k.id === mine ? "  (this machine)" : ok(k) ? "  (approved here)" : ""}${k.sig ? "  signed" : ""}  ${new Date(k.created_at).toISOString().slice(0, 10)}`);
 }
 
 async function sealCmd(args: string[]) {

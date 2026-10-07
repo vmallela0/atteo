@@ -110,9 +110,12 @@ final class TrustCenter: ObservableObject {
     func approve(_ d: Mine) async throws {
         let mine = try await BoardCrypto.shared.deviceId()
         guard let me, d.id != mine else { return }
-        var p = BoardCrypto.pins(me)
-        if DeviceTrust.pinned(p[me], d.id, d.publicKey) == nil { p[me, default: []].append(DeviceTrust.pinId(d.id, d.publicKey, d.signPub)) }
-        BoardCrypto.savePins(p, me)
+        let p = await BoardCrypto.shared.mutatePins { () -> Pins in
+            var p = BoardCrypto.pins(me)
+            if DeviceTrust.pinned(p[me], d.id, d.publicKey) == nil { p[me, default: []].append(DeviceTrust.pinId(d.id, d.publicKey, d.signPub)) }
+            BoardCrypto.savePins(p, me)
+            return p
+        }
         if d.sig == nil {
             let sig = try BoardCrypto.shared.sign(DeviceTrust.deviceSigned(me, d.id, d.publicKey, d.signPub))
             _ = try? await API.shared.send("/api/me/keys/\(d.id)/sign", body: ["by": mine, "sig": sig], retries: false)
@@ -127,11 +130,13 @@ final class TrustCenter: ObservableObject {
     /// Someone else's device, on their word: only with the fingerprint they read you. False when it doesn't match.
     func trust(_ c: Check, typed: String) async throws -> Bool {
         guard let me, c.device.user != me, DeviceTrust.sameFingerprint(typed, c.fingerprint) else { return false }
-        var p = BoardCrypto.pins(me)
-        if DeviceTrust.pinned(p[c.device.user], c.device.kid, c.device.publicKey) == nil {
-            p[c.device.user, default: []].append(DeviceTrust.pinId(c.device.kid, c.device.publicKey, c.device.signPub))
+        await BoardCrypto.shared.mutatePins {
+            var p = BoardCrypto.pins(me)
+            if DeviceTrust.pinned(p[c.device.user], c.device.kid, c.device.publicKey) == nil {
+                p[c.device.user, default: []].append(DeviceTrust.pinId(c.device.kid, c.device.publicKey, c.device.signPub))
+            }
+            BoardCrypto.savePins(p, me)
         }
-        BoardCrypto.savePins(p, me)
         _ = try await BoardCrypto.shared.sync(c.board)
         return true
     }

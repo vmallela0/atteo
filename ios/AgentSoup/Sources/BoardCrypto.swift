@@ -131,6 +131,9 @@ final class BoardCrypto {
     private var keys: [String: [Int: SymmetricKey]] = [:] // board → epoch → key (memory only)
     private let pinUpdates = PinMutationQueue()
 
+    /// A pin change made outside a sync (Approve, Trust) waits its turn, so a sync paused mid-adopt can't save an older copy over it (opus-a #5779).
+    func mutatePins<T>(_ change: @escaping @MainActor () -> T) async -> T { await pinUpdates.run { change() } }
+
     // MARK: - This phone's device key
 
     /// In the .e2e Keychain group (DeviceKeyStore: not the share extension's), moved there once from the app's group.
