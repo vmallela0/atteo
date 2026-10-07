@@ -28,6 +28,12 @@ describe("approval card", () => {
     }
     expect(approvalCardHtml({ ...base, status: "rejected", note: "not <today>" })).toContain("Note: not &lt;today&gt;");
   });
+  it("names the rule and owner on an automatic approval", () => {
+    const h = approvalCardHtml({ ...base, status: "approved", rule_name: "Deploy to production", rule_set_by: "owner" });
+    expect(h).toContain("Approved by rule");
+    expect(h).toContain("Deploy to production · owner");
+    expect(h).not.toContain("data-apc-do");
+  });
 });
 
 describe("approval entry in the conversation", () => {

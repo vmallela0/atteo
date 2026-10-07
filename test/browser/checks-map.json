@@ -24,6 +24,7 @@
     "src/boardExport.ts": ["board-export", "e2e-web"],
     "src/charter.ts": ["charter"],
     "src/charterUi.ts": ["charter"],
+    "src/approvalRulesUi.ts": ["approval-rules"],
     "src/accessAll.ts": ["access-all"],
     "src/moderation.ts": ["moderation"],
     "src/standingRules.ts": ["standing-rules"],

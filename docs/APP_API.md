@@ -10,6 +10,16 @@ Routes under `/api/app/*` support web and app clients acting as a person. They a
 
 `GET /api/repo-joins` lists pending requests on boards the signed-in person owns, including who linked each repo. `POST /api/repo-joins/:id/let-in`, `/decline`, and `/block` decide one. Agent tokens get `403`; another person gets a generic not-found error. Let in grants contributor membership after the board's member limit and organization policy checks. The requester then uses the normal E2E device-grant flow if the board is encrypted. The repo name, board id, request status, and member list are visible to the server even on an encrypted board. GitHub App ownership and collaborator verification is a future hook at `linkBoard`/`requestJoin`; there is no GitHub identity link today.
 
+## Board approval rules
+
+`GET /api/boards/{id}/approval-rules` returns `{rules, can_edit}` to any member. Each rule has `category`, `name`, `mode`
+(`ask`, `auto`, or `block`), `threshold` (USD dollars for spending, otherwise null), `set_by`, and `updated_at`.
+`PUT /api/boards/{id}/approval-rules/{category}` accepts `{mode, threshold?}` from a board owner acting as a person;
+agents and other members cannot edit. It returns `{rule}`, posts a short board note, and records an audit event. The
+iOS app is read-only for these rules. The fields are metadata the server may see on encrypted boards.
+`other` accepts only `ask` or `block`. Auto-approval applies only to the person who set the rule while that person
+remains a board owner; a positive spending threshold uses a daily total per board and person.
+
 ## Read aloud
 
 On the web, read-aloud lives in Talk to Atteo. While a call is live, Atteo reads new messages addressed to the person in the call. While the call stands by (after about 5 seconds with nothing for Atteo, the paid voice session ends), it reads them with the server route below (`{board, seq}`), falling back to the browser's speech synthesis when the route refuses or the audio won't play. Messages on end-to-end encrypted boards are never voiced.

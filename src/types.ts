@@ -48,6 +48,10 @@ export interface ApprovalRef {
   created_at: number;
   decided_at: number | null;
   requested_by?: string | null; // whose agent asked, when it isn't the user's own (a machine run, #4930)
+  category?: string | null;
+  amount?: number | null;
+  rule_name?: string | null;
+  rule_set_by?: string | null;
 }
 
 /** One immutable entry in a board's log. Entries change only by later entries that resolve or supersede them. */
