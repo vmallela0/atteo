@@ -5410,6 +5410,85 @@ await step("encryption v2: one key per board; newcomers read history; later devi
   assert((await api(A, `/api/boards/${eb}/epochs`)).body.rotate_needed, "revoking a device rotates");
 });
 
+await step("encrypted boards' parity (Phase 1a): edits by envelope, files as ciphertext, tasks never deduped by ciphertext, unsend drops both", async () => {
+  // The same tiny client as above (X25519 → HKDF-SHA256 → AES-256-GCM); files are 64 KB chunks under their own key.
+  const b64u = (s) => s.replace(/-/g, "+").replace(/_/g, "/") + "=".repeat((4 - (s.length % 4)) % 4);
+  const device = () => { const k = generateKeyPairSync("x25519"); return { priv: k.privateKey, pub: b64u(k.publicKey.export({ format: "jwk" }).x) }; };
+  const pubKey = (b) => createPublicKey({ key: { kty: "OKP", crv: "X25519", x: b.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "") }, format: "jwk" });
+  const gcm = (key, data, iv = randomBytes(12)) => { const c = createCipheriv("aes-256-gcm", key, iv); return { iv: iv.toString("base64"), out: Buffer.concat([c.update(data), c.final(), c.getAuthTag()]).toString("base64") }; };
+  const ungcm = (key, iv, data) => { const raw = Buffer.from(data, "base64"); const d = createDecipheriv("aes-256-gcm", key, Buffer.from(iv, "base64")); d.setAuthTag(raw.subarray(raw.length - 16)); return Buffer.concat([d.update(raw.subarray(0, raw.length - 16)), d.final()]); };
+  const kek = (shared, epk, rpk) => Buffer.from(hkdfSync("sha256", shared, Buffer.concat([Buffer.from(epk, "base64"), Buffer.from(rpk, "base64")]), "agent-soup board key v2", 32));
+  const wrap = (key, pub) => { const e = device(); const w = gcm(kek(diffieHellman({ privateKey: e.priv, publicKey: pubKey(pub) }), e.pub, pub), key); return { epk: e.pub, iv: w.iv, wrapped: w.out }; };
+  const send = async (who, path, method, body, headers = { "content-type": "application/json" }) => { const r = await web(path, who, { method, headers, body: typeof body === "string" || body instanceof Uint8Array ? body : JSON.stringify(body) }); return { status: r.status, body: await r.json().catch(() => ({})) }; };
+  const eb = (await ops("boards", { user: A, title: `e2e parity ${run}`, encrypted: true })).body.board.id;
+  await ops("members", { board: eb, user: B });
+  const devs = [];
+  for (const who of [A, B]) { const d = device(); d.kid = (await send(who, "/api/me/keys", "POST", { public_key: d.pub, label: "parity" })).body.id; devs.push(d); }
+  const epochs = await (await web(`/api/boards/${eb}/epochs`, A)).json();
+  const k = randomBytes(32);
+  assert((await send(A, `/api/boards/${eb}/epochs`, "POST", { epoch: epochs.current + 1, grants: epochs.keys.map((x) => ({ kid: x.kid, ...wrap(k, x.public_key) })) })).status === 201, `epoch ${JSON.stringify(epochs).slice(0, 120)}`);
+  const ep = epochs.current + 1;
+  const env = (text, extras) => { const c = gcm(k, Buffer.from(text)); const p = { v: 2, epoch: ep, iv: c.iv, ct: c.out }; if (extras) { const x = gcm(k, Buffer.from(JSON.stringify({ xv: 1, ...extras }))); p.x = { iv: x.iv, ct: x.out }; } return JSON.stringify(p); };
+  const sealedAll = async (who) => (await (await web(`/api/boards/${eb}/sealed?after=0`, who)).json()).entries;
+  const textOf = (p) => { const j = JSON.parse(p); return ungcm(k, j.iv, j.ct).toString(); };
+
+  // Edits: the author's new envelope replaces the old one; a "x" part rides along; nobody else, no agents, no plain text.
+  const posted = (await send(A, `/api/boards/${eb}/sealed`, "POST", { payload: env("first draft"), type: "note" })).body.entry;
+  assert(posted?.seq, "posted");
+  assert((await send(A, `/api/boards/${eb}/sealed/${posted.seq}`, "PUT", { payload: env("second draft", { title: "Draft" }) })).status === 200, "author edits");
+  const after = (await sealedAll(B)).find((e) => e.seq === posted.seq);
+  assert(textOf(after.payload) === "second draft" && after.edited_at > 0, JSON.stringify(after).slice(0, 200));
+  const xj = JSON.parse(after.payload).x;
+  assert(JSON.parse(ungcm(k, xj.iv, xj.ct).toString()).title === "Draft", "the x part is stored as given");
+  assert((await send(B, `/api/boards/${eb}/sealed/${posted.seq}`, "PUT", { payload: env("B's take") })).status === 400, "only the author");
+  const agentPut = await fetch(`${BASE}/api/boards/${eb}/sealed/${posted.seq}`, { method: "PUT", headers: { authorization: `Bearer ${tok[A]}`, "content-type": "application/json" }, body: JSON.stringify({ payload: env("agent") }) });
+  assert(agentPut.status === 403, `agents can't edit: ${agentPut.status}`);
+  assert((await send(A, `/api/boards/${eb}/sealed/${posted.seq}`, "PUT", { payload: "plain words" })).status === 400, "only envelopes");
+  assert((await send(A, `/api/boards/${eb}/sealed/${posted.seq}`, "PUT", { payload: JSON.stringify({ v: 2, epoch: ep + 5, iv: "a", ct: "b" }) })).status === 409, "only the current epoch");
+  assert((await send(A, `/api/boards/${eb}/sealed`, "POST", { payload: JSON.stringify({ ...JSON.parse(env("bad x")), x: "nope" }) })).status === 400, "a malformed x is refused");
+  // The old plain edit route still refuses encrypted boards.
+  assert((await send(A, `/api/boards/${eb}/entries/${posted.seq}`, "PATCH", { text: "plain" })).status === 400, "no plain edits");
+
+  // Files: ciphertext uploaded first, named by the message; only members fetch it, only once posted.
+  const fileKey = randomBytes(32), plain = randomBytes(150_000), chunks = [];
+  for (let i = 0; i * 65536 < plain.length; i++) { const iv = Buffer.alloc(12); iv.writeUInt32BE(i, 8); const c = createCipheriv("aes-256-gcm", fileKey, iv); chunks.push(Buffer.concat([c.update(plain.subarray(i * 65536, (i + 1) * 65536)), c.final(), c.getAuthTag()])); }
+  const blob = Buffer.concat(chunks);
+  const up = await send(A, `/api/boards/${eb}/sealed-files`, "POST", new Uint8Array(blob), { "content-type": "application/octet-stream" });
+  assert(up.status === 201 && /^sf_/.test(up.body.id) && up.body.size === blob.length, JSON.stringify(up));
+  assert((await web(`/api/boards/${eb}/sealed-files/${up.body.id}`, A)).status === 400, "not served before its message");
+  assert((await send(B, `/api/boards/${eb}/sealed`, "POST", { payload: env("stolen"), files: [up.body.id] })).status === 400, "only the uploader names it");
+  const withFile = (await send(A, `/api/boards/${eb}/sealed`, "POST", { payload: env("a picture", { files: [{ id: up.body.id, name: "p.bin", mime: "application/octet-stream", size: plain.length, key: fileKey.toString("base64"), chunk: 65536 }] }), files: [up.body.id] })).body.entry;
+  assert(withFile?.seq, "posted with a file");
+  assert((await send(A, `/api/boards/${eb}/sealed`, "POST", { payload: env("again"), files: [up.body.id] })).status === 400, "a file goes in one message");
+  const listed = (await sealedAll(B)).find((e) => e.seq === withFile.seq);
+  assert(listed.files.join() === up.body.id, JSON.stringify(listed.files));
+  const got = Buffer.from(await (await web(`/api/boards/${eb}/sealed-files/${up.body.id}`, B)).arrayBuffer());
+  assert(got.equals(blob), "B gets the ciphertext back byte for byte");
+  const out = [];
+  for (let i = 0, off = 0; off < got.length; i++) { const n = Math.min(65536 + 16, got.length - off); const iv = Buffer.alloc(12); iv.writeUInt32BE(i, 8); const d = createDecipheriv("aes-256-gcm", fileKey, iv); d.setAuthTag(got.subarray(off + n - 16, off + n)); out.push(d.update(got.subarray(off, off + n - 16)), d.final()); off += n; }
+  assert(Buffer.concat(out).equals(plain), "and decrypts it");
+  assert(!blob.includes(plain.subarray(0, 64)), "the server only ever held ciphertext");
+  const C = `e2e-parity-out-${run}`;
+  await makeUser(C);
+  assert((await web(`/api/boards/${eb}/sealed-files/${up.body.id}`, C)).status === 404, "not for non-members");
+  assert((await send(A, `/api/boards/${eb}/sealed-files`, "POST", new Uint8Array(1_600_000), { "content-type": "application/octet-stream" })).status === 413, "too large");
+  // Files only on encrypted boards.
+  const plainBoard = (await ops("boards", { user: A, title: `e2e parity plain ${run}` })).body.board.id;
+  assert((await send(A, `/api/boards/${plainBoard}/sealed-files`, "POST", new Uint8Array(10), { "content-type": "application/octet-stream" })).status === 400, "no encrypted files on a plain board");
+
+  // Tasks: two encrypted tasks are two tasks (their titles are ciphertext the server can't compare).
+  const t1 = await send(A, `/api/boards/${eb}/sealed`, "POST", { payload: env("Ship the thing"), type: "task" });
+  const t2 = await send(A, `/api/boards/${eb}/sealed`, "POST", { payload: env("Write the docs"), type: "task" });
+  assert(t1.status === 201 && t2.status === 201, `${t1.status} ${JSON.stringify(t2.body)}`);
+  const tasks = (await (await web(`/api/boards/${eb}/tasks`, A)).json()).tasks;
+  assert([t1.body.entry.seq, t2.body.entry.seq].every((s) => tasks.some((t) => t.seq === s)), "both are tasks");
+
+  // Unsend: the ciphertext and its files go.
+  assert((await send(A, `/api/boards/${eb}/entries/${withFile.seq}/retract`, "POST", {})).status === 201, "unsend");
+  assert(!(await sealedAll(A)).some((e) => e.seq === withFile.seq), "its envelope is gone");
+  assert((await web(`/api/boards/${eb}/sealed-files/${up.body.id}`, A)).status === 400, "and its file");
+});
+
 await step("new board as JSON (the app): POST /api/boards makes an encrypted board by default; a title is required", async () => {
   // A fresh person (A is at the Free plan's board cap by now; the cap answers 402).
   const N = `e2e-app-${run}`;

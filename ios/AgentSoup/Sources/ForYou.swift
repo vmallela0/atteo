@@ -300,7 +300,7 @@ private struct OKCard: View {
                     .font(Typo.secondary).lineLimit(1)
             }
             // One plain sentence (Developer mode's approval shows the exact command, risk and where it came from).
-            if let line = a.details.split(separator: "\n").first.map(String.init), !line.trimmingCharacters(in: .whitespaces).isEmpty {
+            if let line = a.previewDetails.split(separator: "\n").first.map(String.init), !line.trimmingCharacters(in: .whitespaces).isEmpty {
                 Text(line).font(Typo.secondary).foregroundStyle(Theme.muted).lineLimit(2)
                     .padding(Space.m).frame(maxWidth: .infinity, alignment: .leading)
                     .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(Theme.line))

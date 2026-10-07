@@ -53,7 +53,6 @@ check(keysA.length===1&&keysA[0].label===`Chrome on ${OS} (web)`,`the browser re
 check(await pa.evaluate(async()=>{const db=await new Promise(r=>{const q=indexedDB.open("agent-soup-e2e",1);q.onsuccess=()=>r(q.result)});
   const d=await new Promise(r=>{const q=db.transaction("keys").objectStore("keys").getAll();q.onsuccess=()=>r(q.result[0])});return d&&d.priv instanceof CryptoKey&&d.priv.extractable===false}),"…kept in IndexedDB as a non-extractable CryptoKey");
 check(!(await pa.locator("form.composer").isHidden()),"the composer is there once the browser holds the board's key");
-check(await pa.locator("#attach-btn").count()===0,"…without the attach button (files aren't encrypted)");
 await post(pa,`hello from the web ${run}`);
 await bodyOf(pa,`hello from the web ${run}`).waitFor({timeout:8000}).catch(()=>{});
 check(await bodyOf(pa,`hello from the web ${run}`).count()===1,"web → posts encrypted and shows its own message decrypted");

@@ -81,7 +81,7 @@ final class Notifier: NSObject, ObservableObject, UNUserNotificationCenterDelega
             }
             let c = UNMutableNotificationContent()
             c.title = String(localized: "Your agent asks: \(a.title)", bundle: .l10n)
-            c.body = a.details.isEmpty ? String(localized: "Approve or deny in Atteo.", bundle: .l10n) : String(a.details.prefix(180))
+            c.body = a.previewDetails.isEmpty ? String(localized: "Approve or deny in Atteo.", bundle: .l10n) : String(a.previewDetails.prefix(180))
             c.sound = .default
             c.userInfo = a.boardId.map { ["board": $0] } ?? [:]
             c.threadIdentifier = "approvals"

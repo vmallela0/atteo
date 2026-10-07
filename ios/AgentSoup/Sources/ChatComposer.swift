@@ -42,7 +42,6 @@ struct ChatComposer: View {
     @State private var showPhotos = false
     @State private var showCamera = false
     @State private var showFiles = false
-    @State private var showEncryptedNote = false
     @ObservedObject private var voice = VoiceInput.shared
     private let maxAttachments = 10
     // The lock (#1748/#1749, like the web's): who the next message is for. Each time it's turned on it starts at People
@@ -249,46 +248,26 @@ struct ChatComposer: View {
         .fullScreenCover(isPresented: $showCamera) { CameraPicker { img in add { try await Attachments.photo(img) } }.ignoresSafeArea() }
     }
 
-    /// + at the leading edge of the message box: Photos, the camera (when there is one), Files. Encrypted boards
-    /// can't take attachments yet: the + is dimmed and says so.
+    /// + at the leading edge of the message box: Photos, the camera (when there is one), Files. On an encrypted board
+    /// they're encrypted on this phone before they go up (AppState.sealedUpload).
     @ViewBuilder private var attachButton: some View {
         let label = Image(systemName: "plus").font(.system(size: 14, weight: .bold))
             .composerCircle(fill: Theme.raised)
-        if board.encrypted == true {
-            Button { showEncryptedNote = true } label: { label.foregroundStyle(Theme.faint).opacity(0.55) }
-                .buttonStyle(PressStyle())
-                .popover(isPresented: $showEncryptedNote, arrowEdge: .bottom) {
-                    Label("Pictures and files can't be sent on encrypted boards yet.", systemImage: "lock.fill")
-                        .font(Typo.secondary).foregroundStyle(Theme.text)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .frame(width: 260, alignment: .leading)
-                        .padding(.horizontal, Space.m).padding(.vertical, Space.s + 2)
-                        .presentationCompactAdaptation(.popover)
-                        .presentationBackground(Theme.raised)
-                        .accessibilityIdentifier("attach-unavailable")
-                }
-                .accessibilityIdentifier(attachIdentifier)
-                .accessibilityLabel("Attach")
-                .accessibilityHint("Not available on encrypted boards yet")
-        } else {
-            Menu {
-                Button("Photos", systemImage: "photo.on.rectangle") { showPhotos = true }
-                if UIImagePickerController.isSourceTypeAvailable(.camera) { Button("Camera", systemImage: "camera") { showCamera = true } }
-                Button("Files", systemImage: "folder") { showFiles = true }
-            } label: { label.foregroundStyle(Theme.muted) }
-                .menuOrder(.fixed)
-                .menuStyle(.button).buttonStyle(.plain) // the bare circle, no system padding (it lines up with send)
-                .disabled(attachments.count + preparing >= maxAttachments || privateBox) // a picture or file can't be private
-                .opacity(privateBox ? 0.55 : 1)
-                .accessibilityIdentifier(attachIdentifier)
-                .accessibilityLabel("Attach")
-        }
+        Menu {
+            Button("Photos", systemImage: "photo.on.rectangle") { showPhotos = true }
+            if UIImagePickerController.isSourceTypeAvailable(.camera) { Button("Camera", systemImage: "camera") { showCamera = true } }
+            Button("Files", systemImage: "folder") { showFiles = true }
+        } label: { label.foregroundStyle(Theme.muted) }
+            .menuOrder(.fixed)
+            .menuStyle(.button).buttonStyle(.plain) // the bare circle, no system padding (it lines up with send)
+            .disabled(attachments.count + preparing >= maxAttachments || privateBox) // a picture or file can't be private
+            .opacity(privateBox ? 0.55 : 1)
+            .accessibilityIdentifier(attachIdentifier)
+            .accessibilityLabel("Attach")
     }
 
-    /// Pictures pasted into the message box: attached like ones picked from Photos (not on encrypted boards, which
-    /// can't take attachments yet: the + says why).
+    /// Pictures pasted into the message box: attached like ones picked from Photos.
     private func pasted(_ images: [UIImage]) {
-        guard board.encrypted != true else { Haptics.play(.warning); showEncryptedNote = true; return }
         guard !privateBox else { Haptics.play(.warning); return } // a picture or file can't be private
         for img in images.prefix(max(0, maxAttachments - attachments.count - preparing)) { add { try await Attachments.photo(img) } }
     }

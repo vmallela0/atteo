@@ -588,12 +588,20 @@ final class AppState: ObservableObject {
                           media: Media(mime: f.mime, w: f.width, h: f.height, size: f.data.count), artifactSize: f.data.count, local: file.path)
             queue.append((e, f.data))
         }
-        // Several: ONE message (the web's multipart upload), its pictures in a grid.
-        if queue.count > 1 {
+        // Several: ONE message (the web's multipart upload), its pictures in a grid. On an encrypted board always one
+        // message, its files encrypted on this phone (sealedUpload).
+        if queue.count > 1 || (b.encrypted == true && !queue.isEmpty) {
             let first = queue[0].0
             var e = first
-            e.text = caption.isEmpty ? Self.sharedLabel(files.map(\.mime)) : caption
-            e.attachments = queue.map { q in FileRef(name: q.0.artifactName ?? "file", mime: q.0.media?.mime ?? "application/octet-stream", size: q.1.count, w: q.0.media?.w, h: q.0.media?.h, local: q.0.local) }
+            e.text = caption.isEmpty ? (b.encrypted == true ? "" : Self.sharedLabel(files.map(\.mime))) : caption
+            let refs = queue.map { q in FileRef(name: q.0.artifactName ?? "file", mime: q.0.media?.mime ?? "application/octet-stream", size: q.1.count, w: q.0.media?.w, h: q.0.media?.h, local: q.0.local) }
+            e.attachments = refs.count > 1 ? refs : nil
+            if b.encrypted == true {
+                withAnimation(.smooth) { entries[b.id] = (entries[b.id] ?? []) + [e] }
+                await sealedUpload(e, refs: refs, datas: queue.map(\.1), to: b)
+                return
+            }
+            e.attachments = refs
             withAnimation(.smooth) { entries[b.id] = (entries[b.id] ?? []) + [e] }
             await uploadMany(e, datas: queue.map(\.1), to: b)
             return
@@ -609,6 +617,7 @@ final class AppState: ObservableObject {
     /// in order, so the server pairs them up), plus the words and what it answers.
     private func uploadMany(_ temp: Entry, datas: [Data], to b: Board) async {
         let files = temp.attachments ?? []
+        if b.encrypted == true { await sealedUpload(temp, refs: files, datas: datas, to: b); return }
         var form = Multipart()
         if temp.text != Self.sharedLabel(files.map(\.mime)) { form.field("text", temp.text) }
         if let r = temp.replyTo { form.field("reply_to", String(r)) }
@@ -650,6 +659,47 @@ final class AppState: ObservableObject {
         }
     }
 
+    /// Files on an encrypted board (docs/SPEC.md §16): each encrypted on this phone with its own key and uploaded as
+    /// ciphertext; then ONE encrypted message carries their keys in its extras and names them so the server attaches them.
+    private func sealedUpload(_ temp: Entry, refs: [FileRef], datas: [Data], to b: Board) async {
+        let label = refs.count == 1 ? "Shared \(refs[0].name)" : Self.sharedLabel(refs.map(\.mime))
+        let text = temp.text == label ? "" : temp.text
+        uploads[temp.seq] = 0
+        defer { uploads[temp.seq] = nil }
+        do {
+            var sealed: [SealedFile] = []
+            for (i, (f, d)) in zip(refs, datas).enumerated() {
+                let n = Double(refs.count)
+                sealed.append(try await BoardCrypto.shared.upload(board: b.id, name: f.name, mime: f.mime, data: d, w: f.w, h: f.h) { p in
+                    Task { @MainActor in if AppState.shared.uploads[temp.seq] != nil { AppState.shared.uploads[temp.seq] = (Double(i) + p) / n } }
+                })
+            }
+            let extras = SealedExtras(files: sealed)
+            let payload = try await BoardCrypto.shared.seal(text, board: b.id, extras: extras)
+            var body: [String: Any] = ["type": "note", "payload": payload, "files": sealed.map(\.id)]
+            if let r = temp.replyTo { body["reply_to"] = r }
+            let d = try await API.shared.send("/api/boards/\(b.id)/sealed", body: body, retries: false)
+            let real = await Self.withOpened(try JSONDecoder.soup.decode(PostResponse.self, from: d).entry, Opened(text: text, extras: extras), board: b.id)
+            for f in refs { if let path = f.local { try? FileManager.default.removeItem(at: URL(fileURLWithPath: path).deletingLastPathComponent()) } }
+            withAnimation(.smooth) { entries[b.id] = (entries[b.id] ?? []).map { $0.seq == temp.seq ? real : $0 } }
+            save()
+            Task { await refreshBoards() }
+        } catch APIError.offline {
+            withAnimation(.smooth) {
+                entries[b.id] = (entries[b.id] ?? []).map { e in
+                    guard e.seq == temp.seq else { return e }
+                    var f = e; f.pending = nil; f.failed = true; return f
+                }
+            }
+            Haptics.play(.failed)
+        } catch {
+            withAnimation(.smooth) { entries[b.id]?.removeAll { $0.seq == temp.seq } }
+            for f in refs { if let path = f.local { try? FileManager.default.removeItem(at: URL(fileURLWithPath: path).deletingLastPathComponent()) } }
+            Haptics.play(.failed)
+            report(error)
+        }
+    }
+
     /// Tries a picture or file that didn't go up again.
     func retryUpload(_ e: Entry, in b: Board) async {
         if e.isMultiFile {
@@ -670,6 +720,10 @@ final class AppState: ObservableObject {
     private func upload(_ temp: Entry, data: Data, to b: Board) async {
         guard let name = temp.artifactName else { return }
         let mime = temp.media?.mime ?? "application/octet-stream"
+        if b.encrypted == true {
+            await sealedUpload(temp, refs: [FileRef(name: name, mime: mime, size: data.count, w: temp.media?.w, h: temp.media?.h, local: temp.local)], datas: [data], to: b)
+            return
+        }
         var q = "name=\(name.queryEscaped)"
         if let w = temp.media?.w, let h = temp.media?.h { q += "&w=\(w)&h=\(h)" }
         if let r = temp.replyTo { q += "&reply_to=\(r)" }
@@ -710,12 +764,35 @@ final class AppState: ObservableObject {
     private func decrypted(_ list: [Entry], board b: Board, after: Int) async -> [Entry] {
         guard b.encrypted == true else { return list }
         // End-to-end encrypted: the server only has ciphertext; this phone decrypts what it holds the key for.
-        let plain = await BoardCrypto.shared.decrypt(b.id, after: after)
-        return list.map { e in
-            var e = e
-            if let t = plain[e.seq] { e.text = t } else if e.text.hasPrefix("🔒 Encrypted message") { e.text = String(localized: "🔒 Encrypted. This phone can't read it yet.", bundle: .l10n) }
-            return e
+        let plain = await BoardCrypto.shared.opened(b.id, after: after)
+        var out: [Entry] = []
+        for var e in list {
+            if let o = plain[e.seq] { e = await Self.withOpened(e, o, board: b.id) }
+            else if e.text.hasPrefix("🔒 Encrypted message") { e.text = String(localized: "🔒 Encrypted. This phone can't read it yet.", bundle: .l10n) }
+            out.append(e)
         }
+        return out
+    }
+
+    /// An encrypted message as this phone reads it: its text, its title, and its files decrypted here (shown from
+    /// this phone's copy, like a file that's sending: `local`). A file it can't get or decrypt is left out.
+    static func withOpened(_ e: Entry, _ o: Opened, board: String) async -> Entry {
+        var e = e
+        e.text = o.text
+        if let t = o.extras.title, !t.isEmpty { e.title = t }
+        var refs: [FileRef] = []
+        for f in o.extras.files ?? [] {
+            guard let u = try? await BoardCrypto.shared.file(board: board, f) else { continue }
+            refs.append(FileRef(name: f.name, mime: f.mime, size: f.size, w: f.w, h: f.h, local: u.path))
+        }
+        if let first = refs.first {
+            e.artifactName = first.name
+            e.media = first.mime.hasPrefix("text/") ? nil : Media(mime: first.mime, w: first.w, h: first.h, size: first.size) // as FileRef.entry(of:)
+            e.artifactSize = first.size
+            e.local = first.local
+            e.attachments = refs.count > 1 ? refs : nil
+        }
+        return e
     }
 
     /// The oldest message loaded for a board (nil: none yet).

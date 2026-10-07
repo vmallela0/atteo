@@ -60,6 +60,11 @@ const MATCH_ROUTES: Record<string, Route[]> = {
     { method: "GET", path: "/api/boards/{id}/sealed" },
     { method: "GET", path: "/api/boards/{id}/sealed/{seq}" },
     { method: "POST", path: "/api/boards/{id}/sealed" },
+    { method: "PUT", path: "/api/boards/{id}/sealed/{seq}" },
+  ],
+  "\\/api\\/boards\\/(b_[a-z0-9]+)\\/sealed-files(?:\\/(sf_[a-z0-9]{1,40}))?$": [
+    { method: "POST", path: "/api/boards/{id}/sealed-files" },
+    { method: "GET", path: "/api/boards/{id}/sealed-files/{file}" },
   ],
   "\\/api\\/approvals(?:\\/(ap_[A-Za-z0-9_-]+))?(?:\\/(approve|reject))?$": [
     { method: "GET", path: "/api/approvals" },

@@ -600,7 +600,7 @@ export function threadHtml(entries: Entry[], boardId: string, viewer?: { name: s
   const roots = rootMap(entries);
   const gone = retractedSet(entries);
   const members = viewer?.members ? new Set(viewer.members) : undefined;
-  const flags = (e: Entry) => ({ retracted: gone.has(e.seq), canRetract: !!viewer && (e.author === viewer.name || viewer.creator === viewer.name), canEdit: !!viewer && !viewer.encrypted && e.author === viewer.name, root: roots.get(e.seq), lang: viewer?.lang, person: viewer?.person, members, people: viewer?.people });
+  const flags = (e: Entry) => ({ retracted: gone.has(e.seq), canRetract: !!viewer && (e.author === viewer.name || viewer.creator === viewer.name), canEdit: !!viewer && e.author === viewer.name, root: roots.get(e.seq), lang: viewer?.lang, person: viewer?.person, members, people: viewer?.people });
   return entries.map((e) => entryHtml(e, boardId, roots.get(e.seq) === e.seq, flags(e))).join("");
 }
 

@@ -217,3 +217,40 @@ export function encryptV2(key: Buffer, plaintext: Buffer): { iv: string; ct: str
   return { iv: c.iv, ct: c.out };
 }
 export const decryptV2 = (key: Buffer, iv: string, ct: string) => ungcm(key, iv, ct);
+
+// ---- encrypted files (pictures and files on encrypted boards, docs/SPEC.md §16) ----
+// A fresh 32-byte key per file; the plaintext in 64 KB chunks, each AES-256-GCM with the nonce 0⁸ ‖ chunk index
+// (big-endian), so a chunk can't be moved or dropped unnoticed (the message's envelope also carries the size). The key
+// travels inside the message's encrypted extras; the server stores only the blob.
+
+export const FILE_CHUNK = 65536;
+const chunkIv = (i: number) => {
+  const iv = Buffer.alloc(12);
+  iv.writeUInt32BE(i, 8);
+  return iv;
+};
+
+export function encryptFile(plain: Buffer): { key: Buffer; blob: Buffer } {
+  const key = randomBytes(32);
+  const parts: Buffer[] = [];
+  for (let i = 0; i === 0 || i * FILE_CHUNK < plain.length; i++) {
+    const c = createCipheriv("aes-256-gcm", key, chunkIv(i));
+    parts.push(c.update(plain.subarray(i * FILE_CHUNK, (i + 1) * FILE_CHUNK)), c.final(), c.getAuthTag());
+  }
+  return { key, blob: Buffer.concat(parts) };
+}
+
+export function decryptFile(key: Buffer, blob: Buffer, size: number): Buffer {
+  const out: Buffer[] = [];
+  for (let i = 0, off = 0; off < blob.length; i++) {
+    const n = Math.min(FILE_CHUNK + 16, blob.length - off);
+    if (n < 16) throw new Error("This file is damaged.");
+    const d = createDecipheriv("aes-256-gcm", key, chunkIv(i));
+    d.setAuthTag(blob.subarray(off + n - 16, off + n));
+    out.push(d.update(blob.subarray(off, off + n - 16)), d.final());
+    off += n;
+  }
+  const plain = Buffer.concat(out);
+  if (plain.length !== size) throw new Error("This file is damaged (its size doesn't match).");
+  return plain;
+}

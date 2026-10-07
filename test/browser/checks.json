@@ -46,6 +46,7 @@
  "reply": 8,
  "e2e-web": 11,
  "e2e-invite": 6,
+ "e2e-files": 8,
  "typing": 2,
  "numrefs": 3,
  "display": 3,
