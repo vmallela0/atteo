@@ -7,6 +7,7 @@ import { SHOTS_DIR } from "./lib/shots.mjs";
 import { chromium } from "playwright-core";
 import { spawn } from "node:child_process";
 import { d1Execute } from "./lib/d1.mjs";
+import { cliTty as tty } from "./lib/clitty.mjs";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -21,9 +22,7 @@ for (const u of [A,B,C]) { await ops("users",{name:u,email:`${u}@example.com`,ve
   cred[u]=join(dir,`${u}.json`); writeFileSync(cred[u],JSON.stringify({server:BASE,user:u,token:tok[u],expires_at:Date.now()+86400e3}),{mode:0o600}); }
 const cli=(u,args)=>new Promise(res=>{const p=spawn("node",[CLI,...args],{cwd:dir,env:{...process.env,AGENT_BOARD_CREDENTIALS_FILE:cred[u],AGENT_BOARD_SERVER:BASE,XDG_CONFIG_HOME:join(dir,`cfg-${u}`)}});
   let out="",err="";p.stdout.on("data",d=>out+=d);p.stderr.on("data",d=>err+=d);p.stdin.end();p.on("close",code=>res({code,out,err}))});
-// A person at a terminal (approving a device takes one, review #5567): a pseudo-terminal that answers "y".
-const cliTty=(u,args)=>new Promise(res=>{const py="import os,pty,sys,json,re\nargv=json.loads(sys.argv[1])\npid,fd=pty.fork()\nif pid==0: os.execvp(argv[0],argv)\nout=b''\nn=0\nwhile True:\n  try: c=os.read(fd,4096)\n  except OSError: break\n  if not c: break\n  out+=c\n  if len(re.findall(rb'\\[(y/N|Y/n)\\]',out))>n: n+=1; os.write(fd,b'y\\n')\nos.waitpid(pid,0)\nsys.stdout.write(out.decode('utf8','replace'))\n";
-  const p=spawn("python3",["-c",py,JSON.stringify(["node",CLI,...args])],{cwd:dir,env:{...process.env,AGENT_BOARD_CREDENTIALS_FILE:cred[u],AGENT_BOARD_SERVER:BASE,XDG_CONFIG_HOME:join(dir,`cfg-${u}`)}});let out="";p.stdout.on("data",d=>out+=d);p.on("close",code=>res({code,out}))});
+const cliTty=(u,args)=>tty(CLI,args,{cwd:dir,env:{AGENT_BOARD_CREDENTIALS_FILE:cred[u],AGENT_BOARD_SERVER:BASE,XDG_CONFIG_HOME:join(dir,`cfg-${u}`)}}); // a person at a terminal (#5567)
 const sql=(q)=>d1Execute(`--command ${JSON.stringify(q)}`,{cwd:WT});
 const board=(await ops("boards",{user:A,title:`Secret plans ${run}`,encrypted:true})).board.id;
 await ops("members",{board,user:B});
