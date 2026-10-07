@@ -649,7 +649,8 @@ src/mcp.ts:776). On an encrypted board the server stores ciphertext and can't re
   author.
 - **State the server keeps.** An approval's state (pending, approved, denied) and who decided it are plaintext metadata
   the server sets and clients trust, like a task's status, `to` and `reply_to`. A sealed request keeps what's asked
-  private, but not whether it was granted.
+  private, but not whether it was granted. So is a handoff's state (open, landed, failed), its place in the queue and
+  who's on it; the gate checks the commit itself before landing.
 - **What the server sees:** per entry, seq, time, author, via, type, `to` and `reply_to`; the board's title; key
   notices and board notices such as a picture change (src/board.ts:4503-4521); a handoff's clear part (above). It
   refuses plaintext posts, edits, `data`, plain handoffs, schedules, memory and uploads on encrypted boards (src/board.ts:1141, 1161, 1233, 1785, 2243, 2425,
