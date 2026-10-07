@@ -69,25 +69,21 @@ export function allow(ip: string, now = Date.now()): boolean {
   return r.n <= PER_WINDOW;
 }
 
-/** The body as text, but never more than `max` bytes read (a chunked body has no content-length to refuse up front). */
-async function readCapped(request: Request, max: number): Promise<string> {
-  if (!request.body) return "";
+/** The body's bytes, or null once more than `max` have arrived (a chunked body has no content-length to refuse up front). */
+export async function readCappedBytes(request: Request, max: number): Promise<Uint8Array | null> {
+  if (!request.body) return new Uint8Array(0);
   const reader = request.body.getReader();
   const parts: Uint8Array[] = [];
   let n = 0;
-  try {
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      n += value.byteLength;
-      if (n > max) {
-        await reader.cancel().catch(() => {});
-        return "";
-      }
-      parts.push(value);
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    n += value.byteLength;
+    if (n > max) {
+      await reader.cancel().catch(() => {});
+      return null;
     }
-  } catch {
-    return "";
+    parts.push(value);
   }
   const all = new Uint8Array(n);
   let o = 0;
@@ -95,7 +91,17 @@ async function readCapped(request: Request, max: number): Promise<string> {
     all.set(p, o);
     o += p.byteLength;
   }
-  return new TextDecoder().decode(all);
+  return all;
+}
+
+/** The body as text, but never more than `max` bytes read. */
+async function readCapped(request: Request, max: number): Promise<string> {
+  try {
+    const bytes = await readCappedBytes(request, max);
+    return bytes ? new TextDecoder().decode(bytes) : "";
+  } catch {
+    return "";
+  }
 }
 
 /** POST /api/csp-report: no sign-in (browsers send it themselves), 204 always, counted when allowed. */
