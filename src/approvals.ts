@@ -30,6 +30,7 @@ export interface Approval {
   risk: "low" | "medium" | "high";
   session: string | null; // the agent session that asked (its name, e.g. "scout"), when it had one
   status: "pending" | "approved" | "rejected" | "expired";
+  terminal_confirm?: { token: string; choices: string[]; decision: "approve" | "reject"; expires_at: number }; // person-facing number match, never its answer
   state: "pending" | "approved" | "rejected" | "expired"; // the same, computed live (a pending request past expires_at is expired)
   note: string | null;
   created_at: number;
@@ -159,14 +160,15 @@ export async function listApprovals(env: Env, user: string, which: "pending" | "
  * another member gets "No such approval". A request that timed out stays denied.
  */
 /** `via`: where it was decided, for the audit trail: null (the web, the app) or "slack:<team>/<user>" (src/slack.ts). */
-export async function decide(env: Env, user: string, id: string, approve: boolean, note: string, later: Later | null = null, via: string | null = null): Promise<Approval> {
+export async function decide(env: Env, user: string, id: string, approve: boolean, note: string, later: Later | null = null, via: string | null = null, terminalToken: string | null = null): Promise<Approval> {
   const a = await getApproval(env, user, id);
   if (!a) throw new ApprovalError("No such approval.");
   if (a.status !== "pending") throw new ApprovalError(a.status === "expired" ? "Already denied (timed out)." : `Already ${a.status}.`);
   const n = note.trim().slice(0, 500) || null;
   const now = Date.now();
-  const r = await env.DB.prepare(`UPDATE approvals SET status = ?, note = ?, decided_at = ?, decided_via = ? WHERE id = ? AND user = ? AND status = 'pending' AND expires_at > ?`)
-    .bind(approve ? "approved" : "rejected", n, now, via, id, user, now)
+  const guard = terminalToken ? ` AND EXISTS (SELECT 1 FROM approval_terminal_confirms c WHERE c.approval_id = approvals.id AND c.user = ? AND c.token = ? AND c.status = 'pending' AND c.expires_at > ?)` : "";
+  const r = await env.DB.prepare(`UPDATE approvals SET status = ?, note = ?, decided_at = ?, decided_via = ? WHERE id = ? AND user = ? AND status = 'pending' AND expires_at > ?${guard}`)
+    .bind(approve ? "approved" : "rejected", n, now, via, id, user, now, ...(terminalToken ? [user, terminalToken, now] : []))
     .run();
   if (!r.meta.changes) throw new ApprovalError("Already decided or timed out.");
   const status = approve ? "approved" : "rejected";

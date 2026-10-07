@@ -164,6 +164,21 @@ extension AppState {
         } catch { report(error); await refreshInbox(); return false }
     }
 
+    /// A phone person completes the terminal's number match; a wrong choice cancels only that confirm.
+    func completeTerminalConfirm(_ a: Approval, token: String, choice: String) async -> Bool {
+        do {
+            let data = try await API.shared.send("/api/approvals/\(a.id)/terminal-confirm/complete", body: ["token": token, "choice": choice], retries: false)
+            let decoder = JSONDecoder()
+            decoder.keyDecodingStrategy = .convertFromSnakeCase
+            let result = try decoder.decode(TerminalConfirmResult.self, from: data)
+            if result.approval != nil { Haptics.play(result.status == "approved" ? .approved : .denied) }
+            await refreshInbox()
+            return true
+        } catch { report(error); await refreshInbox(); return false }
+    }
+
+    private struct TerminalConfirmResult: Decodable { let status: String; let approval: Approval? }
+
     // MARK: - People
 
     func searchPeople(_ q: String) async -> [Person] {

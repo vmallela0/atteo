@@ -3377,6 +3377,31 @@ await step("approvals: an agent asks before side effects; only the person decide
   await serr(sa, "request_approval", { title: "x", details: `key ${["ghp", "_", "Zx9Yw8Vu7Ts6Rq5Po4Nm3Lk2Jh1Gf0Ed9Cb8A"].join("")}` }, "Blocked");
 });
 
+await step("terminal approval: agent starts a number match but only a person can complete it", async () => {
+  const sa = await session(A, fb);
+  const command = `echo terminal-proof-${run} && npm run deploy`;
+  const asked = await sok(sa, "request_approval", { tool: "Bash", command, risk: "high", wait_seconds: 0 });
+  const id = asked.match(/(ap_[A-Za-z0-9_-]+)/)?.[1];
+  assert(id, asked);
+  const start = await fetch(`${BASE}/api/approvals/${id}/terminal-confirm`, { method: "POST", headers: { ...auth(A), "content-type": "application/json" }, body: JSON.stringify({ decision: "approve" }) });
+  assert(start.status === 201, `start: ${start.status}`);
+  const { token, code, expires_at } = await start.json();
+  assert(/^\d{4}$/.test(code) && expires_at - Date.now() <= 120_000, "terminal code and expiry");
+  const person = (await (await web(`/api/approvals/${id}`, A)).json()).approval;
+  assert(person.terminal_confirm.choices.length === 3 && person.terminal_confirm.choices.includes(code), JSON.stringify(person.terminal_confirm));
+  has(await (await web(`/approvals`, A)).text(), command.replaceAll("&", "&amp;"));
+  assert((await fetch(`${BASE}/api/approvals/${id}/terminal-confirm/complete`, { method: "POST", headers: { ...auth(A), "content-type": "application/json" }, body: JSON.stringify({ token, choice: code }) })).status === 403, "agent token cannot complete number match");
+  assert((await web(`/api/approvals/${id}/terminal-confirm/complete`, A, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ token, choice: code }) })).status === 200, "person completes");
+  const status = await (await fetch(`${BASE}/api/approvals/${id}/terminal-confirm`, { headers: { ...auth(A), "x-atteo-confirm-token": token } })).json();
+  assert(status.status === "approved", JSON.stringify(status));
+  const another = (await sok(sa, "request_approval", { title: `Terminal deny ${run}`, details: "Do not deploy", wait_seconds: 0 })).match(/(ap_[A-Za-z0-9_-]+)/)?.[1];
+  assert(another, "second request");
+  const started = await (await fetch(`${BASE}/api/approvals/${another}/terminal-confirm`, { method: "POST", headers: { ...auth(A), "content-type": "application/json" }, body: JSON.stringify({ decision: "reject" }) })).json();
+  assert((await fetch(`${BASE}/api/approvals/${another}/terminal-confirm/complete`, { method: "POST", headers: { ...auth(A), "content-type": "application/json" }, body: JSON.stringify({ token: started.token, choice: started.code }) })).status === 403, "agent token cannot complete number match");
+  assert((await web(`/api/approvals/${another}/terminal-confirm/complete`, A, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ token: started.token, choice: started.code }) })).status === 200, "person completes denial");
+  assert((await (await web(`/api/approvals/${another}`, A)).json()).decision === "denied", "denial persisted");
+});
+
 await step("headless agents: the setting round-trips; on, agents see it in initialize, the read header and the mailbox; off, nowhere", async () => {
   const post = (who, body) => web(`/api/me/profile`, who, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
   const prof = async () => (await (await web(`/api/me/profile`, A)).json()).profile;

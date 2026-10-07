@@ -66,6 +66,15 @@ export function approvalCardHtml(a: ApprovalCardData, mine = false, lang?: Lang)
   )}</span></span>${a.command ? "" : risk}<span class="grow"></span>${acts}</div>${a.rule_name ? `<p class="xs muted apc-rule">${esc(ruleName(lang, a.rule_name))} · ${esc(a.rule_set_by ?? "")}</p>` : ""}${a.note && !a.rule_name ? `<p class="xs muted apc-note">${T("Note:")} ${esc(a.note)}</p>` : ""}</div>`;
 }
 
+/** The terminal code is intentionally absent: the person must read it from their terminal. */
+export function terminalConfirmHtml(c: { token: string; choices: string[]; decision: "approve" | "reject"; expires_at: number }, lang?: Lang): string {
+  const T = (s: string) => esc(tr(lang, s));
+  return `<div class="tc-match" data-tc-token="${esc(c.token)}"><p class="small"><b>${T("Match the number in your terminal")}</b> · ${T(c.decision === "approve" ? "Approve this request" : "Deny this request")}</p><p class="xs muted">${T("Choose the four-digit number shown in your terminal. A wrong choice cancels this confirmation.")}</p><div class="row" style="gap:8px;margin-top:8px">${c.choices.map(x => `<button class="btn sm" type="button" data-tc-choice="${esc(x)}">${esc(x)}</button>`).join("")}</div></div>`;
+}
+export const terminalConfirmJs = `document.addEventListener('click',async e=>{const b=e.target.closest('[data-tc-choice]');if(!b)return;const c=b.closest('[data-ap], [data-approval]');if(!c)return;
+  const id=c.dataset.ap||c.dataset.approval;const r=await fetch('/api/approvals/'+encodeURIComponent(id)+'/terminal-confirm/complete',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({token:b.closest('[data-tc-token]').dataset.tcToken,choice:b.dataset.tcChoice})});
+  const j=await r.json().catch(()=>({}));if(!r.ok){toast(j.error||tr('Could not save'));return}toast(j.approval?(j.status==='approved'?tr('Approved'):tr('Denied')):tr('Terminal confirmation canceled'));setTimeout(()=>location.reload(),300)});`;
+
 /**
  * Page script (needs toast): shows the buttons to the person asked (`me`, the viewer), decides in place, and applies a
  * decision that arrives live (window.apcApply(approval), from the board's "approval" event).

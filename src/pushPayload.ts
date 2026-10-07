@@ -1,5 +1,5 @@
-// What an APNs push says (docs/research/E2E-EVERYWHERE.md §4). Pure: the sender doesn't exist yet (phones register
-// at /api/me/devices; sending turns on once the server has an APNs key), so this is the contract it must use.
+// What an APNs push says (docs/research/E2E-EVERYWHERE.md §4). Pure: encrypted board-message push delivery is
+// still a contract; src/apns.ts sends terminal approval and PIN security alerts to registered phones.
 // - An end-to-end encrypted board: only {board, seq, sealed} and the alert "New message". Nothing readable goes to
 //   Apple: not the text (the server doesn't have it), and not the board's name or who wrote it (a name can be
 //   sensitive, review #5550). `sealed` is the message's ciphertext ({v:2, epoch, iv, ct}) and mutable-content lets the

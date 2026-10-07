@@ -157,6 +157,16 @@ Optional Worker variables override the source defaults:
 | `VOICE_SESSION_MINUTES` | 10 | maximum reserved minutes for one session |
 | `VOICE_PER_MINUTE` | 12 | sessions a person may start per minute |
 
+## Approve from a terminal
+
+`atteo approve <ap_id>` and `atteo deny <ap_id>` start a two-minute number match. The CLI prints a four-digit code and polls for the result. The person's For you and Approvals cards show the full action and three numbers; the person picks the terminal's number. A wrong pick cancels that confirmation. Starting again replaces the previous one. Agent tokens can start and poll, but `POST /api/approvals/{aid}/terminal-confirm/complete` requires a person session (web cookie or app token). Direct `POST /api/approvals/{aid}/approve|reject` continues to return 403 for CLI/agent tokens.
+
+API: `POST /api/approvals/{aid}/terminal-confirm` with `{ "decision": "approve" | "reject" }` returns `{ token, code, expires_at }`. Poll `GET` on that path with `X-Atteo-Confirm-Token: <token>` and optional `?wait=25`; outcomes are `pending`, `approved`, `denied`, `expired`, `replaced`. The person completes with `{ "token": "tc_…", "choice": "1234" }` at `/complete`. `GET /api/approvals` and `GET /api/approvals/{aid}` include a `terminal_confirm` object containing token, choices, decision and expiry while one is live, without revealing the answer. The token binds a visible card to its current confirmation, so an old card cannot decide a replacement.
+
+An optional 6–32 digit approval PIN can be set or reset with the web-session-only `PUT /api/me/approval-pin` (`{ "pin": "…" }`), inspected without a hash using `GET`, and removed with `DELETE`. The CLI's `--pin` reads from a hidden interactive TTY only; it refuses a pipe and does not accept the PIN in args or environment. `POST /api/approvals/{aid}/pin` verifies it server-side. Five failed tries within 15 minutes lock the PIN for 15 minutes; three lockouts disable it until the person resets it on the web. Every wrong attempt adds a person-only notification and For you alert. The PIN never approves risk-high requests or host runs; use number matching for those.
+
+APNs delivery of these alerts requires `APNS_KEY`, `APNS_KEY_ID`, `APNS_TEAM_ID`, and `APNS_TOPIC`. Without those, the person can still use the web or app approval list and inbox.
+
 ## Request limits (Free-plan guardrails)
 
 Every API, MCP and A2A call made with a token passes `src/limits.ts` first. Refusals are JSON `{error, retry_after, scope?}` with a `Retry-After` header (MCP: a JSON-RPC error with the same message and the same HTTP status):

@@ -85,6 +85,12 @@ const MATCH_ROUTES: Record<string, Route[]> = {
     { method: "GET", path: "/api/approvals/{aid}" },
     { method: "POST", path: "/api/approvals/{aid}/{decision}" },
   ],
+  "\\/api\\/approvals\\/(ap_[A-Za-z0-9_-]+)\\/terminal-confirm(?:\\/(complete))?$": [
+    { method: "POST", path: "/api/approvals/{aid}/terminal-confirm" },
+    { method: "GET", path: "/api/approvals/{aid}/terminal-confirm" },
+    { method: "POST", path: "/api/approvals/{aid}/terminal-confirm/complete" },
+  ],
+  "\\/api\\/approvals\\/(ap_[A-Za-z0-9_-]+)\\/pin$": [{ method: "POST", path: "/api/approvals/{aid}/pin" }],
   "\\/api\\/dm\\/([a-z0-9][a-z0-9_.-]{0,31})(?:\\/([a-z0-9][a-z0-9._-]{0,31}))?$": [
     { method: "POST", path: "/api/dm/{user}" },
     { method: "POST", path: "/api/dm/{user}/{session}" },
@@ -267,6 +273,11 @@ function routesFromIndex(): Route[] {
   addRoute(routes, "DELETE", "/mcp");
   addRoute(routes, "GET", "/health");
   addRoute(routes, "GET", "/health/deep");
+  if (INDEX.includes('path === "/api/me/approval-pin"')) {
+    addRoute(routes, "GET", "/api/me/approval-pin");
+    addRoute(routes, "PUT", "/api/me/approval-pin");
+    addRoute(routes, "DELETE", "/api/me/approval-pin");
+  }
 
   for (const m of INDEX.matchAll(/if \(path === "([^"]+)" && method === "([A-Z]+)"/g)) addRoute(routes, m[2] as HttpMethod, m[1]);
   for (const m of INDEX.matchAll(/if \(path === "([^"]+)" && \(method === "([A-Z]+)" \|\| method === "([A-Z]+)"\)/g)) {

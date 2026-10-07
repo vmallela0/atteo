@@ -198,6 +198,9 @@ export interface Env {
   VOICE_PER_MINUTE?: string; // var: voice sessions a person may start per minute (default 12: a call standing by and resuming starts a new one each time)
   DEV_FAKE_VOICE?: string; // LOCAL .dev.vars ONLY, never wrangler.jsonc: "1" + no key + localhost + header x-dev-fake-voice: 1 → a fake voice provider (src/voice.ts) and a fake read-aloud one (src/tts.ts: silent WAV)
   APNS_KEY?: string; // secret: Apple push key (.p8) for the iOS app; absent until vedu sets up an Apple Developer account
+  APNS_KEY_ID?: string; // Apple push key identifier
+  APNS_TEAM_ID?: string; // Apple developer team identifier
+  APNS_TOPIC?: string; // iOS app bundle identifier
   POSTS_PER_MINUTE?: string; // var: per-person post rate limit per board (default 60; CI raises it for the stress test)
   SIGNIN_PER_IP?: string; // var: app sign-in codes sent per IP per 10 minutes (default 30; verify gets twice that)
   DEV_FAKE_MAGIC?: string; // LOCAL .dev.vars ONLY, never wrangler.jsonc: "1" lets test emails sign in to the app with code 000000 on localhost (src/appSignin.ts)

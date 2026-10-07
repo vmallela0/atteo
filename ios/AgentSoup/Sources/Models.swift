@@ -12,6 +12,7 @@ struct InboxItem: Codable, Identifiable, Hashable {
     let boardTitle: String?
     let seq: Int
     let kind: String
+    var entryType: String? = nil // person-only security notices include approval_pin_failed
     let actor: String
     let actorVia: String?
     var actorName: String? = nil // current agent display name, when the server knows it
@@ -22,11 +23,17 @@ struct InboxItem: Codable, Identifiable, Hashable {
     var approvalId: String? = nil // kind approval: the request it's for
 
     func read(at t: Double) -> InboxItem {
-        InboxItem(id: id, boardId: boardId, boardTitle: boardTitle, seq: seq, kind: kind, actor: actor, actorVia: actorVia, actorName: actorName, excerpt: excerpt, createdAt: createdAt, readAt: t, interrupt: interrupt, approvalId: approvalId)
+        InboxItem(id: id, boardId: boardId, boardTitle: boardTitle, seq: seq, kind: kind, entryType: entryType, actor: actor, actorVia: actorVia, actorName: actorName, excerpt: excerpt, createdAt: createdAt, readAt: t, interrupt: interrupt, approvalId: approvalId)
     }
 }
 
 struct ApprovalsResponse: Decodable { let approvals: [Approval] }
+struct TerminalConfirm: Codable, Hashable {
+    let token: String
+    let choices: [String]
+    let decision: String
+    let expiresAt: Double
+}
 struct Approval: Codable, Identifiable, Hashable {
     let id: String
     let client: String?
@@ -42,6 +49,7 @@ struct Approval: Codable, Identifiable, Hashable {
     var requestedBy: String? = nil // who asked (on a board), if someone else's request started it
     var seq: Int? = nil // the message on the board it's about
     var expiresAt: Double? = nil
+    var terminalConfirm: TerminalConfirm? = nil // three choices; the matching number is visible only in the terminal
 }
 
 struct ContactsResponse: Codable {

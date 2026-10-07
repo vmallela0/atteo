@@ -16,6 +16,7 @@ struct ForYouView: View {
     @State private var done: [DoneItem] = []
     @State private var answered: Set<Int> = [] // inbox items you answered here (they leave at once)
     @State private var allDone = false
+    @State private var openApproval: Approval?
 
     struct DoneItem: Identifiable, Hashable { let id: String; let title: String; let board: Board; let at: Double }
 
@@ -26,7 +27,8 @@ struct ForYouView: View {
         state.inbox.filter { $0.readAt == nil && !$0.boardId.isEmpty && !answered.contains($0.id) && ["decision", "mention", "reply", "people_only"].contains($0.kind) }
             .sorted { $0.createdAt > $1.createdAt }
     }
-    private var needCount: Int { state.approvals.count + state.contacts.count + asks.count }
+    private var pinFailures: [InboxItem] { state.inbox.filter { $0.entryType == "approval_pin_failed" }.sorted { $0.createdAt > $1.createdAt } }
+    private var needCount: Int { state.approvals.count + state.contacts.count + asks.count + pinFailures.count }
 
     var body: some View { screen.onAppear { Analytics.screen("for_you") } } // product analytics (Analytics.swift)
 
@@ -68,6 +70,7 @@ struct ForYouView: View {
             }
             .navigationDestination(for: Board.self) { b in BoardView(board: b) }
             .sheet(isPresented: $showSettings) { SettingsView().presentationBackground(Theme.bg).environment(\.chatDensity, density) }
+            .sheet(item: $openApproval) { a in ApprovalDetail(a: a).presentationBackground(Theme.bg).environment(\.chatDensity, density) }
             .fullScreenCover(item: $asking) { s in
                 AskView(typing: s.typing) { b in asking = nil; if let b { path = [b] } }
                     .environmentObject(state)
@@ -111,13 +114,14 @@ struct ForYouView: View {
     @ViewBuilder private var needs: some View {
         let approvals = state.approvals.sorted { $0.createdAt > $1.createdAt } // the latest ask first
         if let first = approvals.first {
-            OKCard(a: first, index: 1, of: approvals.count, boardTitle: title(of: first.boardId))
+            OKCard(a: first, index: 1, of: approvals.count, boardTitle: title(of: first.boardId), open: { openApproval = $0 })
                 .id("ok-" + first.id)
                 .transition(.asymmetric(insertion: .opacity, removal: .move(edge: .leading).combined(with: .opacity)))
         }
         let rest: [(id: String, view: AnyView)] =
-            approvals.dropFirst().map { a in ("a-" + a.id, AnyView(OKRow(a: a, boardTitle: title(of: a.boardId)))) }
+            approvals.dropFirst().map { a in ("a-" + a.id, AnyView(OKRow(a: a, boardTitle: title(of: a.boardId), open: { openApproval = $0 }))) }
             + asks.map { i in ("i-\(i.id)", AnyView(askRow(i))) }
+            + pinFailures.map { i in ("pin-\(i.id)", AnyView(NeedRow(edge: Theme.danger, title: i.excerpt, sub: String(localized: "Approval PIN failed", bundle: .l10n)) { EmptyView() })) }
             + state.contacts.map { c in ("c-" + c.from, AnyView(contactRow(c))) }
         if !rest.isEmpty {
             VStack(spacing: 0) {
@@ -284,6 +288,11 @@ private struct OKCard: View {
     let index: Int
     let of: Int
     let boardTitle: String?
+    let open: (Approval) -> Void
+    private var opened: ApprovalDetail.SealedApproval? {
+        guard a.details.hasPrefix("{\"v\":1"), let data = BoardCrypto.shared.openForMe(a.details) else { return nil }
+        return try? JSONDecoder().decode(ApprovalDetail.SealedApproval.self, from: data)
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: Space.m) {
@@ -297,31 +306,46 @@ private struct OKCard: View {
             HStack(spacing: Space.s) {
                 AtteoMark(size: 20)
                 ((a.requestedBy.map { Text(verbatim: state.displayName(for: $0, agent: true)) } ?? Text("Your assistant")).foregroundStyle(Theme.text) + (boardTitle.map { Text(" asked in \($0)") } ?? Text(" asked")).foregroundStyle(Theme.muted))
-                    .font(Typo.secondary).lineLimit(1)
+                    .font(Typo.secondary).lineLimit(a.terminalConfirm == nil ? 1 : nil)
             }
-            // One plain sentence (Developer mode's approval shows the exact command, risk and where it came from).
-            if let line = a.previewDetails.split(separator: "\n").first.map(String.init), !line.trimmingCharacters(in: .whitespaces).isEmpty {
-                Text(line).font(Typo.secondary).foregroundStyle(Theme.muted).lineLimit(2)
-                    .padding(Space.m).frame(maxWidth: .infinity, alignment: .leading)
-                    .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(Theme.line))
-            }
-            HStack(spacing: Space.m) {
-                Button { Task { await state.decide(a, approve: false) } } label: {
-                    Text("Not now").font(Typo.body.weight(.medium)).foregroundStyle(Theme.text)
-                        .frame(maxWidth: .infinity, minHeight: 46)
+            if let match = a.terminalConfirm {
+                if let command = opened?.command ?? a.command {
+                    Text(verbatim: command).font(Typo.mono(.footnote)).foregroundStyle(Theme.text).textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading).surface()
+                }
+                Text(verbatim: opened?.details ?? a.previewDetails).font(Typo.secondary).foregroundStyle(Theme.text).textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading).surface()
+                if a.details.hasPrefix("{\"v\":1") && opened == nil {
+                    Button("Review on a device that can read this action") { open(a) }
+                        .buttonStyle(.bordered)
+                } else {
+                    TerminalMatch(a: a, match: match)
+                }
+            } else {
+                // One plain sentence for an ordinary approval; the full view opens from Chats.
+                if let line = a.previewDetails.split(separator: "\n").first.map(String.init), !line.trimmingCharacters(in: .whitespaces).isEmpty {
+                    Text(line).font(Typo.secondary).foregroundStyle(Theme.muted).lineLimit(2)
+                        .padding(Space.m).frame(maxWidth: .infinity, alignment: .leading)
                         .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(Theme.line))
-                        .contentShape(Rectangle())
                 }
-                .buttonStyle(PressStyle())
-                .accessibilityIdentifier("ok-not-now")
-                Button { Task { await state.decide(a, approve: true) } } label: {
-                    Text("Approve").font(Typo.body.weight(.semibold)).foregroundStyle(Theme.onText)
-                        .frame(maxWidth: .infinity, minHeight: 46)
-                        .background(Theme.text, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-                        .contentShape(Rectangle())
+                HStack(spacing: Space.m) {
+                    Button { Task { await state.decide(a, approve: false) } } label: {
+                        Text("Not now").font(Typo.body.weight(.medium)).foregroundStyle(Theme.text)
+                            .frame(maxWidth: .infinity, minHeight: 46)
+                            .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(Theme.line))
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(PressStyle())
+                    .accessibilityIdentifier("ok-not-now")
+                    Button { Task { await state.decide(a, approve: true) } } label: {
+                        Text("Approve").font(Typo.body.weight(.semibold)).foregroundStyle(Theme.onText)
+                            .frame(maxWidth: .infinity, minHeight: 46)
+                            .background(Theme.text, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(PressStyle())
+                    .accessibilityIdentifier("ok-approve")
                 }
-                .buttonStyle(PressStyle())
-                .accessibilityIdentifier("ok-approve")
             }
         }
         .padding(Space.l)
@@ -345,10 +369,11 @@ private struct OKRow: View {
     @EnvironmentObject var state: AppState
     let a: Approval
     let boardTitle: String?
+    let open: (Approval) -> Void
     var body: some View {
         NeedRow(edge: Theme.warn, title: a.title, sub: boardTitle.map { String(localized: "Needs your OK · \($0)", bundle: .l10n) } ?? String(localized: "Needs your OK", bundle: .l10n)) {
-            Button { Task { await state.decide(a, approve: true) } } label: {
-                Text("Approve").font(Typo.secondary.weight(.semibold)).foregroundStyle(Theme.onText)
+            Button { if a.terminalConfirm != nil { open(a) } else { Task { await state.decide(a, approve: true) } } } label: {
+                Text(a.terminalConfirm == nil ? "Approve" : "Review").font(Typo.secondary.weight(.semibold)).foregroundStyle(Theme.onText)
                     .padding(.horizontal, Space.m).frame(minHeight: 34)
                     .background(Theme.text, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
             }
