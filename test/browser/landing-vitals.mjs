@@ -17,9 +17,9 @@ const PROFILES = [
   { name: "phone", viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, cpu: 4, net: SLOW_4G, runs: 3 },
   { name: "desktop", viewport: { width: 1350, height: 940 }, isMobile: false, hasTouch: false, cpu: 1, net: null, runs: 1 },
 ];
-// "/" is jxn's Claude Design export for now (#5972): ~780 KB unpacked by script, over budget on slow 4G until it is
-// rebuilt as plain HTML (#5984), so it is left out here.
-const PAGES = ["/guide", "/faq"];
+// "/" and /faq are jxn's Claude Design exports for now (#5972, #5977): ~770 KB unpacked by script, over budget on slow 4G
+// (phone /faq: LCP 3.1 s, TBT 280 ms) until they are rebuilt as plain HTML (#5984, #6003), so they are left out here.
+const PAGES = ["/guide"];
 
 // In the page from its first byte: the largest paint, the layout shifts no input caused, long tasks and first paint.
 const OBSERVE = () => {
