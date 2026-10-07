@@ -6,6 +6,7 @@ export function installScript(origin: string): string {
   return `#!/bin/sh
 # Atteo CLI installer (${origin}/install.sh)
 # Downloads one file, the atteo command, to ~/.local/bin (or $ATTEO_BIN), then offers to sign you in.
+# With an agent (curl -fsSL ${origin}/install.sh | sh -s claude) it sets that agent up instead: atteo harness <agent>.
 set -eu
 SERVER="\${ATTEO_SERVER:-\${AGENT_SOUP_SERVER:-${origin}}}"
 DIR="\${ATTEO_BIN:-\${AGENT_SOUP_BIN:-$HOME/.local/bin}}"
@@ -28,11 +29,14 @@ case ":$PATH:" in
      echo "Add it to your PATH (then open a new terminal):  echo 'export PATH=\\"$DIR:\\$PATH\\"' >> ~/.zshrc" ;;
 esac
 
-# Sign in now if there's a person at a terminal (curl | sh reads the script from stdin, so ask on /dev/tty).
-if [ -z "\${ATTEO_NO_LOGIN:-}\${AGENT_SOUP_NO_LOGIN:-}" ] && [ -t 1 ] && [ -r /dev/tty ]; then
+# An agent named: set it up (sign-in included). Else sign in now if there's a person at a terminal (curl | sh reads the
+# script from stdin, so ask on /dev/tty).
+if [ $# -gt 0 ]; then
+  ATTEO_SERVER="$SERVER" "$DIR/atteo" harness "$@"
+elif [ -z "\${ATTEO_NO_LOGIN:-}\${AGENT_SOUP_NO_LOGIN:-}" ] && [ -t 1 ] && [ -r /dev/tty ]; then
   ATTEO_SERVER="$SERVER" "$DIR/atteo" login </dev/tty || echo "Sign in later with: $BIN login"
 else
-  echo "Next: $BIN login"
+  echo "Next: $BIN harness claude   (or codex, gemini, cursor, opencode)"
 fi
 `;
 }

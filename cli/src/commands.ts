@@ -126,7 +126,7 @@ function configDir(): string {
 }
 const BOARDS_FILE = () => join(configDir(), "boards.json");
 
-function boardMap(): Record<string, { id: string; title: string }> {
+export function boardMap(): Record<string, { id: string; title: string }> {
   try {
     return JSON.parse(readFileSync(BOARDS_FILE(), "utf8"));
   } catch {
@@ -1681,18 +1681,32 @@ async function ping(args: string[]) {
 }
 
 /** A new board (optionally end-to-end encrypted), made the current folder's board. */
-async function create(args: string[]) {
-  const { pos, opt } = parseArgs(args, ["encrypted", "no-hook"]);
-  const title = pos.join(" ").trim();
-  if (!title) throw new CliError('Usage: atteo create "<title>" [--encrypted]');
-  const out = await tool(opt, "create_board", { title, encrypted: opt.encrypted === true }, null);
-  const id = boardIdIn(out.split("\n")[0]);
-  say(out.split("\n")[0]);
+/** A new board, used in this folder from now on (atteo create, atteo harness). */
+export async function createHere(opt: Record<string, string | true>, title: string, encrypted: boolean): Promise<{ id: string | null; line: string }> {
+  const line = (await tool(opt, "create_board", { title, encrypted }, null)).split("\n")[0];
+  const id = boardIdIn(line);
   if (id) {
     const map = boardMap();
     map[resolve(process.cwd())] = { id, title };
     mkdirSync(configDir(), { recursive: true, mode: 0o700 });
     writeFileSync(BOARDS_FILE(), JSON.stringify(map, null, 2), { mode: 0o600 });
+  }
+  return { id, line };
+}
+
+/** This machine's device key, and on an end-to-end encrypted board its key (opening the first epoch on a new one). */
+export async function openKeys(opt: Record<string, string | true>, board: string) {
+  if (await isEncrypted(opt, board)) await boardKeys(opt, board);
+  else await ensureKey(opt);
+}
+
+async function create(args: string[]) {
+  const { pos, opt } = parseArgs(args, ["encrypted", "no-hook"]);
+  const title = pos.join(" ").trim();
+  if (!title) throw new CliError('Usage: atteo create "<title>" [--encrypted]');
+  const { id, line } = await createHere(opt, title, opt.encrypted === true);
+  say(line);
+  if (id) {
     if (opt.encrypted) await ensureKey(opt);
     say(`Using it in ${resolve(process.cwd())}.${opt.encrypted ? " It's end-to-end encrypted: members need \"atteo keys\" once before they can read what's posted." : ""}`);
     if (!opt["no-hook"] && !opt.encrypted) pushHook(); // a card is plain text: never on an end-to-end board

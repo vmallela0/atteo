@@ -1,11 +1,11 @@
 // atteo: sign in once (link, code or QR), keep the token in the OS keychain, and run the local MCP server
 // your agent connects to. The local server filters secrets on this machine before anything is sent.
 
-import { execFile, execFileSync, spawn as spawnChild } from "node:child_process";
+import { execFile, execFileSync, spawn as spawnChild, spawnSync } from "node:child_process";
 import { env } from "./env";
 import { closeSync, copyFileSync, existsSync, mkdirSync, openSync, readFileSync, readlinkSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { homedir, hostname, platform } from "node:os";
-import { dirname, join } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { createInterface } from "node:readline";
 // @ts-expect-error: no types shipped; bundled by esbuild
 import qrcode from "qrcode-terminal";
@@ -16,10 +16,10 @@ import { pingTail, type PingContent, type PingFor } from "../../src/ping";
 import { pongFor } from "../../src/listen";
 import { CARD_HELP, cardCommand } from "./card";
 import { hooksCmd } from "./hooks";
-import { api, askYes, boardIdIn, CliError, COMMANDS, COMMANDS_HELP, decryptEntry, folderBoard, isEncrypted, optStr, parseArgs, tool } from "./commands";
+import { api, askYes, boardIdIn, boardMap, CliError, COMMANDS, COMMANDS_HELP, createHere, decryptEntry, folderBoard, isEncrypted, openKeys, optStr, parseArgs, tool } from "./commands";
 import { AcpAgent, type AcpBoard } from "./acp";
 import { entryKey, FORK_TOOLS, forkName, forkPrompt, needsFork, screenMail, type Mail } from "./dispatch";
-import { agentCommand, HARNESSES, splitCommand } from "./harness";
+import { agentCommand, HARNESSES, setUp, splitCommand } from "./harness";
 import { agentEnv, Standby, STANDBY_AFTER_S, STANDBY_MAX_PER_HOUR, standbyCommand, type LeaseState } from "./standby";
 import { agentKind, type Caps, checkMode, checkPrefix, Listener, type LocalAgent, localAgents, parsePs, SPAWN_CAPS, spawnCommand, type Spawned, toStop, uptime, workerPrompt } from "./spawn";
 import { myKey } from "./sealed";
@@ -29,6 +29,7 @@ import { load, loadFor, remove, save, storeName, type Credentials } from "./cred
 import { hostCmd, runCmd } from "./host";
 import { commitLink, repoContext, repoLink } from "./repoInit";
 import { displayCommand as terminalLabel } from "./verify";
+import { type DeviceStart, startLogin as startDevice, waitForApproval as waitDevice } from "./deviceLogin";
 
 const VERSION = "0.1.0";
 const DEFAULT_SERVER = "https://atteo.dev";
@@ -51,47 +52,10 @@ function qr(url: string): Promise<string> {
   return new Promise((resolve) => qrcode.generate(url, { small: true }, (s: string) => resolve(s)));
 }
 
-// ---------- device login ----------
+// ---------- device login (deviceLogin.ts) ----------
 
-interface DeviceStart {
-  device_code: string;
-  user_code: string;
-  verification_uri: string;
-  verification_uri_complete: string;
-  expires_in: number;
-  interval: number;
-}
-
-async function startLogin(server: string): Promise<DeviceStart> {
-  const res = await fetch(`${server}/api/device/start`, {
-    method: "POST",
-    headers: { "content-type": "application/json", "user-agent": `agent-board-cli/${VERSION}` },
-    body: JSON.stringify({ client: `Atteo CLI on ${hostname()}` }),
-  });
-  if (!res.ok) throw new Error(`Couldn't start sign-in (${res.status}).`);
-  return (await res.json()) as DeviceStart;
-}
-
-async function waitForApproval(server: string, d: DeviceStart): Promise<Credentials> {
-  const deadline = Date.now() + d.expires_in * 1000;
-  while (Date.now() < deadline) {
-    await new Promise((r) => setTimeout(r, d.interval * 1000));
-    const res = await fetch(`${server}/api/device/token`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ device_code: d.device_code }),
-    });
-    const j = (await res.json().catch(() => ({}))) as { status?: string; token?: string; user?: string; expires_at?: number };
-    if (j.status === "ok" && j.token && j.user && j.expires_at) {
-      const c = { server, user: j.user, token: j.token, expires_at: j.expires_at };
-      save(c);
-      return c;
-    }
-    if (j.status === "denied") throw new Error("Sign-in was denied in the browser.");
-    if (j.status === "expired" || j.status === "used") throw new Error("That sign-in code expired. Run atteo login again.");
-  }
-  throw new Error("That sign-in code expired. Run atteo login again.");
-}
+const startLogin = (server: string) => startDevice(server, `Atteo CLI on ${hostname()}`, `agent-board-cli/${VERSION}`);
+const waitForApproval = (server: string, d: DeviceStart) => waitDevice(server, d, save);
 
 async function login(args: string[]) {
   const server = serverFrom(args, load());
@@ -106,12 +70,11 @@ async function login(args: string[]) {
   err("Waiting for approval…");
   const c = await waitForApproval(server, d);
   err(`\nSigned in as ${c.user}. Saved to ${storeName()}; expires ${new Date(c.expires_at).toISOString().slice(0, 10)}.`);
-  err(`\nConnect Claude Code once (no token in the config):\n  claude mcp add --scope user atteo -- atteo mcp\n`);
+  err(`Next, one command connects your agent and gives it a board: atteo harness ${defaultAgent()}  (or ${Object.keys(HARNESSES).filter((k) => k !== defaultAgent()).join(", ")})`);
   // This machine's key for sealed secrets (the private half stays here).
   try {
     await fetch(`${server}/api/me/keys`, { method: "POST", headers: { authorization: `Bearer ${c.token}`, "content-type": "application/json" }, body: JSON.stringify({ public_key: myKey().pub, label: hostname() }) });
   } catch {}
-  await offerWatcher(args);
 }
 
 // ---------- your harness: which agent answers for you when you're not there ----------
@@ -138,14 +101,50 @@ function parseHarness(raw: string): HarnessChoice | null {
   const v = raw.trim();
   if (!v || /^(off|none|no)$/i.test(v)) return null;
   if (v.includes("{prompt}")) return { agentCmd: v };
-  if (!HARNESSES[v]) throw new CliError(`"${v}" isn't a known agent. Use one of ${Object.keys(HARNESSES).join(", ")}, or a command with {prompt} where the prompt goes (e.g. "mybot --ask {prompt}").`);
+  if (!Object.hasOwn(HARNESSES, v)) throw new CliError(`"${v}" isn't a known agent. Use one of ${Object.keys(HARNESSES).join(", ")}, or a command with {prompt} where the prompt goes (e.g. "mybot --ask {prompt}").`);
   return { agent: v };
 }
 const harnessLabel = (h: HarnessChoice | null) => (!h ? "none" : h.agentCmd ? `"${h.agentCmd}"` : h.agent!);
 
-/** atteo harness [<agent> | "<command> {prompt}" | off]: the agent that answers for you (DMs, questions, tasks). */
-function harnessCmd(args: string[]) {
-  const raw = args.filter((a) => !a.startsWith("--")).join(" ");
+/** atteo harness [<agent> | "<command> {prompt}" | off]: the agent that answers for you (DMs, questions, tasks). A preset
+ *  also sets up a clean machine in one go (harness.ts setUp): sign-in, a board for this folder, keys, the agent's MCP. */
+async function harnessCmd(args: string[]) {
+  const raw = args.filter((a, i) => !a.startsWith("--") && args[i - 1] !== "--server").join(" ");
+  if (Object.hasOwn(HARNESSES, raw.trim())) {
+    const server = serverFrom(args, load());
+    const opt = args.includes("--server") ? { server } : {};
+    const ok = await setUp(raw.trim(), {
+      which: (bin) => (process.env.PATH ?? "").split(":").some((d) => d && existsSync(join(d, bin))) || !!which(bin), // this PATH, then a login shell's
+      signedIn: () => {
+        const c = loadFor(server);
+        return c && c.expires_at > Date.now() ? c : null;
+      },
+      signIn: async () => {
+        const d = await startLogin(server);
+        err(`Sign in: open ${d.verification_uri_complete} and approve code ${d.user_code} (waiting…)`);
+        if (!args.includes("--no-open")) openBrowser(d.verification_uri_complete);
+        return waitForApproval(server, d);
+      },
+      save: (agent) => saveHarness({ agent }),
+      folderBoard: () => folderBoard(),
+      anyBoard: () => Object.keys(boardMap()).length > 0,
+      createBoard: async (title) => {
+        await prepare({ quiet: true });
+        const { id, line } = await createHere(opt, title, true);
+        if (!id) throw new CliError(line);
+        return id;
+      },
+      openKeys: (b) => openKeys(opt, b),
+      run: (bin, a) => {
+        const r = spawnSync(bin, a, { encoding: "utf8", timeout: 60_000 });
+        return { code: r.status ?? 1, out: `${r.stdout ?? ""}${r.stderr ?? ""}` };
+      },
+      say: (line) => console.log(line),
+      folderName: () => (resolve(process.cwd()) === resolve(homedir()) ? null : basename(process.cwd())),
+    });
+    if (!ok) process.exitCode = 1;
+    return;
+  }
   if (!raw) {
     const h = loadHarness();
     console.log(h ? `Your agent answers with ${harnessLabel(h)} when something is addressed to it: atteo dispatch starts it in a forked session for each message.` : `No agent set to answer for you. Set one: atteo harness claude  (or codex, gemini, cursor, opencode, or "<command> {prompt}")`);
@@ -157,45 +156,6 @@ function harnessCmd(args: string[]) {
   const bin = h.agentCmd ? splitCommand(h.agentCmd)[0] : HARNESSES[h.agent!].bin;
   console.log(`Your agent now answers with ${harnessLabel(h)} when you're DM'd, asked a question or handed a task.${which(bin) ? "" : ` (Note: "${bin}" isn't on this machine's PATH yet.)`}`);
   console.log(`Keep it running in the background (each message gets its own forked session): atteo dispatch --install`);
-}
-
-/** After login: offer to keep your agent on the chat with the background dispatcher (one key, skippable). */
-async function offerWatcher(args: string[]) {
-  if (!process.stdin.isTTY || args.includes("--no-watch") || platform() === "win32") return;
-  err(
-    `Keep your agent on the chat? A background dispatcher (starts at login, restarts if it stops) will:\n` +
-      `  · notify you when someone @mentions you or addresses your agent\n` +
-      `  · hand each question, task, review or DM for your agent to a fork: its own session that answers in the thread\n` +
-      `    and ends (board tools only, up to 3 at once, max 12/hour)`,
-  );
-  // You choose which agent answers (nothing on the machine is guessed); Enter skips.
-  const rl = createInterface({ input: process.stdin, output: process.stderr });
-  const answer = await new Promise<string>((res) => rl.question(`Which agent should answer for you? (${Object.keys(HARNESSES).join(", ")}, or a command with {prompt}; Enter to skip) `, res));
-  rl.close();
-  let choice: HarnessChoice | null = null;
-  try {
-    choice = parseHarness(answer);
-  } catch (e) {
-    err((e as Error).message);
-  }
-  if (!choice) {
-    err("Skipped. Later: atteo harness <agent>, then atteo dispatch --install");
-    return;
-  }
-  saveHarness(choice);
-  // The dispatcher (not watch --respond) is the default: you stay the main agent, and every message runs in its own
-  // forked session, so one long task never holds up the next message. It reads the agent from atteo harness.
-  // Answers run from a neutral folder (background services can't open ~/Downloads, ~/Documents or ~/Desktop on macOS).
-  // Point a board at a project with --board-dir "<board>=<path>" for project-aware answers.
-  const dir = join(homedir(), ".local/share/agent-board/answers");
-  mkdirSync(dir, { recursive: true });
-  try {
-    serviceInstall(["--install", "--dir", dir, ...(args.includes("--server") ? ["--server", serverFrom(args)] : [])], "dispatch");
-    err("Your agent is on the chat. Status: atteo watch --status · stop: atteo watch --uninstall");
-  } catch (e) {
-    err(`Couldn't set up the dispatcher: ${(e as Error).message}\nRun it yourself any time: atteo dispatch`);
-  }
-  err(`In Claude Code, new posts can also reach a running session (Channels, preview):\n  claude --dangerously-load-development-channels server:atteo\n`);
 }
 
 function status() {
@@ -1352,8 +1312,8 @@ function which(cmd: string): string | null {
 }
 
 /**
- * One background service per machine (same launchd label / systemd unit), running either the dispatcher (what
- * login sets up) or the older watcher: installing one replaces the other, so a message is never answered twice.
+ * One background service per machine (same launchd label / systemd unit), running either the dispatcher
+ * or the older watcher: installing one replaces the other, so a message is never answered twice.
  */
 function serviceInstall(args: string[], sub: "watch" | "dispatch" = "watch") {
   const watchArgs = args.filter((a) => a !== "--install" && a !== "--once");
@@ -1529,7 +1489,7 @@ function connectHelp(name?: string) {
 
 const HELP = `Atteo CLI ${VERSION} (the atteo command)
 
-  atteo login      Sign in (opens a link; or scan the QR code with your phone)
+  atteo login      Sign in only (opens a link; or scan the QR code with your phone). atteo harness <agent> does this too
   atteo status     Who you're signed in as, and when it expires
   atteo doctor     Checks sign-in, the server, this CLI's version, your session, boards and mailbox; says how to fix each
   atteo logout     Remove the saved login from this machine
@@ -1541,9 +1501,11 @@ const HELP = `Atteo CLI ${VERSION} (the atteo command)
   atteo acp [--to <member>] [--board <id>] [--wait <seconds>]
                          An Agent Client Protocol agent for editors (Zed…): each prompt asks the board (one member's
                          agent with --to) and their answer streams back. Board: --board, else the folder's (atteo use)
-  atteo harness <agent>   Which agent answers for you (DMs, questions, tasks): ${Object.keys(HARNESSES).join(", ")}, or "<command> {prompt}"; off
+  atteo harness <agent>   Set up this machine for ${Object.keys(HARNESSES).join(", ")} in one go: sign in (a code you approve in the
+                         browser), a board for this folder (a new end-to-end encrypted one), keys, the agent's MCP; no
+                         questions. Also the agent that answers for you; or "<command> {prompt}"; off. --no-open
   atteo dispatch   You stay the main agent: every message for your agent gets a fork, its own session running your
-                         harness, which claims it, does the work, replies in the thread and ends (what login sets up)
+                         harness, which claims it, does the work, replies in the thread and ends
     --max N              Forks at once (default 3); more wait in the mailbox. --max-per-hour N (default 12)
     --once               Handle what's in the mailbox now, wait for the forks, exit
     --json               One JSON line per event (fork, done, passed, error)
@@ -1575,7 +1537,7 @@ const HELP = `Atteo CLI ${VERSION} (the atteo command)
 
 ${COMMANDS_HELP}${CARD_HELP}
 
-Options: --server <url> (default ${DEFAULT_SERVER}), --no-open, --no-watch (login: don't offer the background dispatcher)`;
+Options: --server <url> (default ${DEFAULT_SERVER}), --no-open`;
 
 /**
  * atteo acp [--to <member>] [--board <id>] [--wait <seconds>]: an Agent Client Protocol agent on stdio (acp.ts), for
