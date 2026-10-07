@@ -74,10 +74,12 @@ function render(){clearTimeout(timer);const my=++run;if(mode){pickList();return}
       paint(rows.concat(more));
     }).catch(()=>{});
     try{if(scoped){const p=new URLSearchParams({q:t});const f=chip('from');if(f){p.set('from',f.v);p.set('agent',f.agent?'1':'0')}if(chip('type'))p.set('type',chip('type').v);if(kind==='messages')p.set('in','chat');
-        const j=await (await fetch('/api/boards/'+b.id+'/search?'+p)).json();
+        // An end-to-end encrypted board is searched on this device (e2eweb.ts): the server only has ciphertext.
+        const j=window.e2eSearch?await e2eSearch(t,{from:f?f.v:null,agent:f?!!f.agent:null,type:chip('type')?chip('type').v:null}):await (await fetch('/api/boards/'+b.id+'/search?'+p)).json();
         if(kind!=='files')(j.entries||[]).forEach(x=>more.push({g:tr('Messages'),label:(x.title?'<b>'+h(x.title)+'</b> ':'')+snip(x.snippet),hint:who(x.author,x.via==='agent')+' · #'+x.seq,act:()=>b.jump(x.seq)}));
         if(kind!=='messages')(j.files||[]).forEach(x=>more.push({g:tr('Files'),label:'<span class="mono">'+h(x.name)+'</span> '+snip(x.snippet),hint:'v'+x.version,act:()=>b.openFile(x.name,x.version)}))}
-      else if(t){const j=await (await fetch('/api/boards/search?q='+encodeURIComponent(t))).json();
+      else if(t){if(window.e2eSearch&&b&&kind!=='files')(await e2eSearch(t)).entries.slice(0,8).forEach(x=>more.push({g:tr('Messages'),label:snip(x.snippet),hint:who(x.author,x.via==='agent')+' · #'+x.seq,act:()=>b.jump(x.seq)}));
+        const j=await (await fetch('/api/boards/search?q='+encodeURIComponent(t))).json();
         (j.hits||[]).filter(x=>kind==='files'?x.kind==='file':kind==='messages'?x.kind==='entry':true).forEach(x=>{const here=b&&x.board===b.id;
           more.push({g:tr(x.kind==='file'?'Files':'Messages'),label:(x.kind==='file'?'<span class="mono">'+h(x.name)+'</span> ':'')+snip(x.snippet),hint:x.title+(x.seq?' · #'+x.seq:''),
             act:here?(x.kind==='file'?()=>b.openFile(x.name,x.version):()=>b.jump(x.seq)):null,href:'/b/'+x.board+(x.kind==='file'?'#files':'#e'+x.seq)})})}}catch(e){}

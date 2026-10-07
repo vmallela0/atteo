@@ -30,6 +30,7 @@ import { agentLogo } from "./agent-logos";
 import { esc, pictureUrl, slug } from "./util";
 import { WELCOME_BANNER_JS, assistantCard, grokBotMessage, welcomeBanner } from "./welcome";
 import { stateOf } from "./sessions";
+import { CLIENT_SCAN_JS } from "./clientScan";
 import { E2E_JS } from "./e2eweb";
 import { currentAnalytics, posthogDashboardUrl } from "./analytics";
 import { EXPORT_JS, exportRow } from "./boardExport";
@@ -2753,7 +2754,7 @@ document.addEventListener('click',async e=>{const b=e.target.closest('[data-memb
     setTimeout(()=>{b.dataset.armed='';b.textContent=b.dataset.label;b.classList.remove('danger')},4000);return}
   b.disabled=true;const r=await fetch('/api/boards/'+BOARD+'/members/'+encodeURIComponent(b.dataset.memberRemove)+'/remove',{method:'POST'});
   const j=await r.json().catch(()=>({}));if(!r.ok){toast(j.error||tr('Could not remove'));b.disabled=false;return}
-  if(j.left){location.href='/'}else{toast(j.message);location.reload()}});
+  if(j.left){Promise.resolve(window.e2eForget&&e2eForget()).catch(()=>{}).then(()=>{location.href='/'})}else{toast(j.message);location.reload()}}); // e2eForget: an encrypted board's search index goes too
 const infoBtn=document.getElementById('info-btn'),convLayout=document.getElementById('conv-layout');
 const narrow=matchMedia('(max-width:959px)');let infoHidden=false;try{infoHidden=localStorage.getItem('soup.infoHidden')==='1'}catch(e){}
 function infoSync(){const wide=!narrow.matches;convLayout.classList.toggle('info-collapsed',wide&&infoHidden);
@@ -2879,7 +2880,7 @@ export const BOARD_JS_SRC = `${BOARD_JS_PATH}?v=${fnv(BOARD_JS)}`;
 // you had read to (Recap's starting point) comes from window.BC like the rest.
 export const BOARD_TAIL_PATH = "/board-tail.js";
 const boardTailJs = (canPic: boolean, encrypted: boolean, agentChat: boolean, canEdit: boolean) =>
-  (canPic ? BOARD_PIC_JS : "") + (encrypted ? E2E_JS : "") + STATUS_JS + voiceJs(agentChat) + TALK_JS + (encrypted || agentChat ? "" : CALL_LOADER_JS) + PREVIEW_JS + evJs(agentChat) + (agentChat ? "" : PO_JS) + (agentChat ? "" : pinRecapJs(null, canEdit) + memoryJs(canEdit) + EXPORT_JS + charterJs()); // charter: Board info's section (#3685)
+  (canPic ? BOARD_PIC_JS : "") + (encrypted ? CLIENT_SCAN_JS + E2E_JS : "") + STATUS_JS + voiceJs(agentChat) + TALK_JS + (encrypted || agentChat ? "" : CALL_LOADER_JS) + PREVIEW_JS + evJs(agentChat) + (agentChat ? "" : PO_JS) + (agentChat ? "" : pinRecapJs(null, canEdit) + memoryJs(canEdit) + EXPORT_JS + charterJs()); // charter: Board info's section (#3685)
 const TAILS = new Map<string, { js: string; src: string }>();
 /** The tail for flags "0101" (canPic, encrypted, agentChat, canEdit), or null for anything else. */
 export function boardTail(flags: string): { js: string; src: string } | null {

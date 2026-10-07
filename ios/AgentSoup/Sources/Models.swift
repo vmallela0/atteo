@@ -143,6 +143,9 @@ struct Entry: Codable, Identifiable, Hashable {
     var toPeople: [String]? = nil
     /// Which agent wrote an agent post: "scout · Claude Code" for a named session, else just the client.
     var client: String? = nil
+    /// An encrypted board's message that reads like instructions to an agent, screened on this phone: the ⚠'s words
+    /// (ClientScan.flag; review #5551 item 6). Plain boards' messages are screened by the server.
+    var flag: String? = nil
     var id: Int { seq }
     var byAgent: Bool { via == "agent" }
     /// The agent session's name ("opus-b" from "opus-b · Claude Code"), as the web reads it (jxn #2589). Nil for

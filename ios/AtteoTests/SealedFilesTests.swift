@@ -96,6 +96,29 @@ final class SealedFilesTests: XCTestCase {
         XCTAssertFalse(fm.fileExists(atPath: BoardCrypto.sealedRoot.appendingPathComponent(board).path))
     }
 
+    /// Leaving a board (or being removed): its keys leave the .e2e Keychain group and its decrypted files this phone;
+    /// another board keeps both.
+    @MainActor
+    func testLeavingABoardTakesItsE2EKeysAndFiles() throws {
+        let fm = FileManager.default
+        func put(_ board: String) throws -> String {
+            let u = try XCTUnwrap(BoardCrypto.fileURL(board: board, SealedFile(id: "sf_k1", name: "k.png", mime: "image/png", size: 1, key: "AAAA")))
+            try fm.createDirectory(at: u.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try Data("x".utf8).write(to: u)
+            return u.path
+        }
+        XCTAssertNotNil(SealedKeys.group, "the board keys live in the .e2e group")
+        SealedKeys.store(SymmetricKey(size: .bits256), board: "b_leftk", epoch: 1)
+        SealedKeys.store(SymmetricKey(size: .bits256), board: "b_stayk", epoch: 1)
+        defer { SealedKeys.forgetAll(); BoardCrypto.wipe(board: "b_leftk"); BoardCrypto.wipe(board: "b_stayk") }
+        let left = try put("b_leftk"), stay = try put("b_stayk")
+        BoardCrypto.shared.forget(board: "b_leftk")
+        XCTAssertNil(SealedKeys.read(board: "b_leftk", epoch: 1))
+        XCTAssertFalse(fm.fileExists(atPath: left))
+        XCTAssertNotNil(SealedKeys.read(board: "b_stayk", epoch: 1))
+        XCTAssertTrue(fm.fileExists(atPath: stay))
+    }
+
     /// The extras as the CLI and the web write them; unknown fields are ignored.
     func testExtrasDecode() throws {
         let j = #"{"xv":1,"title":"Q3","files":[{"id":"sf_0123456789abcdef0123","name":"a.png","mime":"image/png","size":3,"key":"AAAA","chunk":65536,"w":2,"h":2}],"later":true}"#

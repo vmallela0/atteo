@@ -151,6 +151,7 @@ struct BoardInfoSheet: View {
     @State private var searchActive = false
     @State private var hits: ChatSearchResponse?
     @State private var searching = false
+    @State private var local: [LocalSearch.Entry]? // an encrypted board's messages, decrypted on this phone to search
     @State private var preview: URL?
     @State private var opening: String?
     @State private var running: HTMLPreviewTarget? // an .html file, previewed (HTMLPreview.swift)
@@ -167,7 +168,7 @@ struct BoardInfoSheet: View {
                         .scrollContentBackground(.hidden)
                         .background(Theme.bg)
                 } else if searchOnly {
-                    Text(board.encrypted == true ? "Messages this phone has loaded. This board is end-to-end encrypted, so the server can't search it." : "Messages and files in this chat.")
+                    Text(board.encrypted == true ? "Every message, searched on this phone. This board is end-to-end encrypted, so the server can't search it." : "Messages and files in this chat.")
                         .font(Typo.secondary).foregroundStyle(Theme.muted)
                         .multilineTextAlignment(.center)
                         .padding(Space.xl)
@@ -177,7 +178,7 @@ struct BoardInfoSheet: View {
                     BoardInfoView(boardId: board.id, fallback: board, top: { openAndAgents }, files: { filesSection })
                 }
             }
-            .searchable(text: $query, isPresented: $searchActive, placement: .navigationBarDrawer(displayMode: .always), prompt: board.encrypted == true ? "Search what's on this phone" : "Search this chat")
+            .searchable(text: $query, isPresented: $searchActive, placement: .navigationBarDrawer(displayMode: .always), prompt: board.encrypted == true ? "Search on this phone" : "Search this chat")
             .onAppear { if searchOnly { searchActive = true } }
             .navigationTitle(searchOnly ? "Search" : "Info")
             .navigationBarTitleDisplayMode(.inline)
@@ -291,7 +292,7 @@ struct BoardInfoSheet: View {
         if let hits {
             if hits.entries.isEmpty && (hits.files ?? []).isEmpty {
                 Text(searching ? "Searching…" : board.encrypted == true
-                     ? "Nothing on this phone matches “\(query)”. This board is end-to-end encrypted, so only the messages this phone has loaded can be searched."
+                     ? "Nothing matches “\(query)”. This board is end-to-end encrypted, so it was searched on this phone (messages it can't read yet aren't included)."
                      : "Nothing in this chat matches “\(query)”.")
                     .font(Typo.secondary).foregroundStyle(Theme.muted)
                     .accessibilityIdentifier("search-empty")
@@ -324,7 +325,7 @@ struct BoardInfoSheet: View {
     }
 
     /// Searches the whole chat on the server as you type (a moment after you stop). On an encrypted board the
-    /// server can't read the messages, so it searches what this phone has (and says so).
+    /// server can't read the messages, so this phone decrypts them all and searches them itself (LocalSearch.swift).
     private func search() async {
         let q = query.trimmingCharacters(in: .whitespaces)
         guard !q.isEmpty else { hits = nil; return }
@@ -333,8 +334,11 @@ struct BoardInfoSheet: View {
         searching = true
         defer { searching = false }
         if board.encrypted == true {
-            let found = (state.entries[board.id] ?? []).filter { $0.seq > 0 && $0.retracts == nil && $0.text.localizedCaseInsensitiveContains(q) }.reversed().prefix(60)
-            hits = ChatSearchResponse(entries: found.map { .init(seq: $0.seq, ts: $0.ts, author: $0.author, via: $0.via, type: $0.type, title: $0.title, snippet: String($0.text.prefix(200))) }, files: [])
+            // The whole history, decrypted here once per visit (BoardCrypto.history), then searched as you type.
+            var all = local ?? []
+            if local == nil { all = await BoardCrypto.shared.history(board.id); if !all.isEmpty { local = all } }
+            guard !Task.isCancelled else { return }
+            withAnimation(.smooth) { hits = ChatSearchResponse(entries: LocalSearch.search(all, q), files: []) }
             return
         }
         do {

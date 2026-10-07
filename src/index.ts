@@ -104,7 +104,8 @@ import {
   PREVIEW_FRAME_HTML,
 } from "./html";
 import { ENTRY_TYPES, type Entry, type Env, type NewEntry, type Viewer as Seer } from "./types";
-import { APP_CSS, APP_JS, PAGE_CSS, directPeer, BOARD_PREFETCH_PATH, BOARD_PREFETCH_RULES, BUG_DIALOG, BUG_PAGE_JS, FAVICON_SVG, FEEDBACK_DIALOG, FEEDBACK_PAGE_JS, page, renderText, SHELL_PAGE_JS } from "./ui";
+import { signedOutPage as signedOut } from "./e2eweb";
+import { APP_CSS, APP_JS, PAGE_CSS, directPeer, pageSecurity, BOARD_PREFETCH_PATH, BOARD_PREFETCH_RULES, BUG_DIALOG, BUG_PAGE_JS, FAVICON_SVG, FEEDBACK_DIALOG, FEEDBACK_PAGE_JS, page, renderText, SHELL_PAGE_JS } from "./ui";
 import { APPLE_TOUCH_PNG_B64 } from "./appleIcon";
 import { assistantWelcomePage } from "./welcome";
 import { agentCharter, applyCharter, charterAuditDetail, charterScanFields, charterView, parseCharterPatch, storedFromRow } from "./charter";
@@ -1007,7 +1008,7 @@ const handler = {
       if (path === "/api/app/signin/name" && method === "POST") return appSigninName(c);
       if (path === "/auth/logout" && method === "POST") {
         await auth.deleteSession(request, env);
-        return redirect("/", { "Set-Cookie": auth.cookieHeader(url, auth.SESSION_COOKIE, "", 0) });
+        return signedOut(auth.cookieHeader(url, auth.SESSION_COOKIE, "", 0), pageSecurity()); // clears this browser's encrypted-board search indexes, then home
       }
 
       // ---- CLI login (device flow) ----
