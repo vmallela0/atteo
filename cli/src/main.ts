@@ -61,12 +61,11 @@ async function login(args: string[]) {
   const server = serverFrom(args, load());
   const d = await startLogin(server);
   err(`\nSign in to Atteo\n`);
-  err(`  1. Open ${d.verification_uri_complete}`);
-  err(`     (or go to ${d.verification_uri} and enter ${d.user_code})`);
-  err(`  2. Check the code matches: ${d.user_code}`);
-  err(`  3. Click Approve.\n`);
-  err(`Or scan this with your phone:\n${await qr(d.verification_uri_complete)}`);
-  if (!args.includes("--no-open")) openBrowser(d.verification_uri_complete);
+  err(`  1. Open ${d.verification_uri}`);
+  err(`  2. Type the code: ${d.user_code}`);
+  err(`  3. Check it was started from here, just now, then click Approve.\n`);
+  err(`Or scan this with your phone:\n${await qr(d.verification_uri)}`);
+  if (!args.includes("--no-open")) openBrowser(d.verification_uri);
   err("Waiting for approval…");
   const c = await waitForApproval(server, d);
   err(`\nSigned in as ${c.user}. Saved to ${storeName()}; expires ${new Date(c.expires_at).toISOString().slice(0, 10)}.`);
@@ -121,8 +120,8 @@ async function harnessCmd(args: string[]) {
       },
       signIn: async () => {
         const d = await startLogin(server);
-        err(`Sign in: open ${d.verification_uri_complete} and approve code ${d.user_code} (waiting…)`);
-        if (!args.includes("--no-open")) openBrowser(d.verification_uri_complete);
+        err(`Sign in: open ${d.verification_uri}, type the code ${d.user_code} and approve (waiting…)`);
+        if (!args.includes("--no-open")) openBrowser(d.verification_uri);
         return waitForApproval(server, d);
       },
       save: (agent) => saveHarness({ agent }),
@@ -359,7 +358,7 @@ async function mcp(args: string[]) {
     if (!relogin) {
       try {
         const d = await startLogin(server);
-        pendingLink = `${d.verification_uri_complete} (code ${d.user_code})`;
+        pendingLink = `${d.verification_uri} and type the code ${d.user_code}`;
         err(`[atteo] Sign in to continue: ${pendingLink}`);
         relogin = waitForApproval(server, d)
           .then((c) => {
@@ -376,7 +375,7 @@ async function mcp(args: string[]) {
         return toolText(id, `Atteo sign-in couldn't start (${(e as Error).message}). Ask your user to run: atteo login`);
       }
     }
-    toolText(id, `Atteo needs your user to sign in. Ask them to open ${pendingLink} and click Approve (it takes a few seconds), then try again.`);
+    toolText(id, `Atteo needs your user to sign in. Ask them to open ${pendingLink}, then click Approve (it takes a few seconds), then try again.`);
   }
 
   // The agent this server runs for (e.g. a Claude Code window) is one session, shared with the atteo commands it

@@ -3253,15 +3253,15 @@ ${canInviteAgent ? inviteAgentDialog(T, info) : ""}${agentChat ? "" : privacyDia
 
 // ---------- CLI login approval ----------
 
-export function devicePage(viewer: Viewer, side: SideBoard[], code: string | null, d: { client: string; expires_at: number; status: string; created_at: number } | null): Response {
+export function devicePage(viewer: Viewer, side: SideBoard[], code: string | null, d: { client: string; expires_at: number; status: string; created_at: number; ip?: string | null } | null, here = ""): Response {
   const expired = !!d && d.expires_at < Date.now();
   let body: string;
   if (!code || !d) {
     body = `<div class="card pad" style="max-width:460px;margin:24px auto 0">
   <h1 style="font-size:20px">Sign in the Atteo CLI</h1>
-  <p class="muted" style="margin:8px 0 18px">Enter the code shown in your terminal.</p>
+  <p class="muted" style="margin:8px 0 18px">Type the code shown in your terminal.</p>
   ${code ? `<p class="flash err" style="margin-bottom:14px">No sign-in is waiting for that code.</p>` : ""}
-  <form method="get" action="/device"><label class="lbl" for="code">Code</label>
+  <form method="post" action="/device"><label class="lbl" for="code">Code</label>
   <div class="row"><input class="input mono" id="code" name="code" placeholder="BCDF-GHJK" autocomplete="off" autofocus style="text-transform:uppercase;letter-spacing:.1em"><button class="btn primary">Continue</button></div></form></div>`;
   } else if (d.status !== "pending" || expired) {
     const msg = expired ? "This code expired. Run atteo login again." : d.status === "denied" ? "This sign-in was denied." : "This sign-in was already approved. You can go back to your terminal.";
@@ -3270,7 +3270,7 @@ export function devicePage(viewer: Viewer, side: SideBoard[], code: string | nul
     body = `<div class="card pad" style="max-width:460px;margin:24px auto 0">
   <p class="small muted">Sign-in request</p>
   <h1 style="font-size:20px;margin-top:4px">Approve the Atteo CLI?</h1>
-  <dl class="kv" style="margin:18px 0"><dt>Device</dt><dd>${esc(d.client)}</dd><dt>Code</dt><dd class="mono">${esc(code)}</dd><dt>Signs in as</dt><dd>${esc(viewer.name)} (${esc(viewer.email)})</dd><dt>Access</dt><dd>Your boards, as you, for 30 days</dd></dl>
+  <dl class="kv" style="margin:18px 0"><dt>Device</dt><dd>${esc(d.client)}</dd><dt>Started</dt><dd>${esc(ago(d.created_at))} from ${esc(d.ip ?? "an unknown address")}${here ? ` <span class="muted">(this browser: ${esc(here)})</span>` : ""}</dd><dt>Code</dt><dd class="mono">${esc(code)}</dd><dt>Signs in as</dt><dd>${esc(viewer.name)} (${esc(viewer.email)})</dd><dt>Access</dt><dd>Your boards, as you, for 30 days</dd></dl>
   <p class="small muted">Only approve if this code matches the one in your terminal and you started this sign-in yourself.</p>
   <form method="post" action="/api/device/decide" data-api data-done="decided" style="margin-top:18px">
     <input type="hidden" name="user_code" value="${esc(code)}"><input type="hidden" name="approve" id="approve" value="true">
@@ -3287,6 +3287,12 @@ export function devicePage(viewer: Viewer, side: SideBoard[], code: string | nul
     body,
     script: `window.decided=(j,f)=>{f.outerHTML='<p class="flash '+(j.approved?'ok':'')+'" style="margin-top:18px">'+(j.message||'Done')+'</p>'};`,
   });
+}
+
+/** How long ago, for the approve page: "12 seconds ago", "3 minutes ago". */
+function ago(at: number): string {
+  const s = Math.max(0, Math.round((Date.now() - at) / 1000));
+  return s < 60 ? `${s} second${s === 1 ? "" : "s"} ago` : `${Math.round(s / 60)} minute${Math.round(s / 60) === 1 ? "" : "s"} ago`;
 }
 
 // ---------- account ----------

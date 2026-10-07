@@ -433,7 +433,7 @@ await step("mcp: an expired login hands the agent a sign-in link instead of fail
   const m = startMcp(expired);
   await m.call("initialize", { protocolVersion: "2025-06-18", capabilities: {} });
   const r = await m.call("tools/call", { name: "list_boards", arguments: {} });
-  assert(r.result.isError && /\/device\?code=[A-Z]{4}-[A-Z]{4}/.test(r.result.content[0].text), r.result.content[0].text);
+  assert(r.result.isError && /\/device and type the code [A-Z]{4}-[A-Z]{4}/.test(r.result.content[0].text), r.result.content[0].text);
   m.stop();
 });
 

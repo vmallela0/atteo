@@ -36,7 +36,7 @@ export async function waitForApproval(
 ): Promise<Credentials> {
   const deadline = now() + d.expires_in * 1000;
   while (now() < deadline) {
-    await sleep(d.interval * 1000);
+    await sleep(Math.max(1, Number(d.interval) || 0) * 1000); // never faster than once a second, whatever the server says
     const res = await f(`${server}/api/device/token`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ device_code: d.device_code }) });
     const j = (await res.json().catch(() => ({}))) as { status?: string; token?: string; user?: string; expires_at?: number };
     if (j.status === "ok" && j.token && j.user && j.expires_at) {

@@ -1018,7 +1018,7 @@ const handler = {
       if (path === "/api/device/start" && method === "POST") {
         if (!(await limits.publicAllowed(env, "device-start", request))) return tooManyPublic();
         const body = (await request.json().catch(() => ({}))) as { client?: string };
-        return json(await device.startDeviceLogin(env, origin, String(body.client ?? "Atteo CLI")));
+        return json(await device.startDeviceLogin(env, origin, String(body.client ?? "Atteo CLI"), appSignin.clientIp(request)));
       }
       if (path === "/api/device/token" && method === "POST") {
         const body = (await request.json().catch(() => ({}))) as { device_code?: string };
@@ -1026,12 +1026,16 @@ const handler = {
         const r = await device.pollDeviceLogin(env, body.device_code, request);
         return json(r, r.status === "ok" ? 200 : r.status === "pending" ? 428 : 400);
       }
-      if (path === "/device" && method === "GET") {
-        if (!viewer) return needLogin();
-        const code = device.normalizeUserCode(url.searchParams.get("code"));
-        const d = code ? await device.deviceByUserCode(env, code) : null;
+      // The person types the code from their terminal (alt-c #5841): a link never fills it in, so a code someone else
+      // started can't arrive ready to approve. GET is the form; POST (only from it) shows that sign-in to approve.
+      if (path === "/device" && (method === "GET" || method === "POST")) {
+        if (!viewer || viewer.via === "agent") return needLogin();
         const side = await sideBoardsNamed(env, viewer.name);
-        return devicePage(viewer, side, code, d);
+        const site = request.headers.get("sec-fetch-site");
+        if (method === "GET" || (site && site !== "same-origin" && site !== "none")) return devicePage(viewer, side, null, null);
+        const code = device.normalizeUserCode(new URLSearchParams(await request.text()).get("code"));
+        const d = code ? await device.deviceByUserCode(env, code) : null;
+        return devicePage(viewer, side, code ?? "?", d, appSignin.clientIp(request));
       }
       if (path === "/api/device/decide" && method === "POST") {
         if (!viewer) return needLogin();

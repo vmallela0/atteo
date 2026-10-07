@@ -4524,9 +4524,12 @@ await step("CLI login: device code, approve in the browser, token works once; de
   assert(/^[A-Z]{4}-[A-Z]{4}$/.test(start.user_code) && start.verification_uri_complete.endsWith(start.user_code), JSON.stringify(start));
   const poll = () => fetch(`${BASE}/api/device/token`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ device_code: start.device_code }) });
   assert((await poll()).status === 428, "should be pending before approval");
-  const page = await (await web(`/device?code=${start.user_code}`, A)).text();
+  // A link never fills the code in (alt-c #5841): the person types it, and the page shows where and when it started.
+  assert(!(await (await web(`/device?code=${start.user_code}`, A)).text()).includes("Approve the Atteo CLI?"), "a link alone shows the code form");
+  const page = await (await web("/device", A, { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" }, body: `code=${start.user_code}` })).text();
   has(page, "Approve the Atteo CLI?");
   has(page, "e2e laptop");
+  has(page, "seconds ago from");
   const ok1 = await web("/api/device/decide", A, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ user_code: start.user_code, approve: true }) });
   assert(ok1.status === 200, `approve ${ok1.status}`);
   const got = await (await poll()).json();

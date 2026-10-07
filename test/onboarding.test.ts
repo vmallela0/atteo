@@ -31,6 +31,11 @@ describe("device sign-in (atteo login, atteo harness)", () => {
     await expect(waitForApproval("http://s", start, () => {}, answers().f, async (ms) => void (t += ms), () => t)).rejects.toThrow("expired");
     expect(t).toBe(600_000);
   });
+  it("polls at most once a second, whatever interval the server gives", async () => {
+    const waits: number[] = [];
+    await waitForApproval("http://s", { ...start, interval: 0 }, () => {}, answers({ status: "denied" }).f, async (ms) => void waits.push(ms)).catch(() => {});
+    expect(waits).toEqual([1000]);
+  });
   it("says so when the server limits sign-ins", async () => {
     const f = async () => ({ ok: false, status: 429, json: async () => ({}) });
     await expect(startLogin("http://s", "Atteo CLI", "ua", f)).rejects.toThrow("Too many sign-ins");

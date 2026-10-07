@@ -30,9 +30,10 @@ export interface DeviceLogin {
   expires_at: number;
   status: "pending" | "approved" | "denied" | "issued";
   approved_by: string | null;
+  ip: string | null; // where the sign-in was started (the approve page shows it)
 }
 
-export async function startDeviceLogin(env: Env, origin: string, client: string) {
+export async function startDeviceLogin(env: Env, origin: string, client: string, ip: string | null = null) {
   const now = Date.now();
   // Housekeeping: forget logins that ended more than a day ago.
   await env.DB.prepare(`DELETE FROM device_logins WHERE expires_at < ?`).bind(now - 24 * 3600 * 1000).run();
@@ -43,8 +44,8 @@ export async function startDeviceLogin(env: Env, origin: string, client: string)
     if (!clash) break;
     userCode = newUserCode();
   }
-  await env.DB.prepare(`INSERT INTO device_logins (device_hash, user_code, client, created_at, expires_at) VALUES (?, ?, ?, ?, ?)`)
-    .bind(await sha256hex(deviceCode), userCode, client.slice(0, 120) || "Atteo CLI", now, now + DEVICE_TTL_MS)
+  await env.DB.prepare(`INSERT INTO device_logins (device_hash, user_code, client, created_at, expires_at, ip) VALUES (?, ?, ?, ?, ?, ?)`)
+    .bind(await sha256hex(deviceCode), userCode, client.slice(0, 120) || "Atteo CLI", now, now + DEVICE_TTL_MS, ip)
     .run();
   return {
     device_code: deviceCode,
@@ -57,7 +58,7 @@ export async function startDeviceLogin(env: Env, origin: string, client: string)
 }
 
 export async function deviceByUserCode(env: Env, userCode: string): Promise<DeviceLogin | null> {
-  return env.DB.prepare(`SELECT user_code, client, created_at, expires_at, status, approved_by FROM device_logins WHERE user_code = ?`)
+  return env.DB.prepare(`SELECT user_code, client, created_at, expires_at, status, approved_by, ip FROM device_logins WHERE user_code = ?`)
     .bind(userCode)
     .first<DeviceLogin>();
 }
