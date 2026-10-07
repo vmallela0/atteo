@@ -49,6 +49,7 @@ const MATCH_ROUTES: Record<string, Route[]> = {
   "\\/api\\/boards\\/(b_[a-z0-9]+)\\/keys$": [{ method: "GET", path: "/api/boards/{id}/keys" }],
   "\\/api\\/me\\/keys\\/([a-z0-9-]{1,40})$": [{ method: "DELETE", path: "/api/me/keys/{kid}" }],
   "\\/api\\/me\\/keys\\/([a-z0-9-]{1,40})\\/sign-key$": [{ method: "POST", path: "/api/me/keys/{kid}/sign-key" }],
+  "\\/api\\/me\\/keys\\/([a-z0-9-]{1,40})\\/pins$": [{ method: "POST", path: "/api/me/keys/{kid}/pins" }],
   "\\/api\\/me\\/keys\\/([a-z0-9-]{1,40})\\/sign$": [{ method: "POST", path: "/api/me/keys/{kid}/sign" }],
   "\\/api\\/boards\\/(b_[a-z0-9]+)\\/grants\\/invite$": [{ method: "POST", path: "/api/boards/{id}/grants/invite" }],
   "\\/api\\/boards\\/(b_[a-z0-9]+)\\/(epochs|grants)$": [

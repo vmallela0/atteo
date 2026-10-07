@@ -667,7 +667,19 @@ board the server stores ciphertext and can't read messages. High level:
   Clients drop the pins of a board member's devices that are no longer listed, and of devices trusted through them.
   A person's entry in the pins stays even when it's emptied, so a person seen once is never trusted on first use again
   (review #5558): a new device then needs a signature from a still-pinned one, or the person's word, given with
-  `atteo keys trust <person> <device>` or the web's Trust, after a warning that none of their trusted devices is left.
+  `atteo keys trust <person> <device> "<fingerprint>"` or the web's Trust, after a warning that none of their trusted
+  devices is left. Approving or trusting takes a person at a terminal saying yes; an agent is refused (review #5567).
+- **Fingerprints.** A device's fingerprint is SHA-256 over `atteo fingerprint v1\n<public key>\n<signing key>`, its
+  first 16 bytes as 8 groups of 4 hex digits (review #5566). `atteo keys` and the web's encryption bar show this
+  device's own, from the keys it holds; the trust warning shows the other device's, from the keys the server lists.
+  Trusting someone's device takes typing the fingerprint they read you from it, so a key the server swapped fails.
+- **Pins.** A device trusts on first sight each person it has never seen (their first device listed), and the web
+  keeps its pins in the browser's storage (`soup.e2e.pins.<you>`), so a new browser, or cleared site data, starts
+  over that way. To shrink that, approving a new device of yours also hands it the approver's pins: sealed to it
+  (HKDF label `atteo pins v1`), signed by the approver over `atteo pins v1\n<user>\n<kid>\n<epk>\n<iv>\n<wrapped>`,
+  stored on its key row (`POST /api/me/keys/{kid}/pins`, migration 0080), and merged in once, before anyone is pinned
+  on first sight (review #5567). A new device can only check that signature against the key the server lists for the
+  approver, so a lying server can still choose what a brand-new device starts from, as it can with first sight.
   Unsigned devices, including the iPhone app's for now, keep the own-devices-only rule (src/boardkeys.ts;
   cli/src/crosssign.ts; src/e2eweb.ts).
 - **Rollback.** Each client remembers the newest key epoch it has seen per board, and encrypts nothing when the server

@@ -98,6 +98,29 @@ export function openProof(g: WrappedKey): string {
   return ungcm(kek(diffieHellman({ privateKey: priv, publicKey: pubKey(g.epk) }), g.epk, pub, "atteo sign-key proof v1"), g.iv, g.wrapped).toString("base64");
 }
 
+/** What an approver signs over the pins it seals to a new device (src/boardkeys.ts pinsSigned; never change it). */
+export const pinsSigned = (user: string, kid: string, g: WrappedKey) => `atteo pins v1\n${user}\n${kid}\n${g.epk}\n${g.iv}\n${g.wrapped}`;
+const PINS_INFO = "atteo pins v1"; // its own label: sealed pins can never open a board key, nor the reverse
+
+/** This machine's pins sealed to another of your devices (review #5567). */
+export function sealPins(pins: Record<string, string[]>, devicePub: string): WrappedKey {
+  const eph = generateKeyPairSync("x25519");
+  const epk = b64u2b64((eph.publicKey.export({ format: "jwk" }) as { x: string }).x);
+  const w = gcm(kek(diffieHellman({ privateKey: eph.privateKey, publicKey: pubKey(devicePub) }), epk, devicePub, PINS_INFO), Buffer.from(JSON.stringify({ v: 1, pins })));
+  return { epk, iv: w.iv, wrapped: w.out };
+}
+
+/** Pins another of your devices sealed to this machine; null if they don't open. */
+export function openPins(g: WrappedKey): Record<string, string[]> | null {
+  try {
+    const { priv, pub } = myKey();
+    const j = JSON.parse(ungcm(kek(diffieHellman({ privateKey: priv, publicKey: pubKey(g.epk) }), g.epk, pub, PINS_INFO), g.iv, g.wrapped).toString("utf8")) as { v?: number; pins?: Record<string, string[]> };
+    return j.v === 1 && j.pins && typeof j.pins === "object" ? j.pins : null;
+  } catch {
+    return null;
+  }
+}
+
 export const signDevice = (data: string) => edSign(null, Buffer.from(data), mySignKey().priv).toString("base64");
 
 /** Whether `sig` is `signPub`'s signature of `data`; false on anything malformed. */

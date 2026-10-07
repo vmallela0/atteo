@@ -10,8 +10,8 @@ import { env } from "./env";
 import SKILL_MD from "../../skills/atteo/SKILL.md";
 import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { hostname, tmpdir } from "node:os";
-import { decryptFile, decryptV2, deviceSigned, encryptFile, encryptV2, FILE_CHUNK, inviteKey, keysDigest, myKey, mySignKey, newEpochKey, openProof, seal, signDevice, unseal, unwrapInvite, unwrapKey, wrapKey, type WrappedKey } from "./sealed";
-import { crossSigned, dropGone, firstSight, noneLeft, pinId, pinned } from "./crosssign";
+import { decryptFile, decryptV2, deviceSigned, encryptFile, encryptV2, FILE_CHUNK, inviteKey, keysDigest, myKey, mySignKey, newEpochKey, openPins, openProof, pinsSigned, seal, sealPins, signDevice, unseal, unwrapInvite, unwrapKey, verifyDevice, wrapKey, type WrappedKey } from "./sealed";
+import { crossSigned, dropGone, fingerprint, firstSight, mergePins, noneLeft, pinId, pinned, sameFingerprint } from "./crosssign";
 import { homedir } from "node:os";
 import { basename, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { blockedMessage, scanFields } from "../../src/secrets";
@@ -416,6 +416,7 @@ async function boardKeys(opt: Record<string, string | true>, board: string, trie
   // A pin is a device id AND its public key, so the server can't keep a trusted id and swap in a key of its own.
   const pin = pins();
   const before = JSON.stringify(pin);
+  adoptPins(pin); // from the device that approved this one, before anyone is trusted on first sight here
   const seen = new Map([...st.keys, ...st.missing].map((k) => [k.kid, k.public_key]));
   for (const [u, list] of Object.entries(pin)) pin[u] = list.map((e) => (e.includes("|") || !seen.has(e) ? e : pinId(e, seen.get(e)!))); // older pins were ids alone
   // This machine: pinned with its own signing key, never the one the server shows, which it checks.
@@ -431,7 +432,7 @@ async function boardKeys(opt: Record<string, string | true>, board: string, trie
     k.user === me
       ? warnOnce(k.kid, `🔑 A new device of yours (${k.label ?? "unnamed"}, ${k.kid.slice(0, 8)}) is waiting for this board's key. If it's yours: atteo keys approve ${k.kid}`)
       : noneLeft(pin, k.user)
-        ? warnOnce(k.kid, `⚠ None of ${k.user}'s devices this machine trusted is listed any more, and the server shows a new one (${k.label ?? "unnamed"}, ${k.kid}) that none of them signed. It could be the server's own, so it gets no key from here. ${atTerminal() ? `Check with ${k.user} (not on this board), then: atteo keys trust ${k.user} ${k.kid}` : `Only your user can trust it, in a terminal, after checking with ${k.user} (not on this board).`}`)
+        ? warnOnce(k.kid, `⚠ None of ${k.user}'s devices this machine trusted is listed any more, and the server shows a new one (${k.label ?? "unnamed"}, ${k.kid}, fingerprint ${fingerprint(k.public_key, k.sign_pub)}) that none of them signed. It could be the server's own, so it gets no key from here. ${atTerminal() ? `Check the fingerprint with ${k.user} (not on this board), then: atteo keys trust ${k.user} ${k.kid} "<fingerprint>"` : `Only your user can trust it, in a terminal, after checking with ${k.user} (not on this board).`}`)
         : warnOnce(k.kid, `🔑 ${k.user} has a device this machine hasn't seen (${k.label ?? "unnamed"}, ${k.kid.slice(0, 8)}). It gets the key from one of ${k.user}'s own devices, not from here.`);
 
   let current = st.current;
@@ -1248,7 +1249,28 @@ async function ensureKey(opt: Record<string, string | true>): Promise<string> {
   const j = await api(opt, "POST", "/api/me/keys", { public_key: pub, label: hostname(), sign_pub: mySignKey().pub });
   // The signing key is set only with proof this machine holds the device key: open the server's challenge, send it back.
   if (j.sign_challenge) await api(opt, "POST", `/api/me/keys/${j.id}/sign-key`, { nonce: openProof(j.sign_challenge) });
+  handedPins = j.pins ? { ...j.pins, kid: j.id } : null;
   return j.id as string;
+}
+/** Pins the device that approved this one handed it (review #5567), as the server last returned them. */
+let handedPins: (WrappedKey & { by: string; by_sign_pub: string; sig: string; kid: string }) | null = null;
+const handedFile = () => `${pinFile()}.from`;
+
+/**
+ * Takes the pins the approving device handed this one, once per handover: checked against the giver's signing key,
+ * opened with this machine's key, merged (crosssign.ts mergePins). Before them, a new machine knows nobody.
+ */
+function adoptPins(pin: Record<string, string[]>) {
+  const h = handedPins;
+  if (!h) return;
+  try {
+    if (readFileSync(handedFile(), "utf8") === h.sig) return;
+  } catch {}
+  if (!verifyDevice(h.by_sign_pub, pinsSigned(creds().user, h.kid, h), h.sig)) return;
+  const got = openPins(h);
+  if (!got) return;
+  mergePins(pin, got);
+  writeFileSync(handedFile(), h.sig, { mode: 0o600 });
 }
 
 async function keys(args: string[]) {
@@ -1277,18 +1299,32 @@ async function keys(args: string[]) {
       } catch (e) {
         signedNote = ` (Not signed: ${(e as Error).message})`;
       }
+    // …and this machine's pins, sealed to it, so it starts out trusting whom you trust (review #5567).
+    try {
+      const g = sealPins(pins(), k.public_key);
+      await api(opt, "POST", `/api/me/keys/${k.id}/pins`, { by: mine, ...g, sig: signDevice(pinsSigned(me, k.id, g)) });
+      signedNote += " It also has this machine's pins (whose devices you trust).";
+    } catch (e) {
+      signedNote += ` (Pins not handed over: ${(e as Error).message})`;
+    }
     return say(`Approved ${k.label ?? "that device"} (${k.id.slice(0, 8)}). It gets the keys of your encrypted boards the next time this machine reads or posts on them.${signedNote}`);
   }
   if (pos[0] === "trust") {
     // Someone else's device that nothing here vouches for (review #5558): only on the person's own word, checked
     // outside the board. It's pinned on this machine, which hands it this board's keys from then on.
-    const [, whoRaw, kidArg] = pos;
+    const [, whoRaw, kidArg, ...fpWords] = pos;
     const who = whoRaw?.replace(/^@/, "").toLowerCase();
     const board = currentBoard(opt);
     const st: EpochState = await api(opt, "GET", `/api/boards/${board}/epochs`);
     const k = who && kidArg ? [...st.keys, ...st.missing].find((x) => x.user === who && (x.kid === kidArg || (kidArg.length >= 6 && x.kid.startsWith(kidArg)))) : undefined;
-    if (!k) throw new CliError("Usage: atteo keys trust <person> <device id> [--board <id>]   (a device of theirs this board lists; check it with them first)");
+    const usage = 'Usage: atteo keys trust <person> <device id> "<fingerprint>" [--board <id>]   (a device of theirs this board lists, and the fingerprint they read you from it: their atteo keys, or the web\'s encryption bar)';
+    if (!k) throw new CliError(usage);
     if (k.user === creds().user) throw new CliError(`That's one of yours: atteo keys approve ${k.kid}`);
+    // Typed, not just a device id (review #5566): the fingerprint covers the keys the server shows, so a swapped key fails.
+    const fp = fingerprint(k.public_key, k.sign_pub);
+    needPerson("atteo keys trust");
+    if (!fpWords.length) throw new CliError(usage);
+    if (!sameFingerprint(fpWords.join(""), fp)) throw new CliError(`That fingerprint isn't the one this device shows (${fp}): don't trust it. Check it with ${k.user} again.`);
     await personConfirms("atteo keys trust", `Trust ${k.user}'s device ${k.label ?? "unnamed"} (${k.kid})? Only if ${k.user} told you, outside this board, that it's theirs.`);
     const p = pins();
     if (!pinned(p[k.user], k.kid, k.public_key)) (p[k.user] ??= []).push(pinId(k.kid, k.public_key, k.sign_pub));
@@ -1298,7 +1334,10 @@ async function keys(args: string[]) {
   }
   const mp = pins()[creds().user];
   const ok = (k: { id: string; public_key: string }) => !!pinned(mp, k.id, k.public_key);
-  if (json(opt)) return printJson({ keys: (j.keys as { id: string; public_key: string }[]).map((k) => ({ ...k, this_machine: k.id === mine, approved_here: ok(k) })) });
+  // This machine's fingerprint, from the keys it holds (never the server's copy), to read to someone trusting it (#5566).
+  const myFp = fingerprint(myKey().pub, mySignKey().pub);
+  if (json(opt)) return printJson({ fingerprint: myFp, keys: (j.keys as { id: string; public_key: string }[]).map((k) => ({ ...k, this_machine: k.id === mine, approved_here: ok(k) })) });
+  say(`This machine's fingerprint: ${myFp}`);
   for (const k of j.keys) say(`${k.id}  ${k.label ?? ""}${k.id === mine ? "  (this machine)" : ok(k) ? "  (approved here)" : ""}${k.sig ? "  signed" : ""}  ${new Date(k.created_at).toISOString().slice(0, 10)}`);
 }
 
@@ -1458,8 +1497,11 @@ const atTerminal = () => !!process.stdin.isTTY && !!process.stdout.isTTY;
  * Trusting a device hands it keys, so it's a person's call (review #5567): in a terminal, with their yes. An agent is
  * refused before anything changes, and isn't handed the exact command to pass on.
  */
-async function personConfirms(what: string, question: string) {
+function needPerson(what: string) {
   if (!atTerminal()) throw new CliError(`${what} hands a device this board's keys, so a person has to run it in a terminal and say yes. Ask your user to do it themselves.`);
+}
+async function personConfirms(what: string, question: string) {
+  needPerson(what);
   if (!(await askYes(question, false))) throw new CliError("Nothing changed.");
 }
 

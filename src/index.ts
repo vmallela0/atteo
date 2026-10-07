@@ -1424,7 +1424,12 @@ const handler = {
       // ---- sealed secrets: public keys per CLI login; envelopes only their recipient can fetch ----
       if (path === "/api/me/keys" && (method === "GET" || method === "POST")) {
         if (!viewer) return needLogin();
-        if (method === "GET") return json({ keys: (await env.DB.prepare(`SELECT id, public_key, label, created_at, sign_pub, signed_by, sig FROM agent_keys WHERE user = ? AND revoked_at IS NULL ORDER BY created_at`).bind(viewer.name).all()).results });
+        if (method === "GET") {
+          const keys = (await env.DB.prepare(`SELECT id, public_key, label, created_at, sign_pub, signed_by, sig FROM agent_keys WHERE user = ? AND revoked_at IS NULL ORDER BY created_at`).bind(viewer.name).all()).results;
+          // ?pins=<kid>: the pins handed to that device of yours (review #5567), sealed to it.
+          const pk = url.searchParams.get("pins");
+          return json(pk ? { keys, pins: await boardkeys.pinsFor(env, viewer.name, pk) } : { keys });
+        }
         const b = (await request.json().catch(() => ({}))) as { public_key?: string; label?: string; sign_pub?: string };
         const pk = String(b.public_key ?? "");
         if (!/^[A-Za-z0-9+/]{43}=$/.test(pk)) return json({ error: "public_key must be a base64 X25519 key (32 bytes)." }, 400);
@@ -1435,12 +1440,24 @@ const handler = {
         if (spk !== null && !/^[A-Za-z0-9+/]{43}=$/.test(spk)) return json({ error: "sign_pub must be a base64 Ed25519 key (32 bytes)." }, 400);
         const existing = await env.DB.prepare(`SELECT id FROM agent_keys WHERE user = ? AND public_key = ? AND revoked_at IS NULL`).bind(viewer.name, pk).first<{ id: string }>();
         const challenge = async (id: string) => (spk ? await boardkeys.signKeyChallenge(env, viewer.name, id, spk) : null);
-        if (existing) return json({ ok: true, id: existing.id, sign_challenge: await challenge(existing.id) });
+        // Pins one of your devices handed this one when it approved it (review #5567): sealed to it, with the signer's key.
+        if (existing) return json({ ok: true, id: existing.id, sign_challenge: await challenge(existing.id), pins: await boardkeys.pinsFor(env, viewer.name, existing.id) });
         const n = (await env.DB.prepare(`SELECT COUNT(*) AS n FROM agent_keys WHERE user = ? AND revoked_at IS NULL`).bind(viewer.name).first<{ n: number }>())?.n ?? 0;
         if (n >= 10) return json({ error: "At most 10 machines; remove one first." }, 400);
         const kid = crypto.randomUUID().slice(0, 8);
         await env.DB.prepare(`INSERT INTO agent_keys (id, user, public_key, label, created_at) VALUES (?, ?, ?, ?, ?)`).bind(kid, viewer.name, pk, String(b.label ?? "").slice(0, 60) || null, Date.now()).run();
         return json({ ok: true, id: kid, sign_challenge: await challenge(kid) }, 201);
+      }
+      // One of your devices hands another of yours the pins it holds, sealed to it and signed (review #5567).
+      let kp = path.match(/^\/api\/me\/keys\/([a-z0-9-]{1,40})\/pins$/);
+      if (kp && method === "POST") {
+        if (!viewer) return needLogin();
+        try {
+          await boardkeys.storePins(env, viewer.name, kp[1], (await request.json().catch(() => ({}))) as Record<string, unknown>);
+          return json({ ok: true });
+        } catch (e) {
+          return json({ error: e instanceof Error ? e.message : String(e) }, e instanceof boardkeys.KeyError ? 400 : 500);
+        }
       }
       // The device opens the challenge and sends the nonce back: its signing key is set.
       let km = path.match(/^\/api\/me\/keys\/([a-z0-9-]{1,40})\/sign-key$/);

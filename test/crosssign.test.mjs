@@ -1,8 +1,8 @@
 import { generateKeyPairSync, sign } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import { crossSigned, dropGone, firstSight, noneLeft, pinId, pinned } from "../cli/src/crosssign";
-import { deviceSigned, verifyDevice } from "../cli/src/sealed";
-import { deviceSigned as serverSigned } from "../src/boardkeys";
+import { crossSigned, dropGone, fingerprint, firstSight, mergePins, noneLeft, pinId, pinned, sameFingerprint } from "../cli/src/crosssign";
+import { deviceSigned, pinsSigned, verifyDevice } from "../cli/src/sealed";
+import { deviceSigned as serverSigned, pinsSigned as serverPinsSigned } from "../src/boardkeys";
 
 const b64 = (u) => Buffer.from(u, "base64url").toString("base64");
 function device(user, kid) {
@@ -71,6 +71,27 @@ describe("cross-signed device lists (E2E design §2.2, Phase 1c)", () => {
     expect(dropped.map((e) => e.split("|")[0]).sort()).toEqual(["a1", "a2", "a3"]);
     expect(pin.bo).toHaveLength(1);
     expect(pin.cy).toEqual(["c1|KEY"]);
+  });
+
+  it("review #5566: a fingerprint is 8 groups of 4 over both keys, and compares however it was typed", () => {
+    const a = device("ana", "a1");
+    const fp = fingerprint(a.public_key, a.sign_pub);
+    expect(fp).toMatch(/^([0-9a-f]{4} ){7}[0-9a-f]{4}$/);
+    expect(fingerprint(a.public_key, null)).not.toBe(fp); // a signing key the server swapped changes it
+    expect(sameFingerprint(fp.toUpperCase().replace(/ /g, "-"), fp)).toBe(true);
+    expect(sameFingerprint(fp.slice(0, -1) + (fp.endsWith("0") ? "1" : "0"), fp)).toBe(false);
+    expect(sameFingerprint("", fp)).toBe(false);
+  });
+
+  it("review #5567: pins handed over merge in, keeping the giver's tombstones; CLI and server sign the same bytes", () => {
+    const b1 = device("bo", "b1"), c1 = device("cy", "c1");
+    const mine = { cy: [pinId(c1.kid, c1.public_key, c1.sign_pub)] };
+    mergePins(mine, { bo: [pinId(b1.kid, b1.public_key, b1.sign_pub)], cy: ["not a pin", 7], dee: [], eve: "x" });
+    expect(mine).toEqual({ cy: [pinId(c1.kid, c1.public_key, c1.sign_pub)], bo: [pinId(b1.kid, b1.public_key, b1.sign_pub)], dee: [] });
+    firstSight(mine, "ana", [{ ...plain(device("dee", "d9")) }], []);
+    expect(mine.dee).toEqual([]); // the giver saw dee: this machine doesn't trust dee's devices on first sight either
+    const g = { epk: "E", iv: "I", wrapped: "W" };
+    expect(pinsSigned("ana", "k2", g)).toBe(serverPinsSigned("ana", "k2", g));
   });
 
   it("review #5558: a server that hides all of someone's devices and then shows its own never gets it trusted on first use", () => {

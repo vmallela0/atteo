@@ -96,6 +96,39 @@ export async function signDevice(env: Env, user: string, kid: string, body: { by
   return { target, signer, boards };
 }
 
+// ---- pins handed to a device you approve (review #5567) ----
+
+/** What an approver signs over the pins it seals to a new device. Never change it (cli/src/sealed.ts, src/e2eweb.ts). */
+export const pinsSigned = (user: string, kid: string, g: { epk: string; iv: string; wrapped: string }) => `atteo pins v1\n${user}\n${kid}\n${g.epk}\n${g.iv}\n${g.wrapped}`;
+
+/**
+ * One of your devices (`by`) hands another of yours (`kid`) the pins it holds: sealed to `kid`'s X25519 key (HKDF label
+ * `atteo pins v1`), so the server stores only ciphertext, and signed by `by`. Replaces any earlier copy.
+ */
+export async function storePins(env: Env, user: string, kid: string, body: { by?: unknown; epk?: unknown; iv?: unknown; wrapped?: unknown; sig?: unknown }) {
+  const by = String(body.by ?? "");
+  const g = { epk: String(body.epk ?? ""), iv: String(body.iv ?? ""), wrapped: String(body.wrapped ?? "") };
+  const sig = String(body.sig ?? "");
+  if (!KEY32B64.test(g.epk) || !/^[A-Za-z0-9+/]{16}$/.test(g.iv) || !/^[A-Za-z0-9+/]+={0,2}$/.test(g.wrapped) || g.wrapped.length > 262_144) throw new KeyError("epk, iv and wrapped must be the sealed pins (at most 192 KB).");
+  if (!SIG.test(sig)) throw new KeyError("sig must be a base64 Ed25519 signature (64 bytes).");
+  const rows = (await env.DB.prepare(`SELECT id, sign_pub FROM agent_keys WHERE user = ? AND revoked_at IS NULL AND id IN (?, ?)`).bind(user, kid, by).all<{ id: string; sign_pub: string | null }>()).results;
+  const signer = rows.find((r) => r.id === by);
+  if (!rows.some((r) => r.id === kid)) throw new KeyError("No such device key of yours.");
+  if (!signer || by === kid) throw new KeyError("Hand pins over from another of your live devices.");
+  if (!signer.sign_pub) throw new KeyError("That device has no signing key yet.");
+  const key = await crypto.subtle.importKey("raw", unb64(signer.sign_pub), { name: "Ed25519" }, false, ["verify"]);
+  if (!(await crypto.subtle.verify({ name: "Ed25519" }, key, unb64(sig), new TextEncoder().encode(pinsSigned(user, kid, g))))) throw new KeyError("The signature doesn't match those pins.");
+  await env.DB.prepare(`UPDATE agent_keys SET pins = ? WHERE id = ? AND user = ? AND revoked_at IS NULL`).bind(JSON.stringify({ by, ...g, sig }), kid, user).run();
+}
+
+/** A device's handed-over pins as stored, with the signer's signing key to check them against (or null). */
+export async function pinsFor(env: Env, user: string, kid: string) {
+  const r = await env.DB.prepare(`SELECT k.pins, s.sign_pub AS by_sign_pub FROM agent_keys k LEFT JOIN agent_keys s ON s.id = json_extract(k.pins, '$.by') AND s.user = k.user AND s.revoked_at IS NULL WHERE k.id = ? AND k.user = ? AND k.revoked_at IS NULL`)
+    .bind(kid, user)
+    .first<{ pins: string | null; by_sign_pub: string | null }>();
+  return r?.pins && r.by_sign_pub ? { ...(JSON.parse(r.pins) as Record<string, string>), by_sign_pub: r.by_sign_pub } : null;
+}
+
 // ---- a device's signing key, set only with proof it holds the device's X25519 key (review #5523) ----
 
 /** Its own HKDF label: a proof must never be able to unwrap a board key (or the reverse), so it's never "board key v2". */

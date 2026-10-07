@@ -2,6 +2,7 @@
 // Usage: npm run build:cli && BASE=http://localhost:8787 ADMIN_KEY=... node test/cli.mjs
 
 import { execFileSync, spawn } from "node:child_process";
+import { createHash } from "node:crypto";
 import { mkdtempSync, mkdirSync, readFileSync, readdirSync, writeFileSync, chmodSync, existsSync, realpathSync, statSync, symlinkSync, rmSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { basename, join } from "node:path";
@@ -1252,17 +1253,28 @@ await step("cross-signed devices (E2E 1c): approving your new machine signs it; 
   r = await as("r2", ["keys", "--json"]);
   const r2 = JSON.parse(r.out).keys.find((k) => k.this_machine);
   assert(r2 && r2.sign_pub && !r2.sig, "a new machine registers its signing key, unsigned: " + r.out);
+  // Review #5566: a machine's fingerprint comes from the keys it holds; it's the one others compute from what's listed.
+  const fpOf = (pub, spub) => createHash("sha256").update(`atteo fingerprint v1\n${pub}\n${spub ?? ""}`).digest("hex").slice(0, 32).match(/.{4}/g).join(" ");
+  assert(JSON.parse(r.out).fingerprint === fpOf(r2.public_key, r2.sign_pub), "the fingerprint: " + r.out);
+  r = await as("r2", ["keys"]);
+  assert(r.out.includes(`This machine's fingerprint: ${fpOf(r2.public_key, r2.sign_pub)}`), r.out);
   await as("s", ["read", "--board", eb]); // the server doesn't even offer it to S: an unsigned later device is R's own business
   r = await as("r2", ["read", "--all", "--board", eb]);
   assert(!r.out.includes(secret), "not yet: " + r.out);
   // R approves it on the first machine: signed into R's device list. R1 isn't used again.
   r = await asTty("r1", ["keys", "approve", r2.id]);
-  assert(r.code === 0 && r.out.includes("signed it into your device list"), r.out + r.err);
+  assert(r.code === 0 && r.out.includes("signed it into your device list") && r.out.includes("It also has this machine's pins"), r.out + r.err);
   r = await asTty("r1", ["keys", "approve", r2.id]);
   assert(!r.out.includes("Not signed"), "approving again doesn't re-sign: " + r.out);
   r = await as("s", ["read", "--board", eb]); // S's CLI checks the signature against R1's pinned signing key, and grants
   r = await as("r2", ["read", "--all", "--board", eb]);
   assert(r.out.includes(secret), "R's second machine reads, handed the key by S's CLI: " + r.out + r.err);
+  // Review #5567: R2 took R1's pins (sealed to it, signed by R1) rather than trusting S's devices on first sight itself.
+  const pinsR1 = JSON.parse(readFileSync(`${cred.r1}.pins`, "utf8")), pinsR2 = JSON.parse(readFileSync(`${cred.r2}.pins`, "utf8"));
+  assert(existsSync(`${cred.r2}.pins.from`) && pinsR1[S]?.length && pinsR1[S].every((e) => pinsR2[S]?.includes(e)), "R2 has R1's pins: " + JSON.stringify({ pinsR1, pinsR2 }));
+  const tokR2 = JSON.parse(readFileSync(cred.r2, "utf8")).token;
+  const sealedPins = await fetch(`${BASE}/api/me/keys?pins=${r2.id}`, { headers: { authorization: `Bearer ${tokR2}` } }).then((x) => x.json());
+  assert(sealedPins.pins?.wrapped && !JSON.stringify(sealedPins).includes(pinsR1[S][0].split("|")[1]), "the server holds the pins only sealed");
   const html = await fetch(`${BASE}/b/${eb}`, { headers: { cookie: (await ops("sessions", { user: S })).cookie } }).then((x) => x.text());
   assert(html.includes(`🔑 ${R} added a device`) && html.includes(`gave ${R}`), "the device change and the grant are visible on the board");
   // The server checks signatures too: a made-up one is refused.
@@ -1319,7 +1331,16 @@ await step("cross-signed devices (E2E 1c): approving your new machine signs it; 
   r = await as("s", ["keys", "trust", R, legacy.id, "--board", eb]);
   assert(r.code !== 0 && r.err.includes("a person has to run it in a terminal"), r.out + r.err);
   assert((await missingR()).includes(legacy.id), "the agent's try changed nothing");
+  // Review #5566: trusting takes the fingerprint the person reads from the device; a wrong one (or none) is refused.
+  const legacyFp = fpOf(legacyPub, null);
+  r = await as("s", ["post", `fingerprint shown ${run}`, "--board", eb]);
+  assert(r.err.includes(`fingerprint ${legacyFp}`), "the warning shows the device's fingerprint: " + r.err);
   r = await asTty("s", ["keys", "trust", R, legacy.id, "--board", eb]);
+  assert(r.code !== 0 && r.out.includes("Usage: atteo keys trust"), r.out);
+  r = await asTty("s", ["keys", "trust", R, legacy.id, "0000 1111 2222 3333 4444 5555 6666 7777", "--board", eb]);
+  assert(r.code !== 0 && r.out.includes("isn't the one this device shows"), r.out);
+  assert((await missingR()).includes(legacy.id), "a wrong fingerprint changed nothing");
+  r = await asTty("s", ["keys", "trust", R, legacy.id, legacyFp.toUpperCase(), "--board", eb]);
   assert(r.code === 0 && r.out.includes(`Trusted ${R}'s device`), r.out);
   assert(!(await missingR()).includes(legacy.id), "trusted on S's word: it has the key now");
 });

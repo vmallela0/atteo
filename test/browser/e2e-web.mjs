@@ -7,8 +7,9 @@ import { SHOTS_DIR } from "./lib/shots.mjs";
 import { chromium } from "playwright-core";
 import { spawn } from "node:child_process";
 import { d1Execute } from "./lib/d1.mjs";
+import { createHash } from "node:crypto";
 import { cliTty as tty } from "./lib/clitty.mjs";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 // A download's text through its stream: download.path() isn't available when the browser is shared (run.mjs connects to it).
@@ -92,6 +93,13 @@ check(!r.out.includes(`hello from the web ${run}`),"…nothing is granted before
 await pa.locator("[data-e2e-approve]").click();
 r=await readUntil(A,[`hello from the web ${run}`]);
 check(r.out.includes(`hello from the web ${run}`),"after Approve in the browser, Ann's CLI reads the board");
+// Review #5567: the browser handed Ann's CLI its pins too (sealed to the CLI, signed by the browser), which the CLI took.
+const pinsWeb=await pa.evaluate(me=>JSON.parse(localStorage.getItem("soup.e2e.pins."+me)||"{}"),A),pinsCli=JSON.parse(readFileSync(cred[A]+".pins","utf8"));
+check(existsSync(cred[A]+".pins.from")&&(pinsWeb[B]||[]).length>0&&pinsWeb[B].every(e=>(pinsCli[B]||[]).includes(e)),"…and took the browser's pins, handed over with the approval");
+// Review #5566: the bar shows this browser's fingerprint, from its own keys; it's what others compute from the listing.
+const fpOf=(pub,spub)=>createHash("sha256").update(`atteo fingerprint v1\n${pub}\n${spub??""}`).digest("hex").slice(0,32).match(/.{4}/g).join(" ");
+const meWeb=(await (await fetch(`${BASE}/api/me/keys`,{headers:{authorization:`Bearer ${tok[A]}`}})).json()).keys.find(k=>/web/.test(k.label||""));
+check(await pa.locator("#e2e-fp").innerText().catch(()=>"")===fpOf(meWeb.public_key,meWeb.sign_pub),"the bar shows this browser's fingerprint");
 check(await until(()=>pa.locator(".e2e-ask").count(),n=>n===0)===0,"…and the prompt is gone");
 // Bob's new browser: a later device of Bob's. It waits; Ann's browser doesn't hand it over; Bob's CLI approves it.
 const ctxB=await login(B);const pb=await ctxB.newPage();watch(pb);
@@ -173,6 +181,15 @@ const pinsB=await pb.evaluate(me=>JSON.parse(localStorage.getItem("soup.e2e.pins
 check(Array.isArray(pinsB[A])&&!pinsB[A].some(e=>e.startsWith(after[0]+"|"))&&await grantsTo(after[0])===0,`Bob's browser keeps Ann's (empty) entry and hands her new device no key (${JSON.stringify(pinsB[A])})`);
 const trustAsk=pb.locator(".e2e-ask",{has:pb.locator(`[data-e2e-trust="${after[0]}"]`)});
 check(/None of .+ devices this browser trusted is listed any more/.test(await trustAsk.innerText().catch(()=>"")),"…and says why, with a Trust button");
+// Review #5566: Trust takes the fingerprint Ann reads from that device: none, or a wrong one, hands it nothing.
+const annNew=(await (await fetch(`${BASE}/api/me/keys`,{headers:{authorization:`Bearer ${tok[A]}`}})).json()).keys.find(k=>k.id===after[0]);
+const annFp=fpOf(annNew.public_key,annNew.sign_pub);
+check((await trustAsk.innerText()).includes(annFp),"…showing the device's fingerprint");
+await pb.locator(`[data-e2e-trust="${after[0]}"]`).click();
+await pb.locator(`[data-e2e-fp-for="${after[0]}"]`).fill("0000 1111 2222 3333 4444 5555 6666 7777");await pb.locator(`[data-e2e-trust="${after[0]}"]`).click();
+await pb.waitForTimeout(300); // a negative: an unwanted grant would show by now
+check(await grantsTo(after[0])===0,"…a missing or wrong fingerprint trusts nothing");
+await pb.locator(`[data-e2e-fp-for="${after[0]}"]`).fill(annFp.toUpperCase());
 await pb.locator(`[data-e2e-trust="${after[0]}"]`).click();
 check(await until(()=>grantsTo(after[0]),n=>n>0)>0,"Trust, on Ann's word, hands it the keys");
 await pa.evaluate(()=>e2eSync());check(await until(()=>bodyOf(pa,`after removal ${run}`).count(),n=>n===1)===1,"…and Ann's new browser reads again");

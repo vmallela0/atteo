@@ -1,4 +1,5 @@
 // Pins and cross-signed device lists (E2E design §2.2), shared by the CLI's key loop (commands.ts boardKeys).
+import { createHash } from "node:crypto";
 import { deviceSigned, verifyDevice } from "./sealed";
 
 export type SignedDevice = { kid: string; user: string; public_key: string; sign_pub?: string | null; signed_by?: string | null; sig?: string | null };
@@ -19,6 +20,33 @@ export const pinned = (list: string[] | undefined, kid: string, publicKey: strin
  */
 export function firstSight(pin: Record<string, string[]>, me: string, devices: SignedDevice[], first: SignedDevice[]) {
   for (const d of [...devices, ...first]) if (d.user !== me && !Object.hasOwn(pin, d.user)) pin[d.user] = [pinId(d.kid, d.public_key, d.sign_pub)];
+}
+
+/**
+ * A device's fingerprint, for two people to read to each other (review #5566): SHA-256 over its X25519 key and its
+ * signing key, the first 16 bytes as 8 groups of 4 hex digits. The web computes the same (src/e2eweb.ts fpOf).
+ */
+export const fingerprint = (publicKey: string, signPub?: string | null) =>
+  createHash("sha256")
+    .update(`atteo fingerprint v1\n${publicKey}\n${signPub ?? ""}`)
+    .digest("hex")
+    .slice(0, 32)
+    .match(/.{4}/g)!
+    .join(" ");
+/** What someone typed or pasted as a fingerprint, compared without spaces or case. */
+export const sameFingerprint = (typed: string, fp: string) => typed.replace(/[\s:-]/g, "").toLowerCase() === fp.replace(/ /g, "");
+
+/**
+ * Pins handed over by the device that approved this one (review #5567), merged into this machine's: a person this
+ * machine never saw takes the giver's list (their entry, empty or not, is the giver's tombstone too); a person seen here
+ * keeps their pins, plus any of the giver's. Changes `pin` in place.
+ */
+export function mergePins(pin: Record<string, string[]>, got: Record<string, string[]>) {
+  for (const [u, list] of Object.entries(got)) {
+    if (!Array.isArray(list)) continue;
+    const mine = (pin[u] ??= []);
+    for (const e of list) if (typeof e === "string" && /^[a-z0-9-]{1,40}\|[A-Za-z0-9+/]{43}=/.test(e) && !mine.includes(e)) mine.push(e);
+  }
 }
 
 /** A person seen before with no pinned device left: none of the devices this machine trusted for them is listed now. */
