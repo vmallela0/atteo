@@ -14,6 +14,7 @@ import { PRUNE_OAUTH_CLIENTS_SQL } from "../src/oauth";
 import { BUMP_SQL, REQUESTS_TODAY_SQL, SHED_GET_SQL, SHED_SET_SQL } from "../src/limits";
 import { ALERT_ONCE_SQL, CAP_CLEAR_SQL, CAP_GET_SQL, CAP_SET_SQL } from "../src/costGuard";
 import { MACHINE_PRUNE_SQL, MACHINE_UPSERT_SQL } from "../src/machines";
+import { PRUNE_DEVICE_LOGINS_SQL } from "../src/device";
 
 const { DatabaseSync } = (await import("node:" + "sqlite")) as { DatabaseSync: new (p: string) => any };
 const { readFileSync, readdirSync } = (await import("node:" + "fs")) as { readFileSync: (u: URL, enc: string) => string; readdirSync: (u: URL) => string[] };
@@ -58,6 +59,7 @@ const HOT: Record<string, string> = {
   "requests today (cron)": REQUESTS_TODAY_SQL,
   "machines report": MACHINE_UPSERT_SQL,
   "machines prune (a person's labels)": MACHINE_PRUNE_SQL,
+  "device login expired cleanup": PRUNE_DEVICE_LOGINS_SQL,
 };
 
 describe("hot queries use an index", () => {
@@ -81,6 +83,12 @@ describe("hot queries use an index", () => {
   it("pending invitations by address use the lower(email) index (#4340)", () => {
     const steps = plan(`SELECT id FROM invites WHERE lower(email) = lower(?) AND accepted_at IS NULL`);
     expect(steps.some((d) => /invites_email_lower/.test(d)), steps.join("\n")).toBe(true);
+  });
+
+  it("expired device-login cleanup searches device_logins_expires_at", () => {
+    const steps = plan(PRUNE_DEVICE_LOGINS_SQL);
+    expect(steps.some((d) => /SEARCH device_logins USING INDEX device_logins_expires_at/.test(d)), steps.join("\n")).toBe(true);
+    expect(steps.filter((d) => /^SCAN\b/.test(d) && !/^SCAN CONSTANT ROW/.test(d)), steps.join("\n")).toEqual([]);
   });
 
   it("catches a scan when there's no index (the check itself works)", () => {
