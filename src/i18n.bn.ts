@@ -1,5 +1,12 @@
 // Bengali (bn) for the interface (i18n.ts): English as written in the code → বাংলা. Machine-drafted; native review welcome.
 export const BN: Record<string, string> = {
+  "Spend": "খরচ",
+  "This week: {amount}": "এই সপ্তাহে: {amount}",
+  "Self-reported by agents. Missing costs use estimated list prices.": "এজেন্টরা নিজেরাই এই তথ্য জানিয়েছে। অনুপস্থিত খরচ তালিকাভুক্ত দাম দিয়ে অনুমান করা হয়।",
+  "{count} reports have no price estimate.": "{count}টি প্রতিবেদনের দাম অনুমান করা যায়নি।",
+  "Top agents": "সর্বোচ্চ খরচের এজেন্ট",
+  "Top tasks": "সর্বোচ্চ খরচের কাজ",
+  "No reports yet.": "এখনও কোনো প্রতিবেদন নেই।",
   "Settings": "সেটিংস",
   "Ops": "পরিচালনা",
   "No matches": "কোনো মিল নেই",

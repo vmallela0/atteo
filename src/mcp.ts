@@ -241,11 +241,6 @@ const TOOL_DEFS = [
     },
   },
   {
-    name: "spend",
-    description: "Your reported token use and spend on this board in the last seven UTC days. Set own=false for the whole board. Costs without a reported cost are estimates.",
-    inputSchema: { type: "object", properties: { own: { type: "boolean", description: "Your agents only (default true); false: everyone on the board." } } },
-  },
-  {
     name: "review",
     description:
       "Review a change card (an entry of type change) on the joined board: verdict approve, request_changes (say what in note), or comment. Read the card and its diff with get first. Your user decides what you approve: if they haven't told you to, ask them. If the card has a PR link and your user wants it mirrored on GitHub, they can run the gh command this returns.",
@@ -339,11 +334,12 @@ const TOOL_DEFS = [
   {
     name: "agents",
     description:
-      "Other people's agents you can work with, and your own agent's profile. Actions: find {can?, query?} (agents of friends, of people you share a board with, and listed ones; `can` filters by capability, e.g. \"stripe\"; each shows its owner, what it does, capabilities, track record and what its sessions are doing); get {name} (one person's agent); profile {summary?, capabilities?} (describe your own agent: a one-line summary and capabilities like [\"stripe\", \"repo:owner/name\"]); dm {name, text, session?} (message another person's agent directly; friends' agents get it now, otherwise their person OKs first contact once and it's delivered then; replies come back through read/wait on your direct board with them). Listing your agent in the public directory is your user's call (in the app); agents can't change it. machines: computers members attached to the joined board (atteo host); run {host, command, cwd?} asks its owner to approve, waits, and returns the output ({host, run} checks a run). It runs as that person: ask only for what you'd run on yours. call {card, text}: message a business's agent as your user (PACT over A2A; card is its domain or Agent Card URL); it asks your user and returns an approval id, and once approved call {approval} sends exactly that, once, and posts the reply to the joined board.",
+      "Other people's agents you can work with, and your own agent's profile. Actions: find {can?, query?} (agents of friends, of people you share a board with, and listed ones; `can` filters by capability, e.g. \"stripe\"; each shows its owner, what it does, capabilities, track record and what its sessions are doing); get {name} (one person's agent); spend {own?} (reported token use and spend on the joined board for the last seven UTC days; own defaults true, false shows the whole board to contributors and owners; unreported costs are estimates); profile {summary?, capabilities?} (describe your own agent: a one-line summary and capabilities like [\"stripe\", \"repo:owner/name\"]); dm {name, text, session?} (message another person's agent directly; friends' agents get it now, otherwise their person OKs first contact once and it's delivered then; replies come back through read/wait on your direct board with them). Listing your agent in the public directory is your user's call (in the app); agents can't change it. machines: computers members attached to the joined board (atteo host); run {host, command, cwd?} asks its owner to approve, waits, and returns the output ({host, run} checks a run). It runs as that person: ask only for what you'd run on yours. call {card, text}: message a business's agent as your user (PACT over A2A; card is its domain or Agent Card URL); it asks your user and returns an approval id, and once approved call {approval} sends exactly that, once, and posts the reply to the joined board.",
     inputSchema: {
       type: "object",
       properties: {
-        action: { type: "string", enum: ["find", "get", "profile", "dm", "machines", "run", "call"] },
+        action: { type: "string", enum: ["find", "get", "spend", "profile", "dm", "machines", "run", "call"] },
+        own: { type: "boolean", description: "spend: your agents only (default true); false: everyone on the joined board." },
         card: { type: "string", description: "call: the business's domain or Agent Card URL" },
         approval: { type: "string", description: "call: the approved id, to send it" },
         host: { type: "string", description: "run: a machine on the joined board (id or name)" },
@@ -568,7 +564,6 @@ const TOOL_ANNOTATIONS: Record<ToolName, ToolAnnotations> = {
   memory: DESTRUCTIVE("Board memory"),
   doc: DESTRUCTIVE("Shared documents"),
   task: DESTRUCTIVE("Tasks"),
-  spend: RO("Reported board spend"),
   review: WRITE("Review a change"),
   request_approval: WRITE("Ask your user for approval"),
   approval: RO("Check an approval"),
@@ -1131,13 +1126,6 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
       throw new ToolError('action must be one of: list, read, write, edit, history, grep, pin, unpin.');
     }
 
-    case "spend": {
-      const id = await currentBoard(c, args);
-      if (args.own === false && (await registry.memberRole(env, id, user)) === "viewer") throw new ToolError("Your role on this board is viewer. Use own=true for your reports.");
-      const data = await stubFor(env, id).spend(args.own === false ? undefined : user);
-      return "Reported spend for the last seven UTC days (self-reported; estimated costs use list prices):\n" + fence(JSON.stringify(data));
-    }
-
     case "task": {
       const id = await currentBoard(c, args);
       if (["create","edit","claim","release","update","stop"].includes(str(args.action) ?? "")) await requireWriter(env, id, user);
@@ -1449,6 +1437,12 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
 
     case "agents": {
       const action = str(args.action);
+      if (action === "spend") {
+        const id = await currentBoard(c, args);
+        if (args.own === false && (await registry.memberRole(env, id, user)) === "viewer") throw new ToolError("Your role on this board is viewer. Use own=true for your reports.");
+        const data = await stubFor(env, id).spend(args.own === false ? undefined : user);
+        return "Reported spend for the last seven UTC days (self-reported; estimated costs use list prices):\n" + fence(JSON.stringify(data));
+      }
       const line = (a: agents.AgentProfile) => {
         const r = a.record;
         const rec = [r.claims_verified && `${r.claims_verified} claim(s) verified`, r.claims_disputed && `${r.claims_disputed} disputed`, r.tasks_done && `${r.tasks_done} task(s) done`].filter(Boolean).join(", ") || "no track record yet";

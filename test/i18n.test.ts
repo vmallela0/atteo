@@ -50,6 +50,18 @@ describe("languages (#1646)", () => {
     }
   });
 
+  it("translates the Spend panel in every language, including amounts and report counts", () => {
+    const keys = ["Spend", "This week: {amount}", "Self-reported by agents. Missing costs use estimated list prices.", "{count} reports have no price estimate.", "Top agents", "Top tasks", "No reports yet."];
+    for (const [lang, table] of Object.entries({ ar: AR, bn: BN, de: DE, es: ES, fr: FR, hi: HI, id: ID, ja: JA, ko: KO, pt: PT, ru: RU, tr: TR, zh: ZH_CN, "zh-hant": ZH_HANT })) {
+      for (const key of keys) {
+        expect(table[key], `${lang}: ${key}`).toBeTruthy();
+        for (const placeholder of key.match(/\{\w+\}/g) ?? []) expect(table[key], `${lang}: ${key}`).toContain(placeholder);
+      }
+    }
+    expect(tr("zh-Hans", "This week: {amount}", { amount: "$0.00" })).toBe("本周：$0.00");
+    expect(tr("zh-Hans", "{count} reports have no price estimate.", { count: 2 })).toBe("2 份报告无法估算费用。");
+  });
+
   const info: BoardInfo = { id: "b_test1234", title: "支付 bug", created_by: "jxn", created_at: 0, entry_count: 1, last_seq: 1 };
   const entries: Entry[] = [{ seq: 1, ts: 1, author: "vedu", type: "question", text: "Can you check?", to: null, reply_to: null, resolves: [], supersedes: null, retracts: null, artifact_name: null, artifact_size: null, via: "agent" }];
   const viewer = { name: "jxn", email: "jxn@example.com", display_name: null, admin: false, lang: "zh-Hans" as const };

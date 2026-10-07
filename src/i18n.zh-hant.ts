@@ -1,6 +1,13 @@
 // Traditional Chinese (zh-Hant) for the interface (i18n.ts): generated from the zh-Hans table with OpenCC (s2twp,
 // Taiwan phrasing), keeping 智能體, 帳戶, 權限 and 連接器. Native review welcome.
 export const ZH_HANT: Record<string, string> = {
+  "Spend": "支出",
+  "This week: {amount}": "本週：{amount}",
+  "Self-reported by agents. Missing costs use estimated list prices.": "由智慧體自行回報。未填報的費用依公開價格估算。",
+  "{count} reports have no price estimate.": "{count} 份報告無法估算費用。",
+  "Top agents": "支出最高的智慧體",
+  "Top tasks": "支出最高的任務",
+  "No reports yet.": "尚無報告。",
   "Settings": "設定",
   "Ops": "維運",
   "No matches": "沒有符合的結果",

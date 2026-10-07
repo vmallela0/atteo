@@ -2896,14 +2896,14 @@ export function boardTail(flags: string): { js: string; src: string } | null {
 }
 
 function spendSide(data: Awaited<ReturnType<import("./board").Board["spend"]>> | undefined, lang?: Lang): string {
-  const T = (s: string) => esc(tr(lang, s));
+  const T = (s: string, vars?: Record<string, string | number>) => esc(tr(lang, s, vars));
   const money = (n: number) => `$${n.toFixed(2)}`;
   const rows = (items: { label: string; cost_usd: number; href?: string }[]) => items.length
     ? `<ul class="small">${items.slice(0, 5).map((r) => `<li>${r.href ? `<a href="${r.href}">${esc(r.label)}</a>` : esc(r.label)} · ${money(r.cost_usd)}</li>`).join("")}</ul>`
     : `<p class="small muted">${T("No reports yet.")}</p>`;
   const agents = ((data?.agents ?? []) as { agent: string; cost_usd: number }[]).map((r) => ({ label: r.agent, cost_usd: r.cost_usd }));
   const tasks = ((data?.tasks ?? []) as { task: number | null; title: string | null; cost_usd: number }[]).filter((r) => r.task != null).map((r) => ({ label: `#${r.task}${r.title ? ` · ${r.title}` : ""}`, href: `#e${r.task}`, cost_usd: r.cost_usd }));
-  return fold("spend", T("Spend"), money(data?.this_week.cost_usd ?? 0), `<div id="spend-side"><p class="small"><strong>${T("This week")}: ${money(data?.this_week.cost_usd ?? 0)}</strong></p><p class="small muted">${T("Self-reported by agents. Missing costs use estimated list prices.")}${data?.this_week.unpriced ? ` ${data.this_week.unpriced} ${T("reports have no price estimate.")}` : ""}</p><h4>${T("Top agents")}</h4>${rows(agents)}<h4>${T("Top tasks")}</h4>${rows(tasks)}</div>`);
+  return fold("spend", T("Spend"), money(data?.this_week.cost_usd ?? 0), `<div id="spend-side"><p class="small"><strong>${T("This week: {amount}", { amount: money(data?.this_week.cost_usd ?? 0) })}</strong></p><p class="small muted">${T("Self-reported by agents. Missing costs use estimated list prices.")}${data?.this_week.unpriced ? ` ${T("{count} reports have no price estimate.", { count: data.this_week.unpriced })}` : ""}</p><h4>${T("Top agents")}</h4>${rows(agents)}<h4>${T("Top tasks")}</h4>${rows(tasks)}</div>`);
 }
 
 export function boardPage(
@@ -3054,7 +3054,7 @@ export function boardPage(
       </div>
     </form>
   </section>
-  <aside class="aside" id="board-info" aria-label="${esc(T("Board info"))}"><!-- the rail (jxn #4860): agents first, then what's open, memory, charter, members, notifications -->${agentsSection(agents, info.id, readOnly || !!info.archived, L, canInviteAgent)}<div class="sum" id="sum">${summaryHtml(entries, viewer.name, members, summary, ctl, L)}</div>${readOnly ? "" : spendSide(board.spend, L)}${agentChat ? "" : PIN_SIDE + MEM_SIDE + charterSide(board.charter ?? { goal: null, data_classes: [], retention_days: null, members: members.map((m) => ({ user: m.user, role: m.role ?? (m.user === info.created_by ? "owner" : "contributor"), note: null })) }, isOwner && !info.archived, L, people)}
+  <aside class="aside" id="board-info" aria-label="${esc(T("Board info"))}"><!-- the rail (jxn #4860): agents first, then what's open, memory, charter, members, notifications -->${agentsSection(agents, info.id, readOnly || !!info.archived, L, canInviteAgent)}<div class="sum" id="sum">${summaryHtml(entries, viewer.name, members, summary, ctl, L)}</div>${agentChat ? "" : PIN_SIDE + MEM_SIDE + charterSide(board.charter ?? { goal: null, data_classes: [], retention_days: null, members: members.map((m) => ({ user: m.user, role: m.role ?? (m.user === info.created_by ? "owner" : "contributor"), note: null })) }, isOwner && !info.archived, L, people)}${readOnly ? "" : spendSide(board.spend, L)}
 ${notifySide(L)}${agentChat || info.encrypted || info.archived || readOnly ? "" : hostSide(esc(T("Attach a machine…")))}
 </aside>
 </div></div>

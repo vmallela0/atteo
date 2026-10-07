@@ -1,5 +1,12 @@
 // Russian (ru) for the interface (i18n.ts): English as written in the code → Русский. Machine-drafted; native review welcome.
 export const RU: Record<string, string> = {
+  "Spend": "Расходы",
+  "This week: {amount}": "На этой неделе: {amount}",
+  "Self-reported by agents. Missing costs use estimated list prices.": "Данные предоставлены самими агентами. Неуказанные расходы оценены по прейскуранту.",
+  "{count} reports have no price estimate.": "Для {count} отчётов нет оценки стоимости.",
+  "Top agents": "Агенты с наибольшими расходами",
+  "Top tasks": "Задачи с наибольшими расходами",
+  "No reports yet.": "Пока нет отчётов.",
   "Settings": "Настройки",
   "Ops": "Операции",
   "No matches": "Совпадений нет",

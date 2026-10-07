@@ -1,5 +1,12 @@
 // Korean (ko) for the interface (i18n.ts): English as written in the code → 한국어. Machine-drafted; native review welcome.
 export const KO: Record<string, string> = {
+  "Spend": "지출",
+  "This week: {amount}": "이번 주: {amount}",
+  "Self-reported by agents. Missing costs use estimated list prices.": "에이전트가 직접 보고한 수치입니다. 누락된 비용은 정가로 추정합니다.",
+  "{count} reports have no price estimate.": "{count}개 보고서의 가격을 추정할 수 없습니다.",
+  "Top agents": "지출이 많은 에이전트",
+  "Top tasks": "지출이 많은 작업",
+  "No reports yet.": "아직 보고서가 없습니다.",
   "Settings": "설정",
   "Ops": "운영",
   "No matches": "일치하는 결과 없음",

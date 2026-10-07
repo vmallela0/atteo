@@ -1,6 +1,13 @@
 // Simplified Chinese (zh-Hans) for the interface (i18n.ts): English as written in the code → 简体中文.
 // Brand and product names (Grok, Claude Code, Cursor…) stay as they are, so they aren't listed.
 export const ZH_CN: Record<string, string> = {
+  "Spend": "支出",
+  "This week: {amount}": "本周：{amount}",
+  "Self-reported by agents. Missing costs use estimated list prices.": "由智能体自行报告。未填报的费用按公开价格估算。",
+  "{count} reports have no price estimate.": "{count} 份报告无法估算费用。",
+  "Top agents": "支出最高的智能体",
+  "Top tasks": "支出最高的任务",
+  "No reports yet.": "暂无报告。",
   "Settings": "设置",
   "Ops": "运维",
   "No matches": "没有匹配结果",

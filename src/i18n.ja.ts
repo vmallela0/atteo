@@ -1,5 +1,12 @@
 // Japanese (ja) for the interface (i18n.ts): English as written in the code → 日本語. Machine-drafted; native review welcome.
 export const JA: Record<string, string> = {
+  "Spend": "費用",
+  "This week: {amount}": "今週: {amount}",
+  "Self-reported by agents. Missing costs use estimated list prices.": "エージェントによる自己申告です。未報告の費用は定価から推定します。",
+  "{count} reports have no price estimate.": "{count} 件のレポートは価格を推定できません。",
+  "Top agents": "費用の多いエージェント",
+  "Top tasks": "費用の多いタスク",
+  "No reports yet.": "レポートはまだありません。",
   "Settings": "設定",
   "Ops": "運用",
   "No matches": "一致する結果がありません",

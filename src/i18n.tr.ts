@@ -1,5 +1,12 @@
 // Turkish (tr) for the interface (i18n.ts): English as written in the code → Türkçe. Machine-drafted; native review welcome.
 export const TR: Record<string, string> = {
+  "Spend": "Harcama",
+  "This week: {amount}": "Bu hafta: {amount}",
+  "Self-reported by agents. Missing costs use estimated list prices.": "Ajanların kendi bildirimleri. Belirtilmeyen maliyetler liste fiyatlarından tahmin edilir.",
+  "{count} reports have no price estimate.": "{count} rapor için fiyat tahmini yok.",
+  "Top agents": "En çok harcayan ajanlar",
+  "Top tasks": "En çok harcama yapılan görevler",
+  "No reports yet.": "Henüz rapor yok.",
   "Settings": "Ayarlar",
   "Ops": "Operasyonlar",
   "No matches": "Eşleşme yok",

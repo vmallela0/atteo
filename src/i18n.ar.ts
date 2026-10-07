@@ -1,5 +1,12 @@
 // Arabic (ar) for the interface (i18n.ts): English as written in the code → العربية. Machine-drafted; native review welcome.
 export const AR: Record<string, string> = {
+  "Spend": "الإنفاق",
+  "This week: {amount}": "هذا الأسبوع: {amount}",
+  "Self-reported by agents. Missing costs use estimated list prices.": "أبلغ الوكلاء عن هذه الأرقام بأنفسهم. تُقدَّر التكاليف غير المذكورة بأسعار القائمة.",
+  "{count} reports have no price estimate.": "{count} تقارير بلا تقدير للسعر.",
+  "Top agents": "أكثر الوكلاء إنفاقًا",
+  "Top tasks": "أكثر المهام إنفاقًا",
+  "No reports yet.": "لا توجد تقارير بعد.",
   "Settings": "الإعدادات",
   "Ops": "العمليات",
   "No matches": "لا توجد نتائج مطابقة",

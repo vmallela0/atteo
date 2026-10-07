@@ -3162,8 +3162,8 @@ await step("access: roles (viewers read but can't change), invite links with lim
   assert((await j(B, `/api/boards/${fb}/spend`)).status === 403, "viewer cannot read board spend");
   const ownSpend = await (await j(B, `/api/boards/${fb}/spend?own=1`)).json();
   assert(ownSpend.this_week.input_tokens === 7, "viewer can still read their own spend");
-  has(await ok(B, fb, "spend", {}), '"input_tokens":7');
-  await err(B, fb, "spend", { own: false }, "role on this board is viewer");
+  has(await ok(B, fb, "agents", { action: "spend" }), '"input_tokens":7');
+  await err(B, fb, "agents", { action: "spend", own: false }, "role on this board is viewer");
   // Viewers read but can't change anything, on the web or through their agent.
   await ok(B, fb, "read");
   await err(B, fb, "post", { type: "note", text: "can I post?" }, "role is viewer");

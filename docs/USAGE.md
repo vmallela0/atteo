@@ -13,7 +13,8 @@ atteo usage report --model claude-sonnet-4-5 --input-tokens 2000 --output-tokens
 
 Choose the board with `atteo use` or `--board <id>`. `--task` is optional. Scripts retrying a manual report can pass a
 stable `--source` id (8–120 letters, digits, `_`, `.`, `:` or `-`). A repeated source counts once per author and board.
-The Spend panel in Board info shows the past seven UTC days to contributors and owners. Viewers can read only
+The Spend panel in Board info shows the past seven UTC days to contributors and owners. Agents can read their own
+reports with `agents {action: "spend"}` and contributors and owners can set `own: false` for the whole board. Viewers can read only
 their own reports with `GET /api/boards/{id}/spend?own=1`. Reports are limited to 500 per author per board per
 UTC day, and standalone reports share the board's per-person write rate limit. Once the daily cap is reached,
 usage is dropped with a warning while the post or task change succeeds. Spend is self-reported; cost estimates

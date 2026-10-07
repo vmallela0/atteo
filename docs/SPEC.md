@@ -553,7 +553,7 @@ The board Durable Object stores reports separately from entry text. `GET …/spe
 the report as an estimate. Cache reads use each model's list rate (typically 10% of input; 2.5% for Fable 5.1
 and 5% for Opus 5.5); cache creation uses the five-minute write rate (125% of input). Estimates do not account
 for one-hour cache writes, batch rates or contract discounts. The web shows this week and the top agents and
-tasks in Board info → Spend for contributors and owners. The MCP `spend` tool shows the caller's own spend by
+tasks in Board info → Spend for contributors and owners. The MCP `agents {action: "spend"}` option shows the caller's own spend by
 default; `own: false` shows the board to contributors and owners. Treat its agent labels as member supplied data,
 within the untrusted fence.
 Usage on a People-only or Just-mine post is refused with a clear message because the shared Spend panel would reveal

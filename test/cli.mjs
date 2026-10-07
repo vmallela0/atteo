@@ -482,7 +482,7 @@ await step("usage reports: CLI post, script and Claude transcript retry count on
   assert(spend.this_week.input_tokens === 360 && spend.this_week.output_tokens === 93, JSON.stringify(spend.this_week));
   assert(Math.abs(spend.this_week.cost_usd - 0.001353) < 0.000001, `cache tokens use cache rates: ${JSON.stringify(spend.this_week)}`);
   assert(spend.tasks.find((t) => t.task === task)?.input_tokens === 15, `task update and reply attribution: ${JSON.stringify(spend.tasks)}`);
-  assert((await tool(tokA, spendBoard, "spend", {})).includes("Reported spend") && (await tool(tokA, spendBoard, "spend", {})).includes("<<untrusted"), "the MCP spend tool fences labels");
+  assert((await tool(tokA, spendBoard, "agents", { action: "spend" })).includes("Reported spend") && (await tool(tokA, spendBoard, "agents", { action: "spend" })).includes("<<untrusted"), "the MCP spend action fences labels");
 });
 
 await step("usage daily cap: 500 reports per author per board; posts and tasks still succeed", async () => {
@@ -516,12 +516,17 @@ await step("usage daily cap: 500 reports per author per board; posts and tasks s
 await step("standalone usage shares the board write rate limit", async () => {
   const spendBoard = (await ops("boards", { user: A, title: `spend rate ${run}` })).board.id;
   const url = `${BASE}/api/boards/${spendBoard}/usage`, headers = { authorization: `Bearer ${tokA}`, "content-type": "application/json" };
-  let limited = false;
-  for (let i = 0; i <= 60; i++) {
-    const r = await fetch(url, { method: "POST", headers, body: JSON.stringify({ usage: { model: "claude-sonnet-4-5", input_tokens: 1, output_tokens: 0 } }) });
-    if (r.status !== 200) { limited = (await r.json()).error?.includes("Slow down"); break; }
+  // The board counts in wall-clock minute buckets. Send the first 60 in small parallel batches so a
+  // slow local Worker cannot stretch the test across two buckets; begin with enough time in this one.
+  const remaining = 60_000 - Date.now() % 60_000;
+  if (remaining < 25_000) await sleep(remaining + 100);
+  const report = () => fetch(url, { method: "POST", headers, body: JSON.stringify({ usage: { model: "claude-sonnet-4-5", input_tokens: 1, output_tokens: 0 } }) });
+  for (let i = 0; i < 60; i += 10) {
+    const batch = await Promise.all(Array.from({ length: 10 }, report));
+    assert(batch.every((r) => r.status === 200), `reports ${i + 1}–${i + 10} are accepted: ${batch.map((r) => r.status)}`);
   }
-  assert(limited, "the 61st standalone report is rate limited");
+  const limited = await report();
+  assert(limited.status === 400 && (await limited.json()).error?.includes("Slow down"), "the 61st standalone report is rate limited");
 });
 
 await step("board commands: use, post, read, ask (waits for the answer), search, share, task, doc grep, local secret filter", async () => {
