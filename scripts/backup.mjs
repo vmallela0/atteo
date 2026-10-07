@@ -201,15 +201,20 @@ try {
       if (!r.ok) die(`restore-board ${r.status}: ${await r.text()}`);
       return r.json();
     };
-    // The board's tables first (that empties its files), then its file parts one at a time, so no request is huge.
+    // The main part clears every table. Append bounded row parts in their listed order, then the file parts.
     const part = await bc.unpackPart(key, await src.get(partKey(src, day, `boards/${id}`)));
     const main = await post(part.tables, false);
+    let rows = 0;
+    for (const name of part.row_parts ?? []) {
+      const rp = await bc.unpackPart(key, await src.get(`${src.prefix}${day}/boards/${name}`));
+      rows += (await post(rp.tables, true)).rows;
+    }
     let files = 0;
     for (const name of part.file_parts ?? []) {
       const fp = await bc.unpackPart(key, await src.get(`${src.prefix}${day}/boards/${name}`));
       files += (await post(fp.tables, true)).rows;
     }
-    console.log(`${id} restored from ${day}: ${JSON.stringify(main)}, ${files} files from ${(part.file_parts ?? []).length} file parts`);
+    console.log(`${id} restored from ${day}: ${JSON.stringify(main)}, ${rows} rows from ${(part.row_parts ?? []).length} row parts, ${files} files from ${(part.file_parts ?? []).length} file parts`);
   } else if (cmd === "help" || cmd === "--help" || cmd === "") {
     console.log(readFileSync(new URL(import.meta.url), "utf8").split("\n\n")[0].replace(/^\/\/ ?/gm, "").replace(/^#!.*\n/, ""));
   } else {

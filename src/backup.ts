@@ -1,8 +1,9 @@
 // Nightly encrypted backups (#1550, INFRA-ASSESSMENT rec 2). The 5-minute cron runs backupTick: from BACKUP_HOUR (UTC,
 // default 3) it writes the night's parts to the bucket, a few per run so no run is long:
 //   <prefix><day>/d1.json.gz.enc            every D1 table
-//   <prefix><day>/boards/<id>.json.gz.enc   every table of one board's Durable Object (the board uploads it itself),
-//   <prefix><day>/boards/<id>.files-<k>…    except its files and pictures, a few MB per part (BACKUP_BLOB_PART_BYTES)
+//   <prefix><day>/boards/<id>.json.gz.enc   table columns, small metadata and the board's part lists
+//   <prefix><day>/boards/<id>.files-<k>…    files and pictures, a few MB per part (BACKUP_BLOB_PART_BYTES)
+//   <prefix><day>/boards/<id>.rows-<table>-<k>…  other table rows, about BACKUP_ROWS_PART_BYTES per part
 //   <prefix><day>/manifest.json.gz.enc      written last: every part with its size and SHA-256, and any that failed
 // A part that fails is retried on later runs (3 tries). If the manifest isn't written BACKUP_ALERT_HOURS after the start,
 // or a part gave up, the cron reports it once that day (Sentry, the ops errors list, the log). Retention (30 days) is the
@@ -26,7 +27,7 @@ export interface PartResult {
   object_key: string;
   bytes: number;
   sha256: string;
-  extra?: Omit<PartResult, "extra">[]; // a board's file parts, written before it
+  extra?: Omit<PartResult, "extra">[]; // a board's file and row parts, written before it
 }
 
 const MAX_ATTEMPTS = 3;
@@ -56,6 +57,10 @@ export const objectKey = (cfg: BackupConfig, day: string, part: string) =>
 
 /** A board's files, a few MB per part: <day>/boards/<id>.files-<k>.json.gz.enc. */
 export const blobPartKey = (cfg: BackupConfig, day: string, board: string, k: number) => `${cfg.prefix}${day}/boards/${board}.files-${k}.json.gz.enc`;
+
+/** One size-capped range of a board table's rows. */
+export const rowPartKey = (cfg: BackupConfig, day: string, board: string, table: string, k: number) =>
+  `${cfg.prefix}${day}/boards/${board}.rows-${encodeURIComponent(table)}-${k}.json.gz.enc`;
 
 /** Packs, seals and uploads one part. */
 export async function uploadPart(cfg: BackupConfig, key: string, value: unknown): Promise<PartResult> {

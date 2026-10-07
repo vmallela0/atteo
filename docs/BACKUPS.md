@@ -42,6 +42,7 @@ objects (30 days) *and* the private key both exist.
    call; it isn't sensitive. Backups are **off** until it's set.
 5. **Optional** `wrangler.jsonc` vars: `BACKUP_HOUR` (UTC, default 3), `BACKUP_BATCH` (boards per cron run, default 20),
    `BACKUP_ALERT_HOURS` (default 6), `BACKUP_BLOB_PART_BYTES` (a board's files per part, default 8,000,000),
+   `BACKUP_ROWS_PART_BYTES` (a board's table rows per part, estimated JSON bytes, default 8,000,000),
    `BACKUP_S3_PREFIX` (default `atteo/`).
 6. **Verify the next day**: `GET /api/ops/backups` (operator) shows `configured: true`, `target: "r2"` and the nights.
    The first good night ends with a manifest and `last_complete` set.
@@ -56,6 +57,11 @@ there instead of R2; the script reads them with `--endpoint … --bucket … --k
 
 A board's FTS5 search index (`search_idx`) is dumped as rows and rebuilt on restore, so the shadow tables
 (`search_idx_data`, `…_idx`, `…_content`, `…_docsize`, `…_config`) are never backed up.
+Each board's main object contains table columns, the small `meta` table, and ordered `row_parts` and `file_parts`
+filenames. Growing tables (including `entries`, `doc_versions`, and `search_idx`) are uploaded in rowid order as
+`boards/<id>.rows-<table>-<k>.json.gz.enc`; `blobs` keeps its `boards/<id>.files-<k>.json.gz.enc` layout. The
+manifest includes the size and hash of every extra object. The restore script also accepts older main objects with
+all non-file rows embedded and no `row_parts` list.
 
 ## Restore drill (task #1550's done bar; repeat quarterly)
 
@@ -73,7 +79,7 @@ CI=1 npx wrangler d1 execute agent-board --local --persist-to "$state" --file d1
 
 # 2. One board back: a Worker on that state (ADMIN_KEY in .dev.vars), then the board's tables through the ops route
 npx wrangler dev --port $port --persist-to "$state" &
-node scripts/backup.mjs restore-board "$day" "$b" --key ~/.atteo-backup/backup-key.json --base http://localhost:$port   # its tables, then each file part
+node scripts/backup.mjs restore-board "$day" "$b" --key ~/.atteo-backup/backup-key.json --base http://localhost:$port   # its main part, row parts, then file parts
 
 # 3. e2e against it (drill passed = this comes back green)
 BASE=http://localhost:$port node test/e2e.mjs

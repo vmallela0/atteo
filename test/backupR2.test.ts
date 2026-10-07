@@ -1,6 +1,8 @@
-import { describe, expect, it } from "vitest";
-import { backupConfig, objectKey, uploadPart } from "../src/backup";
+import { describe, expect, it, vi } from "vitest";
+vi.mock("cloudflare:workers", () => ({ DurableObject: class {} }));
+import { backupConfig, objectKey, rowPartKey, uploadPart } from "../src/backup";
 import { b64, unpackPart } from "../src/backupcore";
+import { Board } from "../src/board";
 import type { Env } from "../src/types";
 
 // Where nightly backups go (vedu #5342): R2 in our account through the BACKUP_R2 binding, unless every BACKUP_S3_* setting
@@ -75,5 +77,42 @@ describe("uploadPart to R2", () => {
     expect(stored.length).toBe(r.bytes);
     expect(new TextDecoder().decode(stored.slice(0, 16))).toBe("atteo-backup-v1\n");
     expect(await unpackPart(priv, stored)).toEqual({ kind: "d1", rows: [1, 2, 3] });
+  });
+});
+
+describe("board row parts", () => {
+  it("uploads growing table rows in bounded rowid order and keeps the main part small", async () => {
+    const { pub, priv } = await keypair();
+    const r2 = fakeR2();
+    const env = { BACKUP_PUBLIC_KEY: pub, BACKUP_R2: r2.bucket, BACKUP_ROWS_PART_BYTES: "400" } as unknown as Env;
+    const entries = Array.from({ length: 20 }, (_, i) => [i + 1, `entry ${i} ${"x".repeat(80)}`]);
+    const sql = {
+      exec(query: string, ...args: unknown[]) {
+        if (query.includes("FROM blobs ORDER BY")) return { toArray: () => [] };
+        if (query.includes("FROM sqlite_master")) return { toArray: () => [{ name: "entries", sql: "CREATE TABLE entries" }, { name: "meta", sql: "CREATE TABLE meta" }] };
+        if (query.includes('FROM "entries" LIMIT 0')) return { columnNames: ["seq", "text"], raw: () => [] };
+        if (query.includes('FROM "meta"')) return { columnNames: ["key", "value"], raw: () => [["id", "b_test"]] };
+        if (query.includes('FROM "entries" WHERE rowid >')) {
+          const page = entries.filter((r) => (r[0] as number) > (args[0] as number)).slice(0, 16).map((r) => [r[0], ...r]);
+          return { raw: () => page };
+        }
+        throw new Error(`unexpected SQL: ${query}`);
+      },
+    };
+    const board = Object.assign(Object.create(Board.prototype), { env, sql, meta: () => "b_test" }) as Board;
+    const result = await board.backup("2026-10-07");
+    const main = await unpackPart<{ tables: Record<string, { rows: unknown[][] }>; row_parts: string[]; file_parts: string[] }>(priv, r2.objects.get(result.object_key)!);
+    expect(main.tables.entries.rows).toEqual([]);
+    expect(main.tables.meta.rows).toEqual([["id", "b_test"]]);
+    expect(main.file_parts).toEqual([]);
+    expect(main.row_parts.length).toBeGreaterThan(2);
+    expect(result.extra?.length).toBe(main.row_parts.length);
+    const restored: unknown[][] = [];
+    for (const [k, name] of main.row_parts.entries()) {
+      expect(name).toBe(rowPartKey(backupConfig(env)!, "2026-10-07", "b_test", "entries", k).split("/").at(-1));
+      const part = await unpackPart<{ tables: { entries: { rows: unknown[][] } } }>(priv, r2.objects.get(`atteo/2026-10-07/boards/${name}`)!);
+      restored.push(...part.tables.entries.rows);
+    }
+    expect(restored).toEqual(entries);
   });
 });

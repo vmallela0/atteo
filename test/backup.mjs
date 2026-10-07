@@ -109,6 +109,11 @@ const unseal = async (key) => {
   assert(b, `no object ${key}`);
   return JSON.parse(Buffer.from(await bc.gunzip(await bc.open(priv, b))).toString());
 };
+const boardEntries = async () => {
+  const r = await fetch(`${BASE}/api/boards/${globalThis.__boardId}/entries?after=0&limit=100`, { headers: { authorization: `Bearer ${globalThis.__token}` } });
+  assert(r.status === 200, `entries read: ${r.status}`);
+  return (await r.json()).entries;
+};
 
 const steps = [
   ["a night before BACKUP_HOUR writes nothing", async () => {
@@ -147,13 +152,28 @@ const steps = [
     assert(d1.tables.boards?.rows.length >= 1, "boards dumped");
     assert(!Object.keys(d1.tables).some((t) => t.startsWith("sqlite_")), "no sqlite internals");
   }],
-  ["the board part decrypts with its entries; its files are in parts of their own, as $b64", async () => {
+  ["the board's rows and files decrypt from bounded parts", async () => {
     globalThis.__board = await unseal(`${day}/boards/${globalThis.__boardId}.json.gz.enc`);
     const b = globalThis.__board;
     assert(b.kind === "board" && b.board === globalThis.__boardId, "board header");
-    const entries = b.tables.entries.rows.map((r) => r[b.tables.entries.columns.indexOf("text")]);
-    assert(entries.length === 6 && entries.slice(0, 5).every((t) => /^bk-seed \d/.test(t)) && entries[5] === "bk-files", `entries as of the backup: ${entries.join(" | ")}`);
-    assert(b.tables.search_idx.rows.length >= 6, "the search index as rows");
+    assert(b.tables.entries.rows.length === 0 && b.tables.docs.rows.length === 0, "the main part has table columns but no growing rows");
+    const entryParts = b.row_parts.filter((name) => name.includes(".rows-entries-"));
+    assert(entryParts.length >= 3, `entries split across several row parts: ${JSON.stringify(entryParts)}`);
+    const rows = [];
+    for (let k = 0; k < entryParts.length; k++) {
+      const rp = await unseal(`${day}/boards/${entryParts[k]}`);
+      assert(rp.kind === "board-rows" && rp.table === "entries" && rp.part === k && rp.tables.entries.rows.length > 0, `ordered entry part ${k}`);
+      rows.push(...rp.tables.entries.rows);
+    }
+    const entries = rows.map((r) => r[b.tables.entries.columns.indexOf("text")]);
+    assert(entries.length === 7 && entries.slice(0, 5).every((t) => /^bk-seed \d/.test(t)) && entries[5] === "bk-files" && entries[6] === "bk-long-artifact", `entries as of the backup: ${entries.join(" | ")}`);
+    const versionParts = b.row_parts.filter((name) => name.includes(".rows-doc_versions-"));
+    assert(versionParts.length > 0, "document versions have row parts");
+    const versionData = await Promise.all(versionParts.map((name) => unseal(`${day}/boards/${name}`)));
+    const contentIndex = versionData[0].tables.doc_versions.columns.indexOf("content");
+    assert(versionData.some((p) => p.tables.doc_versions.rows.some((r) => r[contentIndex] === globalThis.__artifact)), "long artifact content survives the split");
+    const searchParts = b.row_parts.filter((name) => name.includes(".rows-search_idx-"));
+    assert(searchParts.length > 0, "the search index has row parts");
     assert(!("search_idx_data" in b.tables), "no FTS5 shadow tables");
     assert(b.tables.blobs && b.tables.blobs.rows.length === 0 && b.tables.blobs.columns.includes("bytes"), "the main part has no file bytes");
     assert(b.file_parts?.length === 3, `one file part per file at this part size: ${JSON.stringify(b.file_parts)}`);
@@ -169,7 +189,7 @@ const steps = [
     assert(names.sort().join() === FILES.join(), `every file once: ${names}`);
     const m = await unseal(`${day}/manifest.json.gz.enc`);
     const bp = m.parts.find((p) => p.part === `board:${globalThis.__boardId}`);
-    assert(bp?.extra?.length === 3 && bp.extra.every((e) => /^[0-9a-f]{64}$/.test(e.sha256)), `the manifest lists the file parts with their hashes: ${JSON.stringify(bp)}`);
+    assert(bp?.extra?.length === b.file_parts.length + b.row_parts.length && bp.extra.every((e) => /^[0-9a-f]{64}$/.test(e.sha256)), `the manifest lists every part with a hash: ${JSON.stringify(bp)}`);
   }],
   ["d1-sql (scripts/backup.mjs) turns the night into SQL sqlite3 accepts", async () => {
     const dir = mkdtempSync(join(tmpdir(), "atteo-bk-"));
@@ -190,13 +210,35 @@ const steps = [
     const { stdout } = await promisify(execFile)(process.execPath, ["scripts/backup.mjs", "restore-board", day, globalThis.__boardId, "--key", KEY_FILE, "--base", BASE, "--admin-key", ADMIN_KEY, ...scriptArgs()], { env: scriptEnv() }).catch((e) => {
       throw new Error(`restore-board failed: ${e.stderr || e.message}`);
     });
-    assert(/restored from .*"skipped":\[\].*, 3 files from 3 file parts/.test(stdout), `the script's report: ${stdout}`);
-    const after = await fetch(`${BASE}/api/boards/${globalThis.__boardId}/entries?after=0&limit=100`, { headers: { authorization: `Bearer ${globalThis.__token}` } });
-    const texts = (await after.json()).entries.map((e) => e.text);
-    assert(texts.length === 6 && !texts.some((t) => /bk-after/.test(t)), `entries back as of the night, not after: ${texts.join(" | ")}`);
+    assert(/restored from .*"skipped":\[\].*, \d+ rows from \d+ row parts, 3 files from 3 file parts/.test(stdout), `the script's report: ${stdout}`);
+    const restored = await boardEntries();
+    assert(JSON.stringify(restored) === JSON.stringify(globalThis.__entriesBefore), "every visible entry row restored exactly");
+    const texts = restored.map((e) => e.text);
+    assert(texts.length === 7 && !texts.some((t) => /bk-after/.test(t)), `entries back as of the night, not after: ${texts.join(" | ")}`);
     for (const name of FILES) {
       const r = await fetch(`${BASE}/api/boards/${globalThis.__boardId}/image?name=${name}`, { headers: { authorization: `Bearer ${globalThis.__token}` } });
       assert(r.status === 200 && Buffer.from(await r.arrayBuffer()).equals(png(name)), `${name} served again, byte for byte (${r.status})`);
+    }
+  }],
+  ["restore-board reads a legacy main part containing all table rows", async () => {
+    if (MODE === "r2") return; // the fake S3 lets this test replace one object without touching wrangler's local R2 state
+    const mainKey = `${day}/boards/${globalThis.__boardId}.json.gz.enc`;
+    const original = objects.get(mainKey);
+    const legacy = structuredClone(globalThis.__board);
+    for (const name of legacy.row_parts) {
+      const rp = await unseal(`${day}/boards/${name}`);
+      for (const [table, data] of Object.entries(rp.tables)) legacy.tables[table].rows.push(...data.rows);
+    }
+    delete legacy.row_parts;
+    const pub = JSON.parse(readFileSync(KEY_FILE, "utf8")).public_key;
+    objects.set(mainKey, Buffer.from(await bc.packPart(pub, legacy)));
+    try {
+      await ops("seed", { user: "bk-user", board: globalThis.__boardId, count: 2, prefix: "bk-legacy-after" });
+      const { stdout } = await promisify(execFile)(process.execPath, ["scripts/backup.mjs", "restore-board", day, globalThis.__boardId, "--key", KEY_FILE, "--base", BASE, "--admin-key", ADMIN_KEY, ...scriptArgs()], { env: scriptEnv() });
+      assert(/0 rows from 0 row parts, 3 files from 3 file parts/.test(stdout), `legacy restore report: ${stdout}`);
+      assert(JSON.stringify(await boardEntries()) === JSON.stringify(globalThis.__entriesBefore), "legacy backup restores identical entries");
+    } finally {
+      objects.set(mainKey, original);
     }
   }],
   ["a complete night isn't reported late in the day", async () => {
@@ -244,12 +286,16 @@ const setup = [
     fd.append("text", "bk-files");
     const up = await fetch(`${BASE}/api/boards/${globalThis.__boardId}/upload`, { method: "POST", headers: { authorization: `Bearer ${globalThis.__token}` }, body: fd });
     assert(up.status === 201, `files uploaded: ${up.status} ${(await up.text()).slice(0, 200)}`);
+    globalThis.__artifact = "A long artifact\n" + "line with text and symbols → 🟦\n".repeat(80);
+    const artifact = await fetch(`${BASE}/api/boards/${globalThis.__boardId}/entries`, { method: "POST", headers: { authorization: `Bearer ${globalThis.__token}`, "content-type": "application/json" }, body: JSON.stringify({ type: "artifact", text: "bk-long-artifact", artifact_name: "backup.txt", artifact_content: globalThis.__artifact }) });
+    assert(artifact.status === 201, `artifact posted: ${artifact.status} ${(await artifact.text()).slice(0, 200)}`);
+    globalThis.__entriesBefore = await boardEntries();
   },
 ];
 
 try {
   for (const fn of setup) await fn();
-  ok("setup: user, token, board with 5 entries and a message with 3 pictures");
+  ok("setup: user, token, board with 7 entries including a long artifact and 3 pictures");
   for (const [name, fn] of steps) {
     const t0 = Date.now();
     try {

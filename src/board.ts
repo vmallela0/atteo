@@ -33,7 +33,7 @@ import { LEASE_CAP_MS, RENEW_EVERY_MS, renewedUntil } from "./leases";
 import { similarOpen, taskTitleKey } from "./taskTitles";
 import { prepareEntryData, readEntryData, screenedText } from "./entryData";
 import { withinEditWindow } from "./editMessage";
-import { backupConfig, blobPartKey, objectKey, uploadPart, type PartResult } from "./backup";
+import { backupConfig, blobPartKey, objectKey, rowPartKey, uploadPart, type PartResult } from "./backup";
 import { decodeValue, encodeValue, type DumpTables } from "./backupcore";
 import { parseAgentCharter, type AgentCharter } from "./charter";
 import { mutersOf } from "./moderation";
@@ -4861,24 +4861,22 @@ export class Board extends DurableObject<Env> {
 
   // ---- backups outside Cloudflare (#1550, src/backup.ts) ----
 
-  /** Every table as columns + rows. The search index is dumped as its rows, not FTS5's internal tables. `blobs` (files
-   *  and pictures) comes back with its columns and no rows: backup() writes it in parts of its own. */
+  /** Columns for every table and the small meta table's rows. File and other table rows are uploaded in parts.
+   *  The search index is dumped as its rows, not FTS5's internal tables. */
   dumpTables(): DumpTables {
     const all = this.sql.exec("SELECT name, sql FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '_cf_%' ORDER BY name").toArray() as { name: string; sql: string | null }[];
     const virtual = all.filter((t) => /^create virtual table/i.test(t.sql ?? "")).map((t) => t.name);
     const out: DumpTables = {};
     for (const { name } of all) {
       if (virtual.some((v) => name.startsWith(`${v}_`))) continue; // FTS5 shadow tables: rebuilt from the rows
-      const cur = this.sql.exec(`SELECT * FROM "${name.replace(/"/g, '""')}"${name === "blobs" ? " LIMIT 0" : ""}`);
+      const cur = this.sql.exec(`SELECT * FROM "${name.replace(/"/g, '""')}"${name === "meta" ? "" : " LIMIT 0"}`);
       const rows = [...cur.raw()].map((r) => r.map(encodeValue));
       out[name] = { columns: cur.columnNames, rows };
     }
     return out;
   }
 
-  /** Tonight's parts for this board, dumped, sealed and uploaded from here so the Worker never holds them: the files
-   *  (`blobs`) first, a few MB of them per part so a board with many pictures never builds one huge object in this
-   *  object's 128 MB, then everything else, which names its file parts. */
+  /** Upload files and bounded ranges of each other table before the small main part that names them. */
   async backup(day: string): Promise<PartResult> {
     const cfg = backupConfig(this.env);
     const id = this.meta("id");
@@ -4898,12 +4896,51 @@ export class Board extends DurableObject<Env> {
       const rows = [...cur.raw()].map((r) => r.map(encodeValue));
       extra.push(await uploadPart(cfg, blobPartKey(cfg, day, id, k), { kind: "board-files", board: id, day, part: k, tables: { blobs: { columns: cur.columnNames, rows } } }));
     }
-    const main = await uploadPart(cfg, objectKey(cfg, day, `board:${id}`), { kind: "board", board: id, day, created_at: Date.now(), tables: this.dumpTables(), file_parts: extra.map((e) => e.object_key.slice(e.object_key.lastIndexOf("/") + 1)) });
+    const fileParts = extra.map((e) => e.object_key.slice(e.object_key.lastIndexOf("/") + 1));
+    const tables = this.dumpTables();
+    const rowParts: string[] = [];
+    const configuredRowCap = Number(this.env.BACKUP_ROWS_PART_BYTES);
+    const rowCap = Number.isFinite(configuredRowCap) && configuredRowCap > 0 ? configuredRowCap : 8_000_000;
+    const encoder = new TextEncoder();
+    // LIMIT bounds each SQLite read too. The cap is estimated from the JSON representation; a single row larger
+    // than the cap gets its own part, just as a single file larger than BACKUP_BLOB_PART_BYTES does.
+    for (const [name, table] of Object.entries(tables)) {
+      if (name === "meta" || name === "blobs") continue;
+      const q = `"${name.replace(/"/g, '""')}"`;
+      const pageSize = name === "sealed_files" ? 2 : 16; // each encrypted file can be 1.5 MB before base64 encoding
+      let after = Number.MIN_SAFE_INTEGER;
+      let rows: DumpTables[string]["rows"] = [];
+      let size = 0;
+      let k = 0;
+      const flush = async () => {
+        if (!rows.length) return;
+        const part = await uploadPart(cfg, rowPartKey(cfg, day, id, name, k), { kind: "board-rows", board: id, day, table: name, part: k, tables: { [name]: { columns: table.columns, rows } } });
+        extra.push(part);
+        rowParts.push(part.object_key.slice(part.object_key.lastIndexOf("/") + 1));
+        k++;
+        rows = [];
+        size = 0;
+      };
+      for (;;) {
+        const page = [...this.sql.exec(`SELECT rowid, * FROM ${q} WHERE rowid > ? ORDER BY rowid LIMIT ${pageSize}`, after).raw()];
+        for (const raw of page) {
+          after = raw[0] as number;
+          const row = raw.slice(1).map(encodeValue);
+          const bytes = encoder.encode(JSON.stringify(row)).length + 1;
+          if (rows.length && size + bytes > rowCap) await flush();
+          rows.push(row);
+          size += bytes;
+        }
+        if (page.length < pageSize) break;
+      }
+      await flush();
+    }
+    const main = await uploadPart(cfg, objectKey(cfg, day, `board:${id}`), { kind: "board", board: id, day, created_at: Date.now(), tables, file_parts: fileParts, row_parts: rowParts });
     return { ...main, extra };
   }
 
   /** Restore drill / disaster recovery: replaces every table in `tables` with the backup's rows (columns this schema
-   *  lacks are dropped). `append`: adds them instead, for a board's file parts after its main part. */
+   *  lacks are dropped). `append`: adds file or row parts after the main part. */
   async restoreTables(tables: DumpTables, append = false): Promise<{ tables: number; rows: number; skipped: string[] }> {
     const here = new Set((this.sql.exec("SELECT name FROM sqlite_master WHERE type = 'table'").toArray() as { name: string }[]).map((t) => t.name));
     const skipped: string[] = [];
