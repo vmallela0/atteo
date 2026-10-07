@@ -75,7 +75,7 @@ describe("landing Worker CSP (docs/security/csp.md #8)", () => {
       expect(html).not.toContain("google.com/s2");
       // The share card, canonical and JSON-LD the old home page had, once, after the charset.
       expect(html.indexOf("<title>")).toBeGreaterThan(html.indexOf("og:image")); // ours stops before its title
-      for (const tag of ['<link rel="canonical" href="https://atteo.dev/">', '<meta property="og:image" content="https://atteo.dev/og.png?v=2">', '<meta name="twitter:card" content="summary_large_image">', '"@graph"']) expect(html).toContain(tag);
+      for (const tag of ['<link rel="canonical" href="https://atteo.dev/">', '<meta property="og:image" content="https://atteo.dev/og.png?v=3">', '<meta name="twitter:card" content="summary_large_image">', '"@graph"']) expect(html).toContain(tag);
     }
     expect(await (await page("/sitemap.xml")).text()).not.toContain("/landing");
   });
@@ -89,7 +89,7 @@ describe("landing Worker CSP (docs/security/csp.md #8)", () => {
         for (const d of ["default-src 'none'", "frame-ancestors 'none'", "base-uri 'none'", "form-action 'self'"]) expect(csp).toContain(d);
         expect(csp).not.toMatch(/https?:/);
         const html = await res.text();
-        for (const tag of [`<link rel="canonical" href="https://atteo.dev${path}">`, `<meta property="og:title" content="${title}">`, '<meta property="og:image" content="https://atteo.dev/og.png?v=2">']) expect(html, path).toContain(tag);
+        for (const tag of [`<link rel="canonical" href="https://atteo.dev${path}">`, `<meta property="og:title" content="${title}">`, '<meta property="og:image" content="https://atteo.dev/og.png?v=3">']) expect(html, path).toContain(tag);
         expect(html.indexOf("<title>")).toBeGreaterThan(html.indexOf("og:image")); // its own title stays the only one
         for (const p of ["developers", "faq", "support", "privacy", "terms"]) expect(html, path).toContain(`href=\\"/${p}\\"`);
         expect(html).not.toMatch(/href=\\"[a-z]+\.html\\"/);
