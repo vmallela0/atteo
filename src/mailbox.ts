@@ -102,17 +102,19 @@ async function openWake(env: Env, user: string): Promise<{ wait(ms: number, sign
     const socket = (await env.MAILBOX_SIGNAL.get(env.MAILBOX_SIGNAL.idFromName(user)).fetch("https://mailbox/wait", { headers: { Upgrade: "websocket" } })).webSocket;
     if (!socket) return null;
     socket.accept();
-    let pending = false;
+    let pending = false, closed = false;
     const listeners = new Set<() => void>();
     const wake = () => { pending = true; for (const listener of listeners) listener(); };
+    const lost = () => { closed = true; wake(); };
     socket.addEventListener("message", wake);
-    socket.addEventListener("close", wake);
-    socket.addEventListener("error", wake);
+    socket.addEventListener("close", lost);
+    socket.addEventListener("error", lost);
     return {
       wait(ms, signal) {
         if (pending || signal?.aborted) { pending = false; return Promise.resolve(); }
         return new Promise<void>((resolve) => {
-          const timer = setTimeout(done, ms);
+          // Once the socket is gone nothing wakes this wait: poll every 3 s as before push (alt-b #5832).
+          const timer = setTimeout(done, closed ? Math.min(ms, 3_000) : ms);
           function done() {
             clearTimeout(timer);
             listeners.delete(done);
@@ -160,7 +162,7 @@ export async function collect(
   let more = false;
   try {
     rows = await undelivered(env, user, opts.limit + 1, session, !!opts.direct);
-    const every = opts.pollMs ?? 30_000;
+    const every = opts.pollMs ?? (wake ? 30_000 : 3_000); // no wake socket: the old 3 s poll (alt-b #5832)
     const sleep = (ms: number) =>
       new Promise<void>((r) => {
         const t = setTimeout(done, ms);
