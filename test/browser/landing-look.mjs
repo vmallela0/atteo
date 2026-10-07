@@ -13,7 +13,7 @@ const BG = { light: "rgb(255, 255, 255)", dark: "rgb(14, 14, 14)" };
 // jxn's page (#5958, #5972) at / (signed out) and /landing: his Claude Design export, unpacked by its own script under its
 // own CSP. It must unpack with no page errors or CSP violations, ask nothing of another site (its agent favicons come
 // from /landing/icons), and not scroll sideways on a phone.
-for (const [path, w] of [["/", 1440], ["/", 390], ["/landing", 1440]]) {
+for (const [path, w] of [["/", 1440], ["/", 390], ["/", 440], ["/landing", 1440]]) {
   const tag = `${path} ${w}px`, phone = w < 500;
   const ctx = await browser.newContext({ viewport: { width: w, height: phone ? 844 : 800 }, isMobile: phone, hasTouch: phone });
   const p = await ctx.newPage(), errors = [], off = [];
@@ -41,8 +41,12 @@ for (const [path, w] of [["/", 1440], ["/", 390], ["/landing", 1440]]) {
       const [a, b, c] = ["a", "b", "c"].map((t) => box(document.querySelector(`[data-term="${t}"]`)));
       const row = document.querySelector("[data-hub] div:has(> button[aria-haspopup])"), cli = box(row.querySelector(":scope > button[aria-haspopup]")), cmd = box(row.querySelector(":scope > div"));
       return { h1: box(document.querySelector("[data-hub] h1")).right <= innerWidth, over: over.length, stacked: a.bottom < b.top && b.bottom < c.top && c.height > 200,
-        oneLine: Math.abs(cli.top - cmd.top) < 4 && cli.right <= innerWidth && hub.right <= innerWidth };
+        oneLine: Math.abs(cli.top - cmd.top) < 4 && cli.right <= innerWidth && hub.right <= innerWidth,
+        rows: (() => { const ns = [...document.querySelectorAll("[data-net] [data-node]")].map(box), bg = document.querySelector("svg[data-bgweb]");
+          return ns.length === 14 && ns.slice(0, 7).every((n) => n.bottom < hub.top) && ns.slice(7).every((n) => n.top > hub.bottom) && (!bg || getComputedStyle(bg).display === "none"); })() };
     });
+    // jxn #6165: on a phone it's the rows, not the desktop web: 7 agents above the text, 7 below, no web behind the page.
+    check(m.rows, `${tag}: the network is a row of 7 above the text and 7 below, with no web behind the page`);
     check(m.h1 && !m.over, `${tag}: the headline fits and no network icon covers the text (${m.over} over it)`);
     check(m.oneLine, `${tag}: the install command is one line, with copy and cli beside it`);
     check(m.stacked, `${tag}: the demo panels stack`);
