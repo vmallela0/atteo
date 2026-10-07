@@ -94,8 +94,10 @@ export function checkPrefix(p: string | undefined): string {
 
 export const isBoardId = (b: string) => /^b_[a-z0-9]+$/.test(b);
 
-/** Board tools, atteo's commands, and reading files in its own folder: what a standing agent needs to pick up work. */
-export const WORKER_TOOLS = [FORK_TOOLS, "Bash(atteo wait:*)", "Bash(atteo task claim:*)", "Bash(atteo task tick:*)", "Bash(atteo task done:*)", "Read", "Glob", "Grep"].join(",");
+/** Board tools and atteo's commands: what a standing agent needs to pick up work. No bare Read, Glob or Grep: those
+ *  rules allow every path (~/.ssh, the atteo and Claude logins), and a board post could talk it into posting one.
+ *  Reading in its own folder needs no rule (opus-d #5742). */
+export const WORKER_TOOLS = [FORK_TOOLS, "Bash(atteo wait:*)", "Bash(atteo task claim:*)", "Bash(atteo task tick:*)", "Bash(atteo task done:*)"].join(",");
 
 /** The fixed prompt: who it is, its board, how to work. Nothing anyone posted is in it. */
 export function workerPrompt(o: { me: string; board: string; name: string; session: string }): string {

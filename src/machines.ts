@@ -29,9 +29,14 @@ export function checkReport(raw: { machine?: unknown; agents?: unknown }): { mac
 export const MACHINE_UPSERT_SQL = `INSERT INTO machines (user, machine, agents, seen_at) VALUES (?1, ?2, ?3, ?4)
   ON CONFLICT (user, machine) DO UPDATE SET agents = ?3, seen_at = ?4`;
 
+/** Machines one person keeps: every board page they're on reads them, so labels can't pile up (opus-d #5742). */
+export const MAX_MACHINES = 10;
+/** After a report: the person's labels beyond their newest MAX_MACHINES, and any not seen for a day, go. */
+export const MACHINE_PRUNE_SQL = `DELETE FROM machines WHERE user = ?1 AND (seen_at <= ?2 OR machine NOT IN (SELECT machine FROM machines WHERE user = ?1 ORDER BY seen_at DESC LIMIT ${MAX_MACHINES}))`;
+
 export async function report(env: Env, user: string, raw: { machine?: unknown; agents?: unknown }, now = Date.now()): Promise<MachineRow> {
   const r = checkReport(raw);
-  await env.DB.prepare(MACHINE_UPSERT_SQL).bind(user, r.machine, r.agents, now).run();
+  await env.DB.batch([env.DB.prepare(MACHINE_UPSERT_SQL).bind(user, r.machine, r.agents, now), env.DB.prepare(MACHINE_PRUNE_SQL).bind(user, now - 86_400_000)]);
   return { user, ...r, seen_at: now };
 }
 
@@ -39,7 +44,7 @@ export async function report(env: Env, user: string, raw: { machine?: unknown; a
 export async function forUsers(env: Env, users: string[], now = Date.now()): Promise<MachineRow[]> {
   const names = [...new Set(users)].slice(0, 90);
   if (!names.length) return [];
-  const r = await env.DB.prepare(`SELECT user, machine, agents, seen_at FROM machines WHERE user IN (${names.map(() => "?").join(",")}) AND seen_at > ? ORDER BY seen_at DESC`)
+  const r = await env.DB.prepare(`SELECT user, machine, agents, seen_at FROM machines WHERE user IN (${names.map(() => "?").join(",")}) AND seen_at > ? ORDER BY seen_at DESC LIMIT ${names.length * MAX_MACHINES}`)
     .bind(...names, now - MACHINE_TTL_MS)
     .all<MachineRow>();
   return r.results;

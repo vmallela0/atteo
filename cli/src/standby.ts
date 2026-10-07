@@ -69,10 +69,29 @@ const OPAQUE_FLAG = /^(--settings|--add-dir|--mcp-config)$/i;
 const TOOLS_FLAG = /^(--allowedtools|--allowed-tools|--tools)$/i;
 const BROAD_TOOL = /^(bash|bash\(\*?\)|bash\(:?\*\)|powershell|edit|write|multiedit|notebookedit|webfetch|\*)$/i;
 
+// A shell or launcher in front of the agent (sh -c "claude --yolo", env, npx…) runs a command line this check can't see
+// into, and Claude Code behind it gets no --permission-mode, so your settings' default mode would apply (opus-d #5742).
+const LAUNCHER = /^(sh|bash|zsh|dash|ksh|fish|pwsh|powershell|cmd|env|sudo|doas|su|nohup|nice|ionice|timeout|stdbuf|setsid|script|time|xargs|exec|eval|watch|npx|bunx|pnpx|npm|pnpm|yarn|uvx)$/i;
+const INTERPRETER = /^(node|bun|deno|python[\d.]*|perl|ruby)$/i;
+const binName = (p: string) => p.split(/[\\/]/).pop()!.replace(/\.(exe|cmd|bat|ps1)$/i, "");
+
 /** Why this agent command may not run for a DM (permission prompts off), or null when it may. */
-export function unsafeAgent(words: string[]): string | null {
+export function unsafeAgent(words: string[], nested = false): string | null {
+  const bin = binName(words[0] ?? "");
+  if (!nested && LAUNCHER.test(bin)) return `${bin} in front of the agent runs a command this check can't see into; start the agent itself`;
+  if (!nested && INTERPRETER.test(bin)) {
+    // Its own options come before the script (node --eval "…", python -c "…"); the agent's own flags after it are fine.
+    const own = words.slice(1, words.slice(1).findIndex((w) => !w.startsWith("-")) + 1 || words.length);
+    const ev = [...own, words[1] ?? ""].find((w) => /^(-e|-c|-p|--eval|--print|eval|-)$/.test(w) || /^--?(eval|print)=/.test(w));
+    if (ev) return `${bin} ${ev} runs code this check can't see into; start the agent itself`;
+  }
   for (let i = 0; i < words.length; i++) {
     const w = words[i];
+    // A word with spaces may be a command line of its own (my-wrapper "claude --yolo"): its words are checked too.
+    if (!nested && /\s/.test(w)) {
+      const inner = unsafeAgent(splitCommand(w), true);
+      if (inner) return inner;
+    }
     if (UNSAFE_FLAG.test(w)) return `${w.split("=")[0]} turns the agent's permission prompts off`;
     const eq = w.match(/^(--?[\w-]+)=(.*)$/s);
     const [flag, value] = eq ? [eq[1], eq[2]] : [w, words[i + 1] ?? ""];

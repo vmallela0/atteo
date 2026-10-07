@@ -13,6 +13,7 @@ import { ACCOUNT_LOG_SQL, PRUNE_ACCOUNT_LOG_SQL } from "../src/accountlog";
 import { PRUNE_OAUTH_CLIENTS_SQL } from "../src/oauth";
 import { BUMP_SQL, REQUESTS_TODAY_SQL, SHED_GET_SQL, SHED_SET_SQL } from "../src/limits";
 import { ALERT_ONCE_SQL, CAP_CLEAR_SQL, CAP_GET_SQL, CAP_SET_SQL } from "../src/costGuard";
+import { MACHINE_PRUNE_SQL, MACHINE_UPSERT_SQL } from "../src/machines";
 
 const { DatabaseSync } = (await import("node:" + "sqlite")) as { DatabaseSync: new (p: string) => any };
 const { readFileSync, readdirSync } = (await import("node:" + "fs")) as { readFileSync: (u: URL, enc: string) => string; readdirSync: (u: URL) => string[] };
@@ -55,6 +56,8 @@ const HOT: Record<string, string> = {
   "shed level read": SHED_GET_SQL,
   "shed level write": SHED_SET_SQL,
   "requests today (cron)": REQUESTS_TODAY_SQL,
+  "machines report": MACHINE_UPSERT_SQL,
+  "machines prune (a person's labels)": MACHINE_PRUNE_SQL,
 };
 
 describe("hot queries use an index", () => {

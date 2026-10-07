@@ -40,7 +40,7 @@ describe("atteo watch --standby: guardrails", () => {
     expect(standbyCommand("claude --permission-mode plan", "P").args).toEqual(["--permission-mode", "plan", "-p", "P"]);
   });
   it("refuses the rest of the bypasses and the presets that read beyond the run's folder (#5695)", () => {
-    for (const bad of ["codex", "opencode", "gemini", "cursor", "codex exec -s danger-full-access", "codex exec --sandbox=danger-full-access", "codex exec -c approval_policy=never", "codex exec --config sandbox_mode=\"danger-full-access\"", "claude --settings ./allow-all.json", "claude --allowedTools Bash", "claude --allowed-tools=Edit,Write", "claude --tools '*'", "claude --add-dir /", "claude --mcp-config ./more.json"])
+    for (const bad of ["codex", "opencode", "gemini", "cursor", "codex exec -s danger-full-access", "codex exec --sandbox=danger-full-access", "codex exec -c approval_policy=never", "codex exec --config sandbox_mode=\"danger-full-access\"", "claude --settings ./allow-all.json", "claude --allowedTools Bash", "claude --allowed-tools=Edit,Write", "claude --tools '*'", "claude --add-dir /", "claude --mcp-config ./more.json", "sh -c \"claude --yolo\"", "env claude", "npx claude"])
       expect(() => standbyCommand(bad, "p"), bad).toThrow(/Refusing/);
     expect(standbyCommand("codex exec --sandbox read-only", "p").bin).toBe("codex"); // written out by you: allowed
     expect(standbyCommand("claude --allowedTools 'Bash(atteo post:*)'", "p").bin).toBe("claude");

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { agentKind, checkMode, checkPrefix, decideRequest, Listener, localAgents, parseEtime, parsePs, parseSpawnRequest, SPAWN_CAPS, spawnCommand, toStop, workerPrompt, type ListenIO, type Signal, type Spawned } from "../cli/src/spawn";
-import { checkReport, MachineError, visibleTo } from "../src/machines";
+import { checkReport, MACHINE_PRUNE_SQL, MACHINE_UPSERT_SQL, MachineError, MAX_MACHINES, visibleTo } from "../src/machines";
 
 const T = 10_000_000;
 const sig = (o: Partial<Signal> = {}): Signal => ({ board: "b_work", seq: 7, author: "jxn", via: "person", excerpt: "@jxn's agent spawn 2", to_own_agent: true, ...o });
@@ -43,6 +43,14 @@ describe("atteo spawn: guardrails", () => {
     expect(() => spawnCommand('claude --allowedTools "Bash"', "P")).toThrow(/Refusing/);
     expect(() => spawnCommand("codex exec -s danger-full-access", "P")).toThrow(/Refusing/);
     expect(spawnCommand("my-agent --run {prompt}", "P")).toEqual({ bin: "my-agent", args: ["--run", "P"] });
+  });
+  it("reads only in its own folder, and no launcher hides an unsafe agent (opus-d #5742)", () => {
+    const tools = spawnCommand(undefined, "P").args[spawnCommand(undefined, "P").args.indexOf("--allowedTools") + 1].split(",");
+    for (const t of ["Read", "Glob", "Grep"]) expect(tools).not.toContain(t); // a bare rule allows every path on the machine
+    for (const bad of ['sh -c "claude --dangerously-skip-permissions"', "env claude", "/usr/bin/env FOO=1 claude", "npx claude", "bash -lc claude", 'node -e "require(1)"', 'python3 -c "x"', 'my-wrapper "claude --permission-mode bypassPermissions"', "my-wrapper 'claude --yolo'"])
+      expect(() => spawnCommand(bad, "P"), bad).toThrow(/Refusing/);
+    expect(spawnCommand("node /x/@anthropic-ai/claude-code/cli.js -p {prompt}", "P").bin).toBe("node"); // the agent's own -p, after its script
+    expect(spawnCommand("claude --append-system-prompt 'env is fine'", "P").bin).toBe("claude");
   });
   it("the prompt is fixed: names, the board id and the session, nothing from a post", () => {
     const p = workerPrompt({ me: "jxn", board: "b_work", name: "worker-1", session: "as_1" });
@@ -105,6 +113,17 @@ describe("machines (Board info → Agents): only counts leave the machine; label
       { user: "vedu", machine: "laptop", agents: 1, seen_at: T },
     ];
     expect(visibleTo(rows, "jxn")).toEqual([{ user: "jxn", machine: "desktop", agents: 3 }, { user: "vedu", machine: null, agents: 3 }]);
+  });
+  it("keeps a person's newest labels only, so every board page they're on stays small (opus-d #5742)", async () => {
+    const { DatabaseSync } = (await import("node:" + "sqlite")) as { DatabaseSync: new (p: string) => any };
+    const db = new DatabaseSync(":memory:");
+    db.exec("CREATE TABLE machines (user TEXT NOT NULL, machine TEXT NOT NULL, agents INTEGER NOT NULL, seen_at INTEGER NOT NULL, PRIMARY KEY (user, machine))");
+    for (let i = 0; i < MAX_MACHINES + 5; i++) db.prepare(MACHINE_UPSERT_SQL).run("jxn", `pc-${i}`, 1, T + i);
+    db.prepare(MACHINE_UPSERT_SQL).run("vedu", "old", 1, T - 2 * 86_400_000);
+    db.prepare(MACHINE_PRUNE_SQL).run("jxn", T + 100 - 86_400_000);
+    db.prepare(MACHINE_PRUNE_SQL).run("vedu", T - 86_400_000);
+    const left = db.prepare("SELECT user, machine FROM machines ORDER BY seen_at").all() as { user: string; machine: string }[];
+    expect(left.map((r) => r.machine)).toEqual(Array.from({ length: MAX_MACHINES }, (_, i) => `pc-${i + 5}`));
   });
 });
 
