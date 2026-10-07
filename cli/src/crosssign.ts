@@ -11,6 +11,20 @@ export const pinId = (kid: string, publicKey: string, signPub?: string | null, v
 export const pinned = (list: string[] | undefined, kid: string, publicKey: string) => list?.find((e) => e === pinId(kid, publicKey) || e.startsWith(`${pinId(kid, publicKey)}|`));
 
 /**
+ * Trust on first use, for a person this machine has never seen: their first device listed (`devices`), or the one the
+ * server says is their first on the board (`first`, still waiting for its key). A person seen once keeps their entry for
+ * good, even when dropGone empties it: the empty list is the tombstone, so a server that hides all of someone's devices
+ * and then shows a new one of its own never gets it trusted this way (review #5558). Such a device needs a signature
+ * from one still pinned (crossSigned), or the person's own word (`atteo keys trust`). Changes `pin` in place.
+ */
+export function firstSight(pin: Record<string, string[]>, me: string, devices: SignedDevice[], first: SignedDevice[]) {
+  for (const d of [...devices, ...first]) if (d.user !== me && !Object.hasOwn(pin, d.user)) pin[d.user] = [pinId(d.kid, d.public_key, d.sign_pub)];
+}
+
+/** A person seen before with no pinned device left: none of the devices this machine trusted for them is listed now. */
+export const noneLeft = (pin: Record<string, string[]>, user: string) => Object.hasOwn(pin, user) && !pin[user].length;
+
+/**
  * A device signed by one this machine pinned, checked against the signing key pinned with it (never the one the server
  * shows now), is pinned too, so it gets board keys from here. A signing key counts only if it was there when its device
  * was first pinned: an older pin (id|key) never takes one later, so a signing key the server set afterwards on a device
@@ -32,7 +46,8 @@ export function crossSigned(pin: Record<string, string[]>, devices: SignedDevice
 
 /**
  * Devices that are no longer listed for a person this board shows (removed, review #5524) lose their pins, and so does
- * every device trusted through them, so nothing here wraps a key to them again. Returns the dropped pins.
+ * every device trusted through them, so nothing here wraps a key to them again. The person's entry stays, empty if
+ * nothing is left (firstSight's tombstone). Returns the dropped pins.
  */
 export function dropGone(pin: Record<string, string[]>, devices: SignedDevice[]): string[] {
   const live = new Map<string, Set<string>>();

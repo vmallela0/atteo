@@ -163,5 +163,17 @@ check(st3.current===3&&!st3.rotate_needed,"…and removing the old key rotated t
 const g3=JSON.parse((await d1Execute(`--json --command ${JSON.stringify(`SELECT kid FROM key_grants WHERE board_id = '${board}' AND epoch = 3`)}`,{cwd:WT})).toString())[0].results.map(x=>x.kid);
 check(!g3.includes(bobCli.id)&&g3.length>=1,`…and epoch 3 was NOT wrapped to Bob's pinned id with the swapped key (wrapped to ${g3.join(", ")})`);
 r=await cli(A,["read"]);check(/no key for this part of the board on this machine/.test(r.out)&&!/A new device of yours/.test(r.err),"Ann's removed CLI comes back as a new device that holds no key and approves nothing");
+// Review #5558: none of Ann's devices Bob's browser trusted is listed now, and new ones show up (as a server could make
+// them). Bob's browser saw Ann before, so however often it syncs they're never trusted on first use: no key, a warning
+// with a Trust button, and only that click (on Ann's word) hands one the key.
+const grantsTo=async kid=>JSON.parse((await d1Execute(`--json --command ${JSON.stringify(`SELECT COUNT(*) AS n FROM key_grants WHERE board_id = '${board}' AND kid = '${kid}'`)}`,{cwd:WT})).toString())[0].results[0].n;
+for(let i=0;i<3;i++){await pb.evaluate(()=>e2eSync());await pb.waitForTimeout(200)} // a negative: an unwanted grant would show by now
+const pinsB=await pb.evaluate(me=>JSON.parse(localStorage.getItem("soup.e2e.pins."+me)||"{}"),B);
+check(Array.isArray(pinsB[A])&&!pinsB[A].some(e=>e.startsWith(after[0]+"|"))&&await grantsTo(after[0])===0,`Bob's browser keeps Ann's (empty) entry and hands her new device no key (${JSON.stringify(pinsB[A])})`);
+const trustAsk=pb.locator(".e2e-ask",{has:pb.locator(`[data-e2e-trust="${after[0]}"]`)});
+check(/None of .+ devices this browser trusted is listed any more/.test(await trustAsk.innerText().catch(()=>"")),"…and says why, with a Trust button");
+await pb.locator(`[data-e2e-trust="${after[0]}"]`).click();
+check(await until(()=>grantsTo(after[0]),n=>n>0)>0,"Trust, on Ann's word, hands it the keys");
+await pa.evaluate(()=>e2eSync());check(await until(()=>bodyOf(pa,`after removal ${run}`).count(),n=>n===1)===1,"…and Ann's new browser reads again");
 check(errors.length===0,`no page errors ${errors.join(" | ")}`);
 await b.close();console.log(fails?`${fails} FAILED`:"all web encryption checks passed");

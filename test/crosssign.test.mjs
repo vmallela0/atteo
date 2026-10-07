@@ -1,6 +1,6 @@
 import { generateKeyPairSync, sign } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import { crossSigned, dropGone, pinId, pinned } from "../cli/src/crosssign";
+import { crossSigned, dropGone, firstSight, noneLeft, pinId, pinned } from "../cli/src/crosssign";
 import { deviceSigned, verifyDevice } from "../cli/src/sealed";
 import { deviceSigned as serverSigned } from "../src/boardkeys";
 
@@ -71,5 +71,34 @@ describe("cross-signed device lists (E2E design §2.2, Phase 1c)", () => {
     expect(dropped.map((e) => e.split("|")[0]).sort()).toEqual(["a1", "a2", "a3"]);
     expect(pin.bo).toHaveLength(1);
     expect(pin.cy).toEqual(["c1|KEY"]);
+  });
+
+  it("review #5558: a server that hides all of someone's devices and then shows its own never gets it trusted on first use", () => {
+    const b1 = device("bo", "b1"), b2 = device("bo", "b2"), x = device("bo", "xx"), c1 = device("cy", "c1");
+    const pin = {};
+    // First sight of bo and cy: their first device each, nothing more.
+    firstSight(pin, "ana", [plain(b1), plain(c1)], []);
+    firstSight(pin, "ana", [plain(b1), plain(b2)], []);
+    expect(pin).toEqual({ bo: [pinId(b1.kid, b1.public_key, b1.sign_pub)], cy: [pinId(c1.kid, c1.public_key, c1.sign_pub)] });
+    // The attack, as each client runs it (firstSight, dropGone, crossSigned), twice: the server lists only x for bo,
+    // then shows x as bo's "first device" waiting for the key.
+    for (let round = 0; round < 3; round++) {
+      firstSight(pin, "ana", [plain(x)], [{ ...plain(x), first_device: true }]);
+      dropGone(pin, [plain(x), plain(c1)]);
+      crossSigned(pin, [plain(x)]);
+    }
+    expect(pin.bo).toEqual([]); // the tombstone: bo was seen, and nothing bo's devices signed is listed
+    expect(noneLeft(pin, "bo")).toBe(true);
+    expect(pinned(pin.bo, "xx", x.public_key)).toBeFalsy();
+    // It survives a save and a load.
+    expect(JSON.parse(JSON.stringify(pin)).bo).toEqual([]);
+    // A device signed by a still-pinned one of bo's is trusted; a person never seen is still pinned on first sight.
+    const p2 = { bo: [pinId(b1.kid, b1.public_key, b1.sign_pub)] };
+    firstSight(p2, "ana", [plain(b1), { ...plain(b2), signed_by: "b1", sig: b1.signs(b2) }], []);
+    crossSigned(p2, [plain(b1), { ...plain(b2), signed_by: "b1", sig: b1.signs(b2) }]);
+    expect(pinned(p2.bo, "b2", b2.public_key)).toBeTruthy();
+    expect(noneLeft(p2, "bo")).toBe(false);
+    firstSight(p2, "ana", [], [{ ...plain(x), user: "dee", first_device: true }]);
+    expect(p2.dee).toHaveLength(1);
   });
 });

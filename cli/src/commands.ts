@@ -11,7 +11,7 @@ import SKILL_MD from "../../skills/atteo/SKILL.md";
 import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { hostname, tmpdir } from "node:os";
 import { decryptV2, deviceSigned, encryptV2, inviteKey, keysDigest, myKey, mySignKey, newEpochKey, openProof, seal, signDevice, unseal, unwrapInvite, unwrapKey, wrapKey, type WrappedKey } from "./sealed";
-import { crossSigned, dropGone, pinId, pinned } from "./crosssign";
+import { crossSigned, dropGone, firstSight, noneLeft, pinId, pinned } from "./crosssign";
 import { homedir } from "node:os";
 import { basename, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { blockedMessage, scanFields } from "../../src/secrets";
@@ -420,8 +420,7 @@ async function boardKeys(opt: Record<string, string | true>, board: string, trie
   const own = pinned(pin[me], kid, myKey().pub);
   if (own !== pinId(kid, myKey().pub, mySignKey().pub)) pin[me] = [...(pin[me] ?? []).filter((e) => e !== own), pinId(kid, myKey().pub, mySignKey().pub)];
   signMismatch(st.keys.find((k) => k.kid === kid));
-  for (const k of st.keys) if (k.user !== me && !pin[k.user]) (pin[k.user] ??= []).push(pinId(k.kid, k.public_key, k.sign_pub)); // first sight: trust on first use
-  for (const m of st.missing) if (m.user !== me && m.first_device && !pin[m.user]?.length) (pin[m.user] ??= []).push(pinId(m.kid, m.public_key, m.sign_pub));
+  firstSight(pin, me, st.keys, st.missing.filter((m) => m.first_device)); // a person never seen here: trust on first use
   dropGone(pin, st.keys); // removed devices, and devices trusted through them (review #5524); st.keys is every live member device
   crossSigned(pin, [...st.keys, ...st.missing]);
   if (JSON.stringify(pin) !== before) savePins(pin);
@@ -429,7 +428,9 @@ async function boardKeys(opt: Record<string, string | true>, board: string, trie
   const skip = (k: DeviceKey) =>
     k.user === me
       ? warnOnce(k.kid, `🔑 A new device of yours (${k.label ?? "unnamed"}, ${k.kid.slice(0, 8)}) is waiting for this board's key. If it's yours: atteo keys approve ${k.kid}`)
-      : warnOnce(k.kid, `🔑 ${k.user} has a device this machine hasn't seen (${k.label ?? "unnamed"}, ${k.kid.slice(0, 8)}). It gets the key from one of ${k.user}'s own devices, not from here.`);
+      : noneLeft(pin, k.user)
+        ? warnOnce(k.kid, `⚠ None of ${k.user}'s devices this machine trusted is listed any more, and the server shows a new one (${k.label ?? "unnamed"}, ${k.kid}) that none of them signed. It could be the server's own, so it gets no key from here. Check with ${k.user} (not on this board), then: atteo keys trust ${k.user} ${k.kid}`)
+        : warnOnce(k.kid, `🔑 ${k.user} has a device this machine hasn't seen (${k.label ?? "unnamed"}, ${k.kid.slice(0, 8)}). It gets the key from one of ${k.user}'s own devices, not from here.`);
 
   let current = st.current;
   if (current === 0 || st.rotate_needed) {
@@ -1203,6 +1204,22 @@ async function keys(args: string[]) {
         signedNote = ` (Not signed: ${(e as Error).message})`;
       }
     return say(`Approved ${k.label ?? "that device"} (${k.id.slice(0, 8)}). It gets the keys of your encrypted boards the next time this machine reads or posts on them.${signedNote}`);
+  }
+  if (pos[0] === "trust") {
+    // Someone else's device that nothing here vouches for (review #5558): only on the person's own word, checked
+    // outside the board. It's pinned on this machine, which hands it this board's keys from then on.
+    const [, whoRaw, kidArg] = pos;
+    const who = whoRaw?.replace(/^@/, "").toLowerCase();
+    const board = currentBoard(opt);
+    const st: EpochState = await api(opt, "GET", `/api/boards/${board}/epochs`);
+    const k = who && kidArg ? [...st.keys, ...st.missing].find((x) => x.user === who && (x.kid === kidArg || (kidArg.length >= 6 && x.kid.startsWith(kidArg)))) : undefined;
+    if (!k) throw new CliError("Usage: atteo keys trust <person> <device id> [--board <id>]   (a device of theirs this board lists; check it with them first)");
+    if (k.user === creds().user) throw new CliError(`That's one of yours: atteo keys approve ${k.kid}`);
+    const p = pins();
+    if (!pinned(p[k.user], k.kid, k.public_key)) (p[k.user] ??= []).push(pinId(k.kid, k.public_key, k.sign_pub));
+    savePins(p);
+    await boardKeys(opt, board);
+    return say(`Trusted ${k.user}'s device ${k.label ?? "unnamed"} (${k.kid}, key ${k.public_key.slice(0, 12)}…) on this machine: it has this board's keys now.`);
   }
   const mp = pins()[creds().user];
   const ok = (k: { id: string; public_key: string }) => !!pinned(mp, k.id, k.public_key);

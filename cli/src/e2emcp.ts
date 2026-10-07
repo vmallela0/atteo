@@ -51,8 +51,12 @@ export class EncryptedTools {
       // Everything else on an encrypted board is refused here, before anything is sent (review #5525): the server's own
       // tools would read or write plain text there (tasks, docs, search, claims, publish…). Only these are safe.
       const board = this.boardOf(args);
-      if (!ENC_ALLOWED.has(name) && board && (await isEncrypted(this.opt, board)))
+      if (ENC_ALLOWED.has(name) || name === "create_board") return null; // create_board: a new board, nothing of an old one
+      if (board && (await isEncrypted(this.opt, board)))
         throw new Error(`${name} isn't available on an end-to-end encrypted board here: the server would see it in plain text. On this board, use read, get, post, wait, react or retract.`);
+      // No board known here: the server would pick one, maybe an encrypted one, so refuse as post does (review #5559).
+      if (!board && (await this.anyEncrypted()))
+        throw new Error(`Join the board first (join_board) or name it (board): ${name} isn't available on an end-to-end encrypted board, and with none named here it could land on one.`);
       return null;
     }
     const board = this.boardOf(args);

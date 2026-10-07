@@ -87,9 +87,12 @@ function pinUpdate(pin,me,dev,st){const seen=new Map([...st.keys,...st.missing].
   for(const u of Object.keys(pin))pin[u]=pin[u].map(e=>e.includes('|')||!seen.has(e)?e:pinId(e,seen.get(e))); // older pins were ids alone
   // This browser: pinned with its own signing key, never the one the server shows (checked in device()).
   const own=pinOf(pin,me,dev.kid,dev.pub);if(own!==pinId(dev.kid,dev.pub,dev.spub))pin[me]=[...(pin[me]||[]).filter(e=>e!==own),pinId(dev.kid,dev.pub,dev.spub)];
-  for(const k of st.keys)if(k.user!==me&&!pin[k.user])(pin[k.user]=pin[k.user]||[]).push(pinId(k.kid,k.public_key,k.sign_pub)); // first sight: trust on first use
-  for(const m of st.missing)if(m.user!==me&&m.first_device&&!(pin[m.user]||[]).length)(pin[m.user]=pin[m.user]||[]).push(pinId(m.kid,m.public_key,m.sign_pub));
+  // First sight of a person never seen here: trust on first use (the CLI's firstSight). A person seen once keeps their
+  // entry, emptied or not, so a server that hides all their devices and shows one of its own never gets it trusted
+  // this way (review #5558): that takes a still-pinned device's signature, or Trust on the person's word.
+  for(const k of [...st.keys,...st.missing.filter(m=>m.first_device)])if(k.user!==me&&!Object.hasOwn(pin,k.user))pin[k.user]=[pinId(k.kid,k.public_key,k.sign_pub)];
   return pin}
+const noneLeft=(pin,u)=>Object.hasOwn(pin,u)&&!pin[u].length;
 const isPinned=(pin,k)=>!!pinOf(pin,k.user,k.kid,k.public_key);
 /** What a device signature covers (src/boardkeys.ts deviceSigned; never change it). */
 const signedBytes=(u,kid,pub,spub)=>te.encode('atteo device v1\\n'+u+'\\n'+kid+'\\n'+pub+'\\n'+(spub||''));
@@ -132,7 +135,7 @@ async function epochKeys(tries){tries=tries||0;const dev=await device();const st
   if(!READONLY){const grants=[];for(const m of st.missing.filter(trusted))for(const ep of m.epochs)if(keys.has(ep))grants.push({epoch:ep,kid:m.kid,...await wrapFor(keys.get(ep).raw,m.public_key)});
     if(grants.length)await api('POST','/api/boards/'+BOARD+'/grants',{grants}).catch(()=>{})} // anyone else online can do it too
   if(current>(seenEp[BOARD]||0))try{seenEp[BOARD]=current;localStorage.setItem(EPK,JSON.stringify(seenEp))}catch(e){}
-  ST={...st,current,keys,dev,untrusted:st.missing.filter(m=>!trusted(m))};renderBar();return ST}
+  ST={...st,current,keys,dev,untrusted:st.missing.filter(m=>!trusted(m)),orphans:new Set(st.missing.map(m=>m.user).filter(u=>noneLeft(pin,u)))};renderBar();return ST}
 
 function renderBar(){if(!ST)return;const {dev,keys,current}=ST,kid='<span class="mono">'+esc(dev.kid)+'</span>';
   const ready=current>0&&keys.has(current);
@@ -143,6 +146,7 @@ function renderBar(){if(!ST)return;const {dev,keys,current}=ST,kid='<span class=
   if(composer)composer.hidden=!ready||READONLY;
   if(asks)asks.innerHTML=ST.untrusted.map(m=>m.user===ME
     ?(READONLY?'':'<div class="e2e-ask"><span class="grow">A new device of yours wants this board\\'s key: <b>'+esc(m.label||'unnamed')+'</b> (key <span class="mono">'+esc(m.kid)+'</span>). Approve it only if it\\'s yours.</span><button class="btn sm primary" type="button" data-e2e-approve="'+esc(m.kid)+'">Approve</button></div>')
+    :ST.orphans.has(m.user)?'<div class="e2e-ask"><span class="grow">⚠ None of '+esc(m.user)+'\\'s devices this browser trusted is listed any more, and the server shows a new one (<b>'+esc(m.label||'unnamed')+'</b>, key <span class="mono">'+esc(m.kid)+'</span>) that none of them signed. It could be the server\\'s own, so it gets no key from here. Trust it only after checking with '+esc(m.user)+' (not on this board).</span>'+(READONLY?'':'<button class="btn sm" type="button" data-e2e-trust="'+esc(m.kid)+'">Trust</button>')+'</div>'
     :'<div class="e2e-ask xs muted">'+esc(m.user)+' has a device this browser hasn\\'t seen (<b>'+esc(m.label||'unnamed')+'</b>, key <span class="mono">'+esc(m.kid)+'</span>). It gets the key from one of '+esc(m.user)+'\\'s own devices, not from here.</div>').join('')}
 
 // Your own new device: only you, here, by clicking Approve. It's pinned, then handed the epochs this browser holds.
@@ -152,6 +156,11 @@ document.addEventListener('click',async e=>{const b=e.target.closest('[data-e2e-
   if(!m.sig&&ST.dev.spriv)try{const sig=b64(await S.sign({name:'Ed25519'},ST.dev.spriv,signedBytes(ME,m.kid,m.public_key,m.sign_pub)));
     await api('POST','/api/me/keys/'+encodeURIComponent(m.kid)+'/sign',{by:ST.dev.kid,sig})}catch(err){console.warn('[e2e] sign',err)}
   try{await epochKeys();toast('Approved: that device can read this board now')}catch(err){toast(err.message)}finally{b.disabled=false}});
+
+// Someone else's device nothing here vouches for (review #5558): only on the person's word. Pinned, then handed the keys.
+document.addEventListener('click',async e=>{const b=e.target.closest('[data-e2e-trust]');if(!b||!ST)return;const m=ST.untrusted.find(x=>x.kid===b.dataset.e2eTrust&&x.user!==ME);if(!m)return;
+  b.disabled=true;const p=pins();if(!pinOf(p,m.user,m.kid,m.public_key))(p[m.user]=p[m.user]||[]).push(pinId(m.kid,m.public_key,m.sign_pub));savePins(p);
+  try{await epochKeys();toast('Trusted: that device can read this board now')}catch(err){toast(err.message)}finally{b.disabled=false}});
 
 // ---- reading: every envelope on the page is opened here; what can't be opened says why ----
 const PAY=new Map(),OPEN=new Set();let HI=0;
