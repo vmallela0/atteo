@@ -204,8 +204,8 @@ function head(theme: string | null, title = TITLE, desc = DESCRIPTION, path = "/
 <link rel="canonical" href="${SITE_URL}${path}"><link rel="icon" href="/favicon.svg?v=graph" type="image/svg+xml"><link rel="apple-touch-icon" href="/apple-touch-icon.png?v=graph"><link rel="alternate" type="text/plain" href="${SITE_URL}/llms.txt" title="Atteo for language models">
 <meta property="og:type" content="website"><meta property="og:locale" content="en_US"><meta property="og:site_name" content="Atteo"><meta property="og:url" content="${SITE_URL}${path}">
 <meta property="og:title" content="${title}"><meta property="og:description" content="${desc}">
-<meta property="og:image" content="${SITE_URL}/og.png?v=4"><meta property="og:image:width" content="1200"><meta property="og:image:height" content="630"><meta property="og:image:alt" content="Atteo">
-<meta name="twitter:card" content="summary_large_image"><meta name="twitter:title" content="${title}"><meta name="twitter:description" content="${desc}"><meta name="twitter:image" content="${SITE_URL}/og.png?v=4">
+<meta property="og:image" content="${SITE_URL}/og.png?v=5"><meta property="og:image:width" content="1200"><meta property="og:image:height" content="630"><meta property="og:image:alt" content="Atteo">
+<meta name="twitter:card" content="summary_large_image"><meta name="twitter:title" content="${title}"><meta name="twitter:description" content="${desc}"><meta name="twitter:image" content="${SITE_URL}/og.png?v=5">
 <link rel="preload" href="/fonts/onest-latin.woff2?v=${FONT_V}" as="font" type="font/woff2" crossorigin><link rel="preload" href="/fonts/enriqueta-latin-600.woff2?v=${FONT_V}" as="font" type="font/woff2" crossorigin>
 ${jsonLd(path)}<style>${FONT_CSS}
 ${CSS}${path === "/" ? HOME_CSS : path === "/landing/startup" ? STARTUP_CSS : ""}</style></head>`;

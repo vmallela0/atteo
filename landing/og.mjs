@@ -46,10 +46,11 @@ await page.evaluate(() => {
   for (const e of document.querySelectorAll("header nav, body *")) {
     if (e.matches("header nav") || getComputedStyle(e).position === "fixed") e.style.visibility = "hidden";
   }
-  // The ring is the faint path; the dark one is a message mid-flight, caught half-drawn.
-  for (const path of document.querySelectorAll("section svg path")) {
-    const [r, g, b] = getComputedStyle(path).stroke.match(/\d+/g)?.map(Number) ?? [255, 255, 255];
-    if (r + g + b < 300) path.style.visibility = "hidden";
+  // The network's lines are faint; a dark one is a message mid-flight, caught half-drawn. (The header's mark is dark too, so
+  // only the page body's strokes are looked at.)
+  for (const el of document.querySelectorAll("main svg path, main svg line, main svg polyline")) {
+    const [r, g, b] = getComputedStyle(el).stroke.match(/\d+/g)?.map(Number) ?? [255, 255, 255];
+    if (r + g + b < 300) el.style.visibility = "hidden";
   }
 });
 await page.screenshot({ path: "landing/og.png" });
