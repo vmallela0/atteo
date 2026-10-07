@@ -3380,9 +3380,11 @@ await step("approvals: an agent asks before side effects; only the person decide
 await step("REST approval requests: an agent creates one, reads it, and its person decides", async () => {
   const path = `/api/boards/${fb}/approvals`;
   const body = { title: `Review release ${run}`, details: "Check the release branch before pushing", risk: "high" };
+  const postAgent = (who, board, content) => fetch(`${BASE}/api/boards/${board}/approvals`, { method: "POST", headers: { ...auth(who), "content-type": "application/json" }, body: JSON.stringify(content) });
+  assert((await postAgent(OUT, fb, body)).status === 404, "a non-member agent cannot request approval");
   const asPerson = await web(path, A, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
   assert(asPerson.status === 403, "a person session cannot pose as an agent requesting approval");
-  const asAgent = await fetch(`${BASE}${path}`, { method: "POST", headers: { ...auth(A), "content-type": "application/json" }, body: JSON.stringify(body) });
+  const asAgent = await postAgent(A, fb, body);
   assert(asAgent.status === 201, `REST approval request: ${asAgent.status}`);
   const made = await asAgent.json();
   assert(made.approval?.id?.startsWith("ap_") && made.approval.board_id === fb && made.approval.status === "pending" && made.decision === "pending", JSON.stringify(made));
@@ -3393,6 +3395,45 @@ await step("REST approval requests: an agent creates one, reads it, and its pers
   assert(rejected.status === 200, `REST approval decision: ${rejected.status}`);
   const decided = await (await fetch(`${BASE}/api/approvals/${id}`, { headers: auth(A) })).json();
   assert(decided.approval.status === "rejected" && decided.decision === "denied", JSON.stringify(decided));
+
+  const eb = (await ops("boards", { user: A, title: `e2e encrypted approval ${run}`, encrypted: true })).body.board.id;
+  const plain = await postAgent(A, eb, body);
+  assert(plain.status === 400 && /sealed.*sealed_details/.test((await plain.json()).error), "plaintext approval refused on an encrypted board");
+  const b64 = (s) => s.replace(/-/g, "+").replace(/_/g, "/") + "=".repeat((4 - (s.length % 4)) % 4);
+  const pub = (s) => createPublicKey({ key: { kty: "OKP", crv: "X25519", x: s.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "") }, format: "jwk" });
+  const gcm = (key, data) => { const iv = randomBytes(12); const c = createCipheriv("aes-256-gcm", key, iv); return { iv: iv.toString("base64"), ct: Buffer.concat([c.update(data), c.final(), c.getAuthTag()]).toString("base64") }; };
+  const wrap = (key, recipient, info) => {
+    const eph = generateKeyPairSync("x25519");
+    const epk = b64(eph.publicKey.export({ format: "jwk" }).x);
+    const kek = Buffer.from(hkdfSync("sha256", diffieHellman({ privateKey: eph.privateKey, publicKey: pub(recipient.public_key) }), Buffer.concat([Buffer.from(epk, "base64"), Buffer.from(recipient.public_key, "base64")]), info, 32));
+    const w = gcm(kek, key);
+    return { kid: recipient.id, epk, iv: w.iv, wrapped: w.ct };
+  };
+  const device = generateKeyPairSync("x25519");
+  const public_key = b64(device.publicKey.export({ format: "jwk" }).x);
+  const registered = await web("/api/me/keys", A, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ public_key, label: "approval test" }) });
+  assert(registered.status === 201, `register approval device: ${registered.status}`);
+  const keys = (await (await web("/api/me/keys", A)).json()).keys;
+  const epoch = (await (await web(`/api/boards/${eb}/epochs`, A)).json()).current + 1;
+  const boardKey = randomBytes(32);
+  const opened = await web(`/api/boards/${eb}/epochs`, A, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ epoch, grants: keys.map((k) => ({ kid: k.id, ...wrap(boardKey, k, "agent-soup board key v2") })) }) });
+  assert(opened.status === 201, `open approval epoch: ${opened.status} ${await opened.text()}`);
+  const title = `Encrypted release ${run}`, details = `Private release steps ${run}`;
+  const sealed = JSON.stringify({ v: 2, epoch, ...gcm(boardKey, Buffer.from(title)) });
+  const detailKey = randomBytes(32);
+  const sealed_details = JSON.stringify({ v: 1, alg: "x25519-hkdf-sha256-aes256gcm", recipients: keys.map((k) => wrap(detailKey, k, "agent-soup seal v1")), ...gcm(detailKey, Buffer.from(JSON.stringify({ details, command: null }))) });
+  const encrypted = await postAgent(A, eb, { sealed, sealed_details, risk: "high" });
+  assert(encrypted.status === 201, `sealed approval: ${encrypted.status} ${await encrypted.clone().text()}`);
+  const secured = (await encrypted.json()).approval;
+  assert(secured.title === "🔒 Encrypted approval request" && secured.details === sealed_details && !JSON.stringify(secured).includes(title) && !JSON.stringify(secured).includes(details), "only ciphertext reaches approval storage");
+  const entries = (await (await web(`/api/boards/${eb}/sealed?after=0`, A)).json()).entries;
+  assert(entries.some((e) => e.payload === sealed), "sealed approval posts the board envelope");
+  const encryptedSession = await session(A, eb);
+  await serr(encryptedSession, "request_approval", { title, details, wait_seconds: 0 }, "sealed and sealed_details");
+  has(await sok(encryptedSession, "request_approval", { title: "Encrypted approval request", sealed, sealed_details, wait_seconds: 0 }), "Waiting for");
+  assert((await postAgent(A, fb, { sealed, sealed_details })).status === 400, "sealed refused on a plain board");
+  assert((await web(`/api/boards/${eb}/archive`, A, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ archived: true }) })).status === 200, "archive encrypted board");
+  assert((await postAgent(A, eb, { sealed, sealed_details })).status === 403, "archived board refuses approval requests");
 });
 
 await step("headless agents: the setting round-trips; on, agents see it in initialize, the read header and the mailbox; off, nowhere", async () => {

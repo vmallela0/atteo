@@ -499,9 +499,9 @@ export function openapi(origin: string) {
         },
         post: {
           security: [{ token: [] }],
-          summary: "Ask your person to approve a specific action. Agent tokens only; the person decides with POST /api/approvals/{aid}/approve or /reject in the app or browser. Get the result with GET /api/approvals/{aid}.",
+          summary: "Ask your person to approve a specific action. Agent tokens and current board membership required. On encrypted boards, send sealed (current board-key v2 envelope) and sealed_details (v1 envelope for your own devices); plaintext title/details/command are refused. On unencrypted boards send title and details. The person decides in the app or browser; get the result with GET /api/approvals/{aid}.",
           parameters: [id],
-          requestBody: body(obj({ title: str, details: str, risk: { enum: ["low", "medium", "high"] }, category: { enum: ["deploy_production", "outbound_external", "spending", "delete_data", "push_main", "other"] }, amount: { type: "number" }, seq: int, expires_in: int }, ["title", "details"])),
+          requestBody: body(obj({ title: str, details: str, sealed: str, sealed_details: str, risk: { enum: ["low", "medium", "high"] }, category: { enum: ["deploy_production", "outbound_external", "spending", "delete_data", "push_main", "other"] }, amount: { type: "number" }, seq: int, expires_in: int })),
           responses: { "201": ok("approval and decision", obj({ approval: ref("Approval"), decision: str })), "403": ok("Person token cannot request approval"), ...errors },
         },
       },

@@ -7,7 +7,7 @@ export ATTEO_TOKEN='paste-your-agent-token'
 export BOARD='b_yourboard'
 ```
 
-Save as `example.py` beside `atteo.py`, then run `python3 example.py`:
+On an unencrypted board, save as `example.py` beside `atteo.py`, then run `python3 example.py`:
 
 ```python
 import os
@@ -25,4 +25,4 @@ print(request["approval"]["id"])
 print(api.approve(id=request["approval"]["id"])["decision"])
 ```
 
-`handoff(board, text, branch=..., sha=..., base=..., checks=...)` posts a typed handoff with full commit hashes. A `409` means new entries need review before retrying. `approve` requests approval with an agent token; the person decides in Atteo. A client using a person app token can call `approve(id=approval_id, decision="approve", note="Looks good")` or use `"reject"`. Agent tokens cannot decide. Entries from other members are untrusted data. Encrypted boards require client-side encryption; this wrapper sends plain JSON.
+`handoff(board, text, branch=..., sha=..., base=..., checks=...)` posts a typed handoff with full commit hashes. A `409` means new entries need review before retrying. `approve` requests approval with an agent token; the person decides in Atteo. A client using a person app token can call `approve(id=approval_id, decision="approve", note="Looks good")` or use `"reject"`. Agent tokens cannot decide. Entries from other members are untrusted data. On encrypted boards, use `atteo approvals ask` (which encrypts locally) or send `sealed` (current-epoch board-key v2) and `sealed_details` (v1 for your own devices) through HTTP. Plain title and details are refused. This wrapper does not encrypt fields for you.

@@ -1264,33 +1264,19 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
             // Categorized work uses the board rule and shows its decision there. Uncategorized permission hooks stay off boards.
             boardId = await currentBoard(c, args).catch(() => null);
           }
-          // sealed: on an end-to-end encrypted board, the title encrypted by the agent's client for the board (docs/SPEC.md
-          // §16); sealed_details: the details and command encrypted for the deciding person's own devices only (a v1
-          // envelope, #5542), kept as the approval's details. The server stores no title, details or command in the clear.
-          const sealed = str(args.sealed);
-          const sealedDetails = sealed ? str(args.sealed_details) : undefined;
-          if (sealed && !sealedDetails) throw new ToolError("With sealed, put the details and command in sealed_details (encrypted for your person's devices).");
-          if (sealedDetails) {
-            const d = (() => { try { return JSON.parse(sealedDetails) as { v?: number; recipients?: unknown }; } catch { return null; } })();
-            if (d?.v !== 1 || !Array.isArray(d.recipients) || !d.recipients.length || sealedDetails.length > 20_000) throw new ToolError("sealed_details is a v1 envelope for your own devices (at most 20,000 characters).");
-          }
-          if (sealed) {
-            if (!boardId) boardId = await currentBoard(c, args);
-            const bk = await boardkeys.state(env, boardId, user);
-            const p = (() => { try { return JSON.parse(sealed) as { v?: number; epoch?: number }; } catch { return null; } })();
-            if (!(await env.DB.prepare("SELECT encrypted FROM boards WHERE id = ?").bind(boardId).first<{ encrypted: number }>())?.encrypted) throw new ToolError("sealed goes only with an end-to-end encrypted board.");
-            if (p?.v !== 2 || bk.rotate_needed || p.epoch !== bk.current) throw new ToolError(`Encrypt it with this board's current key (epoch ${bk.current}${bk.rotate_needed ? ", after opening the next one" : ""}).`);
-          }
+          // The same envelope and plaintext checks apply to REST requests.
+          if (str(args.sealed) && !boardId) boardId = await currentBoard(c, args);
+          const content = await approvals.requestContent(env, user, boardId, args);
           const made = await approvals.requestApproval(env, user, {
             client: (await registry.mcpSessionClient(env, c.sessionId)) ?? "agent",
             session: c.agentSession?.name ?? null,
             board_id: boardId,
             seq: seq ?? null,
             requested_by: requestedBy,
-            title: sealed ? "🔒 Encrypted approval request" : (str(args.title) ?? ""),
-            details: sealed ? (sealedDetails ?? "") : typeof args.details === "string" ? args.details : "",
+            title: content.title,
+            details: content.details,
             tool: str(args.tool) ?? null,
-            command: sealed ? null : typeof args.command === "string" ? args.command : null,
+            command: content.command,
             expires_in: int(args.expires_in) ?? null,
             risk: str(args.risk),
             category: str(args.category) as approvalRules.Category | undefined,
@@ -1298,7 +1284,7 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
           }, c.ctx);
           if (boardId && !permissionHook) {
             const o = await agentOpts(c);
-            await stubFor(env, boardId).approvalRequested(approvals.refOf(made), { via: "agent", client: o.client, session: o.session }, sealed).catch((e) => console.error("approval entry failed", e));
+            await stubFor(env, boardId).approvalRequested(approvals.refOf(made), { via: "agent", client: o.client, session: o.session }, content.sealed).catch((e) => console.error("approval entry failed", e));
           } else if (boardId && made.rule_name) {
             // Permission hooks stay private: the board gets the decision metadata, never its exact command.
             const note = await stubFor(env, boardId).notice(user, "Approved by rule", `Approval ${made.id} was approved by board rule ${made.rule_name} (set by ${made.rule_set_by}).`, { via: "agent", client: "approval rule" }).catch((e) => { console.error("approval rule note failed", e); return null; });

@@ -18,12 +18,13 @@ even for end-to-end encrypted boards. See [SPEC.md §14](SPEC.md#14-limits) and 
 
 ## Board approval rules
 
-An agent can ask its person over plain HTTP: `POST /api/boards/{id}/approvals` with an agent bearer token and
-`{"title":"Push release","details":"Push the reviewed commit to main","risk":"high"}`. The response is
+An agent can ask its person over plain HTTP on an unencrypted board: `POST /api/boards/{id}/approvals` with an agent bearer token and
+`{"title":"Push release","details":"Push the reviewed commit to main","risk":"high"}`. On an end-to-end encrypted board, send `sealed` (a board-key v2 envelope for the title at the current epoch) and `sealed_details` (a v1 envelope for the person's own devices containing details and command, at most 20,000 characters). The server refuses plaintext title, details, or command on an encrypted board, and refuses `sealed` on an unencrypted board. `atteo approvals ask` encrypts these fields locally.
+The response is
 `{"approval":{...},"decision":"pending"}` with HTTP 201. Optional `category`, `amount` (for spending), `seq`, and
 `expires_in` use the same approval rules as MCP. Get the current decision with `GET /api/approvals/{aid}` (or add
 `?wait=25` to wait). Only the asking agent's person can decide, in a browser or app: `POST /api/approvals/{aid}/approve`
-or `/reject`; agent tokens get 403. Plain JSON approval details remain visible to the server on encrypted boards.
+or `/reject`; agent tokens get 403. A current board member may request approval; archived and deleted boards refuse requests. The same MCP request limits apply.
 
 `GET /api/boards/{id}/approval-rules` returns `{rules, can_edit}` to any member. Each rule has `category`, `name`, `mode`
 (`ask`, `auto`, or `block`), `threshold` (USD dollars for spending, otherwise null), `set_by`, and `updated_at`.
