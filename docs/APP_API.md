@@ -18,6 +18,14 @@ even for end-to-end encrypted boards. See [SPEC.md §14](SPEC.md#14-limits) and 
 
 ## Board approval rules
 
+An agent can ask its person over plain HTTP on an unencrypted board: `POST /api/boards/{id}/approvals` with an agent bearer token and
+`{"title":"Push release","details":"Push the reviewed commit to main","risk":"high"}`. On an end-to-end encrypted board, send `sealed` (a board-key v2 envelope for the title at the current epoch) and `sealed_details` (a v1 envelope for the person's own devices containing details and command, at most 20,000 characters). The server refuses plaintext title, details, or command on an encrypted board, and refuses `sealed` on an unencrypted board. `atteo approvals ask` encrypts these fields locally.
+The response is
+`{"approval":{...},"decision":"pending"}` with HTTP 201. Optional `category`, `amount` (for spending), `seq`, and
+`expires_in` use the same approval rules as MCP. Get the current decision with `GET /api/approvals/{aid}` (or add
+`?wait=25` to wait). Only the asking agent's person can decide, in a browser or app: `POST /api/approvals/{aid}/approve`
+or `/reject`; agent tokens get 403. A current board member may request approval; archived and deleted boards refuse requests. The same MCP request limits apply.
+
 `GET /api/boards/{id}/approval-rules` returns `{rules, can_edit}` to any member. Each rule has `category`, `name`, `mode`
 (`ask`, `auto`, or `block`), `threshold` (USD dollars for spending, otherwise null), `set_by`, and `updated_at`.
 `PUT /api/boards/{id}/approval-rules/{category}` accepts `{mode, threshold?}` from a board owner acting as a person;
@@ -156,6 +164,16 @@ Optional Worker variables override the source defaults:
 | `VOICE_MONTHLY_MINUTES` | 180 | Grok voice minutes per person per month |
 | `VOICE_SESSION_MINUTES` | 10 | maximum reserved minutes for one session |
 | `VOICE_PER_MINUTE` | 12 | sessions a person may start per minute |
+
+## Approve from a terminal
+
+`atteo approve <ap_id>` and `atteo deny <ap_id>` start a two-minute number match. The CLI prints a four-digit code and polls for the result. The person's For you and Approvals cards show the full action and three numbers; the person picks the terminal's number. A wrong pick cancels that confirmation. Starting again replaces the previous one. Agent tokens can start and poll, but `POST /api/approvals/{aid}/terminal-confirm/complete` requires a person session (web cookie or app token). Direct `POST /api/approvals/{aid}/approve|reject` continues to return 403 for CLI/agent tokens.
+
+API: `POST /api/approvals/{aid}/terminal-confirm` with `{ "decision": "approve" | "reject" }` returns `{ token, code, expires_at }`. Poll `GET` on that path with `X-Atteo-Confirm-Token: <token>` and optional `?wait=25`; outcomes are `pending`, `approved`, `denied`, `expired`, `replaced`. The person completes with `{ "token": "tc_…", "choice": "1234" }` at `/complete`. `GET /api/approvals` and `GET /api/approvals/{aid}` include a `terminal_confirm` object containing token, choices, decision and expiry while one is live, without revealing the answer. The token binds a visible card to its current confirmation, so an old card cannot decide a replacement.
+
+An optional 6–32 digit approval PIN can be set or reset with the web-session-only `PUT /api/me/approval-pin` (`{ "pin": "…" }`), inspected without a hash using `GET`, and removed with `DELETE`. The CLI's `--pin` reads from a hidden interactive TTY only; it refuses a pipe and does not accept the PIN in args or environment. `POST /api/approvals/{aid}/pin` verifies it server-side. Five failed tries within 15 minutes lock the PIN for 15 minutes; three lockouts disable it until the person resets it on the web. Every wrong attempt adds a person-only notification and For you alert. The PIN never approves risk-high requests or host runs; use number matching for those.
+
+APNs delivery of these alerts requires `APNS_KEY`, `APNS_KEY_ID`, `APNS_TEAM_ID`, and `APNS_TOPIC`. Without those, the person can still use the web or app approval list and inbox.
 
 ## Request limits (Free-plan guardrails)
 

@@ -476,7 +476,7 @@ struct ApprovalRow: View {
     let a: Approval
     var open: (Approval) -> Void = { _ in } // tap the row for everything it asks (and a note back)
     /// High risk, or a command to run: approved only from ApprovalDetail, where the whole command is on screen.
-    static func reviewFirst(_ a: Approval) -> Bool { a.risk == "high" || a.command != nil }
+    static func reviewFirst(_ a: Approval) -> Bool { a.terminalConfirm != nil || a.risk == "high" || a.command != nil }
     var riskLabel: String {
         switch a.risk {
         case "high": return String(localized: "High risk", bundle: .l10n)
@@ -513,7 +513,7 @@ struct ApprovalRow: View {
         .swipeActions(edge: .leading) {
             if !Self.reviewFirst(a) { Button { Task { await state.decide(a, approve: true) } } label: { Label("Approve", systemImage: "checkmark") }.tint(Theme.ok) }
         }
-        .swipeActions(edge: .trailing) { Button(role: .destructive) { Task { await state.decide(a, approve: false) } } label: { Label("Reject", systemImage: "xmark") } }
+        .swipeActions(edge: .trailing) { if a.terminalConfirm == nil { Button(role: .destructive) { Task { await state.decide(a, approve: false) } } label: { Label("Reject", systemImage: "xmark") } } }
     }
 }
 

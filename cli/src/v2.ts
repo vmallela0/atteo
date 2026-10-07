@@ -6,6 +6,7 @@
 
 import { fence, flagNote, neutralize, randomId, screenText } from "../../src/screen";
 import { ENCRYPTED, mailText as mailBody, titled } from "../../src/ping";
+import { hiddenPinPrompt } from "../../src/approvalPinCopy";
 import { blockedMessage, scanFields } from "../../src/secrets";
 import { grepEntries } from "../../src/localSearch";
 import { env } from "./env";
@@ -23,7 +24,7 @@ type Opt = Record<string, string | true>;
 type BoardRef = { id: string; title: string };
 type ServerSession = { id: string; name: string; client: string | null; status?: string | null; boards: BoardRef[]; created_at: number; last_seen: number; active?: boolean };
 
-const BOOLS = ["json", "pending", "all", "members", "encrypted", "quiet", "mine", "summary", "brief", "clear", "peek", "own", "public", "for-me", "yes", "sweep"]; // sweep: post handoff --sweep (a flag, never a value)
+const BOOLS = ["json", "pending", "all", "members", "encrypted", "quiet", "mine", "summary", "brief", "clear", "peek", "own", "public", "for-me", "yes", "sweep", "pin"]; // sweep: post handoff --sweep (a flag, never a value)
 
 /** args without the first positional word (keeping every --flag and its value). */
 function dropFirstWord(args: string[]): string[] {
@@ -1202,6 +1203,57 @@ async function approvalWait(id: string | undefined, opt: Opt, secs: number) {
   throw new CliError(`Still waiting on ${id} after ${secs}s (expires in ${until(j.approval.expires_at)}). Don't act yet; wait again.`, 4);
 }
 
+/** Read from a real terminal without echo. This command never reads a PIN from argv, the environment or a pipe. */
+async function hiddenApprovalPin(): Promise<string> {
+  if (!process.stdin.isTTY || typeof process.stdin.setRawMode !== "function") throw new CliError("Approval PIN needs an interactive TTY; run atteo approve <id> --pin yourself.");
+  process.stdout.write(hiddenPinPrompt());
+  return new Promise((resolve, reject) => {
+    let pin = "";
+    const done = (error?: Error) => {
+      process.stdin.off("data", onData);
+      process.stdin.setRawMode(false);
+      process.stdin.pause();
+      process.stdout.write("\n");
+      if (error) reject(error); else resolve(pin);
+    };
+    const onData = (chunk: Buffer) => {
+      for (const c of chunk.toString("utf8")) {
+        if (c === "\r" || c === "\n") return done();
+        if (c === "\u0003") return done(new CliError("Canceled."));
+        if (c === "\u007f" || c === "\b") pin = pin.slice(0, -1);
+        else if (/\d/.test(c) && pin.length < 32) pin += c;
+      }
+    };
+    process.stdin.setRawMode(true);
+    process.stdin.resume();
+    process.stdin.on("data", onData);
+  });
+}
+
+async function terminalDecision(args: string[], decision: "approve" | "reject") {
+  const { pos, opt } = parseArgs(args, BOOLS);
+  onlyOptions(decision === "approve" ? "approve" : "deny", opt, decision === "approve" ? ["pin", "server"] : ["server"]);
+  if (pos.length !== 1 || !/^ap_[A-Za-z0-9_-]+$/.test(pos[0])) throw new CliError(`Usage: atteo ${decision === "approve" ? "approve" : "deny"} <approval-id>${decision === "approve" ? " [--pin]" : ""}`);
+  const id = pos[0];
+  if (opt.pin) {
+    const pin = await hiddenApprovalPin();
+    const j = await api(opt, "POST", `/api/approvals/${id}/pin`, { pin });
+    return say(`Approved: ${j.approval.id}. Go ahead, exactly as asked.`);
+  }
+  const started = await api(opt, "POST", `/api/approvals/${id}/terminal-confirm`, { decision }) as { token: string; code: string; expires_at: number };
+  say(`On your phone or at ${serverFor(creds(), opt)}/approvals#${id}, read the whole request and choose the number shown here: ${started.code}`);
+  let status = "pending";
+  while (status === "pending" && Date.now() < started.expires_at) {
+    const left = Math.min(25, Math.max(1, Math.ceil((started.expires_at - Date.now()) / 1000)));
+    const j = await api(opt, "GET", `/api/approvals/${id}/terminal-confirm?wait=${left}`, undefined, undefined, { "x-atteo-confirm-token": started.token }) as { status: string };
+    status = j.status;
+  }
+  if (status === "approved") return say(`Approved: ${id}. Go ahead, exactly as asked.`);
+  if (status === "denied") throw new CliError(`Denied or canceled: ${id}. Don't act.`, 3);
+  if (status === "replaced") throw new CliError(`A newer terminal confirmation replaced this one for ${id}.`, 4);
+  throw new CliError(`Terminal confirmation expired for ${id}. Start again if needed.`, 4);
+}
+
 // ---- the board's MEMORY: short durable facts every agent here reads (its one standing context since vedu #5266) ----
 
 type MemItem = { id: number; text: string; by: string; via: "person" | "agent"; session: string | null; from: number | null; ts: number };
@@ -1540,6 +1592,8 @@ export async function doctorCmd(args: string[]) {
 }
 
 export const V2: Record<string, (args: string[]) => Promise<unknown>> = {
+  approve: (args) => terminalDecision(args, "approve"),
+  deny: (args) => terminalDecision(args, "reject"),
   soul: soulGone,
   memory: memoryCmd,
   remember: rememberCmd,

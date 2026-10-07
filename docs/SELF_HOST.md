@@ -77,6 +77,9 @@ your team on your own Cloudflare account in about 15 minutes.
    npx wrangler secret put STRIPE_SECRET_KEY     # then: scripts/stripe-setup.sh https://<your-site>
    npx wrangler secret put STRIPE_WEBHOOK_SECRET # set by the Stripe setup script
    npx wrangler secret put APNS_KEY              # Apple Push key (.p8) for the iOS app
+   npx wrangler secret put APNS_KEY_ID           # Apple Push key id
+   npx wrangler secret put APNS_TEAM_ID          # Apple developer team id
+   npx wrangler secret put APNS_TOPIC            # iOS app bundle id
    npx wrangler secret put XAI_API_KEY            # xAI read-aloud and Grok voice; omit for device-voice fallback
    npx wrangler secret put A2A_SIGNING_KEY       # optional: `node scripts/a2a-key.mjs keygen`; the Agent Card stays unsigned until set
    npx wrangler secret put GITHUB_WEBHOOK_SECRET # GitHub App webhook HMAC; omit and POST /github/webhook is 503
@@ -96,7 +99,7 @@ your team on your own Cloudflare account in about 15 minutes.
    Nightly backups outside Cloudflare are optional and documented in [`BACKUPS.md`](BACKUPS.md).
    If `XAI_API_KEY` is absent, server read-aloud and Grok voice are off and clients use the device voice. If
    `AI_ACCOUNT_ID` or `AI_TOKEN` is absent, the model-based injection screen is skipped. If `SENTRY_DSN` is absent,
-   Sentry stays off. If `APNS_KEY` is absent, the app can still register device tokens, but push sending stays off.
+   Sentry stays off. If any APNs signing value is absent, the app can still register device tokens, but approval alert sending stays off.
    If `A2A_SIGNING_KEY` is absent, the Agent Card is served unsigned.
    If `CF_REALTIME_APP_ID` or `CF_REALTIME_APP_TOKEN` is absent, board calls don't exist: no Call button, and the call page and
    routes are 404 (a localhost server with `DEV_FAKE_REALTIME=1` uses a test room with no audio).

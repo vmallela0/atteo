@@ -13,6 +13,7 @@ import * as northStar from "./northStar";
 import * as oauth from "./oauth";
 import { consentPage } from "./oauthPage";
 import * as approvals from "./approvals";
+import * as terminalApprove from "./terminalApprove";
 import * as approvalRules from "./approvalRules";
 import { boardStates } from "./boardStates";
 import { approvalsPage } from "./approvalsPage";
@@ -1040,7 +1041,10 @@ const handler = {
       }
       if (path === "/api/device/decide" && method === "POST") {
         // Only a person approves a sign-in: an agent or CLI token could otherwise mint itself a fresh 30-day token (alt-c #5841).
-        if (!viewer || viewer.via === "agent") return needLogin();
+        // Browser session only (no app or agent bearer), JSON only and same-origin only, so a sibling site can't post a form (Codex review).
+        if (!viewer || viewer.via === "agent" || !session?.user) return needLogin();
+        const site = request.headers.get("sec-fetch-site");
+        if ((site && site !== "same-origin") || !/^application\/json\b/i.test(request.headers.get("content-type") ?? "")) return json({ error: "Approve sign-ins from the Atteo page." }, 403);
         const body = (await request.json().catch(() => ({}))) as { user_code?: string; approve?: boolean | string };
         const code = device.normalizeUserCode(body.user_code);
         if (!code) return json({ error: "That code doesn't look right. It's 8 letters, like BCDF-GHJK." }, 400);
@@ -1195,7 +1199,8 @@ const handler = {
         const snoozed = new Set(snoozedRows.map((r) => `${r.board_id}:${r.seq}`));
         const snoozedApprovals = new Set(snoozedRows.flatMap((r) => { try { const id = JSON.parse(r.data ?? "null")?.push?.approval; return id ? [id as string] : []; } catch { return []; } }));
         const visible = boards.map((b) => ({ ...b, decisions: b.decisions.filter((x) => !snoozed.has(`${b.board.id}:${x.seq}`)), questions: b.questions.filter((x) => !snoozed.has(`${b.board.id}:${x.seq}`)) }));
-        return forYou.forYouPage(viewer, side, { approvals: aps.filter((a) => !snoozedApprovals.has(a.id)), joins, boards: visible, mentions, now });
+        const pinAlerts = (await env.DB.prepare(`SELECT excerpt, created_at FROM notifications WHERE user = ? AND kind = 'people_only' AND entry_type = 'approval_pin_failed' AND created_at > ? ORDER BY created_at DESC LIMIT 20`).bind(viewer.name, now - 86_400_000).all<{ excerpt: string; created_at: number }>()).results;
+        return forYou.forYouPage(viewer, side, { approvals: await terminalApprove.attachConfirms(env, viewer.name, aps.filter((a) => !snoozedApprovals.has(a.id))), joins, boards: visible, mentions, pinAlerts, now });
       }
       if (path === "/api/inbox" && method === "GET") {
         if (!viewer) return needLogin();
@@ -1684,18 +1689,72 @@ const handler = {
         const [side, list] = await Promise.all([sideBoardsNamed(env, viewer.name), approvals.listApprovals(env, viewer.name, "all")]);
         const titles = Object.fromEntries(side.map((b) => [b.id, b.title]));
         ctx.waitUntil(env.DB.prepare(`UPDATE notifications SET read_at = ? WHERE user = ? AND kind = 'approval' AND read_at IS NULL`).bind(Date.now(), viewer.name).run().catch(() => {}));
-        return approvalsPage(viewer, side, list, titles);
+        return approvalsPage(viewer, side, await terminalApprove.attachConfirms(env, viewer.name, list), titles);
+      }
+      if (path === "/api/me/approval-pin" && (method === "GET" || method === "PUT" || method === "DELETE")) {
+        if (!viewer) return needLogin();
+        if (!session?.user) return json({ error: "Manage the approval PIN from your Account page on the web." }, 403);
+        try {
+          if (method === "GET") return json(await terminalApprove.pinState(env, viewer.name), 200, { "cache-control": "no-store" });
+          if (method === "DELETE") await terminalApprove.removePin(env, viewer.name);
+          else {
+            const b = await request.json().catch(() => ({})) as { pin?: unknown };
+            await terminalApprove.setPin(env, viewer.name, b.pin as string);
+          }
+          return json({ ok: true, ...(await terminalApprove.pinState(env, viewer.name)) }, 200, { "cache-control": "no-store" });
+        } catch (e) { return json({ error: e instanceof Error ? e.message : String(e) }, e instanceof terminalApprove.TerminalApprovalError ? e.status : 400); }
+      }
+      let tc = path.match(/^\/api\/approvals\/(ap_[A-Za-z0-9_-]+)\/terminal-confirm(?:\/(complete))?$/);
+      if (tc) {
+        if (!viewer) return needLogin();
+        try {
+          if (method === "POST" && !tc[2]) {
+            const b = await request.json().catch(() => ({})) as { decision?: string };
+            if (b.decision !== "approve" && b.decision !== "reject") return json({ error: "decision must be approve or reject." }, 400);
+            const sid = await asid();
+            const token = auth.bearer(request);
+            const cookie = auth.readCookie(request, auth.SESSION_COOKIE);
+            // Prefer the bearer token: creating another agent session must not reset its phone-alert limit.
+            const source = token ? `t:${await auth.sha256hex(token)}` : sid ? `s:${sid}` : `w:${await auth.sha256hex(cookie ?? "")}`;
+            return json(await terminalApprove.startConfirm(env, viewer.name, tc[1], b.decision, source, ctx), 201, { "cache-control": "no-store" });
+          }
+          if (method === "GET" && !tc[2]) {
+            const token = request.headers.get("x-atteo-confirm-token") ?? "";
+            if (!token) return json({ error: "The terminal confirmation token is required." }, 400);
+            const wait = Math.min(25, Math.max(0, Number(url.searchParams.get("wait")) || 0));
+            return json(await terminalApprove.pollConfirm(env, viewer.name, tc[1], token, wait * 1000), 200, { "cache-control": "no-store" });
+          }
+          if (method === "POST" && tc[2]) {
+            if (viewer.via === "agent") return json({ error: "Only a person session can pick the terminal number." }, 403);
+            const b = await request.json().catch(() => ({})) as { choice?: unknown; token?: unknown };
+            const result = await terminalApprove.completeConfirm(env, viewer.name, tc[1], String(b.token ?? ""), String(b.choice ?? ""));
+            if (result.approval?.board_id) await boardStub(env, result.approval.board_id).approvalDecided(approvals.refOf(result.approval)).catch((e) => console.error("approval event failed", e));
+            return json(result, 200, { "cache-control": "no-store" });
+          }
+        } catch (e) { return json({ error: e instanceof Error ? e.message : String(e) }, e instanceof terminalApprove.TerminalApprovalError ? e.status : 400); }
+        return json({ error: "not found" }, 404);
+      }
+      let pinApproval = path.match(/^\/api\/approvals\/(ap_[A-Za-z0-9_-]+)\/pin$/);
+      if (pinApproval && method === "POST") {
+        if (!viewer) return needLogin();
+        if (viewer.via !== "agent") return json({ error: "Use the normal approval controls from your person session." }, 403);
+        try {
+          const b = await request.json().catch(() => ({})) as { pin?: unknown };
+          const decided = await terminalApprove.decideWithPin(env, viewer.name, pinApproval[1], b.pin as string, ctx);
+          if (decided.board_id) await boardStub(env, decided.board_id).approvalDecided(approvals.refOf(decided)).catch((e) => console.error("approval event failed", e));
+          return json({ ok: true, approval: decided }, 200, { "cache-control": "no-store" });
+        } catch (e) { return json({ error: e instanceof Error ? e.message : String(e) }, e instanceof terminalApprove.TerminalApprovalError ? e.status : 400); }
       }
       let am = path.match(/^\/api\/approvals(?:\/(ap_[A-Za-z0-9_-]+))?(?:\/(approve|reject))?$/);
       if (am) {
         if (!viewer) return needLogin();
         try {
-          if (method === "GET" && !am[1]) return json({ approvals: await approvals.listApprovals(env, viewer.name, url.searchParams.get("all") ? "all" : "pending") });
+          if (method === "GET" && !am[1]) return json({ approvals: await terminalApprove.attachConfirms(env, viewer.name, await approvals.listApprovals(env, viewer.name, url.searchParams.get("all") ? "all" : "pending")) });
           if (method === "GET" && am[1] && !am[2]) {
             // ?wait=N (≤25s) holds until it's decided or times out: a permission hook's blocking wait.
             const wait = Math.min(25, Math.max(0, parseInt(url.searchParams.get("wait") ?? "0", 10) || 0));
             const a = wait ? await approvals.waitForDecision(env, viewer.name, am[1], wait * 1000) : await approvals.getApproval(env, viewer.name, am[1]);
-            return a ? json({ approval: a, ...approvals.decision(a) }, 200, { "cache-control": "no-store" }) : json({ error: "not found" }, 404);
+            return a ? json({ approval: (await terminalApprove.attachConfirms(env, viewer.name, [a]))[0], ...approvals.decision(a) }, 200, { "cache-control": "no-store" }) : json({ error: "not found" }, 404);
           }
           if (method === "POST" && am[1] && am[2]) {
             // Only the agent's own person decides. A token (an agent, or the CLI an agent could run) never does: only
@@ -2107,7 +2166,7 @@ const handler = {
           await env.DB.prepare(`INSERT INTO push_devices (token, user, platform, created_at, last_seen) VALUES (?, ?, ?, ?, ?) ON CONFLICT(token) DO UPDATE SET user = excluded.user, last_seen = excluded.last_seen`)
             .bind(tok, viewer.name, b.platform === "ios" ? "ios" : "ios", Date.now(), Date.now())
             .run();
-        return json({ ok: true, push: !!env.APNS_KEY ? "on" : "registered (sending turns on once the server has an APNs key)" });
+        return json({ ok: true, push: !!(env.APNS_KEY && env.APNS_KEY_ID && env.APNS_TEAM_ID && env.APNS_TOPIC) ? "on" : "registered (sending turns on once APNs signing is configured)" });
       }
 
       // ---- profile pictures (people and their agents) ----
@@ -2152,7 +2211,7 @@ const handler = {
           viewer.via === "agent" ? null : accessAll(env, viewer.name).catch(() => null),
           viewer.via === "agent" ? null : standing.listRules(env, viewer.name).catch(() => null), // yours, active (#3775)
         ]);
-        return mePage(viewer, side, tokens, plan, !!env.STRIPE_SECRET_KEY, hooks, prof, mine.filter(sessions.listed).map((x) => x.client || x.name), log.events, access, rules);
+        return mePage(viewer, side, tokens, plan, !!env.STRIPE_SECRET_KEY, hooks, prof, mine.filter(sessions.listed).map((x) => x.client || x.name), log.events, access, rules, viewer.via === "agent" ? null : await terminalApprove.pinState(env, viewer.name));
       }
 
       if (path === OPS_PATH && method === "GET") {
@@ -3107,11 +3166,38 @@ const handler = {
         return json({ error: "not found" }, 404);
       }
 
-      // ---- approval cards: your own approvals on this board (only you decide them), pending by default ----
+      // ---- approval cards: agents request; their people decide in the browser or app ----
       m = path.match(/^\/api\/boards\/(b_[a-z0-9]+)\/approvals$/);
-      if (m && method === "GET") {
+      if (m && (method === "GET" || method === "POST")) {
         if (!viewer) return needLogin();
         if (!(await registry.isMember(env, m[1], viewer.name))) return json({ error: "board not found" }, 404);
+        if (method === "POST") {
+          const board = await registry.getBoard(env, m[1]);
+          if (!board) return json({ error: "board not found" }, 404);
+          if (board.archived_at) return json({ error: "This board is archived. Restore it before requesting approval." }, 403);
+          if (viewer.via !== "agent") return json({ error: "Only an agent token can request approval." }, 403);
+          const b = (await request.json().catch(() => ({}))) as Record<string, unknown>;
+          try {
+            const seq = Number.isInteger(b.seq) && Number(b.seq) > 0 ? Number(b.seq) : null;
+            if (b.seq != null && seq == null) return json({ error: "seq must be a positive entry number." }, 400);
+            const requestedBy = seq == null ? null : (await boardStub(env, m[1]).get(seq, seer())).entry.author;
+            const content = await approvals.requestContent(env, viewer.name, m[1], b);
+            const { session: agentSession } = await asOpts();
+            const made = await approvals.requestApproval(env, viewer.name, {
+              board_id: m[1], seq, requested_by: requestedBy,
+              client: "REST API", session: agentSession,
+              title: content.title,
+              details: content.details,
+              command: content.command,
+              risk: typeof b.risk === "string" ? b.risk : undefined,
+              category: typeof b.category === "string" ? b.category as import("./approvalRules").Category : undefined,
+              amount: b.amount == null ? null : typeof b.amount === "number" ? b.amount : NaN,
+              expires_in: b.expires_in == null ? null : Number(b.expires_in),
+            }, ctx);
+            await boardStub(env, m[1]).approvalRequested(approvals.refOf(made), { via: "agent", client: "REST API", session: agentSession }, content.sealed).catch((e) => console.error("approval entry failed", e));
+            return json({ approval: made, ...approvals.decision(made) }, 201, { "cache-control": "no-store" });
+          } catch (e) { return json({ error: e instanceof Error ? e.message : String(e) }, 400); }
+        }
         const state = (url.searchParams.get("state") ?? "pending") as (typeof approvals.APPROVAL_STATES)[number];
         if (!approvals.APPROVAL_STATES.includes(state)) return json({ error: `state is one of: ${approvals.APPROVAL_STATES.join(", ")}` }, 400);
         return json({ approvals: await approvals.listBoardApprovals(env, viewer.name, m[1], state) }, 200, { "cache-control": "no-store" });

@@ -42,6 +42,7 @@ import { isRichTextAttachment } from "./richtext";
 import { LANG_NAMES, localize, tr, type Lang } from "./i18n";
 import { REMIND_BROWSER_JS } from "./remindTime";
 import { approvalCardHtml, approvalJs, type ApprovalCardData } from "./approvalCard";
+import { PIN_WARNING } from "./approvalPinCopy";
 
 export type { Viewer, SideBoard };
 
@@ -3879,7 +3880,12 @@ document.getElementById('kill-all')?.addEventListener('click',async e=>{const b=
   const r=await fetch('/api/tokens/revoke-all',{method:'POST'});const j=await r.json().catch(()=>({}));toast(r.ok?j.message:(j.error||tr('Could not disconnect')));
   if(r.ok)setTimeout(()=>location.reload(),900);else b.disabled=false});`;
 
-export function mePage(viewer: Viewer, side: SideBoard[], tokens: TokenRow[], plan: PlanState = { plan: "free", status: null, renews_at: null, cancel_at_end: false, customer: null }, billingEnabled = false, hooks: WebhookRow[] = [], prof: ProfileView | null = null, assistants: string[] = [], log: AccountLogRow[] = [], access: AccessAll | null = null, rules: StandingRule[] | null = null): Response {
+const APPROVAL_PIN_JS = `
+document.getElementById('approval-pin-form')?.addEventListener('submit',async e=>{e.preventDefault();const f=e.currentTarget,p=f.querySelector('[name=pin]'),pin=p.value;p.value='';
+  const r=await fetch('/api/me/approval-pin',{method:'PUT',headers:{'content-type':'application/json'},body:JSON.stringify({pin})});const j=await r.json().catch(()=>({}));toast(r.ok?tr('Approval PIN set'):j.error||tr('Could not save'));if(r.ok)setTimeout(()=>location.reload(),500)});
+document.getElementById('approval-pin-remove')?.addEventListener('click',async e=>{const r=await fetch('/api/me/approval-pin',{method:'DELETE'});const j=await r.json().catch(()=>({}));toast(r.ok?tr('Approval PIN removed'):j.error||tr('Could not save'));if(r.ok)setTimeout(()=>location.reload(),500)});`;
+
+export function mePage(viewer: Viewer, side: SideBoard[], tokens: TokenRow[], plan: PlanState = { plan: "free", status: null, renews_at: null, cancel_at_end: false, customer: null }, billingEnabled = false, hooks: WebhookRow[] = [], prof: ProfileView | null = null, assistants: string[] = [], log: AccountLogRow[] = [], access: AccessAll | null = null, rules: StandingRule[] | null = null, approvalPin: { enabled: boolean; locked_until: number; lockouts: number } | null = null): Response {
   const T = (x: string, v?: Record<string, string | number>) => tr(viewer.lang, x, v);
   const rows = tokens.length
     ? tokens
@@ -3916,6 +3922,12 @@ ${assistantCard(assistants, viewer.lang)}
 ${profileSection(prof, viewer.lang)}
 ${displaySection(prof?.display, viewer.lang)}
 ${notifySection(viewer.lang)}
+${approvalPin ? `<div class="section-title" style="margin-top:32px"><div><h2>${esc(T("Approval PIN"))}</h2><p class="small muted">${esc(T("Optional for ordinary approvals from a terminal. High-risk actions and host runs need phone or web confirmation."))}</p></div></div>
+<div class="card pad"><p class="small">${esc(T(approvalPin.enabled ? "Approval PIN is on" : "Approval PIN is off"))}${approvalPin.locked_until > Date.now() ? ` · ${esc(T("Locked for 15 minutes"))}` : ""}</p>
+<p class="small muted" style="margin-top:8px">${esc(T("Production deploys, spending, and outbound messages also require phone or web confirmation."))}</p>
+<p class="small muted" style="margin-top:8px">${esc(T(PIN_WARNING))}</p>
+<form id="approval-pin-form" class="row" style="gap:8px;margin-top:12px" autocomplete="off"><input class="input grow" name="pin" type="password" inputmode="numeric" pattern="[0-9]{6,32}" minlength="6" maxlength="32" required autocomplete="new-password" aria-label="${esc(T("New approval PIN"))}" placeholder="${esc(T("New approval PIN (6+ digits)"))}"><button class="btn primary" type="submit">${esc(T(approvalPin.enabled ? "Reset PIN" : "Set PIN"))}</button></form>
+${approvalPin.enabled ? `<button class="btn sm" id="approval-pin-remove" type="button" style="margin-top:8px">${esc(T("Turn off PIN"))}</button>` : ""}</div>` : ""}
 <div class="section-title" style="margin-top:32px"><div><h2>${esc(T("Agent connections"))}</h2><p class="small muted" style="margin-top:4px">${esc(T("Each connected agent has its own sign-in. Revoke one to disconnect that agent immediately."))}</p></div><button class="btn sm" data-open="connect">${esc(T("Connect an agent"))}</button></div>
 ${prof ? `<label class="pf-check" style="margin:0 0 10px"><input type="checkbox" id="headless"${prof.agents_headless ? " checked" : ""}><span><span class="small" style="color:var(--ink)">${esc(T("My agents are headless"))}</span><span class="xs muted">${esc(T("They answer and ask for approval on the board, not in their terminal."))}</span></span></label>` : ""}
 <div class="list scroll-x"><table class="tbl"><thead><tr><th>${esc(T("Connection"))}</th><th class="hide-sm">${esc(T("Last used"))}</th><th>${esc(T("Status"))}</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>
@@ -3933,7 +3945,7 @@ ${webhooksSection(hooks, viewer.lang)}
 ${billingSection(plan, billingEnabled, viewer.lang)}
 ${deleteAccountSection(viewer.name, viewer.lang)}
 ${connectDialog(viewer)}`,
-    script: CONNECT_JS + `window.revoked=()=>location.reload();` + BILLING_JS + PFP_JS + HOOKS_JS + PROFILE_JS + DISPLAY_JS + NOTIFY_JS + HEADLESS_JS + KILL_JS + ACCESS_JS + SR_JS + DELETE_JS,
+    script: CONNECT_JS + `window.revoked=()=>location.reload();` + BILLING_JS + PFP_JS + HOOKS_JS + PROFILE_JS + DISPLAY_JS + NOTIFY_JS + HEADLESS_JS + KILL_JS + APPROVAL_PIN_JS + ACCESS_JS + SR_JS + DELETE_JS,
   });
 }
 

@@ -244,6 +244,9 @@ export async function deleteAccount(env: Env, name: string, stub: (boardId: stri
     S(`DELETE FROM slack_nonces WHERE user = ?`, n),
     S(`DELETE FROM slack_links WHERE created_by = ?`, n),
     S(`DELETE FROM account_audit WHERE user = ?`, n),
+    S(`DELETE FROM approval_terminal_confirms WHERE user = ?`, n),
+    S(`DELETE FROM approval_confirm_starts WHERE user = ?`, n),
+    S(`DELETE FROM approval_pins WHERE user = ?`, n),
     S(`DELETE FROM approvals WHERE user = ?`, n),
     // Their machines (atteo host) go with them, and what ran on them: a host can't outlive its owner.
     S(`DELETE FROM host_runs WHERE host_id IN (SELECT id FROM hosts WHERE owner = ?)`, n),

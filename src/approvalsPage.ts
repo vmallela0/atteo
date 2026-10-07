@@ -4,7 +4,7 @@
 import { shownDetails, type Approval } from "./approvals";
 import { appPage, relTime, type SideBoard, type Viewer } from "./ui";
 import { esc } from "./util";
-import { commandHtml, nonAsciiNote } from "./approvalCard";
+import { commandHtml, nonAsciiNote, terminalConfirmHtml, terminalConfirmJs } from "./approvalCard";
 import { tr, type Lang } from "./i18n";
 import { ruleName } from "./approvalRules";
 
@@ -29,17 +29,17 @@ function origin(a: Approval, titles: Record<string, string>, T: Tr): string {
 
 // A waiting request: what, who asked and where, exactly what will happen, then a note and the two buttons.
 function pendingCard(a: Approval, titles: Record<string, string>, T: Tr, L?: Lang): string {
-  return `<article class="card approval risk-${esc(a.risk)}" id="${esc(a.id)}" tabindex="0" aria-keyshortcuts="Enter Backspace" aria-label="${esc(`${a.title}. ${T("Enter approves, Backspace denies")}`)}">
+  return `<article class="card approval risk-${esc(a.risk)}" id="${esc(a.id)}" tabindex="0" data-approval="${esc(a.id)}" aria-keyshortcuts="Enter Backspace" aria-label="${esc(`${a.title}. ${T("Enter approves, Backspace denies")}`)}">
 <div class="ap-hd"><div class="grow"><h2 class="ap-title">${esc(a.title)}</h2><p class="xs muted">${esc(asker(a, T))} · ${origin(a, titles, T)} · ${esc(relTime(a.created_at, Date.now(), L))}</p></div>
 <span class="badge ap-risk">${RISK[a.risk] ? esc(T(RISK[a.risk])) : esc(a.risk)}</span></div>
 ${cmd(a)}${det(a)}
-<form class="ap-form" data-approval="${esc(a.id)}"><input class="input grow" name="note" placeholder="${esc(T("Note for your agent (optional)"))}" aria-label="${esc(T("Note for your agent"))}"><button class="btn" type="submit" data-decision="reject">${esc(T("Reject"))}</button><button class="btn primary" type="submit" data-decision="approve">${esc(T("Approve"))}</button></form>
+${a.terminal_confirm ? terminalConfirmHtml(a.terminal_confirm, L) : `<form class="ap-form" data-approval="${esc(a.id)}"><input class="input grow" name="note" placeholder="${esc(T("Note for your agent (optional)"))}" aria-label="${esc(T("Note for your agent"))}"><button class="btn" type="submit" data-decision="reject">${esc(T("Reject"))}</button><button class="btn primary" type="submit" data-decision="approve">${esc(T("Approve"))}</button></form>`}
 </article>`;
 }
 
 // A decided one: one line, with the details a click away.
 function decidedRow(a: Approval, titles: Record<string, string>, T: Tr, L?: Lang): string {
-  return `<li><details class="ap-row"><summary><span class="ap-st st-${esc(a.status)}">${a.rule_name ? esc(T("Approved by rule")) : STATUS[a.status] ? esc(T(STATUS[a.status])) : esc(a.status)}</span><span class="grow truncate">${esc(a.title)}</span><span class="xs faint">${esc(relTime(a.decided_at ?? a.created_at, Date.now(), L))}</span></summary>
+  return `<li><details class="ap-row"><summary><span class="ap-st st-${esc(a.status)}">${a.rule_name ? esc(T("Approved by rule")) : a.decision_label ? esc(T(a.decision_label)) : STATUS[a.status] ? esc(T(STATUS[a.status])) : esc(a.status)}</span><span class="grow truncate">${esc(a.title)}</span><span class="xs faint">${esc(relTime(a.decided_at ?? a.created_at, Date.now(), L))}</span></summary>
 <p class="xs muted">${esc(asker(a, T))} · ${origin(a, titles, T)}${a.rule_name ? ` · ${esc(ruleName(L, a.rule_name))} (${esc(T("set by"))} ${esc(a.rule_set_by ?? "")})` : a.note ? ` · ${esc(T("your note:"))} "${esc(a.note)}"` : ""}</p>${cmd(a)}${det(a)}</details></li>`;
 }
 
@@ -51,7 +51,7 @@ export function approvalsPage(viewer: Viewer, side: SideBoard[], list: Approval[
   const body = `<div class="section-title"><div><h1>${esc(T("Approvals"))}</h1><p class="muted" style="margin-top:4px">${esc(T("Your agent asks here before side effects. Board rules can approve or block categorized work; other requests wait for you."))}</p></div></div>
 ${pending.length ? `<p class="xs faint ap-keys"><kbd>J</kbd> <kbd>K</kbd> ${esc(T("pick a request"))} · <kbd>↵</kbd> ${esc(T("approve"))} · <kbd>⌫</kbd> ${esc(T("deny"))}</p><div class="stack" style="--gap:12px">${pending.map((a) => pendingCard(a, titles, T, L)).join("")}</div>` : `<div class="card empty"><p class="muted">${esc(T("Nothing waiting. When an agent asks to run a command, change files or share something, it shows up here."))}</p></div>`}
 ${done.length ? `<h3 class="ap-sub">${esc(T("Decided"))} <span class="faint">${done.length}</span></h3><ul class="card ap-done">${done.map((a) => decidedRow(a, titles, T, L)).join("")}</ul>` : ""}`;
-  const script = `
+  const script = `${terminalConfirmJs}
 let decision='approve';document.addEventListener('click',e=>{const b=e.target.closest('[data-decision]');if(b)decision=b.dataset.decision});
 document.addEventListener('submit',async e=>{const f=e.target.closest('[data-approval]');if(!f)return;e.preventDefault();
   const r=await fetch('/api/approvals/'+f.dataset.approval+'/'+decision,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({note:f.note.value})});

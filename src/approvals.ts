@@ -7,6 +7,7 @@ import { egressRefusal, noteApprovalDecision, noteApprovalRequested, type Later 
 import type { ApprovalRef, Env } from "./types";
 import { offBoardSeq } from "./util";
 import * as rules from "./approvalRules";
+import * as boardkeys from "./boardkeys";
 
 /** Undecided by then, a request is denied (timed out). expires_in (seconds) sets it per request. */
 export const DEFAULT_EXPIRES_S = 24 * 3600; // people answer approvals in their own time; a permission hook passes a short expires_in (e.g. 600)
@@ -15,6 +16,7 @@ export const MAX_PENDING = 50;
 export const MAX_COMMAND = 20_000;
 /** Tools whose approvals only the server makes (#5371): an agent's own request_approval can't name them. */
 export const RESERVED_TOOLS = new Set(["pact"]);
+export const PIN_DECISION_LABEL = "approved with PIN from a terminal";
 
 export interface Approval {
   id: string;
@@ -30,6 +32,7 @@ export interface Approval {
   risk: "low" | "medium" | "high";
   session: string | null; // the agent session that asked (its name, e.g. "scout"), when it had one
   status: "pending" | "approved" | "rejected" | "expired";
+  terminal_confirm?: { token: string; choices: string[]; decision: "approve" | "reject"; expires_at: number }; // person-facing number match, never its answer
   state: "pending" | "approved" | "rejected" | "expired"; // the same, computed live (a pending request past expires_at is expired)
   note: string | null;
   created_at: number;
@@ -39,13 +42,46 @@ export interface Approval {
   amount?: number | null;
   rule_name?: string | null;
   rule_set_by?: string | null;
+  decided_via?: string | null;
+  decision_label?: string | null;
 }
 
 export class ApprovalError extends Error {}
 
+/** Shared MCP/REST approval content rules. Callers check board membership before reading the request body. */
+export async function requestContent(env: Env, user: string, boardId: string | null, input: Record<string, unknown>): Promise<{ title: string; details: string; command: string | null; sealed: string | undefined }> {
+  const field = (name: string) => typeof input[name] === "string" ? input[name] as string : "";
+  const sealed = field("sealed").trim() || undefined;
+  const sealedDetails = field("sealed_details").trim() || undefined;
+  const board = boardId ? await env.DB.prepare("SELECT encrypted, archived_at FROM boards WHERE id = ? AND deleted_at IS NULL").bind(boardId).first<{ encrypted: number; archived_at: number | null }>() : null;
+  if (boardId && !board) throw new ApprovalError("Board not found.");
+  if (board?.archived_at) throw new ApprovalError("This board is archived. Restore it before requesting approval.");
+  if (board?.encrypted) {
+    if (!sealed) throw new ApprovalError("This board is end-to-end encrypted. Send sealed and sealed_details (or use the atteo CLI, which encrypts); do not send a plain title or details.");
+    if ((field("title").trim() && !["Encrypted approval request", "🔒 Encrypted approval request"].includes(field("title").trim())) || field("details").trim() || field("command").trim())
+      throw new ApprovalError("On an encrypted board, send the title and details only as sealed and sealed_details (or use the atteo CLI, which encrypts).");
+  } else if (sealed) throw new ApprovalError("sealed goes only with an end-to-end encrypted board.");
+  if (sealedDetails && !sealed) throw new ApprovalError("sealed_details requires sealed on an end-to-end encrypted board.");
+  if (sealed && !sealedDetails) throw new ApprovalError("With sealed, put the details and command in sealed_details (encrypted for your person's devices).");
+  if (sealedDetails) {
+    const d = (() => { try { return JSON.parse(sealedDetails) as { v?: number; recipients?: unknown }; } catch { return null; } })();
+    if (d?.v !== 1 || !Array.isArray(d.recipients) || !d.recipients.length || sealedDetails.length > 20_000)
+      throw new ApprovalError("sealed_details is a v1 envelope for your own devices (at most 20,000 characters).");
+  }
+  if (sealed) {
+    const bk = await boardkeys.state(env, boardId!, user);
+    const p = (() => { try { return JSON.parse(sealed) as { v?: number; epoch?: number; iv?: unknown; ct?: unknown; x?: { iv?: unknown; ct?: unknown } }; } catch { return null; } })();
+    if (p?.v !== 2 || bk.current < 1 || bk.rotate_needed || p.epoch !== bk.current)
+      throw new ApprovalError(`Encrypt it with this board's current key (epoch ${bk.current}${bk.rotate_needed ? ", after opening the next one" : ""}).`);
+    if (sealed.length > 100_000 || typeof p.iv !== "string" || typeof p.ct !== "string" || (p.x != null && (typeof p.x !== "object" || typeof p.x.iv !== "string" || typeof p.x.ct !== "string")))
+      throw new ApprovalError("sealed must be a board-key v2 envelope (at most 100,000 characters).");
+  }
+  return { title: sealed ? "🔒 Encrypted approval request" : field("title").trim(), details: sealed ? sealedDetails! : field("details"), command: sealed ? null : field("command") || null, sealed };
+}
+
 const live = (a: Approval): Approval => {
   const status = a.status === "pending" && a.expires_at < Date.now() ? "expired" : a.status;
-  return { ...a, session: a.session ?? null, status, state: status };
+  return { ...a, session: a.session ?? null, status, state: status, decision_label: status === "approved" && a.decided_via === "approval_pin" ? PIN_DECISION_LABEL : null };
 };
 
 /** The person's push / inbox fields for an approval: "Approval needed" (the app maps kind to its notification category). */
@@ -159,19 +195,20 @@ export async function listApprovals(env: Env, user: string, which: "pending" | "
  * another member gets "No such approval". A request that timed out stays denied.
  */
 /** `via`: where it was decided, for the audit trail: null (the web, the app) or "slack:<team>/<user>" (src/slack.ts). */
-export async function decide(env: Env, user: string, id: string, approve: boolean, note: string, later: Later | null = null, via: string | null = null): Promise<Approval> {
+export async function decide(env: Env, user: string, id: string, approve: boolean, note: string, later: Later | null = null, via: string | null = null, terminalToken: string | null = null): Promise<Approval> {
   const a = await getApproval(env, user, id);
   if (!a) throw new ApprovalError("No such approval.");
   if (a.status !== "pending") throw new ApprovalError(a.status === "expired" ? "Already denied (timed out)." : `Already ${a.status}.`);
   const n = note.trim().slice(0, 500) || null;
   const now = Date.now();
-  const r = await env.DB.prepare(`UPDATE approvals SET status = ?, note = ?, decided_at = ?, decided_via = ? WHERE id = ? AND user = ? AND status = 'pending' AND expires_at > ?`)
-    .bind(approve ? "approved" : "rejected", n, now, via, id, user, now)
+  const guard = terminalToken ? ` AND EXISTS (SELECT 1 FROM approval_terminal_confirms c WHERE c.approval_id = approvals.id AND c.user = ? AND c.token = ? AND c.status = 'pending' AND c.expires_at > ?)` : "";
+  const r = await env.DB.prepare(`UPDATE approvals SET status = ?, note = ?, decided_at = ?, decided_via = ? WHERE id = ? AND user = ? AND status = 'pending' AND expires_at > ?${guard}`)
+    .bind(approve ? "approved" : "rejected", n, now, via, id, user, now, ...(terminalToken ? [user, terminalToken, now] : []))
     .run();
   if (!r.meta.changes) throw new ApprovalError("Already decided or timed out.");
   const status = approve ? "approved" : "rejected";
   void noteApprovalDecision(env, later, status, user);
-  return { ...a, status, state: status, note: n, decided_at: now };
+  return { ...a, status, state: status, note: n, decided_at: now, decided_via: via, decision_label: approve && via === "approval_pin" ? PIN_DECISION_LABEL : null };
 }
 
 export const APPROVAL_STATES = ["pending", "approved", "rejected", "expired", "all"] as const;
@@ -217,5 +254,5 @@ export const SEALED_DETAILS_NOTE = "🔒 Encrypted for your devices: open it on 
 export const shownDetails = (d: string): string => (isSealedDetails(d) ? SEALED_DETAILS_NOTE : d);
 
 export function refOf(a: Approval): ApprovalRef {
-  return { id: a.id, user: a.user, status: a.state, title: a.title, tool: a.tool, command: a.command, risk: a.risk, expires_at: a.expires_at, note: a.note, session: a.session, about: a.seq, created_at: a.created_at, decided_at: a.decided_at, requested_by: a.requested_by ?? null, category: a.category, amount: a.amount, rule_name: a.rule_name, rule_set_by: a.rule_set_by };
+  return { id: a.id, user: a.user, status: a.state, title: a.title, tool: a.tool, command: a.command, risk: a.risk, expires_at: a.expires_at, note: a.note, session: a.session, about: a.seq, created_at: a.created_at, decided_at: a.decided_at, requested_by: a.requested_by ?? null, category: a.category, amount: a.amount, rule_name: a.rule_name, rule_set_by: a.rule_set_by, decided_via: a.decided_via ?? null, decision_label: a.status === "approved" && a.decided_via === "approval_pin" ? PIN_DECISION_LABEL : null };
 }

@@ -34,6 +34,11 @@ describe("approval card", () => {
     expect(h).toContain("Deploy to production · owner");
     expect(h).not.toContain("data-apc-do");
   });
+  it("labels a PIN decision on the board card and when it arrives live", () => {
+    const a = { ...base, status: "approved", decided_via: "approval_pin", decision_label: "approved with PIN from a terminal" };
+    expect(approvalLabel(a, true)).toBe("approved with PIN from a terminal");
+    expect(approvalCardHtml(a)).toContain("approved with PIN from a terminal");
+  });
 });
 
 describe("approval entry in the conversation", () => {

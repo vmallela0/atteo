@@ -12,6 +12,7 @@ import type { InboxItem } from "./inbox";
 import { appPage, avatar, directPeer, relTime, type SideBoard, type Viewer } from "./ui";
 import { esc } from "./util";
 import { tr, type Lang } from "./i18n";
+import { approvalCardHtml, terminalConfirmHtml, terminalConfirmJs } from "./approvalCard";
 
 /** What one board contributes (computed in the board object). Titles are "" on an encrypted board. */
 export interface ForYouCore {
@@ -33,6 +34,7 @@ export interface ForYouData {
   joins?: JoinRequest[]; // owners decide who may join a repo board
   boards: ForYouCore[];
   mentions: InboxItem[]; // unread mentions / replies to the viewer (not questions or decisions: those come from the boards)
+  pinAlerts?: { excerpt: string; created_at: number }[];
   now?: number;
 }
 
@@ -135,7 +137,7 @@ export function forYouPage(viewer: Viewer, side: SideBoard[], d: ForYouData): Re
 <div class="type"><span class="dot"></span>${esc(T("Needs your OK"))} <b>· <span class="fy-pos">${i + 1}</span> ${esc(T("of"))} <span class="fy-tot">${aps.length}</span></b></div>
 <h2 class="tt">${esc(plainTitle(a.title, T("Your assistant wants to do something")))}</h2>
 <div class="who">${avatar(me, "sm", true)}<span><b>${esc(T("Your assistant"))}</b>${where}${forWhom} · <span class="faint">${esc(relTime(a.created_at, now, L))}</span></span></div>
-${det}<div class="acts"><button class="btn xl" type="button" data-fy-ap="reject">${esc(T("Not now"))}</button><button class="btn xl primary" type="button" data-fy-ap="approve">${esc(approveLabel(a.title, L))}</button></div></article>`;
+${a.terminal_confirm ? `${approvalCardHtml(a, false, L)}<pre class="mono ap-details">${esc(shownDetails(a.details))}</pre>${terminalConfirmHtml(a.terminal_confirm, L)}` : `${det}<div class="acts"><button class="btn xl" type="button" data-fy-ap="reject">${esc(T("Not now"))}</button><button class="btn xl primary" type="button" data-fy-ap="approve">${esc(approveLabel(a.title, L))}</button></div>`}</article>`;
     })
     .join("");
   const okSec = aps.length
@@ -194,13 +196,14 @@ ${det}<div class="acts"><button class="btn xl" type="button" data-fy-ap="reject"
   const joins = d.joins ?? [];
   const joinCards = joins.map((j) => `<article class="nc fy-join" data-join="${esc(j.id)}"><div class="type"><span class="dot"></span>${esc(T("A request for you"))}</div><h2 class="tt">${esc(j.requester)} ${esc(T("wants to join"))} ${esc(j.repo)}</h2><p class="small muted">linked to ${esc(j.repo)} by ${esc(j.linked_by)}, not verified with GitHub</p><div class="acts"><button class="btn xl" type="button" data-fy-join="decline">${esc(T("Decline"))}</button><button class="btn xl" type="button" data-fy-join="block">${esc(T("Block forever"))}</button><button class="btn xl primary" type="button" data-fy-join="let-in">${esc(T("Let in"))}</button></div></article>`).join("");
   const joinSec = joinCards ? `<section class="fy-ok" id="fy-joins">${joinCards}</section>` : "";
-  const need = aps.length + joins.length + quick.length;
+  const alerts = (d.pinAlerts ?? []).map(x => `<div class="card pad small fy-pin-alert" role="status">${esc(T("Approval PIN failed"))} · ${esc(x.excerpt)} · ${esc(relTime(x.created_at, now, L))}</div>`).join("");
+  const need = aps.length + joins.length + quick.length + (d.pinAlerts?.length ?? 0);
   const empty = `<div class="card empty fy-empty" id="fy-empty"${need ? " hidden" : ""}><h3>${esc(T("Nothing needs you right now"))}</h3><p class="muted">${esc(T("When your assistant needs your OK, or someone asks you something, it shows up here."))}</p></div>`;
 
   const body = `<style>${FY_CSS}</style><div class="fy" id="fy">
 <header class="fy-hi"><h1 id="fy-greet" data-name="${esc(firstName(viewer))}">${esc(greetingFor(new Date(now).getUTCHours(), L))}, ${esc(firstName(viewer))}</h1>
 <p class="lede" id="fy-lede">${esc(summaryLine(need, done.length, L))}</p></header>
-${joinSec}${okSec}${quickSec}${empty}${doneSec}
+${alerts}${joinSec}${okSec}${quickSec}${empty}${doneSec}
 </div>
 <div class="fy-askwrap"><form class="card composer fy-ask" id="fy-ask" autocomplete="off"><input class="grow" id="fy-ask-text" name="text" placeholder="${esc(T("Ask your assistant…"))}" aria-label="${esc(T("Ask your assistant"))}" maxlength="4000" enterkeyhint="send">
 <button class="btn primary sm post-btn" type="submit" id="fy-send" hidden>${esc(T("Send"))}</button>
@@ -209,7 +212,7 @@ ${joinSec}${okSec}${quickSec}${empty}${doneSec}
 
   const chats = side.length;
   const actions = `<a class="btn sm" href="/">${esc(T("Chats"))} <span class="faint">${chats}</span></a>`;
-  return appPage(`${T("For you")} · Atteo`, { viewer, boards: side, active: "foryou", crumbs: `<span class="cur">${esc(T("For you"))}</span>`, actions, body, script: forYouJs(agentChat), narrow: true });
+  return appPage(`${T("For you")} · Atteo`, { viewer, boards: side, active: "foryou", crumbs: `<span class="cur">${esc(T("For you"))}</span>`, actions, body, script: terminalConfirmJs + forYouJs(agentChat), narrow: true });
 }
 
 // Everyday sizes (NOTES.md: body ~15px, headings 26px, card titles 20px) on the web's tokens; cherry only on the mic (#2508).
@@ -284,7 +287,7 @@ function counts(){const aps=$$('.fy-apc'),joins=$$('.fy-join'),rows=$$('.fy-quic
   aps.forEach((c,i)=>{c.hidden=i>0;c.querySelector('.fy-pos').textContent=i+1;c.querySelector('.fy-tot').textContent=aps.length});
   const e1=$('#fy-edge1'),e2=$('#fy-edge2'),more=$('#fy-more');if(e1)e1.hidden=aps.length<2;if(e2)e2.hidden=aps.length<3;if(more){more.hidden=aps.length<2;$('#fy-more-n').textContent=aps.length}
   const ok=$('#fy-ok');if(ok&&!aps.length)ok.hidden=true;const q=$('#fy-quick');if(q&&!$$('.fy-quick .nrow').length)q.hidden=true;
-  $('#fy-empty').hidden=!!need;
+  $('#fy-empty').hidden=!!(need+$$('.fy-pin-alert').length);
   $('#fy-done').hidden=!m;$('#fy-done-n').textContent=m;done.forEach((r,i)=>r.classList.toggle('more',i>=3));$('#fy-done-all').hidden=m<=3}
 counts();
 $('#fy-done-all').addEventListener('click',e=>{const s=$('#fy-done'),all=s.classList.toggle('all');e.currentTarget.textContent=all?tr('Show less'):tr('See all')});

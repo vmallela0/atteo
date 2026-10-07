@@ -115,19 +115,28 @@ struct ApprovalDetail: View {
                                 .accessibilityIdentifier("approval-details")
                         }
                     }
-                    VStack(alignment: .leading, spacing: Space.s) {
-                        SectionHeader(Vocab.pick(String(localized: "Note for your agent", bundle: .l10n), String(localized: "Note for your assistant", bundle: .l10n)))
-                        TextField("Optional: conditions, or why not", text: $note, axis: .vertical)
-                            .lineLimit(1...5).font(Typo.body).focused($noting)
-                            .accessibilityIdentifier("approval-note")
-                            .surface()
+                    if let match = a.terminalConfirm {
+                        if sealed && sealedOpen == nil {
+                            Text("Open this approval on a device that can read its encrypted action before choosing a number.")
+                                .font(Typo.secondary).foregroundStyle(Theme.danger)
+                        } else {
+                            TerminalMatch(a: a, match: match) { dismiss() }
+                        }
+                    } else {
+                        VStack(alignment: .leading, spacing: Space.s) {
+                            SectionHeader(Vocab.pick(String(localized: "Note for your agent", bundle: .l10n), String(localized: "Note for your assistant", bundle: .l10n)))
+                            TextField("Optional: conditions, or why not", text: $note, axis: .vertical)
+                                .lineLimit(1...5).font(Typo.body).focused($noting)
+                                .accessibilityIdentifier("approval-note")
+                                .surface()
+                        }
                     }
                 }
                 .padding(.horizontal, Space.l).padding(.top, Space.s).padding(.bottom, Space.l)
             }
             .scrollDismissesKeyboard(.interactively)
             .background(Theme.bg)
-            .safeAreaInset(edge: .bottom) { buttons }
+            .safeAreaInset(edge: .bottom) { if a.terminalConfirm == nil && (!sealed || sealedOpen != nil) { buttons } }
             .navigationTitle(Vocab.pick(String(localized: "Approval", bundle: .l10n), String(localized: "Needs your OK", bundle: .l10n)))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Close") { dismiss() }.toolbarText(primary: true) } }
@@ -172,5 +181,42 @@ struct ApprovalDetail: View {
             if await state.decide(a, approve: approve, note: note.trimmingCharacters(in: .whitespacesAndNewlines)) { dismiss() }
             busy = nil
         }
+    }
+}
+
+/// The same number match appears below the whole action in ApprovalDetail and on the For you card.
+struct TerminalMatch: View {
+    @EnvironmentObject var state: AppState
+    let a: Approval
+    let match: TerminalConfirm
+    var onComplete: () -> Void = {}
+    @State private var busy = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Space.s) {
+            Text("Match the number in your terminal").font(Typo.body.weight(.semibold))
+            Text(match.decision == "approve" ? "Approve this request" : "Deny this request")
+                .font(Typo.secondary).foregroundStyle(Theme.muted)
+            Text("Choose the four-digit number shown in your terminal. A wrong choice cancels this confirmation.")
+                .font(Typo.secondary).foregroundStyle(Theme.muted)
+            HStack(spacing: Space.s) {
+                ForEach(match.choices, id: \.self) { choice in
+                    Button(choice) {
+                        busy = true
+                        Task {
+                            if await state.completeTerminalConfirm(a, token: match.token, choice: choice) { onComplete() }
+                            busy = false
+                        }
+                    }
+                    .font(Typo.mono(.body).weight(.semibold))
+                    .frame(maxWidth: .infinity, minHeight: 44)
+                    .overlay(RoundedRectangle(cornerRadius: Radius.control).stroke(Theme.line))
+                    .accessibilityIdentifier("terminal-choice-\(choice)")
+                }
+            }
+            .buttonStyle(PressStyle()).disabled(busy)
+        }
+        .surface()
+        .accessibilityIdentifier("terminal-match")
     }
 }
