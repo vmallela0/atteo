@@ -249,6 +249,7 @@ final class TalkSession: ObservableObject {
     private var briefedAt = Date() // when this session's briefing was made: a long call gets a fresh one (refreshBriefing)
     private var briefing: Task<Void, Never>?
     private let remote = TalkRemote()
+    private let readAloudID = UUID()
     private var watching: [AnyCancellable] = []
     private var seenSeq = 0 // the board's newest message when it stood by: only later ones are read
     private var seenInbox = 0 // Ask: the newest For-you item when it stood by
@@ -336,9 +337,11 @@ final class TalkSession: ObservableObject {
     // MARK: Start and end
 
     func start() async {
+        guard !ended else { return }
         Analytics.capture("voice_used")
-        ReadAloud.shared.hush()
+        ReadAloud.shared.suspend(readAloudID)
         VoiceInput.shared.stop()
+        VoiceInput.shared.settle() // finish now: its delayed final must not deactivate Talk's new audio session
         remote.on { [weak self] c in self?.remoteCommand(c) }
         ticker = Task { [weak self] in
             while !Task.isCancelled {
@@ -549,6 +552,7 @@ final class TalkSession: ObservableObject {
         remote.off()
         audio.stop()
         audio.release() // standing by it kept the audio (for AirPods' play): let it go
+        ReadAloud.shared.resume(readAloudID)
         holding = false; speaking = false; thinking = false; hearing = false; level = 0; confirm = nil
         phase = .ended
         let before = settling

@@ -306,6 +306,7 @@ final class ReadAloud: NSObject, ObservableObject, AVSpeechSynthesizerDelegate, 
     @Published private(set) var speaking = false
     private var reading: Item? // the current message has left the queue; leaving its chat still stops it (vedu #4564)
     private var serverVoice: Bool? // GET /api/app/tts/status, once a launch
+    private var gate = ReadAloudGate()
     private let synth = AVSpeechSynthesizer()
     private var player: AVAudioPlayer?
 
@@ -319,7 +320,7 @@ final class ReadAloud: NSObject, ObservableObject, AVSpeechSynthesizerDelegate, 
 
     /// A message for you landed in the chat you have open: read it automatically (vedu #4564).
     func heard(_ e: Entry, from: String, in board: Board) {
-        guard Self.enabled, !queue.contains(where: { $0.entry.seq == e.seq && $0.board.id == board.id }) else { return }
+        guard gate.allowed, Self.enabled, !queue.contains(where: { $0.entry.seq == e.seq && $0.board.id == board.id }) else { return }
         queue.append(Item(board: board, entry: e, from: from))
         if !speaking { next() }
     }
@@ -331,6 +332,15 @@ final class ReadAloud: NSObject, ObservableObject, AVSpeechSynthesizerDelegate, 
         player?.stop(); player = nil
         withAnimation(.snappy) { queue = []; speaking = false }
     }
+
+    /// A call owns the session until it ends. Drop pending speech too: a TTS request already in flight must not play
+    /// when it returns. Talk reads its own standby messages; the underlying chat must not read them a second time.
+    func suspend(_ caller: UUID) {
+        gate.suspend(caller)
+        hush()
+    }
+
+    func resume(_ caller: UUID) { gate.resume(caller) }
 
     /// Leaving a chat stops its reading and forgets what was waiting.
     func leave(_ board: String) {
