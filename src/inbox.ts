@@ -8,6 +8,7 @@ import { tr } from "./i18n";
 import { esc } from "./util";
 import { personHtml, shownName } from "./names";
 import { approvalCardHtml, approvalJs, type ApprovalCardData } from "./approvalCard";
+import type { JoinRequest } from "./repoBoards";
 import { PERSON_ONLY_KINDS, type Env } from "./types";
 import { classify, DEFAULT_LEVEL, lastDigestAt, type Interrupt, type Level, type NotifyPrefs } from "./notify";
 
@@ -16,7 +17,7 @@ export interface InboxItem {
   board_id: string;
   board_title: string | null;
   seq: number;
-  kind: "mention" | "agent" | "reply" | "friend_request" | "friend_accept" | "approval" | "contact_request" | "contact_accept" | "decision" | "people_only" | "manual_unread" | "reminder" | "report" | "slack_link";
+  kind: "mention" | "agent" | "reply" | "friend_request" | "friend_accept" | "approval" | "contact_request" | "contact_accept" | "decision" | "people_only" | "manual_unread" | "reminder" | "report" | "slack_link" | "repo_join";
   actor: string;
   actor_via: string | null;
   entry_type: string;
@@ -26,6 +27,7 @@ export interface InboxItem {
   reminded_at?: number | null;
   reminded?: boolean; // came back from Remind me later: it needs the person now (src/notify.ts)
   approval_id?: string; // kind approval: the request (GET /api/approvals/:id)
+  join_id?: string; // kind repo_join: the owner's decision
   push?: { kind: "approval_needed"; title: string; body: string; url: string; approval: string; board: string | null; risk: string; by?: string }; // ready for a phone notification
   board_kind?: string | null; // direct (a DM), agent ("Your agent"), or null
   broadcast?: boolean; // a mention that reached you only through @all / @humans
@@ -38,10 +40,10 @@ function withPush(r: InboxRow): InboxItem {
   const { data, ...item } = r;
   if (!data) return item;
   try {
-    const d = JSON.parse(data) as { push?: InboxItem["push"]; broadcast?: boolean; reminded?: number; entry?: number };
+    const d = JSON.parse(data) as { push?: InboxItem["push"]; broadcast?: boolean; reminded?: number; entry?: number; join?: string };
     // A report's row has a key of its own (src/moderation.ts); the entry it's about is data.entry, which links use as seq.
     const at = item.kind === "report" && Number.isSafeInteger(d.entry) ? { seq: d.entry! } : {};
-    const out: InboxItem = { ...item, ...at, ...(d.broadcast ? { broadcast: true } : {}), ...(d.reminded ? { reminded: true } : {}) };
+    const out: InboxItem = { ...item, ...at, ...(d.broadcast ? { broadcast: true } : {}), ...(d.reminded ? { reminded: true } : {}), ...(item.kind === "repo_join" && d.join ? { join_id: d.join } : {}) };
     return d.push ? { ...out, approval_id: d.push.approval, push: d.push } : out;
   } catch {
     return item;
@@ -165,6 +167,7 @@ const VERB: Record<InboxItem["kind"], string> = {
   friend_request: "wants to be friends",
   friend_accept: "accepted your friend request",
   approval: "is asking for your approval",
+  repo_join: "wants to join your repo board",
   contact_request: "wants their agent to talk to yours",
   contact_accept: "said yes: your agents can talk now",
   decision: "asks for a decision",
@@ -181,7 +184,7 @@ function approvalFor(i: InboxItem & { approval_id?: string | null }, list: (Appr
   return list.find((a) => (i.approval_id ? a.id === i.approval_id : a.created_at === i.created_at));
 }
 
-export function inboxPage(viewer: Viewer, side: SideBoard[], items: InboxItem[], approvals: (ApprovalCardData & { created_at?: number })[] = [], people: Record<string, string> = {}): Response {
+export function inboxPage(viewer: Viewer, side: SideBoard[], items: InboxItem[], approvals: (ApprovalCardData & { created_at?: number })[] = [], people: Record<string, string> = {}, joins: JoinRequest[] = []): Response {
   const L = viewer.lang,
     T = (x: string, v?: Record<string, string | number>) => tr(L, x, v);
   const unread = items.filter((i) => !i.read_at).length;
@@ -193,13 +196,15 @@ export function inboxPage(viewer: Viewer, side: SideBoard[], items: InboxItem[],
       const who = i.kind === "manual_unread" || i.kind === "slack_link" ? T("You") : i.kind === "approval" ? (i.push?.by ? T("{name}'s agent", { name: i.push.by }) : T("Your agent")) : i.actor_via === "agent" ? T("{name}'s agent", { name: i.actor }) : i.actor;
       // A person by the name they chose (jxn #4369), their @handle on hover.
       const whoHtml = i.kind !== "manual_unread" && i.kind !== "slack_link" && i.kind !== "approval" && i.actor_via !== "agent" ? personHtml(i.actor, people[i.actor], known) : esc(who);
-      const href = i.board_id ? `/b/${esc(i.board_id)}${i.kind === "manual_unread" ? "" : `#e${i.seq}`}` : i.kind === "approval" ? "/approvals" : i.kind === "slack_link" ? "/slack/accounts" : "/people";
+      const href = i.board_id ? `/b/${esc(i.board_id)}${i.kind === "manual_unread" ? "" : `#e${i.seq}`}` : i.kind === "approval" ? "/approvals" : i.kind === "repo_join" ? "/for-you" : i.kind === "slack_link" ? "/slack/accounts" : "/people";
       return `<li class="inbox-item${i.read_at ? "" : " unread"}"><a href="${href}" data-inbox-id="${i.id}">
 ${avatar(i.actor, "sm", i.actor_via === "agent")}
 <div class="grow" style="min-width:0"><div class="small">${i.kind === "people_only" ? `<span class="po-lock" title="${esc(T("Only people can see it. Agents can't."))}" aria-label="${esc(T("People only"))}">🔒</span> ` : ""}<b>${whoHtml}</b> ${esc(T(VERB[i.kind]))}${i.board_id ? ` <span class="faint">${esc(T("in"))}</span> ${esc(dmTitle(i.board_title ?? i.board_id))} <span class="faint">· #${i.seq}` : ` <span class="faint">`} · ${esc(relTime(i.created_at, Date.now(), L))}</span></div>
 <div class="small muted truncate">${esc(i.excerpt)}</div></div>${i.read_at ? "" : `<span class="dot" aria-label="${esc(T("unread"))}"></span>`}</a><details class="remind-menu"><summary>${esc(T("Remind me"))}</summary><div><button type="button" data-remind="hour" data-id="${i.id}">${esc(T("In 1 hour"))}</button><button type="button" data-remind="tonight" data-id="${i.id}">${esc(T("Tonight (20:00)"))}</button><button type="button" data-remind="tomorrow" data-id="${i.id}">${esc(T("Tomorrow (09:00)"))}</button></div></details>${
         approvalFor(i, approvals)
           ? approvalCardHtml(approvalFor(i, approvals)!, true, L)
+          : i.kind === "repo_join" && joins.some((j) => j.id === i.join_id)
+          ? `<div class="row" style="gap:6px;padding:0 12px 10px 48px" data-repo-join="${esc(i.join_id!)}"><span class="small muted">${esc(joins.find((j) => j.id === i.join_id)!.repo)}</span><button class="btn sm primary" type="button" data-join-decision="let-in">${esc(T("Let in"))}</button><button class="btn sm ghost" type="button" data-join-decision="decline">${esc(T("Decline"))}</button></div>`
           : i.kind === "contact_request" && !i.read_at
           ? `<div class="row" style="gap:6px;padding:0 12px 10px 48px"><button class="btn sm primary" type="button" data-contact="${esc(i.actor)}" data-decide="accept">${esc(T("Let them talk"))}</button><button class="btn sm ghost" type="button" data-contact="${esc(i.actor)}" data-decide="decline">${esc(T("Decline"))}</button></div>`
           : ""
@@ -221,6 +226,9 @@ ${approvalJs(viewer.name)}
 document.addEventListener('click',async e=>{const b=e.target.closest('[data-contact]');if(!b)return;b.disabled=true;
   const r=await sendReliably('/api/contacts/'+encodeURIComponent(b.dataset.contact)+'/'+b.dataset.decide,{});const j=await r.json().catch(()=>({}));
   toast(r.ok?(b.dataset.decide==='accept'?tr('Done: your agents can talk now'):tr('Declined')):(j.error||tr('Something went wrong')));if(r.ok)setTimeout(()=>location.reload(),600);else b.disabled=false});
+document.addEventListener('click',async e=>{const b=e.target.closest('[data-join-decision]');if(!b)return;const row=b.closest('[data-repo-join]');b.disabled=true;
+  const r=await sendReliably('/api/repo-joins/'+encodeURIComponent(row.dataset.repoJoin)+'/'+b.dataset.joinDecision,{});const j=await r.json().catch(()=>({}));
+  toast(r.ok?(b.dataset.joinDecision==='let-in'?tr('Let in'):tr('Declined')):(j.error||tr('Something went wrong')));if(r.ok)row.remove();else b.disabled=false});
 const nb=document.getElementById('notif-on');
 if('Notification' in window&&Notification.permission==='default'){nb.hidden=false;nb.onclick=async()=>{await Notification.requestPermission();nb.hidden=true}}`;
   return appPage(`${T("Inbox")} · Atteo`, { viewer, boards: side, active: "inbox", crumbs: `<span class="cur">${esc(T("Inbox"))}</span>`, body, script, narrow: true });

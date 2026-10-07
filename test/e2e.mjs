@@ -207,6 +207,62 @@ await step("ops API is invisible without the key", async () => {
   assert(wrong.status === 404, "wrong key should 404");
 });
 
+await step("repo init: one linked encrypted board, one open join request, owner decision and archived refusal", async () => {
+  const owner = `e2e-repo-o-${run}`, joiner = `e2e-repo-j-${run}`;
+  await makeUsers([owner, joiner]);
+  const repo = `example/widgets-${run}`;
+  const init = (who, body) => fetch(`${BASE}/api/repos/init`, { method: "POST", headers: { authorization: `Bearer ${tok[who]}`, "content-type": "application/json" }, body: JSON.stringify(body) });
+  const first = await init(owner, { repo });
+  if (first.status !== 201) throw new Error(`create: ${first.status} ${await first.text()}`);
+  const made = await first.json();
+  assert(made.status === "created" && /^b_[a-z0-9]{8,32}$/.test(made.board), JSON.stringify(made));
+  const again = await (await init(owner, { repo })).json();
+  assert(again.board === made.board && again.status === "member", JSON.stringify(again));
+  const mine = await (await web("/api/me/boards", owner)).json();
+  assert(mine.boards.some((b) => b.id === made.board && b.encrypted), "repo board starts encrypted");
+  assert((await init(joiner, { repo: "wrong/repo", board: made.board })).status === 404, "a forged file cannot pick a board");
+  const requested = await (await init(joiner, { repo, board: made.board })).json();
+  assert(requested.status === "requested", JSON.stringify(requested));
+  assert((await web(`/api/boards/${made.board}`, joiner)).status === 404, "file alone does not grant access");
+  assert((await (await init(joiner, { repo, board: made.board })).json()).status === "pending", "duplicate init stays pending");
+  const pending = await (await web("/api/repo-joins", owner)).json();
+  const matches = pending.requests.filter((r) => r.board_id === made.board && r.requester === joiner);
+  assert(matches.length === 1 && matches[0].repo === repo, JSON.stringify(matches));
+  const forYouPage = await (await web("/for-you", owner)).text();
+  const inboxPage = await (await web("/inbox", owner)).text();
+  has(forYouPage, `data-join="${matches[0].id}"`);
+  has(forYouPage, 'data-fy-join="let-in"');
+  has(inboxPage, `data-repo-join="${matches[0].id}"`);
+  has(inboxPage, 'data-join-decision="decline"');
+  for (const page of [forYouPage, inboxPage])
+    for (const script of [...page.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/g)].map((m) => m[1]).filter(Boolean)) new Function(script);
+  assert((await fetch(`${BASE}/api/repo-joins/${matches[0].id}/let-in`, { method: "POST", headers: auth(owner) })).status === 403, "an owner agent cannot decide");
+  assert((await asPerson(joiner, `/api/repo-joins/${matches[0].id}/let-in`)).status === 400, "another person cannot decide");
+  const letIn = await asPerson(owner, `/api/repo-joins/${matches[0].id}/let-in`);
+  if (letIn.status !== 200) throw new Error(`let in: ${letIn.status} ${await letIn.text()}`);
+  assert((await web(`/api/boards/${made.board}`, joiner)).status === 200, "owner let in grants membership");
+  assert((await (await init(joiner, { repo, board: made.board })).json()).status === "member", "joined user stays a member");
+
+  const other = `example/second-${run}`;
+  const second = await (await init(owner, { repo: other })).json();
+  await init(joiner, { repo: other, board: second.board });
+  const req = (await (await web("/api/repo-joins", owner)).json()).requests.find((r) => r.board_id === second.board);
+  assert(req, "second request pending");
+  assert((await asPerson(owner, `/api/repo-joins/${req.id}/decline`)).status === 200, "owner can decline");
+  assert((await (await init(joiner, { repo: other, board: second.board })).json()).status === "cooldown", "decline has a cooldown");
+  const later = `e2e-repo-k-${run}`;
+  await makeUser(later);
+  assert((await (await init(later, { repo: other, board: second.board })).json()).status === "requested", "another teammate can ask");
+  const waiting = (await (await web("/api/repo-joins", owner)).json()).requests.find((r) => r.board_id === second.board && r.requester === later);
+  assert(waiting, "another request pending");
+  assert((await asPerson(owner, `/api/boards/${second.board}/archive`, { archived: true })).status === 200, "owner archived second board");
+  assert((await init(joiner, { repo: other, board: second.board })).status === 409, "archived board refuses requests");
+  assert((await asPerson(owner, `/api/repo-joins/${waiting.id}/let-in`)).status === 400, "archived board refuses a decision");
+  assert((await asPerson(owner, `/api/boards/${second.board}/unarchive`)).status === 200, "owner unarchived second board");
+  assert((await web(`/api/boards/${second.board}`, owner, { method: "DELETE" })).status === 200, "owner deleted second board");
+  assert((await init(later, { repo: other, board: second.board })).status === 409, "deleted board refuses requests");
+});
+
 await step("MCP initialize, tools/list, notifications, protocol errors", async () => {
   const r = await rpcRaw(auth(A), null, "initialize", { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "e2e", version: "0" } });
   assert(r.protocolVersion === "2025-06-18" && r.serverInfo.name === "atteo" && r.serverInfo.title === "Atteo", JSON.stringify(r));

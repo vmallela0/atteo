@@ -3,6 +3,7 @@
 // They call the same tools as `atteo mcp`, on the board chosen with `use` (per folder), and filter secrets locally first.
 
 import { boardIdIn } from "./boardid";
+import { repoContext } from "./repoInit";
 export { boardIdIn };
 import { randomUUID } from "node:crypto";
 import { execFileSync } from "node:child_process";
@@ -134,6 +135,8 @@ export function currentBoard(opt: Record<string, string | true>): string {
 
 /** The board set for this folder (or the closest one above it, so a whole project shares one), or the global default. */
 export function folderBoard(from: string = process.cwd()): string | null {
+  const linked = repoContext(from);
+  if (linked?.board) return linked.board;
   const map = boardMap();
   for (let dir = resolve(from); ; dir = resolve(dir, "..")) {
     if (map[dir]) return map[dir].id;
@@ -1808,6 +1811,7 @@ People:
                                         the web (Account) or in the app
 
 Board commands (on the board chosen with \`use\`, per folder):
+  atteo init                       In a GitHub repo, find or create its board and commit .atteo.json. Teammates ask to join.
   atteo boards                     Your boards and pending invitations
   atteo create "<title>" [--encrypted]   A new board for this folder (--encrypted: end-to-end, CLI-only)
   atteo use "<board>" [--global]   Choose this folder's board (accepts an invitation too); in a git repo it also

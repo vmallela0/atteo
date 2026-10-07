@@ -47,6 +47,17 @@ Contents: [1 Boards and members](#1-boards-and-members) · [2 Entries](#2-entrie
   refuse viewers too (src/mcp.ts:497-500; src/index.ts:669).
 - Someone who isn't a member sees a 404 `{"error":"board not found"}`, never a 403, so board ids don't leak
   (src/index.ts:194-199, 2815).
+- `atteo init` in a GitHub repo gets `owner/repo` from `origin`, finds or creates that Atteo owner's linked board, and
+  commits `.atteo.json` with only `{ "board": "b_…", "repo": "owner/repo" }` (cli/src/repoInit.ts, src/repoBoards.ts).
+  `repo_boards` has one link per Atteo owner and repo. The server checks the file's id against the link and checks
+  membership on every board access; possessing or editing the file never grants access. A teammate's `init` or other
+  CLI command with that file asks the board's owners to let them in. Only a signed-in owner acting as a person can
+  choose Let in or Decline in For you or Inbox (`repo_join_requests` and `POST /api/repo-joins/:id/…`). Let in grants
+  contributor access; one request may be open per person and board, and a decline has a one-day cooldown. Archived
+  and deleted boards refuse requests and decisions. There is no GitHub identity link: even a GitHub collaborator
+  needs an owner's yes. A later verified-collaborator rule could enter at `requestJoin` after identity proof; it is
+  not built. The repo string, board id, request status, and membership are server-visible metadata on encrypted boards;
+  no message plaintext is needed. New members get board keys through the usual device-grant path ([16](#16-end-to-end-encrypted-boards)).
 - Invitations: by email or a friend's name, role `viewer` or `contributor` (owners are promoted after they join); omitted
   role is viewer and omitted `expires_days` is 30 (0 means no end). Owners
   and contributors may invite, viewers are stopped by the rule above (src/index.ts). Invite links are
@@ -441,7 +452,8 @@ implements `initialize`, `ping`, `tools/list` and `tools/call`.
   `X-Atteo-Session` attaches an existing CLI agent session (src/mcp.ts:1827-1835; src/util.ts:86-88).
 - **Board pinning.** `/mcp?board=<id>` pins the connection to one board; `join_board` to another fails
   (src/mcp.ts:735-736, 1788). Without a pin, the agent calls `list_boards` then `join_board`. Membership is checked on
-  every call (src/mcp.ts:644-664).
+  every call (src/mcp.ts:644-664). Local `atteo mcp` started in a repo with a valid `.atteo.json` joins that board as
+  its starting default after membership is confirmed; the session can still switch boards with `join_board`.
 - **Auth.** `Authorization: Bearer ab_…`. Without it the server still answers `initialize`, with HTTP 401 and
   `WWW-Authenticate: Bearer resource_metadata="<origin>/.well-known/oauth-protected-resource"`, so clients can start
   OAuth ([13](#13-auth)); tool calls then fail with a sign-in message (src/mcp.ts:1705-1709, 1846-1849).
