@@ -2,6 +2,13 @@ import { describe, expect, it } from "vitest";
 import { CSP_ENFORCE } from "../src/ui";
 import { beaconSnippet, cspHash, inlineScripts, landingCsp } from "../landing/src/csp";
 import worker from "../landing/src/index";
+// @ts-expect-error: a plain .mjs script, no types
+import { build } from "../landing/jxn-pages/build.mjs";
+import JXN_DEVELOPERS from "../landing/jxn-pages/developers.html";
+import JXN_FAQ from "../landing/jxn-pages/faq.html";
+import JXN_PRIVACY from "../landing/jxn-pages/privacy.html";
+import JXN_SUPPORT from "../landing/jxn-pages/support.html";
+import JXN_TERMS from "../landing/jxn-pages/terms.html";
 
 const env = { APP_ORIGIN: "http://127.0.0.1:9" };
 const FORM = "https://atteo.dev";
@@ -13,7 +20,7 @@ async function page(path: string, extra: HeadersInit = {}) {
 describe("landing Worker CSP (docs/security/csp.md #8)", () => {
   it("keeps its own enforced policy, whatever the app's CSP_ENFORCE is", async () => {
     expect(CSP_ENFORCE).toBe(true); // the app enforces too now (vedu #5192)
-    const res = await page("/");
+    const res = await page("/faq");
     expect(res.headers.get("content-security-policy")).toContain("default-src 'none'");
     expect(res.headers.get("content-security-policy-report-only")).toBeNull();
   });
@@ -31,8 +38,8 @@ describe("landing Worker CSP (docs/security/csp.md #8)", () => {
     expect(await landingCsp("<p>x</p>", "https://evil.example; script-src *")).not.toContain("evil");
   });
 
-  it("sends an enforced hash policy on /, /faq, /support and /developers, and allows the JSON-LD by hash (/guide is the app's now, #5110)", async () => {
-    for (const path of ["/", "/faq", "/support", "/developers", "/?theme=dark", "/landing", "/landing/startup", "/landing/dev"]) {
+  it("sends an enforced hash policy on /landing/startup (/guide is the app's now, #5110)", async () => {
+    for (const path of ["/landing/startup"]) {
       const res = await page(path);
       expect(res.status).toBe(200);
       expect(res.headers.get("content-type")).toMatch(/text\/html/);
@@ -50,45 +57,94 @@ describe("landing Worker CSP (docs/security/csp.md #8)", () => {
       expect(csp.split("; ").find((d) => d.startsWith("script-src ")) ?? "").not.toContain("'unsafe-inline'");
       expect(html).not.toMatch(/\son[a-z]+\s*=/i);
       expect(html).not.toMatch(/\b(?:href|src)\s*=\s*["']javascript:/i);
-      const scripts = inlineScripts(html);
-      if (path === "/support" || path === "/developers" || path === "/landing/startup" || path === "/landing/dev") { // no scripts at all
-        expect(scripts).toEqual([]);
-        expect(csp).toContain("script-src 'none'");
-      } else {
-        // The home page also has its Copy buttons' script (jxn #4732); every inline script is allowed by its hash.
-        expect(scripts.length).toBe(path === "/faq" ? 1 : 2);
-        for (const s of scripts) expect(csp).toContain(await cspHash(s));
-        expect(JSON.parse(scripts[0]!)).toHaveProperty("@graph");
-      }
+      expect(inlineScripts(html)).toEqual([]); // no scripts at all
+      expect(csp).toContain("script-src 'none'");
     }
   });
 
-  it("serves the home page at /landing too, signed in or not, with the home's canonical (jxn #4772, #4773)", async () => {
-    const home = await (await page("/")).text();
-    for (const cookie of ["", "ab_session=abc"]) {
-      const res = await page("/landing", cookie ? { cookie } : {});
+  it("serves jxn's page at / signed out (#5972) and at /landing (#5958) with nothing loaded from outside atteo.dev, and keeps it out of the sitemap", async () => {
+    for (const [path, cookie] of [["/", ""], ["/landing", ""], ["/landing", "ab_session=abc"]] as const) {
+      const res = await page(path, cookie ? { cookie } : {});
       expect(res.status).toBe(200);
+      expect(res.headers.get("content-type")).toMatch(/text\/html/);
+      const csp = res.headers.get("content-security-policy") ?? "";
+      for (const d of ["default-src 'none'", "frame-ancestors 'none'", "base-uri 'none'", "form-action 'self'", "img-src 'self' data: blob:"]) expect(csp).toContain(d);
+      expect(csp).not.toMatch(/https?:/);
       const html = await res.text();
-      expect(html).toBe(home);
-      expect(html).toContain('<link rel="canonical" href="https://atteo.dev/">');
+      expect(html).toContain("/landing/icons/");
+      expect(html).not.toContain("google.com/s2");
+      // The share card, canonical and JSON-LD the old home page had, once, after the charset.
+      expect(html.indexOf("<title>")).toBeGreaterThan(html.indexOf("og:image")); // ours stops before its title
+      for (const tag of ['<link rel="canonical" href="https://atteo.dev/">', '<meta property="og:image" content="https://atteo.dev/og.png?v=3">', '<meta name="twitter:card" content="summary_large_image">', '"@graph"']) expect(html).toContain(tag);
     }
     expect(await (await page("/sitemap.xml")).text()).not.toContain("/landing");
   });
 
-  it("loads Cloudflare Web Analytics on the home page only when a token is set", async () => {
+  it("serves jxn's /developers, /faq, /support, /privacy and /terms (#5977) signed in or not, each with its own head tags, linking to each other by path", async () => {
+    for (const [path, title] of [["/developers", "Atteo · Developer docs"], ["/faq", "Atteo · Frequently asked questions"], ["/support", "Atteo · Support"], ["/privacy", "Atteo · Privacy"], ["/terms", "Atteo · Terms of Service"]] as const) {
+      for (const cookie of ["", "ab_session=abc"]) {
+        const res = await page(path, cookie ? { cookie } : {});
+        expect(res.status, path).toBe(200);
+        const csp = res.headers.get("content-security-policy") ?? "";
+        for (const d of ["default-src 'none'", "frame-ancestors 'none'", "base-uri 'none'", "form-action 'self'"]) expect(csp).toContain(d);
+        expect(csp).not.toMatch(/https?:/);
+        const html = await res.text();
+        for (const tag of [`<link rel="canonical" href="https://atteo.dev${path}">`, `<meta property="og:title" content="${title}">`, '<meta property="og:image" content="https://atteo.dev/og.png?v=3">']) expect(html, path).toContain(tag);
+        expect(html.indexOf("<title>")).toBeGreaterThan(html.indexOf("og:image")); // its own title stays the only one
+        for (const p of ["developers", "faq", "support", "privacy", "terms"]) expect(html, path).toContain(`href=\\"/${p}\\"`);
+        expect(html).not.toMatch(/href=\\"[a-z]+\.html\\"/);
+      }
+    }
+    // The FAQ keeps its FAQPage data: the questions are the same as before.
+    const faq = await (await page("/faq")).text();
+    expect(JSON.parse(inlineScripts(faq).find((s) => s.includes("FAQPage"))!)["@graph"][0].mainEntity).toHaveLength(9);
+  });
+
+  it("serves jxn's pages as landing/jxn-pages/build.mjs makes them from today's code: the app's privacy policy, every MCP tool and CLI command (jxn #5998)", async () => {
+    for (const [page, file] of Object.entries({ developers: JXN_DEVELOPERS, faq: JXN_FAQ, support: JXN_SUPPORT, privacy: JXN_PRIVACY, terms: JXN_TERMS }))
+      expect(build(file).out === file, `${page}.html is stale: run node landing/jxn-pages/build.mjs`).toBe(true);
+    const t = (html: string) => JSON.parse(/<script type="__bundler\/template">([\s\S]*?)<\/script>/.exec(html)![1]!) as string;
+    const privacy = t(await (await page("/privacy")).text());
+    const text = (h: string) => h.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+    const shown = text(privacy.slice(privacy.indexOf('<sc-if value="{{ is_privacy }}"'), privacy.indexOf('<sc-if value="{{ is_terms }}"')));
+    for (const line of ["Atteo staff don't look at what's on your boards", "end-to-end encrypted", "We'll send the current list of these providers on request", "Last updated October 6, 2026"]) expect(shown).toContain(line);
+    for (const vendor of ["WorkOS", "Resend", "Sentry", "PostHog", "Stripe", "Backblaze"]) expect(shown).not.toContain(vendor); // by category (vedu #5410/#5412)
+  });
+
+  it("answers a page the app doesn't have with jxn's 404 (#5990), and leaves the app's other answers alone", async () => {
+    const app = (status: number, type: string, body = "app") => ({ fetch: async () => new Response(body, { status, headers: { "content-type": type } }) });
+    const open = (path: string, APP: ReturnType<typeof app>, headers: HeadersInit = { accept: "text/html" }) =>
+      worker.fetch(new Request(`http://localhost${path}`, { headers }), { ...env, APP } as never);
+    const res = await open("/no/such/page", app(404, "text/html; charset=utf-8"));
+    expect(res.status).toBe(404);
+    expect(res.headers.get("x-robots-tag")).toBe("noindex");
+    const csp = res.headers.get("content-security-policy") ?? "";
+    for (const d of ["default-src 'none'", "frame-ancestors 'none'", "base-uri 'none'"]) expect(csp).toContain(d);
+    expect(csp).not.toMatch(/https?:/);
+    const html = await res.text();
+    expect(html).toContain("<title>atteo · page not found</title>");
+    for (const p of ["developers", "faq", "support", "privacy", "terms"]) expect(html).toContain(`href=\\"/${p}\\"`);
+    expect(html).not.toMatch(/href=\\"[a-z]+\.html\\"/);
+    // An API 404, a fetch() that isn't a page load, and a page the app does have come back as the app sent them.
+    expect(await (await open("/api/boards/x", app(404, "application/json", "{}"))).text()).toBe("{}");
+    expect(await (await open("/no/such/page", app(404, "text/html"), {})).text()).toBe("app");
+    expect(await (await open("/b/x", app(200, "text/html"))).text()).toBe("app");
+  });
+
+  it("loads Cloudflare Web Analytics on the signed-out home page only when a token is set", async () => {
     expect(beaconSnippet(undefined)).toBe("");
     const tokenEnv = { ...env, CF_WEB_ANALYTICS_TOKEN: "abcdef0123456789" };
     const home = await worker.fetch(new Request("http://localhost/"), tokenEnv);
     const html = await home.text();
     const csp = home.headers.get("content-security-policy") ?? "";
     expect(html).toContain("https://static.cloudflareinsights.com/beacon.min.js");
-    expect(csp).toBe(await landingCsp(html, FORM));
-    expect(csp).toContain("script-src ");
-    expect(csp).toContain("https://static.cloudflareinsights.com");
-    expect(csp).toContain("connect-src https://cloudflareinsights.com");
+    expect(csp).toContain("script-src https://static.cloudflareinsights.com ");
+    expect(csp).toContain("connect-src https://cloudflareinsights.com ");
+    const landing = await worker.fetch(new Request("http://localhost/landing"), tokenEnv);
+    expect(await landing.text()).not.toContain("cloudflareinsights");
     const faq = await worker.fetch(new Request("http://localhost/faq"), tokenEnv);
     expect(await faq.text()).not.toContain("cloudflareinsights");
-    expect(faq.headers.get("content-security-policy")).toContain("connect-src 'none'");
+    expect(faq.headers.get("content-security-policy")).not.toContain("cloudflareinsights");
   });
 
   it("serves a public /support page with the privacy contact, legal links, and its own title", async () => {
@@ -96,18 +152,9 @@ describe("landing Worker CSP (docs/security/csp.md #8)", () => {
     expect(signedIn.status).toBe(200);
     expect(signedIn.headers.get("content-type")).toMatch(/text\/html/);
     const html = await signedIn.text();
-    expect(html).toContain("<title>Atteo · Support</title>");
     expect(html).toContain('meta name="description" content="How to get help with Atteo, invite-only boards for people and their agents. Email privacy@atteo.dev."');
     expect(html).toContain('<link rel="canonical" href="https://atteo.dev/support">');
-    expect(html).toContain('href="mailto:privacy@atteo.dev"');
-    expect(html).toContain('href="https://atteo.dev/privacy"');
-    expect(html).toContain('href="https://atteo.dev/terms"');
-    expect(html).toContain("invite-only boards for people and their agents");
-    expect(html).toContain("How to get help");
-    const home = await (await page("/")).text();
-    expect(home).toContain('href="https://atteo.dev/support">support</a>'); // the home page's small links are lowercase (jxn #4732)
-    const faq = await (await page("/faq")).text();
-    expect(faq).toContain('href="https://atteo.dev/support">Support</a>');
+    expect(html).toContain('href=\\"mailto:privacy@atteo.dev\\"');
     const sitemap = await (await page("/sitemap.xml")).text();
     expect(sitemap).toContain("<loc>https://atteo.dev/support</loc>");
   });
@@ -121,33 +168,6 @@ describe("landing Worker CSP (docs/security/csp.md #8)", () => {
 });
 
 describe("landing public connect and directory links", () => {
-  const links = [
-    'href="https://atteo.dev/docs"',
-    'href="https://atteo.dev/guide"',
-    'href="https://atteo.dev/faq"',
-    'href="https://atteo.dev/support"',
-    'href="https://atteo.dev/llms.txt"', // the page head's alternate link; OpenAPI and the MCP URL are in /llms.txt
-  ];
-
-  it("puts the site links on /faq (its top bar and footer, #5110); the home page keeps only guide, faq, docs and the legal links (jxn #4732)", async () => {
-    for (const path of ["/faq"]) {
-      const html = await (await page(path)).text();
-      for (const href of links) expect(html, path).toContain(href);
-    }
-    const home = await (await page("/")).text();
-    for (const href of ['href="https://atteo.dev/docs"', 'href="https://atteo.dev/guide"', 'href="https://atteo.dev/faq"', 'href="https://atteo.dev/llms.txt"', 'href="https://atteo.dev/privacy"', 'href="https://atteo.dev/terms"', 'href="https://atteo.dev/support"']) expect(home).toContain(href);
-  });
-
-  it("makes the home page's install card name every way in, with the app's own lines (landing v3, board #5587)", async () => {
-    const html = await (await page("/")).text();
-    expect(html).toContain('role="tablist" aria-label="Connect your agent"');
-    for (const name of ["cli", "mcp", "claude code", "cursor", "codex"]) expect(html).toContain(`>${name}</button>`);
-    // Copy takes the commands only; the CLI tab shows without script, the others are switched by the hashed script.
-    for (const line of ["curl -fsSL https://atteo.dev/install.sh | sh\natteo login", "claude mcp add --transport http --scope user atteo https://atteo.dev/mcp", "codex mcp add atteo --url https://atteo.dev/mcp\ncodex mcp login atteo"]) expect(html).toContain(`data-copy-text="${line}"`);
-    expect(html).not.toMatch(/listed on (Smithery|mcp\.so|Glama)/i);
-    expect(html).not.toMatch(/App Store/i);
-  });
-
   it("keeps /llms.txt and /llms-full.txt aligned with the public connect facts", async () => {
     const llms = await (await page("/llms.txt")).text();
     const full = await (await page("/llms-full.txt")).text();
@@ -166,23 +186,5 @@ describe("landing public connect and directory links", () => {
     expect(body).toContain("<h1>The shared board for your team's agents.</h1>");
     expect(body).toContain('shadowrootmode="open"');
     expect(body.match(/class="su-cta"/g)).toHaveLength(1);
-  });
-
-  it("serves the light developer page at /landing/dev (jxn #5844): the command, two terminals connecting, Docs", async () => {
-    const res = await page("/landing/dev");
-    expect(res.status).toBe(200);
-    const body = await res.text();
-    expect(body).toContain('<span class="ln">curl -fsSL https://atteo.dev/install.sh | sh</span><span class="ln">atteo harness claude</span>');
-    expect(body.match(/class="su-frame dm-win"/g)).toHaveLength(2);
-    expect(body).toContain("✓ board atteo-demo (encrypted)");
-    expect(body).toContain("atteo link --role contributor"); // real commands: an owner's invite link, then join with it
-    expect(body).toContain("atteo join https://atteo.dev/i/il_");
-    expect(body).not.toMatch(/\b(jxn|vedu)\b/); // a public page: generic names
-    expect(body).toContain("3.2s + 1 click"); // opus-a's measured run (#5835), not a guess
-    expect(body.match(/>0\.485s<\/span>/g)).toHaveLength(2); // SPEED.p50, once each way
-    expect(body).toMatch(/@media \(prefers-reduced-motion:reduce\)\{[^}]*animation:none/);
-    expect(body).toContain('<a href="/developers">Docs →</a>');
-    expect(body).not.toContain("dv-verb"); // the verbs table and recipes moved to /developers
-    expect(await (await page("/sitemap.xml")).text()).not.toContain("/landing/dev");
   });
 });
