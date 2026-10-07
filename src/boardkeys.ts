@@ -121,12 +121,16 @@ export async function storePins(env: Env, user: string, kid: string, body: { by?
   await env.DB.prepare(`UPDATE agent_keys SET pins = ? WHERE id = ? AND user = ? AND revoked_at IS NULL`).bind(JSON.stringify({ by, ...g, sig }), kid, user).run();
 }
 
-/** A device's handed-over pins as stored, with the signer's signing key to check them against (or null). */
+/**
+ * A device's handed-over pins as stored, with the signer as the server lists it (its keys and label). Clients check the
+ * signature against a signing key they pinned themselves where they can (review #5592); the listed one is only shown,
+ * as a fingerprint, to the person.
+ */
 export async function pinsFor(env: Env, user: string, kid: string) {
-  const r = await env.DB.prepare(`SELECT k.pins, s.sign_pub AS by_sign_pub FROM agent_keys k LEFT JOIN agent_keys s ON s.id = json_extract(k.pins, '$.by') AND s.user = k.user AND s.revoked_at IS NULL WHERE k.id = ? AND k.user = ? AND k.revoked_at IS NULL`)
+  const r = await env.DB.prepare(`SELECT k.pins, s.sign_pub AS by_sign_pub, s.public_key AS by_public_key, s.label AS by_label FROM agent_keys k LEFT JOIN agent_keys s ON s.id = json_extract(k.pins, '$.by') AND s.user = k.user AND s.revoked_at IS NULL WHERE k.id = ? AND k.user = ? AND k.revoked_at IS NULL`)
     .bind(kid, user)
-    .first<{ pins: string | null; by_sign_pub: string | null }>();
-  return r?.pins && r.by_sign_pub ? { ...(JSON.parse(r.pins) as Record<string, string>), by_sign_pub: r.by_sign_pub } : null;
+    .first<{ pins: string | null; by_sign_pub: string | null; by_public_key: string | null; by_label: string | null }>();
+  return r?.pins && r.by_sign_pub ? { ...(JSON.parse(r.pins) as Record<string, string>), by_sign_pub: r.by_sign_pub, by_public_key: r.by_public_key, by_label: r.by_label } : null;
 }
 
 // ---- a device's signing key, set only with proof it holds the device's X25519 key (review #5523) ----

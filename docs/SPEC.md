@@ -686,9 +686,15 @@ board the server stores ciphertext and can't read messages. High level:
   keeps its pins in the browser's storage (`soup.e2e.pins.<you>`), so a new browser, or cleared site data, starts
   over that way. To shrink that, approving a new device of yours also hands it the approver's pins: sealed to it
   (HKDF label `atteo pins v1`), signed by the approver over `atteo pins v1\n<user>\n<kid>\n<epk>\n<iv>\n<wrapped>`,
-  stored on its key row (`POST /api/me/keys/{kid}/pins`, migration 0080), and merged in once, before anyone is pinned
-  on first sight (review #5567). A new device can only check that signature against the key the server lists for the
-  approver, so a lying server can still choose what a brand-new device starts from, as it can with first sight.
+  stored on its key row (`POST /api/me/keys/{kid}/pins`, migration 0080), and merged in before anyone is pinned on
+  first sight (review #5567), only for people never seen there: nothing is ever appended to someone's list. The
+  signature counts against a signing key pinned on that device for one of your own devices (review #5592). The
+  server's word for the signer counts only on a device that knows nobody yet (its pins hold only itself), once in its
+  life: it then shows the approver's label and fingerprint once ("Approved by …, fingerprint …"), to compare with that
+  device. So a lying server can choose what a brand-new device starts from, as it can with first sight, but can't add
+  to, or replay into, pins a device already holds. `atteo keys approve` and the web's Approve show the new device's
+  fingerprint before the yes. A device that read a board before it was approved has already trusted its members on
+  first sight, so it keeps those pins and takes none.
   Unsigned devices, including the iPhone app's for now, keep the own-devices-only rule (src/boardkeys.ts;
   cli/src/crosssign.ts; src/e2eweb.ts).
 - **Rollback.** Each client remembers the newest key epoch it has seen per board, and encrypts nothing when the server

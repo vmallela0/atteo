@@ -37,17 +37,23 @@ export const fingerprint = (publicKey: string, signPub?: string | null) =>
 export const sameFingerprint = (typed: string, fp: string) => typed.replace(/[\s:-]/g, "").toLowerCase() === fp.replace(/ /g, "");
 
 /**
- * Pins handed over by the device that approved this one (review #5567), merged into this machine's: a person this
- * machine never saw takes the giver's list (their entry, empty or not, is the giver's tombstone too); a person seen here
- * keeps their pins, plus any of the giver's. Changes `pin` in place.
+ * Pins handed over by the device that approved this one (review #5567), merged into this machine's: only people this
+ * machine never saw take the giver's list (their entry, empty or not, is the giver's tombstone too). A person seen here
+ * is never touched: nothing is appended to a list this machine keeps (review #5592, which would get past #5558's
+ * tombstone). `me` is never taken: this machine's own devices are its own call. Changes `pin` in place.
  */
-export function mergePins(pin: Record<string, string[]>, got: Record<string, string[]>) {
+export function mergePins(pin: Record<string, string[]>, got: Record<string, string[]>, me: string) {
   for (const [u, list] of Object.entries(got)) {
-    if (!Array.isArray(list)) continue;
-    const mine = (pin[u] ??= []);
-    for (const e of list) if (typeof e === "string" && /^[a-z0-9-]{1,40}\|[A-Za-z0-9+/]{43}=/.test(e) && !mine.includes(e)) mine.push(e);
+    if (u === me || Object.hasOwn(pin, u) || !Array.isArray(list) || !/^[a-z0-9][a-z0-9_.-]{0,31}$/.test(u)) continue;
+    pin[u] = [...new Set(list.filter((e) => typeof e === "string" && /^[a-z0-9-]{1,40}\|[A-Za-z0-9+/]{43}=/.test(e)))];
   }
 }
+
+/** The signing key pinned here for one of this person's OWN devices (never the server's word for it), or null. */
+export const ownSigner = (pin: Record<string, string[]>, me: string, kid: string) => pin[me]?.map((x) => x.split("|")).find((p) => p[0] === kid && p[2])?.[2] ?? null;
+
+/** Whether this machine knows nobody yet: no one pinned but this very device. */
+export const knowsNobody = (pin: Record<string, string[]>, me: string, kid: string) => Object.keys(pin).every((u) => u === me) && (pin[me] ?? []).every((e) => e.split("|")[0] === kid);
 
 /** A person seen before with no pinned device left: none of the devices this machine trusted for them is listed now. */
 export const noneLeft = (pin: Record<string, string[]>, user: string) => Object.hasOwn(pin, user) && !pin[user].length;

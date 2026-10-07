@@ -122,14 +122,22 @@ const sameFp=(typed,fp)=>String(typed||'').replace(/[\\s:-]/g,'').toLowerCase()=
 const PINS_INFO='atteo pins v1',pinsBytes=(u,kid,g)=>te.encode('atteo pins v1\\n'+u+'\\n'+kid+'\\n'+g.epk+'\\n'+g.iv+'\\n'+g.wrapped);
 async function sealPinsTo(p,devicePub){const e=await S.generateKey({name:'X25519'},false,['deriveBits']);const epk=b64(await S.exportKey('raw',e.publicKey));
   const w=await gcm(await kek(e.privateKey,devicePub,epk,devicePub,PINS_INFO),te.encode(JSON.stringify({v:1,pins:p})));return {epk,iv:w.iv,wrapped:w.ct}}
-/** The pins the device that approved this browser handed it, once per handover: checked, opened, merged (the CLI's mergePins). */
-let PINS_LOOKED=-1;
-async function adoptPins(pin,dev,held){const FK='soup.e2e.pinsfrom.'+ME+'.'+dev.kid;let done=null;try{done=localStorage.getItem(FK)}catch(e){}
-  if(done||PINS_LOOKED===held)return;PINS_LOOKED=held; // looked once per page, and again when this browser's first keys arrive
-  try{const h=(await api('GET','/api/me/keys?pins='+encodeURIComponent(dev.kid))).pins;if(!h||!await edOk(h.by_sign_pub,pinsBytes(ME,dev.kid,h),h.sig))return;
+/** The pins the device that approved this browser handed it (the CLI's adoptPins, review #5592): only for people never
+ *  seen here. Checked against a signing key pinned here for one of your own devices; the server's word for the signer
+ *  counts only while this browser knows nobody, once in its life, and then its fingerprint is shown to compare. */
+let PINS_LOOKED=-1,APPROVED_BY=null;
+async function adoptPins(pin,dev,held){const FK='soup.e2e.pinsfrom.'+ME+'.'+dev.kid,ONCE='soup.e2e.pinsonce.'+ME+'.'+dev.kid;let done=null,once=null;try{done=localStorage.getItem(FK);once=localStorage.getItem(ONCE)}catch(e){}
+  const own=(pin[ME]||[]).map(e=>e.split('|')),canSigner=own.some(p=>p[0]!==dev.kid&&p[2]);
+  const fresh=!once&&Object.keys(pin).every(u=>u===ME)&&own.every(p=>p[0]===dev.kid);
+  if((!canSigner&&!fresh)||PINS_LOOKED===held)return;PINS_LOOKED=held; // looked once per page, and again when this browser's first keys arrive
+  try{const h=(await api('GET','/api/me/keys?pins='+encodeURIComponent(dev.kid))).pins;if(!h||h.sig===done)return;
+    const signer=own.find(p=>p[0]===h.by&&p[2])?.[2]||null;if(!signer&&!fresh)return;
+    if(!await edOk(signer||h.by_sign_pub,pinsBytes(ME,dev.kid,h),h.sig))return;
     const j=JSON.parse(td.decode(await unwrapMine(h,dev,PINS_INFO)));if(j.v!==1||!j.pins||typeof j.pins!=='object')return;
-    for(const [u,list] of Object.entries(j.pins)){if(!Array.isArray(list))continue;const mine=pin[u]=pin[u]||[];for(const x of list)if(typeof x==='string'&&/^[a-z0-9-]{1,40}\\|[A-Za-z0-9+/]{43}=/.test(x)&&!mine.includes(x))mine.push(x)}
-    try{localStorage.setItem(FK,h.sig)}catch(e){}}catch(e){console.warn('[e2e] pins',e)}}
+    for(const [u,list] of Object.entries(j.pins)){if(u===ME||Object.hasOwn(pin,u)||!Array.isArray(list)||!/^[a-z0-9][a-z0-9_.-]{0,31}$/.test(u))continue;
+      pin[u]=[...new Set(list.filter(x=>typeof x==='string'&&/^[a-z0-9-]{1,40}\\|[A-Za-z0-9+/]{43}=/.test(x)))]}
+    try{localStorage.setItem(FK,h.sig);if(!signer)localStorage.setItem(ONCE,'1')}catch(e){}
+    if(!signer)APPROVED_BY={label:h.by_label||'another device of yours',kid:h.by,fp:await fpOf(h.by_public_key||'',h.by_sign_pub)}}catch(e){console.warn('[e2e] pins',e)}}
 const isPinned=(pin,k)=>!!pinOf(pin,k.user,k.kid,k.public_key);
 /** What a device signature covers (src/boardkeys.ts deviceSigned; never change it). */
 const signedBytes=(u,kid,pub,spub)=>te.encode('atteo device v1\\n'+u+'\\n'+kid+'\\n'+pub+'\\n'+(spub||''));
@@ -181,10 +189,11 @@ function renderBar(){if(!ST)return;const {dev,keys,current}=ST,kid='<span class=
   say(ready?'🔒 <b>End-to-end encrypted.</b> This browser decrypts and encrypts here; the server only sees ciphertext. This browser\\'s key: '+kid+'.'
     :current===0?'🔒 <b>End-to-end encrypted.</b> No messages yet. This browser\\'s key: '+kid+'.'
     :'🔒 <b>End-to-end encrypted.</b> This browser (key '+kid+') is waiting for the board\\'s key: a member\\'s device hands it over when they\\'re next here. If you already read this board on another device of yours, approve this one there (<span class="mono">atteo keys approve '+esc(dev.kid)+'</span>).');
+  if(APPROVED_BY)say((msg?msg.innerHTML+'<br>':'')+'🔑 Approved by <b>'+esc(APPROVED_BY.label)+'</b> (key <span class="mono">'+esc(APPROVED_BY.kid)+'</span>), fingerprint <span class="mono" id="e2e-approver-fp">'+esc(APPROVED_BY.fp)+'</span>: does it match what that device shows? This browser took its pins. If it doesn\\'t match, that wasn\\'t your device: tell your boards\\' members.');
   if(SIGN_BAD)say('⚠ <b>The server shows this browser with a signing key that isn\\'t this browser\\'s.</b> Devices "signed" with it aren\\'t from you: don\\'t trust them, and tell the board\\'s members.');
   if(composer)composer.hidden=!ready||READONLY;
   if(asks)asks.innerHTML=ST.untrusted.map(m=>m.user===ME
-    ?(READONLY?'':'<div class="e2e-ask"><span class="grow">A new device of yours wants this board\\'s key: <b>'+esc(m.label||'unnamed')+'</b> (key <span class="mono">'+esc(m.kid)+'</span>). Approve it only if it\\'s yours.</span><button class="btn sm primary" type="button" data-e2e-approve="'+esc(m.kid)+'">Approve</button></div>')
+    ?(READONLY?'':'<div class="e2e-ask"><span class="grow">A new device of yours wants this board\\'s key: <b>'+esc(m.label||'unnamed')+'</b> (key <span class="mono">'+esc(m.kid)+'</span>, fingerprint <span class="mono">'+esc(ST.fps.get(m.kid)||'')+'</span>). Approve it only if it\\'s yours and shows the same fingerprint.</span><button class="btn sm primary" type="button" data-e2e-approve="'+esc(m.kid)+'">Approve</button></div>')
     :ST.orphans.has(m.user)?'<div class="e2e-ask"><span class="grow">⚠ None of '+esc(m.user)+'\\'s devices this browser trusted is listed any more, and the server shows a new one (<b>'+esc(m.label||'unnamed')+'</b>, key <span class="mono">'+esc(m.kid)+'</span>, fingerprint <span class="mono">'+esc(ST.fps.get(m.kid))+'</span>) that none of them signed. It could be the server\\'s own, so it gets no key from here. Trust it only if '+esc(m.user)+' reads you the same fingerprint from their device (not on this board).</span>'+(READONLY?'':'<input class="input sm mono" data-e2e-fp-for="'+esc(m.kid)+'" placeholder="Their fingerprint" aria-label="'+esc(m.user)+'\\'s fingerprint for that device" autocomplete="off" spellcheck="false"><button class="btn sm" type="button" data-e2e-trust="'+esc(m.kid)+'">Trust</button>')+'</div>'
     :'<div class="e2e-ask xs muted">'+esc(m.user)+' has a device this browser hasn\\'t seen (<b>'+esc(m.label||'unnamed')+'</b>, key <span class="mono">'+esc(m.kid)+'</span>). It gets the key from one of '+esc(m.user)+'\\'s own devices, not from here.</div>').join('')}
 

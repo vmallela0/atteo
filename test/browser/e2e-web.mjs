@@ -87,20 +87,29 @@ check(!r.out.includes(`hello from the web ${run}`),"Ann's new CLI device can't r
 await pa.evaluate(()=>e2eSync());await pa.locator("[data-e2e-approve]").waitFor({timeout:6000}).catch(()=>{});
 const ask=await pa.locator(".e2e-ask").first().innerText().catch(()=>"");
 check(/A new device of yours wants this board's key/.test(ask),`Ann's browser asks her: "${ask.replace(/\s+/g," ").slice(0,90)}…"`);
+const cliFp=JSON.parse((await cli(A,["keys","--json"])).out).fingerprint;
+check(!!cliFp&&ask.includes(cliFp),"…showing that device's fingerprint before she approves (review #5592)");
 await pa.locator("#e2e-msg").scrollIntoViewIfNeeded();await pa.screenshot({path:`${SHOTS_DIR}/e2e-approve-light.png`,clip:{x:0,y:0,width:1280,height:360}});
 await pa.waitForTimeout(500);r=await cli(A,["read","--all"]); // a negative: give an unwanted grant time to show
 check(!r.out.includes(`hello from the web ${run}`),"…nothing is granted before she clicks Approve");
 await pa.locator("[data-e2e-approve]").click();
 r=await readUntil(A,[`hello from the web ${run}`]);
 check(r.out.includes(`hello from the web ${run}`),"after Approve in the browser, Ann's CLI reads the board");
-// Review #5567: the browser handed Ann's CLI its pins too (sealed to the CLI, signed by the browser), which the CLI took.
-const pinsWeb=await pa.evaluate(me=>JSON.parse(localStorage.getItem("soup.e2e.pins."+me)||"{}"),A),pinsCli=JSON.parse(readFileSync(cred[A]+".pins","utf8"));
-check(existsSync(cred[A]+".pins.from")&&(pinsWeb[B]||[]).length>0&&pinsWeb[B].every(e=>(pinsCli[B]||[]).includes(e)),"…and took the browser's pins, handed over with the approval");
+// Review #5592: the browser handed Ann's CLI its pins too, but the CLI read the board before it was approved (trusting
+// its members on first sight then), so it keeps its own: the server's word for the signer counts only on a device that
+// knows nobody.
+check(!existsSync(cred[A]+".pins.from"),"…and her CLI, which already knew the board's people, didn't take the browser's pins");
 // Review #5566: the bar shows this browser's fingerprint, from its own keys; it's what others compute from the listing.
 const fpOf=(pub,spub)=>createHash("sha256").update(`atteo fingerprint v1\n${pub}\n${spub??""}`).digest("hex").slice(0,32).match(/.{4}/g).join(" ");
 const meWeb=(await (await fetch(`${BASE}/api/me/keys`,{headers:{authorization:`Bearer ${tok[A]}`}})).json()).keys.find(k=>/web/.test(k.label||""));
 check(await pa.locator("#e2e-fp").innerText().catch(()=>"")===fpOf(meWeb.public_key,meWeb.sign_pub),"the bar shows this browser's fingerprint");
 check(await until(()=>pa.locator(".e2e-ask").count(),n=>n===0)===0,"…and the prompt is gone");
+// Review #5592, the main path: Ann's CLI approves her browser back, handing it the CLI's pins. The browser pinned the
+// CLI's signing key when it approved it, so it checks the signature against that, quietly (no "Approved by").
+await cliTty(A,["keys","approve",meWeb.id]);
+await pa.reload();await pa.waitForFunction(()=>!document.querySelector("form.composer").hidden,null,{timeout:10000}).catch(()=>{});
+const fromKey="soup.e2e.pinsfrom."+A+"."+meWeb.id;
+check(!!await until(()=>pa.evaluate(k=>localStorage.getItem(k),fromKey),v=>!!v)&&await pa.locator("#e2e-approver-fp").count()===0,"the browser took pins signed by a device of Ann's it pinned, without asking her to compare");
 // Bob's new browser: a later device of Bob's. It waits; Ann's browser doesn't hand it over; Bob's CLI approves it.
 const ctxB=await login(B);const pb=await ctxB.newPage();watch(pb);
 await pb.goto(`${BASE}/b/${board}`);

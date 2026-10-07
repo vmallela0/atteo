@@ -1232,8 +1232,8 @@ await step("invite links carry an encrypted board's key after the # (E2E 1c): at
 await step("cross-signed devices (E2E 1c): approving your new machine signs it; another member's CLI then hands it the key, and the board says so", async () => {
   const R = `e2e-cli-r-${run}`, S = `e2e-cli-s-${run}`;
   const cred = {};
-  for (const [who, u] of [["r1", R], ["r2", R], ["s", S]]) {
-    if (who !== "r2") await ops("users", { name: u, email: `${u}@example.com`, verified: "true" });
+  for (const [who, u] of [["r1", R], ["r2", R], ["r3", R], ["r4", R], ["s", S]]) {
+    if (who === "r1" || who === "s") await ops("users", { name: u, email: `${u}@example.com`, verified: "true" });
     cred[who] = join(dir, `xs-${who}.json`);
     writeFileSync(cred[who], JSON.stringify({ server: BASE, user: u, token: (await ops("tokens", { user: u })).token, expires_at: Date.now() + 86400e3 }), { mode: 0o600 });
   }
@@ -1269,9 +1269,38 @@ await step("cross-signed devices (E2E 1c): approving your new machine signs it; 
   r = await as("s", ["read", "--board", eb]); // S's CLI checks the signature against R1's pinned signing key, and grants
   r = await as("r2", ["read", "--all", "--board", eb]);
   assert(r.out.includes(secret), "R's second machine reads, handed the key by S's CLI: " + r.out + r.err);
-  // Review #5567: R2 took R1's pins (sealed to it, signed by R1) rather than trusting S's devices on first sight itself.
-  const pinsR1 = JSON.parse(readFileSync(`${cred.r1}.pins`, "utf8")), pinsR2 = JSON.parse(readFileSync(`${cred.r2}.pins`, "utf8"));
-  assert(existsSync(`${cred.r2}.pins.from`) && pinsR1[S]?.length && pinsR1[S].every((e) => pinsR2[S]?.includes(e)), "R2 has R1's pins: " + JSON.stringify({ pinsR1, pinsR2 }));
+  // Review #5592: R2 had already trusted S's devices on first sight itself (it read before it was approved), so it
+  // doesn't take R1's pins: a machine that knows anyone takes pins only signed by one of its own pinned devices.
+  const pinsR1 = JSON.parse(readFileSync(`${cred.r1}.pins`, "utf8"));
+  assert(!existsSync(`${cred.r2}.pins.from`) && !r.err.includes("Approved by"), "R2 kept its own pins: " + r.err);
+  // Review #5567/#5592: R3 is brand new (it only registered) when R1 approves it. The approval shows R3's fingerprint
+  // before the yes; R3 takes R1's pins, once, and shows R1's fingerprint for R to compare.
+  r = await as("r1", ["keys", "--json"]);
+  const r1 = JSON.parse(r.out).keys.find((k) => k.this_machine), r1id = r1.id;
+  r = await as("r3", ["keys", "--json"]);
+  const r3 = JSON.parse(r.out).keys.find((k) => k.this_machine);
+  r = await asTty("r1", ["keys", "approve", r3.id]);
+  assert(r.code === 0 && r.out.includes(`fingerprint ${fpOf(r3.public_key, r3.sign_pub)}) as one of yours?`) && r.out.includes("It also has this machine's pins"), r.out);
+  await as("s", ["read", "--board", eb]);
+  r = await as("r3", ["read", "--all", "--board", eb]);
+  assert(r.out.includes(secret) && r.err.includes(`Approved by ${r1.label} (${r1id}), fingerprint ${fpOf(r1.public_key, r1.sign_pub)}`), "R3 reads and shows its approver: " + r.out + r.err);
+  const pinsR3 = JSON.parse(readFileSync(`${cred.r3}.pins`, "utf8"));
+  assert(existsSync(`${cred.r3}.pins.from`) && pinsR1[S]?.length && pinsR1[S].every((e) => pinsR3[S]?.includes(e)), "R3 has R1's pins: " + JSON.stringify({ pinsR1, pinsR3 }));
+  r = await as("r3", ["read", "--all", "--board", eb]);
+  assert(!r.err.includes("Approved by"), "shown once: " + r.err);
+  // Review #5592, the attack: a device of R's that neither R2 nor R3 pinned (as a server could list) hands them pins of
+  // its own. R2 knows people and R3 already took pins once: neither takes them.
+  const evil = `e2e-evil-${run}`.slice(0, 32);
+  r = await as("r4", ["keys"]);
+  writeFileSync(`${cred.r4}.pins`, JSON.stringify({ [evil]: [`kx|${"A".repeat(43)}=|`] }), { mode: 0o600 });
+  for (const who of ["r2", "r3"]) {
+    const id = who === "r2" ? r2.id : r3.id;
+    r = await asTty("r4", ["keys", "approve", id]);
+    assert(r.code === 0 && r.out.includes("It also has this machine's pins"), r.out);
+    r = await as(who, ["read", "--all", "--board", eb]);
+    const got = JSON.parse(readFileSync(`${cred[who]}.pins`, "utf8"));
+    assert(!Object.hasOwn(got, evil) && !r.err.includes("Approved by"), `${who} refused R4's pins: ` + JSON.stringify(got) + r.err);
+  }
   const tokR2 = JSON.parse(readFileSync(cred.r2, "utf8")).token;
   const sealedPins = await fetch(`${BASE}/api/me/keys?pins=${r2.id}`, { headers: { authorization: `Bearer ${tokR2}` } }).then((x) => x.json());
   assert(sealedPins.pins?.wrapped && !JSON.stringify(sealedPins).includes(pinsR1[S][0].split("|")[1]), "the server holds the pins only sealed");
@@ -1279,10 +1308,15 @@ await step("cross-signed devices (E2E 1c): approving your new machine signs it; 
   assert(html.includes(`🔑 ${R} added a device`) && html.includes(`gave ${R}`), "the device change and the grant are visible on the board");
   // The server checks signatures too: a made-up one is refused.
   const tokR = JSON.parse(readFileSync(cred.r1, "utf8")).token;
-  r = await as("r2", ["keys", "--json"]);
-  const r1id = JSON.parse(r.out).keys.find((k) => !k.this_machine).id;
   const bad = await fetch(`${BASE}/api/me/keys/${r1id}/sign`, { method: "POST", headers: { authorization: `Bearer ${tokR}`, "content-type": "application/json" }, body: JSON.stringify({ by: r2.id, sig: Buffer.alloc(64, 7).toString("base64") }) }).then((x) => x.json());
   assert(/doesn't match/.test(bad.error ?? ""), JSON.stringify(bad));
+  // The main path: R3 hands its pins back to R1, which pinned R3 (with its signing key) when it approved it, so R1
+  // checks the signature against that pin, quietly.
+  r = await asTty("r3", ["keys", "approve", r1id]);
+  assert(r.code === 0 && r.out.includes("It also has this machine's pins"), r.out);
+  const fromR1 = existsSync(`${cred.r1}.pins.from`) ? readFileSync(`${cred.r1}.pins.from`, "utf8") : "";
+  r = await as("r1", ["read", "--board", eb]);
+  assert(readFileSync(`${cred.r1}.pins.from`, "utf8") !== fromR1 && !r.err.includes("Approved by"), "R1 took R3's pins, signed by a device it pinned: " + r.err);
   // Review #5523: a signing key is set only with proof of the device key, so a token alone can't put one on an older
   // device that had none (which members would then pin).
   const { generateKeyPairSync } = await import("node:crypto");

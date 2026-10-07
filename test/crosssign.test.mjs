@@ -1,6 +1,6 @@
 import { generateKeyPairSync, sign } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import { crossSigned, dropGone, fingerprint, firstSight, mergePins, noneLeft, pinId, pinned, sameFingerprint } from "../cli/src/crosssign";
+import { crossSigned, dropGone, fingerprint, firstSight, knowsNobody, mergePins, noneLeft, ownSigner, pinId, pinned, sameFingerprint } from "../cli/src/crosssign";
 import { deviceSigned, pinsSigned, verifyDevice } from "../cli/src/sealed";
 import { deviceSigned as serverSigned, pinsSigned as serverPinsSigned } from "../src/boardkeys";
 
@@ -83,10 +83,24 @@ describe("cross-signed device lists (E2E design §2.2, Phase 1c)", () => {
     expect(sameFingerprint("", fp)).toBe(false);
   });
 
+  it("review #5592: a bundle's signer must be my own pinned device; otherwise only a device that knows nobody takes it", () => {
+    const a1 = device("ana", "a1"), a2 = device("ana", "a2"), b1 = device("bo", "b1");
+    const pin = { ana: [pinId(a1.kid, a1.public_key, a1.sign_pub), pinId(a2.kid, a2.public_key, "")] };
+    expect(ownSigner(pin, "ana", "a1")).toBe(a1.sign_pub);
+    expect(ownSigner(pin, "ana", "a2")).toBeNull(); // pinned but with no signing key
+    expect(ownSigner(pin, "ana", "zz")).toBeNull(); // whatever the server claims, it isn't pinned here
+    expect(ownSigner({ bo: [pinId(b1.kid, b1.public_key, b1.sign_pub)] }, "ana", "b1")).toBeNull(); // someone else's device
+    expect(knowsNobody({}, "ana", "a1")).toBe(true);
+    expect(knowsNobody({ ana: [pinId(a1.kid, a1.public_key, a1.sign_pub)] }, "ana", "a1")).toBe(true);
+    expect(knowsNobody({ ana: [pinId(a2.kid, a2.public_key, a2.sign_pub)] }, "ana", "a1")).toBe(false);
+    expect(knowsNobody({ bo: [] }, "ana", "a1")).toBe(false); // a tombstone counts as knowing someone
+  });
+
   it("review #5567: pins handed over merge in, keeping the giver's tombstones; CLI and server sign the same bytes", () => {
     const b1 = device("bo", "b1"), c1 = device("cy", "c1");
     const mine = { cy: [pinId(c1.kid, c1.public_key, c1.sign_pub)] };
-    mergePins(mine, { bo: [pinId(b1.kid, b1.public_key, b1.sign_pub)], cy: ["not a pin", 7], dee: [], eve: "x" });
+    mergePins(mine, { bo: [pinId(b1.kid, b1.public_key, b1.sign_pub)], cy: ["not a pin", 7], dee: [], eve: "x", ana: ["evil|" + "A".repeat(43) + "="] }, "ana");
+    // review #5592: never appended to someone already seen here (cy), nor to me
     expect(mine).toEqual({ cy: [pinId(c1.kid, c1.public_key, c1.sign_pub)], bo: [pinId(b1.kid, b1.public_key, b1.sign_pub)], dee: [] });
     firstSight(mine, "ana", [{ ...plain(device("dee", "d9")) }], []);
     expect(mine.dee).toEqual([]); // the giver saw dee: this machine doesn't trust dee's devices on first sight either

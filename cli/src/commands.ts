@@ -11,7 +11,7 @@ import SKILL_MD from "../../skills/atteo/SKILL.md";
 import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { hostname, tmpdir } from "node:os";
 import { decryptFile, decryptV2, deviceSigned, encryptFile, encryptV2, FILE_CHUNK, inviteKey, keysDigest, myKey, mySignKey, newEpochKey, openPins, openProof, pinsSigned, seal, sealPins, signDevice, unseal, unwrapInvite, unwrapKey, verifyDevice, wrapKey, type WrappedKey } from "./sealed";
-import { crossSigned, dropGone, fingerprint, firstSight, mergePins, noneLeft, pinId, pinned, sameFingerprint } from "./crosssign";
+import { crossSigned, dropGone, fingerprint, firstSight, knowsNobody, mergePins, noneLeft, ownSigner, pinId, pinned, sameFingerprint } from "./crosssign";
 import { homedir } from "node:os";
 import { basename, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { blockedMessage, scanFields } from "../../src/secrets";
@@ -417,7 +417,7 @@ async function boardKeys(opt: Record<string, string | true>, board: string, trie
   // A pin is a device id AND its public key, so the server can't keep a trusted id and swap in a key of its own.
   const pin = pins();
   const before = JSON.stringify(pin);
-  adoptPins(pin); // from the device that approved this one, before anyone is trusted on first sight here
+  adoptPins(pin, me, kid); // from the device that approved this one, before anyone is trusted on first sight here
   const seen = new Map([...st.keys, ...st.missing].map((k) => [k.kid, k.public_key]));
   for (const [u, list] of Object.entries(pin)) pin[u] = list.map((e) => (e.includes("|") || !seen.has(e) ? e : pinId(e, seen.get(e)!))); // older pins were ids alone
   // This machine: pinned with its own signing key, never the one the server shows, which it checks.
@@ -1285,24 +1285,35 @@ async function ensureKey(opt: Record<string, string | true>): Promise<string> {
   return j.id as string;
 }
 /** Pins the device that approved this one handed it (review #5567), as the server last returned them. */
-let handedPins: (WrappedKey & { by: string; by_sign_pub: string; sig: string; kid: string }) | null = null;
+let handedPins: (WrappedKey & { by: string; by_sign_pub: string; by_public_key?: string | null; by_label?: string | null; sig: string; kid: string }) | null = null;
 const handedFile = () => `${pinFile()}.from`;
 
 /**
- * Takes the pins the approving device handed this one, once per handover: checked against the giver's signing key,
- * opened with this machine's key, merged (crosssign.ts mergePins). Before them, a new machine knows nobody.
+ * Takes the pins the approving device handed this one (review #5567), only for people this machine never saw
+ * (crosssign.ts mergePins). The signature counts against a signing key pinned here for one of your own devices; the
+ * server's word for the signer counts only on a machine that knows nobody yet, and only once in its life (review #5592):
+ * otherwise a server could sign a bundle of its own, or replay an old one. Then this machine shows the approver's
+ * fingerprint, once, for you to compare with that device.
  */
-function adoptPins(pin: Record<string, string[]>) {
+function adoptPins(pin: Record<string, string[]>, me: string, kid: string) {
   const h = handedPins;
   if (!h) return;
+  let done = "";
   try {
-    if (readFileSync(handedFile(), "utf8") === h.sig) return;
+    done = readFileSync(handedFile(), "utf8");
   } catch {}
-  if (!verifyDevice(h.by_sign_pub, pinsSigned(creds().user, h.kid, h), h.sig)) return;
+  if (done === h.sig) return;
+  const signer = ownSigner(pin, me, h.by);
+  if (!signer && (done || !knowsNobody(pin, me, kid))) return; // once in this machine's life, and only into nothing
+  if (!verifyDevice(signer ?? h.by_sign_pub, pinsSigned(me, h.kid, h), h.sig)) return;
   const got = openPins(h);
   if (!got) return;
-  mergePins(pin, got);
+  mergePins(pin, got, me);
   writeFileSync(handedFile(), h.sig, { mode: 0o600 });
+  if (!signer)
+    process.stderr.write(
+      `🔑 Approved by ${h.by_label ?? "another device of yours"} (${h.by}), fingerprint ${fingerprint(h.by_public_key ?? "", h.by_sign_pub)}: does it match what that device shows (atteo keys, or the web's encryption bar)? This machine took its pins. If it doesn't match, that wasn't your device: tell your boards' members.\n`,
+    );
 }
 
 async function keys(args: string[]) {
@@ -1316,7 +1327,8 @@ async function keys(args: string[]) {
     const k = (j.keys as { id: string; label: string | null; public_key: string; sign_pub: string | null; sig: string | null }[]).find((x) => x.id === kid || (kid && kid.length >= 6 && x.id.startsWith(kid)));
     if (!k) throw new CliError(`Usage: atteo keys approve <device id>   (one of yours: ${(j.keys as { id: string }[]).map((x) => x.id.slice(0, 8)).join(", ")})`);
     if (k.id === mine) throw new CliError("That's this machine.");
-    await personConfirms("atteo keys approve", `Approve ${k.label ?? "that device"} (${k.id}) as one of yours? It gets the keys of your encrypted boards.`);
+    // Its fingerprint first (review #5592): the one that device shows for itself (atteo keys, the web's encryption bar).
+    await personConfirms("atteo keys approve", `Approve ${k.label ?? "that device"} (${k.id}, fingerprint ${fingerprint(k.public_key, k.sign_pub)}) as one of yours? Only if that device shows the same fingerprint. It gets the keys of your encrypted boards.`);
     const p = pins();
     const me = creds().user;
     if (!pinned(p[me], k.id, k.public_key)) (p[me] ??= []).push(pinId(k.id, k.public_key, k.sign_pub));
