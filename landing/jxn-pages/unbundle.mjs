@@ -29,6 +29,10 @@ export const PAGES = {
   terms: { src: new URL("terms.html", HERE), path: "/terms" },
   404: { src: new URL("404.html", HERE), path: "/jxn-path-marker" }, // its logic would show any path with "404" as /missing-page
 };
+// The home page's logic names four logos by path (LOGOS, OPTS: "assets/<name>-logo.png"); the export carries them under
+// these uuids (the demo uses them by uuid), so they're written out at those paths too (alt-3 #6062).
+const NAMED = { "claude-code-logo.png": "83e338cc-481b-46d8-92d1-71b41b055c12", "muse-logo.png": "e118cc6f-e062-401f-940a-0dd0f27ea0fc", "grokbot-logo.png": "d08a343d-9ac4-4aab-9db2-42f28059271c", "dots-logo.png": "6d2a914f-34c2-49e7-979f-d92db93065c6" };
+const NAMED_DIR = new URL("../public/assets/", import.meta.url);
 const EXT = { "font/woff2": "woff2", "image/png": "png", "image/jpeg": "jpg", "image/svg+xml": "svg", "image/webp": "webp", "text/javascript": "js", "application/javascript": "js" };
 export const sha256 = (s) => createHash("sha256").update(s).digest("hex");
 
@@ -141,6 +145,10 @@ export async function unbundle(names = Object.keys(PAGES)) {
       const { src, path, live: isLive } = PAGES[name];
       const html = readFileSync(src, "utf8");
       const files = manifestAssets(html);
+      if (isLive) {
+        mkdirSync(NAMED_DIR, { recursive: true });
+        for (const [file, uuid] of Object.entries(NAMED)) writeFileSync(new URL(file, NAMED_DIR), files[uuid].bytes);
+      }
       let out = withFiles(await snapshot(browser, html, path));
       if (name === "404") out = out.replace('<span class="sc-interp">/jxn-path-marker</span>', '<span class="sc-interp" id="jxn-path">/missing-page</span>');
       if (/jxn-path-marker/.test(out)) throw new Error("the 404's path isn't where it was");
