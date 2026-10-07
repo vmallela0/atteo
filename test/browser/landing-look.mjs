@@ -37,9 +37,14 @@ for (const [path, w] of [["/", 1440], ["/", 390], ["/landing", 1440]]) {
       const box = (e) => e.getBoundingClientRect(), hub = box(document.querySelector("[data-hub]"));
       const over = [...document.querySelectorAll("[data-node]")].filter((n) => { const b = box(n); return getComputedStyle(n).visibility === "visible" && b.bottom > hub.top && b.top < hub.bottom; });
       const [a, b, c] = ["a", "b", "c"].map((t) => box(document.querySelector(`[data-term="${t}"]`)));
-      return { h1: box(document.querySelector("[data-hub] h1")).right <= innerWidth, over: over.length, stacked: a.bottom < b.top && b.bottom < c.top && c.height > 200, rail: getComputedStyle(document.querySelector("[data-rail]")).display };
+      const net = box(document.querySelector('section[data-screen-label="Hero"] > div[aria-hidden="true"]'));
+      const cli = box(document.querySelector("[data-hub] button[aria-haspopup]")), cmd = box(document.querySelector('[data-hub] span[style*="overflow-x"]'));
+      return { h1: box(document.querySelector("[data-hub] h1")).right <= innerWidth, over: over.length, stacked: a.bottom < b.top && b.bottom < c.top && c.height > 200, rail: getComputedStyle(document.querySelector("[data-rail]")).display,
+        around: net.left > 0 && net.left < hub.left && net.right > hub.right && net.right < innerWidth && net.top < hub.top && net.bottom > hub.bottom, oneLine: Math.abs((cli.top + cli.bottom) / 2 - (cmd.top + cmd.bottom) / 2) < 8 && cmd.height < 30 };
     });
     check(m.h1 && !m.over, `${tag}: the headline fits and no ring icon covers the text (${m.over} over it)`);
+    // jxn #6074: the network's thin lines run down both sides of the text, and the install command stays on one line beside copy and cli.
+    check(m.around && m.oneLine, `${tag}: the network surrounds the text, and the install command is one line beside cli`);
     check(m.stacked && m.rail === "none", `${tag}: the demo panels stack and the scroll rail is hidden`);
   }
   check(!errors.length, `${tag}: no page errors${errors.length ? ` (${errors[0]})` : ""}`);
