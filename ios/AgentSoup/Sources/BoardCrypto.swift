@@ -174,16 +174,30 @@ final class BoardCrypto {
         return String(data: try JSONSerialization.data(withJSONObject: payload), encoding: .utf8)!
     }
 
-    /// Where an encrypted message's file lives on this phone once decrypted (named as it's called, for Quick Look).
-    static func fileURL(board: String, _ f: SealedFile) -> URL {
-        FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0].appendingPathComponent("sealed", isDirectory: true)
+    /// Whether a string is a file id as the server issues them (sf_ and 1–40 of a–z, 0–9) or a board id. Ids come from
+    /// other members' messages, so nothing else is ever used in a request or a path (#5542).
+    nonisolated static func isFileId(_ s: String) -> Bool { s.range(of: "^sf_[a-z0-9]{1,40}$", options: .regularExpression) != nil }
+    nonisolated static func isBoardId(_ s: String) -> Bool { s.range(of: "^b_[a-z0-9]{1,40}$", options: .regularExpression) != nil }
+
+    /// A sender's file name as one safe path component: its last part, no separators, never "." or "..".
+    nonisolated static func safeName(_ name: String) -> String {
+        let n = (name as NSString).lastPathComponent.replacingOccurrences(of: "/", with: "_").replacingOccurrences(of: ":", with: "_")
+            .replacingOccurrences(of: "\0", with: "").trimmingCharacters(in: .whitespacesAndNewlines)
+        return n.isEmpty || n.allSatisfy({ $0 == "." }) ? "file" : String(n.prefix(120))
+    }
+
+    /// Where an encrypted message's file lives on this phone once decrypted (named as it's called, for Quick Look); nil
+    /// when the message's id or the board isn't well-formed.
+    nonisolated static func fileURL(board: String, _ f: SealedFile) -> URL? {
+        guard isFileId(f.id), isBoardId(board) else { return nil }
+        return FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0].appendingPathComponent("sealed", isDirectory: true)
             .appendingPathComponent(board, isDirectory: true).appendingPathComponent(f.id, isDirectory: true)
-            .appendingPathComponent((f.name as NSString).lastPathComponent.replacingOccurrences(of: "/", with: "_"))
+            .appendingPathComponent(safeName(f.name), isDirectory: false)
     }
 
     /// The file decrypted on this phone: from its cache, else downloaded (ciphertext) and decrypted here.
     func file(board: String, _ f: SealedFile) async throws -> URL {
-        let u = Self.fileURL(board: board, f)
+        guard let u = Self.fileURL(board: board, f) else { throw CryptoKitError.incorrectParameterSize }
         if FileManager.default.fileExists(atPath: u.path) { return u }
         guard let key = Data(base64Encoded: f.key), key.count == 32 else { throw CryptoKitError.incorrectKeySize }
         let blob = try await API.shared.download("/api/boards/\(board)/sealed-files/\(f.id)")
@@ -200,7 +214,7 @@ final class BoardCrypto {
         let d = try await API.shared.upload("/api/boards/\(board)/sealed-files", data: blob, contentType: "application/octet-stream", progress: progress)
         let f = SealedFile(id: try JSONDecoder.soup.decode(R.self, from: d).id, name: name, mime: mime, size: data.count, key: key.base64EncodedString(), chunk: SealedFiles.chunk, w: w, h: h)
         // Already here: keep the plaintext where the message will look for it, so it doesn't download again.
-        let u = Self.fileURL(board: board, f)
+        guard let u = Self.fileURL(board: board, f) else { throw CryptoKitError.incorrectParameterSize }
         try? FileManager.default.createDirectory(at: u.deletingLastPathComponent(), withIntermediateDirectories: true)
         try? data.write(to: u, options: [.atomic, .completeFileProtection])
         return f
@@ -214,22 +228,45 @@ final class BoardCrypto {
     private func open(_ payload: String, board: String) -> Opened? {
         guard let d = payload.data(using: .utf8),
               let j = try? JSONSerialization.jsonObject(with: d) as? [String: Any],
-              j["v"] as? Int == 2, let epoch = j["epoch"] as? Int, let key = keys[board]?[epoch],
-              let plain = Self.gcmOpen(j["iv"], j["ct"], key), let text = String(data: plain, encoding: .utf8) else { return nil }
-        // The extras are optional: a message without them, or with ones this phone can't read, still shows its text.
+              j["v"] as? Int == 2, let epoch = j["epoch"] as? Int, let key = keys[board]?[epoch] else { return nil }
+        return Self.opened(j, key: key)
+    }
+
+    /// An envelope's text and extras under `key`. The extras are optional: a message without them, or with ones this
+    /// phone can't read, still shows its text; they're a member's writing, so only well-formed file references stay.
+    nonisolated static func opened(_ j: [String: Any], key: SymmetricKey) -> Opened? {
+        guard let plain = gcmOpen(j["iv"], j["ct"], key), let text = String(data: plain, encoding: .utf8) else { return nil }
         let x = j["x"] as? [String: Any]
-        let extras = Self.gcmOpen(x?["iv"], x?["ct"], key).flatMap { try? JSONDecoder().decode(SealedExtras.self, from: $0) } ?? SealedExtras()
+        var extras = gcmOpen(x?["iv"], x?["ct"], key).flatMap { try? JSONDecoder().decode(SealedExtras.self, from: $0) } ?? SealedExtras()
+        extras.files = extras.files?.filter { isFileId($0.id) && $0.size >= 0 }
         return Opened(text: text, extras: extras)
     }
 
-    private static func gcmOpen(_ iv: Any?, _ ct: Any?, _ key: SymmetricKey) -> Data? {
+    nonisolated private static func gcmOpen(_ iv: Any?, _ ct: Any?, _ key: SymmetricKey) -> Data? {
         guard let iv = (iv as? String).flatMap({ Data(base64Encoded: $0) }), let ct = (ct as? String).flatMap({ Data(base64Encoded: $0) }), ct.count >= 16,
               let box = try? AES.GCM.SealedBox(nonce: AES.GCM.Nonce(data: iv), ciphertext: ct.dropLast(16), tag: ct.suffix(16)) else { return nil }
         return try? AES.GCM.open(box, using: key)
     }
 
-    private func kek(_ shared: SharedSecret, epk: Data, devicePublic: Data) -> SymmetricKey {
-        shared.hkdfDerivedSymmetricKey(using: SHA256.self, salt: epk + devicePublic, sharedInfo: Self.info, outputByteCount: 32)
+    private func kek(_ shared: SharedSecret, epk: Data, devicePublic: Data, info: Data = BoardCrypto.info) -> SymmetricKey {
+        shared.hkdfDerivedSymmetricKey(using: SHA256.self, salt: epk + devicePublic, sharedInfo: info, outputByteCount: 32)
+    }
+
+    /// Opens a v1 envelope sealed to this person's devices (an approval's details on an encrypted board, #5542): nil when
+    /// it isn't one, or this phone isn't among its recipients.
+    func openForMe(_ envelope: String) -> Data? {
+        guard let d = envelope.data(using: .utf8), let j = try? JSONSerialization.jsonObject(with: d) as? [String: Any], j["v"] as? Int == 1,
+              let rs = j["recipients"] as? [[String: Any]] else { return nil }
+        let kid = UserDefaults.standard.string(forKey: "agent-soup-device-kid")
+        for r in rs where kid == nil || r["kid"] as? String == kid {
+            guard let epk = (r["epk"] as? String).flatMap({ Data(base64Encoded: $0) }), let iv = (r["iv"] as? String).flatMap({ Data(base64Encoded: $0) }),
+                  let w = (r["wrapped"] as? String).flatMap({ Data(base64Encoded: $0) }), w.count == 48,
+                  let shared = try? privateKey.sharedSecretFromKeyAgreement(with: Curve25519.KeyAgreement.PublicKey(rawRepresentation: epk)),
+                  let box = try? AES.GCM.SealedBox(nonce: AES.GCM.Nonce(data: iv), ciphertext: w.prefix(32), tag: w.suffix(16)),
+                  let content = try? AES.GCM.open(box, using: kek(shared, epk: epk, devicePublic: publicKey, info: Data("agent-soup seal v1".utf8))) else { continue }
+            return Self.gcmOpen(j["iv"], j["ct"], SymmetricKey(data: content))
+        }
+        return nil
     }
 
     private func wrap(_ key: SymmetricKey, to publicKeyB64: String) throws -> [String: Any] {

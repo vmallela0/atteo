@@ -3,6 +3,12 @@
 
 import SwiftUI
 
+extension Approval {
+    /// The details for a list row, a card or a notification: on an encrypted board they're sealed to your devices
+    /// (#5542), so the row says so instead of showing the envelope; the full view opens them (ApprovalDetail).
+    var previewDetails: String { details.hasPrefix("{\"v\":1") ? String(localized: "🔒 Encrypted for your devices", bundle: .l10n) : details }
+}
+
 struct ApprovalDetail: View {
     @EnvironmentObject var state: AppState
     @Environment(\.dismiss) private var dismiss
@@ -10,6 +16,12 @@ struct ApprovalDetail: View {
     @State private var note = ""
     @State private var busy: Bool?
     @FocusState private var noting: Bool
+    /// On an encrypted board the details are sealed to your own devices (#5542): opened here, or nil if this phone can't.
+    @State private var sealedOpen: SealedApproval?
+    struct SealedApproval: Decodable { var title: String?; var details: String?; var command: String? }
+    private var sealed: Bool { a.details.hasPrefix("{\"v\":1") }
+    private var details: String { sealed ? sealedOpen?.details ?? String(localized: "🔒 Encrypted for your devices: this phone can't read it.", bundle: .l10n) : a.details }
+    private var title: String { sealedOpen?.title.flatMap { $0.isEmpty ? nil : $0 } ?? a.title }
 
     private var riskColor: Color { a.risk == "high" ? Theme.danger : a.risk == "medium" ? Theme.warn : Theme.ok }
     private var boardTitle: String? { a.boardId.flatMap { id in state.boards.first { $0.id == id }.map { state.displayName(for: $0) } } }
@@ -37,7 +49,7 @@ struct ApprovalDetail: View {
     /// A permission hook sends the exact action separately from its explanation. Keep it verbatim: this is what the
     /// person is approving, including whitespace in a shell command or file diff.
     private var command: String? {
-        guard let command = a.command, !command.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+        guard let command = sealed ? sealedOpen?.command : a.command, !command.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
         return command
     }
     /// A look-alike letter (a Cyrillic "а") or any other non-ASCII character in a command is called out (#4929).
@@ -48,6 +60,13 @@ struct ApprovalDetail: View {
     }
 
     var body: some View {
+        content.task(id: a.id) {
+            guard sealed, let d = BoardCrypto.shared.openForMe(a.details) else { return }
+            sealedOpen = try? JSONDecoder().decode(SealedApproval.self, from: d)
+        }
+    }
+
+    private var content: some View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: Space.l) {
@@ -59,7 +78,7 @@ struct ApprovalDetail: View {
                                 Text(expiry(exp)).font(Typo.micro).foregroundStyle(Theme.faint)
                             }
                         }
-                        Text(a.title).font(Typo.ui(.title3).weight(.semibold)).foregroundStyle(Theme.text)
+                        Text(title).font(Typo.ui(.title3).weight(.semibold)).foregroundStyle(Theme.text)
                             .accessibilityIdentifier("approval-title")
                         HStack(spacing: Space.s) {
                             Avatar(name: state.me?.owner ?? "", agent: true, size: 22)
@@ -87,9 +106,9 @@ struct ApprovalDetail: View {
                             .accessibilityElement(children: .combine)
                             .accessibilityIdentifier("approval-command")
                         }
-                        if !a.details.isEmpty, a.details != command {
-                            Text(a.details)
-                                .font(looksLikeCode(a.details) ? Typo.mono(.footnote) : Typo.body)
+                        if !details.isEmpty, details != command {
+                            Text(details)
+                                .font(looksLikeCode(details) ? Typo.mono(.footnote) : Typo.body)
                                 .foregroundStyle(Theme.text).textSelection(.enabled)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .surface()

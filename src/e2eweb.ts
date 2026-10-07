@@ -115,7 +115,8 @@ const CH=65536,chunkIv=i=>{const iv=new Uint8Array(12);new DataView(iv.buffer).s
 async function encFile(buf){const raw=crypto.getRandomValues(new Uint8Array(32)),key=await aesKey(raw),u=new Uint8Array(buf),parts=[];
   for(let i=0;i===0||i*CH<u.length;i++)parts.push(new Uint8Array(await S.encrypt({name:'AES-GCM',iv:chunkIv(i)},key,u.subarray(i*CH,(i+1)*CH))));
   return {raw,blob:new Blob(parts)}}
-async function decFile(f){const r=await fetch('/api/boards/'+BOARD+'/sealed-files/'+encodeURIComponent(f.id));if(!r.ok)throw new Error('HTTP '+r.status);
+const SFID=/^sf_[a-z0-9]{1,40}$/; // a server-issued file id: anything else in a message is never fetched or shown (#5542)
+async function decFile(f){if(!SFID.test(String(f.id)))throw new Error('bad file id');const r=await fetch('/api/boards/'+BOARD+'/sealed-files/'+encodeURIComponent(f.id));if(!r.ok)throw new Error('HTTP '+r.status);
   const key=await aesKey(unb64(f.key)),u=new Uint8Array(await r.arrayBuffer()),out=[];
   for(let i=0,off=0;off<u.length;i++){const n=Math.min(CH+16,u.length-off);out.push(new Uint8Array(await S.decrypt({name:'AES-GCM',iv:chunkIv(i)},key,u.subarray(off,off+n))));off+=n}
   const b=new Blob(out,{type:SHOWN.includes(f.mime)?f.mime:'application/octet-stream'});if(b.size!==f.size)throw new Error('damaged');return b}
@@ -124,7 +125,7 @@ const fileUrl=f=>{if(!FURL.has(f.id))FURL.set(f.id,decFile(f).then(b=>URL.create
 const kb=n=>n>=1e6?(n/1e6).toFixed(1)+' MB':n>=1e3?Math.round(n/1e3)+' KB':n+' B';
 const XF=new Map(); // file id → its reference (from an opened message), for the clicks below
 /** An opened message's files: its pictures in the plain board's grid (decrypted as they load), its other files as chips. */
-function filesBlock(files){if(!files||!files.length)return '';for(const f of files)XF.set(f.id,f);
+function filesBlock(files){files=(Array.isArray(files)?files:[]).filter(f=>f&&SFID.test(String(f.id))&&typeof f.key==='string');if(!files.length)return '';for(const f of files)XF.set(f.id,f);
   const imgs=files.filter(f=>SHOWN.includes(f.mime)),others=files.filter(f=>!SHOWN.includes(f.mime)),n=Math.min(imgs.length,4);
   const tiles=imgs.map((f,i)=>'<button class="mg-tile" type="button" data-sf-img="'+esc(f.id)+'" data-img-name="'+esc(f.name)+'" aria-label="View '+esc(f.name)+' full size"'+(i>=n?' hidden></button>':'><img alt="'+esc(f.name)+'"'+(f.w&&f.h?' width="'+(+f.w)+'" height="'+(+f.h)+'"':'')+'>'+(i===3&&imgs.length>4?'<span class="mg-more">+'+(imgs.length-4)+'</span>':'')+'</button>')).join('');
   const chips=others.map(f=>'<div class="fh"><span class="mono grow truncate">'+esc(f.name)+'</span><span class="xs faint">'+kb(+f.size||0)+'</span><button class="btn sm" type="button" data-sf-dl="'+esc(f.id)+'">'+tr('Download')+'</button></div>').join('');
@@ -165,6 +166,14 @@ function show(seq,r){const el=document.querySelector('#e'+seq+'>.grow>.body');if
   if(r.text!=null)hydrate(el);
   if(r.text!=null){const t=short(r.text),en=el.closest('.entry');if(t){en.dataset.title=t;document.querySelectorAll('a.ref[data-ref="'+seq+'"][data-done]').forEach(a=>{a.textContent='↗ '+t})}if(window.refChips)refChips(el)}
   const top=el.closest('.replies')?.closest('#thread>.entry');if(top)thrSum(+top.dataset.seq);return r.text!=null}
+// Your own approval requests (#5542): the board has only what's asked; the details and command are sealed to your
+// devices (a v1 envelope as the approval's details), opened here into the card above its buttons.
+async function openApprovals(){for(const c of document.querySelectorAll('.apc[data-apc]')){if(c.dataset.apcUser!==ME||c.dataset.e2eDone)continue;c.dataset.e2eDone='1';
+  try{const a=(await api('GET','/api/approvals/'+encodeURIComponent(c.dataset.apc))).approval;if(!a||!String(a.details||'').startsWith('{"v":1'))continue;
+    const p=JSON.parse(a.details),r=(p.recipients||[]).find(x=>x.kid===ST.dev.kid);if(!r)continue;
+    const o=JSON.parse(td.decode(await ungcm(await aesKey(await unwrapMine(r,ST.dev,V1)),p.iv,p.ct)));
+    const pre=document.createElement('pre');pre.className='mono apc-cmd e2e-apd';pre.textContent=[o.details||'',o.command?'$ '+o.command:''].filter(Boolean).join('\\n\\n');c.prepend(pre)}
+  catch(e){}}}
 let busy=null,queued=false,qFrom=null;
 /** Messages that came back on the page (a bounded conversation, #1365) arrive sealed again: open them on the next sync. */
 window.e2eForget=seqs=>{for(const s of seqs)OPEN.delete(s)};
@@ -175,7 +184,7 @@ window.e2eSync=from=>{if(busy){queued=true;if(from!=null)qFrom=qFrom==null?from:
   busy=(async()=>{try{await epochKeys();let after=from!=null?from:HI;
     for(let i=0;i<50;i++){const es=(await api('GET','/api/boards/'+BOARD+'/sealed?after='+after)).entries||[];let seen=false;
       for(const e of es){if(PAY.has(e.seq))seen=true;PAY.set(e.seq,e.payload);HI=Math.max(HI,e.seq)}if(es.length<200||(from!=null&&seen))break;after=es[es.length-1].seq}
-    for(const [seq,payload] of PAY)if(!OPEN.has(seq)&&document.getElementById('e'+seq)){if(show(seq,await openOne(seq,payload)))OPEN.add(seq)}}
+    for(const [seq,payload] of PAY)if(!OPEN.has(seq)&&document.getElementById('e'+seq)){if(show(seq,await openOne(seq,payload)))OPEN.add(seq)}await openApprovals()}
   catch(e){if(!ST)say('🔒 <b>End-to-end encrypted.</b> '+esc(e.message||String(e)))}
   finally{busy=null;if(queued){const f=qFrom;queued=false;qFrom=null;e2eSync(f)}}})();return busy};
 

@@ -266,7 +266,8 @@ const TOOL_DEFS = [
         seq: { type: "integer", description: "The board entry that asked for this, if any (on the joined board)" },
         wait_seconds: { type: "integer", description: "How long to wait for a decision now (0–50, default 45)" },
         expires_in: { type: "integer", description: "Seconds until it's denied (timed out) if undecided (default 86400; a permission hook should pass ~600)" },
-        sealed: { type: "string", description: "End-to-end encrypted boards only, set by the atteo client: the request as a v2 envelope (text: the details; extras title: what's asked). title/details/command are then not stored." },
+        sealed: { type: "string", description: "End-to-end encrypted boards only, set by the atteo client: what's asked (the title) as a v2 envelope for the board. title/details/command are then not stored." },
+        sealed_details: { type: "string", description: "With sealed: the details and command as a v1 envelope for your person's own devices only." },
       },
       required: ["title"],
     },
@@ -1244,9 +1245,16 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
             // Work on a board: the request shows there as a card. (A permission hook's prompts, with tool, stay off boards.)
             boardId = await currentBoard(c, args).catch(() => null);
           }
-          // sealed: on an end-to-end encrypted board, what's asked encrypted by the agent's client (docs/SPEC.md §16); the
-          // server keeps only the state, so the title and details stored here are placeholders.
+          // sealed: on an end-to-end encrypted board, the title encrypted by the agent's client for the board (docs/SPEC.md
+          // §16); sealed_details: the details and command encrypted for the deciding person's own devices only (a v1
+          // envelope, #5542), kept as the approval's details. The server stores no title, details or command in the clear.
           const sealed = str(args.sealed);
+          const sealedDetails = sealed ? str(args.sealed_details) : undefined;
+          if (sealed && !sealedDetails) throw new ToolError("With sealed, put the details and command in sealed_details (encrypted for your person's devices).");
+          if (sealedDetails) {
+            const d = (() => { try { return JSON.parse(sealedDetails) as { v?: number; recipients?: unknown }; } catch { return null; } })();
+            if (d?.v !== 1 || !Array.isArray(d.recipients) || !d.recipients.length || sealedDetails.length > 20_000) throw new ToolError("sealed_details is a v1 envelope for your own devices (at most 20,000 characters).");
+          }
           if (sealed) {
             if (!boardId) boardId = await currentBoard(c, args);
             const bk = await boardkeys.state(env, boardId, user);
@@ -1261,7 +1269,7 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
             seq: seq ?? null,
             requested_by: requestedBy,
             title: sealed ? "🔒 Encrypted approval request" : (str(args.title) ?? ""),
-            details: sealed ? "Encrypted on the asking device: read it on the board, on a device that holds the board's key." : typeof args.details === "string" ? args.details : "",
+            details: sealed ? (sealedDetails ?? "") : typeof args.details === "string" ? args.details : "",
             tool: str(args.tool) ?? null,
             command: sealed ? null : typeof args.command === "string" ? args.command : null,
             expires_in: int(args.expires_in) ?? null,

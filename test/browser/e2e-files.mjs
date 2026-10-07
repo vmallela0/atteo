@@ -62,14 +62,40 @@ await until(()=>pa.locator("#thread .entry .e2e-text",{hasText:`the plan ${run}`
 const [dl2]=await Promise.all([pa.waitForEvent("download"),chip.click()]);
 const got2=[];for await (const c of await dl2.createReadStream())got2.push(c);
 check(r.code===0&&Buffer.concat(got2).toString()===`# plan ${run}\n`,"a file the CLI shared opens in the browser");
-// An approval request from an encrypted board: Bob's CLI encrypts what's asked; the card keeps only its state, and
-// Ann's browser reads the request.
-r=await cli(B,["approvals","ask",`ship the plan ${run}`,"--details",`deploy plan ${run} to staging`]);
+// An approval request from an encrypted board (#5542): what's asked goes to the board; the details and command only to
+// the deciding person's own devices. Bob's browser (approved by his CLI first) is one of them; Ann's isn't.
+const ctxB=await b.newContext({viewport:{width:1280,height:900}});
+{ const ckB=(await ops("sessions",{user:B})).cookie;const [k,...v]=ckB.split(";")[0].split("=");await ctxB.addCookies([{name:k,value:v.join("="),url:BASE}]); }
+const pb=await ctxB.newPage();pb.on("pageerror",e=>errors.push(e.message));await pb.goto(`${BASE}/b/${board}`);
+await until(()=>pb.locator("#e2e-msg").innerText().catch(()=>""),t=>/waiting for the board's key/.test(t));
+r=await until(()=>cli(B,["read"]),x=>/keys approve \S+/.test(x.err));await cli(B,["keys","approve",(r.err.match(/keys approve (\S+)/)||[])[1]]);
+r=await cli(B,["approvals","ask",`ship the plan ${run}`,"--details",`deploy plan ${run} to staging`,"--command","make deploy"]);
 check(r.code===0&&/ap_/.test(r.out),`Bob's agent asks for approval on the encrypted board (${r.code})`);
-const apText=pa.locator("#thread .entry .e2e-text",{hasText:`deploy plan ${run} to staging`});
-await until(()=>apText.count(),n=>n===1);
-const apRow=pa.locator("#thread .entry",{has:pa.locator(".e2e-text",{hasText:`deploy plan ${run} to staging`})});
-check(await apText.count()===1&&/ship the plan/.test(await apRow.locator(".e2e-title").innerText().catch(()=>"")),"…Ann's browser decrypts what's asked (title and details) on the approval entry");
+const apTitle=pa.locator("#thread .entry .e2e-text",{hasText:`ship the plan ${run}`});
+await until(()=>apTitle.count(),n=>n===1);
+await pa.evaluate(()=>e2eSync());await pa.waitForTimeout(300); // a negative: Ann's page must not show the details
+check(await apTitle.count()===1&&!(await pa.locator("#thread").innerText()).includes(`deploy plan ${run}`)&&await pa.locator(".e2e-apd").count()===0,"…members read what's asked, never the details or command");
+await pb.evaluate(()=>e2eSync());
+const apd=pb.locator(".apc .e2e-apd");await apd.first().waitFor({timeout:8000}).catch(()=>{});
+check((await apd.innerText().catch(()=>"")).includes(`deploy plan ${run} to staging`)&&(await apd.innerText().catch(()=>"")).includes("$ make deploy"),"…Bob's own browser opens the details and command on his card");
+// A message naming a file by a path, not an id (#5542), crafted with a board key: never fetched, never shown.
+{ const { createCipheriv, createDecipheriv, createPublicKey, diffieHellman, generateKeyPairSync, hkdfSync, randomBytes } = await import("node:crypto");
+  const k=generateKeyPairSync("x25519"),pub=Buffer.from(k.publicKey.export({format:"jwk"}).x,"base64url").toString("base64");
+  const kid=(await (await fetch(`${BASE}/api/me/keys`,{method:"POST",headers:{authorization:`Bearer ${tok[B]}`,"content-type":"application/json"},body:JSON.stringify({public_key:pub,label:"test device"})})).json()).id;
+  await cli(B,["read"]);await cli(B,["keys","approve",kid]);await cli(B,["read"]);
+  const st=await (await fetch(`${BASE}/api/boards/${board}/epochs`,{headers:{authorization:`Bearer ${tok[B]}`}})).json(),g=st.mine.find(x=>x.kid===kid&&x.epoch===st.current);
+  const un=(key,iv,d)=>{const raw=Buffer.from(d,"base64"),c=createDecipheriv("aes-256-gcm",key,Buffer.from(iv,"base64"));c.setAuthTag(raw.subarray(raw.length-16));return Buffer.concat([c.update(raw.subarray(0,raw.length-16)),c.final()])};
+  const shared=diffieHellman({privateKey:k.privateKey,publicKey:createPublicKey({key:{kty:"OKP",crv:"X25519",x:Buffer.from(g.epk,"base64").toString("base64url")},format:"jwk"})});
+  const bk=un(Buffer.from(hkdfSync("sha256",shared,Buffer.concat([Buffer.from(g.epk,"base64"),Buffer.from(pub,"base64")]),"agent-soup board key v2",32)),g.iv,g.wrapped);
+  const enc=t=>{const iv=randomBytes(12),c=createCipheriv("aes-256-gcm",bk,iv);return {iv:iv.toString("base64"),ct:Buffer.concat([c.update(t),c.final(),c.getAuthTag()]).toString("base64")}};
+  const bad="sf_real?/../../../../evil";
+  const x=enc(JSON.stringify({xv:1,files:[{id:bad,name:"evil.png",mime:"image/png",size:3,key:randomBytes(32).toString("base64"),chunk:65536}]}));
+  const reqs=[];pa.on("request",q=>{if(/evil/.test(q.url()))reqs.push(q.url())});
+  const pr=await fetch(`${BASE}/api/boards/${board}/sealed`,{method:"POST",headers:{authorization:`Bearer ${tok[B]}`,"content-type":"application/json"},body:JSON.stringify({payload:JSON.stringify({v:2,epoch:st.current,...enc(`crafted ${run}`),x})})});
+  await until(()=>pa.locator("#thread .entry .e2e-text",{hasText:`crafted ${run}`}).count(),n=>n===1);await pa.waitForTimeout(300); // a negative: no fetch
+  const row=pa.locator("#thread .entry",{has:pa.locator(".e2e-text",{hasText:`crafted ${run}`})});
+  check(pr.status===201&&await row.locator("[data-sf-img],[data-sf-dl]").count()===0&&!reqs.length,`a file id that isn't sf_… is dropped: not shown, not fetched (${reqs.length} requests)`);
+  r=await cli(B,["read"]);check(!r.out.includes("evil.png"),"…and the CLI doesn't list it"); }
 // Edit: own message, new text encrypted again, the files kept.
 await pa.locator(`#e${last.seq} [data-edit]`).click();
 await pa.locator(`#e${last.seq} [data-edit-box]`).fill(`files from the web, edited ${run}`);

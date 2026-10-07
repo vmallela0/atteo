@@ -621,11 +621,16 @@ src/mcp.ts:776). On an encrypted board the server stores ciphertext and can't re
 - **Edits.** `PUT /api/boards/{id}/sealed/{seq} {payload}` replaces the envelope of your own note or question within
   15 minutes, at the current epoch (409 otherwise), people only; the server keeps no earlier version. Unsend clears the
   envelope.
-- **Approval requests.** MCP `request_approval` takes `sealed`, a v2 envelope at the current epoch whose text is the
-  details (and `$ command`) and whose extras' `title` is what's asked (`atteo approvals ask` does this on an encrypted
-  board). The approvals table keeps a placeholder title and no details or command; the board gets a sealed `approval`
-  entry whose card carries only the state (pending, approved, denied), so deciding works as before. Tasks and questions
-  are sealed posts of their type. Handoffs are still refused on encrypted boards (the gate reads the branch and checks).
+- **Approval requests.** MCP `request_approval` takes `sealed`, a v2 envelope at the current epoch whose text is what's
+  asked (the title), and `sealed_details`, a v1 envelope (the sealed-secret format) of `{title, details, command}` for
+  the deciding person's own devices only (`atteo approvals ask` does both on an encrypted board). The board gets a sealed
+  `approval` entry whose card carries only the state (pending, approved, denied); the approvals table keeps a
+  placeholder title, `sealed_details` as its details and no command. The person's browser (on the board page) and app
+  open the details; pages that can't say so. Tasks and questions are sealed posts of their type. Handoffs are still
+  refused on encrypted boards (the gate reads the branch and checks).
+- **Reading safely.** Clients use a file reference only if its id matches `^sf_[a-z0-9]{1,40}$`, and keep a sender's
+  file name to one path component. `atteo read` fences decrypted output, indents every member-written field under its
+  header and screens it like a plain board's (#5542).
 - **What the server sees:** per entry, seq, time, author, via, type, `to` and `reply_to`; the board's title; key
   notices and board notices such as a picture change (src/board.ts:4503-4521). It refuses plaintext posts, edits,
   `data`, handoffs, schedules, memory and uploads on encrypted boards (src/board.ts:1141, 1161, 1233, 1785, 2243, 2425,

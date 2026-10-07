@@ -8,7 +8,7 @@ import { fence, flagNote, neutralize, randomId, screenText } from "../../src/scr
 import { ENCRYPTED, mailText as mailBody, titled } from "../../src/ping";
 import { blockedMessage, scanFields } from "../../src/secrets";
 import { env } from "./env";
-import { api, askYes, boardIdIn, CliError, COMMANDS, creds, currentBoard, decryptEntry, encEntries, folderBoard, getEntry, isEncrypted, onlyOptions, optStr, parseArgs, picturesNote, say, sealForBoard, server as serverFor, setSession, shown, tool } from "./commands";
+import { api, askYes, boardIdIn, CliError, COMMANDS, creds, currentBoard, decryptEntry, encEntries, folderBoard, getEntry, isEncrypted, onlyOptions, optStr, parseArgs, picturesNote, say, sealForBoard, sealForMe, server as serverFor, setSession, shown, tool } from "./commands";
 import { load, sameServer, storeName } from "./credentials";
 import { caller, detectModel, loadMap, saveMap, type LocalSession } from "./session";
 import { createHash } from "node:crypto";
@@ -1141,11 +1141,12 @@ async function approvalAsk(words: string[], opt: Opt) {
   if (!title || (!details && !command)) throw new CliError('Usage: atteo approvals ask "<what you want to do>" --details "<exactly what will happen>" [--command "<exact command>"] [--risk low|medium|high] [--expires <seconds>] [--reply <n>] [--wait <seconds>]');
   await prepare(opt);
   const reply = optStr(opt, "reply");
-  // On an end-to-end encrypted board what's asked is encrypted here (docs/SPEC.md §16); the server keeps only its state.
+  // On an end-to-end encrypted board it's encrypted here (docs/SPEC.md §16): what's asked for the board, as on a plain
+  // board's card; the details and command only for your person's own devices, who decides (#5542).
   const board = (() => { try { return currentBoard(opt); } catch { return null; } })();
   const enc = board ? await isEncrypted(opt, board) : false;
   const ask = enc
-    ? { title: "Encrypted approval request", sealed: await sealForBoard(opt, board!, [details, command ? `$ ${command}` : ""].filter(Boolean).join("\n\n"), { title }) }
+    ? { title: "Encrypted approval request", sealed: await sealForBoard(opt, board!, title), sealed_details: await sealForMe(opt, JSON.stringify({ details: details ?? "", command: command ?? null })) }
     : { title, details: details ?? "", command };
   const text = await tool(
     opt,

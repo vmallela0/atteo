@@ -39,6 +39,33 @@ final class SealedFilesTests: XCTestCase {
         XCTAssertThrowsError(try SealedFiles.decrypt(blob, key: key, size: 9))
     }
 
+    /// #5542: a file id comes from another member's message, so it's never a path. Bad ids are dropped when the message
+    /// opens, never become a URL on disk, and a sender's name is one safe path component.
+    func testFileIdsAndNamesNeverEscapeTheCache() throws {
+        let evil = "sf_real?/../../../../Library/x"
+        XCTAssertFalse(BoardCrypto.isFileId(evil))
+        XCTAssertTrue(BoardCrypto.isFileId("sf_0123456789abcdef0123"))
+        let bad = SealedFile(id: evil, name: "x.png", mime: "image/png", size: 1, key: "AAAA")
+        XCTAssertNil(BoardCrypto.fileURL(board: "b_abc", bad))
+        let good = SealedFile(id: "sf_abc", name: "../../Library/Preferences/x.plist", mime: "text/plain", size: 1, key: "AAAA")
+        let u = try XCTUnwrap(BoardCrypto.fileURL(board: "b_abc", good))
+        XCTAssertEqual(u.standardizedFileURL.deletingLastPathComponent().lastPathComponent, "sf_abc")
+        XCTAssertTrue(u.standardizedFileURL.path.contains("/sealed/b_abc/sf_abc/"))
+        XCTAssertNil(BoardCrypto.fileURL(board: "b_abc/../..", good))
+        XCTAssertEqual(BoardCrypto.safeName(".."), "file")
+        XCTAssertEqual(BoardCrypto.safeName("a/b:c.txt"), "b_c.txt")
+
+        // Opening a message: only well-formed references survive.
+        let key = SymmetricKey(size: .bits256)
+        func box(_ d: Data) throws -> [String: String] { let b = try AES.GCM.seal(d, using: key); return ["iv": Data(b.nonce).base64EncodedString(), "ct": (b.ciphertext + b.tag).base64EncodedString()] }
+        let x = #"{"xv":1,"files":[{"id":"\#(evil)","name":"a","mime":"image/png","size":1,"key":"AAAA"},{"id":"sf_ok1","name":"b","mime":"image/png","size":1,"key":"AAAA"}]}"#
+        var j: [String: Any] = try box(Data("hi".utf8))
+        j["x"] = try box(Data(x.utf8))
+        let o = try XCTUnwrap(BoardCrypto.opened(j, key: key))
+        XCTAssertEqual(o.text, "hi")
+        XCTAssertEqual(o.extras.files?.map(\.id), ["sf_ok1"])
+    }
+
     /// The extras as the CLI and the web write them; unknown fields are ignored.
     func testExtrasDecode() throws {
         let j = #"{"xv":1,"title":"Q3","files":[{"id":"sf_0123456789abcdef0123","name":"a.png","mime":"image/png","size":3,"key":"AAAA","chunk":65536,"w":2,"h":2}],"later":true}"#
