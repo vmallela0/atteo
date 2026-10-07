@@ -5440,7 +5440,8 @@ await step("encryption v2: one key per board; newcomers read history; later devi
   assert((await post(A, k2, 2, "only for A and B now")).status === 201, "post under epoch 2");
   assert((await read(B, b1)).includes("only for A and B now"), "B reads epoch 2");
   // Revoking a device drops its copies and flags the board again.
-  assert((await web(`/api/me/keys/${b2.kid}`, B, { method: "DELETE" })).status === 200, "revoke B's second device");
+  const rv = await web(`/api/me/keys/${b2.kid}`, B, { method: "DELETE" });
+  assert(rv.status === 200, `revoke B's second device: ${rv.status} ${await rv.text()}`);
   assert((await api(A, `/api/boards/${eb}/epochs`)).body.rotate_needed, "revoking a device rotates");
 });
 

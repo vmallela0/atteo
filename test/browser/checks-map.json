@@ -38,6 +38,7 @@
     "cli/**": ["e2e-web", "e2e-invite"],
     "migrations/0077_invite_keys.sql": ["e2e-invite", "access"],
     "migrations/0078_device_signatures.sql": ["e2e-invite", "e2e-web"],
+    "migrations/0079_sign_key_proof.sql": ["e2e-invite", "e2e-web"],
     "test/*.ts": [],
     "test/*.mjs": [],
     "test/browser/lib/**": "*",

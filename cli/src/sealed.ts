@@ -2,7 +2,7 @@
 // you can read); the server knows only public keys. Sealing encrypts a random content key to every key the recipient
 // (and you) have: X25519 → HKDF-SHA256 → AES-256-GCM. The server stores the envelope and never sees the plaintext.
 
-import { createPrivateKey, createPublicKey, diffieHellman, generateKeyPairSync, hkdfSync, randomBytes, createCipheriv, createDecipheriv, sign as edSign, verify as edVerify, type KeyObject } from "node:crypto";
+import { createHash, createPrivateKey, createPublicKey, diffieHellman, generateKeyPairSync, hkdfSync, randomBytes, createCipheriv, createDecipheriv, sign as edSign, verify as edVerify, type KeyObject } from "node:crypto";
 import { env } from "./env";
 import { execFileSync } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -91,6 +91,12 @@ export function mySignKey(): { priv: KeyObject; pub: string } {
 
 /** What a device signature covers (src/boardkeys.ts deviceSigned; never change it). */
 export const deviceSigned = (user: string, kid: string, publicKey: string, signPub: string | null) => `atteo device v1\n${user}\n${kid}\n${publicKey}\n${signPub ?? ""}`;
+
+/** Opens the server's sign-key challenge with this machine's X25519 key (its own label: it can never open a board key). */
+export function openProof(g: WrappedKey): string {
+  const { priv, pub } = myKey();
+  return ungcm(kek(diffieHellman({ privateKey: priv, publicKey: pubKey(g.epk) }), g.epk, pub, "atteo sign-key proof v1"), g.iv, g.wrapped).toString("base64");
+}
 
 export const signDevice = (data: string) => edSign(null, Buffer.from(data), mySignKey().priv).toString("base64");
 
@@ -181,7 +187,22 @@ export function inviteKey(keys: Map<number, Buffer>): { public_key: string; gran
   const k = generateKeyPairSync("x25519");
   const jwk = k.privateKey.export({ format: "jwk" }) as { x: string; d: string };
   const pub = b64u2b64(jwk.x);
-  return { public_key: pub, grants: [...keys].map(([epoch, key]) => ({ epoch, ...wrapKey(key, pub) })), fragment: `#k=${jwk.d}` };
+  return { public_key: pub, grants: [...keys].map(([epoch, key]) => ({ epoch, ...wrapKey(key, pub) })), fragment: `#k=${jwk.d}.${keysDigest(keys)}` };
+}
+
+/**
+ * What the link's "#" also carries (review #5526): a hash of the epoch keys it hands over, so the joiner takes exactly
+ * those, never a key the server wrapped to the invite key's public half itself. SHA-256 over each epoch (4 bytes, big
+ * endian) and its key, in epoch order; base64url. The web computes the same (src/e2eweb.ts keysDigest).
+ */
+export function keysDigest(keys: Map<number, Buffer>): string {
+  const h = createHash("sha256");
+  for (const [epoch, key] of [...keys].sort((a, b) => a[0] - b[0])) {
+    const e = Buffer.alloc(4);
+    e.writeUInt32BE(epoch);
+    h.update(e).update(key);
+  }
+  return h.digest("base64url");
 }
 
 /** An epoch key wrapped to an invite key, opened with the private half from the link's "#". */

@@ -92,8 +92,62 @@ export async function signDevice(env: Env, user: string, kid: string, body: { by
   if (!ok) throw new KeyError("The signature doesn't match that device.");
   const r = await env.DB.prepare(`UPDATE agent_keys SET signed_by = ?, sig = ? WHERE id = ? AND user = ? AND sig IS NULL`).bind(by, sig, kid, user).run();
   if (!r.meta.changes) throw new KeyError("That device is already signed.");
-  const boards = (await env.DB.prepare(`SELECT b.id FROM boards b JOIN members m ON m.board_id = b.id WHERE m.user = ? AND b.encrypted = 1`).bind(user).all<{ id: string }>()).results.map((x) => x.id);
+  const boards = (await env.DB.prepare(`SELECT b.id FROM boards b JOIN members m ON m.board_id = b.id WHERE m.user = ? AND b.encrypted = 1 AND b.archived_at IS NULL`).bind(user).all<{ id: string }>()).results.map((x) => x.id);
   return { target, signer, boards };
+}
+
+// ---- a device's signing key, set only with proof it holds the device's X25519 key (review #5523) ----
+
+/** Its own HKDF label: a proof must never be able to unwrap a board key (or the reverse), so it's never "board key v2". */
+const PROOF_INFO = "atteo sign-key proof v1";
+const b64 = (a: Uint8Array) => btoa(String.fromCharCode(...a));
+const KEY32B64 = /^[A-Za-z0-9+/]{43}=$/;
+
+/** `data` sealed to an X25519 public key: X25519(ephemeral, recipient) → HKDF-SHA256(salt = epk ‖ recipient) → AES-256-GCM. */
+async function sealTo(recipient: string, data: Uint8Array, info: string) {
+  const S = crypto.subtle;
+  const e = (await S.generateKey({ name: "X25519" }, true, ["deriveBits"])) as CryptoKeyPair;
+  const epk = new Uint8Array((await S.exportKey("raw", e.publicKey)) as ArrayBuffer);
+  const rpk = unb64(recipient);
+  const shared = await S.deriveBits({ name: "X25519", public: await S.importKey("raw", rpk, { name: "X25519" }, false, []) } as unknown as SubtleCryptoDeriveKeyAlgorithm, e.privateKey, 256);
+  const salt = new Uint8Array(64);
+  salt.set(epk);
+  salt.set(rpk, 32);
+  const hk = await S.importKey("raw", shared, "HKDF", false, ["deriveBits"]);
+  const raw = await S.deriveBits({ name: "HKDF", hash: "SHA-256", salt, info: new TextEncoder().encode(info) }, hk, 256);
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const ct = await S.encrypt({ name: "AES-GCM", iv }, await S.importKey("raw", raw, "AES-GCM", false, ["encrypt"]), data);
+  return { epk: b64(epk), iv: b64(iv), wrapped: b64(new Uint8Array(ct)) };
+}
+const sha256b64 = async (a: Uint8Array) => b64(new Uint8Array(await crypto.subtle.digest("SHA-256", a)));
+
+/**
+ * A device asks to have `signPub` as its signing key: the server seals a fresh nonce to the device's X25519 key and
+ * remembers its hash for 10 minutes. Only a device that holds the private key can send it back (proveSignKey). Nothing
+ * for a device that already has one: it's set once.
+ */
+export async function signKeyChallenge(env: Env, user: string, kid: string, signPub: string) {
+  if (!KEY32B64.test(signPub)) throw new KeyError("sign_pub must be a base64 Ed25519 key (32 bytes).");
+  const k = await env.DB.prepare(`SELECT public_key, sign_pub FROM agent_keys WHERE id = ? AND user = ? AND revoked_at IS NULL`).bind(kid, user).first<{ public_key: string; sign_pub: string | null }>();
+  if (!k || k.sign_pub) return null;
+  const nonce = crypto.getRandomValues(new Uint8Array(32));
+  const challenge = await sealTo(k.public_key, nonce, PROOF_INFO);
+  await env.DB.prepare(`UPDATE agent_keys SET sign_challenge = ? WHERE id = ? AND user = ? AND sign_pub IS NULL`)
+    .bind(JSON.stringify({ h: await sha256b64(nonce), sign_pub: signPub, until: Date.now() + 600_000 }), kid, user)
+    .run();
+  return challenge;
+}
+
+/** The device sends the nonce back: its signing key is set (once). */
+export async function proveSignKey(env: Env, user: string, kid: string, body: { nonce?: unknown }) {
+  const k = await env.DB.prepare(`SELECT sign_pub, sign_challenge FROM agent_keys WHERE id = ? AND user = ? AND revoked_at IS NULL`).bind(kid, user).first<{ sign_pub: string | null; sign_challenge: string | null }>();
+  if (!k) throw new KeyError("No such device key of yours.");
+  if (k.sign_pub) throw new KeyError("That device already has its signing key.");
+  const c = k.sign_challenge ? (JSON.parse(k.sign_challenge) as { h: string; sign_pub: string; until: number }) : null;
+  const nonce = typeof body.nonce === "string" && KEY32B64.test(body.nonce) ? unb64(body.nonce) : null;
+  if (!c || c.until < Date.now() || !nonce || (await sha256b64(nonce)) !== c.h) throw new KeyError("That isn't the answer to this device's challenge; register the key again.");
+  const r = await env.DB.prepare(`UPDATE agent_keys SET sign_pub = ?, sign_challenge = NULL WHERE id = ? AND user = ? AND sign_pub IS NULL`).bind(c.sign_pub, kid, user).run();
+  if (!r.meta.changes) throw new KeyError("That device already has its signing key.");
 }
 
 /** The visible line on each of the person's encrypted boards when their device list changes. */
@@ -250,13 +304,34 @@ export function grantNotice(granter: string, a: { kid: string; user: string; lab
     : `🔑 ${granter} gave ${a.user}'s ${device} the key to this encrypted board.`;
 }
 
-/** Revokes one of your device keys: its copies of every board key go, and those boards start a new key. */
+/**
+ * Revokes one of your device keys, and every device it signed, and every device those signed (a lost laptop vouched for
+ * them, so they go with it). Their copies of every board key go, and those boards start a new key. Returns the revoked
+ * devices and your encrypted boards, where everyone then sees which devices went.
+ */
 export async function revokeDevice(env: Env, user: string, kid: string) {
-  const k = await env.DB.prepare(`SELECT id FROM agent_keys WHERE id = ? AND user = ? AND revoked_at IS NULL`).bind(kid, user).first();
-  if (!k) throw new KeyError("No such device key.");
-  await env.DB.batch([
-    env.DB.prepare(`UPDATE agent_keys SET revoked_at = ? WHERE id = ?`).bind(Date.now(), kid),
-    env.DB.prepare(`UPDATE boards SET rotate_needed = 1 WHERE id IN (SELECT board_id FROM key_grants WHERE kid = ?)`).bind(kid),
-    env.DB.prepare(`DELETE FROM key_grants WHERE kid = ?`).bind(kid),
-  ]);
+  const live = (await env.DB.prepare(`SELECT id, label, signed_by FROM agent_keys WHERE user = ? AND revoked_at IS NULL`).bind(user).all<{ id: string; label: string | null; signed_by: string | null }>()).results;
+  if (!live.some((k) => k.id === kid)) throw new KeyError("No such device key.");
+  const gone = new Set([kid]);
+  for (let more = true; more; ) {
+    more = false;
+    for (const k of live) if (!gone.has(k.id) && k.signed_by && gone.has(k.signed_by)) (gone.add(k.id), (more = true));
+  }
+  const now = Date.now();
+  await env.DB.batch(
+    [...gone].flatMap((id) => [
+      env.DB.prepare(`UPDATE agent_keys SET revoked_at = ? WHERE id = ? AND user = ?`).bind(now, id, user),
+      env.DB.prepare(`UPDATE boards SET rotate_needed = 1 WHERE id IN (SELECT board_id FROM key_grants WHERE kid = ?)`).bind(id),
+      env.DB.prepare(`DELETE FROM key_grants WHERE kid = ?`).bind(id),
+    ]),
+  );
+  const boards = (await env.DB.prepare(`SELECT b.id FROM boards b JOIN members m ON m.board_id = b.id WHERE m.user = ? AND b.encrypted = 1 AND b.archived_at IS NULL`).bind(user).all<{ id: string }>()).results.map((x) => x.id);
+  return { revoked: live.filter((k) => gone.has(k.id)), boards };
+}
+
+/** The visible line when a person removes devices: the device, and every device it had signed. */
+export function revokeNotice(user: string, revoked: { id: string; label: string | null }[]): string {
+  const name = (k: { id: string; label: string | null }) => `${k.label ? `“${k.label}”` : "device"} (key ${k.id.slice(0, 6)})`;
+  const [first, ...rest] = revoked;
+  return `🔑 ${user} removed ${name(first)}${rest.length ? `, and the devices it had signed: ${rest.map(name).join(", ")}` : ""}. They can't read new messages; this board gets a new key.`;
 }

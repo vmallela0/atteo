@@ -29,7 +29,7 @@ await pd.locator("#link-role").selectOption("contributor");
 await pd.locator("#link-make").click();
 await pd.locator("#link-url").waitFor({ timeout: 8000 }).catch(() => {});
 const url = await pd.locator("#link-url").inputValue().catch(() => "");
-check(/\/i\/il_[A-Za-z0-9_-]+#k=[A-Za-z0-9_-]{43}$/.test(url), `the link carries a key after the # (${url.replace(/#k=.*/, "#k=…")})`);
+check(/\/i\/il_[A-Za-z0-9_-]+#k=[A-Za-z0-9_-]{43}\.[A-Za-z0-9_-]{43}$/.test(url), `the link carries a key and its keys' hash after the # (${url.replace(/#k=.*/, "#k=…")})`);
 check(await pd.locator("#link-new", { hasText: "carries the board key" }).count() === 1, "…and says so next to it");
 await pd.close(); // nobody else is online when Eve opens it (the context keeps her browser's device key)
 

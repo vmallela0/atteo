@@ -61,10 +61,16 @@ async function device(){if(DEV)return DEV;const id='device:'+ME;let d=await idbD
   // Registered once. A key that's no longer on the account was removed there (a lost device): never register it again, make a new one.
   if(d.kid){const live=(await api('GET','/api/me/keys')).keys||[];if(!live.some(k=>k.id===d.kid&&k.public_key===d.pub)){await idbDo('readwrite',s=>s.delete(id));return device()}
     // The server showing this browser with someone else's signing key could sign devices as you: say so, loudly.
-    const shown=live.find(k=>k.id===d.kid).sign_pub;if(shown&&d.spub&&shown!==d.spub)SIGN_BAD=true;
-    if(fresh){await api('POST','/api/me/keys',{public_key:d.pub,label:label(),sign_pub:d.spub});await idbDo('readwrite',s=>s.put(stored(d),id))}}
-  else{const j=await api('POST','/api/me/keys',{public_key:d.pub,label:label(),sign_pub:d.spub});d={...d,kid:j.id};await idbDo('readwrite',s=>s.put(stored(d),id))}
+    // Also when this browser has none (review #5523).
+    const shown=live.find(k=>k.id===d.kid).sign_pub;if(shown&&shown!==d.spub)SIGN_BAD=true;
+    if(fresh||(d.spub&&!shown)){await register(d);await idbDo('readwrite',s=>s.put(stored(d),id))}}
+  else{const j=await register(d);d={...d,kid:j.id};await idbDo('readwrite',s=>s.put(stored(d),id))}
   DEV={priv:d.priv,pub:d.pub,kid:d.kid,spriv:d.spriv,spub:d.spub};return DEV}
+/** Registers the device key; the signing key is set only with proof this browser holds the device key (review #5523):
+ *  it opens the server's challenge (its own label, which can never open a board key) and sends the nonce back. */
+async function register(d){const j=await api('POST','/api/me/keys',{public_key:d.pub,label:label(),sign_pub:d.spub||undefined});
+  if(j.sign_challenge)try{await api('POST','/api/me/keys/'+encodeURIComponent(j.id)+'/sign-key',{nonce:b64(await unwrapMine(j.sign_challenge,d,'atteo sign-key proof v1'))})}catch(e){console.warn('[e2e] signing key',e)}
+  return j}
 async function newSignKey(asJwk){try{const k=await S.generateKey({name:'Ed25519'},!!asJwk,['sign','verify']);const spub=b64(await S.exportKey('raw',k.publicKey));
   return asJwk?{sjwk:await S.exportKey('jwk',k.privateKey),spub}:{spriv:k.privateKey,spub}}catch(e){return null}}
 
@@ -74,7 +80,7 @@ function pins(){try{return JSON.parse(localStorage.getItem(PIN_KEY)||'{}')}catch
 function savePins(p){try{localStorage.setItem(PIN_KEY,JSON.stringify(p))}catch(e){}}
 // A pin is a device id AND its public key, so the server can't keep a trusted id and swap in a key of its own.
 // With a signing key once seen (cross-signed device lists, E2E design §2.2): kid|public key|signing key.
-const pinId=(kid,pub,spub)=>kid+'|'+pub+(spub?'|'+spub:'');
+const pinId=(kid,pub,spub,via)=>kid+'|'+pub+(spub?'|'+spub:via?'|':'')+(via?'|'+via:'');
 const pinOf=(pin,u,kid,pub)=>(pin[u]||[]).find(e=>e===pinId(kid,pub)||e.startsWith(pinId(kid,pub)+'|'));
 /** The CLI's pinning: older bare-id pins get bound to the key the server shows; you, and each person's first device seen. */
 function pinUpdate(pin,me,dev,st){const seen=new Map([...st.keys,...st.missing].map(k=>[k.kid,k.public_key]));
@@ -89,11 +95,19 @@ const isPinned=(pin,k)=>!!pinOf(pin,k.user,k.kid,k.public_key);
 const signedBytes=(u,kid,pub,spub)=>te.encode('atteo device v1\\n'+u+'\\n'+kid+'\\n'+pub+'\\n'+(spub||''));
 async function edOk(spub,data,sig){try{return await S.verify({name:'Ed25519'},await S.importKey('raw',unb64(spub),{name:'Ed25519'},false,['verify']),unb64(sig),data)}catch(e){return false}}
 /** The CLI's crossSigned (cli/src/crosssign.ts): a device signed by one pinned here, checked against the signing key
- *  pinned with the signer (never the one the server shows now), is pinned too. A pinned device's signing key, first seen. */
-async function crossSigned(pin,devs){for(const d of devs){const e=pinOf(pin,d.user,d.kid,d.public_key);if(e&&e.split('|').length===2&&d.sign_pub)pin[d.user]=pin[d.user].map(x=>x===e?pinId(d.kid,d.public_key,d.sign_pub):x)}
+ *  pinned with the signer (never the one the server shows now), is pinned too, with the id of its signer. A signing key
+ *  counts only if it was there when its device was first pinned: older pins never take one later (review #5523). */
+async function crossSigned(pin,devs){
   for(let more=true;more;){more=false;for(const d of devs){if(pinOf(pin,d.user,d.kid,d.public_key)||!d.signed_by||!d.sig)continue;
     const s=(pin[d.user]||[]).map(x=>x.split('|')).find(p=>p[0]===d.signed_by&&p[2]);
-    if(s&&await edOk(s[2],signedBytes(d.user,d.kid,d.public_key,d.sign_pub),d.sig)){(pin[d.user]=pin[d.user]||[]).push(pinId(d.kid,d.public_key,d.sign_pub));more=true}}}
+    if(s&&await edOk(s[2],signedBytes(d.user,d.kid,d.public_key,d.sign_pub),d.sig)){(pin[d.user]=pin[d.user]||[]).push(pinId(d.kid,d.public_key,d.sign_pub,d.signed_by));more=true}}}
+  return pin}
+/** The CLI's dropGone: a person's devices no longer listed (removed, review #5524) lose their pins, and so does every
+ *  device trusted through them, so nothing here wraps a key to them again. devs: every live member device. */
+function dropGone(pin,devs){const live=new Map();for(const d of devs){if(!live.has(d.user))live.set(d.user,new Set());live.get(d.user).add(d.kid+'|'+d.public_key)}
+  for(const [u,ids] of live){if(!pin[u])continue;const gone=new Set();
+    for(let more=true;more;){more=false;for(const e of pin[u]){const p=e.split('|');if(gone.has(p[0]))continue;if(!ids.has(p[0]+'|'+p[1])||(p[3]&&gone.has(p[3]))){gone.add(p[0]);more=true}}}
+    pin[u]=pin[u].filter(e=>!gone.has(e.split('|')[0]))}
   return pin}
 // ---- end pins ----
 
@@ -103,8 +117,11 @@ const KEYS=new Map(); // "epoch:wrapped" → {raw, aes}
 let ST=null;
 async function epochKeys(tries){tries=tries||0;const dev=await device();const st=await api('GET','/api/boards/'+BOARD+'/epochs');const keys=new Map();
   if(!st.mine.length&&await inviteTake(dev))return epochKeys(tries);
+  // The newest key epoch this browser has seen here: an older one may be an old key replayed (review #5526).
+  const EPK='soup.e2e.epochs.'+ME;let seenEp={};try{seenEp=JSON.parse(localStorage.getItem(EPK)||'{}')}catch(e){}
+  if(st.current<(seenEp[BOARD]||0))throw new Error('The server shows this board at key epoch '+st.current+', but this browser has seen epoch '+seenEp[BOARD]+': it may be replaying an old key, so nothing was encrypted. Tell the board\\'s members.');
   for(const g of st.mine)if(g.kid===dev.kid){const c=g.epoch+':'+g.wrapped;if(!KEYS.has(c))try{const raw=await unwrapMine(g,dev);KEYS.set(c,{raw,aes:await aesKey(raw)})}catch(e){continue}keys.set(g.epoch,KEYS.get(c))}
-  const before=JSON.stringify(pins()),pin=await crossSigned(pinUpdate(pins(),ME,dev,st),[...st.keys,...st.missing]);
+  const before=JSON.stringify(pins()),pin=await crossSigned(dropGone(pinUpdate(pins(),ME,dev,st),st.keys),[...st.keys,...st.missing]);
   if(JSON.stringify(pin)!==before)savePins(pin);
   const trusted=k=>isPinned(pin,k);
   let current=st.current;
@@ -114,6 +131,7 @@ async function epochKeys(tries){tries=tries||0;const dev=await device();const st
     current+=1;keys.set(current,{raw,aes:await aesKey(raw)})}
   if(!READONLY){const grants=[];for(const m of st.missing.filter(trusted))for(const ep of m.epochs)if(keys.has(ep))grants.push({epoch:ep,kid:m.kid,...await wrapFor(keys.get(ep).raw,m.public_key)});
     if(grants.length)await api('POST','/api/boards/'+BOARD+'/grants',{grants}).catch(()=>{})} // anyone else online can do it too
+  if(current>(seenEp[BOARD]||0))try{seenEp[BOARD]=current;localStorage.setItem(EPK,JSON.stringify(seenEp))}catch(e){}
   ST={...st,current,keys,dev,untrusted:st.missing.filter(m=>!trusted(m))};renderBar();return ST}
 
 function renderBar(){if(!ST)return;const {dev,keys,current}=ST,kid='<span class="mono">'+esc(dev.kid)+'</span>';
@@ -179,15 +197,23 @@ const INV='atteo.invite.',url64=s=>s.replace(/\\+/g,'-').replace(/\\//g,'_').rep
 window.e2eInviteKey=async()=>{const st=ST||await epochKeys();if(!st.keys.size)return null;
   const k=await S.generateKey({name:'X25519'},true,['deriveBits']),pub=b64(await S.exportKey('raw',k.publicKey)),grants=[];
   for(const [epoch,v] of st.keys)grants.push({epoch,...await wrapFor(v.raw,pub)});
-  return {invite_key:{public_key:pub,grants},fragment:'#k='+(await S.exportKey('jwk',k.privateKey)).d}};
+  return {invite_key:{public_key:pub,grants},fragment:'#k='+(await S.exportKey('jwk',k.privateKey)).d+'.'+await keysDigest(new Map([...st.keys].map(([e,v])=>[e,v.raw])))}};
+/** The CLI's keysDigest (cli/src/sealed.ts): SHA-256 over each epoch (4 bytes, big endian) and its key, in epoch order;
+ *  base64url. The link's "#" carries it, so the joiner takes exactly the keys the inviter handed over (review #5526). */
+async function keysDigest(keys){const parts=[...keys].sort((a,b)=>a[0]-b[0]),buf=new Uint8Array(parts.length*36);
+  parts.forEach(([e,raw],i)=>{new DataView(buf.buffer).setUint32(i*36,e);buf.set(new Uint8Array(raw),i*36+4)});
+  return url64(b64(await S.digest('SHA-256',buf)))}
 /** The joiner: a key kept by the /i/ page, for this board, unwrapped here and handed to this device. True when it did. */
 async function inviteTake(dev){let names=[];try{for(let i=0;i<localStorage.length;i++){const n=localStorage.key(i);if(n&&n.startsWith(INV))names.push(n)}}catch(e){return false}
   for(const n of names){let v=null;try{v=JSON.parse(localStorage.getItem(n))}catch(e){}
     const drop=()=>{try{localStorage.removeItem(n)}catch(e){}};if(!v||!v.k||Date.now()-v.at>864e5){drop();continue}
     const secret=n.slice(INV.length);let j;try{j=await api('POST','/api/invite-keys',{secret})}catch(e){drop();continue}
     if(j.board!==BOARD)continue; // another board's link: that board's page takes it
-    drop();try{const priv=await S.importKey('jwk',{kty:'OKP',crv:'X25519',d:v.k,x:url64(j.public_key)},{name:'X25519'},false,['deriveBits']),inv={priv,pub:j.public_key},grants=[];
-      for(const g of j.grants)grants.push({epoch:g.epoch,kid:dev.kid,...await wrapFor(await unwrapMine(g,inv),dev.pub)});
+    drop();try{const [d,want]=String(v.k).split('.');const priv=await S.importKey('jwk',{kty:'OKP',crv:'X25519',d,x:url64(j.public_key)},{name:'X25519'},false,['deriveBits']),inv={priv,pub:j.public_key},keys=new Map();
+      for(const g of j.grants)keys.set(g.epoch,await unwrapMine(g,inv));
+      // Exactly the keys the link vouches for, or none (review #5526).
+      if(!want||await keysDigest(keys)!==want){say("🔒 <b>End-to-end encrypted.</b> The board key the server gave for your invite link isn't the one the link vouches for, so this browser didn't take it. Tell the person who sent the link.");return false}
+      const grants=[];for(const [epoch,raw] of keys)grants.push({epoch,kid:dev.kid,...await wrapFor(raw,dev.pub)});
       await api('POST','/api/boards/'+BOARD+'/grants/invite',{secret,grants});return true}
     catch(e){console.warn('[e2e] invite key',e)}}
   return false}
