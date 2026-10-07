@@ -49,6 +49,7 @@ describe("self-host-check parseJsonc", () => {
     expect(wrangler.name).toBe("agent-board");
     expect(wrangler.d1_databases[0].migrations_dir).toBe("migrations");
     expect(wrangler.vars.PUBLIC_URL).toBe("https://atteo.dev");
+    expect(wrangler.limits.cpu_ms).toBe(30000);
   });
 });
 

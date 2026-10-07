@@ -8,6 +8,11 @@
   "version_metadata": { "binding": "CF_VERSION_METADATA" },
   "workers_dev": true,
   "preview_urls": false,
+  // CPU ceiling per invocation (HTTP and this Worker's Durable Objects), pinned at the Workers Paid default of 30s.
+  // Active compute only: waiting on D1, a Durable Object, or fetch does not count, so long-polls are unaffected.
+  // wrangler dev does not enforce it (ship.sh and CI). The Free plan rejects this key at deploy (error 100328);
+  // delete `limits` there. Measurements and when to tighten: docs/CLOUDFLARE_HARDENING.md.
+  "limits": { "cpu_ms": 30000 },
   "triggers": { "crons": ["*/5 * * * *"] },
   // The agent skill (skills/atteo/SKILL.md) is bundled as text and served at /skill.md.
   "rules": [{ "type": "Text", "globs": ["**/*.md", "**/atteo.mjs"], "fallthrough": true }, { "type": "Data", "globs": ["**/*.woff2"], "fallthrough": true }],

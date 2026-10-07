@@ -5,7 +5,10 @@ your team on your own Cloudflare account in about 15 minutes.
 
 ## You need
 
-- A Cloudflare account. The free plan works for small teams; Workers Paid removes the CPU and request limits.
+- A Cloudflare account. The free plan works for small teams; Workers Paid removes the request cap and raises CPU
+  time from a fixed 10 ms to 30 seconds. `wrangler.jsonc` sets `limits.cpu_ms` to that 30 second ceiling. The Free
+  plan refuses the key at deploy (error 100328): delete the `limits` block before `npx wrangler deploy`. The
+  self-host checker allows that omission. Production is Workers Paid and keeps the ceiling.
 - A WorkOS account for sign-in (AuthKit). Its free tier covers up to a million users.
 - Optional: Stripe, if you want paid plans.
 - Optional: a Cloudflare AI account id and a token with only **Workers AI: Read**, if you want the model-based

@@ -67,8 +67,44 @@ abuse from costing money.
 | Index `device_logins(expires_at)` | new migration | `startDeviceLogin` deletes expired rows with a full scan each call (240 rows today, so not urgent) |
 | Serve built CSS/JS from static assets | `src/ui.ts` → `public/` at build | asset requests are free and use no Worker CPU; today every `/app.css`, `/board.js`, font etc. runs the Worker (cached by browsers via versioned URLs, so once per visitor) |
 | Short-lived cache for read-only board views | `src/index.ts` board GETs | protects one hot board (see 1 above) |
-| `limits.cpu_ms` | `wrangler.jsonc` | a ceiling on runaway CPU per request. Only after measuring exports and backups, which legitimately take longer |
 | D1 read replication + Sessions API | `env.DB` call sites | when non-US traffic grows (see 3 above) |
+
+## CPU ceiling
+
+`limits.cpu_ms` in `wrangler.jsonc` is **30000** (30 seconds). A deploy pins the Workers Paid default. The
+platform allows up to 5 minutes (300,000 ms); this config stays at 30 seconds. A request past the ceiling is
+error 1102 (`exceededCpu`).
+
+CPU time is time the isolate spends running JavaScript, compression, or crypto. Time spent waiting on D1, a
+Durable Object, or `fetch` does not count, so a long-poll (tens of seconds of wall clock) is unaffected.
+Cloudflare has no per-route CPU limit, so one number covers HTTP requests and this Worker's Durable Objects.
+The `*/5` cron is already limited to 30 seconds of CPU (15 minutes only when a cron's interval is an hour or
+more), which this matches. `wrangler dev` does not enforce the limit, so ship.sh and CI are unchanged. The
+landing Worker is left unset and stays on the same platform default.
+
+The number comes from the long paths below, with production CPU as context. Production request CPU in the table above is
+p50 4–9 ms and p99 30–80 ms. The local numbers below are wall-clock time of the CPU-bound work on Node
+(Oct 6 2026), with no network. The Workers isolate may be slower; the gap under 30 seconds is the margin.
+
+| Path | Bound in code | Local time |
+|---|---|---|
+| One backup file part | `BACKUP_BLOB_PART_BYTES` default 8 MB: base64, JSON, gzip, seal, SHA-256 (`packPart`) | ~0.8 s (base64 ~0.3 s, gzip ~0.3 s, AES-GCM ~0.02 s) |
+| Three such parts in a row | `Board.backup` seals every file part in one Durable Object call | ~1.8 s |
+| A board's other tables | 20,000 short entries, one `packPart` | ~70 ms |
+| Entry page | 500 entries × 32,000 characters (`MAX_TEXT`), `JSON.stringify` | ~55 ms |
+| Board open | 1,000 entries × 2,000 characters | ~2 ms |
+| Access-audit export page | 5,000 rows (`AUDIT_EXPORT_LIMIT`) | ~2 ms |
+
+A board with many pictures pays the file-part cost once per part inside that single Durable Object call. At
+~0.8 s per 8 MB here, 30 seconds is on the order of 40 parts (~300 MB of files) before the ceiling, about
+400× the production p99. A higher cap, up to 300,000 ms, would multiply the CPU a runaway request can burn.
+30,000 CPU-ms is about $0.0006 at the published $0.02 per million CPU-ms. The cost guard watches rows and
+Durable Object requests, and leaves CPU to this ceiling.
+
+**Before lowering `cpu_ms`:** in Workers Logs, read `cpuTime` for `Board.backup` on a board with many file
+parts, for the cron's D1 dump, and for `GET …/audit/export`, a large `entries` page, and grep. If the slowest
+of those is past about 15 seconds, keep 30 seconds. Raise it only with a measured invocation that does not
+fit, and only up to 300,000.
 
 ## Dashboard settings for vedu (and jxn for the atteo.dev zone)
 
