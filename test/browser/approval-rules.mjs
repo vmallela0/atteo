@@ -1,0 +1,36 @@
+// Board info: an owner edits approval rules; members only read. The table stays usable on a phone.
+import { chromium } from "playwright-core";
+const BASE = process.env.BASE || "http://localhost:8787";
+const ops = async (p, b) => (await fetch(`${BASE}/api/ops/${p}`, { method: "POST", headers: { "x-admin-key": process.env.ADMIN_KEY || "ci-admin-key", "content-type": "application/json" }, body: JSON.stringify(b) })).json();
+const run = Date.now().toString(36).slice(-4), O = `aro${run}`, M = `arm${run}`;
+for (const u of [O, M]) await ops("users", { name: u, email: `${u}@example.com`, verified: "true" });
+const board = (await ops("boards", { user: O, title: `Approval rules ${run}` })).board.id;
+await ops("members", { board, user: M });
+const ck = {}; for (const u of [O, M]) ck[u] = (await ops("sessions", { user: u })).cookie;
+let fails = 0; const check = (ok, label) => { console.log(`${ok ? "✓" : "✗"} ${label}`); if (!ok) fails++; };
+const browser = await chromium.launch({ executablePath: process.env.PW_CHROME || undefined });
+const open = async (user, width) => {
+  const ctx = await browser.newContext({ viewport: { width, height: 850 } });
+  const [name, ...v] = ck[user].split(";")[0].split("=");
+  await ctx.addCookies([{ name, value: v.join("="), url: BASE }]);
+  const p = await ctx.newPage(), errors = []; p.on("pageerror", e => errors.push(e.message));
+  await p.goto(`${BASE}/b/${board}`);
+  if (width < 800) await p.locator("#info-btn").click();
+  await p.locator("#approval-rules-side").waitFor();
+  return { p, ctx, errors };
+};
+const owner = await open(O, 1280), side = owner.p.locator("#approval-rules-side");
+check(await side.locator("tbody tr").count() === 6, "six rules appear in Board info");
+const row = side.locator('[data-rule="deploy_production"]');
+await row.locator(".ar-mode").selectOption("auto"); await row.locator(".ar-save").click();
+await owner.p.locator("#toast.show", { hasText: "Saved" }).waitFor();
+check((await (await owner.p.request.get(`${BASE}/api/boards/${board}/approval-rules`, { headers: { cookie: ck[O] } })).json()).rules[0].mode === "auto", "owner saves Auto-approve");
+check((await row.innerText()).includes(`Set by ${O}`), "table names who set it");
+const member = await open(M, 1280);
+check((await member.p.locator('[data-rule="deploy_production"]').innerText()).includes("Auto-approve") && await member.p.locator(".ar-save").count() === 0, "member sees rules without edit controls");
+const phone = await open(O, 390);
+check(await phone.p.locator("#approval-rules-side").isVisible() && !(await phone.p.evaluate(() => document.documentElement.scrollWidth > innerWidth)), "phone shows rules without sideways scroll");
+check([...owner.errors, ...member.errors, ...phone.errors].length === 0, "no page errors");
+await browser.close();
+console.log(fails ? `${fails} FAILED` : "all approval-rules checks passed");
+if (fails) process.exit(1);

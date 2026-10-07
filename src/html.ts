@@ -15,6 +15,8 @@ import { PIN_BAR, PIN_SIDE, RECAP_BTN, RECAP_DLG, pinRecapJs } from "./pinrecap"
 import { MEM_SIDE, memoryJs, rememberBtn } from "./memorypanel";
 import { HOST_LOADER_JS, hostSide } from "./hostUi";
 import { charterJs, charterSide } from "./charterUi";
+import { approvalRulesJs, approvalRulesSide } from "./approvalRulesUi";
+import type { Rule as ApprovalRule } from "./approvalRules";
 import type { BoardCharter } from "./charter";
 import { MENTION_SCAN_JS, forAgent, forPerson, mentionLabel, selfMentions } from "./mentions";
 import { flagOf } from "./screen";
@@ -2615,7 +2617,7 @@ async function accLoad(){const [m,a,l]=await Promise.all([fetch('/api/boards/'+B
       sel('role',x.role||'contributor',[['owner',tr('Owner')],['contributor',tr('Can post')],['viewer',tr('View only')]],fixed,tr('Role for {name}',{name:x.user}))+
       sel('days',x.expires_at?'keep':'0',(x.expires_at?[['keep',tr('Until ')+accFmt(x.expires_at)]]:[]).concat([['0',tr('No end date')],['7',tr('{n} more days',{n:7})],['30',tr('{n} more days',{n:30})],['90',tr('{n} more days',{n:90})]]),!IS_OWNER||x.user===CREATOR,tr('Access for {name}',{name:x.user}))+'</li>'}).join('')||'<li class="xs faint">'+tr('No members')+'</li>';
   if(IS_OWNER)document.getElementById('acc-links').innerHTML=(l.links||[]).filter(x=>!x.revoked_at&&(!x.expires_at||x.expires_at>Date.now())).map(x=>'<li class="acc-row xs"><span class="grow">'+(x.role==='viewer'?tr('View only'):tr('Can post'))+' link · until '+accFmt(x.expires_at)+(x.member_days?' · access '+x.member_days+'d':'')+' · used '+x.uses+(x.max_uses?' of '+x.max_uses:'')+'</span><button class="btn ghost sm" type="button" data-link-revoke="'+esc(x.id)+'">'+tr('Revoke')+'</button></li>').join('');
-  const verb={invited:'invited',joined:'joined',removed:'removed',left:'left',access_changed:'changed access for',link_created:'created an invite link',link_revoked:'revoked an invite link',renamed:'renamed the board',archived:'archived the board',restored:'restored the board',expired:'access ended for',picture_changed:'changed the board picture',picture_removed:'removed the board picture',charter:'updated the charter',retention:'set how long messages are kept'};
+  const verb={invited:'invited',joined:'joined',removed:'removed',left:'left',access_changed:'changed access for',link_created:'created an invite link',link_revoked:'revoked an invite link',renamed:'renamed the board',archived:'archived the board',restored:'restored the board',expired:'access ended for',picture_changed:'changed the board picture',picture_removed:'removed the board picture',charter:'updated the charter',retention:'set how long messages are kept',approval_rule_changed:'changed approval rule',approval_by_rule:'had an approval approved by rule'};
   document.getElementById('acc-audit').innerHTML=(a.audit||[]).slice(0,50).map(x=>'<li class="xs"><b>'+esc(x.actor)+'</b> '+(verb[x.action]||esc(x.action))+(x.target?' <b>'+esc(x.target)+'</b>':'')+(x.detail?' <span class="faint">· '+esc(x.detail)+'</span>':'')+' <span class="faint">· '+new Date(x.ts).toLocaleString([],{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'})+'</span></li>').join('')||'<li class="xs faint">'+tr('Nothing yet')+'</li>'}
 // ---- The gate's queue (#3209): open handoffs, oldest first, in board info — so nobody has to ask whether the gate is running ----
 const GATE_STALLED_MS=30*60000;
@@ -2880,7 +2882,7 @@ export const BOARD_JS_SRC = `${BOARD_JS_PATH}?v=${fnv(BOARD_JS)}`;
 // you had read to (Recap's starting point) comes from window.BC like the rest.
 export const BOARD_TAIL_PATH = "/board-tail.js";
 const boardTailJs = (canPic: boolean, encrypted: boolean, agentChat: boolean, canEdit: boolean) =>
-  (canPic ? BOARD_PIC_JS : "") + (encrypted ? CLIENT_SCAN_JS + E2E_JS : "") + STATUS_JS + voiceJs(agentChat) + TALK_JS + (encrypted || agentChat ? "" : CALL_LOADER_JS) + PREVIEW_JS + evJs(agentChat) + (agentChat ? "" : PO_JS) + (agentChat ? "" : pinRecapJs(null, canEdit) + memoryJs(canEdit) + EXPORT_JS + charterJs()); // charter: Board info's section (#3685)
+  (canPic ? BOARD_PIC_JS : "") + (encrypted ? CLIENT_SCAN_JS + E2E_JS : "") + STATUS_JS + voiceJs(agentChat) + TALK_JS + (encrypted || agentChat ? "" : CALL_LOADER_JS) + PREVIEW_JS + evJs(agentChat) + (agentChat ? "" : PO_JS) + (agentChat ? "" : pinRecapJs(null, canEdit) + memoryJs(canEdit) + EXPORT_JS + charterJs()) + approvalRulesJs(); // Board info sections
 const TAILS = new Map<string, { js: string; src: string }>();
 /** The tail for flags "0101" (canPic, encrypted, agentChat, canEdit), or null for anything else. */
 export function boardTail(flags: string): { js: string; src: string } | null {
@@ -2905,7 +2907,7 @@ export function boardPage(
   agent: AgentState = { connected: false, onThisBoard: false },
   summary?: Summary, // the whole board's (big boards only send their newest entries)
   agents: AgentHere[] = [],
-  board: { picture: string | null; kind: string | null; sessions?: { name: string; state: string; client: string | null }[]; seen?: number; last_seen?: number; muted?: string[]; charter?: BoardCharter | null; calls?: boolean; slack?: boolean; slackChannels?: string[] } = { picture: null, kind: null }, // slack: the Slack bridge is set up here (slackCore.slackOn) // calls: board calls are set up here (calls.callsOn); from the directory (D1); sessions: yours, on "Your agent"; last_seen: how far you had read (for Recap); muted: whom you muted here (#3602)
+  board: { picture: string | null; kind: string | null; sessions?: { name: string; state: string; client: string | null }[]; seen?: number; last_seen?: number; muted?: string[]; charter?: BoardCharter | null; approvalRules?: ApprovalRule[]; calls?: boolean; slack?: boolean; slackChannels?: string[] } = { picture: null, kind: null }, // slack: the Slack bridge is set up here (slackCore.slackOn) // calls: board calls are set up here (calls.callsOn); from the directory (D1); sessions: yours, on "Your agent"; last_seen: how far you had read (for Recap); muted: whom you muted here (#3602)
 ): Response {
   const ctl = { boardId: info.id, creator: info.created_by };
   const people = displayMap(members); // handle → the name they chose (jxn #4369)
@@ -3043,7 +3045,7 @@ export function boardPage(
       </div>
     </form>
   </section>
-  <aside class="aside" id="board-info" aria-label="${esc(T("Board info"))}"><!-- the rail (jxn #4860): agents first, then what's open, memory, charter, members, notifications -->${agentsSection(agents, info.id, readOnly || !!info.archived, L, canInviteAgent)}<div class="sum" id="sum">${summaryHtml(entries, viewer.name, members, summary, ctl, L)}</div>${agentChat ? "" : PIN_SIDE + MEM_SIDE + charterSide(board.charter ?? { goal: null, data_classes: [], retention_days: null, members: members.map((m) => ({ user: m.user, role: m.role ?? (m.user === info.created_by ? "owner" : "contributor"), note: null })) }, isOwner && !info.archived, L, people)}
+  <aside class="aside" id="board-info" aria-label="${esc(T("Board info"))}"><!-- the rail (jxn #4860): agents first, then what's open, memory, charter, members, notifications -->${agentsSection(agents, info.id, readOnly || !!info.archived, L, canInviteAgent)}<div class="sum" id="sum">${summaryHtml(entries, viewer.name, members, summary, ctl, L)}</div>${agentChat ? "" : PIN_SIDE + MEM_SIDE + charterSide(board.charter ?? { goal: null, data_classes: [], retention_days: null, members: members.map((m) => ({ user: m.user, role: m.role ?? (m.user === info.created_by ? "owner" : "contributor"), note: null })) }, isOwner && !info.archived, L, people)}${approvalRulesSide(board.approvalRules ?? [], isOwner && !info.archived, L)}
 ${notifySide(L)}${agentChat || info.encrypted || info.archived || readOnly ? "" : hostSide(esc(T("Attach a machine…")))}
 </aside>
 </div></div>

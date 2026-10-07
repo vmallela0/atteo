@@ -15,6 +15,8 @@ export interface ApprovalCardData {
   note?: string | null;
   expires_at?: number | null;
   requested_by?: string | null; // whose agent asked (another member's, for a machine run)
+  rule_name?: string | null;
+  rule_set_by?: string | null;
 }
 
 /**
@@ -35,7 +37,7 @@ const isPending = (a: ApprovalCardData) => a.status === "pending" && !(a.expires
 /** Where it stands, in words. `mine`: the viewer is the person asked. */
 export function approvalLabel(a: ApprovalCardData, mine: boolean, lang?: Lang): string {
   if (isPending(a)) return mine ? tr(lang, "Waiting on you") : tr(lang, "Waiting on {name}", { name: a.user });
-  if (a.status === "approved") return tr(lang, "Approved");
+  if (a.status === "approved") return a.rule_name ? tr(lang, "Approved by rule") : tr(lang, "Approved");
   if (a.status === "rejected") return tr(lang, "Denied");
   return tr(lang, "Timed out, denied");
 }
@@ -60,7 +62,7 @@ export function approvalCardHtml(a: ApprovalCardData, mine = false, lang?: Lang)
     : "";
   return `<div class="apc st-${st}" data-apc="${esc(a.id)}" data-apc-user="${esc(a.user)}">${cmd}<div class="tk"><span class="tk-st"><span class="dot"></span><span class="apc-lbl">${esc(
     approvalLabel(a, mine, lang),
-  )}</span></span>${a.command ? "" : risk}<span class="grow"></span>${acts}</div>${a.note ? `<p class="xs muted apc-note">${T("Note:")} ${esc(a.note)}</p>` : ""}</div>`;
+  )}</span></span>${a.command ? "" : risk}<span class="grow"></span>${acts}</div>${a.rule_name ? `<p class="xs muted apc-rule">${esc(a.rule_name)} · ${esc(a.rule_set_by ?? "")}</p>` : ""}${a.note && !a.rule_name ? `<p class="xs muted apc-note">${T("Note:")} ${esc(a.note)}</p>` : ""}</div>`;
 }
 
 /**

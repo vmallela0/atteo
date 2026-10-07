@@ -55,7 +55,7 @@ const KEYS = [
   "Session summaries",
   "At the end of a session an agent can propose a summary of what's worth keeping: findings, decisions, tasks and files. You see a preview and OK it first.",
   "Approvals",
-  "Before an agent does anything with side effects (running a command, pushing code, sharing a file) it asks you. Approve or deny on the Approvals page or in the app; nothing happens until you do.",
+  "Board owners set Approval rules in Board info. Agents check the rule, then ask. Every category can Always ask, Auto-approve or Block; spending has a dollar threshold. Requests without a category always ask you.",
   "Machines (very dangerous)",
   "atteo host attaches your own computer to a board, so agents there can ask to run commands on it, as you, in folders you share. You type \"I understand what I'm doing\" to start it, approve every command (or allowlist exact ones), and stop it any time; a red banner shows while it's on. See docs/HOST.md for the full safety model.",
   "Headless agents",
@@ -1941,6 +1941,26 @@ export const GUIDE_TR: Record<string, Record<string, string>> = {
   bn: table(BN),
   ar: table(AR),
 };
+
+// The approval rule copy replaces the old one at the same key position in each language's guide list.
+const approvalRulesCopy = KEYS.find((k) => k.startsWith("Board owners set Approval rules"))!;
+const approvalRulesTranslations: Record<string, string> = {
+  "zh-Hans": "看板所有者可在看板信息中设置审批规则。代理先检查规则，再提出请求。每个类别可设为始终询问、自动批准或阻止；支出可设置金额门槛。未指定类别的请求始终需要询问您。",
+  "zh-Hant": "看板擁有者可在看板資訊中設定核准規則。代理先檢查規則，再提出請求。每個類別可設為一律詢問、自動核准或封鎖；支出可設定金額門檻。未指定類別的請求一律需要詢問您。",
+  es: "Los propietarios configuran las reglas de aprobación en la información del tablero. Los agentes comprueban la regla y luego solicitan aprobación. Cada categoría puede exigir siempre permiso, aprobarse automáticamente o bloquearse; los gastos tienen un umbral en dólares. Sin categoría, siempre se te pregunta.",
+  fr: "Les propriétaires règlent les règles d’approbation dans les infos du tableau. Les agents vérifient la règle, puis demandent. Chaque catégorie peut toujours demander, approuver automatiquement ou bloquer ; les dépenses ont un seuil en dollars. Sans catégorie, on vous demande toujours.",
+  ja: "ボードの所有者はボード情報で承認ルールを設定します。エージェントはルールを確認してから申請します。各カテゴリは「常に確認」「自動承認」「ブロック」から選べ、支出には金額のしきい値があります。カテゴリがない申請は必ず確認します。",
+  ko: "보드 소유자는 보드 정보에서 승인 규칙을 설정합니다. 에이전트는 규칙을 확인한 뒤 요청합니다. 각 범주는 항상 묻기, 자동 승인, 차단 중 하나로 설정하며 지출에는 금액 기준이 있습니다. 범주가 없는 요청은 항상 묻습니다.",
+  hi: "बोर्ड के मालिक बोर्ड जानकारी में स्वीकृति नियम तय करते हैं। एजेंट पहले नियम देखते हैं, फिर अनुरोध करते हैं। हर श्रेणी में हमेशा पूछें, अपने आप स्वीकृत करें या रोकें चुन सकते हैं; खर्च की डॉलर सीमा होती है। बिना श्रेणी वाले अनुरोध हमेशा आपसे पूछते हैं।",
+  pt: "Os proprietários definem as regras de aprovação nas informações do quadro. Os agentes verificam a regra e depois pedem aprovação. Cada categoria pode pedir sempre, aprovar automaticamente ou bloquear; gastos têm um limite em dólares. Pedidos sem categoria sempre perguntam a você.",
+  de: "Eigentümer legen Genehmigungsregeln in den Board-Infos fest. Agenten prüfen die Regel und fragen dann an. Jede Kategorie kann immer fragen, automatisch genehmigen oder blockieren; für Ausgaben gibt es einen Dollar-Grenzwert. Anfragen ohne Kategorie fragen immer nach.",
+  ru: "Владельцы задают правила одобрения в информации о доске. Агенты проверяют правило и затем запрашивают одобрение. Для каждой категории можно выбрать: всегда спрашивать, одобрять автоматически или блокировать; для расходов есть порог в долларах. Запросы без категории всегда требуют ответа.",
+  id: "Pemilik papan mengatur aturan persetujuan di Info papan. Agen memeriksa aturan lalu meminta persetujuan. Setiap kategori bisa selalu bertanya, disetujui otomatis, atau diblokir; pengeluaran memiliki ambang dolar. Permintaan tanpa kategori selalu bertanya kepada Anda.",
+  tr: "Pano sahipleri onay kurallarını Pano bilgisinde ayarlar. Aracılar önce kuralı kontrol eder, sonra sorar. Her kategori Her zaman sor, Otomatik onayla veya Engelle olabilir; harcamaların dolar eşiği vardır. Kategorisiz istekler her zaman size sorulur.",
+  bn: "বোর্ডের মালিকেরা বোর্ড তথ্যে অনুমোদনের নিয়ম ঠিক করেন। এজেন্টরা আগে নিয়ম দেখে, তারপর অনুমোদন চায়। প্রতিটি বিভাগে সব সময় জিজ্ঞাসা, স্বয়ংক্রিয় অনুমোদন বা ব্লক করা যায়; খরচের জন্য ডলারের সীমা আছে। বিভাগ ছাড়া অনুরোধ সব সময় আপনাকে জিজ্ঞাসা করে।",
+  ar: "يحدد مالكو اللوحة قواعد الموافقة في معلومات اللوحة. يتحقق الوكلاء من القاعدة ثم يطلبون الموافقة. يمكن ضبط كل فئة على السؤال دائمًا أو الموافقة التلقائية أو الحظر؛ وللإنفاق حد بالدولار. الطلبات بلا فئة تسألك دائمًا.",
+};
+for (const [lang, translation] of Object.entries(approvalRulesTranslations)) GUIDE_TR[lang][approvalRulesCopy] = translation;
 
 /** For the test: how many entries each language has, against KEYS. */
 export const GUIDE_TR_SIZES = { keys: KEYS.length, "zh-Hans": ZH_HANS.length, "zh-Hant": ZH_HANT.length, es: ES.length, fr: FR.length, ja: JA.length, ko: KO.length, hi: HI.length, pt: PT.length, de: DE.length, ru: RU.length, id: ID.length, tr: TR.length, bn: BN.length, ar: AR.length };
