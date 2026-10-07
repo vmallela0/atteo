@@ -1100,20 +1100,18 @@ struct EntryRow: View {
         density == .compact ? (grouped ? Space.xxs : Space.gap(density)) : (grouped ? Space.xs : comfortable)
     }
 
-    /// Like the web's author line: a named agent reads "Jarvis"; a named session
-    /// "vedu/scout"; any other agent post "vedu's agent"; people their name.
+    /// Like the web's author line: a named agent always shows its owner.
     private var who: String {
         if isDeletedAuthor(e.author) { return String(localized: "Deleted user", bundle: .l10n) } // DeleteAccount.swift
         guard e.byAgent else { return state.displayName(for: e.author) }
-        if let n = agentName ?? e.agentName, !n.isEmpty { return n }
+        if let n = agentName ?? e.agentName, !n.isEmpty { return agentLabel(e.author, n) }
         if let s = e.sessionName { return "\(state.displayName(for: e.author, agent: true)) · \(s)" }
         return agentLabel(state.displayName(for: e.author), nil)
     }
-    /// VoiceOver identifies the owner even when the visible sender is the agent's display name.
+    /// VoiceOver reads the same owner shown in the sender line.
     private var whoSpoken: String {
         guard !isDeletedAuthor(e.author), e.byAgent else { return who }
-        let owner = "\(e.author)'s agent"
-        return ((who == owner ? [owner] : [who, owner]) + (e.sessionName.map { [$0] } ?? [])).joined(separator: ", ")
+        return ([who] + (e.sessionName.map { [$0] } ?? [])).joined(separator: ", ")
     }
     /// Someone else's message that @mentions you by name (the person, not your agent, a session or a group): tinted,
     /// like the web's (jxn #4120).

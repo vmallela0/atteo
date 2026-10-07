@@ -1,4 +1,4 @@
-// Named agents on the web (vedu #1125/#1161): "Jarvis" on its posts with "vedu's agent" on hover (jxn #4522), @Jarvis drawn as that
+// Named agents on the web (vedu #1125/#1161): "Jarvis · vedu's agent" on its posts, @Jarvis drawn as that
 // agent's chip, offered by name in the @ menu, the hover card says whose it is, set in Account, renamed live.
 import { SHOTS_DIR } from "./lib/shots.mjs";
 import { chromium } from "playwright-core";
@@ -27,18 +27,17 @@ for(const [w,scheme] of [[1280,"light"],[390,"dark"]]){
   const ctx=await b.newContext({viewport:{width:w,height:860},colorScheme:scheme,isMobile:w<500,hasTouch:w<500});const [k,...v]=ckP.split(";")[0].split("=");await ctx.addCookies([{name:k,value:v.join("="),url:BASE}]);
   const p=await ctx.newPage();const errors=[];p.on("pageerror",e=>errors.push(e.message));await p.goto(`${BASE}/b/${board}`);await p.locator(`#e${ms} .mention.agent[data-user="${V}"]`).waitFor({timeout:8000}).catch(()=>{});
   const meta=await p.locator(`#e${a1}>.grow>.meta`).innerText(),own=await p.locator(`#e${a1}>.grow>.meta>.who`).getAttribute("title");
-  // The header is the name and the time (jxn #4522); whose agent it is is on the name's hover.
-  check(new RegExp(`^${NAME}`).test(meta.trim())&&!new RegExp(`${V}'s agent`).test(meta)&&own===`${V}'s agent`,`${w}px: the agent's post reads "${NAME}", "${V}'s agent" on hover (${meta.replace(/\s+/g," ").slice(0,60)} | ${own})`);
+  check(new RegExp(`^${NAME}`).test(meta.trim())&&meta.includes(`${V}'s agent`)&&own===`${V}'s agent`,`${w}px: the agent's post shows its owner (${meta.replace(/\s+/g," ").slice(0,60)} | ${own})`);
   await p.waitForFunction(()=>document.documentElement.dataset.compact==="others",null,{timeout:8000}).catch(()=>{});
   // olMark runs on a timer/frame; the capture-phase opener only handles rows already marked .ol.
   await p.locator(`#e${a1}.ol`).waitFor({state:"attached",timeout:5000});
-  check(!await p.locator(`#e${a1} .agent-info`).isVisible(),`${w}px: owner details are hidden in collapsed rows`);
-  const opened=async()=>await p.locator(`#e${a1}.ol-open`).count()&&await p.locator(`#e${a1} .agent-info`).isVisible()&&await p.locator(`#e${a1} .agent-info`).innerText()===`${V}'s agent`&&await p.locator(`#e${a1} .who`).innerText()===NAME;
+  check(!await p.locator(`#e${a1} .agent-info`).isVisible(),`${w}px: extra details are hidden in collapsed rows`);
+  const opened=async()=>await p.locator(`#e${a1}.ol-open`).count()&&await p.locator(`#e${a1} .agent-info`).isVisible()&&await p.locator(`#e${a1} .agent-info`).innerText()===`${V}'s agent`&&await p.locator(`#e${a1} .who`).innerText()===`${NAME} · ${V}'s agent`;
   // Under load a click can land while olMark is re-marking the row. Retry only while the whole opened state below is absent.
   await until(async()=>await opened()||(await p.locator(`#e${a1} .body`).click(),false));
-  check(await p.locator(`#e${a1} .agent-info`).isVisible()&&await p.locator(`#e${a1} .agent-info`).innerText()===`${V}'s agent`&&await p.locator(`#e${a1} .who`).innerText()===NAME,`${w}px: opening keeps the agent name and shows its owner`);
+  check(await p.locator(`#e${a1} .agent-info`).isVisible()&&await p.locator(`#e${a1} .agent-info`).innerText()===`${V}'s agent`&&await p.locator(`#e${a1} .who`).innerText()===`${NAME} · ${V}'s agent`,`${w}px: opening keeps the agent name and owner`);
   const chip=p.locator(`#e${ms} .mention.agent[data-user="${V}"]`);
-  check(await chip.count()===1&&(await chip.innerText())===`@${NAME}`,`${w}px: "@${NAME}" in a message is that agent's chip`);
+  check(await chip.count()===1&&(await chip.innerText())===`@${NAME} · ${V}'s agent`,`${w}px: "@${NAME}" in a message shows its owner`);
   if(w>500){await chip.hover();await p.locator(".hcard",{hasText:NAME}).waitFor({timeout:5000}).catch(()=>{});const hc=await p.locator(".hcard").innerText().catch(()=>"");
     check(new RegExp(NAME).test(hc)&&new RegExp(`${V}.?s agent`).test(hc),`the hover card names it and says whose it is (${hc.replace(/\s+/g," ").slice(0,90)})`);
     await p.locator("#composer-text").click();await p.keyboard.type(`@${NAME.slice(0,3)}`);await p.locator("#mention-menu",{hasText:NAME}).waitFor({timeout:5000}).catch(()=>{});

@@ -42,7 +42,7 @@ final class AppState: ObservableObject {
         let raw = profile?.name.lowercased() == handle.lowercased() ? profile?.displayName : displayNames[handle.lowercased()]
         let name = raw?.trimmingCharacters(in: .whitespacesAndNewlines)
         let person = name.flatMap { $0.isEmpty ? nil : $0 } ?? handle
-        return agent ? (agentDisplayName(for: handle, board: board) ?? Vocab.agentOf(person)) : person
+        return agent ? (agentDisplayName(for: handle, board: board).map { agentLabel(handle, $0) } ?? Vocab.agentOf(person)) : person
     }
 
     /// Keep empty names too: a person clearing their name must replace the old cached value.

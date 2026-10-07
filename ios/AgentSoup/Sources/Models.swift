@@ -407,9 +407,16 @@ struct DocHistoryResponse: Decodable { let versions: [DocVersion] }
 
 /// A board's members with their roles, and yours.
 struct BoardMembersResponse: Decodable {
-    struct Member: Decodable, Identifiable, Hashable { let user: String; let displayName: String?; let role: String; let lastSeen: Double?; var id: String { user } }
+    struct Member: Decodable, Identifiable, Hashable { let user: String; let displayName: String?; let agentName: String?; let agentNameAmbiguous: Bool?; let role: String; let lastSeen: Double?; var id: String { user } }
     let members: [Member]
     let you: String?
+    var ambiguousAgentNames: [String] {
+        var seen = Set<String>()
+        return members.compactMap { m in
+            guard m.agentNameAmbiguous == true, let name = m.agentName else { return nil }
+            return seen.insert(name.lowercased()).inserted ? name : nil
+        }
+    }
 }
 struct InviteLinkResponse: Decodable { let url: String }
 struct InviteResponse: Decodable { let message: String? }

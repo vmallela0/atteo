@@ -1327,7 +1327,8 @@ const handler = {
         const latest0 = cnt.latest ? inbox.withInterrupts([cnt.latest], levels, prefs, now)[0] : null;
         // The notification names a person as they chose (jxn #4369; cached in names.ts, so polling costs no extra reads).
         const owner = latest0?.kind === "approval" ? latest0.push?.by : latest0?.actor_via === "agent" ? latest0.actor : undefined;
-        const actorName = owner ? (await agents.displayNames(env, [owner]).catch(() => ({} as Record<string, string>)))[owner] : latest0?.actor ? (await displayNames(env, [latest0.actor]).catch(() => ({} as Record<string, string>)))[latest0.actor] : undefined;
+        const agentName = owner ? (await agents.displayNames(env, [owner]).catch(() => ({} as Record<string, string>)))[owner] : undefined;
+        const actorName = owner && agentName ? `${agentName} · ${owner}'s agent` : latest0?.actor && !owner ? (await displayNames(env, [latest0.actor]).catch(() => ({} as Record<string, string>)))[latest0.actor] : undefined;
         const latest = latest0 && actorName ? { ...latest0, actor_name: actorName } : latest0;
         return json({ ...cnt, latest, notify: { ...sum, digest_count: due?.n ?? 0, digest_boards: due?.boards ?? [] } }, 200, { "cache-control": "no-store" });
       }

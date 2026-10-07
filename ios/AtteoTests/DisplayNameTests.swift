@@ -46,8 +46,11 @@ final class DisplayNameTests: XCTestCase {
         let state = state()
         state.rememberDisplayName("Jane Doe", for: "jane")
         state.agentNames["board"] = ["jane": AppState.AgentName(name: "Bender", ambiguous: false)]
-        XCTAssertEqual(state.displayName(for: "jane's agent", board: "board"), "Bender")
-        XCTAssertEqual(state.displayName(for: "jane/scout", board: "board"), "Bender · scout")
+        XCTAssertEqual(state.displayName(for: "jane's agent", board: "board"), "Bender · jane's agent")
+        XCTAssertEqual(state.displayName(for: "jane/scout", board: "board"), "Bender · jane's agent · scout")
+        state.agentNames["board"] = ["jane": AppState.AgentName(name: "Your agent", ambiguous: false)]
+        XCTAssertEqual(state.displayName(for: "jane's agent", board: "board"), "Your agent · jane's agent", "stored names rejected for new edits still show with their owner")
+        state.agentNames["board"] = ["jane": AppState.AgentName(name: "Bender", ambiguous: false)]
         XCTAssertEqual(state.displayName(for: "jane", board: "board"), "Jane Doe")
         state.agentNames["old"] = state.agentNames["board"]
         state.agentNames["board"] = [:]
@@ -63,13 +66,24 @@ final class DisplayNameTests: XCTestCase {
         XCTAssertEqual(state.displayName(for: "jane"), "jane")
     }
 
+    @MainActor func testNotificationSenderAlwaysShowsNamedAgentsOwner() {
+        let state = state()
+        let item = InboxItem(id: 1, boardId: "b_test", boardTitle: "Test", seq: 1, kind: "mention", actor: "jane", actorVia: "agent", actorName: "Your agent", excerpt: "hi", createdAt: 0, readAt: nil)
+        XCTAssertEqual(Notifier.senderName(item, state: state), "Your agent · jane's agent")
+        state.agentNames["board"] = ["jane": AppState.AgentName(name: "Bender", ambiguous: false)]
+        var older = item
+        older.actorName = nil
+        XCTAssertEqual(Notifier.senderName(older, state: state), "Bender · jane's agent")
+    }
+
     func testMemberAndProfileAPIsDecodeDisplayName() throws {
-        let data = Data(#"{"members":[{"user":"jane","display_name":"Jane Doe","role":"owner"},{"user":"unknown","role":"member"}]}"#.utf8)
+        let data = Data(#"{"members":[{"user":"jane","display_name":"Jane Doe","agent_name":"Bender","agent_name_ambiguous":true,"role":"owner"},{"user":"unknown","agent_name":"bender","agent_name_ambiguous":true,"role":"member"}]}"#.utf8)
         let members = try JSONDecoder.soup.decode(MembersResponse.self, from: data).members
         let boardMembers = try JSONDecoder.soup.decode(BoardMembersResponse.self, from: data).members
         XCTAssertEqual(members[0].displayName, "Jane Doe")
         XCTAssertNil(members[1].displayName)
         XCTAssertEqual(boardMembers[0].displayName, "Jane Doe")
+        XCTAssertEqual(try JSONDecoder.soup.decode(BoardMembersResponse.self, from: data).ambiguousAgentNames, ["Bender"])
         let person = try JSONDecoder.soup.decode(PersonResponse.self, from: Data(#"{"person":{"name":"jane","display_name":"Jane Doe","relation":"friend"}}"#.utf8)).person
         XCTAssertEqual(person.displayName, "Jane Doe")
     }

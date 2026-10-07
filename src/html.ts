@@ -16,7 +16,7 @@ import { MEM_SIDE, memoryJs, rememberBtn } from "./memorypanel";
 import { HOST_LOADER_JS, hostSide } from "./hostUi";
 import { charterJs, charterSide } from "./charterUi";
 import type { BoardCharter } from "./charter";
-import { MENTION_SCAN_JS, forAgent, forPerson, mentionLabel, selfMentions } from "./mentions";
+import { MENTION_SCAN_JS, foldAgentName, forAgent, forPerson, mentionLabel, selfMentions } from "./mentions";
 import { flagOf } from "./screen";
 import { DELETED_LABEL, isTombstone } from "./accountDelete";
 import { clientName, presenceLabel } from "./social";
@@ -339,7 +339,7 @@ const evJs = (agentChat: boolean) => `
   function first(el){return el&&[...el.childNodes].find(n=>n.nodeType===3&&n.textContent.trim())}
   function sayNode(n,ev,every){if(!n)return;if(n._dev===undefined)n._dev=n.textContent;n.textContent=ev?every:n._dev}
   function evEntry(el,ev){if(el.classList.contains('by-agent')){const w=el.querySelector(':scope>.grow>.meta>.who');
-      if(w&&!w.dataset.named)say(w,ev,asst(el.dataset.author))} // a named agent keeps its name; whose it is is on hover
+      if(w&&!w.dataset.named)say(w,ev,asst(el.dataset.author))}
     const t=el.querySelector(':scope>.grow>.meta .t-task>span:last-child');if(t)say(t,ev,tr('to-do'));
     const c=el.querySelector(':scope>.grow>.chg');if(c&&ev&&!el.querySelector(':scope>.grow>.ev-res')){const r=document.createElement('div');r.className='ev-res';r.innerHTML='<span class="ev-ok" aria-hidden="true">✓</span><b></b>';r.querySelector('b').textContent=el.dataset.title||tr('Done');c.before(r)}}
   function evPage(){const ev=EV();document.querySelectorAll('#thread>.entry').forEach(el=>evEntry(el,ev));
@@ -545,14 +545,12 @@ function whoHtml(e: Entry, people?: Record<string, string>, known?: Iterable<str
   // Agents read apart by their square avatar and their name: "vedu/scout" for a named agent session (its client is
   // "scout · Claude Code"), else "<name>'s agent"; the client is plain text after it. People get no tag.
   if (e.via === "agent") {
-    // The header is avatar, name, time (jxn #4522): whose agent it is, which session and which tool move to the name's
-    // hover ("jxn's agent · opus-a · Claude Code"). A named agent shows its name; otherwise "vedu/scout" for a named
-    // session, else "<name>'s agent".
+    // A named agent keeps its owner in the visible sender label, including in compact rows.
     const [session, client] = e.client && e.client.includes(" · ") ? e.client.split(" · ", 2) : [null, e.client];
     const tool = client && client !== "agent" ? client : null;
     const info = esc([`${e.author}'s agent`, session, tool].filter(Boolean).join(" · "));
     const details = `<span class="agent-info">${info}</span>`;
-    if (e.agent_name) return `<span class="who" data-named="1" title="${info}">${esc(e.agent_name)}</span>${details}`;
+    if (e.agent_name) return `<span class="who" data-named="1" title="${info}"><bdi>${esc(e.agent_name)}</bdi> <span class="xs faint">· ${esc(e.author)}'s agent</span></span>${details}`;
     const name = session ? `${e.author}/${session}` : `${e.author}'s agent`;
     return `<span class="who" title="${esc([session ? `${e.author}'s agent` : null, tool].filter(Boolean).join(" · ") || name)}">${esc(name)}</span>${details}`;
   }
@@ -647,7 +645,10 @@ export function summaryHtml(entries: Entry[], viewer: string, members: MemberVie
     if (!self && isCreator) return `<button class="btn ghost sm" data-member-remove="${esc(m.user)}" data-label="Remove">${esc(T("Remove"))}</button>`;
     return "";
   };
-  const people = fold("members", esc(T("Members")), members.length, `<ul>${members
+  const repeated = new Map<string, string>();
+  for (const m of members) if (m.agent_name && m.agent_name_ambiguous) repeated.set(foldAgentName(m.agent_name), m.agent_name);
+  const ambiguity = [...repeated.values()].map((name) => `<p class="xs muted" role="note">${esc(T("More than one agent here is named {name}. Use @owner's agent to choose one.", { name }))}</p>`).join("");
+  const people = fold("members", esc(T("Members")), members.length, `${ambiguity}<ul>${members
     .map(
       (m) =>
         `<li><span class="row" style="padding:5px 0"><span class="av-wrap">${avatar(m.user, "sm")}</span><span class="grow small">${personHtml(m.user, m.display_name, members.map((x) => x.user))}${
@@ -1552,12 +1553,11 @@ function connect(){
     // Someone renamed their agent (vedu #1125): its posts here read the new name, always with whose agent it is.
     if(d.type==='profile'&&d.user){delete pcache[d.user];document.querySelectorAll('#thread .entry.by-agent[data-author="'+CSS.escape(d.user)+'"]>.grow>.meta').forEach(m=>{const w=m.querySelector('.who');if(!w)return;
       delete w.dataset.dev; // the developer words change; Everyday re-words them below
-      // Whose agent it is stays on the name's hover (jxn #4522), ahead of the session and tool it already names.
-      if(d.agent_name){const t=w.title.replace(/^[^·]*'s agent( · )?/,'');w.textContent=bidi(d.agent_name);w.dataset.named='1';w.title=d.user+"'s agent"+(t&&t!==d.user+"'s agent"?' · '+t:'')}else if(w.dataset.named){delete w.dataset.named;w.textContent=d.user+"'s agent"}});
+      if(d.agent_name){const t=w.title.replace(/^[^·]*'s agent( · )?/,'');w.innerHTML='<bdi>'+esc(d.agent_name)+'</bdi> <span class="xs faint">· '+esc(d.user)+"'s agent</span>";w.dataset.named='1';w.title=d.user+"'s agent"+(t&&t!==d.user+"'s agent"?' · '+t:'')}else if(w.dataset.named){delete w.dataset.named;w.textContent=d.user+"'s agent"}});
       // Existing base-agent chips follow a rename too; session chips keep their session address.
       document.querySelectorAll('#thread .mention.agent[data-user="'+CSS.escape(d.user)+'"]').forEach(c=>{const raw=(c.textContent||'').toLowerCase(),base='@'+d.user;
         if(!c.dataset.named&&![base+"'s agent",base+'’s agent',base+"'s assistant",base+'’s assistant'].includes(raw))return;
-        c.textContent=d.agent_name?'@'+d.agent_name:base+"'s agent";c.dataset.named='1';c.title=base+"'s agent"});
+        c.innerHTML=d.agent_name?'@'+esc(d.agent_name)+' <span class="faint">· '+esc(d.user)+"'s agent</span>":base+"'s agent";c.dataset.named='1';c.title=base+"'s agent"});
       const opt=MOPTS.find(o=>o.ins===d.user+"'s agent");if(opt){opt.name=d.agent_name||undefined;opt.label=d.agent_name?'<bdi>'+esc(d.agent_name)+'</bdi> <span class="faint">@'+esc(d.user)+"'s agent</span>":esc(d.user+"'s agent");ANAMES.splice(0,ANAMES.length,...agentTokens());if(document.activeElement===ta)ta.dispatchEvent(new Event('input'))}
       if(document.documentElement.dataset.mode==='everyday')document.dispatchEvent(new CustomEvent('atteo-mode',{detail:{everyday:true}}));return}
     if(d.type==='schedule'){if(document.getElementById('invite')?.open&&window.schLoad)schLoad();return}
@@ -1667,7 +1667,7 @@ function mfind(){if(ta.selectionStart!==ta.selectionEnd)return null;const v=ta.v
   if(at<0||(at>0&&/[A-Za-z0-9_.@\\/-]/.test(v[at-1])))return null;const q=v.slice(at+1);
   return q.length<=60&&/^[\\p{L}\\p{M}\\p{N}_. '\\/-]*$/u.test(q)?{start:at,q:q.toLowerCase()}:null}
 function mclose(){mm.hidden=true;ms=[];ta.setAttribute('aria-expanded','false');ta.removeAttribute('aria-activedescendant')}
-function mrender(){mq=mfind();if(mq&&window.agentsRefresh&&Date.now()-agentsAt>10000){agentsAt=Date.now();agentsRefresh().then(()=>{if(!mm.hidden||mfind())mrender()})}ms=mq?MOPTS.filter(o=>mq.q.includes('/')?o.ins.toLowerCase().startsWith(mq.q):o.u.startsWith(mq.q)||o.ins.toLowerCase().startsWith(mq.q)||(o.name&&o.name.toLowerCase().startsWith(mq.q))||(!o.sub&&DN[o.u]&&DN[o.u].toLowerCase().startsWith(mq.q))):[];if(!ms.length)return mclose();mi=Math.min(mi,ms.length-1);
+function mrender(){mq=mfind();if(mq&&window.agentsRefresh&&Date.now()-agentsAt>10000){agentsAt=Date.now();agentsRefresh().then(()=>{if(!mm.hidden||mfind())mrender()})}ms=mq?MOPTS.filter(o=>mq.q.includes('/')?o.ins.toLowerCase().startsWith(mq.q):o.u.startsWith(mq.q)||o.ins.toLowerCase().startsWith(mq.q)||(o.name&&o.name.toLowerCase().startsWith(mq.q))||(!o.sub&&DN[o.u]&&DN[o.u].toLowerCase().startsWith(mq.q))):[];if(mq?.q.includes(' ')&&!ms.some(o=>o.ins.toLowerCase().startsWith(mq.q)||o.name?.toLowerCase().startsWith(mq.q)||(!o.sub&&DN[o.u]?.toLowerCase().startsWith(mq.q))))return mclose();if(!ms.length)return mclose();mi=Math.min(mi,ms.length-1);
   mm.innerHTML='<li class="hint" aria-hidden="true">'+tr('Mention a person or their agent')+'</li>'+ms.map((o,i)=>'<li role="option"'+(o.sub?' class="sub"':'')+' id="'+mm.id+'-'+i+'" data-i="'+i+'" aria-selected="'+(i===mi)+'">'+o.av+'<span class="truncate">'+o.label+'</span><span class="k">'+o.k+'</span></li>').join('');
   mm.hidden=false;ta.setAttribute('aria-expanded','true');ta.setAttribute('aria-activedescendant',mm.id+'-'+mi)}
 function mpick(o){const end=ta.selectionStart,before=ta.value.slice(0,mq.start),after=ta.value.slice(end);const ins='@'+o.ins+(/^\\s/.test(after)?'':' ');
@@ -2629,7 +2629,7 @@ async function gateLoad(){const sec=document.getElementById('acc-gate');if(!sec)
   sec.hidden=false;
   const stalled=Date.now()-hs[0].ts>GATE_STALLED_MS; // oldest first: nothing has landed in 30 min
   document.getElementById('gate-h').innerHTML=esc(tr('Waiting to land ({n})',{n:hs.length}))+(stalled?' <span class="xs" style="color:var(--warn)">'+esc(tr('nothing landed for 30 min'))+'</span>':'');
-  document.getElementById('acc-handoffs').innerHTML=hs.map(h=>'<li class="acc-row xs"><a class="mono" href="#e'+h.seq+'">#'+h.seq+'</a><span class="grow truncate mono">'+esc(h.handoff.branch||(h.handoff.sealed?'🔒 '+((window.e2eHandoff&&(e2eHandoff(h.seq)||{}).branch)||''):''))+'</span><span class="truncate">'+esc(h.agent_name||h.author)+'</span><span class="faint">'+(h.handoff.lgtm?'LGTM · ':'')+'<time data-ts="'+h.ts+'"></time></span></li>').join('');
+  document.getElementById('acc-handoffs').innerHTML=hs.map(h=>'<li class="acc-row xs"><a class="mono" href="#e'+h.seq+'">#'+h.seq+'</a><span class="grow truncate mono">'+esc(h.handoff.branch||(h.handoff.sealed?'🔒 '+((window.e2eHandoff&&(e2eHandoff(h.seq)||{}).branch)||''):''))+'</span><span class="truncate">'+esc(h.agent_name?h.agent_name+' · '+h.author+"'s agent":h.author+"'s agent")+'</span><span class="faint">'+(h.handoff.lgtm?'LGTM · ':'')+'<time data-ts="'+h.ts+'"></time></span></li>').join('');
   refreshTimes()}
 document.getElementById('acc-handoffs').addEventListener('click',e=>{if(e.target.closest('a'))document.getElementById('invite').close()}); // jump to the message: the board's #e link takes it from there
 setInterval(()=>{if(document.getElementById('invite').open&&!document.getElementById('acc-gate').hidden)gateLoad()},30000); // ages grow and the stalled flag moves while it's open

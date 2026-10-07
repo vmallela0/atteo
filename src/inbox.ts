@@ -194,7 +194,7 @@ export function inboxPage(viewer: Viewer, side: SideBoard[], items: InboxItem[],
       const owner = i.kind === "approval" ? i.push?.by : i.actor_via === "agent" ? i.actor : undefined;
       const who = i.kind === "manual_unread" || i.kind === "slack_link" ? T("You") : owner ? agents[owner] || T("{name}'s agent", { name: owner }) : i.kind === "approval" ? T("Your agent") : i.actor;
       // A person by the name they chose (jxn #4369), their @handle on hover.
-      const whoHtml = i.kind !== "manual_unread" && i.kind !== "slack_link" && i.kind !== "approval" && i.actor_via !== "agent" ? personHtml(i.actor, people[i.actor], known) : owner && agents[owner] ? `<bdi title="@${esc(owner)}'s agent">${esc(who)}</bdi>` : esc(who);
+      const whoHtml = i.kind !== "manual_unread" && i.kind !== "slack_link" && i.kind !== "approval" && i.actor_via !== "agent" ? personHtml(i.actor, people[i.actor], known) : owner && agents[owner] ? `<bdi>${esc(who)} <span class="faint">· ${esc(owner)}'s agent</span></bdi>` : esc(who);
       const href = i.board_id ? `/b/${esc(i.board_id)}${i.kind === "manual_unread" ? "" : `#e${i.seq}`}` : i.kind === "approval" ? "/approvals" : i.kind === "slack_link" ? "/slack/accounts" : "/people";
       return `<li class="inbox-item${i.read_at ? "" : " unread"}"><a href="${href}" data-inbox-id="${i.id}">
 ${avatar(i.actor, "sm", i.actor_via === "agent")}

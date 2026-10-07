@@ -303,7 +303,7 @@ export function highlightMentions(escaped: string, mentions: Mention[] | null | 
   const reFor = (shown: string) => new RegExp(`(^|[^\\w@/.-])@(${shown.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")})(?![\\p{L}\\p{N}_])`, "giu");
   // An agent its person has renamed since (jxn #3300): "@matmul" in an old message is drawn as the agent's chip with
   // its name today ("@100billion"), or "@jxn's agent" once it has none. Display only; the text stays as written.
-  const nowLabel = (u: string) => (names?.[u] ? `@${esc1(names[u])}` : `@${u}'s agent`);
+  const nowLabel = (u: string) => (names?.[u] ? `@${esc1(names[u])} <span class="faint">· ${u}'s agent</span>` : `@${u}'s agent`);
   const renamedChip = (u: string, was: string) => `<span class="mention agent" data-user="${u}" data-named="1" title="${esc1(`${u}'s agent, mentioned as @${was}`)}">${nowLabel(u)}</span>`;
   const drawn = new Set<string>(); // agents (no session) drawn as chips: who an old, unnamed mention could still be
   for (const m of mentions) {
@@ -316,7 +316,7 @@ export function highlightMentions(escaped: string, mentions: Mention[] | null | 
     if (!n) continue;
     const shown = n.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
     const re = new RegExp(`(^|[^\\w@/.-])@(${shown.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")})(?![\\p{L}\\p{N}_])`, "giu");
-    escaped = escaped.replace(re, (_all, pre: string, typed: string) => (drawn.add(m.user), `${pre}\u0000${named.push(names?.[m.user] ? renamedChip(m.user, typed) : `<span class="mention agent" data-user="${m.user}" data-named="1" title="${m.user}'s agent">@${typed}</span>`) - 1}\u0000`));
+    escaped = escaped.replace(re, (_all, pre: string, typed: string) => (drawn.add(m.user), `${pre}\u0000${named.push(names?.[m.user] ? renamedChip(m.user, typed) : `<span class="mention agent" data-user="${m.user}" data-named="1" title="${m.user}'s agent">@${typed} <span class="faint">· ${m.user}'s agent</span></span>`) - 1}\u0000`));
   }
   const back = (s: string) => (named.length ? s.replace(/\u0000(\d+)\u0000/g, (_x, i: string) => named[+i]) : s);
   const wanted = new Set([...mentions, ...(self ?? [])].map(key));

@@ -3,7 +3,7 @@ import { MENTION_SCAN_JS, forAgent, forPerson, highlightMentions, mentionLabel, 
 import { entryHeader, formatSummary, computeSummary } from "../src/state";
 import { cleanAgentName, handleLookalikes, skeleton } from "../src/agentName";
 import { renderText } from "../src/ui";
-import { firstLine, involved, mentionOptions, shortTitle, summaryHtml } from "../src/html";
+import { entryHtml, firstLine, involved, mentionOptions, shortTitle, summaryHtml } from "../src/html";
 import type { BoardInfo, Entry } from "../src/types";
 
 const members = ["vedu", "jxn", "j.doe", "ops-bot"];
@@ -142,7 +142,7 @@ describe("parseMentions", () => {
       const self = selfMentions(text, "vedu", "agent", "moby");
       expect(self).toEqual([{ ...agent("vedu"), name }]);
       const html = renderText(text, stored, null, self); // no stored agent mention or mention_names
-      expect(html).toContain(`class="mention agent" data-user="vedu" data-named="1" title="vedu's agent">@${name}</span>`);
+      expect(html).toContain(`class="mention agent" data-user="vedu" data-named="1" title="vedu's agent">@${name} <span class="faint">· vedu's agent</span></span>`);
       expect(html).toContain('class="mention agent" data-user="vedu">@vedu&#39;s agent</span>');
       expect(html).toContain('class="mention" data-user="vedu">@vedu</span>');
     }
@@ -199,11 +199,11 @@ describe("agent names", () => {
     expect(parseMentions("@jxn's agent and @Big Friday", named, "vedu", "person").mentions).toEqual([{ user: "jxn", agent: true }]);
     // Drawn: under its name today, or as "x's agent" once it has none; the text stays as written.
     const m = [{ user: "jxn", agent: true, name: "Matmul" }];
-    expect(highlightMentions("ask @Matmul now", m, { jxn: "100billion" })).toContain(">@100billion</span>");
+    expect(highlightMentions("ask @Matmul now", m, { jxn: "100billion" })).toContain("@100billion <span class=\"faint\">· jxn's agent</span>");
     expect(highlightMentions("ask @Matmul now", m, null)).toContain(">@jxn's agent</span>");
-    expect(highlightMentions("ask @Matmul now", m, { jxn: "Matmul" })).toContain(">@Matmul</span>");
+    expect(highlightMentions("ask @Matmul now", m, { jxn: "Matmul" })).toContain("@Matmul <span class=\"faint\">· jxn's agent</span>");
     // Older messages (no name kept): the one "@word" that's no one, when one mentioned agent has no chip.
-    expect(highlightMentions("@matmul all of you", [{ user: "jxn", agent: true }], { jxn: "100billion" })).toContain(">@100billion</span> all of you");
+    expect(highlightMentions("@matmul all of you", [{ user: "jxn", agent: true }], { jxn: "100billion" })).toContain("@100billion <span class=\"faint\">· jxn's agent</span></span> all of you");
     expect(highlightMentions("@matmul and @foo", [{ user: "jxn", agent: true }], { jxn: "100billion" })).not.toContain("100billion");
     expect(highlightMentions("@matmul hi", [{ user: "vedu", agent: false }], {})).not.toContain("mention");
   });
@@ -211,9 +211,16 @@ describe("agent names", () => {
   it("shows the current agent name for canonical mentions and keeps their owner as the target", () => {
     const html = highlightMentions("ask @vedu's agent and @jxn's agent", [agent("vedu"), agent("jxn")], { vedu: "Bender" });
     expect(html).toContain('data-user="vedu" data-named="1"');
-    expect(html).toContain(">@Bender</span>");
+    expect(html).toContain("@Bender <span class=\"faint\">· vedu's agent</span>");
     expect(html).toContain(">@jxn's agent</span>");
     expect(parseMentions("@vedu's agent", named, "jxn", "person").mentions).toEqual([agent("vedu")]);
+  });
+
+  it("keeps the owner visible for a previously stored name that new validation refuses", () => {
+    const html = entryHtml(e({ author: "mallory", via: "agent", agent_name: "Your agent" }), info.id);
+    expect(html).toContain('data-named="1"');
+    expect(html).toContain('Your agent</bdi> <span class="xs faint">· mallory\'s agent</span>');
+    expect(highlightMentions("@Your agent", [agent("mallory")], { mallory: "Your agent" })).toContain("@Your agent <span class=\"faint\">· mallory's agent</span>");
   });
 
   it('"@Jarvis" is that member\'s agent: any case, with spaces and apostrophes, in order', () => {
@@ -277,7 +284,8 @@ describe("cleanAgentName", () => {
     expect(() => cleanAgentName("Jar@vis")).toThrow(/letters, numbers/);
     expect(() => cleanAgentName(42)).toThrow(/text/);
     for (const n of ["vedu's agent", "Vedu’s Agent", "my friend's  agent too"]) expect(() => cleanAgentName(n), n).toThrow(/'s agent/);
-    for (const n of ["all", "Everyone", "ATTEO", "you", "agents", "humans", "Every One", "аll"]) expect(() => cleanAgentName(n), n).toThrow(/reserved/);
+    for (const n of ["all", "Everyone", "you", "agents", "humans", "Every One", "аll"]) expect(() => cleanAgentName(n), n).toThrow(/reserved/);
+    for (const n of ["Your agent", "Yourself", "Yоur helper", "Atteo helper", "Аtteo Helper", "Travel Agent", "Travel  Agents", "travel'agent", "travel_agents", "travel-agents"]) expect(() => cleanAgentName(n), n).toThrow(/reads as an agent or Atteo/);
   });
 
   it("sees through look-alike letters", () => {
@@ -287,6 +295,16 @@ describe("cleanAgentName", () => {
     expect(skeleton("vėdu")).toBe("vedu"); // accents
     expect(handleLookalikes("jхn")).toContain("jxn");
     expect(handleLookalikes("J Xn")).toEqual(expect.arrayContaining(["jxn", "j.xn", "j_xn", "j-xn"]));
+  });
+
+  it("flags duplicate named agents in Board info while keeping both owners visible", () => {
+    const html = summaryHtml([], "jxn", [
+      { user: "jxn", display_name: null, agent_name: "Bender", agent_name_ambiguous: true, last_seen: 0 },
+      { user: "maya", display_name: null, agent_name: "bender", agent_name_ambiguous: true, last_seen: 0 },
+    ]);
+    expect(html).toContain("More than one agent here is named");
+    expect(html).toContain("Use @owner&#39;s agent to choose one");
+    expect(html.match(/More than one agent here is named/g)).toHaveLength(1);
   });
 });
 

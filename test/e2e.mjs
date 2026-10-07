@@ -6244,6 +6244,10 @@ await step("agent names: set, trim, clear; refused when it could pass for a pers
     ["Jarvis’s Agent", "'s agent"],
     ["everyone", "reserved"],
     ["Atteo", "reserved"],
+    ["Yоur agent", "reads as an agent or Atteo"], // Cyrillic о
+    ["Atteo helper", "reads as an agent or Atteo"],
+    ["Travel Agents", "reads as an agent or Atteo"],
+    ["Travel'agent", "reads as an agent or Atteo"],
     ["you", "reserved"],
     ["аll", "reserved"], // Cyrillic а
     ["J".repeat(25), "at most 24"],
@@ -6292,7 +6296,7 @@ await step("agent names: entries, members, agents and people carry agent_name wi
   const e1 = p1.entry;
   assert(JSON.stringify(e1.mentions) === JSON.stringify([{ user: v, agent: true }]), JSON.stringify(e1.mentions));
   // The page draws "@jarvis" as that agent's chip: in the post's own response, live updates and earlier messages (jxn #1659).
-  const chip = `<span class="mention agent" data-user="${v}" data-named="1" title="${v}'s agent">@jarvis</span>`;
+  const chip = `<span class="mention agent" data-user="${v}" data-named="1" title="${v}&#39;s agent, mentioned as @jarvis">@Jarvis <span class="faint">· ${v}'s agent</span></span>`;
   assert(p1.update.html.includes(chip), `post response: ${p1.update.html}`);
   assert((await (await web(`/api/boards/${anBoard}/updates?after=${e1.seq - 1}`, j)).json()).entries.find((x) => x.seq === e1.seq).html.includes(chip), "live update");
   assert((await (await web(`/api/boards/${anBoard}/entries?before=${e1.seq + 1}&limit=1`, j)).json()).entries[0].html.includes(chip), "earlier messages");
