@@ -66,6 +66,36 @@ final class SealedFilesTests: XCTestCase {
         XCTAssertEqual(o.extras.files?.map(\.id), ["sf_ok1"])
     }
 
+    /// Unsent: that message's decrypted files leave the phone, others stay. Left or removed: the whole board's go.
+    func testUnsendAndLeavingWipeDecryptedFiles() throws {
+        let board = "b_wipetest", fm = FileManager.default
+        func put(_ id: String, _ name: String) throws -> String {
+            let u = try XCTUnwrap(BoardCrypto.fileURL(board: board, SealedFile(id: id, name: name, mime: "image/png", size: 1, key: "AAAA")))
+            try fm.createDirectory(at: u.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try Data("x".utf8).write(to: u)
+            return u.path
+        }
+        defer { BoardCrypto.wipe(board: board) }
+        let a = try put("sf_a1", "a.png"), b = try put("sf_b1", "b.png"), c = try put("sf_c1", "c.png")
+        func entry(_ seq: Int, local: String? = nil, attachments: [FileRef]? = nil, retracts: Int? = nil) -> Entry {
+            var e = Entry(seq: seq, ts: 0, author: "a", type: "note", text: "", title: nil, to: nil, via: "person", artifactName: nil)
+            e.local = local; e.attachments = attachments; e.retracts = retracts
+            return e
+        }
+        // From an older app container: matched by the path's end.
+        let moved = "/old/container/Library/Caches/sealed/\(board)/sf_b1/b.png"
+        let shown = entry(1, local: a, attachments: [FileRef(name: "a.png", mime: "image/png", local: a), FileRef(name: "b.png", mime: "image/png", local: moved)])
+        XCTAssertEqual(BoardCrypto.fileIds(of: shown, board: board), ["sf_a1", "sf_a1", "sf_b1"])
+        XCTAssertEqual(BoardCrypto.fileIds(of: entry(9, local: "/tmp/outbox/x/a.png"), board: board), [])
+        BoardCrypto.wipeUnsent(board: board, in: [entry(3, retracts: 1)], known: [shown, entry(2, local: c)])
+        XCTAssertFalse(fm.fileExists(atPath: a)); XCTAssertFalse(fm.fileExists(atPath: b))
+        XCTAssertTrue(fm.fileExists(atPath: c))
+        BoardCrypto.wipe(board: "b_../..") // malformed: nothing
+        XCTAssertTrue(fm.fileExists(atPath: c))
+        BoardCrypto.wipe(board: board)
+        XCTAssertFalse(fm.fileExists(atPath: BoardCrypto.sealedRoot.appendingPathComponent(board).path))
+    }
+
     /// The extras as the CLI and the web write them; unknown fields are ignored.
     func testExtrasDecode() throws {
         let j = #"{"xv":1,"title":"Q3","files":[{"id":"sf_0123456789abcdef0123","name":"a.png","mime":"image/png","size":3,"key":"AAAA","chunk":65536,"w":2,"h":2}],"later":true}"#

@@ -1634,8 +1634,10 @@ const handler = {
             if ((await registry.memberRole(env, km[1], viewer.name)) === "viewer") return json({ error: "Your role on this board is viewer." }, 403);
             const len = Number(request.headers.get("content-length") ?? "0");
             if (len > MAX_SEALED_FILE) return json({ error: `That file is too large (max ${MAX_IMAGE / 1e6} MB per file).` }, 413);
-            const bytes = await request.arrayBuffer();
-            return json({ ok: true, ...(await stub.putSealedFile(viewer.name, bytes)) }, 201);
+            // Read with the cap as it streams, since a chunked body has no content-length to check above.
+            const bytes = await csp.readCappedBytes(request, MAX_SEALED_FILE);
+            if (!bytes) return json({ error: `That file is too large (max ${MAX_IMAGE / 1e6} MB per file).` }, 413);
+            return json({ ok: true, ...(await stub.putSealedFile(viewer.name, bytes.buffer as ArrayBuffer)) }, 201);
           }
           if (method === "GET" && km[2]) {
             const bytes = await stub.sealedFile(km[2]);

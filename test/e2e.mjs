@@ -5472,6 +5472,12 @@ await step("encrypted boards' parity (Phase 1a): edits by envelope, files as cip
   await makeUser(C);
   assert((await web(`/api/boards/${eb}/sealed-files/${up.body.id}`, C)).status === 404, "not for non-members");
   assert((await send(A, `/api/boards/${eb}/sealed-files`, "POST", new Uint8Array(1_600_000), { "content-type": "application/octet-stream" })).status === 413, "too large");
+  // A chunked body has no content-length, so the cap holds while it streams.
+  const chunked = (n) => web(`/api/boards/${eb}/sealed-files`, A, { method: "POST", duplex: "half", headers: { "content-type": "application/octet-stream" }, body: new ReadableStream({ start(c) { for (let i = 0; i < n; i++) c.enqueue(new Uint8Array(65_536)); c.close(); } }) });
+  const small = await chunked(2);
+  const smallBody = await small.text();
+  assert(small.status === 201 && /^sf_/.test(JSON.parse(smallBody).id), `small chunked upload works (${small.status} ${smallBody.slice(0, 200)})`);
+  assert((await chunked(25)).status === 413, "too large, chunked"); // last: wrangler's local proxy drops the connection a 413 cut short
   // Files only on encrypted boards.
   const plainBoard = (await ops("boards", { user: A, title: `e2e parity plain ${run}` })).body.board.id;
   assert((await send(A, `/api/boards/${plainBoard}/sealed-files`, "POST", new Uint8Array(10), { "content-type": "application/octet-stream" })).status === 400, "no encrypted files on a plain board");
