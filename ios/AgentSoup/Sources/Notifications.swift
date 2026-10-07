@@ -81,7 +81,8 @@ final class Notifier: NSObject, ObservableObject, UNUserNotificationCenterDelega
             default: break
             }
             let c = UNMutableNotificationContent()
-            c.title = String(localized: "Your agent asks: \(a.title)", bundle: .l10n)
+            let agent = AppState.shared.agentDisplayName(for: AppState.shared.me?.owner ?? "") ?? String(localized: "Your agent", bundle: .l10n)
+            c.title = String(localized: "\(agent) asks: \(a.title)", bundle: .l10n)
             c.body = a.previewDetails.isEmpty ? String(localized: "Approve or deny in Atteo.", bundle: .l10n) : String(a.previewDetails.prefix(180))
             c.sound = .default
             c.userInfo = a.boardId.map { ["board": $0] } ?? [:]
@@ -96,7 +97,7 @@ final class Notifier: NSObject, ObservableObject, UNUserNotificationCenterDelega
             if mode == "digest" { pending.append(DigestEntry(board: i.boardTitle, kind: i.kind)); continue }
             guard mode == "now" else { continue }
             let c = UNMutableNotificationContent()
-            let who = i.kind == "approval" ? String(localized: "Your agent", bundle: .l10n) : i.actorVia == "agent" ? String(localized: "\(i.actor)'s agent", bundle: .l10n) : i.actor
+            let who = i.kind == "approval" ? (AppState.shared.agentDisplayName(for: AppState.shared.me?.owner ?? "") ?? String(localized: "Your agent", bundle: .l10n)) : i.actorVia == "agent" ? (i.actorName ?? AppState.shared.displayName(for: i.actor, agent: true)) : AppState.shared.displayName(for: i.actor)
             c.title = i.boardTitle.map { String(localized: "\(who) in \($0)", bundle: .l10n, comment: "Notification title: who wrote, in which board") } ?? who
             c.body = String(i.excerpt.prefix(180))
             if Self.sealed(i, encryptedBoards: encrypted) {

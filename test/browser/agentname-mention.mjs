@@ -18,12 +18,12 @@ for (const [mode, name] of [["developer", "HAL"], ["everyday", "v"]]) {
   await p.goto(`${BASE}/b/${board}`); await p.waitForTimeout(800);
   const ta = p.locator("#composer-text"); await ta.click(); await ta.type("@" + name.slice(0, 1)); await p.waitForTimeout(300);
   const opts = await p.locator("#mention-menu li[role=option]").allInnerTexts();
-  const at = opts.findIndex((t) => t.split("\n").some((l) => l.startsWith(`${name} · ${V}'s agent`)));
-  check(at >= 0, `${mode}: the @ menu offers "${name} · ${V}'s agent" (${JSON.stringify(opts.map((t) => t.replace(/\n/g, " ")))})`);
+  const at = opts.findIndex((t) => t.split("\n").some((l) => l.startsWith(`${name} @${V}'s agent`)));
+  check(at >= 0, `${mode}: the @ menu offers "${name} @${V}'s agent" (${JSON.stringify(opts.map((t) => t.replace(/\n/g, " ")))})`);
   for (let i = 0; i < at; i++) await p.keyboard.press("ArrowDown");
   await p.keyboard.press("Enter"); await ta.type(`can you look ${run}`);
-  check((await ta.inputValue()).startsWith(`@${name} can you look`), `${mode}: picking it writes "@${name}" (${await ta.inputValue()})`);
-  check(JSON.stringify(await p.locator(".composer .chip.agent").allInnerTexts()) === JSON.stringify([`@${name}`]), `${mode}: "@${name}" is an agent chip in the composer`);
+  check((await ta.inputValue()).startsWith(`@${V}'s agent can you look`), `${mode}: picking it writes the canonical address (${await ta.inputValue()})`);
+  check(JSON.stringify(await p.locator(".composer .chip.agent").allInnerTexts()) === JSON.stringify([`@${V}'s agent`]), `${mode}: the canonical address is an agent chip in the composer`);
   // Typed by hand next to the person's handle: the name is a chip, "@vedu" stays the person.
   await ta.fill(`@${name} and @${V} both ${run}`); await p.waitForTimeout(150);
   const chips = await p.evaluate(() => [...document.querySelectorAll(".composer .chip")].map((c) => (c.classList.contains("agent") ? "agent:" : "person:") + c.textContent));
@@ -48,9 +48,9 @@ for (const [mode, name] of [["developer", "HAL"], ["everyday", "v"]]) {
   const selfMsg = p.locator("#thread>.entry", { hasText: `is on it ${run}` }).last();
   const selfChip = async () => selfMsg.locator(`.body .mention.agent[data-user="${V}"]`).innerText().catch(() => "");
   await selfMsg.waitFor({ timeout: 8000 }).catch(() => {}); await p.waitForTimeout(400);
-  check((await selfChip()) === `@${V}'s agent`, `${mode}: the agent's "@${V}'s agent" about itself is a chip (live)`);
+  check((await selfChip()) === `@${name}`, `${mode}: the agent's own mention shows its display name (live)`);
   await p.reload(); await p.waitForTimeout(800);
-  check((await selfChip()) === `@${V}'s agent`, `${mode}: …and after a reload`);
+  check((await selfChip()) === `@${name}`, `${mode}: …and after a reload`);
   check(!errors.length, `${mode}: no page errors ${errors.join(" | ")}`); await ctx.close();
 }
 await b.close(); console.log(fails ? `${fails} FAILED` : "agent-name mentions: all passed"); process.exit(fails ? 1 : 0);

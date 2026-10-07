@@ -1157,8 +1157,11 @@ const handler = {
         const unreadIds = items.filter((i) => !i.read_at).map((i) => i.id).slice(0, 90); // D1: at most 100 bound parameters
         if (unreadIds.length) ctx.waitUntil(inbox.markRead(env, viewer.name, { ids: unreadIds }).catch(() => 0));
         const dmPeers = items.flatMap((i) => (i.board_title?.includes(" ↔ ") ? i.board_title.split(" ↔ ") : []));
-        const people = await displayNames(env, [...items.filter((i) => i.actor_via !== "agent").map((i) => i.actor), ...dmPeers]).catch(() => ({}));
-        return inbox.inboxPage(viewer, side, items, aps, people);
+        const [people, agentNames] = await Promise.all([
+          displayNames(env, [...items.filter((i) => i.actor_via !== "agent").map((i) => i.actor), ...dmPeers]).catch(() => ({})),
+          agents.displayNames(env, items.flatMap((i) => i.kind === "approval" ? (i.push?.by ? [i.push.by] : []) : i.actor_via === "agent" ? [i.actor] : [])).catch(() => ({} as Record<string, string>)),
+        ]);
+        return inbox.inboxPage(viewer, side, items, aps, people, agentNames);
       }
       // ---- The guide (vedu #2402): what people can do, by task. Public; signed in, its top bar goes back to the app ----
       if (path === "/guide" && method === "GET") {
@@ -1186,10 +1189,12 @@ const handler = {
         if (!viewer) return needLogin();
         const items = await inbox.listInbox(env, viewer.name, 50, viewer.via !== "agent");
         if (viewer.via === "agent") return json({ items }); // agents never see a person's notification settings
+        const agentNames = await agents.displayNames(env, items.filter((i) => i.actor_via === "agent").map((i) => i.actor)).catch(() => ({} as Record<string, string>));
+        const namedItems = items.map((i) => i.actor_via === "agent" && agentNames[i.actor] ? { ...i, actor_name: agentNames[i.actor] } : i);
         // People: each item says whether it interrupts (src/notify.ts), and when the digest is due.
         const [levels, prefs] = await Promise.all([notify.getLevels(env, viewer.name), notify.getPrefs(env, viewer.name, notify.fallbackTz(url.searchParams.get("tz")))]);
         const now = requestNow(env, request);
-        return json({ items: inbox.withInterrupts(items, levels, prefs, now), notify: notify.summary(prefs, now) });
+        return json({ items: inbox.withInterrupts(namedItems, levels, prefs, now), notify: notify.summary(prefs, now) });
       }
       // ---- notification volume (a person's own): level per board, quiet hours, digest times ----
       if (path === "/api/me/notify" && (method === "GET" || method === "PUT")) {
@@ -1321,7 +1326,8 @@ const handler = {
         const due = await inbox.digestDue(env, viewer.name, levels, prefs, sum.digest_at);
         const latest0 = cnt.latest ? inbox.withInterrupts([cnt.latest], levels, prefs, now)[0] : null;
         // The notification names a person as they chose (jxn #4369; cached in names.ts, so polling costs no extra reads).
-        const actorName = latest0 && latest0.actor_via !== "agent" && latest0.actor ? (await displayNames(env, [latest0.actor]).catch(() => ({}) as Record<string, string>))[latest0.actor] : undefined;
+        const owner = latest0?.kind === "approval" ? latest0.push?.by : latest0?.actor_via === "agent" ? latest0.actor : undefined;
+        const actorName = owner ? (await agents.displayNames(env, [owner]).catch(() => ({} as Record<string, string>)))[owner] : latest0?.actor ? (await displayNames(env, [latest0.actor]).catch(() => ({} as Record<string, string>)))[latest0.actor] : undefined;
         const latest = latest0 && actorName ? { ...latest0, actor_name: actorName } : latest0;
         return json({ ...cnt, latest, notify: { ...sum, digest_count: due?.n ?? 0, digest_boards: due?.boards ?? [] } }, 200, { "cache-control": "no-store" });
       }
@@ -4120,5 +4126,3 @@ export default Sentry.withSentry(
   (env: Env) => ({ dsn: env.SENTRY_DSN, release: env.CF_VERSION_METADATA?.id, tracesSampleRate: 0, beforeSend: scrubForSentry }),
   handler,
 );
-
-

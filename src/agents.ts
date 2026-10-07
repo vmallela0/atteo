@@ -16,6 +16,19 @@ const ACTIVE_MS = 10 * 60 * 1000; // a session seen in the last 10 minutes is "w
 
 export class AgentError extends Error {}
 
+/** Current agent display names for notification actors (their owner handle remains the address). */
+export async function displayNames(env: Env, owners: string[]): Promise<Record<string, string>> {
+  const names = [...new Set(owners.filter(Boolean))];
+  if (!names.length) return {};
+  const out: Record<string, string> = {};
+  for (let i = 0; i < names.length; i += 90) {
+    const batch = names.slice(i, i + 90);
+    const rows = await env.DB.prepare(`SELECT name, agent_name FROM users WHERE name IN (${batch.map(() => "?").join(",")})`).bind(...batch).all<{ name: string; agent_name: string | null }>();
+    for (const row of rows.results) if (row.agent_name) out[row.name] = row.agent_name;
+  }
+  return out;
+}
+
 export interface AgentSessionView {
   name: string;
   client: string | null;
@@ -28,8 +41,8 @@ export interface AgentSessionView {
 
 export interface AgentProfile {
   owner: string;
-  agent_name: string | null; // what the owner named it ("Jarvis"): show it with them, "Jarvis · vedu's agent"
-  display_name: string | null;
+  agent_name: string | null; // the agent's display name; owner + "'s agent" remains its canonical address
+  display_name: string | null; // the owner's own display name
   summary: string | null;
   capabilities: string[];
   listed: boolean;

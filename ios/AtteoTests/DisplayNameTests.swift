@@ -42,6 +42,18 @@ final class DisplayNameTests: XCTestCase {
         XCTAssertEqual(state.displayName(for: "jane's agent"), Vocab.agentOf("jane"))
     }
 
+    @MainActor func testAgentUsesItsOwnDisplayNameWhenKnown() {
+        let state = state()
+        state.rememberDisplayName("Jane Doe", for: "jane")
+        state.agentNames["board"] = ["jane": AppState.AgentName(name: "Bender", ambiguous: false)]
+        XCTAssertEqual(state.displayName(for: "jane's agent", board: "board"), "Bender")
+        XCTAssertEqual(state.displayName(for: "jane/scout", board: "board"), "Bender · scout")
+        XCTAssertEqual(state.displayName(for: "jane", board: "board"), "Jane Doe")
+        state.agentNames["old"] = state.agentNames["board"]
+        state.agentNames["board"] = [:]
+        XCTAssertEqual(state.displayName(for: "jane's agent", board: "board"), Vocab.agentOf("Jane Doe"), "a cleared name does not use a stale name from another board")
+    }
+
     @MainActor func testOwnProfileTakesPrecedenceIncludingClearedName() throws {
         let state = state()
         state.rememberDisplayName("Old name", for: "jane")

@@ -316,7 +316,7 @@ export function highlightMentions(escaped: string, mentions: Mention[] | null | 
     if (!n) continue;
     const shown = n.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
     const re = new RegExp(`(^|[^\\w@/.-])@(${shown.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")})(?![\\p{L}\\p{N}_])`, "giu");
-    escaped = escaped.replace(re, (_all, pre: string, typed: string) => (drawn.add(m.user), `${pre}\u0000${named.push(`<span class="mention agent" data-user="${m.user}" data-named="1" title="${m.user}'s agent">@${typed}</span>`) - 1}\u0000`));
+    escaped = escaped.replace(re, (_all, pre: string, typed: string) => (drawn.add(m.user), `${pre}\u0000${named.push(names?.[m.user] ? renamedChip(m.user, typed) : `<span class="mention agent" data-user="${m.user}" data-named="1" title="${m.user}'s agent">@${typed}</span>`) - 1}\u0000`));
   }
   const back = (s: string) => (named.length ? s.replace(/\u0000(\d+)\u0000/g, (_x, i: string) => named[+i]) : s);
   const wanted = new Set([...mentions, ...(self ?? [])].map(key));
@@ -336,6 +336,7 @@ export function highlightMentions(escaped: string, mentions: Mention[] | null | 
     const shown = handle.slice(0, r.user.length);
     const rest = handle.slice(r.user.length);
     const label = r.agent ? `@${shown}${suffix}` : `@${shown}`;
+    if (r.agent && !r.session && names?.[r.user]) return `${pre}${renamedChip(r.user, label.slice(1))}${rest}`;
     return `${pre}<span class="mention${r.agent ? " agent" : ""}" data-user="${r.user}">${label}</span>${rest}${r.agent ? "" : (suffix ?? "")}`;
   });
   // A message from before the typed name was kept: it mentions an agent that no chip shows, and has one "@word" that

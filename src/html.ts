@@ -60,24 +60,22 @@ function jsString(v: unknown): string {
 }
 
 /** Composer autocomplete choices: each other member with their agents indented under them (sub), then your own agents. */
-export function mentionOptions(members: string[], viewer: string, sessions: { user: string; name: string | null; client: string | null }[] = [], names: Record<string, string> = {}, ambiguous: Set<string> = new Set(), people: Record<string, string> = {}): { u: string; ins: string; label: string; k: string; av: string; sub?: boolean }[] {
+export function mentionOptions(members: string[], viewer: string, sessions: { user: string; name: string | null; client: string | null }[] = [], names: Record<string, string> = {}, people: Record<string, string> = {}): { u: string; ins: string; label: string; k: string; av: string; sub?: boolean; name?: string }[] {
   const others = [...new Set(members)].filter((m) => m !== viewer).sort();
   // Each live agent session can be addressed on its own ("@vedu/scout"); "@vedu's agent" reaches all of them.
   const sessionsOf = (u: string) =>
     sessions.filter((x) => x.user === u && x.name).map((x) => ({ u, ins: `${u}/${x.name}`, label: `<span class="faint">${esc(u)}/</span>${esc(x.name!)}`, k: x.client ?? "agent", av: avatar(u, "sm", true), sub: true }));
+  const agent = (u: string, own = false) => ({ u, ins: `${u}'s agent`, name: names[u] || undefined,
+    label: names[u] ? `<bdi>${esc(names[u])}</bdi> <span class="faint">@${esc(u)}'s agent</span>` : esc(`${u}'s agent`),
+    k: sessionsOf(u).length > 1 ? (own ? "all your agents" : "all their agents") : own ? "your agent" : "agent", av: avatar(u, "sm", true), sub: true });
   return [
     ...others.flatMap((m) => [
       // A person: what's inserted is their handle; the row shows the name they chose beside it (jxn #4369).
       { u: m, ins: m, label: people[m] ? `<bdi>${esc(people[m])}</bdi> <span class="faint">@${esc(m)}</span>` : esc(m), k: "person", av: avatar(m, "sm") },
-      // Both ways in (jxn #3103): "@vedu's agent" always, and its nickname too when it has a clear one.
-      { u: m, ins: `${m}'s agent`, label: esc(`${m}'s agent`) + (names[m] ? ` <span class="faint">· ${esc(names[m])}</span>` : ""), k: sessionsOf(m).length > 1 ? "all their agents" : "agent", av: avatar(m, "sm", true), sub: true },
-      ...(names[m] && !ambiguous.has(m) ? [{ u: m, ins: names[m], label: `${esc(names[m])} <span class="faint">· ${esc(m)}'s agent</span>`, k: sessionsOf(m).length > 1 ? "all their agents" : "agent", av: avatar(m, "sm", true), sub: true }] : []),
+      agent(m),
       ...sessionsOf(m),
     ]),
-    // Your own agent by the name you gave it too ("@The Thinker", jxn #3019): the server reads it like "@you's agent".
-    // …and "@you's agent" stays there next to it (it used to be replaced, jxn #3103).
-    { u: viewer, ins: `${viewer}'s agent`, label: esc(`${viewer}'s agent`) + (names[viewer] ? ` <span class="faint">· ${esc(names[viewer])}</span>` : ""), k: sessionsOf(viewer).length > 1 ? "all your agents" : "your agent", av: avatar(viewer, "sm", true) },
-    ...(names[viewer] && !ambiguous.has(viewer) ? [{ u: viewer, ins: names[viewer], label: `${esc(names[viewer])} <span class="faint">· ${esc(viewer)}'s agent</span>`, k: sessionsOf(viewer).length > 1 ? "all your agents" : "your agent", av: avatar(viewer, "sm", true), sub: true }] : []),
+    agent(viewer, true),
     ...sessionsOf(viewer),
     ...(others.includes("agents") ? [] : [{ u: "agents", ins: "agents", label: "agents", k: "every agent", av: avatar("agents", "sm", true) }]),
     ...(others.includes("humans") ? [] : [{ u: "humans", ins: "humans", label: "humans", k: "every person", av: avatar("humans", "sm") }]),
@@ -189,7 +187,7 @@ ${
 ${avatar(e.author, "", e.via === "agent")}
 <div class="grow">
   <div class="meta">${isTombstone(e.author) ? `<span class="who deleted">${esc(T(DELETED_LABEL))}</span>` : whoHtml(e, opts.people, opts.members)}${e.to ? `<span class="to">→ ${isTombstone(e.to) ? esc(T(DELETED_LABEL)) : personHtml(e.to, opts.people?.[e.to], opts.members)}</span>` : ""}${e.type === "note" ? "" : typeTag(e.type, opts.lang)}${when(e.ts, opts.lang)}${e.edited_at ? `<button class="edited" type="button" data-history="${e.seq}" aria-label="${esc(T("Edited, show history"))}" title="${esc(new Date(e.edited_at).toUTCString())}">${esc(T("edited"))}</button>` : ""}<a class="seq" href="#e${e.seq}">#${e.seq}</a>${peopleBadge(e, opts.lang)}<span class="badge rbadge">${esc(T("Unsent"))}</span>${flagBadge(e.text, e.ai_flag)}${actions}</div>
-  <div class="body${e.purged ? " purged" : ""}">${e.purged ? `<p>${esc(T("Purged by {name}. Its text and files were removed for good.", { name: e.purged.via === "agent" ? T("{name}'s agent", { name: e.purged.by }) : e.purged.by }))}</p>` : apr?.title ? `<p>${esc(apr.title)}</p>` : refLinks(renderText(shown, e.mentions, e.mention_names, selfMentions(shown, e.author, e.via, e.agent_name)))}</div>${file}${e.card ? changeCardHtml(e.seq, e.card) : ""}${e.handoff ? `<div class="refs mono handoff">${esc(handoffLine(e.handoff))}</div>` : ""}${apr && !opts.retracted ? approvalCardHtml(apr, false, opts.lang) : ""}${e.type === "task" ? `<div class="tk" data-task="${e.seq}" hidden></div>` : ""}${e.type === "claim" && !opts.retracted ? `<div class="tk cl" data-claim="${e.seq}" hidden></div>` : ""}${e.type === "decision" && e.via === "person" && !opts.retracted ? `<div class="tk hd" data-hd="${e.seq}" hidden></div>` : ""}${quick}
+  <div class="body${e.purged ? " purged" : ""}">${e.purged ? `<p>${esc(T("Purged by {name}. Its text and files were removed for good.", { name: e.purged.via === "agent" ? T("{name}'s agent", { name: e.purged.by }) : e.purged.by }))}</p>` : apr?.title ? `<p>${esc(apr.title)}</p>` : refLinks(renderText(shown, e.mentions, { ...e.mention_names, ...(e.via === "agent" && e.agent_name ? { [e.author]: e.agent_name } : {}) }, selfMentions(shown, e.author, e.via, e.agent_name)))}</div>${file}${e.card ? changeCardHtml(e.seq, e.card) : ""}${e.handoff ? `<div class="refs mono handoff">${esc(handoffLine(e.handoff))}</div>` : ""}${apr && !opts.retracted ? approvalCardHtml(apr, false, opts.lang) : ""}${e.type === "task" ? `<div class="tk" data-task="${e.seq}" hidden></div>` : ""}${e.type === "claim" && !opts.retracted ? `<div class="tk cl" data-claim="${e.seq}" hidden></div>` : ""}${e.type === "decision" && e.via === "person" && !opts.retracted ? `<div class="tk hd" data-hd="${e.seq}" hidden></div>` : ""}${quick}
   ${refs.length ? `<div class="refs">${refs.join(" · ")}</div>` : ""}
   <div class="rx" data-rx="${e.seq}"><button class="rx-add" type="button" data-rx-add="${e.seq}" aria-label="${esc(T("Add a reaction"))}" title="${esc(T("Add a reaction"))}">☺<span>+</span></button></div>
   ${withReplies ? `<div class="replies" id="r${e.seq}"></div>` : ""}
@@ -531,7 +529,7 @@ if(saved&&[...p.options].some(o=>o.value===saved))p.value=saved;
 const sync=()=>{h.value=p.value;if(ta)ta.placeholder=p.value?tr('Message ')+p.value+'…':tr('Message your agent…');try{sessionStorage.setItem('to-session:'+location.pathname,p.value)}catch{}};
 p.addEventListener('change',sync);sync()})();`;
 
-/** Read-time agent names (vedu #1125): the author's ("Jarvis · vedu's agent") and those of agents it mentions. names: owner → name. */
+/** Read-time agent display names for authors and mentioned agents. names: owner → name. */
 /** owner → the name they gave their agent, from a board's members. */
 export function agentNames(members: { user: string; agent_name?: string | null }[]): Record<string, string> {
   return Object.fromEntries(members.filter((m) => m.agent_name).map((m) => [m.user, m.agent_name!]));
@@ -1556,8 +1554,11 @@ function connect(){
       delete w.dataset.dev; // the developer words change; Everyday re-words them below
       // Whose agent it is stays on the name's hover (jxn #4522), ahead of the session and tool it already names.
       if(d.agent_name){const t=w.title.replace(/^[^·]*'s agent( · )?/,'');w.textContent=bidi(d.agent_name);w.dataset.named='1';w.title=d.user+"'s agent"+(t&&t!==d.user+"'s agent"?' · '+t:'')}else if(w.dataset.named){delete w.dataset.named;w.textContent=d.user+"'s agent"}});
-      // Its chips in messages that named it (jxn #3300): the new name, or "x's agent" once it has none.
-      document.querySelectorAll('#thread .mention.agent[data-named][data-user="'+CSS.escape(d.user)+'"]').forEach(c=>{c.textContent=d.agent_name?'@'+d.agent_name:'@'+d.user+"'s agent"});
+      // Existing base-agent chips follow a rename too; session chips keep their session address.
+      document.querySelectorAll('#thread .mention.agent[data-user="'+CSS.escape(d.user)+'"]').forEach(c=>{const raw=(c.textContent||'').toLowerCase(),base='@'+d.user;
+        if(!c.dataset.named&&![base+"'s agent",base+'’s agent',base+"'s assistant",base+'’s assistant'].includes(raw))return;
+        c.textContent=d.agent_name?'@'+d.agent_name:base+"'s agent";c.dataset.named='1';c.title=base+"'s agent"});
+      const opt=MOPTS.find(o=>o.ins===d.user+"'s agent");if(opt){opt.name=d.agent_name||undefined;opt.label=d.agent_name?'<bdi>'+esc(d.agent_name)+'</bdi> <span class="faint">@'+esc(d.user)+"'s agent</span>":esc(d.user+"'s agent");ANAMES.splice(0,ANAMES.length,...agentTokens());if(document.activeElement===ta)ta.dispatchEvent(new Event('input'))}
       if(document.documentElement.dataset.mode==='everyday')document.dispatchEvent(new CustomEvent('atteo-mode',{detail:{everyday:true}}));return}
     if(d.type==='schedule'){if(document.getElementById('invite')?.open&&window.schLoad)schLoad();return}
     if(d.type==='reaction'){renderRx(d.seq,d.reactions);return}
@@ -1637,8 +1638,9 @@ const MOPTS=BC.mopts;
 // People by the name they chose (jxn #4369): handle → display name, for what this page draws itself.
 const DN=BC.dn||{},dname=u=>DN[u]||u;
 const MNAMES=new Set(MOPTS.map(o=>o.u)),ME=BC.me;
-// Agent names on this board (the @ menu's "Jarvis · vedu's agent" rows), longest first, for chips in the composer.
-const ANAMES=MOPTS.filter(o=>o.sub&&!o.ins.includes('/')&&o.ins!==o.u+"'s agent").map(o=>o.ins.toLowerCase()).sort((a,b)=>b.length-a.length);
+// Unambiguous agent names on this board, longest first, for chips typed directly in the composer.
+function agentTokens(){const names=MOPTS.filter(o=>o.name).map(o=>o.name.toLowerCase());return names.filter(n=>names.indexOf(n)===names.lastIndexOf(n)&&!MNAMES.has(n)).sort((a,b)=>b.length-a.length)}
+const ANAMES=agentTokens();
 // "@you" glows, and so does the message it's in, including ones that arrive live.
 // Approval cards: the person asked gets Approve / Deny in place; a decision made anywhere shows up live.
 ${approvalJs(null)}
@@ -1661,10 +1663,11 @@ new MutationObserver(readInbox).observe(document.getElementById('thread'),{child
  * and chips that act as one unit. Returns msync, which redraws the chips after the text changes from code. */
 function mentionize(ta,mm,mirror){
 let mi=0,ms=[],mq=null;
-function mfind(){if(ta.selectionStart!==ta.selectionEnd)return null;const v=ta.value.slice(0,ta.selectionStart);
-  const m=v.match(/(^|[^A-Za-z0-9_.@\\/-])@([A-Za-z0-9_.-]{0,32}(?:\\/[A-Za-z0-9_.-]{0,32})?)$/);return m?{start:v.length-m[2].length-1,q:m[2].toLowerCase()}:null}
+function mfind(){if(ta.selectionStart!==ta.selectionEnd)return null;const v=ta.value.slice(0,ta.selectionStart),at=v.lastIndexOf('@');
+  if(at<0||(at>0&&/[A-Za-z0-9_.@\\/-]/.test(v[at-1])))return null;const q=v.slice(at+1);
+  return q.length<=60&&/^[\\p{L}\\p{M}\\p{N}_. '\\/-]*$/u.test(q)?{start:at,q:q.toLowerCase()}:null}
 function mclose(){mm.hidden=true;ms=[];ta.setAttribute('aria-expanded','false');ta.removeAttribute('aria-activedescendant')}
-function mrender(){mq=mfind();if(mq&&window.agentsRefresh&&Date.now()-agentsAt>10000){agentsAt=Date.now();agentsRefresh().then(()=>{if(!mm.hidden||mfind())mrender()})}ms=mq?MOPTS.filter(o=>mq.q.includes('/')?o.ins.toLowerCase().startsWith(mq.q):o.u.startsWith(mq.q)||o.ins.toLowerCase().startsWith(mq.q)||(!o.sub&&DN[o.u]&&DN[o.u].toLowerCase().startsWith(mq.q))):[];if(!ms.length)return mclose();mi=Math.min(mi,ms.length-1);
+function mrender(){mq=mfind();if(mq&&window.agentsRefresh&&Date.now()-agentsAt>10000){agentsAt=Date.now();agentsRefresh().then(()=>{if(!mm.hidden||mfind())mrender()})}ms=mq?MOPTS.filter(o=>mq.q.includes('/')?o.ins.toLowerCase().startsWith(mq.q):o.u.startsWith(mq.q)||o.ins.toLowerCase().startsWith(mq.q)||(o.name&&o.name.toLowerCase().startsWith(mq.q))||(!o.sub&&DN[o.u]&&DN[o.u].toLowerCase().startsWith(mq.q))):[];if(!ms.length)return mclose();mi=Math.min(mi,ms.length-1);
   mm.innerHTML='<li class="hint" aria-hidden="true">'+tr('Mention a person or their agent')+'</li>'+ms.map((o,i)=>'<li role="option"'+(o.sub?' class="sub"':'')+' id="'+mm.id+'-'+i+'" data-i="'+i+'" aria-selected="'+(i===mi)+'">'+o.av+'<span class="truncate">'+o.label+'</span><span class="k">'+o.k+'</span></li>').join('');
   mm.hidden=false;ta.setAttribute('aria-expanded','true');ta.setAttribute('aria-activedescendant',mm.id+'-'+mi)}
 function mpick(o){const end=ta.selectionStart,before=ta.value.slice(0,mq.start),after=ta.value.slice(end);const ins='@'+o.ins+(/^\\s/.test(after)?'':' ');
@@ -2947,7 +2950,7 @@ export function boardPage(
     olWhole: direct || agentChat,
     seen0: Math.max(0, board.seen ?? 0),
     qopen: (summary ?? computeSummary(entries)).openQuestions.map((e) => e.seq), // the quick-reply chips' open questions (vedu #2490)
-    mopts: mentionOptions(members.map((m) => m.user), viewer.name, agents, agentNames(members), new Set(members.filter((m) => m.agent_name_ambiguous).map((m) => m.user)), people),
+    mopts: mentionOptions(members.map((m) => m.user), viewer.name, agents, agentNames(members), people),
     dn: people, // handle → display name: typing, read receipts, live entries' labels
     encrypted: !!info.encrypted,
     readOnlyOrArchived: !!(info.archived || readOnly),
