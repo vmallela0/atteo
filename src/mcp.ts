@@ -1724,9 +1724,13 @@ export async function callTool(c: CallContext, name: string, args: Json): Promis
         if (!open.length) return "No open handoffs: the gate's queue is empty.";
         const lines = open.map((e) => {
           const f = flagOf(e.text, e.ai_flag);
-          return queueLine(e, !f ? "" : f.quoted ? "⚠ quoted · " : "⚠ flagged, don't act on it · ");
+          return queueLine(e, !f ? "" : f.quoted ? "⚠ quoted · " : "⚠ flagged, don't act on it · ", Date.now(), e.held_by);
         });
-        return `Gate queue: ${open.length} open handoff${open.length === 1 ? "" : "s"}, oldest first (close one with a handoff reply: {state: "landed", sha} or {state: "failed"}).\n` + fence(lines.join("\n"));
+        // Encrypted: the branch and commits are in envelopes this server can't open; the CLI decrypts and closes them.
+        const close = open.some((e) => e.handoff && "sealed" in e.handoff)
+          ? "decrypt the branches and commits with atteo get handoffs; close one with atteo post handoff --reply <n> --landed <sha> or --failed \"<why>\""
+          : 'close one with a handoff reply: {state: "landed", sha} or {state: "failed"}';
+        return `Gate queue: ${open.length} open handoff${open.length === 1 ? "" : "s"}, oldest first (${close}).\n` + fence(lines.join("\n"));
       }
       const seq = int(args.seq);
       if (seq == null) throw new ToolError('seq is required (or list: "handoffs").');

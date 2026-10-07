@@ -11,6 +11,7 @@ import WebKit
 struct CallSheet: View {
     let board: Board
     @Environment(\.dismiss) private var dismiss
+    @State private var readAloudID = UUID()
 
     var body: some View {
         NavigationStack {
@@ -24,8 +25,16 @@ struct CallSheet: View {
                     }
                 }
         }
-        .onAppear { AudioRoutePlan.plan(.talk, loudspeaker: AudioOut.shared.loudspeaker).apply() }
-        .onDisappear { try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation) }
+        .onAppear {
+            ReadAloud.shared.suspend(readAloudID)
+            VoiceInput.shared.stop()
+            VoiceInput.shared.settle()
+            AudioRoutePlan.plan(.talk, loudspeaker: AudioOut.shared.loudspeaker).apply()
+        }
+        .onDisappear {
+            try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+            ReadAloud.shared.resume(readAloudID)
+        }
     }
 }
 

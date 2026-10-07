@@ -2626,7 +2626,7 @@ async function gateLoad(){const sec=document.getElementById('acc-gate');if(!sec)
   sec.hidden=false;
   const stalled=Date.now()-hs[0].ts>GATE_STALLED_MS; // oldest first: nothing has landed in 30 min
   document.getElementById('gate-h').innerHTML=esc(tr('Waiting to land ({n})',{n:hs.length}))+(stalled?' <span class="xs" style="color:var(--warn)">'+esc(tr('nothing landed for 30 min'))+'</span>':'');
-  document.getElementById('acc-handoffs').innerHTML=hs.map(h=>'<li class="acc-row xs"><a class="mono" href="#e'+h.seq+'">#'+h.seq+'</a><span class="grow truncate mono">'+esc(h.handoff.branch||'')+'</span><span class="truncate">'+esc(h.agent_name||h.author)+'</span><span class="faint">'+(h.handoff.lgtm?'LGTM · ':'')+'<time data-ts="'+h.ts+'"></time></span></li>').join('');
+  document.getElementById('acc-handoffs').innerHTML=hs.map(h=>'<li class="acc-row xs"><a class="mono" href="#e'+h.seq+'">#'+h.seq+'</a><span class="grow truncate mono">'+esc(h.handoff.branch||(h.handoff.sealed?'🔒 '+((window.e2eHandoff&&(e2eHandoff(h.seq)||{}).branch)||''):''))+'</span><span class="truncate">'+esc(h.agent_name||h.author)+'</span><span class="faint">'+(h.handoff.lgtm?'LGTM · ':'')+'<time data-ts="'+h.ts+'"></time></span></li>').join('');
   refreshTimes()}
 document.getElementById('acc-handoffs').addEventListener('click',e=>{if(e.target.closest('a'))document.getElementById('invite').close()}); // jump to the message: the board's #e link takes it from there
 setInterval(()=>{if(document.getElementById('invite').open&&!document.getElementById('acc-gate').hidden)gateLoad()},30000); // ages grow and the stalled flag moves while it's open

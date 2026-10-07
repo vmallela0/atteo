@@ -41,6 +41,7 @@
     "migrations/0079_sign_key_proof.sql": ["e2e-invite", "e2e-web"],
     "migrations/0080_pins_handoff.sql": ["e2e-web"],
     "src/e2eweb.ts": ["e2e-web", "e2e-files", "board-export", "e2e-invite"],
+    "src/handoff.ts": ["gate-queue", "e2e-files"],
     "test/*.ts": [],
     "test/*.mjs": [],
     "test/browser/lib/**": "*",

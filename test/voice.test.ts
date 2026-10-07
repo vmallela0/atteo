@@ -104,6 +104,7 @@ describe("voice: POST /api/app/voice/session", () => {
     expect(j.session.turn_detection).toBeNull(); // push-to-talk: the app commits
     expect(j.session.voice).toBe("eve");
     expect(j.session.audio.input.format).toEqual({ type: "audio/pcm", rate: 24000 });
+    expect(j.session.audio.output.format).toEqual({ type: "audio/pcm", rate: 24000 });
     expect(j.session.instructions).toContain("You are Atteo, Vedu's voice assistant");
     expect(j.session.instructions).toContain("one or two short sentences");
     expect(j.session.instructions).toContain('"Launch plan" (b_abcdefgh12)');
@@ -358,12 +359,14 @@ describe("voice: the cheat-sheet and the briefing", () => {
     expect(asked).toBe(BOARD);
     expect(j.session.instructions.startsWith(VOICE_GUIDE)).toBe(true);
     expect(j.session.instructions).toContain("one question waiting");
+    expect(j.session.audio.output.format).toEqual({ type: "audio/pcm", rate: 24000 });
     deps.briefing = async () => {
       throw new Error("board down");
     };
     const k = await J(createSession(ME, {}, deps));
     expect(k.session.instructions).toContain("You are Atteo, Vedu's voice assistant");
     expect(k.session.instructions).not.toContain("Briefing at");
+    expect(k.session.audio.output.format).toEqual({ type: "audio/pcm", rate: 24000 });
   });
 
   it("GET /api/app/voice/briefing: fresh instructions for a long call, only for a board you're on", async () => {
