@@ -67,4 +67,11 @@ final class SelfMentionTests: XCTestCase {
         let author = selfMention(in: text, author: "vedu", agent: true, agentName: "moby")
         XCTAssertEqual(text.mentioned([], members: members, me: "jxn", agentNames: ["moby": "vedu"], author: author).handles, ["@moby"])
     }
+
+    func testStoredOldAgentNameStillBoxesAfterRename() {
+        let old = EntryMention(user: "vedu", agent: true, name: "Old Name")
+        let rendered = "@Old Name please check".mentioned([old], members: members, me: "jxn",
+                                                 agentNames: ["new name": "vedu"], displayName: { _ in "New Name" })
+        XCTAssertEqual(rendered.handles, ["@Old Name"])
+    }
 }

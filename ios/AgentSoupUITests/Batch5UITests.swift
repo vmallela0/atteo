@@ -92,8 +92,8 @@ final class Batch5UITests: AtteoUITestCase {
         let a = app()
         a.launch()
         openChat(a, "Checkout bug")
-        // Its post shows its name with its owner.
-        XCTAssertTrue(a.staticTexts["Jarvis · maya's agent"].firstMatch.waitForExistence(timeout: 10), "Jarvis · maya's agent")
+        // Its post uses the agent's display name; its profile still identifies the owner.
+        XCTAssertTrue(a.staticTexts["Jarvis"].firstMatch.waitForExistence(timeout: 10), "Jarvis")
         XCTAssertTrue(a.descendants(matching: .any)["mic"].exists, "the mic is in the message box")
         shot("b5-04-named-agent")
 
@@ -101,7 +101,7 @@ final class Batch5UITests: AtteoUITestCase {
         let box = composer(a)
         box.tap()
         box.typeText("@Jar")
-        XCTAssertTrue(a.buttons["mention-Jarvis"].waitForExistence(timeout: 5), "@Jarvis")
+        XCTAssertTrue(a.buttons["mention-maya's agent"].waitForExistence(timeout: 5), "Jarvis, @maya's agent")
         shot("b5-05-at-jarvis")
         box.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 3) + "al")
         XCTAssertTrue(a.buttons["mention-all"].waitForExistence(timeout: 5), "@all")

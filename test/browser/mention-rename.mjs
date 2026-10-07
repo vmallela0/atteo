@@ -19,10 +19,10 @@ const p = await ctx.newPage(), errors = []; p.on("pageerror", (e) => errors.push
 await p.goto(`${BASE}/b/${board}`);
 const chip = p.locator(`#e${seq} .body .mention.agent[data-user="${V}"]`);
 await chip.waitFor({ timeout: 8000 }).catch(() => {});
-check((await chip.textContent()) === `@Ada${run}` && /Jarvis/.test(await chip.getAttribute("title")), `renamed: the chip reads its name today (${await chip.textContent()}, "${await chip.getAttribute("title")}")`);
+check((await chip.textContent()) === `@Ada${run} · ${V}'s agent` && /Jarvis/.test(await chip.getAttribute("title")), `renamed: the chip reads its name and owner today (${await chip.textContent()}, "${await chip.getAttribute("title")}")`);
 await prof(`Bo${run}`);
-await p.waitForFunction(([s, t]) => document.querySelector(`#e${s} .body .mention.agent`)?.textContent === t, [seq, `@Bo${run}`], { timeout: 8000 }).catch(() => {});
-check((await chip.textContent()) === `@Bo${run}`, `renamed again while the page is open: it changes live (${await chip.textContent()})`);
+await p.waitForFunction(([s, t]) => document.querySelector(`#e${s} .body .mention.agent`)?.textContent === t, [seq, `@Bo${run} · ${V}'s agent`], { timeout: 8000 }).catch(() => {});
+check((await chip.textContent()) === `@Bo${run} · ${V}'s agent`, `renamed again while the page is open: it changes live (${await chip.textContent()})`);
 await prof("");
 await p.waitForFunction(([s, t]) => document.querySelector(`#e${s} .body .mention.agent`)?.textContent === t, [seq, `@${V}'s agent`], { timeout: 8000 }).catch(() => {});
 check((await chip.textContent()) === `@${V}'s agent`, `name cleared: "@${V}'s agent" (${await chip.textContent()})`);

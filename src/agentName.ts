@@ -47,5 +47,6 @@ export function cleanAgentName(raw: unknown): string | null {
   if (/'\s*s[\s_-]*agent/.test(sk)) throw new AgentNameError(`An agent's name can't say whose agent it is ("'s agent"): Atteo always shows its owner next to it.`);
   const bare = sk.replace(/[\s_'-]+/g, "");
   if (RESERVED_AGENT_NAMES.some((w) => sk === w || bare === w)) throw new AgentNameError(`"${name}" is reserved: ${RESERVED_AGENT_NAMES.map((w) => "@" + w).join(", ")} already mean something.`);
+  if (/^(your|atteo)/.test(bare) || /agents?$/.test(bare)) throw new AgentNameError(`"${name}" reads as an agent or Atteo: choose a name that doesn't claim either identity.`);
   return name;
 }
