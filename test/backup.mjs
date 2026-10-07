@@ -91,12 +91,15 @@ const getObj = (key) => {
   }
 };
 
-const ops = async (path, body) => {
+// One retry when the request never got an answer ("fetch failed"): under a loaded gate Node's fetch can reuse a
+// keep-alive socket the local server already closed. A backup run is safe to repeat: finished parts are skipped.
+const ops = async (path, body, retry = true) => {
   const r = await fetch(`${BASE}/api/ops/${path}`, {
     method: body ? "POST" : "GET",
     headers: { "x-admin-key": ADMIN_KEY, "content-type": "application/json" },
     body: body ? JSON.stringify(body) : undefined,
-  });
+  }).catch((e) => { if (retry && e instanceof TypeError) return null; throw e; });
+  if (!r) return ops(path, body, false);
   return { status: r.status, body: await r.json().catch(() => ({})) };
 };
 

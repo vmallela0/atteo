@@ -25,30 +25,27 @@ describe("developer docs", () => {
     expect(res.status).toBe(200);
     const html = await res.text();
     expect(html).toContain('<link rel="canonical" href="https://atteo.dev/developers">');
-    // The page is a bundle: its HTML is the "__bundler/template" JSON string, and the lists are in its logic.
-    const t = JSON.parse(/<script type="__bundler\/template">([\s\S]*?)<\/script>/.exec(html)![1]!) as string;
-    for (const heading of ["the 5 verbs over http", "how it fits together", "three ways in", "every mcp tool", "every cli command", "http api essentials", "suggested workflow"])
-      expect(t).toMatch(new RegExp(`<h2 id="[a-z-]+" style="[^"]*">${heading}</h2>`));
-    expect(t).toContain('href="https://atteo.dev/openapi.json"');
-    expect(t).toContain("curl -fsSL https://atteo.dev/install.sh | sh");
+    // Plain HTML (landing/jxn-pages/unbundle.mjs): what it says is in the page, as a crawler reads it.
+    const text = html.replace(/<(script|style)[\s\S]*?<\/\1>/g, " ").replace(/<[^>]+>/g, " ").replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&").replace(/\s+/g, " ");
+    for (const heading of ["the 5 verbs", "how it fits together", "three ways in", "every mcp tool", "every cli command", "http api essentials", "suggested workflow"])
+      expect(html).toMatch(new RegExp(`<h2 id="[a-z-]+"[^>]*>${heading}</h2>`));
+    expect(html).toContain('href="https://atteo.dev/openapi.json"');
+    expect(text).toContain("curl -fsSL https://atteo.dev/install.sh | sh");
     for (const verb of ["post", "read", "wait", "handoff", "approve"]) {
-      const start = t.indexOf(`id="verb-${verb}"`);
+      const start = html.indexOf(`id="verb-${verb}"`);
       expect(start, verb).toBeGreaterThan(-1);
-      const example = t.slice(start, t.indexOf("</div></div>", start));
-      expect(example, verb).toContain("curl -sS");
+      const example = html.slice(start, html.indexOf("</div></div>", start));
+      expect(example.indexOf("atteo "), verb).toBeGreaterThan(-1); // the CLI line first (jxn #6044), then curl
+      expect(example.indexOf("atteo "), verb).toBeLessThan(example.indexOf("curl -sS"));
       expect(example, verb).toContain("Response (trimmed)");
     }
-    expect(t).toContain("/api/boards/$BOARD/entries?after=0&amp;ack=1");
-    expect(t).toContain("/api/boards/$BOARD/entries?after=12&amp;ack=1&amp;wait=25");
-    expect(t).toContain("/api/boards/$BOARD/approvals");
-    expect(t).toContain("/api/approvals/$APPROVAL");
-    expect(t).toContain("sdk/js/README.md");
-    expect(t).toContain("sdk/python/README.md");
-    const list = (name: string) => JSON.parse(new RegExp(`\\n  ${name} = ("(?:[^"\\\\]|\\\\.)*")`).exec(t)![1]!).split("\n").map((l: string) => l.split("|"));
-    expect(list("MCP")).toEqual(MCP_TOOLS.map(([name, desc, actions]) => [name, desc, actions ? actions.join(", ") : ""]));
-    expect(list("CLI")).toEqual(CLI_COMMANDS.map((row) => [...row]));
+    for (const path of ["/api/boards/$BOARD/entries?after=0&ack=1", "/api/boards/$BOARD/entries?after=12&ack=1&wait=25", "/api/boards/$BOARD/approvals", "/api/approvals/$APPROVAL"]) expect(text).toContain(path);
+    expect(html).toContain("sdk/js/README.md");
+    expect(html).toContain("sdk/python/README.md");
+    for (const [name, desc, actions] of MCP_TOOLS) expect(text, name).toContain(` ${name} ${desc}${actions ? ` actions: ${actions.join(", ")}` : ""} `);
+    for (const [command, desc, example] of CLI_COMMANDS) expect(text, command).toContain(` atteo ${command} ${desc} $ ${example} `);
     const faq = await (await worker.fetch(new Request("http://localhost/faq"), env)).text();
-    expect(faq).toContain('href=\\"/developers\\"'); // jxn's FAQ (#5977) links here by path
+    expect(faq).toContain('href="/developers"'); // jxn's FAQ (#5977) links here by path
     expect(await (await worker.fetch(new Request("http://localhost/sitemap.xml"), env)).text()).toContain("<loc>https://atteo.dev/developers</loc>");
     expect(await (await worker.fetch(new Request("http://localhost/llms.txt"), env)).text()).toContain("https://atteo.dev/developers");
   });

@@ -8,7 +8,7 @@
 //   - on phones, a page's "contents" column goes above its text instead of squeezing it (#5995);
 // and with the live text (jxn #5998), so these pages can't say something the app doesn't:
 //   - privacy: the policy the app publishes (LEGAL.privacy in src/html.ts);
-//   - developers: "the 5 verbs over HTTP" (developersBody in landing/src/developers.ts) and every MCP tool and CLI
+//   - developers: "the 5 verbs" (developersBody in landing/src/developers.ts) and every MCP tool and CLI
 //     command from MCP_TOOLS and CLI_COMMANDS there, which test/developers.test.ts keeps in step with the code.
 import { readFileSync, writeFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
@@ -71,7 +71,7 @@ function privacy(t) {
 }
 
 function developers(t) {
-  // "The 5 verbs over HTTP", from the live page, in the export's styles; it goes first, like there.
+  // "The 5 verbs", from the live page, in the export's styles; it goes first, like there.
   const live = /<section id="five-verbs">([\s\S]*?)<\/section>/.exec(developersBody())[1];
   let response = false;
   const verbs = live
@@ -90,10 +90,9 @@ function developers(t) {
   t = t.replace(/<section style="[^"]*"><h2 id="five-verbs"[\s\S]*?<\/section>\n/, "");
   const fits = t.indexOf("<section", t.indexOf(from));
   t = t.slice(0, fits) + section + t.slice(fits);
-  if (!t.includes('data-to="five-verbs"')) {
-    const nav = t.indexOf('<a href="#fits"', t.indexOf(from));
-    t = t.slice(0, nav) + `<a href="#five-verbs" data-to="five-verbs" ${S.nav}>the 5 verbs over http</a>\n            ` + t.slice(nav);
-  }
+  t = t.replace(/<a href="#five-verbs" [^>]*>[^<]*<\/a>\n {12}/, "");
+  const nav = t.indexOf('<a href="#fits"', t.indexOf(from));
+  t = t.slice(0, nav) + `<a href="#five-verbs" data-to="five-verbs" ${S.nav}>${/<h2>([\s\S]*?)<\/h2>/.exec(live)[1].toLowerCase()}</a>\n            ` + t.slice(nav);
   // Every MCP tool and CLI command, as the export's logic reads them: one "name|meaning|extra" line each.
   const mcp = MCP_TOOLS.map(([name, desc, actions]) => `${name}|${desc}|${actions ? actions.join(", ") : ""}`).join("\n");
   const cli = CLI_COMMANDS.map(([command, desc, example]) => `${command}|${desc}|${example}`).join("\n");

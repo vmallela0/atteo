@@ -5,19 +5,20 @@
 // Run: npx wrangler dev -c landing/wrangler.jsonc   ·   Deploy: npx wrangler deploy -c landing/wrangler.jsonc
 
 import OG_PNG from "../og.png"; // 1200×630 share image, captured from jxn's landing hero by ../og.mjs
-import JXN_LANDING from "../landing-jxn.html"; // jxn's page (#5958), served as is at /landing
-// jxn's site pages (#5977), as they exported them, filled in by landing/jxn-pages/build.mjs (links, titles, the live text).
-import JXN_DEVELOPERS from "../jxn-pages/developers.html";
-import JXN_FAQ from "../jxn-pages/faq.html";
-import JXN_PRIVACY from "../jxn-pages/privacy.html";
-import JXN_SUPPORT from "../jxn-pages/support.html";
-import JXN_TERMS from "../jxn-pages/terms.html";
-import JXN_404 from "../jxn-pages/404.html";
+// jxn's pages (#5958, #5977, #5990) as plain HTML, unbundled from his exports by landing/jxn-pages/unbundle.mjs (#6003);
+// their fonts, images and scripts are static assets under /landing/a/ (landing/public, wrangler "assets").
+import JXN_LANDING from "../jxn-static/landing.html";
+import JXN_DEVELOPERS from "../jxn-static/developers.html";
+import JXN_FAQ from "../jxn-static/faq.html";
+import JXN_PRIVACY from "../jxn-static/privacy.html";
+import JXN_SUPPORT from "../jxn-static/support.html";
+import JXN_TERMS from "../jxn-static/terms.html";
+import JXN_404 from "../jxn-static/404.html";
 // The app's own fonts (opus-d, look-2): the same files at /fonts/<file>?v=N, which this Worker forwards to the app, so
 // the landing and the app share one copy and no page asks Google for anything.
 import { FONT_CSS, FONT_V } from "../../src/fontfaces";
 import { MARK_PATH, markInline } from "../../src/mark";
-import { beaconSnippet, CF_BEACON_CONNECT, CF_BEACON_ORIGIN, landingCsp } from "./csp";
+import { beaconSnippet, landingCsp } from "./csp";
 import { HOME_CSS, homeBody } from "./home";
 import { STARTUP_CSS, STARTUP_DESC, STARTUP_TITLE, startupBody } from "./startup";
 
@@ -203,8 +204,8 @@ function head(theme: string | null, title = TITLE, desc = DESCRIPTION, path = "/
 <link rel="canonical" href="${SITE_URL}${path}"><link rel="icon" href="/favicon.svg?v=graph" type="image/svg+xml"><link rel="apple-touch-icon" href="/apple-touch-icon.png?v=graph"><link rel="alternate" type="text/plain" href="${SITE_URL}/llms.txt" title="Atteo for language models">
 <meta property="og:type" content="website"><meta property="og:locale" content="en_US"><meta property="og:site_name" content="Atteo"><meta property="og:url" content="${SITE_URL}${path}">
 <meta property="og:title" content="${title}"><meta property="og:description" content="${desc}">
-<meta property="og:image" content="${SITE_URL}/og.png?v=3"><meta property="og:image:width" content="1200"><meta property="og:image:height" content="630"><meta property="og:image:alt" content="Atteo">
-<meta name="twitter:card" content="summary_large_image"><meta name="twitter:title" content="${title}"><meta name="twitter:description" content="${desc}"><meta name="twitter:image" content="${SITE_URL}/og.png?v=3">
+<meta property="og:image" content="${SITE_URL}/og.png?v=4"><meta property="og:image:width" content="1200"><meta property="og:image:height" content="630"><meta property="og:image:alt" content="Atteo">
+<meta name="twitter:card" content="summary_large_image"><meta name="twitter:title" content="${title}"><meta name="twitter:description" content="${desc}"><meta name="twitter:image" content="${SITE_URL}/og.png?v=4">
 <link rel="preload" href="/fonts/onest-latin.woff2?v=${FONT_V}" as="font" type="font/woff2" crossorigin><link rel="preload" href="/fonts/enriqueta-latin-600.woff2?v=${FONT_V}" as="font" type="font/woff2" crossorigin>
 ${jsonLd(path)}<style>${FONT_CSS}
 ${CSS}${path === "/" ? HOME_CSS : path === "/landing/startup" ? STARTUP_CSS : ""}</style></head>`;
@@ -420,12 +421,11 @@ async function html(body: string, extra: Record<string, string> = {}): Promise<R
   });
 }
 
-const JXN_CSP = "default-src 'none'; script-src 'unsafe-inline' 'unsafe-eval' blob: data:; script-src-attr 'none'; style-src 'unsafe-inline' blob: data:; img-src 'self' data: blob:; font-src data: blob:; connect-src 'self' data: blob:; frame-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'";
 
 /** jxn's pages (#5958, #5977), each with its path's head tags (description, canonical, Open Graph, X card, JSON-LD) after
  *  its charset, and on "/" the Cloudflare Web Analytics beacon the old home had (when its token is set). */
-const JXN_PAGES: Record<string, { file: string; title?: string; desc?: string }> = {
-  "/": { file: JXN_LANDING, title: "atteo · the fastest channel for agent to agent messaging" }, // his page's own title, word for word (#6001)
+const JXN_PAGES: Record<string, { file: string; title?: string; desc?: string; live?: boolean }> = {
+  "/": { file: JXN_LANDING, live: true, title: "atteo · the fastest channel for agent to agent messaging" }, // his page's own title, word for word (#6001)
   "/developers": { file: JXN_DEVELOPERS, title: "Atteo · Developer docs", desc: "How boards, MCP tools, CLI commands and the HTTP API work together, with a suggested workflow." },
   "/faq": { file: JXN_FAQ, title: "Atteo · Frequently asked questions", desc: "What Atteo is, who can read a board, which agents can join, how agents connect, and what keeps private things private." },
   "/support": { file: JXN_SUPPORT, title: "Atteo · Support", desc: "How to get help with Atteo, invite-only boards for people and their agents. Email privacy@atteo.dev." },
@@ -433,7 +433,7 @@ const JXN_PAGES: Record<string, { file: string; title?: string; desc?: string }>
   "/terms": { file: JXN_TERMS, title: "Atteo · Terms of Service", desc: "The terms for using Atteo, invite-only boards for people and their agents." },
 };
 const jxnBodies = new Map<string, string>();
-function jxnPage(path: string, beacon = "", extra: Record<string, string> = {}): Response {
+async function jxnPage(path: string, beacon = "", extra: Record<string, string> = {}): Promise<Response> {
   const p = JXN_PAGES[path]!;
   let jxnBody = jxnBodies.get(path);
   if (!jxnBody) {
@@ -442,14 +442,18 @@ function jxnPage(path: string, beacon = "", extra: Record<string, string> = {}):
     jxnBodies.set(path, jxnBody);
   }
   const body = beacon ? jxnBody.replace(/<\/body>(?![\s\S]*<\/body>)/, () => beacon + "</body>") : jxnBody;
-  const csp = beacon ? JXN_CSP.replace("script-src ", `script-src ${CF_BEACON_ORIGIN} `).replace("connect-src ", `connect-src ${CF_BEACON_CONNECT} `) : JXN_CSP;
-  return new Response(body, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "public, max-age=300", "content-security-policy": csp, ...SECURITY_HEADERS, ...extra } });
+  // The landing's hash policy (inline scripts by sha256, files from 'self'); the home page also runs jxn's runtime and
+  // React from /landing/a/, and the runtime compiles his page's logic, hence 'unsafe-eval' there only.
+  const res = await html(body, extra);
+  if (p.live) res.headers.set("content-security-policy", res.headers.get("content-security-policy")!.replace("script-src ", "script-src 'self' 'unsafe-eval' "));
+  return res;
 }
 
-/** jxn's 404 (#5990): the same bundled export as his other pages, under JXN_CSP. It shows the path it was asked for
- *  (from location.pathname, escaped by the page's own renderer). Not indexed, no canonical. */
-function notFoundPage(): Response {
-  return new Response(JXN_404, { status: 404, headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "content-security-policy": JXN_CSP, "x-robots-tag": "noindex", ...SECURITY_HEADERS } });
+/** jxn's 404 (#5990), plain HTML like his other pages. It shows the path it was asked for (from location.pathname, set as
+ *  text by its one inline script). Not indexed, no canonical. */
+async function notFoundPage(): Promise<Response> {
+  const res = await html(JXN_404, { "cache-control": "no-store", "x-robots-tag": "noindex" });
+  return new Response(res.body, { status: 404, headers: res.headers });
 }
 
 /** The agent favicons on jxn's page, fetched from Google's favicon service here (cached a week) so visitors never contact Google. */
@@ -491,8 +495,8 @@ export default {
 
     // Signed out, "/" is jxn's page too (#5972), with the share card, canonical and JSON-LD the old home had.
     if (read && path === "/" && !hasSession(request)) return jxnPage("/", beaconSnippet(env.CF_WEB_ANALYTICS_TOKEN), { vary: "Cookie" });
-    // jxn's page (#5954, #5958), as he exported it: a self-unpacking bundle (inline scripts, eval, blob: URLs), so it gets
-    // its own policy. Nothing outside atteo.dev loads; its agent favicons come from /landing/icons. Not in the sitemap.
+    // jxn's page (#5954, #5958) at /landing too, signed in or not. Not in the sitemap; its agent favicons come from
+    // /landing/icons, so nothing outside atteo.dev loads.
     if (read && path === "/landing") return jxnPage("/");
     const icon = read ? /^\/landing\/icons\/([a-z.]+)\.png$/.exec(path)?.[1] : undefined;
     if (icon && ICON_DOMAINS.has(icon)) return landingIcon(icon);

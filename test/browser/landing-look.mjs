@@ -31,6 +31,17 @@ for (const [path, w] of [["/", 1440], ["/", 390], ["/landing", 1440]]) {
   check(r.icons.length >= 7 && r.icons.every((s) => s.startsWith("/landing/icons/")), `${tag}: the agent favicons come from /landing/icons (${r.icons.length})`);
   check(!off.length, `${tag}: nothing asked of another site${off.length ? ` (${[...new Set(off)].join(", ")})` : ""}`);
   check(!r.sideways, `${tag}: nothing scrolls sideways`);
+  if (phone) {
+    // Its phone layout (#6031): the headline fits, no agent icon shows over the text (they sit in rows above and below it, jxn #6037), the demo's three panels stack.
+    const m = await p.evaluate(() => {
+      const box = (e) => e.getBoundingClientRect(), hub = box(document.querySelector("[data-hub]"));
+      const over = [...document.querySelectorAll("[data-node]")].filter((n) => { const b = box(n); return getComputedStyle(n).visibility === "visible" && b.bottom > hub.top && b.top < hub.bottom; });
+      const [a, b, c] = ["a", "b", "c"].map((t) => box(document.querySelector(`[data-term="${t}"]`)));
+      return { h1: box(document.querySelector("[data-hub] h1")).right <= innerWidth, over: over.length, stacked: a.bottom < b.top && b.bottom < c.top && c.height > 200, rail: getComputedStyle(document.querySelector("[data-rail]")).display };
+    });
+    check(m.h1 && !m.over, `${tag}: the headline fits and no ring icon covers the text (${m.over} over it)`);
+    check(m.stacked && m.rail === "none", `${tag}: the demo panels stack and the scroll rail is hidden`);
+  }
   check(!errors.length, `${tag}: no page errors${errors.length ? ` (${errors[0]})` : ""}`);
   const cspHits = await p.evaluate(() => window.__cspHits || []);
   check(!cspHits.length, `${tag}: no CSP violations${cspHits.length ? ` (${cspHits.join("; ")})` : ""}`);
@@ -45,22 +56,23 @@ check(og.ok && og.headers.get("content-type") === "image/png" && buf.readUInt32B
 // and the JSON-LD parses: the home page says what Atteo is, and /faq's FAQPage data is its own questions.
 { const txt = async (p) => { const r = await fetch(`${BASE}${p}`); return { ok: r.ok, type: r.headers.get("content-type") || "", csp: r.headers.get("content-security-policy") || "", report: r.headers.get("content-security-policy-report-only") || "", body: await r.text() }; };
   const [robots, sitemap, llms, full, home, faqPg, guide, support] = await Promise.all(["/robots.txt", "/sitemap.xml", "/llms.txt", "/llms-full.txt", "/", "/faq", "/guide", "/support"].map(txt));
-  const template = (h) => { try { return JSON.parse(h.match(/<script type="__bundler\/template">([\s\S]*?)<\/script>/)[1]); } catch { return ""; } };
+  // jxn's pages are plain HTML (#6003); a policy may name atteo.dev for the sign-in form, and no other site.
+  const offsite = (csp) => !!csp.replace("form-action 'self' https://atteo.dev", "").match(/https?:/);
   const group = (ua) => (robots.body.split(/\n\s*\n/).find((g) => g.startsWith(`User-agent: ${ua}\n`)) || "");
   check(["*", "GPTBot", "ClaudeBot", "PerplexityBot", "Google-Extended"].every((ua) => /^Allow: \/$/m.test(group(ua)) && /^Disallow: \/b\/$/m.test(group(ua)) && /^Disallow: \/api\/$/m.test(group(ua))) && /^Sitemap: https:\/\/atteo\.dev\/sitemap\.xml$/m.test(robots.body), "robots.txt: public pages open to all crawlers, AI ones by name; boards and the API closed");
   check(["/", "/guide", "/support", "/llms.txt"].every((p) => sitemap.body.includes(`<loc>https://atteo.dev${p}</loc>`)), "sitemap.xml lists the public pages");
-  check(support.ok && /<link rel="canonical" href="https:\/\/atteo\.dev\/support">/.test(support.body) && /href="mailto:privacy@atteo\.dev"/.test(template(support.body)) && ["/privacy", "/terms"].every((p) => template(support.body).includes(`href="${p}"`)), "/support is public, with the privacy contact and legal links");
-  check(["/developers", "/faq", "/support", "/privacy", "/terms"].every((p) => template(faqPg.body).includes(`href="${p}"`)) && faqPg.body.includes('href="https://atteo.dev/llms.txt"'), "/faq links the other pages by path, and llms.txt from its head");
+  check(support.ok && /<link rel="canonical" href="https:\/\/atteo\.dev\/support">/.test(support.body) && /href="mailto:privacy@atteo\.dev"/.test(support.body) && ["/privacy", "/terms"].every((p) => support.body.includes(`href="${p}"`)), "/support is public, with the privacy contact and legal links");
+  check(["/developers", "/faq", "/support", "/privacy", "/terms"].every((p) => faqPg.body.includes(`href="${p}"`)) && faqPg.body.includes('href="https://atteo.dev/llms.txt"'), "/faq links the other pages by path, and llms.txt from its head");
   check(/MCP server \(streamable HTTP, OAuth sign-in\): https:\/\/atteo\.dev\/mcp/.test(llms.body), "directories read the MCP endpoint from /llms.txt");
-  check(/<link rel="canonical" href="https:\/\/atteo\.dev\/">/.test(home.body) && /<meta property="og:image" content="https:\/\/atteo\.dev\/og\.png\?v=\d+">/.test(home.body) && !/https?:/.test(home.csp) && /default-src 'none'/.test(home.csp) && /frame-ancestors 'none'/.test(home.csp), "/ (jxn's page) keeps the canonical and share card; its CSP names no other site");
+  check(/<link rel="canonical" href="https:\/\/atteo\.dev\/">/.test(home.body) && /<meta property="og:image" content="https:\/\/atteo\.dev\/og\.png\?v=\d+">/.test(home.body) && !offsite(home.csp) && /script-src 'self' 'unsafe-eval' /.test(home.csp) && /default-src 'none'/.test(home.csp) && /frame-ancestors 'none'/.test(home.csp), "/ (jxn's page) keeps the canonical and share card; its CSP names no other site");
   check(llms.ok && llms.body.startsWith("# Atteo\n") && /\(https:\/\/atteo\.dev\/llms-full\.txt\)/.test(llms.body) && full.ok && /text\/plain/.test(full.type) && /PRIVACY/.test(full.body), "/llms.txt (Markdown, links the full text) and /llms-full.txt answer");
   const ldOf = (h) => { try { return JSON.parse(h.match(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/)[1]); } catch { return null; } };
   const ld = ldOf(home.body), fq = ldOf(faqPg.body);
   const faq = fq?.["@graph"]?.find((g) => g["@type"] === "FAQPage")?.mainEntity?.map((q) => q.name) || [];
-  const shown = [...template(faqPg.body).matchAll(/<summary[^>]*>([\s\S]*?)<\/summary>/g)].map((m) => m[1].replace(/<[^>]+>/g, "").replace(/&amp;/g, "&").trim().replace(/\s*\+$/, ""));
+  const shown = [...faqPg.body.matchAll(/<summary[^>]*>([\s\S]*?)<\/summary>/g)].map((m) => m[1].replace(/<[^>]+>/g, "").replace(/&amp;/g, "&").trim().replace(/\s*\+$/, ""));
   check(["Organization", "SoftwareApplication"].every((t) => ld?.["@graph"]?.some((g) => g["@type"] === t)) && faq.length >= 3 && JSON.stringify([...faq].sort()) === JSON.stringify([...shown].sort()), `the JSON-LD parses, and /faq's FAQPage is its questions (${faq.length}; the page groups them, #5110)`);
   for (const [p, r] of [["/faq", faqPg], ["/support", support]])
-    check(!!r.csp && !r.report && !/https?:/.test(r.csp) && /default-src 'none'/.test(r.csp) && /script-src-attr 'none'/.test(r.csp) && /frame-ancestors 'none'/.test(r.csp), `${p}: enforced CSP that names no other site`);
+    check(!!r.csp && !r.report && !offsite(r.csp) && /default-src 'none'/.test(r.csp) && /script-src-attr 'none'/.test(r.csp) && /frame-ancestors 'none'/.test(r.csp) && !/'unsafe-/.test(r.csp.split("; ").find((d) => d.startsWith("script-src "))), `${p}: enforced hash CSP that names no other site, nothing evaluated`);
 }
 // jxn's pages in a browser: each unpacks to its own page, with no errors (the favicon is the app's, so not here) and no
 // request off atteo.dev; on a phone the "contents" column sits above the text instead of beside it (#5995).

@@ -1,0 +1,9 @@
+# jxn's pages' files (landing/jxn-pages/unbundle.mjs): named by their content, so they never change under a name.
+/landing/a/*
+  Cache-Control: public, max-age=31536000, immutable
+  X-Content-Type-Options: nosniff
+
+# The four logos jxn's page asks for by name (assets/<name>-logo.png), from his export.
+/assets/*
+  Cache-Control: public, max-age=86400
+  X-Content-Type-Options: nosniff
