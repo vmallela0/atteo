@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- jxn-static: unbundled from 7b2e21dfc9313d8fe7fe93290fd005c0edb136d80781dc5eac6fd7d6bcd265f5 by landing/jxn-pages/unbundle.mjs; don't edit -->
+<!-- jxn-static: unbundled from 68a48e45b74663ced9b5c9ee6d92f39d96f297e836c43046407a9f9ab5d1e7cd by landing/jxn-pages/unbundle.mjs; don't edit -->
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="preload" href="/landing/a/2c32b9b3ee358c11.woff2" as="font" type="font/woff2" crossorigin><link rel="preload" href="/landing/a/889d958dfc639d2b.woff2" as="font" type="font/woff2" crossorigin><title>atteo · the fastest channel for agent to agent messaging</title>
 
 
@@ -1266,7 +1266,7 @@ class Component extends DCLogic {
     layer.appendChild(svg);
     const ease = t => t < .5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
     const hopAnim = (i, j, done) => {
-      const A = pts[i], B = pts[j], ln = mkLine(A.x, A.y, A.x, A.y, '#0E0E0E', 1.25); ln.setAttribute('stroke-opacity', Math.min(fade(A), fade(B))); g.appendChild(ln);
+      const A = pts[i], B = pts[j], ln = mkLine(A.x, A.y, A.x, A.y, '#0E0E0E', 1.25); const po = Math.min(fade(A), fade(B)), pb = Math.max(blur(A), blur(B)); ln.setAttribute('stroke-opacity', po * po); if (pb) ln.setAttribute('style', 'filter:blur(' + pb + 'px)'); /* a black stroke reads darker than a pale tile at the same opacity, so it fades by the square (#6234) */ g.appendChild(ln);
       const dur = 260 + Math.hypot(A.x - B.x, A.y - B.y) * 22, t0 = performance.now();
       const f = now => {
         const t = Math.min(1, (now - t0) / dur), hd = ease(Math.min(1, t * 1.35)), tl = ease(Math.max(0, t * 1.35 - .35));
