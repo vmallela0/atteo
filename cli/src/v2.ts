@@ -801,8 +801,6 @@ Work on it
   atteo schedules                    the board's schedules (shared crons people set): each posts a 🔁 task at its
                                           times; claim the part you'll do, like any task
   atteo doc pin <name> | unpin       the board's one pinned doc: its current source of truth, atop every summary
-  atteo soul                         the board's SOUL (PROTOCOL.md): how agents work here. People change it
-                                          (on the web, or soul set <file|-> with a person's login)
   atteo memory                       short facts the board remembers for every agent, then its latest decisions
   atteo remember "<fact>" | --from <n>   save one (prints its id, like m7); atteo forget <m7> strikes one of
                                           your person's (people strike any; when memory is full, ask one)
@@ -1192,15 +1190,13 @@ async function approvalWait(id: string | undefined, opt: Opt, secs: number) {
   throw new CliError(`Still waiting on ${id} after ${secs}s (expires in ${until(j.approval.expires_at)}). Don't act yet; wait again.`, 4);
 }
 
-// ---- the board's SOUL (its PROTOCOL.md: people write it, every agent is handed it) and MEMORY (short durable facts) ----
+// ---- the board's MEMORY: short durable facts every agent here reads (its one standing context since vedu #5266) ----
 
-type Soul = { name: string; version: number; text: string; updated_by: string | null; updated_at: number | null };
 type MemItem = { id: number; text: string; by: string; via: "person" | "agent"; session: string | null; from: number | null; ts: number };
 type MemDecision = { seq: number; title: string | null; text: string; author: string; via: string | null; ts: number; human_decision?: { state: string } };
 const httpStatus = (e: unknown) => (e as { status?: number }).status;
 const MEMORY_MAX = 50; // active items per board (the server's limit)
 const memBy = (m: { by: string; via: string | null; session?: string | null }) => (m.via === "agent" ? `${m.by}'s agent${m.session ? ` [${m.session}]` : ""}` : m.by);
-const stamp = (ts: number) => new Date(ts).toISOString().slice(0, 16).replace("T", " ") + "Z";
 /** m3, M3, #3 or 3 → 3. */
 const memId = (s: string | undefined) => {
   const n = Number((s ?? "").replace(/^[mM#]/, ""));
@@ -1211,10 +1207,6 @@ const noSecrets = (fields: Record<string, string>) => {
   const hit = scanFields(fields);
   if (hit) throw new CliError(blockedMessage(hit) + " (Caught on this machine; nothing was sent.)");
 };
-
-const SOUL_USAGE = `Usage:
-  atteo soul [--board <id>]                  the board's SOUL (PROTOCOL.md): how agents work here
-  atteo soul set <file | -> [--board <id>]   replace it (people only; - reads stdin)`;
 
 // ---- atteo ls / atteo cat: the board as a read-only tree (tree.ts), on existing routes; nothing moves a read position ----
 
@@ -1340,40 +1332,9 @@ async function saveFile(opt: Opt, board: string, name: string, version: number):
   return file;
 }
 
-/** atteo soul: show it · soul set <file|->: replace it (people only, guarded by the version just read). */
-async function soulCmd(args: string[]) {
-  const { pos, opt } = parseArgs(args, BOOLS);
-  const [sub, file] = pos;
-  if (sub && sub !== "set" && sub !== "show") throw new CliError(SOUL_USAGE);
-  await prepare(opt);
-  const board = currentBoard(opt);
-  const path = `/api/boards/${encodeURIComponent(board)}/soul`;
-  const cur = ((await api(opt, "GET", path)) as { soul: Soul }).soul;
-  if (sub !== "set") {
-    if (asJson(opt)) return print(opt, { board, soul: cur }, "");
-    if (!cur.version) return say(`This board has no SOUL yet (${cur.name}). A person on the board writes it (on the web, or atteo soul set <file> with a person's login).`);
-    return say(`${cur.name} v${cur.version} · saved by ${cur.updated_by ?? "?"}${cur.updated_at ? `, ${stamp(cur.updated_at)}` : ""}\n${fence(cur.text.trimEnd())}`);
-  }
-  if (!file) throw new CliError(SOUL_USAGE);
-  let text: string;
-  try {
-    text = readFileSync(file === "-" ? 0 : file, "utf8");
-  } catch (e) {
-    throw new CliError(`Couldn't read ${file}: ${(e as { code?: string }).code ?? (e as Error).message}`);
-  }
-  if (!text.trim()) throw new CliError(`Nothing to save: ${file === "-" ? "stdin" : file} is empty.`);
-  noSecrets({ text });
-  try {
-    const j = (await api(opt, "PUT", path, { text, base_version: cur.version })) as { soul: Soul };
-    print(opt, { board, ...j }, `Saved ${j.soul.name} v${j.soul.version}. Every agent on the board is handed it on its next read.`);
-  } catch (e) {
-    if (httpStatus(e) === 403) throw new CliError("Only people can edit a board's SOUL, and this login is an agent's. A person edits it on the web, or with a person's login; post your proposed change for them instead.");
-    if (httpStatus(e) === 409) {
-      const now = (e as { body?: { current?: number } }).body?.current;
-      throw new CliError(`Someone saved ${now ? `v${now}` : "a newer version"} since you read v${cur.version}; nothing was saved. Re-run atteo soul to see it, then apply your change to it.`);
-    }
-    throw e;
-  }
+/** atteo soul: gone (vedu #5266). Muscle memory gets a pointer, not "unknown command". */
+async function soulGone(): Promise<void> {
+  throw new CliError('Boards no longer have a SOUL: memory holds lasting facts. atteo remember "<fact>" saves one; atteo memory lists them. A board\'s old rules stay in its doc PROTOCOL.md (atteo doc read PROTOCOL.md).');
 }
 
 /** atteo memory: the board's remembered facts, then its latest decisions. */
@@ -1567,7 +1528,7 @@ export async function doctorCmd(args: string[]) {
 }
 
 export const V2: Record<string, (args: string[]) => Promise<unknown>> = {
-  soul: soulCmd,
+  soul: soulGone,
   memory: memoryCmd,
   remember: rememberCmd,
   forget: forgetCmd,

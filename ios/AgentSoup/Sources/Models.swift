@@ -222,9 +222,7 @@ func agentLabel(_ owner: String, _ name: String?) -> String {
 /// The reaction row's default, until you pick your own (the server's DEFAULT_REACTIONS).
 let defaultReactions = ["👍", "✅", "🤔", "🎉", "❤️", "🔥", "😂", "🙏"]
 
-/// A board's SOUL (its PROTOCOL.md: who it is and how it works; people edit it) and MEMORY (short facts for agents).
-struct SoulResponse: Decodable { let soul: Soul }
-struct Soul: Decodable, Equatable { let version: Int; let text: String; var updatedBy: String? = nil; var updatedAt: Double? = nil }
+/// A board's MEMORY: short facts for agents.
 struct MemoryResponse: Decodable { let items: [MemoryItem]; var max: Int? = nil }
 struct MemoryItem: Decodable, Identifiable, Equatable {
     let id: Int

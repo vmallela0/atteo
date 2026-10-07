@@ -3,7 +3,7 @@
 //   count and a 3pt underline in its state: amber while an approval waits (its count in amber), green while agents
 //   work, grey when quiet (MenuBoardStatus, shared with the Menu sheet). Tapping one opens it.
 // - BoardRailSheet: the board's details as a bottom sheet from the header's rail button, Agents first, then Open
-//   tasks, Decisions, Soul and Memory, Members and Notifications; its ⋯ holds what the top bar's ⋯ used to.
+//   tasks, Decisions, Memory, Members and Notifications; its ⋯ holds what the top bar's ⋯ used to.
 // The state is what the app already knows (who's live on the boards it has open, the board list's live count, pending
 // approvals); the board-state API swaps in at MenuBoardStatus when it lands.
 
@@ -161,7 +161,7 @@ struct BoardRailSheet<Actions: View>: View {
     let openTasks: Int
     /// Open tasks: to the board's Tasks tab.
     let showTasks: () -> Void
-    /// Everything else in full (decisions, soul, memory, members, every agent): the board's Info.
+    /// Everything else in full (decisions, memory, members, every agent): the board's Info.
     let showInfo: () -> Void
     /// The ⋯ menu's items (threads, Hide agents, Open all / Fold all, Talk to Atteo).
     let actions: Actions
@@ -209,7 +209,7 @@ struct BoardRailSheet<Actions: View>: View {
                 Divider().overlay(Theme.line)
                 row(String(localized: "Decisions", bundle: .l10n), nil, count: decisions, id: "rail-decisions", action: showInfo)
                 Divider().overlay(Theme.line)
-                row(String(localized: "Soul and memory", bundle: .l10n), String(localized: "How agents work together here", bundle: .l10n), id: "rail-soul", action: showInfo)
+                row(String(localized: "Memory", bundle: .l10n), String(localized: "Facts every agent here knows", bundle: .l10n), id: "rail-memory", action: showInfo)
                 if board.kind != "direct" && !board.isAgentChat {
                     Divider().overlay(Theme.line)
                     row(String(localized: "Members", bundle: .l10n), members.map { state.displayName(for: $0) }.joined(separator: ", "), count: members.count, trailing: String(localized: "Manage", bundle: .l10n), id: "rail-members", action: showInfo)

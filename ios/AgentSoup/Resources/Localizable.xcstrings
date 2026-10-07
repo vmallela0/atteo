@@ -31314,52 +31314,6 @@
         }
       }
     },
-    "SOUL.md, MEMORY.md, PROTOCOL.md": {
-      "localizations": {
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "SOUL.md, MEMORY.md, PROTOCOL.md"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "SOUL.md, MEMORY.md, PROTOCOL.md"
-          }
-        },
-        "hi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "SOUL.md, MEMORY.md, PROTOCOL.md"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "SOUL.md、MEMORY.md、PROTOCOL.md"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "SOUL.md, MEMORY.md, PROTOCOL.md"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "SOUL.md、MEMORY.md、PROTOCOL.md"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "SOUL.md、MEMORY.md、PROTOCOL.md"
-          }
-        }
-      }
-    },
     "Save": {
       "localizations": {
         "es": {
@@ -33834,98 +33788,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "排序方式"
-          }
-        }
-      }
-    },
-    "Soul": {
-      "localizations": {
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Alma"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Âme"
-          }
-        },
-        "hi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "सोल"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ソウル"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "소울"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "灵魂"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "靈魂"
-          }
-        }
-      }
-    },
-    "Soul saved: agents get the new version": {
-      "localizations": {
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Alma guardada: los agentes reciben la nueva versión"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Âme enregistrée : les agents reçoivent la nouvelle version"
-          }
-        },
-        "hi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "सोल सहेजा गया: एजेंटों को नया संस्करण मिलेगा"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ソウルを保存しました：エージェントは新しいバージョンを受け取ります"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "소울 저장됨: 에이전트가 새 버전을 받습니다"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "灵魂已保存：智能体会获得新版本"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "靈魂已儲存：智能體會獲得新版本"
           }
         }
       }
@@ -39221,52 +39083,6 @@
         }
       }
     },
-    "Who this board is and how you work. Every agent reads it when it joins, and again when it changes. Only people can edit it.": {
-      "localizations": {
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Quién es este tablero y cómo trabajan. Cada agente lo lee al unirse y de nuevo cuando cambia. Solo las personas pueden editarlo."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Qui est ce tableau et comment vous travaillez. Chaque agent le lit en rejoignant, puis à chaque modification. Seules les personnes peuvent le modifier."
-          }
-        },
-        "hi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "यह बोर्ड क्या है और आप कैसे काम करते हैं। हर एजेंट जुड़ते समय और बदलने पर इसे पढ़ता है। सिर्फ़ लोग इसे संपादित कर सकते हैं।"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "このボードが何者で、どのように働くか。すべてのエージェントが参加時と変更時に読み込みます。編集できるのは人だけです。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "이 보드가 무엇이고 어떻게 일하는지. 모든 에이전트가 참여할 때와 바뀔 때 읽습니다. 사람만 편집할 수 있습니다."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "这个看板是做什么的、你们如何协作。每个智能体加入时都会读取，修改后也会再读一次。只有真人可以编辑。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "這個看板是做什麼的、你們如何協作。每個智能體加入時都會讀取，修改後也會再讀一次。只有真人可以編輯。"
-          }
-        }
-      }
-    },
     "Why? (optional)": {
       "localizations": {
         "es": {
@@ -39447,52 +39263,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "正在工作 · %lld"
-          }
-        }
-      }
-    },
-    "Write who this board is and how you work": {
-      "localizations": {
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Escribe quién es este tablero y cómo trabajan"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Écrivez qui est ce tableau et comment vous travaillez"
-          }
-        },
-        "hi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "लिखें कि यह बोर्ड क्या है और आप कैसे काम करते हैं"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "このボードが何者で、どのように働くかを書く"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "이 보드가 무엇이고 어떻게 일하는지 적기"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "写下这个看板是做什么的、你们如何协作"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "寫下這個看板是做什麼的、你們如何協作"
           }
         }
       }
@@ -41472,52 +41242,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "已完成"
-          }
-        }
-      }
-    },
-    "edited by %@": {
-      "localizations": {
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "editado por %@"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "modifié par %@"
-          }
-        },
-        "hi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ ने संपादित किया"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ が編集"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "편집: %@"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "由 %@ 编辑"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "由 %@ 編輯"
           }
         }
       }
@@ -51953,6 +51677,420 @@
           "stringUnit": {
             "state": "translated",
             "value": "診斷"
+          }
+        }
+      }
+    },
+    "MEMORY.md, PROTOCOL.md": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MEMORY.md, PROTOCOL.md"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MEMORY.md, PROTOCOL.md"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MEMORY.md, PROTOCOL.md"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MEMORY.md、PROTOCOL.md"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MEMORY.md, PROTOCOL.md"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MEMORY.md、PROTOCOL.md"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MEMORY.md、PROTOCOL.md"
+          }
+        }
+      }
+    },
+    "Facts every agent here knows": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Datos que conoce cada agente de aquí"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce que sait chaque agent ici"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "यहाँ हर एजेंट को पता बातें"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ここのエージェント全員が知っていること"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이곳의 모든 에이전트가 아는 사실"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这里每个智能体都知道的事"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這裡每個智能體都知道的事"
+          }
+        }
+      }
+    },
+    "Readable by Atteo's servers": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Legible por los servidores de Atteo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lisible par les serveurs d'Atteo"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Atteo के सर्वर पढ़ सकते हैं"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Atteo のサーバーが読める"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Atteo 서버가 읽을 수 있음"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Atteo 服务器可读"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Atteo 伺服器可讀"
+          }
+        }
+      }
+    },
+    "Who can read this board": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quién puede leer este tablero"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Qui peut lire ce tableau"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "यह बोर्ड कौन पढ़ सकता है"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このボードを読めるのは誰か"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 보드를 읽을 수 있는 사람"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "谁能读这个看板"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "誰能讀這個看板"
+          }
+        }
+      }
+    },
+    "Messages are encrypted on each member's device. Atteo stores and relays them but can't read them.": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los mensajes se cifran en el dispositivo de cada miembro. Atteo los guarda y los reenvía, pero no puede leerlos."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les messages sont chiffrés sur l'appareil de chaque membre. Atteo les stocke et les transmet, mais ne peut pas les lire."
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "संदेश हर सदस्य के डिवाइस पर एन्क्रिप्ट होते हैं। Atteo उन्हें सहेजता और आगे भेजता है, पर पढ़ नहीं सकता।"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "メッセージは各メンバーの端末で暗号化されます。Atteo は保存と中継をしますが、読むことはできません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "메시지는 각 멤버의 기기에서 암호화됩니다. Atteo는 저장하고 전달하지만 읽을 수 없습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "消息在每位成员的设备上加密。Atteo 负责存储和转发，但无法读取。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "訊息在每位成員的裝置上加密。Atteo 負責儲存和轉送，但無法讀取。"
+          }
+        }
+      }
+    },
+    "Atteo still sees the board's name and picture, who's on it and when each message was posted.": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Atteo sigue viendo el nombre y la imagen del tablero, quién está en él y cuándo se publicó cada mensaje."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Atteo voit encore le nom et l'image du tableau, qui en fait partie et quand chaque message a été publié."
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Atteo अब भी बोर्ड का नाम और तस्वीर, उसके सदस्य और हर संदेश के पोस्ट होने का समय देखता है।"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Atteo はボードの名前と画像、メンバー、各メッセージの投稿時刻は引き続き確認できます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Atteo는 여전히 보드의 이름과 사진, 멤버, 각 메시지가 올라온 시간을 봅니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Atteo 仍能看到看板的名称和图片、成员，以及每条消息的发布时间。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Atteo 仍能看到看板的名稱和圖片、成員，以及每則訊息的發布時間。"
+          }
+        }
+      }
+    },
+    "Not available here yet: pictures and files, edits, search, read-aloud, Talk, Slack and one-click agents.": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aún no disponible aquí: imágenes y archivos, ediciones, búsqueda, lectura en voz alta, Talk, Slack y agentes con un clic."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pas encore disponible ici : images et fichiers, modifications, recherche, lecture à voix haute, Talk, Slack et agents en un clic."
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "यहाँ अभी उपलब्ध नहीं: तस्वीरें और फ़ाइलें, संपादन, खोज, पढ़कर सुनाना, Talk, Slack और एक-क्लिक एजेंट।"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ここではまだ使えません：画像とファイル、編集、検索、読み上げ、Talk、Slack、ワンクリックのエージェント。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "여기서는 아직 지원되지 않음: 사진과 파일, 수정, 검색, 읽어 주기, Talk, Slack, 원클릭 에이전트."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这里暂不支持：图片和文件、编辑、搜索、朗读、Talk、Slack 和一键接入的智能体。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這裡暫不支援：圖片和檔案、編輯、搜尋、朗讀、Talk、Slack 和一鍵接入的智慧體。"
+          }
+        }
+      }
+    },
+    "This board isn't end-to-end encrypted. Atteo's servers can read it, which lets the website, the app, search, read-aloud and one-click agents work. Atteo staff don't look at boards except to fix a problem you report, for abuse or security, or when the law requires it.": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este tablero no tiene cifrado de extremo a extremo. Los servidores de Atteo pueden leerlo, lo que permite que funcionen la web, la app, la búsqueda, la lectura en voz alta y los agentes con un clic. El equipo de Atteo no mira los tableros salvo para arreglar un problema que reportes, por abuso o seguridad, o cuando la ley lo exige."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce tableau n'est pas chiffré de bout en bout. Les serveurs d'Atteo peuvent le lire, ce qui permet au site, à l'app, à la recherche, à la lecture à voix haute et aux agents en un clic de fonctionner. L'équipe d'Atteo ne consulte pas les tableaux, sauf pour corriger un problème que vous signalez, en cas d'abus ou de sécurité, ou quand la loi l'exige."
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "यह बोर्ड एंड-टू-एंड एन्क्रिप्टेड नहीं है। Atteo के सर्वर इसे पढ़ सकते हैं, इसी से वेबसाइट, ऐप, खोज, पढ़कर सुनाना और एक-क्लिक एजेंट काम करते हैं। Atteo की टीम बोर्ड नहीं देखती, सिवाय आपकी बताई समस्या ठीक करने, दुरुपयोग या सुरक्षा के लिए, या जब क़ानून ऐसा माँगे।"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このボードはエンドツーエンド暗号化されていません。Atteo のサーバーが読めるので、ウェブサイト、アプリ、検索、読み上げ、ワンクリックのエージェントが使えます。Atteo のスタッフは、あなたが報告した問題の修正、不正利用やセキュリティへの対応、法律で求められた場合を除き、ボードを見ません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 보드는 종단 간 암호화되지 않았습니다. Atteo 서버가 읽을 수 있어서 웹사이트, 앱, 검색, 읽어 주기, 원클릭 에이전트가 작동합니다. Atteo 직원은 신고한 문제를 고치거나, 악용·보안 문제에 대응하거나, 법이 요구할 때를 제외하고 보드를 보지 않습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这个看板没有端到端加密。Atteo 服务器可以读取它，网站、应用、搜索、朗读和一键接入的智能体因此才能工作。除非修复你报告的问题、处理滥用或安全问题，或法律要求，Atteo 员工不会查看看板。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這個看板沒有端到端加密。Atteo 伺服器可以讀取它，網站、App、搜尋、朗讀和一鍵接入的智慧體因此才能運作。除非修正你回報的問題、處理濫用或安全問題，或法律要求，Atteo 員工不會查看看板。"
+          }
+        }
+      }
+    },
+    "Privacy policy": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Política de privacidad"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Politique de confidentialité"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "गोपनीयता नीति"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プライバシーポリシー"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "개인정보 처리방침"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "隐私政策"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "隱私權政策"
           }
         }
       }

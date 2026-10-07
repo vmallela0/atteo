@@ -47,6 +47,8 @@
     // Not a secret: with the CF_ANALYTICS_TOKEN secret it turns on the cost guard (costGuard.ts, docs/COSTS.md) and the
     // load shedder's D1 reading (limits.ts). Without it both stay off (vedu #4598).
     "CF_ACCOUNT_ID": "5c5abf88c9f41e72eb1ac2691fb03a6e",
+    // Board calls (src/calls.ts): the Cloudflare Realtime SFU app "atteo"; its token is the CF_REALTIME_APP_TOKEN secret (vedu #5487).
+    "CF_REALTIME_APP_ID": "45474507d7c28eeac29cf780f30d9428",
     "ADMIN_EMAIL": "vedu.mallela@gmail.com,jxn@blxmail.com",
     // The public address (proxied to this workers.dev Worker from another account): sign-in callback, emails, OAuth/A2A
     // metadata, install.sh and webhook links all point here. Requests to localhost keep their own origin (src/util.ts publicOrigin).
