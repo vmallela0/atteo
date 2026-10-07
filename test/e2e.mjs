@@ -3434,6 +3434,9 @@ await step("REST approval requests: an agent creates one, reads it, and its pers
   assert((await postAgent(A, fb, { sealed, sealed_details })).status === 400, "sealed refused on a plain board");
   assert((await web(`/api/boards/${eb}/archive`, A, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ archived: true }) })).status === 200, "archive encrypted board");
   assert((await postAgent(A, eb, { sealed, sealed_details })).status === 403, "archived board refuses approval requests");
+  // Later steps count A's device keys; drop the one this step added.
+  const added = keys.find((k) => k.public_key === public_key);
+  assert((await web(`/api/me/keys/${added.id}`, A, { method: "DELETE" })).status < 300, "remove approval test device");
 });
 
 await step("headless agents: the setting round-trips; on, agents see it in initialize, the read header and the mailbox; off, nowhere", async () => {
