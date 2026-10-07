@@ -13,6 +13,7 @@ import * as northStar from "./northStar";
 import * as oauth from "./oauth";
 import { consentPage } from "./oauthPage";
 import * as approvals from "./approvals";
+import * as approvalRules from "./approvalRules";
 import { boardStates } from "./boardStates";
 import { approvalsPage } from "./approvalsPage";
 import { askPage } from "./ask";
@@ -1110,7 +1111,7 @@ const handler = {
         if (m[1] === "join") return redirect(`/b/${m[2]}`);
         if (!viewer) return needLogin();
         if (!(await canSee(c, m[2]))) return notFound(viewer);
-        const [snap, members, invites, side, live, status, row, muted] = await Promise.all([
+        const [snap, members, invites, side, live, status, row, muted, approvalRulesForBoard] = await Promise.all([
           boardStub(env, m[2]).snapshot(0, { latest: 80 }, seer()), // fewer messages on the page keeps scrolling smooth (jxn #1365); older ones load as you go back
           registry.boardMembers(env, m[2]),
           registry.pendingInvites(env, m[2]),
@@ -1119,6 +1120,7 @@ const handler = {
           registry.agentStatus(env, viewer.name),
           registry.getBoard(env, m[2]),
           viewer.via === "agent" ? [] : moderation.mutedOn(env, viewer.name, m[2]).catch(() => []), // whom you muted here (#3602)
+          approvalRules.list(env, m[2]),
         ]);
         // Agents here: named sessions, plus members' agents connected without one (e.g. an MCP URL connection).
         const memberSet = new Set(members.map((x) => x.user));
@@ -1148,7 +1150,7 @@ const handler = {
         const slackChannels = slackOn(env, request)
           ? ((await env.DB.prepare(`SELECT channel_name FROM slack_links WHERE board_id = ? AND paused IS NULL`).bind(m[2]).all<{ channel_name: string }>().catch(() => ({ results: [] as { channel_name: string }[] }))).results ?? []).map((r) => r.channel_name)
           : [];
-        return boardPage(viewer, side, snap.info, withAgents, snap.entries.map((e) => withAgentNames(e, agentNamed)), shown, { connected: status.connected, onThisBoard: !!live[viewer.name] }, snap.summary, agentsHere, { picture: boardPictures.pictureUrl(m[2], row?.picture_v), kind, charter, sessions: mine, machines: machinesHere, seen: snap.reads?.[viewer.name]?.person_seen ?? 0, last_seen: snap.reads?.[viewer.name]?.person_seen ?? 0, muted, calls: calls.callsOn(env, request), slack: slackOn(env, request), slackChannels });
+        return boardPage(viewer, side, snap.info, withAgents, snap.entries.map((e) => withAgentNames(e, agentNamed)), shown, { connected: status.connected, onThisBoard: !!live[viewer.name] }, snap.summary, agentsHere, { picture: boardPictures.pictureUrl(m[2], row?.picture_v), kind, charter, approvalRules: approvalRulesForBoard, sessions: mine, machines: machinesHere, seen: snap.reads?.[viewer.name]?.person_seen ?? 0, last_seen: snap.reads?.[viewer.name]?.person_seen ?? 0, muted, calls: calls.callsOn(env, request), slack: slackOn(env, request), slackChannels });
       }
 
       // ---- inbox: mentions of you, posts for your agent, replies to you ----
@@ -2279,6 +2281,32 @@ const handler = {
         const v = await boardPictures.setBoardPicture(env, board.id, mime, bytes);
         ctx.waitUntil(registry.audit(env, board.id, viewer.name, "picture_changed").catch(() => {}));
         return json({ ok: true, picture: boardPictures.pictureUrl(board.id, v) });
+      }
+
+      // ---- approval rules: the owner sets metadata that agents check before asking ----
+      m = path.match(/^\/api\/boards\/(b_[a-z0-9]+)\/approval-rules(?:\/([a-z_]+))?$/);
+      if (m) {
+        if (!viewer) return needLogin();
+        const board = await registry.getBoard(env, m[1]);
+        const role = await registry.memberRole(env, m[1], viewer.name);
+        if (!board || !role) return json({ error: "board not found" }, 404);
+        if (method === "GET" && !m[2]) return json({ rules: await approvalRules.list(env, m[1]), can_edit: viewer.via !== "agent" && (role === "owner" || board.created_by === viewer.name) && !board.archived_at }, 200, { "cache-control": "no-store" });
+        if (method !== "PUT" || !m[2]) return json({ error: "not found" }, 404);
+        if (viewer.via === "agent") return json({ error: "Only a board owner can change approval rules. Ask your person." }, 403);
+        if (role !== "owner" && board.created_by !== viewer.name) return json({ error: "Only the board's owners can change approval rules." }, 403);
+        if (board.archived_at) return json({ error: "This board is archived. Restore it to change approval rules." }, 403);
+        try {
+          const body = await request.json().catch(() => ({}));
+          const parsed = approvalRules.parseRule(m[2], body);
+          const old = (await approvalRules.list(env, m[1])).find(x => x.category === parsed.category)!;
+          if (old.mode === parsed.mode && old.threshold === parsed.threshold) return json({ rule: old });
+          const rule = await approvalRules.save(env, m[1], m[2], body, viewer.name);
+          const detail = `${rule.name}: ${rule.mode === "ask" ? "Always ask" : rule.mode === "auto" ? "Auto-approve" : "Block"}${rule.category === "spending" ? ` over $${rule.threshold!.toFixed(2)}` : ""}`;
+          await registry.audit(env, m[1], viewer.name, "approval_rule_changed", rule.category, detail);
+          const note = await boardStub(env, m[1]).notice(viewer.name, "Approval rule changed", `${viewer.name} changed the approval rule: ${detail}.`, { via: "person" });
+          await registry.bumpBoard(env, m[1], note.seq);
+          return json({ rule });
+        } catch (e) { return json({ error: e instanceof Error ? e.message : String(e) }, 400); }
       }
 
       // ---- access management: roles, expiry, invite links, audit log ----
@@ -4138,5 +4166,3 @@ export default Sentry.withSentry(
   (env: Env) => ({ dsn: env.SENTRY_DSN, release: env.CF_VERSION_METADATA?.id, tracesSampleRate: 0, beforeSend: scrubForSentry }),
   handler,
 );
-
-
