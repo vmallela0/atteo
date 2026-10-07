@@ -160,9 +160,17 @@ function opened(t){const out=[];let plain=[],q=[];
 function short(t){const l=String(t).replace(/\`\`\`[\\s\\S]*?\`\`\`/g,'\\n').split('\\n').map(x=>x.trim()).find(Boolean)||'';
   const w=l.replace(/@[A-Za-z0-9][A-Za-z0-9_.-]*(?:['’]s\\s+(?:agent|assistant))?/gi,' ').replace(/^[\\s,:;.\\-–—>]+/,'').split(/\\s+/).filter(Boolean);
   return w.length?w.slice(0,4).join(' ').replace(/[,:;.\\-–—]+$/,'')+(w.length>4?'…':''):''}
+// A handoff's sealed part (docs/SPEC.md §16): branch, commits and the checks' output; the clear line (state) stays below.
+const sha7=s=>/^[0-9a-f]{40,64}$/.test(String(s))?String(s).slice(0,7):'?';
+function handoffBlock(h){if(!h||typeof h!=='object')return '';
+  if(h.state==='landed'||h.state==='failed')return h.sha?'<div class="refs mono handoff e2e-ho">'+esc('landed as '+sha7(h.sha))+'</div>':'';
+  if(typeof h.branch!=='string')return '';
+  return '<div class="refs mono handoff e2e-ho">'+esc('ready to gate: '+h.branch.slice(0,120)+' @'+sha7(h.sha)+' on '+sha7(h.base)+(h.checks?' · checks: '+String(h.checks).slice(0,300):''))+'</div>'}
 function show(seq,r){const el=document.querySelector('#e'+seq+'>.grow>.body');if(!el)return false;
   if(r.text!=null)TXT.set(seq,{text:r.text,x:r.x||{}});
-  el.innerHTML=r.text!=null?(r.x&&r.x.title?'<div class="e2e-title"><b>'+esc(r.x.title)+'</b></div>':'')+opened(r.text)+filesBlock(r.x&&r.x.files):'<span class="e2e-none">🔒 '+esc(r.why)+'</span>';el.closest('.entry').classList.toggle('e2e-open',r.text!=null);
+  const clear=el.querySelector(':scope>.handoff:not(.e2e-ho)');
+  el.innerHTML=r.text!=null?(r.x&&r.x.title?'<div class="e2e-title"><b>'+esc(r.x.title)+'</b></div>':'')+opened(r.text)+filesBlock(r.x&&r.x.files)+handoffBlock(r.x&&r.x.handoff):'<span class="e2e-none">🔒 '+esc(r.why)+'</span>';el.closest('.entry').classList.toggle('e2e-open',r.text!=null);
+  if(clear)el.append(clear);
   if(r.text!=null)hydrate(el);
   if(r.text!=null){const t=short(r.text),en=el.closest('.entry');if(t){en.dataset.title=t;document.querySelectorAll('a.ref[data-ref="'+seq+'"][data-done]').forEach(a=>{a.textContent='↗ '+t})}if(window.refChips)refChips(el)}
   const top=el.closest('.replies')?.closest('#thread>.entry');if(top)thrSum(+top.dataset.seq);return r.text!=null}
@@ -177,6 +185,8 @@ async function openApprovals(){for(const c of document.querySelectorAll('.apc[da
 let busy=null,queued=false,qFrom=null;
 /** Messages that came back on the page (a bounded conversation, #1365) arrive sealed again: open them on the next sync. */
 window.e2eForget=seqs=>{for(const s of seqs)OPEN.delete(s)};
+/** An encrypted handoff's branch and commits, if this page opened it (the gate's queue in board info). */
+window.e2eHandoff=seq=>{const h=(TXT.get(seq)||{x:{}}).x.handoff;return h&&typeof h.branch==='string'?h:null};
 /** One envelope opened here, for the log download (#3401): {text} or {why}. */
 window.e2eOpen=async payload=>{if(!ST)await epochKeys();return openOne(0,payload)};
 /** Fetches envelopes after "from" (default: the newest seen) and opens everything on the page not yet opened. */

@@ -37,6 +37,7 @@
     "src/githubApp.ts": [],
     "cli/**": ["e2e-web", "e2e-files"],
     "src/e2eweb.ts": ["e2e-web", "e2e-files", "board-export"],
+    "src/handoff.ts": ["gate-queue", "e2e-files"],
     "test/*.ts": [],
     "test/*.mjs": [],
     "test/browser/lib/**": "*",
