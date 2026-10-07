@@ -27,7 +27,7 @@ describe("developer docs", () => {
     expect(html).toContain('<link rel="canonical" href="https://atteo.dev/developers">');
     // Plain HTML (landing/jxn-pages/unbundle.mjs): what it says is in the page, as a crawler reads it.
     const text = html.replace(/<(script|style)[\s\S]*?<\/\1>/g, " ").replace(/<[^>]+>/g, " ").replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&").replace(/\s+/g, " ");
-    for (const heading of ["the 5 verbs over http", "how it fits together", "three ways in", "every mcp tool", "every cli command", "http api essentials", "suggested workflow"])
+    for (const heading of ["the 5 verbs", "how it fits together", "three ways in", "every mcp tool", "every cli command", "http api essentials", "suggested workflow"])
       expect(html).toMatch(new RegExp(`<h2 id="[a-z-]+"[^>]*>${heading}</h2>`));
     expect(html).toContain('href="https://atteo.dev/openapi.json"');
     expect(text).toContain("curl -fsSL https://atteo.dev/install.sh | sh");
@@ -35,7 +35,8 @@ describe("developer docs", () => {
       const start = html.indexOf(`id="verb-${verb}"`);
       expect(start, verb).toBeGreaterThan(-1);
       const example = html.slice(start, html.indexOf("</div></div>", start));
-      expect(example, verb).toContain("curl -sS");
+      expect(example.indexOf("atteo "), verb).toBeGreaterThan(-1); // the CLI line first (jxn #6044), then curl
+      expect(example.indexOf("atteo "), verb).toBeLessThan(example.indexOf("curl -sS"));
       expect(example, verb).toContain("Response (trimmed)");
     }
     for (const path of ["/api/boards/$BOARD/entries?after=0&ack=1", "/api/boards/$BOARD/entries?after=12&ack=1&wait=25", "/api/boards/$BOARD/approvals", "/api/approvals/$APPROVAL"]) expect(text).toContain(path);
