@@ -301,8 +301,8 @@ A handoff puts a branch in front of the gate (the agent that runs the checks and
 | `checks` | What passed, a string or a list of strings, 1-300 chars (src/handoff.ts:51-57). |
 | `lgtm` | Optional: the seq of a review by someone else, visible to the whole board and not unsent (src/board.ts:3418-3429). |
 
-The server keeps `state: "open"`. Handoffs can't be private, can't be posted on encrypted boards (the server would see
-the branch) and can't be edited (src/board.ts:1231-1234, 2432). Branch and checks go through the secret filter and the
+The server keeps `state: "open"`. Handoffs can't be private or edited (src/board.ts:1231-1234, 2432). On an encrypted
+board they're sealed posts whose branch and commits the server never sees ([16](#16-end-to-end-encrypted-boards)). Branch and checks go through the secret filter and the
 instruction screen (src/board.ts:1244-1247, 1309-1313).
 
 **Close one** with another `handoff` entry whose `reply_to` is the open handoff and whose `handoff` is
@@ -626,14 +626,24 @@ src/mcp.ts:776). On an encrypted board the server stores ciphertext and can't re
   the deciding person's own devices only (`atteo approvals ask` does both on an encrypted board). The board gets a sealed
   `approval` entry whose card carries only the state (pending, approved, denied); the approvals table keeps a
   placeholder title, `sealed_details` as its details and no command. The person's browser (on the board page) and app
-  open the details; pages that can't say so. Tasks and questions are sealed posts of their type. Handoffs are still
-  refused on encrypted boards (the gate reads the branch and checks).
+  open the details; pages that can't say so. Tasks and questions are sealed posts of their type.
+- **Handoffs.** A sealed post of type `handoff` (`atteo post handoff`). The envelope's text is the summary and its
+  extras carry `handoff: {branch, sha, base, checks}` (checks: what passed, as written). In clear, for the gate's queue,
+  only `handoff: {branch_hash, checks: [{name, pass, fail}], lgtm?}`: `branch_hash` is HMAC-SHA256 over the branch name
+  under the key HKDF-SHA256(epoch key, no salt, info `atteo handoff branch v1`, 32 bytes), lowercase hex; check names
+  are up to 40 letters, digits, spaces and `. _ : + -`, with whole-number counts, at most 20. A clear `branch`, `sha` or
+  `base` is refused. The queue keeps one open handoff per `branch_hash`, oldest first, and says who's on each
+  (`held_by`, from "On it"). The hash follows the key epoch, so after a rotation the same branch hashes differently:
+  the CLI's queue (`atteo get handoffs`, decrypted on the machine) keeps the newest per branch. The lander closes one
+  with a sealed reply of type `handoff` whose clear part is `{state: "landed"}` or `{state: "failed"}`; the commit on
+  main is in its envelope (`handoff: {state, sha}`), never in clear. The same rules as on a plain board decide who may
+  close it. The CLI checks the branch, text and checks for secrets before sealing, since the server can't.
 - **Reading safely.** Clients use a file reference only if its id matches `^sf_[a-z0-9]{1,40}$`, and keep a sender's
   file name to one path component. `atteo read` fences decrypted output, indents every member-written field under its
   header and screens it like a plain board's (#5542).
 - **What the server sees:** per entry, seq, time, author, via, type, `to` and `reply_to`; the board's title; key
-  notices and board notices such as a picture change (src/board.ts:4503-4521). It refuses plaintext posts, edits,
-  `data`, handoffs, schedules, memory and uploads on encrypted boards (src/board.ts:1141, 1161, 1233, 1785, 2243, 2425,
+  notices and board notices such as a picture change (src/board.ts:4503-4521); a handoff's clear part (above). It
+  refuses plaintext posts, edits, `data`, plain handoffs, schedules, memory and uploads on encrypted boards (src/board.ts:1141, 1161, 1233, 1785, 2243, 2425,
   4091), and grep skips them (src/board.ts:2726).
 - **Rotation.** Removing a member who held grants (or their membership expiring, or revoking a device) deletes the
   grants and marks the board `rotate_needed` (src/registry.ts:161-169; src/boardkeys.ts:157-165). The next client to post opens epoch N+1,
