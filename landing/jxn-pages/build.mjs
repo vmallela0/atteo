@@ -1,7 +1,8 @@
 // jxn's site pages (#5977) are Claude Design exports: a self-unpacking bundle whose page HTML is one JSON string (the
 // "__bundler/template" script). This fills them in place, so a new export or a new tool/command is one command away:
 //   node landing/jxn-pages/build.mjs                  rebuild the served pages in landing/jxn-pages/
-//   node landing/jxn-pages/build.mjs ~/faq.html …     take fresh exports (each names its page in fromHash) and serve them
+//   node landing/jxn-pages/build.mjs ~/faq.html …     take fresh exports (each names its page in fromHash; the home page
+//                                                     is the one with a "Hero", and goes to landing/landing-jxn.html)
 // It is safe to run again on its own output. What it does to every page:
 //   - links between the pages ("faq.html") point at the real paths (/faq);
 //   - the tab title the runtime leaves as "atteo · {{ title }}" is filled in;
@@ -104,10 +105,29 @@ function developers(t) {
   return t;
 }
 
+// The home page (landing-jxn.html): its agent favicons come from /landing/icons (proxied from Google's favicon service in
+// landing/src/index.ts, so visitors never contact Google), and on phones the install command stays on one line, cut off
+// with a fade, with copy and cli beside it (#6031, #6074, #6139). His icon network already frames the text there.
+const LANDING_PHONE_CSS = `<style data-phone>/* landing on phones (#6031, #6074, #6139): the install command on one line, faded where it's cut off, copy and cli beside it */
+@media (max-width:720px){
+div:has(> button[aria-haspopup]){flex-wrap:nowrap!important}
+div:has(> button[aria-haspopup]) > div{flex:1 1 0!important;min-width:0!important}
+div:has(> button[aria-haspopup]) span[style*="overflow"]{-webkit-mask-image:linear-gradient(90deg,#000 80%,transparent);mask-image:linear-gradient(90deg,#000 80%,transparent)}
+}
+</style>
+`;
+function landing(t) {
+  t = t.replace(/https:\/\/www\.google\.com\/s2\/favicons\?domain=([a-z0-9.-]+)&amp;sz=64/g, "/landing/icons/$1.png")
+    .replace("FAV = d => 'https://www.google.com/s2/favicons?domain=' + d + '&sz=64';", "FAV = d => '/landing/icons/' + d + '.png';");
+  if (/google\.com\/s2/.test(t)) throw new Error("a Google favicon URL is left in the landing page");
+  return t.includes("<style data-phone>") ? t : t.replace("</helmet>", () => LANDING_PHONE_CSS + "</helmet>");
+}
+
 export function build(html) {
   const [, open, json, close] = TEMPLATE.exec(html) ?? [];
   if (!json) throw new Error("not a bundled export: no __bundler/template");
   let t = JSON.parse(json);
+  if (t.includes('data-screen-label="Hero"')) return { page: "landing", out: html.replace(TEMPLATE, () => `${open}\n${JSON.stringify(landing(t)).replace(/<\//g, "<\\u002F")}\n  ${close}`) };
   const page = /fromHash\(\) \{ return '([a-z]+)'; \}/.exec(t)?.[1];
   if (!PAGES.includes(page)) throw new Error(`unknown page ${page}`);
   const title = new RegExp(`${page}: '([^']*)'`).exec(t)[1];
@@ -123,11 +143,12 @@ export function build(html) {
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const inputs = process.argv.slice(2);
-  for (const file of inputs.length ? inputs : PAGES.map((p) => new URL(`${p}.html`, DIR).pathname)) {
+  for (const file of inputs.length ? inputs : [...PAGES.map((p) => new URL(`${p}.html`, DIR).pathname), new URL("../landing-jxn.html", DIR).pathname]) {
     let html;
     try { html = readFileSync(file, "utf8"); } catch { if (!inputs.length) continue; throw new Error(`can't read ${file}`); }
     const { page, out } = build(html);
-    writeFileSync(new URL(`${page}.html`, DIR), out);
-    console.log(`${page}.html ← ${file}`);
+    const to = page === "landing" ? new URL("../landing-jxn.html", DIR) : new URL(`${page}.html`, DIR);
+    writeFileSync(to, out);
+    console.log(`${to.pathname.split("/landing/").pop()} ← ${file}`);
   }
 }

@@ -32,20 +32,20 @@ for (const [path, w] of [["/", 1440], ["/", 390], ["/landing", 1440]]) {
   check(!off.length, `${tag}: nothing asked of another site${off.length ? ` (${[...new Set(off)].join(", ")})` : ""}`);
   check(!r.sideways, `${tag}: nothing scrolls sideways`);
   if (phone) {
-    // Its phone layout (#6031): the headline fits, no agent icon shows over the text (they sit in rows above and below it, jxn #6037), the demo's three panels stack.
+    // Its phone layout (#6031, #6074, jxn's v2 #6139): the headline fits, his network's icons stay off the text, the
+    // install command is one line with copy and cli beside it, and the demo's three panels stack.
     const m = await p.evaluate(() => {
       const box = (e) => e.getBoundingClientRect(), hub = box(document.querySelector("[data-hub]"));
-      const over = [...document.querySelectorAll("[data-node]")].filter((n) => { const b = box(n); return getComputedStyle(n).visibility === "visible" && b.bottom > hub.top && b.top < hub.bottom; });
+      const text = [...document.querySelectorAll("[data-hub] h1, [data-hub] p")].map(box);
+      const over = [...document.querySelectorAll("[data-node]")].filter((n) => { const b = box(n); return getComputedStyle(n).visibility === "visible" && +getComputedStyle(n).opacity > 0.5 && text.some((t) => b.right > t.left && b.left < t.right && b.bottom > t.top && b.top < t.bottom); });
       const [a, b, c] = ["a", "b", "c"].map((t) => box(document.querySelector(`[data-term="${t}"]`)));
-      const net = box(document.querySelector('section[data-screen-label="Hero"] > div[aria-hidden="true"]'));
-      const cli = box(document.querySelector("[data-hub] button[aria-haspopup]")), cmd = box(document.querySelector('[data-hub] span[style*="overflow-x"]'));
-      return { h1: box(document.querySelector("[data-hub] h1")).right <= innerWidth, over: over.length, stacked: a.bottom < b.top && b.bottom < c.top && c.height > 200, rail: getComputedStyle(document.querySelector("[data-rail]")).display,
-        around: net.left > 0 && net.left < hub.left && net.right > hub.right && net.right < innerWidth && net.top < hub.top && net.bottom > hub.bottom, oneLine: Math.abs((cli.top + cli.bottom) / 2 - (cmd.top + cmd.bottom) / 2) < 8 && cmd.height < 30 };
+      const row = document.querySelector("[data-hub] div:has(> button[aria-haspopup])"), cli = box(row.querySelector(":scope > button[aria-haspopup]")), cmd = box(row.querySelector(":scope > div"));
+      return { h1: box(document.querySelector("[data-hub] h1")).right <= innerWidth, over: over.length, stacked: a.bottom < b.top && b.bottom < c.top && c.height > 200,
+        oneLine: Math.abs(cli.top - cmd.top) < 4 && cli.right <= innerWidth && hub.right <= innerWidth };
     });
-    check(m.h1 && !m.over, `${tag}: the headline fits and no ring icon covers the text (${m.over} over it)`);
-    // jxn #6074: the network's thin lines run down both sides of the text, and the install command stays on one line beside copy and cli.
-    check(m.around && m.oneLine, `${tag}: the network surrounds the text, and the install command is one line beside cli`);
-    check(m.stacked && m.rail === "none", `${tag}: the demo panels stack and the scroll rail is hidden`);
+    check(m.h1 && !m.over, `${tag}: the headline fits and no network icon covers the text (${m.over} over it)`);
+    check(m.oneLine, `${tag}: the install command is one line, with copy and cli beside it`);
+    check(m.stacked, `${tag}: the demo panels stack`);
   }
   check(!errors.length, `${tag}: no page errors${errors.length ? ` (${errors[0]})` : ""}`);
   const cspHits = await p.evaluate(() => window.__cspHits || []);

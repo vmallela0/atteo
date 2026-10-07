@@ -29,11 +29,7 @@ export const PAGES = {
   terms: { src: new URL("terms.html", HERE), path: "/terms" },
   404: { src: new URL("404.html", HERE), path: "/jxn-path-marker" }, // its logic would show any path with "404" as /missing-page
 };
-// The home page's logic names four logos by path (LOGOS, OPTS: "assets/<name>-logo.png"); the export carries them under
-// these uuids (the demo uses them by uuid), so they're written out at those paths too (alt-3 #6062).
-const NAMED = { "claude-code-logo.png": "83e338cc-481b-46d8-92d1-71b41b055c12", "muse-logo.png": "e118cc6f-e062-401f-940a-0dd0f27ea0fc", "grokbot-logo.png": "d08a343d-9ac4-4aab-9db2-42f28059271c", "dots-logo.png": "6d2a914f-34c2-49e7-979f-d92db93065c6" };
-const NAMED_DIR = new URL("../public/assets/", import.meta.url);
-const EXT = { "font/woff2": "woff2", "image/png": "png", "image/jpeg": "jpg", "image/svg+xml": "svg", "image/webp": "webp", "text/javascript": "js", "application/javascript": "js" };
+const EXT = { "font/woff2": "woff2", "font/woff": "woff", "font/ttf": "ttf", "font/otf": "otf", "image/gif": "gif", "image/avif": "avif", "image/png": "png", "image/jpeg": "jpg", "image/svg+xml": "svg", "image/webp": "webp", "text/javascript": "js", "application/javascript": "js" };
 export const sha256 = (s) => createHash("sha256").update(s).digest("hex");
 
 /** Writes `bytes` under its content hash; returns the URL path it is served at. */
@@ -123,14 +119,26 @@ function live(html, src, files) {
   let t = template;
   for (const [uuid, f] of Object.entries(files)) t = t.split(uuid).join(f.url);
   const xdc = /<x-dc(?:\s[^>]*)?>([\s\S]*)<\/x-dc>/.exec(t)[1];
-  const logic = /<script type="text\/x-dc" data-dc-script="[^"]*">[\s\S]*?<\/script>/.exec(t)[0];
+  const logic = /<script type="text\/x-dc" data-dc-script[^>]*>[\s\S]*?<\/script>/.exec(t)[0];
   const runtime = /<script src="(\/landing\/a\/[0-9a-f]+\.js)"><\/script>/.exec(t)[1];
   const ext = JSON.parse(/<script type="__bundler\/ext_resources">([\s\S]*?)<\/script>/.exec(src)[1]);
   const resources = Object.fromEntries(ext.map((e) => [e.id, files[e.uuid].url]));
   const boot = `window.__resources=${JSON.stringify(resources)};(()=>{const snap=document.getElementById("jxn-snap"),x=document.createElement("x-dc");x.hidden=true;x.innerHTML=JSON.parse(document.getElementById("jxn-tpl").textContent);snap.after(x);new MutationObserver((m,o)=>{const r=document.getElementById("dc-root");if(r&&r.childElementCount){snap.remove();o.disconnect()}}).observe(document.body,{childList:true,subtree:true})})();`;
   // His logic finds its elements by data-* hooks across the document; in the snapshot they're renamed, so the live page's
   // first lookups (the scroll rail, the header) can't land on the copy it is about to replace.
+  // The hero's two fonts (Latin, upright), fetched first: on a slow phone the snapshot otherwise paints its text in a
+  // fallback font, and the live page's same text, drawn later in the real font and a little bigger, becomes the largest
+  // paint (phone LCP 3.9 s instead of 0.3 s).
+  // They also wait for those files (font-display: block) rather than paint in a fallback first.
+  const fonts = new Set();
+  html = html.replace(/@font-face\s*\{([^}]*)\}/g, (m, face) => {
+    if (!(/font-family:\s*['"]?(JetBrains Mono|STIX Two Text)/.test(face) && /font-style:\s*normal/.test(face) && /U\+0000-00FF/.test(face))) return m;
+    fonts.add(/url\("([^"]+)"\)/.exec(face)[1]);
+    return m.replace(/font-display:\s*swap/, "font-display: block");
+  });
+  const preload = [...fonts].map((f) => `<link rel="preload" href="${f}" as="font" type="font/${f.split(".").pop()}" crossorigin>`).join("");
   return html
+    .replace(/(<meta name="viewport"[^>]*>)/, (m) => m + preload)
     .replace(/ data-(board|chat|dot|fill|hdr|hub|node|packets|pct|rail|term)=/g, " data-snap-$1=")
     .replace('<div id="dc-root">', '<div id="jxn-snap">')
     .replace(/<\/body>/, () => `<script type="application/json" id="jxn-tpl">${JSON.stringify(xdc).replace(/</g, "\\u003c")}</script>\n${logic}\n<script>${boot}</script>\n<script src="${runtime}"></script>\n</body>`);
@@ -145,10 +153,6 @@ export async function unbundle(names = Object.keys(PAGES)) {
       const { src, path, live: isLive } = PAGES[name];
       const html = readFileSync(src, "utf8");
       const files = manifestAssets(html);
-      if (isLive) {
-        mkdirSync(NAMED_DIR, { recursive: true });
-        for (const [file, uuid] of Object.entries(NAMED)) writeFileSync(new URL(file, NAMED_DIR), files[uuid].bytes);
-      }
       let out = withFiles(await snapshot(browser, html, path));
       if (name === "404") out = out.replace('<span class="sc-interp">/jxn-path-marker</span>', '<span class="sc-interp" id="jxn-path">/missing-page</span>');
       if (/jxn-path-marker/.test(out)) throw new Error("the 404's path isn't where it was");
