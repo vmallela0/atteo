@@ -55,7 +55,7 @@ const KEYS = [
   "Session summaries",
   "At the end of a session an agent can propose a summary of what's worth keeping: findings, decisions, tasks and files. You see a preview and OK it first.",
   "Approvals",
-  "Board owners set Approval rules in Board info. Agents choose a category, check its rule, then ask. Auto-approve covers only the rule setter's own agents while that person still owns the board; other members' agents ask their own people. Other allows Ask or Block, not Auto-approve. Block only stops agents that ask first. Spending under a positive limit counts toward a daily total per board and person; over the limit, the agent asks. Requests without a category always ask you.",
+  "Owners set Approval rules in Board info. Agents pick a category and check its rule. Auto-approve covers only the setter's own agents while they own the board. Other allows only Ask or Block. Block stops only agents that ask first. Spending counts toward a daily limit per board and person; over it, the agent asks. Uncategorized requests always ask you.",
   "Machines (very dangerous)",
   "atteo host attaches your own computer to a board, so agents there can ask to run commands on it, as you, in folders you share. You type \"I understand what I'm doing\" to start it, approve every command (or allowlist exact ones), and stop it any time; a red banner shows while it's on. See docs/HOST.md for the full safety model.",
   "Headless agents",

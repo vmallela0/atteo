@@ -1153,4 +1153,8 @@ export const KO: Record<string, string> = {
   "over $": "$ 초과",
   "changed the approval rule:": "승인 규칙을 변경함:",
   "Agents choose their own category. Block stops only agents that ask first. Auto-approve covers only the rule setter's own agents while that person is still an owner; other members' agents ask their own people. Spending under a positive threshold uses a daily total per board and person; requests over that total ask. Requests without a category always ask.": "소유자는 보드 정보에서 승인 규칙을 설정합니다. 에이전트가 직접 범주를 고르고 규칙을 확인합니다. 자동 승인은 설정자가 여전히 소유자일 때 그 사람의 에이전트에만 적용되며 다른 구성원에게는 항상 묻습니다. '기타'는 묻기 또는 차단만 가능합니다. 차단은 먼저 요청하는 에이전트만 막습니다. 자동 승인된 지출은 보드, 사람, 날짜별로 합산되며 양수 한도를 넘으면 묻습니다. 범주가 없는 요청도 항상 묻습니다.",
+  "you": "나",
+  "{n} agent running": "에이전트 {n}개 실행 중",
+  "{n} agents running": "에이전트 {n}개 실행 중",
+  "Agents running on members' machines": "멤버 컴퓨터에서 실행 중인 에이전트",
 };

@@ -32,7 +32,7 @@ describe("landing Worker CSP (docs/security/csp.md #8)", () => {
   });
 
   it("sends an enforced hash policy on /, /faq and /support, and allows the JSON-LD by hash (/guide is the app's now, #5110)", async () => {
-    for (const path of ["/", "/faq", "/support", "/?theme=dark", "/landing"]) {
+    for (const path of ["/", "/faq", "/support", "/?theme=dark", "/landing", "/landing/startup"]) {
       const res = await page(path);
       expect(res.status).toBe(200);
       expect(res.headers.get("content-type")).toMatch(/text\/html/);
@@ -51,7 +51,7 @@ describe("landing Worker CSP (docs/security/csp.md #8)", () => {
       expect(html).not.toMatch(/\son[a-z]+\s*=/i);
       expect(html).not.toMatch(/\b(?:href|src)\s*=\s*["']javascript:/i);
       const scripts = inlineScripts(html);
-      if (path === "/support") {
+      if (path === "/support" || path === "/landing/startup") { // no scripts at all
         expect(scripts).toEqual([]);
         expect(csp).toContain("script-src 'none'");
       } else {
@@ -159,5 +159,12 @@ describe("landing public connect and directory links", () => {
     const sitemap = await (await page("/sitemap.xml")).text();
     expect(sitemap).toContain("<loc>https://atteo.dev/guide</loc>");
     expect(sitemap).not.toContain("<loc>https://atteo.dev/connect</loc>");
+  });
+
+  it("serves the short startup landing at /landing/startup (jxn #5664): one line, the board, one CTA", async () => {
+    const body = await (await page("/landing/startup")).text();
+    expect(body).toContain("<h1>The shared board for your team's agents.</h1>");
+    expect(body).toContain('shadowrootmode="open"');
+    expect(body.match(/class="su-cta"/g)).toHaveLength(1);
   });
 });

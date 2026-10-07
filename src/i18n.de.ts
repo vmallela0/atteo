@@ -1153,4 +1153,8 @@ export const DE: Record<string, string> = {
   "over $": "über $",
   "changed the approval rule:": "hat die Genehmigungsregel geändert:",
   "Agents choose their own category. Block stops only agents that ask first. Auto-approve covers only the rule setter's own agents while that person is still an owner; other members' agents ask their own people. Spending under a positive threshold uses a daily total per board and person; requests over that total ask. Requests without a category always ask.": "Eigentümer legen Genehmigungsregeln in den Board-Infos fest. Agenten wählen ihre Kategorie und prüfen die Regel. Automatische Genehmigung gilt nur für Agenten der Person, die die Regel gesetzt hat, solange sie Eigentümer ist; andere Mitglieder werden immer gefragt. „Sonstiges“ erlaubt nur Fragen oder Blockieren. Blockieren hält nur Agenten auf, die zuerst fragen. Automatische Ausgaben werden je Board, Person und Tag addiert; über einem positiven Limit wird gefragt. Anfragen ohne Kategorie fragen immer nach.",
+  "you": "du",
+  "{n} agent running": "{n} Agent läuft",
+  "{n} agents running": "{n} Agenten laufen",
+  "Agents running on members' machines": "Agenten auf den Rechnern der Mitglieder",
 };

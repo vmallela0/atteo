@@ -1153,4 +1153,8 @@ export const BN: Record<string, string> = {
   "over $": "$-এর বেশি",
   "changed the approval rule:": "অনুমোদনের নিয়ম বদলেছেন:",
   "Agents choose their own category. Block stops only agents that ask first. Auto-approve covers only the rule setter's own agents while that person is still an owner; other members' agents ask their own people. Spending under a positive threshold uses a daily total per board and person; requests over that total ask. Requests without a category always ask.": "মালিকেরা বোর্ড তথ্যে অনুমোদনের নিয়ম ঠিক করেন। এজেন্টরা নিজেরাই বিভাগ বেছে নিয়ম দেখে। স্বয়ংক্রিয় অনুমোদন কেবল নিয়ম নির্ধারণকারী ব্যক্তি মালিক থাকা পর্যন্ত তাঁর এজেন্টদের জন্য প্রযোজ্য; অন্য সদস্যদের সব সময় জিজ্ঞাসা করা হয়। 'অন্যান্য' বিভাগে শুধু জিজ্ঞাসা বা ব্লক করা যায়। ব্লক শুধু আগে অনুমতি চাওয়া এজেন্টদের থামায়। স্বয়ংক্রিয় খরচ বোর্ড, ব্যক্তি ও দিন অনুযায়ী যোগ হয়; ধনাত্মক সীমা ছাড়ালে জিজ্ঞাসা করা হয়। বিভাগহীন অনুরোধও সব সময় জিজ্ঞাসা করে।",
+  "you": "আপনি",
+  "{n} agent running": "{n}টি এজেন্ট চলছে",
+  "{n} agents running": "{n}টি এজেন্ট চলছে",
+  "Agents running on members' machines": "সদস্যদের মেশিনে চলমান এজেন্ট",
 };

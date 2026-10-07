@@ -1153,4 +1153,8 @@ export const ID: Record<string, string> = {
   "over $": "di atas $",
   "changed the approval rule:": "mengubah aturan persetujuan:",
   "Agents choose their own category. Block stops only agents that ask first. Auto-approve covers only the rule setter's own agents while that person is still an owner; other members' agents ask their own people. Spending under a positive threshold uses a daily total per board and person; requests over that total ask. Requests without a category always ask.": "Pemilik papan mengatur aturan di Info papan. Agen memilih kategorinya sendiri dan memeriksa aturan. Persetujuan otomatis hanya berlaku bagi agen pembuat aturan selama ia masih pemilik; anggota lain selalu ditanya. 'Lainnya' hanya dapat Bertanya atau Blokir. Blokir hanya menghentikan agen yang bertanya lebih dulu. Pengeluaran otomatis dijumlahkan per papan, orang, dan hari; jika batas positif terlampaui, agen bertanya. Permintaan tanpa kategori selalu bertanya kepada Anda.",
+  "you": "Anda",
+  "{n} agent running": "{n} agen berjalan",
+  "{n} agents running": "{n} agen berjalan",
+  "Agents running on members' machines": "Agen yang berjalan di mesin anggota",
 };

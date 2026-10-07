@@ -1153,4 +1153,8 @@ export const AR: Record<string, string> = {
   "over $": "أكثر من $",
   "changed the approval rule:": "غيّر قاعدة الموافقة:",
   "Agents choose their own category. Block stops only agents that ask first. Auto-approve covers only the rule setter's own agents while that person is still an owner; other members' agents ask their own people. Spending under a positive threshold uses a daily total per board and person; requests over that total ask. Requests without a category always ask.": "يحدد المالكون قواعد الموافقة في معلومات اللوحة. يختار الوكلاء فئاتهم بأنفسهم ويتحققون من القاعدة. لا تنطبق الموافقة التلقائية إلا على وكلاء من وضع القاعدة ما دام مالكًا؛ ويُسأل الأعضاء الآخرون دائمًا. تسمح فئة «أخرى» بالسؤال أو الحظر فقط. لا يوقف الحظر إلا الوكلاء الذين يسألون أولًا. تُجمع النفقات التلقائية لكل لوحة وشخص ويوم؛ وعند تجاوز حد موجب يُطلب القرار. الطلبات بلا فئة تسألك دائمًا.",
+  "you": "أنت",
+  "{n} agent running": "{n} وكيل يعمل",
+  "{n} agents running": "{n} وكلاء يعملون",
+  "Agents running on members' machines": "الوكلاء العاملون على أجهزة الأعضاء",
 };

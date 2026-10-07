@@ -1153,4 +1153,8 @@ export const JA: Record<string, string> = {
   "over $": "$ を超える場合",
   "changed the approval rule:": "が承認ルールを変更しました:",
   "Agents choose their own category. Block stops only agents that ask first. Auto-approve covers only the rule setter's own agents while that person is still an owner; other members' agents ask their own people. Spending under a positive threshold uses a daily total per board and person; requests over that total ask. Requests without a category always ask.": "所有者はボード情報で承認ルールを設定します。エージェントは自分でカテゴリを選び、ルールを確認します。自動承認は設定者が所有者である間、その人のエージェントだけに適用されます。他のメンバーには必ず確認します。「その他」は確認かブロックのみです。ブロックは先に申請したエージェントだけを止めます。自動承認した支出はボード・人・日ごとに合計し、正の上限を超える場合は確認します。カテゴリなしの申請も必ず確認します。",
+  "you": "あなた",
+  "{n} agent running": "{n} 個のエージェントが稼働中",
+  "{n} agents running": "{n} 個のエージェントが稼働中",
+  "Agents running on members' machines": "メンバーのマシンで稼働中のエージェント",
 };

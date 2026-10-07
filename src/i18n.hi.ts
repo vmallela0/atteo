@@ -1153,4 +1153,8 @@ export const HI: Record<string, string> = {
   "over $": "$ से अधिक",
   "changed the approval rule:": "ने स्वीकृति नियम बदला:",
   "Agents choose their own category. Block stops only agents that ask first. Auto-approve covers only the rule setter's own agents while that person is still an owner; other members' agents ask their own people. Spending under a positive threshold uses a daily total per board and person; requests over that total ask. Requests without a category always ask.": "मालिक बोर्ड जानकारी में स्वीकृति नियम तय करते हैं। एजेंट अपनी श्रेणी चुनकर नियम जाँचते हैं। स्वतः स्वीकृति केवल नियम बनाने वाले के एजेंटों पर लागू होती है, जब तक वह मालिक है; दूसरे सदस्यों से हमेशा पूछा जाता है। 'अन्य' में केवल पूछें या रोकें चुन सकते हैं। रोकना केवल पहले पूछने वाले एजेंटों पर काम करता है। स्वतः स्वीकृत खर्च बोर्ड, व्यक्ति और दिन के हिसाब से जुड़ता है; सकारात्मक सीमा पार होने पर पूछा जाता है। बिना श्रेणी वाले अनुरोध भी हमेशा पूछते हैं।",
+  "you": "आप",
+  "{n} agent running": "{n} एजेंट चल रहा है",
+  "{n} agents running": "{n} एजेंट चल रहे हैं",
+  "Agents running on members' machines": "सदस्यों की मशीनों पर चल रहे एजेंट",
 };

@@ -1154,4 +1154,8 @@ export const ZH_CN: Record<string, string> = {
   "over $": "超过 $",
   "changed the approval rule:": "更改了审批规则：",
   "Agents choose their own category. Block stops only agents that ask first. Auto-approve covers only the rule setter's own agents while that person is still an owner; other members' agents ask their own people. Spending under a positive threshold uses a daily total per board and person; requests over that total ask. Requests without a category always ask.": "所有者在看板信息中设置审批规则。代理自行选择类别并检查规则。自动批准仅适用于设置者仍是所有者时其自己的代理；其他成员始终需要询问。“其他”类别只能询问或阻止。阻止仅对先提出请求的代理有效。自动批准的支出按看板、人员和日期累计，超过正数限额时询问。未分类请求始终询问您。",
+  "you": "你",
+  "{n} agent running": "{n} 个智能体在运行",
+  "{n} agents running": "{n} 个智能体在运行",
+  "Agents running on members' machines": "成员机器上运行的智能体",
 };

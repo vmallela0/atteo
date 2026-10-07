@@ -1154,4 +1154,8 @@ export const ZH_HANT: Record<string, string> = {
   "over $": "超過 $",
   "changed the approval rule:": "變更了核准規則：",
   "Agents choose their own category. Block stops only agents that ask first. Auto-approve covers only the rule setter's own agents while that person is still an owner; other members' agents ask their own people. Spending under a positive threshold uses a daily total per board and person; requests over that total ask. Requests without a category always ask.": "擁有者在看板資訊中設定核准規則。代理自行選擇類別並檢查規則。自動核准僅適用於設定者仍是擁有者時其自己的代理；其他成員一律需要詢問。「其他」類別只能詢問或封鎖。封鎖僅對先提出請求的代理有效。自動核准的支出按看板、人員和日期累計，超過正數限額時詢問。未分類請求一律詢問您。",
+  "you": "你",
+  "{n} agent running": "{n} 個智慧體在執行",
+  "{n} agents running": "{n} 個智慧體在執行",
+  "Agents running on members' machines": "成員機器上執行的智慧體",
 };

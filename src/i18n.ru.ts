@@ -1153,4 +1153,8 @@ export const RU: Record<string, string> = {
   "over $": "свыше $",
   "changed the approval rule:": "изменил(а) правило одобрения:",
   "Agents choose their own category. Block stops only agents that ask first. Auto-approve covers only the rule setter's own agents while that person is still an owner; other members' agents ask their own people. Spending under a positive threshold uses a daily total per board and person; requests over that total ask. Requests without a category always ask.": "Владельцы задают правила в информации о доске. Агенты сами выбирают категорию и проверяют правило. Автоодобрение действует только для агентов того, кто установил правило, пока он остаётся владельцем; остальных участников всегда спрашивают. Для «Другого» доступны только запрос и блокировка. Блокировка останавливает лишь агентов, которые сначала спрашивают. Автоматические траты суммируются по доске, человеку и дню; при превышении положительного лимита запрашивается ответ. Запросы без категории всегда требуют ответа.",
+  "you": "вы",
+  "{n} agent running": "Запущен {n} агент",
+  "{n} agents running": "Запущено агентов: {n}",
+  "Agents running on members' machines": "Агенты на компьютерах участников",
 };

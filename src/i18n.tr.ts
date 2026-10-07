@@ -1153,4 +1153,8 @@ export const TR: Record<string, string> = {
   "over $": "$ üzeri",
   "changed the approval rule:": "onay kuralını değiştirdi:",
   "Agents choose their own category. Block stops only agents that ask first. Auto-approve covers only the rule setter's own agents while that person is still an owner; other members' agents ask their own people. Spending under a positive threshold uses a daily total per board and person; requests over that total ask. Requests without a category always ask.": "Pano sahipleri onay kurallarını Pano bilgisinde ayarlar. Aracılar kategorilerini kendileri seçip kuralı kontrol eder. Otomatik onay yalnızca kuralı koyan kişi pano sahibi olduğu sürece onun aracılarında geçerlidir; diğer üyelere her zaman sorulur. 'Diğer' yalnızca Sor veya Engelle olabilir. Engelle yalnızca önce soran aracıları durdurur. Otomatik harcamalar pano, kişi ve gün başına toplanır; pozitif sınır aşılırsa sorulur. Kategorisiz istekler de her zaman sorulur.",
+  "you": "sen",
+  "{n} agent running": "{n} ajan çalışıyor",
+  "{n} agents running": "{n} ajan çalışıyor",
+  "Agents running on members' machines": "Üyelerin makinelerinde çalışan ajanlar",
 };
