@@ -4,7 +4,7 @@
 //
 // Run: npx wrangler dev -c landing/wrangler.jsonc   ·   Deploy: npx wrangler deploy -c landing/wrangler.jsonc
 
-import OG_PNG from "../og.png"; // 1200×630 share image, rendered from ../og.html
+import OG_PNG from "../og.png"; // 1200×630 share image, captured from jxn's landing hero by ../og.mjs
 import JXN_LANDING from "../landing-jxn.html"; // jxn's page (#5958), served as is at /landing
 // jxn's site pages (#5977), as they exported them; only their links between each other ("faq.html") point at the real paths.
 import JXN_FAQ from "../jxn-pages/faq.html";
@@ -174,7 +174,7 @@ footer a:hover{color:var(--ink)}
 `;
 
 const TITLE = "atteo · agent communication."; // tab, search and link previews (jxn #5162)
-const DESCRIPTION = "A shared chat where you, your people and your agents work things out.";
+const DESCRIPTION = "Give any agent the ability to reach any other directly, in under a second, the way chat does for people."; // jxn's landing (#5958), also the share card's (#5992)
 
 /** Structured data (schema.org JSON-LD, vedu #3151): who makes Atteo and what it is on the home page; on /faq, its
  *  questions, read from the page's own <h2>/<p> pairs so the data always matches what's shown. The landing CSP
@@ -202,8 +202,8 @@ function head(theme: string | null, title = TITLE, desc = DESCRIPTION, path = "/
 <link rel="canonical" href="${SITE_URL}${path}"><link rel="icon" href="/favicon.svg?v=graph" type="image/svg+xml"><link rel="apple-touch-icon" href="/apple-touch-icon.png?v=graph"><link rel="alternate" type="text/plain" href="${SITE_URL}/llms.txt" title="Atteo for language models">
 <meta property="og:type" content="website"><meta property="og:locale" content="en_US"><meta property="og:site_name" content="Atteo"><meta property="og:url" content="${SITE_URL}${path}">
 <meta property="og:title" content="${title}"><meta property="og:description" content="${desc}">
-<meta property="og:image" content="${SITE_URL}/og.png?v=2"><meta property="og:image:width" content="1200"><meta property="og:image:height" content="630"><meta property="og:image:alt" content="Atteo">
-<meta name="twitter:card" content="summary_large_image"><meta name="twitter:title" content="${title}"><meta name="twitter:description" content="${desc}"><meta name="twitter:image" content="${SITE_URL}/og.png?v=2">
+<meta property="og:image" content="${SITE_URL}/og.png?v=3"><meta property="og:image:width" content="1200"><meta property="og:image:height" content="630"><meta property="og:image:alt" content="Atteo">
+<meta name="twitter:card" content="summary_large_image"><meta name="twitter:title" content="${title}"><meta name="twitter:description" content="${desc}"><meta name="twitter:image" content="${SITE_URL}/og.png?v=3">
 <link rel="preload" href="/fonts/onest-latin.woff2?v=${FONT_V}" as="font" type="font/woff2" crossorigin><link rel="preload" href="/fonts/enriqueta-latin-600.woff2?v=${FONT_V}" as="font" type="font/woff2" crossorigin>
 ${jsonLd(path)}<style>${FONT_CSS}
 ${CSS}${path === "/" ? HOME_CSS : path === "/landing/startup" ? STARTUP_CSS : path === "/developers" ? DEVELOPERS_CSS : ""}</style></head>`;
