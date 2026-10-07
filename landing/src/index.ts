@@ -12,6 +12,7 @@ import JXN_FAQ from "../jxn-pages/faq.html";
 import JXN_PRIVACY from "../jxn-pages/privacy.html";
 import JXN_SUPPORT from "../jxn-pages/support.html";
 import JXN_TERMS from "../jxn-pages/terms.html";
+import JXN_404 from "../jxn-pages/404.html";
 // The app's own fonts (opus-d, look-2): the same files at /fonts/<file>?v=N, which this Worker forwards to the app, so
 // the landing and the app share one copy and no page asks Google for anything.
 import { FONT_CSS, FONT_V } from "../../src/fontfaces";
@@ -445,6 +446,12 @@ function jxnPage(path: string, beacon = "", extra: Record<string, string> = {}):
   return new Response(body, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "public, max-age=300", "content-security-policy": csp, ...SECURITY_HEADERS, ...extra } });
 }
 
+/** jxn's 404 (#5990): the same bundled export as his other pages, under JXN_CSP. It shows the path it was asked for
+ *  (from location.pathname, escaped by the page's own renderer). Not indexed, no canonical. */
+function notFoundPage(): Response {
+  return new Response(JXN_404, { status: 404, headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "content-security-policy": JXN_CSP, "x-robots-tag": "noindex", ...SECURITY_HEADERS } });
+}
+
 /** The agent favicons on jxn's page, fetched from Google's favicon service here (cached a week) so visitors never contact Google. */
 const ICON_DOMAINS = new Set(["chatgpt.com", "claude.ai", "cursor.com", "gemini.google.com", "nousresearch.com", "openai.com", "openclaw.ai"]);
 async function landingIcon(domain: string): Promise<Response> {
@@ -513,8 +520,14 @@ export default {
     // the response is returned as-is so WebSocket upgrades (101) work. Cloudflare stamps this subrequest with CF-Worker,
     // which is how the app tells it apart from a browser on its old workers.dev address (src/util.ts legacyHostRedirect).
     // Through the binding the request keeps its own URL (atteo.dev), so the app never mistakes it for an old workers.dev link.
-    if (env.APP) return env.APP.fetch(new Request(request, { redirect: "manual" }));
     const origin = (env.APP_ORIGIN || DEFAULT_APP_ORIGIN).replace(/\/+$/, "");
-    return fetch(new Request(origin + path + url.search, request), { redirect: "manual" });
+    const res = env.APP ? await env.APP.fetch(new Request(request, { redirect: "manual" })) : await fetch(new Request(origin + path + url.search, request), { redirect: "manual" });
+    // A page the app doesn't have (its "Not found" page) is jxn's 404 (#5990), still status 404. API calls and other
+    // 404s that aren't a browser opening a page come back as the app sent them.
+    if (read && navigation && res.status === 404 && (res.headers.get("content-type") ?? "").startsWith("text/html")) {
+      await res.body?.cancel();
+      return notFoundPage();
+    }
+    return res;
   },
 };
