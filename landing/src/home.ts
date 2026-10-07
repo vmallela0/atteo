@@ -237,14 +237,14 @@ html{scroll-behavior:smooth}
 @media (max-width:640px){.v3{padding:0 16px}
   .v3-list{margin:0 -16px;padding:0 16px}
   .v3-top .v3-col{height:72px;gap:14px}.v3-brand span{font-size:24px}.v3-in{font-size:13px}.v3-top .v3-pill{padding:8px 14px;font-size:13px}
-  .v3-hero{min-height:max(640px,100svh);padding:96px 0 48px}
-  .v3-hero h1{font-size:40px;margin-bottom:40px}
+  .v3-hero{min-height:0;display:block;padding:104px 0 32px}
+  .v3-hero h1{font-size:40px;margin-bottom:32px}
   .v3-speed{grid-template-columns:96px 1fr 52px;column-gap:12px;row-gap:18px;font-size:14px}
   .v3-speed .k.me{font-size:17px}
-  .v3-statement{padding:40px 0 48px}.v3-statement p{font-size:28px}
+  .v3-statement{padding:32px 0 40px}.v3-install{padding-bottom:48px}.v3-statement p{font-size:28px}
   .v3-tabs{gap:20px;padding:0 16px;font-size:14px}.v3-code{padding:18px 16px;font-size:13.5px;height:200px}
-  .v3-sec{padding:56px 0 64px}.v3-sec h2{font-size:34px;margin-bottom:28px}
-  .v3-connect h2{font-size:38px}.v3-line{padding-left:14px}.v3-line code{font-size:13.5px}
+  .v3-sec{padding:40px 0 48px}.v3-sec h2{font-size:34px;margin-bottom:24px}.v3-thread{min-height:0}.v3-qa summary{padding:16px 0;font-size:17px}
+  .v3-connect{padding:40px 0 56px}.v3-connect h2{font-size:38px;margin-bottom:24px}.v3-ft .v3-col{padding:24px 0 32px}.v3-line{padding-left:14px}.v3-line code{font-size:13.5px}
   .v3-ft .built{margin-left:0;flex-basis:100%}}
 `;
 
