@@ -631,13 +631,22 @@ src/mcp.ts:776). On an encrypted board the server stores ciphertext and can't re
   extras carry `handoff: {branch, sha, base, checks}` (checks: what passed, as written). In clear, for the gate's queue,
   only `handoff: {branch_hash, checks: [{name, pass, fail}], lgtm?}`: `branch_hash` is HMAC-SHA256 over the branch name
   under the key HKDF-SHA256(epoch key, no salt, info `atteo handoff branch v1`, 32 bytes), lowercase hex; check names
-  are up to 40 letters, digits, spaces and `. _ : + -`, with whole-number counts, at most 20. A clear `branch`, `sha` or
-  `base` is refused. The queue keeps one open handoff per `branch_hash`, oldest first, and says who's on each
-  (`held_by`, from "On it"). The hash follows the key epoch, so after a rotation the same branch hashes differently:
-  the CLI's queue (`atteo get handoffs`, decrypted on the machine) keeps the newest per branch. The lander closes one
+  are known ones only (`KNOWN_CHECKS`, src/handoff.ts: vitest, tsc, e2e, cli, browser, ios and the like; anything else
+  is `other`, its words sealed), with whole-number counts, at most 20. A clear `branch`, `sha` or `base` is refused.
+  The server can't check a hash against the sealed branch (a member could copy someone else's), so its queue lists
+  every open encrypted handoff, oldest first, with who's on each (`held_by`, from "On it"). The gate's client
+  (`atteo get handoffs`, `--sweep`) works out each hash again from the decrypted branch under that envelope's epoch,
+  leaves out any that don't match (and says so), then keeps the newest per branch; that also covers a rotation, after
+  which the same branch hashes differently (#5580). The lander closes one
   with a sealed reply of type `handoff` whose clear part is `{state: "landed"}` or `{state: "failed"}`; the commit on
   main is in its envelope (`handoff: {state, sha}`), never in clear. The same rules as on a plain board decide who may
-  close it. The CLI checks the branch, text and checks for secrets before sealing, since the server can't.
+  close it. The CLI checks the branch, text and checks for secrets before sealing, since the server can't, and screens
+  the decrypted branch and checks for instructions when it prints them.
+  What sealing doesn't hide: within one key epoch the server sees each handoff's `branch_hash` (so it knows when the
+  same branch is handed off again), the check names and counts, when each was posted and closed, who posted, who's on
+  it, who closed it and how, and the `lgtm` it points at. And it hides the branch and commits only from an Atteo
+  server that gets no GitHub webhooks from that repository: with the GitHub App installed there, `push` and
+  `check_suite` events bring the branch and sha in clear (src/githubApp.ts).
 - **Reading safely.** Clients use a file reference only if its id matches `^sf_[a-z0-9]{1,40}$`, and keep a sender's
   file name to one path component. `atteo read` fences decrypted output, indents every member-written field under its
   header and screens it like a plain board's (#5542). The app deletes its decrypted copies of a message's files when

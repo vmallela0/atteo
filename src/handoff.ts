@@ -57,26 +57,34 @@ export const isSealedReady = (h: Handoff): h is SealedReady => "sealed" in h && 
 export const branchKey = (h: HandoffReady | SealedReady): string => ("sealed" in h ? `#${h.branch_hash}` : h.branch);
 
 export const MAX_TALLIES = 20;
-const TALLY_NAME = /^[A-Za-z0-9][A-Za-z0-9 ._:+-]{0,39}$/;
+/** The check names that may go in clear: well-known tools and suites, so a free-text check ("fix auth bypass 3") never
+ *  leaks what the work is about (#5580). Anything else is "other" in clear; its words stay in the envelope. */
+export const KNOWN_CHECKS = [
+  "vitest", "jest", "mocha", "tsc", "typecheck", "lint", "eslint", "prettier", "build", "unit", "integration", "e2e", "cli",
+  "browser", "playwright", "crawl", "smoke", "ios", "xcodebuild", "android", "pytest", "rspec", "go test", "cargo test",
+  "swift test", "other",
+] as const;
+const KNOWN = new Set<string>(KNOWN_CHECKS);
 const count = (v: unknown, field: string): number | null => {
   if (v == null) return null;
   if (typeof v !== "number" || !Number.isInteger(v) || v < 0 || v > 1e7) throw new HandoffError(`${field} is a whole number of checks.`);
   return v;
 };
 
-/** The clear checks of an encrypted handoff: names (letters, digits, spaces, . _ : + -) with pass and fail counts. */
+/** The clear checks of an encrypted handoff: known names (KNOWN_CHECKS) with pass and fail counts. */
 export function tallies(v: unknown): CheckTally[] {
   if (!Array.isArray(v) || !v.length) throw new HandoffError('checks is a list of {name, pass, fail}, e.g. [{"name": "vitest", "pass": 470, "fail": 0}].');
   if (v.length > MAX_TALLIES) throw new HandoffError(`At most ${MAX_TALLIES} checks.`);
   return v.map((c, i) => {
     const o = c && typeof c === "object" && !Array.isArray(c) ? (c as Record<string, unknown>) : {};
-    const name = typeof o.name === "string" ? o.name.replace(/\s+/g, " ").trim() : "";
-    if (!TALLY_NAME.test(name)) throw new HandoffError(`checks[${i}].name is a short check name (up to 40 letters, digits, spaces, . _ : + -).`);
+    const name = typeof o.name === "string" ? o.name.replace(/\s+/g, " ").trim().toLowerCase() : "";
+    if (!KNOWN.has(name)) throw new HandoffError(`checks[${i}].name is a known check name (${KNOWN_CHECKS.join(", ")}); say anything else in the envelope.`);
     return { name, pass: count(o.pass, `checks[${i}].pass`), fail: count(o.fail, `checks[${i}].fail`) };
   });
 }
 
-/** A check list as people write it ("vitest 470, e2e 183/185, browser crawl") as tallies: "name N" passed N, "name N/M" N of M. */
+/** A check list as people write it ("vitest 470, e2e 183/185, browser crawl") as tallies: "name N" passed N, "name N/M"
+ *  N of M. A name that isn't a known check becomes "other" (its words stay sealed). */
 export function talliesFrom(text: string): CheckTally[] {
   return text
     .split(/[,;\n]/)
@@ -85,7 +93,8 @@ export function talliesFrom(text: string): CheckTally[] {
     .slice(0, MAX_TALLIES)
     .map((s) => {
       const m = s.match(/^(.*?)\s+(\d+)(?:\s*\/\s*(\d+))?(?:\s+passed)?$/);
-      const name = (m ? m[1] : s).replace(/[^A-Za-z0-9 ._:+-]/g, "").trim().slice(0, 40) || "checks";
+      const said = (m ? m[1] : s).trim().toLowerCase();
+      const name = KNOWN.has(said) ? said : "other";
       if (!m) return { name, pass: null, fail: null };
       const pass = Number(m[2]);
       return { name, pass, fail: m[3] != null ? Math.max(0, Number(m[3]) - pass) : 0 };

@@ -5514,6 +5514,8 @@ await step("encrypted handoffs: the gate's metadata in clear (branch hash, check
   const hashOf = (branch) => createHmac("sha256", Buffer.from(hkdfSync("sha256", k, Buffer.alloc(0), "atteo handoff branch v1", 32))).update(branch).digest("hex");
   const branch = `secret/feature-${run}`, sha = "a".repeat(40), base = "b".repeat(40);
   const checks = [{ name: "vitest", pass: 470, fail: 0 }, { name: "e2e", pass: 183, fail: 0 }];
+  // Only known check names in clear (#5580): a free-text one would leak what the work is about.
+  assert((await send(A, `/api/boards/${eb}/sealed`, "POST", { type: "handoff", payload: env("x", {}), handoff: { branch_hash: hashOf(branch), checks: [{ name: "fix auth bypass", pass: 3 }] } })).body.error?.includes("known check name"), "free-text check names are refused");
   const hand = (who, b = branch, over = {}) => send(who, `/api/boards/${eb}/sealed`, "POST", { type: "handoff", payload: env(`Ready to gate: ${b}`, { handoff: { branch: b, sha, base, checks: "vitest 470, e2e 183" } }), handoff: { branch_hash: hashOf(b), checks, ...over } });
 
   const h1 = await hand(A);
@@ -5528,15 +5530,18 @@ await step("encrypted handoffs: the gate's metadata in clear (branch hash, check
   await ok(A, eb, "read");
   await err(A, eb, "post", { type: "handoff", text: "x", handoff: { branch, sha, base, checks: "vitest 1" } }, "encrypt");
 
-  // One per branch (by its hash): the newer of the same branch replaces the older in the queue; another branch stays.
+  // Every open encrypted handoff stays in the server's queue: it can't check a hash against the sealed branch, so a
+  // copied hash must not push someone else's out (#5580). The gate's client checks each hash and dedupes.
   const h2 = (await hand(A)).body.entry.seq;
   const other = (await hand(A, `other-${run}`)).body.entry.seq;
+  const copied = (await send(B, `/api/boards/${eb}/sealed`, "POST", { type: "handoff", payload: env("Ready to gate: mine", { handoff: { branch: `b-${run}`, sha, base, checks: "vitest 1" } }), handoff: { branch_hash: hashOf(branch), checks } })).body.entry?.seq;
+  assert(copied > other, "a copied hash is stored (the server can't tell)");
   assert((await send(B, `/api/boards/${eb}/handle/${h2}`, "POST", { action: "take" })).status === 200, "B is on it");
   const rest = await (await web(`/api/boards/${eb}/handoffs`, B)).json();
-  assert(JSON.stringify(rest.handoffs.map((e) => e.seq)) === JSON.stringify([h2, other]), `queue ${JSON.stringify(rest.handoffs.map((e) => e.seq))} (old #${h1.body.entry.seq})`);
-  assert(rest.handoffs[0].held_by === B && !JSON.stringify(rest).includes("secret/feature"), JSON.stringify(rest.handoffs[0]).slice(0, 300));
+  assert(JSON.stringify(rest.handoffs.map((e) => e.seq)) === JSON.stringify([h1.body.entry.seq, h2, other, copied]), `queue ${JSON.stringify(rest.handoffs.map((e) => e.seq))}`);
+  assert(rest.handoffs[1].held_by === B && !JSON.stringify(rest).includes("secret/feature"), JSON.stringify(rest.handoffs[1]).slice(0, 300));
   const q = await ok(B, eb, "get", { list: "handoffs" });
-  has(q, "Gate queue: 2 open handoffs");
+  has(q, "Gate queue: 4 open handoffs");
   has(q, "🔒 branch and commits encrypted");
   has(q, "vitest 470, e2e 183");
   has(q, `${B} is on it`);
@@ -5549,8 +5554,7 @@ await step("encrypted handoffs: the gate's metadata in clear (branch hash, check
   const landed = await close(B, "landed");
   assert(landed.status === 201 && landed.body.entry.handoff?.of === h2 && landed.body.entry.handoff.sha === null, JSON.stringify(landed.body).slice(0, 300));
   const after = await (await web(`/api/boards/${eb}/handoffs`, B)).json();
-  // (The older one of that branch, still open, is back in line, as on a plain board.)
-  assert(JSON.stringify(after.handoffs.map((e) => e.seq)) === JSON.stringify([h1.body.entry.seq, other]), `closed leaves the queue: ${JSON.stringify(after.handoffs.map((e) => e.seq))}`);
+  assert(JSON.stringify(after.handoffs.map((e) => e.seq)) === JSON.stringify([h1.body.entry.seq, other, copied]), `closed leaves the queue: ${JSON.stringify(after.handoffs.map((e) => e.seq))}`);
   has(await ok(B, eb, "get", { seq: h2 }), "landed");
 });
 

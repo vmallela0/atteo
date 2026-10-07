@@ -23,7 +23,7 @@ export const encLine = (e: { seq: number; ts: number; author: string; via: strin
   const h = e.extras?.handoff;
   const gate = !h ? "" : "branch" in h ? `\n    🚦 ready to gate: ${h.branch} ${h.sha} on ${h.base} · checks: ${one(h.checks, 300)}` : h.sha ? `\n    🚦 landed as ${h.sha}` : "";
   const text = proseForAgent(String(e.text ?? "")).replace(/\r\n?|[\u2028\u2029\u0085\v\f]/g, "\n");
-  const flag = screenText([e.extras?.title ?? "", text, ...(e.extras?.files ?? []).map((f) => String(f.name ?? "")), h && "checks" in h ? h.checks : ""].join("\n"));
+  const flag = screenText([e.extras?.title ?? "", text, ...(e.extras?.files ?? []).map((f) => String(f.name ?? "")), h && "branch" in h ? handoffScreen(h) : ""].join("\n"));
   return `#${e.seq} ${e.type} · ${e.via === "agent" ? `${e.author}'s agent` : e.author}${e.to ? ` → ${e.to}` : ""}${e.reply_to ? ` · re #${e.reply_to}` : ""} · ${new Date(e.ts).toISOString().slice(0, 16).replace("T", " ")}Z${e.edited_at ? " · edited" : ""}${flag ? ` · ⚠ ${flagNote(flag)}` : ""}\n    ${title}${text.replace(/\n/g, "\n    ")}${gate}${files}${files ? `\n    (atteo download ${e.seq} saves ${e.extras!.files!.length === 1 ? "it" : "them"}, decrypted on this machine)` : ""}`;
 };
 
@@ -39,6 +39,35 @@ export function cleanExtras(x: unknown): SealedExtras {
     : [];
   const handoff = sealedHandoff(o.handoff);
   return { ...(typeof o.title === "string" && o.title ? { title: o.title } : {}), ...(files.length ? { files } : {}), ...(handoff ? { handoff } : {}) };
+}
+
+export type ReadyHandoff = Extract<SealedHandoff, { branch: string }>;
+
+/** What the injection screen reads of a sealed handoff: the branch (its words apart too: "ignore-previous-…") and the
+ *  checks, like handoffText on a plain board. */
+export const handoffScreen = (h: ReadyHandoff) => `${h.branch}\n${h.branch.replace(/[-_./]+/g, " ")}\n${h.checks}`;
+
+/**
+ * The gate's queue on an encrypted board as the client can trust it (#5580). The server can't check a clear branch hash
+ * against the sealed branch, so a member could copy someone else's: each hash is worked out again here from the
+ * decrypted branch under its envelope's epoch, and a handoff whose hash doesn't match is dropped. Then the newest per
+ * branch stays. One this machine can't decrypt stays, unchecked (open: null).
+ */
+export function verifiedQueue<R extends { seq: number; handoff?: { branch_hash?: unknown } | null }>(
+  rows: R[],
+  opened: Map<number, { handoff: ReadyHandoff; epoch: number }>,
+  hash: (epoch: number, branch: string) => string | null,
+): { rows: (R & { open: ReadyHandoff | null })[]; forged: number[] } {
+  const forged: number[] = [];
+  const kept = rows.flatMap((r): (R & { open: ReadyHandoff | null })[] => {
+    const o = opened.get(r.seq);
+    if (!o) return [{ ...r, open: null }];
+    if (hash(o.epoch, o.handoff.branch) !== r.handoff?.branch_hash) return (forged.push(r.seq), []);
+    return [{ ...r, open: o.handoff }];
+  });
+  const newest = new Map<string, number>();
+  for (const r of kept) if (r.open) newest.set(r.open.branch, r.seq);
+  return { rows: kept.filter((r) => !r.open || newest.get(r.open.branch) === r.seq), forged };
 }
 
 const SHA = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;

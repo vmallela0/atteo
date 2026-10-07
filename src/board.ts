@@ -3892,8 +3892,9 @@ export class Board extends DurableObject<Env> {
       )
       .toArray();
     const open = rows.map(toEntry).filter((e) => canSee(e, viewer));
-    // Encrypted handoffs go by the branch's keyed hash (the same branch under the same key epoch).
-    const key = (e: Entry) => (e.handoff && !isResult(e.handoff) ? branchKey(e.handoff) : null);
+    // Encrypted handoffs all stay: the server can't check a branch hash against the sealed branch (a member could copy
+    // someone else's), so the gate's client checks each hash it decrypts and keeps the newest per branch (#5580).
+    const key = (e: Entry) => (e.handoff && !isResult(e.handoff) && !isSealedReady(e.handoff) ? branchKey(e.handoff) : null);
     const newest = new Map<string, number>();
     for (const e of open) {
       const k = key(e);
