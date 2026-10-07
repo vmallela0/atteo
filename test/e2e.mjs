@@ -5,7 +5,7 @@
 
 import { readFileSync } from "node:fs";
 import { devFetch } from "./devfetch.mjs";
-import { createCipheriv, createDecipheriv, createPrivateKey, createPublicKey, diffieHellman, generateKeyPairSync, hkdfSync, randomBytes } from "node:crypto";
+import { createCipheriv, createHmac, createDecipheriv, createPrivateKey, createPublicKey, diffieHellman, generateKeyPairSync, hkdfSync, randomBytes } from "node:crypto";
 
 const BASE = (process.env.BASE ?? "http://localhost:8787").replace(/\/$/, "");
 let ADMIN_KEY = process.env.ADMIN_KEY;
@@ -5486,6 +5486,66 @@ await step("encrypted boards' parity (Phase 1a): edits by envelope, files as cip
   assert((await send(A, `/api/boards/${eb}/entries/${withFile.seq}/retract`, "POST", {})).status === 201, "unsend");
   assert(!(await sealedAll(A)).some((e) => e.seq === withFile.seq), "its envelope is gone");
   assert((await web(`/api/boards/${eb}/sealed-files/${up.body.id}`, A)).status === 400, "and its file");
+});
+
+await step("encrypted handoffs: the gate's metadata in clear (branch hash, check counts, state, who's on it), the branch, commits and checks sealed; one per branch; closed without a clear sha", async () => {
+  // The same tiny client as the parity step; the branch hash is HMAC-SHA256 under HKDF(epoch key, "atteo handoff branch v1").
+  const b64u = (s) => s.replace(/-/g, "+").replace(/_/g, "/") + "=".repeat((4 - (s.length % 4)) % 4);
+  const device = () => { const k = generateKeyPairSync("x25519"); return { priv: k.privateKey, pub: b64u(k.publicKey.export({ format: "jwk" }).x) }; };
+  const pubKey = (b) => createPublicKey({ key: { kty: "OKP", crv: "X25519", x: b.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "") }, format: "jwk" });
+  const gcm = (key, data, iv = randomBytes(12)) => { const c = createCipheriv("aes-256-gcm", key, iv); return { iv: iv.toString("base64"), out: Buffer.concat([c.update(data), c.final(), c.getAuthTag()]).toString("base64") }; };
+  const kek = (shared, epk, rpk) => Buffer.from(hkdfSync("sha256", shared, Buffer.concat([Buffer.from(epk, "base64"), Buffer.from(rpk, "base64")]), "agent-soup board key v2", 32));
+  const wrap = (key, pub) => { const e = device(); const w = gcm(kek(diffieHellman({ privateKey: e.priv, publicKey: pubKey(pub) }), e.pub, pub), key); return { epk: e.pub, iv: w.iv, wrapped: w.out }; };
+  const send = async (who, path, method, body) => { const r = await web(path, who, { method, headers: { "content-type": "application/json" }, body: JSON.stringify(body) }); return { status: r.status, body: await r.json().catch(() => ({})) }; };
+  const eb = (await ops("boards", { user: A, title: `e2e enc handoffs ${run}`, encrypted: true })).body.board.id;
+  await ops("members", { board: eb, user: B });
+  for (const who of [A, B]) { const d = device(); await send(who, "/api/me/keys", "POST", { public_key: d.pub, label: "handoffs" }); }
+  const epochs = await (await web(`/api/boards/${eb}/epochs`, A)).json();
+  const k = randomBytes(32);
+  assert((await send(A, `/api/boards/${eb}/epochs`, "POST", { epoch: epochs.current + 1, grants: epochs.keys.map((x) => ({ kid: x.kid, ...wrap(k, x.public_key) })) })).status === 201, "epoch");
+  const ep = epochs.current + 1;
+  const env = (text, extras) => { const c = gcm(k, Buffer.from(text)); const x = gcm(k, Buffer.from(JSON.stringify({ xv: 1, ...extras }))); return JSON.stringify({ v: 2, epoch: ep, iv: c.iv, ct: c.out, x: { iv: x.iv, ct: x.out } }); };
+  const hashOf = (branch) => createHmac("sha256", Buffer.from(hkdfSync("sha256", k, Buffer.alloc(0), "atteo handoff branch v1", 32))).update(branch).digest("hex");
+  const branch = `secret/feature-${run}`, sha = "a".repeat(40), base = "b".repeat(40);
+  const checks = [{ name: "vitest", pass: 470, fail: 0 }, { name: "e2e", pass: 183, fail: 0 }];
+  const hand = (who, b = branch, over = {}) => send(who, `/api/boards/${eb}/sealed`, "POST", { type: "handoff", payload: env(`Ready to gate: ${b}`, { handoff: { branch: b, sha, base, checks: "vitest 470, e2e 183" } }), handoff: { branch_hash: hashOf(b), checks, ...over } });
+
+  const h1 = await hand(A);
+  assert(h1.status === 201 && h1.body.entry.type === "handoff" && h1.body.entry.handoff.sealed === true, JSON.stringify(h1.body).slice(0, 300));
+  assert(!JSON.stringify(h1.body).includes("secret/feature"), "no branch in clear");
+  // The branch and commits never go in clear; plain handoff routes stay closed on an encrypted board.
+  assert((await hand(A, branch, { branch })).body.error?.includes("envelope"), "a clear branch is refused");
+  assert((await hand(A, branch, { checks: [{ name: "x <b>; rm -rf /" }] })).status === 400, "check names are short and plain");
+  assert((await send(A, `/api/boards/${eb}/sealed`, "POST", { type: "note", payload: env("x", {}), handoff: { branch_hash: hashOf(branch), checks } })).status === 400, "handoff goes with type handoff");
+  const plain = await send(A, `/api/boards/${eb}/entries`, "POST", { type: "handoff", text: "x", handoff: { branch, sha, base, checks: "vitest 1" } });
+  assert(plain.status >= 400, `plain handoff refused: ${plain.status}`);
+  await ok(A, eb, "read");
+  await err(A, eb, "post", { type: "handoff", text: "x", handoff: { branch, sha, base, checks: "vitest 1" } }, "encrypt");
+
+  // One per branch (by its hash): the newer of the same branch replaces the older in the queue; another branch stays.
+  const h2 = (await hand(A)).body.entry.seq;
+  const other = (await hand(A, `other-${run}`)).body.entry.seq;
+  assert((await send(B, `/api/boards/${eb}/handle/${h2}`, "POST", { action: "take" })).status === 200, "B is on it");
+  const rest = await (await web(`/api/boards/${eb}/handoffs`, B)).json();
+  assert(JSON.stringify(rest.handoffs.map((e) => e.seq)) === JSON.stringify([h2, other]), `queue ${JSON.stringify(rest.handoffs.map((e) => e.seq))} (old #${h1.body.entry.seq})`);
+  assert(rest.handoffs[0].held_by === B && !JSON.stringify(rest).includes("secret/feature"), JSON.stringify(rest.handoffs[0]).slice(0, 300));
+  const q = await ok(B, eb, "get", { list: "handoffs" });
+  has(q, "Gate queue: 2 open handoffs");
+  has(q, "🔒 branch and commits encrypted");
+  has(q, "vitest 470, e2e 183");
+  has(q, `${B} is on it`);
+  has(q, "atteo post handoff --reply");
+
+  // Closing: never your own as landed, never a clear sha; the commit on main goes in the reply's envelope.
+  const close = (who, state, over = {}) => send(who, `/api/boards/${eb}/sealed`, "POST", { type: "handoff", reply_to: h2, payload: env("Landed.", { handoff: { state, sha } }), handoff: { state, ...over } });
+  assert((await close(A, "landed")).body.error?.includes("someone else lands it"), "not your own");
+  assert((await close(B, "landed", { sha })).body.error?.includes("envelope"), "no clear sha");
+  const landed = await close(B, "landed");
+  assert(landed.status === 201 && landed.body.entry.handoff?.of === h2 && landed.body.entry.handoff.sha === null, JSON.stringify(landed.body).slice(0, 300));
+  const after = await (await web(`/api/boards/${eb}/handoffs`, B)).json();
+  // (The older one of that branch, still open, is back in line, as on a plain board.)
+  assert(JSON.stringify(after.handoffs.map((e) => e.seq)) === JSON.stringify([h1.body.entry.seq, other]), `closed leaves the queue: ${JSON.stringify(after.handoffs.map((e) => e.seq))}`);
+  has(await ok(B, eb, "get", { seq: h2 }), "landed");
 });
 
 await step("new board as JSON (the app): POST /api/boards makes an encrypted board by default; a title is required", async () => {
