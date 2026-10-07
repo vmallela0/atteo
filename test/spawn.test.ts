@@ -127,6 +127,15 @@ describe("machines (Board info → Agents): only counts leave the machine; label
   });
 });
 
+describe("atteo agents local: no other process's secrets (opus-d #5742)", () => {
+  it("never reads /proc/<pid>/environ: sessions come from atteo spawn's own record", async () => {
+    const { readFileSync } = (await import("node:" + "fs")) as { readFileSync: (u: URL, enc: string) => string };
+    const src = readFileSync(new URL("../cli/src/main.ts", (import.meta as unknown as { url: string }).url), "utf8");
+    expect(src).not.toMatch(/\/environ\b/);
+    expect(src).not.toMatch(/ps[^\n]*"(e|eww|-E)"/); // nor ps's environment columns
+  });
+});
+
 describe("atteo spawn: presets as for standby", () => {
   it("only claude as a preset; it loads no user settings", () => {
     expect(() => spawnCommand("codex", "P")).toThrow(/write the whole command/);

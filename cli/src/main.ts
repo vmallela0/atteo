@@ -830,20 +830,29 @@ function saveSpawned(list: Spawned[]) {
   mkdirSync(spawnDir(), { recursive: true, mode: 0o700 });
   writeFileSync(spawnedFile(), JSON.stringify(list, null, 1), { mode: 0o600 });
 }
-/** Still running, and still the agent we started (not a process that got its pid since). */
+/** When a process started, as the OS tells it (Linux: /proc/<pid>/stat's start tick; else ps lstart), or null. Never
+ *  its environment: that holds API keys and tokens, and we don't read other processes' secrets (opus-d #5742). */
+function procStart(pid: number): string | null {
+  try {
+    if (platform() === "linux") {
+      const stat = readFileSync(`/proc/${pid}/stat`, "utf8");
+      return stat.slice(stat.lastIndexOf(")") + 2).split(" ")[19] ?? null; // field 22, counted after "(comm)"
+    }
+    return execFileSync("ps", ["-o", "lstart=", "-p", String(pid)], { encoding: "utf8" }).trim() || null;
+  } catch {
+    return null;
+  }
+}
+/** Still running, and still the agent we started (not a process that got its pid since: same start time). */
 function isRunning(s: Spawned): boolean {
   try {
     process.kill(s.pid, 0);
   } catch (e) {
     if ((e as { code?: string }).code !== "EPERM") return false;
   }
-  if (platform() === "linux") {
-    try {
-      return readFileSync(`/proc/${s.pid}/environ`, "utf8").split("\0").includes(`ATTEO_SESSION=${s.session}`);
-    } catch {}
-  }
+  if (s.proc_start) return procStart(s.pid) === s.proc_start;
   try {
-    return !!agentKind(execFileSync("ps", ["-o", "args=", "-p", String(s.pid)], { encoding: "utf8" }).trim());
+    return !!agentKind(execFileSync("ps", ["-o", "args=", "-p", String(s.pid)], { encoding: "utf8" }).trim()); // recorded before proc_start
   } catch {
     return false;
   }
@@ -864,7 +873,7 @@ function machineLabel(given?: string): string {
 }
 
 type Seen = LocalAgent & { cwd?: string; session?: string; name?: string; board?: string };
-/** The agents running here (ps), with their folder and Atteo session where this OS shows them. */
+/** The agents running here (ps), with their folder (Linux) and, for the ones atteo spawn started, their session. */
 function scanLocal(): Seen[] {
   if (platform() === "win32") throw new CliError("atteo agents local reads ps: Linux and macOS (on Windows, run it in WSL).");
   const out = execFileSync("ps", ["-A", "-o", "pid=,ppid=,etime=,pcpu=,args="], { encoding: "utf8", maxBuffer: 32 << 20 });
@@ -872,16 +881,14 @@ function scanLocal(): Seen[] {
   return localAgents(parsePs(out)).map((a) => {
     const s = spawned.get(a.pid);
     let cwd: string | undefined;
-    let session: string | undefined;
     if (platform() === "linux") {
       try {
         cwd = readlinkSync(`/proc/${a.pid}/cwd`);
       } catch {}
-      try {
-        session = readFileSync(`/proc/${a.pid}/environ`, "utf8").split("\0").find((v: string) => /^(ATTEO|AGENT_SOUP)_SESSION=/.test(v))?.split("=")[1];
-      } catch {}
     }
-    return { ...a, cwd: cwd ?? s?.dir, session: session ?? s?.session, name: s?.name, board: s?.board };
+    // The session only from our own record of what we started: another agent's lives in its environment, beside its keys.
+    const ours = s && isRunning(s) ? s : undefined;
+    return { ...a, cwd: cwd ?? ours?.dir, session: ours?.session, name: ours?.name, board: ours?.board };
   });
 }
 
@@ -905,7 +912,7 @@ async function localAgentsCmd(args: string[]) {
   else {
     console.log(`${agents.length} agent${agents.length === 1 ? "" : "s"} running on ${machine}:`);
     for (const a of agents) {
-      const who = [a.name, a.session, a.board].filter(Boolean).join(" · ");
+      const who = a.session ? [a.name, a.session, a.board].filter(Boolean).join(" · ") : "session unknown: not started by atteo spawn";
       console.log(`  ${String(a.pid).padStart(7)}  ${a.kind.padEnd(8)} ${uptime(a.secs).padStart(7)}  ${a.busy ? "busy" : "idle"}  ${a.cwd ?? "?"}${who ? `  (${who})` : ""}`);
     }
   }
@@ -943,7 +950,7 @@ async function startAgents(o: Record<string, string>, so: SpawnOpts, n: number, 
         child.once("error", reject);
       });
       child.unref();
-      saveSpawned([...loadSpawned(), { name: s.name, pid, session: s.id, board, dir, log: logPath, agent: so.agent ?? "claude", mode: so.mode, started: Date.now() }]);
+      saveSpawned([...loadSpawned(), { name: s.name, pid, proc_start: procStart(pid) ?? undefined, session: s.id, board, dir, log: logPath, agent: so.agent ?? "claude", mode: so.mode, started: Date.now() }]);
       names.push(s.name);
     } catch (e) {
       await api(o, "DELETE", `/api/sessions/${s.id}`).catch(() => {});
@@ -1527,7 +1534,7 @@ const HELP = `Atteo CLI ${VERSION} (the atteo command)
                          unless --from anyone. Never drains your mail; never with permission prompts off; --max-per-hour 3
   atteo agents local [--json] [--machine <label>] [--no-report]
                          Agents running on this machine (claude, codex, gemini, cursor-agent, opencode, pi): pid, uptime,
-                         folder, Atteo session, busy/idle. Sends only the count: Board info shows "you · <machine> · N agents running"
+                         folder, busy/idle, and the session of ones atteo spawn started (never read from a process's environment). Sends only the count: Board info shows "you · <machine> · N agents running"
   atteo spawn N --board <board> [--agent claude|"<command>"] [--name worker] [--dir <folder>] [--permission-mode default]
                          Start N standing agents, each with its own session and folder (--dir: one of yours), that join the
                          board and pick up unclaimed work. Detached; logs in ~/.config/agent-board/spawn/logs. The mode is

@@ -174,6 +174,7 @@ export function decideRequest(s: Signal, me: string, caps: Caps, running: number
 export interface Spawned {
   name: string;
   pid: number;
+  proc_start?: string; // when that pid started (main.ts procStart), so --stop never signals a process that reused it
   session: string;
   board: string;
   dir: string;
