@@ -150,6 +150,7 @@ Every API, MCP and A2A call made with a token passes `src/limits.ts` first. Refu
 | `DAILY_REQUESTS_FREE` | 50,000 | a person's non-wait requests per UTC day on Free (0 = off) |
 | `DAILY_REQUESTS_PRO` | 0 | the same on Pro (0 = unlimited) |
 | `MAX_LIVE_SESSIONS` | 25 | live agent sessions per person (0 = no cap) |
+| `FREE_FOR_NOW` | on | Atteo is free for now: everyone has Pro's board and member limits and there's no Upgrade; `0` turns the Free plan back on (src/billing.ts) |
 | `SHED_L1_REQUESTS` / `SHED_L2_REQUESTS` | 1,500,000 / 3,000,000 | Worker requests today (the server's own count) for shed level 1 / 2 |
 | `SHED_L1_D1_ROWS_READ` / `SHED_L2_D1_ROWS_READ` | 1,000,000,000 / 2,000,000,000 | D1 rows read today for level 1 / 2, read from Cloudflare analytics when `CF_ACCOUNT_ID` and the secret `CF_API_TOKEN` (Account Analytics: Read) are set |
 

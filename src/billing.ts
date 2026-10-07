@@ -10,6 +10,23 @@ export const PLANS = {
 export type Plan = keyof typeof PLANS;
 export const PRICES = { month: { lookup: "pro_monthly", label: "$10 / month" }, year: { lookup: "pro_yearly", label: "$100 / year" } } as const;
 
+/**
+ * Free for now (jxn #5631, #5636): until paid plans start, everyone has Pro's limits and there's nothing to buy. Existing
+ * Pro subscriptions keep working (webhook, Manage billing). FREE_FOR_NOW=0 turns the Free caps and Upgrade back on.
+ */
+export const freeForNow = (env: Pick<Env, "FREE_FOR_NOW">) => (env.FREE_FOR_NOW ?? "").trim() !== "0";
+
+/** A plan's limits as they apply today: Pro's for everyone while Atteo is free for now. */
+export const limitsOf = (env: Pick<Env, "FREE_FOR_NOW">, plan: Plan) => (freeForNow(env) ? PLANS.pro : PLANS[plan]);
+
+/** The plans announced for later (landing FAQ, landing/src/home.ts): shown while free for now, nothing is charged. */
+export const PLANNED = [
+  { name: "Free", price: "$0", messages: "100 messages a day" },
+  { name: "$10 / month", price: "$10", messages: "250 messages a day" },
+  { name: "$20 / month", price: "$20", messages: "500 messages a day" },
+  { name: "$50 / month", price: "$50", messages: "Unlimited messages" },
+] as const;
+
 const STRIPE_VERSION = "2024-06-20"; // pinned: the account's default API version is older
 
 export class BillingError extends Error {}
@@ -20,6 +37,7 @@ export interface PlanState {
   renews_at: number | null;
   cancel_at_end: boolean;
   customer: string | null;
+  free_for_now?: boolean; // Atteo is free for now: no Upgrade, Pro's limits for everyone
 }
 
 export async function planOf(env: Env, user: string): Promise<PlanState> {
@@ -29,13 +47,13 @@ export async function planOf(env: Env, user: string): Promise<PlanState> {
   // Operators always have Pro limits.
   const admins = (env.ADMIN_EMAIL ?? "").toLowerCase().split(",").map((s) => s.trim()).filter(Boolean);
   const plan: Plan = r?.plan === "pro" || (!!r?.email && admins.includes(r.email.toLowerCase())) ? "pro" : "free";
-  return { plan, status: r?.plan_status ?? null, renews_at: r?.plan_renews_at ?? null, cancel_at_end: !!r?.plan_cancel_at_end, customer: r?.stripe_customer ?? null };
+  return { plan, status: r?.plan_status ?? null, renews_at: r?.plan_renews_at ?? null, cancel_at_end: !!r?.plan_cancel_at_end, customer: r?.stripe_customer ?? null, free_for_now: freeForNow(env) };
 }
 
 /** Throws a friendly error when a free account is at its board limit. */
 export async function checkCanCreateBoard(env: Env, user: string, origin: string): Promise<void> {
   const p = await planOf(env, user);
-  const limit = PLANS[p.plan].boards;
+  const limit = limitsOf(env, p.plan).boards;
   if (limit === Infinity) return;
   const n = (await env.DB.prepare(`SELECT COUNT(*) AS n FROM boards WHERE created_by = ? AND archived_at IS NULL AND deleted_at IS NULL AND kind IS NULL`).bind(user).first<{ n: number }>())?.n ?? 0;
   if (n >= limit) {
@@ -48,10 +66,10 @@ export async function checkCanAddMember(env: Env, boardId: string, origin: strin
   const b = await env.DB.prepare(`SELECT created_by, (SELECT COUNT(*) FROM members WHERE board_id = ?1) AS n FROM boards WHERE id = ?1`).bind(boardId).first<{ created_by: string; n: number }>();
   if (!b) return;
   const p = await planOf(env, b.created_by);
-  const limit = PLANS[p.plan].members;
+  const limit = limitsOf(env, p.plan).members;
   if (b.n >= limit) {
     throw new BillingError(
-      p.plan === "free"
+      p.plan === "free" && !p.free_for_now
         ? `This board is full: the Free plan allows ${limit} members per board. Its creator (${b.created_by}) can upgrade to Pro for up to ${PLANS.pro.members}: ${origin}/me#billing`
         : `This board is full (${limit} members).`,
     );
@@ -84,6 +102,7 @@ async function customerFor(env: Env, user: string, fresh = false): Promise<strin
 
 /** A hosted Checkout page for Pro (monthly or yearly). */
 export async function checkoutUrl(env: Env, user: string, interval: "month" | "year", origin: string): Promise<string> {
+  if (freeForNow(env)) throw new BillingError("Atteo is free for now, so there's nothing to buy yet.");
   const prices = await stripe<{ data: { id: string }[] }>(env, "prices", { "lookup_keys[]": PRICES[interval].lookup, active: "true" }, "GET");
   if (!prices.data[0]) throw new BillingError("The Pro price isn't set up yet (run scripts/stripe-setup.sh).");
   const session = async (customer: string) =>

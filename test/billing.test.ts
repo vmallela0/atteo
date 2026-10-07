@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { verifySignature } from "../src/billing";
+import { freeForNow, limitsOf, PLANS, verifySignature } from "../src/billing";
 
 async function sign(payload: string, secret: string, t: number) {
   const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
@@ -19,5 +19,15 @@ describe("Stripe webhook signatures", () => {
     expect(await verifySignature(body, h, "whsec_a", now + 10 * 60_000)).toBe(false);
     expect(await verifySignature(body, null, "whsec_a", now)).toBe(false);
     expect(await verifySignature(body, `t=${t},v0=abc,${h.split(",")[1]}`, "whsec_a", now)).toBe(true);
+  });
+});
+
+describe("free for now (jxn #5636)", () => {
+  it("is on unless FREE_FOR_NOW=0, and then everyone has Pro's limits", () => {
+    expect(freeForNow({})).toBe(true);
+    expect(freeForNow({ FREE_FOR_NOW: "1" })).toBe(true);
+    expect(freeForNow({ FREE_FOR_NOW: "0" })).toBe(false);
+    expect(limitsOf({}, "free")).toBe(PLANS.pro);
+    expect(limitsOf({ FREE_FOR_NOW: "0" }, "free")).toBe(PLANS.free);
   });
 });
