@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { CSP_ENFORCE } from "../src/ui";
 import { beaconSnippet, cspHash, inlineScripts, landingCsp } from "../landing/src/csp";
 import worker from "../landing/src/index";
+import { openapi } from "../src/openapi";
 
 const env = { APP_ORIGIN: "http://127.0.0.1:9" };
 const FORM = "https://atteo.dev";
@@ -32,7 +33,7 @@ describe("landing Worker CSP (docs/security/csp.md #8)", () => {
   });
 
   it("sends an enforced hash policy on /, /faq, /support and /developers, and allows the JSON-LD by hash (/guide is the app's now, #5110)", async () => {
-    for (const path of ["/", "/faq", "/support", "/developers", "/?theme=dark", "/landing", "/landing/startup"]) {
+    for (const path of ["/", "/faq", "/support", "/developers", "/?theme=dark", "/landing", "/landing/startup", "/landing/dev"]) {
       const res = await page(path);
       expect(res.status).toBe(200);
       expect(res.headers.get("content-type")).toMatch(/text\/html/);
@@ -51,7 +52,7 @@ describe("landing Worker CSP (docs/security/csp.md #8)", () => {
       expect(html).not.toMatch(/\son[a-z]+\s*=/i);
       expect(html).not.toMatch(/\b(?:href|src)\s*=\s*["']javascript:/i);
       const scripts = inlineScripts(html);
-      if (path === "/support" || path === "/developers" || path === "/landing/startup") { // no scripts at all
+      if (path === "/support" || path === "/developers" || path === "/landing/startup" || path === "/landing/dev") { // no scripts at all
         expect(scripts).toEqual([]);
         expect(csp).toContain("script-src 'none'");
       } else {
@@ -166,5 +167,24 @@ describe("landing public connect and directory links", () => {
     expect(body).toContain("<h1>The shared board for your team's agents.</h1>");
     expect(body).toContain('shadowrootmode="open"');
     expect(body.match(/class="su-cta"/g)).toHaveLength(1);
+  });
+
+  it("serves the developer home page at /landing/dev (jxn #5801): the command, five verbs as CLI and curl, three recipes", async () => {
+    const res = await page("/landing/dev");
+    expect(res.status).toBe(200);
+    const body = await res.text();
+    expect(body).toContain('<span class="ln">curl -fsSL https://atteo.dev/install.sh | sh</span><span class="ln">atteo harness claude</span>');
+    expect([...body.matchAll(/<div class="dv-row dv-verb"><h3><code>(\w+)<\/code>/g)].map((m) => m[1])).toEqual(["post", "wait", "read", "handoff", "approve"]);
+    expect(body.match(/<b>CLI<\/b>/g)).toHaveLength(5);
+    expect(body.match(/<b>curl<\/b>/g)).toHaveLength(5);
+    expect(body.match(/class="dv-row dv-recipe"/g)).toHaveLength(3);
+    for (const cmd of ["atteo init", "atteo spawn 3 --board", "if: failure()"]) expect(body).toContain(cmd);
+    expect(body).toContain('href="/developers"');
+    // Every endpoint it shows is a real one: in the OpenAPI description, with $VARS for its {params}.
+    const paths = Object.keys((openapi("https://atteo.dev") as { paths: Record<string, unknown> }).paths);
+    const shown = [...new Set([...body.matchAll(/https:\/\/atteo\.dev(\/api\/[^\s"?&;<]+)/g)].map((m) => m[1]))];
+    expect(shown.sort()).toEqual(["/api/approvals/$APPROVAL", "/api/boards/$BOARD/entries", "/api/boards/$BOARD/updates"]);
+    for (const p of shown) expect(paths.some((q) => new RegExp(`^${q.replace(/\{[^}]+\}/g, "\\$[A-Z_]+")}$`).test(p)), p).toBe(true);
+    expect(await (await page("/sitemap.xml")).text()).not.toContain("/landing/dev");
   });
 });
