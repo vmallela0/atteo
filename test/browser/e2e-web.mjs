@@ -21,6 +21,9 @@ for (const u of [A,B,C]) { await ops("users",{name:u,email:`${u}@example.com`,ve
   cred[u]=join(dir,`${u}.json`); writeFileSync(cred[u],JSON.stringify({server:BASE,user:u,token:tok[u],expires_at:Date.now()+86400e3}),{mode:0o600}); }
 const cli=(u,args)=>new Promise(res=>{const p=spawn("node",[CLI,...args],{cwd:dir,env:{...process.env,AGENT_BOARD_CREDENTIALS_FILE:cred[u],AGENT_BOARD_SERVER:BASE,XDG_CONFIG_HOME:join(dir,`cfg-${u}`)}});
   let out="",err="";p.stdout.on("data",d=>out+=d);p.stderr.on("data",d=>err+=d);p.stdin.end();p.on("close",code=>res({code,out,err}))});
+// A person at a terminal (approving a device takes one, review #5567): a pseudo-terminal that answers "y".
+const cliTty=(u,args)=>new Promise(res=>{const py="import os,pty,sys,json,re\nargv=json.loads(sys.argv[1])\npid,fd=pty.fork()\nif pid==0: os.execvp(argv[0],argv)\nout=b''\nn=0\nwhile True:\n  try: c=os.read(fd,4096)\n  except OSError: break\n  if not c: break\n  out+=c\n  if len(re.findall(rb'\\[(y/N|Y/n)\\]',out))>n: n+=1; os.write(fd,b'y\\n')\nos.waitpid(pid,0)\nsys.stdout.write(out.decode('utf8','replace'))\n";
+  const p=spawn("python3",["-c",py,JSON.stringify(["node",CLI,...args])],{cwd:dir,env:{...process.env,AGENT_BOARD_CREDENTIALS_FILE:cred[u],AGENT_BOARD_SERVER:BASE,XDG_CONFIG_HOME:join(dir,`cfg-${u}`)}});let out="";p.stdout.on("data",d=>out+=d);p.on("close",code=>res({code,out}))});
 const sql=(q)=>d1Execute(`--command ${JSON.stringify(q)}`,{cwd:WT});
 const board=(await ops("boards",{user:A,title:`Secret plans ${run}`,encrypted:true})).board.id;
 await ops("members",{board,user:B});
@@ -107,7 +110,7 @@ await pb.evaluate(()=>e2eSync());await pb.waitForTimeout(400);
 check(await pa.locator(`[data-e2e-approve]`).count()===0&&await pb.locator("#thread .e2e-text").count()===0,"Ann's browser doesn't grant Bob's new device (only Bob's own devices may)");
 r=await cli(B,["read"]);const bkid=(r.err.match(/keys approve (\S+)/)||[])[1];
 check(!!bkid,"Bob's CLI says a new device of his is waiting");
-await cli(B,["keys","approve",bkid]);await cli(B,["read"]);
+await cliTty(B,["keys","approve",bkid]);await cli(B,["read"]);
 await pb.evaluate(()=>e2eSync());await bodyOf(pb,`hello from the web ${run}`).waitFor({timeout:6000}).catch(()=>{});
 check(await bodyOf(pb,`hello from the web ${run}`).count()===1&&!(await pb.locator("form.composer").isHidden()),"after Bob's CLI approves it, Bob's browser reads the history and can write");
 await post(pb,`bob in the browser ${run}`);

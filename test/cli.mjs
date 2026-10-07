@@ -796,7 +796,7 @@ await step("sealed secrets: only the recipient's agent can open them; the server
 });
 
 /** Runs the CLI in a pseudo-terminal (a person at a keyboard) and answers "y" to every [y/N] / [Y/n] prompt. */
-function cliTty(args, { cred = credA, cwd = dir } = {}) {
+function cliTty(args, { cred = credA, cwd = dir, env = {} } = {}) {
   const py = `
 import os, pty, sys, json, re, time
 argv = json.loads(sys.argv[1])
@@ -820,7 +820,7 @@ sys.stdout.write(out.decode("utf8", "replace"))
 sys.exit(os.waitstatus_to_exitcode(status))
 `;
   return new Promise((resolve) => {
-    const p = spawn("python3", ["-c", py, JSON.stringify(["node", CLI, ...args])], { cwd, env: { ...process.env, ATTEO_CREDENTIALS_FILE: cred, ATTEO_SERVER: BASE, XDG_CONFIG_HOME: join(dir, "cfg-cmds") } });
+    const p = spawn("python3", ["-c", py, JSON.stringify(["node", CLI, ...args])], { cwd, env: { ...process.env, ATTEO_CREDENTIALS_FILE: cred, ATTEO_SERVER: BASE, XDG_CONFIG_HOME: join(dir, "cfg-cmds"), ...env } });
     let out = "";
     p.stdout.on("data", (d) => (out += d));
     p.stderr.on("data", (d) => (out += d));
@@ -934,8 +934,11 @@ await step("encryption v2: one key per board epoch; a newcomer reads history; yo
   r = await cli(["read"], { cwd: pa });
   const kid2 = (r.err.match(/keys approve (\S+)/) ?? [])[1];
   assert(kid2, "A's first machine says a new device of A's is waiting: " + r.err);
+  // Review #5567: an agent (no terminal) can't approve a device; a person at a terminal, saying yes, can.
   r = await cli(["keys", "approve", kid2], { cwd: pa });
-  assert(r.out.includes("Approved"), r.out + r.err);
+  assert(r.code !== 0 && r.err.includes("a person has to run it in a terminal") && !r.out.includes("Approved"), r.out + r.err);
+  r = await cliTty(["keys", "approve", kid2], { cwd: pa });
+  assert(r.out.includes("Approved"), r.out);
   await cli(["read"], { cwd: pa });
   r = await cli(["read", "--all"], { cwd: pa2, cred: credA2 });
   assert(r.out.includes(`first v2 message ${run}`), "after approval, A's second machine reads: " + r.out + r.err);
@@ -1197,6 +1200,7 @@ await step("cross-signed devices (E2E 1c): approving your new machine signs it; 
     writeFileSync(cred[who], JSON.stringify({ server: BASE, user: u, token: (await ops("tokens", { user: u })).token, expires_at: Date.now() + 86400e3 }), { mode: 0o600 });
   }
   const as = (who, args) => cli(args, { cwd: mkdtempSync(join(tmpdir(), `atteo-xs-${who}-`)), cred: cred[who], env: { XDG_CONFIG_HOME: join(dir, `cfg-xs-${who}`) } });
+  const asTty = (who, args) => cliTty(args, { cwd: mkdtempSync(join(tmpdir(), `atteo-xs-${who}-`)), cred: cred[who], env: { XDG_CONFIG_HOME: join(dir, `cfg-xs-${who}`) } }).then((r) => ({ ...r, err: r.out }));
   let r = await as("r1", ["create", `cross signed ${run}`, "--encrypted"]);
   assert(r.code === 0, r.out + r.err);
   const eb = r.out.match(/\((b_[a-z0-9]+)\)/)[1];
@@ -1215,9 +1219,9 @@ await step("cross-signed devices (E2E 1c): approving your new machine signs it; 
   r = await as("r2", ["read", "--all", "--board", eb]);
   assert(!r.out.includes(secret), "not yet: " + r.out);
   // R approves it on the first machine: signed into R's device list. R1 isn't used again.
-  r = await as("r1", ["keys", "approve", r2.id]);
+  r = await asTty("r1", ["keys", "approve", r2.id]);
   assert(r.code === 0 && r.out.includes("signed it into your device list"), r.out + r.err);
-  r = await as("r1", ["keys", "approve", r2.id]);
+  r = await asTty("r1", ["keys", "approve", r2.id]);
   assert(!r.out.includes("Not signed"), "approving again doesn't re-sign: " + r.out);
   r = await as("s", ["read", "--board", eb]); // S's CLI checks the signature against R1's pinned signing key, and grants
   r = await as("r2", ["read", "--all", "--board", eb]);
@@ -1268,13 +1272,18 @@ await step("cross-signed devices (E2E 1c): approving your new machine signs it; 
   const missingR = async () => (await fetch(`${BASE}/api/boards/${eb}/epochs`, { headers: { authorization: `Bearer ${tokS}` } }).then((x) => x.json())).missing.map((m) => m.kid);
   for (let i = 0; i < 2; i++) {
     r = await as("s", ["post", `server shows a new device ${i} ${run}`, "--board", eb]);
-    assert(r.code === 0 && r.err.includes(`None of ${R}'s devices this machine trusted is listed any more`) && r.err.includes(`atteo keys trust ${R} ${legacy.id}`), r.out + r.err);
+    // Not at a terminal (an agent): the warning doesn't hand it the exact command to pass on.
+    assert(r.code === 0 && r.err.includes(`None of ${R}'s devices this machine trusted is listed any more`) && !r.err.includes("atteo keys trust") && r.err.includes("Only your user can trust it"), r.out + r.err);
   }
   const pinsS2 = JSON.parse(readFileSync(`${cred.s}.pins`, "utf8"));
   assert(Array.isArray(pinsS2[R]) && !pinsS2[R].some((e) => e.startsWith(`${legacy.id}|`)), "R's entry stays, and the new device isn't pinned: " + JSON.stringify(pinsS2[R]));
   assert((await missingR()).includes(legacy.id), "and it got no key");
+  // Review #5567: an agent running it is refused, and nothing changes; a person at a terminal, saying yes, can.
   r = await as("s", ["keys", "trust", R, legacy.id, "--board", eb]);
-  assert(r.code === 0 && r.out.includes(`Trusted ${R}'s device`), r.out + r.err);
+  assert(r.code !== 0 && r.err.includes("a person has to run it in a terminal"), r.out + r.err);
+  assert((await missingR()).includes(legacy.id), "the agent's try changed nothing");
+  r = await asTty("s", ["keys", "trust", R, legacy.id, "--board", eb]);
+  assert(r.code === 0 && r.out.includes(`Trusted ${R}'s device`), r.out);
   assert(!(await missingR()).includes(legacy.id), "trusted on S's word: it has the key now");
 });
 

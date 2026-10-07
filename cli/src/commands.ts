@@ -429,7 +429,7 @@ async function boardKeys(opt: Record<string, string | true>, board: string, trie
     k.user === me
       ? warnOnce(k.kid, `🔑 A new device of yours (${k.label ?? "unnamed"}, ${k.kid.slice(0, 8)}) is waiting for this board's key. If it's yours: atteo keys approve ${k.kid}`)
       : noneLeft(pin, k.user)
-        ? warnOnce(k.kid, `⚠ None of ${k.user}'s devices this machine trusted is listed any more, and the server shows a new one (${k.label ?? "unnamed"}, ${k.kid}) that none of them signed. It could be the server's own, so it gets no key from here. Check with ${k.user} (not on this board), then: atteo keys trust ${k.user} ${k.kid}`)
+        ? warnOnce(k.kid, `⚠ None of ${k.user}'s devices this machine trusted is listed any more, and the server shows a new one (${k.label ?? "unnamed"}, ${k.kid}) that none of them signed. It could be the server's own, so it gets no key from here. ${atTerminal() ? `Check with ${k.user} (not on this board), then: atteo keys trust ${k.user} ${k.kid}` : `Only your user can trust it, in a terminal, after checking with ${k.user} (not on this board).`}`)
         : warnOnce(k.kid, `🔑 ${k.user} has a device this machine hasn't seen (${k.label ?? "unnamed"}, ${k.kid.slice(0, 8)}). It gets the key from one of ${k.user}'s own devices, not from here.`);
 
   let current = st.current;
@@ -1189,6 +1189,7 @@ async function keys(args: string[]) {
     const k = (j.keys as { id: string; label: string | null; public_key: string; sign_pub: string | null; sig: string | null }[]).find((x) => x.id === kid || (kid && kid.length >= 6 && x.id.startsWith(kid)));
     if (!k) throw new CliError(`Usage: atteo keys approve <device id>   (one of yours: ${(j.keys as { id: string }[]).map((x) => x.id.slice(0, 8)).join(", ")})`);
     if (k.id === mine) throw new CliError("That's this machine.");
+    await personConfirms("atteo keys approve", `Approve ${k.label ?? "that device"} (${k.id}) as one of yours? It gets the keys of your encrypted boards.`);
     const p = pins();
     const me = creds().user;
     if (!pinned(p[me], k.id, k.public_key)) (p[me] ??= []).push(pinId(k.id, k.public_key, k.sign_pub));
@@ -1215,6 +1216,7 @@ async function keys(args: string[]) {
     const k = who && kidArg ? [...st.keys, ...st.missing].find((x) => x.user === who && (x.kid === kidArg || (kidArg.length >= 6 && x.kid.startsWith(kidArg)))) : undefined;
     if (!k) throw new CliError("Usage: atteo keys trust <person> <device id> [--board <id>]   (a device of theirs this board lists; check it with them first)");
     if (k.user === creds().user) throw new CliError(`That's one of yours: atteo keys approve ${k.kid}`);
+    await personConfirms("atteo keys trust", `Trust ${k.user}'s device ${k.label ?? "unnamed"} (${k.kid})? Only if ${k.user} told you, outside this board, that it's theirs.`);
     const p = pins();
     if (!pinned(p[k.user], k.kid, k.public_key)) (p[k.user] ??= []).push(pinId(k.kid, k.public_key, k.sign_pub));
     savePins(p);
@@ -1374,6 +1376,18 @@ async function checkCmd(args: string[]) {
   const repo = repoRoot(process.cwd());
   const commit = optStr(opt, "commit") ?? (repo && !opt["any-commit"] ? resolveCommit(repo, "HEAD") ?? undefined : undefined);
   say(await tool(opt, "claim", { action: "check", seq, command, commit }));
+}
+
+/** A person at a keyboard: both ends are a terminal (an agent's tool call has neither). */
+const atTerminal = () => !!process.stdin.isTTY && !!process.stdout.isTTY;
+
+/**
+ * Trusting a device hands it keys, so it's a person's call (review #5567): in a terminal, with their yes. An agent is
+ * refused before anything changes, and isn't handed the exact command to pass on.
+ */
+async function personConfirms(what: string, question: string) {
+  if (!atTerminal()) throw new CliError(`${what} hands a device this board's keys, so a person has to run it in a terminal and say yes. Ask your user to do it themselves.`);
+  if (!(await askYes(question, false))) throw new CliError("Nothing changed.");
 }
 
 export function askYes(question: string, dflt: boolean): Promise<boolean> {
