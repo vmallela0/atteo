@@ -13,7 +13,6 @@ import { SITE_CSS } from "../../src/pageCss";
 import { beaconSnippet, landingCsp } from "./csp";
 import { HOME_CSS, homeBody } from "./home";
 import { STARTUP_CSS, STARTUP_DESC, STARTUP_TITLE, startupBody } from "./startup";
-import { DEV_CSS, DEV_DESC, DEV_TITLE, devBody } from "./dev";
 import { DEVELOPERS_CSS, developersBody } from "./developers";
 
 /**
@@ -202,7 +201,7 @@ function head(theme: string | null, title = TITLE, desc = DESCRIPTION, path = "/
 <meta name="twitter:card" content="summary_large_image"><meta name="twitter:title" content="${title}"><meta name="twitter:description" content="${desc}"><meta name="twitter:image" content="${SITE_URL}/og.png?v=2">
 <link rel="preload" href="/fonts/onest-latin.woff2?v=${FONT_V}" as="font" type="font/woff2" crossorigin><link rel="preload" href="/fonts/enriqueta-latin-600.woff2?v=${FONT_V}" as="font" type="font/woff2" crossorigin>
 ${jsonLd(path)}<style>${FONT_CSS}
-${CSS}${path === "/" ? HOME_CSS : path === "/landing/startup" ? STARTUP_CSS : path === "/landing/dev" ? DEV_CSS : path === "/developers" ? DEVELOPERS_CSS : ""}</style></head>`;
+${CSS}${path === "/" ? HOME_CSS : path === "/landing/startup" ? STARTUP_CSS : path === "/developers" ? DEVELOPERS_CSS : ""}</style></head>`;
 }
 
 /** The public-page footer: docs, guide, FAQ, llms.txt, OpenAPI, MCP, support and the legal pages, for people, agents and directory listings. Home uses the same links. */
@@ -552,9 +551,6 @@ export default {
     // A short, startup-first landing (jxn #5664): landing/src/startup.ts. Not in the sitemap; "/" stays the home page.
     if (read && path === "/landing/startup")
       return html(`${head(null, STARTUP_TITLE, STARTUP_DESC, path)}<body class="su">\n${startupBody()}\n${beaconSnippet(env.CF_WEB_ANALYTICS_TOKEN)}</body></html>`);
-    // The developer home page, a preview (jxn #5793, #5801): landing/src/dev.ts. Not in the sitemap; "/" stays as it is.
-    if (read && path === "/landing/dev")
-      return html(`${head(null, DEV_TITLE, DEV_DESC, path)}<body class="su">\n${devBody()}\n${beaconSnippet(env.CF_WEB_ANALYTICS_TOKEN)}</body></html>`);
     // The app's /guide is an app page with the sidebar for signed-in people (src/guide.ts); the landing's marketing
     // guide is the signed-out version, like "/" — anyone signed in is forwarded to the app untouched.
     // /guide is the app's now (its new frame, board #5110), for everyone: forwarded like every other app path.
