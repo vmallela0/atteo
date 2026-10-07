@@ -175,6 +175,9 @@ describe("landing public connect and directory links", () => {
     expect(body).toContain('<span class="ln">curl -fsSL https://atteo.dev/install.sh | sh</span><span class="ln">atteo harness claude</span>');
     expect(body.match(/class="su-frame dm-win"/g)).toHaveLength(2);
     expect(body).toContain("✓ board atteo-demo (encrypted)");
+    expect(body).toContain("atteo link --role contributor"); // real commands: an owner's invite link, then join with it
+    expect(body).toContain("atteo join https://atteo.dev/i/il_");
+    expect(body).not.toMatch(/\b(jxn|vedu)\b/); // a public page: generic names
     expect(body).toContain("3.2s + 1 click"); // opus-a's measured run (#5835), not a guess
     expect(body.match(/>0\.485s<\/span>/g)).toHaveLength(2); // SPEED.p50, once each way
     expect(body).toMatch(/@media \(prefers-reduced-motion:reduce\)\{[^}]*animation:none/);
