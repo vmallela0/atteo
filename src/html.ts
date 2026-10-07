@@ -30,6 +30,7 @@ import { fnv } from "./codecolor";
 import { displayMap, personHtml, shownName } from "./names";
 import { agentLogo } from "./agent-logos";
 import { esc, pictureUrl, slug } from "./util";
+import type { SecretPresence } from "./secretPresence";
 import { WELCOME_BANNER_JS, assistantCard, grokBotMessage, welcomeBanner } from "./welcome";
 import { stateOf } from "./sessions";
 import { CLIENT_SCAN_JS } from "./clientScan";
@@ -3963,6 +3964,7 @@ export interface AdminData {
   oauth_clients_pruned?: number; // usage_daily oauth_clients_pruned, last 14 days
   // the cost guard (src/costGuard.ts) and its last check
   cost?: { capped: { at: number; reason: string } | null; watching: boolean; thresholds?: import("./costGuard").Thresholds } & Partial<import("./costGuard").Status>;
+  secrets?: SecretPresence[]; // set/missing only; never the secret value (src/secretPresence.ts)
 }
 
 const agoMin = (at: number, now: number) => {
@@ -3993,6 +3995,18 @@ function costHtml(c: AdminData["cost"]): string {
   if (c.capped)
     return `<div class="card pad" role="alert" style="margin-bottom:16px"><strong>Cost guard tripped</strong> <span class="small muted">${esc(new Date(c.capped.at).toISOString().replace("T", " ").slice(0, 16))} UTC</span><p class="small" style="margin:6px 0 10px">${esc(c.capped.reason)}. Waits, search, grep and exports answer 503. Find and stop the loop first (docs/COSTS.md), then clear.</p><button class="btn" type="button" data-cost-clear>Clear the cost cap</button></div>${line}`;
   return line;
+}
+
+/** Set or missing for each production secret. `set` is rendered only when it is strictly true, so a stray string cannot land in the page. */
+function secretsHtml(rows: AdminData["secrets"], table: (head: string[], rows: string[], empty: string, cls?: string) => string): string {
+  if (!rows?.length) return "";
+  const body = rows.map((r) => {
+    const state = r.set === true ? "set" : "missing";
+    return `<tr data-secret="${esc(r.name)}"><td class="mono">${esc(r.name)}</td><td>${state}</td></tr>`;
+  });
+  return `<h2 style="margin:32px 0 10px">Secrets</h2>
+<p class="small muted" style="margin:-4px 0 14px" data-secret-presence>Set or missing on this Worker. Values are not shown. Who holds each one, and how to rotate it, is in <span class="mono">docs/SECRETS.md</span>.</p>
+${table(["Secret", "On this Worker"], body, "No secrets listed.")}`;
 }
 
 export function adminPage(viewer: Viewer, side: SideBoard[], d: AdminData): Response {
@@ -4078,7 +4092,7 @@ export function adminPage(viewer: Viewer, side: SideBoard[], d: AdminData): Resp
   const analyticsNote = ph
     ? `<p class="small muted" style="margin:18px 0 0">Product analytics is on (PostHog, ${ph.region === "us" ? "US" : "EU"}). <a href="${esc(posthogDashboardUrl(ph))}">Open the dashboard</a>. What is recorded is in <span class="mono">docs/ANALYTICS.md</span>.</p>`
     : `<p class="small muted" style="margin:18px 0 0">Product analytics is off until <span class="mono">POSTHOG_KEY</span> is set. How to turn it on is in <span class="mono">docs/ANALYTICS.md</span>. Naming PostHog on <a href="/privacy">/privacy</a> and linking its dashboard here are follow-ups once that key exists.</p>`;
-  const overview = `${kpiHtml}${oauthNote}${productHtml}${analyticsNote}${trustHtml}${usageHtml}
+  const overview = `${kpiHtml}${oauthNote}${productHtml}${analyticsNote}${secretsHtml(d.secrets, table)}${trustHtml}${usageHtml}
 <h2 style="margin:32px 0 10px">Boards</h2>
 ${table(
   ["Board", "Members", "Messages", "Created by", "Last activity"],

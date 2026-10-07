@@ -116,6 +116,9 @@ your team on your own Cloudflare account in about 15 minutes.
    If `CF_ANALYTICS_TOKEN` (or `CF_API_TOKEN`) or the `CF_ACCOUNT_ID` var is absent, the cost guard (`src/costGuard.ts`)
    does nothing and says so once per isolate.
 
+   Who holds each production secret, how often to rotate it, and the same `wrangler secret put` commands are in
+   [SECRETS.md](SECRETS.md). That page lists names only. `/_ops` Overview reports each one as set or missing.
+
 5. **Local testing with `.dev.vars`**
 
    For `wrangler dev` or the local CI helper, keep the local-only values in `.dev.vars`:

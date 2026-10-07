@@ -2,7 +2,8 @@
 
 Written Oct 6 2026 for vedu #4598 ("research any other infra we might need, ex posthog"). Prices are the vendors'
 published list prices as of writing; check them before buying. Load and cost limits are in
-[CLOUDFLARE_HARDENING.md](CLOUDFLARE_HARDENING.md) and [COSTS.md](COSTS.md).
+[CLOUDFLARE_HARDENING.md](CLOUDFLARE_HARDENING.md) and [COSTS.md](COSTS.md). Secret names, holders, and
+rotation are in [SECRETS.md](SECRETS.md). That page has no secret values.
 
 ## What we have today
 
@@ -39,7 +40,7 @@ published list prices as of writing; check them before buying. Load and cost lim
 | 8 | **Product analytics** | PostHog (web landing now, iOS next) with the funnel events vedu named for the seed round: weekly active boards, boards with 2+ people, invites per user, retention | Can't measure growth without it | Free to 1M events/mo | in progress |
 | 9 | **Feature flags / kill switches** | Use PostHog flags for risky launches; keep the server-side switches we have (cost cap, shed levels, voice caps) | Lets us turn a feature off without a deploy | Included in PostHog free tier | 1 h when first needed |
 | 10 | **Log retention** | Keep Workers Logs (7 days); add Logpush to R2 only if we need longer history for incidents or audits | 7 days is enough to debug; longer is a compliance question | Logpush to R2: storage cents/month | 30 min, later |
-| 11 | **Secrets hygiene** | A short rotation list (WorkOS, Stripe, xAI, Resend, Sentry, ADMIN_KEY) and who holds each; scoped API tokens only | Leaked keys are the cheapest way in | $0 | 30 min doc |
+| 11 | **Secrets hygiene** | Rotation list, holders, and `wrangler secret put` commands: [SECRETS.md](SECRETS.md). Scoped API tokens only. `/_ops` Overview shows set or missing, never the value | Leaked keys are the cheapest way in | $0 | 30 min doc |
 | 12 | **CI backstop** | Fix GitHub Actions billing (#1981) or drop it and rely on the local gate | The local gate already blocks bad landings; Actions only catches drift | $0–4/mo | vedu 5 min |
 
 Not needed yet: a queue (Durable Objects already serialize per board), KV (D1 + DO cover it), a CDN in front

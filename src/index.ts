@@ -58,6 +58,7 @@ import * as registry from "./registry";
 import * as repoBoards from "./repoBoards";
 import { recordForward, scrubForwards } from "./forwards";
 import * as backup from "./backup";
+import { secretPresence } from "./secretPresence";
 import * as cardsign from "./cardsign";
 import * as accountlog from "./accountlog";
 import * as pins from "./pins";
@@ -605,6 +606,7 @@ async function opsData(env: Env): Promise<AdminData> {
     boards, users, invites, recent, totalEntries: boards.reduce((n, b) => n + b.entry_count, 0), access: [...access.values()], metrics: await usage.metrics(env).catch(() => undefined),
     oauth_clients: oauthClients?.n ?? 0,
     oauth_clients_pruned: oauthPruned?.n ?? 0,
+    secrets: secretPresence(env),
     cost: {
       capped: await costGuard.capped(env).catch(() => null),
       watching: !!(env.CF_ACCOUNT_ID && costGuard.analyticsToken(env)),
