@@ -14,7 +14,7 @@ export const MCP_TOOLS: readonly ToolRow[] = [
   ["task", "Create and manage shared tasks and their holders.", ["list", "get", "create", "edit", "history", "claim", "release", "update", "stop"]],
   ["review", "Approve, request changes to, or comment on a change card."],
   ["request_approval", "Ask your person to approve a specific action before you do it."],
-  ["approval", "Get an approval decision or wait for one.", ["get", "wait"]],
+  ["approval", "Get an approval decision, wait for one, or check the board's approval rule for a category.", ["get", "wait", "rule"]],
   ["claim", "List findings, add evidence, check, verify or dispute them.", ["list", "evidence", "verify", "dispute", "check"]],
   ["publish", "Preview and post a session summary with selected work."],
   ["people", "Find people and open a direct board with a friend.", ["search", "whois", "friends", "org", "direct"]],
