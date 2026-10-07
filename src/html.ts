@@ -15,6 +15,8 @@ import { PIN_BAR, PIN_SIDE, RECAP_BTN, RECAP_DLG, pinRecapJs } from "./pinrecap"
 import { MEM_SIDE, memoryJs, rememberBtn } from "./memorypanel";
 import { HOST_LOADER_JS, hostSide } from "./hostUi";
 import { charterJs, charterSide } from "./charterUi";
+import { approvalRulesJs, approvalRulesSide } from "./approvalRulesUi";
+import { ruleNotice, type Rule as ApprovalRule } from "./approvalRules";
 import type { BoardCharter } from "./charter";
 import { MENTION_SCAN_JS, foldAgentName, forAgent, forPerson, mentionLabel, selfMentions } from "./mentions";
 import { flagOf } from "./screen";
@@ -135,7 +137,7 @@ export function entryHtml(e: Entry, boardId: string, withReplies = true, opts: {
   // Only pasted text in it: the "Shared 3 files" caption the server wrote says nothing the quote doesn't.
   const files = e.attachments?.length ? e.attachments : e.artifact_name ? [{ name: e.artifact_name, mime: e.media?.mime }] : [];
   const onlyPasted = files.length > 0 && files.every((a) => isRichTextAttachment(a.name, a.mime));
-  const shown = onlyPasted && (e.text === `Shared ${e.artifact_name}` || /^Shared \d+ files$/.test(e.text)) ? "" : e.text;
+  const shown = onlyPasted && (e.text === `Shared ${e.artifact_name}` || /^Shared \d+ files$/.test(e.text)) ? "" : ruleNotice(opts.lang, e.author, e.title, e.text) ?? e.text;
   const file = e.purged
     ? ""
     : img
@@ -183,7 +185,7 @@ ${
     : "";
   // An approval entry: the card says where it stands, so the message is just what's asked (its text, for agents, says "waiting").
   const apr = (e as Entry & { approval?: ApprovalCardData & { title?: string } }).approval;
-  return `<article class="entry${opts.retracted ? " retracted" : ""}${e.via === "agent" ? " by-agent" : ""}" id="e${e.seq}" data-seq="${e.seq}" data-author="${esc(e.author)}" data-title="${esc(shortTitle(e))}"${e.to ? ` data-to="${esc(e.to)}"` : ""}${e.reply_to != null ? ` data-reply="${e.reply_to}"` : ""}${opts.root != null && opts.root !== e.seq ? ` data-root="${opts.root}"` : ""}>
+  return `<article class="entry${opts.retracted ? " retracted" : ""}${e.via === "agent" ? " by-agent" : ""}" id="e${e.seq}" data-seq="${e.seq}" data-author="${esc(e.author)}" data-title="${esc(e.title === "Approval rule changed" || e.title === "Approved by rule" ? T(e.title) : shortTitle(e))}"${e.to ? ` data-to="${esc(e.to)}"` : ""}${e.reply_to != null ? ` data-reply="${e.reply_to}"` : ""}${opts.root != null && opts.root !== e.seq ? ` data-root="${opts.root}"` : ""}>
 ${avatar(e.author, "", e.via === "agent")}
 <div class="grow">
   <div class="meta">${isTombstone(e.author) ? `<span class="who deleted">${esc(T(DELETED_LABEL))}</span>` : whoHtml(e, opts.people, opts.members)}${e.to ? `<span class="to">→ ${isTombstone(e.to) ? esc(T(DELETED_LABEL)) : personHtml(e.to, opts.people?.[e.to], opts.members)}</span>` : ""}${e.type === "note" ? "" : typeTag(e.type, opts.lang)}${when(e.ts, opts.lang)}${e.edited_at ? `<button class="edited" type="button" data-history="${e.seq}" aria-label="${esc(T("Edited, show history"))}" title="${esc(new Date(e.edited_at).toUTCString())}">${esc(T("edited"))}</button>` : ""}<a class="seq" href="#e${e.seq}">#${e.seq}</a>${peopleBadge(e, opts.lang)}<span class="badge rbadge">${esc(T("Unsent"))}</span>${flagBadge(e.text, e.ai_flag)}${actions}</div>
@@ -1181,14 +1183,25 @@ const agentDot = (st: keyof typeof STATE_LABEL) => `<span class="ag-dot ${st}" r
  * Board info → Agents: who is working on this board right now, as agents (the point of a board), and the one line
  * that brings another agent here. It replaces the old "Bring your agent here" card and the live dots on Members.
  */
-export function agentsSection(agents: AgentHere[], boardId: string, readOnly = false, lang?: Lang, invite = false): string {
+/** Agents running on members' machines (jxn #5722), by owner, then machine: "jxn · desktop · 3 agents running". Your
+ *  own machines by name; someone else's as one total (machines.visibleTo). */
+function machinesHtml(rows: { user: string; machine: string | null; agents: number }[], viewer: string | undefined, T: (s: string, v?: Record<string, string | number>) => string): string {
+  const live = rows.filter((r) => r.agents > 0);
+  if (!live.length) return "";
+  const owners = [...new Set(live.map((r) => r.user))].sort((a, b) => (a === viewer ? -1 : b === viewer ? 1 : a.localeCompare(b)));
+  const line = (r: { user: string; machine: string | null; agents: number }) =>
+    `<li>${esc(r.user === viewer ? T("you") : r.user)}${r.machine ? ` · ${esc(r.machine)}` : ""} · ${esc(T(r.agents === 1 ? "{n} agent running" : "{n} agents running", { n: r.agents }))}</li>`;
+  return `<ul class="ag-machines xs muted" aria-label="${esc(T("Agents running on members' machines"))}">${owners.flatMap((u) => live.filter((r) => r.user === u).map(line)).join("")}</ul>`;
+}
+
+export function agentsSection(agents: AgentHere[], boardId: string, readOnly = false, lang?: Lang, invite = false, machines: { user: string; machine: string | null; agents: number }[] = [], viewer?: string): string {
   const T = (s: string, v?: Record<string, string | number>) => tr(lang, s, v);
   const row = (a: AgentHere) => {
     const st = stateOf(a.last_seen);
     const tool = [a.client, a.model].filter(Boolean).join(", ");
     return `<li class="ag-row" data-k="${esc(`${a.user}/${a.name ?? ""}`)}" data-state="${st}" title="${esc(a.name ? `${a.user}'s agent session "${a.name}"${tool ? ` (${tool})` : ""}. Mention it as @${a.user}/${a.name}` : `${a.user}'s agent`)}">${avatar(a.user, "sm", true)}<span class="grow ag-main"><span class="truncate">${agentDot(st)}<span class="ag-name">${esc(a.name ? `${a.user}/${a.name}` : `${a.user}'s agent`)}</span>${a.client ? ` <span class="xs faint">${esc(a.client)}</span>` : ""}</span>${a.model || a.status ? `<span class="ag-status truncate">${a.model ? `<span class="faint ag-model">${esc(a.model)}</span>${a.status ? " · " : ""}` : ""}${esc(a.status ?? "")}</span>` : ""}</span>${when(a.last_seen)}</li>`;
   };
-  const body = `${agents.length ? `<ul class="ag-list">${agents.map(row).join("")}</ul>` : `<p class="none">${esc(T("No agents on this board yet."))}</p>`}${
+  const body = `${agents.length ? `<ul class="ag-list">${agents.map(row).join("")}</ul>` : `<p class="none">${esc(T("No agents on this board yet."))}</p>`}${machinesHtml(machines, viewer, T)}${
     readOnly ? "" : `<p class="xs muted ag-hint">${esc(T("Bring one: in any agent's shell"))}</p>${copyField("ag-join", `atteo join ${boardId}`)}${invite ? `<p class="xs ag-hint"><button type="button" class="linkish" data-open="invite-agent">${esc(T("Invite an agent"))}</button></p>` : ""}`
   }`;
   const peek = agents.map((a) => (a.name ? `${a.user}/${a.name}` : `${a.user}'s agent`)).join(", ");
@@ -2618,8 +2631,16 @@ async function accLoad(){const [m,a,l]=await Promise.all([fetch('/api/boards/'+B
       sel('role',x.role||'contributor',[['owner',tr('Owner')],['contributor',tr('Can post')],['viewer',tr('View only')]],fixed,tr('Role for {name}',{name:x.user}))+
       sel('days',x.expires_at?'keep':'0',(x.expires_at?[['keep',tr('Until ')+accFmt(x.expires_at)]]:[]).concat([['0',tr('No end date')],['7',tr('{n} more days',{n:7})],['30',tr('{n} more days',{n:30})],['90',tr('{n} more days',{n:90})]]),!IS_OWNER||x.user===CREATOR,tr('Access for {name}',{name:x.user}))+'</li>'}).join('')||'<li class="xs faint">'+tr('No members')+'</li>';
   if(IS_OWNER)document.getElementById('acc-links').innerHTML=(l.links||[]).filter(x=>!x.revoked_at&&(!x.expires_at||x.expires_at>Date.now())).map(x=>'<li class="acc-row xs"><span class="grow">'+(x.role==='viewer'?tr('View only'):tr('Can post'))+' link · until '+accFmt(x.expires_at)+(x.member_days?' · access '+x.member_days+'d':'')+' · used '+x.uses+(x.max_uses?' of '+x.max_uses:'')+'</span><button class="btn ghost sm" type="button" data-link-revoke="'+esc(x.id)+'">'+tr('Revoke')+'</button></li>').join('');
-  const verb={invited:'invited',joined:'joined',removed:'removed',left:'left',access_changed:'changed access for',link_created:'created an invite link',link_revoked:'revoked an invite link',renamed:'renamed the board',archived:'archived the board',restored:'restored the board',expired:'access ended for',picture_changed:'changed the board picture',picture_removed:'removed the board picture',charter:'updated the charter',retention:'set how long messages are kept'};
-  document.getElementById('acc-audit').innerHTML=(a.audit||[]).slice(0,50).map(x=>'<li class="xs"><b>'+esc(x.actor)+'</b> '+(verb[x.action]||esc(x.action))+(x.target?' <b>'+esc(x.target)+'</b>':'')+(x.detail?' <span class="faint">· '+esc(x.detail)+'</span>':'')+' <span class="faint">· '+new Date(x.ts).toLocaleString([],{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'})+'</span></li>').join('')||'<li class="xs faint">'+tr('Nothing yet')+'</li>'}
+  const verb={invited:'invited',joined:'joined',removed:'removed',left:'left',access_changed:'changed access for',link_created:'created an invite link',link_revoked:'revoked an invite link',renamed:'renamed the board',archived:'archived the board',restored:'restored the board',expired:'access ended for',picture_changed:'changed the board picture',picture_removed:'removed the board picture',charter:'updated the charter',retention:'set how long messages are kept',approval_rule_changed:'changed approval rule',approval_by_rule:'had an approval approved by rule'};
+  const ruleLabels={deploy_production:'Deploy to production',outbound_external:'Message or email outside the board',spending:'Spend money',delete_data:'Delete data',push_main:'Push to main',other:'Other'};
+  const ruleDetail=x=>{if(x.action==='approval_rule_changed'){
+    const m=/^.*?: (Always ask|Auto-approve|Block)(?: over \\$(\\d+(?:\\.\\d{2})?))?$/.exec(x.detail||'');
+    return m?tr(ruleLabels[x.target]||x.target)+': '+tr(m[1])+(m[2]?' '+tr('over $')+m[2]:''):x.detail}
+    if(x.action==='approval_by_rule'){
+      const m=/^(.*?)\\; set by ([^;]+); category ([a-z_]+)(; \\$(\\d+(?:\\.\\d{2})?))?$/.exec(x.detail||'');
+      if(m){const n=/^(.*) up to \\$(\\d+(?:\\.\\d{2})?)$/.exec(m[1]);return (n?tr(n[1])+' '+tr('up to $')+n[2]:tr(m[1]))+'; '+tr('set by')+' '+m[2]+'; '+tr(ruleLabels[m[3]]||m[3])+(m[5]?'; $'+m[5]:'')}}
+    return x.detail};
+  document.getElementById('acc-audit').innerHTML=(a.audit||[]).slice(0,50).map(x=>'<li class="xs"><b>'+esc(x.actor)+'</b> '+esc(tr(verb[x.action]||x.action))+(x.target?' <b>'+esc(ruleLabels[x.target]?tr(ruleLabels[x.target]):x.target)+'</b>':'')+(x.detail?' <span class="faint">· '+esc(ruleDetail(x))+'</span>':'')+' <span class="faint">· '+new Date(x.ts).toLocaleString([],{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'})+'</span></li>').join('')||'<li class="xs faint">'+tr('Nothing yet')+'</li>'}
 // ---- The gate's queue (#3209): open handoffs, oldest first, in board info — so nobody has to ask whether the gate is running ----
 const GATE_STALLED_MS=30*60000;
 async function gateLoad(){const sec=document.getElementById('acc-gate');if(!sec)return;
@@ -2883,7 +2904,7 @@ export const BOARD_JS_SRC = `${BOARD_JS_PATH}?v=${fnv(BOARD_JS)}`;
 // you had read to (Recap's starting point) comes from window.BC like the rest.
 export const BOARD_TAIL_PATH = "/board-tail.js";
 const boardTailJs = (canPic: boolean, encrypted: boolean, agentChat: boolean, canEdit: boolean) =>
-  (canPic ? BOARD_PIC_JS : "") + (encrypted ? CLIENT_SCAN_JS + E2E_JS : "") + STATUS_JS + voiceJs(agentChat) + TALK_JS + (encrypted || agentChat ? "" : CALL_LOADER_JS) + PREVIEW_JS + evJs(agentChat) + (agentChat ? "" : PO_JS) + (agentChat ? "" : pinRecapJs(null, canEdit) + memoryJs(canEdit) + EXPORT_JS + charterJs()); // charter: Board info's section (#3685)
+  (canPic ? BOARD_PIC_JS : "") + (encrypted ? CLIENT_SCAN_JS + E2E_JS : "") + STATUS_JS + voiceJs(agentChat) + TALK_JS + (encrypted || agentChat ? "" : CALL_LOADER_JS) + PREVIEW_JS + evJs(agentChat) + (agentChat ? "" : PO_JS) + (agentChat ? "" : pinRecapJs(null, canEdit) + memoryJs(canEdit) + EXPORT_JS + charterJs()) + approvalRulesJs(); // Board info sections
 const TAILS = new Map<string, { js: string; src: string }>();
 /** The tail for flags "0101" (canPic, encrypted, agentChat, canEdit), or null for anything else. */
 export function boardTail(flags: string): { js: string; src: string } | null {
@@ -2908,7 +2929,7 @@ export function boardPage(
   agent: AgentState = { connected: false, onThisBoard: false },
   summary?: Summary, // the whole board's (big boards only send their newest entries)
   agents: AgentHere[] = [],
-  board: { picture: string | null; kind: string | null; sessions?: { name: string; state: string; client: string | null }[]; seen?: number; last_seen?: number; muted?: string[]; charter?: BoardCharter | null; calls?: boolean; slack?: boolean; slackChannels?: string[] } = { picture: null, kind: null }, // slack: the Slack bridge is set up here (slackCore.slackOn) // calls: board calls are set up here (calls.callsOn); from the directory (D1); sessions: yours, on "Your agent"; last_seen: how far you had read (for Recap); muted: whom you muted here (#3602)
+  board: { picture: string | null; kind: string | null; sessions?: { name: string; state: string; client: string | null }[]; seen?: number; last_seen?: number; muted?: string[]; charter?: BoardCharter | null; approvalRules?: ApprovalRule[]; calls?: boolean; slack?: boolean; slackChannels?: string[]; machines?: { user: string; machine: string | null; agents: number }[] } = { picture: null, kind: null }, // slack: the Slack bridge is set up here (slackCore.slackOn) // calls: board calls are set up here (calls.callsOn); from the directory (D1); sessions: yours, on "Your agent"; last_seen: how far you had read (for Recap); muted: whom you muted here (#3602)
 ): Response {
   const ctl = { boardId: info.id, creator: info.created_by };
   const people = displayMap(members); // handle → the name they chose (jxn #4369)
@@ -3046,7 +3067,7 @@ export function boardPage(
       </div>
     </form>
   </section>
-  <aside class="aside" id="board-info" aria-label="${esc(T("Board info"))}"><!-- the rail (jxn #4860): agents first, then what's open, memory, charter, members, notifications -->${agentsSection(agents, info.id, readOnly || !!info.archived, L, canInviteAgent)}<div class="sum" id="sum">${summaryHtml(entries, viewer.name, members, summary, ctl, L)}</div>${agentChat ? "" : PIN_SIDE + MEM_SIDE + charterSide(board.charter ?? { goal: null, data_classes: [], retention_days: null, members: members.map((m) => ({ user: m.user, role: m.role ?? (m.user === info.created_by ? "owner" : "contributor"), note: null })) }, isOwner && !info.archived, L, people)}
+  <aside class="aside" id="board-info" aria-label="${esc(T("Board info"))}"><!-- the rail (jxn #4860): agents first, then what's open, memory, charter, members, notifications -->${agentsSection(agents, info.id, readOnly || !!info.archived, L, canInviteAgent, board.machines, viewer.name)}<div class="sum" id="sum">${summaryHtml(entries, viewer.name, members, summary, ctl, L)}</div>${agentChat ? "" : PIN_SIDE + MEM_SIDE + charterSide(board.charter ?? { goal: null, data_classes: [], retention_days: null, members: members.map((m) => ({ user: m.user, role: m.role ?? (m.user === info.created_by ? "owner" : "contributor"), note: null })) }, isOwner && !info.archived, L, people)}${approvalRulesSide(board.approvalRules ?? [], isOwner && !info.archived, members, L)}
 ${notifySide(L)}${agentChat || info.encrypted || info.archived || readOnly ? "" : hostSide(esc(T("Attach a machine…")))}
 </aside>
 </div></div>

@@ -7,12 +7,13 @@ import { AGENTS_ON_BOARD_SQL, BOARDS_FOR_USER_SQL, TAPE_PRUNE_SQL, TAPE_READ_SQL
 import { LIVE_SESSIONS_SQL, SESSIONS_ON_BOARD_SQL, USER_SESSIONS_SQL } from "../src/sessions";
 import { PRUNE_READ_SQL, listInboxSql, unreadCountSql } from "../src/inbox";
 import { PRUNE_USAGE_DAILY_SQL } from "../src/usage";
-import { LEASE_GET_SQL, NEWER_MAIL_SQL, PRUNE_MAIL_SQL, UNDELIVERED_SQL } from "../src/mailbox";
+import { LEASE_GET_SQL, NEWER_MAIL_SQL, PRUNE_MAIL_SQL, UNDELIVERED_DIRECT_SQL, UNDELIVERED_SQL } from "../src/mailbox";
 import { TOKEN_SQL } from "../src/auth";
 import { ACCOUNT_LOG_SQL, PRUNE_ACCOUNT_LOG_SQL } from "../src/accountlog";
 import { PRUNE_OAUTH_CLIENTS_SQL } from "../src/oauth";
 import { BUMP_SQL, REQUESTS_TODAY_SQL, SHED_GET_SQL, SHED_SET_SQL } from "../src/limits";
 import { ALERT_ONCE_SQL, CAP_CLEAR_SQL, CAP_GET_SQL, CAP_SET_SQL } from "../src/costGuard";
+import { MACHINE_PRUNE_SQL, MACHINE_UPSERT_SQL } from "../src/machines";
 
 const { DatabaseSync } = (await import("node:" + "sqlite")) as { DatabaseSync: new (p: string) => any };
 const { readFileSync, readdirSync } = (await import("node:" + "fs")) as { readFileSync: (u: URL, enc: string) => string; readdirSync: (u: URL) => string[] };
@@ -35,6 +36,7 @@ const HOT: Record<string, string> = {
   "mailbox acked prune": PRUNE_MAIL_SQL,
   "usage_daily prune": PRUNE_USAGE_DAILY_SQL,
   "mailbox: undelivered mail": UNDELIVERED_SQL,
+  "mailbox: undelivered DMs (standby peek)": UNDELIVERED_DIRECT_SQL,
   "mailbox: drain lease": LEASE_GET_SQL,
   "mailbox: newer mail (peek/held waits)": NEWER_MAIL_SQL,
   "inbox list (person)": listInboxSql(true),
@@ -54,6 +56,8 @@ const HOT: Record<string, string> = {
   "shed level read": SHED_GET_SQL,
   "shed level write": SHED_SET_SQL,
   "requests today (cron)": REQUESTS_TODAY_SQL,
+  "machines report": MACHINE_UPSERT_SQL,
+  "machines prune (a person's labels)": MACHINE_PRUNE_SQL,
 };
 
 describe("hot queries use an index", () => {
