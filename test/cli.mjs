@@ -2792,6 +2792,66 @@ await step("handoff --sweep (glm-b #3299): a handoff whose sha reached origin/ma
   assert(g("rev-parse", "HEAD") === head2 && g("rev-parse", "--abbrev-ref", "HEAD") === `fix/other-${run}` && g("status", "--porcelain") === "", "the sweep never touches the repo");
 });
 
+await step("encrypted handoffs: post handoff seals the branch, commits and checks; the server sees a hash and counts; get handoffs decrypts the queue; --landed and --sweep close it with the sha sealed", async () => {
+  // Made through ops (A is at the Free plan's board cap by now); A's first post opens its first key epoch.
+  const projA = mkdtempSync(join(tmpdir(), "atteo-enc-ho-a-"));
+  const eb = (await ops("boards", { user: A, title: `e2e cli enc handoffs ${run}`, encrypted: true })).board.id;
+  await ops("members", { board: eb, user: B });
+  await cli(["keys"], { cwd: projA });
+  await cli(["keys"], { cwd: projA, cred: credB });
+  let r;
+  const repo = mkdtempSync(join(tmpdir(), "atteo-enc-handoff-"));
+  const genv = { ...process.env, GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: "t@example.com", GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: "t@example.com" };
+  const g = (...a) => execFileSync("git", a, { cwd: repo, env: genv, stdio: "pipe" }).toString().trim();
+  g("init", "-q", "-b", "main");
+  writeFileSync(join(repo, "a.txt"), "one\n");
+  g("add", "."); g("commit", "-qm", "main");
+  const main = g("rev-parse", "HEAD");
+  g("update-ref", "refs/remotes/origin/main", main);
+  const branch = `secret/enc-${run}`;
+  g("checkout", "-qb", branch);
+  writeFileSync(join(repo, "a.txt"), "two\n");
+  g("commit", "-qam", "the fix");
+  const head = g("rev-parse", "HEAD");
+
+  r = await cli(["post", "handoff", "--checks", "vitest 12, e2e 3/4", "--board", eb], { cwd: repo });
+  assert(r.code === 0 && r.out.includes("ready to gate") && r.out.includes("encrypted on this machine"), r.out + r.err);
+  const h = Number(r.out.match(/Posted #(\d+)/)[1]);
+  // The server has the gate's metadata only.
+  const rest = await fetch(`${BASE}/api/boards/${eb}/handoffs`, { headers: { authorization: `Bearer ${tokB}` } }).then((x) => x.json());
+  const raw = JSON.stringify(rest);
+  assert(rest.handoffs?.[0]?.seq === h && !raw.includes("secret/enc") && !raw.includes(head) && !raw.includes(main), raw.slice(0, 400));
+  assert(JSON.stringify(rest.handoffs[0].handoff.checks) === JSON.stringify([{ name: "vitest", pass: 12, fail: 0 }, { name: "e2e", pass: 3, fail: 1 }]), raw.slice(0, 400));
+  const viaServer = await tool(tokB, eb, "get", { list: "handoffs" });
+  assert(viaServer.includes("branch and commits encrypted") && !viaServer.includes("secret/enc"), viaServer);
+
+  // The gate decrypts the queue on its machine.
+  r = await cli(["get", "handoffs", "--board", eb], { cwd: repo, cred: credB });
+  assert(r.code === 0 && r.out.includes(`#${h} ${branch} ${head} on ${main} · checks: vitest 12, e2e 3/4`) && /<<untrusted [0-9a-f]+:/.test(r.out), `queue: ${r.out}${r.err}`);
+  r = await cli(["post", "handoff", "--reply", String(h), "--landed", "HEAD", "--board", eb], { cwd: repo });
+  assert(r.code !== 0 && (r.out + r.err).includes("someone else lands it"), `not your own: ${r.out}${r.err}`);
+  r = await cli(["post", "handoff", "--reply", String(h), "--landed", head, "--board", eb], { cwd: repo, cred: credB });
+  assert(r.code === 0 && r.out.includes(`closed #${h} as landed`), `landed: ${r.out}${r.err}`);
+  const closing = (await fetch(`${BASE}/api/boards/${eb}/sealed?after=${h}`, { headers: { authorization: `Bearer ${tokB}` } }).then((x) => x.json())).entries;
+  assert(closing.length && !JSON.stringify(closing).includes(head), "the sha on main is sealed too");
+  r = await cli(["read", "--all", "--board", eb], { cwd: repo, cred: credB });
+  assert(r.out.includes(`🚦 ready to gate: ${branch} ${head} on ${main}`) && r.out.includes(`🚦 landed as ${head}`), r.out + r.err);
+  r = await cli(["get", "handoffs", "--board", eb], { cwd: repo, cred: credB });
+  assert(r.code === 0 && r.out.includes("No open handoffs"), r.out + r.err);
+
+  // --sweep opens the shas here and closes what reached origin/main.
+  g("checkout", "-qb", `other/enc-${run}`);
+  writeFileSync(join(repo, "a.txt"), "three\n");
+  g("commit", "-qam", "another");
+  const head2 = g("rev-parse", "HEAD");
+  r = await cli(["post", "handoff", "--checks", "vitest 13", "--board", eb], { cwd: repo });
+  const h2 = Number(r.out.match(/Posted #(\d+)/)?.[1]);
+  assert(h2, r.out + r.err);
+  g("update-ref", "refs/remotes/origin/main", head2);
+  r = await cli(["post", "handoff", "--sweep", "--board", eb], { cwd: repo, cred: credB });
+  assert(r.code === 0 && r.out.includes(`Closed 1 landed handoff: #${h2}`), r.out + r.err);
+});
+
 await step("atteo host / atteo run: typed consent for the exact folders, root refusal, approvals, allowlist, sandbox, symlink jail, timeout, allowlisted env, Stop kills a running command", async () => {
   const PHRASE = "I understand what I'm doing";
   const sandboxed = process.platform === "darwin" ? existsSync("/usr/bin/sandbox-exec") : process.platform === "linux" && (process.env.PATH ?? "").split(":").some((d) => existsSync(join(d, "bwrap")));

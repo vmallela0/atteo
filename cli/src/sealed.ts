@@ -2,7 +2,7 @@
 // you can read); the server knows only public keys. Sealing encrypts a random content key to every key the recipient
 // (and you) have: X25519 → HKDF-SHA256 → AES-256-GCM. The server stores the envelope and never sees the plaintext.
 
-import { createPrivateKey, createPublicKey, diffieHellman, generateKeyPairSync, hkdfSync, randomBytes, createCipheriv, createDecipheriv, type KeyObject } from "node:crypto";
+import { createHmac, createPrivateKey, createPublicKey, diffieHellman, generateKeyPairSync, hkdfSync, randomBytes, createCipheriv, createDecipheriv, type KeyObject } from "node:crypto";
 import { env } from "./env";
 import { execFileSync } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -154,6 +154,13 @@ export function encryptV2(key: Buffer, plaintext: Buffer): { iv: string; ct: str
   return { iv: c.iv, ct: c.out };
 }
 export const decryptV2 = (key: Buffer, iv: string, ct: string) => ungcm(key, iv, ct);
+
+/** A branch's keyed hash for an encrypted handoff (docs/SPEC.md §16): HMAC-SHA256 under HKDF(epoch key, info
+ *  "atteo handoff branch v1"), lowercase hex. The server sees one open handoff per branch without seeing the branch. */
+export function branchHash(key: Buffer, branch: string): string {
+  const k = Buffer.from(hkdfSync("sha256", key, Buffer.alloc(0), Buffer.from("atteo handoff branch v1"), 32));
+  return createHmac("sha256", k).update(branch, "utf8").digest("hex");
+}
 
 // ---- encrypted files (pictures and files on encrypted boards, docs/SPEC.md §16) ----
 // A fresh 32-byte key per file; the plaintext in 64 KB chunks, each AES-256-GCM with the nonce 0⁸ ‖ chunk index
