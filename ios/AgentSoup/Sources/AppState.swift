@@ -278,6 +278,9 @@ final class AppState: ObservableObject {
             // A picture changing right now keeps showing what it's changing to (BoardPicture.swift).
             let list = r.boards.map(BoardPictureStore.shared.applyPending)
             let sorted = list.sorted { $0.lastActivity > $1.lastActivity }
+            // Boards you left or were removed from: what this phone decrypted or downloaded for them goes.
+            let kept = Set(list.map(\.id))
+            for gone in boards where !kept.contains(gone.id) { forgetBoard(gone.id) }
             if sorted != boards { withAnimation(.smooth) { boards = sorted } } // unchanged: no publish (refreshInbox)
             // The chat list needs names before any chat is opened. Refresh each board's member data in small batches.
             let stale = list.filter { Date().timeIntervalSince(membersRefreshed[$0.id] ?? .distantPast) > 60 }
@@ -765,12 +768,21 @@ final class AppState: ObservableObject {
         guard b.encrypted == true else { return list }
         // End-to-end encrypted: the server only has ciphertext; this phone decrypts what it holds the key for.
         let plain = await BoardCrypto.shared.opened(b.id, after: after)
+        // Unsent messages' files leave this phone: any copy already here, and none fetched again (the unsend may be
+        // in what's loaded already, above an earlier page).
+        BoardCrypto.wipeUnsent(board: b.id, in: list, known: entries[b.id] ?? [])
+        let gone = Set((list + (entries[b.id] ?? [])).compactMap(\.retracts))
+        var unsent: [String] = []
         var out: [Entry] = []
         for var e in list {
-            if let o = plain[e.seq] { e = await Self.withOpened(e, o, board: b.id) }
+            if gone.contains(e.seq), let o = plain[e.seq] {
+                unsent += (o.extras.files ?? []).map(\.id)
+                e = await Self.withOpened(e, Opened(text: o.text, extras: SealedExtras(title: o.extras.title)), board: b.id)
+            } else if let o = plain[e.seq] { e = await Self.withOpened(e, o, board: b.id) }
             else if e.text.hasPrefix("🔒 Encrypted message") { e.text = String(localized: "🔒 Encrypted. This phone can't read it yet.", bundle: .l10n) }
             out.append(e)
         }
+        if !unsent.isEmpty { BoardCrypto.wipe(board: b.id, files: unsent) }
         return out
     }
 
@@ -863,12 +875,21 @@ final class AppState: ObservableObject {
         }
     }
 
+    /// Off a board (left, removed, deleted): its keys, decrypted files, downloaded files and messages leave this phone.
+    func forgetBoard(_ id: String) {
+        BoardCrypto.shared.forget(board: id)
+        MediaStore.shared.forget(board: id)
+        entries[id] = nil
+        save()
+    }
+
     /// Unsends one of your messages: it stays in the log, marked "Unsent" (like the web).
     func retract(_ seq: Int, in b: Board) async {
         do {
             let d = try await API.shared.send("/api/boards/\(b.id)/entries/\(seq)/retract", body: [String: Any](), retries: false)
             let r = try JSONDecoder.soup.decode(PostResponse.self, from: d).entry
             withAnimation(.smooth) { if !(entries[b.id] ?? []).contains(where: { $0.seq == r.seq }) { entries[b.id, default: []].append(r) } }
+            BoardCrypto.wipeUnsent(board: b.id, in: [r], known: entries[b.id] ?? [])
             Haptics.play(.completed)
             save()
         } catch { Haptics.play(.failed); report(error) }
